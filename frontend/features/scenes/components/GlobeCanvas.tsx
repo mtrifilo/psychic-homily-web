@@ -748,8 +748,7 @@ export default function GlobeCanvas({
 
   // Place labels draw on the light globe at globe altitude, once their data
   // is in.
-  const placeLabelsShown =
-    mapReady !== null && lightGlobe && !cityViewActive && places !== null && places.length > 0
+  const placeLabelsShown = lightGlobe && !cityViewActive && places !== null && places.length > 0
 
   // The controls drawn over the map, watched for the place labels
   // (watchMapChrome). Keyed on the map and on whether place labels show,

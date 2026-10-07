@@ -23,7 +23,9 @@ export type AtlasMapSeam = {
   once: (type: 'render', listener: () => void) => void
   queryRenderedFeatures: (opts: { layers: string[] }) => unknown[]
   project: (lngLat: [number, number]) => { x: number; y: number }
+  unproject: (point: [number, number]) => { lng: number; lat: number }
   getCanvas: () => HTMLCanvasElement
+  getContainer: () => HTMLElement
   jumpTo: (o: { center: [number, number]; zoom: number }) => void
 }
 

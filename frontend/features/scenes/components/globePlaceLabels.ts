@@ -214,7 +214,6 @@ export function watchMapChrome(map: maplibregl.Map, globeRoot: HTMLElement): Map
     },
     stop: () => {
       clearTimeout(timer)
-      listeners.clear()
       resizes.disconnect()
       mutations.disconnect()
     },

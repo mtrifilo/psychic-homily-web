@@ -258,11 +258,9 @@ describe('place labels and the controls over the map', () => {
     return mountPlaceLabels(atlas.fake.map, places, { maxZoom: 5.5, obstacles, chrome })
   }
 
-  /** A labels pass on a watch of its own; returns the watch. */
+  /** A labels pass on a watch of its own. */
   function mount(atlas: Atlas, places: GlobePlace[], obstacles: () => Box[] = () => []) {
-    const chrome = watch(atlas)
-    mountOn(atlas, chrome, places, obstacles)
-    return chrome
+    mountOn(atlas, watch(atlas), places, obstacles)
   }
 
   it('drops Monterrey under Drift at z4 and keeps Houston (the 390x844 z4 view)', () => {
@@ -408,7 +406,8 @@ describe('place labels and the controls over the map', () => {
 
   it('stops watching the chrome when the watch stops', async () => {
     const atlas = buildAtlas()
-    const chrome = mount(atlas, [placeOn('Strip', 0, MY_SCENES_CHIP)])
+    const chrome = watch(atlas)
+    mountOn(atlas, chrome, [placeOn('Strip', 0, MY_SCENES_CHIP)])
     expect(labelTexts()).toEqual([])
     chrome.stop()
     // Would bring the label back on a live watch.

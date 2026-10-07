@@ -322,23 +322,24 @@ describe('GlobeCanvas place labels', () => {
     await waitFor(() => expect(placeLabelTexts()).toEqual(['Clear City']))
   })
 
-  it('keeps place labels clear of the page chrome drawn beside the canvas', async () => {
-    // A control the page draws beside the canvas, first clear of every label,
-    // then moved over Clear City's (213,323 to 273,335).
-    let drift: HTMLButtonElement | null = null
-    const placeDrift = (box: { left: number; top: number; right: number; bottom: number }) => {
-      drift!.getBoundingClientRect = () =>
-        ({ ...box, width: box.right - box.left, height: box.bottom - box.top }) as DOMRect
-    }
+  const rect = (box: { left: number; top: number; right: number; bottom: number }) =>
+    ({ ...box, width: box.right - box.left, height: box.bottom - box.top }) as DOMRect
+
+  /**
+   * The light look with a Drift button the page draws beside the canvas,
+   * whose screen box is whatever `driftRect` returns at each read.
+   */
+  async function showMapBesideDrift(driftRect: () => DOMRect, scenes: PlaceableScene[] = SCENES) {
+    const drift: { current: HTMLButtonElement | null } = { current: null }
     restoreMatchMedia = installMatchMedia({ [ATLAS_COMPACT_VIEWPORT_QUERY]: true }).restore
     render(
       <div>
-        <GlobeCanvas width={PANE.width} height={PANE.height} scenes={SCENES} pov={POV} onSelect={() => {}} />
+        <GlobeCanvas width={PANE.width} height={PANE.height} scenes={scenes} pov={POV} onSelect={() => {}} />
         <button
           type="button"
           ref={(button) => {
-            drift = button
-            if (button) placeDrift({ left: 300, top: 600, right: 360, bottom: 630 })
+            drift.current = button
+            if (button) button.getBoundingClientRect = driftRect
           }}
         >
           Drift
@@ -349,10 +350,18 @@ describe('GlobeCanvas place labels', () => {
       maps[0].fire('style.load')
       maps[0].fire('render')
     })
+    return { map: maps[0], drift: drift.current! }
+  }
+
+  it('keeps place labels clear of the page chrome drawn beside the canvas', async () => {
+    // First clear of every label, then moved over Clear City's (213,323 to
+    // 273,335).
+    let box = { left: 300, top: 600, right: 360, bottom: 630 }
+    const { drift } = await showMapBesideDrift(() => rect(box))
     await waitFor(() => expect(placeLabelTexts()).toEqual(['Clear City']))
 
-    placeDrift({ left: 200, top: 315, right: 290, bottom: 345 })
-    act(() => drift!.setAttribute('data-moved', 'true'))
+    box = { left: 200, top: 315, right: 290, bottom: 345 }
+    act(() => drift.setAttribute('data-moved', 'true'))
     await waitFor(() => expect(placeLabelTexts()).toEqual([]))
   })
 
@@ -366,36 +375,8 @@ describe('GlobeCanvas place labels', () => {
       { ...SCENES[0], city: 'Twenty', slug: 'twenty-xx', upcoming_show_count: 20, longitude: -120, latitude: 50 },
       { ...SCENES[0], city: 'Five', slug: 'five-xx', upcoming_show_count: 5, longitude: -75, latitude: 50 },
     ] as PlaceableScene[]
-    let drift: HTMLButtonElement | null = null
-    const driftBox = { left: 16, top: 669, right: 79.375, bottom: 707 }
-    const reads = vi.fn(
-      () =>
-        ({
-          ...driftBox,
-          width: driftBox.right - driftBox.left,
-          height: driftBox.bottom - driftBox.top,
-        }) as DOMRect,
-    )
-    restoreMatchMedia = installMatchMedia({ [ATLAS_COMPACT_VIEWPORT_QUERY]: true }).restore
-    render(
-      <div>
-        <GlobeCanvas width={PANE.width} height={PANE.height} scenes={scenes} pov={POV} onSelect={() => {}} />
-        <button
-          type="button"
-          ref={(button) => {
-            drift = button
-            if (button) button.getBoundingClientRect = reads
-          }}
-        >
-          Drift
-        </button>
-      </div>,
-    )
-    const map = maps[0]
-    await act(async () => {
-      map.fire('style.load')
-      map.fire('render')
-    })
+    const reads = vi.fn(() => rect({ left: 16, top: 669, right: 79.375, bottom: 707 }))
+    const { map, drift } = await showMapBesideDrift(reads, scenes)
     await waitFor(() => expect(placeLabelTexts()).toContain('Clear City'))
     const sceneLabelCount = () => document.querySelectorAll('[data-testid="atlas-scene-label"]').length
     expect(sceneLabelCount()).toBe(1)
@@ -415,7 +396,7 @@ describe('GlobeCanvas place labels', () => {
     expect(reads).toHaveBeenCalledTimes(1)
 
     // One layout change in the chrome: one read.
-    act(() => drift!.setAttribute('data-moved', 'true'))
+    act(() => drift.setAttribute('data-moved', 'true'))
     await waitFor(() => expect(reads).toHaveBeenCalledTimes(2))
 
     // Back up through the same bands: three more changes to the set.

@@ -253,12 +253,7 @@ for (const colorScheme of ['light', 'dark'] as const) {
     const HOUSTON: [number, number] = [-95.34, 29.82]
     const DRIFT = 'button[aria-label="Drift to a random scene"]'
 
-    type PaneWindow = {
-      __atlasMap: AtlasMapSeam & {
-        getContainer: () => HTMLElement
-        unproject: (point: [number, number]) => { lng: number; lat: number }
-      }
-    }
+    type SeamWindow = { __atlasMap: AtlasMapSeam }
 
     /**
      * Waits until the map's canvas fills the Atlas frame: the frame grows when
@@ -269,7 +264,7 @@ for (const colorScheme of ['light', 'dark'] as const) {
       await expect
         .poll(() =>
           page.evaluate(() => {
-            const map = (window as unknown as PaneWindow).__atlasMap
+            const map = (window as unknown as SeamWindow).__atlasMap
             const canvas = map.getCanvas().getBoundingClientRect()
             const frame = document.querySelector('[data-testid="atlas-pane-frame"]')!.getBoundingClientRect()
             return Math.abs(canvas.width - frame.width) < 1 && Math.abs(canvas.height - frame.height) < 1
@@ -331,9 +326,9 @@ for (const colorScheme of ['light', 'dark'] as const) {
      * moved holds its old spot until the chrome has settled), with labels
      * drawn and every named control but the credit on screen. The compact
      * globe owes no credit at globe zoom, so the credit is checked only when
-     * it is drawn.
+     * it is drawn. Returns the report that passed.
      */
-    async function expectLabelsClearOfChrome(page: Page, state: string) {
+    async function expectLabelsClearOfChrome(page: Page, state: string): Promise<ChromeReport> {
       let report: ChromeReport | undefined
       await expect
         .poll(
@@ -350,6 +345,7 @@ for (const colorScheme of ['light', 'dark'] as const) {
       for (const name of ['search pill', 'Drift', 'Genres chip', 'My Scenes']) {
         expect(drawn, `${state}: ${name} on screen`).toContain(name)
       }
+      return report!
     }
 
     function placeLabelTexts(page: Page) {
@@ -395,15 +391,15 @@ for (const colorScheme of ['light', 'dark'] as const) {
 
       // Houston on the map's centre at z4, clear of every control: drawn.
       await page.evaluate((center) => {
-        const map = (window as unknown as PaneWindow).__atlasMap
+        const map = (window as unknown as SeamWindow).__atlasMap
         map.jumpTo({ center, zoom: 4 })
       }, HOUSTON)
       await expect.poll(() => placeLabelTexts(page)).toContain('Houston')
 
       // The same zoom with Houston's point on Drift's centre: dropped.
-      const underDrift = await page.evaluate(
+      const { houston, drift } = await page.evaluate(
         ({ center, drift }) => {
-          const map = (window as unknown as PaneWindow).__atlasMap
+          const map = (window as unknown as SeamWindow).__atlasMap
           const pane = map.getContainer().getBoundingClientRect()
           const button = document.querySelector(drift)!.getBoundingClientRect()
           const x = button.left + button.width / 2 - pane.left
@@ -430,13 +426,12 @@ for (const colorScheme of ['light', 'dark'] as const) {
         },
         { center: HOUSTON, drift: DRIFT },
       )
-      const { houston, drift } = underDrift
       expect(
         houston.x > drift.left && houston.x < drift.right && houston.y > drift.top && houston.y < drift.bottom,
         `Houston's point ${JSON.stringify(houston)} is under Drift ${JSON.stringify(drift)}`,
       ).toBe(true)
-      await expectLabelsClearOfChrome(page, 'Houston under Drift at z4')
-      expect(await placeLabelTexts(page)).not.toContain('Houston')
+      const report = await expectLabelsClearOfChrome(page, 'Houston under Drift at z4')
+      expect(report.labels).not.toContain('Houston')
     })
   })
 }
