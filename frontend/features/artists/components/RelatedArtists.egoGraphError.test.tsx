@@ -5,7 +5,7 @@ import { installImmediateResizeObserver } from '@/test/mocks/resizeObserver'
 import type { ArtistGraph } from '../types'
 
 // PSY-1371: a failed react-force-graph-2d chunk fetch inside the ego-graph dialog
-// throws (App Router). Verify GraphSectionErrorBoundary contains it to the dialog
+// throws (App Router). Verify CanvasSectionErrorBoundary contains it to the dialog
 // (Sentry-reported, recoverable card) instead of crashing the whole artist page.
 
 const captureException = vi.fn()

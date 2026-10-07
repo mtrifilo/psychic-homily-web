@@ -3,9 +3,9 @@
 import { useMemo } from 'react'
 import dynamic from 'next/dynamic'
 import Link from 'next/link'
-import { GraphSectionErrorBoundary } from '@/components/graph/GraphSectionErrorBoundary'
+import { CanvasSectionErrorBoundary } from '@/components/shared/CanvasSectionErrorBoundary'
 import { atlasCityHref } from '@/features/scenes/atlasCityEntry'
-import { AtlasMapUnrecoverableError } from '@/features/scenes/atlasViewport'
+import { atlasMapBoundaryReporting } from '@/features/scenes/components/atlasMapHealth'
 import type { CityState } from '@/components/filters'
 import { cityLabel } from '@/components/filters/cityParams'
 import { useMediaQuery } from '@/lib/hooks/common/useMediaQuery'
@@ -47,21 +47,12 @@ export function useMiniAtlasViewport(): boolean {
 //
 // The App Router's next/dynamic calls `loading` only while the module is
 // pending. A failed fetch throws from React.lazy to the nearest error
-// boundary, which is the GraphSectionErrorBoundary around the map in the
+// boundary, which is the CanvasSectionErrorBoundary around the map in the
 // render below.
 const VenueMiniAtlas = dynamic(() => import('./VenueMiniAtlas'), {
   ssr: false,
   loading: () => <MiniAtlasSkeleton />,
 })
-
-/** The Sentry tag that names how an unrecoverable map failed. */
-function miniAtlasFailureTags(
-  error: unknown,
-): Record<string, string> | undefined {
-  return error instanceof AtlasMapUnrecoverableError
-    ? { atlas_map_failure: error.failureClass }
-    : undefined
-}
 
 export interface VenueMiniAtlasPaneProps {
   /** This page's rows, in the order the table lists them. */
@@ -114,9 +105,8 @@ export function VenueMiniAtlasPane({
         className="relative overflow-hidden rounded-md border border-border bg-muted/20"
         style={{ height: MINI_ATLAS_HEIGHT_PX }}
       >
-        <GraphSectionErrorBoundary
-          sentryTag="venue-mini-atlas"
-          errorTags={miniAtlasFailureTags}
+        <CanvasSectionErrorBoundary
+          {...atlasMapBoundaryReporting('venue-mini-atlas')}
           fallback={<MiniAtlasUnavailable />}
         >
           <VenueMiniAtlas
@@ -125,7 +115,7 @@ export function VenueMiniAtlasPane({
             onHoverVenue={onHoverVenue}
             onSelectVenue={onSelectVenue}
           />
-        </GraphSectionErrorBoundary>
+        </CanvasSectionErrorBoundary>
       </div>
       <p className="sr-only">
         {miniAtlasSummary(pins.length, venues.length, label)}

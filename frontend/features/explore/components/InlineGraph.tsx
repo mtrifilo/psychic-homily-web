@@ -30,7 +30,7 @@ import { useContainerWidth, GRAPH_BREAKPOINT_PX } from '@/components/graph/useCo
 import { useLazyGraphMount } from '@/components/graph/useLazyGraphMount'
 import { GraphSkeleton } from '@/components/graph/GraphSkeleton'
 import { createLazyForceGraphView } from '@/components/graph/lazyForceGraphView'
-import { GraphSectionErrorBoundary } from '@/components/graph/GraphSectionErrorBoundary'
+import { CanvasSectionErrorBoundary } from '@/components/shared/CanvasSectionErrorBoundary'
 import { useShow } from '@/features/shows'
 import { useArtistGraph } from '@/features/artists/hooks/useArtistGraph'
 
@@ -48,7 +48,7 @@ const graphSkeleton = (
 // (e.g. a deploy rotated the hashed chunk while the page was open). The App
 // Router THROWS a failed chunk fetch to the nearest error boundary — it does
 // NOT re-invoke `loading` with `error` — so this renders as the fallback of the
-// GraphSectionErrorBoundary wrapping the mount below, and `onRetry` is the
+// CanvasSectionErrorBoundary wrapping the mount below, and `onRetry` is the
 // boundary's reset (PSY-1359, reconciled with HomeSceneGraph). The graph is an
 // optional below-the-fold section, so a failure must be perceivable but must
 // not take down the rest of /explore.
@@ -78,7 +78,7 @@ function GraphLoadError({ onRetry }: { onRetry?: () => void }) {
 // Shared lazy ForceGraphView (PSY-1359): its own dynamic(ssr:false) chunk fetched
 // only when the graph mounts, so the heavy renderer stays out of /explore's
 // initial JS (PSY-868). `loading` is the happy-path skeleton; a failed chunk fetch
-// throws to the GraphSectionErrorBoundary at the mount (App Router).
+// throws to the CanvasSectionErrorBoundary at the mount (App Router).
 const ForceGraphView = createLazyForceGraphView(graphSkeleton)
 
 interface InlineGraphProps {
@@ -162,7 +162,7 @@ export function InlineGraph({ billSlug, billTitle, billHref }: InlineGraphProps)
               // chunk URL 404s no matter how often it re-imports; only fresh HTML
               // carries the new URL (and React.lazy caches the rejected import
               // anyway, so a boundary reset would just re-throw).
-              <GraphSectionErrorBoundary
+              <CanvasSectionErrorBoundary
                 sentryTag="explore-inline-graph"
                 fallback={<GraphLoadError onRetry={() => window.location.reload()} />}
               >
@@ -176,7 +176,7 @@ export function InlineGraph({ billSlug, billTitle, billHref }: InlineGraphProps)
                   ariaLabel={`Knowledge graph anchored to ${billTitle}: ${graphData.nodes.length} artists.`}
                   onNodeClick={handleNodeClick}
                 />
-              </GraphSectionErrorBoundary>
+              </CanvasSectionErrorBoundary>
             )}
             {!graphLoading && (!graphData || graphData.nodes.length === 0) && (
               <div className="aspect-[16/9] w-full rounded-lg border border-border/50 bg-muted/10 flex items-center justify-center text-sm text-muted-foreground">

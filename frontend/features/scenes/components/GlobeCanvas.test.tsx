@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import type { PlaceableScene, VenuePin, VenueStackMarker } from './globeTypes'
 import { installMatchMedia } from '@/test/mocks/matchMedia'
-import { GraphSectionErrorBoundary } from '@/components/graph/GraphSectionErrorBoundary'
+import { CanvasSectionErrorBoundary } from '@/components/shared/CanvasSectionErrorBoundary'
 import { AtlasMapUnrecoverableError } from '../atlasViewport'
 import { ATLAS_CONTEXT_RESTORE_DEADLINE_MS } from './atlasMapHealth'
 import { sceneTooltipLabel } from './globeScale'
@@ -377,7 +377,7 @@ function renderInBoundary({
   const onError = vi.fn()
   const onCameraSettle = vi.fn()
   render(
-    <GraphSectionErrorBoundary sentryTag="atlas-map-test" onError={onError}>
+    <CanvasSectionErrorBoundary sentryTag="atlas-map-test" onError={onError}>
       <GlobeCanvas
         width={390}
         height={723}
@@ -387,7 +387,7 @@ function renderInBoundary({
         onCameraSettle={onCameraSettle}
         venues={venues}
       />
-    </GraphSectionErrorBoundary>,
+    </CanvasSectionErrorBoundary>,
   )
   const map = stub.state.maps[stub.state.maps.length - 1]
   if (styleLoaded) act(() => map.fire('style.load'))

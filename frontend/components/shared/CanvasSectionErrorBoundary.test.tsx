@@ -6,22 +6,22 @@ vi.mock('@sentry/nextjs', () => ({
   captureException: (...args: unknown[]) => captureException(...args),
 }))
 
-import { GraphSectionErrorBoundary } from './GraphSectionErrorBoundary'
+import { CanvasSectionErrorBoundary } from './CanvasSectionErrorBoundary'
 
 function Boom(): never {
   throw new Error('chunk boom')
 }
 
-describe('GraphSectionErrorBoundary', () => {
+describe('CanvasSectionErrorBoundary', () => {
   beforeEach(() => {
     captureException.mockReset()
   })
 
   it('renders children when nothing throws', () => {
     render(
-      <GraphSectionErrorBoundary sentryTag="explore-inline-graph">
+      <CanvasSectionErrorBoundary sentryTag="explore-inline-graph">
         <div>graph</div>
-      </GraphSectionErrorBoundary>,
+      </CanvasSectionErrorBoundary>,
     )
     expect(screen.getByText('graph')).toBeInTheDocument()
     expect(captureException).not.toHaveBeenCalled()
@@ -30,9 +30,9 @@ describe('GraphSectionErrorBoundary', () => {
   it('self-hides (renders nothing) with no fallback, and reports to Sentry with the tag', () => {
     const spy = vi.spyOn(console, 'error').mockImplementation(() => {})
     const { container } = render(
-      <GraphSectionErrorBoundary sentryTag="home-scene-graph">
+      <CanvasSectionErrorBoundary sentryTag="home-scene-graph">
         <Boom />
-      </GraphSectionErrorBoundary>,
+      </CanvasSectionErrorBoundary>,
     )
     expect(container).toBeEmptyDOMElement()
     expect(captureException).toHaveBeenCalledWith(
@@ -45,12 +45,12 @@ describe('GraphSectionErrorBoundary', () => {
   it('renders the static fallback on error, and reports with the tag', () => {
     const spy = vi.spyOn(console, 'error').mockImplementation(() => {})
     render(
-      <GraphSectionErrorBoundary
+      <CanvasSectionErrorBoundary
         sentryTag="explore-inline-graph"
         fallback={<div role="alert">graph unavailable</div>}
       >
         <Boom />
-      </GraphSectionErrorBoundary>,
+      </CanvasSectionErrorBoundary>,
     )
     expect(screen.getByRole('alert')).toHaveTextContent('graph unavailable')
     expect(captureException).toHaveBeenCalledWith(
@@ -64,9 +64,9 @@ describe('GraphSectionErrorBoundary', () => {
     const spy = vi.spyOn(console, 'error').mockImplementation(() => {})
     const errorTags = vi.fn(() => ({ kind: 'boom', section: 'from-error' }))
     render(
-      <GraphSectionErrorBoundary sentryTag="atlas-map" errorTags={errorTags}>
+      <CanvasSectionErrorBoundary sentryTag="atlas-map" errorTags={errorTags}>
         <Boom />
-      </GraphSectionErrorBoundary>,
+      </CanvasSectionErrorBoundary>,
     )
     expect(errorTags).toHaveBeenCalledWith(expect.objectContaining({ message: 'chunk boom' }))
     expect(captureException).toHaveBeenCalledWith(
@@ -80,7 +80,7 @@ describe('GraphSectionErrorBoundary', () => {
     const spy = vi.spyOn(console, 'error').mockImplementation(() => {})
     const onError = vi.fn()
     render(
-      <GraphSectionErrorBoundary
+      <CanvasSectionErrorBoundary
         sentryTag="atlas-map"
         onError={onError}
         errorTags={() => {
@@ -88,7 +88,7 @@ describe('GraphSectionErrorBoundary', () => {
         }}
       >
         <Boom />
-      </GraphSectionErrorBoundary>,
+      </CanvasSectionErrorBoundary>,
     )
     expect(captureException).toHaveBeenCalledWith(
       expect.objectContaining({ message: 'chunk boom' }),

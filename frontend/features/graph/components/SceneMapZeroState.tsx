@@ -18,7 +18,7 @@ import Link from 'next/link'
 import { ArrowRight, Play, Share2 } from 'lucide-react'
 
 import { EntityContextPanel } from '@/components/graph/EntityContextPanel'
-import { GraphSectionErrorBoundary } from '@/components/graph/GraphSectionErrorBoundary'
+import { CanvasSectionErrorBoundary } from '@/components/shared/CanvasSectionErrorBoundary'
 import { GraphStateCard, GRAPH_BOX_HEIGHT_CLASS } from '@/components/graph/GraphStateCard'
 import { isolateShelfCaption } from '@/components/graph/isolateShelf'
 
@@ -126,7 +126,7 @@ export function SceneMapZeroState({
   return (
     <div className="relative">
       {canvasWidth !== null ? (
-        <GraphSectionErrorBoundary
+        <CanvasSectionErrorBoundary
           sentryTag="graph-scene-map"
           fallback={
             <GraphStateCard
@@ -151,7 +151,7 @@ export function SceneMapZeroState({
             Select an artist to center the graph on them. Select a label to see
             its details. Browse the map as a list below.
           </p>
-        </GraphSectionErrorBoundary>
+        </CanvasSectionErrorBoundary>
       ) : (
         <MapPitchLine map={map} />
       )}

@@ -40,7 +40,7 @@ import {
   graphSelectGestureHint,
 } from '@/components/graph/ArtistContextPanel'
 import { GraphPanelHost } from '@/components/graph/GraphPanelHost'
-import { GraphSectionErrorBoundary } from '@/components/graph/GraphSectionErrorBoundary'
+import { CanvasSectionErrorBoundary } from '@/components/shared/CanvasSectionErrorBoundary'
 import { GraphSkeleton } from '@/components/graph/GraphSkeleton'
 import { MobileGraphTeaser } from '@/components/graph/MobileGraphTeaser'
 import { SECTION_LABEL_TIERS } from '@/components/graph/graphLabels'
@@ -295,7 +295,7 @@ export function ArtistConnectionsSection({
             // the key a failure on one artist would keep the canvas hidden after
             // navigating to the next one while `graphFailed` had already reset —
             // the same clause/canvas split, inverted.
-            <GraphSectionErrorBoundary
+            <CanvasSectionErrorBoundary
               key={artistId}
               sentryTag="artist-connections-section"
               onError={() => setFailedArtistId(artistId)}
@@ -339,7 +339,7 @@ export function ArtistConnectionsSection({
                   canvasAriaLabel={`Connections map for ${artistName}: ${phrase}. Use the Similar artists list in the sidebar to browse without the canvas. ${graphSelectGestureHint}`}
                 />
               </GraphPanelHost>
-            </GraphSectionErrorBoundary>
+            </CanvasSectionErrorBoundary>
           )}
         </>
       )}

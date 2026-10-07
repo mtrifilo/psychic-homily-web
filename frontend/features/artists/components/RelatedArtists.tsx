@@ -38,7 +38,7 @@ import { TOOL_LABEL_TIERS } from '@/components/graph/graphLabels'
 import { mergeEgoGraphs } from './mergeEgoGraphs'
 import { computeGraphDoi, selectSuggestedExpansions, doiWeightsForBias } from './graphDoi'
 import { GraphAccessibleTree } from '@/components/graph/GraphAccessibleTree'
-import { GraphSectionErrorBoundary } from '@/components/graph/GraphSectionErrorBoundary'
+import { CanvasSectionErrorBoundary } from '@/components/shared/CanvasSectionErrorBoundary'
 import { buildGraphTree, flattenVisibleTree } from '@/components/graph/graphTreeModel'
 import {
   buildExpandAnnouncement,
@@ -348,7 +348,7 @@ interface ArtistGraphDialogProps {
 // the Dialog's own close (X / Esc) dismisses back to the intact artist page.
 // The copy deliberately does NOT promise a retry: react-force-graph-2d is a
 // module-scope dynamic import, so React.lazy caches a rejected chunk fetch and
-// reopening the dialog re-throws the same rejection (see GraphSectionErrorBoundary
+// reopening the dialog re-throws the same rejection (see CanvasSectionErrorBoundary
 // — a full reload is the only real recovery). We don't offer a reload button
 // because it's heavy-handed from a modal for an optional feature; the graph page
 // itself keeps working, so "close and keep browsing" is the honest guidance.
@@ -434,7 +434,7 @@ export function ArtistGraphDialog({
             reads as broken). Close returns to the intact page; see EgoGraphLoadError
             for why the copy doesn't promise an in-dialog retry.
           */}
-          <GraphSectionErrorBoundary
+          <CanvasSectionErrorBoundary
             sentryTag="artist-ego-graph"
             fallback={<EgoGraphLoadError />}
           >
@@ -454,7 +454,7 @@ export function ArtistGraphDialog({
                 setAnnouncement={setAnnouncement}
               />
             )}
-          </GraphSectionErrorBoundary>
+          </CanvasSectionErrorBoundary>
         </div>
       </DialogContent>
     </Dialog>

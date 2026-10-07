@@ -13,7 +13,7 @@ import { useQueryState } from 'nuqs'
 import { ArrowRight, Loader2, RotateCcw, Shuffle } from 'lucide-react'
 
 import { ArtistContextPanel } from '@/components/graph/ArtistContextPanel'
-import { GraphSectionErrorBoundary } from '@/components/graph/GraphSectionErrorBoundary'
+import { CanvasSectionErrorBoundary } from '@/components/shared/CanvasSectionErrorBoundary'
 import {
   GraphLoadingBox,
   GraphRetryBox,
@@ -1205,7 +1205,7 @@ export function GraphObservatory() {
                   </div>
                 )}
                 {isCanvasUsable ? (
-                  <GraphSectionErrorBoundary
+                  <CanvasSectionErrorBoundary
                     sentryTag="graph-observatory"
                     fallback={(
                       <div role="status" className={`flex items-center justify-center text-sm text-muted-foreground ${GRAPH_BOX_HEIGHT_CLASS}`}>
@@ -1230,7 +1230,7 @@ export function GraphObservatory() {
                       canvasDescribedById="observatory-graph-guidance"
                       canvasAriaLabel={`Artist relationship graph for ${graph.center.name}. Use the Browse connections list below to select an artist.`}
                     />
-                  </GraphSectionErrorBoundary>
+                  </CanvasSectionErrorBoundary>
                 ) : (
                   <AccessibleGraphList graph={graph} onSelect={handleListSelect} />
                 )}

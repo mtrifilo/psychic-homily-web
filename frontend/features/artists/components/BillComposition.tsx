@@ -19,7 +19,7 @@ import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Button } from '@/components/ui/button'
 import { BracketLink } from '@/components/shared/BracketLink'
 import { useContainerWidth, GRAPH_BREAKPOINT_PX } from '@/components/graph/useContainerWidth'
-import { GraphSectionErrorBoundary } from '@/components/graph/GraphSectionErrorBoundary'
+import { CanvasSectionErrorBoundary } from '@/components/shared/CanvasSectionErrorBoundary'
 import { GraphSkeleton } from '@/components/graph/GraphSkeleton'
 import { useArtistBillComposition } from '../hooks/useArtistBillComposition'
 import { ArtistGraphVisualization } from './ArtistGraph'
@@ -129,7 +129,7 @@ export function BillComposition({ artistId, defaultCollapsed = false }: BillComp
                 is cached, this second mount re-throws even after the dialog's
                 boundary caught the first failure. Contain it here too.
               */}
-              <GraphSectionErrorBoundary
+              <CanvasSectionErrorBoundary
                 sentryTag="artist-bill-composition"
                 fallback={
                   <p role="alert" className="text-sm text-muted-foreground py-8 text-center">
@@ -142,7 +142,7 @@ export function BillComposition({ artistId, defaultCollapsed = false }: BillComp
                   activeTypes={new Set(['shared_bills'])}
                   containerWidth={containerWidth!}
                 />
-              </GraphSectionErrorBoundary>
+              </CanvasSectionErrorBoundary>
             </div>
           )}
 

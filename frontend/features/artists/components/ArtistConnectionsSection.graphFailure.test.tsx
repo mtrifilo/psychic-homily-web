@@ -6,7 +6,7 @@ import type { ArtistGraph } from '../types'
 
 // At desktop width the Connections count line promises "click a name
 // to see how it connects", but the canvas below it sits in a
-// GraphSectionErrorBoundary mounted with NO fallback — it self-hides. A failed
+// CanvasSectionErrorBoundary mounted with NO fallback — it self-hides. A failed
 // react-force-graph-2d chunk fetch (the dominant trigger: a deploy rotates the
 // hashed chunk while the tab is open) therefore used to leave the instruction
 // pointing at nothing. The clause must retract with the canvas.
