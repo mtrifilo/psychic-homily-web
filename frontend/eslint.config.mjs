@@ -81,10 +81,11 @@ const eslintConfig = defineConfig([
     // The components the Atlas draws in its own pane link through
     // AtlasPaneLink, which holds their prefetches on /atlas until the map is
     // up. The pane's files sit beside the scene page's in this folder, so they
-    // are named one by one: add a new pane component here. A shared component
-    // rendered inside the pane is outside this rule.
+    // are named one by one; atlasPaneLinks.test.ts fails when a component
+    // AtlasGlobe reaches in this folder is missing from the list. A component
+    // from outside this folder rendered inside the pane is outside this rule.
     files: [
-      "features/scenes/components/{ArtistPanel,AtlasGlobe,AtlasSceneList,AtlasSearch,GenreLegend,GlobeCanvas,MyScenesStrip,ScenePreviewContent,ScenePreviewPanel,VenueListSheet,VenuePanel,VenueRail}.tsx",
+      "features/scenes/components/{ArtistPanel,AtlasGlobe,AtlasSceneList,AtlasSearch,GenreLegend,GlobeCanvas,MyScenesStrip,SceneNotifyModeToggle,ScenePreviewContent,ScenePreviewPanel,VenueListSheet,VenuePanel,VenueRail}.tsx",
     ],
     rules: {
       "@typescript-eslint/no-restricted-imports": [

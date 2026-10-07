@@ -116,8 +116,8 @@ vi.mock('@/lib/context/AuthContext', () => ({
 let searchParams = new URLSearchParams()
 vi.mock('next/navigation', () => ({
   useRouter: () => ({ push: vi.fn() }),
-  // VenuePanel's confirm control reads the pathname to build its auth
-  // return-to (PSY-1542).
+  // The Atlas route: VenuePanel's confirm control builds its auth return-to
+  // from it, and AtlasPaneLink holds its prefetch only there.
   usePathname: () => '/atlas',
   useSearchParams: () => searchParams,
 }))

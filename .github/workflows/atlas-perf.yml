@@ -51,10 +51,12 @@ on:
       - frontend/bun.lock
       # The root layout, the chrome it renders and global CSS are part of
       # every entry; the chrome's links also decide what prefetches around
-      # first map.
+      # first map, and the map-ready signal decides when the held ones start.
       - frontend/app/layout.tsx
       - frontend/components/layout/**
+      - '!frontend/components/layout/**/*.test.ts'
       - '!frontend/components/layout/**/*.test.tsx'
+      - frontend/lib/atlasMapReady.ts
       - frontend/app/globals.css
       # Build and bundling configuration.
       - frontend/next.config.*

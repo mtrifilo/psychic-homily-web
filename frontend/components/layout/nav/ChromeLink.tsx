@@ -46,7 +46,9 @@ function useChromeHoldsPrefetch(atlasPrefetch: AtlasPrefetch): boolean {
 
 /**
  * `next/link` for the app chrome; the lint rule on `components/layout` keeps
- * the chrome from importing `next/link` directly. `atlasPrefetch` says when the
+ * the chrome from importing `next/link` directly. The Atlas pane's
+ * AtlasPaneLink (features/scenes/components) is built on it with
+ * `'after-map'`, so the hold rule here governs those links too. `atlasPrefetch` says when the
  * link may prefetch on the Atlas (see {@link AtlasPrefetch}). While
  * {@link useChromeHoldsPrefetch} holds, the link renders with
  * `prefetch={false}`, which in the App Router also turns off its hover and
