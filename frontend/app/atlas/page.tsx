@@ -1,6 +1,7 @@
 import { Suspense } from 'react'
 import type { Metadata } from 'next'
 import { AtlasGlobe } from '@/features/scenes/components'
+import { AtlasMapReadyFallbacks } from './AtlasMapReadyFallbacks'
 
 export const metadata: Metadata = {
   title: 'Atlas — Psychic Homily',
@@ -15,10 +16,16 @@ export const metadata: Metadata = {
 // The boundary is what keeps that shell prerenderable now that the island reads
 // `?city=` (atlasCityEntry.ts): a client component reading search params has to
 // sit under one, or the whole route renders on request.
+//
+// AtlasMapReadyFallbacks bounds how long the chrome's prefetches wait for the
+// map (lib/atlasMapReady.ts).
 export default function AtlasPage() {
   return (
-    <Suspense fallback={null}>
-      <AtlasGlobe />
-    </Suspense>
+    <>
+      <AtlasMapReadyFallbacks />
+      <Suspense fallback={null}>
+        <AtlasGlobe />
+      </Suspense>
+    </>
   )
 }

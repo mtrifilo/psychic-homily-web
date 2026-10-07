@@ -1,6 +1,6 @@
 'use client'
 
-import Link from 'next/link'
+import { ChromeLink } from '@/components/layout/nav/ChromeLink'
 import { LogOut } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import {
@@ -51,7 +51,7 @@ export function UserMenu() {
     return (
       <div className="flex items-center gap-2">
         <Button asChild>
-          <Link href="/shows/submit">+ Submit</Link>
+          <ChromeLink href="/shows/submit">+ Submit</ChromeLink>
         </Button>
         <NotificationBell />
         <DropdownMenu>
@@ -90,10 +90,10 @@ export function UserMenu() {
                 const Icon = item.icon
                 return (
                   <DropdownMenuItem key={item.href} asChild>
-                    <Link href={item.href}>
+                    <ChromeLink href={item.href}>
                       <Icon className="mr-2 size-4" />
                       {item.label}
-                    </Link>
+                    </ChromeLink>
                   </DropdownMenuItem>
                 )
               })}
@@ -105,10 +105,10 @@ export function UserMenu() {
                   const Icon = item.icon
                   return (
                     <DropdownMenuItem key={item.href} asChild>
-                      <Link href={item.href} prefetch={false}>
+                      <ChromeLink href={item.href} prefetch={false}>
                         <Icon className="mr-2 size-4" />
                         {item.label}
-                      </Link>
+                      </ChromeLink>
                     </DropdownMenuItem>
                   )
                 })}
@@ -145,13 +145,13 @@ export function UserMenu() {
 function SignInLink() {
   const pathname = usePathname()
   return (
-    <Link
+    <ChromeLink
       // The render-time grade of the destination: the pathname alone. See
       // `currentLocationReturnTo` for why a query string cannot be read here.
       href={buildAuthHref(pathname)}
       className="shrink-0 whitespace-nowrap text-sm text-muted-foreground transition-colors hover:text-primary"
     >
       login / sign-up
-    </Link>
+    </ChromeLink>
   )
 }

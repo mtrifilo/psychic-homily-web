@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useRef } from 'react'
-import Link from 'next/link'
+import { ChromeLink } from '@/components/layout/nav/ChromeLink'
 import { Button } from '@/components/ui/button'
 import { useCookieConsent } from '@/lib/context/CookieConsentContext'
 import { CookiePreferencesDialog } from './CookiePreferencesDialog'
@@ -83,12 +83,12 @@ function ConsentBar() {
             className="text-sm text-muted-foreground"
           >
             We use cookies to improve your experience.{' '}
-            <Link
+            <ChromeLink
               href="/privacy"
               className="underline underline-offset-4 hover:text-foreground"
             >
               Learn more
-            </Link>
+            </ChromeLink>
           </p>
           {gpcSignalDetected && (
             <p className="mt-0.5 text-xs text-muted-foreground">

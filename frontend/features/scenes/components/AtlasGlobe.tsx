@@ -69,6 +69,7 @@ import { useMyFollowing } from '@/lib/hooks/common/useFollow'
 import { ScenePreviewPanel } from './ScenePreviewPanel'
 import { AtlasSceneList } from './AtlasSceneList'
 import { preloadAtlasMap } from './atlasMapPreload'
+import { markAtlasMapReady } from '@/lib/atlasMapReady'
 import { GraphSectionErrorBoundary } from '@/components/graph/GraphSectionErrorBoundary'
 import { useReducedMotion } from '@/lib/hooks/common/useReducedMotion'
 import {
@@ -631,6 +632,13 @@ export function AtlasGlobe() {
   useEffect(() => {
     if (mapMayMount) preloadAtlasMap()
   }, [mapMayMount])
+  // No map can follow: the error state, the scene list, or a loaded scene set
+  // with nothing to place. Whatever waits on the Atlas-ready signal is released
+  // then. The unmeasured first commit is excluded, since a map may still follow.
+  const mapWillNotDraw = isError || (size !== null && !mapMayMount)
+  useEffect(() => {
+    if (mapWillNotDraw) markAtlasMapReady()
+  }, [mapWillNotDraw])
 
   let content: ReactNode
   if (isError) {

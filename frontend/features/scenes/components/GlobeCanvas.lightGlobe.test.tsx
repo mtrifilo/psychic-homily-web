@@ -38,6 +38,13 @@ interface StubStyle {
 
 let maps: StubMap[] = []
 
+const markAtlasMapReady = vi.hoisted(() => vi.fn())
+vi.mock('@/lib/atlasMapReady', () => ({ markAtlasMapReady }))
+
+// Whether the stub map reports its tiles loaded; a case flips it to stage a
+// render that is not yet the first full one.
+const stubTiles = vi.hoisted(() => ({ loaded: true }))
+
 vi.mock('maplibre-gl', () => {
   class StubControl {
     constructor(public options: unknown) {}
@@ -94,7 +101,7 @@ vi.mock('maplibre-gl', () => {
       return true
     }
     areTilesLoaded() {
-      return true
+      return stubTiles.loaded
     }
     getZoom() {
       return 1.6
@@ -150,6 +157,7 @@ describe('GlobeCanvas globe surface', () => {
     return { set: (next: boolean) => mm.set(ATLAS_COMPACT_VIEWPORT_QUERY, next) }
   }
   beforeEach(() => {
+    stubTiles.loaded = true
     maps = []
     sessionStorage.clear()
     // The boundary and place-label files, failing: their content is the
@@ -200,6 +208,23 @@ describe('GlobeCanvas globe surface', () => {
       expect(state).toHaveBeenCalledExactlyOnceWith(GLOBE_STATE_LINES_DATA_URL)
       expect(country).toHaveBeenCalledExactlyOnceWith(GLOBE_COUNTRY_LINES_DATA_URL)
     })
+  })
+
+  // The Atlas-ready signal holds the chrome's prefetches on /atlas; the map's
+  // first full render is what releases it.
+  it('releases the Atlas-ready signal at the first full render, once', () => {
+    markAtlasMapReady.mockClear()
+    installViewport(true)
+    renderCanvas()
+    const map = theMap()
+    act(() => map.fire('style.load'))
+    stubTiles.loaded = false
+    act(() => map.fire('render'))
+    expect(markAtlasMapReady).not.toHaveBeenCalled()
+    stubTiles.loaded = true
+    act(() => map.fire('render'))
+    act(() => map.fire('render'))
+    expect(markAtlasMapReady).toHaveBeenCalledTimes(1)
   })
 
   it('builds a wide-viewport map with the boundary layers hidden and never loads them', () => {

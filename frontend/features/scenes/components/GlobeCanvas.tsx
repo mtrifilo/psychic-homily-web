@@ -7,6 +7,7 @@ import * as maplibregl from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
 // Aims the worker pool at the vendored copy before any Map is constructed.
 import './maplibreWorker'
+import { markAtlasMapReady } from '@/lib/atlasMapReady'
 import { useGraphPalette } from '@/components/graph/graphPalette'
 import { useReducedMotion } from '@/lib/hooks/common/useReducedMotion'
 import {
@@ -1032,6 +1033,7 @@ export default function GlobeCanvas({
       if (!map.isStyleLoaded() || !map.areTilesLoaded()) return
       map.off('render', handleFirstFullRender)
       setMapLoaded(map)
+      markAtlasMapReady()
     }
     map.on('render', handleFirstFullRender)
 

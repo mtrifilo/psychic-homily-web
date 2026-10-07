@@ -1,6 +1,6 @@
 'use client'
 
-import Link from 'next/link'
+import { ChromeLink } from '@/components/layout/nav/ChromeLink'
 import { usePathname } from 'next/navigation'
 import { BrowseMenu } from './BrowseMenu'
 import { ContributeMenu } from './ContributeMenu'
@@ -46,14 +46,14 @@ export function PrimaryNav() {
       {visibleNavItems(primaryLinks, user).map(link => {
         const active = isNavActive(pathname, link.href)
         return (
-          <Link
+          <ChromeLink
             key={link.href}
             href={link.href}
             aria-current={active ? 'page' : undefined}
             className={navItemClassName(active)}
           >
             {link.label}
-          </Link>
+          </ChromeLink>
         )
       })}
       <BrowseMenu />

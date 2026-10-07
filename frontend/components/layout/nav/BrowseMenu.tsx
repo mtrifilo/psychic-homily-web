@@ -1,6 +1,6 @@
 'use client'
 
-import Link from 'next/link'
+import { ChromeLink } from '@/components/layout/nav/ChromeLink'
 import { usePathname } from 'next/navigation'
 import { ChevronDown } from 'lucide-react'
 import {
@@ -63,7 +63,7 @@ export function BrowseMenu() {
                 asChild
                 className="px-0 py-0 text-[15px] font-medium text-foreground focus:bg-transparent focus:text-foreground focus:underline data-[highlighted]:bg-transparent data-[highlighted]:underline"
               >
-                <Link href={item.href}>{item.label}</Link>
+                <ChromeLink href={item.href}>{item.label}</ChromeLink>
               </DropdownMenuItem>
             ))}
           </DropdownMenuGroup>

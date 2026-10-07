@@ -188,6 +188,11 @@ vi.mock('./atlasMapPreload', () => ({
   preloadAtlasMap: () => preloadAtlasMap(),
 }))
 
+const markAtlasMapReady = vi.fn()
+vi.mock('@/lib/atlasMapReady', () => ({
+  markAtlasMapReady: () => markAtlasMapReady(),
+}))
+
 // jsdom has no WebGL, so the real probe would answer false and every case
 // would get the scene list. The probe itself is unit-tested in
 // atlasViewport.test.ts; here a case says whether the browser has WebGL2.
@@ -356,6 +361,53 @@ describe('AtlasGlobe', () => {
       // Phone panes take the sheet layout: credit top-left, back control.
       expect(lastCanvasProps.attributionPosition).toBe('top-left')
       expect(lastCanvasProps.onBackToGlobe).toBeTypeOf('function')
+    })
+
+    // The chrome's prefetches wait for the Atlas-ready signal; a visitor who
+    // gets no map must not leave them waiting.
+    it('releases the Atlas-ready signal when it shows the scene list', async () => {
+      markAtlasMapReady.mockClear()
+      mockSupportsWebGL2 = false
+      renderWithScenes()
+      expect(screen.getByTestId('atlas-scene-list')).toBeInTheDocument()
+      expect(markAtlasMapReady).toHaveBeenCalledTimes(1)
+    })
+
+    it('releases the Atlas-ready signal when the scenes query fails', () => {
+      markAtlasMapReady.mockClear()
+      mockUseScenes.mockReturnValue({ data: undefined, isLoading: false, isError: true })
+      renderWithProviders(<AtlasGlobe />)
+      expect(screen.getByText(/couldn’t load/i)).toBeInTheDocument()
+      expect(markAtlasMapReady).toHaveBeenCalledTimes(1)
+    })
+
+    it('releases the Atlas-ready signal when there is nothing to place', () => {
+      markAtlasMapReady.mockClear()
+      setMockContainerWidth(390)
+      mockUseScenes.mockReturnValue({
+        data: { scenes: [sampleData.scenes[1]], count: 1 },
+        isLoading: false,
+        isError: false,
+      })
+      renderWithProviders(<AtlasGlobe />)
+      expect(screen.getByText(/No scenes to place on the map yet/)).toBeInTheDocument()
+      expect(markAtlasMapReady).toHaveBeenCalledTimes(1)
+    })
+
+    it('holds the Atlas-ready signal while scenes load', () => {
+      markAtlasMapReady.mockClear()
+      setMockContainerWidth(390)
+      mockUseScenes.mockReturnValue({ data: undefined, isLoading: true, isError: false })
+      renderWithProviders(<AtlasGlobe />)
+      expect(markAtlasMapReady).not.toHaveBeenCalled()
+    })
+
+    it('leaves the Atlas-ready signal to the map when it shows the map', async () => {
+      markAtlasMapReady.mockClear()
+      setMockContainerWidth(390)
+      renderWithScenes()
+      await expectMap()
+      expect(markAtlasMapReady).not.toHaveBeenCalled()
     })
 
     it.each([390, 1400])(

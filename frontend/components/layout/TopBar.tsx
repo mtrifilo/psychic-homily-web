@@ -1,7 +1,7 @@
 'use client'
 
 import Image from 'next/image'
-import Link from 'next/link'
+import { ChromeLink } from '@/components/layout/nav/ChromeLink'
 import { Moon, Sun } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { useThemeToggle } from './mode-toggle'
@@ -60,7 +60,7 @@ export function TopBar({ variant = 'full' }: { variant?: 'full' | 'slim' } = {})
             PSY-1638) — and it still would not free enough room. The search
             field on the right is the designated slack absorber instead. */}
         <div className="flex shrink-0 items-center gap-3 xl:gap-[30px]">
-          <Link href="/" aria-label="Psychic Homily — home" className="flex items-center gap-2 transition-opacity hover:opacity-80">
+          <ChromeLink href="/" aria-label="Psychic Homily — home" className="flex items-center gap-2 transition-opacity hover:opacity-80">
             <div className="relative size-[36px] overflow-hidden rounded-md">
               {/* Raster, not vector, on purpose (PSY-1771): the predecessor
                   `/PsychicHomilyLogov2.svg` put 166 KB on the wire of every
@@ -88,7 +88,7 @@ export function TopBar({ variant = 'full' }: { variant?: 'full' | 'slim' } = {})
             <span className="hidden text-[15px] font-semibold uppercase tracking-[0.04em] text-foreground sm:inline">
               Psychic Homily
             </span>
-          </Link>
+          </ChromeLink>
           {variant === 'full' && <PrimaryNav />}
         </div>
 

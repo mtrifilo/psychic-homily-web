@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import Link from 'next/link'
+import { ChromeLink } from '@/components/layout/nav/ChromeLink'
 import { usePathname } from 'next/navigation'
 import { AUTH_PATH, buildAuthHref } from '@/lib/auth-href'
 import { ExternalLink, LayoutGrid, LogOut, Moon, Sun, User } from 'lucide-react'
@@ -117,7 +117,7 @@ function SheetNavLink({
   const Icon = item.icon
   return (
     <SheetClose asChild>
-      <Link
+      <ChromeLink
         href={item.href}
         prefetch={false}
         target={item.external ? '_blank' : undefined}
@@ -139,7 +139,7 @@ function SheetNavLink({
         {item.external && (
           <ExternalLink className="ml-auto size-3 opacity-50" aria-hidden />
         )}
-      </Link>
+      </ChromeLink>
     </SheetClose>
   )
 }
@@ -354,7 +354,7 @@ export function BottomTabBar() {
           const active = isActive(tab.href)
           const Icon = tab.icon
           return (
-            <Link
+            <ChromeLink
               key={tab.href}
               href={tab.href}
               aria-current={active ? 'page' : undefined}
@@ -362,7 +362,7 @@ export function BottomTabBar() {
             >
               <Icon className="size-5" aria-hidden />
               {tab.label}
-            </Link>
+            </ChromeLink>
           )
         })}
 
@@ -400,7 +400,7 @@ export function BottomTabBar() {
             />
           </SheetTab>
         ) : (
-          <Link
+          <ChromeLink
             // The render-time grade of the destination: the pathname alone.
             // See `currentLocationReturnTo` for why a query string cannot be
             // read here.
@@ -410,7 +410,7 @@ export function BottomTabBar() {
           >
             <User className="size-5" aria-hidden />
             Account
-          </Link>
+          </ChromeLink>
         )}
       </div>
     </nav>
