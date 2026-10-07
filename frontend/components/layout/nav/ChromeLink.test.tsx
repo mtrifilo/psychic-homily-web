@@ -40,9 +40,13 @@ describe('ChromeLink', () => {
     pathname.current = atlasItem.href
   })
 
-  it('holds the prefetch on /atlas until the map is ready, then re-arms it', async () => {
+  it('holds an after-map link on /atlas until the map is ready, then re-arms it', async () => {
     const { signal, ChromeLink } = await load()
-    render(<ChromeLink href="/shows">Shows</ChromeLink>)
+    render(
+      <ChromeLink href="/shows" atlasPrefetch="after-map">
+        Shows
+      </ChromeLink>
+    )
     expect(screen.getByText('Shows')).toHaveAttribute('data-prefetch', 'false')
 
     act(() => signal.markAtlasMapReady())
@@ -50,17 +54,39 @@ describe('ChromeLink', () => {
     expect(screen.getByText('Shows')).toHaveAttribute('data-prefetch', 'default')
   })
 
-  it('prefetches normally on /shows', async () => {
-    pathname.current = '/shows'
-    const { ChromeLink } = await load()
-    render(<ChromeLink href="/venues">Venues</ChromeLink>)
-    expect(screen.getByText('Venues')).toHaveAttribute('data-prefetch', 'default')
+  it('keeps a default link unprefetched on /atlas, after the map too', async () => {
+    const { signal, ChromeLink } = await load()
+    render(<ChromeLink href="/privacy">Privacy</ChromeLink>)
+    expect(screen.getByText('Privacy')).toHaveAttribute('data-prefetch', 'false')
+
+    act(() => signal.markAtlasMapReady())
+
+    expect(screen.getByText('Privacy')).toHaveAttribute('data-prefetch', 'false')
   })
 
-  it('prefetches normally on a later /atlas visit once the signal has released', async () => {
+  it('prefetches normally on /shows, whatever its Atlas group', async () => {
+    pathname.current = '/shows'
+    const { ChromeLink } = await load()
+    render(
+      <>
+        <ChromeLink href="/venues">Venues</ChromeLink>
+        <ChromeLink href="/artists" atlasPrefetch="after-map">
+          Artists
+        </ChromeLink>
+      </>
+    )
+    expect(screen.getByText('Venues')).toHaveAttribute('data-prefetch', 'default')
+    expect(screen.getByText('Artists')).toHaveAttribute('data-prefetch', 'default')
+  })
+
+  it('prefetches an after-map link at once on a later /atlas visit once the signal has released', async () => {
     const { signal, ChromeLink } = await load()
     signal.markAtlasMapReady()
-    render(<ChromeLink href="/">Home</ChromeLink>)
+    render(
+      <ChromeLink href="/" atlasPrefetch="after-map">
+        Home
+      </ChromeLink>
+    )
     expect(screen.getByText('Home')).toHaveAttribute('data-prefetch', 'default')
   })
 
@@ -73,7 +99,7 @@ describe('ChromeLink', () => {
   it("keeps a caller's own prefetch={false} after the release", async () => {
     const { signal, ChromeLink } = await load()
     render(
-      <ChromeLink href="/admin" prefetch={false}>
+      <ChromeLink href="/admin" prefetch={false} atlasPrefetch="after-map">
         Admin
       </ChromeLink>
     )

@@ -4,11 +4,11 @@
 //
 // WHY, and why `dynamic()` alone is not enough: Turbopack does not tree-shake
 // `'use client'` barrels per-export, and anything reachable from `app/layout.tsx`
-// lands in the one client chunk every route loads eagerly. This barrel IS
-// root-reachable (layout -> CommandPalette -> components/shared -> SaveButton ->
-// features/shows -> here), so simply LISTING a component makes it global — no
-// one has to import the name. Re-adding the export silently puts ShowDetail
-// back in that chunk.
+// lands in the one client chunk every route loads eagerly. Wherever this barrel
+// is reachable, simply LISTING a component ships it — no one has to import the
+// name. The root layout must not reach it (asserted by
+// app/atlas/atlasEagerSetGuard.test.ts); re-adding the export would put
+// ShowDetail on every route that does.
 // Same recipe and same reason as ArtistDetail (PSY-950, spike PSY-944).
 //
 // The route page pairs this absence with `dynamic(ssr: true)`. Both halves are

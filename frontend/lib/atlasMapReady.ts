@@ -4,25 +4,26 @@
  * first full frame, when the Atlas knows no map will draw (the scene list, the
  * error state, nothing to place), or, while the Atlas page has armed them
  * (armAtlasMapReadyFallbacks), on the visitor's first input or at the cap
- * below, whichever comes first. The app chrome's link prefetches wait for it
- * on `/atlas` (components/layout/nav/ChromeLink.tsx).
+ * below, whichever comes first. On `/atlas` the chrome's primary links (the
+ * bottom tab bar, PrimaryNav) wait for it before they prefetch
+ * (components/layout/nav/ChromeLink.tsx).
  *
  * Once released it stays released for the page load, so a later visit to
  * `/atlas` in the same tab holds nothing.
  */
 
 /**
- * How long after the Atlas page mounts the signal releases on its own. Held
- * links resume their viewport prefetch on release (a hover or touchstart
- * during the hold prefetches nothing), so the cap bounds the delay for a map
- * that is slow, stalled, or never draws (a lost WebGL context, a MapLibre
- * worker that never answers).
+ * How long after the Atlas page mounts the signal releases on its own. Links
+ * waiting on it resume their viewport prefetch on release (a hover or
+ * touchstart during the hold prefetches nothing), so the cap bounds the delay
+ * for a map that is slow, stalled, or never draws (a lost WebGL context, a
+ * MapLibre worker that never answers).
  */
 export const ATLAS_MAP_READY_CAP_MS = 10_000
 
 /**
  * The input events that count as the visitor starting to use the page. Any of
- * them releases the signal, so the chrome's links prefetch from then on.
+ * them releases the signal.
  */
 export const ATLAS_MAP_READY_INPUT_EVENTS = ['pointerdown', 'keydown', 'wheel'] as const
 

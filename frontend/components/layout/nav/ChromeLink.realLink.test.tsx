@@ -102,7 +102,9 @@ describe('ChromeLink with the real next/link', () => {
     const { signal, ChromeLink } = await load()
     render(
       <AppRouterContext.Provider value={router}>
-        <ChromeLink href="/shows">Shows</ChromeLink>
+        <ChromeLink href="/shows" atlasPrefetch="after-map">
+          Shows
+        </ChromeLink>
       </AppRouterContext.Provider>
     )
     const anchor = screen.getByText('Shows')

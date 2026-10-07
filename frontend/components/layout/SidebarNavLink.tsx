@@ -30,6 +30,9 @@ export function SidebarNavLink({
   const link = (
     <ChromeLink
       href={href}
+      // The side rail is the desktop primary navigation in side-nav mode, so on
+      // the Atlas it re-arms after the map like PrimaryNav.
+      atlasPrefetch="after-map"
       target={external ? '_blank' : undefined}
       rel={external ? 'noopener noreferrer' : undefined}
       className={cn(

@@ -18,7 +18,7 @@ import { buildAuthHref } from '@/lib/auth-href'
 import { replayOnHydrate } from '@/lib/hydration/clickReplay'
 import { getUserInitials, getUserDisplayName } from './userDisplay'
 import { accountNavItems, visibleNavItems } from './navData'
-import { NotificationBell } from '@/features/notifications'
+import { NotificationBell } from '@/features/notifications/components/NotificationBell'
 
 // The right-hand actions cluster. Signed in (PSY-1018, Figma 537:91): the
 // "+ Submit" primary CTA → notification bell → avatar dropdown. Not signed in,

@@ -7,10 +7,10 @@ export { SceneList } from './SceneList'
 // WHY, and why `dynamic()` alone is not enough: Turbopack groups client modules
 // by how widely they are reachable, and it does not tree-shake `'use client'`
 // barrels per-export. Anything reachable from `app/layout.tsx` lands in the one
-// global chunk that every route loads eagerly. This barrel IS root-reachable:
-// layout -> providers -> AuthContext -> features/auth -> notification-settings
-// -> features/scenes -> here. So simply LISTING a component makes it global; no
-// one has to import the name. That is exactly what happened to SceneGraph —
+// global chunk that every route loads eagerly, and wherever this barrel is
+// reachable, simply LISTING a component ships it; no one has to import the
+// name. The root layout must not reach it (asserted by
+// app/atlas/atlasEagerSetGuard.test.ts). That is exactly what happened to SceneGraph —
 // nothing imported it by name, yet the export alone kept it, and through
 // SceneGraphVisualization's static import ForceGraphView too, in that chunk.
 // Removing this one line moved both out (measured; see the PSY-1772 PR for the
@@ -37,11 +37,8 @@ export { SceneList } from './SceneList'
 // global chunk on behalf of one section of one route. SceneCollections reaches
 // across features, into features/collections.
 //
-// NOT because of MusicEmbed, which an earlier version of this note claimed:
-// MusicEmbed is ALREADY global (layout -> @/components/layout -> AppShell ->
-// CommandPalette -> the @/components/shared barrel, which exports it). The
-// evicted modules deep-import their shared primitives anyway, which is the
-// habit that keeps that from being load-bearing in the wrong direction later.
+// MusicEmbed is not part of that reason: the evicted modules deep-import their
+// shared primitives, so no barrel decides where MusicEmbed ships.
 //
 // Every one of them is also named in features/sharedChunkBarrelGuard.test.ts,
 // because this comment cannot fail a build and that list can.

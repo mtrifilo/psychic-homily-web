@@ -24,11 +24,11 @@ vi.mock('@sentry/nextjs', () => ({
 }))
 
 const mockUseScenes = vi.fn()
-vi.mock('../hooks', () => ({
+vi.mock('../hooks/useScenes', () => ({
   useScenes: () => mockUseScenes(),
   useSceneDetail: () => ({ data: undefined }),
 }))
-vi.mock('@/features/venues/hooks', () => ({
+vi.mock('@/features/venues/hooks/useVenues', () => ({
   useVenues: () => ({ data: undefined, isFetching: false, isPlaceholderData: false }),
 }))
 vi.mock('@/lib/hooks/common/useFollow', () => ({

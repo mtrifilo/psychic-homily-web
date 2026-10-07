@@ -33,10 +33,10 @@ vi.mock('../hooks/useAdminFestivals', () => {
 })
 
 // Search hooks pulled in by the lineup/venue management panels
-vi.mock('@/features/artists', () => ({
+vi.mock('@/features/artists/hooks/useArtistSearch', () => ({
   useArtistSearch: () => ({ data: { artists: [] as unknown[] }, isLoading: false }),
 }))
-vi.mock('@/features/venues', () => ({
+vi.mock('@/features/venues/hooks/useVenueSearch', () => ({
   useVenueSearch: () => ({ data: { venues: [] as unknown[] }, isLoading: false }),
 }))
 

@@ -47,7 +47,7 @@ vi.mock('next-themes', () => ({
   useTheme: () => ({ theme: mockTheme, resolvedTheme: mockTheme, setTheme: mockSetTheme }),
 }))
 
-vi.mock('@/features/notifications', () => ({
+vi.mock('@/features/notifications/components/NotificationBell', () => ({
   NotificationBell: () => <button data-testid="notification-bell">Bell</button>,
 }))
 
