@@ -69,6 +69,7 @@ import { useMyFollowing } from '@/lib/hooks/common/useFollow'
 import { ScenePreviewPanel } from './ScenePreviewPanel'
 import { AtlasSceneList } from './AtlasSceneList'
 import { preloadAtlasMap } from './atlasMapPreload'
+import { markAtlasMapReady } from '@/lib/atlasMapReady'
 import { GraphSectionErrorBoundary } from '@/components/graph/GraphSectionErrorBoundary'
 import { useReducedMotion } from '@/lib/hooks/common/useReducedMotion'
 import {
@@ -616,6 +617,9 @@ export function AtlasGlobe() {
       prefersReducedMotion,
       mapFailed,
     })
+  useEffect(() => {
+    if (showsSceneList) markAtlasMapReady()
+  }, [showsSceneList])
   const mapSheetLayout =
     size !== null && !showsSceneList && usesAtlasSheetLayout(size.width)
 

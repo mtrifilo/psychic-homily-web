@@ -188,6 +188,11 @@ vi.mock('./atlasMapPreload', () => ({
   preloadAtlasMap: () => preloadAtlasMap(),
 }))
 
+const markAtlasMapReady = vi.fn()
+vi.mock('@/lib/atlasMapReady', () => ({
+  markAtlasMapReady: () => markAtlasMapReady(),
+}))
+
 // jsdom has no WebGL, so the real probe would answer false and every case
 // would get the scene list. The probe itself is unit-tested in
 // atlasViewport.test.ts; here a case says whether the browser has WebGL2.
@@ -356,6 +361,24 @@ describe('AtlasGlobe', () => {
       // Phone panes take the sheet layout: credit top-left, back control.
       expect(lastCanvasProps.attributionPosition).toBe('top-left')
       expect(lastCanvasProps.onBackToGlobe).toBeTypeOf('function')
+    })
+
+    // The chrome's prefetches wait for the Atlas-ready signal; a visitor who
+    // gets the list must not leave them waiting.
+    it('releases the Atlas-ready signal when it shows the scene list', async () => {
+      markAtlasMapReady.mockClear()
+      mockSupportsWebGL2 = false
+      renderWithScenes()
+      expect(screen.getByTestId('atlas-scene-list')).toBeInTheDocument()
+      expect(markAtlasMapReady).toHaveBeenCalledTimes(1)
+    })
+
+    it('leaves the Atlas-ready signal to the map when it shows the map', async () => {
+      markAtlasMapReady.mockClear()
+      setMockContainerWidth(390)
+      renderWithScenes()
+      await expectMap()
+      expect(markAtlasMapReady).not.toHaveBeenCalled()
     })
 
     it.each([390, 1400])(

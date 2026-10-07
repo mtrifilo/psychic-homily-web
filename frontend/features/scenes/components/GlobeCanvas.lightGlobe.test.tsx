@@ -38,6 +38,9 @@ interface StubStyle {
 
 let maps: StubMap[] = []
 
+const markAtlasMapReady = vi.hoisted(() => vi.fn())
+vi.mock('@/lib/atlasMapReady', () => ({ markAtlasMapReady }))
+
 vi.mock('maplibre-gl', () => {
   class StubControl {
     constructor(public options: unknown) {}
@@ -200,6 +203,20 @@ describe('GlobeCanvas globe surface', () => {
       expect(state).toHaveBeenCalledExactlyOnceWith(GLOBE_STATE_LINES_DATA_URL)
       expect(country).toHaveBeenCalledExactlyOnceWith(GLOBE_COUNTRY_LINES_DATA_URL)
     })
+  })
+
+  // The Atlas-ready signal holds the chrome's prefetches on /atlas; the map's
+  // first full render is what releases it.
+  it('releases the Atlas-ready signal at the first full render, once', () => {
+    markAtlasMapReady.mockClear()
+    installViewport(true)
+    renderCanvas()
+    const map = theMap()
+    act(() => map.fire('style.load'))
+    expect(markAtlasMapReady).not.toHaveBeenCalled()
+    act(() => map.fire('render'))
+    act(() => map.fire('render'))
+    expect(markAtlasMapReady).toHaveBeenCalledTimes(1)
   })
 
   it('builds a wide-viewport map with the boundary layers hidden and never loads them', () => {
