@@ -1,6 +1,7 @@
 package catalog
 
 import (
+	"sync"
 	"testing"
 	"time"
 
@@ -244,7 +245,7 @@ func (suite *RadioSyncManualIntegrationTestSuite) TestTriggerStationSync_Invalid
 }
 
 // TestTriggerShowBackfill_OpensRunAndCompletes exercises the async path end-to-end:
-// the trigger returns a pollable handle (status=running) the instant the run row
+// the trigger returns a pollable handle the instant the run row
 // opens (startAsyncSync's OnRunOpened/select), then the run executes in the
 // background goroutine and GetSyncRun observes it reach a terminal status with the
 // imported counts. (PSY-1135, adversarial-review — startAsyncSync was untested.)
@@ -292,44 +293,100 @@ func (suite *RadioSyncManualIntegrationTestSuite) TestTriggerShowBackfill_OpensR
 	suite.Equal(1, final.PlaysImported)
 }
 
-// TestTriggerGlobalRematch_OpensRunAndCompletes checks that the trigger opens a
-// rematch run row and that the run reaches success in the background.
-//
-// The returned status is running or success, not running alone: the trigger
-// reads the row back after starting the background goroutine, which can close
-// an empty run before that read. The poll is what proves the run was opened:
-// the returned id must resolve through GetSyncRun to a finished rematch row.
-func (suite *RadioSyncManualIntegrationTestSuite) TestTriggerGlobalRematch_OpensRunAndCompletes() {
-	resp, err := suite.radioService.TriggerGlobalRematch(contracts.GlobalRematchRequest{})
-	suite.Require().NoError(err)
-	suite.Require().NotZero(resp.ID, "trigger must return a pollable run handle")
-	suite.Equal(catalogm.RadioSyncRunTypeRematch, resp.RunType)
-	suite.Equal(catalogm.RadioSyncRunTriggerManual, resp.Trigger)
-	suite.Contains([]string{catalogm.RadioSyncRunStatusRunning, catalogm.RadioSyncRunStatusSuccess}, resp.Status)
-	suite.Nil(resp.StationID)
+// rematchTriggerCeiling bounds how long a trigger may take to return while the
+// rematch work is held back. The trigger's own path is four small queries, so a
+// passing run returns in milliseconds; only a trigger that waits for the work
+// itself reaches the ceiling.
+const rematchTriggerCeiling = 10 * time.Second
 
+// holdRematchWork holds a SHARE lock on radio_plays until the returned release
+// runs (or the test ends), so no statement that writes radio_plays can proceed.
+// A global rematch's first statement is the bulk-link UPDATE of radio_plays, and
+// the trigger's own path (the running-run check, the run INSERT and the read
+// back) never touches that table. While the lock is held, a triggered run
+// therefore stays running.
+func (suite *RadioSyncManualIntegrationTestSuite) holdRematchWork() (release func()) {
+	tx := suite.db.Begin()
+	suite.Require().NoError(tx.Error)
+	var once sync.Once
+	release = func() { once.Do(func() { tx.Rollback() }) }
+	suite.T().Cleanup(release)
+	suite.Require().NoError(tx.Exec("LOCK TABLE radio_plays IN SHARE MODE").Error)
+	return release
+}
+
+// triggerGlobalRematch calls TriggerGlobalRematch and fails the test if the call
+// has not returned within rematchTriggerCeiling.
+func (suite *RadioSyncManualIntegrationTestSuite) triggerGlobalRematch() (*contracts.RadioSyncRunResponse, error) {
+	type result struct {
+		resp *contracts.RadioSyncRunResponse
+		err  error
+	}
+	done := make(chan result, 1)
+	go func() {
+		resp, err := suite.radioService.TriggerGlobalRematch(contracts.GlobalRematchRequest{})
+		done <- result{resp, err}
+	}()
+	select {
+	case r := <-done:
+		return r.resp, r.err
+	case <-time.After(rematchTriggerCeiling):
+		suite.FailNow("TriggerGlobalRematch did not return while the rematch work was held back; it must return before the work runs")
+		return nil, nil
+	}
+}
+
+// awaitFinishedRun polls a run until it leaves running and returns it.
+func (suite *RadioSyncManualIntegrationTestSuite) awaitFinishedRun(runID uint) *contracts.RadioSyncRunResponse {
 	var final *contracts.RadioSyncRunResponse
 	suite.Require().Eventually(func() bool {
-		r, e := suite.radioService.GetSyncRun(resp.ID)
+		r, e := suite.radioService.GetSyncRun(runID)
 		if e != nil {
 			return false
 		}
 		final = r
-		return r.Status == catalogm.RadioSyncRunStatusSuccess
-	}, 5*time.Second, 20*time.Millisecond, "global rematch run should complete")
+		return r.Status != catalogm.RadioSyncRunStatusRunning
+	}, 5*time.Second, 20*time.Millisecond, "run %d should leave running once its work can proceed", runID)
+	return final
+}
+
+// TestTriggerGlobalRematch_OpensRunAndCompletes checks that the trigger opens a
+// rematch run and returns its handle while the run is still running, and that the
+// run then reaches success in the background. The rematch work is held back
+// across the trigger call, so the run cannot finish before the trigger reads it.
+func (suite *RadioSyncManualIntegrationTestSuite) TestTriggerGlobalRematch_OpensRunAndCompletes() {
+	release := suite.holdRematchWork()
+	resp, err := suite.triggerGlobalRematch()
+	suite.Require().NoError(err)
+	suite.Require().NotZero(resp.ID, "trigger must return a pollable run handle")
+	suite.Equal(catalogm.RadioSyncRunTypeRematch, resp.RunType)
+	suite.Equal(catalogm.RadioSyncRunTriggerManual, resp.Trigger)
+	suite.Equal(catalogm.RadioSyncRunStatusRunning, resp.Status)
+	suite.Nil(resp.StationID)
+
+	release()
+	final := suite.awaitFinishedRun(resp.ID)
+	suite.Equal(catalogm.RadioSyncRunStatusSuccess, final.Status)
 	suite.Equal(catalogm.RadioSyncRunTypeRematch, final.RunType)
 	suite.Nil(final.StationID)
 	suite.NotNil(final.FinishedAt, "a finished run must carry finished_at")
 }
 
+// TestTriggerGlobalRematch_RejectsConcurrentRun checks that a second trigger is
+// refused while the first run is in flight. The first run's work is held back,
+// so it is still running when the second trigger checks.
 func (suite *RadioSyncManualIntegrationTestSuite) TestTriggerGlobalRematch_RejectsConcurrentRun() {
-	first, err := suite.radioService.TriggerGlobalRematch(contracts.GlobalRematchRequest{})
+	release := suite.holdRematchWork()
+	first, err := suite.triggerGlobalRematch()
 	suite.Require().NoError(err)
 	suite.Require().NotZero(first.ID)
 
-	_, err = suite.radioService.TriggerGlobalRematch(contracts.GlobalRematchRequest{})
+	_, err = suite.triggerGlobalRematch()
 	suite.Require().Error(err)
 	var radioErr *apperrors.RadioError
 	suite.Require().ErrorAs(err, &radioErr)
 	suite.Equal(apperrors.CodeRadioRematchAlreadyRunning, radioErr.Code)
+
+	release()
+	suite.awaitFinishedRun(first.ID)
 }
