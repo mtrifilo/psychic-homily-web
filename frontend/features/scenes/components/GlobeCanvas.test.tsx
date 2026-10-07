@@ -437,6 +437,15 @@ describe('GlobeCanvas failures MapLibre reports outside React', () => {
     expect(onCameraSettle).toHaveBeenCalledTimes(1)
   })
 
+  it('falls back when the restore gets no WebGL2 context', () => {
+    const { map, onError } = renderInBoundary({ styleLoaded: true })
+    act(() => map.fire('webglcontextlost'))
+    const refused = new Error('WebGL2 is required to display this map.')
+    refused.name = 'GPUInitializationError'
+    act(() => map.fire('error', { error: refused }))
+    expectFellBack(onError, 'context-restore-refused')
+  })
+
   it('falls back when the context is lost before the style loads', () => {
     const { map, onError } = renderInBoundary({ styleLoaded: false })
     act(() => map.fire('webglcontextlost'))
@@ -462,11 +471,14 @@ describe('GlobeCanvas failures MapLibre reports outside React', () => {
     expect(onCameraSettle).toHaveBeenCalledTimes(1)
   })
 
-  it('stops the restore deadline when the canvas unmounts', () => {
+  it('cancels the restore deadline and its page listener when the canvas unmounts', () => {
     const { map, onError } = renderInBoundary({ styleLoaded: true })
     act(() => map.fire('webglcontextlost'))
+    expect(vi.getTimerCount()).toBe(1)
+    const removeListener = vi.spyOn(document, 'removeEventListener')
     cleanup()
-    act(() => vi.advanceTimersByTime(ATLAS_CONTEXT_RESTORE_DEADLINE_MS * 10))
+    expect(vi.getTimerCount()).toBe(0)
+    expect(removeListener).toHaveBeenCalledWith('visibilitychange', expect.any(Function))
     expect(onError).not.toHaveBeenCalled()
   })
 })
