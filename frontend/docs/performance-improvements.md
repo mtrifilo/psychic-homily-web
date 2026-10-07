@@ -42,7 +42,7 @@ place) stands in for the map:
    the Atlas pane is narrower than `ATLAS_REDUCED_MOTION_LIST_BELOW_PX`
    (640px). Wider panes keep the map, which honours the preference itself: no
    pulse rings, and camera moves cut instead of fly.
-3. **A failed map.** GlobeCanvas sits inside a `GraphSectionErrorBoundary`
+3. **A failed map.** GlobeCanvas sits inside a `CanvasSectionErrorBoundary`
    (Sentry tag `atlas-map`). When MapLibre is refused a WebGL2 context after
    the probe passed, GlobeCanvas throws `AtlasMapContextError` and the list
    latches for the rest of the page load (`markAtlasMapFailed`). Any other
