@@ -67,7 +67,7 @@ import { GenreLegend } from './GenreLegend'
 import { MyScenesStrip, MY_SCENES_FETCH_LIMIT } from './MyScenesStrip'
 import { useMyFollowing } from '@/lib/hooks/common/useFollow'
 import { ScenePreviewPanel } from './ScenePreviewPanel'
-import { MobileSceneList } from './MobileSceneList'
+import { AtlasSceneList } from './AtlasSceneList'
 import { preloadAtlasMap } from './atlasMapPreload'
 import { GraphSectionErrorBoundary } from '@/components/graph/GraphSectionErrorBoundary'
 import { useReducedMotion } from '@/features/artists/hooks/useReducedMotion'
@@ -660,7 +660,7 @@ export function AtlasGlobe() {
     )
   } else if (showsSceneList) {
     content = (
-      <MobileSceneList
+      <AtlasSceneList
         scenes={allScenes}
         loading={isLoading}
         followedSlugs={followedSlugs}

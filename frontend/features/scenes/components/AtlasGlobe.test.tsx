@@ -277,7 +277,7 @@ const sampleData: SceneListResponse = {
       longitude: -87.63,
     },
     {
-      // Unplaceable (no coords) — still listed on mobile, never plotted.
+      // Unplaceable (no coords): listed in the scene list, never plotted.
       city: 'Faketown',
       state: 'ZZ',
       slug: 'faketown-zz',

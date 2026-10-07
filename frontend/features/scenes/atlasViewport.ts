@@ -54,7 +54,7 @@ export function useAtlasCompactViewport(): boolean {
 export const ATLAS_REDUCED_MOTION_LIST_BELOW_PX = 640
 
 /**
- * Whether the Atlas renders its scene list (MobileSceneList) in place of the
+ * Whether the Atlas renders its scene list (AtlasSceneList) in place of the
  * map. Two visitor conditions: the browser cannot give MapLibre the WebGL2
  * context it requires (at any width), or the visitor prefers reduced motion
  * and the pane is narrower than {@link ATLAS_REDUCED_MOTION_LIST_BELOW_PX}.
