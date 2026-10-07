@@ -19,8 +19,8 @@ const COMPONENTS = __dirname
 const PANE_ROOT = 'AtlasGlobe.tsx'
 const PANE_LINK = 'AtlasPaneLink.tsx'
 
-function parse(file: string): ts.SourceFile {
-  return ts.createSourceFile(file, fs.readFileSync(file, 'utf8'), ts.ScriptTarget.Latest, true)
+function parse(file: string, text = fs.readFileSync(file, 'utf8')): ts.SourceFile {
+  return ts.createSourceFile(file, text, ts.ScriptTarget.Latest, true)
 }
 
 /**
@@ -101,17 +101,20 @@ const SKIPPED_SEGMENT = /(^|[\\/])(node_modules|\.next)([\\/]|$)/
 const NON_SOURCE = /\.(test|spec|stories)\.tsx?$/
 
 /**
- * Source files under `roots` whose text contains `needle`: one recursive
- * directory listing per root, a read of each candidate, and no parse, so only
- * files that can import what `needle` names reach the AST.
+ * Source files under `roots` whose text contains `needle`, with that text: one
+ * recursive directory listing per root, one read of each candidate, and no
+ * parse, so only files that can import what `needle` names reach the AST.
  */
-function sourceFilesMentioning(roots: string[], needle: string): string[] {
+function sourceFilesMentioning(roots: string[], needle: string): Array<{ file: string; text: string }> {
   return roots.flatMap((root) => {
     const base = path.join(FRONTEND, root)
     return (fs.readdirSync(base, { recursive: true }) as string[])
       .filter((rel) => /\.tsx?$/.test(rel) && !NON_SOURCE.test(rel) && !SKIPPED_SEGMENT.test(rel))
-      .map((rel) => path.join(base, rel))
-      .filter((file) => fs.readFileSync(file, 'utf8').includes(needle))
+      .map((rel) => {
+        const file = path.join(base, rel)
+        return { file, text: fs.readFileSync(file, 'utf8') }
+      })
+      .filter(({ text }) => text.includes(needle))
   })
 }
 
@@ -156,11 +159,11 @@ describe('GlobeCanvas has one dynamic import', () => {
   // on a shared CI runner; the timeout is for that, not for anything async.
   it('is loadGlobeCanvas.ts, outside tests', { timeout: 30_000 }, () => {
     const importers = sourceFilesMentioning(SCANNED_ROOTS, 'GlobeCanvas')
-      .filter((file) =>
-        runtimeImports(parse(file)).some((specifier) => /(^|\/)GlobeCanvas$/.test(specifier)) &&
-        /\bimport\(\s*['"][^'"]*GlobeCanvas['"]\s*\)/.test(fs.readFileSync(file, 'utf8')),
+      .filter(({ file, text }) =>
+        runtimeImports(parse(file, text)).some((specifier) => /(^|\/)GlobeCanvas$/.test(specifier)) &&
+        /\bimport\(\s*['"][^'"]*GlobeCanvas['"]\s*\)/.test(text),
       )
-      .map((file) => path.relative(FRONTEND, file))
+      .map(({ file }) => path.relative(FRONTEND, file))
     expect(importers).toEqual(['features/scenes/components/loadGlobeCanvas.ts'])
   })
 
@@ -176,11 +179,14 @@ describe('features/scenes and components/layout', () => {
   // A scan of the feature's source tree, cheap for the same reason as the
   // GlobeCanvas scan; the timeout is for a shared CI runner, not for anything
   // async.
+  // A test rather than a lint rule: a no-restricted-imports block over
+  // features/scenes would replace the pane block's next/link options for the
+  // files both blocks match (see the note in eslint.config.mjs).
   it('imports nothing from components/layout', { timeout: 30_000 }, () => {
     // Type-only imports count too: the rule is the dependency direction.
-    const offenders = sourceFilesMentioning(['features/scenes'], 'components/layout').flatMap((file) =>
+    const offenders = sourceFilesMentioning(['features/scenes'], 'components/layout').flatMap(({ file, text }) =>
       ts
-        .preProcessFile(fs.readFileSync(file, 'utf8'), true, true)
+        .preProcessFile(text, true, true)
         .importedFiles.filter(({ fileName }) => isLayoutModule(file, fileName))
         .map(({ fileName }) => `${path.relative(FRONTEND, file)}: ${fileName}`),
     )

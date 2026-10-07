@@ -76,9 +76,9 @@ describe('ChromeLink', () => {
     expect(screen.getByText('Home')).toHaveAttribute('data-prefetch', 'default')
   })
 
-  // The tests above put the visitor on the nav registry's Atlas entry and
-  // expect the hold (lib/atlasMapReadyLink.tsx), while the cap and input
-  // release are armed by app/atlas/page.tsx; all must name the same route.
+  // The hold and the nav registry's Atlas entry both read ATLAS_PATHNAME
+  // (lib/atlasMapReady.ts), while the cap and input release are armed by
+  // app/atlas/page.tsx; the constant must be the route that page serves.
   it('holds on the route app/atlas serves', () => {
     expect(atlasItem.href).toBe('/atlas')
   })

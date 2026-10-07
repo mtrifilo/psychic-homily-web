@@ -4,10 +4,7 @@ import type { ComponentProps } from 'react'
 import { useSyncExternalStore } from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { isAtlasMapReady, subscribeAtlasMapReady } from './atlasMapReady'
-
-/** The route the Atlas page serves; links hold their prefetch only there. */
-const ATLAS_PATHNAME = '/atlas'
+import { ATLAS_PATHNAME, isAtlasMapReady, subscribeAtlasMapReady } from './atlasMapReady'
 
 /**
  * When a link may prefetch while the visitor is on the Atlas:

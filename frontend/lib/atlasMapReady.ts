@@ -13,6 +13,12 @@
  */
 
 /**
+ * The route the Atlas page serves. Links hold their prefetch only there, and
+ * the nav registry's Atlas entry links to it.
+ */
+export const ATLAS_PATHNAME = '/atlas'
+
+/**
  * How long after the Atlas page mounts the signal releases on its own. Links
  * waiting on it resume their viewport prefetch on release (a hover or
  * touchstart during the hold prefetches nothing), so the cap bounds the delay

@@ -6,6 +6,7 @@ import {
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { ATLAS_PATHNAME } from '@/lib/atlasMapReady'
 
 // Shared link data + styling for the app's navigation surfaces (PSY-1013).
 // Originally the top-bar Browse/Contribute tables (which absorbed the 2025
@@ -159,7 +160,7 @@ export const primaryTabs: ReadonlyArray<NavDestination> = [
 // retires both the side rail's old Graph/Atlas double-Orbit and the mobile
 // sheet's Compass.
 export const graphItem: NavDestination = { href: '/graph', label: 'Graph', icon: Orbit }
-export const atlasItem: NavDestination = { href: '/atlas', label: 'Atlas', icon: MapIcon }
+export const atlasItem: NavDestination = { href: ATLAS_PATHNAME, label: 'Atlas', icon: MapIcon }
 
 /**
  * The claim-username self view (PSY-1045). Always an account route for
