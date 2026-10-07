@@ -3,20 +3,7 @@ import { join } from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
 import { render, screen, within } from '@testing-library/react'
 
-vi.mock('next/link', () => ({
-  default: ({
-    href,
-    children,
-    ...rest
-  }: {
-    href: string
-    children: React.ReactNode
-  }) => (
-    <a href={href} {...rest}>
-      {children}
-    </a>
-  ),
-}))
+vi.mock('next/link', () => import('@/test/mocks/nextLink'))
 
 import { SceneWindowNav } from './SceneWindowNav'
 

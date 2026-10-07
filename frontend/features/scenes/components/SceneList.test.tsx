@@ -8,20 +8,7 @@ import type { SceneListResponse } from '../types'
 // so each branch can be driven directly.
 
 // Mock next/link so the grid renders plain anchors in jsdom.
-vi.mock('next/link', () => ({
-  default: ({
-    href,
-    children,
-    ...rest
-  }: {
-    href: string
-    children: React.ReactNode
-  }) => (
-    <a href={href} {...rest}>
-      {children}
-    </a>
-  ),
-}))
+vi.mock('next/link', () => import('@/test/mocks/nextLink'))
 
 const mockUseScenes = vi.fn()
 vi.mock('../hooks', () => ({

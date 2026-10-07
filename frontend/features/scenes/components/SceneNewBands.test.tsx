@@ -3,20 +3,7 @@ import { screen } from '@testing-library/react'
 import { renderWithProviders } from '@/test/utils'
 import type { SceneDetail, SceneNewArtistRow } from '../types'
 
-vi.mock('next/link', () => ({
-  default: ({
-    href,
-    children,
-    ...rest
-  }: {
-    href: string
-    children: React.ReactNode
-  }) => (
-    <a href={href} {...rest}>
-      {children}
-    </a>
-  ),
-}))
+vi.mock('next/link', () => import('@/test/mocks/nextLink'))
 
 const mockUseSceneNewArtists = vi.fn()
 vi.mock('../hooks', () => ({

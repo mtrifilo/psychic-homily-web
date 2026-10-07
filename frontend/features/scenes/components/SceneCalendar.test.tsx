@@ -5,20 +5,7 @@ import { buildSceneSlice, type SceneSliceData } from '../sceneSlice'
 import type { SceneDayResponse } from '../sceneDay'
 import type { SceneDetail, SceneShowSummary } from '../types'
 
-vi.mock('next/link', () => ({
-  default: ({
-    href,
-    children,
-    ...rest
-  }: {
-    href: string
-    children: React.ReactNode
-  }) => (
-    <a href={href} {...rest}>
-      {children}
-    </a>
-  ),
-}))
+vi.mock('next/link', () => import('@/test/mocks/nextLink'))
 
 import { SceneCalendar } from './SceneCalendar'
 

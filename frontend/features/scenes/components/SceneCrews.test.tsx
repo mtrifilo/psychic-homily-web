@@ -4,20 +4,7 @@ import { renderWithProviders } from '@/test/utils'
 import { getCategoryChipClasses } from '@/features/tags/types'
 import type { SceneCrewSummary, SceneDetail } from '../types'
 
-vi.mock('next/link', () => ({
-  default: ({
-    href,
-    children,
-    ...rest
-  }: {
-    href: string
-    children: React.ReactNode
-  }) => (
-    <a href={href} {...rest}>
-      {children}
-    </a>
-  ),
-}))
+vi.mock('next/link', () => import('@/test/mocks/nextLink'))
 
 const mockUseSceneCrews = vi.fn()
 vi.mock('../hooks', () => ({
