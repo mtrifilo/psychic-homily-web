@@ -3,6 +3,7 @@ import { GLOBE_PLACE_LABEL_COLOR } from '../basemap/globeSurface'
 import {
   type Box,
   type GlobePlace,
+  boxRelativeTo,
   facingPoint,
   pickPlaceLabels,
   placeLabelBudget,
@@ -63,18 +64,29 @@ const CHROME_SUBTREE_CHANGES: MutationObserverInit = {
   subtree: true,
 }
 
+interface Control {
+  el: Element
+  rect: DOMRect
+}
+
 /**
  * Collects, under `parent` and outside `skip`, the first elements on each
- * path down that take pointer events. Chrome over the map keeps every wrapper
- * around its controls at `pointer-events: none`, so the map takes drags
- * through the gaps; the walk passes through those wrappers and stops at the
- * controls themselves.
+ * path down that take pointer events and have an area. Chrome over the map
+ * keeps every wrapper around its controls either at `pointer-events: none`,
+ * so the map takes drags through the gaps, or with no area of its own (a
+ * box holding only positioned children, such as MapLibre's control
+ * container); the walk passes through both kinds of wrapper and stops at the
+ * controls themselves. A control with no area (unmounted, `hidden`, an empty
+ * credit) is passed through the same way and holds no spot.
  */
-function collectControls(parent: Element, skip: Element, out: Element[]): void {
+function collectControls(parent: Element, skip: Element, out: Control[]): void {
   for (const child of parent.children) {
     if (child === skip) continue
-    if (getComputedStyle(child).pointerEvents === 'none') collectControls(child, skip, out)
-    else out.push(child)
+    const rect = child.getBoundingClientRect()
+    const passThrough =
+      rect.width <= 0 || rect.height <= 0 || getComputedStyle(child).pointerEvents === 'none'
+    if (passThrough) collectControls(child, skip, out)
+    else out.push({ el: child, rect })
   }
 }
 
@@ -101,8 +113,7 @@ export interface MapChromeWatch {
  * Keeps the boxes of the controls drawn over a map: the page's chrome
  * (`canvasRoot`'s siblings, such as the search pill, Drift, the genre key and
  * the My Scenes chips) and the map's own controls (the credit), relative to
- * the map container. A control with no area (unmounted, `hidden`, an empty
- * credit) holds no spot.
+ * the map container.
  *
  * The boxes are read from the DOM at the start and again once the chrome has
  * held still for CHROME_SETTLE_MS after a resize of the pane or of a control,
@@ -138,7 +149,7 @@ export function watchMapChrome(
   // options), and each control's size. Reads the boxes and reports whether
   // they changed.
   const read = (): boolean => {
-    const controls: Element[] = []
+    const controls: Control[] = []
     if (pane) {
       mutations.observe(pane, { attributes: true, childList: true })
       for (const child of pane.children) {
@@ -151,23 +162,13 @@ export function watchMapChrome(
     }
     collectControls(container, canvasContainer, controls)
 
-    const current = new Set(controls)
+    const current = new Set(controls.map(({ el }) => el))
     for (const el of sized) if (!current.has(el)) resizes.unobserve(el)
     for (const el of current) if (!sized.has(el)) resizes.observe(el)
     sized = current
 
     const origin = container.getBoundingClientRect()
-    const next: Box[] = []
-    for (const el of controls) {
-      const r = el.getBoundingClientRect()
-      if (r.width <= 0 || r.height <= 0) continue
-      next.push({
-        left: r.left - origin.left,
-        top: r.top - origin.top,
-        right: r.right - origin.left,
-        bottom: r.bottom - origin.top,
-      })
-    }
+    const next = controls.map(({ rect }) => boxRelativeTo(rect, origin))
     const differs = !sameBoxes(boxes, next)
     boxes = next
     return differs

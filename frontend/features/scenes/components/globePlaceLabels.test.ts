@@ -41,7 +41,6 @@ type Handler = () => void
 interface FakeMap {
   map: maplibregl.Map
   container: HTMLDivElement
-  canvasContainer: HTMLDivElement
   fire(event: string): void
 }
 
@@ -63,7 +62,6 @@ function fakeMap(container: HTMLDivElement, canvasContainer: HTMLDivElement): Fa
   return {
     map: map as unknown as maplibregl.Map,
     container,
-    canvasContainer,
     fire: (event) => {
       for (const h of handlers.get(event) ?? []) h()
     },
@@ -110,8 +108,6 @@ const CLEAR: Box = { left: 250, top: 400, right: 300, bottom: 414 }
 interface Atlas {
   pane: HTMLDivElement
   canvasRoot: HTMLDivElement
-  column: HTMLDivElement
-  bottomRow: HTMLDivElement
   search: HTMLButtonElement
   drift: HTMLButtonElement
   genres: HTMLDivElement
@@ -124,7 +120,8 @@ interface Atlas {
 /**
  * The sheet layout's DOM: the search pill and a pass-through column (My
  * Scenes at its top, Drift and the genre key at its bottom) beside the map's
- * root; the credit in a pass-through control corner beside the map's canvas.
+ * root; the credit in a pass-through control corner of MapLibre's control
+ * container, beside the map's canvas.
  */
 function buildAtlas(): Atlas {
   const pane = el('div')
@@ -136,7 +133,9 @@ function buildAtlas(): Atlas {
   placeAt(container, { left: 0, top: 0, right: PANE.width, bottom: PANE.height })
   const canvasContainer = el('div')
   placeAt(canvasContainer, { left: 0, top: 0, right: PANE.width, bottom: PANE.height })
-  const controls = el('div', { pointerEvents: 'none' })
+  // MapLibre's control container takes pointer events and has no area of
+  // its own; its corners pass pointer events through.
+  const controls = el('div')
   const corner = el('div', { pointerEvents: 'none' })
   const credit = placeAt(el('div', { pointerEvents: 'auto', text: 'OpenFreeMap © OpenStreetMap' }), CREDIT)
   corner.append(credit)
@@ -162,8 +161,6 @@ function buildAtlas(): Atlas {
   return {
     pane,
     canvasRoot,
-    column,
-    bottomRow,
     search,
     drift,
     genres,

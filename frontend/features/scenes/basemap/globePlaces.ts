@@ -141,6 +141,19 @@ export function dotBox(x: number, y: number, radiusPx: number): Box {
   return { left: x - radiusPx, top: y - radiusPx, right: x + radiusPx, bottom: y + radiusPx }
 }
 
+/** A screen rectangle as a box relative to `origin` (the map container's). */
+export function boxRelativeTo(
+  rect: { left: number; top: number; right: number; bottom: number },
+  origin: { left: number; top: number },
+): Box {
+  return {
+    left: rect.left - origin.left,
+    top: rect.top - origin.top,
+    right: rect.right - origin.left,
+    bottom: rect.bottom - origin.top,
+  }
+}
+
 function overlaps(a: Box, b: Box): boolean {
   const gap = PLACE_LABEL_GAP_PX
   return (
