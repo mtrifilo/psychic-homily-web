@@ -210,6 +210,9 @@ type LoopConfig struct {
 // The loop is driven by a timer rather than a time.Ticker on purpose: every delay
 // is recomputed from the outcome of the previous cycle (ran / refused / due at),
 // so no wait is ever anchored to process start.
+//
+// The loop starts no cycle once it sees the context is done, and a claim that
+// fails on a done context never falls back to running the work unclaimed.
 func RunScheduledLoop(ctx context.Context, cfg LoopConfig, work func(context.Context)) {
 	defer func() {
 		if r := recover(); r != nil {
@@ -237,6 +240,9 @@ func RunScheduledLoop(ctx context.Context, cfg LoopConfig, work func(context.Con
 	// collide with a run already in flight on a draining instance.
 	var next time.Duration
 	if cfg.RunAtBoot {
+		if ctx.Err() != nil {
+			return
+		}
 		ran := runner.runCycle(ctx, true)
 		next = runner.delayAfter(ctx, ran)
 	} else {
@@ -255,6 +261,9 @@ func RunScheduledLoop(ctx context.Context, cfg LoopConfig, work func(context.Con
 // sleepOrStop waits `d`, returning false if the loop should exit instead. A timer
 // rather than time.Sleep so a deploy landing inside a long wait shuts the process
 // down immediately.
+//
+// It returns true only while ctx is live. A select over a fired timer and a done
+// context picks either at random, so the timer case re-checks the context.
 func sleepOrStop(ctx context.Context, stopCh <-chan struct{}, d time.Duration) bool {
 	if d < 0 {
 		d = 0
@@ -267,7 +276,7 @@ func sleepOrStop(ctx context.Context, stopCh <-chan struct{}, d time.Duration) b
 	case <-stopCh:
 		return false
 	case <-timer.C:
-		return true
+		return ctx.Err() == nil
 	}
 }
 
@@ -454,8 +463,11 @@ func (r *loopRunner) firstCycleDelay(ctx context.Context) time.Duration {
 // left a live claim behind, and waiting a full interval on refusal would let one
 // crash cost a daily sweep a whole day. Re-asking the store for the real due time
 // keeps a refusal cheap without turning the loop into a poller.
+//
+// A done context ends the loop at its next wait whatever the delay, so the store
+// is not asked.
 func (r *loopRunner) delayAfter(ctx context.Context, ran bool) time.Duration {
-	if ran || r.store == nil {
+	if ran || r.store == nil || ctx.Err() != nil {
 		return r.interval
 	}
 	due, err := r.store.DueIn(ctx, r.name, r.interval)
@@ -479,6 +491,17 @@ func (r *loopRunner) runCycle(ctx context.Context, force bool) bool {
 
 	token, claimed, err := r.store.Claim(ctx, r.name, r.interval, r.lease, force)
 	if err != nil {
+		if ctx.Err() != nil {
+			// The claim failed because the loop is stopping, not because the
+			// store is unreachable. Running the work now would only run it
+			// unclaimed on a done context. Logged because the statement may
+			// still have committed, leaving a claim that holds until its lease.
+			slog.Default().Info("background service cycle not started: loop stopping during claim",
+				"service", r.name,
+				"error", err,
+			)
+			return false
+		}
 		// Fail open. If the database is unreachable the cycle itself will fail
 		// fast anyway — every one of these loops is database-backed — so running
 		// unclaimed cannot turn into a runaway against a third-party API.
