@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach, afterEach, afterAll } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { act, render, screen } from '@testing-library/react'
 import { AppRouterContext } from 'next/dist/shared/lib/app-router-context.shared-runtime'
 import { atlasItem } from './navData'
@@ -9,55 +9,14 @@ vi.mock('next/navigation', async importOriginal => ({
   usePathname: () => pathname.current,
 }))
 
-// Next's compiler aliases `next/link` to the App Router Link in app code, and
-// `react-server-dom-webpack/client` to its compiled copy
-// (next/dist/build/create-compiler-aliases.js). Vitest applies neither: it
-// would resolve the Pages Router Link, which observes every anchor whatever
-// `prefetch` says. Both aliases are mirrored here, for this file's Link load
-// only.
-vi.mock('next/link', async () => {
-  const { default: Module } = await import('node:module')
-  const resolver = Module as unknown as {
-    _resolveFilename: (request: string, ...rest: unknown[]) => string
-  }
-  const resolve = resolver._resolveFilename
-  resolver._resolveFilename = function (request: string, ...rest: unknown[]) {
-    const aliased =
-      request === 'react-server-dom-webpack/client'
-        ? 'next/dist/compiled/react-server-dom-webpack/client'
-        : request
-    return resolve.call(this, aliased, ...rest)
-  }
-  // The compiled Flight client reads webpack's module hooks at load; nothing
-  // here resolves a server reference, so inert stubs are enough.
-  const hooks = globalThis as unknown as Record<string, unknown>
-  const stubbed: string[] = []
-  if (hooks.__webpack_require__ === undefined) {
-    hooks.__webpack_require__ = () => ({})
-    stubbed.push('__webpack_require__')
-  }
-  if (hooks.__webpack_chunk_load__ === undefined) {
-    hooks.__webpack_chunk_load__ = () => Promise.resolve()
-    stubbed.push('__webpack_chunk_load__')
-  }
-  hooks.__chromeLinkTestWebpackStubs = stubbed
-  // The aliased require runs while the Link's module graph loads, so the
-  // resolver is restored as soon as that load returns.
-  try {
-    const link = await vi.importActual<{ default?: unknown }>('next/dist/client/app-dir/link')
-    return { default: link.default ?? link }
-  } finally {
-    resolver._resolveFilename = resolve
-  }
-})
-
 /**
  * The hold relies on Next's own Link: with `prefetch={false}` it never hands
  * the anchor to its shared IntersectionObserver, and when the prop flips back
  * it does, because the Link's ref callback depends on whether prefetch is
- * enabled. This file runs the REAL next/link and watches that observer (the
- * setup's IntersectionObserver mock, whose prototype Next's instance shares),
- * so a Next upgrade that stops re-observing on the flip fails here.
+ * enabled. This file runs the REAL next/link (the App Router build, which
+ * vitest.config.mts resolves it to) and watches that observer (the setup's
+ * IntersectionObserver mock, whose prototype Next's instance shares), so a
+ * Next upgrade that stops re-observing on the flip fails here.
  */
 const router = {
   back: vi.fn(),
@@ -75,13 +34,6 @@ async function load() {
   const { ChromeLink } = await import('./ChromeLink')
   return { signal, ChromeLink }
 }
-
-afterAll(() => {
-  const hooks = globalThis as unknown as Record<string, unknown>
-  const stubbed = (hooks.__chromeLinkTestWebpackStubs as string[] | undefined) ?? []
-  for (const name of stubbed) delete hooks[name]
-  delete hooks.__chromeLinkTestWebpackStubs
-})
 
 describe('ChromeLink with the real next/link', () => {
   let observe: ReturnType<typeof vi.spyOn>
