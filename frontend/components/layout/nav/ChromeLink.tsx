@@ -11,7 +11,9 @@ import { atlasItem } from './navData'
  * When a chrome link may prefetch while the visitor is on the Atlas:
  * - `'after-map'`: once the Atlas-ready signal releases (lib/atlasMapReady.ts).
  *   The primary navigation uses it: the bottom tab bar, PrimaryNav (top-nav
- *   mode) and the side rail's links (side-nav mode).
+ *   mode) and the side rail's links (side-nav mode). So does every link the
+ *   Atlas draws in its own pane (features/scenes/components: the map's
+ *   overlays, the scene preview, the venue and artist panels).
  * - `'never'` (the default): not on the Atlas at all; the link loads on click.
  *   On a phone each prefetch fetches that route's own JS, and the long tail of
  *   menu, footer and banner links would spend that data on routes most Atlas
@@ -43,8 +45,9 @@ function useChromeHoldsPrefetch(atlasPrefetch: AtlasPrefetch): boolean {
 }
 
 /**
- * `next/link` for the app chrome; the lint rule on `components/layout` keeps
- * the chrome from importing `next/link` directly. `atlasPrefetch` says when the
+ * `next/link` for the app chrome and the Atlas pane's own links; the lint rule
+ * on `components/layout` and the Atlas pane's files keeps them from importing
+ * `next/link` directly. `atlasPrefetch` says when the
  * link may prefetch on the Atlas (see {@link AtlasPrefetch}). While
  * {@link useChromeHoldsPrefetch} holds, the link renders with
  * `prefetch={false}`, which in the App Router also turns off its hover and

@@ -1,11 +1,37 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { fireEvent, screen } from '@testing-library/react'
+import { act, fireEvent, screen } from '@testing-library/react'
+import { isAtlasMapReady, markAtlasMapReady } from '@/lib/atlasMapReady'
 import { renderWithProviders } from '@/test/utils'
 import type { SceneListItem } from '../types'
 
 const mockPush = vi.fn()
 vi.mock('next/navigation', () => ({
   useRouter: () => ({ push: mockPush }),
+  usePathname: () => '/atlas',
+}))
+
+// Surfaces the prefetch prop the link renders with, which decides whether
+// Next arms its prefetch.
+vi.mock('next/link', () => ({
+  default: ({
+    href,
+    children,
+    className,
+    prefetch,
+  }: {
+    href: string
+    children: React.ReactNode
+    className?: string
+    prefetch?: boolean | null
+  }) => (
+    <a
+      href={href}
+      className={className}
+      data-prefetch={prefetch === undefined ? 'default' : String(prefetch)}
+    >
+      {children}
+    </a>
+  ),
 }))
 
 // useMyFollowing pulls AuthContext (unavailable here) — stub the follows hook.
@@ -124,5 +150,24 @@ describe('MyScenesStrip (PSY-1340)', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Faketown, ZZ' }))
     expect(mockPush).toHaveBeenCalledWith('/scenes/faketown-zz')
     expect(onPick).not.toHaveBeenCalled()
+  })
+})
+
+// The map-ready signal is page-load state that only ever releases, so this
+// case, which releases it, is the last in the file and checks it starts held.
+describe('MyScenesStrip prefetch on the Atlas', () => {
+  it('holds its overflow link until the map-ready signal, then re-arms it', () => {
+    expect(isAtlasMapReady()).toBe(false)
+    const resp = follows(
+      Array.from({ length: 12 }, (_, i) => ({ slug: `scene-${i}`, name: `Scene ${i}` })),
+    )
+    mockUseMyFollowing.mockReturnValue(resp)
+    renderWithProviders(<MyScenesStrip scenes={scenes} onPick={vi.fn()} />)
+    const link = screen.getByRole('link', { name: '+4 more' })
+    expect(link).toHaveAttribute('data-prefetch', 'false')
+
+    act(() => markAtlasMapReady())
+
+    expect(link).toHaveAttribute('data-prefetch', 'default')
   })
 })

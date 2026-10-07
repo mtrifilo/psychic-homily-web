@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useRef } from 'react'
-import Link from 'next/link'
+import { ChromeLink } from '@/components/layout/nav/ChromeLink'
 import { DismissableLayer } from '@radix-ui/react-dismissable-layer'
 import { ChevronLeft, ChevronRight, X } from 'lucide-react'
 import { BottomSheet } from '@/components/ui/bottom-sheet'
@@ -327,7 +327,8 @@ export function ArtistPanel({
     </>
   )
   const artistPageLink = (
-    <Link
+    <ChromeLink
+      atlasPrefetch="after-map"
       // Always rendered, and off the STEP's slug when the card hasn't
       // landed — the panel replaced a navigation, so it must never strand
       // the user pathless while a fetch is in flight or after it failed.
@@ -338,7 +339,7 @@ export function ArtistPanel({
       )}
     >
       Open artist page →
-    </Link>
+    </ChromeLink>
   )
 
   if (isSheet) {

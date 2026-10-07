@@ -10,7 +10,7 @@ import {
   type ReactNode,
 } from 'react'
 import dynamic from 'next/dynamic'
-import Link from 'next/link'
+import { ChromeLink } from '@/components/layout/nav/ChromeLink'
 import { useSearchParams } from 'next/navigation'
 import * as Sentry from '@sentry/nextjs'
 import { cn } from '@/lib/utils'
@@ -729,7 +729,8 @@ export function AtlasGlobe() {
     )
     const unplaceableLink =
       unplaceableCount > 0 ? (
-        <Link
+        <ChromeLink
+          atlasPrefetch="after-map"
           href="/scenes"
           /* bottom-11 in the panel layout: the map's attribution control (a
              license requirement) is docked bottom-left there, and this link
@@ -744,7 +745,7 @@ export function AtlasGlobe() {
           {unplaceableCount} more{' '}
           {unplaceableCount === 1 ? 'scene' : 'scenes'} not on the map ·
           View all →
-        </Link>
+        </ChromeLink>
       ) : null
     // The globe's own chrome is a globe-scale toolkit — Drift lands you in
     // another metro, the genre key explains dot tints that aren't drawn at
@@ -943,12 +944,13 @@ export function AtlasGlobe() {
     content = (
       <CenterMessage>
         No scenes to place on the map yet.{' '}
-        <Link
+        <ChromeLink
+          atlasPrefetch="after-map"
           href="/scenes"
           className="text-primary underline-offset-4 hover:underline"
         >
           Browse scenes →
-        </Link>
+        </ChromeLink>
       </CenterMessage>
     )
   } else {

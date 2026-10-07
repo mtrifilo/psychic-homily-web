@@ -16,12 +16,18 @@ vi.mock('next/link', () => ({
   default: ({
     href,
     children,
+    prefetch,
     ...rest
   }: {
     href: string
     children: ReactNode
+    prefetch?: boolean | null
   }) => (
-    <a href={href} {...rest}>
+    <a
+      href={href}
+      {...rest}
+      data-prefetch={prefetch === undefined ? 'default' : String(prefetch)}
+    >
       {children}
     </a>
   ),
@@ -198,7 +204,8 @@ vi.mock('./atlasMapPreload', () => ({
 }))
 
 const markAtlasMapReady = vi.fn()
-vi.mock('@/lib/atlasMapReady', () => ({
+vi.mock('@/lib/atlasMapReady', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/lib/atlasMapReady')>()),
   markAtlasMapReady: () => markAtlasMapReady(),
 }))
 
@@ -2022,6 +2029,28 @@ describe('AtlasGlobe', () => {
           'bottom-sheet',
         )
       })
+    })
+  })
+
+  // The map-ready signal is page-load state that only ever releases, so this
+  // case, which releases it, is the last in the file and checks it starts held.
+  // The module mock above replaces only markAtlasMapReady, so the release goes
+  // through the real module.
+  describe('in-map link prefetch', () => {
+    it('holds the "not on the map" link until the map-ready signal, then re-arms it', async () => {
+      const signal = await vi.importActual<typeof import('@/lib/atlasMapReady')>(
+        '@/lib/atlasMapReady',
+      )
+      expect(signal.isAtlasMapReady()).toBe(false)
+      mockUseScenes.mockReturnValue({ data: sampleData, isLoading: false, isError: false })
+      renderWithProviders(<AtlasGlobe />)
+      await screen.findByTestId('globe-canvas')
+      const link = screen.getByRole('link', { name: /not on the map/i })
+      expect(link).toHaveAttribute('data-prefetch', 'false')
+
+      act(() => signal.markAtlasMapReady())
+
+      expect(link).toHaveAttribute('data-prefetch', 'default')
     })
   })
 })

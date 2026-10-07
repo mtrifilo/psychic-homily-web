@@ -1,22 +1,32 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { fireEvent, render, screen, within } from '@testing-library/react'
+import { act, fireEvent, render, screen, within } from '@testing-library/react'
+import { isAtlasMapReady, markAtlasMapReady } from '@/lib/atlasMapReady'
 import type { ReactNode } from 'react'
 import type { ArtistGraphCard } from '@/features/artists/types'
 import type { ArtistStep } from '../artistDrillIn'
 import { ARTIST_SHOWS_PAGE_LIMIT } from '@/features/artists/api'
 import { ARTIST_PANEL_NEXT_SHOW_ROWS } from '../cityView'
 
+// The Atlas route, where ChromeLink holds a link's prefetch until the map is up.
+vi.mock('next/navigation', () => ({ usePathname: () => '/atlas' }))
+
 vi.mock('next/link', () => ({
   default: ({
     href,
     children,
     className,
+    prefetch,
   }: {
     href: string
     children: ReactNode
     className?: string
+    prefetch?: boolean | null
   }) => (
-    <a href={href} className={className}>
+    <a
+      href={href}
+      className={className}
+      data-prefetch={prefetch === undefined ? 'default' : String(prefetch)}
+    >
       {children}
     </a>
   ),
@@ -558,3 +568,17 @@ describe('ArtistPanel as a bottom sheet', () => {
   })
 })
 
+// The map-ready signal is page-load state that only ever releases, so this
+// case, which releases it, is the last in the file and checks it starts held.
+describe('ArtistPanel prefetch on the Atlas', () => {
+  it('holds its link until the map-ready signal, then re-arms it', () => {
+    expect(isAtlasMapReady()).toBe(false)
+    renderPanel()
+    const link = screen.getByRole('link', { name: /open artist page/i })
+    expect(link).toHaveAttribute('data-prefetch', 'false')
+
+    act(() => markAtlasMapReady())
+
+    expect(link).toHaveAttribute('data-prefetch', 'default')
+  })
+})

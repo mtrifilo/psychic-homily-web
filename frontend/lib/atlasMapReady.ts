@@ -5,8 +5,8 @@
  * error state, nothing to place), or, while the Atlas page has armed them
  * (armAtlasMapReadyFallbacks), on the visitor's first input or at the cap
  * below, whichever comes first. On `/atlas` the chrome's primary links (the
- * bottom tab bar, PrimaryNav) wait for it before they prefetch
- * (components/layout/nav/ChromeLink.tsx).
+ * bottom tab bar, PrimaryNav) and the links the Atlas draws in its own pane
+ * wait for it before they prefetch (components/layout/nav/ChromeLink.tsx).
  *
  * Once released it stays released for the page load, so a later visit to
  * `/atlas` in the same tab holds nothing.
