@@ -4,9 +4,9 @@ import { useCallback, useId, useRef } from 'react'
 import Link from 'next/link'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
-// Concrete module paths, not the `@/features/auth` barrel: that barrel is
-// root-layout reachable and a `'use client'` barrel is not tree-shaken per
-// export. See features/sharedChunkBarrelGuard.test.ts.
+// Concrete module paths, not the `@/features/auth` barrel: a `'use client'`
+// barrel is not tree-shaken per export, so importing one name ships the whole
+// barrel. See features/sharedChunkBarrelGuard.test.ts.
 import { HomeLayoutSettingsList } from '@/features/auth/components/settings/home-layout'
 import { SETTINGS_ANCHOR_SCROLL_MT } from '@/features/auth/components/settings/useAnchorScroll'
 import {

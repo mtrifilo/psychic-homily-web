@@ -36,7 +36,7 @@ vi.mock('../hooks/useAdminFestivals', () => {
 vi.mock('@/features/artists', () => ({
   useArtistSearch: () => ({ data: { artists: [] as unknown[] }, isLoading: false }),
 }))
-vi.mock('@/features/venues', () => ({
+vi.mock('@/features/venues/hooks/useVenueSearch', () => ({
   useVenueSearch: () => ({ data: { venues: [] as unknown[] }, isLoading: false }),
 }))
 

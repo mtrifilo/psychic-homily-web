@@ -7,9 +7,9 @@ import {
   CardHeader,
   CardTitle,
 } from '@/components/ui/card'
-// Concrete module path, not the `@/features/home` barrel: that barrel is
-// root-layout reachable and a `'use client'` barrel is not tree-shaken per
-// export. See features/sharedChunkBarrelGuard.test.ts.
+// Concrete module path, not the `@/features/home` barrel: a `'use client'`
+// barrel is not tree-shaken per export, so importing one name ships the whole
+// barrel. See features/sharedChunkBarrelGuard.test.ts.
 import {
   HomeSectionList,
   SAVE_FAILED_MESSAGE,
