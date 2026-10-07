@@ -118,19 +118,6 @@ export function useInView(ref: RefObject<HTMLElement | null>, rootMargin = '200p
   return inView
 }
 
-/** OS-level reduced-motion preference, kept live. */
-export function usePrefersReducedMotion(): boolean {
-  const [reduced, setReduced] = useState(false)
-  useEffect(() => {
-    const query = window.matchMedia('(prefers-reduced-motion: reduce)')
-    const update = () => setReduced(query.matches)
-    update()
-    query.addEventListener('change', update)
-    return () => query.removeEventListener('change', update)
-  }, [])
-  return reduced
-}
-
 /**
  * A single rAF loop that runs only while `active`. The callback receives the
  * absolute timestamp and a clamped delta (ms). Latest callback is always used

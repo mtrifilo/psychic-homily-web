@@ -1,17 +1,11 @@
 'use client'
 
 import { useCallback, useLayoutEffect, useRef } from 'react'
-import { useMediaQuery } from '@/lib/hooks/common/useMediaQuery'
+import { useReducedMotion } from '@/lib/hooks/common/useReducedMotion'
 
 /** One step of reorder, matched between the popover list and the page behind
  *  it so the two read as the same gesture. */
 export const HOME_REORDER_DURATION_MS = 180
-
-/** Whether the viewer has asked for less motion. Shared primitive rather than
- *  a fourth hand-rolled `matchMedia` read. */
-export function useReducedMotion(): boolean {
-  return useMediaQuery('(prefers-reduced-motion: reduce)')
-}
 
 /** Web Animations is absent in jsdom and in older Safari. Motion is a garnish
  *  here, so its absence must degrade to an instant, correct layout. */

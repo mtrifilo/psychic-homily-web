@@ -13,11 +13,8 @@ import { useAuthContext } from '@/lib/context/AuthContext'
 // Concrete module path, not the `@/components/shared` barrel: this component
 // is reachable from the home route. See features/sharedChunkBarrelGuard.test.ts.
 import { InlineErrorBanner } from '@/components/shared/InlineErrorBanner'
-import {
-  animateSlotHeight,
-  useFlipReorder,
-  useReducedMotion,
-} from '../homeLayoutMotion'
+import { useReducedMotion } from '@/lib/hooks/common/useReducedMotion'
+import { animateSlotHeight, useFlipReorder } from '../homeLayoutMotion'
 import { useHomeLayout, useHomeLayoutWriteFailed } from '../hooks/useHomeLayout'
 import {
   resolveCityLinkSlot,

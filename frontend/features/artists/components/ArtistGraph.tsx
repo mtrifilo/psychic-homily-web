@@ -29,7 +29,7 @@ import { aggregatePairConnections, useConnectionInspect } from '@/components/gra
 import { mergeProvenanceEntities, useConnectionProvenance } from '@/components/graph/useConnectionProvenance'
 import { GraphSkeleton } from '@/components/graph/GraphSkeleton'
 import { useDismissTimer } from '@/lib/hooks/common'
-import { useReducedMotion } from '../hooks/useReducedMotion'
+import { useReducedMotion } from '@/lib/hooks/common/useReducedMotion'
 import { EGO_RING_RADIUS, RING_GAP, pinEgoLayoutPositions } from './egoRingLayout'
 import type { ArtistGraph as ArtistGraphData, ArtistGraphNode } from '../types'
 

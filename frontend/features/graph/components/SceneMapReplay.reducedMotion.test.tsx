@@ -27,7 +27,7 @@ const { canvasProps, motion } = vi.hoisted(() => ({
   motion: { reduced: false },
 }))
 
-vi.mock('@/features/artists/hooks/useReducedMotion', () => ({
+vi.mock('@/lib/hooks/common/useReducedMotion', () => ({
   useReducedMotion: () => motion.reduced,
 }))
 

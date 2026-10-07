@@ -2,6 +2,7 @@ export { useCommandPalette, openCommandPalette } from './useCommandPalette'
 
 export { useHydrated } from './useHydrated'
 export { useMediaQuery } from './useMediaQuery'
+export { useReducedMotion } from './useReducedMotion'
 
 export { useGeoDefaultScene } from './useGeoDefaultScene'
 

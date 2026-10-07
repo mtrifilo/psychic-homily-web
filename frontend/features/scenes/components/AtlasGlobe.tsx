@@ -70,7 +70,7 @@ import { ScenePreviewPanel } from './ScenePreviewPanel'
 import { AtlasSceneList } from './AtlasSceneList'
 import { preloadAtlasMap } from './atlasMapPreload'
 import { GraphSectionErrorBoundary } from '@/components/graph/GraphSectionErrorBoundary'
-import { useReducedMotion } from '@/features/artists/hooks/useReducedMotion'
+import { useReducedMotion } from '@/lib/hooks/common/useReducedMotion'
 import {
   AtlasMapContextError,
   atlasMapFailedThisPage,
