@@ -18,11 +18,11 @@ const tieTrials = 64
 
 // expiredContext returns a context whose deadline has already passed, the state
 // a process's context is in when shutdown lands on the instant a cycle is due.
+// runFor with a zero lifetime runs a loop on the same kind of context.
 func expiredContext(t *testing.T) context.Context {
 	t.Helper()
 	ctx, cancel := context.WithDeadline(context.Background(), time.Now())
 	t.Cleanup(cancel)
-	<-ctx.Done()
 	return ctx
 }
 
@@ -54,11 +54,11 @@ func TestExpiredContextStartsNoCycle_MemStore(t *testing.T) {
 
 		var calls atomic.Int32
 		for i := 0; i < tieTrials; i++ {
-			RunScheduledLoop(expiredContext(t), LoopConfig{
+			runFor(LoopConfig{
 				Name:     "expired-wait",
 				Interval: time.Hour,
 				Store:    store,
-			}, func(context.Context) { calls.Add(1) })
+			}, 0, func(context.Context) { calls.Add(1) })
 		}
 
 		assert.Zero(t, calls.Load(), "no cycle may start on an expired context")
@@ -69,12 +69,12 @@ func TestExpiredContextStartsNoCycle_MemStore(t *testing.T) {
 		store := newMemRunStore()
 
 		var calls atomic.Int32
-		RunScheduledLoop(expiredContext(t), LoopConfig{
+		runFor(LoopConfig{
 			Name:      "expired-boot",
 			Interval:  time.Hour,
 			RunAtBoot: true,
 			Store:     store,
-		}, func(context.Context) { calls.Add(1) })
+		}, 0, func(context.Context) { calls.Add(1) })
 
 		assert.Zero(t, calls.Load(), "RunAtBoot must not start a cycle on an expired context")
 		assert.Zero(t, store.claimed.Load(), "no claim may be taken on an expired context")
@@ -123,12 +123,12 @@ func TestExpiredContextRunsNothingUnclaimed_GormStore(t *testing.T) {
 		// back to StartDelay, and a nanosecond timer is ready by the select.
 		var calls atomic.Int32
 		for i := 0; i < tieTrials; i++ {
-			RunScheduledLoop(expiredContext(t), LoopConfig{
+			runFor(LoopConfig{
 				Name:       "expired-wait-pg",
 				Interval:   time.Hour,
 				StartDelay: time.Nanosecond,
 				Store:      store,
-			}, func(context.Context) { calls.Add(1) })
+			}, 0, func(context.Context) { calls.Add(1) })
 		}
 
 		assert.Zero(t, calls.Load(), "an expired context must not run the work unclaimed")
@@ -137,12 +137,12 @@ func TestExpiredContextRunsNothingUnclaimed_GormStore(t *testing.T) {
 
 	t.Run("boot cycle", func(t *testing.T) {
 		var calls atomic.Int32
-		RunScheduledLoop(expiredContext(t), LoopConfig{
+		runFor(LoopConfig{
 			Name:      "expired-boot-pg",
 			Interval:  time.Hour,
 			RunAtBoot: true,
 			Store:     store,
-		}, func(context.Context) { calls.Add(1) })
+		}, 0, func(context.Context) { calls.Add(1) })
 
 		assert.Zero(t, calls.Load(), "an expired context must not run the boot cycle unclaimed")
 		assert.Zero(t, claimRows(t, "expired-boot-pg"), "an expired context must not leave a claim")
@@ -152,6 +152,7 @@ func TestExpiredContextRunsNothingUnclaimed_GormStore(t *testing.T) {
 		// The context is live when the cycle starts and ends inside Claim, so the
 		// check before the cycle passes and only the claim's failure is left to
 		// stop the work.
+		logs := withCapturedSlog(t)
 		ctx, cancel := context.WithCancel(context.Background())
 		t.Cleanup(cancel)
 
@@ -165,5 +166,7 @@ func TestExpiredContextRunsNothingUnclaimed_GormStore(t *testing.T) {
 
 		assert.Zero(t, calls.Load(), "a claim that failed because the context ended must not run the work unclaimed")
 		assert.Zero(t, claimRows(t, "expired-mid-claim-pg"), "the failed claim must not leave a claim")
+		assert.NotContains(t, logs.String(), "failed",
+			"a loop that stops during its claim must not report a store failure on the way out")
 	})
 }

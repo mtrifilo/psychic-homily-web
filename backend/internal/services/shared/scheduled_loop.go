@@ -211,11 +211,8 @@ type LoopConfig struct {
 // is recomputed from the outcome of the previous cycle (ran / refused / due at),
 // so no wait is ever anchored to process start.
 //
-// A done context ends the loop; it never starts a cycle. Neither the boot cycle
-// nor a cycle whose wait elapsed as the context ended may begin, and a claim that
-// fails once the context is done stops the cycle instead of running the work
-// unclaimed. Shutdown can cut a running cycle short, but it cannot start one
-// outside the claim.
+// The loop starts no cycle once it sees the context is done, and a claim that
+// fails on a done context never falls back to running the work unclaimed.
 func RunScheduledLoop(ctx context.Context, cfg LoopConfig, work func(context.Context)) {
 	defer func() {
 		if r := recover(); r != nil {
@@ -466,8 +463,11 @@ func (r *loopRunner) firstCycleDelay(ctx context.Context) time.Duration {
 // left a live claim behind, and waiting a full interval on refusal would let one
 // crash cost a daily sweep a whole day. Re-asking the store for the real due time
 // keeps a refusal cheap without turning the loop into a poller.
+//
+// A done context ends the loop at its next wait whatever the delay, so the store
+// is not asked.
 func (r *loopRunner) delayAfter(ctx context.Context, ran bool) time.Duration {
-	if ran || r.store == nil {
+	if ran || r.store == nil || ctx.Err() != nil {
 		return r.interval
 	}
 	due, err := r.store.DueIn(ctx, r.name, r.interval)
@@ -490,13 +490,13 @@ func (r *loopRunner) runCycle(ctx context.Context, force bool) bool {
 	}
 
 	token, claimed, err := r.store.Claim(ctx, r.name, r.interval, r.lease, force)
-	if err != nil && ctx.Err() != nil {
-		// The claim failed because the loop is stopping, not because the store
-		// is unreachable. Failing open here would run the work without a claim,
-		// on a context that is already done.
-		return false
-	}
 	if err != nil {
+		if ctx.Err() != nil {
+			// The claim failed because the loop is stopping, not because the
+			// store is unreachable. Running the work now would only run it
+			// unclaimed on a done context.
+			return false
+		}
 		// Fail open. If the database is unreachable the cycle itself will fail
 		// fast anyway — every one of these loops is database-backed — so running
 		// unclaimed cannot turn into a runaway against a third-party API.
