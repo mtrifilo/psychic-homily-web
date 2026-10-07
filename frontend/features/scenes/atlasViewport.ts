@@ -59,7 +59,7 @@ export const ATLAS_REDUCED_MOTION_LIST_BELOW_PX = 640
  * context it requires (at any width), or the visitor prefers reduced motion
  * and the pane is narrower than {@link ATLAS_REDUCED_MOTION_LIST_BELOW_PX}.
  * Separately, `mapFailed` says a map has already failed: in this mount, or,
- * for a refused WebGL2 context, anywhere in this page load (see
+ * for an {@link AtlasMapUnrecoverableError}, anywhere in this page load (see
  * {@link markAtlasMapFailed}). Every other visitor gets the map, phones
  * included.
  */
@@ -79,25 +79,62 @@ export function atlasRendersSceneList({
 }
 
 /**
- * Thrown by the Atlas map when MapLibre could not get a WebGL2 context, a
- * failure that repeats on every later attempt in the same page load. Lives
- * here, not beside the map, so AtlasGlobe can recognise it without importing
- * MapLibre.
+ * The ways an Atlas map can be left unable to draw, each the value of the
+ * `atlas_map_failure` Sentry tag:
+ * - `context-refused`: MapLibre got no WebGL2 context at construction.
+ * - `context-lost`: the context was lost and not restored within
+ *   ATLAS_CONTEXT_RESTORE_DEADLINE_MS of continuously visible time.
+ * - `context-lost-during-restore`: the context was lost again while a
+ *   restored style was still loading, which MapLibre cannot restore either.
+ * - `context-lost-before-style`: the context was lost before the first style
+ *   loaded, which MapLibre cannot restore (it saves only a loaded style).
+ * - `context-restore-refused`: the browser restored the context but MapLibre
+ *   got no WebGL2 context back.
+ * - `style-load-failed`: the style errored before it loaded.
  */
-export class AtlasMapContextError extends Error {
-  constructor() {
-    super('Atlas map: MapLibre could not get a WebGL2 context')
-    this.name = 'AtlasMapContextError'
+export type AtlasMapFailureClass =
+  | 'context-refused'
+  | 'context-lost'
+  | 'context-lost-during-restore'
+  | 'context-lost-before-style'
+  | 'context-restore-refused'
+  | 'style-load-failed'
+
+const FAILURE_MESSAGES: Record<AtlasMapFailureClass, string> = {
+  'context-refused': 'MapLibre could not get a WebGL2 context',
+  'context-lost': 'the WebGL context was lost and not restored',
+  'context-lost-during-restore': 'the WebGL context was lost again during a restore',
+  'context-lost-before-style': 'the WebGL context was lost before the style loaded',
+  'context-restore-refused': 'MapLibre could not get a WebGL2 context back after a restore',
+  'style-load-failed': 'the map style failed to load',
+}
+
+/**
+ * Thrown by the Atlas map when it cannot draw and the Atlas stops waiting for
+ * it to: every {@link AtlasMapFailureClass}. For `context-lost` that is a
+ * decision at a deadline, not proof the browser would never restore. AtlasGlobe
+ * swaps in the scene list for the rest of the page load. Lives here, not
+ * beside the map, so AtlasGlobe can recognise it without importing MapLibre.
+ */
+export class AtlasMapUnrecoverableError extends Error {
+  readonly failureClass: AtlasMapFailureClass
+
+  constructor(failureClass: AtlasMapFailureClass) {
+    super(`Atlas map: ${FAILURE_MESSAGES[failureClass]}`)
+    this.name = 'AtlasMapUnrecoverableError'
+    this.failureClass = failureClass
   }
 }
 
 let atlasMapFailed = false
 
 /**
- * Records that the Atlas map failed in a way a retry would repeat
- * ({@link AtlasMapContextError}), so every later Atlas mount in this page
- * load goes straight to the scene list instead of building (and leaking)
- * another map that would fail the same way.
+ * Records that the Atlas map failed with an {@link AtlasMapUnrecoverableError},
+ * so every later Atlas mount in this page load goes straight to the scene list
+ * instead of building another map. For a refused context and an invalid
+ * inline style a new map would fail the same way; for the loss classes it is
+ * a policy: one map that died is enough to stop building more in this page
+ * load.
  */
 export function markAtlasMapFailed(): void {
   atlasMapFailed = true

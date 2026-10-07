@@ -15,7 +15,12 @@ export type AtlasMapSeam = {
   isStyleLoaded: () => boolean
   areTilesLoaded: () => boolean
   getZoom: () => number
-  getStyle: () => { layers: { id: string; source?: string }[] }
+  getCenter: () => { lng: number; lat: number }
+  getStyle: () => {
+    layers: { id: string; source?: string }[]
+    sources: Record<string, { data?: { features?: unknown[] } }>
+  }
+  once: (type: 'render', listener: () => void) => void
   queryRenderedFeatures: (opts: { layers: string[] }) => unknown[]
   project: (lngLat: [number, number]) => { x: number; y: number }
   getCanvas: () => HTMLCanvasElement
@@ -41,8 +46,12 @@ function venue(id: number, name: string, extra: Record<string, unknown> = {}) {
   }
 }
 
-/** Routes the scenes, venues and venue-shows reads to the Phoenix fixture. */
-export async function stubAtlas(page: Page) {
+/**
+ * Routes the scenes, venues and venue-shows reads to the Phoenix fixture.
+ * `showsThisWeek` above 0 gives the scene a pulse ring, which repaints the
+ * map every frame.
+ */
+export async function stubAtlas(page: Page, { showsThisWeek = 0 } = {}) {
   await page.route(
     (url) => url.pathname.endsWith('/scenes'),
     (route) =>
@@ -56,8 +65,8 @@ export async function stubAtlas(page: Page) {
               venue_count: 3,
               upcoming_show_count: 9,
               total_show_count: 9,
-              shows_this_week: 0,
-              shows_calendar_week: 0,
+              shows_this_week: showsThisWeek,
+              shows_calendar_week: showsThisWeek,
               latitude: PHOENIX.lat,
               longitude: PHOENIX.lng,
             },

@@ -50,7 +50,8 @@ import {
   venuePinRadiusPx,
 } from './venuePinLayer'
 import { readAtlasCamera, saveAtlasCamera } from './atlasCamera'
-import { AtlasMapContextError } from '../atlasViewport'
+import { AtlasMapUnrecoverableError } from '../atlasViewport'
+import { watchAtlasMapHealth } from './atlasMapHealth'
 import {
   ATLAS_TOP_CREDIT_OFFSET_PX,
   CITY_VIEW_MIN_ZOOM,
@@ -292,12 +293,20 @@ export default function GlobeCanvas({
   const sceneLabelsRef = useRef<{ el: HTMLElement; lng: number; lat: number }[]>([])
   const clearVenueHoverRef = useRef<(() => void) | null>(null)
   // The style-loaded map instance, in STATE so the data/label/ring effects
-  // below re-run against each fresh map after a hide/show cycle.
+  // below re-run against each fresh map after a hide/show cycle, and against
+  // the re-created style after a restored WebGL context. Null while the
+  // context is lost.
   const [mapReady, setMapReady] = useState<maplibregl.Map | null>(null)
   // The same map once its first full render is in: style and every visible
   // source loaded. The light globe's overlays wait for it, so their downloads
-  // never hold up that first frame.
+  // never hold up that first frame. It stays set through a lost context, so an
+  // effect that writes to the style also requires mapReady.
   const [mapLoaded, setMapLoaded] = useState<maplibregl.Map | null>(null)
+  // A failure MapLibre reports from outside React (see atlasMapHealth.ts).
+  // Rethrown from render, so it reaches the same error boundary as a failure
+  // inside React.
+  const [unrecoverable, setUnrecoverable] =
+    useState<AtlasMapUnrecoverableError | null>(null)
 
   const selectedSlug = selected?.slug ?? null
 
@@ -310,9 +319,11 @@ export default function GlobeCanvas({
   useEffect(() => {
     if (mapReady) showGlobeSurface(mapReady, lightGlobe)
   }, [mapReady, lightGlobe])
+  // Keyed on mapReady as well, so a restored style (whose sources are new)
+  // gets its boundary data again.
   useEffect(() => {
-    if (mapLoaded && lightGlobe) loadGlobeBoundaries(mapLoaded)
-  }, [mapLoaded, lightGlobe])
+    if (mapReady && mapLoaded && lightGlobe) loadGlobeBoundaries(mapReady)
+  }, [mapReady, mapLoaded, lightGlobe])
 
   // The light globe's place-label data, loaded the first time a loaded map
   // shows the light look and kept for this canvas's lifetime.
@@ -680,7 +691,11 @@ export default function GlobeCanvas({
     })
     return () => {
       cancelAnimationFrame(raf)
-      src.setData(EMPTY_FC)
+      // Read again: after a lost context the captured source belongs to a
+      // destroyed style, and the live map has none until the restore.
+      ;(mapReady.getSource('scene-rings') as maplibregl.GeoJSONSource | undefined)?.setData(
+        EMPTY_FC,
+      )
     }
   }, [mapReady, pulseScenes])
 
@@ -969,7 +984,7 @@ export default function GlobeCanvas({
     // and AtlasGlobe swaps in the scene list. The half-built map is not
     // removed: its remove() needs the painter.
     if (!(map as { painter?: unknown }).painter) {
-      throw new AtlasMapContextError()
+      throw new AtlasMapUnrecoverableError('context-refused')
     }
 
     // Basemap failure signal (PSY-1568, PSY-1936), registered FIRST so the
@@ -982,6 +997,9 @@ export default function GlobeCanvas({
     // basemapTelemetry.ts owns the filtering and the throttle. Removed with
     // the map in cleanup, like every listener here.
     map.on('error', handleBasemapError)
+
+    // Context loss and style failures that leave the map unable to draw.
+    const health = watchAtlasMapHealth(map, setUnrecoverable)
 
     // See the constructor options: bearing/pitch must stay locked at 0 on
     // every input path (the saved camera persists only center/zoom).
@@ -1022,6 +1040,18 @@ export default function GlobeCanvas({
     // the basemap. The harness flag stays on 'load' (full first render).
     map.on('style.load', () => {
       setMapReady(map)
+    })
+    // A lost context destroys the style. While it is gone some style writes
+    // throw (feature state, layout), and until the style MapLibre re-creates
+    // on restore has loaded every checked write throws; reads such as
+    // getSource answer undefined. Clearing mapReady pauses every effect that
+    // writes to the style; the restored style's style.load sets it again, and
+    // they write the current data to it. The null is load-bearing: mapReady
+    // holds the same map object before and after, so only the committed null
+    // in between (the loss and the restored style.load are separate events,
+    // a frame or more apart) makes those effects run again.
+    map.on('webglcontextlost', () => {
+      setMapReady((prev) => (prev === map ? null : prev))
     })
     map.on('load', () => {
       w.__atlasMapLoaded = true
@@ -1079,14 +1109,18 @@ export default function GlobeCanvas({
     }
 
     // Tracked per map instance (fresh map each show → no stale hover).
+    // Feature state lives in the style, so it is written only while the
+    // style is live; a lost context discards it with the style.
     let hoveredSlug: string | null = null
     const setHoverState = (slug: string | null) => {
       if (slug === hoveredSlug) return
-      if (hoveredSlug !== null) {
-        map.removeFeatureState({ source: 'scenes', id: hoveredSlug }, 'hover')
-      }
-      if (slug !== null) {
-        map.setFeatureState({ source: 'scenes', id: slug }, { hover: true })
+      if (health.styleLive()) {
+        if (hoveredSlug !== null) {
+          map.removeFeatureState({ source: 'scenes', id: hoveredSlug }, 'hover')
+        }
+        if (slug !== null) {
+          map.setFeatureState({ source: 'scenes', id: slug }, { hover: true })
+        }
       }
       hoveredSlug = slug
     }
@@ -1143,11 +1177,13 @@ export default function GlobeCanvas({
     let hoveredVenueId: number | null = null
     const setVenueHoverState = (id: number | null) => {
       if (id === hoveredVenueId) return
-      if (hoveredVenueId !== null) {
-        map.removeFeatureState({ source: 'venues', id: hoveredVenueId }, 'hover')
-      }
-      if (id !== null) {
-        map.setFeatureState({ source: 'venues', id }, { hover: true })
+      if (health.styleLive()) {
+        if (hoveredVenueId !== null) {
+          map.removeFeatureState({ source: 'venues', id: hoveredVenueId }, 'hover')
+        }
+        if (id !== null) {
+          map.setFeatureState({ source: 'venues', id }, { hover: true })
+        }
       }
       hoveredVenueId = id
     }
@@ -1220,6 +1256,14 @@ export default function GlobeCanvas({
     // Seam for the non-pointer paths that can invalidate a hover (a rail
     // filter deleting the hovered pin). One function owns the teardown.
     clearVenueHoverRef.current = handleVenueLeave
+    // The hovered dot and pin go with the lost style: their tooltips and the
+    // pointer cursor clear at the loss, and the hover bookkeeping resets so
+    // the restored style starts with nothing hovered. No feature state is
+    // written (the health watch, registered earlier, reports the style down).
+    map.on('webglcontextlost', () => {
+      handleLeave()
+      handleVenueLeave()
+    })
     // A stationary pointer with a moving camera would strand a hovered pin +
     // floating tooltip — same guard the scene layer needs.
     map.on('movestart', handleVenueLeave)
@@ -1300,6 +1344,7 @@ export default function GlobeCanvas({
       clearVenueHoverRef.current = null
       setMapReady((prev) => (prev === map ? null : prev))
       setMapLoaded((prev) => (prev === map ? null : prev))
+      health.stop()
       map.remove()
     }
     // pov is resolved once before this canvas mounts, and flyToRef is a
@@ -1307,6 +1352,8 @@ export default function GlobeCanvas({
     // the canvas's lifetime; everything else this effect reads is a ref or
     // setter, so the camera never re-aims on data re-renders.
   }, [pov, flyToRef])
+
+  if (unrecoverable) throw unrecoverable
 
   return (
     <div

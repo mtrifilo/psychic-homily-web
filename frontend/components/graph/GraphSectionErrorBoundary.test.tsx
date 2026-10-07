@@ -60,6 +60,44 @@ describe('GraphSectionErrorBoundary', () => {
     spy.mockRestore()
   })
 
+  it('adds the tags read from the caught error, keeping its own section tag', () => {
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const errorTags = vi.fn(() => ({ kind: 'boom', section: 'from-error' }))
+    render(
+      <GraphSectionErrorBoundary sentryTag="atlas-map" errorTags={errorTags}>
+        <Boom />
+      </GraphSectionErrorBoundary>,
+    )
+    expect(errorTags).toHaveBeenCalledWith(expect.objectContaining({ message: 'chunk boom' }))
+    expect(captureException).toHaveBeenCalledWith(
+      expect.any(Error),
+      expect.objectContaining({ tags: { kind: 'boom', section: 'atlas-map' } }),
+    )
+    spy.mockRestore()
+  })
+
+  it('still reports and notifies when reading the extra tags throws', () => {
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const onError = vi.fn()
+    render(
+      <GraphSectionErrorBoundary
+        sentryTag="atlas-map"
+        onError={onError}
+        errorTags={() => {
+          throw new Error('tags boom')
+        }}
+      >
+        <Boom />
+      </GraphSectionErrorBoundary>,
+    )
+    expect(captureException).toHaveBeenCalledWith(
+      expect.objectContaining({ message: 'chunk boom' }),
+      expect.objectContaining({ tags: { section: 'atlas-map' } }),
+    )
+    expect(onError).toHaveBeenCalledTimes(1)
+    spy.mockRestore()
+  })
+
   // Recovery is deliberately NOT a boundary "reset": a reset would re-render the
   // same React.lazy, which permanently caches a rejected chunk import and just
   // re-throws. A working retry lives at the surface (InlineGraph), which remounts
