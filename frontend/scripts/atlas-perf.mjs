@@ -77,7 +77,7 @@
 //     finished in the following SETTLE_MS. Reported, not budgeted.
 import { writeFileSync } from 'node:fs'
 import { chromium, devices } from '@playwright/test'
-import { median, resolveBudget, runGate } from './lib/atlas-perf-gate.mjs'
+import { EXIT, median, resolveBudget, runGate } from './lib/atlas-perf-gate.mjs'
 
 const FAST_4G = {
   offline: false,
@@ -100,7 +100,7 @@ const SCENE_LIST_SELECTOR = '[data-testid="atlas-scene-list"]'
 function usage(message) {
   if (message) console.error(`error: ${message}`)
   console.error('usage: node scripts/atlas-perf.mjs <base-url> [--runs N] [--path P] [--city LNG,LAT] [--device iphone13|desktop] [--viewport WxH] [--headed] [--json FILE] [--no-budget] [--budget-ms MS] [--budget-bytes N]')
-  process.exit(2)
+  process.exit(EXIT.HARNESS_ERROR)
 }
 
 function parseArgs(argv) {
@@ -112,9 +112,10 @@ function parseArgs(argv) {
     viewport: null,
     headed: false,
     json: null,
-    budget: true,
+    enforce: true,
   }
   const positional = []
+  const overrides = {}
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i]
     const next = () => {
@@ -131,9 +132,9 @@ function parseArgs(argv) {
       opts.viewport = { width, height }
     } else if (arg === '--headed') opts.headed = true
     else if (arg === '--json') opts.json = next()
-    else if (arg === '--no-budget') opts.budget = false
-    else if (arg === '--budget-ms') opts.budgetMs = next()
-    else if (arg === '--budget-bytes') opts.budgetBytes = next()
+    else if (arg === '--no-budget') opts.enforce = false
+    else if (arg === '--budget-ms') overrides.firstMapMs = next()
+    else if (arg === '--budget-bytes') overrides.entryBytes = next()
     else if (arg.startsWith('--')) usage(`unknown option ${arg}`)
     else positional.push(arg)
   }
@@ -148,9 +149,9 @@ function parseArgs(argv) {
   if (opts.city.length !== 2 || opts.city.some((n) => !Number.isFinite(n))) usage('--city must be LNG,LAT')
   if (!['iphone13', 'desktop'].includes(opts.device)) usage('--device must be iphone13 or desktop')
   if (opts.viewport && !(opts.viewport.width > 0 && opts.viewport.height > 0)) usage('--viewport must be WxH')
-  const { budget, error } = resolveBudget({ firstMapMs: opts.budgetMs, entryBytes: opts.budgetBytes })
+  const { budget, error } = resolveBudget(overrides)
   if (error) usage(error)
-  return { ...opts, url, limits: budget }
+  return { ...opts, url, budget }
 }
 
 function contextOptions(opts) {
@@ -402,13 +403,13 @@ const exitCode = await runGate({
       await browser.close()
     }
   },
-  budget: opts.limits,
+  budget: opts.budget,
   compact: contextOptions(opts).viewport.width <= COMPACT_MAX_WIDTH,
-  enforce: opts.budget,
+  enforce: opts.enforce,
   report: (runs, verdict) => {
     printReport(opts, runs, verdict)
     if (opts.json) {
-      writeFileSync(opts.json, JSON.stringify({ url: opts.url.href, device: opts.device, budget: verdict.budget, target: verdict.target, verdict, runs }, null, 2))
+      writeFileSync(opts.json, JSON.stringify({ url: opts.url.href, device: opts.device, verdict, runs }, null, 2))
     }
   },
   onError: (failure) => {

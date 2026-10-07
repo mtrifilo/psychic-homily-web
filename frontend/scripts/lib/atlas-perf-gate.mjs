@@ -83,7 +83,7 @@ export async function runGate({ count, runOnce, budget, compact, enforce, report
   const runs = []
   for (let i = 0; i < count; i++) {
     try {
-      runs.push(await runOnce(i))
+      runs.push(await runOnce())
     } catch (error) {
       onError(error)
       return EXIT.HARNESS_ERROR

@@ -1,8 +1,9 @@
 name: Atlas Perf
 
 # Runs frontend/scripts/atlas-perf.mjs against the PR's Vercel preview: three
-# cold runs, medians checked against the script's budget (first rendered map
-# at most 3.5 s, entry at most 1.5 MiB), with the report in the job summary.
+# cold runs, medians checked against the script's budget (GATE in
+# frontend/scripts/lib/atlas-perf-gate.mjs), with the report in the job
+# summary.
 #
 # NON-BLOCKING: the job sets `continue-on-error: true`, so a missed budget or
 # a harness error marks the job but never fails the workflow run.
@@ -24,6 +25,11 @@ on:
       - frontend/next.config.*
       - .github/workflows/atlas-perf.yml
 
+# A newer push to the same PR supersedes a run still waiting or measuring.
+concurrency:
+  group: atlas-perf-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
 # Default for jobs without their own block; a job-scoped `permissions:` block
 # REPLACES this rather than extending it.
 permissions:
@@ -34,8 +40,8 @@ jobs:
     name: Atlas perf (preview)
     runs-on: ubuntu-latest
     continue-on-error: true
-    # Step caps: preview wait 12 + reachability 6 + Playwright deps 10 +
-    # browsers 4 + measurement 15 = 47, plus about 4 for checkout, bun and
+    # Step caps: Playwright deps 10 + browsers 4 + preview wait 12 +
+    # reachability 6 + measurement 15 = 47, plus about 4 for checkout, bun and
     # the install. 60 leaves slack so a step cap fires before the job cap.
     timeout-minutes: 60
     # `deployments: read` for the preview discovery; `contents: read` for
@@ -45,13 +51,42 @@ jobs:
       contents: read
       deployments: read
     env:
-      # AtlasGlobe renders the scene list instead of the map in a container
-      # narrower than GLOBE_BREAKPOINT_PX (640), so the script's 390x844 phone
-      # profile cannot measure a build that has that gate. 800x1000 renders
-      # the compact map and stands in for the phone profile.
+      # Stands in for the script's 390x844 phone profile, which cannot measure
+      # a build that renders the scene list at that width (see the script
+      # header).
       ATLAS_PERF_VIEWPORT: 800x1000
     steps:
       - uses: actions/checkout@v4
+
+      # Setup needs no preview, so it runs while Vercel is still building.
+      - uses: oven-sh/setup-bun@v2
+
+      - name: Install frontend dependencies
+        working-directory: ./frontend
+        run: bun install --frozen-lockfile
+
+      # The same key as ci.yml's Playwright cache, which main's e2e job
+      # writes; restore only.
+      - name: Restore Playwright browser cache
+        id: playwright-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: v1-playwright-${{ runner.os }}-${{ hashFiles('frontend/bun.lock') }}
+
+      - name: Harden apt against mirror stalls
+        uses: ./.github/actions/harden-apt
+
+      - name: Install Playwright system deps
+        working-directory: ./frontend
+        timeout-minutes: 10
+        run: ./node_modules/.bin/playwright install-deps chromium
+
+      - name: Install Playwright browsers
+        if: steps.playwright-cache.outputs.cache-hit != 'true'
+        working-directory: ./frontend
+        timeout-minutes: 4
+        run: ./node_modules/.bin/playwright install chromium
 
       # The script polls for up to 10 minutes; the cap adds room for the API
       # calls themselves.
@@ -121,35 +156,6 @@ jobs:
           done
           echo "::error::Preview /atlas never returned 200 with the bypass header after 5 minutes."
           exit 1
-
-      - uses: oven-sh/setup-bun@v2
-
-      - name: Install frontend dependencies
-        working-directory: ./frontend
-        run: bun install --frozen-lockfile
-
-      # The same key as ci.yml's Playwright cache, which main's e2e job
-      # writes; restore only.
-      - name: Restore Playwright browser cache
-        id: playwright-cache
-        uses: actions/cache/restore@v4
-        with:
-          path: ~/.cache/ms-playwright
-          key: v1-playwright-${{ runner.os }}-${{ hashFiles('frontend/bun.lock') }}
-
-      - name: Harden apt against mirror stalls
-        uses: ./.github/actions/harden-apt
-
-      - name: Install Playwright system deps
-        working-directory: ./frontend
-        timeout-minutes: 10
-        run: ./node_modules/.bin/playwright install-deps chromium
-
-      - name: Install Playwright browsers
-        if: steps.playwright-cache.outputs.cache-hit != 'true'
-        working-directory: ./frontend
-        timeout-minutes: 4
-        run: ./node_modules/.bin/playwright install chromium
 
       # A run is bounded by the script's three 90 s waits (navigation, first
       # map, city view) plus 6 s of settling, so three runs fit in 15 minutes.
