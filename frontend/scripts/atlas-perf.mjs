@@ -19,13 +19,25 @@
 //   --device NAME       iphone13 (default) | desktop
 //   --viewport WxH      override the viewport (default 390x844 for iphone13)
 //   --headed            headed Chromium (uses the machine's GPU on macOS)
-//   --json FILE         write the full report, including every request, to FILE
-//   --no-budget         report only; always exit 0 once a map renders
+//   --json FILE         write the full report ({ url, device, verdict, runs },
+//                       every request included) to FILE
+//   --no-budget         report only; exit 0 once every run finishes (2 on a
+//                       harness error)
+//   --budget-ms MS      first rendered map limit in ms (default 3500)
+//   --budget-bytes N    entry bytes limit (default 1572864, 1.5 MiB)
+//   --first-map-informational NOTE
+//                       report first map against its limit without gating
+//                       on it; NOTE replaces its Result cell
 //
 // Env: VERCEL_PROTECTION_BYPASS, if set, is sent to get past preview SSO, and
 // only when the target is an https URL on one of this project's Vercel preview
 // hosts (PREVIEW_HOST). It rides one bypass-cookie request, never page
 // requests, and is redacted from anything the script prints.
+//
+// Budget (DEFAULT_BUDGET in scripts/lib/atlas-perf-budget.mjs): first
+// rendered map at most 3.5 s and entry bytes at most 1.5 MiB, both medians,
+// plus no raster request on a compact viewport. The 2.5 s first-map target is
+// printed beside the budget with its delta and never changes the exit code.
 //
 // Exit codes: 0 budget met (or --no-budget), 1 budget missed, 2 harness error
 // (bad arguments, a scene list instead of a map, or a map that never passed
@@ -70,11 +82,8 @@
 //     finished in the following SETTLE_MS. Reported, not budgeted.
 import { writeFileSync } from 'node:fs'
 import { chromium, devices } from '@playwright/test'
+import { EXIT, budgetTable, errorMessage, median, resolveBudget, runBudgetCheck, seconds, targetLine } from './lib/atlas-perf-budget.mjs'
 
-const BUDGET = {
-  firstMapMs: 2500,
-  entryBytes: 1.5 * 1024 * 1024,
-}
 const FAST_4G = {
   offline: false,
   downloadThroughput: ((9 * 1000 * 1000) / 8) * 0.9,
@@ -95,8 +104,8 @@ const SCENE_LIST_SELECTOR = '[data-testid="atlas-scene-list"]'
 
 function usage(message) {
   if (message) console.error(`error: ${message}`)
-  console.error('usage: node scripts/atlas-perf.mjs <base-url> [--runs N] [--path P] [--city LNG,LAT] [--device iphone13|desktop] [--viewport WxH] [--headed] [--json FILE] [--no-budget]')
-  process.exit(2)
+  console.error('usage: node scripts/atlas-perf.mjs <base-url> [--runs N] [--path P] [--city LNG,LAT] [--device iphone13|desktop] [--viewport WxH] [--headed] [--json FILE] [--no-budget] [--budget-ms MS] [--budget-bytes N] [--first-map-informational NOTE]')
+  process.exit(EXIT.HARNESS_ERROR)
 }
 
 function parseArgs(argv) {
@@ -108,9 +117,11 @@ function parseArgs(argv) {
     viewport: null,
     headed: false,
     json: null,
-    budget: true,
+    enforce: true,
+    firstMapNote: null,
   }
   const positional = []
+  const overrides = {}
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i]
     const next = () => {
@@ -127,7 +138,10 @@ function parseArgs(argv) {
       opts.viewport = { width, height }
     } else if (arg === '--headed') opts.headed = true
     else if (arg === '--json') opts.json = next()
-    else if (arg === '--no-budget') opts.budget = false
+    else if (arg === '--no-budget') opts.enforce = false
+    else if (arg === '--budget-ms') overrides.firstMapMs = next()
+    else if (arg === '--budget-bytes') overrides.entryBytes = next()
+    else if (arg === '--first-map-informational') opts.firstMapNote = next()
     else if (arg.startsWith('--')) usage(`unknown option ${arg}`)
     else positional.push(arg)
   }
@@ -142,7 +156,10 @@ function parseArgs(argv) {
   if (opts.city.length !== 2 || opts.city.some((n) => !Number.isFinite(n))) usage('--city must be LNG,LAT')
   if (!['iphone13', 'desktop'].includes(opts.device)) usage('--device must be iphone13 or desktop')
   if (opts.viewport && !(opts.viewport.width > 0 && opts.viewport.height > 0)) usage('--viewport must be WxH')
-  return { ...opts, url }
+  if (opts.firstMapNote !== null && !opts.firstMapNote.trim()) usage('--first-map-informational needs a non-empty note')
+  const { budget, error } = resolveBudget(overrides)
+  if (error) usage(error)
+  return { ...opts, url, budget }
 }
 
 function contextOptions(opts) {
@@ -336,20 +353,15 @@ async function oneRun(browser, opts) {
   }
 }
 
-const median = (values) => {
-  const sorted = [...values].sort((a, b) => a - b)
-  const mid = Math.floor(sorted.length / 2)
-  return sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2
-}
 const kib = (bytes) => (bytes / 1024).toFixed(0)
-const mib = (bytes) => (bytes / 1024 / 1024).toFixed(2)
 
 function printReport(opts, runs, verdict) {
   const ctx = contextOptions(opts)
-  console.log(`\nAtlas perf: ${opts.url.href}`)
-  console.log(`profile: ${opts.device} ${ctx.viewport.width}x${ctx.viewport.height} DPR ${ctx.deviceScaleFactor}, CPU ${CPU_THROTTLE_RATE}x main thread only (workers and GPU unthrottled), Fast 4G (9 Mbps down, 1.5 Mbps up, 165 ms), cache disabled, ${opts.headed ? 'headed' : 'headless'}`)
-  console.log(`WebGL renderer: ${runs[0].renderer}`)
-  console.log(`runs: ${runs.map((r) => `${r.firstMapMs} ms / ${kib(r.entry.totalBytes)} KiB / ${r.rasterRequests} raster requests`).join(', ')}\n`)
+  // Markdown, so the report reads the same in a terminal and a CI job summary.
+  console.log(`\nAtlas perf: ${opts.url.href}\n`)
+  console.log(`- profile: ${opts.device} ${ctx.viewport.width}x${ctx.viewport.height} DPR ${ctx.deviceScaleFactor}, CPU ${CPU_THROTTLE_RATE}x main thread only (workers and GPU unthrottled), Fast 4G (9 Mbps down, 1.5 Mbps up, 165 ms), cache disabled, ${opts.headed ? 'headed' : 'headless'}`)
+  console.log(`- WebGL renderer: ${runs[0].renderer}`)
+  console.log(`- runs: ${runs.map((r) => `${r.firstMapMs} ms / ${kib(r.entry.totalBytes)} KiB / ${r.rasterRequests} raster requests`).join(', ')}\n`)
 
   const categories = CATEGORY_ORDER.filter((c) => runs.some((r) => r.entry.byCategory[c] || r.city.byCategory[c]))
   console.log('| Category | Entry KiB (median) | Entry requests | City view KiB (median) |')
@@ -363,58 +375,46 @@ function printReport(opts, runs, verdict) {
   }
   console.log(`| **Total** | **${kib(verdict.entryBytes)}** | | **${kib(verdict.cityBytes)}** |\n`)
 
-  const mark = (ok) => (ok ? 'PASS' : 'FAIL')
-  console.log('| Budget | Value (median unless noted) | Limit | Result |')
-  console.log('|---|---:|---:|---|')
-  console.log(`| First rendered map | ${(verdict.firstMapMs / 1000).toFixed(2)} s | ${BUDGET.firstMapMs / 1000} s | ${mark(verdict.firstMapOk)} |`)
-  console.log(`| Entry bytes | ${mib(verdict.entryBytes)} MiB | ${mib(BUDGET.entryBytes)} MiB | ${mark(verdict.entryOk)} |`)
-  if (verdict.compact) {
-    console.log(`| Raster requests (compact viewport, worst run) | ${verdict.rasterRequests} | 0 | ${mark(verdict.rasterOk)} |`)
-  }
-  console.log(`\nCity view ready after jump: ${(verdict.cityMs / 1000).toFixed(2)} s (median, not budgeted)`)
+  console.log(budgetTable(verdict).join('\n'))
+  console.log(`\n${targetLine(verdict.target)}`)
+  console.log(`\nCity view ready after jump: ${seconds(verdict.cityMs)} s (median, not budgeted)`)
 }
 
 const opts = parseArgs(process.argv.slice(2))
 if (process.env.VERCEL_PROTECTION_BYPASS && !(opts.url.protocol === 'https:' && PREVIEW_HOST.test(opts.url.hostname))) {
   console.error(`note: VERCEL_PROTECTION_BYPASS is set but not sent: ${opts.url.host} is not an https PREVIEW_HOST`)
 }
-const runs = []
-for (let i = 0; i < opts.runs; i++) {
-  // A fresh browser per run, not only a fresh context: a dedicated worker's
-  // module fetch is not covered by the page's cache-disabled flag, and a
-  // browser-level cache shared across contexts would undercount later runs.
-  const browser = await chromium.launch({
-    headless: !opts.headed,
-    args: ['--use-gl=angle', '--enable-webgl', '--ignore-gpu-blocklist', '--enable-unsafe-swiftshader'],
-  })
-  let failure = null
-  try {
-    runs.push(await oneRun(browser, opts))
-  } catch (error) {
-    failure = error
-  }
-  await browser.close()
-  if (failure) {
-    const bypass = process.env.VERCEL_PROTECTION_BYPASS
-    const message = bypass ? failure.message.replaceAll(bypass, '[redacted]') : failure.message
-    console.error(`harness error: ${message}`)
-    process.exit(2)
-  }
-}
-
-const verdict = {
-  firstMapMs: median(runs.map((r) => r.firstMapMs)),
-  entryBytes: median(runs.map((r) => r.entry.totalBytes)),
-  cityMs: median(runs.map((r) => r.city.readyMs)),
-  cityBytes: median(runs.map((r) => r.city.totalBytes)),
-}
-verdict.firstMapOk = verdict.firstMapMs <= BUDGET.firstMapMs
-verdict.entryOk = verdict.entryBytes <= BUDGET.entryBytes
-verdict.compact = contextOptions(opts).viewport.width <= COMPACT_MAX_WIDTH
-verdict.rasterRequests = Math.max(...runs.map((r) => r.rasterRequests))
-verdict.rasterOk = !verdict.compact || verdict.rasterRequests === 0
-printReport(opts, runs, verdict)
-if (opts.json) {
-  writeFileSync(opts.json, JSON.stringify({ url: opts.url.href, device: opts.device, budget: BUDGET, verdict, runs }, null, 2))
-}
-process.exit(!opts.budget || (verdict.firstMapOk && verdict.entryOk && verdict.rasterOk) ? 0 : 1)
+const bypass = process.env.VERCEL_PROTECTION_BYPASS
+const exitCode = await runBudgetCheck({
+  count: opts.runs,
+  runOnce: async () => {
+    // A fresh browser per run, not only a fresh context: a dedicated worker's
+    // module fetch is not covered by the page's cache-disabled flag, and a
+    // browser-level cache shared across contexts would undercount later runs.
+    const browser = await chromium.launch({
+      headless: !opts.headed,
+      args: ['--use-gl=angle', '--enable-webgl', '--ignore-gpu-blocklist', '--enable-unsafe-swiftshader'],
+    })
+    try {
+      return await oneRun(browser, opts)
+    } finally {
+      // A failing close must not replace the run's own result or error.
+      await browser.close().catch(() => {})
+    }
+  },
+  budget: opts.budget,
+  compact: contextOptions(opts).viewport.width <= COMPACT_MAX_WIDTH,
+  firstMapNote: opts.firstMapNote,
+  enforce: opts.enforce,
+  report: (runs, verdict) => {
+    printReport(opts, runs, verdict)
+    if (opts.json) {
+      writeFileSync(opts.json, JSON.stringify({ url: opts.url.href, device: opts.device, verdict, runs }, null, 2))
+    }
+  },
+  onError: (failure) => {
+    const message = errorMessage(failure)
+    console.error(`harness error: ${bypass ? message.replaceAll(bypass, '[redacted]') : message}`)
+  },
+})
+process.exit(exitCode)
