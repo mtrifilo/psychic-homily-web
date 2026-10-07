@@ -357,6 +357,7 @@ export function BottomTabBar() {
             <ChromeLink
               key={tab.href}
               href={tab.href}
+              atlasPrefetch="after-map"
               aria-current={active ? 'page' : undefined}
               className={tabClassName(active)}
             >
@@ -405,6 +406,7 @@ export function BottomTabBar() {
             // See `currentLocationReturnTo` for why a query string cannot be
             // read here.
             href={buildAuthHref(pathname)}
+            atlasPrefetch="after-map"
             aria-current={accountActive ? 'page' : undefined}
             className={tabClassName(accountActive)}
           >
