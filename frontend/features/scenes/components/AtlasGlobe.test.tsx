@@ -5,6 +5,7 @@ import type { MutableRefObject, ReactNode } from 'react'
 import { renderWithProviders } from '@/test/utils'
 import type { SceneListResponse } from '../types'
 import type { PlaceableScene } from './globeTypes'
+import type { AtlasMapFailureClass } from '../atlasViewport'
 
 // AtlasGlobe statically imports only `globeTypes` (no react-globe.gl) and
 // dynamic-imports GlobeCanvas (ssr:false). In jsdom we exercise the testable
@@ -160,10 +161,9 @@ let lastCanvasProps: {
   scenes?: readonly PlaceableScene[]
   onSelect?: (scene: PlaceableScene) => void
 } = {}
-// Set by a case to make the canvas throw from its mount effect, as the real
-// GlobeCanvas does when MapLibre gets no WebGL2 context ('context') or a lost
-// context is not restored ('lost').
-let mockCanvasThrowsOnStart: false | 'context' | 'lost' | 'other' = false
+// Set by a case to make the canvas throw from its mount effect: a failure
+// class, as the real GlobeCanvas throws when its map cannot draw, or 'other'.
+let mockCanvasThrowsOnStart: false | AtlasMapFailureClass | 'other' = false
 vi.mock('./GlobeCanvas', async () => {
   const { useEffect } = await import('react')
   const { AtlasMapUnrecoverableError } = await import('../atlasViewport')
@@ -176,9 +176,8 @@ vi.mock('./GlobeCanvas', async () => {
       if (props.flyToRef) props.flyToRef.current = flyToSpy
       lastCanvasProps = props
       useEffect(() => {
-        if (mockCanvasThrowsOnStart === 'context') throw new AtlasMapUnrecoverableError('context-refused')
-        if (mockCanvasThrowsOnStart === 'lost') throw new AtlasMapUnrecoverableError('context-lost')
         if (mockCanvasThrowsOnStart === 'other') throw new Error('a later effect threw')
+        if (mockCanvasThrowsOnStart) throw new AtlasMapUnrecoverableError(mockCanvasThrowsOnStart)
       }, [])
       return <div data-testid="globe-canvas" />
     },
@@ -453,7 +452,7 @@ describe('AtlasGlobe', () => {
       'falls back to the list when the map throws while starting, on a %ipx pane',
       async (width) => {
         const quiet = vi.spyOn(console, 'error').mockImplementation(() => {})
-        mockCanvasThrowsOnStart = 'context'
+        mockCanvasThrowsOnStart = 'context-refused'
         setMockContainerWidth(width)
         renderWithScenes()
         await waitFor(() =>
@@ -466,7 +465,7 @@ describe('AtlasGlobe', () => {
 
     it('goes straight to the list on a later mount once the map was refused a context', async () => {
       const quiet = vi.spyOn(console, 'error').mockImplementation(() => {})
-      mockCanvasThrowsOnStart = 'context'
+      mockCanvasThrowsOnStart = 'context-refused'
       setMockContainerWidth(390)
       mockUseScenes.mockReturnValue({ data: sampleData, isLoading: false, isError: false })
       const first = renderWithProviders(<AtlasGlobe />)
@@ -484,7 +483,7 @@ describe('AtlasGlobe', () => {
     it('latches the list and tags Sentry when a lost context is not restored', async () => {
       const quiet = vi.spyOn(console, 'error').mockImplementation(() => {})
       captureException.mockClear()
-      mockCanvasThrowsOnStart = 'lost'
+      mockCanvasThrowsOnStart = 'context-lost'
       setMockContainerWidth(390)
       renderWithScenes()
       await waitFor(() => expect(screen.getByTestId('atlas-scene-list')).toBeInTheDocument())
@@ -495,27 +494,19 @@ describe('AtlasGlobe', () => {
       quiet.mockRestore()
     })
 
-    it('reports a failure that is not unrecoverable with the section tag alone', async () => {
-      const quiet = vi.spyOn(console, 'error').mockImplementation(() => {})
-      captureException.mockClear()
-      mockCanvasThrowsOnStart = 'other'
-      setMockContainerWidth(390)
-      renderWithScenes()
-      await waitFor(() => expect(screen.getByTestId('atlas-scene-list')).toBeInTheDocument())
-      expect(captureException).toHaveBeenCalledWith(expect.any(Error), {
-        tags: { section: 'atlas-map' },
-      })
-      quiet.mockRestore()
-    })
-
     it('falls back for this mount only when the map throws something else', async () => {
       const quiet = vi.spyOn(console, 'error').mockImplementation(() => {})
+      captureException.mockClear()
       mockCanvasThrowsOnStart = 'other'
       setMockContainerWidth(390)
       mockUseScenes.mockReturnValue({ data: sampleData, isLoading: false, isError: false })
       const first = renderWithProviders(<AtlasGlobe />)
       await waitFor(() => expect(screen.getByTestId('atlas-scene-list')).toBeInTheDocument())
       expect(mockMapFailedThisPage).toBe(false)
+      // Reported with the section tag alone: it carries no failure class.
+      expect(captureException).toHaveBeenCalledWith(expect.any(Error), {
+        tags: { section: 'atlas-map' },
+      })
       first.unmount()
 
       mockCanvasThrowsOnStart = false

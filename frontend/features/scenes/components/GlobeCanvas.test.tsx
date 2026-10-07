@@ -320,32 +320,28 @@ describe('GlobeCanvas pulse rings', () => {
     expect(ringFeatureCounts()).not.toContain(1)
   })
 
-  it('pauses the ring paint from a lost context until the restored style loads', () => {
+  it('stops the rings while the context is lost and restarts them on the restored style', () => {
     matchMedia = installMatchMedia({ [REDUCED_MOTION_QUERY]: false })
-    vi.spyOn(stub.StubMap.prototype, 'getSource').mockReturnValue({ setData: vi.fn() })
-    const frames: FrameRequestCallback[] = []
-    vi.spyOn(window, 'requestAnimationFrame').mockImplementation((callback) => {
-      frames.push(callback)
-      return frames.length
-    })
-    vi.spyOn(window, 'cancelAnimationFrame').mockImplementation(() => {})
+    const setData = vi.fn()
+    vi.spyOn(stub.StubMap.prototype, 'getSource').mockReturnValue({ setData })
+    const raf = vi.spyOn(window, 'requestAnimationFrame').mockReturnValue(7)
+    const cancel = vi.spyOn(window, 'cancelAnimationFrame').mockImplementation(() => {})
     const { map } = renderCanvas({ scenes: [{ ...CHICAGO, shows_this_week: 2 }] })
-    const runFrame = () => frames.shift()!(16)
-
-    runFrame()
-    expect(map.setPaintProperty).toHaveBeenCalledTimes(2)
+    expect(raf).toHaveBeenCalledTimes(1)
 
     act(() => map.fire('webglcontextlost'))
+    expect(cancel).toHaveBeenCalledWith(7)
     act(() => map.fire('webglcontextrestored'))
-    map.setPaintProperty.mockClear()
-    runFrame()
-    expect(map.setPaintProperty).not.toHaveBeenCalled()
-    // Still scheduled: the loop waits rather than ending.
-    expect(frames).toHaveLength(1)
+    expect(raf).toHaveBeenCalledTimes(1)
 
+    setData.mockClear()
     act(() => map.fire('style.load'))
-    runFrame()
-    expect(map.setPaintProperty).toHaveBeenCalledTimes(2)
+    expect(raf).toHaveBeenCalledTimes(2)
+    // The restored style gets the current scenes and rings again.
+    const featureCounts = setData.mock.calls.map(
+      ([fc]) => (fc as { features: unknown[] }).features.length,
+    )
+    expect(featureCounts.filter((n) => n === 1).length).toBeGreaterThanOrEqual(2)
   })
 
   it('starts the rings again when reduced motion is turned off', () => {
@@ -364,6 +360,39 @@ describe('GlobeCanvas pulse rings', () => {
   })
 })
 
+/**
+ * The canvas inside the error boundary AtlasGlobe wraps it in, with a style
+ * load fired or not. Console errors are silenced: React logs every error a
+ * boundary catches.
+ */
+function renderInBoundary({ styleLoaded }: { styleLoaded: boolean }) {
+  vi.spyOn(console, 'error').mockImplementation(() => {})
+  const onError = vi.fn()
+  const onCameraSettle = vi.fn()
+  render(
+    <GraphSectionErrorBoundary sentryTag="atlas-map-test" onError={onError}>
+      <GlobeCanvas
+        width={390}
+        height={723}
+        scenes={[CHICAGO]}
+        pov={{ lat: 41.88, lng: -87.63, altitude: 1.6 }}
+        onSelect={vi.fn()}
+        onCameraSettle={onCameraSettle}
+      />
+    </GraphSectionErrorBoundary>,
+  )
+  const map = stub.state.maps[stub.state.maps.length - 1]
+  if (styleLoaded) act(() => map.fire('style.load'))
+  return { map, onError, onCameraSettle }
+}
+
+function expectFellBack(onError: ReturnType<typeof vi.fn>, failureClass: string) {
+  expect(onError).toHaveBeenCalledTimes(1)
+  expect(onError.mock.calls[0][0]).toBeInstanceOf(AtlasMapUnrecoverableError)
+  expect(onError.mock.calls[0][0]).toMatchObject({ failureClass })
+  expect(screen.queryByTestId('globe-cursor-wrap')).not.toBeInTheDocument()
+}
+
 describe('GlobeCanvas without a WebGL2 context', () => {
   beforeEach(() => {
     stub.state.maps = []
@@ -377,23 +406,8 @@ describe('GlobeCanvas without a WebGL2 context', () => {
   })
 
   it('throws to its error boundary when MapLibre comes up without a painter', () => {
-    const quiet = vi.spyOn(console, 'error').mockImplementation(() => {})
-    const onError = vi.fn()
-    render(
-      <GraphSectionErrorBoundary sentryTag="atlas-map-test" onError={onError}>
-        <GlobeCanvas
-          width={390}
-          height={723}
-          scenes={[CHICAGO]}
-          pov={{ lat: 41.88, lng: -87.63, altitude: 1.6 }}
-          onSelect={vi.fn()}
-        />
-      </GraphSectionErrorBoundary>,
-    )
-    expect(onError).toHaveBeenCalledTimes(1)
-    expect(onError.mock.calls[0][0]).toBeInstanceOf(AtlasMapUnrecoverableError)
-    expect(onError.mock.calls[0][0]).toMatchObject({ failureClass: 'context-refused' })
-    quiet.mockRestore()
+    const { onError } = renderInBoundary({ styleLoaded: false })
+    expectFellBack(onError, 'context-refused')
   })
 })
 
@@ -408,34 +422,6 @@ describe('GlobeCanvas failures MapLibre reports outside React', () => {
     vi.useRealTimers()
     vi.restoreAllMocks()
   })
-
-  function renderInBoundary({ styleLoaded }: { styleLoaded: boolean }) {
-    vi.spyOn(console, 'error').mockImplementation(() => {})
-    const onError = vi.fn()
-    const onCameraSettle = vi.fn()
-    render(
-      <GraphSectionErrorBoundary sentryTag="atlas-map-test" onError={onError}>
-        <GlobeCanvas
-          width={390}
-          height={723}
-          scenes={[CHICAGO]}
-          pov={{ lat: 41.88, lng: -87.63, altitude: 1.6 }}
-          onSelect={vi.fn()}
-          onCameraSettle={onCameraSettle}
-        />
-      </GraphSectionErrorBoundary>,
-    )
-    const map = stub.state.maps[stub.state.maps.length - 1]
-    if (styleLoaded) act(() => map.fire('style.load'))
-    return { map, onError, onCameraSettle }
-  }
-
-  function expectFellBack(onError: ReturnType<typeof vi.fn>, failureClass: string) {
-    expect(onError).toHaveBeenCalledTimes(1)
-    expect(onError.mock.calls[0][0]).toBeInstanceOf(AtlasMapUnrecoverableError)
-    expect(onError.mock.calls[0][0]).toMatchObject({ failureClass })
-    expect(screen.queryByTestId('globe-cursor-wrap')).not.toBeInTheDocument()
-  }
 
   it('falls back when a lost context is not restored by the deadline', () => {
     const { map, onError } = renderInBoundary({ styleLoaded: true })
@@ -499,14 +485,12 @@ describe('GlobeCanvas failures MapLibre reports outside React', () => {
     expect(onCameraSettle).toHaveBeenCalledTimes(1)
   })
 
-  it('cancels the restore deadline and its page listener when the canvas unmounts', () => {
+  it('cancels the restore deadline when the canvas unmounts', () => {
     const { map, onError } = renderInBoundary({ styleLoaded: true })
     act(() => map.fire('webglcontextlost'))
     expect(vi.getTimerCount()).toBe(1)
-    const removeListener = vi.spyOn(document, 'removeEventListener')
     cleanup()
     expect(vi.getTimerCount()).toBe(0)
-    expect(removeListener).toHaveBeenCalledWith('visibilitychange', expect.any(Function))
     expect(onError).not.toHaveBeenCalled()
   })
 })

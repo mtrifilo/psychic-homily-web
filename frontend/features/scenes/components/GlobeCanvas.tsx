@@ -293,7 +293,9 @@ export default function GlobeCanvas({
   const sceneLabelsRef = useRef<{ el: HTMLElement; lng: number; lat: number }[]>([])
   const clearVenueHoverRef = useRef<(() => void) | null>(null)
   // The style-loaded map instance, in STATE so the data/label/ring effects
-  // below re-run against each fresh map after a hide/show cycle.
+  // below re-run against each fresh map after a hide/show cycle, and against
+  // the re-created style after a restored WebGL context. Null while the
+  // context is lost.
   const [mapReady, setMapReady] = useState<maplibregl.Map | null>(null)
   // The same map once its first full render is in: style and every visible
   // source loaded. The light globe's overlays wait for it, so their downloads
@@ -304,10 +306,6 @@ export default function GlobeCanvas({
   // inside React.
   const [unrecoverable, setUnrecoverable] =
     useState<AtlasMapUnrecoverableError | null>(null)
-  // Whether the live map's style is loaded: false from a lost WebGL context
-  // until the style MapLibre re-creates on restore has loaded, during which
-  // style setters such as setPaintProperty throw.
-  const styleLoadedRef = useRef(false)
 
   const selectedSlug = selected?.slug ?? null
 
@@ -673,26 +671,28 @@ export default function GlobeCanvas({
     // validate:false — these are trusted constants; skip per-frame style
     // validation on the animation hot path.
     let raf = requestAnimationFrame(function tick(now: number) {
-      if (styleLoadedRef.current) {
-        const t = (now % RING_PERIOD_MS) / RING_PERIOD_MS
-        mapReady.setPaintProperty(
-          'scene-rings',
-          'circle-radius',
-          RING_MAX_RADIUS_PX * t,
-          { validate: false },
-        )
-        mapReady.setPaintProperty(
-          'scene-rings',
-          'circle-stroke-opacity',
-          RING_MAX_OPACITY * (1 - t),
-          { validate: false },
-        )
-      }
+      const t = (now % RING_PERIOD_MS) / RING_PERIOD_MS
+      mapReady.setPaintProperty(
+        'scene-rings',
+        'circle-radius',
+        RING_MAX_RADIUS_PX * t,
+        { validate: false },
+      )
+      mapReady.setPaintProperty(
+        'scene-rings',
+        'circle-stroke-opacity',
+        RING_MAX_OPACITY * (1 - t),
+        { validate: false },
+      )
       raf = requestAnimationFrame(tick)
     })
     return () => {
       cancelAnimationFrame(raf)
-      src.setData(EMPTY_FC)
+      // Read again: after a lost context the captured source belongs to a
+      // destroyed style, and the live map has none until the restore.
+      ;(mapReady.getSource('scene-rings') as maplibregl.GeoJSONSource | undefined)?.setData(
+        EMPTY_FC,
+      )
     }
   }, [mapReady, pulseScenes])
 
@@ -997,12 +997,6 @@ export default function GlobeCanvas({
 
     // Context loss and style failures that leave the map unable to draw.
     const stopHealthWatch = watchAtlasMapHealth(map, setUnrecoverable)
-    map.on('style.load', () => {
-      styleLoadedRef.current = true
-    })
-    map.on('webglcontextlost', () => {
-      styleLoadedRef.current = false
-    })
 
     // See the constructor options: bearing/pitch must stay locked at 0 on
     // every input path (the saved camera persists only center/zoom).
@@ -1043,6 +1037,13 @@ export default function GlobeCanvas({
     // the basemap. The harness flag stays on 'load' (full first render).
     map.on('style.load', () => {
       setMapReady(map)
+    })
+    // A lost context destroys the style, and style setters throw until the
+    // style MapLibre re-creates on restore has loaded. Clearing mapReady
+    // pauses every effect that writes to the style; the restored style's
+    // style.load sets it again, and they re-apply the current data.
+    map.on('webglcontextlost', () => {
+      setMapReady((prev) => (prev === map ? null : prev))
     })
     map.on('load', () => {
       w.__atlasMapLoaded = true
@@ -1322,7 +1323,6 @@ export default function GlobeCanvas({
       setMapReady((prev) => (prev === map ? null : prev))
       setMapLoaded((prev) => (prev === map ? null : prev))
       stopHealthWatch()
-      styleLoadedRef.current = false
       map.remove()
     }
     // pov is resolved once before this canvas mounts, and flyToRef is a

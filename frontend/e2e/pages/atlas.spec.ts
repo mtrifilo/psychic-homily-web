@@ -257,16 +257,14 @@ test.describe('Atlas when the map loses its WebGL context', () => {
   // ATLAS_CONTEXT_RESTORE_DEADLINE_MS in features/scenes/components/atlasMapHealth.ts.
   const RESTORE_DEADLINE_MS = 3_000
 
-  type ContextSeam = Omit<AtlasMapSeam, 'getStyle'> & {
-    getCenter: () => { lng: number; lat: number }
-    once: (type: 'render', listener: () => void) => void
-    getStyle: () => { sources: Record<string, { data?: { features?: unknown[] } }> }
-  }
   type ContextWindow = {
-    __atlasMap?: ContextSeam | null
+    __atlasMap?: AtlasMapSeam | null
     __atlasLoseContext?: WEBGL_lose_context | null
   }
 
+  // Uncaught exceptions only. The fixture's `errors` also fails on any
+  // console.error, and React logs every error a boundary catches, which is
+  // how the fallback works.
   function collectPageErrors(page: Page) {
     const errors: string[] = []
     page.on('pageerror', (error) => errors.push(error.message))
@@ -293,32 +291,8 @@ test.describe('Atlas when the map loses its WebGL context', () => {
   }
 
   test.beforeEach(async ({ page }) => {
-    await stubAtlas(page)
-    // The fixture's scene with a show this week, so its pulse ring animates
-    // through the loss. Registered last, so it answers before stubAtlas's.
-    await page.route(
-      (url) => url.pathname.endsWith('/scenes'),
-      (route) =>
-        route.fulfill({
-          json: {
-            scenes: [
-              {
-                city: 'Phoenix',
-                state: 'AZ',
-                slug: 'phoenix-az',
-                venue_count: 3,
-                upcoming_show_count: 9,
-                total_show_count: 9,
-                shows_this_week: 2,
-                shows_calendar_week: 2,
-                latitude: 33.4484,
-                longitude: -112.074,
-              },
-            ],
-            count: 1,
-          },
-        })
-    )
+    // A pulse ring, so the map repaints every frame through the loss.
+    await stubAtlas(page, { showsThisWeek: 1 })
   })
 
   test('falls back to the scene list when the context is not restored', async ({ page }) => {
@@ -354,10 +328,7 @@ test.describe('Atlas when the map loses its WebGL context', () => {
     await waitForMap(page)
 
     // Past the deadline, the map is still the map.
-    await page.evaluate(
-      (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
-      RESTORE_DEADLINE_MS + 1_000
-    )
+    await page.waitForTimeout(RESTORE_DEADLINE_MS + 1_000)
     await expect(page.getByTestId('atlas-scene-list')).toHaveCount(0)
     await expect(page.locator('canvas.maplibregl-canvas')).toHaveCount(1)
 
