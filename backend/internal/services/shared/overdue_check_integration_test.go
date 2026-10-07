@@ -763,7 +763,9 @@ func TestStalledSweepEndToEnd(t *testing.T) {
 		Name:     "starved_sweep",
 		Interval: 24 * time.Hour,
 		StopCh:   stopped,
-	}, func(context.Context) {})
+	}, func(context.Context) {
+		t.Error("starved_sweep ran a cycle; this test needs a loop that has never run one")
+	})
 
 	// It registered itself at start even though it never ran a cycle — this is what
 	// PSY-1611 alone could not see.
