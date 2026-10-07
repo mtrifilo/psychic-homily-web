@@ -230,6 +230,22 @@ describe('showGlobeSurface', () => {
     expect(second.setData).toHaveBeenCalledTimes(1)
   })
 
+  it('asks again for the land of a style re-created on the same map', () => {
+    const { map, setData } = fakeMap()
+    showGlobeSurface(map, true)
+    expect(setData).toHaveBeenCalledTimes(1)
+    // A restored WebGL context re-creates the style, and with it every source.
+    const restoredSetData = vi.fn()
+    const restoredLand = { setData: restoredSetData }
+    const restoredOther = { setData: vi.fn() }
+    map.getSource.mockImplementation((id: string) =>
+      id === GLOBE_LAND_SOURCE_ID ? restoredLand : restoredOther,
+    )
+    showGlobeSurface(map, true)
+    expect(restoredSetData).toHaveBeenCalledWith(GLOBE_LAND_DATA_URL)
+    expect(setData).toHaveBeenCalledTimes(1)
+  })
+
   it('retries the land request on a later switch when the source was not there yet', () => {
     const { map } = fakeMap({ withLandSource: false })
     expect(() => showGlobeSurface(map, true)).not.toThrow()
@@ -356,6 +372,26 @@ describe('prefetchGlobeLand', () => {
     resolveFetch({ ok: true, json: () => Promise.resolve(LAND) })
     await settle()
     await settle()
+    expect(setData).not.toHaveBeenCalled()
+  })
+
+  it('gives a style re-created while the prefetch was in flight the land once it lands', async () => {
+    let resolveFetch: (value: unknown) => void = () => {}
+    stubFetch(() => new Promise((resolve) => (resolveFetch = resolve)))
+    const mod = await freshModule()
+    mod.prefetchGlobeLand()
+    const { map, setData } = fakeMap()
+    mod.showGlobeSurface(map, true)
+    // The context is lost and restored mid-fetch: the map now holds new sources.
+    const restoredSetData = vi.fn()
+    const restoredLand = { setData: restoredSetData }
+    const restoredOther = { setData: vi.fn() }
+    map.getSource.mockImplementation((id: string) =>
+      id === mod.GLOBE_LAND_SOURCE_ID ? restoredLand : restoredOther,
+    )
+    mod.showGlobeSurface(map, true)
+    resolveFetch({ ok: true, json: () => Promise.resolve(LAND) })
+    await vi.waitFor(() => expect(restoredSetData).toHaveBeenCalledWith(LAND))
     expect(setData).not.toHaveBeenCalled()
   })
 
@@ -545,6 +581,22 @@ describe('boundary lines and place data', () => {
     await settle()
     await settle()
     expect(stateSetData).not.toHaveBeenCalled()
+  })
+
+  it('loads the boundaries again into a style re-created on the same map', async () => {
+    vi.stubGlobal('fetch', vi.fn(() => ok()))
+    const mod = await freshModule()
+    const { map, stateSetData } = fakeMap()
+    mod.loadGlobeBoundaries(map)
+    await vi.waitFor(() => expect(stateSetData).toHaveBeenCalledWith(FC))
+    const restored = { setData: vi.fn() }
+    const restoredOther = { setData: vi.fn() }
+    map.getSource.mockImplementation((id: string) =>
+      id === GLOBE_STATE_LINES_SOURCE_ID ? restored : restoredOther,
+    )
+    mod.loadGlobeBoundaries(map)
+    await vi.waitFor(() => expect(restored.setData).toHaveBeenCalledWith(FC))
+    expect(stateSetData).toHaveBeenCalledTimes(1)
   })
 
   it('loads the place data once and shares it', async () => {

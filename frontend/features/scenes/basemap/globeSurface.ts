@@ -243,8 +243,9 @@ function fetchCollection(
 // and MapLibre's own telemetry; the place file, which no map source loads, is
 // retried once and its failure reported by the caller).
 
-// Maps whose land source already holds (or is fetching) the land data. Each
-// Atlas show builds a fresh map, so entries go with the map they belong to.
+// Land sources already holding (or fetching) the land data. Keyed by the
+// source, not the map: a style re-created on the same map (after a restored
+// WebGL context) has new sources, which ask again.
 const landRequested = new WeakSet<object>()
 
 // The land file fetched on the main thread ahead of the map, once per page
@@ -311,11 +312,12 @@ const BOUNDARY_FILES: ReadonlyArray<readonly [string, string]> = [
   [GLOBE_COUNTRY_LINES_SOURCE_ID, GLOBE_COUNTRY_LINES_DATA_URL],
 ]
 
-// Per map, the boundary sources already holding (or fetching) their data.
-const boundariesRequested = new WeakMap<object, Set<string>>()
+// Boundary sources already holding (or fetching) their data, keyed by the
+// source for the same reason as landRequested.
+const boundariesRequested = new WeakSet<object>()
 
 /**
- * Loads each boundary source's data once per map. The file is fetched on the
+ * Loads each boundary source's data once per source. The file is fetched on the
  * main thread and handed over only once it has arrived, so the source keeps
  * its empty collection until then. A failed or unusable response hands the
  * map the URL instead, where a second failure reaches basemapTelemetry like
@@ -323,19 +325,13 @@ const boundariesRequested = new WeakMap<object, Set<string>>()
  * other drawn.
  */
 export function loadGlobeBoundaries(map: GlobeSurfaceMap): void {
-  let requested = boundariesRequested.get(map)
-  if (!requested) {
-    requested = new Set()
-    boundariesRequested.set(map, requested)
-  }
   for (const [sourceId, url] of BOUNDARY_FILES) {
-    if (requested.has(sourceId)) continue
     const source = map.getSource(sourceId) as DataSource | undefined
-    if (!source) continue
-    requested.add(sourceId)
+    if (!source || boundariesRequested.has(source)) continue
+    boundariesRequested.add(source)
     void fetchCollection(url).then((result) => {
-      // A removed map no longer owns this source (a removed map has no style,
-      // so getSource answers undefined).
+      // A removed map, or a style destroyed by a lost context, no longer owns
+      // this source (getSource answers undefined or the new style's source).
       if (map.getSource(sourceId) !== source) return
       source.setData(result.data ?? url)
     })
@@ -344,34 +340,34 @@ export function loadGlobeBoundaries(map: GlobeSurfaceMap): void {
 
 /**
  * Switches a live map to one look. Idempotent; loads the land data at most
- * once per map, on the first switch to the light look: the prefetch's result
+ * once per land source, on the first switch to the light look: the prefetch's result
  * when a prefetch was started (waiting up to LAND_PREFETCH_WAIT_MS for it if
  * it is still in flight rather than starting a second download), else the
  * file's URL, fetched by the map. The boundary data is
  * {@link loadGlobeBoundaries}'s.
  */
 export function showGlobeSurface(map: GlobeSurfaceMap, lightGlobe: boolean): void {
-  if (lightGlobe && !landRequested.has(map)) {
-    const source = map.getSource(GLOBE_LAND_SOURCE_ID) as DataSource | undefined
-    if (source) {
-      landRequested.add(map)
-      if (landPrefetch && (landPrefetchSettled || !landPrefetchWaitExpired)) {
-        const waited = new Promise<typeof WAIT_EXPIRED>((resolve) =>
-          setTimeout(() => resolve(WAIT_EXPIRED), LAND_PREFETCH_WAIT_MS),
-        )
-        void Promise.race([landPrefetch, waited]).then((result) => {
-          if (result === WAIT_EXPIRED) landPrefetchWaitExpired = true
-          const data = result === WAIT_EXPIRED ? null : result
-          // A map removed while the prefetch was in flight no longer owns this
-          // source (a removed map has no style, so getSource answers
-          // undefined); data sent to it would reach the worker for a map that
-          // no longer exists.
-          if (map.getSource(GLOBE_LAND_SOURCE_ID) !== source) return
-          source.setData(data ?? GLOBE_LAND_DATA_URL)
-        })
-      } else {
-        source.setData(GLOBE_LAND_DATA_URL)
-      }
+  const source = lightGlobe
+    ? (map.getSource(GLOBE_LAND_SOURCE_ID) as DataSource | undefined)
+    : undefined
+  if (source && !landRequested.has(source)) {
+    landRequested.add(source)
+    if (landPrefetch && (landPrefetchSettled || !landPrefetchWaitExpired)) {
+      const waited = new Promise<typeof WAIT_EXPIRED>((resolve) =>
+        setTimeout(() => resolve(WAIT_EXPIRED), LAND_PREFETCH_WAIT_MS),
+      )
+      void Promise.race([landPrefetch, waited]).then((result) => {
+        if (result === WAIT_EXPIRED) landPrefetchWaitExpired = true
+        const data = result === WAIT_EXPIRED ? null : result
+        // A map removed, or a style destroyed by a lost context, while the
+        // prefetch was in flight no longer owns this source (getSource answers
+        // undefined or the new style's source); data sent to it would reach
+        // the worker for a source that no longer exists.
+        if (map.getSource(GLOBE_LAND_SOURCE_ID) !== source) return
+        source.setData(data ?? GLOBE_LAND_DATA_URL)
+      })
+    } else {
+      source.setData(GLOBE_LAND_DATA_URL)
     }
   }
   for (const [layer, visibility] of Object.entries(

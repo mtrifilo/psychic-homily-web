@@ -1,6 +1,6 @@
 import { test } from '../fixtures/error-detection'
 import { expect, type Page } from '@playwright/test'
-import { type AtlasMapSeam, stubAtlas, waitForMap } from '../helpers/atlas'
+import { type AtlasMapSeam, phoenixDotPoint, stubAtlas, waitForMap } from '../helpers/atlas'
 
 /**
  * `/atlas?city=City,ST` (PSY-2079): the Atlas's one URL entry point.
@@ -302,18 +302,28 @@ test.describe('Atlas when the map loses its WebGL context', () => {
 
     await loseContext(page)
     const list = page.getByTestId('atlas-scene-list')
+    // Inside the deadline the map waits for a restore.
+    await page.waitForTimeout(1_000)
+    await expect(list).toHaveCount(0)
+    await expect(page.locator('canvas.maplibregl-canvas')).toHaveCount(1)
     await expect(list).toBeVisible({ timeout: RESTORE_DEADLINE_MS + 10_000 })
     await expect(list.getByText('Phoenix')).toBeVisible()
     await expect(page.locator('canvas.maplibregl-canvas')).toHaveCount(0)
     expect(errors).toEqual([])
   })
 
-  test('keeps the map when the context is restored', async ({ page }) => {
+  test('keeps the map when the context is restored, with the scene dot hovered', async ({
+    page,
+  }) => {
     const errors = collectPageErrors(page)
     await page.goto('/atlas')
     await waitForMap(page)
 
+    // The pointer rests on the scene dot through the loss, then leaves it.
+    const dot = await phoenixDotPoint(page)
+    await page.mouse.move(dot.x, dot.y)
     await loseContext(page)
+    await page.mouse.move(dot.x + 120, dot.y + 120)
     await page.evaluate(
       () =>
         new Promise<void>((resolve) => {

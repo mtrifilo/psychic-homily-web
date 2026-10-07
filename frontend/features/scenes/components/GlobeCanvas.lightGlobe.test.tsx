@@ -227,6 +227,30 @@ describe('GlobeCanvas globe surface', () => {
     expect(markAtlasMapReady).toHaveBeenCalledTimes(1)
   })
 
+  it('loads the land and boundary files again into the style a restored context re-creates', async () => {
+    installViewport(true)
+    renderCanvas()
+    const map = theMap()
+    act(() => map.fire('style.load'))
+    act(() => map.fire('render'))
+    await vi.waitFor(() =>
+      expect(map.sourceSetData(GLOBE_STATE_LINES_SOURCE_ID)).toHaveBeenCalledTimes(1),
+    )
+    const fetchesBefore = vi.mocked(fetch).mock.calls.length
+
+    act(() => map.fire('webglcontextlost'))
+    // The restored style holds new source objects.
+    ;(map as unknown as { sources: Map<string, unknown> }).sources.clear()
+    act(() => map.fire('webglcontextrestored'))
+    act(() => map.fire('style.load'))
+
+    expect(map.sourceSetData(GLOBE_LAND_SOURCE_ID)).toHaveBeenCalledWith(GLOBE_LAND_DATA_URL)
+    const refetched = vi.mocked(fetch).mock.calls.slice(fetchesBefore).map((c) => c[0])
+    expect(refetched).toEqual(
+      expect.arrayContaining([GLOBE_STATE_LINES_DATA_URL, GLOBE_COUNTRY_LINES_DATA_URL]),
+    )
+  })
+
   it('builds a wide-viewport map with the boundary layers hidden and never loads them', () => {
     installViewport(false)
     renderCanvas()

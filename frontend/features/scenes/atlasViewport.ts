@@ -83,7 +83,7 @@ export function atlasRendersSceneList({
  * `atlas_map_failure` Sentry tag:
  * - `context-refused`: MapLibre got no WebGL2 context at construction.
  * - `context-lost`: the context was lost and not restored within
- *   ATLAS_CONTEXT_RESTORE_DEADLINE_MS of visible time.
+ *   ATLAS_CONTEXT_RESTORE_DEADLINE_MS of continuously visible time.
  * - `context-lost-before-style`: the context was lost before the style
  *   loaded, which MapLibre cannot restore (it saves only a loaded style).
  * - `context-restore-refused`: the browser restored the context but MapLibre
@@ -106,10 +106,11 @@ const FAILURE_MESSAGES: Record<AtlasMapFailureClass, string> = {
 }
 
 /**
- * Thrown by the Atlas map when it can no longer draw and will not recover on
- * its own: every {@link AtlasMapFailureClass}. AtlasGlobe swaps in the scene
- * list for the rest of the page load. Lives here, not beside the map, so
- * AtlasGlobe can recognise it without importing MapLibre.
+ * Thrown by the Atlas map when it cannot draw and the Atlas stops waiting for
+ * it to: every {@link AtlasMapFailureClass}. For `context-lost` that is a
+ * decision at a deadline, not proof the browser would never restore. AtlasGlobe
+ * swaps in the scene list for the rest of the page load. Lives here, not
+ * beside the map, so AtlasGlobe can recognise it without importing MapLibre.
  */
 export class AtlasMapUnrecoverableError extends Error {
   readonly failureClass: AtlasMapFailureClass
@@ -126,7 +127,8 @@ let atlasMapFailed = false
 /**
  * Records that the Atlas map failed with an {@link AtlasMapUnrecoverableError},
  * so every later Atlas mount in this page load goes straight to the scene list
- * instead of building (and leaking) another map on the same GPU.
+ * instead of building another map into the same failure: the same GPU for the
+ * context classes, the same inline style for `style-load-failed`.
  */
 export function markAtlasMapFailed(): void {
   atlasMapFailed = true

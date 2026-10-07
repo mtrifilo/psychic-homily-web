@@ -1,6 +1,8 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import type { Map as MapLibreMap } from 'maplibre-gl'
+import { GPUInitializationError, type Map as MapLibreMap } from 'maplibre-gl'
+import maplibrePackage from 'maplibre-gl/package.json'
 import {
+  type AtlasMapHealth,
   ATLAS_CONTEXT_RESTORE_DEADLINE_MS,
   watchAtlasMapHealth,
 } from './atlasMapHealth'
@@ -35,10 +37,11 @@ function setVisibility(state: 'visible' | 'hidden') {
 describe('watchAtlasMapHealth', () => {
   let map: FakeMap
   let onUnrecoverable: ReturnType<typeof vi.fn<(error: AtlasMapUnrecoverableError) => void>>
-  let stop: () => void
+  let health: AtlasMapHealth
+  const stop = () => health.stop()
 
   function watch() {
-    stop = watchAtlasMapHealth(map as unknown as MapLibreMap, onUnrecoverable)
+    health = watchAtlasMapHealth(map as unknown as MapLibreMap, onUnrecoverable)
   }
   function failureClasses() {
     return onUnrecoverable.mock.calls.map(([error]) => {
@@ -79,6 +82,23 @@ describe('watchAtlasMapHealth', () => {
       map.fire('style.load')
       vi.advanceTimersByTime(ATLAS_CONTEXT_RESTORE_DEADLINE_MS * 10)
       expect(onUnrecoverable).not.toHaveBeenCalled()
+    })
+
+    it('keeps the map when the restored style loads without a restored event', () => {
+      map.fire('webglcontextlost')
+      map.fire('style.load')
+      vi.advanceTimersByTime(ATLAS_CONTEXT_RESTORE_DEADLINE_MS * 10)
+      expect(onUnrecoverable).not.toHaveBeenCalled()
+    })
+
+    it('reports the style down from the loss until the restored style loads', () => {
+      expect(health.styleLoaded()).toBe(true)
+      map.fire('webglcontextlost')
+      expect(health.styleLoaded()).toBe(false)
+      map.fire('webglcontextrestored')
+      expect(health.styleLoaded()).toBe(false)
+      map.fire('style.load')
+      expect(health.styleLoaded()).toBe(true)
     })
 
     it('gives a second loss after a restore its own deadline', () => {
@@ -192,10 +212,35 @@ describe('watchAtlasMapHealth', () => {
     expect(failureClasses()).toEqual(['style-load-failed'])
   })
 
+  it('reports no style before the first style.load', () => {
+    expect(health.styleLoaded()).toBe(false)
+  })
+
   it('stops listening for visibility once disposed', () => {
     const remove = vi.spyOn(document, 'removeEventListener')
     stop()
     expect(remove).toHaveBeenCalledWith('visibilitychange', expect.any(Function))
     remove.mockRestore()
+  })
+})
+
+/**
+ * The MapLibre behaviour watchAtlasMapHealth relies on (see its doc): the
+ * context events fire after MapLibre has acted on them, a style lost before it
+ * loaded is not saved for the restore, a restore re-sets the saved style, and
+ * a refused context is a GPUInitializationError by name. On a version change,
+ * re-read `_contextLost`, `_contextRestored` and `_setupPainter` in
+ * src/ui/map.ts and `serialize` in src/style/style.ts, then bump this.
+ */
+describe('maplibre context-loss contract', () => {
+  it('is pinned to the verified maplibre-gl version', () => {
+    expect(
+      maplibrePackage.version,
+      're-verify the context-loss behaviour atlasMapHealth.ts documents, then bump this',
+    ).toBe('6.0.0')
+  })
+
+  it('names a refused context GPUInitializationError', () => {
+    expect(new GPUInitializationError({}, null).name).toBe('GPUInitializationError')
   })
 })

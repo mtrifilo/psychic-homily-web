@@ -365,7 +365,13 @@ describe('GlobeCanvas pulse rings', () => {
  * load fired or not. Console errors are silenced: React logs every error a
  * boundary catches.
  */
-function renderInBoundary({ styleLoaded }: { styleLoaded: boolean }) {
+function renderInBoundary({
+  styleLoaded,
+  venues,
+}: {
+  styleLoaded: boolean
+  venues?: VenuePin[]
+}) {
   vi.spyOn(console, 'error').mockImplementation(() => {})
   const onError = vi.fn()
   const onCameraSettle = vi.fn()
@@ -378,6 +384,7 @@ function renderInBoundary({ styleLoaded }: { styleLoaded: boolean }) {
         pov={{ lat: 41.88, lng: -87.63, altitude: 1.6 }}
         onSelect={vi.fn()}
         onCameraSettle={onCameraSettle}
+        venues={venues}
       />
     </GraphSectionErrorBoundary>,
   )
@@ -485,12 +492,73 @@ describe('GlobeCanvas failures MapLibre reports outside React', () => {
     expect(onCameraSettle).toHaveBeenCalledTimes(1)
   })
 
-  it('cancels the restore deadline when the canvas unmounts', () => {
-    const { map, onError } = renderInBoundary({ styleLoaded: true })
+  it('stops the health watch when the canvas unmounts', () => {
+    const { map } = renderInBoundary({ styleLoaded: true })
     act(() => map.fire('webglcontextlost'))
-    expect(vi.getTimerCount()).toBe(1)
+    // The watch's page listener: only its disposer removes one.
+    const removeListener = vi.spyOn(document, 'removeEventListener')
     cleanup()
-    expect(vi.getTimerCount()).toBe(0)
+    expect(removeListener).toHaveBeenCalledWith('visibilitychange', expect.any(Function))
+  })
+
+  /** Feature-state writes throw, as MapLibre's do while the style is down. */
+  function styleDown(map: StubMap) {
+    const throwing = () => {
+      throw new TypeError("Cannot read properties of null (reading 'removeFeatureState')")
+    }
+    map.removeFeatureState.mockImplementation(throwing)
+    map.setFeatureState.mockImplementation(throwing)
+  }
+  function styleUp(map: StubMap) {
+    map.removeFeatureState.mockReset()
+    map.setFeatureState.mockReset()
+  }
+
+  it('keeps the map through a restore with a scene dot hovered', () => {
+    const { map, onError } = renderInBoundary({ styleLoaded: true })
+    act(() =>
+      map.fire('mousemove:scene-dots', {
+        point: { x: 10, y: 10 },
+        features: [{ properties: { slug: 'chicago-il', sortKey: 1 } }],
+      }),
+    )
+    expect(map.setFeatureState).toHaveBeenCalledTimes(1)
+
+    styleDown(map)
+    act(() => map.fire('webglcontextlost'))
+    // During the loss the pointer leaves the dot; the restore's resize fires
+    // movestart before the restored style loads.
+    act(() => map.fire('mouseleave:scene-dots'))
+    act(() => map.fire('movestart'))
+    act(() => map.fire('webglcontextrestored'))
+    styleUp(map)
+    act(() => map.fire('style.load'))
+    act(() => vi.advanceTimersByTime(ATLAS_CONTEXT_RESTORE_DEADLINE_MS * 10))
+
     expect(onError).not.toHaveBeenCalled()
+    expect(screen.getByTestId('globe-cursor-wrap')).toBeInTheDocument()
+    expect(map.removeFeatureState).not.toHaveBeenCalled()
+  })
+
+  it('clears a hovered venue pin and keeps the map when the context is lost', () => {
+    const { map, onError } = renderInBoundary({ styleLoaded: true, venues: PINS })
+    act(() =>
+      map.fire('mousemove:venue-pins', {
+        point: { x: 10, y: 10 },
+        features: [{ properties: { id: 3 } }],
+      }),
+    )
+    expect(map.setFeatureState).toHaveBeenCalledTimes(1)
+    const tooltip = screen.getByTestId('atlas-venue-tooltip')
+    expect(tooltip).toHaveStyle({ display: 'block' })
+
+    styleDown(map)
+    act(() => map.fire('webglcontextlost'))
+
+    // The pin went with the style, and so does its tooltip.
+    expect(tooltip).toHaveStyle({ display: 'none' })
+    expect(map.getCanvas().style.cursor).toBe('')
+    expect(onError).not.toHaveBeenCalled()
+    expect(screen.getByTestId('globe-cursor-wrap')).toBeInTheDocument()
   })
 })

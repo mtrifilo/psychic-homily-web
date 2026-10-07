@@ -318,9 +318,11 @@ export default function GlobeCanvas({
   useEffect(() => {
     if (mapReady) showGlobeSurface(mapReady, lightGlobe)
   }, [mapReady, lightGlobe])
+  // Keyed on mapReady as well, so a restored style (whose sources are new)
+  // gets its boundary data again.
   useEffect(() => {
-    if (mapLoaded && lightGlobe) loadGlobeBoundaries(mapLoaded)
-  }, [mapLoaded, lightGlobe])
+    if (mapReady && mapLoaded && lightGlobe) loadGlobeBoundaries(mapLoaded)
+  }, [mapReady, mapLoaded, lightGlobe])
 
   // The light globe's place-label data, loaded the first time a loaded map
   // shows the light look and kept for this canvas's lifetime.
@@ -996,7 +998,7 @@ export default function GlobeCanvas({
     map.on('error', handleBasemapError)
 
     // Context loss and style failures that leave the map unable to draw.
-    const stopHealthWatch = watchAtlasMapHealth(map, setUnrecoverable)
+    const health = watchAtlasMapHealth(map, setUnrecoverable)
 
     // See the constructor options: bearing/pitch must stay locked at 0 on
     // every input path (the saved camera persists only center/zoom).
@@ -1038,10 +1040,11 @@ export default function GlobeCanvas({
     map.on('style.load', () => {
       setMapReady(map)
     })
-    // A lost context destroys the style, and style setters throw until the
-    // style MapLibre re-creates on restore has loaded. Clearing mapReady
-    // pauses every effect that writes to the style; the restored style's
-    // style.load sets it again, and they re-apply the current data.
+    // A lost context destroys the style; some style writes throw while it is
+    // gone, and all of them until the style MapLibre re-creates on restore
+    // has loaded. Clearing mapReady pauses every effect that writes to the
+    // style; the restored style's style.load sets it again, and they write
+    // the current data to it.
     map.on('webglcontextlost', () => {
       setMapReady((prev) => (prev === map ? null : prev))
     })
@@ -1101,14 +1104,18 @@ export default function GlobeCanvas({
     }
 
     // Tracked per map instance (fresh map each show → no stale hover).
+    // Feature state lives in the style, so it is written only while the
+    // style is loaded; a lost context discards it with the style.
     let hoveredSlug: string | null = null
     const setHoverState = (slug: string | null) => {
       if (slug === hoveredSlug) return
-      if (hoveredSlug !== null) {
-        map.removeFeatureState({ source: 'scenes', id: hoveredSlug }, 'hover')
-      }
-      if (slug !== null) {
-        map.setFeatureState({ source: 'scenes', id: slug }, { hover: true })
+      if (health.styleLoaded()) {
+        if (hoveredSlug !== null) {
+          map.removeFeatureState({ source: 'scenes', id: hoveredSlug }, 'hover')
+        }
+        if (slug !== null) {
+          map.setFeatureState({ source: 'scenes', id: slug }, { hover: true })
+        }
       }
       hoveredSlug = slug
     }
@@ -1165,11 +1172,13 @@ export default function GlobeCanvas({
     let hoveredVenueId: number | null = null
     const setVenueHoverState = (id: number | null) => {
       if (id === hoveredVenueId) return
-      if (hoveredVenueId !== null) {
-        map.removeFeatureState({ source: 'venues', id: hoveredVenueId }, 'hover')
-      }
-      if (id !== null) {
-        map.setFeatureState({ source: 'venues', id }, { hover: true })
+      if (health.styleLoaded()) {
+        if (hoveredVenueId !== null) {
+          map.removeFeatureState({ source: 'venues', id: hoveredVenueId }, 'hover')
+        }
+        if (id !== null) {
+          map.setFeatureState({ source: 'venues', id }, { hover: true })
+        }
       }
       hoveredVenueId = id
     }
@@ -1322,7 +1331,7 @@ export default function GlobeCanvas({
       clearVenueHoverRef.current = null
       setMapReady((prev) => (prev === map ? null : prev))
       setMapLoaded((prev) => (prev === map ? null : prev))
-      stopHealthWatch()
+      health.stop()
       map.remove()
     }
     // pov is resolved once before this canvas mounts, and flyToRef is a

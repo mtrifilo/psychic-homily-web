@@ -24,22 +24,41 @@ export const ATLAS_CONTEXT_RESTORE_DEADLINE_MS = 3000
  */
 type HealthMap = Pick<MapLibreMap, 'on'>
 
+export interface AtlasMapHealth {
+  /**
+   * Whether the map has a loaded style: false until the first `style.load`,
+   * and from a lost context until the restored style's `style.load`. While
+   * false, style writes such as setFeatureState throw.
+   */
+  styleLoaded(): boolean
+  /**
+   * Cancels the deadline and stops reporting. The listeners stay on the map,
+   * inert, so call it only as the map is removed.
+   */
+  stop(): void
+}
+
 /**
  * Watches a constructed map for the failures MapLibre does not recover from
  * on its own, and calls `onUnrecoverable` once, with the failure classified,
- * for the first of them. Returns a disposer that cancels the deadline and
- * stops reporting; the map's own listeners go with the map.
+ * for the first of them.
  *
  * MapLibre 6.0.0's behaviour this relies on:
  * - A lost context after the style loaded comes back with the style when the
- *   browser restores it. Only a restore that never arrives is a failure.
+ *   browser restores it: MapLibre sets the saved style again, which fires
+ *   `style.load` a frame later. Only a restore that never arrives is a
+ *   failure.
  * - A lost context before the style loaded cannot come back: MapLibre saves
  *   only a loaded style, so a restore would leave a map with no style.
- * - `GPUInitializationError` on a constructed map comes from a restore that
- *   got no context (construction reports it before any listener exists).
- * - An error that names a source is isolated to that source (the rest of the
- *   map draws), and so is any error once the style has loaded. An error
- *   without a source before the style loads means the style never loads.
+ * - `GPUInitializationError` on a constructed map can only come from a
+ *   restore that got no context (construction reports it before any listener
+ *   exists).
+ * - An error that names a source is isolated to that source; the rest of the
+ *   map draws. An error without a source before the style loads means the
+ *   style never loads.
+ *
+ * This module's own rule: once the style has loaded, an `error` event is
+ * never a reason to give up the map.
  *
  * Not visible here: exceptions thrown inside MapLibre's render frame (they
  * propagate out of its animation-frame callback, not as an `error` event) and
@@ -48,7 +67,7 @@ type HealthMap = Pick<MapLibreMap, 'on'>
 export function watchAtlasMapHealth(
   map: HealthMap,
   onUnrecoverable: (error: AtlasMapUnrecoverableError) => void,
-): () => void {
+): AtlasMapHealth {
   let styleLoaded = false
   let contextLost = false
   let settled = false
@@ -84,8 +103,13 @@ export function watchAtlasMapHealth(
   }
   document.addEventListener('visibilitychange', handleVisibility)
 
+  // A style.load during a loss is the restored style, and so the recovery,
+  // even when webglcontextrestored never arrives (a listener that throws
+  // inside MapLibre's restore stops it before that event fires).
   map.on('style.load', () => {
     styleLoaded = true
+    contextLost = false
+    cancelDeadline()
   })
 
   map.on('webglcontextlost', () => {
@@ -118,9 +142,12 @@ export function watchAtlasMapHealth(
     }
   })
 
-  return () => {
-    settled = true
-    cancelDeadline()
-    document.removeEventListener('visibilitychange', handleVisibility)
+  return {
+    styleLoaded: () => styleLoaded,
+    stop() {
+      settled = true
+      cancelDeadline()
+      document.removeEventListener('visibilitychange', handleVisibility)
+    },
   }
 }
