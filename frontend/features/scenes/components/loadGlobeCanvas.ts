@@ -3,7 +3,8 @@
  * preloadAtlasMap both call it, so the bundler emits one chunk group for the
  * canvas and the preload's downloads are the ones the render then uses. A
  * second `import('./GlobeCanvas')` anywhere, including an inline one inside
- * next/dynamic, gets its own copy of the group's entry chunk.
+ * next/dynamic, gets a chunk group of its own, and the visitor downloads
+ * whatever the bundler puts in both groups twice.
  */
 export function loadGlobeCanvas() {
   return import('./GlobeCanvas')
