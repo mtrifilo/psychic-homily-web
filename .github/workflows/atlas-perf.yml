@@ -13,9 +13,9 @@ name: Atlas Perf
 # deployment for the PR head SHA, and the VERCEL_AUTOMATION_BYPASS_SECRET
 # repository secret gets past Vercel SSO. Discovery accepts only a status that
 # vercel[bot] posted with an https URL on this project's preview host pattern,
-# so the secret goes nowhere else: once in the reachability probe, then to the
-# script as VERCEL_PROTECTION_BYPASS, which sends it on one bypass-cookie
-# request per run and redacts it from its output.
+# so the secret goes nowhere else: to that host in the reachability probe,
+# then to the script as VERCEL_PROTECTION_BYPASS, which sends it on one
+# bypass-cookie request per run and redacts it from its output.
 
 on:
   pull_request:
