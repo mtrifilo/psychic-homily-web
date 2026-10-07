@@ -17,8 +17,8 @@ export const metadata: Metadata = {
 // `?city=` (atlasCityEntry.ts): a client component reading search params has to
 // sit under one, or the whole route renders on request.
 //
-// AtlasMapReadyFallbacks bounds how long the chrome's prefetches wait for the
-// map (lib/atlasMapReady.ts).
+// AtlasMapReadyFallbacks bounds how long the chrome's and the Atlas pane's
+// prefetches wait for the map (lib/atlasMapReady.ts).
 export default function AtlasPage() {
   return (
     <>

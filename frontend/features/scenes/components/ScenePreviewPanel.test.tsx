@@ -1,23 +1,12 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { fireEvent, screen, within } from '@testing-library/react'
-import type { ReactNode } from 'react'
+import { act, fireEvent, screen, within } from '@testing-library/react'
 import { renderWithProviders } from '@/test/utils'
 import type { SceneListItem } from '../types'
 
-vi.mock('next/link', () => ({
-  default: ({
-    href,
-    children,
-    ...rest
-  }: {
-    href: string
-    children: ReactNode
-  }) => (
-    <a href={href} {...rest}>
-      {children}
-    </a>
-  ),
-}))
+// The Atlas route, where ChromeLink holds a link's prefetch until the map is up.
+vi.mock('next/navigation', () => ({ usePathname: () => '/atlas' }))
+
+vi.mock('next/link', () => import('@/test/mocks/nextLink'))
 
 const mockUseSceneArtists = vi.fn()
 // FollowButton pulls AuthContext (unavailable here) — mock at the module
@@ -536,3 +525,33 @@ describe('ScenePreviewPanel as a bottom sheet', () => {
   })
 })
 
+describe('ScenePreviewPanel prefetch on the Atlas', () => {
+  it('holds its show, artist and scene links until the map-ready signal, then re-arms them', async () => {
+    // The signal is page-load state, so the case loads a fresh copy of it and
+    // of the component that reads it.
+    vi.resetModules()
+    const signal = await import('@/lib/atlasMapReady')
+    const { ScenePreviewPanel } = await import('./ScenePreviewPanel')
+    mockUseSceneArtists.mockReturnValue({
+      data: { artists: [{ id: 1, slug: 'band-a', name: 'Band A' }], total: 1 },
+      isLoading: false,
+    })
+    mockUseSceneShows.mockReturnValue({
+      data: {
+        shows: [{ id: 42, slug: 'big-show', title: 'Big Show', event_date: '2026-07-04' }],
+      },
+      isLoading: false,
+    })
+    renderWithProviders(<ScenePreviewPanel scene={scene} onClose={() => {}} />)
+    const links = [
+      screen.getByRole('link', { name: 'Big Show' }),
+      screen.getByRole('link', { name: 'Band A' }),
+      screen.getByRole('link', { name: /open scene/i }),
+    ]
+    for (const link of links) expect(link).toHaveAttribute('data-prefetch', 'false')
+
+    act(() => signal.markAtlasMapReady())
+
+    for (const link of links) expect(link).toHaveAttribute('data-prefetch', 'default')
+  })
+})

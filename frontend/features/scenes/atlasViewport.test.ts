@@ -73,6 +73,40 @@ describe('atlasRendersSceneList', () => {
   })
 })
 
+describe('atlasRendersSceneList over every combination of its inputs', () => {
+  const below = ATLAS_REDUCED_MOTION_LIST_BELOW_PX - 1
+  const at = ATLAS_REDUCED_MOTION_LIST_BELOW_PX
+
+  // Written out row by row rather than derived, so the table states the rule
+  // instead of restating the implementation.
+  it.each([
+    // supportsWebGL2, prefersReducedMotion, mapFailed, paneWidthPx, list
+    [true, false, false, below, false],
+    [true, false, false, at, false],
+    [true, true, false, below, true],
+    [true, true, false, at, false],
+    [true, false, true, below, true],
+    [true, false, true, at, true],
+    [true, true, true, below, true],
+    [true, true, true, at, true],
+    [false, false, false, below, true],
+    [false, false, false, at, true],
+    [false, true, false, below, true],
+    [false, true, false, at, true],
+    [false, false, true, below, true],
+    [false, false, true, at, true],
+    [false, true, true, below, true],
+    [false, true, true, at, true],
+  ])(
+    'WebGL2 %s, reduced motion %s, failed map %s, %ipx pane: lists the scenes %s',
+    (supportsWebGL2, prefersReducedMotion, mapFailed, paneWidthPx, list) => {
+      expect(
+        atlasRendersSceneList({ paneWidthPx, supportsWebGL2, prefersReducedMotion, mapFailed }),
+      ).toBe(list)
+    },
+  )
+})
+
 describe('a failed map', () => {
   it('lists the scenes at every width, whatever the probe and preference say', () => {
     for (const paneWidthPx of [390, 1440]) {

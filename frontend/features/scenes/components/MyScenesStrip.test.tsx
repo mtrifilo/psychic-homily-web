@@ -1,12 +1,15 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { fireEvent, screen } from '@testing-library/react'
+import { act, fireEvent, screen } from '@testing-library/react'
 import { renderWithProviders } from '@/test/utils'
 import type { SceneListItem } from '../types'
 
 const mockPush = vi.fn()
 vi.mock('next/navigation', () => ({
   useRouter: () => ({ push: mockPush }),
+  usePathname: () => '/atlas',
 }))
+
+vi.mock('next/link', () => import('@/test/mocks/nextLink'))
 
 // useMyFollowing pulls AuthContext (unavailable here) — stub the follows hook.
 const mockUseMyFollowing = vi.fn()
@@ -124,5 +127,26 @@ describe('MyScenesStrip (PSY-1340)', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Faketown, ZZ' }))
     expect(mockPush).toHaveBeenCalledWith('/scenes/faketown-zz')
     expect(onPick).not.toHaveBeenCalled()
+  })
+})
+
+describe('MyScenesStrip prefetch on the Atlas', () => {
+  it('holds its overflow link until the map-ready signal, then re-arms it', async () => {
+    // The signal is page-load state, so the case loads a fresh copy of it and
+    // of the component that reads it.
+    vi.resetModules()
+    const signal = await import('@/lib/atlasMapReady')
+    const { MyScenesStrip } = await import('./MyScenesStrip')
+    const resp = follows(
+      Array.from({ length: 12 }, (_, i) => ({ slug: `scene-${i}`, name: `Scene ${i}` })),
+    )
+    mockUseMyFollowing.mockReturnValue(resp)
+    renderWithProviders(<MyScenesStrip scenes={scenes} onPick={vi.fn()} />)
+    const link = screen.getByRole('link', { name: '+4 more' })
+    expect(link).toHaveAttribute('data-prefetch', 'false')
+
+    act(() => signal.markAtlasMapReady())
+
+    expect(link).toHaveAttribute('data-prefetch', 'default')
   })
 })

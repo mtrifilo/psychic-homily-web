@@ -10,7 +10,7 @@ import {
   type ReactNode,
 } from 'react'
 import dynamic from 'next/dynamic'
-import Link from 'next/link'
+import { AtlasPaneLink } from './AtlasPaneLink'
 import { useSearchParams } from 'next/navigation'
 import * as Sentry from '@sentry/nextjs'
 import { cn } from '@/lib/utils'
@@ -69,6 +69,7 @@ import { useMyFollowing } from '@/lib/hooks/common/useFollow'
 import { ScenePreviewPanel } from './ScenePreviewPanel'
 import { AtlasSceneList } from './AtlasSceneList'
 import { preloadAtlasMap } from './atlasMapPreload'
+import { loadGlobeCanvas } from './loadGlobeCanvas'
 import { markAtlasMapReady } from '@/lib/atlasMapReady'
 import { GraphSectionErrorBoundary } from '@/components/graph/GraphSectionErrorBoundary'
 import { useReducedMotion } from '@/lib/hooks/common/useReducedMotion'
@@ -109,13 +110,15 @@ function GlobeSkeleton() {
 // maplibre-gl is heavy (~900 kB chunk) and window-bound — dynamic-import the
 // canvas with ssr:false so the canvas module loads only on /atlas (PSY-1211
 // pattern, isolation re-verified for MapLibre in the PSY-1537 spike).
-// The import stays inline here for next/dynamic; preloadAtlasMap starts the
-// same module earlier (see the effect in AtlasGlobe).
+// loadGlobeCanvas is also the loader preloadAtlasMap calls, so the preload's
+// downloads are the ones this render uses (see the effect in AtlasGlobe).
+// With ssr:false next/dynamic needs no inline import: nothing is preloaded
+// on the server.
 // The App Router's next/dynamic calls `loading` only while the module is
 // pending. A failed fetch throws from React.lazy to the nearest error
 // boundary, which is the GraphSectionErrorBoundary around the canvas in the
 // render below, so a failed chunk swaps in the scene list.
-const GlobeCanvas = dynamic(() => import('./GlobeCanvas'), {
+const GlobeCanvas = dynamic(loadGlobeCanvas, {
   ssr: false,
   loading: () => <GlobeSkeleton />,
 })
@@ -726,7 +729,7 @@ export function AtlasGlobe() {
     )
     const unplaceableLink =
       unplaceableCount > 0 ? (
-        <Link
+        <AtlasPaneLink
           href="/scenes"
           /* bottom-11 in the panel layout: the map's attribution control (a
              license requirement) is docked bottom-left there, and this link
@@ -741,7 +744,7 @@ export function AtlasGlobe() {
           {unplaceableCount} more{' '}
           {unplaceableCount === 1 ? 'scene' : 'scenes'} not on the map ·
           View all →
-        </Link>
+        </AtlasPaneLink>
       ) : null
     // The globe's own chrome is a globe-scale toolkit — Drift lands you in
     // another metro, the genre key explains dot tints that aren't drawn at
@@ -940,12 +943,12 @@ export function AtlasGlobe() {
     content = (
       <CenterMessage>
         No scenes to place on the map yet.{' '}
-        <Link
+        <AtlasPaneLink
           href="/scenes"
           className="text-primary underline-offset-4 hover:underline"
         >
           Browse scenes →
-        </Link>
+        </AtlasPaneLink>
       </CenterMessage>
     )
   } else {

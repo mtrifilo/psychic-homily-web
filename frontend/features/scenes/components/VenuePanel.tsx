@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useMemo, useRef } from 'react'
-import Link from 'next/link'
+import { AtlasPaneLink } from './AtlasPaneLink'
 import { DismissableLayer } from '@radix-ui/react-dismissable-layer'
 import { X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -293,12 +293,12 @@ export function VenuePanel({
                   else in this file: the branch paints only after a client
                   mutation returned 401, so there is no render without a
                   browser location. */}
-              <Link
+              <AtlasPaneLink
                 href={signInHref()}
                 className="underline underline-offset-4"
               >
                 Sign in
-              </Link>{' '}
+              </AtlasPaneLink>{' '}
               to confirm.
             </>
           )}
@@ -361,12 +361,12 @@ export function VenuePanel({
             ))}
           </ul>
           {showCount > visible.length && (
-            <Link
+            <AtlasPaneLink
               href={venueHref}
               className="block px-4 py-2 font-mono text-[11px] text-primary underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
             >
               view all {showCount} →
-            </Link>
+            </AtlasPaneLink>
           )}
         </>
       )}
@@ -376,7 +376,7 @@ export function VenuePanel({
   )
   const isSheet = presentation === 'sheet'
   const venuePageLink = (
-    <Link
+    <AtlasPaneLink
       href={venueHref}
       className={cn(
         'font-mono text-xs text-primary underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
@@ -384,7 +384,7 @@ export function VenuePanel({
       )}
     >
       Open venue page →
-    </Link>
+    </AtlasPaneLink>
   )
 
   if (isSheet) {

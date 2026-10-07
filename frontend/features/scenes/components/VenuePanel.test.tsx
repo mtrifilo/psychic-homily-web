@@ -1,23 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { fireEvent, render, screen, within } from '@testing-library/react'
-import type { ReactNode } from 'react'
+import { act, fireEvent, render, screen, within } from '@testing-library/react'
 import type { VenueShow, VenueWithShowCount } from '@/features/venues/types'
 
-vi.mock('next/link', () => ({
-  default: ({
-    href,
-    children,
-    className,
-  }: {
-    href: string
-    children: ReactNode
-    className?: string
-  }) => (
-    <a href={href} className={className}>
-      {children}
-    </a>
-  ),
-}))
+vi.mock('next/link', () => import('@/test/mocks/nextLink'))
 
 // FollowButton pulls AuthContext + usePathname (neither available here) —
 // mock at the module boundary, the same idiom AtlasGlobe.test uses.
@@ -931,3 +916,30 @@ describe('VenuePanel as a bottom sheet', () => {
   })
 })
 
+describe('VenuePanel prefetch on the Atlas', () => {
+  it('holds its links until the map-ready signal, then re-arms them', async () => {
+    // The signal is page-load state, so the case loads a fresh copy of it and
+    // of the component that reads it.
+    vi.resetModules()
+    const signal = await import('@/lib/atlasMapReady')
+    const { VenuePanel } = await import('./VenuePanel')
+    const shows = Array.from({ length: 9 }, (_, i) =>
+      show({ id: 200 + i, title: `Show ${i}`, event_date: `2026-08-0${i + 1}T02:00:00Z` }),
+    )
+    mockUseVenueShows.mockReturnValue({
+      data: { shows, venue_id: 7, total: 9 },
+      isLoading: false,
+      isError: false,
+    })
+    render(<VenuePanel venue={venue()} onClose={vi.fn()} />)
+    const links = [
+      screen.getByRole('link', { name: 'view all 9 →' }),
+      screen.getByRole('link', { name: /open venue page/i }),
+    ]
+    for (const link of links) expect(link).toHaveAttribute('data-prefetch', 'false')
+
+    act(() => signal.markAtlasMapReady())
+
+    for (const link of links) expect(link).toHaveAttribute('data-prefetch', 'default')
+  })
+})
