@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { act, fireEvent, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import type { MutableRefObject, ReactNode } from 'react'
+import type { MutableRefObject } from 'react'
 import { renderWithProviders } from '@/test/utils'
 import type { SceneListResponse } from '../types'
 import type { PlaceableScene } from './globeTypes'
@@ -12,26 +12,7 @@ import type { AtlasMapFailureClass } from '../atlasViewport'
 // surface: data wiring, the loading/error states, and the scene-list fallback
 // (the WebGL globe itself is validated by screenshot, not jsdom).
 
-vi.mock('next/link', () => ({
-  default: ({
-    href,
-    children,
-    prefetch,
-    ...rest
-  }: {
-    href: string
-    children: ReactNode
-    prefetch?: boolean | null
-  }) => (
-    <a
-      href={href}
-      {...rest}
-      data-prefetch={prefetch === undefined ? 'default' : String(prefetch)}
-    >
-      {children}
-    </a>
-  ),
-}))
+vi.mock('next/link', () => import('@/test/mocks/nextLink'))
 
 const mockUseScenes = vi.fn()
 // FollowButton pulls AuthContext + usePathname (neither available here) —
@@ -203,11 +184,15 @@ vi.mock('./atlasMapPreload', () => ({
   preloadAtlasMap: () => preloadAtlasMap(),
 }))
 
+// AtlasGlobe's own release is a spy; the real signal underneath still holds
+// and releases the pane's links, through `realSignal.release`.
 const markAtlasMapReady = vi.fn()
-vi.mock('@/lib/atlasMapReady', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('@/lib/atlasMapReady')>()),
-  markAtlasMapReady: () => markAtlasMapReady(),
-}))
+const realSignal = vi.hoisted(() => ({ release: () => {} }))
+vi.mock('@/lib/atlasMapReady', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/atlasMapReady')>()
+  realSignal.release = actual.markAtlasMapReady
+  return { ...actual, markAtlasMapReady: () => markAtlasMapReady() }
+})
 
 // jsdom has no WebGL, so the real probe would answer false and every case
 // would get the scene list. The probe itself is unit-tested in
@@ -2032,23 +2017,19 @@ describe('AtlasGlobe', () => {
     })
   })
 
-  // The map-ready signal is page-load state that only ever releases, so this
-  // case, which releases it, is the last in the file and checks it starts held.
-  // The module mock above replaces only markAtlasMapReady, so the release goes
-  // through the real module.
   describe('in-map link prefetch', () => {
     it('holds the "not on the map" link until the map-ready signal, then re-arms it', async () => {
-      const signal = await vi.importActual<typeof import('@/lib/atlasMapReady')>(
-        '@/lib/atlasMapReady',
-      )
-      expect(signal.isAtlasMapReady()).toBe(false)
+      // The signal is page-load state, so the case loads a fresh copy of it
+      // and of the component that reads it.
+      vi.resetModules()
+      const { AtlasGlobe } = await import('./AtlasGlobe')
       mockUseScenes.mockReturnValue({ data: sampleData, isLoading: false, isError: false })
       renderWithProviders(<AtlasGlobe />)
       await screen.findByTestId('globe-canvas')
       const link = screen.getByRole('link', { name: /not on the map/i })
       expect(link).toHaveAttribute('data-prefetch', 'false')
 
-      act(() => signal.markAtlasMapReady())
+      act(() => realSignal.release())
 
       expect(link).toHaveAttribute('data-prefetch', 'default')
     })

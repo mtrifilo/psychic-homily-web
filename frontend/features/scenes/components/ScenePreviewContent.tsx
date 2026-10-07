@@ -1,6 +1,6 @@
 'use client'
 
-import { ChromeLink } from '@/components/layout/nav/ChromeLink'
+import { AtlasPaneLink } from './AtlasPaneLink'
 import { cn } from '@/lib/utils'
 import { showDisplayTitle } from '@/lib/utils/showDisplayTitle'
 import { MusicEmbed } from '@/components/shared/MusicEmbed'
@@ -130,13 +130,12 @@ export function ScenePreviewContent({
                 {/* Inline in a run of text, so the vertical padding grows
                     the tap target to 24px without moving the line; the
                     list's gap keeps one row's target off the next. */}
-                <ChromeLink
-                  atlasPrefetch="after-map"
+                <AtlasPaneLink
                   href={`/shows/${show.slug || show.id}`}
                   className="py-1 underline-offset-4 hover:underline"
                 >
                   {sceneShowRowTitle(show)}
-                </ChromeLink>
+                </AtlasPaneLink>
                 {show.venue_name && (
                   <span className="text-muted-foreground"> · {show.venue_name}</span>
                 )}
@@ -163,13 +162,12 @@ export function ScenePreviewContent({
                     <span className="h-1.5 w-1.5 rounded-full bg-success-foreground" />
                   )}
                 </span>
-                <ChromeLink
-                  atlasPrefetch="after-map"
+                <AtlasPaneLink
                   href={`/artists/${a.slug}`}
                   className="py-0.5 text-sm underline-offset-4 hover:underline"
                 >
                   {a.name}
-                </ChromeLink>
+                </AtlasPaneLink>
                 {a.is_active && <span className="sr-only">(active)</span>}
               </li>
             ))}
@@ -193,8 +191,7 @@ export function ScenePreviewContent({
 
       {/* mt-auto pins this to the bottom only when the host grows the body
           (the desktop panel's flex-1); in a natural-height host it's inert. */}
-      <ChromeLink
-        atlasPrefetch="after-map"
+      <AtlasPaneLink
         href={`/scenes/${scene.slug}`}
         className={cn(
           'mt-auto gap-1 text-sm font-medium text-primary underline-offset-4 hover:underline',
@@ -202,7 +199,7 @@ export function ScenePreviewContent({
         )}
       >
         Open scene →
-      </ChromeLink>
+      </AtlasPaneLink>
     </div>
   )
 }

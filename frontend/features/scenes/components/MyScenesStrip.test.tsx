@@ -1,6 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { act, fireEvent, screen } from '@testing-library/react'
-import { isAtlasMapReady, markAtlasMapReady } from '@/lib/atlasMapReady'
 import { renderWithProviders } from '@/test/utils'
 import type { SceneListItem } from '../types'
 
@@ -10,29 +9,7 @@ vi.mock('next/navigation', () => ({
   usePathname: () => '/atlas',
 }))
 
-// Surfaces the prefetch prop the link renders with, which decides whether
-// Next arms its prefetch.
-vi.mock('next/link', () => ({
-  default: ({
-    href,
-    children,
-    className,
-    prefetch,
-  }: {
-    href: string
-    children: React.ReactNode
-    className?: string
-    prefetch?: boolean | null
-  }) => (
-    <a
-      href={href}
-      className={className}
-      data-prefetch={prefetch === undefined ? 'default' : String(prefetch)}
-    >
-      {children}
-    </a>
-  ),
-}))
+vi.mock('next/link', () => import('@/test/mocks/nextLink'))
 
 // useMyFollowing pulls AuthContext (unavailable here) — stub the follows hook.
 const mockUseMyFollowing = vi.fn()
@@ -153,11 +130,13 @@ describe('MyScenesStrip (PSY-1340)', () => {
   })
 })
 
-// The map-ready signal is page-load state that only ever releases, so this
-// case, which releases it, is the last in the file and checks it starts held.
 describe('MyScenesStrip prefetch on the Atlas', () => {
-  it('holds its overflow link until the map-ready signal, then re-arms it', () => {
-    expect(isAtlasMapReady()).toBe(false)
+  it('holds its overflow link until the map-ready signal, then re-arms it', async () => {
+    // The signal is page-load state, so the case loads a fresh copy of it and
+    // of the component that reads it.
+    vi.resetModules()
+    const signal = await import('@/lib/atlasMapReady')
+    const { MyScenesStrip } = await import('./MyScenesStrip')
     const resp = follows(
       Array.from({ length: 12 }, (_, i) => ({ slug: `scene-${i}`, name: `Scene ${i}` })),
     )
@@ -166,7 +145,7 @@ describe('MyScenesStrip prefetch on the Atlas', () => {
     const link = screen.getByRole('link', { name: '+4 more' })
     expect(link).toHaveAttribute('data-prefetch', 'false')
 
-    act(() => markAtlasMapReady())
+    act(() => signal.markAtlasMapReady())
 
     expect(link).toHaveAttribute('data-prefetch', 'default')
   })

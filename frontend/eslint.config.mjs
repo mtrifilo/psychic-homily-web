@@ -51,17 +51,12 @@ const eslintConfig = defineConfig([
     // keydown or wheel must hold their prefetches until the map is up, which
     // ChromeLink does (components/layout/nav/ChromeLink.tsx). That includes the
     // links of hover-opened menus (BrowseMenu, ContributeMenu). This rule covers
-    // the chrome under components/layout and the components the Atlas draws in
-    // its own pane, which share the phone's connection with the map's
-    // downloads the same way. Links inside a surface that only
+    // the chrome under components/layout. Links inside a surface that only
     // opens on click or key (the notification bell's list) mount after one of
     // those inputs, which has already released the hold. A later config block
     // that sets no-restricted-imports for these files replaces this one's
     // options rather than merging them, so extend this block instead.
-    files: [
-      "components/layout/**/*.tsx",
-      "features/scenes/components/{ArtistPanel,AtlasGlobe,AtlasSceneList,AtlasSearch,GenreLegend,GlobeCanvas,MyScenesStrip,ScenePreviewContent,ScenePreviewPanel,VenueListSheet,VenuePanel,VenueRail}.tsx",
-    ],
+    files: ["components/layout/**/*.tsx"],
     ignores: [
       "components/layout/nav/ChromeLink.tsx",
       "components/layout/**/*.test.tsx",
@@ -75,6 +70,31 @@ const eslintConfig = defineConfig([
               name: "next/link",
               message:
                 "Use ChromeLink from @/components/layout/nav/ChromeLink: it holds the prefetch on /atlas until the map is up.",
+              allowTypeImports: true,
+            },
+          ],
+        },
+      ],
+    },
+  },
+  {
+    // The components the Atlas draws in its own pane link through
+    // AtlasPaneLink, which holds their prefetches on /atlas until the map is
+    // up. The pane's files sit beside the scene page's in this folder, so they
+    // are named one by one: add a new pane component here. A shared component
+    // rendered inside the pane is outside this rule.
+    files: [
+      "features/scenes/components/{ArtistPanel,AtlasGlobe,AtlasSceneList,AtlasSearch,GenreLegend,GlobeCanvas,MyScenesStrip,ScenePreviewContent,ScenePreviewPanel,VenueListSheet,VenuePanel,VenueRail}.tsx",
+    ],
+    rules: {
+      "@typescript-eslint/no-restricted-imports": [
+        "error",
+        {
+          paths: [
+            {
+              name: "next/link",
+              message:
+                "Use AtlasPaneLink from ./AtlasPaneLink: it holds the prefetch on /atlas until the map is up.",
               allowTypeImports: true,
             },
           ],

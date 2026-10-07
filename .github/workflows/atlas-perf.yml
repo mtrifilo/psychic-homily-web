@@ -54,6 +54,7 @@ on:
       # first map.
       - frontend/app/layout.tsx
       - frontend/components/layout/**
+      - '!frontend/components/layout/**/*.test.tsx'
       - frontend/app/globals.css
       # Build and bundling configuration.
       - frontend/next.config.*

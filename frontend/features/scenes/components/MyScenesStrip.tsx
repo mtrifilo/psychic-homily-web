@@ -1,7 +1,7 @@
 'use client'
 
 import { useMemo } from 'react'
-import { ChromeLink } from '@/components/layout/nav/ChromeLink'
+import { AtlasPaneLink } from './AtlasPaneLink'
 import { useRouter } from 'next/navigation'
 import { Star } from 'lucide-react'
 import { useMyFollowing } from '@/lib/hooks/common/useFollow'
@@ -99,13 +99,12 @@ export function MyScenesStrip({
         </button>
       ))}
       {more > 0 && (
-        <ChromeLink
-          atlasPrefetch="after-map"
+        <AtlasPaneLink
           href="/library?tab=scenes"
           className="pointer-events-auto rounded-full border border-border bg-background/90 px-2.5 py-1 text-xs text-muted-foreground backdrop-blur transition-colors hover:border-primary hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         >
           +{more} more
-        </ChromeLink>
+        </AtlasPaneLink>
       )}
     </nav>
   )

@@ -1,7 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { act, fireEvent, render, screen, within } from '@testing-library/react'
-import { isAtlasMapReady, markAtlasMapReady } from '@/lib/atlasMapReady'
-import type { ReactNode } from 'react'
 import type { ArtistGraphCard } from '@/features/artists/types'
 import type { ArtistStep } from '../artistDrillIn'
 import { ARTIST_SHOWS_PAGE_LIMIT } from '@/features/artists/api'
@@ -10,27 +8,7 @@ import { ARTIST_PANEL_NEXT_SHOW_ROWS } from '../cityView'
 // The Atlas route, where ChromeLink holds a link's prefetch until the map is up.
 vi.mock('next/navigation', () => ({ usePathname: () => '/atlas' }))
 
-vi.mock('next/link', () => ({
-  default: ({
-    href,
-    children,
-    className,
-    prefetch,
-  }: {
-    href: string
-    children: ReactNode
-    className?: string
-    prefetch?: boolean | null
-  }) => (
-    <a
-      href={href}
-      className={className}
-      data-prefetch={prefetch === undefined ? 'default' : String(prefetch)}
-    >
-      {children}
-    </a>
-  ),
-}))
+vi.mock('next/link', () => import('@/test/mocks/nextLink'))
 
 // MusicEmbed owns a TanStack query + a third-party iframe; the panel's job is
 // deciding WHETHER to head a Listen section, so the embed is mocked at the
@@ -568,16 +546,28 @@ describe('ArtistPanel as a bottom sheet', () => {
   })
 })
 
-// The map-ready signal is page-load state that only ever releases, so this
-// case, which releases it, is the last in the file and checks it starts held.
 describe('ArtistPanel prefetch on the Atlas', () => {
-  it('holds its link until the map-ready signal, then re-arms it', () => {
-    expect(isAtlasMapReady()).toBe(false)
-    renderPanel()
+  it('holds its link until the map-ready signal, then re-arms it', async () => {
+    // The signal is page-load state, so the case loads a fresh copy of it and
+    // of the component that reads it.
+    vi.resetModules()
+    const signal = await import('@/lib/atlasMapReady')
+    const { ArtistPanel } = await import('./ArtistPanel')
+    render(
+      <ArtistPanel
+        steps={STEPS}
+        index={0}
+        onStep={vi.fn()}
+        scopeLabel="upcoming at Hotel Vegas"
+        backLabel="Hotel Vegas"
+        onBack={vi.fn()}
+        onClose={vi.fn()}
+      />,
+    )
     const link = screen.getByRole('link', { name: /open artist page/i })
     expect(link).toHaveAttribute('data-prefetch', 'false')
 
-    act(() => markAtlasMapReady())
+    act(() => signal.markAtlasMapReady())
 
     expect(link).toHaveAttribute('data-prefetch', 'default')
   })
