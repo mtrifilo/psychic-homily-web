@@ -15,7 +15,7 @@
  * ssr:false costs nothing (the canvas never renders server-side). NOTE: in the
  * App Router a failed chunk fetch THROWS to the nearest error boundary (it does
  * NOT re-invoke `loading` with an error), so callers MUST wrap the mount in
- * CanvasSectionErrorBoundary — `loading` here is only the happy-path skeleton.
+ * CanvasSectionErrorBoundary; `loading` here is only the happy-path skeleton.
  *
  * Called at MODULE scope by each surface (not in render): `dynamic()` must not be
  * re-created per render, and ssr:false requires a client module (this file is one).

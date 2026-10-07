@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, fireEvent } from '@testing-library/react'
 
 // PSY-1359: a failed ForceGraphView chunk fetch throws (App Router) into the
-// CanvasSectionErrorBoundary InlineGraph now wraps the mount in — verify the
+// CanvasSectionErrorBoundary InlineGraph wraps the mount in. Verify the
 // user sees the recoverable GraphLoadError card (not an uncaught bubble / an
 // infinite skeleton), that it reports to Sentry, and that retry recovers.
 
