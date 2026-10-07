@@ -236,6 +236,26 @@ describe('MusicEmbed', () => {
     })
   })
 
+  // The fallback link stays out of the coarse-pointer hit area: Chromium
+  // would draw its keyboard focus ring around the grown box. It relies on the
+  // WCAG 2.5.8 spacing exception instead (see the comment at the link).
+  it('keeps the fallback link free of coarse-pointer classes', async () => {
+    render(
+      <MusicEmbed
+        bandcampProfileUrl="https://band.bandcamp.com"
+        artistName="Test Artist"
+      />
+    )
+
+    const link = await screen.findByRole('link', {
+      name: 'Listen to Test Artist on Bandcamp',
+    })
+    const coarseOnly = [...link.classList].filter(token =>
+      token.startsWith('pointer-coarse:')
+    )
+    expect(coarseOnly).toEqual([])
+  })
+
   // PSY-1102 adversarial review: a transient 5xx from the scraper route must
   // NOT cache as a durable null "success" (which would freeze the embed on the
   // fallback link for the whole staleTime). resolveBandcampEmbed throws on 5xx

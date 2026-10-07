@@ -300,6 +300,15 @@ export function MusicEmbed({
         </h2>
       )}
       {embed.type === 'fallback' ? (
+        // The link is 20px tall, under the 24px WCAG 2.5.8 minimum target
+        // size, and meets 2.5.8 through its spacing exception: a 24px circle
+        // on its centre reaches 2px past its top and bottom edges, so it holds
+        // while a host leaves at least 4px between this link and the next
+        // target. Measured in the Atlas scene preview at 390 and 360 wide, the
+        // nearest target is 40px away. It does not take
+        // COARSE_POINTER_HIT_AREA_CLASS because Chromium draws the keyboard
+        // focus ring of a block-level link around the grown box, which would
+        // change the visible ring on a coarse pointer.
         <a
           href={embed.url}
           target="_blank"
