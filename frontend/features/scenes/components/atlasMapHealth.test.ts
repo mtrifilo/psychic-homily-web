@@ -321,6 +321,22 @@ describe('watchAtlasMapHealth style-live callback', () => {
     expect(onUnrecoverable).toHaveBeenCalledTimes(1)
   })
 
+  it('stops calling once it has reported a failure', () => {
+    watch()
+    map.fire('style.load')
+    map.fire('webglcontextlost')
+    map.fire('error', { error: gpuInitializationError() })
+    // MapLibre re-sets the saved style before it asks for a context, so its
+    // style.load can still follow the refusal.
+    map.fire('webglcontextrestored')
+    map.fire('style.load')
+    expect(onUnrecoverable).toHaveBeenCalledTimes(1)
+    expect(calls).toEqual([
+      { live: true, styleLive: true },
+      { live: false, styleLive: false },
+    ])
+  })
+
   it('stops calling once disposed', () => {
     watch()
     map.fire('style.load')

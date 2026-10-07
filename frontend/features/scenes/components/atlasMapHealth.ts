@@ -63,8 +63,9 @@ type HealthMap = Pick<MapLibreMap, 'on' | 'style'>
 
 /**
  * Whether the map's current style has loaded. MapLibre 6.0.0 sets the style's
- * `_loaded` in the same call that fires `style.load`, and a lost context
- * destroys the style and nulls `map.style`.
+ * `_loaded` at the start of `Style._load`, which ends by firing `style.load`
+ * (a `_load` that throws part way leaves `_loaded` set with no `style.load`),
+ * and a lost context destroys the style and nulls `map.style`.
  */
 function styleHasLoaded(map: HealthMap): boolean {
   const style = map.style as { _loaded?: unknown } | null | undefined
@@ -81,8 +82,9 @@ export interface AtlasMapHealth {
    */
   styleLive(): boolean
   /**
-   * Cancels the deadline and stops reporting, to both callbacks. The listeners
-   * stay on the map, inert, so call it only as the map is removed.
+   * Cancels the deadline and stops reporting, to both callbacks (a reported
+   * failure has already stopped both). The listeners stay on the map, inert,
+   * so call it only as the map is removed.
    */
   stop(): void
 }
@@ -94,8 +96,10 @@ export interface AtlasMapHealth {
  *
  * `onStyleLiveChange`, when given, is called with each change of
  * {@link AtlasMapHealth.styleLive}, after this watch has classified the event
- * behind it, and at once with `true` when the style had already loaded before
- * the watch began. It is the one answer to whether the style can be written.
+ * behind it. When the style had already loaded before the watch began, it is
+ * called with `true` during this call, before the returned handle exists, so
+ * it must not read that handle. It is the one answer to whether the style can
+ * be written.
  *
  * MapLibre 6.0.0's behaviour this relies on:
  * - A lost context after the style loaded comes back with the style when the
@@ -130,7 +134,7 @@ export function watchAtlasMapHealth(
   let styleEverLoaded = styleLive
   let contextLost = false
   let settled = false
-  // Cleared by stop(), so a stopped watch reports nothing.
+  // Cleared by stop() and by a failure, so a settled watch reports nothing.
   let reportStyleLive = onStyleLiveChange
   let deadline: ReturnType<typeof setTimeout> | null = null
 
@@ -143,6 +147,7 @@ export function watchAtlasMapHealth(
   function fail(failureClass: AtlasMapFailureClass) {
     if (settled) return
     settled = true
+    reportStyleLive = undefined
     endLoss()
     onUnrecoverable(new AtlasMapUnrecoverableError(failureClass))
   }
