@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { render, screen, within, act } from '@testing-library/react'
+import { render, screen, within, act, cleanup } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { CollectionDetail } from './CollectionDetail'
 import type {
@@ -386,6 +386,8 @@ function findTrashButton(): HTMLElement {
   return screen.getByRole('button', { name: 'Delete collection' })
 }
 
+let itemsListLoaded = false
+
 describe('CollectionDetail', () => {
   beforeEach(() => {
     vi.clearAllMocks()
@@ -451,6 +453,18 @@ describe('CollectionDetail', () => {
       totalResults: 0,
       searchError: false,
     }
+  })
+
+  // The items list is a `next/dynamic` import, and the App Router loader is
+  // React.lazy: the first render in this file suspends the whole tree until
+  // the module resolves, and every render after that is synchronous. One
+  // awaited render here lets every test below query synchronously.
+  beforeEach(async () => {
+    if (itemsListLoaded) return
+    render(<CollectionDetail slug="test-collection" />)
+    await screen.findByRole('heading', { level: 1 }, { timeout: 5000 })
+    cleanup()
+    itemsListLoaded = true
   })
 
   it('renders collection title in heading', () => {

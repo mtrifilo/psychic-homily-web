@@ -4,6 +4,18 @@ import tsconfigPaths from 'vite-tsconfig-paths'
 
 export default defineConfig({
   plugins: [tsconfigPaths(), react()],
+  resolve: {
+    alias: [
+      // The app's `next/dynamic` is the App Router loader; the package entry
+      // is the Pages Router loader. The App Router loader calls `loading` only
+      // while the module is pending and throws a failed import to the nearest
+      // error boundary, so tests run on the loader the app runs.
+      {
+        find: /^next\/dynamic$/,
+        replacement: 'next/dist/shared/lib/app-dynamic',
+      },
+    ],
+  },
   test: {
     environment: 'jsdom',
     env: {
