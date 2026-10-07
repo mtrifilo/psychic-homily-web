@@ -409,6 +409,17 @@ describe('AtlasGlobe', () => {
       expect(markAtlasMapReady).not.toHaveBeenCalled()
     })
 
+    it('releases the Atlas-ready signal when the map dies and the list takes over', async () => {
+      const quiet = vi.spyOn(console, 'error').mockImplementation(() => {})
+      markAtlasMapReady.mockClear()
+      mockCanvasThrowsOnStart = 'context-lost'
+      setMockContainerWidth(390)
+      renderWithScenes()
+      await waitFor(() => expect(screen.getByTestId('atlas-scene-list')).toBeInTheDocument())
+      expect(markAtlasMapReady).toHaveBeenCalledTimes(1)
+      quiet.mockRestore()
+    })
+
     it('leaves the Atlas-ready signal to the map when it shows the map', async () => {
       markAtlasMapReady.mockClear()
       setMockContainerWidth(390)
