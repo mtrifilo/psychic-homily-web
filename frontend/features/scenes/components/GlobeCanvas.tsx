@@ -304,6 +304,10 @@ export default function GlobeCanvas({
   // inside React.
   const [unrecoverable, setUnrecoverable] =
     useState<AtlasMapUnrecoverableError | null>(null)
+  // Whether the live map's style is loaded: false from a lost WebGL context
+  // until the style MapLibre re-creates on restore has loaded, during which
+  // style setters such as setPaintProperty throw.
+  const styleLoadedRef = useRef(false)
 
   const selectedSlug = selected?.slug ?? null
 
@@ -669,19 +673,21 @@ export default function GlobeCanvas({
     // validate:false — these are trusted constants; skip per-frame style
     // validation on the animation hot path.
     let raf = requestAnimationFrame(function tick(now: number) {
-      const t = (now % RING_PERIOD_MS) / RING_PERIOD_MS
-      mapReady.setPaintProperty(
-        'scene-rings',
-        'circle-radius',
-        RING_MAX_RADIUS_PX * t,
-        { validate: false },
-      )
-      mapReady.setPaintProperty(
-        'scene-rings',
-        'circle-stroke-opacity',
-        RING_MAX_OPACITY * (1 - t),
-        { validate: false },
-      )
+      if (styleLoadedRef.current) {
+        const t = (now % RING_PERIOD_MS) / RING_PERIOD_MS
+        mapReady.setPaintProperty(
+          'scene-rings',
+          'circle-radius',
+          RING_MAX_RADIUS_PX * t,
+          { validate: false },
+        )
+        mapReady.setPaintProperty(
+          'scene-rings',
+          'circle-stroke-opacity',
+          RING_MAX_OPACITY * (1 - t),
+          { validate: false },
+        )
+      }
       raf = requestAnimationFrame(tick)
     })
     return () => {
@@ -991,6 +997,12 @@ export default function GlobeCanvas({
 
     // Context loss and style failures that leave the map unable to draw.
     const stopHealthWatch = watchAtlasMapHealth(map, setUnrecoverable)
+    map.on('style.load', () => {
+      styleLoadedRef.current = true
+    })
+    map.on('webglcontextlost', () => {
+      styleLoadedRef.current = false
+    })
 
     // See the constructor options: bearing/pitch must stay locked at 0 on
     // every input path (the saved camera persists only center/zoom).
@@ -1310,6 +1322,7 @@ export default function GlobeCanvas({
       setMapReady((prev) => (prev === map ? null : prev))
       setMapLoaded((prev) => (prev === map ? null : prev))
       stopHealthWatch()
+      styleLoadedRef.current = false
       map.remove()
     }
     // pov is resolved once before this canvas mounts, and flyToRef is a

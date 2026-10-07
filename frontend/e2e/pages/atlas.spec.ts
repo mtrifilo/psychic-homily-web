@@ -294,6 +294,31 @@ test.describe('Atlas when the map loses its WebGL context', () => {
 
   test.beforeEach(async ({ page }) => {
     await stubAtlas(page)
+    // The fixture's scene with a show this week, so its pulse ring animates
+    // through the loss. Registered last, so it answers before stubAtlas's.
+    await page.route(
+      (url) => url.pathname.endsWith('/scenes'),
+      (route) =>
+        route.fulfill({
+          json: {
+            scenes: [
+              {
+                city: 'Phoenix',
+                state: 'AZ',
+                slug: 'phoenix-az',
+                venue_count: 3,
+                upcoming_show_count: 9,
+                total_show_count: 9,
+                shows_this_week: 2,
+                shows_calendar_week: 2,
+                latitude: 33.4484,
+                longitude: -112.074,
+              },
+            ],
+            count: 1,
+          },
+        })
+    )
   })
 
   test('falls back to the scene list when the context is not restored', async ({ page }) => {

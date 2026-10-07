@@ -320,6 +320,34 @@ describe('GlobeCanvas pulse rings', () => {
     expect(ringFeatureCounts()).not.toContain(1)
   })
 
+  it('pauses the ring paint from a lost context until the restored style loads', () => {
+    matchMedia = installMatchMedia({ [REDUCED_MOTION_QUERY]: false })
+    vi.spyOn(stub.StubMap.prototype, 'getSource').mockReturnValue({ setData: vi.fn() })
+    const frames: FrameRequestCallback[] = []
+    vi.spyOn(window, 'requestAnimationFrame').mockImplementation((callback) => {
+      frames.push(callback)
+      return frames.length
+    })
+    vi.spyOn(window, 'cancelAnimationFrame').mockImplementation(() => {})
+    const { map } = renderCanvas({ scenes: [{ ...CHICAGO, shows_this_week: 2 }] })
+    const runFrame = () => frames.shift()!(16)
+
+    runFrame()
+    expect(map.setPaintProperty).toHaveBeenCalledTimes(2)
+
+    act(() => map.fire('webglcontextlost'))
+    act(() => map.fire('webglcontextrestored'))
+    map.setPaintProperty.mockClear()
+    runFrame()
+    expect(map.setPaintProperty).not.toHaveBeenCalled()
+    // Still scheduled: the loop waits rather than ending.
+    expect(frames).toHaveLength(1)
+
+    act(() => map.fire('style.load'))
+    runFrame()
+    expect(map.setPaintProperty).toHaveBeenCalledTimes(2)
+  })
+
   it('starts the rings again when reduced motion is turned off', () => {
     matchMedia = installMatchMedia({ [REDUCED_MOTION_QUERY]: true })
     const setData = vi.fn()
