@@ -292,12 +292,23 @@ func (suite *RadioSyncManualIntegrationTestSuite) TestTriggerShowBackfill_OpensR
 	suite.Equal(1, final.PlaysImported)
 }
 
+// TestTriggerGlobalRematch_OpensRunAndCompletes checks that the trigger opens a
+// rematch run row and that the run reaches success in the background.
+//
+// The returned status is not required to be running. The trigger reads the row
+// back after it starts the background goroutine, and with nothing to rematch
+// that goroutine can close the run before the read, so the handle carries
+// either running or success. finishRematchRun writes success, failed or
+// cancelled, never partial, so those two are the only statuses a healthy run
+// can show here. What proves the run was opened is the poll: the returned id
+// must resolve through GetSyncRun to a finished rematch row.
 func (suite *RadioSyncManualIntegrationTestSuite) TestTriggerGlobalRematch_OpensRunAndCompletes() {
 	resp, err := suite.radioService.TriggerGlobalRematch(contracts.GlobalRematchRequest{})
 	suite.Require().NoError(err)
-	suite.Require().NotZero(resp.ID)
+	suite.Require().NotZero(resp.ID, "trigger must return a pollable run handle")
 	suite.Equal(catalogm.RadioSyncRunTypeRematch, resp.RunType)
-	suite.Equal(catalogm.RadioSyncRunStatusRunning, resp.Status)
+	suite.Equal(catalogm.RadioSyncRunTriggerManual, resp.Trigger)
+	suite.Contains([]string{catalogm.RadioSyncRunStatusRunning, catalogm.RadioSyncRunStatusSuccess}, resp.Status)
 	suite.Nil(resp.StationID)
 
 	var final *contracts.RadioSyncRunResponse
@@ -309,7 +320,10 @@ func (suite *RadioSyncManualIntegrationTestSuite) TestTriggerGlobalRematch_Opens
 		final = r
 		return r.Status == catalogm.RadioSyncRunStatusSuccess
 	}, 5*time.Second, 20*time.Millisecond, "global rematch run should complete")
-	suite.NotNil(final)
+	suite.Equal(resp.ID, final.ID)
+	suite.Equal(catalogm.RadioSyncRunTypeRematch, final.RunType)
+	suite.Nil(final.StationID)
+	suite.NotNil(final.FinishedAt, "a finished run must carry finished_at")
 }
 
 func (suite *RadioSyncManualIntegrationTestSuite) TestTriggerGlobalRematch_RejectsConcurrentRun() {
