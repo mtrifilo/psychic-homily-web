@@ -2,7 +2,8 @@
  * A once-per-page-load signal that the Atlas's first-map window is over. It
  * says nothing about whether a map exists: it releases when the map draws its
  * first full frame, when the Atlas knows no map will draw (the scene list, the
- * error state, nothing to place), on the visitor's first input, or at the cap
+ * error state, nothing to place), or, while the Atlas page has armed them
+ * (armAtlasMapReadyFallbacks), on the visitor's first input or at the cap
  * below, whichever comes first. The app chrome's link prefetches wait for it
  * on `/atlas` (components/layout/nav/ChromeLink.tsx).
  *
@@ -11,10 +12,11 @@
  */
 
 /**
- * How long after the Atlas page mounts the signal releases on its own. The
- * held work is only postponed, never dropped, so the cap bounds the delay for
- * a map that is slow, stalled, or never draws (a lost WebGL context, a
- * MapLibre worker that never answers).
+ * How long after the Atlas page mounts the signal releases on its own. Held
+ * links resume their viewport prefetch on release (a hover or touchstart
+ * during the hold prefetches nothing), so the cap bounds the delay for a map
+ * that is slow, stalled, or never draws (a lost WebGL context, a MapLibre
+ * worker that never answers).
  */
 export const ATLAS_MAP_READY_CAP_MS = 10_000
 

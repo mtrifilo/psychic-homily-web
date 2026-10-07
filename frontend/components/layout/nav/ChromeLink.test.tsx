@@ -64,6 +64,12 @@ describe('ChromeLink', () => {
     expect(screen.getByText('Home')).toHaveAttribute('data-prefetch', 'default')
   })
 
+  // The hold keys on the nav registry's Atlas entry, while the cap and input
+  // release are armed by app/atlas/page.tsx; both must name the same route.
+  it('holds on the route app/atlas serves', () => {
+    expect(atlasItem.href).toBe('/atlas')
+  })
+
   it("keeps a caller's own prefetch={false} after the release", async () => {
     const { signal, ChromeLink } = await load()
     render(

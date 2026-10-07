@@ -632,14 +632,10 @@ export function AtlasGlobe() {
   useEffect(() => {
     if (mapMayMount) preloadAtlasMap()
   }, [mapMayMount])
-  // True exactly when the content below takes a branch with no map: the error
-  // state, the scene list, or a loaded scene set with nothing to place. Keep it
-  // in step with those branches: whatever waits on the Atlas-ready signal is
-  // released here when no map will draw. Loading and the unmeasured first
-  // commit are not on the list, since a map may still follow.
-  const mapWillNotDraw =
-    isError ||
-    (size !== null && (showsSceneList || (!isLoading && placeable.length === 0)))
+  // No map can follow: the error state, the scene list, or a loaded scene set
+  // with nothing to place. Whatever waits on the Atlas-ready signal is released
+  // then. The unmeasured first commit is excluded, since a map may still follow.
+  const mapWillNotDraw = isError || (size !== null && !mapMayMount)
   useEffect(() => {
     if (mapWillNotDraw) markAtlasMapReady()
   }, [mapWillNotDraw])

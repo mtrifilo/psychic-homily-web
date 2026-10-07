@@ -31,9 +31,16 @@ vi.mock('next/link', async () => {
   // The compiled Flight client reads webpack's module hooks at load; nothing
   // here resolves a server reference, so inert stubs are enough.
   const hooks = globalThis as unknown as Record<string, unknown>
-  hooks.__webpack_require__ ??= () => ({})
-  hooks.__webpack_chunk_load__ ??= () => Promise.resolve()
-  hooks.__chromeLinkTestWebpackStubs = true
+  const stubbed: string[] = []
+  if (hooks.__webpack_require__ === undefined) {
+    hooks.__webpack_require__ = () => ({})
+    stubbed.push('__webpack_require__')
+  }
+  if (hooks.__webpack_chunk_load__ === undefined) {
+    hooks.__webpack_chunk_load__ = () => Promise.resolve()
+    stubbed.push('__webpack_chunk_load__')
+  }
+  hooks.__chromeLinkTestWebpackStubs = stubbed
   // The aliased require runs while the Link's module graph loads, so the
   // resolver is restored as soon as that load returns.
   try {
@@ -71,11 +78,9 @@ async function load() {
 
 afterAll(() => {
   const hooks = globalThis as unknown as Record<string, unknown>
-  if (hooks.__chromeLinkTestWebpackStubs) {
-    delete hooks.__webpack_require__
-    delete hooks.__webpack_chunk_load__
-    delete hooks.__chromeLinkTestWebpackStubs
-  }
+  const stubbed = (hooks.__chromeLinkTestWebpackStubs as string[] | undefined) ?? []
+  for (const name of stubbed) delete hooks[name]
+  delete hooks.__chromeLinkTestWebpackStubs
 })
 
 describe('ChromeLink with the real next/link', () => {

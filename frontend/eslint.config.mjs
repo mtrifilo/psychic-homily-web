@@ -47,12 +47,15 @@ const eslintConfig = defineConfig([
     },
   },
   {
-    // On /atlas, chrome links that mount before the visitor's first input must
-    // hold their prefetches until the map is up, which ChromeLink does
-    // (components/layout/nav/ChromeLink.tsx). This rule covers the chrome under
-    // components/layout. Links that only mount inside a popover or menu (the
-    // notification bell's list) mount after an input, which has already
-    // released the hold.
+    // On /atlas, chrome links that mount before the visitor's first pointerdown,
+    // keydown or wheel must hold their prefetches until the map is up, which
+    // ChromeLink does (components/layout/nav/ChromeLink.tsx). That includes the
+    // links of hover-opened menus (BrowseMenu, ContributeMenu). This rule covers
+    // the chrome under components/layout. Links inside a surface that only
+    // opens on click or key (the notification bell's list) mount after one of
+    // those inputs, which has already released the hold. A later config block
+    // that sets no-restricted-imports for these files replaces this one's
+    // options rather than merging them, so extend this block instead.
     files: ["components/layout/**/*.tsx"],
     ignores: [
       "components/layout/nav/ChromeLink.tsx",

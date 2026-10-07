@@ -41,6 +41,10 @@ let maps: StubMap[] = []
 const markAtlasMapReady = vi.hoisted(() => vi.fn())
 vi.mock('@/lib/atlasMapReady', () => ({ markAtlasMapReady }))
 
+// Whether the stub map reports its tiles loaded; a case flips it to stage a
+// render that is not yet the first full one.
+const stubTiles = vi.hoisted(() => ({ loaded: true }))
+
 vi.mock('maplibre-gl', () => {
   class StubControl {
     constructor(public options: unknown) {}
@@ -97,7 +101,7 @@ vi.mock('maplibre-gl', () => {
       return true
     }
     areTilesLoaded() {
-      return true
+      return stubTiles.loaded
     }
     getZoom() {
       return 1.6
@@ -153,6 +157,7 @@ describe('GlobeCanvas globe surface', () => {
     return { set: (next: boolean) => mm.set(ATLAS_COMPACT_VIEWPORT_QUERY, next) }
   }
   beforeEach(() => {
+    stubTiles.loaded = true
     maps = []
     sessionStorage.clear()
     // The boundary and place-label files, failing: their content is the
@@ -213,7 +218,10 @@ describe('GlobeCanvas globe surface', () => {
     renderCanvas()
     const map = theMap()
     act(() => map.fire('style.load'))
+    stubTiles.loaded = false
+    act(() => map.fire('render'))
     expect(markAtlasMapReady).not.toHaveBeenCalled()
+    stubTiles.loaded = true
     act(() => map.fire('render'))
     act(() => map.fire('render'))
     expect(markAtlasMapReady).toHaveBeenCalledTimes(1)
