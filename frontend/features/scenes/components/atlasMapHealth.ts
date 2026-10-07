@@ -130,13 +130,14 @@ export function watchAtlasMapHealth(
   let styleEverLoaded = styleLive
   let contextLost = false
   let settled = false
-  let stopped = false
+  // Cleared by stop(), so a stopped watch reports nothing.
+  let reportStyleLive = onStyleLiveChange
   let deadline: ReturnType<typeof setTimeout> | null = null
 
   function setStyleLive(live: boolean) {
     if (live === styleLive) return
     styleLive = live
-    if (!stopped) onStyleLiveChange?.(live)
+    reportStyleLive?.(live)
   }
 
   function fail(failureClass: AtlasMapFailureClass) {
@@ -216,13 +217,13 @@ export function watchAtlasMapHealth(
     }
   })
 
-  if (styleLive) onStyleLiveChange?.(true)
+  if (styleLive) reportStyleLive?.(true)
 
   return {
     styleLive: () => styleLive,
     stop() {
       settled = true
-      stopped = true
+      reportStyleLive = undefined
       endLoss()
     },
   }
