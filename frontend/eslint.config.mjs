@@ -47,14 +47,15 @@ const eslintConfig = defineConfig([
     },
   },
   {
-    // The app chrome renders on /atlas, where its links hold their prefetches
-    // until the map is up (components/layout/nav/ChromeLink.tsx). A direct
-    // next/link import there would skip that hold. AdminDrawerNav only renders
-    // under /admin.
+    // On /atlas, chrome links that mount before the visitor's first input must
+    // hold their prefetches until the map is up, which ChromeLink does
+    // (components/layout/nav/ChromeLink.tsx). This rule covers the chrome under
+    // components/layout. Links that only mount inside a popover or menu (the
+    // notification bell's list) mount after an input, which has already
+    // released the hold.
     files: ["components/layout/**/*.tsx"],
     ignores: [
       "components/layout/nav/ChromeLink.tsx",
-      "components/layout/AdminDrawerNav.tsx",
       "components/layout/**/*.test.tsx",
     ],
     rules: {

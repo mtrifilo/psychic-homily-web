@@ -49,8 +49,9 @@ export function subscribeAtlasMapReady(listener: () => void): () => void {
 
 /**
  * Arms the release paths that do not depend on the map: the cap and the first
- * user input. Called once by the Atlas page on mount; the returned function
- * disarms both (on unmount, or once the signal has released).
+ * user input. The Atlas page arms it on every mount; arms are independent, and
+ * the returned function disarms this one (on unmount, or once the signal has
+ * released).
  */
 export function armAtlasMapReadyFallbacks(): () => void {
   if (ready) return () => {}

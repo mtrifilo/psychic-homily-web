@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach, afterAll } from 'vitest'
 import { act, render, screen } from '@testing-library/react'
 import { AppRouterContext } from 'next/dist/shared/lib/app-router-context.shared-runtime'
 import { atlasItem } from './navData'
@@ -13,7 +13,8 @@ vi.mock('next/navigation', async importOriginal => ({
 // `react-server-dom-webpack/client` to its compiled copy
 // (next/dist/build/create-compiler-aliases.js). Vitest applies neither: it
 // would resolve the Pages Router Link, which observes every anchor whatever
-// `prefetch` says. Both aliases are mirrored here, for this file only.
+// `prefetch` says. Both aliases are mirrored here, for this file's Link load
+// only.
 vi.mock('next/link', async () => {
   const { default: Module } = await import('node:module')
   const resolver = Module as unknown as {
@@ -32,8 +33,15 @@ vi.mock('next/link', async () => {
   const hooks = globalThis as unknown as Record<string, unknown>
   hooks.__webpack_require__ ??= () => ({})
   hooks.__webpack_chunk_load__ ??= () => Promise.resolve()
-  const link = await vi.importActual<{ default?: unknown }>('next/dist/client/app-dir/link')
-  return { default: link.default ?? link }
+  hooks.__chromeLinkTestWebpackStubs = true
+  // The aliased require runs while the Link's module graph loads, so the
+  // resolver is restored as soon as that load returns.
+  try {
+    const link = await vi.importActual<{ default?: unknown }>('next/dist/client/app-dir/link')
+    return { default: link.default ?? link }
+  } finally {
+    resolver._resolveFilename = resolve
+  }
 })
 
 /**
@@ -60,6 +68,15 @@ async function load() {
   const { ChromeLink } = await import('./ChromeLink')
   return { signal, ChromeLink }
 }
+
+afterAll(() => {
+  const hooks = globalThis as unknown as Record<string, unknown>
+  if (hooks.__chromeLinkTestWebpackStubs) {
+    delete hooks.__webpack_require__
+    delete hooks.__webpack_chunk_load__
+    delete hooks.__chromeLinkTestWebpackStubs
+  }
+})
 
 describe('ChromeLink with the real next/link', () => {
   let observe: ReturnType<typeof vi.spyOn>

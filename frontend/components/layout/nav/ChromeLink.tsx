@@ -33,7 +33,7 @@ function useChromeHoldsPrefetch(): boolean {
  * `prefetch={false}`, which in the App Router also turns off its hover and
  * touchstart prefetch. When the hold releases, the link takes the caller's
  * `prefetch` again and Next starts observing it for viewport prefetch (pinned
- * against the real Link in ChromeLink.test.tsx).
+ * against the real Link in ChromeLink.realLink.test.tsx).
  */
 export function ChromeLink({ prefetch, ...props }: ComponentProps<typeof Link>) {
   const holdsPrefetch = useChromeHoldsPrefetch()
