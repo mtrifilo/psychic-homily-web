@@ -8,6 +8,8 @@ import 'maplibre-gl/dist/maplibre-gl.css'
 // Aims the worker pool at the vendored copy before any Map is constructed.
 import '@/features/scenes/components/maplibreWorker'
 import { handleBasemapError } from '@/features/scenes/basemap/basemapTelemetry'
+import { AtlasMapUnrecoverableError } from '@/features/scenes/atlasViewport'
+import { watchAtlasMapHealth } from '@/features/scenes/components/atlasMapHealth'
 import {
   PH_BASEMAP_MIN_ZOOM,
   phBasemapFragment,
@@ -17,7 +19,6 @@ import {
   venuePinPaint,
 } from '@/features/scenes/components/venuePinLayer'
 import { MiniAtlasSkeleton } from './MiniAtlasSkeleton'
-import { MiniAtlasUnavailable } from './MiniAtlasUnavailable'
 import {
   MINI_ATLAS_FIT_PADDING_PX,
   MINI_ATLAS_MAX_FIT_ZOOM,
@@ -119,6 +120,10 @@ export interface VenueMiniAtlasProps {
  * something. MapLibre's own zoom controls remain focusable and carry their own
  * labels, so the pane's keyboard surface is those two buttons and nothing
  * else.
+ *
+ * A map that cannot draw (a refused WebGL2 context, a style that never loads,
+ * a lost context that is not restored; see atlasMapHealth.ts) is thrown from
+ * render, so it reaches the error boundary the pane wraps around this map.
  */
 export function VenueMiniAtlas({
   pins,
@@ -128,10 +133,14 @@ export function VenueMiniAtlas({
 }: VenueMiniAtlasProps) {
   const containerRef = useRef<HTMLDivElement | null>(null)
   const [map, setMap] = useState<maplibregl.Map | null>(null)
-  // A style that never loads is the failure the skeleton would otherwise hide
-  // forever: `load` does not fire, so without this the pane pulses for the rest
-  // of the session over a map that is never coming.
-  const [failed, setFailed] = useState(false)
+  // Whether the map's style exists. A lost context destroys it, and until the
+  // restored style loads, feature-state writes throw and getSource answers
+  // undefined; every effect that writes to the style waits on this, and runs
+  // again with the current data when it turns true.
+  const [styleLive, setStyleLive] = useState(false)
+  // A failure MapLibre reports from outside React, rethrown from render.
+  const [unrecoverable, setUnrecoverable] =
+    useState<AtlasMapUnrecoverableError | null>(null)
 
   // The handlers the map binds are bound ONCE, with the map. Reading them
   // through refs keeps a new callback identity from tearing the map down.
@@ -160,14 +169,19 @@ export function VenueMiniAtlas({
       attributionControl: false,
     })
 
+    // maplibre-gl 6.0.0 reports a refused WebGL2 context as an event during
+    // construction and returns a map with no painter, which never loads. Its
+    // remove() needs the painter, so the half-built map is left alone.
+    if (!(instance as { painter?: unknown }).painter) {
+      throw new AtlasMapUnrecoverableError('context-refused')
+    }
+
     // Registered first, so the style's own TileJSON fetch, the earliest thing
-    // that can fail, is already covered. A failure BEFORE the style loads is
-    // fatal to the pane (no basemap, no pins); one after it is a missing tile
-    // on a map that already works, which the reader can see for themselves.
-    instance.on('error', (event) => {
-      handleBasemapError(event)
-      if (!instance.isStyleLoaded()) setFailed(true)
-    })
+    // that can fail, is already covered.
+    instance.on('error', handleBasemapError)
+    // Which failures end the map, and which a map that already draws rides
+    // out, is the watcher's rule.
+    const health = watchAtlasMapHealth(instance, setUnrecoverable)
 
     // Bottom-LEFT and never covered: the OpenStreetMap credit is an ODbL
     // licensing requirement, not chrome.
@@ -223,16 +237,24 @@ export function VenueMiniAtlas({
     instance.on('mouseleave', LAYER_ID, handleLeave)
     instance.on('click', LAYER_ID, handleClick)
     instance.on('load', () => {
-      setFailed(false)
       setMap(instance)
+    })
+    instance.on('style.load', () => {
+      setStyleLive(true)
+    })
+    instance.on('webglcontextlost', () => {
+      // The feature state went with the style.
+      appliedHoverRef.current = null
+      setStyleLive(false)
     })
 
     return () => {
-      setFailed(false)
+      health.stop()
       // The applied hover belongs to THIS map instance; a new one starts with
       // no feature-state, so a carried id would describe a map that never had
       // it set.
       appliedHoverRef.current = null
+      setStyleLive(false)
       setMap((prev) => (prev === instance ? null : prev))
       instance.remove()
     }
@@ -249,11 +271,12 @@ export function VenueMiniAtlas({
   )
 
   useEffect(() => {
-    const source = map?.getSource(SOURCE_ID) as
+    if (!map || !styleLive) return
+    const source = map.getSource(SOURCE_ID) as
       | maplibregl.GeoJSONSource
       | undefined
     source?.setData(features)
-  }, [map, features])
+  }, [map, styleLive, features])
 
   useEffect(() => {
     if (!map) return
@@ -275,7 +298,7 @@ export function VenueMiniAtlas({
   // hover and a pin hover cannot light different rooms.
   const appliedHoverRef = useRef<number | null>(null)
   useEffect(() => {
-    if (!map) return
+    if (!map || !styleLive) return
     const previous = appliedHoverRef.current
     if (previous !== null) {
       map.removeFeatureState({ source: SOURCE_ID, id: previous }, 'hover')
@@ -284,15 +307,16 @@ export function VenueMiniAtlas({
       map.setFeatureState({ source: SOURCE_ID, id: hoveredVenueId }, { hover: true })
     }
     appliedHoverRef.current = hoveredVenueId
-  }, [map, hoveredVenueId])
+  }, [map, styleLive, hoveredVenueId])
+
+  if (unrecoverable) throw unrecoverable
 
   return (
     <>
       {/* Held over the canvas until the style has painted, so the pane is never
           a flash of empty box. `map` IS the ready signal: it is set in the
           `load` handler, so nothing second-guesses when the skeleton lifts. */}
-      {!map && !failed && <MiniAtlasSkeleton />}
-      {!map && failed && <MiniAtlasUnavailable />}
+      {!map && <MiniAtlasSkeleton />}
       {/* Inline position/inset, NOT Tailwind classes: maplibre-gl.css sets
           `.maplibregl-map { position: relative }` on this node at map init,
           which ties with the `absolute` utility class and, since that
