@@ -26,15 +26,12 @@ describe('atlasMapReady', () => {
 
     expect(m.isAtlasMapReady()).toBe(true)
     expect(listener).toHaveBeenCalledTimes(1)
-    await expect(m.whenAtlasMapReady()).resolves.toBeUndefined()
   })
 
-  it('does not resolve the promise before release', async () => {
+  it('stays unreleased without arming, however long the page waits', async () => {
     const m = await load()
-    const settled = vi.fn()
-    void m.whenAtlasMapReady().then(settled)
-    await vi.advanceTimersByTimeAsync(m.ATLAS_MAP_READY_CAP_MS * 2)
-    expect(settled).not.toHaveBeenCalled()
+    vi.advanceTimersByTime(m.ATLAS_MAP_READY_CAP_MS * 2)
+    expect(m.isAtlasMapReady()).toBe(false)
   })
 
   it('stops notifying an unsubscribed listener', async () => {

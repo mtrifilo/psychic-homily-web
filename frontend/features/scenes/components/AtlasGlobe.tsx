@@ -617,9 +617,6 @@ export function AtlasGlobe() {
       prefersReducedMotion,
       mapFailed,
     })
-  useEffect(() => {
-    if (showsSceneList) markAtlasMapReady()
-  }, [showsSceneList])
   const mapSheetLayout =
     size !== null && !showsSceneList && usesAtlasSheetLayout(size.width)
 
@@ -635,6 +632,11 @@ export function AtlasGlobe() {
   useEffect(() => {
     if (mapMayMount) preloadAtlasMap()
   }, [mapMayMount])
+  // Where no map will draw, nothing should wait for its first frame.
+  const paneMeasured = size !== null
+  useEffect(() => {
+    if (paneMeasured && !mapMayMount) markAtlasMapReady()
+  }, [paneMeasured, mapMayMount])
 
   let content: ReactNode
   if (isError) {

@@ -4,11 +4,8 @@ import type { ComponentProps } from 'react'
 import { useSyncExternalStore } from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import {
-  ATLAS_PATH,
-  isAtlasMapReady,
-  subscribeAtlasMapReady,
-} from '@/lib/atlasMapReady'
+import { isAtlasMapReady, subscribeAtlasMapReady } from '@/lib/atlasMapReady'
+import { atlasItem } from './navData'
 
 /**
  * Whether the app chrome's links hold their prefetches right now: on the
@@ -17,14 +14,16 @@ import {
  * downloads. Everywhere else, and on the Atlas once the signal releases, the
  * links prefetch as they normally would.
  */
-export function useChromeHoldsPrefetch(): boolean {
+function useChromeHoldsPrefetch(): boolean {
+  // Read at render, not in an effect: Next registers a Link's prefetch when it
+  // first mounts, so the hold has to be in place on the first commit.
   const pathname = usePathname()
   const mapReady = useSyncExternalStore(
     subscribeAtlasMapReady,
     isAtlasMapReady,
     () => false
   )
-  return pathname === ATLAS_PATH && !mapReady
+  return pathname === atlasItem.href && !mapReady
 }
 
 /**

@@ -1,7 +1,9 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { act, render, screen } from '@testing-library/react'
 
-const pathname = vi.hoisted(() => ({ current: '/atlas' }))
+import { atlasItem } from './navData'
+
+const pathname = vi.hoisted(() => ({ current: '' }))
 vi.mock('next/navigation', () => ({
   usePathname: () => pathname.current,
 }))
@@ -35,7 +37,7 @@ async function load() {
 
 describe('ChromeLink', () => {
   beforeEach(() => {
-    pathname.current = '/atlas'
+    pathname.current = atlasItem.href
   })
 
   it('holds the prefetch on /atlas until the map is ready, then re-arms it', async () => {

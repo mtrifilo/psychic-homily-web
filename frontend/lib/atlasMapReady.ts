@@ -1,17 +1,14 @@
 /**
  * A once-per-page-load signal that the Atlas no longer needs the network and
  * the main thread to itself: its map has drawn its first full frame, or the
- * Atlas showed the scene list instead, or the visitor started using the page,
- * or the cap below ran out. The app chrome's link prefetches wait for it on
+ * Atlas knows no map will draw (the scene list, the error state, nothing to
+ * place), or the visitor started using the page, or the cap below ran out. The app chrome's link prefetches wait for it on
  * `/atlas` (components/layout/nav/ChromeLink.tsx).
  *
  * Directive-free so both GlobeCanvas and AtlasGlobe (feature code) and the
  * chrome can import it. Once released it stays released for the page load, so
  * a later visit to `/atlas` in the same tab defers nothing.
  */
-
-/** The route whose first map the signal guards. */
-export const ATLAS_PATH = '/atlas'
 
 /**
  * How long after the Atlas page mounts the signal releases on its own. The
@@ -30,28 +27,18 @@ export const ATLAS_MAP_READY_CAP_MS = 10_000
 export const ATLAS_MAP_READY_INPUT_EVENTS = ['pointerdown', 'keydown', 'wheel'] as const
 
 let ready = false
-let resolveReady: () => void = () => {}
-const readyPromise = new Promise<void>(resolve => {
-  resolveReady = resolve
-})
 const listeners = new Set<() => void>()
 
 /** Releases the signal. Idempotent. */
 export function markAtlasMapReady(): void {
   if (ready) return
   ready = true
-  resolveReady()
   for (const listener of [...listeners]) listener()
 }
 
 /** Whether the signal has released in this page load. */
 export function isAtlasMapReady(): boolean {
   return ready
-}
-
-/** Resolves when the signal releases (at once if it already has). */
-export function whenAtlasMapReady(): Promise<void> {
-  return readyPromise
 }
 
 /** `useSyncExternalStore` subscription: `listener` runs once, on release. */
@@ -70,15 +57,14 @@ export function subscribeAtlasMapReady(listener: () => void): () => void {
 export function armAtlasMapReadyFallbacks(): () => void {
   if (ready) return () => {}
   const timer = setTimeout(markAtlasMapReady, ATLAS_MAP_READY_CAP_MS)
-  const onInput = () => markAtlasMapReady()
   const options = { capture: true, passive: true } as const
   for (const type of ATLAS_MAP_READY_INPUT_EVENTS) {
-    window.addEventListener(type, onInput, options)
+    window.addEventListener(type, markAtlasMapReady, options)
   }
   const disarm = () => {
     clearTimeout(timer)
     for (const type of ATLAS_MAP_READY_INPUT_EVENTS) {
-      window.removeEventListener(type, onInput, options)
+      window.removeEventListener(type, markAtlasMapReady, options)
     }
     unsubscribe()
   }

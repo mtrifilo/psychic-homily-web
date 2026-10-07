@@ -1,6 +1,6 @@
 'use client'
 
-import { ChromeLink } from '@/components/layout/nav/ChromeLink'
+import Link from 'next/link'
 import { usePathname, useSearchParams } from 'next/navigation'
 import { ArrowLeft } from 'lucide-react'
 import { cn } from '@/lib/utils'
@@ -27,14 +27,14 @@ export default function AdminDrawerNav({ onNavigate }: { onNavigate: () => void 
 
   return (
     <>
-      <ChromeLink
+      <Link
         href="/"
         onClick={onNavigate}
         className="mb-2 flex items-center gap-3 rounded-md px-3 py-2.5 text-sm font-medium text-foreground/70 transition-colors hover:bg-accent/50 hover:text-accent-foreground"
       >
         <ArrowLeft className="h-4 w-4" />
         <span>Back to site</span>
-      </ChromeLink>
+      </Link>
       {adminNavGroups.map(group => (
         <div key={group.label} className="mb-4">
           <p className="mb-2 px-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground/50">
@@ -45,7 +45,7 @@ export default function AdminDrawerNav({ onNavigate }: { onNavigate: () => void 
             const active = isAdminTabActive(item.tab, pathname, tabParam)
             const count = item.badgeKey ? counts[item.badgeKey] : 0
             return (
-              <ChromeLink
+              <Link
                 key={item.tab}
                 href={adminTabHref(item.tab)}
                 onClick={onNavigate}
@@ -58,7 +58,7 @@ export default function AdminDrawerNav({ onNavigate }: { onNavigate: () => void 
                     {count}
                   </span>
                 )}
-              </ChromeLink>
+              </Link>
             )
           })}
         </div>
