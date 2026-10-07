@@ -1,16 +1,13 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { render, screen, act } from '@testing-library/react'
+import { screen, act } from '@testing-library/react'
 import * as Sentry from '@sentry/nextjs'
 import {
   resetStubMaps,
   stubMapOptions,
   stubMaps,
-  type StubMap,
 } from '@/test/miniAtlasMapStub'
-import { ErrorProbe } from '@/test/ErrorProbe'
+import { mountPaneInProbe } from '@/test/miniAtlasPaneFixture'
 import { ATLAS_CONTEXT_RESTORE_DEADLINE_MS } from '@/features/scenes/components/atlasMapHealth'
-import { VenueMiniAtlasPane } from './VenueMiniAtlasPane'
-import type { VenueWithShowCount } from '../types'
 
 // The real map module, loaded through `next/dynamic` (the App Router loader,
 // vitest.config.mts), on a MapLibre stub. A map that cannot draw must leave
@@ -21,39 +18,12 @@ vi.mock('maplibre-gl', async () =>
   (await import('@/test/miniAtlasMapStub')).maplibreStubModule(),
 )
 
-const ROOMS: VenueWithShowCount[] = [
-  {
-    id: 1,
-    slug: 'busy-room',
-    name: 'Busy Room',
-    city: 'Phoenix',
-    state: 'AZ',
-    address: '1 Main St',
-    verified: true,
-    upcoming_show_count: 20,
-    latitude: 33.4,
-    longitude: -112.0,
-    created_at: '2024-01-01T00:00:00Z',
-    updated_at: '2024-01-01T00:00:00Z',
-  },
-]
-
+/** The pane with its map module loaded and the stub map constructed. */
 async function renderPane() {
-  const reachedRoute: unknown[] = []
-  render(
-    <ErrorProbe onCaught={error => reachedRoute.push(error)}>
-      <VenueMiniAtlasPane
-        venues={ROOMS}
-        scopeCity={{ city: 'Phoenix', state: 'AZ' }}
-        hoveredVenueId={null}
-        onHoverVenue={vi.fn()}
-        onSelectVenue={vi.fn()}
-      />
-    </ErrorProbe>,
-  )
+  const { reachedRoute } = mountPaneInProbe()
   await screen.findByTestId('venue-mini-atlas-canvas')
   expect(stubMaps).toHaveLength(1)
-  return { map: stubMaps[0] as StubMap, reachedRoute }
+  return { map: stubMaps[0], reachedRoute }
 }
 
 function expectContainedFailure(reachedRoute: unknown[], failureClass: string) {
@@ -114,18 +84,7 @@ describe('VenueMiniAtlasPane when its map cannot draw', () => {
 
   it('replaces a map that was refused a WebGL2 context', async () => {
     stubMapOptions.grantContext = false
-    const reachedRoute: unknown[] = []
-    render(
-      <ErrorProbe onCaught={error => reachedRoute.push(error)}>
-        <VenueMiniAtlasPane
-          venues={ROOMS}
-          scopeCity={{ city: 'Phoenix', state: 'AZ' }}
-          hoveredVenueId={null}
-          onHoverVenue={vi.fn()}
-          onSelectVenue={vi.fn()}
-        />
-      </ErrorProbe>,
-    )
+    const { reachedRoute } = mountPaneInProbe()
 
     await screen.findByTestId('venue-mini-atlas-unavailable')
     expectContainedFailure(reachedRoute, 'context-refused')

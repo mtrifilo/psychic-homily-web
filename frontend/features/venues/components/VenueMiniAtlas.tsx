@@ -239,13 +239,15 @@ export function VenueMiniAtlas({
     instance.on('load', () => {
       setMap(instance)
     })
+    // Bound after the watcher's own listeners, so the watcher has already
+    // classified each event when React reads its answer.
     instance.on('style.load', () => {
-      setStyleLive(true)
+      setStyleLive(health.styleLive())
     })
     instance.on('webglcontextlost', () => {
       // The feature state went with the style.
       appliedHoverRef.current = null
-      setStyleLive(false)
+      setStyleLive(health.styleLive())
     })
 
     return () => {

@@ -42,6 +42,7 @@ interface Bolt {
 }
 
 const SUBDIVISIONS = 6
+const REDUCED_MOTION_QUERY = '(prefers-reduced-motion: reduce)'
 
 export function HeroLightning({ className }: { className?: string }) {
   const containerRef = useRef<HTMLDivElement>(null)
@@ -49,7 +50,9 @@ export function HeroLightning({ className }: { className?: string }) {
   const reducedMotion = useReducedMotion()
 
   useEffect(() => {
-    if (reducedMotion) return
+    // The live query as well as the hook: during hydration the hook still
+    // answers its server value (false), and this effect runs once with it.
+    if (reducedMotion || window.matchMedia(REDUCED_MOTION_QUERY).matches) return
     const container = containerRef.current
     const canvas = canvasRef.current
     if (!container || !canvas) return

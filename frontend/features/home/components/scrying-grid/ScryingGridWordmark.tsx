@@ -20,6 +20,7 @@ import { useReducedMotion } from '@/lib/hooks/common/useReducedMotion'
 import { readWordmarkColors, resolveFontFamily, rgba, sampleWordmark, type RGB } from './sampleWordmark'
 
 const LINES = ['PSYCHIC', 'HOMILY'] as const
+const REDUCED_MOTION_QUERY = '(prefers-reduced-motion: reduce)'
 
 interface Particle {
   hx: number
@@ -58,7 +59,7 @@ export function ScryingGridWordmark({
   // never flashes before the canvas fades in. It's only revealed if enhancement
   // fails (`failed`), or for no-JS via the <noscript> style below.
   const [failed, setFailed] = useState(false)
-  const reduced = useReducedMotion()
+  const reducedMotion = useReducedMotion()
 
   useEffect(() => {
     const container = containerRef.current
@@ -68,6 +69,10 @@ export function ScryingGridWordmark({
     if (!ctx) return
 
     const dpr = Math.min(window.devicePixelRatio || 1, 2)
+    // The live query as well as the hook: during hydration the hook still
+    // answers its server value (false), and this effect runs once with it.
+    const reduced =
+      reducedMotion || window.matchMedia(REDUCED_MOTION_QUERY).matches
     const baseDot = Math.max(1.1, 1.35 * dpr)
     const pointer = { x: 0, y: 0, active: false }
     let particles: Particle[] = []
@@ -327,7 +332,7 @@ export function ScryingGridWordmark({
       ro.disconnect()
       io.disconnect()
     }
-  }, [gapFactor, spotlight, reduced])
+  }, [gapFactor, spotlight, reducedMotion])
 
   return (
     <div
