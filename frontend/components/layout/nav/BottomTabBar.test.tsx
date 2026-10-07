@@ -1,6 +1,6 @@
 import React from 'react'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, waitFor, within } from '@testing-library/react'
+import { act, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { BottomTabBar } from './BottomTabBar'
 import { primaryLinks } from './PrimaryNav'
@@ -53,7 +53,7 @@ vi.mock('@/lib/context/AuthContext', () => ({
 // QueryClient so these tests state the COUNT they exercise; the hook's own
 // auth-gating and cache-sharing are covered in features/notifications/hooks.
 const mockUnreadCount = vi.fn(() => 0)
-vi.mock('@/features/notifications', () => ({
+vi.mock('@/features/notifications/hooks', () => ({
   useUnreadNotificationCount: () => mockUnreadCount(),
 }))
 
@@ -189,6 +189,33 @@ describe('BottomTabBar', () => {
       expect(screen.getByRole('link', { name: 'Home' })).toHaveAttribute('href', '/')
       expect(screen.getByRole('link', { name: 'Shows' })).toHaveAttribute('href', '/shows')
       expect(screen.getByRole('link', { name: 'Radio' })).toHaveAttribute('href', '/radio')
+    })
+
+    // On /atlas the tab bar's links are the primary destinations that re-arm
+    // their prefetch once the map is up; the sheet rows never prefetch.
+    it('re-arms the tab links on /atlas once the map is up, and only them', async () => {
+      // A fresh module graph, so releasing this copy of the page-load signal
+      // leaves the rest of the file's BottomTabBar untouched.
+      vi.resetModules()
+      const { markAtlasMapReady } = await import('@/lib/atlasMapReady')
+      const { BottomTabBar: FreshTabBar } = await import('./BottomTabBar')
+      mockPathname = '/atlas'
+      const tabNames = ['Home', 'Shows', 'Radio', 'Account']
+      const user = userEvent.setup()
+      const { rerender } = render(<FreshTabBar />)
+      for (const name of tabNames) {
+        expect(screen.getByRole('link', { name })).toHaveAttribute('data-prefetch', 'false')
+      }
+      act(() => markAtlasMapReady())
+      rerender(<FreshTabBar />)
+      for (const name of tabNames) {
+        expect(screen.getByRole('link', { name })).toHaveAttribute('data-prefetch', 'undefined')
+      }
+      await user.click(screen.getByRole('button', { name: 'Browse' }))
+      const sheet = await screen.findByRole('dialog')
+      for (const row of within(sheet).getAllByRole('link')) {
+        expect(row).toHaveAttribute('data-prefetch', 'false')
+      }
     })
 
     it('renders the Browse tab as a sheet trigger', () => {

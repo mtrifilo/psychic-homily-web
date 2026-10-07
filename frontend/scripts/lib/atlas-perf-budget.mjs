@@ -15,6 +15,10 @@ export const TARGET = {
   firstMapMs: 2500,
 }
 
+// How long after first map the harness keeps counting bytes for the
+// reported-only after-map row, before the city-view jump.
+export const AFTER_MAP_WINDOW_MS = 3000
+
 // The workflow's job summary and the script header name these numbers.
 export const EXIT = {
   PASS: 0,
@@ -48,14 +52,17 @@ export function resolveBudget({ firstMapMs, entryBytes } = {}) {
 }
 
 /**
- * Medians of the runs checked against `budget`. A compact viewport also
- * fails on any raster request in any run (`rasterRequests` is the worst run).
+ * Medians of the runs checked against `budget`. Entry bytes are the bytes
+ * that finished by first rendered map; the after-map bytes are reported and
+ * never gated. A compact viewport also fails on any raster request in any run
+ * (`rasterRequests` is the worst run).
  * With a `firstMapNote`, first map is reported against its limit but left out
  * of `pass`, and the note stands in for its result.
  */
 export function judge(runs, { budget, compact, firstMapNote = null }) {
   const firstMapMs = median(runs.map((r) => r.firstMapMs))
   const entryBytes = median(runs.map((r) => r.entry.totalBytes))
+  const afterMapBytes = median(runs.map((r) => r.afterMap.totalBytes))
   const rasterRequests = Math.max(...runs.map((r) => r.rasterRequests))
   const firstMapOk = firstMapMs <= budget.firstMapMs
   const entryOk = entryBytes <= budget.entryBytes
@@ -65,6 +72,7 @@ export function judge(runs, { budget, compact, firstMapNote = null }) {
     target: { firstMapMs: TARGET.firstMapMs, deltaMs: firstMapMs - TARGET.firstMapMs },
     firstMapMs,
     entryBytes,
+    afterMapBytes,
     cityMs: median(runs.map((r) => r.city.readyMs)),
     cityBytes: median(runs.map((r) => r.city.totalBytes)),
     compact,
@@ -87,7 +95,8 @@ export function budgetTable(verdict) {
     '| Budget | Value (median unless noted) | Limit | Result |',
     '|---|---:|---:|---|',
     `| First rendered map | ${seconds(verdict.firstMapMs)} s | ${seconds(verdict.budget.firstMapMs)} s | ${verdict.firstMapNote ?? mark(verdict.firstMapOk)} |`,
-    `| Entry bytes | ${mib(verdict.entryBytes)} MiB | ${mib(verdict.budget.entryBytes)} MiB | ${mark(verdict.entryOk)} |`,
+    `| Entry bytes (to first map) | ${mib(verdict.entryBytes)} MiB | ${mib(verdict.budget.entryBytes)} MiB | ${mark(verdict.entryOk)} |`,
+    `| Bytes in the first ${AFTER_MAP_WINDOW_MS / 1000} s after first map | ${mib(verdict.afterMapBytes)} MiB | none | reported only |`,
   ]
   if (verdict.compact) {
     lines.push(`| Raster requests (compact viewport, worst run) | ${verdict.rasterRequests} | 0 | ${mark(verdict.rasterOk)} |`)

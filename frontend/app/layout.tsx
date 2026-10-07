@@ -35,17 +35,15 @@ const spaceMono = Space_Mono({
   variable: '--font-space-mono',
   display: 'swap',
 })
-import {
-  ThemeProvider,
-  Providers,
-  Footer,
-  CookieConsentBanner,
-  PostHogProvider,
-  PostHogIdentify,
-  AppShell,
-  AuthHydrator,
-  ClickReplayScript,
-} from '@/components/layout'
+import { ThemeProvider } from '@/components/layout/theme-provider'
+import { Providers } from '@/components/layout/providers'
+import Footer from '@/components/layout/Footer'
+import { CookieConsentBanner } from '@/components/layout/CookieConsentBanner'
+import { PostHogProvider } from '@/components/layout/PostHogProvider'
+import { PostHogIdentify } from '@/components/layout/PostHogIdentify'
+import { AppShell } from '@/components/layout/AppShell'
+import { AuthHydrator } from '@/components/layout/AuthHydrator'
+import { ClickReplayScript } from '@/components/layout/ClickReplayScript'
 import { CookieConsentProvider } from '@/lib/context/CookieConsentContext'
 import { JsonLd } from '@/components/seo/JsonLd'
 import { generateOrganizationSchema } from '@/lib/seo/jsonld'

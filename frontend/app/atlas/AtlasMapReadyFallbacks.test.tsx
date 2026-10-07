@@ -10,7 +10,7 @@ async function load() {
   return { signal, AtlasPage }
 }
 
-vi.mock('@/features/scenes/components', () => ({
+vi.mock('@/features/scenes/components/AtlasGlobe', () => ({
   AtlasGlobe: () => <div data-testid="atlas-globe" />,
 }))
 

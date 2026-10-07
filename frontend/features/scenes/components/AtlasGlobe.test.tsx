@@ -53,7 +53,7 @@ vi.mock('@/lib/hooks/common/useFollow', () => ({
   useFollowStatus: () => ({ data: undefined }),
 }))
 
-vi.mock('../hooks', () => ({
+vi.mock('../hooks/useScenes', () => ({
   useScenes: () => mockUseScenes(),
   useSceneArtists: () => ({ data: undefined, isLoading: false }),
   // The preview panel (opened by the drift tests) reads the scene's this-week
@@ -81,9 +81,11 @@ const mockUseVenueShows = vi.fn<() => Record<string, unknown>>(() => ({
   isLoading: false,
   isError: false,
 }))
-vi.mock('@/features/venues/hooks', () => ({
+vi.mock('@/features/venues/hooks/useVenues', () => ({
   useVenues: (options?: Record<string, unknown>) => mockUseVenues(options),
   useVenueShows: () => mockUseVenueShows(),
+}))
+vi.mock('@/features/venues/hooks/useVenueConfirm', () => ({
   // VenuePanel's confirm mutation (PSY-1542). Inert here — the panel's own
   // suite covers the confirm behaviour; this file's concern is the stack.
   useVenueConfirm: () => ({

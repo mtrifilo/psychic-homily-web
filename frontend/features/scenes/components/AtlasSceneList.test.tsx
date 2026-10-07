@@ -37,7 +37,7 @@ vi.mock('./SceneNotifyModeToggle', () => ({
 }))
 
 const mockUseSceneShows = vi.fn()
-vi.mock('../hooks', () => ({
+vi.mock('../hooks/useScenes', () => ({
   useSceneArtists: (opts: unknown) => mockUseSceneArtists(opts),
   useSceneShows: (slug: string) => mockUseSceneShows(slug),
 }))

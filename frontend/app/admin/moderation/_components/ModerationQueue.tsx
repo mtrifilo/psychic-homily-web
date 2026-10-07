@@ -56,9 +56,9 @@ import {
 import { isConflictError } from '@/lib/api'
 import { CommentEditHistory } from '@/features/comments'
 import { EntitySaveSuccessBanner } from '@/features/contributions'
-// Imported by path, not through the '@/features/shows' barrel, which is
-// root-layout reachable (see features/sharedChunkBarrelGuard.test.ts). Note the
-// barrel was never actually an option here: it does not re-export
+// Imported by path, not through the '@/features/shows' barrel, which ships
+// every module it lists (see features/sharedChunkBarrelGuard.test.ts). The
+// barrel is not an option here anyway: it does not re-export
 // show-form-utils at all, so the path import is the only way to reach the
 // vocabulary.
 //

@@ -49,6 +49,7 @@ export function PrimaryNav() {
           <ChromeLink
             key={link.href}
             href={link.href}
+            atlasPrefetch="after-map"
             aria-current={active ? 'page' : undefined}
             className={navItemClassName(active)}
           >

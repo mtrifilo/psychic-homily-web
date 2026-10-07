@@ -18,6 +18,10 @@ import { describe, it, expect } from 'vitest'
  * route pages do this via `dynamic()`), or re-measure the shared chunk and
  * update the ticket.
  *
+ * Which barrels the root layout reaches is asserted separately, by
+ * app/atlas/atlasEagerSetGuard.test.ts. This file keeps the barrels lean so
+ * that a barrel which becomes reachable again does not bring these back.
+ *
  * Deliberately NOT asserted here: the sibling detail components in
  * features/{venues,labels,festivals,requests}. Those are barrel-exported today
  * and were measured to be outside the global chunk (their barrels are not
@@ -39,9 +43,9 @@ const EVICTED: ReadonlyArray<readonly [string, () => Promise<object>, readonly s
       'SavedShowsModule',
       'NearbyShowsSection',
       // PSY-2104's customize-home surface. HomeSectionList is deep-imported by
-      // the Settings "Home page" card, which is reachable from the auth
-      // barrel; a home-barrel export would put the whole signed-in home in the
-      // chunk every route loads.
+      // the Settings "Home page" card, which the auth barrel lists; a
+      // home-barrel export would put the whole signed-in home wherever that
+      // barrel is reachable.
       'HomeLayoutRuntime',
       'CustomizeHomeToolbar',
       'HomeSectionList',
@@ -82,12 +86,12 @@ const EVICTED: ReadonlyArray<readonly [string, () => Promise<object>, readonly s
     ['ReleaseDetail'],
   ],
   [
-    // PSY-1905's merged Follow control. `components/shared` IS root-layout
-    // reachable, and this chain is the worst case the guard exists for:
+    // PSY-1905's merged Follow control. `components/shared` is imported widely,
+    // and this chain is the worst case the guard exists for:
     // LibraryAlertsBar -> HomeMetroField -> @/features/charts/hooks/useCharts.
-    // Barrel-exporting any of them would ship the charts hooks into the one
-    // client chunk every route loads. Their own files carry a comment saying
-    // so, and a comment does not fail a build.
+    // Barrel-exporting any of them would ship the charts hooks to every route
+    // that reaches the barrel. Their own files carry a comment saying so, and a
+    // comment does not fail a build.
     '@/components/shared',
     () => import('@/components/shared'),
     [
