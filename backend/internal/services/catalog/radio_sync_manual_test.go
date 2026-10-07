@@ -123,6 +123,8 @@ type RadioSyncManualIntegrationTestSuite struct {
 	testDB       *testutil.TestDatabase
 	db           *gorm.DB
 	radioService *RadioService
+	// releaseRematchHold ends the current test's holdRematchWork lock, or is nil.
+	releaseRematchHold func()
 }
 
 func (suite *RadioSyncManualIntegrationTestSuite) SetupSuite() {
@@ -136,6 +138,11 @@ func (suite *RadioSyncManualIntegrationTestSuite) TearDownSuite() {
 }
 
 func (suite *RadioSyncManualIntegrationTestSuite) TearDownTest() {
+	// The lock goes first: the deletes below can cascade into radio_plays.
+	if suite.releaseRematchHold != nil {
+		suite.releaseRematchHold()
+		suite.releaseRematchHold = nil
+	}
 	// Reverse dependency order.
 	suite.db.Exec("DELETE FROM radio_sync_run_errors")
 	suite.db.Exec("DELETE FROM radio_sync_runs")
@@ -294,25 +301,40 @@ func (suite *RadioSyncManualIntegrationTestSuite) TestTriggerShowBackfill_OpensR
 }
 
 // rematchTriggerCeiling bounds how long a trigger may take to return while the
-// rematch work is held back. The trigger's own path is four small queries, so a
-// passing run returns in milliseconds; only a trigger that waits for the work
-// itself reaches the ceiling.
+// rematch work is held back. The trigger's own path is a few queries, none of
+// them on radio_plays, so a passing run returns in milliseconds; only a trigger
+// that waits for the work itself reaches the ceiling.
 const rematchTriggerCeiling = 10 * time.Second
 
 // holdRematchWork holds a SHARE lock on radio_plays until the returned release
-// runs (or the test ends), so no statement that writes radio_plays can proceed.
-// A global rematch's first statement is the bulk-link UPDATE of radio_plays, and
-// the trigger's own path (the running-run check, the run INSERT and the read
-// back) never touches that table. While the lock is held, a triggered run
-// therefore stays running.
+// runs or TearDownTest starts, so no statement that writes radio_plays can
+// proceed. The background run's first statement is the UPDATE of radio_plays in
+// BulkLinkUnmatchedArtistPlays (called first by ReMatchUnmatchedChunked), and the
+// trigger's own path (the running-run check, the run INSERT and the read back)
+// never touches that table. While the lock is held, a triggered run therefore
+// stays running; requireRematchWorkWaiting checks that this still holds.
 func (suite *RadioSyncManualIntegrationTestSuite) holdRematchWork() (release func()) {
 	tx := suite.db.Begin()
 	suite.Require().NoError(tx.Error)
 	var once sync.Once
 	release = func() { once.Do(func() { tx.Rollback() }) }
-	suite.T().Cleanup(release)
+	suite.releaseRematchHold = release
 	suite.Require().NoError(tx.Exec("LOCK TABLE radio_plays IN SHARE MODE").Error)
 	return release
+}
+
+// requireRematchWorkWaiting fails the test unless some session is waiting for a
+// lock on radio_plays, which is the background run blocked by holdRematchWork.
+// If the rematch stops writing radio_plays before anything else, this is the
+// assertion that fails, rather than the status checks turning intermittent.
+func (suite *RadioSyncManualIntegrationTestSuite) requireRematchWorkWaiting() {
+	suite.Require().Eventually(func() bool {
+		var waiting int64
+		err := suite.db.Raw(`SELECT count(*) FROM pg_locks l JOIN pg_class c ON c.oid = l.relation
+			WHERE c.relname = 'radio_plays' AND NOT l.granted`).Scan(&waiting).Error
+		return err == nil && waiting > 0
+	}, 5*time.Second, 10*time.Millisecond,
+		"the background rematch never waited on radio_plays; holdRematchWork no longer holds the run back")
 }
 
 // triggerGlobalRematch calls TriggerGlobalRematch and fails the test if the call
@@ -359,6 +381,7 @@ func (suite *RadioSyncManualIntegrationTestSuite) TestTriggerGlobalRematch_Opens
 	resp, err := suite.triggerGlobalRematch()
 	suite.Require().NoError(err)
 	suite.Require().NotZero(resp.ID, "trigger must return a pollable run handle")
+	suite.requireRematchWorkWaiting()
 	suite.Equal(catalogm.RadioSyncRunTypeRematch, resp.RunType)
 	suite.Equal(catalogm.RadioSyncRunTriggerManual, resp.Trigger)
 	suite.Equal(catalogm.RadioSyncRunStatusRunning, resp.Status)
@@ -380,6 +403,7 @@ func (suite *RadioSyncManualIntegrationTestSuite) TestTriggerGlobalRematch_Rejec
 	first, err := suite.triggerGlobalRematch()
 	suite.Require().NoError(err)
 	suite.Require().NotZero(first.ID)
+	suite.requireRematchWorkWaiting()
 
 	_, err = suite.triggerGlobalRematch()
 	suite.Require().Error(err)
