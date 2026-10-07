@@ -21,6 +21,7 @@
  */
 
 import { useEffect, useRef } from 'react'
+import { useReducedMotion } from '@/lib/hooks/common/useReducedMotion'
 import { mix, readWordmarkColors } from './sampleWordmark'
 
 interface Segment {
@@ -45,9 +46,10 @@ const SUBDIVISIONS = 6
 export function HeroLightning({ className }: { className?: string }) {
   const containerRef = useRef<HTMLDivElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
+  const reducedMotion = useReducedMotion()
 
   useEffect(() => {
-    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return
+    if (reducedMotion) return
     const container = containerRef.current
     const canvas = canvasRef.current
     if (!container || !canvas) return
@@ -228,8 +230,11 @@ export function HeroLightning({ className }: { className?: string }) {
       themeObs.disconnect()
       ro.disconnect()
       io.disconnect()
+      // A bolt in flight would otherwise stay on the canvas, frozen, once
+      // reduced motion turns the layer off.
+      ctx.clearRect(0, 0, w, h)
     }
-  }, [])
+  }, [reducedMotion])
 
   return (
     <div
