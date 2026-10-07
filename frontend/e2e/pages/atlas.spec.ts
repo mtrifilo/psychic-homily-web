@@ -357,6 +357,7 @@ test.describe('Atlas when the map loses its WebGL context', () => {
           const map = (window as unknown as ContextWindow).__atlasMap!
           const scenes = map.getStyle().sources.scenes?.data?.features?.length ?? 0
           map.once('render', () => resolve({ scenes, rendered: true }))
+          setTimeout(() => resolve({ scenes, rendered: false }), 5_000)
           const center = map.getCenter()
           map.jumpTo({ center: [center.lng, center.lat], zoom: map.getZoom() + 0.5 })
         })

@@ -299,7 +299,8 @@ export default function GlobeCanvas({
   const [mapReady, setMapReady] = useState<maplibregl.Map | null>(null)
   // The same map once its first full render is in: style and every visible
   // source loaded. The light globe's overlays wait for it, so their downloads
-  // never hold up that first frame.
+  // never hold up that first frame. It stays set through a lost context, so an
+  // effect that writes to the style also requires mapReady.
   const [mapLoaded, setMapLoaded] = useState<maplibregl.Map | null>(null)
   // A failure MapLibre reports from outside React (see atlasMapHealth.ts).
   // Rethrown from render, so it reaches the same error boundary as a failure
@@ -321,7 +322,7 @@ export default function GlobeCanvas({
   // Keyed on mapReady as well, so a restored style (whose sources are new)
   // gets its boundary data again.
   useEffect(() => {
-    if (mapReady && mapLoaded && lightGlobe) loadGlobeBoundaries(mapLoaded)
+    if (mapReady && mapLoaded && lightGlobe) loadGlobeBoundaries(mapReady)
   }, [mapReady, mapLoaded, lightGlobe])
 
   // The light globe's place-label data, loaded the first time a loaded map
@@ -1040,11 +1041,12 @@ export default function GlobeCanvas({
     map.on('style.load', () => {
       setMapReady(map)
     })
-    // A lost context destroys the style; some style writes throw while it is
-    // gone, and all of them until the style MapLibre re-creates on restore
-    // has loaded. Clearing mapReady pauses every effect that writes to the
-    // style; the restored style's style.load sets it again, and they write
-    // the current data to it.
+    // A lost context destroys the style. While it is gone some style writes
+    // throw (feature state, layout), and until the style MapLibre re-creates
+    // on restore has loaded every checked write throws; reads such as
+    // getSource answer undefined. Clearing mapReady pauses every effect that
+    // writes to the style; the restored style's style.load sets it again, and
+    // they write the current data to it.
     map.on('webglcontextlost', () => {
       setMapReady((prev) => (prev === map ? null : prev))
     })
@@ -1105,11 +1107,11 @@ export default function GlobeCanvas({
 
     // Tracked per map instance (fresh map each show → no stale hover).
     // Feature state lives in the style, so it is written only while the
-    // style is loaded; a lost context discards it with the style.
+    // style is live; a lost context discards it with the style.
     let hoveredSlug: string | null = null
     const setHoverState = (slug: string | null) => {
       if (slug === hoveredSlug) return
-      if (health.styleLoaded()) {
+      if (health.styleLive()) {
         if (hoveredSlug !== null) {
           map.removeFeatureState({ source: 'scenes', id: hoveredSlug }, 'hover')
         }
@@ -1172,7 +1174,7 @@ export default function GlobeCanvas({
     let hoveredVenueId: number | null = null
     const setVenueHoverState = (id: number | null) => {
       if (id === hoveredVenueId) return
-      if (health.styleLoaded()) {
+      if (health.styleLive()) {
         if (hoveredVenueId !== null) {
           map.removeFeatureState({ source: 'venues', id: hoveredVenueId }, 'hover')
         }
@@ -1251,6 +1253,14 @@ export default function GlobeCanvas({
     // Seam for the non-pointer paths that can invalidate a hover (a rail
     // filter deleting the hovered pin). One function owns the teardown.
     clearVenueHoverRef.current = handleVenueLeave
+    // The hovered dot and pin go with the lost style: their tooltips and the
+    // pointer cursor clear at the loss, and the hover bookkeeping resets so
+    // the restored style starts with nothing hovered. No feature state is
+    // written (the health watch, registered earlier, reports the style down).
+    map.on('webglcontextlost', () => {
+      handleLeave()
+      handleVenueLeave()
+    })
     // A stationary pointer with a moving camera would strand a hovered pin +
     // floating tooltip — same guard the scene layer needs.
     map.on('movestart', handleVenueLeave)

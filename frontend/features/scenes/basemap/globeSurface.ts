@@ -245,7 +245,8 @@ function fetchCollection(
 
 // Land sources already holding (or fetching) the land data. Keyed by the
 // source, not the map: a style re-created on the same map (after a restored
-// WebGL context) has new sources, which ask again.
+// WebGL context) has new sources, which ask again, also when the restored
+// style kept the data; the repeat is the cost of never keeping an empty one.
 const landRequested = new WeakSet<object>()
 
 // The land file fetched on the main thread ahead of the map, once per page

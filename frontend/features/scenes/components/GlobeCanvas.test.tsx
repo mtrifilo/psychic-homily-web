@@ -5,6 +5,7 @@ import { installMatchMedia } from '@/test/mocks/matchMedia'
 import { GraphSectionErrorBoundary } from '@/components/graph/GraphSectionErrorBoundary'
 import { AtlasMapUnrecoverableError } from '../atlasViewport'
 import { ATLAS_CONTEXT_RESTORE_DEADLINE_MS } from './atlasMapHealth'
+import { sceneTooltipLabel } from './globeScale'
 
 /**
  * MapLibre stubbed down to the seams the sheet layout drives: controls by
@@ -464,6 +465,8 @@ describe('GlobeCanvas failures MapLibre reports outside React', () => {
     const refused = new Error('WebGL2 is required to display this map.')
     refused.name = 'GPUInitializationError'
     act(() => map.fire('error', { error: refused }))
+    // MapLibre still fires the restored event after a refused restore.
+    act(() => map.fire('webglcontextrestored'))
     expectFellBack(onError, 'context-restore-refused')
   })
 
@@ -523,9 +526,13 @@ describe('GlobeCanvas failures MapLibre reports outside React', () => {
       }),
     )
     expect(map.setFeatureState).toHaveBeenCalledTimes(1)
+    const tooltip = screen.getByText(sceneTooltipLabel(CHICAGO))
+    expect(tooltip).toHaveStyle({ display: 'block' })
 
     styleDown(map)
     act(() => map.fire('webglcontextlost'))
+    // The dot went with the style, and so does its tooltip.
+    expect(tooltip).toHaveStyle({ display: 'none' })
     // During the loss the pointer leaves the dot; the restore's resize fires
     // movestart before the restored style loads.
     act(() => map.fire('mouseleave:scene-dots'))

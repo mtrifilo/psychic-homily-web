@@ -83,8 +83,9 @@ export function atlasRendersSceneList({
  * `atlas_map_failure` Sentry tag:
  * - `context-refused`: MapLibre got no WebGL2 context at construction.
  * - `context-lost`: the context was lost and not restored within
- *   ATLAS_CONTEXT_RESTORE_DEADLINE_MS of continuously visible time.
- * - `context-lost-before-style`: the context was lost before the style
+ *   ATLAS_CONTEXT_RESTORE_DEADLINE_MS of continuously visible time, or was
+ *   lost again while a restored style was still loading.
+ * - `context-lost-before-style`: the context was lost before the first style
  *   loaded, which MapLibre cannot restore (it saves only a loaded style).
  * - `context-restore-refused`: the browser restored the context but MapLibre
  *   got no WebGL2 context back.
