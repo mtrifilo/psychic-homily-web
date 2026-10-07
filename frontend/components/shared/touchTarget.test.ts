@@ -19,20 +19,21 @@ describe('COARSE_POINTER_HIT_AREA_CLASS', () => {
     expect(hostTokens).toEqual(['pointer-coarse:relative'])
   })
 
-  it('makes the hit area at least 24px on both axes', () => {
-    expect(tokens).toEqual(
-      expect.arrayContaining([
+  // The full set, so that dropping a centring or sizing token is a deliberate
+  // edit here: without the translate the box hangs off one corner and covers
+  // the neighbouring chip, and nothing in jsdom renders the CSS to notice.
+  it('is exactly a centred box of at least 24px that paints nothing', () => {
+    expect([...tokens].sort()).toEqual(
+      [
+        'pointer-coarse:relative',
         'pointer-coarse:after:absolute',
+        'pointer-coarse:after:top-1/2',
+        'pointer-coarse:after:left-1/2',
+        'pointer-coarse:after:size-full',
         'pointer-coarse:after:min-h-6',
         'pointer-coarse:after:min-w-6',
-      ])
+        'pointer-coarse:after:-translate-1/2',
+      ].sort()
     )
-  })
-
-  it('paints nothing', () => {
-    const painting = tokens.filter(token =>
-      /:(bg|border|shadow|ring|outline|text|opacity)-/.test(token)
-    )
-    expect(painting).toEqual([])
   })
 })

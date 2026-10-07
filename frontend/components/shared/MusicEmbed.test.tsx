@@ -8,7 +8,6 @@ import { QueryClientProvider } from '@tanstack/react-query'
 // keeps the `mockRejectedValueOnce` error-path tests deterministic.
 import { createTestQueryClient, render } from '../../test/utils'
 import { BANDCAMP_SLIM_EMBED_HEIGHT_PX, MusicEmbed } from './MusicEmbed'
-import { expectOnlyCoarseHitArea } from '@/test/touchTargetAssertions'
 import { hasRenderableMusic } from '@/lib/musicAvailability'
 
 // The page theme, as next-themes reports it. `undefined` is what next-themes
@@ -237,10 +236,10 @@ describe('MusicEmbed', () => {
     })
   })
 
-  // The link's text line is 20px tall. The 24px touch target comes from the
-  // invisible hit area alone, so the link takes the same room in layout on
-  // every pointer and the blocks around it do not move.
-  it('grows the fallback link\'s tap target on coarse pointers without resizing it', async () => {
+  // The fallback link stays out of the coarse-pointer hit area: Chromium
+  // would draw its keyboard focus ring around the grown box. It relies on the
+  // WCAG 2.5.8 spacing exception instead (see the comment at the link).
+  it('keeps the fallback link free of coarse-pointer classes', async () => {
     render(
       <MusicEmbed
         bandcampProfileUrl="https://band.bandcamp.com"
@@ -251,7 +250,10 @@ describe('MusicEmbed', () => {
     const link = await screen.findByRole('link', {
       name: 'Listen to Test Artist on Bandcamp',
     })
-    expectOnlyCoarseHitArea(link)
+    const coarseOnly = [...link.classList].filter(token =>
+      token.startsWith('pointer-coarse:')
+    )
+    expect(coarseOnly).toEqual([])
   })
 
   // PSY-1102 adversarial review: a transient 5xx from the scraper route must
