@@ -34,6 +34,9 @@ const PHONE_VIEWPORTS = [
   { width: 360, height: 780 },
 ] as const
 
+/** The phone context every phone-width case runs in. */
+const PHONE_CONTEXT = { hasTouch: true, isMobile: true, deviceScaleFactor: 2 } as const
+
 const OSM_CREDIT = ['OpenFreeMap', 'OpenStreetMap contributors']
 const NASA_CREDIT = ['NASA GIBS']
 
@@ -127,13 +130,7 @@ async function stepDetent(page: Page, sheetTestId: string, to: string) {
 for (const viewport of PHONE_VIEWPORTS) {
   for (const colorScheme of ['dark', 'light'] as const) {
     test.describe(`Atlas credit at ${viewport.width}x${viewport.height} ${colorScheme}`, () => {
-      test.use({
-        viewport,
-        colorScheme,
-        hasTouch: true,
-        isMobile: true,
-        deviceScaleFactor: 2,
-      })
+      test.use({ viewport, colorScheme, ...PHONE_CONTEXT })
       test.setTimeout(120_000)
 
       test('first visit, city view, venue and artist sheets', async ({ page }) => {
@@ -194,13 +191,7 @@ for (const viewport of PHONE_VIEWPORTS) {
 // the sheet layout's top-left corner, clear of every sheet.
 for (const colorScheme of ['dark', 'light'] as const) {
   test.describe(`Atlas credit at 320x568 ${colorScheme}`, () => {
-    test.use({
-      viewport: { width: 320, height: 568 },
-      colorScheme,
-      hasTouch: true,
-      isMobile: true,
-      deviceScaleFactor: 2,
-    })
+    test.use({ viewport: { width: 320, height: 568 }, colorScheme, ...PHONE_CONTEXT })
     test.setTimeout(120_000)
 
     async function expectOneLineTopLeft(page: Page, state: string) {

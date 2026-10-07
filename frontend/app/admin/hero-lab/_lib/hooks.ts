@@ -2,8 +2,8 @@
 
 /**
  * Hero Lab — React hooks shared by the wordmark effects: theme-token reading,
- * next/font family resolution for canvas, element sizing, in-view gating, the
- * reduced-motion query, and a shared rAF loop.
+ * next/font family resolution for canvas, element sizing, in-view gating, and
+ * a shared rAF loop.
  */
 
 import { useEffect, useRef, useState, type RefObject } from 'react'
