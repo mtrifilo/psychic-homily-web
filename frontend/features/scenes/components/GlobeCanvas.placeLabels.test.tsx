@@ -325,6 +325,10 @@ describe('GlobeCanvas place labels', () => {
   const rect = (box: { left: number; top: number; right: number; bottom: number }) =>
     ({ ...box, width: box.right - box.left, height: box.bottom - box.top }) as DOMRect
 
+  // Clear of every label, and over Clear City's (213,323 to 273,335).
+  const CLEAR_OF_LABELS = { left: 300, top: 600, right: 360, bottom: 630 }
+  const OVER_CLEAR_CITY = { left: 200, top: 315, right: 290, bottom: 345 }
+
   /**
    * The light look with a Drift button the page draws beside the canvas,
    * whose screen box is whatever `driftRect` returns at each read.
@@ -374,13 +378,11 @@ describe('GlobeCanvas place labels', () => {
   const outlastChromeSettle = () => act(() => new Promise((resolve) => setTimeout(resolve, 150)))
 
   it('keeps place labels clear of the page chrome drawn beside the canvas', async () => {
-    // First clear of every label, then moved over Clear City's (213,323 to
-    // 273,335).
-    let box = { left: 300, top: 600, right: 360, bottom: 630 }
+    let box = CLEAR_OF_LABELS
     const { drift } = await showMapBesideDrift(() => rect(box))
     await waitFor(() => expect(placeLabelTexts()).toEqual(['Clear City']))
 
-    box = { left: 200, top: 315, right: 290, bottom: 345 }
+    box = OVER_CLEAR_CITY
     act(() => drift.setAttribute('data-moved', 'true'))
     await waitFor(() => expect(placeLabelTexts()).toEqual([]))
   })
@@ -428,10 +430,7 @@ describe('GlobeCanvas place labels', () => {
   })
 
   it('stops the chrome watch while place labels are off, and the labels that come back follow a new one', async () => {
-    const clear = { left: 300, top: 600, right: 360, bottom: 630 }
-    // Over Clear City's label (213,323 to 273,335).
-    const over = { left: 200, top: 315, right: 290, bottom: 345 }
-    let box = clear
+    let box = CLEAR_OF_LABELS
     const reads = vi.fn(() => rect(box))
     const { drift, showCityLabel, unmount } = await showMapBesideDrift(reads)
     await waitFor(() => expect(placeLabelTexts()).toEqual(['Clear City']))
@@ -440,7 +439,7 @@ describe('GlobeCanvas place labels', () => {
     // City view: no place labels, and no watch reads Drift as it moves.
     showCityLabel('PHOENIX, AZ')
     expect(placeLabelTexts()).toEqual([])
-    box = over
+    box = OVER_CLEAR_CITY
     act(() => drift.setAttribute('data-moved', 'over'))
     await outlastChromeSettle()
     expect(reads).toHaveBeenCalledTimes(1)
@@ -451,7 +450,7 @@ describe('GlobeCanvas place labels', () => {
     expect(placeLabelTexts()).toEqual([])
 
     // The labels follow the new watch.
-    box = clear
+    box = CLEAR_OF_LABELS
     act(() => drift.setAttribute('data-moved', 'clear'))
     await waitFor(() => expect(placeLabelTexts()).toEqual(['Clear City']))
     expect(reads).toHaveBeenCalledTimes(3)
@@ -465,10 +464,6 @@ describe('GlobeCanvas place labels', () => {
     await outlastChromeSettle()
     expect(reads).toHaveBeenCalledTimes(3)
   })
-
-  // Clear of every label, and over Clear City's (213,323 to 273,335).
-  const CLEAR_OF_LABELS = { left: 300, top: 600, right: 360, bottom: 630 }
-  const OVER_CLEAR_CITY = { left: 200, top: 315, right: 290, bottom: 345 }
 
   it('stops the chrome watch on the full look and follows a new one back on the light look', async () => {
     let box = CLEAR_OF_LABELS
@@ -502,8 +497,7 @@ describe('GlobeCanvas place labels', () => {
 
   it('starts no chrome watch while the place data loads, nor after it fails to load', async () => {
     vi.mocked(reportGlobePlacesFailure).mockClear()
-    let settleLoad: (result: Awaited<ReturnType<typeof globeSurface.loadGlobePlaces>>) => void =
-      () => {}
+    let settleLoad!: (result: Awaited<ReturnType<typeof globeSurface.loadGlobePlaces>>) => void
     vi.mocked(globeSurface.loadGlobePlaces).mockReturnValueOnce(
       new Promise((resolve) => {
         settleLoad = resolve
