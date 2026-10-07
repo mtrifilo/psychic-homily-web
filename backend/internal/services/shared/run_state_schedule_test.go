@@ -353,9 +353,10 @@ func TestRepeatedRestartsStillMakeProgress(t *testing.T) {
 		restarts, lifetime, restarts*lifetime, interval, len(row.completions))
 
 	// Progress is paced by the INTERVAL, not by the restart count: a deploy storm
-	// must not turn into a cycle storm against third-party APIs. If a restart
-	// reset the schedule, or a boot forced a claim, a claim would land one
-	// lifetime after the previous completion.
+	// must not turn into a cycle storm against third-party APIs. A boot that
+	// forced its claim past the due gate, or a store that lost the completion it
+	// schedules from, would grant a claim one lifetime after the previous
+	// completion.
 	minSpacing := interval - dueSlack(interval)
 	for i, claimedAt := range row.claims {
 		prev, ok := latestBefore(row.completions, claimedAt)
@@ -372,6 +373,14 @@ func TestRepeatedRestartsStillMakeProgress(t *testing.T) {
 	// neither ran outside the claim, so the spacing above did not pace it.
 	assert.Equal(t, int(store.finished.Load()+store.released.Load()), int(persistedCalls.Load()),
 		"every cycle the loop runs must end as a completion or a released interruption")
+
+	// A released cycle leaves the loop overdue, so the next boot's catch-up cycle,
+	// a few milliseconds into a 100ms lifetime, completes it. Releases therefore
+	// outnumber completions by at most the one a final process can leave behind.
+	// A loop that released cycles it had finished would exceed that.
+	assert.LessOrEqual(t, int(store.released.Load()), int(store.finished.Load())+1,
+		"only a cycle cut off by its process's shutdown may be released; %d released against %d completed",
+		store.released.Load(), store.finished.Load())
 }
 
 // latestBefore returns the latest time in ascending `times` that is before t.
