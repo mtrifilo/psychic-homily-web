@@ -206,7 +206,7 @@ jobs:
           code=${PIPESTATUS[0]}
           echo "exit_code=$code" >> "$GITHUB_OUTPUT"
           if [ "$code" = "1" ]; then
-            detail=$(jq -r '.verdict | "entry bytes \(.entryBytes / 1048576 * 100 | round / 100) MiB of \(.budget.entryBytes / 1048576 * 100 | round / 100) MiB, \(.rasterRequests) raster requests"' atlas-perf.json)
+            detail=$(jq -r '.verdict | "entry bytes to first map \(.entryBytes / 1048576 * 100 | round / 100) MiB of \(.budget.entryBytes / 1048576 * 100 | round / 100) MiB, \(.rasterRequests) raster requests"' atlas-perf.json)
             echo "::warning title=Atlas perf budget missed::${detail}; see the job summary"
             exit 0
           fi
@@ -231,8 +231,8 @@ jobs:
             result="not measured: the preview was unreachable or the bypass secret is missing"
           else
             case "$EXIT_CODE" in
-              0) result="budget met: entry bytes and raster requests (first map is informational)" ;;
-              1) result="budget missed: entry bytes or raster requests (first map is informational); see the warning annotation" ;;
+              0) result="budget met: entry bytes to first map and raster requests (first map and the after-map bytes are informational)" ;;
+              1) result="budget missed: entry bytes to first map or raster requests (first map and the after-map bytes are informational); see the warning annotation" ;;
               2) result="harness error (exit 2); see the step log" ;;
               *) result="the measurement did not finish (step timeout); see the step log" ;;
             esac

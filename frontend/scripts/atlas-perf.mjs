@@ -69,20 +69,24 @@
 //   - Compact viewports (narrower than 1024px) must request no night-earth
 //     raster tile at any point in the run (entry or city view, finished or
 //     not): one raster request fails the run.
-//   - Entry bytes: every request that finished between navigation and
-//     first rendered map + SETTLE_MS, on the wire (encoded body + headers,
-//     from Playwright's request.sizes()), each URL counted once per resource
-//     type. Playwright under-reports dedicated-worker module scripts (the
+//   - Entry bytes (gated): every request that finished between navigation
+//     and first rendered map, on the wire (encoded body + headers, from
+//     Playwright's request.sizes()), each URL counted once per resource type:
+//     what a phone downloads to see the map.
+//   - Bytes in the first AFTER_MAP_WINDOW_MS after first map: the requests
+//     that finished in that window, counted the same way. Reported, never
+//     gated. Playwright under-reports dedicated-worker module scripts (the
 //     vendored maplibre-gl-worker.mjs, about 6 KiB on the wire, reports under
 //     1 KiB). Requests to
 //     Vercel's preview toolbar are listed but excluded from the total: they
 //     do not exist in production.
-//   - City view: after the entry window, jump the camera to --city at z12.5
-//     and measure time until the map is ready again, plus the bytes that
-//     finished in the following SETTLE_MS. Reported, not budgeted.
+//   - City view: after the after-map window, jump the camera to --city at
+//     z12.5 and measure time until the map is ready again, plus the bytes
+//     that finished in the following AFTER_MAP_WINDOW_MS. Reported, not
+//     budgeted.
 import { writeFileSync } from 'node:fs'
 import { chromium, devices } from '@playwright/test'
-import { EXIT, budgetTable, errorMessage, median, resolveBudget, runBudgetCheck, seconds, targetLine } from './lib/atlas-perf-budget.mjs'
+import { AFTER_MAP_WINDOW_MS, EXIT, budgetTable, errorMessage, median, resolveBudget, runBudgetCheck, seconds, targetLine } from './lib/atlas-perf-budget.mjs'
 
 const FAST_4G = {
   offline: false,
@@ -91,7 +95,6 @@ const FAST_4G = {
   latency: 60 * 2.75,
 }
 const CPU_THROTTLE_RATE = 4
-const SETTLE_MS = 3000
 const READY_TIMEOUT_MS = 90_000
 const CITY_ZOOM = 12.5
 const PREVIEW_ONLY_HOSTS = ['vercel.live']
@@ -251,10 +254,16 @@ async function oneRun(browser, opts) {
     if (status >= 400) throw new Error(`bypass request returned HTTP ${status}`)
   }
   let reportFirstMap
+  // When the page reported first map, on the same clock as the request
+  // timestamps below: entry bytes are the requests that finished by then.
+  let firstMapAt = Infinity
   const firstMapReported = new Promise((resolve) => {
     reportFirstMap = resolve
   })
-  await context.exposeFunction('__atlasPerfFirstMap', (ms) => reportFirstMap(ms))
+  await context.exposeFunction('__atlasPerfFirstMap', (ms) => {
+    firstMapAt = Date.now()
+    reportFirstMap(ms)
+  })
   await context.addInitScript(READINESS_PROBE)
   const page = await context.newPage()
   const cdp = await context.newCDPSession(page)
@@ -272,9 +281,11 @@ async function oneRun(browser, opts) {
   context.on('requestfinished', async (request) => {
     const url = request.url()
     if (url.startsWith('data:')) return
+    // Stamped before the sizes lookup, which resolves later than the finish.
+    const at = Date.now()
     try {
       const sizes = await request.sizes()
-      const entry = { url, type: request.resourceType(), bytes: sizes.responseBodySize + sizes.responseHeadersSize, at: Date.now() }
+      const entry = { url, type: request.resourceType(), bytes: sizes.responseBodySize + sizes.responseHeadersSize, at }
       entry.category = category(entry)
       const key = `${entry.type} ${url}`
       const previous = byKey.get(key)
@@ -310,9 +321,10 @@ async function oneRun(browser, opts) {
     await context.close()
     throw new Error(`the map never passed the readiness gate within ${READY_TIMEOUT_MS} ms`)
   }
-  await page.waitForTimeout(SETTLE_MS)
+  await page.waitForTimeout(AFTER_MAP_WINDOW_MS)
   const entryCut = Date.now()
-  const entry = finished().filter((r) => r.at <= entryCut)
+  const entry = finished().filter((r) => r.at <= firstMapAt)
+  const afterMap = finished().filter((r) => r.at > firstMapAt && r.at <= entryCut)
   // The map canvas's own context: getContext returns the existing one, so
   // the probe creates no extra GL context inside the measured session.
   const renderer = await page.evaluate(() => {
@@ -340,16 +352,17 @@ async function oneRun(browser, opts) {
     await context.close()
     throw new Error(`the city view never passed the readiness gate within ${READY_TIMEOUT_MS} ms`)
   }
-  await page.waitForTimeout(SETTLE_MS)
+  await page.waitForTimeout(AFTER_MAP_WINDOW_MS)
   const city = finished().filter((r) => r.at > entryCut)
   await context.close()
   return {
     firstMapMs: Math.round(firstMapMs),
     entry: summarize(entry),
+    afterMap: summarize(afterMap),
     city: { readyMs: Math.round(cityMs), ...summarize(city) },
     renderer,
     rasterRequests: rasterRequested.size,
-    requests: { entry, city },
+    requests: { entry, afterMap, city },
   }
 }
 
@@ -361,19 +374,21 @@ function printReport(opts, runs, verdict) {
   console.log(`\nAtlas perf: ${opts.url.href}\n`)
   console.log(`- profile: ${opts.device} ${ctx.viewport.width}x${ctx.viewport.height} DPR ${ctx.deviceScaleFactor}, CPU ${CPU_THROTTLE_RATE}x main thread only (workers and GPU unthrottled), Fast 4G (9 Mbps down, 1.5 Mbps up, 165 ms), cache disabled, ${opts.headed ? 'headed' : 'headless'}`)
   console.log(`- WebGL renderer: ${runs[0].renderer}`)
-  console.log(`- runs: ${runs.map((r) => `${r.firstMapMs} ms / ${kib(r.entry.totalBytes)} KiB / ${r.rasterRequests} raster requests`).join(', ')}\n`)
+  console.log(`- runs: ${runs.map((r) => `${r.firstMapMs} ms / ${kib(r.entry.totalBytes)} KiB to first map + ${kib(r.afterMap.totalBytes)} KiB after / ${r.rasterRequests} raster requests`).join(', ')}\n`)
 
-  const categories = CATEGORY_ORDER.filter((c) => runs.some((r) => r.entry.byCategory[c] || r.city.byCategory[c]))
-  console.log('| Category | Entry KiB (median) | Entry requests | City view KiB (median) |')
-  console.log('|---|---:|---:|---:|')
+  const window = `${AFTER_MAP_WINDOW_MS / 1000} s after map`
+  const categories = CATEGORY_ORDER.filter((c) => runs.some((r) => r.entry.byCategory[c] || r.afterMap.byCategory[c] || r.city.byCategory[c]))
+  console.log(`| Category | Entry KiB, to first map (median) | Entry requests | ${window} KiB (median) | City view KiB (median) |`)
+  console.log('|---|---:|---:|---:|---:|')
   for (const c of categories) {
     const entryBytes = median(runs.map((r) => r.entry.byCategory[c]?.bytes ?? 0))
     const entryCount = median(runs.map((r) => r.entry.byCategory[c]?.requests ?? 0))
+    const afterBytes = median(runs.map((r) => r.afterMap.byCategory[c]?.bytes ?? 0))
     const cityBytes = median(runs.map((r) => r.city.byCategory[c]?.bytes ?? 0))
     const label = c === 'preview-only' ? 'preview-only (excluded)' : c
-    console.log(`| ${label} | ${kib(entryBytes)} | ${entryCount} | ${kib(cityBytes)} |`)
+    console.log(`| ${label} | ${kib(entryBytes)} | ${entryCount} | ${kib(afterBytes)} | ${kib(cityBytes)} |`)
   }
-  console.log(`| **Total** | **${kib(verdict.entryBytes)}** | | **${kib(verdict.cityBytes)}** |\n`)
+  console.log(`| **Total** | **${kib(verdict.entryBytes)}** | | **${kib(verdict.afterMapBytes)}** | **${kib(verdict.cityBytes)}** |\n`)
 
   console.log(budgetTable(verdict).join('\n'))
   console.log(`\n${targetLine(verdict.target)}`)

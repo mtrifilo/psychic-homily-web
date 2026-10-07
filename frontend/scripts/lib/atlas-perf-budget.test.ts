@@ -2,20 +2,22 @@ import { spawnSync } from 'node:child_process'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it, vi } from 'vitest'
-import { DEFAULT_BUDGET, EXIT, TARGET, budgetTable, errorMessage, judge, median, resolveBudget, runBudgetCheck, targetLine } from './atlas-perf-budget.mjs'
+import { AFTER_MAP_WINDOW_MS, DEFAULT_BUDGET, EXIT, TARGET, budgetTable, errorMessage, judge, median, resolveBudget, runBudgetCheck, targetLine } from './atlas-perf-budget.mjs'
 
 const MIB = 1024 * 1024
 
 type Run = {
   firstMapMs: number
   entry: { totalBytes: number }
+  afterMap: { totalBytes: number }
   city: { readyMs: number; totalBytes: number }
   rasterRequests: number
 }
 
-const run = (firstMapMs: number, entryBytes = 1.4 * MIB, rasterRequests = 0): Run => ({
+const run = (firstMapMs: number, entryBytes = 1.4 * MIB, rasterRequests = 0, afterMapBytes = 64 * 1024): Run => ({
   firstMapMs,
   entry: { totalBytes: entryBytes },
+  afterMap: { totalBytes: afterMapBytes },
   city: { readyMs: 600, totalBytes: 279 * 1024 },
   rasterRequests,
 })
@@ -137,7 +139,8 @@ describe('atlas perf budget', () => {
         '| Budget | Value (median unless noted) | Limit | Result |',
         '|---|---:|---:|---|',
         '| First rendered map | 3.40 s | 3.50 s | PASS |',
-        '| Entry bytes | 1.40 MiB | 1.50 MiB | PASS |',
+        '| Entry bytes (to first map) | 1.40 MiB | 1.50 MiB | PASS |',
+        '| Bytes in the first 3 s after first map | 0.06 MiB | none | reported only |',
         '| Raster requests (compact viewport, worst run) | 0 | 0 | PASS |',
       ])
       const note = 'SwiftShader, informational, about 1.75x local GPU'
@@ -146,8 +149,18 @@ describe('atlas perf budget', () => {
         '| Budget | Value (median unless noted) | Limit | Result |',
         '|---|---:|---:|---|',
         `| First rendered map | 6.08 s | 3.50 s | ${note} |`,
-        '| Entry bytes | 1.50 MiB | 1.50 MiB | FAIL |',
+        '| Entry bytes (to first map) | 1.50 MiB | 1.50 MiB | FAIL |',
+        '| Bytes in the first 3 s after first map | 0.06 MiB | none | reported only |',
       ])
+    })
+
+    it('reports the after-map bytes as a median and never gates on them', () => {
+      const heavyAfter = judge(
+        [run(3000, 1.4 * MIB, 0, 2 * MIB), run(3100, 1.4 * MIB, 0, 3 * MIB), run(3200, 1.4 * MIB, 0, 4 * MIB)],
+        { budget: DEFAULT_BUDGET, compact: true },
+      )
+      expect(heavyAfter).toMatchObject({ afterMapBytes: 3 * MIB, entryOk: true, pass: true })
+      expect(AFTER_MAP_WINDOW_MS).toBe(3000)
     })
 
     it('checks against an overridden budget', () => {
