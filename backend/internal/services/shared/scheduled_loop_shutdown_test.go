@@ -97,6 +97,11 @@ func (s claimCancelsStore) Claim(ctx context.Context, name string, interval, lea
 // TestExpiredContextRunsNothingUnclaimed_GormStore is the Postgres half: a claim
 // on a done context fails, and that failure must never take the fail-open path
 // that runs the work without a claim.
+//
+// "context ends during the claim" is the only subtest that reaches Claim, so it
+// alone pins the claim-failure guard in runCycle. The other two pin the outcome
+// end to end: on an expired context the loop stops before Claim, and either the
+// loop's own checks or the claim guard is enough to keep them green.
 func TestExpiredContextRunsNothingUnclaimed_GormStore(t *testing.T) {
 	_ = withCapturedSlog(t)
 	db, store := setupRunStore(t)
@@ -120,7 +125,8 @@ func TestExpiredContextRunsNothingUnclaimed_GormStore(t *testing.T) {
 
 	t.Run("wait between cycles", func(t *testing.T) {
 		// Register and DueIn fail on the expired context too, so the loop falls
-		// back to StartDelay, and a nanosecond timer is ready by the select.
+		// back to StartDelay. A nanosecond timer has normally fired by the
+		// select, which makes this a tie most trials.
 		var calls atomic.Int32
 		for i := 0; i < tieTrials; i++ {
 			runFor(LoopConfig{
@@ -166,7 +172,10 @@ func TestExpiredContextRunsNothingUnclaimed_GormStore(t *testing.T) {
 
 		assert.Zero(t, calls.Load(), "a claim that failed because the context ended must not run the work unclaimed")
 		assert.Zero(t, claimRows(t, "expired-mid-claim-pg"), "the failed claim must not leave a claim")
-		assert.NotContains(t, logs.String(), "failed",
+		// logStoreError prefixes every store failure it reports this way.
+		assert.NotContains(t, logs.String(), "background run state:",
 			"a loop that stops during its claim must not report a store failure on the way out")
+		assert.Contains(t, logs.String(), "loop stopping during claim",
+			"a claim abandoned on shutdown must still be traceable in the logs")
 	})
 }

@@ -494,7 +494,12 @@ func (r *loopRunner) runCycle(ctx context.Context, force bool) bool {
 		if ctx.Err() != nil {
 			// The claim failed because the loop is stopping, not because the
 			// store is unreachable. Running the work now would only run it
-			// unclaimed on a done context.
+			// unclaimed on a done context. Logged because the statement may
+			// still have committed, leaving a claim that holds until its lease.
+			slog.Default().Info("background service cycle not started: loop stopping during claim",
+				"service", r.name,
+				"error", err,
+			)
 			return false
 		}
 		// Fail open. If the database is unreachable the cycle itself will fail
