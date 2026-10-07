@@ -21,7 +21,10 @@ function parse(file: string): ts.SourceFile {
   return ts.createSourceFile(file, fs.readFileSync(file, 'utf8'), ts.ScriptTarget.Latest, true)
 }
 
-/** Module specifiers a file imports at runtime: value imports and `import()`. */
+/**
+ * Module specifiers a file loads at runtime: value imports, value re-exports
+ * and `import()`.
+ */
 function runtimeImports(source: ts.SourceFile): string[] {
   const found: string[] = []
   const visit = (node: ts.Node) => {
@@ -29,6 +32,13 @@ function runtimeImports(source: ts.SourceFile): string[] {
       ts.isImportDeclaration(node) &&
       ts.isStringLiteral(node.moduleSpecifier) &&
       !node.importClause?.isTypeOnly
+    ) {
+      found.push(node.moduleSpecifier.text)
+    } else if (
+      ts.isExportDeclaration(node) &&
+      node.moduleSpecifier &&
+      ts.isStringLiteral(node.moduleSpecifier) &&
+      !node.isTypeOnly
     ) {
       found.push(node.moduleSpecifier.text)
     } else if (
@@ -45,17 +55,22 @@ function runtimeImports(source: ts.SourceFile): string[] {
   return found
 }
 
-/** A `./X` specifier resolved to a file in this folder, or null. */
+const SIBLING_PREFIXES = ['./', '@/features/scenes/components/']
+
+/** A specifier for a file in this folder (`./X` or its `@/` path), resolved, or null. */
 function resolveSibling(specifier: string): string | null {
-  if (!specifier.startsWith('./')) return null
+  const prefix = SIBLING_PREFIXES.find((p) => specifier.startsWith(p))
+  if (!prefix) return null
+  const name = specifier.slice(prefix.length)
+  if (name.includes('/')) return null
   for (const ext of ['.tsx', '.ts']) {
-    const file = path.join(COMPONENTS, `${specifier.slice(2)}${ext}`)
+    const file = path.join(COMPONENTS, `${name}${ext}`)
     if (fs.existsSync(file)) return file
   }
   return null
 }
 
-/** The `.tsx` files in this folder reachable from AtlasGlobe through `./` imports. */
+/** The `.tsx` files in this folder that AtlasGlobe reaches through imports of them. */
 function paneComponents(): string[] {
   const seen = new Set<string>()
   const queue = [path.join(COMPONENTS, PANE_ROOT)]
