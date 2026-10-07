@@ -2,8 +2,8 @@
 
 /**
  * Hero Lab — React hooks shared by the wordmark effects: theme-token reading,
- * next/font family resolution for canvas, element sizing, in-view gating, the
- * reduced-motion query, and a shared rAF loop.
+ * next/font family resolution for canvas, element sizing, in-view gating, and
+ * a shared rAF loop.
  */
 
 import { useEffect, useRef, useState, type RefObject } from 'react'
@@ -116,19 +116,6 @@ export function useInView(ref: RefObject<HTMLElement | null>, rootMargin = '200p
     return () => observer.disconnect()
   }, [ref, rootMargin])
   return inView
-}
-
-/** OS-level reduced-motion preference, kept live. */
-export function usePrefersReducedMotion(): boolean {
-  const [reduced, setReduced] = useState(false)
-  useEffect(() => {
-    const query = window.matchMedia('(prefers-reduced-motion: reduce)')
-    const update = () => setReduced(query.matches)
-    update()
-    query.addEventListener('change', update)
-    return () => query.removeEventListener('change', update)
-  }, [])
-  return reduced
 }
 
 /**

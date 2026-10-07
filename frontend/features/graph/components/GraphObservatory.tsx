@@ -24,6 +24,7 @@ import {
   GRAPH_BREAKPOINT_PX,
   useContainerWidth,
 } from '@/components/graph/useContainerWidth'
+import { useReducedMotion } from '@/lib/hooks/common/useReducedMotion'
 import {
   ArtistSearch,
   ArtistGraphVisualization,
@@ -31,7 +32,6 @@ import {
   useArtistGraph,
   useArtistGraphCard,
   useFetchArtistGraph,
-  useReducedMotion,
   type Artist,
   type ArtistGraph,
   type ArtistGraphNode,

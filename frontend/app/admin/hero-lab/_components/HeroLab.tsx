@@ -16,7 +16,7 @@ import { MirageHaze } from './MirageHaze'
 import { MagneticLetters } from './MagneticLetters'
 import { ScryingPool } from './ScryingPool'
 import { DustDissolve } from './DustDissolve'
-import { usePrefersReducedMotion } from '../_lib/hooks'
+import { useReducedMotion } from '@/lib/hooks/common/useReducedMotion'
 
 const STAGES: StageMeta[] = [
   {
@@ -87,7 +87,7 @@ function ControlButton({ onClick, children }: { onClick: () => void; children: R
 }
 
 export function HeroLab() {
-  const prefersReduced = usePrefersReducedMotion()
+  const prefersReduced = useReducedMotion()
   const [forceReduced, setForceReduced] = useState(false)
   const { isDark, toggle: toggleTheme } = useThemeToggle()
   const reducedMotion = prefersReduced || forceReduced

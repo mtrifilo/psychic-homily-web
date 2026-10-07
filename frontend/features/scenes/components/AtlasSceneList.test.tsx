@@ -50,7 +50,7 @@ vi.mock('@/components/shared/MusicEmbed', () => ({
   ),
 }))
 
-import { MobileSceneList } from './MobileSceneList'
+import { AtlasSceneList } from './AtlasSceneList'
 import { PREVIEW_ARTIST_LIMIT } from './ScenePreviewContent'
 
 function makeScene(overrides: Partial<SceneListItem>): SceneListItem {
@@ -89,7 +89,7 @@ const scenes: SceneListItem[] = [
   }),
 ]
 
-describe('MobileSceneList', () => {
+describe('AtlasSceneList', () => {
   beforeEach(() => {
     mockUseSceneArtists.mockReset()
     mockUseSceneShows.mockReset()
@@ -104,7 +104,7 @@ describe('MobileSceneList', () => {
   })
 
   it('lists every scene (incl. unplaceable) sorted most-active-first', () => {
-    renderWithProviders(<MobileSceneList scenes={scenes} loading={false} />)
+    renderWithProviders(<AtlasSceneList scenes={scenes} loading={false} />)
 
     const rows = screen.getAllByRole('button', { expanded: false })
     expect(rows.map((r) => r.textContent)).toEqual([
@@ -115,7 +115,7 @@ describe('MobileSceneList', () => {
   })
 
   it('heads the list with its title and no intro sentence', () => {
-    renderWithProviders(<MobileSceneList scenes={scenes} loading={false} />)
+    renderWithProviders(<AtlasSceneList scenes={scenes} loading={false} />)
     const heading = screen.getByRole('heading', { level: 1, name: 'Scenes' })
     // The list follows the heading directly: no paragraph between them.
     expect(heading.nextElementSibling?.tagName).toBe('UL')
@@ -124,13 +124,13 @@ describe('MobileSceneList', () => {
   it('marks its root with the test id the Atlas perf script detects', () => {
     // scripts/atlas-perf.mjs stops a run at once when this list renders
     // instead of the map; renaming the id silently turns that into a timeout.
-    renderWithProviders(<MobileSceneList scenes={scenes} loading={false} />)
+    renderWithProviders(<AtlasSceneList scenes={scenes} loading={false} />)
     expect(screen.getByTestId('atlas-scene-list')).toBeInTheDocument()
   })
 
   it('stars followed scenes and leaves the rest unmarked (PSY-1340)', () => {
     renderWithProviders(
-      <MobileSceneList
+      <AtlasSceneList
         scenes={scenes}
         loading={false}
         followedSlugs={new Set([scenes[0].slug])}
@@ -144,14 +144,14 @@ describe('MobileSceneList', () => {
   })
 
   it('fetches nothing while all rows are collapsed', () => {
-    renderWithProviders(<MobileSceneList scenes={scenes} loading={false} />)
+    renderWithProviders(<AtlasSceneList scenes={scenes} loading={false} />)
 
     expect(mockUseSceneArtists).not.toHaveBeenCalled()
     expect(mockUseSceneShows).not.toHaveBeenCalled()
   })
 
   it('expands a row into the scene preview, fetching only that scene', () => {
-    renderWithProviders(<MobileSceneList scenes={scenes} loading={false} />)
+    renderWithProviders(<AtlasSceneList scenes={scenes} loading={false} />)
 
     fireEvent.click(screen.getByRole('button', { name: /Phoenix, AZ/ }))
 
@@ -180,7 +180,7 @@ describe('MobileSceneList', () => {
   })
 
   it('collapses an expanded row on a second tap', () => {
-    renderWithProviders(<MobileSceneList scenes={scenes} loading={false} />)
+    renderWithProviders(<AtlasSceneList scenes={scenes} loading={false} />)
 
     const row = screen.getByRole('button', { name: /Phoenix, AZ/ })
     fireEvent.click(row)
@@ -196,7 +196,7 @@ describe('MobileSceneList', () => {
   })
 
   it('keeps one row open at a time (expanding B closes A)', () => {
-    renderWithProviders(<MobileSceneList scenes={scenes} loading={false} />)
+    renderWithProviders(<AtlasSceneList scenes={scenes} loading={false} />)
 
     fireEvent.click(screen.getByRole('button', { name: /Phoenix, AZ/ }))
     fireEvent.click(screen.getByRole('button', { name: /Chicago, IL/ }))
@@ -226,7 +226,7 @@ describe('MobileSceneList', () => {
       },
       isLoading: false,
     })
-    renderWithProviders(<MobileSceneList scenes={scenes} loading={false} />)
+    renderWithProviders(<AtlasSceneList scenes={scenes} loading={false} />)
 
     fireEvent.click(screen.getByRole('button', { name: /Chicago, IL/ }))
 
@@ -234,12 +234,12 @@ describe('MobileSceneList', () => {
   })
 
   it('shows the loading state', () => {
-    renderWithProviders(<MobileSceneList scenes={[]} loading={true} />)
+    renderWithProviders(<AtlasSceneList scenes={[]} loading={true} />)
     expect(screen.getByText('Loading…')).toBeInTheDocument()
   })
 
   it('shows both headline counts on the row (payoff parity with the panel)', () => {
-    renderWithProviders(<MobileSceneList scenes={scenes} loading={false} />)
+    renderWithProviders(<AtlasSceneList scenes={scenes} loading={false} />)
 
     expect(
       screen.getByRole('button', { name: /Chicago, IL/ }),
@@ -247,7 +247,7 @@ describe('MobileSceneList', () => {
   })
 
   it('expands an unplaceable scene into a working preview (globe can never show these)', () => {
-    renderWithProviders(<MobileSceneList scenes={scenes} loading={false} />)
+    renderWithProviders(<AtlasSceneList scenes={scenes} loading={false} />)
 
     fireEvent.click(screen.getByRole('button', { name: /Faketown, ZZ/ }))
 
@@ -266,7 +266,7 @@ describe('MobileSceneList', () => {
       isLoading: false,
       isError: true,
     })
-    renderWithProviders(<MobileSceneList scenes={scenes} loading={false} />)
+    renderWithProviders(<AtlasSceneList scenes={scenes} loading={false} />)
 
     fireEvent.click(screen.getByRole('button', { name: /Chicago, IL/ }))
 

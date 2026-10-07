@@ -27,7 +27,7 @@ import { useIsAuthenticated } from '@/features/auth'
 import { useArtistGraph, useFetchArtistGraph, useArtistRelationshipVote, useCreateArtistRelationship } from '../hooks/useArtistGraph'
 import { useArtistSearch } from '../hooks/useArtistSearch'
 import { useArtist } from '../hooks/useArtists'
-import { useReducedMotion } from '../hooks/useReducedMotion'
+import { useReducedMotion } from '@/lib/hooks/common/useReducedMotion'
 import { ArtistGraphVisualization } from './ArtistGraph'
 import { SIMILAR_ARTISTS_ANCHOR } from './ArtistConnectionsSection'
 import {

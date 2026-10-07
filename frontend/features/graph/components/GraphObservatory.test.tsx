@@ -153,7 +153,7 @@ vi.mock('@/components/graph/useContainerWidth', () => ({
   useContainerWidth: () => ({ refCallback: vi.fn(), containerWidth: 1024 }),
 }))
 
-vi.mock('@/features/artists/hooks/useReducedMotion', () => ({
+vi.mock('@/lib/hooks/common/useReducedMotion', () => ({
   useReducedMotion: () => motionState.reduced,
 }))
 

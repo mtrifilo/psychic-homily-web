@@ -52,7 +52,6 @@ export {
   useCreateArtistRelationship,
 } from './hooks'
 
-export { useReducedMotion } from './hooks'
 export { useArtistGraphCard } from './hooks'
 
 // Components
