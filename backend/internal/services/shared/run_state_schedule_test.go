@@ -310,6 +310,9 @@ func TestNotOverdueOnBootWaitsAndSchedulesFromLastCompletion(t *testing.T) {
 // depends on millisecond scheduler jitter. What does not depend on timing is
 // that no claim is granted within interval - dueSlack of the previous
 // completion, whether DueIn or Claim's gate is what holds it back.
+//
+// The claim protocol's invariant holds across every restart: each granted claim
+// ends as a completion or a release, and the work runs only inside a claim.
 func TestRepeatedRestartsStillMakeProgress(t *testing.T) {
 	compressCatchUp(t, 2*time.Millisecond, time.Millisecond)
 
@@ -368,11 +371,14 @@ func TestRepeatedRestartsStillMakeProgress(t *testing.T) {
 			i, claimedAt.Sub(prev), minSpacing)
 	}
 
-	// Every call to the work function is accounted for by the claim protocol:
-	// it either completed or was released as interrupted. A call that is
-	// neither ran outside the claim, so the spacing above did not pace it.
-	assert.Equal(t, int(store.finished.Load()+store.released.Load()), int(persistedCalls.Load()),
-		"every cycle the loop runs must end as a completion or a released interruption")
+	// Every granted claim ends as a completion or a release, and the work runs
+	// only inside a claim. A call outside a claim would escape the spacing above.
+	// A claim granted as the process stops is released without running the work,
+	// so calls may be fewer than claims, never more.
+	assert.Equal(t, len(row.claims), int(store.finished.Load()+store.released.Load()),
+		"every granted claim must end as a completion or a release")
+	assert.LessOrEqual(t, int(persistedCalls.Load()), len(row.claims),
+		"the work must run only inside a claim")
 
 	// A released cycle leaves the loop overdue, so the next boot's catch-up cycle,
 	// a few milliseconds into a 100ms lifetime, completes it. Releases therefore
