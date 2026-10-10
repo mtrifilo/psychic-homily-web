@@ -507,11 +507,7 @@ test.describe('Atlas when the map loses its WebGL context', () => {
   // restores the Atlas keeps.
   const RESTORE_DEADLINE_MS = 3_000
 
-  type ContextWindow = {
-    __atlasMap?: AtlasMapSeam | null
-    /** When the map canvas last fired a context event, on `performance.now()`. */
-    __atlasContextEventAt?: number
-  }
+  type ContextWindow = { __atlasMap?: AtlasMapSeam | null }
 
   /** The canvas keeps its `WEBGL_lose_context` from before a loss for the restore. */
   type LosableCanvas = HTMLCanvasElement & { __loseContext?: WEBGL_lose_context | null }
@@ -525,48 +521,38 @@ test.describe('Atlas when the map loses its WebGL context', () => {
     return errors
   }
 
-  /**
-   * The extension method behind each context change, the event the canvas
-   * fires for it, and how long that event may take before the wait fails by
-   * its name. A loss gets about twice the slowest loss step measured on the
-   * CI runner (9.2 s), counted from the call. A restore gets the Atlas's
-   * restore deadline, counted from when the canvas reported the loss
-   * (`fromLoss`); the Atlas starts its own clock in that same event, before
-   * this listener runs, so when the wait fails the Atlas has already given
-   * the map up to the scene list. Both are timed in the page: they bound the
-   * event, not the round trip to the page.
-   */
-  const CONTEXT_CHANGES = {
-    lose: { method: 'loseContext', event: 'webglcontextlost', timeoutMs: 20_000, fromLoss: false },
-    restore: {
-      method: 'restoreContext',
-      event: 'webglcontextrestored',
-      timeoutMs: RESTORE_DEADLINE_MS,
-      fromLoss: true,
-    },
-  } as const
+  type ContextChange = {
+    method: 'loseContext' | 'restoreContext'
+    event: 'webglcontextlost' | 'webglcontextrestored'
+    timeoutMs: number
+    /** The loss time the bound counts from, or null to count from the call. */
+    since: number | null
+  }
 
   /**
-   * Makes the context change through the map canvas's `WEBGL_lose_context`
-   * and resolves once the canvas fires its event; rejects naming the event
-   * when it has not fired within the change's bound. A lost context hands out
-   * no extensions, so the canvas keeps the one it gave before the loss and a
-   * restore reuses it.
+   * Makes a context change through the map canvas's `WEBGL_lose_context` and
+   * resolves with the page's `performance.now()` when the canvas fired the
+   * change's event; rejects naming the event when it has not fired within the
+   * bound. A lost context hands out no extensions, so the canvas keeps the
+   * one it gave before the loss and a restore reuses it.
    */
-  function changeContext(page: Page, change: keyof typeof CONTEXT_CHANGES) {
+  function changeContext(page: Page, change: ContextChange) {
     return page.evaluate(
-      ({ method, event, timeoutMs, fromLoss }) =>
-        new Promise<void>((resolve, reject) => {
-          const w = window as unknown as ContextWindow
-          const now = performance.now()
-          const left = timeoutMs - (fromLoss ? now - (w.__atlasContextEventAt ?? now) : 0)
-          const overdue = () =>
-            new Error(`${event} did not fire within ${timeoutMs} ms${fromLoss ? ' of the loss' : ''}`)
-          if (left <= 0) {
-            reject(overdue())
+      ({ method, event, timeoutMs, since }) =>
+        new Promise<number>((resolve, reject) => {
+          const start = performance.now()
+          const deadline = (since ?? start) + timeoutMs
+          if (deadline <= start) {
+            reject(
+              new Error(
+                `${method} was called ${Math.round(start - (since ?? start))} ms after the loss, past the ${timeoutMs} ms deadline`
+              )
+            )
             return
           }
-          const canvas = w.__atlasMap?.getCanvas() as LosableCanvas | undefined
+          const canvas = (window as unknown as ContextWindow).__atlasMap?.getCanvas() as
+            | LosableCanvas
+            | undefined
           if (!canvas) {
             reject(new Error('window.__atlasMap holds no map'))
             return
@@ -577,20 +563,59 @@ test.describe('Atlas when the map loses its WebGL context', () => {
             reject(new Error('the map canvas has no WEBGL_lose_context'))
             return
           }
-          const timer = setTimeout(() => reject(overdue()), left)
+          // Rounded up, so the timer never ends before `deadline`.
+          const timer = setTimeout(
+            () =>
+              reject(
+                new Error(
+                  `${event} did not fire within ${timeoutMs} ms${since === null ? '' : ' of the loss'}`
+                )
+              ),
+            Math.ceil(deadline - start)
+          )
           canvas.addEventListener(
             event,
             () => {
               clearTimeout(timer)
-              w.__atlasContextEventAt = performance.now()
-              resolve()
+              resolve(performance.now())
             },
             { once: true }
           )
           extension[method]()
         }),
-      CONTEXT_CHANGES[change]
+      change
     )
+  }
+
+  /**
+   * Loses the context and resolves with when the canvas reported it. The wait
+   * fails by name about twice the slowest loss step measured on the CI runner
+   * (9.2 s) after the call, timed in the page: it bounds the event, not the
+   * round trip to the page.
+   */
+  function loseContext(page: Page) {
+    return changeContext(page, {
+      method: 'loseContext',
+      event: 'webglcontextlost',
+      timeoutMs: 20_000,
+      since: null,
+    })
+  }
+
+  /**
+   * Restores the context lost at `lostAt`. The wait fails by name once the
+   * Atlas's restore deadline has passed since the loss, counting the runner's
+   * steps between the loss and this call. The Atlas starts its own clock in
+   * the loss event, before the listener that records `lostAt`, so by then
+   * the Atlas has given the map up to the scene list.
+   */
+  function restoreContext(page: Page, lostAt: number) {
+    return changeContext(page, {
+      method: 'restoreContext',
+      event: 'webglcontextrestored',
+      timeoutMs: RESTORE_DEADLINE_MS,
+      since: lostAt,
+    })
   }
 
   test.beforeEach(async ({ page }) => {
@@ -603,7 +628,7 @@ test.describe('Atlas when the map loses its WebGL context', () => {
     await page.goto('/atlas')
     await waitForMap(page)
 
-    await changeContext(page, 'lose')
+    await loseContext(page)
     const list = page.getByTestId('atlas-scene-list')
     // Inside the deadline the map waits for a restore.
     await page.waitForTimeout(1_000)
@@ -632,9 +657,9 @@ test.describe('Atlas when the map loses its WebGL context', () => {
         )
       )
       .toBe('pointer')
-    await changeContext(page, 'lose')
+    const lostAt = await loseContext(page)
     await page.mouse.move(dot.x + 120, dot.y + 120)
-    await changeContext(page, 'restore')
+    await restoreContext(page, lostAt)
     // MapLibre re-creates the style it saved at the loss.
     await waitForMap(page)
 
