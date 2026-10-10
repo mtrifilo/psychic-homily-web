@@ -114,27 +114,15 @@ func TestExpiredContextStartsNoCycle_MemStore(t *testing.T) {
 	})
 }
 
-// claimCancelsStore cancels the loop's context as Claim begins and then claims
-// through the wrapped store, so the claim fails because the context ended rather
-// than because the store is unreachable.
-type claimCancelsStore struct {
-	RunStore
-	cancel context.CancelFunc
-}
-
-func (s claimCancelsStore) Claim(ctx context.Context, name string, interval, lease time.Duration, force bool) (time.Time, bool, error) {
-	s.cancel()
-	return s.RunStore.Claim(ctx, name, interval, lease, force)
-}
-
-// TestExpiredContextRunsNothingUnclaimed_GormStore is the Postgres half: a claim
-// on a done context fails, and that failure must never take the fail-open path
-// that runs the work without a claim.
+// TestExpiredContextRunsNothingUnclaimed_GormStore is the Postgres half: a loop
+// whose context is done before or during its claim never starts the cycle,
+// whatever the claim's outcome, and leaves no claim behind.
 //
-// "context ends during the claim" is the only subtest that reaches Claim, so it
-// alone pins the claim-failure guard in runCycle. The other two pin the outcome
-// end to end: on an expired context the loop stops before Claim, and either the
-// loop's own checks or the claim guard is enough to keep them green.
+// "context ends during the claim" is the only subtest that reaches Claim. The
+// claim runs detached from the loop's context, so it succeeds there, and the
+// subtest pins runCycle releasing a claim granted after the context ended. The
+// other two pin the outcome end to end: on an expired context the loop stops
+// before Claim.
 func TestExpiredContextRunsNothingUnclaimed_GormStore(t *testing.T) {
 	_ = withCapturedSlog(t)
 	db, store := setupRunStore(t)
@@ -149,8 +137,8 @@ func TestExpiredContextRunsNothingUnclaimed_GormStore(t *testing.T) {
 		return n
 	}
 
-	// The premise the loop's guard exists for: the real claim statement fails on
-	// a done context instead of claiming.
+	// The premise for running the claim detached from the loop's context: the
+	// real claim statement fails on a done context instead of claiming.
 	_, claimed, err := store.Claim(expiredContext(t), "expired-premise", time.Hour, time.Hour, false)
 	require.ErrorIs(t, err, context.DeadlineExceeded,
 		"premise: a Postgres claim on an expired context must fail with the context's error")
@@ -189,8 +177,8 @@ func TestExpiredContextRunsNothingUnclaimed_GormStore(t *testing.T) {
 
 	t.Run("context ends during the claim", func(t *testing.T) {
 		// The context is live when the cycle starts and ends inside Claim, so the
-		// check before the cycle passes and only the claim's failure is left to
-		// stop the work.
+		// check before the cycle passes and only runCycle's handling of the
+		// claim is left to stop the work.
 		logs := withCapturedSlog(t)
 		ctx, cancel := context.WithCancel(context.Background())
 		t.Cleanup(cancel)
@@ -200,11 +188,11 @@ func TestExpiredContextRunsNothingUnclaimed_GormStore(t *testing.T) {
 			Name:      "expired-mid-claim-pg",
 			Interval:  time.Hour,
 			RunAtBoot: true,
-			Store:     claimCancelsStore{RunStore: store, cancel: cancel},
+			Store:     beforeClaimStore{RunStore: store, beforeClaim: cancel},
 		}, func(context.Context) { calls.Add(1) })
 
-		assert.Zero(t, calls.Load(), "a claim that failed because the context ended must not run the work unclaimed")
-		assert.Zero(t, claimRows(t, "expired-mid-claim-pg"), "the failed claim must not leave a claim")
+		assert.Zero(t, calls.Load(), "a context that ends during the claim must not start the cycle")
+		assert.Zero(t, claimRows(t, "expired-mid-claim-pg"), "a claim granted after the context ended must be released")
 		// logStoreError prefixes every store failure it reports this way.
 		assert.NotContains(t, logs.String(), "background run state:",
 			"a loop that stops during its claim must not report a store failure on the way out")
@@ -214,9 +202,9 @@ func TestExpiredContextRunsNothingUnclaimed_GormStore(t *testing.T) {
 				stopLine = line
 			}
 		}
-		require.NotEmpty(t, stopLine, "a claim abandoned on shutdown must still be traceable in the logs")
+		require.NotEmpty(t, stopLine, "a claim released on shutdown must still be traceable in the logs")
 		assert.Contains(t, stopLine, `"level":"INFO"`, "shutdown is not a store fault, so the line is Info")
 		assert.Contains(t, stopLine, `"service":"expired-mid-claim-pg"`)
-		assert.Contains(t, stopLine, "context canceled", "the line must carry the claim's error")
+		assert.Contains(t, stopLine, "context canceled", "the line must name the stop reason")
 	})
 }

@@ -12,6 +12,7 @@ package shared
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"runtime/debug"
 	"sync"
@@ -113,6 +114,14 @@ const (
 	// treat it as abandoned. It only has to cover a normal cycle; the bounded
 	// batches these loops use run in minutes.
 	defaultRunLease = time.Hour
+
+	// completeTimeout bounds every close-out of a claim (a completion, or the
+	// release of an interrupted or unstarted cycle). It runs detached from the
+	// loop's context so a loop that is stopping can still release what it holds.
+	// A close-out is one single-row UPDATE keyed by name and token, so ten
+	// seconds is reached only when the database is in distress; a close-out that
+	// fails leaves the row to its lease.
+	completeTimeout = 10 * time.Second
 )
 
 // Tunable at runtime: the env-configured knobs, plus the retry floor that tests
@@ -123,6 +132,17 @@ var (
 	// wait a full interval, so one crashed process could cost a daily sweep a
 	// whole day — the shape of failure this ticket exists to make impossible.
 	claimRetryDelay = 5 * time.Minute
+
+	// claimTimeout bounds a claim in flight once the loop's context has ended;
+	// while the loop runs the claim is unbounded, so a slow pool or a held row
+	// lock delays the cycle rather than failing the claim open. A claim is one
+	// single-row upsert that waits for a pooled connection and for a row lock
+	// held for milliseconds, so five seconds after shutdown is reached only when
+	// the database or its pool is saturated. A claim that times out on shutdown
+	// may still commit, leaving a 'running' row until its lease. A stopping loop
+	// can be held up by one claim and one close-out, claimTimeout +
+	// completeTimeout in all.
+	claimTimeout = 5 * time.Second
 
 	// Catch-up stagger. Seven sweeps discovering at the same boot that they are
 	// overdue would otherwise fire together, and the MusicBrainz / Nominatim /
@@ -211,8 +231,16 @@ type LoopConfig struct {
 // is recomputed from the outcome of the previous cycle (ran / refused / due at),
 // so no wait is ever anchored to process start.
 //
-// The loop starts no cycle once it sees the context is done, and a claim that
-// fails on a done context never falls back to running the work unclaimed.
+// The loop starts no cycle once it sees the context is done or StopCh closed,
+// and a claim that fails while the loop is stopping never falls back to running
+// the work unclaimed.
+//
+// A claim row exists only while its owner is alive or until its lease expires,
+// never because the loop's shutdown raced the claim's commit. The claim and its
+// release run on a context detached from the loop's, so the loop always learns
+// the claim's outcome, and a claim granted after a stop is released without
+// starting a cycle. Only a claim that outlasts claimTimeout after the context
+// ends leaves its outcome unknown, and the lease bounds that row.
 func RunScheduledLoop(ctx context.Context, cfg LoopConfig, work func(context.Context)) {
 	defer func() {
 		if r := recover(); r != nil {
@@ -240,7 +268,7 @@ func RunScheduledLoop(ctx context.Context, cfg LoopConfig, work func(context.Con
 	// collide with a run already in flight on a draining instance.
 	var next time.Duration
 	if cfg.RunAtBoot {
-		if ctx.Err() != nil {
+		if ctx.Err() != nil || stopRequested(cfg.StopCh) {
 			return
 		}
 		ran := runner.runCycle(ctx, true)
@@ -262,8 +290,8 @@ func RunScheduledLoop(ctx context.Context, cfg LoopConfig, work func(context.Con
 // rather than time.Sleep so a deploy landing inside a long wait shuts the process
 // down immediately.
 //
-// It returns true only while ctx is live. A select over a fired timer and a done
-// context picks either at random, so the timer case re-checks the context.
+// It returns true only while ctx is live and stopCh is open. A select over
+// several ready cases picks one at random, so the timer case re-checks both.
 func sleepOrStop(ctx context.Context, stopCh <-chan struct{}, d time.Duration) bool {
 	if d < 0 {
 		d = 0
@@ -276,7 +304,18 @@ func sleepOrStop(ctx context.Context, stopCh <-chan struct{}, d time.Duration) b
 	case <-stopCh:
 		return false
 	case <-timer.C:
-		return ctx.Err() == nil
+		return ctx.Err() == nil && !stopRequested(stopCh)
+	}
+}
+
+// stopRequested reports, without blocking, whether stopCh is closed. A nil
+// channel never is.
+func stopRequested(stopCh <-chan struct{}) bool {
+	select {
+	case <-stopCh:
+		return true
+	default:
+		return false
 	}
 }
 
@@ -287,6 +326,7 @@ type loopRunner struct {
 	startDelay time.Duration
 	lease      time.Duration
 	store      RunStore
+	stopCh     <-chan struct{}
 	work       func(context.Context)
 }
 
@@ -332,6 +372,7 @@ func newLoopRunner(cfg LoopConfig, work func(context.Context)) *loopRunner {
 		startDelay: startDelay,
 		lease:      lease,
 		store:      store,
+		stopCh:     cfg.StopCh,
 		work:       work,
 	}
 }
@@ -489,19 +530,31 @@ func (r *loopRunner) runCycle(ctx context.Context, force bool) bool {
 		return true
 	}
 
-	token, claimed, err := r.store.Claim(ctx, r.name, r.interval, r.lease, force)
-	if err != nil {
-		if ctx.Err() != nil {
-			// The claim failed because the loop is stopping, not because the
-			// store is unreachable. Running the work now would only run it
-			// unclaimed on a done context. Logged because the statement may
-			// still have committed, leaving a claim that holds until its lease.
-			slog.Default().Info("background service cycle not started: loop stopping during claim",
-				"service", r.name,
-				"error", err,
-			)
-			return false
+	token, claimed, err := r.claim(ctx, force)
+	if ctx.Err() != nil || stopRequested(r.stopCh) {
+		// The loop stopped while its claim was in flight, through its context or
+		// StopCh, and starts no cycle after a stop. A granted claim is released
+		// so the row does not stay 'running' until its lease. A failed claim
+		// failed in the store or on claimTimeout, never on the loop's context;
+		// after a timeout the statement may still commit, and the lease bounds
+		// that row.
+		released := err == nil && claimed &&
+			r.complete(ctx, token, CycleOutcome{Interrupted: true}) == nil
+		reason := err
+		if reason == nil {
+			reason = ctx.Err()
 		}
+		if reason == nil {
+			reason = errStopRequested
+		}
+		slog.Default().Info("background service cycle not started: loop stopping during claim",
+			"service", r.name,
+			"claim_released", released,
+			"error", reason,
+		)
+		return false
+	}
+	if err != nil {
 		// Fail open. If the database is unreachable the cycle itself will fail
 		// fast anyway — every one of these loops is database-backed — so running
 		// unclaimed cannot turn into a runaway against a third-party API.
@@ -521,12 +574,8 @@ func (r *loopRunner) runCycle(ctx context.Context, force bool) bool {
 	panicked := r.runWork(withCycleRecorder(ctx, rec))
 	rows, cycleErr := rec.snapshot()
 
-	// Detached context: a shutdown that cancels ctx mid-cycle must still be able
-	// to close the claim out, or every deploy would leave a 'running' row behind
-	// and the next boot would wait out the lease before retrying.
-	completeCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
-	defer cancel()
-	if err := r.store.Complete(completeCtx, r.name, token, CycleOutcome{
+	// complete logs its own failure; the cycle ran either way.
+	_ = r.complete(ctx, token, CycleOutcome{
 		Rows:     rows,
 		Err:      cycleErr,
 		Panicked: panicked,
@@ -535,10 +584,42 @@ func (r *loopRunner) runCycle(ctx context.Context, force bool) bool {
 		// finish its work; recording it as complete would hand the next boot a
 		// schedule that says "done for another interval".
 		Interrupted: ctx.Err() != nil && !panicked,
-	}); err != nil {
+	})
+	return true
+}
+
+// errStopRequested is the stop reason logged when StopCh, not the context,
+// stopped the loop during its claim.
+var errStopRequested = errors.New("loop stop requested")
+
+// claim takes the cycle's claim on a context detached from the loop's. A claim
+// is unbounded while the loop runs and bounded by claimTimeout from the moment
+// the loop's context ends. Were it bound to the loop's context, a shutdown
+// landing mid-statement would make the driver give up on a statement the server
+// can still commit, leaving a claim the loop never learns it holds. The bound is
+// read when the claim starts.
+func (r *loopRunner) claim(ctx context.Context, force bool) (time.Time, bool, error) {
+	claimCtx, cancel := context.WithCancel(context.WithoutCancel(ctx))
+	defer cancel()
+	bound := claimTimeout
+	stopBounding := context.AfterFunc(ctx, func() { time.AfterFunc(bound, cancel) })
+	defer stopBounding()
+	return r.store.Claim(claimCtx, r.name, r.interval, r.lease, force)
+}
+
+// complete closes out the claim identified by token on a detached context: a
+// shutdown that cancels ctx must still be able to release the claim, or every
+// deploy would leave a 'running' row behind and the next boot would wait out the
+// lease before retrying. A failure is logged here and returned so a caller can
+// report whether the claim was released.
+func (r *loopRunner) complete(ctx context.Context, token time.Time, outcome CycleOutcome) error {
+	completeCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), completeTimeout)
+	defer cancel()
+	err := r.store.Complete(completeCtx, r.name, token, outcome)
+	if err != nil {
 		logStoreError(r.name, "complete", err)
 	}
-	return true
+	return err
 }
 
 // runWork isolates the per-cycle recover so a panic in one cycle doesn't stop the
