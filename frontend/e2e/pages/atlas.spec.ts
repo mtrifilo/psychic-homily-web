@@ -532,9 +532,11 @@ test.describe('Atlas when the map loses its WebGL context', () => {
   /**
    * Makes a context change through the map canvas's `WEBGL_lose_context` and
    * resolves with the page's `performance.now()` when the canvas fired the
-   * change's event; rejects naming the event when it has not fired within the
-   * bound. A lost context hands out no extensions, so the canvas keeps the
-   * one it gave before the loss and a restore reuses it.
+   * change's event. Called already past the bound, it rejects naming the
+   * method and makes no change; otherwise it rejects naming the event when
+   * the event has not fired within the bound. A lost context hands out no
+   * extensions, so the canvas keeps the one it gave before the loss and a
+   * restore reuses it.
    */
   function changeContext(page: Page, change: ContextChange) {
     return page.evaluate(
@@ -542,12 +544,10 @@ test.describe('Atlas when the map loses its WebGL context', () => {
         new Promise<number>((resolve, reject) => {
           const start = performance.now()
           const deadline = (since ?? start) + timeoutMs
+          const calledAfterLoss =
+            since === null ? '' : `${method} was called ${Math.round(start - since)} ms after the loss`
           if (deadline <= start) {
-            reject(
-              new Error(
-                `${method} was called ${Math.round(start - (since ?? start))} ms after the loss, past the ${timeoutMs} ms deadline`
-              )
-            )
+            reject(new Error(`${calledAfterLoss}, past the ${timeoutMs} ms deadline`))
             return
           }
           const canvas = (window as unknown as ContextWindow).__atlasMap?.getCanvas() as
@@ -568,7 +568,8 @@ test.describe('Atlas when the map loses its WebGL context', () => {
             () =>
               reject(
                 new Error(
-                  `${event} did not fire within ${timeoutMs} ms${since === null ? '' : ' of the loss'}`
+                  `${event} did not fire within ${timeoutMs} ms` +
+                    (calledAfterLoss ? ` of the loss (${calledAfterLoss})` : '')
                 )
               ),
             Math.ceil(deadline - start)
