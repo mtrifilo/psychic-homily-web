@@ -114,9 +114,13 @@ const (
 	// batches these loops use run in minutes.
 	defaultRunLease = time.Hour
 
-	// releaseTimeout bounds closing out a claim, which also runs detached so a
-	// loop that is stopping can still release what it holds.
-	releaseTimeout = 10 * time.Second
+	// completeTimeout bounds every close-out of a claim (a completion, or the
+	// release of an interrupted or unstarted cycle). It runs detached from the
+	// loop's context so a loop that is stopping can still release what it holds.
+	// A close-out is one single-row UPDATE keyed by name and token, so ten
+	// seconds is reached only when the database is in distress; a close-out that
+	// fails leaves the row to its lease.
+	completeTimeout = 10 * time.Second
 )
 
 // Tunable at runtime: the env-configured knobs, plus the retry floor that tests
@@ -129,11 +133,13 @@ var (
 	claimRetryDelay = 5 * time.Minute
 
 	// claimTimeout bounds a claim, which runs detached from the loop's context.
-	// A claim is one single-row upsert whose only wait is a row lock that the
-	// other single-statement writers of that row hold for milliseconds, so five
-	// seconds is reached only when the database is in distress, where a failed
-	// claim fails open anyway. It is also the longest a claim in flight can hold
-	// up a Stop that waits for the loop to return.
+	// A claim is one single-row upsert. It waits for a pooled connection and for
+	// the row lock, which the other single-statement writers of that row hold for
+	// milliseconds, so five seconds is reached only when the database or its
+	// connection pool is saturated. A claim that times out is a failed claim: on
+	// a live context it fails open, and its statement may still commit, leaving
+	// a 'running' row until its lease. A stopping loop can be held up by one
+	// claim and one close-out, claimTimeout + completeTimeout in all.
 	claimTimeout = 5 * time.Second
 
 	// Catch-up stagger. Seven sweeps discovering at the same boot that they are
@@ -224,7 +230,8 @@ type LoopConfig struct {
 // so no wait is ever anchored to process start.
 //
 // The loop starts no cycle once it sees the context is done, and a claim that
-// fails on a done context never falls back to running the work unclaimed.
+// fails while the context is done never falls back to running the work
+// unclaimed.
 //
 // A claim row exists only while its owner is alive or until its lease expires,
 // never because the loop's shutdown raced the claim's commit. The claim and its
@@ -526,10 +533,8 @@ func (r *loopRunner) runCycle(ctx context.Context, force bool) bool {
 		// the row does not stay 'running' until its lease. A failed claim failed
 		// in the store or on claimTimeout, never on the loop's context; after a
 		// timeout the statement may still commit, and the lease bounds that row.
-		released := err == nil && claimed
-		if released {
-			r.complete(ctx, token, CycleOutcome{Interrupted: true})
-		}
+		released := err == nil && claimed &&
+			r.complete(ctx, token, CycleOutcome{Interrupted: true}) == nil
 		reason := err
 		if reason == nil {
 			reason = ctx.Err()
@@ -561,7 +566,8 @@ func (r *loopRunner) runCycle(ctx context.Context, force bool) bool {
 	panicked := r.runWork(withCycleRecorder(ctx, rec))
 	rows, cycleErr := rec.snapshot()
 
-	r.complete(ctx, token, CycleOutcome{
+	// complete logs its own failure; the cycle ran either way.
+	_ = r.complete(ctx, token, CycleOutcome{
 		Rows:     rows,
 		Err:      cycleErr,
 		Panicked: panicked,
@@ -587,13 +593,16 @@ func (r *loopRunner) claim(ctx context.Context, force bool) (time.Time, bool, er
 // complete closes out the claim identified by token on a detached context: a
 // shutdown that cancels ctx must still be able to release the claim, or every
 // deploy would leave a 'running' row behind and the next boot would wait out the
-// lease before retrying.
-func (r *loopRunner) complete(ctx context.Context, token time.Time, outcome CycleOutcome) {
-	completeCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), releaseTimeout)
+// lease before retrying. A failure is logged here and returned so a caller can
+// report whether the claim was released.
+func (r *loopRunner) complete(ctx context.Context, token time.Time, outcome CycleOutcome) error {
+	completeCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), completeTimeout)
 	defer cancel()
-	if err := r.store.Complete(completeCtx, r.name, token, outcome); err != nil {
+	err := r.store.Complete(completeCtx, r.name, token, outcome)
+	if err != nil {
 		logStoreError(r.name, "complete", err)
 	}
+	return err
 }
 
 // runWork isolates the per-cycle recover so a panic in one cycle doesn't stop the

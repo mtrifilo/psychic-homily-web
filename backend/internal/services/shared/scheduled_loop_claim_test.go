@@ -2,6 +2,7 @@ package shared
 
 import (
 	"context"
+	"errors"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -59,10 +60,11 @@ type loopBlockedInClaim struct {
 
 // startLoopBlockedInClaim starts a loop named name and returns once its claim
 // statement is waiting on the row lock. The lock is taken after the loop has
-// registered, so only the claim statement waits on it. Cleanup rolls the lock
-// back and waits for the server to finish the claim statement, so none runs
-// into the next test's table reset.
-func startLoopBlockedInClaim(t *testing.T, db *gorm.DB, store RunStore, name string) *loopBlockedInClaim {
+// registered, so only the claim statement waits on it. With cancelFirst the
+// loop's context ends as Claim begins, before the statement is sent. Cleanup
+// rolls the lock back and waits for the server to finish the claim statement,
+// so none runs into the next test's table reset.
+func startLoopBlockedInClaim(t *testing.T, db *gorm.DB, store RunStore, name string, cancelFirst bool) *loopBlockedInClaim {
 	t.Helper()
 	l := &loopBlockedInClaim{done: make(chan struct{})}
 
@@ -73,14 +75,17 @@ func startLoopBlockedInClaim(t *testing.T, db *gorm.DB, store RunStore, name str
 		assert.Eventually(t, func() bool { return claimStatementsRunning(t, db) == 0 },
 			10*time.Second, 5*time.Millisecond, "the server must finish the claim statement")
 	})
-	lockRow := func() {
-		assert.NoError(t, l.lockTx.Exec(
-			`SELECT 1 FROM background_service_runs WHERE name = ? FOR UPDATE`, name).Error)
-	}
-
 	var ctx context.Context
 	ctx, l.cancel = context.WithCancel(context.Background())
 	t.Cleanup(l.cancel)
+
+	lockRow := func() {
+		assert.NoError(t, l.lockTx.Exec(
+			`SELECT 1 FROM background_service_runs WHERE name = ? FOR UPDATE`, name).Error)
+		if cancelFirst {
+			l.cancel()
+		}
+	}
 
 	go func() {
 		defer close(l.done)
@@ -117,7 +122,7 @@ func TestCancelDuringClaimLeavesNoClaim_GormStore(t *testing.T) {
 	t.Cleanup(resetRegisteredLoops)
 
 	const name = "cancel-mid-claim-pg"
-	l := startLoopBlockedInClaim(t, db, store, name)
+	l := startLoopBlockedInClaim(t, db, store, name, false)
 	l.cancel()
 
 	// The lock stays held long enough for a claim bound to the loop's context to
@@ -146,8 +151,9 @@ func TestCancelDuringClaimLeavesNoClaim_GormStore(t *testing.T) {
 }
 
 // TestClaimStuckOnDatabaseBoundsStop_GormStore: a claim that the database never
-// answers holds a stopping loop for claimTimeout and no longer, and the loop
-// still does not run the work.
+// answers cannot hold a stopping loop much past claimTimeout, and the loop still
+// does not run the work. The context ends before the claim statement is sent,
+// so the claim's timeout always lands on a stopping loop.
 func TestClaimStuckOnDatabaseBoundsStop_GormStore(t *testing.T) {
 	logs := withCapturedSlog(t)
 	db, store := setupRunStore(t)
@@ -157,8 +163,7 @@ func TestClaimStuckOnDatabaseBoundsStop_GormStore(t *testing.T) {
 	claimTimeout = 300 * time.Millisecond
 	t.Cleanup(func() { claimTimeout = oldTimeout })
 
-	l := startLoopBlockedInClaim(t, db, store, "stuck-claim-pg")
-	l.cancel()
+	l := startLoopBlockedInClaim(t, db, store, "stuck-claim-pg", true)
 	stoppedAt := time.Now()
 
 	l.waitReturned(t, claimTimeout+3*time.Second,
@@ -169,6 +174,36 @@ func TestClaimStuckOnDatabaseBoundsStop_GormStore(t *testing.T) {
 	assert.Contains(t, logs.String(), `"claim_released":false`, "a claim that timed out has nothing to release")
 	assert.NotContains(t, logs.String(), "background run state:",
 		"a loop that stops during its claim must not report a store failure on the way out")
+}
+
+// completeFailsStore fails every Complete.
+type completeFailsStore struct{ RunStore }
+
+func (completeFailsStore) Complete(context.Context, string, time.Time, CycleOutcome) error {
+	return errors.New("complete unavailable")
+}
+
+// TestFailedReleaseIsNotReportedAsReleased: when the context ends during a
+// granted claim and the release then fails, the stop line says the claim was
+// not released.
+func TestFailedReleaseIsNotReportedAsReleased(t *testing.T) {
+	logs := withCapturedSlog(t)
+	t.Cleanup(resetRegisteredLoops)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	var calls atomic.Int32
+	RunScheduledLoop(ctx, LoopConfig{
+		Name:      "release-fails",
+		Interval:  time.Hour,
+		RunAtBoot: true,
+		Store:     beforeClaimStore{RunStore: completeFailsStore{newMemRunStore()}, beforeClaim: cancel},
+	}, func(context.Context) { calls.Add(1) })
+
+	assert.Zero(t, calls.Load())
+	assert.Contains(t, logs.String(), "background run state: complete failed")
+	assert.Contains(t, logs.String(), `"claim_released":false`)
+	assert.NotContains(t, logs.String(), `"claim_released":true`)
 }
 
 // TestSleepOrStop_ElapsedTimerLosesToClosedStopCh: a zero wait with StopCh
