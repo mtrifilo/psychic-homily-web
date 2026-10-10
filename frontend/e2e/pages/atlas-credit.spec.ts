@@ -1,6 +1,7 @@
 import { test } from '../fixtures/error-detection'
 import { expect, type Page } from '@playwright/test'
 import {
+  ATLAS_TEST_TIMEOUT_MS,
   creditReport,
   dismissBanner,
   jumpToPhoenix,
@@ -28,6 +29,8 @@ test.use({
     args: ['--enable-unsafe-swiftshader', '--use-angle=swiftshader'],
   },
 })
+
+test.describe.configure({ timeout: ATLAS_TEST_TIMEOUT_MS })
 
 const PHONE_VIEWPORTS = [
   { width: 390, height: 844 },
@@ -169,7 +172,6 @@ for (const viewport of PHONE_VIEWPORTS) {
   for (const colorScheme of ['dark', 'light'] as const) {
     test.describe(`Atlas credit at ${viewport.width}x${viewport.height} ${colorScheme}`, () => {
       test.use({ viewport, colorScheme, ...PHONE_CONTEXT })
-      test.setTimeout(120_000)
 
       test('first visit, city view, venue and artist sheets', async ({ page }) => {
         await walkCityViewSheets(page, expectCreditVisible)
@@ -203,7 +205,6 @@ for (const viewport of PHONE_VIEWPORTS) {
 for (const colorScheme of ['dark', 'light'] as const) {
   test.describe(`Atlas credit at 320x568 ${colorScheme}`, () => {
     test.use({ viewport: { width: 320, height: 568 }, colorScheme, ...PHONE_CONTEXT })
-    test.setTimeout(120_000)
 
     async function expectOneLineTopLeft(page: Page, state: string) {
       const report = await expectCreditVisible(page, state)
@@ -219,7 +220,6 @@ for (const colorScheme of ['dark', 'light'] as const) {
 
 test.describe('Atlas credit on a compact tablet pane', () => {
   test.use({ viewport: { width: 820, height: 1000 }, hasTouch: true })
-  test.setTimeout(120_000)
 
   test('globe entry owes no credit; city view keeps the list sheet above the banner', async ({
     page,
@@ -256,7 +256,6 @@ for (const viewport of [
 ] as const) {
   test.describe(`Atlas credit beside the rail at ${viewport.width}x${viewport.height}`, () => {
     test.use({ viewport })
-    test.setTimeout(120_000)
 
     test('city view rail, banner up', async ({ page }) => {
       await stubAtlas(page)
@@ -271,7 +270,6 @@ for (const viewport of [
 
 test.describe('Atlas credit on desktop', () => {
   test.use({ viewport: { width: 1440, height: 900 } })
-  test.setTimeout(120_000)
 
   test('globe, scene preview, rail and panels, banner up then dismissed', async ({
     page,
