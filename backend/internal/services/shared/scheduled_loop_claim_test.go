@@ -3,6 +3,7 @@ package shared
 import (
 	"context"
 	"errors"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -204,6 +205,69 @@ func TestFailedReleaseIsNotReportedAsReleased(t *testing.T) {
 	assert.Contains(t, logs.String(), "background run state: complete failed")
 	assert.Contains(t, logs.String(), `"claim_released":false`)
 	assert.NotContains(t, logs.String(), `"claim_released":true`)
+}
+
+// TestStopDuringClaimWithoutGrant: a loop that stops while a claim is refused
+// or failing starts no cycle, attempts no release, and names the claim's own
+// error when there is one, whether the stop came through the context or StopCh.
+func TestStopDuringClaimWithoutGrant(t *testing.T) {
+	t.Cleanup(resetRegisteredLoops)
+	storeFailure := errors.New("distinct store failure")
+
+	cases := []struct {
+		name       string
+		viaStopCh  bool
+		failClaim  error
+		wantReason string
+	}{
+		{"refused, context ends", false, nil, "context canceled"},
+		{"refused, StopCh closes", true, nil, "loop stop requested"},
+		{"store error, context ends", false, storeFailure, storeFailure.Error()},
+		{"store error, StopCh closes", true, storeFailure, storeFailure.Error()},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			logs := withCapturedSlog(t)
+			const name = "stop-without-grant"
+			store := newMemRunStore()
+			store.failClaim = tc.failClaim
+			// Another instance holds a live claim, so even a forced boot claim
+			// is refused.
+			store.rows[name] = &memRunRow{outcome: RunOutcomeRunning, startedAt: time.Now()}
+
+			ctx, cancel := context.WithCancel(context.Background())
+			t.Cleanup(cancel)
+			stopCh := make(chan struct{})
+			stop := cancel
+			if tc.viaStopCh {
+				stop = func() { close(stopCh) }
+			}
+
+			var calls atomic.Int32
+			RunScheduledLoop(ctx, LoopConfig{
+				Name:      name,
+				Interval:  time.Hour,
+				RunAtBoot: true,
+				StopCh:    stopCh,
+				Store:     beforeClaimStore{RunStore: store, beforeClaim: stop},
+			}, func(context.Context) { calls.Add(1) })
+
+			assert.Zero(t, calls.Load(), "a loop stopping during its claim must not run the work")
+			assert.Zero(t, store.released.Load(), "there is no granted claim to release")
+			var stopLine string
+			for _, line := range strings.Split(logs.String(), "\n") {
+				if strings.Contains(line, "loop stopping during claim") {
+					stopLine = line
+				}
+			}
+			require.NotEmpty(t, stopLine)
+			assert.Contains(t, stopLine, `"claim_released":false`)
+			assert.Contains(t, stopLine, tc.wantReason)
+			assert.NotContains(t, logs.String(), "background run state:",
+				"a stop during the claim is not reported as a store failure")
+			assert.NotContains(t, logs.String(), "cycle skipped")
+		})
+	}
 }
 
 // TestSleepOrStop_ElapsedTimerLosesToClosedStopCh: a zero wait with StopCh
