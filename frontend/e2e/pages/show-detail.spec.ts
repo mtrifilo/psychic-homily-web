@@ -14,6 +14,10 @@ import {
  * `beforeAll` and gives the URL wait CLIENT_NAVIGATION_TIMEOUT_MS
  * (helpers/navigation.ts), so a route's first compile on the dev server runs
  * in the hook instead of the wait. Change the four together.
+ *
+ * The leg clicks the first card rather than going to a reserved slug because
+ * it is the end-to-end coverage of the list-to-detail click; a `goto` to the
+ * reserved row would remove that coverage.
  */
 test.describe('Show detail', () => {
   test.beforeAll(async ({ browser }, testInfo) => {

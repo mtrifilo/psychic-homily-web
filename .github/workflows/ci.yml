@@ -875,18 +875,21 @@ jobs:
       # A test that fails and then passes on retry leaves its shard, and this
       # job, green. This step lists every test that took more than one attempt
       # in the job summary and emits one ::warning when the list is non-empty.
-      # It reports and never gates: continue-on-error keeps a retry, or a
-      # failure of the step itself, from failing the job. The JSON reporter is
-      # a second merge of the same blobs, kept out of the HTML merge above so
-      # a problem here cannot cost the triage artifact.
+      # It reports and never gates: the script exits 0 whatever it finds, and
+      # continue-on-error keeps a failure of the step itself (a failed merge,
+      # an unreadable report) from failing the job. A failed JSON merge still
+      # runs the script, which then warns that the table is unavailable. The
+      # JSON reporter is a second merge of the same blobs, kept out of the HTML
+      # merge above so a problem here cannot cost the triage artifact.
       - name: Summarize retried tests
         if: ${{ !cancelled() }}
         continue-on-error: true
         working-directory: ./frontend
         env:
           PLAYWRIGHT_JSON_OUTPUT_FILE: ${{ runner.temp }}/e2e-merged-results.json
+          MISSING_SHARD_BLOBS: ${{ steps.shard-blobs.outputs.missing }}
         run: |
-          bunx playwright merge-reports --reporter json ../all-blob-reports
+          bunx playwright merge-reports --reporter json ../all-blob-reports || echo "JSON merge failed"
           node scripts/e2e-retry-summary.mjs "$PLAYWRIGHT_JSON_OUTPUT_FILE"
 
       # A shard killed mid-run writes no blob at all (the blob reporter only

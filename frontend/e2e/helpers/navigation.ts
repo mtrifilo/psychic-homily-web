@@ -1,6 +1,9 @@
 import type { Browser, TestInfo } from '@playwright/test'
 
-/** Load budget for one route while warming; a cold compile is most of it. */
+/**
+ * Load budget for one route while warming: about twice the slowest cold
+ * route load seen on a loaded CI shard (13.9 s).
+ */
 const WARM_ROUTE_TIMEOUT_MS = 30_000
 
 /** Paths this worker process has loaded through warmRoutes. */
@@ -24,8 +27,9 @@ const warmedPaths = new Set<string>()
  * server, and every extra page load is contention for the tests running
  * beside it.
  *
- * Pass `storageState` for a page that sends a signed-out viewer to /auth:
- * that navigation can abort the next path's load.
+ * Pass `storageState` to load the pages as the signed-in viewer the test
+ * uses. It is required for a page that sends a signed-out viewer to /auth,
+ * because that navigation can abort the next path's load.
  */
 export async function warmRoutes(
   browser: Browser,
@@ -40,8 +44,8 @@ export async function warmRoutes(
     baseURL: testInfo.project.use.baseURL,
     storageState,
   })
-  const page = await context.newPage()
   try {
+    const page = await context.newPage()
     for (const path of cold) {
       const response = await page.goto(path, {
         timeout: WARM_ROUTE_TIMEOUT_MS,
@@ -60,8 +64,9 @@ export async function warmRoutes(
 
 /**
  * Budget for a client navigation to a warmed route to commit its URL. The
- * commit waits for the RSC payload and the destination's client chunks, which
- * on a loaded CI shard takes most of Playwright's 5 s expect default.
+ * commit waits for the RSC payload and the destination's client chunks; this
+ * is about three times the slowest such commit seen on a loaded CI shard
+ * (4.7 s, against Playwright's 5 s expect default).
  */
 export const CLIENT_NAVIGATION_TIMEOUT_MS = 15_000
 

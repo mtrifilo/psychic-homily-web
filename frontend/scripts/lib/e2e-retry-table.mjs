@@ -9,7 +9,8 @@
 
 /**
  * Every test with more than one attempt, in report order. A test retried to a
- * pass has status 'flaky'; one that failed every attempt has 'unexpected'.
+ * pass has status 'flaky', one that failed every attempt has 'unexpected', and
+ * one retried only alongside a failing serial-group sibling has 'expected'.
  */
 export function collectRetriedTests(report) {
   const retried = []
@@ -42,29 +43,51 @@ const seconds = ms => `${(ms / 1000).toFixed(1)} s`
 
 const testCount = n => `${n} ${n === 1 ? 'test' : 'tests'}`
 
+// 'expected' with more than one attempt is a test that passed every attempt
+// it ran but was retried because another test in its serial group failed.
 const OUTCOME = {
   flaky: 'passed on retry',
   unexpected: 'failed every attempt',
+  expected: 'passed; retried with its serial group',
 }
 
-// A table cell cannot hold a raw `|` or a line break.
-const cell = text => String(text).replace(/\|/g, '\\|').replace(/\r?\n/g, ' ')
+// A skipped attempt in a multi-attempt test is one that never ran: the rest
+// of its serial group was skipped after a failure.
+const attemptText = attempt =>
+  attempt.status === 'skipped'
+    ? 'not run'
+    : `${attempt.status} ${seconds(attempt.durationMs)}`
 
-/** Markdown for the job summary: the table, or one line when it is empty. */
-export function retrySummaryMarkdown(retried) {
+// A table cell holds no raw `|`, line break or HTML.
+const cell = text =>
+  String(text)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/\|/g, '\\|')
+    .replace(/\r\n?|\n/g, ' ')
+
+const partialLine = missingShards =>
+  `Partial report: ${missingShards.join(', ')} missing, so tests in those shards are not listed.`
+
+/**
+ * Markdown for the job summary: the table, or one line when it is empty.
+ * `missingShards` names shard blobs the merge did not have.
+ */
+export function retrySummaryMarkdown(retried, { missingShards = [] } = {}) {
+  const partial = missingShards.length > 0 ? [partialLine(missingShards), ''] : []
   if (retried.length === 0) {
-    return '### E2E retries\n\nNo test needed a retry in this run.\n'
+    return ['### E2E retries', '', ...partial, 'No test needed a retry in this run.', ''].join('\n')
   }
   const rows = retried.map(test => {
-    const attempts = test.attempts
-      .map(attempt => `${attempt.status} ${seconds(attempt.durationMs)}`)
-      .join(', ')
+    const attempts = test.attempts.map(attemptText).join(', ')
     const outcome = OUTCOME[test.status] ?? test.status
     return `| ${cell(test.location)} | ${cell(test.title)} | ${cell(outcome)} | ${cell(attempts)} |`
   })
   return [
     '### E2E retries',
     '',
+    ...partial,
     `${testCount(retried.length)} needed more than one attempt. A test that passed on retry is a flake the job conclusion does not show.`,
     '',
     '| Spec | Test | Outcome | Attempts |',

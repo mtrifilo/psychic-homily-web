@@ -20,7 +20,8 @@ const RESERVED_COLLECTION_TITLE = 'E2E Worker Collection'
 
 test.describe('Add to Collection', () => {
   // The show and collection routes this test loads, so their first compile is
-  // not spent from the test's own budget.
+  // not spent from the test's own budget. The collection is the worker's own,
+  // loaded signed in as its owner, so the warm renders the tree the test does.
   test.beforeAll(async ({ browser }, testInfo) => {
     const userId = await lookupWorkerUserId(workerAuthFile(testInfo.workerIndex))
     await warmRoutes(

@@ -88,12 +88,54 @@ describe('retrySummaryMarkdown', () => {
   it('writes one row per retried test, escaping a pipe in the title', () => {
     const markdown = retrySummaryMarkdown(collectRetriedTests(report))
     expect(markdown).toContain('2 tests needed more than one attempt.')
-    expect(markdown).toContain('| pages/example.spec.ts:12 | Example > flakes \\| once | passed on retry | failed 10.6 s, passed 12.4 s |')
-    expect(markdown).toContain('| pages/example.spec.ts:30 | Example > nested > fails every attempt | failed every attempt | timedOut 30.0 s, failed 22.0 s, failed 7.8 s |')
+    expect(markdown).toContain('| pages/example.spec.ts:12 | Example &gt; flakes \\| once | passed on retry | failed 10.6 s, passed 12.4 s |')
+    expect(markdown).toContain('| pages/example.spec.ts:30 | Example &gt; nested &gt; fails every attempt | failed every attempt | timedOut 30.0 s, failed 22.0 s, failed 7.8 s |')
   })
 
   it('says so in one line when nothing was retried', () => {
     expect(retrySummaryMarkdown([])).toBe('### E2E retries\n\nNo test needed a retry in this run.\n')
+  })
+
+  it('labels serial-group collateral and attempts that never ran', () => {
+    // One test in a serial group fails once: the whole group is retried, so a
+    // sibling that passed is run twice and a later one is skipped, then run.
+    const serial = {
+      suites: [
+        {
+          title: 'pages/example.spec.ts',
+          suites: [
+            {
+              title: 'Serial',
+              specs: [
+                spec('passed before the failure', 3, 'expected', [
+                  { status: 'passed', duration: 2_100 },
+                  { status: 'passed', duration: 1_900 },
+                ]),
+                spec('ran after the failure', 9, 'expected', [
+                  { status: 'skipped', duration: 0 },
+                  { status: 'passed', duration: 3_000 },
+                ]),
+              ],
+            },
+          ],
+        },
+      ],
+    }
+    const markdown = retrySummaryMarkdown(collectRetriedTests(serial))
+    expect(markdown).toContain('| Serial &gt; passed before the failure | passed; retried with its serial group | passed 2.1 s, passed 1.9 s |')
+    expect(markdown).toContain('| Serial &gt; ran after the failure | passed; retried with its serial group | not run, passed 3.0 s |')
+  })
+
+  it('keeps HTML and carriage returns in a title from reaching the markdown raw', () => {
+    const title = { location: 'a.spec.ts:1', title: 'invalid /shows/<slug> & more\rnext', status: 'flaky', attempts: [] }
+    expect(retrySummaryMarkdown([title])).toContain('| invalid /shows/&lt;slug&gt; &amp; more next |')
+  })
+
+  it('says the report is partial when shard blobs are missing', () => {
+    const partial = 'Partial report: report-3.zip missing, so tests in those shards are not listed.'
+    expect(retrySummaryMarkdown([], { missingShards: ['report-3.zip'] })).toContain(partial)
+    expect(retrySummaryMarkdown(collectRetriedTests(report), { missingShards: ['report-3.zip'] })).toContain(partial)
+    expect(retrySummaryMarkdown([])).not.toContain('Partial report')
   })
 })
 
@@ -110,13 +152,13 @@ describe('retryWarningLine', () => {
 
 describe('e2e-retry-summary.mjs', () => {
   const script = join(dirname(fileURLToPath(import.meta.url)), '..', 'e2e-retry-summary.mjs')
-  const run = (args: string[], summaryFile?: string) =>
+  const run = (args: string[], summaryFile?: string, extraEnv: Record<string, string> = {}) =>
     spawnSync(process.execPath, [script, ...args], {
       encoding: 'utf8',
-      env: { ...process.env, GITHUB_STEP_SUMMARY: summaryFile ?? '' },
+      env: { ...process.env, GITHUB_STEP_SUMMARY: summaryFile ?? '', MISSING_SHARD_BLOBS: '', ...extraEnv },
     })
 
-  it('appends the table to the step summary, warns once and exits 0', () => {
+  it('appends the table to the step summary only, warns once and exits 0', () => {
     const dir = mkdtempSync(join(tmpdir(), 'e2e-retry-'))
     const reportFile = join(dir, 'report.json')
     const summaryFile = join(dir, 'summary.md')
@@ -127,7 +169,22 @@ describe('e2e-retry-summary.mjs', () => {
 
     expect(result.status).toBe(0)
     expect(readFileSync(summaryFile, 'utf8')).toContain('| Spec | Test | Outcome | Attempts |')
+    // Titles stay out of step output, which the runner parses for commands.
+    expect(result.stdout).not.toContain('flakes')
     expect(result.stdout.match(/^::warning /gm)).toHaveLength(1)
+  })
+
+  it('names missing shard blobs from MISSING_SHARD_BLOBS', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'e2e-retry-'))
+    const reportFile = join(dir, 'report.json')
+    const summaryFile = join(dir, 'summary.md')
+    writeFileSync(reportFile, JSON.stringify({ suites: [] }))
+    writeFileSync(summaryFile, '')
+
+    const result = run([reportFile], summaryFile, { MISSING_SHARD_BLOBS: 'report-2.zip report-4.zip' })
+
+    expect(result.status).toBe(0)
+    expect(readFileSync(summaryFile, 'utf8')).toContain('Partial report: report-2.zip, report-4.zip missing')
   })
 
   it('exits 0 without a warning when no test was retried', () => {

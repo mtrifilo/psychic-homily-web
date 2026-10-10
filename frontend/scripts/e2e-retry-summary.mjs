@@ -5,10 +5,15 @@
 //
 //   node scripts/e2e-retry-summary.mjs <report.json>
 //
-// The summary goes to the file named by GITHUB_STEP_SUMMARY when it is set,
-// and to stdout either way. Exit codes: 0 once the report is read, retries or
-// not (the table warns, it never gates); 1 when the report cannot be read or
-// has no suites, after a ::warning saying so.
+// The table goes to the file named by GITHUB_STEP_SUMMARY when it is set, and
+// to stdout only when it is not: test titles are arbitrary text, and the
+// runner parses step output for workflow commands. MISSING_SHARD_BLOBS, when
+// set, names the shard blobs the merge did not have (space separated), and
+// the summary says the table is partial.
+//
+// Exit codes: 0 once the report is read, retries or not (the table warns, it
+// never gates); 1 when the report cannot be read or has no suites, after a
+// ::warning saying so.
 
 import { appendFileSync, readFileSync } from 'node:fs'
 import {
@@ -40,11 +45,15 @@ if (!Array.isArray(report?.suites)) {
   unavailable(`${reportPath} has no suites array`)
 }
 
+const missingShards = (process.env.MISSING_SHARD_BLOBS ?? '')
+  .split(/\s+/)
+  .filter(Boolean)
 const retried = collectRetriedTests(report)
-const markdown = retrySummaryMarkdown(retried)
-console.log(markdown)
+const markdown = retrySummaryMarkdown(retried, { missingShards })
 if (process.env.GITHUB_STEP_SUMMARY) {
   appendFileSync(process.env.GITHUB_STEP_SUMMARY, `${markdown}\n`)
+} else {
+  console.log(markdown)
 }
 const warning = retryWarningLine(retried)
 if (warning) console.log(warning)
