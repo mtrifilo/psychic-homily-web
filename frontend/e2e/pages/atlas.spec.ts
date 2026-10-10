@@ -524,28 +524,30 @@ test.describe('Atlas when the map loses its WebGL context', () => {
     return errors
   }
 
+  /** The extension method behind each context change and the event the canvas fires for it. */
+  const CONTEXT_CHANGES = {
+    lose: { method: 'loseContext', event: 'webglcontextlost' },
+    restore: { method: 'restoreContext', event: 'webglcontextrestored' },
+  } as const
+
   /**
-   * Loses (or restores) the map canvas's context through `WEBGL_lose_context`
-   * and resolves once the canvas fires `webglcontextlost` (or
-   * `webglcontextrestored`). Rejects naming the event when it has not fired
-   * within CONTEXT_EVENT_TIMEOUT_MS. A restore uses the extension the loss
-   * kept on the window.
+   * Makes the context change through the map canvas's `WEBGL_lose_context`
+   * and resolves once the canvas fires its event; rejects naming the event
+   * when it has not fired within CONTEXT_EVENT_TIMEOUT_MS. The first call
+   * keeps the extension on the window, and a restore reuses it.
    */
-  function changeContext(page: Page, change: 'lose' | 'restore') {
+  function changeContext(page: Page, change: keyof typeof CONTEXT_CHANGES) {
     return page.evaluate(
-      ({ change, timeoutMs }) =>
+      ({ method, event, timeoutMs }) =>
         new Promise<void>((resolve, reject) => {
           const w = window as unknown as ContextWindow
           const canvas = w.__atlasMap?.getCanvas()
-          if (change === 'lose') {
-            w.__atlasLoseContext = canvas?.getContext('webgl2')?.getExtension('WEBGL_lose_context')
-          }
+          w.__atlasLoseContext ??= canvas?.getContext('webgl2')?.getExtension('WEBGL_lose_context')
           const extension = w.__atlasLoseContext
           if (!canvas || !extension) {
             reject(new Error('no map canvas with WEBGL_lose_context'))
             return
           }
-          const event = change === 'lose' ? 'webglcontextlost' : 'webglcontextrestored'
           const timer = setTimeout(
             () => reject(new Error(`${event} did not fire within ${timeoutMs} ms`)),
             timeoutMs
@@ -558,10 +560,9 @@ test.describe('Atlas when the map loses its WebGL context', () => {
             },
             { once: true }
           )
-          if (change === 'lose') extension.loseContext()
-          else extension.restoreContext()
+          extension[method]()
         }),
-      { change, timeoutMs: CONTEXT_EVENT_TIMEOUT_MS }
+      { ...CONTEXT_CHANGES[change], timeoutMs: CONTEXT_EVENT_TIMEOUT_MS }
     )
   }
 
