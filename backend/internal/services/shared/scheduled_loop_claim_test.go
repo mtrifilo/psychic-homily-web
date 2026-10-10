@@ -11,11 +11,11 @@ import (
 	"gorm.io/gorm"
 )
 
-// claimStatementsOnServer counts other backends running the claim statement,
-// optionally only those waiting on a lock. The driver gives up on a cancelled
+// countClaimStatements counts other backends running the claim statement whose
+// wait state matches lockWaitFilter. The driver gives up on a cancelled
 // statement by dropping the connection, so the server can still be running it
 // after the client has returned.
-func claimStatementsOnServer(t *testing.T, db *gorm.DB, waitingOnLock bool) int64 {
+func countClaimStatements(t *testing.T, db *gorm.DB, lockWaitFilter string) int64 {
 	t.Helper()
 	var n int64
 	require.NoError(t, db.Raw(`
@@ -24,13 +24,20 @@ func claimStatementsOnServer(t *testing.T, db *gorm.DB, waitingOnLock bool) int6
 		  AND pid <> pg_backend_pid()
 		  AND state = 'active'
 		  AND query LIKE '%INSERT INTO background_service_runs AS b%'
-		  AND (NOT ?::boolean OR wait_event_type = 'Lock')
-	`, waitingOnLock).Scan(&n).Error)
+		  AND `+lockWaitFilter).Scan(&n).Error)
 	return n
 }
 
+func claimStatementsWaitingOnLock(t *testing.T, db *gorm.DB) int64 {
+	return countClaimStatements(t, db, `wait_event_type = 'Lock'`)
+}
+
+func claimStatementsRunning(t *testing.T, db *gorm.DB) int64 {
+	return countClaimStatements(t, db, `TRUE`)
+}
+
 // beforeClaimStore runs a hook as Claim begins, then claims through the wrapped
-// store with the context it was given.
+// store with the context Claim was given.
 type beforeClaimStore struct {
 	RunStore
 	beforeClaim func()
@@ -41,72 +48,127 @@ func (s beforeClaimStore) Claim(ctx context.Context, name string, interval, leas
 	return s.RunStore.Claim(ctx, name, interval, lease, force)
 }
 
+// loopBlockedInClaim is a RunAtBoot loop whose claim statement is waiting on a
+// row lock that the test holds in lockTx.
+type loopBlockedInClaim struct {
+	lockTx *gorm.DB
+	cancel context.CancelFunc
+	done   chan struct{}
+	calls  atomic.Int32
+}
+
+// startLoopBlockedInClaim starts a loop named name and returns once its claim
+// statement is waiting on the row lock. The lock is taken after the loop has
+// registered, so only the claim statement waits on it. Cleanup rolls the lock
+// back and waits for the server to finish the claim statement, so none runs
+// into the next test's table reset.
+func startLoopBlockedInClaim(t *testing.T, db *gorm.DB, store RunStore, name string) *loopBlockedInClaim {
+	t.Helper()
+	l := &loopBlockedInClaim{done: make(chan struct{})}
+
+	l.lockTx = db.Begin()
+	require.NoError(t, l.lockTx.Error)
+	t.Cleanup(func() {
+		l.lockTx.Rollback()
+		assert.Eventually(t, func() bool { return claimStatementsRunning(t, db) == 0 },
+			10*time.Second, 5*time.Millisecond, "the server must finish the claim statement")
+	})
+	lockRow := func() {
+		assert.NoError(t, l.lockTx.Exec(
+			`SELECT 1 FROM background_service_runs WHERE name = ? FOR UPDATE`, name).Error)
+	}
+
+	var ctx context.Context
+	ctx, l.cancel = context.WithCancel(context.Background())
+	t.Cleanup(l.cancel)
+
+	go func() {
+		defer close(l.done)
+		RunScheduledLoop(ctx, LoopConfig{
+			Name:      name,
+			Interval:  time.Hour,
+			RunAtBoot: true,
+			Store:     beforeClaimStore{RunStore: store, beforeClaim: lockRow},
+		}, func(context.Context) { l.calls.Add(1) })
+	}()
+
+	require.Eventually(t, func() bool { return claimStatementsWaitingOnLock(t, db) == 1 },
+		10*time.Second, 5*time.Millisecond, "the claim statement must be waiting on the row lock")
+	return l
+}
+
+// waitReturned fails the test unless the loop returns within d.
+func (l *loopBlockedInClaim) waitReturned(t *testing.T, d time.Duration, msg string) {
+	t.Helper()
+	select {
+	case <-l.done:
+	case <-time.After(d):
+		t.Fatal(msg)
+	}
+}
+
 // TestCancelDuringClaimLeavesNoClaim_GormStore ends the loop's context while
 // its claim statement is in flight on the server, then lets the statement
-// finish. Another transaction holds the loop's row lock so the statement is
-// still running when the context ends. Whatever the statement's fate, no claim
-// row may remain once the loop has returned and the server is done with it.
+// finish. Whatever the statement's fate, no claim row may remain once the loop
+// has returned and the server is done with it.
 func TestCancelDuringClaimLeavesNoClaim_GormStore(t *testing.T) {
 	logs := withCapturedSlog(t)
 	db, store := setupRunStore(t)
 	t.Cleanup(resetRegisteredLoops)
 
 	const name = "cancel-mid-claim-pg"
+	l := startLoopBlockedInClaim(t, db, store, name)
+	l.cancel()
 
-	// The row lock is taken once the loop has registered, so only the claim
-	// statement waits on it.
-	lockTx := db.Begin()
-	require.NoError(t, lockTx.Error)
-	t.Cleanup(func() { lockTx.Rollback() })
-	lockRow := func() {
-		assert.NoError(t, lockTx.Exec(
-			`SELECT 1 FROM background_service_runs WHERE name = ? FOR UPDATE`, name).Error)
-	}
-
-	ctx, cancel := context.WithCancel(context.Background())
-	t.Cleanup(cancel)
-
-	var calls atomic.Int32
-	loopDone := make(chan struct{})
-	go func() {
-		defer close(loopDone)
-		RunScheduledLoop(ctx, LoopConfig{
-			Name:      name,
-			Interval:  time.Hour,
-			RunAtBoot: true,
-			Store:     beforeClaimStore{RunStore: store, beforeClaim: lockRow},
-		}, func(context.Context) { calls.Add(1) })
-	}()
-
-	require.Eventually(t, func() bool { return claimStatementsOnServer(t, db, true) == 1 },
-		10*time.Second, 5*time.Millisecond, "the claim statement must be waiting on the row lock")
-	cancel()
-
-	// A loop whose claim gave up with the context has returned by now; a loop
-	// whose claim is still waiting is released by the lock going away.
+	// The lock stays held long enough for a claim bound to the loop's context to
+	// give up and return; only then is the statement let through, which is the
+	// order in which the server commits a claim the client abandoned.
 	select {
-	case <-loopDone:
+	case <-l.done:
 	case <-time.After(200 * time.Millisecond):
 	}
-	require.NoError(t, lockTx.Rollback().Error)
+	require.NoError(t, l.lockTx.Rollback().Error)
 
-	select {
-	case <-loopDone:
-	case <-time.After(10 * time.Second):
-		t.Fatal("the loop did not return after its context ended")
-	}
-	require.Eventually(t, func() bool { return claimStatementsOnServer(t, db, false) == 0 },
+	l.waitReturned(t, 10*time.Second, "the loop did not return after its context ended")
+	require.Eventually(t, func() bool { return claimStatementsRunning(t, db) == 0 },
 		10*time.Second, 5*time.Millisecond, "the server must finish the claim statement")
 
 	var run BackgroundServiceRun
 	require.NoError(t, db.Where("name = ?", name).Take(&run).Error)
-	assert.Zero(t, calls.Load(), "a loop stopping during its claim must not run the work")
+	assert.Zero(t, l.calls.Load(), "a loop stopping during its claim must not run the work")
 	assert.Nil(t, run.LastStartedAt, "no claim may outlive a loop that stopped during its claim")
 	if assert.NotNil(t, run.LastOutcome) {
 		assert.NotEqual(t, RunOutcomeRunning, *run.LastOutcome)
 	}
 	assert.NotContains(t, logs.String(), "background run state:",
 		"releasing the claim must not report a store failure")
+	assert.Contains(t, logs.String(), `"claim_released":true`)
+}
+
+// TestClaimStuckOnDatabaseBoundsStop_GormStore: a claim that the database never
+// answers holds a stopping loop for claimTimeout and no longer, and the loop
+// still does not run the work.
+func TestClaimStuckOnDatabaseBoundsStop_GormStore(t *testing.T) {
+	logs := withCapturedSlog(t)
+	db, store := setupRunStore(t)
+	t.Cleanup(resetRegisteredLoops)
+
+	oldTimeout := claimTimeout
+	claimTimeout = 300 * time.Millisecond
+	t.Cleanup(func() { claimTimeout = oldTimeout })
+
+	l := startLoopBlockedInClaim(t, db, store, "stuck-claim-pg")
+	l.cancel()
+	stoppedAt := time.Now()
+
+	l.waitReturned(t, claimTimeout+3*time.Second,
+		"a claim the database never answers must not hold the loop past claimTimeout")
+	assert.Less(t, time.Since(stoppedAt), claimTimeout+2*time.Second)
+	assert.Zero(t, l.calls.Load(), "a loop stopping during its claim must not run the work")
+	assert.Contains(t, logs.String(), "loop stopping during claim")
+	assert.Contains(t, logs.String(), `"claim_released":false`, "a claim that timed out has nothing to release")
+	assert.NotContains(t, logs.String(), "background run state:",
+		"a loop that stops during its claim must not report a store failure on the way out")
 }
 
 // TestSleepOrStop_ElapsedTimerLosesToClosedStopCh: a zero wait with StopCh
@@ -148,62 +210,4 @@ func TestClosedStopChStartsNoCycle_MemStore(t *testing.T) {
 
 	assert.Zero(t, calls.Load(), "no cycle may start after StopCh closed")
 	assert.Zero(t, claims.Load(), "no claim may be taken after StopCh closed")
-}
-
-// TestClaimStuckOnDatabaseBoundsStop_GormStore: a claim that the database never
-// answers holds a stopping loop for claimTimeout and no longer, and the loop
-// still does not run the work.
-func TestClaimStuckOnDatabaseBoundsStop_GormStore(t *testing.T) {
-	logs := withCapturedSlog(t)
-	db, store := setupRunStore(t)
-	t.Cleanup(resetRegisteredLoops)
-
-	oldTimeout := claimTimeout
-	claimTimeout = 300 * time.Millisecond
-	t.Cleanup(func() { claimTimeout = oldTimeout })
-
-	const name = "stuck-claim-pg"
-	lockTx := db.Begin()
-	require.NoError(t, lockTx.Error)
-	t.Cleanup(func() {
-		lockTx.Rollback()
-		// Leave no claim statement running into the next test's table reset.
-		assert.Eventually(t, func() bool { return claimStatementsOnServer(t, db, false) == 0 },
-			10*time.Second, 5*time.Millisecond)
-	})
-	lockRow := func() {
-		assert.NoError(t, lockTx.Exec(
-			`SELECT 1 FROM background_service_runs WHERE name = ? FOR UPDATE`, name).Error)
-	}
-
-	ctx, cancel := context.WithCancel(context.Background())
-	t.Cleanup(cancel)
-
-	var calls atomic.Int32
-	loopDone := make(chan struct{})
-	go func() {
-		defer close(loopDone)
-		RunScheduledLoop(ctx, LoopConfig{
-			Name:      name,
-			Interval:  time.Hour,
-			RunAtBoot: true,
-			Store:     beforeClaimStore{RunStore: store, beforeClaim: lockRow},
-		}, func(context.Context) { calls.Add(1) })
-	}()
-
-	require.Eventually(t, func() bool { return claimStatementsOnServer(t, db, true) == 1 },
-		10*time.Second, 5*time.Millisecond, "the claim statement must be waiting on the row lock")
-	cancel()
-	stoppedAt := time.Now()
-
-	select {
-	case <-loopDone:
-	case <-time.After(claimTimeout + 3*time.Second):
-		t.Fatal("a claim the database never answers must not hold the loop past claimTimeout")
-	}
-	assert.Less(t, time.Since(stoppedAt), claimTimeout+2*time.Second)
-	assert.Zero(t, calls.Load(), "a loop stopping during its claim must not run the work")
-	assert.Contains(t, logs.String(), "loop stopping during claim")
-	assert.NotContains(t, logs.String(), "background run state:",
-		"a loop that stops during its claim must not report a store failure on the way out")
 }

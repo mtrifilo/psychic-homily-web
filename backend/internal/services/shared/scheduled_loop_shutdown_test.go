@@ -114,18 +114,6 @@ func TestExpiredContextStartsNoCycle_MemStore(t *testing.T) {
 	})
 }
 
-// claimCancelsStore cancels the loop's context as Claim begins and then claims
-// through the wrapped store with the context Claim was given.
-type claimCancelsStore struct {
-	RunStore
-	cancel context.CancelFunc
-}
-
-func (s claimCancelsStore) Claim(ctx context.Context, name string, interval, lease time.Duration, force bool) (time.Time, bool, error) {
-	s.cancel()
-	return s.RunStore.Claim(ctx, name, interval, lease, force)
-}
-
 // TestExpiredContextRunsNothingUnclaimed_GormStore is the Postgres half: a claim
 // on a done context fails, and that failure must never take the fail-open path
 // that runs the work without a claim.
@@ -200,7 +188,7 @@ func TestExpiredContextRunsNothingUnclaimed_GormStore(t *testing.T) {
 			Name:      "expired-mid-claim-pg",
 			Interval:  time.Hour,
 			RunAtBoot: true,
-			Store:     claimCancelsStore{RunStore: store, cancel: cancel},
+			Store:     beforeClaimStore{RunStore: store, beforeClaim: cancel},
 		}, func(context.Context) { calls.Add(1) })
 
 		assert.Zero(t, calls.Load(), "a context that ends during the claim must not start the cycle")

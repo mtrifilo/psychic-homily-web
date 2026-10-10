@@ -520,18 +520,28 @@ func (r *loopRunner) runCycle(ctx context.Context, force bool) bool {
 	}
 
 	token, claimed, err := r.claim(ctx, force)
-	if err != nil {
-		if ctx.Err() != nil {
-			// The loop is stopping, and running the work now would run it
-			// unclaimed on a done context. The claim ran detached, so the error
-			// is the store's own or claimTimeout's; after a timeout the statement
-			// may still commit, leaving a claim that holds until its lease.
-			slog.Default().Info("background service cycle not started: loop stopping during claim",
-				"service", r.name,
-				"error", err,
-			)
-			return false
+	if ctx.Err() != nil {
+		// The loop stopped while its claim was in flight, and starting the cycle
+		// would run the work on a done context. A granted claim is released so
+		// the row does not stay 'running' until its lease. A failed claim failed
+		// in the store or on claimTimeout, never on the loop's context; after a
+		// timeout the statement may still commit, and the lease bounds that row.
+		released := err == nil && claimed
+		if released {
+			r.complete(ctx, token, CycleOutcome{Interrupted: true})
 		}
+		reason := err
+		if reason == nil {
+			reason = ctx.Err()
+		}
+		slog.Default().Info("background service cycle not started: loop stopping during claim",
+			"service", r.name,
+			"claim_released", released,
+			"error", reason,
+		)
+		return false
+	}
+	if err != nil {
 		// Fail open. If the database is unreachable the cycle itself will fail
 		// fast anyway — every one of these loops is database-backed — so running
 		// unclaimed cannot turn into a runaway against a third-party API.
@@ -542,17 +552,6 @@ func (r *loopRunner) runCycle(ctx context.Context, force bool) bool {
 	if !claimed {
 		slog.Default().Info("background service cycle skipped — not due, or already running elsewhere",
 			"service", r.name,
-		)
-		return false
-	}
-	if ctx.Err() != nil {
-		// The loop stopped while its claim was in flight. Starting the cycle
-		// would run the work on a done context, and leaving the claim would keep
-		// the row 'running' until its lease, so the claim is released instead.
-		r.complete(ctx, token, CycleOutcome{Interrupted: true})
-		slog.Default().Info("background service cycle not started: loop stopping during claim, claim released",
-			"service", r.name,
-			"error", ctx.Err(),
 		)
 		return false
 	}
