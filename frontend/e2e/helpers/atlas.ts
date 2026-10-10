@@ -136,12 +136,21 @@ export async function stubAtlas(page: Page, { showsThisWeek = 0 } = {}) {
 const MAP_READY_TIMEOUT_MS = 40_000
 
 /**
- * The test timeout for every spec that boots the Atlas map: three map-ready
- * poll timeouts, for the two `waitForMap` calls the longest test makes plus
- * one for every other step. So a hung map wait fails at its own poll before
- * this fires. Set once per spec with `test.describe.configure`.
+ * The most `waitForMap` calls one test makes, counting calls inside helpers:
+ * the context-restore test in atlas.spec.ts and the atlas-credit.spec.ts
+ * tests that also call `jumpToStreetBasemap` make two.
  */
-export const ATLAS_TEST_TIMEOUT_MS = 3 * MAP_READY_TIMEOUT_MS
+const MOST_MAP_WAITS_IN_ONE_TEST = 2
+
+/**
+ * The test timeout for every spec that calls `waitForMap`, set once per spec
+ * with `test.describe.configure`: one poll timeout for each map wait a test
+ * can make, plus one for the test's other steps at their usual pace. A hung
+ * map wait then fails at its own poll rather than at this timeout, unless the
+ * steps before it ran far slower than usual; each step's own bound is not
+ * counted, and their sum can exceed this.
+ */
+export const ATLAS_TEST_TIMEOUT_MS = (MOST_MAP_WAITS_IN_ONE_TEST + 1) * MAP_READY_TIMEOUT_MS
 
 /**
  * Waits until the style and visible tiles are loaded. `idle` and `load` never
