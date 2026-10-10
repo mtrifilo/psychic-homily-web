@@ -219,30 +219,104 @@ func TestSleepOrStop_ElapsedTimerLosesToClosedStopCh(t *testing.T) {
 }
 
 // TestClosedStopChStartsNoCycle_MemStore stops a loop through StopCh alone,
-// with its context live, at the moment its first cycle is due.
+// with its context live, at each place a cycle starts.
 func TestClosedStopChStartsNoCycle_MemStore(t *testing.T) {
 	_ = withCapturedSlog(t)
 	t.Cleanup(resetRegisteredLoops)
-	compressCatchUp(t, 0, 0)
 
-	stopCh := make(chan struct{})
-	close(stopCh)
-
-	// A fresh overdue store per trial: a trial that started a cycle would
-	// otherwise leave the next one not due, and no tie.
-	var calls, claims atomic.Int32
-	for i := 0; i < tieTrials; i++ {
-		store := newMemRunStore()
-		store.seedCompleted("stopped-wait", 2*time.Hour)
-		RunScheduledLoop(context.Background(), LoopConfig{
-			Name:     "stopped-wait",
-			Interval: time.Hour,
-			StopCh:   stopCh,
-			Store:    store,
-		}, func(context.Context) { calls.Add(1) })
-		claims.Add(store.claimed.Load())
+	closedStopCh := func() chan struct{} {
+		stopCh := make(chan struct{})
+		close(stopCh)
+		return stopCh
 	}
 
-	assert.Zero(t, calls.Load(), "no cycle may start after StopCh closed")
-	assert.Zero(t, claims.Load(), "no claim may be taken after StopCh closed")
+	t.Run("wait between cycles", func(t *testing.T) {
+		compressCatchUp(t, 0, 0)
+		stopCh := closedStopCh()
+
+		// A fresh overdue store per trial: a trial that started a cycle would
+		// otherwise leave the next one not due, and no tie.
+		var calls, claims atomic.Int32
+		for i := 0; i < tieTrials; i++ {
+			store := newMemRunStore()
+			store.seedCompleted("stopped-wait", 2*time.Hour)
+			RunScheduledLoop(context.Background(), LoopConfig{
+				Name:     "stopped-wait",
+				Interval: time.Hour,
+				StopCh:   stopCh,
+				Store:    store,
+			}, func(context.Context) { calls.Add(1) })
+			claims.Add(store.claimed.Load())
+		}
+
+		assert.Zero(t, calls.Load(), "no cycle may start after StopCh closed")
+		assert.Zero(t, claims.Load(), "no claim may be taken after StopCh closed")
+	})
+
+	t.Run("boot cycle", func(t *testing.T) {
+		store := newMemRunStore()
+		var calls atomic.Int32
+		RunScheduledLoop(context.Background(), LoopConfig{
+			Name:      "stopped-boot",
+			Interval:  time.Hour,
+			RunAtBoot: true,
+			StopCh:    closedStopCh(),
+			Store:     store,
+		}, func(context.Context) { calls.Add(1) })
+
+		assert.Zero(t, calls.Load(), "RunAtBoot must not start a cycle after StopCh closed")
+		assert.Zero(t, store.claimed.Load(), "no claim may be taken after StopCh closed")
+	})
+
+	t.Run("StopCh closes during the claim", func(t *testing.T) {
+		logs := withCapturedSlog(t)
+		store := newMemRunStore()
+		stopCh := make(chan struct{})
+		var calls atomic.Int32
+		RunScheduledLoop(context.Background(), LoopConfig{
+			Name:      "stopped-mid-claim",
+			Interval:  time.Hour,
+			RunAtBoot: true,
+			StopCh:    stopCh,
+			Store:     beforeClaimStore{RunStore: store, beforeClaim: func() { close(stopCh) }},
+		}, func(context.Context) { calls.Add(1) })
+
+		assert.Zero(t, calls.Load(), "a claim granted after StopCh closed must not start the cycle")
+		assert.Equal(t, int32(1), store.claimed.Load())
+		assert.Equal(t, int32(1), store.released.Load(), "the claim granted after the stop must be released")
+		assert.Contains(t, logs.String(), `"claim_released":true`)
+		assert.Contains(t, logs.String(), "loop stop requested")
+	})
+}
+
+// TestLiveSlowClaimWaits_GormStore: a claim that takes longer than claimTimeout
+// while the loop's context is live keeps waiting and is granted, so the work
+// runs claimed and its completion is recorded. It never fails open.
+func TestLiveSlowClaimWaits_GormStore(t *testing.T) {
+	logs := withCapturedSlog(t)
+	db, store := setupRunStore(t)
+	t.Cleanup(resetRegisteredLoops)
+
+	oldTimeout := claimTimeout
+	claimTimeout = 200 * time.Millisecond
+	t.Cleanup(func() { claimTimeout = oldTimeout })
+
+	const name = "live-slow-claim-pg"
+	l := startLoopBlockedInClaim(t, db, store, name, false)
+	time.Sleep(claimTimeout + 300*time.Millisecond)
+	require.NoError(t, l.lockTx.Rollback().Error)
+
+	require.Eventually(t, func() bool { return l.calls.Load() == 1 },
+		10*time.Second, 5*time.Millisecond, "the slow claim must be granted and the cycle run")
+	l.cancel()
+	l.waitReturned(t, 10*time.Second, "the loop did not return after its context ended")
+
+	var run BackgroundServiceRun
+	require.NoError(t, db.Where("name = ?", name).Take(&run).Error)
+	assert.NotNil(t, run.LastCompletedAt, "the cycle ran under its claim and completed")
+	if assert.NotNil(t, run.LastOutcome) {
+		assert.Equal(t, RunOutcomeSuccess, *run.LastOutcome)
+	}
+	assert.NotContains(t, logs.String(), "background run state: claim failed",
+		"a slow claim on a live loop must not fail open")
 }
