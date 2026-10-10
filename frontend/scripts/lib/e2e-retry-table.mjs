@@ -21,7 +21,6 @@ export function collectRetriedTests(report) {
         retried.push({
           location: `${spec.file}:${spec.line}`,
           title: [...titlePath, spec.title].join(' > '),
-          projectName: test.projectName ?? '',
           status: test.status,
           attempts: results.map(result => ({
             status: result.status,
@@ -40,6 +39,8 @@ export function collectRetriedTests(report) {
 }
 
 const seconds = ms => `${(ms / 1000).toFixed(1)} s`
+
+const testCount = n => `${n} ${n === 1 ? 'test' : 'tests'}`
 
 const OUTCOME = {
   flaky: 'passed on retry',
@@ -64,7 +65,7 @@ export function retrySummaryMarkdown(retried) {
   return [
     '### E2E retries',
     '',
-    `${retried.length} ${retried.length === 1 ? 'test' : 'tests'} needed more than one attempt. A test that passed on retry is a flake the job conclusion does not show.`,
+    `${testCount(retried.length)} needed more than one attempt. A test that passed on retry is a flake the job conclusion does not show.`,
     '',
     '| Spec | Test | Outcome | Attempts |',
     '| --- | --- | --- | --- |',
@@ -79,6 +80,5 @@ export function retrySummaryMarkdown(retried) {
  */
 export function retryWarningLine(retried) {
   if (retried.length === 0) return null
-  const tests = retried.length === 1 ? 'test' : 'tests'
-  return `::warning title=E2E retries::${retried.length} ${tests} needed more than one attempt; see the E2E retries table in the job summary`
+  return `::warning title=E2E retries::${testCount(retried.length)} needed more than one attempt; see the E2E retries table in the job summary`
 }

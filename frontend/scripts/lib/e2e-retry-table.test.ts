@@ -12,7 +12,7 @@ const spec = (title: string, line: number, status: string, attempts: Attempt[]) 
   title,
   file: 'pages/example.spec.ts',
   line,
-  tests: [{ projectName: 'chromium', status, results: attempts.map((a, retry) => ({ ...a, retry })) }],
+  tests: [{ status, results: attempts }],
 })
 
 // The JSON reporter's tree: a file suite (title = path, no specs of its own
@@ -58,7 +58,6 @@ describe('collectRetriedTests', () => {
       {
         location: 'pages/example.spec.ts:12',
         title: 'Example > flakes | once',
-        projectName: 'chromium',
         status: 'flaky',
         attempts: [
           { status: 'failed', durationMs: 10_600 },
@@ -68,7 +67,6 @@ describe('collectRetriedTests', () => {
       {
         location: 'pages/example.spec.ts:30',
         title: 'Example > nested > fails every attempt',
-        projectName: 'chromium',
         status: 'unexpected',
         attempts: [
           { status: 'timedOut', durationMs: 30_012 },
@@ -80,7 +78,7 @@ describe('collectRetriedTests', () => {
   })
 
   it('returns nothing for a run without retries or without suites', () => {
-    const clean = { suites: [{ ...report.suites[0], suites: [{ title: 'Example', specs: [report.suites[0].suites[0].specs[0]] }] }] }
+    const clean = { suites: [{ title: 'pages/example.spec.ts', specs: [spec('passes', 1, 'expected', [{ status: 'passed', duration: 1 }])] }] }
     expect(collectRetriedTests(clean)).toEqual([])
     expect(collectRetriedTests({})).toEqual([])
   })

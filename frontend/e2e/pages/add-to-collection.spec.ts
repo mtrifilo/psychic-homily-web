@@ -1,7 +1,7 @@
 import { test, expect } from '../fixtures'
 import { workerAuthFile, workerStorageState } from '../fixtures/auth'
 import { lookupWorkerUserId } from '../fixtures/test-fixtures-reset'
-import { SEEDED_DETAIL_PATHS, warmRoutes } from '../helpers/navigation'
+import { warmRoutes } from '../helpers/navigation'
 
 // PSY-455: E2E coverage for the add-to-collection golden path.
 // Phase 2a shipped the collections UX overhaul without E2E coverage; this
@@ -26,7 +26,7 @@ test.describe('Add to Collection', () => {
     await warmRoutes(
       browser,
       testInfo,
-      [SEEDED_DETAIL_PATHS.show, `/collections/e2e-worker-collection-${userId}`],
+      [RESERVED_SHOW_URL, `/collections/e2e-worker-collection-${userId}`],
       { storageState: workerStorageState(testInfo.workerIndex) }
     )
   })

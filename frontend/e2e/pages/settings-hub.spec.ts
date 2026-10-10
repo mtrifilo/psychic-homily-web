@@ -43,9 +43,9 @@ async function expectLandedBelowTopBar(page: Page, sectionId: string) {
 }
 
 test.describe('/settings hub', () => {
-  // The hub, and /profile, which its link rows reach by client navigation.
+  // The link rows reach /profile by client navigation.
   test.beforeAll(async ({ browser }, testInfo) => {
-    await warmRoutes(browser, testInfo, ['/settings', '/profile'], {
+    await warmRoutes(browser, testInfo, ['/profile'], {
       storageState: workerStorageState(testInfo.workerIndex),
     })
   })
