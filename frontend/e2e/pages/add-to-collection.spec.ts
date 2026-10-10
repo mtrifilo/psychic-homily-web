@@ -1,4 +1,7 @@
 import { test, expect } from '../fixtures'
+import { workerAuthFile, workerStorageState } from '../fixtures/auth'
+import { lookupWorkerUserId } from '../fixtures/test-fixtures-reset'
+import { SEEDED_DETAIL_PATHS, warmRoutes } from '../helpers/navigation'
 
 // PSY-455: E2E coverage for the add-to-collection golden path.
 // Phase 2a shipped the collections UX overhaul without E2E coverage; this
@@ -16,6 +19,18 @@ const RESERVED_SHOW_URL = `/shows/${RESERVED_SHOW_SLUG}`
 const RESERVED_COLLECTION_TITLE = 'E2E Worker Collection'
 
 test.describe('Add to Collection', () => {
+  // The show and collection routes this test loads, so their first compile is
+  // not spent from the test's own budget.
+  test.beforeAll(async ({ browser }, testInfo) => {
+    const userId = await lookupWorkerUserId(workerAuthFile(testInfo.workerIndex))
+    await warmRoutes(
+      browser,
+      testInfo,
+      [SEEDED_DETAIL_PATHS.show, `/collections/e2e-worker-collection-${userId}`],
+      { storageState: workerStorageState(testInfo.workerIndex) }
+    )
+  })
+
   test(
     'adds a show to a worker-owned collection from the detail page',
     { tag: '@smoke' },
