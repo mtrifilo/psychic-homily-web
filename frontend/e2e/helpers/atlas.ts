@@ -129,8 +129,25 @@ export async function stubAtlas(page: Page, { showsThisWeek = 0 } = {}) {
 }
 
 /**
+ * How long `waitForMap` polls before it fails with its own message. About five
+ * times the slowest map boot measured on the CI runner (8.2 s across 120
+ * calls).
+ */
+const MAP_READY_TIMEOUT_MS = 40_000
+
+/**
+ * The test timeout for every spec that boots the Atlas map: three map-ready
+ * poll timeouts, for the two `waitForMap` calls the longest test makes plus
+ * one for every other step. So a hung map wait fails with its own message
+ * before this fires. Set once per spec with `test.describe.configure`.
+ */
+export const ATLAS_TEST_TIMEOUT_MS = 3 * MAP_READY_TIMEOUT_MS
+
+/**
  * Waits until the style and visible tiles are loaded. `idle` and `load` never
  * fire on /atlas (its pulse ring repaints every frame), so they are not used.
+ * After a 100 ms first check it polls every 250 ms, so a ready map is seen
+ * within a quarter second.
  */
 export async function waitForMap(page: Page) {
   await expect
@@ -141,7 +158,7 @@ export async function waitForMap(page: Page) {
             .__atlasMap
           return !!m && m.isStyleLoaded() && m.areTilesLoaded()
         }),
-      { timeout: 60_000 },
+      { timeout: MAP_READY_TIMEOUT_MS, intervals: [100, 250] },
     )
     .toBe(true)
 }

@@ -1,6 +1,7 @@
 import { test } from '../fixtures'
 import { expect, type Page } from '@playwright/test'
 import {
+  ATLAS_TEST_TIMEOUT_MS,
   type AtlasMapSeam,
   dismissBanner,
   phoenixDotPoint,
@@ -23,6 +24,8 @@ test.use({
   },
   viewport: { width: 1440, height: 900 },
 })
+
+test.describe.configure({ timeout: ATLAS_TEST_TIMEOUT_MS })
 
 test.describe('Atlas city entry', () => {
   const PHOENIX = { lat: 33.4484, lng: -112.074 }
@@ -241,10 +244,6 @@ test.describe('Atlas light globe outlines and place labels', () => {
 for (const colorScheme of ['light', 'dark'] as const) {
   test.describe(`Atlas place labels clear of the chrome at 390x844 ${colorScheme}`, () => {
     test.use({ viewport: { width: 390, height: 844 }, colorScheme, ...PHONE_CONTEXT })
-    // The test boots a SwiftShader map signed in, waits out the banner's
-    // resize, and moves the camera four times, waiting on the street
-    // source's credit (its TileJSON) and on the labels' relayout.
-    test.setTimeout(120_000)
 
     // The place set's Houston (public/atlas/globe-places-110m.geojson).
     const HOUSTON: [number, number] = [-95.34, 29.82]
@@ -506,11 +505,10 @@ test.describe('Atlas when the map loses its WebGL context', () => {
   // ATLAS_CONTEXT_RESTORE_DEADLINE_MS in features/scenes/components/atlasMapHealth.ts.
   const RESTORE_DEADLINE_MS = 3_000
 
-  // Each test boots a SwiftShader map and then waits out the restore
-  // deadline in real time. The timeout leaves room for one boot to use all
-  // of waitForMap's poll timeout (e2e/helpers/atlas.ts); the restore test's
-  // second waitForMap, on the restored style, shares what is left.
-  test.setTimeout(120_000)
+  // About twice the slowest loseContext step measured on the CI runner
+  // (9.2 s), and well inside ATLAS_TEST_TIMEOUT_MS, so a context event that
+  // never fires fails by its own name.
+  const CONTEXT_EVENT_TIMEOUT_MS = 20_000
 
   type ContextWindow = {
     __atlasMap?: AtlasMapSeam | null
@@ -526,22 +524,44 @@ test.describe('Atlas when the map loses its WebGL context', () => {
     return errors
   }
 
-  /** Loses the context and resolves once the canvas has reported it. */
-  function loseContext(page: Page) {
+  /**
+   * Loses (or restores) the map canvas's context through `WEBGL_lose_context`
+   * and resolves once the canvas fires `webglcontextlost` (or
+   * `webglcontextrestored`). Rejects naming the event when it has not fired
+   * within CONTEXT_EVENT_TIMEOUT_MS. A restore uses the extension the loss
+   * kept on the window.
+   */
+  function changeContext(page: Page, change: 'lose' | 'restore') {
     return page.evaluate(
-      () =>
+      ({ change, timeoutMs }) =>
         new Promise<void>((resolve, reject) => {
           const w = window as unknown as ContextWindow
           const canvas = w.__atlasMap?.getCanvas()
-          const extension = canvas?.getContext('webgl2')?.getExtension('WEBGL_lose_context')
+          if (change === 'lose') {
+            w.__atlasLoseContext = canvas?.getContext('webgl2')?.getExtension('WEBGL_lose_context')
+          }
+          const extension = w.__atlasLoseContext
           if (!canvas || !extension) {
             reject(new Error('no map canvas with WEBGL_lose_context'))
             return
           }
-          w.__atlasLoseContext = extension
-          canvas.addEventListener('webglcontextlost', () => resolve(), { once: true })
-          extension.loseContext()
-        })
+          const event = change === 'lose' ? 'webglcontextlost' : 'webglcontextrestored'
+          const timer = setTimeout(
+            () => reject(new Error(`${event} did not fire within ${timeoutMs} ms`)),
+            timeoutMs
+          )
+          canvas.addEventListener(
+            event,
+            () => {
+              clearTimeout(timer)
+              resolve()
+            },
+            { once: true }
+          )
+          if (change === 'lose') extension.loseContext()
+          else extension.restoreContext()
+        }),
+      { change, timeoutMs: CONTEXT_EVENT_TIMEOUT_MS }
     )
   }
 
@@ -555,7 +575,7 @@ test.describe('Atlas when the map loses its WebGL context', () => {
     await page.goto('/atlas')
     await waitForMap(page)
 
-    await loseContext(page)
+    await changeContext(page, 'lose')
     const list = page.getByTestId('atlas-scene-list')
     // Inside the deadline the map waits for a restore.
     await page.waitForTimeout(1_000)
@@ -584,18 +604,9 @@ test.describe('Atlas when the map loses its WebGL context', () => {
         )
       )
       .toBe('pointer')
-    await loseContext(page)
+    await changeContext(page, 'lose')
     await page.mouse.move(dot.x + 120, dot.y + 120)
-    await page.evaluate(
-      () =>
-        new Promise<void>((resolve) => {
-          const w = window as unknown as ContextWindow
-          w.__atlasMap!.getCanvas().addEventListener('webglcontextrestored', () => resolve(), {
-            once: true,
-          })
-          w.__atlasLoseContext!.restoreContext()
-        })
-    )
+    await changeContext(page, 'restore')
     // MapLibre re-creates the style it saved at the loss.
     await waitForMap(page)
 
