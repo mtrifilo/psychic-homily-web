@@ -443,6 +443,68 @@ WHERE pattern_type = 'exact' AND pattern IS DISTINCT FROM radio_normalize_name(p
 	s.Empty(drifted)
 }
 
+// Station-scoped placeholder and regex rules follow the same dimension rules
+// as global ones, and only on their station.
+func (s *RadioPlayExclusionsIntegrationSuite) TestStationScopedPlaceholderAndRegexRules() {
+	kexp := s.stationBySlug["t-kexp"]
+	s.Require().NoError(s.db.Create(&catalogm.RadioPlayExclusion{
+		MatchKind: "label_name", PatternType: "exact", Pattern: "house tapes", Category: "placeholder",
+		StationID: &kexp, Reason: "test",
+	}).Error)
+	s.Require().NoError(s.db.Create(&catalogm.RadioPlayExclusion{
+		MatchKind: "artist_name", PatternType: "regex", Pattern: "^kexp (live|session) ", Category: "talk",
+		StationID: &kexp, Reason: "test",
+	}).Error)
+	s.addPlays("t-kexp", "Lael Neale", "Star", "House Tapes", 1)
+	s.addPlays("t-nts", "Hand Habits", "Wildfire", "House Tapes", 1)
+	s.addPlays("t-kexp", "KEXP Live Session Host", "Intro", "Sub Pop", 1)
+	s.addPlays("t-nts", "KEXP Live Session Host", "Intro", "Sub Pop", 1)
+	s.addPlays("t-kexp", "검정치마", "Everything", "Sub Pop", 1)
+
+	for _, v := range s.verdicts() {
+		onKEXP := v.StationID == kexp
+		switch v.ArtistRaw {
+		case "Lael Neale", "Hand Habits":
+			s.Equal(onKEXP, v.ExLabel, "%q: the scoped placeholder label applies on its station only", v.ArtistRaw)
+			s.False(v.ExArtist || v.ExTrack, "%q: a placeholder label leaves artist and track counting", v.ArtistRaw)
+		case "KEXP Live Session Host":
+			s.Equal(onKEXP, v.ExArtist && v.ExTrack && v.ExLabel, "scoped talk regex excludes the whole play on its station")
+			if !onKEXP {
+				s.False(v.ExArtist || v.ExTrack || v.ExLabel, "scoped talk regex does not apply on other stations")
+			}
+		case "검정치마":
+			s.False(v.ExArtist || v.ExTrack || v.ExLabel, "an empty normalized value matches no scoped rule")
+		}
+	}
+	s.assertGoAgreesWithSQL()
+}
+
+// Scoped rows are unique per station, and leave with their station.
+func (s *RadioPlayExclusionsIntegrationSuite) TestScopedRowUniquenessAndCascade() {
+	kexp := s.stationBySlug["t-kexp"]
+	nts := s.stationBySlug["t-nts"]
+	row := func(station uint) *catalogm.RadioPlayExclusion {
+		return &catalogm.RadioPlayExclusion{
+			MatchKind: "track_title", PatternType: "exact", Pattern: "announcements", Category: "talk",
+			StationID: &station, Reason: "test",
+		}
+	}
+	s.Require().NoError(s.db.Create(row(kexp)).Error)
+	s.Error(s.db.Create(row(kexp)).Error, "the same scoped rule twice on one station is refused")
+	s.Require().NoError(s.db.Create(row(nts)).Error, "the same rule on another station is a separate row")
+
+	s.Require().NoError(s.db.Exec("DELETE FROM radio_plays").Error)
+	s.Require().NoError(s.db.Exec("DELETE FROM radio_episodes").Error)
+	s.Require().NoError(s.db.Exec("DELETE FROM radio_shows WHERE station_id = ?", kexp).Error)
+	s.Require().NoError(s.db.Exec("DELETE FROM radio_stations WHERE id = ?", kexp).Error)
+	var left int64
+	s.Require().NoError(s.db.Model(&catalogm.RadioPlayExclusion{}).Where("station_id = ?", kexp).Count(&left).Error)
+	s.Zero(left, "deleting a station deletes its scoped rules")
+	var kept int64
+	s.Require().NoError(s.db.Model(&catalogm.RadioPlayExclusion{}).Where("station_id = ?", nts).Count(&kept).Error)
+	s.Equal(int64(1), kept)
+}
+
 // Station-scoped rules are probed through the station_id index, not by
 // scanning the whole table for every play.
 func (s *RadioPlayExclusionsIntegrationSuite) TestScopedRulesUseStationIndex() {
