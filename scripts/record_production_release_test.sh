@@ -126,6 +126,14 @@ CASE="malformed tag is refused"
 run "v1" "$A" "$B" "$RECORD"
 expect_status 1; expect_output "prod-YYYY-MM-DD.N"; expect_gh_calls 0; expect_no_tag "v1"
 
+CASE="--help exits 0 with the usage"
+run --help
+expect_status 0; expect_output "Usage:"; expect_gh_calls 0
+
+CASE="a non-UTC --pushed-at is refused"
+run "prod-2026-07-23.1" - "$A" "$RECORD" --baseline --pushed-at "2026-07-22 19:25:14 -0700"
+expect_status 1; expect_output "must be UTC"; expect_gh_calls 0; expect_no_tag "prod-2026-07-23.1"
+
 CASE="empty record is refused"
 run "prod-2026-07-23.1" - "$A" "$EMPTY_RECORD" --baseline
 expect_status 1; expect_output "RECORD_FILE"; expect_gh_calls 0; expect_no_tag "prod-2026-07-23.1"

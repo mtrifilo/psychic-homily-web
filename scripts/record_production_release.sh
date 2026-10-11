@@ -24,7 +24,8 @@
 #                verification). It becomes the top of the release body.
 #
 # Options:
-#   --pushed-at ISO8601   the push time; it becomes the tag's date (default: now).
+#   --pushed-at TIME      the push time as UTC, 2026-10-11T21:35:04Z; it
+#                         becomes the tag's date (default: now).
 #   --baseline            the first release ever recorded: FROM_SHA is `-`,
 #                         and the body is the record alone with no generated
 #                         notes.
@@ -47,13 +48,16 @@
 set -euo pipefail
 
 usage() {
-  sed -n '2,45p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
+  # The header comment above, up to the first non-comment line.
+  awk 'NR > 1 && !/^#/ { exit } NR > 1 { sub(/^# ?/, ""); print }' "${BASH_SOURCE[0]}"
 }
 
 refuse() {
   echo "REFUSED: $*" >&2
   exit 1
 }
+
+case "${1:-}" in -h|--help) usage; exit 0 ;; esac
 
 if [ "$#" -lt 4 ]; then
   usage >&2
@@ -145,6 +149,10 @@ fi
 if [ -z "$PUSHED_AT" ]; then
   PUSHED_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 fi
+case "$PUSHED_AT" in
+  [0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9]:[0-9][0-9]:[0-9][0-9]Z) ;;
+  *) refuse "--pushed-at must be UTC like 2026-10-11T21:35:04Z (got '$PUSHED_AT'); git would silently date the tag now" ;;
+esac
 
 TO_SHORT="$(git rev-parse --short=9 "$TO_FULL")"
 TAG_MESSAGE="Production release $TAG: $FROM_SHORT -> $TO_SHORT"
