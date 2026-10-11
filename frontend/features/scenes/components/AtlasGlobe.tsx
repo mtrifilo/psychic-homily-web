@@ -1022,10 +1022,8 @@ export function AtlasGlobe() {
   // the Drift CTA (bottom-4) and the MapLibre attribution control (a license
   // requirement, PSY-1543) sit under the bar. Read the var rather than
   // restating its value: it carries the bar's border too (PSY-1820).
-  // Below `xl` the box also gives up exactly the top bar's --topbar-height, so
-  // it spans the top bar's bottom edge to the tab bar's top edge; the site
-  // footer does not render on this route there (footerVisibility.ts), so
-  // nothing shows between the box and the bar.
+  // Below `xl` it also gives up --topbar-height, so it ends at the tab bar's
+  // top edge; the site footer is hidden on this route there.
   // While the cookie consent banner is up it publishes its height as
   // --cookie-banner-height. Below `xl` it sits directly above the tab bar's
   // band, so the box gives up that height too. At `xl` it owns the viewport

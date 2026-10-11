@@ -521,10 +521,11 @@ test.describe('Atlas area on a 390x844 phone ends at the tab bar', () => {
       page.evaluate(() => {
         const rect = (selector: string) =>
           document.querySelector(selector)!.getBoundingClientRect()
+        const frame = rect('[data-testid="atlas-pane-frame"]')
         return {
           topBarBottom: rect('header').bottom,
-          frameTop: rect('[data-testid="atlas-pane-frame"]').top,
-          frameBottom: rect('[data-testid="atlas-pane-frame"]').bottom,
+          frameTop: frame.top,
+          frameBottom: frame.bottom,
           sheetBottom: rect('[data-testid="atlas-venue-sheet"]').bottom,
           tabBarTop: rect('[data-bottom-tab-bar]').top,
           scrollHeight: document.documentElement.scrollHeight,

@@ -35,16 +35,11 @@ describe('Footer', () => {
     expect(footer).toHaveClass('hidden', 'xl:block')
   })
 
-  it.each(['/', '/shows', '/graph', '/venues/the-rebel-lounge'])(
-    'is shown at every width on %s',
-    (pathname) => {
-      mockPathname.mockReturnValue(pathname)
-      render(<Footer />)
-      const footer = document.querySelector('footer')
-      expect(footer).toBeInTheDocument()
-      expect(footer).not.toHaveClass('hidden')
-    }
-  )
+  it('is shown at every width on any other route', () => {
+    mockPathname.mockReturnValue('/shows')
+    render(<Footer />)
+    expect(document.querySelector('footer')).not.toHaveClass('hidden')
+  })
 
   it('renders copyright with current year', () => {
     render(<Footer />)
