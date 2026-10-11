@@ -1,6 +1,7 @@
 import type { NextConfig } from "next";
 import { withSentryConfig } from "@sentry/nextjs";
 import withBundleAnalyzer from "@next/bundle-analyzer";
+import { assertBuildApiOriginConfigured } from "./lib/build-api-origin-guard";
 
 const nextConfig: NextConfig = {
   // Cache Components is Next 16's successor to `experimental.ppr` and
@@ -291,6 +292,14 @@ const sentryConfig = withSentryConfig(nextConfig, {
   telemetry: false,
 });
 
-export default process.env.ANALYZE === 'true'
+const resolvedConfig = process.env.ANALYZE === 'true'
   ? withBundleAnalyzer({ enabled: true })(sentryConfig)
   : sentryConfig;
+
+// `next dev`, `next build` and `next start` all evaluate this module; the phase
+// argument is what tells a build apart, so the guard runs here, before Next
+// compiles or prerenders anything.
+export default function nextConfigForPhase(phase: string): NextConfig {
+  assertBuildApiOriginConfigured(phase, process.env);
+  return resolvedConfig;
+}
