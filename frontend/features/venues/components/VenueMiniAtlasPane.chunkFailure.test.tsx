@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { screen } from '@testing-library/react'
 import * as Sentry from '@sentry/nextjs'
 import { mountPaneInProbe } from '@/test/miniAtlasPaneFixture'
+import { atlasMapSectionFailedThisPage } from '@/features/scenes/components/atlasMapHealth'
 
 // A map module that fails to load (a deploy rotated its hashed chunk, a
 // network drop) must leave the reader on the table: the pane's box says the
@@ -40,8 +41,9 @@ describe('VenueMiniAtlasPane when the map module fails to load', () => {
       tags: { section: 'venue-mini-atlas' },
     })
 
-    // React.lazy keeps the rejected import, so a later mount in the same
-    // page load falls back the same way.
+    // A failed chunk does not latch the pane; React.lazy keeps the rejected
+    // import, so a later mount in the same page load falls back the same way.
+    expect(atlasMapSectionFailedThisPage('venue-mini-atlas')).toBe(false)
     first.unmount()
     mountPaneInProbe(reachedRoute)
     expect(

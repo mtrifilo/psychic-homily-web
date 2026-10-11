@@ -7,7 +7,10 @@ import {
   stubMaps,
 } from '@/test/miniAtlasMapStub'
 import { mountPaneInProbe } from '@/test/miniAtlasPaneFixture'
-import { ATLAS_CONTEXT_RESTORE_DEADLINE_MS } from '@/features/scenes/components/atlasMapHealth'
+import {
+  ATLAS_CONTEXT_RESTORE_DEADLINE_MS,
+  resetAtlasMapLatchesForTest,
+} from '@/features/scenes/components/atlasMapHealth'
 
 // The real map module, loaded through `next/dynamic` (the App Router loader,
 // vitest.config.mts), on a MapLibre stub. A map that cannot draw must leave
@@ -20,10 +23,10 @@ vi.mock('maplibre-gl', async () =>
 
 /** The pane with its map module loaded and the stub map constructed. */
 async function renderPane() {
-  const { reachedRoute } = mountPaneInProbe()
+  const { reachedRoute, unmount } = mountPaneInProbe()
   await screen.findByTestId('venue-mini-atlas-canvas')
   expect(stubMaps).toHaveLength(1)
-  return { map: stubMaps[0], reachedRoute }
+  return { map: stubMaps[0], reachedRoute, unmount }
 }
 
 function expectContainedFailure(reachedRoute: unknown[], failureClass: string) {
@@ -44,6 +47,8 @@ describe('VenueMiniAtlasPane when its map cannot draw', () => {
 
   beforeEach(() => {
     resetStubMaps()
+    // The latch holds for the page load, which here is the test file.
+    resetAtlasMapLatchesForTest()
     // React logs every error a boundary catches.
     quiet = vi.spyOn(console, 'error').mockImplementation(() => {})
   })
@@ -90,6 +95,42 @@ describe('VenueMiniAtlasPane when its map cannot draw', () => {
     expectContainedFailure(reachedRoute, 'context-refused')
     // MapLibre's remove() needs the painter this map never got.
     expect(stubMaps[0].remove).not.toHaveBeenCalled()
+  })
+
+  it('builds no second map after a refused context, and reports once', async () => {
+    stubMapOptions.grantContext = false
+    const first = mountPaneInProbe()
+    await screen.findByTestId('venue-mini-atlas-unavailable')
+    expectContainedFailure(first.reachedRoute, 'context-refused')
+
+    // A context the browser would grant now must not be asked for.
+    stubMapOptions.grantContext = true
+    first.unmount()
+    mountPaneInProbe(first.reachedRoute)
+
+    expectContainedFailure(first.reachedRoute, 'context-refused')
+    expect(stubMaps).toHaveLength(1)
+  })
+
+  it('builds no second map after a lost context that never came back', async () => {
+    const { map, reachedRoute, unmount } = await renderPane()
+    vi.useFakeTimers()
+    act(() => {
+      map.fire('style.load')
+      map.fire('load')
+      map.fire('webglcontextlost')
+    })
+    act(() => {
+      vi.advanceTimersByTime(ATLAS_CONTEXT_RESTORE_DEADLINE_MS)
+    })
+    expectContainedFailure(reachedRoute, 'context-lost')
+    vi.useRealTimers()
+
+    unmount()
+    mountPaneInProbe(reachedRoute)
+
+    expectContainedFailure(reachedRoute, 'context-lost')
+    expect(stubMaps).toHaveLength(1)
   })
 
   it('keeps a map that draws when one source fails', async () => {

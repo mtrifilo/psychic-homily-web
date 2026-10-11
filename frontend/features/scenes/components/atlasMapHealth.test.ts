@@ -6,6 +6,9 @@ import {
   ATLAS_CONTEXT_RESTORE_DEADLINE_MS,
   atlasMapBoundaryReporting,
   atlasMapContextRefused,
+  atlasMapSectionFailedThisPage,
+  latchAtlasMapFailure,
+  resetAtlasMapLatchesForTest,
   watchAtlasMapHealth,
 } from './atlasMapHealth'
 import { AtlasMapUnrecoverableError } from '../atlasViewport'
@@ -358,6 +361,31 @@ describe('atlasMapBoundaryReporting', () => {
  * `loadJSON` (the style loads a frame after construction at the earliest) in
  * src/style/style.ts, then bump this.
  */
+describe('latchAtlasMapFailure', () => {
+  beforeEach(() => {
+    resetAtlasMapLatchesForTest()
+  })
+
+  it('latches the section for an unrecoverable map', () => {
+    expect(atlasMapSectionFailedThisPage('venue-mini-atlas')).toBe(false)
+    latchAtlasMapFailure('venue-mini-atlas', new AtlasMapUnrecoverableError('context-refused'))
+    expect(atlasMapSectionFailedThisPage('venue-mini-atlas')).toBe(true)
+  })
+
+  it('latches only the section that failed', () => {
+    latchAtlasMapFailure('venue-mini-atlas', new AtlasMapUnrecoverableError('context-lost'))
+    expect(atlasMapSectionFailedThisPage('atlas-map')).toBe(false)
+  })
+
+  it('does not latch any other error, such as a failed chunk', () => {
+    latchAtlasMapFailure(
+      'venue-mini-atlas',
+      new TypeError('Failed to fetch dynamically imported module'),
+    )
+    expect(atlasMapSectionFailedThisPage('venue-mini-atlas')).toBe(false)
+  })
+})
+
 describe('maplibre context-loss contract', () => {
   it('is pinned to the verified maplibre-gl version', () => {
     expect(

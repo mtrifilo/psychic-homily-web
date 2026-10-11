@@ -50,6 +50,33 @@ export function atlasMapBoundaryReporting(section: string): {
   return { sentryTag: section, errorTags: atlasMapFailureTags }
 }
 
+// Boundary sections (see atlasMapBoundaryReporting) whose map failed with an
+// AtlasMapUnrecoverableError in this page load.
+const sectionsFailedThisPage = new Set<string>()
+
+/**
+ * Records a failure caught by the map boundary filed under `section`. An
+ * {@link AtlasMapUnrecoverableError} latches that surface for the rest of the
+ * page load: {@link atlasMapSectionFailedThisPage} answers true, and the
+ * surface renders its fallback without building another map, so one failure
+ * costs one map and one Sentry event per surface until a reload. Any other
+ * error (a failed map chunk) is not latched. The Atlas keeps its own latch,
+ * `markAtlasMapFailed` in atlasViewport.ts, for the same failures.
+ */
+export function latchAtlasMapFailure(section: string, error: unknown): void {
+  if (error instanceof AtlasMapUnrecoverableError) sectionsFailedThisPage.add(section)
+}
+
+/** Whether {@link latchAtlasMapFailure} latched `section` in this page load. */
+export function atlasMapSectionFailedThisPage(section: string): boolean {
+  return sectionsFailedThisPage.has(section)
+}
+
+/** Test seam: clear every latch {@link latchAtlasMapFailure} set. */
+export function resetAtlasMapLatchesForTest(): void {
+  sectionsFailedThisPage.clear()
+}
+
 /**
  * The map surface this module reads. The events are MapLibre's own, so each
  * one arrives after MapLibre has acted on it: `webglcontextlost` after the
