@@ -1,6 +1,7 @@
 package catalog
 
 import (
+	"encoding/json"
 	"fmt"
 	"testing"
 
@@ -180,7 +181,9 @@ func (s *RadioPlayExclusionsIntegrationSuite) TestSeededRowsLoadInGo() {
 	s.NoError(err, "every seeded regex must be inside the portable subset")
 }
 
-// The most-played non-music keys of the stage classification, as logged.
+// The most-played non-music keys of the stage classification, as logged. Each
+// carries a title and a real label, so every dimension is excluded by the rule
+// itself rather than by a blank key field.
 func (s *RadioPlayExclusionsIntegrationSuite) TestTopStationElementsAndTalkAreExcluded() {
 	noise := []struct{ station, artist, title string }{
 		{"t-rocknsoul", "Music behind DJ: Mr. Weather", "Current Weather"},
@@ -201,9 +204,21 @@ func (s *RadioPlayExclusionsIntegrationSuite) TestTopStationElementsAndTalkAreEx
 		{"t-wfmu", "Music behind DJ: Music behind DJ: Harry Stoneham", "Do You Know the Way to San Jose?"},
 	}
 	for _, n := range noise {
-		s.addPlays(n.station, n.artist, n.title, "", 1)
+		title := n.title
+		if title == "" {
+			title = "Segment"
+		}
+		s.addPlays(n.station, n.artist, title, "Cadet", 1)
 	}
+	// Control: the same title and label under a real artist count everywhere.
+	s.addPlays("t-kexp", "Dorothy Ashby", "Segment", "Cadet", 1)
 	for _, v := range s.verdicts() {
+		s.Require().NotNil(v.LabelNorm)
+		s.Require().NotNil(v.TitleNorm)
+		if v.ArtistRaw == "Dorothy Ashby" {
+			s.False(v.ExArtist || v.ExTrack || v.ExLabel, "control play must count toward every ranking")
+			continue
+		}
 		s.True(v.ExArtist && v.ExTrack && v.ExLabel, "noise play %q must be excluded from every ranking", v.ArtistRaw)
 	}
 	s.assertGoAgreesWithSQL()
@@ -261,11 +276,7 @@ func (s *RadioPlayExclusionsIntegrationSuite) TestPlaceholderArtistKeepsLabel() 
 
 func (s *RadioPlayExclusionsIntegrationSuite) TestNonLatinNamesAreNotNoise() {
 	// radio_normalize_name trims ASCII-only edges, so these normalize to ''.
-	// An empty normalized value must never match, even for a rule written to
-	// match the empty string.
-	s.Require().NoError(s.db.Create(&catalogm.RadioPlayExclusion{
-		MatchKind: "artist_name", PatternType: "regex", Pattern: "^$", Category: "talk", Reason: "test",
-	}).Error)
+	// They are present values, not blank ones, and no rule matches them.
 	s.addPlays("t-kexp", "검정치마", "everything", "Cheongchun Baekseo", 1)
 	s.addPlays("t-nts", "ドレスコーズ", "ビューティフル", "日本コロムビア", 1)
 	for _, v := range s.verdicts() {
@@ -282,10 +293,12 @@ func (s *RadioPlayExclusionsIntegrationSuite) TestStationScopedRule() {
 		MatchKind: "track_title", PatternType: "exact", Pattern: "announcements", Category: "talk",
 		StationID: &sheena, Reason: "test",
 	}).Error)
-	s.addPlays("t-sheena", "Bob Barth", "Announcements", "", 1)
-	s.addPlays("t-kexp", "The Announcers", "Announcements", "", 1)
-	s.True(s.verdictFor("Bob Barth").ExTrack)
-	s.False(s.verdictFor("The Announcers").ExTrack)
+	s.addPlays("t-sheena", "Bob Barth", "Announcements", "Cadet", 1)
+	s.addPlays("t-kexp", "The Announcers", "Announcements", "Cadet", 1)
+	barth := s.verdictFor("Bob Barth")
+	s.True(barth.ExArtist && barth.ExTrack && barth.ExLabel, "a scoped talk rule excludes the play from every ranking on its station")
+	announcers := s.verdictFor("The Announcers")
+	s.False(announcers.ExArtist || announcers.ExTrack || announcers.ExLabel, "the scoped rule does not apply on other stations")
 	s.assertGoAgreesWithSQL()
 }
 
@@ -294,25 +307,28 @@ type radioTrackFloorRow struct {
 	Title        string
 	Plays        int
 	Broadcasters int
+	Qualifies    bool
 }
 
 // qualifyingTracks groups non-excluded plays by normalized artist and title
-// and keeps the keys that pass the single-station rule.
+// and keeps the keys that pass the single-station rule. It also checks that
+// the SQL floor and RadioMeetsBroadcasterFloor agree on every key, kept or not.
 func (s *RadioPlayExclusionsIntegrationSuite) qualifyingTracks() map[string]radioTrackFloorRow {
 	q := fmt.Sprintf(`SELECT radio_normalize_name(rp.artist_name) AS artist, radio_normalize_name(rp.track_title) AS title,
-       count(*) AS plays, count(DISTINCT %s) AS broadcasters
+       count(*) AS plays, count(DISTINCT %s) AS broadcasters, %s AS qualifies
 %s
 JOIN radio_stations rst ON rst.id = rsh.station_id
 WHERE NOT (%s)
-GROUP BY 1, 2
-HAVING %s`, broadcasterKeySQL("rst"), radioExclusionTestFrom,
-		RadioPlayExcludedSQL(RadioRankingTrack, radioExclusionTestCols), RadioBroadcasterFloorSQL("rst"))
+GROUP BY 1, 2`, RadioBroadcasterKeySQL("rst"), RadioBroadcasterFloorSQL("rst"), radioExclusionTestFrom,
+		RadioPlayExcludedSQL(RadioRankingTrack, radioExclusionTestCols))
 	var rows []radioTrackFloorRow
 	s.Require().NoError(s.db.Raw(q).Scan(&rows).Error)
 	out := map[string]radioTrackFloorRow{}
 	for _, r := range rows {
-		s.True(RadioMeetsBroadcasterFloor(r.Broadcasters), "SQL and Go floor agree for %s", r.Artist)
-		out[r.Artist+" / "+r.Title] = r
+		s.Equal(r.Qualifies, RadioMeetsBroadcasterFloor(r.Broadcasters), "SQL and Go floor agree for %s / %s", r.Artist, r.Title)
+		if r.Qualifies {
+			out[r.Artist+" / "+r.Title] = r
+		}
 	}
 	return out
 }
@@ -400,9 +416,8 @@ func (s *RadioPlayExclusionsIntegrationSuite) TestManyRegexRowsStillMatch() {
 }
 
 func (s *RadioPlayExclusionsIntegrationSuite) TestSingleStationRuleCountsOnlyNonExcludedPlays() {
-	// The sheena plays are excluded by a station-scoped rule, so the key's
-	// non-excluded plays span one station and it does not qualify. The
-	// prefixed bed is a separate, excluded key and adds no station to it.
+	// The sheena plays are excluded by a station-scoped rule, so they add no
+	// broadcaster: the key spans t-kexp alone, then t-kexp and t-nts.
 	sheena := s.stationBySlug["t-sheena"]
 	s.Require().NoError(s.db.Create(&catalogm.RadioPlayExclusion{
 		MatchKind: "artist_name", PatternType: "exact", Pattern: "dorothy ashby", Category: "talk",
@@ -410,11 +425,51 @@ func (s *RadioPlayExclusionsIntegrationSuite) TestSingleStationRuleCountsOnlyNon
 	}).Error)
 	s.addPlays("t-kexp", "Dorothy Ashby", "Soul Vibrations", "", 3)
 	s.addPlays("t-sheena", "Dorothy Ashby", "Soul Vibrations", "", 3)
-	s.addPlays("t-rocknsoul", "Music behind DJ: Dorothy Ashby", "Soul Vibrations", "", 50)
+	s.NotContains(s.qualifyingTracks(), "dorothy ashby / soul vibrations")
 
+	s.addPlays("t-nts", "Dorothy Ashby", "Soul Vibrations", "", 1)
 	got := s.qualifyingTracks()
-	s.NotContains(got, "dorothy ashby / soul vibrations")
-	s.NotContains(got, "music behind dj: dorothy ashby / soul vibrations")
+	s.Require().Contains(got, "dorothy ashby / soul vibrations")
+	s.Equal(2, got["dorothy ashby / soul vibrations"].Broadcasters, "the excluded sheena plays add no broadcaster")
+	s.Equal(4, got["dorothy ashby / soul vibrations"].Plays)
+}
+
+// Exact patterns are stored in radio_normalize_name form; a normalizer change
+// that moves any stored pattern off its output would silently disable it.
+func (s *RadioPlayExclusionsIntegrationSuite) TestExactPatternsAreNormalizerOutput() {
+	var drifted []string
+	s.Require().NoError(s.db.Raw(`SELECT pattern FROM radio_play_exclusions
+WHERE pattern_type = 'exact' AND pattern IS DISTINCT FROM radio_normalize_name(pattern)`).Scan(&drifted).Error)
+	s.Empty(drifted)
+}
+
+// Global rules are read once per query, not once per play.
+func (s *RadioPlayExclusionsIntegrationSuite) TestGlobalRulesAreReadOncePerQuery() {
+	s.addPlays("t-kexp", "Some Artist", "Some Song", "Some Label", 200)
+	s.addPlays("t-wfmu", "Music behind DJ: Some Artist", "Some Song", "Some Label", 50)
+	for _, dim := range allRadioRankingDimensions {
+		q := fmt.Sprintf(`EXPLAIN (ANALYZE, FORMAT JSON) SELECT count(*) %s WHERE NOT (%s)`,
+			radioExclusionTestFrom, RadioPlayExcludedSQL(dim, radioExclusionTestCols))
+		var planJSON string
+		s.Require().NoError(s.db.Raw(q).Row().Scan(&planJSON))
+		var plans []map[string]any
+		s.Require().NoError(json.Unmarshal([]byte(planJSON), &plans))
+		scans := 0
+		var walk func(node map[string]any)
+		walk = func(node map[string]any) {
+			if node["Relation Name"] == "radio_play_exclusions" {
+				scans++
+				s.LessOrEqual(node["Actual Loops"].(float64), float64(1), "dimension %s: radio_play_exclusions scanned per play", dim)
+			}
+			if children, ok := node["Plans"].([]any); ok {
+				for _, c := range children {
+					walk(c.(map[string]any))
+				}
+			}
+		}
+		walk(plans[0]["Plan"].(map[string]any))
+		s.Greater(scans, 0, "dimension %s: plan reads radio_play_exclusions", dim)
+	}
 }
 
 func (s *RadioPlayExclusionsIntegrationSuite) TestConstraintsRejectInvalidRows() {

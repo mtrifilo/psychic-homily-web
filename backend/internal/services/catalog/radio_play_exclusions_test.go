@@ -1,6 +1,7 @@
 package catalog
 
 import (
+	"regexp"
 	"strings"
 	"testing"
 
@@ -77,6 +78,12 @@ var radioExclusionRegexCorpus = []struct {
 	{`(a{100}){100}`, false},
 	{`a{2}`, false},
 	{`^Music behind DJ`, false},
+	{`^$`, false},
+	{`|`, false},
+	{`^your dj|`, false},
+	{`x*`, false},
+	{`(a|)`, false},
+	{`^`, false},
 	{strings.Repeat("a", RadioExclusionRegexMaxLen), true},
 	{strings.Repeat("a", RadioExclusionRegexMaxLen+1), false},
 }
@@ -156,11 +163,12 @@ func TestRadioPlayExclusions_BlankKeyFieldExcludesOnlyThatDimension(t *testing.T
 func TestRadioPlayExclusions_EmptyNormalizedValueNeverMatches(t *testing.T) {
 	// "" is a present raw value that radio_normalize_name trims to nothing (a
 	// name of non-ASCII characters only). It is neither blank nor matched, even
-	// by a rule that matches the empty string.
-	e := mustExclusions(t,
-		exclusionRow("artist_name", "regex", `^$`, "talk"),
-		exclusionRow("track_title", "regex", `^.*$`, "talk"),
-	)
+	// by a rule that matches the empty string. The loader refuses such rules, so
+	// they are built directly here.
+	e := &RadioPlayExclusions{rules: []radioPlayExclusionRule{
+		{matchKind: "artist_name", category: "talk", re: regexp.MustCompile(`^$`)},
+		{matchKind: "track_title", category: "talk", re: regexp.MustCompile(`^.*$`)},
+	}}
 	empty := ""
 	play := RadioNormalizedPlay{StationID: 1, ArtistName: &empty, TrackTitle: &empty, LabelName: &empty}
 	for _, dim := range allRadioRankingDimensions {
@@ -195,6 +203,7 @@ func TestRadioPlayExcludedSQL_PanicsOnNonIdentifier(t *testing.T) {
 	cols := RadioPlayColumns{StationID: "rsh.station_id", ArtistName: "rp.artist_name); DROP TABLE x; --", TrackTitle: "rp.track_title", LabelName: "rp.label_name"}
 	assert.Panics(t, func() { RadioPlayExcludedSQL(RadioRankingArtist, cols) })
 	assert.Panics(t, func() { RadioBroadcasterFloorSQL("rst.id") })
+	assert.Panics(t, func() { RadioBroadcasterKeySQL("rst; DROP TABLE x") })
 	assert.Panics(t, func() { RadioBroadcasterFloorSQL("1; DROP TABLE x") })
 }
 

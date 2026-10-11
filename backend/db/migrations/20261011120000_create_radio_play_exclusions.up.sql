@@ -11,10 +11,11 @@
 --     normalized form (enforced below).
 --   * pattern_type 'regex' compares with ~, and the pattern must mean the same
 --     thing to Postgres ARE and to Go RE2. Refused here and by the Go loader:
---     an escape of anything but a regex metacharacter or /, a POSIX bracket
---     construct ([: [. [=), a (? group, a leading *, a brace, an ASCII capital
---     (normalized values are lowercase, so it could never match), and more
---     than 200 characters.
+--     an escape of anything but . ( ) [ ] * + ? | ^ $ \ / - }, a POSIX
+--     bracket construct ([: [. [=), a (? group, a leading *, a brace (escaped
+--     or not), an ASCII capital (normalized values are lowercase, so it could
+--     never match), a pattern that matches the empty string (it would match
+--     every value), and more than 200 characters.
 --   * station_id NULL applies the row on every station; otherwise only to plays
 --     that aired on that station.
 --   * category 'station_element' and 'talk' exclude the whole play from every
@@ -44,7 +45,8 @@ CREATE TABLE radio_play_exclusions (
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     -- CASE fixes the evaluation order: an exact pattern such as 'no label (boot'
     -- is not a valid regex and must never reach the ~ operator. For a regex,
-    -- evaluating it against '' raises on invalid syntax, which rejects the row.
+    -- evaluating it against '' raises on invalid syntax, which rejects the row,
+    -- and a match on '' rejects a pattern that would match every value.
     CONSTRAINT radio_play_exclusions_pattern_form_check CHECK (
         CASE
             WHEN pattern_type = 'regex'
@@ -57,7 +59,7 @@ CREATE TABLE radio_play_exclusions (
                      AND left(pattern, 1) <> '*'
                      AND position('{' IN pattern) = 0
                      AND pattern !~ '[ABCDEFGHIJKLMNOPQRSTUVWXYZ]'
-                     AND ('' ~ pattern) IS NOT NULL
+                     AND ('' ~ pattern) = false
             ELSE pattern = radio_normalize_name(pattern)
         END
     ),

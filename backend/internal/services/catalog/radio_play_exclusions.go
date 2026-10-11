@@ -80,14 +80,15 @@ const RadioExclusionRegexMaxLen = 200
 
 // radioExclusionRegexRefused matches regex syntax that radio_play_exclusions
 // refuses, mirroring radio_play_exclusions_pattern_form_check: an escape of
-// anything but a regex metacharacter or /, a POSIX bracket construct ([: [.
-// [=), a (? group, a leading *, a brace, or an ASCII capital. What remains is
-// read identically by Postgres ARE and Go RE2, and every such pattern RE2 can
-// compile.
+// anything but . ( ) [ ] * + ? | ^ $ \ / - }, a POSIX bracket construct ([:
+// [. [=), a (? group, a leading *, a brace (escaped or not), or an ASCII
+// capital. What remains is read identically by Postgres ARE and Go RE2.
 var radioExclusionRegexRefused = regexp.MustCompile(`\\[^\]\[.()*+?|^$\\{}/-]|\[[:.=]|\(\?|^\*|\{|[A-Z]`)
 
-// radioExclusionRegexError reports why radio_play_exclusions would refuse a
-// regex pattern, or nil when it accepts it.
+// radioExclusionRegexError returns an error for every regex pattern the
+// table's pattern-form constraint refuses. Its accepted set may be wider (RE2
+// tolerates a few quantifier placements Postgres refuses), never narrower, so
+// every stored row loads.
 func radioExclusionRegexError(pattern string) error {
 	if utf8.RuneCountInString(pattern) > RadioExclusionRegexMaxLen {
 		return fmt.Errorf("regex longer than %d characters", RadioExclusionRegexMaxLen)
@@ -95,8 +96,12 @@ func radioExclusionRegexError(pattern string) error {
 	if radioExclusionRegexRefused.MatchString(pattern) {
 		return fmt.Errorf("regex uses syntax outside the Postgres/RE2 portable subset")
 	}
-	if _, err := regexp.Compile(pattern); err != nil {
+	re, err := regexp.Compile(pattern)
+	if err != nil {
 		return err
+	}
+	if re.MatchString("") {
+		return fmt.Errorf("regex matches the empty string, so it would match every value")
 	}
 	return nil
 }
@@ -126,9 +131,9 @@ type RadioPlayExclusions struct {
 }
 
 // NewRadioPlayExclusions compiles exclusion rows. It returns an error for a row
-// whose match kind, pattern type or category is unknown, or whose regex the
-// table's pattern-form constraint would refuse, so a ranking never runs with a
-// rule the SQL predicate would read differently.
+// whose match kind, pattern type or category is unknown, or whose regex
+// radioExclusionRegexError refuses, so a ranking never runs with a rule the
+// SQL predicate would read differently.
 func NewRadioPlayExclusions(rows []catalogm.RadioPlayExclusion) (*RadioPlayExclusions, error) {
 	rules := make([]radioPlayExclusionRule, 0, len(rows))
 	for _, row := range rows {
@@ -241,6 +246,11 @@ func RadioNormalizedFieldSQL(column string) string {
 	return fmt.Sprintf("CASE WHEN %s ~ '[^[:space:]]' THEN radio_normalize_name(%s) END", c, c)
 }
 
+// radioExclusionRegexChunk is how many regex rows are joined into one
+// alternation. Each alternation is compiled once and cached per backend;
+// bounding its size bounds that compile cost.
+const radioExclusionRegexChunk = 8
+
 // RadioPlayExcludedSQL returns a boolean SQL expression that is true when the
 // play named by cols must not count toward a ranking of the given dimension.
 // It is the SQL form of RadioPlayExclusions.Excludes over the live
@@ -249,23 +259,56 @@ func RadioNormalizedFieldSQL(column string) string {
 // column reference that is not an identifier, both programming errors.
 func RadioPlayExcludedSQL(dim RadioRankingDimension, cols RadioPlayColumns) string {
 	keyKinds := dim.keyMatchKinds()
-	blankKey := make([]string, len(keyKinds))
-	for i, kind := range keyKinds {
-		blankKey[i] = "n." + kind + " IS NULL"
+	kinds := []struct{ matchKind, value string }{
+		{catalogm.RadioPlayExclusionMatchArtistName, "n.artist_name"},
+		{catalogm.RadioPlayExclusionMatchTrackTitle, "n.track_title"},
+		{catalogm.RadioPlayExclusionMatchLabelName, "n.label_name"},
 	}
-	field := fmt.Sprintf(
+
+	var blankKey, globalMatch []string
+	for _, k := range kinds {
+		inKey := slices.Contains(keyKinds, k.matchKind)
+		if inKey {
+			blankKey = append(blankKey, k.value+" IS NULL")
+		}
+		// Rules that apply to this field for this dimension: every station
+		// element and talk rule, plus placeholders when the field is in the key.
+		rules := fmt.Sprintf("station_id IS NULL AND match_kind = '%s'", k.matchKind)
+		if !inKey {
+			rules += fmt.Sprintf(" AND category <> '%s'", catalogm.RadioPlayExclusionCategoryPlaceholder)
+		}
+		globalMatch = append(globalMatch, fmt.Sprintf(`(%[1]s <> '' AND (
+         %[1]s = ANY (ARRAY(SELECT pattern FROM radio_play_exclusions
+                            WHERE %[2]s AND pattern_type = '%[3]s'))
+         OR %[1]s ~ ANY (ARRAY(
+                SELECT '(' || string_agg(pattern, ')|(' ORDER BY id) || ')'
+                FROM (SELECT id, pattern, (row_number() OVER (ORDER BY id) - 1) / %[4]d AS chunk
+                      FROM radio_play_exclusions
+                      WHERE %[2]s AND pattern_type = '%[5]s') r
+                GROUP BY chunk))))`,
+			k.value, rules, catalogm.RadioPlayExclusionPatternExact, radioExclusionRegexChunk, catalogm.RadioPlayExclusionPatternRegex))
+	}
+
+	scopedField := fmt.Sprintf(
 		"CASE x.match_kind WHEN '%s' THEN n.artist_name WHEN '%s' THEN n.track_title WHEN '%s' THEN n.label_name END",
 		catalogm.RadioPlayExclusionMatchArtistName,
 		catalogm.RadioPlayExclusionMatchTrackTitle,
 		catalogm.RadioPlayExclusionMatchLabelName,
 	)
-	// OFFSET 0 keeps the planner from inlining the normalization subquery, so
-	// each field is normalized once per play rather than once per rule. Rules
-	// are grouped so each group's regexes run as one alternation: Postgres
-	// caches a few dozen compiled regexes per backend, and a pattern per row
-	// would cycle that cache once the table holds more regex rows than it fits.
-	// Each pattern is valid on its own, so wrapping it in a group and joining
-	// with | matches exactly when one of the patterns matches.
+
+	// Shape, and why:
+	//   * OFFSET 0 keeps the planner from inlining the normalization subquery,
+	//     so each field is normalized once per play rather than once per rule.
+	//   * Global rules are read through uncorrelated scalar subqueries, which
+	//     Postgres evaluates once per query (InitPlans), not once per play.
+	//   * Regex rules are joined into alternations of at most
+	//     radioExclusionRegexChunk patterns. Postgres caches only a few dozen
+	//     compiled regexes per backend, so a pattern per row would cycle that
+	//     cache once the table holds more regex rows than it fits. Each
+	//     pattern is valid on its own, so wrapping it in a group and joining
+	//     with | matches exactly when one of the patterns matches.
+	//   * Station-scoped rules are few and correlated per play; the CASE guard
+	//     skips them entirely while the table holds none.
 	return fmt.Sprintf(`EXISTS (
   SELECT 1
   FROM (SELECT %s AS artist_name,
@@ -273,32 +316,28 @@ func RadioPlayExcludedSQL(dim RadioRankingDimension, cols RadioPlayColumns) stri
                %s AS label_name
         OFFSET 0) n
   WHERE %s
-     OR EXISTS (
-       SELECT 1
-       FROM (SELECT match_kind, category, station_id, pattern_type,
-                    '(' || string_agg(pattern, ')|(' ORDER BY pattern) || ')' AS regex,
-                    array_agg(pattern) AS patterns
-             FROM radio_play_exclusions
-             GROUP BY match_kind, category, station_id, pattern_type) x
-       WHERE (x.station_id IS NULL OR x.station_id = %s)
-         AND (x.category <> '%s' OR x.match_kind IN (%s))
-         AND %s <> ''
-         AND CASE x.pattern_type
-               WHEN '%s' THEN %s = ANY (x.patterns)
-               ELSE %s ~ x.regex
-             END
-     )
+     OR %s
+     OR CASE WHEN (SELECT bool_or(station_id IS NOT NULL) FROM radio_play_exclusions)
+          THEN EXISTS (
+            SELECT 1 FROM radio_play_exclusions x
+            WHERE x.station_id = %s
+              AND (x.category <> '%s' OR x.match_kind IN (%s))
+              AND %s <> ''
+              AND CASE x.pattern_type WHEN '%s' THEN %s = x.pattern ELSE %s ~ x.pattern END)
+          ELSE false
+        END
 )`,
 		RadioNormalizedFieldSQL(cols.ArtistName),
 		RadioNormalizedFieldSQL(cols.TrackTitle),
 		RadioNormalizedFieldSQL(cols.LabelName),
 		strings.Join(blankKey, " OR "),
+		strings.Join(globalMatch, "\n     OR "),
 		mustSQLColumnRef(cols.StationID),
 		catalogm.RadioPlayExclusionCategoryPlaceholder,
 		"'"+strings.Join(keyKinds, "', '")+"'",
-		field,
-		catalogm.RadioPlayExclusionPatternExact, field,
-		field,
+		scopedField,
+		catalogm.RadioPlayExclusionPatternExact, scopedField,
+		scopedField,
 	)
 }
 
@@ -311,7 +350,8 @@ func RadioPlayExcludedSQL(dim RadioRankingDimension, cols RadioPlayColumns) stri
 const RadioMinDistinctBroadcasters = 2
 
 // RadioMeetsBroadcasterFloor applies the single-station rule to an aggregated
-// key, given the number of distinct broadcasters among its non-excluded plays.
+// key, given the number of distinct RadioBroadcasterKeySQL values among its
+// non-excluded plays (never the number of distinct station ids).
 func RadioMeetsBroadcasterFloor(distinctBroadcasters int) bool {
 	return distinctBroadcasters >= RadioMinDistinctBroadcasters
 }
@@ -323,8 +363,15 @@ func RadioMeetsBroadcasterFloor(distinctBroadcasters int) bool {
 // be filtered with RadioPlayExcludedSQL. Panics on an alias that is not an
 // identifier.
 func RadioBroadcasterFloorSQL(stationsAlias string) string {
+	return fmt.Sprintf("count(DISTINCT %s) >= %d", RadioBroadcasterKeySQL(stationsAlias), RadioMinDistinctBroadcasters)
+}
+
+// RadioBroadcasterKeySQL returns the broadcaster identity (broadcasterKeySQL)
+// of the radio_stations row aliased stationsAlias, for queries that count
+// broadcasters themselves. Panics on an alias that is not an identifier.
+func RadioBroadcasterKeySQL(stationsAlias string) string {
 	if !sqlIdentifier.MatchString(stationsAlias) {
 		panic(fmt.Sprintf("catalog: %q is not a SQL identifier", stationsAlias))
 	}
-	return fmt.Sprintf("count(DISTINCT %s) >= %d", broadcasterKeySQL(stationsAlias), RadioMinDistinctBroadcasters)
+	return broadcasterKeySQL(stationsAlias)
 }
