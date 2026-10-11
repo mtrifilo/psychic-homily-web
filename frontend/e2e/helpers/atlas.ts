@@ -10,6 +10,9 @@ import { expect, type Page } from '@playwright/test'
 
 export const PHOENIX = { lat: 33.4484, lng: -112.074 }
 
+/** Where the fixture's street-geocoded room pins on its own. */
+export const STREET_ROOM = { lat: 33.4943, lng: -112.0326 }
+
 /**
  * A phone's browser context: touch input, a mobile viewport and a device pixel
  * ratio of 2. Spread into `test.use` beside a phone-width viewport.
@@ -93,8 +96,8 @@ export async function stubAtlas(page: Page, { showsThisWeek = 0 } = {}) {
             venue(1, 'Centroid Room One'),
             venue(2, 'Centroid Room Two'),
             venue(3, 'Street Room', {
-              street_latitude: 33.4943,
-              street_longitude: -112.0326,
+              street_latitude: STREET_ROOM.lat,
+              street_longitude: STREET_ROOM.lng,
             }),
           ],
           total: 3,
@@ -170,31 +173,63 @@ export async function waitForMap(page: Page) {
     .toBe(true)
 }
 
-/** Rejects the cookie banner by a tap (the context needs `hasTouch`) and waits for it to leave. */
-export async function dismissBanner(page: Page) {
-  await page.getByRole('button', { name: 'Reject All' }).tap()
+/**
+ * Waits until the map's canvas fills the Atlas frame: the frame grows when
+ * the banner leaves, and the measured pane, the map's container and then
+ * the canvas follow it.
+ */
+export async function waitForMapSize(page: Page) {
+  await expect
+    .poll(() =>
+      page.evaluate(() => {
+        const map = (window as unknown as { __atlasMap: AtlasMapSeam }).__atlasMap
+        const canvas = map.getCanvas().getBoundingClientRect()
+        const frame = document.querySelector('[data-testid="atlas-pane-frame"]')!.getBoundingClientRect()
+        return Math.abs(canvas.width - frame.width) < 1 && Math.abs(canvas.height - frame.height) < 1
+      }),
+    )
+    .toBe(true)
+}
+
+/**
+ * Rejects the cookie banner and waits for it to leave. A tap by default (the
+ * context needs `hasTouch`); a click for a mouse context.
+ */
+export async function dismissBanner(page: Page, { via = 'tap' }: { via?: 'tap' | 'click' } = {}) {
+  const reject = page.getByRole('button', { name: 'Reject All' })
+  await (via === 'tap' ? reject.tap() : reject.click())
   await expect(page.getByRole('dialog', { name: 'Cookie consent' })).toHaveCount(0)
 }
 
-/** The Phoenix scene dot's position in the viewport, through the map's own projection. */
-export function phoenixDotPoint(page: Page) {
+/** Where `point` falls in the viewport, through the map's own projection. */
+export function mapPoint(page: Page, point: { lat: number; lng: number }) {
   return page.evaluate(({ lng, lat }) => {
     const m = (window as unknown as { __atlasMap: AtlasMapSeam }).__atlasMap
     const p = m.project([lng, lat])
     const r = m.getCanvas().getBoundingClientRect()
     return { x: r.left + p.x, y: r.top + p.y }
-  }, PHOENIX)
+  }, point)
 }
 
-/** Moves the camera over Phoenix at `zoom`, synchronously. */
-export async function jumpToPhoenix(page: Page, zoom: number) {
+/** The Phoenix scene dot's position in the viewport, through the map's own projection. */
+export function phoenixDotPoint(page: Page) {
+  return mapPoint(page, PHOENIX)
+}
+
+/** Moves the camera over `center` at `zoom`, synchronously. */
+export async function jumpTo(page: Page, center: { lat: number; lng: number }, zoom: number) {
   await page.evaluate(
     ({ lng, lat, zoom }) => {
       const m = (window as unknown as { __atlasMap: AtlasMapSeam }).__atlasMap
       m.jumpTo({ center: [lng, lat], zoom })
     },
-    { ...PHOENIX, zoom },
+    { lng: center.lng, lat: center.lat, zoom },
   )
+}
+
+/** Moves the camera over Phoenix at `zoom`, synchronously. */
+export function jumpToPhoenix(page: Page, zoom: number) {
+  return jumpTo(page, PHOENIX, zoom)
 }
 
 /**

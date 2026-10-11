@@ -8,6 +8,7 @@ import {
   PHONE_CONTEXT,
   stubAtlas,
   waitForMap,
+  waitForMapSize,
 } from '../helpers/atlas'
 
 /**
@@ -252,24 +253,6 @@ for (const colorScheme of ['light', 'dark'] as const) {
     const CONTROLS_AT_GLOBE_ZOOM = ['search pill', 'Drift', 'Genres chip', 'My Scenes']
 
     type SeamWindow = { __atlasMap: AtlasMapSeam }
-
-    /**
-     * Waits until the map's canvas fills the Atlas frame: the frame grows when
-     * the banner leaves, and the measured pane, the map's container and then
-     * the canvas follow it.
-     */
-    async function waitForMapSize(page: Page) {
-      await expect
-        .poll(() =>
-          page.evaluate(() => {
-            const map = (window as unknown as SeamWindow).__atlasMap
-            const canvas = map.getCanvas().getBoundingClientRect()
-            const frame = document.querySelector('[data-testid="atlas-pane-frame"]')!.getBoundingClientRect()
-            return Math.abs(canvas.width - frame.width) < 1 && Math.abs(canvas.height - frame.height) < 1
-          }),
-        )
-        .toBe(true)
-    }
 
     type ChromeReport = {
       labels: string[]

@@ -40,6 +40,7 @@ import {
   usesAtlasSheetLayout,
   venuePinStacks,
   venueStackLabel,
+  venueStackScopeLine,
   type CityVenueFilters,
 } from '../cityView'
 import {
@@ -381,7 +382,11 @@ export function AtlasGlobe() {
   )
   const venueStackMarkers = useMemo<VenueStackMarker[]>(
     () =>
-      venueStacks.map((stack) => ({ ...stack, label: venueStackLabel(stack) })),
+      venueStacks.map((stack) => ({
+        ...stack,
+        label: venueStackLabel(stack),
+        scopeLine: venueStackScopeLine(stack),
+      })),
     [venueStacks],
   )
   const scopedStack =

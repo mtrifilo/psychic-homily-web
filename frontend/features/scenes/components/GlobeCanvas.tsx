@@ -9,6 +9,7 @@ import 'maplibre-gl/dist/maplibre-gl.css'
 import './maplibreWorker'
 import { markAtlasMapReady } from '@/lib/atlasMapReady'
 import { useGraphPalette } from '@/components/graph/graphPalette'
+import { useCoarsePointer } from '@/lib/hooks/common/useCoarsePointer'
 import { useReducedMotion } from '@/lib/hooks/common/useReducedMotion'
 import {
   handleBasemapError,
@@ -57,6 +58,7 @@ import {
   CITY_VIEW_MIN_ZOOM,
   VENUE_LABEL_DECLUTTER_KM,
   labelledVenuePinIds,
+  venuePinTooltipLines,
 } from '../cityView'
 import {
   DOT_COLOR_BASE,
@@ -285,6 +287,7 @@ export default function GlobeCanvas({
   const venueTooltipRef = useRef<HTMLDivElement | null>(null)
   const venueTooltipNameRef = useRef<HTMLDivElement | null>(null)
   const venueTooltipMetaRef = useRef<HTMLDivElement | null>(null)
+  const venueTooltipCtaRef = useRef<HTMLDivElement | null>(null)
   // Filled by the map effect (closes over that map), nulled in its cleanup —
   // callers must stay null-safe, same contract as flyToRef.
   const redrawStatusChipRef = useRef<(() => void) | null>(null)
@@ -292,6 +295,11 @@ export default function GlobeCanvas({
   // place-label collision pass.
   const sceneLabelsRef = useRef<{ el: HTMLElement; lng: number; lat: number }[]>([])
   const clearVenueHoverRef = useRef<(() => void) | null>(null)
+  // Clears every hover the map handlers hold: the scene dot and the venue pin,
+  // their tooltips and the pointer cursor. clearVenueHoverRef clears only the
+  // pin's, for a change to the pin set that leaves the dots as they are. Both
+  // are set by the map effect and nulled in its cleanup.
+  const clearPointerHoverRef = useRef<(() => void) | null>(null)
   // The style-loaded map instance, in STATE so the data/label/ring effects
   // below re-run against each fresh map after a hide/show cycle, and against
   // the re-created style after a restored WebGL context. Null while the
@@ -368,15 +376,39 @@ export default function GlobeCanvas({
   useEffect(() => {
     onVenueStackSelectRef.current = onVenueStackSelect
   }, [onVenueStackSelect])
-  // Venue id -> the key of the stack it pins in, for the pin click handler.
-  const stackKeyByVenueIdRef = useRef<ReadonlyMap<number, string>>(new Map())
+  // While the device's primary pointer is coarse (`pointer: coarse`), the
+  // scene dots and venue pins show no tooltip, set no hover highlight and leave
+  // the cursor alone, whatever input sends the mousemove. The browser emulates
+  // a mousemove before a tap's click, and Safari on iOS drops the click when
+  // that mousemove changes the page. Both hover handlers read this ref; a
+  // switch to a coarse primary pointer clears any hover already held.
+  const coarsePointer = useCoarsePointer()
+  const coarsePointerRef = useRef(coarsePointer)
   useEffect(() => {
-    const byId = new Map<number, string>()
+    coarsePointerRef.current = coarsePointer
+    if (coarsePointer) clearPointerHoverRef.current?.()
+  }, [coarsePointer])
+  // The stacks by member venue id and by key, for the pin hover and click
+  // handlers.
+  const stacksRef = useRef<{
+    byVenueId: ReadonlyMap<number, VenueStackMarker>
+    byKey: ReadonlyMap<string, VenueStackMarker>
+  }>({ byVenueId: new Map(), byKey: new Map() })
+  useEffect(() => {
+    const byVenueId = new Map<number, VenueStackMarker>()
     for (const stack of venueStacks) {
-      for (const id of stack.venueIds) byId.set(id, stack.key)
+      for (const id of stack.venueIds) byVenueId.set(id, stack)
     }
-    stackKeyByVenueIdRef.current = byId
+    stacksRef.current = {
+      byVenueId,
+      byKey: new Map(venueStacks.map((s) => [s.key, s])),
+    }
   }, [venueStacks])
+  // A pin's tooltip depends on the stacks and on the stack handler, so a
+  // change to either clears a held pin hover; the next mousemove rebuilds it.
+  useEffect(() => {
+    clearVenueHoverRef.current?.()
+  }, [venueStacks, onVenueStackSelect])
   // The status chip is painted imperatively (see the map effect), so the label
   // rides a ref rather than re-entering the effect's deps.
   const cityLabelRef = useRef(cityLabel)
@@ -528,6 +560,7 @@ export default function GlobeCanvas({
       const button = document.createElement('button')
       button.type = 'button'
       button.dataset.testid = 'atlas-venue-stack'
+      button.dataset.stackKey = stack.key
       button.className =
         'flex flex-col items-center gap-0.5 rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring'
       const badge = document.createElement('span')
@@ -1144,6 +1177,7 @@ export default function GlobeCanvas({
     const handleMove = (
       e: maplibregl.MapMouseEvent & { features?: maplibregl.MapGeoJSONFeature[] },
     ) => {
+      if (coarsePointerRef.current) return
       const slug = pickTopScene(e.features)
       setHoverState(slug)
       map.getCanvas().style.cursor = slug ? 'pointer' : ''
@@ -1212,6 +1246,20 @@ export default function GlobeCanvas({
       return typeof id === 'number' ? id : null
     }
 
+    // The stack a click at this event opens: the stack marker's own stack when
+    // the event comes from inside a marker (its button opens that stack), else
+    // the stack pin `id` pins in. None without a stack handler, where a pin
+    // opens as its venue. The pin tooltip and the pin click both read this.
+    const stackClickedAt = (target: EventTarget | null, id: number) => {
+      if (!onVenueStackSelectRef.current) return undefined
+      const markerKey =
+        target instanceof Element
+          ? target.closest<HTMLElement>('[data-stack-key]')?.dataset.stackKey
+          : undefined
+      const { byKey, byVenueId } = stacksRef.current
+      return (markerKey !== undefined ? byKey.get(markerKey) : undefined) ?? byVenueId.get(id)
+    }
+
     const hideVenueTooltip = () => {
       if (venueTooltipRef.current) {
         venueTooltipRef.current.style.display = 'none'
@@ -1221,6 +1269,7 @@ export default function GlobeCanvas({
     const handleVenueMove = (
       e: maplibregl.MapMouseEvent & { features?: maplibregl.MapGeoJSONFeature[] },
     ) => {
+      if (coarsePointerRef.current) return
       const id = pickTopVenue(e.features)
       setVenueHoverState(id)
       map.getCanvas().style.cursor = id !== null ? 'pointer' : ''
@@ -1230,15 +1279,20 @@ export default function GlobeCanvas({
         hideVenueTooltip()
         return
       }
+      const lines = venuePinTooltipLines(
+        venue,
+        stackClickedAt(e.originalEvent.target, venue.id)?.scopeLine ?? null,
+      )
       // textContent, not innerHTML — venue names are contributor-editable.
       if (venueTooltipNameRef.current) {
-        venueTooltipNameRef.current.textContent = venue.name
+        venueTooltipNameRef.current.textContent = lines.title
       }
       if (venueTooltipMetaRef.current) {
-        const count = `${venue.upcomingShowCount} upcoming`
-        venueTooltipMetaRef.current.textContent = venue.nextShowLabel
-          ? `${count} · ${venue.nextShowLabel}`
-          : count
+        venueTooltipMetaRef.current.textContent = lines.meta ?? ''
+        venueTooltipMetaRef.current.hidden = lines.meta === null
+      }
+      if (venueTooltipCtaRef.current) {
+        venueTooltipCtaRef.current.hidden = !lines.showsCta
       }
       tooltip.style.display = 'block'
       // Same edge-flip as the scene tooltip so a pin near the frame edge
@@ -1259,9 +1313,9 @@ export default function GlobeCanvas({
     ) => {
       const id = pickTopVenue(e.features)
       if (id === null) return
-      const stackKey = stackKeyByVenueIdRef.current.get(id)
-      if (stackKey !== undefined && onVenueStackSelectRef.current) {
-        onVenueStackSelectRef.current(stackKey)
+      const stack = stackClickedAt(e.originalEvent.target, id)
+      if (stack) {
+        onVenueStackSelectRef.current?.(stack.key)
       } else {
         onVenueSelectRef.current?.(id)
       }
@@ -1272,14 +1326,16 @@ export default function GlobeCanvas({
     // Seam for the non-pointer paths that can invalidate a hover (a rail
     // filter deleting the hovered pin). One function owns the teardown.
     clearVenueHoverRef.current = handleVenueLeave
+    const clearPointerHover = () => {
+      handleLeave()
+      handleVenueLeave()
+    }
+    clearPointerHoverRef.current = clearPointerHover
     // The hovered dot and pin go with the lost style: their tooltips and the
     // pointer cursor clear at the loss, and the hover bookkeeping resets so
     // the restored style starts with nothing hovered. No feature state is
     // written (the health watch, registered earlier, reports the style down).
-    map.on('webglcontextlost', () => {
-      handleLeave()
-      handleVenueLeave()
-    })
+    map.on('webglcontextlost', clearPointerHover)
     // A stationary pointer with a moving camera would strand a hovered pin +
     // floating tooltip — same guard the scene layer needs.
     map.on('movestart', handleVenueLeave)
@@ -1359,6 +1415,7 @@ export default function GlobeCanvas({
       if (flyToRef) flyToRef.current = null
       redrawStatusChipRef.current = null
       clearVenueHoverRef.current = null
+      clearPointerHoverRef.current = null
       setMapReady((prev) => (prev === map ? null : prev))
       setMapLoaded((prev) => (prev === map ? null : prev))
       health.stop()
@@ -1411,6 +1468,7 @@ export default function GlobeCanvas({
       <div ref={containerRef} style={{ position: 'absolute', inset: 0 }} />
       <div
         ref={tooltipRef}
+        data-testid="atlas-scene-tooltip"
         className="pointer-events-none absolute z-10 rounded border border-border bg-background/90 px-2 py-1 text-xs text-foreground backdrop-blur"
         style={{ display: 'none' }}
       />
@@ -1443,8 +1501,10 @@ export default function GlobeCanvas({
           />
         </div>
       </div>
-      {/* Venue hover tooltip. Three fixed lines populated by textContent —
-          the name is contributor-editable, so no innerHTML anywhere here. */}
+      {/* Venue hover tooltip: a title, a meta line and the static CTA, the
+          last two hidden when a click there opens a stack. The title and meta
+          line are written as textContent, since venue names are
+          contributor-editable, so no innerHTML anywhere here. */}
       <div
         ref={venueTooltipRef}
         data-testid="atlas-venue-tooltip"
@@ -1456,10 +1516,7 @@ export default function GlobeCanvas({
           ref={venueTooltipMetaRef}
           className="font-mono text-[11px] text-muted-foreground"
         />
-        {/* The mock's CTA, held back by PSY-1539 because clicking a pin then
-            opened only a selection seam. PSY-1540 built the panel it promises,
-            so the promise is now true. Static text, so it needs no ref. */}
-        <div className="font-mono text-[11px] text-primary">
+        <div ref={venueTooltipCtaRef} className="font-mono text-[11px] text-primary">
           click for shows →
         </div>
       </div>

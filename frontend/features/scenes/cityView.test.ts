@@ -36,6 +36,7 @@ import {
   venueSheetTitle,
   venueStackLabel,
   venueStackScopeLine,
+  venuePinTooltipLines,
 } from './cityView'
 
 function scene(overrides: Partial<PlaceableScene> = {}): PlaceableScene {
@@ -1052,6 +1053,34 @@ describe('venuePinStacks', () => {
     const [stack] = venuePinStacks([venue({ id: 1 }), venue({ id: 2 }), venue({ id: 3 })])
     expect(venueStackLabel(stack)).toBe('3 venues · city centre')
     expect(venueStackScopeLine(stack)).toBe('3 venues at the city centre point')
+  })
+})
+
+describe('venuePinTooltipLines', () => {
+  const pin = { name: 'Empty Bottle', upcomingShowCount: 9, nextShowLabel: 'next Fri, Jul 31' }
+
+  it('names a lone pin and gives its count and next show', () => {
+    expect(venuePinTooltipLines(pin, null)).toEqual({
+      title: 'Empty Bottle',
+      meta: '9 upcoming · next Fri, Jul 31',
+      showsCta: true,
+    })
+  })
+
+  it('gives the count alone when nothing is booked next', () => {
+    expect(venuePinTooltipLines({ ...pin, nextShowLabel: '' }, null)).toEqual({
+      title: 'Empty Bottle',
+      meta: '9 upcoming',
+      showsCta: true,
+    })
+  })
+
+  it('titles a stacked pin by the stack alone, with no member counts and no shows CTA', () => {
+    expect(venuePinTooltipLines(pin, '2 venues at this point')).toEqual({
+      title: '2 venues at this point',
+      meta: null,
+      showsCta: false,
+    })
   })
 })
 
