@@ -7,6 +7,19 @@ import { resetTestFixtures, lookupWorkerUserId } from './test-fixtures-reset'
 const AUTH_DIR = path.resolve(__dirname, '../.auth')
 
 /**
+ * The auth file of the seeded user a worker signs in as. A worker index past
+ * the seeded pool wraps around to an already-seeded user.
+ */
+export function workerAuthFile(workerIndex: number): string {
+  return userAuthFileForWorker(workerIndex % USER_COUNT)
+}
+
+/** The storage-state path for {@link workerAuthFile}. */
+export function workerStorageState(workerIndex: number): string {
+  return path.join(AUTH_DIR, workerAuthFile(workerIndex))
+}
+
+/**
  * Auth fixtures that provide pre-authenticated pages using storageState
  * captured during global setup.
  *
@@ -63,10 +76,9 @@ export const test = base.extend<
   // to a warning is exactly how the silent mode would come back.
   workerCleanup: [
     async ({}, use, workerInfo) => {
-      const seededIndex = workerInfo.workerIndex % USER_COUNT
-      const authFile = userAuthFileForWorker(seededIndex)
-
-      const workerUserId = await lookupWorkerUserId(authFile)
+      const workerUserId = await lookupWorkerUserId(
+        workerAuthFile(workerInfo.workerIndex)
+      )
 
       await use()
 
@@ -125,10 +137,8 @@ export const test = base.extend<
     runFixture,
     testInfo,
   ) => {
-    const seededIndex = testInfo.workerIndex % USER_COUNT
-    const authFile = userAuthFileForWorker(seededIndex)
     const context: BrowserContext = await browser.newContext({
-      storageState: path.join(AUTH_DIR, authFile),
+      storageState: workerStorageState(testInfo.workerIndex),
     })
     const page = await context.newPage()
     await runFixture(page)
@@ -141,13 +151,12 @@ export const test = base.extend<
   // failing mutating test start from a clean slate instead of compounding
   // state across attempts. Reuses the PSY-432 allowlist scopes verbatim.
   cleanBetweenRetries: async ({}, use, testInfo) => {
-    const seededIndex = testInfo.workerIndex % USER_COUNT
-    const authFile = userAuthFileForWorker(seededIndex)
-
     // PSY-1645: throws rather than warning-and-skipping, for the reasons on
     // `workerCleanup` above. This fixture exists precisely so a retry starts
     // clean, so silently not cleaning defeats its only purpose.
-    const workerUserId = await lookupWorkerUserId(authFile)
+    const workerUserId = await lookupWorkerUserId(
+      workerAuthFile(testInfo.workerIndex)
+    )
 
     // `use` here is Playwright's fixture callback (the 2nd arg of a fixture
     // function), not React's `use` hook. The rule's name heuristic flags it

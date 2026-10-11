@@ -1,5 +1,10 @@
 import { test, expect } from '../fixtures'
+import { workerStorageState } from '../fixtures/auth'
 import type { Page } from '@playwright/test'
+import {
+  CLIENT_NAVIGATION_TIMEOUT_MS,
+  warmRoutes,
+} from '../helpers/navigation'
 
 const SECTION_TITLES = [
   'Account',
@@ -38,6 +43,13 @@ async function expectLandedBelowTopBar(page: Page, sectionId: string) {
 }
 
 test.describe('/settings hub', () => {
+  // The link rows reach /profile by client navigation.
+  test.beforeAll(async ({ browser }, testInfo) => {
+    await warmRoutes(browser, testInfo, ['/profile'], {
+      storageState: workerStorageState(testInfo.workerIndex),
+    })
+  })
+
   test.beforeEach(async ({ authenticatedPage: page }) => {
     await page.emulateMedia({ reducedMotion: 'reduce' })
   })
@@ -147,7 +159,9 @@ test.describe('/settings hub', () => {
       .getByRole('region', { name: 'Feeds' })
       .getByRole('link', { name: 'Manage in profile settings' })
       .click()
-    await expect(page).toHaveURL(/\/profile\?tab=settings$/)
+    await expect(page).toHaveURL(/\/profile\?tab=settings$/, {
+      timeout: CLIENT_NAVIGATION_TIMEOUT_MS,
+    })
     await expect(
       page.getByRole('heading', { level: 1, name: /edit profile & settings/i })
     ).toBeVisible()
@@ -173,7 +187,9 @@ test.describe('/settings hub', () => {
     const feeds = page.locator('main section[id="feeds"]')
     await expect(feeds).toBeFocused()
     await feeds.getByRole('link', { name: 'Manage in profile settings' }).click()
-    await expect(page).toHaveURL(/\/profile\?tab=settings$/)
+    await expect(page).toHaveURL(/\/profile\?tab=settings$/, {
+      timeout: CLIENT_NAVIGATION_TIMEOUT_MS,
+    })
     await expect(page.getByRole('tab', { name: 'Settings' })).toHaveAttribute(
       'data-state',
       'active'
@@ -197,7 +213,9 @@ test.describe('/settings hub', () => {
     await alerts
       .getByRole('link', { name: 'Manage in profile settings' })
       .click()
-    await expect(page).toHaveURL(/\/profile\?tab=settings#alerts$/)
+    await expect(page).toHaveURL(/\/profile\?tab=settings#alerts$/, {
+      timeout: CLIENT_NAVIGATION_TIMEOUT_MS,
+    })
     await expect(page.getByRole('tab', { name: 'Settings' })).toHaveAttribute(
       'data-state',
       'active'

@@ -1,6 +1,7 @@
 import { test } from '../fixtures/error-detection'
 import { expect, type Page } from '@playwright/test'
 import { firstUnlistedDay } from '../helpers/calendar-days'
+import { CLIENT_NAVIGATION_TIMEOUT_MS } from '../helpers/navigation'
 
 test.describe('Shows list', () => {
   test('loads and displays upcoming shows', { tag: '@smoke' }, async ({ page }) => {
@@ -118,7 +119,9 @@ test.describe('Shows list', () => {
 
     await page.getByRole('link', { name: /^Page 2\b/ }).first().click()
 
-    await expect(page).toHaveURL(/[?&]page=2(?:&|$)/)
+    await expect(page).toHaveURL(/[?&]page=2(?:&|$)/, {
+      timeout: CLIENT_NAVIGATION_TIMEOUT_MS,
+    })
 
     // The URL moves first and the rows follow, once the list re-reads `?page=`.
     // `keepPreviousData` holds page 1 on screen throughout, so the pager's own

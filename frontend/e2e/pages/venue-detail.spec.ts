@@ -1,11 +1,23 @@
 import { test } from '../fixtures/error-detection'
 import { expect } from '@playwright/test'
+import {
+  CLIENT_NAVIGATION_TIMEOUT_MS,
+  SEEDED_DETAIL_PATHS,
+  warmRoutes,
+} from '../helpers/navigation'
 
 // The `/shows` -> click first card -> `waitForURL` leg below is shared with
-// show-detail, artist-detail, and city-filter. It has flaked in CI under shard
-// load. See the FLAKE NOTE at the top of show-detail.spec.ts before changing
-// it, and change all four together if you do.
+// show-detail, artist-detail, and city-filter; see the note at the top of
+// show-detail.spec.ts and keep the four in step.
 test.describe('Venue detail', () => {
+  test.beforeAll(async ({ browser }, testInfo) => {
+    await warmRoutes(browser, testInfo, [
+      '/shows',
+      SEEDED_DETAIL_PATHS.show,
+      SEEDED_DETAIL_PATHS.venue,
+    ])
+  })
+
   test('displays venue information with shows tabs', async ({ page }) => {
     // Navigate: shows list → show detail → venue link
     await page.goto('/shows')
@@ -19,7 +31,9 @@ test.describe('Venue detail', () => {
       .locator('a[href^="/shows/"]')
       .first()
       .click()
-    await page.waitForURL(/\/shows\//, { timeout: 10_000 })
+    await page.waitForURL(/\/shows\//, {
+      timeout: CLIENT_NAVIGATION_TIMEOUT_MS,
+    })
 
     // Wait for show detail to load, then click venue link
     const venueLink = page.locator('a[href^="/venues/"]').first()
@@ -27,7 +41,9 @@ test.describe('Venue detail', () => {
     const venueName = await venueLink.textContent()
     await venueLink.click()
 
-    await page.waitForURL(/\/venues\//, { timeout: 10_000 })
+    await page.waitForURL(/\/venues\//, {
+      timeout: CLIENT_NAVIGATION_TIMEOUT_MS,
+    })
 
     // H1 with venue name
     const heading = page.getByRole('heading', { level: 1 })

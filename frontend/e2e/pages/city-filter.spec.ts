@@ -1,11 +1,19 @@
 import { test } from '../fixtures/error-detection'
 import { expect } from '@playwright/test'
+import {
+  CLIENT_NAVIGATION_TIMEOUT_MS,
+  SEEDED_DETAIL_PATHS,
+  warmRoutes,
+} from '../helpers/navigation'
 
 // The `/shows` -> click a card -> `waitForURL` leg below is a near-twin of the
-// one in show-detail, artist-detail, and venue-detail. It has flaked in CI
-// under shard load. See the FLAKE NOTE at the top of show-detail.spec.ts
-// before changing it, and change all four together if you do.
+// one in show-detail, artist-detail, and venue-detail; see the note at the
+// top of show-detail.spec.ts and keep the four in step.
 test.describe('City filter on shows list', () => {
+  test.beforeAll(async ({ browser }, testInfo) => {
+    await warmRoutes(browser, testInfo, ['/shows', SEEDED_DETAIL_PATHS.show])
+  })
+
   // PSY-434 Layer-5 audit: the pure-render "combobox + popular cities
   // visible" case is already covered by `CityFilters.test.tsx` (`renders
   // the combobox trigger` at line 28 and `shows popular cities when none
@@ -101,7 +109,9 @@ test.describe('City filter on shows list', () => {
       .first()
       .getByRole('link', { name: 'Details' })
       .click()
-    await page.waitForURL(/\/shows\//, { timeout: 10_000 })
+    await page.waitForURL(/\/shows\//, {
+      timeout: CLIENT_NAVIGATION_TIMEOUT_MS,
+    })
 
     // Go back
     await page.goBack()
