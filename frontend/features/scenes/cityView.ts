@@ -960,6 +960,23 @@ export function venueStackScopeLine(stack: VenuePinStack): string {
     : `${count} at this point`
 }
 
+/**
+ * The venue pin tooltip's lines: the venue's name over its upcoming count and
+ * next show. A pin that opens its stack is titled by the stack's scope line
+ * and has no meta line, since one member's counts do not describe the point.
+ */
+export function venuePinTooltipLines(
+  pin: Pick<VenuePin, 'name' | 'upcomingShowCount' | 'nextShowLabel'>,
+  stackScopeLine: string | null,
+): { title: string; meta: string | null } {
+  if (stackScopeLine !== null) return { title: stackScopeLine, meta: null }
+  const count = `${pin.upcomingShowCount} upcoming`
+  return {
+    title: pin.name,
+    meta: pin.nextShowLabel ? `${count} · ${pin.nextShowLabel}` : count,
+  }
+}
+
 /** The venue list sheet's title, e.g. "Chicago · 42 venues". */
 export function venueSheetTitle(
   principalCity: string,

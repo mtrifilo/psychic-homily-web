@@ -10,6 +10,9 @@ import { expect, type Page } from '@playwright/test'
 
 export const PHOENIX = { lat: 33.4484, lng: -112.074 }
 
+/** Where the fixture's street-geocoded room pins on its own. */
+export const STREET_ROOM = { lat: 33.4943, lng: -112.0326 }
+
 /**
  * A phone's browser context: touch input, a mobile viewport and a device pixel
  * ratio of 2. Spread into `test.use` beside a phone-width viewport.
@@ -93,8 +96,8 @@ export async function stubAtlas(page: Page, { showsThisWeek = 0 } = {}) {
             venue(1, 'Centroid Room One'),
             venue(2, 'Centroid Room Two'),
             venue(3, 'Street Room', {
-              street_latitude: 33.4943,
-              street_longitude: -112.0326,
+              street_latitude: STREET_ROOM.lat,
+              street_longitude: STREET_ROOM.lng,
             }),
           ],
           total: 3,
@@ -176,14 +179,19 @@ export async function dismissBanner(page: Page) {
   await expect(page.getByRole('dialog', { name: 'Cookie consent' })).toHaveCount(0)
 }
 
-/** The Phoenix scene dot's position in the viewport, through the map's own projection. */
-export function phoenixDotPoint(page: Page) {
+/** Where `point` falls in the viewport, through the map's own projection. */
+export function mapPoint(page: Page, point: { lat: number; lng: number }) {
   return page.evaluate(({ lng, lat }) => {
     const m = (window as unknown as { __atlasMap: AtlasMapSeam }).__atlasMap
     const p = m.project([lng, lat])
     const r = m.getCanvas().getBoundingClientRect()
     return { x: r.left + p.x, y: r.top + p.y }
-  }, PHOENIX)
+  }, point)
+}
+
+/** The Phoenix scene dot's position in the viewport, through the map's own projection. */
+export function phoenixDotPoint(page: Page) {
+  return mapPoint(page, PHOENIX)
 }
 
 /** Moves the camera over Phoenix at `zoom`, synchronously. */

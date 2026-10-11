@@ -2,10 +2,14 @@ import { test } from '../fixtures/error-detection'
 import { expect, type Page } from '@playwright/test'
 import {
   ATLAS_TEST_TIMEOUT_MS,
+  type AtlasMapSeam,
   creditUncovered,
   dismissBanner,
   jumpToPhoenix,
-  phoenixDotPoint,
+  mapPoint,
+  PHOENIX,
+  PHONE_CONTEXT,
+  STREET_ROOM,
   stubAtlas,
   waitForMap,
 } from '../helpers/atlas'
@@ -109,24 +113,79 @@ async function expectDetentHeight(page: Page, testId: string, detent: Detent) {
 }
 
 /**
- * A tap on the Phoenix scene dot, through the map's own projection, once the
- * dot has stopped moving on screen (the map resizes when the banner leaves).
+ * Where `at` falls in the viewport, through the map's own projection, once it
+ * has stopped moving on screen (the map resizes when the banner leaves).
  */
-async function tapSceneDot(page: Page) {
-  const dotPoint = async () => {
-    const p = await phoenixDotPoint(page)
+async function settledMapPoint(page: Page, at: { lat: number; lng: number }) {
+  const rounded = async () => {
+    const p = await mapPoint(page, at)
     return { x: Math.round(p.x), y: Math.round(p.y) }
   }
-  let point = await dotPoint()
+  let point = await rounded()
   await expect
     .poll(async () => {
       const previous = point
       await page.waitForTimeout(250)
-      point = await dotPoint()
+      point = await rounded()
       return point.x === previous.x && point.y === previous.y
     })
     .toBe(true)
+  return point
+}
+
+/** A tap on the Phoenix scene dot once it has stopped moving on screen. */
+async function tapSceneDot(page: Page) {
+  const point = await settledMapPoint(page, PHOENIX)
   await page.touchscreen.tap(point.x, point.y)
+}
+
+/**
+ * Counts, from now on, every time the element with `testId` is shown (its
+ * inline display set to anything but none), so a check can say a tap never
+ * showed it, even for a frame. Returns a reader for the count.
+ */
+async function countShows(page: Page, testId: string) {
+  type ShowsWindow = { __shows?: Record<string, number> }
+  await page.getByTestId(testId).evaluate((el) => {
+    const w = window as unknown as ShowsWindow
+    const id = el.getAttribute('data-testid')!
+    w.__shows = { ...w.__shows, [id]: 0 }
+    new MutationObserver(() => {
+      if ((el as HTMLElement).style.display !== 'none') w.__shows![id] += 1
+    }).observe(el, { attributes: true, attributeFilter: ['style'] })
+  })
+  return () =>
+    page.evaluate((id) => (window as unknown as ShowsWindow).__shows?.[id] ?? 0, testId)
+}
+
+/** Whether the primary pointer is coarse, as the page's media queries see it. */
+function pointerIsCoarse(page: Page) {
+  return page.evaluate(() => window.matchMedia('(pointer: coarse)').matches)
+}
+
+/**
+ * Frames the stacked centroid pin and the Street Room pin together at street
+ * zoom, and waits until both are drawn.
+ */
+async function frameBothPins(page: Page) {
+  await page.evaluate(
+    ({ a, b }) => {
+      const m = (window as unknown as { __atlasMap: AtlasMapSeam }).__atlasMap
+      m.jumpTo({ center: [(a.lng + b.lng) / 2, (a.lat + b.lat) / 2], zoom: 12 })
+    },
+    { a: PHOENIX, b: STREET_ROOM },
+  )
+  await waitForMap(page)
+  await expect
+    .poll(() =>
+      page.evaluate(
+        () =>
+          (window as unknown as { __atlasMap: AtlasMapSeam }).__atlasMap.queryRenderedFeatures(
+            { layers: ['venue-pins'] },
+          ).length,
+      ),
+    )
+    .toBeGreaterThanOrEqual(2)
 }
 
 /** A touch drag up from the sheet's grabber at Peek to Half's height. */
@@ -398,3 +457,99 @@ for (const viewport of [
     })
   })
 }
+
+test.describe('Atlas pin and dot taps on a 390x844 phone', () => {
+  test.use({ viewport: { width: 390, height: 844 }, ...PHONE_CONTEXT })
+
+  test('a tap on a lone pin opens its venue and a tap on a stacked pin opens the list, with no tooltip', async ({
+    page,
+  }) => {
+    await stubAtlas(page)
+    await page.goto('/atlas?city=Phoenix%2CAZ')
+    await waitForMap(page)
+    await dismissBanner(page)
+    expect(await pointerIsCoarse(page), 'the phone context has a coarse pointer').toBe(true)
+
+    const list = page.getByTestId('atlas-venue-sheet')
+    await expect(list).toHaveAttribute('data-detent', 'peek', { timeout: 30_000 })
+    await frameBothPins(page)
+    const tooltip = page.getByTestId('atlas-venue-tooltip')
+    const tooltipShows = await countShows(page, 'atlas-venue-tooltip')
+
+    // One tap on the lone pin opens its venue sheet.
+    const street = await settledMapPoint(page, STREET_ROOM)
+    await page.touchscreen.tap(street.x, street.y)
+    const venueSheet = page.getByTestId('atlas-venue-panel')
+    await expect(venueSheet).toBeVisible()
+    await expect(venueSheet).toContainText('Street Room')
+    await expect(tooltip).toBeHidden()
+    expect(await tooltipShows(), 'the tooltip never showed for the lone pin').toBe(0)
+
+    // Back to the list, then one tap on the stacked pin's point opens the
+    // list at Peek, scoped to the venues that share it.
+    await page.keyboard.press('Escape')
+    await expect(list).toBeVisible()
+    const stacked = await settledMapPoint(page, PHOENIX)
+    await page.touchscreen.tap(stacked.x, stacked.y)
+    await expect(list).toHaveAttribute('data-detent', 'peek')
+    await expect(page.getByTestId('venue-sheet-peek-line')).toHaveText(
+      '2 venues at the city centre point',
+    )
+    await expect(tooltip).toBeHidden()
+    expect(await tooltipShows(), 'the tooltip never showed for the stacked pin').toBe(0)
+  })
+
+  test('a tap on a scene dot opens its preview with no tooltip', async ({ page }) => {
+    await stubAtlas(page)
+    await page.goto('/atlas')
+    await waitForMap(page)
+    await dismissBanner(page)
+    const tooltipShows = await countShows(page, 'atlas-scene-tooltip')
+
+    // Repeated for the reason the scene preview detent test gives.
+    await expect(async () => {
+      await tapSceneDot(page)
+      await expect(page.getByTestId('atlas-scene-preview-sheet')).toBeVisible({
+        timeout: 2_000,
+      })
+    }).toPass({ timeout: 30_000 })
+    await expect(page.getByTestId('atlas-scene-tooltip')).toBeHidden()
+    expect(await tooltipShows(), 'the scene tooltip never showed').toBe(0)
+  })
+})
+
+test.describe('Atlas pin hover under a mouse at 820x844', () => {
+  test.use({ viewport: { width: 820, height: 844 }, hasTouch: false })
+
+  test('a stacked pin is named by its stack and a lone pin by its venue', async ({ page }) => {
+    await stubAtlas(page)
+    await page.goto('/atlas?city=Phoenix%2CAZ')
+    await waitForMap(page)
+    await page.getByRole('button', { name: 'Reject All' }).click()
+    await expect(page.getByRole('dialog', { name: 'Cookie consent' })).toHaveCount(0)
+    expect(await pointerIsCoarse(page), 'the mouse context has a fine pointer').toBe(false)
+
+    const list = page.getByTestId('atlas-venue-sheet')
+    await expect(list).toHaveAttribute('data-detent', 'peek', { timeout: 30_000 })
+    await frameBothPins(page)
+    const tooltip = page.getByTestId('atlas-venue-tooltip')
+
+    const stacked = await settledMapPoint(page, PHOENIX)
+    await page.mouse.move(stacked.x, stacked.y)
+    await expect(tooltip).toBeVisible()
+    await expect(tooltip).toContainText('2 venues at the city centre point')
+    await expect(tooltip).toContainText('click for shows')
+    await expect(tooltip).not.toContainText('Centroid Room')
+    await expect(tooltip).not.toContainText('upcoming')
+
+    const street = await settledMapPoint(page, STREET_ROOM)
+    await page.mouse.move(street.x, street.y)
+    await expect(tooltip).toContainText('Street Room')
+    await expect(tooltip).toContainText('3 upcoming')
+    await expect(tooltip).toContainText('click for shows')
+
+    // A click on the lone pin still opens its venue.
+    await page.mouse.click(street.x, street.y)
+    await expect(page.getByTestId('atlas-venue-panel')).toContainText('Street Room')
+  })
+})

@@ -88,4 +88,6 @@ export interface VenueStackMarker {
   venueIds: readonly number[]
   /** Visible text under the count, e.g. "17 venues · city centre". */
   label: string
+  /** What the stacked venues share, e.g. "2 venues at this point". */
+  scopeLine: string
 }
