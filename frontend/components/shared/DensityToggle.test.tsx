@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { act, fireEvent, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { DensityToggle } from './DensityToggle'
 
@@ -117,6 +117,40 @@ describe('DensityToggle', () => {
       )
       await user.click(screen.getByRole('radio', { name: 'Compact' }))
       expect(mockOnDensityChange).not.toHaveBeenCalled()
+    })
+
+    // A tap on the disabled group does nothing else, so in a browser that
+    // focuses a tapped element it is how a touch user reads why the control
+    // is disabled. This replays, on the wrapper,
+    // the order Chromium uses for a tap on the group's padding: pointer
+    // events, the focus it gives the wrapper, then a click. A tap on a
+    // disabled radio gets no click; that path is checked in a browser.
+    it('reveals the disabled reason on a touch tap and hides it on the next tap', () => {
+      render(
+        <DensityToggle
+          density="comfortable"
+          onDensityChange={mockOnDensityChange}
+          disabled
+          disabledTooltip="Density only applies to grid view"
+        />
+      )
+      const wrapper = screen.getByRole('radiogroup').parentElement as HTMLElement
+      expect(wrapper).toHaveAttribute('tabindex', '0')
+
+      fireEvent.pointerDown(wrapper, { pointerType: 'touch' })
+      fireEvent.pointerUp(document, { pointerType: 'touch' })
+      act(() => wrapper.focus())
+      fireEvent.click(wrapper)
+
+      expect(screen.getByRole('tooltip')).toHaveTextContent(
+        'Density only applies to grid view'
+      )
+
+      fireEvent.pointerDown(wrapper, { pointerType: 'touch' })
+      fireEvent.pointerUp(document, { pointerType: 'touch' })
+      fireEvent.click(wrapper)
+
+      expect(screen.queryByRole('tooltip')).toBeNull()
     })
 
     it('preserves the current selection (aria-checked still reflects density)', () => {

@@ -10,6 +10,7 @@ import {
 } from '@/components/ui/dialog'
 
 import { InfoTooltip } from './InfoTooltip'
+import { COARSE_POINTER_HIT_AREA_CLASS } from './touchTarget'
 
 const COPY = 'Controls immediate alerts when a new show is added.'
 const LABEL = 'What do these alerts control?'
@@ -448,5 +449,20 @@ describe('InfoTooltip', () => {
   it('carries the long-press suppression classes on the trigger', () => {
     renderInfo()
     expect(trigger()).toHaveClass('select-none', '[-webkit-touch-callout:none]')
+  })
+
+  // jsdom applies no CSS, so this pins the classes, including the exact
+  // coarse-pointer set; the hit area itself is measured in a browser.
+  it('grows the tap target on coarse pointers without resizing the glyph', () => {
+    renderInfo()
+    const button = trigger()
+    expect(button).toHaveClass('p-0.5')
+    expect(button.querySelector('svg')).toHaveClass('h-3.5', 'w-3.5')
+    const coarseOnly = [...button.classList].filter(token =>
+      token.startsWith('pointer-coarse:')
+    )
+    expect(coarseOnly.sort()).toEqual(
+      COARSE_POINTER_HIT_AREA_CLASS.split(' ').sort()
+    )
   })
 })
