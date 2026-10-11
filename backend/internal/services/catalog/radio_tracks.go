@@ -56,8 +56,9 @@ type RadioTracksRebuildReport struct {
 	Deleted int64
 }
 
-// The rebuild's working tables. Temporary and dropped on commit, so they never
-// generate WAL and never outlive the transaction.
+// The rebuild's working tables. Temporary and dropped on commit: their rows are
+// not WAL-logged (creating, analyzing and dropping them writes a little catalog
+// WAL per rebuild), and they never outlive the transaction.
 const (
 	radioTrackRebuildPlaysTable  = "radio_track_rebuild_plays"
 	radioTrackRebuildJoinsTable  = "radio_track_rebuild_joins"

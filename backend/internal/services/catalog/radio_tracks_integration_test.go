@@ -285,15 +285,23 @@ func (s *RadioTracksIntegrationSuite) TestRebuildKeepsUnkeyedPlaysOnTheMarkerRow
 	s.addPlay(radioTrackFixturePlay{station: "t-wfmu", artist: "Someone", title: stringPtr("  ")}, 1)
 	s.addPlay(radioTrackFixturePlay{station: "t-kexp", artist: "Someone", title: stringPtr("사랑")}, 1)
 	s.addPlay(radioTrackFixturePlay{station: "t-kexp", artist: "Someone", title: stringPtr("Real Song")}, 1)
+	// A second recording id on the marker, and a keyed play sharing the first:
+	// the marker joins nothing and is never flagged.
+	s.addPlay(radioTrackFixturePlay{station: "t-nts", artist: "방탄소년단", title: stringPtr("Butter"),
+		mb: stringPtr("bbbbbbbb-0000-0000-0000-000000000002")}, 1)
+	s.addPlay(radioTrackFixturePlay{station: "t-kexp", artist: "BTS", title: stringPtr("Dynamite"),
+		mb: stringPtr("bbbbbbbb-0000-0000-0000-000000000001")}, 1)
 
 	report := s.rebuild()
-	s.Equal(int64(6), report.Plays)
-	s.Equal(int64(5), report.UnkeyedPlays)
-	s.Equal(int64(2), report.Tracks, "the marker row and one keyed track")
+	s.Equal(int64(8), report.Plays)
+	s.Equal(int64(6), report.UnkeyedPlays)
+	s.Equal(0, report.JoinedKeys, "an unkeyed play's recording id never joins the marker to a track")
+	s.Equal(int64(3), report.Tracks, "the marker row and two keyed tracks")
+	s.Equal(1, s.track("bts", "dynamite").PlayCount)
 
 	marker := s.track("", "")
 	s.True(marker.Unkeyed)
-	s.Equal(5, marker.PlayCount)
+	s.Equal(6, marker.PlayCount)
 	s.Equal(3, marker.StationRowCount)
 	s.Equal("", marker.DisplayArtist)
 	s.Equal("", marker.DisplayTitle)
@@ -530,4 +538,40 @@ ORDER BY column_name`).Scan(&columns).Error)
 	want := slices.Clone(radioTrackDerivedColumns)
 	slices.Sort(want)
 	s.Equal(want, columns)
+}
+
+// Spelling ties break on the C collation, so every environment picks the same
+// display spelling.
+func (s *RadioTracksIntegrationSuite) TestDisplaySpellingTieBreaksOnCCollation() {
+	s.addPlay(radioTrackFixturePlay{station: "t-kexp", artist: "Devo", title: stringPtr("whip it")}, 1)
+	s.addPlay(radioTrackFixturePlay{station: "t-nts", artist: "DEVO", title: stringPtr("Whip It")}, 1)
+	s.rebuild()
+	t := s.track("devo", "whip it")
+	s.Equal("DEVO", t.DisplayArtist)
+	s.Equal("Whip It", t.DisplayTitle)
+}
+
+// Two keys that each have a track row and come to share a recording id merge
+// into the older row; the younger row is deleted and both keys point at the
+// survivor.
+func (s *RadioTracksIntegrationSuite) TestJoiningTwoExistingTracksKeepsTheOlderRow() {
+	mb := stringPtr("abababab-0000-0000-0000-000000000001")
+	s.addPlay(radioTrackFixturePlay{station: "t-kexp", artist: "Prince & The Revolution", title: stringPtr("Let's Go Crazy"), mb: mb}, 2)
+	s.rebuild()
+	s.addPlay(radioTrackFixturePlay{station: "t-wfmu", artist: "Prince and the Revolution", title: stringPtr("Let's Go Crazy")}, 1)
+	s.rebuild()
+	older := s.track("prince & the revolution", "let's go crazy")
+	younger := s.track("prince and the revolution", "let's go crazy")
+	s.Require().Less(older.ID, younger.ID)
+
+	s.Require().NoError(s.db.Exec("UPDATE radio_plays SET musicbrainz_recording_id = ? WHERE artist_name = 'Prince and the Revolution'", *mb).Error)
+	report := s.rebuild()
+	s.Equal(1, report.JoinedKeys)
+	s.Equal(int64(1), report.Deleted)
+	s.Equal(int64(1), s.count("radio_tracks"))
+	merged := s.track("prince & the revolution", "let's go crazy")
+	s.Equal(older.ID, merged.ID)
+	s.Equal(3, merged.PlayCount)
+	s.Equal(2, merged.StationFamilyCount)
+	s.Equal(older.ID, s.trackIDForKey("prince and the revolution", "let's go crazy"))
 }

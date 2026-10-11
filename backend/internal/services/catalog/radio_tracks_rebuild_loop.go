@@ -27,9 +27,8 @@ const (
 // on the boot path; RunScheduledLoop schedules the first cycle from persisted
 // run state, so a deploy never resets its clock.
 type RadioTracksRebuildLoop struct {
-	db         *gorm.DB
-	interval   time.Duration
-	startDelay time.Duration
+	db       *gorm.DB
+	interval time.Duration
 
 	stopCh chan struct{}
 	wg     sync.WaitGroup
@@ -37,18 +36,16 @@ type RadioTracksRebuildLoop struct {
 }
 
 // NewRadioTracksRebuildLoop constructs the loop. RADIO_TRACKS_REBUILD_INTERVAL_HOURS
-// and RADIO_TRACKS_REBUILD_START_DELAY_MINUTES override the defaults; the start
-// delay applies only when no run state exists yet.
+// overrides the interval.
 func NewRadioTracksRebuildLoop(database *gorm.DB) *RadioTracksRebuildLoop {
 	if database == nil {
 		database = db.GetDB()
 	}
 	return &RadioTracksRebuildLoop{
-		db:         database,
-		interval:   shared.EnvPositiveDuration("RADIO_TRACKS_REBUILD_INTERVAL_HOURS", time.Hour, defaultRadioTracksRebuildInterval),
-		startDelay: shared.EnvPositiveDuration("RADIO_TRACKS_REBUILD_START_DELAY_MINUTES", time.Minute, 0),
-		stopCh:     make(chan struct{}),
-		logger:     slog.Default(),
+		db:       database,
+		interval: shared.EnvPositiveDuration("RADIO_TRACKS_REBUILD_INTERVAL_HOURS", time.Hour, defaultRadioTracksRebuildInterval),
+		stopCh:   make(chan struct{}),
+		logger:   slog.Default(),
 	}
 }
 
@@ -58,10 +55,9 @@ func (l *RadioTracksRebuildLoop) Start(ctx context.Context) {
 	go func() {
 		defer l.wg.Done()
 		shared.RunScheduledLoop(ctx, shared.LoopConfig{
-			Name:       RadioTracksRebuildLoopName,
-			Interval:   l.interval,
-			StopCh:     l.stopCh,
-			StartDelay: l.startDelay,
+			Name:     RadioTracksRebuildLoopName,
+			Interval: l.interval,
+			StopCh:   l.stopCh,
 		}, l.runCycle)
 	}()
 	l.logger.Info("radio tracks rebuild loop started", "interval", l.interval)
