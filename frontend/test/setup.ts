@@ -37,6 +37,9 @@ vi.mock('@sentry/nextjs', () => ({
   setContext: vi.fn(),
   addBreadcrumb: vi.fn(),
   flush: vi.fn(() => Promise.resolve(true)),
+  // next.config wraps its config at module scope; identity keeps the config
+  // object as written for tests that import it.
+  withSentryConfig: <T,>(config: T): T => config,
 }))
 
 // Start MSW server before all tests, reset handlers after each test,
