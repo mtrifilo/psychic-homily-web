@@ -1,3 +1,5 @@
+import { existsSync, mkdirSync, writeFileSync } from 'node:fs'
+import { join } from 'node:path'
 import type { Browser, TestInfo } from '@playwright/test'
 
 /**
@@ -6,8 +8,29 @@ import type { Browser, TestInfo } from '@playwright/test'
  */
 const WARM_ROUTE_TIMEOUT_MS = 30_000
 
-/** Paths this worker process has loaded through warmRoutes. */
-const warmedPaths = new Set<string>()
+/**
+ * The routes already warmed in a run: one empty marker file per route under
+ * `dir`, written only after the route loaded. Every worker process of the run
+ * reads the same directory, including a worker Playwright starts after a
+ * failure.
+ */
+export function warmLedger(dir: string) {
+  const markerFor = (path: string) => join(dir, encodeURIComponent(path))
+  return {
+    isWarm: (path: string) => existsSync(markerFor(path)),
+    markWarm: (path: string) => {
+      mkdirSync(dir, { recursive: true })
+      writeFileSync(markerFor(path), '')
+    },
+  }
+}
+
+/**
+ * The run's ledger lives in the project output dir, which Playwright clears
+ * at the start of every run, so a new run warms again.
+ */
+const ledgerFor = (testInfo: TestInfo) =>
+  warmLedger(join(testInfo.project.outputDir, '.warmed-routes'))
 
 /**
  * Loads each path once in a throwaway page, so the dev server has compiled
@@ -23,9 +46,9 @@ const warmedPaths = new Set<string>()
  * HTML. A dynamic route compiles once for every slug, so any seeded slug
  * warms it.
  *
- * A worker loads each path at most once: the compile is shared by the whole
- * server, and every extra page load is contention for the tests running
- * beside it.
+ * A run loads each path at most once across all its workers (warmLedger):
+ * the compile is shared by the whole server, and every extra page load is
+ * contention for the tests running beside it.
  *
  * Pass `storageState` to load the pages as the signed-in viewer the test
  * uses. It is required for a page that sends a signed-out viewer to /auth,
@@ -37,7 +60,8 @@ export async function warmRoutes(
   paths: readonly string[],
   { storageState }: { storageState?: string } = {}
 ): Promise<void> {
-  const cold = paths.filter(path => !warmedPaths.has(path))
+  const ledger = ledgerFor(testInfo)
+  const cold = paths.filter(path => !ledger.isWarm(path))
   if (cold.length === 0) return
   testInfo.setTimeout(testInfo.timeout + cold.length * WARM_ROUTE_TIMEOUT_MS)
   const context = await browser.newContext({
@@ -55,7 +79,7 @@ export async function warmRoutes(
           `warming ${path} returned HTTP ${response?.status() ?? 'no response'}`
         )
       }
-      warmedPaths.add(path)
+      ledger.markWarm(path)
     }
   } finally {
     await context.close()
