@@ -1,14 +1,25 @@
 'use client'
 
 import { useMemo, useState } from 'react'
+import { Button } from '@/components/ui/button'
 import { ScenePreviewContent } from './ScenePreviewContent'
 import { compareScenesByActivity } from './globeScale'
+import type { AtlasSceneListReason } from '../atlasViewport'
 import type { SceneListItem } from '../types'
 
+/** The line under the heading that tells the visitor why there is no map. */
+const REASON_LINES: Record<AtlasSceneListReason, string> = {
+  'no-webgl2': 'This browser can’t draw the map, so here are the scenes as a list.',
+  'reduced-motion':
+    'You’ve asked for less motion, so the map stays off and the scenes are listed.',
+  'map-failed': 'The map didn’t start. Here are the scenes as a list.',
+}
+
 /**
- * The Atlas's stand-in for the map wherever atlasRendersSceneList says the
- * map should not run: the scenes as a list, still the geographic-discovery
- * payoff, just not spatial. Lists ALL scenes (incl. ones the globe can't
+ * The Atlas's stand-in for the map wherever atlasSceneListReason gives a
+ * reason the map should not run: the scenes as a list, still the
+ * geographic-discovery payoff, just not spatial. The line under the heading
+ * states the reason. Lists ALL scenes (incl. ones the globe can't
  * place), liveliest first. Each row expands in place (the app expands in
  * place rather than modally, cf. StationShowsDirectory's in-place view-all;
  * the only Sheet primitive is modal and would bury the list) into the same
@@ -18,10 +29,20 @@ import type { SceneListItem } from '../types'
 export function AtlasSceneList({
   scenes,
   loading,
+  reason,
+  onRetryMap,
   followedSlugs = null,
 }: {
   scenes: SceneListItem[]
   loading: boolean
+  /** Why the map is not running. */
+  reason: AtlasSceneListReason
+  /**
+   * Asks for the map again, offered as a button under the line whenever it
+   * is given. The caller passes it only with the `'map-failed'` reason, where
+   * a retry can succeed.
+   */
+  onRetryMap?: () => void
   /** Slugs of scenes the viewer follows (PSY-1340) — starred in the list. */
   followedSlugs?: ReadonlySet<string> | null
 }) {
@@ -43,6 +64,16 @@ export function AtlasSceneList({
       className="h-full w-full overflow-y-auto bg-background p-4"
     >
       <h1 className="text-lg font-semibold">Scenes</h1>
+      <p className="mt-1.5 text-sm text-muted-foreground">{REASON_LINES[reason]}</p>
+      {onRetryMap && (
+        <Button
+          variant="outline"
+          onClick={onRetryMap}
+          className="mt-3 h-11 w-full rounded-lg border-foreground font-medium dark:border-foreground"
+        >
+          Try the map again
+        </Button>
+      )}
       {loading ? (
         <p className="mt-4 text-sm text-muted-foreground">Loading…</p>
       ) : (

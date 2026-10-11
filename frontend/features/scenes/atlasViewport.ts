@@ -5,7 +5,7 @@ import { useMediaQuery } from '@/lib/hooks/common/useMediaQuery'
 /**
  * The Atlas's compact viewport: any viewport narrower than Tailwind's `lg`
  * breakpoint (64rem). This query decides the map's treatment at every width
- * below 64rem wherever the map mounts (see {@link atlasRendersSceneList} for
+ * below 64rem wherever the map mounts (see {@link atlasSceneListReason} for
  * where it does not).
  *
  * Width rather than pointer type: the phone boards are drawn by width, and a
@@ -54,16 +54,26 @@ export function useAtlasCompactViewport(): boolean {
 export const ATLAS_REDUCED_MOTION_LIST_BELOW_PX = 640
 
 /**
- * Whether the Atlas renders its scene list (AtlasSceneList) in place of the
- * map. Two visitor conditions: the browser cannot give MapLibre the WebGL2
- * context it requires (at any width), or the visitor prefers reduced motion
- * and the pane is narrower than {@link ATLAS_REDUCED_MOTION_LIST_BELOW_PX}.
- * Separately, `mapFailed` says a map has already failed: in this mount, or,
- * for an {@link AtlasMapUnrecoverableError}, anywhere in this page load (see
- * {@link markAtlasMapFailed}). Every other visitor gets the map, phones
- * included.
+ * Why the Atlas renders its scene list (AtlasSceneList) in place of the map:
+ * - `'no-webgl2'`: the browser cannot give MapLibre the WebGL2 context it
+ *   requires.
+ * - `'reduced-motion'`: the visitor prefers reduced motion and the pane is
+ *   narrower than {@link ATLAS_REDUCED_MOTION_LIST_BELOW_PX}.
+ * - `'map-failed'`: a map has already failed, in this mount or, for an
+ *   {@link AtlasMapUnrecoverableError}, anywhere in this page load (see
+ *   {@link markAtlasMapFailed}).
  */
-export function atlasRendersSceneList({
+export type AtlasSceneListReason = 'no-webgl2' | 'reduced-motion' | 'map-failed'
+
+/**
+ * Why the Atlas renders its scene list in place of the map, or null when it
+ * renders the map. Every visitor with none of the reasons gets the map, phones
+ * included. When several hold, the one returned is the one a retry cannot
+ * change: no WebGL2 holds at every width and reduced motion keeps the map off
+ * however often it is retried, so a failed map is named only when it is the
+ * sole reason.
+ */
+export function atlasSceneListReason({
   paneWidthPx,
   supportsWebGL2,
   prefersReducedMotion,
@@ -73,9 +83,13 @@ export function atlasRendersSceneList({
   supportsWebGL2: boolean
   prefersReducedMotion: boolean
   mapFailed: boolean
-}): boolean {
-  if (mapFailed || !supportsWebGL2) return true
-  return prefersReducedMotion && paneWidthPx < ATLAS_REDUCED_MOTION_LIST_BELOW_PX
+}): AtlasSceneListReason | null {
+  if (!supportsWebGL2) return 'no-webgl2'
+  if (prefersReducedMotion && paneWidthPx < ATLAS_REDUCED_MOTION_LIST_BELOW_PX) {
+    return 'reduced-motion'
+  }
+  if (mapFailed) return 'map-failed'
+  return null
 }
 
 /**
@@ -119,9 +133,10 @@ const FAILURE_MESSAGES: Record<AtlasMapFailureClass, string> = {
  * Thrown by the Atlas map when it cannot draw and the Atlas stops waiting for
  * it to: every {@link AtlasMapFailureClass}. For `context-lost` and
  * `first-render-timeout` that is a decision at a deadline, not proof the map
- * would never have drawn. AtlasGlobe
- * swaps in the scene list for the rest of the page load. Lives here, not
- * beside the map, so AtlasGlobe can recognise it without importing MapLibre.
+ * would never have drawn. AtlasGlobe swaps in the scene list for the rest of
+ * the page load, or until the visitor's retry ({@link atlasMapRetryCanSucceed}).
+ * Lives here, not beside the map, so AtlasGlobe can recognise it without
+ * importing MapLibre.
  */
 export class AtlasMapUnrecoverableError extends Error {
   readonly failureClass: AtlasMapFailureClass
@@ -133,23 +148,76 @@ export class AtlasMapUnrecoverableError extends Error {
   }
 }
 
-let atlasMapFailed = false
+let atlasMapFailure: AtlasMapFailureClass | null = null
 
 /**
- * Records that the Atlas map failed with an {@link AtlasMapUnrecoverableError},
- * so every later Atlas mount in this page load goes straight to the scene list
- * instead of building another map. For a refused context and an invalid
- * inline style a new map would fail the same way; for the loss classes and a
- * first render that never came it is a policy: one map that died is enough
- * to stop building more in this page load.
+ * Records that the Atlas map failed with an {@link AtlasMapUnrecoverableError}
+ * of `failureClass`, so every later Atlas mount in this page load goes
+ * straight to the scene list instead of building another map, until a
+ * visitor's retry clears it ({@link clearAtlasMapFailure}). For a refused
+ * context and an invalid inline style a new map would fail the same way; for
+ * the loss classes and a first render that never came it is a policy: one
+ * map that died is enough to stop building more in this page load unless the
+ * visitor asks for one.
  */
-export function markAtlasMapFailed(): void {
-  atlasMapFailed = true
+export function markAtlasMapFailed(failureClass: AtlasMapFailureClass): void {
+  atlasMapFailure = failureClass
 }
 
-/** Whether {@link markAtlasMapFailed} has run in this page load. */
-export function atlasMapFailedThisPage(): boolean {
-  return atlasMapFailed
+/**
+ * The class {@link markAtlasMapFailed} recorded in this page load, or null
+ * when no failure is recorded.
+ */
+export function atlasMapFailureThisPage(): AtlasMapFailureClass | null {
+  return atlasMapFailure
+}
+
+/**
+ * Drops the recorded failure, so the next Atlas mount builds a map again. For
+ * a visitor's retry, after {@link reprobeAtlasWebGL2} passed.
+ */
+export function clearAtlasMapFailure(): void {
+  atlasMapFailure = null
+}
+
+/**
+ * Whether a new map can draw after a failure of this class, which is when the
+ * scene list offers the visitor a retry. Null is a failure that carries no
+ * class. Each press builds one map, and a retried map that fails again is
+ * reported to Sentry like the first; the visitor's presses are the only
+ * bound on the loss classes and `first-render-timeout`.
+ * - The loss classes and `context-restore-refused`: the browser took the
+ *   context away from a map that had one, and a new map asks for a new
+ *   context on a new canvas, which a recovered GPU gives. A new map the
+ *   browser refuses fails as `context-refused`, which offers no retry, so a
+ *   GPU that keeps refusing costs one more attempt at most.
+ * - `context-refused`: MapLibre was refused a context after the WebGL2 probe
+ *   passed, so a passing probe predicts nothing for it. A refused map also
+ *   stays behind for the page load: maplibre-gl registers a module-global
+ *   image-request throttle control before its painter check, and only
+ *   `remove()`, which needs the painter, unregisters it.
+ * - `style-load-failed`: the style is inline, so a new map gets the same
+ *   style and fails the same way.
+ * - `first-render-timeout`: the timed-out map had a context and is removed
+ *   like any other, and MapLibre terminates its workers once no map holds
+ *   them, so a new map starts on new workers. A render frame that throws on
+ *   the same data throws again, which costs that retry one more deadline.
+ * - No class: a canvas module that failed to import, or a thrown effect.
+ *   React.lazy keeps a rejected import and throws it again on every mount, so
+ *   a retry would report the same failure again.
+ */
+export function atlasMapRetryCanSucceed(failureClass: AtlasMapFailureClass | null): boolean {
+  return failureClass !== null && RETRY_CAN_SUCCEED[failureClass]
+}
+
+const RETRY_CAN_SUCCEED: Record<AtlasMapFailureClass, boolean> = {
+  'context-refused': false,
+  'context-lost': true,
+  'context-lost-during-restore': true,
+  'context-lost-before-style': true,
+  'context-restore-refused': true,
+  'style-load-failed': false,
+  'first-render-timeout': true,
 }
 
 /**
@@ -186,6 +254,17 @@ let webGL2Support: boolean | undefined
  */
 export function atlasSupportsWebGL2(): boolean {
   if (typeof document === 'undefined') return false
-  webGL2Support ??= probeWebGL2(() => document.createElement('canvas'))
+  webGL2Support ??= reprobeAtlasWebGL2()
   return webGL2Support
+}
+
+/**
+ * {@link probeWebGL2} on a fresh `<canvas>` at every call; false where there
+ * is no `document`. {@link atlasSupportsWebGL2} keeps its first answer for the
+ * page load. A visitor's retry calls this directly, which leaves that kept
+ * answer alone, so a failed retry changes nothing the Atlas renders.
+ */
+export function reprobeAtlasWebGL2(): boolean {
+  if (typeof document === 'undefined') return false
+  return probeWebGL2(() => document.createElement('canvas'))
 }
