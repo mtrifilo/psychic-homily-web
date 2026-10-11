@@ -69,7 +69,6 @@ import { GenreLegend } from './GenreLegend'
 import { MyScenesStrip, MY_SCENES_FETCH_LIMIT } from './MyScenesStrip'
 import { useMyFollowing } from '@/lib/hooks/common/useFollow'
 import { ScenePreviewPanel } from './ScenePreviewPanel'
-import { scenePreviewSheetPx } from '../scenePreviewCamera'
 import { AtlasSceneList } from './AtlasSceneList'
 import { preloadAtlasMap } from './atlasMapPreload'
 import { loadGlobeCanvas } from './loadGlobeCanvas'
@@ -930,10 +929,7 @@ export function AtlasGlobe() {
               onBackToGlobe={sheetLayout ? handleBackToGlobe : undefined}
               venueStacks={sheetLayout ? venueStackMarkers : undefined}
               onVenueStackSelect={sheetLayout ? handleVenueStackSelect : undefined}
-              scenePreviewSheetPx={
-                sheetLayout ? scenePreviewSheetPx(previewDetent, paneSize.height) : 0
-              }
-              scenePreviewSheetDetent={previewDetent}
+              scenePreviewSheetDetent={sheetLayout ? previewDetent : undefined}
             />
           </CanvasSectionErrorBoundary>
           {sheetLayout && cityScene && (

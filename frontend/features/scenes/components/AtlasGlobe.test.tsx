@@ -6,6 +6,7 @@ import { renderWithProviders } from '@/test/utils'
 import type { SceneListResponse } from '../types'
 import type { PlaceableScene } from './globeTypes'
 import type { AtlasMapFailureClass } from '../atlasViewport'
+import type { BottomSheetDetent } from '@/components/ui/bottom-sheet'
 
 // AtlasGlobe statically imports only `globeTypes` (no react-globe.gl) and
 // dynamic-imports GlobeCanvas (ssr:false). In jsdom we exercise the testable
@@ -149,8 +150,7 @@ let lastCanvasProps: {
   onVenueStackSelect?: (key: string) => void
   scenes?: readonly PlaceableScene[]
   onSelect?: (scene: PlaceableScene) => void
-  scenePreviewSheetPx?: number
-  scenePreviewSheetDetent?: 'peek' | 'half' | 'full'
+  scenePreviewSheetDetent?: BottomSheetDetent
 } = {}
 // Set by a case to make the canvas throw from its mount effect: a failure
 // class, as the real GlobeCanvas throws when its map cannot draw, or 'other'.
@@ -2077,30 +2077,24 @@ describe('AtlasGlobe', () => {
         ).not.toBeInTheDocument()
       })
 
-      // The pane is 800 tall: Half is 45% of it (360), Full the pane less the
-      // 112px top strip, capped at 660.
-      it('hands the canvas the preview sheet’s height at each detent, and Half again once closed', async () => {
+      it('hands the canvas the preview sheet’s detent, and Half again once closed', async () => {
         renderWithProviders(<AtlasGlobe />)
         await screen.findByTestId('globe-canvas')
-        // Before any preview: the height a preview opens at.
-        expect(lastCanvasProps.scenePreviewSheetPx).toBe(360)
+        // Before any preview: the detent a preview opens at.
         expect(lastCanvasProps.scenePreviewSheetDetent).toBe('half')
 
         const dot = lastCanvasProps.scenes![0]
         act(() => lastCanvasProps.onSelect?.(dot))
-        expect(lastCanvasProps.scenePreviewSheetPx).toBe(360)
+        expect(lastCanvasProps.scenePreviewSheetDetent).toBe('half')
 
         const preview = screen.getByTestId('atlas-scene-preview-sheet')
         const name = `${dot.city}, ${dot.state} scene`
         fireEvent.click(within(preview).getByRole('button', { name: `Expand ${name}` }))
-        expect(lastCanvasProps.scenePreviewSheetPx).toBe(660)
         expect(lastCanvasProps.scenePreviewSheetDetent).toBe('full')
         fireEvent.click(within(preview).getByRole('button', { name: `Collapse ${name}` }))
-        expect(lastCanvasProps.scenePreviewSheetPx).toBe(120)
         expect(lastCanvasProps.scenePreviewSheetDetent).toBe('peek')
 
         fireEvent.click(screen.getByRole('button', { name: 'Close scene preview' }))
-        expect(lastCanvasProps.scenePreviewSheetPx).toBe(360)
         expect(lastCanvasProps.scenePreviewSheetDetent).toBe('half')
         act(() => lastCanvasProps.onSelect?.(dot))
         expect(screen.getByTestId('atlas-scene-preview-sheet')).toHaveAttribute(
@@ -2204,8 +2198,8 @@ describe('AtlasGlobe', () => {
         expect(lastCanvasProps.attributionPosition).toBe('bottom-left')
         expect(lastCanvasProps.onBackToGlobe).toBeUndefined()
         expect(lastCanvasProps.venueStacks).toBeUndefined()
-        // The preview is a side panel, so the camera keeps no padding for it.
-        expect(lastCanvasProps.scenePreviewSheetPx).toBe(0)
+        // The preview is a side panel, so the canvas is handed no sheet.
+        expect(lastCanvasProps.scenePreviewSheetDetent).toBeUndefined()
         act(() => lastCanvasProps.onVenueSelect?.(1))
         expect(screen.getByTestId('atlas-venue-panel')).not.toHaveAttribute(
           'data-slot',

@@ -48,7 +48,7 @@ import type { BottomSheetDetent } from '@/components/ui/bottom-sheet'
 import {
   dotClearOfSheet,
   scenePreviewCameraPadding,
-  scenePreviewRecentres,
+  scenePreviewSheetPx,
 } from '../scenePreviewCamera'
 import { genreFamilyColor } from '../genreFamilies'
 import {
@@ -163,13 +163,12 @@ interface GlobeCanvasProps {
    */
   onVenueStackSelect?: (stackKey: string) => void
   /**
-   * The height, in CSS px, of the bottom sheet the scene preview stands in:
-   * its current detent's while a scene is selected, and the detent it opens
-   * at otherwise. 0 when the preview is no bottom sheet. While a scene is
-   * selected it is the camera's bottom padding (see scenePreviewCamera.ts).
+   * The detent of the bottom sheet the scene preview stands in: its current
+   * detent while a scene is selected, and the detent it opens at otherwise.
+   * Undefined when the preview is no bottom sheet. While a scene is selected,
+   * the sheet's height over this canvas is the camera's bottom padding (see
+   * scenePreviewCamera.ts).
    */
-  scenePreviewSheetPx?: number
-  /** The detent `scenePreviewSheetPx` is the height of. */
   scenePreviewSheetDetent?: BottomSheetDetent
 }
 
@@ -299,8 +298,7 @@ export default function GlobeCanvas({
   onBackToGlobe,
   venueStacks = EMPTY_STACKS,
   onVenueStackSelect,
-  scenePreviewSheetPx = 0,
-  scenePreviewSheetDetent = 'half',
+  scenePreviewSheetDetent,
 }: GlobeCanvasProps) {
   const containerRef = useRef<HTMLDivElement | null>(null)
   // The root element: the page draws its chrome beside it.
@@ -400,11 +398,15 @@ export default function GlobeCanvas({
   useEffect(() => {
     onVenueStackSelectRef.current = onVenueStackSelect
   }, [onVenueStackSelect])
-  // Read by the fly-to seam, which the map-creation effect builds once.
-  const scenePreviewSheetPxRef = useRef(scenePreviewSheetPx)
+  // The preview sheet's height over this canvas; 0 with no sheet. Read by
+  // the fly-to seam, which the map-creation effect builds once, through the
+  // ref.
+  const previewSheetPx =
+    scenePreviewSheetDetent === undefined ? 0 : scenePreviewSheetPx(scenePreviewSheetDetent, height)
+  const previewSheetPxRef = useRef(previewSheetPx)
   useEffect(() => {
-    scenePreviewSheetPxRef.current = scenePreviewSheetPx
-  }, [scenePreviewSheetPx])
+    previewSheetPxRef.current = previewSheetPx
+  }, [previewSheetPx])
   // While the device's primary pointer is coarse (`pointer: coarse`), the
   // scene dots and venue pins show no tooltip, set no hover highlight and leave
   // the cursor alone, whatever input sends the mousemove. The browser emulates
@@ -886,7 +888,7 @@ export default function GlobeCanvas({
   // where this would put the camera. The last applied state is per map
   // instance: a restored context keeps the camera it had, and a new map
   // starts with no padding and no selection applied.
-  const previewCameraSheetPx = selectedSlug === null ? 0 : scenePreviewSheetPx
+  const previewCameraSheetPx = selectedSlug === null ? 0 : previewSheetPx
   const appliedPreviewCameraRef = useRef<{
     map: maplibregl.Map
     slug: string | null
@@ -914,14 +916,18 @@ export default function GlobeCanvas({
         if ((map.getPadding().bottom ?? 0) !== padding.bottom) map.easeTo({ padding })
         return
       }
-      const dotClear = dotClearOfSheet({
-        point: facingPoint(map, scene.longitude, scene.latitude, width, height),
-        radiusPx: sceneDotRadiusPx(scene.upcoming_show_count),
-        width,
-        height,
-        sheetPx: previewCameraSheetPx,
-      })
-      if (!scenePreviewRecentres(scenePreviewSheetDetent, dotClear)) return
+      if (
+        scenePreviewSheetDetent === 'peek' &&
+        dotClearOfSheet({
+          point: facingPoint(map, scene.longitude, scene.latitude, width, height),
+          radiusPx: sceneDotRadiusPx(scene.upcoming_show_count),
+          width,
+          height,
+          sheetPx: previewCameraSheetPx,
+        })
+      ) {
+        return
+      }
       const center = map.getCenter()
       const atTarget =
         (map.getPadding().bottom ?? 0) === padding.bottom &&
@@ -1183,7 +1189,7 @@ export default function GlobeCanvas({
           zoom: zoomForAltitude(FLY_TO_ALTITUDE),
           duration: FLY_TO_MS,
           padding: scenePreviewCameraPadding(
-            options?.opensPreview ? scenePreviewSheetPxRef.current : 0,
+            options?.opensPreview ? previewSheetPxRef.current : 0,
           ),
         })
       }

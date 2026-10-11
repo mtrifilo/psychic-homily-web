@@ -2,7 +2,6 @@ import { describe, it, expect } from 'vitest'
 import {
   dotClearOfSheet,
   scenePreviewCameraPadding,
-  scenePreviewRecentres,
   scenePreviewSheetPx,
 } from './scenePreviewCamera'
 
@@ -65,19 +64,5 @@ describe('dotClearOfSheet', () => {
 
   it('is not clear for a dot that is not drawn', () => {
     expect(dotClearOfSheet({ ...pane, point: null, sheetPx: 0 })).toBe(false)
-  })
-})
-
-describe('scenePreviewRecentres', () => {
-  it('re-centres at Half and at Full whether or not the dot is clear', () => {
-    expect(scenePreviewRecentres('half', true)).toBe(true)
-    expect(scenePreviewRecentres('half', false)).toBe(true)
-    expect(scenePreviewRecentres('full', true)).toBe(true)
-    expect(scenePreviewRecentres('full', false)).toBe(true)
-  })
-
-  it('re-centres at Peek only when the sheet covers the dot', () => {
-    expect(scenePreviewRecentres('peek', true)).toBe(false)
-    expect(scenePreviewRecentres('peek', false)).toBe(true)
   })
 })

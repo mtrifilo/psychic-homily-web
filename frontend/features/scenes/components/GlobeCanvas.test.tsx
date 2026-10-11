@@ -892,7 +892,6 @@ describe('GlobeCanvas preview camera', () => {
   it('eases the selected dot to the centre of the band above the Half sheet, at the same zoom', () => {
     const { map } = renderPreview({
       selected: CHICAGO,
-      scenePreviewSheetPx: HALF_PX,
       scenePreviewSheetDetent: 'half',
     })
     expect(map.easeTo).toHaveBeenCalledTimes(1)
@@ -902,21 +901,20 @@ describe('GlobeCanvas preview camera', () => {
   it('re-centres for Full, keeps the camera for a Peek that leaves the dot clear, and re-centres back at Half', () => {
     const { map, rerender, props } = renderPreview({
       selected: CHICAGO,
-      scenePreviewSheetPx: HALF_PX,
       scenePreviewSheetDetent: 'half',
     })
     map.easeTo.mockClear()
 
-    rerender(<GlobeCanvas {...props} scenePreviewSheetPx={FULL_PX} scenePreviewSheetDetent="full" />)
+    rerender(<GlobeCanvas {...props} scenePreviewSheetDetent="full" />)
     expect(map.easeTo).toHaveBeenCalledTimes(1)
     expect(map.easeTo).toHaveBeenLastCalledWith({ center: CHICAGO_CENTER, padding: padded(FULL_PX) })
 
     // The dot sits in the band above Full, well clear of a Peek sheet.
     stub.state.projectedPoint = { x: 195, y: 56 }
-    rerender(<GlobeCanvas {...props} scenePreviewSheetPx={PEEK_PX} scenePreviewSheetDetent="peek" />)
+    rerender(<GlobeCanvas {...props} scenePreviewSheetDetent="peek" />)
     expect(map.easeTo).toHaveBeenCalledTimes(1)
 
-    rerender(<GlobeCanvas {...props} scenePreviewSheetPx={HALF_PX} scenePreviewSheetDetent="half" />)
+    rerender(<GlobeCanvas {...props} scenePreviewSheetDetent="half" />)
     expect(map.easeTo).toHaveBeenCalledTimes(2)
     expect(map.easeTo).toHaveBeenLastCalledWith({ center: CHICAGO_CENTER, padding: padded(HALF_PX) })
   })
@@ -924,20 +922,18 @@ describe('GlobeCanvas preview camera', () => {
   it('re-centres for Peek when the Peek sheet covers the dot', () => {
     const { map, rerender, props } = renderPreview({
       selected: CHICAGO,
-      scenePreviewSheetPx: HALF_PX,
       scenePreviewSheetDetent: 'half',
     })
     map.easeTo.mockClear()
     // Under the Peek sheet, whose edge is at 731 - 120 = 611.
     stub.state.projectedPoint = { x: 195, y: 650 }
-    rerender(<GlobeCanvas {...props} scenePreviewSheetPx={PEEK_PX} scenePreviewSheetDetent="peek" />)
+    rerender(<GlobeCanvas {...props} scenePreviewSheetDetent="peek" />)
     expect(map.easeTo).toHaveBeenCalledWith({ center: CHICAGO_CENTER, padding: padded(PEEK_PX) })
   })
 
   it('eases the padding back to none when the preview closes, keeping the centre', () => {
     const { map, rerender, props } = renderPreview({
       selected: CHICAGO,
-      scenePreviewSheetPx: HALF_PX,
       scenePreviewSheetDetent: 'half',
     })
     map.easeTo.mockClear()
@@ -962,7 +958,7 @@ describe('GlobeCanvas preview camera', () => {
       <GlobeCanvas
         {...props}
         selected={CHICAGO}
-        scenePreviewSheetPx={HALF_PX}
+       
         scenePreviewSheetDetent="half"
       />,
     )
@@ -980,7 +976,7 @@ describe('GlobeCanvas preview camera', () => {
       <GlobeCanvas
         {...props}
         selected={CHICAGO}
-        scenePreviewSheetPx={HALF_PX}
+       
         scenePreviewSheetDetent="half"
       />,
     )
@@ -990,7 +986,6 @@ describe('GlobeCanvas preview camera', () => {
   it('keeps the camera through a lost and restored context', () => {
     const { map } = renderPreview({
       selected: CHICAGO,
-      scenePreviewSheetPx: HALF_PX,
       scenePreviewSheetDetent: 'half',
     })
     map.easeTo.mockClear()
@@ -1004,7 +999,6 @@ describe('GlobeCanvas preview camera', () => {
     const flyToRef: { current: FlyToScene | null } = { current: null }
     const { map } = renderPreview({
       flyToRef,
-      scenePreviewSheetPx: HALF_PX,
       scenePreviewSheetDetent: 'half',
     })
 

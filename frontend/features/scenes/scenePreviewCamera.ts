@@ -1,6 +1,7 @@
 /**
- * The camera rule that keeps a selected scene dot in view above the scene
- * preview's bottom sheet (the Atlas sheet layout).
+ * Geometry for the camera rule that keeps a selected scene dot in view above
+ * the scene preview's bottom sheet (the Atlas sheet layout). GlobeCanvas's
+ * preview camera effect applies the rule.
  *
  * While a preview sheet is open, the camera's bottom padding is the sheet's
  * height, so the map's centre (and, at globe zoom, the globe itself) sits in
@@ -11,6 +12,7 @@
  */
 
 import { bottomSheetHeightPx, type BottomSheetDetent } from '@/components/ui/bottom-sheet'
+import { dotBox, inside } from './basemap/globePlaces'
 import { ATLAS_SHEET_TOP_INSET_PX } from './cityView'
 
 /**
@@ -52,20 +54,13 @@ export function dotClearOfSheet({
   height: number
   sheetPx: number
 }): boolean {
-  if (point === null) return false
   return (
-    point.x - radiusPx >= 0 &&
-    point.x + radiusPx <= width &&
-    point.y - radiusPx >= 0 &&
-    point.y + radiusPx <= height - sheetPx
+    point !== null &&
+    inside(dotBox(point.x, point.y, radiusPx), {
+      left: 0,
+      top: 0,
+      right: width,
+      bottom: height - sheetPx,
+    })
   )
-}
-
-/**
- * Whether the camera eases the selected dot to the centre of the band above
- * the sheet once the sheet stands at `detent`: always, except at Peek with
- * the dot already clear of the sheet.
- */
-export function scenePreviewRecentres(detent: BottomSheetDetent, dotClear: boolean): boolean {
-  return detent !== 'peek' || !dotClear
 }
