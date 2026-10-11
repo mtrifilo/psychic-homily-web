@@ -43,15 +43,44 @@ place) stands in for the map:
    (640px). Wider panes keep the map, which honours the preference itself: no
    pulse rings, and camera moves cut instead of fly.
 3. **A failed map.** GlobeCanvas sits inside a `CanvasSectionErrorBoundary`
-   (Sentry tag `atlas-map`). When MapLibre is refused a WebGL2 context after
-   the probe passed, GlobeCanvas throws `AtlasMapContextError` and the list
-   latches for the rest of the page load (`markAtlasMapFailed`). Any other
-   error React sees from the canvas falls back for that mount: a throwing
-   effect is tried again on the next mount, but a failed canvas chunk is not
-   refetched (`React.lazy` keeps the rejected import), so every later mount
-   in that page load gets the list too, until a reload. Errors thrown from
-   MapLibre's own callbacks (animation frames, map events) are not React
-   errors and are not caught.
+   reported under the Sentry `section` tag `atlas-map`. A map that cannot
+   draw throws `AtlasMapUnrecoverableError` (`features/scenes/atlasViewport.ts`),
+   which also carries an `atlas_map_failure` tag naming its failure class
+   (`atlasMapBoundaryReporting` in `components/atlasMapHealth.ts`):
+
+   | `atlas_map_failure` | When |
+   | --- | --- |
+   | `context-refused` | MapLibre got no WebGL2 context at construction, though the probe passed |
+   | `context-lost` | the context was lost and not restored within `ATLAS_CONTEXT_RESTORE_DEADLINE_MS` (3000 ms) of continuously visible time |
+   | `context-lost-before-style` | the context was lost before the first style loaded (MapLibre saves only a loaded style, so a restore cannot bring it back) |
+   | `context-lost-during-restore` | the context was lost again while a restored style was still loading |
+   | `context-restore-refused` | the restore got no WebGL2 context back |
+   | `style-load-failed` | an error with no source before the style loaded |
+   | `first-render-timeout` | no frame rendered the scene data within `ATLAS_FIRST_RENDER_DEADLINE_MS` (16000 ms) of continuously visible time after construction: a render frame that throws, or a worker that never starts |
+
+   `watchAtlasMapHealth` classifies the context and style events;
+   `watchAtlasFirstRender` is the first-render watchdog. It watches only data
+   the map owns (the style is live and the `scenes` GeoJSON source is
+   loaded), never third-party tiles, so a hung basemap tile never costs a map
+   that is drawing. Both clocks count only while the page is visible and
+   start over when it is shown again. An error MapLibre reports for a single
+   source (a tile, a TileJSON) leaves the map up.
+
+   Every class latches the scene list for the rest of the page load
+   (`markAtlasMapFailed`): one Sentry event, no further map until a reload.
+   Any other error React sees from the canvas falls back for that mount: a
+   throwing effect is tried again on the next mount, but a failed canvas
+   chunk is not refetched (`React.lazy` keeps the rejected import), so every
+   later mount in that page load gets the list too, until a reload. Errors
+   thrown from MapLibre's own callbacks (animation frames, map events) are
+   not React errors and are not caught; before the first frame of the scene
+   data the watchdog sees their effect.
+
+   The `/venues` mini Atlas reports under `venue-mini-atlas` with the same
+   tag and latches the same classes it can hit (it has no first-render
+   watchdog) for the page load (`latchAtlasMapFailure`): a later mount shows
+   "The map is unavailable" without building a map. A failed chunk is not
+   latched on either surface.
 
 ### The light look on compact viewports
 
