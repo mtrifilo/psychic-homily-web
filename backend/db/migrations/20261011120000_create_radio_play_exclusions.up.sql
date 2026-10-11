@@ -12,8 +12,8 @@
 --   * pattern_type 'regex' compares with ~, and the pattern must mean the same
 --     thing to Postgres ARE and to Go RE2. Refused here and by the Go loader:
 --     an escape of anything but . ( ) [ ] * + ? | ^ $ \ / - }, a POSIX
---     bracket construct ([: [. [=), a (? group, a leading *, a brace (escaped
---     or not), an ASCII capital (normalized values are lowercase, so it could
+--     bracket construct ([: [. [=), a (? group, a leading *, an opening brace
+--     { (escaped or not), an ASCII capital (normalized values are lowercase, so it could
 --     never match), a pattern that matches the empty string (it would match
 --     every value), and more than 200 characters.
 --   * station_id NULL applies the row on every station; otherwise only to plays
@@ -66,3 +66,8 @@ CREATE TABLE radio_play_exclusions (
     CONSTRAINT radio_play_exclusions_rule_unique
         UNIQUE NULLS NOT DISTINCT (match_kind, pattern_type, pattern, station_id)
 );
+
+-- The ranking predicate probes station-scoped rows once per play by
+-- station_id; without this index each probe scans the whole table.
+CREATE INDEX idx_radio_play_exclusions_station
+    ON radio_play_exclusions(station_id) WHERE station_id IS NOT NULL;

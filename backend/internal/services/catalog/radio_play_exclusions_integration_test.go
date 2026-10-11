@@ -443,6 +443,34 @@ WHERE pattern_type = 'exact' AND pattern IS DISTINCT FROM radio_normalize_name(p
 	s.Empty(drifted)
 }
 
+// Station-scoped rules are probed through the station_id index, not by
+// scanning the whole table for every play.
+func (s *RadioPlayExclusionsIntegrationSuite) TestScopedRulesUseStationIndex() {
+	sheena := s.stationBySlug["t-sheena"]
+	s.Require().NoError(s.db.Create(&catalogm.RadioPlayExclusion{
+		MatchKind: "track_title", PatternType: "exact", Pattern: "announcements", Category: "talk",
+		StationID: &sheena, Reason: "test",
+	}).Error)
+	s.addPlays("t-kexp", "Some Artist", "Some Song", "Some Label", 200)
+	// A tiny table makes a sequential scan look cheapest; the production
+	// shape is many plays against a table of a few hundred rows.
+	s.Require().NoError(s.db.Exec("ANALYZE radio_play_exclusions").Error)
+	err := s.db.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Exec("SET LOCAL enable_seqscan = off").Error; err != nil {
+			return err
+		}
+		q := fmt.Sprintf(`EXPLAIN (FORMAT JSON) SELECT count(*) %s WHERE NOT (%s)`,
+			radioExclusionTestFrom, RadioPlayExcludedSQL(RadioRankingTrack, radioExclusionTestCols))
+		var planJSON string
+		if err := tx.Raw(q).Row().Scan(&planJSON); err != nil {
+			return err
+		}
+		s.Contains(planJSON, "idx_radio_play_exclusions_station", "the scoped probe can use the station index")
+		return nil
+	})
+	s.Require().NoError(err)
+}
+
 // Global rules are read once per query, not once per play.
 func (s *RadioPlayExclusionsIntegrationSuite) TestGlobalRulesAreReadOncePerQuery() {
 	s.addPlays("t-kexp", "Some Artist", "Some Song", "Some Label", 200)

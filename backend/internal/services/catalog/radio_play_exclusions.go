@@ -81,7 +81,7 @@ const RadioExclusionRegexMaxLen = 200
 // radioExclusionRegexRefused matches regex syntax that radio_play_exclusions
 // refuses, mirroring radio_play_exclusions_pattern_form_check: an escape of
 // anything but . ( ) [ ] * + ? | ^ $ \ / - }, a POSIX bracket construct ([:
-// [. [=), a (? group, a leading *, a brace (escaped or not), or an ASCII
+// [. [=), a (? group, a leading *, an opening brace { (escaped or not), or an ASCII
 // capital. What remains is read identically by Postgres ARE and Go RE2.
 var radioExclusionRegexRefused = regexp.MustCompile(`\\[^\]\[.()*+?|^$\\{}/-]|\[[:.=]|\(\?|^\*|\{|[A-Z]`)
 
@@ -307,8 +307,11 @@ func RadioPlayExcludedSQL(dim RadioRankingDimension, cols RadioPlayColumns) stri
 	//     cache once the table holds more regex rows than it fits. Each
 	//     pattern is valid on its own, so wrapping it in a group and joining
 	//     with | matches exactly when one of the patterns matches.
-	//   * Station-scoped rules are few and correlated per play; the CASE guard
-	//     skips them entirely while the table holds none.
+	//   * Station-scoped rules are correlated per play, read through the
+	//     partial station_id index; the CASE guard skips them entirely while
+	//     the table holds none.
+	//   * The correlated subqueries keep the enclosing scan of radio_plays
+	//     serial: Postgres does not run this predicate under a parallel scan.
 	return fmt.Sprintf(`EXISTS (
   SELECT 1
   FROM (SELECT %s AS artist_name,
