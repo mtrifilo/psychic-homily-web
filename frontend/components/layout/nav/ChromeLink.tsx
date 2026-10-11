@@ -56,29 +56,18 @@ export function ChromeLink({
 }) {
   const router = useRouter()
   const policy = chromePrefetch(useHydrated(), useCoarsePointer(), atlasPrefetch)
+  const onTouch = policy === 'on-touch'
+  const prefetchOnTouch = onTouch && prefetch !== false
 
-  if (policy !== 'on-touch') {
-    return (
-      <AtlasMapReadyLink
-        {...props}
-        href={href}
-        prefetch={prefetch}
-        atlasPrefetch={policy}
-        onTouchStart={onTouchStart}
-        onPointerDown={onPointerDown}
-      />
-    )
-  }
-
-  const prefetchOnTouch = prefetch !== false
   return (
     <AtlasMapReadyLink
       {...props}
       href={href}
-      // Next's own touchstart prefetch is off whenever prefetch is false, so
-      // the touch prefetch is the router call in the handlers below.
-      prefetch={false}
-      atlasPrefetch={atlasPrefetch}
+      // On touch, prefetch={false} turns off Next's own viewport, hover and
+      // touchstart prefetch; the handlers below make the router call instead.
+      prefetch={onTouch ? false : prefetch}
+      // With prefetch already off, 'never' spares the link the map signal.
+      atlasPrefetch={policy === 'on-touch' ? 'never' : policy}
       onTouchStart={(event: TouchEvent<HTMLAnchorElement>) => {
         onTouchStart?.(event)
         if (prefetchOnTouch) router.prefetch(href)

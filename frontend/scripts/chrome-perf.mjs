@@ -49,6 +49,7 @@
 // Exit codes: 0 every run finished, 2 harness error.
 import { writeFileSync } from 'node:fs'
 import { chromium, devices } from '@playwright/test'
+import { AFTER_MAP_WINDOW_MS, EXIT, errorMessage, median } from './lib/atlas-perf-budget.mjs'
 
 const FAST_4G = {
   offline: false,
@@ -65,7 +66,6 @@ const LCP_WINDOW_AFTER_MS = 2000
 // LCP + 2 s to have passed.
 const PAGE_OBSERVE_MS = 6000
 const TAP_TIMEOUT_MS = 30_000
-const EXIT = { OK: 0, HARNESS_ERROR: 2 }
 
 function usage(message) {
   if (message) console.error(`error: ${message}`)
@@ -74,7 +74,7 @@ function usage(message) {
 }
 
 function parseArgs(argv) {
-  const opts = { mode: null, runs: 3, path: null, tab: 'Shows', holdMs: 100, settleMs: 3000, headed: false, json: null }
+  const opts = { mode: null, runs: 3, path: null, tab: 'Shows', holdMs: 100, settleMs: AFTER_MAP_WINDOW_MS, headed: false, json: null }
   const positional = []
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i]
@@ -108,13 +108,7 @@ function parseArgs(argv) {
   return { ...opts, url }
 }
 
-const median = (values) => {
-  const sorted = [...values].sort((a, b) => a - b)
-  const mid = Math.floor(sorted.length / 2)
-  return sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2
-}
 const kib = (bytes) => (bytes / 1024).toFixed(0)
-const timeout = (ms) => new Promise((resolve) => setTimeout(() => resolve(null), ms))
 
 // Page-side probes, installed before any page script runs. Everything is
 // stamped on the page's own clock (ms since navigation start).
@@ -135,9 +129,9 @@ const PROBES = `(() => {
   // Arms the frame watch for one tap: the first frame showing the tab's
   // pending marker, and the first frame after the URL reaches the destination.
   window.__chromePerfWatchTap = (tabSelector, destPathname) => {
-    addEventListener('touchstart', () => { perf.touchStart ??= performance.now() }, { capture: true, once: true })
+    addEventListener('touchstart', () => { perf.touchStart = performance.now() }, { capture: true, once: true })
     addEventListener('touchend', () => {
-      perf.touchEnd ??= performance.now()
+      perf.touchEnd = performance.now()
       // performance.now(), not the callback's frame timestamp: that marks the
       // start of the frame, which can precede the touchend handler's stamp.
       const frame = () => {
@@ -183,13 +177,12 @@ async function openPage(browser, opts) {
   await cdp.send('Emulation.setCPUThrottlingRate', { rate: CPU_THROTTLE_RATE })
 
   // One entry per resource type + URL, the largest report kept, each stamped
-  // with when it finished (epoch ms) and started (epoch ms).
+  // with when it started and finished (epoch ms).
   const byKey = new Map()
   const pending = new Set()
+  // Every request issued, finished or not, with its start time.
   const started = new Map()
-  context.on('request', (request) => {
-    if (!started.has(request)) started.set(request, Date.now())
-  })
+  context.on('request', (request) => started.set(request, Date.now()))
   context.on('requestfinished', async (request) => {
     const url = request.url()
     if (url.startsWith('data:')) return
@@ -210,9 +203,7 @@ async function openPage(browser, opts) {
     await Promise.allSettled([...pending])
     return [...byKey.values()]
   }
-  // Every request issued, finished or not, for the prefetch check.
-  const issued = []
-  context.on('request', (request) => issued.push({ url: request.url(), at: Date.now() }))
+  const issued = () => [...started].map(([request, at]) => ({ url: request.url(), at }))
 
   const response = await page.goto(opts.url.href, { waitUntil: 'commit', timeout: READY_TIMEOUT_MS })
   const landedHost = new URL(page.url()).host
@@ -304,7 +295,7 @@ async function tapRun(browser, opts) {
     holdMs: Math.round(perf.touchEnd - perf.touchStart),
     pendingPaintMs: perf.pendingPaint === null ? null : Math.round(perf.pendingPaint - perf.touchEnd),
     destPaintMs: Math.round(perf.destPaint - perf.touchEnd),
-    destRequestedBeforeTouch: issued.some((r) => r.at < touchStartAt && destRequested(r)),
+    destRequestedBeforeTouch: issued().some((r) => r.at < touchStartAt && destRequested(r)),
     jsBytesBeforeTouch: finished.filter((r) => r.type === 'script' && r.at < touchStartAt).reduce((sum, r) => sum + r.bytes, 0),
     // The requests that started from touchstart on, in ms from touchstart:
     // what the tap itself fetched (the --json report only).
@@ -325,12 +316,18 @@ function printReport(opts, runs) {
     console.log(`- tap: ${opts.tab}, touchstart to touchend ${opts.holdMs} ms, ${opts.settleMs} ms after ${opts.url.pathname === '/atlas' ? 'first map' : 'load'}`)
     console.log(`- runs (pending paint / destination paint from touchend; destination prefetched before touch; JS before touch): ${runs.map((r) => `${r.pendingPaintMs ?? 'none'} / ${r.destPaintMs} ms; ${r.destRequestedBeforeTouch ? 'yes' : 'no'}; ${kib(r.jsBytesBeforeTouch)} KiB`).join(', ')}`)
     const pendings = runs.map((r) => r.pendingPaintMs).filter((v) => v !== null)
-    console.log(`- median: pending paint ${pendings.length === runs.length ? `${median(pendings)} ms` : pendings.length ? `${median(pendings)} ms (${pendings.length} of ${runs.length} runs)` : 'none'}, destination paint ${median(runs.map((r) => r.destPaintMs))} ms`)
+    let pendingMedian = 'none'
+    if (pendings.length) pendingMedian = `${median(pendings)} ms`
+    if (pendings.length && pendings.length < runs.length) pendingMedian += ` (${pendings.length} of ${runs.length} runs)`
+    console.log(`- median: pending paint ${pendingMedian}, destination paint ${median(runs.map((r) => r.destPaintMs))} ms`)
   }
 }
 
 const opts = parseArgs(process.argv.slice(2))
 const bypass = process.env.VERCEL_PROTECTION_BYPASS
+if (bypass && !(opts.url.protocol === 'https:' && PREVIEW_HOST.test(opts.url.hostname))) {
+  console.error(`note: VERCEL_PROTECTION_BYPASS is set but not sent: ${opts.url.host} is not an https preview host`)
+}
 const redact = (message) => (bypass ? message.replaceAll(bypass, '[redacted]') : message)
 const runs = []
 try {
@@ -347,9 +344,9 @@ try {
     }
   }
 } catch (error) {
-  console.error(`harness error: ${redact(error instanceof Error ? error.message : String(error))}`)
+  console.error(`harness error: ${redact(errorMessage(error))}`)
   process.exit(EXIT.HARNESS_ERROR)
 }
 printReport(opts, runs)
 if (opts.json) writeFileSync(opts.json, JSON.stringify({ url: opts.url.href, mode: opts.mode, runs }, null, 2))
-process.exit(EXIT.OK)
+process.exit(EXIT.PASS)
