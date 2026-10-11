@@ -63,6 +63,7 @@ const (
 	radioTrackRebuildPlaysTable  = "radio_track_rebuild_plays"
 	radioTrackRebuildJoinsTable  = "radio_track_rebuild_joins"
 	radioTrackRebuildTracksTable = "radio_track_rebuild_tracks"
+	radioTrackRebuildKeysTable   = "radio_track_rebuild_keys"
 )
 
 // radioTrackRebuildPlaysSQL keys every play. artist_key and title_key are both
@@ -92,7 +93,7 @@ CROSS JOIN LATERAL (
 
 // radioTrackRebuildTracksSQL aggregates the keyed plays into one row per
 // track. A key listed in the joins table counts toward the track it was joined
-// into. Spelling ties break on the C collation so every environment picks the
+// into. track_id is filled in by the write phase. Spelling ties break on the C collation so every environment picks the
 // same one.
 var radioTrackRebuildTracksSQL = `
 CREATE TEMP TABLE ` + radioTrackRebuildTracksTable + ` ON COMMIT DROP AS
@@ -140,7 +141,8 @@ SELECT a.artist_key, a.title_key,
        a.first_aired_on, a.last_aired_on,
        CASE WHEN a.artist_key <> '' AND a.mb_ids = 1 THEN a.some_mb_id END AS mb_recording_id,
        (a.artist_key <> '' AND a.mb_ids > 1) AS mb_recording_id_conflict,
-       a.album_play_count, a.label_play_count
+       a.album_play_count, a.label_play_count,
+       NULL::bigint AS track_id
 FROM agg a
 JOIN artist_spelling s ON s.artist_key = a.artist_key AND s.title_key = a.title_key
 LEFT JOIN title_spelling ts ON ts.artist_key = a.artist_key AND ts.title_key = a.title_key`
@@ -151,6 +153,15 @@ const radioTrackDerivedColumns = `display_artist, display_title, play_count, sta
   station_family_count, show_count, first_aired_on, last_aired_on, mb_recording_id,
   mb_recording_id_conflict, album_play_count, label_play_count`
 
+// The write phase. Every write touches only rows that are new, changed or
+// stale, so a rebuild over unchanged plays writes (and logs to WAL) nothing.
+// Existing ids are resolved into the working tables before anything is
+// written, so no statement reads the table it is writing: an anti-join
+// against a table that is growing inside the same statement can be planned as
+// a sequential rescan per row. INSERT ... ON CONFLICT is not used because it
+// locks, and so rewrites, every conflicting row. The rebuild lock is what makes
+// these plain statements safe: no other writer touches these tables.
+
 var radioTrackDeleteStaleSQL = `
 DELETE FROM radio_tracks t
 WHERE NOT EXISTS (
@@ -158,47 +169,77 @@ WHERE NOT EXISTS (
   WHERE n.artist_key = t.artist_key AND n.title_key = t.title_key
 )`
 
-// radioTrackUpsertSQL writes new tracks and rewrites only the rows whose
-// derived columns changed, so a steady-state rebuild generates WAL for the
-// tracks new plays touched rather than for the whole table.
-var radioTrackUpsertSQL = `
-INSERT INTO radio_tracks (artist_key, title_key, ` + radioTrackDerivedColumns + `, rebuilt_at)
-SELECT artist_key, title_key, ` + radioTrackDerivedColumns + `, now()
-FROM ` + radioTrackRebuildTracksTable + `
-ON CONFLICT (artist_key, title_key) DO UPDATE SET
-  (` + radioTrackDerivedColumns + `, rebuilt_at) =
-  (EXCLUDED.display_artist, EXCLUDED.display_title, EXCLUDED.play_count, EXCLUDED.station_row_count,
-   EXCLUDED.station_family_count, EXCLUDED.show_count, EXCLUDED.first_aired_on, EXCLUDED.last_aired_on,
-   EXCLUDED.mb_recording_id, EXCLUDED.mb_recording_id_conflict, EXCLUDED.album_play_count,
-   EXCLUDED.label_play_count, EXCLUDED.rebuilt_at)
-WHERE (radio_tracks.display_artist, radio_tracks.display_title, radio_tracks.play_count,
-       radio_tracks.station_row_count, radio_tracks.station_family_count, radio_tracks.show_count,
-       radio_tracks.first_aired_on, radio_tracks.last_aired_on, radio_tracks.mb_recording_id,
-       radio_tracks.mb_recording_id_conflict, radio_tracks.album_play_count, radio_tracks.label_play_count)
-  IS DISTINCT FROM
-      (EXCLUDED.display_artist, EXCLUDED.display_title, EXCLUDED.play_count, EXCLUDED.station_row_count,
-       EXCLUDED.station_family_count, EXCLUDED.show_count, EXCLUDED.first_aired_on, EXCLUDED.last_aired_on,
-       EXCLUDED.mb_recording_id, EXCLUDED.mb_recording_id_conflict, EXCLUDED.album_play_count,
-       EXCLUDED.label_play_count)`
+var radioTrackResolveIDsSQL = `
+UPDATE ` + radioTrackRebuildTracksTable + ` n
+SET track_id = t.id
+FROM radio_tracks t
+WHERE t.artist_key = n.artist_key AND t.title_key = n.title_key`
 
-var radioTrackKeysUpsertSQL = `
-INSERT INTO radio_track_keys (artist_key, title_key, track_id)
-SELECT k.artist_key, k.title_key, t.id
+var radioTrackUpdateSQL = `
+UPDATE radio_tracks t
+SET (` + radioTrackDerivedColumns + `, rebuilt_at) =
+    (n.display_artist, n.display_title, n.play_count, n.station_row_count,
+     n.station_family_count, n.show_count, n.first_aired_on, n.last_aired_on, n.mb_recording_id,
+     n.mb_recording_id_conflict, n.album_play_count, n.label_play_count, now())
+FROM ` + radioTrackRebuildTracksTable + ` n
+WHERE n.track_id = t.id
+  AND (t.display_artist, t.display_title, t.play_count, t.station_row_count,
+       t.station_family_count, t.show_count, t.first_aired_on, t.last_aired_on, t.mb_recording_id,
+       t.mb_recording_id_conflict, t.album_play_count, t.label_play_count)
+      IS DISTINCT FROM
+      (n.display_artist, n.display_title, n.play_count, n.station_row_count,
+       n.station_family_count, n.show_count, n.first_aired_on, n.last_aired_on, n.mb_recording_id,
+       n.mb_recording_id_conflict, n.album_play_count, n.label_play_count)`
+
+// radioTrackInsertSQL inserts the tracks that have no row yet and records the
+// new ids in the working table; its row count is the number inserted.
+var radioTrackInsertSQL = `
+WITH inserted AS (
+  INSERT INTO radio_tracks (artist_key, title_key, ` + radioTrackDerivedColumns + `, rebuilt_at)
+  SELECT artist_key, title_key, ` + radioTrackDerivedColumns + `, now()
+  FROM ` + radioTrackRebuildTracksTable + `
+  WHERE track_id IS NULL
+  RETURNING id, artist_key, title_key
+)
+UPDATE ` + radioTrackRebuildTracksTable + ` n
+SET track_id = inserted.id
+FROM inserted
+WHERE inserted.artist_key = n.artist_key AND inserted.title_key = n.title_key`
+
+// radioTrackRebuildKeysSQL lists every key seen in the plays with the id of
+// its track and the track_id its radio_track_keys row holds now (NULL when it
+// has none).
+var radioTrackRebuildKeysSQL = `
+CREATE TEMP TABLE ` + radioTrackRebuildKeysTable + ` ON COMMIT DROP AS
+SELECT k.artist_key, k.title_key, n.track_id, rk.track_id AS current_track_id
 FROM (SELECT DISTINCT artist_key, title_key FROM ` + radioTrackRebuildPlaysTable + `) k
 LEFT JOIN ` + radioTrackRebuildJoinsTable + ` j
   ON j.artist_key = k.artist_key AND j.title_key = k.title_key
-JOIN radio_tracks t
-  ON t.artist_key = coalesce(j.track_artist_key, k.artist_key)
- AND t.title_key = coalesce(j.track_title_key, k.title_key)
-ON CONFLICT (artist_key, title_key) DO UPDATE SET track_id = EXCLUDED.track_id
-WHERE radio_track_keys.track_id <> EXCLUDED.track_id`
+JOIN ` + radioTrackRebuildTracksTable + ` n
+  ON n.artist_key = coalesce(j.track_artist_key, k.artist_key)
+ AND n.title_key = coalesce(j.track_title_key, k.title_key)
+LEFT JOIN radio_track_keys rk
+  ON rk.artist_key = k.artist_key AND rk.title_key = k.title_key`
 
 var radioTrackKeysDeleteStaleSQL = `
-DELETE FROM radio_track_keys k
+DELETE FROM radio_track_keys rk
 WHERE NOT EXISTS (
-  SELECT 1 FROM ` + radioTrackRebuildPlaysTable + ` p
-  WHERE p.artist_key = k.artist_key AND p.title_key = k.title_key
+  SELECT 1 FROM ` + radioTrackRebuildKeysTable + ` k
+  WHERE k.artist_key = rk.artist_key AND k.title_key = rk.title_key
 )`
+
+var radioTrackKeysUpdateSQL = `
+UPDATE radio_track_keys rk
+SET track_id = k.track_id
+FROM ` + radioTrackRebuildKeysTable + ` k
+WHERE k.artist_key = rk.artist_key AND k.title_key = rk.title_key
+  AND k.current_track_id <> k.track_id`
+
+var radioTrackKeysInsertSQL = `
+INSERT INTO radio_track_keys (artist_key, title_key, track_id)
+SELECT artist_key, title_key, track_id
+FROM ` + radioTrackRebuildKeysTable + `
+WHERE current_track_id IS NULL`
 
 // RebuildRadioTracks rebuilds radio_tracks and radio_track_keys from
 // radio_plays in one transaction. It is idempotent: a rebuild over unchanged
@@ -244,26 +285,35 @@ func RebuildRadioTracks(ctx context.Context, database *gorm.DB) (*RadioTracksReb
 		if err := tx.Exec(radioTrackRebuildTracksSQL).Error; err != nil {
 			return fmt.Errorf("aggregating tracks: %w", err)
 		}
+		if err := tx.Exec("ANALYZE " + radioTrackRebuildTracksTable).Error; err != nil {
+			return fmt.Errorf("analyzing tracks: %w", err)
+		}
 
 		// Stale rows go first so the cascade removes their keys before the
-		// key sync rewrites the rest.
+		// keys are compared.
 		res := tx.Exec(radioTrackDeleteStaleSQL)
 		if res.Error != nil {
 			return fmt.Errorf("deleting stale tracks: %w", res.Error)
 		}
 		report.Deleted = res.RowsAffected
-
-		res = tx.Exec(radioTrackUpsertSQL)
-		if res.Error != nil {
-			return fmt.Errorf("writing tracks: %w", res.Error)
+		if err := tx.Exec(radioTrackResolveIDsSQL).Error; err != nil {
+			return fmt.Errorf("resolving track ids: %w", err)
 		}
-		report.Written = res.RowsAffected
-
-		if err := tx.Exec(radioTrackKeysUpsertSQL).Error; err != nil {
-			return fmt.Errorf("writing track keys: %w", err)
+		for _, stmt := range []string{radioTrackUpdateSQL, radioTrackInsertSQL} {
+			res = tx.Exec(stmt)
+			if res.Error != nil {
+				return fmt.Errorf("writing tracks: %w", res.Error)
+			}
+			report.Written += res.RowsAffected
 		}
-		if err := tx.Exec(radioTrackKeysDeleteStaleSQL).Error; err != nil {
-			return fmt.Errorf("deleting stale track keys: %w", err)
+
+		if err := tx.Exec(radioTrackRebuildKeysSQL).Error; err != nil {
+			return fmt.Errorf("listing track keys: %w", err)
+		}
+		for _, stmt := range []string{radioTrackKeysDeleteStaleSQL, radioTrackKeysUpdateSQL, radioTrackKeysInsertSQL} {
+			if err := tx.Exec(stmt).Error; err != nil {
+				return fmt.Errorf("writing track keys: %w", err)
+			}
 		}
 
 		if err := tx.Raw("SELECT (SELECT count(*) FROM radio_tracks), (SELECT count(*) FROM radio_track_keys)").
