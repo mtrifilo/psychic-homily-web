@@ -199,8 +199,9 @@ export async function jumpToPhoenix(page: Page, zoom: number) {
 
 /**
  * Where the map credit is and what covers it. The document is first scrolled
- * back to the top: a tap's actionability scroll can move the page (the footer
- * sits below the Atlas), which says nothing about what the layout covers.
+ * back to the top: a tap's actionability scroll can move the page wherever it
+ * is taller than the viewport (at `xl` the footer sits below the Atlas), which
+ * says nothing about what the layout covers.
  *
  * `covered` lists every sample point (three across, at three heights) whose
  * topmost element is not the credit; `clipped` is true when the text overflows

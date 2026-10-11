@@ -1,12 +1,16 @@
 'use client'
 
+import { usePathname } from 'next/navigation'
 import { ChromeLink } from '@/components/layout/nav/ChromeLink'
 import { useCookieConsent } from '@/lib/context/CookieConsentContext'
+import { cn } from '@/lib/utils'
+import { isFooterHiddenBelowXl } from './footerVisibility'
 
 /**
  * Footer (PSY-389) — the editorial site footer from the Navigation & Discovery
  * Redesign (Figma `491:29`). Rendered globally in `app/layout.tsx`, so it
- * applies to every page, not just home.
+ * applies to every page, not just home, except below `xl` on the
+ * viewport-filling routes listed in `footerVisibility.ts`.
  *
  * Brand col + four link columns (Discover / Browse / Community / About) + a
  * bottom sign-off row. The legacy footer's legal affordances are preserved in
@@ -64,9 +68,15 @@ const FOOTER_COLUMNS: ReadonlyArray<FooterColumn> = [
 export default function Footer() {
   const { openPreferences } = useCookieConsent()
   const currentYear = new Date().getFullYear()
+  const hiddenBelowXl = isFooterHiddenBelowXl(usePathname())
 
   return (
-    <footer className="mt-auto w-full border-t border-border/60">
+    <footer
+      className={cn(
+        'mt-auto w-full border-t border-border/60',
+        hiddenBelowXl && 'hidden xl:block'
+      )}
+    >
       <div className="mx-auto max-w-7xl px-4 pb-10 pt-11 md:px-8">
         <div className="flex flex-col gap-10 md:flex-row md:items-start">
           {/* Brand column */}
