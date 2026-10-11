@@ -1,17 +1,6 @@
-import { describe, it, expect, vi } from 'vitest'
-
-// The global mock in test/setup omits `withSentryConfig`, which next.config
-// calls at module scope. Identity is the right stand-in here: this file asserts
-// the redirect table, and Sentry's wrapper does not touch it.
-vi.mock('@sentry/nextjs', async importOriginal => {
-  const actual = await importOriginal<Record<string, unknown>>()
-  return {
-    ...actual,
-    withSentryConfig: <T,>(config: T): T => config,
-  }
-})
-
-import nextConfig from './next.config'
+import { describe, it, expect } from 'vitest'
+import { PHASE_DEVELOPMENT_SERVER } from 'next/constants'
+import nextConfigForPhase from './next.config'
 import { SHOWS_CALENDAR_DAY_SEGMENT } from './proxy'
 
 /**
@@ -34,7 +23,7 @@ import { SHOWS_CALENDAR_DAY_SEGMENT } from './proxy'
  */
 describe('the legacy Hugo shows redirect', () => {
   async function flattenRule() {
-    const redirects = await nextConfig.redirects!()
+    const redirects = await nextConfigForPhase(PHASE_DEVELOPMENT_SERVER).redirects!()
     const rule = redirects.find(
       entry =>
         entry.source.startsWith('/shows/:year') &&

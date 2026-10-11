@@ -53,6 +53,12 @@
  * always be set on Vercel. The invariant is now enforced rather than assumed.
  */
 const DEVELOPMENT_BACKEND_ORIGIN = 'http://localhost:8080'
+
+/**
+ * Where a production build's backend lives when nothing is configured. Outside
+ * Vercel, `next build` refuses to reach it (next.config.ts); a
+ * script that imports this module directly with the variable unset does not.
+ */
 const PRODUCTION_BACKEND_ORIGIN = 'https://api.psychichomily.com'
 
 /**

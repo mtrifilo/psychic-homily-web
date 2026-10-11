@@ -40,7 +40,7 @@ The frontend for [psychichomily.com](https://psychichomily.com) - a platform for
    | Variable | What reads it |
    |----------|---------------|
    | `BACKEND_URL` | The `/api` catch-all proxy (`app/api/[...path]/route.ts`): where it forwards to |
-   | `NEXT_PUBLIC_API_URL` | The **data** base (`lib/api-base.ts`). Unset in the browser during development means the same-origin `/api` proxy, which is what lets the SameSite=Lax `auth_token` cookie ride along |
+   | `NEXT_PUBLIC_API_URL` | The **data** base (`lib/api-base.ts`). Unset in the browser during development means the same-origin `/api` proxy, which is what lets the SameSite=Lax `auth_token` cookie ride along. Required for `bun run build` outside Vercel: a production build with it unset and no `VERCEL` marker fails at config load (`next.config.ts`) rather than prerender against the production API. Export it, or set it in `.env.local`, to `https://stage.api.psychichomily.com` or a local backend |
    | `NEXT_PUBLIC_OAUTH_BACKEND_URL` | The **OAuth** base (`lib/api-base.ts`). The Google button is a full-page redirect to the backend's `/auth/login/google`, and that redirect does not survive the proxy, so it needs the backend's own origin. Defaults to `NEXT_PUBLIC_API_URL`, then to `http://localhost:8080` |
 
    Affiliate variables (optional; unset means every outbound ticket link is
