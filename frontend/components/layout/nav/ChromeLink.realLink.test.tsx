@@ -1,6 +1,8 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { act, render, screen } from '@testing-library/react'
+import { act, fireEvent, render, screen } from '@testing-library/react'
+import { renderToString } from 'react-dom/server'
 import { AppRouterContext } from 'next/dist/shared/lib/app-router-context.shared-runtime'
+import { installMatchMedia } from '@/test/mocks/matchMedia'
 import { atlasItem } from './navData'
 
 const pathname = vi.hoisted(() => ({ current: '' }))
@@ -65,6 +67,73 @@ describe('ChromeLink with the real next/link', () => {
     act(() => signal.markAtlasMapReady())
 
     expect(observed(anchor)).toBe(true)
+  })
+
+  it('observes the anchor on /shows once hydration has run, on a fine pointer', async () => {
+    pathname.current = '/shows'
+    const { ChromeLink } = await load()
+    const tree = (
+      <AppRouterContext.Provider value={router}>
+        <ChromeLink href="/venues">Venues</ChromeLink>
+      </AppRouterContext.Provider>
+    )
+    const container = document.createElement('div')
+    container.innerHTML = renderToString(tree)
+    document.body.appendChild(container)
+
+    await act(async () => {
+      render(tree, { container, hydrate: true })
+    })
+
+    expect(observed(screen.getByText('Venues'))).toBe(true)
+  })
+
+  describe('on a coarse pointer', () => {
+    let matchMedia: ReturnType<typeof installMatchMedia>
+    beforeEach(() => {
+      matchMedia = installMatchMedia({ '(pointer: coarse)': true })
+      router.prefetch.mockClear()
+    })
+    afterEach(() => {
+      matchMedia.restore()
+    })
+
+    it('never observes the anchor, from the hydration render on', async () => {
+      pathname.current = '/shows'
+      const { ChromeLink } = await load()
+      const tree = (
+        <AppRouterContext.Provider value={router}>
+          <ChromeLink href="/venues" atlasPrefetch="after-map">
+            Venues
+          </ChromeLink>
+        </AppRouterContext.Provider>
+      )
+      const container = document.createElement('div')
+      container.innerHTML = renderToString(tree)
+      document.body.appendChild(container)
+
+      await act(async () => {
+        render(tree, { container, hydrate: true })
+      })
+
+      expect(observed(screen.getByText('Venues'))).toBe(false)
+    })
+
+    it("hands a touch's prefetch to the App Router", async () => {
+      pathname.current = '/shows'
+      const { ChromeLink } = await load()
+      render(
+        <AppRouterContext.Provider value={router}>
+          <ChromeLink href="/radio">Radio</ChromeLink>
+        </AppRouterContext.Provider>
+      )
+      const anchor = screen.getByText('Radio')
+
+      fireEvent.touchStart(anchor)
+
+      expect(observed(anchor)).toBe(false)
+      expect(router.prefetch).toHaveBeenCalledExactlyOnceWith('/radio')
+    })
   })
 
   it('observes the anchor at once on /shows', async () => {

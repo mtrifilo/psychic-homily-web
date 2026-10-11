@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import { ChromeLink } from '@/components/layout/nav/ChromeLink'
+import { useLinkStatus } from 'next/link'
 import { usePathname } from 'next/navigation'
 import { AUTH_PATH, buildAuthHref } from '@/lib/auth-href'
 import { ExternalLink, LayoutGrid, LogOut, Moon, Sun, User } from 'lucide-react'
@@ -67,10 +68,46 @@ import type { NavDestination, NavLink } from './navData'
 // carries the other end of that contract): the two must never co-occupy the
 // bottom band, or every pre-consent visitor loses the primary nav.
 
+// While a tab's navigation is pending (TabLinkBody marks it data-tab-pending),
+// that tab reads as selected and every other tab, the active one included,
+// reads as unselected, until the destination commits and `active` moves.
+// Product Designs XakQQ0nYGqnt77PrHKO9IE, boards 1955:90 and 1955:118.
+const pendingTabClassName =
+  'has-[[data-tab-pending]]:text-primary group-has-[[data-tab-pending]]/tabbar:not-has-[[data-tab-pending]]:text-muted-foreground'
+
 function tabClassName(active: boolean): string {
   return cn(
     'flex h-full flex-col items-center justify-center gap-1 text-[11px] font-medium outline-none transition-colors focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/50',
-    active ? 'text-primary' : 'text-muted-foreground hover:text-foreground'
+    active ? 'text-primary' : 'text-muted-foreground hover:text-foreground',
+    pendingTabClassName
+  )
+}
+
+// A 16px three-quarter arc with a 2px stroke, in the tab's colour.
+function TabPendingSpinner() {
+  return (
+    <svg viewBox="0 0 16 16" fill="none" aria-hidden className="size-4 animate-spin">
+      <path d="M15 8A7 7 0 1 1 8 1" stroke="currentColor" strokeWidth="2" />
+    </svg>
+  )
+}
+
+// A tab link's icon and label. useLinkStatus reads the ChromeLink this renders
+// inside: from the tap until the destination commits, the spinner takes the
+// icon's 20px box, so the label does not move.
+function TabLinkBody({ icon: Icon, label }: { icon: LucideIcon; label: string }) {
+  const { pending } = useLinkStatus()
+  return (
+    <>
+      {pending ? (
+        <span data-tab-pending="" className="flex size-5 items-center justify-center">
+          <TabPendingSpinner />
+        </span>
+      ) : (
+        <Icon className="size-5" aria-hidden />
+      )}
+      {label}
+    </>
   )
 }
 
@@ -347,12 +384,11 @@ export function BottomTabBar() {
       // Measured by floating overlays (the first-save hint) that must stay
       // clear of this bar; see the geometry contract in globals.css.
       data-bottom-tab-bar=""
-      className="fixed inset-x-0 bottom-0 z-40 h-[calc(var(--bottom-tab-bar-height)+env(safe-area-inset-bottom))] border-t border-border/50 bg-background/95 pb-[env(safe-area-inset-bottom)] pl-[env(safe-area-inset-left)] pr-[env(safe-area-inset-right)] backdrop-blur-sm supports-[backdrop-filter]:bg-background/80 xl:hidden"
+      className="group/tabbar fixed inset-x-0 bottom-0 z-40 h-[calc(var(--bottom-tab-bar-height)+env(safe-area-inset-bottom))] border-t border-border/50 bg-background/95 pb-[env(safe-area-inset-bottom)] pl-[env(safe-area-inset-left)] pr-[env(safe-area-inset-right)] backdrop-blur-sm supports-[backdrop-filter]:bg-background/80 xl:hidden"
     >
       <div className="grid h-full grid-cols-5">
         {primaryTabs.map(tab => {
           const active = isActive(tab.href)
-          const Icon = tab.icon
           return (
             <ChromeLink
               key={tab.href}
@@ -361,8 +397,7 @@ export function BottomTabBar() {
               aria-current={active ? 'page' : undefined}
               className={tabClassName(active)}
             >
-              <Icon className="size-5" aria-hidden />
-              {tab.label}
+              <TabLinkBody icon={tab.icon} label={tab.label} />
             </ChromeLink>
           )
         })}
@@ -410,8 +445,7 @@ export function BottomTabBar() {
             aria-current={accountActive ? 'page' : undefined}
             className={tabClassName(accountActive)}
           >
-            <User className="size-5" aria-hidden />
-            Account
+            <TabLinkBody icon={User} label="Account" />
           </ChromeLink>
         )}
       </div>

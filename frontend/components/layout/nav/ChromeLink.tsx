@@ -1,24 +1,100 @@
 'use client'
 
-import type { ComponentProps } from 'react'
+import type { ComponentProps, PointerEvent, TouchEvent } from 'react'
+import { useRouter } from 'next/navigation'
 import { AtlasMapReadyLink, type AtlasPrefetch } from '@/lib/atlasMapReadyLink'
+import { useCoarsePointer } from '@/lib/hooks/common/useCoarsePointer'
+import { useHydrated } from '@/lib/hooks/common/useHydrated'
+
+/**
+ * How a chrome link prefetches right now:
+ * - `'after-map'` or `'never'`: the caller's Atlas policy, on a fine pointer.
+ *   Next prefetches the link as usual (viewport, hover, touchstart) except
+ *   where AtlasMapReadyLink holds it on the Atlas.
+ * - `'on-touch'`: on a coarse pointer, on every route. The link never prefetches
+ *   on viewport entry; it prefetches its route when a touch or a pen lands on
+ *   it, Atlas map or not, because that touch is the start of a navigation.
+ */
+export type ChromePrefetch = AtlasPrefetch | 'on-touch'
+
+/**
+ * The prefetch policy for a chrome link. Until hydration has run, the pointer
+ * is unknown (useCoarsePointer reads false on the server snapshot), so the
+ * hydration render takes `'on-touch'`: a link Next observes on that commit could
+ * start a viewport prefetch on a phone before the next commit drops it.
+ */
+export function chromePrefetch(
+  hydrated: boolean,
+  coarsePointer: boolean,
+  atlasPrefetch: AtlasPrefetch
+): ChromePrefetch {
+  return !hydrated || coarsePointer ? 'on-touch' : atlasPrefetch
+}
 
 /**
  * `next/link` for the app chrome; the lint rule on `components/layout` keeps
- * the chrome from importing `next/link` directly. The Atlas prefetch hold is
- * AtlasMapReadyLink's (lib/atlasMapReadyLink.tsx); this wrapper sets the
- * chrome's policy for it:
+ * the chrome from importing `next/link`'s Link directly. `atlasPrefetch` is
+ * the policy on a fine pointer (see {@link chromePrefetch} for the rest):
  * - `atlasPrefetch="after-map"` for the primary navigation: the bottom tab
  *   bar, PrimaryNav (top-nav mode) and the side rail's links (side-nav mode).
  * - `'never'` (the default) for everything else. On a phone each prefetch
  *   fetches that route's own JS, and the long tail of menu, footer and banner
  *   links would spend that data on routes most Atlas visitors never open.
+ *
+ * A caller's `prefetch={false}` holds on every pointer, on a touch too.
  */
 export function ChromeLink({
   atlasPrefetch = 'never',
+  href,
+  prefetch,
+  onTouchStart,
+  onPointerDown,
   ...props
-}: Omit<ComponentProps<typeof AtlasMapReadyLink>, 'atlasPrefetch'> & {
+}: Omit<ComponentProps<typeof AtlasMapReadyLink>, 'atlasPrefetch' | 'href'> & {
+  href: string
   atlasPrefetch?: AtlasPrefetch
 }) {
-  return <AtlasMapReadyLink {...props} atlasPrefetch={atlasPrefetch} />
+  const router = useRouter()
+  const policy = chromePrefetch(useHydrated(), useCoarsePointer(), atlasPrefetch)
+
+  if (policy !== 'on-touch') {
+    return (
+      <AtlasMapReadyLink
+        {...props}
+        href={href}
+        prefetch={prefetch}
+        atlasPrefetch={policy}
+        onTouchStart={onTouchStart}
+        onPointerDown={onPointerDown}
+      />
+    )
+  }
+
+  const prefetchOnTouch = prefetch !== false
+  return (
+    <AtlasMapReadyLink
+      {...props}
+      href={href}
+      // Next's own touchstart prefetch is off whenever prefetch is false, so
+      // the touch prefetch is the router call in the handlers below.
+      prefetch={false}
+      atlasPrefetch={atlasPrefetch}
+      onTouchStart={(event: TouchEvent<HTMLAnchorElement>) => {
+        onTouchStart?.(event)
+        if (prefetchOnTouch) router.prefetch(href)
+      }}
+      onPointerDown={(event: PointerEvent<HTMLAnchorElement>) => {
+        onPointerDown?.(event)
+        // A finger reaches the router through touchstart; this covers a pen or
+        // other non-mouse pointer that sends no touch events.
+        if (prefetchOnTouch && isPenLikePointer(event.pointerType)) {
+          router.prefetch(href)
+        }
+      }}
+    />
+  )
+}
+
+function isPenLikePointer(pointerType: string): boolean {
+  return pointerType !== 'mouse' && pointerType !== 'touch'
 }

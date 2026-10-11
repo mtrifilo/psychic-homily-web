@@ -8,6 +8,7 @@ import { makeAuthFixture, type MockAuthContextValue } from '@/test/authFixture'
 let mockPathname = '/'
 vi.mock('next/navigation', () => ({
   usePathname: () => mockPathname,
+  useRouter: () => ({ prefetch: () => {} }),
 }))
 
 vi.mock('next/image', () => ({

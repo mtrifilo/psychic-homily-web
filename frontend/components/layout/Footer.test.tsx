@@ -18,6 +18,7 @@ vi.mock('next/link', () => import('@/test/mocks/nextLink'))
 const mockPathname = vi.fn(() => '/')
 vi.mock('next/navigation', () => ({
   usePathname: () => mockPathname(),
+  useRouter: () => ({ prefetch: () => {} }),
 }))
 
 describe('Footer', () => {
