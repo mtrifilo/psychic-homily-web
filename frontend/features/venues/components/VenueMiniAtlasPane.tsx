@@ -48,10 +48,6 @@ export function useMiniAtlasViewport(): boolean {
 /** The Sentry section the pane's map reports under, and its latch key. */
 const MINI_ATLAS_SECTION = 'venue-mini-atlas'
 
-function latchMiniAtlasFailure(error: unknown) {
-  latchAtlasMapFailure(MINI_ATLAS_SECTION, error)
-}
-
 // MapLibre is a ~900 kB chunk and window-bound. `ssr: false` plus this being
 // the only import path keeps it out of the /venues initial JS: it is fetched
 // when the pane mounts, which only happens at 1280 and up.
@@ -102,8 +98,7 @@ export function VenueMiniAtlasPane({
 }: VenueMiniAtlasPaneProps) {
   const pins = useMemo(() => miniAtlasPins(venues), [venues])
   const label = cityLabel(scopeCity)
-  // Read once per mount: the latch is set as the boundary catches, after the
-  // failing mount has already rendered its fallback.
+  // Read once per mount, as AtlasGlobe reads its latch.
   const [mapFailedThisPage] = useState(() =>
     atlasMapSectionFailedThisPage(MINI_ATLAS_SECTION),
   )
@@ -129,7 +124,7 @@ export function VenueMiniAtlasPane({
           <CanvasSectionErrorBoundary
             {...atlasMapBoundaryReporting(MINI_ATLAS_SECTION)}
             fallback={<MiniAtlasUnavailable />}
-            onError={latchMiniAtlasFailure}
+            onError={(error) => latchAtlasMapFailure(MINI_ATLAS_SECTION, error)}
           >
             <VenueMiniAtlas
               pins={pins}

@@ -58,8 +58,8 @@ place) stands in for the map:
    | `style-load-failed` | an error with no source before the style loaded |
    | `first-render-timeout` | no frame rendered the scene data within `ATLAS_FIRST_RENDER_DEADLINE_MS` (16000 ms) of continuously visible time after construction: a render frame that throws, or a worker that never starts |
 
-   `watchAtlasMapHealth` classifies the context and style events;
-   `watchAtlasFirstRender` is the first-render watchdog. It watches only data
+   `watchAtlasMapHealth` classifies the context and style events, and on the
+   Atlas also runs the first-render watchdog. The watchdog watches only data
    the map owns (the style is live and the `scenes` GeoJSON source is
    loaded), never third-party tiles, so a hung basemap tile never costs a map
    that is drawing. Both clocks count only while the page is visible and

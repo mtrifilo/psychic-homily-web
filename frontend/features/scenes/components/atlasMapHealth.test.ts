@@ -10,7 +10,6 @@ import {
   atlasMapSectionFailedThisPage,
   latchAtlasMapFailure,
   resetAtlasMapLatchesForTest,
-  watchAtlasFirstRender,
   watchAtlasMapHealth,
 } from './atlasMapHealth'
 import { AtlasMapUnrecoverableError } from '../atlasViewport'
@@ -370,17 +369,18 @@ describe('atlasMapBoundaryReporting', () => {
  * `loadJSON` (the style loads a frame after construction at the earliest) in
  * src/style/style.ts, then bump this.
  */
-describe('watchAtlasFirstRender', () => {
-  let map: FakeMap
+describe('watchAtlasMapHealth first-render watchdog', () => {
+  let map: FakeMap & { isSourceLoaded: ReturnType<typeof vi.fn<(id: string) => boolean>> }
   let onUnrecoverable: ReturnType<typeof vi.fn<(error: AtlasMapUnrecoverableError) => void>>
-  let dataDrawn: boolean
-  let watchdog: { stop(): void } | null
+  let sourceLoaded: boolean
+  let health: AtlasMapHealth | null
 
-  function watch() {
-    watchdog = watchAtlasFirstRender(
+  function watch({ firstRenderSourceId }: { firstRenderSourceId?: string } = { firstRenderSourceId: 'scenes' }) {
+    health = watchAtlasMapHealth(
       map as unknown as MapLibreMap,
-      () => dataDrawn,
       onUnrecoverable,
+      undefined,
+      firstRenderSourceId,
     )
   }
   function failureClasses() {
@@ -392,41 +392,56 @@ describe('watchAtlasFirstRender', () => {
 
   beforeEach(() => {
     vi.useFakeTimers()
-    map = new FakeMap()
+    sourceLoaded = false
+    map = Object.assign(new FakeMap(), {
+      isSourceLoaded: vi.fn<(id: string) => boolean>(() => sourceLoaded),
+    })
     onUnrecoverable = vi.fn<(error: AtlasMapUnrecoverableError) => void>()
-    dataDrawn = false
-    watchdog = null
+    health = null
     setVisibility('visible')
   })
   afterEach(() => {
-    watchdog?.stop()
+    health?.stop()
     vi.useRealTimers()
     delete (document as { visibilityState?: unknown }).visibilityState
   })
 
-  it('fails as first-render-timeout once the deadline passes with no frame of the data', () => {
+  it('fails as first-render-timeout once the deadline passes with no frame of the source', () => {
     watch()
-    // Frames that draw without the data do not count.
+    map.fire('style.load')
+    // Frames that draw without the source loaded do not count.
     map.fire('render')
     vi.advanceTimersByTime(ATLAS_FIRST_RENDER_DEADLINE_MS - 1)
     expect(onUnrecoverable).not.toHaveBeenCalled()
     vi.advanceTimersByTime(1)
     expect(failureClasses()).toEqual(['first-render-timeout'])
+    expect(map.isSourceLoaded).toHaveBeenCalledWith('scenes')
   })
 
-  it('is cancelled by a frame rendered with the data', () => {
+  it('is cancelled by a frame rendered with the source loaded', () => {
     watch()
+    map.fire('style.load')
     vi.advanceTimersByTime(ATLAS_FIRST_RENDER_DEADLINE_MS - 1)
-    dataDrawn = true
+    sourceLoaded = true
     map.fire('render')
     vi.advanceTimersByTime(ATLAS_FIRST_RENDER_DEADLINE_MS * 10)
     expect(onUnrecoverable).not.toHaveBeenCalled()
     expect(map.listenerCount('render')).toBe(0)
   })
 
-  it('checks the data only on a render', () => {
+  it('checks the source only on a render', () => {
     watch()
-    dataDrawn = true
+    map.fire('style.load')
+    sourceLoaded = true
+    vi.advanceTimersByTime(ATLAS_FIRST_RENDER_DEADLINE_MS)
+    expect(failureClasses()).toEqual(['first-render-timeout'])
+  })
+
+  it('asks for no source on a frame before the style loads', () => {
+    watch()
+    sourceLoaded = true
+    map.fire('render')
+    expect(map.isSourceLoaded).not.toHaveBeenCalled()
     vi.advanceTimersByTime(ATLAS_FIRST_RENDER_DEADLINE_MS)
     expect(failureClasses()).toEqual(['first-render-timeout'])
   })
@@ -467,12 +482,28 @@ describe('watchAtlasFirstRender', () => {
     remove.mockRestore()
   })
 
+  it('is cancelled by another failure reported first', () => {
+    watch()
+    map.fire('error', { error: new Error('style is invalid') })
+    vi.advanceTimersByTime(ATLAS_FIRST_RENDER_DEADLINE_MS * 10)
+    expect(failureClasses()).toEqual(['style-load-failed'])
+    expect(map.listenerCount('render')).toBe(0)
+  })
+
   it('reports nothing once stopped', () => {
     watch()
-    watchdog?.stop()
+    health?.stop()
     vi.advanceTimersByTime(ATLAS_FIRST_RENDER_DEADLINE_MS * 10)
     setVisibility('hidden')
     setVisibility('visible')
+    vi.advanceTimersByTime(ATLAS_FIRST_RENDER_DEADLINE_MS * 10)
+    expect(onUnrecoverable).not.toHaveBeenCalled()
+    expect(map.listenerCount('render')).toBe(0)
+  })
+
+  it('does not run without a source to watch', () => {
+    watch({})
+    map.fire('style.load')
     vi.advanceTimersByTime(ATLAS_FIRST_RENDER_DEADLINE_MS * 10)
     expect(onUnrecoverable).not.toHaveBeenCalled()
     expect(map.listenerCount('render')).toBe(0)
