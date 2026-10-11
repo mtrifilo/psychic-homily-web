@@ -10,9 +10,12 @@
 # `production` branch. The push leaves no record on GitHub of which PRs
 # shipped or what was verified afterwards; the release created here is that
 # record, and the chain of prod-* tags is the promote history. The chain is
-# linear: every release's FROM is the newest tag, so a rollback (production
-# moved backwards) and a restore-only promote (same SHA re-deployed) are not
-# recorded as releases.
+# linear and dated: every release's FROM is the newest tag and every new tag
+# is dated on or after it. A rollback (production moved backwards) and a
+# restore-only promote (same SHA re-deployed) are not recorded; the promote
+# after a rollback uses the newest tag's SHA as FROM, so its notes list only
+# what is new since the last release, and its record says which older SHA
+# production ran in between.
 #
 # Usage:
 #   scripts/record_production_release.sh TAG FROM_SHA TO_SHA RECORD_FILE [options]
@@ -156,12 +159,33 @@ esac
 [ -s "$RECORD_FILE" ] || refuse "RECORD_FILE '$RECORD_FILE' is missing or empty"
 [ "$(head -n 1 "$RECORD_FILE")" = "## Deploy record" ] \
   || refuse "RECORD_FILE '$RECORD_FILE' must start with the line '## Deploy record' (is it the right file?)"
-# The record is published on a public page; refuse anything that looks like a
-# connection string, bearer token, GitHub token, API key or KEY=value secret.
-SECRET_PATTERN='(postgres(ql)?|mysql|redis|amqp|mongodb)://|://[^/@[:space:]]+:[^/@[:space:]]+@|bearer[[:space:]]+[a-z0-9._-]{8,}|gh[pousr]_[a-z0-9]{20,}|github_pat_[a-z0-9_]+|sk-[a-z0-9_-]{10,}|[a-z0-9_]*(key|secret|token|password)[a-z0-9_]*=[^[:space:]]+'
-if grep -n -i -E "$SECRET_PATTERN" "$RECORD_FILE" >/dev/null; then
+# The record is published on a public page. Refuse a line that looks like a
+# credential: a database or broker connection string, a URL with userinfo
+# (a Sentry DSN, user:password@host), a bearer token, a GitHub or Stripe or
+# OpenAI style key, a JWT, or a key/secret/token/password name followed by a
+# value of six or more characters that contains a digit. Prose such as
+# "token revoked" or "Bearer authentication enforced" is not a credential.
+looks_like_credential() {
+  awk '
+    function digit(v) { return v ~ /[0-9]/ }
+    {
+      line = $0; low = tolower($0)
+      if (low ~ /(postgres(ql)?|mysql|redis|amqp|mongodb(\+srv)?):\/\//) { print NR ": " line; next }
+      if (low ~ /:\/\/[^\/@ \t]+@/) { print NR ": " line; next }
+      if (match(low, /bearer[ \t]+[a-z0-9._~+\/=-]{12,}/) && digit(substr(low, RSTART, RLENGTH))) { print NR ": " line; next }
+      if (low ~ /gh[pousr]_[a-z0-9]{20,}/ || low ~ /github_pat_[a-z0-9_]{20,}/) { print NR ": " line; next }
+      if (low ~ /(^|[^a-z0-9])sk[-_](live_|test_|proj-)?[a-z0-9_-]{16,}/) { print NR ": " line; next }
+      if (low ~ /eyj[a-z0-9_-]{10,}\.[a-z0-9_-]{10,}\.[a-z0-9_-]+/) { print NR ": " line; next }
+      if (match(low, /(^|[^a-z0-9])[a-z0-9_]*(key|secret|token|password|passwd|pwd)[a-z0-9_]*["\047]?[ \t]*[:=][ \t]*["\047]?[a-z0-9._~+\/=-]{6,}/)) {
+        v = substr(low, RSTART, RLENGTH); sub(/^.*[:=][ \t]*["\047]?/, "", v)
+        if (digit(v)) { print NR ": " line; next }
+      }
+    }' "$1"
+}
+CREDENTIAL_LINES="$(looks_like_credential "$RECORD_FILE")"
+if [ -n "$CREDENTIAL_LINES" ]; then
   echo "REFUSED: RECORD_FILE '$RECORD_FILE' looks like it carries a credential; the release body is public. Offending line(s):" >&2
-  grep -n -i -E "$SECRET_PATTERN" "$RECORD_FILE" | cut -c1-120 >&2
+  printf '%s\n' "$CREDENTIAL_LINES" | cut -c1-120 >&2
   exit 1
 fi
 
@@ -198,13 +222,21 @@ git fetch --no-tags --quiet "$REMOTE" "+refs/heads/main:refs/remotes/$REMOTE/mai
   || refuse "could not fetch main from $REMOTE"
 
 # "name commit" per remote prod-* tag; an annotated tag's peeled line wins.
-REMOTE_TAGS="$(git ls-remote --tags "$REMOTE" 'refs/tags/prod-*' | awk -F'\t' '
-  { ref = $2; sha = $1
+REMOTE_TAG_REFS="$(git ls-remote --tags "$REMOTE" 'refs/tags/prod-*')" \
+  || refuse "could not list tags on $REMOTE"
+REMOTE_TAGS="$(printf '%s\n' "$REMOTE_TAG_REFS" | awk -F'\t' '
+  NF == 2 { ref = $2; sha = $1
     if (sub(/\^\{\}$/, "", ref)) { peeled[ref] = sha } else { plain[ref] = sha } }
   END { for (r in plain) { n = r; sub(/^refs\/tags\//, "", n)
         print n, ((r in peeled) ? peeled[r] : plain[r]) } }' | sort -t. -k1,1 -k2,2n)"
 REMOTE_TAG_NAMES="$(printf '%s\n' "$REMOTE_TAGS" | awk 'NF { print $1 }')"
-PRODUCTION_HEAD="$(git ls-remote "$REMOTE" refs/heads/production | awk '{ print $1 }')"
+# Every prod-* name on the remote must follow the scheme, or the chain's
+# ordering and the same-day sequence mean nothing.
+OFF_SCHEME="$(printf '%s\n' "$REMOTE_TAG_NAMES" | awk 'NF && $0 !~ /^prod-[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]\.[1-9][0-9]?$/')"
+[ -z "$OFF_SCHEME" ] \
+  || refuse "$REMOTE has prod-* tags outside the prod-YYYY-MM-DD.N scheme ($(printf '%s' "$OFF_SCHEME" | tr '\n' ' ')); rename or delete them before recording"
+PRODUCTION_HEAD="$(git ls-remote "$REMOTE" refs/heads/production | awk '{ print $1 }')" \
+  || refuse "could not read the production branch on $REMOTE"
 
 if git rev-parse -q --verify "refs/tags/$TAG" >/dev/null; then
   refuse "tag $TAG already exists locally (git tag -d $TAG if it is stale)"
@@ -232,6 +264,11 @@ EXPECTED_SEQ=$(( ${SAME_DAY_MAX:-0} + 1 ))
   || refuse "the next tag for $TAG_DATE is prod-$TAG_DATE.$EXPECTED_SEQ (highest recorded: ${SAME_DAY_MAX:-none}); got .$TAG_SEQ"
 
 NEWEST_TAG="$(printf '%s\n' "$REMOTE_TAG_NAMES" | awk 'NF' | tail -n 1)"
+if [ -n "$NEWEST_TAG" ]; then
+  NEWEST_DATE="${NEWEST_TAG#prod-}"; NEWEST_DATE="${NEWEST_DATE%.*}"
+  [ "$TAG_DATE" \> "$NEWEST_DATE" ] || [ "$TAG_DATE" = "$NEWEST_DATE" ] \
+    || refuse "TAG $TAG is dated before the newest tag $NEWEST_TAG; the chain is dated, so a release recorded out of order would wedge it"
+fi
 
 if [ "$BASELINE" -eq 1 ]; then
   [ "$FROM_SHA" = "-" ] \
@@ -258,10 +295,10 @@ else
     refuse "no prod-* tag on $REMOTE points at FROM_SHA $FROM_SHA (newest tag: $NEWEST_TAG); record the promote that shipped $FROM_SHA first, oldest first"
   fi
   [ "$FROM_TAG_COUNT" -eq 1 ] \
-    || refuse "$FROM_TAG_COUNT prod-* tags on $REMOTE point at FROM_SHA $FROM_SHA ($(printf '%s' "$FROM_TAGS" | tr '\n' ' ')); delete the stray one (git push $REMOTE :refs/tags/NAME) before recording"
+    || refuse "$FROM_TAG_COUNT prod-* tags on $REMOTE point at FROM_SHA $FROM_SHA ($(printf '%s' "$FROM_TAGS" | tr '\n' ' ')); delete the stray one, the tag with no release (check each with gh release view NAME; deleting a released tag turns that release into a draft), via git push $REMOTE :refs/tags/NAME"
   FROM_TAG="$FROM_TAGS"
   if [ "$MARK_LATEST" -eq 1 ] && [ "$FROM_TAG" != "$NEWEST_TAG" ]; then
-    refuse "FROM tag $FROM_TAG is not the newest on $REMOTE ($NEWEST_TAG); the chain is linear, so FROM must be the last release. Pass --not-latest only when backfilling history"
+    refuse "FROM tag $FROM_TAG is not the newest on $REMOTE ($NEWEST_TAG); the chain is linear, so FROM is the last release's SHA even after a rollback (say in the record which older SHA production ran in between). Pass --not-latest only when backfilling history"
   fi
   FROM_SHORT="$(git rev-parse --short=9 "$FROM_FULL")"
 fi

@@ -192,13 +192,34 @@ printf 'notes\n' >"$FIXTURE/noheader.md"
 run "prod-2026-07-23.1" - "$A" "$FIXTURE/noheader.md" --baseline --pushed-at 2026-07-23T02:25:14Z $BASE_OPTS
 expect_refused_clean "prod-2026-07-23.1" "must start with the line"
 
-CASE="record that looks like it carries a credential is refused"
-printf '## Deploy record\n\nDATABASE_URL=postgresql://user:pw@host:5432/db\n' >"$FIXTURE/leak.md"
-run "prod-2026-07-23.1" - "$A" "$FIXTURE/leak.md" --baseline --pushed-at 2026-07-23T02:25:14Z $BASE_OPTS
-expect_refused_clean "prod-2026-07-23.1" "looks like it carries a credential"
-printf '## Deploy record\n\ncurl -H "Authorization: Bearer abcdef0123456789"\n' >"$FIXTURE/leak2.md"
-run "prod-2026-07-23.1" - "$A" "$FIXTURE/leak2.md" --baseline --pushed-at 2026-07-23T02:25:14Z $BASE_OPTS
-expect_refused_clean "prod-2026-07-23.1" "looks like it carries a credential"
+CASE="record lines that look like credentials are refused, one by one"
+while IFS= read -r leak; do
+  printf '## Deploy record\n\n%s\n' "$leak" >"$FIXTURE/leak.md"
+  run "prod-2026-07-23.1" - "$A" "$FIXTURE/leak.md" --baseline --pushed-at 2026-07-23T02:25:14Z $BASE_OPTS
+  expect_status 1; expect_gh_calls 0; expect_no_tag "prod-2026-07-23.1"
+  case "$OUTPUT" in *"looks like it carries a credential"*) ;; *) fail "expected the credential refusal for: $leak" ;; esac
+done <<'LEAKS'
+DATABASE_URL=postgresql://user:pw@host:5432/db
+curl -H "Authorization: Bearer abcdef0123456789abcd"
+SECRET_KEY = abc123def456
+"password": "hunter2"
+api_key: sk_live_abc123def456ghi7
+RESEND_API_KEY: re_123456789abcdef
+dsn https://abc123@o1.ingest.sentry.io/456
+jwt eyJabc123def456ghi.eyJjkl789mno012pqr.stu345vwx
+token ghp_abcdefghij0123456789klmn
+LEAKS
+
+CASE="ordinary record prose is not mistaken for a credential (dry run passes)"
+cat >"$FIXTURE/prose.md" <<'PROSE'
+## Deploy record
+
+- token revoked after the merge; password login skipped (orchestrator holds no prod credentials)
+- smoke: https://api.example.com/health 200; GET /verify?token=redacted returned 400
+- Verified Bearer authentication still enforced; risk-assessment-page loads; ran disk-usage-check
+PROSE
+run "prod-2026-07-23.1" - "$A" "$FIXTURE/prose.md" --baseline --not-latest --dry-run --pushed-at 2026-07-23T02:25:14Z $BASE_OPTS
+expect_status 0; expect_output "DRY RUN"; expect_gh_calls 0; expect_no_tag "prod-2026-07-23.1"
 
 CASE="a remote that is not on github.com needs --github-repo"
 run "prod-2026-07-23.1" - "$A" "$RECORD" --baseline --pushed-at 2026-07-23T02:25:14Z
@@ -254,6 +275,16 @@ git -C "$REMOTE_DIR" tag prod-2026-08-01.1 "$B"
 run "prod-2026-08-01.1" "$A" "$B" "$RECORD" --not-latest --pushed-at 2026-08-01T00:00:00Z $BASE_OPTS
 expect_status 1; expect_output "already exists on origin"; expect_gh_calls 0
 git -C "$REMOTE_DIR" tag -d prod-2026-08-01.1 >/dev/null
+
+CASE="a tag dated before the newest tag is refused"
+run "prod-2026-07-22.1" "$A" "$B" "$RECORD" --not-latest --pushed-at 2026-07-22T10:00:00Z $BASE_OPTS
+expect_refused_clean "prod-2026-07-22.1" "dated before the newest tag"
+
+CASE="a remote prod-* tag outside the naming scheme is refused"
+git -C "$REMOTE_DIR" tag prod-hotfix "$B"
+run "prod-2026-09-07.1" "$A" "$B" "$RECORD" --not-latest --pushed-at 2026-09-07T22:55:37Z $BASE_OPTS
+expect_refused_clean "prod-2026-09-07.1" "outside the prod-YYYY-MM-DD.N scheme"
+git -C "$REMOTE_DIR" tag -d prod-hotfix >/dev/null
 
 CASE="--baseline once a prod-* tag exists is refused"
 run "prod-2026-09-07.1" - "$B" "$RECORD" --baseline --pushed-at 2026-09-07T22:55:37Z $BASE_OPTS
