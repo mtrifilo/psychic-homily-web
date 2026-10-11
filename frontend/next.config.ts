@@ -1,7 +1,40 @@
 import type { NextConfig } from "next";
 import { withSentryConfig } from "@sentry/nextjs";
 import withBundleAnalyzer from "@next/bundle-analyzer";
-import { assertBuildApiOriginConfigured } from "./lib/build-api-origin-guard";
+import { PHASE_PRODUCTION_BUILD } from "next/constants";
+
+// This file imports packages only. Next compiles it without a parent module
+// path, so a relative import resolves against the process cwd and fails when a
+// command is given this directory from elsewhere (`next dev frontend`).
+
+/**
+ * Refuses a production build that would prerender against the production API
+ * without anyone choosing it.
+ *
+ * With `NEXT_PUBLIC_API_URL` unset, `getApiBaseUrl` in lib/api-base.ts resolves
+ * a production build to the production API origin, and prerender fetches
+ * through it. Only `PHASE_PRODUCTION_BUILD` is checked: `next dev` resolves to
+ * localhost and `next start` serves an existing build. An empty value counts as
+ * unset, which is how `getApiBaseUrl` reads it too.
+ *
+ * A build with `VERCEL` set is exempt, so a missing project variable never
+ * blocks a deploy. On Vercel the API origin comes from the project's
+ * environment settings, and an unset value there still resolves to the
+ * production API.
+ */
+export function assertBuildApiOriginConfigured(
+  phase: string,
+  env: Readonly<Record<string, string | undefined>>,
+): void {
+  if (phase !== PHASE_PRODUCTION_BUILD) return;
+  if (env.VERCEL) return;
+  if (env.NEXT_PUBLIC_API_URL) return;
+  throw new Error(
+    "NEXT_PUBLIC_API_URL is not set, so this production build would prerender " +
+      "against the production API. Set it to https://stage.api.psychichomily.com " +
+      "or a local backend before building. Builds with VERCEL set skip this check.",
+  );
+}
 
 const nextConfig: NextConfig = {
   // Cache Components is Next 16's successor to `experimental.ppr` and
