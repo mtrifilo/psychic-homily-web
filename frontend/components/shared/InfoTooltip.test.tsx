@@ -451,9 +451,8 @@ describe('InfoTooltip', () => {
     expect(trigger()).toHaveClass('select-none', '[-webkit-touch-callout:none]')
   })
 
-  // jsdom applies no CSS, so this pins the classes; the 24px hit area itself
-  // is measured in a browser. The glyph and the padding are the same on every
-  // pointer, so the button stays 18px and only the invisible area grows.
+  // jsdom applies no CSS, so this pins the classes, including the exact
+  // coarse-pointer set; the hit area itself is measured in a browser.
   it('grows the tap target on coarse pointers without resizing the glyph', () => {
     renderInfo()
     const button = trigger()

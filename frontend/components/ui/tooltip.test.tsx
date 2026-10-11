@@ -27,12 +27,18 @@ function renderTrigger(
 
 const trigger = () => screen.getByRole('button', { name: 'Trigger' })
 
+type PointerType = 'touch' | 'pen' | 'mouse'
+
+function press(element: HTMLElement, pointerType: PointerType) {
+  fireEvent.pointerDown(element, { pointerType })
+  fireEvent.pointerUp(document, { pointerType })
+}
+
 // Chromium focuses a tapped element after pointerup, so Radix sees a focus
 // with no pointer down in progress. This replays that order. fireEvent moves
 // no focus of its own, so only the explicit focus() lands.
-function tapFocus(element: HTMLElement, pointerType: 'touch' | 'pen') {
-  fireEvent.pointerDown(element, { pointerType })
-  fireEvent.pointerUp(document, { pointerType })
+function pressFocus(element: HTMLElement, pointerType: PointerType) {
+  press(element, pointerType)
   act(() => element.focus())
 }
 
@@ -108,7 +114,7 @@ describe('TooltipTrigger', () => {
     pointerType => {
       renderTrigger()
 
-      tapFocus(trigger(), pointerType)
+      pressFocus(trigger(), pointerType)
 
       expect(trigger()).toHaveFocus()
       expect(screen.queryByRole('tooltip')).toBeNull()
@@ -137,9 +143,7 @@ describe('TooltipTrigger', () => {
   it('opens the tooltip on the focus a mouse press gives the trigger', () => {
     renderTrigger()
 
-    fireEvent.pointerDown(trigger(), { pointerType: 'mouse' })
-    fireEvent.pointerUp(document, { pointerType: 'mouse' })
-    act(() => trigger().focus())
+    pressFocus(trigger(), 'mouse')
 
     expect(screen.getByRole('tooltip')).toHaveTextContent(TIP)
   })
@@ -148,7 +152,7 @@ describe('TooltipTrigger', () => {
     const user = userEvent.setup()
     renderTrigger()
 
-    tapFocus(trigger(), 'touch')
+    pressFocus(trigger(), 'touch')
     act(() => trigger().blur())
     await tabOntoTrigger(user)
 
@@ -174,8 +178,7 @@ describe('TooltipTrigger', () => {
     renderTrigger()
 
     // iOS Safari fires the tap's pointer events and click without focusing.
-    fireEvent.pointerDown(trigger(), { pointerType: 'touch' })
-    fireEvent.pointerUp(document, { pointerType: 'touch' })
+    press(trigger(), 'touch')
     fireEvent.click(trigger())
     await tabOntoTrigger(user)
 
@@ -185,11 +188,8 @@ describe('TooltipTrigger', () => {
   it('re-enables keyboard focus after a later mouse press', () => {
     renderTrigger()
 
-    fireEvent.pointerDown(trigger(), { pointerType: 'touch' })
-    fireEvent.pointerUp(document, { pointerType: 'touch' })
-    fireEvent.pointerDown(trigger(), { pointerType: 'mouse' })
-    fireEvent.pointerUp(document, { pointerType: 'mouse' })
-    act(() => trigger().focus())
+    press(trigger(), 'touch')
+    pressFocus(trigger(), 'mouse')
 
     expect(screen.getByRole('tooltip')).toHaveTextContent(TIP)
   })
@@ -221,7 +221,7 @@ describe('TooltipTrigger', () => {
       },
     })
 
-    tapFocus(trigger(), 'touch')
+    pressFocus(trigger(), 'touch')
     act(() => trigger().blur())
     callerBlocksFocus = false
     await tabOntoTrigger(user)
@@ -245,7 +245,7 @@ describe('TooltipTrigger', () => {
     )
     const span = screen.getByText('Span trigger')
 
-    tapFocus(span, 'touch')
+    pressFocus(span, 'touch')
 
     expect(onChildFocus).toHaveBeenCalledTimes(1)
     expect(screen.queryByRole('tooltip')).toBeNull()
