@@ -1,0 +1,16 @@
+# Shapes the notes GitHub generates for a release (gh release create
+# --generate-notes). Every PR merged between the previous production tag and
+# the released one lands under Changes unless it carries a listed label.
+# scripts/record_production_release.sh creates the releases; the deploy record
+# it prepends is the part GitHub does not generate.
+changelog:
+  exclude:
+    labels:
+      - ignore-for-release
+  categories:
+    - title: Dependencies
+      labels:
+        - dependencies
+    - title: Changes
+      labels:
+        - "*"
