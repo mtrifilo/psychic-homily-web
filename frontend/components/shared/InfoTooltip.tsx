@@ -14,6 +14,9 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from '@/components/ui/tooltip'
+import { cn } from '@/lib/utils'
+
+import { COARSE_POINTER_HIT_AREA_CLASS } from './touchTarget'
 
 export interface InfoTooltipProps {
   /** Explainer copy shown in both the hover tooltip and the tap popover. */
@@ -100,11 +103,17 @@ export function InfoTooltip({
           <PopoverTrigger asChild>
             <TooltipTrigger asChild>
               {/* select-none and the touch-callout reset keep a long press
-                  from starting a text selection or the iOS callout menu. */}
+                  from starting a text selection or the iOS callout menu.
+                  The button is 18px (a 14px glyph in p-0.5); on coarse
+                  pointers the invisible hit area takes the tap target to
+                  24px without growing the glyph, the button or the row. */}
               <button
                 type="button"
                 aria-label={label}
-                className="inline-flex select-none items-center rounded-full p-0.5 text-muted-foreground transition-colors [-webkit-touch-callout:none] hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                className={cn(
+                  'inline-flex select-none items-center rounded-full p-0.5 text-muted-foreground transition-colors [-webkit-touch-callout:none] hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+                  COARSE_POINTER_HIT_AREA_CLASS
+                )}
                 data-testid={testId}
                 {...(popoverOpen && { 'aria-describedby': popoverCopyId })}
                 onPointerMove={handlePointerMove}
