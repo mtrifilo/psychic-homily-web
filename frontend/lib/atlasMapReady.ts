@@ -13,8 +13,9 @@
  */
 
 /**
- * The route the Atlas page serves. Links hold their prefetch only there, and
- * the nav registry's Atlas entry links to it.
+ * The route the Atlas page serves. Links hold their prefetch only there, the
+ * nav registry's Atlas entry links to it, and the site footer is hidden there
+ * below `xl` (components/layout/footerVisibility.ts).
  */
 export const ATLAS_PATHNAME = '/atlas'
 

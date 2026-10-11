@@ -1023,7 +1023,8 @@ export function AtlasGlobe() {
   // requirement, PSY-1543) sit under the bar. Read the var rather than
   // restating its value: it carries the bar's border too (PSY-1820).
   // Below `xl` it also gives up --topbar-height, so it ends at the tab bar's
-  // top edge; the site footer is hidden on this route there.
+  // top edge; the site footer is hidden on this route there
+  // (components/layout/footerVisibility.ts).
   // While the cookie consent banner is up it publishes its height as
   // --cookie-banner-height. Below `xl` it sits directly above the tab bar's
   // band, so the box gives up that height too. At `xl` it owns the viewport

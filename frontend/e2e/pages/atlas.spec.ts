@@ -498,9 +498,11 @@ test.describe('Atlas on a phone that prefers reduced motion', () => {
 
 /**
  * Below `xl` the Atlas area spans the top bar's bottom edge to the fixed tab
- * bar's top edge (boards 03, 03b and 06: 56 to 787 on 844), and the site
- * footer does not render on this route, so nothing shows between the sheet
- * and the bar and the page has nothing to scroll.
+ * bar's top edge (Product Designs Figma file, Atlas page, boards 03, 03b and
+ * 06: 56 to 787 on 844, where 787 is 844 less --bottom-tab-bar-height), and
+ * the site footer does not render on this route, so nothing shows between the
+ * sheet and the bar. The document is exactly the viewport's height here,
+ * where Chromium's `vh` and `dvh` agree.
  */
 test.describe('Atlas area on a 390x844 phone ends at the tab bar', () => {
   test.use({ viewport: { width: 390, height: 844 }, ...PHONE_CONTEXT })
