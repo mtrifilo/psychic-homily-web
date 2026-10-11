@@ -500,16 +500,22 @@ func (s *RadioTracksIntegrationSuite) TestRebuildDeletesStaleKeysOfSurvivingTrac
 	s.addPlay(radioTrackFixturePlay{station: "t-kexp", artist: "Genesis Owusu & Duckwrth", title: stringPtr("Hellstar"), mb: mb}, 1)
 	s.rebuild()
 	s.Equal(int64(2), s.count("radio_track_keys"))
+	// The smaller key ("&" sorts before "f") names the joined track.
+	survivor := s.track("genesis owusu & duckwrth", "hellstar")
 
-	s.Require().NoError(s.db.Exec("DELETE FROM radio_plays WHERE artist_name = 'Genesis Owusu & Duckwrth'").Error)
+	s.Require().NoError(s.db.Exec("DELETE FROM radio_plays WHERE artist_name = 'Genesis Owusu feat. Duckwrth'").Error)
 	report := s.rebuild()
+	s.Equal(int64(0), report.Deleted, "the track survives")
 	s.Equal(int64(1), report.Tracks)
 	s.Equal(int64(1), report.Keys)
 	var keys []catalogm.RadioTrackKey
 	s.Require().NoError(s.db.Find(&keys).Error)
 	s.Require().Len(keys, 1)
-	s.Equal("genesis owusu feat. duckwrth", keys[0].ArtistKey)
-	s.Equal(2, s.track("genesis owusu feat. duckwrth", "hellstar").PlayCount)
+	s.Equal("genesis owusu & duckwrth", keys[0].ArtistKey)
+	s.Equal(survivor.ID, keys[0].TrackID)
+	t := s.track("genesis owusu & duckwrth", "hellstar")
+	s.Equal(survivor.ID, t.ID)
+	s.Equal(1, t.PlayCount)
 }
 
 // A recording id that is not a UUID neither joins keys nor sets a track's id.
