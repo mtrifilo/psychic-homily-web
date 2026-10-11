@@ -178,6 +178,16 @@ interface GlobeCanvasProps {
 const FLY_TO_ALTITUDE = 1.0
 const FLY_TO_MS = 1200
 
+// A camera's bottom padding within this of a target counts as at it: an
+// ease's last frame can land a float rounding off its target, and an exact
+// test would ease again after every such move.
+const PADDING_TOLERANCE_PX = 0.5
+
+/** Whether the camera's bottom padding is off `paddingPx`. */
+function cameraPaddingDiffers(map: maplibregl.Map, paddingPx: number): boolean {
+  return Math.abs((map.getPadding().bottom ?? 0) - paddingPx) > PADDING_TOLERANCE_PX
+}
+
 // Globe → street handoff (PSY-1543): the Black Marble raster fades OUT and
 // the PH basemap's background fades IN across this zoom range. Bounds chosen
 // so the crossfade (a) starts only after the sphere more than fills a
@@ -886,9 +896,11 @@ export default function GlobeCanvas({
   // The camera moves once per change, and never while another movement is
   // in progress: it waits for that movement's moveend, then for the next
   // frame, since moveend can fire from inside another camera call that would
-  // overwrite a move started there. appliedPreviewCameraRef holds, for one
-  // map instance, the last selection and sheet height this rule was applied
-  // for (null: none yet on that map). The fly-to seam writes it for a flight
+  // overwrite a move started there. A move stopped part-way has its padding
+  // finished once the camera is still (finishPreviewPadding, beside the map).
+  // appliedPreviewCameraRef holds, for one map instance, the last selection
+  // and sheet height this rule was applied for and the padding it sent the
+  // camera to (null: none yet on that map). The fly-to seam writes it for a flight
   // that opens the preview, and a map rebuilt on a settled camera starts
   // with it, so neither needs a second move; a restored context keeps it.
   const previewCameraSheetPx = selectedSlug === null ? 0 : previewSheetPx
@@ -896,6 +908,8 @@ export default function GlobeCanvas({
     map: maplibregl.Map
     slug: string | null
     sheetPx: number
+    /** The bottom padding the camera was sent to (kept, at the Peek exception). */
+    paddingPx: number
   } | null>(null)
   // What the camera left when its map was removed: its bottom padding, the
   // record above for that map, and whether the camera was at rest.
@@ -922,16 +936,20 @@ export default function GlobeCanvas({
       return
     }
     const apply = () => {
-      appliedPreviewCameraRef.current = {
-        map,
-        slug: selectedSlug,
-        sheetPx: previewCameraSheetPx,
+      const record = (paddingPx: number) => {
+        appliedPreviewCameraRef.current = {
+          map,
+          slug: selectedSlug,
+          sheetPx: previewCameraSheetPx,
+          paddingPx,
+        }
       }
       const padding = scenePreviewCameraPadding(previewCameraSheetPx)
       const scene =
         selectedSlug === null ? undefined : scenesBySlugRef.current.get(selectedSlug)
       if (!scene || previewCameraSheetPx === 0) {
-        if ((map.getPadding().bottom ?? 0) !== padding.bottom) map.easeTo({ padding })
+        record(0)
+        if (cameraPaddingDiffers(map, 0)) map.easeTo({ padding })
         return
       }
       if (
@@ -944,8 +962,10 @@ export default function GlobeCanvas({
           sheetPx: previewCameraSheetPx,
         })
       ) {
+        record(map.getPadding().bottom ?? 0)
         return
       }
+      record(previewCameraSheetPx)
       map.easeTo({ center: [scene.longitude, scene.latitude], padding })
     }
     let frame = 0
@@ -1210,7 +1230,7 @@ export default function GlobeCanvas({
       leftCamera.settled &&
       leftCamera.slug === previewTarget.slug &&
       leftCamera.sheetPx === previewTarget.sheetPx
-        ? { map, ...previewTarget }
+        ? { map, ...previewTarget, paddingPx: startPaddingPx }
         : null
 
     // Fill the parent's fly-to seam (PSY-1308, reused by search/Drift).
@@ -1233,9 +1253,28 @@ export default function GlobeCanvas({
           map,
           slug: options?.opensPreview ? scene.slug : null,
           sheetPx,
+          paddingPx: sheetPx,
         }
       }
     }
+
+    // A move stopped part-way (a gesture, another camera call) leaves its
+    // padding part-way too. Once the camera is still, the padding is finished
+    // to what the preview camera last sent it to, keeping the centre. Checked
+    // on the frame after moveend, which can fire inside another camera call;
+    // a movement under way by then ends in a moveend of its own.
+    let paddingFrame = 0
+    const finishPreviewPadding = () => {
+      cancelAnimationFrame(paddingFrame)
+      paddingFrame = requestAnimationFrame(() => {
+        const applied = appliedPreviewCameraRef.current
+        if (map.isMoving() || applied?.map !== map) return
+        if (cameraPaddingDiffers(map, applied.paddingPx)) {
+          map.easeTo({ padding: scenePreviewCameraPadding(applied.paddingPx) })
+        }
+      })
+    }
+    map.on('moveend', finishPreviewPadding)
 
     // Verification seam for the browser-automation aliveness harness
     // (getCenter drag assertions + readiness gate). Gated on 'load', NOT
@@ -1585,7 +1624,10 @@ export default function GlobeCanvas({
       const applied = appliedPreviewCameraRef.current
       leftPreviewCameraRef.current = {
         paddingPx: map.getPadding().bottom ?? 0,
-        settled: applied?.map === map && !map.isMoving(),
+        settled:
+          applied?.map === map &&
+          !map.isMoving() &&
+          !cameraPaddingDiffers(map, applied.paddingPx),
         slug: applied?.map === map ? applied.slug : null,
         sheetPx: applied?.map === map ? applied.sheetPx : 0,
       }
@@ -1599,6 +1641,7 @@ export default function GlobeCanvas({
       clearPointerHoverRef.current = null
       setMapReady((prev) => (prev === map ? null : prev))
       setMapLoaded((prev) => (prev === map ? null : prev))
+      cancelAnimationFrame(paddingFrame)
       health.stop()
       map.remove()
     }

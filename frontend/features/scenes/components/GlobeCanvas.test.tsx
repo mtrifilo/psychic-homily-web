@@ -1030,6 +1030,9 @@ describe('GlobeCanvas preview camera', () => {
       expect.objectContaining({ center: CHICAGO_CENTER, padding: padded(HALF_PX) }),
     )
     rerender(<GlobeCanvas {...props} selected={CHICAGO} />)
+    // The flight lands on the dot with the sheet's padding.
+    map.center = { lng: CHICAGO.longitude, lat: CHICAGO.latitude }
+    map.padding = padded(HALF_PX)
     act(() => map.fire('moveend'))
     runFrame()
     expect(map.easeTo).not.toHaveBeenCalled()
@@ -1063,6 +1066,44 @@ describe('GlobeCanvas preview camera', () => {
     runFrame()
     expect(map.easeTo).toHaveBeenCalledTimes(1)
     expect(map.easeTo).toHaveBeenCalledWith({ padding: NO_PADDING })
+  })
+
+  it('finishes the padding of a re-centring a gesture stopped part-way, keeping the centre', () => {
+    const { map } = selectChicago()
+    map.easeTo.mockClear()
+    // A drag stopped the ease 40% of the way, then moved the camera on.
+    map.padding = padded(HALF_PX * 0.4)
+    map.center = ELSEWHERE
+    act(() => map.fire('moveend'))
+    runFrame()
+    expect(map.easeTo).toHaveBeenCalledTimes(1)
+    expect(map.easeTo).toHaveBeenCalledWith({ padding: padded(HALF_PX) })
+    expect(map.center).toEqual(ELSEWHERE)
+  })
+
+  it('finishes dropping the padding of a closed preview that a gesture stopped part-way', () => {
+    const { map, rerender, props } = selectChicago()
+    rerender(<GlobeCanvas {...props} selected={null} scenePreviewSheetDetent="half" />)
+    map.easeTo.mockClear()
+    map.padding = padded(60)
+    act(() => map.fire('moveend'))
+    runFrame()
+    expect(map.easeTo).toHaveBeenCalledWith({ padding: NO_PADDING })
+  })
+
+  it('leaves the padding the Peek exception kept, and waits while the camera still moves', () => {
+    const { map, rerender, props } = selectChicago()
+    rerender(<GlobeCanvas {...props} selected={CHICAGO} scenePreviewSheetDetent="peek" />)
+    map.easeTo.mockClear()
+    act(() => map.fire('moveend'))
+    runFrame()
+    expect(map.easeTo).not.toHaveBeenCalled()
+
+    map.padding = padded(10)
+    map.moving = true
+    act(() => map.fire('moveend'))
+    runFrame()
+    expect(map.easeTo).not.toHaveBeenCalled()
   })
 
   it('keeps the camera a user panned through a lost and restored context', () => {
@@ -1108,6 +1149,21 @@ describe('GlobeCanvas preview camera', () => {
     expect(rebuilt.easeTo).not.toHaveBeenCalled()
     const halo = screen.getByTestId('globe-cursor-wrap').children[1] as HTMLElement
     expect(halo.style.top).toBe(`calc(50% - ${HALF_PX / 2}px)`)
+  })
+
+  it('moves once on a map rebuilt while the move for the current selection was still waiting', () => {
+    const { map, rerender, props } = renderPreview()
+    map.moving = true
+    const selected = { ...props, selected: CHICAGO, scenePreviewSheetDetent: 'half' as const }
+    rerender(<GlobeCanvas {...selected} />)
+    // The movement ended; the move waits for the next frame, and the page is
+    // hidden before it comes, with the camera at rest.
+    map.moving = false
+    act(() => map.fire('moveend'))
+    const rebuilt = rebuildMap(rerender, selected)
+    expect(map.easeTo).not.toHaveBeenCalled()
+    expect(rebuilt.easeTo).toHaveBeenCalledTimes(1)
+    expect(rebuilt.easeTo).toHaveBeenCalledWith({ center: CHICAGO_CENTER, padding: padded(HALF_PX) })
   })
 
   it('moves once on a map rebuilt from a camera that was still moving', () => {
