@@ -10,11 +10,11 @@
 --   * pattern_type 'exact' compares with =, so an exact pattern is stored in
 --     normalized form (enforced below).
 --   * pattern_type 'regex' compares with ~, and the pattern must mean the same
---     thing to Postgres ARE and to Go RE2. Escapes of a letter or digit (\b, \d,
---     \m, \1, ...), POSIX classes ([[:alpha:]]) and (? groups are refused,
---     because the two engines read them differently or only one accepts them.
---     What remains (literals, escaped punctuation, ., anchors, groups,
---     alternation, quantifiers, bracket lists) matches identically in both.
+--     thing to Postgres ARE and to Go RE2. Refused here and by the Go loader:
+--     an escape of anything but a regex metacharacter or /, a POSIX bracket
+--     construct ([: [. [=), a (? group, a leading *, a brace, an ASCII capital
+--     (normalized values are lowercase, so it could never match), and more
+--     than 200 characters.
 --   * station_id NULL applies the row on every station; otherwise only to plays
 --     that aired on that station.
 --   * category 'station_element' and 'talk' exclude the whole play from every
@@ -22,7 +22,6 @@
 --     still counts toward rankings that do not key on that field.
 --
 -- CHECK constraints rather than enum types, so value sets stay cheap to evolve.
--- Multi-statement file => golang-migrate runs it in a transaction.
 
 CREATE TABLE radio_play_exclusions (
     id BIGSERIAL PRIMARY KEY,
@@ -49,9 +48,15 @@ CREATE TABLE radio_play_exclusions (
     CONSTRAINT radio_play_exclusions_pattern_form_check CHECK (
         CASE
             WHEN pattern_type = 'regex'
-                THEN pattern !~ '\\[[:alnum:]]'
-                     AND position('[[:' IN pattern) = 0
+                THEN char_length(pattern) <= 200
+                     AND pattern !~ '\\[^\]\[.()*+?|^$\\{}/-]'
+                     AND position('[:' IN pattern) = 0
+                     AND position('[.' IN pattern) = 0
+                     AND position('[=' IN pattern) = 0
                      AND position('(?' IN pattern) = 0
+                     AND left(pattern, 1) <> '*'
+                     AND position('{' IN pattern) = 0
+                     AND pattern !~ '[ABCDEFGHIJKLMNOPQRSTUVWXYZ]'
                      AND ('' ~ pattern) IS NOT NULL
             ELSE pattern = radio_normalize_name(pattern)
         END

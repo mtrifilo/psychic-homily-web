@@ -58,8 +58,15 @@ func (s *RadioPlayExclusionsIntegrationSuite) SetupTest() {
 	s.cleanup()
 	s.episodeBySlug = map[string]uint{}
 	s.stationBySlug = map[string]uint{}
+	// t-wfmu, t-rocknsoul and t-sheena share one network, like WFMU's flagship
+	// and its stream-only channels; t-kexp and t-nts stand alone.
+	network := &catalogm.RadioNetwork{Slug: "t-wfmu-net", Name: "t-wfmu-net"}
+	s.Require().NoError(s.db.Create(network).Error)
 	for _, slug := range []string{"t-kexp", "t-wfmu", "t-rocknsoul", "t-sheena", "t-nts"} {
 		station := &catalogm.RadioStation{Name: slug, Slug: slug, BroadcastType: catalogm.BroadcastTypeInternet}
+		if slug == "t-wfmu" || slug == "t-rocknsoul" || slug == "t-sheena" {
+			station.NetworkID = &network.ID
+		}
 		s.Require().NoError(s.db.Create(station).Error)
 		show := &catalogm.RadioShow{StationID: station.ID, Name: slug + " show", Slug: slug + "-show"}
 		s.Require().NoError(s.db.Create(show).Error)
@@ -82,6 +89,7 @@ func (s *RadioPlayExclusionsIntegrationSuite) cleanup() {
 	s.Require().NoError(s.db.Exec("DELETE FROM radio_episodes").Error)
 	s.Require().NoError(s.db.Exec("DELETE FROM radio_shows").Error)
 	s.Require().NoError(s.db.Exec("DELETE FROM radio_stations WHERE slug LIKE 't-%'").Error)
+	s.Require().NoError(s.db.Exec("DELETE FROM radio_networks WHERE slug LIKE 't-%'").Error)
 }
 
 // addPlays inserts n copies of a play on the station; title and label are nil
@@ -111,9 +119,9 @@ type radioPlayVerdict struct {
 	PlayID     uint
 	StationID  uint
 	ArtistRaw  string
-	ArtistNorm string
-	TitleNorm  string
-	LabelNorm  string
+	ArtistNorm *string
+	TitleNorm  *string
+	LabelNorm  *string
 	ExArtist   bool
 	ExTrack    bool
 	ExLabel    bool
@@ -123,10 +131,11 @@ type radioPlayVerdict struct {
 // dimension, together with the SQL-normalized fields the Go predicate takes.
 func (s *RadioPlayExclusionsIntegrationSuite) verdicts() []radioPlayVerdict {
 	q := fmt.Sprintf(`SELECT rp.id AS play_id, rsh.station_id AS station_id, rp.artist_name AS artist_raw,
-       coalesce(radio_normalize_name(rp.artist_name), '') AS artist_norm,
-       coalesce(radio_normalize_name(rp.track_title), '') AS title_norm,
-       coalesce(radio_normalize_name(rp.label_name), '') AS label_norm,
+       %s AS artist_norm, %s AS title_norm, %s AS label_norm,
        %s AS ex_artist, %s AS ex_track, %s AS ex_label %s ORDER BY rp.id`,
+		RadioNormalizedFieldSQL("rp.artist_name"),
+		RadioNormalizedFieldSQL("rp.track_title"),
+		RadioNormalizedFieldSQL("rp.label_name"),
 		RadioPlayExcludedSQL(RadioRankingArtist, radioExclusionTestCols),
 		RadioPlayExcludedSQL(RadioRankingTrack, radioExclusionTestCols),
 		RadioPlayExcludedSQL(RadioRankingLabel, radioExclusionTestCols),
@@ -202,11 +211,11 @@ func (s *RadioPlayExclusionsIntegrationSuite) TestTopStationElementsAndTalkAreEx
 
 func (s *RadioPlayExclusionsIntegrationSuite) TestKnownMultiStationSongsAreKept() {
 	s.addPlays("t-kexp", "Man/Woman/Chainsaw", "Nosedive", "Partisan Records", 3)
-	s.addPlays("t-wfmu", "Man/Woman/Chainsaw", "Nosedive", "", 2)
-	s.addPlays("t-sheena", "Man/Woman/Chainsaw", "Nosedive", "", 1)
+	s.addPlays("t-wfmu", "Man/Woman/Chainsaw", "Nosedive", "Partisan Records", 2)
+	s.addPlays("t-sheena", "Man/Woman/Chainsaw", "Nosedive", "Partisan Records", 1)
 	// The plain twin of a "Music behind DJ:" bed still counts.
 	s.addPlays("t-kexp", "Dorothy Ashby", "Soul Vibrations", "Cadet", 1)
-	s.addPlays("t-nts", "Dorothy Ashby", "Soul Vibrations", "", 1)
+	s.addPlays("t-nts", "Dorothy Ashby", "Soul Vibrations", "Cadet", 1)
 	// Real artists that only look like talk markers.
 	s.addPlays("t-kexp", "Widowspeak", "If You Change", "Captured Tracks", 1)
 	s.addPlays("t-kexp", "Trees Speak", "Ghost We Know", "Soul Jazz", 1)
@@ -257,10 +266,11 @@ func (s *RadioPlayExclusionsIntegrationSuite) TestNonLatinNamesAreNotNoise() {
 	s.Require().NoError(s.db.Create(&catalogm.RadioPlayExclusion{
 		MatchKind: "artist_name", PatternType: "regex", Pattern: "^$", Category: "talk", Reason: "test",
 	}).Error)
-	s.addPlays("t-kexp", "검정치마", "everything", "", 1)
+	s.addPlays("t-kexp", "검정치마", "everything", "Cheongchun Baekseo", 1)
 	s.addPlays("t-nts", "ドレスコーズ", "ビューティフル", "日本コロムビア", 1)
 	for _, v := range s.verdicts() {
-		s.Equal("", v.ArtistNorm, "fixture premise: %q normalizes to empty in SQL", v.ArtistRaw)
+		s.Require().NotNil(v.ArtistNorm)
+		s.Equal("", *v.ArtistNorm, "fixture premise: %q normalizes to empty in SQL", v.ArtistRaw)
 		s.False(v.ExArtist || v.ExTrack || v.ExLabel, "non-Latin play %q must not be excluded", v.ArtistRaw)
 	}
 	s.assertGoAgreesWithSQL()
@@ -280,26 +290,28 @@ func (s *RadioPlayExclusionsIntegrationSuite) TestStationScopedRule() {
 }
 
 type radioTrackFloorRow struct {
-	Artist   string
-	Title    string
-	Plays    int
-	Stations int
+	Artist       string
+	Title        string
+	Plays        int
+	Broadcasters int
 }
 
 // qualifyingTracks groups non-excluded plays by normalized artist and title
 // and keeps the keys that pass the single-station rule.
 func (s *RadioPlayExclusionsIntegrationSuite) qualifyingTracks() map[string]radioTrackFloorRow {
 	q := fmt.Sprintf(`SELECT radio_normalize_name(rp.artist_name) AS artist, radio_normalize_name(rp.track_title) AS title,
-       count(*) AS plays, count(DISTINCT rsh.station_id) AS stations
+       count(*) AS plays, count(DISTINCT %s) AS broadcasters
 %s
+JOIN radio_stations rst ON rst.id = rsh.station_id
 WHERE NOT (%s)
 GROUP BY 1, 2
-HAVING %s`, radioExclusionTestFrom, RadioPlayExcludedSQL(RadioRankingTrack, radioExclusionTestCols), RadioStationFloorSQL("rsh.station_id"))
+HAVING %s`, broadcasterKeySQL("rst"), radioExclusionTestFrom,
+		RadioPlayExcludedSQL(RadioRankingTrack, radioExclusionTestCols), RadioBroadcasterFloorSQL("rst"))
 	var rows []radioTrackFloorRow
 	s.Require().NoError(s.db.Raw(q).Scan(&rows).Error)
 	out := map[string]radioTrackFloorRow{}
 	for _, r := range rows {
-		s.True(RadioMeetsStationFloor(r.Stations), "SQL and Go floor agree for %s", r.Artist)
+		s.True(RadioMeetsBroadcasterFloor(r.Broadcasters), "SQL and Go floor agree for %s", r.Artist)
 		out[r.Artist+" / "+r.Title] = r
 	}
 	return out
@@ -313,7 +325,78 @@ func (s *RadioPlayExclusionsIntegrationSuite) TestSingleStationRuleIgnoresVolume
 	got := s.qualifyingTracks()
 	s.NotContains(got, "nirvana / c side of ocho rios", "150 plays on one station never qualify")
 	s.Contains(got, "suki waterhouse / back in love")
-	s.Equal(2, got["suki waterhouse / back in love"].Stations)
+	s.Equal(2, got["suki waterhouse / back in love"].Broadcasters)
+}
+
+func (s *RadioPlayExclusionsIntegrationSuite) TestNetworkSiblingsCountAsOneBroadcaster() {
+	// Three stations of one network are one broadcaster: a song repeated on
+	// the automated stream and the flagship stays single-station.
+	s.addPlays("t-rocknsoul", "The Turtles", "Buzzsaw", "", 20)
+	s.addPlays("t-wfmu", "The Turtles", "Buzzsaw", "", 5)
+	s.addPlays("t-sheena", "The Turtles", "Buzzsaw", "", 1)
+	s.NotContains(s.qualifyingTracks(), "the turtles / buzzsaw")
+
+	s.addPlays("t-kexp", "The Turtles", "Buzzsaw", "", 1)
+	got := s.qualifyingTracks()
+	s.Contains(got, "the turtles / buzzsaw", "a second, independent broadcaster qualifies the key")
+	s.Equal(2, got["the turtles / buzzsaw"].Broadcasters)
+}
+
+func (s *RadioPlayExclusionsIntegrationSuite) TestBlankKeyFieldsNeverCount() {
+	s.addPlays("t-kexp", "Lael Neale", "Star", "", 1)
+	s.addPlays("t-nts", "Hand Habits", "Wildfire", "   ", 1)
+	s.addPlays("t-kexp", "Sub Pop Band", "   ", "Sub Pop", 1)
+
+	for _, v := range s.verdicts() {
+		switch v.ArtistRaw {
+		case "Lael Neale", "Hand Habits":
+			s.True(v.ExLabel, "%q has no label, so it never counts toward a label ranking", v.ArtistRaw)
+			s.False(v.ExArtist || v.ExTrack, "%q still counts toward artist and track rankings", v.ArtistRaw)
+		case "Sub Pop Band":
+			s.True(v.ExTrack, "a blank title never counts toward a track ranking")
+			s.False(v.ExArtist || v.ExLabel)
+		}
+	}
+
+	// The NULL and blank labels span two broadcasters, yet form no label key.
+	q := fmt.Sprintf(`SELECT count(*) %s WHERE NOT (%s)`,
+		radioExclusionTestFrom, RadioPlayExcludedSQL(RadioRankingLabel, radioExclusionTestCols))
+	var labelPlays int64
+	s.Require().NoError(s.db.Raw(q).Scan(&labelPlays).Error)
+	s.Equal(int64(1), labelPlays, "only the Sub Pop play counts toward a label ranking")
+	s.assertGoAgreesWithSQL()
+}
+
+// The table's CHECK constraint and the Go loader accept exactly the same regex
+// patterns.
+func (s *RadioPlayExclusionsIntegrationSuite) TestRegexCorpusAgreesWithGoLoader() {
+	for _, c := range radioExclusionRegexCorpus {
+		row := catalogm.RadioPlayExclusion{MatchKind: "track_title", PatternType: "regex", Pattern: c.pattern, Category: "talk", Reason: "corpus"}
+		err := s.db.Create(&row).Error
+		if c.accept {
+			s.NoError(err, "the constraint must accept %q", c.pattern)
+		} else {
+			s.Error(err, "the constraint must refuse %q", c.pattern)
+		}
+	}
+	_, err := LoadRadioPlayExclusions(s.db)
+	s.NoError(err, "every row the constraint accepted must load in Go")
+}
+
+func (s *RadioPlayExclusionsIntegrationSuite) TestManyRegexRowsStillMatch() {
+	for i := 0; i < 40; i++ {
+		s.Require().NoError(s.db.Create(&catalogm.RadioPlayExclusion{
+			MatchKind: "artist_name", PatternType: "regex", Pattern: fmt.Sprintf("^zz%d segment$", i),
+			Category: "talk", Reason: "test",
+		}).Error)
+	}
+	s.addPlays("t-kexp", "ZZ7 Segment", "", "", 1)
+	s.addPlays("t-kexp", "ZZ39 Segment", "", "", 1)
+	s.addPlays("t-kexp", "ZZ7 Segments", "Song", "Label", 1)
+	s.True(s.verdictFor("ZZ7 Segment").ExArtist)
+	s.True(s.verdictFor("ZZ39 Segment").ExArtist)
+	s.False(s.verdictFor("ZZ7 Segments").ExArtist)
+	s.assertGoAgreesWithSQL()
 }
 
 func (s *RadioPlayExclusionsIntegrationSuite) TestSingleStationRuleCountsOnlyNonExcludedPlays() {

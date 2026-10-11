@@ -31,22 +31,73 @@ func mustExclusions(t *testing.T, rows ...catalogm.RadioPlayExclusion) *RadioPla
 	return e
 }
 
+// normPlay builds a RadioNormalizedPlay from already-normalized values; an
+// empty argument stands for a NULL or blank raw value.
+func normPlay(station uint, artist, title, label string) RadioNormalizedPlay {
+	opt := func(v string) *string {
+		if v == "" {
+			return nil
+		}
+		return &v
+	}
+	return RadioNormalizedPlay{StationID: station, ArtistName: opt(artist), TrackTitle: opt(title), LabelName: opt(label)}
+}
+
+var allRadioRankingDimensions = []RadioRankingDimension{RadioRankingArtist, RadioRankingTrack, RadioRankingLabel}
+
+// radioExclusionRegexCorpus is checked against both the Go loader (here) and
+// the table's CHECK constraint (integration suite); the two must agree on
+// every entry.
+var radioExclusionRegexCorpus = []struct {
+	pattern string
+	accept  bool
+}{
+	{`^music behind dj(:|$)`, true},
+	{`^.+ speaks$`, true},
+	{`^self[- ]*releas`, true},
+	{`^not on (a )?label`, true},
+	{`^a\.b\(c\)\[d\]\*\+\?\|\^\$\\\/\-$`, true},
+	{`^dj[^a-z]+$`, true},
+	{`(unclosed`, false},
+	{`\bdj\b`, false},
+	{`^\d+$`, false},
+	{`\mdj`, false},
+	{`(a)\1`, false},
+	{`\€uro`, false},
+	{`vampires\’ sound`, false},
+	{`^[[:alpha:]]+$`, false},
+	{`^[ [:alpha:]]+$`, false},
+	{`^[[=a=]]x`, false},
+	{`^[[.-.]]$`, false},
+	{`^a[.]b`, false},
+	{`(?i)dj`, false},
+	{`dj(?=x)`, false},
+	{`***=n/a`, false},
+	{`*dj`, false},
+	{`(a{100}){100}`, false},
+	{`a{2}`, false},
+	{`^Music behind DJ`, false},
+	{strings.Repeat("a", RadioExclusionRegexMaxLen), true},
+	{strings.Repeat("a", RadioExclusionRegexMaxLen+1), false},
+}
+
+func TestRadioExclusionRegexCorpus_GoLoader(t *testing.T) {
+	for _, c := range radioExclusionRegexCorpus {
+		_, err := NewRadioPlayExclusions([]catalogm.RadioPlayExclusion{exclusionRow("artist_name", "regex", c.pattern, "talk")})
+		if c.accept {
+			assert.NoError(t, err, c.pattern)
+		} else {
+			assert.Error(t, err, c.pattern)
+		}
+	}
+}
+
 func TestNewRadioPlayExclusions_RejectsInvalidRows(t *testing.T) {
 	cases := map[string]catalogm.RadioPlayExclusion{
 		"unknown match kind":   exclusionRow("album_title", "exact", "x", "talk"),
 		"unknown pattern type": exclusionRow("artist_name", "glob", "x*", "talk"),
 		"unknown category":     exclusionRow("artist_name", "exact", "x", "spam"),
 		"empty pattern":        exclusionRow("artist_name", "exact", "", "talk"),
-		"invalid RE2":          exclusionRow("artist_name", "regex", "(unclosed", "talk"),
-		// Each of these compiles in at least one engine but is read
-		// differently by the other, so the loader refuses it.
-		"word boundary":       exclusionRow("artist_name", "regex", `\bdj\b`, "talk"),
-		"digit class escape":  exclusionRow("artist_name", "regex", `^\d+$`, "talk"),
-		"postgres word start": exclusionRow("artist_name", "regex", `\mdj`, "talk"),
-		"back-reference":      exclusionRow("artist_name", "regex", `(a)\1`, "talk"),
-		"posix class":         exclusionRow("artist_name", "regex", `^[[:alpha:]]+$`, "talk"),
-		"inline flags":        exclusionRow("artist_name", "regex", `(?i)dj`, "talk"),
-		"lookahead":           exclusionRow("artist_name", "regex", `dj(?=x)`, "talk"),
 	}
 	for name, row := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -56,23 +107,12 @@ func TestNewRadioPlayExclusions_RejectsInvalidRows(t *testing.T) {
 	}
 }
 
-func TestNewRadioPlayExclusions_AcceptsPortableRegex(t *testing.T) {
-	for _, pattern := range []string{`^music behind dj(:|$)`, `^.+ speaks$`, `^self[- ]*releas`, `^not on (a )?label`, `^a\.b\(c\)$`} {
-		_, err := NewRadioPlayExclusions([]catalogm.RadioPlayExclusion{exclusionRow("artist_name", "regex", pattern, "talk")})
-		assert.NoError(t, err, pattern)
-	}
-}
-
 func TestRadioPlayExclusions_TalkExcludesWholePlay(t *testing.T) {
 	e := mustExclusions(t, exclusionRow("artist_name", "regex", `^music behind dj(:|$)`, "talk"))
-	play := RadioNormalizedPlay{StationID: 1, ArtistName: "music behind dj: dorothy ashby", TrackTitle: "soul vibrations", LabelName: "cadet"}
-	for _, dim := range []RadioRankingDimension{RadioRankingArtist, RadioRankingTrack, RadioRankingLabel} {
-		assert.True(t, e.Excludes(dim, play), dim)
-	}
-
-	plain := play
-	plain.ArtistName = "dorothy ashby"
-	for _, dim := range []RadioRankingDimension{RadioRankingArtist, RadioRankingTrack, RadioRankingLabel} {
+	bed := normPlay(1, "music behind dj: dorothy ashby", "soul vibrations", "cadet")
+	plain := normPlay(1, "dorothy ashby", "soul vibrations", "cadet")
+	for _, dim := range allRadioRankingDimensions {
+		assert.True(t, e.Excludes(dim, bed), dim)
 		assert.False(t, e.Excludes(dim, plain), dim)
 	}
 }
@@ -84,32 +124,46 @@ func TestRadioPlayExclusions_PlaceholderOnlyDisqualifiesKeyField(t *testing.T) {
 		exclusionRow("track_title", "exact", "unknown track", "placeholder"),
 	)
 
-	selfReleased := RadioNormalizedPlay{StationID: 1, ArtistName: "lael neale", TrackTitle: "star", LabelName: "self-released"}
+	selfReleased := normPlay(1, "lael neale", "star", "self-released")
 	assert.True(t, e.Excludes(RadioRankingLabel, selfReleased))
 	assert.False(t, e.Excludes(RadioRankingArtist, selfReleased))
 	assert.False(t, e.Excludes(RadioRankingTrack, selfReleased))
 
-	unknownArtist := RadioNormalizedPlay{StationID: 1, ArtistName: "unknown artist", TrackTitle: "green island", LabelName: "sub pop"}
+	unknownArtist := normPlay(1, "unknown artist", "green island", "sub pop")
 	assert.True(t, e.Excludes(RadioRankingArtist, unknownArtist))
 	assert.True(t, e.Excludes(RadioRankingTrack, unknownArtist))
 	assert.False(t, e.Excludes(RadioRankingLabel, unknownArtist))
 
-	unknownTrack := RadioNormalizedPlay{StationID: 1, ArtistName: "rezzett", TrackTitle: "unknown track"}
+	unknownTrack := normPlay(1, "rezzett", "unknown track", "trilogy tapes")
 	assert.False(t, e.Excludes(RadioRankingArtist, unknownTrack))
 	assert.True(t, e.Excludes(RadioRankingTrack, unknownTrack))
 	assert.False(t, e.Excludes(RadioRankingLabel, unknownTrack))
 }
 
-func TestRadioPlayExclusions_EmptyFieldNeverMatches(t *testing.T) {
-	// A regex that matches the empty string must still not exclude a play
-	// whose normalized field is empty (blank raw value, or a non-Latin name
-	// that radio_normalize_name trims to nothing).
+func TestRadioPlayExclusions_BlankKeyFieldExcludesOnlyThatDimension(t *testing.T) {
+	e := mustExclusions(t)
+	noLabel := normPlay(1, "lael neale", "star", "")
+	assert.True(t, e.Excludes(RadioRankingLabel, noLabel))
+	assert.False(t, e.Excludes(RadioRankingArtist, noLabel))
+	assert.False(t, e.Excludes(RadioRankingTrack, noLabel))
+
+	noTitle := normPlay(1, "lael neale", "", "sub pop")
+	assert.True(t, e.Excludes(RadioRankingTrack, noTitle))
+	assert.False(t, e.Excludes(RadioRankingArtist, noTitle))
+	assert.False(t, e.Excludes(RadioRankingLabel, noTitle))
+}
+
+func TestRadioPlayExclusions_EmptyNormalizedValueNeverMatches(t *testing.T) {
+	// "" is a present raw value that radio_normalize_name trims to nothing (a
+	// name of non-ASCII characters only). It is neither blank nor matched, even
+	// by a rule that matches the empty string.
 	e := mustExclusions(t,
 		exclusionRow("artist_name", "regex", `^$`, "talk"),
 		exclusionRow("track_title", "regex", `^.*$`, "talk"),
 	)
-	play := RadioNormalizedPlay{StationID: 1}
-	for _, dim := range []RadioRankingDimension{RadioRankingArtist, RadioRankingTrack, RadioRankingLabel} {
+	empty := ""
+	play := RadioNormalizedPlay{StationID: 1, ArtistName: &empty, TrackTitle: &empty, LabelName: &empty}
+	for _, dim := range allRadioRankingDimensions {
 		assert.False(t, e.Excludes(dim, play), dim)
 	}
 }
@@ -120,44 +174,33 @@ func TestRadioPlayExclusions_StationScope(t *testing.T) {
 	row.StationID = &sheena
 	e := mustExclusions(t, row)
 
-	assert.True(t, e.Excludes(RadioRankingTrack, RadioNormalizedPlay{StationID: 11, ArtistName: "bob barth", TrackTitle: "announcements"}))
-	assert.False(t, e.Excludes(RadioRankingTrack, RadioNormalizedPlay{StationID: 7, ArtistName: "someone", TrackTitle: "announcements"}))
+	assert.True(t, e.Excludes(RadioRankingTrack, normPlay(11, "bob barth", "announcements", "")))
+	assert.False(t, e.Excludes(RadioRankingTrack, normPlay(7, "someone", "announcements", "")))
 }
 
 func TestRadioPlayExclusions_ExactIsWholeValue(t *testing.T) {
 	e := mustExclusions(t, exclusionRow("artist_name", "exact", "unknown", "placeholder"))
-	assert.True(t, e.Excludes(RadioRankingArtist, RadioNormalizedPlay{ArtistName: "unknown"}))
-	assert.False(t, e.Excludes(RadioRankingArtist, RadioNormalizedPlay{ArtistName: "unknown mortal orchestra"}))
+	assert.True(t, e.Excludes(RadioRankingArtist, normPlay(1, "unknown", "", "")))
+	assert.False(t, e.Excludes(RadioRankingArtist, normPlay(1, "unknown mortal orchestra", "", "")))
 }
 
 func TestRadioPlayExclusions_UnknownDimensionPanics(t *testing.T) {
 	e := mustExclusions(t)
 	assert.Panics(t, func() { e.Excludes(RadioRankingDimension("release"), RadioNormalizedPlay{}) })
-}
-
-func TestRadioPlayExcludedSQL_Shape(t *testing.T) {
 	cols := RadioPlayColumns{StationID: "rsh.station_id", ArtistName: "rp.artist_name", TrackTitle: "rp.track_title", LabelName: "rp.label_name"}
-
-	label := RadioPlayExcludedSQL(RadioRankingLabel, cols)
-	assert.True(t, strings.HasPrefix(label, "EXISTS ("))
-	assert.Contains(t, label, "radio_normalize_name(rp.artist_name)")
-	assert.Contains(t, label, "x.station_id = rsh.station_id")
-	assert.Contains(t, label, "x.match_kind IN ('label_name')")
-
-	track := RadioPlayExcludedSQL(RadioRankingTrack, cols)
-	assert.Contains(t, track, "x.match_kind IN ('artist_name', 'track_title')")
+	assert.Panics(t, func() { RadioPlayExcludedSQL(RadioRankingDimension("release"), cols) })
 }
 
 func TestRadioPlayExcludedSQL_PanicsOnNonIdentifier(t *testing.T) {
 	cols := RadioPlayColumns{StationID: "rsh.station_id", ArtistName: "rp.artist_name); DROP TABLE x; --", TrackTitle: "rp.track_title", LabelName: "rp.label_name"}
 	assert.Panics(t, func() { RadioPlayExcludedSQL(RadioRankingArtist, cols) })
-	assert.Panics(t, func() { RadioStationFloorSQL("1; DROP TABLE x") })
+	assert.Panics(t, func() { RadioBroadcasterFloorSQL("rst.id") })
+	assert.Panics(t, func() { RadioBroadcasterFloorSQL("1; DROP TABLE x") })
 }
 
-func TestRadioMeetsStationFloor(t *testing.T) {
-	assert.False(t, RadioMeetsStationFloor(0))
-	assert.False(t, RadioMeetsStationFloor(1))
-	assert.True(t, RadioMeetsStationFloor(2))
-	assert.True(t, RadioMeetsStationFloor(5))
-	assert.Equal(t, "count(DISTINCT rsh.station_id) >= 2", RadioStationFloorSQL("rsh.station_id"))
+func TestRadioMeetsBroadcasterFloor(t *testing.T) {
+	assert.False(t, RadioMeetsBroadcasterFloor(0))
+	assert.False(t, RadioMeetsBroadcasterFloor(1))
+	assert.True(t, RadioMeetsBroadcasterFloor(2))
+	assert.True(t, RadioMeetsBroadcasterFloor(5))
 }
