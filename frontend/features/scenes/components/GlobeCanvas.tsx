@@ -1059,10 +1059,17 @@ export default function GlobeCanvas({
     // only the committed null in between (the loss and the restored style.load
     // are separate events, a frame or more apart) makes those effects run
     // again.
-    const health = watchAtlasMapHealth(map, setUnrecoverable, (live) => {
-      if (live) setMapReady(map)
-      else setMapReady((prev) => (prev === map ? null : prev))
-    })
+    // The scenes source is the first-render watchdog's: a map that renders no
+    // frame once that source has loaded is given up.
+    const health = watchAtlasMapHealth(
+      map,
+      setUnrecoverable,
+      (live) => {
+        if (live) setMapReady(map)
+        else setMapReady((prev) => (prev === map ? null : prev))
+      },
+      'scenes',
+    )
 
     // See the constructor options: bearing/pitch must stay locked at 0 on
     // every input path (the saved camera persists only center/zoom).

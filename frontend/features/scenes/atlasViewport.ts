@@ -91,6 +91,10 @@ export function atlasRendersSceneList({
  * - `context-restore-refused`: the browser restored the context but MapLibre
  *   got no WebGL2 context back.
  * - `style-load-failed`: the style errored before it loaded.
+ * - `first-render-timeout`: the map rendered no frame after its scenes
+ *   source loaded within ATLAS_FIRST_RENDER_DEADLINE_MS of continuously
+ *   visible time after it was built (a render frame that throws, a worker
+ *   that never starts).
  */
 export type AtlasMapFailureClass =
   | 'context-refused'
@@ -99,6 +103,7 @@ export type AtlasMapFailureClass =
   | 'context-lost-before-style'
   | 'context-restore-refused'
   | 'style-load-failed'
+  | 'first-render-timeout'
 
 const FAILURE_MESSAGES: Record<AtlasMapFailureClass, string> = {
   'context-refused': 'MapLibre could not get a WebGL2 context',
@@ -107,12 +112,14 @@ const FAILURE_MESSAGES: Record<AtlasMapFailureClass, string> = {
   'context-lost-before-style': 'the WebGL context was lost before the style loaded',
   'context-restore-refused': 'MapLibre could not get a WebGL2 context back after a restore',
   'style-load-failed': 'the map style failed to load',
+  'first-render-timeout': 'the map rendered no frame of its data in time',
 }
 
 /**
  * Thrown by the Atlas map when it cannot draw and the Atlas stops waiting for
- * it to: every {@link AtlasMapFailureClass}. For `context-lost` that is a
- * decision at a deadline, not proof the browser would never restore. AtlasGlobe
+ * it to: every {@link AtlasMapFailureClass}. For `context-lost` and
+ * `first-render-timeout` that is a decision at a deadline, not proof the map
+ * would never have drawn. AtlasGlobe
  * swaps in the scene list for the rest of the page load. Lives here, not
  * beside the map, so AtlasGlobe can recognise it without importing MapLibre.
  */
@@ -132,9 +139,9 @@ let atlasMapFailed = false
  * Records that the Atlas map failed with an {@link AtlasMapUnrecoverableError},
  * so every later Atlas mount in this page load goes straight to the scene list
  * instead of building another map. For a refused context and an invalid
- * inline style a new map would fail the same way; for the loss classes it is
- * a policy: one map that died is enough to stop building more in this page
- * load.
+ * inline style a new map would fail the same way; for the loss classes and a
+ * first render that never came it is a policy: one map that died is enough
+ * to stop building more in this page load.
  */
 export function markAtlasMapFailed(): void {
   atlasMapFailed = true

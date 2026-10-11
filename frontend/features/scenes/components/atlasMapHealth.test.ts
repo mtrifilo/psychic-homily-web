@@ -4,8 +4,12 @@ import maplibrePackage from 'maplibre-gl/package.json'
 import {
   type AtlasMapHealth,
   ATLAS_CONTEXT_RESTORE_DEADLINE_MS,
+  ATLAS_FIRST_RENDER_DEADLINE_MS,
   atlasMapBoundaryReporting,
   atlasMapContextRefused,
+  atlasMapSectionFailedThisPage,
+  latchAtlasMapFailure,
+  resetAtlasMapLatchesForTest,
   watchAtlasMapHealth,
 } from './atlasMapHealth'
 import { AtlasMapUnrecoverableError } from '../atlasViewport'
@@ -17,8 +21,15 @@ class FakeMap {
     this.handlers.set(type, [...(this.handlers.get(type) ?? []), handler])
     return this
   }
+  off(type: string, handler: (event: unknown) => void) {
+    this.handlers.set(type, (this.handlers.get(type) ?? []).filter((h) => h !== handler))
+    return this
+  }
   fire(type: string, event: unknown = {}) {
     for (const handler of this.handlers.get(type) ?? []) handler(event)
+  }
+  listenerCount(type: string) {
+    return this.handlers.get(type)?.length ?? 0
   }
 }
 
@@ -348,15 +359,185 @@ describe('atlasMapBoundaryReporting', () => {
   })
 })
 
+describe('watchAtlasMapHealth first-render watchdog', () => {
+  let map: FakeMap & { isSourceLoaded: ReturnType<typeof vi.fn<(id: string) => boolean>> }
+  let onUnrecoverable: ReturnType<typeof vi.fn<(error: AtlasMapUnrecoverableError) => void>>
+  let sourceLoaded: boolean
+  let health: AtlasMapHealth | null
+
+  function watch({ firstRenderSourceId }: { firstRenderSourceId?: string } = { firstRenderSourceId: 'scenes' }) {
+    health = watchAtlasMapHealth(
+      map as unknown as MapLibreMap,
+      onUnrecoverable,
+      undefined,
+      firstRenderSourceId,
+    )
+  }
+  function failureClasses() {
+    return onUnrecoverable.mock.calls.map(([error]) => {
+      expect(error).toBeInstanceOf(AtlasMapUnrecoverableError)
+      return error.failureClass
+    })
+  }
+
+  beforeEach(() => {
+    vi.useFakeTimers()
+    sourceLoaded = false
+    map = Object.assign(new FakeMap(), {
+      isSourceLoaded: vi.fn<(id: string) => boolean>(() => sourceLoaded),
+    })
+    onUnrecoverable = vi.fn<(error: AtlasMapUnrecoverableError) => void>()
+    health = null
+    setVisibility('visible')
+  })
+  afterEach(() => {
+    health?.stop()
+    vi.useRealTimers()
+    delete (document as { visibilityState?: unknown }).visibilityState
+  })
+
+  it('fails as first-render-timeout once the deadline passes with no frame of the source', () => {
+    watch()
+    map.fire('style.load')
+    // Frames that draw without the source loaded do not count.
+    map.fire('render')
+    vi.advanceTimersByTime(ATLAS_FIRST_RENDER_DEADLINE_MS - 1)
+    expect(onUnrecoverable).not.toHaveBeenCalled()
+    vi.advanceTimersByTime(1)
+    expect(failureClasses()).toEqual(['first-render-timeout'])
+    expect(map.isSourceLoaded).toHaveBeenCalledWith('scenes')
+  })
+
+  it('is cancelled by a frame rendered with the source loaded', () => {
+    watch()
+    map.fire('style.load')
+    vi.advanceTimersByTime(ATLAS_FIRST_RENDER_DEADLINE_MS - 1)
+    sourceLoaded = true
+    map.fire('render')
+    vi.advanceTimersByTime(ATLAS_FIRST_RENDER_DEADLINE_MS * 10)
+    expect(onUnrecoverable).not.toHaveBeenCalled()
+    expect(map.listenerCount('render')).toBe(0)
+  })
+
+  it('checks the source only on a render', () => {
+    watch()
+    map.fire('style.load')
+    sourceLoaded = true
+    vi.advanceTimersByTime(ATLAS_FIRST_RENDER_DEADLINE_MS)
+    expect(failureClasses()).toEqual(['first-render-timeout'])
+  })
+
+  it('asks for no source on a frame before the style loads', () => {
+    watch()
+    sourceLoaded = true
+    map.fire('render')
+    expect(map.isSourceLoaded).not.toHaveBeenCalled()
+    vi.advanceTimersByTime(ATLAS_FIRST_RENDER_DEADLINE_MS)
+    expect(failureClasses()).toEqual(['first-render-timeout'])
+  })
+
+  it('stops the clock while the page is hidden and starts it over when shown', () => {
+    watch()
+    vi.advanceTimersByTime(ATLAS_FIRST_RENDER_DEADLINE_MS - 1000)
+    setVisibility('hidden')
+    vi.advanceTimersByTime(ATLAS_FIRST_RENDER_DEADLINE_MS * 10)
+    expect(onUnrecoverable).not.toHaveBeenCalled()
+    setVisibility('visible')
+    vi.advanceTimersByTime(ATLAS_FIRST_RENDER_DEADLINE_MS - 1)
+    expect(onUnrecoverable).not.toHaveBeenCalled()
+    vi.advanceTimersByTime(1)
+    expect(failureClasses()).toEqual(['first-render-timeout'])
+  })
+
+  it('arms nothing for a page hidden at the start until it is shown', () => {
+    setVisibility('hidden')
+    watch()
+    vi.advanceTimersByTime(ATLAS_FIRST_RENDER_DEADLINE_MS * 10)
+    expect(onUnrecoverable).not.toHaveBeenCalled()
+    setVisibility('visible')
+    vi.advanceTimersByTime(ATLAS_FIRST_RENDER_DEADLINE_MS)
+    expect(failureClasses()).toEqual(['first-render-timeout'])
+  })
+
+  it('reports once and then stops listening', () => {
+    const remove = vi.spyOn(document, 'removeEventListener')
+    watch()
+    vi.advanceTimersByTime(ATLAS_FIRST_RENDER_DEADLINE_MS)
+    setVisibility('hidden')
+    setVisibility('visible')
+    vi.advanceTimersByTime(ATLAS_FIRST_RENDER_DEADLINE_MS * 10)
+    expect(onUnrecoverable).toHaveBeenCalledTimes(1)
+    expect(map.listenerCount('render')).toBe(0)
+    expect(remove).toHaveBeenCalledWith('visibilitychange', expect.any(Function))
+    remove.mockRestore()
+  })
+
+  it('is cancelled by another failure reported first', () => {
+    watch()
+    map.fire('error', { error: new Error('style is invalid') })
+    vi.advanceTimersByTime(ATLAS_FIRST_RENDER_DEADLINE_MS * 10)
+    expect(failureClasses()).toEqual(['style-load-failed'])
+    expect(map.listenerCount('render')).toBe(0)
+  })
+
+  it('reports nothing once stopped', () => {
+    watch()
+    health?.stop()
+    vi.advanceTimersByTime(ATLAS_FIRST_RENDER_DEADLINE_MS * 10)
+    setVisibility('hidden')
+    setVisibility('visible')
+    vi.advanceTimersByTime(ATLAS_FIRST_RENDER_DEADLINE_MS * 10)
+    expect(onUnrecoverable).not.toHaveBeenCalled()
+    expect(map.listenerCount('render')).toBe(0)
+  })
+
+  it('does not run without a source to watch', () => {
+    watch({})
+    map.fire('style.load')
+    vi.advanceTimersByTime(ATLAS_FIRST_RENDER_DEADLINE_MS * 10)
+    expect(onUnrecoverable).not.toHaveBeenCalled()
+    expect(map.listenerCount('render')).toBe(0)
+  })
+})
+
+describe('latchAtlasMapFailure', () => {
+  beforeEach(() => {
+    resetAtlasMapLatchesForTest()
+  })
+
+  it('latches the section for an unrecoverable map', () => {
+    expect(atlasMapSectionFailedThisPage('venue-mini-atlas')).toBe(false)
+    latchAtlasMapFailure('venue-mini-atlas', new AtlasMapUnrecoverableError('context-refused'))
+    expect(atlasMapSectionFailedThisPage('venue-mini-atlas')).toBe(true)
+  })
+
+  it('latches only the section that failed', () => {
+    latchAtlasMapFailure('venue-mini-atlas', new AtlasMapUnrecoverableError('context-lost'))
+    expect(atlasMapSectionFailedThisPage('another-map')).toBe(false)
+  })
+
+  it('does not latch any other error, such as a failed chunk', () => {
+    latchAtlasMapFailure(
+      'venue-mini-atlas',
+      new TypeError('Failed to fetch dynamically imported module'),
+    )
+    expect(atlasMapSectionFailedThisPage('venue-mini-atlas')).toBe(false)
+  })
+})
+
 /**
  * The MapLibre behaviour watchAtlasMapHealth relies on (see its doc): the
  * context events fire after MapLibre has acted on them, a style lost before it
- * loaded is not saved for the restore, a restore re-sets the saved style, and
- * a refused context is a GPUInitializationError by name. On a version change,
- * re-read `_contextLost`, `_contextRestored`, `_setupPainter` and the
- * constructor's painter check in src/ui/map.ts, and `serialize` and
+ * loaded is not saved for the restore, a restore re-sets the saved style, a
+ * refused context is a GPUInitializationError by name, `render` fires at the
+ * end of a frame, and asking for an unregistered source fires an error event.
+ * On a version change, re-read `_contextLost`, `_contextRestored`,
+ * `_setupPainter`, the constructor's painter check, `_render`,
+ * `triggerRepaint` and `isSourceLoaded` in src/ui/map.ts, `serialize` and
  * `loadJSON` (the style loads a frame after construction at the earliest) in
- * src/style/style.ts, then bump this.
+ * src/style/style.ts, `loaded` in src/tile/tile_manager.ts and
+ * src/source/geojson_source.ts, and the e2e first-render stall in
+ * e2e/pages/atlas.spec.ts (it replaces the private `_render`), then bump this.
  */
 describe('maplibre context-loss contract', () => {
   it('is pinned to the verified maplibre-gl version', () => {

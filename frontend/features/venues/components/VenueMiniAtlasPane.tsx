@@ -1,11 +1,15 @@
 'use client'
 
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
 import dynamic from 'next/dynamic'
 import Link from 'next/link'
 import { CanvasSectionErrorBoundary } from '@/components/shared/CanvasSectionErrorBoundary'
 import { atlasCityHref } from '@/features/scenes/atlasCityEntry'
-import { atlasMapBoundaryReporting } from '@/features/scenes/components/atlasMapHealth'
+import {
+  atlasMapBoundaryReporting,
+  atlasMapSectionFailedThisPage,
+  latchAtlasMapFailure,
+} from '@/features/scenes/components/atlasMapHealth'
 import type { CityState } from '@/components/filters'
 import { cityLabel } from '@/components/filters/cityParams'
 import { useMediaQuery } from '@/lib/hooks/common/useMediaQuery'
@@ -41,6 +45,9 @@ export function useMiniAtlasViewport(): boolean {
   return useMediaQuery(MINI_ATLAS_MEDIA_QUERY)
 }
 
+/** The Sentry section the pane's map reports under, and its latch key. */
+const MINI_ATLAS_SECTION = 'venue-mini-atlas'
+
 // MapLibre is a ~900 kB chunk and window-bound. `ssr: false` plus this being
 // the only import path keeps it out of the /venues initial JS: it is fetched
 // when the pane mounts, which only happens at 1280 and up.
@@ -75,10 +82,12 @@ export interface VenueMiniAtlasPaneProps {
  * A map that fails, as a chunk that cannot be fetched or as a map that cannot
  * draw, is caught inside that box: the box says the map is unavailable, the
  * rest of the pane and the page stay, and Sentry gets the failure. The box
- * offers no retry. A later mount of the pane (the city or the viewport
- * changes) starts over: a failed chunk throws again at once, because
- * React.lazy keeps a rejected import until a reload, and a map that could not
- * draw is built again.
+ * offers no retry. A map that could not draw latches the pane for the page
+ * load (see latchAtlasMapFailure): a later mount (the city or the viewport
+ * changes, or the reader comes back to /venues) shows the box without
+ * building a map or reporting again. A failed chunk is not latched; a later
+ * mount throws it again at once, because React.lazy keeps a rejected import
+ * until a reload.
  */
 export function VenueMiniAtlasPane({
   venues,
@@ -89,6 +98,10 @@ export function VenueMiniAtlasPane({
 }: VenueMiniAtlasPaneProps) {
   const pins = useMemo(() => miniAtlasPins(venues), [venues])
   const label = cityLabel(scopeCity)
+  // Read once per mount, as AtlasGlobe reads its latch.
+  const [mapFailedThisPage] = useState(() =>
+    atlasMapSectionFailedThisPage(MINI_ATLAS_SECTION),
+  )
 
   // No coordinates anywhere in this page of rooms: an empty street map says
   // nothing the table does not, so the pane stays away rather than reserving
@@ -105,17 +118,22 @@ export function VenueMiniAtlasPane({
         className="relative overflow-hidden rounded-md border border-border bg-muted/20"
         style={{ height: MINI_ATLAS_HEIGHT_PX }}
       >
-        <CanvasSectionErrorBoundary
-          {...atlasMapBoundaryReporting('venue-mini-atlas')}
-          fallback={<MiniAtlasUnavailable />}
-        >
-          <VenueMiniAtlas
-            pins={pins}
-            hoveredVenueId={hoveredVenueId}
-            onHoverVenue={onHoverVenue}
-            onSelectVenue={onSelectVenue}
-          />
-        </CanvasSectionErrorBoundary>
+        {mapFailedThisPage ? (
+          <MiniAtlasUnavailable />
+        ) : (
+          <CanvasSectionErrorBoundary
+            {...atlasMapBoundaryReporting(MINI_ATLAS_SECTION)}
+            fallback={<MiniAtlasUnavailable />}
+            onError={(error) => latchAtlasMapFailure(MINI_ATLAS_SECTION, error)}
+          >
+            <VenueMiniAtlas
+              pins={pins}
+              hoveredVenueId={hoveredVenueId}
+              onHoverVenue={onHoverVenue}
+              onSelectVenue={onSelectVenue}
+            />
+          </CanvasSectionErrorBoundary>
+        )}
       </div>
       <p className="sr-only">
         {miniAtlasSummary(pins.length, venues.length, label)}

@@ -20,6 +20,28 @@ import {
 export const ATLAS_CONTEXT_RESTORE_DEADLINE_MS = 3000
 
 /**
+ * How long a constructed Atlas map may go, within one continuous stretch of
+ * the page being visible, without rendering a frame after its own scenes
+ * source has loaded, before the Atlas gives up on it (see
+ * watchAtlasMapHealth).
+ *
+ * Derived from the atlas-perf workflow (scripts/atlas-perf.mjs) on the PR
+ * previews, phone profile (iPhone 13, 4x CPU on the main thread, Fast 4G,
+ * cold cache) under SwiftShader on GitHub's runners: the slowest first
+ * rendered map of 69 cold page loads in 23 workflow runs from 2026-10-07 to
+ * 2026-10-11 was 7975 ms (workflow run 38167710080). That figure counts from
+ * navigation start and waits on every in-view tile, so it bounds the time
+ * from construction to the watched frame from above. The deadline is twice
+ * it, rounded up to 16 s; the factor of two is a choice, not a measurement.
+ * The workflow measures no desktop: a 1440x900 measurement of the same script
+ * off the runners (three runs) read 6.04 s, about 10.6 s if the workflow's
+ * stated 1.75x factor for its software renderer applies (an estimate), which
+ * the deadline clears by about 1.5x. It is above the owner's 3.5 s first-map
+ * budget for phones.
+ */
+export const ATLAS_FIRST_RENDER_DEADLINE_MS = 16_000
+
+/**
  * Whether MapLibre built this map without a WebGL2 context. maplibre-gl 6.0.0
  * reports a refused context as an `error` event during construction and
  * returns a map with no painter and no input handlers (`painter` is typed
@@ -50,6 +72,85 @@ export function atlasMapBoundaryReporting(section: string): {
   return { sentryTag: section, errorTags: atlasMapFailureTags }
 }
 
+// Boundary sections (see atlasMapBoundaryReporting) latched through
+// latchAtlasMapFailure in this page load.
+const sectionsFailedThisPage = new Set<string>()
+
+/**
+ * Records a failure caught by the map boundary filed under `section`. An
+ * {@link AtlasMapUnrecoverableError} latches that surface for the rest of the
+ * page load: {@link atlasMapSectionFailedThisPage} answers true, and the
+ * surface renders its fallback without building another map, so one failure
+ * costs one map and one Sentry event per surface until a reload. Any other
+ * error (a failed map chunk) is not latched. The Atlas does not use this
+ * latch: it keeps `markAtlasMapFailed` and `atlasMapFailedThisPage` in
+ * atlasViewport.ts for the same failures, so this answers false for the
+ * Atlas's section even after the Atlas failed.
+ */
+export function latchAtlasMapFailure(section: string, error: unknown): void {
+  if (error instanceof AtlasMapUnrecoverableError) sectionsFailedThisPage.add(section)
+}
+
+/** Whether {@link latchAtlasMapFailure} latched `section` in this page load. */
+export function atlasMapSectionFailedThisPage(section: string): boolean {
+  return sectionsFailedThisPage.has(section)
+}
+
+/** Test seam: clear every latch {@link latchAtlasMapFailure} set. */
+export function resetAtlasMapLatchesForTest(): void {
+  sectionsFailedThisPage.clear()
+}
+
+/**
+ * A timer that counts only continuously visible time: `start()` arms it and
+ * listens for the page's visibility, hiding the page cancels the timer, and
+ * showing it again starts the full `ms` over (a page hidden at `start()` arms
+ * nothing until shown). `cancel()` clears the timer and the listener; the
+ * listener exists only between the two. `onExpire` runs once per armed timer
+ * that runs out, after the timer and the listener are cleared.
+ */
+function visibleTimeDeadline(ms: number, onExpire: () => void) {
+  let timer: ReturnType<typeof setTimeout> | null = null
+  let started = false
+
+  function arm() {
+    if (timer !== null || document.visibilityState === 'hidden') return
+    timer = setTimeout(() => {
+      timer = null
+      cancel()
+      onExpire()
+    }, ms)
+  }
+
+  function handleVisibility() {
+    if (document.visibilityState !== 'hidden') {
+      arm()
+    } else if (timer !== null) {
+      clearTimeout(timer)
+      timer = null
+    }
+  }
+
+  function cancel() {
+    if (timer !== null) clearTimeout(timer)
+    timer = null
+    if (!started) return
+    started = false
+    document.removeEventListener('visibilitychange', handleVisibility)
+  }
+
+  return {
+    start() {
+      if (!started) {
+        started = true
+        document.addEventListener('visibilitychange', handleVisibility)
+      }
+      arm()
+    },
+    cancel,
+  }
+}
+
 /**
  * The map surface this module reads. The events are MapLibre's own, so each
  * one arrives after MapLibre has acted on it: `webglcontextlost` after the
@@ -57,8 +158,11 @@ export function atlasMapBoundaryReporting(section: string): {
  * the restore asked for a context. That event also follows a refused restore,
  * right after the error event: the refusal leaves the destroyed painter in
  * place, so MapLibre's no-painter guard before the event passes.
+ * `isSourceLoaded` is read only for the first-render watchdog, and only while
+ * the style is live: for a source the style has not registered it fires an
+ * `error` event without a source.
  */
-type HealthMap = Pick<MapLibreMap, 'on'>
+type HealthMap = Pick<MapLibreMap, 'on' | 'off' | 'isSourceLoaded'>
 
 export interface AtlasMapHealth {
   /**
@@ -70,9 +174,10 @@ export interface AtlasMapHealth {
    */
   styleLive(): boolean
   /**
-   * Cancels the deadline and stops reporting, to both callbacks (a reported
-   * failure has already stopped both). The listeners stay on the map, inert,
-   * so call it only as the map is removed.
+   * Cancels the deadlines and stops reporting, to both callbacks (a reported
+   * failure has already stopped both). The event listeners stay on the map,
+   * inert (the watchdog's `render` listener is removed), so call it only as
+   * the map is removed.
    */
   stop(): void
 }
@@ -91,6 +196,9 @@ export interface AtlasMapHealth {
  * `onStyleLiveChange`, when given, is called with each change of
  * {@link AtlasMapHealth.styleLive}, after this watch has classified the event
  * behind it. It is the one answer to whether the style can be written.
+ *
+ * `firstRenderSourceId`, when given, turns on the first-render watchdog
+ * described below; it names a GeoJSON source the map owns.
  *
  * MapLibre 6.0.0's behaviour this relies on:
  * - A lost context after the style loaded comes back with the style when the
@@ -112,14 +220,30 @@ export interface AtlasMapHealth {
  * This module's own rule: while a style is live, the only `error` event that
  * gives up the map is a `GPUInitializationError`.
  *
- * Not visible here: exceptions thrown inside MapLibre's render frame (they
- * propagate out of its animation-frame callback, not as an `error` event) and
- * a worker that never starts (MapLibre reports nothing).
+ * Not visible to those events: an exception thrown inside MapLibre's render
+ * frame (it propagates out of the animation-frame callback, not as an `error`
+ * event) and a worker that never starts (MapLibre reports nothing). With
+ * `firstRenderSourceId`, the first-render watchdog covers both: the map is
+ * given up as `first-render-timeout` when no `render` event has found the
+ * style live and that source loaded within ATLAS_FIRST_RENDER_DEADLINE_MS of
+ * continuously visible time after the watch began. `render` fires at the end
+ * of `Map._render`, so a frame that throws fires none, and a GeoJSON source
+ * is loaded only once the worker has answered for its current data (or the
+ * source has errored, which MapLibre also counts as loaded). It proves a
+ * frame completed with the worker alive, not that particular features drew.
+ * The source must be one the
+ * map owns, never third-party tiles: a tile request has no timeout in
+ * MapLibre, so a hung tile response holds `isStyleLoaded()` and
+ * `areTilesLoaded()` false indefinitely, and a map that is drawing must not be
+ * given up for that. The style-live check comes first because asking for a
+ * source the style has not registered fires a sourceless `error` event, which
+ * this watch would read as a failed style.
  */
 export function watchAtlasMapHealth(
   map: HealthMap,
   onUnrecoverable: (error: AtlasMapUnrecoverableError) => void,
   onStyleLiveChange?: (live: boolean) => void,
+  firstRenderSourceId?: string,
 ): AtlasMapHealth {
   let styleLive = false
   let styleEverLoaded = false
@@ -127,7 +251,12 @@ export function watchAtlasMapHealth(
   let settled = false
   // Cleared by stop() and by a failure, so a settled watch reports nothing.
   let reportStyleLive = onStyleLiveChange
-  let deadline: ReturnType<typeof setTimeout> | null = null
+  const restoreDeadline = visibleTimeDeadline(ATLAS_CONTEXT_RESTORE_DEADLINE_MS, () =>
+    fail('context-lost'),
+  )
+  const firstRenderDeadline = visibleTimeDeadline(ATLAS_FIRST_RENDER_DEADLINE_MS, () =>
+    fail('first-render-timeout'),
+  )
 
   function setStyleLive(live: boolean) {
     if (live === styleLive) return
@@ -135,45 +264,38 @@ export function watchAtlasMapHealth(
     reportStyleLive?.(live)
   }
 
-  function fail(failureClass: AtlasMapFailureClass) {
-    if (settled) return
+  function settle() {
     settled = true
     reportStyleLive = undefined
     endLoss()
+    endFirstRenderWatch()
+  }
+
+  function fail(failureClass: AtlasMapFailureClass) {
+    if (settled) return
+    settle()
     onUnrecoverable(new AtlasMapUnrecoverableError(failureClass))
   }
 
-  function cancelDeadline() {
-    if (deadline === null) return
-    clearTimeout(deadline)
-    deadline = null
-  }
-
-  function armDeadline() {
-    if (settled || !contextLost || deadline !== null) return
-    if (document.visibilityState === 'hidden') return
-    deadline = setTimeout(() => {
-      deadline = null
-      fail('context-lost')
-    }, ATLAS_CONTEXT_RESTORE_DEADLINE_MS)
-  }
-
-  function handleVisibility() {
-    if (document.visibilityState === 'hidden') cancelDeadline()
-    else armDeadline()
-  }
-
-  // The page listener lives only while a loss is being timed.
   function startLoss() {
     contextLost = true
-    document.addEventListener('visibilitychange', handleVisibility)
-    armDeadline()
+    if (!settled) restoreDeadline.start()
   }
 
   function endLoss() {
     contextLost = false
-    cancelDeadline()
-    document.removeEventListener('visibilitychange', handleVisibility)
+    restoreDeadline.cancel()
+  }
+
+  function handleRender() {
+    if (firstRenderSourceId === undefined) return
+    if (styleLive && map.isSourceLoaded(firstRenderSourceId)) endFirstRenderWatch()
+  }
+
+  function endFirstRenderWatch() {
+    if (firstRenderSourceId === undefined) return
+    firstRenderDeadline.cancel()
+    map.off('render', handleRender)
   }
 
   // A style.load during a loss is the restored style, and so the recovery,
@@ -213,12 +335,13 @@ export function watchAtlasMapHealth(
     }
   })
 
+  if (firstRenderSourceId !== undefined) {
+    map.on('render', handleRender)
+    firstRenderDeadline.start()
+  }
+
   return {
     styleLive: () => styleLive,
-    stop() {
-      settled = true
-      reportStyleLive = undefined
-      endLoss()
-    },
+    stop: settle,
   }
 }
