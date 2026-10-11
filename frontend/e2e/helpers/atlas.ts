@@ -173,9 +173,13 @@ export async function waitForMap(page: Page) {
     .toBe(true)
 }
 
-/** Rejects the cookie banner by a tap (the context needs `hasTouch`) and waits for it to leave. */
-export async function dismissBanner(page: Page) {
-  await page.getByRole('button', { name: 'Reject All' }).tap()
+/**
+ * Rejects the cookie banner and waits for it to leave. A tap by default (the
+ * context needs `hasTouch`); a click for a mouse context.
+ */
+export async function dismissBanner(page: Page, { via = 'tap' }: { via?: 'tap' | 'click' } = {}) {
+  const reject = page.getByRole('button', { name: 'Reject All' })
+  await (via === 'tap' ? reject.tap() : reject.click())
   await expect(page.getByRole('dialog', { name: 'Cookie consent' })).toHaveCount(0)
 }
 
@@ -194,15 +198,20 @@ export function phoenixDotPoint(page: Page) {
   return mapPoint(page, PHOENIX)
 }
 
-/** Moves the camera over Phoenix at `zoom`, synchronously. */
-export async function jumpToPhoenix(page: Page, zoom: number) {
+/** Moves the camera over `center` at `zoom`, synchronously. */
+export async function jumpTo(page: Page, center: { lat: number; lng: number }, zoom: number) {
   await page.evaluate(
     ({ lng, lat, zoom }) => {
       const m = (window as unknown as { __atlasMap: AtlasMapSeam }).__atlasMap
       m.jumpTo({ center: [lng, lat], zoom })
     },
-    { ...PHOENIX, zoom },
+    { lng: center.lng, lat: center.lat, zoom },
   )
+}
+
+/** Moves the camera over Phoenix at `zoom`, synchronously. */
+export function jumpToPhoenix(page: Page, zoom: number) {
+  return jumpTo(page, PHOENIX, zoom)
 }
 
 /**

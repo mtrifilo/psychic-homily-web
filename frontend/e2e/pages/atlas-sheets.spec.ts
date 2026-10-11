@@ -5,6 +5,7 @@ import {
   type AtlasMapSeam,
   creditUncovered,
   dismissBanner,
+  jumpTo,
   jumpToPhoenix,
   mapPoint,
   PHOENIX,
@@ -168,13 +169,11 @@ function pointerIsCoarse(page: Page) {
  * zoom, and waits until both are drawn.
  */
 async function frameBothPins(page: Page) {
-  await page.evaluate(
-    ({ a, b }) => {
-      const m = (window as unknown as { __atlasMap: AtlasMapSeam }).__atlasMap
-      m.jumpTo({ center: [(a.lng + b.lng) / 2, (a.lat + b.lat) / 2], zoom: 12 })
-    },
-    { a: PHOENIX, b: STREET_ROOM },
-  )
+  const midpoint = {
+    lat: (PHOENIX.lat + STREET_ROOM.lat) / 2,
+    lng: (PHOENIX.lng + STREET_ROOM.lng) / 2,
+  }
+  await jumpTo(page, midpoint, 12)
   await waitForMap(page)
   await expect
     .poll(() =>
@@ -525,8 +524,7 @@ test.describe('Atlas pin hover under a mouse at 820x844', () => {
     await stubAtlas(page)
     await page.goto('/atlas?city=Phoenix%2CAZ')
     await waitForMap(page)
-    await page.getByRole('button', { name: 'Reject All' }).click()
-    await expect(page.getByRole('dialog', { name: 'Cookie consent' })).toHaveCount(0)
+    await dismissBanner(page, { via: 'click' })
     expect(await pointerIsCoarse(page), 'the mouse context has a fine pointer').toBe(false)
 
     const list = page.getByTestId('atlas-venue-sheet')
@@ -542,7 +540,8 @@ test.describe('Atlas pin hover under a mouse at 820x844', () => {
     await expect(tooltip).not.toContainText('Centroid Room')
     await expect(tooltip).not.toContainText('upcoming')
 
-    const street = await settledMapPoint(page, STREET_ROOM)
+    // A mouse move leaves the camera where it is, so the settled frame holds.
+    const street = await mapPoint(page, STREET_ROOM)
     await page.mouse.move(street.x, street.y)
     await expect(tooltip).toContainText('Street Room')
     await expect(tooltip).toContainText('3 upcoming')
