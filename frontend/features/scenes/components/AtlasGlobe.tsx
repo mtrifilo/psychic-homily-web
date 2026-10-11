@@ -708,12 +708,22 @@ export function AtlasGlobe() {
   }, [])
   // The pane frame outlives the swap between the list and the map, so focus
   // moved onto it before the retry's button unmounts stays in the pane
-  // whether the new map draws or fails back to the list.
+  // whether the new map draws or fails back to the list. The frame is
+  // focusable only from the retry until focus leaves it: a frame that a
+  // click inside an Atlas panel could focus would keep the panels' focus
+  // return (to the opener, from inside the panel or the body) from running.
   const paneFrameRef = useRef<HTMLDivElement>(null)
   // A retry whose probe fails changes nothing, so the list stays as it was.
   const handleRetryMap = useCallback(() => {
     if (!reprobeAtlasWebGL2()) return
-    paneFrameRef.current?.focus()
+    const frame = paneFrameRef.current
+    if (frame) {
+      frame.tabIndex = -1
+      frame.addEventListener('blur', () => frame.removeAttribute('tabindex'), {
+        once: true,
+      })
+      frame.focus({ preventScroll: true })
+    }
     clearAtlasMapFailure()
     setMapFailed(false)
   }, [])
@@ -1079,9 +1089,8 @@ export function AtlasGlobe() {
   return (
     <div
       ref={paneFrameRef}
-      tabIndex={-1}
       data-testid="atlas-pane-frame"
-      className={`relative h-[calc(100dvh-var(--topbar-height)-var(--bottom-tab-bar-height)-env(safe-area-inset-bottom)-var(--cookie-banner-height,0px))] w-full overflow-hidden bg-[#0a0a0a] xl:h-[calc(100dvh-4rem-max(env(safe-area-inset-bottom),var(--cookie-banner-height,0px)))] ${
+      className={`relative focus:outline-none h-[calc(100dvh-var(--topbar-height)-var(--bottom-tab-bar-height)-env(safe-area-inset-bottom)-var(--cookie-banner-height,0px))] w-full overflow-hidden bg-[#0a0a0a] xl:h-[calc(100dvh-4rem-max(env(safe-area-inset-bottom),var(--cookie-banner-height,0px)))] ${
         // The sheets anchor to this box's bottom edge, so in the sheet layout
         // it must be exactly the visible area: a minimum taller than a short
         // (landscape phone) viewport would push every sheet below the fold.

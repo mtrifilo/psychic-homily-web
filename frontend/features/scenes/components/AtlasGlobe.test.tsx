@@ -598,14 +598,21 @@ describe('AtlasGlobe', () => {
         const quiet = vi.spyOn(console, 'error').mockImplementation(() => {})
         await renderFailedMap('context-lost')
         expect(mockMapFailureThisPage).toBe('context-lost')
+        // Not focusable before a retry, so a click inside the pane cannot
+        // focus it.
+        expect(screen.getByTestId('atlas-pane-frame')).not.toHaveAttribute('tabindex')
         mockCanvasThrowsOnStart = false
         await userEvent.click(retryButton()!)
         expect(mockReprobeWebGL2).toHaveBeenCalledTimes(1)
         await expectMap()
         // The page latch is cleared too, so a later mount builds a map.
         expect(mockMapFailureThisPage).toBeNull()
-        // Focus leaves the unmounted button for the pane, not the page.
-        expect(document.activeElement).toBe(screen.getByTestId('atlas-pane-frame'))
+        // Focus leaves the unmounted button for the pane, not the page, and
+        // the pane stops being focusable once focus moves on.
+        const frame = screen.getByTestId('atlas-pane-frame')
+        expect(document.activeElement).toBe(frame)
+        frame.blur()
+        expect(frame).not.toHaveAttribute('tabindex')
         quiet.mockRestore()
       })
 
