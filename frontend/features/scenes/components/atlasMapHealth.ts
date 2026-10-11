@@ -33,10 +33,11 @@ export const ATLAS_CONTEXT_RESTORE_DEADLINE_MS = 3000
  * navigation start and waits on every in-view tile, so it bounds the time
  * from construction to the watched frame from above. The deadline is twice
  * it, rounded up to 16 s; the factor of two is a choice, not a measurement.
- * The workflow measures no desktop: one local 1440x900 run of the same script
- * read 6.04 s, about 10.6 s if the workflow's stated 1.75x factor for its
- * software renderer applies (an estimate), which the deadline clears by about
- * 1.5x. It is above the owner's 3.5 s first-map budget for phones.
+ * The workflow measures no desktop: a 1440x900 measurement of the same script
+ * off the runners (three runs) read 6.04 s, about 10.6 s if the workflow's
+ * stated 1.75x factor for its software renderer applies (an estimate), which
+ * the deadline clears by about 1.5x. It is above the owner's 3.5 s first-map
+ * budget for phones.
  */
 export const ATLAS_FIRST_RENDER_DEADLINE_MS = 16_000
 
