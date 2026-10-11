@@ -952,10 +952,7 @@ export function venueStackLabel(stack: VenuePinStack): string {
   return stack.atCentroid ? `${count} · city centre` : count
 }
 
-/**
- * One stack's scope line, what its venues share: the list sheet's line when
- * the list is scoped to the stack, and the title of the stack's tooltip.
- */
+/** One stack's scope line: what its venues share. */
 export function venueStackScopeLine(stack: VenuePinStack): string {
   const count = `${stack.venueIds.length} venues`
   return stack.atCentroid
@@ -965,16 +962,17 @@ export function venueStackScopeLine(stack: VenuePinStack): string {
 
 /**
  * The venue pin tooltip's content: the venue's name over its upcoming count and
- * next show, then the "click for shows" CTA (`showsCta`). A pin that opens its
- * stack is titled by the stack's scope line alone: one member's counts do not
- * describe the point, and its click opens the venue list, not shows.
+ * next show, then the "click for shows" CTA (`showsCta`). Where a click opens
+ * a stack, pass that stack's scope line as `openedStackScopeLine`: the tooltip
+ * is then titled by it alone, since one member's counts do not describe the
+ * point and the click opens the venue list, not shows.
  */
 export function venuePinTooltipLines(
   pin: Pick<VenuePin, 'name' | 'upcomingShowCount' | 'nextShowLabel'>,
-  stackScopeLine: string | null,
+  openedStackScopeLine: string | null,
 ): { title: string; meta: string | null; showsCta: boolean } {
-  if (stackScopeLine !== null) {
-    return { title: stackScopeLine, meta: null, showsCta: false }
+  if (openedStackScopeLine !== null) {
+    return { title: openedStackScopeLine, meta: null, showsCta: false }
   }
   const count = `${pin.upcomingShowCount} upcoming`
   return {

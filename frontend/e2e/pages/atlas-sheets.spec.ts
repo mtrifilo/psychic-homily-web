@@ -13,6 +13,7 @@ import {
   STREET_ROOM,
   stubAtlas,
   waitForMap,
+  waitForMapSize,
 } from '../helpers/atlas'
 
 /**
@@ -145,14 +146,16 @@ async function tapSceneDot(page: Page) {
  * `testId` (its inline display leaving none), so a check can say a tap never
  * showed it. Each style write is replayed from the mutation records' old
  * values, so a show and a hide in the same task still count. Returns a reader
- * for the count.
+ * for the count, which reads -1 once the watched element has left the document
+ * (a remount would otherwise leave nothing to count).
  */
 async function countShows(page: Page, testId: string) {
-  type ShowsWindow = { __shows?: Record<string, number> }
+  type ShowsWindow = { __shows?: Record<string, number>; __showsEls?: Record<string, Element> }
   await page.getByTestId(testId).evaluate((el) => {
     const w = window as unknown as ShowsWindow
     const id = el.getAttribute('data-testid')!
     w.__shows = { ...w.__shows, [id]: 0 }
+    w.__showsEls = { ...w.__showsEls, [id]: el }
     const probe = document.createElement('div')
     const shown = (style: string | null) => {
       probe.setAttribute('style', style ?? '')
@@ -168,7 +171,10 @@ async function countShows(page: Page, testId: string) {
     }).observe(el, { attributes: true, attributeFilter: ['style'], attributeOldValue: true })
   })
   return () =>
-    page.evaluate((id) => (window as unknown as ShowsWindow).__shows?.[id] ?? 0, testId)
+    page.evaluate((id) => {
+      const w = window as unknown as ShowsWindow
+      return w.__showsEls?.[id]?.isConnected ? (w.__shows?.[id] ?? 0) : -1
+    }, testId)
 }
 
 /**
@@ -177,6 +183,7 @@ async function countShows(page: Page, testId: string) {
  */
 async function driftingTap(page: Page, x: number, y: number, dx: number) {
   const cdp = await page.context().newCDPSession(page)
+  try {
   await cdp.send('Input.dispatchTouchEvent', {
     type: 'touchStart',
     touchPoints: [{ x, y, id: 1 }],
@@ -186,6 +193,16 @@ async function driftingTap(page: Page, x: number, y: number, dx: number) {
     touchPoints: [{ x: x + dx, y, id: 1 }],
   })
   await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] })
+  } finally {
+    await cdp.detach()
+  }
+}
+
+/** The map's centre, through the window seam. */
+function mapCenter(page: Page) {
+  return page.evaluate(() =>
+    (window as unknown as { __atlasMap: AtlasMapSeam }).__atlasMap.getCenter(),
+  )
 }
 
 /** Whether the primary pointer is coarse, as the page's media queries see it. */
@@ -194,11 +211,12 @@ function pointerIsCoarse(page: Page) {
 }
 
 /**
- * Frames the stacked centroid pin and the Street Room pin together at street
- * zoom, and waits until both are drawn: a centroid room (1 or 2) and the
- * Street Room (3).
+ * Once the map has taken its pane's size, frames the stacked centroid pin and
+ * the Street Room pin together at street zoom, and waits until both are
+ * drawn: a centroid room (1 or 2) and the Street Room (3).
  */
 async function frameBothPins(page: Page) {
+  await waitForMapSize(page)
   const midpoint = {
     lat: (PHOENIX.lat + STREET_ROOM.lat) / 2,
     lng: (PHOENIX.lng + STREET_ROOM.lng) / 2,
@@ -517,16 +535,22 @@ test.describe('Atlas pin and dot taps on a 390x844 phone', () => {
     await expect(tooltip).toBeHidden()
     expect(await tooltipShows(), 'the tooltip never showed for the lone pin').toBe(0)
 
-    // A tap whose finger drifts 4px before lifting is still a tap: Chromium
-    // reports it as a click at the lift point, which is still on the pin.
+    // A tap whose finger drifts 4px before lifting is still a tap and does
+    // not pan the map. Chromium holds back a touchmove that stays inside its
+    // touch slop, so MapLibre sees no pan, and sends the emulated mousedown
+    // and click both at the lift point, which is still on the pin.
     await page.keyboard.press('Escape')
     await expect(list).toBeVisible()
+    const centerBefore = await mapCenter(page)
     await driftingTap(page, street.x, street.y, 4)
     await expect(venueSheet).toContainText('Street Room')
+    expect(await mapCenter(page), 'the drifting tap did not pan the map').toEqual(centerBefore)
     expect(await tooltipShows(), 'the tooltip never showed for the drifting tap').toBe(0)
 
     // Back to the list, then one tap on the stacked pin's point opens the
-    // list at Peek, scoped to the venues that share it.
+    // list at Peek, scoped to the venues that share it. The tap lands on the
+    // stack marker's badge, centred on the point, so the marker's button
+    // takes the click.
     await page.keyboard.press('Escape')
     await expect(list).toBeVisible()
     const stacked = await settledMapPoint(page, PHOENIX)

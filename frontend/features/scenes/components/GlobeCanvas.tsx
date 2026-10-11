@@ -388,15 +388,27 @@ export default function GlobeCanvas({
     coarsePointerRef.current = coarsePointer
     if (coarsePointer) clearPointerHoverRef.current?.()
   }, [coarsePointer])
-  // Venue id -> the stack it pins in, for the pin hover and click handlers.
-  const stackByVenueIdRef = useRef<ReadonlyMap<number, VenueStackMarker>>(new Map())
+  // The stacks by member venue id and by key, for the pin hover and click
+  // handlers.
+  const stacksRef = useRef<{
+    byVenueId: ReadonlyMap<number, VenueStackMarker>
+    byKey: ReadonlyMap<string, VenueStackMarker>
+  }>({ byVenueId: new Map(), byKey: new Map() })
   useEffect(() => {
-    const byId = new Map<number, VenueStackMarker>()
+    const byVenueId = new Map<number, VenueStackMarker>()
     for (const stack of venueStacks) {
-      for (const id of stack.venueIds) byId.set(id, stack)
+      for (const id of stack.venueIds) byVenueId.set(id, stack)
     }
-    stackByVenueIdRef.current = byId
+    stacksRef.current = {
+      byVenueId,
+      byKey: new Map(venueStacks.map((s) => [s.key, s])),
+    }
   }, [venueStacks])
+  // A pin's tooltip depends on the stacks and on the stack handler, so a
+  // change to either clears a held pin hover; the next mousemove rebuilds it.
+  useEffect(() => {
+    clearVenueHoverRef.current?.()
+  }, [venueStacks, onVenueStackSelect])
   // The status chip is painted imperatively (see the map effect), so the label
   // rides a ref rather than re-entering the effect's deps.
   const cityLabelRef = useRef(cityLabel)
@@ -548,6 +560,7 @@ export default function GlobeCanvas({
       const button = document.createElement('button')
       button.type = 'button'
       button.dataset.testid = 'atlas-venue-stack'
+      button.dataset.stackKey = stack.key
       button.className =
         'flex flex-col items-center gap-0.5 rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring'
       const badge = document.createElement('span')
@@ -1233,11 +1246,19 @@ export default function GlobeCanvas({
       return typeof id === 'number' ? id : null
     }
 
-    // The stack a tap on this pin opens. None without a stack handler, where
-    // the pin opens as its venue; the tooltip and the click both read this, so
-    // the tooltip never names a list the click does not open.
-    const stackThisPinOpens = (id: number) =>
-      onVenueStackSelectRef.current ? stackByVenueIdRef.current.get(id) : undefined
+    // The stack a click at this event opens: the stack marker's own stack when
+    // the event comes from inside a marker (its button opens that stack), else
+    // the stack pin `id` pins in. None without a stack handler, where a pin
+    // opens as its venue. The pin tooltip and the pin click both read this.
+    const stackClickedAt = (target: EventTarget | null, id: number) => {
+      if (!onVenueStackSelectRef.current) return undefined
+      const markerKey =
+        target instanceof Element
+          ? target.closest<HTMLElement>('[data-stack-key]')?.dataset.stackKey
+          : undefined
+      const { byKey, byVenueId } = stacksRef.current
+      return (markerKey !== undefined ? byKey.get(markerKey) : undefined) ?? byVenueId.get(id)
+    }
 
     const hideVenueTooltip = () => {
       if (venueTooltipRef.current) {
@@ -1258,7 +1279,10 @@ export default function GlobeCanvas({
         hideVenueTooltip()
         return
       }
-      const lines = venuePinTooltipLines(venue, stackThisPinOpens(venue.id)?.scopeLine ?? null)
+      const lines = venuePinTooltipLines(
+        venue,
+        stackClickedAt(e.originalEvent.target, venue.id)?.scopeLine ?? null,
+      )
       // textContent, not innerHTML — venue names are contributor-editable.
       if (venueTooltipNameRef.current) {
         venueTooltipNameRef.current.textContent = lines.title
@@ -1289,7 +1313,7 @@ export default function GlobeCanvas({
     ) => {
       const id = pickTopVenue(e.features)
       if (id === null) return
-      const stack = stackThisPinOpens(id)
+      const stack = stackClickedAt(e.originalEvent.target, id)
       if (stack) {
         onVenueStackSelectRef.current?.(stack.key)
       } else {
@@ -1478,8 +1502,9 @@ export default function GlobeCanvas({
         </div>
       </div>
       {/* Venue hover tooltip: a title, a meta line and the static CTA, the
-          last two hidden for a stack. Populated by textContent, since venue
-          names are contributor-editable, so no innerHTML anywhere here. */}
+          last two hidden when a click there opens a stack. The title and meta
+          line are written as textContent, since venue names are
+          contributor-editable, so no innerHTML anywhere here. */}
       <div
         ref={venueTooltipRef}
         data-testid="atlas-venue-tooltip"

@@ -70,8 +70,14 @@ const stub = vi.hoisted(() => {
       this.add(event, handler)
       return this
     }
+    // A layer event carries its DOM event, as MapLibre's do: the canvas
+    // unless the test gives another.
     fire(key: string, event?: unknown) {
-      for (const h of this.handlers.get(key) ?? []) h(event)
+      const withOriginal =
+        key.includes(':') && event && typeof event === 'object' && !('originalEvent' in event)
+          ? { ...event, originalEvent: { target: this.canvas } }
+          : event
+      for (const h of this.handlers.get(key) ?? []) h(withOriginal)
     }
     addControl(control: StubControl, position: string) {
       this.controls.push({ control, position })
@@ -327,17 +333,62 @@ describe('GlobeCanvas sheet-layout seams', () => {
   })
 
   it('names the top venue of a stacked pin when no stack handler is given, as its click opens it', () => {
-    const { map } = renderCanvas({ venueStacks: [STACK] })
-    act(() =>
-      map.fire('mousemove:venue-pins', {
-        point: { x: 10, y: 10 },
-        features: [{ properties: { id: 2 } }, { properties: { id: 1 } }],
-      }),
-    )
+    const onVenueSelect = vi.fn()
+    const { map } = renderCanvas({ venueStacks: [STACK], onVenueSelect })
+    const stacked = {
+      point: { x: 10, y: 10 },
+      features: [{ properties: { id: 2 } }, { properties: { id: 1 } }],
+    }
+    act(() => map.fire('mousemove:venue-pins', stacked))
     const tooltip = screen.getByTestId('atlas-venue-tooltip')
     expect(tooltip).toHaveTextContent('Hideout')
     expect(tooltip).toHaveTextContent('4 upcoming')
     expect(tooltip).not.toHaveTextContent('2 venues')
+
+    act(() => map.fire('click:venue-pins', stacked))
+    expect(onVenueSelect).toHaveBeenCalledWith(2)
+  })
+
+  it('titles the tooltip by the stack while the pointer is over its marker, whatever pin lies under it', () => {
+    const { map } = renderCanvas({ venueStacks: [STACK], onVenueStackSelect: vi.fn() })
+    const marker = screen.getByRole('button', { name: /2 venues · city centre/ })
+    // The marker's label overlaps the lone Thalia Hall pin.
+    act(() =>
+      map.fire('mousemove:venue-pins', {
+        point: { x: 10, y: 10 },
+        features: [{ properties: { id: 3 } }],
+        originalEvent: { target: marker.lastElementChild },
+      }),
+    )
+    const tooltip = screen.getByTestId('atlas-venue-tooltip')
+    expect(tooltip).toHaveTextContent('2 venues at the city centre point')
+    expect(tooltip).not.toHaveTextContent('Thalia Hall')
+    expect(screen.getByText('click for shows', { exact: false })).not.toBeVisible()
+  })
+
+  it('clears a held pin tooltip when the stack handler or the stacks change', () => {
+    const { map, rerender, props } = renderCanvas({
+      venueStacks: [STACK],
+      onVenueStackSelect: vi.fn(),
+    })
+    const hoverStacked = () =>
+      act(() =>
+        map.fire('mousemove:venue-pins', {
+          point: { x: 10, y: 10 },
+          features: [{ properties: { id: 2 } }, { properties: { id: 1 } }],
+        }),
+      )
+    const tooltip = screen.getByTestId('atlas-venue-tooltip')
+    hoverStacked()
+    expect(tooltip).toHaveTextContent('2 venues at the city centre point')
+
+    rerender(<GlobeCanvas {...props} onVenueStackSelect={undefined} />)
+    expect(tooltip).toHaveStyle({ display: 'none' })
+
+    hoverStacked()
+    expect(tooltip).toHaveTextContent('Hideout')
+    rerender(<GlobeCanvas {...props} onVenueStackSelect={undefined} venueStacks={[]} />)
+    expect(tooltip).toHaveStyle({ display: 'none' })
   })
 
   it('names stacked pins by their marker, not by a member label', () => {
@@ -384,7 +435,7 @@ describe('GlobeCanvas hover on a coarse pointer', () => {
     features: [{ properties: { slug: 'chicago-il', sortKey: 1 } }],
   }
 
-  it('shows no tooltip, sets no highlight and keeps the cursor for a pin or a dot', () => {
+  it('shows no tooltip, sets no highlight and never sets the pointer cursor for a pin or a dot', () => {
     matchMedia = installMatchMedia({ [COARSE_POINTER_QUERY]: true })
     const { map } = renderCanvas()
     act(() => map.fire('mousemove:venue-pins', PIN_MOVE))

@@ -174,6 +174,24 @@ export async function waitForMap(page: Page) {
 }
 
 /**
+ * Waits until the map's canvas fills the Atlas frame: the frame grows when
+ * the banner leaves, and the measured pane, the map's container and then
+ * the canvas follow it.
+ */
+export async function waitForMapSize(page: Page) {
+  await expect
+    .poll(() =>
+      page.evaluate(() => {
+        const map = (window as unknown as { __atlasMap: AtlasMapSeam }).__atlasMap
+        const canvas = map.getCanvas().getBoundingClientRect()
+        const frame = document.querySelector('[data-testid="atlas-pane-frame"]')!.getBoundingClientRect()
+        return Math.abs(canvas.width - frame.width) < 1 && Math.abs(canvas.height - frame.height) < 1
+      }),
+    )
+    .toBe(true)
+}
+
+/**
  * Rejects the cookie banner and waits for it to leave. A tap by default (the
  * context needs `hasTouch`); a click for a mouse context.
  */
