@@ -1075,12 +1075,49 @@ describe('GlobeCanvas preview camera', () => {
     expect(map.easeTo).not.toHaveBeenCalled()
   })
 
-  it('builds a map for an open preview sheet with that sheet’s padding, unmoved', () => {
+  /**
+   * Builds a new map in the same canvas, as showing the page again does: a
+   * new pov object re-runs the map's effect, and the component keeps its
+   * refs. Returns the new map, its style loaded.
+   */
+  function rebuildMap(
+    rerender: (ui: React.ReactElement) => void,
+    props: Parameters<typeof GlobeCanvas>[0],
+  ) {
+    rerender(<GlobeCanvas {...props} pov={{ ...props.pov }} />)
+    const map = stub.state.maps[stub.state.maps.length - 1]
+    act(() => map.fire('style.load'))
+    return map
+  }
+
+  it('eases a dot selected before its first map to the band above the sheet', () => {
     const { map } = renderPreview({ selected: CHICAGO, scenePreviewSheetDetent: 'half' })
-    expect(map.setPadding).toHaveBeenCalledWith(padded(HALF_PX))
-    expect(map.easeTo).not.toHaveBeenCalled()
+    expect(map.easeTo).toHaveBeenCalledWith({ center: CHICAGO_CENTER, padding: padded(HALF_PX) })
+  })
+
+  it('rebuilds a map on a settled camera with the padding that camera had, unmoved', () => {
+    const { map, rerender, props } = selectChicago()
+    // Peek with the dot clear keeps Half's padding on the camera.
+    const atPeek = { ...props, selected: CHICAGO, scenePreviewSheetDetent: 'peek' as const }
+    rerender(<GlobeCanvas {...atPeek} />)
+    expect(map.padding).toEqual(padded(HALF_PX))
+
+    const rebuilt = rebuildMap(rerender, atPeek)
+    expect(rebuilt).not.toBe(map)
+    expect(rebuilt.setPadding).toHaveBeenCalledWith(padded(HALF_PX))
+    expect(rebuilt.easeTo).not.toHaveBeenCalled()
     const halo = screen.getByTestId('globe-cursor-wrap').children[1] as HTMLElement
     expect(halo.style.top).toBe(`calc(50% - ${HALF_PX / 2}px)`)
+  })
+
+  it('moves once on a map rebuilt from a camera that was still moving', () => {
+    const { map, rerender, props } = selectChicago()
+    // Hidden mid-ease.
+    map.moving = true
+    const rebuilt = rebuildMap(rerender, { ...props, selected: CHICAGO, scenePreviewSheetDetent: 'half' })
+    expect(rebuilt.setPadding).toHaveBeenCalledWith(padded(HALF_PX))
+    expect(rebuilt.easeTo).toHaveBeenCalledTimes(1)
+    expect(rebuilt.easeTo).toHaveBeenCalledWith({ center: CHICAGO_CENTER, padding: padded(HALF_PX) })
   })
 
   it('keeps the halo on the centre of the padded viewport', () => {

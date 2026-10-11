@@ -886,13 +886,22 @@ export default function GlobeCanvas({
   // The camera moves once per change, and never while another movement is
   // in progress: it waits for that movement's moveend, then for the next
   // frame, since moveend can fire from inside another camera call that would
-  // overwrite a move started there. appliedPreviewCameraRef holds the last
-  // selection and sheet height the camera was sent to, for one map instance:
-  // the fly-to seam and a new map write it too, so a flight that opens the
-  // preview, a restored context and a remounted map need no second move.
+  // overwrite a move started there. appliedPreviewCameraRef holds, for one
+  // map instance, the last selection and sheet height this rule was applied
+  // for (null: none yet on that map). The fly-to seam writes it for a flight
+  // that opens the preview, and a map rebuilt on a settled camera starts
+  // with it, so neither needs a second move; a restored context keeps it.
   const previewCameraSheetPx = selectedSlug === null ? 0 : previewSheetPx
   const appliedPreviewCameraRef = useRef<{
     map: maplibregl.Map
+    slug: string | null
+    sheetPx: number
+  } | null>(null)
+  // What the camera left when its map was removed: its bottom padding, the
+  // record above for that map, and whether the camera was at rest.
+  const leftPreviewCameraRef = useRef<{
+    paddingPx: number
+    settled: boolean
     slug: string | null
     sheetPx: number
   } | null>(null)
@@ -1185,14 +1194,24 @@ export default function GlobeCanvas({
     map.touchZoomRotate.disableRotation()
     map.keyboard.disableRotation()
 
-    // A map built while a preview sheet is open (the page shown again) takes
-    // that sheet's padding at once. The saved camera's centre is the padded
-    // centre it left, so the selected dot comes back where it was, unmoved.
+    // A map rebuilt on the saved camera (the page shown again) takes the
+    // padding the previous map's camera had, since the saved centre is that
+    // camera's padded centre: the view comes back as it was, unmoved. When
+    // that camera had settled where the preview camera effect last sent it,
+    // and the selection and sheet are unchanged, nothing is left to apply;
+    // otherwise the effect makes its one move on this map.
+    const leftCamera = leftPreviewCameraRef.current
     const previewTarget = previewCameraTargetRef.current
-    if (previewTarget.sheetPx > 0) {
-      map.setPadding(scenePreviewCameraPadding(previewTarget.sheetPx))
-    }
-    appliedPreviewCameraRef.current = { map, ...previewTarget }
+    const restoredLeftCamera = restored !== null && leftCamera !== null
+    const startPaddingPx = restoredLeftCamera ? leftCamera.paddingPx : 0
+    if (startPaddingPx > 0) map.setPadding(scenePreviewCameraPadding(startPaddingPx))
+    appliedPreviewCameraRef.current =
+      restoredLeftCamera &&
+      leftCamera.settled &&
+      leftCamera.slug === previewTarget.slug &&
+      leftCamera.sheetPx === previewTarget.sheetPx
+        ? { map, ...previewTarget }
+        : null
 
     // Fill the parent's fly-to seam (PSY-1308, reused by search/Drift).
     // Closes over THIS map; nulled in cleanup, so after a hide/show cycle
@@ -1272,7 +1291,7 @@ export default function GlobeCanvas({
       if (offset === 0) halo.style.removeProperty('top')
       else halo.style.top = `calc(50% ${offset < 0 ? '-' : '+'} ${Math.abs(offset)}px)`
     }
-    writeHaloOffset(-previewTarget.sheetPx / 2)
+    writeHaloOffset(-startPaddingPx / 2)
     const updateHaloOffset = () => {
       const { top = 0, bottom = 0 } = map.getPadding()
       writeHaloOffset((top - bottom) / 2)
@@ -1560,6 +1579,16 @@ export default function GlobeCanvas({
         center: [map.getCenter().lng, map.getCenter().lat],
         zoom: map.getZoom(),
       })
+      // The preview camera's state beside the saved centre, for the next map.
+      // The preview camera effect's cleanup has already run (it is declared
+      // earlier), so no move of its is pending.
+      const applied = appliedPreviewCameraRef.current
+      leftPreviewCameraRef.current = {
+        paddingPx: map.getPadding().bottom ?? 0,
+        settled: applied?.map === map && !map.isMoving(),
+        slug: applied?.map === map ? applied.slug : null,
+        sheetPx: applied?.map === map ? applied.sheetPx : 0,
+      }
       if (w.__atlasMap === map) {
         w.__atlasMap = null
         w.__atlasMapLoaded = false

@@ -85,6 +85,9 @@ vi.mock('maplibre-gl', () => {
     removeControl = vi.fn()
     remove = vi.fn()
     flyTo = vi.fn()
+    // An unpadded camera at rest, as the canvas reads it when the map goes.
+    getPadding = () => ({ top: 0, right: 0, bottom: 0, left: 0 })
+    isMoving = () => false
     // A started map has a painter (MapLibre leaves it unset when WebGL2 is refused).
     painter: object | undefined = {}
     touchZoomRotate = { disableRotation: vi.fn() }

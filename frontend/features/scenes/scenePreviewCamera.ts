@@ -14,8 +14,8 @@ import { ATLAS_SHEET_TOP_INSET_PX } from './cityView'
 /**
  * The height, in CSS px, the scene preview sheet covers at the bottom of an
  * Atlas pane `paneHeightPx` tall when it stands at `detent`: the sheet's own
- * detent rule with the Atlas's top inset. It is the camera's bottom padding
- * while the preview is open.
+ * detent rule with the Atlas's top inset. The camera's bottom padding, each
+ * time the preview camera effect re-centres the selected dot.
  */
 export function scenePreviewSheetPx(detent: BottomSheetDetent, paneHeightPx: number): number {
   return bottomSheetHeightPx(detent, paneHeightPx, ATLAS_SHEET_TOP_INSET_PX)
