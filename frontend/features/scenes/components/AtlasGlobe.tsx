@@ -138,8 +138,9 @@ const GlobeCanvas = dynamic(loadGlobeCanvas, {
  * - `'error'`: the scenes query failed. The error message.
  * - `'unmeasured'`: the pane has no size yet, so whether a map can render is
  *   not known. The skeleton.
- * - `'scene-list'`, with atlasSceneListReason's reason: the scene list,
- *   which tells the visitor that reason.
+ * - `'scene-list'`, with atlasSceneListReason's reason and whether a retry of
+ *   the map is offered (only for `'map-failed'`): the scene list, which tells
+ *   the visitor that reason.
  * - `'nothing-to-place'`: scenes loaded and none can be placed. A message
  *   with a link to the scenes page.
  * - `'map'`, with the pane's size: the map mounts once there are scenes to
@@ -148,7 +149,7 @@ const GlobeCanvas = dynamic(loadGlobeCanvas, {
  */
 type AtlasRenderBranch =
   | { kind: 'error' | 'unmeasured' | 'nothing-to-place' }
-  | { kind: 'scene-list'; reason: AtlasSceneListReason }
+  | { kind: 'scene-list'; reason: AtlasSceneListReason; offersMapRetry: boolean }
   | { kind: 'map'; size: AtlasPaneSize }
 
 /**
@@ -180,18 +181,26 @@ function atlasRenderBranch({
   scenesFailed,
   size,
   sceneListReason,
+  mapRetryCanSucceed,
   scenesLoading,
   placeableCount,
 }: {
   scenesFailed: boolean
   size: AtlasPaneSize | null
   sceneListReason: AtlasSceneListReason | null
+  mapRetryCanSucceed: boolean
   scenesLoading: boolean
   placeableCount: number
 }): AtlasRenderBranch {
   if (scenesFailed) return { kind: 'error' }
   if (size === null) return { kind: 'unmeasured' }
-  if (sceneListReason !== null) return { kind: 'scene-list', reason: sceneListReason }
+  if (sceneListReason !== null) {
+    return {
+      kind: 'scene-list',
+      reason: sceneListReason,
+      offersMapRetry: sceneListReason === 'map-failed' && mapRetryCanSucceed,
+    }
+  }
   if (!scenesLoading && placeableCount === 0) return { kind: 'nothing-to-place' }
   return { kind: 'map', size }
 }
@@ -690,14 +699,21 @@ export function AtlasGlobe() {
   // frame reach it only through the first-render deadline. The page latch
   // holds the class of a classed failure, so whether a retry is offered is
   // read from it; a failure with no class leaves it empty and is offered none.
+  // The latch changes only in the two handlers below, each beside the
+  // setMapFailed that re-renders, so a render reads it current.
   const [mapFailed, setMapFailed] = useState(() => atlasMapFailureThisPage() !== null)
   const handleMapFailed = useCallback((error: unknown) => {
     if (error instanceof AtlasMapUnrecoverableError) markAtlasMapFailed(error.failureClass)
     setMapFailed(true)
   }, [])
+  // The pane frame outlives the swap between the list and the map, so focus
+  // moved onto it before the retry's button unmounts stays in the pane
+  // whether the new map draws or fails back to the list.
+  const paneFrameRef = useRef<HTMLDivElement>(null)
   // A retry whose probe fails changes nothing, so the list stays as it was.
   const handleRetryMap = useCallback(() => {
     if (!reprobeAtlasWebGL2()) return
+    paneFrameRef.current?.focus()
     clearAtlasMapFailure()
     setMapFailed(false)
   }, [])
@@ -717,6 +733,7 @@ export function AtlasGlobe() {
     scenesFailed: isError,
     size,
     sceneListReason,
+    mapRetryCanSucceed: mapFailed && atlasMapRetryCanSucceed(atlasMapFailureThisPage()),
     scenesLoading: isLoading,
     placeableCount: placeable.length,
   })
@@ -744,12 +761,7 @@ export function AtlasGlobe() {
         loading={isLoading}
         followedSlugs={followedSlugs}
         reason={renderBranch.reason}
-        onRetryMap={
-          renderBranch.reason === 'map-failed' &&
-          atlasMapRetryCanSucceed(atlasMapFailureThisPage())
-            ? handleRetryMap
-            : undefined
-        }
+        onRetryMap={renderBranch.offersMapRetry ? handleRetryMap : undefined}
       />
     )
   } else if (renderBranch.kind === 'map' && placeable.length > 0 && pov !== null) {
@@ -1066,6 +1078,8 @@ export function AtlasGlobe() {
   // exactly as without a banner.
   return (
     <div
+      ref={paneFrameRef}
+      tabIndex={-1}
       data-testid="atlas-pane-frame"
       className={`relative h-[calc(100dvh-var(--topbar-height)-var(--bottom-tab-bar-height)-env(safe-area-inset-bottom)-var(--cookie-banner-height,0px))] w-full overflow-hidden bg-[#0a0a0a] xl:h-[calc(100dvh-4rem-max(env(safe-area-inset-bottom),var(--cookie-banner-height,0px)))] ${
         // The sheets anchor to this box's bottom edge, so in the sheet layout

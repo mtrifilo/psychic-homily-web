@@ -135,8 +135,8 @@ const FAILURE_MESSAGES: Record<AtlasMapFailureClass, string> = {
  * `first-render-timeout` that is a decision at a deadline, not proof the map
  * would never have drawn. AtlasGlobe swaps in the scene list for the rest of
  * the page load, or until the visitor's retry ({@link atlasMapRetryCanSucceed}).
- * Lives here, not
- * beside the map, so AtlasGlobe can recognise it without importing MapLibre.
+ * Lives here, not beside the map, so AtlasGlobe can recognise it without
+ * importing MapLibre.
  */
 export class AtlasMapUnrecoverableError extends Error {
   readonly failureClass: AtlasMapFailureClass
@@ -183,7 +183,9 @@ export function clearAtlasMapFailure(): void {
 /**
  * Whether a new map can draw after a failure of this class, which is when the
  * scene list offers the visitor a retry. Null is a failure that carries no
- * class.
+ * class. Each press builds one map, and a retried map that fails again is
+ * reported to Sentry like the first; the visitor's presses are the only
+ * bound on the loss classes and `first-render-timeout`.
  * - The loss classes and `context-restore-refused`: the browser took the
  *   context away from a map that had one, and a new map asks for a new
  *   context on a new canvas, which a recovered GPU gives. A new map the

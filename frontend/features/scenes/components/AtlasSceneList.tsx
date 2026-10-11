@@ -17,9 +17,9 @@ const REASON_LINES: Record<AtlasSceneListReason, string> = {
 
 /**
  * The Atlas's stand-in for the map wherever atlasSceneListReason gives a
- * reason the map should not run, which the line under the heading states:
- * the scenes as a list, still the geographic-discovery
- * payoff, just not spatial. Lists ALL scenes (incl. ones the globe can't
+ * reason the map should not run: the scenes as a list, still the
+ * geographic-discovery payoff, just not spatial. The line under the heading
+ * states the reason. Lists ALL scenes (incl. ones the globe can't
  * place), liveliest first. Each row expands in place (the app expands in
  * place rather than modally, cf. StationShowsDirectory's in-place view-all;
  * the only Sheet primitive is modal and would bury the list) into the same

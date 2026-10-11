@@ -604,6 +604,8 @@ describe('AtlasGlobe', () => {
         await expectMap()
         // The page latch is cleared too, so a later mount builds a map.
         expect(mockMapFailureThisPage).toBeNull()
+        // Focus leaves the unmounted button for the pane, not the page.
+        expect(document.activeElement).toBe(screen.getByTestId('atlas-pane-frame'))
         quiet.mockRestore()
       })
 
@@ -612,8 +614,10 @@ describe('AtlasGlobe', () => {
         await renderFailedMap('context-lost')
         mockCanvasThrowsOnStart = false
         mockReprobeWebGL2.mockReturnValue(false)
-        await userEvent.click(retryButton()!)
+        const button = retryButton()!
+        await userEvent.click(button)
         expect(mockReprobeWebGL2).toHaveBeenCalledTimes(1)
+        expect(document.activeElement).toBe(button)
         expect(screen.getByTestId('atlas-scene-list')).toBeInTheDocument()
         expect(screen.queryByTestId('globe-canvas')).not.toBeInTheDocument()
         expect(screen.getByText(MAP_FAILED_LINE)).toBeInTheDocument()
@@ -629,6 +633,7 @@ describe('AtlasGlobe', () => {
         await waitFor(() => expect(screen.getByText(MAP_FAILED_LINE)).toBeInTheDocument())
         expect(retryButton()).toBeInTheDocument()
         expect(mockMapFailureThisPage).toBe('context-lost')
+        expect(document.activeElement).toBe(screen.getByTestId('atlas-pane-frame'))
         quiet.mockRestore()
       })
 
