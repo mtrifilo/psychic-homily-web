@@ -55,13 +55,9 @@
 const DEVELOPMENT_BACKEND_ORIGIN = 'http://localhost:8080'
 
 /**
- * Where a production build's backend lives when nothing is configured.
- *
- * A `next build` that would land here outside Vercel is refused before it
- * starts: next.config.ts runs ./build-api-origin-guard.ts, which fails a
- * production build that has neither `NEXT_PUBLIC_API_URL` nor `VERCEL` set.
- * The guard covers `next build` only; a script that imports this module
- * directly with the variable unset still resolves here.
+ * Where a production build's backend lives when nothing is configured. Outside
+ * Vercel, `next build` refuses to reach it (./build-api-origin-guard.ts); a
+ * script that imports this module directly with the variable unset does not.
  */
 const PRODUCTION_BACKEND_ORIGIN = 'https://api.psychichomily.com'
 

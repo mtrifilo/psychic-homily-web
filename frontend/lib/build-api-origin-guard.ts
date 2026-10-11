@@ -1,7 +1,5 @@
 import { PHASE_PRODUCTION_BUILD } from 'next/constants'
 
-const STAGE_API_ORIGIN = 'https://stage.api.psychichomily.com'
-
 type BuildEnv = Readonly<Record<string, string | undefined>>
 
 /**
@@ -24,7 +22,7 @@ export function assertBuildApiOriginConfigured(phase: string, env: BuildEnv): vo
   throw new Error(
     `NEXT_PUBLIC_API_URL is not set, so this production build would prerender ` +
       `against the production API. Set it (and BACKEND_URL) to ` +
-      `${STAGE_API_ORIGIN} or a local backend before building. ` +
+      `https://stage.api.psychichomily.com or a local backend before building. ` +
       `Builds with VERCEL set skip this check.`,
   )
 }
