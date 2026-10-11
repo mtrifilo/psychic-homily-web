@@ -184,15 +184,15 @@ async function countShows(page: Page, testId: string) {
 async function driftingTap(page: Page, x: number, y: number, dx: number) {
   const cdp = await page.context().newCDPSession(page)
   try {
-  await cdp.send('Input.dispatchTouchEvent', {
-    type: 'touchStart',
-    touchPoints: [{ x, y, id: 1 }],
-  })
-  await cdp.send('Input.dispatchTouchEvent', {
-    type: 'touchMove',
-    touchPoints: [{ x: x + dx, y, id: 1 }],
-  })
-  await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] })
+    await cdp.send('Input.dispatchTouchEvent', {
+      type: 'touchStart',
+      touchPoints: [{ x, y, id: 1 }],
+    })
+    await cdp.send('Input.dispatchTouchEvent', {
+      type: 'touchMove',
+      touchPoints: [{ x: x + dx, y, id: 1 }],
+    })
+    await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] })
   } finally {
     await cdp.detach()
   }
