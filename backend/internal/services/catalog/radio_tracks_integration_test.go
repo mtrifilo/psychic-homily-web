@@ -3,7 +3,9 @@ package catalog
 import (
 	"context"
 	"fmt"
+	"slices"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/suite"
 	"gorm.io/gorm"
@@ -65,6 +67,7 @@ func (s *RadioTracksIntegrationSuite) TearDownTest() {
 
 func (s *RadioTracksIntegrationSuite) cleanup() {
 	for _, stmt := range []string{
+		"DELETE FROM background_service_runs WHERE name = '" + RadioTracksRebuildLoopName + "'",
 		"DELETE FROM radio_track_keys",
 		"DELETE FROM radio_tracks",
 		"DELETE FROM radio_plays",
@@ -151,6 +154,16 @@ func (s *RadioTracksIntegrationSuite) trackIDForKey(artistKey, titleKey string) 
 	return k.TrackID
 }
 
+// rowVersions returns every radio_tracks and radio_track_keys row's xmin, the
+// id of the transaction that last wrote it.
+func (s *RadioTracksIntegrationSuite) rowVersions() []string {
+	var out []string
+	s.Require().NoError(s.db.Raw(`SELECT 'track ' || id || ' ' || xmin FROM radio_tracks
+UNION ALL SELECT 'key ' || artist_key || '/' || title_key || ' ' || xmin FROM radio_track_keys
+ORDER BY 1`).Scan(&out).Error)
+	return out
+}
+
 func (s *RadioTracksIntegrationSuite) count(table string) int64 {
 	var n int64
 	s.Require().NoError(s.db.Table(table).Count(&n).Error)
@@ -174,9 +187,13 @@ func (s *RadioTracksIntegrationSuite) TestTitleKeyFixtures() {
 		{"Song (feat. Someone) [Remastered 2011]", "song"},
 		{"Song {Demo}", "song"},
 		{"Song - Radio Edit", "song"},
-		{"Song – Extended Version", "song"},
-		{"Song — Live at KEXP", "song"},
+		{"Song \u2013 Extended Version", "song"},
+		{"Song \u2014 Live at KEXP", "song"},
 		{"Song - Stereo Mix", "song"},
+		// Only the second bracket strip (step 4) reaches these: the bracket
+		// group is trailing once the dash tail is gone.
+		{"Song (Demo) - Live", "song"},
+		{"Song [Clean] - Radio Edit", "song"},
 		// Stripping empties these, so the unstripped normalized title is kept.
 		{"(Intro)", "intro"},
 		{"[Untitled]", "untitled"},
@@ -195,6 +212,9 @@ func (s *RadioTracksIntegrationSuite) TestTitleKeyFixtures() {
 		// keys to empty and its play is unkeyed.
 		{"사랑", ""},
 		{"Любовь", ""},
+		// A non-Latin title whose stripped form normalizes to empty falls back
+		// to the unstripped title, which keeps only its ASCII suffix word.
+		{"사랑 (Live)", "live"},
 		{"", ""},
 		{"   ", ""},
 	}
@@ -341,9 +361,12 @@ func (s *RadioTracksIntegrationSuite) TestRebuildIsIdempotentAndKeepsTrackIDs() 
 	s.rebuild()
 	before := s.track("suki waterhouse", "back in love")
 
+	versions := s.rowVersions()
+	s.Len(versions, 4, "two tracks and their two keys")
 	again := s.rebuild()
 	s.Equal(int64(0), again.Written, "a rebuild over unchanged plays writes no track row")
 	s.Equal(int64(0), again.Deleted)
+	s.Equal(versions, s.rowVersions(), "a rebuild over unchanged plays rewrites no track or key row")
 	after := s.track("suki waterhouse", "back in love")
 	s.Equal(before.ID, after.ID)
 	s.True(before.RebuiltAt.Equal(after.RebuiltAt), "an unchanged row keeps its rebuilt_at")
@@ -411,8 +434,11 @@ func (s *RadioTracksIntegrationSuite) TestConcurrentRebuildIsSkipped() {
 
 func (s *RadioTracksIntegrationSuite) TestListTopRadioTracks() {
 	// a: 4 plays on one station. b: 3 plays on 3 rows, 2 families.
-	// c: 2 plays on 2 families. The marker row has 5 plays and is never listed.
+	// c: 2 plays on 2 rows, 2 families. d: 5 plays on 2 rows of one family.
+	// The marker row has 5 plays and is never listed.
 	s.addPlay(radioTrackFixturePlay{station: "t-wfmu", artist: "A", title: stringPtr("One")}, 4)
+	s.addPlay(radioTrackFixturePlay{station: "t-wfmu", artist: "D", title: stringPtr("Four")}, 3)
+	s.addPlay(radioTrackFixturePlay{station: "t-rocknsoul", artist: "D", title: stringPtr("Four")}, 2)
 	s.addPlay(radioTrackFixturePlay{station: "t-wfmu", artist: "B", title: stringPtr("Two")}, 1)
 	s.addPlay(radioTrackFixturePlay{station: "t-rocknsoul", artist: "B", title: stringPtr("Two")}, 1)
 	s.addPlay(radioTrackFixturePlay{station: "t-kexp", artist: "B", title: stringPtr("Two")}, 1)
@@ -425,7 +451,7 @@ func (s *RadioTracksIntegrationSuite) TestListTopRadioTracks() {
 	order := func(sort contracts.RadioTrackSort, limit int) []string {
 		listing, err := reader.ListTopRadioTracks(context.Background(), sort, limit)
 		s.Require().NoError(err)
-		s.Equal(int64(3), listing.TotalTracks)
+		s.Equal(int64(4), listing.TotalTracks)
 		s.Equal(int64(5), listing.UnkeyedPlays)
 		var keys []string
 		for _, t := range listing.Tracks {
@@ -433,19 +459,75 @@ func (s *RadioTracksIntegrationSuite) TestListTopRadioTracks() {
 		}
 		return keys
 	}
-	s.Equal([]string{"a", "b", "c"}, order(contracts.RadioTrackSortPlays, 10))
-	s.Equal([]string{"b", "c", "a"}, order(contracts.RadioTrackSortStationRows, 10))
-	s.Equal([]string{"b", "c", "a"}, order(contracts.RadioTrackSortStationFamilies, 10))
-	s.Equal([]string{"a"}, order(contracts.RadioTrackSortPlays, 1))
+	s.Equal([]string{"d", "a", "b", "c"}, order(contracts.RadioTrackSortPlays, 10))
+	s.Equal([]string{"b", "d", "c", "a"}, order(contracts.RadioTrackSortStationRows, 10))
+	s.Equal([]string{"b", "c", "d", "a"}, order(contracts.RadioTrackSortStationFamilies, 10))
+	s.Equal([]string{"d"}, order(contracts.RadioTrackSortPlays, 1))
 
 	listing, err := reader.ListTopRadioTracks(context.Background(), contracts.RadioTrackSortPlays, 1)
 	s.Require().NoError(err)
 	top := listing.Tracks[0]
-	s.Equal("A", top.DisplayArtist)
-	s.Equal("One", top.DisplayTitle)
+	s.Equal("D", top.DisplayArtist)
+	s.Equal("Four", top.DisplayTitle)
 	s.Equal("2026-07-01", top.FirstAiredOn)
 	s.Equal(1, top.KeyCount)
+	s.Nil(listing.LastRebuiltAt, "no run state yet")
+
+	s.Require().NoError(s.db.Exec(`INSERT INTO background_service_runs (name, interval_seconds, last_success_at)
+VALUES (?, 21600, '2026-10-11 12:00:00+00')`, RadioTracksRebuildLoopName).Error)
+	listing, err = reader.ListTopRadioTracks(context.Background(), contracts.RadioTrackSortPlays, 1)
+	s.Require().NoError(err)
+	s.Require().NotNil(listing.LastRebuiltAt)
+	s.Equal("2026-10-11T12:00:00Z", listing.LastRebuiltAt.UTC().Format(time.RFC3339))
 
 	_, err = reader.ListTopRadioTracks(context.Background(), contracts.RadioTrackSort("nope"), 10)
 	s.Error(err)
+}
+
+// A key whose plays are gone loses its key row even while the track it was
+// joined into survives.
+func (s *RadioTracksIntegrationSuite) TestRebuildDeletesStaleKeysOfSurvivingTracks() {
+	mb := stringPtr("ffffffff-0000-0000-0000-000000000001")
+	s.addPlay(radioTrackFixturePlay{station: "t-kexp", artist: "Genesis Owusu feat. Duckwrth", title: stringPtr("Hellstar"), mb: mb}, 2)
+	s.addPlay(radioTrackFixturePlay{station: "t-kexp", artist: "Genesis Owusu & Duckwrth", title: stringPtr("Hellstar"), mb: mb}, 1)
+	s.rebuild()
+	s.Equal(int64(2), s.count("radio_track_keys"))
+
+	s.Require().NoError(s.db.Exec("DELETE FROM radio_plays WHERE artist_name = 'Genesis Owusu & Duckwrth'").Error)
+	report := s.rebuild()
+	s.Equal(int64(1), report.Tracks)
+	s.Equal(int64(1), report.Keys)
+	var keys []catalogm.RadioTrackKey
+	s.Require().NoError(s.db.Find(&keys).Error)
+	s.Require().Len(keys, 1)
+	s.Equal("genesis owusu feat. duckwrth", keys[0].ArtistKey)
+	s.Equal(2, s.track("genesis owusu feat. duckwrth", "hellstar").PlayCount)
+}
+
+// A recording id that is not a UUID neither joins keys nor sets a track's id.
+func (s *RadioTracksIntegrationSuite) TestMalformedRecordingIDIsIgnored() {
+	bad := stringPtr("not-a-recording-id")
+	s.addPlay(radioTrackFixturePlay{station: "t-kexp", artist: "Alpha", title: stringPtr("Song"), mb: bad}, 1)
+	s.addPlay(radioTrackFixturePlay{station: "t-kexp", artist: "Beta", title: stringPtr("Other"), mb: bad}, 1)
+
+	report := s.rebuild()
+	s.Equal(0, report.JoinedKeys)
+	s.Equal(int64(2), report.Tracks)
+	alpha := s.track("alpha", "song")
+	s.Nil(alpha.MBRecordingID)
+	s.False(alpha.MBRecordingIDConflict)
+}
+
+// radioTrackDerivedColumns must name every radio_tracks column the rebuild
+// derives: a column missing from it would be inserted as NULL and never
+// compared or updated.
+func (s *RadioTracksIntegrationSuite) TestDerivedColumnsCoverTheTable() {
+	var columns []string
+	s.Require().NoError(s.db.Raw(`SELECT column_name FROM information_schema.columns
+WHERE table_schema = current_schema() AND table_name = 'radio_tracks'
+  AND column_name NOT IN ('id', 'artist_key', 'title_key', 'unkeyed', 'rebuilt_at')
+ORDER BY column_name`).Scan(&columns).Error)
+	want := slices.Clone(radioTrackDerivedColumns)
+	slices.Sort(want)
+	s.Equal(want, columns)
 }

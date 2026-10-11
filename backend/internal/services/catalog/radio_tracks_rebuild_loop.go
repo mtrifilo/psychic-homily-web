@@ -18,9 +18,9 @@ const (
 	// background_service_runs primary key.
 	RadioTracksRebuildLoopName = "radio_tracks_rebuild"
 
-	// defaultRadioTracksRebuildInterval matches the station fetch cadence, the
-	// rate at which new plays arrive in bulk.
-	defaultRadioTracksRebuildInterval = 6 * time.Hour
+	// defaultRadioTracksRebuildInterval follows the station fetch loop's
+	// default cadence, the rate at which new plays arrive in bulk.
+	defaultRadioTracksRebuildInterval = DefaultRadioFetchInterval
 )
 
 // RadioTracksRebuildLoop rebuilds radio_tracks on a schedule. It runs no cycle

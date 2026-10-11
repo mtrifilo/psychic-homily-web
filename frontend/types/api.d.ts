@@ -15300,6 +15300,11 @@ export interface components {
              */
             readonly $schema?: string;
             /**
+             * Format: date-time
+             * @description When the rebuild loop last completed successfully
+             */
+            last_rebuilt_at?: string;
+            /**
              * Format: int64
              * @description Keyed tracks in radio_tracks (the unkeyed marker row excluded)
              */

@@ -5,7 +5,8 @@ import "time"
 // RadioTrack is one row of radio_tracks: a track as broadcast, derived from
 // radio_plays by catalog.RebuildRadioTracks. Every column is derived; nothing
 // writes this table except the rebuild. The row whose ArtistKey and TitleKey
-// are both "" (Unkeyed) aggregates every play whose key normalizes to empty.
+// are both "" (Unkeyed) aggregates every play whose artist key or title key is
+// empty or NULL; it exists only while at least one such play does.
 type RadioTrack struct {
 	ID                    uint      `gorm:"primaryKey"`
 	ArtistKey             string    `gorm:"column:artist_key;not null"`

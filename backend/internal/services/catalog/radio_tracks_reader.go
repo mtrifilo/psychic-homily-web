@@ -2,6 +2,7 @@ package catalog
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"time"
@@ -50,22 +51,30 @@ func (r *RadioTracksReader) ListTopRadioTracks(ctx context.Context, sort contrac
 		return nil, fmt.Errorf("limit must be positive, got %d", limit)
 	}
 
-	db := r.db.WithContext(ctx)
+	listing := &contracts.RadioTrackListing{}
 	var rows []radioTrackListRow
-	if err := db.Raw(`SELECT t.*, (SELECT count(*) FROM radio_track_keys k WHERE k.track_id = t.id) AS key_count
+	// One snapshot, so the totals describe the same rebuild as the rows.
+	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := tx.Raw(`SELECT t.*, (SELECT count(*) FROM radio_track_keys k WHERE k.track_id = t.id) AS key_count
 FROM radio_tracks t
 WHERE NOT t.unkeyed
 ORDER BY t.`+column+` DESC, t.play_count DESC, t.id
 LIMIT ?`, limit).Scan(&rows).Error; err != nil {
-		return nil, fmt.Errorf("listing radio tracks: %w", err)
+			return fmt.Errorf("listing radio tracks: %w", err)
+		}
+		if err := tx.Raw(`SELECT count(*) FILTER (WHERE NOT unkeyed),
+       coalesce(sum(play_count) FILTER (WHERE unkeyed), 0),
+       (SELECT last_success_at FROM background_service_runs WHERE name = ?)
+FROM radio_tracks`, RadioTracksRebuildLoopName).Row().Scan(&listing.TotalTracks, &listing.UnkeyedPlays, &listing.LastRebuiltAt); err != nil {
+			return fmt.Errorf("counting radio tracks: %w", err)
+		}
+		return nil
+	}, &sql.TxOptions{Isolation: sql.LevelRepeatableRead, ReadOnly: true})
+	if err != nil {
+		return nil, err
 	}
 
-	listing := &contracts.RadioTrackListing{Tracks: make([]contracts.RadioTrackSummary, 0, len(rows))}
-	if err := db.Raw(`SELECT count(*) FILTER (WHERE NOT unkeyed),
-       coalesce(sum(play_count) FILTER (WHERE unkeyed), 0)
-FROM radio_tracks`).Row().Scan(&listing.TotalTracks, &listing.UnkeyedPlays); err != nil {
-		return nil, fmt.Errorf("counting radio tracks: %w", err)
-	}
+	listing.Tracks = make([]contracts.RadioTrackSummary, 0, len(rows))
 	for _, row := range rows {
 		listing.Tracks = append(listing.Tracks, radioTrackSummary(row))
 	}

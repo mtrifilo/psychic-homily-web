@@ -67,7 +67,8 @@ const (
 
 // radioTrackRebuildPlaysSQL keys every play. artist_key and title_key are both
 // the empty string when either half is empty or NULL, which routes the play to
-// the unkeyed marker row.
+// the unkeyed marker row. A recording id that is not shaped like a UUID is
+// treated as absent, so it can neither join keys nor set a track's id.
 var radioTrackRebuildPlaysSQL = `
 CREATE TEMP TABLE ` + radioTrackRebuildPlaysTable + ` ON COMMIT DROP AS
 SELECT CASE WHEN k.unkeyed THEN '' ELSE raw.a END AS artist_key,
@@ -78,7 +79,7 @@ SELECT CASE WHEN k.unkeyed THEN '' ELSE raw.a END AS artist_key,
        e.air_date,
        p.artist_name,
        p.track_title,
-       lower(nullif(btrim(p.musicbrainz_recording_id), '')) AS mb_recording_id,
+       mb.id AS mb_recording_id,
        coalesce(p.album_title ~ '[^[:space:]]', false) AS has_album,
        coalesce(p.label_name ~ '[^[:space:]]', false) AS has_label
 FROM radio_plays p
@@ -89,7 +90,12 @@ CROSS JOIN LATERAL (
   SELECT coalesce(radio_track_artist_key(p.artist_name), '') AS a,
          coalesce(radio_track_title_key(p.track_title), '') AS t
 ) raw
-CROSS JOIN LATERAL (SELECT raw.a = '' OR raw.t = '' AS unkeyed) k`
+CROSS JOIN LATERAL (SELECT raw.a = '' OR raw.t = '' AS unkeyed) k
+CROSS JOIN LATERAL (SELECT lower(btrim(p.musicbrainz_recording_id)) AS raw_id) mbr
+CROSS JOIN LATERAL (
+  SELECT CASE WHEN mbr.raw_id ~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+              THEN mbr.raw_id END AS id
+) mb`
 
 // radioTrackRebuildTracksSQL aggregates the keyed plays into one row per
 // track. A key listed in the joins table counts toward the track it was joined
@@ -240,10 +246,12 @@ WHERE current_track_id IS NULL`
 // RebuildRadioTracks rebuilds radio_tracks and radio_track_keys from
 // radio_plays in one transaction. It is idempotent: a rebuild over unchanged
 // plays writes no row. Plays are read by a single statement, so the result
-// reflects one snapshot of radio_plays; the rebuild takes no lock on
-// radio_plays beyond that read, so it never blocks writers of the plays (the
-// fetch and rematch loops). A rebuild that finds another rebuild in progress
-// returns a Skipped report without waiting.
+// reflects one snapshot of radio_plays. That read takes ACCESS SHARE locks on
+// radio_plays, radio_episodes, radio_shows and radio_stations, held until the
+// transaction ends: row writers of those tables (the fetch and rematch loops)
+// are never blocked, but DDL on them waits for the rebuild to finish. A rebuild
+// that finds another rebuild in progress returns a Skipped report without
+// waiting.
 //
 // A track row keeps its id across rebuilds while its key keeps naming a track.
 func RebuildRadioTracks(ctx context.Context, database *gorm.DB) (*RadioTracksRebuildReport, error) {

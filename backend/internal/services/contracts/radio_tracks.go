@@ -41,4 +41,6 @@ type RadioTrackListing struct {
 	Tracks       []RadioTrackSummary `json:"tracks"`
 	TotalTracks  int64               `json:"total_tracks" doc:"Keyed tracks in radio_tracks (the unkeyed marker row excluded)"`
 	UnkeyedPlays int64               `json:"unkeyed_plays" doc:"Plays whose artist or title normalizes to empty"`
+	// LastRebuiltAt is nil until the rebuild loop has succeeded once.
+	LastRebuiltAt *time.Time `json:"last_rebuilt_at,omitempty" doc:"When the rebuild loop last completed successfully"`
 }

@@ -2,7 +2,9 @@
 -- rebuilt from radio_plays by the radio_tracks_rebuild loop
 -- (catalog.RebuildRadioTracks). radio_plays stays the source of truth: nothing
 -- here is written by hand, and a rebuild reproduces every derived column from
--- the plays alone.
+-- the plays alone. Every radio_plays row counts: there is no aired-episode
+-- gate, no radio_play_exclusions filter and no pseudo-artist filter, so
+-- readers that rank or display tracks apply those themselves.
 --
 -- Track key. A play's key is (radio_track_artist_key(artist_name),
 -- radio_track_title_key(track_title)). The title key strips featured-artist
@@ -13,15 +15,15 @@
 -- artist_key and title_key are both ''.
 --
 -- MusicBrainz join. Two keys whose plays carry the same MusicBrainz recording
--- id are one track (transitively). A recording id never splits a key: a key
+-- id are one track (transitively). Only ids shaped like a UUID take part. A recording id never splits a key: a key
 -- whose plays carry several ids stays one track with mb_recording_id NULL and
 -- mb_recording_id_conflict true. radio_track_keys maps every key to its track,
 -- so a joined track has one radio_tracks row and several radio_track_keys rows.
 
 -- radio_track_artist_key is the artist half of the track key.
-CREATE OR REPLACE FUNCTION radio_track_artist_key(text)
+CREATE OR REPLACE FUNCTION public.radio_track_artist_key(text)
   RETURNS text
-  AS $$ SELECT radio_normalize_name($1) $$
+  AS $$ SELECT public.radio_normalize_name($1) $$
   LANGUAGE SQL IMMUTABLE PARALLEL SAFE STRICT;
 
 -- radio_track_title_key is the title half of the track key. Stripping runs on
@@ -30,23 +32,26 @@ CREATE OR REPLACE FUNCTION radio_track_artist_key(text)
 --   1. an unbracketed credit: " feat. x", " ft. x", " featuring x" to the end
 --   2. trailing bracket groups, repeated: " (live) [2004]"
 --   3. a dash tail carrying a keyword: " - live at x", " - radio edit"
---   4. step 2 again, for "x - live (2004)"
-CREATE OR REPLACE FUNCTION radio_track_title_key(text)
+--   4. step 2 again, for "x (demo) - live", whose bracket group is exposed
+--      only once step 3 removes the dash tail
+-- Helpers are schema-qualified so the function also works where an index
+-- expression is evaluated under a restricted search_path.
+CREATE OR REPLACE FUNCTION public.radio_track_title_key(text)
   RETURNS text
   AS $$
     SELECT coalesce(
-      nullif(radio_normalize_name(
+      nullif(public.radio_normalize_name(
         regexp_replace(
           regexp_replace(
             regexp_replace(
               regexp_replace(
-                immutable_unaccent(lower($1)),
+                public.immutable_unaccent(lower($1)),
                 '\s+(featuring|feat\.?|ft\.?)\s.*$', ''),
               '(\s*[\(\[\{][^\(\)\[\]\{\}]*[\)\]\}])+\s*$', ''),
-            '\s+[-–—]\s+.*\m(remix|edit|version|live|mono|stereo)\M.*$', ''),
+            '\s+[-\u2013\u2014]\s+.*\m(remix|edit|version|live|mono|stereo)\M.*$', ''),
           '(\s*[\(\[\{][^\(\)\[\]\{\}]*[\)\]\}])+\s*$', '')
       ), ''),
-      radio_normalize_name($1)
+      public.radio_normalize_name($1)
     )
   $$
   LANGUAGE SQL IMMUTABLE PARALLEL SAFE STRICT;
@@ -69,7 +74,9 @@ CREATE TABLE radio_tracks (
     station_family_count INTEGER NOT NULL,
     show_count INTEGER NOT NULL,
     -- radio_episodes.air_date of the earliest and latest episode carrying a
-    -- play: the station-local broadcast date, present on every play.
+    -- play: the station-local broadcast date, present on every play. An
+    -- episode published before it airs counts, so last_aired_on can be a
+    -- future date.
     first_aired_on DATE NOT NULL,
     last_aired_on DATE NOT NULL,
     -- Set when every MusicBrainz-tagged play of the track carries the same
