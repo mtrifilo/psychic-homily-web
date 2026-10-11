@@ -20,6 +20,25 @@ import {
 export const ATLAS_CONTEXT_RESTORE_DEADLINE_MS = 3000
 
 /**
+ * How long a constructed Atlas map may go, within one continuous stretch of
+ * the page being visible, without rendering a frame that has its scene data
+ * loaded, before the Atlas gives up on it (see watchAtlasFirstRender).
+ *
+ * Derived from the atlas-perf workflow (scripts/atlas-perf.mjs) on the PR
+ * previews, phone profile (iPhone 13, 4x CPU on the main thread, Fast 4G,
+ * cold cache) under SwiftShader on GitHub's runners: the slowest first
+ * rendered map of 69 cold runs across 23 runs from 2026-10-07 to 2026-10-11
+ * was 7975 ms (run 38167710080). That figure counts from navigation start and
+ * waits on every in-view tile, so it bounds the time from construction to the
+ * watched frame from above. The deadline is twice it, rounded up to 16 s; the
+ * factor of two is a choice, not a measurement. The runners measure no
+ * desktop: one local 1440x900 run of the same script read 6.04 s, about
+ * 10.6 s at the workflow's stated 1.75x runner factor (an estimate), which
+ * the deadline clears by about 1.5x. It is above the 3.5 s phone gate.
+ */
+export const ATLAS_FIRST_RENDER_DEADLINE_MS = 16_000
+
+/**
  * Whether MapLibre built this map without a WebGL2 context. maplibre-gl 6.0.0
  * reports a refused context as an `error` event during construction and
  * returns a map with no painter and no input handlers (`painter` is typed
@@ -76,6 +95,74 @@ export function atlasMapSectionFailedThisPage(section: string): boolean {
 export function resetAtlasMapLatchesForTest(): void {
   sectionsFailedThisPage.clear()
 }
+
+/**
+ * Gives up on a constructed map that never renders its own data: calls
+ * `onUnrecoverable` once, with `first-render-timeout`, when no `render` event
+ * has found `firstRenderDone()` true within ATLAS_FIRST_RENDER_DEADLINE_MS of
+ * continuously visible time. Hiding the page cancels the clock and showing it
+ * again starts the full deadline over (a hidden page runs no animation frames,
+ * so it cannot render); a page hidden at the start arms nothing until shown.
+ *
+ * `firstRenderDone` must ask about data the map owns, never third-party tiles
+ * (the Atlas asks whether its style is live and its scene GeoJSON source is
+ * loaded). This watch covers the two failures MapLibre 6.0.0 reports no event
+ * for: an exception thrown inside its render frame (`render` fires at the end
+ * of `Map._render`, so a frame that throws fires none) and a worker that never
+ * starts (a GeoJSON source is loaded only once the worker has answered). A
+ * tile request has no timeout in MapLibre, so a hung tile response would hold
+ * `isStyleLoaded()` and `areTilesLoaded()` false indefinitely; a map that is
+ * drawing must not be given up for that, so tiles are outside this watch by
+ * design.
+ *
+ * Start it in the task that constructs the map. Its `stop()` cancels the
+ * clock and removes its listeners; call it as the map is removed.
+ */
+export function watchAtlasFirstRender(
+  map: FirstRenderMap,
+  firstRenderDone: () => boolean,
+  onUnrecoverable: (error: AtlasMapUnrecoverableError) => void,
+): { stop(): void } {
+  let deadline: ReturnType<typeof setTimeout> | null = null
+
+  function cancelDeadline() {
+    if (deadline === null) return
+    clearTimeout(deadline)
+    deadline = null
+  }
+
+  function armDeadline() {
+    if (deadline !== null || document.visibilityState === 'hidden') return
+    deadline = setTimeout(() => {
+      deadline = null
+      stop()
+      onUnrecoverable(new AtlasMapUnrecoverableError('first-render-timeout'))
+    }, ATLAS_FIRST_RENDER_DEADLINE_MS)
+  }
+
+  function handleVisibility() {
+    if (document.visibilityState === 'hidden') cancelDeadline()
+    else armDeadline()
+  }
+
+  function handleRender() {
+    if (firstRenderDone()) stop()
+  }
+
+  function stop() {
+    cancelDeadline()
+    map.off('render', handleRender)
+    document.removeEventListener('visibilitychange', handleVisibility)
+  }
+
+  map.on('render', handleRender)
+  document.addEventListener('visibilitychange', handleVisibility)
+  armDeadline()
+  return { stop }
+}
+
+/** The map surface {@link watchAtlasFirstRender} reads. */
+type FirstRenderMap = Pick<MapLibreMap, 'on' | 'off'>
 
 /**
  * The map surface this module reads. The events are MapLibre's own, so each
@@ -141,7 +228,8 @@ export interface AtlasMapHealth {
  *
  * Not visible here: exceptions thrown inside MapLibre's render frame (they
  * propagate out of its animation-frame callback, not as an `error` event) and
- * a worker that never starts (MapLibre reports nothing).
+ * a worker that never starts (MapLibre reports nothing). The Atlas covers both
+ * with {@link watchAtlasFirstRender}.
  */
 export function watchAtlasMapHealth(
   map: HealthMap,

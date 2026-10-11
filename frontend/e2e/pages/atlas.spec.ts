@@ -736,3 +736,53 @@ test.describe('Atlas when the map loses its WebGL context', () => {
     expect(errors).toEqual([])
   })
 })
+
+/**
+ * A map that never renders its data. The `__atlasMap` seam is set in the task
+ * that builds the map, before its first frame; trapping it lets the page make
+ * every MapLibre render frame throw, as an exception inside `Map._render`
+ * does, so no `render` event ever fires.
+ */
+test.describe('Atlas when the map never renders its first frame', () => {
+  // Equal to ATLAS_FIRST_RENDER_DEADLINE_MS in
+  // features/scenes/components/atlasMapHealth.ts.
+  const FIRST_RENDER_DEADLINE_MS = 16_000
+
+  test.beforeEach(async ({ page }) => {
+    await stubAtlas(page)
+    await page.addInitScript(() => {
+      let held: unknown = null
+      Object.defineProperty(window, '__atlasMap', {
+        configurable: true,
+        get: () => held,
+        set: (map: { _render?: () => void } | null) => {
+          if (map) {
+            map._render = () => {
+              throw new Error('stalled render frame')
+            }
+          }
+          held = map
+        },
+      })
+    })
+  })
+
+  test('falls back to the scene list once the first-render deadline passes', async ({ page }) => {
+    await page.goto('/atlas')
+    await page.waitForFunction(
+      () => !!(window as unknown as { __atlasMap?: unknown }).__atlasMap,
+      undefined,
+      { polling: 100 }
+    )
+    const list = page.getByTestId('atlas-scene-list')
+    // Until shortly before the deadline the map is still given its chance.
+    // The 2 s of slack covers the poll above seeing the map late.
+    await page.waitForTimeout(FIRST_RENDER_DEADLINE_MS - 2_000)
+    await expect(list).toHaveCount(0)
+    await expect(page.locator('canvas.maplibregl-canvas')).toHaveCount(1)
+
+    await expect(list).toBeVisible({ timeout: 12_000 })
+    await expect(list.getByText('Phoenix')).toBeVisible()
+    await expect(page.locator('canvas.maplibregl-canvas')).toHaveCount(0)
+  })
+})

@@ -91,6 +91,9 @@ export function atlasRendersSceneList({
  * - `context-restore-refused`: the browser restored the context but MapLibre
  *   got no WebGL2 context back.
  * - `style-load-failed`: the style errored before it loaded.
+ * - `first-render-timeout`: the map did not draw its scene data within
+ *   ATLAS_FIRST_RENDER_DEADLINE_MS of continuously visible time after it was
+ *   built (a render frame that throws, a worker that never starts).
  */
 export type AtlasMapFailureClass =
   | 'context-refused'
@@ -99,6 +102,7 @@ export type AtlasMapFailureClass =
   | 'context-lost-before-style'
   | 'context-restore-refused'
   | 'style-load-failed'
+  | 'first-render-timeout'
 
 const FAILURE_MESSAGES: Record<AtlasMapFailureClass, string> = {
   'context-refused': 'MapLibre could not get a WebGL2 context',
@@ -107,6 +111,7 @@ const FAILURE_MESSAGES: Record<AtlasMapFailureClass, string> = {
   'context-lost-before-style': 'the WebGL context was lost before the style loaded',
   'context-restore-refused': 'MapLibre could not get a WebGL2 context back after a restore',
   'style-load-failed': 'the map style failed to load',
+  'first-render-timeout': 'the map did not render its data in time',
 }
 
 /**

@@ -52,7 +52,11 @@ import {
 } from './venuePinLayer'
 import { readAtlasCamera, saveAtlasCamera } from './atlasCamera'
 import { AtlasMapUnrecoverableError } from '../atlasViewport'
-import { atlasMapContextRefused, watchAtlasMapHealth } from './atlasMapHealth'
+import {
+  atlasMapContextRefused,
+  watchAtlasFirstRender,
+  watchAtlasMapHealth,
+} from './atlasMapHealth'
 import {
   ATLAS_TOP_CREDIT_OFFSET_PX,
   CITY_VIEW_MIN_ZOOM,
@@ -1059,10 +1063,25 @@ export default function GlobeCanvas({
     // only the committed null in between (the loss and the restored style.load
     // are separate events, a frame or more apart) makes those effects run
     // again.
-    const health = watchAtlasMapHealth(map, setUnrecoverable, (live) => {
+    // The first failure reported wins: the health watch and the first-render
+    // watchdog can both report before React renders the throw.
+    const reportUnrecoverable = (error: AtlasMapUnrecoverableError) => {
+      setUnrecoverable((prev) => prev ?? error)
+    }
+    const health = watchAtlasMapHealth(map, reportUnrecoverable, (live) => {
       if (live) setMapReady(map)
       else setMapReady((prev) => (prev === map ? null : prev))
     })
+    // A map that never draws its own scene data reports no event (a render
+    // frame that throws, a worker that never starts); this gives it up. The
+    // style-live check comes first: before the style loads there is no scenes
+    // source, and asking for one fires an error event the health watch reads
+    // as a failed style.
+    const firstRender = watchAtlasFirstRender(
+      map,
+      () => health.styleLive() && map.isSourceLoaded('scenes'),
+      reportUnrecoverable,
+    )
 
     // See the constructor options: bearing/pitch must stay locked at 0 on
     // every input path (the saved camera persists only center/zoom).
@@ -1419,6 +1438,7 @@ export default function GlobeCanvas({
       setMapReady((prev) => (prev === map ? null : prev))
       setMapLoaded((prev) => (prev === map ? null : prev))
       health.stop()
+      firstRender.stop()
       map.remove()
     }
     // pov is resolved once before this canvas mounts, and flyToRef is a

@@ -100,6 +100,9 @@ vi.mock('maplibre-gl', () => {
     isStyleLoaded() {
       return true
     }
+    isSourceLoaded() {
+      return true
+    }
     areTilesLoaded() {
       return stubTiles.loaded
     }

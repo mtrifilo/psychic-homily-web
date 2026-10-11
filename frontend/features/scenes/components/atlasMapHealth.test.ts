@@ -4,11 +4,13 @@ import maplibrePackage from 'maplibre-gl/package.json'
 import {
   type AtlasMapHealth,
   ATLAS_CONTEXT_RESTORE_DEADLINE_MS,
+  ATLAS_FIRST_RENDER_DEADLINE_MS,
   atlasMapBoundaryReporting,
   atlasMapContextRefused,
   atlasMapSectionFailedThisPage,
   latchAtlasMapFailure,
   resetAtlasMapLatchesForTest,
+  watchAtlasFirstRender,
   watchAtlasMapHealth,
 } from './atlasMapHealth'
 import { AtlasMapUnrecoverableError } from '../atlasViewport'
@@ -20,8 +22,15 @@ class FakeMap {
     this.handlers.set(type, [...(this.handlers.get(type) ?? []), handler])
     return this
   }
+  off(type: string, handler: (event: unknown) => void) {
+    this.handlers.set(type, (this.handlers.get(type) ?? []).filter((h) => h !== handler))
+    return this
+  }
   fire(type: string, event: unknown = {}) {
     for (const handler of this.handlers.get(type) ?? []) handler(event)
+  }
+  listenerCount(type: string) {
+    return this.handlers.get(type)?.length ?? 0
   }
 }
 
@@ -361,6 +370,115 @@ describe('atlasMapBoundaryReporting', () => {
  * `loadJSON` (the style loads a frame after construction at the earliest) in
  * src/style/style.ts, then bump this.
  */
+describe('watchAtlasFirstRender', () => {
+  let map: FakeMap
+  let onUnrecoverable: ReturnType<typeof vi.fn<(error: AtlasMapUnrecoverableError) => void>>
+  let dataDrawn: boolean
+  let watchdog: { stop(): void } | null
+
+  function watch() {
+    watchdog = watchAtlasFirstRender(
+      map as unknown as MapLibreMap,
+      () => dataDrawn,
+      onUnrecoverable,
+    )
+  }
+  function failureClasses() {
+    return onUnrecoverable.mock.calls.map(([error]) => {
+      expect(error).toBeInstanceOf(AtlasMapUnrecoverableError)
+      return error.failureClass
+    })
+  }
+
+  beforeEach(() => {
+    vi.useFakeTimers()
+    map = new FakeMap()
+    onUnrecoverable = vi.fn<(error: AtlasMapUnrecoverableError) => void>()
+    dataDrawn = false
+    watchdog = null
+    setVisibility('visible')
+  })
+  afterEach(() => {
+    watchdog?.stop()
+    vi.useRealTimers()
+    delete (document as { visibilityState?: unknown }).visibilityState
+  })
+
+  it('fails as first-render-timeout once the deadline passes with no frame of the data', () => {
+    watch()
+    // Frames that draw without the data do not count.
+    map.fire('render')
+    vi.advanceTimersByTime(ATLAS_FIRST_RENDER_DEADLINE_MS - 1)
+    expect(onUnrecoverable).not.toHaveBeenCalled()
+    vi.advanceTimersByTime(1)
+    expect(failureClasses()).toEqual(['first-render-timeout'])
+  })
+
+  it('is cancelled by a frame rendered with the data', () => {
+    watch()
+    vi.advanceTimersByTime(ATLAS_FIRST_RENDER_DEADLINE_MS - 1)
+    dataDrawn = true
+    map.fire('render')
+    vi.advanceTimersByTime(ATLAS_FIRST_RENDER_DEADLINE_MS * 10)
+    expect(onUnrecoverable).not.toHaveBeenCalled()
+    expect(map.listenerCount('render')).toBe(0)
+  })
+
+  it('checks the data only on a render', () => {
+    watch()
+    dataDrawn = true
+    vi.advanceTimersByTime(ATLAS_FIRST_RENDER_DEADLINE_MS)
+    expect(failureClasses()).toEqual(['first-render-timeout'])
+  })
+
+  it('stops the clock while the page is hidden and starts it over when shown', () => {
+    watch()
+    vi.advanceTimersByTime(ATLAS_FIRST_RENDER_DEADLINE_MS - 1000)
+    setVisibility('hidden')
+    vi.advanceTimersByTime(ATLAS_FIRST_RENDER_DEADLINE_MS * 10)
+    expect(onUnrecoverable).not.toHaveBeenCalled()
+    setVisibility('visible')
+    vi.advanceTimersByTime(ATLAS_FIRST_RENDER_DEADLINE_MS - 1)
+    expect(onUnrecoverable).not.toHaveBeenCalled()
+    vi.advanceTimersByTime(1)
+    expect(failureClasses()).toEqual(['first-render-timeout'])
+  })
+
+  it('arms nothing for a page hidden at the start until it is shown', () => {
+    setVisibility('hidden')
+    watch()
+    vi.advanceTimersByTime(ATLAS_FIRST_RENDER_DEADLINE_MS * 10)
+    expect(onUnrecoverable).not.toHaveBeenCalled()
+    setVisibility('visible')
+    vi.advanceTimersByTime(ATLAS_FIRST_RENDER_DEADLINE_MS)
+    expect(failureClasses()).toEqual(['first-render-timeout'])
+  })
+
+  it('reports once and then stops listening', () => {
+    const remove = vi.spyOn(document, 'removeEventListener')
+    watch()
+    vi.advanceTimersByTime(ATLAS_FIRST_RENDER_DEADLINE_MS)
+    setVisibility('hidden')
+    setVisibility('visible')
+    vi.advanceTimersByTime(ATLAS_FIRST_RENDER_DEADLINE_MS * 10)
+    expect(onUnrecoverable).toHaveBeenCalledTimes(1)
+    expect(map.listenerCount('render')).toBe(0)
+    expect(remove).toHaveBeenCalledWith('visibilitychange', expect.any(Function))
+    remove.mockRestore()
+  })
+
+  it('reports nothing once stopped', () => {
+    watch()
+    watchdog?.stop()
+    vi.advanceTimersByTime(ATLAS_FIRST_RENDER_DEADLINE_MS * 10)
+    setVisibility('hidden')
+    setVisibility('visible')
+    vi.advanceTimersByTime(ATLAS_FIRST_RENDER_DEADLINE_MS * 10)
+    expect(onUnrecoverable).not.toHaveBeenCalled()
+    expect(map.listenerCount('render')).toBe(0)
+  })
+})
+
 describe('latchAtlasMapFailure', () => {
   beforeEach(() => {
     resetAtlasMapLatchesForTest()

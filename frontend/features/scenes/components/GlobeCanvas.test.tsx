@@ -4,7 +4,7 @@ import type { PlaceableScene, VenuePin, VenueStackMarker } from './globeTypes'
 import { installMatchMedia } from '@/test/mocks/matchMedia'
 import { CanvasSectionErrorBoundary } from '@/components/shared/CanvasSectionErrorBoundary'
 import { AtlasMapUnrecoverableError } from '../atlasViewport'
-import { ATLAS_CONTEXT_RESTORE_DEADLINE_MS } from './atlasMapHealth'
+import { ATLAS_CONTEXT_RESTORE_DEADLINE_MS, ATLAS_FIRST_RENDER_DEADLINE_MS } from './atlasMapHealth'
 import { sceneTooltipLabel } from './globeScale'
 
 /**
@@ -70,6 +70,16 @@ const stub = vi.hoisted(() => {
       this.add(event, handler)
       return this
     }
+    off(event: string, handler: (e: unknown) => void) {
+      this.handlers.set(event, (this.handlers.get(event) ?? []).filter((h) => h !== handler))
+      return this
+    }
+    // The basemap's tiles never finish here, so the first full render stays
+    // pending; the map's own scene source is loaded.
+    isStyleLoaded() {
+      return false
+    }
+    isSourceLoaded = vi.fn<(id: string) => boolean>(() => true)
     // A layer event carries its DOM event, as MapLibre's do: the canvas
     // unless the test gives another.
     fire(key: string, event?: unknown) {
@@ -593,7 +603,12 @@ function renderInBoundary({
     </CanvasSectionErrorBoundary>,
   )
   const map = stub.state.maps[stub.state.maps.length - 1]
-  if (styleLoaded) act(() => map.fire('style.load'))
+  if (styleLoaded) {
+    act(() => {
+      map.fire('style.load')
+      map.fire('render')
+    })
+  }
   return { map, onError, onCameraSettle }
 }
 
@@ -632,6 +647,49 @@ describe('GlobeCanvas failures MapLibre reports outside React', () => {
   afterEach(() => {
     vi.useRealTimers()
     vi.restoreAllMocks()
+  })
+
+  it('falls back when no frame renders the scene data by the first-render deadline', () => {
+    const { map, onError } = renderInBoundary({ styleLoaded: false })
+    map.isSourceLoaded.mockReturnValue(false)
+    act(() => {
+      map.fire('style.load')
+      map.fire('render')
+    })
+    act(() => vi.advanceTimersByTime(ATLAS_FIRST_RENDER_DEADLINE_MS - 1))
+    expect(onError).not.toHaveBeenCalled()
+    act(() => vi.advanceTimersByTime(1))
+    expectFellBack(onError, 'first-render-timeout')
+    expect(map.isSourceLoaded).toHaveBeenCalledWith('scenes')
+  })
+
+  it('keeps the map once a frame renders the scene data', () => {
+    const { map, onError } = renderInBoundary({ styleLoaded: false })
+    act(() => {
+      map.fire('style.load')
+      map.fire('render')
+    })
+    act(() => vi.advanceTimersByTime(ATLAS_FIRST_RENDER_DEADLINE_MS * 10))
+    expect(onError).not.toHaveBeenCalled()
+    expect(screen.getByTestId('globe-cursor-wrap')).toBeInTheDocument()
+  })
+
+  it('asks for no source on a frame before the style loads', () => {
+    // MapLibre answers a source it has not registered with an error event,
+    // which the health watch would read as a failed style.
+    const { map, onError } = renderInBoundary({ styleLoaded: false })
+    act(() => map.fire('render'))
+    expect(map.isSourceLoaded).not.toHaveBeenCalled()
+    expect(onError).not.toHaveBeenCalled()
+  })
+
+  it('reports the first failure when the health watch and the watchdog both report before a render', () => {
+    const { map, onError } = renderInBoundary({ styleLoaded: false })
+    act(() => {
+      map.fire('error', { error: new Error('style is invalid') })
+      vi.advanceTimersByTime(ATLAS_FIRST_RENDER_DEADLINE_MS)
+    })
+    expectFellBack(onError, 'style-load-failed')
   })
 
   it('falls back when a lost context is not restored by the deadline', () => {
