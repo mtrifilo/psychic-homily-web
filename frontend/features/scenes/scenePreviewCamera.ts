@@ -1,14 +1,10 @@
 /**
- * Geometry for the camera rule that keeps a selected scene dot in view above
- * the scene preview's bottom sheet (the Atlas sheet layout). GlobeCanvas's
- * preview camera effect applies the rule.
- *
- * While a preview sheet is open, the camera's bottom padding is the sheet's
- * height, so the map's centre (and, at globe zoom, the globe itself) sits in
- * the band of the pane the sheet leaves visible. Opening the preview, and
- * every detent change after it, eases the selected dot to that centre, except
- * a change to Peek that leaves the dot already clear of the sheet. Closing it
- * eases the padding back to 0.
+ * Geometry for keeping a selected scene dot in view above the scene preview's
+ * bottom sheet in the Atlas sheet layout: the sheet's height, the camera
+ * padding that height becomes, and whether a dot clears the sheet. A camera
+ * padded by the sheet's height draws the map's centre (and, at globe zoom,
+ * the globe itself) in the band of the pane the sheet leaves visible.
+ * GlobeCanvas's preview camera effect states and applies the rule.
  */
 
 import { bottomSheetHeightPx, type BottomSheetDetent } from '@/components/ui/bottom-sheet'

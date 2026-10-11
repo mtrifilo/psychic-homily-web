@@ -248,14 +248,10 @@ export function AtlasGlobe() {
   const [pov, setPov] = useState<GlobePov | null>(null)
   const [selected, setSelected] = useState<PlaceableScene | null>(null)
   const closePreview = useCallback(() => setSelected(null), [])
-  // The scene preview sheet's detent (sheet layout). Every preview opens at
-  // Half, so it returns to Half whenever no preview is open; reset during
-  // render, like the city reset below, so a closed preview's detent never
-  // reaches the canvas.
+  // The scene preview sheet's detent. A preview sheet opens at Half, so the
+  // detent is Half whenever no preview sheet is open (see its reset below,
+  // where the layout is known).
   const [previewDetent, setPreviewDetent] = useState<BottomSheetDetent>('half')
-  if (selected === null && previewDetent !== 'half') {
-    setPreviewDetent('half')
-  }
   // Owned here (not in GenreLegend) so a user's collapse survives opening/closing a
   // scene preview, which unmounts the legend (PSY-1315 adversarial review).
   // null until the user toggles it (the legend follows the viewport until
@@ -747,6 +743,12 @@ export function AtlasGlobe() {
         })
   const mapSheetLayout =
     size !== null && sceneListReason === null && usesAtlasSheetLayout(size.width)
+  // Reset during render, like the city reset above, so a closed or
+  // side-panel preview's detent never reaches the canvas, and a preview that
+  // becomes a sheet again opens at Half.
+  if ((selected === null || !mapSheetLayout) && previewDetent !== 'half') {
+    setPreviewDetent('half')
+  }
 
   const renderBranch = atlasRenderBranch({
     scenesFailed: isError,

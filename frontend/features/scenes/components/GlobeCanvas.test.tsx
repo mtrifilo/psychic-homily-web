@@ -57,6 +57,9 @@ const stub = vi.hoisted(() => {
       if (options.center) this.center = { lng: options.center[0], lat: options.center[1] }
       if (options.padding) this.padding = options.padding
     })
+    setPadding = vi.fn((padding: Padding) => {
+      this.padding = padding
+    })
     getPadding() {
       return this.padding
     }
@@ -94,12 +97,26 @@ const stub = vi.hoisted(() => {
       }
       return this
     }
+    // As MapLibre's: the handler runs on the next event only, and `off` with
+    // the handler given to `once` removes it before then.
     once(event: string, handler: (e: unknown) => void) {
-      this.add(event, handler)
+      const wrapped = Object.assign(
+        (e: unknown) => {
+          this.off(event, handler)
+          handler(e)
+        },
+        { onceOf: handler },
+      )
+      this.add(event, wrapped)
       return this
     }
     off(event: string, handler: (e: unknown) => void) {
-      this.handlers.set(event, (this.handlers.get(event) ?? []).filter((h) => h !== handler))
+      this.handlers.set(
+        event,
+        (this.handlers.get(event) ?? []).filter(
+          (h) => h !== handler && (h as { onceOf?: unknown }).onceOf !== handler,
+        ),
+      )
       return this
     }
     // The basemap's tiles never finish here, so the first full render stays
@@ -877,139 +894,193 @@ describe('GlobeCanvas preview camera', () => {
   const NO_PADDING = { top: 0, right: 0, bottom: 0, left: 0 }
   const padded = (bottom: number) => ({ ...NO_PADDING, bottom })
   const CHICAGO_CENTER: [number, number] = [CHICAGO.longitude, CHICAGO.latitude]
+  // A camera standing away from the Chicago dot, as after a pan.
+  const ELSEWHERE = { lng: -100, lat: 40 }
+
+  // The next animation frame's callback, run on demand.
+  let frames: FrameRequestCallback[] = []
+  function runFrame() {
+    const due = frames
+    frames = []
+    act(() => due.forEach((cb) => cb(0)))
+  }
 
   beforeEach(() => {
     stub.state.maps = []
     stub.state.markers = []
     stub.state.projectedPoint = { x: 195, y: 600 }
     sessionStorage.clear()
+    frames = []
+    vi.spyOn(window, 'requestAnimationFrame').mockImplementation((cb) => {
+      frames.push(cb)
+      return frames.length
+    })
+    vi.spyOn(window, 'cancelAnimationFrame').mockImplementation(() => {})
+  })
+  afterEach(() => {
+    vi.restoreAllMocks()
   })
 
   function renderPreview(props: CanvasProps = {}) {
     return renderCanvas({ ...PANE, cityLabel: null, venues: [], ...props })
   }
 
-  it('eases the selected dot to the centre of the band above the Half sheet, at the same zoom', () => {
-    const { map } = renderPreview({
-      selected: CHICAGO,
-      scenePreviewSheetDetent: 'half',
-    })
+  /** A canvas whose camera stands away from Chicago, with Chicago then selected at `detent`. */
+  function selectChicago(detent: 'peek' | 'half' | 'full' = 'half') {
+    const utils = renderPreview()
+    utils.map.center = ELSEWHERE
+    utils.rerender(
+      <GlobeCanvas {...utils.props} selected={CHICAGO} scenePreviewSheetDetent={detent} />,
+    )
+    return utils
+  }
+
+  it('eases a newly selected dot to the centre of the band above the Half sheet, at the same zoom', () => {
+    const { map } = selectChicago()
     expect(map.easeTo).toHaveBeenCalledTimes(1)
     expect(map.easeTo).toHaveBeenCalledWith({ center: CHICAGO_CENTER, padding: padded(HALF_PX) })
   })
 
   it('re-centres for Full, keeps the camera for a Peek that leaves the dot clear, and re-centres back at Half', () => {
-    const { map, rerender, props } = renderPreview({
-      selected: CHICAGO,
-      scenePreviewSheetDetent: 'half',
-    })
+    const { map, rerender, props } = selectChicago()
     map.easeTo.mockClear()
+    const at = (detent: 'peek' | 'half' | 'full') => (
+      <GlobeCanvas {...props} selected={CHICAGO} scenePreviewSheetDetent={detent} />
+    )
 
-    rerender(<GlobeCanvas {...props} scenePreviewSheetDetent="full" />)
+    rerender(at('full'))
     expect(map.easeTo).toHaveBeenCalledTimes(1)
     expect(map.easeTo).toHaveBeenLastCalledWith({ center: CHICAGO_CENTER, padding: padded(FULL_PX) })
 
-    // The dot sits in the band above Full, well clear of a Peek sheet.
+    // The dot sits in the band above Full, well clear of a Peek sheet: the
+    // camera, padding included, stays as it is.
     stub.state.projectedPoint = { x: 195, y: 56 }
-    rerender(<GlobeCanvas {...props} scenePreviewSheetDetent="peek" />)
+    rerender(at('peek'))
     expect(map.easeTo).toHaveBeenCalledTimes(1)
+    expect(map.padding).toEqual(padded(FULL_PX))
 
-    rerender(<GlobeCanvas {...props} scenePreviewSheetDetent="half" />)
+    rerender(at('half'))
     expect(map.easeTo).toHaveBeenCalledTimes(2)
     expect(map.easeTo).toHaveBeenLastCalledWith({ center: CHICAGO_CENTER, padding: padded(HALF_PX) })
   })
 
   it('re-centres for Peek when the Peek sheet covers the dot', () => {
-    const { map, rerender, props } = renderPreview({
-      selected: CHICAGO,
-      scenePreviewSheetDetent: 'half',
-    })
+    const { map, rerender, props } = selectChicago()
     map.easeTo.mockClear()
     // Under the Peek sheet, whose edge is at 731 - 120 = 611.
     stub.state.projectedPoint = { x: 195, y: 650 }
-    rerender(<GlobeCanvas {...props} scenePreviewSheetDetent="peek" />)
+    rerender(<GlobeCanvas {...props} selected={CHICAGO} scenePreviewSheetDetent="peek" />)
     expect(map.easeTo).toHaveBeenCalledWith({ center: CHICAGO_CENTER, padding: padded(PEEK_PX) })
   })
 
   it('eases the padding back to none when the preview closes, keeping the centre', () => {
-    const { map, rerender, props } = renderPreview({
-      selected: CHICAGO,
-      scenePreviewSheetDetent: 'half',
-    })
+    const { map, rerender, props } = selectChicago()
     map.easeTo.mockClear()
-    rerender(<GlobeCanvas {...props} selected={null} />)
+    rerender(<GlobeCanvas {...props} selected={null} scenePreviewSheetDetent="half" />)
     expect(map.easeTo).toHaveBeenCalledTimes(1)
     expect(map.easeTo).toHaveBeenCalledWith({ padding: NO_PADDING })
   })
 
   it('never moves the camera for a selection whose preview is no sheet', () => {
     const { map, rerender, props } = renderPreview()
-    // The camera stands away from the dot it is about to select.
-    map.center = { lng: -100, lat: 40 }
+    map.center = ELSEWHERE
     rerender(<GlobeCanvas {...props} selected={CHICAGO} />)
     rerender(<GlobeCanvas {...props} selected={null} />)
     expect(map.easeTo).not.toHaveBeenCalled()
   })
 
-  it('waits for a movement in progress to end before moving the camera', () => {
+  it('waits for a movement in progress to end, then for the next frame, before moving the camera', () => {
     const { map, rerender, props } = renderPreview()
     map.moving = true
-    rerender(
-      <GlobeCanvas
-        {...props}
-        selected={CHICAGO}
-       
-        scenePreviewSheetDetent="half"
-      />,
-    )
+    rerender(<GlobeCanvas {...props} selected={CHICAGO} scenePreviewSheetDetent="half" />)
     expect(map.easeTo).not.toHaveBeenCalled()
+
+    // moveend can fire from inside another camera call, so nothing moves
+    // until the next frame.
     map.moving = false
     act(() => map.fire('moveend'))
+    expect(map.easeTo).not.toHaveBeenCalled()
+    runFrame()
     expect(map.easeTo).toHaveBeenCalledTimes(1)
     expect(map.easeTo).toHaveBeenCalledWith({ center: CHICAGO_CENTER, padding: padded(HALF_PX) })
   })
 
-  it('leaves a camera that a flight landed on the dot, above the sheet, where it is', () => {
+  it('waits again when another movement has started by the next frame', () => {
     const { map, rerender, props } = renderPreview()
-    map.padding = padded(HALF_PX)
-    rerender(
-      <GlobeCanvas
-        {...props}
-        selected={CHICAGO}
-       
-        scenePreviewSheetDetent="half"
-      />,
+    map.moving = true
+    rerender(<GlobeCanvas {...props} selected={CHICAGO} scenePreviewSheetDetent="half" />)
+    act(() => map.fire('moveend'))
+    runFrame()
+    expect(map.easeTo).not.toHaveBeenCalled()
+
+    map.moving = false
+    act(() => map.fire('moveend'))
+    runFrame()
+    expect(map.easeTo).toHaveBeenCalledTimes(1)
+  })
+
+  it('leaves a flight that opens the preview to land the dot above its sheet', () => {
+    const flyToRef: { current: FlyToScene | null } = { current: null }
+    const { map, rerender, props } = renderPreview({
+      flyToRef,
+      scenePreviewSheetDetent: 'half',
+    })
+    act(() => flyToRef.current?.(CHICAGO, { opensPreview: true }))
+    expect(map.flyTo).toHaveBeenLastCalledWith(
+      expect.objectContaining({ center: CHICAGO_CENTER, padding: padded(HALF_PX) }),
     )
+    rerender(<GlobeCanvas {...props} selected={CHICAGO} />)
+    act(() => map.fire('moveend'))
+    runFrame()
     expect(map.easeTo).not.toHaveBeenCalled()
   })
 
-  it('keeps the camera through a lost and restored context', () => {
-    const { map } = renderPreview({
-      selected: CHICAGO,
+  it('flies any other flight unpadded', () => {
+    const flyToRef: { current: FlyToScene | null } = { current: null }
+    const { map } = renderPreview({ flyToRef, scenePreviewSheetDetent: 'half' })
+    act(() => flyToRef.current?.(CHICAGO))
+    expect(map.flyTo).toHaveBeenLastCalledWith(
+      expect.objectContaining({ center: CHICAGO_CENTER, padding: NO_PADDING }),
+    )
+  })
+
+  it('drops the padding once a flight lands when the preview it opened closed mid-flight', () => {
+    const flyToRef: { current: FlyToScene | null } = { current: null }
+    const { map, rerender, props } = renderPreview({
+      flyToRef,
       scenePreviewSheetDetent: 'half',
     })
+    act(() => flyToRef.current?.(CHICAGO, { opensPreview: true }))
+    // The flight is in progress and has taken the sheet's padding.
+    map.moving = true
+    map.padding = padded(HALF_PX)
+    rerender(<GlobeCanvas {...props} selected={CHICAGO} />)
+    rerender(<GlobeCanvas {...props} selected={null} />)
+    expect(map.easeTo).not.toHaveBeenCalled()
+
+    map.moving = false
+    act(() => map.fire('moveend'))
+    runFrame()
+    expect(map.easeTo).toHaveBeenCalledTimes(1)
+    expect(map.easeTo).toHaveBeenCalledWith({ padding: NO_PADDING })
+  })
+
+  it('keeps the camera a user panned through a lost and restored context', () => {
+    const { map } = selectChicago()
     map.easeTo.mockClear()
+    map.center = ELSEWHERE
     act(() => map.fire('webglcontextlost'))
     act(() => map.fire('webglcontextrestored'))
     act(() => map.fire('style.load'))
     expect(map.easeTo).not.toHaveBeenCalled()
   })
 
-  it('lands a flight that opens the preview above its sheet, and any other flight unpadded', () => {
-    const flyToRef: { current: FlyToScene | null } = { current: null }
-    const { map } = renderPreview({
-      flyToRef,
-      scenePreviewSheetDetent: 'half',
-    })
-
-    act(() => flyToRef.current?.(CHICAGO, { opensPreview: true }))
-    expect(map.flyTo).toHaveBeenLastCalledWith(
-      expect.objectContaining({ center: CHICAGO_CENTER, padding: padded(HALF_PX) }),
-    )
-    act(() => flyToRef.current?.(CHICAGO))
-    expect(map.flyTo).toHaveBeenLastCalledWith(
-      expect.objectContaining({ center: CHICAGO_CENTER, padding: NO_PADDING }),
-    )
+  it('builds a map for an open preview sheet with that sheet’s padding, unmoved', () => {
+    const { map } = renderPreview({ selected: CHICAGO, scenePreviewSheetDetent: 'half' })
+    expect(map.setPadding).toHaveBeenCalledWith(padded(HALF_PX))
+    expect(map.easeTo).not.toHaveBeenCalled()
+    const halo = screen.getByTestId('globe-cursor-wrap').children[1] as HTMLElement
+    expect(halo.style.top).toBe(`calc(50% - ${HALF_PX / 2}px)`)
   })
 
   it('keeps the halo on the centre of the padded viewport', () => {

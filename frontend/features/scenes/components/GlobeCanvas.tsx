@@ -165,9 +165,8 @@ interface GlobeCanvasProps {
   /**
    * The detent of the bottom sheet the scene preview stands in: its current
    * detent while a scene is selected, and the detent it opens at otherwise.
-   * Undefined when the preview is no bottom sheet. While a scene is selected,
-   * the sheet's height over this canvas is the camera's bottom padding (see
-   * scenePreviewCamera.ts).
+   * Undefined when the preview is no bottom sheet. The preview camera effect
+   * keeps the selected dot above this sheet.
    */
   scenePreviewSheetDetent?: BottomSheetDetent
 }
@@ -178,11 +177,6 @@ interface GlobeCanvasProps {
 // scenes stay in frame.
 const FLY_TO_ALTITUDE = 1.0
 const FLY_TO_MS = 1200
-
-// How near, in degrees of latitude and of longitude, the camera's centre may
-// be to a dot and still count as centred on it: well under a pixel at any
-// zoom the map allows.
-const CAMERA_AT_TARGET_DEG = 1e-6
 
 // Globe → street handoff (PSY-1543): the Black Marble raster fades OUT and
 // the PH basemap's background fades IN across this zoom range. Bounds chosen
@@ -880,27 +874,44 @@ export default function GlobeCanvas({
   }, [mapReady, placeLabelsShown, places, labelScenes, scenes])
 
   // ── Preview camera: the selected dot above the preview sheet ─────────────
-  // While a scene is selected the camera's bottom padding is the preview
-  // sheet's height, and with no selection it is 0 (scenePreviewCamera.ts has
-  // the rule). Each change of the selection or of that height moves the
-  // camera once, after any movement in progress ends, so a flight or a drag
-  // is never cut short; a flight that opened the preview has already landed
-  // where this would put the camera. The last applied state is per map
-  // instance: a restored context keeps the camera it had, and a new map
-  // starts with no padding and no selection applied.
+  // The rule, for the sheet layout:
+  // - Selecting a scene, and each change of the preview sheet's height while
+  //   one is selected, eases the selected dot to the centre of the band the
+  //   sheet leaves visible: the camera's bottom padding becomes the sheet's
+  //   height, at the same globe size (no zoom is passed).
+  // - The exception is the sheet at Peek with the dot already wholly above
+  //   it: the camera, padding included, stays as it is.
+  // - With no selection, or no sheet, the camera keeps its centre and any
+  //   padding eases back to 0.
+  // The camera moves once per change, and never while another movement is
+  // in progress: it waits for that movement's moveend, then for the next
+  // frame, since moveend can fire from inside another camera call that would
+  // overwrite a move started there. appliedPreviewCameraRef holds the last
+  // selection and sheet height the camera was sent to, for one map instance:
+  // the fly-to seam and a new map write it too, so a flight that opens the
+  // preview, a restored context and a remounted map need no second move.
   const previewCameraSheetPx = selectedSlug === null ? 0 : previewSheetPx
   const appliedPreviewCameraRef = useRef<{
     map: maplibregl.Map
     slug: string | null
     sheetPx: number
   } | null>(null)
+  // The current selection and sheet height, for a map built later.
+  const previewCameraTargetRef = useRef({ slug: selectedSlug, sheetPx: previewCameraSheetPx })
+  useEffect(() => {
+    previewCameraTargetRef.current = { slug: selectedSlug, sheetPx: previewCameraSheetPx }
+  }, [selectedSlug, previewCameraSheetPx])
   useEffect(() => {
     const map = mapReady
     if (!map) return
     const applied = appliedPreviewCameraRef.current
-    const from =
-      applied?.map === map ? applied : { map, slug: null, sheetPx: 0 }
-    if (from.slug === selectedSlug && from.sheetPx === previewCameraSheetPx) return
+    if (
+      applied?.map === map &&
+      applied.slug === selectedSlug &&
+      applied.sheetPx === previewCameraSheetPx
+    ) {
+      return
+    }
     const apply = () => {
       appliedPreviewCameraRef.current = {
         map,
@@ -910,8 +921,6 @@ export default function GlobeCanvas({
       const padding = scenePreviewCameraPadding(previewCameraSheetPx)
       const scene =
         selectedSlug === null ? undefined : scenesBySlugRef.current.get(selectedSlug)
-      // With no sheet over the canvas the camera keeps its centre and only
-      // drops any padding a sheet left.
       if (!scene || previewCameraSheetPx === 0) {
         if ((map.getPadding().bottom ?? 0) !== padding.bottom) map.easeTo({ padding })
         return
@@ -928,21 +937,23 @@ export default function GlobeCanvas({
       ) {
         return
       }
-      const center = map.getCenter()
-      const atTarget =
-        (map.getPadding().bottom ?? 0) === padding.bottom &&
-        Math.abs(center.lng - scene.longitude) < CAMERA_AT_TARGET_DEG &&
-        Math.abs(center.lat - scene.latitude) < CAMERA_AT_TARGET_DEG
-      if (atTarget) return
       map.easeTo({ center: [scene.longitude, scene.latitude], padding })
     }
-    if (!map.isMoving()) {
+    let frame = 0
+    const applyWhenStill = () => {
+      if (map.isMoving()) {
+        map.once('moveend', applyNextFrame)
+        return
+      }
       apply()
-      return
     }
-    map.once('moveend', apply)
+    const applyNextFrame = () => {
+      frame = requestAnimationFrame(applyWhenStill)
+    }
+    applyWhenStill()
     return () => {
-      map.off('moveend', apply)
+      map.off('moveend', applyNextFrame)
+      cancelAnimationFrame(frame)
     }
   }, [mapReady, selectedSlug, previewCameraSheetPx, scenePreviewSheetDetent, width, height])
 
@@ -1174,24 +1185,36 @@ export default function GlobeCanvas({
     map.touchZoomRotate.disableRotation()
     map.keyboard.disableRotation()
 
+    // A map built while a preview sheet is open (the page shown again) takes
+    // that sheet's padding at once. The saved camera's centre is the padded
+    // centre it left, so the selected dot comes back where it was, unmoved.
+    const previewTarget = previewCameraTargetRef.current
+    if (previewTarget.sheetPx > 0) {
+      map.setPadding(scenePreviewCameraPadding(previewTarget.sheetPx))
+    }
+    appliedPreviewCameraRef.current = { map, ...previewTarget }
+
     // Fill the parent's fly-to seam (PSY-1308, reused by search/Drift).
     // Closes over THIS map; nulled in cleanup, so after a hide/show cycle
     // the seam always points at the live instance. MapLibre honors
     // prefers-reduced-motion natively — flyTo degrades to a jump cut unless
     // the animation is marked `essential` (verified in the v6 bundle).
     // A flight that opens the preview lands with the padding the preview's
-    // sheet keeps (see the preview camera effect), so that effect finds the
-    // camera already where it puts it.
+    // sheet keeps, and records it for the preview camera effect.
     if (flyToRef) {
       flyToRef.current = (scene, options) => {
+        const sheetPx = options?.opensPreview ? previewSheetPxRef.current : 0
         map.flyTo({
           center: [scene.longitude, scene.latitude],
           zoom: zoomForAltitude(FLY_TO_ALTITUDE),
           duration: FLY_TO_MS,
-          padding: scenePreviewCameraPadding(
-            options?.opensPreview ? previewSheetPxRef.current : 0,
-          ),
+          padding: scenePreviewCameraPadding(sheetPx),
         })
+        appliedPreviewCameraRef.current = {
+          map,
+          slug: options?.opensPreview ? scene.slug : null,
+          sheetPx,
+        }
       }
     }
 
@@ -1239,19 +1262,20 @@ export default function GlobeCanvas({
     updateHalo()
     // The globe is drawn about the centre of the padded viewport, so the halo
     // sits there too: half the difference of the vertical padding off the
-    // container's centre. Written only when that offset changes. A new map
-    // has no padding, so the halo starts at the centre.
-    let haloOffsetPx = 0
-    haloRef.current?.style.removeProperty('top')
-    const updateHaloOffset = () => {
+    // container's centre. Written only when that offset changes, starting
+    // from the padding the map was built with (only ever bottom padding).
+    let haloOffsetPx = Number.NaN
+    const writeHaloOffset = (offset: number) => {
       const halo = haloRef.current
-      if (!halo) return
-      const { top = 0, bottom = 0 } = map.getPadding()
-      const offset = (top - bottom) / 2
-      if (offset === haloOffsetPx) return
+      if (!halo || offset === haloOffsetPx) return
       haloOffsetPx = offset
       if (offset === 0) halo.style.removeProperty('top')
-      else halo.style.top = `calc(50% + ${offset}px)`
+      else halo.style.top = `calc(50% ${offset < 0 ? '-' : '+'} ${Math.abs(offset)}px)`
+    }
+    writeHaloOffset(-previewTarget.sheetPx / 2)
+    const updateHaloOffset = () => {
+      const { top = 0, bottom = 0 } = map.getPadding()
+      writeHaloOffset((top - bottom) / 2)
     }
     map.on('move', updateHaloOffset)
 

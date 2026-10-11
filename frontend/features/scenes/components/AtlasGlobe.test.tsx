@@ -2103,11 +2103,41 @@ describe('AtlasGlobe', () => {
         )
       })
 
+      it('opens a preview at Half again after it leaves the sheet layout and comes back', async () => {
+        renderWithProviders(<AtlasGlobe />)
+        await screen.findByTestId('globe-canvas')
+        const dot = lastCanvasProps.scenes![0]
+        act(() => lastCanvasProps.onSelect?.(dot))
+        const name = `${dot.city}, ${dot.state} scene`
+        fireEvent.click(screen.getByRole('button', { name: `Expand ${name}` }))
+        expect(lastCanvasProps.scenePreviewSheetDetent).toBe('full')
+
+        setMockContainerWidth(1000)
+        act(() => reportResize())
+        expect(screen.getByRole('complementary', { name })).toBeInTheDocument()
+        setMockContainerWidth(800)
+        act(() => reportResize())
+        expect(screen.getByTestId('atlas-scene-preview-sheet')).toHaveAttribute(
+          'data-detent',
+          'half',
+        )
+        expect(lastCanvasProps.scenePreviewSheetDetent).toBe('half')
+      })
+
       it('flies Drift and a search pick as flights that open the preview, and back-to-globe as one that does not', async () => {
         renderWithProviders(<AtlasGlobe />)
         await screen.findByTestId('globe-canvas')
         flyToSpy.mockReset()
         fireEvent.click(screen.getByRole('button', { name: /drift to a random scene/i }))
+        expect(flyToSpy).toHaveBeenCalledWith(
+          expect.objectContaining({ slug: 'chicago-il' }),
+          { opensPreview: true },
+        )
+
+        fireEvent.click(screen.getByRole('button', { name: 'Close scene preview' }))
+        flyToSpy.mockReset()
+        fireEvent.click(screen.getByRole('combobox', { name: 'Search scenes' }))
+        fireEvent.click(await screen.findByRole('option', { name: /Chicago, IL/ }))
         expect(flyToSpy).toHaveBeenCalledWith(
           expect.objectContaining({ slug: 'chicago-il' }),
           { opensPreview: true },
