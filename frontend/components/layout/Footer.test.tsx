@@ -15,9 +15,30 @@ vi.mock('@/lib/context/CookieConsentContext', () => ({
 
 vi.mock('next/link', () => import('@/test/mocks/nextLink'))
 
+const mockPathname = vi.fn(() => '/')
+vi.mock('next/navigation', () => ({
+  usePathname: () => mockPathname(),
+}))
+
 describe('Footer', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    mockPathname.mockReturnValue('/')
+  })
+
+  // jsdom has no layout, so this pins the class contract; the 390x844 e2e in
+  // atlas.spec.ts measures that no footer shows under the Atlas.
+  it('is hidden below xl and shown at xl on the Atlas', () => {
+    mockPathname.mockReturnValue('/atlas')
+    render(<Footer />)
+    const footer = document.querySelector('footer')
+    expect(footer).toHaveClass('hidden', 'xl:block')
+  })
+
+  it('is shown at every width on any other route', () => {
+    mockPathname.mockReturnValue('/shows')
+    render(<Footer />)
+    expect(document.querySelector('footer')).not.toHaveClass('hidden')
   })
 
   it('renders copyright with current year', () => {

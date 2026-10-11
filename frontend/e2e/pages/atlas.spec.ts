@@ -497,6 +497,70 @@ test.describe('Atlas on a phone that prefers reduced motion', () => {
 })
 
 /**
+ * Below `xl` the Atlas area spans the top bar's bottom edge to the fixed tab
+ * bar's top edge (Product Designs Figma file, Atlas page, boards 03, 03b and
+ * 06: 56 to 787 on 844, where 787 is 844 less --bottom-tab-bar-height), and
+ * the site footer does not render on this route, so nothing shows between the
+ * sheet and the bar. The document is exactly the viewport's height here,
+ * where Chromium's `vh` and `dvh` agree.
+ */
+test.describe('Atlas area on a 390x844 phone ends at the tab bar', () => {
+  test.use({ viewport: { width: 390, height: 844 }, ...PHONE_CONTEXT })
+
+  test('the Atlas area meets the tab bar with no footer in the viewport, at Peek and at Half', async ({
+    page,
+  }) => {
+    await stubAtlas(page)
+    await page.goto('/atlas?city=Phoenix%2CAZ')
+    await waitForMap(page)
+    // The banner shortens the Atlas area while it is up.
+    await dismissBanner(page)
+
+    const list = page.getByTestId('atlas-venue-sheet')
+    await expect(list).toHaveAttribute('data-detent', 'peek', { timeout: 30_000 })
+
+    const geometry = () =>
+      page.evaluate(() => {
+        const rect = (selector: string) =>
+          document.querySelector(selector)!.getBoundingClientRect()
+        const frame = rect('[data-testid="atlas-pane-frame"]')
+        return {
+          topBarBottom: rect('header').bottom,
+          frameTop: frame.top,
+          frameBottom: frame.bottom,
+          sheetBottom: rect('[data-testid="atlas-venue-sheet"]').bottom,
+          tabBarTop: rect('[data-bottom-tab-bar]').top,
+          scrollHeight: document.documentElement.scrollHeight,
+          viewportHeight: window.innerHeight,
+        }
+      })
+
+    const expectEndsAtTabBar = async () => {
+      // The frame settles once the banner has left and the map has resized.
+      await expect
+        .poll(async () => {
+          const g = await geometry()
+          return Math.abs(g.frameBottom - g.tabBarTop) < 0.5
+        })
+        .toBe(true)
+      const g = await geometry()
+      expect(g.frameTop).toBeCloseTo(g.topBarBottom, 1)
+      expect(g.sheetBottom).toBeCloseTo(g.tabBarTop, 1)
+      expect(g.scrollHeight).toBe(g.viewportHeight)
+      // The site footer is the sibling of <main> (app/layout.tsx); the Atlas
+      // sheets carry footers of their own.
+      await expect(page.locator('#main-content ~ footer')).toBeHidden()
+      test.info().annotations.push({ type: 'geometry', description: JSON.stringify(g) })
+    }
+
+    await expectEndsAtTabBar()
+    await list.locator('[data-bottom-sheet-grabber]').tap()
+    await expect(list).toHaveAttribute('data-detent', 'half')
+    await expectEndsAtTabBar()
+  })
+})
+
+/**
  * A lost WebGL context, forced through the `WEBGL_lose_context` extension on
  * the map's own canvas. The extension never restores on its own, so a loss
  * without `restoreContext()` is a loss the browser never restores.
