@@ -1,0 +1,71 @@
+/**
+ * The camera rule that keeps a selected scene dot in view above the scene
+ * preview's bottom sheet (the Atlas sheet layout).
+ *
+ * While a preview sheet is open, the camera's bottom padding is the sheet's
+ * height, so the map's centre (and, at globe zoom, the globe itself) sits in
+ * the band of the pane the sheet leaves visible. Opening the preview, and
+ * every detent change after it, eases the selected dot to that centre, except
+ * a change to Peek that leaves the dot already clear of the sheet. Closing it
+ * eases the padding back to 0.
+ */
+
+import { bottomSheetHeightPx, type BottomSheetDetent } from '@/components/ui/bottom-sheet'
+import { ATLAS_SHEET_TOP_INSET_PX } from './cityView'
+
+/**
+ * The height, in CSS px, the scene preview sheet covers at the bottom of an
+ * Atlas pane `paneHeightPx` tall when it stands at `detent`: the sheet's own
+ * detent rule with the Atlas's top inset. It is the camera's bottom padding
+ * while the preview is open.
+ */
+export function scenePreviewSheetPx(detent: BottomSheetDetent, paneHeightPx: number): number {
+  return bottomSheetHeightPx(detent, paneHeightPx, ATLAS_SHEET_TOP_INSET_PX)
+}
+
+/** The camera padding for a bottom sheet `sheetPx` tall. */
+export function scenePreviewCameraPadding(sheetPx: number): {
+  top: number
+  right: number
+  bottom: number
+  left: number
+} {
+  return { top: 0, right: 0, bottom: sheetPx, left: 0 }
+}
+
+/**
+ * Whether a dot drawn at `point` with radius `radiusPx` lies wholly inside the
+ * part of a `width` x `height` canvas that a bottom sheet `sheetPx` tall leaves
+ * uncovered. `point` is null for a dot that is not drawn on the visible side
+ * of the globe or inside the canvas.
+ */
+export function dotClearOfSheet({
+  point,
+  radiusPx,
+  width,
+  height,
+  sheetPx,
+}: {
+  point: { x: number; y: number } | null
+  radiusPx: number
+  width: number
+  height: number
+  sheetPx: number
+}): boolean {
+  if (point === null) return false
+  return (
+    point.x - radiusPx >= 0 &&
+    point.x + radiusPx <= width &&
+    point.y - radiusPx >= 0 &&
+    point.y + radiusPx <= height - sheetPx
+  )
+}
+
+/**
+ * Whether the camera eases the selected dot to the centre of the band above
+ * the sheet once the sheet stands at `detent`: always, except at Peek with
+ * the dot already clear of the sheet.
+ */
+export function scenePreviewRecentres(detent: BottomSheetDetent, dotClear: boolean): boolean {
+  return detent !== 'peek' || !dotClear
+}

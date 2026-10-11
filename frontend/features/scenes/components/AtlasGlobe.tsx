@@ -22,6 +22,7 @@ import type { SceneListItem } from '../types'
 import {
   isPlaceableScene,
   type CameraSettle,
+  type FlyToScene,
   type GlobePov,
   type PlaceableScene,
   type VenuePin,
@@ -68,6 +69,7 @@ import { GenreLegend } from './GenreLegend'
 import { MyScenesStrip, MY_SCENES_FETCH_LIMIT } from './MyScenesStrip'
 import { useMyFollowing } from '@/lib/hooks/common/useFollow'
 import { ScenePreviewPanel } from './ScenePreviewPanel'
+import { scenePreviewSheetPx } from '../scenePreviewCamera'
 import { AtlasSceneList } from './AtlasSceneList'
 import { preloadAtlasMap } from './atlasMapPreload'
 import { loadGlobeCanvas } from './loadGlobeCanvas'
@@ -247,6 +249,14 @@ export function AtlasGlobe() {
   const [pov, setPov] = useState<GlobePov | null>(null)
   const [selected, setSelected] = useState<PlaceableScene | null>(null)
   const closePreview = useCallback(() => setSelected(null), [])
+  // The scene preview sheet's detent (sheet layout). Every preview opens at
+  // Half, so it returns to Half whenever no preview is open; reset during
+  // render, like the city reset below, so a closed preview's detent never
+  // reaches the canvas.
+  const [previewDetent, setPreviewDetent] = useState<BottomSheetDetent>('half')
+  if (selected === null && previewDetent !== 'half') {
+    setPreviewDetent('half')
+  }
   // Owned here (not in GenreLegend) so a user's collapse survives opening/closing a
   // scene preview, which unmounts the legend (PSY-1315 adversarial review).
   // null until the user toggles it (the legend follows the viewport until
@@ -255,7 +265,7 @@ export function AtlasGlobe() {
 
   // Imperative fly-the-camera seam GlobeCanvas fills on mount (PSY-1308) —
   // see the flyToRef prop doc for why this is a ref, not a forwarded ref.
-  const flyToRef = useRef<((scene: PlaceableScene) => void) | null>(null)
+  const flyToRef = useRef<FlyToScene | null>(null)
 
   // ── City view (PSY-1539) ──────────────────────────────────────────────────
   // The camera decides which city (if any) owns the screen. GlobeCanvas
@@ -547,14 +557,14 @@ export function AtlasGlobe() {
     // would pick twice and fly twice.
     const next = pickDriftScene(placeable, selected?.slug)
     if (!next) return
-    flyToRef.current?.(next)
+    flyToRef.current?.(next, { opensPreview: true })
     setSelected(next)
   }, [placeable, selected])
 
   // Search pick (PSY-1310): same fly + open as Drift, but for a scene the user
   // asked for by name.
   const handleSearchPick = useCallback((scene: PlaceableScene) => {
-    flyToRef.current?.(scene)
+    flyToRef.current?.(scene, { opensPreview: true })
     setSelected(scene)
   }, [])
 
@@ -920,6 +930,10 @@ export function AtlasGlobe() {
               onBackToGlobe={sheetLayout ? handleBackToGlobe : undefined}
               venueStacks={sheetLayout ? venueStackMarkers : undefined}
               onVenueStackSelect={sheetLayout ? handleVenueStackSelect : undefined}
+              scenePreviewSheetPx={
+                sheetLayout ? scenePreviewSheetPx(previewDetent, paneSize.height) : 0
+              }
+              scenePreviewSheetDetent={previewDetent}
             />
           </CanvasSectionErrorBoundary>
           {sheetLayout && cityScene && (
@@ -1040,6 +1054,8 @@ export function AtlasGlobe() {
                   key={panelPresentation}
                   scene={selected}
                   onClose={closePreview}
+                  detent={previewDetent}
+                  onDetentChange={setPreviewDetent}
                   returnFocusTo={searchTriggerRef}
                   presentation={panelPresentation}
                 />

@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useRef } from 'react'
-import { BottomSheet } from '@/components/ui/bottom-sheet'
+import { BottomSheet, type BottomSheetDetent } from '@/components/ui/bottom-sheet'
 import { ScenePreviewContent } from './ScenePreviewContent'
 import { ATLAS_SHEET_TOP_INSET_PX } from '../cityView'
 import type { SceneListItem } from '../types'
@@ -23,6 +23,12 @@ interface ScenePreviewPanelProps {
    * at Half, for panes too narrow for a side panel.
    */
   presentation?: 'panel' | 'sheet'
+  /**
+   * The sheet's detent, controlled by the caller; uncontrolled from Half
+   * without it. Unused by the panel.
+   */
+  detent?: BottomSheetDetent
+  onDetentChange?: (detent: BottomSheetDetent) => void
 }
 
 /**
@@ -39,6 +45,8 @@ export function ScenePreviewPanel({
   onClose,
   returnFocusTo,
   presentation = 'panel',
+  detent,
+  onDetentChange,
 }: ScenePreviewPanelProps) {
   const closeRef = useRef<HTMLButtonElement>(null)
   const asideRef = useRef<HTMLElement>(null)
@@ -112,6 +120,8 @@ export function ScenePreviewPanel({
         aria-label={`${title} scene`}
         data-testid="atlas-scene-preview-sheet"
         defaultDetent="half"
+        detent={detent}
+        onDetentChange={onDetentChange}
         onClose={onClose}
         closeLabel="Close scene preview"
         topInsetPx={ATLAS_SHEET_TOP_INSET_PX}
