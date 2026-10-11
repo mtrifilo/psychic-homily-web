@@ -21,10 +21,13 @@ const Tooltip = TooltipPrimitive.Root
  * `pointerdown` disarms it, so it suppresses at most the one focus that
  * follows a tap: hover and keyboard focus still open the tooltip.
  *
- * `revealOnTouch` turns the suppression off. It is for a trigger whose tap
- * has no other effect, because it wraps a non-interactive or disabled
- * control: there the tap's focus is the only way a touch user reaches the
- * tooltip, and the next tap on the trigger or a tap outside closes it.
+ * `revealOnTouch` reverses this for a trigger whose tap has no other effect,
+ * because it wraps a non-interactive or disabled control: there the tap's
+ * focus is the only way a touch user reaches the tooltip. The focus opens
+ * it, and the armed flag instead default-prevents the tap's click, which
+ * Radix would otherwise read as a close. The next tap on the trigger (Radix
+ * closes on its `pointerdown`) or a tap outside closes it. A browser that
+ * does not focus a tapped element (iOS Safari) opens nothing either way.
  *
  * The caller's handlers run first, and the flag is updated even when one of
  * them default-prevents the event.
@@ -56,8 +59,7 @@ const TooltipTrigger = React.forwardRef<
         onPointerDown={event => {
           onPointerDown?.(event)
           tapPressedRef.current =
-            !revealOnTouch &&
-            (event.pointerType === 'touch' || event.pointerType === 'pen')
+            event.pointerType === 'touch' || event.pointerType === 'pen'
         }}
         onPointerCancel={event => {
           onPointerCancel?.(event)
@@ -65,11 +67,13 @@ const TooltipTrigger = React.forwardRef<
         }}
         onFocus={event => {
           onFocus?.(event)
+          if (revealOnTouch) return
           if (tapPressedRef.current) event.preventDefault()
           tapPressedRef.current = false
         }}
         onClick={event => {
           onClick?.(event)
+          if (revealOnTouch && tapPressedRef.current) event.preventDefault()
           tapPressedRef.current = false
         }}
       />

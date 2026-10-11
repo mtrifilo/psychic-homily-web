@@ -120,8 +120,10 @@ describe('DensityToggle', () => {
     })
 
     // A tap on the disabled group does nothing else, so it is how a touch
-    // user reads why the control is disabled. Chromium focuses the tapped
-    // wrapper after pointerup; this replays that order with fireEvent.
+    // user reads why the control is disabled. This replays, on the wrapper,
+    // the order Chromium uses for a tap on the group's padding: pointer
+    // events, the focus it gives the wrapper, then a click. A tap on a
+    // disabled radio gets no click; that path is checked in a browser.
     it('reveals the disabled reason on a touch tap and hides it on the next tap', () => {
       render(
         <DensityToggle
@@ -137,6 +139,7 @@ describe('DensityToggle', () => {
       fireEvent.pointerDown(wrapper, { pointerType: 'touch' })
       fireEvent.pointerUp(document, { pointerType: 'touch' })
       act(() => wrapper.focus())
+      fireEvent.click(wrapper)
 
       expect(screen.getByRole('tooltip')).toHaveTextContent(
         'Density only applies to grid view'
@@ -144,6 +147,7 @@ describe('DensityToggle', () => {
 
       fireEvent.pointerDown(wrapper, { pointerType: 'touch' })
       fireEvent.pointerUp(document, { pointerType: 'touch' })
+      fireEvent.click(wrapper)
 
       expect(screen.queryByRole('tooltip')).toBeNull()
     })

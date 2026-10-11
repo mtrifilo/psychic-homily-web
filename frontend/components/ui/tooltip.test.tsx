@@ -242,31 +242,51 @@ describe('TooltipTrigger', () => {
       )
     }
 
+    // A whole tap on the trigger: the pointer events, the focus Chromium
+    // gives it, then the click that ends the tap.
+    function tapTrigger(pointerType: 'touch' | 'pen' = 'touch') {
+      pressFocus(trigger(), pointerType)
+      fireEvent.click(trigger())
+    }
+
     it.each(['touch', 'pen'] as const)(
-      'opens the tooltip on the focus a %s tap gives the trigger',
+      'keeps the tooltip open through a whole %s tap',
       pointerType => {
         renderRevealing()
 
-        pressFocus(trigger(), pointerType)
+        tapTrigger(pointerType)
 
         expect(screen.getByRole('tooltip')).toHaveTextContent(TIP)
       }
     )
 
+    it('still closes the tooltip on a mouse click', async () => {
+      const user = userEvent.setup()
+      renderRevealing()
+      await user.hover(trigger())
+      await screen.findByRole('tooltip')
+
+      fireEvent.pointerDown(trigger(), { pointerType: 'mouse' })
+      fireEvent.click(trigger())
+
+      expect(screen.queryByRole('tooltip')).toBeNull()
+    })
+
     it('closes the revealed tooltip on the next tap of the trigger', () => {
       renderRevealing()
-      pressFocus(trigger(), 'touch')
+      tapTrigger()
       expect(screen.getByRole('tooltip')).toBeInTheDocument()
 
       // The trigger already holds focus, so the second tap brings no focus.
       press(trigger(), 'touch')
+      fireEvent.click(trigger())
 
       expect(screen.queryByRole('tooltip')).toBeNull()
     })
 
     it('closes the revealed tooltip on a tap outside', async () => {
       renderRevealing()
-      pressFocus(trigger(), 'touch')
+      tapTrigger()
       expect(screen.getByRole('tooltip')).toBeInTheDocument()
 
       // Radix registers its outside-press listener a tick after opening, and
