@@ -76,7 +76,6 @@ import { markAtlasMapReady } from '@/lib/atlasMapReady'
 import { CanvasSectionErrorBoundary } from '@/components/shared/CanvasSectionErrorBoundary'
 import { useReducedMotion } from '@/lib/hooks/common/useReducedMotion'
 import {
-  type AtlasMapFailureClass,
   type AtlasSceneListReason,
   AtlasMapUnrecoverableError,
   atlasMapFailureThisPage,
@@ -688,26 +687,19 @@ export function AtlasGlobe() {
   // atlasMapRetryCanSucceed allows one. Exceptions thrown inside MapLibre's
   // own callbacks (its render frames, map event handlers) are not React
   // errors and do not reach it; render frames that throw before the first
-  // frame reach it only through the first-render deadline. Holds the
-  // failure's class, null for a failure that carries none; the whole value is
-  // null while no map has failed.
-  const [mapFailure, setMapFailure] = useState<{
-    failureClass: AtlasMapFailureClass | null
-  } | null>(() => {
-    const failureClass = atlasMapFailureThisPage()
-    return failureClass === null ? null : { failureClass }
-  })
+  // frame reach it only through the first-render deadline. The page latch
+  // holds the class of a classed failure, so whether a retry is offered is
+  // read from it; a failure with no class leaves it empty and is offered none.
+  const [mapFailed, setMapFailed] = useState(() => atlasMapFailureThisPage() !== null)
   const handleMapFailed = useCallback((error: unknown) => {
-    const failureClass =
-      error instanceof AtlasMapUnrecoverableError ? error.failureClass : null
-    if (failureClass !== null) markAtlasMapFailed(failureClass)
-    setMapFailure({ failureClass })
+    if (error instanceof AtlasMapUnrecoverableError) markAtlasMapFailed(error.failureClass)
+    setMapFailed(true)
   }, [])
   // A retry whose probe fails changes nothing, so the list stays as it was.
   const handleRetryMap = useCallback(() => {
     if (!reprobeAtlasWebGL2()) return
     clearAtlasMapFailure()
-    setMapFailure(null)
+    setMapFailed(false)
   }, [])
   const sceneListReason =
     size === null
@@ -716,7 +708,7 @@ export function AtlasGlobe() {
           paneWidthPx: size.width,
           supportsWebGL2: atlasSupportsWebGL2(),
           prefersReducedMotion,
-          mapFailed: mapFailure !== null,
+          mapFailed,
         })
   const mapSheetLayout =
     size !== null && sceneListReason === null && usesAtlasSheetLayout(size.width)
@@ -754,7 +746,7 @@ export function AtlasGlobe() {
         reason={renderBranch.reason}
         onRetryMap={
           renderBranch.reason === 'map-failed' &&
-          atlasMapRetryCanSucceed(mapFailure?.failureClass ?? null)
+          atlasMapRetryCanSucceed(atlasMapFailureThisPage())
             ? handleRetryMap
             : undefined
         }

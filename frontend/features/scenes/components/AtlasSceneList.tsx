@@ -38,8 +38,9 @@ export function AtlasSceneList({
   /** Why the map is not running. */
   reason: AtlasSceneListReason
   /**
-   * Asks for the map again. Offered only with the `'map-failed'` reason, and
-   * only when given: the caller passes it where a retry can succeed.
+   * Asks for the map again, offered as a button under the line whenever it
+   * is given. The caller passes it only with the `'map-failed'` reason, where
+   * a retry can succeed.
    */
   onRetryMap?: () => void
   /** Slugs of scenes the viewer follows (PSY-1340) — starred in the list. */
@@ -64,7 +65,7 @@ export function AtlasSceneList({
     >
       <h1 className="text-lg font-semibold">Scenes</h1>
       <p className="mt-1.5 text-sm text-muted-foreground">{REASON_LINES[reason]}</p>
-      {reason === 'map-failed' && onRetryMap && (
+      {onRetryMap && (
         <Button
           variant="outline"
           onClick={onRetryMap}

@@ -247,14 +247,15 @@ let webGL2Support: boolean | undefined
  */
 export function atlasSupportsWebGL2(): boolean {
   if (typeof document === 'undefined') return false
-  webGL2Support ??= probeWebGL2(() => document.createElement('canvas'))
+  webGL2Support ??= reprobeAtlasWebGL2()
   return webGL2Support
 }
 
 /**
- * {@link probeWebGL2} on a fresh `<canvas>` at every call, for a visitor's
- * retry. The answer {@link atlasSupportsWebGL2} keeps for the page load is
- * left alone, so a failed retry changes nothing the Atlas renders.
+ * {@link probeWebGL2} on a fresh `<canvas>` at every call; false where there
+ * is no `document`. {@link atlasSupportsWebGL2} keeps its first answer for the
+ * page load. A visitor's retry calls this directly, which leaves that kept
+ * answer alone, so a failed retry changes nothing the Atlas renders.
  */
 export function reprobeAtlasWebGL2(): boolean {
   if (typeof document === 'undefined') return false

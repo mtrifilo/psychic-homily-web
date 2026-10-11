@@ -128,20 +128,13 @@ describe('AtlasSceneList', () => {
   })
 
   describe('Try the map again', () => {
-    it.each(['no-webgl2', 'reduced-motion'] as const)(
-      'is absent for %s, even with a retry handler',
+    it.each(['no-webgl2', 'reduced-motion', 'map-failed'] as const)(
+      'is absent for %s when the caller offers no retry',
       (reason) => {
-        renderWithProviders(
-          <AtlasSceneList scenes={scenes} loading={false} reason={reason} onRetryMap={() => {}} />,
-        )
+        renderWithProviders(<AtlasSceneList scenes={scenes} loading={false} reason={reason} />)
         expect(screen.queryByRole('button', { name: 'Try the map again' })).not.toBeInTheDocument()
       },
     )
-
-    it('is absent for a failed map the caller offers no retry for', () => {
-      renderWithProviders(<AtlasSceneList scenes={scenes} loading={false} reason="map-failed" />)
-      expect(screen.queryByRole('button', { name: 'Try the map again' })).not.toBeInTheDocument()
-    })
 
     it('sits under the line for a failed map and asks for the map on press', () => {
       const onRetryMap = vi.fn()
