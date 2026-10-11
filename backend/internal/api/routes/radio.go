@@ -70,4 +70,8 @@ func setupRadioRoutes(rc RouteContext) {
 	huma.Post(rc.Admin, "/admin/radio/plays/{id}/link", radioHandler.AdminLinkPlayHandler)
 	huma.Post(rc.Admin, "/admin/radio/plays/bulk-link", radioHandler.AdminBulkLinkPlaysHandler)
 	huma.Post(rc.Admin, "/admin/radio/rematch", radioHandler.AdminReMatchPlaysHandler)
+
+	// Internal radio_tracks read model listing (tracks have no public surface).
+	radioTracksHandler := catalogh.NewRadioTracksHandler(rc.SC.RadioTracks)
+	huma.Get(rc.Admin, "/admin/radio/tracks", radioTracksHandler.AdminListRadioTracksHandler)
 }

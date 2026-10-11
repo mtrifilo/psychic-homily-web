@@ -375,6 +375,7 @@ func main() {
 		releaseLinksSweepCancel      context.CancelFunc
 		streetGeocodeSweepCancel     context.CancelFunc
 		venueTimezoneSweepCancel     context.CancelFunc
+		radioTracksRebuildCancel     context.CancelFunc
 		sweepHealthCheckCancel       context.CancelFunc
 	)
 
@@ -615,6 +616,17 @@ func main() {
 		log.Printf("%s is not 1: skipping venue timezone sweep startup", catalog.EnableVenueTimezoneSweepEnvVar)
 	}
 
+	// Start the radio_tracks rebuild loop: derives the track read model from
+	// radio_plays. Default ON: it reads plays and writes only its own derived
+	// tables.
+	if os.Getenv("DISABLE_RADIO_TRACKS_REBUILD") != "1" {
+		var radioTracksRebuildCtx context.Context
+		radioTracksRebuildCtx, radioTracksRebuildCancel = context.WithCancel(context.Background())
+		sc.RadioTracksRebuild.Start(radioTracksRebuildCtx)
+	} else {
+		log.Printf("DISABLE_RADIO_TRACKS_REBUILD=1: skipping radio tracks rebuild loop startup")
+	}
+
 	// Start sweep health check (PSY-1612: reports background loops that have
 	// stopped running). Default ON — this is the monitoring that would have caught
 	// PSY-1606's seven silently-dead sweeps in days instead of weeks, so it should
@@ -741,6 +753,10 @@ func main() {
 	if venueTimezoneSweepCancel != nil {
 		venueTimezoneSweepCancel()
 		sc.VenueTimezoneSweep.Stop()
+	}
+	if radioTracksRebuildCancel != nil {
+		radioTracksRebuildCancel()
+		sc.RadioTracksRebuild.Stop()
 	}
 	if sweepHealthCheckCancel != nil {
 		sweepHealthCheckCancel()
