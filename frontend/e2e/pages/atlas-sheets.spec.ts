@@ -1,6 +1,7 @@
 import { test } from '../fixtures/error-detection'
 import { expect, type Page } from '@playwright/test'
 import {
+  ATLAS_TEST_TIMEOUT_MS,
   creditUncovered,
   dismissBanner,
   jumpToPhoenix,
@@ -26,6 +27,8 @@ test.use({
   viewport: { width: 820, height: 1000 },
   hasTouch: true,
 })
+
+test.describe.configure({ timeout: ATLAS_TEST_TIMEOUT_MS })
 
 /**
  * A one-finger drag through CDP touch events, which (unlike Playwright's
@@ -136,10 +139,6 @@ async function pullToHalf(page: Page, testId: string) {
 }
 
 test.describe('Atlas sheet layout under touch', () => {
-  // Each test boots a SwiftShader map and walks several animated steps; the
-  // first test's back-to-globe flight renders the whole globe again.
-  test.setTimeout(120_000)
-
   test('stacked pin, list, venue and artist sheets, back to globe', async ({ page }) => {
     await stubAtlas(page)
     await page.goto('/atlas?city=Phoenix%2CAZ')
@@ -251,7 +250,6 @@ for (const { mergedHalf, ...viewport } of [
 ]) {
   test.describe(`Atlas sheet detents at ${viewport.width}x${viewport.height}`, () => {
     test.use({ viewport })
-    test.setTimeout(120_000)
 
     test('a stacked pin opens the list at Peek; Half is one pull up and sized by the host', async ({
       page,
@@ -331,7 +329,6 @@ for (const viewport of [
 ]) {
   test.describe(`Atlas sheet detents on a ${viewport.width}x${viewport.height} phone`, () => {
     test.use({ viewport, isMobile: true, deviceScaleFactor: 2 })
-    test.setTimeout(120_000)
 
     test('Peek, Half and a capped Full, through the list, venue and artist sheets', async ({
       page,
