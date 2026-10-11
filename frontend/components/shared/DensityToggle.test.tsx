@@ -119,8 +119,9 @@ describe('DensityToggle', () => {
       expect(mockOnDensityChange).not.toHaveBeenCalled()
     })
 
-    // A tap on the disabled group does nothing else, so it is how a touch
-    // user reads why the control is disabled. This replays, on the wrapper,
+    // A tap on the disabled group does nothing else, so in a browser that
+    // focuses a tapped element it is how a touch user reads why the control
+    // is disabled. This replays, on the wrapper,
     // the order Chromium uses for a tap on the group's padding: pointer
     // events, the focus it gives the wrapper, then a click. A tap on a
     // disabled radio gets no click; that path is checked in a browser.
