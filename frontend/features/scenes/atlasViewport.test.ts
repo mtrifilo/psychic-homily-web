@@ -142,6 +142,7 @@ describe('atlasMapRetryCanSucceed', () => {
     ['context-restore-refused', true],
     ['context-refused', false],
     ['style-load-failed', false],
+    ['first-render-timeout', true],
   ] as const)('after %s: %s', (failureClass, retry) => {
     expect(atlasMapRetryCanSucceed(failureClass)).toBe(retry)
   })

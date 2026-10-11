@@ -574,6 +574,7 @@ describe('AtlasGlobe', () => {
         'context-lost-during-restore',
         'context-lost-before-style',
         'context-restore-refused',
+        'first-render-timeout',
       ] as const)('offers a retry after %s', async (failure) => {
         const quiet = vi.spyOn(console, 'error').mockImplementation(() => {})
         await renderFailedMap(failure)

@@ -83,7 +83,7 @@ const sectionsFailedThisPage = new Set<string>()
  * surface renders its fallback without building another map, so one failure
  * costs one map and one Sentry event per surface until a reload. Any other
  * error (a failed map chunk) is not latched. The Atlas does not use this
- * latch: it keeps `markAtlasMapFailed` and `atlasMapFailedThisPage` in
+ * latch: it keeps `markAtlasMapFailed` and `atlasMapFailureThisPage` in
  * atlasViewport.ts for the same failures, so this answers false for the
  * Atlas's section even after the Atlas failed.
  */

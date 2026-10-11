@@ -196,6 +196,10 @@ export function clearAtlasMapFailure(): void {
  *   `remove()`, which needs the painter, unregisters it.
  * - `style-load-failed`: the style is inline, so a new map gets the same
  *   style and fails the same way.
+ * - `first-render-timeout`: the timed-out map had a context and is removed
+ *   like any other, and MapLibre terminates its workers once no map holds
+ *   them, so a new map starts on new workers. A render frame that throws on
+ *   the same data throws again, which costs that retry one more deadline.
  * - No class: a canvas module that failed to import, or a thrown effect.
  *   React.lazy keeps a rejected import and throws it again on every mount, so
  *   a retry would report the same failure again.
@@ -211,6 +215,7 @@ const RETRY_CAN_SUCCEED: Record<AtlasMapFailureClass, boolean> = {
   'context-lost-before-style': true,
   'context-restore-refused': true,
   'style-load-failed': false,
+  'first-render-timeout': true,
 }
 
 /**
