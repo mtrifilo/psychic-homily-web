@@ -9,7 +9,53 @@ const TooltipProvider = TooltipPrimitive.Provider
 
 const Tooltip = TooltipPrimitive.Root
 
-const TooltipTrigger = TooltipPrimitive.Trigger
+/**
+ * Radix tooltip trigger that does not open its tooltip on a touch or pen tap.
+ *
+ * Chromium focuses a tapped element after `pointerup`, when Radix has stopped
+ * tracking the press, so Radix reads that focus as keyboard focus and opens
+ * the tooltip on every tap. A touch or pen `pointerdown` arms a flag, and the
+ * next focus consumes it and is default-prevented, which Radix's own focus
+ * handler respects. The tap's click and a `pointercancel` also clear the flag
+ * (a tap that never focuses, a touch cancelled by a scroll), and a mouse
+ * `pointerdown` disarms it, so it suppresses at most the one focus that
+ * follows a tap: hover and keyboard focus still open the tooltip.
+ *
+ * The caller's handlers run first, and the flag is updated even when one of
+ * them default-prevents the event.
+ */
+const TooltipTrigger = React.forwardRef<
+  React.ElementRef<typeof TooltipPrimitive.Trigger>,
+  React.ComponentPropsWithoutRef<typeof TooltipPrimitive.Trigger>
+>(({ onPointerDown, onPointerCancel, onFocus, onClick, ...props }, ref) => {
+  const tapPressedRef = React.useRef(false)
+
+  return (
+    <TooltipPrimitive.Trigger
+      ref={ref}
+      {...props}
+      onPointerDown={event => {
+        onPointerDown?.(event)
+        tapPressedRef.current =
+          event.pointerType === 'touch' || event.pointerType === 'pen'
+      }}
+      onPointerCancel={event => {
+        onPointerCancel?.(event)
+        tapPressedRef.current = false
+      }}
+      onFocus={event => {
+        onFocus?.(event)
+        if (tapPressedRef.current) event.preventDefault()
+        tapPressedRef.current = false
+      }}
+      onClick={event => {
+        onClick?.(event)
+        tapPressedRef.current = false
+      }}
+    />
+  )
+})
+TooltipTrigger.displayName = TooltipPrimitive.Trigger.displayName
 
 const TooltipContent = React.forwardRef<
   React.ElementRef<typeof TooltipPrimitive.Content>,

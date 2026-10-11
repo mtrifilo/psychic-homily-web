@@ -1,12 +1,6 @@
 'use client'
 
-import {
-  useId,
-  useRef,
-  useState,
-  type FocusEvent,
-  type PointerEvent,
-} from 'react'
+import { useId, useState, type FocusEvent, type PointerEvent } from 'react'
 import { Info } from 'lucide-react'
 
 import {
@@ -68,12 +62,9 @@ export interface InfoTooltipProps {
  * - Hover (`pointermove`) is suppressed while the popover is open, so the
  *   tooltip never renders over it and none is left pending when it closes.
  *   The click that opens the popover closes any open tooltip itself.
- * - Focus is suppressed while the popover is open, and for the one focus
- *   that follows a touch `pointerdown`: Chromium focuses a tapped button
- *   after `pointerup`, which Radix reads as keyboard focus and would flash
- *   the tooltip before the click opens the popover. The touch flag is
- *   consumed by that focus, or cleared by the tap's click or a cancel, so it
- *   suppresses at most one focus.
+ * - Focus is suppressed while the popover is open. The focus a tap gives
+ *   the trigger is suppressed by `TooltipTrigger` itself, so a tap opens the
+ *   popover without flashing the tooltip first.
  *
  * Owns its own `TooltipProvider` so it drops in anywhere without a
  * surrounding provider.
@@ -93,21 +84,13 @@ export function InfoTooltip({
 }: InfoTooltipProps) {
   const [popoverOpen, setPopoverOpen] = useState(false)
   const [tooltipOpen, setTooltipOpen] = useState(false)
-  const touchPressedRef = useRef(false)
   const popoverCopyId = useId()
 
-  const handlePointerDown = (event: PointerEvent) => {
-    touchPressedRef.current = event.pointerType === 'touch'
-  }
   const handlePointerMove = (event: PointerEvent) => {
     if (popoverOpen) event.preventDefault()
   }
   const handleFocus = (event: FocusEvent) => {
-    if (popoverOpen || touchPressedRef.current) event.preventDefault()
-    touchPressedRef.current = false
-  }
-  const clearTouchPress = () => {
-    touchPressedRef.current = false
+    if (popoverOpen) event.preventDefault()
   }
 
   return (
@@ -124,11 +107,8 @@ export function InfoTooltip({
                 className="inline-flex select-none items-center rounded-full p-0.5 text-muted-foreground transition-colors [-webkit-touch-callout:none] hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                 data-testid={testId}
                 {...(popoverOpen && { 'aria-describedby': popoverCopyId })}
-                onPointerDown={handlePointerDown}
                 onPointerMove={handlePointerMove}
                 onFocus={handleFocus}
-                onPointerCancel={clearTouchPress}
-                onClick={clearTouchPress}
               >
                 <Info className="h-3.5 w-3.5" aria-hidden />
               </button>
