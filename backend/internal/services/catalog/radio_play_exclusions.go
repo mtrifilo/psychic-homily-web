@@ -344,22 +344,45 @@ func RadioPlayExcludedSQL(dim RadioRankingDimension, cols RadioPlayColumns) stri
 	)
 }
 
-// RadioMinDistinctBroadcasters is the single-station rule: a key (artist,
-// track or label) whose non-excluded plays span fewer distinct broadcasters
-// than this never qualifies for a ranking, whatever its play count. A
-// broadcaster is a radio network, or a station that belongs to none
+// RadioMinDistinctStations is the single-station rule the rankings apply: a
+// key (artist, track or label) whose non-excluded plays span fewer distinct
+// radio_stations rows than this never qualifies for a ranking, whatever its
+// play count. Each row counts, so WFMU's flagship and its stream-only channels
+// count as separate stations. This is the floor the owner chose; the
+// broadcaster helpers below are the stricter unit, available for tightening.
+const RadioMinDistinctStations = 2
+
+// RadioMeetsStationFloor applies the single-station rule to an aggregated key,
+// given the number of distinct radio_stations ids among its non-excluded
+// plays.
+func RadioMeetsStationFloor(distinctStations int) bool {
+	return distinctStations >= RadioMinDistinctStations
+}
+
+// RadioStationFloorSQL returns the single-station rule as an aggregate boolean
+// for a HAVING clause, counting distinct values of the station id column over
+// the group's rows. The rows must already be filtered with
+// RadioPlayExcludedSQL. Panics on a column reference that is not an
+// identifier.
+func RadioStationFloorSQL(stationIDColumn string) string {
+	return fmt.Sprintf("count(DISTINCT %s) >= %d", mustSQLColumnRef(stationIDColumn), RadioMinDistinctStations)
+}
+
+// RadioMinDistinctBroadcasters is the stricter floor in the radio charts'
+// unit: a broadcaster is a radio network, or a station that belongs to none
 // (broadcasterKeySQL), so WFMU's flagship and its stream-only channels count
-// once, as they do in the radio charts' station counts.
+// once. It is not the rule the rankings apply (RadioMinDistinctStations is);
+// it is available for a ranking that tightens to broadcasters.
 const RadioMinDistinctBroadcasters = 2
 
-// RadioMeetsBroadcasterFloor applies the single-station rule to an aggregated
+// RadioMeetsBroadcasterFloor applies the broadcaster floor to an aggregated
 // key, given the number of distinct RadioBroadcasterKeySQL values among its
 // non-excluded plays (never the number of distinct station ids).
 func RadioMeetsBroadcasterFloor(distinctBroadcasters int) bool {
 	return distinctBroadcasters >= RadioMinDistinctBroadcasters
 }
 
-// RadioBroadcasterFloorSQL returns the single-station rule as an aggregate
+// RadioBroadcasterFloorSQL returns the broadcaster floor as an aggregate
 // boolean for a HAVING clause. It counts distinct broadcasters over the
 // group's rows through the radio_stations row aliased stationsAlias, so the
 // query must join radio_stations under that alias, and its rows must already

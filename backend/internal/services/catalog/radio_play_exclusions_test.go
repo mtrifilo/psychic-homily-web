@@ -205,6 +205,14 @@ func TestRadioPlayExcludedSQL_PanicsOnNonIdentifier(t *testing.T) {
 	assert.Panics(t, func() { RadioBroadcasterFloorSQL("rst.id") })
 	assert.Panics(t, func() { RadioBroadcasterKeySQL("rst; DROP TABLE x") })
 	assert.Panics(t, func() { RadioBroadcasterFloorSQL("1; DROP TABLE x") })
+	assert.Panics(t, func() { RadioStationFloorSQL("1; DROP TABLE x") })
+}
+
+func TestRadioMeetsStationFloor(t *testing.T) {
+	assert.False(t, RadioMeetsStationFloor(0))
+	assert.False(t, RadioMeetsStationFloor(1))
+	assert.True(t, RadioMeetsStationFloor(2))
+	assert.True(t, RadioMeetsStationFloor(5))
 }
 
 func TestRadioMeetsBroadcasterFloor(t *testing.T) {

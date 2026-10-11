@@ -303,31 +303,45 @@ func (s *RadioPlayExclusionsIntegrationSuite) TestStationScopedRule() {
 }
 
 type radioTrackFloorRow struct {
-	Artist       string
-	Title        string
-	Plays        int
-	Broadcasters int
-	Qualifies    bool
+	Artist                  string
+	Title                   string
+	Plays                   int
+	Stations                int
+	Broadcasters            int
+	Qualifies               bool
+	QualifiesOnBroadcasters bool
 }
 
-// qualifyingTracks groups non-excluded plays by normalized artist and title
-// and keeps the keys that pass the single-station rule. It also checks that
-// the SQL floor and RadioMeetsBroadcasterFloor agree on every key, kept or not.
-func (s *RadioPlayExclusionsIntegrationSuite) qualifyingTracks() map[string]radioTrackFloorRow {
+// trackFloors groups non-excluded plays by normalized artist and title and
+// reports, for every key, the single-station rule (station rows) and the
+// stricter broadcaster floor. It checks that each SQL floor agrees with its Go
+// form on every key, kept or not.
+func (s *RadioPlayExclusionsIntegrationSuite) trackFloors() map[string]radioTrackFloorRow {
 	q := fmt.Sprintf(`SELECT radio_normalize_name(rp.artist_name) AS artist, radio_normalize_name(rp.track_title) AS title,
-       count(*) AS plays, count(DISTINCT %s) AS broadcasters, %s AS qualifies
+       count(*) AS plays, count(DISTINCT rsh.station_id) AS stations, count(DISTINCT %s) AS broadcasters,
+       %s AS qualifies, %s AS qualifies_on_broadcasters
 %s
 JOIN radio_stations rst ON rst.id = rsh.station_id
 WHERE NOT (%s)
-GROUP BY 1, 2`, RadioBroadcasterKeySQL("rst"), RadioBroadcasterFloorSQL("rst"), radioExclusionTestFrom,
-		RadioPlayExcludedSQL(RadioRankingTrack, radioExclusionTestCols))
+GROUP BY 1, 2`, RadioBroadcasterKeySQL("rst"), RadioStationFloorSQL("rsh.station_id"), RadioBroadcasterFloorSQL("rst"),
+		radioExclusionTestFrom, RadioPlayExcludedSQL(RadioRankingTrack, radioExclusionTestCols))
 	var rows []radioTrackFloorRow
 	s.Require().NoError(s.db.Raw(q).Scan(&rows).Error)
 	out := map[string]radioTrackFloorRow{}
 	for _, r := range rows {
-		s.Equal(r.Qualifies, RadioMeetsBroadcasterFloor(r.Broadcasters), "SQL and Go floor agree for %s / %s", r.Artist, r.Title)
+		s.Equal(r.Qualifies, RadioMeetsStationFloor(r.Stations), "station floor: SQL and Go agree for %s / %s", r.Artist, r.Title)
+		s.Equal(r.QualifiesOnBroadcasters, RadioMeetsBroadcasterFloor(r.Broadcasters), "broadcaster floor: SQL and Go agree for %s / %s", r.Artist, r.Title)
+		out[r.Artist+" / "+r.Title] = r
+	}
+	return out
+}
+
+// qualifyingTracks keeps the keys that pass the single-station rule.
+func (s *RadioPlayExclusionsIntegrationSuite) qualifyingTracks() map[string]radioTrackFloorRow {
+	out := map[string]radioTrackFloorRow{}
+	for k, r := range s.trackFloors() {
 		if r.Qualifies {
-			out[r.Artist+" / "+r.Title] = r
+			out[k] = r
 		}
 	}
 	return out
@@ -341,21 +355,28 @@ func (s *RadioPlayExclusionsIntegrationSuite) TestSingleStationRuleIgnoresVolume
 	got := s.qualifyingTracks()
 	s.NotContains(got, "nirvana / c side of ocho rios", "150 plays on one station never qualify")
 	s.Contains(got, "suki waterhouse / back in love")
-	s.Equal(2, got["suki waterhouse / back in love"].Broadcasters)
+	s.Equal(2, got["suki waterhouse / back in love"].Stations)
 }
 
-func (s *RadioPlayExclusionsIntegrationSuite) TestNetworkSiblingsCountAsOneBroadcaster() {
-	// Three stations of one network are one broadcaster: a song repeated on
-	// the automated stream and the flagship stays single-station.
+func (s *RadioPlayExclusionsIntegrationSuite) TestStationFloorCountsRowsBroadcasterFloorCollapsesNetworks() {
+	// Three stations of one network: the single-station rule counts each row,
+	// so the key qualifies; the stricter broadcaster floor counts one network
+	// and rejects it until an independent broadcaster plays it.
 	s.addPlays("t-rocknsoul", "The Turtles", "Buzzsaw", "", 20)
 	s.addPlays("t-wfmu", "The Turtles", "Buzzsaw", "", 5)
 	s.addPlays("t-sheena", "The Turtles", "Buzzsaw", "", 1)
-	s.NotContains(s.qualifyingTracks(), "the turtles / buzzsaw")
+	floors := s.trackFloors()["the turtles / buzzsaw"]
+	s.Equal(3, floors.Stations)
+	s.Equal(1, floors.Broadcasters)
+	s.True(floors.Qualifies, "network siblings are separate stations under the single-station rule")
+	s.False(floors.QualifiesOnBroadcasters, "network siblings are one broadcaster")
 
 	s.addPlays("t-kexp", "The Turtles", "Buzzsaw", "", 1)
-	got := s.qualifyingTracks()
-	s.Contains(got, "the turtles / buzzsaw", "a second, independent broadcaster qualifies the key")
-	s.Equal(2, got["the turtles / buzzsaw"].Broadcasters)
+	floors = s.trackFloors()["the turtles / buzzsaw"]
+	s.Equal(4, floors.Stations)
+	s.Equal(2, floors.Broadcasters)
+	s.True(floors.Qualifies)
+	s.True(floors.QualifiesOnBroadcasters, "an independent broadcaster passes the stricter floor")
 }
 
 func (s *RadioPlayExclusionsIntegrationSuite) TestBlankKeyFieldsNeverCount() {
@@ -417,7 +438,7 @@ func (s *RadioPlayExclusionsIntegrationSuite) TestManyRegexRowsStillMatch() {
 
 func (s *RadioPlayExclusionsIntegrationSuite) TestSingleStationRuleCountsOnlyNonExcludedPlays() {
 	// The sheena plays are excluded by a station-scoped rule, so they add no
-	// broadcaster: the key spans t-kexp alone, then t-kexp and t-nts.
+	// station: the key spans t-kexp alone, then t-kexp and t-nts.
 	sheena := s.stationBySlug["t-sheena"]
 	s.Require().NoError(s.db.Create(&catalogm.RadioPlayExclusion{
 		MatchKind: "artist_name", PatternType: "exact", Pattern: "dorothy ashby", Category: "talk",
@@ -430,7 +451,7 @@ func (s *RadioPlayExclusionsIntegrationSuite) TestSingleStationRuleCountsOnlyNon
 	s.addPlays("t-nts", "Dorothy Ashby", "Soul Vibrations", "", 1)
 	got := s.qualifyingTracks()
 	s.Require().Contains(got, "dorothy ashby / soul vibrations")
-	s.Equal(2, got["dorothy ashby / soul vibrations"].Broadcasters, "the excluded sheena plays add no broadcaster")
+	s.Equal(2, got["dorothy ashby / soul vibrations"].Stations, "the excluded sheena plays add no station")
 	s.Equal(4, got["dorothy ashby / soul vibrations"].Plays)
 }
 
