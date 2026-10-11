@@ -8,6 +8,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
+	"psychic-homily-backend/internal/api/handlers/shared/testhelpers"
 	authm "psychic-homily-backend/internal/models/auth"
 	"psychic-homily-backend/internal/services"
 	"psychic-homily-backend/internal/services/contracts"
@@ -29,10 +30,9 @@ func TestAdminRadioTracksRoute(t *testing.T) {
 	router := chi.NewRouter()
 	SetupRoutes(router, sc, cfg)
 
-	mint := func(email string, admin bool) string {
-		u := &authm.User{Email: strPtr(email), IsActive: true, EmailVerified: true, IsAdmin: admin}
-		if err := td.DB.Create(u).Error; err != nil {
-			t.Fatalf("seed user: %v", err)
+	mint := func(u *authm.User) string {
+		if u.ID == 0 {
+			t.Fatal("seed user was not created")
 		}
 		token, err := sc.JWT.CreateToken(u)
 		if err != nil {
@@ -40,8 +40,8 @@ func TestAdminRadioTracksRoute(t *testing.T) {
 		}
 		return token
 	}
-	regular := mint("regular@radio-tracks.test", false)
-	admin := mint("admin@radio-tracks.test", true)
+	regular := mint(testhelpers.CreateTestUser(td.DB))
+	admin := mint(testhelpers.CreateAdminUser(td.DB))
 
 	get := func(path, token string) *httptest.ResponseRecorder {
 		req := httptest.NewRequest(http.MethodGet, path, nil)

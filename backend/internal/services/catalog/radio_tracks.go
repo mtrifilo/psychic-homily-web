@@ -6,13 +6,12 @@ import (
 	"errors"
 	"fmt"
 	"slices"
-	"time"
+	"strings"
 
 	"github.com/lib/pq"
 	"gorm.io/gorm"
 
 	catalogm "psychic-homily-backend/internal/models/catalog"
-	"psychic-homily-backend/internal/services/contracts"
 )
 
 // radio_tracks is a derived read model over radio_plays; the migration that
@@ -67,12 +66,12 @@ const (
 )
 
 // radioTrackRebuildPlaysSQL keys every play. artist_key and title_key are both
-// the empty string when either half is empty or NULL, which routes the play to the unkeyed
-// marker row.
+// the empty string when either half is empty or NULL, which routes the play to
+// the unkeyed marker row.
 var radioTrackRebuildPlaysSQL = `
 CREATE TEMP TABLE ` + radioTrackRebuildPlaysTable + ` ON COMMIT DROP AS
-SELECT CASE WHEN raw.a = '' OR raw.t = '' THEN '' ELSE raw.a END AS artist_key,
-       CASE WHEN raw.a = '' OR raw.t = '' THEN '' ELSE raw.t END AS title_key,
+SELECT CASE WHEN k.unkeyed THEN '' ELSE raw.a END AS artist_key,
+       CASE WHEN k.unkeyed THEN '' ELSE raw.t END AS title_key,
        sh.station_id,
        ` + broadcasterKeySQL("st") + ` AS family_key,
        e.show_id,
@@ -89,12 +88,14 @@ JOIN radio_stations st ON st.id = sh.station_id
 CROSS JOIN LATERAL (
   SELECT coalesce(radio_track_artist_key(p.artist_name), '') AS a,
          coalesce(radio_track_title_key(p.track_title), '') AS t
-) raw`
+) raw
+CROSS JOIN LATERAL (SELECT raw.a = '' OR raw.t = '' AS unkeyed) k`
 
 // radioTrackRebuildTracksSQL aggregates the keyed plays into one row per
 // track. A key listed in the joins table counts toward the track it was joined
-// into. track_id is filled in by the write phase. Spelling ties break on the C collation so every environment picks the
-// same one.
+// into. track_id is the id of the track's existing radio_tracks row, NULL for
+// a new track. Spelling ties break on the C collation so every environment
+// picks the same one.
 var radioTrackRebuildTracksSQL = `
 CREATE TEMP TABLE ` + radioTrackRebuildTracksTable + ` ON COMMIT DROP AS
 WITH t AS (
@@ -130,7 +131,6 @@ artist_spelling AS (
 title_spelling AS (
   SELECT DISTINCT ON (artist_key, title_key) artist_key, title_key, track_title
   FROM t
-  WHERE track_title IS NOT NULL
   GROUP BY artist_key, title_key, track_title
   ORDER BY artist_key, title_key, count(*) DESC, track_title COLLATE "C"
 )
@@ -142,16 +142,27 @@ SELECT a.artist_key, a.title_key,
        CASE WHEN a.artist_key <> '' AND a.mb_ids = 1 THEN a.some_mb_id END AS mb_recording_id,
        (a.artist_key <> '' AND a.mb_ids > 1) AS mb_recording_id_conflict,
        a.album_play_count, a.label_play_count,
-       NULL::bigint AS track_id
+       rt.id AS track_id
 FROM agg a
 JOIN artist_spelling s ON s.artist_key = a.artist_key AND s.title_key = a.title_key
-LEFT JOIN title_spelling ts ON ts.artist_key = a.artist_key AND ts.title_key = a.title_key`
+JOIN title_spelling ts ON ts.artist_key = a.artist_key AND ts.title_key = a.title_key
+LEFT JOIN radio_tracks rt ON rt.artist_key = a.artist_key AND rt.title_key = a.title_key`
 
-// radioTrackDerivedColumns are the radio_tracks columns a rebuild derives,
-// in the order radioTrackRebuildTracksSQL selects them.
-const radioTrackDerivedColumns = `display_artist, display_title, play_count, station_row_count,
-  station_family_count, show_count, first_aired_on, last_aired_on, mb_recording_id,
-  mb_recording_id_conflict, album_play_count, label_play_count`
+// radioTrackDerivedColumns are the radio_tracks columns a rebuild derives.
+var radioTrackDerivedColumns = []string{
+	"display_artist", "display_title", "play_count", "station_row_count",
+	"station_family_count", "show_count", "first_aired_on", "last_aired_on",
+	"mb_recording_id", "mb_recording_id_conflict", "album_play_count", "label_play_count",
+}
+
+// radioTrackColumns lists the derived columns, each qualified by alias when
+// alias is non-empty.
+func radioTrackColumns(alias string) string {
+	if alias == "" {
+		return strings.Join(radioTrackDerivedColumns, ", ")
+	}
+	return alias + "." + strings.Join(radioTrackDerivedColumns, ", "+alias+".")
+}
 
 // The write phase. Every write touches only rows that are new, changed or
 // stale, so a rebuild over unchanged plays writes (and logs to WAL) nothing.
@@ -169,34 +180,19 @@ WHERE NOT EXISTS (
   WHERE n.artist_key = t.artist_key AND n.title_key = t.title_key
 )`
 
-var radioTrackResolveIDsSQL = `
-UPDATE ` + radioTrackRebuildTracksTable + ` n
-SET track_id = t.id
-FROM radio_tracks t
-WHERE t.artist_key = n.artist_key AND t.title_key = n.title_key`
-
 var radioTrackUpdateSQL = `
 UPDATE radio_tracks t
-SET (` + radioTrackDerivedColumns + `, rebuilt_at) =
-    (n.display_artist, n.display_title, n.play_count, n.station_row_count,
-     n.station_family_count, n.show_count, n.first_aired_on, n.last_aired_on, n.mb_recording_id,
-     n.mb_recording_id_conflict, n.album_play_count, n.label_play_count, now())
+SET (` + radioTrackColumns("") + `, rebuilt_at) = (` + radioTrackColumns("n") + `, now())
 FROM ` + radioTrackRebuildTracksTable + ` n
 WHERE n.track_id = t.id
-  AND (t.display_artist, t.display_title, t.play_count, t.station_row_count,
-       t.station_family_count, t.show_count, t.first_aired_on, t.last_aired_on, t.mb_recording_id,
-       t.mb_recording_id_conflict, t.album_play_count, t.label_play_count)
-      IS DISTINCT FROM
-      (n.display_artist, n.display_title, n.play_count, n.station_row_count,
-       n.station_family_count, n.show_count, n.first_aired_on, n.last_aired_on, n.mb_recording_id,
-       n.mb_recording_id_conflict, n.album_play_count, n.label_play_count)`
+  AND (` + radioTrackColumns("t") + `) IS DISTINCT FROM (` + radioTrackColumns("n") + `)`
 
 // radioTrackInsertSQL inserts the tracks that have no row yet and records the
 // new ids in the working table; its row count is the number inserted.
 var radioTrackInsertSQL = `
 WITH inserted AS (
-  INSERT INTO radio_tracks (artist_key, title_key, ` + radioTrackDerivedColumns + `, rebuilt_at)
-  SELECT artist_key, title_key, ` + radioTrackDerivedColumns + `, now()
+  INSERT INTO radio_tracks (artist_key, title_key, ` + radioTrackColumns("") + `, rebuilt_at)
+  SELECT artist_key, title_key, ` + radioTrackColumns("") + `, now()
   FROM ` + radioTrackRebuildTracksTable + `
   WHERE track_id IS NULL
   RETURNING id, artist_key, title_key
@@ -296,9 +292,6 @@ func RebuildRadioTracks(ctx context.Context, database *gorm.DB) (*RadioTracksReb
 			return fmt.Errorf("deleting stale tracks: %w", res.Error)
 		}
 		report.Deleted = res.RowsAffected
-		if err := tx.Exec(radioTrackResolveIDsSQL).Error; err != nil {
-			return fmt.Errorf("resolving track ids: %w", err)
-		}
 		for _, stmt := range []string{radioTrackUpdateSQL, radioTrackInsertSQL} {
 			res = tx.Exec(stmt)
 			if res.Error != nil {
@@ -482,86 +475,4 @@ func splitRadioTrackKeys(keys []radioTrackKey) (artists, titles []string) {
 		artists[i], titles[i] = k.Artist, k.Title
 	}
 	return artists, titles
-}
-
-// radioTrackSortColumns maps each listing sort to its radio_tracks column.
-var radioTrackSortColumns = map[contracts.RadioTrackSort]string{
-	contracts.RadioTrackSortPlays:           "play_count",
-	contracts.RadioTrackSortStationRows:     "station_row_count",
-	contracts.RadioTrackSortStationFamilies: "station_family_count",
-}
-
-// RadioTracksReader serves the internal top-tracks listing.
-type RadioTracksReader struct {
-	db *gorm.DB
-}
-
-// NewRadioTracksReader constructs a reader over radio_tracks.
-func NewRadioTracksReader(database *gorm.DB) *RadioTracksReader {
-	return &RadioTracksReader{db: database}
-}
-
-// radioTrackListRow is a radio_tracks row plus its key count.
-type radioTrackListRow struct {
-	catalogm.RadioTrack
-	KeyCount int `gorm:"column:key_count"`
-}
-
-// ListTopRadioTracks returns up to limit keyed tracks ranked by the sort
-// column, descending, then by play count and id. The unkeyed marker row is
-// never listed; its play count is reported as UnkeyedPlays.
-func (r *RadioTracksReader) ListTopRadioTracks(ctx context.Context, sort contracts.RadioTrackSort, limit int) (*contracts.RadioTrackListing, error) {
-	if r.db == nil {
-		return nil, errors.New("database not initialized")
-	}
-	column, ok := radioTrackSortColumns[sort]
-	if !ok {
-		return nil, fmt.Errorf("unknown radio track sort %q", sort)
-	}
-	if limit <= 0 {
-		return nil, fmt.Errorf("limit must be positive, got %d", limit)
-	}
-
-	db := r.db.WithContext(ctx)
-	var rows []radioTrackListRow
-	if err := db.Raw(`SELECT t.*, (SELECT count(*) FROM radio_track_keys k WHERE k.track_id = t.id) AS key_count
-FROM radio_tracks t
-WHERE NOT t.unkeyed
-ORDER BY t.`+column+` DESC, t.play_count DESC, t.id
-LIMIT ?`, limit).Scan(&rows).Error; err != nil {
-		return nil, fmt.Errorf("listing radio tracks: %w", err)
-	}
-
-	listing := &contracts.RadioTrackListing{Tracks: make([]contracts.RadioTrackSummary, 0, len(rows))}
-	if err := db.Raw(`SELECT count(*) FILTER (WHERE NOT unkeyed),
-       coalesce(sum(play_count) FILTER (WHERE unkeyed), 0)
-FROM radio_tracks`).Row().Scan(&listing.TotalTracks, &listing.UnkeyedPlays); err != nil {
-		return nil, fmt.Errorf("counting radio tracks: %w", err)
-	}
-	for _, row := range rows {
-		listing.Tracks = append(listing.Tracks, radioTrackSummary(row))
-	}
-	return listing, nil
-}
-
-func radioTrackSummary(row radioTrackListRow) contracts.RadioTrackSummary {
-	return contracts.RadioTrackSummary{
-		ID:                    row.ID,
-		ArtistKey:             row.ArtistKey,
-		TitleKey:              row.TitleKey,
-		DisplayArtist:         row.DisplayArtist,
-		DisplayTitle:          row.DisplayTitle,
-		PlayCount:             row.PlayCount,
-		StationRowCount:       row.StationRowCount,
-		StationFamilyCount:    row.StationFamilyCount,
-		ShowCount:             row.ShowCount,
-		FirstAiredOn:          row.FirstAiredOn.Format(time.DateOnly),
-		LastAiredOn:           row.LastAiredOn.Format(time.DateOnly),
-		MBRecordingID:         row.MBRecordingID,
-		MBRecordingIDConflict: row.MBRecordingIDConflict,
-		KeyCount:              row.KeyCount,
-		AlbumPlayCount:        row.AlbumPlayCount,
-		LabelPlayCount:        row.LabelPlayCount,
-		RebuiltAt:             row.RebuiltAt,
-	}
 }
