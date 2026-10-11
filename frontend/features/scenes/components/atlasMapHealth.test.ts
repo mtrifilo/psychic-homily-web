@@ -359,16 +359,6 @@ describe('atlasMapBoundaryReporting', () => {
   })
 })
 
-/**
- * The MapLibre behaviour watchAtlasMapHealth relies on (see its doc): the
- * context events fire after MapLibre has acted on them, a style lost before it
- * loaded is not saved for the restore, a restore re-sets the saved style, and
- * a refused context is a GPUInitializationError by name. On a version change,
- * re-read `_contextLost`, `_contextRestored`, `_setupPainter` and the
- * constructor's painter check in src/ui/map.ts, and `serialize` and
- * `loadJSON` (the style loads a frame after construction at the earliest) in
- * src/style/style.ts, then bump this.
- */
 describe('watchAtlasMapHealth first-render watchdog', () => {
   let map: FakeMap & { isSourceLoaded: ReturnType<typeof vi.fn<(id: string) => boolean>> }
   let onUnrecoverable: ReturnType<typeof vi.fn<(error: AtlasMapUnrecoverableError) => void>>
@@ -523,7 +513,7 @@ describe('latchAtlasMapFailure', () => {
 
   it('latches only the section that failed', () => {
     latchAtlasMapFailure('venue-mini-atlas', new AtlasMapUnrecoverableError('context-lost'))
-    expect(atlasMapSectionFailedThisPage('atlas-map')).toBe(false)
+    expect(atlasMapSectionFailedThisPage('another-map')).toBe(false)
   })
 
   it('does not latch any other error, such as a failed chunk', () => {
@@ -535,6 +525,20 @@ describe('latchAtlasMapFailure', () => {
   })
 })
 
+/**
+ * The MapLibre behaviour watchAtlasMapHealth relies on (see its doc): the
+ * context events fire after MapLibre has acted on them, a style lost before it
+ * loaded is not saved for the restore, a restore re-sets the saved style, a
+ * refused context is a GPUInitializationError by name, `render` fires at the
+ * end of a frame, and asking for an unregistered source fires an error event.
+ * On a version change, re-read `_contextLost`, `_contextRestored`,
+ * `_setupPainter`, the constructor's painter check, `_render`,
+ * `triggerRepaint` and `isSourceLoaded` in src/ui/map.ts, `serialize` and
+ * `loadJSON` (the style loads a frame after construction at the earliest) in
+ * src/style/style.ts, `loaded` in src/tile/tile_manager.ts and
+ * src/source/geojson_source.ts, and the e2e first-render stall in
+ * e2e/pages/atlas.spec.ts (it replaces the private `_render`), then bump this.
+ */
 describe('maplibre context-loss contract', () => {
   it('is pinned to the verified maplibre-gl version', () => {
     expect(

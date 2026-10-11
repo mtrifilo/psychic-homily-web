@@ -1059,8 +1059,8 @@ export default function GlobeCanvas({
     // only the committed null in between (the loss and the restored style.load
     // are separate events, a frame or more apart) makes those effects run
     // again.
-    // The scenes source is the first-render watchdog's: a map that never
-    // renders a frame with this page's own data is given up.
+    // The scenes source is the first-render watchdog's: a map that renders no
+    // frame once that source has loaded is given up.
     const health = watchAtlasMapHealth(
       map,
       setUnrecoverable,

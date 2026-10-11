@@ -46,7 +46,7 @@ place) stands in for the map:
    reported under the Sentry `section` tag `atlas-map`. A map that cannot
    draw throws `AtlasMapUnrecoverableError` (`features/scenes/atlasViewport.ts`),
    which also carries an `atlas_map_failure` tag naming its failure class
-   (`atlasMapBoundaryReporting` in `components/atlasMapHealth.ts`):
+   (`atlasMapBoundaryReporting` in `features/scenes/components/atlasMapHealth.ts`):
 
    | `atlas_map_failure` | When |
    | --- | --- |
@@ -56,7 +56,7 @@ place) stands in for the map:
    | `context-lost-during-restore` | the context was lost again while a restored style was still loading |
    | `context-restore-refused` | the restore got no WebGL2 context back |
    | `style-load-failed` | an error with no source before the style loaded |
-   | `first-render-timeout` | no frame rendered the scene data within `ATLAS_FIRST_RENDER_DEADLINE_MS` (16000 ms) of continuously visible time after construction: a render frame that throws, or a worker that never starts |
+   | `first-render-timeout` | no frame rendered after the `scenes` source loaded within `ATLAS_FIRST_RENDER_DEADLINE_MS` (16000 ms) of continuously visible time after construction: a render frame that throws, or a worker that never starts |
 
    `watchAtlasMapHealth` classifies the context and style events, and on the
    Atlas also runs the first-render watchdog. The watchdog watches only data
@@ -73,8 +73,8 @@ place) stands in for the map:
    chunk is not refetched (`React.lazy` keeps the rejected import), so every
    later mount in that page load gets the list too, until a reload. Errors
    thrown from MapLibre's own callbacks (animation frames, map events) are
-   not React errors and are not caught; before the first frame of the scene
-   data the watchdog sees their effect.
+   not React errors and are not caught; a render frame that throws before
+   the first frame shows up only as `first-render-timeout`.
 
    The `/venues` mini Atlas reports under `venue-mini-atlas` with the same
    tag and latches the same classes it can hit (it has no first-render

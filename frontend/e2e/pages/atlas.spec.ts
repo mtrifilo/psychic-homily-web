@@ -751,12 +751,14 @@ test.describe('Atlas when the map never renders its first frame', () => {
   test.beforeEach(async ({ page }) => {
     await stubAtlas(page)
     await page.addInitScript(() => {
+      const w = window as unknown as { __atlasMapBuiltAt?: number }
       let held: unknown = null
       Object.defineProperty(window, '__atlasMap', {
         configurable: true,
         get: () => held,
         set: (map: { _render?: () => void } | null) => {
           if (map) {
+            w.__atlasMapBuiltAt = performance.now()
             map._render = () => {
               throw new Error('stalled render frame')
             }
@@ -769,15 +771,22 @@ test.describe('Atlas when the map never renders its first frame', () => {
 
   test('falls back to the scene list once the first-render deadline passes', async ({ page }) => {
     await page.goto('/atlas')
-    await page.waitForFunction(
-      () => !!(window as unknown as { __atlasMap?: unknown }).__atlasMap,
+    // How long ago, on the page's own clock, the map was built.
+    const sinceBuilt = await page.waitForFunction(
+      () => {
+        const builtAt = (window as unknown as { __atlasMapBuiltAt?: number }).__atlasMapBuiltAt
+        return builtAt === undefined ? false : performance.now() - builtAt
+      },
       undefined,
       { polling: 100 }
     )
     const list = page.getByTestId('atlas-scene-list')
-    // Until shortly before the deadline the map is still given its chance.
-    // The 2 s of slack covers the poll above seeing the map late.
-    await page.waitForTimeout(FIRST_RENDER_DEADLINE_MS - 2_000)
+    // Until 2 s before the deadline the map is still given its chance. The
+    // deadline cannot pass early, so the slack only has to cover the steps
+    // between this wait and the checks below.
+    await page.waitForTimeout(
+      Math.max(0, FIRST_RENDER_DEADLINE_MS - 2_000 - Number(await sinceBuilt.jsonValue()))
+    )
     await expect(list).toHaveCount(0)
     await expect(page.locator('canvas.maplibregl-canvas')).toHaveCount(1)
 

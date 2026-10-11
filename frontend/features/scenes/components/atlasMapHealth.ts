@@ -21,20 +21,22 @@ export const ATLAS_CONTEXT_RESTORE_DEADLINE_MS = 3000
 
 /**
  * How long a constructed Atlas map may go, within one continuous stretch of
- * the page being visible, without rendering a frame that has its scene data
- * loaded, before the Atlas gives up on it (see watchAtlasMapHealth).
+ * the page being visible, without rendering a frame after its own scenes
+ * source has loaded, before the Atlas gives up on it (see
+ * watchAtlasMapHealth).
  *
  * Derived from the atlas-perf workflow (scripts/atlas-perf.mjs) on the PR
  * previews, phone profile (iPhone 13, 4x CPU on the main thread, Fast 4G,
  * cold cache) under SwiftShader on GitHub's runners: the slowest first
- * rendered map of 69 cold runs across 23 runs from 2026-10-07 to 2026-10-11
- * was 7975 ms (run 38167710080). That figure counts from navigation start and
- * waits on every in-view tile, so it bounds the time from construction to the
- * watched frame from above. The deadline is twice it, rounded up to 16 s; the
- * factor of two is a choice, not a measurement. The runners measure no
- * desktop: one local 1440x900 run of the same script read 6.04 s, about
- * 10.6 s at the workflow's stated 1.75x runner factor (an estimate), which
- * the deadline clears by about 1.5x. It is above the 3.5 s phone gate.
+ * rendered map of 69 cold page loads in 23 workflow runs from 2026-10-07 to
+ * 2026-10-11 was 7975 ms (workflow run 38167710080). That figure counts from
+ * navigation start and waits on every in-view tile, so it bounds the time
+ * from construction to the watched frame from above. The deadline is twice
+ * it, rounded up to 16 s; the factor of two is a choice, not a measurement.
+ * The workflow measures no desktop: one local 1440x900 run of the same script
+ * read 6.04 s, about 10.6 s if the workflow's stated 1.75x factor for its
+ * software renderer applies (an estimate), which the deadline clears by about
+ * 1.5x. It is above the owner's 3.5 s first-map budget for phones.
  */
 export const ATLAS_FIRST_RENDER_DEADLINE_MS = 16_000
 
@@ -69,8 +71,8 @@ export function atlasMapBoundaryReporting(section: string): {
   return { sentryTag: section, errorTags: atlasMapFailureTags }
 }
 
-// Boundary sections (see atlasMapBoundaryReporting) whose map failed with an
-// AtlasMapUnrecoverableError in this page load.
+// Boundary sections (see atlasMapBoundaryReporting) latched through
+// latchAtlasMapFailure in this page load.
 const sectionsFailedThisPage = new Set<string>()
 
 /**
@@ -79,8 +81,10 @@ const sectionsFailedThisPage = new Set<string>()
  * page load: {@link atlasMapSectionFailedThisPage} answers true, and the
  * surface renders its fallback without building another map, so one failure
  * costs one map and one Sentry event per surface until a reload. Any other
- * error (a failed map chunk) is not latched. The Atlas keeps its own latch,
- * `markAtlasMapFailed` in atlasViewport.ts, for the same failures.
+ * error (a failed map chunk) is not latched. The Atlas does not use this
+ * latch: it keeps `markAtlasMapFailed` and `atlasMapFailedThisPage` in
+ * atlasViewport.ts for the same failures, so this answers false for the
+ * Atlas's section even after the Atlas failed.
  */
 export function latchAtlasMapFailure(section: string, error: unknown): void {
   if (error instanceof AtlasMapUnrecoverableError) sectionsFailedThisPage.add(section)
@@ -153,6 +157,9 @@ function visibleTimeDeadline(ms: number, onExpire: () => void) {
  * the restore asked for a context. That event also follows a refused restore,
  * right after the error event: the refusal leaves the destroyed painter in
  * place, so MapLibre's no-painter guard before the event passes.
+ * `isSourceLoaded` is read only for the first-render watchdog, and only while
+ * the style is live: for a source the style has not registered it fires an
+ * `error` event without a source.
  */
 type HealthMap = Pick<MapLibreMap, 'on' | 'off' | 'isSourceLoaded'>
 
@@ -166,9 +173,10 @@ export interface AtlasMapHealth {
    */
   styleLive(): boolean
   /**
-   * Cancels both deadlines and stops reporting, to both callbacks (a reported
-   * failure has already stopped both). The listeners stay on the map, inert,
-   * so call it only as the map is removed.
+   * Cancels the deadlines and stops reporting, to both callbacks (a reported
+   * failure has already stopped both). The event listeners stay on the map,
+   * inert (the watchdog's `render` listener is removed), so call it only as
+   * the map is removed.
    */
   stop(): void
 }
@@ -219,7 +227,10 @@ export interface AtlasMapHealth {
  * style live and that source loaded within ATLAS_FIRST_RENDER_DEADLINE_MS of
  * continuously visible time after the watch began. `render` fires at the end
  * of `Map._render`, so a frame that throws fires none, and a GeoJSON source
- * is loaded only once the worker has answered. The source must be one the
+ * is loaded only once the worker has answered for its current data (or the
+ * source has errored, which MapLibre also counts as loaded). It proves a
+ * frame completed with the worker alive, not that particular features drew.
+ * The source must be one the
  * map owns, never third-party tiles: a tile request has no timeout in
  * MapLibre, so a hung tile response holds `isStyleLoaded()` and
  * `areTilesLoaded()` false indefinitely, and a map that is drawing must not be

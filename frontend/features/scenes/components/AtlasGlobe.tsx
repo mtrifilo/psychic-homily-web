@@ -675,10 +675,12 @@ export function AtlasGlobe() {
   // swaps the map for the scene list for the rest of this mount, instead of
   // the app's error page: the canvas module failed to load, an effect threw,
   // or GlobeCanvas rethrew an AtlasMapUnrecoverableError (a refused or lost
-  // WebGL context, a style that failed to load). That last kind also holds
-  // for the rest of the page load. Exceptions thrown inside MapLibre's own
-  // callbacks (its render frames, map event handlers) are not React errors
-  // and do not reach it.
+  // WebGL context, a style that failed to load, no first frame by the
+  // first-render deadline). That last kind also holds for the rest of the
+  // page load. Exceptions thrown inside MapLibre's own callbacks (its render
+  // frames, map event handlers) are not React errors and do not reach it;
+  // render frames that throw before the first frame reach it only through
+  // the first-render deadline.
   const [mapFailed, setMapFailed] = useState(atlasMapFailedThisPage)
   const handleMapFailed = useCallback((error: unknown) => {
     if (error instanceof AtlasMapUnrecoverableError) markAtlasMapFailed()
