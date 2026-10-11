@@ -1063,6 +1063,7 @@ describe('venuePinTooltipLines', () => {
     expect(venuePinTooltipLines(pin, null)).toEqual({
       title: 'Empty Bottle',
       meta: '9 upcoming · next Fri, Jul 31',
+      showsCta: true,
     })
   })
 
@@ -1070,13 +1071,15 @@ describe('venuePinTooltipLines', () => {
     expect(venuePinTooltipLines({ ...pin, nextShowLabel: '' }, null)).toEqual({
       title: 'Empty Bottle',
       meta: '9 upcoming',
+      showsCta: true,
     })
   })
 
-  it('titles a stacked pin by the stack, with no member counts', () => {
+  it('titles a stacked pin by the stack alone, with no member counts and no shows CTA', () => {
     expect(venuePinTooltipLines(pin, '2 venues at this point')).toEqual({
       title: '2 venues at this point',
       meta: null,
+      showsCta: false,
     })
   })
 })

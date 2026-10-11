@@ -141,9 +141,11 @@ async function tapSceneDot(page: Page) {
 }
 
 /**
- * Counts, from now on, every time the element with `testId` is shown (its
- * inline display set to anything but none), so a check can say a tap never
- * showed it, even for a frame. Returns a reader for the count.
+ * Counts, from now on, every hidden-to-shown transition of the element with
+ * `testId` (its inline display leaving none), so a check can say a tap never
+ * showed it. Each style write is replayed from the mutation records' old
+ * values, so a show and a hide in the same task still count. Returns a reader
+ * for the count.
  */
 async function countShows(page: Page, testId: string) {
   type ShowsWindow = { __shows?: Record<string, number> }
@@ -151,12 +153,39 @@ async function countShows(page: Page, testId: string) {
     const w = window as unknown as ShowsWindow
     const id = el.getAttribute('data-testid')!
     w.__shows = { ...w.__shows, [id]: 0 }
-    new MutationObserver(() => {
-      if ((el as HTMLElement).style.display !== 'none') w.__shows![id] += 1
-    }).observe(el, { attributes: true, attributeFilter: ['style'] })
+    const probe = document.createElement('div')
+    const shown = (style: string | null) => {
+      probe.setAttribute('style', style ?? '')
+      return probe.style.display !== 'none'
+    }
+    new MutationObserver((records) => {
+      // The style each write left: the next record's old value, then the
+      // current attribute for the last write.
+      const values = [...records.map((r) => r.oldValue), el.getAttribute('style')]
+      for (let i = 1; i < values.length; i++) {
+        if (!shown(values[i - 1]) && shown(values[i])) w.__shows![id] += 1
+      }
+    }).observe(el, { attributes: true, attributeFilter: ['style'], attributeOldValue: true })
   })
   return () =>
     page.evaluate((id) => (window as unknown as ShowsWindow).__shows?.[id] ?? 0, testId)
+}
+
+/**
+ * A one-finger tap that drifts `dx` CSS px to the right between press and
+ * lift, through CDP touch events.
+ */
+async function driftingTap(page: Page, x: number, y: number, dx: number) {
+  const cdp = await page.context().newCDPSession(page)
+  await cdp.send('Input.dispatchTouchEvent', {
+    type: 'touchStart',
+    touchPoints: [{ x, y, id: 1 }],
+  })
+  await cdp.send('Input.dispatchTouchEvent', {
+    type: 'touchMove',
+    touchPoints: [{ x: x + dx, y, id: 1 }],
+  })
+  await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] })
 }
 
 /** Whether the primary pointer is coarse, as the page's media queries see it. */
@@ -166,7 +195,8 @@ function pointerIsCoarse(page: Page) {
 
 /**
  * Frames the stacked centroid pin and the Street Room pin together at street
- * zoom, and waits until both are drawn.
+ * zoom, and waits until both are drawn: a centroid room (1 or 2) and the
+ * Street Room (3).
  */
 async function frameBothPins(page: Page) {
   const midpoint = {
@@ -177,14 +207,17 @@ async function frameBothPins(page: Page) {
   await waitForMap(page)
   await expect
     .poll(() =>
-      page.evaluate(
-        () =>
-          (window as unknown as { __atlasMap: AtlasMapSeam }).__atlasMap.queryRenderedFeatures(
-            { layers: ['venue-pins'] },
-          ).length,
-      ),
+      page.evaluate(() => {
+        const features = (
+          window as unknown as { __atlasMap: AtlasMapSeam }
+        ).__atlasMap.queryRenderedFeatures({ layers: ['venue-pins'] }) as {
+          properties?: { id?: number }
+        }[]
+        const ids = new Set(features.map((f) => f.properties?.id))
+        return (ids.has(1) || ids.has(2)) && ids.has(3)
+      }),
     )
-    .toBeGreaterThanOrEqual(2)
+    .toBe(true)
 }
 
 /** A touch drag up from the sheet's grabber at Peek to Half's height. */
@@ -484,6 +517,14 @@ test.describe('Atlas pin and dot taps on a 390x844 phone', () => {
     await expect(tooltip).toBeHidden()
     expect(await tooltipShows(), 'the tooltip never showed for the lone pin').toBe(0)
 
+    // A tap whose finger drifts 4px before lifting is still a tap: Chromium
+    // reports it as a click at the lift point, which is still on the pin.
+    await page.keyboard.press('Escape')
+    await expect(list).toBeVisible()
+    await driftingTap(page, street.x, street.y, 4)
+    await expect(venueSheet).toContainText('Street Room')
+    expect(await tooltipShows(), 'the tooltip never showed for the drifting tap').toBe(0)
+
     // Back to the list, then one tap on the stacked pin's point opens the
     // list at Peek, scoped to the venues that share it.
     await page.keyboard.press('Escape')
@@ -520,7 +561,7 @@ test.describe('Atlas pin and dot taps on a 390x844 phone', () => {
 test.describe('Atlas pin hover under a mouse at 820x844', () => {
   test.use({ viewport: { width: 820, height: 844 }, hasTouch: false })
 
-  test('a stacked pin is named by its stack and a lone pin by its venue', async ({ page }) => {
+  test('a stacked pin is named by its stack alone and a lone pin by its venue', async ({ page }) => {
     await stubAtlas(page)
     await page.goto('/atlas?city=Phoenix%2CAZ')
     await waitForMap(page)
@@ -534,18 +575,19 @@ test.describe('Atlas pin hover under a mouse at 820x844', () => {
 
     const stacked = await settledMapPoint(page, PHOENIX)
     await page.mouse.move(stacked.x, stacked.y)
+    const cta = tooltip.getByText('click for shows', { exact: false })
     await expect(tooltip).toBeVisible()
     await expect(tooltip).toContainText('2 venues at the city centre point')
-    await expect(tooltip).toContainText('click for shows')
     await expect(tooltip).not.toContainText('Centroid Room')
     await expect(tooltip).not.toContainText('upcoming')
+    await expect(cta).toBeHidden()
 
     // A mouse move leaves the camera where it is, so the settled frame holds.
     const street = await mapPoint(page, STREET_ROOM)
     await page.mouse.move(street.x, street.y)
     await expect(tooltip).toContainText('Street Room')
-    await expect(tooltip).toContainText('3 upcoming')
-    await expect(tooltip).toContainText('click for shows')
+    await expect(tooltip.getByText('3 upcoming')).toBeVisible()
+    await expect(cta).toBeVisible()
 
     // A click on the lone pin still opens its venue.
     await page.mouse.click(street.x, street.y)

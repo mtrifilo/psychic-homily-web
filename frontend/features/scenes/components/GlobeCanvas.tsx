@@ -287,6 +287,7 @@ export default function GlobeCanvas({
   const venueTooltipRef = useRef<HTMLDivElement | null>(null)
   const venueTooltipNameRef = useRef<HTMLDivElement | null>(null)
   const venueTooltipMetaRef = useRef<HTMLDivElement | null>(null)
+  const venueTooltipCtaRef = useRef<HTMLDivElement | null>(null)
   // Filled by the map effect (closes over that map), nulled in its cleanup —
   // callers must stay null-safe, same contract as flyToRef.
   const redrawStatusChipRef = useRef<(() => void) | null>(null)
@@ -295,7 +296,9 @@ export default function GlobeCanvas({
   const sceneLabelsRef = useRef<{ el: HTMLElement; lng: number; lat: number }[]>([])
   const clearVenueHoverRef = useRef<(() => void) | null>(null)
   // Clears every hover the map handlers hold: the scene dot and the venue pin,
-  // their tooltips and the pointer cursor. Same lifecycle as clearVenueHoverRef.
+  // their tooltips and the pointer cursor. clearVenueHoverRef clears only the
+  // pin's, for a change to the pin set that leaves the dots as they are. Both
+  // are set by the map effect and nulled in its cleanup.
   const clearPointerHoverRef = useRef<(() => void) | null>(null)
   // The style-loaded map instance, in STATE so the data/label/ring effects
   // below re-run against each fresh map after a hide/show cycle, and against
@@ -373,11 +376,12 @@ export default function GlobeCanvas({
   useEffect(() => {
     onVenueStackSelectRef.current = onVenueStackSelect
   }, [onVenueStackSelect])
-  // A finger cannot hover, so on a coarse pointer the scene dots and venue
-  // pins show no tooltip, set no hover highlight and leave the cursor alone.
-  // The browser emulates a mousemove before a tap's click, and Safari on iOS
-  // drops the click when that mousemove changes the page. Both hover handlers
-  // read this ref; a switch to a coarse pointer clears any hover already held.
+  // While the device's primary pointer is coarse (`pointer: coarse`), the
+  // scene dots and venue pins show no tooltip, set no hover highlight and leave
+  // the cursor alone, whatever input sends the mousemove. The browser emulates
+  // a mousemove before a tap's click, and Safari on iOS drops the click when
+  // that mousemove changes the page. Both hover handlers read this ref; a
+  // switch to a coarse primary pointer clears any hover already held.
   const coarsePointer = useCoarsePointer()
   const coarsePointerRef = useRef(coarsePointer)
   useEffect(() => {
@@ -1232,7 +1236,7 @@ export default function GlobeCanvas({
     // The stack a tap on this pin opens. None without a stack handler, where
     // the pin opens as its venue; the tooltip and the click both read this, so
     // the tooltip never names a list the click does not open.
-    const stackOpenedByPin = (id: number) =>
+    const stackThisPinOpens = (id: number) =>
       onVenueStackSelectRef.current ? stackByVenueIdRef.current.get(id) : undefined
 
     const hideVenueTooltip = () => {
@@ -1254,7 +1258,7 @@ export default function GlobeCanvas({
         hideVenueTooltip()
         return
       }
-      const lines = venuePinTooltipLines(venue, stackOpenedByPin(venue.id)?.scopeLine ?? null)
+      const lines = venuePinTooltipLines(venue, stackThisPinOpens(venue.id)?.scopeLine ?? null)
       // textContent, not innerHTML — venue names are contributor-editable.
       if (venueTooltipNameRef.current) {
         venueTooltipNameRef.current.textContent = lines.title
@@ -1262,6 +1266,9 @@ export default function GlobeCanvas({
       if (venueTooltipMetaRef.current) {
         venueTooltipMetaRef.current.textContent = lines.meta ?? ''
         venueTooltipMetaRef.current.hidden = lines.meta === null
+      }
+      if (venueTooltipCtaRef.current) {
+        venueTooltipCtaRef.current.hidden = !lines.showsCta
       }
       tooltip.style.display = 'block'
       // Same edge-flip as the scene tooltip so a pin near the frame edge
@@ -1282,7 +1289,7 @@ export default function GlobeCanvas({
     ) => {
       const id = pickTopVenue(e.features)
       if (id === null) return
-      const stack = stackOpenedByPin(id)
+      const stack = stackThisPinOpens(id)
       if (stack) {
         onVenueStackSelectRef.current?.(stack.key)
       } else {
@@ -1470,9 +1477,9 @@ export default function GlobeCanvas({
           />
         </div>
       </div>
-      {/* Venue hover tooltip: a title, a meta line (hidden for a stack) and
-          the static CTA. Populated by textContent, since venue names are
-          contributor-editable, so no innerHTML anywhere here. */}
+      {/* Venue hover tooltip: a title, a meta line and the static CTA, the
+          last two hidden for a stack. Populated by textContent, since venue
+          names are contributor-editable, so no innerHTML anywhere here. */}
       <div
         ref={venueTooltipRef}
         data-testid="atlas-venue-tooltip"
@@ -1484,10 +1491,7 @@ export default function GlobeCanvas({
           ref={venueTooltipMetaRef}
           className="font-mono text-[11px] text-muted-foreground"
         />
-        {/* The mock's CTA, held back by PSY-1539 because clicking a pin then
-            opened only a selection seam. PSY-1540 built the panel it promises,
-            so the promise is now true. Static text, so it needs no ref. */}
-        <div className="font-mono text-[11px] text-primary">
+        <div ref={venueTooltipCtaRef} className="font-mono text-[11px] text-primary">
           click for shows →
         </div>
       </div>

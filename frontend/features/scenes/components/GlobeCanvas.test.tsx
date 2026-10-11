@@ -298,7 +298,7 @@ describe('GlobeCanvas sheet-layout seams', () => {
     expect(onVenueSelect).toHaveBeenCalledWith(2)
   })
 
-  it('titles the tooltip of a pin that opens its stack by the stack, with no member counts', () => {
+  it('titles the tooltip of a pin that opens its stack by the stack alone', () => {
     const { map } = renderCanvas({ venueStacks: [STACK], onVenueStackSelect: vi.fn() })
     act(() =>
       map.fire('mousemove:venue-pins', {
@@ -307,13 +307,14 @@ describe('GlobeCanvas sheet-layout seams', () => {
       }),
     )
     const tooltip = screen.getByTestId('atlas-venue-tooltip')
+    const cta = screen.getByText('click for shows', { exact: false })
     expect(tooltip).toHaveStyle({ display: 'block' })
     expect(tooltip).toHaveTextContent('2 venues at the city centre point')
     expect(tooltip).not.toHaveTextContent('Hideout')
     expect(tooltip).not.toHaveTextContent('upcoming')
-    expect(tooltip).toHaveTextContent('click for shows')
+    expect(cta).not.toBeVisible()
 
-    // A lone pin next: its name and counts come back.
+    // A lone pin next: its name, its counts and the CTA come back, visible.
     act(() =>
       map.fire('mousemove:venue-pins', {
         point: { x: 10, y: 10 },
@@ -321,7 +322,8 @@ describe('GlobeCanvas sheet-layout seams', () => {
       }),
     )
     expect(tooltip).toHaveTextContent('Thalia Hall')
-    expect(tooltip).toHaveTextContent('6 upcoming')
+    expect(screen.getByText('6 upcoming')).toBeVisible()
+    expect(cta).toBeVisible()
   })
 
   it('names the top venue of a stacked pin when no stack handler is given, as its click opens it', () => {
@@ -364,7 +366,7 @@ describe('GlobeCanvas sheet-layout seams', () => {
 describe('GlobeCanvas hover on a coarse pointer', () => {
   // The literal query, not an import of it: a drifted query must fail here.
   const COARSE_POINTER_QUERY = '(pointer: coarse)'
-  let matchMedia: ReturnType<typeof installMatchMedia>
+  let matchMedia: ReturnType<typeof installMatchMedia> | null = null
 
   beforeEach(() => {
     stub.state.maps = []
@@ -372,7 +374,8 @@ describe('GlobeCanvas hover on a coarse pointer', () => {
     sessionStorage.clear()
   })
   afterEach(() => {
-    matchMedia.restore()
+    matchMedia?.restore()
+    matchMedia = null
   })
 
   const PIN_MOVE = { point: { x: 10, y: 10 }, features: [{ properties: { id: 3 } }] }
@@ -417,7 +420,7 @@ describe('GlobeCanvas hover on a coarse pointer', () => {
     expect(screen.getByText(sceneTooltipLabel(CHICAGO))).toHaveStyle({ display: 'block' })
     expect(map.setFeatureState).toHaveBeenCalledTimes(2)
 
-    matchMedia.set(COARSE_POINTER_QUERY, true)
+    matchMedia!.set(COARSE_POINTER_QUERY, true)
     expect(tooltip).toHaveStyle({ display: 'none' })
     expect(screen.getByText(sceneTooltipLabel(CHICAGO))).toHaveStyle({ display: 'none' })
     expect(map.removeFeatureState).toHaveBeenCalledWith({ source: 'venues', id: 3 }, 'hover')
@@ -430,7 +433,7 @@ describe('GlobeCanvas hover on a coarse pointer', () => {
     expect(tooltip).toHaveStyle({ display: 'none' })
     expect(map.setFeatureState).toHaveBeenCalledTimes(2)
 
-    matchMedia.set(COARSE_POINTER_QUERY, false)
+    matchMedia!.set(COARSE_POINTER_QUERY, false)
     act(() => map.fire('mousemove:venue-pins', PIN_MOVE))
     expect(tooltip).toHaveStyle({ display: 'block' })
     expect(map.setFeatureState).toHaveBeenCalledTimes(3)
