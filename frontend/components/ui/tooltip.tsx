@@ -21,40 +21,61 @@ const Tooltip = TooltipPrimitive.Root
  * `pointerdown` disarms it, so it suppresses at most the one focus that
  * follows a tap: hover and keyboard focus still open the tooltip.
  *
+ * `revealOnTouch` turns the suppression off. It is for a trigger whose tap
+ * has no other effect, because it wraps a non-interactive or disabled
+ * control: there the tap's focus is the only way a touch user reaches the
+ * tooltip, and the next tap on the trigger or a tap outside closes it.
+ *
  * The caller's handlers run first, and the flag is updated even when one of
  * them default-prevents the event.
  */
 const TooltipTrigger = React.forwardRef<
   React.ElementRef<typeof TooltipPrimitive.Trigger>,
-  React.ComponentPropsWithoutRef<typeof TooltipPrimitive.Trigger>
->(({ onPointerDown, onPointerCancel, onFocus, onClick, ...props }, ref) => {
-  const tapPressedRef = React.useRef(false)
+  React.ComponentPropsWithoutRef<typeof TooltipPrimitive.Trigger> & {
+    /** Open the tooltip on the focus a touch or pen tap gives the trigger. */
+    revealOnTouch?: boolean
+  }
+>(
+  (
+    {
+      revealOnTouch = false,
+      onPointerDown,
+      onPointerCancel,
+      onFocus,
+      onClick,
+      ...props
+    },
+    ref
+  ) => {
+    const tapPressedRef = React.useRef(false)
 
-  return (
-    <TooltipPrimitive.Trigger
-      ref={ref}
-      {...props}
-      onPointerDown={event => {
-        onPointerDown?.(event)
-        tapPressedRef.current =
-          event.pointerType === 'touch' || event.pointerType === 'pen'
-      }}
-      onPointerCancel={event => {
-        onPointerCancel?.(event)
-        tapPressedRef.current = false
-      }}
-      onFocus={event => {
-        onFocus?.(event)
-        if (tapPressedRef.current) event.preventDefault()
-        tapPressedRef.current = false
-      }}
-      onClick={event => {
-        onClick?.(event)
-        tapPressedRef.current = false
-      }}
-    />
-  )
-})
+    return (
+      <TooltipPrimitive.Trigger
+        ref={ref}
+        {...props}
+        onPointerDown={event => {
+          onPointerDown?.(event)
+          tapPressedRef.current =
+            !revealOnTouch &&
+            (event.pointerType === 'touch' || event.pointerType === 'pen')
+        }}
+        onPointerCancel={event => {
+          onPointerCancel?.(event)
+          tapPressedRef.current = false
+        }}
+        onFocus={event => {
+          onFocus?.(event)
+          if (tapPressedRef.current) event.preventDefault()
+          tapPressedRef.current = false
+        }}
+        onClick={event => {
+          onClick?.(event)
+          tapPressedRef.current = false
+        }}
+      />
+    )
+  }
+)
 TooltipTrigger.displayName = TooltipPrimitive.Trigger.displayName
 
 const TooltipContent = React.forwardRef<

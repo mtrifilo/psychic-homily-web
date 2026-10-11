@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest'
 import { createRef, type ComponentProps } from 'react'
-import { act, fireEvent, render, screen } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import {
   Tooltip,
@@ -227,6 +227,57 @@ describe('TooltipTrigger', () => {
     await tabOntoTrigger(user)
 
     expect(await screen.findByRole('tooltip')).toHaveTextContent(TIP)
+  })
+
+  describe('with revealOnTouch', () => {
+    function renderRevealing() {
+      return render(
+        <TooltipProvider delayDuration={0}>
+          <p data-testid="outside">Outside</p>
+          <Tooltip>
+            <TooltipTrigger revealOnTouch>Trigger</TooltipTrigger>
+            <TooltipContent>{TIP}</TooltipContent>
+          </Tooltip>
+        </TooltipProvider>
+      )
+    }
+
+    it.each(['touch', 'pen'] as const)(
+      'opens the tooltip on the focus a %s tap gives the trigger',
+      pointerType => {
+        renderRevealing()
+
+        pressFocus(trigger(), pointerType)
+
+        expect(screen.getByRole('tooltip')).toHaveTextContent(TIP)
+      }
+    )
+
+    it('closes the revealed tooltip on the next tap of the trigger', () => {
+      renderRevealing()
+      pressFocus(trigger(), 'touch')
+      expect(screen.getByRole('tooltip')).toBeInTheDocument()
+
+      // The trigger already holds focus, so the second tap brings no focus.
+      press(trigger(), 'touch')
+
+      expect(screen.queryByRole('tooltip')).toBeNull()
+    })
+
+    it('closes the revealed tooltip on a tap outside', async () => {
+      renderRevealing()
+      pressFocus(trigger(), 'touch')
+      expect(screen.getByRole('tooltip')).toBeInTheDocument()
+
+      // Radix registers its outside-press listener a tick after opening, and
+      // for a touch it dismisses on the click that ends the tap.
+      await act(() => new Promise(resolve => setTimeout(resolve, 0)))
+      const outside = screen.getByTestId('outside')
+      press(outside, 'touch')
+      fireEvent.click(outside)
+
+      await waitFor(() => expect(screen.queryByRole('tooltip')).toBeNull())
+    })
   })
 
   it('suppresses the tap focus on an asChild trigger and still runs the child handlers', () => {
