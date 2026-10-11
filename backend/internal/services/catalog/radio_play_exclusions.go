@@ -207,10 +207,6 @@ func mustSQLColumnRef(ref string) string {
 // reference that is not an identifier, both programming errors.
 func RadioPlayExcludedSQL(dim RadioRankingDimension, cols RadioPlayColumns) string {
 	keyKinds := dim.keyMatchKinds()
-	quoted := make([]string, len(keyKinds))
-	for i, k := range keyKinds {
-		quoted[i] = "'" + k + "'"
-	}
 	field := fmt.Sprintf(
 		"CASE x.match_kind WHEN '%s' THEN n.artist_name WHEN '%s' THEN n.track_title WHEN '%s' THEN n.label_name END",
 		catalogm.RadioPlayExclusionMatchArtistName,
@@ -239,7 +235,7 @@ func RadioPlayExcludedSQL(dim RadioRankingDimension, cols RadioPlayColumns) stri
 		mustSQLColumnRef(cols.LabelName),
 		mustSQLColumnRef(cols.StationID),
 		catalogm.RadioPlayExclusionCategoryPlaceholder,
-		strings.Join(quoted, ", "),
+		"'"+strings.Join(keyKinds, "', '")+"'",
 		field,
 		catalogm.RadioPlayExclusionPatternExact, field,
 		field,

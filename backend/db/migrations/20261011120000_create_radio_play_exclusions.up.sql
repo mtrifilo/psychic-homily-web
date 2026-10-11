@@ -59,6 +59,3 @@ CREATE TABLE radio_play_exclusions (
     CONSTRAINT radio_play_exclusions_rule_unique
         UNIQUE NULLS NOT DISTINCT (match_kind, pattern_type, pattern, station_id)
 );
-
-CREATE INDEX idx_radio_play_exclusions_station
-    ON radio_play_exclusions(station_id) WHERE station_id IS NOT NULL;

@@ -87,23 +87,24 @@ func (s *RadioPlayExclusionsIntegrationSuite) cleanup() {
 // addPlays inserts n copies of a play on the station; title and label are nil
 // when empty.
 func (s *RadioPlayExclusionsIntegrationSuite) addPlays(station, artist, title, label string, n int) {
-	for i := 0; i < n; i++ {
-		play := &catalogm.RadioPlay{
+	plays := make([]catalogm.RadioPlay, n)
+	for i := range plays {
+		plays[i] = catalogm.RadioPlay{
 			EpisodeID:  s.episodeBySlug[station],
 			Position:   i,
 			ArtistName: artist,
+			// ProviderPlayID keeps repeated identical plays distinct under the
+			// (episode_id, dedup_key) unique index.
+			ProviderPlayID: stringPtr(fmt.Sprintf("%s|%s|%s|%d", station, artist, title, i)),
 		}
 		if title != "" {
-			play.TrackTitle = strPtr(title)
+			plays[i].TrackTitle = stringPtr(title)
 		}
 		if label != "" {
-			play.LabelName = strPtr(label)
+			plays[i].LabelName = stringPtr(label)
 		}
-		// ProviderPlayID keeps repeated identical plays distinct under the
-		// (episode_id, dedup_key) unique index.
-		play.ProviderPlayID = strPtr(fmt.Sprintf("%s|%s|%s|%d", station, artist, title, i))
-		s.Require().NoError(s.db.Create(play).Error)
 	}
+	s.Require().NoError(s.db.CreateInBatches(plays, 200).Error)
 }
 
 type radioPlayVerdict struct {
@@ -348,7 +349,6 @@ func (s *RadioPlayExclusionsIntegrationSuite) TestConstraintsRejectInvalidRows()
 		"duplicate seeded rule":       {MatchKind: "artist_name", PatternType: "exact", Pattern: "unknown artist", Category: "placeholder", Reason: "dup"},
 	}
 	for name, row := range bad {
-		row := row
 		err := s.db.Create(&row).Error
 		s.Error(err, name)
 	}
