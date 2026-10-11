@@ -674,6 +674,14 @@ describe('GlobeCanvas failures MapLibre reports outside React', () => {
     expect(screen.getByTestId('globe-cursor-wrap')).toBeInTheDocument()
   })
 
+  it('stops the first-render watchdog when the map is removed', () => {
+    renderInBoundary({ styleLoaded: false })
+    expect(vi.getTimerCount()).toBeGreaterThan(0)
+    cleanup()
+    // The watchdog's deadline was the one timer pending.
+    expect(vi.getTimerCount()).toBe(0)
+  })
+
   it('asks for no source on a frame before the style loads', () => {
     // MapLibre answers a source it has not registered with an error event,
     // which the health watch would read as a failed style.
