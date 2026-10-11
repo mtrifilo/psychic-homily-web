@@ -76,11 +76,15 @@ import { markAtlasMapReady } from '@/lib/atlasMapReady'
 import { CanvasSectionErrorBoundary } from '@/components/shared/CanvasSectionErrorBoundary'
 import { useReducedMotion } from '@/lib/hooks/common/useReducedMotion'
 import {
+  type AtlasSceneListReason,
   AtlasMapUnrecoverableError,
-  atlasMapFailedThisPage,
-  atlasRendersSceneList,
+  atlasMapFailureThisPage,
+  atlasMapRetryCanSucceed,
+  atlasSceneListReason,
   atlasSupportsWebGL2,
+  clearAtlasMapFailure,
   markAtlasMapFailed,
+  reprobeAtlasWebGL2,
 } from '../atlasViewport'
 
 // North America centroid — the default focus before/without visitor geo, so the
@@ -134,7 +138,9 @@ const GlobeCanvas = dynamic(loadGlobeCanvas, {
  * - `'error'`: the scenes query failed. The error message.
  * - `'unmeasured'`: the pane has no size yet, so whether a map can render is
  *   not known. The skeleton.
- * - `'scene-list'`: atlasRendersSceneList says so. The scene list.
+ * - `'scene-list'`, with atlasSceneListReason's reason and whether a retry of
+ *   the map is offered (only for `'map-failed'`): the scene list, which tells
+ *   the visitor that reason.
  * - `'nothing-to-place'`: scenes loaded and none can be placed. A message
  *   with a link to the scenes page.
  * - `'map'`, with the pane's size: the map mounts once there are scenes to
@@ -142,7 +148,8 @@ const GlobeCanvas = dynamic(loadGlobeCanvas, {
  *   GlobeCanvas releases the signal at its first full frame.
  */
 type AtlasRenderBranch =
-  | { kind: 'error' | 'unmeasured' | 'scene-list' | 'nothing-to-place' }
+  | { kind: 'error' | 'unmeasured' | 'nothing-to-place' }
+  | { kind: 'scene-list'; reason: AtlasSceneListReason; offersMapRetry: boolean }
   | { kind: 'map'; size: AtlasPaneSize }
 
 /**
@@ -173,19 +180,27 @@ interface AtlasPaneSize {
 function atlasRenderBranch({
   scenesFailed,
   size,
-  showsSceneList,
+  sceneListReason,
+  mapRetryCanSucceed,
   scenesLoading,
   placeableCount,
 }: {
   scenesFailed: boolean
   size: AtlasPaneSize | null
-  showsSceneList: boolean
+  sceneListReason: AtlasSceneListReason | null
+  mapRetryCanSucceed: boolean
   scenesLoading: boolean
   placeableCount: number
 }): AtlasRenderBranch {
   if (scenesFailed) return { kind: 'error' }
   if (size === null) return { kind: 'unmeasured' }
-  if (showsSceneList) return { kind: 'scene-list' }
+  if (sceneListReason !== null) {
+    return {
+      kind: 'scene-list',
+      reason: sceneListReason,
+      offersMapRetry: sceneListReason === 'map-failed' && mapRetryCanSucceed,
+    }
+  }
   if (!scenesLoading && placeableCount === 0) return { kind: 'nothing-to-place' }
   return { kind: 'map', size }
 }
@@ -195,7 +210,7 @@ function atlasRenderBranch({
  * is a dot; clicking one opens a preview with a link into the scene page.
  * Centered on the visitor's IP-geo region, falling back to North America.
  * The map renders at every width; the scene list stands in for it where
- * atlasRendersSceneList says so.
+ * atlasSceneListReason gives a reason.
  */
 export function AtlasGlobe() {
   const { data, isLoading, isError } = useScenes()
@@ -677,30 +692,58 @@ export function AtlasGlobe() {
   // or GlobeCanvas rethrew an AtlasMapUnrecoverableError (a refused or lost
   // WebGL context, a style that failed to load, no first frame by the
   // first-render deadline). That last kind also holds for the rest of the
-  // page load. Exceptions thrown inside MapLibre's own callbacks (its render
-  // frames, map event handlers) are not React errors and do not reach it;
-  // render frames that throw before the first frame reach it only through
-  // the first-render deadline.
-  const [mapFailed, setMapFailed] = useState(atlasMapFailedThisPage)
+  // page load. A visitor's retry ends the fallback where
+  // atlasMapRetryCanSucceed allows one. Exceptions thrown inside MapLibre's
+  // own callbacks (its render frames, map event handlers) are not React
+  // errors and do not reach it; render frames that throw before the first
+  // frame reach it only through the first-render deadline. The page latch
+  // holds the class of a classed failure, so whether a retry is offered is
+  // read from it; a failure with no class leaves it empty and is offered none.
+  // The latch changes only in the two handlers below, each beside the
+  // setMapFailed that re-renders, so a render reads it current.
+  const [mapFailed, setMapFailed] = useState(() => atlasMapFailureThisPage() !== null)
   const handleMapFailed = useCallback((error: unknown) => {
-    if (error instanceof AtlasMapUnrecoverableError) markAtlasMapFailed()
+    if (error instanceof AtlasMapUnrecoverableError) markAtlasMapFailed(error.failureClass)
     setMapFailed(true)
   }, [])
-  const showsSceneList =
-    size !== null &&
-    atlasRendersSceneList({
-      paneWidthPx: size.width,
-      supportsWebGL2: atlasSupportsWebGL2(),
-      prefersReducedMotion,
-      mapFailed,
-    })
+  // The pane frame outlives the swap between the list and the map, so focus
+  // moved onto it before the retry's button unmounts stays in the pane
+  // whether the new map draws or fails back to the list. The frame is
+  // focusable only from the retry until focus leaves it: a frame that a
+  // click inside an Atlas panel could focus would keep the panels' focus
+  // return (to the opener, from inside the panel or the body) from running.
+  const paneFrameRef = useRef<HTMLDivElement>(null)
+  // A retry whose probe fails changes nothing, so the list stays as it was.
+  const handleRetryMap = useCallback(() => {
+    if (!reprobeAtlasWebGL2()) return
+    const frame = paneFrameRef.current
+    if (frame) {
+      frame.tabIndex = -1
+      frame.addEventListener('blur', () => frame.removeAttribute('tabindex'), {
+        once: true,
+      })
+      frame.focus({ preventScroll: true })
+    }
+    clearAtlasMapFailure()
+    setMapFailed(false)
+  }, [])
+  const sceneListReason =
+    size === null
+      ? null
+      : atlasSceneListReason({
+          paneWidthPx: size.width,
+          supportsWebGL2: atlasSupportsWebGL2(),
+          prefersReducedMotion,
+          mapFailed,
+        })
   const mapSheetLayout =
-    size !== null && !showsSceneList && usesAtlasSheetLayout(size.width)
+    size !== null && sceneListReason === null && usesAtlasSheetLayout(size.width)
 
   const renderBranch = atlasRenderBranch({
     scenesFailed: isError,
     size,
-    showsSceneList,
+    sceneListReason,
+    mapRetryCanSucceed: mapFailed && atlasMapRetryCanSucceed(atlasMapFailureThisPage()),
     scenesLoading: isLoading,
     placeableCount: placeable.length,
   })
@@ -727,6 +770,8 @@ export function AtlasGlobe() {
         scenes={allScenes}
         loading={isLoading}
         followedSlugs={followedSlugs}
+        reason={renderBranch.reason}
+        onRetryMap={renderBranch.offersMapRetry ? handleRetryMap : undefined}
       />
     )
   } else if (renderBranch.kind === 'map' && placeable.length > 0 && pov !== null) {
@@ -1043,8 +1088,9 @@ export function AtlasGlobe() {
   // exactly as without a banner.
   return (
     <div
+      ref={paneFrameRef}
       data-testid="atlas-pane-frame"
-      className={`relative h-[calc(100dvh-var(--topbar-height)-var(--bottom-tab-bar-height)-env(safe-area-inset-bottom)-var(--cookie-banner-height,0px))] w-full overflow-hidden bg-[#0a0a0a] xl:h-[calc(100dvh-4rem-max(env(safe-area-inset-bottom),var(--cookie-banner-height,0px)))] ${
+      className={`relative focus:outline-none h-[calc(100dvh-var(--topbar-height)-var(--bottom-tab-bar-height)-env(safe-area-inset-bottom)-var(--cookie-banner-height,0px))] w-full overflow-hidden bg-[#0a0a0a] xl:h-[calc(100dvh-4rem-max(env(safe-area-inset-bottom),var(--cookie-banner-height,0px)))] ${
         // The sheets anchor to this box's bottom edge, so in the sheet layout
         // it must be exactly the visible area: a minimum taller than a short
         // (landscape phone) viewport would push every sheet below the fold.

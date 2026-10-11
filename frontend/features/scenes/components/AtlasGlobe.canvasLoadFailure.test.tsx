@@ -39,13 +39,13 @@ vi.mock('./atlasMapPreload', () => ({ preloadAtlasMap: () => {} }))
 
 // jsdom has no WebGL, so the real probe would send every case to the list
 // before any canvas is tried.
-let mockMapFailedThisPage = false
+let mockMapFailureThisPage: string | null = null
 vi.mock('../atlasViewport', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../atlasViewport')>()),
   atlasSupportsWebGL2: () => true,
-  atlasMapFailedThisPage: () => mockMapFailedThisPage,
-  markAtlasMapFailed: () => {
-    mockMapFailedThisPage = true
+  atlasMapFailureThisPage: () => mockMapFailureThisPage,
+  markAtlasMapFailed: (failureClass: string) => {
+    mockMapFailureThisPage = failureClass
   },
 }))
 
@@ -92,7 +92,7 @@ describe('AtlasGlobe when the canvas module fails to load', () => {
   const originalResizeObserver = window.ResizeObserver
 
   beforeEach(() => {
-    mockMapFailedThisPage = false
+    mockMapFailureThisPage = null
     window.ResizeObserver = ImmediateResizeObserver as unknown as typeof ResizeObserver
     // The geo-centering fetch is non-fatal; a miss opens on the default focus.
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: false }))
@@ -115,8 +115,11 @@ describe('AtlasGlobe when the canvas module fails to load', () => {
     expect(captureException).toHaveBeenCalledWith(expect.any(Error), {
       tags: { section: 'atlas-map' },
     })
-    // Not the page latch, which only a refused WebGL2 context sets.
-    expect(mockMapFailedThisPage).toBe(false)
+    // Not the page latch, which only an AtlasMapUnrecoverableError sets.
+    expect(mockMapFailureThisPage).toBeNull()
+    // A retry would throw the kept rejected import again, so none is offered.
+    expect(screen.getByText('The map didn’t start. Here are the scenes as a list.')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Try the map again' })).not.toBeInTheDocument()
     first.unmount()
 
     // React.lazy keeps the rejected import, so a later mount in the same page

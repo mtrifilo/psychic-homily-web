@@ -470,6 +470,14 @@ test.describe('Atlas on a phone that prefers reduced motion', () => {
     const list = page.getByTestId('atlas-scene-list')
     await expect(list).toBeVisible({ timeout: 30_000 })
     await expect(page.locator('canvas.maplibregl-canvas')).toHaveCount(0)
+    await expect(list.getByRole('heading', { level: 1, name: 'Scenes' })).toBeVisible()
+    await expect(
+      list.getByText(
+        'You’ve asked for less motion, so the map stays off and the scenes are listed.',
+        { exact: true }
+      )
+    ).toBeVisible()
+    await expect(list.getByRole('button', { name: 'Try the map again' })).toHaveCount(0)
     const firstRow = list.getByRole('button', { expanded: false }).first()
     await firstRow.tap()
     await expect(list.getByRole('link', { name: /Open scene/ })).toHaveAttribute(
@@ -671,7 +679,9 @@ test.describe('Atlas when the map loses its WebGL context', () => {
     await stubAtlas(page, { showsThisWeek: 1 })
   })
 
-  test('falls back to the scene list when the context is not restored', async ({ page }) => {
+  test('falls back to the scene list when the context is not restored, and the retry brings the map back', async ({
+    page,
+  }) => {
     const errors = collectPageErrors(page)
     await page.goto('/atlas')
     await waitForMap(page)
@@ -685,6 +695,16 @@ test.describe('Atlas when the map loses its WebGL context', () => {
     await expect(list).toBeVisible({ timeout: RESTORE_DEADLINE_MS + 10_000 })
     await expect(list.getByText('Phoenix')).toBeVisible()
     await expect(page.locator('canvas.maplibregl-canvas')).toHaveCount(0)
+    await expect(
+      list.getByText('The map didn’t start. Here are the scenes as a list.', { exact: true })
+    ).toBeVisible()
+
+    // A lost context is one a new map can get back: the browser has WebGL2,
+    // so the retry's probe passes and a new map draws.
+    await list.getByRole('button', { name: 'Try the map again' }).click()
+    await expect(list).toHaveCount(0)
+    await waitForMap(page)
+    await expect(page.locator('canvas.maplibregl-canvas')).toHaveCount(1)
     expect(errors).toEqual([])
   })
 

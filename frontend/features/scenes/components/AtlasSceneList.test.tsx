@@ -90,7 +90,7 @@ describe('AtlasSceneList', () => {
   })
 
   it('lists every scene (incl. unplaceable) sorted most-active-first', () => {
-    renderWithProviders(<AtlasSceneList scenes={scenes} loading={false} />)
+    renderWithProviders(<AtlasSceneList scenes={scenes} loading={false} reason="no-webgl2" />)
 
     const rows = screen.getAllByRole('button', { expanded: false })
     expect(rows.map((r) => r.textContent)).toEqual([
@@ -100,17 +100,61 @@ describe('AtlasSceneList', () => {
     ])
   })
 
-  it('heads the list with its title and no intro sentence', () => {
-    renderWithProviders(<AtlasSceneList scenes={scenes} loading={false} />)
-    const heading = screen.getByRole('heading', { level: 1, name: 'Scenes' })
-    // The list follows the heading directly: no paragraph between them.
-    expect(heading.nextElementSibling?.tagName).toBe('UL')
+  describe('the line that says why there is no map', () => {
+    it.each([
+      ['no-webgl2', 'This browser can’t draw the map, so here are the scenes as a list.'],
+      [
+        'reduced-motion',
+        'You’ve asked for less motion, so the map stays off and the scenes are listed.',
+      ],
+      ['map-failed', 'The map didn’t start. Here are the scenes as a list.'],
+    ] as const)('for %s, a paragraph right under the heading reads its line', (reason, line) => {
+      renderWithProviders(<AtlasSceneList scenes={scenes} loading={false} reason={reason} />)
+      const heading = screen.getByRole('heading', { level: 1, name: 'Scenes' })
+      const paragraph = heading.nextElementSibling
+      expect(paragraph?.tagName).toBe('P')
+      expect(paragraph?.textContent).toBe(line)
+      // Read in place, not announced.
+      expect(paragraph).not.toHaveAttribute('role')
+      expect(paragraph).not.toHaveAttribute('aria-live')
+    })
+
+    it('shows the line while the scenes load', () => {
+      renderWithProviders(<AtlasSceneList scenes={[]} loading={true} reason="map-failed" />)
+      expect(
+        screen.getByText('The map didn’t start. Here are the scenes as a list.'),
+      ).toBeInTheDocument()
+    })
+  })
+
+  describe('Try the map again', () => {
+    it.each(['no-webgl2', 'reduced-motion', 'map-failed'] as const)(
+      'is absent for %s when the caller offers no retry',
+      (reason) => {
+        renderWithProviders(<AtlasSceneList scenes={scenes} loading={false} reason={reason} />)
+        expect(screen.queryByRole('button', { name: 'Try the map again' })).not.toBeInTheDocument()
+      },
+    )
+
+    it('sits under the line for a failed map and asks for the map on press', () => {
+      const onRetryMap = vi.fn()
+      renderWithProviders(
+        <AtlasSceneList scenes={scenes} loading={false} reason="map-failed" onRetryMap={onRetryMap} />,
+      )
+      const button = screen.getByRole('button', { name: 'Try the map again' })
+      expect(button.tagName).toBe('BUTTON')
+      expect(button.previousElementSibling).toHaveTextContent(
+        'The map didn’t start. Here are the scenes as a list.',
+      )
+      fireEvent.click(button)
+      expect(onRetryMap).toHaveBeenCalledTimes(1)
+    })
   })
 
   it('marks its root with the test id the Atlas perf script detects', () => {
     // scripts/atlas-perf.mjs stops a run at once when this list renders
     // instead of the map; renaming the id silently turns that into a timeout.
-    renderWithProviders(<AtlasSceneList scenes={scenes} loading={false} />)
+    renderWithProviders(<AtlasSceneList scenes={scenes} loading={false} reason="no-webgl2" />)
     expect(screen.getByTestId('atlas-scene-list')).toBeInTheDocument()
   })
 
@@ -119,6 +163,7 @@ describe('AtlasSceneList', () => {
       <AtlasSceneList
         scenes={scenes}
         loading={false}
+        reason="no-webgl2"
         followedSlugs={new Set([scenes[0].slug])}
       />,
     )
@@ -130,14 +175,14 @@ describe('AtlasSceneList', () => {
   })
 
   it('fetches nothing while all rows are collapsed', () => {
-    renderWithProviders(<AtlasSceneList scenes={scenes} loading={false} />)
+    renderWithProviders(<AtlasSceneList scenes={scenes} loading={false} reason="no-webgl2" />)
 
     expect(mockUseSceneArtists).not.toHaveBeenCalled()
     expect(mockUseSceneShows).not.toHaveBeenCalled()
   })
 
   it('expands a row into the scene preview, fetching only that scene', () => {
-    renderWithProviders(<AtlasSceneList scenes={scenes} loading={false} />)
+    renderWithProviders(<AtlasSceneList scenes={scenes} loading={false} reason="no-webgl2" />)
 
     fireEvent.click(screen.getByRole('button', { name: /Phoenix, AZ/ }))
 
@@ -166,7 +211,7 @@ describe('AtlasSceneList', () => {
   })
 
   it('collapses an expanded row on a second tap', () => {
-    renderWithProviders(<AtlasSceneList scenes={scenes} loading={false} />)
+    renderWithProviders(<AtlasSceneList scenes={scenes} loading={false} reason="no-webgl2" />)
 
     const row = screen.getByRole('button', { name: /Phoenix, AZ/ })
     fireEvent.click(row)
@@ -182,7 +227,7 @@ describe('AtlasSceneList', () => {
   })
 
   it('keeps one row open at a time (expanding B closes A)', () => {
-    renderWithProviders(<AtlasSceneList scenes={scenes} loading={false} />)
+    renderWithProviders(<AtlasSceneList scenes={scenes} loading={false} reason="no-webgl2" />)
 
     fireEvent.click(screen.getByRole('button', { name: /Phoenix, AZ/ }))
     fireEvent.click(screen.getByRole('button', { name: /Chicago, IL/ }))
@@ -212,7 +257,7 @@ describe('AtlasSceneList', () => {
       },
       isLoading: false,
     })
-    renderWithProviders(<AtlasSceneList scenes={scenes} loading={false} />)
+    renderWithProviders(<AtlasSceneList scenes={scenes} loading={false} reason="no-webgl2" />)
 
     fireEvent.click(screen.getByRole('button', { name: /Chicago, IL/ }))
 
@@ -220,12 +265,12 @@ describe('AtlasSceneList', () => {
   })
 
   it('shows the loading state', () => {
-    renderWithProviders(<AtlasSceneList scenes={[]} loading={true} />)
+    renderWithProviders(<AtlasSceneList scenes={[]} loading={true} reason="no-webgl2" />)
     expect(screen.getByText('Loading…')).toBeInTheDocument()
   })
 
   it('shows both headline counts on the row (payoff parity with the panel)', () => {
-    renderWithProviders(<AtlasSceneList scenes={scenes} loading={false} />)
+    renderWithProviders(<AtlasSceneList scenes={scenes} loading={false} reason="no-webgl2" />)
 
     expect(
       screen.getByRole('button', { name: /Chicago, IL/ }),
@@ -233,7 +278,7 @@ describe('AtlasSceneList', () => {
   })
 
   it('expands an unplaceable scene into a working preview (globe can never show these)', () => {
-    renderWithProviders(<AtlasSceneList scenes={scenes} loading={false} />)
+    renderWithProviders(<AtlasSceneList scenes={scenes} loading={false} reason="no-webgl2" />)
 
     fireEvent.click(screen.getByRole('button', { name: /Faketown, ZZ/ }))
 
@@ -252,7 +297,7 @@ describe('AtlasSceneList', () => {
       isLoading: false,
       isError: true,
     })
-    renderWithProviders(<AtlasSceneList scenes={scenes} loading={false} />)
+    renderWithProviders(<AtlasSceneList scenes={scenes} loading={false} reason="no-webgl2" />)
 
     fireEvent.click(screen.getByRole('button', { name: /Chicago, IL/ }))
 

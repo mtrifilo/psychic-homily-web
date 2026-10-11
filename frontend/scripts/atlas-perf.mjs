@@ -8,7 +8,7 @@
 // Target a production build (a Vercel preview, or `next build && next start`).
 // `next dev` serves unminified, uncompressed bundles and is not a valid target.
 // AtlasGlobe renders a scene list instead of the map in the conditions
-// atlasRendersSceneList (features/scenes/atlasViewport.ts) names; the script
+// atlasSceneListReason (features/scenes/atlasViewport.ts) names; the script
 // sets up none of them, and if the page shows the list anyway it stops at once
 // with exit code 2.
 //
@@ -321,7 +321,7 @@ async function oneRun(browser, opts) {
   const firstMapMs = await Promise.race([firstMapReported, timeout(READY_TIMEOUT_MS)])
   if (firstMapMs === 'scene-list') {
     await context.close()
-    throw new Error('the page rendered the Atlas scene list, not the map: a condition atlasRendersSceneList names held, including a map that failed to start (see the header)')
+    throw new Error('the page rendered the Atlas scene list, not the map: a condition atlasSceneListReason names held, including a map that failed to start (see the header)')
   }
   if (firstMapMs === null) {
     await context.close()
