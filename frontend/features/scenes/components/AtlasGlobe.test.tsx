@@ -200,14 +200,20 @@ vi.mock('@/lib/atlasMapReady', async (importOriginal) => {
 let mockSupportsWebGL2 = true
 // The page-load failure latch, reset per case so one case's failed map does
 // not send every later case to the list.
-let mockMapFailedThisPage = false
+let mockMapFailureThisPage: AtlasMapFailureClass | null = null
+// What a visitor's retry probe answers; counted so a case can assert it ran.
+const mockReprobeWebGL2 = vi.fn(() => true)
 vi.mock('../atlasViewport', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../atlasViewport')>()),
   atlasSupportsWebGL2: () => mockSupportsWebGL2,
-  atlasMapFailedThisPage: () => mockMapFailedThisPage,
-  markAtlasMapFailed: () => {
-    mockMapFailedThisPage = true
+  atlasMapFailureThisPage: () => mockMapFailureThisPage,
+  markAtlasMapFailed: (failureClass: AtlasMapFailureClass) => {
+    mockMapFailureThisPage = failureClass
   },
+  clearAtlasMapFailure: () => {
+    mockMapFailureThisPage = null
+  },
+  reprobeAtlasWebGL2: () => mockReprobeWebGL2(),
 }))
 
 import { AtlasGlobe } from './AtlasGlobe'
@@ -305,7 +311,9 @@ describe('AtlasGlobe', () => {
     setMockContainerWidth(500)
     mockSupportsWebGL2 = true
     mockCanvasThrowsOnStart = false
-    mockMapFailedThisPage = false
+    mockMapFailureThisPage = null
+    mockReprobeWebGL2.mockReset()
+    mockReprobeWebGL2.mockReturnValue(true)
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     ;(window as any).ResizeObserver = ImmediateResizeObserver
     mockUseScenes.mockReset()
@@ -475,7 +483,7 @@ describe('AtlasGlobe', () => {
       mockUseScenes.mockReturnValue({ data: sampleData, isLoading: false, isError: false })
       const first = renderWithProviders(<AtlasGlobe />)
       await waitFor(() => expect(screen.getByTestId('atlas-scene-list')).toBeInTheDocument())
-      expect(mockMapFailedThisPage).toBe(true)
+      expect(mockMapFailureThisPage).toBe('context-refused')
       first.unmount()
 
       mockCanvasThrowsOnStart = false
@@ -492,7 +500,7 @@ describe('AtlasGlobe', () => {
       setMockContainerWidth(390)
       renderWithScenes()
       await waitFor(() => expect(screen.getByTestId('atlas-scene-list')).toBeInTheDocument())
-      expect(mockMapFailedThisPage).toBe(true)
+      expect(mockMapFailureThisPage).toBe('context-lost')
       expect(captureException).toHaveBeenCalledWith(expect.any(Error), {
         tags: { atlas_map_failure: 'context-lost', section: 'atlas-map' },
       })
@@ -507,7 +515,7 @@ describe('AtlasGlobe', () => {
       mockUseScenes.mockReturnValue({ data: sampleData, isLoading: false, isError: false })
       const first = renderWithProviders(<AtlasGlobe />)
       await waitFor(() => expect(screen.getByTestId('atlas-scene-list')).toBeInTheDocument())
-      expect(mockMapFailedThisPage).toBe(false)
+      expect(mockMapFailureThisPage).toBeNull()
       // Reported with the section tag alone: it carries no failure class.
       expect(captureException).toHaveBeenCalledWith(expect.any(Error), {
         tags: { section: 'atlas-map' },
@@ -518,6 +526,129 @@ describe('AtlasGlobe', () => {
       renderWithScenes()
       expect(await screen.findByTestId('globe-canvas')).toBeInTheDocument()
       quiet.mockRestore()
+    })
+
+    describe('why the list stands in, and the retry', () => {
+      const NO_WEBGL2_LINE = 'This browser can’t draw the map, so here are the scenes as a list.'
+      const REDUCED_MOTION_LINE =
+        'You’ve asked for less motion, so the map stays off and the scenes are listed.'
+      const MAP_FAILED_LINE = 'The map didn’t start. Here are the scenes as a list.'
+      const retryButton = () => screen.queryByRole('button', { name: 'Try the map again' })
+
+      /** Renders on a phone pane with a map that fails as `failure` on start. */
+      async function renderFailedMap(failure: AtlasMapFailureClass | 'other') {
+        mockCanvasThrowsOnStart = failure
+        setMockContainerWidth(390)
+        renderWithScenes()
+        await waitFor(() => expect(screen.getByTestId('atlas-scene-list')).toBeInTheDocument())
+      }
+
+      it('says the browser cannot draw the map, with no retry, without WebGL2', () => {
+        mockSupportsWebGL2 = false
+        setMockContainerWidth(390)
+        renderWithScenes()
+        expect(screen.getByText(NO_WEBGL2_LINE)).toBeInTheDocument()
+        expect(retryButton()).not.toBeInTheDocument()
+      })
+
+      it('says the visitor asked for less motion, with no retry, for reduced motion', () => {
+        matchMedia = installMatchMedia({ [REDUCED_MOTION_QUERY]: true })
+        setMockContainerWidth(390)
+        renderWithScenes()
+        expect(screen.getByText(REDUCED_MOTION_LINE)).toBeInTheDocument()
+        expect(retryButton()).not.toBeInTheDocument()
+      })
+
+      it('names reduced motion, with no retry, when a failed map is under it too', async () => {
+        const quiet = vi.spyOn(console, 'error').mockImplementation(() => {})
+        matchMedia = installMatchMedia({ [REDUCED_MOTION_QUERY]: false })
+        await renderFailedMap('context-lost')
+        matchMedia.set(REDUCED_MOTION_QUERY, true)
+        expect(await screen.findByText(REDUCED_MOTION_LINE)).toBeInTheDocument()
+        expect(retryButton()).not.toBeInTheDocument()
+        quiet.mockRestore()
+      })
+
+      it.each([
+        'context-lost',
+        'context-lost-during-restore',
+        'context-lost-before-style',
+        'context-restore-refused',
+      ] as const)('offers a retry after %s', async (failure) => {
+        const quiet = vi.spyOn(console, 'error').mockImplementation(() => {})
+        await renderFailedMap(failure)
+        expect(screen.getByText(MAP_FAILED_LINE)).toBeInTheDocument()
+        expect(retryButton()).toBeInTheDocument()
+        quiet.mockRestore()
+      })
+
+      it.each(['context-refused', 'style-load-failed', 'other'] as const)(
+        'says the map did not start, with no retry, after %s',
+        async (failure) => {
+          const quiet = vi.spyOn(console, 'error').mockImplementation(() => {})
+          await renderFailedMap(failure)
+          expect(screen.getByText(MAP_FAILED_LINE)).toBeInTheDocument()
+          expect(retryButton()).not.toBeInTheDocument()
+          quiet.mockRestore()
+        },
+      )
+
+      it('re-probes on press and mounts the map again when the probe passes', async () => {
+        const quiet = vi.spyOn(console, 'error').mockImplementation(() => {})
+        await renderFailedMap('context-lost')
+        expect(mockMapFailureThisPage).toBe('context-lost')
+        mockCanvasThrowsOnStart = false
+        await userEvent.click(retryButton()!)
+        expect(mockReprobeWebGL2).toHaveBeenCalledTimes(1)
+        await expectMap()
+        // The page latch is cleared too, so a later mount builds a map.
+        expect(mockMapFailureThisPage).toBeNull()
+        quiet.mockRestore()
+      })
+
+      it('keeps the list, its line and its button when the re-probe fails', async () => {
+        const quiet = vi.spyOn(console, 'error').mockImplementation(() => {})
+        await renderFailedMap('context-lost')
+        mockCanvasThrowsOnStart = false
+        mockReprobeWebGL2.mockReturnValue(false)
+        await userEvent.click(retryButton()!)
+        expect(mockReprobeWebGL2).toHaveBeenCalledTimes(1)
+        expect(screen.getByTestId('atlas-scene-list')).toBeInTheDocument()
+        expect(screen.queryByTestId('globe-canvas')).not.toBeInTheDocument()
+        expect(screen.getByText(MAP_FAILED_LINE)).toBeInTheDocument()
+        expect(retryButton()).toBeInTheDocument()
+        expect(mockMapFailureThisPage).toBe('context-lost')
+        quiet.mockRestore()
+      })
+
+      it('comes back to the list with its retry when the retried map fails again', async () => {
+        const quiet = vi.spyOn(console, 'error').mockImplementation(() => {})
+        await renderFailedMap('context-lost')
+        await userEvent.click(retryButton()!)
+        await waitFor(() => expect(screen.getByText(MAP_FAILED_LINE)).toBeInTheDocument())
+        expect(retryButton()).toBeInTheDocument()
+        expect(mockMapFailureThisPage).toBe('context-lost')
+        quiet.mockRestore()
+      })
+
+      it('ends the retries when the retried map is refused a context', async () => {
+        const quiet = vi.spyOn(console, 'error').mockImplementation(() => {})
+        await renderFailedMap('context-restore-refused')
+        mockCanvasThrowsOnStart = 'context-refused'
+        await userEvent.click(retryButton()!)
+        await waitFor(() => expect(mockMapFailureThisPage).toBe('context-refused'))
+        expect(screen.getByText(MAP_FAILED_LINE)).toBeInTheDocument()
+        expect(retryButton()).not.toBeInTheDocument()
+        quiet.mockRestore()
+      })
+
+      it('offers the retry on a later mount from the failure class the page latched', () => {
+        mockMapFailureThisPage = 'context-lost'
+        setMockContainerWidth(390)
+        renderWithScenes()
+        expect(screen.getByText(MAP_FAILED_LINE)).toBeInTheDocument()
+        expect(retryButton()).toBeInTheDocument()
+      })
     })
 
     it('shows the error state, not the list, when scenes fail without WebGL2', () => {

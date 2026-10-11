@@ -4,7 +4,8 @@ import { installMatchMedia } from '@/test/mocks/matchMedia'
 import {
   ATLAS_COMPACT_VIEWPORT_QUERY,
   ATLAS_REDUCED_MOTION_LIST_BELOW_PX,
-  atlasRendersSceneList,
+  atlasMapRetryCanSucceed,
+  atlasSceneListReason,
   isAtlasCompactViewport,
   probeWebGL2,
   useAtlasCompactViewport,
@@ -34,15 +35,15 @@ describe('useAtlasCompactViewport', () => {
   })
 })
 
-describe('atlasRendersSceneList', () => {
+describe('atlasSceneListReason', () => {
   const below = ATLAS_REDUCED_MOTION_LIST_BELOW_PX - 1
   const at = ATLAS_REDUCED_MOTION_LIST_BELOW_PX
 
   it('gives everyone with WebGL2 and no motion preference the map, phones included', () => {
     for (const paneWidthPx of [320, 360, 390, below, at, 1440]) {
       expect(
-        atlasRendersSceneList({ paneWidthPx, supportsWebGL2: true, prefersReducedMotion: false, mapFailed: false }),
-      ).toBe(false)
+        atlasSceneListReason({ paneWidthPx, supportsWebGL2: true, prefersReducedMotion: false, mapFailed: false }),
+      ).toBeNull()
     }
   })
 
@@ -50,83 +51,103 @@ describe('atlasRendersSceneList', () => {
     for (const paneWidthPx of [390, below, at, 1440]) {
       for (const prefersReducedMotion of [false, true]) {
         expect(
-          atlasRendersSceneList({ paneWidthPx, supportsWebGL2: false, prefersReducedMotion, mapFailed: false }),
-        ).toBe(true)
+          atlasSceneListReason({ paneWidthPx, supportsWebGL2: false, prefersReducedMotion, mapFailed: false }),
+        ).toBe('no-webgl2')
       }
     }
   })
 
   it.each([
-    [390, true],
-    [below, true],
-    [at, false],
-    [1440, false],
-  ])('for reduced motion on a %ipx pane, lists the scenes: %s', (paneWidthPx, list) => {
+    [390, 'reduced-motion'],
+    [below, 'reduced-motion'],
+    [at, null],
+    [1440, null],
+  ])('for reduced motion on a %ipx pane, gives %s', (paneWidthPx, reason) => {
     expect(
-      atlasRendersSceneList({
+      atlasSceneListReason({
         paneWidthPx,
         supportsWebGL2: true,
         prefersReducedMotion: true,
         mapFailed: false,
       }),
-    ).toBe(list)
+    ).toBe(reason)
   })
 })
 
-describe('atlasRendersSceneList over every combination of its inputs', () => {
+describe('atlasSceneListReason over every combination of its inputs', () => {
   const below = ATLAS_REDUCED_MOTION_LIST_BELOW_PX - 1
   const at = ATLAS_REDUCED_MOTION_LIST_BELOW_PX
 
   // Written out row by row rather than derived, so the table states the rule
   // instead of restating the implementation.
   it.each([
-    // supportsWebGL2, prefersReducedMotion, mapFailed, paneWidthPx, list
-    [true, false, false, below, false],
-    [true, false, false, at, false],
-    [true, true, false, below, true],
-    [true, true, false, at, false],
-    [true, false, true, below, true],
-    [true, false, true, at, true],
-    [true, true, true, below, true],
-    [true, true, true, at, true],
-    [false, false, false, below, true],
-    [false, false, false, at, true],
-    [false, true, false, below, true],
-    [false, true, false, at, true],
-    [false, false, true, below, true],
-    [false, false, true, at, true],
-    [false, true, true, below, true],
-    [false, true, true, at, true],
+    // supportsWebGL2, prefersReducedMotion, mapFailed, paneWidthPx, reason
+    [true, false, false, below, null],
+    [true, false, false, at, null],
+    [true, true, false, below, 'reduced-motion'],
+    [true, true, false, at, null],
+    [true, false, true, below, 'map-failed'],
+    [true, false, true, at, 'map-failed'],
+    [true, true, true, below, 'reduced-motion'],
+    [true, true, true, at, 'map-failed'],
+    [false, false, false, below, 'no-webgl2'],
+    [false, false, false, at, 'no-webgl2'],
+    [false, true, false, below, 'no-webgl2'],
+    [false, true, false, at, 'no-webgl2'],
+    [false, false, true, below, 'no-webgl2'],
+    [false, false, true, at, 'no-webgl2'],
+    [false, true, true, below, 'no-webgl2'],
+    [false, true, true, at, 'no-webgl2'],
   ])(
-    'WebGL2 %s, reduced motion %s, failed map %s, %ipx pane: lists the scenes %s',
-    (supportsWebGL2, prefersReducedMotion, mapFailed, paneWidthPx, list) => {
+    'WebGL2 %s, reduced motion %s, failed map %s, %ipx pane: %s',
+    (supportsWebGL2, prefersReducedMotion, mapFailed, paneWidthPx, reason) => {
       expect(
-        atlasRendersSceneList({ paneWidthPx, supportsWebGL2, prefersReducedMotion, mapFailed }),
-      ).toBe(list)
+        atlasSceneListReason({ paneWidthPx, supportsWebGL2, prefersReducedMotion, mapFailed }),
+      ).toBe(reason)
     },
   )
 })
 
 describe('a failed map', () => {
-  it('lists the scenes at every width, whatever the probe and preference say', () => {
+  it('lists the scenes at every width when it is the only reason', () => {
     for (const paneWidthPx of [390, 1440]) {
       expect(
-        atlasRendersSceneList({
+        atlasSceneListReason({
           paneWidthPx,
           supportsWebGL2: true,
           prefersReducedMotion: false,
           mapFailed: true,
         }),
-      ).toBe(true)
+      ).toBe('map-failed')
     }
   })
 
-  it('latches a failure for the rest of the page load', async () => {
+  it('latches a failure and its class for the page load, until a retry clears it', async () => {
     vi.resetModules()
-    const { atlasMapFailedThisPage, markAtlasMapFailed } = await import('./atlasViewport')
-    expect(atlasMapFailedThisPage()).toBe(false)
-    markAtlasMapFailed()
-    expect(atlasMapFailedThisPage()).toBe(true)
+    const { atlasMapFailureThisPage, clearAtlasMapFailure, markAtlasMapFailed } =
+      await import('./atlasViewport')
+    expect(atlasMapFailureThisPage()).toBeNull()
+    markAtlasMapFailed('context-lost')
+    expect(atlasMapFailureThisPage()).toBe('context-lost')
+    clearAtlasMapFailure()
+    expect(atlasMapFailureThisPage()).toBeNull()
+  })
+})
+
+describe('atlasMapRetryCanSucceed', () => {
+  it.each([
+    ['context-lost', true],
+    ['context-lost-during-restore', true],
+    ['context-lost-before-style', true],
+    ['context-restore-refused', true],
+    ['context-refused', false],
+    ['style-load-failed', false],
+  ] as const)('after %s: %s', (failureClass, retry) => {
+    expect(atlasMapRetryCanSucceed(failureClass)).toBe(retry)
+  })
+
+  it('offers no retry for a failure that carries no class', () => {
+    expect(atlasMapRetryCanSucceed(null)).toBe(false)
   })
 })
 
@@ -205,5 +226,43 @@ describe('atlasSupportsWebGL2', () => {
     expect(atlasSupportsWebGL2()).toBe(false)
     expect(createElement).toHaveBeenCalledTimes(1)
     expect(getContext).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('reprobeAtlasWebGL2', () => {
+  afterEach(() => {
+    vi.restoreAllMocks()
+  })
+
+  function stubCanvasContexts(...answers: (object | null)[]) {
+    const getContext = vi.fn()
+    for (const answer of answers) getContext.mockReturnValueOnce(answer)
+    const realCreateElement = document.createElement.bind(document)
+    vi.spyOn(document, 'createElement').mockImplementation((tag: string) =>
+      tag === 'canvas'
+        ? ({ getContext } as unknown as HTMLCanvasElement)
+        : realCreateElement(tag),
+    )
+    return getContext
+  }
+
+  it('probes a fresh canvas on every call', async () => {
+    vi.resetModules()
+    const { reprobeAtlasWebGL2 } = await import('./atlasViewport')
+    const context = { getExtension: () => null }
+    const getContext = stubCanvasContexts(null, context)
+    expect(reprobeAtlasWebGL2()).toBe(false)
+    expect(reprobeAtlasWebGL2()).toBe(true)
+    expect(getContext).toHaveBeenCalledTimes(2)
+  })
+
+  it('leaves the answer kept for the page load alone', async () => {
+    vi.resetModules()
+    const { atlasSupportsWebGL2, reprobeAtlasWebGL2 } = await import('./atlasViewport')
+    const context = { getExtension: () => null }
+    stubCanvasContexts(context, null)
+    expect(atlasSupportsWebGL2()).toBe(true)
+    expect(reprobeAtlasWebGL2()).toBe(false)
+    expect(atlasSupportsWebGL2()).toBe(true)
   })
 })

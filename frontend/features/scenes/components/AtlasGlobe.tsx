@@ -76,11 +76,16 @@ import { markAtlasMapReady } from '@/lib/atlasMapReady'
 import { CanvasSectionErrorBoundary } from '@/components/shared/CanvasSectionErrorBoundary'
 import { useReducedMotion } from '@/lib/hooks/common/useReducedMotion'
 import {
+  type AtlasMapFailureClass,
+  type AtlasSceneListReason,
   AtlasMapUnrecoverableError,
-  atlasMapFailedThisPage,
-  atlasRendersSceneList,
+  atlasMapFailureThisPage,
+  atlasMapRetryCanSucceed,
+  atlasSceneListReason,
   atlasSupportsWebGL2,
+  clearAtlasMapFailure,
   markAtlasMapFailed,
+  reprobeAtlasWebGL2,
 } from '../atlasViewport'
 
 // North America centroid — the default focus before/without visitor geo, so the
@@ -134,7 +139,8 @@ const GlobeCanvas = dynamic(loadGlobeCanvas, {
  * - `'error'`: the scenes query failed. The error message.
  * - `'unmeasured'`: the pane has no size yet, so whether a map can render is
  *   not known. The skeleton.
- * - `'scene-list'`: atlasRendersSceneList says so. The scene list.
+ * - `'scene-list'`, with atlasSceneListReason's reason: the scene list,
+ *   which tells the visitor that reason.
  * - `'nothing-to-place'`: scenes loaded and none can be placed. A message
  *   with a link to the scenes page.
  * - `'map'`, with the pane's size: the map mounts once there are scenes to
@@ -142,7 +148,8 @@ const GlobeCanvas = dynamic(loadGlobeCanvas, {
  *   GlobeCanvas releases the signal at its first full frame.
  */
 type AtlasRenderBranch =
-  | { kind: 'error' | 'unmeasured' | 'scene-list' | 'nothing-to-place' }
+  | { kind: 'error' | 'unmeasured' | 'nothing-to-place' }
+  | { kind: 'scene-list'; reason: AtlasSceneListReason }
   | { kind: 'map'; size: AtlasPaneSize }
 
 /**
@@ -173,19 +180,19 @@ interface AtlasPaneSize {
 function atlasRenderBranch({
   scenesFailed,
   size,
-  showsSceneList,
+  sceneListReason,
   scenesLoading,
   placeableCount,
 }: {
   scenesFailed: boolean
   size: AtlasPaneSize | null
-  showsSceneList: boolean
+  sceneListReason: AtlasSceneListReason | null
   scenesLoading: boolean
   placeableCount: number
 }): AtlasRenderBranch {
   if (scenesFailed) return { kind: 'error' }
   if (size === null) return { kind: 'unmeasured' }
-  if (showsSceneList) return { kind: 'scene-list' }
+  if (sceneListReason !== null) return { kind: 'scene-list', reason: sceneListReason }
   if (!scenesLoading && placeableCount === 0) return { kind: 'nothing-to-place' }
   return { kind: 'map', size }
 }
@@ -195,7 +202,7 @@ function atlasRenderBranch({
  * is a dot; clicking one opens a preview with a link into the scene page.
  * Centered on the visitor's IP-geo region, falling back to North America.
  * The map renders at every width; the scene list stands in for it where
- * atlasRendersSceneList says so.
+ * atlasSceneListReason gives a reason.
  */
 export function AtlasGlobe() {
   const { data, isLoading, isError } = useScenes()
@@ -677,30 +684,47 @@ export function AtlasGlobe() {
   // or GlobeCanvas rethrew an AtlasMapUnrecoverableError (a refused or lost
   // WebGL context, a style that failed to load, no first frame by the
   // first-render deadline). That last kind also holds for the rest of the
-  // page load. Exceptions thrown inside MapLibre's own callbacks (its render
-  // frames, map event handlers) are not React errors and do not reach it;
-  // render frames that throw before the first frame reach it only through
-  // the first-render deadline.
-  const [mapFailed, setMapFailed] = useState(atlasMapFailedThisPage)
+  // page load. A visitor's retry ends the fallback where
+  // atlasMapRetryCanSucceed allows one. Exceptions thrown inside MapLibre's
+  // own callbacks (its render frames, map event handlers) are not React
+  // errors and do not reach it; render frames that throw before the first
+  // frame reach it only through the first-render deadline. Holds the
+  // failure's class, null for a failure that carries none; the whole value is
+  // null while no map has failed.
+  const [mapFailure, setMapFailure] = useState<{
+    failureClass: AtlasMapFailureClass | null
+  } | null>(() => {
+    const failureClass = atlasMapFailureThisPage()
+    return failureClass === null ? null : { failureClass }
+  })
   const handleMapFailed = useCallback((error: unknown) => {
-    if (error instanceof AtlasMapUnrecoverableError) markAtlasMapFailed()
-    setMapFailed(true)
+    const failureClass =
+      error instanceof AtlasMapUnrecoverableError ? error.failureClass : null
+    if (failureClass !== null) markAtlasMapFailed(failureClass)
+    setMapFailure({ failureClass })
   }, [])
-  const showsSceneList =
-    size !== null &&
-    atlasRendersSceneList({
-      paneWidthPx: size.width,
-      supportsWebGL2: atlasSupportsWebGL2(),
-      prefersReducedMotion,
-      mapFailed,
-    })
+  // A retry whose probe fails changes nothing, so the list stays as it was.
+  const handleRetryMap = useCallback(() => {
+    if (!reprobeAtlasWebGL2()) return
+    clearAtlasMapFailure()
+    setMapFailure(null)
+  }, [])
+  const sceneListReason =
+    size === null
+      ? null
+      : atlasSceneListReason({
+          paneWidthPx: size.width,
+          supportsWebGL2: atlasSupportsWebGL2(),
+          prefersReducedMotion,
+          mapFailed: mapFailure !== null,
+        })
   const mapSheetLayout =
-    size !== null && !showsSceneList && usesAtlasSheetLayout(size.width)
+    size !== null && sceneListReason === null && usesAtlasSheetLayout(size.width)
 
   const renderBranch = atlasRenderBranch({
     scenesFailed: isError,
     size,
-    showsSceneList,
+    sceneListReason,
     scenesLoading: isLoading,
     placeableCount: placeable.length,
   })
@@ -727,6 +751,13 @@ export function AtlasGlobe() {
         scenes={allScenes}
         loading={isLoading}
         followedSlugs={followedSlugs}
+        reason={renderBranch.reason}
+        onRetryMap={
+          renderBranch.reason === 'map-failed' &&
+          atlasMapRetryCanSucceed(mapFailure?.failureClass ?? null)
+            ? handleRetryMap
+            : undefined
+        }
       />
     )
   } else if (renderBranch.kind === 'map' && placeable.length > 0 && pov !== null) {
