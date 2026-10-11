@@ -1022,16 +1022,19 @@ func (s *ChartsService) getOpenersToWatchUncached(window contracts.ChartWindow, 
 }
 
 // broadcasterKeySQL is the SQL identity of "one broadcaster" for station
-// counting: stations grouped under a radio_network collapse to the network
-// (WFMU's flagship + stream-only sub-channels are one broadcaster, not four),
-// standalone stations count individually. Negating the station id keeps the
-// two key spaces disjoint — both columns are positive serials. The collapse
-// also keeps counts stable across the known WFMU family show mis-attribution
-// churn, since every family member maps to the same network. Any future
-// surface that shows a per-artist station count (drill-downs, artist-page
-// radio strips) must count through this same identity or its numbers will
-// contradict the chart's.
-const broadcasterKeySQL = `COALESCE(rst.network_id, -rst.id)`
+// counting, over the radio_stations row aliased stationsAlias: stations grouped
+// under a radio_network collapse to the network (WFMU's flagship + stream-only
+// sub-channels are one broadcaster, not four), standalone stations count
+// individually. Negating the station id keeps the two key spaces disjoint,
+// since both columns are positive serials. The collapse also keeps counts stable
+// across the known WFMU family show mis-attribution churn, since every family
+// member maps to the same network. Any future surface that shows a per-artist
+// station count (drill-downs, artist-page radio strips) must count through this
+// same identity or its numbers will contradict the chart's. stationsAlias must
+// be a compile-time SQL identifier.
+func broadcasterKeySQL(stationsAlias string) string {
+	return "COALESCE(" + stationsAlias + ".network_id, -" + stationsAlias + ".id)"
+}
 
 // GetOnTheRadioArtists returns artists ranked by resolved radio plays within
 // the window — the zero-engagement discovery signal from station playlists.
@@ -1096,7 +1099,7 @@ func (s *ChartsService) getOnTheRadioArtistsUncached(window contracts.ChartWindo
 			COALESCE(a.city, '') AS city,
 			COALESCE(a.state, '') AS state,
 			COUNT(*) AS play_count,
-			COUNT(DISTINCT ` + broadcasterKeySQL + `) AS station_count,
+			COUNT(DISTINCT ` + broadcasterKeySQL("rst") + `) AS station_count,
 			BOOL_OR(rp.is_new) AS is_new,
 			COUNT(*) OVER() AS total
 		FROM radio_plays rp
