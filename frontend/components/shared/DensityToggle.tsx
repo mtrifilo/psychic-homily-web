@@ -89,13 +89,15 @@ export function DensityToggle({
     </div>
   )
 
-  // Wrap in a span trigger when disabled — Radix Tooltip won't fire
-  // pointer events on disabled buttons themselves.
+  // Wrap in a span trigger when disabled: Radix Tooltip won't fire pointer
+  // events on disabled buttons themselves. A tap on the disabled group does
+  // nothing else, so in a browser that focuses a tapped element the tap
+  // reveals the reason on touch.
   if (disabled && disabledTooltip) {
     return (
       <TooltipProvider delayDuration={300}>
         <Tooltip>
-          <TooltipTrigger asChild>
+          <TooltipTrigger asChild revealOnTouch>
             <span tabIndex={0} className="inline-flex">
               {group}
             </span>
