@@ -31,10 +31,12 @@ visitor's geo resolve.
 
 ### Who gets the map
 
-Every width gets the map, phones included. `atlasRendersSceneList`
+Every width gets the map, phones included. `atlasSceneListReason`
 (`features/scenes/atlasViewport.ts`) is the whole fallback rule. Where it
-holds, `AtlasSceneList` (every scene, liveliest first, each row expanding in
-place) stands in for the map:
+gives a reason, `AtlasSceneList` (every scene, liveliest first, each row
+expanding in place) stands in for the map, with a line under its heading
+that states the reason. When more than one holds, the list names no WebGL2
+first, then reduced motion, then a failed map:
 
 1. **No WebGL2, at any width.** `atlasSupportsWebGL2` probes a 1x1 canvas once
    per page load; MapLibre asks only for `webgl2`.
@@ -67,7 +69,17 @@ place) stands in for the map:
    source (a tile, a TileJSON) leaves the map up.
 
    Every class latches the scene list for the rest of the page load
-   (`markAtlasMapFailed`): one Sentry event, no further map until a reload.
+   (`markAtlasMapFailed`, which records the class): no further map is built
+   on its own. After `context-lost`, `context-lost-before-style`,
+   `context-lost-during-restore`, `context-restore-refused` or
+   `first-render-timeout` the list offers "Try the map again"
+   (`atlasMapRetryCanSucceed`). A press probes WebGL2 again
+   (`reprobeAtlasWebGL2`); when the probe passes it clears the latch and
+   builds one new map, and a new failure is reported and latched like the
+   first. A failed probe changes nothing. `context-refused`,
+   `style-load-failed` and errors without a class offer no retry: a refused
+   map stays behind for the page load (MapLibre's module-global image
+   throttle control), and an inline style fails the same way again.
    Any other error React sees from the canvas falls back for that mount: a
    throwing effect is tried again on the next mount, but a failed canvas
    chunk is not refetched (`React.lazy` keeps the rejected import), so every
