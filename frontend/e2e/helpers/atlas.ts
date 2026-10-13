@@ -57,12 +57,24 @@ function venue(id: number, name: string, extra: Record<string, unknown> = {}) {
   }
 }
 
+/** A street-geocoded room a spec adds to the fixture's three. */
+export interface ExtraRoom {
+  id: number
+  name: string
+  lat: number
+  lng: number
+}
+
 /**
  * Routes the scenes, venues and venue-shows reads to the Phoenix fixture.
  * `showsThisWeek` above 0 gives the scene a pulse ring, which repaints the
- * map every frame.
+ * map every frame. `extraRooms` are listed after the fixture's three, each
+ * pinned on its own street point with 3 upcoming shows.
  */
-export async function stubAtlas(page: Page, { showsThisWeek = 0 } = {}) {
+export async function stubAtlas(
+  page: Page,
+  { showsThisWeek = 0, extraRooms = [] as readonly ExtraRoom[] } = {},
+) {
   await page.route(
     (url) => url.pathname.endsWith('/scenes'),
     (route) =>
@@ -99,8 +111,14 @@ export async function stubAtlas(page: Page, { showsThisWeek = 0 } = {}) {
               street_latitude: STREET_ROOM.lat,
               street_longitude: STREET_ROOM.lng,
             }),
+            ...extraRooms.map((room) =>
+              venue(room.id, room.name, {
+                street_latitude: room.lat,
+                street_longitude: room.lng,
+              }),
+            ),
           ],
-          total: 3,
+          total: 3 + extraRooms.length,
           limit: 100,
           offset: 0,
         },
