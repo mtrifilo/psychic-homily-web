@@ -94,16 +94,26 @@ first, then reduced motion, then a failed map:
    "The map is unavailable" without building a map. A failed chunk is not
    latched on either surface.
 
-### The light look on compact viewports
+### The light look on phone panes
 
-Below Tailwind's `lg` (64rem, `ATLAS_COMPACT_VIEWPORT_QUERY`), the globe draws
-the light look (`features/scenes/basemap/globeSurface.ts`) instead of the NASA
-GIBS night-earth raster: a flat ocean, Natural Earth 1:110m land, 1:110m
-country and 1:50m state or province boundary lines, and Natural Earth
-populated-place labels drawn as DOM markers (`globePlaces.ts`). Each is one
-small same-origin GeoJSON file under `public/atlas/`. The hidden raster layer
-leaves its source unused, so MapLibre fetches no GIBS tile and lists no NASA
-credit. Viewports at `lg` and wider keep the raster.
+On a phone pane, an Atlas pane narrower than 900px
+(`ATLAS_PHONE_PANE_BELOW_PX` and `isAtlasPhonePane` in
+`features/scenes/atlasViewport.ts`), the globe draws the light look
+(`features/scenes/basemap/globeSurface.ts`) instead of the NASA GIBS
+night-earth raster: a flat ocean, Natural Earth 1:110m land, 1:110m country
+and 1:50m state or province boundary lines, and Natural Earth populated-place
+labels drawn as DOM markers (`globePlaces.ts`). Each is one small same-origin
+GeoJSON file under `public/atlas/`. The hidden raster layer leaves its source
+unused, so MapLibre fetches no GIBS tile and lists no NASA credit. Panes of
+900px and wider keep the raster.
+
+The same rule picks the sheet layout and the collapsed Genres chip, so the
+light globe never shows beside the rail and the raster never shows under the
+sheets. It reads the pane, not the viewport: with the default top nav the pane
+is the viewport's full width, and the side nav leaves it narrower. The map is
+built with the look the pane has when it mounts; a pane that crosses 900px
+later switches the live map's look without rebuilding it. The reduced-motion
+scene list keeps its own, lower threshold (640px, above).
 
 ### Phone perf gate
 
@@ -125,7 +135,8 @@ against a production build (a Vercel preview, or `next build && next start`;
 never `next dev`). Its header documents the profile, the readiness gate and
 what counts as entry bytes. It sets up none of the scene-list conditions and
 stops with exit code 2 if the page shows the list, and it fails a compact run
-on any raster request. The pass or fail line it prints follows the script's
+(a viewport narrower than 900px, which with the default top nav is a phone
+pane) on any raster request. The pass or fail line it prints follows the script's
 own `BUDGET` constant; read the medians against the gate above.
 
 Measured at the flip (PR #2189, Vercel preview of `509ea6109`, stage data,

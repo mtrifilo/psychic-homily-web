@@ -77,11 +77,11 @@ changes its schema or endpoints:
    curl -s https://tiles.openfreemap.org/planet | head -c 200
    ```
 
-## Light globe overlays (compact viewports)
+## Light globe overlays (phone panes)
 
-Below the `lg` breakpoint (`ATLAS_COMPACT_VIEWPORT_QUERY` in
-`frontend/features/scenes/atlasViewport.ts`) the globe shows the light look
-instead of the NASA GIBS raster: a flat ocean and the Natural Earth land file
+On an Atlas pane narrower than 900px (`isAtlasPhonePane` in
+`frontend/features/scenes/atlasViewport.ts`, the rule that also picks the
+sheet layout) the globe shows the light look instead of the NASA GIBS raster: a flat ocean and the Natural Earth land file
 (`globe-land-110m.geojson`, prefetched before the map exists), with three
 overlay files drawn on top. `globeSurface.ts` (in this directory) owns the
 layers and the loading; `globePlaces.ts` (in this directory) holds the
@@ -99,10 +99,10 @@ the same pinned Natural Earth commit as the land file;
 `frontend/scripts/lib/natural-earth.mjs` checks each input's sha256 before
 anything is written.
 
-- **Light look only.** On the full look (`lg` and up) both line layers are
-  hidden and no place label is mounted. The boundary and place files are
-  requested only when a map shows the light look, so a map that only ever
-  shows the full look never requests them.
+- **Light look only.** On the full look (panes of 900px and wider) both line
+  layers are hidden and no place label is mounted. The boundary and place
+  files are requested only when a map shows the light look, so a map that
+  only ever shows the full look never requests them.
 - **Load trigger.** The boundary and place files are fetched only after the
   map's first full render: the first `render` event with the style and every
   visible source loaded. MapLibre's `load` is not used because it never fires
