@@ -66,7 +66,7 @@
 //     returns at least one feature, polled in the page every 50 ms on the
 //     `window.__atlasMap` seam. MapLibre's `idle` event never fires on /atlas
 //     (the pulse rings repaint every frame), so it is not used.
-//   - Compact viewports (narrower than 1024px) must request no night-earth
+//   - Compact viewports (narrower than 900px) must request no night-earth
 //     raster tile at any point in the run (entry or city view, finished or
 //     not): one raster request fails the run.
 //   - Entry bytes (gated): every request that finished between navigation
@@ -100,9 +100,11 @@ const READY_TIMEOUT_MS = 90_000
 const CITY_ZOOM = 12.5
 const PREVIEW_ONLY_HOSTS = ['vercel.live']
 const PREVIEW_HOST = /^psychic-homily-[a-z0-9-]+-matts-projects-722d5204\.vercel\.app$/
-// Tailwind's `lg` at the default root size; below it the Atlas draws the
-// light globe, which requests no raster.
-const COMPACT_MAX_WIDTH = 1023
+// ATLAS_PHONE_PANE_BELOW_PX (features/scenes/atlasViewport.ts): below this
+// pane width the Atlas draws the light globe, which requests no raster. The
+// script runs with the default top nav, where the pane is the viewport's
+// full width.
+const COMPACT_BELOW_WIDTH = 900
 // AtlasSceneList's root carries this test id.
 const SCENE_LIST_SELECTOR = '[data-testid="atlas-scene-list"]'
 
@@ -426,7 +428,7 @@ const exitCode = await runBudgetCheck({
     }
   },
   budget: opts.budget,
-  compact: contextOptions(opts).viewport.width <= COMPACT_MAX_WIDTH,
+  compact: contextOptions(opts).viewport.width < COMPACT_BELOW_WIDTH,
   firstMapNote: opts.firstMapNote,
   enforce: opts.enforce,
   report: (runs, verdict) => {

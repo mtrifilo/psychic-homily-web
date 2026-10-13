@@ -4,6 +4,7 @@ import {
   ATLAS_TEST_TIMEOUT_MS,
   type AtlasMapSeam,
   dismissBanner,
+  jumpToPhoenix,
   phoenixDotPoint,
   PHONE_CONTEXT,
   stubAtlas,
@@ -230,6 +231,75 @@ test.describe('Atlas light globe outlines and place labels', () => {
       .poll(() => renderedLines(page), { timeout: 30_000 })
       .toEqual({ 'globe-state-lines': 0, 'globe-country-lines': 0 })
     await expect(placeLabels).toHaveCount(0)
+  })
+})
+
+/**
+ * One rule, pane width under 900px, picks the phone or the desktop Atlas: the
+ * sheet layout, the light globe and the collapsed Genres chip together, or the
+ * rail, the night-earth raster and the open key together. The viewport plays
+ * no part, so a 900 to 1023px viewport is the desktop Atlas, and a 1024px
+ * viewport whose side nav leaves the pane under 900px is the phone Atlas.
+ */
+test.describe('Atlas phone or desktop by pane width', () => {
+  type LookSeam = { getLayoutProperty: (layer: string, name: string) => unknown }
+
+  /** Which globe look the live map shows, read off its two surfaces. */
+  function globeLook(page: Page) {
+    return page.evaluate(() => {
+      const m = (window as unknown as { __atlasMap: LookSeam }).__atlasMap
+      const raster = m.getLayoutProperty('earth', 'visibility')
+      const land = m.getLayoutProperty('globe-land', 'visibility')
+      if (raster === 'visible' && land === 'none') return 'full'
+      if (raster === 'none' && land === 'visible') return 'light'
+      return `mixed: earth ${String(raster)}, globe-land ${String(land)}`
+    })
+  }
+
+  const paneWidth = (page: Page) =>
+    page.getByTestId('atlas-pane-frame').evaluate((el) => el.getBoundingClientRect().width)
+
+  async function expectDesktopAtlas(page: Page) {
+    expect(await globeLook(page)).toBe('full')
+    await expect(page.getByRole('button', { name: 'Genres' })).toHaveAttribute('aria-expanded', 'true')
+    await jumpToPhoenix(page, 12.5)
+    await expect(page.getByTestId('atlas-venue-rail')).toBeVisible({ timeout: 30_000 })
+    await expect(page.getByTestId('atlas-venue-sheet')).toHaveCount(0)
+    await expect(page.locator('[data-atlas-layout="sheet"]')).toHaveCount(0)
+  }
+
+  for (const width of [900, 1023]) {
+    test.describe(`at a ${width}px viewport`, () => {
+      test.use({ viewport: { width, height: 900 } })
+
+      test('is the desktop Atlas: the full globe, the open key and the rail', async ({ page }) => {
+        await stubAtlas(page)
+        await page.goto('/atlas')
+        await waitForMap(page)
+        expect(await paneWidth(page)).toBe(width)
+        await expectDesktopAtlas(page)
+      })
+    })
+  }
+
+  test.describe('at a 1024px viewport with the side nav', () => {
+    test.use({ viewport: { width: 1024, height: 900 } })
+
+    test('is the phone Atlas on the narrower pane: the light globe, the chip and the sheets', async ({
+      page,
+      baseURL,
+    }) => {
+      await page.context().addCookies([{ name: 'nav_mode', value: 'side', url: baseURL! }])
+      await stubAtlas(page)
+      await page.goto('/atlas')
+      await waitForMap(page)
+      expect(await paneWidth(page)).toBeLessThan(900)
+      expect(await globeLook(page)).toBe('light')
+      await expect(page.getByRole('button', { name: 'Genres' })).toHaveAttribute('aria-expanded', 'false')
+      await jumpToPhoenix(page, 12.5)
+      await expect(page.getByTestId('atlas-venue-sheet')).toBeVisible({ timeout: 30_000 })
+      await expect(page.getByTestId('atlas-venue-rail')).toHaveCount(0)
+    })
   })
 })
 

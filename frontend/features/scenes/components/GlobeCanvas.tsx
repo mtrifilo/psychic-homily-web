@@ -32,10 +32,6 @@ import {
 } from '../basemap/globePlaces'
 import { type MapChromeWatch, mountPlaceLabels, watchMapChrome } from './globePlaceLabels'
 import { PH_BASEMAP_MIN_ZOOM, phBasemapFragment } from '../basemap/phBasemap'
-import {
-  isAtlasCompactViewport,
-  useAtlasCompactViewport,
-} from '../atlasViewport'
 import type {
   CameraSettle,
   FlyToScene,
@@ -90,6 +86,13 @@ interface GlobeCanvasProps {
   width: number
   height: number
   scenes: PlaceableScene[]
+  /**
+   * Whether the globe draws its light look (flat ocean, vector land, boundary
+   * lines and place labels; globeSurface.ts) instead of the night-earth
+   * raster. The map is built with the value this has at construction; a later
+   * change switches the live map's look and never rebuilds it.
+   */
+  lightGlobe: boolean
   /**
    * Camera focus. AtlasGlobe resolves this ONCE (the visitor-geo/default race
    * settles behind a guard) before mounting this canvas, and it's stable for
@@ -289,6 +292,7 @@ export default function GlobeCanvas({
   width,
   height,
   scenes,
+  lightGlobe,
   pov,
   onSelect,
   selected = null,
@@ -345,12 +349,13 @@ export default function GlobeCanvas({
 
   const selectedSlug = selected?.slug ?? null
 
-  // Compact viewports get the light globe: flat ocean, vector land and
-  // boundary lines in place of the night-earth raster (globeSurface.ts), with
-  // place labels (the effect after the scene labels). The map is built with
-  // the look matchMedia reports at construction; a breakpoint crossing never
-  // rebuilds it, this effect switches the live map instead.
-  const lightGlobe = useAtlasCompactViewport()
+  // The look the map-creation effect builds the map with. A later change
+  // never rebuilds the map: the effect below switches the live map's look.
+  // The light globe's place labels are the effect after the scene labels.
+  const lightGlobeRef = useRef(lightGlobe)
+  useEffect(() => {
+    lightGlobeRef.current = lightGlobe
+  }, [lightGlobe])
   useEffect(() => {
     if (mapReady) showGlobeSurface(mapReady, lightGlobe)
   }, [mapReady, lightGlobe])
@@ -1085,12 +1090,10 @@ export default function GlobeCanvas({
           // zooms and fades out across the handoff (see globeSurface.ts), so
           // the streets are already drawn when it dissolves.
           ...basemap.layers,
-          // Built with the current look's visibility, read from matchMedia
-          // rather than the hook (whose first value can be its server
-          // snapshot), so the first frame never requests a raster tile on a
-          // compact viewport.
+          // Built with the current look's visibility, so the first frame of
+          // a light globe never requests a raster tile.
           ...globeSurfaceLayers({
-            lightGlobe: isAtlasCompactViewport(),
+            lightGlobe: lightGlobeRef.current,
             fadeOut: basemap.rasterFadeOut,
             maxZoom: basemap.rasterMaxZoom,
           }),

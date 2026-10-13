@@ -38,7 +38,6 @@ import {
   formatNextShowDate,
   resolveAtlasCityPov,
   resolveCityScene,
-  usesAtlasSheetLayout,
   venuePinStacks,
   venueStackLabel,
   venueStackScopeLine,
@@ -84,6 +83,7 @@ import {
   atlasSceneListReason,
   atlasSupportsWebGL2,
   clearAtlasMapFailure,
+  isAtlasPhonePane,
   markAtlasMapFailed,
   reprobeAtlasWebGL2,
 } from '../atlasViewport'
@@ -741,8 +741,10 @@ export function AtlasGlobe() {
           prefersReducedMotion,
           mapFailed,
         })
-  const mapSheetLayout =
-    size !== null && sceneListReason === null && usesAtlasSheetLayout(size.width)
+  // The phone or desktop form of the map's layout, globe look and genre key,
+  // on the measured pane: a resize across the threshold re-renders all three.
+  const phonePane = size !== null && isAtlasPhonePane(size.width)
+  const mapSheetLayout = phonePane && sceneListReason === null
   // Reset during render, like the city reset above, so a closed or
   // side-panel preview's detent never reaches the canvas, and a preview that
   // becomes a sheet again opens at Half.
@@ -764,8 +766,8 @@ export function AtlasGlobe() {
   // waits on the Atlas-ready signal is released once no map can follow.
   const { preloadsMap, releasesSignal } = atlasRenderBranchEffects(renderBranch.kind)
   useEffect(() => {
-    if (preloadsMap) preloadAtlasMap()
-  }, [preloadsMap])
+    if (preloadsMap) preloadAtlasMap({ lightGlobe: phonePane })
+  }, [preloadsMap, phonePane])
   useEffect(() => {
     if (releasesSignal) markAtlasMapReady()
   }, [releasesSignal])
@@ -793,7 +795,7 @@ export function AtlasGlobe() {
     // Narrower panes would leave a uselessly thin map beside a rail, so they
     // keep the map full width and use bottom sheets for the venue list and
     // every panel, with the credit moved to the top-left.
-    const sheetLayout = usesAtlasSheetLayout(paneSize.width)
+    const sheetLayout = phonePane
     const railOpen = cityScene !== null && !sheetLayout
     const canvasWidth = railOpen ? paneSize.width - CITY_RAIL_WIDTH_PX : paneSize.width
     const panelPresentation = sheetLayout ? 'sheet' : 'panel'
@@ -840,6 +842,7 @@ export function AtlasGlobe() {
     )
     const genreLegend = selected ? null : (
       <GenreLegend
+        compact={phonePane}
         openChoice={legendOpenChoice}
         onOpenChange={setLegendOpenChoice}
         className={
@@ -916,6 +919,7 @@ export function AtlasGlobe() {
               height={paneSize.height}
               scenes={placeable}
               pov={pov}
+              lightGlobe={phonePane}
               onSelect={setSelected}
               selected={selected}
               flyToRef={flyToRef}

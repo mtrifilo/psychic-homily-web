@@ -269,6 +269,7 @@ function renderCanvas(props: CanvasProps = {}) {
     width: 390,
     height: 723,
     scenes: [CHICAGO],
+    lightGlobe: false,
     pov: { lat: 41.88, lng: -87.63, altitude: 1.6 },
     onSelect: vi.fn(),
     venues: PINS,
@@ -318,6 +319,7 @@ describe('GlobeCanvas sheet-layout seams', () => {
           width={390}
           height={723}
           scenes={[CHICAGO]}
+          lightGlobe={false}
           pov={{ lat: 41.88, lng: -87.63, altitude: 1.6 }}
           onSelect={vi.fn()}
           venues={PINS}
@@ -811,6 +813,7 @@ function renderInBoundary({
         width={390}
         height={723}
         scenes={[CHICAGO]}
+        lightGlobe={false}
         pov={{ lat: 41.88, lng: -87.63, altitude: 1.6 }}
         onSelect={vi.fn()}
         onCameraSettle={onCameraSettle}
