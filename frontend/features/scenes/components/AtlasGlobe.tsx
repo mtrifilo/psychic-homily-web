@@ -22,6 +22,7 @@ import type { SceneListItem } from '../types'
 import {
   isPlaceableScene,
   type CameraSettle,
+  type FlyToScene,
   type GlobePov,
   type PlaceableScene,
   type VenuePin,
@@ -247,6 +248,10 @@ export function AtlasGlobe() {
   const [pov, setPov] = useState<GlobePov | null>(null)
   const [selected, setSelected] = useState<PlaceableScene | null>(null)
   const closePreview = useCallback(() => setSelected(null), [])
+  // The scene preview sheet's detent. A preview sheet opens at Half, so the
+  // detent is Half whenever no preview sheet is open (see its reset below,
+  // where the layout is known).
+  const [previewDetent, setPreviewDetent] = useState<BottomSheetDetent>('half')
   // Owned here (not in GenreLegend) so a user's collapse survives opening/closing a
   // scene preview, which unmounts the legend (PSY-1315 adversarial review).
   // null until the user toggles it (the legend follows the viewport until
@@ -255,7 +260,7 @@ export function AtlasGlobe() {
 
   // Imperative fly-the-camera seam GlobeCanvas fills on mount (PSY-1308) —
   // see the flyToRef prop doc for why this is a ref, not a forwarded ref.
-  const flyToRef = useRef<((scene: PlaceableScene) => void) | null>(null)
+  const flyToRef = useRef<FlyToScene | null>(null)
 
   // ── City view (PSY-1539) ──────────────────────────────────────────────────
   // The camera decides which city (if any) owns the screen. GlobeCanvas
@@ -547,14 +552,14 @@ export function AtlasGlobe() {
     // would pick twice and fly twice.
     const next = pickDriftScene(placeable, selected?.slug)
     if (!next) return
-    flyToRef.current?.(next)
+    flyToRef.current?.(next, { opensPreview: true })
     setSelected(next)
   }, [placeable, selected])
 
   // Search pick (PSY-1310): same fly + open as Drift, but for a scene the user
   // asked for by name.
   const handleSearchPick = useCallback((scene: PlaceableScene) => {
-    flyToRef.current?.(scene)
+    flyToRef.current?.(scene, { opensPreview: true })
     setSelected(scene)
   }, [])
 
@@ -738,6 +743,12 @@ export function AtlasGlobe() {
         })
   const mapSheetLayout =
     size !== null && sceneListReason === null && usesAtlasSheetLayout(size.width)
+  // Reset during render, like the city reset above, so a closed or
+  // side-panel preview's detent never reaches the canvas, and a preview that
+  // becomes a sheet again opens at Half.
+  if ((selected === null || !mapSheetLayout) && previewDetent !== 'half') {
+    setPreviewDetent('half')
+  }
 
   const renderBranch = atlasRenderBranch({
     scenesFailed: isError,
@@ -920,6 +931,7 @@ export function AtlasGlobe() {
               onBackToGlobe={sheetLayout ? handleBackToGlobe : undefined}
               venueStacks={sheetLayout ? venueStackMarkers : undefined}
               onVenueStackSelect={sheetLayout ? handleVenueStackSelect : undefined}
+              scenePreviewSheetDetent={sheetLayout ? previewDetent : undefined}
             />
           </CanvasSectionErrorBoundary>
           {sheetLayout && cityScene && (
@@ -1040,6 +1052,8 @@ export function AtlasGlobe() {
                   key={panelPresentation}
                   scene={selected}
                   onClose={closePreview}
+                  detent={previewDetent}
+                  onDetentChange={setPreviewDetent}
                   returnFocusTo={searchTriggerRef}
                   presentation={panelPresentation}
                 />

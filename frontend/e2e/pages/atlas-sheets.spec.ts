@@ -198,6 +198,18 @@ async function driftingTap(page: Page, x: number, y: number, dx: number) {
   }
 }
 
+/**
+ * The globe's radius on screen in CSS px: MapLibre draws the globe at a world
+ * size of 512 * 2^zoom, scaled up by 1 / cos(latitude of the map's centre).
+ */
+function globeRadiusPx(page: Page) {
+  return page.evaluate(() => {
+    const m = (window as unknown as { __atlasMap: AtlasMapSeam }).__atlasMap
+    const lat = (m.getCenter().lat * Math.PI) / 180
+    return (512 * 2 ** m.getZoom()) / (2 * Math.PI) / Math.cos(lat)
+  })
+}
+
 /** The map's centre, through the window seam. */
 function mapCenter(page: Page) {
   return page.evaluate(() =>
@@ -579,6 +591,59 @@ test.describe('Atlas pin and dot taps on a 390x844 phone', () => {
     }).toPass({ timeout: 30_000 })
     await expect(page.getByTestId('atlas-scene-tooltip')).toBeHidden()
     expect(await tooltipShows(), 'the scene tooltip never showed').toBe(0)
+  })
+
+  test('a tapped dot near the bottom of the globe stays above the preview sheet at Half and at Full, the globe unzoomed', async ({
+    page,
+  }) => {
+    await stubAtlas(page)
+    await page.goto('/atlas')
+    await waitForMap(page)
+    await dismissBanner(page)
+    await waitForMapSize(page)
+
+    // Turn the globe so the Phoenix dot sits in the bottom quarter of the
+    // map, where a Half sheet covers it.
+    const host = await page
+      .getByTestId('atlas-pane-frame')
+      .evaluate((el) => el.getBoundingClientRect().height)
+    await jumpToPhoenix(page, 2.5)
+    const above = await page.evaluate((dy) => {
+      const m = (window as unknown as { __atlasMap: AtlasMapSeam }).__atlasMap
+      const c = m.getCanvas()
+      return m.unproject([c.clientWidth / 2, c.clientHeight / 2 - dy])
+    }, host * 0.3)
+    await jumpTo(page, above, 2.5)
+    const mapTop = await page
+      .getByTestId('atlas-pane-frame')
+      .evaluate((el) => el.getBoundingClientRect().top)
+    const before = await settledMapPoint(page, PHOENIX)
+    expect(before.y, 'the dot starts where a Half sheet would cover it').toBeGreaterThan(
+      mapTop + host - detentPx('half', host),
+    )
+    const radiusBefore = await globeRadiusPx(page)
+
+    // Repeated for the reason the scene preview detent test gives.
+    await expect(async () => {
+      await tapSceneDot(page)
+      await expect(page.getByTestId('atlas-scene-preview-sheet')).toBeVisible({
+        timeout: 2_000,
+      })
+    }).toPass({ timeout: 30_000 })
+
+    const sheet = page.getByTestId('atlas-scene-preview-sheet')
+    for (const detent of ['half', 'full'] as const) {
+      if (detent === 'full') await sheet.locator('[data-bottom-sheet-grabber]').tap()
+      await expectDetentHeight(page, 'atlas-scene-preview-sheet', detent)
+      const sheetTop = await sheet.evaluate((el) => el.getBoundingClientRect().top)
+      const dot = await settledMapPoint(page, PHOENIX)
+      expect(dot.y, `the dot is above the sheet at ${detent}`).toBeLessThan(sheetTop)
+      expect(dot.y, `the dot is below the top of the map at ${detent}`).toBeGreaterThan(mapTop)
+      expect(
+        (await globeRadiusPx(page)) / radiusBefore,
+        `the globe is drawn at the same size at ${detent}`,
+      ).toBeCloseTo(1, 2)
+    }
   })
 })
 
