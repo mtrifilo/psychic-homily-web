@@ -1,26 +1,38 @@
 /**
  * A stand-in for MapLibre's `queryRenderedFeatures` over circle layers, for
  * map stubs: each layer draws point features whose coordinates are screen px
- * (the stubs' `project` is the identity) and whose `radiusPx` is their drawn
- * radius.
+ * (the stubs' `project` is the identity). Like MapLibre's, each returned
+ * feature carries its layer's paint evaluated for it (`circle-radius` and
+ * `circle-stroke-width`), and a circle is hit out to its radius plus its
+ * stroke.
  */
 export interface RenderedCircle {
   geometry: { type: 'Point'; coordinates: [number, number] }
-  properties: { radiusPx: number } & Record<string, unknown>
+  properties: Record<string, unknown>
+  layer: { paint: { 'circle-radius': number; 'circle-stroke-width': number } }
   id?: number | string
 }
 
 /** A circle drawn centred on screen point (x, y). */
-export function renderedCircle(
-  properties: Record<string, unknown>,
-  x: number,
-  y: number,
+export function renderedCircle({
+  x,
+  y,
   radiusPx = 7,
-  id?: number | string,
-): RenderedCircle {
+  strokePx = 0,
+  properties = {},
+  id,
+}: {
+  x: number
+  y: number
+  radiusPx?: number
+  strokePx?: number
+  properties?: Record<string, unknown>
+  id?: number | string
+}): RenderedCircle {
   return {
     geometry: { type: 'Point', coordinates: [x, y] },
-    properties: { ...properties, radiusPx },
+    properties,
+    layer: { paint: { 'circle-radius': radiusPx, 'circle-stroke-width': strokePx } },
     ...(id === undefined ? {} : { id }),
   }
 }
@@ -43,7 +55,8 @@ export function queryRenderedCircles(
       const [x, y] = circle.geometry.coordinates
       const dx = x - Math.max(x1, Math.min(x, x2))
       const dy = y - Math.max(y1, Math.min(y, y2))
-      return Math.hypot(dx, dy) <= circle.properties.radiusPx
+      const { 'circle-radius': radius, 'circle-stroke-width': stroke } = circle.layer.paint
+      return Math.hypot(dx, dy) <= radius + stroke
     }),
   )
 }

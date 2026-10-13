@@ -584,20 +584,29 @@ test.describe('Atlas pin and dot taps on a 390x844 phone', () => {
     await expect(list).toHaveAttribute('data-detent', 'peek', { timeout: 30_000 })
     await frameBothPins(page)
 
-    // The Street Room pin is drawn 7.3px across its radius, so the lift point
-    // (where Chromium sends the click) is off the drawn pin; the coarse
-    // pointer's tap box still reaches it. 12px stays inside Chromium's touch
-    // slop, so the map does not pan.
-    const street = await settledMapPoint(page, STREET_ROOM)
+    // The Street Room pin draws out to 8.8px (radius 7.3px plus a 1.5px rim),
+    // so the lift point 12px right, where Chromium sends the click, is off
+    // the drawn pin and within the tap's 12px reach. 12px stays inside
+    // Chromium's touch slop, so the map does not pan.
+    const venueSheet = page.getByTestId('atlas-venue-panel')
+    let street = await settledMapPoint(page, STREET_ROOM)
     const centerBefore = await mapCenter(page)
     await driftingTap(page, street.x, street.y, 12)
-    await expect(page.getByTestId('atlas-venue-panel')).toContainText('Street Room')
+    await expect(venueSheet).toContainText('Street Room')
     expect(await mapCenter(page), 'the drifting tap did not pan the map').toEqual(centerBefore)
+
+    // A still tap 19px right of the centre, about 10px off the rim, still
+    // reaches the pin: the reach is the 24px box's, not a few px of slack.
+    await page.keyboard.press('Escape')
+    await expect(list).toBeVisible()
+    street = await settledMapPoint(page, STREET_ROOM)
+    await page.touchscreen.tap(street.x + 19, street.y)
+    await expect(venueSheet).toContainText('Street Room')
   })
 
   test('a tap between two close pins opens the nearer one', async ({ page }) => {
-    // About 32px east of the Street Room at the framed zoom.
-    const neighbour = { id: 4, name: 'Neighbour Room', lat: STREET_ROOM.lat, lng: STREET_ROOM.lng + 0.0055 }
+    // About 28px east of the Street Room at the framed zoom.
+    const neighbour = { id: 4, name: 'Neighbour Room', lat: STREET_ROOM.lat, lng: STREET_ROOM.lng + 0.0048 }
     await stubAtlas(page, { extraRooms: [neighbour] })
     await page.goto('/atlas?city=Phoenix%2CAZ')
     await waitForMap(page)
@@ -606,26 +615,46 @@ test.describe('Atlas pin and dot taps on a 390x844 phone', () => {
     await expect(list).toHaveAttribute('data-detent', 'peek', { timeout: 30_000 })
     await frameBothPins(page)
 
-    // A tap `share` of the way from the Street Room pin to its neighbour. At
-    // 0.35 and 0.65 of a 28 to 36px gap the tap is outside both drawn pins
-    // (radius 7.3px plus a 1.5px rim) and within the tap box's reach of each.
-    const tapBetween = async (share: number) => {
+    // A tap `dx` px east of the Street Room pin's centre. Each pin draws out
+    // to 8.8px, so taps at 11 and 17 on a 26 to 30px gap land outside both
+    // pins with both inside the tap's 24px query box; the page's own query
+    // confirms it, so the nearest-edge choice is what decides.
+    const tapEastOfStreet = async (dx: number) => {
       const street = await settledMapPoint(page, STREET_ROOM)
       const next = await settledMapPoint(page, neighbour)
       const gap = next.x - street.x
       expect(next.y, 'the two pins sit side by side').toBe(street.y)
-      expect(gap, 'the two pins sit about 32px apart').toBeGreaterThanOrEqual(28)
-      expect(gap).toBeLessThanOrEqual(36)
-      await page.touchscreen.tap(Math.round(street.x + gap * share), street.y)
+      expect(gap, 'the two pins sit about 28px apart').toBeGreaterThanOrEqual(26)
+      expect(gap).toBeLessThanOrEqual(30)
+      const tap = { x: street.x + dx, y: street.y }
+      const idsInBox = await page.evaluate(({ x, y }) => {
+        // The seam's own type names only the layers-only form of the query.
+        const m = (window as unknown as {
+          __atlasMap: AtlasMapSeam & {
+            queryRenderedFeatures(
+              box: [[number, number], [number, number]],
+              opts: { layers: string[] },
+            ): { properties?: { id?: number } }[]
+          }
+        }).__atlasMap
+        const r = m.getCanvas().getBoundingClientRect()
+        const box: [[number, number], [number, number]] = [
+          [x - r.left - 12, y - r.top - 12],
+          [x - r.left + 12, y - r.top + 12],
+        ]
+        return m.queryRenderedFeatures(box, { layers: ['venue-pins'] }).map((f) => f.properties?.id).sort()
+      }, tap)
+      expect(idsInBox, 'both pins fall in the tap box').toEqual([3, 4])
+      await page.touchscreen.tap(tap.x, tap.y)
     }
     const venueSheet = page.getByTestId('atlas-venue-panel')
 
-    await tapBetween(0.35)
+    await tapEastOfStreet(11)
     await expect(venueSheet).toContainText('Street Room')
 
     await page.keyboard.press('Escape')
     await expect(list).toBeVisible()
-    await tapBetween(0.65)
+    await tapEastOfStreet(17)
     await expect(venueSheet).toContainText('Neighbour Room')
   })
 

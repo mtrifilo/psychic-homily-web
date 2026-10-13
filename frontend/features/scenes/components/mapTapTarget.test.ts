@@ -23,12 +23,21 @@ function fakeMap(rendered: Record<string, RenderedCircle[]>) {
   return { map: map as unknown as MapLibreMap, queryRenderedFeatures }
 }
 
+/** A map whose query returns `features` whatever the region, so the rule sees every one. */
+function everythingMap(features: unknown[]) {
+  return {
+    getLayer: () => ({}),
+    project: ([x, y]: [number, number]) => ({ x, y }),
+    queryRenderedFeatures: () => features,
+  } as unknown as MapLibreMap
+}
+
 const idOf = (feature: MapGeoJSONFeature | null) => feature?.properties?.id ?? null
+const pin = (id: number | string, x: number, y: number, radiusPx = 7, strokePx = 0, extra = {}) =>
+  renderedCircle({ x, y, radiusPx, strokePx, properties: { id, ...extra } })
 
 describe('circleMarkAt', () => {
-  const PINS = {
-    pins: [renderedCircle({ id: 1 }, 100, 100), renderedCircle({ id: 2 }, 124, 100)],
-  }
+  const PINS = { pins: [pin(1, 100, 100), pin(2, 124, 100)] }
 
   it('queries the point for a fine pointer and a 24px square centred on it for a coarse one, in the named layer only', () => {
     const { map, queryRenderedFeatures } = fakeMap(PINS)
@@ -67,6 +76,23 @@ describe('circleMarkAt', () => {
     expect(idOf(circleMarkAt(map, { x: 94, y: 100 }, 'pins', false))).toBe(1)
   })
 
+  it('reaches 12px off the edge on the diagonal too, not to the corner of the query square', () => {
+    const { map } = fakeMap(PINS)
+    // 19px from pin 1's centre on the diagonal is 12px off its edge; a tap
+    // whose square corner still touches the pin (about 16px off) selects nothing.
+    const d = 19 / Math.SQRT2
+    expect(idOf(circleMarkAt(map, { x: 100 - d, y: 100 - d }, 'pins', true))).toBe(1)
+    expect(circleMarkAt(map, { x: 84, y: 84 }, 'pins', true)).toBeNull()
+  })
+
+  it('measures from the outer rim, so the stroke is part of the mark', () => {
+    // A 7px pin with a 1.5px rim: the rim's outer edge is at 91.5.
+    const { map } = fakeMap({ pins: [pin(1, 100, 100, 7, 1.5)] })
+    expect(idOf(circleMarkAt(map, { x: 92, y: 100 }, 'pins', false))).toBe(1)
+    expect(idOf(circleMarkAt(map, { x: 79.5, y: 100 }, 'pins', true))).toBe(1)
+    expect(circleMarkAt(map, { x: 79, y: 100 }, 'pins', true)).toBeNull()
+  })
+
   it('selects the mark whose drawn edge is nearer for a coarse tap between two', () => {
     const { map } = fakeMap(PINS)
     expect(idOf(circleMarkAt(map, { x: 111, y: 100 }, 'pins', true))).toBe(1)
@@ -76,25 +102,27 @@ describe('circleMarkAt', () => {
   it('selects the mark a coarse tap lands on over one whose centre is nearer', () => {
     // The tap at 109 is inside the 11px mark (centre 9px away) and 4px off
     // the edge of the 3px mark (centre 7px away).
-    const { map } = fakeMap({
-      pins: [renderedCircle({ id: 3 }, 100, 100, 11), renderedCircle({ id: 4 }, 116, 100, 3)],
-    })
+    const { map } = fakeMap({ pins: [pin(3, 100, 100, 11), pin(4, 116, 100, 3)] })
     expect(idOf(circleMarkAt(map, { x: 109, y: 100 }, 'pins', true))).toBe(3)
   })
 
+  it('selects the top mark for a tap on its rim over a lower mark, on either pointer', () => {
+    // The small mark draws on top; the tap at 104 is on its 1px rim (4px from
+    // its centre, radius 3.4) and inside the big mark's fill.
+    const { map } = fakeMap({ pins: [pin('small', 108, 100, 3.4, 1), pin('big', 100, 100, 6, 1)] })
+    for (const coarse of [false, true]) {
+      expect(idOf(circleMarkAt(map, { x: 104, y: 100 }, 'pins', coarse))).toBe('small')
+    }
+  })
+
   it('keeps the earliest of marks equally near a coarse tap', () => {
-    const { map } = fakeMap({
-      pins: [renderedCircle({ id: 1 }, 110, 100, 4), renderedCircle({ id: 2 }, 90, 100, 4)],
-    })
+    const { map } = fakeMap({ pins: [pin(1, 110, 100, 4), pin(2, 90, 100, 4)] })
     expect(idOf(circleMarkAt(map, { x: 100, y: 100 }, 'pins', true))).toBe(1)
   })
 
   it('resolves a coarse tap on stacked marks as a fine click there does, through the same order', () => {
     const { map } = fakeMap({
-      dots: [
-        renderedCircle({ id: 'low', sortKey: 1 }, 50, 50, 6),
-        renderedCircle({ id: 'high', sortKey: 9 }, 52, 50, 6),
-      ],
+      dots: [pin('low', 50, 50, 6, 0, { sortKey: 1 }), pin('high', 52, 50, 6, 0, { sortKey: 9 })],
     })
     const bySortKey = (features: MapGeoJSONFeature[]) =>
       [...features].sort((a, b) => b.properties.sortKey - a.properties.sortKey)
@@ -104,20 +132,21 @@ describe('circleMarkAt', () => {
     }
   })
 
-  it('reads a mark with no usable radius as a point, and skips a feature that is not a point', () => {
-    // A map that returns whatever it holds, so the rule sees every feature.
-    const map = {
-      getLayer: () => ({}),
-      project: ([x, y]: [number, number]) => ({ x, y }),
-      queryRenderedFeatures: () => [
-        {
-          geometry: { type: 'LineString', coordinates: [[108, 100], [109, 100]] },
-          properties: { id: 0 },
-        },
-        { geometry: { type: 'Point', coordinates: [100, 100] }, properties: { id: 1, radiusPx: 7 } },
-        { geometry: { type: 'Point', coordinates: [110, 100] }, properties: { id: 2, radiusPx: 'x' } },
-      ],
-    } as unknown as MapLibreMap
+  it('measures a mark at the size MapLibre evaluated for it, such as a hover-scaled pin', () => {
+    // The same 7px pin, once as drawn and once evaluated at 1.2x for a hover.
+    const at = { x: 80, y: 100 }
+    const plain = everythingMap([pin(1, 100, 100, 7)])
+    const hovered = everythingMap([pin(1, 100, 100, 8.4)])
+    expect(circleMarkAt(plain, at, 'pins', true)).toBeNull()
+    expect(idOf(circleMarkAt(hovered, at, 'pins', true))).toBe(1)
+  })
+
+  it('reads a mark with no evaluated size as a point, and skips a feature that is not a point', () => {
+    const map = everythingMap([
+      { geometry: { type: 'LineString', coordinates: [[108, 100], [109, 100]] }, properties: { id: 0 } },
+      pin(1, 100, 100, 7),
+      { geometry: { type: 'Point', coordinates: [110, 100] }, properties: { id: 2 } },
+    ])
     // At 108: pin 1's edge is 1px away; pin 2, read as a point, is 2px away.
     expect(idOf(circleMarkAt(map, { x: 108, y: 100 }, 'pins', true))).toBe(1)
     // At 109.5: pin 1's edge is 2.5px away; pin 2 is 0.5px away.

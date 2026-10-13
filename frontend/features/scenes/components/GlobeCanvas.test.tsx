@@ -4,7 +4,7 @@ import type { FlyToScene, PlaceableScene, VenuePin, VenueStackMarker } from './g
 import { installMatchMedia } from '@/test/mocks/matchMedia'
 import {
   queryRenderedCircles,
-  renderedCircle as mark,
+  renderedCircle,
   type RenderedCircle,
 } from '@/test/renderedCircles'
 import { CanvasSectionErrorBoundary } from '@/components/shared/CanvasSectionErrorBoundary'
@@ -278,6 +278,10 @@ function renderCanvas(props: CanvasProps = {}) {
   act(() => map.fire('style.load'))
   return { ...utils, map, props: all }
 }
+
+/** A mark drawn centred on screen point (x, y), with no rim. */
+const mark = (properties: Record<string, unknown>, x: number, y: number, radiusPx = 7) =>
+  renderedCircle({ x, y, radiusPx, properties })
 
 /** Draws the stacked pair at (10, 10), Hideout on top, and Thalia Hall alone at (100, 100). */
 function drawPins(map: StubMap) {
@@ -603,7 +607,7 @@ describe('GlobeCanvas tap targets', () => {
     return { map, onVenueSelect, onSelect }
   }
 
-  // Thalia Hall's 7px pin at (100, 100); a tap at 117 is 10px off its edge
+  // drawPins draws Thalia Hall at (100, 100) with radius 7; a tap at 117 is 10px off its edge
   // and inside the 24px box's 12px reach.
   it.each([
     { pointer: 'coarse', coarse: true, opens: [[3]] },

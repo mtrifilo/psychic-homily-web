@@ -236,7 +236,7 @@ describe('VenueMiniAtlas', () => {
     const map = theMap()
     loadMap(map)
 
-    map.rendered['room-pins'] = [renderedCircle({}, 100, 100, 7, 2)]
+    map.rendered['room-pins'] = [renderedCircle({ x: 100, y: 100, id: 2 })]
     act(() => {
       map.fire('click', { point: { x: 100, y: 100 } })
     })
@@ -303,8 +303,8 @@ describe('VenueMiniAtlas', () => {
       const map = theMap()
       loadMap(map)
       map.rendered['room-pins'] = [
-        renderedCircle({}, 100, 100, 7, 2),
-        renderedCircle({}, 160, 100, 7, 1),
+        renderedCircle({ x: 100, y: 100, id: 2 }),
+        renderedCircle({ x: 160, y: 100, id: 1 }),
       ]
       act(() => {
         map.fire('click', { point: { x: 117, y: 100 } })
