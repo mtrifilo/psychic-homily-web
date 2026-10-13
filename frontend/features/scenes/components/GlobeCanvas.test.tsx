@@ -981,6 +981,30 @@ describe('GlobeCanvas preview camera', () => {
     expect(map.easeTo).toHaveBeenCalledWith({ padding: NO_PADDING })
   })
 
+  it('eases a newly picked scene above a sheet already at Full', () => {
+    const austin = { ...CHICAGO, city: 'Austin', state: 'TX', slug: 'austin-tx', latitude: 30.27, longitude: -97.74 }
+    const { map, rerender, props } = selectChicago('full')
+    map.easeTo.mockClear()
+    rerender(
+      <GlobeCanvas
+        {...props}
+        scenes={[CHICAGO, austin]}
+        selected={austin}
+        scenePreviewSheetDetent="full"
+      />,
+    )
+    expect(map.easeTo).toHaveBeenCalledTimes(1)
+    expect(map.easeTo).toHaveBeenCalledWith({ center: [-97.74, 30.27], padding: padded(FULL_PX) })
+  })
+
+  it('eases the padding off, keeping the centre, when the preview stops being a sheet', () => {
+    const { map, rerender, props } = selectChicago()
+    map.easeTo.mockClear()
+    rerender(<GlobeCanvas {...props} selected={CHICAGO} scenePreviewSheetDetent={undefined} />)
+    expect(map.easeTo).toHaveBeenCalledTimes(1)
+    expect(map.easeTo).toHaveBeenCalledWith({ padding: NO_PADDING })
+  })
+
   it('never moves the camera for a selection whose preview is no sheet', () => {
     const { map, rerender, props } = renderPreview()
     map.center = ELSEWHERE
