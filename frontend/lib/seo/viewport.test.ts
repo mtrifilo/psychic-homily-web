@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { appViewport } from './viewport'
+import { pageBackgroundTokens } from './pageBackgroundTokens.testing'
 
 describe('appViewport', () => {
   // Every env(safe-area-inset-*) term in the app is inert without this: iOS
@@ -14,10 +15,14 @@ describe('appViewport', () => {
 
   // Kept alongside so a rewrite of this object cannot quietly drop the
   // light/dark theme colors while satisfying the assertion above.
-  it('keeps the light and dark theme colors', () => {
+  it('tints the browser chrome with each scheme\'s page background token', () => {
+    const { light, dark } = pageBackgroundTokens()
     expect(appViewport.themeColor).toEqual([
-      { media: '(prefers-color-scheme: light)', color: 'white' },
-      { media: '(prefers-color-scheme: dark)', color: 'black' },
+      { media: '(prefers-color-scheme: light)', color: light },
+      { media: '(prefers-color-scheme: dark)', color: dark },
     ])
+    // The approved values, so a palette change is re-approved for the chrome
+    // tint rather than followed silently.
+    expect({ light, dark }).toEqual({ light: '#f4f1ea', dark: '#0d0805' })
   })
 })

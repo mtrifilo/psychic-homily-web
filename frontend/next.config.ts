@@ -217,6 +217,15 @@ const nextConfig: NextConfig = {
       },
     ]
   },
+  async rewrites() {
+    return [
+      // Next serves the touch icon only at /apple-icon.png (the app/apple-icon
+      // file convention). Clients that skip the <link rel="apple-touch-icon">
+      // tag and probe these conventional root paths instead get the same file.
+      { source: '/apple-touch-icon.png', destination: '/apple-icon.png' },
+      { source: '/apple-touch-icon-precomposed.png', destination: '/apple-icon.png' },
+    ]
+  },
   async headers() {
     return [
       // The TopBar logo is `priority`-preloaded on every route, so it is worth

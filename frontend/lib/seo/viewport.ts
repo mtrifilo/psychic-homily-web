@@ -4,9 +4,11 @@ import type { Viewport } from 'next'
 // than inline in the layout so it can be asserted in a unit test: layout.tsx
 // calls next/font/local at module scope, which does not resolve under vitest.
 export const appViewport: Viewport = {
+  // The page background of each scheme in app/globals.css: :root --background
+  // for light, .dark --background for dark.
   themeColor: [
-    { media: '(prefers-color-scheme: light)', color: 'white' },
-    { media: '(prefers-color-scheme: dark)', color: 'black' },
+    { media: '(prefers-color-scheme: light)', color: '#f4f1ea' },
+    { media: '(prefers-color-scheme: dark)', color: '#0d0805' },
   ],
   // `viewport-fit=cover` is the single switch that makes every
   // env(safe-area-inset-*) term in this app resolve to the device's reported
