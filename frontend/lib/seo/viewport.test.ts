@@ -1,6 +1,8 @@
+import { readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
+
 import { describe, it, expect } from 'vitest'
-import { appViewport } from './viewport'
-import { pageBackgroundTokens } from './pageBackgroundTokens.testing'
+import { appViewport, PAGE_BACKGROUND } from './viewport'
 
 describe('appViewport', () => {
   // Every env(safe-area-inset-*) term in the app is inert without this: iOS
@@ -15,14 +17,30 @@ describe('appViewport', () => {
 
   // Kept alongside so a rewrite of this object cannot quietly drop the
   // light/dark theme colors while satisfying the assertion above.
-  it('tints the browser chrome with each scheme\'s page background token', () => {
-    const { light, dark } = pageBackgroundTokens()
+  it("tints the browser chrome with each scheme's page background", () => {
     expect(appViewport.themeColor).toEqual([
-      { media: '(prefers-color-scheme: light)', color: light },
-      { media: '(prefers-color-scheme: dark)', color: dark },
+      { media: '(prefers-color-scheme: light)', color: PAGE_BACKGROUND.light },
+      { media: '(prefers-color-scheme: dark)', color: PAGE_BACKGROUND.dark },
     ])
-    // The approved values, so a palette change is re-approved for the chrome
-    // tint rather than followed silently.
-    expect({ light, dark }).toEqual({ light: '#f4f1ea', dark: '#0d0805' })
+  })
+})
+
+describe('PAGE_BACKGROUND', () => {
+  // Literal copies, so a palette change is re-approved for the browser tint and
+  // the web manifest rather than followed silently.
+  it('holds the approved light and dark page backgrounds', () => {
+    expect(PAGE_BACKGROUND).toEqual({ light: '#f4f1ea', dark: '#0d0805' })
+  })
+
+  it('matches --background in the light and .dark blocks of app/globals.css', () => {
+    const css = readFileSync(resolve(process.cwd(), 'app/globals.css'), 'utf8')
+    // `.dark {` at line start: earlier `.dark` mentions (the custom variant,
+    // prose in comments) are not the token block.
+    const darkStart = css.search(/^\.dark \{/m)
+    expect(darkStart).toBeGreaterThan(0)
+    expect(css.slice(0, darkStart)).toContain(`--background: ${PAGE_BACKGROUND.light};`)
+    expect(css.slice(darkStart, css.indexOf('\n}', darkStart))).toContain(
+      `--background: ${PAGE_BACKGROUND.dark};`
+    )
   })
 })

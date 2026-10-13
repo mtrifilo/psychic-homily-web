@@ -4,9 +4,9 @@ import { join } from 'node:path'
 import { test, expect } from '@playwright/test'
 
 /**
- * The install surfaces over HTTP: the touch icon (at its convention path and
- * through the root-path rewrites), the manifest, and the icons the manifest
- * lists. Request-only, so no page renders and no backend data is read.
+ * The install surfaces over HTTP, with no browser page: the touch icon (at its
+ * convention path and through the root-path rewrites), the manifest, the icons
+ * it lists, and the head links on a static page.
  */
 const APPLE_ICON_BYTES = readFileSync(join(__dirname, '..', '..', 'app', 'apple-icon.png'))
 
@@ -25,16 +25,17 @@ test.describe('app icons and manifest', () => {
     expect(response.status()).toBe(200)
     expect(response.headers()['content-type']).toContain('application/manifest+json')
     const manifest = (await response.json()) as { icons: { src: string }[] }
-    expect(manifest.icons.length).toBeGreaterThan(0)
-    for (const icon of manifest.icons) {
-      const iconResponse = await request.get(icon.src)
-      expect(iconResponse.status(), icon.src).toBe(200)
-      expect(iconResponse.headers()['content-type'], icon.src).toBe('image/png')
-    }
+    const iconPaths = [...new Set(manifest.icons.map(icon => icon.src))]
+    expect(iconPaths.length).toBeGreaterThan(0)
+    const iconResponses = await Promise.all(iconPaths.map(src => request.get(src)))
+    iconResponses.forEach((iconResponse, index) => {
+      expect(iconResponse.status(), iconPaths[index]).toBe(200)
+      expect(iconResponse.headers()['content-type'], iconPaths[index]).toBe('image/png')
+    })
   })
 
-  test('the home page links the manifest and the touch icon', async ({ request }) => {
-    const html = await (await request.get('/')).text()
+  test('the root layout links the manifest and the touch icon', async ({ request }) => {
+    const html = await (await request.get('/privacy')).text()
     expect(html).toMatch(/<link rel="manifest" href="\/manifest\.webmanifest"/)
     expect(html).toMatch(/<link rel="apple-touch-icon" href="\/apple-icon\.png[?"]/)
   })
