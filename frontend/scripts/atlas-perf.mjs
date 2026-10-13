@@ -88,15 +88,13 @@
 import { writeFileSync } from 'node:fs'
 import { chromium, devices } from '@playwright/test'
 import { AFTER_MAP_WINDOW_MS, COMPACT_BELOW_WIDTH, EXIT, budgetTable, errorMessage, median, resolveBudget, runBudgetCheck, seconds, targetLine } from './lib/atlas-perf-budget.mjs'
-import { CHROMIUM_ARGS, CPU_THROTTLE_RATE, FAST_4G, isBypassTarget, setBypassCookie } from './lib/phone-perf-profile.mjs'
+import { CHROMIUM_ARGS, CPU_THROTTLE_RATE, FAST_4G, FAST_4G_LABEL, SCENE_LIST_SELECTOR, isBypassTarget, phoneContextOptions, setBypassCookie } from './lib/phone-perf-profile.mjs'
 
 // How long the city view settles before its bytes are counted.
 const CITY_SETTLE_MS = 3000
 const READY_TIMEOUT_MS = 90_000
 const CITY_ZOOM = 12.5
 const PREVIEW_ONLY_HOSTS = ['vercel.live']
-// AtlasSceneList's root carries this test id.
-const SCENE_LIST_SELECTOR = '[data-testid="atlas-scene-list"]'
 
 function usage(message) {
   if (message) console.error(`error: ${message}`)
@@ -162,7 +160,7 @@ function contextOptions(opts) {
   if (opts.device === 'desktop') {
     return { ...devices['Desktop Chrome'], reducedMotion: 'no-preference', viewport: opts.viewport ?? { width: 1440, height: 900 } }
   }
-  return { ...devices['iPhone 13'], reducedMotion: 'no-preference', viewport: opts.viewport ?? { width: 390, height: 844 } }
+  return phoneContextOptions(opts.viewport ?? undefined)
 }
 
 function category(request) {
@@ -357,7 +355,7 @@ function printReport(opts, runs, verdict) {
   const ctx = contextOptions(opts)
   // Markdown, so the report reads the same in a terminal and a CI job summary.
   console.log(`\nAtlas perf: ${opts.url.href}\n`)
-  console.log(`- profile: ${opts.device} ${ctx.viewport.width}x${ctx.viewport.height} DPR ${ctx.deviceScaleFactor}, CPU ${CPU_THROTTLE_RATE}x main thread only (workers and GPU unthrottled), Fast 4G (9 Mbps down, 1.5 Mbps up, 165 ms), cache disabled, ${opts.headed ? 'headed' : 'headless'}`)
+  console.log(`- profile: ${opts.device} ${ctx.viewport.width}x${ctx.viewport.height} DPR ${ctx.deviceScaleFactor}, CPU ${CPU_THROTTLE_RATE}x main thread only (workers and GPU unthrottled), ${FAST_4G_LABEL}, cache disabled, ${opts.headed ? 'headed' : 'headless'}`)
   console.log(`- WebGL renderer: ${runs[0].renderer}`)
   console.log(`- runs: ${runs.map((r) => `${r.firstMapMs} ms / ${kib(r.entry.totalBytes)} KiB to first map + ${kib(r.afterMap.totalBytes)} KiB after / ${r.rasterRequests} raster requests`).join(', ')}\n`)
 

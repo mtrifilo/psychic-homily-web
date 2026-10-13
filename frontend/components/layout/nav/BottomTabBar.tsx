@@ -72,6 +72,7 @@ import type { NavDestination, NavLink } from './navData'
 // that tab reads as selected and every other tab, the active one included,
 // reads as unselected, until the destination commits and `active` moves.
 // Product Designs XakQQ0nYGqnt77PrHKO9IE, boards 1955:90 and 1955:118.
+// scripts/chrome-perf.mjs times the pending paint by the same marker.
 const pendingTabClassName =
   'has-[[data-tab-pending]]:text-primary group-has-[[data-tab-pending]]/tabbar:not-has-[[data-tab-pending]]:text-muted-foreground'
 

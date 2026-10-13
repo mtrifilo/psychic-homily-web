@@ -160,16 +160,23 @@ describe('ChromeLink on a coarse pointer', () => {
     expect(router.prefetch).toHaveBeenCalledExactlyOnceWith('/shows')
   })
 
-  it('prefetches on a pen pointerdown, and leaves mouse and finger pointerdowns to touchstart', async () => {
+  it('leaves a finger pointerdown to touchstart', async () => {
     const { ChromeLink } = await load()
     render(<ChromeLink href="/radio">Radio</ChromeLink>)
-    const link = screen.getByText('Radio')
 
-    fireEvent.pointerDown(link, { pointerType: 'mouse' })
-    fireEvent.pointerDown(link, { pointerType: 'touch' })
+    fireEvent.pointerDown(screen.getByText('Radio'), { pointerType: 'touch' })
+
     expect(router.prefetch).not.toHaveBeenCalled()
+  })
 
-    fireEvent.pointerDown(link, { pointerType: 'pen' })
+  // A pen, or a mouse or trackpad on a coarse-pointer device (a tablet with a
+  // trackpad), sends no touchstart, so its pointerdown is the intent.
+  it.each(['pen', 'mouse'])('prefetches on a %s pointerdown', async pointerType => {
+    const { ChromeLink } = await load()
+    render(<ChromeLink href="/radio">Radio</ChromeLink>)
+
+    fireEvent.pointerDown(screen.getByText('Radio'), { pointerType })
+
     expect(router.prefetch).toHaveBeenCalledExactlyOnceWith('/radio')
   })
 
@@ -262,7 +269,7 @@ describe('ChromeLink on a fine pointer', () => {
     matchMedia.restore()
   })
 
-  it('prefetches on viewport entry off the Atlas and makes no router call on touch or pen', async () => {
+  it('prefetches on viewport entry off the Atlas and makes no router call on touch, pen or mouse', async () => {
     const { ChromeLink } = await load()
     render(
       <ChromeLink href="/venues" atlasPrefetch="after-map">
@@ -274,6 +281,7 @@ describe('ChromeLink on a fine pointer', () => {
 
     fireEvent.touchStart(link)
     fireEvent.pointerDown(link, { pointerType: 'pen' })
+    fireEvent.pointerDown(link, { pointerType: 'mouse' })
 
     expect(router.prefetch).not.toHaveBeenCalled()
   })

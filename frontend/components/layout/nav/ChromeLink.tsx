@@ -13,12 +13,14 @@ import { useHydrated } from '@/lib/hooks/common/useHydrated'
  *   where AtlasMapReadyLink holds it on the Atlas.
  * - `'on-touch'`: on a coarse pointer, and on any pointer through the
  *   hydration render, on every route. The link never prefetches on viewport
- *   entry; it prefetches its route when a touch or a pen lands on it, Atlas map
- *   or not, because that touch is the start of a navigation. That prefetch is
- *   `router.prefetch`, which Next queues at its default priority: it starts
- *   only once the in-flight prefetches (a page's own content links among
- *   them) fall below Next's default concurrency limit, a limit Next's own
- *   hover and touch prefetch may exceed.
+ *   entry; it prefetches its route when a touch, a pen or a mouse button lands
+ *   on it, Atlas map or not, because that is the start of a navigation. That
+ *   prefetch is `router.prefetch`, which Next queues at its default priority:
+ *   it starts only once the in-flight prefetches (a page's own content links
+ *   among them) fall below Next's default concurrency limit, a limit Next's
+ *   own hover and touch prefetch may exceed. The policy follows the pointer,
+ *   not the width: a coarse pointer at xl and wider (no bottom tab bar) takes
+ *   it too, without the tab bar's pending state.
  */
 export type ChromePrefetch = AtlasPrefetch | 'on-touch'
 
@@ -48,11 +50,11 @@ export function chromePrefetch(
  *   visitors never open.
  *
  * Two opt-outs, for a caller that needs fewer prefetches than that:
- * - `viewportPrefetch={false}` drops the speculative prefetch and keeps the
- *   intent one. On a fine pointer the link renders Next's `prefetch={false}`
- *   (no viewport, hover or touchstart prefetch); on a coarse pointer it is
- *   the `'on-touch'` policy unchanged, so a touch still prefetches the route.
- * - `prefetch={false}` is off on every pointer, on a touch too.
+ * - `viewportPrefetch={false}`: on a coarse pointer, the `'on-touch'` policy
+ *   unchanged (a touch still prefetches the route). On a fine pointer, no
+ *   prefetch at all: the link renders Next's `prefetch={false}`, which turns
+ *   off its hover and touchstart prefetch along with the viewport one.
+ * - `prefetch={false}`: no prefetch on any pointer, on a touch too.
  */
 export function ChromeLink({
   atlasPrefetch = 'never',
@@ -90,16 +92,12 @@ export function ChromeLink({
       }}
       onPointerDown={(event: PointerEvent<HTMLAnchorElement>) => {
         onPointerDown?.(event)
-        // A finger reaches the router through touchstart; this covers a pen or
-        // other non-mouse pointer that sends no touch events.
-        if (prefetchOnTouch && isPenLikePointer(event.pointerType)) {
+        // A finger reaches the router through touchstart; this covers a pen,
+        // or a mouse or trackpad on a coarse-pointer device, which send none.
+        if (prefetchOnTouch && event.pointerType !== 'touch') {
           router.prefetch(href)
         }
       }}
     />
   )
-}
-
-function isPenLikePointer(pointerType: string): boolean {
-  return pointerType !== 'mouse' && pointerType !== 'touch'
 }

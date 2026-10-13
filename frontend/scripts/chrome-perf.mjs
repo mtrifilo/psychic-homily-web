@@ -32,15 +32,13 @@
 //   --path P            page path (default / for page, /atlas for tap)
 //   --tab LABEL         tab link to tap (default Shows)
 //   --hold-ms MS        touchstart to touchend (default 100)
-//   --settle-ms MS      wait after the map or load before the tap (default 3000,
-//                       the length of atlas-perf's after-map window)
+//   --settle-ms MS      wait after the map or load before the tap (default 3000)
 //   --headed            headed Chromium (uses the machine's GPU on macOS)
 //   --json FILE         write every run to FILE
 //
-// Profile (atlas-perf.mjs's phone profile): Playwright's `iPhone 13`
-// descriptor at 390x844 (mobile UA, touch, DPR 3, `pointer: coarse`, checked
-// per run), and from lib/phone-perf-profile.mjs, which both scripts import,
-// CPU 4x on the main thread and Fast 4G (9 Mbps down, 1.5 Mbps up, 165 ms);
+// Profile: atlas-perf.mjs's phone profile, from lib/phone-perf-profile.mjs
+// (both scripts import it): Playwright's `iPhone 13` descriptor at 390x844
+// (`pointer: coarse` checked per run), CPU 4x on the main thread, Fast 4G;
 // cache disabled, a fresh browser per run.
 //
 // Env: VERCEL_PROTECTION_BYPASS, if set, is sent on one bypass-cookie request
@@ -49,9 +47,9 @@
 //
 // Exit codes: 0 every run finished, 2 harness error.
 import { writeFileSync } from 'node:fs'
-import { chromium, devices } from '@playwright/test'
+import { chromium } from '@playwright/test'
 import { EXIT, errorMessage, median } from './lib/atlas-perf-budget.mjs'
-import { CHROMIUM_ARGS, CPU_THROTTLE_RATE, FAST_4G, isBypassTarget, setBypassCookie } from './lib/phone-perf-profile.mjs'
+import { CHROMIUM_ARGS, CPU_THROTTLE_RATE, FAST_4G, FAST_4G_LABEL, SCENE_LIST_SELECTOR, isBypassTarget, phoneContextOptions, setBypassCookie } from './lib/phone-perf-profile.mjs'
 
 const READY_TIMEOUT_MS = 90_000
 const LCP_WINDOW_AFTER_MS = 2000
@@ -143,11 +141,7 @@ const PROBES = `(() => {
 })()`
 
 async function openPage(browser, opts) {
-  const context = await browser.newContext({
-    ...devices['iPhone 13'],
-    reducedMotion: 'no-preference',
-    viewport: { width: 390, height: 844 },
-  })
+  const context = await browser.newContext(phoneContextOptions())
   await setBypassCookie(context, opts.url)
   await context.addInitScript(PROBES)
   const page = await context.newPage()
@@ -230,17 +224,24 @@ async function pageRun(browser, opts) {
 async function tapRun(browser, opts) {
   const { context, page, cdp, requests, issued } = await openPage(browser, opts)
   if (opts.url.pathname === '/atlas') {
+    // Resolves 'map' once the map has rendered, or 'scene-list' when the page
+    // shows the scene list in its place.
     const ready = await page
-      .waitForFunction(() => {
+      .waitForFunction((sceneListSelector) => {
         const m = window.__atlasMap
+        if (!m && document.querySelector(sceneListSelector)) return 'scene-list'
         try {
-          return !!m && m.isStyleLoaded() && m.areTilesLoaded() && m.queryRenderedFeatures().length > 0
+          return !!m && m.isStyleLoaded() && m.areTilesLoaded() && m.queryRenderedFeatures().length > 0 && 'map'
         } catch {
           return false
         }
-      }, null, { timeout: READY_TIMEOUT_MS, polling: 50 })
-      .then(() => true, () => false)
-    if (!ready) {
+      }, SCENE_LIST_SELECTOR, { timeout: READY_TIMEOUT_MS, polling: 50 })
+      .then((handle) => handle.jsonValue(), () => null)
+    if (ready === 'scene-list') {
+      await context.close()
+      throw new Error('the page rendered the Atlas scene list, not the map')
+    }
+    if (ready !== 'map') {
       await context.close()
       throw new Error('the Atlas map never became ready')
     }
@@ -300,7 +301,8 @@ async function tapRun(browser, opts) {
 
 function printReport(opts, runs) {
   console.log(`\nChrome perf (${opts.mode}): ${opts.url.href}\n`)
-  console.log(`- profile: iPhone 13 390x844 DPR 3, pointer coarse, CPU ${CPU_THROTTLE_RATE}x main thread, Fast 4G (9 Mbps down, 1.5 Mbps up, 165 ms), cache disabled, ${opts.headed ? 'headed' : 'headless'}`)
+  const { viewport, deviceScaleFactor } = phoneContextOptions()
+  console.log(`- profile: iPhone 13 ${viewport.width}x${viewport.height} DPR ${deviceScaleFactor}, pointer coarse, CPU ${CPU_THROTTLE_RATE}x main thread, ${FAST_4G_LABEL}, cache disabled, ${opts.headed ? 'headed' : 'headless'}`)
   if (opts.mode === 'page') {
     console.log(`- runs (FCP / LCP / long tasks before LCP+2s / script by LCP+2s): ${runs.map((r) => `${r.fcpMs} / ${r.lcpMs} / ${r.longTaskMs} ms / ${kib(r.scriptBytes)} KiB`).join(', ')}`)
     console.log(`- median: FCP ${median(runs.map((r) => r.fcpMs))} ms, LCP ${median(runs.map((r) => r.lcpMs))} ms, long tasks ${median(runs.map((r) => r.longTaskMs))} ms, script by LCP+2s ${kib(median(runs.map((r) => r.scriptBytes)))} KiB`)
