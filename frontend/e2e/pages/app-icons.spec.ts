@@ -10,7 +10,9 @@ import { test, expect } from '@playwright/test'
  */
 const APPLE_ICON_BYTES = readFileSync(join(__dirname, '..', '..', 'app', 'apple-icon.png'))
 
-test.describe('app icons and manifest', () => {
+// @smoke: request-only and fast, and these are the only HTTP-level checks on
+// the touch-icon rewrites, so they run on every PR rather than after merge.
+test.describe('app icons and manifest', { tag: '@smoke' }, () => {
   for (const path of ['/apple-icon.png', '/apple-touch-icon.png', '/apple-touch-icon-precomposed.png']) {
     test(`${path} answers 200 image/png with the apple-icon artwork`, async ({ request }) => {
       const response = await request.get(path, { maxRedirects: 0 })

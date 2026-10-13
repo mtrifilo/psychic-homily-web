@@ -7,13 +7,15 @@ import { PAGE_BACKGROUND } from '@/lib/seo/viewport'
  * Web app manifest, served at /manifest.webmanifest and linked from every
  * page's <head> by Next's metadata file convention.
  *
- * Both colours are the dark page background, matching the black icon. A
- * manifest holds one value per field; the per-scheme tint comes from the
- * theme-color meta tags in lib/seo/viewport.ts.
+ * Both colours are the dark page background (PAGE_BACKGROUND.dark); the icon
+ * artwork itself sits on pure black. A manifest holds one value per field; the
+ * per-scheme browser tint comes from the theme-color meta tags in
+ * lib/seo/viewport.ts.
  *
- * /icon.png is app/icon.png (the 192 rel=icon). The 512 artwork keeps every
- * lit pixel inside the maskable safe zone (the centred circle of radius 40%),
- * so the same file is also listed as maskable.
+ * /icon.png is app/icon.png (the 192 rel=icon). Both PNGs are rendered by
+ * scripts/app-icons.mjs, which refuses to write them unless the 512 keeps every
+ * lit pixel inside the maskable safe zone, so that file is also listed as
+ * maskable.
  */
 export default function manifest(): MetadataRoute.Manifest {
   return {

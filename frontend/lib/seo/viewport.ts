@@ -2,9 +2,10 @@ import type { Viewport } from 'next'
 
 /**
  * The page background of each colour scheme, as declared by `--background` in
- * app/globals.css (the light :root block and the .dark block). CSS custom
- * properties cannot be read from metadata, so these are the one TypeScript
- * copy; viewport.test.ts asserts they match the stylesheet.
+ * app/globals.css (the light :root block and the .dark block), for the
+ * metadata that names it: the theme-color tags below and app/manifest.ts.
+ * Metadata cannot read CSS custom properties, so viewport.test.ts asserts
+ * these values match the stylesheet.
  */
 export const PAGE_BACKGROUND = { light: '#f4f1ea', dark: '#0d0805' } as const
 
@@ -12,6 +13,8 @@ export const PAGE_BACKGROUND = { light: '#f4f1ea', dark: '#0d0805' } as const
 // than inline in the layout so it can be asserted in a unit test: layout.tsx
 // calls next/font/local at module scope, which does not resolve under vitest.
 export const appViewport: Viewport = {
+  // Selected by the OS colour scheme (the media query), not by the in-app
+  // theme choice.
   themeColor: [
     { media: '(prefers-color-scheme: light)', color: PAGE_BACKGROUND.light },
     { media: '(prefers-color-scheme: dark)', color: PAGE_BACKGROUND.dark },
