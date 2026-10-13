@@ -33,14 +33,15 @@
 //   --tab LABEL         tab link to tap (default Shows)
 //   --hold-ms MS        touchstart to touchend (default 100)
 //   --settle-ms MS      wait after the map or load before the tap (default 3000,
-//                       atlas-perf's after-map window)
+//                       the length of atlas-perf's after-map window)
 //   --headed            headed Chromium (uses the machine's GPU on macOS)
 //   --json FILE         write every run to FILE
 //
-// Profile (as in scripts/atlas-perf.mjs): Playwright's `iPhone 13` descriptor
-// at 390x844 (mobile UA, touch, DPR 3, `pointer: coarse`, checked per run),
-// CPU 4x on the main thread, Fast 4G (9 Mbps down, 1.5 Mbps up, 165 ms), cache
-// disabled, a fresh browser per run.
+// Profile (atlas-perf.mjs's phone profile): Playwright's `iPhone 13`
+// descriptor at 390x844 (mobile UA, touch, DPR 3, `pointer: coarse`, checked
+// per run), and from lib/phone-perf-profile.mjs, which both scripts import,
+// CPU 4x on the main thread and Fast 4G (9 Mbps down, 1.5 Mbps up, 165 ms);
+// cache disabled, a fresh browser per run.
 //
 // Env: VERCEL_PROTECTION_BYPASS, if set, is sent on one bypass-cookie request
 // per run, only to an https URL on this project's Vercel preview host, and is
@@ -49,22 +50,17 @@
 // Exit codes: 0 every run finished, 2 harness error.
 import { writeFileSync } from 'node:fs'
 import { chromium, devices } from '@playwright/test'
-import { AFTER_MAP_WINDOW_MS, EXIT, errorMessage, median } from './lib/atlas-perf-budget.mjs'
+import { EXIT, errorMessage, median } from './lib/atlas-perf-budget.mjs'
+import { CHROMIUM_ARGS, CPU_THROTTLE_RATE, FAST_4G, isBypassTarget, setBypassCookie } from './lib/phone-perf-profile.mjs'
 
-const FAST_4G = {
-  offline: false,
-  downloadThroughput: ((9 * 1000 * 1000) / 8) * 0.9,
-  uploadThroughput: ((1.5 * 1000 * 1000) / 8) * 0.9,
-  latency: 60 * 2.75,
-}
-const CPU_THROTTLE_RATE = 4
-const PREVIEW_HOST = /^psychic-homily-[a-z0-9-]+-matts-projects-722d5204\.vercel\.app$/
 const READY_TIMEOUT_MS = 90_000
 const LCP_WINDOW_AFTER_MS = 2000
 // How long after the load event a page run keeps observing before it reads
-// LCP: LCP candidates stop once the page is idle, and the script cut needs
-// LCP + 2 s to have passed.
+// LCP: LCP candidates stop once the page is idle. The read then also waits
+// until LCP + LCP_WINDOW_AFTER_MS has passed on the page's clock.
 const PAGE_OBSERVE_MS = 6000
+// Default wait between the first map (or the load event) and the tap.
+const TAP_SETTLE_MS = 3000
 const TAP_TIMEOUT_MS = 30_000
 
 function usage(message) {
@@ -74,7 +70,7 @@ function usage(message) {
 }
 
 function parseArgs(argv) {
-  const opts = { mode: null, runs: 3, path: null, tab: 'Shows', holdMs: 100, settleMs: AFTER_MAP_WINDOW_MS, headed: false, json: null }
+  const opts = { mode: null, runs: 3, path: null, tab: 'Shows', holdMs: 100, settleMs: TAP_SETTLE_MS, headed: false, json: null }
   const positional = []
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i]
@@ -152,22 +148,7 @@ async function openPage(browser, opts) {
     reducedMotion: 'no-preference',
     viewport: { width: 390, height: 844 },
   })
-  const bypass = process.env.VERCEL_PROTECTION_BYPASS
-  if (bypass && opts.url.protocol === 'https:' && PREVIEW_HOST.test(opts.url.hostname)) {
-    let status
-    try {
-      const response = await context.request.get(opts.url.href, {
-        headers: { 'x-vercel-protection-bypass': bypass, 'x-vercel-set-bypass-cookie': 'samesitenone' },
-        maxRedirects: 0,
-      })
-      status = response.status()
-    } catch (error) {
-      // Playwright's error message carries the request's call log, headers
-      // included, so it must not be rethrown or printed.
-      throw new Error(`bypass request failed (${error?.code ?? error?.name ?? 'network error'})`)
-    }
-    if (status >= 400) throw new Error(`bypass request returned HTTP ${status}`)
-  }
+  await setBypassCookie(context, opts.url)
   await context.addInitScript(PROBES)
   const page = await context.newPage()
   const cdp = await context.newCDPSession(page)
@@ -224,10 +205,17 @@ async function pageRun(browser, opts) {
   const { context, page, requests } = await openPage(browser, opts)
   await page.waitForLoadState('load', { timeout: READY_TIMEOUT_MS })
   await page.waitForTimeout(PAGE_OBSERVE_MS)
+  const windowPassed = await page
+    .waitForFunction(
+      (afterMs) => window.__chromePerf.lcp !== null && performance.now() >= window.__chromePerf.lcp + afterMs,
+      LCP_WINDOW_AFTER_MS,
+      { timeout: READY_TIMEOUT_MS, polling: 100 }
+    )
+    .then(() => true, () => false)
   const { perf, timeOrigin } = await page.evaluate(() => ({ perf: window.__chromePerf, timeOrigin: performance.timeOrigin }))
-  if (perf.lcp === null) {
+  if (!windowPassed) {
     await context.close()
-    throw new Error('no largest-contentful-paint entry')
+    throw new Error(perf.lcp === null ? 'no largest-contentful-paint entry' : 'LCP + 2 s never passed')
   }
   const cut = perf.lcp + LCP_WINDOW_AFTER_MS
   const finished = await requests()
@@ -268,6 +256,10 @@ async function tapRun(browser, opts) {
     throw new Error(`no tab link named ${opts.tab}`)
   }
   const destPathname = new URL(href, opts.url).pathname
+  if (destPathname === new URL(page.url()).pathname) {
+    await context.close()
+    throw new Error(`the ${opts.tab} tab links to the page under test (${destPathname}); pick another --tab`)
+  }
   const box = await tab.boundingBox()
   const tabSelector = `nav[aria-label="Mobile navigation"] a[href="${href}"]`
   await page.evaluate(([selector, dest]) => window.__chromePerfWatchTap(selector, dest), [tabSelector, destPathname])
@@ -325,7 +317,7 @@ function printReport(opts, runs) {
 
 const opts = parseArgs(process.argv.slice(2))
 const bypass = process.env.VERCEL_PROTECTION_BYPASS
-if (bypass && !(opts.url.protocol === 'https:' && PREVIEW_HOST.test(opts.url.hostname))) {
+if (bypass && !isBypassTarget(opts.url)) {
   console.error(`note: VERCEL_PROTECTION_BYPASS is set but not sent: ${opts.url.host} is not an https preview host`)
 }
 const redact = (message) => (bypass ? message.replaceAll(bypass, '[redacted]') : message)
@@ -335,7 +327,7 @@ try {
     // A fresh browser per run, so nothing cached survives between runs.
     const browser = await chromium.launch({
       headless: !opts.headed,
-      args: ['--use-gl=angle', '--enable-webgl', '--ignore-gpu-blocklist', '--enable-unsafe-swiftshader'],
+      args: CHROMIUM_ARGS,
     })
     try {
       runs.push(await (opts.mode === 'page' ? pageRun(browser, opts) : tapRun(browser, opts)))

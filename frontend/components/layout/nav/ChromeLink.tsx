@@ -11,9 +11,14 @@ import { useHydrated } from '@/lib/hooks/common/useHydrated'
  * - `'after-map'` or `'never'`: the caller's Atlas policy, on a fine pointer.
  *   Next prefetches the link as usual (viewport, hover, touchstart) except
  *   where AtlasMapReadyLink holds it on the Atlas.
- * - `'on-touch'`: on a coarse pointer, on every route. The link never prefetches
- *   on viewport entry; it prefetches its route when a touch or a pen lands on
- *   it, Atlas map or not, because that touch is the start of a navigation.
+ * - `'on-touch'`: on a coarse pointer, and on any pointer through the
+ *   hydration render, on every route. The link never prefetches on viewport
+ *   entry; it prefetches its route when a touch or a pen lands on it, Atlas map
+ *   or not, because that touch is the start of a navigation. That prefetch is
+ *   `router.prefetch`, which Next queues at its default priority: it starts
+ *   only once the in-flight prefetches (a page's own content links among
+ *   them) fall below Next's default concurrency limit, a limit Next's own
+ *   hover and touch prefetch may exceed.
  */
 export type ChromePrefetch = AtlasPrefetch | 'on-touch'
 
@@ -37,9 +42,10 @@ export function chromePrefetch(
  * the policy on a fine pointer (see {@link chromePrefetch} for the rest):
  * - `atlasPrefetch="after-map"` for the primary navigation: the bottom tab
  *   bar, PrimaryNav (top-nav mode) and the side rail's links (side-nav mode).
- * - `'never'` (the default) for everything else. On a phone each prefetch
- *   fetches that route's own JS, and the long tail of menu, footer and banner
- *   links would spend that data on routes most Atlas visitors never open.
+ * - `'never'` (the default) for everything else. Each prefetch fetches that
+ *   route's own JS, and on the Atlas the long tail of menu, footer and banner
+ *   links would compete with the map's downloads for routes most Atlas
+ *   visitors never open.
  *
  * A caller's `prefetch={false}` holds on every pointer, on a touch too.
  */
