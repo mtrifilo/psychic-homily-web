@@ -682,6 +682,39 @@ describe('GlobeCanvas tap targets', () => {
     clickAt(map, 51, 50)
     expect(onSelect).toHaveBeenCalledWith(expect.objectContaining({ slug: 'chicago-il' }))
   })
+
+  it('names the highest sort key of a stacked dot hover, as its click opens it', () => {
+    renderWithPointer(false, {
+      scenes: [CHICAGO, { ...CHICAGO, slug: 'evanston-il', city: 'Evanston' }],
+    })
+    const map = stub.state.maps[stub.state.maps.length - 1]
+    act(() =>
+      map.fire('mousemove:scene-dots', {
+        point: { x: 50, y: 50 },
+        features: [
+          { properties: { slug: 'evanston-il', sortKey: 1 } },
+          { properties: { slug: 'chicago-il', sortKey: 5 } },
+        ],
+      }),
+    )
+    expect(screen.getByText(sceneTooltipLabel(CHICAGO))).toHaveStyle({ display: 'block' })
+    expect(map.setFeatureState).toHaveBeenCalledWith({ source: 'scenes', id: 'chicago-il' }, { hover: true })
+  })
+
+  it('opens nothing, on either pointer, while the style has no pin or dot layer', () => {
+    for (const coarse of [true, false]) {
+      const { map, onVenueSelect, onSelect } = renderWithPointer(coarse)
+      drawPins(map)
+      map.rendered['scene-dots'] = [mark({ slug: 'chicago-il', sortKey: 1 }, 100, 100)]
+      map.getLayer = () => undefined as unknown as object
+      clickAt(map, 100, 100)
+      expect(onVenueSelect).not.toHaveBeenCalled()
+      expect(onSelect).not.toHaveBeenCalled()
+      cleanup()
+      matchMedia?.restore()
+      matchMedia = null
+    }
+  })
 })
 
 describe('GlobeCanvas pulse rings', () => {
