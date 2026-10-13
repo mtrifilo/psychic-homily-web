@@ -59,6 +59,7 @@ import {
   venuePinRadiusPx,
 } from './venuePinLayer'
 import { readAtlasCamera, saveAtlasCamera } from './atlasCamera'
+import { circleMarkAt } from './mapTapTarget'
 import { AtlasMapUnrecoverableError } from '../atlasViewport'
 import { atlasMapContextRefused, watchAtlasMapHealth } from './atlasMapHealth'
 import {
@@ -415,8 +416,10 @@ export default function GlobeCanvas({
   // scene dots and venue pins show no tooltip, set no hover highlight and leave
   // the cursor alone, whatever input sends the mousemove. The browser emulates
   // a mousemove before a tap's click, and Safari on iOS drops the click when
-  // that mousemove changes the page. Both hover handlers read this ref; a
-  // switch to a coarse primary pointer clears any hover already held.
+  // that mousemove changes the page. A coarse pointer's click hit-tests a tap
+  // box rather than the drawn mark (circleMarkAt). The hover and click
+  // handlers of both layers read this ref; a switch to a coarse primary
+  // pointer clears any hover already held.
   const coarsePointer = useCoarsePointer()
   const coarsePointerRef = useRef(coarsePointer)
   useEffect(() => {
@@ -1346,26 +1349,23 @@ export default function GlobeCanvas({
     }
     map.on('zoom', handleZoom)
 
+    // Highest sort key first, the SAME key that decides draw order
+    // (globeScale.sceneDotSortKey), so the dot you see on top is the dot the
+    // pointer selects. Stable: equal keys keep MapLibre's order.
+    const sceneDotsTopFirst = (features: maplibregl.MapGeoJSONFeature[]) =>
+      [...features].sort(
+        (a, b) =>
+          (Number(b.properties?.sortKey) || 0) -
+          (Number(a.properties?.sortKey) || 0),
+      )
+    const sceneSlugOf = (feature: maplibregl.MapGeoJSONFeature | null | undefined) =>
+      typeof feature?.properties?.slug === 'string' ? feature.properties.slug : null
     // Hover: pointer cursor + tooltip + dot highlight, all imperative —
     // mousemove never re-renders React. The highlight itself is a
     // feature-state flag consumed by the paint expressions above.
     const pickTopScene = (
       features: maplibregl.MapGeoJSONFeature[] | undefined,
-    ): string | null => {
-      if (!features || features.length === 0) return null
-      // Highest sort key wins a stacked hit — the SAME key that decides draw
-      // order (globeScale.sceneDotSortKey), so the dot you see on top is the
-      // dot the pointer selects.
-      let best: maplibregl.MapGeoJSONFeature = features[0]
-      for (const f of features) {
-        if (Number(f.properties?.sortKey) > Number(best.properties?.sortKey)) {
-          best = f
-        }
-      }
-      return typeof best.properties?.slug === 'string'
-        ? best.properties.slug
-        : null
-    }
+    ): string | null => sceneSlugOf(sceneDotsTopFirst(features ?? [])[0])
 
     // Tracked per map instance (fresh map each show → no stale hover).
     // Feature state lives in the style, so it is written only while the
@@ -1420,16 +1420,24 @@ export default function GlobeCanvas({
     // which would strand a stale highlight + floating tooltip. Any camera
     // movement clears the hover; the next real mousemove re-establishes it.
     map.on('movestart', handleLeave)
-    const handleClick = (
-      e: maplibregl.MapMouseEvent & { features?: maplibregl.MapGeoJSONFeature[] },
-    ) => {
-      const slug = pickTopScene(e.features)
+    // A map-wide click resolved through circleMarkAt rather than a layer
+    // click, so a coarse pointer's tap reaches a dot within its tap box.
+    const handleClick = (e: maplibregl.MapMouseEvent) => {
+      const slug = sceneSlugOf(
+        circleMarkAt(
+          map,
+          e.point,
+          'scene-dots',
+          coarsePointerRef.current,
+          sceneDotsTopFirst,
+        ),
+      )
       const scene = slug ? scenesBySlugRef.current.get(slug) : undefined
       if (scene) onSelectRef.current(scene)
     }
     map.on('mousemove', 'scene-dots', handleMove)
     map.on('mouseleave', 'scene-dots', handleLeave)
-    map.on('click', 'scene-dots', handleClick)
+    map.on('click', handleClick)
 
     // ── City view: pins, tooltip, status chip, camera reporting ────────────
     // All imperative, for the same reason the scene handlers are: hovering a
@@ -1448,11 +1456,10 @@ export default function GlobeCanvas({
       hoveredVenueId = id
     }
 
-    const pickTopVenue = (
-      features: maplibregl.MapGeoJSONFeature[] | undefined,
+    const venueIdOf = (
+      feature: maplibregl.MapGeoJSONFeature | null | undefined,
     ): number | null => {
-      if (!features || features.length === 0) return null
-      const id = features[0].properties?.id
+      const id = feature?.properties?.id
       return typeof id === 'number' ? id : null
     }
 
@@ -1480,7 +1487,7 @@ export default function GlobeCanvas({
       e: maplibregl.MapMouseEvent & { features?: maplibregl.MapGeoJSONFeature[] },
     ) => {
       if (coarsePointerRef.current) return
-      const id = pickTopVenue(e.features)
+      const id = venueIdOf(e.features?.[0])
       setVenueHoverState(id)
       map.getCanvas().style.cursor = id !== null ? 'pointer' : ''
       const tooltip = venueTooltipRef.current
@@ -1518,10 +1525,11 @@ export default function GlobeCanvas({
       map.getCanvas().style.cursor = ''
       hideVenueTooltip()
     }
-    const handleVenueClick = (
-      e: maplibregl.MapMouseEvent & { features?: maplibregl.MapGeoJSONFeature[] },
-    ) => {
-      const id = pickTopVenue(e.features)
+    // Map-wide, through circleMarkAt, for the same reason as the dot click.
+    const handleVenueClick = (e: maplibregl.MapMouseEvent) => {
+      const id = venueIdOf(
+        circleMarkAt(map, e.point, 'venue-pins', coarsePointerRef.current),
+      )
       if (id === null) return
       const stack = stackClickedAt(e.originalEvent.target, id)
       if (stack) {
@@ -1532,7 +1540,7 @@ export default function GlobeCanvas({
     }
     map.on('mousemove', 'venue-pins', handleVenueMove)
     map.on('mouseleave', 'venue-pins', handleVenueLeave)
-    map.on('click', 'venue-pins', handleVenueClick)
+    map.on('click', handleVenueClick)
     // Seam for the non-pointer paths that can invalidate a hover (a rail
     // filter deleting the hovered pin). One function owns the teardown.
     clearVenueHoverRef.current = handleVenueLeave

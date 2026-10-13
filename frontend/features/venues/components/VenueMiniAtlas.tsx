@@ -21,6 +21,8 @@ import {
   venuePinFeatures,
   venuePinPaint,
 } from '@/features/scenes/components/venuePinLayer'
+import { circleMarkAt } from '@/features/scenes/components/mapTapTarget'
+import { useCoarsePointer } from '@/lib/hooks/common/useCoarsePointer'
 import { MiniAtlasSkeleton } from './MiniAtlasSkeleton'
 import {
   MINI_ATLAS_FIT_PADDING_PX,
@@ -153,6 +155,21 @@ export function VenueMiniAtlas({
   const onSelectRef = useRef(onSelectVenue)
   onSelectRef.current = onSelectVenue
 
+  // While the device's primary pointer is coarse (`pointer: coarse`), a pin
+  // reports no hover and leaves the cursor alone, whatever input sends the
+  // mousemove: the browser emulates one before a tap's click, and Safari on
+  // iOS drops the click when that mousemove changes the page. A coarse
+  // pointer's click hit-tests a tap box rather than the drawn pin
+  // (circleMarkAt). A switch to a coarse primary pointer clears a hover this
+  // map reported.
+  const coarsePointer = useCoarsePointer()
+  const coarsePointerRef = useRef(coarsePointer)
+  const clearPointerHoverRef = useRef<(() => void) | null>(null)
+  useEffect(() => {
+    coarsePointerRef.current = coarsePointer
+    if (coarsePointer) clearPointerHoverRef.current?.()
+  }, [coarsePointer])
+
   // Plain create/remove, and deliberately NO init guard that survives a hide:
   // a surviving guard ref is the one pattern that broke the previous globe
   // under Cache Components (PSY-1284). A fresh map per mount is correct.
@@ -216,38 +233,50 @@ export function VenueMiniAtlas({
     // identical update through the page on every frame.
     let reported: number | null = null
     const handleEnter = () => {
+      if (coarsePointerRef.current) return
       instance.getCanvas().style.cursor = 'pointer'
     }
     const handleMove = (
       event: maplibregl.MapMouseEvent & { features?: maplibregl.MapGeoJSONFeature[] },
     ) => {
+      if (coarsePointerRef.current) return
       const id = event.features?.[0]?.id
       if (typeof id !== 'number' || id === reported) return
       reported = id
       onHoverRef.current(id)
     }
+    // Clears only a hover this map reported, so a pointer leaving a pin it
+    // never reported (a coarse pointer's) leaves the page's hover alone.
     const handleLeave = () => {
       instance.getCanvas().style.cursor = ''
+      if (reported === null) return
       reported = null
       onHoverRef.current(null)
     }
-    const handleClick = (
-      event: maplibregl.MapMouseEvent & { features?: maplibregl.MapGeoJSONFeature[] },
-    ) => {
-      const id = event.features?.[0]?.id
+    clearPointerHoverRef.current = handleLeave
+    // A map-wide click resolved through circleMarkAt rather than a layer
+    // click, so a coarse pointer's tap reaches a pin within its tap box.
+    const handleClick = (event: maplibregl.MapMouseEvent) => {
+      const id = circleMarkAt(
+        instance,
+        event.point,
+        LAYER_ID,
+        coarsePointerRef.current,
+      )?.id
       if (typeof id === 'number') onSelectRef.current(id)
     }
 
     instance.on('mouseenter', LAYER_ID, handleEnter)
     instance.on('mousemove', LAYER_ID, handleMove)
     instance.on('mouseleave', LAYER_ID, handleLeave)
-    instance.on('click', LAYER_ID, handleClick)
+    instance.on('click', handleClick)
     instance.on('load', () => {
       setMap(instance)
     })
 
     return () => {
       health.stop()
+      clearPointerHoverRef.current = null
       // The applied hover belongs to THIS map instance; a new one starts with
       // no feature-state, so a carried id would describe a map that never had
       // it set.

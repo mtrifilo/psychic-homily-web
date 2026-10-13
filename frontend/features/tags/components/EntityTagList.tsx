@@ -1,9 +1,10 @@
 'use client'
 
-import { useState, useEffect, useMemo, useRef, useSyncExternalStore } from 'react'
+import { useState, useEffect, useMemo, useRef } from 'react'
 import Link from 'next/link'
 import { Plus, ThumbsUp, ThumbsDown, X, Search, Loader2, ChevronDown, ChevronUp, MoreHorizontal } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { useCoarsePointer } from '@/lib/hooks/common/useCoarsePointer'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import {
@@ -327,58 +328,16 @@ export function EntityTagList({
 }
 
 // ──────────────────────────────────────────────
-// Touch / coarse-pointer detection
-// ──────────────────────────────────────────────
-
-// PSY-498: mobile browsers don't fire :hover, so a simple <a> pill tap
-// navigates away before the user ever sees the attribution hover card.
-// We switch to a Twitter/X-style two-tap pattern on coarse pointers:
-//   tap 1 → open the card (preventDefault the link)
-//   tap 2 → navigate (let the link run)
-//
-// This hook lives here (rather than in lib/) because it has exactly one
-// caller. SSR-safe: the server snapshot is always `false` so the server HTML
-// matches; after hydration the hook reads the live MediaQueryList via
-// `useSyncExternalStore`, which also wires up the change listener and cleans
-// it up on unmount without the "setState inside an effect" double-render.
-function subscribeCoarsePointer(onChange: () => void): () => void {
-  if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') {
-    return () => {}
-  }
-  const mq = window.matchMedia('(pointer: coarse)')
-  // Older Safari versions only ship addListener/removeListener; prefer the
-  // modern API when available so we don't trigger deprecation warnings in
-  // evergreen browsers.
-  if (typeof mq.addEventListener === 'function') {
-    mq.addEventListener('change', onChange)
-    return () => mq.removeEventListener('change', onChange)
-  }
-  mq.addListener(onChange)
-  return () => mq.removeListener(onChange)
-}
-
-function getCoarsePointerSnapshot(): boolean {
-  if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') {
-    return false
-  }
-  return window.matchMedia('(pointer: coarse)').matches
-}
-
-function getCoarsePointerServerSnapshot(): boolean {
-  return false
-}
-
-function useIsCoarsePointer(): boolean {
-  return useSyncExternalStore(
-    subscribeCoarsePointer,
-    getCoarsePointerSnapshot,
-    getCoarsePointerServerSnapshot
-  )
-}
-
-// ──────────────────────────────────────────────
 // Tag pill with voting
 // ──────────────────────────────────────────────
+
+// Mobile browsers don't fire :hover, so a plain <a> pill tap would navigate
+// away before the attribution hover card is ever seen. On a coarse primary
+// pointer (useCoarsePointer) the pill is a two-tap control instead:
+//   tap 1 → open the card (preventDefault the link)
+//   tap 2 → navigate (let the link run)
+// useCoarsePointer is false on the server snapshot, so the server HTML is the
+// fine-pointer rendering.
 
 function TagWithVotes({
   tag,
@@ -391,7 +350,7 @@ function TagWithVotes({
 }) {
   const userVote = tag.user_vote ?? 0
   const score = tag.upvotes - tag.downvotes
-  const isCoarsePointer = useIsCoarsePointer()
+  const isCoarsePointer = useCoarsePointer()
 
   // Controlled open state for the attribution hover card. Radix HoverCard
   // opens on hover and focus out of the box; this state lets us *also* toggle
