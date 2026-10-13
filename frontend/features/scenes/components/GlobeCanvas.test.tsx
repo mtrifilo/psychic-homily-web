@@ -14,8 +14,9 @@ import { sceneTooltipLabel } from './globeScale'
 
 /**
  * MapLibre stubbed down to the seams the sheet layout drives: controls by
- * corner, DOM markers, layer click handlers and the camera report. WebGL is out
- * of scope; the browser walk in the PR is what proves the canvas paints.
+ * corner, DOM markers, layer events, clicks hit-tested against the drawn marks
+ * (`rendered`) and the camera report. WebGL is out of scope; the browser walk
+ * in the PR is what proves the canvas paints.
  */
 interface StubControl {
   kind: 'attribution' | 'navigation'
@@ -602,20 +603,16 @@ describe('GlobeCanvas tap targets', () => {
     return { map, onVenueSelect, onSelect }
   }
 
-  it('opens a pin from a tap that lands 10px off its edge on a coarse pointer, and not on a fine one', () => {
-    // Thalia Hall's 7px pin at (100, 100); the tap is at 117, 10px off its edge
-    // and inside the 24px box's 12px reach.
-    const coarse = renderWithPointer(true)
-    drawPins(coarse.map)
-    clickAt(coarse.map, 117, 100)
-    expect(coarse.onVenueSelect).toHaveBeenCalledWith(3)
-    cleanup()
-    matchMedia?.restore()
-
-    const fine = renderWithPointer(false)
-    drawPins(fine.map)
-    clickAt(fine.map, 117, 100)
-    expect(fine.onVenueSelect).not.toHaveBeenCalled()
+  // Thalia Hall's 7px pin at (100, 100); a tap at 117 is 10px off its edge
+  // and inside the 24px box's 12px reach.
+  it.each([
+    { pointer: 'coarse', coarse: true, opens: [[3]] },
+    { pointer: 'fine', coarse: false, opens: [] },
+  ])('a click 10px off a pin\'s edge on a $pointer pointer opens it only when coarse', ({ coarse, opens }) => {
+    const { map, onVenueSelect } = renderWithPointer(coarse)
+    drawPins(map)
+    clickAt(map, 117, 100)
+    expect(onVenueSelect.mock.calls).toEqual(opens)
   })
 
   it('opens nothing from a coarse tap beyond the box', () => {
@@ -651,26 +648,29 @@ describe('GlobeCanvas tap targets', () => {
     expect(onVenueSelect).toHaveBeenCalledWith(2)
   })
 
-  it('opens a scene from a coarse tap off its dot, and the highest sort key of a stacked hit', () => {
-    const { map, onSelect } = renderWithPointer(true, {
+  /**
+   * Renders Chicago and Evanston as two 4px dots stacked at (50, 50), Evanston
+   * listed first and Chicago carrying the higher sort key.
+   */
+  function renderStackedDots(coarse: boolean) {
+    const rendered = renderWithPointer(coarse, {
       scenes: [CHICAGO, { ...CHICAGO, slug: 'evanston-il', city: 'Evanston' }],
     })
-    map.rendered['scene-dots'] = [
+    rendered.map.rendered['scene-dots'] = [
       mark({ slug: 'evanston-il', sortKey: 1 }, 50, 50, 4),
       mark({ slug: 'chicago-il', sortKey: 5 }, 50, 50, 4),
     ]
+    return rendered
+  }
+
+  it('opens a scene from a coarse tap off its dot, and the highest sort key of a stacked hit', () => {
+    const { map, onSelect } = renderStackedDots(true)
     clickAt(map, 62, 50)
     expect(onSelect).toHaveBeenCalledWith(expect.objectContaining({ slug: 'chicago-il' }))
   })
 
   it('opens the highest sort key of a stacked dot hit on a fine pointer, and nothing off the dot', () => {
-    const { map, onSelect } = renderWithPointer(false, {
-      scenes: [CHICAGO, { ...CHICAGO, slug: 'evanston-il', city: 'Evanston' }],
-    })
-    map.rendered['scene-dots'] = [
-      mark({ slug: 'evanston-il', sortKey: 1 }, 50, 50, 4),
-      mark({ slug: 'chicago-il', sortKey: 5 }, 50, 50, 4),
-    ]
+    const { map, onSelect } = renderStackedDots(false)
     clickAt(map, 62, 50)
     expect(onSelect).not.toHaveBeenCalled()
     clickAt(map, 51, 50)
