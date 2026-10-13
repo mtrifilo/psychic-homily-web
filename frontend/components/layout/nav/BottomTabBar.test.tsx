@@ -334,6 +334,23 @@ describe('BottomTabBar', () => {
 
       expect(mockRouter.prefetch).toHaveBeenCalledExactlyOnceWith('/radio')
     })
+
+    it('never prefetches a sheet row on viewport entry, and prefetches the row a touch lands on', async () => {
+      mockRouter.prefetch.mockClear()
+      const user = userEvent.setup()
+      render(<BottomTabBar />)
+      await user.click(screen.getByRole('button', { name: 'Browse' }))
+      const graph = await screen.findByRole('link', { name: 'Graph' })
+      const rows = [...document.querySelectorAll('[data-slot="sheet-content"] a')]
+      expect(rows.length).toBeGreaterThan(10)
+      expect(rows.every(a => a.getAttribute('data-prefetch') === 'false')).toBe(true)
+      expect(mockRouter.prefetch).not.toHaveBeenCalled()
+
+      // The open sheet's scroll lock reads the event's first changed touch.
+      fireEvent.touchStart(graph, { changedTouches: [{ clientX: 0, clientY: 0 }] })
+
+      expect(mockRouter.prefetch).toHaveBeenCalledExactlyOnceWith('/graph')
+    })
   })
 
   describe('Browse sheet', () => {
@@ -353,9 +370,9 @@ describe('BottomTabBar', () => {
       expect(screen.getByText('Curation')).toBeInTheDocument()
     })
 
-    // PSY-1820 prefetch posture. Opening the sheet mounts two dozen links on a
-    // phone-only surface, so every ROW opts out of Next's viewport prefetch
-    // while the five always-visible TAB links keep theirs. Asserted as a
+    // Opening the sheet mounts every destination at once, so on a fine pointer
+    // every ROW opts out of Next's prefetch while the always-visible TAB links
+    // keep theirs (the coarse-pointer rule is pinned above). Asserted as a
     // partition (all rows opted out, no tab opted out) rather than by naming
     // routes, so adding a destination cannot quietly reintroduce the burst.
     it('opts sheet rows out of prefetch while the primary tabs keep it', async () => {

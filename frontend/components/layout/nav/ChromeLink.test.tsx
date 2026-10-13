@@ -222,6 +222,21 @@ describe('ChromeLink on a coarse pointer', () => {
     expect(onPointerDown).toHaveBeenCalledOnce()
   })
 
+  it('prefetches on touch with viewportPrefetch={false}, with no viewport prefetch', async () => {
+    const { ChromeLink } = await load()
+    render(
+      <ChromeLink href="/graph" viewportPrefetch={false}>
+        Graph
+      </ChromeLink>
+    )
+    const link = screen.getByText('Graph')
+    expect(link).toHaveAttribute('data-prefetch', 'false')
+
+    fireEvent.touchStart(link)
+
+    expect(router.prefetch).toHaveBeenCalledExactlyOnceWith('/graph')
+  })
+
   it('takes the fine-pointer policy when the pointer turns fine mid-session', async () => {
     const { ChromeLink } = await load()
     render(<ChromeLink href="/venues">Venues</ChromeLink>)
@@ -259,6 +274,21 @@ describe('ChromeLink on a fine pointer', () => {
 
     fireEvent.touchStart(link)
     fireEvent.pointerDown(link, { pointerType: 'pen' })
+
+    expect(router.prefetch).not.toHaveBeenCalled()
+  })
+
+  it('turns Next prefetch off with viewportPrefetch={false}, and makes no router call on touch', async () => {
+    const { ChromeLink } = await load()
+    render(
+      <ChromeLink href="/graph" viewportPrefetch={false}>
+        Graph
+      </ChromeLink>
+    )
+    const link = screen.getByText('Graph')
+    expect(link).toHaveAttribute('data-prefetch', 'false')
+
+    fireEvent.touchStart(link)
 
     expect(router.prefetch).not.toHaveBeenCalled()
   })

@@ -118,30 +118,20 @@ function TabLinkBody({ icon: Icon, label }: { icon: LucideIcon; label: string })
 // accessible name (the badge itself is decorative). At 0 the row is
 // byte-for-byte what it was — see withUnreadLabel for the guard convention.
 //
-// prefetch={false} (decided in PSY-1820): opening the Browse sheet mounts 24 of
-// these at once (22 for anonymous visitors), so the default fires 24 viewport
-// prefetches on exactly the clients least able to afford them — phones on
-// mobile data, which is the only place these sheets exist (xl:hidden). The
-// visitor came here to pick ONE destination; paying for two dozen to save
-// latency on one is a bad trade at this fan-out.
+// viewportPrefetch={false}: opening the Browse sheet mounts every one of its
+// rows at once, and the visitor came to pick ONE destination, so no row
+// prefetches on viewport entry. On a coarse pointer (ChromeLink's
+// 'on-touch' policy) a row still prefetches its route when a touch lands on
+// it: one request for the one navigation. On a fine pointer below xl the row
+// renders Next's prefetch={false}, which turns off its hover and touchstart
+// prefetch too.
 //
-// Sizing the trade honestly: the default is FetchStrategy.PPR, so what we skip
-// is 24 PARTIAL prefetches, not 24 full route payloads. The win is smaller than
-// "a burst of pages" — it is still 24 requests a phone did not ask for.
-//
-// And the cost is bigger than it looks: `prefetch={false}` is the strong
-// opt-out. In the App Router it disables prefetching on hover AND on
-// touchstart (link.js returns early on !prefetchEnabled in both handlers), so
-// the tapped row loses the ~100-300ms intent head start touchstart would have
-// given it and navigates cold. Accepted deliberately: 24 speculative fetches
-// for one real navigation is the worse end of the trade on a metered phone.
-//
-// This applies to the Account sheet's rows too, a DELIBERATE divergence from
+// This applies to the Account sheet's rows too, a deliberate divergence from
 // the desktop UserMenu those rows mirror: UserMenu opts out only its /admin
-// links, because a dropdown of ~6 items on desktop bandwidth is not the same
-// trade as a phone sheet. The fan-out is the reason, not the route. The admin
-// drawer (AdminDrawerNav) is deliberately left on the default: it is a small,
-// admin-only route set behind a login, not a 24-row public surface.
+// links, because a short desktop dropdown is not the same trade as a sheet of
+// every destination. The fan-out is the reason, not the route. The admin
+// drawer (AdminDrawerNav) stays on the default: it is a small, admin-only
+// route set behind a login, not a public sheet.
 function SheetNavLink({
   item,
   active,
@@ -156,7 +146,7 @@ function SheetNavLink({
     <SheetClose asChild>
       <ChromeLink
         href={item.href}
-        prefetch={false}
+        viewportPrefetch={false}
         target={item.external ? '_blank' : undefined}
         rel={item.external ? 'noopener noreferrer' : undefined}
         aria-label={

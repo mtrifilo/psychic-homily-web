@@ -47,10 +47,16 @@ export function chromePrefetch(
  *   links would compete with the map's downloads for routes most Atlas
  *   visitors never open.
  *
- * A caller's `prefetch={false}` holds on every pointer, on a touch too.
+ * Two opt-outs, for a caller that needs fewer prefetches than that:
+ * - `viewportPrefetch={false}` drops the speculative prefetch and keeps the
+ *   intent one. On a fine pointer the link renders Next's `prefetch={false}`
+ *   (no viewport, hover or touchstart prefetch); on a coarse pointer it is
+ *   the `'on-touch'` policy unchanged, so a touch still prefetches the route.
+ * - `prefetch={false}` is off on every pointer, on a touch too.
  */
 export function ChromeLink({
   atlasPrefetch = 'never',
+  viewportPrefetch = true,
   href,
   prefetch,
   onTouchStart,
@@ -59,21 +65,25 @@ export function ChromeLink({
 }: Omit<ComponentProps<typeof AtlasMapReadyLink>, 'atlasPrefetch' | 'href'> & {
   href: string
   atlasPrefetch?: AtlasPrefetch
+  viewportPrefetch?: boolean
 }) {
   const router = useRouter()
   const policy = chromePrefetch(useHydrated(), useCoarsePointer(), atlasPrefetch)
   const onTouch = policy === 'on-touch'
   const prefetchOnTouch = onTouch && prefetch !== false
+  // Next's own prefetch is off on touch (the handlers below replace it) and
+  // wherever the caller dropped the speculative prefetch.
+  const nextPrefetchOff = onTouch || !viewportPrefetch
 
   return (
     <AtlasMapReadyLink
       {...props}
       href={href}
-      // On touch, prefetch={false} turns off Next's own viewport, hover and
-      // touchstart prefetch; the handlers below make the router call instead.
-      prefetch={onTouch ? false : prefetch}
+      // prefetch={false} turns off Next's own viewport, hover and touchstart
+      // prefetch.
+      prefetch={nextPrefetchOff ? false : prefetch}
       // With prefetch already off, 'never' spares the link the map signal.
-      atlasPrefetch={policy === 'on-touch' ? 'never' : policy}
+      atlasPrefetch={nextPrefetchOff ? 'never' : policy}
       onTouchStart={(event: TouchEvent<HTMLAnchorElement>) => {
         onTouchStart?.(event)
         if (prefetchOnTouch) router.prefetch(href)
