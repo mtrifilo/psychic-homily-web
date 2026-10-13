@@ -235,6 +235,8 @@ function startBackend(): ChildProcess {
       // because the two halves are separately gated services and a shared flag
       // would make turning one off silently turn off the other.
       DISABLE_VENUE_SHOW_ALERTS: '1',
+      // Default-ON and a writer of radio_tracks on a schedule.
+      DISABLE_RADIO_TRACKS_REBUILD: '1',
       // PSY-432: enable the /admin/test-fixtures/reset endpoint. Guarded by
       // a default-deny ENVIRONMENT check on the backend — the server
       // refuses to boot if ENABLE_TEST_FIXTURES=1 and ENVIRONMENT is not

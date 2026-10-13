@@ -1128,6 +1128,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/admin/radio/tracks": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get admin radio tracks */
+        get: operations["get-admin-radio-tracks"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/admin/radio/unmatched": {
         parameters: {
             query?: never;
@@ -15275,6 +15292,78 @@ export interface components {
             /** Format: int64 */
             play_count: number;
         };
+        RadioTrackListing: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/schemas/RadioTrackListing.json
+             */
+            readonly $schema?: string;
+            /**
+             * Format: date-time
+             * @description When the rebuild loop last completed successfully
+             */
+            last_rebuilt_at?: string;
+            /**
+             * Format: int64
+             * @description Keyed tracks in radio_tracks (the unkeyed marker row excluded)
+             */
+            total_tracks: number;
+            tracks: components["schemas"]["RadioTrackSummary"][] | null;
+            /**
+             * Format: int64
+             * @description Plays whose artist or title normalizes to empty
+             */
+            unkeyed_plays: number;
+        };
+        RadioTrackSummary: {
+            /** Format: int64 */
+            album_play_count: number;
+            /** @description Normalized artist half of the track key */
+            artist_key: string;
+            /** @description Most common raw artist spelling among the track's plays */
+            display_artist: string;
+            /** @description Most common raw title spelling among the track's plays */
+            display_title: string;
+            /** @description Earliest episode air date (YYYY-MM-DD) */
+            first_aired_on: string;
+            /** Format: int64 */
+            id: number;
+            /**
+             * Format: int64
+             * @description Track keys mapped to this track (more than one when a MusicBrainz recording id joined keys)
+             */
+            key_count: number;
+            /** Format: int64 */
+            label_play_count: number;
+            /** @description Latest episode air date (YYYY-MM-DD) */
+            last_aired_on: string;
+            /** @description Set when every MusicBrainz-tagged play carries the same recording id */
+            mb_recording_id?: string;
+            /** @description True when the track's plays carry more than one recording id */
+            mb_recording_id_conflict: boolean;
+            /** Format: int64 */
+            play_count: number;
+            /**
+             * Format: date-time
+             * @description The rebuild that last changed this row
+             */
+            rebuilt_at: string;
+            /** Format: int64 */
+            show_count: number;
+            /**
+             * Format: int64
+             * @description Distinct broadcasters (a network counts once)
+             */
+            station_family_count: number;
+            /**
+             * Format: int64
+             * @description Distinct radio_stations rows (each WFMU stream counts)
+             */
+            station_row_count: number;
+            /** @description Normalized, suffix-stripped title half of the track key */
+            title_key: string;
+        };
         RecoverAccountRequestBody: {
             /**
              * Format: uri
@@ -21279,6 +21368,40 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["AdminCancelSyncRunResponseBody"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "get-admin-radio-tracks": {
+        parameters: {
+            query?: {
+                /** @description Rank by play_count (plays, default), station_row_count (station_rows) or station_family_count (station_families), descending; ties by play_count, then id. */
+                sort?: "plays" | "station_rows" | "station_families";
+                /** @description Tracks to return (default 50) */
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RadioTrackListing"];
                 };
             };
             /** @description Error */
