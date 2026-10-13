@@ -64,6 +64,13 @@ jobs:
       - name: Check entity_requests payload-struct parity
         run: bash scripts/check_entity_request_payloads.sh
 
+      # Every production promote is recorded as a GitHub Release by
+      # scripts/record_production_release.sh (an annotated prod-* tag plus
+      # generated notes). Its self-test runs here with the other sub-second
+      # script gates; it needs no network and no gh login.
+      - name: Self-test the production release recorder
+        run: bash scripts/record_production_release_test.sh
+
       # PSY-1708 (stage outage 2026-08-02): two parallel branches stamped their
       # migrations in author-time order but merged in the reverse order.
       # golang-migrate silently skips any migration at or below the current
