@@ -72,11 +72,16 @@ const stub = vi.hoisted(() => {
     isMoving() {
       return this.moving
     }
-    // Every location projects to `state.projectedPoint`, and that point
-    // unprojects to the camera's centre. The preview camera cases keep the
-    // centre on Chicago, the one scene, so Chicago counts as facing.
-    project() {
-      return state.projectedPoint
+    // A mark drawn in `rendered` has screen-px coordinates and projects to
+    // them. Every other location projects to `state.projectedPoint`, and that
+    // point unprojects to the camera's centre. The preview camera cases keep
+    // the centre on Chicago, the one scene, so Chicago counts as facing.
+    project(lngLat: [number, number]) {
+      const [x, y] = lngLat
+      const drawn = Object.values(this.rendered).some((marks) =>
+        marks.some(({ geometry: { coordinates } }) => coordinates[0] === x && coordinates[1] === y),
+      )
+      return drawn ? { x, y } : state.projectedPoint
     }
     unproject() {
       return this.center
@@ -138,9 +143,6 @@ const stub = vi.hoisted(() => {
       options: { layers: string[] },
     ) {
       return queryRenderedCircles(this.rendered, region, options)
-    }
-    project([x, y]: [number, number]) {
-      return { x, y }
     }
     // A layer event, or a map mouse event (one with a point), carries its DOM
     // event, as MapLibre's do: the canvas unless the test gives another.
