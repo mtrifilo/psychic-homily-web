@@ -596,7 +596,7 @@ test.describe('Atlas pin and dot taps on a 390x844 phone', () => {
     expect(await mapCenter(page), 'the drifting tap did not pan the map').toEqual(centerBefore)
 
     // A still tap 19px right of the centre, about 10px off the rim, still
-    // reaches the pin: the reach is the 24px box's, not a few px of slack.
+    // reaches the pin: the reach is 12px off the edge, not a few px of slack.
     await page.keyboard.press('Escape')
     await expect(list).toBeVisible()
     street = await settledMapPoint(page, STREET_ROOM)

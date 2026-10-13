@@ -1421,7 +1421,7 @@ export default function GlobeCanvas({
     // movement clears the hover; the next real mousemove re-establishes it.
     map.on('movestart', handleLeave)
     // A map-wide click resolved through circleMarkAt rather than a layer
-    // click, so a coarse pointer's tap reaches a dot within its tap box.
+    // click, so a coarse pointer's tap reaches a dot within 12px of its edge.
     const handleClick = (e: maplibregl.MapMouseEvent) => {
       const slug = sceneSlugOf(
         circleMarkAt(

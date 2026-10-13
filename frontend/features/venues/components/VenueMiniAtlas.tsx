@@ -255,7 +255,7 @@ export function VenueMiniAtlas({
     }
     clearPointerHoverRef.current = handleLeave
     // A map-wide click resolved through circleMarkAt rather than a layer
-    // click, so a coarse pointer's tap reaches a pin within its tap box.
+    // click, so a coarse pointer's tap reaches a pin within 12px of its edge.
     const handleClick = (event: maplibregl.MapMouseEvent) => {
       const id = circleMarkAt(
         instance,

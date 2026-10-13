@@ -141,11 +141,32 @@ describe('circleMarkAt', () => {
     expect(idOf(circleMarkAt(hovered, at, 'pins', true))).toBe(1)
   })
 
-  it('reads a mark with no evaluated size as a point, and skips a feature that is not a point', () => {
+  it('measures a layer that leaves its rim unset at its radius alone', () => {
+    // MapLibre's evaluated paint has no circle-stroke-width for such a layer.
+    const radiusOnly = renderedCircle({ x: 100, y: 100, radiusPx: 7, properties: { id: 1 } })
+    expect(radiusOnly.layer.paint).not.toHaveProperty('circle-stroke-width')
+    const { map } = fakeMap({ pins: [radiusOnly] })
+    expect(idOf(circleMarkAt(map, { x: 81, y: 100 }, 'pins', true))).toBe(1)
+    expect(circleMarkAt(map, { x: 80, y: 100 }, 'pins', true)).toBeNull()
+  })
+
+  it('measures a layer that sets neither size at the style defaults, radius 5 and no rim', () => {
+    const map = everythingMap([
+      { geometry: { type: 'Point', coordinates: [100, 100] }, properties: { id: 1 }, layer: { paint: {} } },
+    ])
+    expect(idOf(circleMarkAt(map, { x: 83, y: 100 }, 'pins', true))).toBe(1)
+    expect(circleMarkAt(map, { x: 82, y: 100 }, 'pins', true)).toBeNull()
+  })
+
+  it('reads a mark whose size is not a number as a point, and skips a feature that is not a point', () => {
     const map = everythingMap([
       { geometry: { type: 'LineString', coordinates: [[108, 100], [109, 100]] }, properties: { id: 0 } },
       pin(1, 100, 100, 7),
-      { geometry: { type: 'Point', coordinates: [110, 100] }, properties: { id: 2 } },
+      {
+        geometry: { type: 'Point', coordinates: [110, 100] },
+        properties: { id: 2 },
+        layer: { paint: { 'circle-radius': 'x' } },
+      },
     ])
     // At 108: pin 1's edge is 1px away; pin 2, read as a point, is 2px away.
     expect(idOf(circleMarkAt(map, { x: 108, y: 100 }, 'pins', true))).toBe(1)

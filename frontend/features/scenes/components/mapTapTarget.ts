@@ -14,16 +14,24 @@ interface ScreenPoint {
   y: number
 }
 
+// The style spec's defaults, for a layer that leaves either property unset
+// (MapLibre's evaluated paint carries only the properties a layer sets).
+const DEFAULT_CIRCLE_RADIUS_PX = 5
+const DEFAULT_CIRCLE_STROKE_WIDTH_PX = 0
+
 /**
- * How far a circle feature draws from its centre, in CSS px: its
+ * A circle feature's paint extent from its centre, in CSS px: its
  * `circle-radius` plus its `circle-stroke-width`, as MapLibre evaluated them
  * for this feature and its feature-state when it answered the query (so a
- * hover-scaled mark measures at its hovered size). 0 when either is missing,
+ * hover-scaled mark measures at its hovered size). On the globe an off-centre
+ * mark draws slightly smaller than this. 0 when a value is not a number,
  * which reads the mark as a point.
  */
 function drawnExtentPx(feature: MapGeoJSONFeature): number {
   const paint = feature.layer?.paint as Record<string, unknown> | undefined
-  const extent = Number(paint?.['circle-radius']) + Number(paint?.['circle-stroke-width'])
+  const extent =
+    Number(paint?.['circle-radius'] ?? DEFAULT_CIRCLE_RADIUS_PX) +
+    Number(paint?.['circle-stroke-width'] ?? DEFAULT_CIRCLE_STROKE_WIDTH_PX)
   return Number.isFinite(extent) ? extent : 0
 }
 
@@ -37,8 +45,9 @@ function drawnExtentPx(feature: MapGeoJSONFeature): number {
  * - Coarse pointer: of the features whose drawn edge (rim included) is within
  *   COARSE_TAP_REACH_PX of the point, the one whose edge is nearest, the
  *   earliest in `topFirst` order among equals. A tap on a drawn mark is at
- *   distance 0 from it, so it resolves exactly as a fine pointer's click
- *   there does; the reach only extends a tap that misses every mark.
+ *   distance 0 from it, so it resolves as a fine pointer's click there does
+ *   (to within the globe's off-centre shrink above); the reach only extends
+ *   a tap that misses every mark.
  *
  * A layer the style does not (yet) have selects nothing.
  */
