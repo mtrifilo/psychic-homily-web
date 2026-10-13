@@ -164,7 +164,8 @@ function overlaps(a: Box, b: Box): boolean {
   )
 }
 
-function inside(box: Box, pane: Box): boolean {
+/** Whether `box` lies wholly inside `pane`, edges included. */
+export function inside(box: Box, pane: Box): boolean {
   return (
     box.left >= pane.left &&
     box.top >= pane.top &&

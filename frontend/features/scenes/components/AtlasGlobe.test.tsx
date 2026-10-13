@@ -6,6 +6,7 @@ import { renderWithProviders } from '@/test/utils'
 import type { SceneListResponse } from '../types'
 import type { PlaceableScene } from './globeTypes'
 import type { AtlasMapFailureClass } from '../atlasViewport'
+import type { BottomSheetDetent } from '@/components/ui/bottom-sheet'
 
 // AtlasGlobe statically imports only `globeTypes` (no react-globe.gl) and
 // dynamic-imports GlobeCanvas (ssr:false). In jsdom we exercise the testable
@@ -149,6 +150,7 @@ let lastCanvasProps: {
   onVenueStackSelect?: (key: string) => void
   scenes?: readonly PlaceableScene[]
   onSelect?: (scene: PlaceableScene) => void
+  scenePreviewSheetDetent?: BottomSheetDetent
 } = {}
 // Set by a case to make the canvas throw from its mount effect: a failure
 // class, as the real GlobeCanvas throws when its map cannot draw, or 'other'.
@@ -2075,6 +2077,80 @@ describe('AtlasGlobe', () => {
         ).not.toBeInTheDocument()
       })
 
+      it('hands the canvas the preview sheet’s detent, and Half again once closed', async () => {
+        renderWithProviders(<AtlasGlobe />)
+        await screen.findByTestId('globe-canvas')
+        // Before any preview: the detent a preview opens at.
+        expect(lastCanvasProps.scenePreviewSheetDetent).toBe('half')
+
+        const dot = lastCanvasProps.scenes![0]
+        act(() => lastCanvasProps.onSelect?.(dot))
+        expect(lastCanvasProps.scenePreviewSheetDetent).toBe('half')
+
+        const preview = screen.getByTestId('atlas-scene-preview-sheet')
+        const name = `${dot.city}, ${dot.state} scene`
+        fireEvent.click(within(preview).getByRole('button', { name: `Expand ${name}` }))
+        expect(lastCanvasProps.scenePreviewSheetDetent).toBe('full')
+        fireEvent.click(within(preview).getByRole('button', { name: `Collapse ${name}` }))
+        expect(lastCanvasProps.scenePreviewSheetDetent).toBe('peek')
+
+        fireEvent.click(screen.getByRole('button', { name: 'Close scene preview' }))
+        expect(lastCanvasProps.scenePreviewSheetDetent).toBe('half')
+        act(() => lastCanvasProps.onSelect?.(dot))
+        expect(screen.getByTestId('atlas-scene-preview-sheet')).toHaveAttribute(
+          'data-detent',
+          'half',
+        )
+      })
+
+      it('opens a preview at Half again after it leaves the sheet layout and comes back', async () => {
+        renderWithProviders(<AtlasGlobe />)
+        await screen.findByTestId('globe-canvas')
+        const dot = lastCanvasProps.scenes![0]
+        act(() => lastCanvasProps.onSelect?.(dot))
+        const name = `${dot.city}, ${dot.state} scene`
+        fireEvent.click(screen.getByRole('button', { name: `Expand ${name}` }))
+        expect(lastCanvasProps.scenePreviewSheetDetent).toBe('full')
+
+        setMockContainerWidth(1000)
+        act(() => reportResize())
+        expect(screen.getByRole('complementary', { name })).toBeInTheDocument()
+        setMockContainerWidth(800)
+        act(() => reportResize())
+        expect(screen.getByTestId('atlas-scene-preview-sheet')).toHaveAttribute(
+          'data-detent',
+          'half',
+        )
+        expect(lastCanvasProps.scenePreviewSheetDetent).toBe('half')
+      })
+
+      it('flies Drift and a search pick as flights that open the preview, and back-to-globe as one that does not', async () => {
+        renderWithProviders(<AtlasGlobe />)
+        await screen.findByTestId('globe-canvas')
+        flyToSpy.mockReset()
+        fireEvent.click(screen.getByRole('button', { name: /drift to a random scene/i }))
+        expect(flyToSpy).toHaveBeenCalledWith(
+          expect.objectContaining({ slug: 'chicago-il' }),
+          { opensPreview: true },
+        )
+
+        fireEvent.click(screen.getByRole('button', { name: 'Close scene preview' }))
+        flyToSpy.mockReset()
+        fireEvent.click(screen.getByRole('combobox', { name: 'Search scenes' }))
+        fireEvent.click(await screen.findByRole('option', { name: /Chicago, IL/ }))
+        expect(flyToSpy).toHaveBeenCalledWith(
+          expect.objectContaining({ slug: 'chicago-il' }),
+          { opensPreview: true },
+        )
+
+        fireEvent.click(screen.getByRole('button', { name: 'Close scene preview' }))
+        settleOnChicago()
+        flyToSpy.mockReset()
+        act(() => lastCanvasProps.onBackToGlobe?.())
+        expect(flyToSpy).toHaveBeenCalledWith(expect.objectContaining({ slug: 'chicago-il' }))
+        expect(flyToSpy.mock.calls[0]).toHaveLength(1)
+      })
+
       it('states no venue count at Peek while the list loads or after it fails', async () => {
         mockUseVenues.mockReturnValue({
           data: undefined,
@@ -2152,6 +2228,8 @@ describe('AtlasGlobe', () => {
         expect(lastCanvasProps.attributionPosition).toBe('bottom-left')
         expect(lastCanvasProps.onBackToGlobe).toBeUndefined()
         expect(lastCanvasProps.venueStacks).toBeUndefined()
+        // The preview is a side panel, so the canvas is handed no sheet.
+        expect(lastCanvasProps.scenePreviewSheetDetent).toBeUndefined()
         act(() => lastCanvasProps.onVenueSelect?.(1))
         expect(screen.getByTestId('atlas-venue-panel')).not.toHaveAttribute(
           'data-slot',

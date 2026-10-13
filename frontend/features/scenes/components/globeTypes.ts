@@ -37,6 +37,13 @@ export interface GlobePov {
 }
 
 /**
+ * The fly-the-camera seam GlobeCanvas fills (its `flyToRef` prop). A flight
+ * that `opensPreview` lands with the selected dot above the scene preview
+ * sheet the caller opens with it; any other flight lands with no padding.
+ */
+export type FlyToScene = (scene: PlaceableScene, options?: { opensPreview?: boolean }) => void
+
+/**
  * One venue pin on the city view (PSY-1539) — a flat VIEW MODEL, already
  * positioned and already worded.
  *
