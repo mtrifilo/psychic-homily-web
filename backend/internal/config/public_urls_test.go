@@ -88,6 +88,44 @@ func TestGetCORSOriginsFrontendURLDefault(t *testing.T) {
 			frontendURL: "localhost:61000",
 			want:        devDefaults,
 		},
+		{
+			name:        "FRONTEND_URL without a host adds nothing",
+			environment: "development",
+			frontendURL: "http://",
+			want:        devDefaults,
+		},
+		{
+			name:        "unparseable FRONTEND_URL adds nothing",
+			environment: "development",
+			frontendURL: "http://[::1",
+			want:        devDefaults,
+		},
+		{
+			name:        "surrounding whitespace is trimmed",
+			environment: "development",
+			frontendURL: "  http://localhost:61000  ",
+			want:        append(slices.Clone(devDefaults), "http://localhost:61000"),
+		},
+		{
+			name:        "host case is kept as configured",
+			environment: "development",
+			frontendURL: "http://LOCALHOST:61000",
+			want:        append(slices.Clone(devDefaults), "http://LOCALHOST:61000"),
+		},
+		{
+			name: "unset FRONTEND_URL and ENVIRONMENT leave the defaults unchanged",
+			want: unsetDefaults,
+		},
+		{
+			name:        "unset FRONTEND_URL in production leaves the defaults unchanged",
+			environment: "production",
+			want:        []string{"https://psychichomily.com", "https://www.psychichomily.com"},
+		},
+		{
+			name:        "unset FRONTEND_URL in stage leaves the defaults unchanged",
+			environment: "stage",
+			want:        []string{"https://stage.psychichomily.com", "https://www.stage.psychichomily.com"},
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -200,6 +238,50 @@ func TestLoadDeployedShapes(t *testing.T) {
 			}
 			if cfg.Email.FrontendURL != sh.frontendURL {
 				t.Errorf("Email.FrontendURL = %q, want %q", cfg.Email.FrontendURL, sh.frontendURL)
+			}
+		})
+	}
+}
+
+// TestLoadDeployedShapesWithoutExplicitValues drops CORS_ALLOWED_ORIGINS and
+// the callback URLs from the deployed shapes and asserts the fallbacks: the
+// environment's CORS defaults (which already hold the frontend origin) and
+// localhost:8080 callbacks.
+func TestLoadDeployedShapesWithoutExplicitValues(t *testing.T) {
+	shapes := []struct {
+		environment string
+		frontendURL string
+		wantCORS    []string
+	}{
+		{"production", "https://www.psychichomily.com", []string{"https://psychichomily.com", "https://www.psychichomily.com"}},
+		{"stage", "https://stage.psychichomily.com", []string{"https://stage.psychichomily.com", "https://www.stage.psychichomily.com"}},
+	}
+	for _, sh := range shapes {
+		t.Run(sh.environment, func(t *testing.T) {
+			t.Setenv(EnvEnvironment, sh.environment)
+			t.Setenv(EnvDatabaseURL, "postgres://u:p@db.example.test:5432/d")
+			t.Setenv(EnvJWTSecretKey, "deployed-shape-jwt-secret")
+			t.Setenv(EnvOAuthSecretKey, "deployed-shape-oauth-secret")
+			t.Setenv(EnvInternalAPISecret, strings.Repeat("x", minInternalAPISecretLength))
+			t.Setenv(EnvAPIAddr, "0.0.0.0:8080")
+			t.Setenv(EnvFrontendURL, sh.frontendURL)
+			t.Setenv(EnvCORSAllowedOrigins, "")
+			t.Setenv(EnvGoogleCallbackURL, "")
+			t.Setenv(EnvGitHubCallbackURL, "")
+			t.Setenv(EnvBackendPublicURL, "")
+
+			cfg, err := Load()
+			if err != nil {
+				t.Fatalf("Load() returned error: %v", err)
+			}
+			if !slices.Equal(cfg.CORS.AllowedOrigins, sh.wantCORS) {
+				t.Errorf("CORS.AllowedOrigins = %v, want %v", cfg.CORS.AllowedOrigins, sh.wantCORS)
+			}
+			if cfg.OAuth.GoogleCallbackURL != "http://localhost:8080/auth/callback/google" {
+				t.Errorf("GoogleCallbackURL = %q", cfg.OAuth.GoogleCallbackURL)
+			}
+			if cfg.OAuth.GitHubCallbackURL != "http://localhost:8080/auth/callback/github" {
+				t.Errorf("GitHubCallbackURL = %q", cfg.OAuth.GitHubCallbackURL)
 			}
 		})
 	}
