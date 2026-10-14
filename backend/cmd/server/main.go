@@ -634,7 +634,7 @@ func main() {
 	// when the WebAuthn service failed to initialise.
 	if sc.ChallengeSweep == nil {
 		log.Printf("WebAuthn service unavailable: skipping webauthn challenge sweep startup")
-	} else if os.Getenv(authsvc.DisableChallengeSweepEnvVar) != "1" {
+	} else if !servicesshared.EnvServiceDisabled(authsvc.DisableChallengeSweepEnvVar) {
 		var challengeSweepCtx context.Context
 		challengeSweepCtx, challengeSweepCancel = context.WithCancel(context.Background())
 		sc.ChallengeSweep.Start(challengeSweepCtx)
