@@ -30,6 +30,7 @@ export type AtlasMapSeam = {
     sources: Record<string, { data?: { features?: unknown[] } }>
   }
   once: (type: 'render', listener: () => void) => void
+  triggerRepaint: () => void
   queryRenderedFeatures: (opts: { layers: string[] }) => unknown[]
   project: (lngLat: [number, number]) => { x: number; y: number }
   unproject: (point: [number, number]) => { lng: number; lat: number }

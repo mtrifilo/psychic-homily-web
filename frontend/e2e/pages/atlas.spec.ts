@@ -520,6 +520,64 @@ for (const colorScheme of ['light', 'dark'] as const) {
   })
 }
 
+/**
+ * The street basemap follows the app theme past the crossfade: paper streets
+ * with ink labels in light mode, the dark streets with cream labels in dark
+ * mode. The ground is read from the drawing buffer inside a `render` event,
+ * before the browser clears it, as the colour most of the canvas shows.
+ */
+for (const colorScheme of ['light', 'dark'] as const) {
+  test.describe(`Atlas street basemap in the ${colorScheme} theme`, () => {
+    test.use({ colorScheme })
+
+    const GROUND = { light: '#f4f1ea', dark: '#0d0805' }[colorScheme]
+    const LABEL_GROUND = { light: 'paper', dark: null }[colorScheme]
+
+    test(`draws the ${colorScheme} streets at street zoom`, async ({ page }) => {
+      await stubAtlas(page)
+      await page.goto('/atlas')
+      await waitForMap(page)
+      await jumpToPhoenix(page, 13)
+      await waitForMap(page)
+
+      const ground = await page.evaluate(
+        () =>
+          new Promise<{ colour: string; share: number }>((resolve) => {
+            const map = (window as unknown as { __atlasMap: AtlasMapSeam }).__atlasMap
+            map.once('render', () => {
+              const source = map.getCanvas()
+              const copy = document.createElement('canvas')
+              copy.width = source.width
+              copy.height = source.height
+              const ctx = copy.getContext('2d')!
+              ctx.drawImage(source, 0, 0)
+              const { data } = ctx.getImageData(0, 0, copy.width, copy.height)
+              const counts = new Map<string, number>()
+              const STEP = 4 * 7
+              for (let i = 0; i < data.length; i += STEP) {
+                const hex = `#${[data[i], data[i + 1], data[i + 2]]
+                  .map((v) => v.toString(16).padStart(2, '0'))
+                  .join('')}`
+                counts.set(hex, (counts.get(hex) ?? 0) + 1)
+              }
+              const [colour, count] = [...counts].sort((a, b) => b[1] - a[1])[0]
+              resolve({ colour, share: count / (data.length / STEP) })
+            })
+            map.triggerRepaint()
+          }),
+      )
+      test.info().annotations.push({ type: 'ground', description: JSON.stringify(ground) })
+      expect(ground.colour).toBe(GROUND)
+      expect(ground.share).toBeGreaterThan(0.25)
+
+      const labelGround = await page
+        .getByTestId('globe-cursor-wrap')
+        .evaluate((el) => (el as HTMLElement).dataset.atlasGround ?? null)
+      expect(labelGround).toBe(LABEL_GROUND)
+    })
+  })
+}
+
 test.describe('Atlas on a phone that prefers reduced motion', () => {
   test.use({
     viewport: { width: 390, height: 844 },
