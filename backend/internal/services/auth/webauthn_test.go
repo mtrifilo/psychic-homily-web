@@ -440,12 +440,13 @@ func (suite *WebAuthnServiceIntegrationTestSuite) TestConsumeSignupChallenge_Exp
 	challengeID, err := suite.service.StoreSignupChallenge(contracts.SignupChallenge{Email: "new@test.com"}, session, "signup_registration")
 	suite.Require().NoError(err)
 
-	suite.db.Exec("UPDATE webauthn_challenges SET expires_at = ? WHERE id = ?",
-		time.Now().Add(-1*time.Hour), challengeID)
+	suite.Require().NoError(suite.db.Exec("UPDATE webauthn_challenges SET expires_at = ? WHERE id = ?",
+		time.Now().Add(-1*time.Hour), challengeID).Error)
 
 	_, _, err = suite.service.ConsumeSignupChallenge(challengeID, "signup_registration")
 	suite.Require().Error(err)
 	suite.Contains(err.Error(), "challenge expired")
+	suite.Zero(suite.challengeRows(challengeID), "the refusal removes the expired row")
 }
 
 func (suite *WebAuthnServiceIntegrationTestSuite) TestConsumeSignupChallenge_NotFound() {
