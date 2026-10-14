@@ -15,7 +15,8 @@ import (
 )
 
 // The one-time proof that a link was started from this application's own
-// Settings page rather than from a page an attacker controls.
+// frontend rather than from a page an attacker controls. It proves the origin,
+// not which page: any page of the frontend may start a link.
 //
 // /auth/link/{provider} is a cookie-authenticated GET, and the auth cookie's
 // SameSite is SESSION_SAME_SITE (default lax), which browsers DO send on a

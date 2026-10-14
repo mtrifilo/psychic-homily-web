@@ -1,6 +1,7 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
+import * as Sentry from '@sentry/nextjs'
 import { ShieldAlert, Loader2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import {
@@ -11,10 +12,8 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
-// Direct backend origin, never the Next.js /api proxy: this is the same
-// full-page OAuth redirect the login button performs. See lib/api-base.ts
-// (PSY-1649).
-import { OAUTH_BACKEND_URL } from '@/lib/api-base'
+import { useStartOAuthLink } from '@/features/auth/hooks/useAuth'
+import { oauthLinkStartUrl } from '@/features/auth/oauthLinkStart'
 
 // Google "G" logo SVG component
 function GoogleIcon({ className }: { className?: string }) {
@@ -52,20 +51,60 @@ interface BackupAuthPromptProps {
 
 export function BackupAuthPrompt({ open, onOpenChange }: BackupAuthPromptProps) {
   const [isConnectingGoogle, setIsConnectingGoogle] = useState(false)
+  const startLink = useStartOAuthLink()
 
-  const handleConnectGoogle = () => {
+  // Whether the viewer has left the prompt since the last Connect click: a
+  // close through the dialog (skip, its close button, Escape), or the effect
+  // cleanup that runs when the prompt unmounts or its page is hidden. The
+  // token request outlives all of these, and a viewer who left must not be
+  // navigated into the link flow when it answers. Each click re-arms it,
+  // because the button can only be clicked while the prompt is showing.
+  const dismissedRef = useRef(false)
+  useEffect(
+    () => () => {
+      dismissedRef.current = true
+    },
+    []
+  )
+
+  const handleOpenChange = (nextOpen: boolean) => {
+    if (!nextOpen) dismissedRef.current = true
+    onOpenChange(nextOpen)
+  }
+
+  const handleConnectGoogle = async () => {
+    dismissedRef.current = false
     setIsConnectingGoogle(true)
-    // Redirect to Google OAuth - after connecting, they'll be redirected back
-    // The OAuth callback will redirect to home page
-    window.location.href = `${OAUTH_BACKEND_URL}/auth/login/google`
+    // The link start, not sign-in: the viewer is already signed in to the
+    // account this prompt is about. A finished link lands on Settings, which
+    // reports the result, not on this page's returnTo: the link callback has
+    // that one destination.
+    try {
+      const { token } = await startLink.mutateAsync()
+      if (dismissedRef.current) {
+        // The button comes back for a prompt that is shown again later.
+        setIsConnectingGoogle(false)
+        return
+      }
+      window.location.href = oauthLinkStartUrl('google', token)
+    } catch (err) {
+      // The button comes back so the viewer can retry or skip; the prompt
+      // stays open either way.
+      setIsConnectingGoogle(false)
+      Sentry.captureException(err, {
+        level: 'warning',
+        tags: { service: 'backup-auth-prompt' },
+        extra: { step: 'start-link' },
+      })
+    }
   }
 
   const handleSkip = () => {
-    onOpenChange(false)
+    handleOpenChange(false)
   }
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogContent className="sm:max-w-md" onInteractOutside={(e) => e.preventDefault()}>
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">

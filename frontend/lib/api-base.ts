@@ -16,7 +16,8 @@
  *                      cross-origin request would not carry it.
  *
  *   OAUTH_BACKEND_URL  The OAUTH path. The Google button performs a full-page
- *                      navigation to the backend's `/auth/login/google`; that
+ *                      navigation to the backend's `/auth/login/google`, and
+ *                      connecting an account one to `/auth/link/google`; that
  *                      redirect chain does not survive the Next proxy, so it
  *                      needs a DIRECT backend origin, never `/api`.
  *
@@ -192,6 +193,7 @@ export const API_BASE_URL = getApiBaseUrl()
 /**
  * Direct backend origin for OAuth full-page redirects. See
  * getOAuthBackendUrl. Import this, not API_BASE_URL, anywhere the browser is
- * about to leave the app for the backend's `/auth/login/...` endpoints.
+ * about to leave the app for the backend's `/auth/login/...` or
+ * `/auth/link/...` endpoints.
  */
 export const OAUTH_BACKEND_URL = getOAuthBackendUrl()

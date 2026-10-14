@@ -25,8 +25,9 @@ const oauthLinkIntentCookieName = "oauth_link_intent"
 // does not stay armed on a shared machine. Matches the signup consent cookie.
 const oauthLinkIntentTTL = 10 * time.Minute
 
-// Where a finished link attempt returns the browser: the surface that started
-// it, so the result is read where the control is. Split into path and query
+// Where every finished link attempt returns the browser, whichever page of the
+// frontend started it: Settings, which renders the result next to the control
+// that retries or undoes it. Split into path and query
 // parts because the result is appended as another query parameter, and a bare
 // string carrying its own "?" makes that append depend on punctuation two
 // hundred lines away.
@@ -160,7 +161,7 @@ func (h *OAuthHTTPHandler) newLinkIntentCookie(value string, maxAge int) *http.C
 //
 // Three things have to hold before the handshake starts: a session (the JWT
 // middleware this route sits behind), a one-time token minted to this account
-// from Settings, and a re-authentication recent enough to stand behind adding
+// by our own frontend, and a re-authentication recent enough to stand behind adding
 // a new way to sign in.
 func (h *OAuthHTTPHandler) OAuthLinkHTTPHandler(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
@@ -325,7 +326,8 @@ func redirectToLinkResult(w http.ResponseWriter, r *http.Request, frontendURL, c
 }
 
 // redirectToReauth sends the browser to the sign-in page with a destination
-// that brings it back to the control it started from. Signing in mints a fresh
+// that brings it back to Settings, where every link result is read, whichever
+// page started the link. Signing in mints a fresh
 // session, which is what satisfies middleware.ReauthFactorFor on the next attempt.
 //
 // returnTo is the contract app/auth reads through sanitizeReturnTo, which

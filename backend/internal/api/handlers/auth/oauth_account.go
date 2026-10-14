@@ -111,14 +111,14 @@ func (h *OAuthAccountHandler) GetOAuthAccountsHandler(ctx context.Context, req *
 }
 
 // StartOAuthLinkRequest carries the browser's own account of where the request
-// came from. Both are read only to bind the minted token to that origin; they
-// are never trusted as authorization on their own.
+// came from. The mint is refused unless it names the configured frontend; the
+// token itself carries no origin.
 type StartOAuthLinkRequest struct {
 	Origin  string `header:"Origin"`
 	Referer string `header:"Referer"`
 }
 
-// StartOAuthLinkResponse carries the one-time token Settings puts on the
+// StartOAuthLinkResponse carries the one-time token the frontend puts on the
 // /auth/link/{provider} URL it navigates to.
 type StartOAuthLinkResponse struct {
 	Body struct {
@@ -130,7 +130,7 @@ type StartOAuthLinkResponse struct {
 // StartOAuthLinkHandler handles POST /auth/oauth/link-token.
 //
 // It exists so /auth/link/{provider} can tell a start that came from this
-// application's own Settings page from one an attacker's page navigated the
+// application's own frontend from one an attacker's page navigated the
 // user into. That route is a cookie-authenticated GET and the auth cookie is
 // SameSite=Lax, which browsers DO send on a cross-site top-level navigation,
 // so the route cannot make that distinction on its own.
