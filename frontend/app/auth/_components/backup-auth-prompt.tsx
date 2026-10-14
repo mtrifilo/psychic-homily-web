@@ -1,6 +1,7 @@
 'use client'
 
 import { useState } from 'react'
+import * as Sentry from '@sentry/nextjs'
 import { ShieldAlert, Loader2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import {
@@ -11,9 +12,9 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
-// Direct backend origin, never the Next.js /api proxy: this is the same
-// full-page OAuth redirect the login button performs. See lib/api-base.ts
-// (PSY-1649).
+import { useStartOAuthLink } from '@/features/auth/hooks/useAuth'
+// Direct backend origin, never the Next.js /api proxy: connecting an account
+// is a full-page OAuth redirect. See lib/api-base.ts.
 import { OAUTH_BACKEND_URL } from '@/lib/api-base'
 
 // Google "G" logo SVG component
@@ -52,12 +53,31 @@ interface BackupAuthPromptProps {
 
 export function BackupAuthPrompt({ open, onOpenChange }: BackupAuthPromptProps) {
   const [isConnectingGoogle, setIsConnectingGoogle] = useState(false)
+  const startLink = useStartOAuthLink()
 
-  const handleConnectGoogle = () => {
+  const handleConnectGoogle = async () => {
     setIsConnectingGoogle(true)
-    // Redirect to Google OAuth - after connecting, they'll be redirected back
-    // The OAuth callback will redirect to home page
-    window.location.href = `${OAUTH_BACKEND_URL}/auth/login/google`
+    // The AUTHENTICATED link route, not /auth/login/google: the viewer is
+    // already signed in to the account this prompt is about, and only the
+    // link route takes the account from the session rather than from what
+    // Google returns. It requires a one-time token minted by a same-origin
+    // authenticated request first, the same start Settings uses.
+    //
+    // A finished link lands on Settings, which reports the result, not on
+    // this page's returnTo: the link callback has that one destination.
+    try {
+      const { token } = await startLink.mutateAsync()
+      window.location.href = `${OAUTH_BACKEND_URL}/auth/link/google?t=${encodeURIComponent(token)}`
+    } catch (err) {
+      // The button comes back so the viewer can retry or skip; the prompt
+      // stays open either way.
+      setIsConnectingGoogle(false)
+      Sentry.captureException(err, {
+        level: 'warning',
+        tags: { service: 'backup-auth-prompt' },
+        extra: { step: 'start-link' },
+      })
+    }
   }
 
   const handleSkip = () => {
