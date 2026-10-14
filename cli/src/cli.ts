@@ -17,7 +17,7 @@ import { runStatus } from "./commands/status";
 import { runFestivalLinkArtists, runFestivalUnlinkArtist } from "./commands/festival";
 import { runShowAddArtist, runShowRemoveArtist } from "./commands/show";
 import { runSourcesStale, runSourcesRegister, runSourcesRefresh } from "./commands/sources";
-import { runRadioRematch } from "./commands/radio";
+import { runRadioArtistCandidates, runRadioRematch } from "./commands/radio";
 import { flushRevalidation } from "./lib/revalidate";
 import { SET_TYPE_VOCABULARY_CSV } from "./lib/setType";
 
@@ -257,6 +257,24 @@ radioCmd
       limit: opts.limit,
       dryRun: opts.dryRun,
     });
+  });
+
+const radioCandidatesCmd = radioCmd
+  .command("candidates")
+  .description("Enrichment candidate reports (read-only; nothing is created)");
+
+radioCandidatesCmd
+  .command("artists")
+  .description(
+    "Unmatched artist names played on 2+ station rows and 3+ times in 180 days, ranked with evidence and a lane (auto|human)",
+  )
+  .option("--lane <lane>", "auto, human or all (default all)")
+  .option("--sort <sort>", "score, plays or stations (default score)")
+  .option("--limit <n>", "Candidates to print, 1 to 500 (default 50)")
+  .option("--json", "Print the raw listing as JSON")
+  .action(async (opts: { lane?: string; sort?: string; limit?: string; json?: boolean }) => {
+    const env = await resolveEnvOrExit(program.opts().env);
+    await runRadioArtistCandidates(env, opts);
   });
 
 // ─── ph status ───────────────────────────────────────────────────────────────

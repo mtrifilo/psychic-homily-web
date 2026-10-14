@@ -212,3 +212,104 @@ export async function rematchRadioPlaysChunked(
   const aggregated = aggregateRematchResults(results);
   return { namesProcessed: names.length, ...aggregated };
 }
+
+// ─── Artist enrichment candidates (GET /admin/radio/candidates/artists) ─────
+
+export type CandidateLane = "auto" | "human";
+export type CandidateLaneFilter = CandidateLane | "all";
+export type ArtistCandidateSort = "score" | "plays" | "stations";
+
+export const CANDIDATE_LANE_FILTERS: readonly CandidateLaneFilter[] = ["all", "auto", "human"];
+export const ARTIST_CANDIDATE_SORTS: readonly ArtistCandidateSort[] = ["score", "plays", "stations"];
+
+export interface CandidateCount {
+  name: string;
+  play_count: number;
+}
+
+export interface ArtistCandidate {
+  artist_key: string;
+  display_name: string;
+  lane: CandidateLane;
+  score: number;
+  play_count: number;
+  station_row_count: number;
+  station_family_count: number;
+  show_count: number;
+  first_aired_on: string;
+  last_aired_on: string;
+  stations: Array<{ station_id: number; slug: string; name: string; play_count: number }>;
+  top_tracks: Array<{ track_id: number; title: string; play_count: number }>;
+  album_names: CandidateCount[];
+  album_name_count: number;
+  label_names: CandidateCount[];
+  label_name_count: number;
+  mb_artist_id?: string;
+  mb_artist_ids: string[];
+  mb_artist_id_conflict: boolean;
+}
+
+export interface ArtistCandidateListing {
+  candidates: ArtistCandidate[];
+  total: number;
+  auto_total: number;
+  human_total: number;
+  as_of: string;
+  window_start: string;
+  window_days: number;
+  min_station_rows: number;
+  min_plays: number;
+  tracks_rebuilt_at?: string;
+}
+
+/** Fetch one snapshot of the artist candidate ranking. Read-only. */
+export async function listArtistCandidates(
+  client: APIClient,
+  opts: { lane: CandidateLaneFilter; sort: ArtistCandidateSort; limit: number },
+): Promise<ArtistCandidateListing> {
+  return client.get<ArtistCandidateListing>("/admin/radio/candidates/artists", {
+    lane: opts.lane,
+    sort: opts.sort,
+    limit: String(opts.limit),
+  });
+}
+
+function countList(items: CandidateCount[], distinct?: number): string {
+  if (items.length === 0) return "none";
+  const shown = items.map((i) => `${i.name} (${i.play_count})`).join("; ");
+  return distinct !== undefined && distinct > items.length ? `${shown}; ${distinct} distinct` : shown;
+}
+
+/**
+ * Render the ranking as plain text, one block per candidate with its lane and
+ * evidence. Pure, so the report can be tested without a server.
+ */
+export function formatArtistCandidateReport(listing: ArtistCandidateListing): string[] {
+  const lines: string[] = [
+    `Artist candidates as of ${listing.as_of}: plays aired ${listing.window_start} or later ` +
+      `(${listing.window_days} days); floors ${listing.min_station_rows} station rows and ${listing.min_plays} plays.`,
+    `${listing.total} in the requested lanes (${listing.auto_total} auto, ${listing.human_total} human overall); ` +
+      `showing ${listing.candidates.length}.`,
+    `Top tracks reflect the radio_tracks rebuild of ${listing.tracks_rebuilt_at ?? "(none recorded)"}.`,
+  ];
+  listing.candidates.forEach((c, i) => {
+    lines.push("");
+    lines.push(
+      `${String(i + 1).padStart(3)}. [${c.lane.padEnd(5)}] ${c.display_name}  ` +
+        `score ${c.score.toFixed(2)}  plays ${c.play_count}  rows ${c.station_row_count}  ` +
+        `families ${c.station_family_count}  shows ${c.show_count}  last ${c.last_aired_on}`,
+    );
+    lines.push(`       stations: ${c.stations.map((s) => `${s.slug} ${s.play_count}`).join(", ") || "none"}`);
+    lines.push(
+      `       tracks:   ${countList(c.top_tracks.map((t) => ({ name: t.title, play_count: t.play_count })))}`,
+    );
+    lines.push(`       albums:   ${countList(c.album_names, c.album_name_count)}`);
+    lines.push(`       labels:   ${countList(c.label_names, c.label_name_count)}`);
+    if (c.mb_artist_id_conflict) {
+      lines.push(`       mbids:    ${c.mb_artist_ids.join(", ")} (conflict: more than one id)`);
+    } else if (c.mb_artist_id) {
+      lines.push(`       mbid:     ${c.mb_artist_id}`);
+    }
+  });
+  return lines;
+}

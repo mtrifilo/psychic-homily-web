@@ -1009,6 +1009,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/admin/radio/candidates/artists": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get admin radio candidates artists */
+        get: operations["get-admin-radio-candidates-artists"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/admin/radio/plays/bulk-link": {
         parameters: {
             query?: never;
@@ -14729,6 +14746,94 @@ export interface components {
             /** @description Entity type: artist, venue, label, or tag */
             entity_type: string;
         };
+        RadioArtistCandidate: {
+            /**
+             * Format: int64
+             * @description Distinct normalized album names
+             */
+            album_name_count: number;
+            /** @description Up to five album names by play count */
+            album_names: components["schemas"]["RadioCandidateName"][] | null;
+            /** @description radio_normalize_name of the artist name; the candidate's identity */
+            artist_key: string;
+            /** @description Most common raw artist spelling among the counted plays */
+            display_name: string;
+            /** @description Earliest counted play's episode air date (YYYY-MM-DD) */
+            first_aired_on: string;
+            /**
+             * Format: int64
+             * @description Distinct normalized label names
+             */
+            label_name_count: number;
+            /** @description Up to five label names by play count, over the plays that also count toward the label ranking */
+            label_names: components["schemas"]["RadioCandidateName"][] | null;
+            /** @enum {string} */
+            lane: "auto" | "human";
+            /** @description Latest counted play's episode air date (YYYY-MM-DD) */
+            last_aired_on: string;
+            /** @description Set when the counted plays carry exactly one MusicBrainz artist id */
+            mb_artist_id?: string;
+            /** @description True when the counted plays carry more than one MusicBrainz artist id */
+            mb_artist_id_conflict: boolean;
+            /** @description Every distinct MusicBrainz artist id the counted plays carry, sorted */
+            mb_artist_ids: string[] | null;
+            /** Format: int64 */
+            play_count: number;
+            /**
+             * Format: double
+             * @description station rows x ln(plays) x (1 + shows / 10)
+             */
+            score: number;
+            /** Format: int64 */
+            show_count: number;
+            /**
+             * Format: int64
+             * @description Distinct broadcasters (a network counts once)
+             */
+            station_family_count: number;
+            /**
+             * Format: int64
+             * @description Distinct radio_stations rows (each WFMU stream counts)
+             */
+            station_row_count: number;
+            /** @description Station rows by play count, descending */
+            stations: components["schemas"]["RadioCandidateStation"][] | null;
+            /** @description Up to three tracks by play count, over the plays that also count toward the track ranking and whose key radio_track_keys maps */
+            top_tracks: components["schemas"]["RadioCandidateTrack"][] | null;
+        };
+        RadioArtistCandidateListing: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/schemas/RadioArtistCandidateListing.json
+             */
+            readonly $schema?: string;
+            /** @description The UTC date the window ends on (YYYY-MM-DD) */
+            as_of: string;
+            /** Format: int64 */
+            auto_total: number;
+            candidates: components["schemas"]["RadioArtistCandidate"][] | null;
+            /** Format: int64 */
+            human_total: number;
+            /** Format: int64 */
+            min_plays: number;
+            /** Format: int64 */
+            min_station_rows: number;
+            /**
+             * Format: int64
+             * @description Candidates in the requested lanes
+             */
+            total: number;
+            /**
+             * Format: date-time
+             * @description When the radio_tracks rebuild loop last completed successfully
+             */
+            tracks_rebuilt_at?: string;
+            /** Format: int64 */
+            window_days: number;
+            /** @description The earliest episode air date counted (YYYY-MM-DD) */
+            window_start: string;
+        };
         RadioAsHeardOnResponse: {
             last_played: string;
             /** Format: int64 */
@@ -14741,6 +14846,31 @@ export interface components {
             station_id: number;
             station_name: string;
             station_slug: string;
+        };
+        RadioCandidateName: {
+            /** @description Most common raw spelling among the plays that carry it */
+            name: string;
+            /** Format: int64 */
+            play_count: number;
+        };
+        RadioCandidateStation: {
+            name: string;
+            /** Format: int64 */
+            play_count: number;
+            slug: string;
+            /** Format: int64 */
+            station_id: number;
+        };
+        RadioCandidateTrack: {
+            /**
+             * Format: int64
+             * @description The candidate's counted plays of this track
+             */
+            play_count: number;
+            /** @description The track's most common raw title spelling */
+            title: string;
+            /** Format: int64 */
+            track_id: number;
         };
         RadioEpisodeDetailResponse: {
             /**
@@ -21090,6 +21220,42 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["AdminSyncRunListResponseBody"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "get-admin-radio-candidates-artists": {
+        parameters: {
+            query?: {
+                /** @description Candidates to return (default 50) */
+                limit?: number;
+                /** @description Return the auto lane, the human lane, or both (all, default) */
+                lane?: "auto" | "human" | "all";
+                /** @description Rank by score (default), plays in the window, or distinct station rows, descending; ties by score, then the most recent play, then artist key. */
+                sort?: "score" | "plays" | "stations";
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RadioArtistCandidateListing"];
                 };
             };
             /** @description Error */
