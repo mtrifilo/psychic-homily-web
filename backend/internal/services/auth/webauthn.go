@@ -175,13 +175,16 @@ func (s *WebAuthnService) FinishLogin(user *authm.User, session *webauthn.Sessio
 }
 
 // recordCredentialUse writes what a validated assertion changes on the stored
-// credential (sign count, clone warning, last use) and nothing else.
+// credential (sign count, clone warning, backup state, last use) and nothing
+// else. Backup eligibility cannot change: validation refuses an assertion
+// whose eligibility differs from the stored value.
 func (s *WebAuthnService) recordCredentialUse(stored *authm.WebAuthnCredential, validated *webauthn.Credential) error {
 	now := time.Now()
 	stored.SignCount = validated.Authenticator.SignCount
 	stored.CloneWarning = validated.Authenticator.CloneWarning
+	stored.BackupState = validated.Flags.BackupState
 	stored.LastUsedAt = &now
-	err := s.db.Model(stored).Select("sign_count", "clone_warning", "last_used_at").Updates(stored).Error
+	err := s.db.Model(stored).Select("sign_count", "clone_warning", "backup_state", "last_used_at").Updates(stored).Error
 	if err != nil {
 		return fmt.Errorf("failed to update credential: %w", err)
 	}

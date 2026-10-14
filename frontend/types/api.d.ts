@@ -8995,10 +8995,10 @@ export interface components {
              */
             readonly $schema?: string;
             /**
-             * @description Name for this passkey
+             * @description Name for this passkey; refused when longer than 100 characters or containing control characters
              * @example My MacBook
              */
-            display_name: string;
+            display_name?: string;
         };
         BeginRegisterResponseBody: {
             /**
@@ -11552,7 +11552,7 @@ export interface components {
             /** @description Challenge ID from begin registration */
             challenge_id: string;
             /**
-             * @description Name for this passkey; defaults to My Passkey when empty
+             * @description Name for this passkey; My Passkey is stored when it is empty or invalid
              * @example My MacBook
              */
             display_name?: string;
@@ -11589,7 +11589,7 @@ export interface components {
             /** @description Challenge ID from begin signup */
             challenge_id: string;
             /**
-             * @description Name for this passkey; defaults to My Passkey when empty
+             * @description Name for this passkey; My Passkey is stored when it is empty or invalid
              * @example My MacBook
              */
             display_name?: string;

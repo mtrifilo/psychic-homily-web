@@ -1245,30 +1245,38 @@ func TestBeginLoginHandler_WithEmail_StoreChallengeFailure(t *testing.T) {
 	}
 }
 
-func TestFinishLoginHandler_DiscoverableLogin_ChallengeWithZeroUserID(t *testing.T) {
-	// When userID is 0, handler goes into discoverable login path.
-	// With malformed credential data, parse will fail.
+// A challenge issued with no user is a discoverable login; an assertion the
+// service refuses is answered as invalid credentials, with no session.
+func TestFinishLoginHandler_DiscoverableLogin_RefusedAssertion(t *testing.T) {
+	_, device := softRegistration(t)
+	var reachedDiscoverable bool
 	mockWA := &testhelpers.MockWebAuthnService{
 		GetChallengeFn: func(challengeID string, operation string) (*webauthn.SessionData, uint, error) {
-			return &webauthn.SessionData{}, 0, nil // userID=0 => discoverable
+			return &webauthn.SessionData{}, 0, nil
+		},
+		FinishDiscoverableLoginFn: func(*webauthn.SessionData, *protocol.ParsedCredentialAssertionData) (*authm.User, *authm.WebAuthnCredential, error) {
+			reachedDiscoverable = true
+			return nil, nil, fmt.Errorf("failed to validate login")
 		},
 	}
 	h := testPasskeyHandlerWithMocks(mockWA, &testhelpers.MockJWTService{}, &testhelpers.MockUserService{})
 
 	input := &FinishLoginRequest{}
 	input.Body.ChallengeID = "disc-challenge"
-	input.Body.Response = malformedCredentialJSON
+	input.Body.Response = softAssertion(t, device)
 
 	resp, err := h.FinishLoginHandler(context.Background(), input)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if resp.Body.Success {
-		t.Error("expected success=false")
+	if !reachedDiscoverable {
+		t.Fatal("expected the discoverable login path")
 	}
-	// Parse will fail
-	if resp.Body.ErrorCode != autherrors.CodeValidationFailed {
-		t.Errorf("expected error_code=%s, got %s", autherrors.CodeValidationFailed, resp.Body.ErrorCode)
+	if resp.Body.Success || resp.SetCookie.Value != "" {
+		t.Error("expected no session")
+	}
+	if resp.Body.ErrorCode != autherrors.CodeInvalidCredentials {
+		t.Errorf("expected error_code=%s, got %s", autherrors.CodeInvalidCredentials, resp.Body.ErrorCode)
 	}
 }
 

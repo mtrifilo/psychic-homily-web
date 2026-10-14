@@ -27,6 +27,9 @@ var AAGUID = []byte{0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x01, 0x02, 
 // Authenticator holds one resident ES256 credential, created by Register.
 type Authenticator struct {
 	Origin string
+	// BackupEligible and BackedUp set the BE and BS flags of every ceremony.
+	BackupEligible bool
+	BackedUp       bool
 
 	key          *ecdsa.PrivateKey
 	credentialID protocol.URLEncodedBase64
@@ -147,6 +150,12 @@ func (a *Authenticator) credentialJSON(extensions, response map[string]any) ([]b
 }
 
 func (a *Authenticator) authenticatorData(flags protocol.AuthenticatorFlags) []byte {
+	if a.BackupEligible {
+		flags |= protocol.FlagBackupEligible
+	}
+	if a.BackedUp {
+		flags |= protocol.FlagBackupState
+	}
 	rpIDHash := sha256.Sum256([]byte(a.rpID))
 	data := append([]byte{}, rpIDHash[:]...)
 	data = append(data, byte(flags))

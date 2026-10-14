@@ -61,7 +61,7 @@ func passkeyName(raw string) string {
 // BeginRegisterRequest represents the request to begin passkey registration
 type BeginRegisterRequest struct {
 	Body struct {
-		DisplayName string `json:"display_name" example:"My MacBook" doc:"Name for this passkey"`
+		DisplayName string `json:"display_name,omitempty" example:"My MacBook" doc:"Name for this passkey; refused when longer than 100 characters or containing control characters"`
 	}
 }
 
@@ -169,7 +169,7 @@ func (h *PasskeyHandler) BeginRegisterHandler(ctx context.Context, input *BeginR
 type FinishRegisterRequest struct {
 	Body struct {
 		ChallengeID string `json:"challenge_id" doc:"Challenge ID from begin registration"`
-		DisplayName string `json:"display_name,omitempty" example:"My MacBook" doc:"Name for this passkey; defaults to My Passkey when empty"`
+		DisplayName string `json:"display_name,omitempty" example:"My MacBook" doc:"Name for this passkey; My Passkey is stored when it is empty or invalid"`
 		// Response is the RegistrationResponseJSON the browser client sends
 		// (@simplewebauthn/browser startRegistration). It is kept as raw JSON
 		// and handed to the WebAuthn library unmodified, so every field the
@@ -687,7 +687,7 @@ func (h *PasskeyHandler) BeginSignupHandler(ctx context.Context, input *BeginSig
 type FinishSignupRequest struct {
 	Body struct {
 		ChallengeID string `json:"challenge_id" doc:"Challenge ID from begin signup"`
-		DisplayName string `json:"display_name,omitempty" example:"My MacBook" doc:"Name for this passkey; defaults to My Passkey when empty"`
+		DisplayName string `json:"display_name,omitempty" example:"My MacBook" doc:"Name for this passkey; My Passkey is stored when it is empty or invalid"`
 		// Response is the RegistrationResponseJSON the browser client sends
 		// (@simplewebauthn/browser startRegistration), kept raw and handed to
 		// the WebAuthn library unmodified.

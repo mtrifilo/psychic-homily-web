@@ -109,9 +109,10 @@ func TestPasskeyWire_RegisterBeginOptionsCarryPublicKeyWrapper(t *testing.T) {
 	wirePublicKey(t, api.Post("/auth/passkey/register/begin", map[string]any{"display_name": "Laptop"}))
 }
 
-// A signup credential's user handle is the reserved account id in the
-// 8-byte WebAuthnID encoding, the value login compares it against.
-func TestPasskeyWire_SignupBeginOptionsCarryReservedIDHandle(t *testing.T) {
+// signup/begin passes the service's user handle to the client as base64url
+// that decodes back to the account id. That the service reserves the id is
+// TestSignupHandleCarriesNoEmail in the service suite.
+func TestPasskeyWire_SignupBeginEncodesUserHandleAsBase64URL(t *testing.T) {
 	reserved := &authm.User{ID: 77}
 	mockWA := &testhelpers.MockWebAuthnService{
 		BeginRegistrationForEmailFn: func(string) (*protocol.CredentialCreation, *webauthn.SessionData, error) {

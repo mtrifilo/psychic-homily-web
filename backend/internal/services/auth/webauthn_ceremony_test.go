@@ -1,7 +1,6 @@
 package auth
 
 import (
-
 	"github.com/go-webauthn/webauthn/protocol"
 	"github.com/google/uuid"
 
@@ -152,4 +151,78 @@ func (suite *WebAuthnServiceIntegrationTestSuite) TestSignupFinishRejectsSession
 	var count int64
 	suite.Require().NoError(suite.db.Model(&authm.User{}).Where("email = ?", "legacy@test.com").Count(&count).Error)
 	suite.Zero(count)
+}
+
+// registeredDevice registers a fresh software authenticator for user.
+func (suite *WebAuthnServiceIntegrationTestSuite) registeredDevice(user *authm.User) *softauthn.Authenticator {
+	device := softauthn.New(ceremonyOrigin)
+	options, session, err := suite.service.BeginRegistration(user)
+	suite.Require().NoError(err)
+	body, err := device.Register(options)
+	suite.Require().NoError(err)
+	_, err = suite.service.FinishRegistration(user, session, suite.parseCreation(body), "Key")
+	suite.Require().NoError(err)
+	return device
+}
+
+// A credential signs in only as the account that owns it: an assertion whose
+// user handle names another account is refused.
+func (suite *WebAuthnServiceIntegrationTestSuite) TestDiscoverableLoginRefusesAnotherAccountsHandle() {
+	owner := suite.createUser("owner@test.com")
+	other := suite.createUser("other@test.com")
+	device := suite.registeredDevice(owner)
+
+	options, session, err := suite.service.BeginDiscoverableLogin()
+	suite.Require().NoError(err)
+	body, err := device.Assert(options)
+	suite.Require().NoError(err)
+	parsed, err := protocol.ParseCredentialRequestResponseBytes(body)
+	suite.Require().NoError(err)
+	parsed.Response.UserHandle = other.WebAuthnID()
+
+	_, _, err = suite.service.FinishDiscoverableLogin(session, parsed)
+	suite.Error(err)
+}
+
+// An email-specific login session for one account does not accept another
+// account's credential.
+func (suite *WebAuthnServiceIntegrationTestSuite) TestEmailLoginRefusesAnotherAccountsCredential() {
+	owner := suite.createUser("owner@test.com")
+	target := suite.createUser("target@test.com")
+	device := suite.registeredDevice(owner)
+	suite.registeredDevice(target)
+
+	options, session, err := suite.service.BeginLogin(&authm.User{ID: target.ID})
+	suite.Require().NoError(err)
+	body, err := device.Assert(options)
+	suite.Require().NoError(err)
+	parsed, err := protocol.ParseCredentialRequestResponseBytes(body)
+	suite.Require().NoError(err)
+
+	_, err = suite.service.FinishLogin(&authm.User{ID: target.ID}, session, parsed)
+	suite.Error(err)
+}
+
+// A sign-in records the backup state the authenticator reports now, so a
+// passkey that becomes synced after registration reads as synced.
+func (suite *WebAuthnServiceIntegrationTestSuite) TestSignInRecordsCurrentBackupState() {
+	user := suite.createUser("syncs-later@test.com")
+	device := softauthn.New(ceremonyOrigin)
+	device.BackupEligible = true
+
+	options, session, err := suite.service.BeginRegistration(user)
+	suite.Require().NoError(err)
+	body, err := device.Register(options)
+	suite.Require().NoError(err)
+	cred, err := suite.service.FinishRegistration(user, session, suite.parseCreation(body), "Phone")
+	suite.Require().NoError(err)
+	suite.False(cred.BackupState)
+
+	device.BackedUp = true
+	_, err = suite.discoverableLogin(device)
+	suite.Require().NoError(err)
+
+	var stored authm.WebAuthnCredential
+	suite.Require().NoError(suite.db.First(&stored, cred.ID).Error)
+	suite.True(stored.BackupState)
 }
