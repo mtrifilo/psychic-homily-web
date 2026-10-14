@@ -230,6 +230,13 @@ var (
 	sqlColumnRef  = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*(\.[A-Za-z_][A-Za-z0-9_]*)?$`)
 )
 
+func mustSQLIdentifier(name string) string {
+	if !sqlIdentifier.MatchString(name) {
+		panic(fmt.Sprintf("catalog: %q is not a SQL identifier", name))
+	}
+	return name
+}
+
 func mustSQLColumnRef(ref string) string {
 	if !sqlColumnRef.MatchString(ref) {
 		panic(fmt.Sprintf("catalog: %q is not a SQL column reference", ref))

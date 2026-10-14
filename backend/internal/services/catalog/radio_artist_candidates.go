@@ -76,26 +76,34 @@ func RadioArtistCandidateScore(stationRows, plays, shows int) float64 {
 
 // RadioCandidateLaneFacts are what a candidate's lane depends on.
 type RadioCandidateLaneFacts struct {
-	StationRows   int
+	StationRows int
+	// DistinctMBIDs counts the distinct MusicBrainz ids the candidate's plays
+	// carry for the entity it would create.
 	DistinctMBIDs int
 	// MBIDShared is true when another candidate's plays carry one of this
-	// candidate's MusicBrainz ids.
+	// candidate's ids and that makes the id contested (one entity under
+	// several names).
 	MBIDShared bool
 	// NonLatinSpelling is true when a counted play's name carries a
 	// character radio_normalize_name may not fold (radioUnfoldableCharSQL),
 	// usually a non-Latin script, so the key may be a fragment of that name.
 	NonLatinSpelling bool
+	// MBIDOnVariant is true when every counted play carrying an id has a name
+	// the key strips (for a track, a title radio_track_title_key strips), so
+	// the id may belong to a version or credit rather than to the candidate.
+	MBIDOnVariant bool
 }
 
 // RadioCandidateLaneFor returns a candidate's lane: auto when its plays carry
-// exactly one distinct MusicBrainz id, no other candidate carries that id, no
-// spelling carries a character normalization may not fold, and it clears the
-// station floor; human otherwise. Several ids mean the name covers more than
-// one act, a shared id means one act under several names, and an unfoldable
-// character means the key may be a fragment of the name, so a person decides
-// each.
+// exactly one distinct MusicBrainz id, that id is not shared and not carried
+// only on names the key strips, no spelling carries a character normalization
+// may not fold, and it clears the station floor; human otherwise. Several ids
+// mean the name covers more than one entity, a shared id means one entity
+// under several names, an id carried only on stripped names may belong to
+// what was stripped, and an unfoldable character means the key may be a
+// fragment of the name, so a person decides each.
 func RadioCandidateLaneFor(f RadioCandidateLaneFacts) contracts.RadioCandidateLane {
-	if f.DistinctMBIDs == 1 && !f.MBIDShared && !f.NonLatinSpelling && RadioMeetsStationFloor(f.StationRows) {
+	if f.DistinctMBIDs == 1 && !f.MBIDShared && !f.MBIDOnVariant && !f.NonLatinSpelling && RadioMeetsStationFloor(f.StationRows) {
 		return contracts.RadioCandidateLaneAuto
 	}
 	return contracts.RadioCandidateLaneHuman
@@ -157,11 +165,13 @@ var radioCandidatePlayCols = RadioPlayColumns{
 	LabelName:  "p.label_name",
 }
 
-// radioCandidatePlaysFrom joins a play to its episode, show and station,
-// exposes its artist key as k.artist_key, and keeps the plays in the window
-// that are not excluded for the artist ranking and not ambiguous. Keyability
-// is left to the caller. Its one parameter is the window's first air date.
-var radioCandidatePlaysFrom = `
+// radioCandidatePlaysFromSQL returns a FROM clause that joins a play to its
+// episode, show and station, exposes its artist key as k.artist_key, and keeps
+// the plays in the window that are not excluded for the dimension's ranking
+// and not ambiguous. Keyability is left to the caller. Its one parameter is
+// the window's first air date.
+func radioCandidatePlaysFromSQL(dim RadioRankingDimension) string {
+	return `
 FROM radio_plays p
 JOIN radio_episodes e ON e.id = p.episode_id
 JOIN radio_shows sh ON sh.id = e.show_id
@@ -169,11 +179,15 @@ JOIN radio_stations st ON st.id = sh.station_id
 CROSS JOIN LATERAL (SELECT radio_normalize_name(p.artist_name) AS artist_key) k
 WHERE e.air_date >= ?::date
   AND p.match_state <> '` + catalogm.RadioPlayMatchStateAmbiguous + `'
-  AND NOT (` + RadioPlayExcludedSQL(RadioRankingArtist, radioCandidatePlayCols) + `)`
+  AND NOT (` + RadioPlayExcludedSQL(dim, radioCandidatePlayCols) + `)`
+}
 
-// radioCandidateNonLatinSQL is true for a play of radioCandidatePlaysFrom
-// whose name carries a character radio_normalize_name cannot fold.
-const radioCandidateNonLatinSQL = `public.immutable_unaccent(lower(p.artist_name)) ~ '` + radioUnfoldableCharSQL + `'`
+// radioNonLatinSQL returns a boolean SQL expression that is true when the
+// text column carries a character radio_normalize_name cannot fold. Panics on
+// a column that is not an identifier.
+func radioNonLatinSQL(column string) string {
+	return `public.immutable_unaccent(lower(` + mustSQLColumnRef(column) + `)) ~ '` + radioUnfoldableCharSQL + `'`
+}
 
 // radioArtistCandidatesSQL returns every qualifying key with its counts or,
 // when no key qualifies, one row whose artist_key is NULL; every row carries
@@ -182,7 +196,7 @@ const radioCandidateNonLatinSQL = `public.immutable_unaccent(lower(p.artist_name
 var radioArtistCandidatesSQL = `
 WITH plays AS MATERIALIZED (
   SELECT k.artist_key,
-         ` + radioCandidateNonLatinSQL + ` AS non_latin,
+         ` + radioNonLatinSQL("p.artist_name") + ` AS non_latin,
          p.artist_id,
          sh.station_id,
          ` + RadioBroadcasterKeySQL("st") + ` AS family_key,
@@ -190,7 +204,7 @@ WITH plays AS MATERIALIZED (
          e.air_date,
          CASE WHEN btrim(p.musicbrainz_artist_id) ~ '` + mbidUUIDPattern + `'
               THEN btrim(p.musicbrainz_artist_id) END AS mb_raw
-  ` + radioCandidatePlaysFrom + `
+  ` + radioCandidatePlaysFromSQL(RadioRankingArtist) + `
 ),
 counted AS (
   SELECT * FROM plays WHERE artist_key <> ''
@@ -245,38 +259,76 @@ func radioCatalogAnswersToSQL(expr string) string {
    OR EXISTS (SELECT 1 FROM artist_aliases al WHERE radio_normalize_name(al.alias) = %[1]s))`, expr)
 }
 
+// radioCandidateEvidenceSpellingsSQL ranks the exact raw spellings of a text
+// column of the evidence query's counted CTE, per value of its owner column
+// (carried under the same name): up to radioCandidateTopNames rows, each with
+// its play count and the owner's distinct spelling count. Panics on a kind or
+// owner that is not a plain identifier or a column that is not an identifier.
+func radioCandidateEvidenceSpellingsSQL(kind, owner, column string) string {
+	kind = mustSQLIdentifier(kind)
+	return fmt.Sprintf(`
+SELECT '%[1]s' AS kind, %[2]s, 0 AS ref_id, %[3]s AS name, '' AS slug,
+       play_count::int AS play_count, distinct_count::int AS distinct_count, rn
+FROM (
+  SELECT %[2]s, %[3]s, count(*) AS play_count,
+         count(*) OVER (PARTITION BY %[2]s) AS distinct_count,
+         row_number() OVER (PARTITION BY %[2]s ORDER BY count(*) DESC, %[3]s COLLATE "C") AS rn
+  FROM counted
+  GROUP BY %[2]s, %[3]s
+) spellings
+WHERE rn <= %[4]d`, kind, mustSQLIdentifier(owner), mustSQLColumnRef(column), radioCandidateTopNames)
+}
+
+// radioCandidateEvidenceStationsSQL lists the station rows of the evidence
+// query's counted CTE, per value of its owner column (carried under the same
+// name), by play count and then station id. Panics on an owner that is not a
+// plain identifier.
+func radioCandidateEvidenceStationsSQL(owner string) string {
+	return fmt.Sprintf(`
+SELECT '%[1]s' AS kind, c.%[2]s, st.id AS ref_id, st.name AS name, st.slug AS slug,
+       count(*)::int AS play_count, 0 AS distinct_count,
+       row_number() OVER (PARTITION BY c.%[2]s ORDER BY count(*) DESC, st.id) AS rn
+FROM counted c
+JOIN radio_stations st ON st.id = c.station_id
+GROUP BY c.%[2]s, st.id, st.name, st.slug`, radioEvidenceStation, mustSQLIdentifier(owner))
+}
+
 // radioCandidateEvidenceNamesSQL ranks the album or label names on the
-// evidence query's counted CTE: names group by radio_normalize_name, show
-// their most common trimmed spelling, and only rows where onlyWhere (a boolean
-// column of counted, or "" for every row) holds contribute. Panics on a column
-// that is not an identifier.
-func radioCandidateEvidenceNamesSQL(kind, column, onlyWhere string) string {
+// evidence query's counted CTE, per value of its owner column (the candidate's
+// identity, which the rows carry under the same name): names group by
+// radio_normalize_name, show their most common trimmed spelling, and only rows
+// where onlyWhere (a boolean column of counted, or "" for every row) holds
+// contribute. Panics on a kind or owner that is not a plain identifier or a
+// column that is not an identifier.
+func radioCandidateEvidenceNamesSQL(kind, owner, column, onlyWhere string) string {
+	kind = mustSQLIdentifier(kind)
+	own := mustSQLIdentifier(owner)
 	col := mustSQLColumnRef(column)
 	filter := "true"
 	if onlyWhere != "" {
 		filter = mustSQLColumnRef(onlyWhere)
 	}
 	return fmt.Sprintf(`
-SELECT '%[1]s' AS kind, artist_key, 0 AS ref_id, name, '' AS slug,
+SELECT '%[1]s' AS kind, %[5]s, 0 AS ref_id, name, '' AS slug,
        play_count::int AS play_count, distinct_count::int AS distinct_count, rn
 FROM (
-  SELECT artist_key, name, play_count,
-         count(*) OVER (PARTITION BY artist_key) AS distinct_count,
-         row_number() OVER (PARTITION BY artist_key ORDER BY play_count DESC, name COLLATE "C") AS rn
+  SELECT %[5]s, name, play_count,
+         count(*) OVER (PARTITION BY %[5]s) AS distinct_count,
+         row_number() OVER (PARTITION BY %[5]s ORDER BY play_count DESC, name COLLATE "C") AS rn
   FROM (
-    SELECT artist_key, norm, sum(n) AS play_count,
+    SELECT %[5]s, norm, sum(n) AS play_count,
            (array_agg(spelling ORDER BY n DESC, spelling COLLATE "C"))[1] AS name
     FROM (
-      SELECT artist_key, radio_normalize_name(%[2]s) AS norm, btrim(%[2]s) AS spelling, count(*) AS n
+      SELECT %[5]s, radio_normalize_name(%[2]s) AS norm, btrim(%[2]s) AS spelling, count(*) AS n
       FROM counted
       WHERE %[2]s ~ '[^[:space:]]' AND %[3]s
       GROUP BY 1, 2, 3
     ) spellings
     WHERE norm <> ''
-    GROUP BY artist_key, norm
+    GROUP BY %[5]s, norm
   ) names
 ) ranked
-WHERE rn <= %[4]d`, kind, col, filter, radioCandidateTopNames)
+WHERE rn <= %[4]d`, kind, col, filter, radioCandidateTopNames, own)
 }
 
 // radioArtistCandidateEvidenceSQL returns the evidence rows of the selected
@@ -291,27 +343,12 @@ WITH counted AS MATERIALIZED (
          sh.station_id,
          ` + RadioPlayExcludedSQL(RadioRankingTrack, radioCandidatePlayCols) + ` AS track_excluded,
          NOT ` + RadioPlayExcludedSQL(RadioRankingLabel, radioCandidatePlayCols) + ` AS label_counts
-  ` + radioCandidatePlaysFrom + `
+  ` + radioCandidatePlaysFromSQL(RadioRankingArtist) + `
     AND p.artist_id IS NULL
     AND radio_normalize_name(p.artist_name) = ANY (?::text[])
 )
-SELECT '` + radioEvidenceSpelling + `' AS kind, artist_key, 0 AS ref_id, artist_name AS name, '' AS slug,
-       play_count::int AS play_count, distinct_count::int AS distinct_count, rn
-FROM (
-  SELECT artist_key, artist_name, count(*) AS play_count,
-         count(*) OVER (PARTITION BY artist_key) AS distinct_count,
-         row_number() OVER (PARTITION BY artist_key ORDER BY count(*) DESC, artist_name COLLATE "C") AS rn
-  FROM counted
-  GROUP BY artist_key, artist_name
-) spellings
-WHERE rn <= ` + fmt.Sprint(radioCandidateTopNames) + `
-UNION ALL
-SELECT '` + radioEvidenceStation + `' AS kind, c.artist_key, st.id AS ref_id, st.name AS name, st.slug AS slug,
-       count(*)::int AS play_count, 0 AS distinct_count,
-       row_number() OVER (PARTITION BY c.artist_key ORDER BY count(*) DESC, st.id) AS rn
-FROM counted c
-JOIN radio_stations st ON st.id = c.station_id
-GROUP BY c.artist_key, st.id, st.name, st.slug
+` + radioCandidateEvidenceSpellingsSQL(radioEvidenceSpelling, "artist_key", "artist_name") + `
+UNION ALL` + radioCandidateEvidenceStationsSQL("artist_key") + `
 UNION ALL
 SELECT '` + radioEvidenceTrack + `' AS kind, artist_key, track_id AS ref_id, title AS name, '' AS slug,
        play_count::int AS play_count, 0 AS distinct_count, rn
@@ -329,8 +366,8 @@ FROM (
   GROUP BY c.artist_key, t.id, t.display_title
 ) tracks
 WHERE rn <= ` + fmt.Sprint(radioCandidateTopTracks) + `
-UNION ALL` + radioCandidateEvidenceNamesSQL(radioEvidenceAlbum, "album_title", "") + `
-UNION ALL` + radioCandidateEvidenceNamesSQL(radioEvidenceLabel, "label_name", "label_counts") + `
+UNION ALL` + radioCandidateEvidenceNamesSQL(radioEvidenceAlbum, "artist_key", "album_title", "") + `
+UNION ALL` + radioCandidateEvidenceNamesSQL(radioEvidenceLabel, "artist_key", "label_name", "label_counts") + `
 ORDER BY kind, artist_key, rn`
 
 // radioCatalogNamesSQL returns which of the given normalized names a catalog
@@ -357,66 +394,89 @@ func (r *RadioCandidatesReader) ListArtistCandidates(ctx context.Context, q cont
 		return nil, fmt.Errorf("limit must be positive, got %d", q.Limit)
 	}
 
-	asOf := r.now().UTC()
-	windowStart := asOf.AddDate(0, 0, -(RadioCandidateWindowDays - 1))
+	asOf, windowStart := r.window()
 	listing := &contracts.RadioArtistCandidateListing{
-		AsOf:           asOf.Format(time.DateOnly),
-		WindowStart:    windowStart.Format(time.DateOnly),
+		AsOf:           asOf,
+		WindowStart:    windowStart,
 		WindowDays:     RadioCandidateWindowDays,
 		MinStationRows: RadioMinDistinctStations,
 		MinPlays:       RadioCandidateMinPlays,
 	}
 
-	ctx, cancel := context.WithTimeout(ctx, radioCandidateListingTimeout)
-	defer cancel()
-	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		// The server-side bound holds even if the client's cancellation is lost.
-		if err := tx.Exec(fmt.Sprintf("SET LOCAL statement_timeout = %d", radioCandidateListingTimeout.Milliseconds())).Error; err != nil {
-			return fmt.Errorf("bounding the listing: %w", err)
-		}
-		var rows []radioArtistCandidateRow
-		if err := tx.Raw(radioArtistCandidatesSQL, listing.WindowStart, RadioCandidateMinPlays).Scan(&rows).Error; err != nil {
-			return fmt.Errorf("ranking artist candidates: %w", err)
-		}
-		if len(rows) > 0 {
-			listing.UnkeyablePlays = rows[0].UnkeyablePlays
-		}
-		rows = slices.DeleteFunc(rows, func(row radioArtistCandidateRow) bool { return row.ArtistKey == nil })
-		rows, err := dropCatalogCollabKeys(tx, rows)
+	err := r.inSnapshot(ctx, func(tx *gorm.DB) error {
+		rows, unkeyable, err := qualifyingRadioArtistRows(tx, listing.WindowStart)
 		if err != nil {
 			return err
 		}
+		listing.UnkeyablePlays = unkeyable
 
-		candidates := rankRadioArtistCandidates(rows, q.Sort)
-		listing.Candidates = make([]contracts.RadioArtistCandidate, 0, min(q.Limit, len(candidates)))
-		for _, c := range candidates {
-			if c.Lane == contracts.RadioCandidateLaneAuto {
-				listing.AutoTotal++
-			} else {
-				listing.HumanTotal++
-			}
-			if !q.Lane.Includes(c.Lane) {
-				continue
-			}
-			listing.Total++
-			if len(listing.Candidates) < q.Limit {
-				listing.Candidates = append(listing.Candidates, c)
-			}
-		}
+		page := pageRadioCandidates(rankRadioArtistCandidates(rows, q.Sort),
+			func(c contracts.RadioArtistCandidate) contracts.RadioCandidateLane { return c.Lane }, q.Lane, q.Limit)
+		listing.Candidates, listing.Total, listing.AutoTotal, listing.HumanTotal = page.candidates, page.total, page.auto, page.human
 
 		if err := attachRadioArtistCandidateEvidence(tx, listing.WindowStart, listing.Candidates); err != nil {
 			return err
 		}
-		if err := tx.Raw("SELECT (SELECT last_success_at FROM background_service_runs WHERE name = ?)", RadioTracksRebuildLoopName).
-			Row().Scan(&listing.TracksRebuiltAt); err != nil {
-			return fmt.Errorf("reading the tracks rebuild time: %w", err)
-		}
-		return nil
-	}, &sql.TxOptions{Isolation: sql.LevelRepeatableRead, ReadOnly: true})
+		listing.TracksRebuiltAt, err = radioTracksRebuiltAt(tx)
+		return err
+	})
 	if err != nil {
 		return nil, err
 	}
 	return listing, nil
+}
+
+// window returns the UTC date the candidate window ends on and its first air
+// date, both as YYYY-MM-DD.
+func (r *RadioCandidatesReader) window() (asOf, windowStart string) {
+	now := r.now().UTC()
+	return now.Format(time.DateOnly), now.AddDate(0, 0, -(RadioCandidateWindowDays - 1)).Format(time.DateOnly)
+}
+
+// inSnapshot runs fn in one REPEATABLE READ, read-only transaction bounded by
+// radioCandidateListingTimeout, so every statement of a listing reads the same
+// snapshot.
+func (r *RadioCandidatesReader) inSnapshot(ctx context.Context, fn func(tx *gorm.DB) error) error {
+	ctx, cancel := context.WithTimeout(ctx, radioCandidateListingTimeout)
+	defer cancel()
+	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		// The server-side bound holds even if the client's cancellation is lost.
+		if err := tx.Exec(fmt.Sprintf("SET LOCAL statement_timeout = %d", radioCandidateListingTimeout.Milliseconds())).Error; err != nil {
+			return fmt.Errorf("bounding the listing: %w", err)
+		}
+		return fn(tx)
+	}, &sql.TxOptions{Isolation: sql.LevelRepeatableRead, ReadOnly: true})
+}
+
+// radioTracksRebuiltAt returns when the radio_tracks rebuild loop last
+// succeeded, or nil when it never has.
+func radioTracksRebuiltAt(tx *gorm.DB) (*time.Time, error) {
+	var at *time.Time
+	if err := tx.Raw("SELECT (SELECT last_success_at FROM background_service_runs WHERE name = ?)", RadioTracksRebuildLoopName).
+		Row().Scan(&at); err != nil {
+		return nil, fmt.Errorf("reading the tracks rebuild time: %w", err)
+	}
+	return at, nil
+}
+
+// qualifyingRadioArtistRows returns the qualifying artist keys with their
+// counts, every row with a non-nil ArtistKey, and the number of in-window plays
+// whose name normalizes to empty.
+func qualifyingRadioArtistRows(tx *gorm.DB, windowStart string) ([]radioArtistCandidateRow, int64, error) {
+	var rows []radioArtistCandidateRow
+	if err := tx.Raw(radioArtistCandidatesSQL, windowStart, RadioCandidateMinPlays).Scan(&rows).Error; err != nil {
+		return nil, 0, fmt.Errorf("ranking artist candidates: %w", err)
+	}
+	var unkeyable int64
+	if len(rows) > 0 {
+		unkeyable = rows[0].UnkeyablePlays
+	}
+	rows = slices.DeleteFunc(rows, func(row radioArtistCandidateRow) bool { return row.ArtistKey == nil })
+	rows, err := dropCatalogCollabKeys(tx, rows)
+	if err != nil {
+		return nil, 0, err
+	}
+	return rows, unkeyable, nil
 }
 
 // dropCatalogCollabKeys removes the keys that split as a collab credit with a
@@ -447,10 +507,10 @@ func dropCatalogCollabKeys(tx *gorm.DB, rows []radioArtistCandidateRow) ([]radio
 }
 
 // radioArtistCandidateSortKeys maps each sort to the metric it ranks by first.
-var radioArtistCandidateSortKeys = map[contracts.RadioArtistCandidateSort]func(contracts.RadioArtistCandidate) float64{
-	contracts.RadioArtistCandidateSortScore:    func(c contracts.RadioArtistCandidate) float64 { return c.Score },
-	contracts.RadioArtistCandidateSortPlays:    func(c contracts.RadioArtistCandidate) float64 { return float64(c.PlayCount) },
-	contracts.RadioArtistCandidateSortStations: func(c contracts.RadioArtistCandidate) float64 { return float64(c.StationRowCount) },
+var radioArtistCandidateSortKeys = map[contracts.RadioCandidateSort]func(contracts.RadioArtistCandidate) float64{
+	contracts.RadioCandidateSortScore:    func(c contracts.RadioArtistCandidate) float64 { return c.Score },
+	contracts.RadioCandidateSortPlays:    func(c contracts.RadioArtistCandidate) float64 { return float64(c.PlayCount) },
+	contracts.RadioCandidateSortStations: func(c contracts.RadioArtistCandidate) float64 { return float64(c.StationRowCount) },
 }
 
 // rankRadioArtistCandidates scores the qualifying keys, finds the MusicBrainz
@@ -458,7 +518,7 @@ var radioArtistCandidateSortKeys = map[contracts.RadioArtistCandidateSort]func(c
 // sort's metric, descending, then by score, the most recent play and the
 // artist key. The evidence fields other than SharedMBArtistKeys are left
 // empty. Every row must have a non-nil ArtistKey.
-func rankRadioArtistCandidates(rows []radioArtistCandidateRow, sort contracts.RadioArtistCandidateSort) []contracts.RadioArtistCandidate {
+func rankRadioArtistCandidates(rows []radioArtistCandidateRow, sort contracts.RadioCandidateSort) []contracts.RadioArtistCandidate {
 	keysByMBID := map[string][]string{}
 	for _, row := range rows {
 		for _, id := range row.MBArtistIDs {
@@ -512,20 +572,67 @@ func rankRadioArtistCandidates(rows []radioArtistCandidateRow, sort contracts.Ra
 		}
 		candidates = append(candidates, c)
 	}
-	metric := radioArtistCandidateSortKeys[sort]
-	slices.SortFunc(candidates, func(a, b contracts.RadioArtistCandidate) int {
+	sortRadioCandidates(candidates, radioArtistCandidateSortKeys[sort], func(c contracts.RadioArtistCandidate) radioCandidateOrder {
+		return radioCandidateOrder{score: c.Score, lastAiredOn: c.LastAiredOn}
+	}, func(a, b contracts.RadioArtistCandidate) int { return cmp.Compare(a.ArtistKey, b.ArtistKey) })
+	return candidates
+}
+
+// radioCandidateOrder is what every candidate ordering falls back on after
+// its sort metric.
+type radioCandidateOrder struct {
+	score       float64
+	lastAiredOn string
+}
+
+// sortRadioCandidates orders candidates by metric, descending, then by score,
+// descending, then by the most recent play (YYYY-MM-DD), descending, and
+// finally by identity, ascending.
+func sortRadioCandidates[T any](candidates []T, metric func(T) float64, order func(T) radioCandidateOrder, identity func(a, b T) int) {
+	slices.SortFunc(candidates, func(a, b T) int {
 		if c := cmp.Compare(metric(b), metric(a)); c != 0 {
 			return c
 		}
-		if c := cmp.Compare(b.Score, a.Score); c != 0 {
+		oa, ob := order(a), order(b)
+		if c := cmp.Compare(ob.score, oa.score); c != 0 {
 			return c
 		}
-		if c := cmp.Compare(b.LastAiredOn, a.LastAiredOn); c != 0 {
+		if c := cmp.Compare(ob.lastAiredOn, oa.lastAiredOn); c != 0 {
 			return c
 		}
-		return cmp.Compare(a.ArtistKey, b.ArtistKey)
+		return identity(a, b)
 	})
-	return candidates
+}
+
+// radioCandidatePage is one listing page of ranked candidates with the lane
+// totals.
+type radioCandidatePage[T any] struct {
+	candidates  []T
+	total       int
+	auto, human int
+}
+
+// pageRadioCandidates keeps the ranked candidates in the filter's lanes, up to
+// limit, in order. total counts the candidates in those lanes; auto and human
+// count every candidate in each lane, whatever the filter.
+func pageRadioCandidates[T any](ranked []T, lane func(T) contracts.RadioCandidateLane, filter contracts.RadioCandidateLaneFilter, limit int) radioCandidatePage[T] {
+	page := radioCandidatePage[T]{candidates: make([]T, 0, min(limit, len(ranked)))}
+	for _, c := range ranked {
+		l := lane(c)
+		if l == contracts.RadioCandidateLaneAuto {
+			page.auto++
+		} else {
+			page.human++
+		}
+		if !filter.Includes(l) {
+			continue
+		}
+		page.total++
+		if len(page.candidates) < limit {
+			page.candidates = append(page.candidates, c)
+		}
+	}
+	return page
 }
 
 // attachRadioArtistCandidateEvidence fills the display name and evidence lists

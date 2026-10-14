@@ -14,10 +14,10 @@ import (
 	"psychic-homily-backend/internal/testutil"
 )
 
-// RadioArtistCandidatesIntegrationSuite runs the artist candidate ranking
+// RadioCandidatesIntegrationSuite runs the artist and track candidate rankings
 // against a migrated Postgres with the seeded radio_play_exclusions rows. The
 // clock is fixed at radioCandidateTestNow, so the window starts on 2026-02-02.
-type RadioArtistCandidatesIntegrationSuite struct {
+type RadioCandidatesIntegrationSuite struct {
 	suite.Suite
 	testDB    *testutil.TestDatabase
 	db        *gorm.DB
@@ -38,25 +38,25 @@ const (
 	radioCandidateTestMBCatalog   = "33333333-3333-4333-8333-333333333333"
 )
 
-func TestRadioArtistCandidatesIntegrationSuite(t *testing.T) {
+func TestRadioCandidatesIntegrationSuite(t *testing.T) {
 	if testing.Short() {
 		t.Skip("integration test")
 	}
-	suite.Run(t, new(RadioArtistCandidatesIntegrationSuite))
+	suite.Run(t, new(RadioCandidatesIntegrationSuite))
 }
 
-func (s *RadioArtistCandidatesIntegrationSuite) SetupSuite() {
+func (s *RadioCandidatesIntegrationSuite) SetupSuite() {
 	s.testDB = testutil.SetupTestPostgres(s.T())
 	s.db = s.testDB.DB
 	s.reader = NewRadioCandidatesReader(s.db)
 	s.reader.now = func() time.Time { return radioCandidateTestNow }
 }
 
-func (s *RadioArtistCandidatesIntegrationSuite) TearDownSuite() {
+func (s *RadioCandidatesIntegrationSuite) TearDownSuite() {
 	s.testDB.Cleanup()
 }
 
-func (s *RadioArtistCandidatesIntegrationSuite) SetupTest() {
+func (s *RadioCandidatesIntegrationSuite) SetupTest() {
 	s.cleanup()
 	s.stations = map[string]uint{}
 	s.episodes = map[string]uint{}
@@ -73,16 +73,18 @@ func (s *RadioArtistCandidatesIntegrationSuite) SetupTest() {
 	}
 }
 
-func (s *RadioArtistCandidatesIntegrationSuite) TearDownTest() {
+func (s *RadioCandidatesIntegrationSuite) TearDownTest() {
 	s.cleanup()
 }
 
-func (s *RadioArtistCandidatesIntegrationSuite) cleanup() {
+func (s *RadioCandidatesIntegrationSuite) cleanup() {
 	for _, stmt := range []string{
 		"DELETE FROM background_service_runs WHERE name = '" + RadioTracksRebuildLoopName + "'",
 		"DELETE FROM radio_track_keys",
 		"DELETE FROM radio_tracks",
 		"DELETE FROM radio_plays",
+		"DELETE FROM artist_releases WHERE release_id IN (SELECT id FROM releases WHERE title LIKE 'T %')",
+		"DELETE FROM releases WHERE title LIKE 'T %'",
 		"DELETE FROM radio_episodes",
 		"DELETE FROM radio_shows",
 		"DELETE FROM radio_stations WHERE slug LIKE 't-%'",
@@ -103,9 +105,12 @@ type candidatePlay struct {
 	mb                  string
 	artistID            *uint
 	matchState          string
+	mbRelease           string
+	mbRecording         string
+	releaseID           *uint
 }
 
-func (s *RadioArtistCandidatesIntegrationSuite) add(p candidatePlay, n int) {
+func (s *RadioCandidatesIntegrationSuite) add(p candidatePlay, n int) {
 	if p.show == "" {
 		p.show = "main"
 	}
@@ -143,44 +148,47 @@ func (s *RadioArtistCandidatesIntegrationSuite) add(p candidatePlay, n int) {
 	for range n {
 		s.playCount++
 		play := catalogm.RadioPlay{
-			EpisodeID:           ep,
-			Position:            s.playCount,
-			ArtistName:          p.artist,
-			TrackTitle:          opt(p.title),
-			AlbumTitle:          opt(p.album),
-			LabelName:           opt(p.label),
-			MusicBrainzArtistID: opt(p.mb),
-			ArtistID:            p.artistID,
-			MatchState:          state,
-			ProviderPlayID:      stringPtr(fmt.Sprintf("t-%d", s.playCount)),
+			EpisodeID:              ep,
+			Position:               s.playCount,
+			ArtistName:             p.artist,
+			TrackTitle:             opt(p.title),
+			AlbumTitle:             opt(p.album),
+			LabelName:              opt(p.label),
+			MusicBrainzArtistID:    opt(p.mb),
+			MusicBrainzReleaseID:   opt(p.mbRelease),
+			MusicBrainzRecordingID: opt(p.mbRecording),
+			ArtistID:               p.artistID,
+			ReleaseID:              p.releaseID,
+			MatchState:             state,
+			ProviderPlayID:         stringPtr(fmt.Sprintf("t-%d", s.playCount)),
 		}
 		s.Require().NoError(s.db.Create(&play).Error)
 	}
 }
 
 // addAcross adds n plays on each of t-kexp and t-wfmu.
-func (s *RadioArtistCandidatesIntegrationSuite) addAcross(p candidatePlay, n int) {
+func (s *RadioCandidatesIntegrationSuite) addAcross(p candidatePlay, n int) {
 	for _, st := range []string{"t-kexp", "t-wfmu"} {
 		p.station = st
 		s.add(p, n)
 	}
 }
 
-func (s *RadioArtistCandidatesIntegrationSuite) createArtist(name string, mb *string) uint {
+func (s *RadioCandidatesIntegrationSuite) createArtist(name string, mb *string) uint {
 	slug := fmt.Sprintf("t-artist-%d", time.Now().UnixNano())
 	a := &catalogm.Artist{Name: name, Slug: &slug, MusicBrainzArtistID: mb}
 	s.Require().NoError(s.db.Create(a).Error)
 	return a.ID
 }
 
-func (s *RadioArtistCandidatesIntegrationSuite) list(lane contracts.RadioCandidateLaneFilter, sort contracts.RadioArtistCandidateSort, limit int) *contracts.RadioArtistCandidateListing {
+func (s *RadioCandidatesIntegrationSuite) list(lane contracts.RadioCandidateLaneFilter, sort contracts.RadioCandidateSort, limit int) *contracts.RadioArtistCandidateListing {
 	listing, err := s.reader.ListArtistCandidates(context.Background(), contracts.RadioArtistCandidatesQuery{Lane: lane, Sort: sort, Limit: limit})
 	s.Require().NoError(err)
 	return listing
 }
 
-func (s *RadioArtistCandidatesIntegrationSuite) all() map[string]contracts.RadioArtistCandidate {
-	listing := s.list(contracts.RadioCandidateLaneFilterAll, contracts.RadioArtistCandidateSortScore, 500)
+func (s *RadioCandidatesIntegrationSuite) all() map[string]contracts.RadioArtistCandidate {
+	listing := s.list(contracts.RadioCandidateLaneFilterAll, contracts.RadioCandidateSortScore, 500)
 	byKey := map[string]contracts.RadioArtistCandidate{}
 	for _, c := range listing.Candidates {
 		byKey[c.ArtistKey] = c
@@ -188,8 +196,8 @@ func (s *RadioArtistCandidatesIntegrationSuite) all() map[string]contracts.Radio
 	return byKey
 }
 
-func (s *RadioArtistCandidatesIntegrationSuite) TestWindowAndFloorsAreReported() {
-	listing := s.list(contracts.RadioCandidateLaneFilterAll, contracts.RadioArtistCandidateSortScore, 10)
+func (s *RadioCandidatesIntegrationSuite) TestWindowAndFloorsAreReported() {
+	listing := s.list(contracts.RadioCandidateLaneFilterAll, contracts.RadioCandidateSortScore, 10)
 	s.Equal("2026-07-31", listing.AsOf)
 	s.Equal(radioCandidateTestWindowStart, listing.WindowStart)
 	s.Equal(180, listing.WindowDays)
@@ -201,7 +209,7 @@ func (s *RadioArtistCandidatesIntegrationSuite) TestWindowAndFloorsAreReported()
 	s.Nil(listing.TracksRebuiltAt)
 }
 
-func (s *RadioArtistCandidatesIntegrationSuite) TestSingleStationArtistIsExcluded() {
+func (s *RadioCandidatesIntegrationSuite) TestSingleStationArtistIsExcluded() {
 	s.add(candidatePlay{station: "t-kexp", artist: "T Lonely"}, 10)
 	s.add(candidatePlay{station: "t-kexp", artist: "T Pair"}, 2)
 	s.add(candidatePlay{station: "t-wfmu", artist: "T Pair"}, 1)
@@ -213,7 +221,7 @@ func (s *RadioArtistCandidatesIntegrationSuite) TestSingleStationArtistIsExclude
 	s.Equal(3, got["t pair"].PlayCount)
 }
 
-func (s *RadioArtistCandidatesIntegrationSuite) TestTwoStreamsOfOneNetworkCountAsTwoRows() {
+func (s *RadioCandidatesIntegrationSuite) TestTwoStreamsOfOneNetworkCountAsTwoRows() {
 	s.add(candidatePlay{station: "t-wfmu", artist: "T Network"}, 2)
 	s.add(candidatePlay{station: "t-rocknsoul", artist: "T Network"}, 2)
 
@@ -223,7 +231,7 @@ func (s *RadioArtistCandidatesIntegrationSuite) TestTwoStreamsOfOneNetworkCountA
 	s.Equal(1, got["t network"].StationFamilyCount)
 }
 
-func (s *RadioArtistCandidatesIntegrationSuite) TestExcludedNamesAreExcluded() {
+func (s *RadioCandidatesIntegrationSuite) TestExcludedNamesAreExcluded() {
 	s.addAcross(candidatePlay{artist: "Unknown Artist"}, 5)
 	s.addAcross(candidatePlay{artist: "Various Artists"}, 5)
 	s.addAcross(candidatePlay{artist: "Music behind DJ: T Bed"}, 5)
@@ -234,12 +242,12 @@ func (s *RadioArtistCandidatesIntegrationSuite) TestExcludedNamesAreExcluded() {
 	s.addAcross(candidatePlay{artist: "東京"}, 5)
 	s.addAcross(candidatePlay{artist: "   "}, 5)
 
-	listing := s.list(contracts.RadioCandidateLaneFilterAll, contracts.RadioArtistCandidateSortScore, 50)
+	listing := s.list(contracts.RadioCandidateLaneFilterAll, contracts.RadioCandidateSortScore, 50)
 	s.Empty(listing.Candidates)
 	s.Equal(int64(10), listing.UnkeyablePlays, "the empty-key plays are counted when no key qualifies")
 }
 
-func (s *RadioArtistCandidatesIntegrationSuite) TestWindowEdge() {
+func (s *RadioCandidatesIntegrationSuite) TestWindowEdge() {
 	// Two plays inside plus one on the window's first day: three counted.
 	s.addAcross(candidatePlay{artist: "T Edge In"}, 1)
 	s.add(candidatePlay{station: "t-kexp", artist: "T Edge In", date: radioCandidateTestWindowStart}, 1)
@@ -258,7 +266,7 @@ func (s *RadioArtistCandidatesIntegrationSuite) TestWindowEdge() {
 	s.NotContains(got, "t old station")
 }
 
-func (s *RadioArtistCandidatesIntegrationSuite) TestLanes() {
+func (s *RadioCandidatesIntegrationSuite) TestLanes() {
 	s.addAcross(candidatePlay{artist: "T One Id", mb: radioCandidateTestMBA}, 2)
 	s.add(candidatePlay{station: "t-kexp", artist: "T One Id"}, 1)
 	// An upper-case id is the same id.
@@ -289,14 +297,14 @@ func (s *RadioArtistCandidatesIntegrationSuite) TestLanes() {
 		s.NotNil(got[key].MBArtistIDs, key)
 	}
 
-	auto := s.list(contracts.RadioCandidateLaneFilterAuto, contracts.RadioArtistCandidateSortScore, 50)
+	auto := s.list(contracts.RadioCandidateLaneFilterAuto, contracts.RadioCandidateSortScore, 50)
 	s.Equal(1, auto.Total)
 	s.Equal(1, auto.AutoTotal)
 	s.Equal(3, auto.HumanTotal)
 	s.Require().Len(auto.Candidates, 1)
 	s.Equal("t one id", auto.Candidates[0].ArtistKey)
 
-	human := s.list(contracts.RadioCandidateLaneFilterHuman, contracts.RadioArtistCandidateSortScore, 2)
+	human := s.list(contracts.RadioCandidateLaneFilterHuman, contracts.RadioCandidateSortScore, 2)
 	s.Equal(3, human.Total)
 	s.Len(human.Candidates, 2, "limit caps the rows, not the total")
 	for _, c := range human.Candidates {
@@ -304,7 +312,7 @@ func (s *RadioArtistCandidatesIntegrationSuite) TestLanes() {
 	}
 }
 
-func (s *RadioArtistCandidatesIntegrationSuite) TestCatalogArtistsAreNotCandidates() {
+func (s *RadioCandidatesIntegrationSuite) TestCatalogArtistsAreNotCandidates() {
 	linkedTo := s.createArtist("T Real Name", nil)
 	// One linked play takes the whole key out.
 	s.addAcross(candidatePlay{artist: "T Partly Linked"}, 2)
@@ -332,7 +340,7 @@ func (s *RadioArtistCandidatesIntegrationSuite) TestCatalogArtistsAreNotCandidat
 	s.Len(got, 1)
 }
 
-func (s *RadioArtistCandidatesIntegrationSuite) TestSharedMBIDSendsEveryKeyToHumanLane() {
+func (s *RadioCandidatesIntegrationSuite) TestSharedMBIDSendsEveryKeyToHumanLane() {
 	s.addAcross(candidatePlay{artist: "T Spelling", mb: radioCandidateTestMBA}, 2)
 	s.addAcross(candidatePlay{artist: "The T Spelling", mb: radioCandidateTestMBA}, 2)
 	s.addAcross(candidatePlay{artist: "T Alone", mb: radioCandidateTestMBB}, 2)
@@ -346,7 +354,7 @@ func (s *RadioArtistCandidatesIntegrationSuite) TestSharedMBIDSendsEveryKeyToHum
 	s.Empty(got["t alone"].SharedMBArtistKeys)
 }
 
-func (s *RadioArtistCandidatesIntegrationSuite) TestCollabWithACatalogPartIsNotACandidate() {
+func (s *RadioCandidatesIntegrationSuite) TestCollabWithACatalogPartIsNotACandidate() {
 	s.createArtist("T Known", nil)
 	aliased := s.createArtist("T Aliased Act", nil)
 	s.Require().NoError(s.db.Create(&catalogm.ArtistAlias{ArtistID: aliased, Alias: "T Nickname"}).Error)
@@ -365,7 +373,7 @@ func (s *RadioArtistCandidatesIntegrationSuite) TestCollabWithACatalogPartIsNotA
 	s.Contains(got, "t earth, t wind & t fire")
 }
 
-func (s *RadioArtistCandidatesIntegrationSuite) TestLinkedBeforeTheWindowIsNotACandidate() {
+func (s *RadioCandidatesIntegrationSuite) TestLinkedBeforeTheWindowIsNotACandidate() {
 	known := s.createArtist("T Stereolab", nil)
 	s.add(candidatePlay{station: "t-kexp", artist: "T Sterolab", date: "2025-06-01", artistID: &known}, 1)
 	s.addAcross(candidatePlay{artist: "T Sterolab"}, 2)
@@ -373,7 +381,7 @@ func (s *RadioArtistCandidatesIntegrationSuite) TestLinkedBeforeTheWindowIsNotAC
 	s.NotContains(s.all(), "t sterolab")
 }
 
-func (s *RadioArtistCandidatesIntegrationSuite) TestNonLatinSpellings() {
+func (s *RadioCandidatesIntegrationSuite) TestNonLatinSpellings() {
 	// Both key on the fragment "1" and merge; the flag keeps them human.
 	s.addAcross(candidatePlay{artist: "Кино 1", mb: radioCandidateTestMBA}, 2)
 	s.add(candidatePlay{station: "t-kexp", artist: "Аквариум 1", mb: radioCandidateTestMBA}, 1)
@@ -385,7 +393,7 @@ func (s *RadioArtistCandidatesIntegrationSuite) TestNonLatinSpellings() {
 	// Latin with diacritics is not a non-Latin script.
 	s.addAcross(candidatePlay{artist: "T Björk Sigur Rós", mb: radioCandidateTestMBC}, 2)
 
-	listing := s.list(contracts.RadioCandidateLaneFilterAll, contracts.RadioArtistCandidateSortScore, 50)
+	listing := s.list(contracts.RadioCandidateLaneFilterAll, contracts.RadioCandidateSortScore, 50)
 	s.Equal(int64(4), listing.UnkeyablePlays)
 	got := map[string]contracts.RadioArtistCandidate{}
 	for _, c := range listing.Candidates {
@@ -413,7 +421,7 @@ func (s *RadioArtistCandidatesIntegrationSuite) TestNonLatinSpellings() {
 // TestUnfoldableCharacters pins which spellings flag their key. Each name is
 // played on two stations with a MusicBrainz id of its own, so only the flag
 // decides between the auto and human lanes.
-func (s *RadioArtistCandidatesIntegrationSuite) TestUnfoldableCharacters() {
+func (s *RadioCandidatesIntegrationSuite) TestUnfoldableCharacters() {
 	flagged := map[string]string{
 		"ᏣᎳᎩ T Cherokee":   "t cherokee",
 		"T Halfwidth ｶﾞｰﾙ": "t halfwidth",
@@ -472,7 +480,7 @@ func (s *RadioArtistCandidatesIntegrationSuite) TestUnfoldableCharacters() {
 // TestUnfoldableCharClassIgnoresLocale pins the class on input shaped as a
 // C-ctype database produces it, where lower() leaves a non-ASCII capital
 // alone and unaccent folds it to an ASCII capital.
-func (s *RadioArtistCandidatesIntegrationSuite) TestUnfoldableCharClassIgnoresLocale() {
+func (s *RadioCandidatesIntegrationSuite) TestUnfoldableCharClassIgnoresLocale() {
 	var flagged, plain bool
 	s.Require().NoError(s.db.Raw(
 		`SELECT public.immutable_unaccent(lower('Émilie' COLLATE "C")) ~ '`+radioUnfoldableCharSQL+`',
@@ -482,7 +490,7 @@ func (s *RadioArtistCandidatesIntegrationSuite) TestUnfoldableCharClassIgnoresLo
 	s.False(plain)
 }
 
-func (s *RadioArtistCandidatesIntegrationSuite) TestEvidence() {
+func (s *RadioCandidatesIntegrationSuite) TestEvidence() {
 	add := func(station, show, artist, title, album, label string, n int) {
 		s.add(candidatePlay{station: station, show: show, artist: artist, title: title, album: album, label: label}, n)
 	}
@@ -540,11 +548,11 @@ func (s *RadioArtistCandidatesIntegrationSuite) TestEvidence() {
 		{Name: "Label Two", PlayCount: 3},
 	}, c.LabelNames)
 
-	listing := s.list(contracts.RadioCandidateLaneFilterAll, contracts.RadioArtistCandidateSortScore, 1)
+	listing := s.list(contracts.RadioCandidateLaneFilterAll, contracts.RadioCandidateSortScore, 1)
 	s.Nil(listing.TracksRebuiltAt, "the rebuild ran outside the loop, so the loop has no recorded success")
 }
 
-func (s *RadioArtistCandidatesIntegrationSuite) TestSortsAndRecentPlayTieBreak() {
+func (s *RadioCandidatesIntegrationSuite) TestSortsAndRecentPlayTieBreak() {
 	s.add(candidatePlay{station: "t-kexp", artist: "T Plays"}, 20)
 	s.add(candidatePlay{station: "t-wfmu", artist: "T Plays"}, 1)
 	for _, st := range []string{"t-kexp", "t-wfmu", "t-rocknsoul"} {
@@ -554,12 +562,12 @@ func (s *RadioArtistCandidatesIntegrationSuite) TestSortsAndRecentPlayTieBreak()
 	s.addAcross(candidatePlay{artist: "T Earlier", date: "2026-06-01"}, 2)
 	s.addAcross(candidatePlay{artist: "T Recent", date: "2026-07-20"}, 2)
 
-	keys := func(sort contracts.RadioArtistCandidateSort) []string {
+	keys := func(sort contracts.RadioCandidateSort) []string {
 		return candidateKeys(s.list(contracts.RadioCandidateLaneFilterAll, sort, 10).Candidates)
 	}
-	s.Equal("t plays", keys(contracts.RadioArtistCandidateSortPlays)[0])
-	s.Equal("t stations", keys(contracts.RadioArtistCandidateSortStations)[0])
-	byScore := keys(contracts.RadioArtistCandidateSortScore)
+	s.Equal("t plays", keys(contracts.RadioCandidateSortPlays)[0])
+	s.Equal("t stations", keys(contracts.RadioCandidateSortStations)[0])
+	byScore := keys(contracts.RadioCandidateSortScore)
 	s.Less(indexOf(byScore, "t recent"), indexOf(byScore, "t earlier"))
 }
 
