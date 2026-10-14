@@ -474,10 +474,8 @@ export function VenueRailProvenance({
  * the dev seed applies it only to its own exemplar venues), so that wrong
  * reading would be the common one. emptyRailReason owns the precedence.
  *
- * None of these invite the reader to go add the tag. The control that adds it
- * lives on each venue's own page (VenueDetail's "Add tag" header button, shown
- * to any signed-in viewer), and an empty rail names no venue to send the reader
- * to, so this state renders no link or button.
+ * None of these invite the reader to add the tag: that control lives on each
+ * venue's own page, and an empty rail names no venue to send the reader to.
  */
 function EmptyRail({
   reason,

@@ -626,6 +626,13 @@ describe('VenueDetail', () => {
   // EntityTagList renders nothing for an untagged venue, so this header button
   // is the only way to apply a venue's first tag.
   describe('add tag control', () => {
+    const signedInNewUser = (): MockAuthContextValue => ({
+      user: { id: '99', is_admin: false, user_tier: 'new_user' },
+      isAuthenticated: true,
+      isLoading: false,
+      logout: vi.fn(),
+    })
+
     beforeEach(() => {
       mockUseVenue.mockReturnValue({
         data: makeVenue({ id: 7 }),
@@ -644,12 +651,7 @@ describe('VenueDetail', () => {
 
     it('opens the add-tag dialog for this venue for a signed-in non-admin', async () => {
       const user = userEvent.setup()
-      mockAuthContext.mockReturnValue({
-        user: { id: '99', is_admin: false, user_tier: 'new_user' },
-        isAuthenticated: true,
-        isLoading: false,
-        logout: vi.fn(),
-      })
+      mockAuthContext.mockReturnValue(signedInNewUser())
       render(<VenueDetail venueId="7" />)
 
       expect(screen.queryByTestId('add-tag-dialog')).not.toBeInTheDocument()
@@ -659,17 +661,14 @@ describe('VenueDetail', () => {
       )
     })
 
-    it('sits directly after Edit in the header actions', () => {
-      mockAuthContext.mockReturnValue({
-        user: { id: '99', is_admin: false },
-        isAuthenticated: true,
-        isLoading: false,
-        logout: vi.fn(),
-      })
+    it('orders the signed-in header actions Edit, Add tag, Report', () => {
+      mockAuthContext.mockReturnValue(signedInNewUser())
       render(<VenueDetail venueId="7" />)
-      const edit = screen.getByRole('button', { name: /Edit/ })
-      const addTag = screen.getByRole('button', { name: 'Add tag' })
-      expect(edit.nextElementSibling).toBe(addTag)
+      const order = screen
+        .getAllByRole('button')
+        .map(b => b.getAttribute('title') ?? b.textContent?.trim())
+        .filter(name => ['Edit', 'Add tag', 'Report an issue'].includes(name ?? ''))
+      expect(order).toEqual(['Edit', 'Add tag', 'Report an issue'])
     })
   })
 

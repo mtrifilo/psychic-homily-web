@@ -231,9 +231,6 @@ export function VenueDetail({ venueId, initialPastYears }: VenueDetailProps) {
                         <Pencil className="h-4 w-4 mr-2" />
                         Edit
                       </Button>
-                      {/* The only add-tag control an untagged venue has:
-                          EntityTagList renders nothing for an entity with no
-                          tags. */}
                       <Button
                         variant="outline"
                         size="sm"
