@@ -151,36 +151,46 @@ func (s *WebAuthnService) BeginDiscoverableLogin() (*protocol.CredentialAssertio
 
 // FinishLogin completes the passkey login process
 func (s *WebAuthnService) FinishLogin(user *authm.User, session *webauthn.SessionData, response *protocol.ParsedCredentialAssertionData) (*authm.WebAuthnCredential, error) {
-	// Complete the login
+	// Validation checks the assertion against the user's stored credentials,
+	// so they are loaded here whatever the caller's copy of the user holds.
+	if err := s.db.Preload("PasskeyCredentials").First(user, user.ID).Error; err != nil {
+		return nil, fmt.Errorf("failed to load user: %w", err)
+	}
+
 	credential, err := s.webAuthn.ValidateLogin(user, *session, response)
 	if err != nil {
 		return nil, fmt.Errorf("failed to validate login: %w", err)
 	}
 
-	// Find and update the credential
 	var webauthnCred authm.WebAuthnCredential
 	if err := s.db.Where("user_id = ? AND credential_id = ?", user.ID, credential.ID).First(&webauthnCred).Error; err != nil {
 		return nil, fmt.Errorf("credential not found: %w", err)
 	}
-
-	// Update sign count and last used
-	now := time.Now()
-	webauthnCred.SignCount = credential.Authenticator.SignCount
-	webauthnCred.LastUsedAt = &now
-	webauthnCred.CloneWarning = credential.Authenticator.CloneWarning
-
-	if err := s.db.Save(&webauthnCred).Error; err != nil {
-		return nil, fmt.Errorf("failed to update credential: %w", err)
+	if err := s.recordCredentialUse(&webauthnCred, credential); err != nil {
+		return nil, err
 	}
-
 	return &webauthnCred, nil
+}
+
+// recordCredentialUse writes what a validated assertion changes on the stored
+// credential (sign count, clone warning, last use) and nothing else.
+func (s *WebAuthnService) recordCredentialUse(stored *authm.WebAuthnCredential, validated *webauthn.Credential) error {
+	now := time.Now()
+	stored.SignCount = validated.Authenticator.SignCount
+	stored.CloneWarning = validated.Authenticator.CloneWarning
+	stored.LastUsedAt = &now
+	err := s.db.Model(stored).Select("sign_count", "clone_warning", "last_used_at").Updates(stored).Error
+	if err != nil {
+		return fmt.Errorf("failed to update credential: %w", err)
+	}
+	return nil
 }
 
 // FinishDiscoverableLogin completes a discoverable login and returns the user
 func (s *WebAuthnService) FinishDiscoverableLogin(session *webauthn.SessionData, response *protocol.ParsedCredentialAssertionData) (*authm.User, *authm.WebAuthnCredential, error) {
 	// Find the credential by ID
 	var webauthnCred authm.WebAuthnCredential
-	if err := s.db.Where("credential_id = ?", response.RawID).Preload("User").First(&webauthnCred).Error; err != nil {
+	if err := s.db.Where("credential_id = ?", response.RawID).First(&webauthnCred).Error; err != nil {
 		return nil, nil, fmt.Errorf("credential not found: %w", err)
 	}
 
@@ -202,14 +212,8 @@ func (s *WebAuthnService) FinishDiscoverableLogin(session *webauthn.SessionData,
 		return nil, nil, fmt.Errorf("failed to validate login: %w", err)
 	}
 
-	// Update the credential
-	now := time.Now()
-	webauthnCred.SignCount = credential.Authenticator.SignCount
-	webauthnCred.LastUsedAt = &now
-	webauthnCred.CloneWarning = credential.Authenticator.CloneWarning
-
-	if err := s.db.Save(&webauthnCred).Error; err != nil {
-		return nil, nil, fmt.Errorf("failed to update credential: %w", err)
+	if err := s.recordCredentialUse(&webauthnCred, credential); err != nil {
+		return nil, nil, err
 	}
 
 	return &user, &webauthnCred, nil

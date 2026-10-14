@@ -75,6 +75,37 @@ func (suite *WebAuthnServiceIntegrationTestSuite) TestRegisteredPasskeySignsIn()
 	suite.Equal(uint32(1), stored.SignCount)
 }
 
+// The email-specific login receives the user as the user service loads it,
+// without its credentials, and must still validate against them.
+func (suite *WebAuthnServiceIntegrationTestSuite) TestRegisteredPasskeySignsInByEmail() {
+	user := suite.createUser("by-email@test.com")
+	device := softauthn.New(ceremonyOrigin)
+
+	options, session, err := suite.service.BeginRegistration(user)
+	suite.Require().NoError(err)
+	body, err := device.Register(options)
+	suite.Require().NoError(err)
+	cred, err := suite.service.FinishRegistration(user, session, suite.parseCreation(body), "Laptop")
+	suite.Require().NoError(err)
+
+	loginOptions, loginSession, err := suite.service.BeginLogin(&authm.User{ID: user.ID})
+	suite.Require().NoError(err)
+	assertion, err := device.Assert(loginOptions)
+	suite.Require().NoError(err)
+	parsed, err := protocol.ParseCredentialRequestResponseBytes(assertion)
+	suite.Require().NoError(err)
+
+	var asLoadedByUserService authm.User
+	suite.Require().NoError(suite.db.First(&asLoadedByUserService, user.ID).Error)
+	suite.Require().Empty(asLoadedByUserService.PasskeyCredentials)
+
+	used, err := suite.service.FinishLogin(&asLoadedByUserService, loginSession, parsed)
+	suite.Require().NoError(err)
+	suite.Equal(cred.ID, used.ID)
+	suite.NotNil(used.LastUsedAt)
+	suite.Equal(uint32(1), used.SignCount)
+}
+
 func (suite *WebAuthnServiceIntegrationTestSuite) TestSignupPasskeySignsInAfterwards() {
 	device := softauthn.New(ceremonyOrigin)
 
