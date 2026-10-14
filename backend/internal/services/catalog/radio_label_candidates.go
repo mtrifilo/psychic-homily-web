@@ -43,6 +43,10 @@ const (
 	RadioLabelMinNewPlays = 3
 )
 
+// Both velocity windows lie inside the candidate window, whose start bounds
+// every counted play; this fails to compile otherwise.
+const _ = uint(RadioCandidateWindowDays - 2*RadioLabelVelocityDays)
+
 // RadioLabelIsRising reports whether a key with the given recent and prior
 // velocity-window play counts is gaining play.
 func RadioLabelIsRising(recent, prior int) bool {
@@ -148,7 +152,8 @@ LEFT JOIN qualifying q ON true`
 // radioLabelEvidenceRow is one row of radioLabelCandidateEvidenceSQL. Every
 // branch of that UNION ALL selects exactly these columns, in this order and
 // under these names: kind, label_key, ref_id, name, slug, play_count,
-// distinct_count, ref_ids, rn. Kind says which candidate field the row fills.
+// distinct_count, ref_ids, rn; rn only orders the rows and is not scanned.
+// Kind says which candidate field the row fills.
 type radioLabelEvidenceRow struct {
 	Kind          string        `gorm:"column:kind"`
 	LabelKey      string        `gorm:"column:label_key"`

@@ -390,7 +390,7 @@ export interface LabelCandidate {
   show_count: number;
   first_aired_on: string;
   last_aired_on: string;
-  stations: Array<{ station_id: number; slug: string; name: string; play_count: number }>;
+  stations: ArtistCandidate["stations"];
   artists: LabelCandidateArtist[];
   artist_count: number;
   release_names: CandidateCount[];
