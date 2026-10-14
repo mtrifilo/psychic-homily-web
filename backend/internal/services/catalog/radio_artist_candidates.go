@@ -49,22 +49,23 @@ const (
 	radioCandidateTopTracks = 3
 	radioCandidateTopNames  = 5
 
-	// radioCandidateStatementTimeout bounds each statement of one listing,
-	// below the ph CLI's 30 s request timeout, so a slow listing fails on the
-	// server with a statement-timeout error rather than as a client abort.
-	radioCandidateStatementTimeout = "25s"
+	// radioCandidateListingTimeout bounds one whole listing, every statement
+	// together, below the ph CLI's 30 s request timeout, so a slow listing
+	// fails on the server rather than as a client abort.
+	radioCandidateListingTimeout = 25 * time.Second
 )
 
-// radioUnfoldableCharSQL is a regex over immutable_unaccent(lower(name))
-// matching a letter or digit that radio_normalize_name cannot fold to a-z or
-// 0-9: every code point from U+00C0 through U+1FFF except the multiplication
-// and division signs, U+2C00..U+2DFF, U+3040..U+D7FF, U+F900..U+FAFF, the
-// Hebrew and Arabic presentation forms, the halfwidth and fullwidth forms, and
-// U+20000..U+3FFFF. General punctuation (U+2000..U+2BFF), which interior name
-// punctuation such as a curly apostrophe or a non-ASCII hyphen uses, is not
-// matched. The ranges are fixed code points, so the test does not depend on
-// the database locale.
-const radioUnfoldableCharSQL = `[\u00c0-\u00d6\u00d8-\u00f6\u00f8-\u1fff\u2c00-\u2dff\u3040-\ud7ff\uf900-\ufaff\ufb1d-\ufdff\ufe70-\ufeff\uff00-\uffef\U00020000-\U0003ffff]`
+// radioUnfoldableCharSQL is a regex over immutable_unaccent(lower(name)) that
+// matches any character radio_normalize_name may not fold to a-z or 0-9. It
+// is an allowlist: everything matches except ASCII other than A-Z and the
+// listed punctuation and symbol blocks (Latin-1 punctuation and signs, general
+// punctuation, currency, arrows through dingbats, CJK brackets, variation
+// selectors, the byte-order mark, halfwidth punctuation, emoji). An ASCII
+// capital matches because lower() has already run, so one can only come from
+// a character unaccent folded to a capital, which the normalizer then trims.
+// An unknown character therefore flags its key. The ranges are fixed code
+// points, so the test does not depend on the database locale.
+const radioUnfoldableCharSQL = `[^\u0001-\u0040\u005b-\u007f\u00a0-\u00a9\u00ab-\u00b1\u00b4\u00b6-\u00b8\u00bb\u00bf\u00d7\u00f7\u2000-\u206f\u20a0-\u20cf\u2190-\u245f\u2500-\u2bff\u3000-\u3004\u3008-\u301f\ufe00-\ufe0f\ufeff\uff61-\uff65\U0001f000-\U0001faff]`
 
 // RadioArtistCandidateScore is the artist candidate ranking score: distinct
 // station rows x ln(plays) x (1 + distinct shows / 10).
@@ -87,10 +88,11 @@ type RadioCandidateLaneFacts struct {
 
 // RadioCandidateLaneFor returns a candidate's lane: auto when its plays carry
 // exactly one distinct MusicBrainz id, no other candidate carries that id, no
-// spelling carries a non-Latin script, and it clears the station floor; human
-// otherwise. Several ids mean the name covers more than one act, a shared id
-// means one act under several names, and a non-Latin spelling means the key
-// may not name the act, so a person decides each.
+// spelling carries a character normalization may not fold, and it clears the
+// station floor; human otherwise. Several ids mean the name covers more than
+// one act, a shared id means one act under several names, and an unfoldable
+// character means the key may be a fragment of the name, so a person decides
+// each.
 func RadioCandidateLaneFor(f RadioCandidateLaneFacts) contracts.RadioCandidateLane {
 	if f.DistinctMBIDs == 1 && !f.MBIDShared && !f.NonLatinSpelling && RadioMeetsStationFloor(f.StationRows) {
 		return contracts.RadioCandidateLaneAuto
@@ -364,8 +366,11 @@ func (r *RadioCandidatesReader) ListArtistCandidates(ctx context.Context, q cont
 		MinPlays:       RadioCandidateMinPlays,
 	}
 
+	ctx, cancel := context.WithTimeout(ctx, radioCandidateListingTimeout)
+	defer cancel()
 	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		if err := tx.Exec("SET LOCAL statement_timeout = '" + radioCandidateStatementTimeout + "'").Error; err != nil {
+		// The server-side bound holds even if the client's cancellation is lost.
+		if err := tx.Exec(fmt.Sprintf("SET LOCAL statement_timeout = %d", radioCandidateListingTimeout.Milliseconds())).Error; err != nil {
 			return fmt.Errorf("bounding the listing: %w", err)
 		}
 		var rows []radioArtistCandidateRow

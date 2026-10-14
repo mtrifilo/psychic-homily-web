@@ -278,11 +278,14 @@ export async function listArtistCandidates(
 }
 
 /**
- * Characters that can drive or reorder a terminal: C0 and C1 controls, DEL,
- * and the bidirectional and invisible format controls. Radio play text comes
- * from station playlists, so none of them may reach the terminal raw.
+ * Characters that can drive, reorder or hide text in a terminal: C0 and C1
+ * controls, DEL, the bidirectional controls, and the invisible characters
+ * U+00AD, U+200B, U+2060..U+2064 and U+FEFF. Joiners U+200C and U+200D stay,
+ * since emoji and some scripts need them. Radio play text comes from station
+ * playlists, so none of these may reach the terminal raw.
  */
-const TERMINAL_CONTROL = /[\u0000-\u001f\u007f-\u009f\u061c\u200e\u200f\u202a-\u202e\u2066-\u2069]/g;
+const TERMINAL_CONTROL =
+  /[\u0000-\u001f\u007f-\u009f\u00ad\u061c\u200b\u200e\u200f\u202a-\u202e\u2060-\u2064\u2066-\u2069\ufeff]/g;
 
 /** Replace every TERMINAL_CONTROL character with U+FFFD. */
 export function printable(text: string): string {
@@ -293,7 +296,8 @@ export function printable(text: string): string {
  * The TERMINAL_CONTROL characters JSON.stringify leaves raw: it already
  * escapes C0 controls inside strings, and its own newlines are layout.
  */
-const JSON_RAW_TERMINAL_CONTROL = /[\u007f-\u009f\u061c\u200e\u200f\u202a-\u202e\u2066-\u2069]/g;
+const JSON_RAW_TERMINAL_CONTROL =
+  /[\u007f-\u009f\u00ad\u061c\u200b\u200e\u200f\u202a-\u202e\u2060-\u2064\u2066-\u2069\ufeff]/g;
 
 /**
  * The value as indented JSON with every TERMINAL_CONTROL character inside a
@@ -340,7 +344,7 @@ export function formatArtistCandidateReport(listing: ArtistCandidateListing): st
       lines.push(`       spellings: ${countList(c.artist_spellings, c.artist_spelling_count)}`);
     }
     if (c.non_latin_spelling) {
-      lines.push("       note:     a spelling carries a non-Latin script; the key is its Latin part only");
+      lines.push("       note:     a spelling carries a character normalization may not fold; the key may be a fragment of it");
     }
     lines.push(
       `       stations: ${c.stations.map((s) => `${s.name} (${s.slug}) ${s.play_count}`).join(", ") || "none"}`,

@@ -424,6 +424,10 @@ func (s *RadioArtistCandidatesIntegrationSuite) TestUnfoldableCharacters() {
 		"ꆈ T Yi":           "t yi",
 		"Ə T Schwa":        "t schwa",
 		"T Arabic ﺍﻟ":      "t arabic",
+		"T Sup ¹²³":        "t sup",
+		"ⓐ T Circled":      "t circled",
+		"𐐔𐐯 T Deseret":     "t deseret",
+		"𝓜𝓪𝓽𝓽 T Fancy":     "att t fancy",
 	}
 	// unaccent folds each of these to ASCII, so the key loses nothing.
 	plain := map[string]string{
@@ -434,6 +438,9 @@ func (s *RadioArtistCandidatesIntegrationSuite) TestUnfoldableCharacters() {
 		"T Ñandú Øresund": "t nandu oresund",
 		"T Fẹla Ọ̀kọ̀":    "t fela oko",
 		"T Fullwidth ＡＢ":  "t fullwidth ab",
+		"\ufeffT Bom":     "t bom",
+		"T Guitar 🎸":      "t guitar",
+		"T Euro €":        "t euro",
 	}
 	i := 0
 	id := func() string {
@@ -458,6 +465,19 @@ func (s *RadioArtistCandidatesIntegrationSuite) TestUnfoldableCharacters() {
 		s.False(got[key].NonLatinSpelling, name)
 		s.Equal(contracts.RadioCandidateLaneAuto, got[key].Lane, name)
 	}
+}
+
+// TestUnfoldableCharClassIgnoresLocale pins the class on input shaped as a
+// C-ctype database produces it, where lower() leaves a non-ASCII capital
+// alone and unaccent folds it to an ASCII capital.
+func (s *RadioArtistCandidatesIntegrationSuite) TestUnfoldableCharClassIgnoresLocale() {
+	var flagged, plain bool
+	s.Require().NoError(s.db.Raw(
+		`SELECT public.immutable_unaccent(lower('Émilie' COLLATE "C")) ~ '`+radioUnfoldableCharSQL+`',
+		        public.immutable_unaccent(lower('emilie' COLLATE "C")) ~ '`+radioUnfoldableCharSQL+`'`,
+	).Row().Scan(&flagged, &plain))
+	s.True(flagged, "an ASCII capital left after lower() and unaccent flags")
+	s.False(plain)
 }
 
 func (s *RadioArtistCandidatesIntegrationSuite) TestEvidence() {

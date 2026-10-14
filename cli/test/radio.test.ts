@@ -121,7 +121,9 @@ describe("formatArtistCandidateReport", () => {
       ]),
     );
     expect(lines).toContain("       spellings: Faye Wong (10); Faye Wong (王菲) (5); 3 distinct");
-    expect(lines).toContain("       note:     a spelling carries a non-Latin script; the key is its Latin part only");
+    expect(lines).toContain(
+      "       note:     a spelling carries a character normalization may not fold; the key may be a fragment of it",
+    );
   });
 
   test("names the keys that share its MusicBrainz id", () => {
@@ -129,6 +131,13 @@ describe("formatArtistCandidateReport", () => {
       listing([candidate({ shared_mb_artist_keys: ["telehealth band", "the telehealth"] })]),
     );
     expect(lines).toContain("       shares its MusicBrainz id with: telehealth band, the telehealth");
+  });
+
+  test("invisible characters print as replacement characters, joiners stay", () => {
+    const lines = formatArtistCandidateReport(
+      listing([candidate({ display_name: "Tele\u200bhealth \u{1F469}\u200d\u{1F3A4}" })]),
+    );
+    expect(lines.join(" | ")).toContain("Tele\uFFFDhealth \u{1F469}\u200d\u{1F3A4}");
   });
 
   test("bidirectional controls print as replacement characters", () => {
