@@ -15,10 +15,11 @@ import (
 // account password and lands on bare rc.Protected is unmetered, and no test
 // that names the routes it already knows about can see it.
 //
-// This guard walks the BUILT router and requires every mutating route under
-// /auth/ to be written down here, so adding one fails until its author says
-// which budget meters it. That is the moment "does this one answer a password
-// guess?" gets asked.
+// This guard walks the BUILT router and requires every route under /auth/ on a
+// method in authInventoryMethods to be written down here, so adding one fails
+// until its author says which budget meters it. That is the moment "does this
+// one answer a password guess?" gets asked, and for a route a browser navigates
+// to, whether its refusal is a page the reader can act on.
 //
 // What the guard CANNOT see, stated so it is not mistaken for more than it is:
 //
@@ -31,14 +32,16 @@ import (
 //     member through the router and needs a database.
 //   - It sweeps /auth/ only. The public /unsubscribe/ family registered in
 //     auth.go on rc.API and on the chi router is invisible to it.
-//   - It sweeps mutating methods only. No GET takes a password today.
+//   - It names per-route budgets only. Every GET here except the
+//     oauthRedirectRoutes also passes the globally mounted public-read limiter
+//     when ENABLE_PUBLIC_READ_RATE_LIMITS is on, which no row here records.
 //   - It sees only the routes THIS build registers. setupPasskeyRoutes returns
-//     early when rc.SC.WebAuthn is nil, so a mutating route added inside that
+//     early when rc.SC.WebAuthn is nil, so a route added inside that
 //     block, or inside any other conditional registration, is invisible to the
 //     sweep on a build where the condition is false.
 const authInventoryPrefix = "/auth/"
 
-var authInventoryMethods = []string{"POST", "PUT", "PATCH", "DELETE"}
+var authInventoryMethods = []string{"GET", "POST", "PUT", "PATCH", "DELETE"}
 
 // Budget names, spelled once so a disposition cannot drift into a typo that
 // reads as a different scope. The sizes are read from the constants the mounts
@@ -53,16 +56,37 @@ var (
 	scopeAdminNoLimit     = "rc.Admin with no per-route limiter"
 	scopePublicNoLimit    = "rc.API with no per-route limiter"
 	scopeLenient          = "lenientGroup: the refresh path, no per-route limiter"
+	scopeOAuthRedirect    = fmt.Sprintf("the OAuth redirect chi group: its own %d/min budget, refused by redirect, exempt from the public-read limiter", middleware.OAuthRedirectRequestsPerMinute)
+	scopeOAuthLink        = fmt.Sprintf("the /auth/link chi group: the %d/min public auth budget, ahead of JWTMiddleware", middleware.AuthRequestsPerMinute)
 )
 
-// authRouteRateLimitScope disposes of every mutating route the router serves
-// under /auth/, keyed "METHOD /path".
+// authRouteRateLimitScope disposes of every route the router serves under
+// /auth/ on a method in authInventoryMethods, keyed "METHOD /path".
 //
 // The rows reading scopePasswordConfirm must name the same routes as
 // passwordConfirmBudgetRoutes; TestPasswordConfirmDispositionsCoverTheBudget
 // requires that, and the throttle test drives each of those through the router.
 // No other row carries an assertion beyond its own presence.
 var authRouteRateLimitScope = map[string]string{
+	"GET /auth/login/{provider}":    scopeOAuthRedirect,
+	"GET /auth/callback/{provider}": scopeOAuthRedirect,
+	"GET /auth/link/{provider}":     scopeOAuthLink,
+
+	"GET /auth/profile":                  scopeProtectedNoLimit,
+	"GET /auth/profile/advancement":      scopeProtectedNoLimit,
+	"GET /auth/profile/contributions":    scopeProtectedNoLimit,
+	"GET /auth/profile/contributor":      scopeProtectedNoLimit,
+	"GET /auth/profile/sections":         scopeProtectedNoLimit,
+	"GET /auth/account/deletion-summary": scopeProtectedNoLimit,
+	"GET /auth/account/export":           scopeProtectedNoLimit,
+	"GET /auth/oauth/accounts":           scopeProtectedNoLimit,
+	"GET /auth/passkey/credentials":      scopeProtectedNoLimit,
+	"GET /auth/preferences/alerts":       scopeProtectedNoLimit,
+	"GET /auth/collections":              scopeProtectedNoLimit,
+	"GET /auth/collections/contains":     scopeProtectedNoLimit,
+	"GET /auth/crates":                   scopeProtectedNoLimit,
+	"GET /auth/crates/contains":          scopeProtectedNoLimit,
+
 	"POST /auth/login":                      scopePublicAuth,
 	"POST /auth/register":                   scopePublicAuth,
 	"POST /auth/magic-link/send":            scopePublicAuth,
@@ -113,7 +137,7 @@ var authRouteRateLimitScope = map[string]string{
 	"DELETE /auth/passkey/credentials/{credential_id}": scopeProtectedNoLimit,
 }
 
-func TestEveryMutatingAuthRouteHasARateLimitDisposition(t *testing.T) {
+func TestEveryAuthRouteHasARateLimitDisposition(t *testing.T) {
 	routes := chiRoutes(t, newTestRouter(t))
 
 	served := map[string]bool{}

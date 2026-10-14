@@ -12,6 +12,20 @@ import (
 	"psychic-homily-backend/internal/api/middleware"
 )
 
+// The OAuth start and callback routes. A browser reaches both by top-level
+// navigation, so a refusal there is a redirect, and the routes are registered
+// and exempted from the public-read limiter by these same templates.
+// /auth/link/{provider} is navigated too but is not one of them: it is metered
+// by authRateLimiter and the public-read limiter, and both refuse with JSON.
+const (
+	oauthLoginRoute    = "/auth/login/{provider}"
+	oauthCallbackRoute = "/auth/callback/{provider}"
+)
+
+// oauthRedirectRoutes are the routes on oauthRedirectRateLimiter. Each ends in
+// its one {provider} parameter, which isOAuthRedirectRequest relies on.
+var oauthRedirectRoutes = []string{oauthLoginRoute, oauthCallbackRoute}
+
 // setupAuthRoutes configures all authentication-related endpoints
 func setupAuthRoutes(rc RouteContext) {
 	authHandler := authh.NewAuthHandler(rc.SC.Auth, rc.SC.JWT, rc.SC.User, rc.SC.Email, rc.SC.Discord, rc.SC.PasswordValidator, rc.Cfg)
@@ -22,11 +36,13 @@ func setupAuthRoutes(rc RouteContext) {
 	// per-IP counter.
 	authRateLimiter := authScopedRateLimiter(middleware.LimiterAuth, middleware.AuthRequestsPerMinute)
 
-	// Rate-limited OAuth routes
+	// The OAuth redirects meter on oauthRedirectRateLimiter alone: never on
+	// authRateLimiter, and never on the public-read limiter, which exempts
+	// oauthRedirectRoutes.
 	rc.Router.Group(func(r chi.Router) {
-		r.Use(authRateLimiter)
-		r.Get("/auth/login/{provider}", oauthHTTPHandler.OAuthLoginHTTPHandler)
-		r.Get("/auth/callback/{provider}", oauthHTTPHandler.OAuthCallbackHTTPHandler)
+		r.Use(oauthRedirectRateLimiter(oauthHTTPHandler.RedirectRateLimited))
+		r.Get(oauthLoginRoute, oauthHTTPHandler.OAuthLoginHTTPHandler)
+		r.Get(oauthCallbackRoute, oauthHTTPHandler.OAuthCallbackHTTPHandler)
 	})
 
 	// Connecting a provider to an account you are already signed in to. A raw
@@ -52,10 +68,10 @@ func setupAuthRoutes(rc RouteContext) {
 	//
 	// Two properties this conversion must preserve, both easy to break silently:
 	//
-	//  1. authRateLimiter is the SAME closure the OAuth chi group above uses, so
-	//     those raw routes and these operations share ONE counter. Passing the
-	//     variable (rather than building a second limiter here) is what keeps that
-	//     budget shared; a fresh httprate.Limit would quietly double it.
+	//  1. authRateLimiter is the SAME closure the /auth/link chi group above
+	//     uses, so that raw route and these operations share ONE counter. Passing
+	//     the variable (rather than building a second limiter here) is what keeps
+	//     that budget shared; a fresh httprate.Limit would quietly double it.
 	//  2. It may be noopRateLimiter() under DISABLE_AUTH_RATE_LIMITS (PSY-475).
 	//     humaFromHTTP has to let that through cleanly, or every E2E shard — all
 	//     sharing 127.0.0.1 — starts failing register/magic-link again.
@@ -112,6 +128,26 @@ func authScopedRateLimiter(name middleware.LimiterName, requestsPerMinute int) f
 		return noopRateLimiter()
 	}
 	return ipRateLimiter(name, requestsPerMinute, time.Minute)
+}
+
+// oauthRedirectRateLimiter builds the per-IP minute limiter for
+// oauthRedirectRoutes, at middleware.OAuthRedirectRequestsPerMinute and honoring
+// the same DISABLE_AUTH_RATE_LIMITS escape hatch as authScopedRateLimiter.
+//
+// A refusal logs as middleware.LimiterOAuthRedirect and is answered by
+// redirect, handed the message the JSON 429 carries, so the reader lands on a
+// page that says why rather than on a response body.
+func oauthRedirectRateLimiter(redirect func(http.ResponseWriter, *http.Request, string)) func(http.Handler) http.Handler {
+	if IsAuthRateLimitDisabled(os.Getenv) {
+		return noopRateLimiter()
+	}
+	return ipRateLimiterRefusingWith(middleware.LimiterOAuthRedirect, middleware.OAuthRedirectRequestsPerMinute, time.Minute, func(w http.ResponseWriter, r *http.Request) {
+		// httprate sets Retry-After before it calls a refusal handler. On a
+		// redirect that header asks the browser to wait before following it,
+		// and the auth page is not what is limited.
+		w.Header().Del("Retry-After")
+		redirect(w, r, rateLimitExceededMessage)
+	})
 }
 
 // setupProtectedAuthRoutes configures the auth-related Huma routes that run on
