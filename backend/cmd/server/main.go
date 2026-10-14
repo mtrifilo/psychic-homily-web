@@ -30,6 +30,7 @@ import (
 	notificationm "psychic-homily-backend/internal/models/notification"
 	"psychic-homily-backend/internal/observability"
 	"psychic-homily-backend/internal/services"
+	authsvc "psychic-homily-backend/internal/services/auth"
 	"psychic-homily-backend/internal/services/catalog"
 	"psychic-homily-backend/internal/services/notification"
 	servicesshared "psychic-homily-backend/internal/services/shared"
@@ -376,6 +377,7 @@ func main() {
 		streetGeocodeSweepCancel     context.CancelFunc
 		venueTimezoneSweepCancel     context.CancelFunc
 		radioTracksRebuildCancel     context.CancelFunc
+		challengeSweepCancel         context.CancelFunc
 		sweepHealthCheckCancel       context.CancelFunc
 	)
 
@@ -627,6 +629,19 @@ func main() {
 		log.Printf("DISABLE_RADIO_TRACKS_REBUILD=1: skipping radio tracks rebuild loop startup")
 	}
 
+	// Start the WebAuthn challenge sweep: deletes expired passkey challenges.
+	// Default ON: it deletes only rows past their own expiry. It does not exist
+	// when the WebAuthn service failed to initialise.
+	if sc.ChallengeSweep == nil {
+		log.Printf("WebAuthn service unavailable: skipping webauthn challenge sweep startup")
+	} else if !servicesshared.EnvServiceDisabled(authsvc.DisableChallengeSweepEnvVar) {
+		var challengeSweepCtx context.Context
+		challengeSweepCtx, challengeSweepCancel = context.WithCancel(context.Background())
+		sc.ChallengeSweep.Start(challengeSweepCtx)
+	} else {
+		log.Printf("%s=1: skipping webauthn challenge sweep startup", authsvc.DisableChallengeSweepEnvVar)
+	}
+
 	// Start sweep health check (PSY-1612: reports background loops that have
 	// stopped running). Default ON — this is the monitoring that would have caught
 	// PSY-1606's seven silently-dead sweeps in days instead of weeks, so it should
@@ -757,6 +772,10 @@ func main() {
 	if radioTracksRebuildCancel != nil {
 		radioTracksRebuildCancel()
 		sc.RadioTracksRebuild.Stop()
+	}
+	if challengeSweepCancel != nil {
+		challengeSweepCancel()
+		sc.ChallengeSweep.Stop()
 	}
 	if sweepHealthCheckCancel != nil {
 		sweepHealthCheckCancel()

@@ -3,7 +3,9 @@ import type { EnvironmentConfig } from "../lib/types";
 import * as display from "../lib/display";
 import {
   formatArtistCandidateReport,
+  formatLabelCandidateReport,
   listArtistCandidates,
+  listLabelCandidates,
   printableJSON,
   rematchRadioPlaysChunked,
 } from "../lib/radio";
@@ -123,6 +125,30 @@ export async function runRadioArtistCandidates(
     return;
   }
   for (const line of formatArtistCandidateReport(listing)) {
+    process.stdout.write(`${line}\n`);
+  }
+  display.info("Report only: nothing was created.");
+}
+
+export type RadioLabelCandidatesCliOptions = RadioArtistCandidatesCliOptions;
+
+/** CLI entry for `ph radio candidates labels`. Read-only: it creates nothing. */
+export async function runRadioLabelCandidates(
+  env: EnvironmentConfig,
+  opts: RadioLabelCandidatesCliOptions,
+): Promise<void> {
+  // The server owns the defaults, the allowed values and the limit range, and
+  // answers 422 for anything outside them.
+  const listing = await listLabelCandidates(new APIClient(env), {
+    lane: opts.lane,
+    sort: opts.sort,
+    limit: opts.limit,
+  });
+  if (opts.json) {
+    process.stdout.write(`${printableJSON(listing)}\n`);
+    return;
+  }
+  for (const line of formatLabelCandidateReport(listing)) {
     process.stdout.write(`${line}\n`);
   }
   display.info("Report only: nothing was created.");

@@ -17,7 +17,7 @@ import { runStatus } from "./commands/status";
 import { runFestivalLinkArtists, runFestivalUnlinkArtist } from "./commands/festival";
 import { runShowAddArtist, runShowRemoveArtist } from "./commands/show";
 import { runSourcesStale, runSourcesRegister, runSourcesRefresh } from "./commands/sources";
-import { runRadioArtistCandidates, runRadioRematch } from "./commands/radio";
+import { runRadioArtistCandidates, runRadioLabelCandidates, runRadioRematch } from "./commands/radio";
 import { flushRevalidation } from "./lib/revalidate";
 import { SET_TYPE_VOCABULARY_CSV } from "./lib/setType";
 
@@ -275,6 +275,20 @@ radioCandidatesCmd
   .action(async (opts: { lane?: string; sort?: string; limit?: string; json?: boolean }) => {
     const env = await resolveEnvOrExit(program.opts().env);
     await runRadioArtistCandidates(env, opts);
+  });
+
+radioCandidatesCmd
+  .command("labels")
+  .description(
+    "Unlinked label names on at least two station rows and gaining play, ranked with evidence and a lane (auto|human)",
+  )
+  .option("--lane <lane>", "auto, human or all (plays carry no MusicBrainz label id today, so the auto lane is empty)")
+  .option("--sort <sort>", "score, plays, stations or velocity")
+  .option("--limit <n>", "Candidates to print")
+  .option("--json", "Print the raw listing as JSON")
+  .action(async (opts: { lane?: string; sort?: string; limit?: string; json?: boolean }) => {
+    const env = await resolveEnvOrExit(program.opts().env);
+    await runRadioLabelCandidates(env, opts);
   });
 
 // ─── ph status ───────────────────────────────────────────────────────────────

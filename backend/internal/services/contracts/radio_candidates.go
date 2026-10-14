@@ -127,3 +127,80 @@ type RadioArtistCandidateListing struct {
 	// once; top_tracks reflect that rebuild.
 	TracksRebuiltAt *time.Time `json:"tracks_rebuilt_at,omitempty" doc:"When the radio_tracks rebuild loop last completed successfully"`
 }
+
+// RadioLabelCandidateSort names the order of a label candidate listing. Every
+// order is descending and breaks ties by score, then by the most recent play,
+// then by label key.
+type RadioLabelCandidateSort string
+
+const (
+	// RadioLabelCandidateSortScore ranks by score.
+	RadioLabelCandidateSortScore RadioLabelCandidateSort = "score"
+	// RadioLabelCandidateSortPlays ranks by plays in the window.
+	RadioLabelCandidateSortPlays RadioLabelCandidateSort = "plays"
+	// RadioLabelCandidateSortStations ranks by distinct station rows.
+	RadioLabelCandidateSortStations RadioLabelCandidateSort = "stations"
+	// RadioLabelCandidateSortVelocity ranks by velocity.
+	RadioLabelCandidateSortVelocity RadioLabelCandidateSort = "velocity"
+)
+
+// RadioLabelCandidatesQuery selects a label candidate listing.
+type RadioLabelCandidatesQuery struct {
+	Lane  RadioCandidateLaneFilter
+	Sort  RadioLabelCandidateSort
+	Limit int
+}
+
+// RadioLabelCandidateArtist is one artist seen on a label candidate's plays.
+type RadioLabelCandidateArtist struct {
+	Name      string `json:"name"`
+	PlayCount int    `json:"play_count"`
+	ArtistIDs []uint `json:"artist_ids" doc:"Distinct catalog artist ids these plays are linked to, ascending; empty when none is"`
+}
+
+// RadioLabelCandidate is one unlinked label name with the evidence for adding
+// it to the catalog. Every count covers the candidate's counted plays: plays
+// in the window that are not excluded for the label ranking.
+type RadioLabelCandidate struct {
+	LabelKey           string                      `json:"label_key" doc:"radio_normalize_name of the label name; the candidate's identity"`
+	DisplayName        string                      `json:"display_name" doc:"Most common trimmed label spelling among the counted plays"`
+	LabelSpellings     []RadioCandidateName        `json:"label_spellings" doc:"Up to five trimmed label spellings (case kept), each with the plays carrying it; the first is display_name"`
+	LabelSpellingCount int                         `json:"label_spelling_count" doc:"Distinct trimmed label spellings"`
+	Lane               RadioCandidateLane          `json:"lane" enum:"auto,human" doc:"Plays carry no MusicBrainz label id, so every label candidate is in the human lane"`
+	Score              float64                     `json:"score" doc:"station rows x ln(plays) x velocity"`
+	Velocity           float64                     `json:"velocity" doc:"recent_play_count / prior_play_count, or recent_play_count when prior_play_count is zero"`
+	PlayCount          int                         `json:"play_count" doc:"Plays in the window"`
+	RecentPlayCount    int                         `json:"recent_play_count" doc:"Plays aired on or after the listing's recent_start"`
+	PriorPlayCount     int                         `json:"prior_play_count" doc:"Plays aired on or after the listing's prior_start and before its recent_start"`
+	StationRowCount    int                         `json:"station_row_count" doc:"Distinct radio_stations rows (each WFMU stream counts)"`
+	StationFamilyCount int                         `json:"station_family_count" doc:"Distinct broadcasters (a network counts once)"`
+	ShowCount          int                         `json:"show_count"`
+	FirstAiredOn       string                      `json:"first_aired_on" doc:"Earliest counted play's episode air date (YYYY-MM-DD)"`
+	LastAiredOn        string                      `json:"last_aired_on" doc:"Latest counted play's episode air date (YYYY-MM-DD)"`
+	Stations           []RadioCandidateStation     `json:"stations" doc:"Station rows by play count, descending"`
+	Artists            []RadioLabelCandidateArtist `json:"artists" doc:"Up to five artists by play count, over the plays not excluded for the artist ranking (placeholder artists such as Various Artists are skipped); names that normalize alike are one entry, shown in their most common trimmed spelling"`
+	ArtistCount        int                         `json:"artist_count" doc:"Distinct normalized artist names, over the same plays as artists"`
+	ReleaseNames       []RadioCandidateName        `json:"release_names" doc:"Up to five release (album) titles by play count; titles that normalize alike are one entry, shown in their most common trimmed spelling, counting all their plays"`
+	ReleaseNameCount   int                         `json:"release_name_count" doc:"Distinct normalized release titles"`
+	MBReleaseIDs       []string                    `json:"mb_release_ids" doc:"Up to five distinct MusicBrainz release ids by play count, lower case"`
+	MBReleaseIDCount   int                         `json:"mb_release_id_count" doc:"Distinct MusicBrainz release ids"`
+	NonLatinSpelling   bool                        `json:"non_latin_spelling" doc:"True when a counted play's label name carries a character normalization may not fold to a-z, 0-9 or punctuation; the key may then be a fragment of that name"`
+}
+
+// RadioLabelCandidateListing is one snapshot of the label candidate ranking.
+type RadioLabelCandidateListing struct {
+	Candidates     []RadioLabelCandidate `json:"candidates"`
+	Total          int                   `json:"total" doc:"Candidates in the requested lanes"`
+	AutoTotal      int                   `json:"auto_total" doc:"Candidates in the auto lane, whatever the lane filter"`
+	HumanTotal     int                   `json:"human_total" doc:"Candidates in the human lane, whatever the lane filter"`
+	UnkeyablePlays int64                 `json:"unkeyable_plays" doc:"Plays in the window, not excluded, whose label name normalizes to empty (for example a name written only in a non-Latin script), and so count toward no candidate"`
+	AsOf           string                `json:"as_of" doc:"The UTC date the windows end on (YYYY-MM-DD)"`
+	WindowStart    string                `json:"window_start" doc:"The earliest episode air date counted (YYYY-MM-DD)"`
+	WindowDays     int                   `json:"window_days"`
+	RecentStart    string                `json:"recent_start" doc:"The earliest air date of the recent velocity window (YYYY-MM-DD)"`
+	PriorStart     string                `json:"prior_start" doc:"The earliest air date of the prior velocity window, which ends the day before recent_start (YYYY-MM-DD)"`
+	VelocityDays   int                   `json:"velocity_days" doc:"Length of each velocity window in days"`
+	MinStationRows int                   `json:"min_station_rows"`
+	MinVelocity    float64               `json:"min_velocity" doc:"A candidate with prior plays needs recent_play_count at least this multiple of prior_play_count"`
+	MinNewPlays    int                   `json:"min_new_plays" doc:"A candidate with no prior plays needs at least this many recent plays"`
+}
