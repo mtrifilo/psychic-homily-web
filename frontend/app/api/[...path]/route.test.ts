@@ -144,6 +144,11 @@ describe('api/[...path] proxy route', () => {
         referer: undefined,
       },
       {
+        name: 'forwards an opaque Origin as sent',
+        origin: 'null',
+        referer: `${FRONTEND}/profile`,
+      },
+      {
         name: 'forwards Referer alone when the browser sent no Origin',
         origin: undefined,
         referer: `${FRONTEND}/profile`,
