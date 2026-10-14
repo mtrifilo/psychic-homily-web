@@ -78,7 +78,9 @@ vi.mock('@/app/auth/_components/passkey-signup', () => ({
 }))
 
 vi.mock('@/app/auth/_components/google-oauth-button', () => ({
-  GoogleOAuthButton: () => <div data-testid="google-oauth" />,
+  GoogleOAuthButton: (props: { variant?: string }) => (
+    <div data-testid="google-oauth" data-variant={props.variant} />
+  ),
 }))
 
 function setSearchParams(query: string) {
@@ -487,12 +489,88 @@ describe('AuthPage', () => {
       expect(screen.getByText('Email already exists')).toBeInTheDocument()
     })
 
+    it('opens on Sign in for an ?error with no code', () => {
+      setSearchParams('error=authentication+failed')
+      renderWithProviders(<AuthPage />)
+
+      expect(screen.getByText('authentication failed')).toBeInTheDocument()
+      expect(screen.getByRole('tab', { name: 'Sign in' })).toHaveAttribute(
+        'aria-selected',
+        'true'
+      )
+      expect(screen.getByText('Sign in to your account')).toBeInTheDocument()
+    })
+
     it('does not render an error banner when no ?error param is present', () => {
       renderWithProviders(<AuthPage />)
 
       // The login-form passkey error alert region is absent and no decoded
       // error text leaks in; the only "alert"-ish content would be the banner.
       expect(screen.queryByText('Email already exists')).not.toBeInTheDocument()
+    })
+  })
+
+  // The OAuth callback refuses to create an account from a sign-in that
+  // carried no consent, and names the refusal in ?error_code. The query below
+  // is the callback's own encoding of that redirect.
+  describe('OAuth refusal that needs signup consent', () => {
+    const TERMS_MESSAGE =
+      'Please accept the Terms of Service and Privacy Policy before creating an account.'
+    const TERMS_REFUSAL_QUERY =
+      'error=Please+accept+the+Terms+of+Service+and+Privacy+Policy+before+creating+an+account.&error_code=TERMS_ACCEPTANCE_REQUIRED'
+
+    it('opens on Create account with the message above the consent controls and Google sign-up', () => {
+      setSearchParams(TERMS_REFUSAL_QUERY)
+      renderWithProviders(<AuthPage />)
+
+      expect(screen.getByRole('tab', { name: 'Create account' })).toHaveAttribute(
+        'aria-selected',
+        'true'
+      )
+      const message = screen.getByText(TERMS_MESSAGE)
+      const terms = screen.getByRole('checkbox', {
+        name: /I agree to the Terms of Service and Privacy Policy/,
+      })
+      const age = screen.getByRole('checkbox', { name: /years old/ })
+      const google = screen.getByTestId('google-oauth')
+
+      expect(google).toHaveAttribute('data-variant', 'signup')
+      for (const control of [terms, age, google]) {
+        expect(
+          message.compareDocumentPosition(control) &
+            Node.DOCUMENT_POSITION_FOLLOWING
+        ).toBeTruthy()
+      }
+      expect(screen.queryByText('Sign in to your account')).not.toBeInTheDocument()
+    })
+
+    it('opens on Sign in for a refusal code that consent does not answer', () => {
+      setSearchParams(
+        'error=An+account+with+this+email+already+exists&error_code=USER_EXISTS'
+      )
+      renderWithProviders(<AuthPage />)
+
+      expect(screen.getByRole('tab', { name: 'Sign in' })).toHaveAttribute(
+        'aria-selected',
+        'true'
+      )
+    })
+
+    it('opens on Sign in only for a re-authentication carrying the code', async () => {
+      mockAuthState = { setUser: vi.fn(), authStatus: 'authenticated' }
+      setSearchParams(
+        `returnTo=%2Fprofile&reason=OAUTH_LINK_REAUTH_REQUIRED&${TERMS_REFUSAL_QUERY}`
+      )
+      renderWithProviders(<AuthPage />)
+
+      await screen.findByText("Confirm it's you")
+      expect(screen.getByRole('tab', { name: 'Sign in' })).toHaveAttribute(
+        'aria-selected',
+        'true'
+      )
+      expect(
+        screen.queryByRole('tab', { name: /create account/i })
+      ).not.toBeInTheDocument()
     })
   })
 

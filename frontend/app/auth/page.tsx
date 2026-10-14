@@ -36,6 +36,7 @@ import {
 import { getUniqueErrors } from '@/lib/utils/formErrors'
 import { CURRENT_PRIVACY_VERSION, CURRENT_TERMS_VERSION, MIN_SIGNUP_AGE } from '@/lib/legal'
 import {
+  needsSignupConsent,
   safeDecodeQueryParam,
   sanitizeReturnTo,
 } from './auth-redirect-utils'
@@ -642,9 +643,11 @@ function AuthPageContent() {
   // that just refused them, with nothing changed and no way to tell why.
   const isReauth = isReauthReason(searchParams.get('reason'))
 
-  // A gated control names the action it refused an anonymous viewer, and only
-  // that arrival opens on Create account; every other route in opens on Sign
-  // in. Re-auth always opens on Sign in, the only tab it renders.
+  // Two arrivals open on Create account: a gated control naming the action it
+  // refused an anonymous viewer, and an OAuth sign-in refused for want of the
+  // consent only that tab records, whose message the banner above the card
+  // shows. Every other route in opens on Sign in. Re-auth always opens on Sign
+  // in, the only tab it renders.
   //
   // The default belongs to the arrival, not to the mount. Neither a
   // navigation that only changes the query string nor leaving and coming back
@@ -654,7 +657,10 @@ function AuthPageContent() {
   // page has not been hidden since (the effect below drops it on hide). Tab
   // changes are never written back to the URL.
   const arrival = searchParams.toString()
-  const arrivalTab = hasGatedIntent(searchParams) && !isReauth ? 'signup' : 'login'
+  const arrivalTab =
+    (hasGatedIntent(searchParams) || needsSignupConsent(searchParams)) && !isReauth
+      ? 'signup'
+      : 'login'
   const [pickedTab, setPickedTab] = useState<{
     arrival: string
     tab: string

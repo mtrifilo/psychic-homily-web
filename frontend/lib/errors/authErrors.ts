@@ -26,6 +26,11 @@ export const AuthErrorCode = {
    * a sign-out or a permission message.
    */
   REAUTH_REQUIRED: 'REAUTH_REQUIRED',
+  /**
+   * An OAuth sign-in that would create an account arrived without the consent
+   * the Create account tab records (terms and minimum age).
+   */
+  TERMS_ACCEPTANCE_REQUIRED: 'TERMS_ACCEPTANCE_REQUIRED',
 } as const
 
 export type AuthErrorCodeType =
