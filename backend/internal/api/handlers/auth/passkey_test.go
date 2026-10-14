@@ -161,8 +161,8 @@ func TestFinishRegisterHandler_NoAuth(t *testing.T) {
 
 func TestFinishRegisterHandler_InvalidChallenge(t *testing.T) {
 	mockWA := &testhelpers.MockWebAuthnService{
-		ConsumeChallengeFn: func(challengeID string, operation string) (*webauthn.SessionData, uint, error) {
-			return nil, 0, fmt.Errorf("challenge not found")
+		ConsumeRegistrationChallengeFn: func(string, uint) (*webauthn.SessionData, error) {
+			return nil, autherrors.NewAuthError(autherrors.CodeValidationFailed, "Invalid or expired challenge", fmt.Errorf("challenge not found"))
 		},
 	}
 	h := testPasskeyHandlerWithMocks(mockWA, &testhelpers.MockJWTService{}, &testhelpers.MockUserService{})
@@ -187,10 +187,15 @@ func TestFinishRegisterHandler_InvalidChallenge(t *testing.T) {
 }
 
 func TestFinishRegisterHandler_ChallengeBelongsToDifferentUser(t *testing.T) {
+	var consumedFor uint
 	mockWA := &testhelpers.MockWebAuthnService{
-		ConsumeChallengeFn: func(challengeID string, operation string) (*webauthn.SessionData, uint, error) {
-			// Return user ID 99, but the authenticated user is ID 1
-			return &webauthn.SessionData{}, 99, nil
+		ConsumeRegistrationChallengeFn: func(_ string, userID uint) (*webauthn.SessionData, error) {
+			consumedFor = userID
+			return nil, autherrors.NewAuthError(autherrors.CodeUnauthorized, "Challenge belongs to different user", nil)
+		},
+		FinishRegistrationFn: func(*authm.User, *webauthn.SessionData, *protocol.ParsedCredentialCreationData, string) (*authm.WebAuthnCredential, error) {
+			t.Fatal("a refused challenge must not reach registration")
+			return nil, nil
 		},
 	}
 	h := testPasskeyHandlerWithMocks(mockWA, &testhelpers.MockJWTService{}, &testhelpers.MockUserService{})
@@ -212,12 +217,15 @@ func TestFinishRegisterHandler_ChallengeBelongsToDifferentUser(t *testing.T) {
 	if resp.Body.Message != "Challenge belongs to different user" {
 		t.Errorf("expected 'Challenge belongs to different user', got '%s'", resp.Body.Message)
 	}
+	if consumedFor != 1 {
+		t.Errorf("challenge consumed for user %d, want the signed-in user 1", consumedFor)
+	}
 }
 
 func TestFinishRegisterHandler_MalformedCredentialResponse(t *testing.T) {
 	mockWA := &testhelpers.MockWebAuthnService{
-		ConsumeChallengeFn: func(challengeID string, operation string) (*webauthn.SessionData, uint, error) {
-			return &webauthn.SessionData{}, 1, nil
+		ConsumeRegistrationChallengeFn: func(string, uint) (*webauthn.SessionData, error) {
+			return &webauthn.SessionData{}, nil
 		},
 	}
 	h := testPasskeyHandlerWithMocks(mockWA, &testhelpers.MockJWTService{}, &testhelpers.MockUserService{})
@@ -432,7 +440,7 @@ func TestBeginLoginHandler_StoreChallengeFailure(t *testing.T) {
 func TestFinishLoginHandler_InvalidChallenge(t *testing.T) {
 	mockWA := &testhelpers.MockWebAuthnService{
 		ConsumeChallengeFn: func(challengeID string, operation string) (*webauthn.SessionData, uint, error) {
-			return nil, 0, fmt.Errorf("challenge expired")
+			return nil, 0, autherrors.NewAuthError(autherrors.CodeValidationFailed, "Invalid or expired challenge", fmt.Errorf("challenge expired"))
 		},
 	}
 	h := testPasskeyHandlerWithMocks(mockWA, &testhelpers.MockJWTService{}, &testhelpers.MockUserService{})
@@ -482,17 +490,26 @@ func TestFinishLoginHandler_MalformedCredentialResponse(t *testing.T) {
 	}
 }
 
+// The service decides an email-specific sign-in for the challenge's account,
+// a missing account included; the handler loads the account only for a
+// sign-in the service accepted.
 func TestFinishLoginHandler_UserSpecificLogin_UserNotFound(t *testing.T) {
 	_, device := softRegistration(t)
 	body := softAssertion(t, device)
+	var decidedFor uint
 	mockWA := &testhelpers.MockWebAuthnService{
 		ConsumeChallengeFn: func(challengeID string, operation string) (*webauthn.SessionData, uint, error) {
 			return &webauthn.SessionData{}, 42, nil
 		},
+		FinishLoginFn: func(user *authm.User, _ *webauthn.SessionData, _ *protocol.ParsedCredentialAssertionData) (*authm.WebAuthnCredential, error) {
+			decidedFor = user.ID
+			return nil, autherrors.NewAuthError(autherrors.CodeInvalidCredentials, "User not found", fmt.Errorf("record not found"))
+		},
 	}
 	mockUS := &testhelpers.MockUserService{
 		GetUserByIDFn: func(userID uint) (*authm.User, error) {
-			return nil, fmt.Errorf("user not found")
+			t.Error("a refused sign-in must not load the account")
+			return nil, nil
 		},
 	}
 	h := testPasskeyHandlerWithMocks(mockWA, &testhelpers.MockJWTService{}, mockUS)
@@ -510,6 +527,12 @@ func TestFinishLoginHandler_UserSpecificLogin_UserNotFound(t *testing.T) {
 	}
 	if resp.Body.ErrorCode != autherrors.CodeInvalidCredentials {
 		t.Errorf("expected error_code=%s, got %s", autherrors.CodeInvalidCredentials, resp.Body.ErrorCode)
+	}
+	if resp.Body.Message != "User not found" {
+		t.Errorf("expected the refusal's own message, got %q", resp.Body.Message)
+	}
+	if decidedFor != 42 {
+		t.Errorf("sign-in decided for user %d, want the challenge's user 42", decidedFor)
 	}
 }
 
@@ -1271,7 +1294,7 @@ func TestFinishLoginHandler_DiscoverableLogin_RefusedAssertion(t *testing.T) {
 		},
 		FinishDiscoverableLoginFn: func(*webauthn.SessionData, *protocol.ParsedCredentialAssertionData) (*authm.User, *authm.WebAuthnCredential, error) {
 			reachedDiscoverable = true
-			return nil, nil, fmt.Errorf("failed to validate login")
+			return nil, nil, autherrors.NewAuthError(autherrors.CodeInvalidCredentials, "Invalid passkey", fmt.Errorf("validate discoverable login"))
 		},
 	}
 	h := testPasskeyHandlerWithMocks(mockWA, &testhelpers.MockJWTService{}, &testhelpers.MockUserService{})

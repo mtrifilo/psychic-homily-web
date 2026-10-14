@@ -41,7 +41,7 @@ func (suite *WebAuthnServiceIntegrationTestSuite) requireOneWinner(results [2]er
 			succeeded++
 			continue
 		}
-		suite.Contains(err.Error(), "challenge not found")
+		suite.ErrorIs(err, errChallengeNotFound)
 	}
 	suite.Equal(1, succeeded, "exactly one finish receives the challenge")
 }
@@ -55,6 +55,10 @@ func (suite *WebAuthnServiceIntegrationTestSuite) TestConcurrentFinishesConsumeA
 				suite.Require().NoError(err)
 
 				suite.requireOneWinner(raceConsume(func() error {
+					if operation == "registration" {
+						_, err := suite.service.ConsumeRegistrationChallenge(challengeID, user.ID)
+						return err
+					}
 					_, _, err := suite.service.ConsumeChallenge(challengeID, operation)
 					return err
 				}))

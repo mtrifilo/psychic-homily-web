@@ -6,9 +6,12 @@ import (
 	"time"
 
 	"github.com/go-webauthn/webauthn/webauthn"
+	"gorm.io/gorm"
 
+	"psychic-homily-backend/internal/config"
 	"psychic-homily-backend/internal/legal"
 	authm "psychic-homily-backend/internal/models/auth"
+	authsvc "psychic-homily-backend/internal/services/auth"
 	"psychic-homily-backend/internal/services/contracts"
 	"psychic-homily-backend/internal/testutil/softauthn"
 )
@@ -22,6 +25,19 @@ func wireWebAuthn(t *testing.T) *webauthn.WebAuthn {
 		t.Fatalf("webauthn.New: %v", err)
 	}
 	return w
+}
+
+// newTestWebAuthnService is the real WebAuthn service over db, for the
+// relying party wireWebAuthn and the software authenticators here use.
+func newTestWebAuthnService(t *testing.T, db *gorm.DB) *authsvc.WebAuthnService {
+	t.Helper()
+	webauthnService, err := authsvc.NewWebAuthnService(db, &config.Config{
+		WebAuthn: config.WebAuthnConfig{RPDisplayName: "Test", RPID: "localhost", RPOrigins: []string{wireOrigin}},
+	})
+	if err != nil {
+		t.Fatalf("NewWebAuthnService: %v", err)
+	}
+	return webauthnService
 }
 
 // softRegistration returns a RegistrationResponseJSON body for a fresh
