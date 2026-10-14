@@ -31,8 +31,8 @@ var currentConsentVersionsQuery = url.Values{
 	"privacy_version": {legal.CurrentPrivacyVersion},
 }.Encode()
 
-// consentVersionRefusals are the version pairs every sign-up path refuses. A
-// nil pointer leaves the field out of the request entirely.
+// consentVersionRefusals are the version pairs every sign-up that takes
+// consent refuses. A nil pointer leaves the field out of the request entirely.
 func consentVersionRefusals() map[string][2]*string {
 	terms, privacy := legal.CurrentTermsVersion, legal.CurrentPrivacyVersion
 	empty, stale, unknown := "", "2025-01-01", "x"

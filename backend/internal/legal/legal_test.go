@@ -12,8 +12,8 @@ const frontendLegalPath = "../../../frontend/lib/legal.ts"
 
 // TestCurrentVersionsMatchFrontend pins the versions the backend accepts to
 // the ones the frontend sends. A frontend that sends a version this package
-// does not name is refused on every sign-up path, so a mismatch here is a
-// sign-up outage on deploy.
+// does not name is refused by every sign-up that takes consent, so a mismatch
+// here is a sign-up outage on deploy.
 func TestCurrentVersionsMatchFrontend(t *testing.T) {
 	source, err := os.ReadFile(frontendLegalPath)
 	if err != nil {

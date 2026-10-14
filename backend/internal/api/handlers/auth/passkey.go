@@ -776,12 +776,20 @@ func (h *PasskeyHandler) FinishSignupHandler(ctx context.Context, input *FinishS
 	// carries none, or carries versions that stopped being current since,
 	// fails them here.
 	if refusal := refuseStaleConsentVersions(signup.Acceptance.TermsVersion, signup.Acceptance.PrivacyVersion); refusal != nil {
+		logger.AuthWarn(ctx, "passkey_signup_finish_consent_refused",
+			"email_hash", logger.HashEmail(email),
+			"error_code", refusal.Code,
+		)
 		resp.Body.Success = false
 		resp.Body.Message = refusal.UserMessage()
 		resp.Body.ErrorCode = refusal.Code
 		return resp, nil
 	}
 	if errCode, errMsg, ok := validateSignupAgeConfirmation(!signup.Acceptance.AgeConfirmedAt.IsZero(), signup.Acceptance.MinAgeAttested); !ok {
+		logger.AuthWarn(ctx, "passkey_signup_finish_consent_refused",
+			"email_hash", logger.HashEmail(email),
+			"error_code", errCode,
+		)
 		resp.Body.Success = false
 		resp.Body.Message = errMsg
 		resp.Body.ErrorCode = errCode

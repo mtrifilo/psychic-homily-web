@@ -212,9 +212,10 @@ func (h *OAuthHTTPHandler) OAuthLoginHTTPHandler(w http.ResponseWriter, r *http.
 		}
 		// A version that is not the current one goes back to the auth page
 		// with the refusal the callback gives a sign-up without consent, so the
-		// reader lands on a freshly loaded form that sends the current
-		// versions. The other refusals here stay plain 400s: the form never
-		// starts a sign-up without terms_accepted and the age fields.
+		// reader lands on a freshly loaded form, which sends the versions the
+		// deployed frontend names. The other refusals here stay plain 400s:
+		// the form never starts a sign-up without terms_accepted and the age
+		// fields.
 		if refusal := refuseStaleConsentVersions(termsVersion, privacyVersion); refusal != nil {
 			logger.AuthWarn(ctx, "oauth_signup_consent_refused",
 				"provider", provider,

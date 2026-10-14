@@ -363,6 +363,9 @@ func signupAccount(id uint, email string) *authm.User {
 // cannot change what an already stored challenge decodes to. A challenge
 // stored without an acceptance decodes to a zero one, which carries no
 // version and no age confirmation.
+//
+// storedSignupAcceptance carries every field of contracts.LegalAcceptance;
+// TestStoredSignupAcceptanceMirrorsLegalAcceptance fails when they differ.
 type signupSessionData struct {
 	Email      string                 `json:"email"`
 	Acceptance storedSignupAcceptance `json:"acceptance"`
