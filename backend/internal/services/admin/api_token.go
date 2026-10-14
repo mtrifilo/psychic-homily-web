@@ -147,8 +147,7 @@ func (s *APITokenService) ValidateToken(plainToken string) (*authm.User, *adminm
 		return nil, nil, fmt.Errorf("invalid token")
 	}
 
-	// Check if user is active and admin
-	if !token.User.IsActive {
+	if !token.User.CanSignIn() {
 		return nil, nil, fmt.Errorf("user account is not active")
 	}
 

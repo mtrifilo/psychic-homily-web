@@ -898,3 +898,17 @@ func (suite *CalendarIntegrationTestSuite) TestValidateCalendarToken_InactiveUse
 	suite.Error(err)
 	suite.Contains(err.Error(), "user account is not active")
 }
+
+func (suite *CalendarIntegrationTestSuite) TestValidateCalendarToken_SoftDeletedActiveUser() {
+	user := suite.createTestUser(true)
+	resp, err := suite.svc.CreateToken(user.ID, "http://localhost:8080")
+	suite.Require().NoError(err)
+
+	suite.Require().NoError(suite.db.Model(&authm.User{}).
+		Where("id = ?", user.ID).
+		Update("deleted_at", time.Now()).Error)
+
+	_, err = suite.svc.ValidateCalendarToken(resp.Token)
+	suite.Require().Error(err)
+	suite.Equal("user account is not active", err.Error())
+}

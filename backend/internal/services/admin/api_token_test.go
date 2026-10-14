@@ -206,6 +206,20 @@ func (suite *APITokenIntegrationTestSuite) TestValidateToken_InactiveUser() {
 	suite.Equal("user account is not active", err.Error())
 }
 
+func (suite *APITokenIntegrationTestSuite) TestValidateToken_SoftDeletedActiveUser() {
+	user := suite.createTestUser(true, true)
+	createResp, err := suite.svc.CreateToken(user.ID, nil, 90)
+	suite.Require().NoError(err)
+
+	suite.Require().NoError(suite.db.Model(&authm.User{}).
+		Where("id = ?", user.ID).
+		Update("deleted_at", time.Now()).Error)
+
+	_, _, err = suite.svc.ValidateToken(createResp.Token)
+	suite.Require().Error(err)
+	suite.Equal("user account is not active", err.Error())
+}
+
 // PSY-2017: the scope gate is an ALLOWLIST. A scope this service does not know
 // is refused outright rather than falling through the admin check, so adding one
 // to the column without deciding its privileges cannot inherit admin's.
