@@ -3,7 +3,6 @@
 import { useState } from 'react'
 import * as Sentry from '@sentry/nextjs'
 import { startRegistration } from '@simplewebauthn/browser'
-import type { PublicKeyCredentialCreationOptionsJSON } from '@simplewebauthn/browser'
 import { Fingerprint, Loader2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -18,7 +17,9 @@ import {
   DialogTrigger,
 } from '@/components/ui/dialog'
 import { useWebAuthnSupport } from '@/features/auth/hooks/useWebAuthnSupport'
+import { registrationOptionsFrom } from '@/features/auth/passkeyOptions'
 import { AuthError, AuthErrorCode, type AuthErrorCodeType } from '@/lib/errors'
+import type { components } from '@/types/api'
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080'
 
@@ -74,7 +75,7 @@ interface RegistrationStepBody {
   success?: boolean
   message?: string
   error_code?: string
-  options?: PublicKeyCredentialCreationOptionsJSON
+  options?: components['schemas']['CredentialCreation']
   challenge_id?: string
 }
 
@@ -108,14 +109,13 @@ export function PasskeyRegisterButton({ onSuccess, onError, className }: Passkey
       )
       if (!begin.ok) throw begin.error
       const beginData = begin.body
-      if (!beginData.options) {
+      const optionsJSON = registrationOptionsFrom(beginData.options)
+      if (!optionsJSON) {
         throw new Error('Failed to start passkey registration')
       }
 
       // Step 2: Perform WebAuthn registration
-      const credential = await startRegistration({
-        optionsJSON: beginData.options,
-      })
+      const credential = await startRegistration({ optionsJSON })
 
       // Step 3: Finish registration
       const finishResponse = await fetch(`${API_BASE_URL}/auth/passkey/register/finish`, {

@@ -4,6 +4,7 @@ import userEvent from '@testing-library/user-event'
 import { renderWithProviders } from '@/test/utils'
 import { PasskeyRegisterButton } from './PasskeyRegisterButton'
 import { AuthError, AuthErrorCode } from '@/lib/errors'
+import { startRegistration } from '@simplewebauthn/browser'
 
 // This button is the one gated surface that does not go through apiRequest: it
 // drives the WebAuthn ceremony with raw fetch and translates the response body
@@ -50,6 +51,33 @@ async function openAndSubmit() {
   )
 }
 
+describe('PasskeyRegisterButton ceremony', () => {
+  const originalFetch = global.fetch
+
+  afterEach(() => {
+    global.fetch = originalFetch
+  })
+
+  it('hands the library the options inside the publicKey wrapper', async () => {
+    const publicKey = { challenge: 'register-challenge', rp: { name: 'Psychic Homily', id: 'localhost' } }
+    global.fetch = vi
+      .fn()
+      .mockResolvedValueOnce(
+        jsonResponse({ success: true, options: { publicKey }, challenge_id: 'challenge-1' })
+      )
+      .mockResolvedValueOnce(
+        jsonResponse({ success: true, message: 'Passkey registered successfully' })
+      ) as unknown as typeof fetch
+    const onSuccess = vi.fn()
+
+    renderWithProviders(<PasskeyRegisterButton onSuccess={onSuccess} />)
+    await openAndSubmit()
+
+    await waitFor(() => expect(onSuccess).toHaveBeenCalled())
+    expect(vi.mocked(startRegistration)).toHaveBeenCalledWith({ optionsJSON: publicKey })
+  })
+})
+
 describe('PasskeyRegisterButton error translation', () => {
   const originalFetch = global.fetch
 
@@ -82,7 +110,7 @@ describe('PasskeyRegisterButton error translation', () => {
       .mockResolvedValueOnce(
         jsonResponse({
           success: true,
-          options: { publicKey: {} },
+          options: { publicKey: { challenge: 'register-challenge' } },
           challenge_id: 'challenge-1',
         })
       )

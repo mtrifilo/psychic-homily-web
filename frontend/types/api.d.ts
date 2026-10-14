@@ -10463,33 +10463,9 @@ export interface components {
             mediation?: string;
             publicKey: components["schemas"]["PublicKeyCredentialRequestOptions"];
         };
-        CredentialAssertionAuthenticatorResponse: {
-            authenticatorData: string;
-            clientDataJSON: string;
-            signature: string;
-            userHandle?: string;
-        };
-        CredentialAssertionResponse: {
-            id: string;
-            rawId: string;
-            response: components["schemas"]["CredentialAssertionAuthenticatorResponse"];
-            type: string;
-        };
         CredentialCreation: {
             mediation?: string;
             publicKey: components["schemas"]["PublicKeyCredentialCreationOptions"];
-        };
-        CredentialCreationAttestationResponse: {
-            attestationObject: string;
-            clientDataJSON: string;
-            transports?: string[] | null;
-        };
-        CredentialCreationResponse: {
-            authenticatorAttachment?: string;
-            id: string;
-            rawId: string;
-            response: components["schemas"]["CredentialCreationAttestationResponse"];
-            type: string;
         };
         CredentialDescriptor: {
             id: string;
@@ -11545,8 +11521,8 @@ export interface components {
             readonly $schema?: string;
             /** @description Challenge ID from begin login */
             challenge_id: string;
-            /** @description The assertion response from the browser */
-            response: components["schemas"]["CredentialAssertionResponse"];
+            /** @description The PublicKeyCredential from navigator.credentials.get(), serialized as AuthenticationResponseJSON */
+            response: unknown;
         };
         FinishLoginResponseBody: {
             /**
@@ -11576,12 +11552,12 @@ export interface components {
             /** @description Challenge ID from begin registration */
             challenge_id: string;
             /**
-             * @description Name for this passkey
+             * @description Name for this passkey; defaults to My Passkey when empty
              * @example My MacBook
              */
-            display_name: string;
-            /** @description The credential response from the browser */
-            response: components["schemas"]["CredentialCreationResponse"];
+            display_name?: string;
+            /** @description The PublicKeyCredential from navigator.credentials.create(), serialized as RegistrationResponseJSON */
+            response: unknown;
         };
         FinishRegisterResponseBody: {
             /**
@@ -11613,10 +11589,10 @@ export interface components {
             /** @description Challenge ID from begin signup */
             challenge_id: string;
             /**
-             * @description Name for this passkey
+             * @description Name for this passkey; defaults to My Passkey when empty
              * @example My MacBook
              */
-            display_name: string;
+            display_name?: string;
             /**
              * Format: int64
              * @description Minimum age the user attested to
@@ -11624,8 +11600,8 @@ export interface components {
             min_age_attested?: number;
             /** @description Accepted privacy policy version identifier */
             privacy_version?: string;
-            /** @description The credential response from the browser */
-            response: components["schemas"]["CredentialCreationResponse"];
+            /** @description The PublicKeyCredential from navigator.credentials.create(), serialized as RegistrationResponseJSON */
+            response: unknown;
             /** @description Whether user accepted Terms of Service */
             terms_accepted: boolean;
             /** @description Accepted terms version identifier */

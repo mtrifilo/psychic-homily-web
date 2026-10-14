@@ -13,6 +13,8 @@ import {
   type AuthResponse,
 } from '@/features/auth/hooks/useAuth'
 import { useWebAuthnSupport } from '@/features/auth/hooks/useWebAuthnSupport'
+import { authenticationOptionsFrom } from '@/features/auth/passkeyOptions'
+import type { components } from '@/types/api'
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080'
 
@@ -51,16 +53,19 @@ export function PasskeyLoginButton({
         body: JSON.stringify({}), // Empty body for discoverable login
       })
 
-      const beginData = await beginResponse.json()
+      const beginData: components['schemas']['BeginLoginResponseBody'] =
+        await beginResponse.json()
 
       if (!beginData.success) {
         throw new Error(beginData.message || 'Failed to start passkey login')
       }
+      const optionsJSON = authenticationOptionsFrom(beginData.options)
+      if (!optionsJSON) {
+        throw new Error('Failed to start passkey login')
+      }
 
       // Step 2: Perform WebAuthn authentication
-      const assertion = await startAuthentication({
-        optionsJSON: beginData.options,
-      })
+      const assertion = await startAuthentication({ optionsJSON })
 
       // Step 3: Finish authentication
       const finishResponse = await fetch(`${API_BASE_URL}/auth/passkey/login/finish`, {

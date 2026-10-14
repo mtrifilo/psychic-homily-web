@@ -43,7 +43,9 @@ describe('PasskeyLoginButton', () => {
     fetchMock.mockResolvedValueOnce({
       json: async () => ({
         success: true,
-        options: { challenge: 'begin-challenge' },
+        options: {
+          publicKey: { challenge: 'begin-challenge', rpId: 'localhost' },
+        },
         challenge_id: 'challenge-id',
       }),
     })
@@ -69,5 +71,28 @@ describe('PasskeyLoginButton', () => {
     await waitFor(() => {
       expect(mockPush).toHaveBeenCalledWith('/library')
     })
+    // The begin endpoint wraps the options as the credentials.get() argument;
+    // the library takes only the inner options.
+    expect(mockStartAuthentication).toHaveBeenCalledWith({
+      optionsJSON: { challenge: 'begin-challenge', rpId: 'localhost' },
+    })
+  })
+
+  it('reports a begin response without options instead of starting the ceremony', async () => {
+    const user = userEvent.setup()
+    const onError = vi.fn()
+
+    fetchMock.mockResolvedValueOnce({
+      json: async () => ({ success: true, challenge_id: 'challenge-id' }),
+    })
+
+    renderWithProviders(<PasskeyLoginButton onError={onError} />)
+
+    await user.click(screen.getByRole('button', { name: /sign in with passkey/i }))
+
+    await waitFor(() => {
+      expect(onError).toHaveBeenCalledWith('Failed to start passkey login')
+    })
+    expect(mockStartAuthentication).not.toHaveBeenCalled()
   })
 })

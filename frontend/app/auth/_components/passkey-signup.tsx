@@ -25,6 +25,8 @@ import {
   type AuthResponse,
 } from '@/features/auth/hooks/useAuth'
 import { useWebAuthnSupport } from '@/features/auth/hooks/useWebAuthnSupport'
+import { registrationOptionsFrom } from '@/features/auth/passkeyOptions'
+import type { components } from '@/types/api'
 import { CURRENT_PRIVACY_VERSION, CURRENT_TERMS_VERSION, MIN_SIGNUP_AGE } from '@/lib/legal'
 import { BackupAuthPrompt } from './backup-auth-prompt'
 
@@ -109,16 +111,19 @@ export function PasskeySignupButton({
         }),
       })
 
-      const beginData = await beginResponse.json()
+      const beginData: components['schemas']['BeginSignupResponseBody'] =
+        await beginResponse.json()
 
       if (!beginData.success) {
         throw new Error(beginData.message || 'Failed to start passkey signup')
       }
+      const optionsJSON = registrationOptionsFrom(beginData.options)
+      if (!optionsJSON) {
+        throw new Error('Failed to start passkey signup')
+      }
 
       // Step 2: Perform WebAuthn registration
-      const credential = await startRegistration({
-        optionsJSON: beginData.options,
-      })
+      const credential = await startRegistration({ optionsJSON })
 
       // Step 3: Finish signup
       const finishResponse = await fetch(`${API_BASE_URL}/auth/passkey/signup/finish`, {

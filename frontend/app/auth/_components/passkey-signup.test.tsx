@@ -58,7 +58,7 @@ describe('PasskeySignupButton', () => {
     fetchMock.mockResolvedValueOnce({
       json: async () => ({
         success: true,
-        options: { challenge: 'begin-signup-challenge' },
+        options: { publicKey: { challenge: 'begin-signup-challenge' } },
         challenge_id: 'challenge-id',
       }),
     })
@@ -101,6 +101,10 @@ describe('PasskeySignupButton', () => {
       privacy_version: '2026-02-15',
       age_confirmed: true,
       min_age_attested: 16,
+    })
+
+    expect(mockStartRegistration).toHaveBeenCalledWith({
+      optionsJSON: { challenge: 'begin-signup-challenge' },
     })
 
     const finishSignupPayload = JSON.parse(
