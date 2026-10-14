@@ -749,15 +749,13 @@ function AuthPageContent() {
   // then takes the authenticated viewer to returnTo, so the page keeps a single
   // navigation and never strands the viewer behind a closed prompt.
   if (signupHandoff?.status === 'complete' && signupHandoff.method === 'passkey') {
-    const releaseHandoff = () => setSignupHandoff(null)
     return (
       <div className="min-h-[calc(100vh-64px)]">
         <BackupAuthPrompt
           open
           onOpenChange={open => {
-            if (!open) releaseHandoff()
+            if (!open) setSignupHandoff(null)
           }}
-          onComplete={releaseHandoff}
         />
       </div>
     )

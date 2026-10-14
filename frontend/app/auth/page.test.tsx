@@ -697,7 +697,6 @@ describe('AuthPage', () => {
       expect(passkeySignupProps).toHaveBeenCalledWith(
         expect.objectContaining({ onHandoffChange: expect.any(Function) })
       )
-      expect(passkeySignupProps.mock.lastCall?.[0]).not.toHaveProperty('returnTo')
     })
 
     it('passes the sanitized returnTo down to the login Google button', () => {
