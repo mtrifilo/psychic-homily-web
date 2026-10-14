@@ -65,8 +65,11 @@ const eslintConfig = defineConfig([
           paths: [
             {
               name: "next/link",
+              // Link only: useLinkStatus reads the status of the ChromeLink
+              // it renders inside, so the chrome may import it.
+              importNames: ["default"],
               message:
-                "Use ChromeLink from @/components/layout/nav/ChromeLink: it holds the prefetch on /atlas until the map is up.",
+                "Use ChromeLink from @/components/layout/nav/ChromeLink: it sets the chrome's prefetch policy (the /atlas hold, intent prefetch on touch).",
               allowTypeImports: true,
             },
           ],

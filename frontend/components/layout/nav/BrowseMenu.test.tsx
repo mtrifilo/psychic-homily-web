@@ -7,6 +7,7 @@ import { browseGroups } from './navData'
 let mockPathname = '/'
 vi.mock('next/navigation', () => ({
   usePathname: () => mockPathname,
+  useRouter: () => ({ prefetch: () => {} }),
 }))
 
 // Anonymous viewer by default — BrowseMenu gates any authOnly/adminOnly

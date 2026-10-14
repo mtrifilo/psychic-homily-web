@@ -64,6 +64,7 @@ on:
       # The measurement itself.
       - frontend/scripts/atlas-perf.mjs
       - frontend/scripts/lib/atlas-perf-budget.mjs
+      - frontend/scripts/lib/phone-perf-profile.mjs
       - .github/workflows/atlas-perf.yml
 
 # A newer push to the same PR supersedes a run still waiting or measuring.
@@ -159,7 +160,7 @@ jobs:
                 });
                 const success = statuses.find((s) => s.state === 'success' && s.creator?.login === 'vercel[bot]');
                 if (!success?.target_url) continue;
-                // The same host pattern as PREVIEW_HOST in atlas-perf.mjs.
+                // The same host pattern as PREVIEW_HOST in frontend/scripts/lib/phone-perf-profile.mjs.
                 const url = new URL(success.target_url);
                 if (url.protocol !== 'https:' || !/^psychic-homily-[a-z0-9-]+-matts-projects-722d5204\.vercel\.app$/.test(url.hostname)) {
                   core.setFailed(`Preview URL is not an https URL on this project's preview hosts: ${url.origin}`);

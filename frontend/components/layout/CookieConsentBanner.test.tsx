@@ -47,6 +47,11 @@ vi.mock('@/lib/context/CookieConsentContext', () => ({
 }))
 
 vi.mock('next/link', () => import('@/test/mocks/nextLink'))
+// ChromeLink reads the router for its touch prefetch; no App Router is mounted.
+vi.mock('next/navigation', () => ({
+  usePathname: () => '/',
+  useRouter: () => ({ prefetch: () => {} }),
+}))
 
 describe('CookieConsentBanner', () => {
   beforeEach(() => {

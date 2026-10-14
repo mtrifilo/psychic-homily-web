@@ -1,5 +1,5 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { act, render, screen, waitFor, within } from '@testing-library/react'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { BottomTabBar } from './BottomTabBar'
 import { primaryLinks } from './PrimaryNav'
@@ -7,10 +7,14 @@ import { mobileBrowseHrefs, primaryTabs, sidebarGroups } from './navData'
 import { BOTTOM_TAB_BAR_BOX } from '@/test/layoutContracts'
 import type { AuthStatus } from '@/lib/context/AuthContext'
 import { makeAuthFixture, type MockAuthContextValue } from '@/test/authFixture'
+import { installMatchMedia } from '@/test/mocks/matchMedia'
+import { setPendingLinkHref } from '@/test/mocks/nextLink'
 
 let mockPathname = '/'
+const mockRouter = vi.hoisted(() => ({ prefetch: vi.fn() }))
 vi.mock('next/navigation', () => ({
   usePathname: () => mockPathname,
+  useRouter: () => mockRouter,
 }))
 
 // next/link stands in as a plain anchor so the sheet rows' prefetch posture is
@@ -237,6 +241,118 @@ describe('BottomTabBar', () => {
     })
   })
 
+  // Product Designs XakQQ0nYGqnt77PrHKO9IE, boards 1955:76/1955:104 (idle)
+  // and 1955:90/1955:118 (pending). jsdom computes no :has() styles, so these
+  // pin the markers the bar's pending rules select on; the colours themselves
+  // are checked in a browser (PR screenshots).
+  describe('pending tab', () => {
+    afterEach(() => {
+      setPendingLinkHref(null)
+    })
+
+    it('renders every tab icon and no pending marker while idle', () => {
+      mockPathname = '/atlas'
+      const { container } = render(<BottomTabBar />)
+      expect(container.querySelector('[data-tab-pending]')).toBeNull()
+      for (const name of ['Home', 'Shows', 'Radio', 'Account']) {
+        expect(screen.getByRole('link', { name }).querySelector('svg.lucide')).not.toBeNull()
+      }
+    })
+
+    it('swaps the tapped tab icon for the spinner until its destination commits', () => {
+      mockPathname = '/atlas'
+      setPendingLinkHref('/shows')
+      render(<BottomTabBar />)
+
+      const shows = screen.getByRole('link', { name: 'Shows' })
+      const marker = shows.querySelector('[data-tab-pending]')
+      expect(marker).not.toBeNull()
+      expect(marker!.querySelector('svg.animate-spin')).not.toBeNull()
+      expect(shows.querySelector('svg.lucide')).toBeNull()
+      // The label stays, and the page has not changed yet.
+      expect(shows).toHaveTextContent('Shows')
+      expect(shows).not.toHaveAttribute('aria-current')
+
+      for (const name of ['Home', 'Radio', 'Account']) {
+        const tab = screen.getByRole('link', { name })
+        expect(tab.querySelector('[data-tab-pending]')).toBeNull()
+        expect(tab.querySelector('svg.lucide')).not.toBeNull()
+      }
+    })
+
+    it('marks the anonymous Account link pending like the other tabs', () => {
+      mockPathname = '/shows'
+      setPendingLinkHref('/auth?returnTo=%2Fshows')
+      render(<BottomTabBar />)
+      const account = screen.getByRole('link', { name: 'Account' })
+      expect(account).toHaveAttribute('href', '/auth?returnTo=%2Fshows')
+      expect(account.querySelector('[data-tab-pending]')).not.toBeNull()
+    })
+
+    it('gives every tab, links and sheet triggers alike, the rules that light the pending tab and mute the rest', () => {
+      mockPathname = '/atlas'
+      render(<BottomTabBar />)
+      expect(screen.getByRole('navigation', { name: 'Mobile navigation' })).toHaveClass(
+        'group/tabbar'
+      )
+      const tabs = [
+        ...['Home', 'Shows', 'Radio', 'Account'].map(name => screen.getByRole('link', { name })),
+        screen.getByRole('button', { name: 'Browse' }),
+      ]
+      for (const tab of tabs) {
+        expect(tab).toHaveClass('has-[[data-tab-pending]]:text-primary')
+        expect(tab).toHaveClass(
+          'group-has-[[data-tab-pending]]/tabbar:not-has-[[data-tab-pending]]:text-muted-foreground'
+        )
+      }
+    })
+  })
+
+  describe('on a coarse pointer', () => {
+    let matchMedia: ReturnType<typeof installMatchMedia>
+    beforeEach(() => {
+      matchMedia = installMatchMedia({ '(pointer: coarse)': true })
+    })
+    afterEach(() => {
+      matchMedia.restore()
+    })
+
+    it('never prefetches a tab on viewport entry, and prefetches the tab a touch lands on', async () => {
+      vi.resetModules()
+      const { markAtlasMapReady } = await import('@/lib/atlasMapReady')
+      const { BottomTabBar: FreshTabBar } = await import('./BottomTabBar')
+      mockPathname = '/atlas'
+      const { rerender } = render(<FreshTabBar />)
+      act(() => markAtlasMapReady())
+      rerender(<FreshTabBar />)
+      for (const name of ['Home', 'Shows', 'Radio', 'Account']) {
+        expect(screen.getByRole('link', { name })).toHaveAttribute('data-prefetch', 'false')
+      }
+      expect(mockRouter.prefetch).not.toHaveBeenCalled()
+
+      fireEvent.touchStart(screen.getByRole('link', { name: 'Radio' }))
+
+      expect(mockRouter.prefetch).toHaveBeenCalledExactlyOnceWith('/radio')
+    })
+
+    it('never prefetches a sheet row on viewport entry, and prefetches the row a touch lands on', async () => {
+      mockRouter.prefetch.mockClear()
+      const user = userEvent.setup()
+      render(<BottomTabBar />)
+      await user.click(screen.getByRole('button', { name: 'Browse' }))
+      const graph = await screen.findByRole('link', { name: 'Graph' })
+      const rows = [...document.querySelectorAll('[data-slot="sheet-content"] a')]
+      expect(rows.length).toBeGreaterThan(10)
+      expect(rows.every(a => a.getAttribute('data-prefetch') === 'false')).toBe(true)
+      expect(mockRouter.prefetch).not.toHaveBeenCalled()
+
+      // The open sheet's scroll lock reads the event's first changed touch.
+      fireEvent.touchStart(graph, { changedTouches: [{ clientX: 0, clientY: 0 }] })
+
+      expect(mockRouter.prefetch).toHaveBeenCalledExactlyOnceWith('/graph')
+    })
+  })
+
   describe('Browse sheet', () => {
     it('opens the long-tail sheet with grouped destinations, incl. Graph + Atlas', async () => {
       const user = userEvent.setup()
@@ -254,9 +370,9 @@ describe('BottomTabBar', () => {
       expect(screen.getByText('Curation')).toBeInTheDocument()
     })
 
-    // PSY-1820 prefetch posture. Opening the sheet mounts two dozen links on a
-    // phone-only surface, so every ROW opts out of Next's viewport prefetch
-    // while the five always-visible TAB links keep theirs. Asserted as a
+    // Opening the sheet mounts every destination at once, so on a fine pointer
+    // every ROW opts out of Next's prefetch while the always-visible TAB links
+    // keep theirs (the coarse-pointer rule is pinned above). Asserted as a
     // partition (all rows opted out, no tab opted out) rather than by naming
     // routes, so adding a destination cannot quietly reintroduce the burst.
     it('opts sheet rows out of prefetch while the primary tabs keep it', async () => {

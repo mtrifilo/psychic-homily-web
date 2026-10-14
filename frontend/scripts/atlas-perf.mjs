@@ -31,8 +31,9 @@
 //
 // Env: VERCEL_PROTECTION_BYPASS, if set, is sent to get past preview SSO, and
 // only when the target is an https URL on one of this project's Vercel preview
-// hosts (PREVIEW_HOST). It rides one bypass-cookie request, never page
-// requests, and is redacted from anything the script prints.
+// hosts (PREVIEW_HOST in lib/phone-perf-profile.mjs). It rides one
+// bypass-cookie request, never page requests, and is redacted from anything
+// the script prints.
 //
 // Budget (DEFAULT_BUDGET in scripts/lib/atlas-perf-budget.mjs): first
 // rendered map at most 3.5 s and entry bytes at most 1.5 MiB, both medians,
@@ -87,22 +88,13 @@
 import { writeFileSync } from 'node:fs'
 import { chromium, devices } from '@playwright/test'
 import { AFTER_MAP_WINDOW_MS, COMPACT_BELOW_WIDTH, EXIT, budgetTable, errorMessage, median, resolveBudget, runBudgetCheck, seconds, targetLine } from './lib/atlas-perf-budget.mjs'
+import { CHROMIUM_ARGS, CPU_THROTTLE_RATE, FAST_4G, FAST_4G_LABEL, SCENE_LIST_SELECTOR, isBypassTarget, phoneContextOptions, setBypassCookie } from './lib/phone-perf-profile.mjs'
 
-const FAST_4G = {
-  offline: false,
-  downloadThroughput: ((9 * 1000 * 1000) / 8) * 0.9,
-  uploadThroughput: ((1.5 * 1000 * 1000) / 8) * 0.9,
-  latency: 60 * 2.75,
-}
-const CPU_THROTTLE_RATE = 4
 // How long the city view settles before its bytes are counted.
 const CITY_SETTLE_MS = 3000
 const READY_TIMEOUT_MS = 90_000
 const CITY_ZOOM = 12.5
 const PREVIEW_ONLY_HOSTS = ['vercel.live']
-const PREVIEW_HOST = /^psychic-homily-[a-z0-9-]+-matts-projects-722d5204\.vercel\.app$/
-// AtlasSceneList's root carries this test id.
-const SCENE_LIST_SELECTOR = '[data-testid="atlas-scene-list"]'
 
 function usage(message) {
   if (message) console.error(`error: ${message}`)
@@ -168,7 +160,7 @@ function contextOptions(opts) {
   if (opts.device === 'desktop') {
     return { ...devices['Desktop Chrome'], reducedMotion: 'no-preference', viewport: opts.viewport ?? { width: 1440, height: 900 } }
   }
-  return { ...devices['iPhone 13'], reducedMotion: 'no-preference', viewport: opts.viewport ?? { width: 390, height: 844 } }
+  return phoneContextOptions(opts.viewport ?? undefined)
 }
 
 function category(request) {
@@ -236,22 +228,7 @@ const timeout = (ms) => new Promise((resolve) => setTimeout(() => resolve(null),
 
 async function oneRun(browser, opts) {
   const context = await browser.newContext(contextOptions(opts))
-  const bypass = process.env.VERCEL_PROTECTION_BYPASS
-  if (bypass && opts.url.protocol === 'https:' && PREVIEW_HOST.test(opts.url.hostname)) {
-    let status
-    try {
-      const response = await context.request.get(opts.url.href, {
-        headers: { 'x-vercel-protection-bypass': bypass, 'x-vercel-set-bypass-cookie': 'samesitenone' },
-        maxRedirects: 0,
-      })
-      status = response.status()
-    } catch (error) {
-      // Playwright's error message carries the request's call log, headers
-      // included, so it must not be rethrown or printed.
-      throw new Error(`bypass request failed (${error?.code ?? error?.name ?? 'network error'})`)
-    }
-    if (status >= 400) throw new Error(`bypass request returned HTTP ${status}`)
-  }
+  await setBypassCookie(context, opts.url)
   let reportFirstMap
   // When the page reported first map, on the same clock as the request
   // timestamps below: entry bytes are the requests that finished by then.
@@ -378,7 +355,7 @@ function printReport(opts, runs, verdict) {
   const ctx = contextOptions(opts)
   // Markdown, so the report reads the same in a terminal and a CI job summary.
   console.log(`\nAtlas perf: ${opts.url.href}\n`)
-  console.log(`- profile: ${opts.device} ${ctx.viewport.width}x${ctx.viewport.height} DPR ${ctx.deviceScaleFactor}, CPU ${CPU_THROTTLE_RATE}x main thread only (workers and GPU unthrottled), Fast 4G (9 Mbps down, 1.5 Mbps up, 165 ms), cache disabled, ${opts.headed ? 'headed' : 'headless'}`)
+  console.log(`- profile: ${opts.device} ${ctx.viewport.width}x${ctx.viewport.height} DPR ${ctx.deviceScaleFactor}, CPU ${CPU_THROTTLE_RATE}x main thread only (workers and GPU unthrottled), ${FAST_4G_LABEL}, cache disabled, ${opts.headed ? 'headed' : 'headless'}`)
   console.log(`- WebGL renderer: ${runs[0].renderer}`)
   console.log(`- runs: ${runs.map((r) => `${r.firstMapMs} ms / ${kib(r.entry.totalBytes)} KiB to first map + ${kib(r.afterMap.totalBytes)} KiB after / ${r.rasterRequests} raster requests`).join(', ')}\n`)
 
@@ -402,7 +379,7 @@ function printReport(opts, runs, verdict) {
 }
 
 const opts = parseArgs(process.argv.slice(2))
-if (process.env.VERCEL_PROTECTION_BYPASS && !(opts.url.protocol === 'https:' && PREVIEW_HOST.test(opts.url.hostname))) {
+if (process.env.VERCEL_PROTECTION_BYPASS && !isBypassTarget(opts.url)) {
   console.error(`note: VERCEL_PROTECTION_BYPASS is set but not sent: ${opts.url.host} is not an https PREVIEW_HOST`)
 }
 const bypass = process.env.VERCEL_PROTECTION_BYPASS
@@ -414,7 +391,7 @@ const exitCode = await runBudgetCheck({
     // browser-level cache shared across contexts would undercount later runs.
     const browser = await chromium.launch({
       headless: !opts.headed,
-      args: ['--use-gl=angle', '--enable-webgl', '--ignore-gpu-blocklist', '--enable-unsafe-swiftshader'],
+      args: CHROMIUM_ARGS,
     })
     try {
       return await oneRun(browser, opts)

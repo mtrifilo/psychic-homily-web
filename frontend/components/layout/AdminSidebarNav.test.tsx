@@ -8,6 +8,7 @@ const mockPathname = vi.fn(() => '/admin')
 let mockSearchParams = new URLSearchParams()
 vi.mock('next/navigation', () => ({
   usePathname: () => mockPathname(),
+  useRouter: () => ({ prefetch: () => {} }),
   useSearchParams: () => mockSearchParams,
 }))
 
