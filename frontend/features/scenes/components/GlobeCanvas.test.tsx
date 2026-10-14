@@ -1456,7 +1456,7 @@ describe('GlobeCanvas theme', () => {
       7,
       '#f4f1ea',
     ])
-    expect(layer(map, 'ph-water')?.paint?.['fill-color']).toBe('#dbe4ea')
+    expect(layer(map, 'ph-water')?.paint?.['fill-color']).toEqual(['interpolate', ['linear'], ['zoom'], 5.5, '#090c12', 7, '#dbe4ea'])
     const dots = layer(map, 'scene-dots')?.paint
     expect((dots?.['circle-color'] as unknown[])[2]).toBe(MARKER_RAMPS.light.hovered)
     expect(dots?.['circle-stroke-color']).toEqual([
@@ -1470,15 +1470,15 @@ describe('GlobeCanvas theme', () => {
   })
 
   it('draws every map label in the ink and halo of the ground, cream on a dark halo by default', () => {
-    const { rerender, props } = renderCanvas()
-    for (const label of [venueLabel('Thalia Hall')]) {
+    const { rerender, props } = renderCanvas({ venueStacks: [STACK], onVenueStackSelect: vi.fn() })
+    const stackLabel = screen.getByText(STACK.label, { selector: 'span' })
+    const scene = () => screen.getAllByTestId('atlas-scene-label')[0]
+    const labels = [venueLabel('Thalia Hall'), stackLabel]
+    rerender(<GlobeCanvas {...props} cityLabel={null} venues={[]} venueStacks={[]} />)
+    for (const label of [...labels, scene()]) {
       expect(label.style.color).toBe('var(--atlas-label-ink, #ffe6c2)')
       expect(label.style.textShadow).toBe('var(--atlas-label-halo, 0 1px 4px rgba(0,0,0,0.9))')
     }
-    rerender(<GlobeCanvas {...props} cityLabel={null} venues={[]} />)
-    const scene = screen.getAllByTestId('atlas-scene-label')[0]
-    expect(scene.style.color).toBe('var(--atlas-label-ink, #ffe6c2)')
-    expect(scene.style.textShadow).toBe('var(--atlas-label-halo, 0 1px 4px rgba(0,0,0,0.9))')
   })
 
   it('marks the ground paper in the light theme from the zoom where the light ground passes mid-grey', () => {
@@ -1486,9 +1486,9 @@ describe('GlobeCanvas theme', () => {
     const { map } = renderCanvas()
     // The stub opens at zoom 13, on the streets.
     expect(ground()).toBe('paper')
-    zoomTo(map, 6.5)
+    zoomTo(map, 6.68)
     expect(ground()).toBeUndefined()
-    zoomTo(map, 6.6)
+    zoomTo(map, 6.7)
     expect(ground()).toBe('paper')
     zoomTo(map, 3)
     expect(ground()).toBeUndefined()

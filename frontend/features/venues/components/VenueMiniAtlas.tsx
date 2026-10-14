@@ -357,10 +357,13 @@ export function VenueMiniAtlas({
           stylesheet is lazy-loaded after globals.css, wins on order,
           collapsing the container to 0 height, at which point the canvas falls
           back to its 300px default. Inline style always wins. */}
+      {/* `dark` scopes the dark theme's tokens onto the pane, so the map's
+          own chrome (the credit pill) matches the dark street style it draws
+          in both app themes. */}
       <div
         ref={containerRef}
         data-testid="venue-mini-atlas-canvas"
-        className="ph-mini-atlas"
+        className="ph-mini-atlas dark"
         style={{ position: 'absolute', inset: 0 }}
       />
     </>

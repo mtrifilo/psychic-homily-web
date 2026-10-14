@@ -457,8 +457,20 @@ describe.each(ATLAS_THEMES)('phBasemapFragment, %s', (variant) => {
     expect(Object.keys(sources)).toEqual(['openmaptiles'])
   })
 
-  it('leaves non-background layers untouched', () => {
-    expect(fragment().layers.slice(1)).toEqual(style.layers.slice(1))
+  it('leaves every other paint property of every layer as the style file has it', () => {
+    const layers = fragment().layers
+    layers.forEach((layer, i) => {
+      const { paint, ...rest } = layer as LayerSpecification & { paint?: Record<string, unknown> }
+      const { paint: filePaint, ...fileRest } = style.layers[i] as LayerSpecification & {
+        paint?: Record<string, unknown>
+      }
+      expect(rest).toEqual(fileRest)
+      for (const [name, value] of Object.entries(filePaint ?? {})) {
+        if (!name.endsWith('-color') && name !== 'background-opacity') {
+          expect(paint?.[name], `${layer.id} ${name}`).toEqual(value)
+        }
+      }
+    })
   })
 
   it('hands every map its own copy of the style', () => {
@@ -469,22 +481,99 @@ describe.each(ATLAS_THEMES)('phBasemapFragment, %s', (variant) => {
   })
 })
 
-describe('phBasemapFragment ground colour', () => {
-  it('keeps the dark ground one colour at every zoom, as the style file has it', () => {
-    const background = phBasemapFragment(FADE_START, FADE_END, 'dark').layers[0]
-    if (background.type !== 'background') throw new Error('unreachable')
-    expect(background.paint).toEqual({
-      'background-color': '#0d0805',
-      'background-opacity': ['interpolate', ['linear'], ['zoom'], FADE_START, 0, FADE_END, 1],
+/** One linear zoom ramp, `['interpolate', ['linear'], ['zoom'], z0, a, z1, b]`, evaluated at `zoom`. */
+function evaluateRamp(ramp: unknown, zoom: number): number | string {
+  const [, , , z0, a, z1, b] = ramp as [string, unknown, unknown, number, unknown, number, unknown]
+  const t = Math.min(1, Math.max(0, (zoom - z0) / (z1 - z0)))
+  if (typeof a === 'number' && typeof b === 'number') return a + (b - a) * t
+  const rgb = (hex: string) => [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16))
+  const [from, to] = [rgb(a as string), rgb(b as string)]
+  return `#${from.map((c, i) => Math.round(c + (to[i] - c) * t).toString(16).padStart(2, '0')).join('')}`
+}
+
+/** Mean of the sRGB channels, 0 to 1: the brightness the paper-ground model counts. */
+const brightness = (hex: string) =>
+  [1, 3, 5].reduce((sum, i) => sum + parseInt(hex.slice(i, i + 2), 16), 0) / (3 * 255)
+
+describe('phBasemapFragment colours across the crossfade', () => {
+  const darkFragment = () => phBasemapFragment(FADE_START, FADE_END, 'dark')
+  const lightFragment = () => phBasemapFragment(FADE_START, FADE_END, 'light')
+  const paintOf = (layer: LayerSpecification) =>
+    (layer.paint ?? {}) as Record<string, unknown>
+
+  it('writes every colour of both style files as a literal, so a ramp can start or end on it', () => {
+    for (const variant of ATLAS_THEMES) {
+      for (const layer of VARIANTS[variant].style.layers) {
+        for (const [name, value] of Object.entries(paintOf(layer))) {
+          if (name.endsWith('-color')) {
+            expect(value, `${variant} ${layer.id} ${name}`).toMatch(/^#[0-9a-f]{6}$/)
+          }
+        }
+      }
+    }
+  })
+
+  it('keeps every dark colour one colour at every zoom, as the style file has it', () => {
+    darkFragment().layers.forEach((layer, i) => {
+      for (const [name, value] of Object.entries(paintOf(layer))) {
+        if (name.endsWith('-color')) {
+          expect(value, `${layer.id} ${name}`).toBe(paintOf(VARIANTS.dark.style.layers[i])[name])
+        }
+      }
     })
   })
 
-  it('passes half of paper\'s brightness at progress √½ of the fade range', () => {
-    expect(lightGroundPaperZoom(FADE_START, FADE_END)).toBeCloseTo(
-      FADE_START + (FADE_END - FADE_START) * Math.SQRT1_2,
-      10,
-    )
-    expect(lightGroundPaperZoom(0, 2)).toBeCloseTo(Math.SQRT2, 10)
+  it('ramps every light colour from the dark style\'s value to its own across the fade range', () => {
+    const light = lightFragment().layers
+    let ramps = 0
+    light.forEach((layer, i) => {
+      const darkPaint = paintOf(VARIANTS.dark.style.layers[i])
+      const lightPaint = paintOf(VARIANTS.light.style.layers[i])
+      for (const [name, value] of Object.entries(paintOf(layer))) {
+        if (!name.endsWith('-color')) continue
+        ramps++
+        expect(value, `${layer.id} ${name}`).toEqual([
+          'interpolate',
+          ['linear'],
+          ['zoom'],
+          FADE_START,
+          darkPaint[name],
+          FADE_END,
+          lightPaint[name],
+        ])
+      }
+    })
+    // Every colour the light file names: 26 layers, a building outline and
+    // seven label halos.
+    expect(ramps).toBe(Object.values(LIGHT_PAINT).reduce((n, colors) => n + Object.keys(colors).length, 0))
+  })
+
+  it('draws the light style exactly as the dark one up to the fade start, and as its own file from the fade end', () => {
+    const light = lightFragment().layers
+    light.forEach((layer, i) => {
+      for (const [name, value] of Object.entries(paintOf(layer))) {
+        if (!name.endsWith('-color')) continue
+        expect(evaluateRamp(value, FADE_START - 1)).toBe(paintOf(VARIANTS.dark.style.layers[i])[name])
+        expect(evaluateRamp(value, FADE_END + 3)).toBe(paintOf(VARIANTS.light.style.layers[i])[name])
+      }
+    })
+  })
+
+  // The label switch's zoom claims the ground under the globe surface shows at
+  // half of paper's brightness there. Evaluated from the fragment's own ramps,
+  // with a black globe surface over the ground and nothing behind it, so a
+  // retuned ramp moves this check rather than leaving the claim stale.
+  it('shows the light ground at half of paper\'s brightness at lightGroundPaperZoom', () => {
+    const zoom = lightGroundPaperZoom(FADE_START, FADE_END)
+    const { layers, rasterFadeOut } = lightFragment()
+    const ground = paintOf(layers[0])
+    const shown =
+      (evaluateRamp(ground['background-opacity'], zoom) as number) *
+      brightness(evaluateRamp(ground['background-color'], zoom) as string) *
+      (1 - (evaluateRamp(rasterFadeOut, zoom) as number))
+    expect(shown / brightness(paintOf(VARIANTS.light.style.layers[0])['background-color'] as string)).toBeCloseTo(0.5, 1)
+    expect(zoom).toBeGreaterThan(FADE_START)
+    expect(zoom).toBeLessThan(FADE_END)
   })
 
   it('ramps the light ground from the dark ground to paper across the fade range', () => {

@@ -173,6 +173,11 @@ export function globeScreenRadiusPx(zoom: number): number {
 // followed one. On paper both all but vanish, so the light ramp darkens them:
 // selected is --primary with a paper ring that keeps it apart from the darker
 // roads under it, and followed is a deep teal. The venue pins share the ramp.
+//
+// The ramp is chosen by the app theme, not by the ground under the mark, as
+// the genre tints are: in the light theme the dots on the night globe (dark
+// in both themes) take the light ramp too. There hovered and base are about
+// equally bright, so the hover cue on that ground is DOT_HOVER_RADIUS_SCALE.
 
 export interface MarkerRamp {
   base: string

@@ -252,7 +252,8 @@ const SCENE_DOT_RIM_COLOR = 'rgba(255,230,194,0.35)'
 // ink and halo of the ground under it: cream on a dark halo over the night
 // globe and the dark streets, and, while the map root carries
 // data-atlas-ground="paper", the ink and paper halo globals.css sets there.
-const MAP_LABEL_INK = `color: var(--atlas-label-ink, ${MARKER_RAMPS.dark.selected})`
+const MAP_LABEL_CREAM = '#ffe6c2'
+const MAP_LABEL_INK = `color: var(--atlas-label-ink, ${MAP_LABEL_CREAM})`
 const MAP_LABEL_HALO = 'text-shadow: var(--atlas-label-halo, 0 1px 4px rgba(0,0,0,0.9))'
 
 const EMPTY_FC: GeoJSON.FeatureCollection = {

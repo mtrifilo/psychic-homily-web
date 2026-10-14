@@ -28,10 +28,6 @@ const STYLES: Readonly<Record<AtlasTheme, StyleSpecification>> = {
   light: phLightBasemap as unknown as StyleSpecification,
 }
 
-// The dark style's ground, where the light ground's colour ramp starts.
-// phBasemap.test.ts pins it to the dark style file.
-const DARK_GROUND = '#0d0805'
-
 // How far past fadeEnd the raster layer stays mounted. The fade reaches 0
 // exactly AT fadeEnd; a layer `maxzoom` is exclusive, so cutting off at
 // fadeEnd itself would drop the layer on the same frame the ramp lands and
@@ -96,14 +92,19 @@ export interface BasemapFragment {
 }
 
 /**
- * The zoom past which the light ground reads as paper rather than dark: its
- * opacity and its colour (dark ground to paper) both ramp linearly across
- * [fadeStart, fadeEnd], so its brightness grows with the square of the fade's
- * progress and passes half of paper's at progress √½.
+ * The zoom past which the light theme's ground reads as paper rather than
+ * dark. At progress p through [fadeStart, fadeEnd] the light ground is drawn
+ * at opacity p in a colour p of the way from the dark ground to paper, and the
+ * near-black globe surface is drawn over it at opacity 1 - p, so what shows
+ * of the ground is about p · p · p of paper's brightness: half of it at
+ * p = ∛½. phBasemap.test.ts evaluates the fragment's own ramps at this zoom.
  */
 export function lightGroundPaperZoom(fadeStart: number, fadeEnd: number): number {
-  return fadeStart + (fadeEnd - fadeStart) * Math.SQRT1_2
+  return fadeStart + (fadeEnd - fadeStart) * Math.cbrt(0.5)
 }
+
+// A paint property holds a colour when its name ends in -color.
+const isColorProperty = (name: string) => name.endsWith('-color')
 
 /** A linear zoom ramp between two opacities, or two colours. */
 function zoomRamp(
@@ -134,11 +135,13 @@ function zoomRamp(
  * nothing hard-pops while the raster is still partly opaque. Below zoom 5
  * nothing vector renders, or costs a tile fetch, under the opaque raster.
  *
- * The light variant's ground also ramps its COLOUR across the same range,
- * from the dark style's ground at fadeStart to paper at fadeEnd: the night
- * globe dissolves into a ground that brightens with it, so no paper shows
- * through a still-dark raster and nothing switches at the end of the fade.
- * The dark variant's ground colour is constant.
+ * The light variant also ramps every COLOUR of every layer across the same
+ * range, from the dark style's value at fadeStart to its own at fadeEnd (the
+ * two files differ only in colours, layer for layer). Up to fadeStart the
+ * light style draws exactly the dark one, so the night globe dissolves into
+ * the dark streets as in the dark theme and the whole map brightens to paper
+ * by fadeEnd: no light fill shows through a still-dark globe, and nothing
+ * switches at the end of the fade. The dark variant's colours are constant.
  */
 export function phBasemapFragment(
   fadeStart: number,
@@ -150,25 +153,21 @@ export function phBasemapFragment(
   // Components hide/show) — sharing mutable sub-objects across map
   // instances would let any in-place edit leak between mounts.
   const cloned = structuredClone(STYLES[variant])
-  const layers = cloned.layers.map((layer) =>
-    layer.type === 'background'
-      ? {
-          ...layer,
-          paint: {
-            ...layer.paint,
-            ...(variant === 'light' && {
-              'background-color': zoomRamp(
-                fadeStart,
-                fadeEnd,
-                DARK_GROUND,
-                layer.paint?.['background-color'] as string,
-              ),
-            }),
-            'background-opacity': zoomRamp(fadeStart, fadeEnd, 0, 1),
-          },
+  const layers = cloned.layers.map((layer, i) => {
+    const paint: Record<string, unknown> = { ...layer.paint }
+    if (variant === 'light') {
+      const darkPaint = (STYLES.dark.layers[i].paint ?? {}) as Record<string, unknown>
+      for (const [name, value] of Object.entries(paint)) {
+        if (isColorProperty(name)) {
+          paint[name] = zoomRamp(fadeStart, fadeEnd, darkPaint[name] as string, value as string)
         }
-      : layer,
-  ) as LayerSpecification[]
+      }
+    }
+    if (layer.type === 'background') {
+      paint['background-opacity'] = zoomRamp(fadeStart, fadeEnd, 0, 1)
+    }
+    return { ...layer, paint }
+  }) as LayerSpecification[]
   return {
     glyphs: cloned.glyphs as string,
     sources: cloned.sources,
