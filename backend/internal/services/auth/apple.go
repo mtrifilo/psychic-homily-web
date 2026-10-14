@@ -1,16 +1,20 @@
 package auth
 
 import (
+	"context"
 	"crypto/rsa"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
+	"math"
 	"math/big"
 	"net/http"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"github.com/golang-jwt/jwt/v5"
 	"gorm.io/gorm"
@@ -50,6 +54,14 @@ const (
 	// appleKeysFailureLogInterval is the minimum spacing between two logged
 	// key-set fetch failures.
 	appleKeysFailureLogInterval = time.Minute
+
+	// appleKeysMaxBodyBytes is the largest key-set body a fetch accepts; a
+	// larger one fails the fetch without being read past this size.
+	appleKeysMaxBodyBytes = 64 << 10
+
+	// appleKeyIDErrorRunes is how much of a token's key id an error carries.
+	// The key id is caller-supplied, and these errors reach warn-level logs.
+	appleKeyIDErrorRunes = 8
 )
 
 // appleKeysHTTPClient serves every key-set fetch of a service whose
@@ -85,7 +97,8 @@ type AppleAuthService struct {
 	keysLogger            *slog.Logger     // replaces logger.Default() for fetch failures
 }
 
-// appleKeysFetch is one key-set fetch that concurrent lookups share. err is
+// appleKeysFetch is one key-set fetch that concurrent lookups share. It runs
+// on its own goroutine, so it outlives any caller that stops waiting. err is
 // written before done closes and read only after it has.
 type appleKeysFetch struct {
 	done chan struct{}
@@ -119,8 +132,10 @@ type appleJWK struct {
 	E   string `json:"e"`
 }
 
-// ValidateIdentityToken validates an Apple identity token and returns the claims
-func (s *AppleAuthService) ValidateIdentityToken(identityToken string) (*contracts.AppleIdentityTokenClaims, error) {
+// ValidateIdentityToken validates an Apple identity token and returns the
+// claims. When ctx ends while the lookup waits on a key-set fetch, it returns
+// ctx's error at once and the fetch runs on for any other caller.
+func (s *AppleAuthService) ValidateIdentityToken(ctx context.Context, identityToken string) (*contracts.AppleIdentityTokenClaims, error) {
 	// Parse the token header to get the key ID
 	parser := jwt.NewParser(jwt.WithoutClaimsValidation())
 	unverifiedToken, _, err := parser.ParseUnverified(identityToken, &contracts.AppleIdentityTokenClaims{})
@@ -134,7 +149,7 @@ func (s *AppleAuthService) ValidateIdentityToken(identityToken string) (*contrac
 	}
 
 	// Get the Apple public key for this kid
-	publicKey, err := s.getApplePublicKey(kid)
+	publicKey, err := s.getApplePublicKey(ctx, kid)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get Apple public key: %w", err)
 	}
@@ -316,8 +331,9 @@ func (s *AppleAuthService) createAppleUser(appleUserID, email, firstName, lastNa
 // lacks starts at most once per appleKeysForcedRefreshCooldown; inside that
 // window such a lookup joins a fetch already in flight and otherwise fails
 // without starting one. A failed fetch leaves the cached set and its expiry as
-// they were.
-func (s *AppleAuthService) getApplePublicKey(kid string) (*rsa.PublicKey, error) {
+// they were. A call whose ctx ends while it waits returns ctx's error; the
+// fetch it started or joined still completes and publishes its outcome.
+func (s *AppleAuthService) getApplePublicKey(ctx context.Context, kid string) (*rsa.PublicKey, error) {
 	s.keysMu.Lock()
 	now := s.keysClock()
 	fresh := now.Before(s.keysExpAt)
@@ -347,9 +363,12 @@ func (s *AppleAuthService) getApplePublicKey(kid string) (*rsa.PublicKey, error)
 	s.keysMu.Unlock()
 
 	if starter {
-		s.runAppleKeysFetch(fetch)
-	} else {
-		<-fetch.done
+		go s.runAppleKeysFetch(context.WithoutCancel(ctx), fetch)
+	}
+	select {
+	case <-fetch.done:
+	case <-ctx.Done():
+		return nil, ctx.Err()
 	}
 
 	s.keysMu.Lock()
@@ -363,17 +382,26 @@ func (s *AppleAuthService) getApplePublicKey(kid string) (*rsa.PublicKey, error)
 	return nil, errAppleKeyNotFound(kid)
 }
 
+// errAppleKeyNotFound names at most the first appleKeyIDErrorRunes runes of
+// kid, followed by "..." when kid is longer.
 func errAppleKeyNotFound(kid string) error {
+	if utf8.RuneCountInString(kid) > appleKeyIDErrorRunes {
+		kid = string([]rune(kid)[:appleKeyIDErrorRunes]) + "..."
+	}
 	return fmt.Errorf("apple public key not found for kid: %s", kid)
 }
 
-// runAppleKeysFetch performs fetch and publishes its outcome. The publish is
-// deferred so it also runs when the fetch panics: keysFetch never stays set
-// and no waiter blocks on a fetch that has stopped.
-func (s *AppleAuthService) runAppleKeysFetch(fetch *appleKeysFetch) {
+// runAppleKeysFetch performs fetch and publishes its outcome. A panic in the
+// fetch is recovered into its error, so keysFetch never stays set, no waiter
+// blocks on a fetch that has stopped, and the fetch goroutine cannot take the
+// process down.
+func (s *AppleAuthService) runAppleKeysFetch(ctx context.Context, fetch *appleKeysFetch) {
 	var keys map[string]*rsa.PublicKey
 	err := errors.New("apple key fetch did not complete")
 	defer func() {
+		if r := recover(); r != nil {
+			keys, err = nil, fmt.Errorf("apple key fetch panicked: %v", r)
+		}
 		s.keysMu.Lock()
 		now := s.keysClock()
 		logFailure := false
@@ -391,21 +419,28 @@ func (s *AppleAuthService) runAppleKeysFetch(fetch *appleKeysFetch) {
 		fetch.err = err
 		s.keysFetch = nil
 		s.keysMu.Unlock()
-		close(fetch.done)
+		// The failure is logged before done closes, so a waiter that sees the
+		// outcome also finds it logged.
 		if logFailure {
 			s.keysLog().Error("apple_keys_fetch_failed", "error", err.Error())
 		}
+		close(fetch.done)
 	}()
-	keys, err = s.fetchAppleKeys()
+	keys, err = s.fetchAppleKeys(ctx)
 }
 
-// fetchAppleKeys downloads Apple's JWK set and parses it into RSA public keys
-func (s *AppleAuthService) fetchAppleKeys() (map[string]*rsa.PublicKey, error) {
+// fetchAppleKeys downloads Apple's JWK set and parses it into RSA public keys.
+// Entries that cannot verify an RS256 signature are left out.
+func (s *AppleAuthService) fetchAppleKeys(ctx context.Context) (map[string]*rsa.PublicKey, error) {
 	keysURL := appleKeysURL
 	if s.fetchAppleKeysFromURL != "" {
 		keysURL = s.fetchAppleKeysFromURL
 	}
-	resp, err := s.keysClient().Get(keysURL)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, keysURL, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to build Apple keys request: %w", err)
+	}
+	resp, err := s.keysClient().Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch Apple keys: %w", err)
 	}
@@ -415,42 +450,63 @@ func (s *AppleAuthService) fetchAppleKeys() (map[string]*rsa.PublicKey, error) {
 		return nil, fmt.Errorf("apple keys endpoint returned status %d", resp.StatusCode)
 	}
 
+	body, err := io.ReadAll(io.LimitReader(resp.Body, appleKeysMaxBodyBytes+1))
+	if err != nil {
+		return nil, fmt.Errorf("failed to read Apple JWK set: %w", err)
+	}
+	if len(body) > appleKeysMaxBodyBytes {
+		return nil, fmt.Errorf("apple JWK set exceeds %d bytes", appleKeysMaxBodyBytes)
+	}
+
 	var jwkSet appleJWKSet
-	if err := json.NewDecoder(resp.Body).Decode(&jwkSet); err != nil {
+	if err := json.Unmarshal(body, &jwkSet); err != nil {
 		return nil, fmt.Errorf("failed to decode Apple JWK set: %w", err)
 	}
 
 	keys := make(map[string]*rsa.PublicKey)
 	for _, jwk := range jwkSet.Keys {
-		if jwk.Kty != "RSA" {
-			continue
-		}
-
-		nBytes, err := base64.RawURLEncoding.DecodeString(jwk.N)
+		key, err := jwk.rs256PublicKey()
 		if err != nil {
-			return nil, fmt.Errorf("failed to decode modulus for kid %s: %w", jwk.Kid, err)
+			return nil, err
 		}
-
-		eBytes, err := base64.RawURLEncoding.DecodeString(jwk.E)
-		if err != nil {
-			return nil, fmt.Errorf("failed to decode exponent for kid %s: %w", jwk.Kid, err)
-		}
-
-		n := new(big.Int).SetBytes(nBytes)
-		e := new(big.Int).SetBytes(eBytes)
-
-		keys[jwk.Kid] = &rsa.PublicKey{
-			N: n,
-			E: int(e.Int64()),
+		if key != nil {
+			keys[jwk.Kid] = key
 		}
 	}
 
-	// A set with no RSA key would replace a working one and answer every
+	// A set with no usable key would replace a working one and answer every
 	// lookup with a miss, so it counts as a failed fetch.
 	if len(keys) == 0 {
-		return nil, errors.New("apple JWK set contained no RSA keys")
+		return nil, errors.New("apple JWK set contained no RSA keys usable for RS256")
 	}
 	return keys, nil
+}
+
+// rs256PublicKey returns the RSA public key jwk holds, or nil when jwk cannot
+// verify an RS256 signature: a kty other than RSA, a use other than "sig" or
+// an alg other than "RS256" (use and alg count only when present), a zero
+// modulus, or an exponent outside the range crypto/rsa accepts. A modulus or
+// exponent that is not base64url is an error.
+func (jwk appleJWK) rs256PublicKey() (*rsa.PublicKey, error) {
+	if jwk.Kty != "RSA" || (jwk.Use != "" && jwk.Use != "sig") || (jwk.Alg != "" && jwk.Alg != "RS256") {
+		return nil, nil
+	}
+
+	nBytes, err := base64.RawURLEncoding.DecodeString(jwk.N)
+	if err != nil {
+		return nil, fmt.Errorf("failed to decode modulus for kid %s: %w", jwk.Kid, err)
+	}
+	eBytes, err := base64.RawURLEncoding.DecodeString(jwk.E)
+	if err != nil {
+		return nil, fmt.Errorf("failed to decode exponent for kid %s: %w", jwk.Kid, err)
+	}
+
+	n := new(big.Int).SetBytes(nBytes)
+	e := new(big.Int).SetBytes(eBytes)
+	if n.Sign() == 0 || !e.IsInt64() || e.Int64() < 2 || e.Int64() > math.MaxInt32 {
+		return nil, nil
+	}
+	return &rsa.PublicKey{N: n, E: int(e.Int64())}, nil
 }
 
 func (s *AppleAuthService) keysClient() *http.Client {

@@ -1,15 +1,26 @@
 package auth
 
 import (
+	"bytes"
 	"context"
+	"crypto/rand"
+	"crypto/rsa"
+	"encoding/base64"
+	"io"
+	"log/slog"
+	"math/big"
+	"net/http"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/golang-jwt/jwt/v5"
 
 	"psychic-homily-backend/internal/api/handlers/shared/testhelpers"
 	autherrors "psychic-homily-backend/internal/errors"
+	"psychic-homily-backend/internal/logger"
 	authm "psychic-homily-backend/internal/models/auth"
+	authsvc "psychic-homily-backend/internal/services/auth"
 	"psychic-homily-backend/internal/services/contracts"
 )
 
@@ -49,7 +60,7 @@ type mockAppleAuthService struct {
 	findErr error
 }
 
-func (m *mockAppleAuthService) ValidateIdentityToken(string) (*contracts.AppleIdentityTokenClaims, error) {
+func (m *mockAppleAuthService) ValidateIdentityToken(context.Context, string) (*contracts.AppleIdentityTokenClaims, error) {
 	return &contracts.AppleIdentityTokenClaims{
 		Email:            "apple@example.com",
 		RegisteredClaims: jwt.RegisteredClaims{Subject: "apple-sub-1"},
@@ -125,5 +136,92 @@ func TestAppleCallbackHandler_NameGuard(t *testing.T) {
 				t.Errorf("last_name reaching the service = %q, want %q", svc.gotLastName, tc.wantLast)
 			}
 		})
+	}
+}
+
+// roundTripFunc adapts a function to http.RoundTripper.
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
+
+// stubAppleKeyEndpoint answers every request to Apple's key host with body for
+// the rest of the test. The Apple service's default client has no transport of
+// its own, so its fetches go through http.DefaultTransport.
+func stubAppleKeyEndpoint(t *testing.T, body []byte) {
+	t.Helper()
+	orig := http.DefaultTransport
+	http.DefaultTransport = roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		if r.URL.Hostname() != "appleid.apple.com" {
+			return orig.RoundTrip(r)
+		}
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Header:     http.Header{"Content-Type": {"application/json"}},
+			Body:       io.NopCloser(bytes.NewReader(body)),
+			Request:    r,
+		}, nil
+	})
+	t.Cleanup(func() { http.DefaultTransport = orig })
+}
+
+// The key id in an identity token header is caller-supplied text. A token
+// whose key id Apple's set lacks is refused, and no warn-or-higher record of
+// the attempt carries more than the id's first 8 characters.
+func TestAppleCallbackHandler_TokenInvalidLogBoundsKeyID(t *testing.T) {
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatal(err)
+	}
+	n := base64.RawURLEncoding.EncodeToString(key.N.Bytes())
+	e := base64.RawURLEncoding.EncodeToString(big.NewInt(int64(key.E)).Bytes())
+	stubAppleKeyEndpoint(t, []byte(`{"keys":[{"kty":"RSA","kid":"known-kid","use":"sig","alg":"RS256","n":"`+n+`","e":"`+e+`"}]}`))
+
+	cfg := testConfig()
+	cfg.Apple.BundleID = "com.psychichomily.ios"
+	h := NewAppleAuthHandler(authsvc.NewAppleAuthService(nil, cfg, nil), &testhelpers.MockDiscordService{}, cfg)
+
+	callerKid := "kid-from-the-caller-" + strings.Repeat("z", 64)
+	token := jwt.NewWithClaims(jwt.SigningMethodRS256, jwt.MapClaims{
+		"iss": "https://appleid.apple.com",
+		"aud": cfg.Apple.BundleID,
+		"sub": "apple-sub-1",
+		"exp": time.Now().Add(time.Hour).Unix(),
+		"iat": time.Now().Unix(),
+	})
+	token.Header["kid"] = callerKid
+	signed, err := token.SignedString(key)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var logs bytes.Buffer
+	ctx := logger.NewContext(context.Background(), slog.New(slog.NewTextHandler(&logs, &slog.HandlerOptions{Level: slog.LevelDebug})))
+	input := &AppleCallbackRequest{}
+	input.Body.IdentityToken = signed
+	resp, err := h.AppleCallbackHandler(ctx, input)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if resp.Body.ErrorCode != autherrors.CodeTokenInvalid {
+		t.Fatalf("error_code = %q, want %q", resp.Body.ErrorCode, autherrors.CodeTokenInvalid)
+	}
+
+	sawRefusal := false
+	for _, line := range strings.Split(logs.String(), "\n") {
+		if !strings.Contains(line, "level=WARN") && !strings.Contains(line, "level=ERROR") {
+			continue
+		}
+		if strings.Contains(line, "msg=apple_auth_token_invalid") {
+			sawRefusal = true
+			if !strings.Contains(line, callerKid[:8]) {
+				t.Errorf("the refusal should carry the key id's first 8 characters: %s", line)
+			}
+		}
+		if strings.Contains(line, callerKid[:9]) {
+			t.Errorf("a warn-or-higher record carries more than 8 characters of the caller's key id: %s", line)
+		}
+	}
+	if !sawRefusal {
+		t.Fatalf("no apple_auth_token_invalid warning was logged:\n%s", logs.String())
 	}
 }
