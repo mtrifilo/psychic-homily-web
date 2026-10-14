@@ -447,10 +447,10 @@ function labelArtistList(artists: LabelCandidateArtist[], distinct: number): str
  */
 export function formatLabelCandidateReport(listing: LabelCandidateListing): string[] {
   const lines: string[] = [
-    `Label candidates as of ${listing.as_of}: plays aired ${listing.window_start} or later ` +
+    `Label candidates as of ${listing.as_of}: plays aired ${listing.window_start} through ${listing.as_of} ` +
       `(${listing.window_days} days); floor ${listing.min_station_rows} station rows.`,
-    `Rising: plays aired ${listing.recent_start} or later at least ${listing.min_velocity}x those aired ` +
-      `${listing.prior_start} to the day before (${listing.velocity_days}-day windows), ` +
+    `Rising: plays aired ${listing.recent_start} through ${listing.as_of} at least ${listing.min_velocity}x those aired ` +
+      `${listing.prior_start} through the day before ${listing.recent_start} (${listing.velocity_days}-day windows), ` +
       `or at least ${listing.min_new_plays} when there were none.`,
     `${listing.total} in the requested lanes (${listing.auto_total} auto, ${listing.human_total} human overall); ` +
       `showing ${listing.candidates.length}.`,

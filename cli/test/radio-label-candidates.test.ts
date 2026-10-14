@@ -61,8 +61,8 @@ describe("formatLabelCandidateReport", () => {
   test("prints the windows, floors and totals, then one block per candidate", () => {
     const lines = formatLabelCandidateReport(listing([candidate({})]));
     expect(lines.slice(0, 4)).toEqual([
-      "Label candidates as of 2026-07-24: plays aired 2026-01-26 or later (180 days); floor 2 station rows.",
-      "Rising: plays aired 2026-06-25 or later at least 1.5x those aired 2026-05-26 to the day before (30-day windows), or at least 3 when there were none.",
+      "Label candidates as of 2026-07-24: plays aired 2026-01-26 through 2026-07-24 (180 days); floor 2 station rows.",
+      "Rising: plays aired 2026-06-25 through 2026-07-24 at least 1.5x those aired 2026-05-26 through the day before 2026-06-25 (30-day windows), or at least 3 when there were none.",
       "526 in the requested lanes (0 auto, 526 human overall); showing 1.",
       "71 plays counted toward no candidate (the label name normalizes to empty).",
     ]);
@@ -115,12 +115,35 @@ describe("formatLabelCandidateReport", () => {
     expect(formatLabelCandidateReport(listing([]))).toHaveLength(4);
   });
 
-  test("control characters from playlist text print as replacement characters", () => {
+  test("control characters from playlist text print as replacement characters in every field", () => {
+    const bad = "\u001b[2K\u202e\u2066\u200B";
     const lines = formatLabelCandidateReport(
-      listing([candidate({ display_name: "p(doom)\u001b[2K‮ Records" })]),
+      listing([
+        candidate({
+          display_name: `p(doom)${bad} Records`,
+          label_key: `p(doom)${bad}`,
+          artists: [{ name: `GUM${bad}`, play_count: 6, artist_ids: [] }],
+          release_names: [{ name: `Island${bad}`, play_count: 1 }],
+          stations: [{ station_id: 7, slug: `kexp${bad}`, name: `KEXP${bad}`, play_count: 30 }],
+        }),
+      ]),
     );
     const text = lines.join(" | ");
-    expect(text).not.toMatch(/[\u0000-\u001f\u007f-\u009f‪-‮]/);
-    expect(text).toContain("p(doom)�[2K� Records");
+    expect(text).not.toMatch(/[\u0000-\u001f\u007f-\u009f\u200B\u202a-\u202e\u2066-\u2069]/);
+    expect(text).toContain("p(doom)\uFFFD[2K\uFFFD\uFFFD\uFFFD Records");
+  });
+
+  test("the station line falls back to none and the release ids omit an equal distinct count", () => {
+    const lines = formatLabelCandidateReport(
+      listing([
+        candidate({
+          stations: [],
+          mb_release_ids: ["11111111-1111-4111-8111-111111111111"],
+          mb_release_id_count: 1,
+        }),
+      ]),
+    );
+    expect(lines).toContain("       stations: none");
+    expect(lines).toContain("       mb releases: 11111111-1111-4111-8111-111111111111");
   });
 });

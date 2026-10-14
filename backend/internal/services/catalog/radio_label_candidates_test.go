@@ -38,7 +38,7 @@ func TestRadioLabelCandidateScore(t *testing.T) {
 		stationRows, plays, rec, pri int
 		wantVelocity, wantScore      float64
 	}{
-		{"floor: 2 rows, 2 plays, 2 recent over 1 prior", 2, 2, 2, 1, 2, 2 * math.Log(2) * 2},
+		{"fewest qualifying plays: 2 rows, 2 recent over 1 prior", 2, 3, 2, 1, 2, 2 * math.Log(3) * 2},
 		{"no prior plays: velocity is the recent count", 3, 10, 4, 0, 4, 3 * math.Log(10) * 4},
 		{"ratio", 5, 100, 30, 20, 1.5, 5 * math.Log(100) * 1.5},
 	}

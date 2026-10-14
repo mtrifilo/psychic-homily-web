@@ -17,23 +17,25 @@ import (
 )
 
 // A label candidate is a label key, radio_normalize_name of the raw label
-// name, ranked from its counted plays. A counted play aired in the window
-// (RadioCandidateWindowDays), is not excluded for the label ranking
-// (RadioPlayExcludedSQL), and has a label name that normalizes to a non-empty
-// key. The match state does not matter: it describes the artist match.
+// name, ranked from its counted plays. A counted play's episode air date lies
+// in the window (RadioCandidateWindowDays days ending on the current UTC
+// date, both ends included, so an episode dated later is not counted), it is
+// not excluded for the label ranking (RadioPlayExcludedSQL), and its label
+// name normalizes to a non-empty key. The match state does not matter: it
+// describes the artist match.
 //
 // A key qualifies when its counted plays clear the station floor, it is rising
 // (RadioLabelIsRising over the recent and prior velocity windows), and neither
 // of the following holds:
 //   - any play of the key, at any time, is linked to a label;
-//   - a catalog label's name normalizes to the key, the matcher's only label
-//     rung (matchLabel).
+//   - a catalog label's name, through radio_normalize_name, equals the key.
+//     The label matcher (matchLabel) compares the same SQL normalization of
+//     the catalog name with its Go normalization of the play's name.
 
 const (
 	// RadioLabelVelocityDays is the length of each velocity window. The
 	// recent window is the last RadioLabelVelocityDays days of the candidate
-	// window, ending on the current UTC date with no upper bound; the prior
-	// window is the RadioLabelVelocityDays days before it.
+	// window; the prior window is the RadioLabelVelocityDays days before it.
 	RadioLabelVelocityDays = 30
 	// RadioLabelMinVelocity is the rising rule for a key with prior plays:
 	// its recent plays must be at least this multiple of its prior plays.
@@ -90,7 +92,7 @@ type radioLabelCandidateRow struct {
 // radioLabelCandidatePlaysFrom joins a play to its episode, show and station,
 // exposes its label key as k.label_key, and keeps the plays in the window that
 // are not excluded for the label ranking. Keyability is left to the caller.
-// Its one parameter is the window's first air date.
+// Its parameters are the window's first and last air dates.
 var radioLabelCandidatePlaysFrom = `
 FROM radio_plays p
 JOIN radio_episodes e ON e.id = p.episode_id
@@ -98,14 +100,16 @@ JOIN radio_shows sh ON sh.id = e.show_id
 JOIN radio_stations st ON st.id = sh.station_id
 CROSS JOIN LATERAL (SELECT radio_normalize_name(p.label_name) AS label_key) k
 WHERE e.air_date >= ?::date
+  AND e.air_date <= ?::date
   AND NOT (` + RadioPlayExcludedSQL(RadioRankingLabel, radioCandidatePlayCols) + `)`
 
 // radioLabelCandidatesSQL returns every key that clears the station floor and
 // is neither linked nor a catalog label name, with its counts, or, when no key
 // does, one row whose label_key is NULL; every row carries the number of
 // in-window plays whose label name normalizes to empty. The rising rule is
-// applied by the caller. Parameters: the window's first air date, the recent
-// window's first air date twice, then the prior window's first air date.
+// applied by the caller. Parameters: the window's first and last air dates,
+// the recent window's first air date twice, then the prior window's first air
+// date.
 var radioLabelCandidatesSQL = `
 WITH plays AS MATERIALIZED (
   SELECT k.label_key,
@@ -173,11 +177,17 @@ const (
 
 // radioLabelEvidenceNamesSQL ranks the names in a column of the label
 // evidence query's counted CTE: names group by radio_normalize_name, show
-// their most common trimmed spelling and count all their plays. refIDs is the
-// aggregate the ref_ids column carries for each name, SQL built from
-// constants. Panics on a column that is not an identifier.
-func radioLabelEvidenceNamesSQL(kind, column, refIDs string) string {
+// their most common trimmed spelling and count all their plays, and only rows
+// where onlyWhere (a boolean column of counted, or "" for every row) holds
+// contribute. refIDs is the aggregate the ref_ids column carries for each
+// name, SQL built from constants. Panics on a column that is not an
+// identifier.
+func radioLabelEvidenceNamesSQL(kind, column, onlyWhere, refIDs string) string {
 	col := mustSQLColumnRef(column)
+	filter := "true"
+	if onlyWhere != "" {
+		filter = "c." + mustSQLColumnRef(onlyWhere)
+	}
 	return fmt.Sprintf(`
 SELECT '%[1]s' AS kind, label_key, 0 AS ref_id, name, '' AS slug,
        play_count::int AS play_count, distinct_count::int AS distinct_count, ref_ids, rn
@@ -193,24 +203,26 @@ FROM (
       SELECT c.*, radio_normalize_name(c.%[2]s) AS norm, btrim(c.%[2]s) AS spelling,
              count(*) OVER (PARTITION BY c.label_key, btrim(c.%[2]s)) AS spelling_count
       FROM counted c
-      WHERE c.%[2]s ~ '[^[:space:]]'
+      WHERE c.%[2]s ~ '[^[:space:]]' AND %[5]s
     ) spellings
     WHERE norm <> ''
     GROUP BY label_key, norm
   ) names
 ) ranked
-WHERE rn <= %[4]d`, kind, col, refIDs, radioCandidateTopNames)
+WHERE rn <= %[4]d`, kind, col, refIDs, radioCandidateTopNames, filter)
 }
 
 // radioLabelCandidateEvidenceSQL returns the evidence rows of the selected
-// keys, one radioLabelEvidenceRow per row. Parameters: the window's first air
-// date, then the keys.
+// keys, one radioLabelEvidenceRow per row. The artists list skips plays the
+// artist ranking excludes, such as placeholder artist names. Parameters: the
+// window's first and last air dates, then the keys.
 var radioLabelCandidateEvidenceSQL = `
 WITH counted AS MATERIALIZED (
   SELECT k.label_key,
          p.label_name, p.artist_name, p.artist_id, p.album_title,
          CASE WHEN btrim(p.musicbrainz_release_id) ~ '` + mbidUUIDPattern + `'
               THEN lower(btrim(p.musicbrainz_release_id)) END AS mb_release_id,
+         NOT ` + RadioPlayExcludedSQL(RadioRankingArtist, radioCandidatePlayCols) + ` AS artist_counts,
          sh.station_id
   ` + radioLabelCandidatePlaysFrom + `
     AND k.label_key = ANY (?::text[])
@@ -232,9 +244,9 @@ SELECT '` + radioEvidenceStation + `' AS kind, c.label_key, st.id AS ref_id, st.
 FROM counted c
 JOIN radio_stations st ON st.id = c.station_id
 GROUP BY c.label_key, st.id, st.name, st.slug
-UNION ALL` + radioLabelEvidenceNamesSQL(radioLabelEvidenceArtist, "artist_name",
+UNION ALL` + radioLabelEvidenceNamesSQL(radioLabelEvidenceArtist, "artist_name", "artist_counts",
 	`coalesce(array_agg(DISTINCT artist_id::bigint ORDER BY artist_id::bigint) FILTER (WHERE artist_id IS NOT NULL), '{}')`) + `
-UNION ALL` + radioLabelEvidenceNamesSQL(radioLabelEvidenceRelease, "album_title", `'{}'::bigint[]`) + `
+UNION ALL` + radioLabelEvidenceNamesSQL(radioLabelEvidenceRelease, "album_title", "", `'{}'::bigint[]`) + `
 UNION ALL
 SELECT '` + radioLabelEvidenceMBRelease + `' AS kind, label_key, 0 AS ref_id, mb_release_id AS name, '' AS slug,
        play_count::int AS play_count, distinct_count::int AS distinct_count, '{}'::bigint[] AS ref_ids, rn
@@ -291,7 +303,7 @@ func (r *RadioCandidatesReader) ListLabelCandidates(ctx context.Context, q contr
 		}
 		var rows []radioLabelCandidateRow
 		if err := tx.Raw(radioLabelCandidatesSQL,
-			listing.WindowStart, listing.RecentStart, listing.RecentStart, listing.PriorStart,
+			listing.WindowStart, listing.AsOf, listing.RecentStart, listing.RecentStart, listing.PriorStart,
 		).Scan(&rows).Error; err != nil {
 			return fmt.Errorf("ranking label candidates: %w", err)
 		}
@@ -318,7 +330,7 @@ func (r *RadioCandidatesReader) ListLabelCandidates(ctx context.Context, q contr
 				listing.Candidates = append(listing.Candidates, c)
 			}
 		}
-		return attachRadioLabelCandidateEvidence(tx, listing.WindowStart, listing.Candidates)
+		return attachRadioLabelCandidateEvidence(tx, listing.WindowStart, listing.AsOf, listing.Candidates)
 	}, &sql.TxOptions{Isolation: sql.LevelRepeatableRead, ReadOnly: true})
 	if err != nil {
 		return nil, err
@@ -343,9 +355,13 @@ func rankRadioLabelCandidates(rows []radioLabelCandidateRow, sort contracts.Radi
 	for _, row := range rows {
 		candidates = append(candidates, contracts.RadioLabelCandidate{
 			LabelKey: *row.LabelKey,
-			// Plays carry no MusicBrainz label id, so no label has the one id
-			// the auto lane needs.
-			Lane:               RadioCandidateLaneFor(RadioCandidateLaneFacts{StationRows: row.StationRowCount, NonLatinSpelling: row.NonLatinSpelling}),
+			// Plays carry no MusicBrainz label id, so DistinctMBIDs is zero
+			// and RadioCandidateLaneFor returns the human lane for every row.
+			Lane: RadioCandidateLaneFor(RadioCandidateLaneFacts{
+				StationRows:      row.StationRowCount,
+				DistinctMBIDs:    0,
+				NonLatinSpelling: row.NonLatinSpelling,
+			}),
 			Score:              RadioLabelCandidateScore(row.StationRowCount, row.PlayCount, row.RecentPlayCount, row.PriorPlayCount),
 			Velocity:           RadioLabelVelocity(row.RecentPlayCount, row.PriorPlayCount),
 			PlayCount:          row.PlayCount,
@@ -382,7 +398,7 @@ func rankRadioLabelCandidates(rows []radioLabelCandidateRow, sort contracts.Radi
 
 // attachRadioLabelCandidateEvidence fills the display name and evidence lists
 // of the candidates in place.
-func attachRadioLabelCandidateEvidence(tx *gorm.DB, windowStart string, candidates []contracts.RadioLabelCandidate) error {
+func attachRadioLabelCandidateEvidence(tx *gorm.DB, windowStart, windowEnd string, candidates []contracts.RadioLabelCandidate) error {
 	if len(candidates) == 0 {
 		return nil
 	}
@@ -393,7 +409,7 @@ func attachRadioLabelCandidateEvidence(tx *gorm.DB, windowStart string, candidat
 		byKey[keys[i]] = &candidates[i]
 	}
 	var rows []radioLabelEvidenceRow
-	if err := tx.Raw(radioLabelCandidateEvidenceSQL, windowStart, pq.Array(keys)).Scan(&rows).Error; err != nil {
+	if err := tx.Raw(radioLabelCandidateEvidenceSQL, windowStart, windowEnd, pq.Array(keys)).Scan(&rows).Error; err != nil {
 		return fmt.Errorf("reading label candidate evidence: %w", err)
 	}
 	for _, row := range rows {

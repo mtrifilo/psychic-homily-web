@@ -245,6 +245,67 @@ func (s *RadioLabelCandidatesIntegrationSuite) TestExcludedNamesAreExcluded() {
 	listing := s.list(contracts.RadioCandidateLaneFilterAll, contracts.RadioLabelCandidateSortScore, 50)
 	s.Empty(listing.Candidates)
 	s.Equal(int64(4), listing.UnkeyablePlays, "the empty-key plays are counted when no key qualifies")
+
+	// A placeholder artist excludes the play from the artist ranking only.
+	s.addAcross(labelPlay{label: "T Compilation Label", artist: "Various Artists"}, 2)
+	listing = s.list(contracts.RadioCandidateLaneFilterAll, contracts.RadioLabelCandidateSortScore, 50)
+	s.Require().Len(listing.Candidates, 1)
+	s.Equal("t compilation label", listing.Candidates[0].LabelKey)
+	s.Equal(4, listing.Candidates[0].PlayCount)
+	s.Empty(listing.Candidates[0].Artists, "a placeholder artist is not artist evidence")
+	s.Zero(listing.Candidates[0].ArtistCount)
+	s.Equal(int64(4), listing.UnkeyablePlays, "the empty-key plays are counted when a key qualifies")
+}
+
+func (s *RadioLabelCandidatesIntegrationSuite) TestFutureEpisodesAreNotCounted() {
+	// One prior play per station and one recent play per station: flat.
+	s.addAcross(labelPlay{label: "T Flat Label", date: labelTestPrior}, 1)
+	s.addAcross(labelPlay{label: "T Flat Label"}, 1)
+	// An episode dated after as_of carries plays before it airs.
+	s.addAcross(labelPlay{label: "T Flat Label", date: "2026-08-07"}, 2)
+	// A label seen only on future episodes has no counted plays.
+	s.addAcross(labelPlay{label: "T Future Only", date: "2026-08-01"}, 3)
+
+	got := s.all()
+	s.NotContains(got, "t flat label", "future plays do not make a flat label rise")
+	s.NotContains(got, "t future only")
+}
+
+func (s *RadioLabelCandidatesIntegrationSuite) TestStationFloorCountsTheWholeWindow() {
+	// Every velocity-window play is on t-kexp; the second station row aired
+	// only before the prior window, still inside the 180-day window.
+	s.add(labelPlay{station: "t-kexp", label: "T Older Second Row"}, 3)
+	s.add(labelPlay{station: "t-wfmu", label: "T Older Second Row", date: labelTestOlder}, 1)
+
+	got := s.all()
+	s.Require().Contains(got, "t older second row")
+	s.Equal(2, got["t older second row"].StationRowCount)
+	s.Equal(3, got["t older second row"].RecentPlayCount)
+	s.Equal(0, got["t older second row"].PriorPlayCount)
+}
+
+func (s *RadioLabelCandidatesIntegrationSuite) TestEvidenceListsAreCapped() {
+	for i := range 7 {
+		s.add(labelPlay{
+			station:   []string{"t-kexp", "t-wfmu"}[i%2],
+			label:     "T Big Label",
+			artist:    fmt.Sprintf("T Capped Artist %d", i),
+			album:     fmt.Sprintf("T Capped Album %d", i),
+			mbRelease: fmt.Sprintf("%08x-1111-4111-8111-111111111111", i),
+		}, 7-i)
+	}
+
+	got := s.all()
+	s.Require().Contains(got, "t big label")
+	c := got["t big label"]
+	s.Len(c.Artists, 5)
+	s.Equal(7, c.ArtistCount)
+	s.Equal("T Capped Artist 0", c.Artists[0].Name)
+	s.Len(c.ReleaseNames, 5)
+	s.Equal(7, c.ReleaseNameCount)
+	s.Len(c.MBReleaseIDs, 5)
+	s.Equal(7, c.MBReleaseIDCount)
+	s.Equal("00000000-1111-4111-8111-111111111111", c.MBReleaseIDs[0])
 }
 
 func (s *RadioLabelCandidatesIntegrationSuite) TestLinkedLabelsAreNotCandidates() {
@@ -435,26 +496,27 @@ func (s *RadioLabelCandidatesIntegrationSuite) TestNonLatinSpelling() {
 }
 
 func (s *RadioLabelCandidatesIntegrationSuite) TestSortsAndRecentPlayTieBreak() {
-	// 20 plays, velocity 20 / 10 = 2.
-	s.add(labelPlay{station: "t-kexp", label: "T Plays"}, 19)
+	// 50 plays, 40 recent over 10 prior: velocity 4, score 2 x ln 50 x 4 = 31.3.
+	s.add(labelPlay{station: "t-kexp", label: "T Plays"}, 39)
 	s.add(labelPlay{station: "t-wfmu", label: "T Plays"}, 1)
 	s.add(labelPlay{station: "t-kexp", label: "T Plays", date: labelTestPrior}, 10)
+	// 3 rows, 3 new plays: velocity 3, score 3 x ln 3 x 3 = 9.9.
 	for _, st := range []string{"t-kexp", "t-wfmu", "t-rocknsoul"} {
 		s.add(labelPlay{station: st, label: "T Stations"}, 1)
 	}
-	// 6 recent over 1 prior: velocity 6.
-	s.addAcross(labelPlay{label: "T Velocity"}, 3)
+	// 6 plays, 5 recent over 1 prior: velocity 5, score 2 x ln 6 x 5 = 17.9.
+	s.add(labelPlay{station: "t-kexp", label: "T Velocity"}, 3)
+	s.add(labelPlay{station: "t-wfmu", label: "T Velocity"}, 2)
 	s.add(labelPlay{station: "t-kexp", label: "T Velocity", date: labelTestPrior}, 1)
-	// Identical counts; T Recent aired later.
+	// Identical counts (velocity 4, score 11.1); T Recent aired later.
 	s.addAcross(labelPlay{label: "T Earlier", date: "2026-07-03"}, 2)
 	s.addAcross(labelPlay{label: "T Recent", date: "2026-07-25"}, 2)
 
 	keys := func(sort contracts.RadioLabelCandidateSort) []string {
 		return labelCandidateKeys(s.list(contracts.RadioCandidateLaneFilterAll, sort, 10).Candidates)
 	}
+	s.Equal([]string{"t plays", "t velocity", "t recent", "t earlier", "t stations"}, keys(contracts.RadioLabelCandidateSortScore))
+	s.Equal([]string{"t velocity", "t plays", "t recent", "t earlier", "t stations"}, keys(contracts.RadioLabelCandidateSortVelocity))
 	s.Equal("t plays", keys(contracts.RadioLabelCandidateSortPlays)[0])
 	s.Equal("t stations", keys(contracts.RadioLabelCandidateSortStations)[0])
-	s.Equal("t velocity", keys(contracts.RadioLabelCandidateSortVelocity)[0])
-	byScore := keys(contracts.RadioLabelCandidateSortScore)
-	s.Less(indexOf(byScore, "t recent"), indexOf(byScore, "t earlier"))
 }
