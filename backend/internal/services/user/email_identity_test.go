@@ -49,11 +49,12 @@ func (suite *UserServiceIntegrationTestSuite) TestGetUserByEmailIncludingDeleted
 	deletedAt := time.Now().UTC().Add(-24 * time.Hour)
 	user := &authm.User{
 		Email:         stringPtr("Deleted.Case@Example.com"),
-		IsActive:      false,
+		IsActive:      true,
 		EmailVerified: true,
-		DeletedAt:     &deletedAt,
 	}
 	suite.Require().NoError(suite.db.Create(user).Error)
+	suite.Require().NoError(suite.db.Model(user).
+		Updates(map[string]any{"is_active": false, "deleted_at": deletedAt}).Error)
 
 	found, err := suite.userService.GetUserByEmailIncludingDeleted("deleted.case@example.com")
 	suite.Require().NoError(err)

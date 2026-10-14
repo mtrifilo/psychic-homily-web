@@ -41,24 +41,34 @@ func TestIsLocalDB_UnparseableFailsSafe(t *testing.T) {
 	assert.False(t, isLocalDB(""))
 }
 
-func TestEnsureAccountUsable_ActiveUserPasses(t *testing.T) {
-	user := &authm.User{IsActive: true, Email: strPtr("ok@test.com")}
-	assert.NoError(t, ensureAccountUsable(user))
-}
-
-func TestEnsureAccountUsable_SoftDeletedRejected(t *testing.T) {
+// ensureAccountUsable must agree with User.CanSignIn on every combination of
+// the two fields, including the one users_live_account_check refuses, so the
+// CLI never mints a token the API-token validator would reject.
+func TestEnsureAccountUsable_AgreesWithCanSignIn(t *testing.T) {
 	now := time.Now()
-	user := &authm.User{IsActive: true, DeletedAt: &now, Email: strPtr("gone@test.com")}
-	err := ensureAccountUsable(user)
-	require.Error(t, err, "soft-deleted accounts can be self-restored, reviving any token minted here")
-	assert.Contains(t, err.Error(), "soft-deleted")
-}
+	cases := []struct {
+		name        string
+		user        *authm.User
+		wantMessage string // empty when the account is usable
+	}{
+		{name: "live", user: &authm.User{IsActive: true, Email: strPtr("ok@test.com")}},
+		{name: "deactivated", user: &authm.User{IsActive: false, Email: strPtr("off@test.com")}, wantMessage: "not active"},
+		{name: "soft-deleted", user: &authm.User{IsActive: false, DeletedAt: &now, Email: strPtr("gone@test.com")}, wantMessage: "soft-deleted"},
+		{name: "active with deleted_at set", user: &authm.User{IsActive: true, DeletedAt: &now, Email: strPtr("gap@test.com")}, wantMessage: "soft-deleted"},
+	}
 
-func TestEnsureAccountUsable_InactiveRejected(t *testing.T) {
-	user := &authm.User{IsActive: false, Email: strPtr("off@test.com")}
-	err := ensureAccountUsable(user)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "not active")
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			err := ensureAccountUsable(tc.user)
+			assert.Equal(t, tc.user.CanSignIn(), err == nil, "ensureAccountUsable and CanSignIn disagree")
+			if tc.wantMessage == "" {
+				assert.NoError(t, err)
+				return
+			}
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), tc.wantMessage)
+		})
+	}
 }
 
 func TestEnsureAccountUsable_NilEmailDoesNotPanic(t *testing.T) {

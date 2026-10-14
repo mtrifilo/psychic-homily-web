@@ -206,14 +206,14 @@ func (suite *APITokenIntegrationTestSuite) TestValidateToken_InactiveUser() {
 	suite.Equal("user account is not active", err.Error())
 }
 
-func (suite *APITokenIntegrationTestSuite) TestValidateToken_SoftDeletedActiveUser() {
+func (suite *APITokenIntegrationTestSuite) TestValidateToken_SoftDeletedUser() {
 	user := suite.createTestUser(true, true)
 	createResp, err := suite.svc.CreateToken(user.ID, nil, 90)
 	suite.Require().NoError(err)
 
 	suite.Require().NoError(suite.db.Model(&authm.User{}).
 		Where("id = ?", user.ID).
-		Update("deleted_at", time.Now()).Error)
+		Updates(map[string]any{"is_active": false, "deleted_at": time.Now()}).Error)
 
 	_, _, err = suite.svc.ValidateToken(createResp.Token)
 	suite.Require().Error(err)

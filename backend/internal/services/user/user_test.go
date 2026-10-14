@@ -1024,14 +1024,12 @@ func (suite *UserServiceIntegrationTestSuite) TestRestoreAccount_Success() {
 	now := time.Now()
 	reason := "testing"
 	user := &authm.User{
-		Email:          stringPtr("restoreacct@example.com"),
-		IsActive:       true, // create as true first (GORM zero-value gotcha)
-		DeletedAt:      &now,
-		DeletionReason: &reason,
+		Email:    stringPtr("restoreacct@example.com"),
+		IsActive: true, // create as true first (GORM zero-value gotcha)
 	}
-	suite.db.Create(user)
-	// Then set is_active to false
-	suite.db.Model(&authm.User{}).Where("id = ?", user.ID).Update("is_active", false)
+	suite.Require().NoError(suite.db.Create(user).Error)
+	suite.Require().NoError(suite.db.Model(&authm.User{}).Where("id = ?", user.ID).
+		Updates(map[string]any{"is_active": false, "deleted_at": now, "deletion_reason": reason}).Error)
 
 	err := suite.userService.RestoreAccount(user.ID)
 	suite.Require().NoError(err)
@@ -1466,12 +1464,12 @@ func (suite *UserServiceIntegrationTestSuite) TestGetUserByEmailIncludingDeleted
 func (suite *UserServiceIntegrationTestSuite) TestGetUserByEmailIncludingDeleted_Deleted() {
 	now := time.Now()
 	user := &authm.User{
-		Email:     stringPtr("incldeleted-gone@example.com"),
-		IsActive:  true,
-		DeletedAt: &now,
+		Email:    stringPtr("incldeleted-gone@example.com"),
+		IsActive: true,
 	}
-	suite.db.Create(user)
-	suite.db.Model(&authm.User{}).Where("id = ?", user.ID).Update("is_active", false)
+	suite.Require().NoError(suite.db.Create(user).Error)
+	suite.Require().NoError(suite.db.Model(&authm.User{}).Where("id = ?", user.ID).
+		Updates(map[string]any{"is_active": false, "deleted_at": now}).Error)
 
 	found, err := suite.userService.GetUserByEmailIncludingDeleted("incldeleted-gone@example.com")
 	suite.Require().NoError(err)
