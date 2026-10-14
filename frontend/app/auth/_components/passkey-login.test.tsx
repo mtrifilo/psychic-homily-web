@@ -22,6 +22,14 @@ vi.mock('@simplewebauthn/browser', () => ({
   startAuthentication: (...args: unknown[]) => mockStartAuthentication(...args),
 }))
 
+// The components must resolve the backend through lib/api-base like every
+// other data request, never from NEXT_PUBLIC_API_URL on their own: unset, that
+// read skips the same-origin /api proxy.
+vi.mock('@/lib/api-base', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/lib/api-base')>()),
+  API_BASE_URL: 'https://api-base.test',
+}))
+
 describe('PasskeyLoginButton', () => {
   beforeEach(() => {
     mockPush.mockReset()
@@ -76,6 +84,10 @@ describe('PasskeyLoginButton', () => {
     expect(mockStartAuthentication).toHaveBeenCalledWith({
       optionsJSON: { challenge: 'begin-challenge', rpId: 'localhost' },
     })
+    expect(fetchMock.mock.calls.map((call) => call[0])).toEqual([
+      'https://api-base.test/auth/passkey/login/begin',
+      'https://api-base.test/auth/passkey/login/finish',
+    ])
   })
 
   it('reports a begin response without options instead of starting the ceremony', async () => {

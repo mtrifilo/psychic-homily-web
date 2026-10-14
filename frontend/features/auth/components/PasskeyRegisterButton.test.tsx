@@ -24,6 +24,14 @@ vi.mock('@simplewebauthn/browser', () => ({
 
 vi.mock('@sentry/nextjs', () => ({ captureException: vi.fn() }))
 
+// The components must resolve the backend through lib/api-base like every
+// other data request, never from NEXT_PUBLIC_API_URL on their own: unset, that
+// read skips the same-origin /api proxy.
+vi.mock('@/lib/api-base', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/lib/api-base')>()),
+  API_BASE_URL: 'https://api-base.test',
+}))
+
 function jsonResponse(body: unknown): Response {
   return {
     ok: true,
@@ -75,6 +83,10 @@ describe('PasskeyRegisterButton ceremony', () => {
 
     await waitFor(() => expect(onSuccess).toHaveBeenCalled())
     expect(vi.mocked(startRegistration)).toHaveBeenCalledWith({ optionsJSON: publicKey })
+    expect(vi.mocked(global.fetch).mock.calls.map((call) => call[0])).toEqual([
+      'https://api-base.test/auth/passkey/register/begin',
+      'https://api-base.test/auth/passkey/register/finish',
+    ])
   })
 })
 
