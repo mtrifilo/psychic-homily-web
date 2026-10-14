@@ -302,6 +302,8 @@ func (h *OAuthHTTPHandler) OAuthLoginHTTPHandler(w http.ResponseWriter, r *http.
 		logger.AuthDebug(ctx, "oauth_cli_callback_stored", "callback", cliCallback)
 	}
 
+	setOAuthReturnToCookie(w, r, secureCookie)
+
 	logger.AuthDebug(ctx, "oauth_login_request",
 		"provider", provider,
 		"path", r.URL.Path,
@@ -425,6 +427,10 @@ func (h *OAuthHTTPHandler) OAuthCallbackHTTPHandler(w http.ResponseWriter, r *ht
 		})
 	}
 
+	// Read from the cookie the start set, never from this request's query:
+	// the provider builds this URL.
+	returnTo := takeOAuthReturnTo(w, r, secureCookie)
+
 	// Set, not Add: gothic reads the first value, so a caller-supplied
 	// ?provider= on the callback URL would otherwise decide which provider
 	// completes the handshake while the path parameter decided what the
@@ -531,8 +537,7 @@ func (h *OAuthHTTPHandler) OAuthCallbackHTTPHandler(w http.ResponseWriter, r *ht
 	cookie := h.config.Session.NewAuthCookie(token, 7*24*time.Hour)
 	http.SetCookie(w, &cookie)
 
-	// Redirect to frontend home page
-	http.Redirect(w, r, frontendURL, http.StatusTemporaryRedirect)
+	http.Redirect(w, r, oauthSignInDestination(frontendURL, returnTo), http.StatusTemporaryRedirect)
 }
 
 // authRefusalCarriesItsOwnCopy names the refusals an OAuth callback reports in
