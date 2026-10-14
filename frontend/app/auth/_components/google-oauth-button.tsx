@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button'
 // redirect and the redirect chain does not survive the proxy. See
 // lib/api-base.ts for the resolution order (PSY-1649).
 import { OAUTH_BACKEND_URL } from '@/lib/api-base'
+import { FALLBACK_RETURN_TO } from '@/lib/auth-href'
 
 interface GoogleOAuthButtonProps {
   className?: string
@@ -17,6 +18,14 @@ interface GoogleOAuthButtonProps {
   ageConfirmed?: boolean
   minAge?: number
   onMissingAgeConfirmation?: () => void
+  /**
+   * Where the reader lands after signing in, already through
+   * sanitizeReturnTo. The backend start route reads it as `returnTo`
+   * (`oauthReturnToParam` in backend/internal/api/handlers/auth/oauth_return_to.go),
+   * checks it again, records it for its callback, and lands on the site root
+   * for anything it refuses.
+   */
+  returnTo?: string
 }
 
 export function GoogleOAuthButton({
@@ -29,6 +38,7 @@ export function GoogleOAuthButton({
   ageConfirmed = false,
   minAge,
   onMissingAgeConfirmation,
+  returnTo = FALLBACK_RETURN_TO,
 }: GoogleOAuthButtonProps) {
   const handleGoogleLogin = () => {
     if (variant === 'signup' && !termsAccepted) {
@@ -56,6 +66,9 @@ export function GoogleOAuthButton({
       if (minAge) {
         loginUrl.searchParams.set('min_age_attested', String(minAge))
       }
+    }
+    if (returnTo !== FALLBACK_RETURN_TO) {
+      loginUrl.searchParams.set('returnTo', returnTo)
     }
     window.location.href = loginUrl.toString()
   }

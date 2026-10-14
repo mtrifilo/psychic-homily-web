@@ -221,7 +221,8 @@ func (h *OAuthHTTPHandler) OAuthLoginHTTPHandler(w http.ResponseWriter, r *http.
 				"provider", provider,
 				"error_code", refusal.Code,
 			)
-			http.Redirect(w, r, h.frontendURL()+"/auth?"+authPageErrorQuery(refusal, refusal.UserMessage()).Encode(), http.StatusTemporaryRedirect)
+			returnTo := sanitizeOAuthReturnTo(r.URL.Query().Get(oauthReturnToParam))
+			http.Redirect(w, r, authPageRefusalURL(h.frontendURL(), refusal, refusal.UserMessage(), returnTo), http.StatusTemporaryRedirect)
 			return
 		}
 
@@ -301,6 +302,8 @@ func (h *OAuthHTTPHandler) OAuthLoginHTTPHandler(w http.ResponseWriter, r *http.
 		// that gates the token-bearing redirect, so it is never logged.
 		logger.AuthDebug(ctx, "oauth_cli_callback_stored", "callback", cliCallback)
 	}
+
+	setOAuthReturnToCookie(w, r, secureCookie)
 
 	logger.AuthDebug(ctx, "oauth_login_request",
 		"provider", provider,
@@ -425,6 +428,10 @@ func (h *OAuthHTTPHandler) OAuthCallbackHTTPHandler(w http.ResponseWriter, r *ht
 		})
 	}
 
+	// Read from the cookie the start set, never from this request's query:
+	// the provider builds this URL.
+	returnTo := takeOAuthReturnTo(w, r, secureCookie)
+
 	// Set, not Add: gothic reads the first value, so a caller-supplied
 	// ?provider= on the callback URL would otherwise decide which provider
 	// completes the handshake while the path parameter decided what the
@@ -512,7 +519,7 @@ func (h *OAuthHTTPHandler) OAuthCallbackHTTPHandler(w http.ResponseWriter, r *ht
 			return
 		}
 
-		http.Redirect(w, r, frontendURL+"/auth?"+authPageErrorQuery(err, errorMessage).Encode(), http.StatusTemporaryRedirect)
+		http.Redirect(w, r, authPageRefusalURL(frontendURL, err, errorMessage, returnTo), http.StatusTemporaryRedirect)
 		return
 	}
 
@@ -531,8 +538,7 @@ func (h *OAuthHTTPHandler) OAuthCallbackHTTPHandler(w http.ResponseWriter, r *ht
 	cookie := h.config.Session.NewAuthCookie(token, 7*24*time.Hour)
 	http.SetCookie(w, &cookie)
 
-	// Redirect to frontend home page
-	http.Redirect(w, r, frontendURL, http.StatusTemporaryRedirect)
+	http.Redirect(w, r, oauthSignInDestination(frontendURL, returnTo), http.StatusTemporaryRedirect)
 }
 
 // authRefusalCarriesItsOwnCopy names the refusals an OAuth callback reports in

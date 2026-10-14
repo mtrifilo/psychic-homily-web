@@ -13,7 +13,11 @@ import { AuthErrorCode } from '@/lib/errors/authErrors'
 /** The route that renders the sign-in and create-account forms. */
 export const AUTH_PATH = '/auth'
 
-/** Where a rejected or absent `returnTo` lands. */
+/**
+ * Where a rejected or absent `returnTo` lands. The backend's Google sign-in
+ * falls back to the same path (`oauthReturnToFallback` in
+ * `backend/internal/api/handlers/auth/oauth_return_to.go`).
+ */
 export const FALLBACK_RETURN_TO = '/'
 
 /**
@@ -22,6 +26,11 @@ export const FALLBACK_RETURN_TO = '/'
  * Lives here, with the builder, and is imported by `sanitizeReturnTo` rather
  * than restated there: both halves of the contract have to agree about which
  * destinations the auth page refuses, and a second copy is free to drift.
+ *
+ * Go cannot import it, so `sanitizeOAuthReturnTo` in
+ * `backend/internal/api/handlers/auth/oauth_return_to.go` restates the rule
+ * for Google sign-in, judging the decoded path where this judges the encoded
+ * one; a change here has to be made there too.
  */
 export function isAuthPath(pathname: string): boolean {
   return pathname === AUTH_PATH || pathname.startsWith(`${AUTH_PATH}/`)

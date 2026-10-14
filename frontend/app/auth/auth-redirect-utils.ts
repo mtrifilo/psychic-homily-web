@@ -3,6 +3,13 @@
  * trust it. The other half of the contract, which builds those links, is
  * `buildAuthHref` in `lib/auth-href.ts` — change one and check the other.
  * `lib/auth-href.test.ts` pins the round trip between them.
+ *
+ * Google sign-in carries the destination through the backend, which applies
+ * these rules again in `sanitizeOAuthReturnTo`
+ * (`backend/internal/api/handlers/auth/oauth_return_to.go`) and refuses a few
+ * values they accept; its doc lists them. A rule changed here has to change
+ * there too, or Google sign-in lands somewhere the other sign-in methods do
+ * not.
  */
 
 import { FALLBACK_RETURN_TO, isAuthPath } from '@/lib/auth-href'
