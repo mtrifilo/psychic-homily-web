@@ -269,6 +269,7 @@ func TestAppleKeys_UnknownKidInsideCooldownSkipsFetch(t *testing.T) {
 
 	_, err = svc.getApplePublicKey("unknown-1")
 	require.Error(t, err)
+	assert.Equal(t, "apple public key not found for kid: unknown-1", err.Error(), "fetched and absent, not a cooldown refusal")
 	require.Equal(t, 2, ks.count(), "the first unknown kid forces a refresh")
 
 	clock.advance(30 * time.Second)
@@ -334,6 +335,12 @@ func TestAppleKeys_FailedRefreshKeepsCachedSet(t *testing.T) {
 
 	_, err = svc.ValidateIdentityToken(signedToken(t, key, "known-kid"))
 	require.NoError(t, err, "the cached set still validates known kids")
+	assert.Equal(t, 2, ks.count())
+
+	// Inside the backoff an unknown kid gets the failure, ahead of the cooldown.
+	_, err = svc.getApplePublicKey("unknown-1b")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "status 503 (backing off after a failed fetch, not fetched)")
 	assert.Equal(t, 2, ks.count())
 
 	// Once the cooldown, the backoff and the log interval have all passed, the
@@ -408,7 +415,7 @@ func TestAppleKeys_FailedFetchBacksOffOnEveryPath(t *testing.T) {
 	}
 }
 
-// A 200 response with no usable key is a failed fetch: the cached set stays.
+// A 200 response with no RSA key is a failed fetch: the cached set stays.
 func TestAppleKeys_EmptySetKeepsCachedSet(t *testing.T) {
 	key := newRSAKey(t)
 	ks := newKeyServer(t, jwks(key, "known-kid"))
