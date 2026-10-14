@@ -1,10 +1,7 @@
 package routes
 
 import (
-	"bytes"
-	"log/slog"
 	"net/http"
-	"net/http/httptest"
 	"strings"
 	"testing"
 
@@ -12,7 +9,6 @@ import (
 
 	"psychic-homily-backend/internal/api/middleware"
 	"psychic-homily-backend/internal/config"
-	"psychic-homily-backend/internal/logger"
 	authm "psychic-homily-backend/internal/models/auth"
 	"psychic-homily-backend/internal/services"
 	"psychic-homily-backend/internal/testutil"
@@ -95,17 +91,12 @@ func TestPasskeyRegisterBeginThrottledThroughRouter(t *testing.T) {
 			requireRegisterBeginReached(t, router, ip, session, "refused before its budget was spent")
 		}
 
-		var buf bytes.Buffer
-		log := slog.New(slog.NewJSONHandler(&buf, nil))
-		req := httptest.NewRequest(http.MethodPost, passkeyRegisterBeginPath, strings.NewReader("{}"))
-		req.Header.Set("Content-Type", "application/json")
+		req := jsonRequest(http.MethodPost, passkeyRegisterBeginPath, ip)
 		req.Header.Set("Authorization", "Bearer "+session)
-		req.RemoteAddr = ip
-		refused := httptest.NewRecorder()
-		router.ServeHTTP(refused, req.WithContext(logger.NewContext(req.Context(), log)))
+		refused, limiters := serveLoggingRejections(router, req)
 		assertJSONRefusal(t, refused, "POST "+passkeyRegisterBeginPath)
-		if got := rejectedLimiters(buf.Bytes()); len(got) != 1 || got[0] != string(middleware.LimiterPasskeyRegisterBegin) {
-			t.Errorf("rejection lines name limiters %v, want exactly [%s]", got, middleware.LimiterPasskeyRegisterBegin)
+		if len(limiters) != 1 || limiters[0] != string(middleware.LimiterPasskeyRegisterBegin) {
+			t.Errorf("rejection lines name limiters %v, want exactly [%s]", limiters, middleware.LimiterPasskeyRegisterBegin)
 		}
 
 		// The finishes are not on this budget: the authenticator has written

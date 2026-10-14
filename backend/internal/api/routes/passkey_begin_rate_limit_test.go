@@ -52,7 +52,11 @@ func TestPasskeySignupBeginHasItsOwnBudget(t *testing.T) {
 			fmt.Sprintf("begin %d was refused before its %d/min budget was spent", i+1, passkeySignupBeginLimitPerMinute))
 	}
 
-	assertJSONRefusal(t, serveFrom(router, http.MethodPost, passkeySignupBeginPath, ip), "POST "+passkeySignupBeginPath)
+	refused, limiters := serveLoggingRejections(router, jsonRequest(http.MethodPost, passkeySignupBeginPath, ip))
+	assertJSONRefusal(t, refused, "POST "+passkeySignupBeginPath)
+	if len(limiters) != 1 || limiters[0] != string(middleware.LimiterPasskeySignupBegin) {
+		t.Errorf("rejection lines name limiters %v, want exactly [%s]", limiters, middleware.LimiterPasskeySignupBegin)
+	}
 }
 
 // A sign-up finish arrives after the authenticator has written the credential,
@@ -104,24 +108,6 @@ func TestPasskeyBudgetSpentLeavesSignupBeginItsBudget(t *testing.T) {
 	}
 }
 
-func TestPasskeySignupBeginRefusalLogsItsOwnLimiter(t *testing.T) {
-	t.Setenv(DisableAuthRateLimitsEnvVar, "")
-	router := newTestRouter(t)
-	var buf bytes.Buffer
-	log := slog.New(slog.NewJSONHandler(&buf, nil))
-
-	for i := 0; i <= passkeySignupBeginLimitPerMinute; i++ {
-		req := httptest.NewRequest(http.MethodPost, passkeySignupBeginPath, strings.NewReader(`{}`))
-		req.Header.Set("Content-Type", "application/json")
-		req.RemoteAddr = "203.0.113.84:1234"
-		router.ServeHTTP(httptest.NewRecorder(), req.WithContext(logger.NewContext(req.Context(), log)))
-	}
-
-	if got := rejectedLimiters(buf.Bytes()); len(got) != 1 || got[0] != string(middleware.LimiterPasskeySignupBegin) {
-		t.Errorf("rejection lines name limiters %v, want exactly [%s]", got, middleware.LimiterPasskeySignupBegin)
-	}
-}
-
 func TestPasskeySignupBeginDisabledFlagIsHonored(t *testing.T) {
 	t.Setenv(DisableAuthRateLimitsEnvVar, "1")
 	router := newTestRouter(t)
@@ -133,15 +119,30 @@ func TestPasskeySignupBeginDisabledFlagIsHonored(t *testing.T) {
 	}
 }
 
-// rejectedLimiters returns the limiter named on each ratelimit_rejected line
-// of a JSON log, in order.
-func rejectedLimiters(logged []byte) []string {
+// jsonRequest builds a request with an empty JSON body from a fixed source
+// address.
+func jsonRequest(method, path, ip string) *http.Request {
+	req := httptest.NewRequest(method, path, strings.NewReader(`{}`))
+	req.Header.Set("Content-Type", "application/json")
+	req.RemoteAddr = ip
+	return req
+}
+
+// serveLoggingRejections serves req through router with a JSON logger in its
+// context, returning the response and the limiter named on each
+// ratelimit_rejected line the request logged, in order.
+func serveLoggingRejections(router http.Handler, req *http.Request) (*httptest.ResponseRecorder, []string) {
+	var buf bytes.Buffer
+	log := slog.New(slog.NewJSONHandler(&buf, nil))
+	rr := httptest.NewRecorder()
+	router.ServeHTTP(rr, req.WithContext(logger.NewContext(req.Context(), log)))
+
 	var limiters []string
-	for _, raw := range bytes.Split(bytes.TrimSpace(logged), []byte("\n")) {
+	for _, raw := range bytes.Split(bytes.TrimSpace(buf.Bytes()), []byte("\n")) {
 		var line map[string]any
 		if json.Unmarshal(raw, &line) == nil && line["event"] == "ratelimit_rejected" {
 			limiters = append(limiters, fmt.Sprint(line["limiter"]))
 		}
 	}
-	return limiters
+	return rr, limiters
 }

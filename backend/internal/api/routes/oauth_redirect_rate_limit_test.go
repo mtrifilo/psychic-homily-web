@@ -442,22 +442,11 @@ func TestAppleSignInHasItsOwnJSONBudget(t *testing.T) {
 func TestAppleSignInRefusalLogsItsOwnLimiter(t *testing.T) {
 	t.Setenv(DisableAuthRateLimitsEnvVar, "")
 	router := newTestRouter(t)
-	var buf bytes.Buffer
-	log := slog.New(slog.NewJSONHandler(&buf, nil))
-
-	for i := 0; i <= appleSignInLimitPerMinute; i++ {
-		req := httptest.NewRequest(http.MethodPost, "/auth/apple/callback", strings.NewReader(`{}`))
-		req.Header.Set("Content-Type", "application/json")
-		req.RemoteAddr = "203.0.113.74:1234"
-		router.ServeHTTP(httptest.NewRecorder(), req.WithContext(logger.NewContext(req.Context(), log)))
-	}
 
 	var rejections []string
-	for _, raw := range bytes.Split(bytes.TrimSpace(buf.Bytes()), []byte("\n")) {
-		var line map[string]any
-		if json.Unmarshal(raw, &line) == nil && line["event"] == "ratelimit_rejected" {
-			rejections = append(rejections, fmt.Sprint(line["limiter"]))
-		}
+	for i := 0; i <= appleSignInLimitPerMinute; i++ {
+		_, limiters := serveLoggingRejections(router, jsonRequest(http.MethodPost, "/auth/apple/callback", "203.0.113.74:1234"))
+		rejections = append(rejections, limiters...)
 	}
 	if len(rejections) != 1 || rejections[0] != string(middleware.LimiterAppleSignIn) {
 		t.Errorf("rejection lines name limiters %v, want exactly [%s]", rejections, middleware.LimiterAppleSignIn)
