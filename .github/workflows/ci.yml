@@ -71,6 +71,10 @@ jobs:
       - name: Self-test the production release recorder
         run: bash scripts/record_production_release_test.sh
 
+      # Sub-second, no database or network; the script header has the cases.
+      - name: Self-test the entrypoint's DATABASE_URL redaction
+        run: bash scripts/check_entrypoint_redaction_test.sh
+
       # PSY-1708 (stage outage 2026-08-02): two parallel branches stamped their
       # migrations in author-time order but merged in the reverse order.
       # golang-migrate silently skips any migration at or below the current
