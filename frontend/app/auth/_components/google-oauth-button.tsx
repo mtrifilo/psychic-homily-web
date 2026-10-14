@@ -20,8 +20,10 @@ interface GoogleOAuthButtonProps {
   onMissingAgeConfirmation?: () => void
   /**
    * Where the reader lands after signing in, already through
-   * sanitizeReturnTo. The backend start route checks it again, records it for
-   * its callback, and lands on the site root for anything it refuses.
+   * sanitizeReturnTo. The backend start route reads it as `returnTo`
+   * (`oauthReturnToParam` in backend/internal/api/handlers/auth/oauth_return_to.go),
+   * checks it again, records it for its callback, and lands on the site root
+   * for anything it refuses.
    */
   returnTo?: string
 }

@@ -28,8 +28,9 @@ export const FALLBACK_RETURN_TO = '/'
  * destinations the auth page refuses, and a second copy is free to drift.
  *
  * Go cannot import it, so `sanitizeOAuthReturnTo` in
- * `backend/internal/api/handlers/auth/oauth_return_to.go` restates it for
- * Google sign-in; a change here has to be made there too.
+ * `backend/internal/api/handlers/auth/oauth_return_to.go` restates the rule
+ * for Google sign-in, judging the decoded path where this judges the encoded
+ * one; a change here has to be made there too.
  */
 export function isAuthPath(pathname: string): boolean {
   return pathname === AUTH_PATH || pathname.startsWith(`${AUTH_PATH}/`)

@@ -7,9 +7,11 @@ import (
 	"strings"
 )
 
-// oauthReturnToParam is the query parameter the sign-in start reads the
-// destination from. The frontend auth page names the same parameter
-// (frontend/app/auth/page.tsx reads it through sanitizeReturnTo).
+// oauthReturnToParam names the destination on both sides of the sign-in
+// round trip: the sign-in start reads it (GoogleOAuthButton in
+// frontend/app/auth/_components/google-oauth-button.tsx writes it), and the
+// redirects to the frontend auth page write it (frontend/app/auth/page.tsx
+// reads it through sanitizeReturnTo).
 const oauthReturnToParam = "returnTo"
 
 // oauthReturnToCookieName carries the destination from the sign-in start to
@@ -32,15 +34,16 @@ const oauthReturnToFallback = "/"
 // which the cookie is silently dropped.
 const oauthReturnToMaxLength = 2048
 
-// oauthAuthPagePath is the frontend sign-in page. A destination on it, or
-// under it, would return a reader who just signed in to the sign-in surface.
+// oauthAuthPagePath is the frontend sign-in page: where a refused sign-in is
+// sent, and a destination this file refuses, since a destination on it or
+// under it would return a reader who just signed in to the sign-in surface.
 const oauthAuthPagePath = "/auth"
 
 // sanitizeOAuthReturnTo returns raw when it is a path on the frontend's own
 // origin that a signed-in reader may be sent to, and oauthReturnToFallback
-// for anything else. It applies the rules of the frontend's sanitizeReturnTo
-// (frontend/app/auth/auth-redirect-utils.ts) to a value that has not been
-// through a browser URL parser:
+// for anything else. It accepts a subset of what the frontend's
+// sanitizeReturnTo (frontend/app/auth/auth-redirect-utils.ts) accepts,
+// checking a value that has not been through a browser URL parser:
 //
 //   - one leading slash: "//host" is protocol-relative
 //   - printable ASCII only, so no whitespace or control byte anywhere: a
@@ -50,11 +53,15 @@ const oauthAuthPagePath = "/auth"
 //     can turn a value that passes the slash test into "//host"
 //   - no "." or ".." path segment, percent-encoded or not: a browser resolves
 //     them, so the path checked here would not be the path visited
-//   - not the sign-in page or anything under it, judged on the decoded path
+//   - not the sign-in page or anything under it
 //
-// The last rule is stricter than the frontend's, which compares the encoded
-// path: a percent-encoded spelling of the sign-in path that the frontend
-// passes through falls back here.
+// Values the frontend passes through that fall back here:
+//
+//   - longer than oauthReturnToMaxLength
+//   - a malformed percent escape in the path or the fragment ("/shows/%zz",
+//     "/shows#50%"), which Go's URL parser refuses
+//   - a percent-encoded spelling of the sign-in path ("/%61uth"): the sign-in
+//     rule here judges the decoded path, the frontend's the encoded one
 //
 // The callback prefixes the result with the configured frontend URL, so the
 // redirect's host is never taken from raw.
@@ -101,9 +108,7 @@ func sanitizeOAuthReturnTo(raw string) string {
 func setOAuthReturnToCookie(w http.ResponseWriter, r *http.Request, secure bool) {
 	returnTo := sanitizeOAuthReturnTo(r.URL.Query().Get(oauthReturnToParam))
 	if returnTo == oauthReturnToFallback {
-		if _, err := r.Cookie(oauthReturnToCookieName); err == nil {
-			http.SetCookie(w, newOAuthReturnToCookie("", -1, secure))
-		}
+		clearOAuthReturnToCookie(w, r, secure)
 		return
 	}
 	// Encoded because http.SetCookie drops ";", `"` and `\` from a cookie
@@ -111,6 +116,15 @@ func setOAuthReturnToCookie(w http.ResponseWriter, r *http.Request, secure bool)
 	// query string can carry any of them.
 	encoded := base64.RawURLEncoding.EncodeToString([]byte(returnTo))
 	http.SetCookie(w, newOAuthReturnToCookie(encoded, oauthReturnToCookieMaxAge, secure))
+}
+
+// clearOAuthReturnToCookie removes a destination an earlier, abandoned start
+// left behind. A start that records none of its own calls it, so a callback
+// that resolves as a sign-in never lands on another start's destination.
+func clearOAuthReturnToCookie(w http.ResponseWriter, r *http.Request, secure bool) {
+	if _, err := r.Cookie(oauthReturnToCookieName); err == nil {
+		http.SetCookie(w, newOAuthReturnToCookie("", -1, secure))
+	}
 }
 
 // takeOAuthReturnTo reads the destination the sign-in start recorded, clears
@@ -138,6 +152,18 @@ func oauthSignInDestination(frontendURL, returnTo string) string {
 		return frontendURL
 	}
 	return frontendURL + returnTo
+}
+
+// authPageRefusalURL is where a refused browser sign-in sends the reader: the
+// frontend auth page with the refusal's message and code, and the destination
+// when there is one, so that a retry from the auth page (the consent handoff
+// to Create account included) still lands on it.
+func authPageRefusalURL(frontendURL string, err error, message, returnTo string) string {
+	query := authPageErrorQuery(err, message)
+	if returnTo != oauthReturnToFallback {
+		query.Set(oauthReturnToParam, returnTo)
+	}
+	return frontendURL + oauthAuthPagePath + "?" + query.Encode()
 }
 
 func newOAuthReturnToCookie(value string, maxAge int, secure bool) *http.Cookie {

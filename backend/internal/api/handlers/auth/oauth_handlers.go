@@ -221,7 +221,8 @@ func (h *OAuthHTTPHandler) OAuthLoginHTTPHandler(w http.ResponseWriter, r *http.
 				"provider", provider,
 				"error_code", refusal.Code,
 			)
-			http.Redirect(w, r, h.frontendURL()+"/auth?"+authPageErrorQuery(refusal, refusal.UserMessage()).Encode(), http.StatusTemporaryRedirect)
+			returnTo := sanitizeOAuthReturnTo(r.URL.Query().Get(oauthReturnToParam))
+			http.Redirect(w, r, authPageRefusalURL(h.frontendURL(), refusal, refusal.UserMessage(), returnTo), http.StatusTemporaryRedirect)
 			return
 		}
 
@@ -518,13 +519,7 @@ func (h *OAuthHTTPHandler) OAuthCallbackHTTPHandler(w http.ResponseWriter, r *ht
 			return
 		}
 
-		// The destination rides along so that a retry from the auth page, the
-		// consent handoff to Create account included, still lands on it.
-		query := authPageErrorQuery(err, errorMessage)
-		if returnTo != oauthReturnToFallback {
-			query.Set(oauthReturnToParam, returnTo)
-		}
-		http.Redirect(w, r, frontendURL+"/auth?"+query.Encode(), http.StatusTemporaryRedirect)
+		http.Redirect(w, r, authPageRefusalURL(frontendURL, err, errorMessage, returnTo), http.StatusTemporaryRedirect)
 		return
 	}
 

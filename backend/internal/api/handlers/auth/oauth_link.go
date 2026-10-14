@@ -242,6 +242,7 @@ func (h *OAuthHTTPHandler) OAuthLinkHTTPHandler(w http.ResponseWriter, r *http.R
 		expiresAt: time.Now().Add(oauthLinkIntentTTL),
 	})
 	http.SetCookie(w, h.newLinkIntentCookie(intentID, int(oauthLinkIntentTTL.Seconds())))
+	clearOAuthReturnToCookie(w, r, h.config != nil && h.config.Session.Secure)
 
 	logger.AuthInfo(ctx, "oauth_link_started",
 		"provider", provider,

@@ -42,6 +42,7 @@ func TestSanitizeOAuthReturnTo(t *testing.T) {
 		{"backslash in the fragment", "/shows#a\\b", "/shows#a\\b"},
 		{"encoded slash inside a segment", "/a/%2E%2E%2Fb", "/a/%2E%2E%2Fb"},
 		{"undecodable segment", "/shows/%zz", "/"},
+		{"undecodable fragment", "/shows#50%", "/"},
 		{"dot-dot in the query only", "/search?q=..", "/search?q=.."},
 		{"tab inside", "/\t/evil.example", "/"},
 		{"newline inside", "/shows\r\nSet-Cookie: x=1", "/"},
@@ -151,6 +152,50 @@ func TestOAuthLogin_RefusedSignupRecordsNoReturnTo(t *testing.T) {
 	if cookie := findCookie(resp, oauthReturnToCookieName); cookie != nil {
 		t.Errorf("expected no return-to cookie on a refused start, got %+v", cookie)
 	}
+}
+
+// A sign-up start naming stale consent versions goes back to the auth page
+// with the destination, records nothing, and never reaches the provider.
+func TestOAuthLogin_StaleConsentRefusalCarriesTheDestination(t *testing.T) {
+	resp := startSignIn("signup_intent=1&terms_accepted=true&terms_version=stale&privacy_version=stale" +
+		"&age_confirmed=true&min_age_attested=16&returnTo=" + url.QueryEscape("/profile?tab=settings"))
+
+	if resp.StatusCode != http.StatusTemporaryRedirect {
+		t.Fatalf("status = %d, want %d", resp.StatusCode, http.StatusTemporaryRedirect)
+	}
+	location, err := url.Parse(resp.Header.Get("Location"))
+	if err != nil {
+		t.Fatalf("unparseable Location: %v", err)
+	}
+	if location.Path != "/auth" {
+		t.Errorf("redirect path = %q, want /auth", location.Path)
+	}
+	query := location.Query()
+	if got := query.Get("error_code"); got != autherrors.CodeTermsAcceptanceRequired {
+		t.Errorf("error_code = %q, want %q", got, autherrors.CodeTermsAcceptanceRequired)
+	}
+	if got := query.Get("returnTo"); got != "/profile?tab=settings" {
+		t.Errorf("returnTo = %q, want /profile?tab=settings", got)
+	}
+	if cookie := findCookie(resp, oauthReturnToCookieName); cookie != nil {
+		t.Errorf("expected no return-to cookie on a refused start, got %+v", cookie)
+	}
+}
+
+// A link start records no destination of its own, so it clears one an
+// abandoned sign-in start left behind: a link callback that resolves as a
+// sign-in must not land on it.
+func (s *OAuthHandlerIntegrationSuite) TestLink_ClearsAnAbandonedSignInsDestination() {
+	user := &authm.User{Email: strPtr("link-return-to@test.com"), IsActive: true, EmailVerified: true}
+	s.Require().NoError(s.deps.DB.Create(user).Error)
+
+	handler := s.newHandler(&mockOAuthCompleter{})
+	w, req := s.oauthLinkRequest("google", user)
+	req.AddCookie(&http.Cookie{Name: oauthReturnToCookieName, Value: encodedReturnTo("/shows")})
+	handler.OAuthLinkHTTPHandler(w, req)
+
+	s.Require().NotNil(linkIntentCookie(w), "the link start armed its intent")
+	assertReturnToCleared(s.T(), w.Result())
 }
 
 // --- callback: where a successful sign-in lands ---
@@ -303,6 +348,8 @@ func TestOAuthCallback_CLILoopbackIgnoresTheDestination(t *testing.T) {
 }
 
 // A link callback returns to Settings whatever the cookie names, and spends it.
+// The intent is expired on purpose: that link branch answers without the auth
+// service, and it shares the redirect every link result uses.
 func TestOAuthCallback_LinkResultIgnoresTheDestination(t *testing.T) {
 	const intentID = "return-to-link-intent"
 	const state = "return-to-link-state"

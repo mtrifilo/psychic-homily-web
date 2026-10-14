@@ -554,6 +554,19 @@ describe('AuthPage', () => {
       expect(screen.queryByText('Sign in to your account')).not.toBeInTheDocument()
     })
 
+    // The refused callback carries the destination the sign-in started with, so
+    // signing up from here still lands on it.
+    it('hands the sign-up Google button the destination the refusal carries', () => {
+      const query = new URLSearchParams(TERMS_REFUSAL_QUERY)
+      query.set('returnTo', '/shows')
+      setSearchParams(query.toString())
+      renderWithProviders(<AuthPage />)
+
+      expect(googleOAuthProps).toHaveBeenCalledWith(
+        expect.objectContaining({ variant: 'signup', returnTo: '/shows' })
+      )
+    })
+
     it('centres the terms checkbox and focuses it', () => {
       setSearchParams(TERMS_REFUSAL_QUERY)
       renderWithProviders(<AuthPage />)
