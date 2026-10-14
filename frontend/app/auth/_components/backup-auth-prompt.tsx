@@ -13,9 +13,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import { useStartOAuthLink } from '@/features/auth/hooks/useAuth'
-// Direct backend origin, never the Next.js /api proxy: connecting an account
-// is a full-page OAuth redirect. See lib/api-base.ts.
-import { OAUTH_BACKEND_URL } from '@/lib/api-base'
+import { oauthLinkStartUrl } from '@/features/auth/oauthLinkStart'
 
 // Google "G" logo SVG component
 function GoogleIcon({ className }: { className?: string }) {
@@ -57,17 +55,13 @@ export function BackupAuthPrompt({ open, onOpenChange }: BackupAuthPromptProps) 
 
   const handleConnectGoogle = async () => {
     setIsConnectingGoogle(true)
-    // The AUTHENTICATED link route, not /auth/login/google: the viewer is
-    // already signed in to the account this prompt is about, and only the
-    // link route takes the account from the session rather than from what
-    // Google returns. It requires a one-time token minted by a same-origin
-    // authenticated request first, the same start Settings uses.
-    //
-    // A finished link lands on Settings, which reports the result, not on
-    // this page's returnTo: the link callback has that one destination.
+    // The link start, not sign-in: the viewer is already signed in to the
+    // account this prompt is about. A finished link lands on Settings, which
+    // reports the result, not on this page's returnTo: the link callback has
+    // that one destination.
     try {
       const { token } = await startLink.mutateAsync()
-      window.location.href = `${OAUTH_BACKEND_URL}/auth/link/google?t=${encodeURIComponent(token)}`
+      window.location.href = oauthLinkStartUrl('google', token)
     } catch (err) {
       // The button comes back so the viewer can retry or skip; the prompt
       // stays open either way.

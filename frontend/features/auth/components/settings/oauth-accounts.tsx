@@ -8,10 +8,7 @@ import {
   useStartOAuthLink,
   useUnlinkOAuthAccount,
 } from '@/features/auth'
-// Direct backend origin, never the Next.js /api proxy: connecting an account
-// is the same full-page OAuth redirect the login button performs. See
-// lib/api-base.ts (PSY-1649).
-import { OAUTH_BACKEND_URL } from '@/lib/api-base'
+import { oauthLinkStartUrl } from '@/features/auth/oauthLinkStart'
 // Subpath import, not the shared barrel: this panel is reachable from a
 // browse route and the barrel pulls the whole shared surface into its chunk.
 import { InlineErrorBanner } from '@/components/shared/InlineErrorBanner'
@@ -180,18 +177,9 @@ export function OAuthAccounts() {
 
   const handleConnectGoogle = async () => {
     setStartLinkFailed(false)
-    // The AUTHENTICATED link route, not /auth/login/google: the account the
-    // identity attaches to comes from this session, never from the address
-    // Google returns.
-    //
-    // The token is minted by a same-origin authenticated request first. That
-    // route is a plain GET, and the auth cookie is SameSite=Lax, which a
-    // browser sends on a cross-site top-level navigation, so without a token
-    // only our own page can hold, any site could push a signed-in user through
-    // the connect flow.
     try {
       const { token } = await startLink.mutateAsync()
-      window.location.href = `${OAUTH_BACKEND_URL}/auth/link/google?t=${encodeURIComponent(token)}`
+      window.location.href = oauthLinkStartUrl('google', token)
     } catch (err) {
       // Surfaced, not only reported: the click navigates away when it works,
       // so a swallowed failure looks like a button that does nothing.

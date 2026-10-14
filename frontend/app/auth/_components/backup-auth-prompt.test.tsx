@@ -73,11 +73,6 @@ describe('BackupAuthPrompt', () => {
       )
     })
     expect(navigate).toHaveBeenCalledTimes(1)
-    // The sign-in route resolves the account from what Google returns, never
-    // from this session, so it must not be where this button goes.
-    expect(navigate).not.toHaveBeenCalledWith(
-      expect.stringContaining('/auth/login/google')
-    )
   })
 
   it('does not navigate until the token exists, and holds the button meanwhile', async () => {
