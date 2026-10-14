@@ -389,7 +389,7 @@ func requireWireServiceUnavailable(t *testing.T, resp *httptest.ResponseRecorder
 	assertNoInternalText(t, resp.Body.String())
 }
 
-// login/finish answers a failure at any step after the challenge with a 5xx
+// login/finish answers a failure at any step with a 5xx
 // and no session: the challenge cannot be read, the accepted email-specific
 // sign-in's account cannot be loaded, or no session token can be minted.
 func TestPasskeyWire_LoginFinishStepFailures(t *testing.T) {

@@ -469,7 +469,8 @@ func (h *PasskeyHandler) FinishLoginHandler(ctx context.Context, input *FinishLo
 	}
 
 	// The email-specific login answers with the account as the user service
-	// loads it. The sign-in was decided above, so any failure here is one.
+	// loads it. The sign-in was decided above, so an error here is a failure,
+	// never a refusal.
 	if userID != 0 {
 		user, err = h.userService.GetUserByID(userID)
 		if err != nil {

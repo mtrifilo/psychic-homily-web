@@ -156,8 +156,13 @@ func (s *WebAuthnService) BeginDiscoverableLogin() (*protocol.CredentialAssertio
 
 // invalidPasskeyMessage is the user-facing message of the
 // CodeInvalidCredentials refusals FinishLogin and FinishDiscoverableLogin
-// return.
+// return, except FinishLogin's for an account that does not exist, which is
+// accountNotFoundMessage.
 const invalidPasskeyMessage = "Invalid passkey"
+
+// accountNotFoundMessage is the user-facing message of FinishLogin's refusal
+// for an account that does not exist.
+const accountNotFoundMessage = "User not found"
 
 func refusePasskey(internal error) *apperrors.AuthError {
 	return apperrors.NewAuthError(apperrors.CodeInvalidCredentials, invalidPasskeyMessage, internal)
@@ -202,6 +207,9 @@ func (s *WebAuthnService) FinishLogin(user *authm.User, session *webauthn.Sessio
 	// account state the sign-in is decided on is this load's.
 	var owner authm.User
 	if err := s.db.Preload("PasskeyCredentials").First(&owner, user.ID).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, apperrors.NewAuthError(apperrors.CodeInvalidCredentials, accountNotFoundMessage, err)
+		}
 		return nil, signInLookupError("user", err)
 	}
 

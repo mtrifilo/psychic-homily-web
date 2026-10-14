@@ -503,7 +503,7 @@ func TestFinishLoginHandler_UserSpecificLogin_UserNotFound(t *testing.T) {
 		},
 		FinishLoginFn: func(user *authm.User, _ *webauthn.SessionData, _ *protocol.ParsedCredentialAssertionData) (*authm.WebAuthnCredential, error) {
 			decidedFor = user.ID
-			return nil, autherrors.NewAuthError(autherrors.CodeInvalidCredentials, "Invalid passkey", fmt.Errorf("user not found"))
+			return nil, autherrors.NewAuthError(autherrors.CodeInvalidCredentials, "User not found", fmt.Errorf("record not found"))
 		},
 	}
 	mockUS := &testhelpers.MockUserService{
@@ -527,6 +527,9 @@ func TestFinishLoginHandler_UserSpecificLogin_UserNotFound(t *testing.T) {
 	}
 	if resp.Body.ErrorCode != autherrors.CodeInvalidCredentials {
 		t.Errorf("expected error_code=%s, got %s", autherrors.CodeInvalidCredentials, resp.Body.ErrorCode)
+	}
+	if resp.Body.Message != "User not found" {
+		t.Errorf("expected the refusal's own message, got %q", resp.Body.Message)
 	}
 	if decidedFor != 42 {
 		t.Errorf("sign-in decided for user %d, want the challenge's user 42", decidedFor)

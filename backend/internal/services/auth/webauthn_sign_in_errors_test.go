@@ -115,7 +115,7 @@ func (suite *WebAuthnServiceIntegrationTestSuite) TestSignInRefusesWhatDoesNotEx
 		suite.Require().NoError(suite.db.Exec("DELETE FROM users WHERE id = ?", user.ID).Error)
 
 		_, err = suite.service.FinishLogin(&authm.User{ID: user.ID}, session, parsed)
-		suite.requireRefusal(err, apperrors.CodeInvalidCredentials, "Invalid passkey")
+		suite.requireRefusal(err, apperrors.CodeInvalidCredentials, "User not found")
 	})
 }
 
