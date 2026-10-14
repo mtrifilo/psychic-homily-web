@@ -243,6 +243,7 @@ func TestAppleKeys_HangingServerFailsWithinTimeout(t *testing.T) {
 		case err := <-done:
 			require.Error(t, err)
 			assert.Contains(t, err.Error(), "failed to fetch Apple keys")
+			assert.NotContains(t, err.Error(), "backing off", "both lookups ended with the shared fetch")
 		case <-ctx.Done():
 			t.Fatal("validation still blocked on the key server after 3s")
 		}

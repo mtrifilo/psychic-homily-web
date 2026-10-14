@@ -72,7 +72,7 @@ type AppleAuthService struct {
 	// id started.
 	lastForcedRefreshAt time.Time
 	// lastFetchErr is the error of the latest fetch when it failed, nil when
-	// it succeeded; lastFetchErrAt is when that fetch finished.
+	// it succeeded; lastFetchErrAt is when the latest failed fetch finished.
 	lastFetchErr   error
 	lastFetchErrAt time.Time
 	// lastFetchFailureLogAt is when a fetch failure was last logged.
@@ -445,7 +445,7 @@ func (s *AppleAuthService) fetchAppleKeys() (map[string]*rsa.PublicKey, error) {
 		}
 	}
 
-	// A set with no usable key would replace a working one and answer every
+	// A set with no RSA key would replace a working one and answer every
 	// lookup with a miss, so it counts as a failed fetch.
 	if len(keys) == 0 {
 		return nil, errors.New("apple JWK set contained no RSA keys")
