@@ -899,8 +899,6 @@ func (suite *CalendarIntegrationTestSuite) TestValidateCalendarToken_InactiveUse
 	suite.Contains(err.Error(), "user account is not active")
 }
 
-// A row with deleted_at set is refused even while is_active is still true:
-// either field alone is enough to refuse.
 func (suite *CalendarIntegrationTestSuite) TestValidateCalendarToken_SoftDeletedActiveUser() {
 	user := suite.createTestUser(true)
 	resp, err := suite.svc.CreateToken(user.ID, "http://localhost:8080")

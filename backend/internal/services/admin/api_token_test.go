@@ -206,8 +206,6 @@ func (suite *APITokenIntegrationTestSuite) TestValidateToken_InactiveUser() {
 	suite.Equal("user account is not active", err.Error())
 }
 
-// A row with deleted_at set is refused even while is_active is still true:
-// either field alone is enough to refuse.
 func (suite *APITokenIntegrationTestSuite) TestValidateToken_SoftDeletedActiveUser() {
 	user := suite.createTestUser(true, true)
 	createResp, err := suite.svc.CreateToken(user.ID, nil, 90)
