@@ -49,34 +49,41 @@ func trackIDs(cs []contracts.RadioTrackCandidate) []uint {
 	return ids
 }
 
-func TestRadioTrackCandidateViewOf(t *testing.T) {
+func TestInRadioTrackCandidateView(t *testing.T) {
 	candidates := map[string]bool{"new band": true, "new band two": true}
+	unlinked, unmatched := contracts.RadioTrackCandidateViewUnlinked, contracts.RadioTrackCandidateViewUnmatched
 	cases := []struct {
-		name     string
-		keys     []string
-		artists  []int64
-		release  bool
-		wantView contracts.RadioTrackCandidateView
-		wantOK   bool
+		name          string
+		keys          []string
+		artists       []int64
+		release       bool
+		wantUnlinked  bool
+		wantUnmatched bool
 	}{
-		{"linked artist, no release", []string{"known"}, []int64{7}, false, contracts.RadioTrackCandidateViewUnlinked, true},
-		{"linked artist with a release link", []string{"known"}, []int64{7}, true, contracts.RadioTrackCandidateViewUnlinked, false},
-		{"one linked play among unlinked ones", []string{"known", "new band"}, []int64{7}, false, contracts.RadioTrackCandidateViewUnlinked, true},
-		{"unlinked, artist candidate", []string{"new band"}, nil, false, contracts.RadioTrackCandidateViewUnmatched, true},
-		{"unlinked, a release link does not matter", []string{"new band"}, nil, true, contracts.RadioTrackCandidateViewUnmatched, true},
-		{"unlinked, every key a candidate", []string{"new band", "new band two"}, nil, false, contracts.RadioTrackCandidateViewUnmatched, true},
-		{"unlinked, one key not a candidate", []string{"new band", "catalog name"}, nil, false, "", false},
-		{"unlinked, no key a candidate", []string{"catalog name"}, nil, false, "", false},
+		{"linked artist, no release", []string{"known"}, []int64{7}, false, true, false},
+		{"linked artist with a release link", []string{"known"}, []int64{7}, true, false, false},
+		{"one linked play among unlinked ones", []string{"known", "new band"}, []int64{7}, false, true, false},
+		{"unlinked, artist candidate", []string{"new band"}, nil, false, false, true},
+		{"unlinked, a release link does not matter", []string{"new band"}, nil, true, false, true},
+		{"unlinked, every key a candidate", []string{"new band", "new band two"}, nil, false, false, true},
+		{"unlinked, one key not a candidate", []string{"new band", "catalog name"}, nil, false, false, false},
+		{"unlinked, no key a candidate", []string{"catalog name"}, nil, false, false, false},
+		{"no keys", nil, nil, false, false, false},
 	}
 	for _, c := range cases {
 		row := radioTrackCandidateRow{ArtistKeys: c.keys, ArtistIDs: c.artists, ReleaseLinked: c.release}
-		view, ok := radioTrackCandidateViewOf(row, candidates)
-		if ok != c.wantOK || (ok && view != c.wantView) {
-			t.Errorf("%s: got (%q, %v), want (%q, %v)", c.name, view, ok, c.wantView, c.wantOK)
+		if got := inRadioTrackCandidateView(row, unlinked, candidates); got != c.wantUnlinked {
+			t.Errorf("%s: unlinked = %v, want %v", c.name, got, c.wantUnlinked)
+		}
+		if got := inRadioTrackCandidateView(row, unmatched, candidates); got != c.wantUnmatched {
+			t.Errorf("%s: unmatched = %v, want %v", c.name, got, c.wantUnmatched)
 		}
 	}
-	if _, ok := radioTrackCandidateViewOf(radioTrackCandidateRow{ArtistKeys: []string{"new band"}}, nil); ok {
-		t.Error("without the artist candidate keys no unlinked-artist track is in a view")
+	if inRadioTrackCandidateView(radioTrackCandidateRow{ArtistKeys: []string{"new band"}}, unmatched, nil) {
+		t.Error("without the artist candidate keys no unlinked-artist track is in the unmatched view")
+	}
+	if inRadioTrackCandidateView(radioTrackCandidateRow{ArtistIDs: []int64{7}}, "bogus", candidates) {
+		t.Error("an unknown view holds no track")
 	}
 }
 

@@ -222,6 +222,13 @@ export interface CandidateCount {
   play_count: number;
 }
 
+export interface CandidateStation {
+  station_id: number;
+  slug: string;
+  name: string;
+  play_count: number;
+}
+
 export interface ArtistCandidate {
   artist_key: string;
   display_name: string;
@@ -235,7 +242,7 @@ export interface ArtistCandidate {
   show_count: number;
   first_aired_on: string;
   last_aired_on: string;
-  stations: Array<{ station_id: number; slug: string; name: string; play_count: number }>;
+  stations: CandidateStation[];
   top_tracks: Array<{ track_id: number; title: string; play_count: number }>;
   album_names: CandidateCount[];
   album_name_count: number;
@@ -311,6 +318,10 @@ export function printableJSON(value: unknown): string {
   );
 }
 
+function stationList(stations: CandidateStation[]): string {
+  return stations.map((s) => `${s.name} (${s.slug}) ${s.play_count}`).join(", ") || "none";
+}
+
 function countList(items: CandidateCount[], distinct?: number): string {
   if (items.length === 0) return "none";
   const shown = items.map((i) => `${i.name} (${i.play_count})`).join("; ");
@@ -346,9 +357,7 @@ export function formatArtistCandidateReport(listing: ArtistCandidateListing): st
     if (c.non_latin_spelling) {
       lines.push("       note:     a spelling carries a character normalization may not fold; the key may be a fragment of it");
     }
-    lines.push(
-      `       stations: ${c.stations.map((s) => `${s.name} (${s.slug}) ${s.play_count}`).join(", ") || "none"}`,
-    );
+    lines.push(`       stations: ${stationList(c.stations)}`);
     lines.push(
       `       tracks:   ${countList(c.top_tracks.map((t) => ({ name: t.title, play_count: t.play_count })))}`,
     );
@@ -505,7 +514,7 @@ export interface TrackCandidate {
   show_count: number;
   first_aired_on: string;
   last_aired_on: string;
-  stations: Array<{ station_id: number; slug: string; name: string; play_count: number }>;
+  stations: CandidateStation[];
   album_names: CandidateCount[];
   album_name_count: number;
   mb_release_id?: string;
@@ -582,9 +591,7 @@ export function formatTrackCandidateReport(listing: TrackCandidateListing): stri
     if (c.non_latin_spelling) {
       lines.push("       note:     a spelling carries a character normalization may not fold; a key may be a fragment of it");
     }
-    lines.push(
-      `       stations: ${c.stations.map((s) => `${s.name} (${s.slug}) ${s.play_count}`).join(", ") || "none"}`,
-    );
+    lines.push(`       stations: ${stationList(c.stations)}`);
     lines.push(`       albums:   ${countList(c.album_names, c.album_name_count)}`);
     if (c.mb_release_ids.length > 1) {
       lines.push(`       releases: ${c.mb_release_ids.join(", ")} (more than one MusicBrainz release id)`);

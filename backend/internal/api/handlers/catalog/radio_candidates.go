@@ -24,6 +24,25 @@ func NewRadioCandidatesHandler(lister RadioCandidatesLister) *RadioCandidatesHan
 	return &RadioCandidatesHandler{lister: lister}
 }
 
+// radioCandidateDefaultLimit is the listing length when the request names none.
+const radioCandidateDefaultLimit = 50
+
+// radioCandidateListParams returns the lane filter, sort and limit a request
+// names, with the defaults (all lanes, score, radioCandidateDefaultLimit) for
+// the ones it leaves empty or zero.
+func radioCandidateListParams(lane, sort string, limit int) (contracts.RadioCandidateLaneFilter, contracts.RadioCandidateSort, int) {
+	if lane == "" {
+		lane = string(contracts.RadioCandidateLaneFilterAll)
+	}
+	if sort == "" {
+		sort = string(contracts.RadioCandidateSortScore)
+	}
+	if limit <= 0 {
+		limit = radioCandidateDefaultLimit
+	}
+	return contracts.RadioCandidateLaneFilter(lane), contracts.RadioCandidateSort(sort), limit
+}
+
 // AdminListRadioArtistCandidatesRequest selects the lanes, the order and the
 // length of the ranking.
 type AdminListRadioArtistCandidatesRequest struct {
@@ -39,20 +58,8 @@ type AdminListRadioArtistCandidatesResponse struct {
 
 // AdminListRadioArtistCandidatesHandler handles GET /admin/radio/candidates/artists.
 func (h *RadioCandidatesHandler) AdminListRadioArtistCandidatesHandler(ctx context.Context, req *AdminListRadioArtistCandidatesRequest) (*AdminListRadioArtistCandidatesResponse, error) {
-	q := contracts.RadioArtistCandidatesQuery{
-		Lane:  contracts.RadioCandidateLaneFilter(req.Lane),
-		Sort:  contracts.RadioCandidateSort(req.Sort),
-		Limit: req.Limit,
-	}
-	if q.Lane == "" {
-		q.Lane = contracts.RadioCandidateLaneFilterAll
-	}
-	if q.Sort == "" {
-		q.Sort = contracts.RadioCandidateSortScore
-	}
-	if q.Limit <= 0 {
-		q.Limit = 50
-	}
+	var q contracts.RadioArtistCandidatesQuery
+	q.Lane, q.Sort, q.Limit = radioCandidateListParams(req.Lane, req.Sort, req.Limit)
 	listing, err := h.lister.ListArtistCandidates(ctx, q)
 	if err != nil {
 		return nil, huma.Error500InternalServerError("Failed to list radio artist candidates", err)
@@ -78,21 +85,8 @@ type AdminListRadioTrackCandidatesResponse struct {
 
 // AdminListRadioTrackCandidatesHandler handles GET /admin/radio/candidates/tracks.
 func (h *RadioCandidatesHandler) AdminListRadioTrackCandidatesHandler(ctx context.Context, req *AdminListRadioTrackCandidatesRequest) (*AdminListRadioTrackCandidatesResponse, error) {
-	q := contracts.RadioTrackCandidatesQuery{
-		View:  contracts.RadioTrackCandidateView(req.View),
-		Lane:  contracts.RadioCandidateLaneFilter(req.Lane),
-		Sort:  contracts.RadioCandidateSort(req.Sort),
-		Limit: req.Limit,
-	}
-	if q.Lane == "" {
-		q.Lane = contracts.RadioCandidateLaneFilterAll
-	}
-	if q.Sort == "" {
-		q.Sort = contracts.RadioCandidateSortScore
-	}
-	if q.Limit <= 0 {
-		q.Limit = 50
-	}
+	q := contracts.RadioTrackCandidatesQuery{View: contracts.RadioTrackCandidateView(req.View)}
+	q.Lane, q.Sort, q.Limit = radioCandidateListParams(req.Lane, req.Sort, req.Limit)
 	listing, err := h.lister.ListTrackCandidates(ctx, q)
 	if err != nil {
 		return nil, huma.Error500InternalServerError("Failed to list radio track candidates", err)

@@ -117,19 +117,26 @@ SELECT u.untracked_plays, q.track_id, q.play_count, q.station_row_count, q.stati
 FROM (SELECT count(*) AS untracked_plays FROM tracked WHERE track_id IS NULL) u
 LEFT JOIN qualifying q ON true`
 
-// radioTrackCandidateViewOf returns the view a qualifying track is in, or
-// false when it is in neither. artistCandidateKeys holds the qualifying artist
-// candidates' keys; it may be nil when only the unlinked view is wanted.
-func radioTrackCandidateViewOf(row radioTrackCandidateRow, artistCandidateKeys map[string]bool) (contracts.RadioTrackCandidateView, bool) {
-	if len(row.ArtistIDs) > 0 {
-		return contracts.RadioTrackCandidateViewUnlinked, !row.ReleaseLinked
-	}
-	for _, key := range row.ArtistKeys {
-		if !artistCandidateKeys[key] {
-			return "", false
+// inRadioTrackCandidateView reports whether a qualifying track is in the view.
+// artistCandidateKeys holds the qualifying artist candidates' keys; only the
+// unmatched view reads it.
+func inRadioTrackCandidateView(row radioTrackCandidateRow, view contracts.RadioTrackCandidateView, artistCandidateKeys map[string]bool) bool {
+	artistLinked := len(row.ArtistIDs) > 0
+	switch view {
+	case contracts.RadioTrackCandidateViewUnlinked:
+		return artistLinked && !row.ReleaseLinked
+	case contracts.RadioTrackCandidateViewUnmatched:
+		if artistLinked || len(row.ArtistKeys) == 0 {
+			return false
 		}
+		for _, key := range row.ArtistKeys {
+			if !artistCandidateKeys[key] {
+				return false
+			}
+		}
+		return true
 	}
-	return contracts.RadioTrackCandidateViewUnmatched, len(row.ArtistKeys) > 0
+	return false
 }
 
 // radioTrackCandidateSortKeys maps each sort to the metric it ranks by first.
@@ -178,19 +185,9 @@ func rankRadioTrackCandidates(rows []radioTrackCandidateRow, sort contracts.Radi
 		}
 		candidates = append(candidates, c)
 	}
-	metric := radioTrackCandidateSortKeys[sort]
-	slices.SortFunc(candidates, func(a, b contracts.RadioTrackCandidate) int {
-		if c := cmp.Compare(metric(b), metric(a)); c != 0 {
-			return c
-		}
-		if c := cmp.Compare(b.Score, a.Score); c != 0 {
-			return c
-		}
-		if c := cmp.Compare(b.LastAiredOn, a.LastAiredOn); c != 0 {
-			return c
-		}
-		return cmp.Compare(a.TrackID, b.TrackID)
-	})
+	sortRadioCandidates(candidates, radioTrackCandidateSortKeys[sort], func(c contracts.RadioTrackCandidate) radioCandidateOrder {
+		return radioCandidateOrder{score: c.Score, lastAiredOn: c.LastAiredOn}
+	}, func(a, b contracts.RadioTrackCandidate) int { return cmp.Compare(a.TrackID, b.TrackID) })
 	return candidates
 }
 
@@ -248,26 +245,12 @@ func (r *RadioCandidatesReader) ListTrackCandidates(ctx context.Context, q contr
 			}
 		}
 		rows = slices.DeleteFunc(rows, func(row radioTrackCandidateRow) bool {
-			view, ok := radioTrackCandidateViewOf(row, artistCandidateKeys)
-			return !ok || view != q.View
+			return !inRadioTrackCandidateView(row, q.View, artistCandidateKeys)
 		})
 
-		candidates := rankRadioTrackCandidates(rows, q.Sort)
-		listing.Candidates = make([]contracts.RadioTrackCandidate, 0, min(q.Limit, len(candidates)))
-		for _, c := range candidates {
-			if c.Lane == contracts.RadioCandidateLaneAuto {
-				listing.AutoTotal++
-			} else {
-				listing.HumanTotal++
-			}
-			if !q.Lane.Includes(c.Lane) {
-				continue
-			}
-			listing.Total++
-			if len(listing.Candidates) < q.Limit {
-				listing.Candidates = append(listing.Candidates, c)
-			}
-		}
+		page := pageRadioCandidates(rankRadioTrackCandidates(rows, q.Sort),
+			func(c contracts.RadioTrackCandidate) contracts.RadioCandidateLane { return c.Lane }, q.Lane, q.Limit)
+		listing.Candidates, listing.Total, listing.AutoTotal, listing.HumanTotal = page.candidates, page.total, page.auto, page.human
 
 		if err := attachRadioTrackCandidateEvidence(tx, windowStart, listing.Candidates, rows); err != nil {
 			return err
@@ -325,16 +308,7 @@ counted AS MATERIALIZED (
   FROM plays pl` + radioTrackJoinSQL + `
   WHERE t.id = ANY (?::bigint[])
 )
-SELECT '` + radioEvidenceTitle + `' AS kind, track_id, 0 AS ref_id, track_title AS name, '' AS slug,
-       play_count::int AS play_count, distinct_count::int AS distinct_count, rn
-FROM (
-  SELECT track_id, track_title, count(*) AS play_count,
-         count(*) OVER (PARTITION BY track_id) AS distinct_count,
-         row_number() OVER (PARTITION BY track_id ORDER BY count(*) DESC, track_title COLLATE "C") AS rn
-  FROM counted
-  GROUP BY track_id, track_title
-) titles
-WHERE rn <= ` + fmt.Sprint(radioCandidateTopNames) + `
+` + radioCandidateEvidenceSpellingsSQL(radioEvidenceTitle, "track_id", "track_title") + `
 UNION ALL
 SELECT '` + radioEvidenceArtistName + `' AS kind, track_id, 0 AS ref_id, artist_name AS name, '' AS slug,
        play_count::int AS play_count, 0 AS distinct_count, rn
@@ -358,13 +332,7 @@ SELECT '` + radioEvidenceArtist + `' AS kind, c.track_id, a.id AS ref_id, a.name
 FROM counted c
 JOIN artists a ON a.id = c.artist_id
 GROUP BY c.track_id, a.id, a.name, a.slug
-UNION ALL
-SELECT '` + radioEvidenceStation + `' AS kind, c.track_id, st.id AS ref_id, st.name AS name, st.slug AS slug,
-       count(*)::int AS play_count, 0 AS distinct_count,
-       row_number() OVER (PARTITION BY c.track_id ORDER BY count(*) DESC, st.id) AS rn
-FROM counted c
-JOIN radio_stations st ON st.id = c.station_id
-GROUP BY c.track_id, st.id, st.name, st.slug
+UNION ALL` + radioCandidateEvidenceStationsSQL("track_id") + `
 UNION ALL` + radioCandidateEvidenceNamesSQL(radioEvidenceAlbum, "track_id", "album_title", "") + `
 ORDER BY kind, track_id, rn`
 
