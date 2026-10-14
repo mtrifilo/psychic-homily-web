@@ -181,6 +181,22 @@ describe('PasskeySignupButton', () => {
     expect(mockSetUser).not.toHaveBeenCalled()
   })
 
+  it('claims nothing and reports the error when begin is refused', async () => {
+    fetchMock.mockResolvedValueOnce({
+      json: async () => ({ success: false, message: 'Email already registered' }),
+    })
+
+    renderButton()
+    await submitSignup()
+
+    await waitFor(() => {
+      expect(mockOnError).toHaveBeenCalledWith('Email already registered')
+    })
+    expect(mockStartRegistration).not.toHaveBeenCalled()
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    expect(mockOnHandoffChange).not.toHaveBeenCalled()
+  })
+
   it('claims nothing when the passkey ceremony is cancelled', async () => {
     fetchMock.mockResolvedValueOnce(BEGIN_OK)
     mockStartRegistration.mockRejectedValueOnce(
