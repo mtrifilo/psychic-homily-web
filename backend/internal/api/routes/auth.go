@@ -130,8 +130,8 @@ func authScopedRateLimiter(name middleware.LimiterName, requestsPerMinute int) f
 	return ipRateLimiter(name, requestsPerMinute, time.Minute)
 }
 
-// oauthRedirectRateLimiter builds the per-IP minute limiter for the OAuth
-// sign-in redirects, at middleware.OAuthRedirectRequestsPerMinute and honoring
+// oauthRedirectRateLimiter builds the per-IP minute limiter for
+// oauthRedirectRoutes, at middleware.OAuthRedirectRequestsPerMinute and honoring
 // the same DISABLE_AUTH_RATE_LIMITS escape hatch as authScopedRateLimiter.
 //
 // A refusal logs as middleware.LimiterOAuthRedirect and is answered by
