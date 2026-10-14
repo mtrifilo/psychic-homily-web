@@ -1,11 +1,13 @@
 package auth
 
 import (
+	"sync"
 	"testing"
 
 	"github.com/go-webauthn/webauthn/protocol"
 	"github.com/go-webauthn/webauthn/webauthn"
 	"github.com/stretchr/testify/assert"
+	"gorm.io/gorm/schema"
 )
 
 // =============================================================================
@@ -139,7 +141,7 @@ func TestWebAuthnCredentials_Multiple(t *testing.T) {
 				CredentialID:    []byte("cred1"),
 				PublicKey:       []byte("pk1"),
 				AttestationType: "none",
-				AAGUID:          "test-aaguid-1",
+				AAGUID:          "adce0002-35bc-c60a-648b-0b25f1f05503",
 				SignCount:       5,
 				CloneWarning:    false,
 				BackupEligible:  true,
@@ -149,7 +151,7 @@ func TestWebAuthnCredentials_Multiple(t *testing.T) {
 				CredentialID:    []byte("cred2"),
 				PublicKey:       []byte("pk2"),
 				AttestationType: "direct",
-				AAGUID:          "test-aaguid-2",
+				AAGUID:          "",
 				SignCount:       10,
 				CloneWarning:    true,
 				BackupEligible:  false,
@@ -163,7 +165,7 @@ func TestWebAuthnCredentials_Multiple(t *testing.T) {
 	assert.Equal(t, []byte("cred1"), creds[0].ID)
 	assert.Equal(t, []byte("pk1"), creds[0].PublicKey)
 	assert.Equal(t, "none", creds[0].AttestationType)
-	assert.Equal(t, []byte("test-aaguid-1"), creds[0].Authenticator.AAGUID)
+	assert.Equal(t, []byte{0xad, 0xce, 0x00, 0x02, 0x35, 0xbc, 0xc6, 0x0a, 0x64, 0x8b, 0x0b, 0x25, 0xf1, 0xf0, 0x55, 0x03}, creds[0].Authenticator.AAGUID)
 	assert.Equal(t, uint32(5), creds[0].Authenticator.SignCount)
 	assert.False(t, creds[0].Authenticator.CloneWarning)
 	assert.True(t, creds[0].Flags.BackupEligible)
@@ -172,6 +174,7 @@ func TestWebAuthnCredentials_Multiple(t *testing.T) {
 	assert.Equal(t, []byte("cred2"), creds[1].ID)
 	assert.Equal(t, uint32(10), creds[1].Authenticator.SignCount)
 	assert.True(t, creds[1].Authenticator.CloneWarning)
+	assert.Nil(t, creds[1].Authenticator.AAGUID)
 }
 
 // =============================================================================
@@ -199,7 +202,7 @@ func TestToWebAuthnCredential_Basic(t *testing.T) {
 		PublicKey:       []byte("test-public-key"),
 		AttestationType: "none",
 		Authenticator: webauthn.Authenticator{
-			AAGUID:       []byte("test-aaguid"),
+			AAGUID:       []byte{0xad, 0xce, 0x00, 0x02, 0x35, 0xbc, 0xc6, 0x0a, 0x64, 0x8b, 0x0b, 0x25, 0xf1, 0xf0, 0x55, 0x03},
 			SignCount:    42,
 			CloneWarning: false,
 		},
@@ -215,7 +218,7 @@ func TestToWebAuthnCredential_Basic(t *testing.T) {
 	assert.Equal(t, []byte("test-cred-id"), result.CredentialID)
 	assert.Equal(t, []byte("test-public-key"), result.PublicKey)
 	assert.Equal(t, "none", result.AttestationType)
-	assert.Equal(t, "test-aaguid", result.AAGUID)
+	assert.Equal(t, "adce0002-35bc-c60a-648b-0b25f1f05503", result.AAGUID)
 	assert.Equal(t, uint32(42), result.SignCount)
 	assert.False(t, result.CloneWarning)
 	assert.True(t, result.BackupEligible)
@@ -348,4 +351,61 @@ func TestTransportRoundTrip(t *testing.T) {
 	assert.Contains(t, transports, protocol.USB)
 	assert.Contains(t, transports, protocol.Internal)
 	assert.Contains(t, transports, protocol.Hybrid)
+}
+
+// =============================================================================
+// AAGUID encoding
+// =============================================================================
+
+// The aaguid column is varchar(36): the canonical UUID text, never the raw
+// bytes, which are not valid text (an all-zero AAGUID is sixteen NULs).
+func TestToWebAuthnCredential_AAGUIDStoredAsUUIDText(t *testing.T) {
+	for name, tc := range map[string]struct {
+		raw  []byte
+		want string
+	}{
+		"zero aaguid":   {make([]byte, 16), "00000000-0000-0000-0000-000000000000"},
+		"missing":       {nil, ""},
+		"wrong length":  {[]byte("short"), ""},
+		"authenticator": {[]byte{0xad, 0xce, 0x00, 0x02, 0x35, 0xbc, 0xc6, 0x0a, 0x64, 0x8b, 0x0b, 0x25, 0xf1, 0xf0, 0x55, 0x03}, "adce0002-35bc-c60a-648b-0b25f1f05503"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			got := ToWebAuthnCredential(1, &webauthn.Credential{Authenticator: webauthn.Authenticator{AAGUID: tc.raw}}, "")
+			assert.Equal(t, tc.want, got.AAGUID)
+		})
+	}
+}
+
+func TestWebAuthnCredential_AAGUIDColumnName(t *testing.T) {
+	s, err := schema.Parse(&WebAuthnCredential{}, &sync.Map{}, schema.NamingStrategy{})
+	assert.NoError(t, err)
+	field := s.LookUpField("AAGUID")
+	if assert.NotNil(t, field) {
+		assert.Equal(t, "aaguid", field.DBName)
+	}
+}
+
+// =============================================================================
+// UserIDFromWebAuthnID
+// =============================================================================
+
+func TestUserIDFromWebAuthnID_RoundTrip(t *testing.T) {
+	for _, id := range []uint{1, 42, 1 << 31} {
+		got, ok := UserIDFromWebAuthnID((&User{ID: id}).WebAuthnID())
+		assert.True(t, ok)
+		assert.Equal(t, id, got)
+	}
+}
+
+func TestUserIDFromWebAuthnID_RejectsOtherHandles(t *testing.T) {
+	for name, handle := range map[string][]byte{
+		"email bytes": []byte("someone@example.com"),
+		"empty":       nil,
+		"zero id":     make([]byte, 8),
+	} {
+		t.Run(name, func(t *testing.T) {
+			_, ok := UserIDFromWebAuthnID(handle)
+			assert.False(t, ok)
+		})
+	}
 }

@@ -37,6 +37,14 @@ vi.mock('./backup-auth-prompt', () => ({
     ) : null,
 }))
 
+// The components must resolve the backend through lib/api-base like every
+// other data request, never from NEXT_PUBLIC_API_URL on their own: unset, that
+// read skips the same-origin /api proxy.
+vi.mock('@/lib/api-base', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/lib/api-base')>()),
+  API_BASE_URL: 'https://api-base.test',
+}))
+
 describe('PasskeySignupButton', () => {
   beforeEach(() => {
     mockPush.mockReset()
@@ -58,7 +66,7 @@ describe('PasskeySignupButton', () => {
     fetchMock.mockResolvedValueOnce({
       json: async () => ({
         success: true,
-        options: { challenge: 'begin-signup-challenge' },
+        options: { publicKey: { challenge: 'begin-signup-challenge' } },
         challenge_id: 'challenge-id',
       }),
     })
@@ -102,6 +110,14 @@ describe('PasskeySignupButton', () => {
       age_confirmed: true,
       min_age_attested: 16,
     })
+
+    expect(mockStartRegistration).toHaveBeenCalledWith({
+      optionsJSON: { challenge: 'begin-signup-challenge' },
+    })
+    expect(fetchMock.mock.calls.map((call) => call[0])).toEqual([
+      'https://api-base.test/auth/passkey/signup/begin',
+      'https://api-base.test/auth/passkey/signup/finish',
+    ])
 
     const finishSignupPayload = JSON.parse(
       (fetchMock.mock.calls[1]?.[1] as { body: string }).body

@@ -2,6 +2,7 @@ package auth
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"testing"
 	"time"
@@ -12,6 +13,7 @@ import (
 	"psychic-homily-backend/internal/api/handlers/shared/testhelpers"
 	autherrors "psychic-homily-backend/internal/errors"
 	authm "psychic-homily-backend/internal/models/auth"
+	"psychic-homily-backend/internal/services/contracts"
 )
 
 // ============================================================================
@@ -22,16 +24,12 @@ func testPasskeyHandler() *PasskeyHandler {
 	return NewPasskeyHandler(nil, nil, nil, nil, testConfig())
 }
 
+// malformedCredentialJSON is a credential body the WebAuthn parser rejects.
+var malformedCredentialJSON = json.RawMessage(`{"id":"","type":"","response":{"clientDataJSON":"not-valid"}}`)
+
 // testPasskeyHandlerWithMocks builds a handler whose email service is present
 // but unconfigured (MockEmailService.IsConfigured defaults to false), so the
 // signup verification send short-circuits without touching the mock.
-//
-// No test here reaches the FinishSignupHandler success path where that send
-// happens: it sits behind ParseCredentialCreationResponseBody, and the repo has
-// no valid WebAuthn attestation fixture, so every existing FinishSignup test
-// stops at the parse-failure branch. The passkey send is covered instead by
-// TestSendVerificationEmailBestEffort (the shared logic) plus compile-time
-// wiring of the constructor.
 func testPasskeyHandlerWithMocks(wa *testhelpers.MockWebAuthnService, jwt *testhelpers.MockJWTService, us *testhelpers.MockUserService) *PasskeyHandler {
 	return NewPasskeyHandler(wa, jwt, us, &testhelpers.MockEmailService{}, testConfig())
 }
@@ -227,15 +225,7 @@ func TestFinishRegisterHandler_MalformedCredentialResponse(t *testing.T) {
 	input := &FinishRegisterRequest{}
 	input.Body.ChallengeID = "valid-challenge"
 	// Provide invalid/empty credential data — will fail parsing
-	input.Body.Response = CredentialCreationResponse{
-		ID:    "",
-		RawID: "",
-		Type:  "",
-		Response: CredentialCreationAttestationResponse{
-			AttestationObject: "not-valid-base64",
-			ClientDataJSON:    "not-valid-base64",
-		},
-	}
+	input.Body.Response = malformedCredentialJSON
 
 	resp, err := h.FinishRegisterHandler(ctx, input)
 	if err != nil {
@@ -250,44 +240,6 @@ func TestFinishRegisterHandler_MalformedCredentialResponse(t *testing.T) {
 	if resp.Body.Message != "Invalid credential response" {
 		t.Errorf("expected 'Invalid credential response', got '%s'", resp.Body.Message)
 	}
-}
-
-func TestFinishRegisterHandler_DefaultDisplayName(t *testing.T) {
-	// The handler sets "My Passkey" as default if display_name is empty.
-	// We verify this by checking the displayName passed to FinishRegistration.
-	var capturedDisplayName string
-	mockWA := &testhelpers.MockWebAuthnService{
-		GetChallengeFn: func(challengeID string, operation string) (*webauthn.SessionData, uint, error) {
-			return &webauthn.SessionData{}, 1, nil
-		},
-		FinishRegistrationFn: func(user *authm.User, session *webauthn.SessionData, response *protocol.ParsedCredentialCreationData, displayName string) (*authm.WebAuthnCredential, error) {
-			capturedDisplayName = displayName
-			return &authm.WebAuthnCredential{ID: 1, UserID: user.ID}, nil
-		},
-	}
-	h := testPasskeyHandlerWithMocks(mockWA, &testhelpers.MockJWTService{}, &testhelpers.MockUserService{})
-	ctx := testhelpers.CtxWithSessionAuthTime(&authm.User{ID: 1}, time.Now())
-
-	input := &FinishRegisterRequest{}
-	input.Body.ChallengeID = "valid-challenge"
-	input.Body.DisplayName = "" // empty — should default to "My Passkey"
-	// Note: credential response will fail parsing before reaching FinishRegistration,
-	// so we can't actually test this path without valid WebAuthn data.
-	// Instead test the code path that checks challenge mismatch,
-	// which we already covered above.
-
-	// To test the default name, we need the parse step to succeed.
-	// Since we can't easily create valid WebAuthn data, we just verify the early error paths.
-	resp, err := h.FinishRegisterHandler(ctx, input)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	// Will fail on parse, which is expected
-	if resp.Body.Success {
-		t.Error("expected success=false (parse should fail with empty credential data)")
-	}
-	// capturedDisplayName won't be set because parsing fails before FinishRegistration
-	_ = capturedDisplayName
 }
 
 // ============================================================================
@@ -512,16 +464,7 @@ func TestFinishLoginHandler_MalformedCredentialResponse(t *testing.T) {
 
 	input := &FinishLoginRequest{}
 	input.Body.ChallengeID = "valid-challenge"
-	input.Body.Response = CredentialAssertionResponse{
-		ID:    "",
-		RawID: "",
-		Type:  "",
-		Response: CredentialAssertionAuthenticatorResponse{
-			AuthenticatorData: "not-valid",
-			ClientDataJSON:    "not-valid",
-			Signature:         "not-valid",
-		},
-	}
+	input.Body.Response = malformedCredentialJSON
 
 	resp, err := h.FinishLoginHandler(context.Background(), input)
 	if err != nil {
@@ -539,8 +482,8 @@ func TestFinishLoginHandler_MalformedCredentialResponse(t *testing.T) {
 }
 
 func TestFinishLoginHandler_UserSpecificLogin_UserNotFound(t *testing.T) {
-	// This tests the path where challenge has a non-zero userID but the user
-	// can't be found when we look them up by ID during finish.
+	_, device := softRegistration(t)
+	body := softAssertion(t, device)
 	mockWA := &testhelpers.MockWebAuthnService{
 		GetChallengeFn: func(challengeID string, operation string) (*webauthn.SessionData, uint, error) {
 			return &webauthn.SessionData{}, 42, nil
@@ -555,14 +498,7 @@ func TestFinishLoginHandler_UserSpecificLogin_UserNotFound(t *testing.T) {
 
 	input := &FinishLoginRequest{}
 	input.Body.ChallengeID = "valid-challenge"
-	// We need the parse to succeed. But protocol.ParseCredentialRequestResponseBody
-	// will fail on empty/invalid data. So this test actually hits the parse failure first.
-	// Let's verify that error path is handled:
-	input.Body.Response = CredentialAssertionResponse{
-		ID:    "",
-		RawID: "",
-		Type:  "",
-	}
+	input.Body.Response = body
 
 	resp, err := h.FinishLoginHandler(context.Background(), input)
 	if err != nil {
@@ -571,9 +507,8 @@ func TestFinishLoginHandler_UserSpecificLogin_UserNotFound(t *testing.T) {
 	if resp.Body.Success {
 		t.Error("expected success=false")
 	}
-	// Parse will fail first, producing VALIDATION_FAILED
-	if resp.Body.ErrorCode != autherrors.CodeValidationFailed {
-		t.Errorf("expected error_code=%s, got %s", autherrors.CodeValidationFailed, resp.Body.ErrorCode)
+	if resp.Body.ErrorCode != autherrors.CodeInvalidCredentials {
+		t.Errorf("expected error_code=%s, got %s", autherrors.CodeInvalidCredentials, resp.Body.ErrorCode)
 	}
 }
 
@@ -1171,15 +1106,7 @@ func TestFinishSignupHandler_MalformedCredentialResponse(t *testing.T) {
 
 	input := &FinishSignupRequest{}
 	input.Body.ChallengeID = "valid-challenge"
-	input.Body.Response = CredentialCreationResponse{
-		ID:    "",
-		RawID: "",
-		Type:  "",
-		Response: CredentialCreationAttestationResponse{
-			AttestationObject: "bad-data",
-			ClientDataJSON:    "bad-data",
-		},
-	}
+	input.Body.Response = malformedCredentialJSON
 
 	resp, err := h.FinishSignupHandler(context.Background(), input)
 	if err != nil {
@@ -1197,12 +1124,15 @@ func TestFinishSignupHandler_MalformedCredentialResponse(t *testing.T) {
 }
 
 func TestFinishSignupHandler_MissingTermsAcceptance(t *testing.T) {
-	// TermsAccepted validation happens after parsing credential response.
-	// Since we can't easily provide valid WebAuthn data, this test verifies
-	// the parse failure path (which happens before terms check).
+	body, _ := softRegistration(t)
+	var finished bool
 	mockWA := &testhelpers.MockWebAuthnService{
 		GetChallengeWithEmailFn: func(challengeID string, operation string) (*webauthn.SessionData, string, error) {
 			return &webauthn.SessionData{}, "new@example.com", nil
+		},
+		FinishSignupRegistrationWithLegalFn: func(string, *webauthn.SessionData, *protocol.ParsedCredentialCreationData, string, contracts.LegalAcceptance) (*authm.User, error) {
+			finished = true
+			return &authm.User{ID: 9}, nil
 		},
 	}
 	mockUS := &testhelpers.MockUserService{
@@ -1215,21 +1145,15 @@ func TestFinishSignupHandler_MissingTermsAcceptance(t *testing.T) {
 	input := &FinishSignupRequest{}
 	input.Body.ChallengeID = "valid-challenge"
 	input.Body.TermsAccepted = false
-	input.Body.TermsVersion = ""
-	// Invalid credential data will cause parse failure before terms check
-	input.Body.Response = CredentialCreationResponse{
-		ID:   "test",
-		Type: "public-key",
-	}
+	input.Body.Response = body
 
 	resp, err := h.FinishSignupHandler(context.Background(), input)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if resp.Body.Success {
-		t.Error("expected success=false")
+	if resp.Body.Success || finished {
+		t.Error("expected the signup to be refused before the account is created")
 	}
-	// Parse fails first with VALIDATION_FAILED
 	if resp.Body.ErrorCode != autherrors.CodeValidationFailed {
 		t.Errorf("expected error_code=%s, got %s", autherrors.CodeValidationFailed, resp.Body.ErrorCode)
 	}
@@ -1321,127 +1245,38 @@ func TestBeginLoginHandler_WithEmail_StoreChallengeFailure(t *testing.T) {
 	}
 }
 
-func TestFinishLoginHandler_DiscoverableLogin_ChallengeWithZeroUserID(t *testing.T) {
-	// When userID is 0, handler goes into discoverable login path.
-	// With malformed credential data, parse will fail.
+// A challenge issued with no user is a discoverable login; an assertion the
+// service refuses is answered as invalid credentials, with no session.
+func TestFinishLoginHandler_DiscoverableLogin_RefusedAssertion(t *testing.T) {
+	_, device := softRegistration(t)
+	var reachedDiscoverable bool
 	mockWA := &testhelpers.MockWebAuthnService{
 		GetChallengeFn: func(challengeID string, operation string) (*webauthn.SessionData, uint, error) {
-			return &webauthn.SessionData{}, 0, nil // userID=0 => discoverable
+			return &webauthn.SessionData{}, 0, nil
+		},
+		FinishDiscoverableLoginFn: func(*webauthn.SessionData, *protocol.ParsedCredentialAssertionData) (*authm.User, *authm.WebAuthnCredential, error) {
+			reachedDiscoverable = true
+			return nil, nil, fmt.Errorf("failed to validate login")
 		},
 	}
 	h := testPasskeyHandlerWithMocks(mockWA, &testhelpers.MockJWTService{}, &testhelpers.MockUserService{})
 
 	input := &FinishLoginRequest{}
 	input.Body.ChallengeID = "disc-challenge"
-	input.Body.Response = CredentialAssertionResponse{
-		ID:   "",
-		Type: "",
-	}
+	input.Body.Response = softAssertion(t, device)
 
 	resp, err := h.FinishLoginHandler(context.Background(), input)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if resp.Body.Success {
-		t.Error("expected success=false")
+	if !reachedDiscoverable {
+		t.Fatal("expected the discoverable login path")
 	}
-	// Parse will fail
-	if resp.Body.ErrorCode != autherrors.CodeValidationFailed {
-		t.Errorf("expected error_code=%s, got %s", autherrors.CodeValidationFailed, resp.Body.ErrorCode)
+	if resp.Body.Success || resp.SetCookie.Value != "" {
+		t.Error("expected no session")
 	}
-}
-
-// ============================================================================
-// createCredentialCreationReader / createCredentialRequestReader helpers
-// ============================================================================
-
-func TestCreateCredentialCreationReader_IncludesAuthenticatorAttachment(t *testing.T) {
-	input := &FinishRegisterRequest{}
-	input.Body.Response = CredentialCreationResponse{
-		ID:                      "test-id",
-		RawID:                   "test-raw-id",
-		Type:                    "public-key",
-		AuthenticatorAttachment: "platform",
-		Response: CredentialCreationAttestationResponse{
-			AttestationObject: "YXR0ZXN0",
-			ClientDataJSON:    "Y2xpZW50",
-		},
-	}
-	reader := createCredentialCreationReader(input)
-	if reader == nil {
-		t.Fatal("expected non-nil reader")
-	}
-}
-
-func TestCreateCredentialCreationReader_NoAuthenticatorAttachment(t *testing.T) {
-	input := &FinishRegisterRequest{}
-	input.Body.Response = CredentialCreationResponse{
-		ID:    "test-id",
-		RawID: "test-raw-id",
-		Type:  "public-key",
-		Response: CredentialCreationAttestationResponse{
-			AttestationObject: "YXR0ZXN0",
-			ClientDataJSON:    "Y2xpZW50",
-		},
-	}
-	reader := createCredentialCreationReader(input)
-	if reader == nil {
-		t.Fatal("expected non-nil reader")
-	}
-}
-
-func TestCreateCredentialRequestReader(t *testing.T) {
-	input := &FinishLoginRequest{}
-	input.Body.Response = CredentialAssertionResponse{
-		ID:    "test-id",
-		RawID: "test-raw-id",
-		Type:  "public-key",
-		Response: CredentialAssertionAuthenticatorResponse{
-			AuthenticatorData: "YXV0aA==",
-			ClientDataJSON:    "Y2xpZW50",
-			Signature:         "c2ln",
-			UserHandle:        "dXNlcg==",
-		},
-	}
-	reader := createCredentialRequestReader(input)
-	if reader == nil {
-		t.Fatal("expected non-nil reader")
-	}
-}
-
-func TestCreateCredentialCreationReaderFromSignup_IncludesAuthenticatorAttachment(t *testing.T) {
-	input := &FinishSignupRequest{}
-	input.Body.Response = CredentialCreationResponse{
-		ID:                      "test-id",
-		RawID:                   "test-raw-id",
-		Type:                    "public-key",
-		AuthenticatorAttachment: "cross-platform",
-		Response: CredentialCreationAttestationResponse{
-			AttestationObject: "YXR0ZXN0",
-			ClientDataJSON:    "Y2xpZW50",
-			Transports:        []string{"usb", "nfc"},
-		},
-	}
-	reader := createCredentialCreationReaderFromSignup(input)
-	if reader == nil {
-		t.Fatal("expected non-nil reader")
-	}
-}
-
-func TestCreateCredentialCreationReaderFromSignup_NoAuthenticatorAttachment(t *testing.T) {
-	input := &FinishSignupRequest{}
-	input.Body.Response = CredentialCreationResponse{
-		ID:    "test-id",
-		RawID: "test-raw-id",
-		Type:  "public-key",
-		Response: CredentialCreationAttestationResponse{
-			AttestationObject: "YXR0ZXN0",
-			ClientDataJSON:    "Y2xpZW50",
-		},
-	}
-	reader := createCredentialCreationReaderFromSignup(input)
-	if reader == nil {
-		t.Fatal("expected non-nil reader")
+	if resp.Body.ErrorCode != autherrors.CodeInvalidCredentials {
+		t.Errorf("expected error_code=%s, got %s", autherrors.CodeInvalidCredentials, resp.Body.ErrorCode)
 	}
 }
 

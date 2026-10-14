@@ -12,11 +12,11 @@ type WebAuthnCredential struct {
 	UpdatedAt time.Time `json:"updated_at"`
 
 	// WebAuthn credential data
-	CredentialID []byte `json:"-" gorm:"type:bytea;not null"`       // The credential ID (hidden from JSON for security)
-	PublicKey    []byte `json:"-" gorm:"type:bytea;not null"`       // The public key (hidden from JSON for security)
-	SignCount    uint32 `json:"sign_count" gorm:"default:0"`        // Counter to prevent replay attacks
-	AAGUID       string `json:"aaguid" gorm:"type:varchar(36)"`     // Authenticator Attestation GUID
-	CloneWarning bool   `json:"clone_warning" gorm:"default:false"` // Flag if credential may be cloned
+	CredentialID []byte `json:"-" gorm:"type:bytea;not null"`                 // The credential ID (hidden from JSON for security)
+	PublicKey    []byte `json:"-" gorm:"type:bytea;not null"`                 // The public key (hidden from JSON for security)
+	SignCount    uint32 `json:"sign_count" gorm:"default:0"`                  // Counter to prevent replay attacks
+	AAGUID       string `json:"aaguid" gorm:"column:aaguid;type:varchar(36)"` // Authenticator Attestation GUID in canonical UUID form
+	CloneWarning bool   `json:"clone_warning" gorm:"default:false"`           // Flag if credential may be cloned
 
 	// Attestation and transport info
 	AttestationType string `json:"attestation_type" gorm:"type:varchar(50)"` // e.g., "none", "direct", "indirect"

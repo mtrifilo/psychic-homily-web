@@ -5,6 +5,7 @@ import (
 
 	"github.com/go-webauthn/webauthn/protocol"
 	"github.com/go-webauthn/webauthn/webauthn"
+	"github.com/google/uuid"
 )
 
 // WebAuthnID returns the user's ID as bytes for WebAuthn
@@ -13,6 +14,20 @@ func (u *User) WebAuthnID() []byte {
 	buf := make([]byte, 8)
 	binary.BigEndian.PutUint64(buf, uint64(u.ID))
 	return buf
+}
+
+// UserIDFromWebAuthnID decodes a user handle produced by WebAuthnID back to
+// the users.id it encodes. It reports false for a handle of any other length
+// or one that encodes zero.
+func UserIDFromWebAuthnID(handle []byte) (uint, bool) {
+	if len(handle) != 8 {
+		return 0, false
+	}
+	id := binary.BigEndian.Uint64(handle)
+	if id == 0 {
+		return 0, false
+	}
+	return uint(id), true
 }
 
 // WebAuthnName returns the user's email or username for WebAuthn
@@ -50,7 +65,7 @@ func (u *User) WebAuthnCredentials() []webauthn.Credential {
 			PublicKey:       cred.PublicKey,
 			AttestationType: cred.AttestationType,
 			Authenticator: webauthn.Authenticator{
-				AAGUID:       []byte(cred.AAGUID),
+				AAGUID:       aaguidBytes(cred.AAGUID),
 				SignCount:    cred.SignCount,
 				CloneWarning: cred.CloneWarning,
 			},
@@ -92,7 +107,7 @@ func ToWebAuthnCredential(userID uint, cred *webauthn.Credential, displayName st
 		CredentialID:    cred.ID,
 		PublicKey:       cred.PublicKey,
 		SignCount:       cred.Authenticator.SignCount,
-		AAGUID:          string(cred.Authenticator.AAGUID),
+		AAGUID:          aaguidString(cred.Authenticator.AAGUID),
 		CloneWarning:    cred.Authenticator.CloneWarning,
 		AttestationType: cred.AttestationType,
 		Transports:      transports,
@@ -100,6 +115,27 @@ func ToWebAuthnCredential(userID uint, cred *webauthn.Credential, displayName st
 		BackupState:     cred.Flags.BackupState,
 		DisplayName:     displayName,
 	}
+}
+
+// aaguidString renders an authenticator's 16-byte AAGUID in the canonical
+// UUID form the aaguid column holds. A value that is not 16 bytes has no such
+// form and is stored as empty.
+func aaguidString(raw []byte) string {
+	id, err := uuid.FromBytes(raw)
+	if err != nil {
+		return ""
+	}
+	return id.String()
+}
+
+// aaguidBytes is the inverse of aaguidString; an empty or unparseable value
+// yields nil.
+func aaguidBytes(s string) []byte {
+	id, err := uuid.Parse(s)
+	if err != nil {
+		return nil
+	}
+	return id[:]
 }
 
 // GetTransports parses the transports JSON and returns protocol.AuthenticatorTransport slice

@@ -63,9 +63,24 @@ func TestNewWebAuthnService_DefaultOrigins(t *testing.T) {
 	assert.NotNil(t, svc)
 }
 
+func TestNewWebAuthnService_OffersEveryAuthenticatorAttachment(t *testing.T) {
+	cfg := &config.Config{
+		WebAuthn: config.WebAuthnConfig{RPDisplayName: "Test App", RPID: "localhost", RPOrigins: []string{ceremonyOrigin}},
+	}
+	svc, err := NewWebAuthnService(&gorm.DB{}, cfg)
+	assert.NoError(t, err)
+
+	assert.Empty(t, svc.webAuthn.Config.AuthenticatorSelection.AuthenticatorAttachment,
+		"an attachment preference hides platform authenticators or security keys from the ceremony")
+}
+
 // =============================================================================
 // INTEGRATION TESTS (With Real Database)
 // =============================================================================
+
+// ceremonyOrigin is the origin the suite's service accepts and the software
+// authenticator in webauthn_ceremony_test.go reports.
+const ceremonyOrigin = "http://localhost:3000"
 
 type WebAuthnServiceIntegrationTestSuite struct {
 	suite.Suite
@@ -82,9 +97,9 @@ func (suite *WebAuthnServiceIntegrationTestSuite) SetupSuite() {
 		WebAuthn: config.WebAuthnConfig{
 			RPDisplayName: "Test App",
 			RPID:          "localhost",
-			RPOrigins:     []string{"http://localhost:3000"},
+			RPOrigins:     []string{ceremonyOrigin},
 		},
-		Email: config.EmailConfig{FrontendURL: "http://localhost:3000"},
+		Email: config.EmailConfig{FrontendURL: ceremonyOrigin},
 	}
 
 	svc, err := NewWebAuthnService(suite.testDB.DB, cfg)
@@ -125,7 +140,8 @@ func (suite *WebAuthnServiceIntegrationTestSuite) createUser(email string) *auth
 	return user
 }
 
-// insertCredential uses raw SQL to avoid GORM AAGUID→aa_guid mapping issue
+// insertCredential writes a placeholder credential row with raw SQL; it holds
+// no usable key, so it serves listing and deletion tests only.
 func (suite *WebAuthnServiceIntegrationTestSuite) insertCredential(userID uint, displayName string) uint {
 	var id uint
 	err := suite.db.Raw(

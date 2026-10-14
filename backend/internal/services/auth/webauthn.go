@@ -47,11 +47,13 @@ func NewWebAuthnService(database *gorm.DB, cfg *config.Config) (*WebAuthnService
 		RPOrigins:     rpOrigins,
 		// Attestation preference - "none" is fine for most use cases
 		AttestationPreference: protocol.PreferNoAttestation,
-		// Authenticator selection - prefer platform authenticators (Touch ID, Face ID, Windows Hello)
+		// AuthenticatorAttachment is left unset so the browser offers every
+		// kind of authenticator: platform ones (Touch ID, Face ID, Windows
+		// Hello) as well as security keys and phones. Setting it to either
+		// value hides the other kind from the ceremony.
 		AuthenticatorSelection: protocol.AuthenticatorSelection{
-			AuthenticatorAttachment: protocol.CrossPlatform,
-			UserVerification:        protocol.VerificationPreferred,
-			ResidentKey:             protocol.ResidentKeyRequirementPreferred,
+			UserVerification: protocol.VerificationPreferred,
+			ResidentKey:      protocol.ResidentKeyRequirementPreferred,
 		},
 	}
 
@@ -149,36 +151,51 @@ func (s *WebAuthnService) BeginDiscoverableLogin() (*protocol.CredentialAssertio
 
 // FinishLogin completes the passkey login process
 func (s *WebAuthnService) FinishLogin(user *authm.User, session *webauthn.SessionData, response *protocol.ParsedCredentialAssertionData) (*authm.WebAuthnCredential, error) {
-	// Complete the login
-	credential, err := s.webAuthn.ValidateLogin(user, *session, response)
+	// Validation checks the assertion against the account's stored
+	// credentials, which the caller's copy of the user need not hold, so it
+	// runs against a fresh load and leaves the caller's copy untouched.
+	var owner authm.User
+	if err := s.db.Preload("PasskeyCredentials").First(&owner, user.ID).Error; err != nil {
+		return nil, fmt.Errorf("failed to load user: %w", err)
+	}
+
+	credential, err := s.webAuthn.ValidateLogin(&owner, *session, response)
 	if err != nil {
 		return nil, fmt.Errorf("failed to validate login: %w", err)
 	}
 
-	// Find and update the credential
 	var webauthnCred authm.WebAuthnCredential
 	if err := s.db.Where("user_id = ? AND credential_id = ?", user.ID, credential.ID).First(&webauthnCred).Error; err != nil {
 		return nil, fmt.Errorf("credential not found: %w", err)
 	}
-
-	// Update sign count and last used
-	now := time.Now()
-	webauthnCred.SignCount = credential.Authenticator.SignCount
-	webauthnCred.LastUsedAt = &now
-	webauthnCred.CloneWarning = credential.Authenticator.CloneWarning
-
-	if err := s.db.Save(&webauthnCred).Error; err != nil {
-		return nil, fmt.Errorf("failed to update credential: %w", err)
+	if err := s.recordCredentialUse(&webauthnCred, credential); err != nil {
+		return nil, err
 	}
-
 	return &webauthnCred, nil
+}
+
+// recordCredentialUse writes what a validated assertion changes on the stored
+// credential (sign count, clone warning, backup state, last use) and nothing
+// else. Backup eligibility cannot change: validation refuses an assertion
+// whose eligibility differs from the stored value.
+func (s *WebAuthnService) recordCredentialUse(stored *authm.WebAuthnCredential, validated *webauthn.Credential) error {
+	now := time.Now()
+	stored.SignCount = validated.Authenticator.SignCount
+	stored.CloneWarning = validated.Authenticator.CloneWarning
+	stored.BackupState = validated.Flags.BackupState
+	stored.LastUsedAt = &now
+	err := s.db.Model(stored).Select("sign_count", "clone_warning", "backup_state", "last_used_at").Updates(stored).Error
+	if err != nil {
+		return fmt.Errorf("failed to update credential: %w", err)
+	}
+	return nil
 }
 
 // FinishDiscoverableLogin completes a discoverable login and returns the user
 func (s *WebAuthnService) FinishDiscoverableLogin(session *webauthn.SessionData, response *protocol.ParsedCredentialAssertionData) (*authm.User, *authm.WebAuthnCredential, error) {
 	// Find the credential by ID
 	var webauthnCred authm.WebAuthnCredential
-	if err := s.db.Where("credential_id = ?", response.RawID).Preload("User").First(&webauthnCred).Error; err != nil {
+	if err := s.db.Where("credential_id = ?", response.RawID).First(&webauthnCred).Error; err != nil {
 		return nil, nil, fmt.Errorf("credential not found: %w", err)
 	}
 
@@ -200,16 +217,13 @@ func (s *WebAuthnService) FinishDiscoverableLogin(session *webauthn.SessionData,
 		return nil, nil, fmt.Errorf("failed to validate login: %w", err)
 	}
 
-	// Update the credential
-	now := time.Now()
-	webauthnCred.SignCount = credential.Authenticator.SignCount
-	webauthnCred.LastUsedAt = &now
-	webauthnCred.CloneWarning = credential.Authenticator.CloneWarning
-
-	if err := s.db.Save(&webauthnCred).Error; err != nil {
-		return nil, nil, fmt.Errorf("failed to update credential: %w", err)
+	if err := s.recordCredentialUse(&webauthnCred, credential); err != nil {
+		return nil, nil, err
 	}
 
+	// The credentials were loaded for validation only; the returned user is
+	// what the login response carries, so it goes back without them.
+	user.PasskeyCredentials = nil
 	return &user, &webauthnCred, nil
 }
 
@@ -316,30 +330,29 @@ func (s *WebAuthnService) CleanupExpiredChallenges() error {
 
 // --- Passkey Signup (passkey-first registration) methods ---
 
-// signupUser is a temporary user struct for passkey signup (before user exists in DB)
-type signupUser struct {
-	email string
+// A passkey's user handle is always its account's users.id in the
+// authm.User.WebAuthnID encoding, because login checks the handle the
+// authenticator returns against exactly that value. A passkey minted at
+// signup is created before the account's row exists, so signup reserves the
+// id from the users sequence at begin, mints the credential with that id's
+// handle, and inserts the row with that same id at finish. A signup that is
+// abandoned after begin leaves a gap in users.id and no row.
+
+// reserveUserID draws the next users.id without inserting a row.
+func (s *WebAuthnService) reserveUserID() (uint, error) {
+	var id int64
+	if err := s.db.Raw("SELECT nextval(pg_get_serial_sequence('users', 'id'))").Scan(&id).Error; err != nil {
+		return 0, fmt.Errorf("failed to reserve user id: %w", err)
+	}
+	if id <= 0 {
+		return 0, fmt.Errorf("failed to reserve user id: sequence returned %d", id)
+	}
+	return uint(id), nil
 }
 
-func (u *signupUser) WebAuthnID() []byte {
-	// Use email hash as temporary ID
-	return []byte(u.email)
-}
-
-func (u *signupUser) WebAuthnName() string {
-	return u.email
-}
-
-func (u *signupUser) WebAuthnDisplayName() string {
-	return u.email
-}
-
-func (u *signupUser) WebAuthnCredentials() []webauthn.Credential {
-	return nil // No existing credentials for new signup
-}
-
-func (u *signupUser) WebAuthnIcon() string {
-	return ""
+// signupAccount is the account a signup ceremony is for, before its row exists.
+func signupAccount(id uint, email string) *authm.User {
+	return &authm.User{ID: id, Email: &email}
 }
 
 // signupSessionData wraps session data with email for signup flow
@@ -348,13 +361,17 @@ type signupSessionData struct {
 	Session *webauthn.SessionData `json:"session"`
 }
 
-// BeginRegistrationForEmail starts passkey registration for a new user with just email
+// BeginRegistrationForEmail starts passkey registration for a new account
+// identified only by its email, reserving the account's id for the handle.
+// The returned session's UserID carries that reserved id.
 func (s *WebAuthnService) BeginRegistrationForEmail(email string) (*protocol.CredentialCreation, *webauthn.SessionData, error) {
-	tempUser := &signupUser{email: email}
+	reservedID, err := s.reserveUserID()
+	if err != nil {
+		return nil, nil, err
+	}
 
-	// Create registration options
 	options, session, err := s.webAuthn.BeginRegistration(
-		tempUser,
+		signupAccount(reservedID, email),
 		webauthn.WithResidentKeyRequirement(protocol.ResidentKeyRequirementPreferred),
 	)
 	if err != nil {
@@ -429,11 +446,12 @@ func (s *WebAuthnService) FinishSignupRegistrationWithLegal(
 	displayName string,
 	acceptance contracts.LegalAcceptance,
 ) (*authm.User, error) {
-	// Use the same temp user for credential creation
-	tempUser := &signupUser{email: email}
+	reservedID, ok := authm.UserIDFromWebAuthnID(session.UserID)
+	if !ok {
+		return nil, fmt.Errorf("signup session carries no reserved user id")
+	}
 
-	// Complete the registration
-	credential, err := s.webAuthn.CreateCredential(tempUser, *session, response)
+	credential, err := s.webAuthn.CreateCredential(signupAccount(reservedID, email), *session, response)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create credential: %w", err)
 	}
@@ -446,8 +464,9 @@ func (s *WebAuthnService) FinishSignupRegistrationWithLegal(
 		}
 	}()
 
-	// Create user without password
+	// Create user without password, under the id its passkey's handle encodes
 	user := &authm.User{
+		ID:            reservedID,
 		Email:         &email,
 		IsActive:      true,
 		EmailVerified: false,

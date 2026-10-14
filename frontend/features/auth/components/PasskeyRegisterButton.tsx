@@ -3,7 +3,6 @@
 import { useState } from 'react'
 import * as Sentry from '@sentry/nextjs'
 import { startRegistration } from '@simplewebauthn/browser'
-import type { PublicKeyCredentialCreationOptionsJSON } from '@simplewebauthn/browser'
 import { Fingerprint, Loader2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -18,9 +17,10 @@ import {
   DialogTrigger,
 } from '@/components/ui/dialog'
 import { useWebAuthnSupport } from '@/features/auth/hooks/useWebAuthnSupport'
+import { registrationOptionsFrom } from '@/features/auth/passkeyOptions'
 import { AuthError, AuthErrorCode, type AuthErrorCodeType } from '@/lib/errors'
-
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080'
+import type { components } from '@/types/api'
+import { API_BASE_URL } from '@/lib/api-base'
 
 interface PasskeyRegisterButtonProps {
   onSuccess?: () => void
@@ -74,7 +74,7 @@ interface RegistrationStepBody {
   success?: boolean
   message?: string
   error_code?: string
-  options?: PublicKeyCredentialCreationOptionsJSON
+  options?: components['schemas']['CredentialCreation']
   challenge_id?: string
 }
 
@@ -108,14 +108,13 @@ export function PasskeyRegisterButton({ onSuccess, onError, className }: Passkey
       )
       if (!begin.ok) throw begin.error
       const beginData = begin.body
-      if (!beginData.options) {
+      const optionsJSON = registrationOptionsFrom(beginData.options)
+      if (!optionsJSON) {
         throw new Error('Failed to start passkey registration')
       }
 
       // Step 2: Perform WebAuthn registration
-      const credential = await startRegistration({
-        optionsJSON: beginData.options,
-      })
+      const credential = await startRegistration({ optionsJSON })
 
       // Step 3: Finish registration
       const finishResponse = await fetch(`${API_BASE_URL}/auth/passkey/register/finish`, {
@@ -124,7 +123,7 @@ export function PasskeyRegisterButton({ onSuccess, onError, className }: Passkey
         credentials: 'include',
         body: JSON.stringify({
           challenge_id: beginData.challenge_id,
-          display_name: displayName || 'My Passkey',
+          display_name: displayName,
           response: credential,
         }),
       })
@@ -189,6 +188,7 @@ export function PasskeyRegisterButton({ onSuccess, onError, className }: Passkey
             <Label htmlFor="passkey-name">Passkey name</Label>
             <Input
               id="passkey-name"
+              maxLength={100}
               placeholder="e.g., My MacBook, Work laptop"
               value={displayName}
               onChange={e => setDisplayName(e.target.value)}
