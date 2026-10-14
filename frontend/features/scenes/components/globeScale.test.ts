@@ -8,7 +8,6 @@ import {
   LABEL_DECLUTTER_KM_BY_MIN_COUNT,
   labelDeclutterRadiusKm,
   MARKER_RAMPS,
-  type MarkerTheme,
   labelMinCountForAltitude,
   labelMinCountForZoom,
   altitudeForZoom,
@@ -23,8 +22,9 @@ import {
   visibleLabelScenes,
   zoomForAltitude,
 } from './globeScale'
+import { ATLAS_THEMES } from '../basemap/phBasemap'
 
-const THEMES: MarkerTheme[] = ['dark', 'light']
+const THEMES = ATLAS_THEMES
 
 // PSY-1223: the globe's dot/label sizes were an UNCAPPED sqrt(count), so very
 // dense scenes ballooned; and every scene carried an always-on label, so

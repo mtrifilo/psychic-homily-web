@@ -25,6 +25,7 @@
 // Pure great-circle helper (no three.js), so globeScale stays unit-testable
 // without loading the globe. Reused by the PSY-1330 proximity declutter below.
 import { haversineDistanceKm } from '@/lib/haversine'
+import type { AtlasTheme } from '../basemap/phBasemap'
 
 // ── Dot radius ────────────────────────────────────────────────────────────
 // sqrt scale (so dense scenes don't dwarf small ones) with the high end CAPPED
@@ -173,9 +174,6 @@ export function globeScreenRadiusPx(zoom: number): number {
 // selected is --primary with a paper ring that keeps it apart from the darker
 // roads under it, and followed is a deep teal. The venue pins share the ramp.
 
-/** The app theme a map's marks are drawn for. */
-export type MarkerTheme = 'dark' | 'light'
-
 export interface MarkerRamp {
   base: string
   hovered: string
@@ -187,7 +185,7 @@ export interface MarkerRamp {
 
 export const DOT_COLOR_BASE = '#ff7a3c'
 
-export const MARKER_RAMPS: Readonly<Record<MarkerTheme, MarkerRamp>> = {
+export const MARKER_RAMPS: Readonly<Record<AtlasTheme, MarkerRamp>> = {
   dark: {
     base: DOT_COLOR_BASE,
     hovered: '#ffb066',
@@ -203,6 +201,28 @@ export const MARKER_RAMPS: Readonly<Record<MarkerTheme, MarkerRamp>> = {
     followed: '#1f8fa8',
     selectedRing: { color: '#f4f1ea', widthPx: 1.5 },
   },
+}
+
+/**
+ * The outline paint of a circle layer of marks: every mark keeps its rest
+ * rim, except a selected mark on a ramp with a selected ring, which draws
+ * that ring instead. Read from the `isSelected` feature property.
+ */
+export function selectedRingStroke(
+  ramp: MarkerRamp,
+  restWidthPx: number,
+  restColor: string,
+): {
+  'circle-stroke-width': number | ['case', ['get', 'isSelected'], number, number]
+  'circle-stroke-color': string | ['case', ['get', 'isSelected'], string, string]
+} {
+  const ring = ramp.selectedRing
+  return ring
+    ? {
+        'circle-stroke-width': ['case', ['get', 'isSelected'], ring.widthPx, restWidthPx],
+        'circle-stroke-color': ['case', ['get', 'isSelected'], ring.color, restColor],
+      }
+    : { 'circle-stroke-width': restWidthPx, 'circle-stroke-color': restColor }
 }
 
 // Radius bump on hover — kept small so the highlighted dot never visibly

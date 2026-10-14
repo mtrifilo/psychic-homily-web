@@ -236,6 +236,7 @@ vi.mock('maplibre-gl', () => ({
 vi.mock('maplibre-gl/dist/maplibre-gl.css', () => ({}))
 
 import GlobeCanvas, { LABEL_PAPER_GROUND_ZOOM } from './GlobeCanvas'
+import { lightGroundPaperZoom } from '../basemap/phBasemap'
 
 const CHICAGO: PlaceableScene = {
   city: 'Chicago',
@@ -1481,9 +1482,7 @@ describe('GlobeCanvas theme', () => {
   })
 
   it('marks the ground paper in the light theme from the zoom where the light ground passes mid-grey', () => {
-    // The light ground's brightness grows with the square of the fade's
-    // progress across 5.5 to 7, so half of paper's comes at progress √½.
-    expect(LABEL_PAPER_GROUND_ZOOM).toBeCloseTo(5.5 + 1.5 * Math.SQRT1_2, 10)
+    expect(LABEL_PAPER_GROUND_ZOOM).toBe(lightGroundPaperZoom(5.5, 7))
     const { map } = renderCanvas()
     // The stub opens at zoom 13, on the streets.
     expect(ground()).toBe('paper')

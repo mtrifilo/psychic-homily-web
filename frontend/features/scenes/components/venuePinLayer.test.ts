@@ -7,14 +7,14 @@ import {
   venuePinPaint,
   venuePinRadiusPx,
 } from './venuePinLayer'
-import { MARKER_RAMPS, type MarkerTheme } from './globeScale'
+import { MARKER_RAMPS } from './globeScale'
+import { ATLAS_THEMES as THEMES } from '../basemap/phBasemap'
 
 const PINS = [
   { id: 1, lng: -112.07, lat: 33.45, upcomingShowCount: 12 },
   { id: 2, lng: -112.03, lat: 33.49, upcomingShowCount: 0 },
 ]
 
-const THEMES: MarkerTheme[] = ['dark', 'light']
 const DARK = MARKER_RAMPS.dark
 
 describe('venuePinFeatures', () => {

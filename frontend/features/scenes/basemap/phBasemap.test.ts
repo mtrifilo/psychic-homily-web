@@ -17,10 +17,12 @@ import {
   NIGHT_EARTH_LAYER_ID,
 } from './globeSurface'
 import {
-  type BasemapVariant,
+  ATLAS_THEMES,
+  type AtlasTheme,
   PH_BASEMAP_MIN_ZOOM,
   PH_BASEMAP_SOURCE_ID,
   PH_BASEMAP_STYLE_HOST,
+  lightGroundPaperZoom,
   phBasemapFragment,
 } from './phBasemap'
 import {
@@ -76,7 +78,7 @@ interface VariantCase {
   anchors: Record<string, string>
 }
 
-const VARIANTS: Record<BasemapVariant, VariantCase> = {
+const VARIANTS: Record<AtlasTheme, VariantCase> = {
   dark: {
     file: 'ph-dark-basemap.json',
     style: phDarkBasemap as unknown as StyleSpecification,
@@ -102,9 +104,8 @@ const VARIANTS: Record<BasemapVariant, VariantCase> = {
     },
   },
 }
-const VARIANT_NAMES = Object.keys(VARIANTS) as BasemapVariant[]
 
-const rawStyle = (variant: BasemapVariant) =>
+const rawStyle = (variant: AtlasTheme) =>
   readFileSync(path.join(BASEMAP_DIR, VARIANTS[variant].file), 'utf8')
 
 // OpenFreeMap's glyph server serves a fixed font set; these three are the
@@ -164,7 +165,7 @@ const OPACITY_PROP: Record<string, string> = {
   background: 'background-opacity',
 }
 
-describe.each(VARIANT_NAMES)('ph-%s-basemap.json', (variant) => {
+describe.each(ATLAS_THEMES)('ph-%s-basemap.json', (variant) => {
   const { style, tokenBlock, anchors } = VARIANTS[variant]
 
   it('validates against the MapLibre style spec', () => {
@@ -336,7 +337,6 @@ describe('the light style against the dark one', () => {
 
   it('is the file the generator writes from the dark file today', () => {
     expect(rawStyle('light')).toBe(lightBasemapText(rawStyle('dark')))
-    expect(light).toEqual(deriveLightBasemap(phDarkBasemap))
     expect(light.name).toBe(LIGHT_STYLE_NAME)
   })
 
@@ -399,7 +399,7 @@ describe('the map attribution restyle', () => {
   })
 })
 
-describe.each(VARIANT_NAMES)('phBasemapFragment, %s', (variant) => {
+describe.each(ATLAS_THEMES)('phBasemapFragment, %s', (variant) => {
   const { style } = VARIANTS[variant]
   const fragment = () => phBasemapFragment(FADE_START, FADE_END, variant)
   const backgroundPaint = () => {
@@ -477,6 +477,14 @@ describe('phBasemapFragment ground colour', () => {
       'background-color': '#0d0805',
       'background-opacity': ['interpolate', ['linear'], ['zoom'], FADE_START, 0, FADE_END, 1],
     })
+  })
+
+  it('passes half of paper\'s brightness at progress √½ of the fade range', () => {
+    expect(lightGroundPaperZoom(FADE_START, FADE_END)).toBeCloseTo(
+      FADE_START + (FADE_END - FADE_START) * Math.SQRT1_2,
+      10,
+    )
+    expect(lightGroundPaperZoom(0, 2)).toBeCloseTo(Math.SQRT2, 10)
   })
 
   it('ramps the light ground from the dark ground to paper across the fade range', () => {

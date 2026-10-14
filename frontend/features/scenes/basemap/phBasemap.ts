@@ -15,30 +15,22 @@ import type {
 import phDarkBasemap from './ph-dark-basemap.json'
 import phLightBasemap from './ph-light-basemap.json'
 
-/** Which street style a map draws. */
-export type BasemapVariant = 'dark' | 'light'
+/** The app theme a map is drawn for: its street style and its marker ramp. */
+export type AtlasTheme = 'dark' | 'light'
+export const ATLAS_THEMES: readonly AtlasTheme[] = ['dark', 'light']
 
 // resolveJsonModule types JSON literals as plain strings, not the style-spec
 // literal unions, so the cast is unavoidable. phBasemap.test.ts validates both
 // files against @maplibre/maplibre-gl-style-spec so the cast can't hide a
 // malformed style.
-const STYLES: Readonly<Record<BasemapVariant, StyleSpecification>> = {
+const STYLES: Readonly<Record<AtlasTheme, StyleSpecification>> = {
   dark: phDarkBasemap as unknown as StyleSpecification,
   light: phLightBasemap as unknown as StyleSpecification,
 }
 
-/** A style's ground: the colour of its background layer. */
-function groundColor(style: StyleSpecification): string {
-  const background = style.layers.find((layer) => layer.type === 'background')
-  const color =
-    background?.type === 'background'
-      ? background.paint?.['background-color']
-      : undefined
-  if (typeof color !== 'string') {
-    throw new Error(`${style.name} has no background colour`)
-  }
-  return color
-}
+// The dark style's ground, where the light ground's colour ramp starts.
+// phBasemap.test.ts pins it to the dark style file.
+const DARK_GROUND = '#0d0805'
 
 // How far past fadeEnd the raster layer stays mounted. The fade reaches 0
 // exactly AT fadeEnd; a layer `maxzoom` is exclusive, so cutting off at
@@ -103,6 +95,16 @@ export interface BasemapFragment {
   rasterMaxZoom: number
 }
 
+/**
+ * The zoom past which the light ground reads as paper rather than dark: its
+ * opacity and its colour (dark ground to paper) both ramp linearly across
+ * [fadeStart, fadeEnd], so its brightness grows with the square of the fade's
+ * progress and passes half of paper's at progress √½.
+ */
+export function lightGroundPaperZoom(fadeStart: number, fadeEnd: number): number {
+  return fadeStart + (fadeEnd - fadeStart) * Math.SQRT1_2
+}
+
 /** A linear zoom ramp between two opacities, or two colours. */
 function zoomRamp(
   fadeStart: number,
@@ -141,31 +143,27 @@ function zoomRamp(
 export function phBasemapFragment(
   fadeStart: number,
   fadeEnd: number,
-  variant: BasemapVariant,
+  variant: AtlasTheme,
 ): BasemapFragment {
   // Deep-clone before handing anything to MapLibre: the JSON import is a
   // module singleton, and Atlas creates a FRESH map on every show (Cache
   // Components hide/show) — sharing mutable sub-objects across map
   // instances would let any in-place edit leak between mounts.
   const cloned = structuredClone(STYLES[variant])
-  const groundRamp =
-    variant === 'light'
-      ? {
-          'background-color': zoomRamp(
-            fadeStart,
-            fadeEnd,
-            groundColor(STYLES.dark),
-            groundColor(cloned),
-          ),
-        }
-      : {}
   const layers = cloned.layers.map((layer) =>
     layer.type === 'background'
       ? {
           ...layer,
           paint: {
             ...layer.paint,
-            ...groundRamp,
+            ...(variant === 'light' && {
+              'background-color': zoomRamp(
+                fadeStart,
+                fadeEnd,
+                DARK_GROUND,
+                layer.paint?.['background-color'] as string,
+              ),
+            }),
             'background-opacity': zoomRamp(fadeStart, fadeEnd, 0, 1),
           },
         }

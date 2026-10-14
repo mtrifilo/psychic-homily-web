@@ -10,7 +10,11 @@
  */
 
 import type { CircleLayerSpecification } from 'maplibre-gl'
-import { DOT_HOVER_RADIUS_SCALE, type MarkerRamp } from './globeScale'
+import {
+  DOT_HOVER_RADIUS_SCALE,
+  type MarkerRamp,
+  selectedRingStroke,
+} from './globeScale'
 
 // ── Pin size ──────────────────────────────────────────────────────────────
 // Same shape as the globe's dot scale (sqrt, capped) for the same reason: a
@@ -95,7 +99,6 @@ export const VENUE_PIN_STROKE_PX = 1.5
  * either one's internal edits reach the other.
  */
 export function venuePinPaint(ramp: MarkerRamp): CircleLayerSpecification['paint'] {
-  const ring = ramp.selectedRing
   return {
     'circle-radius': [
       '*',
@@ -117,11 +120,6 @@ export function venuePinPaint(ramp: MarkerRamp): CircleLayerSpecification['paint
       ramp.hovered,
       ['get', 'color'],
     ],
-    'circle-stroke-width': ring
-      ? ['case', ['get', 'isSelected'], ring.widthPx, VENUE_PIN_STROKE_PX]
-      : VENUE_PIN_STROKE_PX,
-    'circle-stroke-color': ring
-      ? ['case', ['get', 'isSelected'], ring.color, VENUE_PIN_STROKE]
-      : VENUE_PIN_STROKE,
+    ...selectedRingStroke(ramp, VENUE_PIN_STROKE_PX, VENUE_PIN_STROKE),
   }
 }
