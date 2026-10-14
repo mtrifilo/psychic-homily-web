@@ -23,6 +23,7 @@
     "sitemap:check": "bun run lib/sitemap-monitor/cli.ts",
     "og:egress": "bun run scripts/og-font-egress-probe.tsx",
     "perf:atlas": "node scripts/atlas-perf.mjs",
+    "perf:chrome": "node scripts/chrome-perf.mjs",
     "api:types": "bash ../scripts/gen-api-types.sh",
     "api:types:check": "bash ../scripts/gen-api-types.sh && git diff --exit-code -- types/api.d.ts",
     "affiliate:params": "bun run ../scripts/gen-affiliate-params.ts"

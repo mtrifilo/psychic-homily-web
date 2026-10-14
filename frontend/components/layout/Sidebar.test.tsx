@@ -6,6 +6,7 @@ import { Sidebar } from './Sidebar'
 const mockPathname = vi.fn(() => '/shows')
 vi.mock('next/navigation', () => ({
   usePathname: () => mockPathname(),
+  useRouter: () => ({ prefetch: () => {} }),
 }))
 
 // Return type widened so individual tests can override `user`/`isAuthenticated`

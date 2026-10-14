@@ -6,6 +6,7 @@ import { ContributeMenu } from './ContributeMenu'
 let mockPathname = '/'
 vi.mock('next/navigation', () => ({
   usePathname: () => mockPathname,
+  useRouter: () => ({ prefetch: () => {} }),
 }))
 
 // Mirrors the real AuthContext contract: user is non-null exactly when

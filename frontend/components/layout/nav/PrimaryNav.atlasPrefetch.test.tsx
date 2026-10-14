@@ -5,6 +5,7 @@ import { markAtlasMapReady } from '@/lib/atlasMapReady'
 
 vi.mock('next/navigation', () => ({
   usePathname: () => '/atlas',
+  useRouter: () => ({ prefetch: () => {} }),
 }))
 
 vi.mock('@/lib/context/AuthContext', () => ({
