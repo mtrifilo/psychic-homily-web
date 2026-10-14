@@ -123,7 +123,8 @@ qualifying AS (
                   FILTER (WHERE artist_id IS NOT NULL), '{}') AS artist_ids,
          coalesce(bool_or(non_latin), false) AS non_latin_spelling,
          -- True when every play carrying a release id has a title the key
-         -- strips, so the ids may all be a version's (RadioTrackCandidate.VariantReleaseID).
+         -- strips, so the ids may belong to what was stripped
+         -- (contracts.RadioTrackCandidate.VariantReleaseID).
          coalesce(bool_and(title_norm IS DISTINCT FROM track_title_key)
                   FILTER (WHERE mb_release_id IS NOT NULL), false) AS variant_release_id
   FROM tracked

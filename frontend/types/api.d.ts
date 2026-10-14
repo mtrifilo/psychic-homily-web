@@ -15632,7 +15632,7 @@ export interface components {
             /** @description Earliest counted play's episode air date (YYYY-MM-DD) */
             first_aired_on: string;
             /**
-             * @description auto when the counted plays carry exactly one MusicBrainz release id, it is not on a variant title (variant_release_id), no spelling is non-Latin (non_latin_spelling) and the station floor is met; human otherwise. It describes the release only: an unmatched track can be auto while the artist candidate it joins is human
+             * @description auto when the counted plays carry exactly one MusicBrainz release id, not every play carrying it has a title the key strips (variant_release_id), no spelling is non-Latin (non_latin_spelling) and the station floor is met; human otherwise. It describes the release only: an unmatched track can be auto while the artist candidate it joins is human
              * @enum {string}
              */
             lane: "auto" | "human";
@@ -15677,7 +15677,7 @@ export interface components {
              * @description The radio_tracks row; the candidate's identity
              */
             track_id: number;
-            /** @description True when every counted play carrying a MusicBrainz release id has a title radio_track_title_key strips (a featured credit, a trailing bracket group, or a dash tail naming live, remix, edit, version, mono or stereo), so the id may be that version's release; the flag follows what the key function strips, which can include a title that is not a version. The candidate is in the human lane */
+            /** @description True when every counted play carrying a MusicBrainz release id has a title radio_track_title_key strips (a featured credit, a trailing bracket group, or a dash tail naming live, remix, edit, version, mono or stereo), so the id may belong to what was stripped, which is not always a version. The candidate is in the human lane */
             variant_release_id: boolean;
         };
         RadioTrackCandidateListing: {

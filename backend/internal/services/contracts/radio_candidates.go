@@ -161,7 +161,7 @@ type RadioTrackCandidate struct {
 	ArtistKeys          []RadioCandidateName    `json:"artist_keys" doc:"Every distinct artist key (radio_normalize_name of the artist name) among the counted plays, by play count"`
 	ArtistCandidateKeys []string                `json:"artist_candidate_keys" doc:"The artist_keys that are qualifying artist candidates' artist_key, in artist_keys order (by play count); in the unmatched view at least one, in the unlinked view always empty (not computed)"`
 	Artists             []RadioCandidateArtist  `json:"artists" doc:"Catalog artists the counted plays are linked to, by play count; empty in the unmatched view"`
-	Lane                RadioCandidateLane      `json:"lane" enum:"auto,human" doc:"auto when the counted plays carry exactly one MusicBrainz release id, it is not on a variant title (variant_release_id), no spelling is non-Latin (non_latin_spelling) and the station floor is met; human otherwise. It describes the release only: an unmatched track can be auto while the artist candidate it joins is human"`
+	Lane                RadioCandidateLane      `json:"lane" enum:"auto,human" doc:"auto when the counted plays carry exactly one MusicBrainz release id, not every play carrying it has a title the key strips (variant_release_id), no spelling is non-Latin (non_latin_spelling) and the station floor is met; human otherwise. It describes the release only: an unmatched track can be auto while the artist candidate it joins is human"`
 	Score               float64                 `json:"score" doc:"station rows x ln(plays)"`
 	PlayCount           int                     `json:"play_count"`
 	StationRowCount     int                     `json:"station_row_count" doc:"Distinct radio_stations rows (each WFMU stream counts)"`
@@ -175,7 +175,7 @@ type RadioTrackCandidate struct {
 	MBReleaseID         *string                 `json:"mb_release_id,omitempty" doc:"Set when the counted plays carry exactly one MusicBrainz release id"`
 	MBReleaseIDs        []string                `json:"mb_release_ids" doc:"Every distinct MusicBrainz release id the counted plays carry, lower-cased and sorted"`
 	NonLatinSpelling    bool                    `json:"non_latin_spelling" doc:"True when a counted play's artist name or title carries a character normalization may not fold to a-z, 0-9 or punctuation (usually a non-Latin script); a key half may then be a fragment of that name, and the candidate is in the human lane"`
-	VariantReleaseID    bool                    `json:"variant_release_id" doc:"True when every counted play carrying a MusicBrainz release id has a title radio_track_title_key strips (a featured credit, a trailing bracket group, or a dash tail naming live, remix, edit, version, mono or stereo), so the id may be that version's release; the flag follows what the key function strips, which can include a title that is not a version. The candidate is in the human lane"`
+	VariantReleaseID    bool                    `json:"variant_release_id" doc:"True when every counted play carrying a MusicBrainz release id has a title radio_track_title_key strips (a featured credit, a trailing bracket group, or a dash tail naming live, remix, edit, version, mono or stereo), so the id may belong to what was stripped, which is not always a version. The candidate is in the human lane"`
 }
 
 // RadioTrackCandidateListing is one snapshot of a track candidate view.

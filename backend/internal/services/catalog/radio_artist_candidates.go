@@ -95,12 +95,13 @@ type RadioCandidateLaneFacts struct {
 }
 
 // RadioCandidateLaneFor returns a candidate's lane: auto when its plays carry
-// exactly one distinct MusicBrainz id, that id is neither shared nor on a
-// variant name, no spelling carries a character normalization may not fold,
-// and it clears the station floor; human otherwise. Several ids mean the name
-// covers more than one entity, a shared id means one entity under several
-// names, an id on a variant may be the variant's, and an unfoldable character
-// means the key may be a fragment of the name, so a person decides each.
+// exactly one distinct MusicBrainz id, that id is not shared and not carried
+// only on names the key strips, no spelling carries a character normalization
+// may not fold, and it clears the station floor; human otherwise. Several ids
+// mean the name covers more than one entity, a shared id means one entity
+// under several names, an id carried only on stripped names may belong to
+// what was stripped, and an unfoldable character means the key may be a
+// fragment of the name, so a person decides each.
 func RadioCandidateLaneFor(f RadioCandidateLaneFacts) contracts.RadioCandidateLane {
 	if f.DistinctMBIDs == 1 && !f.MBIDShared && !f.MBIDOnVariant && !f.NonLatinSpelling && RadioMeetsStationFloor(f.StationRows) {
 		return contracts.RadioCandidateLaneAuto
