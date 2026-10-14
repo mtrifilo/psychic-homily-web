@@ -132,6 +132,45 @@ describe('PasskeyRegisterButton', () => {
     expect((reported as AuthError).code).toBe(AuthErrorCode.REAUTH_REQUIRED)
   })
 
+  // The envelope the backend writes for a failure: a 503 whose body says so.
+  it('reports a 503 from finish with its code and leaves the dialog usable', async () => {
+    global.fetch = vi
+      .fn()
+      .mockResolvedValueOnce(
+        jsonResponse({
+          success: true,
+          options: { publicKey: { challenge: 'register-challenge' } },
+          challenge_id: 'challenge-1',
+        })
+      )
+      .mockResolvedValueOnce({
+        ok: false,
+        status: 503,
+        statusText: 'Service Unavailable',
+        headers: new Headers(),
+        json: async () => ({
+          success: false,
+          message: 'Service temporarily unavailable',
+          error_code: 'SERVICE_UNAVAILABLE',
+        }),
+      } as Response) as unknown as typeof fetch
+    const onError = vi.fn()
+    const onSuccess = vi.fn()
+
+    renderWithProviders(<PasskeyRegisterButton onError={onError} onSuccess={onSuccess} />)
+    await openAndSubmit()
+
+    await waitFor(() => expect(onError).toHaveBeenCalled())
+    const reported = onError.mock.calls[0][0]
+    expect(reported).toBeInstanceOf(AuthError)
+    expect((reported as AuthError).code).toBe(AuthErrorCode.SERVICE_UNAVAILABLE)
+    expect((reported as AuthError).message).toBe('Service temporarily unavailable')
+    expect(onSuccess).not.toHaveBeenCalled()
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: /Register passkey/i })).toBeEnabled()
+    )
+  })
+
   // apiRequest handles this for every other credential surface. Here it is this
   // component's job: a refusal from an edge rule or a protection page carries
   // no JSON, and parsing it blind would surface a SyntaxError with no remedy.

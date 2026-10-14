@@ -79,9 +79,14 @@ func (suite *WebAuthnServiceIntegrationTestSuite) TestRegisteredPasskeySignsInBy
 	suite.Require().NoError(suite.db.First(&asLoadedByUserService, user.ID).Error)
 	suite.Require().Empty(asLoadedByUserService.PasskeyCredentials)
 
-	used, err := suite.service.FinishLogin(&asLoadedByUserService, loginSession, parsed)
+	suite.Require().NoError(suite.db.Create(&authm.UserPreferences{UserID: user.ID}).Error)
+
+	signedIn, used, err := suite.service.FinishLogin(&asLoadedByUserService, loginSession, parsed)
 	suite.Require().NoError(err)
 	suite.Empty(asLoadedByUserService.PasskeyCredentials, "the caller's copy of the user is not modified")
+	suite.Equal(user.ID, signedIn.ID)
+	suite.Empty(signedIn.PasskeyCredentials, "the signed-in user is returned without its credentials")
+	suite.Require().NotNil(signedIn.Preferences, "the signed-in user is returned with its preferences")
 	suite.Equal(cred.ID, used.ID)
 	suite.NotNil(used.LastUsedAt)
 	suite.Equal(uint32(1), used.SignCount)

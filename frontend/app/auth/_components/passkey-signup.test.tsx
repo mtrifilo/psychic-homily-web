@@ -181,6 +181,38 @@ describe('PasskeySignupButton', () => {
     expect(mockSetUser).not.toHaveBeenCalled()
   })
 
+  // The envelope the backend writes for a failure: a 503 whose body says so.
+  it('releases its claim, reports a 503 from finish and leaves the form usable', async () => {
+    fetchMock.mockResolvedValueOnce(BEGIN_OK)
+    fetchMock.mockResolvedValueOnce({
+      ok: false,
+      status: 503,
+      json: async () => ({
+        success: false,
+        message: 'Service temporarily unavailable',
+        error_code: 'SERVICE_UNAVAILABLE',
+      }),
+    })
+
+    renderButton()
+    await submitSignup()
+
+    await waitFor(() => {
+      expect(mockOnError).toHaveBeenCalledWith('Service temporarily unavailable')
+    })
+    expect(mockOnHandoffChange.mock.calls).toEqual([
+      [{ status: 'pending', email: 'signup@example.com' }],
+      [null],
+    ])
+    expect(mockSetUser).not.toHaveBeenCalled()
+    await waitFor(() => {
+      expect(
+        screen.getByRole('button', { name: /continue with passkey/i })
+      ).toBeEnabled()
+    })
+    expect(screen.getByLabelText('Email')).toHaveValue('signup@example.com')
+  })
+
   it('claims nothing and reports the error when begin is refused', async () => {
     fetchMock.mockResolvedValueOnce({
       json: async () => ({ success: false, message: 'Email already registered' }),

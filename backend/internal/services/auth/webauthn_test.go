@@ -8,11 +8,13 @@ import (
 
 	"github.com/go-webauthn/webauthn/protocol"
 	"github.com/go-webauthn/webauthn/webauthn"
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/suite"
 	"gorm.io/gorm"
 
 	"psychic-homily-backend/internal/config"
+	apperrors "psychic-homily-backend/internal/errors"
 	authm "psychic-homily-backend/internal/models/auth"
 	"psychic-homily-backend/internal/services/contracts"
 	"psychic-homily-backend/internal/testutil"
@@ -500,7 +502,7 @@ func (suite *WebAuthnServiceIntegrationTestSuite) TestStoreAndConsumeSignupChall
 // which no version check accepts.
 func (suite *WebAuthnServiceIntegrationTestSuite) TestConsumeSignupChallenge_WithoutAcceptance() {
 	challenge := authm.WebAuthnChallenge{
-		ID:          "no-acceptance",
+		ID:          uuid.New().String(),
 		Challenge:   []byte("c"),
 		SessionData: []byte(`{"email":"bare@test.com","session":{"challenge":"c"}}`),
 		Operation:   "signup",
@@ -508,7 +510,7 @@ func (suite *WebAuthnServiceIntegrationTestSuite) TestConsumeSignupChallenge_Wit
 	}
 	suite.Require().NoError(suite.db.Create(&challenge).Error)
 
-	_, signup, err := suite.service.ConsumeSignupChallenge("no-acceptance", "signup")
+	_, signup, err := suite.service.ConsumeSignupChallenge(challenge.ID, "signup")
 	suite.Require().NoError(err)
 	suite.Equal("bare@test.com", signup.Email)
 	suite.Equal(contracts.LegalAcceptance{}, signup.Acceptance)
@@ -564,8 +566,7 @@ func (suite *WebAuthnServiceIntegrationTestSuite) TestBeginLogin_NoCredentials()
 	suite.Require().NoError(suite.db.Create(user).Error)
 
 	_, _, err := suite.service.BeginLogin(user)
-	suite.Require().Error(err)
-	suite.Contains(err.Error(), "user has no registered passkeys")
+	suite.requireRefusal(err, apperrors.CodeInvalidCredentials, "No passkeys registered for this account")
 }
 
 func (suite *WebAuthnServiceIntegrationTestSuite) TestBeginLogin_WithCredentials() {
