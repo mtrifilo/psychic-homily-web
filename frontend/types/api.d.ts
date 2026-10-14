@@ -1026,6 +1026,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/admin/radio/candidates/labels": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get admin radio candidates labels */
+        get: operations["get-admin-radio-candidates-labels"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/admin/radio/plays/bulk-link": {
         parameters: {
             query?: never;
@@ -14991,6 +15008,153 @@ export interface components {
             name: string;
             slug: string;
         };
+        RadioLabelCandidate: {
+            /**
+             * Format: int64
+             * @description Distinct normalized artist names
+             */
+            artist_count: number;
+            /** @description Up to five artists by play count; names that normalize alike are one entry, shown in their most common trimmed spelling */
+            artists: components["schemas"]["RadioLabelCandidateArtist"][] | null;
+            /** @description Most common trimmed label spelling among the counted plays */
+            display_name: string;
+            /** @description Earliest counted play's episode air date (YYYY-MM-DD) */
+            first_aired_on: string;
+            /** @description radio_normalize_name of the label name; the candidate's identity */
+            label_key: string;
+            /**
+             * Format: int64
+             * @description Distinct trimmed label spellings
+             */
+            label_spelling_count: number;
+            /** @description Up to five trimmed label spellings (case kept), each with the plays carrying it; the first is display_name */
+            label_spellings: components["schemas"]["RadioCandidateName"][] | null;
+            /**
+             * @description Plays carry no MusicBrainz label id, so every label candidate is in the human lane
+             * @enum {string}
+             */
+            lane: "auto" | "human";
+            /** @description Latest counted play's episode air date (YYYY-MM-DD) */
+            last_aired_on: string;
+            /**
+             * Format: int64
+             * @description Distinct MusicBrainz release ids
+             */
+            mb_release_id_count: number;
+            /** @description Up to five distinct MusicBrainz release ids by play count, lower case */
+            mb_release_ids: string[] | null;
+            /** @description True when a counted play's label name carries a character normalization may not fold to a-z, 0-9 or punctuation; the key may then be a fragment of that name */
+            non_latin_spelling: boolean;
+            /**
+             * Format: int64
+             * @description Plays in the window
+             */
+            play_count: number;
+            /**
+             * Format: int64
+             * @description Plays aired on or after the listing's prior_start and before its recent_start
+             */
+            prior_play_count: number;
+            /**
+             * Format: int64
+             * @description Plays aired on or after the listing's recent_start
+             */
+            recent_play_count: number;
+            /**
+             * Format: int64
+             * @description Distinct normalized release titles
+             */
+            release_name_count: number;
+            /** @description Up to five release (album) titles by play count; titles that normalize alike are one entry, shown in their most common trimmed spelling, counting all their plays */
+            release_names: components["schemas"]["RadioCandidateName"][] | null;
+            /**
+             * Format: double
+             * @description station rows x ln(plays) x velocity
+             */
+            score: number;
+            /** Format: int64 */
+            show_count: number;
+            /**
+             * Format: int64
+             * @description Distinct broadcasters (a network counts once)
+             */
+            station_family_count: number;
+            /**
+             * Format: int64
+             * @description Distinct radio_stations rows (each WFMU stream counts)
+             */
+            station_row_count: number;
+            /** @description Station rows by play count, descending */
+            stations: components["schemas"]["RadioCandidateStation"][] | null;
+            /**
+             * Format: double
+             * @description recent_play_count / prior_play_count, or recent_play_count when prior_play_count is zero
+             */
+            velocity: number;
+        };
+        RadioLabelCandidateArtist: {
+            /** @description Distinct catalog artist ids these plays are linked to, ascending; empty when none is */
+            artist_ids: number[] | null;
+            name: string;
+            /** Format: int64 */
+            play_count: number;
+        };
+        RadioLabelCandidateListing: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/schemas/RadioLabelCandidateListing.json
+             */
+            readonly $schema?: string;
+            /** @description The UTC date the windows end on (YYYY-MM-DD) */
+            as_of: string;
+            /**
+             * Format: int64
+             * @description Candidates in the auto lane, whatever the lane filter
+             */
+            auto_total: number;
+            candidates: components["schemas"]["RadioLabelCandidate"][] | null;
+            /**
+             * Format: int64
+             * @description Candidates in the human lane, whatever the lane filter
+             */
+            human_total: number;
+            /**
+             * Format: int64
+             * @description A candidate with no prior plays needs at least this many recent plays
+             */
+            min_new_plays: number;
+            /** Format: int64 */
+            min_station_rows: number;
+            /**
+             * Format: double
+             * @description A candidate with prior plays needs recent_play_count at least this multiple of prior_play_count
+             */
+            min_velocity: number;
+            /** @description The earliest air date of the prior velocity window, which ends the day before recent_start (YYYY-MM-DD) */
+            prior_start: string;
+            /** @description The earliest air date of the recent velocity window (YYYY-MM-DD) */
+            recent_start: string;
+            /**
+             * Format: int64
+             * @description Candidates in the requested lanes
+             */
+            total: number;
+            /**
+             * Format: int64
+             * @description Plays in the window, not excluded, whose label name normalizes to empty (for example a name written only in a non-Latin script), and so count toward no candidate
+             */
+            unkeyable_plays: number;
+            /**
+             * Format: int64
+             * @description Length of each velocity window in days
+             */
+            velocity_days: number;
+            /** Format: int64 */
+            window_days: number;
+            /** @description The earliest episode air date counted (YYYY-MM-DD) */
+            window_start: string;
+        };
         RadioNetworkInfo: {
             is_flagship: boolean;
             name: string;
@@ -21277,6 +21441,42 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["RadioArtistCandidateListing"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "get-admin-radio-candidates-labels": {
+        parameters: {
+            query?: {
+                /** @description Candidates to return (default 50) */
+                limit?: number;
+                /** @description Return the auto lane, the human lane, or both (all, default) */
+                lane?: "auto" | "human" | "all";
+                /** @description Rank by score (default), plays in the window, distinct station rows, or velocity, descending; ties by score, then the most recent play, then label key. */
+                sort?: "score" | "plays" | "stations" | "velocity";
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RadioLabelCandidateListing"];
                 };
             };
             /** @description Error */
