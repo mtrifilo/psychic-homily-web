@@ -74,4 +74,8 @@ func setupRadioRoutes(rc RouteContext) {
 	// Internal radio_tracks read model listing (tracks have no public surface).
 	radioTracksHandler := catalogh.NewRadioTracksHandler(rc.SC.RadioTracks)
 	huma.Get(rc.Admin, "/admin/radio/tracks", radioTracksHandler.AdminListRadioTracksHandler)
+
+	// Internal enrichment candidate rankings (read-only; nothing is created).
+	radioCandidatesHandler := catalogh.NewRadioCandidatesHandler(rc.SC.RadioCandidates)
+	huma.Get(rc.Admin, "/admin/radio/candidates/artists", radioCandidatesHandler.AdminListRadioArtistCandidatesHandler)
 }

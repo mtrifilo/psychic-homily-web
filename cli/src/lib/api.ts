@@ -187,7 +187,16 @@ export class APIClient {
 
       try {
         const parsed = JSON.parse(text);
-        if (parsed.message) message = parsed.message;
+        if (parsed.message) {
+          message = parsed.message;
+        } else if (Array.isArray(parsed.errors) && parsed.errors.length > 0) {
+          // Huma's validation body: one entry per rejected field.
+          message = parsed.errors
+            .map((e: { location?: string; message?: string }) =>
+              e.location ? `${e.location}: ${e.message}` : String(e.message),
+            )
+            .join("; ");
+        }
         errorCode = parsed.error_code;
         requestId = parsed.request_id;
       } catch {

@@ -118,6 +118,7 @@ type ServiceContainer struct {
 	VenueTimezoneSweep     *catalog.VenueTimezoneSweep
 	RadioTracksRebuild     *catalog.RadioTracksRebuildLoop
 	RadioTracks            *catalog.RadioTracksReader
+	RadioCandidates        *catalog.RadioCandidatesReader
 	ImageEnrichOutbox      *imageenrich.ImageEnrichOutboxPoller
 	// PSY-1894: drains show_notify_queue so ingest-created shows fire follower
 	// notifications, not just admin-approved ones.
@@ -401,6 +402,7 @@ func NewServiceContainer(database *gorm.DB, cfg *config.Config) *ServiceContaine
 		VenueTimezoneSweep:     venueTimezoneSweep,
 		RadioTracksRebuild:     catalog.NewRadioTracksRebuildLoop(database),
 		RadioTracks:            catalog.NewRadioTracksReader(database),
+		RadioCandidates:        catalog.NewRadioCandidatesReader(database),
 		AutoPromotion:          adminsvc.NewAutoPromotionService(database, email, engagement.DeriveBackendURL(cfg.Email.FrontendURL), cfg.JWT.SecretKey),
 		CollectionDigest:       engagement.NewCollectionDigestService(database, email, cfg),
 		SceneDigest:            engagement.NewSceneDigestService(database, email, sceneSvc, cfg),

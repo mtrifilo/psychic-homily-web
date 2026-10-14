@@ -1,7 +1,12 @@
 import { APIClient } from "../lib/api";
 import type { EnvironmentConfig } from "../lib/types";
 import * as display from "../lib/display";
-import { rematchRadioPlaysChunked } from "../lib/radio";
+import {
+  formatArtistCandidateReport,
+  listArtistCandidates,
+  printableJSON,
+  rematchRadioPlaysChunked,
+} from "../lib/radio";
 import { dim } from "../lib/ansi";
 
 export interface RadioRematchCliOptions {
@@ -92,4 +97,33 @@ export async function runRadioRematch(
     display.kv("Plays scanned", String(result.total));
     display.kv("Newly linked", dim(String(result.matched)));
   }
+}
+
+export interface RadioArtistCandidatesCliOptions {
+  lane?: string;
+  sort?: string;
+  limit?: string;
+  json?: boolean;
+}
+
+/** CLI entry for `ph radio candidates artists`. Read-only: it creates nothing. */
+export async function runRadioArtistCandidates(
+  env: EnvironmentConfig,
+  opts: RadioArtistCandidatesCliOptions,
+): Promise<void> {
+  // The server owns the defaults, the allowed values and the limit range, and
+  // answers 422 for anything outside them.
+  const listing = await listArtistCandidates(new APIClient(env), {
+    lane: opts.lane,
+    sort: opts.sort,
+    limit: opts.limit,
+  });
+  if (opts.json) {
+    process.stdout.write(`${printableJSON(listing)}\n`);
+    return;
+  }
+  for (const line of formatArtistCandidateReport(listing)) {
+    process.stdout.write(`${line}\n`);
+  }
+  display.info("Report only: nothing was created.");
 }

@@ -329,7 +329,8 @@ func (m *RadioMatchingEngine) resolveArtist(name string, mbID *string) (artistMa
 }
 
 // matchArtistByNameOrAlias matches a single artist credit by exact normalized name
-// or alias. Does not split collab strings.
+// or alias. Does not split collab strings. radioCatalogAnswersToSQL is the SQL
+// form of this rule for the artist candidate ranking; the two change together.
 func (m *RadioMatchingEngine) matchArtistByNameOrAlias(name string) *uint {
 	normalized := normalizeName(name)
 	if normalized == "" {

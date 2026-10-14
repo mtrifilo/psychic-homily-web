@@ -212,3 +212,156 @@ export async function rematchRadioPlaysChunked(
   const aggregated = aggregateRematchResults(results);
   return { namesProcessed: names.length, ...aggregated };
 }
+
+// ─── Artist enrichment candidates (GET /admin/radio/candidates/artists) ─────
+
+export type CandidateLane = "auto" | "human";
+
+export interface CandidateCount {
+  name: string;
+  play_count: number;
+}
+
+export interface ArtistCandidate {
+  artist_key: string;
+  display_name: string;
+  artist_spellings: CandidateCount[];
+  artist_spelling_count: number;
+  lane: CandidateLane;
+  score: number;
+  play_count: number;
+  station_row_count: number;
+  station_family_count: number;
+  show_count: number;
+  first_aired_on: string;
+  last_aired_on: string;
+  stations: Array<{ station_id: number; slug: string; name: string; play_count: number }>;
+  top_tracks: Array<{ track_id: number; title: string; play_count: number }>;
+  album_names: CandidateCount[];
+  album_name_count: number;
+  label_names: CandidateCount[];
+  label_name_count: number;
+  mb_artist_id?: string;
+  mb_artist_ids: string[];
+  mb_artist_id_conflict: boolean;
+  shared_mb_artist_keys: string[];
+  non_latin_spelling: boolean;
+}
+
+export interface ArtistCandidateListing {
+  candidates: ArtistCandidate[];
+  total: number;
+  auto_total: number;
+  human_total: number;
+  as_of: string;
+  window_start: string;
+  window_days: number;
+  min_station_rows: number;
+  min_plays: number;
+  unkeyable_plays: number;
+  tracks_rebuilt_at?: string;
+}
+
+/**
+ * Fetch one snapshot of the artist candidate ranking. Read-only. Unset options
+ * are omitted from the query, so the server's defaults apply.
+ */
+export async function listArtistCandidates(
+  client: APIClient,
+  opts: { lane?: string; sort?: string; limit?: string },
+): Promise<ArtistCandidateListing> {
+  return client.get<ArtistCandidateListing>("/admin/radio/candidates/artists", {
+    lane: opts.lane ?? "",
+    sort: opts.sort ?? "",
+    limit: opts.limit ?? "",
+  });
+}
+
+/**
+ * Characters that can drive, reorder or hide text in a terminal: C0 and C1
+ * controls, DEL, the bidirectional controls, and the invisible characters
+ * U+00AD, U+200B, U+2060..U+2064 and U+FEFF. Joiners U+200C and U+200D stay,
+ * since emoji and some scripts need them. Radio play text comes from station
+ * playlists, so none of these may reach the terminal raw.
+ */
+const TERMINAL_CONTROL =
+  /[\u0000-\u001f\u007f-\u009f\u00ad\u061c\u200b\u200e\u200f\u202a-\u202e\u2060-\u2064\u2066-\u2069\ufeff]/g;
+
+/** Replace every TERMINAL_CONTROL character with U+FFFD. */
+export function printable(text: string): string {
+  return text.replace(TERMINAL_CONTROL, "\uFFFD");
+}
+
+/**
+ * The TERMINAL_CONTROL characters JSON.stringify leaves raw: it already
+ * escapes C0 controls inside strings, and its own newlines are layout.
+ */
+const JSON_RAW_TERMINAL_CONTROL =
+  /[\u007f-\u009f\u00ad\u061c\u200b\u200e\u200f\u202a-\u202e\u2060-\u2064\u2066-\u2069\ufeff]/g;
+
+/**
+ * The value as indented JSON with every TERMINAL_CONTROL character inside a
+ * string written as a \uXXXX escape, so the output stays valid JSON and safe
+ * to print.
+ */
+export function printableJSON(value: unknown): string {
+  return JSON.stringify(value, null, 2).replace(
+    JSON_RAW_TERMINAL_CONTROL,
+    (c) => `\\u${c.charCodeAt(0).toString(16).padStart(4, "0")}`,
+  );
+}
+
+function countList(items: CandidateCount[], distinct?: number): string {
+  if (items.length === 0) return "none";
+  const shown = items.map((i) => `${i.name} (${i.play_count})`).join("; ");
+  return distinct !== undefined && distinct > items.length ? `${shown}; ${distinct} distinct` : shown;
+}
+
+/**
+ * Render the ranking as plain text, one block per candidate with its lane and
+ * evidence. Every line passes through printable. Pure, so the report can be
+ * tested without a server.
+ */
+export function formatArtistCandidateReport(listing: ArtistCandidateListing): string[] {
+  const lines: string[] = [
+    `Artist candidates as of ${listing.as_of}: plays aired ${listing.window_start} or later ` +
+      `(${listing.window_days} days); floors ${listing.min_station_rows} station rows and ${listing.min_plays} plays.`,
+    `${listing.total} in the requested lanes (${listing.auto_total} auto, ${listing.human_total} human overall); ` +
+      `showing ${listing.candidates.length}.`,
+    `${listing.unkeyable_plays} plays counted toward no candidate (the name normalizes to empty).`,
+    `Top tracks reflect the radio_tracks rebuild of ${listing.tracks_rebuilt_at ?? "(none recorded)"}.`,
+  ];
+  listing.candidates.forEach((c, i) => {
+    lines.push("");
+    lines.push(
+      `${String(i + 1).padStart(3)}. [${c.lane.padEnd(5)}] ${c.display_name}  ` +
+        `score ${c.score.toFixed(2)}  plays ${c.play_count}  rows ${c.station_row_count}  ` +
+        `families ${c.station_family_count}  shows ${c.show_count}  ` +
+        `aired ${c.first_aired_on} to ${c.last_aired_on}`,
+    );
+    lines.push(`       key:      ${c.artist_key}`);
+    if (c.artist_spelling_count > 1) {
+      lines.push(`       spellings: ${countList(c.artist_spellings, c.artist_spelling_count)}`);
+    }
+    if (c.non_latin_spelling) {
+      lines.push("       note:     a spelling carries a character normalization may not fold; the key may be a fragment of it");
+    }
+    lines.push(
+      `       stations: ${c.stations.map((s) => `${s.name} (${s.slug}) ${s.play_count}`).join(", ") || "none"}`,
+    );
+    lines.push(
+      `       tracks:   ${countList(c.top_tracks.map((t) => ({ name: t.title, play_count: t.play_count })))}`,
+    );
+    lines.push(`       albums:   ${countList(c.album_names, c.album_name_count)}`);
+    lines.push(`       labels:   ${countList(c.label_names, c.label_name_count)}`);
+    if (c.mb_artist_id_conflict) {
+      lines.push(`       mbids:    ${c.mb_artist_ids.join(", ")} (conflict: more than one id)`);
+    } else if (c.mb_artist_id) {
+      lines.push(`       mbid:     ${c.mb_artist_id}`);
+    }
+    if (c.shared_mb_artist_keys.length > 0) {
+      lines.push(`       shares its MusicBrainz id with: ${c.shared_mb_artist_keys.join(", ")}`);
+    }
+  });
+  return lines.map(printable);
+}
