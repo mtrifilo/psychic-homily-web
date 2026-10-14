@@ -7,13 +7,15 @@ import AuthPage from './page'
 // The page with the real passkey sign-up button and the real backup prompt, so
 // these tests cover the hand-off between them rather than either one alone.
 
-const RETURN_TO = '/collections'
 const PROMPT = { name: 'Add a backup sign-in method' }
+
+const RETURN_TO = '/collections'
+const searchParams = vi.hoisted(() => ({ current: new URLSearchParams() }))
 
 const mockPush = vi.fn()
 vi.mock('next/navigation', () => ({
   useRouter: () => ({ push: mockPush, replace: vi.fn() }),
-  useSearchParams: () => new URLSearchParams({ returnTo: '/collections' }),
+  useSearchParams: () => searchParams.current,
 }))
 
 // A viewer store `setUser` writes to, as the real AuthProvider's override does:
@@ -120,6 +122,7 @@ describe('passkey sign-up on /auth', () => {
     fetchMock.mockReset()
     vi.stubGlobal('fetch', fetchMock)
     authStore.set('anonymous')
+    searchParams.current = new URLSearchParams({ returnTo: RETURN_TO })
   })
 
   afterEach(() => {
@@ -168,6 +171,61 @@ describe('passkey sign-up on /auth', () => {
       expect(mockPush).toHaveBeenCalledWith(RETURN_TO)
     })
     expect(mockPush).toHaveBeenCalledTimes(1)
+  })
+
+  it('redirects to returnTo when the prompt is closed with its close button', async () => {
+    fetchMock.mockResolvedValueOnce(BEGIN_OK).mockResolvedValueOnce(FINISH_OK)
+
+    const user = await submitPasskeySignup()
+    const prompt = await screen.findByRole('dialog', PROMPT)
+
+    await user.click(within(prompt).getByRole('button', { name: 'Close' }))
+
+    await waitFor(() => {
+      expect(mockPush).toHaveBeenCalledWith(RETURN_TO)
+    })
+    expect(mockPush).toHaveBeenCalledTimes(1)
+  })
+
+  it('sends a hostile returnTo to "/" after the prompt, not off site', async () => {
+    searchParams.current = new URLSearchParams({ returnTo: 'https://evil.com/phish' })
+    fetchMock.mockResolvedValueOnce(BEGIN_OK).mockResolvedValueOnce(FINISH_OK)
+
+    const user = await submitPasskeySignup()
+    const prompt = await screen.findByRole('dialog', PROMPT)
+    await user.click(
+      within(prompt).getByRole('button', { name: "I'll do this later" })
+    )
+
+    await waitFor(() => {
+      expect(mockPush).toHaveBeenCalledWith('/')
+    })
+    expect(mockPush).toHaveBeenCalledTimes(1)
+  })
+
+  // A definitive profile failure outranks `setUser` in the real provider until
+  // the next profile fetch succeeds, so the viewer can still read as anonymous
+  // when the prompt closes. The page then shows the form and redirects as soon
+  // as the profile reports the session.
+  it('shows the form, not a redirect, while the profile has not reported the session', async () => {
+    mockSetUser.mockImplementationOnce(() => {})
+    fetchMock.mockResolvedValueOnce(BEGIN_OK).mockResolvedValueOnce(FINISH_OK)
+
+    const user = await submitPasskeySignup()
+    const prompt = await screen.findByRole('dialog', PROMPT)
+    await user.click(
+      within(prompt).getByRole('button', { name: "I'll do this later" })
+    )
+
+    expect(await screen.findByRole('tab', { name: 'Sign in' })).toBeInTheDocument()
+    expect(mockPush).not.toHaveBeenCalled()
+
+    act(() => {
+      authStore.set('authenticated')
+    })
+    await waitFor(() => {
+      expect(mockPush).toHaveBeenCalledWith(RETURN_TO)
+    })
   })
 
   it('holds the redirect while the finish request is in flight', async () => {

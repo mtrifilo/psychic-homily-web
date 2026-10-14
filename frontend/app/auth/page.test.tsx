@@ -60,7 +60,7 @@ vi.mock('@/features/auth', () => ({
 // Capture the props the auth surfaces hand down to their child auth buttons,
 // so a test can check what each button is given without exercising WebAuthn or
 // OAuth redirect machinery. The page threads the sanitized returnTo into the
-// login button; the signup button gets the page's sign-up claim instead.
+// login button; the signup button gets the page's handoff reporter instead.
 const passkeyLoginProps = vi.fn()
 const passkeySignupProps = vi.fn()
 
@@ -685,9 +685,9 @@ describe('AuthPage', () => {
     })
 
     // The page owns the navigation after a passkey sign-up (see
-    // passkey-signup-handoff.test.tsx), so the button gets the page's sign-up
-    // claim and no destination of its own.
-    it('hands the signup passkey button the sign-up claim, not a destination', async () => {
+    // passkey-signup-handoff.test.tsx), so the button gets the page's handoff
+    // reporter and no destination of its own.
+    it('hands the signup passkey button the handoff reporter, not a destination', async () => {
       const user = userEvent.setup()
       setSearchParams('returnTo=%2Fcollections')
       renderWithProviders(<AuthPage />)

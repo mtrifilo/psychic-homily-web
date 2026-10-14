@@ -34,9 +34,10 @@ interface PasskeySignupButtonProps {
   onError?: (error: string) => void
   /**
    * Reports this sign-up's claim on the page: `pending` before the request
-   * that creates the session goes out, `complete` once the session is set, and
-   * `null` when the attempt fails after claiming. What follows a completed
-   * sign-up, and the navigation after it, belong to the page.
+   * that creates the session goes out, `complete` once the session is set
+   * (this button's dialog closes at the same time), and `null` when the
+   * attempt fails after claiming. What follows a completed sign-up, and the
+   * navigation after it, belong to the page.
    */
   onHandoffChange: (handoff: SignupHandoff | null) => void
   className?: string
@@ -155,13 +156,12 @@ export function PasskeySignupButton({
       }
 
       if (!finishData.user) {
-        // No session to hand off to. Release the claim so the page behaves
-        // exactly as it did before the attempt.
-        onHandoffChange(null)
-        return
+        // No session to hand off to. The catch releases the claim and says so.
+        throw new Error('Failed to complete passkey signup')
       }
 
       setUser(finishData.user)
+      setIsDialogOpen(false)
       onHandoffChange({
         status: 'complete',
         email: finishData.user.email || email,

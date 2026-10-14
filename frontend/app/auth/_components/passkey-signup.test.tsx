@@ -56,7 +56,7 @@ describe('PasskeySignupButton', () => {
     const user = userEvent.setup()
     await user.click(screen.getByRole('button', { name: /sign up with passkey/i }))
     await user.type(screen.getByLabelText('Email'), 'signup@example.com')
-    // Two required checkboxes: terms + age confirmation (PSY-1023).
+    // Two required checkboxes: terms + age confirmation.
     await user.click(screen.getByRole('checkbox', { name: /Terms of Service/ }))
     await user.click(screen.getByRole('checkbox', { name: /at least 16 years old/ }))
     await user.click(
@@ -138,6 +138,25 @@ describe('PasskeySignupButton', () => {
     )
   })
 
+  it('releases its claim and reports an error when finish returns no user', async () => {
+    fetchMock.mockResolvedValueOnce(BEGIN_OK)
+    fetchMock.mockResolvedValueOnce({
+      json: async () => ({ success: true }),
+    })
+
+    renderButton()
+    await submitSignup()
+
+    await waitFor(() => {
+      expect(mockOnError).toHaveBeenCalledWith('Failed to complete passkey signup')
+    })
+    expect(mockOnHandoffChange.mock.calls).toEqual([
+      [{ status: 'pending', email: 'signup@example.com' }],
+      [null],
+    ])
+    expect(mockSetUser).not.toHaveBeenCalled()
+  })
+
   it('releases its claim and reports the error when finish is refused', async () => {
     fetchMock.mockResolvedValueOnce(BEGIN_OK)
     fetchMock.mockResolvedValueOnce({
@@ -166,9 +185,13 @@ describe('PasskeySignupButton', () => {
     renderButton()
     await submitSignup()
 
+    // Re-enabled only once the catch and finally blocks have run.
     await waitFor(() => {
-      expect(mockStartRegistration).toHaveBeenCalled()
+      expect(
+        screen.getByRole('button', { name: /continue with passkey/i })
+      ).toBeEnabled()
     })
+    expect(mockStartRegistration).toHaveBeenCalled()
     expect(fetchMock).toHaveBeenCalledTimes(1)
     expect(mockOnHandoffChange).not.toHaveBeenCalled()
     expect(mockOnError).not.toHaveBeenCalled()

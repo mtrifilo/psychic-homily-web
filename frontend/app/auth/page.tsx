@@ -745,9 +745,10 @@ function AuthPageContent() {
     )
   }
 
-  // Every way of closing the prompt releases the claim, and the redirect above
-  // then takes the authenticated viewer to returnTo, so the page keeps a single
-  // navigation and never strands the viewer behind a closed prompt.
+  // Every way of closing the prompt releases the claim, which hands the viewer
+  // back to the already-authenticated redirect effect above: an authenticated
+  // viewer goes to returnTo, so the page keeps a single navigation, and a
+  // viewer the profile does not report as signed in sees the form again.
   if (signupHandoff?.status === 'complete' && signupHandoff.method === 'passkey') {
     return (
       <div className="min-h-[calc(100vh-64px)]">
