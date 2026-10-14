@@ -340,6 +340,9 @@ func (h *PasskeyHandler) BeginLoginHandler(ctx context.Context, input *BeginLogi
 		// carry, and a lookup for one fails rather than finding nothing, so
 		// such an address is refused before the lookup.
 		if strings.ContainsRune(input.Body.Email, 0) {
+			logger.AuthDebug(ctx, "passkey_login_begin_refused",
+				"error", "address holds a NUL byte",
+			)
 			refuseEmailPasskeyLogin(resp)
 			return resp, nil
 		}

@@ -204,6 +204,7 @@ func TestPasskeyWire_SignupFinishErrors(t *testing.T) {
 			want:       wireOutcome{http.StatusOK, autherrors.CodeValidationFailed, "Invalid or expired challenge"},
 		},
 		{name: "challenge cannot be read", consumeErr: errStepFailed, want: unavailable},
+		{name: "challenge consume answers an unrouted refusal code", consumeErr: errUnroutedRefusal, want: unavailable},
 		{name: "address check fails", lookupErr: errStepFailed, want: unavailable},
 		{
 			name:      "registration refused",

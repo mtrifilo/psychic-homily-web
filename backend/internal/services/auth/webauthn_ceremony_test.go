@@ -80,6 +80,9 @@ func (suite *WebAuthnServiceIntegrationTestSuite) TestRegisteredPasskeySignsInBy
 	suite.Require().Empty(asLoadedByUserService.PasskeyCredentials)
 
 	suite.Require().NoError(suite.db.Create(&authm.UserPreferences{UserID: user.ID}).Error)
+	oauth := authm.OAuthAccount{UserID: user.ID, Provider: "google", ProviderUserID: "by-email-subject"}
+	suite.Require().NoError(suite.db.Create(&oauth).Error)
+	defer suite.db.Delete(&oauth)
 
 	signedIn, used, err := suite.service.FinishLogin(&asLoadedByUserService, loginSession, parsed)
 	suite.Require().NoError(err)
@@ -87,6 +90,8 @@ func (suite *WebAuthnServiceIntegrationTestSuite) TestRegisteredPasskeySignsInBy
 	suite.Equal(user.ID, signedIn.ID)
 	suite.Empty(signedIn.PasskeyCredentials, "the signed-in user is returned without its credentials")
 	suite.Require().NotNil(signedIn.Preferences, "the signed-in user is returned with its preferences")
+	suite.Require().Len(signedIn.OAuthAccounts, 1, "the signed-in user is returned with its OAuth accounts")
+	suite.Equal(oauth.ID, signedIn.OAuthAccounts[0].ID)
 	suite.Equal(cred.ID, used.ID)
 	suite.NotNil(used.LastUsedAt)
 	suite.Equal(uint32(1), used.SignCount)

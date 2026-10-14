@@ -148,8 +148,13 @@ func (suite *WebAuthnServiceIntegrationTestSuite) TestConsumeSignupChallengeRefu
 	})
 
 	suite.Run("malformed id", func() {
+		// The unavailable service fails every query, so a refusal from it
+		// shows the id was refused before any query ran.
+		unavailable := suite.unavailableService()
 		for _, challengeID := range []string{"", "not-a-uuid", "\x00"} {
 			_, _, err := suite.service.ConsumeSignupChallenge(challengeID, "signup")
+			suite.requireRefusal(err, apperrors.CodeValidationFailed, "Invalid or expired challenge")
+			_, _, err = unavailable.ConsumeSignupChallenge(challengeID, "signup")
 			suite.requireRefusal(err, apperrors.CodeValidationFailed, "Invalid or expired challenge")
 		}
 	})
