@@ -88,7 +88,7 @@ func (s *AuthHandlerIntegrationSuite) TestPasskeySignupRecordsTheConsentBeginVal
 
 // An address with no account and an account with no passkey answer the same
 // bytes from the email-specific login begin.
-func (s *AuthHandlerIntegrationSuite) TestPasskeyEmailLoginBeginDoesNotRevealAccounts() {
+func (s *AuthHandlerIntegrationSuite) TestPasskeyEmailLoginBeginAnswersUnknownAndPasskeylessAlike() {
 	known := "no-passkey@example.com"
 	s.Require().NoError(s.deps.DB.Create(&authm.User{Email: &known, IsActive: true}).Error)
 	api := newPasskeyWireAPI(s.T(), s.newRealPasskeyHandler())

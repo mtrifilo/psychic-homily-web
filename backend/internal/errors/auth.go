@@ -41,8 +41,8 @@ const (
 	CodeAccountInactive = "ACCOUNT_INACTIVE"
 	// CodeNoPasswordSet indicates the user has no password (OAuth-only account)
 	CodeNoPasswordSet = "NO_PASSWORD_SET"
-	// CodeTermsAcceptanceRequired indicates an account creation arrived without
-	// an acceptance of the current Terms of Service and Privacy Policy: none at
+	// CodeTermsAcceptanceRequired indicates a sign-up arrived without an
+	// acceptance of the current Terms of Service and Privacy Policy: none at
 	// all, or one naming a version that is not the current one.
 	CodeTermsAcceptanceRequired = "TERMS_ACCEPTANCE_REQUIRED"
 	// CodeAgeConfirmationRequired indicates a signup arrived without the required

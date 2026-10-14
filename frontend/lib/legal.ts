@@ -1,4 +1,6 @@
 // Version identifiers persisted at account creation for legal acceptance evidence.
+// The backend accepts only these exact values (backend/internal/legal/legal.go,
+// pinned to this file by TestCurrentVersionsMatchFrontend), so a bump changes both.
 export const CURRENT_TERMS_VERSION = '2026-01-31'
 export const CURRENT_PRIVACY_VERSION = '2026-02-15'
 

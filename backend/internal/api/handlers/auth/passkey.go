@@ -308,8 +308,8 @@ func (h *PasskeyHandler) BeginLoginHandler(ctx context.Context, input *BeginLogi
 
 	if input.Body.Email != "" {
 		// User-specific login. An address with no account and an account with
-		// no passkey get the same refusal, so this endpoint does not reveal
-		// which addresses have accounts.
+		// no passkey get the same refusal. An account with a passkey gets
+		// options naming its credentials.
 		user, err := h.userService.GetUserByEmail(input.Body.Email)
 		if err != nil {
 			resp.Body.Success = false
@@ -772,13 +772,19 @@ func (h *PasskeyHandler) FinishSignupHandler(ctx context.Context, input *FinishS
 		return resp, nil
 	}
 	email := signup.Email
-	// The challenge's consent passed this check at begin. A challenge that
+	// The challenge's consent passed these checks at begin. A challenge that
 	// carries none, or carries versions that stopped being current since,
-	// fails it here.
+	// fails them here.
 	if refusal := refuseStaleConsentVersions(signup.Acceptance.TermsVersion, signup.Acceptance.PrivacyVersion); refusal != nil {
 		resp.Body.Success = false
 		resp.Body.Message = refusal.UserMessage()
 		resp.Body.ErrorCode = refusal.Code
+		return resp, nil
+	}
+	if errCode, errMsg, ok := validateSignupAgeConfirmation(!signup.Acceptance.AgeConfirmedAt.IsZero(), signup.Acceptance.MinAgeAttested); !ok {
+		resp.Body.Success = false
+		resp.Body.Message = errMsg
+		resp.Body.ErrorCode = errCode
 		return resp, nil
 	}
 

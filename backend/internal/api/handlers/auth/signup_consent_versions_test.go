@@ -10,6 +10,7 @@ import (
 	"net/url"
 	"reflect"
 	"testing"
+	"time"
 
 	"github.com/danielgtaylor/huma/v2"
 	"github.com/danielgtaylor/huma/v2/humatest"
@@ -246,18 +247,25 @@ func TestPasskeySignupFinishWire_RecordsTheConsentBeginValidated(t *testing.T) {
 func TestPasskeySignupFinishWire_RefusesAChallengeWhoseConsentIsNotCurrent(t *testing.T) {
 	stale := currentSignupChallenge("new@example.com")
 	stale.Acceptance.PrivacyVersion = "2025-01-01"
+	noAge := currentSignupChallenge("new@example.com")
+	noAge.Acceptance.AgeConfirmedAt = time.Time{}
+	noAge.Acceptance.MinAgeAttested = 0
 
-	for name, signup := range map[string]contracts.SignupChallenge{
-		"no consent":     {Email: "new@example.com"},
-		"stale versions": stale,
+	for name, tc := range map[string]struct {
+		signup   contracts.SignupChallenge
+		wantCode string
+	}{
+		"no consent":       {contracts.SignupChallenge{Email: "new@example.com"}, autherrors.CodeTermsAcceptanceRequired},
+		"stale versions":   {stale, autherrors.CodeTermsAcceptanceRequired},
+		"no age confirmed": {noAge, autherrors.CodeAgeConfirmationRequired},
 	} {
 		t.Run(name, func(t *testing.T) {
 			var recorded contracts.LegalAcceptance
-			api := passkeySignupFinishAPI(t, signup, &recorded)
+			api := passkeySignupFinishAPI(t, tc.signup, &recorded)
 
 			// The refusal comes before the credential is parsed, so the
 			// response needs no ceremony behind it.
-			requireTermsAcceptanceRefusal(t, api.Post("/auth/passkey/signup/finish", map[string]any{
+			resp := api.Post("/auth/passkey/signup/finish", map[string]any{
 				"challenge_id":     "c-1",
 				"response":         json.RawMessage(`{}`),
 				"terms_accepted":   true,
@@ -265,7 +273,14 @@ func TestPasskeySignupFinishWire_RefusesAChallengeWhoseConsentIsNotCurrent(t *te
 				"privacy_version":  legal.CurrentPrivacyVersion,
 				"age_confirmed":    true,
 				"min_age_attested": MinSignupAge,
-			}))
+			})
+			body := decodeWireBody(t, resp.Body.Bytes())
+			if success, _ := body["success"].(bool); success {
+				t.Fatalf("expected a refusal: %s", resp.Body.String())
+			}
+			if code, _ := body["error_code"].(string); code != tc.wantCode {
+				t.Errorf("error_code = %q, want %q", code, tc.wantCode)
+			}
 			if recorded != (contracts.LegalAcceptance{}) {
 				t.Error("expected no account for a refused consent")
 			}
@@ -344,7 +359,7 @@ func TestGoogleSignupStart_RecordsCurrentConsentVersions(t *testing.T) {
 // --- POST /auth/passkey/login/begin with an email ---
 
 // An address with no account and an account with no passkey answer the same
-// bytes, so the endpoint does not reveal which addresses have accounts.
+// bytes.
 func TestPasskeyLoginBeginWire_UnknownAndPasskeylessAnswerIdentically(t *testing.T) {
 	known := "has-account@example.com"
 	mockWA := &testhelpers.MockWebAuthnService{
