@@ -556,6 +556,7 @@ describe('AuthPage', () => {
 
       const terms = termsCheckbox()
       expect(terms).toHaveFocus()
+      expect(terms).toHaveAccessibleDescription(TERMS_MESSAGE)
       const scrollIntoView = vi.mocked(Element.prototype.scrollIntoView)
       expect(scrollIntoView).toHaveBeenCalledTimes(1)
       expect(scrollIntoView).toHaveBeenCalledWith({ block: 'center' })
@@ -605,7 +606,16 @@ describe('AuthPage', () => {
         'true'
       )
       expect(termsCheckbox()).not.toHaveFocus()
+      expect(termsCheckbox()).not.toHaveAttribute('aria-describedby')
       expect(Element.prototype.scrollIntoView).not.toHaveBeenCalled()
+    })
+
+    it('names no description for a code that arrives without a message', () => {
+      setSearchParams(`${AUTH_ERROR_CODE_PARAM}=TERMS_ACCEPTANCE_REQUIRED`)
+      renderWithProviders(<AuthPage />)
+
+      expect(termsCheckbox()).toHaveFocus()
+      expect(termsCheckbox()).not.toHaveAttribute('aria-describedby')
     })
 
     it('neither scrolls nor moves focus when Create account is picked by hand', async () => {

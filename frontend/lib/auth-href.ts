@@ -165,12 +165,13 @@ export function hasGatedIntent(searchParams: {
 }
 
 /**
- * The auth-page query parameter carrying the code of a refusal the OAuth
- * sign-in callback reports, beside the message the page shows from `error`.
- * The backend writes it as `authPageErrorCodeParam` in
- * `backend/internal/api/handlers/auth/oauth_handlers.go`; the two names must
- * stay the same.
+ * The auth-page query parameters a failed OAuth sign-in callback writes: the
+ * message the page shows, and the code of a refusal the reader can act on.
+ * The backend writes them as `authPageErrorParam` and `authPageErrorCodeParam`
+ * in `backend/internal/api/handlers/auth/oauth_handlers.go`; the names on both
+ * sides must stay the same.
  */
+export const AUTH_ERROR_PARAM = 'error'
 export const AUTH_ERROR_CODE_PARAM = 'error_code'
 
 /**

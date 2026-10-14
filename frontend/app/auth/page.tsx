@@ -30,6 +30,7 @@ import {
 } from '@/app/auth/_components/signup-intent-panel'
 import { CheckInboxInterstitial } from '@/app/auth/_components/check-inbox-interstitial'
 import {
+  AUTH_ERROR_PARAM,
   hasGatedIntent,
   isReauthReason,
   needsSignupConsent,
@@ -40,6 +41,9 @@ import {
   safeDecodeQueryParam,
   sanitizeReturnTo,
 } from './auth-redirect-utils'
+
+// The id of the message banner an OAuth refusal puts above the auth card.
+const URL_ERROR_ID = 'auth-url-error'
 
 // Password validation constants
 const MIN_PASSWORD_LENGTH = 12
@@ -346,12 +350,18 @@ interface SignupFormProps {
    * sits between them.
    */
   consentRequested: boolean
+  /**
+   * The id of the element stating why consent was asked for, which the terms
+   * checkbox names as its description while consentRequested holds.
+   */
+  consentReasonId?: string
 }
 
 function SignupForm({
   returnTo,
   onHandoffChange,
   consentRequested,
+  consentReasonId,
 }: SignupFormProps) {
   const registerMutation = useRegister()
   const { setUser } = useAuthContext()
@@ -552,6 +562,7 @@ function SignupForm({
               <Checkbox
                 ref={termsCheckboxRef}
                 id="terms"
+                aria-describedby={consentRequested ? consentReasonId : undefined}
                 checked={field.state.value}
                 onCheckedChange={(checked) => {
                   const accepted = checked === true
@@ -655,7 +666,7 @@ function AuthPageContent() {
   const { authStatus, isLoading } = useAuthContext()
 
   // Get error from URL query params (e.g., OAuth errors)
-  const urlError = safeDecodeQueryParam(searchParams.get('error'))
+  const urlError = safeDecodeQueryParam(searchParams.get(AUTH_ERROR_PARAM))
 
   // Get returnTo from URL query params (for redirecting after login)
   const returnTo = sanitizeReturnTo(searchParams.get('returnTo'))
@@ -785,7 +796,7 @@ function AuthPageContent() {
         {urlError && (
           <Alert variant="destructive" className="mb-6">
             <AlertCircle className="h-4 w-4" />
-            <AlertDescription>
+            <AlertDescription id={URL_ERROR_ID}>
               {urlError}
             </AlertDescription>
           </Alert>
@@ -830,6 +841,7 @@ function AuthPageContent() {
                     returnTo={returnTo}
                     onHandoffChange={setSignupHandoff}
                     consentRequested={showingArrivalTab && isConsentArrival}
+                    consentReasonId={urlError ? URL_ERROR_ID : undefined}
                   />
                 </div>
                 <div className="mt-4">

@@ -53,6 +53,11 @@ func errorRedirectQuery(t *testing.T, handler *OAuthHTTPHandler, req *http.Reque
 	return location.Query()
 }
 
+// The keys are spelled out rather than read from authPageErrorParam and
+// authPageErrorCodeParam: they are the wire contract with the frontend auth
+// page (AUTH_ERROR_PARAM and AUTH_ERROR_CODE_PARAM in frontend/lib/auth-href.ts),
+// so renaming a constant has to fail here.
+//
 // A refused sign-in reaches the auth page with its message and its code; a
 // backend fault reaches it with the generic message and no code at all.
 func TestOAuthCallbackErrorRedirect_CarriesRefusalCode(t *testing.T) {
@@ -102,18 +107,18 @@ func TestOAuthCallbackErrorRedirect_CarriesRefusalCode(t *testing.T) {
 			req := httptest.NewRequest("GET", "/auth/callback/google", nil)
 			query := errorRedirectQuery(t, failingCallbackHandler(tc.err), req, errorRedirectFrontendURL+"/auth")
 
-			if got := query.Get(authPageErrorParam); got != tc.wantMessage {
+			if got := query.Get("error"); got != tc.wantMessage {
 				t.Errorf("error = %q, want %q", got, tc.wantMessage)
 			}
 			if tc.wantCode == "" {
-				if query.Has(authPageErrorCodeParam) {
-					t.Errorf("error_code = %q, want the parameter absent", query.Get(authPageErrorCodeParam))
+				if query.Has("error_code") {
+					t.Errorf("error_code = %q, want the parameter absent", query.Get("error_code"))
 				}
-			} else if got := query.Get(authPageErrorCodeParam); got != tc.wantCode {
+			} else if got := query.Get("error_code"); got != tc.wantCode {
 				t.Errorf("error_code = %q, want %q", got, tc.wantCode)
 			}
 			for key := range query {
-				if key != authPageErrorParam && key != authPageErrorCodeParam {
+				if key != "error" && key != "error_code" {
 					t.Errorf("unexpected query parameter %q in %s", key, query.Encode())
 				}
 			}
@@ -133,10 +138,10 @@ func TestOAuthCallbackErrorRedirect_CLICallbackCarriesNoCode(t *testing.T) {
 	req.AddCookie(&http.Cookie{Name: "cli_callback_id", Value: callbackID})
 
 	query := errorRedirectQuery(t, failingCallbackHandler(termsRefusal), req, "http://localhost:8888/cli-cb")
-	if got := query.Get(authPageErrorParam); got != termsRefusal.UserMessage() {
+	if got := query.Get("error"); got != termsRefusal.UserMessage() {
 		t.Errorf("error = %q, want %q", got, termsRefusal.UserMessage())
 	}
-	if query.Has(authPageErrorCodeParam) {
-		t.Errorf("error_code = %q, want the CLI redirect to carry no code", query.Get(authPageErrorCodeParam))
+	if query.Has("error_code") {
+		t.Errorf("error_code = %q, want the CLI redirect to carry no code", query.Get("error_code"))
 	}
 }

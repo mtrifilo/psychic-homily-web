@@ -27,8 +27,9 @@ export const AuthErrorCode = {
    */
   REAUTH_REQUIRED: 'REAUTH_REQUIRED',
   /**
-   * An OAuth sign-in that would create an account arrived without the consent
-   * the Create account tab records (terms and minimum age).
+   * An OAuth sign-in that would create an account arrived without Terms of
+   * Service and Privacy Policy consent, or with no recorded consent at all.
+   * A missing age confirmation is a separate backend code.
    */
   TERMS_ACCEPTANCE_REQUIRED: 'TERMS_ACCEPTANCE_REQUIRED',
 } as const

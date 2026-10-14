@@ -301,7 +301,7 @@ func (s *OAuthHandlerIntegrationSuite) TestCallback_TermsNotAccepted_RedirectsWi
 		"expected terms-acceptance message in redirect, got %s", location)
 	parsed, err := url.Parse(location)
 	s.Require().NoError(err)
-	s.Equal(autherrors.CodeTermsAcceptanceRequired, parsed.Query().Get(authPageErrorCodeParam))
+	s.Equal(autherrors.CodeTermsAcceptanceRequired, parsed.Query().Get("error_code"))
 }
 
 // --- OAuthCallbackHTTPHandler: success paths ---
