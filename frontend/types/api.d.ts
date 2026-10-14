@@ -14756,6 +14756,13 @@ export interface components {
             album_names: components["schemas"]["RadioCandidateName"][] | null;
             /** @description radio_normalize_name of the artist name; the candidate's identity */
             artist_key: string;
+            /**
+             * Format: int64
+             * @description Distinct raw artist spellings
+             */
+            artist_spelling_count: number;
+            /** @description Up to five raw artist spellings by play count; the first is display_name */
+            artist_spellings: components["schemas"]["RadioCandidateName"][] | null;
             /** @description Most common raw artist spelling among the counted plays */
             display_name: string;
             /** @description Earliest counted play's episode air date (YYYY-MM-DD) */
@@ -14777,6 +14784,8 @@ export interface components {
             mb_artist_id_conflict: boolean;
             /** @description Every distinct MusicBrainz artist id the counted plays carry, sorted */
             mb_artist_ids: string[] | null;
+            /** @description True when a counted play's artist name carries a non-Latin script; the key is then the name's Latin part only, and the candidate is in the human lane */
+            non_latin_spelling: boolean;
             /** Format: int64 */
             play_count: number;
             /**
@@ -14784,6 +14793,8 @@ export interface components {
              * @description station rows x ln(plays) x (1 + shows / 10)
              */
             score: number;
+            /** @description Other candidates' artist keys whose plays carry one of this candidate's MusicBrainz artist ids, sorted; a candidate that has any is in the human lane */
+            shared_mb_artist_keys: string[] | null;
             /** Format: int64 */
             show_count: number;
             /**
@@ -14810,10 +14821,16 @@ export interface components {
             readonly $schema?: string;
             /** @description The UTC date the window ends on (YYYY-MM-DD) */
             as_of: string;
-            /** Format: int64 */
+            /**
+             * Format: int64
+             * @description Candidates in the auto lane, whatever the lane filter
+             */
             auto_total: number;
             candidates: components["schemas"]["RadioArtistCandidate"][] | null;
-            /** Format: int64 */
+            /**
+             * Format: int64
+             * @description Candidates in the human lane, whatever the lane filter
+             */
             human_total: number;
             /** Format: int64 */
             min_plays: number;
@@ -14829,6 +14846,11 @@ export interface components {
              * @description When the radio_tracks rebuild loop last completed successfully
              */
             tracks_rebuilt_at?: string;
+            /**
+             * Format: int64
+             * @description Plays in the window, not excluded, whose artist name normalizes to empty (for example a name written only in a non-Latin script), and so count toward no candidate
+             */
+            unkeyable_plays: number;
             /** Format: int64 */
             window_days: number;
             /** @description The earliest episode air date counted (YYYY-MM-DD) */
