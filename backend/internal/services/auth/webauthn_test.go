@@ -325,6 +325,13 @@ func (suite *WebAuthnServiceIntegrationTestSuite) TestConsumeChallenge_WrongOper
 	_, _, err = suite.service.ConsumeChallenge(challengeID, "authentication")
 	suite.Require().Error(err)
 	suite.Contains(err.Error(), "challenge not found")
+	_, _, err = suite.service.ConsumeSignupChallenge(challengeID, "signup")
+	suite.Require().Error(err)
+
+	// A request under another operation neither receives nor spends it.
+	_, userID, err := suite.service.ConsumeChallenge(challengeID, "registration")
+	suite.Require().NoError(err)
+	suite.Equal(user.ID, userID)
 }
 
 func (suite *WebAuthnServiceIntegrationTestSuite) TestConsumeChallenge_Expired() {
@@ -338,12 +345,13 @@ func (suite *WebAuthnServiceIntegrationTestSuite) TestConsumeChallenge_Expired()
 	suite.Require().NoError(err)
 
 	// Force-expire the challenge via raw SQL
-	suite.db.Exec("UPDATE webauthn_challenges SET expires_at = ? WHERE id = ?",
-		time.Now().Add(-1*time.Hour), challengeID)
+	suite.Require().NoError(suite.db.Exec("UPDATE webauthn_challenges SET expires_at = ? WHERE id = ?",
+		time.Now().Add(-1*time.Hour), challengeID).Error)
 
 	_, _, err = suite.service.ConsumeChallenge(challengeID, "registration")
 	suite.Require().Error(err)
 	suite.Contains(err.Error(), "challenge expired")
+	suite.Zero(suite.challengeRows(challengeID), "the refusal removes the expired row")
 }
 
 func (suite *WebAuthnServiceIntegrationTestSuite) TestCleanupExpiredChallenges_Success() {
@@ -371,13 +379,8 @@ func (suite *WebAuthnServiceIntegrationTestSuite) TestCleanupExpiredChallenges_S
 	err = suite.service.CleanupExpiredChallenges()
 	suite.Require().NoError(err)
 
-	// Active should still exist
-	_, _, err = suite.service.ConsumeChallenge(activeID, "registration")
-	suite.Require().NoError(err)
-
-	// Expired should be gone
-	_, _, err = suite.service.ConsumeChallenge(expiredID, "authentication")
-	suite.Require().Error(err)
+	suite.Equal(int64(1), suite.challengeRows(activeID), "the active challenge stays")
+	suite.Zero(suite.challengeRows(expiredID), "the expired challenge is removed")
 }
 
 func (suite *WebAuthnServiceIntegrationTestSuite) TestStoreAndConsumeChallenge_RoundTrip() {

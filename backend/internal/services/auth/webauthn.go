@@ -305,19 +305,17 @@ func (s *WebAuthnService) StoreChallenge(userID uint, session *webauthn.SessionD
 // carry its id. An expired challenge is deleted all the same and answers as
 // expired.
 func (s *WebAuthnService) consumeChallenge(challengeID string, operation string) (*authm.WebAuthnChallenge, error) {
-	var consumed []authm.WebAuthnChallenge
-	err := s.db.Raw(
-		`DELETE FROM webauthn_challenges WHERE id = ? AND operation = ?
-		 RETURNING id, user_id, challenge, session_data, operation, expires_at, created_at`,
+	var challenge authm.WebAuthnChallenge
+	result := s.db.Raw(
+		"DELETE FROM webauthn_challenges WHERE id = ? AND operation = ? RETURNING *",
 		challengeID, operation,
-	).Scan(&consumed).Error
-	if err != nil {
-		return nil, fmt.Errorf("failed to consume challenge: %w", err)
+	).Scan(&challenge)
+	if result.Error != nil {
+		return nil, fmt.Errorf("failed to consume challenge: %w", result.Error)
 	}
-	if len(consumed) == 0 {
+	if result.RowsAffected == 0 {
 		return nil, fmt.Errorf("challenge not found")
 	}
-	challenge := consumed[0]
 	if challenge.IsExpired() {
 		return nil, fmt.Errorf("challenge expired")
 	}

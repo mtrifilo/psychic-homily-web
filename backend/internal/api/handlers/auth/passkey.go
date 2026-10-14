@@ -208,7 +208,6 @@ func (h *PasskeyHandler) FinishRegisterHandler(ctx context.Context, input *Finis
 		"user_id", contextUser.ID,
 	)
 
-	// The challenge is spent here, whatever the rest of the ceremony answers.
 	session, userID, err := h.webauthnService.ConsumeChallenge(input.Body.ChallengeID, "registration")
 	if err != nil {
 		logger.AuthWarn(ctx, "passkey_challenge_invalid",
@@ -398,7 +397,6 @@ func (h *PasskeyHandler) FinishLoginHandler(ctx context.Context, input *FinishLo
 
 	logger.AuthDebug(ctx, "passkey_login_finish")
 
-	// The challenge is spent here, whatever the rest of the ceremony answers.
 	session, userID, err := h.webauthnService.ConsumeChallenge(input.Body.ChallengeID, "authentication")
 	if err != nil {
 		logger.AuthWarn(ctx, "passkey_challenge_invalid",
@@ -759,7 +757,6 @@ func (h *PasskeyHandler) FinishSignupHandler(ctx context.Context, input *FinishS
 
 	logger.AuthDebug(ctx, "passkey_signup_finish")
 
-	// The challenge is spent here, whatever the rest of the ceremony answers.
 	session, signup, err := h.webauthnService.ConsumeSignupChallenge(input.Body.ChallengeID, "signup")
 	if err != nil {
 		logger.AuthWarn(ctx, "passkey_challenge_invalid",

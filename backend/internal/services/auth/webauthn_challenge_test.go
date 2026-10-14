@@ -2,7 +2,6 @@ package auth
 
 import (
 	"sync"
-	"time"
 
 	"github.com/go-webauthn/webauthn/webauthn"
 
@@ -87,57 +86,11 @@ func (suite *WebAuthnServiceIntegrationTestSuite) TestConsumedChallengeAnswersNo
 
 	_, _, err = suite.service.ConsumeChallenge(challengeID, "authentication")
 	suite.Require().NoError(err)
-
-	_, _, err = suite.service.ConsumeChallenge(challengeID, "authentication")
-	suite.Require().Error(err)
-	suite.Contains(err.Error(), "challenge not found")
 	suite.Zero(suite.challengeRows(challengeID))
-}
-
-func (suite *WebAuthnServiceIntegrationTestSuite) TestConsumedSignupChallengeAnswersNotFound() {
-	challengeID, err := suite.service.StoreSignupChallenge(
-		contracts.SignupChallenge{Email: "spent@test.com"}, &webauthn.SessionData{Challenge: "spent"}, "signup",
-	)
-	suite.Require().NoError(err)
-
-	_, _, err = suite.service.ConsumeSignupChallenge(challengeID, "signup")
-	suite.Require().NoError(err)
-
-	_, _, err = suite.service.ConsumeSignupChallenge(challengeID, "signup")
-	suite.Require().Error(err)
-	suite.Contains(err.Error(), "challenge not found")
-}
-
-// An expired challenge is refused and removed by the same call.
-func (suite *WebAuthnServiceIntegrationTestSuite) TestExpiredChallengeIsRemovedWhenRefused() {
-	user := suite.createUser("expired@test.com")
-	challengeID, err := suite.service.StoreChallenge(user.ID, &webauthn.SessionData{Challenge: "expired"}, "authentication")
-	suite.Require().NoError(err)
-	suite.Require().NoError(suite.db.Exec("UPDATE webauthn_challenges SET expires_at = ? WHERE id = ?",
-		time.Now().Add(-time.Minute), challengeID).Error)
-
-	_, _, err = suite.service.ConsumeChallenge(challengeID, "authentication")
-	suite.Require().Error(err)
-	suite.Contains(err.Error(), "challenge expired")
-	suite.Zero(suite.challengeRows(challengeID))
-}
-
-// A challenge asked for under another operation is neither returned nor
-// spent.
-func (suite *WebAuthnServiceIntegrationTestSuite) TestWrongOperationLeavesChallengeInPlace() {
-	user := suite.createUser("operation@test.com")
-	challengeID, err := suite.service.StoreChallenge(user.ID, &webauthn.SessionData{Challenge: "op"}, "registration")
-	suite.Require().NoError(err)
 
 	_, _, err = suite.service.ConsumeChallenge(challengeID, "authentication")
 	suite.Require().Error(err)
 	suite.Contains(err.Error(), "challenge not found")
-	_, _, err = suite.service.ConsumeSignupChallenge(challengeID, "signup")
-	suite.Require().Error(err)
-
-	_, userID, err := suite.service.ConsumeChallenge(challengeID, "registration")
-	suite.Require().NoError(err)
-	suite.Equal(user.ID, userID)
 }
 
 func (suite *WebAuthnServiceIntegrationTestSuite) challengeRows(challengeID string) int64 {

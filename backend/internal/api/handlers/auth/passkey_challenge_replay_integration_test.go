@@ -8,7 +8,6 @@ import (
 	"github.com/go-webauthn/webauthn/protocol"
 
 	autherrors "psychic-homily-backend/internal/errors"
-	"psychic-homily-backend/internal/legal"
 	"psychic-homily-backend/internal/testutil/softauthn"
 )
 
@@ -19,25 +18,10 @@ import (
 // finish and returns the authenticator holding its passkey and the finish
 // request body.
 func (s *AuthHandlerIntegrationSuite) signUpWithPasskey(api humatest.TestAPI, email string) (*softauthn.Authenticator, map[string]any) {
-	begin := api.Post("/auth/passkey/signup/begin", map[string]any{
-		"email":            email,
-		"terms_accepted":   true,
-		"terms_version":    legal.CurrentTermsVersion,
-		"privacy_version":  legal.CurrentPrivacyVersion,
-		"age_confirmed":    true,
-		"min_age_attested": MinSignupAge,
-	})
-	requireWireSuccess(s.T(), begin)
-	challengeID, _ := decodeWireBody(s.T(), begin.Body.Bytes())["challenge_id"].(string)
-	s.Require().NotEmpty(challengeID)
-
-	device := softauthn.New(wireOrigin)
-	registration, err := device.Register(s.creationOptions(begin.Body.Bytes()))
-	s.Require().NoError(err)
-
+	challengeID, registration, device := s.beginPasskeySignup(api, email)
 	finish := map[string]any{
 		"challenge_id":   challengeID,
-		"response":       json.RawMessage(registration),
+		"response":       registration,
 		"terms_accepted": true,
 		"age_confirmed":  true,
 	}
@@ -51,7 +35,7 @@ func (s *AuthHandlerIntegrationSuite) beginDiscoverableLogin(api humatest.TestAP
 	begin := api.Post("/auth/passkey/login/begin", map[string]any{})
 	requireWireSuccess(s.T(), begin)
 	var body struct {
-		ChallengeID string                       `json:"challenge_id"`
+		ChallengeID string                        `json:"challenge_id"`
 		Options     *protocol.CredentialAssertion `json:"options"`
 	}
 	s.Require().NoError(json.Unmarshal(begin.Body.Bytes(), &body))
