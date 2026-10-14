@@ -3,6 +3,7 @@ package auth
 import (
 	"context"
 	"encoding/base64"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -329,6 +330,27 @@ func TestOAuthCallback_RefusalCarriesTheDestinationToTheAuthPage(t *testing.T) {
 			assertReturnToCleared(t, resp)
 		})
 	}
+}
+
+// A failure that is not a refusal the reader can act on (a provider error, a
+// cancelled consent screen) carries the generic message, no code, and the
+// destination.
+func TestOAuthCallback_GenericFailureCarriesTheDestination(t *testing.T) {
+	resp, raw := runCallback(t, failingCallbackHandler(errors.New("oauth2: cannot fetch token")), "/auth/callback/google",
+		&http.Cookie{Name: oauthReturnToCookieName, Value: encodedReturnTo("/shows")})
+
+	location, err := url.Parse(raw)
+	if err != nil {
+		t.Fatalf("unparseable Location %q: %v", raw, err)
+	}
+	query := location.Query()
+	if location.Path != "/auth" || query.Get("error") != "authentication failed" || query.Has("error_code") {
+		t.Errorf("Location = %q, want the auth page with the generic message and no code", raw)
+	}
+	if got := query.Get("returnTo"); got != "/shows" {
+		t.Errorf("returnTo = %q, want /shows", got)
+	}
+	assertReturnToCleared(t, resp)
 }
 
 // The CLI loopback keeps its token redirect; the cookie is spent regardless.
