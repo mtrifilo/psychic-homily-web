@@ -38,13 +38,17 @@ style file they describe.
   read against the warm land.
 - **Light palette**: the light column of the palette table on the Figma
   board (Product Designs, Atlas page, PSY-1567 row `1973:75`, table
-  `1973:76`), anchored to the `:root` tokens: background `--background
+  `1973:76`) is the authority; `LIGHT_PAINT` copies it value for value. The
+  `:root` tokens are its anchors, not a recipe: background `--background
   #f4f1ea`; buildings `--card #faf7f0` with a `--secondary #e8e3d6` outline
-  (`--border` reads too loud on paper); roads interpolated from the
-  background toward `--border #cabe9f`, darkening with importance; water
-  `#dbe4ea`, again the one cool departure; labels from `--muted-foreground
-  #6b5e4f` to `--foreground #1a1714`, each on a halo of the ground it sits
-  on (paper, or water for water names).
+  (`--border` reads too loud on paper); roads darken with importance from
+  near the background through `--border #cabe9f` (primary and trunk) to
+  `#bfb18e` (motorway), with country boundaries at `#a89b7d`; water
+  `#dbe4ea`, again the one cool departure, with its names in a cool grey
+  `#5c6f82`; other labels run from `#8a7b69` (minor road names) through
+  `--muted-foreground #6b5e4f` (major road names) to `--foreground #1a1714`
+  (cities), each on a halo of the ground it sits on (paper, or water for
+  water names). Retune against the board, not by re-deriving from tokens.
 - **Token snapshots**: nothing reads these tokens at runtime (each style is
   a hand-copied snapshot), so `phBasemap.test.ts` pins each variant's
   anchors against its block of `globals.css` and fails if a theme repaint
@@ -72,9 +76,10 @@ changes its schema or endpoints:
    update filters/source-layers to match. Keep the palette and the layer
    reduction; do not re-adopt POIs/shields/sprites. Then rewrite the light
    file: `node scripts/atlas-light-basemap.mjs` (from `frontend/`). A layer
-   added, dropped or recoloured in the dark file needs its light colours in
-   `LIGHT_PAINT` (`scripts/lib/ph-light-basemap.mjs`) first; the script
-   refuses a dark file the table no longer fits.
+   added, dropped or recoloured in the dark file needs its pair in
+   `LIGHT_PAINT` (`scripts/lib/ph-light-basemap.mjs`, each colour as
+   `[dark value, light value]`) first; the script refuses a dark file the
+   table no longer fits, a changed dark hex included.
 3. Re-probe the glyph server if label fonts break
    (`curl -sI "https://tiles.openfreemap.org/fonts/Noto%20Sans%20Regular/0-255.pbf"`).
 4. Run `bun run test:run features/scenes`: `phBasemap.test.ts` pins, for
