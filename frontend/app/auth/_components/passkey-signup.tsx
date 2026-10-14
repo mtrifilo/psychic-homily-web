@@ -113,12 +113,13 @@ export function PasskeySignupButton({
       const beginData: components['schemas']['BeginSignupResponseBody'] =
         await beginResponse.json()
 
+      const startFailure = 'Failed to start passkey signup'
       if (!beginData.success) {
-        throw new Error(beginData.message || 'Failed to start passkey signup')
+        throw new Error(beginData.message || startFailure)
       }
       const optionsJSON = registrationOptionsFrom(beginData.options)
       if (!optionsJSON) {
-        throw new Error('Failed to start passkey signup')
+        throw new Error(startFailure)
       }
 
       // Step 2: Perform WebAuthn registration

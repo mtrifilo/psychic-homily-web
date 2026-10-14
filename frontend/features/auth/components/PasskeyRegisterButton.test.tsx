@@ -59,8 +59,12 @@ async function openAndSubmit() {
   )
 }
 
-describe('PasskeyRegisterButton ceremony', () => {
+describe('PasskeyRegisterButton', () => {
   const originalFetch = global.fetch
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
 
   afterEach(() => {
     global.fetch = originalFetch
@@ -87,18 +91,6 @@ describe('PasskeyRegisterButton ceremony', () => {
       'https://api-base.test/auth/passkey/register/begin',
       'https://api-base.test/auth/passkey/register/finish',
     ])
-  })
-})
-
-describe('PasskeyRegisterButton error translation', () => {
-  const originalFetch = global.fetch
-
-  beforeEach(() => {
-    vi.clearAllMocks()
-  })
-
-  afterEach(() => {
-    global.fetch = originalFetch
   })
 
   it('carries the refusal code out of the begin step', async () => {

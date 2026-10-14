@@ -3,6 +3,7 @@ package auth
 import (
 	"encoding/json"
 	"net/http"
+	"net/http/httptest"
 	"testing"
 
 	"github.com/danielgtaylor/huma/v2"
@@ -11,7 +12,6 @@ import (
 	"github.com/go-webauthn/webauthn/webauthn"
 
 	"psychic-homily-backend/internal/api/handlers/shared/testhelpers"
-	"psychic-homily-backend/internal/api/middleware"
 	authm "psychic-homily-backend/internal/models/auth"
 	"psychic-homily-backend/internal/services/contracts"
 	"psychic-homily-backend/internal/testutil/softauthn"
@@ -65,10 +65,7 @@ func softAssertion(t *testing.T, device *softauthn.Authenticator) json.RawMessag
 
 func newPasskeyWireAPI(t *testing.T, h *PasskeyHandler) humatest.TestAPI {
 	t.Helper()
-	_, api := humatest.New(t, huma.DefaultConfig("passkey-wire", "1.0.0"))
-	withUser := huma.Middlewares{func(ctx huma.Context, next func(huma.Context)) {
-		next(huma.WithValue(ctx, middleware.UserContextKey, &authm.User{ID: 1}))
-	}}
+	api, withUser := newWireTestAPI(t)
 	huma.Post(api, "/auth/passkey/login/begin", h.BeginLoginHandler)
 	huma.Post(api, "/auth/passkey/login/finish", h.FinishLoginHandler)
 	huma.Post(api, "/auth/passkey/signup/finish", h.FinishSignupHandler)
@@ -88,6 +85,16 @@ func decodeWireBody(t *testing.T, raw []byte) map[string]any {
 		t.Fatalf("decode %s: %v", raw, err)
 	}
 	return body
+}
+
+func requireWireSuccess(t *testing.T, resp *httptest.ResponseRecorder) {
+	t.Helper()
+	if resp.Code != http.StatusOK {
+		t.Fatalf("status %d: %s", resp.Code, resp.Body.String())
+	}
+	if success, _ := decodeWireBody(t, resp.Body.Bytes())["success"].(bool); !success {
+		t.Fatalf("expected success: %s", resp.Body.String())
+	}
 }
 
 // The frontend hands options.publicKey to the browser library, so the begin
@@ -131,12 +138,7 @@ func TestPasskeyWire_LoginFinishAcceptsLibraryResponseShape(t *testing.T) {
 		"challenge_id": "c-1",
 		"response":     softAssertion(t, device),
 	})
-	if resp.Code != http.StatusOK {
-		t.Fatalf("status %d: %s", resp.Code, resp.Body.String())
-	}
-	if success, _ := decodeWireBody(t, resp.Body.Bytes())["success"].(bool); !success {
-		t.Fatalf("expected success: %s", resp.Body.String())
-	}
+	requireWireSuccess(t, resp)
 	if parsedID == "" {
 		t.Error("expected the parsed assertion to reach the service")
 	}
@@ -168,12 +170,7 @@ func TestPasskeyWire_SignupFinishWithoutDisplayName(t *testing.T) {
 		"age_confirmed":    true,
 		"min_age_attested": 16,
 	})
-	if resp.Code != http.StatusOK {
-		t.Fatalf("status %d: %s", resp.Code, resp.Body.String())
-	}
-	if success, _ := decodeWireBody(t, resp.Body.Bytes())["success"].(bool); !success {
-		t.Fatalf("expected success: %s", resp.Body.String())
-	}
+	requireWireSuccess(t, resp)
 	if displayName != "My Passkey" {
 		t.Errorf("expected the default display name, got %q", displayName)
 	}
@@ -197,12 +194,7 @@ func TestPasskeyWire_RegisterFinishWithoutDisplayName(t *testing.T) {
 		"challenge_id": "c-1",
 		"response":     body,
 	})
-	if resp.Code != http.StatusOK {
-		t.Fatalf("status %d: %s", resp.Code, resp.Body.String())
-	}
-	if success, _ := decodeWireBody(t, resp.Body.Bytes())["success"].(bool); !success {
-		t.Fatalf("expected success: %s", resp.Body.String())
-	}
+	requireWireSuccess(t, resp)
 	if displayName != "My Passkey" {
 		t.Errorf("expected the default display name, got %q", displayName)
 	}

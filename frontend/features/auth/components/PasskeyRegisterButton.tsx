@@ -123,7 +123,7 @@ export function PasskeyRegisterButton({ onSuccess, onError, className }: Passkey
         credentials: 'include',
         body: JSON.stringify({
           challenge_id: beginData.challenge_id,
-          display_name: displayName || 'My Passkey',
+          display_name: displayName,
           response: credential,
         }),
       })

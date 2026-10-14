@@ -23,10 +23,11 @@ import (
 var errWireDriver = fmt.Errorf(`ERROR: relation "user_bookmarks" does not exist (SQLSTATE 42P01)`)
 
 // Handler unit tests call handlers directly, so they never see what huma puts
-// on the wire for a returned error. These register the real handlers on a
-// huma API with humaerr installed, as routes.SetupRoutes installs it, and read
-// the response.
-func newWireAPI(t *testing.T, h *AuthHandler) humatest.TestAPI {
+// on the wire, neither its request validation nor a returned error.
+// newWireTestAPI is a huma API with humaerr installed, as routes.SetupRoutes
+// installs it, plus middleware that authenticates a request as user 1; tests
+// register the real handlers on it and read the response.
+func newWireTestAPI(t *testing.T) (humatest.TestAPI, huma.Middlewares) {
 	t.Helper()
 	prevNewError, prevNewErrorWithContext := huma.NewError, huma.NewErrorWithContext
 	t.Cleanup(func() {
@@ -34,11 +35,17 @@ func newWireAPI(t *testing.T, h *AuthHandler) humatest.TestAPI {
 		huma.NewErrorWithContext = prevNewErrorWithContext
 	})
 	humaerr.Install()
-	_, api := humatest.New(t, huma.DefaultConfig("auth-error-wire", "1.0.0"))
+	_, api := humatest.New(t, huma.DefaultConfig("auth-wire", "1.0.0"))
 
 	withUser := huma.Middlewares{func(ctx huma.Context, next func(huma.Context)) {
 		next(huma.WithValue(ctx, middleware.UserContextKey, &authm.User{ID: 1}))
 	}}
+	return api, withUser
+}
+
+func newWireAPI(t *testing.T, h *AuthHandler) humatest.TestAPI {
+	t.Helper()
+	api, withUser := newWireTestAPI(t)
 	huma.Register(api, huma.Operation{
 		OperationID: "export-data",
 		Method:      http.MethodGet,

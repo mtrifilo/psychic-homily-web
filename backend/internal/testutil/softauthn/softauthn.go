@@ -12,7 +12,6 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"crypto/x509"
-	"encoding/base64"
 	"encoding/binary"
 	"encoding/json"
 	"fmt"
@@ -25,19 +24,13 @@ import (
 // AAGUID is the authenticator model identifier every Authenticator reports.
 var AAGUID = []byte{0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08}
 
-const (
-	flagUserPresent  = 0x01
-	flagUserVerified = 0x04
-	flagAttested     = 0x40
-)
-
 // Authenticator holds one resident ES256 credential, created by Register.
 type Authenticator struct {
 	Origin string
 
 	key          *ecdsa.PrivateKey
-	credentialID []byte
-	userHandle   []byte
+	credentialID protocol.URLEncodedBase64
+	userHandle   protocol.URLEncodedBase64
 	rpID         string
 	signCount    uint32
 }
@@ -55,11 +48,12 @@ func (a *Authenticator) UserHandle() []byte { return a.userHandle }
 // the RegistrationResponseJSON a browser would send to the finish endpoint.
 func (a *Authenticator) Register(creation *protocol.CredentialCreation) ([]byte, error) {
 	opts := creation.Response
-	handle, err := userHandleBytes(opts.User.ID)
-	if err != nil {
-		return nil, err
+	handle, ok := opts.User.ID.(protocol.URLEncodedBase64)
+	if !ok {
+		return nil, fmt.Errorf("softauthn: unsupported user.id type %T", opts.User.ID)
 	}
 
+	var err error
 	a.key, err = ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
 		return nil, err
@@ -84,14 +78,14 @@ func (a *Authenticator) Register(creation *protocol.CredentialCreation) ([]byte,
 		return nil, err
 	}
 
-	authData := a.authenticatorData(flagUserPresent | flagUserVerified | flagAttested)
+	authData := a.authenticatorData(protocol.FlagUserPresent | protocol.FlagUserVerified | protocol.FlagAttestedCredentialData)
 	authData = append(authData, AAGUID...)
 	authData = binary.BigEndian.AppendUint16(authData, uint16(len(a.credentialID)))
 	authData = append(authData, a.credentialID...)
 	authData = append(authData, coseKey...)
 
 	attestationObject, err := webauthncbor.Marshal(map[string]any{
-		"fmt":      "none",
+		"fmt":      string(protocol.AttestationFormatNone),
 		"attStmt":  map[string]any{},
 		"authData": authData,
 	})
@@ -104,20 +98,13 @@ func (a *Authenticator) Register(creation *protocol.CredentialCreation) ([]byte,
 		return nil, err
 	}
 
-	return json.Marshal(map[string]any{
-		"id":                      b64(a.credentialID),
-		"rawId":                   b64(a.credentialID),
-		"type":                    "public-key",
-		"authenticatorAttachment": "platform",
-		"clientExtensionResults":  map[string]any{"credProps": map[string]any{"rk": true}},
-		"response": map[string]any{
-			"clientDataJSON":     b64(a.clientData("webauthn.create", opts.Challenge)),
-			"attestationObject":  b64(attestationObject),
-			"authenticatorData":  b64(authData),
-			"transports":         []string{"internal"},
-			"publicKeyAlgorithm": int(webauthncose.AlgES256),
-			"publicKey":          b64(spki),
-		},
+	return a.credentialJSON(map[string]any{"credProps": map[string]any{"rk": true}}, map[string]any{
+		"clientDataJSON":     a.clientData(protocol.CreateCeremony, opts.Challenge),
+		"attestationObject":  protocol.URLEncodedBase64(attestationObject),
+		"authenticatorData":  protocol.URLEncodedBase64(authData),
+		"transports":         []string{"internal"},
+		"publicKeyAlgorithm": int(webauthncose.AlgES256),
+		"publicKey":          protocol.URLEncodedBase64(spki),
 	})
 }
 
@@ -129,8 +116,8 @@ func (a *Authenticator) Assert(assertion *protocol.CredentialAssertion) ([]byte,
 	}
 	a.signCount++
 
-	authData := a.authenticatorData(flagUserPresent | flagUserVerified)
-	clientData := a.clientData("webauthn.get", assertion.Response.Challenge)
+	authData := a.authenticatorData(protocol.FlagUserPresent | protocol.FlagUserVerified)
+	clientData := a.clientData(protocol.AssertCeremony, assertion.Response.Challenge)
 	clientDataHash := sha256.Sum256(clientData)
 	digest := sha256.Sum256(append(append([]byte{}, authData...), clientDataHash[:]...))
 	signature, err := ecdsa.SignASN1(rand.Reader, a.key, digest[:])
@@ -138,51 +125,39 @@ func (a *Authenticator) Assert(assertion *protocol.CredentialAssertion) ([]byte,
 		return nil, err
 	}
 
-	return json.Marshal(map[string]any{
-		"id":                      b64(a.credentialID),
-		"rawId":                   b64(a.credentialID),
-		"type":                    "public-key",
-		"authenticatorAttachment": "platform",
-		"clientExtensionResults":  map[string]any{},
-		"response": map[string]any{
-			"clientDataJSON":    b64(clientData),
-			"authenticatorData": b64(authData),
-			"signature":         b64(signature),
-			"userHandle":        b64(a.userHandle),
-		},
+	return a.credentialJSON(map[string]any{}, map[string]any{
+		"clientDataJSON":    clientData,
+		"authenticatorData": protocol.URLEncodedBase64(authData),
+		"signature":         protocol.URLEncodedBase64(signature),
+		"userHandle":        a.userHandle,
 	})
 }
 
-func (a *Authenticator) authenticatorData(flags byte) []byte {
+// credentialJSON wraps a ceremony's response in the PublicKeyCredential
+// fields both ceremonies share.
+func (a *Authenticator) credentialJSON(extensions, response map[string]any) ([]byte, error) {
+	return json.Marshal(map[string]any{
+		"id":                      a.credentialID,
+		"rawId":                   a.credentialID,
+		"type":                    "public-key",
+		"authenticatorAttachment": "platform",
+		"clientExtensionResults":  extensions,
+		"response":                response,
+	})
+}
+
+func (a *Authenticator) authenticatorData(flags protocol.AuthenticatorFlags) []byte {
 	rpIDHash := sha256.Sum256([]byte(a.rpID))
 	data := append([]byte{}, rpIDHash[:]...)
-	data = append(data, flags)
+	data = append(data, byte(flags))
 	return binary.BigEndian.AppendUint32(data, a.signCount)
 }
 
-func (a *Authenticator) clientData(ceremony string, challenge protocol.URLEncodedBase64) []byte {
-	data, _ := json.Marshal(map[string]any{
-		"type":        ceremony,
-		"challenge":   b64(challenge),
-		"origin":      a.Origin,
-		"crossOrigin": false,
+func (a *Authenticator) clientData(ceremony protocol.CeremonyType, challenge protocol.URLEncodedBase64) protocol.URLEncodedBase64 {
+	data, _ := json.Marshal(protocol.CollectedClientData{
+		Type:      ceremony,
+		Challenge: challenge.String(),
+		Origin:    a.Origin,
 	})
 	return data
-}
-
-func userHandleBytes(id any) ([]byte, error) {
-	switch v := id.(type) {
-	case protocol.URLEncodedBase64:
-		return v, nil
-	case []byte:
-		return v, nil
-	case string:
-		return []byte(v), nil
-	default:
-		return nil, fmt.Errorf("softauthn: unsupported user.id type %T", id)
-	}
-}
-
-func b64(data []byte) string {
-	return base64.RawURLEncoding.EncodeToString(data)
 }

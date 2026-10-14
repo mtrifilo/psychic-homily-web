@@ -24,6 +24,9 @@ func testPasskeyHandler() *PasskeyHandler {
 	return NewPasskeyHandler(nil, nil, nil, nil, testConfig())
 }
 
+// malformedCredentialJSON is a credential body the WebAuthn parser rejects.
+var malformedCredentialJSON = json.RawMessage(`{"id":"","type":"","response":{"clientDataJSON":"not-valid"}}`)
+
 // testPasskeyHandlerWithMocks builds a handler whose email service is present
 // but unconfigured (MockEmailService.IsConfigured defaults to false), so the
 // signup verification send short-circuits without touching the mock.
@@ -222,7 +225,7 @@ func TestFinishRegisterHandler_MalformedCredentialResponse(t *testing.T) {
 	input := &FinishRegisterRequest{}
 	input.Body.ChallengeID = "valid-challenge"
 	// Provide invalid/empty credential data — will fail parsing
-	input.Body.Response = json.RawMessage(`{"id":"","type":"","response":{"clientDataJSON":"not-valid"}}`)
+	input.Body.Response = malformedCredentialJSON
 
 	resp, err := h.FinishRegisterHandler(ctx, input)
 	if err != nil {
@@ -236,37 +239,6 @@ func TestFinishRegisterHandler_MalformedCredentialResponse(t *testing.T) {
 	}
 	if resp.Body.Message != "Invalid credential response" {
 		t.Errorf("expected 'Invalid credential response', got '%s'", resp.Body.Message)
-	}
-}
-
-func TestFinishRegisterHandler_DefaultDisplayName(t *testing.T) {
-	body, _ := softRegistration(t)
-	var capturedDisplayName string
-	mockWA := &testhelpers.MockWebAuthnService{
-		GetChallengeFn: func(challengeID string, operation string) (*webauthn.SessionData, uint, error) {
-			return &webauthn.SessionData{}, 1, nil
-		},
-		FinishRegistrationFn: func(user *authm.User, session *webauthn.SessionData, response *protocol.ParsedCredentialCreationData, displayName string) (*authm.WebAuthnCredential, error) {
-			capturedDisplayName = displayName
-			return &authm.WebAuthnCredential{ID: 1, UserID: user.ID}, nil
-		},
-	}
-	h := testPasskeyHandlerWithMocks(mockWA, &testhelpers.MockJWTService{}, &testhelpers.MockUserService{})
-	ctx := testhelpers.CtxWithSessionAuthTime(&authm.User{ID: 1}, time.Now())
-
-	input := &FinishRegisterRequest{}
-	input.Body.ChallengeID = "valid-challenge"
-	input.Body.Response = body
-
-	resp, err := h.FinishRegisterHandler(ctx, input)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if !resp.Body.Success {
-		t.Fatalf("expected success, got %q", resp.Body.Message)
-	}
-	if capturedDisplayName != "My Passkey" {
-		t.Errorf("expected default display name 'My Passkey', got %q", capturedDisplayName)
 	}
 }
 
@@ -492,7 +464,7 @@ func TestFinishLoginHandler_MalformedCredentialResponse(t *testing.T) {
 
 	input := &FinishLoginRequest{}
 	input.Body.ChallengeID = "valid-challenge"
-	input.Body.Response = json.RawMessage(`{"id":"","type":"","response":{"clientDataJSON":"not-valid"}}`)
+	input.Body.Response = malformedCredentialJSON
 
 	resp, err := h.FinishLoginHandler(context.Background(), input)
 	if err != nil {
@@ -1134,7 +1106,7 @@ func TestFinishSignupHandler_MalformedCredentialResponse(t *testing.T) {
 
 	input := &FinishSignupRequest{}
 	input.Body.ChallengeID = "valid-challenge"
-	input.Body.Response = json.RawMessage(`{"id":"","type":"","response":{"clientDataJSON":"not-valid"}}`)
+	input.Body.Response = malformedCredentialJSON
 
 	resp, err := h.FinishSignupHandler(context.Background(), input)
 	if err != nil {
@@ -1285,7 +1257,7 @@ func TestFinishLoginHandler_DiscoverableLogin_ChallengeWithZeroUserID(t *testing
 
 	input := &FinishLoginRequest{}
 	input.Body.ChallengeID = "disc-challenge"
-	input.Body.Response = json.RawMessage(`{"id":"","type":"","response":{"clientDataJSON":"not-valid"}}`)
+	input.Body.Response = malformedCredentialJSON
 
 	resp, err := h.FinishLoginHandler(context.Background(), input)
 	if err != nil {

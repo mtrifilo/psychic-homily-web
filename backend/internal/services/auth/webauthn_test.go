@@ -82,9 +82,9 @@ func (suite *WebAuthnServiceIntegrationTestSuite) SetupSuite() {
 		WebAuthn: config.WebAuthnConfig{
 			RPDisplayName: "Test App",
 			RPID:          "localhost",
-			RPOrigins:     []string{"http://localhost:3000"},
+			RPOrigins:     []string{ceremonyOrigin},
 		},
-		Email: config.EmailConfig{FrontendURL: "http://localhost:3000"},
+		Email: config.EmailConfig{FrontendURL: ceremonyOrigin},
 	}
 
 	svc, err := NewWebAuthnService(suite.testDB.DB, cfg)

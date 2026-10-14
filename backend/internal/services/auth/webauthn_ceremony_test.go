@@ -19,6 +19,8 @@ import (
 // authenticator, so every credential here is one the WebAuthn library itself
 // verified on the way in and on the way out.
 
+// ceremonyOrigin is the origin the integration suite's service accepts and
+// the software authenticator reports.
 const ceremonyOrigin = "http://localhost:3000"
 
 func TestNewWebAuthnService_OffersEveryAuthenticatorAttachment(t *testing.T) {
