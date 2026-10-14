@@ -519,6 +519,10 @@ describe('AuthPage', () => {
       'Please accept the Terms of Service and Privacy Policy before creating an account.'
     const TERMS_REFUSAL_QUERY =
       'error=Please+accept+the+Terms+of+Service+and+Privacy+Policy+before+creating+an+account.&error_code=TERMS_ACCEPTANCE_REQUIRED'
+    const termsCheckbox = () =>
+      screen.getByRole('checkbox', {
+        name: /I agree to the Terms of Service and Privacy Policy/,
+      })
 
     it('opens on Create account with the message above the consent controls and Google sign-up', () => {
       setSearchParams(TERMS_REFUSAL_QUERY)
@@ -529,9 +533,7 @@ describe('AuthPage', () => {
         'true'
       )
       const message = screen.getByText(TERMS_MESSAGE)
-      const terms = screen.getByRole('checkbox', {
-        name: /I agree to the Terms of Service and Privacy Policy/,
-      })
+      const terms = termsCheckbox()
       const age = screen.getByRole('checkbox', { name: /years old/ })
       const google = screen.getByTestId('google-oauth')
 
@@ -549,14 +551,24 @@ describe('AuthPage', () => {
       setSearchParams(TERMS_REFUSAL_QUERY)
       renderWithProviders(<AuthPage />)
 
-      const terms = screen.getByRole('checkbox', {
-        name: /I agree to the Terms of Service and Privacy Policy/,
-      })
+      const terms = termsCheckbox()
       expect(terms).toHaveFocus()
       const scrollIntoView = vi.mocked(Element.prototype.scrollIntoView)
       expect(scrollIntoView).toHaveBeenCalledTimes(1)
       expect(scrollIntoView).toHaveBeenCalledWith({ block: 'center' })
       expect(scrollIntoView.mock.contexts[0]).toBe(terms)
+    })
+
+    it('does not pull focus back when the viewer returns to Create account by hand', async () => {
+      const user = userEvent.setup()
+      setSearchParams(TERMS_REFUSAL_QUERY)
+      renderWithProviders(<AuthPage />)
+
+      await user.click(screen.getByRole('tab', { name: 'Sign in' }))
+      await user.click(screen.getByRole('tab', { name: 'Create account' }))
+
+      expect(termsCheckbox()).not.toHaveFocus()
+      expect(Element.prototype.scrollIntoView).toHaveBeenCalledTimes(1)
     })
 
     it('neither scrolls nor moves focus on a gated arrival', () => {
@@ -567,11 +579,7 @@ describe('AuthPage', () => {
         'aria-selected',
         'true'
       )
-      expect(
-        screen.getByRole('checkbox', {
-          name: /I agree to the Terms of Service and Privacy Policy/,
-        })
-      ).not.toHaveFocus()
+      expect(termsCheckbox()).not.toHaveFocus()
       expect(Element.prototype.scrollIntoView).not.toHaveBeenCalled()
     })
 
@@ -581,11 +589,7 @@ describe('AuthPage', () => {
 
       await user.click(screen.getByRole('tab', { name: 'Create account' }))
 
-      expect(
-        screen.getByRole('checkbox', {
-          name: /I agree to the Terms of Service and Privacy Policy/,
-        })
-      ).not.toHaveFocus()
+      expect(termsCheckbox()).not.toHaveFocus()
       expect(Element.prototype.scrollIntoView).not.toHaveBeenCalled()
     })
 

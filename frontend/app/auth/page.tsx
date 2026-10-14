@@ -32,11 +32,11 @@ import { CheckInboxInterstitial } from '@/app/auth/_components/check-inbox-inter
 import {
   hasGatedIntent,
   isReauthReason,
+  needsSignupConsent,
 } from '@/lib/auth-href'
 import { getUniqueErrors } from '@/lib/utils/formErrors'
 import { CURRENT_PRIVACY_VERSION, CURRENT_TERMS_VERSION, MIN_SIGNUP_AGE } from '@/lib/legal'
 import {
-  needsSignupConsent,
   safeDecodeQueryParam,
   sanitizeReturnTo,
 } from './auth-redirect-utils'
@@ -337,10 +337,11 @@ interface SignupFormProps {
    */
   onHandoffChange: (handoff: SignupHandoff | null) => void
   /**
-   * The arrival is an OAuth sign-in refused for want of the consent this form
-   * records. Each mount then centres the terms checkbox in the viewport and
-   * focuses it, which keeps the Google sign-up button above it and the age
-   * confirmation below it on screen with the page's message.
+   * The form is showing as the arrival's own tab, and the arrival is an OAuth
+   * sign-in refused for want of the consent this form records. The form then
+   * centres the terms checkbox in the viewport and focuses it, which keeps the
+   * Google sign-up button above it and the age confirmation below it on
+   * screen.
    */
   consentRequested: boolean
 }
@@ -679,9 +680,9 @@ function AuthPageContent() {
   // page has not been hidden since (the effect below drops it on hide). Tab
   // changes are never written back to the URL.
   const arrival = searchParams.toString()
-  const consentRequested = needsSignupConsent(searchParams) && !isReauth
   const arrivalTab =
-    (hasGatedIntent(searchParams) && !isReauth) || consentRequested
+    (hasGatedIntent(searchParams) || needsSignupConsent(searchParams)) &&
+    !isReauth
       ? 'signup'
       : 'login'
   const [pickedTab, setPickedTab] = useState<{
@@ -691,7 +692,8 @@ function AuthPageContent() {
   if (pickedTab !== null && pickedTab.arrival !== arrival) {
     setPickedTab(null)
   }
-  const activeTab = pickedTab?.arrival === arrival ? pickedTab.tab : arrivalTab
+  const showingArrivalTab = pickedTab?.arrival !== arrival
+  const activeTab = showingArrivalTab ? arrivalTab : pickedTab.tab
   const setActiveTab = (tab: string) => setPickedTab({ arrival, tab })
   const [signupHandoff, setSignupHandoff] = useState<SignupHandoff | null>(null)
   const signInTabRef = useRef<HTMLButtonElement>(null)
@@ -825,7 +827,9 @@ function AuthPageContent() {
                   <SignupForm
                     returnTo={returnTo}
                     onHandoffChange={setSignupHandoff}
-                    consentRequested={consentRequested}
+                    consentRequested={
+                      showingArrivalTab && needsSignupConsent(searchParams)
+                    }
                   />
                 </div>
                 <div className="mt-4">

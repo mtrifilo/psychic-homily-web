@@ -1,7 +1,6 @@
 package auth
 
 import (
-	"errors"
 	"net/http"
 	"net/url"
 	"sync"
@@ -360,15 +359,4 @@ func (h *OAuthHTTPHandler) frontendURL() string {
 		return h.config.Email.FrontendURL
 	}
 	return "http://localhost:3000"
-}
-
-// refusalCode picks the error code a callback redirect reports: the refusal's
-// own code when it is one a caller may act on, and fallback for everything
-// else, so a backend fault is never described to a caller in its own terms.
-func refusalCode(err error, fallback string) string {
-	var authErr *autherrors.AuthError
-	if errors.As(err, &authErr) && authRefusalCarriesItsOwnCopy(authErr.Code) {
-		return authErr.Code
-	}
-	return fallback
 }

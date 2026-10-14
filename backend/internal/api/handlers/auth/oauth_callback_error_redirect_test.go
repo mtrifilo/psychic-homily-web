@@ -32,9 +32,9 @@ func failingCallbackHandler(err error) *OAuthHTTPHandler {
 	})
 }
 
-// errorRedirectLocation runs a failed callback and returns where it sent the
-// browser.
-func errorRedirectLocation(t *testing.T, handler *OAuthHTTPHandler, req *http.Request) *url.URL {
+// errorRedirectQuery runs a failed callback, checks that it redirected the
+// browser to wantTarget (scheme, host and path), and returns the query.
+func errorRedirectQuery(t *testing.T, handler *OAuthHTTPHandler, req *http.Request, wantTarget string) url.Values {
 	t.Helper()
 
 	w := httptest.NewRecorder()
@@ -47,13 +47,17 @@ func errorRedirectLocation(t *testing.T, handler *OAuthHTTPHandler, req *http.Re
 	if err != nil {
 		t.Fatalf("unparseable Location %q: %v", w.Header().Get("Location"), err)
 	}
-	return location
+	if got := location.Scheme + "://" + location.Host + location.Path; got != wantTarget {
+		t.Errorf("redirect target = %q, want %q", got, wantTarget)
+	}
+	return location.Query()
 }
 
 // A refused sign-in reaches the auth page with its message and its code; a
 // backend fault reaches it with the generic message and no code at all.
 func TestOAuthCallbackErrorRedirect_CarriesRefusalCode(t *testing.T) {
 	termsRefusal := autherrors.ErrTermsAcceptanceRequired("no consent")
+	existsRefusal := autherrors.ErrUserExists("taken@example.com")
 
 	cases := []struct {
 		name        string
@@ -75,8 +79,8 @@ func TestOAuthCallbackErrorRedirect_CarriesRefusalCode(t *testing.T) {
 		},
 		{
 			name:        "address already registered",
-			err:         autherrors.ErrUserExists("taken@example.com"),
-			wantMessage: autherrors.ErrUserExists("taken@example.com").UserMessage(),
+			err:         existsRefusal,
+			wantMessage: existsRefusal.UserMessage(),
 			wantCode:    autherrors.CodeUserExists,
 		},
 		{
@@ -96,12 +100,8 @@ func TestOAuthCallbackErrorRedirect_CarriesRefusalCode(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			req := httptest.NewRequest("GET", "/auth/callback/google", nil)
-			location := errorRedirectLocation(t, failingCallbackHandler(tc.err), req)
+			query := errorRedirectQuery(t, failingCallbackHandler(tc.err), req, errorRedirectFrontendURL+"/auth")
 
-			if got := location.Scheme + "://" + location.Host + location.Path; got != errorRedirectFrontendURL+"/auth" {
-				t.Errorf("redirect target = %q, want %q", got, errorRedirectFrontendURL+"/auth")
-			}
-			query := location.Query()
 			if got := query.Get("error"); got != tc.wantMessage {
 				t.Errorf("error = %q, want %q", got, tc.wantMessage)
 			}
@@ -114,7 +114,7 @@ func TestOAuthCallbackErrorRedirect_CarriesRefusalCode(t *testing.T) {
 			}
 			for key := range query {
 				if key != "error" && key != "error_code" {
-					t.Errorf("unexpected query parameter %q in %s", key, location)
+					t.Errorf("unexpected query parameter %q in %s", key, query.Encode())
 				}
 			}
 		})
@@ -132,12 +132,7 @@ func TestOAuthCallbackErrorRedirect_CLICallbackCarriesNoCode(t *testing.T) {
 	req := httptest.NewRequest("GET", "/auth/callback/google", nil)
 	req.AddCookie(&http.Cookie{Name: "cli_callback_id", Value: callbackID})
 
-	location := errorRedirectLocation(t, failingCallbackHandler(termsRefusal), req)
-
-	if got := location.Scheme + "://" + location.Host + location.Path; got != "http://localhost:8888/cli-cb" {
-		t.Errorf("redirect target = %q, want the CLI callback", got)
-	}
-	query := location.Query()
+	query := errorRedirectQuery(t, failingCallbackHandler(termsRefusal), req, "http://localhost:8888/cli-cb")
 	if got := query.Get("error"); got != termsRefusal.UserMessage() {
 		t.Errorf("error = %q, want %q", got, termsRefusal.UserMessage())
 	}

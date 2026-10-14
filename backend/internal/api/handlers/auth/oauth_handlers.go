@@ -55,13 +55,24 @@ func randomHexID(n int) (string, error) {
 // refusal's own words when it is one a caller may act on, and fallback for
 // everything else, so a backend fault never reaches a caller.
 //
-// The two redirect surfaces use this. AppleCallbackHandler consults
-// authRefusalCarriesItsOwnCopy directly because its JSON body carries the
-// error CODE as well as the message, which this does not return.
+// The sign-in callback's two redirects use this; the auth-page redirect also
+// carries refusalCode's answer. AppleCallbackHandler consults
+// authRefusalCarriesItsOwnCopy directly to answer with both in its JSON body.
 func refusalMessage(err error, fallback string) string {
 	var authErr *autherrors.AuthError
 	if errors.As(err, &authErr) && authRefusalCarriesItsOwnCopy(authErr.Code) {
 		return authErr.UserMessage()
+	}
+	return fallback
+}
+
+// refusalCode picks the error code a callback redirect reports: the refusal's
+// own code when it is one a caller may act on, and fallback for everything
+// else, so a backend fault is never described to a caller in its own terms.
+func refusalCode(err error, fallback string) string {
+	var authErr *autherrors.AuthError
+	if errors.As(err, &authErr) && authRefusalCarriesItsOwnCopy(authErr.Code) {
+		return authErr.Code
 	}
 	return fallback
 }

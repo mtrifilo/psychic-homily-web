@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 	"time"
@@ -298,8 +299,9 @@ func (s *OAuthHandlerIntegrationSuite) TestCallback_TermsNotAccepted_RedirectsWi
 		"expected redirect to frontend auth with error, got %s", location)
 	s.Contains(location, "Terms+of+Service",
 		"expected terms-acceptance message in redirect, got %s", location)
-	s.Contains(location, "error_code="+autherrors.CodeTermsAcceptanceRequired,
-		"expected the refusal code in redirect, got %s", location)
+	parsed, err := url.Parse(location)
+	s.Require().NoError(err)
+	s.Equal(autherrors.CodeTermsAcceptanceRequired, parsed.Query().Get("error_code"))
 }
 
 // --- OAuthCallbackHTTPHandler: success paths ---

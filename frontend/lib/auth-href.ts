@@ -8,6 +8,8 @@
  * should not become shared dependencies of the feature layer.
  */
 
+import { AuthErrorCode } from '@/lib/errors/authErrors'
+
 /** The route that renders the sign-in and create-account forms. */
 export const AUTH_PATH = '/auth'
 
@@ -160,6 +162,21 @@ export function hasGatedIntent(searchParams: {
 }): boolean {
   const raw = searchParams.get(AUTH_INTENT_PARAM)
   return raw !== null && (AUTH_INTENTS as readonly string[]).includes(raw)
+}
+
+/**
+ * Does this auth-page URL carry the OAuth callback's refusal to create an
+ * account without recorded consent? The callback writes the refusal's code as
+ * `error_code` beside the message the page shows from `error`. The code is
+ * compared against one fixed value and never rendered, so it needs no
+ * decoding. Only the Create account tab can record that consent.
+ */
+export function needsSignupConsent(searchParams: {
+  get: (name: string) => string | null
+}): boolean {
+  return (
+    searchParams.get('error_code') === AuthErrorCode.TERMS_ACCEPTANCE_REQUIRED
+  )
 }
 
 /**

@@ -6,7 +6,6 @@
  */
 
 import { FALLBACK_RETURN_TO, isAuthPath } from '@/lib/auth-href'
-import { AuthErrorCode } from '@/lib/errors/authErrors'
 
 const BASE_ORIGIN = 'https://psychichomily.com'
 
@@ -56,19 +55,4 @@ export function safeDecodeQueryParam(
   } catch {
     return rawValue
   }
-}
-
-/**
- * Does this auth-page URL carry the OAuth callback's refusal to create an
- * account without recorded consent? The callback writes the refusal's code as
- * `error_code` beside the message the page shows from `error`. The code is
- * compared against one fixed value and never rendered, so it needs no
- * decoding. Only the Create account tab can record that consent.
- */
-export function needsSignupConsent(searchParams: {
-  get: (name: string) => string | null
-}): boolean {
-  return (
-    searchParams.get('error_code') === AuthErrorCode.TERMS_ACCEPTANCE_REQUIRED
-  )
 }
