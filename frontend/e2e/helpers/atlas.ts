@@ -23,6 +23,7 @@ export const PHONE_CONTEXT = { hasTouch: true, isMobile: true, deviceScaleFactor
 export type AtlasMapSeam = {
   isStyleLoaded: () => boolean
   areTilesLoaded: () => boolean
+  isMoving: () => boolean
   getZoom: () => number
   getCenter: () => { lng: number; lat: number }
   getStyle: () => {

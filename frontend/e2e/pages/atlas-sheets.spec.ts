@@ -115,24 +115,42 @@ async function expectDetentHeight(page: Page, testId: string, detent: Detent) {
 }
 
 /**
- * Where `at` falls in the viewport, through the map's own projection, once it
- * has stopped moving on screen (the map resizes when the banner leaves).
+ * Where `at` falls in the viewport, rounded to the CSS px, and whether the
+ * camera is moving, read in one evaluation.
+ */
+function cameraSample(page: Page, at: { lat: number; lng: number }) {
+  return page.evaluate(({ lng, lat }) => {
+    const m = (window as unknown as { __atlasMap: AtlasMapSeam }).__atlasMap
+    const p = m.project([lng, lat])
+    const r = m.getCanvas().getBoundingClientRect()
+    return { x: Math.round(r.left + p.x), y: Math.round(r.top + p.y), moving: m.isMoving() }
+  }, at)
+}
+
+/**
+ * Where `at` falls in the viewport, through the map's own projection, once
+ * two reads 250ms apart find the camera still and the point unmoved. A camera
+ * ease can render no frame for longer than 250ms under SwiftShader, so an
+ * unmoved point alone does not mean a still camera; `isMoving()` stays true
+ * until the ease's last frame. The unmoved point covers what `isMoving()`
+ * does not: the map resizing when the banner leaves.
  */
 async function settledMapPoint(page: Page, at: { lat: number; lng: number }) {
-  const rounded = async () => {
-    const p = await mapPoint(page, at)
-    return { x: Math.round(p.x), y: Math.round(p.y) }
-  }
-  let point = await rounded()
+  let sample = await cameraSample(page, at)
   await expect
     .poll(async () => {
-      const previous = point
+      const previous = sample
       await page.waitForTimeout(250)
-      point = await rounded()
-      return point.x === previous.x && point.y === previous.y
-    })
+      sample = await cameraSample(page, at)
+      return (
+        !previous.moving &&
+        !sample.moving &&
+        sample.x === previous.x &&
+        sample.y === previous.y
+      )
+    }, { message: 'the camera comes to rest' })
     .toBe(true)
-  return point
+  return { x: sample.x, y: sample.y }
 }
 
 /** A tap on the Phoenix scene dot once it has stopped moving on screen. */
@@ -719,8 +737,19 @@ test.describe('Atlas pin and dot taps on a 390x844 phone', () => {
       if (detent === 'full') await sheet.locator('[data-bottom-sheet-grabber]').tap()
       await expectDetentHeight(page, 'atlas-scene-preview-sheet', detent)
       const sheetTop = await sheet.evaluate((el) => el.getBoundingClientRect().top)
-      const dot = await settledMapPoint(page, PHOENIX)
-      expect(dot.y, `the dot is above the sheet at ${detent}`).toBeLessThan(sheetTop)
+      // The tap and the detent change each start the camera's ease from
+      // inside the page; a read before that ease starts finds a still camera
+      // with the dot where it was, under the sheet, so the check is polled.
+      let dot = { x: 0, y: 0 }
+      await expect
+        .poll(
+          async () => {
+            dot = await settledMapPoint(page, PHOENIX)
+            return dot.y
+          },
+          { message: `the dot is above the sheet at ${detent}`, timeout: 10_000 },
+        )
+        .toBeLessThan(sheetTop)
       expect(dot.y, `the dot is below the top of the map at ${detent}`).toBeGreaterThan(mapTop)
       expect(
         (await globeRadiusPx(page)) / radiusBefore,
