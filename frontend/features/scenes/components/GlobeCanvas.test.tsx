@@ -2,6 +2,11 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import type { FlyToScene, PlaceableScene, VenuePin, VenueStackMarker } from './globeTypes'
 import { installMatchMedia } from '@/test/mocks/matchMedia'
+import {
+  queryRenderedCircles,
+  renderedCircle,
+  type RenderedCircle,
+} from '@/test/renderedCircles'
 import { CanvasSectionErrorBoundary } from '@/components/shared/CanvasSectionErrorBoundary'
 import { AtlasMapUnrecoverableError } from '../atlasViewport'
 import { ATLAS_CONTEXT_RESTORE_DEADLINE_MS, ATLAS_FIRST_RENDER_DEADLINE_MS } from './atlasMapHealth'
@@ -9,8 +14,9 @@ import { sceneTooltipLabel } from './globeScale'
 
 /**
  * MapLibre stubbed down to the seams the sheet layout drives: controls by
- * corner, DOM markers, layer click handlers and the camera report. WebGL is out
- * of scope; the browser walk in the PR is what proves the canvas paints.
+ * corner, DOM markers, layer events, clicks hit-tested against the drawn marks
+ * (`rendered`) and the camera report. WebGL is out of scope; the browser walk
+ * in the PR is what proves the canvas paints.
  */
 interface StubControl {
   kind: 'attribution' | 'navigation'
@@ -66,11 +72,16 @@ const stub = vi.hoisted(() => {
     isMoving() {
       return this.moving
     }
-    // Every location projects to `state.projectedPoint`, and that point
-    // unprojects to the camera's centre. The preview camera cases keep the
-    // centre on Chicago, the one scene, so Chicago counts as facing.
-    project() {
-      return state.projectedPoint
+    // A mark drawn in `rendered` has screen-px coordinates and projects to
+    // them. Every other location projects to `state.projectedPoint`, and that
+    // point unprojects to the camera's centre. The preview camera cases keep
+    // the centre on Chicago, the one scene, so Chicago counts as facing.
+    project(lngLat: [number, number]) {
+      const [x, y] = lngLat
+      const drawn = Object.values(this.rendered).some((marks) =>
+        marks.some(({ geometry: { coordinates } }) => coordinates[0] === x && coordinates[1] === y),
+      )
+      return drawn ? { x, y } : state.projectedPoint
     }
     unproject() {
       return this.center
@@ -125,11 +136,22 @@ const stub = vi.hoisted(() => {
       return false
     }
     isSourceLoaded = vi.fn<(id: string) => boolean>(() => true)
-    // A layer event carries its DOM event, as MapLibre's do: the canvas
-    // unless the test gives another.
+    // The marks each layer draws, top of draw first (see renderedCircles).
+    rendered: Record<string, RenderedCircle[]> = {}
+    queryRenderedFeatures(
+      region: [number, number] | [[number, number], [number, number]],
+      options: { layers: string[] },
+    ) {
+      return queryRenderedCircles(this.rendered, region, options)
+    }
+    // A layer event, or a map mouse event (one with a point), carries its DOM
+    // event, as MapLibre's do: the canvas unless the test gives another.
     fire(key: string, event?: unknown) {
       const withOriginal =
-        key.includes(':') && event && typeof event === 'object' && !('originalEvent' in event)
+        event &&
+        typeof event === 'object' &&
+        !('originalEvent' in event) &&
+        (key.includes(':') || 'point' in event)
           ? { ...event, originalEvent: { target: this.canvas } }
           : event
       for (const h of this.handlers.get(key) ?? []) h(withOriginal)
@@ -259,6 +281,20 @@ function renderCanvas(props: CanvasProps = {}) {
   return { ...utils, map, props: all }
 }
 
+/** A mark drawn centred on screen point (x, y), with no rim. */
+const mark = (properties: Record<string, unknown>, x: number, y: number, radiusPx = 7) =>
+  renderedCircle({ x, y, radiusPx, properties })
+
+/** Draws the stacked pair at (10, 10), Hideout on top, and Thalia Hall alone at (100, 100). */
+function drawPins(map: StubMap) {
+  map.rendered['venue-pins'] = [mark({ id: 2 }, 10, 10), mark({ id: 1 }, 10, 10), mark({ id: 3 }, 100, 100)]
+}
+
+/** A click (or a tap's click) on the map at screen point (x, y). */
+function clickAt(map: StubMap, x: number, y: number) {
+  act(() => map.fire('click', { point: { x, y } }))
+}
+
 function attributionCorners(map: StubMap) {
   return map.controls
     .filter((c) => c.control.kind === 'attribution')
@@ -344,18 +380,20 @@ describe('GlobeCanvas sheet-layout seams', () => {
       onVenueStackSelect,
       onVenueSelect,
     })
-    act(() => map.fire('click:venue-pins', { features: [{ properties: { id: 2 } }] }))
+    drawPins(map)
+    clickAt(map, 10, 10)
     expect(onVenueStackSelect).toHaveBeenCalledWith(STACK.key)
     expect(onVenueSelect).not.toHaveBeenCalled()
 
-    act(() => map.fire('click:venue-pins', { features: [{ properties: { id: 3 } }] }))
+    clickAt(map, 100, 100)
     expect(onVenueSelect).toHaveBeenCalledWith(3)
   })
 
   it('opens a stacked pin as a venue when no stack handler is given', () => {
     const onVenueSelect = vi.fn()
     const { map } = renderCanvas({ onVenueSelect })
-    act(() => map.fire('click:venue-pins', { features: [{ properties: { id: 2 } }] }))
+    drawPins(map)
+    clickAt(map, 10, 10)
     expect(onVenueSelect).toHaveBeenCalledWith(2)
   })
 
@@ -400,7 +438,8 @@ describe('GlobeCanvas sheet-layout seams', () => {
     expect(tooltip).toHaveTextContent('4 upcoming')
     expect(tooltip).not.toHaveTextContent('2 venues')
 
-    act(() => map.fire('click:venue-pins', stacked))
+    drawPins(map)
+    clickAt(map, 10, 10)
     expect(onVenueSelect).toHaveBeenCalledWith(2)
   })
 
@@ -507,11 +546,12 @@ describe('GlobeCanvas hover on a coarse pointer', () => {
     const onVenueSelect = vi.fn()
     const onVenueStackSelect = vi.fn()
     const { map } = renderCanvas({ venueStacks: [STACK], onVenueSelect, onVenueStackSelect })
+    drawPins(map)
     act(() => map.fire('mousemove:venue-pins', PIN_MOVE))
-    act(() => map.fire('click:venue-pins', PIN_MOVE))
+    clickAt(map, 100, 100)
     expect(onVenueSelect).toHaveBeenCalledWith(3)
 
-    act(() => map.fire('click:venue-pins', { features: [{ properties: { id: 1 } }] }))
+    clickAt(map, 10, 10)
     expect(onVenueStackSelect).toHaveBeenCalledWith(STACK.key)
     expect(screen.getByTestId('atlas-venue-tooltip')).toHaveStyle({ display: 'none' })
   })
@@ -543,6 +583,137 @@ describe('GlobeCanvas hover on a coarse pointer', () => {
     act(() => map.fire('mousemove:venue-pins', PIN_MOVE))
     expect(tooltip).toHaveStyle({ display: 'block' })
     expect(map.setFeatureState).toHaveBeenCalledTimes(3)
+  })
+})
+
+describe('GlobeCanvas tap targets', () => {
+  // The literal query, not an import of it: a drifted query must fail here.
+  const COARSE_POINTER_QUERY = '(pointer: coarse)'
+  let matchMedia: ReturnType<typeof installMatchMedia> | null = null
+
+  beforeEach(() => {
+    stub.state.maps = []
+    stub.state.markers = []
+    sessionStorage.clear()
+  })
+  afterEach(() => {
+    matchMedia?.restore()
+    matchMedia = null
+  })
+
+  function renderWithPointer(coarse: boolean, props: CanvasProps = {}) {
+    matchMedia = installMatchMedia({ [COARSE_POINTER_QUERY]: coarse })
+    const onVenueSelect = vi.fn()
+    const onSelect = vi.fn()
+    const { map } = renderCanvas({ onVenueSelect, onSelect, ...props })
+    return { map, onVenueSelect, onSelect }
+  }
+
+  // drawPins draws Thalia Hall at (100, 100) with radius 7; a tap at 117 is 10px off its edge
+  // and inside the 24px box's 12px reach.
+  it.each([
+    { pointer: 'coarse', coarse: true, opens: [[3]] },
+    { pointer: 'fine', coarse: false, opens: [] },
+  ])('a click 10px off a pin\'s edge on a $pointer pointer opens it only when coarse', ({ coarse, opens }) => {
+    const { map, onVenueSelect } = renderWithPointer(coarse)
+    drawPins(map)
+    clickAt(map, 117, 100)
+    expect(onVenueSelect.mock.calls).toEqual(opens)
+  })
+
+  it('opens nothing from a coarse tap beyond the box', () => {
+    const { map, onVenueSelect } = renderWithPointer(true)
+    drawPins(map)
+    // 13px off the pin's edge: the box's near side is 1px short of the pin.
+    clickAt(map, 120, 100)
+    expect(onVenueSelect).not.toHaveBeenCalled()
+  })
+
+  it('opens the nearer of two pins from a coarse tap between them', () => {
+    const { map, onVenueSelect } = renderWithPointer(true)
+    map.rendered['venue-pins'] = [mark({ id: 3 }, 100, 100), mark({ id: 2 }, 124, 100)]
+    clickAt(map, 110, 100)
+    expect(onVenueSelect).toHaveBeenLastCalledWith(3)
+    clickAt(map, 114, 100)
+    expect(onVenueSelect).toHaveBeenLastCalledWith(2)
+  })
+
+  it('opens the pin a coarse tap lands on, though another pin has the nearer centre', () => {
+    const { map, onVenueSelect } = renderWithPointer(true)
+    // The tap at 109 is inside the 11px pin (centre 9px away) and 4px off the
+    // edge of the 3px pin (centre 7px away).
+    map.rendered['venue-pins'] = [mark({ id: 3 }, 100, 100, 11), mark({ id: 2 }, 116, 100, 3)]
+    clickAt(map, 109, 100)
+    expect(onVenueSelect).toHaveBeenCalledWith(3)
+  })
+
+  it('opens the top pin of a stack a coarse tap lands on, as a fine click does', () => {
+    const { map, onVenueSelect } = renderWithPointer(true)
+    drawPins(map)
+    clickAt(map, 12, 10)
+    expect(onVenueSelect).toHaveBeenCalledWith(2)
+  })
+
+  /**
+   * Renders Chicago and Evanston as two 4px dots stacked at (50, 50), Evanston
+   * listed first and Chicago carrying the higher sort key.
+   */
+  function renderStackedDots(coarse: boolean) {
+    const rendered = renderWithPointer(coarse, {
+      scenes: [CHICAGO, { ...CHICAGO, slug: 'evanston-il', city: 'Evanston' }],
+    })
+    rendered.map.rendered['scene-dots'] = [
+      mark({ slug: 'evanston-il', sortKey: 1 }, 50, 50, 4),
+      mark({ slug: 'chicago-il', sortKey: 5 }, 50, 50, 4),
+    ]
+    return rendered
+  }
+
+  it('opens a scene from a coarse tap off its dot, and the highest sort key of a stacked hit', () => {
+    const { map, onSelect } = renderStackedDots(true)
+    clickAt(map, 62, 50)
+    expect(onSelect).toHaveBeenCalledWith(expect.objectContaining({ slug: 'chicago-il' }))
+  })
+
+  it('opens the highest sort key of a stacked dot hit on a fine pointer, and nothing off the dot', () => {
+    const { map, onSelect } = renderStackedDots(false)
+    clickAt(map, 62, 50)
+    expect(onSelect).not.toHaveBeenCalled()
+    clickAt(map, 51, 50)
+    expect(onSelect).toHaveBeenCalledWith(expect.objectContaining({ slug: 'chicago-il' }))
+  })
+
+  it('names the highest sort key of a stacked dot hover, as its click opens it', () => {
+    renderWithPointer(false, {
+      scenes: [CHICAGO, { ...CHICAGO, slug: 'evanston-il', city: 'Evanston' }],
+    })
+    const map = stub.state.maps[stub.state.maps.length - 1]
+    act(() =>
+      map.fire('mousemove:scene-dots', {
+        point: { x: 50, y: 50 },
+        features: [
+          { properties: { slug: 'evanston-il', sortKey: 1 } },
+          { properties: { slug: 'chicago-il', sortKey: 5 } },
+        ],
+      }),
+    )
+    expect(screen.getByText(sceneTooltipLabel(CHICAGO))).toHaveStyle({ display: 'block' })
+    expect(map.setFeatureState).toHaveBeenCalledWith({ source: 'scenes', id: 'chicago-il' }, { hover: true })
+  })
+
+  it('opens nothing, on either pointer, while the style has no pin or dot layer', () => {
+    for (const coarse of [true, false]) {
+      const { map, onVenueSelect, onSelect } = renderWithPointer(coarse)
+      drawPins(map)
+      map.rendered['scene-dots'] = [mark({ slug: 'chicago-il', sortKey: 1 }, 100, 100)]
+      map.getLayer = () => undefined as unknown as object
+      clickAt(map, 100, 100)
+      expect(onVenueSelect).not.toHaveBeenCalled()
+      expect(onSelect).not.toHaveBeenCalled()
+      cleanup()
+      matchMedia?.restore()
+      matchMedia = null
+    }
   })
 })
 

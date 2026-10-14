@@ -7,6 +7,8 @@ import {
   type StubMap,
 } from '@/test/miniAtlasMapStub'
 import { ErrorProbe } from '@/test/ErrorProbe'
+import { installMatchMedia } from '@/test/mocks/matchMedia'
+import { renderedCircle } from '@/test/renderedCircles'
 import { ATLAS_CONTEXT_RESTORE_DEADLINE_MS } from '@/features/scenes/components/atlasMapHealth'
 import { VenueMiniAtlas } from './VenueMiniAtlas'
 import { miniAtlasPins } from '../venueMiniAtlas'
@@ -234,10 +236,88 @@ describe('VenueMiniAtlas', () => {
     const map = theMap()
     loadMap(map)
 
+    map.rendered['room-pins'] = [renderedCircle({ x: 100, y: 100, id: 2 })]
     act(() => {
-      map.fire('click:room-pins', { features: [{ id: 2 }] })
+      map.fire('click', { point: { x: 100, y: 100 } })
     })
     expect(onSelectVenue).toHaveBeenCalledWith(2)
+  })
+
+  describe('on a coarse pointer', () => {
+    // The literal query, not an import of it: a drifted query must fail here.
+    const COARSE_POINTER_QUERY = '(pointer: coarse)'
+    let matchMedia: ReturnType<typeof installMatchMedia> | null = null
+    afterEach(() => {
+      matchMedia?.restore()
+      matchMedia = null
+    })
+
+    it('reports no hover and leaves the cursor alone, and its leave clears nothing', () => {
+      matchMedia = installMatchMedia({ [COARSE_POINTER_QUERY]: true })
+      const { onHoverVenue } = renderAtlas()
+      const map = theMap()
+      loadMap(map)
+
+      act(() => {
+        map.fire('mouseenter:room-pins')
+        map.fire('mousemove:room-pins', { features: [{ id: 2 }] })
+      })
+      expect(map.canvas.style.cursor).toBe('')
+      act(() => {
+        map.fire('mouseleave:room-pins')
+      })
+      expect(onHoverVenue).not.toHaveBeenCalled()
+      expect(map.setFeatureState).not.toHaveBeenCalled()
+    })
+
+    it('clears a hover it reported when the pointer turns coarse, and reports again when it turns fine', () => {
+      matchMedia = installMatchMedia({ [COARSE_POINTER_QUERY]: false })
+      const { onHoverVenue } = renderAtlas()
+      const map = theMap()
+      loadMap(map)
+      act(() => {
+        map.fire('mouseenter:room-pins')
+        map.fire('mousemove:room-pins', { features: [{ id: 2 }] })
+      })
+      expect(onHoverVenue).toHaveBeenLastCalledWith(2)
+      expect(map.canvas.style.cursor).toBe('pointer')
+
+      matchMedia!.set(COARSE_POINTER_QUERY, true)
+      expect(onHoverVenue).toHaveBeenLastCalledWith(null)
+      expect(map.canvas.style.cursor).toBe('')
+      act(() => {
+        map.fire('mousemove:room-pins', { features: [{ id: 1 }] })
+      })
+      expect(onHoverVenue).toHaveBeenCalledTimes(2)
+
+      matchMedia!.set(COARSE_POINTER_QUERY, false)
+      act(() => {
+        map.fire('mousemove:room-pins', { features: [{ id: 1 }] })
+      })
+      expect(onHoverVenue).toHaveBeenLastCalledWith(1)
+    })
+
+    it('selects a pin from a tap that lands 10px off its edge, where a fine click selects nothing', () => {
+      matchMedia = installMatchMedia({ [COARSE_POINTER_QUERY]: true })
+      const { onSelectVenue } = renderAtlas()
+      const map = theMap()
+      loadMap(map)
+      map.rendered['room-pins'] = [
+        renderedCircle({ x: 100, y: 100, id: 2 }),
+        renderedCircle({ x: 160, y: 100, id: 1 }),
+      ]
+      act(() => {
+        map.fire('click', { point: { x: 117, y: 100 } })
+      })
+      expect(onSelectVenue).toHaveBeenCalledWith(2)
+
+      matchMedia.set(COARSE_POINTER_QUERY, false)
+      onSelectVenue.mockClear()
+      act(() => {
+        map.fire('click', { point: { x: 117, y: 100 } })
+      })
+      expect(onSelectVenue).not.toHaveBeenCalled()
+    })
   })
 
   it('fits the rooms in view once the style has loaded', () => {

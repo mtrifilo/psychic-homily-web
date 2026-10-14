@@ -575,6 +575,89 @@ test.describe('Atlas pin and dot taps on a 390x844 phone', () => {
     expect(await tooltipShows(), 'the tooltip never showed for the stacked pin').toBe(0)
   })
 
+  test('a tap whose finger drifts 12px off a lone pin still opens its venue', async ({ page }) => {
+    await stubAtlas(page)
+    await page.goto('/atlas?city=Phoenix%2CAZ')
+    await waitForMap(page)
+    await dismissBanner(page)
+    const list = page.getByTestId('atlas-venue-sheet')
+    await expect(list).toHaveAttribute('data-detent', 'peek', { timeout: 30_000 })
+    await frameBothPins(page)
+
+    // The Street Room pin draws out to 8.8px (radius 7.3px plus a 1.5px rim),
+    // so the lift point 12px right, where Chromium sends the click, is off
+    // the drawn pin and within the tap's 12px reach. 12px stays inside
+    // Chromium's touch slop, so the map does not pan.
+    const venueSheet = page.getByTestId('atlas-venue-panel')
+    let street = await settledMapPoint(page, STREET_ROOM)
+    const centerBefore = await mapCenter(page)
+    await driftingTap(page, street.x, street.y, 12)
+    await expect(venueSheet).toContainText('Street Room')
+    expect(await mapCenter(page), 'the drifting tap did not pan the map').toEqual(centerBefore)
+
+    // A still tap 19px right of the centre, about 10px off the rim, still
+    // reaches the pin: the reach is 12px off the edge, not a few px of slack.
+    await page.keyboard.press('Escape')
+    await expect(list).toBeVisible()
+    street = await settledMapPoint(page, STREET_ROOM)
+    await page.touchscreen.tap(street.x + 19, street.y)
+    await expect(venueSheet).toContainText('Street Room')
+  })
+
+  test('a tap between two close pins opens the nearer one', async ({ page }) => {
+    // About 28px east of the Street Room at the framed zoom.
+    const neighbour = { id: 4, name: 'Neighbour Room', lat: STREET_ROOM.lat, lng: STREET_ROOM.lng + 0.0048 }
+    await stubAtlas(page, { extraRooms: [neighbour] })
+    await page.goto('/atlas?city=Phoenix%2CAZ')
+    await waitForMap(page)
+    await dismissBanner(page)
+    const list = page.getByTestId('atlas-venue-sheet')
+    await expect(list).toHaveAttribute('data-detent', 'peek', { timeout: 30_000 })
+    await frameBothPins(page)
+
+    // A tap `dx` px east of the Street Room pin's centre. Each pin draws out
+    // to 8.8px, so taps at 11 and 17 on a 26 to 30px gap land outside both
+    // pins with both inside the tap's 24px query box; the page's own query
+    // confirms it, so the nearest-edge choice is what decides.
+    const tapEastOfStreet = async (dx: number) => {
+      const street = await settledMapPoint(page, STREET_ROOM)
+      const next = await settledMapPoint(page, neighbour)
+      const gap = next.x - street.x
+      expect(next.y, 'the two pins sit side by side').toBe(street.y)
+      expect(gap, 'the two pins sit about 28px apart').toBeGreaterThanOrEqual(26)
+      expect(gap).toBeLessThanOrEqual(30)
+      const tap = { x: street.x + dx, y: street.y }
+      const idsInBox = await page.evaluate(({ x, y }) => {
+        // The seam's own type names only the layers-only form of the query.
+        const m = (window as unknown as {
+          __atlasMap: AtlasMapSeam & {
+            queryRenderedFeatures(
+              box: [[number, number], [number, number]],
+              opts: { layers: string[] },
+            ): { properties?: { id?: number } }[]
+          }
+        }).__atlasMap
+        const r = m.getCanvas().getBoundingClientRect()
+        const box: [[number, number], [number, number]] = [
+          [x - r.left - 12, y - r.top - 12],
+          [x - r.left + 12, y - r.top + 12],
+        ]
+        return m.queryRenderedFeatures(box, { layers: ['venue-pins'] }).map((f) => f.properties?.id).sort()
+      }, tap)
+      expect(idsInBox, 'both pins fall in the tap box').toEqual([3, 4])
+      await page.touchscreen.tap(tap.x, tap.y)
+    }
+    const venueSheet = page.getByTestId('atlas-venue-panel')
+
+    await tapEastOfStreet(11)
+    await expect(venueSheet).toContainText('Street Room')
+
+    await page.keyboard.press('Escape')
+    await expect(list).toBeVisible()
+    await tapEastOfStreet(17)
+    await expect(venueSheet).toContainText('Neighbour Room')
+  })
+
   test('a tap on a scene dot opens its preview with no tooltip', async ({ page }) => {
     await stubAtlas(page)
     await page.goto('/atlas')
