@@ -119,8 +119,9 @@ func setOAuthReturnToCookie(w http.ResponseWriter, r *http.Request, secure bool)
 }
 
 // clearOAuthReturnToCookie removes a destination an earlier, abandoned start
-// left behind. A start that records none of its own calls it, so a callback
-// that resolves as a sign-in never lands on another start's destination.
+// left behind. Every start that hands the browser to the provider without a
+// destination of its own calls it, so a callback that resolves as a sign-in
+// never lands on another start's destination.
 func clearOAuthReturnToCookie(w http.ResponseWriter, r *http.Request, secure bool) {
 	if _, err := r.Cookie(oauthReturnToCookieName); err == nil {
 		http.SetCookie(w, newOAuthReturnToCookie("", -1, secure))
