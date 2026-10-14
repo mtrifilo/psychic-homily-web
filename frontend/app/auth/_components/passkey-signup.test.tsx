@@ -4,14 +4,11 @@ import { screen, waitFor } from '@testing-library/react'
 import { renderWithProviders } from '@/test/utils'
 import { PasskeySignupButton } from './passkey-signup'
 
-const mockPush = vi.fn()
 const mockSetUser = vi.fn()
+const mockOnHandoffChange = vi.fn()
+const mockOnError = vi.fn()
 const mockStartRegistration = vi.fn()
 const fetchMock = vi.fn()
-
-vi.mock('next/navigation', () => ({
-  useRouter: () => ({ push: mockPush }),
-}))
 
 vi.mock('@/lib/context/AuthContext', () => ({
   useAuthContext: () => ({ setUser: mockSetUser }),
@@ -20,21 +17,6 @@ vi.mock('@/lib/context/AuthContext', () => ({
 vi.mock('@simplewebauthn/browser', () => ({
   browserSupportsWebAuthn: vi.fn(() => true),
   startRegistration: (...args: unknown[]) => mockStartRegistration(...args),
-}))
-
-vi.mock('./backup-auth-prompt', () => ({
-  BackupAuthPrompt: ({
-    open,
-    onComplete,
-  }: {
-    open: boolean
-    onComplete: () => void
-  }) =>
-    open ? (
-      <button type="button" onClick={onComplete}>
-        Complete backup setup
-      </button>
-    ) : null,
 }))
 
 // The components must resolve the backend through lib/api-base like every
@@ -47,8 +29,9 @@ vi.mock('@/lib/api-base', async (importOriginal) => ({
 
 describe('PasskeySignupButton', () => {
   beforeEach(() => {
-    mockPush.mockReset()
     mockSetUser.mockReset()
+    mockOnHandoffChange.mockReset()
+    mockOnError.mockReset()
     mockStartRegistration.mockReset()
     fetchMock.mockReset()
 
@@ -60,17 +43,37 @@ describe('PasskeySignupButton', () => {
     vi.unstubAllGlobals()
   })
 
-  it('redirects to returnTo after backup auth completion', async () => {
+  function renderButton() {
+    renderWithProviders(
+      <PasskeySignupButton
+        onHandoffChange={mockOnHandoffChange}
+        onError={mockOnError}
+      />
+    )
+  }
+
+  async function submitSignup() {
     const user = userEvent.setup()
+    await user.click(screen.getByRole('button', { name: /sign up with passkey/i }))
+    await user.type(screen.getByLabelText('Email'), 'signup@example.com')
+    // Two required checkboxes: terms + age confirmation (PSY-1023).
+    await user.click(screen.getByRole('checkbox', { name: /Terms of Service/ }))
+    await user.click(screen.getByRole('checkbox', { name: /at least 16 years old/ }))
+    await user.click(
+      screen.getByRole('button', { name: /continue with passkey/i })
+    )
+  }
 
-    fetchMock.mockResolvedValueOnce({
-      json: async () => ({
-        success: true,
-        options: { publicKey: { challenge: 'begin-signup-challenge' } },
-        challenge_id: 'challenge-id',
-      }),
-    })
+  const BEGIN_OK = {
+    json: async () => ({
+      success: true,
+      options: { publicKey: { challenge: 'begin-signup-challenge' } },
+      challenge_id: 'challenge-id',
+    }),
+  }
 
+  it('hands the new session to the page: pending before finish, then complete', async () => {
+    fetchMock.mockResolvedValueOnce(BEGIN_OK)
     fetchMock.mockResolvedValueOnce({
       json: async () => ({
         success: true,
@@ -84,16 +87,8 @@ describe('PasskeySignupButton', () => {
       }),
     })
 
-    renderWithProviders(<PasskeySignupButton returnTo="/library" />)
-
-    await user.click(screen.getByRole('button', { name: /sign up with passkey/i }))
-    await user.type(screen.getByLabelText('Email'), 'signup@example.com')
-    // Two required checkboxes: terms + age confirmation (PSY-1023).
-    await user.click(screen.getByRole('checkbox', { name: /Terms of Service/ }))
-    await user.click(screen.getByRole('checkbox', { name: /at least 16 years old/ }))
-    await user.click(
-      screen.getByRole('button', { name: /continue with passkey/i })
-    )
+    renderButton()
+    await submitSignup()
 
     await waitFor(() => {
       expect(fetchMock).toHaveBeenCalledTimes(2)
@@ -128,18 +123,55 @@ describe('PasskeySignupButton', () => {
     })
 
     await waitFor(() => {
-      expect(
-        screen.getByRole('button', { name: /complete backup setup/i })
-      ).toBeInTheDocument()
+      expect(mockOnHandoffChange).toHaveBeenCalledTimes(2)
+    })
+    expect(mockOnHandoffChange.mock.calls).toEqual([
+      [{ status: 'pending', email: 'signup@example.com' }],
+      [{ status: 'complete', email: 'signup@example.com', method: 'passkey' }],
+    ])
+    expect(mockSetUser).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 100, email: 'signup@example.com' })
+    )
+    // The pending claim is in place before the finish request goes out.
+    expect(mockOnHandoffChange.mock.invocationCallOrder[0]).toBeLessThan(
+      fetchMock.mock.invocationCallOrder[1]
+    )
+  })
+
+  it('releases its claim and reports the error when finish is refused', async () => {
+    fetchMock.mockResolvedValueOnce(BEGIN_OK)
+    fetchMock.mockResolvedValueOnce({
+      json: async () => ({ success: false, message: 'Email already registered' }),
     })
 
-    await user.click(
-      screen.getByRole('button', { name: /complete backup setup/i })
-    )
+    renderButton()
+    await submitSignup()
 
     await waitFor(() => {
-      expect(mockPush).toHaveBeenCalledWith('/library')
+      expect(mockOnError).toHaveBeenCalledWith('Email already registered')
     })
+    expect(mockOnHandoffChange.mock.calls).toEqual([
+      [{ status: 'pending', email: 'signup@example.com' }],
+      [null],
+    ])
+    expect(mockSetUser).not.toHaveBeenCalled()
+  })
+
+  it('claims nothing when the passkey ceremony is cancelled', async () => {
+    fetchMock.mockResolvedValueOnce(BEGIN_OK)
+    mockStartRegistration.mockRejectedValueOnce(
+      Object.assign(new Error('cancelled'), { name: 'NotAllowedError' })
+    )
+
+    renderButton()
+    await submitSignup()
+
+    await waitFor(() => {
+      expect(mockStartRegistration).toHaveBeenCalled()
+    })
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    expect(mockOnHandoffChange).not.toHaveBeenCalled()
+    expect(mockOnError).not.toHaveBeenCalled()
   })
 
   // PSY-1023: the Continue button is disabled and no signup request fires until
@@ -147,7 +179,7 @@ describe('PasskeySignupButton', () => {
   it('blocks passkey signup until age is confirmed', async () => {
     const user = userEvent.setup()
 
-    renderWithProviders(<PasskeySignupButton returnTo="/library" />)
+    renderButton()
 
     await user.click(screen.getByRole('button', { name: /sign up with passkey/i }))
     await user.type(screen.getByLabelText('Email'), 'signup@example.com')
