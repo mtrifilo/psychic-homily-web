@@ -68,11 +68,6 @@ export const CITY_VIEW_CLAIM_RADIUS_KM = 60
 // (PSY-1543's adversarial review found exactly that regression).
 export const CITY_RAIL_WIDTH_PX = 360
 
-// Below this pane width the rail would leave a uselessly narrow map, so the
-// Atlas swaps the rail and side panels for bottom sheets over a full-width map
-// (usesAtlasSheetLayout), down to phone widths.
-export const CITY_VIEW_MIN_VIEWPORT_PX = 900
-
 // One page of venues is enough for a city rail; the endpoint caps limit at 100.
 export const CITY_VENUE_FETCH_LIMIT = 100
 
@@ -851,14 +846,9 @@ export function venuePanelShowCount(args: {
 }
 
 // ── Phone layout: the bottom-sheet family ─────────────────────────────────
-// Below CITY_VIEW_MIN_VIEWPORT_PX there is no room for the rail beside the
-// map, so the rail and the three side panels become bottom sheets
-// (components/ui/bottom-sheet.tsx) over a full-width map.
-
-/** Whether an Atlas pane this wide uses the sheet family instead of rail + panels. */
-export function usesAtlasSheetLayout(paneWidthPx: number): boolean {
-  return paneWidthPx < CITY_VIEW_MIN_VIEWPORT_PX
-}
+// On a phone pane (isAtlasPhonePane in atlasViewport.ts) there is no room for
+// the rail beside the map, so the rail and the three side panels become bottom
+// sheets (components/ui/bottom-sheet.tsx) over a full-width map.
 
 /**
  * Where the map credit starts in the sheet layout, in CSS px from the pane

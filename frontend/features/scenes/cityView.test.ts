@@ -28,9 +28,7 @@ import {
   venueFieldNoteAttribution,
   mergeVenueConfirmation,
   ATLAS_SHEET_TOP_INSET_PX,
-  CITY_VIEW_MIN_VIEWPORT_PX,
   countPinsInBounds,
-  usesAtlasSheetLayout,
   venuePinStacks,
   venueSheetPeekLine,
   venueSheetTitle,
@@ -985,14 +983,7 @@ describe('venueFieldNoteAttribution', () => {
 
 // ── Phone layout: the bottom-sheet family ─────────────────────────────────
 
-describe('usesAtlasSheetLayout', () => {
-  it('switches to sheets exactly where the rail stops fitting', () => {
-    expect(CITY_VIEW_MIN_VIEWPORT_PX).toBe(900)
-    expect(usesAtlasSheetLayout(899)).toBe(true)
-    expect(usesAtlasSheetLayout(390)).toBe(true)
-    expect(usesAtlasSheetLayout(900)).toBe(false)
-  })
-
+describe('the sheet layout geometry', () => {
   it('reserves the status row and a two-line credit above every sheet', () => {
     // 16 inset + 36 row + 10 gap + 40 credit + 10 gap.
     expect(ATLAS_SHEET_TOP_INSET_PX).toBe(112)

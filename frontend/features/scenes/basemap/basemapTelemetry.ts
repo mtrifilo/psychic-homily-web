@@ -78,7 +78,7 @@
  * Only errors carrying one of these sources' `sourceId` report: the
  * OpenFreeMap vector source, the NASA GIBS raster, and the light globe's
  * same-origin GeoJSON files: the land (`globeLand`, whose failure leaves a
- * compact viewport's globe without continents) and the boundary lines
+ * light globe without continents) and the boundary lines
  * (`globeStateLines`, `globeCountryLines`). The place-label file is not a map
  * source and fires no error event; its failure reports through
  * reportGlobePlacesFailure as `globePlaces`. Everything else is
@@ -330,7 +330,7 @@ function captureSourceFailure({
       // how" is the whole triage question for a third-party tile outage.
       // `basemap_source` separates the failures a user sees differently:
       // 'openmaptiles' (streets are gone), 'nightEarth' (the globe is unlit),
-      // 'globeLand' (a compact viewport's globe has no continents),
+      // 'globeLand' (a light globe has no continents),
       // 'globeStateLines' / 'globeCountryLines' (it has no boundaries) and
       // 'globePlaces' (it has no place labels), each in its own slot, never
       // grouped into one issue.

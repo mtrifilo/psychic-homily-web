@@ -66,7 +66,8 @@
 //     returns at least one feature, polled in the page every 50 ms on the
 //     `window.__atlasMap` seam. MapLibre's `idle` event never fires on /atlas
 //     (the pulse rings repaint every frame), so it is not used.
-//   - Compact viewports (narrower than 1024px) must request no night-earth
+//   - Compact viewports (narrower than COMPACT_BELOW_WIDTH, 900px: a phone
+//     pane under the default top nav) must request no night-earth
 //     raster tile at any point in the run (entry or city view, finished or
 //     not): one raster request fails the run.
 //   - Entry bytes (gated): every request that finished between navigation
@@ -85,7 +86,7 @@
 //     that finished in the following CITY_SETTLE_MS. Reported, not budgeted.
 import { writeFileSync } from 'node:fs'
 import { chromium, devices } from '@playwright/test'
-import { AFTER_MAP_WINDOW_MS, EXIT, budgetTable, errorMessage, median, resolveBudget, runBudgetCheck, seconds, targetLine } from './lib/atlas-perf-budget.mjs'
+import { AFTER_MAP_WINDOW_MS, COMPACT_BELOW_WIDTH, EXIT, budgetTable, errorMessage, median, resolveBudget, runBudgetCheck, seconds, targetLine } from './lib/atlas-perf-budget.mjs'
 
 const FAST_4G = {
   offline: false,
@@ -100,9 +101,6 @@ const READY_TIMEOUT_MS = 90_000
 const CITY_ZOOM = 12.5
 const PREVIEW_ONLY_HOSTS = ['vercel.live']
 const PREVIEW_HOST = /^psychic-homily-[a-z0-9-]+-matts-projects-722d5204\.vercel\.app$/
-// Tailwind's `lg` at the default root size; below it the Atlas draws the
-// light globe, which requests no raster.
-const COMPACT_MAX_WIDTH = 1023
 // AtlasSceneList's root carries this test id.
 const SCENE_LIST_SELECTOR = '[data-testid="atlas-scene-list"]'
 
@@ -426,7 +424,7 @@ const exitCode = await runBudgetCheck({
     }
   },
   budget: opts.budget,
-  compact: contextOptions(opts).viewport.width <= COMPACT_MAX_WIDTH,
+  compact: contextOptions(opts).viewport.width < COMPACT_BELOW_WIDTH,
   firstMapNote: opts.firstMapNote,
   enforce: opts.enforce,
   report: (runs, verdict) => {

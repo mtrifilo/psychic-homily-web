@@ -35,6 +35,7 @@ export type AtlasMapSeam = {
   unproject: (point: [number, number]) => { lng: number; lat: number }
   getCanvas: () => HTMLCanvasElement
   getContainer: () => HTMLElement
+  getLayoutProperty: (layer: string, name: string) => unknown
   jumpTo: (o: { center: [number, number]; zoom: number }) => void
 }
 
@@ -207,6 +208,11 @@ export async function waitForMapSize(page: Page) {
       }),
     )
     .toBe(true)
+}
+
+/** The Atlas pane's width in CSS px: the width the phone-or-desktop rule reads. */
+export function atlasPaneWidth(page: Page) {
+  return page.getByTestId('atlas-pane-frame').evaluate((el) => el.getBoundingClientRect().width)
 }
 
 /**
