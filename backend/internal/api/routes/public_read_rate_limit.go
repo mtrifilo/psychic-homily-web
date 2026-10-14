@@ -169,7 +169,8 @@ func validatedFeedToken(validate func(string) bool, path string) bool {
 // whose bearer passes validateAPIToken (APITokenService.ValidateToken — not the
 // phk_ prefix alone) is exempt so ingest search does not starve visitors on the
 // same IP (PSY-1814). Infra paths are exempt, and so is a personal-feed request
-// whose URL token validates (PSY-2017), not the path shape alone. Returns a
+// whose URL token validates (PSY-2017), not the path shape alone, and so is a
+// GET to an OAuth start or callback (isOAuthRedirectRequest). Returns a
 // pass-through noop unless the opt-in flag is set. Mounted once, globally,
 // before route registration.
 func PublicReadRateLimiter(jwtService *auth.JWTService, validateAPIToken, validateFeedToken func(string) bool, getenv func(string) string) func(http.Handler) http.Handler {
@@ -185,7 +186,30 @@ func PublicReadRateLimiter(jwtService *auth.JWTService, validateAPIToken, valida
 	)
 	limiter = skipRateLimitForPaths(limiter, infraPathsExemptFromRateLimit...)
 	limiter = skipRateLimitForValidatedFeedToken(limiter, validateFeedToken)
+	limiter = limitWhen(limiter, func(r *http.Request) bool { return !isOAuthRedirectRequest(r) })
 	return limitReadMethodsOnly(limiter)
+}
+
+// isOAuthRedirectRequest reports whether r is a GET that chi routes to one of
+// oauthRedirectRoutes: a template's path up to {provider}, then one non-empty
+// segment, read from the escaped path chi routes on.
+//
+// Those requests skip the public-read limiter. Their own per-IP budget is the
+// tighter one and refuses by redirect; this limiter would refuse them first,
+// with a JSON 429 the browser is left on.
+func isOAuthRedirectRequest(r *http.Request) bool {
+	if r.Method != http.MethodGet {
+		return false
+	}
+	path := r.URL.EscapedPath()
+	for _, route := range oauthRedirectRoutes {
+		prefix := strings.TrimSuffix(route, "{provider}")
+		provider, found := strings.CutPrefix(path, prefix)
+		if found && provider != "" && !strings.Contains(provider, "/") {
+			return true
+		}
+	}
+	return false
 }
 
 // SaveCountsBatchPath is the batch save-count endpoint. It is declared once and

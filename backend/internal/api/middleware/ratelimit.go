@@ -27,8 +27,9 @@ const (
 	PasskeyRequestsPerMinute = 20
 
 	// OAuthRedirectRequestsPerMinute is the per-IP rate limit for the OAuth
-	// sign-in redirects: the start that sends a browser to the provider and the
-	// callback the provider sends it back to. One sign-in spends two, so this
+	// redirects: the start that sends a browser to the provider and the
+	// callback the provider sends it back to, which finishes a sign-in or a
+	// link. One sign-in spends two, so this
 	// admits ten complete round trips a minute from one address, room for a
 	// retry and for several people behind one NAT. A redirect loop spends many
 	// a second and reaches it at once. Its counter is separate from the auth

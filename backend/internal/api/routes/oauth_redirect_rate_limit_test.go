@@ -1,6 +1,10 @@
 package routes
 
 import (
+	"bytes"
+	"encoding/json"
+	"fmt"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -10,6 +14,8 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	authh "psychic-homily-backend/internal/api/handlers/auth"
+	"psychic-homily-backend/internal/api/middleware"
+	"psychic-homily-backend/internal/logger"
 )
 
 // Written out rather than read from middleware, so a budget retuned there and
@@ -191,5 +197,81 @@ func TestOAuthRedirectRateLimitDisabledFlagIsHonored(t *testing.T) {
 		if !oauthCallbackReached(t, router, ip) {
 			t.Fatalf("callback %d did not reach its handler with %s=1", i+1, DisableAuthRateLimitsEnvVar)
 		}
+	}
+}
+
+// The public-read limiter is mounted globally, outside the route group, so it
+// would refuse an OAuth redirect first and with JSON. Only a GET that routes to
+// one of oauthRedirectRoutes skips it.
+func TestPublicReadLimiterSkipsOnlyTheOAuthRedirects(t *testing.T) {
+	mw := PublicReadRateLimiter(nil, nil, nil, enableEnv)
+	handler := mw(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	limitedAfterBurst := func(method, target, ip string) bool {
+		for i := 0; i < middleware.APIRequestsPerMinute; i++ {
+			serveFrom(handler, method, target, ip)
+		}
+		return serveFrom(handler, method, target, ip).Code == http.StatusTooManyRequests
+	}
+
+	for i, target := range []string{"/auth/login/google", "/auth/callback/google?state=s&code=c", "/auth/login/a%2Fb"} {
+		if limitedAfterBurst(http.MethodGet, target, fmt.Sprintf("198.51.100.%d:1", 70+i)) {
+			t.Errorf("GET %s was refused by the public-read limiter", target)
+		}
+	}
+
+	for i, tc := range []struct{ method, target string }{
+		{http.MethodHead, "/auth/login/google"},
+		{http.MethodGet, "/auth/login/google/extra"},
+		{http.MethodGet, "/auth/login/"},
+		{http.MethodGet, "/auth/link/google"},
+		{http.MethodGet, "/auth/profile"},
+	} {
+		if !limitedAfterBurst(tc.method, tc.target, fmt.Sprintf("198.51.100.%d:1", 80+i)) {
+			t.Errorf("%s %s skipped the public-read limiter; only the OAuth redirects may", tc.method, tc.target)
+		}
+	}
+}
+
+// isOAuthRedirectRequest reads each template as a path ending in its one
+// {provider} parameter, registered once.
+func TestOAuthRedirectRoutesEndInTheirProvider(t *testing.T) {
+	routes := chiRoutes(t, newTestRouter(t))
+	for _, route := range oauthRedirectRoutes {
+		if strings.Count(route, "{") != 1 || !strings.HasSuffix(route, "/{provider}") {
+			t.Errorf("%q is not a path ending in its one {provider} parameter", route)
+		}
+		if got := matching(routes, http.MethodGet, strings.ReplaceAll(route, "{provider}", "{}")); len(got) != 1 || got[0] != route {
+			t.Errorf("GET %s registrations = %v, want exactly [%s]", route, got, route)
+		}
+	}
+}
+
+// The rejection line names this limiter, which is what tells these refusals
+// apart from the password budget's in the logs.
+func TestOAuthRedirectRefusalLogsItsOwnLimiter(t *testing.T) {
+	t.Setenv(DisableAuthRateLimitsEnvVar, "")
+	var buf bytes.Buffer
+	log := slog.New(slog.NewJSONHandler(&buf, nil))
+	limited := oauthRedirectRateLimiter(func(w http.ResponseWriter, _ *http.Request, _ string) {
+		w.WriteHeader(http.StatusTemporaryRedirect)
+	})(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	for i := 0; i <= oauthRedirectLimitPerMinute; i++ {
+		req := httptest.NewRequest(http.MethodGet, "/auth/login/google", nil)
+		req.RemoteAddr = "203.0.113.67:1234"
+		limited.ServeHTTP(httptest.NewRecorder(), req.WithContext(logger.NewContext(req.Context(), log)))
+	}
+
+	var line map[string]any
+	if err := json.Unmarshal(buf.Bytes(), &line); err != nil {
+		t.Fatalf("want one JSON rejection line, got %q: %v", buf.String(), err)
+	}
+	if line["event"] != "ratelimit_rejected" || line["limiter"] != string(middleware.LimiterOAuthRedirect) {
+		t.Errorf("rejection line event=%v limiter=%v, want ratelimit_rejected and %s",
+			line["event"], line["limiter"], middleware.LimiterOAuthRedirect)
 	}
 }

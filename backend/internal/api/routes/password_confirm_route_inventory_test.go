@@ -32,9 +32,9 @@ import (
 //     member through the router and needs a database.
 //   - It sweeps /auth/ only. The public /unsubscribe/ family registered in
 //     auth.go on rc.API and on the chi router is invisible to it.
-//   - It names per-route budgets only. Every GET here also passes the globally
-//     mounted public-read limiter when ENABLE_PUBLIC_READ_RATE_LIMITS is on,
-//     which no row here records.
+//   - It names per-route budgets only. Every GET here except the
+//     oauthRedirectRoutes also passes the globally mounted public-read limiter
+//     when ENABLE_PUBLIC_READ_RATE_LIMITS is on, which no row here records.
 //   - It sees only the routes THIS build registers. setupPasskeyRoutes returns
 //     early when rc.SC.WebAuthn is nil, so a route added inside that
 //     block, or inside any other conditional registration, is invisible to the
@@ -56,7 +56,7 @@ var (
 	scopeAdminNoLimit     = "rc.Admin with no per-route limiter"
 	scopePublicNoLimit    = "rc.API with no per-route limiter"
 	scopeLenient          = "lenientGroup: the refresh path, no per-route limiter"
-	scopeOAuthRedirect    = fmt.Sprintf("the OAuth sign-in chi group: its own %d/min redirect budget, refused by redirect to the auth page", middleware.OAuthRedirectRequestsPerMinute)
+	scopeOAuthRedirect    = fmt.Sprintf("the OAuth redirect chi group: its own %d/min budget, refused by redirect, exempt from the public-read limiter", middleware.OAuthRedirectRequestsPerMinute)
 	scopeOAuthLink        = fmt.Sprintf("the /auth/link chi group: the %d/min public auth budget, ahead of JWTMiddleware", middleware.AuthRequestsPerMinute)
 )
 

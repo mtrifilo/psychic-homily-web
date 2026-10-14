@@ -12,6 +12,18 @@ import (
 	"psychic-homily-backend/internal/api/middleware"
 )
 
+// The OAuth start and callback routes. A browser reaches both by top-level
+// navigation, so a refusal there is a redirect, and the routes are registered
+// and exempted from the public-read limiter by these same templates.
+const (
+	oauthLoginRoute    = "/auth/login/{provider}"
+	oauthCallbackRoute = "/auth/callback/{provider}"
+)
+
+// oauthRedirectRoutes are the routes on oauthRedirectRateLimiter. Each ends in
+// its one {provider} parameter, which isOAuthRedirectRequest relies on.
+var oauthRedirectRoutes = []string{oauthLoginRoute, oauthCallbackRoute}
+
 // setupAuthRoutes configures all authentication-related endpoints
 func setupAuthRoutes(rc RouteContext) {
 	authHandler := authh.NewAuthHandler(rc.SC.Auth, rc.SC.JWT, rc.SC.User, rc.SC.Email, rc.SC.Discord, rc.SC.PasswordValidator, rc.Cfg)
@@ -22,12 +34,13 @@ func setupAuthRoutes(rc RouteContext) {
 	// per-IP counter.
 	authRateLimiter := authScopedRateLimiter(middleware.LimiterAuth, middleware.AuthRequestsPerMinute)
 
-	// The OAuth sign-in redirects meter on oauthRedirectRateLimiter alone, never
-	// on authRateLimiter.
+	// The OAuth redirects meter on oauthRedirectRateLimiter alone: never on
+	// authRateLimiter, and never on the public-read limiter, which exempts
+	// oauthRedirectRoutes.
 	rc.Router.Group(func(r chi.Router) {
 		r.Use(oauthRedirectRateLimiter(oauthHTTPHandler.RedirectRateLimited))
-		r.Get("/auth/login/{provider}", oauthHTTPHandler.OAuthLoginHTTPHandler)
-		r.Get("/auth/callback/{provider}", oauthHTTPHandler.OAuthCallbackHTTPHandler)
+		r.Get(oauthLoginRoute, oauthHTTPHandler.OAuthLoginHTTPHandler)
+		r.Get(oauthCallbackRoute, oauthHTTPHandler.OAuthCallbackHTTPHandler)
 	})
 
 	// Connecting a provider to an account you are already signed in to. A raw
