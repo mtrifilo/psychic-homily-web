@@ -15,9 +15,9 @@ set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 UNDER_TEST="$SCRIPT_DIR/check_migration_lock_timeout.sh"
+REAL_ENTRYPOINT="$SCRIPT_DIR/../backend/docker-entrypoint.sh"
 
 FIXTURE="$(mktemp -d)" || exit 1
-[ -d "$FIXTURE" ] || exit 1
 trap 'rm -rf "$FIXTURE"' EXIT
 
 FAILURES=0
@@ -43,16 +43,13 @@ migration() {
 }
 
 # entrypoint bound|unbound|commented|bare-url: the runner shapes the gate reads.
+# "bound" is the repository's real entrypoint, so a rewrite of it that the gate
+# no longer recognises fails the bound cases below.
 entrypoint() {
   local f="$FIXTURE/backend/docker-entrypoint.sh"
   case "$1" in
     bound)
-      cat >"$f" <<'EOF'
-#!/bin/sh
-MIGRATE_LOCK_TIMEOUT_OPTION='options=-c%20lock_timeout%3D5s'
-MIGRATE_DATABASE_URL="${DATABASE_URL}?${MIGRATE_LOCK_TIMEOUT_OPTION}"
-migrate -path /app/db/migrations -database "$MIGRATE_DATABASE_URL" up
-EOF
+      cp "$REAL_ENTRYPOINT" "$f"
       ;;
     unbound)
       cat >"$f" <<'EOF'
@@ -97,12 +94,13 @@ reset_fixture() {
   g checkout -b feature
 }
 
-# Assert the gate's exit code, and (optionally) that its output contains a
-# needle. Output is captured with stderr folded into stdout.
+# expect <code> [needle] [base-ref]: assert the gate's exit code and that its
+# output (stderr folded into stdout) contains the needle. The base ref
+# defaults to main.
 expect() {
-  local want_code="$1" needle="${2:-}"
+  local want_code="$1" needle="${2:-}" base_ref="${3:-main}"
   local out code
-  out="$(bash "$FIXTURE/scripts/check_migration_lock_timeout.sh" main 2>&1)"
+  out="$(bash "$FIXTURE/scripts/check_migration_lock_timeout.sh" "$base_ref" 2>&1)"
   code=$?
   if [ "$code" -ne "$want_code" ]; then
     echo "FAIL [$CASE]: exit $code, wanted $want_code"
@@ -143,11 +141,11 @@ expect 0 "every new strong-lock migration sets its own lock_timeout"
 
 reset_fixture "unbound: LOCK TABLE fails" unbound
 migration "20260901000000_lock" "LOCK TABLE user_bookmarks IN SHARE ROW EXCLUSIVE MODE;"
-expect 1 "takes a strong lock: LOCK TABLE"
+expect 1 "takes a strong lock (LOCK TABLE)"
 
 reset_fixture "unbound: DROP TABLE fails" unbound
 migration "20260901000000_drop" "DROP TABLE IF EXISTS old_things;"
-expect 1 "takes a strong lock: DROP TABLE"
+expect 1 "takes a strong lock (DROP TABLE)"
 
 reset_fixture "unbound: plain CREATE INDEX fails" unbound
 migration "20260901000000_idx" "CREATE INDEX IF NOT EXISTS idx_t_c ON t (c);"
@@ -164,13 +162,13 @@ expect 0 "every new strong-lock migration sets its own lock_timeout"
 reset_fixture "unbound: lowercase, multi-line ALTER TABLE fails" unbound
 migration "20260901000000_widen" "alter
     table t alter column c type bigint;"
-expect 1 "takes a strong lock: ALTER TABLE"
+expect 1 "takes a strong lock (ALTER TABLE)"
 
 reset_fixture "unbound: every kind in one file is listed" unbound
 migration "20260901000000_many" "ALTER TABLE t ADD COLUMN d int;
 DROP TABLE u;
 CREATE INDEX idx_t_d ON t (d);"
-expect 1 "takes a strong lock: ALTER TABLE, DROP TABLE, CREATE INDEX without CONCURRENTLY"
+expect 1 "takes a strong lock (ALTER TABLE, DROP TABLE, CREATE INDEX without CONCURRENTLY)"
 
 reset_fixture "unbound: ALTER TABLE only inside a comment passes" unbound
 migration "20260901000000_note" "-- ALTER TABLE t is done in the next migration.
@@ -191,7 +189,7 @@ expect 0 "every new strong-lock migration sets its own lock_timeout"
 # --- runner-level bound present: the same migrations only warn ----------------
 reset_fixture "bound: ALTER TABLE without lock_timeout warns and passes" bound
 migration "20260901000000_widen" "ALTER TABLE t ALTER COLUMN c TYPE BIGINT;"
-expect 0 "WARNING: backend/db/migrations/20260901000000_widen.up.sql takes a strong lock and sets no lock_timeout"
+expect 0 "WARNING: backend/db/migrations/20260901000000_widen.up.sql takes a strong lock (ALTER TABLE) and sets no lock_timeout"
 
 reset_fixture "bound: warning mode says so" bound
 migration "20260901000000_widen" "ALTER TABLE t ALTER COLUMN c TYPE BIGINT;"
@@ -199,41 +197,24 @@ expect 0 "OK (warnings only): the runner-level lock_timeout"
 
 reset_fixture "bound: GitHub Actions gets a file annotation" bound
 migration "20260901000000_widen" "ALTER TABLE t ALTER COLUMN c TYPE BIGINT;"
-CASE="bound: GitHub Actions gets a file annotation"
-gha_out="$(GITHUB_ACTIONS=true bash "$FIXTURE/scripts/check_migration_lock_timeout.sh" main 2>&1)"
-gha_code=$?
-if [ "$gha_code" -eq 0 ] && printf '%s' "$gha_out" | grep -qF "::warning file=backend/db/migrations/20260901000000_widen.up.sql::"; then
-  echo "ok   [$CASE]"
-else
-  echo "FAIL [$CASE]: exit $gha_code"
-  printf '%s\n' "$gha_out" | sed 's/^/    /'
-  FAILURES=$((FAILURES + 1))
-fi
+GITHUB_ACTIONS=true expect 0 "::warning file=backend/db/migrations/20260901000000_widen.up.sql::"
 
 # --- the runner check itself must not be fooled ------------------------------
 reset_fixture "commented-out runner option is strict mode" commented
 migration "20260901000000_widen" "ALTER TABLE t ALTER COLUMN c TYPE BIGINT;"
-expect 1 "does not pass one to the migrate CLI"
+expect 1 "does not pass a lock_timeout to the migrate CLI"
 
 reset_fixture "a migrate call on the bare DATABASE_URL is strict mode" bare-url
 migration "20260901000000_widen" "ALTER TABLE t ALTER COLUMN c TYPE BIGINT;"
-expect 1 "does not pass one to the migrate CLI"
+expect 1 "does not pass a lock_timeout to the migrate CLI"
 
 reset_fixture "missing entrypoint is strict mode" bound
 g rm backend/docker-entrypoint.sh && g commit -m "drop entrypoint"
 migration "20260901000000_widen" "ALTER TABLE t ALTER COLUMN c TYPE BIGINT;"
-expect 1 "does not pass one to the migrate CLI"
+expect 1 "does not pass a lock_timeout to the migrate CLI"
 
-CASE="missing base ref fails closed"
-missing_out="$(bash "$FIXTURE/scripts/check_migration_lock_timeout.sh" origin/main 2>&1)"
-missing_code=$?
-if [ "$missing_code" -eq 1 ] && printf '%s' "$missing_out" | grep -qF "not found in this repository"; then
-  echo "ok   [$CASE]"
-else
-  echo "FAIL [$CASE]: exit $missing_code"
-  printf '%s\n' "$missing_out" | sed 's/^/    /'
-  FAILURES=$((FAILURES + 1))
-fi
+reset_fixture "missing base ref fails closed" bound
+expect 1 "not found in this repository" origin/main
 
 if [ "$FAILURES" -ne 0 ]; then
   echo ""

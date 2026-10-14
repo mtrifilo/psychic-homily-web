@@ -45,18 +45,21 @@ fi
 
 # Run migrations
 #
-# Every statement in the migrate run waits at most 5s for a lock: an ALTER
-# TABLE's ACCESS EXCLUSIVE lock, a LOCK TABLE, and golang-migrate's own
-# advisory lock. Unbounded, a migration queued behind a long transaction waits
-# forever, every later query on that table queues behind it, and stopping this
-# container does not end the wait on the server. The bound is a libpq startup
-# option on the migrate connection only, enforced by the server; the
-# application server connects with DATABASE_URL unchanged. It bounds the wait
-# to acquire a lock, not how long a granted lock is held.
+# Every statement in the migrate run waits at most MIGRATE_LOCK_TIMEOUT for a
+# lock: an ALTER TABLE's ACCESS EXCLUSIVE lock, a LOCK TABLE, golang-migrate's
+# own advisory lock, and CREATE INDEX CONCURRENTLY's wait for older
+# transactions (a CONCURRENTLY build that times out leaves an INVALID index
+# behind, which IF NOT EXISTS then skips). Unbounded, a migration queued behind
+# a long transaction waits forever, every later query on that table queues
+# behind it, and stopping this container does not end the wait on the server.
+# The bound is a libpq startup option on the migrate connection only, enforced
+# by the server; the application server connects with DATABASE_URL unchanged.
+# It bounds the wait to acquire a lock, not how long a granted lock is held.
 #
 # scripts/check_migration_lock_timeout.sh reads the option string and the
 # -database arguments below; keep them in step with it.
-MIGRATE_LOCK_TIMEOUT_OPTION='options=-c%20lock_timeout%3D5s'
+MIGRATE_LOCK_TIMEOUT=5s
+MIGRATE_LOCK_TIMEOUT_OPTION="options=-c%20lock_timeout%3D${MIGRATE_LOCK_TIMEOUT}"
 case "$DATABASE_URL" in
     *\?*) MIGRATE_DATABASE_URL="${DATABASE_URL}&${MIGRATE_LOCK_TIMEOUT_OPTION}" ;;
     *) MIGRATE_DATABASE_URL="${DATABASE_URL}?${MIGRATE_LOCK_TIMEOUT_OPTION}" ;;
@@ -64,8 +67,8 @@ esac
 # The driver reads only the first `options` parameter, so one already in
 # DATABASE_URL replaces the lock_timeout above.
 case "$DATABASE_URL" in
-    *options=*) echo "WARNING: DATABASE_URL carries its own 'options' parameter; migrations run WITHOUT the 5s lock_timeout." ;;
-    *) echo "Migrations wait at most 5s for any lock (lock_timeout)." ;;
+    *options=*) echo "WARNING: DATABASE_URL carries its own 'options' parameter; migrations run WITHOUT the ${MIGRATE_LOCK_TIMEOUT} lock_timeout." ;;
+    *) echo "Migrations wait at most ${MIGRATE_LOCK_TIMEOUT} for any lock (lock_timeout)." ;;
 esac
 
 echo "Running database migrations..."

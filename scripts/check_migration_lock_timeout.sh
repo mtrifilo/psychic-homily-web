@@ -59,21 +59,19 @@ if grep -qF "$RUNNER_OPTION" <<<"$ENTRY_CODE" \
   RUNNER_BOUND=yes
 fi
 
-# --- 2. migration files this branch ADDS on top of the base ------------------
-if ! HEAD_DIFF="$(git diff --name-only --diff-filter=A --no-renames \
-                    "$BASE_REF" HEAD -- "$MIGRATIONS_PATH")"; then
+# --- 2. up migrations this branch ADDS on top of the base --------------------
+if ! ADDED_UP="$(git diff --name-only --diff-filter=A --no-renames \
+                   "$BASE_REF" HEAD -- "$MIGRATIONS_PATH/*.up.sql")"; then
   echo "ERROR: could not diff HEAD against $BASE_REF." >&2
   exit 1
 fi
-
-ADDED_UP="$(printf '%s\n' "$HEAD_DIFF" | grep -E '\.up\.sql$' || true)"
 
 if [ -z "$ADDED_UP" ]; then
   echo "OK: no new up migrations added against $BASE_REF."
   exit 0
 fi
 
-# --- 3. classify each added up migration --------------------------------------
+# --- 3. classify and report each added up migration --------------------------
 # Prints the strong-lock statement kinds found in $1 (SQL text), one per line.
 # The caller strips line comments; the text is folded to one lowercase line so
 # a statement split across lines still matches.
@@ -91,7 +89,7 @@ strong_locks() {
   return 0
 }
 
-UNBOUNDED=""
+UNBOUNDED=0
 for f in $ADDED_UP; do
   sql="$(sed 's/--.*$//' "$f")"
   locks="$(strong_locks "$sql")"
@@ -99,34 +97,31 @@ for f in $ADDED_UP; do
   if grep -qi 'lock_timeout' <<<"$sql"; then
     continue
   fi
-  UNBOUNDED="$UNBOUNDED $f"
-  echo "  $f takes a strong lock: $(tr '\n' ',' <<<"$locks" | sed 's/,$//; s/,/, /g')"
+  UNBOUNDED=$((UNBOUNDED + 1))
+  msg="$f takes a strong lock ($(tr '\n' ',' <<<"$locks" | sed 's/,$//; s/,/, /g')) and sets no lock_timeout."
+  if [ "$RUNNER_BOUND" = no ]; then
+    echo "ERROR: $msg" >&2
+  elif [ "${GITHUB_ACTIONS:-}" = true ]; then
+    echo "::warning file=$f::$msg $ENTRYPOINT bounds it at boot; a manual migrate run is unbounded."
+  else
+    echo "WARNING: $msg $ENTRYPOINT bounds it at boot; a manual migrate run is unbounded."
+  fi
 done
 
-if [ -z "$UNBOUNDED" ]; then
+# --- 4. verdict ------------------------------------------------------------------
+if [ "$UNBOUNDED" -eq 0 ]; then
   echo "OK: every new strong-lock migration sets its own lock_timeout (or none takes a strong lock)."
   exit 0
 fi
 
-# --- 4. report -----------------------------------------------------------------
 if [ "$RUNNER_BOUND" = yes ]; then
-  for f in $UNBOUNDED; do
-    msg="$f takes a strong lock and sets no lock_timeout. $ENTRYPOINT bounds it at boot; a manual migrate run waits indefinitely unless the file adds: SET LOCAL lock_timeout = '5s';"
-    if [ "${GITHUB_ACTIONS:-}" = true ]; then
-      echo "::warning file=$f::$msg"
-    else
-      echo "WARNING: $msg"
-    fi
-  done
   echo "OK (warnings only): the runner-level lock_timeout in $ENTRYPOINT is in place."
   exit 0
 fi
 
-echo "ERROR: new migration(s) take a strong lock with no lock_timeout, and" >&2
-echo "       $ENTRYPOINT does not pass one to the migrate CLI" >&2
-echo "       (expected '$RUNNER_OPTION<duration>' and no -database \"\$DATABASE_URL\"):" >&2
-for f in $UNBOUNDED; do echo "         $f" >&2; done
 echo "" >&2
+echo "$ENTRYPOINT does not pass a lock_timeout to the migrate CLI" >&2
+echo "(expected '$RUNNER_OPTION<duration>' and no -database \"\$DATABASE_URL\")." >&2
 echo "Fix: restore the runner-level lock_timeout in $ENTRYPOINT, or add" >&2
 echo "     SET LOCAL lock_timeout = '5s'; before the first locking statement." >&2
 exit 1
