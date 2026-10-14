@@ -103,6 +103,12 @@ expect_booted
 expect_line "DATABASE_URL: postgres://***@db.example.test/appdb"
 expect_absent "fixtureuser7" "Colon" "Fixture:7731"
 
+CASE="fragment is dropped"
+run "postgres://fixtureuser7:Zq9fixturePW7731@db.example.test:5432/appdb#FragFixture"
+expect_booted
+expect_line "DATABASE_URL: postgres://***@db.example.test:5432/appdb"
+expect_absent "fixtureuser7" "Zq9fixturePW7731" "FragFixture"
+
 CASE="URL without userinfo prints without ***@"
 run "postgres://localhost:5432/appdb"
 expect_booted
@@ -114,6 +120,26 @@ expect_booted
 expect_line "DATABASE_URL: set (not shown)"
 expect_absent "fixtureuser7" "Qm?" "FixturePW"
 
+CASE="'#' in the password is ambiguous with a fragment: not shown"
+run "postgres://fixtureuser7:Hs#FixturePW@db.example.test:5432/appdb"
+expect_booted
+expect_line "DATABASE_URL: set (not shown)"
+expect_absent "fixtureuser7" "Hs#" "FixturePW"
+
+CASE="empty host part: not shown"
+run "postgres://fixtureuser7:Zq9fixturePW7731@"
+expect_booted
+expect_line "DATABASE_URL: set (not shown)"
+expect_absent "fixtureuser7" "Zq9fixturePW7731"
+
+CASE="empty scheme: not shown"
+run "://fixtureuser7:Zq9fixturePW7731@db.example.test:5432/appdb"
+expect_booted
+expect_line "DATABASE_URL: set (not shown)"
+expect_absent "fixtureuser7" "Zq9fixturePW7731"
+
+# Railway-shaped on purpose: the non-Railway branch's DB_HOST extraction is a
+# separate parser that this case does not exercise.
 CASE="'@' inside a query value is ambiguous with userinfo: not shown"
 run "postgresql://fixtureuser7:Zq9fixturePW7731@db.railway.internal:5432/railway?password=QryHead@QryTail"
 expect_booted
