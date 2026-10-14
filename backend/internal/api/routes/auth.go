@@ -17,7 +17,9 @@ import (
 // each by top-level navigation, so a refusal there is a redirect, and the
 // routes are registered and exempted from the public-read limiter by these
 // same templates. Each ends in its one {provider} parameter, which
-// isOAuthRedirectRequest relies on.
+// isOAuthRedirectRequest relies on, and each needs a destination in
+// RedirectRateLimited, which TestEveryOAuthRedirectRouteRefusesToADeclaredPage
+// requires.
 var oauthRedirectRoutes = []string{authh.OAuthLoginRoute, authh.OAuthCallbackRoute, authh.OAuthLinkRoute}
 
 // setupAuthRoutes configures all authentication-related endpoints
@@ -56,9 +58,9 @@ func setupAuthRoutes(rc RouteContext) {
 	//
 	// The public auth budget: brute force on login, credential stuffing, email
 	// bombing via magic links, and spam account creation all draw on this one
-	// per-IP counter. It may be noopRateLimiter() under DISABLE_AUTH_RATE_LIMITS
-	// (PSY-475); humaFromHTTP has to let that through cleanly, or every E2E
-	// shard, all sharing 127.0.0.1, starts failing register/magic-link again.
+	// per-IP counter. It may be noopRateLimiter() under DISABLE_AUTH_RATE_LIMITS;
+	// humaFromHTTP has to let that through cleanly, or every E2E shard, all
+	// sharing 127.0.0.1, fails register and magic-link.
 	//
 	// No JWT middleware here on purpose: these endpoints are how you GET a token.
 	authRateLimiter := authScopedRateLimiter(middleware.LimiterAuth, middleware.AuthRequestsPerMinute)

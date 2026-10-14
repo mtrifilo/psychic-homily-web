@@ -2,6 +2,7 @@ package routes
 
 import (
 	"bytes"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"log/slog"
@@ -26,8 +27,12 @@ const (
 )
 
 // testConfig leaves the frontend URL empty, so the handler's localhost default
-// is where a refused sign-in is sent.
-const testFrontendAuthPage = "http://localhost:3000/auth"
+// is where every refusal by redirect is sent.
+const (
+	testFrontendURL          = "http://localhost:3000"
+	testFrontendAuthPage     = testFrontendURL + "/auth"
+	testFrontendSettingsPage = testFrontendURL + "/profile"
+)
 
 // oauthStartReached reports whether GET /auth/login/google reached its handler.
 // The test binary registers no goth provider, so the handler answers 400 for
@@ -122,7 +127,7 @@ func assertRefusedToAuthPage(t *testing.T, rr *httptest.ResponseRecorder, path s
 func assertRefusedToSettings(t *testing.T, rr *httptest.ResponseRecorder, path string) {
 	t.Helper()
 	loc := assertRedirectRefusal(t, rr, path)
-	if got, want := loc.Scheme+"://"+loc.Host+loc.Path, "http://localhost:3000/profile"; got != want {
+	if got, want := loc.Scheme+"://"+loc.Host+loc.Path, testFrontendSettingsPage; got != want {
 		t.Errorf("%s redirects to %q, want %q", path, got, want)
 	}
 	want := url.Values{"tab": {"settings"}, "oauth_link_error": {authh.OAuthRedirectRateLimitedCode}}
@@ -153,7 +158,7 @@ func assertJSONRefusal(t *testing.T, rr *httptest.ResponseRecorder, path string)
 	}
 }
 
-func TestPasswordBudgetDoesNotRefuseOAuthRedirects(t *testing.T) {
+func TestPasswordBudgetRefusesNeitherOAuthRedirectsNorAppleSignIn(t *testing.T) {
 	t.Setenv(DisableAuthRateLimitsEnvVar, "")
 	router := newTestRouter(t)
 	const ip = "203.0.113.61:1234"
@@ -234,7 +239,7 @@ func TestAuthJSONRouteRefusalStaysJSON(t *testing.T) {
 	assertJSONRefusal(t, serveFrom(router, http.MethodPost, "/auth/login", ip), "POST /auth/login")
 }
 
-func TestOAuthRedirectRateLimitDisabledFlagIsHonored(t *testing.T) {
+func TestOAuthRedirectAndAppleRateLimitDisabledFlagIsHonored(t *testing.T) {
 	t.Setenv(DisableAuthRateLimitsEnvVar, "1")
 	router := newTestRouter(t)
 	const ip = "203.0.113.66:1234"
@@ -430,4 +435,98 @@ func TestAppleSignInHasItsOwnJSONBudget(t *testing.T) {
 		t.Fatal("POST /auth/login was refused after only Apple callbacks were sent; the two budgets share a counter")
 	}
 	assertReachedHandler(t, code, body, "/auth/login")
+}
+
+// A refused Apple callback logs as its own limiter, through the router, so its
+// refusals are told apart from the password budget's.
+func TestAppleSignInRefusalLogsItsOwnLimiter(t *testing.T) {
+	t.Setenv(DisableAuthRateLimitsEnvVar, "")
+	router := newTestRouter(t)
+	var buf bytes.Buffer
+	log := slog.New(slog.NewJSONHandler(&buf, nil))
+
+	for i := 0; i <= appleSignInLimitPerMinute; i++ {
+		req := httptest.NewRequest(http.MethodPost, "/auth/apple/callback", strings.NewReader(`{}`))
+		req.Header.Set("Content-Type", "application/json")
+		req.RemoteAddr = "203.0.113.74:1234"
+		router.ServeHTTP(httptest.NewRecorder(), req.WithContext(logger.NewContext(req.Context(), log)))
+	}
+
+	var rejections []string
+	for _, raw := range bytes.Split(bytes.TrimSpace(buf.Bytes()), []byte("\n")) {
+		var line map[string]any
+		if json.Unmarshal(raw, &line) == nil && line["event"] == "ratelimit_rejected" {
+			rejections = append(rejections, fmt.Sprint(line["limiter"]))
+		}
+	}
+	if len(rejections) != 1 || rejections[0] != string(middleware.LimiterAppleSignIn) {
+		t.Errorf("rejection lines name limiters %v, want exactly [%s]", rejections, middleware.LimiterAppleSignIn)
+	}
+}
+
+// oauthReturnToCookieForTest is the destination cookie a sign-in start stores,
+// encoded the way the start encodes it.
+func oauthReturnToCookieForTest(returnTo string) *http.Cookie {
+	return &http.Cookie{Name: "oauth_return_to", Value: base64.RawURLEncoding.EncodeToString([]byte(returnTo))}
+}
+
+// Every route on the OAuth redirect limiter refuses to a page this table
+// declares, driven through the router so the route pattern RedirectRateLimited
+// reads is the one chi really sets. A route added to oauthRedirectRoutes fails
+// here until its refusal is written down.
+func TestEveryOAuthRedirectRouteRefusesToADeclaredPage(t *testing.T) {
+	t.Setenv(DisableAuthRateLimitsEnvVar, "")
+	router := newTestRouter(t)
+	const ip = "203.0.113.75:1234"
+
+	refusals := map[string]struct {
+		target  string
+		cookie  *http.Cookie
+		dest    string
+		require func(*testing.T, *httptest.ResponseRecorder, string)
+	}{
+		authh.OAuthLoginRoute: {
+			target:  "/auth/login/google?returnTo=%2Fshows%3Fcity%3Dphoenix",
+			dest:    "/shows?city=phoenix",
+			require: assertRefusedToAuthPage,
+		},
+		authh.OAuthCallbackRoute: {
+			target:  "/auth/callback/google?state=s&code=c&returnTo=%2Fadmin",
+			cookie:  oauthReturnToCookieForTest("/artists/some-band"),
+			dest:    "/artists/some-band",
+			require: assertRefusedToAuthPage,
+		},
+		authh.OAuthLinkRoute: {
+			target:  "/auth/link/google?t=token&returnTo=%2Fshows",
+			require: assertRefusedToSettings,
+		},
+	}
+
+	for i := 0; i < oauthRedirectLimitPerMinute; i++ {
+		serveFrom(router, http.MethodGet, "/auth/login/google", ip)
+	}
+	for _, route := range oauthRedirectRoutes {
+		tc, ok := refusals[route]
+		if !ok {
+			t.Errorf("%s is on the OAuth redirect limiter with no refusal declared here: "+
+				"decide where RedirectRateLimited sends it and add it", route)
+			continue
+		}
+		req := httptest.NewRequest(http.MethodGet, tc.target, nil)
+		req.RemoteAddr = ip
+		if tc.cookie != nil {
+			req.AddCookie(tc.cookie)
+		}
+		rr := httptest.NewRecorder()
+		router.ServeHTTP(rr, req)
+
+		tc.require(t, rr, route)
+		loc, err := url.Parse(rr.Header().Get("Location"))
+		if err != nil {
+			t.Fatalf("%s Location %q does not parse: %v", route, rr.Header().Get("Location"), err)
+		}
+		if got := loc.Query().Get("returnTo"); got != tc.dest {
+			t.Errorf("%s refusal returnTo = %q, want %q", route, got, tc.dest)
+		}
+	}
 }

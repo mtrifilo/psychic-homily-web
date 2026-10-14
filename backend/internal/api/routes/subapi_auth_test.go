@@ -17,10 +17,9 @@ import (
 //
 // One property is specific to this group and is the one most likely to break
 // silently, so it gets a dedicated test: under DISABLE_AUTH_RATE_LIMITS the
-// limiter is noopRateLimiter() (PSY-475). If humaFromHTTP mishandled a
-// middleware that simply returns `next`, every E2E shard, all sharing
-// 127.0.0.1, would start failing register and magic-link again, which is the
-// exact regression PSY-475 fixed.
+// limiter is noopRateLimiter(). If humaFromHTTP mishandled a middleware that
+// simply returns `next`, every E2E shard, all sharing 127.0.0.1, would fail
+// register and magic-link.
 
 // Written out rather than read from middleware, which is what makes them an
 // oracle: auth.go builds its limiters from those constants, so a budget widened

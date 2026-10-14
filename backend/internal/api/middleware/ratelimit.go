@@ -37,9 +37,9 @@ const (
 
 	// AppleSignInRequestsPerMinute is the per-IP rate limit for the Sign in
 	// with Apple callback a native client posts its identity token to. A
-	// sign-in spends one. The size matches OAuthRedirectRequestsPerMinute on a
-	// counter of its own, separate from the auth one for the same reason, so
-	// tuning one does not tune the other.
+	// sign-in spends one. Its counter is its own: password attempts cannot
+	// spend it and it cannot spend theirs, and retuning this constant changes
+	// no other budget.
 	AppleSignInRequestsPerMinute = 20
 
 	// APIRequestsPerMinute is the rate limit for general API endpoints
