@@ -159,6 +159,11 @@ reset_fixture "unbound: CREATE INDEX CONCURRENTLY passes" unbound
 migration "20260901000000_idx" "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_t_c ON t (c);"
 expect 0 "every new strong-lock migration sets its own lock_timeout"
 
+reset_fixture "unbound: a plain CREATE INDEX beside a CONCURRENTLY one fails" unbound
+migration "20260901000000_idx" "CREATE INDEX CONCURRENTLY idx_t_a ON t (a);
+CREATE INDEX idx_t_b ON t (b);"
+expect 1 "CREATE INDEX without CONCURRENTLY"
+
 reset_fixture "unbound: lowercase, multi-line ALTER TABLE fails" unbound
 migration "20260901000000_widen" "alter
     table t alter column c type bigint;"
