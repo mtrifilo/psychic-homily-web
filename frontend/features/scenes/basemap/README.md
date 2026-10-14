@@ -37,7 +37,7 @@ style file they describe.
   deliberate departure (near-black desaturated blue `#090c12`) so coastlines
   read against the warm land.
 - **Light palette**: the light column of the palette table on the Figma
-  board (Product Designs, Atlas page, PSY-1567 row `1973:75`, table
+  board (Product Designs, Atlas page, light street row `1973:75`, table
   `1973:76`) is the authority; `LIGHT_PAINT` copies it value for value. The
   `:root` tokens are its anchors, not a recipe: background `--background
   #f4f1ea`; buildings `--card #faf7f0` with a `--secondary #e8e3d6` outline
