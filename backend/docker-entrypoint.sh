@@ -2,7 +2,45 @@
 set -e
 
 echo "Starting entrypoint script (v3)..."
-echo "DEBUG: DATABASE_URL=${DATABASE_URL:-NOT SET}"
+# Prints a database URL as scheme://***@host:port/db: the userinfo becomes ***
+# and the query and fragment are dropped, since both can carry a password.
+# The host part is the text after the LAST '@', so a password holding a literal
+# '@' or '/' stays hidden. Input that does not reduce to that shape (no scheme,
+# a '?' or '#' before the last '@', or a host part with characters outside
+# [:alnum:] and ._:/-) prints as "set (not shown)" rather than a guess.
+redact_database_url() {
+    redact_url=$1
+    if [ -z "$redact_url" ]; then
+        echo "NOT SET"
+        return 0
+    fi
+    case $redact_url in
+        *://*) ;;
+        *) echo "set (not shown)"; return 0 ;;
+    esac
+    redact_scheme=${redact_url%%://*}
+    redact_rest=${redact_url#*://}
+    redact_userinfo=""
+    case $redact_rest in
+        *@*)
+            case ${redact_rest%@*} in
+                *[?#]*) echo "set (not shown)"; return 0 ;;
+            esac
+            redact_rest=${redact_rest##*@}
+            redact_userinfo="***@"
+            ;;
+    esac
+    redact_rest=${redact_rest%%[?#]*}
+    case $redact_scheme in
+        ''|*[![:alnum:]+.-]*) echo "set (not shown)"; return 0 ;;
+    esac
+    case $redact_rest in
+        ''|*[![:alnum:]._:/-]*) echo "set (not shown)"; return 0 ;;
+    esac
+    printf '%s://%s%s\n' "$redact_scheme" "$redact_userinfo" "$redact_rest"
+}
+
+echo "DATABASE_URL: $(redact_database_url "$DATABASE_URL")"
 
 # Check if DATABASE_URL is set
 if [ -z "$DATABASE_URL" ]; then
