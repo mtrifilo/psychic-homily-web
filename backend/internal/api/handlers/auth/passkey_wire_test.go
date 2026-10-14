@@ -193,7 +193,7 @@ func TestPasskeyWire_LoginFinishAcceptsLibraryResponseShape(t *testing.T) {
 		},
 		FinishDiscoverableLoginFn: func(_ *webauthn.SessionData, parsed *protocol.ParsedCredentialAssertionData) (*authm.User, *authm.WebAuthnCredential, error) {
 			parsedID = parsed.ID
-			return &authm.User{ID: 1}, &authm.WebAuthnCredential{ID: 1}, nil
+			return &authm.User{ID: 1, IsActive: true}, &authm.WebAuthnCredential{ID: 1}, nil
 		},
 	}
 	jwt := &testhelpers.MockJWTService{CreateTokenFn: func(*authm.User) (string, error) { return "token", nil }}
