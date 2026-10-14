@@ -226,16 +226,20 @@ func (s *WebAuthnService) FinishLogin(user *authm.User, session *webauthn.Sessio
 // recordCredentialUse writes what a validated assertion changes on the stored
 // credential (sign count, clone warning, backup state, last use) and nothing
 // else. Backup eligibility cannot change: validation refuses an assertion
-// whose eligibility differs from the stored value.
+// whose eligibility differs from the stored value. A credential deleted since
+// it was read is a refusal: it may no longer sign in.
 func (s *WebAuthnService) recordCredentialUse(stored *authm.WebAuthnCredential, validated *webauthn.Credential) error {
 	now := time.Now()
 	stored.SignCount = validated.Authenticator.SignCount
 	stored.CloneWarning = validated.Authenticator.CloneWarning
 	stored.BackupState = validated.Flags.BackupState
 	stored.LastUsedAt = &now
-	err := s.db.Model(stored).Select("sign_count", "clone_warning", "backup_state", "last_used_at").Updates(stored).Error
-	if err != nil {
-		return fmt.Errorf("failed to update credential: %w", err)
+	result := s.db.Model(stored).Select("sign_count", "clone_warning", "backup_state", "last_used_at").Updates(stored)
+	if result.Error != nil {
+		return fmt.Errorf("failed to update credential: %w", result.Error)
+	}
+	if result.RowsAffected == 0 {
+		return refusePasskey(fmt.Errorf("credential %d was deleted during sign-in", stored.ID))
 	}
 	return nil
 }
@@ -380,6 +384,32 @@ var (
 	errChallengeExpired = errors.New("challenge expired")
 )
 
+// invalidChallengeMessage is the user-facing message of the
+// CodeValidationFailed refusals ConsumeChallenge and
+// ConsumeRegistrationChallenge return.
+const invalidChallengeMessage = "Invalid or expired challenge"
+
+// refuseChallenge is err as a CodeValidationFailed refusal when it says the
+// challenge does not exist or has expired, and err unchanged otherwise.
+func refuseChallenge(err error) error {
+	if errors.Is(err, errChallengeNotFound) || errors.Is(err, errChallengeExpired) {
+		return apperrors.NewAuthError(apperrors.CodeValidationFailed, invalidChallengeMessage, err)
+	}
+	return err
+}
+
+// isChallengeID reports whether challengeID has the form StoreChallenge
+// issues. Any other value names no challenge and never reaches a query.
+func isChallengeID(challengeID string) bool {
+	_, err := uuid.Parse(challengeID)
+	return err == nil
+}
+
+// errRegistrationOperation is the error the operation-generic consumes return
+// for the registration operation. It is not a refusal: asking for it is a
+// caller's mistake, not a client's.
+var errRegistrationOperation = fmt.Errorf("%s challenges are consumed by ConsumeRegistrationChallenge", contracts.WebAuthnRegistrationOperation)
+
 // checkConsumed is the outcome of a challenge DELETE ... RETURNING that
 // scanned into challenge: errChallengeNotFound when it removed no row and
 // errChallengeExpired when the row it removed had expired.
@@ -404,22 +434,24 @@ func decodeChallengeSession(challenge *authm.WebAuthnChallenge) (*webauthn.Sessi
 	return &session, nil
 }
 
-// registrationOperation is the operation registration challenges are stored
-// under, which only ConsumeRegistrationChallenge consumes.
-const registrationOperation = "registration"
-
 // ConsumeChallenge removes a WebAuthn challenge and returns its session and
 // the user it was issued to. Every later call for the same id fails, whether
-// or not the ceremony the first caller runs with it succeeds. It refuses the
-// registration operation, whose challenges ConsumeRegistrationChallenge
-// consumes for their own user only.
+// or not the ceremony the first caller runs with it succeeds.
+//
+// A refusal is a CodeValidationFailed *apperrors.AuthError for a challenge
+// that does not exist or has expired. Any other error means the challenge
+// could not be read, or operation is contracts.WebAuthnRegistrationOperation,
+// whose challenges only ConsumeRegistrationChallenge consumes.
 func (s *WebAuthnService) ConsumeChallenge(challengeID string, operation string) (*webauthn.SessionData, uint, error) {
-	if operation == registrationOperation {
-		return nil, 0, fmt.Errorf("registration challenges are consumed by ConsumeRegistrationChallenge")
+	if operation == contracts.WebAuthnRegistrationOperation {
+		return nil, 0, errRegistrationOperation
+	}
+	if !isChallengeID(challengeID) {
+		return nil, 0, refuseChallenge(errChallengeNotFound)
 	}
 	challenge, err := s.consumeChallenge(challengeID, operation)
 	if err != nil {
-		return nil, 0, err
+		return nil, 0, refuseChallenge(err)
 	}
 	session, err := decodeChallengeSession(challenge)
 	if err != nil {
@@ -433,13 +465,18 @@ func (s *WebAuthnService) ConsumeChallenge(challengeID string, operation string)
 // the same id fails. Only userID can spend it: for a challenge issued to
 // another user it removes nothing.
 //
-// A refusal is an *apperrors.AuthError: CodeUnauthorized for a challenge
-// issued to another user, CodeValidationFailed for one that does not exist or
-// has expired. Any other error means the challenge could not be read.
+// A refusal is an *apperrors.AuthError: CodeUnauthorized for an unexpired
+// challenge issued to another user, CodeValidationFailed for one that does
+// not exist or has expired. Any other error means the challenge could not be
+// read.
 func (s *WebAuthnService) ConsumeRegistrationChallenge(challengeID string, userID uint) (*webauthn.SessionData, error) {
-	challenge, err := s.consumeChallengeIssuedTo(challengeID, registrationOperation, userID)
+	if !isChallengeID(challengeID) {
+		return nil, refuseChallenge(errChallengeNotFound)
+	}
+	operation := contracts.WebAuthnRegistrationOperation
+	challenge, err := s.consumeChallengeIssuedTo(challengeID, operation, userID)
 	if errors.Is(err, errChallengeNotFound) {
-		issuedToAnother, probeErr := s.challengeExists(challengeID, registrationOperation)
+		issuedToAnother, probeErr := s.liveChallengeExists(challengeID, operation)
 		if probeErr != nil {
 			return nil, probeErr
 		}
@@ -451,21 +488,18 @@ func (s *WebAuthnService) ConsumeRegistrationChallenge(challengeID string, userI
 			)
 		}
 	}
-	if errors.Is(err, errChallengeNotFound) || errors.Is(err, errChallengeExpired) {
-		return nil, apperrors.NewAuthError(apperrors.CodeValidationFailed, "Invalid or expired challenge", err)
-	}
 	if err != nil {
-		return nil, err
+		return nil, refuseChallenge(err)
 	}
 	return decodeChallengeSession(challenge)
 }
 
-// challengeExists reports whether a challenge is stored under challengeID for
-// operation.
-func (s *WebAuthnService) challengeExists(challengeID string, operation string) (bool, error) {
+// liveChallengeExists reports whether an unexpired challenge is stored under
+// challengeID for operation.
+func (s *WebAuthnService) liveChallengeExists(challengeID string, operation string) (bool, error) {
 	var count int64
 	if err := s.db.Model(&authm.WebAuthnChallenge{}).
-		Where("id = ? AND operation = ?", challengeID, operation).
+		Where("id = ? AND operation = ? AND expires_at > ?", challengeID, operation, time.Now()).
 		Count(&count).Error; err != nil {
 		return false, fmt.Errorf("failed to look up challenge: %w", err)
 	}
@@ -579,8 +613,12 @@ func (s *WebAuthnService) StoreSignupChallenge(signup contracts.SignupChallenge,
 
 // ConsumeSignupChallenge removes a signup challenge and returns it with the
 // address and the consent StoreSignupChallenge stored beside it. Every later
-// call for the same id fails, as with ConsumeChallenge.
+// call for the same id fails, as with ConsumeChallenge. It returns an error
+// for contracts.WebAuthnRegistrationOperation, as ConsumeChallenge does.
 func (s *WebAuthnService) ConsumeSignupChallenge(challengeID string, operation string) (*webauthn.SessionData, contracts.SignupChallenge, error) {
+	if operation == contracts.WebAuthnRegistrationOperation {
+		return nil, contracts.SignupChallenge{}, errRegistrationOperation
+	}
 	challenge, err := s.consumeChallenge(challengeID, operation)
 	if err != nil {
 		return nil, contracts.SignupChallenge{}, err

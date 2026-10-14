@@ -9,7 +9,6 @@ import (
 
 	"github.com/go-webauthn/webauthn/protocol"
 	"github.com/go-webauthn/webauthn/webauthn"
-	"gorm.io/gorm"
 
 	"psychic-homily-backend/internal/api/handlers/shared/testhelpers"
 	autherrors "psychic-homily-backend/internal/errors"
@@ -441,7 +440,7 @@ func TestBeginLoginHandler_StoreChallengeFailure(t *testing.T) {
 func TestFinishLoginHandler_InvalidChallenge(t *testing.T) {
 	mockWA := &testhelpers.MockWebAuthnService{
 		ConsumeChallengeFn: func(challengeID string, operation string) (*webauthn.SessionData, uint, error) {
-			return nil, 0, fmt.Errorf("challenge expired")
+			return nil, 0, autherrors.NewAuthError(autherrors.CodeValidationFailed, "Invalid or expired challenge", fmt.Errorf("challenge expired"))
 		},
 	}
 	h := testPasskeyHandlerWithMocks(mockWA, &testhelpers.MockJWTService{}, &testhelpers.MockUserService{})
@@ -491,17 +490,26 @@ func TestFinishLoginHandler_MalformedCredentialResponse(t *testing.T) {
 	}
 }
 
+// The service decides an email-specific sign-in for the challenge's account,
+// a missing account included; the handler loads the account only for a
+// sign-in the service accepted.
 func TestFinishLoginHandler_UserSpecificLogin_UserNotFound(t *testing.T) {
 	_, device := softRegistration(t)
 	body := softAssertion(t, device)
+	var decidedFor uint
 	mockWA := &testhelpers.MockWebAuthnService{
 		ConsumeChallengeFn: func(challengeID string, operation string) (*webauthn.SessionData, uint, error) {
 			return &webauthn.SessionData{}, 42, nil
 		},
+		FinishLoginFn: func(user *authm.User, _ *webauthn.SessionData, _ *protocol.ParsedCredentialAssertionData) (*authm.WebAuthnCredential, error) {
+			decidedFor = user.ID
+			return nil, autherrors.NewAuthError(autherrors.CodeInvalidCredentials, "Invalid passkey", fmt.Errorf("user not found"))
+		},
 	}
 	mockUS := &testhelpers.MockUserService{
 		GetUserByIDFn: func(userID uint) (*authm.User, error) {
-			return nil, fmt.Errorf("failed to get user: %w", gorm.ErrRecordNotFound)
+			t.Error("a refused sign-in must not load the account")
+			return nil, nil
 		},
 	}
 	h := testPasskeyHandlerWithMocks(mockWA, &testhelpers.MockJWTService{}, mockUS)
@@ -519,6 +527,9 @@ func TestFinishLoginHandler_UserSpecificLogin_UserNotFound(t *testing.T) {
 	}
 	if resp.Body.ErrorCode != autherrors.CodeInvalidCredentials {
 		t.Errorf("expected error_code=%s, got %s", autherrors.CodeInvalidCredentials, resp.Body.ErrorCode)
+	}
+	if decidedFor != 42 {
+		t.Errorf("sign-in decided for user %d, want the challenge's user 42", decidedFor)
 	}
 }
 

@@ -242,3 +242,55 @@ func (suite *WebAuthnServiceIntegrationTestSuite) TestSignInRefusesInvalidAssert
 		})
 	}
 }
+
+// A challenge id StoreChallenge could not have issued is refused before any
+// query, so a value the database would reject is a refusal, not a failure.
+func (suite *WebAuthnServiceIntegrationTestSuite) TestConsumeRefusesMalformedChallengeIDs() {
+	user := suite.createUser("malformed@test.com")
+	for _, challengeID := range []string{"", "not-a-uuid", "\x00"} {
+		_, _, err := suite.service.ConsumeChallenge(challengeID, "authentication")
+		suite.requireRefusal(err, apperrors.CodeValidationFailed, "Invalid or expired challenge")
+		_, err = suite.service.ConsumeRegistrationChallenge(challengeID, user.ID)
+		suite.requireRefusal(err, apperrors.CodeValidationFailed, "Invalid or expired challenge")
+	}
+}
+
+// No operation-generic consume spends a registration challenge.
+func (suite *WebAuthnServiceIntegrationTestSuite) TestGenericConsumesRefuseRegistrationChallenges() {
+	user := suite.createUser("generic@test.com")
+	challengeID, err := suite.service.StoreChallenge(user.ID, &webauthn.SessionData{Challenge: "c"}, "registration")
+	suite.Require().NoError(err)
+
+	_, _, err = suite.service.ConsumeChallenge(challengeID, "registration")
+	suite.Require().ErrorIs(err, errRegistrationOperation)
+	_, _, err = suite.service.ConsumeSignupChallenge(challengeID, "registration")
+	suite.Require().ErrorIs(err, errRegistrationOperation)
+	suite.Equal(int64(1), suite.challengeRows(challengeID))
+}
+
+// Another user's expired registration challenge answers as expired, not as
+// someone else's.
+func (suite *WebAuthnServiceIntegrationTestSuite) TestExpiredRegistrationChallengeOfAnotherUser() {
+	owner := suite.createUser("expired-owner@test.com")
+	other := suite.createUser("expired-other@test.com")
+	challengeID, err := suite.service.StoreChallenge(owner.ID, &webauthn.SessionData{Challenge: "c"}, "registration")
+	suite.Require().NoError(err)
+	suite.Require().NoError(suite.db.Exec("UPDATE webauthn_challenges SET expires_at = ? WHERE id = ?",
+		time.Now().Add(-time.Hour), challengeID).Error)
+
+	_, err = suite.service.ConsumeRegistrationChallenge(challengeID, other.ID)
+	suite.requireRefusal(err, apperrors.CodeValidationFailed, "Invalid or expired challenge")
+}
+
+// A credential deleted between its lookup and the use being recorded no
+// longer signs in.
+func (suite *WebAuthnServiceIntegrationTestSuite) TestCredentialDeletedDuringSignInIsRefused() {
+	user := suite.createUser("revoked@test.com")
+	suite.registeredDevice(user)
+	var stored authm.WebAuthnCredential
+	suite.Require().NoError(suite.db.Where("user_id = ?", user.ID).First(&stored).Error)
+	suite.Require().NoError(suite.db.Delete(&authm.WebAuthnCredential{}, stored.ID).Error)
+
+	err := suite.service.recordCredentialUse(&stored, &webauthn.Credential{Authenticator: webauthn.Authenticator{SignCount: 2}})
+	suite.requireRefusal(err, apperrors.CodeInvalidCredentials, "Invalid passkey")
+}

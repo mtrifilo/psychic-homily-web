@@ -41,7 +41,7 @@ func (suite *WebAuthnServiceIntegrationTestSuite) requireOneWinner(results [2]er
 			succeeded++
 			continue
 		}
-		suite.Contains(err.Error(), "challenge not found")
+		suite.ErrorIs(err, errChallengeNotFound)
 	}
 	suite.Equal(1, succeeded, "exactly one finish receives the challenge")
 }

@@ -9,7 +9,6 @@ import (
 
 	"github.com/go-webauthn/webauthn/protocol"
 	"github.com/go-webauthn/webauthn/webauthn"
-	"gorm.io/gorm"
 
 	"psychic-homily-backend/internal/api/middleware"
 	"psychic-homily-backend/internal/config"
@@ -55,6 +54,24 @@ func passkeyName(raw string) string {
 		return defaultPasskeyName
 	}
 	return name
+}
+
+// passkeyRefusal returns err's AuthError when its code is one of codes, the
+// refusals the calling step answers with their own code and message. Any
+// other error, an AuthError with another code included, is a failure the
+// caller answers with a 5xx, so a code a step does not expect is never shown
+// to the client as a refusal.
+func passkeyRefusal(err error, codes ...string) (*autherrors.AuthError, bool) {
+	var refusal *autherrors.AuthError
+	if !errors.As(err, &refusal) {
+		return nil, false
+	}
+	for _, code := range codes {
+		if refusal.Code == code {
+			return refusal, true
+		}
+	}
+	return nil, false
 }
 
 // --- Registration Endpoints ---
@@ -149,7 +166,7 @@ func (h *PasskeyHandler) BeginRegisterHandler(ctx context.Context, input *BeginR
 	}
 
 	// Store challenge
-	challengeID, err := h.webauthnService.StoreChallenge(contextUser.ID, session, "registration")
+	challengeID, err := h.webauthnService.StoreChallenge(contextUser.ID, session, contracts.WebAuthnRegistrationOperation)
 	if err != nil {
 		logger.AuthError(ctx, "passkey_challenge_store_failed", err,
 			"user_id", contextUser.ID,
@@ -212,22 +229,16 @@ func (h *PasskeyHandler) FinishRegisterHandler(ctx context.Context, input *Finis
 
 	session, err := h.webauthnService.ConsumeRegistrationChallenge(input.Body.ChallengeID, contextUser.ID)
 	if err != nil {
-		// A refusal carries its own code and message. Anything else, a code
-		// with no case here included, means the challenge could not be read.
-		var refusal *autherrors.AuthError
-		if errors.As(err, &refusal) {
-			switch refusal.Code {
-			case autherrors.CodeUnauthorized, autherrors.CodeValidationFailed:
-				logger.AuthWarn(ctx, "passkey_challenge_refused",
-					"user_id", contextUser.ID,
-					"error_code", refusal.Code,
-					"error", err.Error(),
-				)
-				resp.Body.Success = false
-				resp.Body.Message = refusal.UserMessage()
-				resp.Body.ErrorCode = refusal.Code
-				return resp, nil
-			}
+		if refusal, ok := passkeyRefusal(err, autherrors.CodeUnauthorized, autherrors.CodeValidationFailed); ok {
+			logger.AuthWarn(ctx, "passkey_challenge_refused",
+				"user_id", contextUser.ID,
+				"error_code", refusal.Code,
+				"error", err.Error(),
+			)
+			resp.Body.Success = false
+			resp.Body.Message = refusal.UserMessage()
+			resp.Body.ErrorCode = refusal.Code
+			return resp, nil
 		}
 		logger.AuthError(ctx, "passkey_challenge_consume_failed", err,
 			"user_id", contextUser.ID,
@@ -406,13 +417,18 @@ func (h *PasskeyHandler) FinishLoginHandler(ctx context.Context, input *FinishLo
 
 	session, userID, err := h.webauthnService.ConsumeChallenge(input.Body.ChallengeID, "authentication")
 	if err != nil {
-		logger.AuthWarn(ctx, "passkey_challenge_invalid",
-			"error", err.Error(),
-		)
-		resp.Body.Success = false
-		resp.Body.Message = "Invalid or expired challenge"
-		resp.Body.ErrorCode = autherrors.CodeValidationFailed
-		return resp, nil
+		if refusal, ok := passkeyRefusal(err, autherrors.CodeValidationFailed); ok {
+			logger.AuthWarn(ctx, "passkey_challenge_refused",
+				"error_code", refusal.Code,
+				"error", err.Error(),
+			)
+			resp.Body.Success = false
+			resp.Body.Message = refusal.UserMessage()
+			resp.Body.ErrorCode = refusal.Code
+			return resp, nil
+		}
+		logger.AuthError(ctx, "passkey_challenge_consume_failed", err)
+		return nil, autherrors.ErrServiceUnavailable("passkey_login_challenge", err)
 	}
 
 	parsedResponse, err := protocol.ParseCredentialRequestResponseBytes(input.Body.Response)
@@ -426,68 +442,50 @@ func (h *PasskeyHandler) FinishLoginHandler(ctx context.Context, input *FinishLo
 		return resp, nil
 	}
 
+	// The service decides the sign-in, including whether the account exists
+	// and may sign in, before the handler loads anything about the account.
 	var user *authm.User
-
 	if userID != 0 {
-		// User-specific login
-		user, err = h.userService.GetUserByID(userID)
-		if errors.Is(err, gorm.ErrRecordNotFound) {
+		_, err = h.webauthnService.FinishLogin(&authm.User{ID: userID}, session, parsedResponse)
+	} else {
+		user, _, err = h.webauthnService.FinishDiscoverableLogin(session, parsedResponse)
+	}
+	if err != nil {
+		if refusal, ok := passkeyRefusal(err, autherrors.CodeInvalidCredentials, autherrors.CodeAccountInactive); ok {
 			logger.AuthWarn(ctx, "passkey_login_refused",
 				"user_id", userID,
-				"error_code", autherrors.CodeInvalidCredentials,
+				"error_code", refusal.Code,
 				"error", err.Error(),
 			)
 			resp.Body.Success = false
-			resp.Body.Message = "User not found"
-			resp.Body.ErrorCode = autherrors.CodeInvalidCredentials
+			resp.Body.Message = refusal.UserMessage()
+			resp.Body.ErrorCode = refusal.Code
 			return resp, nil
 		}
+		logger.AuthError(ctx, "passkey_login_finish_failed", err,
+			"user_id", userID,
+		)
+		return nil, autherrors.ErrServiceUnavailable("passkey_login_finish", err)
+	}
+
+	// The email-specific login answers with the account as the user service
+	// loads it. The sign-in was decided above, so any failure here is one.
+	if userID != 0 {
+		user, err = h.userService.GetUserByID(userID)
 		if err != nil {
 			logger.AuthError(ctx, "passkey_login_user_load_failed", err,
 				"user_id", userID,
 			)
 			return nil, autherrors.ErrServiceUnavailable("passkey_login_user", err)
 		}
-
-		_, err = h.webauthnService.FinishLogin(user, session, parsedResponse)
-	} else {
-		// Discoverable login
-		user, _, err = h.webauthnService.FinishDiscoverableLogin(session, parsedResponse)
 	}
 
-	if err != nil {
-		// The service answers a refusal as an AuthError carrying its code and
-		// message, and anything else means it reached no decision. A code with
-		// no case here is treated as the latter.
-		var refusal *autherrors.AuthError
-		if errors.As(err, &refusal) {
-			switch refusal.Code {
-			case autherrors.CodeInvalidCredentials, autherrors.CodeAccountInactive:
-				logger.AuthWarn(ctx, "passkey_login_refused",
-					"challenge_user_id", userID,
-					"error_code", refusal.Code,
-					"error", err.Error(),
-				)
-				resp.Body.Success = false
-				resp.Body.Message = refusal.UserMessage()
-				resp.Body.ErrorCode = refusal.Code
-				return resp, nil
-			}
-		}
-		logger.AuthError(ctx, "passkey_login_finish_failed", err)
-		return nil, autherrors.ErrServiceUnavailable("passkey_login_finish", err)
-	}
-
-	// Generate JWT token
 	token, err := h.jwtService.CreateToken(user)
 	if err != nil {
 		logger.AuthError(ctx, "passkey_token_generation_failed", err,
 			"user_id", user.ID,
 		)
-		resp.Body.Success = false
-		resp.Body.Message = "Failed to generate authentication token"
-		resp.Body.ErrorCode = autherrors.CodeServiceUnavailable
-		return resp, nil
+		return nil, autherrors.ErrServiceUnavailable("passkey_login_token", err)
 	}
 
 	// Set cookie

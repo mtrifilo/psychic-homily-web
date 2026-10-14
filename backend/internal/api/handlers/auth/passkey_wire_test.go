@@ -389,28 +389,64 @@ func requireWireServiceUnavailable(t *testing.T, resp *httptest.ResponseRecorder
 	assertNoInternalText(t, resp.Body.String())
 }
 
-// An email-specific login whose account cannot be loaded is a failure; only
-// an account that does not exist is refused.
-func TestPasskeyWire_LoginFinishUserLoadFailure(t *testing.T) {
+// login/finish answers a failure at any step after the challenge with a 5xx
+// and no session: the challenge cannot be read, the accepted email-specific
+// sign-in's account cannot be loaded, or no session token can be minted.
+func TestPasskeyWire_LoginFinishStepFailures(t *testing.T) {
 	_, device := softRegistration(t)
-	mockWA := &testhelpers.MockWebAuthnService{
-		ConsumeChallengeFn: func(string, string) (*webauthn.SessionData, uint, error) {
-			return &webauthn.SessionData{}, 7, nil
+	accepted := func(*authm.User, *webauthn.SessionData, *protocol.ParsedCredentialAssertionData) (*authm.WebAuthnCredential, error) {
+		return &authm.WebAuthnCredential{ID: 1}, nil
+	}
+	steps := map[string]struct {
+		consume   func(string, string) (*webauthn.SessionData, uint, error)
+		loadUser  func(uint) (*authm.User, error)
+		mintToken func(*authm.User) (string, error)
+	}{
+		"challenge cannot be read": {
+			consume: func(string, string) (*webauthn.SessionData, uint, error) {
+				return nil, 0, fmt.Errorf("failed to consume challenge: %w", errWireDriver)
+			},
 		},
-		FinishLoginFn: func(*authm.User, *webauthn.SessionData, *protocol.ParsedCredentialAssertionData) (*authm.WebAuthnCredential, error) {
-			t.Error("a failed account load must not reach the ceremony")
-			return nil, nil
+		"account cannot be loaded": {
+			loadUser: func(uint) (*authm.User, error) { return nil, fmt.Errorf("failed to get user: %w", errWireDriver) },
+		},
+		"token cannot be minted": {
+			mintToken: func(*authm.User) (string, error) { return "", fmt.Errorf("sign token: %w", errWireDriver) },
 		},
 	}
-	users := &testhelpers.MockUserService{
-		GetUserByIDFn: func(uint) (*authm.User, error) { return nil, fmt.Errorf("failed to get user: %w", errWireDriver) },
-	}
-	api := newPasskeyWireAPI(t, testPasskeyHandlerWithMocks(mockWA, &testhelpers.MockJWTService{}, users))
+	for name, step := range steps {
+		t.Run(name, func(t *testing.T) {
+			mockWA := &testhelpers.MockWebAuthnService{
+				ConsumeChallengeFn: func(string, string) (*webauthn.SessionData, uint, error) {
+					return &webauthn.SessionData{}, 7, nil
+				},
+				FinishLoginFn: accepted,
+			}
+			if step.consume != nil {
+				mockWA.ConsumeChallengeFn = step.consume
+			}
+			users := &testhelpers.MockUserService{
+				GetUserByIDFn: func(id uint) (*authm.User, error) { return &authm.User{ID: id, IsActive: true}, nil },
+			}
+			if step.loadUser != nil {
+				users.GetUserByIDFn = step.loadUser
+			}
+			jwt := &testhelpers.MockJWTService{CreateTokenFn: func(*authm.User) (string, error) { return "token", nil }}
+			if step.mintToken != nil {
+				jwt.CreateTokenFn = step.mintToken
+			}
+			api := newPasskeyWireAPI(t, testPasskeyHandlerWithMocks(mockWA, jwt, users))
 
-	requireWireServiceUnavailable(t, api.Post("/auth/passkey/login/finish", map[string]any{
-		"challenge_id": "c-1",
-		"response":     softAssertion(t, device),
-	}))
+			resp := api.Post("/auth/passkey/login/finish", map[string]any{
+				"challenge_id": "c-1",
+				"response":     softAssertion(t, device),
+			})
+			requireWireServiceUnavailable(t, resp)
+			if cookie := resp.Header().Get("Set-Cookie"); cookie != "" {
+				t.Errorf("a failed sign-in sets no cookie, got %q", cookie)
+			}
+		})
+	}
 }
 
 // register/finish answers a refused challenge with the refusal's code and
