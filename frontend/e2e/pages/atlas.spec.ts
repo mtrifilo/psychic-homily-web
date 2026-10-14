@@ -1,4 +1,5 @@
 import { test } from '../fixtures'
+import { workerStorageState } from '../fixtures/auth'
 import { expect, type Page } from '@playwright/test'
 import {
   ATLAS_TEST_TIMEOUT_MS,
@@ -614,6 +615,164 @@ test.describe('Atlas area on a 390x844 phone ends at the tab bar', () => {
     await list.locator('[data-bottom-sheet-grabber]').tap()
     await expect(list).toHaveAttribute('data-detent', 'half')
     await expectEndsAtTabBar()
+  })
+})
+
+/**
+ * While the cookie banner is up, the phone Atlas area ends at the banner's top
+ * edge and the banner sits on the tab bar. The banner's scroll spacer does not
+ * render on this route below `xl`, so the page is still exactly the
+ * viewport's height and cannot scroll into an empty band under the banner.
+ */
+test.describe('Atlas on a 390x844 phone with the cookie banner up', () => {
+  test.use({ viewport: { width: 390, height: 844 }, ...PHONE_CONTEXT })
+
+  test('the Atlas area meets the banner, the banner meets the tab bar, and the page does not scroll', async ({
+    page,
+  }) => {
+    await stubAtlas(page)
+    await page.goto('/atlas?city=Phoenix%2CAZ')
+    await waitForMap(page)
+    const banner = page.getByRole('dialog', { name: 'Cookie consent' })
+    await expect(banner).toBeVisible()
+
+    const geometry = () =>
+      page.evaluate(() => {
+        const rect = (selector: string) =>
+          document.querySelector(selector)!.getBoundingClientRect()
+        return {
+          frameBottom: rect('[data-testid="atlas-pane-frame"]').bottom,
+          bannerTop: rect('[aria-label="Cookie consent"]').top,
+          bannerBottom: rect('[aria-label="Cookie consent"]').bottom,
+          tabBarTop: rect('[data-bottom-tab-bar]').top,
+          scrollHeight: document.documentElement.scrollHeight,
+          viewportHeight: window.innerHeight,
+        }
+      })
+
+    // The frame settles once the banner has published its height.
+    await expect
+      .poll(async () => {
+        const g = await geometry()
+        return Math.abs(g.frameBottom - g.bannerTop) < 0.5
+      })
+      .toBe(true)
+    const g = await geometry()
+    expect(g.bannerBottom).toBeCloseTo(g.tabBarTop, 1)
+    expect(g.scrollHeight).toBe(g.viewportHeight)
+    test.info().annotations.push({ type: 'geometry', description: JSON.stringify(g) })
+  })
+})
+
+/**
+ * The Account sheet's legal rows are the phone's way back to the cookie
+ * preferences on /atlas, where the site footer does not render below `xl`.
+ * After a consent decision is saved the banner is gone too, so the row is the
+ * only way in without leaving the route.
+ */
+test.describe('Atlas on a 390x844 phone: cookie preferences from the Account sheet', () => {
+  test('a signed-in visitor with a saved decision reopens the preferences without leaving /atlas', async ({
+    browser,
+  }, testInfo) => {
+    const context = await browser.newContext({
+      storageState: workerStorageState(testInfo.workerIndex),
+      viewport: { width: 390, height: 844 },
+      ...PHONE_CONTEXT,
+    })
+    try {
+      const page = await context.newPage()
+      await stubAtlas(page)
+      await page.goto('/atlas?city=Phoenix%2CAZ')
+      await waitForMap(page)
+      await dismissBanner(page)
+
+      const tabBar = page.getByRole('navigation', { name: 'Mobile navigation' })
+      await tabBar.getByRole('button', { name: /^Account/ }).tap()
+      const sheet = page.getByRole('dialog', { name: 'Account' })
+      await expect(sheet.getByRole('link', { name: 'Privacy' })).toHaveAttribute('href', '/privacy')
+      await expect(sheet.getByRole('link', { name: 'Terms' })).toHaveAttribute('href', '/terms')
+
+      await sheet.getByRole('button', { name: 'Cookie preferences' }).tap()
+      const preferences = page.getByRole('dialog', { name: 'Cookie Preferences' })
+      await expect(preferences).toBeVisible()
+      await expect(sheet).toHaveCount(0)
+      await expect
+        .poll(() => preferences.evaluate(dialog => dialog.contains(document.activeElement)))
+        .toBe(true)
+      expect(new URL(page.url()).pathname).toBe('/atlas')
+
+      // Closing the dialog leaves the page usable: the tab bar answers a tap.
+      await preferences.getByRole('button', { name: 'Cancel' }).tap()
+      await expect(preferences).toHaveCount(0)
+      await tabBar.getByRole('button', { name: 'Browse' }).tap()
+      await expect(page.getByRole('dialog', { name: 'Browse' })).toBeVisible()
+    } finally {
+      await context.close()
+    }
+  })
+})
+
+/**
+ * At `xl` the Atlas area spans the top bar's bottom edge to the viewport's
+ * bottom edge, or to the banner's top edge while the banner is up, and the
+ * site footer starts where the area ends, so none of it shows before the page
+ * scrolls.
+ */
+test.describe('Atlas area at 1440x900 ends at the fold', () => {
+  const geometry = (page: Page) =>
+    page.evaluate(() => {
+      const rect = (selector: string) =>
+        document.querySelector(selector)?.getBoundingClientRect() ?? null
+      return {
+        topBarBottom: rect('header')!.bottom,
+        frameTop: rect('[data-testid="atlas-pane-frame"]')!.top,
+        frameBottom: rect('[data-testid="atlas-pane-frame"]')!.bottom,
+        footerTop: rect('#main-content ~ footer')!.top,
+        bannerTop: rect('[aria-label="Cookie consent"]')?.top ?? null,
+        scrollY: window.scrollY,
+        viewportHeight: window.innerHeight,
+      }
+    })
+
+  test('with no banner, the area ends at the viewport bottom and the footer starts there', async ({
+    page,
+  }) => {
+    await stubAtlas(page)
+    await page.goto('/atlas?city=Phoenix%2CAZ')
+    await waitForMap(page)
+    await dismissBanner(page, { via: 'click' })
+
+    await expect
+      .poll(async () => {
+        const g = await geometry(page)
+        return Math.abs(g.frameBottom - g.viewportHeight) < 0.5
+      })
+      .toBe(true)
+    const g = await geometry(page)
+    expect(g.scrollY).toBe(0)
+    expect(g.frameTop).toBeCloseTo(g.topBarBottom, 1)
+    expect(g.footerTop).toBeCloseTo(g.frameBottom, 1)
+    test.info().annotations.push({ type: 'geometry', description: JSON.stringify(g) })
+  })
+
+  test('with the banner up, the area ends at the banner and the footer starts under it', async ({
+    page,
+  }) => {
+    await stubAtlas(page)
+    await page.goto('/atlas?city=Phoenix%2CAZ')
+    await waitForMap(page)
+    await expect(page.getByRole('dialog', { name: 'Cookie consent' })).toBeVisible()
+
+    await expect
+      .poll(async () => {
+        const g = await geometry(page)
+        return g.bannerTop !== null && Math.abs(g.frameBottom - g.bannerTop) < 0.5
+      })
+      .toBe(true)
+    const g = await geometry(page)
+    expect(g.scrollY).toBe(0)
+    expect(g.footerTop).toBeCloseTo(g.frameBottom, 1)
+    test.info().annotations.push({ type: 'geometry', description: JSON.stringify(g) })
   })
 })
 
