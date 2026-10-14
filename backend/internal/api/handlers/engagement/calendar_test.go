@@ -392,6 +392,7 @@ func TestGetAPIBaseURL(t *testing.T) {
 	}{
 		{"production ignores API_ADDR", "https://psychichomily.com", "0.0.0.0:8080", "https://api.psychichomily.com"},
 		{"production www ignores API_ADDR", "https://www.psychichomily.com", "0.0.0.0:8080", "https://api.psychichomily.com"},
+		{"production www trailing slash ignores API_ADDR", "https://www.psychichomily.com/", "0.0.0.0:8080", "https://api.psychichomily.com"},
 		{"stage ignores API_ADDR", "https://stage.psychichomily.com", "0.0.0.0:8080", "https://api-stage.psychichomily.com"},
 		{"development", "http://localhost:3000", "", "http://localhost:8080"},
 		{"empty", "", "", "http://localhost:8080"},

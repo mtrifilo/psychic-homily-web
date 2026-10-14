@@ -82,11 +82,11 @@ func NewCollectionDigestService(database *gorm.DB, emailService contracts.EmailS
 	}
 }
 
-// DeployedBackendURL returns the public API URL for a deployed frontend URL
-// and reports whether the frontend URL is one. The production frontend in
-// either its apex or www form maps to the production API host, the stage
-// frontend maps to the stage API host, and trailing slashes are ignored.
-func DeployedBackendURL(frontendURL string) (string, bool) {
+// BackendURLForDeployedFrontend returns the public API URL for a deployed
+// frontend URL and reports whether the frontend URL is one. The production
+// frontend in either its apex or www form maps to the production API host, the
+// stage frontend maps to the stage API host, and trailing slashes are ignored.
+func BackendURLForDeployedFrontend(frontendURL string) (string, bool) {
 	switch strings.TrimRight(frontendURL, "/") {
 	case "https://psychichomily.com", "https://www.psychichomily.com":
 		return "https://api.psychichomily.com", true
@@ -98,10 +98,10 @@ func DeployedBackendURL(frontendURL string) (string, bool) {
 }
 
 // DeriveBackendURL maps a frontend URL to the corresponding public API URL:
-// the DeployedBackendURL mapping, else http://localhost:8080. Services that
-// mint backend-hosted unsubscribe URLs share this mapping.
+// the BackendURLForDeployedFrontend mapping, else http://localhost:8080.
+// Services that mint backend-hosted unsubscribe URLs share this mapping.
 func DeriveBackendURL(frontendURL string) string {
-	if backendURL, ok := DeployedBackendURL(frontendURL); ok {
+	if backendURL, ok := BackendURLForDeployedFrontend(frontendURL); ok {
 		return backendURL
 	}
 	return "http://localhost:8080"

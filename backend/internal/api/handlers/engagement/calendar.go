@@ -247,11 +247,12 @@ func (h *CalendarHandler) DeleteCalendarTokenHandler(ctx context.Context, req *D
 }
 
 // getAPIBaseURL derives the API's public base URL from config.
-// Deployed frontend origins map through engagementsvc.DeployedBackendURL; any
-// other origin prefers API_ADDR when set (dispatch isolated stacks bind a free
-// port) and otherwise falls back to :8080.
+// Deployed frontend origins map through
+// engagementsvc.BackendURLForDeployedFrontend; any other origin prefers
+// API_ADDR when set (dispatch isolated stacks bind a free port) and otherwise
+// falls back to :8080.
 func getAPIBaseURL(cfg *config.Config) string {
-	if backendURL, ok := engagementsvc.DeployedBackendURL(cfg.Email.FrontendURL); ok {
+	if backendURL, ok := engagementsvc.BackendURLForDeployedFrontend(cfg.Email.FrontendURL); ok {
 		return backendURL
 	}
 	if addr := strings.TrimSpace(os.Getenv("API_ADDR")); addr != "" {
