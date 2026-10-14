@@ -196,7 +196,7 @@ describe('BottomTabBar', () => {
       const { markAtlasMapReady } = await import('@/lib/atlasMapReady')
       const { BottomTabBar: FreshTabBar } = await import('./BottomTabBar')
       mockPathname = '/atlas'
-      const tabNames = ['Home', 'Shows', 'Radio', 'Account']
+      const tabNames = ['Home', 'Shows', 'Radio']
       const user = userEvent.setup()
       const { rerender } = render(<FreshTabBar />)
       for (const name of tabNames) {
@@ -262,8 +262,11 @@ describe('BottomTabBar', () => {
       mockPathname = '/atlas'
       const { container } = render(<BottomTabBar />)
       expect(container.querySelector('[data-tab-pending]')).toBeNull()
-      for (const name of ['Home', 'Shows', 'Radio', 'Account']) {
+      for (const name of ['Home', 'Shows', 'Radio']) {
         expect(screen.getByRole('link', { name }).querySelector('svg.lucide')).not.toBeNull()
+      }
+      for (const name of ['Browse', 'Account']) {
+        expect(screen.getByRole('button', { name }).querySelector('svg.lucide')).not.toBeNull()
       }
     })
 
@@ -281,20 +284,13 @@ describe('BottomTabBar', () => {
       expect(shows).toHaveTextContent('Shows')
       expect(shows).not.toHaveAttribute('aria-current')
 
-      for (const name of ['Home', 'Radio', 'Account']) {
-        const tab = screen.getByRole('link', { name })
+      for (const tab of [
+        ...['Home', 'Radio'].map(name => screen.getByRole('link', { name })),
+        screen.getByRole('button', { name: 'Account' }),
+      ]) {
         expect(tab.querySelector('[data-tab-pending]')).toBeNull()
         expect(tab.querySelector('svg.lucide')).not.toBeNull()
       }
-    })
-
-    it('marks the anonymous Account link pending like the other tabs', () => {
-      mockPathname = '/shows'
-      setPendingLinkHref('/auth?returnTo=%2Fshows')
-      render(<BottomTabBar />)
-      const account = screen.getByRole('link', { name: 'Account' })
-      expect(account).toHaveAttribute('href', '/auth?returnTo=%2Fshows')
-      expect(account.querySelector('[data-tab-pending]')).not.toBeNull()
     })
 
     it('gives every tab, links and sheet triggers alike, the rules that light the pending tab and mute the rest', () => {
@@ -304,8 +300,8 @@ describe('BottomTabBar', () => {
         'group/tabbar'
       )
       const tabs = [
-        ...['Home', 'Shows', 'Radio', 'Account'].map(name => screen.getByRole('link', { name })),
-        screen.getByRole('button', { name: 'Browse' }),
+        ...['Home', 'Shows', 'Radio'].map(name => screen.getByRole('link', { name })),
+        ...['Browse', 'Account'].map(name => screen.getByRole('button', { name })),
       ]
       for (const tab of tabs) {
         expect(tab).toHaveClass('has-[[data-tab-pending]]:text-primary')
@@ -333,7 +329,7 @@ describe('BottomTabBar', () => {
       const { rerender } = render(<FreshTabBar />)
       act(() => markAtlasMapReady())
       rerender(<FreshTabBar />)
-      for (const name of ['Home', 'Shows', 'Radio', 'Account']) {
+      for (const name of ['Home', 'Shows', 'Radio']) {
         expect(screen.getByRole('link', { name })).toHaveAttribute('data-prefetch', 'false')
       }
       expect(mockRouter.prefetch).not.toHaveBeenCalled()
@@ -486,19 +482,27 @@ describe('BottomTabBar', () => {
   })
 
   describe('Account tab', () => {
-    it('is a login link back to the page the viewer is on', () => {
+    it('opens a signed-out sheet whose Sign in row links back to the page the viewer is on', async () => {
       mockPathname = '/artists/calexico'
+      const user = userEvent.setup()
       render(<BottomTabBar />)
-      expect(screen.getByRole('link', { name: 'Account' })).toHaveAttribute(
+      expect(screen.queryByRole('link', { name: 'Account' })).not.toBeInTheDocument()
+      await user.click(screen.getByRole('button', { name: 'Account' }))
+      const sheet = await screen.findByRole('dialog', { name: 'Account' })
+      expect(within(sheet).getByRole('link', { name: 'Sign in' })).toHaveAttribute(
         'href',
         '/auth?returnTo=%2Fartists%2Fcalexico'
       )
+      // The sheet names no viewer: no subtitle, no account destinations.
+      expect(within(sheet).queryByText(/@/)).not.toBeInTheDocument()
+      expect(within(sheet).queryByRole('link', { name: 'Notifications' })).not.toBeInTheDocument()
+      expect(within(sheet).queryByRole('button', { name: 'Sign out' })).not.toBeInTheDocument()
     })
 
     it('lights up on /auth when anonymous', () => {
       mockPathname = '/auth'
       render(<BottomTabBar />)
-      expect(screen.getByRole('link', { name: 'Account' })).toHaveAttribute('aria-current', 'page')
+      expect(screen.getByRole('button', { name: 'Account' })).toHaveAttribute('aria-current', 'page')
     })
 
     it('deep-links Profile to /users/<username> when the user has one (PSY-1045 rule)', async () => {
@@ -525,23 +529,25 @@ describe('BottomTabBar', () => {
     // PSY-1986. Two pending windows that differ only in `isLoading`: the
     // profile is in flight (true), or a non-definitive failure (5xx, 429,
     // network, 403) has left the query errored without settling the viewer
-    // (false). The cell keeps the /auth link in both and opens no sheet, so a
-    // gate written on `isLoading` fails one window or the other.
+    // (false). The cell opens the signed-out sheet in both, so a gate written
+    // on `isLoading` fails one window or the other.
     it.each([
       ['while the profile is in flight', true],
       ['after the profile failed without settling', false],
-    ])('keeps the login link and opens no account sheet %s', (_label, isLoading) => {
+    ])('opens the signed-out sheet %s', async (_label, isLoading) => {
       mockPathname = '/auth'
       mockAuthContext.mockReturnValue(authFixture({ authStatus: 'pending', isLoading }))
+      const user = userEvent.setup()
       render(<BottomTabBar />)
-      const tab = screen.getByRole('link', { name: 'Account' })
+      const tab = screen.getByRole('button', { name: 'Account' })
+      // `accountActive` falls to `isActive('/auth')` on this arm.
+      expect(tab).toHaveAttribute('aria-current', 'page')
+      await user.click(tab)
+      const sheet = await screen.findByRole('dialog', { name: 'Account' })
       // Bare: `buildAuthHref` omits a destination the auth page would discard,
       // and the viewer is already on `/auth`.
-      expect(tab).toHaveAttribute('href', '/auth')
-      // A real destination, so it carries the current-page state its route
-      // earns: `accountActive` falls to `isActive('/auth')` on this arm.
-      expect(tab).toHaveAttribute('aria-current', 'page')
-      expect(screen.queryByRole('button', { name: 'Account' })).not.toBeInTheDocument()
+      expect(within(sheet).getByRole('link', { name: 'Sign in' })).toHaveAttribute('href', '/auth')
+      expect(within(sheet).queryByRole('button', { name: 'Sign out' })).not.toBeInTheDocument()
     })
 
     // A logout in flight is 'authenticated' with `isLoading` true: the profile
@@ -549,7 +555,7 @@ describe('BottomTabBar', () => {
     // the mutation resolves and clears it. The old `isLoading` gate went inert
     // here; the cell now keeps the sheet, which is what the desktop bar has
     // always done in the same window.
-    it('keeps the account sheet while a logout is in flight', () => {
+    it('keeps the signed-in account sheet while a logout is in flight', async () => {
       mockAuthContext.mockReturnValue(
         authFixture({
           user: { email: 'user@test.com', is_admin: false },
@@ -557,18 +563,22 @@ describe('BottomTabBar', () => {
           isLoading: true,
         })
       )
+      const user = userEvent.setup()
       render(<BottomTabBar />)
-      expect(screen.getByRole('button', { name: 'Account' })).toBeInTheDocument()
-      expect(screen.queryByRole('link', { name: 'Account' })).not.toBeInTheDocument()
+      await user.click(screen.getByRole('button', { name: 'Account' }))
+      const sheet = await screen.findByRole('dialog', { name: 'Account' })
+      expect(within(sheet).getByRole('button', { name: 'Sign out' })).toBeInTheDocument()
+      expect(within(sheet).queryByRole('link', { name: 'Sign in' })).not.toBeInTheDocument()
     })
 
     // The pending and settled-anonymous cells are the SAME markup, which is
     // what keeps the tab row from changing shape when a pending read settles
     // to anonymous. Two things are compared, because either alone passes a
     // reflow: the cell's whole subtree (a spacer or spinner rendered beside
-    // the link would differ) and the grid's child count (a sixth child in a
+    // the trigger would differ) and the grid's child count (a sixth child in a
     // `grid-cols-5` row wraps Account outside the fixed bar height, the
-    // PSY-1820 failure). Account is the grid's last child in both arms.
+    // PSY-1820 failure). Account is the grid's last child in both arms. The
+    // trigger's aria-controls is a per-mount generated id, so it is masked.
     it('renders the pending cell identically to the settled-anonymous cell', () => {
       const cellOf = (authStatus: AuthStatus) => {
         mockAuthContext.mockReturnValue(authFixture({ authStatus }))
@@ -578,14 +588,17 @@ describe('BottomTabBar', () => {
         )
         const shape = {
           gridChildren: grid?.children.length,
-          account: grid?.lastElementChild?.outerHTML,
+          account: grid?.lastElementChild?.outerHTML.replace(
+            /aria-controls="[^"]*"/,
+            'aria-controls="(id)"'
+          ),
         }
         unmount()
         return shape
       }
       const pending = cellOf('pending')
       expect(pending.gridChildren).toBe(primaryTabs.length + 2)
-      expect(pending.account).toContain('href="/auth"')
+      expect(pending.account).toMatch(/^<button[^>]*aria-haspopup="dialog"/)
       expect(pending).toEqual(cellOf('anonymous'))
     })
 
@@ -628,6 +641,10 @@ describe('BottomTabBar', () => {
   describe('Account sheet legal rows', () => {
     async function openAccountSheet() {
       authedAs({ email: 'user@test.com', is_admin: false })
+      return openSheet()
+    }
+
+    async function openSheet() {
       const user = userEvent.setup()
       render(<BottomTabBar />)
       await user.click(screen.getByRole('button', { name: 'Account' }))
@@ -700,6 +717,28 @@ describe('BottomTabBar', () => {
       )
     })
 
+    // A viewer not settled as signed in gets the same block under the Sign
+    // in row, so every viewer reaches it from the tab bar.
+    it.each<AuthStatus>(['anonymous', 'pending'])(
+      'renders the rows under Sign in and its own separator when %s',
+      async authStatus => {
+        mockAuthContext.mockReturnValue(authFixture({ authStatus }))
+        const { user, sheet } = await openSheet()
+        const rows = legalSheetRows.map(row => legalRow(sheet, row))
+        const signIn = within(sheet).getByRole('link', { name: 'Sign in' })
+        const separator = (rows[0].closest('[data-slot]') ?? rows[0]).previousElementSibling
+        expect(separator).toHaveClass('border-t')
+        expect(
+          signIn.compareDocumentPosition(separator!) & Node.DOCUMENT_POSITION_FOLLOWING
+        ).toBeTruthy()
+        await user.click(within(sheet).getByRole('button', { name: 'Cookie preferences' }))
+        expect(mockOpenPreferences).toHaveBeenCalledTimes(1)
+        await waitFor(() =>
+          expect(screen.queryByRole('dialog', { name: 'Account' })).not.toBeInTheDocument()
+        )
+      }
+    )
+
     // The rows are route-independent: the routes that hide the site footer
     // below `xl` (footerVisibility.ts) get them exactly as every other route.
     it.each(['/', '/atlas', '/shows', '/privacy', '/admin', '/users/me'])(
@@ -749,7 +788,7 @@ describe('BottomTabBar', () => {
       expect(screen.getAllByTestId('unread-count-badge')).toHaveLength(2)
     })
 
-    // The link arm is badge-less by construction, not just because the hook
+    // The signed-out arm is badge-less by construction, not just because the hook
     // happens to return 0, so force a non-zero count and assert nothing
     // renders, for both statuses that reach it.
     it('never badges an anonymous visitor', () => {

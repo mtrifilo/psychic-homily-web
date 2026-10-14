@@ -10,7 +10,8 @@ import path from 'node:path'
  *   so every route renders inside it;
  * - it renders `{children}` inside AppShell;
  * - AppShell renders the BottomTabBar (AppShell.test.tsx pins both nav modes);
- * - the sheet renders the rows on any pathname (BottomTabBar.test.tsx).
+ * - the sheet renders the rows for every viewer on any pathname
+ *   (BottomTabBar.test.tsx).
  * This file checks the first two over the source tree. `global-error.tsx` is
  * the one other document Next can render; it replaces the root layout on an
  * unrecoverable error and renders no chrome at all.

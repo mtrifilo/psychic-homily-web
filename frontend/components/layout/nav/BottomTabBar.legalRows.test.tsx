@@ -18,16 +18,20 @@ import { makeAuthFixture } from '@/test/authFixture'
 
 vi.mock('next/navigation', () => ({
   usePathname: () => '/atlas',
+  useRouter: () => ({ prefetch: vi.fn(), push: vi.fn(), replace: vi.fn() }),
 }))
 vi.mock('next/link', () => import('@/test/mocks/nextLink'))
 
 const authFixture = makeAuthFixture<{ email: string; is_admin: boolean }>(vi.fn())
+let signedIn = true
 vi.mock('@/lib/context/AuthContext', () => ({
   useAuthContext: () =>
-    authFixture({
-      user: { email: 'user@test.com', is_admin: false },
-      authStatus: 'authenticated',
-    }),
+    signedIn
+      ? authFixture({
+          user: { email: 'user@test.com', is_admin: false },
+          authStatus: 'authenticated',
+        })
+      : authFixture(),
 }))
 vi.mock('@/features/notifications/hooks', () => ({
   useUnreadNotificationCount: () => 0,
@@ -63,7 +67,11 @@ describe('Account sheet Cookie preferences row', () => {
     localStorage.clear()
   })
 
-  it('opens the preferences dialog over a closed sheet once a decision is saved', async () => {
+  it.each([
+    ['signed in', true],
+    ['signed out', false],
+  ])('opens the preferences dialog over a closed sheet once a decision is saved, %s', async (_label, viewerSignedIn) => {
+    signedIn = viewerSignedIn
     saveRejectAllDecision()
     const user = userEvent.setup()
     renderChrome()

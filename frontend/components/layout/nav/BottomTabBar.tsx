@@ -6,7 +6,7 @@ import { useLinkStatus } from 'next/link'
 import { usePathname } from 'next/navigation'
 import { AUTH_PATH, buildAuthHref } from '@/lib/auth-href'
 import {
-  ChevronRight, ExternalLink, LayoutGrid, LogOut, Moon, Sun, User,
+  ChevronRight, ExternalLink, LayoutGrid, LogIn, LogOut, Moon, Sun, User,
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import { cn } from '@/lib/utils'
@@ -38,12 +38,13 @@ import type { NavDestination, NavLink } from './navData'
 // PSY-1057, so the static mock and shipped reality agree here). Browse opens the
 // long-tail bottom sheet (every desktop Browse/Contribute/Editorial destination,
 // composed in navData's mobileBrowseGroups — one source of truth, no forked
-// lists). Account is auth-aware: a /auth link for every viewer not settled as
-// signed in (anonymous, and unsettled too), an account sheet mirroring the
-// UserMenu entries once signed in, carrying the unread-notification badge on
-// both the tab and the sheet's Notifications row (PSY-1819 — below `sm` the
-// top bar's bell is hidden, so without this there is no unread affordance on
-// a phone at all).
+// lists). Account opens a sheet for every viewer, ending in the legal rows
+// (Cookie preferences, Privacy, Terms): for a viewer not settled as signed in
+// (anonymous, and unsettled too) a Sign in link back to the current page; once
+// signed in, the UserMenu entries and Sign out, with the unread-notification
+// badge on both the tab and the sheet's Notifications row (PSY-1819 — below
+// `sm` the top bar's bell is hidden, so without this there is no unread
+// affordance on a phone at all).
 //
 // Rendered by AppShell below `xl` on every page — matching PrimaryNav's
 // xl:flex, so the lg–xl band (tablets) keeps a primary nav; AppShell adds the
@@ -307,7 +308,8 @@ const legalRowClassName =
 // destinations. Every row is a SheetClose, so the sheet closes on the same tap.
 // For Cookie preferences that matters beyond tidiness: the preferences dialog
 // opens in that same render, and the sheet must not stay open over it. The
-// links skip prefetching for the reason SheetNavLink gives.
+// links render ChromeLink's prefetch={false}: no prefetch on any pointer, a
+// touch included, stricter than SheetNavLink's viewport-only opt-out.
 function LegalSheetRows() {
   const { openPreferences } = useCookieConsent()
   return (
@@ -368,6 +370,27 @@ function AccountSheetBody({
           </Button>
         </SheetClose>
       </div>
+      <LegalSheetRows />
+    </>
+  )
+}
+
+// The Account sheet of a viewer not settled as signed in: a Sign in link back
+// to the page the viewer is on, then the legal rows.
+function SignedOutAccountSheetBody({ pathname }: { pathname: string }) {
+  return (
+    <>
+      <SheetNavLink
+        item={{
+          // The render-time grade of the destination: the pathname alone.
+          // See `currentLocationReturnTo` for why a query string cannot be
+          // read here.
+          href: buildAuthHref(pathname),
+          label: 'Sign in',
+          icon: LogIn,
+        }}
+        active={isNavActive(pathname, AUTH_PATH)}
+      />
       <LegalSheetRows />
     </>
   )
@@ -446,13 +469,14 @@ export function BottomTabBar() {
           <BrowseSheetBody user={user} pathname={pathname} />
         </SheetTab>
 
-        {/* The auth-aware Account cell. The sheet names a viewer, so it is
-            what a settled 'authenticated' buys; every other status gets the
-            /auth link, which names none. That is the rule UserMenu applies in
-            the top bar, and the two are on screen together from `sm` up to
-            this bar's own `xl:hidden`, so they have to agree. Either arm fills
-            the same one of five equal grid columns, so the cell does not jump
-            on settle. */}
+        {/* The auth-aware Account cell. The signed-in sheet names a viewer,
+            so it is what a settled 'authenticated' buys; every other status
+            gets the signed-out sheet, which names none. That is the rule
+            UserMenu applies in the top bar, and the two are on screen
+            together from `sm` up to this bar's own `xl:hidden`, so they have
+            to agree. Both arms are the same SheetTab in the same one of five
+            equal grid columns, so the cell does not jump on settle, and a
+            sheet open across a settle stays open with the new viewer's rows. */}
         {isSettledAuthenticated ? (
           <SheetTab
             label="Account"
@@ -470,17 +494,14 @@ export function BottomTabBar() {
             />
           </SheetTab>
         ) : (
-          <ChromeLink
-            // The render-time grade of the destination: the pathname alone.
-            // See `currentLocationReturnTo` for why a query string cannot be
-            // read here.
-            href={buildAuthHref(pathname)}
-            atlasPrefetch="after-map"
-            aria-current={accountActive ? 'page' : undefined}
-            className={tabClassName(accountActive)}
+          <SheetTab
+            label="Account"
+            icon={User}
+            active={accountActive}
+            description="Sign in, cookie preferences, privacy, and terms."
           >
-            <TabLinkBody icon={User} label="Account" />
-          </ChromeLink>
+            <SignedOutAccountSheetBody pathname={pathname} />
+          </SheetTab>
         )}
       </div>
     </nav>

@@ -672,45 +672,57 @@ test.describe('Atlas on a 390x844 phone with the cookie banner up', () => {
  * only way in without leaving the route.
  */
 test.describe('Atlas on a 390x844 phone: cookie preferences from the Account sheet', () => {
-  test('a signed-in visitor with a saved decision reopens the preferences without leaving /atlas', async ({
-    browser,
-  }, testInfo) => {
-    const context = await browser.newContext({
-      storageState: workerStorageState(testInfo.workerIndex),
-      viewport: { width: 390, height: 844 },
-      ...PHONE_CONTEXT,
+  for (const viewer of ['signed-in', 'signed-out'] as const) {
+    test(`a ${viewer} visitor with a saved decision reopens the preferences without leaving /atlas`, async ({
+      browser,
+    }, testInfo) => {
+      const context = await browser.newContext({
+        ...(viewer === 'signed-in'
+          ? { storageState: workerStorageState(testInfo.workerIndex) }
+          : {}),
+        viewport: { width: 390, height: 844 },
+        ...PHONE_CONTEXT,
+      })
+      try {
+        const page = await context.newPage()
+        await stubAtlas(page)
+        await page.goto('/atlas?city=Phoenix%2CAZ')
+        await waitForMap(page)
+        await dismissBanner(page)
+
+        const tabBar = page.getByRole('navigation', { name: 'Mobile navigation' })
+        await tabBar.getByRole('button', { name: /^Account/ }).tap()
+        const sheet = page.getByRole('dialog', { name: 'Account' })
+        if (viewer === 'signed-out') {
+          await expect(sheet.getByRole('link', { name: 'Sign in' })).toHaveAttribute(
+            'href',
+            '/auth?returnTo=%2Fatlas'
+          )
+        } else {
+          await expect(sheet.getByRole('button', { name: 'Sign out' })).toBeVisible()
+        }
+        await expect(sheet.getByRole('link', { name: 'Privacy' })).toHaveAttribute('href', '/privacy')
+        await expect(sheet.getByRole('link', { name: 'Terms' })).toHaveAttribute('href', '/terms')
+
+        await sheet.getByRole('button', { name: 'Cookie preferences' }).tap()
+        const preferences = page.getByRole('dialog', { name: 'Cookie Preferences' })
+        await expect(preferences).toBeVisible()
+        await expect(sheet).toHaveCount(0)
+        await expect
+          .poll(() => preferences.evaluate(dialog => dialog.contains(document.activeElement)))
+          .toBe(true)
+        expect(new URL(page.url()).pathname).toBe('/atlas')
+
+        // Closing the dialog leaves the page usable: the tab bar answers a tap.
+        await preferences.getByRole('button', { name: 'Cancel' }).tap()
+        await expect(preferences).toHaveCount(0)
+        await tabBar.getByRole('button', { name: 'Browse' }).tap()
+        await expect(page.getByRole('dialog', { name: 'Browse' })).toBeVisible()
+      } finally {
+        await context.close()
+      }
     })
-    try {
-      const page = await context.newPage()
-      await stubAtlas(page)
-      await page.goto('/atlas?city=Phoenix%2CAZ')
-      await waitForMap(page)
-      await dismissBanner(page)
-
-      const tabBar = page.getByRole('navigation', { name: 'Mobile navigation' })
-      await tabBar.getByRole('button', { name: /^Account/ }).tap()
-      const sheet = page.getByRole('dialog', { name: 'Account' })
-      await expect(sheet.getByRole('link', { name: 'Privacy' })).toHaveAttribute('href', '/privacy')
-      await expect(sheet.getByRole('link', { name: 'Terms' })).toHaveAttribute('href', '/terms')
-
-      await sheet.getByRole('button', { name: 'Cookie preferences' }).tap()
-      const preferences = page.getByRole('dialog', { name: 'Cookie Preferences' })
-      await expect(preferences).toBeVisible()
-      await expect(sheet).toHaveCount(0)
-      await expect
-        .poll(() => preferences.evaluate(dialog => dialog.contains(document.activeElement)))
-        .toBe(true)
-      expect(new URL(page.url()).pathname).toBe('/atlas')
-
-      // Closing the dialog leaves the page usable: the tab bar answers a tap.
-      await preferences.getByRole('button', { name: 'Cancel' }).tap()
-      await expect(preferences).toHaveCount(0)
-      await tabBar.getByRole('button', { name: 'Browse' }).tap()
-      await expect(page.getByRole('dialog', { name: 'Browse' })).toBeVisible()
-    } finally {
-      await context.close()
-    }
-  })
+  }
 })
 
 /**
