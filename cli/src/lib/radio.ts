@@ -365,3 +365,122 @@ export function formatArtistCandidateReport(listing: ArtistCandidateListing): st
   });
   return lines.map(printable);
 }
+
+// ─── Label enrichment candidates (GET /admin/radio/candidates/labels) ───────
+
+export interface LabelCandidateArtist {
+  name: string;
+  play_count: number;
+  artist_ids: number[];
+}
+
+export interface LabelCandidate {
+  label_key: string;
+  display_name: string;
+  label_spellings: CandidateCount[];
+  label_spelling_count: number;
+  lane: CandidateLane;
+  score: number;
+  velocity: number;
+  play_count: number;
+  recent_play_count: number;
+  prior_play_count: number;
+  station_row_count: number;
+  station_family_count: number;
+  show_count: number;
+  first_aired_on: string;
+  last_aired_on: string;
+  stations: ArtistCandidate["stations"];
+  artists: LabelCandidateArtist[];
+  artist_count: number;
+  release_names: CandidateCount[];
+  release_name_count: number;
+  mb_release_ids: string[];
+  mb_release_id_count: number;
+  non_latin_spelling: boolean;
+}
+
+export interface LabelCandidateListing {
+  candidates: LabelCandidate[];
+  total: number;
+  auto_total: number;
+  human_total: number;
+  unkeyable_plays: number;
+  as_of: string;
+  window_start: string;
+  window_days: number;
+  recent_start: string;
+  prior_start: string;
+  velocity_days: number;
+  min_station_rows: number;
+  min_velocity: number;
+  min_new_plays: number;
+}
+
+/**
+ * Fetch one snapshot of the label candidate ranking. Read-only. Unset options
+ * are omitted from the query, so the server's defaults apply.
+ */
+export async function listLabelCandidates(
+  client: APIClient,
+  opts: { lane?: string; sort?: string; limit?: string },
+): Promise<LabelCandidateListing> {
+  return client.get<LabelCandidateListing>("/admin/radio/candidates/labels", {
+    lane: opts.lane ?? "",
+    sort: opts.sort ?? "",
+    limit: opts.limit ?? "",
+  });
+}
+
+function labelArtistList(artists: LabelCandidateArtist[], distinct: number): string {
+  const named = artists.map((a) => ({
+    name: a.artist_ids.length > 0 ? `${a.name} [catalog ${a.artist_ids.join(", ")}]` : a.name,
+    play_count: a.play_count,
+  }));
+  return countList(named, distinct);
+}
+
+/**
+ * Render the label ranking as plain text, one block per candidate with its
+ * lane and evidence. Every line passes through printable. Pure, so the report
+ * can be tested without a server.
+ */
+export function formatLabelCandidateReport(listing: LabelCandidateListing): string[] {
+  const lines: string[] = [
+    `Label candidates as of ${listing.as_of}: plays aired ${listing.window_start} through ${listing.as_of} ` +
+      `(${listing.window_days} days); floor ${listing.min_station_rows} station rows.`,
+    `Rising: plays aired ${listing.recent_start} through ${listing.as_of} at least ${listing.min_velocity}x those aired ` +
+      `${listing.prior_start} through the day before ${listing.recent_start} (${listing.velocity_days}-day windows), ` +
+      `or at least ${listing.min_new_plays} when there were none.`,
+    `${listing.total} in the requested lanes (${listing.auto_total} auto, ${listing.human_total} human overall); ` +
+      `showing ${listing.candidates.length}.`,
+    `${listing.unkeyable_plays} plays counted toward no candidate (the label name normalizes to empty).`,
+  ];
+  listing.candidates.forEach((c, i) => {
+    lines.push("");
+    lines.push(
+      `${String(i + 1).padStart(3)}. [${c.lane.padEnd(5)}] ${c.display_name}  ` +
+        `score ${c.score.toFixed(2)}  velocity ${c.velocity.toFixed(2)} ` +
+        `(${c.recent_play_count} recent / ${c.prior_play_count} prior)  plays ${c.play_count}  ` +
+        `rows ${c.station_row_count}  families ${c.station_family_count}  shows ${c.show_count}  ` +
+        `aired ${c.first_aired_on} to ${c.last_aired_on}`,
+    );
+    lines.push(`       key:      ${c.label_key}`);
+    if (c.label_spelling_count > 1) {
+      lines.push(`       spellings: ${countList(c.label_spellings, c.label_spelling_count)}`);
+    }
+    if (c.non_latin_spelling) {
+      lines.push("       note:     a spelling carries a character normalization may not fold; the key may be a fragment of it");
+    }
+    lines.push(
+      `       stations: ${c.stations.map((s) => `${s.name} (${s.slug}) ${s.play_count}`).join(", ") || "none"}`,
+    );
+    lines.push(`       artists:  ${labelArtistList(c.artists, c.artist_count)}`);
+    lines.push(`       releases: ${countList(c.release_names, c.release_name_count)}`);
+    if (c.mb_release_ids.length > 0) {
+      const more = c.mb_release_id_count > c.mb_release_ids.length ? `; ${c.mb_release_id_count} distinct` : "";
+      lines.push(`       mb releases: ${c.mb_release_ids.join(", ")}${more}`);
+    }
+  });
+  return lines.map(printable);
+}

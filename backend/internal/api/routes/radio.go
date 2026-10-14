@@ -78,4 +78,6 @@ func setupRadioRoutes(rc RouteContext) {
 	// Internal enrichment candidate rankings (read-only; nothing is created).
 	radioCandidatesHandler := catalogh.NewRadioCandidatesHandler(rc.SC.RadioCandidates)
 	huma.Get(rc.Admin, "/admin/radio/candidates/artists", radioCandidatesHandler.AdminListRadioArtistCandidatesHandler)
+	radioLabelCandidatesHandler := catalogh.NewRadioLabelCandidatesHandler(rc.SC.RadioCandidates)
+	huma.Get(rc.Admin, "/admin/radio/candidates/labels", radioLabelCandidatesHandler.AdminListRadioLabelCandidatesHandler)
 }
