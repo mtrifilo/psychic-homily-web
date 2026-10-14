@@ -80,4 +80,5 @@ func setupRadioRoutes(rc RouteContext) {
 	huma.Get(rc.Admin, "/admin/radio/candidates/artists", radioCandidatesHandler.AdminListRadioArtistCandidatesHandler)
 	radioLabelCandidatesHandler := catalogh.NewRadioLabelCandidatesHandler(rc.SC.RadioCandidates)
 	huma.Get(rc.Admin, "/admin/radio/candidates/labels", radioLabelCandidatesHandler.AdminListRadioLabelCandidatesHandler)
+	huma.Get(rc.Admin, "/admin/radio/candidates/tracks", radioCandidatesHandler.AdminListRadioTrackCandidatesHandler)
 }
