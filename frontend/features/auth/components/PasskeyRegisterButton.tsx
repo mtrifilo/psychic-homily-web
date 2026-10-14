@@ -188,6 +188,7 @@ export function PasskeyRegisterButton({ onSuccess, onError, className }: Passkey
             <Label htmlFor="passkey-name">Passkey name</Label>
             <Input
               id="passkey-name"
+              maxLength={100}
               placeholder="e.g., My MacBook, Work laptop"
               value={displayName}
               onChange={e => setDisplayName(e.target.value)}

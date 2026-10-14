@@ -151,13 +151,15 @@ func (s *WebAuthnService) BeginDiscoverableLogin() (*protocol.CredentialAssertio
 
 // FinishLogin completes the passkey login process
 func (s *WebAuthnService) FinishLogin(user *authm.User, session *webauthn.SessionData, response *protocol.ParsedCredentialAssertionData) (*authm.WebAuthnCredential, error) {
-	// Validation checks the assertion against the user's stored credentials,
-	// so they are loaded here whatever the caller's copy of the user holds.
-	if err := s.db.Preload("PasskeyCredentials").First(user, user.ID).Error; err != nil {
+	// Validation checks the assertion against the account's stored
+	// credentials, which the caller's copy of the user need not hold, so it
+	// runs against a fresh load and leaves the caller's copy untouched.
+	var owner authm.User
+	if err := s.db.Preload("PasskeyCredentials").First(&owner, user.ID).Error; err != nil {
 		return nil, fmt.Errorf("failed to load user: %w", err)
 	}
 
-	credential, err := s.webAuthn.ValidateLogin(user, *session, response)
+	credential, err := s.webAuthn.ValidateLogin(&owner, *session, response)
 	if err != nil {
 		return nil, fmt.Errorf("failed to validate login: %w", err)
 	}

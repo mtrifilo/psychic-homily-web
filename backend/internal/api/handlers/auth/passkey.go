@@ -42,6 +42,20 @@ func NewPasskeyHandler(webauthnService contracts.WebAuthnServiceInterface, jwtSe
 	}
 }
 
+// defaultPasskeyName is stored for a passkey registered without a usable name.
+const defaultPasskeyName = "My Passkey"
+
+// passkeyName is the name a finish handler stores. Finish runs after the
+// authenticator has written the credential, so it never refuses on the name:
+// an empty value, or one validateProfileName refuses, stores the default.
+func passkeyName(raw string) string {
+	name, _, ok := validateProfileName("Passkey name", raw)
+	if !ok || name == "" {
+		return defaultPasskeyName
+	}
+	return name
+}
+
 // --- Registration Endpoints ---
 
 // BeginRegisterRequest represents the request to begin passkey registration
@@ -107,6 +121,15 @@ func (h *PasskeyHandler) BeginRegisterHandler(ctx context.Context, input *BeginR
 		return nil, err
 	}
 
+	// The name is refused here, before any challenge exists, because finish
+	// runs after the authenticator has written the credential.
+	if _, errMsg, ok := validateProfileName("Passkey name", input.Body.DisplayName); !ok {
+		resp.Body.Success = false
+		resp.Body.Message = errMsg
+		resp.Body.ErrorCode = autherrors.CodeValidationFailed
+		return resp, nil
+	}
+
 	logger.AuthDebug(ctx, "passkey_register_begin",
 		"user_id", contextUser.ID,
 	)
@@ -147,10 +170,10 @@ type FinishRegisterRequest struct {
 	Body struct {
 		ChallengeID string `json:"challenge_id" doc:"Challenge ID from begin registration"`
 		DisplayName string `json:"display_name,omitempty" example:"My MacBook" doc:"Name for this passkey; defaults to My Passkey when empty"`
-		// Response is the browser's PublicKeyCredential serialized with
-		// toJSON() (WebAuthn Level 3 RegistrationResponseJSON). It is kept as
-		// raw JSON and handed to the WebAuthn library unmodified, so every
-		// field the browser sends reaches the parser and none is rejected here.
+		// Response is the RegistrationResponseJSON the browser client sends
+		// (@simplewebauthn/browser startRegistration). It is kept as raw JSON
+		// and handed to the WebAuthn library unmodified, so every field the
+		// client sends reaches the parser and none is rejected here.
 		Response json.RawMessage `json:"response" doc:"The PublicKeyCredential from navigator.credentials.create(), serialized as RegistrationResponseJSON"`
 	}
 }
@@ -218,14 +241,7 @@ func (h *PasskeyHandler) FinishRegisterHandler(ctx context.Context, input *Finis
 		return resp, nil
 	}
 
-	// Get display name
-	displayName := input.Body.DisplayName
-	if displayName == "" {
-		displayName = "My Passkey"
-	}
-
-	// Complete registration
-	credential, err := h.webauthnService.FinishRegistration(contextUser, session, parsedResponse, displayName)
+	credential, err := h.webauthnService.FinishRegistration(contextUser, session, parsedResponse, passkeyName(input.Body.DisplayName))
 	if err != nil {
 		logger.AuthError(ctx, "passkey_register_finish_failed", err,
 			"user_id", contextUser.ID,
@@ -343,9 +359,9 @@ func (h *PasskeyHandler) BeginLoginHandler(ctx context.Context, input *BeginLogi
 type FinishLoginRequest struct {
 	Body struct {
 		ChallengeID string `json:"challenge_id" doc:"Challenge ID from begin login"`
-		// Response is the browser's PublicKeyCredential serialized with
-		// toJSON() (WebAuthn Level 3 AuthenticationResponseJSON), kept raw and
-		// handed to the WebAuthn library unmodified.
+		// Response is the AuthenticationResponseJSON the browser client sends
+		// (@simplewebauthn/browser startAuthentication), kept raw and handed to
+		// the WebAuthn library unmodified.
 		Response json.RawMessage `json:"response" doc:"The PublicKeyCredential from navigator.credentials.get(), serialized as AuthenticationResponseJSON"`
 	}
 }
@@ -672,9 +688,9 @@ type FinishSignupRequest struct {
 	Body struct {
 		ChallengeID string `json:"challenge_id" doc:"Challenge ID from begin signup"`
 		DisplayName string `json:"display_name,omitempty" example:"My MacBook" doc:"Name for this passkey; defaults to My Passkey when empty"`
-		// Response is the browser's PublicKeyCredential serialized with
-		// toJSON() (WebAuthn Level 3 RegistrationResponseJSON), kept raw and
-		// handed to the WebAuthn library unmodified.
+		// Response is the RegistrationResponseJSON the browser client sends
+		// (@simplewebauthn/browser startRegistration), kept raw and handed to
+		// the WebAuthn library unmodified.
 		Response       json.RawMessage `json:"response" doc:"The PublicKeyCredential from navigator.credentials.create(), serialized as RegistrationResponseJSON"`
 		TermsAccepted  bool            `json:"terms_accepted" doc:"Whether user accepted Terms of Service"`
 		TermsVersion   string          `json:"terms_version,omitempty" doc:"Accepted terms version identifier"`
@@ -743,11 +759,6 @@ func (h *PasskeyHandler) FinishSignupHandler(ctx context.Context, input *FinishS
 		return resp, nil
 	}
 
-	// Get display name
-	displayName := input.Body.DisplayName
-	if displayName == "" {
-		displayName = "My Passkey"
-	}
 	if !input.Body.TermsAccepted {
 		resp.Body.Success = false
 		resp.Body.Message = "You must accept the Terms of Service and Privacy Policy"
@@ -772,7 +783,7 @@ func (h *PasskeyHandler) FinishSignupHandler(ctx context.Context, input *FinishS
 		email,
 		session,
 		parsedResponse,
-		displayName,
+		passkeyName(input.Body.DisplayName),
 		contracts.LegalAcceptance{
 			TermsAcceptedAt: time.Now().UTC(),
 			TermsVersion:    input.Body.TermsVersion,

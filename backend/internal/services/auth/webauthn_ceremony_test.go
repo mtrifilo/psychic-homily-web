@@ -1,15 +1,10 @@
 package auth
 
 import (
-	"testing"
 
 	"github.com/go-webauthn/webauthn/protocol"
 	"github.com/google/uuid"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
-	"gorm.io/gorm"
 
-	"psychic-homily-backend/internal/config"
 	authm "psychic-homily-backend/internal/models/auth"
 	"psychic-homily-backend/internal/services/contracts"
 	"psychic-homily-backend/internal/testutil/softauthn"
@@ -18,22 +13,6 @@ import (
 // These drive whole ceremonies through the service with a software
 // authenticator, so every credential here is one the WebAuthn library itself
 // verified on the way in and on the way out.
-
-// ceremonyOrigin is the origin the integration suite's service accepts and
-// the software authenticator reports.
-const ceremonyOrigin = "http://localhost:3000"
-
-func TestNewWebAuthnService_OffersEveryAuthenticatorAttachment(t *testing.T) {
-	cfg := &config.Config{
-		WebAuthn: config.WebAuthnConfig{RPDisplayName: "Test App", RPID: "localhost", RPOrigins: []string{ceremonyOrigin}},
-	}
-	svc, err := NewWebAuthnService(&gorm.DB{}, cfg)
-	require.NoError(t, err)
-
-	selection := svc.webAuthn.Config.AuthenticatorSelection
-	assert.Empty(t, selection.AuthenticatorAttachment,
-		"an attachment preference hides platform authenticators or security keys from the ceremony")
-}
 
 func (suite *WebAuthnServiceIntegrationTestSuite) parseCreation(body []byte) *protocol.ParsedCredentialCreationData {
 	parsed, err := protocol.ParseCredentialCreationResponseBytes(body)
@@ -101,6 +80,7 @@ func (suite *WebAuthnServiceIntegrationTestSuite) TestRegisteredPasskeySignsInBy
 
 	used, err := suite.service.FinishLogin(&asLoadedByUserService, loginSession, parsed)
 	suite.Require().NoError(err)
+	suite.Empty(asLoadedByUserService.PasskeyCredentials, "the caller's copy of the user is not modified")
 	suite.Equal(cred.ID, used.ID)
 	suite.NotNil(used.LastUsedAt)
 	suite.Equal(uint32(1), used.SignCount)

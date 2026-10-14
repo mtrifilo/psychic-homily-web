@@ -1,10 +1,13 @@
 package auth
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/danielgtaylor/huma/v2"
 	"github.com/danielgtaylor/huma/v2/humatest"
@@ -12,9 +15,10 @@ import (
 	"github.com/go-webauthn/webauthn/webauthn"
 
 	"psychic-homily-backend/internal/api/handlers/shared/testhelpers"
+	"psychic-homily-backend/internal/api/middleware"
+	autherrors "psychic-homily-backend/internal/errors"
 	authm "psychic-homily-backend/internal/models/auth"
 	"psychic-homily-backend/internal/services/contracts"
-	"psychic-homily-backend/internal/testutil/softauthn"
 )
 
 // The browser sends what @simplewebauthn/browser v13 serializes, and huma
@@ -22,53 +26,22 @@ import (
 // runs, so these post that exact shape through a huma API: a field the
 // library adds and the server does not model must not turn into a 422.
 
-const wireOrigin = "http://localhost:3000"
-
-func wireWebAuthn(t *testing.T) *webauthn.WebAuthn {
-	t.Helper()
-	w, err := webauthn.New(&webauthn.Config{RPDisplayName: "Test", RPID: "localhost", RPOrigins: []string{wireOrigin}})
-	if err != nil {
-		t.Fatalf("webauthn.New: %v", err)
-	}
-	return w
-}
-
-// softRegistration returns a RegistrationResponseJSON body for a fresh
-// credential, plus the authenticator that holds it.
-func softRegistration(t *testing.T) (json.RawMessage, *softauthn.Authenticator) {
-	t.Helper()
-	options, _, err := wireWebAuthn(t).BeginRegistration(&authm.User{ID: 1})
-	if err != nil {
-		t.Fatalf("BeginRegistration: %v", err)
-	}
-	device := softauthn.New(wireOrigin)
-	body, err := device.Register(options)
-	if err != nil {
-		t.Fatalf("Register: %v", err)
-	}
-	return body, device
-}
-
-// softAssertion returns an AuthenticationResponseJSON body signed by device.
-func softAssertion(t *testing.T, device *softauthn.Authenticator) json.RawMessage {
-	t.Helper()
-	options, _, err := wireWebAuthn(t).BeginDiscoverableLogin()
-	if err != nil {
-		t.Fatalf("BeginDiscoverableLogin: %v", err)
-	}
-	body, err := device.Assert(options)
-	if err != nil {
-		t.Fatalf("Assert: %v", err)
-	}
-	return body
-}
-
 func newPasskeyWireAPI(t *testing.T, h *PasskeyHandler) humatest.TestAPI {
 	t.Helper()
 	api, withUser := newWireTestAPI(t)
 	huma.Post(api, "/auth/passkey/login/begin", h.BeginLoginHandler)
 	huma.Post(api, "/auth/passkey/login/finish", h.FinishLoginHandler)
+	huma.Post(api, "/auth/passkey/signup/begin", h.BeginSignupHandler)
 	huma.Post(api, "/auth/passkey/signup/finish", h.FinishSignupHandler)
+	freshSession := huma.Middlewares{func(ctx huma.Context, next func(huma.Context)) {
+		next(huma.WithValue(ctx, middleware.SessionAuthTimeContextKey, time.Now()))
+	}}
+	huma.Register(api, huma.Operation{
+		OperationID: "passkey-register-begin",
+		Method:      http.MethodPost,
+		Path:        "/auth/passkey/register/begin",
+		Middlewares: append(withUser, freshSession...),
+	}, h.BeginRegisterHandler)
 	huma.Register(api, huma.Operation{
 		OperationID: "passkey-register-finish",
 		Method:      http.MethodPost,
@@ -97,6 +70,19 @@ func requireWireSuccess(t *testing.T, resp *httptest.ResponseRecorder) {
 	}
 }
 
+// wirePublicKey returns options.publicKey from a begin response, failing the
+// test when the wrapper or its challenge is missing.
+func wirePublicKey(t *testing.T, resp *httptest.ResponseRecorder) map[string]any {
+	t.Helper()
+	requireWireSuccess(t, resp)
+	options, _ := decodeWireBody(t, resp.Body.Bytes())["options"].(map[string]any)
+	publicKey, _ := options["publicKey"].(map[string]any)
+	if challenge, _ := publicKey["challenge"].(string); challenge == "" {
+		t.Fatalf("expected options.publicKey.challenge, got %s", resp.Body.String())
+	}
+	return publicKey
+}
+
 // The frontend hands options.publicKey to the browser library, so the begin
 // endpoints must keep the CredentialAssertion/CredentialCreation wrapper.
 func TestPasskeyWire_LoginBeginOptionsCarryPublicKeyWrapper(t *testing.T) {
@@ -108,14 +94,92 @@ func TestPasskeyWire_LoginBeginOptionsCarryPublicKeyWrapper(t *testing.T) {
 	}
 	api := newPasskeyWireAPI(t, testPasskeyHandlerWithMocks(mockWA, &testhelpers.MockJWTService{}, &testhelpers.MockUserService{}))
 
-	resp := api.Post("/auth/passkey/login/begin", map[string]any{})
-	if resp.Code != http.StatusOK {
-		t.Fatalf("status %d: %s", resp.Code, resp.Body.String())
+	wirePublicKey(t, api.Post("/auth/passkey/login/begin", map[string]any{}))
+}
+
+func TestPasskeyWire_RegisterBeginOptionsCarryPublicKeyWrapper(t *testing.T) {
+	mockWA := &testhelpers.MockWebAuthnService{
+		BeginRegistrationFn: func(user *authm.User) (*protocol.CredentialCreation, *webauthn.SessionData, error) {
+			return wireWebAuthn(t).BeginRegistration(user)
+		},
+		StoreChallengeFn: func(uint, *webauthn.SessionData, string) (string, error) { return "c-1", nil },
 	}
-	options, _ := decodeWireBody(t, resp.Body.Bytes())["options"].(map[string]any)
-	publicKey, _ := options["publicKey"].(map[string]any)
-	if challenge, _ := publicKey["challenge"].(string); challenge == "" {
-		t.Fatalf("expected options.publicKey.challenge, got %s", resp.Body.String())
+	api := newPasskeyWireAPI(t, testPasskeyHandlerWithMocks(mockWA, &testhelpers.MockJWTService{}, &testhelpers.MockUserService{}))
+
+	wirePublicKey(t, api.Post("/auth/passkey/register/begin", map[string]any{"display_name": "Laptop"}))
+}
+
+// A signup credential's user handle is the reserved account id in the
+// 8-byte WebAuthnID encoding, the value login compares it against.
+func TestPasskeyWire_SignupBeginOptionsCarryReservedIDHandle(t *testing.T) {
+	reserved := &authm.User{ID: 77}
+	mockWA := &testhelpers.MockWebAuthnService{
+		BeginRegistrationForEmailFn: func(string) (*protocol.CredentialCreation, *webauthn.SessionData, error) {
+			return wireWebAuthn(t).BeginRegistration(reserved)
+		},
+		StoreChallengeWithEmailFn: func(string, *webauthn.SessionData, string) (string, error) { return "c-1", nil },
+	}
+	users := &testhelpers.MockUserService{GetUserByEmailFn: func(string) (*authm.User, error) { return nil, nil }}
+	api := newPasskeyWireAPI(t, testPasskeyHandlerWithMocks(mockWA, &testhelpers.MockJWTService{}, users))
+
+	publicKey := wirePublicKey(t, api.Post("/auth/passkey/signup/begin", map[string]any{
+		"email":            "new@example.com",
+		"terms_accepted":   true,
+		"terms_version":    "v1",
+		"age_confirmed":    true,
+		"min_age_attested": 16,
+	}))
+	user, _ := publicKey["user"].(map[string]any)
+	encoded, _ := user["id"].(string)
+	handle, err := base64.RawURLEncoding.DecodeString(encoded)
+	if err != nil {
+		t.Fatalf("decode user.id %q: %v", encoded, err)
+	}
+	if id, ok := authm.UserIDFromWebAuthnID(handle); !ok || id != reserved.ID {
+		t.Fatalf("expected user.id to encode %d, got %q", reserved.ID, encoded)
+	}
+}
+
+// An invalid name is refused at begin; finish stores the default instead of
+// failing after the authenticator has written the credential.
+func TestPasskeyWire_RegisterBeginRefusesInvalidName(t *testing.T) {
+	for name, displayName := range map[string]string{
+		"too long":          strings.Repeat("x", 101),
+		"control character": "Laptop\u0000",
+	} {
+		t.Run(name, func(t *testing.T) {
+			var began bool
+			mockWA := &testhelpers.MockWebAuthnService{
+				BeginRegistrationFn: func(*authm.User) (*protocol.CredentialCreation, *webauthn.SessionData, error) {
+					began = true
+					return &protocol.CredentialCreation{}, &webauthn.SessionData{}, nil
+				},
+			}
+			api := newPasskeyWireAPI(t, testPasskeyHandlerWithMocks(mockWA, &testhelpers.MockJWTService{}, &testhelpers.MockUserService{}))
+
+			resp := api.Post("/auth/passkey/register/begin", map[string]any{"display_name": displayName})
+			body := decodeWireBody(t, resp.Body.Bytes())
+			if success, _ := body["success"].(bool); success || began {
+				t.Fatalf("expected a refusal before any challenge: %s", resp.Body.String())
+			}
+			if code, _ := body["error_code"].(string); code != autherrors.CodeValidationFailed {
+				t.Errorf("expected %s, got %s", autherrors.CodeValidationFailed, resp.Body.String())
+			}
+		})
+	}
+}
+
+func TestPasskeyName(t *testing.T) {
+	for raw, want := range map[string]string{
+		"":                       defaultPasskeyName,
+		"   ":                    defaultPasskeyName,
+		"  Laptop  ":             "Laptop",
+		strings.Repeat("x", 101): defaultPasskeyName,
+		"Laptop\u0000":           defaultPasskeyName,
+	} {
+		if got := passkeyName(raw); got != want {
+			t.Errorf("passkeyName(%q) = %q, want %q", raw, got, want)
+		}
 	}
 }
 
