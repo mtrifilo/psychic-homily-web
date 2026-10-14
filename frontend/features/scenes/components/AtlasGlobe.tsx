@@ -1101,8 +1101,8 @@ export function AtlasGlobe() {
   // At every width it gives up --topbar-height, the token TopBar's height
   // reads: below `xl` it ends at the tab bar's top edge, where the site footer
   // is hidden on this route (components/layout/footerVisibility.ts), and at
-  // `xl` it ends at the viewport bottom (or at the banner's top, below), so
-  // none of the footer shows until the page scrolls.
+  // `xl` it ends at the viewport bottom less the home-indicator inset (or at
+  // the banner's top, below), where the footer starts.
   // While the cookie consent banner is up it publishes its height as
   // --cookie-banner-height. Below `xl` it sits directly above the tab bar's
   // band, so the box gives up that height too. At `xl` it owns the viewport

@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import { AppShell } from './AppShell'
-import { BOTTOM_TAB_BAR_BOX } from '@/test/layoutContracts'
+import { BOTTOM_TAB_BAR_BOX, COOKIE_BANNER_HEIGHT } from '@/test/layoutContracts'
 
 // AppShell is an async Server Component that resolves the effective nav mode
 // from the authenticated account first, then the nav-mode cookie (PSY-1117).
@@ -118,8 +118,8 @@ describe('AppShell', () => {
     // at `xl` the banner's height already contains the home-indicator inset,
     // so the larger of the two is reserved.
     expect(container.firstChild).toHaveClass(
-      `pb-[calc(${BOTTOM_TAB_BAR_BOX}+var(--cookie-banner-height,0px))]`,
-      'xl:pb-[max(env(safe-area-inset-bottom),var(--cookie-banner-height,0px))]'
+      `pb-[calc(${BOTTOM_TAB_BAR_BOX}+${COOKIE_BANNER_HEIGHT})]`,
+      `xl:pb-[max(env(safe-area-inset-bottom),${COOKIE_BANNER_HEIGHT})]`
     )
   })
 

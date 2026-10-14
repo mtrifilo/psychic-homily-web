@@ -655,6 +655,22 @@ describe('BottomTabBar', () => {
       }
     })
 
+    // The board's quiet treatment: a separator of its own above the block,
+    // 36px muted rows, a trailing chevron as the only glyph.
+    it('renders the block as quiet rows under their own separator', async () => {
+      const { sheet } = await openAccountSheet()
+      const rows = legalSheetRows.map(row => legalRow(sheet, row))
+      const separator = (rows[0].closest('[data-slot]') ?? rows[0]).previousElementSibling
+      expect(separator).toHaveClass('border-t')
+      expect(separator?.textContent).toBe('')
+      for (const row of rows) {
+        expect(row).toHaveClass('h-9', 'text-sm', 'text-muted-foreground')
+        const glyphs = row.querySelectorAll('svg')
+        expect(glyphs).toHaveLength(1)
+        expect(row.lastElementChild).toBe(glyphs[0])
+      }
+    })
+
     it('links Privacy to /privacy and Terms to /terms without prefetching', async () => {
       const { sheet } = await openAccountSheet()
       const privacy = within(sheet).getByRole('link', { name: 'Privacy' })

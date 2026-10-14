@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { installImmediateResizeObserver } from '@/test/mocks/resizeObserver'
+import { COOKIE_BANNER_HEIGHT_VAR } from '@/test/layoutContracts'
 import { CookieConsentBanner } from './CookieConsentBanner'
 
 // --- Mocks ---
@@ -159,9 +160,9 @@ describe('CookieConsentBanner', () => {
       expect(document.body.style.paddingBottom).toBe('')
     })
 
-    // The bar's height is published on <html> as --cookie-banner-height (the
-    // name AtlasGlobe's frame subtracts to end above the bar), and follows the
-    // bar as it re-wraps.
+    // The bar's height is published on <html> under the shared contract name
+    // (test/layoutContracts.ts) that AppShell's padding reserves and
+    // AtlasGlobe's frame subtracts, and follows the bar as it re-wraps.
     it('publishes its height on <html> while mounted and tracks resizes', () => {
       let height = 53
       const heightSpy = vi
@@ -171,14 +172,14 @@ describe('CookieConsentBanner', () => {
       const root = document.documentElement
       try {
         const { unmount } = render(<CookieConsentBanner />)
-        expect(root.style.getPropertyValue('--cookie-banner-height')).toBe('53px')
+        expect(root.style.getPropertyValue(COOKIE_BANNER_HEIGHT_VAR)).toBe('53px')
 
         height = 101
         ro.fireResize(390)
-        expect(root.style.getPropertyValue('--cookie-banner-height')).toBe('101px')
+        expect(root.style.getPropertyValue(COOKIE_BANNER_HEIGHT_VAR)).toBe('101px')
 
         unmount()
-        expect(root.style.getPropertyValue('--cookie-banner-height')).toBe('')
+        expect(root.style.getPropertyValue(COOKIE_BANNER_HEIGHT_VAR)).toBe('')
       } finally {
         heightSpy.mockRestore()
         ro.restore()
@@ -188,7 +189,7 @@ describe('CookieConsentBanner', () => {
     it('withdraws the published height when consent hides the bar', () => {
       const { rerender } = render(<CookieConsentBanner />)
       const root = document.documentElement
-      expect(root.style.getPropertyValue('--cookie-banner-height')).not.toBe('')
+      expect(root.style.getPropertyValue(COOKIE_BANNER_HEIGHT_VAR)).not.toBe('')
 
       mockUseCookieConsent.mockReturnValue({
         showBanner: false,
@@ -202,7 +203,7 @@ describe('CookieConsentBanner', () => {
         consent: null,
       })
       rerender(<CookieConsentBanner />)
-      expect(root.style.getPropertyValue('--cookie-banner-height')).toBe('')
+      expect(root.style.getPropertyValue(COOKIE_BANNER_HEIGHT_VAR)).toBe('')
     })
 
     // PSY-1820 safe-area contract. The bottom inset is DIRECTIONAL and easy to

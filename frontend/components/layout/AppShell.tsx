@@ -39,8 +39,10 @@ import { BottomTabBar } from './nav/BottomTabBar'
 // only while it is up): below `xl` the banner sits on top of the bar, so the
 // two add; at `xl` the banner owns the bottom edge and its height already
 // contains the home-indicator inset, so the larger of the two is reserved. A
-// page sized to the viewport less the bar and the banner (the Atlas frame)
-// therefore makes a document exactly the viewport's height.
+// page that fills the viewport between the top bar and the bar plus the
+// banner (the Atlas frame) therefore adds up to a document of 100dvh; the
+// min-h-screen floor (100vh) is taller than that while a mobile browser's
+// toolbar is showing.
 //
 // Order matters: the skip-to-content link is the first focusable element (jumps
 // keyboard users past the banner/nav straight to <main id="main-content">, set

@@ -123,14 +123,17 @@
    * subtract `var(--bottom-tab-bar-height) + env(safe-area-inset-bottom)` below
    * `xl` — current subtractors: AppShell padding, Sidebar + AdminSidebar
    * heights, AtlasGlobe height, CookieConsentBanner bottom offset, CityFilters
-   * popover max-height (on soft-keyboard viewports only). Below `xl`
-   * AtlasGlobe's height also subtracts --topbar-height so it ends at the bar,
-   * and its route is listed in components/layout/footerVisibility.ts so the
-   * site footer does not show under it. AtlasGlobe also
-   * subtracts --cookie-banner-height, which CookieConsentBanner publishes on
-   * <html> only while it is up, since the banner sits above the bar's band
-   * there; AppShell's padding reserves the same height, so the two cancel and
-   * the Atlas page stays the viewport's height. Floating overlays
+   * popover max-height (on soft-keyboard viewports only). At every width
+   * AtlasGlobe's height also subtracts --topbar-height (TopBar's own height
+   * token): below `xl` it ends at the bar, and its route is listed in
+   * components/layout/footerVisibility.ts so the site footer does not show
+   * under it; at `xl` it ends at the viewport bottom less the home-indicator
+   * inset. AtlasGlobe also subtracts --cookie-banner-height, which
+   * CookieConsentBanner publishes on <html> only while it is up, since the
+   * banner sits above the bar's band there; AppShell's padding reserves the
+   * same height, so on /atlas the two cancel and the document is 100dvh.
+   * (AppShell's min-h-screen floor is 100vh, which exceeds 100dvh while a
+   * mobile browser's toolbar is showing.) Floating overlays
    * positioned in JS (FirstSaveHint) measure the bar through its
    * `data-bottom-tab-bar` attribute instead, since this calc() cannot be read
    * back as a number. */

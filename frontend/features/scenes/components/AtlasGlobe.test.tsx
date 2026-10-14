@@ -3,6 +3,7 @@ import { act, fireEvent, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import type { MutableRefObject } from 'react'
 import { renderWithProviders } from '@/test/utils'
+import { COOKIE_BANNER_HEIGHT } from '@/test/layoutContracts'
 import type { SceneListResponse } from '../types'
 import type { PlaceableScene } from './globeTypes'
 import type { AtlasMapFailureClass } from '../atlasViewport'
@@ -773,9 +774,9 @@ describe('AtlasGlobe', () => {
     renderWithProviders(<AtlasGlobe />)
     const frame = screen.getByTestId('atlas-pane-frame')
     expect(frame).toHaveClass(
-      'h-[calc(100dvh-var(--topbar-height)-var(--bottom-tab-bar-height)-env(safe-area-inset-bottom)-var(--cookie-banner-height,0px))]',
-      'xl:h-[calc(100dvh-var(--topbar-height)-max(env(safe-area-inset-bottom),var(--cookie-banner-height,0px)))]',
-      'min-h-[calc(480px-var(--cookie-banner-height,0px))]',
+      `h-[calc(100dvh-var(--topbar-height)-var(--bottom-tab-bar-height)-env(safe-area-inset-bottom)-${COOKIE_BANNER_HEIGHT})]`,
+      `xl:h-[calc(100dvh-var(--topbar-height)-max(env(safe-area-inset-bottom),${COOKIE_BANNER_HEIGHT}))]`,
+      `min-h-[calc(480px-${COOKIE_BANNER_HEIGHT})]`,
     )
   })
 
