@@ -388,7 +388,9 @@ func TestPasskeyLoginBeginWire_UnknownAndPasskeylessAnswerIdentically(t *testing
 	}
 }
 
-var errNoPasskeysForTest = errors.New("user has no registered passkeys")
+// errNoPasskeysForTest is BeginLogin's refusal, with a message of its own so
+// the test shows the handler answers with its own copy instead.
+var errNoPasskeysForTest = autherrors.NewAuthError(autherrors.CodeInvalidCredentials, "service copy", errors.New("user 3 has no registered passkeys"))
 
 // requireIdenticalResponses fails unless a and b carry the same status, the
 // same headers and the same body bytes.

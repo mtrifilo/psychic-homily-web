@@ -103,12 +103,29 @@ func (s *WebAuthnService) BeginRegistration(user *authm.User) (*protocol.Credent
 	return options, session, nil
 }
 
-// FinishRegistration completes the passkey registration process
+// invalidRegistrationMessage is the user-facing message of the
+// CodeValidationFailed refusals FinishRegistration and
+// FinishSignupRegistrationWithLegal return for a registration that fails
+// verification.
+const invalidRegistrationMessage = "Invalid credential response"
+
+// refuseRegistration is the refusal for a registration response that fails
+// verification against its session: a signature, origin, challenge, relying
+// party or flag the ceremony does not accept.
+func refuseRegistration(internal error) *apperrors.AuthError {
+	return apperrors.NewAuthError(apperrors.CodeValidationFailed, invalidRegistrationMessage, internal)
+}
+
+// FinishRegistration verifies a registration response for user and stores
+// the credential it creates.
+//
+// A refusal is a CodeValidationFailed *apperrors.AuthError for a response
+// that fails verification. Any other error means the credential could not be
+// stored.
 func (s *WebAuthnService) FinishRegistration(user *authm.User, session *webauthn.SessionData, response *protocol.ParsedCredentialCreationData, displayName string) (*authm.WebAuthnCredential, error) {
-	// Complete the registration
 	credential, err := s.webAuthn.CreateCredential(user, *session, response)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create credential: %w", err)
+		return nil, refuseRegistration(fmt.Errorf("create credential: %w", err))
 	}
 
 	// Convert to our model
@@ -122,18 +139,32 @@ func (s *WebAuthnService) FinishRegistration(user *authm.User, session *webauthn
 	return webauthnCred, nil
 }
 
-// BeginLogin starts the passkey login process
+// noPasskeysMessage is the user-facing message of BeginLogin's refusal.
+const noPasskeysMessage = "No passkeys registered for this account"
+
+func refuseLoginBegin(internal error) *apperrors.AuthError {
+	return apperrors.NewAuthError(apperrors.CodeInvalidCredentials, noPasskeysMessage, internal)
+}
+
+// BeginLogin starts an email-specific passkey login for user, loading the
+// account's credentials into user so the options name them.
+//
+// A refusal is a CodeInvalidCredentials *apperrors.AuthError for an account
+// that does not exist or holds no passkey. Any other error means the account
+// could not be read or the ceremony could not start.
 func (s *WebAuthnService) BeginLogin(user *authm.User) (*protocol.CredentialAssertion, *webauthn.SessionData, error) {
 	if user == nil {
 		return nil, nil, fmt.Errorf("no user to begin login for")
 	}
-	// Load user's credentials
 	if err := s.db.Preload("PasskeyCredentials").First(user, user.ID).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, nil, refuseLoginBegin(fmt.Errorf("user %d not found: %w", user.ID, err))
+		}
 		return nil, nil, fmt.Errorf("failed to load user: %w", err)
 	}
 
 	if len(user.PasskeyCredentials) == 0 {
-		return nil, nil, fmt.Errorf("user has no registered passkeys")
+		return nil, nil, refuseLoginBegin(fmt.Errorf("user %d has no registered passkeys", user.ID))
 	}
 
 	// Create login options
@@ -186,8 +217,10 @@ func signInLookupError(what string, err error) error {
 	return fmt.Errorf("failed to load %s: %w", what, err)
 }
 
-// FinishLogin completes an email-specific passkey login for user and returns
-// the credential it used.
+// FinishLogin completes an email-specific passkey login for the account
+// user.ID and returns that account, as loaded for the decision with its
+// OAuth accounts and preferences and without its credentials, and the
+// credential it used.
 //
 // Its errors come in two kinds. A refusal is an *apperrors.AuthError:
 // CodeInvalidCredentials when the assertion does not prove a credential of an
@@ -201,35 +234,39 @@ func signInLookupError(what string, err error) error {
 // the credential's holder learns it, and a refused sign-in writes nothing. A
 // clone warning (a sign count that did not advance) is recorded on the
 // credential and does not refuse the sign-in.
-func (s *WebAuthnService) FinishLogin(user *authm.User, session *webauthn.SessionData, response *protocol.ParsedCredentialAssertionData) (*authm.WebAuthnCredential, error) {
+func (s *WebAuthnService) FinishLogin(user *authm.User, session *webauthn.SessionData, response *protocol.ParsedCredentialAssertionData) (*authm.User, *authm.WebAuthnCredential, error) {
 	// Validation checks the assertion against the account's stored
 	// credentials, which the caller's copy of the user need not hold, so it
 	// runs against a fresh load and leaves the caller's copy untouched. The
-	// account state the sign-in is decided on is this load's.
+	// account state the sign-in is decided on, and the account returned, are
+	// this load's.
 	var owner authm.User
-	if err := s.db.Preload("PasskeyCredentials").First(&owner, user.ID).Error; err != nil {
+	if err := s.db.Preload("PasskeyCredentials").Preload("OAuthAccounts").Preload("Preferences").
+		First(&owner, user.ID).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return nil, apperrors.NewAuthError(apperrors.CodeInvalidCredentials, accountNotFoundMessage, err)
+			return nil, nil, apperrors.NewAuthError(apperrors.CodeInvalidCredentials, accountNotFoundMessage, err)
 		}
-		return nil, signInLookupError("user", err)
+		return nil, nil, signInLookupError("user", err)
 	}
 
 	credential, err := s.webAuthn.ValidateLogin(&owner, *session, response)
 	if err != nil {
-		return nil, refusePasskey(fmt.Errorf("validate login: %w", err))
+		return nil, nil, refusePasskey(fmt.Errorf("validate login: %w", err))
 	}
 	if !owner.CanSignIn() {
-		return nil, refuseInactiveAccount(owner.ID)
+		return nil, nil, refuseInactiveAccount(owner.ID)
 	}
 
 	var webauthnCred authm.WebAuthnCredential
 	if err := s.db.Where("user_id = ? AND credential_id = ?", owner.ID, credential.ID).First(&webauthnCred).Error; err != nil {
-		return nil, signInLookupError("credential", err)
+		return nil, nil, signInLookupError("credential", err)
 	}
 	if err := s.recordCredentialUse(&webauthnCred, credential); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	return &webauthnCred, nil
+
+	owner.PasskeyCredentials = nil
+	return &owner, &webauthnCred, nil
 }
 
 // recordCredentialUse writes what a validated assertion changes on the stored
@@ -394,7 +431,7 @@ var (
 )
 
 // invalidChallengeMessage is the user-facing message of the
-// CodeValidationFailed refusals ConsumeChallenge and
+// CodeValidationFailed refusals ConsumeChallenge, ConsumeSignupChallenge and
 // ConsumeRegistrationChallenge return.
 const invalidChallengeMessage = "Invalid or expired challenge"
 
@@ -435,6 +472,25 @@ func checkConsumed(challenge *authm.WebAuthnChallenge, result *gorm.DB) (*authm.
 	return challenge, nil
 }
 
+// consumeOperationChallenge is consumeChallenge with its outcome classified
+// for the operation-generic consumes: errRegistrationOperation for the
+// registration operation, a CodeValidationFailed refusal for a malformed id
+// or a challenge that does not exist or has expired, any other error when the
+// challenge could not be read.
+func (s *WebAuthnService) consumeOperationChallenge(challengeID string, operation string) (*authm.WebAuthnChallenge, error) {
+	if operation == contracts.WebAuthnRegistrationOperation {
+		return nil, errRegistrationOperation
+	}
+	if !isChallengeID(challengeID) {
+		return nil, refuseChallenge(errChallengeNotFound)
+	}
+	challenge, err := s.consumeChallenge(challengeID, operation)
+	if err != nil {
+		return nil, refuseChallenge(err)
+	}
+	return challenge, nil
+}
+
 func decodeChallengeSession(challenge *authm.WebAuthnChallenge) (*webauthn.SessionData, error) {
 	var session webauthn.SessionData
 	if err := json.Unmarshal(challenge.SessionData, &session); err != nil {
@@ -452,15 +508,9 @@ func decodeChallengeSession(challenge *authm.WebAuthnChallenge) (*webauthn.Sessi
 // could not be read, or operation is contracts.WebAuthnRegistrationOperation,
 // whose challenges only ConsumeRegistrationChallenge consumes.
 func (s *WebAuthnService) ConsumeChallenge(challengeID string, operation string) (*webauthn.SessionData, uint, error) {
-	if operation == contracts.WebAuthnRegistrationOperation {
-		return nil, 0, errRegistrationOperation
-	}
-	if !isChallengeID(challengeID) {
-		return nil, 0, refuseChallenge(errChallengeNotFound)
-	}
-	challenge, err := s.consumeChallenge(challengeID, operation)
+	challenge, err := s.consumeOperationChallenge(challengeID, operation)
 	if err != nil {
-		return nil, 0, refuseChallenge(err)
+		return nil, 0, err
 	}
 	session, err := decodeChallengeSession(challenge)
 	if err != nil {
@@ -627,13 +677,10 @@ func (s *WebAuthnService) StoreSignupChallenge(signup contracts.SignupChallenge,
 
 // ConsumeSignupChallenge removes a signup challenge and returns it with the
 // address and the consent StoreSignupChallenge stored beside it. Every later
-// call for the same id fails, as with ConsumeChallenge. It returns an error
-// for contracts.WebAuthnRegistrationOperation, as ConsumeChallenge does.
+// call for the same id fails, as with ConsumeChallenge. Its errors are
+// ConsumeChallenge's.
 func (s *WebAuthnService) ConsumeSignupChallenge(challengeID string, operation string) (*webauthn.SessionData, contracts.SignupChallenge, error) {
-	if operation == contracts.WebAuthnRegistrationOperation {
-		return nil, contracts.SignupChallenge{}, errRegistrationOperation
-	}
-	challenge, err := s.consumeChallenge(challengeID, operation)
+	challenge, err := s.consumeOperationChallenge(challengeID, operation)
 	if err != nil {
 		return nil, contracts.SignupChallenge{}, err
 	}
@@ -649,7 +696,14 @@ func (s *WebAuthnService) ConsumeSignupChallenge(challengeID string, operation s
 	}, nil
 }
 
-// FinishSignupRegistrationWithLegal completes registration and records legal acceptance metadata.
+// FinishSignupRegistrationWithLegal verifies a signup's registration
+// response, then creates the account under the id its session reserved, with
+// the acceptance recorded, its default preferences and the credential.
+//
+// A refusal is an *apperrors.AuthError: CodeValidationFailed for a response
+// that fails verification, CodeUserExists for an address an account already
+// holds. Any other error means the account was not created, or was created
+// and could not be read back.
 func (s *WebAuthnService) FinishSignupRegistrationWithLegal(
 	email string,
 	session *webauthn.SessionData,
@@ -664,7 +718,7 @@ func (s *WebAuthnService) FinishSignupRegistrationWithLegal(
 
 	credential, err := s.webAuthn.CreateCredential(signupAccount(reservedID, email), *session, response)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create credential: %w", err)
+		return nil, refuseRegistration(fmt.Errorf("create credential: %w", err))
 	}
 
 	// Start a transaction to create user and credential atomically
