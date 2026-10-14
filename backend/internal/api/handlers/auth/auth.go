@@ -266,7 +266,8 @@ func (h *AuthHandler) LoginHandler(ctx context.Context, input *LoginRequest) (*L
 				return resp, nil
 			case autherrors.CodeAccountInactive:
 				// An account that may not sign in (authm.User.CanSignIn:
-				// deactivated or soft-deleted). The account exists in a known state and the service is healthy, so this is NOT a
+				// deactivated or soft-deleted). The account exists in a
+				// known state and the service is healthy, so this is NOT a
 				// fail-closed 5xx — return HTTP 200 with the distinct
 				// ACCOUNT_INACTIVE code so the frontend can show contact-support
 				// copy. The password check already ran (no extra enumeration

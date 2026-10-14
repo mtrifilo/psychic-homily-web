@@ -184,9 +184,10 @@ func NewUserService(database *gorm.DB) *UserService {
 //
 // Returns a typed *apperrors.AuthError for each refusal: CodeOAuthLinkRefused
 // when the address already belongs to an account the identity is not attached
-// to, and CodeAccountInactive when the identity resolves to an account that
-// may not sign in (authm.User.CanSignIn). Callers that render a refusal
-// differently from a fault must discriminate on the code.
+// to, CodeUserExists when a concurrent signup claims the address first, and
+// CodeAccountInactive when the identity resolves to an account that may not
+// sign in (authm.User.CanSignIn). Callers that render a refusal differently
+// from a fault must discriminate on the code.
 func (s *UserService) FindOrCreateUser(gothUser goth.User, provider string) (*authm.User, error) {
 	return s.findOrCreateOAuthUser(gothUser, provider, nil, false)
 }
