@@ -71,7 +71,7 @@ func TestInRadioTrackCandidateView(t *testing.T) {
 		{"no keys", nil, nil, false, false, false},
 	}
 	for _, c := range cases {
-		row := radioTrackCandidateRow{ArtistKeys: c.keys, ArtistIDs: c.artists, ReleaseLinked: c.release}
+		row := radioTrackCandidateRow{ArtistKeys: c.keys, ArtistIDs: c.artists, CreditedReleaseLinked: c.release}
 		if got := inRadioTrackCandidateView(row, unlinked, candidates); got != c.wantUnlinked {
 			t.Errorf("%s: unlinked = %v, want %v", c.name, got, c.wantUnlinked)
 		}

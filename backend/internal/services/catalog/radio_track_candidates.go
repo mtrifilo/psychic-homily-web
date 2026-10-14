@@ -64,17 +64,19 @@ type radioTrackCandidateRow struct {
 	MBReleaseIDs       pq.StringArray `gorm:"column:mb_release_ids;type:text[]"`
 	ArtistKeys         pq.StringArray `gorm:"column:artist_keys;type:text[]"`
 	ArtistIDs          pq.Int64Array  `gorm:"column:artist_ids;type:bigint[]"`
-	ReleaseLinked      bool           `gorm:"column:release_linked"`
-	NonLatinSpelling   bool           `gorm:"column:non_latin_spelling"`
-	VariantReleaseID   bool           `gorm:"column:variant_release_id"`
+	// CreditedReleaseLinked is true when some play of the track, at any
+	// time, is linked to a release credited to that play's linked artist.
+	CreditedReleaseLinked bool `gorm:"column:credited_release_linked"`
+	NonLatinSpelling      bool `gorm:"column:non_latin_spelling"`
+	VariantReleaseID      bool `gorm:"column:variant_release_id"`
 }
 
 // radioTrackCandidatesSQL returns every qualifying track with its counts or,
 // when no track qualifies, one row whose track_id is NULL. Every row carries
 // untracked_plays: the plays in the window, not excluded and not ambiguous,
-// whose key maps to no keyed track. release_linked reads every play of the
-// track, whatever its window, exclusion or match state. Parameters: the
-// window's first air date, then the play floor.
+// whose key maps to no keyed track. credited_release_linked reads every play
+// of the track, whatever its window, exclusion or match state. Parameters:
+// the window's first air date, then the play floor.
 var radioTrackCandidatesSQL = `
 WITH plays AS MATERIALIZED (
   SELECT ` + radioTrackKeyColumnsSQL + `,
@@ -96,14 +98,15 @@ tracked AS MATERIALIZED (
 ),
 credited AS MATERIALIZED (
   SELECT DISTINCT t.id AS track_id
-  FROM radio_plays p
-  JOIN radio_track_keys tk
-    ON tk.artist_key = radio_track_artist_key(p.artist_name)
-   AND tk.title_key = radio_track_title_key(p.track_title)
-  JOIN radio_tracks t ON t.id = tk.track_id AND NOT t.unkeyed
-  WHERE p.release_id IS NOT NULL
-    AND EXISTS (SELECT 1 FROM artist_releases ar
-                WHERE ar.release_id = p.release_id AND ar.artist_id = p.artist_id)
+  FROM (
+    SELECT ` + radioTrackKeyColumnsSQL + `
+    FROM radio_plays p
+    WHERE p.release_id IS NOT NULL
+      AND p.artist_id IS NOT NULL
+      AND EXISTS (SELECT 1 FROM artist_releases ar
+                  WHERE ar.release_id = p.release_id AND ar.artist_id = p.artist_id)
+  ) pl` + radioTrackJoinSQL + `
+  WHERE t.id IS NOT NULL
 ),
 qualifying AS (
   SELECT track_id,
@@ -119,8 +122,8 @@ qualifying AS (
          coalesce(array_agg(DISTINCT artist_id ORDER BY artist_id)
                   FILTER (WHERE artist_id IS NOT NULL), '{}') AS artist_ids,
          coalesce(bool_or(non_latin), false) AS non_latin_spelling,
-         -- A tagged play whose title the key strips is a live, remix, edit
-         -- or bracketed version, so its release id may be that version's.
+         -- A tagged play whose title the key strips to a shorter form names
+         -- a version of the track, so its release id may be that version's.
          bool_or(mb_release_id IS NOT NULL AND title_norm IS DISTINCT FROM track_title_key) AS variant_release_id
   FROM tracked
   WHERE track_id IS NOT NULL
@@ -130,7 +133,7 @@ qualifying AS (
 )
 SELECT u.untracked_plays, q.track_id, q.play_count, q.station_row_count, q.station_family_count,
        q.show_count, q.first_aired_on, q.last_aired_on, q.mb_release_ids, q.artist_keys,
-       q.artist_ids, q.track_id IN (SELECT track_id FROM credited) AS release_linked,
+       q.artist_ids, q.track_id IN (SELECT track_id FROM credited) AS credited_release_linked,
        q.non_latin_spelling, q.variant_release_id
 FROM (SELECT count(*) AS untracked_plays FROM tracked WHERE track_id IS NULL) u
 LEFT JOIN qualifying q ON true`
@@ -142,7 +145,7 @@ func inRadioTrackCandidateView(row radioTrackCandidateRow, view contracts.RadioT
 	artistLinked := len(row.ArtistIDs) > 0
 	switch view {
 	case contracts.RadioTrackCandidateViewUnlinked:
-		return artistLinked && !row.ReleaseLinked
+		return artistLinked && !row.CreditedReleaseLinked
 	case contracts.RadioTrackCandidateViewUnmatched:
 		return !artistLinked && slices.ContainsFunc(row.ArtistKeys, func(key string) bool { return artistCandidateKeys[key] })
 	}
@@ -159,8 +162,8 @@ var radioTrackCandidateSortKeys = map[contracts.RadioCandidateSort]func(contract
 // rankRadioTrackCandidates scores the rows, assigns the lanes and orders the
 // candidates by the sort's metric, descending, then by score, the most recent
 // play and the track id. ArtistCandidateKeys holds the row keys found in
-// artistCandidateKeys; the other evidence fields are left empty. Every row
-// must have a non-nil TrackID.
+// artistCandidateKeys, in key order until the evidence orders them; the other
+// evidence fields are left empty. Every row must have a non-nil TrackID.
 func rankRadioTrackCandidates(rows []radioTrackCandidateRow, artistCandidateKeys map[string]bool, sort contracts.RadioCandidateSort) []contracts.RadioTrackCandidate {
 	candidates := make([]contracts.RadioTrackCandidate, 0, len(rows))
 	for _, row := range rows {
@@ -174,19 +177,16 @@ func rankRadioTrackCandidates(rows []radioTrackCandidateRow, artistCandidateKeys
 				candidateKeys = append(candidateKeys, key)
 			}
 		}
-		lane := RadioCandidateLaneFor(RadioCandidateLaneFacts{
-			StationRows:      row.StationRowCount,
-			DistinctMBIDs:    len(mbIDs),
-			NonLatinSpelling: row.NonLatinSpelling,
-			// The tracks of one release share its id, so sharing it with
-			// another track does not contest it.
-		})
-		if row.VariantReleaseID {
-			lane = contracts.RadioCandidateLaneHuman
-		}
 		c := contracts.RadioTrackCandidate{
-			TrackID:             *row.TrackID,
-			Lane:                lane,
+			TrackID: *row.TrackID,
+			// MBIDShared stays false: the tracks of one release share its id,
+			// so sharing it with another track does not contest it.
+			Lane: RadioCandidateLaneFor(RadioCandidateLaneFacts{
+				StationRows:      row.StationRowCount,
+				DistinctMBIDs:    len(mbIDs),
+				MBIDOnVariant:    row.VariantReleaseID,
+				NonLatinSpelling: row.NonLatinSpelling,
+			}),
 			ArtistCandidateKeys: candidateKeys,
 			Score:               RadioTrackCandidateScore(row.StationRowCount, row.PlayCount),
 			PlayCount:           row.PlayCount,
@@ -421,5 +421,20 @@ func attachRadioTrackCandidateEvidence(tx *gorm.DB, windowStart string, candidat
 			c.AlbumNameCount = e.DistinctCount
 		}
 	}
+	for i := range candidates {
+		orderByArtistKeys(&candidates[i])
+	}
 	return nil
+}
+
+// orderByArtistKeys puts ArtistCandidateKeys in ArtistKeys order, by play
+// count.
+func orderByArtistKeys(c *contracts.RadioTrackCandidate) {
+	ordered := make([]string, 0, len(c.ArtistCandidateKeys))
+	for _, k := range c.ArtistKeys {
+		if slices.Contains(c.ArtistCandidateKeys, k.Name) {
+			ordered = append(ordered, k.Name)
+		}
+	}
+	c.ArtistCandidateKeys = ordered
 }

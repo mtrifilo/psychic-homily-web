@@ -8,9 +8,8 @@ type RadioCandidateLane string
 const (
 	// RadioCandidateLaneAuto marks a candidate eligible for automatic
 	// creation: its plays carry exactly one MusicBrainz id for the entity it
-	// would create, that id is not contested by another candidate, none of
-	// its spellings carries a character normalization may not fold, and it
-	// clears the station floor.
+	// would create, it clears the station floor, and none of its ranking's
+	// human-lane conditions holds; each ranking's lane field lists them.
 	RadioCandidateLaneAuto RadioCandidateLane = "auto"
 	// RadioCandidateLaneHuman marks a candidate that a person verifies before
 	// anything is created.
@@ -160,7 +159,7 @@ type RadioTrackCandidate struct {
 	TitleSpellingCount  int                     `json:"title_spelling_count" doc:"Distinct raw title spellings"`
 	DisplayArtist       string                  `json:"display_artist" doc:"Most common raw artist spelling among the counted plays"`
 	ArtistKeys          []RadioCandidateName    `json:"artist_keys" doc:"Every distinct artist key (radio_normalize_name of the artist name) among the counted plays, by play count"`
-	ArtistCandidateKeys []string                `json:"artist_candidate_keys" doc:"The artist_keys that are qualifying artist candidates' artist_key, in artist_keys order; in the unmatched view at least one, in the unlinked view always empty (not computed)"`
+	ArtistCandidateKeys []string                `json:"artist_candidate_keys" doc:"The artist_keys that are qualifying artist candidates' artist_key, in artist_keys order (by play count); in the unmatched view at least one, in the unlinked view always empty (not computed)"`
 	Artists             []RadioCandidateArtist  `json:"artists" doc:"Catalog artists the counted plays are linked to, by play count; empty in the unmatched view"`
 	Lane                RadioCandidateLane      `json:"lane" enum:"auto,human" doc:"auto when the counted plays carry exactly one MusicBrainz release id, it is not on a variant title (variant_release_id), no spelling is non-Latin (non_latin_spelling) and the station floor is met; human otherwise. It describes the release only: an unmatched track can be auto while the artist candidate it joins is human"`
 	Score               float64                 `json:"score" doc:"station rows x ln(plays)"`
@@ -176,7 +175,7 @@ type RadioTrackCandidate struct {
 	MBReleaseID         *string                 `json:"mb_release_id,omitempty" doc:"Set when the counted plays carry exactly one MusicBrainz release id"`
 	MBReleaseIDs        []string                `json:"mb_release_ids" doc:"Every distinct MusicBrainz release id the counted plays carry, lower-cased and sorted"`
 	NonLatinSpelling    bool                    `json:"non_latin_spelling" doc:"True when a counted play's artist name or title carries a character normalization may not fold to a-z, 0-9 or punctuation (usually a non-Latin script); a key half may then be a fragment of that name, and the candidate is in the human lane"`
-	VariantReleaseID    bool                    `json:"variant_release_id" doc:"True when a counted play carrying a MusicBrainz release id has a title the track key strips (a live, remix, edit, featured or bracketed version), so that id may be the version's release; the candidate is in the human lane"`
+	VariantReleaseID    bool                    `json:"variant_release_id" doc:"True when a counted play carrying a MusicBrainz release id has a title radio_track_title_key strips (a featured credit, a trailing bracket group, or a dash tail naming live, remix, edit, version, mono or stereo), so that id may be that version's release; the flag follows what the key function strips, which can include a title that is not a version. The candidate is in the human lane"`
 }
 
 // RadioTrackCandidateListing is one snapshot of a track candidate view.
@@ -186,7 +185,7 @@ type RadioTrackCandidateListing struct {
 	Total            int                     `json:"total" doc:"Candidates in the view and the requested lanes"`
 	AutoTotal        int                     `json:"auto_total" doc:"Candidates in the view and the auto lane, whatever the lane filter"`
 	HumanTotal       int                     `json:"human_total" doc:"Candidates in the view and the human lane, whatever the lane filter"`
-	QualifyingTracks int                     `json:"qualifying_tracks" doc:"Tracks that clear the floors, in either view or in neither (a catalog artist's track with a credited release link, or an unlinked track none of whose artist keys is an artist candidate)"`
+	QualifyingTracks int                     `json:"qualifying_tracks" doc:"Tracks that clear the floors, in either view or in neither (a catalog artist's track with a credited release link, or a track with no artist-linked counted play none of whose artist keys is an artist candidate)"`
 	UntrackedPlays   int64                   `json:"untracked_plays" doc:"Plays in the window, not excluded and not ambiguous, that count toward no track: a key half normalizes to empty, or radio_track_keys has no row for the key yet (the play arrived after the last rebuild)"`
 	AsOf             string                  `json:"as_of" doc:"The UTC date the window ends on (YYYY-MM-DD)"`
 	WindowStart      string                  `json:"window_start" doc:"The earliest episode air date counted (YYYY-MM-DD)"`

@@ -88,17 +88,21 @@ type RadioCandidateLaneFacts struct {
 	// character radio_normalize_name may not fold (radioUnfoldableCharSQL),
 	// usually a non-Latin script, so the key may be a fragment of that name.
 	NonLatinSpelling bool
+	// MBIDOnVariant is true when a counted play carrying an id has a name the
+	// key strips to a shorter form (a track title's version suffix), so the
+	// id may belong to that version rather than to the candidate.
+	MBIDOnVariant bool
 }
 
 // RadioCandidateLaneFor returns a candidate's lane: auto when its plays carry
-// exactly one distinct MusicBrainz id, no other candidate carries that id, no
-// spelling carries a character normalization may not fold, and it clears the
-// station floor; human otherwise. Several ids mean the name covers more than
-// one act, a shared id means one act under several names, and an unfoldable
-// character means the key may be a fragment of the name, so a person decides
-// each.
+// exactly one distinct MusicBrainz id, that id is neither shared nor on a
+// variant name, no spelling carries a character normalization may not fold,
+// and it clears the station floor; human otherwise. Several ids mean the name
+// covers more than one entity, a shared id means one entity under several
+// names, an id on a variant may be the variant's, and an unfoldable character
+// means the key may be a fragment of the name, so a person decides each.
 func RadioCandidateLaneFor(f RadioCandidateLaneFacts) contracts.RadioCandidateLane {
-	if f.DistinctMBIDs == 1 && !f.MBIDShared && !f.NonLatinSpelling && RadioMeetsStationFloor(f.StationRows) {
+	if f.DistinctMBIDs == 1 && !f.MBIDShared && !f.MBIDOnVariant && !f.NonLatinSpelling && RadioMeetsStationFloor(f.StationRows) {
 		return contracts.RadioCandidateLaneAuto
 	}
 	return contracts.RadioCandidateLaneHuman
@@ -257,9 +261,10 @@ func radioCatalogAnswersToSQL(expr string) string {
 // radioCandidateEvidenceSpellingsSQL ranks the exact raw spellings of a text
 // column of the evidence query's counted CTE, per value of its owner column
 // (carried under the same name): up to radioCandidateTopNames rows, each with
-// its play count and the owner's distinct spelling count. Panics on an owner
-// that is not a plain identifier or a column that is not an identifier.
+// its play count and the owner's distinct spelling count. Panics on a kind or
+// owner that is not a plain identifier or a column that is not an identifier.
 func radioCandidateEvidenceSpellingsSQL(kind, owner, column string) string {
+	kind = mustSQLIdentifier(kind)
 	return fmt.Sprintf(`
 SELECT '%[1]s' AS kind, %[2]s, 0 AS ref_id, %[3]s AS name, '' AS slug,
        play_count::int AS play_count, distinct_count::int AS distinct_count, rn
@@ -292,9 +297,10 @@ GROUP BY c.%[2]s, st.id, st.name, st.slug`, radioEvidenceStation, mustSQLIdentif
 // identity, which the rows carry under the same name): names group by
 // radio_normalize_name, show their most common trimmed spelling, and only rows
 // where onlyWhere (a boolean column of counted, or "" for every row) holds
-// contribute. Panics on an owner that is not a plain identifier or a column
-// that is not an identifier.
+// contribute. Panics on a kind or owner that is not a plain identifier or a
+// column that is not an identifier.
 func radioCandidateEvidenceNamesSQL(kind, owner, column, onlyWhere string) string {
+	kind = mustSQLIdentifier(kind)
 	own := mustSQLIdentifier(owner)
 	col := mustSQLColumnRef(column)
 	filter := "true"

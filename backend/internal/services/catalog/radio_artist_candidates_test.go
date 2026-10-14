@@ -40,6 +40,7 @@ func TestRadioCandidateLaneFor(t *testing.T) {
 		{RadioCandidateLaneFacts{StationRows: 5, DistinctMBIDs: 1}, auto},
 		{RadioCandidateLaneFacts{StationRows: 2, DistinctMBIDs: 1, MBIDShared: true}, human},
 		{RadioCandidateLaneFacts{StationRows: 2, DistinctMBIDs: 1, NonLatinSpelling: true}, human},
+		{RadioCandidateLaneFacts{StationRows: 2, DistinctMBIDs: 1, MBIDOnVariant: true}, human},
 		{RadioCandidateLaneFacts{StationRows: 2, DistinctMBIDs: 0}, human},
 		{RadioCandidateLaneFacts{StationRows: 2, DistinctMBIDs: 2}, human},
 		{RadioCandidateLaneFacts{StationRows: 1, DistinctMBIDs: 1}, human},

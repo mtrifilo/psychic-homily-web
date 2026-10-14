@@ -15619,7 +15619,7 @@ export interface components {
             album_name_count: number;
             /** @description Up to five album names by play count; names that normalize alike are one entry, shown in their most common trimmed spelling, counting all their plays */
             album_names: components["schemas"]["RadioCandidateName"][] | null;
-            /** @description The artist_keys that are qualifying artist candidates' artist_key, in artist_keys order; in the unmatched view at least one, in the unlinked view always empty (not computed) */
+            /** @description The artist_keys that are qualifying artist candidates' artist_key, in artist_keys order (by play count); in the unmatched view at least one, in the unlinked view always empty (not computed) */
             artist_candidate_keys: string[] | null;
             /** @description Every distinct artist key (radio_normalize_name of the artist name) among the counted plays, by play count */
             artist_keys: components["schemas"]["RadioCandidateName"][] | null;
@@ -15677,7 +15677,7 @@ export interface components {
              * @description The radio_tracks row; the candidate's identity
              */
             track_id: number;
-            /** @description True when a counted play carrying a MusicBrainz release id has a title the track key strips (a live, remix, edit, featured or bracketed version), so that id may be the version's release; the candidate is in the human lane */
+            /** @description True when a counted play carrying a MusicBrainz release id has a title radio_track_title_key strips (a featured credit, a trailing bracket group, or a dash tail naming live, remix, edit, version, mono or stereo), so that id may be that version's release; the flag follows what the key function strips, which can include a title that is not a version. The candidate is in the human lane */
             variant_release_id: boolean;
         };
         RadioTrackCandidateListing: {
@@ -15706,7 +15706,7 @@ export interface components {
             min_station_rows: number;
             /**
              * Format: int64
-             * @description Tracks that clear the floors, in either view or in neither (a catalog artist's track with a credited release link, or an unlinked track none of whose artist keys is an artist candidate)
+             * @description Tracks that clear the floors, in either view or in neither (a catalog artist's track with a credited release link, or a track with no artist-linked counted play none of whose artist keys is an artist candidate)
              */
             qualifying_tracks: number;
             /**

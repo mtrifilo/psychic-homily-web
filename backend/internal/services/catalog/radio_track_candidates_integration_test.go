@@ -174,6 +174,16 @@ func (s *RadioCandidatesIntegrationSuite) TestTrackViewSplit() {
 	// A link to a release the play's artist is not credited on does not count.
 	s.addAcross(candidatePlay{artist: "T Known", title: "Mislinked Song", artistID: &known}, 2)
 	s.add(candidatePlay{station: "t-kexp", artist: "T Known", title: "Mislinked Song", artistID: &known, releaseID: &othersRelease}, 1)
+	// A credited link on an ambiguous play, which the counts leave out, still
+	// counts.
+	s.addAcross(candidatePlay{artist: "T Known", title: "Ambiguous Link Song", artistID: &known}, 2)
+	s.add(candidatePlay{station: "t-kexp", artist: "T Known", title: "Ambiguous Link Song", artistID: &known, releaseID: &release,
+		matchState: catalogm.RadioPlayMatchStateAmbiguous}, 1)
+	// So does one on another spelling a recording id joined into the track.
+	const joined = "abababab-1111-4111-8111-111111111111"
+	s.addAcross(candidatePlay{artist: "T Known", title: "Joined Link Song", artistID: &known, mbRecording: joined}, 2)
+	s.add(candidatePlay{station: "t-kexp", artist: "T Known Band", title: "Joined Link Song", artistID: &known, releaseID: &release,
+		mbRecording: joined, date: radioCandidateTestBeforeStart}, 1)
 	// Some counted plays linked, some not: still the catalog artist's track.
 	s.addAcross(candidatePlay{artist: "T Known", title: "Mixed Song", artistID: &known}, 1)
 	s.add(candidatePlay{station: "t-kexp", artist: "T Known", title: "Mixed Song"}, 1)
@@ -194,8 +204,8 @@ func (s *RadioCandidatesIntegrationSuite) TestTrackViewSplit() {
 	}
 	s.ElementsMatch([]string{"Known Song", "Mislinked Song", "Mixed Song"}, titles(unlinked))
 	s.Equal([]string{"New Song"}, titles(unmatched))
-	s.Equal(8, unlinked.QualifyingTracks)
-	s.Equal(8, unmatched.QualifyingTracks)
+	s.Equal(10, unlinked.QualifyingTracks)
+	s.Equal(10, unmatched.QualifyingTracks)
 	s.Equal(3, unlinked.Total)
 	s.Equal(1, unmatched.Total)
 
@@ -227,7 +237,7 @@ func (s *RadioCandidatesIntegrationSuite) TestTrackUnmatchedViewNeedsAnArtistCan
 	// A MusicBrainz recording id joins two spellings into one track; both
 	// keys clear the artist floors.
 	s.addAcross(candidatePlay{artist: "T Joined", title: "Joined Song", mbRecording: radioTrackTestRecord}, 2)
-	s.addAcross(candidatePlay{artist: "T Joined Band", title: "Joined Song", mbRecording: radioTrackTestRecord}, 2)
+	s.addAcross(candidatePlay{artist: "T Joined Band", title: "Joined Song", mbRecording: radioTrackTestRecord}, 3)
 	// Here one spelling has a single play, so its key is no artist candidate;
 	// the other key is, so the track stays.
 	const half = "eeeeeeee-1111-4111-8111-111111111111"
@@ -247,9 +257,9 @@ func (s *RadioCandidatesIntegrationSuite) TestTrackUnmatchedViewNeedsAnArtistCan
 	}
 	s.Require().Len(byTitle, 2)
 	joined := byTitle["Joined Song"]
-	s.Equal(8, joined.PlayCount)
-	s.ElementsMatch([]contracts.RadioCandidateName{{Name: "t joined", PlayCount: 4}, {Name: "t joined band", PlayCount: 4}}, joined.ArtistKeys)
-	s.ElementsMatch([]string{"t joined", "t joined band"}, joined.ArtistCandidateKeys)
+	s.Equal(10, joined.PlayCount)
+	s.Equal([]contracts.RadioCandidateName{{Name: "t joined band", PlayCount: 6}, {Name: "t joined", PlayCount: 4}}, joined.ArtistKeys)
+	s.Equal([]string{"t joined band", "t joined"}, joined.ArtistCandidateKeys, "candidate keys follow artist_keys, by play count")
 	halfSong := byTitle["Half Song"]
 	s.Equal(5, halfSong.PlayCount)
 	s.Equal([]string{"t half"}, halfSong.ArtistCandidateKeys)
@@ -272,6 +282,8 @@ func (s *RadioCandidatesIntegrationSuite) TestTrackLanes() {
 	s.addAcross(candidatePlay{artist: "T Band", title: "Bad Release", mbRelease: "not-a-uuid"}, 2)
 	// A title in a script normalization may not fold: human, flagged.
 	s.addAcross(candidatePlay{artist: "T Band", title: "Song 東京", mbRelease: radioTrackTestReleaseA}, 2)
+	// An artist name in a script normalization may not fold: human, flagged.
+	s.addAcross(candidatePlay{artist: "T Band 東京", title: "Script Artist Song", mbRelease: radioTrackTestReleaseA}, 2)
 	// The only id is on a live version the track key strips: human, flagged.
 	s.addAcross(candidatePlay{artist: "T Band", title: "Variant Song"}, 1)
 	s.add(candidatePlay{station: "t-kexp", artist: "T Band", title: "Variant Song (Live on KEXP)", mbRelease: radioTrackTestReleaseB}, 1)
@@ -282,6 +294,7 @@ func (s *RadioCandidatesIntegrationSuite) TestTrackLanes() {
 	for title, want := range map[string]contracts.RadioCandidateLane{
 		"One Release": auto, "Some Release": auto, "Two Releases": human,
 		"No Release": human, "Bad Release": human, "Song 東京": human, "Variant Song": human,
+		"Script Artist Song": human,
 	} {
 		s.Require().Contains(got, title)
 		s.Equal(want, got[title].Lane, title)
@@ -292,6 +305,7 @@ func (s *RadioCandidatesIntegrationSuite) TestTrackLanes() {
 	s.Nil(got["Two Releases"].MBReleaseID)
 	s.Empty(got["Bad Release"].MBReleaseIDs)
 	s.True(got["Song 東京"].NonLatinSpelling)
+	s.True(got["Script Artist Song"].NonLatinSpelling, "a non-Latin artist name flags the track too")
 	s.False(got["One Release"].NonLatinSpelling)
 	s.True(got["Variant Song"].VariantReleaseID)
 	s.Equal(radioTrackTestReleaseB, *got["Variant Song"].MBReleaseID)
@@ -301,13 +315,13 @@ func (s *RadioCandidatesIntegrationSuite) TestTrackLanes() {
 	autoOnly := s.listTracks(contracts.RadioTrackCandidateViewUnmatched, contracts.RadioCandidateLaneFilterAuto, contracts.RadioCandidateSortScore, 50)
 	s.Equal(2, autoOnly.Total)
 	s.Equal(2, autoOnly.AutoTotal)
-	s.Equal(5, autoOnly.HumanTotal)
+	s.Equal(6, autoOnly.HumanTotal)
 	for _, c := range autoOnly.Candidates {
 		s.Equal(auto, c.Lane)
 	}
 	limited := s.listTracks(contracts.RadioTrackCandidateViewUnmatched, contracts.RadioCandidateLaneFilterHuman, contracts.RadioCandidateSortPlays, 1)
 	s.Len(limited.Candidates, 1)
-	s.Equal(5, limited.Total)
+	s.Equal(6, limited.Total)
 }
 
 func (s *RadioCandidatesIntegrationSuite) TestTrackEvidence() {

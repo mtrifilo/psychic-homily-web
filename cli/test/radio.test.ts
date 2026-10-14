@@ -270,7 +270,7 @@ describe("formatTrackCandidateReport", () => {
     expect(lines).toContain("       keys:     t joined (4); t joined band (4)");
     expect(lines).toContain("       artist candidates: t joined");
     expect(lines).toContain(
-      "       note:     a release id is on a live, remix, edit or bracketed title; it may be that version's release",
+      "       note:     a release id is on a title radio_track_title_key strips (a featured credit, a trailing bracket group, or a dash tail naming live, remix, edit, version, mono or stereo); it may be that version's release",
     );
     expect(lines).toContain("       titles:   Song One (6); song one (2); 3 distinct");
     expect(lines).toContain(
