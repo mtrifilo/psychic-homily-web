@@ -192,6 +192,9 @@ describe('BackupAuthPrompt', () => {
     await new Promise(resolve => setTimeout(resolve, 0))
 
     expect(navigate).not.toHaveBeenCalled()
+    await waitFor(() => {
+      expect(within(prompt).getByRole('button', CONNECT)).toBeEnabled()
+    })
   })
 
   it('does not navigate when the prompt unmounts while the token is pending', async () => {

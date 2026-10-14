@@ -53,11 +53,12 @@ export function BackupAuthPrompt({ open, onOpenChange }: BackupAuthPromptProps) 
   const [isConnectingGoogle, setIsConnectingGoogle] = useState(false)
   const startLink = useStartOAuthLink()
 
-  // Whether the viewer has left the prompt since the last Connect click, by
-  // closing it or by the page hiding or unmounting it. The token request
-  // outlives all three, and a viewer who left must not be navigated into the
-  // link flow when it answers. Each click re-arms it, because the button can
-  // only be clicked while the prompt is showing.
+  // Whether the viewer has left the prompt since the last Connect click: a
+  // close through the dialog (skip, its close button, Escape), or the effect
+  // cleanup that runs when the prompt unmounts or its page is hidden. The
+  // token request outlives all of these, and a viewer who left must not be
+  // navigated into the link flow when it answers. Each click re-arms it,
+  // because the button can only be clicked while the prompt is showing.
   const dismissedRef = useRef(false)
   useEffect(
     () => () => {

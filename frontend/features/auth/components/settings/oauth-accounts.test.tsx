@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { renderWithProviders } from '@/test/utils'
+import { OAUTH_BACKEND_URL } from '@/lib/api-base'
 import { OAuthAccounts } from './oauth-accounts'
 
 // --- Mocks ---
@@ -370,7 +371,7 @@ describe('OAuthAccounts', () => {
     // the user into.
     expect(mockStartLinkMutateAsync).toHaveBeenCalled()
     expect(mockAssign).toHaveBeenCalledWith(
-      expect.stringContaining('/auth/link/google?t=link-token-abc')
+      `${OAUTH_BACKEND_URL}/auth/link/google?t=link-token-abc`
     )
     // The sign-in route resolves the account from the address the provider
     // returns; sending Connect there is the defect this replaces.
