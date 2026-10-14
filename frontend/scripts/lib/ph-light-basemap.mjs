@@ -3,15 +3,16 @@
 // ph-light-basemap.json is the dark style (ph-dark-basemap.json) with every
 // colour in LIGHT_PAINT swapped in and its name changed: the same layers,
 // ids, sources, filters, source layers, zoom ramps, widths, opacities and
-// fonts. The values are the light column of the palette table on the Figma
-// board (Product Designs, Atlas page, PSY-1567 row), derived from the `:root`
-// tokens in app/globals.css as basemap/README.md describes.
+// fonts. The light values copy the light column of the palette table on the
+// Figma board (Product Designs, Atlas page, PSY-1567 row), the palette's
+// authority; the `:root` tokens in app/globals.css are anchors only (see
+// basemap/README.md).
 //
 // deriveLightBasemap refuses a dark style the table no longer fits: a colour
 // it names that the dark layer lacks, a colour the dark layer has that it does
 // not name, a dark colour other than the one it pairs, or a layer on one side
-// only. A regenerated dark style therefore
-// cannot leave a layer dark in the light map without the derivation failing.
+// only. A regenerated or retuned dark style therefore cannot leave a layer
+// dark in the light map without the derivation failing.
 import { isDeepStrictEqual } from 'node:util'
 
 export const LIGHT_STYLE_NAME = 'Psychic Homily Light'
@@ -21,7 +22,11 @@ const PAPER = '#f4f1ea'
 // The light water fill, and the halo of the labels drawn on water.
 const WATER = '#dbe4ea'
 
-/** Layer id -> paint property -> light value. Only colours change. */
+/**
+ * Layer id -> paint property -> [the dark file's value, the light value].
+ * Only colours change. The dark value is recorded so a recolour of the dark
+ * file stops the derivation until its light twin is chosen too.
+ */
 export const LIGHT_PAINT = {
   'ph-background': { 'background-color': ['#0d0805', PAPER] },
   'ph-landcover-green': { 'fill-color': ['#0f1309', '#e4e9d4'] },
