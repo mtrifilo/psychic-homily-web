@@ -4,6 +4,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 
+	"github.com/danielgtaylor/huma/v2/humatest"
 	"github.com/go-webauthn/webauthn/protocol"
 
 	"psychic-homily-backend/internal/api/handlers/shared/testhelpers"
@@ -43,12 +44,10 @@ func (s *AuthHandlerIntegrationSuite) creationOptions(raw []byte) *protocol.Cred
 	return &creation
 }
 
-// The account records the consent signup/begin validated, not the consent
-// fields the finish request carries.
-func (s *AuthHandlerIntegrationSuite) TestPasskeySignupRecordsTheConsentBeginValidated() {
-	api := newPasskeyWireAPI(s.T(), s.newRealPasskeyHandler())
-	email := "consent-carried@example.com"
-
+// beginPasskeySignup runs signup/begin for email with the current documents
+// accepted and returns the challenge id, the registration a fresh software
+// authenticator answers it with, and that authenticator.
+func (s *AuthHandlerIntegrationSuite) beginPasskeySignup(api humatest.TestAPI, email string) (string, json.RawMessage, *softauthn.Authenticator) {
 	begin := api.Post("/auth/passkey/signup/begin", map[string]any{
 		"email":            email,
 		"terms_accepted":   true,
@@ -59,9 +58,21 @@ func (s *AuthHandlerIntegrationSuite) TestPasskeySignupRecordsTheConsentBeginVal
 	})
 	requireWireSuccess(s.T(), begin)
 	challengeID, _ := decodeWireBody(s.T(), begin.Body.Bytes())["challenge_id"].(string)
+	s.Require().NotEmpty(challengeID)
 
-	registration, err := softauthn.New(wireOrigin).Register(s.creationOptions(begin.Body.Bytes()))
+	device := softauthn.New(wireOrigin)
+	registration, err := device.Register(s.creationOptions(begin.Body.Bytes()))
 	s.Require().NoError(err)
+	return challengeID, registration, device
+}
+
+// The account records the consent signup/begin validated, not the consent
+// fields the finish request carries.
+func (s *AuthHandlerIntegrationSuite) TestPasskeySignupRecordsTheConsentBeginValidated() {
+	api := newPasskeyWireAPI(s.T(), s.newRealPasskeyHandler())
+	email := "consent-carried@example.com"
+
+	challengeID, registration, _ := s.beginPasskeySignup(api, email)
 
 	finish := api.Post("/auth/passkey/signup/finish", map[string]any{
 		"challenge_id":     challengeID,

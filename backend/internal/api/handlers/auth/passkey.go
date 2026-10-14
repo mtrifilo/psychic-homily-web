@@ -104,11 +104,12 @@ func (h *PasskeyHandler) BeginRegisterHandler(ctx context.Context, input *BeginR
 	// they would be left holding a passkey the server never recorded.
 	//
 	// What that leaves, stated exactly: no challenge is issued without a recent
-	// factor, a challenge lives five minutes (webauthn.go StoreChallenge), it
-	// is spent once, and FinishRegisterHandler will only spend it for the user
-	// it was issued to. It is NOT bound to the session that passed this gate,
-	// so within those five minutes any live session of that account can spend
-	// a challenge some other session obtained. Reaching that needs the
+	// factor, a challenge lives five minutes (webauthn.go StoreChallenge), the
+	// first finish that presents it spends it, and FinishRegisterHandler
+	// completes a registration only for the user it was issued to. It is NOT
+	// bound to the session that passed this gate, so within those five
+	// minutes any live session of that account can complete a registration
+	// with a challenge some other session obtained. Reaching that needs the
 	// challenge id, which is returned only in the response to the request that
 	// passed here. Binding the challenge to the authentication time that
 	// obtained it would close it and needs a column to store one.
@@ -208,8 +209,7 @@ func (h *PasskeyHandler) FinishRegisterHandler(ctx context.Context, input *Finis
 		"user_id", contextUser.ID,
 	)
 
-	// Get challenge
-	session, userID, err := h.webauthnService.GetChallenge(input.Body.ChallengeID, "registration")
+	session, userID, err := h.webauthnService.ConsumeChallenge(input.Body.ChallengeID, "registration")
 	if err != nil {
 		logger.AuthWarn(ctx, "passkey_challenge_invalid",
 			"user_id", contextUser.ID,
@@ -251,9 +251,6 @@ func (h *PasskeyHandler) FinishRegisterHandler(ctx context.Context, input *Finis
 		resp.Body.ErrorCode = autherrors.CodeServiceUnavailable
 		return resp, nil
 	}
-
-	// Delete used challenge
-	_ = h.webauthnService.DeleteChallenge(input.Body.ChallengeID)
 
 	logger.AuthInfo(ctx, "passkey_registered",
 		"user_id", contextUser.ID,
@@ -401,8 +398,7 @@ func (h *PasskeyHandler) FinishLoginHandler(ctx context.Context, input *FinishLo
 
 	logger.AuthDebug(ctx, "passkey_login_finish")
 
-	// Get challenge
-	session, userID, err := h.webauthnService.GetChallenge(input.Body.ChallengeID, "authentication")
+	session, userID, err := h.webauthnService.ConsumeChallenge(input.Body.ChallengeID, "authentication")
 	if err != nil {
 		logger.AuthWarn(ctx, "passkey_challenge_invalid",
 			"error", err.Error(),
@@ -451,9 +447,6 @@ func (h *PasskeyHandler) FinishLoginHandler(ctx context.Context, input *FinishLo
 		resp.Body.ErrorCode = autherrors.CodeInvalidCredentials
 		return resp, nil
 	}
-
-	// Delete used challenge
-	_ = h.webauthnService.DeleteChallenge(input.Body.ChallengeID)
 
 	// After the assertion verified, so only the credential's holder learns the
 	// account's state.
@@ -765,7 +758,7 @@ func (h *PasskeyHandler) FinishSignupHandler(ctx context.Context, input *FinishS
 
 	logger.AuthDebug(ctx, "passkey_signup_finish")
 
-	session, signup, err := h.webauthnService.GetSignupChallenge(input.Body.ChallengeID, "signup")
+	session, signup, err := h.webauthnService.ConsumeSignupChallenge(input.Body.ChallengeID, "signup")
 	if err != nil {
 		logger.AuthWarn(ctx, "passkey_challenge_invalid",
 			"error", err.Error(),
@@ -859,9 +852,6 @@ func (h *PasskeyHandler) FinishSignupHandler(ctx context.Context, input *FinishS
 		resp.Body.ErrorCode = autherrors.CodeServiceUnavailable
 		return resp, nil
 	}
-
-	// Delete used challenge
-	_ = h.webauthnService.DeleteChallenge(input.Body.ChallengeID)
 
 	// Generate JWT token
 	token, err := h.jwtService.CreateToken(user)

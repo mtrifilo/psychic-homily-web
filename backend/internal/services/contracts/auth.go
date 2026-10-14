@@ -195,12 +195,11 @@ type WebAuthnServiceInterface interface {
 	DeleteCredential(userID uint, credentialID uint) error
 	UpdateCredentialName(userID uint, credentialID uint, displayName string) error
 	StoreChallenge(userID uint, session *webauthn.SessionData, operation string) (string, error)
-	GetChallenge(challengeID string, operation string) (*webauthn.SessionData, uint, error)
-	DeleteChallenge(challengeID string) error
+	ConsumeChallenge(challengeID string, operation string) (*webauthn.SessionData, uint, error)
 	CleanupExpiredChallenges() error
 	BeginRegistrationForEmail(email string) (*protocol.CredentialCreation, *webauthn.SessionData, error)
 	StoreSignupChallenge(signup SignupChallenge, session *webauthn.SessionData, operation string) (string, error)
-	GetSignupChallenge(challengeID string, operation string) (*webauthn.SessionData, SignupChallenge, error)
+	ConsumeSignupChallenge(challengeID string, operation string) (*webauthn.SessionData, SignupChallenge, error)
 	FinishSignupRegistration(email string, session *webauthn.SessionData, response *protocol.ParsedCredentialCreationData, displayName string) (*authm.User, error)
 	FinishSignupRegistrationWithLegal(email string, session *webauthn.SessionData, response *protocol.ParsedCredentialCreationData, displayName string, acceptance LegalAcceptance) (*authm.User, error)
 }

@@ -209,7 +209,7 @@ func TestPasskeySignupBeginWire_StoresValidatedConsentOnChallenge(t *testing.T) 
 func passkeySignupFinishAPI(t *testing.T, signup contracts.SignupChallenge, recorded *contracts.LegalAcceptance) humatest.TestAPI {
 	t.Helper()
 	mockWA := &testhelpers.MockWebAuthnService{
-		GetSignupChallengeFn: func(string, string) (*webauthn.SessionData, contracts.SignupChallenge, error) {
+		ConsumeSignupChallengeFn: func(string, string) (*webauthn.SessionData, contracts.SignupChallenge, error) {
 			return &webauthn.SessionData{}, signup, nil
 		},
 		FinishSignupRegistrationWithLegalFn: func(email string, _ *webauthn.SessionData, _ *protocol.ParsedCredentialCreationData, _ string, acceptance contracts.LegalAcceptance) (*authm.User, error) {

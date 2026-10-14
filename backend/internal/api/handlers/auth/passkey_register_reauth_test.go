@@ -81,7 +81,7 @@ func TestPasskeyRegistration_StaleSessionRefused(t *testing.T) {
 func TestPasskeyRegistration_FinishIsNotGated(t *testing.T) {
 	var reachedChallenge bool
 	mockWA := &testhelpers.MockWebAuthnService{
-		GetChallengeFn: func(string, string) (*webauthn.SessionData, uint, error) {
+		ConsumeChallengeFn: func(string, string) (*webauthn.SessionData, uint, error) {
 			reachedChallenge = true
 			return nil, 0, errors.New("challenge lookup is past the gate")
 		},
