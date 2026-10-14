@@ -221,6 +221,9 @@ func (s *WebAuthnService) FinishDiscoverableLogin(session *webauthn.SessionData,
 		return nil, nil, err
 	}
 
+	// The credentials were loaded for validation only; the returned user is
+	// what the login response carries, so it goes back without them.
+	user.PasskeyCredentials = nil
 	return &user, &webauthnCred, nil
 }
 

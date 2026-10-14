@@ -46,6 +46,7 @@ func (suite *WebAuthnServiceIntegrationTestSuite) TestRegisteredPasskeySignsIn()
 	signedIn, err := suite.discoverableLogin(device)
 	suite.Require().NoError(err)
 	suite.Equal(user.ID, signedIn.ID)
+	suite.Empty(signedIn.PasskeyCredentials, "the signed-in user is returned without its credentials")
 
 	var stored authm.WebAuthnCredential
 	suite.Require().NoError(suite.db.First(&stored, cred.ID).Error)
