@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"math/big"
 	"net/http"
 	"sync"
@@ -26,7 +27,34 @@ import (
 const (
 	appleIssuer  = "https://appleid.apple.com"
 	appleKeysURL = "https://appleid.apple.com/auth/keys"
+
+	// appleKeysTTL is how long a fetched key set answers lookups before the
+	// next lookup refreshes it.
+	appleKeysTTL = 24 * time.Hour
+
+	// appleKeysFetchTimeout bounds one whole key-set exchange: connect,
+	// response headers and body.
+	appleKeysFetchTimeout = 5 * time.Second
+
+	// appleKeysForcedRefreshCooldown is the minimum spacing between refreshes
+	// forced by a key id the fresh cached set does not hold. The key id comes
+	// from the unverified token header, so this spacing is what keeps a caller
+	// from driving one fetch per request.
+	appleKeysForcedRefreshCooldown = time.Minute
+
+	// appleKeysFailureBackoff is how long after a failed fetch no fetch starts
+	// on any path, cold, expired or forced; lookups that would fetch inside it
+	// get that failure instead. A successful fetch clears it.
+	appleKeysFailureBackoff = 10 * time.Second
+
+	// appleKeysFailureLogInterval is the minimum spacing between two logged
+	// key-set fetch failures.
+	appleKeysFailureLogInterval = time.Minute
 )
+
+// appleKeysHTTPClient serves every key-set fetch of a service whose
+// keysHTTPClient is nil.
+var appleKeysHTTPClient = &http.Client{Timeout: appleKeysFetchTimeout}
 
 // AppleAuthService handles Sign in with Apple authentication
 type AppleAuthService struct {
@@ -34,13 +62,34 @@ type AppleAuthService struct {
 	config     *config.Config
 	jwtService *JWTService
 
-	// Cached Apple public keys
-	keysMu    sync.RWMutex
+	// Cached Apple public keys. keysMu guards every field in this group.
+	keysMu    sync.Mutex
 	keys      map[string]*rsa.PublicKey
 	keysExpAt time.Time
+	// keysFetch is the key-set fetch in progress, nil when none is.
+	keysFetch *appleKeysFetch
+	// lastForcedRefreshAt is when the latest refresh forced by an unknown key
+	// id started.
+	lastForcedRefreshAt time.Time
+	// lastFetchErr is the error of the latest fetch when it failed, nil when
+	// it succeeded; lastFetchErrAt is when the latest failed fetch finished.
+	lastFetchErr   error
+	lastFetchErrAt time.Time
+	// lastFetchFailureLogAt is when a fetch failure was last logged.
+	lastFetchFailureLogAt time.Time
 
-	// fetchAppleKeysFromURL overrides appleKeysURL for testing
-	fetchAppleKeysFromURL string
+	// Test overrides. Each zero value selects the production behavior.
+	fetchAppleKeysFromURL string           // replaces appleKeysURL
+	keysHTTPClient        *http.Client     // replaces appleKeysHTTPClient
+	keysNow               func() time.Time // replaces time.Now for the key cache
+	keysLogger            *slog.Logger     // replaces logger.Default() for fetch failures
+}
+
+// appleKeysFetch is one key-set fetch that concurrent lookups share. err is
+// written before done closes and read only after it has.
+type appleKeysFetch struct {
+	done chan struct{}
+	err  error
 }
 
 // NewAppleAuthService creates a new Apple auth service
@@ -259,53 +308,116 @@ func (s *AppleAuthService) createAppleUser(appleUserID, email, firstName, lastNa
 	return &createdUser, nil
 }
 
-// getApplePublicKey fetches and caches Apple's public keys, returning the key for the given kid
+// getApplePublicKey returns the key for kid, refreshing the cached set when it
+// is stale or lacks kid. Each call starts or joins at most one fetch: a call
+// that arrives while a fetch runs waits for that fetch instead of starting
+// another. A call that would start a fetch inside appleKeysFailureBackoff of a
+// failed one fails with that failure instead. A refresh for a kid the fresh set
+// lacks starts at most once per appleKeysForcedRefreshCooldown; inside that
+// window such a lookup joins a fetch already in flight and otherwise fails
+// without starting one. A failed fetch leaves the cached set and its expiry as
+// they were.
 func (s *AppleAuthService) getApplePublicKey(kid string) (*rsa.PublicKey, error) {
-	// Check cache first
-	s.keysMu.RLock()
-	if time.Now().Before(s.keysExpAt) {
-		if key, ok := s.keys[kid]; ok {
-			s.keysMu.RUnlock()
-			return key, nil
+	s.keysMu.Lock()
+	now := s.keysClock()
+	fresh := now.Before(s.keysExpAt)
+	if key, ok := s.keys[kid]; ok && fresh {
+		s.keysMu.Unlock()
+		return key, nil
+	}
+
+	fetch := s.keysFetch
+	starter := fetch == nil
+	if starter && s.lastFetchErr != nil && now.Sub(s.lastFetchErrAt) < appleKeysFailureBackoff {
+		err := s.lastFetchErr
+		s.keysMu.Unlock()
+		return nil, fmt.Errorf("%w (backing off after a failed fetch, not fetched)", err)
+	}
+	if starter && fresh && now.Sub(s.lastForcedRefreshAt) < appleKeysForcedRefreshCooldown {
+		s.keysMu.Unlock()
+		return nil, fmt.Errorf("%w (refresh cooling down, not fetched)", errAppleKeyNotFound(kid))
+	}
+	if starter {
+		if fresh {
+			s.lastForcedRefreshAt = now
 		}
+		fetch = &appleKeysFetch{done: make(chan struct{})}
+		s.keysFetch = fetch
 	}
-	s.keysMu.RUnlock()
+	s.keysMu.Unlock()
 
-	// Fetch fresh keys
-	if err := s.fetchAppleKeys(); err != nil {
-		return nil, err
-	}
-
-	s.keysMu.RLock()
-	defer s.keysMu.RUnlock()
-
-	key, ok := s.keys[kid]
-	if !ok {
-		return nil, fmt.Errorf("apple public key not found for kid: %s", kid)
+	if starter {
+		s.runAppleKeysFetch(fetch)
+	} else {
+		<-fetch.done
 	}
 
-	return key, nil
+	s.keysMu.Lock()
+	defer s.keysMu.Unlock()
+	if key, ok := s.keys[kid]; ok && s.keysClock().Before(s.keysExpAt) {
+		return key, nil
+	}
+	if fetch.err != nil {
+		return nil, fetch.err
+	}
+	return nil, errAppleKeyNotFound(kid)
+}
+
+func errAppleKeyNotFound(kid string) error {
+	return fmt.Errorf("apple public key not found for kid: %s", kid)
+}
+
+// runAppleKeysFetch performs fetch and publishes its outcome. The publish is
+// deferred so it also runs when the fetch panics: keysFetch never stays set
+// and no waiter blocks on a fetch that has stopped.
+func (s *AppleAuthService) runAppleKeysFetch(fetch *appleKeysFetch) {
+	var keys map[string]*rsa.PublicKey
+	err := errors.New("apple key fetch did not complete")
+	defer func() {
+		s.keysMu.Lock()
+		now := s.keysClock()
+		logFailure := false
+		s.lastFetchErr = err
+		if err == nil {
+			s.keys = keys
+			s.keysExpAt = now.Add(appleKeysTTL)
+		} else {
+			s.lastFetchErrAt = now
+			if now.Sub(s.lastFetchFailureLogAt) >= appleKeysFailureLogInterval {
+				s.lastFetchFailureLogAt = now
+				logFailure = true
+			}
+		}
+		fetch.err = err
+		s.keysFetch = nil
+		s.keysMu.Unlock()
+		close(fetch.done)
+		if logFailure {
+			s.keysLog().Error("apple_keys_fetch_failed", "error", err.Error())
+		}
+	}()
+	keys, err = s.fetchAppleKeys()
 }
 
 // fetchAppleKeys downloads Apple's JWK set and parses it into RSA public keys
-func (s *AppleAuthService) fetchAppleKeys() error {
+func (s *AppleAuthService) fetchAppleKeys() (map[string]*rsa.PublicKey, error) {
 	keysURL := appleKeysURL
 	if s.fetchAppleKeysFromURL != "" {
 		keysURL = s.fetchAppleKeysFromURL
 	}
-	resp, err := http.Get(keysURL)
+	resp, err := s.keysClient().Get(keysURL)
 	if err != nil {
-		return fmt.Errorf("failed to fetch Apple keys: %w", err)
+		return nil, fmt.Errorf("failed to fetch Apple keys: %w", err)
 	}
 	defer resp.Body.Close() //nolint:errcheck // deferred Close; nothing actionable on failure
 
 	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("apple keys endpoint returned status %d", resp.StatusCode)
+		return nil, fmt.Errorf("apple keys endpoint returned status %d", resp.StatusCode)
 	}
 
 	var jwkSet appleJWKSet
 	if err := json.NewDecoder(resp.Body).Decode(&jwkSet); err != nil {
-		return fmt.Errorf("failed to decode Apple JWK set: %w", err)
+		return nil, fmt.Errorf("failed to decode Apple JWK set: %w", err)
 	}
 
 	keys := make(map[string]*rsa.PublicKey)
@@ -316,12 +428,12 @@ func (s *AppleAuthService) fetchAppleKeys() error {
 
 		nBytes, err := base64.RawURLEncoding.DecodeString(jwk.N)
 		if err != nil {
-			return fmt.Errorf("failed to decode modulus for kid %s: %w", jwk.Kid, err)
+			return nil, fmt.Errorf("failed to decode modulus for kid %s: %w", jwk.Kid, err)
 		}
 
 		eBytes, err := base64.RawURLEncoding.DecodeString(jwk.E)
 		if err != nil {
-			return fmt.Errorf("failed to decode exponent for kid %s: %w", jwk.Kid, err)
+			return nil, fmt.Errorf("failed to decode exponent for kid %s: %w", jwk.Kid, err)
 		}
 
 		n := new(big.Int).SetBytes(nBytes)
@@ -333,10 +445,31 @@ func (s *AppleAuthService) fetchAppleKeys() error {
 		}
 	}
 
-	s.keysMu.Lock()
-	s.keys = keys
-	s.keysExpAt = time.Now().Add(24 * time.Hour) // Cache for 24 hours
-	s.keysMu.Unlock()
+	// A set with no RSA key would replace a working one and answer every
+	// lookup with a miss, so it counts as a failed fetch.
+	if len(keys) == 0 {
+		return nil, errors.New("apple JWK set contained no RSA keys")
+	}
+	return keys, nil
+}
 
-	return nil
+func (s *AppleAuthService) keysClient() *http.Client {
+	if s.keysHTTPClient != nil {
+		return s.keysHTTPClient
+	}
+	return appleKeysHTTPClient
+}
+
+func (s *AppleAuthService) keysClock() time.Time {
+	if s.keysNow != nil {
+		return s.keysNow()
+	}
+	return time.Now()
+}
+
+func (s *AppleAuthService) keysLog() *slog.Logger {
+	if s.keysLogger != nil {
+		return s.keysLogger
+	}
+	return logger.Default()
 }
