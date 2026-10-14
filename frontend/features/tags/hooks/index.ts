@@ -203,10 +203,10 @@ export function useTagIntersection(
 // ──────────────────────────────────────────────
 
 /**
- * The reads an applied or removed tag changes. Venue list rows carry
- * tag-derived data (`hosts_all_ages`, the `?tags=` filter), so a venue tag
- * change also invalidates every venue list, and only the lists: the venue's
- * own detail and shows queries carry no tags.
+ * The reads an applied or removed tag changes. Venue list rows and the venue
+ * city counts are tag-derived (`hosts_all_ages`, the `?tags=` filter and its
+ * scoped city facet), so a venue tag change also invalidates those. The
+ * venue's own detail and shows queries carry no tags and are left alone.
  */
 function invalidateAfterEntityTagChange(
   queryClient: QueryClient,
@@ -219,6 +219,7 @@ function invalidateAfterEntityTagChange(
   queryClient.invalidateQueries({ queryKey: queryKeys.tags.all })
   if (entityType === 'venue') {
     queryClient.invalidateQueries({ queryKey: [...queryKeys.venues.all, 'list'] })
+    queryClient.invalidateQueries({ queryKey: queryKeys.venues.cities })
   }
 }
 
