@@ -119,8 +119,9 @@ func (s *AppleAuthService) ValidateIdentityToken(identityToken string) (*contrac
 // Returns a typed *apperrors.AuthError with CodeOAuthLinkRefused whenever the
 // address already belongs to an account. There is no by-address link on any
 // path: a matching address says who owns the mailbox, never who owns the
-// account. Callers that render a refusal differently from a fault must
-// discriminate on that code.
+// account. Returns CodeAccountInactive when the Apple identity resolves to an
+// account that may not sign in (authm.User.CanSignIn). Callers that render a
+// refusal differently from a fault must discriminate on the code.
 //
 // A created account carries email_verified from the token's own claim, so an
 // address Apple will not vouch for produces an unverified account.
@@ -146,6 +147,12 @@ func (s *AppleAuthService) FindOrCreateAppleUser(claims *contracts.AppleIdentity
 		var user authm.User
 		if err := s.db.Preload("OAuthAccounts").Preload("Preferences").First(&user, oauthAccount.UserID).Error; err != nil {
 			return nil, fmt.Errorf("failed to get user: %w", err)
+		}
+		if !user.CanSignIn() {
+			logger.Default().Warn("oauth_signin_refused_account_inactive",
+				"provider", "apple",
+				"user_id", user.ID)
+			return nil, apperrors.ErrAccountInactive()
 		}
 		return &user, nil
 	}

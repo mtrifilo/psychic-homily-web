@@ -123,6 +123,7 @@ func (s *OAuthHandlerIntegrationSuite) TestAuthRefusalCarriesItsOwnCopy() {
 		autherrors.CodeOAuthIdentityInUse,
 		autherrors.CodeOAuthProviderAlreadyLinked,
 		autherrors.CodeOAuthLinkExpired,
+		autherrors.CodeAccountInactive,
 	}
 	for _, code := range actionable {
 		s.True(authRefusalCarriesItsOwnCopy(code), "expected %s to carry its own copy", code)

@@ -542,7 +542,11 @@ func authRefusalCarriesItsOwnCopy(code string) bool {
 		autherrors.CodeOAuthLinkRefused,
 		autherrors.CodeOAuthIdentityInUse,
 		autherrors.CodeOAuthProviderAlreadyLinked,
-		autherrors.CodeOAuthLinkExpired:
+		autherrors.CodeOAuthLinkExpired,
+		// Reached only after the provider authenticated the identity, so the
+		// caller is the account's owner and the code tells them nothing about
+		// an account they could not already sign in to.
+		autherrors.CodeAccountInactive:
 		return true
 	default:
 		return false
