@@ -161,22 +161,29 @@ func TestCollectionDigestService_Construction_EnvOverride(t *testing.T) {
 
 func TestDeriveBackendURL(t *testing.T) {
 	tests := []struct {
-		name        string
-		frontendURL string
-		want        string
+		name             string
+		frontendURL      string
+		backendPublicURL string
+		want             string
 	}{
-		{"production apex frontend", "https://psychichomily.com", "https://api.psychichomily.com"},
-		{"production www frontend", "https://www.psychichomily.com", "https://api.psychichomily.com"},
-		{"production apex frontend trailing slash", "https://psychichomily.com/", "https://api.psychichomily.com"},
-		{"production www frontend trailing slash", "https://www.psychichomily.com/", "https://api.psychichomily.com"},
-		{"stage frontend", "https://stage.psychichomily.com", "https://api-stage.psychichomily.com"},
-		{"stage frontend trailing slash", "https://stage.psychichomily.com/", "https://api-stage.psychichomily.com"},
-		{"local frontend falls back to 8080", "http://localhost:3000", "http://localhost:8080"},
-		{"empty frontend falls back to 8080", "", "http://localhost:8080"},
-		{"lookalike host falls back to 8080", "https://psychichomily.com.example.net", "http://localhost:8080"},
+		{"production apex frontend", "https://psychichomily.com", "", "https://api.psychichomily.com"},
+		{"production www frontend", "https://www.psychichomily.com", "", "https://api.psychichomily.com"},
+		{"production apex frontend trailing slash", "https://psychichomily.com/", "", "https://api.psychichomily.com"},
+		{"production www frontend trailing slash", "https://www.psychichomily.com/", "", "https://api.psychichomily.com"},
+		{"stage frontend", "https://stage.psychichomily.com", "", "https://api-stage.psychichomily.com"},
+		{"stage frontend trailing slash", "https://stage.psychichomily.com/", "", "https://api-stage.psychichomily.com"},
+		{"local frontend falls back to 8080", "http://localhost:3000", "", "http://localhost:8080"},
+		{"empty frontend falls back to 8080", "", "", "http://localhost:8080"},
+		{"lookalike host falls back to 8080", "https://psychichomily.com.example.net", "", "http://localhost:8080"},
+		{"production apex frontend ignores BACKEND_PUBLIC_URL", "https://psychichomily.com", "http://localhost:61001", "https://api.psychichomily.com"},
+		{"production www frontend ignores BACKEND_PUBLIC_URL", "https://www.psychichomily.com", "http://localhost:61001", "https://api.psychichomily.com"},
+		{"stage frontend ignores BACKEND_PUBLIC_URL", "https://stage.psychichomily.com", "http://localhost:61001", "https://api-stage.psychichomily.com"},
+		{"unrecognised frontend uses BACKEND_PUBLIC_URL", "http://localhost:61000", "http://localhost:61001", "http://localhost:61001"},
+		{"BACKEND_PUBLIC_URL trailing slash trimmed", "http://localhost:61000", "http://localhost:61001/", "http://localhost:61001"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv(config.EnvBackendPublicURL, tt.backendPublicURL)
 			assert.Equal(t, tt.want, DeriveBackendURL(tt.frontendURL))
 		})
 	}
@@ -206,6 +213,15 @@ func TestBackendURLForDeployedFrontend_RailwayTemplates(t *testing.T) {
 			assert.Equal(t, want, got)
 		})
 	}
+}
+
+func TestCollectionDigestService_Construction_BackendURLFromBackendPublicURL(t *testing.T) {
+	t.Setenv(config.EnvBackendPublicURL, "http://localhost:61001")
+	cfg := &config.Config{}
+	cfg.Email.FrontendURL = "http://localhost:61000"
+	cfg.JWT.SecretKey = "test"
+	svc := NewCollectionDigestService(&gorm.DB{}, nil, cfg)
+	assert.Equal(t, "http://localhost:61001", svc.backendURL)
 }
 
 // =============================================================================
