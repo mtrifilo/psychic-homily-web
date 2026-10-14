@@ -1,11 +1,9 @@
 package auth
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
-	"io"
 	"net/http"
 	"time"
 
@@ -144,28 +142,16 @@ func (h *PasskeyHandler) BeginRegisterHandler(ctx context.Context, input *BeginR
 	return resp, nil
 }
 
-// CredentialCreationAttestationResponse contains the attestation data from the authenticator
-type CredentialCreationAttestationResponse struct {
-	AttestationObject string   `json:"attestationObject"`
-	ClientDataJSON    string   `json:"clientDataJSON"`
-	Transports        []string `json:"transports,omitempty"`
-}
-
-// CredentialCreationResponse represents the WebAuthn credential creation response from the browser
-type CredentialCreationResponse struct {
-	ID                      string                                `json:"id"`
-	RawID                   string                                `json:"rawId"`
-	Type                    string                                `json:"type"`
-	AuthenticatorAttachment string                                `json:"authenticatorAttachment,omitempty"`
-	Response                CredentialCreationAttestationResponse `json:"response"`
-}
-
 // FinishRegisterRequest represents the request to complete passkey registration
 type FinishRegisterRequest struct {
 	Body struct {
-		ChallengeID string                     `json:"challenge_id" doc:"Challenge ID from begin registration"`
-		DisplayName string                     `json:"display_name" example:"My MacBook" doc:"Name for this passkey"`
-		Response    CredentialCreationResponse `json:"response" doc:"The credential response from the browser"`
+		ChallengeID string `json:"challenge_id" doc:"Challenge ID from begin registration"`
+		DisplayName string `json:"display_name,omitempty" example:"My MacBook" doc:"Name for this passkey; defaults to My Passkey when empty"`
+		// Response is the browser's PublicKeyCredential serialized with
+		// toJSON() (WebAuthn Level 3 RegistrationResponseJSON). It is kept as
+		// raw JSON and handed to the WebAuthn library unmodified, so every
+		// field the browser sends reaches the parser and none is rejected here.
+		Response json.RawMessage `json:"response" doc:"The PublicKeyCredential from navigator.credentials.create(), serialized as RegistrationResponseJSON"`
 	}
 }
 
@@ -220,12 +206,7 @@ func (h *PasskeyHandler) FinishRegisterHandler(ctx context.Context, input *Finis
 		return resp, nil
 	}
 
-	// Parse the credential response
-	// Note: In production, you'd use protocol.ParseCredentialCreationResponseBody
-	// For simplicity, we'll construct the parsed response manually
-	parsedResponse, err := protocol.ParseCredentialCreationResponseBody(
-		createCredentialCreationReader(input),
-	)
+	parsedResponse, err := protocol.ParseCredentialCreationResponseBytes(input.Body.Response)
 	if err != nil {
 		logger.AuthWarn(ctx, "passkey_response_parse_failed",
 			"user_id", contextUser.ID,
@@ -358,27 +339,14 @@ func (h *PasskeyHandler) BeginLoginHandler(ctx context.Context, input *BeginLogi
 	return resp, nil
 }
 
-// CredentialAssertionAuthenticatorResponse contains the authenticator assertion data
-type CredentialAssertionAuthenticatorResponse struct {
-	AuthenticatorData string `json:"authenticatorData"`
-	ClientDataJSON    string `json:"clientDataJSON"`
-	Signature         string `json:"signature"`
-	UserHandle        string `json:"userHandle,omitempty"`
-}
-
-// CredentialAssertionResponse represents the WebAuthn credential assertion response from the browser
-type CredentialAssertionResponse struct {
-	ID       string                                   `json:"id"`
-	RawID    string                                   `json:"rawId"`
-	Type     string                                   `json:"type"`
-	Response CredentialAssertionAuthenticatorResponse `json:"response"`
-}
-
 // FinishLoginRequest represents the request to complete passkey login
 type FinishLoginRequest struct {
 	Body struct {
-		ChallengeID string                      `json:"challenge_id" doc:"Challenge ID from begin login"`
-		Response    CredentialAssertionResponse `json:"response" doc:"The assertion response from the browser"`
+		ChallengeID string `json:"challenge_id" doc:"Challenge ID from begin login"`
+		// Response is the browser's PublicKeyCredential serialized with
+		// toJSON() (WebAuthn Level 3 AuthenticationResponseJSON), kept raw and
+		// handed to the WebAuthn library unmodified.
+		Response json.RawMessage `json:"response" doc:"The PublicKeyCredential from navigator.credentials.get(), serialized as AuthenticationResponseJSON"`
 	}
 }
 
@@ -414,10 +382,7 @@ func (h *PasskeyHandler) FinishLoginHandler(ctx context.Context, input *FinishLo
 		return resp, nil
 	}
 
-	// Parse the assertion response
-	parsedResponse, err := protocol.ParseCredentialRequestResponseBody(
-		createCredentialRequestReader(input),
-	)
+	parsedResponse, err := protocol.ParseCredentialRequestResponseBytes(input.Body.Response)
 	if err != nil {
 		logger.AuthWarn(ctx, "passkey_response_parse_failed",
 			"error", err.Error(),
@@ -582,43 +547,6 @@ func (h *PasskeyHandler) DeleteCredentialHandler(ctx context.Context, input *Del
 	return resp, nil
 }
 
-// Helper functions for parsing WebAuthn responses
-
-func createCredentialCreationReader(input *FinishRegisterRequest) io.Reader {
-	// Create a proper JSON structure for the WebAuthn response
-	response := map[string]interface{}{
-		"id":    input.Body.Response.ID,
-		"rawId": input.Body.Response.RawID,
-		"type":  input.Body.Response.Type,
-		"response": map[string]interface{}{
-			"attestationObject": input.Body.Response.Response.AttestationObject,
-			"clientDataJSON":    input.Body.Response.Response.ClientDataJSON,
-			"transports":        input.Body.Response.Response.Transports,
-		},
-	}
-	if input.Body.Response.AuthenticatorAttachment != "" {
-		response["authenticatorAttachment"] = input.Body.Response.AuthenticatorAttachment
-	}
-	data, _ := json.Marshal(response)
-	return bytes.NewReader(data)
-}
-
-func createCredentialRequestReader(input *FinishLoginRequest) io.Reader {
-	response := map[string]interface{}{
-		"id":    input.Body.Response.ID,
-		"rawId": input.Body.Response.RawID,
-		"type":  input.Body.Response.Type,
-		"response": map[string]interface{}{
-			"authenticatorData": input.Body.Response.Response.AuthenticatorData,
-			"clientDataJSON":    input.Body.Response.Response.ClientDataJSON,
-			"signature":         input.Body.Response.Response.Signature,
-			"userHandle":        input.Body.Response.Response.UserHandle,
-		},
-	}
-	data, _ := json.Marshal(response)
-	return bytes.NewReader(data)
-}
-
 // --- Passkey Signup Endpoints (passkey-first registration) ---
 
 // BeginSignupRequest represents the request to begin passkey signup
@@ -709,15 +637,6 @@ func (h *PasskeyHandler) BeginSignupHandler(ctx context.Context, input *BeginSig
 		return resp, nil
 	}
 
-	// Create a temporary user object for WebAuthn registration
-	// We use a placeholder ID (0) since the user doesn't exist yet
-	tempUser := &authm.User{
-		Email: &email,
-	}
-	// Use a temporary ID based on email hash for WebAuthn
-	tempUser.ID = 0
-
-	// Begin registration
 	options, session, err := h.webauthnService.BeginRegistrationForEmail(email)
 	if err != nil {
 		logger.AuthError(ctx, "passkey_signup_begin_failed", err,
@@ -751,14 +670,17 @@ func (h *PasskeyHandler) BeginSignupHandler(ctx context.Context, input *BeginSig
 // FinishSignupRequest represents the request to complete passkey signup
 type FinishSignupRequest struct {
 	Body struct {
-		ChallengeID    string                     `json:"challenge_id" doc:"Challenge ID from begin signup"`
-		DisplayName    string                     `json:"display_name" example:"My MacBook" doc:"Name for this passkey"`
-		Response       CredentialCreationResponse `json:"response" doc:"The credential response from the browser"`
-		TermsAccepted  bool                       `json:"terms_accepted" doc:"Whether user accepted Terms of Service"`
-		TermsVersion   string                     `json:"terms_version,omitempty" doc:"Accepted terms version identifier"`
-		PrivacyVersion string                     `json:"privacy_version,omitempty" doc:"Accepted privacy policy version identifier"`
-		AgeConfirmed   bool                       `json:"age_confirmed" doc:"Whether user confirmed they meet the minimum age"`
-		MinAgeAttested int                        `json:"min_age_attested,omitempty" doc:"Minimum age the user attested to"`
+		ChallengeID string `json:"challenge_id" doc:"Challenge ID from begin signup"`
+		DisplayName string `json:"display_name,omitempty" example:"My MacBook" doc:"Name for this passkey; defaults to My Passkey when empty"`
+		// Response is the browser's PublicKeyCredential serialized with
+		// toJSON() (WebAuthn Level 3 RegistrationResponseJSON), kept raw and
+		// handed to the WebAuthn library unmodified.
+		Response       json.RawMessage `json:"response" doc:"The PublicKeyCredential from navigator.credentials.create(), serialized as RegistrationResponseJSON"`
+		TermsAccepted  bool            `json:"terms_accepted" doc:"Whether user accepted Terms of Service"`
+		TermsVersion   string          `json:"terms_version,omitempty" doc:"Accepted terms version identifier"`
+		PrivacyVersion string          `json:"privacy_version,omitempty" doc:"Accepted privacy policy version identifier"`
+		AgeConfirmed   bool            `json:"age_confirmed" doc:"Whether user confirmed they meet the minimum age"`
+		MinAgeAttested int             `json:"min_age_attested,omitempty" doc:"Minimum age the user attested to"`
 	}
 }
 
@@ -809,10 +731,7 @@ func (h *PasskeyHandler) FinishSignupHandler(ctx context.Context, input *FinishS
 		return resp, nil
 	}
 
-	// Parse the credential response
-	parsedResponse, err := protocol.ParseCredentialCreationResponseBody(
-		createCredentialCreationReaderFromSignup(input),
-	)
+	parsedResponse, err := protocol.ParseCredentialCreationResponseBytes(input.Body.Response)
 	if err != nil {
 		logger.AuthWarn(ctx, "passkey_response_parse_failed",
 			"email_hash", logger.HashEmail(email),
@@ -920,22 +839,4 @@ func (h *PasskeyHandler) FinishSignupHandler(ctx context.Context, input *FinishS
 	resp.Body.Message = "Account created successfully"
 	resp.Body.User = user
 	return resp, nil
-}
-
-func createCredentialCreationReaderFromSignup(input *FinishSignupRequest) io.Reader {
-	response := map[string]interface{}{
-		"id":    input.Body.Response.ID,
-		"rawId": input.Body.Response.RawID,
-		"type":  input.Body.Response.Type,
-		"response": map[string]interface{}{
-			"attestationObject": input.Body.Response.Response.AttestationObject,
-			"clientDataJSON":    input.Body.Response.Response.ClientDataJSON,
-			"transports":        input.Body.Response.Response.Transports,
-		},
-	}
-	if input.Body.Response.AuthenticatorAttachment != "" {
-		response["authenticatorAttachment"] = input.Body.Response.AuthenticatorAttachment
-	}
-	data, _ := json.Marshal(response)
-	return bytes.NewReader(data)
 }

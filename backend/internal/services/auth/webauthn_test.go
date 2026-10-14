@@ -125,7 +125,8 @@ func (suite *WebAuthnServiceIntegrationTestSuite) createUser(email string) *auth
 	return user
 }
 
-// insertCredential uses raw SQL to avoid GORM AAGUID→aa_guid mapping issue
+// insertCredential writes a placeholder credential row with raw SQL; it holds
+// no usable key, so it serves listing and deletion tests only.
 func (suite *WebAuthnServiceIntegrationTestSuite) insertCredential(userID uint, displayName string) uint {
 	var id uint
 	err := suite.db.Raw(
