@@ -15677,7 +15677,7 @@ export interface components {
              * @description The radio_tracks row; the candidate's identity
              */
             track_id: number;
-            /** @description True when a counted play carrying a MusicBrainz release id has a title radio_track_title_key strips (a featured credit, a trailing bracket group, or a dash tail naming live, remix, edit, version, mono or stereo), so that id may be that version's release; the flag follows what the key function strips, which can include a title that is not a version. The candidate is in the human lane */
+            /** @description True when every counted play carrying a MusicBrainz release id has a title radio_track_title_key strips (a featured credit, a trailing bracket group, or a dash tail naming live, remix, edit, version, mono or stereo), so the id may be that version's release; the flag follows what the key function strips, which can include a title that is not a version. The candidate is in the human lane */
             variant_release_id: boolean;
         };
         RadioTrackCandidateListing: {

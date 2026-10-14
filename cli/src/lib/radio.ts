@@ -598,7 +598,7 @@ export function formatTrackCandidateReport(listing: TrackCandidateListing): stri
     }
     if (c.variant_release_id) {
       lines.push(
-        "       note:     a release id is on a title radio_track_title_key strips (a featured credit, a trailing bracket group, or a dash tail naming live, remix, edit, version, mono or stereo); it may be that version's release",
+        "       note:     every release id is on a title radio_track_title_key strips (a featured credit, a trailing bracket group, or a dash tail naming live, remix, edit, version, mono or stereo); it may be that version's release",
       );
     }
     lines.push(`       stations: ${stationList(c.stations)}`);

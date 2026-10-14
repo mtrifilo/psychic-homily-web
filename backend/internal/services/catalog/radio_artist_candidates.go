@@ -88,9 +88,9 @@ type RadioCandidateLaneFacts struct {
 	// character radio_normalize_name may not fold (radioUnfoldableCharSQL),
 	// usually a non-Latin script, so the key may be a fragment of that name.
 	NonLatinSpelling bool
-	// MBIDOnVariant is true when a counted play carrying an id has a name the
-	// key strips to a shorter form (a track title's version suffix), so the
-	// id may belong to that version rather than to the candidate.
+	// MBIDOnVariant is true when every counted play carrying an id has a name
+	// the key strips (for a track, a title radio_track_title_key strips), so
+	// the id may belong to a version or credit rather than to the candidate.
 	MBIDOnVariant bool
 }
 

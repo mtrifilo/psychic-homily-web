@@ -8,8 +8,8 @@ type RadioCandidateLane string
 const (
 	// RadioCandidateLaneAuto marks a candidate eligible for automatic
 	// creation: its plays carry exactly one MusicBrainz id for the entity it
-	// would create, it clears the station floor, and none of its ranking's
-	// human-lane conditions holds; each ranking's lane field lists them.
+	// would create, it clears the station floor, and none of the human-lane
+	// conditions catalog.RadioCandidateLaneFor states holds.
 	RadioCandidateLaneAuto RadioCandidateLane = "auto"
 	// RadioCandidateLaneHuman marks a candidate that a person verifies before
 	// anything is created.
@@ -175,7 +175,7 @@ type RadioTrackCandidate struct {
 	MBReleaseID         *string                 `json:"mb_release_id,omitempty" doc:"Set when the counted plays carry exactly one MusicBrainz release id"`
 	MBReleaseIDs        []string                `json:"mb_release_ids" doc:"Every distinct MusicBrainz release id the counted plays carry, lower-cased and sorted"`
 	NonLatinSpelling    bool                    `json:"non_latin_spelling" doc:"True when a counted play's artist name or title carries a character normalization may not fold to a-z, 0-9 or punctuation (usually a non-Latin script); a key half may then be a fragment of that name, and the candidate is in the human lane"`
-	VariantReleaseID    bool                    `json:"variant_release_id" doc:"True when a counted play carrying a MusicBrainz release id has a title radio_track_title_key strips (a featured credit, a trailing bracket group, or a dash tail naming live, remix, edit, version, mono or stereo), so that id may be that version's release; the flag follows what the key function strips, which can include a title that is not a version. The candidate is in the human lane"`
+	VariantReleaseID    bool                    `json:"variant_release_id" doc:"True when every counted play carrying a MusicBrainz release id has a title radio_track_title_key strips (a featured credit, a trailing bracket group, or a dash tail naming live, remix, edit, version, mono or stereo), so the id may be that version's release; the flag follows what the key function strips, which can include a title that is not a version. The candidate is in the human lane"`
 }
 
 // RadioTrackCandidateListing is one snapshot of a track candidate view.

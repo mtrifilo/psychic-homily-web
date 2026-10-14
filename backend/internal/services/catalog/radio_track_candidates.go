@@ -35,9 +35,9 @@ func RadioTrackCandidateScore(stationRows, plays int) float64 {
 	return float64(stationRows) * math.Log(float64(plays))
 }
 
-// radioTrackKeyColumnsSQL selects the track key halves of a play of
-// radioCandidatePlaysFromSQL, recomputed from the raw names, as
-// track_artist_key and track_title_key.
+// radioTrackKeyColumnsSQL selects the track key halves of a radio_plays row
+// aliased p, recomputed from the raw names, as track_artist_key and
+// track_title_key.
 const radioTrackKeyColumnsSQL = `radio_track_artist_key(p.artist_name) AS track_artist_key,
          radio_track_title_key(p.track_title) AS track_title_key`
 
@@ -122,9 +122,10 @@ qualifying AS (
          coalesce(array_agg(DISTINCT artist_id ORDER BY artist_id)
                   FILTER (WHERE artist_id IS NOT NULL), '{}') AS artist_ids,
          coalesce(bool_or(non_latin), false) AS non_latin_spelling,
-         -- A tagged play whose title the key strips to a shorter form names
-         -- a version of the track, so its release id may be that version's.
-         bool_or(mb_release_id IS NOT NULL AND title_norm IS DISTINCT FROM track_title_key) AS variant_release_id
+         -- True when every play carrying a release id has a title the key
+         -- strips, so the ids may all be a version's (RadioTrackCandidate.VariantReleaseID).
+         coalesce(bool_and(title_norm IS DISTINCT FROM track_title_key)
+                  FILTER (WHERE mb_release_id IS NOT NULL), false) AS variant_release_id
   FROM tracked
   WHERE track_id IS NOT NULL
   GROUP BY track_id

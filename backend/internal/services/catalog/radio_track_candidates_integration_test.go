@@ -287,6 +287,9 @@ func (s *RadioCandidatesIntegrationSuite) TestTrackLanes() {
 	// The only id is on a live version the track key strips: human, flagged.
 	s.addAcross(candidatePlay{artist: "T Band", title: "Variant Song"}, 1)
 	s.add(candidatePlay{station: "t-kexp", artist: "T Band", title: "Variant Song (Live on KEXP)", mbRelease: radioTrackTestReleaseB}, 1)
+	// The same id also on plain titles: not a variant, auto.
+	s.addAcross(candidatePlay{artist: "T Band", title: "Backed Song", mbRelease: radioTrackTestReleaseB}, 2)
+	s.add(candidatePlay{station: "t-kexp", artist: "T Band", title: "Backed Song (feat. Guest)", mbRelease: radioTrackTestReleaseB}, 1)
 	s.rebuildTracks()
 
 	got := s.tracks(contracts.RadioTrackCandidateViewUnmatched)
@@ -294,7 +297,7 @@ func (s *RadioCandidatesIntegrationSuite) TestTrackLanes() {
 	for title, want := range map[string]contracts.RadioCandidateLane{
 		"One Release": auto, "Some Release": auto, "Two Releases": human,
 		"No Release": human, "Bad Release": human, "Song 東京": human, "Variant Song": human,
-		"Script Artist Song": human,
+		"Script Artist Song": human, "Backed Song": auto,
 	} {
 		s.Require().Contains(got, title)
 		s.Equal(want, got[title].Lane, title)
@@ -311,10 +314,11 @@ func (s *RadioCandidatesIntegrationSuite) TestTrackLanes() {
 	s.Equal(radioTrackTestReleaseB, *got["Variant Song"].MBReleaseID)
 	s.False(got["One Release"].VariantReleaseID)
 	s.False(got["Some Release"].VariantReleaseID, "a capitalized id on an unstripped title is not a variant")
+	s.False(got["Backed Song"].VariantReleaseID, "the id is also on plain titles")
 
 	autoOnly := s.listTracks(contracts.RadioTrackCandidateViewUnmatched, contracts.RadioCandidateLaneFilterAuto, contracts.RadioCandidateSortScore, 50)
-	s.Equal(2, autoOnly.Total)
-	s.Equal(2, autoOnly.AutoTotal)
+	s.Equal(3, autoOnly.Total)
+	s.Equal(3, autoOnly.AutoTotal)
 	s.Equal(6, autoOnly.HumanTotal)
 	for _, c := range autoOnly.Candidates {
 		s.Equal(auto, c.Lane)
@@ -365,6 +369,6 @@ func (s *RadioCandidatesIntegrationSuite) TestTrackEvidence() {
 	s.Equal(2, c.AlbumNameCount, "album names that normalize alike are one entry")
 	s.Equal([]contracts.RadioCandidateName{{Name: "Album One", PlayCount: 5}, {Name: "Other Album", PlayCount: 2}}, c.AlbumNames)
 	s.Equal([]string{radioTrackTestReleaseA, radioTrackTestReleaseB}, c.MBReleaseIDs)
-	s.True(c.VariantReleaseID, "the (Live) spelling carries a release id")
+	s.False(c.VariantReleaseID, "plain spellings carry a release id too")
 	s.Equal(contracts.RadioCandidateLaneHuman, c.Lane)
 }
