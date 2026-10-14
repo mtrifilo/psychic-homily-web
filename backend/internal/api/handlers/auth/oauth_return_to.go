@@ -43,13 +43,18 @@ const oauthAuthPagePath = "/auth"
 // through a browser URL parser:
 //
 //   - one leading slash: "//host" is protocol-relative
-//   - printable ASCII only, no backslash and no whitespace: a browser URL
-//     parser reads "\" as "/" and strips tabs and newlines, so either can turn
-//     a value that passes the slash test into "//host"; the frontend sends
-//     its destination already percent-encoded, so nothing it sends is refused
+//   - printable ASCII only, so no whitespace or control byte anywhere: a
+//     browser URL parser strips tabs and newlines, and the frontend's own
+//     parser percent-encodes spaces and non-ASCII before sending
+//   - no backslash in the path: a browser URL parser reads it as "/", so it
+//     can turn a value that passes the slash test into "//host"
 //   - no "." or ".." path segment, percent-encoded or not: a browser resolves
 //     them, so the path checked here would not be the path visited
-//   - not the sign-in page or anything under it
+//   - not the sign-in page or anything under it, judged on the decoded path
+//
+// The last rule is stricter than the frontend's, which compares the encoded
+// path: a percent-encoded spelling of the sign-in path that the frontend
+// passes through falls back here.
 //
 // The callback prefixes the result with the configured frontend URL, so the
 // redirect's host is never taken from raw.
@@ -61,7 +66,21 @@ func sanitizeOAuthReturnTo(raw string) string {
 		return oauthReturnToFallback
 	}
 	for i := 0; i < len(raw); i++ {
-		if c := raw[i]; c <= ' ' || c > '~' || c == '\\' {
+		if c := raw[i]; c <= ' ' || c > '~' {
+			return oauthReturnToFallback
+		}
+	}
+
+	rawPath := raw
+	if end := strings.IndexAny(raw, "?#"); end >= 0 {
+		rawPath = raw[:end]
+	}
+	if strings.Contains(rawPath, `\`) {
+		return oauthReturnToFallback
+	}
+	for _, segment := range strings.Split(rawPath, "/") {
+		decoded, err := url.PathUnescape(segment)
+		if err != nil || decoded == "." || decoded == ".." {
 			return oauthReturnToFallback
 		}
 	}
@@ -69,11 +88,6 @@ func sanitizeOAuthReturnTo(raw string) string {
 	parsed, err := url.Parse(raw)
 	if err != nil || parsed.Scheme != "" || parsed.Host != "" || parsed.User != nil {
 		return oauthReturnToFallback
-	}
-	for _, segment := range strings.Split(parsed.Path, "/") {
-		if segment == "." || segment == ".." {
-			return oauthReturnToFallback
-		}
 	}
 	if parsed.Path == oauthAuthPagePath || strings.HasPrefix(parsed.Path, oauthAuthPagePath+"/") {
 		return oauthReturnToFallback
@@ -92,8 +106,9 @@ func setOAuthReturnToCookie(w http.ResponseWriter, r *http.Request, secure bool)
 		}
 		return
 	}
-	// Encoded because http.SetCookie drops bytes a cookie value may not hold,
-	// ";" and "," among them, and a destination's query string can carry both.
+	// Encoded because http.SetCookie drops ";", `"` and `\` from a cookie
+	// value and quotes a value holding "," or a space, and a destination's
+	// query string can carry any of them.
 	encoded := base64.RawURLEncoding.EncodeToString([]byte(returnTo))
 	http.SetCookie(w, newOAuthReturnToCookie(encoded, oauthReturnToCookieMaxAge, secure))
 }

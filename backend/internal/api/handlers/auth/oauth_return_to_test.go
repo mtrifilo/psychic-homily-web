@@ -14,6 +14,7 @@ import (
 
 	"psychic-homily-backend/internal/api/handlers/shared/testhelpers"
 	"psychic-homily-backend/internal/config"
+	autherrors "psychic-homily-backend/internal/errors"
 	authm "psychic-homily-backend/internal/models/auth"
 	"psychic-homily-backend/internal/services/contracts"
 )
@@ -36,7 +37,12 @@ func TestSanitizeOAuthReturnTo(t *testing.T) {
 		{"protocol-relative", "//evil.example", "/"},
 		{"protocol-relative with path", "//evil.example/shows", "/"},
 		{"backslash after slash", "/\\evil.example", "/"},
-		{"backslash later", "/shows\\..\\x", "/"},
+		{"backslash later in the path", "/shows\\..\\x", "/"},
+		{"backslash in the query", "/search?q=a\\b", "/search?q=a\\b"},
+		{"backslash in the fragment", "/shows#a\\b", "/shows#a\\b"},
+		{"encoded slash inside a segment", "/a/%2E%2E%2Fb", "/a/%2E%2E%2Fb"},
+		{"undecodable segment", "/shows/%zz", "/"},
+		{"dot-dot in the query only", "/search?q=..", "/search?q=.."},
 		{"tab inside", "/\t/evil.example", "/"},
 		{"newline inside", "/shows\r\nSet-Cookie: x=1", "/"},
 		{"space inside", "/shows here", "/"},
@@ -51,6 +57,7 @@ func TestSanitizeOAuthReturnTo(t *testing.T) {
 		{"auth page", "/auth", "/"},
 		{"auth page with query", "/auth?returnTo=%2Fshows", "/"},
 		{"under the auth page", "/auth/magic-link", "/"},
+		{"encoded spelling of the auth page", "/%61uth", "/"},
 		{"a path that only starts with auth", "/authors", "/authors"},
 		{"too long", "/" + strings.Repeat("a", oauthReturnToMaxLength), "/"},
 		{"at the length limit", "/" + strings.Repeat("a", oauthReturnToMaxLength-1), "/" + strings.Repeat("a", oauthReturnToMaxLength-1)},
@@ -237,22 +244,46 @@ func TestOAuthCallback_IgnoresADestinationOnItsOwnQuery(t *testing.T) {
 	}
 }
 
-// A refused sign-in keeps its auth-page redirect and still spends the cookie.
-func TestOAuthCallback_RefusalKeepsItsRedirectAndClearsTheDestination(t *testing.T) {
-	resp, raw := runCallback(t, failingCallbackHandler(http.ErrNoCookie), "/auth/callback/google",
-		&http.Cookie{Name: oauthReturnToCookieName, Value: encodedReturnTo("/shows")})
+// A refused sign-in goes to the auth page with its refusal and the re-checked
+// destination, so a retry from there (the consent handoff to Create account
+// included) still lands where the reader started. The cookie is spent.
+func TestOAuthCallback_RefusalCarriesTheDestinationToTheAuthPage(t *testing.T) {
+	termsRefusal := autherrors.ErrTermsAcceptanceRequired("no consent")
+	cases := []struct {
+		name         string
+		cookie       string
+		wantReturnTo string
+	}{
+		{"on-site destination", encodedReturnTo("/profile?tab=settings"), "/profile?tab=settings"},
+		{"off-site destination", encodedReturnTo("https://evil.example"), ""},
+		{"protocol-relative destination", encodedReturnTo("//evil.example"), ""},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			resp, raw := runCallback(t, failingCallbackHandler(termsRefusal), "/auth/callback/google",
+				&http.Cookie{Name: oauthReturnToCookieName, Value: tc.cookie})
 
-	location, err := url.Parse(raw)
-	if err != nil {
-		t.Fatalf("unparseable Location %q: %v", raw, err)
+			location, err := url.Parse(raw)
+			if err != nil {
+				t.Fatalf("unparseable Location %q: %v", raw, err)
+			}
+			if got := location.Scheme + "://" + location.Host + location.Path; got != errorRedirectFrontendURL+"/auth" {
+				t.Errorf("redirect target = %q, want the auth page", got)
+			}
+			query := location.Query()
+			if got := query.Get("error_code"); got != autherrors.CodeTermsAcceptanceRequired {
+				t.Errorf("error_code = %q, want %q", got, autherrors.CodeTermsAcceptanceRequired)
+			}
+			if tc.wantReturnTo == "" {
+				if query.Has("returnTo") {
+					t.Errorf("returnTo = %q, want the parameter absent", query.Get("returnTo"))
+				}
+			} else if got := query.Get("returnTo"); got != tc.wantReturnTo {
+				t.Errorf("returnTo = %q, want %q", got, tc.wantReturnTo)
+			}
+			assertReturnToCleared(t, resp)
+		})
 	}
-	if got := location.Scheme + "://" + location.Host + location.Path; got != errorRedirectFrontendURL+"/auth" {
-		t.Errorf("redirect target = %q, want the auth page", got)
-	}
-	if location.Query().Has(oauthReturnToParam) {
-		t.Errorf("refusal redirect carries %q: %s", oauthReturnToParam, location.RawQuery)
-	}
-	assertReturnToCleared(t, resp)
 }
 
 // The CLI loopback keeps its token redirect; the cookie is spent regardless.
