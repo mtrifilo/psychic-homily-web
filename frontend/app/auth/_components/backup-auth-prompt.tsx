@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import * as Sentry from '@sentry/nextjs'
 import { ShieldAlert, Loader2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -53,6 +53,23 @@ export function BackupAuthPrompt({ open, onOpenChange }: BackupAuthPromptProps) 
   const [isConnectingGoogle, setIsConnectingGoogle] = useState(false)
   const startLink = useStartOAuthLink()
 
+  // Set once the viewer has left the prompt, by closing it or by it going
+  // away. The token request outlives both, and a viewer who skipped must not
+  // be navigated into the link flow when it answers. Cleared on mount so a
+  // development double mount does not leave it set.
+  const dismissedRef = useRef(false)
+  useEffect(() => {
+    dismissedRef.current = false
+    return () => {
+      dismissedRef.current = true
+    }
+  }, [])
+
+  const handleOpenChange = (nextOpen: boolean) => {
+    if (!nextOpen) dismissedRef.current = true
+    onOpenChange(nextOpen)
+  }
+
   const handleConnectGoogle = async () => {
     setIsConnectingGoogle(true)
     // The link start, not sign-in: the viewer is already signed in to the
@@ -61,11 +78,12 @@ export function BackupAuthPrompt({ open, onOpenChange }: BackupAuthPromptProps) 
     // that one destination.
     try {
       const { token } = await startLink.mutateAsync()
+      if (dismissedRef.current) return
       window.location.href = oauthLinkStartUrl('google', token)
     } catch (err) {
       // The button comes back so the viewer can retry or skip; the prompt
       // stays open either way.
-      setIsConnectingGoogle(false)
+      if (!dismissedRef.current) setIsConnectingGoogle(false)
       Sentry.captureException(err, {
         level: 'warning',
         tags: { service: 'backup-auth-prompt' },
@@ -75,11 +93,11 @@ export function BackupAuthPrompt({ open, onOpenChange }: BackupAuthPromptProps) 
   }
 
   const handleSkip = () => {
-    onOpenChange(false)
+    handleOpenChange(false)
   }
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogContent className="sm:max-w-md" onInteractOutside={(e) => e.preventDefault()}>
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">

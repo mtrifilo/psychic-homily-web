@@ -118,7 +118,7 @@ type StartOAuthLinkRequest struct {
 	Referer string `header:"Referer"`
 }
 
-// StartOAuthLinkResponse carries the one-time token Settings puts on the
+// StartOAuthLinkResponse carries the one-time token the frontend puts on the
 // /auth/link/{provider} URL it navigates to.
 type StartOAuthLinkResponse struct {
 	Body struct {
@@ -130,7 +130,7 @@ type StartOAuthLinkResponse struct {
 // StartOAuthLinkHandler handles POST /auth/oauth/link-token.
 //
 // It exists so /auth/link/{provider} can tell a start that came from this
-// application's own Settings page from one an attacker's page navigated the
+// application's own frontend from one an attacker's page navigated the
 // user into. That route is a cookie-authenticated GET and the auth cookie is
 // SameSite=Lax, which browsers DO send on a cross-site top-level navigation,
 // so the route cannot make that distinction on its own.

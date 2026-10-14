@@ -98,6 +98,70 @@ describe('BackupAuthPrompt', () => {
     })
   })
 
+  it.each([
+    ['skipped', "I'll do this later"],
+    ['closed with its close button', 'Close'],
+  ])('does not navigate when the prompt is %s while the token is pending', async (_, buttonName) => {
+    let resolveMint: (value: { token: string }) => void = () => {}
+    mockStartLinkMutateAsync.mockReturnValue(
+      new Promise(resolve => {
+        resolveMint = resolve
+      })
+    )
+    const { user, prompt, onOpenChange } = renderPrompt()
+
+    await user.click(within(prompt).getByRole('button', CONNECT))
+    await user.click(within(prompt).getByRole('button', { name: buttonName }))
+    expect(onOpenChange).toHaveBeenCalledWith(false)
+
+    resolveMint({ token: 'late-token' })
+    await new Promise(resolve => setTimeout(resolve, 0))
+
+    expect(navigate).not.toHaveBeenCalled()
+  })
+
+  it('does not navigate when the prompt is closed with Escape while the token is pending', async () => {
+    let resolveMint: (value: { token: string }) => void = () => {}
+    mockStartLinkMutateAsync.mockReturnValue(
+      new Promise(resolve => {
+        resolveMint = resolve
+      })
+    )
+    const { user, prompt, onOpenChange } = renderPrompt()
+
+    await user.click(within(prompt).getByRole('button', CONNECT))
+    await user.keyboard('{Escape}')
+    expect(onOpenChange).toHaveBeenCalledWith(false)
+
+    resolveMint({ token: 'late-token' })
+    await new Promise(resolve => setTimeout(resolve, 0))
+
+    expect(navigate).not.toHaveBeenCalled()
+  })
+
+  it('does not navigate when the prompt unmounts while the token is pending', async () => {
+    let resolveMint: (value: { token: string }) => void = () => {}
+    mockStartLinkMutateAsync.mockReturnValue(
+      new Promise(resolve => {
+        resolveMint = resolve
+      })
+    )
+    const user = userEvent.setup()
+    const { unmount } = renderWithProviders(
+      <BackupAuthPrompt open onOpenChange={vi.fn()} />
+    )
+
+    await user.click(
+      within(screen.getByRole('dialog', PROMPT)).getByRole('button', CONNECT)
+    )
+    unmount()
+
+    resolveMint({ token: 'late-token' })
+    await new Promise(resolve => setTimeout(resolve, 0))
+
+    expect(navigate).not.toHaveBeenCalled()
+  })
+
   it('stays open with the button back when the token cannot be minted', async () => {
     const failure = new Error('mint refused')
     mockStartLinkMutateAsync.mockRejectedValue(failure)

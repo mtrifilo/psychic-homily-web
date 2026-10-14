@@ -10,11 +10,12 @@ import { OAUTH_BACKEND_URL } from '@/lib/api-base'
  * takes the account from the session, while the sign-in route takes it from
  * what the provider returns.
  *
- * The token is minted by a same-origin authenticated request first. The link
- * route is a plain GET and the auth cookie is SameSite=Lax, which a browser
- * sends on a cross-site top-level navigation, so without a token only our own
- * page can hold, any site could push a signed-in user through the connect
- * flow.
+ * The token is minted first by an authenticated request only our configured
+ * frontend can make use of: the backend refuses the mint from any other
+ * Origin, and CORS keeps other origins from reading its answer. The link route
+ * is a plain GET and the auth cookie is SameSite=Lax, which a browser sends on
+ * a cross-site top-level navigation, so without a token only our own page can
+ * hold, any site could push a signed-in user through the connect flow.
  */
 export function oauthLinkStartUrl(provider: 'google', token: string): string {
   return `${OAUTH_BACKEND_URL}/auth/link/${provider}?t=${encodeURIComponent(token)}`
