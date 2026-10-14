@@ -22,8 +22,8 @@ import (
 )
 
 // An account that may not sign in (deactivated, or soft-deleted) is refused on
-// every sign-in path with the password path's typed refusal, and no session is
-// minted. An active account on the same path signs in as before.
+// the Google, Apple and passkey sign-in paths with ACCOUNT_INACTIVE, and no
+// session is minted. An active account on the same path signs in as before.
 
 // accountState puts an existing account into one of the states a sign-in path
 // must tell apart.
@@ -185,6 +185,46 @@ func (s *OAuthHandlerIntegrationSuite) TestAppleCallback_AccountState() {
 			s.Empty(resp.Body.Token)
 			s.Nil(resp.Body.User)
 			s.Empty(resp.SetCookie.Value)
+		})
+	}
+}
+
+// The passkey refusal against real account rows: the account is loaded by the
+// real user service and the session by the real JWT service, with only the
+// WebAuthn ceremony itself standing in.
+func (s *OAuthHandlerIntegrationSuite) TestPasskeyFinishLogin_AccountState() {
+	inactive := autherrors.ErrAccountInactive()
+
+	for _, state := range signInAccountStates {
+		s.Run(state.name, func() {
+			user := &authm.User{Email: strPtr("passkey-" + state.name + "@test.com"), IsActive: true, EmailVerified: true}
+			s.Require().NoError(s.deps.DB.Create(user).Error)
+			state.apply(s, user.ID)
+
+			ceremony := &testhelpers.MockWebAuthnService{
+				GetChallengeFn: func(string, string) (*webauthn.SessionData, uint, error) {
+					return &webauthn.SessionData{}, user.ID, nil
+				},
+				FinishLoginFn: func(*authm.User, *webauthn.SessionData, *protocol.ParsedCredentialAssertionData) (*authm.WebAuthnCredential, error) {
+					return &authm.WebAuthnCredential{}, nil
+				},
+			}
+			h := NewPasskeyHandler(ceremony, s.jwtService(), s.deps.UserService, &testhelpers.MockEmailService{}, s.cfg)
+
+			resp, err := h.FinishLoginHandler(context.Background(), finishLoginInput(s.T()))
+			s.Require().NoError(err)
+
+			if state.maySignIn {
+				s.True(resp.Body.Success)
+				s.NotEmpty(resp.SetCookie.Value)
+				return
+			}
+
+			s.False(resp.Body.Success)
+			s.Equal(autherrors.CodeAccountInactive, resp.Body.ErrorCode)
+			s.Equal(inactive.UserMessage(), resp.Body.Message)
+			s.Empty(resp.SetCookie.Value)
+			s.Nil(resp.Body.User)
 		})
 	}
 }

@@ -265,8 +265,8 @@ func (h *AuthHandler) LoginHandler(ctx context.Context, input *LoginRequest) (*L
 				resp.Body.ErrorCode = autherrors.ToExternalCode(autherrors.CodeInvalidCredentials)
 				return resp, nil
 			case autherrors.CodeAccountInactive:
-				// Deactivated account (is_active = false). The account exists in
-				// a known state and the service is healthy, so this is NOT a
+				// An account that may not sign in (authm.User.CanSignIn:
+				// deactivated or soft-deleted). The account exists in a known state and the service is healthy, so this is NOT a
 				// fail-closed 5xx — return HTTP 200 with the distinct
 				// ACCOUNT_INACTIVE code so the frontend can show contact-support
 				// copy. The password check already ran (no extra enumeration
@@ -1282,8 +1282,8 @@ func (h *AuthHandler) VerifyMagicLinkHandler(ctx context.Context, input *VerifyM
 		return resp, nil
 	}
 
-	// Check user is still active
-	if !user.IsActive {
+	// Check user may still sign in (deactivated or soft-deleted may not)
+	if !user.CanSignIn() {
 		logger.AuthWarn(ctx, "magic_link_user_inactive",
 			"user_id", user.ID,
 		)
