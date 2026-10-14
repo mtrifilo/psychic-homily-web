@@ -85,4 +85,8 @@ func TestRedirectRateLimitedReturnsAPendingLinkToSettings(t *testing.T) {
 	// cookie is refused to the auth page like any other.
 	assertAuthPage(t, refuse(t, "/auth/callback/google?state=other-state&code=spent", "google", intentCookie))
 	assertAuthPage(t, refuse(t, "/auth/callback/github?state=link-state&code=spent", "github", intentCookie))
+
+	// A cookie naming an intent this process does not hold is no link either.
+	assertAuthPage(t, refuse(t, "/auth/callback/google?state=link-state&code=spent", "google",
+		&http.Cookie{Name: oauthLinkIntentCookieName, Value: "no-such-intent"}))
 }

@@ -93,10 +93,10 @@ func TestAuthRateLimitIsSharedAcrossTheGroup(t *testing.T) {
 	}
 }
 
-// The subtle one. authRateLimiter is also used by the raw chi /auth/link route,
-// which was NOT converted. Passing the same closure keeps one counter across
-// both; a freshly-constructed limiter would give the Huma group its own,
-// doubling the effective budget for anyone willing to alternate.
+// The subtle one. authRateLimiter is also used by the raw chi /auth/link route.
+// Passing the same closure keeps one counter across both; a freshly-constructed
+// limiter would give the Huma group its own, doubling the effective budget for
+// anyone willing to alternate.
 //
 // The limiter sits in front of JWTMiddleware on that route, so an
 // uncredentialed request is metered and then answered 401.
