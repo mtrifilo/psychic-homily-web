@@ -37,14 +37,18 @@ const (
 	appleKeysFetchTimeout = 5 * time.Second
 
 	// appleKeysForcedRefreshCooldown is the minimum spacing between refreshes
-	// forced by a key id the fresh cached set does not hold, and between two
-	// logged fetch failures. The key id comes from the unverified token
-	// header, so this spacing is what keeps a caller from driving one fetch
-	// per request.
+	// forced by a key id the fresh cached set does not hold. The key id comes
+	// from the unverified token header, so this spacing is what keeps a caller
+	// from driving one fetch per request.
 	appleKeysForcedRefreshCooldown = time.Minute
+
+	// appleKeysFailureLogInterval is the minimum spacing between two logged
+	// key-set fetch failures.
+	appleKeysFailureLogInterval = time.Minute
 )
 
-// appleKeysHTTPClient serves every key-set fetch unless a test overrides it.
+// appleKeysHTTPClient serves every key-set fetch of a service whose
+// keysHTTPClient is nil.
 var appleKeysHTTPClient = &http.Client{Timeout: appleKeysFetchTimeout}
 
 // AppleAuthService handles Sign in with Apple authentication
@@ -313,12 +317,12 @@ func (s *AppleAuthService) getApplePublicKey(kid string) (*rsa.PublicKey, error)
 
 	fetch := s.keysFetch
 	starter := fetch == nil
+	if starter && fresh && now.Sub(s.lastForcedRefreshAt) < appleKeysForcedRefreshCooldown {
+		s.keysMu.Unlock()
+		return nil, errAppleKeyNotFound(kid)
+	}
 	if starter {
 		if fresh {
-			if now.Sub(s.lastForcedRefreshAt) < appleKeysForcedRefreshCooldown {
-				s.keysMu.Unlock()
-				return nil, errAppleKeyNotFound(kid)
-			}
 			s.lastForcedRefreshAt = now
 		}
 		fetch = &appleKeysFetch{done: make(chan struct{})}
@@ -356,17 +360,21 @@ func (s *AppleAuthService) runAppleKeysFetch(fetch *appleKeysFetch) {
 	defer func() {
 		s.keysMu.Lock()
 		now := s.keysClock()
+		logFailure := false
 		if err == nil {
 			s.keys = keys
 			s.keysExpAt = now.Add(appleKeysTTL)
-		} else if now.Sub(s.lastFetchFailureLogAt) >= appleKeysForcedRefreshCooldown {
+		} else if now.Sub(s.lastFetchFailureLogAt) >= appleKeysFailureLogInterval {
 			s.lastFetchFailureLogAt = now
-			s.keysLog().Error("apple_keys_fetch_failed", "error", err.Error())
+			logFailure = true
 		}
 		fetch.err = err
 		s.keysFetch = nil
 		s.keysMu.Unlock()
 		close(fetch.done)
+		if logFailure {
+			s.keysLog().Error("apple_keys_fetch_failed", "error", err.Error())
+		}
 	}()
 	keys, err = s.fetchAppleKeys()
 }
@@ -377,11 +385,7 @@ func (s *AppleAuthService) fetchAppleKeys() (map[string]*rsa.PublicKey, error) {
 	if s.fetchAppleKeysFromURL != "" {
 		keysURL = s.fetchAppleKeysFromURL
 	}
-	client := appleKeysHTTPClient
-	if s.keysHTTPClient != nil {
-		client = s.keysHTTPClient
-	}
-	resp, err := client.Get(keysURL)
+	resp, err := s.keysClient().Get(keysURL)
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch Apple keys: %w", err)
 	}
@@ -422,6 +426,13 @@ func (s *AppleAuthService) fetchAppleKeys() (map[string]*rsa.PublicKey, error) {
 	}
 
 	return keys, nil
+}
+
+func (s *AppleAuthService) keysClient() *http.Client {
+	if s.keysHTTPClient != nil {
+		return s.keysHTTPClient
+	}
+	return appleKeysHTTPClient
 }
 
 func (s *AppleAuthService) keysClock() time.Time {
