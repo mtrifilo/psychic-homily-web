@@ -2,7 +2,6 @@ package user
 
 import (
 	"errors"
-	"time"
 
 	"github.com/markbates/goth"
 	"gorm.io/gorm"
@@ -46,15 +45,13 @@ func (suite *UserServiceIntegrationTestSuite) TestGetUserByEmail_CaseInsensitive
 // password-reset endpoint, so /auth/recover-account, its request and its
 // confirm arm are the flows that resolve an address to a soft-deleted row.
 func (suite *UserServiceIntegrationTestSuite) TestGetUserByEmailIncludingDeleted_CaseInsensitive() {
-	deletedAt := time.Now().UTC().Add(-24 * time.Hour)
 	user := &authm.User{
 		Email:         stringPtr("Deleted.Case@Example.com"),
 		IsActive:      true,
 		EmailVerified: true,
 	}
 	suite.Require().NoError(suite.db.Create(user).Error)
-	suite.Require().NoError(suite.db.Model(user).
-		Updates(map[string]any{"is_active": false, "deleted_at": deletedAt}).Error)
+	suite.Require().NoError(suite.userService.SoftDeleteAccount(user.ID, nil))
 
 	found, err := suite.userService.GetUserByEmailIncludingDeleted("deleted.case@example.com")
 	suite.Require().NoError(err)

@@ -88,14 +88,9 @@ func (s *JWTIntegrationSuite) createInactiveUser(email string) *authm.User {
 	return user
 }
 
-// softDelete writes the soft-deleted state the way the account-deletion flow
-// does: is_active false and deleted_at set in one update.
 func (s *JWTIntegrationSuite) softDelete(user *authm.User) {
 	s.T().Helper()
-	s.Require().NoError(s.db.Model(user).Updates(map[string]any{
-		"is_active":  false,
-		"deleted_at": time.Now(),
-	}).Error)
+	s.Require().NoError(usersvc.NewUserService(s.db).SoftDeleteAccount(user.ID, nil))
 }
 
 func (s *JWTIntegrationSuite) createAdminUser(email string) *authm.User {

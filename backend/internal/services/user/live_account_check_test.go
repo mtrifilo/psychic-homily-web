@@ -5,9 +5,9 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgconn"
-	"gorm.io/gorm"
 
 	authm "psychic-homily-backend/internal/models/auth"
+	"psychic-homily-backend/internal/services/shared"
 )
 
 // users_live_account_check refuses an active row with deleted_at set, so a
@@ -33,7 +33,7 @@ func (suite *UserServiceIntegrationTestSuite) TestLiveAccountCheck_RefusesDelete
 	err := suite.db.Model(&authm.User{}).Where("id = ?", user.ID).Update("deleted_at", time.Now()).Error
 
 	suite.Require().Error(err)
-	suite.True(errors.Is(err, gorm.ErrCheckConstraintViolated), "got %v", err)
+	suite.True(shared.IsCheckConstraintViolation(err), "got %v", err)
 	suite.Nil(suite.reloadAccount(user.ID).DeletedAt)
 }
 
@@ -61,7 +61,7 @@ func (suite *UserServiceIntegrationTestSuite) TestLiveAccountCheck_CreateWithDel
 	err := suite.db.Create(user).Error
 
 	suite.Require().Error(err)
-	suite.True(errors.Is(err, gorm.ErrCheckConstraintViolated), "got %v", err)
+	suite.True(shared.IsCheckConstraintViolation(err), "got %v", err)
 }
 
 func (suite *UserServiceIntegrationTestSuite) TestLiveAccountCheck_RefusesReactivatingDeletedRow() {
@@ -71,7 +71,7 @@ func (suite *UserServiceIntegrationTestSuite) TestLiveAccountCheck_RefusesReacti
 	err := suite.db.Model(&authm.User{}).Where("id = ?", user.ID).Update("is_active", true).Error
 
 	suite.Require().Error(err)
-	suite.True(errors.Is(err, gorm.ErrCheckConstraintViolated), "got %v", err)
+	suite.True(shared.IsCheckConstraintViolation(err), "got %v", err)
 	suite.False(suite.reloadAccount(user.ID).IsActive)
 }
 

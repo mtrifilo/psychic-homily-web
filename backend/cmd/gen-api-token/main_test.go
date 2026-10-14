@@ -60,13 +60,10 @@ func TestEnsureAccountUsable_AgreesWithCanSignIn(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			err := ensureAccountUsable(tc.user)
-			assert.Equal(t, tc.user.CanSignIn(), err == nil, "ensureAccountUsable and CanSignIn disagree")
-			if tc.wantMessage == "" {
-				assert.NoError(t, err)
-				return
+			require.Equal(t, tc.user.CanSignIn(), err == nil, "ensureAccountUsable and CanSignIn disagree: %v", err)
+			if tc.wantMessage != "" {
+				assert.Contains(t, err.Error(), tc.wantMessage)
 			}
-			require.Error(t, err)
-			assert.Contains(t, err.Error(), tc.wantMessage)
 		})
 	}
 }

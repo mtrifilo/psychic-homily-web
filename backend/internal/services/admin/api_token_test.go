@@ -12,6 +12,7 @@ import (
 
 	adminm "psychic-homily-backend/internal/models/admin"
 	authm "psychic-homily-backend/internal/models/auth"
+	usersvc "psychic-homily-backend/internal/services/user"
 	"psychic-homily-backend/internal/testutil"
 )
 
@@ -211,9 +212,7 @@ func (suite *APITokenIntegrationTestSuite) TestValidateToken_SoftDeletedUser() {
 	createResp, err := suite.svc.CreateToken(user.ID, nil, 90)
 	suite.Require().NoError(err)
 
-	suite.Require().NoError(suite.db.Model(&authm.User{}).
-		Where("id = ?", user.ID).
-		Updates(map[string]any{"is_active": false, "deleted_at": time.Now()}).Error)
+	suite.Require().NoError(usersvc.NewUserService(suite.db).SoftDeleteAccount(user.ID, nil))
 
 	_, _, err = suite.svc.ValidateToken(createResp.Token)
 	suite.Require().Error(err)
