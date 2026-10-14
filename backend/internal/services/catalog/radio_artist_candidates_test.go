@@ -81,7 +81,7 @@ func TestRankRadioArtistCandidates(t *testing.T) {
 		candidateFixtureRow("tie newer b", 3, 10, 4, "2026-07-02", "a", "b"),
 	}
 
-	byScore := rankRadioArtistCandidates(rows, contracts.RadioArtistCandidateSortScore)
+	byScore := rankRadioArtistCandidates(rows, contracts.RadioCandidateSortScore)
 	// many stations 6 x ln 5 x 1.2 = 11.59; many plays 2 x ln 100 x 1.2 = 11.05;
 	// the tie group 3 x ln 10 x 1.4 = 9.67.
 	wantScore := []string{"many stations", "many plays", "tie newer", "tie newer b", "tie older"}
@@ -95,11 +95,11 @@ func TestRankRadioArtistCandidates(t *testing.T) {
 	}
 
 	wantPlays := []string{"many plays", "tie newer", "tie newer b", "tie older", "many stations"}
-	if got := candidateKeys(rankRadioArtistCandidates(rows, contracts.RadioArtistCandidateSortPlays)); !slices.Equal(got, wantPlays) {
+	if got := candidateKeys(rankRadioArtistCandidates(rows, contracts.RadioCandidateSortPlays)); !slices.Equal(got, wantPlays) {
 		t.Errorf("plays order = %v, want %v", got, wantPlays)
 	}
 	wantStations := []string{"many stations", "tie newer", "tie newer b", "tie older", "many plays"}
-	if got := candidateKeys(rankRadioArtistCandidates(rows, contracts.RadioArtistCandidateSortStations)); !slices.Equal(got, wantStations) {
+	if got := candidateKeys(rankRadioArtistCandidates(rows, contracts.RadioCandidateSortStations)); !slices.Equal(got, wantStations) {
 		t.Errorf("stations order = %v, want %v", got, wantStations)
 	}
 
@@ -138,7 +138,7 @@ func TestRankRadioArtistCandidates_SharedMBIDGoesToHumanLane(t *testing.T) {
 		candidateFixtureRow("other", 2, 5, 2, "2026-07-01", own+"x"),
 	}
 	byKey := map[string]contracts.RadioArtistCandidate{}
-	for _, c := range rankRadioArtistCandidates(rows, contracts.RadioArtistCandidateSortScore) {
+	for _, c := range rankRadioArtistCandidates(rows, contracts.RadioCandidateSortScore) {
 		byKey[c.ArtistKey] = c
 	}
 	want := map[string][]string{

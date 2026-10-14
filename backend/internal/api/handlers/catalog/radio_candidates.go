@@ -8,18 +8,19 @@ import (
 	"psychic-homily-backend/internal/services/contracts"
 )
 
-// RadioArtistCandidatesLister is the read the artist candidates endpoint needs.
-type RadioArtistCandidatesLister interface {
+// RadioCandidatesLister is the read the candidate endpoints need.
+type RadioCandidatesLister interface {
 	ListArtistCandidates(ctx context.Context, q contracts.RadioArtistCandidatesQuery) (*contracts.RadioArtistCandidateListing, error)
+	ListTrackCandidates(ctx context.Context, q contracts.RadioTrackCandidatesQuery) (*contracts.RadioTrackCandidateListing, error)
 }
 
 // RadioCandidatesHandler serves the internal enrichment candidate rankings.
 type RadioCandidatesHandler struct {
-	lister RadioArtistCandidatesLister
+	lister RadioCandidatesLister
 }
 
 // NewRadioCandidatesHandler creates a RadioCandidatesHandler.
-func NewRadioCandidatesHandler(lister RadioArtistCandidatesLister) *RadioCandidatesHandler {
+func NewRadioCandidatesHandler(lister RadioCandidatesLister) *RadioCandidatesHandler {
 	return &RadioCandidatesHandler{lister: lister}
 }
 
@@ -40,14 +41,14 @@ type AdminListRadioArtistCandidatesResponse struct {
 func (h *RadioCandidatesHandler) AdminListRadioArtistCandidatesHandler(ctx context.Context, req *AdminListRadioArtistCandidatesRequest) (*AdminListRadioArtistCandidatesResponse, error) {
 	q := contracts.RadioArtistCandidatesQuery{
 		Lane:  contracts.RadioCandidateLaneFilter(req.Lane),
-		Sort:  contracts.RadioArtistCandidateSort(req.Sort),
+		Sort:  contracts.RadioCandidateSort(req.Sort),
 		Limit: req.Limit,
 	}
 	if q.Lane == "" {
 		q.Lane = contracts.RadioCandidateLaneFilterAll
 	}
 	if q.Sort == "" {
-		q.Sort = contracts.RadioArtistCandidateSortScore
+		q.Sort = contracts.RadioCandidateSortScore
 	}
 	if q.Limit <= 0 {
 		q.Limit = 50
@@ -57,4 +58,44 @@ func (h *RadioCandidatesHandler) AdminListRadioArtistCandidatesHandler(ctx conte
 		return nil, huma.Error500InternalServerError("Failed to list radio artist candidates", err)
 	}
 	return &AdminListRadioArtistCandidatesResponse{Body: listing}, nil
+}
+
+// AdminListRadioTrackCandidatesRequest selects the view, the lanes, the order
+// and the length of the ranking. Its query fields mirror
+// AdminListRadioArtistCandidatesRequest's; Huma reads query tags only from a
+// request struct's own fields, so they are not shared by embedding.
+type AdminListRadioTrackCandidatesRequest struct {
+	View  string `query:"view" required:"true" enum:"unlinked,unmatched" doc:"unlinked: tracks of catalog artists with no release link; unmatched: tracks of artists the catalog does not have, each of whose artist keys is an artist candidate"`
+	Limit int    `query:"limit" required:"false" default:"50" minimum:"1" maximum:"500" doc:"Candidates to return (default 50)"`
+	Lane  string `query:"lane" required:"false" default:"all" enum:"auto,human,all" doc:"Return the auto lane, the human lane, or both (all, default)"`
+	Sort  string `query:"sort" required:"false" default:"score" enum:"score,plays,stations" doc:"Rank by score (default), plays in the window, or distinct station rows, descending; ties by score, then the most recent play, then track id."`
+}
+
+// AdminListRadioTrackCandidatesResponse is the ranking.
+type AdminListRadioTrackCandidatesResponse struct {
+	Body *contracts.RadioTrackCandidateListing
+}
+
+// AdminListRadioTrackCandidatesHandler handles GET /admin/radio/candidates/tracks.
+func (h *RadioCandidatesHandler) AdminListRadioTrackCandidatesHandler(ctx context.Context, req *AdminListRadioTrackCandidatesRequest) (*AdminListRadioTrackCandidatesResponse, error) {
+	q := contracts.RadioTrackCandidatesQuery{
+		View:  contracts.RadioTrackCandidateView(req.View),
+		Lane:  contracts.RadioCandidateLaneFilter(req.Lane),
+		Sort:  contracts.RadioCandidateSort(req.Sort),
+		Limit: req.Limit,
+	}
+	if q.Lane == "" {
+		q.Lane = contracts.RadioCandidateLaneFilterAll
+	}
+	if q.Sort == "" {
+		q.Sort = contracts.RadioCandidateSortScore
+	}
+	if q.Limit <= 0 {
+		q.Limit = 50
+	}
+	listing, err := h.lister.ListTrackCandidates(ctx, q)
+	if err != nil {
+		return nil, huma.Error500InternalServerError("Failed to list radio track candidates", err)
+	}
+	return &AdminListRadioTrackCandidatesResponse{Body: listing}, nil
 }

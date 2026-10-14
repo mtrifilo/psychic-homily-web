@@ -1043,6 +1043,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/admin/radio/candidates/tracks": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get admin radio candidates tracks */
+        get: operations["get-admin-radio-candidates-tracks"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/admin/radio/plays/bulk-link": {
         parameters: {
             query?: never;
@@ -14886,6 +14903,17 @@ export interface components {
             station_name: string;
             station_slug: string;
         };
+        RadioCandidateArtist: {
+            /** Format: int64 */
+            artist_id: number;
+            name: string;
+            /**
+             * Format: int64
+             * @description The candidate's counted plays linked to this artist
+             */
+            play_count: number;
+            slug: string;
+        };
         RadioCandidateName: {
             name: string;
             /** Format: int64 */
@@ -15582,6 +15610,119 @@ export interface components {
             label_slug: string | null;
             /** Format: int64 */
             play_count: number;
+        };
+        RadioTrackCandidate: {
+            /**
+             * Format: int64
+             * @description Distinct normalized album names
+             */
+            album_name_count: number;
+            /** @description Up to five album names by play count; names that normalize alike are one entry, shown in their most common trimmed spelling, counting all their plays */
+            album_names: components["schemas"]["RadioCandidateName"][] | null;
+            /** @description Every distinct artist key (radio_normalize_name of the artist name) among the counted plays, by play count; in the unmatched view each is an artist candidate's artist_key */
+            artist_keys: components["schemas"]["RadioCandidateName"][] | null;
+            /** @description Catalog artists the counted plays are linked to, by play count; empty in the unmatched view */
+            artists: components["schemas"]["RadioCandidateArtist"][] | null;
+            /** @description Most common raw artist spelling among the counted plays */
+            display_artist: string;
+            /** @description Most common raw title spelling among the counted plays */
+            display_title: string;
+            /** @description Earliest counted play's episode air date (YYYY-MM-DD) */
+            first_aired_on: string;
+            /** @enum {string} */
+            lane: "auto" | "human";
+            /** @description Latest counted play's episode air date (YYYY-MM-DD) */
+            last_aired_on: string;
+            /** @description Set when the counted plays carry exactly one MusicBrainz release id */
+            mb_release_id?: string;
+            /** @description Every distinct MusicBrainz release id the counted plays carry, lower-cased and sorted */
+            mb_release_ids: string[] | null;
+            /** @description True when a counted play's artist name or title carries a character normalization may not fold to a-z, 0-9 or punctuation (usually a non-Latin script); a key half may then be a fragment of that name, and the candidate is in the human lane */
+            non_latin_spelling: boolean;
+            /** Format: int64 */
+            play_count: number;
+            /**
+             * Format: double
+             * @description station rows x ln(plays)
+             */
+            score: number;
+            /** Format: int64 */
+            show_count: number;
+            /**
+             * Format: int64
+             * @description Distinct broadcasters (a network counts once)
+             */
+            station_family_count: number;
+            /**
+             * Format: int64
+             * @description Distinct radio_stations rows (each WFMU stream counts)
+             */
+            station_row_count: number;
+            /** @description Station rows by play count, descending */
+            stations: components["schemas"]["RadioCandidateStation"][] | null;
+            /**
+             * Format: int64
+             * @description Distinct raw title spellings
+             */
+            title_spelling_count: number;
+            /** @description Up to five exact raw title spellings, each with the plays carrying exactly that spelling; the first is display_title */
+            title_spellings: components["schemas"]["RadioCandidateName"][] | null;
+            /**
+             * Format: int64
+             * @description The radio_tracks row; the candidate's identity
+             */
+            track_id: number;
+        };
+        RadioTrackCandidateListing: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/schemas/RadioTrackCandidateListing.json
+             */
+            readonly $schema?: string;
+            /** @description The UTC date the window ends on (YYYY-MM-DD) */
+            as_of: string;
+            /**
+             * Format: int64
+             * @description Candidates in the view and the auto lane, whatever the lane filter
+             */
+            auto_total: number;
+            candidates: components["schemas"]["RadioTrackCandidate"][] | null;
+            /**
+             * Format: int64
+             * @description Candidates in the view and the human lane, whatever the lane filter
+             */
+            human_total: number;
+            /** Format: int64 */
+            min_plays: number;
+            /** Format: int64 */
+            min_station_rows: number;
+            /**
+             * Format: int64
+             * @description Tracks that clear the floors, in either view or in neither (a track of a catalog artist with a release link, or an unlinked track with an artist key that is not an artist candidate)
+             */
+            qualifying_tracks: number;
+            /**
+             * Format: int64
+             * @description Candidates in the view and the requested lanes
+             */
+            total: number;
+            /**
+             * Format: date-time
+             * @description When the radio_tracks rebuild loop last completed successfully
+             */
+            tracks_rebuilt_at?: string;
+            /**
+             * Format: int64
+             * @description Plays in the window, not excluded and not ambiguous, that count toward no track: a key half normalizes to empty, or radio_track_keys has no row for the key yet (the play arrived after the last rebuild)
+             */
+            untracked_plays: number;
+            /** @enum {string} */
+            view: "unlinked" | "unmatched";
+            /** Format: int64 */
+            window_days: number;
+            /** @description The earliest episode air date counted (YYYY-MM-DD) */
+            window_start: string;
         };
         RadioTrackListing: {
             /**
@@ -21477,6 +21618,44 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["RadioLabelCandidateListing"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "get-admin-radio-candidates-tracks": {
+        parameters: {
+            query: {
+                /** @description unlinked: tracks of catalog artists with no release link; unmatched: tracks of artists the catalog does not have, each of whose artist keys is an artist candidate */
+                view: "unlinked" | "unmatched";
+                /** @description Candidates to return (default 50) */
+                limit?: number;
+                /** @description Return the auto lane, the human lane, or both (all, default) */
+                lane?: "auto" | "human" | "all";
+                /** @description Rank by score (default), plays in the window, or distinct station rows, descending; ties by score, then the most recent play, then track id. */
+                sort?: "score" | "plays" | "stations";
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RadioTrackCandidateListing"];
                 };
             };
             /** @description Error */

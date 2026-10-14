@@ -76,7 +76,10 @@ func RadioArtistCandidateScore(stationRows, plays, shows int) float64 {
 
 // RadioCandidateLaneFacts are what a candidate's lane depends on.
 type RadioCandidateLaneFacts struct {
-	StationRows   int
+	StationRows int
+	// DistinctMBIDs counts the distinct MusicBrainz ids of the entity the
+	// candidate would create: artist ids for an artist, release ids for a
+	// track.
 	DistinctMBIDs int
 	// MBIDShared is true when another candidate's plays carry one of this
 	// candidate's MusicBrainz ids.
@@ -157,11 +160,13 @@ var radioCandidatePlayCols = RadioPlayColumns{
 	LabelName:  "p.label_name",
 }
 
-// radioCandidatePlaysFrom joins a play to its episode, show and station,
-// exposes its artist key as k.artist_key, and keeps the plays in the window
-// that are not excluded for the artist ranking and not ambiguous. Keyability
-// is left to the caller. Its one parameter is the window's first air date.
-var radioCandidatePlaysFrom = `
+// radioCandidatePlaysFromSQL returns a FROM clause that joins a play to its
+// episode, show and station, exposes its artist key as k.artist_key, and keeps
+// the plays in the window that are not excluded for the dimension's ranking
+// and not ambiguous. Keyability is left to the caller. Its one parameter is
+// the window's first air date.
+func radioCandidatePlaysFromSQL(dim RadioRankingDimension) string {
+	return `
 FROM radio_plays p
 JOIN radio_episodes e ON e.id = p.episode_id
 JOIN radio_shows sh ON sh.id = e.show_id
@@ -169,11 +174,23 @@ JOIN radio_stations st ON st.id = sh.station_id
 CROSS JOIN LATERAL (SELECT radio_normalize_name(p.artist_name) AS artist_key) k
 WHERE e.air_date >= ?::date
   AND p.match_state <> '` + catalogm.RadioPlayMatchStateAmbiguous + `'
-  AND NOT (` + RadioPlayExcludedSQL(RadioRankingArtist, radioCandidatePlayCols) + `)`
+  AND NOT (` + RadioPlayExcludedSQL(dim, radioCandidatePlayCols) + `)`
+}
+
+// radioCandidatePlaysFrom is radioCandidatePlaysFromSQL for the artist
+// ranking.
+var radioCandidatePlaysFrom = radioCandidatePlaysFromSQL(RadioRankingArtist)
+
+// radioNonLatinSQL returns a boolean SQL expression that is true when the
+// text column carries a character radio_normalize_name cannot fold. Panics on
+// a column that is not an identifier.
+func radioNonLatinSQL(column string) string {
+	return `public.immutable_unaccent(lower(` + mustSQLColumnRef(column) + `)) ~ '` + radioUnfoldableCharSQL + `'`
+}
 
 // radioCandidateNonLatinSQL is true for a play of radioCandidatePlaysFrom
 // whose name carries a character radio_normalize_name cannot fold.
-const radioCandidateNonLatinSQL = `public.immutable_unaccent(lower(p.artist_name)) ~ '` + radioUnfoldableCharSQL + `'`
+var radioCandidateNonLatinSQL = radioNonLatinSQL("p.artist_name")
 
 // radioArtistCandidatesSQL returns every qualifying key with its counts or,
 // when no key qualifies, one row whose artist_key is NULL; every row carries
@@ -246,37 +263,39 @@ func radioCatalogAnswersToSQL(expr string) string {
 }
 
 // radioCandidateEvidenceNamesSQL ranks the album or label names on the
-// evidence query's counted CTE: names group by radio_normalize_name, show
-// their most common trimmed spelling, and only rows where onlyWhere (a boolean
-// column of counted, or "" for every row) holds contribute. Panics on a column
-// that is not an identifier.
-func radioCandidateEvidenceNamesSQL(kind, column, onlyWhere string) string {
+// evidence query's counted CTE, per value of its owner column (the candidate's
+// identity, which the rows carry under the same name): names group by
+// radio_normalize_name, show their most common trimmed spelling, and only rows
+// where onlyWhere (a boolean column of counted, or "" for every row) holds
+// contribute. Panics on a column that is not an identifier.
+func radioCandidateEvidenceNamesSQL(kind, owner, column, onlyWhere string) string {
+	own := mustSQLColumnRef(owner)
 	col := mustSQLColumnRef(column)
 	filter := "true"
 	if onlyWhere != "" {
 		filter = mustSQLColumnRef(onlyWhere)
 	}
 	return fmt.Sprintf(`
-SELECT '%[1]s' AS kind, artist_key, 0 AS ref_id, name, '' AS slug,
+SELECT '%[1]s' AS kind, %[5]s, 0 AS ref_id, name, '' AS slug,
        play_count::int AS play_count, distinct_count::int AS distinct_count, rn
 FROM (
-  SELECT artist_key, name, play_count,
-         count(*) OVER (PARTITION BY artist_key) AS distinct_count,
-         row_number() OVER (PARTITION BY artist_key ORDER BY play_count DESC, name COLLATE "C") AS rn
+  SELECT %[5]s, name, play_count,
+         count(*) OVER (PARTITION BY %[5]s) AS distinct_count,
+         row_number() OVER (PARTITION BY %[5]s ORDER BY play_count DESC, name COLLATE "C") AS rn
   FROM (
-    SELECT artist_key, norm, sum(n) AS play_count,
+    SELECT %[5]s, norm, sum(n) AS play_count,
            (array_agg(spelling ORDER BY n DESC, spelling COLLATE "C"))[1] AS name
     FROM (
-      SELECT artist_key, radio_normalize_name(%[2]s) AS norm, btrim(%[2]s) AS spelling, count(*) AS n
+      SELECT %[5]s, radio_normalize_name(%[2]s) AS norm, btrim(%[2]s) AS spelling, count(*) AS n
       FROM counted
       WHERE %[2]s ~ '[^[:space:]]' AND %[3]s
       GROUP BY 1, 2, 3
     ) spellings
     WHERE norm <> ''
-    GROUP BY artist_key, norm
+    GROUP BY %[5]s, norm
   ) names
 ) ranked
-WHERE rn <= %[4]d`, kind, col, filter, radioCandidateTopNames)
+WHERE rn <= %[4]d`, kind, col, filter, radioCandidateTopNames, own)
 }
 
 // radioArtistCandidateEvidenceSQL returns the evidence rows of the selected
@@ -329,8 +348,8 @@ FROM (
   GROUP BY c.artist_key, t.id, t.display_title
 ) tracks
 WHERE rn <= ` + fmt.Sprint(radioCandidateTopTracks) + `
-UNION ALL` + radioCandidateEvidenceNamesSQL(radioEvidenceAlbum, "album_title", "") + `
-UNION ALL` + radioCandidateEvidenceNamesSQL(radioEvidenceLabel, "label_name", "label_counts") + `
+UNION ALL` + radioCandidateEvidenceNamesSQL(radioEvidenceAlbum, "artist_key", "album_title", "") + `
+UNION ALL` + radioCandidateEvidenceNamesSQL(radioEvidenceLabel, "artist_key", "label_name", "label_counts") + `
 ORDER BY kind, artist_key, rn`
 
 // radioCatalogNamesSQL returns which of the given normalized names a catalog
@@ -357,35 +376,21 @@ func (r *RadioCandidatesReader) ListArtistCandidates(ctx context.Context, q cont
 		return nil, fmt.Errorf("limit must be positive, got %d", q.Limit)
 	}
 
-	asOf := r.now().UTC()
-	windowStart := asOf.AddDate(0, 0, -(RadioCandidateWindowDays - 1))
+	asOf, windowStart := r.window()
 	listing := &contracts.RadioArtistCandidateListing{
-		AsOf:           asOf.Format(time.DateOnly),
-		WindowStart:    windowStart.Format(time.DateOnly),
+		AsOf:           asOf,
+		WindowStart:    windowStart,
 		WindowDays:     RadioCandidateWindowDays,
 		MinStationRows: RadioMinDistinctStations,
 		MinPlays:       RadioCandidateMinPlays,
 	}
 
-	ctx, cancel := context.WithTimeout(ctx, radioCandidateListingTimeout)
-	defer cancel()
-	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		// The server-side bound holds even if the client's cancellation is lost.
-		if err := tx.Exec(fmt.Sprintf("SET LOCAL statement_timeout = %d", radioCandidateListingTimeout.Milliseconds())).Error; err != nil {
-			return fmt.Errorf("bounding the listing: %w", err)
-		}
-		var rows []radioArtistCandidateRow
-		if err := tx.Raw(radioArtistCandidatesSQL, listing.WindowStart, RadioCandidateMinPlays).Scan(&rows).Error; err != nil {
-			return fmt.Errorf("ranking artist candidates: %w", err)
-		}
-		if len(rows) > 0 {
-			listing.UnkeyablePlays = rows[0].UnkeyablePlays
-		}
-		rows = slices.DeleteFunc(rows, func(row radioArtistCandidateRow) bool { return row.ArtistKey == nil })
-		rows, err := dropCatalogCollabKeys(tx, rows)
+	err := r.inSnapshot(ctx, func(tx *gorm.DB) error {
+		rows, unkeyable, err := qualifyingRadioArtistRows(tx, listing.WindowStart)
 		if err != nil {
 			return err
 		}
+		listing.UnkeyablePlays = unkeyable
 
 		candidates := rankRadioArtistCandidates(rows, q.Sort)
 		listing.Candidates = make([]contracts.RadioArtistCandidate, 0, min(q.Limit, len(candidates)))
@@ -407,16 +412,66 @@ func (r *RadioCandidatesReader) ListArtistCandidates(ctx context.Context, q cont
 		if err := attachRadioArtistCandidateEvidence(tx, listing.WindowStart, listing.Candidates); err != nil {
 			return err
 		}
-		if err := tx.Raw("SELECT (SELECT last_success_at FROM background_service_runs WHERE name = ?)", RadioTracksRebuildLoopName).
-			Row().Scan(&listing.TracksRebuiltAt); err != nil {
-			return fmt.Errorf("reading the tracks rebuild time: %w", err)
-		}
-		return nil
-	}, &sql.TxOptions{Isolation: sql.LevelRepeatableRead, ReadOnly: true})
+		listing.TracksRebuiltAt, err = radioTracksRebuiltAt(tx)
+		return err
+	})
 	if err != nil {
 		return nil, err
 	}
 	return listing, nil
+}
+
+// window returns the UTC date the candidate window ends on and its first air
+// date, both as YYYY-MM-DD.
+func (r *RadioCandidatesReader) window() (asOf, windowStart string) {
+	now := r.now().UTC()
+	return now.Format(time.DateOnly), now.AddDate(0, 0, -(RadioCandidateWindowDays - 1)).Format(time.DateOnly)
+}
+
+// inSnapshot runs fn in one REPEATABLE READ, read-only transaction bounded by
+// radioCandidateListingTimeout, so every statement of a listing reads the same
+// snapshot.
+func (r *RadioCandidatesReader) inSnapshot(ctx context.Context, fn func(tx *gorm.DB) error) error {
+	ctx, cancel := context.WithTimeout(ctx, radioCandidateListingTimeout)
+	defer cancel()
+	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		// The server-side bound holds even if the client's cancellation is lost.
+		if err := tx.Exec(fmt.Sprintf("SET LOCAL statement_timeout = %d", radioCandidateListingTimeout.Milliseconds())).Error; err != nil {
+			return fmt.Errorf("bounding the listing: %w", err)
+		}
+		return fn(tx)
+	}, &sql.TxOptions{Isolation: sql.LevelRepeatableRead, ReadOnly: true})
+}
+
+// radioTracksRebuiltAt returns when the radio_tracks rebuild loop last
+// succeeded, or nil when it never has.
+func radioTracksRebuiltAt(tx *gorm.DB) (*time.Time, error) {
+	var at *time.Time
+	if err := tx.Raw("SELECT (SELECT last_success_at FROM background_service_runs WHERE name = ?)", RadioTracksRebuildLoopName).
+		Row().Scan(&at); err != nil {
+		return nil, fmt.Errorf("reading the tracks rebuild time: %w", err)
+	}
+	return at, nil
+}
+
+// qualifyingRadioArtistRows returns the qualifying artist keys with their
+// counts, every row with a non-nil ArtistKey, and the number of in-window plays
+// whose name normalizes to empty.
+func qualifyingRadioArtistRows(tx *gorm.DB, windowStart string) ([]radioArtistCandidateRow, int64, error) {
+	var rows []radioArtistCandidateRow
+	if err := tx.Raw(radioArtistCandidatesSQL, windowStart, RadioCandidateMinPlays).Scan(&rows).Error; err != nil {
+		return nil, 0, fmt.Errorf("ranking artist candidates: %w", err)
+	}
+	var unkeyable int64
+	if len(rows) > 0 {
+		unkeyable = rows[0].UnkeyablePlays
+	}
+	rows = slices.DeleteFunc(rows, func(row radioArtistCandidateRow) bool { return row.ArtistKey == nil })
+	rows, err := dropCatalogCollabKeys(tx, rows)
+	if err != nil {
+		return nil, 0, err
+	}
+	return rows, unkeyable, nil
 }
 
 // dropCatalogCollabKeys removes the keys that split as a collab credit with a
@@ -447,10 +502,10 @@ func dropCatalogCollabKeys(tx *gorm.DB, rows []radioArtistCandidateRow) ([]radio
 }
 
 // radioArtistCandidateSortKeys maps each sort to the metric it ranks by first.
-var radioArtistCandidateSortKeys = map[contracts.RadioArtistCandidateSort]func(contracts.RadioArtistCandidate) float64{
-	contracts.RadioArtistCandidateSortScore:    func(c contracts.RadioArtistCandidate) float64 { return c.Score },
-	contracts.RadioArtistCandidateSortPlays:    func(c contracts.RadioArtistCandidate) float64 { return float64(c.PlayCount) },
-	contracts.RadioArtistCandidateSortStations: func(c contracts.RadioArtistCandidate) float64 { return float64(c.StationRowCount) },
+var radioArtistCandidateSortKeys = map[contracts.RadioCandidateSort]func(contracts.RadioArtistCandidate) float64{
+	contracts.RadioCandidateSortScore:    func(c contracts.RadioArtistCandidate) float64 { return c.Score },
+	contracts.RadioCandidateSortPlays:    func(c contracts.RadioArtistCandidate) float64 { return float64(c.PlayCount) },
+	contracts.RadioCandidateSortStations: func(c contracts.RadioArtistCandidate) float64 { return float64(c.StationRowCount) },
 }
 
 // rankRadioArtistCandidates scores the qualifying keys, finds the MusicBrainz
@@ -458,7 +513,7 @@ var radioArtistCandidateSortKeys = map[contracts.RadioArtistCandidateSort]func(c
 // sort's metric, descending, then by score, the most recent play and the
 // artist key. The evidence fields other than SharedMBArtistKeys are left
 // empty. Every row must have a non-nil ArtistKey.
-func rankRadioArtistCandidates(rows []radioArtistCandidateRow, sort contracts.RadioArtistCandidateSort) []contracts.RadioArtistCandidate {
+func rankRadioArtistCandidates(rows []radioArtistCandidateRow, sort contracts.RadioCandidateSort) []contracts.RadioArtistCandidate {
 	keysByMBID := map[string][]string{}
 	for _, row := range rows {
 		for _, id := range row.MBArtistIDs {
