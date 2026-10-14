@@ -179,6 +179,13 @@ func (s *RadioCandidatesIntegrationSuite) TestTrackViewSplit() {
 	s.addAcross(candidatePlay{artist: "T Known", title: "Ambiguous Link Song", artistID: &known}, 2)
 	s.add(candidatePlay{station: "t-kexp", artist: "T Known", title: "Ambiguous Link Song", artistID: &known, releaseID: &release,
 		matchState: catalogm.RadioPlayMatchStateAmbiguous}, 1)
+	// So does one on a play the track ranking excludes (a talk title on
+	// WFMU, by a station-scoped rule set below).
+	s.addAcross(candidatePlay{artist: "T Known", title: "Excluded Link Song", artistID: &known}, 2)
+	s.add(candidatePlay{station: "t-wfmu", show: "talk", artist: "T Known", title: "Excluded Link Song feat Talker", artistID: &known, releaseID: &release}, 1)
+	// A credited release on a play not linked to an artist does not count.
+	s.addAcross(candidatePlay{artist: "T Known", title: "Unlinked Link Song", artistID: &known}, 2)
+	s.add(candidatePlay{station: "t-kexp", artist: "T Known", title: "Unlinked Link Song", releaseID: &release}, 1)
 	// So does one on another spelling a recording id joined into the track.
 	const joined = "abababab-1111-4111-8111-111111111111"
 	s.addAcross(candidatePlay{artist: "T Known", title: "Joined Link Song", artistID: &known, mbRecording: joined}, 2)
@@ -191,6 +198,12 @@ func (s *RadioCandidatesIntegrationSuite) TestTrackViewSplit() {
 	s.addAcross(candidatePlay{artist: "T Newcomer", title: "New Song"}, 2)
 	// Unlinked plays of an artist the catalog has by name: neither view.
 	s.addAcross(candidatePlay{artist: "T Lagging", title: "Lagging Song"}, 2)
+	s.Require().NoError(s.db.Exec(
+		`INSERT INTO radio_play_exclusions (match_kind, pattern_type, pattern, category, reason, station_id)
+		 VALUES ('track_title', 'exact', 'excluded link song feat talker', 'talk', 'test', ?)`, s.stations["t-wfmu"]).Error)
+	defer func() {
+		s.Require().NoError(s.db.Exec(`DELETE FROM radio_play_exclusions WHERE reason = 'test'`).Error)
+	}()
 	s.rebuildTracks()
 
 	unlinked := s.listTracks(contracts.RadioTrackCandidateViewUnlinked, contracts.RadioCandidateLaneFilterAll, contracts.RadioCandidateSortScore, 50)
@@ -202,11 +215,11 @@ func (s *RadioCandidatesIntegrationSuite) TestTrackViewSplit() {
 		}
 		return out
 	}
-	s.ElementsMatch([]string{"Known Song", "Mislinked Song", "Mixed Song"}, titles(unlinked))
+	s.ElementsMatch([]string{"Known Song", "Mislinked Song", "Mixed Song", "Unlinked Link Song"}, titles(unlinked))
 	s.Equal([]string{"New Song"}, titles(unmatched))
-	s.Equal(10, unlinked.QualifyingTracks)
-	s.Equal(10, unmatched.QualifyingTracks)
-	s.Equal(3, unlinked.Total)
+	s.Equal(12, unlinked.QualifyingTracks)
+	s.Equal(12, unmatched.QualifyingTracks)
+	s.Equal(4, unlinked.Total)
 	s.Equal(1, unmatched.Total)
 
 	for _, c := range unlinked.Candidates {

@@ -152,3 +152,23 @@ func TestRankRadioTrackCandidates(t *testing.T) {
 		}
 	}
 }
+
+func TestRadioCandidateEvidenceSQLRefusesNonIdentifiers(t *testing.T) {
+	cases := map[string]func(){
+		"qualified station owner":  func() { radioCandidateEvidenceStationsSQL("c.track_id") },
+		"qualified spelling owner": func() { radioCandidateEvidenceSpellingsSQL(radioEvidenceTitle, "c.track_id", "track_title") },
+		"quoted spelling kind":     func() { radioCandidateEvidenceSpellingsSQL("title' OR '1", "track_id", "track_title") },
+		"quoted names kind":        func() { radioCandidateEvidenceNamesSQL("album' OR '1", "track_id", "album_title", "") },
+		"non-Latin column":         func() { radioNonLatinSQL("p.track_title; DROP TABLE x") },
+	}
+	for name, build := range cases {
+		func() {
+			defer func() {
+				if recover() == nil {
+					t.Errorf("%s: built SQL, want a panic", name)
+				}
+			}()
+			build()
+		}()
+	}
+}
