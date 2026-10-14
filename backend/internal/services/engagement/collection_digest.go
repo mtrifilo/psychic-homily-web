@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"os"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -81,20 +82,29 @@ func NewCollectionDigestService(database *gorm.DB, emailService contracts.EmailS
 	}
 }
 
-// DeriveBackendURL maps a frontend URL to the corresponding public API URL.
-// Mirrors handlers.getAPIBaseURL — pulled inline to avoid cross-package
-// imports. Defaults to localhost:8080 in dev. Exported so other services that
-// mint backend-hosted unsubscribe URLs (e.g. the admin tier/edit emails) can
-// reuse the same mapping rather than copy it again.
-func DeriveBackendURL(frontendURL string) string {
-	switch frontendURL {
-	case "https://psychichomily.com":
-		return "https://api.psychichomily.com"
+// DeployedBackendURL returns the public API URL for a deployed frontend URL
+// and reports whether the frontend URL is one. The production frontend in
+// either its apex or www form maps to the production API host, the stage
+// frontend maps to the stage API host, and trailing slashes are ignored.
+func DeployedBackendURL(frontendURL string) (string, bool) {
+	switch strings.TrimRight(frontendURL, "/") {
+	case "https://psychichomily.com", "https://www.psychichomily.com":
+		return "https://api.psychichomily.com", true
 	case "https://stage.psychichomily.com":
-		return "https://api-stage.psychichomily.com"
+		return "https://api-stage.psychichomily.com", true
 	default:
-		return "http://localhost:8080"
+		return "", false
 	}
+}
+
+// DeriveBackendURL maps a frontend URL to the corresponding public API URL:
+// the DeployedBackendURL mapping, else http://localhost:8080. Services that
+// mint backend-hosted unsubscribe URLs share this mapping.
+func DeriveBackendURL(frontendURL string) string {
+	if backendURL, ok := DeployedBackendURL(frontendURL); ok {
+		return backendURL
+	}
+	return "http://localhost:8080"
 }
 
 // Start begins the background digest job.
