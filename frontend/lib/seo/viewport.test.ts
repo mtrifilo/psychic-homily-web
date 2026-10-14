@@ -1,5 +1,8 @@
+import { readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
+
 import { describe, it, expect } from 'vitest'
-import { appViewport } from './viewport'
+import { appViewport, PAGE_BACKGROUND } from './viewport'
 
 describe('appViewport', () => {
   // Every env(safe-area-inset-*) term in the app is inert without this: iOS
@@ -14,10 +17,24 @@ describe('appViewport', () => {
 
   // Kept alongside so a rewrite of this object cannot quietly drop the
   // light/dark theme colors while satisfying the assertion above.
-  it('keeps the light and dark theme colors', () => {
+  it("tints the browser chrome with each OS colour scheme's page background", () => {
     expect(appViewport.themeColor).toEqual([
-      { media: '(prefers-color-scheme: light)', color: 'white' },
-      { media: '(prefers-color-scheme: dark)', color: 'black' },
+      { media: '(prefers-color-scheme: light)', color: PAGE_BACKGROUND.light },
+      { media: '(prefers-color-scheme: dark)', color: PAGE_BACKGROUND.dark },
     ])
+  })
+})
+
+describe('PAGE_BACKGROUND', () => {
+  it('matches --background in the light and .dark blocks of app/globals.css', () => {
+    const css = readFileSync(resolve(process.cwd(), 'app/globals.css'), 'utf8')
+    // `.dark {` at line start: earlier `.dark` mentions (the custom variant,
+    // prose in comments) are not the token block.
+    const darkStart = css.search(/^\.dark \{/m)
+    expect(darkStart, 'app/globals.css has a `.dark {` block at the start of a line').toBeGreaterThan(0)
+    expect(css.slice(0, darkStart)).toContain(`--background: ${PAGE_BACKGROUND.light};`)
+    expect(css.slice(darkStart, css.indexOf('\n}', darkStart))).toContain(
+      `--background: ${PAGE_BACKGROUND.dark};`
+    )
   })
 })
