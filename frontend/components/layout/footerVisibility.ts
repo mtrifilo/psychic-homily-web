@@ -6,11 +6,8 @@ import { ATLAS_PATHNAME } from '@/lib/atlasMapReady'
  * sit under such a page and show through between it and the bar, so it does
  * not render on these routes below `xl`; at `xl` it renders as on every other
  * route. Matched against the exact pathname. Each route here renders a box
- * sized to exactly that area below `xl`, less the cookie banner's height while
- * the banner is up; for `/atlas` it is the `atlas-pane-frame` height in
- * `features/scenes/components/AtlasGlobe.tsx`. The banner's scroll spacer
- * (CookieConsentBanner.tsx) is hidden wherever the footer is, so the page
- * stays exactly the viewport's height on these routes below `xl`.
+ * sized to exactly that area below `xl`; for `/atlas` it is the
+ * `atlas-pane-frame` height in `features/scenes/components/AtlasGlobe.tsx`.
  */
 const VIEWPORT_FILLING_ROUTES_BELOW_XL: ReadonlySet<string> = new Set([ATLAS_PATHNAME])
 

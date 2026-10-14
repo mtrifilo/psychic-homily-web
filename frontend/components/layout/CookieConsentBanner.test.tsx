@@ -53,17 +53,9 @@ vi.mock('next/navigation', () => ({
   useRouter: () => ({ prefetch: () => {} }),
 }))
 
-let mockPathname = '/'
-vi.mock('next/navigation', () => ({
-  usePathname: () => mockPathname,
-}))
-
-const spacer = () => document.querySelector('[data-cookie-banner-spacer]')
-
 describe('CookieConsentBanner', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    mockPathname = '/'
     mockUseCookieConsent.mockReturnValue({
       showBanner: true,
       gpcSignalDetected: false,
@@ -157,38 +149,15 @@ describe('CookieConsentBanner', () => {
       expect(screen.queryByText(/Global Privacy Control signal/)).not.toBeInTheDocument()
     })
 
-    // PSY-1029: the fixed bar reserves matching scroll space at the document
-    // end so it never makes document-end content (the footer) unreachable,
-    // and releases the space once the bar unmounts.
-    it('ends the document with a spacer of the published bar height while visible', () => {
+    // PSY-1029: the bar only publishes its height; AppShell reserves it as
+    // bottom padding (AppShell.test.tsx), so the banner never writes the
+    // body's own padding.
+    it('leaves the body padding alone', () => {
       const { unmount } = render(<CookieConsentBanner />)
-      expect(spacer()).toHaveClass('h-[var(--cookie-banner-height,0px)]')
-      expect(spacer()).toHaveAttribute('aria-hidden', 'true')
-      expect(spacer()).not.toHaveClass('hidden')
       expect(document.body.style.paddingBottom).toBe('')
-
       unmount()
-      expect(spacer()).toBeNull()
+      expect(document.body.style.paddingBottom).toBe('')
     })
-
-    // The spacer follows the footer: where the footer is hidden below `xl`
-    // the page fills the viewport and gives up the bar's height itself, so a
-    // spacer below `xl` would only add an empty scrollable band; at `xl` the
-    // footer returns and so does the spacer.
-    it('hides the spacer below xl on the routes that hide the footer there', () => {
-      mockPathname = '/atlas'
-      render(<CookieConsentBanner />)
-      expect(spacer()).toHaveClass('hidden', 'xl:block')
-    })
-
-    it.each(['/', '/shows', '/atlas/other', '/scenes/phoenix-az'])(
-      'keeps the spacer at every width on %s',
-      pathname => {
-        mockPathname = pathname
-        render(<CookieConsentBanner />)
-        expect(spacer()).not.toHaveClass('hidden')
-      }
-    )
 
     // The bar's height is published on <html> as --cookie-banner-height (the
     // name AtlasGlobe's frame subtracts to end above the bar), and follows the
@@ -268,32 +237,6 @@ describe('CookieConsentBanner', () => {
         'left-0',
         'right-0'
       )
-    })
-
-    it('removes the spacer when consent is given (banner hides)', () => {
-      const { rerender } = render(<CookieConsentBanner />)
-      expect(spacer()).not.toBeNull()
-
-      mockUseCookieConsent.mockReturnValue({
-        showBanner: false,
-        gpcSignalDetected: false,
-        acceptAll: mockAcceptAll,
-        rejectAll: mockRejectAll,
-        openPreferences: mockOpenPreferences,
-        closePreferences: mockClosePreferences,
-        savePreferences: mockSavePreferences,
-        preferencesOpen: false,
-        consent: {
-          version: 1,
-          timestamp: new Date().toISOString(),
-          expiresAt: new Date(Date.now() + 86400000).toISOString(),
-          gpcDetected: false,
-          categories: { essential: true, analytics: true },
-          consentMethod: 'banner_accept_all' as const,
-        },
-      })
-      rerender(<CookieConsentBanner />)
-      expect(spacer()).toBeNull()
     })
   })
 

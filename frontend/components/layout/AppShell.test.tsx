@@ -113,9 +113,13 @@ describe('AppShell', () => {
     // leaves every mobile footer under the fixed bar with no failing test.
     // BOTTOM_TAB_BAR_BOX is the shared copy BottomTabBar.test.tsx asserts as
     // the bar's rendered `h-[…]`; reserving and rendering must not drift.
+    // The shell also reserves the cookie banner's published height (0px when
+    // no banner is up): below `xl` the banner sits on the bar, so the two add;
+    // at `xl` the banner's height already contains the home-indicator inset,
+    // so the larger of the two is reserved.
     expect(container.firstChild).toHaveClass(
-      `pb-[${BOTTOM_TAB_BAR_BOX}]`,
-      'xl:pb-[env(safe-area-inset-bottom)]'
+      `pb-[calc(${BOTTOM_TAB_BAR_BOX}+var(--cookie-banner-height,0px))]`,
+      'xl:pb-[max(env(safe-area-inset-bottom),var(--cookie-banner-height,0px))]'
     )
   })
 

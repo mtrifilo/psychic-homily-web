@@ -7,6 +7,7 @@ import {
   CONSENT_VERSION,
   CookieConsentProvider,
   STORAGE_KEY,
+  type CookieConsentState,
 } from '@/lib/context/CookieConsentContext'
 import { makeAuthFixture } from '@/test/authFixture'
 
@@ -35,19 +36,17 @@ vi.mock('next-themes', () => ({
   useTheme: () => ({ resolvedTheme: 'dark', setTheme: vi.fn() }),
 }))
 
-function saveDecision(analytics: boolean) {
+function saveRejectAllDecision() {
   const now = Date.now()
-  localStorage.setItem(
-    STORAGE_KEY,
-    JSON.stringify({
-      version: CONSENT_VERSION,
-      timestamp: new Date(now).toISOString(),
-      expiresAt: new Date(now + 86_400_000).toISOString(),
-      gpcDetected: false,
-      categories: { essential: true, analytics },
-      consentMethod: 'banner_reject_all',
-    })
-  )
+  const decision: CookieConsentState = {
+    version: CONSENT_VERSION,
+    timestamp: new Date(now).toISOString(),
+    expiresAt: new Date(now + 86_400_000).toISOString(),
+    gpcDetected: false,
+    categories: { essential: true, analytics: false },
+    consentMethod: 'banner_reject_all',
+  }
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(decision))
 }
 
 function renderChrome() {
@@ -65,7 +64,7 @@ describe('Account sheet Cookie preferences row', () => {
   })
 
   it('opens the preferences dialog over a closed sheet once a decision is saved', async () => {
-    saveDecision(false)
+    saveRejectAllDecision()
     const user = userEvent.setup()
     renderChrome()
     expect(screen.queryByRole('dialog', { name: 'Cookie consent' })).not.toBeInTheDocument()

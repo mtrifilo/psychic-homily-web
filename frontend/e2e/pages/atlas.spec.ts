@@ -620,9 +620,10 @@ test.describe('Atlas area on a 390x844 phone ends at the tab bar', () => {
 
 /**
  * While the cookie banner is up, the phone Atlas area ends at the banner's top
- * edge and the banner sits on the tab bar. The banner's scroll spacer does not
- * render on this route below `xl`, so the page is still exactly the
- * viewport's height and cannot scroll into an empty band under the banner.
+ * edge and the banner sits on the tab bar. The frame gives up the banner's
+ * height and AppShell's padding reserves the same height, so the page is
+ * still exactly the viewport's height and cannot scroll into an empty band
+ * under the banner.
  */
 test.describe('Atlas on a 390x844 phone with the cookie banner up', () => {
   test.use({ viewport: { width: 390, height: 844 }, ...PHONE_CONTEXT })
@@ -734,28 +735,7 @@ test.describe('Atlas area at 1440x900 ends at the fold', () => {
       }
     })
 
-  test('with no banner, the area ends at the viewport bottom and the footer starts there', async ({
-    page,
-  }) => {
-    await stubAtlas(page)
-    await page.goto('/atlas?city=Phoenix%2CAZ')
-    await waitForMap(page)
-    await dismissBanner(page, { via: 'click' })
-
-    await expect
-      .poll(async () => {
-        const g = await geometry(page)
-        return Math.abs(g.frameBottom - g.viewportHeight) < 0.5
-      })
-      .toBe(true)
-    const g = await geometry(page)
-    expect(g.scrollY).toBe(0)
-    expect(g.frameTop).toBeCloseTo(g.topBarBottom, 1)
-    expect(g.footerTop).toBeCloseTo(g.frameBottom, 1)
-    test.info().annotations.push({ type: 'geometry', description: JSON.stringify(g) })
-  })
-
-  test('with the banner up, the area ends at the banner and the footer starts under it', async ({
+  test('the area ends at the banner while it is up, then at the viewport bottom, with the footer starting there', async ({
     page,
   }) => {
     await stubAtlas(page)
@@ -763,16 +743,24 @@ test.describe('Atlas area at 1440x900 ends at the fold', () => {
     await waitForMap(page)
     await expect(page.getByRole('dialog', { name: 'Cookie consent' })).toBeVisible()
 
-    await expect
-      .poll(async () => {
-        const g = await geometry(page)
-        return g.bannerTop !== null && Math.abs(g.frameBottom - g.bannerTop) < 0.5
-      })
-      .toBe(true)
-    const g = await geometry(page)
-    expect(g.scrollY).toBe(0)
-    expect(g.footerTop).toBeCloseTo(g.frameBottom, 1)
-    test.info().annotations.push({ type: 'geometry', description: JSON.stringify(g) })
+    const expectFrameEndsAt = async (edge: 'banner' | 'viewport') => {
+      await expect
+        .poll(async () => {
+          const g = await geometry(page)
+          const target = edge === 'banner' ? g.bannerTop : g.viewportHeight
+          return target !== null && Math.abs(g.frameBottom - target) < 0.5
+        })
+        .toBe(true)
+      const g = await geometry(page)
+      expect(g.scrollY).toBe(0)
+      expect(g.frameTop).toBeCloseTo(g.topBarBottom, 1)
+      expect(g.footerTop).toBeCloseTo(g.frameBottom, 1)
+      test.info().annotations.push({ type: `geometry (${edge})`, description: JSON.stringify(g) })
+    }
+
+    await expectFrameEndsAt('banner')
+    await dismissBanner(page, { via: 'click' })
+    await expectFrameEndsAt('viewport')
   })
 })
 

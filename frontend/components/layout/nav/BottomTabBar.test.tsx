@@ -635,29 +635,23 @@ describe('BottomTabBar', () => {
       return { user, sheet }
     }
 
+    const legalRow = (sheet: HTMLElement, row: (typeof legalSheetRows)[number]) =>
+      within(sheet).getByRole(row.kind === 'link' ? 'link' : 'button', { name: row.label })
+
     it('renders Cookie preferences, Privacy and Terms after Sign out, in list order', async () => {
       const { sheet } = await openAccountSheet()
-      const signOut = within(sheet).getByRole('button', { name: 'Sign out' })
-      const rows = legalSheetRows.map(row =>
-        within(sheet).getByRole(row.kind === 'link' ? 'link' : 'button', {
-          name: row.label,
-        })
-      )
+      const rows = legalSheetRows.map(row => legalRow(sheet, row))
       expect(rows.map(r => r.textContent)).toEqual([
         'Cookie preferences',
         'Privacy',
         'Terms',
       ])
-      for (const [i, row] of rows.entries()) {
-        // Sign out precedes every row, and the rows keep the list's order.
+      const sequence = [within(sheet).getByRole('button', { name: 'Sign out' }), ...rows]
+      for (let i = 1; i < sequence.length; i++) {
         expect(
-          signOut.compareDocumentPosition(row) & Node.DOCUMENT_POSITION_FOLLOWING
+          sequence[i - 1].compareDocumentPosition(sequence[i]) &
+            Node.DOCUMENT_POSITION_FOLLOWING
         ).toBeTruthy()
-        if (i > 0) {
-          expect(
-            rows[i - 1].compareDocumentPosition(row) & Node.DOCUMENT_POSITION_FOLLOWING
-          ).toBeTruthy()
-        }
       }
     })
 
@@ -698,11 +692,7 @@ describe('BottomTabBar', () => {
         mockPathname = pathname
         const { sheet } = await openAccountSheet()
         for (const row of legalSheetRows) {
-          expect(
-            within(sheet).getByRole(row.kind === 'link' ? 'link' : 'button', {
-              name: row.label,
-            })
-          ).toBeInTheDocument()
+          expect(legalRow(sheet, row)).toBeInTheDocument()
         }
       }
     )
