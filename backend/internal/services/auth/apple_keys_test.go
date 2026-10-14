@@ -313,6 +313,47 @@ func TestAppleKeys_UnknownKidInsideCooldownSkipsFetch(t *testing.T) {
 	assert.Equal(t, 3, ks.count(), "the cooldown has passed")
 }
 
+// A fetch that panics still publishes a failure: the lookup that started it
+// and one waiting on it both return, and the next lookup inside the backoff
+// gets that failure without a fetch.
+func TestAppleKeys_PanickingFetchPublishesFailure(t *testing.T) {
+	release := make(chan struct{})
+	arrived := make(chan struct{}, 8)
+	var fetches atomic.Int32
+	svc, _, _ := newKeysTestService("http://keys.invalid/auth/keys")
+	svc.keysHTTPClient = &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+		fetches.Add(1)
+		arrived <- struct{}{}
+		<-release
+		panic("key transport exploded")
+	})}
+
+	done := make(chan error, 2)
+	lookup := func() {
+		_, err := svc.getApplePublicKey(t.Context(), "kid-a")
+		done <- err
+	}
+	go lookup()
+	<-arrived
+	go lookup()
+	time.Sleep(50 * time.Millisecond)
+	close(release)
+	for i := 0; i < 2; i++ {
+		select {
+		case err := <-done:
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), "apple key fetch did not complete")
+		case <-time.After(3 * time.Second):
+			t.Fatal("a lookup was still waiting 3s after the fetch panicked")
+		}
+	}
+
+	_, err := svc.getApplePublicKey(t.Context(), "kid-a")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "backing off after a failed fetch")
+	assert.Equal(t, int32(1), fetches.Load())
+}
+
 // A refused key id longer than 8 runes appears in the error as its first 8
 // runes and "...", on the fetched path and the cooldown path alike.
 func TestAppleKeys_NotFoundErrorBoundsKeyID(t *testing.T) {

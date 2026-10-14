@@ -362,7 +362,7 @@ func (s *AppleAuthService) getApplePublicKey(ctx context.Context, kid string) (*
 	s.keysMu.Unlock()
 
 	if starter {
-		go s.runAppleKeysFetch(fetch)
+		shared.GoSafe(context.Background(), "apple_keys_fetch", func() { s.runAppleKeysFetch(fetch) })
 	}
 	select {
 	case <-fetch.done:
@@ -395,19 +395,14 @@ func errAppleKeyNotFound(kid string) error {
 	return fmt.Errorf("apple public key not found for kid: %s", kid)
 }
 
-// runAppleKeysFetch performs fetch and publishes its outcome. A panic in the
-// fetch is recovered into its error, so keysFetch never stays set, no waiter
-// blocks on a fetch that has stopped, and the fetch goroutine cannot take the
-// process down.
+// runAppleKeysFetch performs fetch and publishes its outcome. The publish is
+// deferred so it also runs when the fetch panics: keysFetch never stays set
+// and no waiter blocks on a fetch that has stopped. The panic itself goes on
+// to the caller's recover.
 func (s *AppleAuthService) runAppleKeysFetch(fetch *appleKeysFetch) {
 	var keys map[string]*rsa.PublicKey
-	// err starts as a failure so a fetch that ends without returning or
-	// panicking (runtime.Goexit) still publishes one.
 	err := errors.New("apple key fetch did not complete")
 	defer func() {
-		if r := recover(); r != nil {
-			keys, err = nil, fmt.Errorf("apple key fetch panicked: %v", r)
-		}
 		s.keysMu.Lock()
 		now := s.keysClock()
 		logFailure := false
