@@ -132,6 +132,11 @@ describe('PasskeySignupButton', () => {
     expect(mockSetUser).toHaveBeenCalledWith(
       expect.objectContaining({ id: 100, email: 'signup@example.com' })
     )
+    await waitFor(() => {
+      expect(
+        screen.queryByRole('dialog', { name: 'Create account with passkey' })
+      ).not.toBeInTheDocument()
+    })
     // The pending claim is in place before the finish request goes out.
     expect(mockOnHandoffChange.mock.invocationCallOrder[0]).toBeLessThan(
       fetchMock.mock.invocationCallOrder[1]
