@@ -17,9 +17,8 @@ import (
 // each by top-level navigation, so a refusal there is a redirect, and the
 // routes are registered and exempted from the public-read limiter by these
 // same templates. Each ends in its one {provider} parameter, which
-// isOAuthRedirectRequest relies on, and each needs a destination in
-// RedirectRateLimited, which TestEveryOAuthRedirectRouteRefusesToADeclaredPage
-// requires.
+// isOAuthRedirectRequest relies on, and each needs its refusal declared in
+// TestEveryOAuthRedirectRouteRefusesToADeclaredPage.
 var oauthRedirectRoutes = []string{authh.OAuthLoginRoute, authh.OAuthCallbackRoute, authh.OAuthLinkRoute}
 
 // setupAuthRoutes configures all authentication-related endpoints

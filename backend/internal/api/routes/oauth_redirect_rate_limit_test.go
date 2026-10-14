@@ -502,6 +502,11 @@ func TestEveryOAuthRedirectRouteRefusesToADeclaredPage(t *testing.T) {
 		},
 	}
 
+	if len(refusals) != len(oauthRedirectRoutes) {
+		t.Errorf("this table declares %d refusals for the %d routes on the OAuth redirect limiter; "+
+			"a row for a route that left the limiter tests nothing", len(refusals), len(oauthRedirectRoutes))
+	}
+
 	for i := 0; i < oauthRedirectLimitPerMinute; i++ {
 		serveFrom(router, http.MethodGet, "/auth/login/google", ip)
 	}
