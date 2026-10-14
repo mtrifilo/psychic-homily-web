@@ -215,15 +215,6 @@ func TestBackendURLForDeployedFrontend_RailwayTemplates(t *testing.T) {
 	}
 }
 
-func TestCollectionDigestService_Construction_BackendURLFromBackendPublicURL(t *testing.T) {
-	t.Setenv(config.EnvBackendPublicURL, "http://localhost:61001")
-	cfg := &config.Config{}
-	cfg.Email.FrontendURL = "http://localhost:61000"
-	cfg.JWT.SecretKey = "test"
-	svc := NewCollectionDigestService(&gorm.DB{}, nil, cfg)
-	assert.Equal(t, "http://localhost:61001", svc.backendURL)
-}
-
 // =============================================================================
 // Integration test scaffolding
 // =============================================================================

@@ -306,6 +306,7 @@ func Load() (*Config, error) {
 
 	// Get CORS origins from environment or use defaults
 	corsOrigins := getCORSOrigins()
+	backendURL := BackendPublicURL()
 
 	cfg := &Config{
 		Server: ServerConfig{
@@ -320,10 +321,10 @@ func Load() (*Config, error) {
 		OAuth: OAuthConfig{
 			GoogleClientID:     GetEnv(EnvGoogleClientID, ""),
 			GoogleClientSecret: GetEnv(EnvGoogleClientSecret, ""),
-			GoogleCallbackURL:  GetEnv(EnvGoogleCallbackURL, BackendPublicURL()+"/auth/callback/google"),
+			GoogleCallbackURL:  GetEnv(EnvGoogleCallbackURL, backendURL+"/auth/callback/google"),
 			GitHubClientID:     GetEnv(EnvGitHubClientID, ""),
 			GitHubClientSecret: GetEnv(EnvGitHubClientSecret, ""),
-			GitHubCallbackURL:  GetEnv(EnvGitHubCallbackURL, BackendPublicURL()+"/auth/callback/github"),
+			GitHubCallbackURL:  GetEnv(EnvGitHubCallbackURL, backendURL+"/auth/callback/github"),
 			SecretKey:          oauthSecretKey,
 		},
 		Database: databaseConfigFromEnv(),
@@ -382,8 +383,8 @@ func Load() (*Config, error) {
 
 // getFrontendURL returns the frontend URL based on environment
 func getFrontendURL() string {
-	if url := os.Getenv(EnvFrontendURL); url != "" {
-		return url
+	if frontendURL := os.Getenv(EnvFrontendURL); frontendURL != "" {
+		return frontendURL
 	}
 
 	env := os.Getenv(EnvEnvironment)
@@ -397,17 +398,17 @@ func getFrontendURL() string {
 	}
 }
 
-// DefaultBackendPublicURL is the backend origin when BACKEND_PUBLIC_URL is
+// defaultBackendPublicURL is the backend origin when BACKEND_PUBLIC_URL is
 // unset: the local development server on its default port.
-const DefaultBackendPublicURL = "http://localhost:8080"
+const defaultBackendPublicURL = "http://localhost:8080"
 
 // BackendPublicURL returns BACKEND_PUBLIC_URL without a trailing slash, or
-// DefaultBackendPublicURL when it is unset.
+// http://localhost:8080 when it is unset.
 func BackendPublicURL() string {
 	if u := strings.TrimRight(strings.TrimSpace(os.Getenv(EnvBackendPublicURL)), "/"); u != "" {
 		return u
 	}
-	return DefaultBackendPublicURL
+	return defaultBackendPublicURL
 }
 
 // getCORSOrigins returns CORS_ALLOWED_ORIGINS verbatim when it is set.

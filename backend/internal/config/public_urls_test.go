@@ -91,9 +91,9 @@ func TestGetCORSOriginsFrontendURLDefault(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			t.Setenv("ENVIRONMENT", tt.environment)
-			t.Setenv("CORS_ALLOWED_ORIGINS", tt.cors)
-			t.Setenv("FRONTEND_URL", tt.frontendURL)
+			t.Setenv(EnvEnvironment, tt.environment)
+			t.Setenv(EnvCORSAllowedOrigins, tt.cors)
+			t.Setenv(EnvFrontendURL, tt.frontendURL)
 			if got := getCORSOrigins(); !slices.Equal(got, tt.want) {
 				t.Errorf("getCORSOrigins() = %v, want %v", got, tt.want)
 			}
