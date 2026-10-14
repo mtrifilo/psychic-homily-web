@@ -405,6 +405,16 @@
   text-decoration: underline;
 }
 
+/* Atlas map labels (scene, venue and stack names) over a paper ground: the
+ * light theme's street basemap, from the zoom where it passes mid-grey.
+ * GlobeCanvas sets the attribute on the map root; the labels read these two
+ * variables and fall back to cream on a dark halo everywhere else. */
+[data-atlas-ground='paper'] {
+  --atlas-label-ink: var(--foreground);
+  --atlas-label-halo: 0 0 1px var(--background), 0 0 2px var(--background),
+    0 0 4px var(--background);
+}
+
 /* The /venues mini Atlas pane is narrower than the credit pill's shared
  * max-width, so the required OpenStreetMap credit would run past the pane's
  * edge. Bound it to its container and let it wrap. Out-specifies the rule

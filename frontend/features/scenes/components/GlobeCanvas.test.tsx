@@ -1,4 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { readFileSync } from 'node:fs'
+import path from 'node:path'
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import type { FlyToScene, PlaceableScene, VenuePin, VenueStackMarker } from './globeTypes'
 import { installMatchMedia } from '@/test/mocks/matchMedia'
@@ -233,7 +235,7 @@ vi.mock('maplibre-gl', () => ({
 }))
 vi.mock('maplibre-gl/dist/maplibre-gl.css', () => ({}))
 
-import GlobeCanvas from './GlobeCanvas'
+import GlobeCanvas, { LABEL_PAPER_GROUND_ZOOM } from './GlobeCanvas'
 
 const CHICAGO: PlaceableScene = {
   city: 'Chicago',
@@ -1415,6 +1417,11 @@ describe('GlobeCanvas theme', () => {
       (l) => l.id === id,
     )
   const venueLabel = (name: string) => screen.getByText(name, { selector: 'div' })
+  const ground = () => screen.getByTestId('globe-cursor-wrap').dataset.atlasGround
+  function zoomTo(map: StubMap, zoom: number) {
+    map.getZoom = () => zoom
+    act(() => map.fire('zoom'))
+  }
 
   beforeEach(() => {
     stub.state.maps = []
@@ -1425,7 +1432,7 @@ describe('GlobeCanvas theme', () => {
     document.documentElement.classList.remove('dark')
   })
 
-  it('draws the dark street style, the dark ramp and cream street labels in the dark theme', () => {
+  it('draws the dark street style and the dark ramp in the dark theme', () => {
     document.documentElement.classList.add('dark')
     const { map } = renderCanvas()
     expect(layer(map, 'ph-background')?.paint?.['background-color']).toBe('#0d0805')
@@ -1435,10 +1442,9 @@ describe('GlobeCanvas theme', () => {
     expect(dots?.['circle-stroke-color']).toBe('rgba(255,230,194,0.35)')
     expect(dots?.['circle-stroke-width']).toBe(1)
     expect(layer(map, 'venue-pins')?.paint).toEqual(venuePinPaint(MARKER_RAMPS.dark))
-    expect(venueLabel('Thalia Hall').style.color).toBe('rgb(255, 230, 194)')
   })
 
-  it('draws the light street style, the light ramp and ink street labels in the light theme', () => {
+  it('draws the light street style and the light ramp in the light theme', () => {
     const { map } = renderCanvas()
     expect(layer(map, 'ph-background')?.paint?.['background-color']).toEqual([
       'interpolate',
@@ -1460,16 +1466,59 @@ describe('GlobeCanvas theme', () => {
     ])
     expect(dots?.['circle-stroke-width']).toEqual(['case', ['get', 'isSelected'], 1.5, 1])
     expect(layer(map, 'venue-pins')?.paint).toEqual(venuePinPaint(MARKER_RAMPS.light))
-    const label = venueLabel('Thalia Hall')
-    expect(label.style.color).toBe('var(--foreground)')
-    expect(label.style.textShadow).toContain('var(--background)')
   })
 
-  it('keeps the scene labels cream on a dark halo in the light theme', () => {
-    renderCanvas({ cityLabel: null, venues: [] })
-    const label = screen.getAllByTestId('atlas-scene-label')[0]
-    expect(label.style.color).toBe('rgb(255, 230, 194)')
-    expect(label.style.textShadow).toBe('0 1px 4px rgba(0,0,0,0.9)')
+  it('draws every map label in the ink and halo of the ground, cream on a dark halo by default', () => {
+    const { rerender, props } = renderCanvas()
+    for (const label of [venueLabel('Thalia Hall')]) {
+      expect(label.style.color).toBe('var(--atlas-label-ink, #ffe6c2)')
+      expect(label.style.textShadow).toBe('var(--atlas-label-halo, 0 1px 4px rgba(0,0,0,0.9))')
+    }
+    rerender(<GlobeCanvas {...props} cityLabel={null} venues={[]} />)
+    const scene = screen.getAllByTestId('atlas-scene-label')[0]
+    expect(scene.style.color).toBe('var(--atlas-label-ink, #ffe6c2)')
+    expect(scene.style.textShadow).toBe('var(--atlas-label-halo, 0 1px 4px rgba(0,0,0,0.9))')
+  })
+
+  it('marks the ground paper in the light theme from the zoom where the light ground passes mid-grey', () => {
+    // The light ground's brightness grows with the square of the fade's
+    // progress across 5.5 to 7, so half of paper's comes at progress √½.
+    expect(LABEL_PAPER_GROUND_ZOOM).toBeCloseTo(5.5 + 1.5 * Math.SQRT1_2, 10)
+    const { map } = renderCanvas()
+    // The stub opens at zoom 13, on the streets.
+    expect(ground()).toBe('paper')
+    zoomTo(map, 6.5)
+    expect(ground()).toBeUndefined()
+    zoomTo(map, 6.6)
+    expect(ground()).toBe('paper')
+    zoomTo(map, 3)
+    expect(ground()).toBeUndefined()
+  })
+
+  it('never marks the ground paper in the dark theme', () => {
+    document.documentElement.classList.add('dark')
+    const { map } = renderCanvas()
+    expect(ground()).toBeUndefined()
+    zoomTo(map, 8)
+    expect(ground()).toBeUndefined()
+  })
+
+  it('stops following the zoom when the map goes', () => {
+    const { map, unmount } = renderCanvas()
+    const listening = map.handlers.get('zoom') ?? []
+    unmount()
+    // The stub keeps the map's own listeners past remove(), which MapLibre
+    // drops; the ground's listener is the one this component takes off.
+    expect(map.handlers.get('zoom')).toHaveLength(listening.length - 1)
+  })
+
+  it('sets the paper-ground ink and halo from the theme tokens in globals.css', () => {
+    const css = readFileSync(path.resolve(__dirname, '../../../app/globals.css'), 'utf8')
+    const at = css.indexOf("[data-atlas-ground='paper'] {")
+    expect(at).toBeGreaterThan(-1)
+    const rule = css.slice(at, css.indexOf('}', at))
+    expect(rule).toContain('--atlas-label-ink: var(--foreground);')
+    expect(rule).toMatch(/--atlas-label-halo:[^;]*var\(--background\)/)
   })
 
   it('remounts the map for a theme change, removing the old one and keeping the camera', async () => {
@@ -1492,10 +1541,11 @@ describe('GlobeCanvas theme', () => {
     expect(options.center).toEqual([-87.7, 41.9])
     expect(options.zoom).toBe(13)
     expect(layer(rebuilt, 'ph-background')?.paint?.['background-color']).toBe('#0d0805')
-    // One live map: the old map's labels went with it.
+    // One live map: the old map's labels went with it, and the dark ground
+    // took over from the paper one.
     act(() => rebuilt.fire('style.load'))
     expect(screen.getAllByText('Thalia Hall', { selector: 'div' })).toHaveLength(1)
-    expect(venueLabel('Thalia Hall').style.color).toBe('rgb(255, 230, 194)')
+    expect(ground()).toBeUndefined()
   })
 
   it('keeps the map through an html class change that leaves the theme as it was', async () => {

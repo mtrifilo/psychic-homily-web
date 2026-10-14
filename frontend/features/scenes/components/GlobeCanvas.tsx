@@ -208,6 +208,14 @@ function cameraPaddingDiffers(map: maplibregl.Map, paddingPx: number): boolean {
 const BLACK_MARBLE_FADE_START = 5.5
 const BLACK_MARBLE_FADE_END = 7
 
+// The zoom from which the light theme's ground counts as paper for the map's
+// labels. Across the crossfade the light ground's opacity and its colour (dark
+// ground to paper) both ramp linearly with the fade's progress, so its
+// brightness grows with the square of the progress and passes half of
+// paper's at progress √½: below this zoom the ground is the darker one.
+export const LABEL_PAPER_GROUND_ZOOM =
+  BLACK_MARBLE_FADE_START + (BLACK_MARBLE_FADE_END - BLACK_MARBLE_FADE_START) * Math.SQRT1_2
+
 // Street-zoom ceiling (PSY-1543). The OpenFreeMap vector source is maxzoom 14
 // and overzooms cleanly; 17 gives block-level framing for the PSY-1539 venue
 // pins without letting the camera dive into an empty ground plane. (The GIBS
@@ -241,21 +249,12 @@ const SCENE_DOT_MAX_STROKE_PX = Math.max(
 // The rim of every scene dot without a ring of its own.
 const SCENE_DOT_RIM_COLOR = 'rgba(255,230,194,0.35)'
 
-// Scene labels show over the globe, dark in both themes, and over the streets
-// short of city view: cream on a dark halo reads on either ground.
-const SCENE_LABEL_COLOR = '#ffe6c2'
-const DARK_LABEL_HALO = '0 1px 4px rgba(0,0,0,0.9)'
-
-// Venue and stack labels show only in city view, over the street basemap of
-// the theme: cream on a dark halo over the dark streets, ink on a paper halo
-// over the light ones.
-const STREET_LABEL_INK: Readonly<Record<MarkerTheme, { color: string; halo: string }>> = {
-  dark: { color: SCENE_LABEL_COLOR, halo: DARK_LABEL_HALO },
-  light: {
-    color: 'var(--foreground)',
-    halo: '0 0 1px var(--background), 0 0 2px var(--background), 0 0 4px var(--background)',
-  },
-}
+// Every DOM label on the map (scene, venue and stack names) is drawn in the
+// ink and halo of the ground under it: cream on a dark halo over the night
+// globe and the dark streets, and, while the map root carries
+// data-atlas-ground="paper", the ink and paper halo globals.css sets there.
+const MAP_LABEL_INK = 'color: var(--atlas-label-ink, #ffe6c2)'
+const MAP_LABEL_HALO = 'text-shadow: var(--atlas-label-halo, 0 1px 4px rgba(0,0,0,0.9))'
 
 const EMPTY_FC: GeoJSON.FeatureCollection = {
   type: 'FeatureCollection',
@@ -638,11 +637,11 @@ function GlobeMap({
         'pointer-events: none',
         'user-select: none',
         'white-space: nowrap',
-        `color: ${STREET_LABEL_INK[theme].color}`,
+        MAP_LABEL_INK,
         'font-size: 12px',
         'font-weight: 500',
         'letter-spacing: 0.01em',
-        `text-shadow: ${STREET_LABEL_INK[theme].halo}`,
+        MAP_LABEL_HALO,
       ].join(';')
       return new maplibregl.Marker({
         element: el,
@@ -655,7 +654,7 @@ function GlobeMap({
     return () => {
       for (const m of markers) m.remove()
     }
-  }, [mapReady, venues, labelledVenueIds, theme])
+  }, [mapReady, venues, labelledVenueIds])
 
   // Stack markers: a counted button per point where several venues pin, as a
   // DOM marker so it is a real, focusable target in the app font.
@@ -690,10 +689,10 @@ function GlobeMap({
       label.textContent = stack.label
       label.style.cssText = [
         'white-space: nowrap',
-        `color: ${STREET_LABEL_INK[theme].color}`,
+        MAP_LABEL_INK,
         'font-size: 12px',
         'font-weight: 500',
-        `text-shadow: ${STREET_LABEL_INK[theme].halo}`,
+        MAP_LABEL_HALO,
       ].join(';')
       button.append(badge, label)
       // Named explicitly: MapLibre labels a marker element "Map marker" unless
@@ -716,7 +715,7 @@ function GlobeMap({
     return () => {
       for (const m of markers) m.remove()
     }
-  }, [mapReady, venueStacks, theme])
+  }, [mapReady, venueStacks])
 
   // Attribution: the OpenStreetMap credit is a license requirement (ODbL), so
   // the control is always mounted and never compact (OSM's guidance frowns on
@@ -737,6 +736,27 @@ function GlobeMap({
       mapReady.removeControl(control)
     }
   }, [mapReady, attributionPosition])
+
+  // The ground the labels sit on. In the light theme it is paper from
+  // LABEL_PAPER_GROUND_ZOOM down to the streets; above it, and at every zoom
+  // in the dark theme, it is dark. The attribute is written only when that
+  // answer changes, so a zoom gesture costs one comparison a frame.
+  useEffect(() => {
+    const root = globeRootRef.current
+    if (!mapReady || !root) return
+    const update = () => {
+      const paper = theme === 'light' && mapReady.getZoom() >= LABEL_PAPER_GROUND_ZOOM
+      if ((root.dataset.atlasGround === 'paper') !== paper) {
+        if (paper) root.dataset.atlasGround = 'paper'
+        else delete root.dataset.atlasGround
+      }
+    }
+    update()
+    mapReady.on('zoom', update)
+    return () => {
+      mapReady.off('zoom', update)
+    }
+  }, [mapReady, theme])
 
   // Zoom controls, mounted only while city view is engaged — the mock's
   // street view has them, the globe deliberately stays chrome-free (and in
@@ -857,10 +877,10 @@ function GlobeMap({
         'pointer-events: none',
         'user-select: none',
         'white-space: nowrap',
-        `color: ${SCENE_LABEL_COLOR}`,
+        MAP_LABEL_INK,
         'font-weight: 500',
         'letter-spacing: 0.01em',
-        `text-shadow: ${DARK_LABEL_HALO}`,
+        MAP_LABEL_HALO,
         // Above the place labels, which carry no z-index.
         'z-index: 1',
       ].join(';')
