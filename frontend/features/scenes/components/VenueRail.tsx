@@ -474,13 +474,8 @@ export function VenueRailProvenance({
  * the dev seed applies it only to its own exemplar venues), so that wrong
  * reading would be the common one. emptyRailReason owns the precedence.
  *
- * None of these invite the reader to go add the tag. There is nowhere to do it:
- * VenueDetail mounts EntityTagList but not the AddTagDialog + "[Add tag]"
- * affordance that ArtistDetail and its peers pair with it, and EntityTagList
- * renders nothing at all for an untagged entity. Pointing at a control that
- * does not exist would make this empty state the dishonest thing it was written
- * to replace. Mounting that affordance on venues needs its own ticket, which is
- * not yet filed.
+ * None of these invite the reader to add the tag: that control lives on each
+ * venue's own page, and an empty rail names no venue to send the reader to.
  */
 function EmptyRail({
   reason,

@@ -37,6 +37,10 @@ vi.mock('@/lib/queryClient', () => ({
       enrichedDetail: (id: string | number) => ['tags', 'detail', 'enriched', String(id)],
       entityTags: (entityType: string, entityId: number) => ['tags', 'entityTags', entityType, entityId],
     },
+    venues: {
+      all: ['venues'],
+      cities: ['venues', 'cities'],
+    },
   },
 }))
 
@@ -389,6 +393,78 @@ describe('useRemoveTagFromEntity', () => {
       '/entities/artist/42/tags/1',
       expect.objectContaining({ method: 'DELETE' })
     )
+  })
+})
+
+// The Atlas rail, the venues browse list and its tag-scoped city facet read
+// tag-derived data, so they must refetch after a venue tag change.
+describe('venue tag changes invalidate venue lists', () => {
+  const railKey = ['venues', 'list', { city: 'Tucson', includeRail: true }]
+  const scopedCitiesKey = ['venues', 'cities', { tags: ['all-ages'] }]
+  const detailKey = ['venues', 'detail', '5']
+
+  function seededClient() {
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    })
+    queryClient.setQueryData(railKey, { venues: [] })
+    queryClient.setQueryData(scopedCitiesKey, { cities: [] })
+    queryClient.setQueryData(detailKey, { id: 5 })
+    return queryClient
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockApiRequest.mockReset()
+  })
+
+  it('adding a tag to a venue invalidates venue lists and city counts but not the venue detail', async () => {
+    mockApiRequest.mockResolvedValueOnce(undefined)
+    const queryClient = seededClient()
+    const { result } = renderHook(() => useAddTagToEntity(), {
+      wrapper: createWrapperWithClient(queryClient),
+    })
+
+    await act(async () => {
+      result.current.mutate({ entityType: 'venue', entityId: 5, tag_id: 7 })
+    })
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true))
+    expect(queryClient.getQueryState(railKey)?.isInvalidated).toBe(true)
+    expect(queryClient.getQueryState(scopedCitiesKey)?.isInvalidated).toBe(true)
+    expect(queryClient.getQueryState(detailKey)?.isInvalidated).toBe(false)
+  })
+
+  it('removing a tag from a venue invalidates venue lists and city counts', async () => {
+    mockApiRequest.mockResolvedValueOnce(undefined)
+    const queryClient = seededClient()
+    const { result } = renderHook(() => useRemoveTagFromEntity(), {
+      wrapper: createWrapperWithClient(queryClient),
+    })
+
+    await act(async () => {
+      result.current.mutate({ entityType: 'venue', entityId: 5, tagId: 7 })
+    })
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true))
+    expect(queryClient.getQueryState(railKey)?.isInvalidated).toBe(true)
+    expect(queryClient.getQueryState(scopedCitiesKey)?.isInvalidated).toBe(true)
+  })
+
+  it('a tag change on another entity type leaves venue lists alone', async () => {
+    mockApiRequest.mockResolvedValueOnce(undefined)
+    const queryClient = seededClient()
+    const { result } = renderHook(() => useAddTagToEntity(), {
+      wrapper: createWrapperWithClient(queryClient),
+    })
+
+    await act(async () => {
+      result.current.mutate({ entityType: 'artist', entityId: 5, tag_id: 7 })
+    })
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true))
+    expect(queryClient.getQueryState(railKey)?.isInvalidated).toBe(false)
+    expect(queryClient.getQueryState(scopedCitiesKey)?.isInvalidated).toBe(false)
   })
 })
 

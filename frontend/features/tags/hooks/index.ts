@@ -6,7 +6,7 @@
  * TanStack Query hooks for tag browsing, entity tagging, and tag voting.
  */
 
-import { useQuery, useMutation, useQueryClient, keepPreviousData } from '@tanstack/react-query'
+import { useQuery, useMutation, useQueryClient, keepPreviousData, type QueryClient } from '@tanstack/react-query'
 import { apiRequest, API_ENDPOINTS } from '@/lib/api'
 import { queryKeys } from '@/lib/queryClient'
 import { buildCitiesParam } from '@/components/filters/cityParams'
@@ -202,6 +202,27 @@ export function useTagIntersection(
 // Mutations
 // ──────────────────────────────────────────────
 
+/**
+ * The reads an applied or removed tag changes. Venue list rows and the venue
+ * city counts are tag-derived (`hosts_all_ages`, the `?tags=` filter and its
+ * scoped city facet), so a venue tag change also invalidates those. The
+ * venue's own detail and shows queries carry no tags and are left alone.
+ */
+function invalidateAfterEntityTagChange(
+  queryClient: QueryClient,
+  entityType: string,
+  entityId: number,
+) {
+  queryClient.invalidateQueries({
+    queryKey: queryKeys.tags.entityTags(entityType, entityId),
+  })
+  queryClient.invalidateQueries({ queryKey: queryKeys.tags.all })
+  if (entityType === 'venue') {
+    queryClient.invalidateQueries({ queryKey: [...queryKeys.venues.all, 'list'] })
+    queryClient.invalidateQueries({ queryKey: queryKeys.venues.cities })
+  }
+}
+
 /** Add a tag to an entity (creates tag inline if not found for contributor+ users) */
 export function useAddTagToEntity() {
   const queryClient = useQueryClient()
@@ -223,12 +244,8 @@ export function useAddTagToEntity() {
         method: 'POST',
         body: JSON.stringify({ tag_id, tag_name, category }),
       }),
-    onSuccess: (_data, variables) => {
-      queryClient.invalidateQueries({
-        queryKey: queryKeys.tags.entityTags(variables.entityType, variables.entityId),
-      })
-      queryClient.invalidateQueries({ queryKey: queryKeys.tags.all })
-    },
+    onSuccess: (_data, variables) =>
+      invalidateAfterEntityTagChange(queryClient, variables.entityType, variables.entityId),
   })
 }
 
@@ -248,12 +265,8 @@ export function useRemoveTagFromEntity() {
       apiRequest<void>(API_ENDPOINTS.ENTITY_TAGS.REMOVE(entityType, entityId, tagId), {
         method: 'DELETE',
       }),
-    onSuccess: (_data, variables) => {
-      queryClient.invalidateQueries({
-        queryKey: queryKeys.tags.entityTags(variables.entityType, variables.entityId),
-      })
-      queryClient.invalidateQueries({ queryKey: queryKeys.tags.all })
-    },
+    onSuccess: (_data, variables) =>
+      invalidateAfterEntityTagChange(queryClient, variables.entityType, variables.entityId),
   })
 }
 

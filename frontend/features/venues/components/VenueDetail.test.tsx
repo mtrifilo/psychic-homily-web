@@ -235,6 +235,19 @@ vi.mock('@/features/comments', () => ({
 
 vi.mock('@/features/tags', () => ({
   EntityTagList: () => <div data-testid="entity-tag-list" />,
+  AddTagDialog: ({
+    open,
+    entityType,
+    entityId,
+  }: {
+    open: boolean
+    entityType: string
+    entityId: number
+  }) => (
+    <div data-testid="add-tag-dialog" data-open={String(open)}>
+      {open ? `Add Tag for ${entityType} ${entityId}` : null}
+    </div>
+  ),
 }))
 
 vi.mock('@/components/ui/button', () => ({
@@ -606,6 +619,55 @@ describe('VenueDetail', () => {
       expect(screen.getByRole('button', { name: /Edit/ })).toBeInTheDocument()
       // Only admins see delete
       expect(screen.queryByRole('button', { name: /Delete/ })).not.toBeInTheDocument()
+    })
+  })
+
+  // EntityTagList renders nothing for an untagged venue, so this header button
+  // is the only way to apply a venue's first tag.
+  describe('add tag control', () => {
+    const signedInNewUser = (): MockAuthContextValue => ({
+      user: { id: '99', is_admin: false, user_tier: 'new_user' },
+      isAuthenticated: true,
+      isLoading: false,
+      logout: vi.fn(),
+    })
+
+    beforeEach(() => {
+      mockUseVenue.mockReturnValue({
+        data: makeVenue({ id: 7 }),
+        isLoading: false,
+        error: null,
+      })
+    })
+
+    it('is hidden from anonymous viewers', () => {
+      render(<VenueDetail venueId="7" />)
+      expect(
+        screen.queryByRole('button', { name: 'Add tag' }),
+      ).not.toBeInTheDocument()
+      expect(screen.queryByTestId('add-tag-dialog')).not.toBeInTheDocument()
+    })
+
+    it('opens the add-tag dialog for this venue for a signed-in non-admin', async () => {
+      const user = userEvent.setup()
+      mockAuthContext.mockReturnValue(signedInNewUser())
+      render(<VenueDetail venueId="7" />)
+
+      expect(screen.getByTestId('add-tag-dialog')).toHaveAttribute('data-open', 'false')
+      await user.click(screen.getByRole('button', { name: 'Add tag' }))
+      expect(screen.getByTestId('add-tag-dialog')).toHaveTextContent(
+        'Add Tag for venue 7',
+      )
+    })
+
+    it('orders the signed-in header actions Edit, Add tag, Report', () => {
+      mockAuthContext.mockReturnValue(signedInNewUser())
+      render(<VenueDetail venueId="7" />)
+      const order = screen
+        .getAllByRole('button')
+        .map(b => b.getAttribute('title') ?? b.textContent?.trim())
+        .filter(name => ['Edit', 'Add tag', 'Report an issue'].includes(name ?? ''))
+      expect(order).toEqual(['Edit', 'Add tag', 'Report an issue'])
     })
   })
 
