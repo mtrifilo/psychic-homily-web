@@ -62,8 +62,7 @@ func TestPasskeySignupBeginHasItsOwnBudget(t *testing.T) {
 // A sign-up finish arrives after the authenticator has written the credential,
 // so nothing a begin flood spends may refuse it. The flood here is four times
 // the begin budget; every finish and the login begin must then still get the
-// WHOLE passkey budget, which a begin counted on that budget would have eaten
-// into.
+// WHOLE passkey budget, so no signup begin spends it.
 func TestPasskeySignupBeginFloodRefusesNoFinish(t *testing.T) {
 	t.Setenv(DisableAuthRateLimitsEnvVar, "")
 	router := newTestRouter(t)
