@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -514,9 +515,14 @@ func (s *WebAuthnService) liveChallengeExists(challengeID string, operation stri
 	return count > 0, nil
 }
 
-// CleanupExpiredChallenges removes expired challenges (can be run periodically)
-func (s *WebAuthnService) CleanupExpiredChallenges() error {
-	return s.db.Where("expires_at < ?", time.Now()).Delete(&authm.WebAuthnChallenge{}).Error
+// CleanupExpiredChallenges deletes every challenge past its expiry and returns
+// how many rows it deleted. ChallengeSweep runs it on a schedule.
+func (s *WebAuthnService) CleanupExpiredChallenges(ctx context.Context) (int64, error) {
+	result := s.db.WithContext(ctx).Where("expires_at < ?", time.Now()).Delete(&authm.WebAuthnChallenge{})
+	if result.Error != nil {
+		return 0, fmt.Errorf("failed to delete expired challenges: %w", result.Error)
+	}
+	return result.RowsAffected, nil
 }
 
 // --- Passkey Signup (passkey-first registration) methods ---

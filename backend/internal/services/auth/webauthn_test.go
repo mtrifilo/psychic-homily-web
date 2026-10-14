@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"context"
 	"fmt"
 	"testing"
 	"time"
@@ -383,12 +384,13 @@ func (suite *WebAuthnServiceIntegrationTestSuite) TestCleanupExpiredChallenges_S
 	}
 	expiredID, err := suite.service.StoreChallenge(user.ID, expiredSession, "authentication")
 	suite.Require().NoError(err)
-	suite.db.Exec("UPDATE webauthn_challenges SET expires_at = ? WHERE id = ?",
-		time.Now().Add(-1*time.Hour), expiredID)
+	suite.Require().NoError(suite.db.Exec("UPDATE webauthn_challenges SET expires_at = ? WHERE id = ?",
+		time.Now().Add(-1*time.Hour), expiredID).Error)
 
 	// Cleanup
-	err = suite.service.CleanupExpiredChallenges()
+	deleted, err := suite.service.CleanupExpiredChallenges(context.Background())
 	suite.Require().NoError(err)
+	suite.Equal(int64(1), deleted)
 
 	suite.Equal(int64(1), suite.challengeRows(activeID), "the active challenge stays")
 	suite.Zero(suite.challengeRows(expiredID), "the expired challenge is removed")

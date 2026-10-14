@@ -237,6 +237,8 @@ function startBackend(): ChildProcess {
       DISABLE_VENUE_SHOW_ALERTS: '1',
       // Default-ON and a writer of radio_tracks on a schedule.
       DISABLE_RADIO_TRACKS_REBUILD: '1',
+      // Default-ON and deletes expired webauthn_challenges rows on a schedule.
+      DISABLE_WEBAUTHN_CHALLENGE_SWEEP: '1',
       // PSY-432: enable the /admin/test-fixtures/reset endpoint. Guarded by
       // a default-deny ENVIRONMENT check on the backend — the server
       // refuses to boot if ENABLE_TEST_FIXTURES=1 and ENVIRONMENT is not
