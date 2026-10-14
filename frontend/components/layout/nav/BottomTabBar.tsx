@@ -5,7 +5,9 @@ import { ChromeLink } from '@/components/layout/nav/ChromeLink'
 import { useLinkStatus } from 'next/link'
 import { usePathname } from 'next/navigation'
 import { AUTH_PATH, buildAuthHref } from '@/lib/auth-href'
-import { ExternalLink, LayoutGrid, LogOut, Moon, Sun, User } from 'lucide-react'
+import {
+  ChevronRight, ExternalLink, LayoutGrid, LogIn, LogOut, Moon, Sun, User,
+} from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { replayOnHydrate } from '@/lib/hydration/clickReplay'
@@ -21,9 +23,10 @@ import {
 } from '@/components/shared/UnreadCountBadge'
 import { useUnreadNotificationCount } from '@/features/notifications/hooks'
 import { useAuthContext } from '@/lib/context/AuthContext'
+import { useCookieConsent } from '@/lib/context/CookieConsentContext'
 import {
   NOTIFICATIONS_HREF, PROFILE_CLAIM_HREF, accountNavItems, isNavActive,
-  mobileBrowseGroups, mobileBrowseHrefs, primaryTabs, sheetLinkClassName,
+  legalSheetRows, mobileBrowseGroups, mobileBrowseHrefs, primaryTabs, sheetLinkClassName,
   navGroupLabelClassName, visibleNavItems,
 } from './navData'
 import type { NavDestination, NavLink } from './navData'
@@ -35,12 +38,13 @@ import type { NavDestination, NavLink } from './navData'
 // PSY-1057, so the static mock and shipped reality agree here). Browse opens the
 // long-tail bottom sheet (every desktop Browse/Contribute/Editorial destination,
 // composed in navData's mobileBrowseGroups — one source of truth, no forked
-// lists). Account is auth-aware: a /auth link for every viewer not settled as
-// signed in (anonymous, and unsettled too), an account sheet mirroring the
-// UserMenu entries once signed in, carrying the unread-notification badge on
-// both the tab and the sheet's Notifications row (PSY-1819 — below `sm` the
-// top bar's bell is hidden, so without this there is no unread affordance on
-// a phone at all).
+// lists). Account opens a sheet for every viewer, ending in the legal rows
+// (Cookie preferences, Privacy, Terms): for a viewer not settled as signed in
+// (anonymous, and unsettled too) a Sign in link back to the current page; once
+// signed in, the UserMenu entries and Sign out, with the unread-notification
+// badge on both the tab and the sheet's Notifications row (below `sm` the top
+// bar's bell is hidden, so without this there is no unread affordance on a
+// phone at all).
 //
 // Rendered by AppShell below `xl` on every page — matching PrimaryNav's
 // xl:flex, so the lg–xl band (tablets) keeps a primary nav; AppShell adds the
@@ -296,6 +300,46 @@ function BrowseSheetBody({
   )
 }
 
+const legalRowClassName =
+  'flex h-9 w-full items-center justify-between rounded-md px-3 text-left text-sm text-muted-foreground transition-colors hover:bg-accent/50 hover:text-accent-foreground'
+
+// The Account sheet's legal block (navData's legalSheetRows): quiet rows with
+// a trailing chevron and no icons, so they read as legal links rather than
+// destinations. Every row is a SheetClose, so the sheet closes on the same tap.
+// For Cookie preferences that matters beyond tidiness: the preferences dialog
+// opens in that same render, and the sheet must not stay open over it. The
+// links render ChromeLink's prefetch={false}: no prefetch on any pointer, a
+// touch included, stricter than SheetNavLink's viewport-only opt-out.
+function LegalSheetRows() {
+  const { openPreferences } = useCookieConsent()
+  return (
+    <>
+      <div className="mx-3 my-2 border-t border-border/30" />
+      {legalSheetRows.map(row => {
+        const content = (
+          <>
+            <span>{row.label}</span>
+            <ChevronRight className="size-3.5 opacity-70" aria-hidden />
+          </>
+        )
+        return (
+          <SheetClose asChild key={row.label}>
+            {row.kind === 'cookie-preferences' ? (
+              <button type="button" onClick={openPreferences} className={legalRowClassName}>
+                {content}
+              </button>
+            ) : (
+              <ChromeLink href={row.href} prefetch={false} className={legalRowClassName}>
+                {content}
+              </ChromeLink>
+            )}
+          </SheetClose>
+        )
+      })}
+    </>
+  )
+}
+
 function AccountSheetBody({
   items,
   pathname,
@@ -326,6 +370,28 @@ function AccountSheetBody({
           </Button>
         </SheetClose>
       </div>
+      <LegalSheetRows />
+    </>
+  )
+}
+
+// The Account sheet of a viewer not settled as signed in: a Sign in link back
+// to the page the viewer is on, then the legal rows.
+function SignedOutAccountSheetBody({ pathname }: { pathname: string }) {
+  return (
+    <>
+      <SheetNavLink
+        item={{
+          // The render-time grade of the destination: the pathname alone.
+          // See `currentLocationReturnTo` for why a query string cannot be
+          // read here.
+          href: buildAuthHref(pathname),
+          label: 'Sign in',
+          icon: LogIn,
+        }}
+        active={isNavActive(pathname, AUTH_PATH)}
+      />
+      <LegalSheetRows />
     </>
   )
 }
@@ -340,7 +406,7 @@ export function BottomTabBar() {
   const isActive = (href: string) => isNavActive(pathname, href)
 
   // The one signal every viewer-derived part of the Account cell reads, so
-  // the tab's destination, its active set and its badge cannot disagree about
+  // the sheet's contents, its active set and its badge cannot disagree about
   // who is looking. `user !== null` narrows the type for `user.email` below
   // and adds nothing else: AuthProvider derives 'authenticated' from a
   // non-null user, so each implies the other.
@@ -359,8 +425,8 @@ export function BottomTabBar() {
   // At most one tab lights up (off-map routes like /help light none). Primary
   // tabs win on shared prefixes (e.g.
   // /shows/submit is both a Shows descendant and a Browse-sheet destination —
-  // Shows takes it); Account owns its own routes; Browse takes the rest of its
-  // sheet's destinations. The claim-view alias stays in the active set even
+  // Shows takes it); Account owns its own routes (the legal rows' routes light
+  // no tab); Browse takes the rest of its sheet's destinations. The claim-view alias stays in the active set even
   // when Profile deep-links to /users/<username>.
   const primaryActive = primaryTabs.some(t => isActive(t.href))
   const accountActive = isSettledAuthenticated
@@ -403,20 +469,24 @@ export function BottomTabBar() {
           <BrowseSheetBody user={user} pathname={pathname} />
         </SheetTab>
 
-        {/* The auth-aware Account cell. The sheet names a viewer, so it is
-            what a settled 'authenticated' buys; every other status gets the
-            /auth link, which names none. That is the rule UserMenu applies in
-            the top bar, and the two are on screen together from `sm` up to
-            this bar's own `xl:hidden`, so they have to agree. Either arm fills
-            the same one of five equal grid columns, so the cell does not jump
-            on settle. */}
+        {/* The auth-aware Account cell. The signed-in sheet names a viewer,
+            so it is what a settled 'authenticated' buys; every other status
+            gets the signed-out sheet, which names none. That is the rule
+            UserMenu applies in the top bar, and the two are on screen
+            together from `sm` up to this bar's own `xl:hidden`, so they have
+            to agree. Both arms are the same SheetTab in the same one of five
+            equal grid columns, so the cell does not jump on settle. Their keys
+            differ, so a settle remounts the cell and closes a sheet that is
+            open across it, rather than moving different rows under a finger
+            already on its way to one. */}
         {isSettledAuthenticated ? (
           <SheetTab
+            key="account-signed-in"
             label="Account"
             icon={User}
             active={accountActive}
             subtitle={user.email}
-            description="Your account: notifications, library, profile, settings, and sign out."
+            description="Your account: notifications, library, profile, settings, sign out, cookie preferences, privacy, and terms."
             unreadCount={unreadCount}
           >
             <AccountSheetBody
@@ -427,17 +497,15 @@ export function BottomTabBar() {
             />
           </SheetTab>
         ) : (
-          <ChromeLink
-            // The render-time grade of the destination: the pathname alone.
-            // See `currentLocationReturnTo` for why a query string cannot be
-            // read here.
-            href={buildAuthHref(pathname)}
-            atlasPrefetch="after-map"
-            aria-current={accountActive ? 'page' : undefined}
-            className={tabClassName(accountActive)}
+          <SheetTab
+            key="account-signed-out"
+            label="Account"
+            icon={User}
+            active={accountActive}
+            description="Sign in, cookie preferences, privacy, and terms."
           >
-            <TabLinkBody icon={User} label="Account" />
-          </ChromeLink>
+            <SignedOutAccountSheetBody pathname={pathname} />
+          </SheetTab>
         )}
       </div>
     </nav>

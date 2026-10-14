@@ -34,7 +34,15 @@ import { BottomTabBar } from './nav/BottomTabBar'
 // the nav-mode preference is desktop chrome, and the bar is xl:hidden (paired
 // with PrimaryNav's xl:flex). The shell's bottom padding (bar height + iOS
 // safe-area inset) keeps page content and the footer clear of the fixed bar,
-// and collapses at `xl` where the bar disappears.
+// and collapses at `xl` where the bar disappears. It also reserves the cookie
+// banner's height (--cookie-banner-height, published by CookieConsentBanner
+// only while it is up): below `xl` the banner sits on top of the bar, so the
+// two add; at `xl` the banner owns the bottom edge and its height already
+// contains the home-indicator inset, so the larger of the two is reserved.
+// Below `xl`, a page that fills the viewport between the top bar and the bar
+// plus the banner (the Atlas frame) therefore adds up to a document of
+// 100dvh; the min-h-screen floor (100vh) is taller than that while a mobile
+// browser's toolbar is showing.
 //
 // Order matters: the skip-to-content link is the first focusable element (jumps
 // keyboard users past the banner/nav straight to <main id="main-content">, set
@@ -76,7 +84,7 @@ export async function AppShell({ children }: { children: React.ReactNode }) {
     // so TopBar's border-b and Footer's border-t stop at the safe area rather
     // than the physical screen edge in landscape. Content under the notch is
     // the worse failure.
-    <div className="flex min-h-screen flex-col pb-[calc(var(--bottom-tab-bar-height)+env(safe-area-inset-bottom))] pl-[env(safe-area-inset-left)] pr-[env(safe-area-inset-right)] xl:pb-[env(safe-area-inset-bottom)]">
+    <div className="flex min-h-screen flex-col pb-[calc(calc(var(--bottom-tab-bar-height)+env(safe-area-inset-bottom))+var(--cookie-banner-height,0px))] pl-[env(safe-area-inset-left)] pr-[env(safe-area-inset-right)] xl:pb-[max(env(safe-area-inset-bottom),var(--cookie-banner-height,0px))]">
       {/* The left offset carries the landscape safe-area inset itself: this is
           position:fixed, so the shell's own pl/pr above (its parent) does not
           apply to it, and as the document's first focusable element it must

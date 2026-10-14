@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { installImmediateResizeObserver } from '@/test/mocks/resizeObserver'
+import { COOKIE_BANNER_HEIGHT_VAR } from '@/test/layoutContracts'
 import { CookieConsentBanner } from './CookieConsentBanner'
 
 // --- Mocks ---
@@ -149,22 +150,19 @@ describe('CookieConsentBanner', () => {
       expect(screen.queryByText(/Global Privacy Control signal/)).not.toBeInTheDocument()
     })
 
-    // PSY-1029: the fixed bar reserves matching scroll space on <body> so it
-    // never makes document-end content (the footer) unreachable, and releases
-    // the space once consent is given and the bar unmounts.
-    it('reserves body bottom padding while visible and clears it on unmount', () => {
+    // The bar only publishes its height; AppShell reserves it as bottom
+    // padding (AppShell.test.tsx), so the banner never writes the body's own
+    // padding.
+    it('leaves the body padding alone', () => {
       const { unmount } = render(<CookieConsentBanner />)
-      // jsdom reports offsetHeight 0, so the value is '0px' here; the contract
-      // under test is that SOME padding is set while the bar is mounted.
-      expect(document.body.style.paddingBottom).not.toBe('')
-
+      expect(document.body.style.paddingBottom).toBe('')
       unmount()
       expect(document.body.style.paddingBottom).toBe('')
     })
 
-    // The bar's height is published on <html> as --cookie-banner-height (the
-    // name AtlasGlobe's frame subtracts to end above the bar), and follows the
-    // bar as it re-wraps.
+    // The bar's height is published on <html> under the shared contract name
+    // (test/layoutContracts.ts) that AppShell's padding reserves and
+    // AtlasGlobe's frame subtracts, and follows the bar as it re-wraps.
     it('publishes its height on <html> while mounted and tracks resizes', () => {
       let height = 53
       const heightSpy = vi
@@ -174,15 +172,14 @@ describe('CookieConsentBanner', () => {
       const root = document.documentElement
       try {
         const { unmount } = render(<CookieConsentBanner />)
-        expect(root.style.getPropertyValue('--cookie-banner-height')).toBe('53px')
+        expect(root.style.getPropertyValue(COOKIE_BANNER_HEIGHT_VAR)).toBe('53px')
 
         height = 101
         ro.fireResize(390)
-        expect(root.style.getPropertyValue('--cookie-banner-height')).toBe('101px')
-        expect(document.body.style.paddingBottom).toBe('101px')
+        expect(root.style.getPropertyValue(COOKIE_BANNER_HEIGHT_VAR)).toBe('101px')
 
         unmount()
-        expect(root.style.getPropertyValue('--cookie-banner-height')).toBe('')
+        expect(root.style.getPropertyValue(COOKIE_BANNER_HEIGHT_VAR)).toBe('')
       } finally {
         heightSpy.mockRestore()
         ro.restore()
@@ -192,7 +189,7 @@ describe('CookieConsentBanner', () => {
     it('withdraws the published height when consent hides the bar', () => {
       const { rerender } = render(<CookieConsentBanner />)
       const root = document.documentElement
-      expect(root.style.getPropertyValue('--cookie-banner-height')).not.toBe('')
+      expect(root.style.getPropertyValue(COOKIE_BANNER_HEIGHT_VAR)).not.toBe('')
 
       mockUseCookieConsent.mockReturnValue({
         showBanner: false,
@@ -206,7 +203,7 @@ describe('CookieConsentBanner', () => {
         consent: null,
       })
       rerender(<CookieConsentBanner />)
-      expect(root.style.getPropertyValue('--cookie-banner-height')).toBe('')
+      expect(root.style.getPropertyValue(COOKIE_BANNER_HEIGHT_VAR)).toBe('')
     })
 
     // PSY-1820 safe-area contract. The bottom inset is DIRECTIONAL and easy to
@@ -241,32 +238,6 @@ describe('CookieConsentBanner', () => {
         'left-0',
         'right-0'
       )
-    })
-
-    it('clears reserved body padding when consent is given (banner hides)', () => {
-      const { rerender } = render(<CookieConsentBanner />)
-      expect(document.body.style.paddingBottom).not.toBe('')
-
-      mockUseCookieConsent.mockReturnValue({
-        showBanner: false,
-        gpcSignalDetected: false,
-        acceptAll: mockAcceptAll,
-        rejectAll: mockRejectAll,
-        openPreferences: mockOpenPreferences,
-        closePreferences: mockClosePreferences,
-        savePreferences: mockSavePreferences,
-        preferencesOpen: false,
-        consent: {
-          version: 1,
-          timestamp: new Date().toISOString(),
-          expiresAt: new Date(Date.now() + 86400000).toISOString(),
-          gpcDetected: false,
-          categories: { essential: true, analytics: true },
-          consentMethod: 'banner_accept_all' as const,
-        },
-      })
-      rerender(<CookieConsentBanner />)
-      expect(document.body.style.paddingBottom).toBe('')
     })
   })
 

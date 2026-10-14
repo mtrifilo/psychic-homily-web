@@ -220,7 +220,7 @@ export default function PrivacyPolicyPage() {
             <ul className="list-disc pl-6 space-y-2 text-foreground/90">
               <li><strong>Essential Cookies:</strong> Required for authentication and security. These cannot be disabled without breaking core functionality.</li>
               <li><strong>Preference Cookies:</strong> Remember your settings like theme preference. These improve your experience but are not strictly necessary.</li>
-              <li><strong>Analytics Cookies:</strong> With your consent, I use PostHog to collect anonymized usage data such as page views and session recordings (with all inputs masked). These cookies are only set after you accept analytics via the cookie consent banner. You can change your preference at any time through the cookie preferences link in the footer.</li>
+              <li><strong>Analytics Cookies:</strong> With your consent, I use PostHog to collect anonymized usage data such as page views and session recordings (with all inputs masked). These cookies are only set after you accept analytics via the cookie consent banner. You can change your preference at any time through the cookie preferences link in the footer or, on smaller screens, under the Account tab at the bottom of the screen.</li>
             </ul>
 
             <h3 className="text-lg font-medium mt-4 mb-2">7.2 Third-Party Cookies</h3>

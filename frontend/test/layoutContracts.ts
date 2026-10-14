@@ -14,7 +14,17 @@
 // the whole fixed element.
 //
 // BottomTabBar RENDERS it as its border-box height (`h-[…]`); AppShell RESERVES
-// it as bottom padding (`pb-[…]`). Those two must stay byte-identical or page
-// content slides under the bar or floats above a gap.
+// it inside its bottom padding (`pb-[calc(<box>+<banner>)]`, the box nested
+// whole so it stays a literal substring). The two must stay byte-identical or
+// page content slides under the bar or floats above a gap.
 export const BOTTOM_TAB_BAR_BOX =
   'calc(var(--bottom-tab-bar-height)+env(safe-area-inset-bottom))'
+
+// The cookie consent banner's height. CookieConsentBanner PUBLISHES it on
+// <html> under this name only while the banner is up; AppShell's bottom
+// padding RESERVES it, and AtlasGlobe's frame height and minimum SUBTRACT it.
+// The readers spell it with a 0px fallback (COOKIE_BANNER_HEIGHT), so a
+// rename on one side alone breaks nothing visibly at runtime: the publisher's
+// test and every reader's test assert against these two constants instead.
+export const COOKIE_BANNER_HEIGHT_VAR = '--cookie-banner-height'
+export const COOKIE_BANNER_HEIGHT = `var(${COOKIE_BANNER_HEIGHT_VAR},0px)`

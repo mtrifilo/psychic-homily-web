@@ -227,6 +227,32 @@ export function accountNavItems(
   ]
 }
 
+/** The privacy policy and the terms, shared by the Account sheet, Footer and the cookie banner. */
+export const PRIVACY_HREF = '/privacy'
+export const TERMS_HREF = '/terms'
+
+/**
+ * A row of the Account sheet's legal block: a link, or the control that opens
+ * the cookie preferences dialog (a button, never a navigation link).
+ */
+export type LegalSheetRow =
+  | { kind: 'link'; href: string; label: string }
+  | { kind: 'cookie-preferences'; label: string }
+
+/**
+ * The legal block of the mobile Account sheet, in sheet order. AppShell
+ * renders the BottomTabBar on every route below `xl`, so the sheet makes these
+ * reachable on every phone route, including the ones that hide the site
+ * footer (footerVisibility.ts). The footer's About column links the same
+ * legal destinations under its own labels; legalEntriesParity.test.tsx fails
+ * if it gains one this list lacks.
+ */
+export const legalSheetRows: ReadonlyArray<LegalSheetRow> = [
+  { kind: 'cookie-preferences', label: 'Cookie preferences' },
+  { kind: 'link', href: PRIVACY_HREF, label: 'Privacy' },
+  { kind: 'link', href: TERMS_HREF, label: 'Terms' },
+]
+
 // Desktop-only by decision (PSY-1821): among the composed surfaces only the
 // side-nav rail lists it (the command palette still forks its own copy — see
 // the header note). On phones it stays reachable through the Account sheet →

@@ -1098,9 +1098,12 @@ export function AtlasGlobe() {
   // the Drift CTA (bottom-4) and the MapLibre attribution control (a license
   // requirement, PSY-1543) sit under the bar. Read the var rather than
   // restating its value: it carries the bar's border too (PSY-1820).
-  // Below `xl` it also gives up --topbar-height, so it ends at the tab bar's
-  // top edge; the site footer is hidden on this route there
-  // (components/layout/footerVisibility.ts).
+  // At every width it gives up --topbar-height, the token TopBar's height
+  // reads: below `xl` it ends at the tab bar's top edge, where the site footer
+  // is hidden on this route (components/layout/footerVisibility.ts), and at
+  // `xl` it ends at the viewport bottom less the home-indicator inset (or at
+  // the banner's top while the banner is up; see the next paragraph), where
+  // the footer starts.
   // While the cookie consent banner is up it publishes its height as
   // --cookie-banner-height. Below `xl` it sits directly above the tab bar's
   // band, so the box gives up that height too. At `xl` it owns the viewport
@@ -1114,7 +1117,7 @@ export function AtlasGlobe() {
     <div
       ref={paneFrameRef}
       data-testid="atlas-pane-frame"
-      className={`relative focus:outline-none h-[calc(100dvh-var(--topbar-height)-var(--bottom-tab-bar-height)-env(safe-area-inset-bottom)-var(--cookie-banner-height,0px))] w-full overflow-hidden bg-[#0a0a0a] xl:h-[calc(100dvh-4rem-max(env(safe-area-inset-bottom),var(--cookie-banner-height,0px)))] ${
+      className={`relative focus:outline-none h-[calc(100dvh-var(--topbar-height)-var(--bottom-tab-bar-height)-env(safe-area-inset-bottom)-var(--cookie-banner-height,0px))] w-full overflow-hidden bg-[#0a0a0a] xl:h-[calc(100dvh-var(--topbar-height)-max(env(safe-area-inset-bottom),var(--cookie-banner-height,0px)))] ${
         // The sheets anchor to this box's bottom edge, so in the sheet layout
         // it must be exactly the visible area: a minimum taller than a short
         // (landscape phone) viewport would push every sheet below the fold.
