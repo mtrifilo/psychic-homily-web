@@ -497,6 +497,22 @@ func (s *JWTIntegrationSuite) TestRefreshFlow_InactiveUser() {
 	s.Contains(err.Error(), "TOKEN_INVALID")
 }
 
+// The refresh path's lenient validation applies the same account rule, so
+// deleted_at alone refuses a renewal too.
+func (s *JWTIntegrationSuite) TestRefreshFlow_DeletedAtSet() {
+	user := s.createActiveUser("refresh-deleted-at@example.com")
+
+	token, err := s.svc.CreateToken(user)
+	s.Require().NoError(err)
+
+	s.Require().NoError(s.db.Model(user).Update("deleted_at", time.Now()).Error)
+
+	refreshed, err := s.renewLikeTheRefreshEndpoint(token)
+	s.Empty(refreshed)
+	s.Require().Error(err)
+	s.Contains(err.Error(), "TOKEN_INVALID")
+}
+
 // =============================================================================
 // VALIDATE TOKEN LENIENT (grace period for recently-expired tokens)
 // =============================================================================

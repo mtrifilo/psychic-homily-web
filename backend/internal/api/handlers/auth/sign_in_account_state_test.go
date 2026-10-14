@@ -23,7 +23,7 @@ import (
 
 // An account that may not sign in (deactivated, or soft-deleted) is refused on
 // the Google, Apple and passkey sign-in paths with ACCOUNT_INACTIVE, and no
-// session is minted. An active account on the same path signs in as before.
+// session is minted. An active account on the same path signs in.
 
 // accountState puts an existing account into one of the states a sign-in path
 // must tell apart.

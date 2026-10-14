@@ -10,7 +10,7 @@ import (
 )
 
 // An account that may not sign in is refused with ACCOUNT_INACTIVE on every
-// sign-in path this service resolves, and an active one signs in unchanged.
+// sign-in path this service resolves, and an active one signs in.
 
 // signInAccountStates are the account states a sign-in path must tell apart.
 // "deleted-at-only" is not a state SoftDeleteAccount or RestoreAccount leaves;
