@@ -234,7 +234,9 @@ func (s *RadioArtistCandidatesIntegrationSuite) TestExcludedNamesAreExcluded() {
 	s.addAcross(candidatePlay{artist: "東京"}, 5)
 	s.addAcross(candidatePlay{artist: "   "}, 5)
 
-	s.Empty(s.all())
+	listing := s.list(contracts.RadioCandidateLaneFilterAll, contracts.RadioArtistCandidateSortScore, 50)
+	s.Empty(listing.Candidates)
+	s.Equal(int64(10), listing.UnkeyablePlays, "the empty-key plays are counted when no key qualifies")
 }
 
 func (s *RadioArtistCandidatesIntegrationSuite) TestWindowEdge() {
@@ -406,6 +408,56 @@ func (s *RadioArtistCandidatesIntegrationSuite) TestNonLatinSpellings() {
 	s.False(bjork.NonLatinSpelling)
 	s.Equal(contracts.RadioCandidateLaneAuto, bjork.Lane)
 	s.Equal("T Björk Sigur Rós", bjork.DisplayName)
+}
+
+// TestUnfoldableCharacters pins which spellings flag their key. Each name is
+// played on two stations with a MusicBrainz id of its own, so only the flag
+// decides between the auto and human lanes.
+func (s *RadioArtistCandidatesIntegrationSuite) TestUnfoldableCharacters() {
+	flagged := map[string]string{
+		"ᏣᎳᎩ T Cherokee":   "t cherokee",
+		"T Halfwidth ｶﾞｰﾙ": "t halfwidth",
+		"T Jamo ㅅㅌㅈ":       "t jamo",
+		"ㄅㄆ T Bopomofo":    "t bopomofo",
+		"𠀋 T Extension B":  "t extension b",
+		"ⴰⵣ T Tifinagh":    "t tifinagh",
+		"ꆈ T Yi":           "t yi",
+		"Ə T Schwa":        "t schwa",
+		"T Arabic ﺍﻟ":      "t arabic",
+	}
+	// unaccent folds each of these to ASCII, so the key loses nothing.
+	plain := map[string]string{
+		"T Big × T Small": "t big * t small",
+		"T D’Angelo":      "t d'angelo",
+		"T B‐52s":         "t b-52s",
+		"T Mötley Crüe":   "t motley crue",
+		"T Ñandú Øresund": "t nandu oresund",
+		"T Fẹla Ọ̀kọ̀":    "t fela oko",
+		"T Fullwidth ＡＢ":  "t fullwidth ab",
+	}
+	i := 0
+	id := func() string {
+		i++
+		return fmt.Sprintf("%08x-1111-4111-8111-111111111111", i)
+	}
+	for name := range flagged {
+		s.addAcross(candidatePlay{artist: name, mb: id()}, 2)
+	}
+	for name := range plain {
+		s.addAcross(candidatePlay{artist: name, mb: id()}, 2)
+	}
+
+	got := s.all()
+	for name, key := range flagged {
+		s.Require().Contains(got, key, name)
+		s.True(got[key].NonLatinSpelling, name)
+		s.Equal(contracts.RadioCandidateLaneHuman, got[key].Lane, name)
+	}
+	for name, key := range plain {
+		s.Require().Contains(got, key, name)
+		s.False(got[key].NonLatinSpelling, name)
+		s.Equal(contracts.RadioCandidateLaneAuto, got[key].Lane, name)
+	}
 }
 
 func (s *RadioArtistCandidatesIntegrationSuite) TestEvidence() {

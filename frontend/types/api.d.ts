@@ -14752,7 +14752,7 @@ export interface components {
              * @description Distinct normalized album names
              */
             album_name_count: number;
-            /** @description Up to five album names by play count */
+            /** @description Up to five album names by play count; names that normalize alike are one entry, shown in their most common trimmed spelling, counting all their plays */
             album_names: components["schemas"]["RadioCandidateName"][] | null;
             /** @description radio_normalize_name of the artist name; the candidate's identity */
             artist_key: string;
@@ -14761,7 +14761,7 @@ export interface components {
              * @description Distinct raw artist spellings
              */
             artist_spelling_count: number;
-            /** @description Up to five raw artist spellings by play count; the first is display_name */
+            /** @description Up to five exact raw artist spellings (case and spaces kept), each with the plays carrying exactly that spelling; the first is display_name */
             artist_spellings: components["schemas"]["RadioCandidateName"][] | null;
             /** @description Most common raw artist spelling among the counted plays */
             display_name: string;
@@ -14772,7 +14772,7 @@ export interface components {
              * @description Distinct normalized label names
              */
             label_name_count: number;
-            /** @description Up to five label names by play count, over the plays that also count toward the label ranking */
+            /** @description Up to five label names by play count, over the plays that also count toward the label ranking; grouped and shown like album_names */
             label_names: components["schemas"]["RadioCandidateName"][] | null;
             /** @enum {string} */
             lane: "auto" | "human";
@@ -14784,7 +14784,7 @@ export interface components {
             mb_artist_id_conflict: boolean;
             /** @description Every distinct MusicBrainz artist id the counted plays carry, sorted */
             mb_artist_ids: string[] | null;
-            /** @description True when a counted play's artist name carries a non-Latin script; the key is then the name's Latin part only, and the candidate is in the human lane */
+            /** @description True when a counted play's artist name carries a letter or digit normalization cannot fold to a-z or 0-9 (usually a non-Latin script); the key may then be a fragment of that name, and the candidate is in the human lane */
             non_latin_spelling: boolean;
             /** Format: int64 */
             play_count: number;
@@ -14870,7 +14870,6 @@ export interface components {
             station_slug: string;
         };
         RadioCandidateName: {
-            /** @description Most common raw spelling among the plays that carry it */
             name: string;
             /** Format: int64 */
             play_count: number;

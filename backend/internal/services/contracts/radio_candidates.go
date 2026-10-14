@@ -75,9 +75,10 @@ type RadioCandidateTrack struct {
 	PlayCount int    `json:"play_count" doc:"The candidate's counted plays of this track"`
 }
 
-// RadioCandidateName is one album or label name seen on a candidate's plays.
+// RadioCandidateName is a name seen on a candidate's plays with its play
+// count; the list that holds it says how names are grouped.
 type RadioCandidateName struct {
-	Name      string `json:"name" doc:"Most common raw spelling among the plays that carry it"`
+	Name      string `json:"name"`
 	PlayCount int    `json:"play_count"`
 }
 
@@ -87,7 +88,7 @@ type RadioCandidateName struct {
 type RadioArtistCandidate struct {
 	ArtistKey           string                  `json:"artist_key" doc:"radio_normalize_name of the artist name; the candidate's identity"`
 	DisplayName         string                  `json:"display_name" doc:"Most common raw artist spelling among the counted plays"`
-	ArtistSpellings     []RadioCandidateName    `json:"artist_spellings" doc:"Up to five raw artist spellings by play count; the first is display_name"`
+	ArtistSpellings     []RadioCandidateName    `json:"artist_spellings" doc:"Up to five exact raw artist spellings (case and spaces kept), each with the plays carrying exactly that spelling; the first is display_name"`
 	ArtistSpellingCount int                     `json:"artist_spelling_count" doc:"Distinct raw artist spellings"`
 	Lane                RadioCandidateLane      `json:"lane" enum:"auto,human"`
 	Score               float64                 `json:"score" doc:"station rows x ln(plays) x (1 + shows / 10)"`
@@ -99,14 +100,14 @@ type RadioArtistCandidate struct {
 	LastAiredOn         string                  `json:"last_aired_on" doc:"Latest counted play's episode air date (YYYY-MM-DD)"`
 	Stations            []RadioCandidateStation `json:"stations" doc:"Station rows by play count, descending"`
 	TopTracks           []RadioCandidateTrack   `json:"top_tracks" doc:"Up to three tracks by play count, over the plays that also count toward the track ranking and whose key radio_track_keys maps"`
-	AlbumNames          []RadioCandidateName    `json:"album_names" doc:"Up to five album names by play count"`
+	AlbumNames          []RadioCandidateName    `json:"album_names" doc:"Up to five album names by play count; names that normalize alike are one entry, shown in their most common trimmed spelling, counting all their plays"`
 	AlbumNameCount      int                     `json:"album_name_count" doc:"Distinct normalized album names"`
-	LabelNames          []RadioCandidateName    `json:"label_names" doc:"Up to five label names by play count, over the plays that also count toward the label ranking"`
+	LabelNames          []RadioCandidateName    `json:"label_names" doc:"Up to five label names by play count, over the plays that also count toward the label ranking; grouped and shown like album_names"`
 	LabelNameCount      int                     `json:"label_name_count" doc:"Distinct normalized label names"`
 	MBArtistID          *string                 `json:"mb_artist_id,omitempty" doc:"Set when the counted plays carry exactly one MusicBrainz artist id"`
 	MBArtistIDs         []string                `json:"mb_artist_ids" doc:"Every distinct MusicBrainz artist id the counted plays carry, sorted"`
 	MBArtistIDConflict  bool                    `json:"mb_artist_id_conflict" doc:"True when the counted plays carry more than one MusicBrainz artist id"`
-	NonLatinSpelling    bool                    `json:"non_latin_spelling" doc:"True when a counted play's artist name carries a non-Latin script; the key is then the name's Latin part only, and the candidate is in the human lane"`
+	NonLatinSpelling    bool                    `json:"non_latin_spelling" doc:"True when a counted play's artist name carries a letter or digit normalization cannot fold to a-z or 0-9 (usually a non-Latin script); the key may then be a fragment of that name, and the candidate is in the human lane"`
 	SharedMBArtistKeys  []string                `json:"shared_mb_artist_keys" doc:"Other candidates' artist keys whose plays carry one of this candidate's MusicBrainz artist ids, sorted; a candidate that has any is in the human lane"`
 }
 

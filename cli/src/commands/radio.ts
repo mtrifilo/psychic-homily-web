@@ -4,6 +4,7 @@ import * as display from "../lib/display";
 import {
   formatArtistCandidateReport,
   listArtistCandidates,
+  printableJSON,
   rematchRadioPlaysChunked,
 } from "../lib/radio";
 import { dim } from "../lib/ansi";
@@ -118,7 +119,7 @@ export async function runRadioArtistCandidates(
     limit: opts.limit,
   });
   if (opts.json) {
-    process.stdout.write(`${JSON.stringify(listing, null, 2)}\n`);
+    process.stdout.write(`${printableJSON(listing)}\n`);
     return;
   }
   for (const line of formatArtistCandidateReport(listing)) {

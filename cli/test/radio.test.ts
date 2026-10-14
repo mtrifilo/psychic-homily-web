@@ -3,6 +3,7 @@ import {
   aggregateRematchResults,
   dedupeArtistNames,
   formatArtistCandidateReport,
+  printableJSON,
   type ArtistCandidate,
   type ArtistCandidateListing,
 } from "../src/lib/radio";
@@ -62,8 +63,9 @@ describe("formatArtistCandidateReport", () => {
     ]);
     expect(lines.slice(4)).toEqual([
       "",
-      "  1. [human] Telehealth  score 87.75  plays 131  rows 5  families 2  shows 26  last 2026-07-23",
-      "       stations: kexp 100, wfmu 31",
+      "  1. [human] Telehealth  score 87.75  plays 131  rows 5  families 2  shows 26  aired 2026-04-20 to 2026-07-23",
+      "       key:      telehealth",
+      "       stations: KEXP (kexp) 100, WFMU (wfmu) 31",
       "       tracks:   Content (40)",
       "       albums:   Content (90)",
       "       labels:   none",
@@ -85,7 +87,9 @@ describe("formatArtistCandidateReport", () => {
         }),
       ]),
     );
-    expect(lines).toContain("  1. [auto ] Telehealth  score 87.75  plays 131  rows 5  families 2  shows 26  last 2026-07-23");
+    expect(lines).toContain(
+      "  1. [auto ] Telehealth  score 87.75  plays 131  rows 5  families 2  shows 26  aired 2026-04-20 to 2026-07-23",
+    );
     expect(lines).toContain("       labels:   Label One (4); Label Two (3); 9 distinct");
     expect(lines).toContain("       mbid:     11111111-1111-4111-8111-111111111111");
   });
@@ -125,6 +129,18 @@ describe("formatArtistCandidateReport", () => {
       listing([candidate({ shared_mb_artist_keys: ["telehealth band", "the telehealth"] })]),
     );
     expect(lines).toContain("       shares its MusicBrainz id with: telehealth band, the telehealth");
+  });
+
+  test("bidirectional controls print as replacement characters", () => {
+    const lines = formatArtistCandidateReport(listing([candidate({ display_name: "Tele\u202eLEHhealth" })]));
+    expect(lines.join(" | ")).not.toMatch(/[\u202a\u202b\u202c\u202d\u202e\u2066-\u2069]/);
+  });
+
+  test("JSON output escapes terminal controls and stays valid JSON", () => {
+    const value = { name: "a\u001b[2Kb\u009bc\u202ed" };
+    const out = printableJSON(value);
+    expect(out).not.toMatch(/[\u0000-\u0009\u000b-\u001f\u007f-\u009f\u202e]/);
+    expect(JSON.parse(out)).toEqual(value);
   });
 
   test("control characters from playlist text print as replacement characters", () => {

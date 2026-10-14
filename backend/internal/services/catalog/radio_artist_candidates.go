@@ -23,8 +23,8 @@ import (
 // ambiguous match state, and has a name that normalizes to a non-empty key.
 // radio_normalize_name trims every character outside a-z and 0-9 from a
 // name's edges, so a name written partly in a non-Latin script keys on its
-// Latin part alone; a candidate with such a spelling is flagged and kept in
-// the human lane.
+// Latin part alone; a candidate with such a spelling (radioUnfoldableCharSQL)
+// is flagged and kept in the human lane.
 //
 // A key qualifies when its counted plays clear the station and play floors and
 // none of the following holds:
@@ -49,16 +49,22 @@ const (
 	radioCandidateTopTracks = 3
 	radioCandidateTopNames  = 5
 
-	// radioCandidateStatementTimeout bounds every statement of one listing.
-	radioCandidateStatementTimeout = "60s"
+	// radioCandidateStatementTimeout bounds each statement of one listing,
+	// below the ph CLI's 30 s request timeout, so a slow listing fails on the
+	// server with a statement-timeout error rather than as a client abort.
+	radioCandidateStatementTimeout = "25s"
 )
 
-// radioNonLatinNameSQL is a regex over immutable_unaccent(lower(name)) that
-// matches Greek through Ethiopic and Cherokee (U+0370..U+1DFF, Latin Extended
-// Additional excluded), Greek Extended, Kana, CJK and Hangul characters. The
-// ranges are fixed code points, so the test does not depend on the database
-// locale.
-const radioNonLatinNameSQL = `[\u0370-\u1dff\u1f00-\u1fff\u3040-\u30ff\u3400-\u9fff\uac00-\ud7af]`
+// radioUnfoldableCharSQL is a regex over immutable_unaccent(lower(name))
+// matching a letter or digit that radio_normalize_name cannot fold to a-z or
+// 0-9: every code point from U+00C0 through U+1FFF except the multiplication
+// and division signs, U+2C00..U+2DFF, U+3040..U+D7FF, U+F900..U+FAFF, the
+// Hebrew and Arabic presentation forms, the halfwidth and fullwidth forms, and
+// U+20000..U+3FFFF. General punctuation (U+2000..U+2BFF), which interior name
+// punctuation such as a curly apostrophe or a non-ASCII hyphen uses, is not
+// matched. The ranges are fixed code points, so the test does not depend on
+// the database locale.
+const radioUnfoldableCharSQL = `[\u00c0-\u00d6\u00d8-\u00f6\u00f8-\u1fff\u2c00-\u2dff\u3040-\ud7ff\uf900-\ufaff\ufb1d-\ufdff\ufe70-\ufeff\uff00-\uffef\U00020000-\U0003ffff]`
 
 // RadioArtistCandidateScore is the artist candidate ranking score: distinct
 // station rows x ln(plays) x (1 + distinct shows / 10).
@@ -74,6 +80,7 @@ type RadioCandidateLaneFacts struct {
 	// candidate's MusicBrainz ids.
 	MBIDShared bool
 	// NonLatinSpelling is true when a counted play's name carries a
+	// character radio_normalize_name cannot fold to a-z or 0-9, usually a
 	// non-Latin script, so the key may be a fragment of that name.
 	NonLatinSpelling bool
 }
@@ -162,13 +169,13 @@ WHERE e.air_date >= ?::date
   AND NOT (` + RadioPlayExcludedSQL(RadioRankingArtist, radioCandidatePlayCols) + `)`
 
 // radioCandidateNonLatinSQL is true for a play of radioCandidatePlaysFrom
-// whose name carries a non-Latin script.
-const radioCandidateNonLatinSQL = `public.immutable_unaccent(lower(p.artist_name)) ~ '` + radioNonLatinNameSQL + `'`
+// whose name carries a character radio_normalize_name cannot fold.
+const radioCandidateNonLatinSQL = `public.immutable_unaccent(lower(p.artist_name)) ~ '` + radioUnfoldableCharSQL + `'`
 
-// radioArtistCandidatesSQL returns every qualifying key with its counts, plus
-// one row whose artist_key is NULL; every row carries the number of in-window
-// plays whose name normalizes to empty. Parameters: the window's first air
-// date, then the play floor.
+// radioArtistCandidatesSQL returns every qualifying key with its counts or,
+// when no key qualifies, one row whose artist_key is NULL; every row carries
+// the number of in-window plays whose name normalizes to empty. Parameters:
+// the window's first air date, then the play floor.
 var radioArtistCandidatesSQL = `
 WITH plays AS MATERIALIZED (
   SELECT k.artist_key,
@@ -219,13 +226,21 @@ qualifying AS (
   FROM agg
   WHERE NOT agg.catalog_mb
     AND NOT EXISTS (SELECT 1 FROM linked_keys lk WHERE lk.artist_key = agg.artist_key)
-    AND NOT EXISTS (SELECT 1 FROM artists a WHERE radio_normalize_name(a.name) = agg.artist_key)
-    AND NOT EXISTS (SELECT 1 FROM artist_aliases al WHERE radio_normalize_name(al.alias) = agg.artist_key)
+    AND NOT ` + radioCatalogAnswersToSQL("agg.artist_key") + `
 )
 SELECT u.unkeyable_plays, q.artist_key, q.play_count, q.station_row_count, q.station_family_count,
        q.show_count, q.first_aired_on, q.last_aired_on, q.mb_artist_ids, q.non_latin_spelling
 FROM (SELECT count(*) AS unkeyable_plays FROM plays WHERE artist_key = '') u
 LEFT JOIN qualifying q ON true`
+
+// radioCatalogAnswersToSQL returns a boolean SQL expression that is true when
+// a catalog artist's name or alias normalizes to the normalized name expr: the
+// matcher's name and alias rungs (matchArtistByNameOrAlias). expr is SQL built
+// from constants, never input.
+func radioCatalogAnswersToSQL(expr string) string {
+	return fmt.Sprintf(`(EXISTS (SELECT 1 FROM artists a WHERE radio_normalize_name(a.name) = %[1]s)
+   OR EXISTS (SELECT 1 FROM artist_aliases al WHERE radio_normalize_name(al.alias) = %[1]s))`, expr)
+}
 
 // radioCandidateEvidenceNamesSQL ranks the album or label names on the
 // evidence query's counted CTE: names group by radio_normalize_name, show
@@ -301,10 +316,12 @@ FROM (
   SELECT c.artist_key, t.id AS track_id, t.display_title AS title, count(*) AS play_count,
          row_number() OVER (PARTITION BY c.artist_key ORDER BY count(*) DESC, t.id) AS rn
   FROM counted c
-  JOIN radio_track_keys k
-    ON k.artist_key = radio_track_artist_key(c.artist_name)
-   AND k.title_key = radio_track_title_key(c.track_title)
-  JOIN radio_tracks t ON t.id = k.track_id
+  -- radio_track_keys is keyed by the track key functions of the raw names,
+  -- not by the candidate key, so the join recomputes them from the raw names.
+  JOIN radio_track_keys tk
+    ON tk.artist_key = radio_track_artist_key(c.artist_name)
+   AND tk.title_key = radio_track_title_key(c.track_title)
+  JOIN radio_tracks t ON t.id = tk.track_id
   WHERE NOT c.track_excluded AND NOT t.unkeyed
   GROUP BY c.artist_key, t.id, t.display_title
 ) tracks
@@ -315,11 +332,10 @@ ORDER BY kind, artist_key, rn`
 
 // radioCatalogNamesSQL returns which of the given normalized names a catalog
 // artist's name or alias normalizes to.
-const radioCatalogNamesSQL = `
+var radioCatalogNamesSQL = `
 SELECT n.name
 FROM unnest(?::text[]) AS n(name)
-WHERE EXISTS (SELECT 1 FROM artists a WHERE radio_normalize_name(a.name) = n.name)
-   OR EXISTS (SELECT 1 FROM artist_aliases al WHERE radio_normalize_name(al.alias) = n.name)`
+WHERE ` + radioCatalogAnswersToSQL("n.name")
 
 // ListArtistCandidates returns the artist candidate ranking: the qualifying
 // keys in the requested lanes, ordered by the requested sort, up to limit, each

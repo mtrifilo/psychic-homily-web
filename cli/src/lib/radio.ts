@@ -278,12 +278,33 @@ export async function listArtistCandidates(
 }
 
 /**
- * Replace C0 and C1 control characters and DEL with U+FFFD. Radio play text
- * comes from station playlists, so an escape sequence in it must print as
- * text, not drive the terminal.
+ * Characters that can drive or reorder a terminal: C0 and C1 controls, DEL,
+ * and the bidirectional and invisible format controls. Radio play text comes
+ * from station playlists, so none of them may reach the terminal raw.
  */
+const TERMINAL_CONTROL = /[\u0000-\u001f\u007f-\u009f\u061c\u200e\u200f\u202a-\u202e\u2066-\u2069]/g;
+
+/** Replace every TERMINAL_CONTROL character with U+FFFD. */
 export function printable(text: string): string {
-  return text.replace(/[\u0000-\u001f\u007f-\u009f]/g, "\uFFFD");
+  return text.replace(TERMINAL_CONTROL, "\uFFFD");
+}
+
+/**
+ * The TERMINAL_CONTROL characters JSON.stringify leaves raw: it already
+ * escapes C0 controls inside strings, and its own newlines are layout.
+ */
+const JSON_RAW_TERMINAL_CONTROL = /[\u007f-\u009f\u061c\u200e\u200f\u202a-\u202e\u2066-\u2069]/g;
+
+/**
+ * The value as indented JSON with every TERMINAL_CONTROL character inside a
+ * string written as a \uXXXX escape, so the output stays valid JSON and safe
+ * to print.
+ */
+export function printableJSON(value: unknown): string {
+  return JSON.stringify(value, null, 2).replace(
+    JSON_RAW_TERMINAL_CONTROL,
+    (c) => `\\u${c.charCodeAt(0).toString(16).padStart(4, "0")}`,
+  );
 }
 
 function countList(items: CandidateCount[], distinct?: number): string {
@@ -311,15 +332,19 @@ export function formatArtistCandidateReport(listing: ArtistCandidateListing): st
     lines.push(
       `${String(i + 1).padStart(3)}. [${c.lane.padEnd(5)}] ${c.display_name}  ` +
         `score ${c.score.toFixed(2)}  plays ${c.play_count}  rows ${c.station_row_count}  ` +
-        `families ${c.station_family_count}  shows ${c.show_count}  last ${c.last_aired_on}`,
+        `families ${c.station_family_count}  shows ${c.show_count}  ` +
+        `aired ${c.first_aired_on} to ${c.last_aired_on}`,
     );
+    lines.push(`       key:      ${c.artist_key}`);
     if (c.artist_spelling_count > 1) {
       lines.push(`       spellings: ${countList(c.artist_spellings, c.artist_spelling_count)}`);
     }
     if (c.non_latin_spelling) {
       lines.push("       note:     a spelling carries a non-Latin script; the key is its Latin part only");
     }
-    lines.push(`       stations: ${c.stations.map((s) => `${s.slug} ${s.play_count}`).join(", ") || "none"}`);
+    lines.push(
+      `       stations: ${c.stations.map((s) => `${s.name} (${s.slug}) ${s.play_count}`).join(", ") || "none"}`,
+    );
     lines.push(
       `       tracks:   ${countList(c.top_tracks.map((t) => ({ name: t.title, play_count: t.play_count })))}`,
     );
