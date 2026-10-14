@@ -4,7 +4,7 @@
 // colour in LIGHT_PAINT swapped in and its name changed: the same layers,
 // ids, sources, filters, source layers, zoom ramps, widths, opacities and
 // fonts. The light values copy the light column of the palette table on the
-// Figma board (Product Designs, Atlas page, PSY-1567 row), the palette's
+// Figma board (Product Designs, Atlas page, row 1973:75), the palette's
 // authority; the `:root` tokens in app/globals.css are anchors only (see
 // basemap/README.md).
 //
