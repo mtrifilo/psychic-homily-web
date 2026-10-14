@@ -21,6 +21,7 @@ import {
   venuePinFeatures,
   venuePinPaint,
 } from '@/features/scenes/components/venuePinLayer'
+import { MARKER_RAMPS } from '@/features/scenes/components/globeScale'
 import { circleMarkAt } from '@/features/scenes/components/mapTapTarget'
 import { useCoarsePointer } from '@/lib/hooks/common/useCoarsePointer'
 import { MiniAtlasSkeleton } from './MiniAtlasSkeleton'
@@ -51,6 +52,12 @@ const QUIET_PIN_OPACITY = 0.45
 const MIN_ZOOM = PH_BASEMAP_MIN_ZOOM
 
 /**
+ * The pane draws the dark street style and the dark pin ramp in both app
+ * themes.
+ */
+const PIN_RAMP = MARKER_RAMPS.dark
+
+/**
  * The pane's street basemap, with the background opaque at every zoom the
  * camera can reach.
  *
@@ -60,7 +67,7 @@ const MIN_ZOOM = PH_BASEMAP_MIN_ZOOM
  * on.
  */
 function miniAtlasStyle(): maplibregl.StyleSpecification {
-  const basemap = phBasemapFragment(MIN_ZOOM - 1, MIN_ZOOM)
+  const basemap = phBasemapFragment(MIN_ZOOM - 1, MIN_ZOOM, 'dark')
   return {
     version: 8,
     glyphs: basemap.glyphs,
@@ -80,7 +87,7 @@ function miniAtlasStyle(): maplibregl.StyleSpecification {
         type: 'circle',
         source: SOURCE_ID,
         paint: {
-          ...venuePinPaint(),
+          ...venuePinPaint(PIN_RAMP),
           'circle-opacity': [
             'case',
             ['get', 'isQuiet'],
@@ -287,7 +294,7 @@ export function VenueMiniAtlas({
     }
   }, [])
 
-  const features = useMemo(() => venuePinFeatures(pins), [pins])
+  const features = useMemo(() => venuePinFeatures(pins, PIN_RAMP), [pins])
 
   // The identity of the SET on screen, so the camera refits when the page or
   // the filter changes the rooms and leaves the old ones nowhere near the

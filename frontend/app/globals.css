@@ -376,34 +376,32 @@
 }
 
 /* PSY-1543: Atlas map attribution — restyle MapLibre's default white pill to
- * the Atlas dark palette. The control carries the REQUIRED OpenStreetMap
- * credit (plus OpenFreeMap and NASA GIBS), so keep it legible: muted at
- * rest, readable on hover. The Atlas surface is deliberately dark in both
- * app themes, so these values are static rather than token-driven.
+ * the app's tokens, so it follows the theme: --muted-foreground on
+ * --background, links a step toward --foreground. The control carries the
+ * REQUIRED OpenStreetMap credit (plus OpenFreeMap and NASA GIBS), so keep it
+ * legible: muted at rest, readable on hover.
  * Selectors are .maplibregl-map-prefixed to out-specify maplibre-gl.css's
  * own `.maplibregl-ctrl.maplibregl-ctrl-attrib` rules — that stylesheet is
  * lazy-loaded with the GlobeCanvas chunk AFTER this file, so equal
  * specificity would lose on order. */
 .maplibregl-map .maplibregl-ctrl.maplibregl-ctrl-attrib {
-  /* 0.85, not 0.72: the pill sits over a surface whose brightness varies a
-   * lot (Black Marble city lights at globe zoom, water/building fills at
-   * street zoom). At 0.72 enough of that showed through to move the
-   * effective background — and the contrast ratio of the credit text with
-   * it — unpredictably. This keeps the required OSM credit legible over
-   * every part of the map. */
-  background: rgba(13, 8, 5, 0.85);
-  color: #9c8c7c;
+  /* 92% opaque: the pill sits over a surface whose brightness varies a lot
+   * (the dark globe in both themes, light or dark streets past it), and what
+   * shows through moves the contrast of the credit text with its pill. At 92%
+   * the 11px credit clears 4.5:1 in both themes over anything beneath it. */
+  background: color-mix(in srgb, var(--background) 92%, transparent);
+  color: var(--muted-foreground);
   font-size: 11px;
   /* Wrap rather than run along the bottom edge into the Drift button
    * (bottom-center) if a future source adds another credit string. */
   max-width: min(38vw, 420px);
 }
 .maplibregl-map .maplibregl-ctrl-attrib a {
-  color: #b3a292;
+  color: color-mix(in srgb, var(--muted-foreground) 75%, var(--foreground));
   text-decoration: none;
 }
 .maplibregl-map .maplibregl-ctrl-attrib a:hover {
-  color: #eee7d9;
+  color: var(--foreground);
   text-decoration: underline;
 }
 

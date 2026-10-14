@@ -67,9 +67,9 @@ import {
 } from '../cityView'
 import {
   DOT_COLOR_BASE,
-  DOT_COLOR_HOVERED,
-  DOT_COLOR_SELECTED,
   DOT_HOVER_RADIUS_SCALE,
+  MARKER_RAMPS,
+  type MarkerTheme,
   globeScreenRadiusPx,
   labelMinCountForAltitude,
   labelMinCountForZoom,
@@ -117,7 +117,7 @@ interface GlobeCanvasProps {
    * stay null-safe (AtlasGlobe's `flyToRef.current?.(…)` calls are).
    */
   flyToRef?: React.MutableRefObject<FlyToScene | null>
-  /** Slugs of scenes the viewer follows (PSY-1340) — tinted DOT_COLOR_FOLLOWED. */
+  /** Slugs of scenes the viewer follows (PSY-1340), tinted the ramp's followed colour. */
   followedSlugs?: ReadonlySet<string> | null
   /**
    * City view (PSY-1539): the venues to pin, ALREADY positioned and ALREADY
@@ -231,8 +231,31 @@ const RING_COLOR = '#ff7a3c'
 const HALO_SHADOW =
   '0 0 90px 24px rgba(74, 163, 255, 0.42), 0 0 220px 80px rgba(74, 163, 255, 0.18)'
 
-// The scene dot's outline width, drawn outside its radius.
+// The scene dot's outline width, drawn outside its radius, and the widest
+// outline any dot draws (a selected dot's ring on a ramp that has one).
 const SCENE_DOT_STROKE_PX = 1
+const SCENE_DOT_MAX_STROKE_PX = Math.max(
+  SCENE_DOT_STROKE_PX,
+  ...Object.values(MARKER_RAMPS).map((ramp) => ramp.selectedRing?.widthPx ?? 0),
+)
+// The rim of every scene dot without a ring of its own.
+const SCENE_DOT_RIM_COLOR = 'rgba(255,230,194,0.35)'
+
+// Scene labels show over the globe, dark in both themes, and over the streets
+// short of city view: cream on a dark halo reads on either ground.
+const SCENE_LABEL_COLOR = '#ffe6c2'
+const DARK_LABEL_HALO = '0 1px 4px rgba(0,0,0,0.9)'
+
+// Venue and stack labels show only in city view, over the street basemap of
+// the theme: cream on a dark halo over the dark streets, ink on a paper halo
+// over the light ones.
+const STREET_LABEL_INK: Readonly<Record<MarkerTheme, { color: string; halo: string }>> = {
+  dark: { color: SCENE_LABEL_COLOR, halo: DARK_LABEL_HALO },
+  light: {
+    color: 'var(--foreground)',
+    halo: '0 0 1px var(--background), 0 0 2px var(--background), 0 0 4px var(--background)',
+  },
+}
 
 const EMPTY_FC: GeoJSON.FeatureCollection = {
   type: 'FeatureCollection',
@@ -270,6 +293,37 @@ function buildStarfieldDataUri(): string {
 }
 const STARFIELD_BG = buildStarfieldDataUri()
 
+/** What the camera left when a map was removed (see the preview camera rule). */
+interface LeftPreviewCamera {
+  paddingPx: number
+  settled: boolean
+  slug: string | null
+  sheetPx: number
+}
+
+/**
+ * The globe canvas for the app theme in force. The theme keys the map: a
+ * theme change unmounts the map built for the old theme and mounts one for
+ * the new, the same remove-and-create a hide and show runs, so a map's street
+ * style, marker ramp and every paint built from them are fixed for its
+ * lifetime and no `setStyle` ever drops its sources or hover state. The
+ * camera carries over as it does across a hide: the saved camera
+ * (atlasCamera.ts) and the preview padding the old map left, held here so
+ * the remount keeps it.
+ */
+export default function GlobeCanvas(props: GlobeCanvasProps) {
+  const theme: MarkerTheme = useGraphPalette().isDark ? 'dark' : 'light'
+  const leftPreviewCameraRef = useRef<LeftPreviewCamera | null>(null)
+  return (
+    <GlobeMap
+      key={theme}
+      {...props}
+      theme={theme}
+      leftPreviewCameraRef={leftPreviewCameraRef}
+    />
+  )
+}
+
 /**
  * The MapLibre globe canvas (PSY-1538), isolated in its own client module so
  * AtlasGlobe can dynamic-import it with `ssr:false`: maplibre-gl is ~900 kB
@@ -288,7 +342,9 @@ const STARFIELD_BG = buildStarfieldDataUri()
  * markers (globeScale.ts owns all calibration, translated from the legacy
  * altitude bands via labelMinCountForZoom).
  */
-export default function GlobeCanvas({
+function GlobeMap({
+  theme,
+  leftPreviewCameraRef,
   width,
   height,
   scenes,
@@ -308,7 +364,12 @@ export default function GlobeCanvas({
   venueStacks = EMPTY_STACKS,
   onVenueStackSelect,
   scenePreviewSheetDetent,
-}: GlobeCanvasProps) {
+}: GlobeCanvasProps & {
+  /** The app theme this map is drawn for, fixed for its lifetime. */
+  theme: MarkerTheme
+  /** Held by GlobeCanvas, so it outlives a remount for a new theme. */
+  leftPreviewCameraRef: React.MutableRefObject<LeftPreviewCamera | null>
+}) {
   const containerRef = useRef<HTMLDivElement | null>(null)
   // The root element: the page draws its chrome beside it.
   const globeRootRef = useRef<HTMLDivElement | null>(null)
@@ -384,6 +445,7 @@ export default function GlobeCanvas({
 
   // Resolved theme palette for the dominant-genre dot tint (PSY-1315).
   const palette = useGraphPalette()
+  const ramp = MARKER_RAMPS[theme]
 
   // Latest onSelect without threading it into the map-creation effect's deps
   // (handlers read it at call time).
@@ -497,9 +559,9 @@ export default function GlobeCanvas({
           type: 'Feature',
           properties: {
             slug: s.slug,
-            color: sceneDotColor(s.slug, null, selectedSlug, followedSlugs, genreBase),
+            color: sceneDotColor(ramp, s.slug, null, selectedSlug, followedSlugs, genreBase),
             radiusPx: sceneDotRadiusPx(s.upcoming_show_count),
-            // The hover color must not override the selected cream — the
+            // The hover color must not override the selected color — the
             // paint expression checks this flag (selected > hovered).
             isSelected: s.slug === selectedSlug,
             // Smaller dots draw ABOVE larger ones so a dense metro can't
@@ -514,7 +576,7 @@ export default function GlobeCanvas({
         }
       }),
     }),
-    [scenes, selectedSlug, followedSlugs, palette],
+    [scenes, selectedSlug, followedSlugs, palette, ramp],
   )
 
   useEffect(() => {
@@ -529,8 +591,8 @@ export default function GlobeCanvas({
   // into feature properties, hover rides feature-state so a mousemove never
   // rebuilds the source.
   const venueFeatures = useMemo<GeoJSON.FeatureCollection>(
-    () => venuePinFeatures(venues, selectedVenueId ?? null),
-    [venues, selectedVenueId],
+    () => venuePinFeatures(venues, ramp, selectedVenueId ?? null),
+    [venues, ramp, selectedVenueId],
   )
 
   useEffect(() => {
@@ -576,11 +638,11 @@ export default function GlobeCanvas({
         'pointer-events: none',
         'user-select: none',
         'white-space: nowrap',
-        `color: ${DOT_COLOR_SELECTED}`,
+        `color: ${STREET_LABEL_INK[theme].color}`,
         'font-size: 12px',
         'font-weight: 500',
         'letter-spacing: 0.01em',
-        'text-shadow: 0 1px 4px rgba(0,0,0,0.9)',
+        `text-shadow: ${STREET_LABEL_INK[theme].halo}`,
       ].join(';')
       return new maplibregl.Marker({
         element: el,
@@ -593,7 +655,7 @@ export default function GlobeCanvas({
     return () => {
       for (const m of markers) m.remove()
     }
-  }, [mapReady, venues, labelledVenueIds])
+  }, [mapReady, venues, labelledVenueIds, theme])
 
   // Stack markers: a counted button per point where several venues pin, as a
   // DOM marker so it is a real, focusable target in the app font.
@@ -628,10 +690,10 @@ export default function GlobeCanvas({
       label.textContent = stack.label
       label.style.cssText = [
         'white-space: nowrap',
-        `color: ${DOT_COLOR_SELECTED}`,
+        `color: ${STREET_LABEL_INK[theme].color}`,
         'font-size: 12px',
         'font-weight: 500',
-        'text-shadow: 0 1px 4px rgba(0,0,0,0.9)',
+        `text-shadow: ${STREET_LABEL_INK[theme].halo}`,
       ].join(';')
       button.append(badge, label)
       // Named explicitly: MapLibre labels a marker element "Map marker" unless
@@ -654,7 +716,7 @@ export default function GlobeCanvas({
     return () => {
       for (const m of markers) m.remove()
     }
-  }, [mapReady, venueStacks])
+  }, [mapReady, venueStacks, theme])
 
   // Attribution: the OpenStreetMap credit is a license requirement (ODbL), so
   // the control is always mounted and never compact (OSM's guidance frowns on
@@ -795,10 +857,10 @@ export default function GlobeCanvas({
         'pointer-events: none',
         'user-select: none',
         'white-space: nowrap',
-        `color: ${DOT_COLOR_SELECTED}`,
+        `color: ${SCENE_LABEL_COLOR}`,
         'font-weight: 500',
         'letter-spacing: 0.01em',
-        'text-shadow: 0 1px 4px rgba(0,0,0,0.9)',
+        `text-shadow: ${DARK_LABEL_HALO}`,
         // Above the place labels, which carry no z-index.
         'z-index: 1',
       ].join(';')
@@ -879,7 +941,7 @@ export default function GlobeCanvas({
         const point = map.project([s.longitude, s.latitude])
         // The most a dot draws: its hovered radius plus its stroke.
         const radius =
-          sceneDotRadiusPx(s.upcoming_show_count) * DOT_HOVER_RADIUS_SCALE + SCENE_DOT_STROKE_PX
+          sceneDotRadiusPx(s.upcoming_show_count) * DOT_HOVER_RADIUS_SCALE + SCENE_DOT_MAX_STROKE_PX
         boxes.push(dotBox(point.x, point.y, radius))
       }
       return boxes
@@ -919,14 +981,9 @@ export default function GlobeCanvas({
     /** The bottom padding the camera was sent to (kept, at the Peek exception). */
     paddingPx: number
   } | null>(null)
-  // What the camera left when its map was removed: its bottom padding, the
-  // record above for that map, and whether the camera was at rest.
-  const leftPreviewCameraRef = useRef<{
-    paddingPx: number
-    settled: boolean
-    slug: string | null
-    sheetPx: number
-  } | null>(null)
+  // What the camera left when its map was removed (leftPreviewCameraRef, a
+  // prop): its bottom padding, the record above for that map, and whether the
+  // camera was at rest.
   // The current selection and sheet height, for a map built later.
   const previewCameraTargetRef = useRef({ slug: selectedSlug, sheetPx: previewCameraSheetPx })
   useEffect(() => {
@@ -1014,13 +1071,15 @@ export default function GlobeCanvas({
     const zoom = restored?.zoom ?? zoomForAltitude(pov.altitude)
 
     // PH street basemap (PSY-1543): OpenFreeMap vector tiles restyled to the
-    // app's dark tokens, with its background ramped in across the same range
+    // theme's tokens, with its background ramped in across the same range
     // the globe surface (raster, or ocean and land) fades out; see
     // phBasemapFragment for the handoff.
     const basemap = phBasemapFragment(
       BLACK_MARBLE_FADE_START,
       BLACK_MARBLE_FADE_END,
+      theme,
     )
+    const ring = MARKER_RAMPS[theme].selectedRing
 
     const map = new maplibregl.Map({
       container,
@@ -1126,7 +1185,7 @@ export default function GlobeCanvas({
             },
             // Hover rides feature-state so enter/leave never rebuilds the
             // source (see the sceneFeatures doc). Precedence: the selected
-            // cream must not be overridden by hover (selected > hovered —
+            // colour must not be overridden by hover (selected > hovered —
             // sceneDotColor's contract), hence the isSelected guard; the
             // radius bump applies regardless, matching the old canvas.
             paint: {
@@ -1147,11 +1206,15 @@ export default function GlobeCanvas({
                   ['boolean', ['feature-state', 'hover'], false],
                   ['!', ['get', 'isSelected']],
                 ],
-                DOT_COLOR_HOVERED,
+                MARKER_RAMPS[theme].hovered,
                 ['get', 'color'],
               ],
-              'circle-stroke-width': SCENE_DOT_STROKE_PX,
-              'circle-stroke-color': 'rgba(255,230,194,0.35)',
+              'circle-stroke-width': ring
+                ? ['case', ['get', 'isSelected'], ring.widthPx, SCENE_DOT_STROKE_PX]
+                : SCENE_DOT_STROKE_PX,
+              'circle-stroke-color': ring
+                ? ['case', ['get', 'isSelected'], ring.color, SCENE_DOT_RIM_COLOR]
+                : SCENE_DOT_RIM_COLOR,
             },
           },
           {
@@ -1168,7 +1231,7 @@ export default function GlobeCanvas({
             // The affordance ramp (selected > hovered > base) is shared with
             // the /venues mini Atlas so the same colors mean the same things
             // on every surface that draws a room.
-            paint: venuePinPaint(),
+            paint: venuePinPaint(MARKER_RAMPS[theme]),
           },
         ],
       },
@@ -1656,11 +1719,13 @@ export default function GlobeCanvas({
       health.stop()
       map.remove()
     }
-    // pov is resolved once before this canvas mounts, and flyToRef is a
-    // stable ref container from AtlasGlobe — both are identity-stable for
-    // the canvas's lifetime; everything else this effect reads is a ref or
-    // setter, so the camera never re-aims on data re-renders.
-  }, [pov, flyToRef])
+    // pov is resolved once before this canvas mounts, flyToRef is a stable
+    // ref container from AtlasGlobe, theme keys this component (a new theme
+    // is a new instance) and leftPreviewCameraRef is GlobeCanvas's ref — all
+    // are identity-stable for the canvas's lifetime; everything else this
+    // effect reads is a ref or setter, so the camera never re-aims on data
+    // re-renders.
+  }, [pov, flyToRef, theme, leftPreviewCameraRef])
 
   if (unrecoverable) throw unrecoverable
 

@@ -159,18 +159,52 @@ export function globeScreenRadiusPx(zoom: number): number {
 // ── Dot color + hover/selected affordance (PSY-1312) ─────────────────────
 // Uniform orange gave the dots no affordance feedback: nothing signalled
 // clickability until you clicked, and with the preview panel open you couldn't
-// see WHICH dot you were reading about. Three states, one place:
-//   selected → cream (matches the label color, persistent while the panel is open)
-//   hovered  → brightened orange (+ pointer cursor + slight radius bump)
-//   base     → the shipped dot orange
+// see WHICH dot you were reading about. Four states, one ramp per app theme:
+//   selected → persistent while the panel is open
+//   hovered  → a step off the base orange (+ pointer cursor + slight radius bump)
+//   followed → the viewer's own scenes (PSY-1340 "My Scenes"): a distinct hue,
+//              not a brightness step of the base orange, so the followed set
+//              reads at continental zoom without colliding with hover/selected
+//   base     → the shipped dot orange, the same in both themes
 // Selected wins over hovered so re-hovering the open scene doesn't flicker.
+//
+// The dark ramp is drawn for a dark ground: a cream selected mark and a cyan
+// followed one. On paper both all but vanish, so the light ramp darkens them:
+// selected is --primary with a paper ring that keeps it apart from the darker
+// roads under it, and followed is a deep teal. The venue pins share the ramp.
+
+/** The app theme a map's marks are drawn for. */
+export type MarkerTheme = 'dark' | 'light'
+
+export interface MarkerRamp {
+  base: string
+  hovered: string
+  selected: string
+  followed: string
+  /** The ring a selected mark draws as its outline, or null to keep its rim. */
+  selectedRing: { color: string; widthPx: number } | null
+}
+
 export const DOT_COLOR_BASE = '#ff7a3c'
-export const DOT_COLOR_HOVERED = '#ffb066'
-export const DOT_COLOR_SELECTED = '#ffe6c2'
-// Followed scenes (PSY-1340 "My Scenes"): a distinct hue — not a brightness
-// step of the base orange — so the followed set reads at continental zoom
-// without colliding with the hover/selected affordance ramp.
-export const DOT_COLOR_FOLLOWED = '#7ee8fa'
+
+export const MARKER_RAMPS: Readonly<Record<MarkerTheme, MarkerRamp>> = {
+  dark: {
+    base: DOT_COLOR_BASE,
+    hovered: '#ffb066',
+    selected: '#ffe6c2',
+    followed: '#7ee8fa',
+    selectedRing: null,
+  },
+  light: {
+    base: DOT_COLOR_BASE,
+    hovered: '#e8893f',
+    // --primary, and a --background ring, in :root (globeScale.test.ts pins both).
+    selected: '#d2541b',
+    followed: '#1f8fa8',
+    selectedRing: { color: '#f4f1ea', widthPx: 1.5 },
+  },
+}
+
 // Radius bump on hover — kept small so the highlighted dot never visibly
 // pops over its neighbours (applied via a feature-state paint expression).
 export const DOT_HOVER_RADIUS_SCALE = 1.2
@@ -181,16 +215,17 @@ export const DOT_HOVER_RADIUS_SCALE = 1.2
 // the default orange as the resting color, but the interaction/follow affordances
 // still win so hover/select/follow stay legible over any tint.
 export function sceneDotColor(
+  ramp: MarkerRamp,
   slug: string,
   hoveredSlug: string | null,
   selectedSlug: string | null,
   followedSlugs?: ReadonlySet<string> | null,
   baseColor?: string,
 ): string {
-  if (selectedSlug !== null && slug === selectedSlug) return DOT_COLOR_SELECTED
-  if (hoveredSlug !== null && slug === hoveredSlug) return DOT_COLOR_HOVERED
-  if (followedSlugs != null && followedSlugs.has(slug)) return DOT_COLOR_FOLLOWED
-  return baseColor ?? DOT_COLOR_BASE
+  if (selectedSlug !== null && slug === selectedSlug) return ramp.selected
+  if (hoveredSlug !== null && slug === hoveredSlug) return ramp.hovered
+  if (followedSlugs != null && followedSlugs.has(slug)) return ramp.followed
+  return baseColor ?? ramp.base
 }
 
 // ── Label text size ───────────────────────────────────────────────────────

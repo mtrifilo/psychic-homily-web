@@ -10,7 +10,8 @@ import {
 import { CanvasSectionErrorBoundary } from '@/components/shared/CanvasSectionErrorBoundary'
 import { AtlasMapUnrecoverableError } from '../atlasViewport'
 import { ATLAS_CONTEXT_RESTORE_DEADLINE_MS, ATLAS_FIRST_RENDER_DEADLINE_MS } from './atlasMapHealth'
-import { sceneTooltipLabel } from './globeScale'
+import { MARKER_RAMPS, sceneTooltipLabel } from './globeScale'
+import { venuePinPaint } from './venuePinLayer'
 
 /**
  * MapLibre stubbed down to the seams the sheet layout drives: controls by
@@ -1349,6 +1350,27 @@ describe('GlobeCanvas preview camera', () => {
     expect(halo.style.top).toBe(`calc(50% - ${HALF_PX / 2}px)`)
   })
 
+  it('rebuilds the map for a theme change with the padding the old camera had, unmoved', async () => {
+    const { map, rerender, props } = selectChicago()
+    const atPeek = { ...props, selected: CHICAGO, scenePreviewSheetDetent: 'peek' as const }
+    rerender(<GlobeCanvas {...atPeek} />)
+    expect(map.padding).toEqual(padded(HALF_PX))
+
+    try {
+      await act(async () => {
+        document.documentElement.classList.add('dark')
+      })
+      const rebuilt = stub.state.maps[stub.state.maps.length - 1]
+      act(() => rebuilt.fire('style.load'))
+      expect(rebuilt).not.toBe(map)
+      expect(map.remove).toHaveBeenCalled()
+      expect(rebuilt.setPadding).toHaveBeenCalledWith(padded(HALF_PX))
+      expect(rebuilt.easeTo).not.toHaveBeenCalled()
+    } finally {
+      document.documentElement.classList.remove('dark')
+    }
+  })
+
   it('moves once on a map rebuilt while the move for the current selection was still waiting', () => {
     const { map, rerender, props } = renderPreview()
     map.moving = true
@@ -1383,5 +1405,108 @@ describe('GlobeCanvas preview camera', () => {
     map.padding = NO_PADDING
     act(() => map.fire('move'))
     expect(halo.style.top).toBe('')
+  })
+})
+
+describe('GlobeCanvas theme', () => {
+  type StyleLayer = { id: string; paint?: Record<string, unknown> }
+  const layer = (map: StubMap, id: string) =>
+    (map.options as unknown as { style: { layers: StyleLayer[] } }).style.layers.find(
+      (l) => l.id === id,
+    )
+  const venueLabel = (name: string) => screen.getByText(name, { selector: 'div' })
+
+  beforeEach(() => {
+    stub.state.maps = []
+    stub.state.markers = []
+    sessionStorage.clear()
+  })
+  afterEach(() => {
+    document.documentElement.classList.remove('dark')
+  })
+
+  it('draws the dark street style, the dark ramp and cream street labels in the dark theme', () => {
+    document.documentElement.classList.add('dark')
+    const { map } = renderCanvas()
+    expect(layer(map, 'ph-background')?.paint?.['background-color']).toBe('#0d0805')
+    expect(layer(map, 'ph-water')?.paint?.['fill-color']).toBe('#090c12')
+    const dots = layer(map, 'scene-dots')?.paint
+    expect((dots?.['circle-color'] as unknown[])[2]).toBe(MARKER_RAMPS.dark.hovered)
+    expect(dots?.['circle-stroke-color']).toBe('rgba(255,230,194,0.35)')
+    expect(dots?.['circle-stroke-width']).toBe(1)
+    expect(layer(map, 'venue-pins')?.paint).toEqual(venuePinPaint(MARKER_RAMPS.dark))
+    expect(venueLabel('Thalia Hall').style.color).toBe('rgb(255, 230, 194)')
+  })
+
+  it('draws the light street style, the light ramp and ink street labels in the light theme', () => {
+    const { map } = renderCanvas()
+    expect(layer(map, 'ph-background')?.paint?.['background-color']).toEqual([
+      'interpolate',
+      ['linear'],
+      ['zoom'],
+      5.5,
+      '#0d0805',
+      7,
+      '#f4f1ea',
+    ])
+    expect(layer(map, 'ph-water')?.paint?.['fill-color']).toBe('#dbe4ea')
+    const dots = layer(map, 'scene-dots')?.paint
+    expect((dots?.['circle-color'] as unknown[])[2]).toBe(MARKER_RAMPS.light.hovered)
+    expect(dots?.['circle-stroke-color']).toEqual([
+      'case',
+      ['get', 'isSelected'],
+      '#f4f1ea',
+      'rgba(255,230,194,0.35)',
+    ])
+    expect(dots?.['circle-stroke-width']).toEqual(['case', ['get', 'isSelected'], 1.5, 1])
+    expect(layer(map, 'venue-pins')?.paint).toEqual(venuePinPaint(MARKER_RAMPS.light))
+    const label = venueLabel('Thalia Hall')
+    expect(label.style.color).toBe('var(--foreground)')
+    expect(label.style.textShadow).toContain('var(--background)')
+  })
+
+  it('keeps the scene labels cream on a dark halo in the light theme', () => {
+    renderCanvas({ cityLabel: null, venues: [] })
+    const label = screen.getAllByTestId('atlas-scene-label')[0]
+    expect(label.style.color).toBe('rgb(255, 230, 194)')
+    expect(label.style.textShadow).toBe('0 1px 4px rgba(0,0,0,0.9)')
+  })
+
+  it('remounts the map for a theme change, removing the old one and keeping the camera', async () => {
+    const { map } = renderCanvas()
+    map.center = { lng: -87.7, lat: 41.9 }
+    // A remount runs every effect cleanup together, the map's removal last,
+    // so nothing still holds the old map when it goes.
+    let controlsAtRemoval: number | null = null
+    map.remove.mockImplementation(() => {
+      controlsAtRemoval = map.controls.length
+    })
+    await act(async () => {
+      document.documentElement.classList.add('dark')
+    })
+    expect(stub.state.maps).toHaveLength(2)
+    expect(map.remove).toHaveBeenCalledTimes(1)
+    expect(controlsAtRemoval).toBe(0)
+    const rebuilt = stub.state.maps[1]
+    const options = rebuilt.options as unknown as { center: [number, number]; zoom: number }
+    expect(options.center).toEqual([-87.7, 41.9])
+    expect(options.zoom).toBe(13)
+    expect(layer(rebuilt, 'ph-background')?.paint?.['background-color']).toBe('#0d0805')
+    // One live map: the old map's labels went with it.
+    act(() => rebuilt.fire('style.load'))
+    expect(screen.getAllByText('Thalia Hall', { selector: 'div' })).toHaveLength(1)
+    expect(venueLabel('Thalia Hall').style.color).toBe('rgb(255, 230, 194)')
+  })
+
+  it('keeps the map through an html class change that leaves the theme as it was', async () => {
+    renderCanvas()
+    try {
+      await act(async () => {
+        document.documentElement.classList.add('some-other-class')
+      })
+      expect(stub.state.maps).toHaveLength(1)
+    } finally {
+      document.documentElement.classList.remove('some-other-class')
+    }
   })
 })

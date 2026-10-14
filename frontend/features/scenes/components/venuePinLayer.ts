@@ -10,12 +10,7 @@
  */
 
 import type { CircleLayerSpecification } from 'maplibre-gl'
-import {
-  DOT_COLOR_BASE,
-  DOT_COLOR_HOVERED,
-  DOT_COLOR_SELECTED,
-  DOT_HOVER_RADIUS_SCALE,
-} from './globeScale'
+import { DOT_HOVER_RADIUS_SCALE, type MarkerRamp } from './globeScale'
 
 // ── Pin size ──────────────────────────────────────────────────────────────
 // Same shape as the globe's dot scale (sqrt, capped) for the same reason: a
@@ -61,6 +56,7 @@ export interface VenuePinPlacement {
  */
 export function venuePinFeatures(
   pins: readonly VenuePinPlacement[],
+  ramp: MarkerRamp,
   selectedVenueId: number | null = null,
 ): GeoJSON.FeatureCollection {
   return {
@@ -69,8 +65,7 @@ export function venuePinFeatures(
       type: 'Feature',
       properties: {
         id: pin.id,
-        color:
-          pin.id === selectedVenueId ? DOT_COLOR_SELECTED : DOT_COLOR_BASE,
+        color: pin.id === selectedVenueId ? ramp.selected : ramp.base,
         radiusPx: venuePinRadiusPx(pin.upcomingShowCount),
         isSelected: pin.id === selectedVenueId,
         // Nothing booked. Read by the surfaces that mute a quiet room; drawing
@@ -87,17 +82,20 @@ export function venuePinFeatures(
 // colour at full opacity, for text drawn on a pin.
 export const VENUE_PIN_INK = 'rgb(23,16,11)'
 export const VENUE_PIN_STROKE = 'rgba(23,16,11,0.85)'
+export const VENUE_PIN_STROKE_PX = 1.5
 
 /**
  * Paint for a venue-pin circle layer, driven by the properties
  * `venuePinFeatures` above writes and the `hover` feature-state the caller
- * sets.
+ * sets. Every pin keeps the dark rim, except a selected pin on a ramp with a
+ * selected ring, which draws that ring instead.
  *
  * A FUNCTION, not a shared object literal: MapLibre keeps a reference to the
  * style it is handed, and two maps sharing one mutable paint object would let
  * either one's internal edits reach the other.
  */
-export function venuePinPaint(): CircleLayerSpecification['paint'] {
+export function venuePinPaint(ramp: MarkerRamp): CircleLayerSpecification['paint'] {
+  const ring = ramp.selectedRing
   return {
     'circle-radius': [
       '*',
@@ -116,10 +114,14 @@ export function venuePinPaint(): CircleLayerSpecification['paint'] {
         ['boolean', ['feature-state', 'hover'], false],
         ['!', ['get', 'isSelected']],
       ],
-      DOT_COLOR_HOVERED,
+      ramp.hovered,
       ['get', 'color'],
     ],
-    'circle-stroke-width': 1.5,
-    'circle-stroke-color': VENUE_PIN_STROKE,
+    'circle-stroke-width': ring
+      ? ['case', ['get', 'isSelected'], ring.widthPx, VENUE_PIN_STROKE_PX]
+      : VENUE_PIN_STROKE_PX,
+    'circle-stroke-color': ring
+      ? ['case', ['get', 'isSelected'], ring.color, VENUE_PIN_STROKE]
+      : VENUE_PIN_STROKE,
   }
 }
