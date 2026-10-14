@@ -29,7 +29,10 @@ const OAuthRedirectRateLimitedCode = "RATE_LIMITED"
 // own provider and state (isForHandshake, the test OAuthCallbackHTTPHandler
 // applies), go back to Settings with the code, where every other link result
 // is read. Everything else goes to the frontend auth page with message and the
-// code, the query keys a refused sign-in callback uses.
+// code, the query keys a refused sign-in callback uses, and with the sign-in's
+// destination where the handler it stands in for would have read one: a
+// sign-in start's from its query, a callback's from the cookie its start set,
+// which the refusal consumes as the callback would have.
 //
 // It reads chi's route pattern and provider parameter, so it runs on a
 // middleware chain chi builds after routing.
@@ -38,11 +41,20 @@ func (h *OAuthHTTPHandler) RedirectRateLimited(w http.ResponseWriter, r *http.Re
 		redirectToLinkResult(w, r, h.frontendURL(), OAuthRedirectRateLimitedCode)
 		return
 	}
+
+	returnTo := oauthReturnToFallback
+	switch chi.RouteContext(r.Context()).RoutePattern() {
+	case OAuthLoginRoute:
+		returnTo = sanitizeOAuthReturnTo(r.URL.Query().Get(oauthReturnToParam))
+	case OAuthCallbackRoute:
+		returnTo = takeOAuthReturnTo(w, r, h.config != nil && h.config.Session.Secure)
+	}
+
 	query := url.Values{
 		authPageErrorParam:     {message},
 		authPageErrorCodeParam: {OAuthRedirectRateLimitedCode},
 	}
-	http.Redirect(w, r, h.frontendURL()+"/auth?"+query.Encode(), http.StatusTemporaryRedirect)
+	http.Redirect(w, r, authPageURLWithReturnTo(h.frontendURL(), query, returnTo), http.StatusTemporaryRedirect)
 }
 
 // startsLink reports whether r was routed to OAuthLinkRoute, the start a

@@ -160,7 +160,12 @@ func oauthSignInDestination(frontendURL, returnTo string) string {
 // when there is one, so that a retry from the auth page (the consent handoff
 // to Create account included) still lands on it.
 func authPageRefusalURL(frontendURL string, err error, message, returnTo string) string {
-	query := authPageErrorQuery(err, message)
+	return authPageURLWithReturnTo(frontendURL, authPageErrorQuery(err, message), returnTo)
+}
+
+// authPageURLWithReturnTo is the frontend auth page with query, plus the
+// destination when there is one.
+func authPageURLWithReturnTo(frontendURL string, query url.Values, returnTo string) string {
 	if returnTo != oauthReturnToFallback {
 		query.Set(oauthReturnToParam, returnTo)
 	}
