@@ -572,6 +572,7 @@ describe('AuthPage', () => {
       await user.click(screen.getByRole('tab', { name: 'Create account' }))
 
       expect(termsCheckbox()).not.toHaveFocus()
+      expect(termsCheckbox()).not.toHaveAttribute('aria-describedby')
       expect(Element.prototype.scrollIntoView).toHaveBeenCalledTimes(1)
     })
 

@@ -63,6 +63,7 @@ func errorRedirectQuery(t *testing.T, handler *OAuthHTTPHandler, req *http.Reque
 func TestOAuthCallbackErrorRedirect_CarriesRefusalCode(t *testing.T) {
 	termsRefusal := autherrors.ErrTermsAcceptanceRequired("no consent")
 	existsRefusal := autherrors.ErrUserExists("taken@example.com")
+	identityRefusal := autherrors.ErrOAuthIdentityInUse("google")
 
 	cases := []struct {
 		name        string
@@ -87,6 +88,12 @@ func TestOAuthCallbackErrorRedirect_CarriesRefusalCode(t *testing.T) {
 			err:         existsRefusal,
 			wantMessage: existsRefusal.UserMessage(),
 			wantCode:    autherrors.CodeUserExists,
+		},
+		{
+			name:        "provider identity linked to another account",
+			err:         identityRefusal,
+			wantMessage: identityRefusal.UserMessage(),
+			wantCode:    autherrors.CodeOAuthIdentityInUse,
 		},
 		{
 			name:        "auth error outside the refusal list",
