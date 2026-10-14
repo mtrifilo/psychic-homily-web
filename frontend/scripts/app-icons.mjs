@@ -4,7 +4,7 @@
 //   public/icons/icon-512.png  512x512, the manifest's 512 (any and maskable)
 //
 // Each is flattened onto black and written as a palette PNG. The script exits
-// non-zero, writing nothing, if any lit pixel of the 512 falls outside the
+// non-zero, writing nothing, if any non-black pixel of the 512 falls outside the
 // maskable safe zone (the centred circle of radius 40%), because the manifest
 // lists that file as maskable. app/apple-icon.png is separate artwork and is
 // not rendered here.
@@ -22,8 +22,6 @@ const OUTPUTS = [
   { size: 512, path: 'public/icons/icon-512.png' },
 ]
 const SAFE_ZONE_RADIUS = 0.4
-// A channel above this counts as artwork rather than background.
-const LIT_THRESHOLD = 40
 
 function render(size) {
   return sharp(SOURCE).resize(size, size).flatten({ background: '#000000' })
@@ -36,7 +34,8 @@ async function farthestLitPixelRatio(size) {
   for (let y = 0; y < info.height; y++) {
     for (let x = 0; x < info.width; x++) {
       const i = (y * info.width + x) * info.channels
-      if (Math.max(data[i], data[i + 1], data[i + 2]) > LIT_THRESHOLD) {
+      // The background is exactly black after flatten, so any other pixel is artwork.
+      if (data[i] || data[i + 1] || data[i + 2]) {
         farthest = Math.max(farthest, Math.hypot(x + 0.5 - centre, y + 0.5 - centre))
       }
     }
@@ -57,4 +56,4 @@ for (const { size, path } of OUTPUTS) {
     .toFile(path)
   console.log(`wrote ${path} (${size}x${size})`)
 }
-console.log(`farthest lit pixel: ${ratio.toFixed(3)} of the width (safe zone ${SAFE_ZONE_RADIUS})`)
+console.log(`farthest non-black pixel: ${ratio.toFixed(3)} of the width (safe zone ${SAFE_ZONE_RADIUS})`)

@@ -52,6 +52,32 @@ describe('manifest', () => {
       expect(pngSize(iconFile(icon.src)), icon.src).toBe(icon.sizes)
     }
   })
+
+  // Launchers crop a maskable icon to their own shape; only the centred circle
+  // of radius 40% is guaranteed to survive. Checked on the committed bytes, so
+  // a hand-replaced file fails here even if scripts/app-icons.mjs never ran.
+  it('keeps every non-black pixel of each maskable icon inside the safe zone', async () => {
+    const { default: sharp } = await import('sharp')
+    const maskable = (m.icons ?? []).filter(icon => icon.purpose === 'maskable')
+    expect(maskable.length).toBeGreaterThan(0)
+    for (const icon of maskable) {
+      const { data, info } = await sharp(resolve(process.cwd(), iconFile(icon.src)))
+        .flatten({ background: '#000000' })
+        .raw()
+        .toBuffer({ resolveWithObject: true })
+      const centre = info.width / 2
+      let farthest = 0
+      for (let y = 0; y < info.height; y++) {
+        for (let x = 0; x < info.width; x++) {
+          const i = (y * info.width + x) * info.channels
+          if (data[i] || data[i + 1] || data[i + 2]) {
+            farthest = Math.max(farthest, Math.hypot(x + 0.5 - centre, y + 0.5 - centre))
+          }
+        }
+      }
+      expect(farthest / info.width, icon.src).toBeLessThanOrEqual(0.4)
+    }
+  })
 })
 
 describe('app icon files', () => {

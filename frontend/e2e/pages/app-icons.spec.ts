@@ -10,8 +10,8 @@ import { test, expect } from '@playwright/test'
  */
 const APPLE_ICON_BYTES = readFileSync(join(__dirname, '..', '..', 'app', 'apple-icon.png'))
 
-// @smoke: request-only and fast, and these are the only HTTP-level checks on
-// the touch-icon rewrites, so they run on every PR rather than after merge.
+// @smoke: request-only and fast, so the PR smoke job runs them against the
+// harness's dev server rather than only after merge.
 test.describe('app icons and manifest', { tag: '@smoke' }, () => {
   for (const path of ['/apple-icon.png', '/apple-touch-icon.png', '/apple-touch-icon-precomposed.png']) {
     test(`${path} answers 200 image/png with the apple-icon artwork`, async ({ request }) => {
