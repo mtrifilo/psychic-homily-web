@@ -120,6 +120,12 @@ changes its schema or endpoints:
 - **Markers**: `MARKER_RAMPS` in `frontend/features/scenes/components/globeScale.ts`
   holds one colour ramp per theme for the scene dots and venue pins; the
   light one rings a selected mark in paper.
+- **Map labels**: the scene, venue and stack names are DOM markers in cream
+  on a dark halo. In the light theme, from `LABEL_PAPER_GROUND_ZOOM` (where
+  the light ground passes half of paper's brightness, derived from the fade
+  range in `GlobeCanvas.tsx`) they switch to `--foreground` ink on a
+  `--background` halo, through `data-atlas-ground="paper"` on the map root
+  and the rule for it in `globals.css`.
 - **Bundle**: both style files are static imports of `phBasemap.ts`, so the
   light file ships in the same lazy chunks as the dark one (the Atlas canvas
   and the `/venues` mini Atlas), whichever theme is in force.
