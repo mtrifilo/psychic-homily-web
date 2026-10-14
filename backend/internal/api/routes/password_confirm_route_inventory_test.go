@@ -32,7 +32,6 @@ import (
 //     member through the router and needs a database.
 //   - It sweeps /auth/ only. The public /unsubscribe/ family registered in
 //     auth.go on rc.API and on the chi router is invisible to it.
-//   - It sweeps the methods in authInventoryMethods only.
 //   - It names per-route budgets only. Every GET here also passes the globally
 //     mounted public-read limiter when ENABLE_PUBLIC_READ_RATE_LIMITS is on,
 //     which no row here records.

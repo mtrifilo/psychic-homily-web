@@ -22,10 +22,8 @@ func setupAuthRoutes(rc RouteContext) {
 	// per-IP counter.
 	authRateLimiter := authScopedRateLimiter(middleware.LimiterAuth, middleware.AuthRequestsPerMinute)
 
-	// The OAuth sign-in redirects meter on their own counter and on no other
-	// auth one, so spent password attempts cannot refuse a sign-in with a
-	// provider. A refusal here is a redirect to the auth page rather than a
-	// JSON body, because a browser arrives at both routes by navigation.
+	// The OAuth sign-in redirects meter on oauthRedirectRateLimiter alone, never
+	// on authRateLimiter.
 	rc.Router.Group(func(r chi.Router) {
 		r.Use(oauthRedirectRateLimiter(oauthHTTPHandler.RedirectRateLimited))
 		r.Get("/auth/login/{provider}", oauthHTTPHandler.OAuthLoginHTTPHandler)
@@ -128,10 +126,7 @@ func oauthRedirectRateLimiter(redirect func(http.ResponseWriter, *http.Request, 
 	if IsAuthRateLimitDisabled(os.Getenv) {
 		return noopRateLimiter()
 	}
-	const window = time.Minute
-	limit := middleware.OAuthRedirectRequestsPerMinute
-	return ipRateLimiterRefusingWith(limit, window, func(w http.ResponseWriter, r *http.Request) {
-		middleware.LogClientIPRateLimitRejection(r, middleware.LimiterOAuthRedirect, limit, window)
+	return ipRateLimiterRefusingWith(middleware.LimiterOAuthRedirect, middleware.OAuthRedirectRequestsPerMinute, time.Minute, func(w http.ResponseWriter, r *http.Request) {
 		// httprate sets Retry-After before it calls a refusal handler. On a
 		// redirect that header asks the browser to wait before following it,
 		// and the auth page is not what is limited.

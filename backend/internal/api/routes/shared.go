@@ -42,19 +42,21 @@ func rateLimitUnlessValidatedAPIToken(validateAPIToken func(string) bool, name m
 // ipRateLimiter is a per-IP (middleware.KeyByClientIP) limiter whose 429s log
 // as the limiter named name. Each call returns a limiter with its own counter.
 func ipRateLimiter(name middleware.LimiterName, requestLimit int, window time.Duration) func(http.Handler) http.Handler {
-	return ipRateLimiterRefusingWith(requestLimit, window, rateLimitHandler(name, requestLimit, window))
+	return ipRateLimiterRefusingWith(name, requestLimit, window, writeRateLimitJSON)
 }
 
-// ipRateLimiterRefusingWith is a per-IP (middleware.KeyByClientIP) limiter
-// whose refused requests are answered by refuse, which owns both the response
-// and the rejection's log line. Each call returns a limiter with its own
-// counter.
-func ipRateLimiterRefusingWith(requestLimit int, window time.Duration, refuse http.HandlerFunc) func(http.Handler) http.Handler {
+// ipRateLimiterRefusingWith is ipRateLimiter with the refused request answered
+// by answer instead of the JSON 429. The rejection still logs as the limiter
+// named name, with the limiter's real window, whatever answer writes.
+func ipRateLimiterRefusingWith(name middleware.LimiterName, requestLimit int, window time.Duration, answer http.HandlerFunc) func(http.Handler) http.Handler {
 	return httprate.Limit(
 		requestLimit,
 		window,
 		httprate.WithKeyFuncs(middleware.KeyByClientIP),
-		httprate.WithLimitHandler(refuse),
+		httprate.WithLimitHandler(func(w http.ResponseWriter, r *http.Request) {
+			middleware.LogClientIPRateLimitRejection(r, name, requestLimit, window)
+			answer(w, r)
+		}),
 	)
 }
 
@@ -63,16 +65,11 @@ func ipRateLimiterRefusingWith(requestLimit int, window time.Duration, refuse ht
 // the OAuth sign-in routes answer a refusal with.
 const rateLimitExceededMessage = "Rate limit exceeded. Please try again in 60 seconds."
 
-// rateLimitHandler builds the 429 handler for the ipRateLimiter named name. The
-// log line is middleware's ratelimit_rejected line with the limiter's real
-// window; the response says Retry-After: 60 whatever the window.
-func rateLimitHandler(name middleware.LimiterName, requestLimit int, window time.Duration) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		middleware.LogClientIPRateLimitRejection(r, name, requestLimit, window)
-
-		w.Header().Set("Content-Type", "application/json")
-		w.Header().Set("Retry-After", "60")
-		w.WriteHeader(http.StatusTooManyRequests)
-		respond.SafeWrite(r.Context(), w, []byte(`{"success":false,"error":"too_many_requests","message":"`+rateLimitExceededMessage+`"}`))
-	}
+// writeRateLimitJSON answers a refused request with the JSON 429, saying
+// Retry-After: 60 whatever the limiter's window.
+func writeRateLimitJSON(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Retry-After", "60")
+	w.WriteHeader(http.StatusTooManyRequests)
+	respond.SafeWrite(r.Context(), w, []byte(`{"success":false,"error":"too_many_requests","message":"`+rateLimitExceededMessage+`"}`))
 }
