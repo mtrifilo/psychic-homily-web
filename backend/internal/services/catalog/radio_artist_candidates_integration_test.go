@@ -34,6 +34,7 @@ const (
 	radioCandidateTestBeforeStart = "2026-02-01"
 	radioCandidateTestMBA         = "11111111-1111-4111-8111-111111111111"
 	radioCandidateTestMBB         = "bbbbbbbb-2222-4222-8222-222222222222"
+	radioCandidateTestMBC         = "cccccccc-4444-4444-8444-444444444444"
 	radioCandidateTestMBCatalog   = "33333333-3333-4333-8333-333333333333"
 )
 
@@ -259,7 +260,7 @@ func (s *RadioArtistCandidatesIntegrationSuite) TestLanes() {
 	s.addAcross(candidatePlay{artist: "T One Id", mb: radioCandidateTestMBA}, 2)
 	s.add(candidatePlay{station: "t-kexp", artist: "T One Id"}, 1)
 	// An upper-case id is the same id.
-	s.add(candidatePlay{station: "t-kexp", artist: "T Two Ids", mb: radioCandidateTestMBA}, 2)
+	s.add(candidatePlay{station: "t-kexp", artist: "T Two Ids", mb: radioCandidateTestMBC}, 2)
 	s.add(candidatePlay{station: "t-wfmu", artist: "T Two Ids", mb: radioCandidateTestMBB}, 2)
 	s.add(candidatePlay{station: "t-wfmu", artist: "T Two Ids", mb: "BBBBBBBB-2222-4222-8222-222222222222"}, 1)
 	// A value not shaped like a UUID is absent.
@@ -278,7 +279,7 @@ func (s *RadioArtistCandidatesIntegrationSuite) TestLanes() {
 	s.Equal(contracts.RadioCandidateLaneHuman, two.Lane)
 	s.Nil(two.MBArtistID)
 	s.True(two.MBArtistIDConflict)
-	s.Equal([]string{radioCandidateTestMBA, radioCandidateTestMBB}, two.MBArtistIDs)
+	s.Equal([]string{radioCandidateTestMBB, radioCandidateTestMBC}, two.MBArtistIDs)
 
 	for _, key := range []string{"t bad id", "t no id"} {
 		s.Equal(contracts.RadioCandidateLaneHuman, got[key].Lane, key)
@@ -329,6 +330,84 @@ func (s *RadioArtistCandidatesIntegrationSuite) TestCatalogArtistsAreNotCandidat
 	s.Len(got, 1)
 }
 
+func (s *RadioArtistCandidatesIntegrationSuite) TestSharedMBIDSendsEveryKeyToHumanLane() {
+	s.addAcross(candidatePlay{artist: "T Spelling", mb: radioCandidateTestMBA}, 2)
+	s.addAcross(candidatePlay{artist: "The T Spelling", mb: radioCandidateTestMBA}, 2)
+	s.addAcross(candidatePlay{artist: "T Alone", mb: radioCandidateTestMBB}, 2)
+
+	got := s.all()
+	s.Equal(contracts.RadioCandidateLaneHuman, got["t spelling"].Lane)
+	s.Equal([]string{"the t spelling"}, got["t spelling"].SharedMBArtistKeys)
+	s.Equal(contracts.RadioCandidateLaneHuman, got["the t spelling"].Lane)
+	s.Equal([]string{"t spelling"}, got["the t spelling"].SharedMBArtistKeys)
+	s.Equal(contracts.RadioCandidateLaneAuto, got["t alone"].Lane)
+	s.Empty(got["t alone"].SharedMBArtistKeys)
+}
+
+func (s *RadioArtistCandidatesIntegrationSuite) TestCollabWithACatalogPartIsNotACandidate() {
+	s.createArtist("T Known", nil)
+	aliased := s.createArtist("T Aliased Act", nil)
+	s.Require().NoError(s.db.Create(&catalogm.ArtistAlias{ArtistID: aliased, Alias: "T Nickname"}).Error)
+	s.addAcross(candidatePlay{artist: "T Known & T Other", mb: radioCandidateTestMBA}, 2)
+	s.addAcross(candidatePlay{artist: "T Stranger and T Nickname"}, 2)
+	// No part is in the catalog: still a candidate.
+	s.addAcross(candidatePlay{artist: "T Nobody & T Neither"}, 2)
+	// Comma and ampersand together is one billed act, never split.
+	s.createArtist("T Earth", nil)
+	s.addAcross(candidatePlay{artist: "T Earth, T Wind & T Fire"}, 2)
+
+	got := s.all()
+	s.NotContains(got, "t known & t other")
+	s.NotContains(got, "t stranger and t nickname")
+	s.Contains(got, "t nobody & t neither")
+	s.Contains(got, "t earth, t wind & t fire")
+}
+
+func (s *RadioArtistCandidatesIntegrationSuite) TestLinkedBeforeTheWindowIsNotACandidate() {
+	known := s.createArtist("T Stereolab", nil)
+	s.add(candidatePlay{station: "t-kexp", artist: "T Sterolab", date: "2025-06-01", artistID: &known}, 1)
+	s.addAcross(candidatePlay{artist: "T Sterolab"}, 2)
+
+	s.NotContains(s.all(), "t sterolab")
+}
+
+func (s *RadioArtistCandidatesIntegrationSuite) TestNonLatinSpellings() {
+	// Both key on the fragment "1" and merge; the flag keeps them human.
+	s.addAcross(candidatePlay{artist: "Кино 1", mb: radioCandidateTestMBA}, 2)
+	s.add(candidatePlay{station: "t-kexp", artist: "Аквариум 1", mb: radioCandidateTestMBA}, 1)
+	// A bilingual credit keys on its Latin part and is still flagged.
+	s.add(candidatePlay{station: "t-kexp", artist: "T Faye (王菲)", mb: radioCandidateTestMBB}, 2)
+	s.add(candidatePlay{station: "t-wfmu", artist: "T Faye", mb: radioCandidateTestMBB}, 2)
+	// A name written only in a non-Latin script has no key.
+	s.addAcross(candidatePlay{artist: "ゆらゆら帝国"}, 2)
+	// Latin with diacritics is not a non-Latin script.
+	s.addAcross(candidatePlay{artist: "T Björk Sigur Rós", mb: radioCandidateTestMBC}, 2)
+
+	listing := s.list(contracts.RadioCandidateLaneFilterAll, contracts.RadioArtistCandidateSortScore, 50)
+	s.Equal(int64(4), listing.UnkeyablePlays)
+	got := map[string]contracts.RadioArtistCandidate{}
+	for _, c := range listing.Candidates {
+		got[c.ArtistKey] = c
+	}
+	s.Require().Len(got, 3)
+
+	one := got["1"]
+	s.True(one.NonLatinSpelling)
+	s.Equal(contracts.RadioCandidateLaneHuman, one.Lane, "one MB id, but the key may be a fragment")
+	s.Equal(2, one.ArtistSpellingCount)
+	s.Equal([]contracts.RadioCandidateName{{Name: "Кино 1", PlayCount: 4}, {Name: "Аквариум 1", PlayCount: 1}}, one.ArtistSpellings)
+
+	faye := got["t faye"]
+	s.True(faye.NonLatinSpelling)
+	s.Equal(contracts.RadioCandidateLaneHuman, faye.Lane)
+	s.Equal(4, faye.PlayCount)
+
+	bjork := got["t bjork sigur ros"]
+	s.False(bjork.NonLatinSpelling)
+	s.Equal(contracts.RadioCandidateLaneAuto, bjork.Lane)
+	s.Equal("T Björk Sigur Rós", bjork.DisplayName)
+}
+
 func (s *RadioArtistCandidatesIntegrationSuite) TestEvidence() {
 	add := func(station, show, artist, title, album, label string, n int) {
 		s.add(candidatePlay{station: station, show: show, artist: artist, title: title, album: album, label: label}, n)
@@ -348,6 +427,9 @@ func (s *RadioArtistCandidatesIntegrationSuite) TestEvidence() {
 	s.Require().Contains(got, "t evidence")
 	c := got["t evidence"]
 	s.Equal("T Evidence", c.DisplayName)
+	s.Equal(2, c.ArtistSpellingCount)
+	s.Equal([]contracts.RadioCandidateName{{Name: "T Evidence", PlayCount: 10}, {Name: "T EVIDENCE", PlayCount: 1}}, c.ArtistSpellings)
+	s.False(c.NonLatinSpelling)
 	s.Equal(11, c.PlayCount, "placeholder and blank titles still count for the artist")
 	s.Equal(3, c.StationRowCount)
 	s.Equal(2, c.StationFamilyCount)

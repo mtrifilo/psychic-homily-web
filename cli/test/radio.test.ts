@@ -11,6 +11,8 @@ function candidate(overrides: Partial<ArtistCandidate>): ArtistCandidate {
   return {
     artist_key: "telehealth",
     display_name: "Telehealth",
+    artist_spellings: [{ name: "Telehealth", play_count: 131 }],
+    artist_spelling_count: 1,
     lane: "human",
     score: 87.7512,
     play_count: 131,
@@ -30,6 +32,8 @@ function candidate(overrides: Partial<ArtistCandidate>): ArtistCandidate {
     label_name_count: 0,
     mb_artist_ids: [],
     mb_artist_id_conflict: false,
+    shared_mb_artist_keys: [],
+    non_latin_spelling: false,
     ...overrides,
   };
 }
@@ -44,17 +48,19 @@ const listing = (candidates: ArtistCandidate[]): ArtistCandidateListing => ({
   window_days: 180,
   min_station_rows: 2,
   min_plays: 3,
+  unkeyable_plays: 369,
 });
 
 describe("formatArtistCandidateReport", () => {
   test("prints the window, floors and totals, then one block per candidate", () => {
     const lines = formatArtistCandidateReport(listing([candidate({})]));
-    expect(lines.slice(0, 3)).toEqual([
+    expect(lines.slice(0, 4)).toEqual([
       "Artist candidates as of 2026-10-14: plays aired 2026-04-18 or later (180 days); floors 2 station rows and 3 plays.",
       "6465 in the requested lanes (2961 auto, 3504 human overall); showing 1.",
+      "369 plays counted toward no candidate (the name normalizes to empty).",
       "Top tracks reflect the radio_tracks rebuild of (none recorded).",
     ]);
-    expect(lines.slice(3)).toEqual([
+    expect(lines.slice(4)).toEqual([
       "",
       "  1. [human] Telehealth  score 87.75  plays 131  rows 5  families 2  shows 26  last 2026-07-23",
       "       stations: kexp 100, wfmu 31",
@@ -93,7 +99,47 @@ describe("formatArtistCandidateReport", () => {
   });
 
   test("an empty ranking prints only the header", () => {
-    expect(formatArtistCandidateReport(listing([]))).toHaveLength(3);
+    expect(formatArtistCandidateReport(listing([]))).toHaveLength(4);
+  });
+
+  test("shows the spellings and the non-Latin note when they apply", () => {
+    const lines = formatArtistCandidateReport(
+      listing([
+        candidate({
+          display_name: "Faye Wong",
+          artist_spellings: [
+            { name: "Faye Wong", play_count: 10 },
+            { name: "Faye Wong (王菲)", play_count: 5 },
+          ],
+          artist_spelling_count: 3,
+          non_latin_spelling: true,
+        }),
+      ]),
+    );
+    expect(lines).toContain("       spellings: Faye Wong (10); Faye Wong (王菲) (5); 3 distinct");
+    expect(lines).toContain("       note:     a spelling carries a non-Latin script; the key is its Latin part only");
+  });
+
+  test("names the keys that share its MusicBrainz id", () => {
+    const lines = formatArtistCandidateReport(
+      listing([candidate({ shared_mb_artist_keys: ["telehealth band", "the telehealth"] })]),
+    );
+    expect(lines).toContain("       shares its MusicBrainz id with: telehealth band, the telehealth");
+  });
+
+  test("control characters from playlist text print as replacement characters", () => {
+    const lines = formatArtistCandidateReport(
+      listing([
+        candidate({
+          display_name: "Tele\u001b[2K\u001b[1Ahealth",
+          album_names: [{ name: "Album\u001b]52;c;ZXZpbA==" + "\u0007", play_count: 1 }],
+        }),
+      ]),
+    );
+    const text = lines.join(" | ");
+    expect(text).not.toMatch(/[\u0000-\u001f\u007f-\u009f]/);
+    expect(text).toContain("Tele\uFFFD[2K\uFFFD[1Ahealth");
+    expect(text).toContain("Album\uFFFD]52;c;ZXZpbA==\uFFFD (1)");
   });
 });
 

@@ -31,19 +31,22 @@ func TestRadioArtistCandidateScore(t *testing.T) {
 }
 
 func TestRadioCandidateLaneFor(t *testing.T) {
+	auto, human := contracts.RadioCandidateLaneAuto, contracts.RadioCandidateLaneHuman
 	cases := []struct {
-		stationRows, mbIDs int
-		want               contracts.RadioCandidateLane
+		facts RadioCandidateLaneFacts
+		want  contracts.RadioCandidateLane
 	}{
-		{2, 1, contracts.RadioCandidateLaneAuto},
-		{5, 1, contracts.RadioCandidateLaneAuto},
-		{2, 0, contracts.RadioCandidateLaneHuman},
-		{2, 2, contracts.RadioCandidateLaneHuman},
-		{1, 1, contracts.RadioCandidateLaneHuman},
+		{RadioCandidateLaneFacts{StationRows: 2, DistinctMBIDs: 1}, auto},
+		{RadioCandidateLaneFacts{StationRows: 5, DistinctMBIDs: 1}, auto},
+		{RadioCandidateLaneFacts{StationRows: 2, DistinctMBIDs: 1, MBIDShared: true}, human},
+		{RadioCandidateLaneFacts{StationRows: 2, DistinctMBIDs: 1, NonLatinSpelling: true}, human},
+		{RadioCandidateLaneFacts{StationRows: 2, DistinctMBIDs: 0}, human},
+		{RadioCandidateLaneFacts{StationRows: 2, DistinctMBIDs: 2}, human},
+		{RadioCandidateLaneFacts{StationRows: 1, DistinctMBIDs: 1}, human},
 	}
 	for _, c := range cases {
-		if got := RadioCandidateLaneFor(c.stationRows, c.mbIDs); got != c.want {
-			t.Errorf("lane(rows=%d, ids=%d) = %q, want %q", c.stationRows, c.mbIDs, got, c.want)
+		if got := RadioCandidateLaneFor(c.facts); got != c.want {
+			t.Errorf("lane(%+v) = %q, want %q", c.facts, got, c.want)
 		}
 	}
 }
@@ -54,7 +57,7 @@ func candidateFixtureRow(key string, rows, plays, shows int, last string, mbIDs 
 		panic(err)
 	}
 	return radioArtistCandidateRow{
-		ArtistKey: key, PlayCount: plays, StationRowCount: rows, StationFamilyCount: 1, ShowCount: shows,
+		ArtistKey: &key, PlayCount: plays, StationRowCount: rows, StationFamilyCount: 1, ShowCount: shows,
 		FirstAiredOn: day.AddDate(0, 0, -30), LastAiredOn: day, MBArtistIDs: pq.StringArray(mbIDs),
 	}
 }
@@ -115,8 +118,47 @@ func TestRankRadioArtistCandidates(t *testing.T) {
 				t.Errorf("%s: got lane %q ids %v, want human and an empty id list", c.ArtistKey, c.Lane, c.MBArtistIDs)
 			}
 		}
+		if c.SharedMBArtistKeys == nil || len(c.SharedMBArtistKeys) != 0 {
+			t.Errorf("%s: shared keys = %v, want an empty list", c.ArtistKey, c.SharedMBArtistKeys)
+		}
 		if c.Stations == nil || c.TopTracks == nil || c.AlbumNames == nil || c.LabelNames == nil {
 			t.Errorf("%s: evidence lists must be empty arrays, not nil", c.ArtistKey)
 		}
+	}
+}
+
+func TestRankRadioArtistCandidates_SharedMBIDGoesToHumanLane(t *testing.T) {
+	const shared = "11111111-1111-4111-8111-111111111111"
+	const own = "22222222-2222-4222-8222-222222222222"
+	rows := []radioArtistCandidateRow{
+		candidateFixtureRow("beatles", 3, 10, 4, "2026-07-01", shared),
+		candidateFixtureRow("the beatles", 3, 10, 4, "2026-07-01", shared),
+		// Conflicting ids, one of them shared.
+		candidateFixtureRow("beatles the", 2, 5, 2, "2026-07-01", shared, own),
+		candidateFixtureRow("other", 2, 5, 2, "2026-07-01", own+"x"),
+	}
+	byKey := map[string]contracts.RadioArtistCandidate{}
+	for _, c := range rankRadioArtistCandidates(rows, contracts.RadioArtistCandidateSortScore) {
+		byKey[c.ArtistKey] = c
+	}
+	want := map[string][]string{
+		"beatles":     {"beatles the", "the beatles"},
+		"the beatles": {"beatles", "beatles the"},
+		"beatles the": {"beatles", "the beatles"},
+		"other":       {},
+	}
+	for key, siblings := range want {
+		c := byKey[key]
+		if !slices.Equal(c.SharedMBArtistKeys, siblings) {
+			t.Errorf("%s: shared keys = %v, want %v", key, c.SharedMBArtistKeys, siblings)
+		}
+	}
+	for _, key := range []string{"beatles", "the beatles", "beatles the"} {
+		if byKey[key].Lane != contracts.RadioCandidateLaneHuman {
+			t.Errorf("%s: lane = %q, want human", key, byKey[key].Lane)
+		}
+	}
+	if byKey["other"].Lane != contracts.RadioCandidateLaneAuto {
+		t.Errorf("other: lane = %q, want auto", byKey["other"].Lane)
 	}
 }

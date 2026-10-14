@@ -7,8 +7,9 @@ type RadioCandidateLane string
 
 const (
 	// RadioCandidateLaneAuto marks a candidate eligible for automatic
-	// creation: its plays carry exactly one MusicBrainz id and it clears the
-	// station floor.
+	// creation: its plays carry exactly one MusicBrainz id, no other
+	// candidate's plays carry it, none of its spellings carries a non-Latin
+	// script, and it clears the station floor.
 	RadioCandidateLaneAuto RadioCandidateLane = "auto"
 	// RadioCandidateLaneHuman marks a candidate that a person verifies before
 	// anything is created.
@@ -84,40 +85,43 @@ type RadioCandidateName struct {
 // adding it to the catalog. Every count covers the candidate's counted plays:
 // plays in the window, not excluded for the artist ranking, not ambiguous.
 type RadioArtistCandidate struct {
-	ArtistKey          string                  `json:"artist_key" doc:"radio_normalize_name of the artist name; the candidate's identity"`
-	DisplayName        string                  `json:"display_name" doc:"Most common raw artist spelling among the counted plays"`
-	Lane               RadioCandidateLane      `json:"lane" enum:"auto,human"`
-	Score              float64                 `json:"score" doc:"station rows x ln(plays) x (1 + shows / 10)"`
-	PlayCount          int                     `json:"play_count"`
-	StationRowCount    int                     `json:"station_row_count" doc:"Distinct radio_stations rows (each WFMU stream counts)"`
-	StationFamilyCount int                     `json:"station_family_count" doc:"Distinct broadcasters (a network counts once)"`
-	ShowCount          int                     `json:"show_count"`
-	FirstAiredOn       string                  `json:"first_aired_on" doc:"Earliest counted play's episode air date (YYYY-MM-DD)"`
-	LastAiredOn        string                  `json:"last_aired_on" doc:"Latest counted play's episode air date (YYYY-MM-DD)"`
-	Stations           []RadioCandidateStation `json:"stations" doc:"Station rows by play count, descending"`
-	TopTracks          []RadioCandidateTrack   `json:"top_tracks" doc:"Up to three tracks by play count, over the plays that also count toward the track ranking and whose key radio_track_keys maps"`
-	AlbumNames         []RadioCandidateName    `json:"album_names" doc:"Up to five album names by play count"`
-	AlbumNameCount     int                     `json:"album_name_count" doc:"Distinct normalized album names"`
-	LabelNames         []RadioCandidateName    `json:"label_names" doc:"Up to five label names by play count, over the plays that also count toward the label ranking"`
-	LabelNameCount     int                     `json:"label_name_count" doc:"Distinct normalized label names"`
-	MBArtistID         *string                 `json:"mb_artist_id,omitempty" doc:"Set when the counted plays carry exactly one MusicBrainz artist id"`
-	MBArtistIDs        []string                `json:"mb_artist_ids" doc:"Every distinct MusicBrainz artist id the counted plays carry, sorted"`
-	MBArtistIDConflict bool                    `json:"mb_artist_id_conflict" doc:"True when the counted plays carry more than one MusicBrainz artist id"`
+	ArtistKey           string                  `json:"artist_key" doc:"radio_normalize_name of the artist name; the candidate's identity"`
+	DisplayName         string                  `json:"display_name" doc:"Most common raw artist spelling among the counted plays"`
+	ArtistSpellings     []RadioCandidateName    `json:"artist_spellings" doc:"Up to five raw artist spellings by play count; the first is display_name"`
+	ArtistSpellingCount int                     `json:"artist_spelling_count" doc:"Distinct raw artist spellings"`
+	Lane                RadioCandidateLane      `json:"lane" enum:"auto,human"`
+	Score               float64                 `json:"score" doc:"station rows x ln(plays) x (1 + shows / 10)"`
+	PlayCount           int                     `json:"play_count"`
+	StationRowCount     int                     `json:"station_row_count" doc:"Distinct radio_stations rows (each WFMU stream counts)"`
+	StationFamilyCount  int                     `json:"station_family_count" doc:"Distinct broadcasters (a network counts once)"`
+	ShowCount           int                     `json:"show_count"`
+	FirstAiredOn        string                  `json:"first_aired_on" doc:"Earliest counted play's episode air date (YYYY-MM-DD)"`
+	LastAiredOn         string                  `json:"last_aired_on" doc:"Latest counted play's episode air date (YYYY-MM-DD)"`
+	Stations            []RadioCandidateStation `json:"stations" doc:"Station rows by play count, descending"`
+	TopTracks           []RadioCandidateTrack   `json:"top_tracks" doc:"Up to three tracks by play count, over the plays that also count toward the track ranking and whose key radio_track_keys maps"`
+	AlbumNames          []RadioCandidateName    `json:"album_names" doc:"Up to five album names by play count"`
+	AlbumNameCount      int                     `json:"album_name_count" doc:"Distinct normalized album names"`
+	LabelNames          []RadioCandidateName    `json:"label_names" doc:"Up to five label names by play count, over the plays that also count toward the label ranking"`
+	LabelNameCount      int                     `json:"label_name_count" doc:"Distinct normalized label names"`
+	MBArtistID          *string                 `json:"mb_artist_id,omitempty" doc:"Set when the counted plays carry exactly one MusicBrainz artist id"`
+	MBArtistIDs         []string                `json:"mb_artist_ids" doc:"Every distinct MusicBrainz artist id the counted plays carry, sorted"`
+	MBArtistIDConflict  bool                    `json:"mb_artist_id_conflict" doc:"True when the counted plays carry more than one MusicBrainz artist id"`
+	NonLatinSpelling    bool                    `json:"non_latin_spelling" doc:"True when a counted play's artist name carries a non-Latin script; the key is then the name's Latin part only, and the candidate is in the human lane"`
+	SharedMBArtistKeys  []string                `json:"shared_mb_artist_keys" doc:"Other candidates' artist keys whose plays carry one of this candidate's MusicBrainz artist ids, sorted; a candidate that has any is in the human lane"`
 }
 
 // RadioArtistCandidateListing is one snapshot of the artist candidate ranking.
 type RadioArtistCandidateListing struct {
-	Candidates []RadioArtistCandidate `json:"candidates"`
-	// Total counts the candidates in the requested lanes; AutoTotal and
-	// HumanTotal count each lane whatever the filter.
-	Total          int    `json:"total" doc:"Candidates in the requested lanes"`
-	AutoTotal      int    `json:"auto_total"`
-	HumanTotal     int    `json:"human_total"`
-	AsOf           string `json:"as_of" doc:"The UTC date the window ends on (YYYY-MM-DD)"`
-	WindowStart    string `json:"window_start" doc:"The earliest episode air date counted (YYYY-MM-DD)"`
-	WindowDays     int    `json:"window_days"`
-	MinStationRows int    `json:"min_station_rows"`
-	MinPlays       int    `json:"min_plays"`
+	Candidates     []RadioArtistCandidate `json:"candidates"`
+	Total          int                    `json:"total" doc:"Candidates in the requested lanes"`
+	AutoTotal      int                    `json:"auto_total" doc:"Candidates in the auto lane, whatever the lane filter"`
+	HumanTotal     int                    `json:"human_total" doc:"Candidates in the human lane, whatever the lane filter"`
+	UnkeyablePlays int64                  `json:"unkeyable_plays" doc:"Plays in the window, not excluded, whose artist name normalizes to empty (for example a name written only in a non-Latin script), and so count toward no candidate"`
+	AsOf           string                 `json:"as_of" doc:"The UTC date the window ends on (YYYY-MM-DD)"`
+	WindowStart    string                 `json:"window_start" doc:"The earliest episode air date counted (YYYY-MM-DD)"`
+	WindowDays     int                    `json:"window_days"`
+	MinStationRows int                    `json:"min_station_rows"`
+	MinPlays       int                    `json:"min_plays"`
 	// TracksRebuiltAt is nil until the radio_tracks rebuild loop has succeeded
 	// once; top_tracks reflect that rebuild.
 	TracksRebuiltAt *time.Time `json:"tracks_rebuilt_at,omitempty" doc:"When the radio_tracks rebuild loop last completed successfully"`

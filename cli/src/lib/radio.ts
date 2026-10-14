@@ -225,6 +225,8 @@ export interface CandidateCount {
 export interface ArtistCandidate {
   artist_key: string;
   display_name: string;
+  artist_spellings: CandidateCount[];
+  artist_spelling_count: number;
   lane: CandidateLane;
   score: number;
   play_count: number;
@@ -242,6 +244,8 @@ export interface ArtistCandidate {
   mb_artist_id?: string;
   mb_artist_ids: string[];
   mb_artist_id_conflict: boolean;
+  shared_mb_artist_keys: string[];
+  non_latin_spelling: boolean;
 }
 
 export interface ArtistCandidateListing {
@@ -254,6 +258,7 @@ export interface ArtistCandidateListing {
   window_days: number;
   min_station_rows: number;
   min_plays: number;
+  unkeyable_plays: number;
   tracks_rebuilt_at?: string;
 }
 
@@ -272,6 +277,15 @@ export async function listArtistCandidates(
   });
 }
 
+/**
+ * Replace C0 and C1 control characters and DEL with U+FFFD. Radio play text
+ * comes from station playlists, so an escape sequence in it must print as
+ * text, not drive the terminal.
+ */
+export function printable(text: string): string {
+  return text.replace(/[\u0000-\u001f\u007f-\u009f]/g, "\uFFFD");
+}
+
 function countList(items: CandidateCount[], distinct?: number): string {
   if (items.length === 0) return "none";
   const shown = items.map((i) => `${i.name} (${i.play_count})`).join("; ");
@@ -280,7 +294,8 @@ function countList(items: CandidateCount[], distinct?: number): string {
 
 /**
  * Render the ranking as plain text, one block per candidate with its lane and
- * evidence. Pure, so the report can be tested without a server.
+ * evidence. Every line passes through printable. Pure, so the report can be
+ * tested without a server.
  */
 export function formatArtistCandidateReport(listing: ArtistCandidateListing): string[] {
   const lines: string[] = [
@@ -288,6 +303,7 @@ export function formatArtistCandidateReport(listing: ArtistCandidateListing): st
       `(${listing.window_days} days); floors ${listing.min_station_rows} station rows and ${listing.min_plays} plays.`,
     `${listing.total} in the requested lanes (${listing.auto_total} auto, ${listing.human_total} human overall); ` +
       `showing ${listing.candidates.length}.`,
+    `${listing.unkeyable_plays} plays counted toward no candidate (the name normalizes to empty).`,
     `Top tracks reflect the radio_tracks rebuild of ${listing.tracks_rebuilt_at ?? "(none recorded)"}.`,
   ];
   listing.candidates.forEach((c, i) => {
@@ -297,6 +313,12 @@ export function formatArtistCandidateReport(listing: ArtistCandidateListing): st
         `score ${c.score.toFixed(2)}  plays ${c.play_count}  rows ${c.station_row_count}  ` +
         `families ${c.station_family_count}  shows ${c.show_count}  last ${c.last_aired_on}`,
     );
+    if (c.artist_spelling_count > 1) {
+      lines.push(`       spellings: ${countList(c.artist_spellings, c.artist_spelling_count)}`);
+    }
+    if (c.non_latin_spelling) {
+      lines.push("       note:     a spelling carries a non-Latin script; the key is its Latin part only");
+    }
     lines.push(`       stations: ${c.stations.map((s) => `${s.slug} ${s.play_count}`).join(", ") || "none"}`);
     lines.push(
       `       tracks:   ${countList(c.top_tracks.map((t) => ({ name: t.title, play_count: t.play_count })))}`,
@@ -308,6 +330,9 @@ export function formatArtistCandidateReport(listing: ArtistCandidateListing): st
     } else if (c.mb_artist_id) {
       lines.push(`       mbid:     ${c.mb_artist_id}`);
     }
+    if (c.shared_mb_artist_keys.length > 0) {
+      lines.push(`       shares its MusicBrainz id with: ${c.shared_mb_artist_keys.join(", ")}`);
+    }
   });
-  return lines;
+  return lines.map(printable);
 }
