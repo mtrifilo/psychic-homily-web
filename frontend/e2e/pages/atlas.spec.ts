@@ -3,6 +3,7 @@ import { expect, type Page } from '@playwright/test'
 import {
   ATLAS_TEST_TIMEOUT_MS,
   type AtlasMapSeam,
+  atlasPaneWidth,
   dismissBanner,
   jumpToPhoenix,
   phoenixDotPoint,
@@ -123,8 +124,8 @@ test.describe('Atlas city entry', () => {
 })
 
 /**
- * The light globe's boundary lines and place labels on a compact viewport
- * (narrower than `lg`), on an 800px tablet pane.
+ * The light globe's boundary lines and place labels on a phone pane
+ * (narrower than 900px): an 800px tablet.
  */
 test.describe('Atlas light globe outlines and place labels', () => {
   test.use({ viewport: { width: 800, height: 1000 } })
@@ -242,12 +243,10 @@ test.describe('Atlas light globe outlines and place labels', () => {
  * viewport whose side nav leaves the pane under 900px is the phone Atlas.
  */
 test.describe('Atlas phone or desktop by pane width', () => {
-  type LookSeam = { getLayoutProperty: (layer: string, name: string) => unknown }
-
   /** Which globe look the live map shows, read off its two surfaces. */
   function globeLook(page: Page) {
     return page.evaluate(() => {
-      const m = (window as unknown as { __atlasMap: LookSeam }).__atlasMap
+      const m = (window as unknown as { __atlasMap: AtlasMapSeam }).__atlasMap
       const raster = m.getLayoutProperty('earth', 'visibility')
       const land = m.getLayoutProperty('globe-land', 'visibility')
       if (raster === 'visible' && land === 'none') return 'full'
@@ -255,9 +254,6 @@ test.describe('Atlas phone or desktop by pane width', () => {
       return `mixed: earth ${String(raster)}, globe-land ${String(land)}`
     })
   }
-
-  const paneWidth = (page: Page) =>
-    page.getByTestId('atlas-pane-frame').evaluate((el) => el.getBoundingClientRect().width)
 
   async function expectDesktopAtlas(page: Page) {
     expect(await globeLook(page)).toBe('full')
@@ -276,7 +272,7 @@ test.describe('Atlas phone or desktop by pane width', () => {
         await stubAtlas(page)
         await page.goto('/atlas')
         await waitForMap(page)
-        expect(await paneWidth(page)).toBe(width)
+        expect(await atlasPaneWidth(page)).toBe(width)
         await expectDesktopAtlas(page)
       })
     })
@@ -293,7 +289,7 @@ test.describe('Atlas phone or desktop by pane width', () => {
       await stubAtlas(page)
       await page.goto('/atlas')
       await waitForMap(page)
-      expect(await paneWidth(page)).toBeLessThan(900)
+      expect(await atlasPaneWidth(page)).toBeLessThan(900)
       expect(await globeLook(page)).toBe('light')
       await expect(page.getByRole('button', { name: 'Genres' })).toHaveAttribute('aria-expanded', 'false')
       await jumpToPhoenix(page, 12.5)

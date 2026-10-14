@@ -529,7 +529,7 @@ export function AtlasGlobe() {
   const mapPaneRef = useRef<HTMLDivElement | null>(null)
   // The search list opens below a drawn top-left credit (the sheet layout's
   // placement), and directly under its trigger while there is none to clear:
-  // at globe zoom the compact globe draws no attributed source, so MapLibre
+  // at globe zoom the light globe draws no attributed source, so MapLibre
   // empties the credit, and a map that has not mounted its controls draws
   // none. The line gives way to a raised keyboard inside AtlasSearch.
   // MyScenesStrip keeps a fixed place below the credit's slot instead: it is
