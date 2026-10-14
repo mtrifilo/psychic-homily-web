@@ -4,8 +4,10 @@ import * as display from "../lib/display";
 import {
   formatArtistCandidateReport,
   formatLabelCandidateReport,
+  formatTrackCandidateReport,
   listArtistCandidates,
   listLabelCandidates,
+  listTrackCandidates,
   printableJSON,
   rematchRadioPlaysChunked,
 } from "../lib/radio";
@@ -149,6 +151,33 @@ export async function runRadioLabelCandidates(
     return;
   }
   for (const line of formatLabelCandidateReport(listing)) {
+    process.stdout.write(`${line}\n`);
+  }
+  display.info("Report only: nothing was created.");
+}
+
+export interface RadioTrackCandidatesCliOptions extends RadioArtistCandidatesCliOptions {
+  view?: string;
+}
+
+/** CLI entry for `ph radio candidates tracks`. Read-only: it creates nothing. */
+export async function runRadioTrackCandidates(
+  env: EnvironmentConfig,
+  opts: RadioTrackCandidatesCliOptions,
+): Promise<void> {
+  // The server owns the defaults, the allowed values, the limit range and the
+  // required view, and answers 422 for anything outside them.
+  const listing = await listTrackCandidates(new APIClient(env), {
+    view: opts.view,
+    lane: opts.lane,
+    sort: opts.sort,
+    limit: opts.limit,
+  });
+  if (opts.json) {
+    process.stdout.write(`${printableJSON(listing)}\n`);
+    return;
+  }
+  for (const line of formatTrackCandidateReport(listing)) {
     process.stdout.write(`${line}\n`);
   }
   display.info("Report only: nothing was created.");
