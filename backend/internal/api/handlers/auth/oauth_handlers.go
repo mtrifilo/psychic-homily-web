@@ -10,7 +10,6 @@ import (
 	"net/url"
 	"slices"
 	"strconv"
-	"sync"
 	"time"
 
 	"psychic-homily-backend/internal/config"
@@ -97,55 +96,6 @@ func authPageErrorQuery(err error, message string) url.Values {
 		query.Set(authPageErrorCodeParam, code)
 	}
 	return query
-}
-
-// cliCallbackStore stores CLI callback URLs temporarily during OAuth flow
-// Key is a unique identifier stored in a cookie, value is the callback URL
-var cliCallbackStore = struct {
-	sync.RWMutex
-	callbacks map[string]cliCallbackEntry
-}{
-	callbacks: make(map[string]cliCallbackEntry),
-}
-
-type cliCallbackEntry struct {
-	callbackURL string
-	expiresAt   time.Time
-}
-
-func storeCLICallback(id, callbackURL string) {
-	cliCallbackStore.Lock()
-	defer cliCallbackStore.Unlock()
-
-	// Clean up expired entries
-	now := time.Now()
-	for k, v := range cliCallbackStore.callbacks {
-		if now.After(v.expiresAt) {
-			delete(cliCallbackStore.callbacks, k)
-		}
-	}
-
-	cliCallbackStore.callbacks[id] = cliCallbackEntry{
-		callbackURL: callbackURL,
-		expiresAt:   now.Add(5 * time.Minute),
-	}
-}
-
-func getCLICallback(id string) (string, bool) {
-	cliCallbackStore.RLock()
-	defer cliCallbackStore.RUnlock()
-
-	entry, ok := cliCallbackStore.callbacks[id]
-	if !ok || time.Now().After(entry.expiresAt) {
-		return "", false
-	}
-	return entry.callbackURL, true
-}
-
-func deleteCLICallback(id string) {
-	cliCallbackStore.Lock()
-	defer cliCallbackStore.Unlock()
-	delete(cliCallbackStore.callbacks, id)
 }
 
 // requestCookieNames returns the names of the request's cookies. Cookie values
@@ -287,14 +237,19 @@ func (h *OAuthHTTPHandler) OAuthLoginHTTPHandler(w http.ResponseWriter, r *http.
 			http.Error(w, "Failed to start authentication", http.StatusInternalServerError)
 			return
 		}
-		storeCLICallback(callbackID, cliCallback)
+		if evicted := storeCLICallback(callbackID, cliCallback); evicted > 0 {
+			logger.AuthWarn(ctx, "oauth_cli_callback_store_evicting",
+				"evicted", evicted,
+				"capacity", cliCallbackCapacity,
+			)
+		}
 
 		// Store only the ID in a cookie (not the full URL)
 		http.SetCookie(w, &http.Cookie{
 			Name:     "cli_callback_id",
 			Value:    callbackID,
 			Path:     "/",
-			MaxAge:   300, // 5 minutes
+			MaxAge:   int(cliCallbackTTL / time.Second),
 			HttpOnly: true,
 			SameSite: http.SameSiteLaxMode,
 		})
