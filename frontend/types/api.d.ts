@@ -15011,10 +15011,10 @@ export interface components {
         RadioLabelCandidate: {
             /**
              * Format: int64
-             * @description Distinct normalized artist names
+             * @description Distinct normalized artist names, over the same plays as artists
              */
             artist_count: number;
-            /** @description Up to five artists by play count; names that normalize alike are one entry, shown in their most common trimmed spelling */
+            /** @description Up to five artists by play count, over the plays that also count toward the artist ranking (placeholder artists such as Various Artists are skipped); names that normalize alike are one entry, shown in their most common trimmed spelling */
             artists: components["schemas"]["RadioLabelCandidateArtist"][] | null;
             /** @description Most common trimmed label spelling among the counted plays */
             display_name: string;
@@ -21459,7 +21459,7 @@ export interface operations {
             query?: {
                 /** @description Candidates to return (default 50) */
                 limit?: number;
-                /** @description Return the auto lane, the human lane, or both (all, default). The auto lane needs a MusicBrainz label id on a candidate's plays, under the same rule as the artist ranking; plays carry no MusicBrainz label id today, so the auto lane is empty. */
+                /** @description Return the auto lane, the human lane, or both (all, default). Plays carry no MusicBrainz label id today, so every label candidate is in the human lane and the auto lane is empty. */
                 lane?: "auto" | "human" | "all";
                 /** @description Rank by score (default), plays in the window, distinct station rows, or velocity, descending; ties by score, then the most recent play, then label key. */
                 sort?: "score" | "plays" | "stations" | "velocity";

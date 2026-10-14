@@ -19,7 +19,8 @@ import (
 // A label candidate is a label key, radio_normalize_name of the raw label
 // name, ranked from its counted plays. A counted play's episode air date lies
 // in the window (RadioCandidateWindowDays days ending on the current UTC
-// date, both ends included, so an episode dated later is not counted), it is
+// date, both ends included, so an episode dated later is not counted; the
+// artist ranking's window over the same constant has no upper bound), it is
 // not excluded for the label ranking (RadioPlayExcludedSQL), and its label
 // name normalizes to a non-empty key. The match state does not matter: it
 // describes the artist match.

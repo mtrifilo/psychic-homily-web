@@ -122,6 +122,13 @@ describe("formatLabelCandidateReport", () => {
         candidate({
           display_name: `p(doom)${bad} Records`,
           label_key: `p(doom)${bad}`,
+          label_spellings: [
+            { name: `p(doom)${bad} Records`, play_count: 29 },
+            { name: `P(DOOM)${bad}`, play_count: 2 },
+          ],
+          label_spelling_count: 2,
+          mb_release_ids: [`1111${bad}`],
+          mb_release_id_count: 1,
           artists: [{ name: `GUM${bad}`, play_count: 6, artist_ids: [] }],
           release_names: [{ name: `Island${bad}`, play_count: 1 }],
           stations: [{ station_id: 7, slug: `kexp${bad}`, name: `KEXP${bad}`, play_count: 30 }],

@@ -266,9 +266,31 @@ func (s *RadioLabelCandidatesIntegrationSuite) TestFutureEpisodesAreNotCounted()
 	// A label seen only on future episodes has no counted plays.
 	s.addAcross(labelPlay{label: "T Future Only", date: "2026-08-01"}, 3)
 
+	// Plays on as_of itself count toward the window and the recent window.
+	s.addAcross(labelPlay{label: "T Today Label", date: "2026-07-31"}, 2)
+
 	got := s.all()
 	s.NotContains(got, "t flat label", "future plays do not make a flat label rise")
 	s.NotContains(got, "t future only")
+	s.Require().Contains(got, "t today label")
+	s.Equal(4, got["t today label"].PlayCount)
+	s.Equal(4, got["t today label"].RecentPlayCount)
+	s.Equal("2026-07-31", got["t today label"].LastAiredOn)
+}
+
+func (s *RadioLabelCandidatesIntegrationSuite) TestEvidenceCoversOnlyTheWindow() {
+	s.addAcross(labelPlay{label: "T Windowed", artist: "T Inside", album: "Inside Album"}, 2)
+	// Same label before the window and after as_of: never evidence.
+	s.add(labelPlay{station: "t-rocknsoul", label: "T WINDOWED", artist: "T Before", album: "Before Album", date: radioCandidateTestBeforeStart}, 3)
+	s.add(labelPlay{station: "t-rocknsoul", label: "T WINDOWED", artist: "T After", album: "After Album", date: "2026-08-02"}, 3)
+
+	got := s.all()
+	s.Require().Contains(got, "t windowed")
+	c := got["t windowed"]
+	s.Equal([]contracts.RadioCandidateName{{Name: "T Windowed", PlayCount: 4}}, c.LabelSpellings)
+	s.Len(c.Stations, 2)
+	s.Equal([]contracts.RadioLabelCandidateArtist{{Name: "T Inside", PlayCount: 4, ArtistIDs: []uint{}}}, c.Artists)
+	s.Equal([]contracts.RadioCandidateName{{Name: "Inside Album", PlayCount: 4}}, c.ReleaseNames)
 }
 
 func (s *RadioLabelCandidatesIntegrationSuite) TestStationFloorCountsTheWholeWindow() {
@@ -311,7 +333,7 @@ func (s *RadioLabelCandidatesIntegrationSuite) TestEvidenceListsAreCapped() {
 func (s *RadioLabelCandidatesIntegrationSuite) TestLinkedLabelsAreNotCandidates() {
 	linked := s.createLabel("T Linked Elsewhere")
 	// One linked play, before the window, takes every spelling of the key out.
-	s.add(labelPlay{station: "t-kexp", label: "T Was Linked", date: "2025-06-01", labelID: &linked}, 1)
+	s.add(labelPlay{station: "t-kexp", label: "T Wás Linked!", date: "2025-06-01", labelID: &linked}, 1)
 	s.addAcross(labelPlay{label: "t was linked."}, 3)
 	// A linked play inside the window does the same.
 	s.add(labelPlay{station: "t-kexp", label: "T Partly Linked", labelID: &linked}, 1)
@@ -326,7 +348,8 @@ func (s *RadioLabelCandidatesIntegrationSuite) TestLinkedLabelsAreNotCandidates(
 }
 
 func (s *RadioLabelCandidatesIntegrationSuite) TestCatalogLabelNamesAreNotCandidates() {
-	s.createLabel("T Catalog Label")
+	// Accent, case and edge punctuation fold on the catalog side too.
+	s.createLabel("T Cátalog Label.")
 	// Matched as the label matcher matches: radio_normalize_name equality.
 	s.addAcross(labelPlay{label: "t catalog label!"}, 3)
 	s.addAcross(labelPlay{label: "T CÁTALOG   LABEL"}, 3)
