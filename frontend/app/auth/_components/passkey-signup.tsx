@@ -29,8 +29,7 @@ import { registrationOptionsFrom } from '@/features/auth/passkeyOptions'
 import type { components } from '@/types/api'
 import { CURRENT_PRIVACY_VERSION, CURRENT_TERMS_VERSION, MIN_SIGNUP_AGE } from '@/lib/legal'
 import { BackupAuthPrompt } from './backup-auth-prompt'
-
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080'
+import { API_BASE_URL } from '@/lib/api-base'
 
 interface PasskeySignupButtonProps {
   onError?: (error: string) => void

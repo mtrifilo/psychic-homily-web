@@ -15,8 +15,7 @@ import {
 import { useWebAuthnSupport } from '@/features/auth/hooks/useWebAuthnSupport'
 import { authenticationOptionsFrom } from '@/features/auth/passkeyOptions'
 import type { components } from '@/types/api'
-
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080'
+import { API_BASE_URL } from '@/lib/api-base'
 
 interface PasskeyLoginButtonProps {
   onError?: (error: string) => void

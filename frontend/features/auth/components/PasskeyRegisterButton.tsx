@@ -20,8 +20,7 @@ import { useWebAuthnSupport } from '@/features/auth/hooks/useWebAuthnSupport'
 import { registrationOptionsFrom } from '@/features/auth/passkeyOptions'
 import { AuthError, AuthErrorCode, type AuthErrorCodeType } from '@/lib/errors'
 import type { components } from '@/types/api'
-
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080'
+import { API_BASE_URL } from '@/lib/api-base'
 
 interface PasskeyRegisterButtonProps {
   onSuccess?: () => void
