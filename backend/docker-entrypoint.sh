@@ -3,7 +3,7 @@ set -e
 
 echo "Starting entrypoint script (v3)..."
 # Prints a database URL as scheme://***@host:port/db: the userinfo becomes ***
-# and the query and fragment are dropped, since both can carry a password.
+# and the query (which can carry password=) and any fragment are dropped.
 # The host part is the text after the LAST '@', so a password holding a literal
 # '@' or '/' stays hidden. Prints "NOT SET" for an empty URL. Returns 1 without
 # printing when the input does not reduce to that shape: no scheme, a '?' or
