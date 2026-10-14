@@ -224,7 +224,6 @@ type WebAuthnServiceInterface interface {
 	// ConsumeSignupChallenge returns an error for WebAuthnRegistrationOperation,
 	// as ConsumeChallenge does.
 	ConsumeSignupChallenge(challengeID string, operation string) (*webauthn.SessionData, SignupChallenge, error)
-	FinishSignupRegistration(email string, session *webauthn.SessionData, response *protocol.ParsedCredentialCreationData, displayName string) (*authm.User, error)
 	FinishSignupRegistrationWithLegal(email string, session *webauthn.SessionData, response *protocol.ParsedCredentialCreationData, displayName string, acceptance LegalAcceptance) (*authm.User, error)
 }
 

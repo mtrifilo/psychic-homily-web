@@ -649,12 +649,6 @@ func (s *WebAuthnService) ConsumeSignupChallenge(challengeID string, operation s
 	}, nil
 }
 
-// FinishSignupRegistration completes registration, creates user, and stores credential.
-// Legacy path without legal acceptance metadata.
-func (s *WebAuthnService) FinishSignupRegistration(email string, session *webauthn.SessionData, response *protocol.ParsedCredentialCreationData, displayName string) (*authm.User, error) {
-	return s.FinishSignupRegistrationWithLegal(email, session, response, displayName, contracts.LegalAcceptance{})
-}
-
 // FinishSignupRegistrationWithLegal completes registration and records legal acceptance metadata.
 func (s *WebAuthnService) FinishSignupRegistrationWithLegal(
 	email string,

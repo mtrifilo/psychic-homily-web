@@ -1109,66 +1109,6 @@ func (s *UserService) SoftDeleteAccount(userID uint, reason *string) error {
 	return nil
 }
 
-// CreateUserWithoutPassword creates a user account without a password
-// (for passkey-only or OAuth-only accounts)
-func (s *UserService) CreateUserWithoutPassword(email string) (*authm.User, error) {
-	if s.db == nil {
-		return nil, fmt.Errorf("database not initialized")
-	}
-
-	existingUser, err := s.GetUserByEmail(email)
-	if err != nil {
-		return nil, fmt.Errorf("failed to check existing user: %w", err)
-	}
-
-	if existingUser != nil {
-		return nil, apperrors.ErrUserExists(email)
-	}
-
-	tx := s.db.Begin()
-	defer func() {
-		if r := recover(); r != nil {
-			tx.Rollback()
-		}
-	}()
-
-	// Create user without password
-	user := &authm.User{
-		Email:         &email,
-		IsActive:      true,
-		EmailVerified: false, // Email verification required
-	}
-
-	if err := tx.Create(user).Error; err != nil {
-		tx.Rollback()
-		if dup := shared.UserExistsIfDuplicate(email, err); dup != nil {
-			return nil, dup
-		}
-		return nil, fmt.Errorf("failed to create user: %w", err)
-	}
-
-	// Create default preferences
-	preferences := &authm.UserPreferences{
-		UserID: user.ID,
-	}
-
-	if err := tx.Create(preferences).Error; err != nil {
-		tx.Rollback()
-		return nil, fmt.Errorf("failed to create user preferences: %w", err)
-	}
-
-	if err := tx.Commit().Error; err != nil {
-		return nil, fmt.Errorf("failed to commit transaction: %w", err)
-	}
-
-	// Load relationships
-	if err := s.db.Preload("Preferences").First(user, user.ID).Error; err != nil {
-		return nil, fmt.Errorf("failed to load user relationships: %w", err)
-	}
-
-	return user, nil
-}
-
 // ExportUserData exports all user data in a portable JSON format
 // This supports GDPR Article 20 - Right to data portability
 func (s *UserService) ExportUserData(userID uint) (*contracts.UserDataExport, error) {

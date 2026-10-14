@@ -725,8 +725,12 @@ func (suite *UserServiceIntegrationTestSuite) TestAuthenticate_NonexistentEmail(
 }
 
 func (suite *UserServiceIntegrationTestSuite) TestAuthenticate_OAuthOnlyUser() {
-	// Create OAuth-only user (no password)
-	_, err := suite.userService.CreateUserWithoutPassword("oauthonly-auth@example.com")
+	consent := currentOAuthSignupConsent()
+	_, err := suite.userService.FindOrCreateUserWithConsent(goth.User{
+		UserID:  "oauthonly_auth_google_123",
+		Email:   "oauthonly-auth@example.com",
+		RawData: map[string]any{"verified_email": true},
+	}, "google", &consent)
 	suite.Require().NoError(err)
 
 	user, err := suite.userService.AuthenticateUserWithPassword(
@@ -1225,36 +1229,6 @@ func (suite *UserServiceIntegrationTestSuite) TestPermanentlyDeleteUser() {
 }
 
 // =============================================================================
-// NEW INTEGRATION TESTS: CreateUserWithoutPassword
-// =============================================================================
-
-func (suite *UserServiceIntegrationTestSuite) TestCreateUserWithoutPassword_Success() {
-	user, err := suite.userService.CreateUserWithoutPassword("nopw@example.com")
-
-	suite.Require().NoError(err)
-	suite.Require().NotNil(user)
-	suite.NotZero(user.ID)
-	suite.Equal("nopw@example.com", *user.Email)
-	suite.Nil(user.PasswordHash)
-	suite.True(user.IsActive)
-	suite.False(user.EmailVerified)
-	suite.NotNil(user.Preferences)
-}
-
-func (suite *UserServiceIntegrationTestSuite) TestCreateUserWithoutPassword_DuplicateEmail() {
-	_, err := suite.userService.CreateUserWithoutPassword("dupenopw@example.com")
-	suite.Require().NoError(err)
-
-	user, err := suite.userService.CreateUserWithoutPassword("dupenopw@example.com")
-	suite.Require().Error(err)
-	suite.Nil(user)
-
-	var authErr *apperrors.AuthError
-	suite.Require().True(errors.As(err, &authErr))
-	suite.Equal(apperrors.CodeUserExists, authErr.Code)
-}
-
-// =============================================================================
 // NEW INTEGRATION TESTS: Data Export
 // =============================================================================
 
@@ -1427,16 +1401,14 @@ func (suite *UserServiceIntegrationTestSuite) TestCanUnlinkOAuthAccount_HasPassw
 }
 
 func (suite *UserServiceIntegrationTestSuite) TestCanUnlinkOAuthAccount_OnlyAuth() {
-	// Create user without password, with a single OAuth account
-	user, err := suite.userService.CreateUserWithoutPassword("canunlink-only@example.com")
+	// No password; the one OAuth account is the only sign-in method.
+	consent := currentOAuthSignupConsent()
+	user, err := suite.userService.FindOrCreateUserWithConsent(goth.User{
+		UserID:  "canunlink_only_google_123",
+		Email:   "canunlink-only@example.com",
+		RawData: map[string]any{"verified_email": true},
+	}, "google", &consent)
 	suite.Require().NoError(err)
-
-	suite.db.Create(&authm.OAuthAccount{
-		UserID:         user.ID,
-		Provider:       "google",
-		ProviderUserID: "canunlink_only_google_123",
-		ProviderEmail:  stringPtr("canunlink-only@example.com"),
-	})
 
 	canUnlink, reason, err := suite.userService.CanUnlinkOAuthAccount(user.ID, "google")
 	suite.Require().NoError(err)
