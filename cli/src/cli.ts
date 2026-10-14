@@ -17,7 +17,12 @@ import { runStatus } from "./commands/status";
 import { runFestivalLinkArtists, runFestivalUnlinkArtist } from "./commands/festival";
 import { runShowAddArtist, runShowRemoveArtist } from "./commands/show";
 import { runSourcesStale, runSourcesRegister, runSourcesRefresh } from "./commands/sources";
-import { runRadioArtistCandidates, runRadioLabelCandidates, runRadioRematch } from "./commands/radio";
+import {
+  runRadioArtistCandidates,
+  runRadioLabelCandidates,
+  runRadioRematch,
+  runRadioTrackCandidates,
+} from "./commands/radio";
 import { flushRevalidation } from "./lib/revalidate";
 import { SET_TYPE_VOCABULARY_CSV } from "./lib/setType";
 
@@ -289,6 +294,21 @@ radioCandidatesCmd
   .action(async (opts: { lane?: string; sort?: string; limit?: string; json?: boolean }) => {
     const env = await resolveEnvOrExit(program.opts().env);
     await runRadioLabelCandidates(env, opts);
+  });
+
+radioCandidatesCmd
+  .command("tracks")
+  .description(
+    "Tracks that clear the multi-station and play floors, in one view, ranked with evidence and a lane (auto|human). unlinked: a counted play is linked to a catalog artist and no play of the track, at any time, is linked to a release credited to that play's artist. unmatched: no counted play is linked to an artist and an artist key is an artist candidate.",
+  )
+  .requiredOption("--view <view>", "unlinked or unmatched")
+  .option("--lane <lane>", "auto, human or all")
+  .option("--sort <sort>", "score, plays or stations")
+  .option("--limit <n>", "Candidates to print")
+  .option("--json", "Print the raw listing as JSON")
+  .action(async (opts: { view?: string; lane?: string; sort?: string; limit?: string; json?: boolean }) => {
+    const env = await resolveEnvOrExit(program.opts().env);
+    await runRadioTrackCandidates(env, opts);
   });
 
 // ─── ph status ───────────────────────────────────────────────────────────────
