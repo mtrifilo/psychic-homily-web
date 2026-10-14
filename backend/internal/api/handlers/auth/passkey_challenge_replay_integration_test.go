@@ -3,30 +3,42 @@ package auth
 import (
 	"encoding/json"
 	"net/http/httptest"
+	"time"
 
 	"github.com/danielgtaylor/huma/v2/humatest"
 	"github.com/go-webauthn/webauthn/protocol"
 
+	"psychic-homily-backend/internal/api/handlers/shared/testhelpers"
 	autherrors "psychic-homily-backend/internal/errors"
+	authm "psychic-homily-backend/internal/models/auth"
 	"psychic-homily-backend/internal/testutil/softauthn"
 )
 
-// These replay a finish request with a challenge an earlier finish already
-// received, over the real WebAuthn service and the suite's database.
+// These present a challenge again after a finish request spent it, over the
+// real WebAuthn service and the suite's database. The refused-finish cases
+// send the response the challenge was issued for second, so they pass only
+// when the refused first finish already spent the challenge.
+
+// malformedCredential is a finish response no WebAuthn parser accepts.
+var malformedCredential = json.RawMessage(`{"id":"not-a-credential","type":"public-key"}`)
 
 // signUpWithPasskey creates an account for email through signup begin and
-// finish and returns the authenticator holding its passkey and the finish
-// request body.
-func (s *AuthHandlerIntegrationSuite) signUpWithPasskey(api humatest.TestAPI, email string) (*softauthn.Authenticator, map[string]any) {
+// finish and returns the authenticator holding its passkey.
+func (s *AuthHandlerIntegrationSuite) signUpWithPasskey(api humatest.TestAPI, email string) *softauthn.Authenticator {
 	challengeID, registration, device := s.beginPasskeySignup(api, email)
-	finish := map[string]any{
+	requireWireSuccess(s.T(), api.Post("/auth/passkey/signup/finish", signupFinishBody(challengeID, registration)))
+	return device
+}
+
+// signupFinishBody is a signup/finish request for challengeID carrying
+// response.
+func signupFinishBody(challengeID string, response json.RawMessage) map[string]any {
+	return map[string]any{
 		"challenge_id":   challengeID,
-		"response":       registration,
+		"response":       response,
 		"terms_accepted": true,
 		"age_confirmed":  true,
 	}
-	requireWireSuccess(s.T(), api.Post("/auth/passkey/signup/finish", finish))
-	return device, finish
 }
 
 // beginDiscoverableLogin starts a discoverable login and returns its
@@ -54,16 +66,11 @@ func (s *AuthHandlerIntegrationSuite) requireSpentChallengeRefusal(resp *httptes
 	s.Equal("Invalid or expired challenge", body["message"])
 }
 
-func (s *AuthHandlerIntegrationSuite) TestPasskeySignupFinishReplayIsRefused() {
-	api := newPasskeyWireAPI(s.T(), s.newRealPasskeyHandler())
-	_, finish := s.signUpWithPasskey(api, "signup-replay@example.com")
-
-	s.requireSpentChallengeRefusal(api.Post("/auth/passkey/signup/finish", finish))
-}
-
+// A successful finish spends its challenge, so the same request sent again
+// is refused.
 func (s *AuthHandlerIntegrationSuite) TestPasskeyLoginFinishReplayIsRefused() {
 	api := newPasskeyWireAPI(s.T(), s.newRealPasskeyHandler())
-	device, _ := s.signUpWithPasskey(api, "login-replay@example.com")
+	device := s.signUpWithPasskey(api, "login-replay@example.com")
 
 	challengeID, options := s.beginDiscoverableLogin(api)
 	assertion, err := device.Assert(options)
@@ -74,13 +81,13 @@ func (s *AuthHandlerIntegrationSuite) TestPasskeyLoginFinishReplayIsRefused() {
 	s.requireSpentChallengeRefusal(api.Post("/auth/passkey/login/finish", finish))
 }
 
-// A finish whose assertion is refused still spends the challenge, so the
-// assertion the challenge was issued for is refused afterwards too.
 func (s *AuthHandlerIntegrationSuite) TestPasskeyLoginRefusedAssertionSpendsChallenge() {
 	api := newPasskeyWireAPI(s.T(), s.newRealPasskeyHandler())
-	device, _ := s.signUpWithPasskey(api, "login-refused@example.com")
+	device := s.signUpWithPasskey(api, "login-refused@example.com")
 
 	challengeID, options := s.beginDiscoverableLogin(api)
+	// softAssertion signs a challenge of its own, so this assertion is
+	// refused for answering the wrong challenge.
 	refused := api.Post("/auth/passkey/login/finish", map[string]any{
 		"challenge_id": challengeID,
 		"response":     softAssertion(s.T(), device),
@@ -94,4 +101,64 @@ func (s *AuthHandlerIntegrationSuite) TestPasskeyLoginRefusedAssertionSpendsChal
 		"challenge_id": challengeID,
 		"response":     json.RawMessage(assertion),
 	}))
+}
+
+func (s *AuthHandlerIntegrationSuite) TestPasskeySignupRefusedFinishSpendsChallenge() {
+	api := newPasskeyWireAPI(s.T(), s.newRealPasskeyHandler())
+	email := "signup-refused@example.com"
+	challengeID, registration, _ := s.beginPasskeySignup(api, email)
+
+	refused := api.Post("/auth/passkey/signup/finish", signupFinishBody(challengeID, malformedCredential))
+	s.Equal(200, refused.Code, refused.Body.String())
+	s.Equal("Invalid credential response", decodeWireBody(s.T(), refused.Body.Bytes())["message"])
+
+	s.requireSpentChallengeRefusal(api.Post("/auth/passkey/signup/finish", signupFinishBody(challengeID, registration)))
+	var accounts int64
+	s.Require().NoError(s.deps.DB.Model(&authm.User{}).Where("email = ?", email).Count(&accounts).Error)
+	s.Zero(accounts)
+}
+
+func (s *AuthHandlerIntegrationSuite) TestPasskeyRegisterRefusedFinishSpendsChallenge() {
+	email := "register-refused@example.com"
+	user := &authm.User{Email: &email, IsActive: true}
+	s.Require().NoError(s.deps.DB.Create(user).Error)
+	h := s.newRealPasskeyHandler()
+	ctx := testhelpers.CtxWithSessionAuthTime(user, time.Now())
+
+	begin, err := h.BeginRegisterHandler(ctx, &BeginRegisterRequest{})
+	s.Require().NoError(err)
+	s.Require().True(begin.Body.Success, begin.Body.Message)
+	registration, err := softauthn.New(wireOrigin).Register(begin.Body.Options)
+	s.Require().NoError(err)
+
+	refusedInput := &FinishRegisterRequest{}
+	refusedInput.Body.ChallengeID = begin.Body.ChallengeID
+	refusedInput.Body.Response = malformedCredential
+	refused, err := h.FinishRegisterHandler(ctx, refusedInput)
+	s.Require().NoError(err)
+	s.Equal("Invalid credential response", refused.Body.Message)
+
+	retryInput := &FinishRegisterRequest{}
+	retryInput.Body.ChallengeID = begin.Body.ChallengeID
+	retryInput.Body.Response = registration
+	retry, err := h.FinishRegisterHandler(ctx, retryInput)
+	s.Require().NoError(err)
+	s.False(retry.Body.Success)
+	s.Equal(autherrors.CodeValidationFailed, retry.Body.ErrorCode)
+	s.Equal("Invalid or expired challenge", retry.Body.Message)
+	var credentials int64
+	s.Require().NoError(s.deps.DB.Model(&authm.WebAuthnCredential{}).Where("user_id = ?", user.ID).Count(&credentials).Error)
+	s.Zero(credentials)
+
+	// The same steps on a challenge no finish has spent register the passkey.
+	fresh, err := h.BeginRegisterHandler(ctx, &BeginRegisterRequest{})
+	s.Require().NoError(err)
+	freshRegistration, err := softauthn.New(wireOrigin).Register(fresh.Body.Options)
+	s.Require().NoError(err)
+	freshInput := &FinishRegisterRequest{}
+	freshInput.Body.ChallengeID = fresh.Body.ChallengeID
+	freshInput.Body.Response = freshRegistration
+	registered, err := h.FinishRegisterHandler(ctx, freshInput)
+	s.Require().NoError(err)
+	s.True(registered.Body.Success, registered.Body.Message)
 }

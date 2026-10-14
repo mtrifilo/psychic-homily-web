@@ -104,11 +104,12 @@ func (h *PasskeyHandler) BeginRegisterHandler(ctx context.Context, input *BeginR
 	// they would be left holding a passkey the server never recorded.
 	//
 	// What that leaves, stated exactly: no challenge is issued without a recent
-	// factor, a challenge lives five minutes (webauthn.go StoreChallenge), it
-	// is spent once, and FinishRegisterHandler will only spend it for the user
-	// it was issued to. It is NOT bound to the session that passed this gate,
-	// so within those five minutes any live session of that account can spend
-	// a challenge some other session obtained. Reaching that needs the
+	// factor, a challenge lives five minutes (webauthn.go StoreChallenge), the
+	// first finish that presents it spends it, and FinishRegisterHandler
+	// completes a registration only for the user it was issued to. It is NOT
+	// bound to the session that passed this gate, so within those five
+	// minutes any live session of that account can complete a registration
+	// with a challenge some other session obtained. Reaching that needs the
 	// challenge id, which is returned only in the response to the request that
 	// passed here. Binding the challenge to the authentication time that
 	// obtained it would close it and needs a column to store one.

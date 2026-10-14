@@ -299,12 +299,10 @@ func TestFinishLoginHandler_AccountState(t *testing.T) {
 		for _, state := range states {
 			t.Run(ceremony.name+"/"+state.name, func(t *testing.T) {
 				user := state.user
-				challengeConsumed := false
 				tokenMinted := false
 
 				mockWA := &testhelpers.MockWebAuthnService{
 					ConsumeChallengeFn: func(string, string) (*webauthn.SessionData, uint, error) {
-						challengeConsumed = true
 						return &webauthn.SessionData{}, ceremony.challengeUser, nil
 					},
 					FinishLoginFn: func(*authm.User, *webauthn.SessionData, *protocol.ParsedCredentialAssertionData) (*authm.WebAuthnCredential, error) {
@@ -329,10 +327,6 @@ func TestFinishLoginHandler_AccountState(t *testing.T) {
 				if err != nil {
 					t.Fatalf("unexpected error: %v", err)
 				}
-				if !challengeConsumed {
-					t.Error("a verified assertion must consume its challenge")
-				}
-
 				if state.maySignIn {
 					if !resp.Body.Success {
 						t.Fatalf("expected success, got code=%s message=%q", resp.Body.ErrorCode, resp.Body.Message)

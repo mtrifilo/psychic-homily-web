@@ -77,8 +77,7 @@ func (suite *WebAuthnServiceIntegrationTestSuite) TestConcurrentSignupFinishesCo
 	}
 }
 
-// A finish that received the challenge spends it whatever its ceremony then
-// answers, so a retry with the same id needs a new begin.
+// A consumed challenge's row is gone and a second consume answers not found.
 func (suite *WebAuthnServiceIntegrationTestSuite) TestConsumedChallengeAnswersNotFound() {
 	user := suite.createUser("spent@test.com")
 	challengeID, err := suite.service.StoreChallenge(user.ID, &webauthn.SessionData{Challenge: "spent"}, "authentication")
