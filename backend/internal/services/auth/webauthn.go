@@ -154,19 +154,6 @@ func (s *WebAuthnService) BeginDiscoverableLogin() (*protocol.CredentialAssertio
 	return options, session, nil
 }
 
-// Passkey sign-in errors come in two kinds. A refusal is an
-// *apperrors.AuthError: CodeInvalidCredentials when the assertion does not
-// prove a credential of an existing account (it fails validation, carries
-// another account's user handle, or names a credential or account that does
-// not exist), and CodeAccountInactive when it does but the account may not
-// sign in (authm.User.CanSignIn). Any other error means no decision was
-// reached: a lookup or the credential update failed.
-//
-// The account's state is checked only after the assertion validated, so only
-// the credential's holder learns it, and a refused sign-in writes nothing. A
-// clone warning (a sign count that did not advance) is recorded on the
-// credential and does not refuse the sign-in.
-
 // invalidPasskeyMessage is the user-facing message of every
 // CodeInvalidCredentials refusal a passkey sign-in returns.
 const invalidPasskeyMessage = "Invalid passkey"
@@ -185,8 +172,20 @@ func signInLookupError(what string, err error) error {
 }
 
 // FinishLogin completes an email-specific passkey login for user and returns
-// the credential it used. Its errors are the refusals and failures described
-// above.
+// the credential it used.
+//
+// Its errors come in two kinds. A refusal is an *apperrors.AuthError:
+// CodeInvalidCredentials when the assertion does not prove a credential of an
+// existing account (it fails validation, carries another account's user
+// handle, or names a credential or account that does not exist), and
+// CodeAccountInactive when it does but the account may not sign in
+// (authm.User.CanSignIn). Any other error means no decision was reached: a
+// lookup or the credential update failed.
+//
+// The account's state is checked only after the assertion validated, so only
+// the credential's holder learns it, and a refused sign-in writes nothing. A
+// clone warning (a sign count that did not advance) is recorded on the
+// credential and does not refuse the sign-in.
 func (s *WebAuthnService) FinishLogin(user *authm.User, session *webauthn.SessionData, response *protocol.ParsedCredentialAssertionData) (*authm.WebAuthnCredential, error) {
 	// Validation checks the assertion against the account's stored
 	// credentials, which the caller's copy of the user need not hold, so it
@@ -233,8 +232,8 @@ func (s *WebAuthnService) recordCredentialUse(stored *authm.WebAuthnCredential, 
 }
 
 // FinishDiscoverableLogin completes a discoverable login and returns the
-// account it signs in and the credential it used. Its errors are the refusals
-// and failures described above.
+// account it signs in and the credential it used. Its errors, and when it
+// checks the account's state, are FinishLogin's.
 func (s *WebAuthnService) FinishDiscoverableLogin(session *webauthn.SessionData, response *protocol.ParsedCredentialAssertionData) (*authm.User, *authm.WebAuthnCredential, error) {
 	var webauthnCred authm.WebAuthnCredential
 	if err := s.db.Where("credential_id = ?", response.RawID).First(&webauthnCred).Error; err != nil {
@@ -346,21 +345,18 @@ func (s *WebAuthnService) StoreChallenge(userID uint, session *webauthn.SessionD
 // carry its id. An expired challenge is deleted all the same and answers as
 // expired.
 func (s *WebAuthnService) consumeChallenge(challengeID string, operation string) (*authm.WebAuthnChallenge, error) {
-	return s.deleteChallenge(
-		"DELETE FROM webauthn_challenges WHERE id = ? AND operation = ? RETURNING *",
-		challengeID, operation,
-	)
+	return s.deleteChallenge("id = ? AND operation = ?", challengeID, operation)
 }
 
 // errChallengeNotFound is the error for a challenge id that selects no row.
 var errChallengeNotFound = errors.New("challenge not found")
 
-// deleteChallenge runs statement, a DELETE ... RETURNING * that selects at
-// most one challenge, and returns the row it removed: errChallengeNotFound
-// when it removed none, and an error for an expired one.
-func (s *WebAuthnService) deleteChallenge(statement string, args ...any) (*authm.WebAuthnChallenge, error) {
+// deleteChallenge deletes the challenge row condition selects and returns it:
+// errChallengeNotFound when it removed none, and an error for an expired one.
+// condition always pins the primary key, so it selects at most one row.
+func (s *WebAuthnService) deleteChallenge(condition string, args ...any) (*authm.WebAuthnChallenge, error) {
 	var challenge authm.WebAuthnChallenge
-	result := s.db.Raw(statement, args...).Scan(&challenge)
+	result := s.db.Raw("DELETE FROM webauthn_challenges WHERE "+condition+" RETURNING *", args...).Scan(&challenge)
 	if result.Error != nil {
 		return nil, fmt.Errorf("failed to consume challenge: %w", result.Error)
 	}
@@ -396,22 +392,15 @@ func (s *WebAuthnService) ConsumeChallenge(challengeID string, operation string)
 	return session, challenge.UserID, nil
 }
 
-// registrationOperation is the operation a passkey registration's challenge
-// is stored under.
-const registrationOperation = "registration"
-
 // ConsumeRegistrationChallenge removes the registration challenge stored
 // under challengeID for userID and returns its session, as ConsumeChallenge
 // does, except that only userID can spend it: for a challenge issued to
 // another user it removes nothing and returns a CodeUnauthorized
 // *apperrors.AuthError.
 func (s *WebAuthnService) ConsumeRegistrationChallenge(challengeID string, userID uint) (*webauthn.SessionData, error) {
-	challenge, err := s.deleteChallenge(
-		"DELETE FROM webauthn_challenges WHERE id = ? AND operation = ? AND user_id = ? RETURNING *",
-		challengeID, registrationOperation, userID,
-	)
+	challenge, err := s.deleteChallenge("id = ? AND operation = ? AND user_id = ?", challengeID, "registration", userID)
 	if errors.Is(err, errChallengeNotFound) {
-		issuedToAnother, probeErr := s.challengeExists(challengeID, registrationOperation)
+		issuedToAnother, probeErr := s.challengeExists(challengeID, "registration")
 		if probeErr != nil {
 			return nil, probeErr
 		}

@@ -5,6 +5,7 @@ import (
 	"net/http"
 
 	autherrors "psychic-homily-backend/internal/errors"
+	"psychic-homily-backend/internal/testutil"
 )
 
 // A sign-in whose assertion is valid but whose credential update fails is a
@@ -14,14 +15,7 @@ func (s *AuthHandlerIntegrationSuite) TestPasskeyLoginUpdateFailureAnswersServic
 	api := newPasskeyWireAPI(s.T(), s.newRealPasskeyHandler())
 	device := s.signUpWithPasskey(api, "login-update-fails@example.com")
 
-	s.Require().NoError(s.deps.DB.Exec(`CREATE OR REPLACE FUNCTION refuse_credential_update() RETURNS trigger AS $$
-		BEGIN RAISE EXCEPTION 'credential update refused by test trigger'; END $$ LANGUAGE plpgsql`).Error)
-	s.Require().NoError(s.deps.DB.Exec(`CREATE TRIGGER refuse_credential_update BEFORE UPDATE ON webauthn_credentials
-		FOR EACH ROW EXECUTE FUNCTION refuse_credential_update()`).Error)
-	defer func() {
-		s.Require().NoError(s.deps.DB.Exec(`DROP TRIGGER refuse_credential_update ON webauthn_credentials`).Error)
-		s.Require().NoError(s.deps.DB.Exec(`DROP FUNCTION refuse_credential_update()`).Error)
-	}()
+	testutil.FailUpdates(s.T(), s.deps.DB, "webauthn_credentials")
 
 	challengeID, options := s.beginDiscoverableLogin(api)
 	assertion, err := device.Assert(options)
@@ -36,5 +30,5 @@ func (s *AuthHandlerIntegrationSuite) TestPasskeyLoginUpdateFailureAnswersServic
 	s.Equal(autherrors.CodeServiceUnavailable, body["error_code"])
 	s.Equal(false, body["success"])
 	s.Empty(resp.Header().Get("Set-Cookie"))
-	assertNoInternalText(s.T(), resp.Body.String(), "test trigger", "failed to update credential")
+	assertNoInternalText(s.T(), resp.Body.String(), testutil.FailedUpdateMessage, "failed to update credential")
 }

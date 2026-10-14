@@ -12,7 +12,6 @@ import (
 	"github.com/markbates/goth"
 
 	"psychic-homily-backend/internal/api/handlers/shared/testhelpers"
-	"psychic-homily-backend/internal/config"
 	autherrors "psychic-homily-backend/internal/errors"
 	authm "psychic-homily-backend/internal/models/auth"
 	authsvc "psychic-homily-backend/internal/services/auth"
@@ -194,10 +193,7 @@ func (s *OAuthHandlerIntegrationSuite) TestAppleCallback_AccountState() {
 // session, on both ceremonies.
 func (s *OAuthHandlerIntegrationSuite) TestPasskeyFinishLogin_AccountState() {
 	inactive := autherrors.ErrAccountInactive()
-	webauthnService, err := authsvc.NewWebAuthnService(s.deps.DB, &config.Config{
-		WebAuthn: config.WebAuthnConfig{RPDisplayName: "Test", RPID: "localhost", RPOrigins: []string{wireOrigin}},
-	})
-	s.Require().NoError(err)
+	webauthnService := newTestWebAuthnService(s.T(), s.deps.DB)
 	h := NewPasskeyHandler(webauthnService, s.jwtService(), s.deps.UserService, &testhelpers.MockEmailService{}, s.cfg)
 
 	// Each ceremony begins a login and stores its challenge as login/begin

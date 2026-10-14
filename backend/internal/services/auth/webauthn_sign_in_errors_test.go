@@ -13,6 +13,7 @@ import (
 
 	apperrors "psychic-homily-backend/internal/errors"
 	authm "psychic-homily-backend/internal/models/auth"
+	"psychic-homily-backend/internal/testutil"
 	"psychic-homily-backend/internal/testutil/softauthn"
 )
 
@@ -97,7 +98,7 @@ func (suite *WebAuthnServiceIntegrationTestSuite) TestSignInRefusesWhatDoesNotEx
 		suite.Require().NoError(err)
 
 		_, err = suite.discoverableLogin(device)
-		suite.requireRefusal(err, apperrors.CodeInvalidCredentials, invalidPasskeyMessage)
+		suite.requireRefusal(err, apperrors.CodeInvalidCredentials, "Invalid passkey")
 	})
 
 	suite.Run("account that does not exist", func() {
@@ -112,7 +113,7 @@ func (suite *WebAuthnServiceIntegrationTestSuite) TestSignInRefusesWhatDoesNotEx
 		suite.Require().NoError(suite.db.Exec("DELETE FROM users WHERE id = ?", user.ID).Error)
 
 		_, err = suite.service.FinishLogin(&authm.User{ID: user.ID}, session, parsed)
-		suite.requireRefusal(err, apperrors.CodeInvalidCredentials, invalidPasskeyMessage)
+		suite.requireRefusal(err, apperrors.CodeInvalidCredentials, "Invalid passkey")
 	})
 }
 
@@ -122,14 +123,7 @@ func (suite *WebAuthnServiceIntegrationTestSuite) TestSignInUpdateFailureIsNotAR
 	user := suite.createUser("update-fails@test.com")
 	device := suite.registeredDevice(user)
 
-	suite.Require().NoError(suite.db.Exec(`CREATE OR REPLACE FUNCTION refuse_credential_update() RETURNS trigger AS $$
-		BEGIN RAISE EXCEPTION 'credential update refused by test trigger'; END $$ LANGUAGE plpgsql`).Error)
-	suite.Require().NoError(suite.db.Exec(`CREATE TRIGGER refuse_credential_update BEFORE UPDATE ON webauthn_credentials
-		FOR EACH ROW EXECUTE FUNCTION refuse_credential_update()`).Error)
-	defer func() {
-		suite.Require().NoError(suite.db.Exec(`DROP TRIGGER refuse_credential_update ON webauthn_credentials`).Error)
-		suite.Require().NoError(suite.db.Exec(`DROP FUNCTION refuse_credential_update()`).Error)
-	}()
+	testutil.FailUpdates(suite.T(), suite.db, "webauthn_credentials")
 
 	_, emailErr := suite.emailLogin(user.ID, device)
 	_, discoverableErr := suite.discoverableLogin(device)

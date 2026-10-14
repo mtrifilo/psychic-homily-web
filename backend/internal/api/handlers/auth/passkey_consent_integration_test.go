@@ -8,7 +8,6 @@ import (
 	"github.com/go-webauthn/webauthn/protocol"
 
 	"psychic-homily-backend/internal/api/handlers/shared/testhelpers"
-	"psychic-homily-backend/internal/config"
 	"psychic-homily-backend/internal/legal"
 	authm "psychic-homily-backend/internal/models/auth"
 	authsvc "psychic-homily-backend/internal/services/auth"
@@ -19,15 +18,7 @@ import (
 // and the suite's database, with a software authenticator for the ceremonies.
 
 func (s *AuthHandlerIntegrationSuite) newRealPasskeyHandler() *PasskeyHandler {
-	return s.newPasskeyHandlerOver(s.newRealWebAuthnService())
-}
-
-func (s *AuthHandlerIntegrationSuite) newRealWebAuthnService() *authsvc.WebAuthnService {
-	webauthnService, err := authsvc.NewWebAuthnService(s.deps.DB, &config.Config{
-		WebAuthn: config.WebAuthnConfig{RPDisplayName: "Test", RPID: "localhost", RPOrigins: []string{wireOrigin}},
-	})
-	s.Require().NoError(err)
-	return webauthnService
+	return s.newPasskeyHandlerOver(newTestWebAuthnService(s.T(), s.deps.DB))
 }
 
 func (s *AuthHandlerIntegrationSuite) newPasskeyHandlerOver(webauthnService *authsvc.WebAuthnService) *PasskeyHandler {

@@ -188,7 +188,7 @@ func (s *AuthHandlerIntegrationSuite) requireNoAccount(email string) {
 // The consent it carries would be refused again, so the second finish
 // answering as a spent challenge shows the first spent it.
 func (s *AuthHandlerIntegrationSuite) TestPasskeySignupConsentRefusalSpendsChallenge() {
-	webauthnService := s.newRealWebAuthnService()
+	webauthnService := newTestWebAuthnService(s.T(), s.deps.DB)
 	api := newPasskeyWireAPI(s.T(), s.newPasskeyHandlerOver(webauthnService))
 
 	cases := []struct {
