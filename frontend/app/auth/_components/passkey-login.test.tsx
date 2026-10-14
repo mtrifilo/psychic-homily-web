@@ -90,6 +90,44 @@ describe('PasskeyLoginButton', () => {
     ])
   })
 
+  // The envelope the backend writes for a failure: a 503 whose body says so.
+  it('reports a 503 from finish and leaves the button usable', async () => {
+    const user = userEvent.setup()
+    const onError = vi.fn()
+
+    fetchMock.mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        success: true,
+        options: { publicKey: { challenge: 'begin-challenge' } },
+        challenge_id: 'challenge-id',
+      }),
+    })
+    fetchMock.mockResolvedValueOnce({
+      ok: false,
+      status: 503,
+      json: async () => ({
+        success: false,
+        message: 'Service temporarily unavailable',
+        error_code: 'SERVICE_UNAVAILABLE',
+      }),
+    })
+
+    renderWithProviders(<PasskeyLoginButton onError={onError} />)
+
+    await user.click(screen.getByRole('button', { name: /sign in with passkey/i }))
+
+    await waitFor(() => {
+      expect(onError).toHaveBeenCalledWith('Service temporarily unavailable')
+    })
+    expect(mockSetUser).not.toHaveBeenCalled()
+    expect(mockPush).not.toHaveBeenCalled()
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /sign in with passkey/i })).toBeEnabled()
+    })
+  })
+
   it('reports a begin response without options instead of starting the ceremony', async () => {
     const user = userEvent.setup()
     const onError = vi.fn()

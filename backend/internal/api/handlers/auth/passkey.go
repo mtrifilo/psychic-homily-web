@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/go-webauthn/webauthn/protocol"
@@ -260,13 +261,21 @@ func (h *PasskeyHandler) FinishRegisterHandler(ctx context.Context, input *Finis
 
 	credential, err := h.webauthnService.FinishRegistration(contextUser, session, parsedResponse, passkeyName(input.Body.DisplayName))
 	if err != nil {
+		if refusal, ok := passkeyRefusal(err, autherrors.CodeValidationFailed); ok {
+			logger.AuthWarn(ctx, "passkey_register_refused",
+				"user_id", contextUser.ID,
+				"error_code", refusal.Code,
+				"error", err.Error(),
+			)
+			resp.Body.Success = false
+			resp.Body.Message = refusal.UserMessage()
+			resp.Body.ErrorCode = refusal.Code
+			return resp, nil
+		}
 		logger.AuthError(ctx, "passkey_register_finish_failed", err,
 			"user_id", contextUser.ID,
 		)
-		resp.Body.Success = false
-		resp.Body.Message = "Failed to register passkey"
-		resp.Body.ErrorCode = autherrors.CodeServiceUnavailable
-		return resp, nil
+		return nil, autherrors.ErrServiceUnavailable("passkey_register_finish", err)
 	}
 
 	logger.AuthInfo(ctx, "passkey_registered",
@@ -310,7 +319,8 @@ func refuseEmailPasskeyLogin(resp *BeginLoginResponse) {
 	resp.Body.ErrorCode = autherrors.CodeInvalidCredentials
 }
 
-// BeginLoginHandler starts the passkey login process
+// BeginLoginHandler starts the passkey login process. A refusal answers 200
+// with its code; a failure at any step answers 503 with no challenge issued.
 func (h *PasskeyHandler) BeginLoginHandler(ctx context.Context, input *BeginLoginRequest) (*BeginLoginResponse, error) {
 	resp := &BeginLoginResponse{}
 	requestID := logger.GetRequestID(ctx)
@@ -322,17 +332,27 @@ func (h *PasskeyHandler) BeginLoginHandler(ctx context.Context, input *BeginLogi
 
 	if input.Body.Email != "" {
 		// User-specific login. An address with no account and an account with
-		// no passkey get the same refusal. An account with a passkey gets
+		// no passkey get the same refusal, refuseEmailPasskeyLogin's, never the
+		// service refusal's own message. An account with a passkey gets
 		// options naming its credentials.
-		user, err := h.userService.GetUserByEmail(input.Body.Email)
-		if err != nil {
-			resp.Body.Success = false
-			resp.Body.Message = "Invalid credentials"
-			resp.Body.ErrorCode = autherrors.CodeInvalidCredentials
+		//
+		// No stored address holds a NUL byte, which Postgres text cannot
+		// carry, and a lookup for one fails rather than finding nothing, so
+		// such an address is refused before the lookup.
+		if strings.ContainsRune(input.Body.Email, 0) {
+			logger.AuthDebug(ctx, "passkey_login_begin_refused",
+				"error", "address holds a NUL byte",
+			)
+			refuseEmailPasskeyLogin(resp)
 			return resp, nil
 		}
+		user, err := h.userService.GetUserByEmail(input.Body.Email)
+		if err != nil {
+			logger.AuthError(ctx, "passkey_login_begin_failed", err)
+			return nil, autherrors.ErrServiceUnavailable("passkey_login_begin_user", err)
+		}
 		if user == nil {
-			logger.AuthDebug(ctx, "passkey_login_begin_failed",
+			logger.AuthDebug(ctx, "passkey_login_begin_refused",
 				"error", "no account for this address",
 			)
 			refuseEmailPasskeyLogin(resp)
@@ -341,11 +361,17 @@ func (h *PasskeyHandler) BeginLoginHandler(ctx context.Context, input *BeginLogi
 
 		opts, sess, err := h.webauthnService.BeginLogin(user)
 		if err != nil {
-			logger.AuthDebug(ctx, "passkey_login_begin_failed",
-				"error", err.Error(),
+			if _, ok := passkeyRefusal(err, autherrors.CodeInvalidCredentials); ok {
+				logger.AuthDebug(ctx, "passkey_login_begin_refused",
+					"error", err.Error(),
+				)
+				refuseEmailPasskeyLogin(resp)
+				return resp, nil
+			}
+			logger.AuthError(ctx, "passkey_login_begin_failed", err,
+				"user_id", user.ID,
 			)
-			refuseEmailPasskeyLogin(resp)
-			return resp, nil
+			return nil, autherrors.ErrServiceUnavailable("passkey_login_begin", err)
 		}
 
 		options = opts
@@ -356,10 +382,7 @@ func (h *PasskeyHandler) BeginLoginHandler(ctx context.Context, input *BeginLogi
 		opts, sess, err := h.webauthnService.BeginDiscoverableLogin()
 		if err != nil {
 			logger.AuthError(ctx, "passkey_discoverable_login_begin_failed", err)
-			resp.Body.Success = false
-			resp.Body.Message = "Failed to start passkey login"
-			resp.Body.ErrorCode = autherrors.CodeServiceUnavailable
-			return resp, nil
+			return nil, autherrors.ErrServiceUnavailable("passkey_login_begin", err)
 		}
 
 		options = opts
@@ -371,10 +394,7 @@ func (h *PasskeyHandler) BeginLoginHandler(ctx context.Context, input *BeginLogi
 	challengeID, err := h.webauthnService.StoreChallenge(userID, session, "authentication")
 	if err != nil {
 		logger.AuthError(ctx, "passkey_challenge_store_failed", err)
-		resp.Body.Success = false
-		resp.Body.Message = "Failed to store challenge"
-		resp.Body.ErrorCode = autherrors.CodeServiceUnavailable
-		return resp, nil
+		return nil, autherrors.ErrServiceUnavailable("passkey_login_challenge_store", err)
 	}
 
 	resp.Body.Success = true
@@ -443,10 +463,10 @@ func (h *PasskeyHandler) FinishLoginHandler(ctx context.Context, input *FinishLo
 	}
 
 	// The service decides the sign-in, including whether the account exists
-	// and may sign in, before the handler loads anything about the account.
+	// and may sign in, and returns the account it decided on.
 	var user *authm.User
 	if userID != 0 {
-		_, err = h.webauthnService.FinishLogin(&authm.User{ID: userID}, session, parsedResponse)
+		user, _, err = h.webauthnService.FinishLogin(&authm.User{ID: userID}, session, parsedResponse)
 	} else {
 		user, _, err = h.webauthnService.FinishDiscoverableLogin(session, parsedResponse)
 	}
@@ -466,19 +486,6 @@ func (h *PasskeyHandler) FinishLoginHandler(ctx context.Context, input *FinishLo
 			"user_id", userID,
 		)
 		return nil, autherrors.ErrServiceUnavailable("passkey_login_finish", err)
-	}
-
-	// The email-specific login answers with the account as the user service
-	// loads it. The sign-in was decided above, so an error here is a failure,
-	// never a refusal.
-	if userID != 0 {
-		user, err = h.userService.GetUserByID(userID)
-		if err != nil {
-			logger.AuthError(ctx, "passkey_login_user_load_failed", err,
-				"user_id", userID,
-			)
-			return nil, autherrors.ErrServiceUnavailable("passkey_login_user", err)
-		}
 	}
 
 	token, err := h.jwtService.CreateToken(user)
@@ -766,7 +773,8 @@ type FinishSignupResponse struct {
 	}
 }
 
-// FinishSignupHandler completes the passkey signup process
+// FinishSignupHandler completes the passkey signup process. A refusal answers
+// 200 with its code; a failure at any step answers 503 with no session.
 func (h *PasskeyHandler) FinishSignupHandler(ctx context.Context, input *FinishSignupRequest) (*FinishSignupResponse, error) {
 	resp := &FinishSignupResponse{}
 	requestID := logger.GetRequestID(ctx)
@@ -776,13 +784,18 @@ func (h *PasskeyHandler) FinishSignupHandler(ctx context.Context, input *FinishS
 
 	session, signup, err := h.webauthnService.ConsumeSignupChallenge(input.Body.ChallengeID, "signup")
 	if err != nil {
-		logger.AuthWarn(ctx, "passkey_challenge_invalid",
-			"error", err.Error(),
-		)
-		resp.Body.Success = false
-		resp.Body.Message = "Invalid or expired challenge"
-		resp.Body.ErrorCode = autherrors.CodeValidationFailed
-		return resp, nil
+		if refusal, ok := passkeyRefusal(err, autherrors.CodeValidationFailed); ok {
+			logger.AuthWarn(ctx, "passkey_challenge_refused",
+				"error_code", refusal.Code,
+				"error", err.Error(),
+			)
+			resp.Body.Success = false
+			resp.Body.Message = refusal.UserMessage()
+			resp.Body.ErrorCode = refusal.Code
+			return resp, nil
+		}
+		logger.AuthError(ctx, "passkey_challenge_consume_failed", err)
+		return nil, autherrors.ErrServiceUnavailable("passkey_signup_challenge", err)
 	}
 	email := signup.Email
 	// The challenge's consent passed these checks at begin. A challenge that
@@ -812,10 +825,10 @@ func (h *PasskeyHandler) FinishSignupHandler(ctx context.Context, input *FinishS
 	// Double-check email isn't already taken (race condition protection)
 	existingUser, err := h.userService.GetUserByEmail(email)
 	if err != nil {
-		resp.Body.Success = false
-		resp.Body.Message = "Failed to verify email"
-		resp.Body.ErrorCode = autherrors.CodeServiceUnavailable
-		return resp, nil
+		logger.AuthError(ctx, "passkey_signup_check_failed", err,
+			"email_hash", logger.HashEmail(email),
+		)
+		return nil, autherrors.ErrServiceUnavailable("passkey_signup_email_check", err)
 	}
 	if existingUser != nil {
 		resp.Body.Success = false
@@ -849,36 +862,29 @@ func (h *PasskeyHandler) FinishSignupHandler(ctx context.Context, input *FinishS
 		// reports as USER_EXISTS, reached by losing a race instead of by
 		// failing the check. It gets the same answer, so the response does not
 		// depend on which of the two saw it.
-		var authErr *autherrors.AuthError
-		if errors.As(err, &authErr) && authErr.Code == autherrors.CodeUserExists {
-			logger.AuthWarn(ctx, "passkey_signup_finish_user_exists",
+		if refusal, ok := passkeyRefusal(err, autherrors.CodeUserExists, autherrors.CodeValidationFailed); ok {
+			logger.AuthWarn(ctx, "passkey_signup_finish_refused",
 				"email_hash", logger.HashEmail(email),
-				"error_code", autherrors.CodeUserExists,
+				"error_code", refusal.Code,
+				"error", err.Error(),
 			)
 			resp.Body.Success = false
-			resp.Body.Message = authErr.UserMessage()
-			resp.Body.ErrorCode = autherrors.CodeUserExists
+			resp.Body.Message = refusal.UserMessage()
+			resp.Body.ErrorCode = refusal.Code
 			return resp, nil
 		}
 		logger.AuthError(ctx, "passkey_signup_finish_failed", err,
 			"email_hash", logger.HashEmail(email),
 		)
-		resp.Body.Success = false
-		resp.Body.Message = "Failed to complete signup"
-		resp.Body.ErrorCode = autherrors.CodeServiceUnavailable
-		return resp, nil
+		return nil, autherrors.ErrServiceUnavailable("passkey_signup_finish", err)
 	}
 
-	// Generate JWT token
 	token, err := h.jwtService.CreateToken(user)
 	if err != nil {
 		logger.AuthError(ctx, "passkey_token_generation_failed", err,
 			"user_id", user.ID,
 		)
-		resp.Body.Success = false
-		resp.Body.Message = "Failed to generate authentication token"
-		resp.Body.ErrorCode = autherrors.CodeServiceUnavailable
-		return resp, nil
+		return nil, autherrors.ErrServiceUnavailable("passkey_signup_token", err)
 	}
 
 	// Set cookie
