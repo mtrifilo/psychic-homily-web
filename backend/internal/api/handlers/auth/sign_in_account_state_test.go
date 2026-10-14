@@ -202,7 +202,7 @@ func (s *OAuthHandlerIntegrationSuite) TestPasskeyFinishLogin_AccountState() {
 			state.apply(s, user.ID)
 
 			ceremony := &testhelpers.MockWebAuthnService{
-				GetChallengeFn: func(string, string) (*webauthn.SessionData, uint, error) {
+				ConsumeChallengeFn: func(string, string) (*webauthn.SessionData, uint, error) {
 					return &webauthn.SessionData{}, user.ID, nil
 				},
 				FinishLoginFn: func(*authm.User, *webauthn.SessionData, *protocol.ParsedCredentialAssertionData) (*authm.WebAuthnCredential, error) {
@@ -299,11 +299,12 @@ func TestFinishLoginHandler_AccountState(t *testing.T) {
 		for _, state := range states {
 			t.Run(ceremony.name+"/"+state.name, func(t *testing.T) {
 				user := state.user
-				challengeDeleted := false
+				challengeConsumed := false
 				tokenMinted := false
 
 				mockWA := &testhelpers.MockWebAuthnService{
-					GetChallengeFn: func(string, string) (*webauthn.SessionData, uint, error) {
+					ConsumeChallengeFn: func(string, string) (*webauthn.SessionData, uint, error) {
+						challengeConsumed = true
 						return &webauthn.SessionData{}, ceremony.challengeUser, nil
 					},
 					FinishLoginFn: func(*authm.User, *webauthn.SessionData, *protocol.ParsedCredentialAssertionData) (*authm.WebAuthnCredential, error) {
@@ -311,10 +312,6 @@ func TestFinishLoginHandler_AccountState(t *testing.T) {
 					},
 					FinishDiscoverableLoginFn: func(*webauthn.SessionData, *protocol.ParsedCredentialAssertionData) (*authm.User, *authm.WebAuthnCredential, error) {
 						return &user, &authm.WebAuthnCredential{}, nil
-					},
-					DeleteChallengeFn: func(string) error {
-						challengeDeleted = true
-						return nil
 					},
 				}
 				mockUS := &testhelpers.MockUserService{
@@ -332,7 +329,7 @@ func TestFinishLoginHandler_AccountState(t *testing.T) {
 				if err != nil {
 					t.Fatalf("unexpected error: %v", err)
 				}
-				if !challengeDeleted {
+				if !challengeConsumed {
 					t.Error("a verified assertion must consume its challenge")
 				}
 

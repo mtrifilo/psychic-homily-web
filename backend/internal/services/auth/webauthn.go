@@ -299,31 +299,46 @@ func (s *WebAuthnService) StoreChallenge(userID uint, session *webauthn.SessionD
 	return challenge.ID, nil
 }
 
-// GetChallenge retrieves and validates a WebAuthn challenge
-func (s *WebAuthnService) GetChallenge(challengeID string, operation string) (*webauthn.SessionData, uint, error) {
-	var challenge authm.WebAuthnChallenge
-	if err := s.db.Where("id = ? AND operation = ?", challengeID, operation).First(&challenge).Error; err != nil {
-		return nil, 0, fmt.Errorf("challenge not found: %w", err)
+// consumeChallenge deletes the challenge stored under challengeID for
+// operation and returns the row it held. The delete and the read are one
+// statement, so a challenge reaches at most one caller however many requests
+// carry its id. An expired challenge is deleted all the same and answers as
+// expired.
+func (s *WebAuthnService) consumeChallenge(challengeID string, operation string) (*authm.WebAuthnChallenge, error) {
+	var consumed []authm.WebAuthnChallenge
+	err := s.db.Raw(
+		`DELETE FROM webauthn_challenges WHERE id = ? AND operation = ?
+		 RETURNING id, user_id, challenge, session_data, operation, expires_at, created_at`,
+		challengeID, operation,
+	).Scan(&consumed).Error
+	if err != nil {
+		return nil, fmt.Errorf("failed to consume challenge: %w", err)
 	}
-
-	// Check expiry
+	if len(consumed) == 0 {
+		return nil, fmt.Errorf("challenge not found")
+	}
+	challenge := consumed[0]
 	if challenge.IsExpired() {
-		s.db.Delete(&challenge)
-		return nil, 0, fmt.Errorf("challenge expired")
+		return nil, fmt.Errorf("challenge expired")
+	}
+	return &challenge, nil
+}
+
+// ConsumeChallenge removes a WebAuthn challenge and returns its session and
+// the user it was issued to. Every later call for the same id fails, whether
+// or not the ceremony the first caller runs with it succeeds.
+func (s *WebAuthnService) ConsumeChallenge(challengeID string, operation string) (*webauthn.SessionData, uint, error) {
+	challenge, err := s.consumeChallenge(challengeID, operation)
+	if err != nil {
+		return nil, 0, err
 	}
 
-	// Unmarshal session data
 	var session webauthn.SessionData
 	if err := json.Unmarshal(challenge.SessionData, &session); err != nil {
 		return nil, 0, fmt.Errorf("failed to unmarshal session: %w", err)
 	}
 
 	return &session, challenge.UserID, nil
-}
-
-// DeleteChallenge removes a used challenge
-func (s *WebAuthnService) DeleteChallenge(challengeID string) error {
-	return s.db.Where("id = ?", challengeID).Delete(&authm.WebAuthnChallenge{}).Error
 }
 
 // CleanupExpiredChallenges removes expired challenges (can be run periodically)
@@ -431,21 +446,15 @@ func (s *WebAuthnService) StoreSignupChallenge(signup contracts.SignupChallenge,
 	return challenge.ID, nil
 }
 
-// GetSignupChallenge retrieves a signup challenge with the address and the
-// consent StoreSignupChallenge stored beside it.
-func (s *WebAuthnService) GetSignupChallenge(challengeID string, operation string) (*webauthn.SessionData, contracts.SignupChallenge, error) {
-	var challenge authm.WebAuthnChallenge
-	if err := s.db.Where("id = ? AND operation = ?", challengeID, operation).First(&challenge).Error; err != nil {
-		return nil, contracts.SignupChallenge{}, fmt.Errorf("challenge not found: %w", err)
+// ConsumeSignupChallenge removes a signup challenge and returns it with the
+// address and the consent StoreSignupChallenge stored beside it. Every later
+// call for the same id fails, as with ConsumeChallenge.
+func (s *WebAuthnService) ConsumeSignupChallenge(challengeID string, operation string) (*webauthn.SessionData, contracts.SignupChallenge, error) {
+	challenge, err := s.consumeChallenge(challengeID, operation)
+	if err != nil {
+		return nil, contracts.SignupChallenge{}, err
 	}
 
-	// Check expiry
-	if challenge.IsExpired() {
-		s.db.Delete(&challenge)
-		return nil, contracts.SignupChallenge{}, fmt.Errorf("challenge expired")
-	}
-
-	// Unmarshal wrapped session data
 	var wrapped signupSessionData
 	if err := json.Unmarshal(challenge.SessionData, &wrapped); err != nil {
 		return nil, contracts.SignupChallenge{}, fmt.Errorf("failed to unmarshal session: %w", err)

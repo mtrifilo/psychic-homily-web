@@ -208,8 +208,8 @@ func (h *PasskeyHandler) FinishRegisterHandler(ctx context.Context, input *Finis
 		"user_id", contextUser.ID,
 	)
 
-	// Get challenge
-	session, userID, err := h.webauthnService.GetChallenge(input.Body.ChallengeID, "registration")
+	// The challenge is spent here, whatever the rest of the ceremony answers.
+	session, userID, err := h.webauthnService.ConsumeChallenge(input.Body.ChallengeID, "registration")
 	if err != nil {
 		logger.AuthWarn(ctx, "passkey_challenge_invalid",
 			"user_id", contextUser.ID,
@@ -251,9 +251,6 @@ func (h *PasskeyHandler) FinishRegisterHandler(ctx context.Context, input *Finis
 		resp.Body.ErrorCode = autherrors.CodeServiceUnavailable
 		return resp, nil
 	}
-
-	// Delete used challenge
-	_ = h.webauthnService.DeleteChallenge(input.Body.ChallengeID)
 
 	logger.AuthInfo(ctx, "passkey_registered",
 		"user_id", contextUser.ID,
@@ -401,8 +398,8 @@ func (h *PasskeyHandler) FinishLoginHandler(ctx context.Context, input *FinishLo
 
 	logger.AuthDebug(ctx, "passkey_login_finish")
 
-	// Get challenge
-	session, userID, err := h.webauthnService.GetChallenge(input.Body.ChallengeID, "authentication")
+	// The challenge is spent here, whatever the rest of the ceremony answers.
+	session, userID, err := h.webauthnService.ConsumeChallenge(input.Body.ChallengeID, "authentication")
 	if err != nil {
 		logger.AuthWarn(ctx, "passkey_challenge_invalid",
 			"error", err.Error(),
@@ -451,9 +448,6 @@ func (h *PasskeyHandler) FinishLoginHandler(ctx context.Context, input *FinishLo
 		resp.Body.ErrorCode = autherrors.CodeInvalidCredentials
 		return resp, nil
 	}
-
-	// Delete used challenge
-	_ = h.webauthnService.DeleteChallenge(input.Body.ChallengeID)
 
 	// After the assertion verified, so only the credential's holder learns the
 	// account's state.
@@ -765,7 +759,8 @@ func (h *PasskeyHandler) FinishSignupHandler(ctx context.Context, input *FinishS
 
 	logger.AuthDebug(ctx, "passkey_signup_finish")
 
-	session, signup, err := h.webauthnService.GetSignupChallenge(input.Body.ChallengeID, "signup")
+	// The challenge is spent here, whatever the rest of the ceremony answers.
+	session, signup, err := h.webauthnService.ConsumeSignupChallenge(input.Body.ChallengeID, "signup")
 	if err != nil {
 		logger.AuthWarn(ctx, "passkey_challenge_invalid",
 			"error", err.Error(),
@@ -859,9 +854,6 @@ func (h *PasskeyHandler) FinishSignupHandler(ctx context.Context, input *FinishS
 		resp.Body.ErrorCode = autherrors.CodeServiceUnavailable
 		return resp, nil
 	}
-
-	// Delete used challenge
-	_ = h.webauthnService.DeleteChallenge(input.Body.ChallengeID)
 
 	// Generate JWT token
 	token, err := h.jwtService.CreateToken(user)
