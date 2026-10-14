@@ -19,7 +19,7 @@ import phLightBasemap from './ph-light-basemap.json'
 export type BasemapVariant = 'dark' | 'light'
 
 // resolveJsonModule types JSON literals as plain strings, not the style-spec
-// literal unions — the cast is unavoidable. phBasemap.test.ts validates both
+// literal unions, so the cast is unavoidable. phBasemap.test.ts validates both
 // files against @maplibre/maplibre-gl-style-spec so the cast can't hide a
 // malformed style.
 const STYLES: Readonly<Record<BasemapVariant, StyleSpecification>> = {
@@ -55,8 +55,8 @@ const RASTER_CUTOFF_MARGIN = 0.1
  * flight (and drawn, under the still-opaque raster) when the fade begins.
  * Below it nothing vector renders and no vector tile is fetched.
  *
- * Exported so the callers that must agree with it — the atmosphere ramp in
- * GlobeCanvas and the minzoom guard in phBasemap.test.ts — derive it
+ * Exported so the callers that must agree with it (the atmosphere ramp in
+ * GlobeCanvas and the minzoom guard in phBasemap.test.ts) derive it
  * instead of repeating the literal.
  */
 export const PH_BASEMAP_MIN_ZOOM = 5

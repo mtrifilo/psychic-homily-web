@@ -37,13 +37,13 @@ import {
  * README.md in this directory); the light file is written from the dark one
  * by scripts/atlas-light-basemap.mjs. These tests pin, for each file, the
  * properties that break silently in production:
- *  - spec validity (a malformed layer aborts the whole style load — the map
+ *  - spec validity (a malformed layer aborts the whole style load: the map
  *    renders nothing, no partial fallback),
  *  - every remote host being present in the app CSP's connect-src (MapLibre
  *    fetches tiles AND glyphs via fetch(); a missing host = blank basemap
  *    with only console CSP noise),
  *  - fonts staying within OpenFreeMap's fixed glyph set (an unknown
- *    fontstack 404s per label tile → labels silently absent),
+ *    fontstack 404s per label tile, so labels are silently absent),
  *  - zero CARTO leftovers from the spike (ticket AC),
  *  - the merge contract GlobeCanvas relies on (background first, all vector
  *    layers minzoom-gated, no id collisions with the scene layers), and
@@ -109,14 +109,14 @@ const rawStyle = (variant: BasemapVariant) =>
 
 // OpenFreeMap's glyph server serves a fixed font set; these three are the
 // stacks verified available (HTTP 200 on 0-255.pbf, 2026-07-26). Space Mono
-// and other PH type-direction faces are NOT served — see README.md.
+// and other PH type-direction faces are NOT served (see README.md).
 const AVAILABLE_FONTS = new Set([
   'Noto Sans Regular',
   'Noto Sans Bold',
   'Noto Sans Italic',
 ])
 
-// Layer ids GlobeCanvas appends after the basemap fragment — a collision
+// Layer ids GlobeCanvas appends after the basemap fragment: a collision
 // would make the merged style invalid and abort the load.
 const GLOBE_CANVAS_LAYER_IDS = [
   NIGHT_EARTH_LAYER_ID,
@@ -152,7 +152,7 @@ function collectRemoteUrls(s: StyleSpecification): string[] {
 // The crossfade range GlobeCanvas drives the handoff over. Any layer that
 // switches on strictly INSIDE it appears while the Black Marble raster is
 // still partly opaque, and MapLibre's `minzoom` is a hard cutoff with no
-// fade of its own — so such a layer must ramp its own opacity or it hard-
+// fade of its own, so such a layer must ramp its own opacity or it hard-
 // pops mid-transition (the "no pop" acceptance criterion).
 const FADE_START = 5.5
 const FADE_END = 7
@@ -172,7 +172,7 @@ describe.each(VARIANT_NAMES)('ph-%s-basemap.json', (variant) => {
     expect(errors).toEqual([])
   })
 
-  it('contains zero CARTO references (PSY-1543 AC — the spike borrowed dark-matter)', () => {
+  it('contains zero CARTO references (PSY-1543 AC: the spike borrowed dark-matter)', () => {
     const raw = rawStyle(variant).toLowerCase()
     expect(raw).not.toContain('carto')
     expect(raw).not.toContain('dark-matter')
@@ -201,8 +201,8 @@ describe.each(VARIANT_NAMES)('ph-%s-basemap.json', (variant) => {
   it('matches the source id the failure signal filters on (PSY-1568)', () => {
     // basemapTelemetry reports a failure of THIS source and ignores every
     // other MapLibre error. A regenerated style that renames the source would
-    // leave that filter matching nothing — the exact silent degradation the
-    // signal exists to catch — so it fails here instead.
+    // leave that filter matching nothing, the exact silent degradation the
+    // signal exists to catch, so it fails here instead.
     expect(Object.keys(style.sources)).toEqual([PH_BASEMAP_SOURCE_ID])
 
     // Only the hosts written IN THIS FILE are pinned: the source is a TileJSON
@@ -281,15 +281,15 @@ describe.each(VARIANT_NAMES)('ph-%s-basemap.json', (variant) => {
   })
 
   // The style is anchored to the theme's tokens (README.md "Palette").
-  // Nothing at runtime reads those tokens — the style JSON is a hand-copied
-  // snapshot of them — so a future repaint of the theme would leave the map
+  // Nothing at runtime reads those tokens (the style JSON is a hand-copied
+  // snapshot of them), so a future repaint of the theme would leave the map
   // silently stale with CI green.
   it(`keeps its palette anchored to the ${tokenBlock.name} tokens in globals.css`, () => {
     const raw = rawStyle(variant).toLowerCase()
     for (const [token, hex] of Object.entries(anchors)) {
       expect(
         tokenBlock.css,
-        `${token} moved in globals.css — re-derive the basemap palette (see basemap/README.md) and update this guard`,
+        `${token} moved in globals.css: re-derive the basemap palette (see basemap/README.md) and update this guard`,
       ).toContain(`${token}: ${hex};`)
       expect(raw, `${hex} (${token}) is no longer used by the style`).toContain(
         hex,

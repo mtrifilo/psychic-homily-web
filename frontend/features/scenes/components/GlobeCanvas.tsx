@@ -561,7 +561,7 @@ function GlobeMap({
             slug: s.slug,
             color: sceneDotColor(ramp, s.slug, null, selectedSlug, followedSlugs, genreBase),
             radiusPx: sceneDotRadiusPx(s.upcoming_show_count),
-            // The hover color must not override the selected color — the
+            // The hover color must not override the selected color: the
             // paint expression checks this flag (selected > hovered).
             isSelected: s.slug === selectedSlug,
             // Smaller dots draw ABOVE larger ones so a dense metro can't
@@ -1185,7 +1185,7 @@ function GlobeMap({
             },
             // Hover rides feature-state so enter/leave never rebuilds the
             // source (see the sceneFeatures doc). Precedence: the selected
-            // colour must not be overridden by hover (selected > hovered —
+            // colour must not be overridden by hover (selected > hovered,
             // sceneDotColor's contract), hence the isSelected guard; the
             // radius bump applies regardless, matching the old canvas.
             paint: {
@@ -1721,7 +1721,7 @@ function GlobeMap({
     }
     // pov is resolved once before this canvas mounts, flyToRef is a stable
     // ref container from AtlasGlobe, theme keys this component (a new theme
-    // is a new instance) and leftPreviewCameraRef is GlobeCanvas's ref — all
+    // is a new instance) and leftPreviewCameraRef is GlobeCanvas's ref: all
     // are identity-stable for the canvas's lifetime; everything else this
     // effect reads is a ref or setter, so the camera never re-aims on data
     // re-renders.
