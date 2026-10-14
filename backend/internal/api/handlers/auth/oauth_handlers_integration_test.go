@@ -434,12 +434,7 @@ func (s *OAuthHandlerIntegrationSuite) TestCallback_ExpiredCLICallback_NotUsed()
 	})
 
 	// Store an expired CLI callback
-	cliCallbackStore.Lock()
-	cliCallbackStore.callbacks["expired-cli-id"] = cliCallbackEntry{
-		callbackURL: "http://localhost:8888/expired",
-		expiresAt:   time.Now().Add(-1 * time.Minute),
-	}
-	cliCallbackStore.Unlock()
+	storeExpiredCLICallback("expired-cli-id", "http://localhost:8888/expired")
 
 	w, req := oauthCallbackRequest("google")
 	s.addSignupConsentCookie(req)
