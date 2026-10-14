@@ -23,26 +23,42 @@ import (
 // the copy would land in history, referrers and access logs.
 func (s *OAuthHandlerIntegrationSuite) assertSignInRefusal(w *httptest.ResponseRecorder, refused string) url.Values {
 	s.T().Helper()
+	query := s.assertAuthPageRefusal(w, autherrors.ErrOAuthLinkRefused(refused))
+
+	s.NotContains(query.Get("error"), refused)
+	s.NotContains(w.Header().Get("Location"), refused)
+	return query
+}
+
+// assertAuthPageRefusal pins a sign-in callback refused with refusal: back to
+// the auth page carrying exactly the refusal's own copy and code, with no
+// session. It returns the redirect's query.
+func (s *OAuthHandlerIntegrationSuite) assertAuthPageRefusal(w *httptest.ResponseRecorder, refusal *autherrors.AuthError) url.Values {
+	s.T().Helper()
 	s.Equal(http.StatusTemporaryRedirect, w.Code)
 
-	location := w.Header().Get("Location")
-	parsed, err := url.Parse(location)
+	parsed, err := url.Parse(w.Header().Get("Location"))
 	s.Require().NoError(err)
 	s.Equal("http://localhost:3000/auth", parsed.Scheme+"://"+parsed.Host+parsed.Path)
 	// UserMessage() is what the handler emits. ToExternalMessage is a separate
-	// table that happens to agree for this code, so asserting against it would
-	// point a maintainer at the wrong function.
-	s.Equal(autherrors.ErrOAuthLinkRefused(refused).UserMessage(), parsed.Query().Get("error"))
+	// table that happens to agree for these codes, so asserting against it
+	// would point a maintainer at the wrong function.
+	s.Equal(url.Values{
+		"error":      {refusal.UserMessage()},
+		"error_code": {refusal.Code},
+	}, parsed.Query())
 
+	s.assertNoSessionCookie(w)
+	return parsed.Query()
+}
+
+func (s *OAuthHandlerIntegrationSuite) assertNoSessionCookie(w *httptest.ResponseRecorder) {
+	s.T().Helper()
 	for _, c := range w.Result().Cookies() {
 		if c.Name == "auth_token" && c.Value != "" {
 			s.Fail("a refused sign-in must not issue a session")
 		}
 	}
-
-	s.NotContains(parsed.Query().Get("error"), refused)
-	s.NotContains(location, refused)
-	return parsed.Query()
 }
 
 // The refusal over HTTP: no auth cookie, and the refusal's own copy in the
@@ -123,6 +139,7 @@ func (s *OAuthHandlerIntegrationSuite) TestAuthRefusalCarriesItsOwnCopy() {
 		autherrors.CodeOAuthIdentityInUse,
 		autherrors.CodeOAuthProviderAlreadyLinked,
 		autherrors.CodeOAuthLinkExpired,
+		autherrors.CodeAccountInactive,
 	}
 	for _, code := range actionable {
 		s.True(authRefusalCarriesItsOwnCopy(code), "expected %s to carry its own copy", code)

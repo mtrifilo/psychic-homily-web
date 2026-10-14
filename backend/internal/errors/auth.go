@@ -32,10 +32,12 @@ const (
 	CodeUnknown = "UNKNOWN"
 	// CodeAccountLocked indicates the account is locked due to too many failed attempts
 	CodeAccountLocked = "ACCOUNT_LOCKED"
-	// CodeAccountInactive indicates the account exists but has been deactivated
-	// (is_active = false). Distinct from CodeInvalidCredentials so the frontend
-	// can special-case the copy; the password check still ran, so this is not an
-	// enumeration oracle beyond what login already exposes.
+	// CodeAccountInactive indicates the account exists but may not sign in
+	// (authm.User.CanSignIn: deactivated or soft-deleted). Distinct from
+	// CodeInvalidCredentials so the frontend can special-case the copy. It is
+	// returned only after the caller has proved the credential (a password, a
+	// provider-authenticated identity, or a verified passkey assertion), so it
+	// is not an enumeration oracle beyond what sign-in already exposes.
 	CodeAccountInactive = "ACCOUNT_INACTIVE"
 	// CodeNoPasswordSet indicates the user has no password (OAuth-only account)
 	CodeNoPasswordSet = "NO_PASSWORD_SET"
@@ -357,11 +359,12 @@ func ErrAccountLockedWithMinutes(minutes int) *AuthError {
 	}
 }
 
-// ErrAccountInactive creates an error for a deactivated account (is_active = false).
-// The user-facing message is intentionally vague ("Account unavailable. Please
-// contact support.") rather than naming deactivation: the password check has
-// already run, so this carries no enumeration signal beyond what login leaks,
-// but the vaguer copy avoids confirming the deactivation reason to a guesser.
+// ErrAccountInactive creates an error for an account that may not sign in
+// (CodeAccountInactive). The user-facing message is intentionally vague
+// ("Account unavailable. Please contact support.") rather than naming
+// deactivation or deletion: the credential has already been proved, so this
+// carries no enumeration signal beyond what sign-in leaks, but the vaguer copy
+// avoids confirming the reason.
 func ErrAccountInactive() *AuthError {
 	return &AuthError{
 		Code:    CodeAccountInactive,
@@ -418,9 +421,9 @@ func ToExternalCode(code string) string {
 	case CodeUserNotFound:
 		return CodeInvalidCredentials
 	case CodeAccountInactive:
-		// Deactivated accounts are NOT enumeration-sensitive: the password
-		// check already ran, so login already leaks existence on a correct
-		// password. Keep the code distinct so the frontend can special-case it.
+		// Not enumeration-sensitive: the credential was proved before this
+		// code is returned, so sign-in already leaks existence to its holder.
+		// Keep the code distinct so the frontend can special-case it.
 		return CodeAccountInactive
 	default:
 		return code

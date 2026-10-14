@@ -64,6 +64,7 @@ func TestOAuthCallbackErrorRedirect_CarriesRefusalCode(t *testing.T) {
 	termsRefusal := autherrors.ErrTermsAcceptanceRequired("no consent")
 	existsRefusal := autherrors.ErrUserExists("taken@example.com")
 	identityRefusal := autherrors.ErrOAuthIdentityInUse("google")
+	inactiveRefusal := autherrors.ErrAccountInactive()
 
 	cases := []struct {
 		name        string
@@ -94,6 +95,12 @@ func TestOAuthCallbackErrorRedirect_CarriesRefusalCode(t *testing.T) {
 			err:         identityRefusal,
 			wantMessage: identityRefusal.UserMessage(),
 			wantCode:    autherrors.CodeOAuthIdentityInUse,
+		},
+		{
+			name:        "account may not sign in, wrapped",
+			err:         fmt.Errorf("failed to find or create user: %w", inactiveRefusal),
+			wantMessage: inactiveRefusal.UserMessage(),
+			wantCode:    autherrors.CodeAccountInactive,
 		},
 		{
 			name:        "auth error outside the refusal list",

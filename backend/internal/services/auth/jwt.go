@@ -168,7 +168,8 @@ func authTimeFromClaims(claims jwt.MapClaims) time.Time {
 
 // userFromSessionClaims loads the principal named by already-verified session
 // claims. The database is the authority on current admin status and on whether
-// the account is still active, neither of which the token can be trusted for.
+// the account may still hold a session (authm.User.CanSignIn), neither of which
+// the token can be trusted for.
 func (s *JWTService) userFromSessionClaims(claims jwt.MapClaims) (*authm.User, error) {
 	// Rejecting id < 1 keeps this reader and SessionUserID agreeing on what a
 	// valid id is, and keeps a negative value out of the conversion to uint.
@@ -182,8 +183,8 @@ func (s *JWTService) userFromSessionClaims(claims jwt.MapClaims) (*authm.User, e
 		return nil, fmt.Errorf("failed to get user: %w", err)
 	}
 
-	if !user.IsActive {
-		return nil, apperrors.ErrTokenInvalid(fmt.Errorf("user account is not active"))
+	if !user.CanSignIn() {
+		return nil, apperrors.ErrTokenInvalid(fmt.Errorf("user account may not hold a session"))
 	}
 
 	return user, nil

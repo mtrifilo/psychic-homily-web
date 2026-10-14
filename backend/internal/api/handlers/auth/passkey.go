@@ -440,6 +440,19 @@ func (h *PasskeyHandler) FinishLoginHandler(ctx context.Context, input *FinishLo
 	// Delete used challenge
 	_ = h.webauthnService.DeleteChallenge(input.Body.ChallengeID)
 
+	// After the assertion verified, so only the credential's holder learns the
+	// account's state.
+	if !user.CanSignIn() {
+		logger.AuthWarn(ctx, "passkey_login_account_inactive",
+			"user_id", user.ID,
+		)
+		inactive := autherrors.ErrAccountInactive()
+		resp.Body.Success = false
+		resp.Body.Message = inactive.UserMessage()
+		resp.Body.ErrorCode = inactive.Code
+		return resp, nil
+	}
+
 	// Generate JWT token
 	token, err := h.jwtService.CreateToken(user)
 	if err != nil {

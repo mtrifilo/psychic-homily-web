@@ -182,16 +182,19 @@ func NewUserService(database *gorm.DB) *UserService {
 // FindOrCreateUser finds existing user or creates new one from OAuth data.
 // This legacy path does not enforce signup consent for new OAuth users.
 //
-// Returns a typed *apperrors.AuthError with CodeUserExists when the address
-// already belongs to an account and the provider did not assert it verified
-// the address. Callers that render a refusal differently from a fault must
-// discriminate on that code.
+// Returns a typed *apperrors.AuthError for each refusal: CodeOAuthLinkRefused
+// when the address already belongs to an account the identity is not attached
+// to, CodeUserExists when a concurrent signup claims the address first, and
+// CodeAccountInactive when the identity resolves to an account that may not
+// sign in (authm.User.CanSignIn). Callers that render a refusal differently
+// from a fault must discriminate on the code.
 func (s *UserService) FindOrCreateUser(gothUser goth.User, provider string) (*authm.User, error) {
 	return s.findOrCreateOAuthUser(gothUser, provider, nil, false)
 }
 
 // FindOrCreateUserWithConsent enforces terms acceptance for brand-new OAuth
-// users. It refuses an unverified address the same way FindOrCreateUser does.
+// users. It refuses a held address and an account that may not sign in the
+// same way FindOrCreateUser does.
 func (s *UserService) FindOrCreateUserWithConsent(gothUser goth.User, provider string, consent *contracts.OAuthSignupConsent) (*authm.User, error) {
 	return s.findOrCreateOAuthUser(gothUser, provider, consent, true)
 }
@@ -221,6 +224,12 @@ func (s *UserService) findOrCreateOAuthUser(gothUser goth.User, provider string,
 		var user authm.User
 		if err := s.db.Preload("OAuthAccounts").Preload("Preferences").First(&user, oauthAccount.UserID).Error; err != nil {
 			return nil, fmt.Errorf("failed to get user: %w", err)
+		}
+		if !user.CanSignIn() {
+			logger.Default().Warn("oauth_signin_refused_account_inactive",
+				"provider", provider,
+				"user_id", user.ID)
+			return nil, apperrors.ErrAccountInactive()
 		}
 		return &user, nil
 	}
@@ -439,7 +448,7 @@ func (s *UserService) AuthenticateUserWithPassword(email, password string) (*aut
 		return nil, apperrors.ErrInvalidCredentials(nil)
 	}
 
-	if !user.IsActive {
+	if !user.CanSignIn() {
 		return nil, apperrors.ErrAccountInactive()
 	}
 

@@ -2496,31 +2496,55 @@ func TestVerifyMagicLinkHandler_UserNotFound(t *testing.T) {
 
 func TestVerifyMagicLinkHandler_InactiveUser(t *testing.T) {
 	email := "test@example.com"
-	h := authHandler(func(ah *AuthHandler) {
-		ah.jwtService = &testhelpers.MockJWTService{
-			ValidateMagicLinkTokenFn: func(tokenString string) (*contracts.MagicLinkTokenClaims, error) {
-				return &contracts.MagicLinkTokenClaims{UserID: 1, Email: email}, nil
-			},
-		}
-		ah.userService = &testhelpers.MockUserService{
-			GetUserByIDFn: func(userID uint) (*authm.User, error) {
-				return &authm.User{ID: 1, Email: &email, IsActive: false}, nil
-			},
-		}
-	})
+	deletedAt := time.Now()
 
-	input := &VerifyMagicLinkRequest{}
-	input.Body.Token = "valid-token"
+	cases := []struct {
+		name string
+		user authm.User
+	}{
+		{name: "deactivated", user: authm.User{ID: 1, Email: &email, IsActive: false}},
+		{name: "soft-deleted", user: authm.User{ID: 1, Email: &email, IsActive: false, DeletedAt: &deletedAt}},
+		{name: "deleted-at-only", user: authm.User{ID: 1, Email: &email, IsActive: true, DeletedAt: &deletedAt}},
+	}
 
-	resp, err := h.VerifyMagicLinkHandler(context.Background(), input)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if resp.Body.Success {
-		t.Error("expected success=false")
-	}
-	if resp.Body.ErrorCode != autherrors.CodeUnauthorized {
-		t.Errorf("expected error_code=%s, got %s", autherrors.CodeUnauthorized, resp.Body.ErrorCode)
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			tokenMinted := false
+			h := authHandler(func(ah *AuthHandler) {
+				ah.jwtService = &testhelpers.MockJWTService{
+					ValidateMagicLinkTokenFn: func(tokenString string) (*contracts.MagicLinkTokenClaims, error) {
+						return &contracts.MagicLinkTokenClaims{UserID: 1, Email: email}, nil
+					},
+					CreateTokenFn: func(*authm.User) (string, error) {
+						tokenMinted = true
+						return "session-token", nil
+					},
+				}
+				ah.userService = &testhelpers.MockUserService{
+					GetUserByIDFn: func(userID uint) (*authm.User, error) {
+						user := tc.user
+						return &user, nil
+					},
+				}
+			})
+
+			input := &VerifyMagicLinkRequest{}
+			input.Body.Token = "valid-token"
+
+			resp, err := h.VerifyMagicLinkHandler(context.Background(), input)
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if resp.Body.Success {
+				t.Error("expected success=false")
+			}
+			if resp.Body.ErrorCode != autherrors.CodeUnauthorized {
+				t.Errorf("expected error_code=%s, got %s", autherrors.CodeUnauthorized, resp.Body.ErrorCode)
+			}
+			if tokenMinted || resp.SetCookie.Value != "" {
+				t.Error("a refused magic link must not mint a session")
+			}
+		})
 	}
 }
 

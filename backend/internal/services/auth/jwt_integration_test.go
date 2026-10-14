@@ -205,6 +205,20 @@ func (s *JWTIntegrationSuite) TestValidateToken_UserDeactivatedAfterTokenCreatio
 	s.Contains(err.Error(), "TOKEN_INVALID")
 }
 
+// deleted_at alone ends a session, without is_active having changed.
+func (s *JWTIntegrationSuite) TestValidateToken_DeletedAtSetAfterTokenCreation() {
+	user := s.createActiveUser("will-gain-deleted-at@example.com")
+	token, err := s.svc.CreateToken(user)
+	s.Require().NoError(err)
+
+	s.Require().NoError(s.db.Model(user).Update("deleted_at", time.Now()).Error)
+
+	validated, err := s.svc.ValidateToken(token)
+	s.Nil(validated)
+	s.Require().Error(err)
+	s.Contains(err.Error(), "TOKEN_INVALID")
+}
+
 // =============================================================================
 // EXPIRED TOKEN
 // =============================================================================
@@ -476,6 +490,22 @@ func (s *JWTIntegrationSuite) TestRefreshFlow_InactiveUser() {
 
 	// Deactivate user after token creation
 	s.Require().NoError(s.db.Model(user).Update("is_active", false).Error)
+
+	refreshed, err := s.renewLikeTheRefreshEndpoint(token)
+	s.Empty(refreshed)
+	s.Require().Error(err)
+	s.Contains(err.Error(), "TOKEN_INVALID")
+}
+
+// The refresh path's lenient validation applies the same account rule, so
+// deleted_at alone refuses a renewal too.
+func (s *JWTIntegrationSuite) TestRefreshFlow_DeletedAtSet() {
+	user := s.createActiveUser("refresh-deleted-at@example.com")
+
+	token, err := s.svc.CreateToken(user)
+	s.Require().NoError(err)
+
+	s.Require().NoError(s.db.Model(user).Update("deleted_at", time.Now()).Error)
 
 	refreshed, err := s.renewLikeTheRefreshEndpoint(token)
 	s.Empty(refreshed)
