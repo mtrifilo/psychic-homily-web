@@ -213,8 +213,7 @@ func (h *OAuthHTTPHandler) OAuthLoginHTTPHandler(w http.ResponseWriter, r *http.
 		// A version that is not the current one goes back to the auth page
 		// with the refusal the callback gives a sign-up without consent, so the
 		// reader lands where they can accept the current documents.
-		if _, _, ok := validateSignupConsentVersions(termsVersion, privacyVersion); !ok {
-			refusal := autherrors.ErrTermsAcceptanceRequired("terms or privacy version is not current")
+		if refusal := refuseStaleConsentVersions(termsVersion, privacyVersion); refusal != nil {
 			logger.AuthWarn(ctx, "oauth_signup_consent_refused",
 				"provider", provider,
 				"error_code", refusal.Code,

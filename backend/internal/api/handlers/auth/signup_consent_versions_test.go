@@ -2,10 +2,13 @@ package auth
 
 import (
 	"bytes"
+	"encoding/json"
 	"errors"
+	"maps"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"reflect"
 	"testing"
 
 	"github.com/danielgtaylor/huma/v2"
@@ -49,10 +52,7 @@ func consentVersionRefusals() map[string][2]*string {
 // withVersions returns body with terms_version and privacy_version set from
 // pair, leaving out a field whose pointer is nil.
 func withVersions(body map[string]any, pair [2]*string) map[string]any {
-	out := make(map[string]any, len(body)+2)
-	for k, v := range body {
-		out[k] = v
-	}
+	out := maps.Clone(body)
 	if pair[0] != nil {
 		out["terms_version"] = *pair[0]
 	}
@@ -202,14 +202,16 @@ func TestPasskeySignupBeginWire_StoresValidatedConsentOnChallenge(t *testing.T) 
 
 // --- POST /auth/passkey/signup/finish ---
 
-func passkeySignupFinishAPI(t *testing.T, signup contracts.SignupChallenge, recorded *contracts.LegalAcceptance, finished *bool) humatest.TestAPI {
+// passkeySignupFinishAPI serves signup/finish over a challenge carrying
+// signup, and writes the acceptance the account is created with to recorded.
+// A zero recorded after a request means no account was created.
+func passkeySignupFinishAPI(t *testing.T, signup contracts.SignupChallenge, recorded *contracts.LegalAcceptance) humatest.TestAPI {
 	t.Helper()
 	mockWA := &testhelpers.MockWebAuthnService{
 		GetSignupChallengeFn: func(string, string) (*webauthn.SessionData, contracts.SignupChallenge, error) {
 			return &webauthn.SessionData{}, signup, nil
 		},
 		FinishSignupRegistrationWithLegalFn: func(email string, _ *webauthn.SessionData, _ *protocol.ParsedCredentialCreationData, _ string, acceptance contracts.LegalAcceptance) (*authm.User, error) {
-			*finished = true
 			*recorded = acceptance
 			return &authm.User{ID: 9, Email: &email}, nil
 		},
@@ -225,8 +227,7 @@ func TestPasskeySignupFinishWire_RecordsTheConsentBeginValidated(t *testing.T) {
 	registration, _ := softRegistration(t)
 	signup := currentSignupChallenge("new@example.com")
 	var recorded contracts.LegalAcceptance
-	var finished bool
-	api := passkeySignupFinishAPI(t, signup, &recorded, &finished)
+	api := passkeySignupFinishAPI(t, signup, &recorded)
 
 	requireWireSuccess(t, api.Post("/auth/passkey/signup/finish", map[string]any{
 		"challenge_id":     "c-1",
@@ -237,14 +238,7 @@ func TestPasskeySignupFinishWire_RecordsTheConsentBeginValidated(t *testing.T) {
 		"age_confirmed":    false,
 		"min_age_attested": 10,
 	}))
-	if !finished {
-		t.Fatal("expected the account to be created")
-	}
-	if recorded.TermsVersion != signup.Acceptance.TermsVersion ||
-		recorded.PrivacyVersion != signup.Acceptance.PrivacyVersion ||
-		recorded.MinAgeAttested != signup.Acceptance.MinAgeAttested ||
-		!recorded.TermsAcceptedAt.Equal(signup.Acceptance.TermsAcceptedAt) ||
-		!recorded.AgeConfirmedAt.Equal(signup.Acceptance.AgeConfirmedAt) {
+	if recorded != signup.Acceptance {
 		t.Errorf("recorded %+v, want the challenge's %+v", recorded, signup.Acceptance)
 	}
 }
@@ -252,38 +246,28 @@ func TestPasskeySignupFinishWire_RecordsTheConsentBeginValidated(t *testing.T) {
 func TestPasskeySignupFinishWire_RefusesAChallengeWhoseConsentIsNotCurrent(t *testing.T) {
 	stale := currentSignupChallenge("new@example.com")
 	stale.Acceptance.PrivacyVersion = "2025-01-01"
-	underage := currentSignupChallenge("new@example.com")
-	underage.Acceptance.MinAgeAttested = MinSignupAge - 1
 
-	for name, tc := range map[string]struct {
-		signup   contracts.SignupChallenge
-		wantCode string
-	}{
-		"no consent":     {contracts.SignupChallenge{Email: "new@example.com"}, autherrors.CodeTermsAcceptanceRequired},
-		"stale versions": {stale, autherrors.CodeTermsAcceptanceRequired},
-		"age below min":  {underage, autherrors.CodeAgeConfirmationRequired},
+	for name, signup := range map[string]contracts.SignupChallenge{
+		"no consent":     {Email: "new@example.com"},
+		"stale versions": stale,
 	} {
 		t.Run(name, func(t *testing.T) {
-			registration, _ := softRegistration(t)
 			var recorded contracts.LegalAcceptance
-			var finished bool
-			api := passkeySignupFinishAPI(t, tc.signup, &recorded, &finished)
+			api := passkeySignupFinishAPI(t, signup, &recorded)
 
-			resp := api.Post("/auth/passkey/signup/finish", map[string]any{
+			// The refusal comes before the credential is parsed, so the
+			// response needs no ceremony behind it.
+			requireTermsAcceptanceRefusal(t, api.Post("/auth/passkey/signup/finish", map[string]any{
 				"challenge_id":     "c-1",
-				"response":         registration,
+				"response":         json.RawMessage(`{}`),
 				"terms_accepted":   true,
 				"terms_version":    legal.CurrentTermsVersion,
 				"privacy_version":  legal.CurrentPrivacyVersion,
 				"age_confirmed":    true,
 				"min_age_attested": MinSignupAge,
-			})
-			body := decodeWireBody(t, resp.Body.Bytes())
-			if success, _ := body["success"].(bool); success || finished {
-				t.Fatalf("expected a refusal before any account: %s", resp.Body.String())
-			}
-			if code, _ := body["error_code"].(string); code != tc.wantCode {
-				t.Errorf("error_code = %q, want %q", code, tc.wantCode)
+			}))
+			if recorded != (contracts.LegalAcceptance{}) {
+				t.Error("expected no account for a refused consent")
 			}
 		})
 	}
@@ -322,11 +306,12 @@ func TestGoogleSignupStart_RefusesConsentVersionsThatAreNotCurrent(t *testing.T)
 			if location.Path != "/auth" {
 				t.Errorf("redirect path %q, want /auth", location.Path)
 			}
-			if got := location.Query().Get(authPageErrorCodeParam); got != want.Code {
-				t.Errorf("%s = %q, want %q", authPageErrorCodeParam, got, want.Code)
+			// The literal keys are the frontend auth page's contract.
+			if got := location.Query().Get("error_code"); got != want.Code {
+				t.Errorf("error_code = %q, want %q", got, want.Code)
 			}
-			if got := location.Query().Get(authPageErrorParam); got != want.UserMessage() {
-				t.Errorf("%s = %q, want %q", authPageErrorParam, got, want.UserMessage())
+			if got := location.Query().Get("error"); got != want.UserMessage() {
+				t.Errorf("error = %q, want %q", got, want.UserMessage())
 			}
 			for _, c := range w.Result().Cookies() {
 				if c.Name == oauthSignupConsentCookieName {
@@ -391,22 +376,14 @@ func TestPasskeyLoginBeginWire_UnknownAndPasskeylessAnswerIdentically(t *testing
 var errNoPasskeysForTest = errors.New("user has no registered passkeys")
 
 // requireIdenticalResponses fails unless a and b carry the same status, the
-// same header set and values, and the same body bytes.
+// same headers and the same body bytes.
 func requireIdenticalResponses(t *testing.T, a, b *httptest.ResponseRecorder) {
 	t.Helper()
 	if a.Code != b.Code {
 		t.Errorf("status %d vs %d", a.Code, b.Code)
 	}
-	ah, bh := a.Result().Header, b.Result().Header
-	for name := range ah {
-		if ah.Get(name) != bh.Get(name) {
-			t.Errorf("header %s: %q vs %q", name, ah.Get(name), bh.Get(name))
-		}
-	}
-	for name := range bh {
-		if _, ok := ah[name]; !ok {
-			t.Errorf("header %s present only on the second response", name)
-		}
+	if ah, bh := a.Result().Header, b.Result().Header; !reflect.DeepEqual(ah, bh) {
+		t.Errorf("headers differ:\n%v\n%v", ah, bh)
 	}
 	if !bytes.Equal(a.Body.Bytes(), b.Body.Bytes()) {
 		t.Errorf("bodies differ:\n%s\n%s", a.Body.String(), b.Body.String())

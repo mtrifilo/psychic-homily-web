@@ -1,6 +1,6 @@
 // Package legal names the versions of the Terms of Service and the Privacy
-// Policy a new account accepts. Every sign-up path refuses any other version,
-// so these are the only values a new users row records.
+// Policy a new account accepts. Every sign-up endpoint refuses any other
+// version.
 package legal
 
 // The versions the frontend's sign-up forms send (CURRENT_TERMS_VERSION and

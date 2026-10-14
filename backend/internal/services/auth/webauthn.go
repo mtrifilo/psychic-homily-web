@@ -362,9 +362,9 @@ func signupAccount(id uint, email string) *authm.User {
 // stored without an acceptance decodes to a zero LegalAcceptance, which
 // carries no version and so is refused wherever versions are checked.
 type signupSessionData struct {
-	Email      string                     `json:"email"`
-	Acceptance *contracts.LegalAcceptance `json:"acceptance,omitempty"`
-	Session    *webauthn.SessionData      `json:"session"`
+	Email      string                    `json:"email"`
+	Acceptance contracts.LegalAcceptance `json:"acceptance"`
+	Session    *webauthn.SessionData     `json:"session"`
 }
 
 // BeginRegistrationForEmail starts passkey registration for a new account
@@ -390,10 +390,9 @@ func (s *WebAuthnService) BeginRegistrationForEmail(email string) (*protocol.Cre
 // StoreSignupChallenge saves a signup ceremony's challenge together with the
 // address and the consent its finish step records.
 func (s *WebAuthnService) StoreSignupChallenge(signup contracts.SignupChallenge, session *webauthn.SessionData, operation string) (string, error) {
-	acceptance := signup.Acceptance
 	wrapped := signupSessionData{
 		Email:      signup.Email,
-		Acceptance: &acceptance,
+		Acceptance: signup.Acceptance,
 		Session:    session,
 	}
 
@@ -438,11 +437,7 @@ func (s *WebAuthnService) GetSignupChallenge(challengeID string, operation strin
 		return nil, contracts.SignupChallenge{}, fmt.Errorf("failed to unmarshal session: %w", err)
 	}
 
-	signup := contracts.SignupChallenge{Email: wrapped.Email}
-	if wrapped.Acceptance != nil {
-		signup.Acceptance = *wrapped.Acceptance
-	}
-	return wrapped.Session, signup, nil
+	return wrapped.Session, contracts.SignupChallenge{Email: wrapped.Email, Acceptance: wrapped.Acceptance}, nil
 }
 
 // FinishSignupRegistration completes registration, creates user, and stores credential.

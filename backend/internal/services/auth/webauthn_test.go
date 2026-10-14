@@ -495,11 +495,7 @@ func (suite *WebAuthnServiceIntegrationTestSuite) TestStoreAndGetSignupChallenge
 	suite.Equal("roundtrip@test.com", signup.Email)
 	suite.Equal(session.Challenge, retrieved.Challenge)
 	suite.Equal(session.UserVerification, retrieved.UserVerification)
-	suite.True(acceptance.TermsAcceptedAt.Equal(signup.Acceptance.TermsAcceptedAt))
-	suite.True(acceptance.AgeConfirmedAt.Equal(signup.Acceptance.AgeConfirmedAt))
-	suite.Equal(acceptance.TermsVersion, signup.Acceptance.TermsVersion)
-	suite.Equal(acceptance.PrivacyVersion, signup.Acceptance.PrivacyVersion)
-	suite.Equal(acceptance.MinAgeAttested, signup.Acceptance.MinAgeAttested)
+	suite.Equal(acceptance, signup.Acceptance)
 }
 
 // A signup challenge stored without an acceptance reads back with a zero one,

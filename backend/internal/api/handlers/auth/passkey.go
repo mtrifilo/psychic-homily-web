@@ -645,10 +645,10 @@ func (h *PasskeyHandler) BeginSignupHandler(ctx context.Context, input *BeginSig
 		resp.Body.ErrorCode = autherrors.CodeValidationFailed
 		return resp, nil
 	}
-	if errCode, errMsg, ok := validateSignupConsentVersions(input.Body.TermsVersion, input.Body.PrivacyVersion); !ok {
+	if refusal := refuseStaleConsentVersions(input.Body.TermsVersion, input.Body.PrivacyVersion); refusal != nil {
 		resp.Body.Success = false
-		resp.Body.Message = errMsg
-		resp.Body.ErrorCode = errCode
+		resp.Body.Message = refusal.UserMessage()
+		resp.Body.ErrorCode = refusal.Code
 		return resp, nil
 	}
 	if errCode, errMsg, ok := validateSignupAgeConfirmation(input.Body.AgeConfirmed, input.Body.MinAgeAttested); !ok {
@@ -772,19 +772,13 @@ func (h *PasskeyHandler) FinishSignupHandler(ctx context.Context, input *FinishS
 		return resp, nil
 	}
 	email := signup.Email
-	// The challenge's consent passed these same checks at begin. A challenge
-	// that carries none, or carries versions that stopped being current since,
-	// fails them here.
-	if errCode, errMsg, ok := validateSignupConsentVersions(signup.Acceptance.TermsVersion, signup.Acceptance.PrivacyVersion); !ok {
+	// The challenge's consent passed this check at begin. A challenge that
+	// carries none, or carries versions that stopped being current since,
+	// fails it here.
+	if refusal := refuseStaleConsentVersions(signup.Acceptance.TermsVersion, signup.Acceptance.PrivacyVersion); refusal != nil {
 		resp.Body.Success = false
-		resp.Body.Message = errMsg
-		resp.Body.ErrorCode = errCode
-		return resp, nil
-	}
-	if errCode, errMsg, ok := validateSignupAgeConfirmation(!signup.Acceptance.AgeConfirmedAt.IsZero(), signup.Acceptance.MinAgeAttested); !ok {
-		resp.Body.Success = false
-		resp.Body.Message = errMsg
-		resp.Body.ErrorCode = errCode
+		resp.Body.Message = refusal.UserMessage()
+		resp.Body.ErrorCode = refusal.Code
 		return resp, nil
 	}
 

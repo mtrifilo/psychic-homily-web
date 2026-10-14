@@ -46,17 +46,15 @@ func validateSignupAgeConfirmation(ageConfirmed bool, minAgeAttested int) (code,
 	return "", "", true
 }
 
-// validateSignupConsentVersions refuses an account creation whose terms or
-// privacy version is not the current one. An empty, stale or unknown version
-// is an acceptance of some document other than the current one, so it answers
-// TERMS_ACCEPTANCE_REQUIRED with that code's own message. Returns the error
-// code + user-facing message and ok=false on failure.
-func validateSignupConsentVersions(termsVersion, privacyVersion string) (code, message string, ok bool) {
+// refuseStaleConsentVersions returns the refusal for an account creation
+// whose terms or privacy version is not the current one, or nil when both are.
+// An empty, stale or unknown version is an acceptance of some document other
+// than the current one, so it answers TERMS_ACCEPTANCE_REQUIRED.
+func refuseStaleConsentVersions(termsVersion, privacyVersion string) *autherrors.AuthError {
 	if legal.AcceptsCurrentVersions(termsVersion, privacyVersion) {
-		return "", "", true
+		return nil
 	}
-	err := autherrors.ErrTermsAcceptanceRequired("terms or privacy version is not current")
-	return err.Code, err.UserMessage(), false
+	return autherrors.ErrTermsAcceptanceRequired("terms or privacy version is not current")
 }
 
 // maxProfileFieldRunes bounds the user-supplied profile text columns in RUNES,
@@ -765,13 +763,13 @@ func (h *AuthHandler) RegisterHandler(ctx context.Context, input *RegisterReques
 		resp.Body.ErrorCode = autherrors.CodeValidationFailed
 		return resp, nil
 	}
-	if errCode, errMsg, ok := validateSignupConsentVersions(input.Body.TermsVersion, input.Body.PrivacyVersion); !ok {
+	if refusal := refuseStaleConsentVersions(input.Body.TermsVersion, input.Body.PrivacyVersion); refusal != nil {
 		logger.AuthWarn(ctx, "register_validation_failed",
-			"error", errMsg,
+			"error", refusal.Error(),
 		)
 		resp.Body.Success = false
-		resp.Body.Message = errMsg
-		resp.Body.ErrorCode = errCode
+		resp.Body.Message = refusal.UserMessage()
+		resp.Body.ErrorCode = refusal.Code
 		return resp, nil
 	}
 	if errCode, errMsg, ok := validateSignupAgeConfirmation(input.Body.AgeConfirmed, input.Body.MinAgeAttested); !ok {
