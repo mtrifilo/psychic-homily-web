@@ -3,10 +3,13 @@ package auth
 import (
 	"encoding/json"
 	"testing"
+	"time"
 
 	"github.com/go-webauthn/webauthn/webauthn"
 
+	"psychic-homily-backend/internal/legal"
 	authm "psychic-homily-backend/internal/models/auth"
+	"psychic-homily-backend/internal/services/contracts"
 	"psychic-homily-backend/internal/testutil/softauthn"
 )
 
@@ -49,4 +52,20 @@ func softAssertion(t *testing.T, device *softauthn.Authenticator) json.RawMessag
 		t.Fatalf("Assert: %v", err)
 	}
 	return body
+}
+
+// currentSignupChallenge is a signup challenge for email carrying the consent
+// signup/begin stores for a request that accepted the current documents.
+func currentSignupChallenge(email string) contracts.SignupChallenge {
+	acceptedAt := time.Now().UTC()
+	return contracts.SignupChallenge{
+		Email: email,
+		Acceptance: contracts.LegalAcceptance{
+			TermsAcceptedAt: acceptedAt,
+			TermsVersion:    legal.CurrentTermsVersion,
+			PrivacyVersion:  legal.CurrentPrivacyVersion,
+			AgeConfirmedAt:  acceptedAt,
+			MinAgeAttested:  MinSignupAge,
+		},
+	}
 }

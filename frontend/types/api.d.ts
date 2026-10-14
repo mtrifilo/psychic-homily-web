@@ -9039,11 +9039,11 @@ export interface components {
              * @description Minimum age the user attested to
              */
             min_age_attested?: number;
-            /** @description Accepted privacy policy version identifier */
+            /** @description Accepted Privacy Policy version; anything other than the current version is refused with TERMS_ACCEPTANCE_REQUIRED */
             privacy_version?: string;
             /** @description Whether user accepted Terms of Service */
             terms_accepted: boolean;
-            /** @description Accepted terms version identifier */
+            /** @description Accepted Terms of Service version; anything other than the current version is refused with TERMS_ACCEPTANCE_REQUIRED */
             terms_version?: string;
         };
         BeginSignupResponseBody: {
@@ -11584,7 +11584,7 @@ export interface components {
              * @example https://example.com/schemas/FinishSignupRequestBody.json
              */
             readonly $schema?: string;
-            /** @description Whether user confirmed they meet the minimum age */
+            /** @description Ignored; the consent recorded is the one signup/begin accepted */
             age_confirmed: boolean;
             /** @description Challenge ID from begin signup */
             challenge_id: string;
@@ -11595,16 +11595,16 @@ export interface components {
             display_name?: string;
             /**
              * Format: int64
-             * @description Minimum age the user attested to
+             * @description Ignored; the consent recorded is the one signup/begin accepted
              */
             min_age_attested?: number;
-            /** @description Accepted privacy policy version identifier */
+            /** @description Ignored; the consent recorded is the one signup/begin accepted */
             privacy_version?: string;
             /** @description The PublicKeyCredential from navigator.credentials.create(), serialized as RegistrationResponseJSON */
             response: unknown;
-            /** @description Whether user accepted Terms of Service */
+            /** @description Ignored; the consent recorded is the one signup/begin accepted */
             terms_accepted: boolean;
-            /** @description Accepted terms version identifier */
+            /** @description Ignored; the consent recorded is the one signup/begin accepted */
             terms_version?: string;
         };
         FinishSignupResponseBody: {
@@ -15460,11 +15460,11 @@ export interface components {
              * @example password
              */
             password: string;
-            /** @description Accepted privacy policy version identifier */
+            /** @description Accepted Privacy Policy version; anything other than the current version is refused with TERMS_ACCEPTANCE_REQUIRED */
             privacy_version?: string;
             /** @description Whether user accepted Terms of Service */
             terms_accepted: boolean;
-            /** @description Accepted terms version identifier */
+            /** @description Accepted Terms of Service version; anything other than the current version is refused with TERMS_ACCEPTANCE_REQUIRED */
             terms_version?: string;
         };
         RegisterResponseBody: {

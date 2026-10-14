@@ -265,7 +265,7 @@ func TestOAuthLoginHTTPHandler_ValidProvider_GoogleQueryParam(t *testing.T) {
 func TestOAuthLoginHTTPHandler_SignupIntent_MissingAgeConfirmation(t *testing.T) {
 	handler := NewOAuthHTTPHandler(nil, nil, nil)
 
-	req := httptest.NewRequest("GET", "/auth/login/google?signup_intent=1&terms_accepted=true&terms_version=2026-01-31", nil)
+	req := httptest.NewRequest("GET", "/auth/login/google?signup_intent=1&terms_accepted=true&"+currentConsentVersionsQuery, nil)
 	w := httptest.NewRecorder()
 	rctx := chi.NewRouteContext()
 	rctx.URLParams.Add("provider", "google")
@@ -288,7 +288,7 @@ func TestOAuthLoginHTTPHandler_SignupIntent_MissingAgeConfirmation(t *testing.T)
 func TestOAuthLoginHTTPHandler_SignupIntent_AgeBelowMinimum(t *testing.T) {
 	handler := NewOAuthHTTPHandler(nil, nil, nil)
 
-	req := httptest.NewRequest("GET", "/auth/login/google?signup_intent=1&terms_accepted=true&terms_version=2026-01-31&age_confirmed=true&min_age_attested=10", nil)
+	req := httptest.NewRequest("GET", "/auth/login/google?signup_intent=1&terms_accepted=true&"+currentConsentVersionsQuery+"&age_confirmed=true&min_age_attested=10", nil)
 	w := httptest.NewRecorder()
 	rctx := chi.NewRouteContext()
 	rctx.URLParams.Add("provider", "google")
@@ -312,7 +312,7 @@ func TestOAuthLoginHTTPHandler_SignupIntent_AgeBelowMinimum(t *testing.T) {
 func TestOAuthLoginHTTPHandler_SignupIntent_RecordsAgeConsent(t *testing.T) {
 	handler := NewOAuthHTTPHandler(nil, nil, nil)
 
-	req := httptest.NewRequest("GET", "/auth/login/google?signup_intent=1&terms_accepted=true&terms_version=2026-01-31&age_confirmed=true&min_age_attested=16", nil)
+	req := httptest.NewRequest("GET", "/auth/login/google?signup_intent=1&terms_accepted=true&"+currentConsentVersionsQuery+"&age_confirmed=true&min_age_attested=16", nil)
 	w := httptest.NewRecorder()
 	rctx := chi.NewRouteContext()
 	rctx.URLParams.Add("provider", "google")

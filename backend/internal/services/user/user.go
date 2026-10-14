@@ -14,6 +14,7 @@ import (
 
 	"psychic-homily-backend/db"
 	apperrors "psychic-homily-backend/internal/errors"
+	"psychic-homily-backend/internal/legal"
 	"psychic-homily-backend/internal/logger"
 	authm "psychic-homily-backend/internal/models/auth"
 	catalogm "psychic-homily-backend/internal/models/catalog"
@@ -586,8 +587,10 @@ func validateOAuthSignupConsent(consent *contracts.OAuthSignupConsent) error {
 	if !consent.TermsAccepted {
 		return apperrors.ErrTermsAcceptanceRequired("terms acceptance required for OAuth signup")
 	}
-	if consent.TermsVersion == "" {
-		return apperrors.ErrTermsAcceptanceRequired("terms version is required for OAuth signup")
+	// The consent arrives in a cookie the caller can set, so the versions the
+	// start handler checked are checked again here, where the account is made.
+	if !legal.AcceptsCurrentVersions(consent.TermsVersion, consent.PrivacyVersion) {
+		return apperrors.ErrTermsAcceptanceRequired("terms or privacy version is not current for OAuth signup")
 	}
 	// Age confirmation is required for OAuth signup (PSY-1023), mirroring terms.
 	if !consent.AgeConfirmed {

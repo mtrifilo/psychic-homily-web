@@ -121,6 +121,9 @@ func (s *WebAuthnService) FinishRegistration(user *authm.User, session *webauthn
 
 // BeginLogin starts the passkey login process
 func (s *WebAuthnService) BeginLogin(user *authm.User) (*protocol.CredentialAssertion, *webauthn.SessionData, error) {
+	if user == nil {
+		return nil, nil, fmt.Errorf("no user to begin login for")
+	}
 	// Load user's credentials
 	if err := s.db.Preload("PasskeyCredentials").First(user, user.ID).Error; err != nil {
 		return nil, nil, fmt.Errorf("failed to load user: %w", err)
@@ -355,10 +358,13 @@ func signupAccount(id uint, email string) *authm.User {
 	return &authm.User{ID: id, Email: &email}
 }
 
-// signupSessionData wraps session data with email for signup flow
+// signupSessionData is the stored form of a signup challenge. A challenge
+// stored without an acceptance decodes to a zero LegalAcceptance, which
+// carries no version and so is refused wherever versions are checked.
 type signupSessionData struct {
-	Email   string                `json:"email"`
-	Session *webauthn.SessionData `json:"session"`
+	Email      string                     `json:"email"`
+	Acceptance *contracts.LegalAcceptance `json:"acceptance,omitempty"`
+	Session    *webauthn.SessionData      `json:"session"`
 }
 
 // BeginRegistrationForEmail starts passkey registration for a new account
@@ -381,12 +387,14 @@ func (s *WebAuthnService) BeginRegistrationForEmail(email string) (*protocol.Cre
 	return options, session, nil
 }
 
-// StoreChallengeWithEmail saves a WebAuthn challenge with email for signup flow
-func (s *WebAuthnService) StoreChallengeWithEmail(email string, session *webauthn.SessionData, operation string) (string, error) {
-	// Wrap session with email
+// StoreSignupChallenge saves a signup ceremony's challenge together with the
+// address and the consent its finish step records.
+func (s *WebAuthnService) StoreSignupChallenge(signup contracts.SignupChallenge, session *webauthn.SessionData, operation string) (string, error) {
+	acceptance := signup.Acceptance
 	wrapped := signupSessionData{
-		Email:   email,
-		Session: session,
+		Email:      signup.Email,
+		Acceptance: &acceptance,
+		Session:    session,
 	}
 
 	sessionData, err := json.Marshal(wrapped)
@@ -410,26 +418,31 @@ func (s *WebAuthnService) StoreChallengeWithEmail(email string, session *webauth
 	return challenge.ID, nil
 }
 
-// GetChallengeWithEmail retrieves a signup challenge and returns session + email
-func (s *WebAuthnService) GetChallengeWithEmail(challengeID string, operation string) (*webauthn.SessionData, string, error) {
+// GetSignupChallenge retrieves a signup challenge with the address and the
+// consent StoreSignupChallenge stored beside it.
+func (s *WebAuthnService) GetSignupChallenge(challengeID string, operation string) (*webauthn.SessionData, contracts.SignupChallenge, error) {
 	var challenge authm.WebAuthnChallenge
 	if err := s.db.Where("id = ? AND operation = ?", challengeID, operation).First(&challenge).Error; err != nil {
-		return nil, "", fmt.Errorf("challenge not found: %w", err)
+		return nil, contracts.SignupChallenge{}, fmt.Errorf("challenge not found: %w", err)
 	}
 
 	// Check expiry
 	if challenge.IsExpired() {
 		s.db.Delete(&challenge)
-		return nil, "", fmt.Errorf("challenge expired")
+		return nil, contracts.SignupChallenge{}, fmt.Errorf("challenge expired")
 	}
 
 	// Unmarshal wrapped session data
 	var wrapped signupSessionData
 	if err := json.Unmarshal(challenge.SessionData, &wrapped); err != nil {
-		return nil, "", fmt.Errorf("failed to unmarshal session: %w", err)
+		return nil, contracts.SignupChallenge{}, fmt.Errorf("failed to unmarshal session: %w", err)
 	}
 
-	return wrapped.Session, wrapped.Email, nil
+	signup := contracts.SignupChallenge{Email: wrapped.Email}
+	if wrapped.Acceptance != nil {
+		signup.Acceptance = *wrapped.Acceptance
+	}
+	return wrapped.Session, signup, nil
 }
 
 // FinishSignupRegistration completes registration, creates user, and stores credential.

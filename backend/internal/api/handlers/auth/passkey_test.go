@@ -12,6 +12,7 @@ import (
 
 	"psychic-homily-backend/internal/api/handlers/shared/testhelpers"
 	autherrors "psychic-homily-backend/internal/errors"
+	"psychic-homily-backend/internal/legal"
 	authm "psychic-homily-backend/internal/models/auth"
 	"psychic-homily-backend/internal/services/contracts"
 )
@@ -766,11 +767,12 @@ func TestBeginSignupHandler_MissingTermsVersion(t *testing.T) {
 	if resp.Body.Success {
 		t.Error("expected success=false")
 	}
-	if resp.Body.ErrorCode != autherrors.CodeValidationFailed {
-		t.Errorf("expected error_code=%s, got %s", autherrors.CodeValidationFailed, resp.Body.ErrorCode)
+	want := autherrors.ErrTermsAcceptanceRequired("")
+	if resp.Body.ErrorCode != want.Code {
+		t.Errorf("expected error_code=%s, got %s", want.Code, resp.Body.ErrorCode)
 	}
-	if resp.Body.Message != "Terms version is required" {
-		t.Errorf("expected 'Terms version is required', got '%s'", resp.Body.Message)
+	if resp.Body.Message != want.UserMessage() {
+		t.Errorf("expected %q, got %q", want.UserMessage(), resp.Body.Message)
 	}
 }
 
@@ -782,7 +784,8 @@ func TestBeginSignupHandler_MissingAgeConfirmation(t *testing.T) {
 	input := &BeginSignupRequest{}
 	input.Body.Email = "test@example.com"
 	input.Body.TermsAccepted = true
-	input.Body.TermsVersion = "v1"
+	input.Body.TermsVersion = legal.CurrentTermsVersion
+	input.Body.PrivacyVersion = legal.CurrentPrivacyVersion
 	input.Body.AgeConfirmed = false
 
 	resp, err := h.BeginSignupHandler(context.Background(), input)
@@ -804,7 +807,8 @@ func TestBeginSignupHandler_AgeBelowMinimum(t *testing.T) {
 	input := &BeginSignupRequest{}
 	input.Body.Email = "test@example.com"
 	input.Body.TermsAccepted = true
-	input.Body.TermsVersion = "v1"
+	input.Body.TermsVersion = legal.CurrentTermsVersion
+	input.Body.PrivacyVersion = legal.CurrentPrivacyVersion
 	input.Body.AgeConfirmed = true
 	input.Body.MinAgeAttested = MinSignupAge - 1
 
@@ -831,7 +835,8 @@ func TestBeginSignupHandler_EmailCheckFails(t *testing.T) {
 	input := &BeginSignupRequest{}
 	input.Body.Email = "new@example.com"
 	input.Body.TermsAccepted = true
-	input.Body.TermsVersion = "v1"
+	input.Body.TermsVersion = legal.CurrentTermsVersion
+	input.Body.PrivacyVersion = legal.CurrentPrivacyVersion
 	input.Body.AgeConfirmed = true
 	input.Body.MinAgeAttested = MinSignupAge
 
@@ -862,7 +867,8 @@ func TestBeginSignupHandler_EmailAlreadyExists(t *testing.T) {
 	input := &BeginSignupRequest{}
 	input.Body.Email = email
 	input.Body.TermsAccepted = true
-	input.Body.TermsVersion = "v1"
+	input.Body.TermsVersion = legal.CurrentTermsVersion
+	input.Body.PrivacyVersion = legal.CurrentPrivacyVersion
 	input.Body.AgeConfirmed = true
 	input.Body.MinAgeAttested = MinSignupAge
 
@@ -897,7 +903,8 @@ func TestBeginSignupHandler_BeginRegistrationForEmailFails(t *testing.T) {
 	input := &BeginSignupRequest{}
 	input.Body.Email = "new@example.com"
 	input.Body.TermsAccepted = true
-	input.Body.TermsVersion = "v1"
+	input.Body.TermsVersion = legal.CurrentTermsVersion
+	input.Body.PrivacyVersion = legal.CurrentPrivacyVersion
 	input.Body.AgeConfirmed = true
 	input.Body.MinAgeAttested = MinSignupAge
 
@@ -913,7 +920,7 @@ func TestBeginSignupHandler_BeginRegistrationForEmailFails(t *testing.T) {
 	}
 }
 
-func TestBeginSignupHandler_StoreChallengeWithEmailFails(t *testing.T) {
+func TestBeginSignupHandler_StoreSignupChallengeFails(t *testing.T) {
 	mockUS := &testhelpers.MockUserService{
 		GetUserByEmailFn: func(email string) (*authm.User, error) {
 			return nil, nil
@@ -923,7 +930,7 @@ func TestBeginSignupHandler_StoreChallengeWithEmailFails(t *testing.T) {
 		BeginRegistrationForEmailFn: func(email string) (*protocol.CredentialCreation, *webauthn.SessionData, error) {
 			return &protocol.CredentialCreation{}, &webauthn.SessionData{}, nil
 		},
-		StoreChallengeWithEmailFn: func(email string, session *webauthn.SessionData, operation string) (string, error) {
+		StoreSignupChallengeFn: func(signup contracts.SignupChallenge, session *webauthn.SessionData, operation string) (string, error) {
 			return "", fmt.Errorf("storage error")
 		},
 	}
@@ -932,7 +939,8 @@ func TestBeginSignupHandler_StoreChallengeWithEmailFails(t *testing.T) {
 	input := &BeginSignupRequest{}
 	input.Body.Email = "new@example.com"
 	input.Body.TermsAccepted = true
-	input.Body.TermsVersion = "v1"
+	input.Body.TermsVersion = legal.CurrentTermsVersion
+	input.Body.PrivacyVersion = legal.CurrentPrivacyVersion
 	input.Body.AgeConfirmed = true
 	input.Body.MinAgeAttested = MinSignupAge
 
@@ -963,7 +971,7 @@ func TestBeginSignupHandler_Success(t *testing.T) {
 			capturedEmail = email
 			return &protocol.CredentialCreation{}, &webauthn.SessionData{}, nil
 		},
-		StoreChallengeWithEmailFn: func(email string, session *webauthn.SessionData, operation string) (string, error) {
+		StoreSignupChallengeFn: func(signup contracts.SignupChallenge, session *webauthn.SessionData, operation string) (string, error) {
 			if operation != "signup" {
 				t.Errorf("expected operation 'signup', got '%s'", operation)
 			}
@@ -975,7 +983,8 @@ func TestBeginSignupHandler_Success(t *testing.T) {
 	input := &BeginSignupRequest{}
 	input.Body.Email = "new@example.com"
 	input.Body.TermsAccepted = true
-	input.Body.TermsVersion = "v1"
+	input.Body.TermsVersion = legal.CurrentTermsVersion
+	input.Body.PrivacyVersion = legal.CurrentPrivacyVersion
 	input.Body.AgeConfirmed = true
 	input.Body.MinAgeAttested = MinSignupAge
 
@@ -1003,8 +1012,8 @@ func TestBeginSignupHandler_Success(t *testing.T) {
 
 func TestFinishSignupHandler_InvalidChallenge(t *testing.T) {
 	mockWA := &testhelpers.MockWebAuthnService{
-		GetChallengeWithEmailFn: func(challengeID string, operation string) (*webauthn.SessionData, string, error) {
-			return nil, "", fmt.Errorf("challenge expired or not found")
+		GetSignupChallengeFn: func(challengeID string, operation string) (*webauthn.SessionData, contracts.SignupChallenge, error) {
+			return nil, contracts.SignupChallenge{}, fmt.Errorf("challenge expired or not found")
 		},
 	}
 	h := testPasskeyHandlerWithMocks(mockWA, &testhelpers.MockJWTService{}, &testhelpers.MockUserService{})
@@ -1029,8 +1038,8 @@ func TestFinishSignupHandler_InvalidChallenge(t *testing.T) {
 
 func TestFinishSignupHandler_EmailVerifyFails(t *testing.T) {
 	mockWA := &testhelpers.MockWebAuthnService{
-		GetChallengeWithEmailFn: func(challengeID string, operation string) (*webauthn.SessionData, string, error) {
-			return &webauthn.SessionData{}, "new@example.com", nil
+		GetSignupChallengeFn: func(challengeID string, operation string) (*webauthn.SessionData, contracts.SignupChallenge, error) {
+			return &webauthn.SessionData{}, currentSignupChallenge("new@example.com"), nil
 		},
 	}
 	mockUS := &testhelpers.MockUserService{
@@ -1061,8 +1070,8 @@ func TestFinishSignupHandler_EmailVerifyFails(t *testing.T) {
 func TestFinishSignupHandler_EmailAlreadyTaken_RaceCondition(t *testing.T) {
 	email := "race@example.com"
 	mockWA := &testhelpers.MockWebAuthnService{
-		GetChallengeWithEmailFn: func(challengeID string, operation string) (*webauthn.SessionData, string, error) {
-			return &webauthn.SessionData{}, email, nil
+		GetSignupChallengeFn: func(challengeID string, operation string) (*webauthn.SessionData, contracts.SignupChallenge, error) {
+			return &webauthn.SessionData{}, currentSignupChallenge(email), nil
 		},
 	}
 	mockUS := &testhelpers.MockUserService{
@@ -1093,8 +1102,8 @@ func TestFinishSignupHandler_EmailAlreadyTaken_RaceCondition(t *testing.T) {
 
 func TestFinishSignupHandler_MalformedCredentialResponse(t *testing.T) {
 	mockWA := &testhelpers.MockWebAuthnService{
-		GetChallengeWithEmailFn: func(challengeID string, operation string) (*webauthn.SessionData, string, error) {
-			return &webauthn.SessionData{}, "new@example.com", nil
+		GetSignupChallengeFn: func(challengeID string, operation string) (*webauthn.SessionData, contracts.SignupChallenge, error) {
+			return &webauthn.SessionData{}, currentSignupChallenge("new@example.com"), nil
 		},
 	}
 	mockUS := &testhelpers.MockUserService{
@@ -1123,12 +1132,14 @@ func TestFinishSignupHandler_MalformedCredentialResponse(t *testing.T) {
 	}
 }
 
-func TestFinishSignupHandler_MissingTermsAcceptance(t *testing.T) {
+// A challenge that carries no consent is refused however the finish body
+// fills its consent fields, before any account is created.
+func TestFinishSignupHandler_ChallengeWithoutConsent(t *testing.T) {
 	body, _ := softRegistration(t)
 	var finished bool
 	mockWA := &testhelpers.MockWebAuthnService{
-		GetChallengeWithEmailFn: func(challengeID string, operation string) (*webauthn.SessionData, string, error) {
-			return &webauthn.SessionData{}, "new@example.com", nil
+		GetSignupChallengeFn: func(challengeID string, operation string) (*webauthn.SessionData, contracts.SignupChallenge, error) {
+			return &webauthn.SessionData{}, contracts.SignupChallenge{Email: "new@example.com"}, nil
 		},
 		FinishSignupRegistrationWithLegalFn: func(string, *webauthn.SessionData, *protocol.ParsedCredentialCreationData, string, contracts.LegalAcceptance) (*authm.User, error) {
 			finished = true
@@ -1144,7 +1155,11 @@ func TestFinishSignupHandler_MissingTermsAcceptance(t *testing.T) {
 
 	input := &FinishSignupRequest{}
 	input.Body.ChallengeID = "valid-challenge"
-	input.Body.TermsAccepted = false
+	input.Body.TermsAccepted = true
+	input.Body.TermsVersion = legal.CurrentTermsVersion
+	input.Body.PrivacyVersion = legal.CurrentPrivacyVersion
+	input.Body.AgeConfirmed = true
+	input.Body.MinAgeAttested = MinSignupAge
 	input.Body.Response = body
 
 	resp, err := h.FinishSignupHandler(context.Background(), input)
@@ -1154,8 +1169,8 @@ func TestFinishSignupHandler_MissingTermsAcceptance(t *testing.T) {
 	if resp.Body.Success || finished {
 		t.Error("expected the signup to be refused before the account is created")
 	}
-	if resp.Body.ErrorCode != autherrors.CodeValidationFailed {
-		t.Errorf("expected error_code=%s, got %s", autherrors.CodeValidationFailed, resp.Body.ErrorCode)
+	if resp.Body.ErrorCode != autherrors.CodeTermsAcceptanceRequired {
+		t.Errorf("expected error_code=%s, got %s", autherrors.CodeTermsAcceptanceRequired, resp.Body.ErrorCode)
 	}
 }
 
@@ -1308,7 +1323,8 @@ func TestBeginSignupHandler_RejectsMalformedEmail(t *testing.T) {
 			input := &BeginSignupRequest{}
 			input.Body.Email = tc.email
 			input.Body.TermsAccepted = true
-			input.Body.TermsVersion = "2026-01-31"
+			input.Body.TermsVersion = legal.CurrentTermsVersion
+			input.Body.PrivacyVersion = legal.CurrentPrivacyVersion
 			input.Body.AgeConfirmed = true
 			input.Body.MinAgeAttested = MinSignupAge
 
