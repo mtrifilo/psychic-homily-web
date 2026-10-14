@@ -8,6 +8,8 @@
  * should not become shared dependencies of the feature layer.
  */
 
+import { AuthErrorCode } from '@/lib/errors/authErrors'
+
 /** The route that renders the sign-in and create-account forms. */
 export const AUTH_PATH = '/auth'
 
@@ -160,6 +162,31 @@ export function hasGatedIntent(searchParams: {
 }): boolean {
   const raw = searchParams.get(AUTH_INTENT_PARAM)
   return raw !== null && (AUTH_INTENTS as readonly string[]).includes(raw)
+}
+
+/**
+ * The auth-page query parameters a failed OAuth sign-in callback writes: the
+ * message the page shows, and the code of a refusal the reader can act on.
+ * The backend writes them as `authPageErrorParam` and `authPageErrorCodeParam`
+ * in `backend/internal/api/handlers/auth/oauth_handlers.go`; the names on both
+ * sides must stay the same.
+ */
+export const AUTH_ERROR_PARAM = 'error'
+export const AUTH_ERROR_CODE_PARAM = 'error_code'
+
+/**
+ * Does this auth-page URL carry the OAuth callback's refusal to create an
+ * account without recorded consent? The code is compared against one fixed
+ * value and never rendered, so it needs no decoding. Only the Create account
+ * tab can record that consent.
+ */
+export function needsSignupConsent(searchParams: {
+  get: (name: string) => string | null
+}): boolean {
+  return (
+    searchParams.get(AUTH_ERROR_CODE_PARAM) ===
+    AuthErrorCode.TERMS_ACCEPTANCE_REQUIRED
+  )
 }
 
 /**

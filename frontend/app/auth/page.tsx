@@ -30,8 +30,10 @@ import {
 } from '@/app/auth/_components/signup-intent-panel'
 import { CheckInboxInterstitial } from '@/app/auth/_components/check-inbox-interstitial'
 import {
+  AUTH_ERROR_PARAM,
   hasGatedIntent,
   isReauthReason,
+  needsSignupConsent,
 } from '@/lib/auth-href'
 import { getUniqueErrors } from '@/lib/utils/formErrors'
 import { CURRENT_PRIVACY_VERSION, CURRENT_TERMS_VERSION, MIN_SIGNUP_AGE } from '@/lib/legal'
@@ -39,6 +41,9 @@ import {
   safeDecodeQueryParam,
   sanitizeReturnTo,
 } from './auth-redirect-utils'
+
+// The id of the message banner an OAuth refusal puts above the auth card.
+const URL_ERROR_ID = 'auth-url-error'
 
 // Password validation constants
 const MIN_PASSWORD_LENGTH = 12
@@ -335,9 +340,29 @@ interface SignupFormProps {
    * has to travel through the URL. `null` releases the claim.
    */
   onHandoffChange: (handoff: SignupHandoff | null) => void
+  /**
+   * The form is showing as the arrival's own tab, and the arrival is an OAuth
+   * sign-in refused for want of the consent this form records. The form then
+   * centres the terms checkbox in the viewport and focuses it, each time the
+   * page presents that arrival, a re-show after the page was hidden included.
+   * Centring is what puts "Sign up with Google" above the checkbox and the age
+   * confirmation below it on a phone screen, and only while no taller content
+   * sits between them.
+   */
+  consentRequested: boolean
+  /**
+   * The id of the element stating why consent was asked for, which the terms
+   * checkbox names as its description while consentRequested holds.
+   */
+  consentReasonId?: string
 }
 
-function SignupForm({ returnTo, onHandoffChange }: SignupFormProps) {
+function SignupForm({
+  returnTo,
+  onHandoffChange,
+  consentRequested,
+  consentReasonId,
+}: SignupFormProps) {
   const registerMutation = useRegister()
   const { setUser } = useAuthContext()
   const [showPassword, setShowPassword] = useState(false)
@@ -345,6 +370,16 @@ function SignupForm({ returnTo, onHandoffChange }: SignupFormProps) {
   const [passkeyError, setPasskeyError] = useState<string | null>(null)
   const [oauthError, setOauthError] = useState<string | null>(null)
   const [hasAttemptedSubmit, setHasAttemptedSubmit] = useState(false)
+  const termsCheckboxRef = useRef<HTMLButtonElement>(null)
+
+  useEffect(() => {
+    const termsCheckbox = termsCheckboxRef.current
+    if (!consentRequested || !termsCheckbox) {
+      return
+    }
+    termsCheckbox.scrollIntoView({ block: 'center' })
+    termsCheckbox.focus({ preventScroll: true })
+  }, [consentRequested])
 
   const form = useForm({
     defaultValues: {
@@ -525,7 +560,9 @@ function SignupForm({ returnTo, onHandoffChange }: SignupFormProps) {
           <div className="space-y-2">
             <div className="flex items-start space-x-3">
               <Checkbox
+                ref={termsCheckboxRef}
                 id="terms"
+                aria-describedby={consentRequested ? consentReasonId : undefined}
                 checked={field.state.value}
                 onCheckedChange={(checked) => {
                   const accepted = checked === true
@@ -629,7 +666,7 @@ function AuthPageContent() {
   const { authStatus, isLoading } = useAuthContext()
 
   // Get error from URL query params (e.g., OAuth errors)
-  const urlError = safeDecodeQueryParam(searchParams.get('error'))
+  const urlError = safeDecodeQueryParam(searchParams.get(AUTH_ERROR_PARAM))
 
   // Get returnTo from URL query params (for redirecting after login)
   const returnTo = sanitizeReturnTo(searchParams.get('returnTo'))
@@ -642,9 +679,11 @@ function AuthPageContent() {
   // that just refused them, with nothing changed and no way to tell why.
   const isReauth = isReauthReason(searchParams.get('reason'))
 
-  // A gated control names the action it refused an anonymous viewer, and only
-  // that arrival opens on Create account; every other route in opens on Sign
-  // in. Re-auth always opens on Sign in, the only tab it renders.
+  // Two arrivals open on Create account: a gated control naming the action it
+  // refused an anonymous viewer, and an OAuth sign-in refused for want of the
+  // consent only that tab records, whose message the banner above the card
+  // shows. Every other route in opens on Sign in. Re-auth always opens on Sign
+  // in, the only tab it renders.
   //
   // The default belongs to the arrival, not to the mount. Neither a
   // navigation that only changes the query string nor leaving and coming back
@@ -654,7 +693,11 @@ function AuthPageContent() {
   // page has not been hidden since (the effect below drops it on hide). Tab
   // changes are never written back to the URL.
   const arrival = searchParams.toString()
-  const arrivalTab = hasGatedIntent(searchParams) && !isReauth ? 'signup' : 'login'
+  const isConsentArrival = needsSignupConsent(searchParams) && !isReauth
+  const arrivalTab =
+    (hasGatedIntent(searchParams) && !isReauth) || isConsentArrival
+      ? 'signup'
+      : 'login'
   const [pickedTab, setPickedTab] = useState<{
     arrival: string
     tab: string
@@ -662,7 +705,8 @@ function AuthPageContent() {
   if (pickedTab !== null && pickedTab.arrival !== arrival) {
     setPickedTab(null)
   }
-  const activeTab = pickedTab?.arrival === arrival ? pickedTab.tab : arrivalTab
+  const showingArrivalTab = pickedTab?.arrival !== arrival
+  const activeTab = showingArrivalTab ? arrivalTab : pickedTab.tab
   const setActiveTab = (tab: string) => setPickedTab({ arrival, tab })
   const [signupHandoff, setSignupHandoff] = useState<SignupHandoff | null>(null)
   const signInTabRef = useRef<HTMLButtonElement>(null)
@@ -752,7 +796,7 @@ function AuthPageContent() {
         {urlError && (
           <Alert variant="destructive" className="mb-6">
             <AlertCircle className="h-4 w-4" />
-            <AlertDescription>
+            <AlertDescription id={URL_ERROR_ID}>
               {urlError}
             </AlertDescription>
           </Alert>
@@ -796,6 +840,8 @@ function AuthPageContent() {
                   <SignupForm
                     returnTo={returnTo}
                     onHandoffChange={setSignupHandoff}
+                    consentRequested={showingArrivalTab && isConsentArrival}
+                    consentReasonId={urlError ? URL_ERROR_ID : undefined}
                   />
                 </div>
                 <div className="mt-4">

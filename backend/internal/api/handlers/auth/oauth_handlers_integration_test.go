@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 	"time"
@@ -14,6 +15,7 @@ import (
 
 	"psychic-homily-backend/internal/api/handlers/shared/testhelpers"
 	"psychic-homily-backend/internal/config"
+	autherrors "psychic-homily-backend/internal/errors"
 	authm "psychic-homily-backend/internal/models/auth"
 	"psychic-homily-backend/internal/services/auth"
 	"psychic-homily-backend/internal/services/contracts"
@@ -297,6 +299,9 @@ func (s *OAuthHandlerIntegrationSuite) TestCallback_TermsNotAccepted_RedirectsWi
 		"expected redirect to frontend auth with error, got %s", location)
 	s.Contains(location, "Terms+of+Service",
 		"expected terms-acceptance message in redirect, got %s", location)
+	parsed, err := url.Parse(location)
+	s.Require().NoError(err)
+	s.Equal(autherrors.CodeTermsAcceptanceRequired, parsed.Query().Get("error_code"))
 }
 
 // --- OAuthCallbackHTTPHandler: success paths ---

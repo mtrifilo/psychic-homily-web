@@ -3,6 +3,7 @@ import { Activity } from 'react'
 import { screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { renderWithProviders } from '@/test/utils'
+import { AUTH_ERROR_CODE_PARAM } from '@/lib/auth-href'
 import AuthPage from './page'
 
 // --- Mocks ---
@@ -78,7 +79,9 @@ vi.mock('@/app/auth/_components/passkey-signup', () => ({
 }))
 
 vi.mock('@/app/auth/_components/google-oauth-button', () => ({
-  GoogleOAuthButton: () => <div data-testid="google-oauth" />,
+  GoogleOAuthButton: (props: { variant?: string }) => (
+    <div data-testid="google-oauth" data-variant={props.variant} />
+  ),
 }))
 
 function setSearchParams(query: string) {
@@ -97,6 +100,7 @@ describe('AuthPage', () => {
       setUser: vi.fn(),
       authStatus: 'anonymous',
     }
+    vi.mocked(Element.prototype.scrollIntoView).mockClear()
   })
 
   describe('default tab', () => {
@@ -487,12 +491,172 @@ describe('AuthPage', () => {
       expect(screen.getByText('Email already exists')).toBeInTheDocument()
     })
 
+    it('opens on Sign in for an ?error with no code', () => {
+      setSearchParams('error=authentication+failed')
+      renderWithProviders(<AuthPage />)
+
+      expect(screen.getByText('authentication failed')).toBeInTheDocument()
+      expect(screen.getByRole('tab', { name: 'Sign in' })).toHaveAttribute(
+        'aria-selected',
+        'true'
+      )
+      expect(screen.getByText('Sign in to your account')).toBeInTheDocument()
+    })
+
     it('does not render an error banner when no ?error param is present', () => {
       renderWithProviders(<AuthPage />)
 
       // The login-form passkey error alert region is absent and no decoded
       // error text leaks in; the only "alert"-ish content would be the banner.
       expect(screen.queryByText('Email already exists')).not.toBeInTheDocument()
+    })
+  })
+
+  // The OAuth callback refuses to create an account from a sign-in that
+  // carried no consent, and names the refusal in ?error_code beside the
+  // message in ?error.
+  describe('OAuth refusal that needs signup consent', () => {
+    const TERMS_MESSAGE =
+      'Please accept the Terms of Service and Privacy Policy before creating an account.'
+    const TERMS_REFUSAL_QUERY = new URLSearchParams({
+      error: TERMS_MESSAGE,
+      [AUTH_ERROR_CODE_PARAM]: 'TERMS_ACCEPTANCE_REQUIRED',
+    }).toString()
+    const termsCheckbox = () =>
+      screen.getByRole('checkbox', {
+        name: /I agree to the Terms of Service and Privacy Policy/,
+      })
+
+    it('opens on Create account with the message above the consent controls and Google sign-up', () => {
+      setSearchParams(TERMS_REFUSAL_QUERY)
+      renderWithProviders(<AuthPage />)
+
+      expect(screen.getByRole('tab', { name: 'Create account' })).toHaveAttribute(
+        'aria-selected',
+        'true'
+      )
+      const message = screen.getByText(TERMS_MESSAGE)
+      const terms = termsCheckbox()
+      const age = screen.getByRole('checkbox', { name: /years old/ })
+      const google = screen.getByTestId('google-oauth')
+
+      expect(google).toHaveAttribute('data-variant', 'signup')
+      for (const control of [terms, age, google]) {
+        expect(
+          message.compareDocumentPosition(control) &
+            Node.DOCUMENT_POSITION_FOLLOWING
+        ).toBeTruthy()
+      }
+      expect(screen.queryByText('Sign in to your account')).not.toBeInTheDocument()
+    })
+
+    it('centres the terms checkbox and focuses it', () => {
+      setSearchParams(TERMS_REFUSAL_QUERY)
+      renderWithProviders(<AuthPage />)
+
+      const terms = termsCheckbox()
+      expect(terms).toHaveFocus()
+      expect(terms).toHaveAccessibleDescription(TERMS_MESSAGE)
+      const scrollIntoView = vi.mocked(Element.prototype.scrollIntoView)
+      expect(scrollIntoView).toHaveBeenCalledTimes(1)
+      expect(scrollIntoView).toHaveBeenCalledWith({ block: 'center' })
+      expect(scrollIntoView.mock.contexts[0]).toBe(terms)
+    })
+
+    it('does not pull focus back when the viewer returns to Create account by hand', async () => {
+      const user = userEvent.setup()
+      setSearchParams(TERMS_REFUSAL_QUERY)
+      renderWithProviders(<AuthPage />)
+
+      await user.click(screen.getByRole('tab', { name: 'Sign in' }))
+      await user.click(screen.getByRole('tab', { name: 'Create account' }))
+
+      expect(termsCheckbox()).not.toHaveFocus()
+      expect(termsCheckbox()).not.toHaveAttribute('aria-describedby')
+      expect(Element.prototype.scrollIntoView).toHaveBeenCalledTimes(1)
+    })
+
+    it('brings the terms checkbox back into view and focus after the page was hidden', () => {
+      setSearchParams(TERMS_REFUSAL_QUERY)
+      const { rerender } = renderWithProviders(
+        <Activity mode="visible">
+          <AuthPage />
+        </Activity>
+      )
+      rerender(
+        <Activity mode="hidden">
+          <AuthPage />
+        </Activity>
+      )
+      rerender(
+        <Activity mode="visible">
+          <AuthPage />
+        </Activity>
+      )
+
+      expect(termsCheckbox()).toHaveFocus()
+      expect(Element.prototype.scrollIntoView).toHaveBeenCalledTimes(2)
+    })
+
+    it('neither scrolls nor moves focus on a gated arrival', () => {
+      setSearchParams('returnTo=%2Fshows%2Fexample&intent=save')
+      renderWithProviders(<AuthPage />)
+
+      expect(screen.getByRole('tab', { name: 'Create account' })).toHaveAttribute(
+        'aria-selected',
+        'true'
+      )
+      expect(termsCheckbox()).not.toHaveFocus()
+      expect(termsCheckbox()).not.toHaveAttribute('aria-describedby')
+      expect(Element.prototype.scrollIntoView).not.toHaveBeenCalled()
+    })
+
+    it('names no description for a code that arrives without a message', () => {
+      setSearchParams(`${AUTH_ERROR_CODE_PARAM}=TERMS_ACCEPTANCE_REQUIRED`)
+      renderWithProviders(<AuthPage />)
+
+      expect(termsCheckbox()).toHaveFocus()
+      expect(termsCheckbox()).not.toHaveAttribute('aria-describedby')
+    })
+
+    it('neither scrolls nor moves focus when Create account is picked by hand', async () => {
+      const user = userEvent.setup()
+      renderWithProviders(<AuthPage />)
+
+      await user.click(screen.getByRole('tab', { name: 'Create account' }))
+
+      expect(termsCheckbox()).not.toHaveFocus()
+      expect(Element.prototype.scrollIntoView).not.toHaveBeenCalled()
+    })
+
+    it('opens on Sign in for a refusal code that consent does not answer', () => {
+      setSearchParams(
+        'error=An+account+with+this+email+already+exists&error_code=USER_EXISTS'
+      )
+      renderWithProviders(<AuthPage />)
+
+      expect(screen.getByRole('tab', { name: 'Sign in' })).toHaveAttribute(
+        'aria-selected',
+        'true'
+      )
+      expect(Element.prototype.scrollIntoView).not.toHaveBeenCalled()
+    })
+
+    it('opens on Sign in only for a re-authentication carrying the code', async () => {
+      mockAuthState = { setUser: vi.fn(), authStatus: 'authenticated' }
+      setSearchParams(
+        `returnTo=%2Fprofile&reason=OAUTH_LINK_REAUTH_REQUIRED&${TERMS_REFUSAL_QUERY}`
+      )
+      renderWithProviders(<AuthPage />)
+
+      await screen.findByText("Confirm it's you")
+      expect(screen.getByRole('tab', { name: 'Sign in' })).toHaveAttribute(
+        'aria-selected',
+        'true'
+      )
+      expect(
+        screen.queryByRole('tab', { name: /create account/i })
+      ).not.toBeInTheDocument()
     })
   })
 

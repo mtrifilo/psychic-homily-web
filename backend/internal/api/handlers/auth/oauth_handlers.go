@@ -55,15 +55,48 @@ func randomHexID(n int) (string, error) {
 // refusal's own words when it is one a caller may act on, and fallback for
 // everything else, so a backend fault never reaches a caller.
 //
-// The two redirect surfaces use this. AppleCallbackHandler consults
-// authRefusalCarriesItsOwnCopy directly because its JSON body carries the
-// error CODE as well as the message, which this does not return.
+// The sign-in callback's two redirects use this; the auth-page redirect also
+// carries refusalCode's answer. AppleCallbackHandler consults
+// authRefusalCarriesItsOwnCopy directly to answer with both in its JSON body.
 func refusalMessage(err error, fallback string) string {
 	var authErr *autherrors.AuthError
 	if errors.As(err, &authErr) && authRefusalCarriesItsOwnCopy(authErr.Code) {
 		return authErr.UserMessage()
 	}
 	return fallback
+}
+
+// refusalCode picks the error code a callback redirect reports: the refusal's
+// own code when it is one a caller may act on, and fallback for everything
+// else, so a backend fault is never described to a caller in its own terms.
+func refusalCode(err error, fallback string) string {
+	var authErr *autherrors.AuthError
+	if errors.As(err, &authErr) && authRefusalCarriesItsOwnCopy(authErr.Code) {
+		return authErr.Code
+	}
+	return fallback
+}
+
+// The query keys a failed sign-in callback hands the frontend auth page. The
+// page reads the same two names as AUTH_ERROR_PARAM and AUTH_ERROR_CODE_PARAM
+// (frontend/lib/auth-href.ts).
+const (
+	authPageErrorParam     = "error"
+	authPageErrorCodeParam = "error_code"
+)
+
+// authPageErrorQuery is the query string a failed sign-in callback hands the
+// frontend auth page: the message it shows, and, for a refusal
+// authRefusalCarriesItsOwnCopy names, that refusal's code. The page decides
+// what to do next from the code, never from the message, so the copy can
+// change without moving the reader to the wrong form. A backend fault carries
+// no code, the same way it carries no message of its own.
+func authPageErrorQuery(err error, message string) url.Values {
+	query := url.Values{authPageErrorParam: {message}}
+	if code := refusalCode(err, ""); code != "" {
+		query.Set(authPageErrorCodeParam, code)
+	}
+	return query
 }
 
 // cliCallbackStore stores CLI callback URLs temporarily during OAuth flow
@@ -467,9 +500,7 @@ func (h *OAuthHTTPHandler) OAuthCallbackHTTPHandler(w http.ResponseWriter, r *ht
 			return
 		}
 
-		// Redirect to frontend auth page with error
-		redirectURL := frontendURL + "/auth?error=" + url.QueryEscape(errorMessage)
-		http.Redirect(w, r, redirectURL, http.StatusTemporaryRedirect)
+		http.Redirect(w, r, frontendURL+"/auth?"+authPageErrorQuery(err, errorMessage).Encode(), http.StatusTemporaryRedirect)
 		return
 	}
 
@@ -497,10 +528,10 @@ func (h *OAuthHTTPHandler) OAuthCallbackHTTPHandler(w http.ResponseWriter, r *ht
 // generic, so a backend fault never reaches a caller.
 //
 // A code added here reaches four surfaces, all of them in this package: the
-// browser redirect to the frontend auth page, the loopback redirect to a CLI
-// callback, the Apple callback's JSON body, and the redirect back to Settings
-// after a link attempt. It therefore also decides what an unauthenticated
-// caller learns about why the attempt failed.
+// browser redirect to the frontend auth page (message and code), the loopback
+// redirect to a CLI callback, the Apple callback's JSON body, and the redirect
+// back to Settings after a link attempt. It therefore also decides what an
+// unauthenticated caller learns about why the attempt failed.
 //
 // Handlers outside those surfaces answer with a code of their own and do not
 // consult it.

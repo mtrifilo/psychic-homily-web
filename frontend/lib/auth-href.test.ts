@@ -1,6 +1,8 @@
 import { describe, it, expect } from 'vitest'
 import { sanitizeReturnTo } from '@/app/auth/auth-redirect-utils'
 import {
+  AUTH_ERROR_CODE_PARAM,
+  AUTH_ERROR_PARAM,
   AUTH_INTENTS,
   AUTH_PATH,
   buildAuthHref,
@@ -9,6 +11,7 @@ import {
   currentLocationReturnTo,
   isReauthReason,
   hasGatedIntent,
+  needsSignupConsent,
   REAUTH_REASON_CREDENTIAL_MINT,
   REAUTH_REASON_OAUTH_LINK,
 } from './auth-href'
@@ -166,5 +169,47 @@ describe('hasGatedIntent', () => {
     expect(hasGatedIntent(new URLSearchParams('intent=bogus&intent=save'))).toBe(
       false
     )
+  })
+})
+
+describe('needsSignupConsent', () => {
+  // The backend's authPageErrorParam and authPageErrorCodeParam spell the
+  // same names.
+  it('reads the error and error_code parameters', () => {
+    expect(AUTH_ERROR_PARAM).toBe('error')
+    expect(AUTH_ERROR_CODE_PARAM).toBe('error_code')
+  })
+
+  it('accepts the terms refusal code', () => {
+    expect(
+      needsSignupConsent(
+        new URLSearchParams('error=x&error_code=TERMS_ACCEPTANCE_REQUIRED')
+      )
+    ).toBe(true)
+  })
+
+  it('rejects an absent, different, or near-miss code', () => {
+    for (const query of [
+      '',
+      'error=Please+accept+the+Terms+of+Service',
+      'error_code=',
+      'error_code=USER_EXISTS',
+      'error_code=terms_acceptance_required',
+      'error_code=%20TERMS_ACCEPTANCE_REQUIRED',
+      'error_code=TERMS_ACCEPTANCE_REQUIRED_X',
+      'error_code=TERMS%2541CCEPTANCE_REQUIRED',
+    ]) {
+      expect(needsSignupConsent(new URLSearchParams(query))).toBe(false)
+    }
+  })
+
+  it('reads only the first of a repeated parameter', () => {
+    expect(
+      needsSignupConsent(
+        new URLSearchParams(
+          'error_code=USER_EXISTS&error_code=TERMS_ACCEPTANCE_REQUIRED'
+        )
+      )
+    ).toBe(false)
   })
 })
