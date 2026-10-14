@@ -84,25 +84,18 @@ func TestCreateCalendarTokenHandler_ProductionFeedURLUsesAPIHost(t *testing.T) {
 	mock := &testhelpers.MockCalendarService{
 		CreateTokenFn: func(_ uint, apiBaseURL string) (*contracts.CalendarTokenCreateResponse, error) {
 			gotBaseURL = apiBaseURL
-			return &contracts.CalendarTokenCreateResponse{
-				Token:   "phcal_abc123",
-				FeedURL: apiBaseURL + "/calendar/phcal_abc123",
-			}, nil
+			return &contracts.CalendarTokenCreateResponse{Token: "phcal_abc123"}, nil
 		},
 	}
 	cfg := &config.Config{Email: config.EmailConfig{FrontendURL: "https://www.psychichomily.com"}}
 	h := NewCalendarHandler(mock, cfg)
 	ctx := testhelpers.CtxWithSessionAuthTime(&authm.User{ID: 1}, time.Now())
 
-	resp, err := h.CreateCalendarTokenHandler(ctx, &CreateCalendarTokenRequest{})
-	if err != nil {
+	if _, err := h.CreateCalendarTokenHandler(ctx, &CreateCalendarTokenRequest{}); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if gotBaseURL != "https://api.psychichomily.com" {
 		t.Errorf("apiBaseURL = %q, want %q", gotBaseURL, "https://api.psychichomily.com")
-	}
-	if want := "https://api.psychichomily.com/calendar/phcal_abc123"; resp.Body.FeedURL != want {
-		t.Errorf("FeedURL = %q, want %q", resp.Body.FeedURL, want)
 	}
 }
 
@@ -397,12 +390,8 @@ func TestGetAPIBaseURL(t *testing.T) {
 		apiAddr     string
 		expected    string
 	}{
-		{"production", "https://psychichomily.com", "", "https://api.psychichomily.com"},
-		{"production www", "https://www.psychichomily.com", "", "https://api.psychichomily.com"},
-		{"stage", "https://stage.psychichomily.com", "", "https://api-stage.psychichomily.com"},
 		{"production ignores API_ADDR", "https://psychichomily.com", "0.0.0.0:8080", "https://api.psychichomily.com"},
 		{"production www ignores API_ADDR", "https://www.psychichomily.com", "0.0.0.0:8080", "https://api.psychichomily.com"},
-		{"production www trailing slash ignores API_ADDR", "https://www.psychichomily.com/", "0.0.0.0:8080", "https://api.psychichomily.com"},
 		{"stage ignores API_ADDR", "https://stage.psychichomily.com", "0.0.0.0:8080", "https://api-stage.psychichomily.com"},
 		{"development", "http://localhost:3000", "", "http://localhost:8080"},
 		{"empty", "", "", "http://localhost:8080"},

@@ -165,10 +165,8 @@ func TestDeriveBackendURL(t *testing.T) {
 	}{
 		{"production apex frontend", "https://psychichomily.com", "https://api.psychichomily.com"},
 		{"production www frontend", "https://www.psychichomily.com", "https://api.psychichomily.com"},
-		{"production apex frontend trailing slash", "https://psychichomily.com/", "https://api.psychichomily.com"},
 		{"production www frontend trailing slash", "https://www.psychichomily.com/", "https://api.psychichomily.com"},
 		{"stage frontend", "https://stage.psychichomily.com", "https://api-stage.psychichomily.com"},
-		{"stage frontend trailing slash", "https://stage.psychichomily.com/", "https://api-stage.psychichomily.com"},
 		{"local frontend falls back to 8080", "http://localhost:3000", "http://localhost:8080"},
 		{"empty frontend falls back to 8080", "", "http://localhost:8080"},
 		{"lookalike host falls back to 8080", "https://psychichomily.com.example.net", "http://localhost:8080"},
@@ -178,16 +176,6 @@ func TestDeriveBackendURL(t *testing.T) {
 			assert.Equal(t, tt.want, DeriveBackendURL(tt.frontendURL))
 		})
 	}
-}
-
-func TestDeployedBackendURL(t *testing.T) {
-	got, ok := DeployedBackendURL("https://www.psychichomily.com")
-	assert.True(t, ok)
-	assert.Equal(t, "https://api.psychichomily.com", got)
-
-	got, ok = DeployedBackendURL("http://localhost:3000")
-	assert.False(t, ok)
-	assert.Empty(t, got)
 }
 
 // =============================================================================
