@@ -87,8 +87,8 @@ func assertRefusedToAuthPage(t *testing.T, rr *httptest.ResponseRecorder, path s
 	if got := loc.Scheme + "://" + loc.Host + loc.Path; got != testFrontendAuthPage {
 		t.Errorf("%s redirects to %q, want %q", path, got, testFrontendAuthPage)
 	}
-	if got := loc.Query().Get("error_code"); got != authh.AuthPageRateLimitedCode {
-		t.Errorf("%s error_code = %q, want %q", path, got, authh.AuthPageRateLimitedCode)
+	if got := loc.Query().Get("error_code"); got != authh.OAuthRedirectRateLimitedCode {
+		t.Errorf("%s error_code = %q, want %q", path, got, authh.OAuthRedirectRateLimitedCode)
 	}
 	if got := loc.Query().Get("error"); got != rateLimitExceededMessage {
 		t.Errorf("%s error = %q, want the JSON 429's message %q", path, got, rateLimitExceededMessage)
@@ -225,6 +225,11 @@ func TestPublicReadLimiterSkipsOnlyTheOAuthRedirects(t *testing.T) {
 		{http.MethodHead, "/auth/login/google"},
 		{http.MethodGet, "/auth/login/google/extra"},
 		{http.MethodGet, "/auth/login/"},
+		// RawPath is not a valid encoding of Path in these two, so EscapedPath
+		// re-encodes Path and reads as an OAuth route while chi routes the raw
+		// spelling to no OAuth handler.
+		{http.MethodGet, "/auth/log%69n/goo|gle"},
+		{http.MethodGet, "/auth%2Flogin/x|"},
 		{http.MethodGet, "/auth/link/google"},
 		{http.MethodGet, "/auth/profile"},
 	} {
@@ -235,15 +240,25 @@ func TestPublicReadLimiterSkipsOnlyTheOAuthRedirects(t *testing.T) {
 }
 
 // isOAuthRedirectRequest reads each template as a path ending in its one
-// {provider} parameter, registered once.
+// {provider} parameter, and exempts every GET one segment under the template's
+// prefix. That is only the OAuth route while no other GET is registered under
+// the prefix: a literal sibling would win over {provider} in chi and skip the
+// public-read limiter without being on the OAuth one.
 func TestOAuthRedirectRoutesEndInTheirProvider(t *testing.T) {
 	routes := chiRoutes(t, newTestRouter(t))
 	for _, route := range oauthRedirectRoutes {
 		if strings.Count(route, "{") != 1 || !strings.HasSuffix(route, "/{provider}") {
 			t.Errorf("%q is not a path ending in its one {provider} parameter", route)
 		}
-		if got := matching(routes, http.MethodGet, strings.ReplaceAll(route, "{provider}", "{}")); len(got) != 1 || got[0] != route {
-			t.Errorf("GET %s registrations = %v, want exactly [%s]", route, got, route)
+		prefix := strings.TrimSuffix(route, "{provider}")
+		var under []string
+		for _, pattern := range routes[http.MethodGet] {
+			if strings.HasPrefix(pattern, prefix) {
+				under = append(under, pattern)
+			}
+		}
+		if len(under) != 1 || under[0] != route {
+			t.Errorf("GET routes under %s = %v, want exactly [%s]", prefix, under, route)
 		}
 	}
 }

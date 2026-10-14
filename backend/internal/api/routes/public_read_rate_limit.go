@@ -190,9 +190,11 @@ func PublicReadRateLimiter(jwtService *auth.JWTService, validateAPIToken, valida
 	return limitReadMethodsOnly(limiter)
 }
 
-// isOAuthRedirectRequest reports whether r is a GET that chi routes to one of
-// oauthRedirectRoutes: a template's path up to {provider}, then one non-empty
-// segment, read from the escaped path chi routes on.
+// isOAuthRedirectRequest reports whether r is a GET whose routing path is a
+// template in oauthRedirectRoutes up to {provider}, then one non-empty segment.
+// The routing path is the one chi's Mux routes on: RawPath when it is set, Path
+// otherwise. EscapedPath is not that string when RawPath is not a valid
+// encoding of Path, and matching it would exempt requests chi routes elsewhere.
 //
 // Those requests skip the public-read limiter. Their own per-IP budget is the
 // tighter one and refuses by redirect; this limiter would refuse them first,
@@ -201,7 +203,10 @@ func isOAuthRedirectRequest(r *http.Request) bool {
 	if r.Method != http.MethodGet {
 		return false
 	}
-	path := r.URL.EscapedPath()
+	path := r.URL.RawPath
+	if path == "" {
+		path = r.URL.Path
+	}
 	for _, route := range oauthRedirectRoutes {
 		prefix := strings.TrimSuffix(route, "{provider}")
 		provider, found := strings.CutPrefix(path, prefix)

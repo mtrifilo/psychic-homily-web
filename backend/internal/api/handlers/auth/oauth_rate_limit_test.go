@@ -48,7 +48,7 @@ func assertAuthPage(t *testing.T, loc *url.URL) {
 	}
 	want := url.Values{
 		authPageErrorParam:     {rateLimitedTestMessage},
-		authPageErrorCodeParam: {AuthPageRateLimitedCode},
+		authPageErrorCodeParam: {OAuthRedirectRateLimitedCode},
 	}
 	if got := loc.Query(); got.Encode() != want.Encode() {
 		t.Errorf("query = %q, want exactly %q", got.Encode(), want.Encode())
@@ -74,8 +74,8 @@ func TestRedirectRateLimitedReturnsAPendingLinkToSettings(t *testing.T) {
 	if got, want := loc.Scheme+"://"+loc.Host+loc.Path, "https://psychichomily.com"+oauthLinkSettingsPath; got != want {
 		t.Errorf("a refused link callback redirects to %q, want %q", got, want)
 	}
-	if got := loc.Query().Get(oauthLinkErrorParam); got != AuthPageRateLimitedCode {
-		t.Errorf("%s = %q, want %q", oauthLinkErrorParam, got, AuthPageRateLimitedCode)
+	if got := loc.Query().Get(oauthLinkErrorParam); got != OAuthRedirectRateLimitedCode {
+		t.Errorf("%s = %q, want %q", oauthLinkErrorParam, got, OAuthRedirectRateLimitedCode)
 	}
 	if _, found := peekOAuthLinkIntent(intentID); !found {
 		t.Error("the refusal consumed the link intent; only the callback handler may")

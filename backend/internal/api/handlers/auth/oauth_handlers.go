@@ -437,9 +437,7 @@ func (h *OAuthHTTPHandler) OAuthCallbackHTTPHandler(w http.ResponseWriter, r *ht
 	// An intent that does not match is simply not about this callback.
 	if cookie, cookieErr := r.Cookie(oauthLinkIntentCookieName); cookieErr == nil {
 		intent, found := peekOAuthLinkIntent(cookie.Value)
-		matchesThisHandshake := found &&
-			intent.provider == provider &&
-			intent.state == r.URL.Query().Get("state")
+		matchesThisHandshake := found && intent.isForHandshake(provider, r.URL.Query().Get("state"))
 
 		switch {
 		case matchesThisHandshake && time.Now().After(intent.expiresAt):

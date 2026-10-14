@@ -15,6 +15,8 @@ import (
 // The OAuth start and callback routes. A browser reaches both by top-level
 // navigation, so a refusal there is a redirect, and the routes are registered
 // and exempted from the public-read limiter by these same templates.
+// /auth/link/{provider} is navigated too but is not one of them: it is metered
+// by authRateLimiter and the public-read limiter, and both refuse with JSON.
 const (
 	oauthLoginRoute    = "/auth/login/{provider}"
 	oauthCallbackRoute = "/auth/callback/{provider}"

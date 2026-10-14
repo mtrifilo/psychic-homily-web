@@ -77,6 +77,13 @@ type oauthLinkIntent struct {
 	expiresAt time.Time
 }
 
+// isForHandshake reports whether the intent was armed for the handshake a
+// callback with this provider and state completes. It says nothing about
+// expiry.
+func (i oauthLinkIntent) isForHandshake(provider, state string) bool {
+	return i.provider == provider && i.state == state
+}
+
 // oauthLinkIntentStore holds pending link intents by opaque id. Process-local
 // and deliberately not durable: an intent that does not survive a restart or a
 // second instance produces an expired-link refusal, which is the fail-closed

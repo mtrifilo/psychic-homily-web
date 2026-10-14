@@ -29,11 +29,10 @@ const (
 	// OAuthRedirectRequestsPerMinute is the per-IP rate limit for the OAuth
 	// redirects: the start that sends a browser to the provider and the
 	// callback the provider sends it back to, which finishes a sign-in or a
-	// link. One sign-in spends two, so this
-	// admits ten complete round trips a minute from one address, room for a
-	// retry and for several people behind one NAT. A redirect loop spends many
-	// a second and reaches it at once. Its counter is separate from the auth
-	// one, so password attempts cannot spend it and it cannot spend theirs.
+	// link. A web sign-in spends two (a link spends one: its start is metered
+	// by the auth budget), so this admits ten sign-in round trips a minute from
+	// one address. Its counter is separate from the auth one, so password
+	// attempts cannot spend it and it cannot spend theirs.
 	OAuthRedirectRequestsPerMinute = 20
 
 	// APIRequestsPerMinute is the rate limit for general API endpoints
