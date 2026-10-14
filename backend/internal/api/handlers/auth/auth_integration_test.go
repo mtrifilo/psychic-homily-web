@@ -15,6 +15,7 @@ import (
 	"psychic-homily-backend/internal/api/middleware"
 	"psychic-homily-backend/internal/config"
 	autherrors "psychic-homily-backend/internal/errors"
+	"psychic-homily-backend/internal/legal"
 	authm "psychic-homily-backend/internal/models/auth"
 	"psychic-homily-backend/internal/services/auth"
 	"psychic-homily-backend/internal/services/notification"
@@ -251,8 +252,8 @@ func (s *AuthHandlerIntegrationSuite) TestRegister_Success() {
 	input.Body.FirstName = testhelpers.StringPtr("Jane")
 	input.Body.LastName = testhelpers.StringPtr("Doe")
 	input.Body.TermsAccepted = true
-	input.Body.TermsVersion = "2026-01-31"
-	input.Body.PrivacyVersion = "2026-02-15"
+	input.Body.TermsVersion = legal.CurrentTermsVersion
+	input.Body.PrivacyVersion = legal.CurrentPrivacyVersion
 	input.Body.AgeConfirmed = true
 	input.Body.MinAgeAttested = MinSignupAge
 
@@ -280,8 +281,8 @@ func (s *AuthHandlerIntegrationSuite) TestRegister_MissingAgeConfirmation() {
 	input.Body.Email = "no-age@test.com"
 	input.Body.Password = "very-strong-password-123!"
 	input.Body.TermsAccepted = true
-	input.Body.TermsVersion = "2026-01-31"
-	input.Body.PrivacyVersion = "2026-02-15"
+	input.Body.TermsVersion = legal.CurrentTermsVersion
+	input.Body.PrivacyVersion = legal.CurrentPrivacyVersion
 	input.Body.AgeConfirmed = false
 
 	resp, err := h.RegisterHandler(context.Background(), input)
@@ -298,8 +299,8 @@ func (s *AuthHandlerIntegrationSuite) TestRegister_DuplicateEmail() {
 	input.Body.Email = "dup@test.com"
 	input.Body.Password = "another-strong-pass-456!"
 	input.Body.TermsAccepted = true
-	input.Body.TermsVersion = "2026-01-31"
-	input.Body.PrivacyVersion = "2026-02-15"
+	input.Body.TermsVersion = legal.CurrentTermsVersion
+	input.Body.PrivacyVersion = legal.CurrentPrivacyVersion
 	input.Body.AgeConfirmed = true
 	input.Body.MinAgeAttested = MinSignupAge
 
@@ -316,8 +317,8 @@ func (s *AuthHandlerIntegrationSuite) TestRegister_WeakPassword() {
 	input.Body.Email = "weak-pass@test.com"
 	input.Body.Password = "short" // too short
 	input.Body.TermsAccepted = true
-	input.Body.TermsVersion = "2026-01-31"
-	input.Body.PrivacyVersion = "2026-02-15"
+	input.Body.TermsVersion = legal.CurrentTermsVersion
+	input.Body.PrivacyVersion = legal.CurrentPrivacyVersion
 	input.Body.AgeConfirmed = true
 	input.Body.MinAgeAttested = MinSignupAge
 
@@ -428,7 +429,8 @@ func (s *AuthHandlerIntegrationSuite) TestRegisterThenVerify_RoundTrip() {
 	input.Body.Email = "roundtrip-v@test.com"
 	input.Body.Password = "strong-password-123!"
 	input.Body.TermsAccepted = true
-	input.Body.TermsVersion = "2026-01-31"
+	input.Body.TermsVersion = legal.CurrentTermsVersion
+	input.Body.PrivacyVersion = legal.CurrentPrivacyVersion
 	input.Body.AgeConfirmed = true
 	input.Body.MinAgeAttested = MinSignupAge
 

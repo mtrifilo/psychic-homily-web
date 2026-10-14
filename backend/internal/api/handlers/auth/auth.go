@@ -16,6 +16,7 @@ import (
 	"psychic-homily-backend/internal/api/middleware"
 	"psychic-homily-backend/internal/config"
 	autherrors "psychic-homily-backend/internal/errors"
+	"psychic-homily-backend/internal/legal"
 	"psychic-homily-backend/internal/logger"
 	authm "psychic-homily-backend/internal/models/auth"
 	"psychic-homily-backend/internal/services/contracts"
@@ -43,6 +44,17 @@ func validateSignupAgeConfirmation(ageConfirmed bool, minAgeAttested int) (code,
 		return autherrors.CodeAgeConfirmationRequired, err.Message, false
 	}
 	return "", "", true
+}
+
+// refuseStaleConsentVersions returns the refusal for an account creation
+// whose terms or privacy version is not the current one, or nil when both are.
+// An empty, stale or unknown version is an acceptance of some document other
+// than the current one, so it answers TERMS_ACCEPTANCE_REQUIRED.
+func refuseStaleConsentVersions(termsVersion, privacyVersion string) *autherrors.AuthError {
+	if legal.AcceptsCurrentVersions(termsVersion, privacyVersion) {
+		return nil
+	}
+	return autherrors.ErrTermsAcceptanceRequired("terms or privacy version is not current")
 }
 
 // maxProfileFieldRunes bounds the user-supplied profile text columns in RUNES,
@@ -662,8 +674,8 @@ type RegisterRequest struct {
 		FirstName      *string `json:"first_name,omitempty" example:"John" doc:"User first name (optional)"`
 		LastName       *string `json:"last_name,omitempty" example:"Doe" doc:"User last name (optional)"`
 		TermsAccepted  bool    `json:"terms_accepted" doc:"Whether user accepted Terms of Service"`
-		TermsVersion   string  `json:"terms_version,omitempty" doc:"Accepted terms version identifier"`
-		PrivacyVersion string  `json:"privacy_version,omitempty" doc:"Accepted privacy policy version identifier"`
+		TermsVersion   string  `json:"terms_version,omitempty" doc:"Accepted Terms of Service version; anything other than the current version is refused with TERMS_ACCEPTANCE_REQUIRED"`
+		PrivacyVersion string  `json:"privacy_version,omitempty" doc:"Accepted Privacy Policy version; anything other than the current version is refused with TERMS_ACCEPTANCE_REQUIRED"`
 		AgeConfirmed   bool    `json:"age_confirmed" doc:"Whether user confirmed they meet the minimum age"`
 		MinAgeAttested int     `json:"min_age_attested,omitempty" doc:"Minimum age the user attested to"`
 	}
@@ -751,14 +763,13 @@ func (h *AuthHandler) RegisterHandler(ctx context.Context, input *RegisterReques
 		resp.Body.ErrorCode = autherrors.CodeValidationFailed
 		return resp, nil
 	}
-	if input.Body.TermsVersion == "" {
-		authErr := autherrors.ErrValidationFailed("Terms version is required")
+	if refusal := refuseStaleConsentVersions(input.Body.TermsVersion, input.Body.PrivacyVersion); refusal != nil {
 		logger.AuthWarn(ctx, "register_validation_failed",
-			"error", authErr.Message,
+			"error", refusal.Error(),
 		)
 		resp.Body.Success = false
-		resp.Body.Message = authErr.Message
-		resp.Body.ErrorCode = autherrors.CodeValidationFailed
+		resp.Body.Message = refusal.UserMessage()
+		resp.Body.ErrorCode = refusal.Code
 		return resp, nil
 	}
 	if errCode, errMsg, ok := validateSignupAgeConfirmation(input.Body.AgeConfirmed, input.Body.MinAgeAttested); !ok {

@@ -287,6 +287,15 @@ type BeginLoginResponse struct {
 	}
 }
 
+// refuseEmailPasskeyLogin is the one answer an email-specific login begin
+// gives for an address that cannot start a passkey sign-in, whether or not an
+// account holds it.
+func refuseEmailPasskeyLogin(resp *BeginLoginResponse) {
+	resp.Body.Success = false
+	resp.Body.Message = "No passkeys registered for this account"
+	resp.Body.ErrorCode = autherrors.CodeInvalidCredentials
+}
+
 // BeginLoginHandler starts the passkey login process
 func (h *PasskeyHandler) BeginLoginHandler(ctx context.Context, input *BeginLoginRequest) (*BeginLoginResponse, error) {
 	resp := &BeginLoginResponse{}
@@ -298,13 +307,21 @@ func (h *PasskeyHandler) BeginLoginHandler(ctx context.Context, input *BeginLogi
 	var userID uint
 
 	if input.Body.Email != "" {
-		// User-specific login
+		// User-specific login. An address with no account and an account with
+		// no passkey get the same refusal. An account with a passkey gets
+		// options naming its credentials.
 		user, err := h.userService.GetUserByEmail(input.Body.Email)
 		if err != nil {
-			// Don't reveal if user exists
 			resp.Body.Success = false
 			resp.Body.Message = "Invalid credentials"
 			resp.Body.ErrorCode = autherrors.CodeInvalidCredentials
+			return resp, nil
+		}
+		if user == nil {
+			logger.AuthDebug(ctx, "passkey_login_begin_failed",
+				"error", "no account for this address",
+			)
+			refuseEmailPasskeyLogin(resp)
 			return resp, nil
 		}
 
@@ -313,9 +330,7 @@ func (h *PasskeyHandler) BeginLoginHandler(ctx context.Context, input *BeginLogi
 			logger.AuthDebug(ctx, "passkey_login_begin_failed",
 				"error", err.Error(),
 			)
-			resp.Body.Success = false
-			resp.Body.Message = "No passkeys registered for this account"
-			resp.Body.ErrorCode = autherrors.CodeInvalidCredentials
+			refuseEmailPasskeyLogin(resp)
 			return resp, nil
 		}
 
@@ -583,8 +598,8 @@ type BeginSignupRequest struct {
 	Body struct {
 		Email          string `json:"email" example:"user@example.com" doc:"Email for the new account"`
 		TermsAccepted  bool   `json:"terms_accepted" doc:"Whether user accepted Terms of Service"`
-		TermsVersion   string `json:"terms_version,omitempty" doc:"Accepted terms version identifier"`
-		PrivacyVersion string `json:"privacy_version,omitempty" doc:"Accepted privacy policy version identifier"`
+		TermsVersion   string `json:"terms_version,omitempty" doc:"Accepted Terms of Service version; anything other than the current version is refused with TERMS_ACCEPTANCE_REQUIRED"`
+		PrivacyVersion string `json:"privacy_version,omitempty" doc:"Accepted Privacy Policy version; anything other than the current version is refused with TERMS_ACCEPTANCE_REQUIRED"`
 		AgeConfirmed   bool   `json:"age_confirmed" doc:"Whether user confirmed they meet the minimum age"`
 		MinAgeAttested int    `json:"min_age_attested,omitempty" doc:"Minimum age the user attested to"`
 	}
@@ -630,10 +645,14 @@ func (h *PasskeyHandler) BeginSignupHandler(ctx context.Context, input *BeginSig
 		resp.Body.ErrorCode = autherrors.CodeValidationFailed
 		return resp, nil
 	}
-	if input.Body.TermsVersion == "" {
+	if refusal := refuseStaleConsentVersions(input.Body.TermsVersion, input.Body.PrivacyVersion); refusal != nil {
+		logger.AuthWarn(ctx, "passkey_signup_begin_consent_refused",
+			"email_hash", logger.HashEmail(email),
+			"error_code", refusal.Code,
+		)
 		resp.Body.Success = false
-		resp.Body.Message = "Terms version is required"
-		resp.Body.ErrorCode = autherrors.CodeValidationFailed
+		resp.Body.Message = refusal.UserMessage()
+		resp.Body.ErrorCode = refusal.Code
 		return resp, nil
 	}
 	if errCode, errMsg, ok := validateSignupAgeConfirmation(input.Body.AgeConfirmed, input.Body.MinAgeAttested); !ok {
@@ -641,6 +660,14 @@ func (h *PasskeyHandler) BeginSignupHandler(ctx context.Context, input *BeginSig
 		resp.Body.Message = errMsg
 		resp.Body.ErrorCode = errCode
 		return resp, nil
+	}
+	acceptedAt := time.Now().UTC()
+	acceptance := contracts.LegalAcceptance{
+		TermsAcceptedAt: acceptedAt,
+		TermsVersion:    input.Body.TermsVersion,
+		PrivacyVersion:  input.Body.PrivacyVersion,
+		AgeConfirmedAt:  acceptedAt,
+		MinAgeAttested:  input.Body.MinAgeAttested,
 	}
 
 	logger.AuthDebug(ctx, "passkey_signup_begin",
@@ -677,8 +704,11 @@ func (h *PasskeyHandler) BeginSignupHandler(ctx context.Context, input *BeginSig
 		return resp, nil
 	}
 
-	// Store challenge with email (userID = 0 indicates signup flow)
-	challengeID, err := h.webauthnService.StoreChallengeWithEmail(email, session, "signup")
+	// FinishSignupHandler creates the account from this address and records
+	// this consent, both read back from the challenge.
+	challengeID, err := h.webauthnService.StoreSignupChallenge(
+		contracts.SignupChallenge{Email: email, Acceptance: acceptance}, session, "signup",
+	)
 	if err != nil {
 		logger.AuthError(ctx, "passkey_challenge_store_failed", err,
 			"email_hash", logger.HashEmail(email),
@@ -704,12 +734,14 @@ type FinishSignupRequest struct {
 		// Response is the RegistrationResponseJSON the browser client sends
 		// (@simplewebauthn/browser startRegistration), kept raw and handed to
 		// the WebAuthn library unmodified.
-		Response       json.RawMessage `json:"response" doc:"The PublicKeyCredential from navigator.credentials.create(), serialized as RegistrationResponseJSON"`
-		TermsAccepted  bool            `json:"terms_accepted" doc:"Whether user accepted Terms of Service"`
-		TermsVersion   string          `json:"terms_version,omitempty" doc:"Accepted terms version identifier"`
-		PrivacyVersion string          `json:"privacy_version,omitempty" doc:"Accepted privacy policy version identifier"`
-		AgeConfirmed   bool            `json:"age_confirmed" doc:"Whether user confirmed they meet the minimum age"`
-		MinAgeAttested int             `json:"min_age_attested,omitempty" doc:"Minimum age the user attested to"`
+		Response json.RawMessage `json:"response" doc:"The PublicKeyCredential from navigator.credentials.create(), serialized as RegistrationResponseJSON"`
+		// The consent fields are accepted and ignored: the account records the
+		// consent signup/begin validated, read back from the challenge.
+		TermsAccepted  bool   `json:"terms_accepted" doc:"Ignored; the consent recorded is the one signup/begin accepted"`
+		TermsVersion   string `json:"terms_version,omitempty" doc:"Ignored; the consent recorded is the one signup/begin accepted"`
+		PrivacyVersion string `json:"privacy_version,omitempty" doc:"Ignored; the consent recorded is the one signup/begin accepted"`
+		AgeConfirmed   bool   `json:"age_confirmed" doc:"Ignored; the consent recorded is the one signup/begin accepted"`
+		MinAgeAttested int    `json:"min_age_attested,omitempty" doc:"Ignored; the consent recorded is the one signup/begin accepted"`
 	}
 }
 
@@ -733,8 +765,7 @@ func (h *PasskeyHandler) FinishSignupHandler(ctx context.Context, input *FinishS
 
 	logger.AuthDebug(ctx, "passkey_signup_finish")
 
-	// Get challenge with email
-	session, email, err := h.webauthnService.GetChallengeWithEmail(input.Body.ChallengeID, "signup")
+	session, signup, err := h.webauthnService.GetSignupChallenge(input.Body.ChallengeID, "signup")
 	if err != nil {
 		logger.AuthWarn(ctx, "passkey_challenge_invalid",
 			"error", err.Error(),
@@ -742,6 +773,30 @@ func (h *PasskeyHandler) FinishSignupHandler(ctx context.Context, input *FinishS
 		resp.Body.Success = false
 		resp.Body.Message = "Invalid or expired challenge"
 		resp.Body.ErrorCode = autherrors.CodeValidationFailed
+		return resp, nil
+	}
+	email := signup.Email
+	// The challenge's consent passed these checks at begin. A challenge that
+	// carries none, or carries versions that stopped being current since,
+	// fails them here.
+	if refusal := refuseStaleConsentVersions(signup.Acceptance.TermsVersion, signup.Acceptance.PrivacyVersion); refusal != nil {
+		logger.AuthWarn(ctx, "passkey_signup_finish_consent_refused",
+			"email_hash", logger.HashEmail(email),
+			"error_code", refusal.Code,
+		)
+		resp.Body.Success = false
+		resp.Body.Message = refusal.UserMessage()
+		resp.Body.ErrorCode = refusal.Code
+		return resp, nil
+	}
+	if errCode, errMsg, ok := validateSignupAgeConfirmation(!signup.Acceptance.AgeConfirmedAt.IsZero(), signup.Acceptance.MinAgeAttested); !ok {
+		logger.AuthWarn(ctx, "passkey_signup_finish_consent_refused",
+			"email_hash", logger.HashEmail(email),
+			"error_code", errCode,
+		)
+		resp.Body.Success = false
+		resp.Body.Message = errMsg
+		resp.Body.ErrorCode = errCode
 		return resp, nil
 	}
 
@@ -772,38 +827,13 @@ func (h *PasskeyHandler) FinishSignupHandler(ctx context.Context, input *FinishS
 		return resp, nil
 	}
 
-	if !input.Body.TermsAccepted {
-		resp.Body.Success = false
-		resp.Body.Message = "You must accept the Terms of Service and Privacy Policy"
-		resp.Body.ErrorCode = autherrors.CodeValidationFailed
-		return resp, nil
-	}
-	if input.Body.TermsVersion == "" {
-		resp.Body.Success = false
-		resp.Body.Message = "Terms version is required"
-		resp.Body.ErrorCode = autherrors.CodeValidationFailed
-		return resp, nil
-	}
-	if errCode, errMsg, ok := validateSignupAgeConfirmation(input.Body.AgeConfirmed, input.Body.MinAgeAttested); !ok {
-		resp.Body.Success = false
-		resp.Body.Message = errMsg
-		resp.Body.ErrorCode = errCode
-		return resp, nil
-	}
-
 	// Complete registration and create user
 	user, err := h.webauthnService.FinishSignupRegistrationWithLegal(
 		email,
 		session,
 		parsedResponse,
 		passkeyName(input.Body.DisplayName),
-		contracts.LegalAcceptance{
-			TermsAcceptedAt: time.Now().UTC(),
-			TermsVersion:    input.Body.TermsVersion,
-			PrivacyVersion:  input.Body.PrivacyVersion,
-			AgeConfirmedAt:  time.Now().UTC(),
-			MinAgeAttested:  input.Body.MinAgeAttested,
-		},
+		signup.Acceptance,
 	)
 	if err != nil {
 		// A duplicate address here is the same condition the pre-check above

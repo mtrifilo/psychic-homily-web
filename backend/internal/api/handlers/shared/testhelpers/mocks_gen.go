@@ -4688,8 +4688,8 @@ type MockWebAuthnService struct {
 	DeleteChallengeFn                   func(string) error
 	CleanupExpiredChallengesFn          func() error
 	BeginRegistrationForEmailFn         func(string) (*protocol.CredentialCreation, *webauthn.SessionData, error)
-	StoreChallengeWithEmailFn           func(string, *webauthn.SessionData, string) (string, error)
-	GetChallengeWithEmailFn             func(string, string) (*webauthn.SessionData, string, error)
+	StoreSignupChallengeFn              func(contracts.SignupChallenge, *webauthn.SessionData, string) (string, error)
+	GetSignupChallengeFn                func(string, string) (*webauthn.SessionData, contracts.SignupChallenge, error)
 	FinishSignupRegistrationFn          func(string, *webauthn.SessionData, *protocol.ParsedCredentialCreationData, string) (*authm.User, error)
 	FinishSignupRegistrationWithLegalFn func(string, *webauthn.SessionData, *protocol.ParsedCredentialCreationData, string, contracts.LegalAcceptance) (*authm.User, error)
 }
@@ -4778,17 +4778,17 @@ func (m *MockWebAuthnService) BeginRegistrationForEmail(email string) (*protocol
 	}
 	return nil, nil, nil
 }
-func (m *MockWebAuthnService) StoreChallengeWithEmail(email string, session *webauthn.SessionData, operation string) (string, error) {
-	if m.StoreChallengeWithEmailFn != nil {
-		return m.StoreChallengeWithEmailFn(email, session, operation)
+func (m *MockWebAuthnService) StoreSignupChallenge(signup contracts.SignupChallenge, session *webauthn.SessionData, operation string) (string, error) {
+	if m.StoreSignupChallengeFn != nil {
+		return m.StoreSignupChallengeFn(signup, session, operation)
 	}
 	return "", nil
 }
-func (m *MockWebAuthnService) GetChallengeWithEmail(challengeID string, operation string) (*webauthn.SessionData, string, error) {
-	if m.GetChallengeWithEmailFn != nil {
-		return m.GetChallengeWithEmailFn(challengeID, operation)
+func (m *MockWebAuthnService) GetSignupChallenge(challengeID string, operation string) (*webauthn.SessionData, contracts.SignupChallenge, error) {
+	if m.GetSignupChallengeFn != nil {
+		return m.GetSignupChallengeFn(challengeID, operation)
 	}
-	return nil, "", nil
+	return nil, contracts.SignupChallenge{}, nil
 }
 func (m *MockWebAuthnService) FinishSignupRegistration(email string, session *webauthn.SessionData, response *protocol.ParsedCredentialCreationData, displayName string) (*authm.User, error) {
 	if m.FinishSignupRegistrationFn != nil {

@@ -206,8 +206,22 @@ func (h *OAuthHTTPHandler) OAuthLoginHTTPHandler(w http.ResponseWriter, r *http.
 		termsAccepted := r.URL.Query().Get("terms_accepted") == "true"
 		termsVersion := r.URL.Query().Get("terms_version")
 		privacyVersion := r.URL.Query().Get("privacy_version")
-		if !termsAccepted || termsVersion == "" {
+		if !termsAccepted {
 			http.Error(w, "Terms acceptance is required for account creation", http.StatusBadRequest)
+			return
+		}
+		// A version that is not the current one goes back to the auth page
+		// with the refusal the callback gives a sign-up without consent, so the
+		// reader lands on a freshly loaded form, which sends the versions the
+		// deployed frontend names. The other refusals here stay plain 400s:
+		// the form never starts a sign-up without terms_accepted and the age
+		// fields.
+		if refusal := refuseStaleConsentVersions(termsVersion, privacyVersion); refusal != nil {
+			logger.AuthWarn(ctx, "oauth_signup_consent_refused",
+				"provider", provider,
+				"error_code", refusal.Code,
+			)
+			http.Redirect(w, r, h.frontendURL()+"/auth?"+authPageErrorQuery(refusal, refusal.UserMessage()).Encode(), http.StatusTemporaryRedirect)
 			return
 		}
 

@@ -13,6 +13,7 @@ import (
 
 	"psychic-homily-backend/internal/config"
 	authm "psychic-homily-backend/internal/models/auth"
+	"psychic-homily-backend/internal/services/contracts"
 	"psychic-homily-backend/internal/testutil"
 )
 
@@ -33,6 +34,19 @@ func TestNewWebAuthnService_Success(t *testing.T) {
 	svc, err := NewWebAuthnService(&gorm.DB{}, cfg)
 	assert.NoError(t, err)
 	assert.NotNil(t, svc)
+}
+
+// A login for no account is an error, not a dereference.
+func TestBeginLogin_NilUser(t *testing.T) {
+	svc, err := NewWebAuthnService(&gorm.DB{}, &config.Config{
+		WebAuthn: config.WebAuthnConfig{RPDisplayName: "Test App", RPID: "localhost", RPOrigins: []string{"http://localhost:3000"}},
+	})
+	assert.NoError(t, err)
+
+	options, session, err := svc.BeginLogin(nil)
+	assert.Error(t, err)
+	assert.Nil(t, options)
+	assert.Nil(t, session)
 }
 
 func TestNewWebAuthnService_DefaultRPID(t *testing.T) {
@@ -407,70 +421,99 @@ func (suite *WebAuthnServiceIntegrationTestSuite) TestStoreAndGetChallenge_Round
 // Challenge with Email Tests (signup flow)
 // =============================================================================
 
-func (suite *WebAuthnServiceIntegrationTestSuite) TestStoreChallengeWithEmail_Success() {
+func (suite *WebAuthnServiceIntegrationTestSuite) TestStoreSignupChallenge_Success() {
 	session := &webauthn.SessionData{
 		Challenge: "signup-challenge",
 		UserID:    []byte("temp-user"),
 	}
 
-	challengeID, err := suite.service.StoreChallengeWithEmail("new@test.com", session, "signup_registration")
+	challengeID, err := suite.service.StoreSignupChallenge(contracts.SignupChallenge{Email: "new@test.com"}, session, "signup_registration")
 	suite.Require().NoError(err)
 	suite.NotEmpty(challengeID)
 }
 
-func (suite *WebAuthnServiceIntegrationTestSuite) TestGetChallengeWithEmail_Success() {
+func (suite *WebAuthnServiceIntegrationTestSuite) TestGetSignupChallenge_Success() {
 	session := &webauthn.SessionData{
 		Challenge: "signup-challenge-data",
 		UserID:    []byte("temp-user"),
 	}
 
-	challengeID, err := suite.service.StoreChallengeWithEmail("new@test.com", session, "signup_registration")
+	challengeID, err := suite.service.StoreSignupChallenge(contracts.SignupChallenge{Email: "new@test.com"}, session, "signup_registration")
 	suite.Require().NoError(err)
 
-	retrieved, email, err := suite.service.GetChallengeWithEmail(challengeID, "signup_registration")
+	retrieved, signup, err := suite.service.GetSignupChallenge(challengeID, "signup_registration")
 	suite.Require().NoError(err)
-	suite.Equal("new@test.com", email)
+	suite.Equal("new@test.com", signup.Email)
 	suite.Equal("signup-challenge-data", retrieved.Challenge)
 }
 
-func (suite *WebAuthnServiceIntegrationTestSuite) TestGetChallengeWithEmail_Expired() {
+func (suite *WebAuthnServiceIntegrationTestSuite) TestGetSignupChallenge_Expired() {
 	session := &webauthn.SessionData{
 		Challenge: "expired-signup",
 		UserID:    []byte("temp-user"),
 	}
 
-	challengeID, err := suite.service.StoreChallengeWithEmail("new@test.com", session, "signup_registration")
+	challengeID, err := suite.service.StoreSignupChallenge(contracts.SignupChallenge{Email: "new@test.com"}, session, "signup_registration")
 	suite.Require().NoError(err)
 
 	suite.db.Exec("UPDATE webauthn_challenges SET expires_at = ? WHERE id = ?",
 		time.Now().Add(-1*time.Hour), challengeID)
 
-	_, _, err = suite.service.GetChallengeWithEmail(challengeID, "signup_registration")
+	_, _, err = suite.service.GetSignupChallenge(challengeID, "signup_registration")
 	suite.Require().Error(err)
 	suite.Contains(err.Error(), "challenge expired")
 }
 
-func (suite *WebAuthnServiceIntegrationTestSuite) TestGetChallengeWithEmail_NotFound() {
-	_, _, err := suite.service.GetChallengeWithEmail("non-existent-id", "signup_registration")
+func (suite *WebAuthnServiceIntegrationTestSuite) TestGetSignupChallenge_NotFound() {
+	_, _, err := suite.service.GetSignupChallenge("non-existent-id", "signup_registration")
 	suite.Require().Error(err)
 	suite.Contains(err.Error(), "challenge not found")
 }
 
-func (suite *WebAuthnServiceIntegrationTestSuite) TestStoreAndGetChallengeWithEmail_RoundTrip() {
+func (suite *WebAuthnServiceIntegrationTestSuite) TestStoreAndGetSignupChallenge_RoundTrip() {
 	session := &webauthn.SessionData{
 		Challenge:        "signup-round-trip",
 		UserID:           []byte("temp-user"),
 		UserVerification: protocol.VerificationPreferred,
 	}
 
-	challengeID, err := suite.service.StoreChallengeWithEmail("roundtrip@test.com", session, "signup_registration")
+	acceptedAt := time.Date(2026, 10, 14, 12, 0, 0, 0, time.UTC)
+	acceptance := contracts.LegalAcceptance{
+		TermsAcceptedAt: acceptedAt,
+		TermsVersion:    "terms-v",
+		PrivacyVersion:  "privacy-v",
+		AgeConfirmedAt:  acceptedAt,
+		MinAgeAttested:  16,
+	}
+	challengeID, err := suite.service.StoreSignupChallenge(
+		contracts.SignupChallenge{Email: "roundtrip@test.com", Acceptance: acceptance}, session, "signup_registration",
+	)
 	suite.Require().NoError(err)
 
-	retrieved, email, err := suite.service.GetChallengeWithEmail(challengeID, "signup_registration")
+	retrieved, signup, err := suite.service.GetSignupChallenge(challengeID, "signup_registration")
 	suite.Require().NoError(err)
-	suite.Equal("roundtrip@test.com", email)
+	suite.Equal("roundtrip@test.com", signup.Email)
 	suite.Equal(session.Challenge, retrieved.Challenge)
 	suite.Equal(session.UserVerification, retrieved.UserVerification)
+	suite.Equal(acceptance, signup.Acceptance)
+}
+
+// A signup challenge stored without an acceptance reads back with a zero one,
+// which no version check accepts.
+func (suite *WebAuthnServiceIntegrationTestSuite) TestGetSignupChallenge_WithoutAcceptance() {
+	challenge := authm.WebAuthnChallenge{
+		ID:          "no-acceptance",
+		Challenge:   []byte("c"),
+		SessionData: []byte(`{"email":"bare@test.com","session":{"challenge":"c"}}`),
+		Operation:   "signup",
+		ExpiresAt:   time.Now().Add(time.Minute),
+	}
+	suite.Require().NoError(suite.db.Create(&challenge).Error)
+
+	_, signup, err := suite.service.GetSignupChallenge("no-acceptance", "signup")
+	suite.Require().NoError(err)
+	suite.Equal("bare@test.com", signup.Email)
+	suite.Equal(contracts.LegalAcceptance{}, signup.Acceptance)
 }
 
 // =============================================================================

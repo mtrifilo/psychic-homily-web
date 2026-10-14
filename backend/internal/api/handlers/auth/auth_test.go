@@ -13,6 +13,7 @@ import (
 	"psychic-homily-backend/internal/api/handlers/shared/testhelpers"
 	"psychic-homily-backend/internal/config"
 	autherrors "psychic-homily-backend/internal/errors"
+	"psychic-homily-backend/internal/legal"
 	authm "psychic-homily-backend/internal/models/auth"
 	"psychic-homily-backend/internal/services/auth"
 	"psychic-homily-backend/internal/services/contracts"
@@ -342,7 +343,8 @@ func TestRegisterHandler_MissingAgeConfirmation(t *testing.T) {
 	input.Body.Email = "user@example.com"
 	input.Body.Password = "a-valid-password-123"
 	input.Body.TermsAccepted = true
-	input.Body.TermsVersion = "2026-01-31"
+	input.Body.TermsVersion = legal.CurrentTermsVersion
+	input.Body.PrivacyVersion = legal.CurrentPrivacyVersion
 	input.Body.AgeConfirmed = false
 
 	resp, err := h.RegisterHandler(context.Background(), input)
@@ -366,7 +368,8 @@ func TestRegisterHandler_AgeBelowMinimum(t *testing.T) {
 	input.Body.Email = "user@example.com"
 	input.Body.Password = "a-valid-password-123"
 	input.Body.TermsAccepted = true
-	input.Body.TermsVersion = "2026-01-31"
+	input.Body.TermsVersion = legal.CurrentTermsVersion
+	input.Body.PrivacyVersion = legal.CurrentPrivacyVersion
 	input.Body.AgeConfirmed = true
 	input.Body.MinAgeAttested = MinSignupAge - 1
 
@@ -406,7 +409,8 @@ func TestRegisterHandler_RecordsAgeConfirmation(t *testing.T) {
 	input.Body.Email = "new@example.com"
 	input.Body.Password = "a-valid-password-123"
 	input.Body.TermsAccepted = true
-	input.Body.TermsVersion = "2026-01-31"
+	input.Body.TermsVersion = legal.CurrentTermsVersion
+	input.Body.PrivacyVersion = legal.CurrentPrivacyVersion
 	input.Body.AgeConfirmed = true
 	input.Body.MinAgeAttested = MinSignupAge
 
@@ -432,10 +436,10 @@ func TestRegisterHandler_NilUserService(t *testing.T) {
 	input.Body.Email = "user@example.com"
 	input.Body.Password = "a-valid-password-123"
 	input.Body.TermsAccepted = true
-	input.Body.TermsVersion = "2026-01-31"
+	input.Body.TermsVersion = legal.CurrentTermsVersion
+	input.Body.PrivacyVersion = legal.CurrentPrivacyVersion
 	input.Body.AgeConfirmed = true
 	input.Body.MinAgeAttested = MinSignupAge
-	input.Body.PrivacyVersion = "2026-02-15"
 
 	resp, err := h.RegisterHandler(context.Background(), input)
 	if err != nil {
@@ -458,10 +462,10 @@ func TestRegisterHandler_WeakPassword(t *testing.T) {
 	input.Body.Email = "user@example.com"
 	input.Body.Password = "abc" // too short (min 12)
 	input.Body.TermsAccepted = true
-	input.Body.TermsVersion = "2026-01-31"
+	input.Body.TermsVersion = legal.CurrentTermsVersion
+	input.Body.PrivacyVersion = legal.CurrentPrivacyVersion
 	input.Body.AgeConfirmed = true
 	input.Body.MinAgeAttested = MinSignupAge
-	input.Body.PrivacyVersion = "2026-02-15"
 
 	resp, err := h.RegisterHandler(context.Background(), input)
 	if err != nil {
@@ -1212,7 +1216,8 @@ func TestRegisterHandler_Success(t *testing.T) {
 	input.Body.Email = "new@example.com"
 	input.Body.Password = "a-valid-password-123"
 	input.Body.TermsAccepted = true
-	input.Body.TermsVersion = "2026-01-31"
+	input.Body.TermsVersion = legal.CurrentTermsVersion
+	input.Body.PrivacyVersion = legal.CurrentPrivacyVersion
 	input.Body.AgeConfirmed = true
 	input.Body.MinAgeAttested = MinSignupAge
 
@@ -1254,7 +1259,8 @@ func TestRegisterHandler_UserExists(t *testing.T) {
 	input.Body.Email = "existing@example.com"
 	input.Body.Password = "a-valid-password-123"
 	input.Body.TermsAccepted = true
-	input.Body.TermsVersion = "2026-01-31"
+	input.Body.TermsVersion = legal.CurrentTermsVersion
+	input.Body.PrivacyVersion = legal.CurrentPrivacyVersion
 	input.Body.AgeConfirmed = true
 	input.Body.MinAgeAttested = MinSignupAge
 
@@ -1298,7 +1304,8 @@ func TestRegisterHandler_UnknownServiceErrorFailsClosed(t *testing.T) {
 	input.Body.Email = "user@example.com"
 	input.Body.Password = "a-valid-password-123"
 	input.Body.TermsAccepted = true
-	input.Body.TermsVersion = "2026-01-31"
+	input.Body.TermsVersion = legal.CurrentTermsVersion
+	input.Body.PrivacyVersion = legal.CurrentPrivacyVersion
 	input.Body.AgeConfirmed = true
 	input.Body.MinAgeAttested = MinSignupAge
 
@@ -1349,7 +1356,8 @@ func TestRegisterHandler_WeakPasswordMock(t *testing.T) {
 	input.Body.Email = "user@example.com"
 	input.Body.Password = "short"
 	input.Body.TermsAccepted = true
-	input.Body.TermsVersion = "2026-01-31"
+	input.Body.TermsVersion = legal.CurrentTermsVersion
+	input.Body.PrivacyVersion = legal.CurrentPrivacyVersion
 	input.Body.AgeConfirmed = true
 	input.Body.MinAgeAttested = MinSignupAge
 
@@ -1386,7 +1394,8 @@ func TestRegisterHandler_TokenFails(t *testing.T) {
 	input.Body.Email = "user@example.com"
 	input.Body.Password = "a-valid-password-123"
 	input.Body.TermsAccepted = true
-	input.Body.TermsVersion = "2026-01-31"
+	input.Body.TermsVersion = legal.CurrentTermsVersion
+	input.Body.PrivacyVersion = legal.CurrentPrivacyVersion
 	input.Body.AgeConfirmed = true
 	input.Body.MinAgeAttested = MinSignupAge
 
@@ -1424,7 +1433,8 @@ func validRegisterInput(email string) *RegisterRequest {
 	input.Body.Email = email
 	input.Body.Password = "a-valid-password-123"
 	input.Body.TermsAccepted = true
-	input.Body.TermsVersion = "2026-01-31"
+	input.Body.TermsVersion = legal.CurrentTermsVersion
+	input.Body.PrivacyVersion = legal.CurrentPrivacyVersion
 	input.Body.AgeConfirmed = true
 	input.Body.MinAgeAttested = MinSignupAge
 	return input
@@ -4189,7 +4199,8 @@ func TestRegisterHandler_RejectsMalformedEmail(t *testing.T) {
 			input.Body.Email = tc.email
 			input.Body.Password = "a-valid-password-123"
 			input.Body.TermsAccepted = true
-			input.Body.TermsVersion = "2026-01-31"
+			input.Body.TermsVersion = legal.CurrentTermsVersion
+			input.Body.PrivacyVersion = legal.CurrentPrivacyVersion
 			input.Body.AgeConfirmed = true
 			input.Body.MinAgeAttested = MinSignupAge
 
@@ -4228,7 +4239,8 @@ func TestRegisterHandler_AcceptsDotlessDomain(t *testing.T) {
 	input.Body.Email = "a@b"
 	input.Body.Password = "a-valid-password-123"
 	input.Body.TermsAccepted = true
-	input.Body.TermsVersion = "2026-01-31"
+	input.Body.TermsVersion = legal.CurrentTermsVersion
+	input.Body.PrivacyVersion = legal.CurrentPrivacyVersion
 	input.Body.AgeConfirmed = true
 	input.Body.MinAgeAttested = MinSignupAge
 
@@ -4274,7 +4286,8 @@ func TestRegisterHandler_StoresAddressUnchanged(t *testing.T) {
 		input.Body.Email = addr
 		input.Body.Password = "a-valid-password-123"
 		input.Body.TermsAccepted = true
-		input.Body.TermsVersion = "2026-01-31"
+		input.Body.TermsVersion = legal.CurrentTermsVersion
+		input.Body.PrivacyVersion = legal.CurrentPrivacyVersion
 		input.Body.AgeConfirmed = true
 		input.Body.MinAgeAttested = MinSignupAge
 
@@ -4305,7 +4318,8 @@ func TestRegisterHandler_StoresAddressUnchanged(t *testing.T) {
 		input.Body.Email = "  padded@example.com\r\n"
 		input.Body.Password = "a-valid-password-123"
 		input.Body.TermsAccepted = true
-		input.Body.TermsVersion = "2026-01-31"
+		input.Body.TermsVersion = legal.CurrentTermsVersion
+		input.Body.PrivacyVersion = legal.CurrentPrivacyVersion
 		input.Body.AgeConfirmed = true
 		input.Body.MinAgeAttested = MinSignupAge
 
@@ -4340,7 +4354,8 @@ func TestRegisterHandler_RejectsOverlongEmail(t *testing.T) {
 	input.Body.Email = strings.Repeat("x", maxEmailBytes) + "@example.com"
 	input.Body.Password = "a-valid-password-123"
 	input.Body.TermsAccepted = true
-	input.Body.TermsVersion = "2026-01-31"
+	input.Body.TermsVersion = legal.CurrentTermsVersion
+	input.Body.PrivacyVersion = legal.CurrentPrivacyVersion
 	input.Body.AgeConfirmed = true
 	input.Body.MinAgeAttested = MinSignupAge
 
@@ -4386,7 +4401,8 @@ func TestRegisterHandler_RejectsMalformedNames(t *testing.T) {
 			input.Body.Email = "names@example.com"
 			input.Body.Password = "a-valid-password-123"
 			input.Body.TermsAccepted = true
-			input.Body.TermsVersion = "2026-01-31"
+			input.Body.TermsVersion = legal.CurrentTermsVersion
+			input.Body.PrivacyVersion = legal.CurrentPrivacyVersion
 			input.Body.AgeConfirmed = true
 			input.Body.MinAgeAttested = MinSignupAge
 			input.Body.FirstName = tc.firstName
@@ -4426,7 +4442,8 @@ func TestRegisterHandler_TrimsNames(t *testing.T) {
 	input.Body.Email = "trim-names@example.com"
 	input.Body.Password = "a-valid-password-123"
 	input.Body.TermsAccepted = true
-	input.Body.TermsVersion = "2026-01-31"
+	input.Body.TermsVersion = legal.CurrentTermsVersion
+	input.Body.PrivacyVersion = legal.CurrentPrivacyVersion
 	input.Body.AgeConfirmed = true
 	input.Body.MinAgeAttested = MinSignupAge
 	input.Body.FirstName = strPtr("  Ada  ")

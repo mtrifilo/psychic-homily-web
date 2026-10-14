@@ -10,7 +10,9 @@ import (
 
 	"psychic-homily-backend/internal/api/handlers/shared/testhelpers"
 	"psychic-homily-backend/internal/api/middleware"
+	"psychic-homily-backend/internal/legal"
 	authm "psychic-homily-backend/internal/models/auth"
+	"psychic-homily-backend/internal/services/contracts"
 )
 
 // Attaching a passkey gives the holder a permanent, independent way to sign in
@@ -104,7 +106,7 @@ func TestPasskeySignup_NotGated(t *testing.T) {
 			began = true
 			return &protocol.CredentialCreation{}, &webauthn.SessionData{}, nil
 		},
-		StoreChallengeWithEmailFn: func(string, *webauthn.SessionData, string) (string, error) {
+		StoreSignupChallengeFn: func(contracts.SignupChallenge, *webauthn.SessionData, string) (string, error) {
 			return "challenge-1", nil
 		},
 	}
@@ -115,7 +117,8 @@ func TestPasskeySignup_NotGated(t *testing.T) {
 	input := &BeginSignupRequest{}
 	input.Body.Email = "new-user@example.com"
 	input.Body.TermsAccepted = true
-	input.Body.TermsVersion = "2026-01-01"
+	input.Body.TermsVersion = legal.CurrentTermsVersion
+	input.Body.PrivacyVersion = legal.CurrentPrivacyVersion
 	input.Body.AgeConfirmed = true
 	input.Body.MinAgeAttested = MinSignupAge
 	if _, err := h.BeginSignupHandler(t.Context(), input); err != nil {

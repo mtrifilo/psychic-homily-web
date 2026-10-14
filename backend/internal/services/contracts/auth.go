@@ -97,6 +97,15 @@ type LegalAcceptance struct {
 	MinAgeAttested int
 }
 
+// SignupChallenge is what a passkey signup's begin step hands its finish step
+// through the stored challenge: the address the account is created for and
+// the consent begin validated. Finish records exactly these and reads neither
+// from its own request.
+type SignupChallenge struct {
+	Email      string
+	Acceptance LegalAcceptance
+}
+
 // OAuthSignupConsent carries consent details from OAuth signup initiation.
 type OAuthSignupConsent struct {
 	TermsAccepted  bool
@@ -190,8 +199,8 @@ type WebAuthnServiceInterface interface {
 	DeleteChallenge(challengeID string) error
 	CleanupExpiredChallenges() error
 	BeginRegistrationForEmail(email string) (*protocol.CredentialCreation, *webauthn.SessionData, error)
-	StoreChallengeWithEmail(email string, session *webauthn.SessionData, operation string) (string, error)
-	GetChallengeWithEmail(challengeID string, operation string) (*webauthn.SessionData, string, error)
+	StoreSignupChallenge(signup SignupChallenge, session *webauthn.SessionData, operation string) (string, error)
+	GetSignupChallenge(challengeID string, operation string) (*webauthn.SessionData, SignupChallenge, error)
 	FinishSignupRegistration(email string, session *webauthn.SessionData, response *protocol.ParsedCredentialCreationData, displayName string) (*authm.User, error)
 	FinishSignupRegistrationWithLegal(email string, session *webauthn.SessionData, response *protocol.ParsedCredentialCreationData, displayName string, acceptance LegalAcceptance) (*authm.User, error)
 }

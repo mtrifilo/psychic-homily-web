@@ -17,6 +17,7 @@ import (
 	"psychic-homily-backend/internal/api/handlers/shared/testhelpers"
 	"psychic-homily-backend/internal/api/middleware"
 	autherrors "psychic-homily-backend/internal/errors"
+	"psychic-homily-backend/internal/legal"
 	authm "psychic-homily-backend/internal/models/auth"
 	"psychic-homily-backend/internal/services/contracts"
 )
@@ -118,7 +119,7 @@ func TestPasskeyWire_SignupBeginEncodesUserHandleAsBase64URL(t *testing.T) {
 		BeginRegistrationForEmailFn: func(string) (*protocol.CredentialCreation, *webauthn.SessionData, error) {
 			return wireWebAuthn(t).BeginRegistration(reserved)
 		},
-		StoreChallengeWithEmailFn: func(string, *webauthn.SessionData, string) (string, error) { return "c-1", nil },
+		StoreSignupChallengeFn: func(contracts.SignupChallenge, *webauthn.SessionData, string) (string, error) { return "c-1", nil },
 	}
 	users := &testhelpers.MockUserService{GetUserByEmailFn: func(string) (*authm.User, error) { return nil, nil }}
 	api := newPasskeyWireAPI(t, testPasskeyHandlerWithMocks(mockWA, &testhelpers.MockJWTService{}, users))
@@ -126,7 +127,8 @@ func TestPasskeyWire_SignupBeginEncodesUserHandleAsBase64URL(t *testing.T) {
 	publicKey := wirePublicKey(t, api.Post("/auth/passkey/signup/begin", map[string]any{
 		"email":            "new@example.com",
 		"terms_accepted":   true,
-		"terms_version":    "v1",
+		"terms_version":    legal.CurrentTermsVersion,
+		"privacy_version":  legal.CurrentPrivacyVersion,
 		"age_confirmed":    true,
 		"min_age_attested": 16,
 	}))
@@ -213,8 +215,8 @@ func TestPasskeyWire_SignupFinishWithoutDisplayName(t *testing.T) {
 	body, _ := softRegistration(t)
 	var displayName string
 	mockWA := &testhelpers.MockWebAuthnService{
-		GetChallengeWithEmailFn: func(string, string) (*webauthn.SessionData, string, error) {
-			return &webauthn.SessionData{}, "new@example.com", nil
+		GetSignupChallengeFn: func(string, string) (*webauthn.SessionData, contracts.SignupChallenge, error) {
+			return &webauthn.SessionData{}, currentSignupChallenge("new@example.com"), nil
 		},
 		FinishSignupRegistrationWithLegalFn: func(_ string, _ *webauthn.SessionData, _ *protocol.ParsedCredentialCreationData, name string, _ contracts.LegalAcceptance) (*authm.User, error) {
 			displayName = name
@@ -230,8 +232,8 @@ func TestPasskeyWire_SignupFinishWithoutDisplayName(t *testing.T) {
 		"challenge_id":     "c-1",
 		"response":         body,
 		"terms_accepted":   true,
-		"terms_version":    "v1",
-		"privacy_version":  "v1",
+		"terms_version":    legal.CurrentTermsVersion,
+		"privacy_version":  legal.CurrentPrivacyVersion,
 		"age_confirmed":    true,
 		"min_age_attested": 16,
 	})
