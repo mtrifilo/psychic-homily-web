@@ -1,5 +1,6 @@
+import { StrictMode } from 'react'
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { screen, waitFor, within } from '@testing-library/react'
+import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { renderWithProviders } from '@/test/utils'
 import { BackupAuthPrompt } from './backup-auth-prompt'
@@ -118,6 +119,60 @@ describe('BackupAuthPrompt', () => {
     await new Promise(resolve => setTimeout(resolve, 0))
 
     expect(navigate).not.toHaveBeenCalled()
+    // The parent here keeps the prompt mounted, which is what a page shown
+    // again looks like: the button has to be usable, not left spinning.
+    await waitFor(() => {
+      expect(within(prompt).getByRole('button', CONNECT)).toBeEnabled()
+    })
+  })
+
+  it('connects after the prompt is closed and opened again without remounting', async () => {
+    mockStartLinkMutateAsync.mockResolvedValue({ token: 'second-try' })
+    const onOpenChange = vi.fn()
+    const user = userEvent.setup()
+    const { rerender } = renderWithProviders(
+      <BackupAuthPrompt open onOpenChange={onOpenChange} />
+    )
+
+    await user.click(
+      within(screen.getByRole('dialog', PROMPT)).getByRole('button', {
+        name: "I'll do this later",
+      })
+    )
+    rerender(<BackupAuthPrompt open={false} onOpenChange={onOpenChange} />)
+    rerender(<BackupAuthPrompt open onOpenChange={onOpenChange} />)
+
+    await user.click(
+      within(screen.getByRole('dialog', PROMPT)).getByRole('button', CONNECT)
+    )
+
+    await waitFor(() => {
+      expect(navigate).toHaveBeenCalledWith(
+        `${OAUTH_BACKEND}/auth/link/google?t=second-try`
+      )
+    })
+  })
+
+  it('connects under StrictMode, whose double mount runs the unmount cleanup', async () => {
+    mockStartLinkMutateAsync.mockResolvedValue({ token: 'strict-token' })
+    const user = userEvent.setup()
+    // Plain render: the shared provider wrapper does not reproduce the
+    // StrictMode effect double-invoke this test is about.
+    render(
+      <StrictMode>
+        <BackupAuthPrompt open onOpenChange={vi.fn()} />
+      </StrictMode>
+    )
+
+    await user.click(
+      within(screen.getByRole('dialog', PROMPT)).getByRole('button', CONNECT)
+    )
+
+    await waitFor(() => {
+      expect(navigate).toHaveBeenCalledWith(
+        `${OAUTH_BACKEND}/auth/link/google?t=strict-token`
+      )
+    })
   })
 
   it('does not navigate when the prompt is closed with Escape while the token is pending', async () => {

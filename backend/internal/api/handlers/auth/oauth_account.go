@@ -111,8 +111,8 @@ func (h *OAuthAccountHandler) GetOAuthAccountsHandler(ctx context.Context, req *
 }
 
 // StartOAuthLinkRequest carries the browser's own account of where the request
-// came from. Both are read only to bind the minted token to that origin; they
-// are never trusted as authorization on their own.
+// came from. The mint is refused unless it names the configured frontend; the
+// token itself carries no origin.
 type StartOAuthLinkRequest struct {
 	Origin  string `header:"Origin"`
 	Referer string `header:"Referer"`

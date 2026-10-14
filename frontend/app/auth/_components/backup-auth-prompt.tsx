@@ -53,17 +53,18 @@ export function BackupAuthPrompt({ open, onOpenChange }: BackupAuthPromptProps) 
   const [isConnectingGoogle, setIsConnectingGoogle] = useState(false)
   const startLink = useStartOAuthLink()
 
-  // Set once the viewer has left the prompt, by closing it or by it going
-  // away. The token request outlives both, and a viewer who skipped must not
-  // be navigated into the link flow when it answers. Cleared on mount so a
-  // development double mount does not leave it set.
+  // Whether the viewer has left the prompt since the last Connect click, by
+  // closing it or by the page hiding or unmounting it. The token request
+  // outlives all three, and a viewer who left must not be navigated into the
+  // link flow when it answers. Each click re-arms it, because the button can
+  // only be clicked while the prompt is showing.
   const dismissedRef = useRef(false)
-  useEffect(() => {
-    dismissedRef.current = false
-    return () => {
+  useEffect(
+    () => () => {
       dismissedRef.current = true
-    }
-  }, [])
+    },
+    []
+  )
 
   const handleOpenChange = (nextOpen: boolean) => {
     if (!nextOpen) dismissedRef.current = true
@@ -71,6 +72,7 @@ export function BackupAuthPrompt({ open, onOpenChange }: BackupAuthPromptProps) 
   }
 
   const handleConnectGoogle = async () => {
+    dismissedRef.current = false
     setIsConnectingGoogle(true)
     // The link start, not sign-in: the viewer is already signed in to the
     // account this prompt is about. A finished link lands on Settings, which
@@ -78,12 +80,16 @@ export function BackupAuthPrompt({ open, onOpenChange }: BackupAuthPromptProps) 
     // that one destination.
     try {
       const { token } = await startLink.mutateAsync()
-      if (dismissedRef.current) return
+      if (dismissedRef.current) {
+        // The button comes back for a prompt that is shown again later.
+        setIsConnectingGoogle(false)
+        return
+      }
       window.location.href = oauthLinkStartUrl('google', token)
     } catch (err) {
       // The button comes back so the viewer can retry or skip; the prompt
       // stays open either way.
-      if (!dismissedRef.current) setIsConnectingGoogle(false)
+      setIsConnectingGoogle(false)
       Sentry.captureException(err, {
         level: 'warning',
         tags: { service: 'backup-auth-prompt' },

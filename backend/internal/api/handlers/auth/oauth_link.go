@@ -326,7 +326,8 @@ func redirectToLinkResult(w http.ResponseWriter, r *http.Request, frontendURL, c
 }
 
 // redirectToReauth sends the browser to the sign-in page with a destination
-// that brings it back to the control it started from. Signing in mints a fresh
+// that brings it back to Settings, where every link result is read, whichever
+// page started the link. Signing in mints a fresh
 // session, which is what satisfies middleware.ReauthFactorFor on the next attempt.
 //
 // returnTo is the contract app/auth reads through sanitizeReturnTo, which
