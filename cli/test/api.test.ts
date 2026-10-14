@@ -95,6 +95,16 @@ describe("APIClient ISR revalidation recording (PSY-1691)", () => {
     });
   });
 
+  test("a validation error without a location prints its message alone", async () => {
+    respondWith({ status: 422, errors: [{ message: "body is required" }] }, 422);
+    await expect(client.post("/shows", {})).rejects.toMatchObject({ status: 422, message: "body is required" });
+  });
+
+  test("a top-level message wins over field errors", async () => {
+    respondWith({ message: "Name is required", errors: [{ message: "ignored", location: "body.name" }] }, 422);
+    await expect(client.post("/shows", {})).rejects.toMatchObject({ status: 422, message: "Name is required" });
+  });
+
   test("queues nothing when the mutation failed", async () => {
     respondWith({ message: "nope" }, 422);
     await expect(client.post("/shows", {})).rejects.toBeInstanceOf(APIError);

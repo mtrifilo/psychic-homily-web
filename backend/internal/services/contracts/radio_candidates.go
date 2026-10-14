@@ -8,8 +8,8 @@ type RadioCandidateLane string
 const (
 	// RadioCandidateLaneAuto marks a candidate eligible for automatic
 	// creation: its plays carry exactly one MusicBrainz id, no other
-	// candidate's plays carry it, none of its spellings carries a non-Latin
-	// script, and it clears the station floor.
+	// candidate's plays carry it, none of its spellings carries a character
+	// normalization may not fold, and it clears the station floor.
 	RadioCandidateLaneAuto RadioCandidateLane = "auto"
 	// RadioCandidateLaneHuman marks a candidate that a person verifies before
 	// anything is created.
