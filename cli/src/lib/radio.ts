@@ -222,6 +222,13 @@ export interface CandidateCount {
   play_count: number;
 }
 
+export interface CandidateStation {
+  station_id: number;
+  slug: string;
+  name: string;
+  play_count: number;
+}
+
 export interface ArtistCandidate {
   artist_key: string;
   display_name: string;
@@ -235,7 +242,7 @@ export interface ArtistCandidate {
   show_count: number;
   first_aired_on: string;
   last_aired_on: string;
-  stations: Array<{ station_id: number; slug: string; name: string; play_count: number }>;
+  stations: CandidateStation[];
   top_tracks: Array<{ track_id: number; title: string; play_count: number }>;
   album_names: CandidateCount[];
   album_name_count: number;
@@ -311,6 +318,10 @@ export function printableJSON(value: unknown): string {
   );
 }
 
+function stationList(stations: CandidateStation[]): string {
+  return stations.map((s) => `${s.name} (${s.slug}) ${s.play_count}`).join(", ") || "none";
+}
+
 function countList(items: CandidateCount[], distinct?: number): string {
   if (items.length === 0) return "none";
   const shown = items.map((i) => `${i.name} (${i.play_count})`).join("; ");
@@ -346,9 +357,7 @@ export function formatArtistCandidateReport(listing: ArtistCandidateListing): st
     if (c.non_latin_spelling) {
       lines.push("       note:     a spelling carries a character normalization may not fold; the key may be a fragment of it");
     }
-    lines.push(
-      `       stations: ${c.stations.map((s) => `${s.name} (${s.slug}) ${s.play_count}`).join(", ") || "none"}`,
-    );
+    lines.push(`       stations: ${stationList(c.stations)}`);
     lines.push(
       `       tracks:   ${countList(c.top_tracks.map((t) => ({ name: t.title, play_count: t.play_count })))}`,
     );
@@ -480,6 +489,124 @@ export function formatLabelCandidateReport(listing: LabelCandidateListing): stri
     if (c.mb_release_ids.length > 0) {
       const more = c.mb_release_id_count > c.mb_release_ids.length ? `; ${c.mb_release_id_count} distinct` : "";
       lines.push(`       mb releases: ${c.mb_release_ids.join(", ")}${more}`);
+    }
+  });
+  return lines.map(printable);
+}
+
+// ─── Track enrichment candidates (GET /admin/radio/candidates/tracks) ───────
+
+export type TrackCandidateView = "unlinked" | "unmatched";
+
+export interface TrackCandidate {
+  track_id: number;
+  display_title: string;
+  title_spellings: CandidateCount[];
+  title_spelling_count: number;
+  display_artist: string;
+  artist_keys: CandidateCount[];
+  artist_candidate_keys: string[];
+  artists: Array<{ artist_id: number; name: string; slug: string; play_count: number }>;
+  lane: CandidateLane;
+  score: number;
+  play_count: number;
+  station_row_count: number;
+  station_family_count: number;
+  show_count: number;
+  first_aired_on: string;
+  last_aired_on: string;
+  stations: CandidateStation[];
+  album_names: CandidateCount[];
+  album_name_count: number;
+  mb_release_id?: string;
+  mb_release_ids: string[];
+  non_latin_spelling: boolean;
+  variant_release_id: boolean;
+}
+
+export interface TrackCandidateListing {
+  view: TrackCandidateView;
+  candidates: TrackCandidate[];
+  total: number;
+  auto_total: number;
+  human_total: number;
+  qualifying_tracks: number;
+  untracked_plays: number;
+  as_of: string;
+  window_start: string;
+  window_days: number;
+  min_station_rows: number;
+  min_plays: number;
+  tracks_rebuilt_at?: string;
+}
+
+/**
+ * Fetch one snapshot of a track candidate view. Read-only. Unset options are
+ * omitted from the query, so the server's defaults and validation apply,
+ * including its refusal of a missing view.
+ */
+export async function listTrackCandidates(
+  client: APIClient,
+  opts: { view?: string; lane?: string; sort?: string; limit?: string },
+): Promise<TrackCandidateListing> {
+  return client.get<TrackCandidateListing>("/admin/radio/candidates/tracks", {
+    view: opts.view ?? "",
+    lane: opts.lane ?? "",
+    sort: opts.sort ?? "",
+    limit: opts.limit ?? "",
+  });
+}
+
+/**
+ * Render a track candidate view as plain text, one block per candidate with
+ * its lane and evidence. Every line passes through printable. Pure, so the
+ * report can be tested without a server.
+ */
+export function formatTrackCandidateReport(listing: TrackCandidateListing): string[] {
+  const lines: string[] = [
+    `Track candidates, ${listing.view} view, as of ${listing.as_of}: plays aired ${listing.window_start} or later ` +
+      `(${listing.window_days} days); floors ${listing.min_station_rows} station rows and ${listing.min_plays} plays.`,
+    `${listing.total} in the view and the requested lanes (${listing.auto_total} auto, ${listing.human_total} human in the view); ` +
+      `showing ${listing.candidates.length}.`,
+    `${listing.qualifying_tracks} tracks clear the floors, in either view or in neither.`,
+    `${listing.untracked_plays} plays counted toward no track (an unkeyable name, or a play newer than the last tracks rebuild).`,
+    `Tracks reflect the radio_tracks rebuild of ${listing.tracks_rebuilt_at ?? "(none recorded)"}.`,
+  ];
+  listing.candidates.forEach((c, i) => {
+    lines.push("");
+    lines.push(
+      `${String(i + 1).padStart(3)}. [${c.lane.padEnd(5)}] ${c.display_artist} - ${c.display_title}  ` +
+        `score ${c.score.toFixed(2)}  plays ${c.play_count}  rows ${c.station_row_count}  ` +
+        `families ${c.station_family_count}  shows ${c.show_count}  ` +
+        `aired ${c.first_aired_on} to ${c.last_aired_on}`,
+    );
+    lines.push(`       track:    ${c.track_id}`);
+    if (c.artists.length > 0) {
+      lines.push(
+        `       artists:  ${c.artists.map((a) => `${a.name} (id ${a.artist_id}, ${a.slug || "no slug"}) ${a.play_count}`).join(", ")}`,
+      );
+    }
+    lines.push(`       keys:     ${countList(c.artist_keys)}`);
+    if (c.artist_candidate_keys.length > 0) {
+      lines.push(`       artist candidates: ${c.artist_candidate_keys.join(", ")}`);
+    }
+    if (c.title_spelling_count > 1) {
+      lines.push(`       titles:   ${countList(c.title_spellings, c.title_spelling_count)}`);
+    }
+    if (c.non_latin_spelling) {
+      lines.push("       note:     a spelling carries a character normalization may not fold; a key may be a fragment of it");
+    }
+    if (c.variant_release_id) {
+      lines.push(
+        "       note:     every play carrying a release id has a title radio_track_title_key strips (a featured credit, a trailing bracket group, or a dash tail naming live, remix, edit, version, mono or stereo); the id may belong to what was stripped",
+      );
+    }
+    lines.push(`       stations: ${stationList(c.stations)}`);
+    lines.push(`       albums:   ${countList(c.album_names, c.album_name_count)}`);
+    if (c.mb_release_ids.length > 1) {
+      lines.push(`       releases: ${c.mb_release_ids.join(", ")} (more than one MusicBrainz release id)`);
+    } else if (c.mb_release_id) {
+      lines.push(`       release:  ${c.mb_release_id}`);
     }
   });
   return lines.map(printable);
