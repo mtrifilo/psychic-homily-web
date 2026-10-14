@@ -90,6 +90,16 @@ func returnToCookie(returnTo string) *http.Cookie {
 	return &http.Cookie{Name: oauthReturnToCookieName, Value: base64.RawURLEncoding.EncodeToString([]byte(returnTo))}
 }
 
+// clearsReturnToCookie reports whether rr expires the destination cookie.
+func clearsReturnToCookie(rr *httptest.ResponseRecorder) bool {
+	for _, c := range rr.Result().Cookies() {
+		if c.Name == oauthReturnToCookieName && c.MaxAge < 0 {
+			return true
+		}
+	}
+	return false
+}
+
 func TestRedirectRateLimitedSendsTheBrowserToTheConfiguredAuthPage(t *testing.T) {
 	assertAuthPage(t, refuse(t, OAuthCallbackRoute, "/auth/callback/google?code=spent", "google"), "")
 }
@@ -108,6 +118,19 @@ func TestRedirectRateLimitedReturnsAPendingLinkToSettings(t *testing.T) {
 	assertSettingsPage(t, refuse(t, OAuthCallbackRoute, "/auth/callback/google?state=link-state&code=spent", "google", intentCookie))
 	if _, found := peekOAuthLinkIntent(intentID); !found {
 		t.Error("the refusal consumed the link intent; only the callback handler may")
+	}
+
+	// A destination cookie riding on a link callback is consumed all the same,
+	// as the callback handler consumes it before telling sign-in from link.
+	rr := refuseRecorded(t, OAuthCallbackRoute, "/auth/callback/google?state=link-state&code=spent", "google",
+		intentCookie, returnToCookie("/shows"))
+	loc, err := url.Parse(rr.Header().Get("Location"))
+	if err != nil {
+		t.Fatalf("Location %q does not parse: %v", rr.Header().Get("Location"), err)
+	}
+	assertSettingsPage(t, loc)
+	if !clearsReturnToCookie(rr) {
+		t.Error("the refused link callback left the destination cookie set; every callback consumes it")
 	}
 
 	// The intent is about one handshake. A sign-in that merely still carries the
@@ -155,14 +178,7 @@ func TestRedirectRateLimitedCarriesTheCallbackDestination(t *testing.T) {
 		t.Fatalf("Location %q does not parse: %v", rr.Header().Get("Location"), err)
 	}
 	assertAuthPage(t, loc, "/shows?city=phoenix")
-
-	cleared := false
-	for _, c := range rr.Result().Cookies() {
-		if c.Name == oauthReturnToCookieName && c.MaxAge < 0 {
-			cleared = true
-		}
-	}
-	if !cleared {
+	if !clearsReturnToCookie(rr) {
 		t.Error("the refused callback left the destination cookie set; it is single use")
 	}
 

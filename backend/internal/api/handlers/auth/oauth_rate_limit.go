@@ -31,13 +31,14 @@ const OAuthRedirectRateLimitedCode = "RATE_LIMITED"
 // is read. Everything else goes to the frontend auth page with message and the
 // code, the query keys a refused sign-in callback uses, and with the sign-in's
 // destination where the handler it stands in for would have read one: a
-// sign-in start's from its query, a callback's from the cookie its start set,
-// which the refusal consumes as the callback would have.
+// sign-in start's from its query, a callback's from the cookie its start set.
+// Every refused callback consumes that cookie, a link callback included, as
+// the callback handler does before it tells the two apart.
 //
 // It reads chi's route pattern and provider parameter, so it runs on a
 // middleware chain chi builds after routing.
 func (h *OAuthHTTPHandler) RedirectRateLimited(w http.ResponseWriter, r *http.Request, message string) {
-	if startsLink(r) || completesPendingLink(r) {
+	if startsLink(r) {
 		redirectToLinkResult(w, r, h.frontendURL(), OAuthRedirectRateLimitedCode)
 		return
 	}
@@ -48,6 +49,11 @@ func (h *OAuthHTTPHandler) RedirectRateLimited(w http.ResponseWriter, r *http.Re
 		returnTo = sanitizeOAuthReturnTo(r.URL.Query().Get(oauthReturnToParam))
 	case OAuthCallbackRoute:
 		returnTo = takeOAuthReturnTo(w, r, h.config != nil && h.config.Session.Secure)
+	}
+
+	if completesPendingLink(r) {
+		redirectToLinkResult(w, r, h.frontendURL(), OAuthRedirectRateLimitedCode)
+		return
 	}
 
 	query := url.Values{
