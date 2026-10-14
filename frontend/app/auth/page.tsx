@@ -336,9 +336,20 @@ interface SignupFormProps {
    * has to travel through the URL. `null` releases the claim.
    */
   onHandoffChange: (handoff: SignupHandoff | null) => void
+  /**
+   * The arrival is an OAuth sign-in refused for want of the consent this form
+   * records. Each mount then centres the terms checkbox in the viewport and
+   * focuses it, which keeps the Google sign-up button above it and the age
+   * confirmation below it on screen with the page's message.
+   */
+  consentRequested: boolean
 }
 
-function SignupForm({ returnTo, onHandoffChange }: SignupFormProps) {
+function SignupForm({
+  returnTo,
+  onHandoffChange,
+  consentRequested,
+}: SignupFormProps) {
   const registerMutation = useRegister()
   const { setUser } = useAuthContext()
   const [showPassword, setShowPassword] = useState(false)
@@ -346,6 +357,16 @@ function SignupForm({ returnTo, onHandoffChange }: SignupFormProps) {
   const [passkeyError, setPasskeyError] = useState<string | null>(null)
   const [oauthError, setOauthError] = useState<string | null>(null)
   const [hasAttemptedSubmit, setHasAttemptedSubmit] = useState(false)
+  const termsCheckboxRef = useRef<HTMLButtonElement>(null)
+
+  useEffect(() => {
+    const termsCheckbox = termsCheckboxRef.current
+    if (!consentRequested || !termsCheckbox) {
+      return
+    }
+    termsCheckbox.scrollIntoView({ block: 'center' })
+    termsCheckbox.focus({ preventScroll: true })
+  }, [consentRequested])
 
   const form = useForm({
     defaultValues: {
@@ -526,6 +547,7 @@ function SignupForm({ returnTo, onHandoffChange }: SignupFormProps) {
           <div className="space-y-2">
             <div className="flex items-start space-x-3">
               <Checkbox
+                ref={termsCheckboxRef}
                 id="terms"
                 checked={field.state.value}
                 onCheckedChange={(checked) => {
@@ -657,8 +679,9 @@ function AuthPageContent() {
   // page has not been hidden since (the effect below drops it on hide). Tab
   // changes are never written back to the URL.
   const arrival = searchParams.toString()
+  const consentRequested = needsSignupConsent(searchParams) && !isReauth
   const arrivalTab =
-    (hasGatedIntent(searchParams) || needsSignupConsent(searchParams)) && !isReauth
+    (hasGatedIntent(searchParams) && !isReauth) || consentRequested
       ? 'signup'
       : 'login'
   const [pickedTab, setPickedTab] = useState<{
@@ -802,6 +825,7 @@ function AuthPageContent() {
                   <SignupForm
                     returnTo={returnTo}
                     onHandoffChange={setSignupHandoff}
+                    consentRequested={consentRequested}
                   />
                 </div>
                 <div className="mt-4">

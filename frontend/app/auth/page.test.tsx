@@ -99,6 +99,7 @@ describe('AuthPage', () => {
       setUser: vi.fn(),
       authStatus: 'anonymous',
     }
+    vi.mocked(Element.prototype.scrollIntoView).mockClear()
   })
 
   describe('default tab', () => {
@@ -544,6 +545,50 @@ describe('AuthPage', () => {
       expect(screen.queryByText('Sign in to your account')).not.toBeInTheDocument()
     })
 
+    it('centres the terms checkbox and focuses it', () => {
+      setSearchParams(TERMS_REFUSAL_QUERY)
+      renderWithProviders(<AuthPage />)
+
+      const terms = screen.getByRole('checkbox', {
+        name: /I agree to the Terms of Service and Privacy Policy/,
+      })
+      expect(terms).toHaveFocus()
+      const scrollIntoView = vi.mocked(Element.prototype.scrollIntoView)
+      expect(scrollIntoView).toHaveBeenCalledTimes(1)
+      expect(scrollIntoView).toHaveBeenCalledWith({ block: 'center' })
+      expect(scrollIntoView.mock.contexts[0]).toBe(terms)
+    })
+
+    it('neither scrolls nor moves focus on a gated arrival', () => {
+      setSearchParams('returnTo=%2Fshows%2Fexample&intent=save')
+      renderWithProviders(<AuthPage />)
+
+      expect(screen.getByRole('tab', { name: 'Create account' })).toHaveAttribute(
+        'aria-selected',
+        'true'
+      )
+      expect(
+        screen.getByRole('checkbox', {
+          name: /I agree to the Terms of Service and Privacy Policy/,
+        })
+      ).not.toHaveFocus()
+      expect(Element.prototype.scrollIntoView).not.toHaveBeenCalled()
+    })
+
+    it('neither scrolls nor moves focus when Create account is picked by hand', async () => {
+      const user = userEvent.setup()
+      renderWithProviders(<AuthPage />)
+
+      await user.click(screen.getByRole('tab', { name: 'Create account' }))
+
+      expect(
+        screen.getByRole('checkbox', {
+          name: /I agree to the Terms of Service and Privacy Policy/,
+        })
+      ).not.toHaveFocus()
+      expect(Element.prototype.scrollIntoView).not.toHaveBeenCalled()
+    })
+
     it('opens on Sign in for a refusal code that consent does not answer', () => {
       setSearchParams(
         'error=An+account+with+this+email+already+exists&error_code=USER_EXISTS'
@@ -554,6 +599,7 @@ describe('AuthPage', () => {
         'aria-selected',
         'true'
       )
+      expect(Element.prototype.scrollIntoView).not.toHaveBeenCalled()
     })
 
     it('opens on Sign in only for a re-authentication carrying the code', async () => {
