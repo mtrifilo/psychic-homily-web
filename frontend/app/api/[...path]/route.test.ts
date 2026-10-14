@@ -129,6 +129,83 @@ describe('api/[...path] proxy route', () => {
     })
   })
 
+  describe('Origin and Referer forwarding', () => {
+    it('forwards the browser Origin and Referer unchanged', async () => {
+      fetchSpy.mockResolvedValue(new Response('ok', { status: 200 }))
+
+      const req = new NextRequest(
+        'http://localhost:3000/api/auth/oauth/link-token',
+        {
+          method: 'POST',
+          headers: {
+            origin: 'http://localhost:3000',
+            referer: 'http://localhost:3000/profile?tab=settings',
+          },
+        }
+      )
+      await POST(req)
+
+      const headers = fetchSpy.mock.calls[0][1]?.headers as Record<
+        string,
+        string
+      >
+      expect(headers['Origin']).toBe('http://localhost:3000')
+      expect(headers['Referer']).toBe(
+        'http://localhost:3000/profile?tab=settings'
+      )
+    })
+
+    it('forwards a foreign Origin as sent rather than replacing it', async () => {
+      fetchSpy.mockResolvedValue(new Response('forbidden', { status: 403 }))
+
+      const req = new NextRequest(
+        'http://localhost:3000/api/auth/oauth/link-token',
+        { method: 'POST', headers: { origin: 'https://evil.example' } }
+      )
+      await POST(req)
+
+      const headers = fetchSpy.mock.calls[0][1]?.headers as Record<
+        string,
+        string
+      >
+      expect(headers['Origin']).toBe('https://evil.example')
+      expect(headers['Referer']).toBeUndefined()
+    })
+
+    it('forwards Referer alone when the browser sent no Origin', async () => {
+      fetchSpy.mockResolvedValue(new Response('ok', { status: 200 }))
+
+      const req = new NextRequest('http://localhost:3000/api/me', {
+        headers: { referer: 'http://localhost:3000/profile' },
+      })
+      await GET(req)
+
+      const headers = fetchSpy.mock.calls[0][1]?.headers as Record<
+        string,
+        string
+      >
+      expect(headers['Referer']).toBe('http://localhost:3000/profile')
+      expect(headers['Origin']).toBeUndefined()
+    })
+
+    it('adds neither header when the browser sent neither', async () => {
+      fetchSpy.mockResolvedValue(new Response('ok', { status: 200 }))
+
+      const req = new NextRequest(
+        'http://localhost:3000/api/auth/oauth/link-token',
+        { method: 'POST' }
+      )
+      await POST(req)
+
+      const headers = fetchSpy.mock.calls[0][1]?.headers as Record<
+        string,
+        string
+      >
+      expect(Object.keys(headers)).not.toContain('Origin')
+      expect(Object.keys(headers)).not.toContain('Referer')
+    })
+  })
+
   describe('non-GET forwarding', () => {
     it('forwards the body for POST', async () => {
       fetchSpy.mockResolvedValue(new Response('created', { status: 201 }))
