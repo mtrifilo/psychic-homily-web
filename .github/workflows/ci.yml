@@ -93,6 +93,17 @@ jobs:
       - name: Check new migration timestamps exceed the merged maximum
         run: bash scripts/check_migration_timestamps.sh origin/main
 
+      # A new migration that takes a strong table lock (ALTER/LOCK/DROP TABLE,
+      # CREATE INDEX without CONCURRENTLY) must wait a bounded time for it.
+      # While backend/docker-entrypoint.sh passes lock_timeout to the migrate
+      # CLI this only warns; without that runner-level bound it fails. It
+      # reads the origin/main ref fetched above.
+      - name: Self-test the migration lock_timeout gate
+        run: bash scripts/check_migration_lock_timeout_test.sh
+
+      - name: Check new strong-lock migrations have a bounded lock_timeout
+        run: bash scripts/check_migration_lock_timeout.sh origin/main
+
   migration-reversibility:
     name: Migration Reversibility
     runs-on: ubuntu-latest
