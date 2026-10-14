@@ -37,9 +37,9 @@
 //   --json FILE         write every run to FILE
 //
 // Profile: atlas-perf.mjs's phone profile, from lib/phone-perf-profile.mjs
-// (both scripts import it): Playwright's `iPhone 13` descriptor at 390x844
-// (`pointer: coarse` checked per run), CPU 4x on the main thread, Fast 4G;
-// cache disabled, a fresh browser per run.
+// (both scripts import it): a phone descriptor with a coarse pointer (checked
+// per run), main-thread CPU throttling and Fast 4G; cache disabled, a fresh
+// browser per run. The report prints the values.
 //
 // Env: VERCEL_PROTECTION_BYPASS, if set, is sent on one bypass-cookie request
 // per run, only to an https URL on this project's Vercel preview host, and is
@@ -49,7 +49,7 @@
 import { writeFileSync } from 'node:fs'
 import { chromium } from '@playwright/test'
 import { EXIT, errorMessage, median } from './lib/atlas-perf-budget.mjs'
-import { CHROMIUM_ARGS, CPU_THROTTLE_RATE, FAST_4G, FAST_4G_LABEL, SCENE_LIST_SELECTOR, isBypassTarget, phoneContextOptions, setBypassCookie } from './lib/phone-perf-profile.mjs'
+import { CHROMIUM_ARGS, CPU_THROTTLE_RATE, FAST_4G, FAST_4G_LABEL, PHONE_DEVICE, SCENE_LIST_SELECTOR, isBypassTarget, phoneContextOptions, setBypassCookie } from './lib/phone-perf-profile.mjs'
 
 const READY_TIMEOUT_MS = 90_000
 const LCP_WINDOW_AFTER_MS = 2000
@@ -199,9 +199,13 @@ async function pageRun(browser, opts) {
   const { context, page, requests } = await openPage(browser, opts)
   await page.waitForLoadState('load', { timeout: READY_TIMEOUT_MS })
   await page.waitForTimeout(PAGE_OBSERVE_MS)
+  if ((await page.evaluate(() => window.__chromePerf.lcp)) === null) {
+    await context.close()
+    throw new Error('no largest-contentful-paint entry')
+  }
   const windowPassed = await page
     .waitForFunction(
-      (afterMs) => window.__chromePerf.lcp !== null && performance.now() >= window.__chromePerf.lcp + afterMs,
+      (afterMs) => performance.now() >= window.__chromePerf.lcp + afterMs,
       LCP_WINDOW_AFTER_MS,
       { timeout: READY_TIMEOUT_MS, polling: 100 }
     )
@@ -209,7 +213,7 @@ async function pageRun(browser, opts) {
   const { perf, timeOrigin } = await page.evaluate(() => ({ perf: window.__chromePerf, timeOrigin: performance.timeOrigin }))
   if (!windowPassed) {
     await context.close()
-    throw new Error(perf.lcp === null ? 'no largest-contentful-paint entry' : 'LCP + 2 s never passed')
+    throw new Error('LCP + 2 s never passed')
   }
   const cut = perf.lcp + LCP_WINDOW_AFTER_MS
   const finished = await requests()
@@ -302,7 +306,7 @@ async function tapRun(browser, opts) {
 function printReport(opts, runs) {
   console.log(`\nChrome perf (${opts.mode}): ${opts.url.href}\n`)
   const { viewport, deviceScaleFactor } = phoneContextOptions()
-  console.log(`- profile: iPhone 13 ${viewport.width}x${viewport.height} DPR ${deviceScaleFactor}, pointer coarse, CPU ${CPU_THROTTLE_RATE}x main thread, ${FAST_4G_LABEL}, cache disabled, ${opts.headed ? 'headed' : 'headless'}`)
+  console.log(`- profile: ${PHONE_DEVICE} ${viewport.width}x${viewport.height} DPR ${deviceScaleFactor}, pointer coarse, CPU ${CPU_THROTTLE_RATE}x main thread, ${FAST_4G_LABEL}, cache disabled, ${opts.headed ? 'headed' : 'headless'}`)
   if (opts.mode === 'page') {
     console.log(`- runs (FCP / LCP / long tasks before LCP+2s / script by LCP+2s): ${runs.map((r) => `${r.fcpMs} / ${r.lcpMs} / ${r.longTaskMs} ms / ${kib(r.scriptBytes)} KiB`).join(', ')}`)
     console.log(`- median: FCP ${median(runs.map((r) => r.fcpMs))} ms, LCP ${median(runs.map((r) => r.lcpMs))} ms, long tasks ${median(runs.map((r) => r.longTaskMs))} ms, script by LCP+2s ${kib(median(runs.map((r) => r.scriptBytes)))} KiB`)

@@ -70,7 +70,8 @@ export function ChromeLink({
   viewportPrefetch?: boolean
 }) {
   const router = useRouter()
-  const policy = chromePrefetch(useHydrated(), useCoarsePointer(), atlasPrefetch)
+  const coarsePointer = useCoarsePointer()
+  const policy = chromePrefetch(useHydrated(), coarsePointer, atlasPrefetch)
   const onTouch = policy === 'on-touch'
   const prefetchOnTouch = onTouch && prefetch !== false
   // Next's own prefetch is off on touch (the handlers below replace it) and
@@ -94,7 +95,15 @@ export function ChromeLink({
         onPointerDown?.(event)
         // A finger reaches the router through touchstart; this covers a pen,
         // or a mouse or trackpad on a coarse-pointer device, which send none.
-        if (prefetchOnTouch && event.pointerType !== 'touch') {
+        // The live pointer, not the policy, gates it: the hydration render
+        // takes 'on-touch' on a desktop too. Only a primary press is the start
+        // of a navigation in this tab.
+        if (
+          prefetchOnTouch &&
+          coarsePointer &&
+          event.button === 0 &&
+          event.pointerType !== 'touch'
+        ) {
           router.prefetch(href)
         }
       }}

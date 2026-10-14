@@ -175,9 +175,20 @@ describe('ChromeLink on a coarse pointer', () => {
     const { ChromeLink } = await load()
     render(<ChromeLink href="/radio">Radio</ChromeLink>)
 
-    fireEvent.pointerDown(screen.getByText('Radio'), { pointerType })
+    fireEvent.pointerDown(screen.getByText('Radio'), { pointerType, button: 0 })
 
     expect(router.prefetch).toHaveBeenCalledExactlyOnceWith('/radio')
+  })
+
+  it('makes no router call on a secondary or middle mouse press', async () => {
+    const { ChromeLink } = await load()
+    render(<ChromeLink href="/radio">Radio</ChromeLink>)
+    const link = screen.getByText('Radio')
+
+    fireEvent.pointerDown(link, { pointerType: 'mouse', button: 2 })
+    fireEvent.pointerDown(link, { pointerType: 'mouse', button: 1 })
+
+    expect(router.prefetch).not.toHaveBeenCalled()
   })
 
   it('prefetches on touch on /atlas before the map is up', async () => {

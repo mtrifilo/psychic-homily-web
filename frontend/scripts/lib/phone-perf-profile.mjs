@@ -3,10 +3,12 @@
 // same conditions and send the bypass secret to the same hosts.
 import { devices } from '@playwright/test'
 
-// Playwright's `iPhone 13` descriptor (mobile UA, touch, DPR 3, coarse
-// pointer) at 390x844 unless the caller passes another viewport.
+// The Playwright device descriptor the phone profile runs as (mobile UA,
+// touch, DPR 3, coarse pointer), at 390x844 unless the caller passes another
+// viewport.
+export const PHONE_DEVICE = 'iPhone 13'
 export function phoneContextOptions(viewport = { width: 390, height: 844 }) {
-  return { ...devices['iPhone 13'], reducedMotion: 'no-preference', viewport }
+  return { ...devices[PHONE_DEVICE], reducedMotion: 'no-preference', viewport }
 }
 
 // Puppeteer's `Fast 4G` preset: 9 Mbps down and 1.5 Mbps up at 90%
