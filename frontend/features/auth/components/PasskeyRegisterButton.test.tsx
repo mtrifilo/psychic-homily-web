@@ -32,11 +32,11 @@ vi.mock('@/lib/api-base', async (importOriginal) => ({
   API_BASE_URL: 'https://api-base.test',
 }))
 
-function jsonResponse(body: unknown): Response {
+function jsonResponse(body: unknown, status = 200): Response {
   return {
-    ok: true,
-    status: 200,
-    statusText: 'OK',
+    ok: status < 400,
+    status,
+    statusText: '',
     headers: new Headers(),
     json: async () => body,
   } as Response
@@ -130,6 +130,44 @@ describe('PasskeyRegisterButton', () => {
     const reported = onError.mock.calls[0][0]
     expect(reported).toBeInstanceOf(AuthError)
     expect((reported as AuthError).code).toBe(AuthErrorCode.REAUTH_REQUIRED)
+  })
+
+  // The envelope the backend writes for a failure: a 503 whose body says so.
+  it('reports a 503 from finish with its code and leaves the dialog usable', async () => {
+    global.fetch = vi
+      .fn()
+      .mockResolvedValueOnce(
+        jsonResponse({
+          success: true,
+          options: { publicKey: { challenge: 'register-challenge' } },
+          challenge_id: 'challenge-1',
+        })
+      )
+      .mockResolvedValueOnce(
+        jsonResponse(
+          {
+            success: false,
+            message: 'Service temporarily unavailable',
+            error_code: 'SERVICE_UNAVAILABLE',
+          },
+          503
+        )
+      ) as unknown as typeof fetch
+    const onError = vi.fn()
+    const onSuccess = vi.fn()
+
+    renderWithProviders(<PasskeyRegisterButton onError={onError} onSuccess={onSuccess} />)
+    await openAndSubmit()
+
+    await waitFor(() => expect(onError).toHaveBeenCalled())
+    const reported = onError.mock.calls[0][0]
+    expect(reported).toBeInstanceOf(AuthError)
+    expect((reported as AuthError).code).toBe(AuthErrorCode.SERVICE_UNAVAILABLE)
+    expect((reported as AuthError).message).toBe('Service temporarily unavailable')
+    expect(onSuccess).not.toHaveBeenCalled()
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: /Register passkey/i })).toBeEnabled()
+    )
   })
 
   // apiRequest handles this for every other credential surface. Here it is this

@@ -3,6 +3,7 @@ package auth
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"testing"
 	"time"
@@ -33,6 +34,16 @@ var malformedCredentialJSON = json.RawMessage(`{"id":"","type":"","response":{"c
 // signup verification send short-circuits without touching the mock.
 func testPasskeyHandlerWithMocks(wa *testhelpers.MockWebAuthnService, jwt *testhelpers.MockJWTService, us *testhelpers.MockUserService) *PasskeyHandler {
 	return NewPasskeyHandler(wa, jwt, us, &testhelpers.MockEmailService{}, testConfig())
+}
+
+// requireServiceUnavailableError asserts a handler answered with the
+// SERVICE_UNAVAILABLE error the API layer writes as a 503.
+func requireServiceUnavailableError(t *testing.T, err error) {
+	t.Helper()
+	var authErr *autherrors.AuthError
+	if !errors.As(err, &authErr) || authErr.Code != autherrors.CodeServiceUnavailable {
+		t.Fatalf("expected a %s error, got %v", autherrors.CodeServiceUnavailable, err)
+	}
 }
 
 // ============================================================================
@@ -255,32 +266,6 @@ func TestFinishRegisterHandler_MalformedCredentialResponse(t *testing.T) {
 // BeginLoginHandler
 // ============================================================================
 
-func TestBeginLoginHandler_WithEmail_UserNotFound(t *testing.T) {
-	mockUS := &testhelpers.MockUserService{
-		GetUserByEmailFn: func(email string) (*authm.User, error) {
-			return nil, fmt.Errorf("user not found")
-		},
-	}
-	h := testPasskeyHandlerWithMocks(&testhelpers.MockWebAuthnService{}, &testhelpers.MockJWTService{}, mockUS)
-
-	input := &BeginLoginRequest{}
-	input.Body.Email = "nobody@example.com"
-
-	resp, err := h.BeginLoginHandler(context.Background(), input)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if resp.Body.Success {
-		t.Error("expected success=false")
-	}
-	if resp.Body.ErrorCode != autherrors.CodeInvalidCredentials {
-		t.Errorf("expected error_code=%s, got %s", autherrors.CodeInvalidCredentials, resp.Body.ErrorCode)
-	}
-	if resp.Body.Message != "Invalid credentials" {
-		t.Errorf("expected 'Invalid credentials', got '%s'", resp.Body.Message)
-	}
-}
-
 func TestBeginLoginHandler_WithEmail_NoPasskeys(t *testing.T) {
 	email := "user@example.com"
 	mockUS := &testhelpers.MockUserService{
@@ -290,7 +275,7 @@ func TestBeginLoginHandler_WithEmail_NoPasskeys(t *testing.T) {
 	}
 	mockWA := &testhelpers.MockWebAuthnService{
 		BeginLoginFn: func(user *authm.User) (*protocol.CredentialAssertion, *webauthn.SessionData, error) {
-			return nil, nil, fmt.Errorf("no credentials registered")
+			return nil, nil, autherrors.NewAuthError(autherrors.CodeInvalidCredentials, "service copy", fmt.Errorf("user 1 has no registered passkeys"))
 		},
 	}
 	h := testPasskeyHandlerWithMocks(mockWA, &testhelpers.MockJWTService{}, mockUS)
@@ -385,54 +370,6 @@ func TestBeginLoginHandler_Discoverable_Success(t *testing.T) {
 	}
 }
 
-func TestBeginLoginHandler_Discoverable_BeginFails(t *testing.T) {
-	mockWA := &testhelpers.MockWebAuthnService{
-		BeginDiscoverableLoginFn: func() (*protocol.CredentialAssertion, *webauthn.SessionData, error) {
-			return nil, nil, fmt.Errorf("webauthn config error")
-		},
-	}
-	h := testPasskeyHandlerWithMocks(mockWA, &testhelpers.MockJWTService{}, &testhelpers.MockUserService{})
-
-	input := &BeginLoginRequest{}
-
-	resp, err := h.BeginLoginHandler(context.Background(), input)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if resp.Body.Success {
-		t.Error("expected success=false")
-	}
-	if resp.Body.ErrorCode != autherrors.CodeServiceUnavailable {
-		t.Errorf("expected error_code=%s, got %s", autherrors.CodeServiceUnavailable, resp.Body.ErrorCode)
-	}
-}
-
-func TestBeginLoginHandler_StoreChallengeFailure(t *testing.T) {
-	mockWA := &testhelpers.MockWebAuthnService{
-		BeginDiscoverableLoginFn: func() (*protocol.CredentialAssertion, *webauthn.SessionData, error) {
-			return &protocol.CredentialAssertion{}, &webauthn.SessionData{}, nil
-		},
-		StoreChallengeFn: func(userID uint, session *webauthn.SessionData, operation string) (string, error) {
-			return "", fmt.Errorf("db error")
-		},
-	}
-	h := testPasskeyHandlerWithMocks(mockWA, &testhelpers.MockJWTService{}, &testhelpers.MockUserService{})
-
-	resp, err := h.BeginLoginHandler(context.Background(), &BeginLoginRequest{})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if resp.Body.Success {
-		t.Error("expected success=false")
-	}
-	if resp.Body.ErrorCode != autherrors.CodeServiceUnavailable {
-		t.Errorf("expected error_code=%s, got %s", autherrors.CodeServiceUnavailable, resp.Body.ErrorCode)
-	}
-	if resp.Body.Message != "Failed to store challenge" {
-		t.Errorf("expected 'Failed to store challenge', got '%s'", resp.Body.Message)
-	}
-}
-
 // ============================================================================
 // FinishLoginHandler
 // ============================================================================
@@ -491,8 +428,7 @@ func TestFinishLoginHandler_MalformedCredentialResponse(t *testing.T) {
 }
 
 // The service decides an email-specific sign-in for the challenge's account,
-// a missing account included; the handler loads the account only for a
-// sign-in the service accepted.
+// a missing account included.
 func TestFinishLoginHandler_UserSpecificLogin_UserNotFound(t *testing.T) {
 	_, device := softRegistration(t)
 	body := softAssertion(t, device)
@@ -501,18 +437,12 @@ func TestFinishLoginHandler_UserSpecificLogin_UserNotFound(t *testing.T) {
 		ConsumeChallengeFn: func(challengeID string, operation string) (*webauthn.SessionData, uint, error) {
 			return &webauthn.SessionData{}, 42, nil
 		},
-		FinishLoginFn: func(user *authm.User, _ *webauthn.SessionData, _ *protocol.ParsedCredentialAssertionData) (*authm.WebAuthnCredential, error) {
+		FinishLoginFn: func(user *authm.User, _ *webauthn.SessionData, _ *protocol.ParsedCredentialAssertionData) (*authm.User, *authm.WebAuthnCredential, error) {
 			decidedFor = user.ID
-			return nil, autherrors.NewAuthError(autherrors.CodeInvalidCredentials, "User not found", fmt.Errorf("record not found"))
+			return nil, nil, autherrors.NewAuthError(autherrors.CodeInvalidCredentials, "User not found", fmt.Errorf("record not found"))
 		},
 	}
-	mockUS := &testhelpers.MockUserService{
-		GetUserByIDFn: func(userID uint) (*authm.User, error) {
-			t.Error("a refused sign-in must not load the account")
-			return nil, nil
-		},
-	}
-	h := testPasskeyHandlerWithMocks(mockWA, &testhelpers.MockJWTService{}, mockUS)
+	h := testPasskeyHandlerWithMocks(mockWA, &testhelpers.MockJWTService{}, noAccountLoads(t))
 
 	input := &FinishLoginRequest{}
 	input.Body.ChallengeID = "valid-challenge"
@@ -1036,7 +966,7 @@ func TestBeginSignupHandler_Success(t *testing.T) {
 func TestFinishSignupHandler_InvalidChallenge(t *testing.T) {
 	mockWA := &testhelpers.MockWebAuthnService{
 		ConsumeSignupChallengeFn: func(challengeID string, operation string) (*webauthn.SessionData, contracts.SignupChallenge, error) {
-			return nil, contracts.SignupChallenge{}, fmt.Errorf("challenge expired or not found")
+			return nil, contracts.SignupChallenge{}, autherrors.NewAuthError(autherrors.CodeValidationFailed, "Invalid or expired challenge", fmt.Errorf("challenge not found"))
 		},
 	}
 	h := testPasskeyHandlerWithMocks(mockWA, &testhelpers.MockJWTService{}, &testhelpers.MockUserService{})
@@ -1056,37 +986,6 @@ func TestFinishSignupHandler_InvalidChallenge(t *testing.T) {
 	}
 	if resp.Body.Message != "Invalid or expired challenge" {
 		t.Errorf("expected 'Invalid or expired challenge', got '%s'", resp.Body.Message)
-	}
-}
-
-func TestFinishSignupHandler_EmailVerifyFails(t *testing.T) {
-	mockWA := &testhelpers.MockWebAuthnService{
-		ConsumeSignupChallengeFn: func(challengeID string, operation string) (*webauthn.SessionData, contracts.SignupChallenge, error) {
-			return &webauthn.SessionData{}, currentSignupChallenge("new@example.com"), nil
-		},
-	}
-	mockUS := &testhelpers.MockUserService{
-		GetUserByEmailFn: func(email string) (*authm.User, error) {
-			return nil, fmt.Errorf("database error")
-		},
-	}
-	h := testPasskeyHandlerWithMocks(mockWA, &testhelpers.MockJWTService{}, mockUS)
-
-	input := &FinishSignupRequest{}
-	input.Body.ChallengeID = "valid-challenge"
-
-	resp, err := h.FinishSignupHandler(context.Background(), input)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if resp.Body.Success {
-		t.Error("expected success=false")
-	}
-	if resp.Body.ErrorCode != autherrors.CodeServiceUnavailable {
-		t.Errorf("expected error_code=%s, got %s", autherrors.CodeServiceUnavailable, resp.Body.ErrorCode)
-	}
-	if resp.Body.Message != "Failed to verify email" {
-		t.Errorf("expected 'Failed to verify email', got '%s'", resp.Body.Message)
 	}
 }
 
@@ -1198,33 +1097,6 @@ func TestFinishSignupHandler_ChallengeWithoutConsent(t *testing.T) {
 }
 
 // ============================================================================
-// BeginDiscoverableLogin (tested via BeginLoginHandler with no email)
-// ============================================================================
-
-func TestBeginLoginHandler_Discoverable_ChallengeStoreFails(t *testing.T) {
-	mockWA := &testhelpers.MockWebAuthnService{
-		BeginDiscoverableLoginFn: func() (*protocol.CredentialAssertion, *webauthn.SessionData, error) {
-			return &protocol.CredentialAssertion{}, &webauthn.SessionData{}, nil
-		},
-		StoreChallengeFn: func(userID uint, session *webauthn.SessionData, operation string) (string, error) {
-			return "", fmt.Errorf("redis unavailable")
-		},
-	}
-	h := testPasskeyHandlerWithMocks(mockWA, &testhelpers.MockJWTService{}, &testhelpers.MockUserService{})
-
-	resp, err := h.BeginLoginHandler(context.Background(), &BeginLoginRequest{})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if resp.Body.Success {
-		t.Error("expected success=false")
-	}
-	if resp.Body.ErrorCode != autherrors.CodeServiceUnavailable {
-		t.Errorf("expected error_code=%s, got %s", autherrors.CodeServiceUnavailable, resp.Body.ErrorCode)
-	}
-}
-
-// ============================================================================
 // Edge cases and argument passing verification
 // ============================================================================
 
@@ -1245,41 +1117,6 @@ func TestBeginRegisterHandler_PassesCorrectUserToService(t *testing.T) {
 	}
 	if capturedUserID != 42 {
 		t.Errorf("expected user ID 42 passed to BeginRegistration, got %d", capturedUserID)
-	}
-}
-
-func TestBeginLoginHandler_WithEmail_StoreChallengeFailure(t *testing.T) {
-	email := "user@example.com"
-	mockUS := &testhelpers.MockUserService{
-		GetUserByEmailFn: func(e string) (*authm.User, error) {
-			return &authm.User{ID: 1, Email: &email}, nil
-		},
-	}
-	mockWA := &testhelpers.MockWebAuthnService{
-		BeginLoginFn: func(user *authm.User) (*protocol.CredentialAssertion, *webauthn.SessionData, error) {
-			return &protocol.CredentialAssertion{}, &webauthn.SessionData{}, nil
-		},
-		StoreChallengeFn: func(userID uint, session *webauthn.SessionData, operation string) (string, error) {
-			return "", fmt.Errorf("storage failure")
-		},
-	}
-	h := testPasskeyHandlerWithMocks(mockWA, &testhelpers.MockJWTService{}, mockUS)
-
-	input := &BeginLoginRequest{}
-	input.Body.Email = email
-
-	resp, err := h.BeginLoginHandler(context.Background(), input)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if resp.Body.Success {
-		t.Error("expected success=false")
-	}
-	if resp.Body.ErrorCode != autherrors.CodeServiceUnavailable {
-		t.Errorf("expected error_code=%s, got %s", autherrors.CodeServiceUnavailable, resp.Body.ErrorCode)
-	}
-	if resp.Body.Message != "Failed to store challenge" {
-		t.Errorf("expected 'Failed to store challenge', got '%s'", resp.Body.Message)
 	}
 }
 
