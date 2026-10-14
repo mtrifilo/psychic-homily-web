@@ -46,6 +46,7 @@ const (
 	LimiterAuth                        LimiterName = "auth"
 	LimiterPasskey                     LimiterName = "passkey"
 	LimiterOAuthRedirect               LimiterName = "oauth_redirect"
+	LimiterAppleSignIn                 LimiterName = "apple_sign_in"
 	LimiterVerificationResend          LimiterName = "verification_resend"
 	LimiterPasswordConfirm             LimiterName = "password_confirm"
 	LimiterOAuthLinkToken              LimiterName = "oauth_link_token"

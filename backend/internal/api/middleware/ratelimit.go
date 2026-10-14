@@ -27,13 +27,20 @@ const (
 	PasskeyRequestsPerMinute = 20
 
 	// OAuthRedirectRequestsPerMinute is the per-IP rate limit for the OAuth
-	// redirects: the start that sends a browser to the provider and the
-	// callback the provider sends it back to, which finishes a sign-in or a
-	// link. A web sign-in spends two (a link spends one: its start is metered
-	// by the auth budget), so this admits ten sign-in round trips a minute from
-	// one address. Its counter is separate from the auth one, so password
-	// attempts cannot spend it and it cannot spend theirs.
+	// redirects: the sign-in start and the Settings link start that send a
+	// browser to the provider, and the callback the provider sends it back to,
+	// which finishes a sign-in or a link. A web sign-in or link spends two, so
+	// this admits ten round trips a minute from one address. Its counter is
+	// separate from the auth one, so password attempts cannot spend it and it
+	// cannot spend theirs.
 	OAuthRedirectRequestsPerMinute = 20
+
+	// AppleSignInRequestsPerMinute is the per-IP rate limit for the Sign in
+	// with Apple callback a native client posts its identity token to. A
+	// sign-in spends one. Its counter is its own: password attempts cannot
+	// spend it and it cannot spend theirs, and retuning this constant changes
+	// no other budget.
+	AppleSignInRequestsPerMinute = 20
 
 	// APIRequestsPerMinute is the rate limit for general API endpoints
 	// Provides basic protection against abuse

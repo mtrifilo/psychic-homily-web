@@ -170,9 +170,9 @@ func validatedFeedToken(validate func(string) bool, path string) bool {
 // phk_ prefix alone) is exempt so ingest search does not starve visitors on the
 // same IP (PSY-1814). Infra paths are exempt, and so is a personal-feed request
 // whose URL token validates (PSY-2017), not the path shape alone, and so is a
-// GET to an OAuth start or callback (isOAuthRedirectRequest). Returns a
-// pass-through noop unless the opt-in flag is set. Mounted once, globally,
-// before route registration.
+// GET to an OAuth sign-in start, callback or link start
+// (isOAuthRedirectRequest). Returns a pass-through noop unless the opt-in flag
+// is set. Mounted once, globally, before route registration.
 func PublicReadRateLimiter(jwtService *auth.JWTService, validateAPIToken, validateFeedToken func(string) bool, getenv func(string) string) func(http.Handler) http.Handler {
 	if !IsPublicReadRateLimitEnabled(getenv) {
 		return noopRateLimiter()
