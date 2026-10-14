@@ -359,7 +359,7 @@ func (s *CalendarService) ValidateCalendarToken(plainToken string) (*authm.User,
 		return nil, fmt.Errorf("invalid calendar token")
 	}
 
-	if !token.User.IsActive {
+	if !token.User.CanSignIn() {
 		return nil, fmt.Errorf("user account is not active")
 	}
 
