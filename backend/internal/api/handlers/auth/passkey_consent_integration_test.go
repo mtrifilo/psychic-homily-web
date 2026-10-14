@@ -19,10 +19,18 @@ import (
 // and the suite's database, with a software authenticator for the ceremonies.
 
 func (s *AuthHandlerIntegrationSuite) newRealPasskeyHandler() *PasskeyHandler {
+	return s.newPasskeyHandlerOver(s.newRealWebAuthnService())
+}
+
+func (s *AuthHandlerIntegrationSuite) newRealWebAuthnService() *authsvc.WebAuthnService {
 	webauthnService, err := authsvc.NewWebAuthnService(s.deps.DB, &config.Config{
 		WebAuthn: config.WebAuthnConfig{RPDisplayName: "Test", RPID: "localhost", RPOrigins: []string{wireOrigin}},
 	})
 	s.Require().NoError(err)
+	return webauthnService
+}
+
+func (s *AuthHandlerIntegrationSuite) newPasskeyHandlerOver(webauthnService *authsvc.WebAuthnService) *PasskeyHandler {
 	jwt := &testhelpers.MockJWTService{CreateTokenFn: func(*authm.User) (string, error) { return "token", nil }}
 	return NewPasskeyHandler(webauthnService, jwt, s.deps.UserService, &testhelpers.MockEmailService{}, testConfig())
 }

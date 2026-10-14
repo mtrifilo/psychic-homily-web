@@ -196,6 +196,7 @@ type WebAuthnServiceInterface interface {
 	UpdateCredentialName(userID uint, credentialID uint, displayName string) error
 	StoreChallenge(userID uint, session *webauthn.SessionData, operation string) (string, error)
 	ConsumeChallenge(challengeID string, operation string) (*webauthn.SessionData, uint, error)
+	ConsumeRegistrationChallenge(challengeID string, userID uint) (*webauthn.SessionData, error)
 	CleanupExpiredChallenges() error
 	BeginRegistrationForEmail(email string) (*protocol.CredentialCreation, *webauthn.SessionData, error)
 	StoreSignupChallenge(signup SignupChallenge, session *webauthn.SessionData, operation string) (string, error)

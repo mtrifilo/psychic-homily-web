@@ -4,6 +4,7 @@ import (
 	"github.com/go-webauthn/webauthn/protocol"
 	"github.com/google/uuid"
 
+	apperrors "psychic-homily-backend/internal/errors"
 	authm "psychic-homily-backend/internal/models/auth"
 	"psychic-homily-backend/internal/services/contracts"
 	"psychic-homily-backend/internal/testutil/softauthn"
@@ -182,7 +183,7 @@ func (suite *WebAuthnServiceIntegrationTestSuite) TestDiscoverableLoginRefusesAn
 	parsed.Response.UserHandle = other.WebAuthnID()
 
 	_, _, err = suite.service.FinishDiscoverableLogin(session, parsed)
-	suite.Error(err)
+	suite.requireRefusal(err, apperrors.CodeInvalidCredentials, "Invalid passkey")
 }
 
 // An email-specific login session for one account does not accept another
@@ -201,7 +202,7 @@ func (suite *WebAuthnServiceIntegrationTestSuite) TestEmailLoginRefusesAnotherAc
 	suite.Require().NoError(err)
 
 	_, err = suite.service.FinishLogin(&authm.User{ID: target.ID}, session, parsed)
-	suite.Error(err)
+	suite.requireRefusal(err, apperrors.CodeInvalidCredentials, invalidPasskeyMessage)
 }
 
 // A sign-in records the backup state the authenticator reports now, so a

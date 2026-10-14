@@ -2,11 +2,8 @@ package auth
 
 import (
 	"context"
-	"encoding/base64"
-	"encoding/json"
 	"net/http"
 	"net/url"
-	"testing"
 	"time"
 
 	"github.com/go-webauthn/webauthn/protocol"
@@ -15,10 +12,12 @@ import (
 	"github.com/markbates/goth"
 
 	"psychic-homily-backend/internal/api/handlers/shared/testhelpers"
+	"psychic-homily-backend/internal/config"
 	autherrors "psychic-homily-backend/internal/errors"
 	authm "psychic-homily-backend/internal/models/auth"
 	authsvc "psychic-homily-backend/internal/services/auth"
 	"psychic-homily-backend/internal/services/contracts"
+	"psychic-homily-backend/internal/testutil/softauthn"
 )
 
 // An account that may not sign in (deactivated, or soft-deleted) is refused on
@@ -189,173 +188,95 @@ func (s *OAuthHandlerIntegrationSuite) TestAppleCallback_AccountState() {
 	}
 }
 
-// The passkey refusal against real account rows: the account is loaded by the
-// real user service and the session by the real JWT service, with only the
-// WebAuthn ceremony itself standing in.
+// The passkey refusal against real account rows and a real signature: a
+// software authenticator signs the assertion, the real WebAuthn service
+// verifies it and decides on the account, and the real JWT service mints any
+// session, on both ceremonies.
 func (s *OAuthHandlerIntegrationSuite) TestPasskeyFinishLogin_AccountState() {
 	inactive := autherrors.ErrAccountInactive()
-
-	for _, state := range signInAccountStates {
-		s.Run(state.name, func() {
-			user := &authm.User{Email: strPtr("passkey-" + state.name + "@test.com"), IsActive: true, EmailVerified: true}
-			s.Require().NoError(s.deps.DB.Create(user).Error)
-			state.apply(s, user.ID)
-
-			ceremony := &testhelpers.MockWebAuthnService{
-				ConsumeChallengeFn: func(string, string) (*webauthn.SessionData, uint, error) {
-					return &webauthn.SessionData{}, user.ID, nil
-				},
-				FinishLoginFn: func(*authm.User, *webauthn.SessionData, *protocol.ParsedCredentialAssertionData) (*authm.WebAuthnCredential, error) {
-					return &authm.WebAuthnCredential{}, nil
-				},
-			}
-			h := NewPasskeyHandler(ceremony, s.jwtService(), s.deps.UserService, &testhelpers.MockEmailService{}, s.cfg)
-
-			resp, err := h.FinishLoginHandler(context.Background(), finishLoginInput(s.T()))
-			s.Require().NoError(err)
-
-			if state.maySignIn {
-				s.True(resp.Body.Success)
-				s.NotEmpty(resp.SetCookie.Value)
-				return
-			}
-
-			s.False(resp.Body.Success)
-			s.Equal(autherrors.CodeAccountInactive, resp.Body.ErrorCode)
-			s.Equal(inactive.UserMessage(), resp.Body.Message)
-			s.Empty(resp.SetCookie.Value)
-			s.Nil(resp.Body.User)
-		})
-	}
-}
-
-// finishLoginInput builds a FinishLoginRequest from the JSON a browser posts:
-// an assertion that parses, carrying no valid signature. Verification itself
-// is the mocked WebAuthn service's job in these tests.
-func finishLoginInput(t *testing.T) *FinishLoginRequest {
-	t.Helper()
-	b64 := base64.RawURLEncoding.EncodeToString
-
-	clientData, err := json.Marshal(map[string]string{
-		"type":      "webauthn.get",
-		"challenge": b64([]byte("account-state-challenge")),
-		"origin":    "http://localhost:3000",
+	webauthnService, err := authsvc.NewWebAuthnService(s.deps.DB, &config.Config{
+		WebAuthn: config.WebAuthnConfig{RPDisplayName: "Test", RPID: "localhost", RPOrigins: []string{wireOrigin}},
 	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	// rpIdHash (32 bytes), flags (user present), sign count (4 bytes).
-	authData := append(make([]byte, 32), 0x01, 0, 0, 0, 1)
+	s.Require().NoError(err)
+	h := NewPasskeyHandler(webauthnService, s.jwtService(), s.deps.UserService, &testhelpers.MockEmailService{}, s.cfg)
 
-	body, err := json.Marshal(map[string]any{
-		"challenge_id": "account-state-challenge-id",
-		"response": map[string]any{
-			"id":    b64([]byte("credential-id")),
-			"rawId": b64([]byte("credential-id")),
-			"type":  "public-key",
-			"response": map[string]string{
-				"authenticatorData": b64(authData),
-				"clientDataJSON":    b64(clientData),
-				"signature":         b64([]byte("signature")),
-			},
-		},
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	input := &FinishLoginRequest{}
-	if err := json.Unmarshal(body, &input.Body); err != nil {
-		t.Fatal(err)
-	}
-	return input
-}
-
-func TestFinishLoginHandler_AccountState(t *testing.T) {
-	deletedAt := time.Now()
-	inactive := autherrors.ErrAccountInactive()
-
-	states := []struct {
-		name      string
-		user      authm.User
-		maySignIn bool
-	}{
-		{name: "active", user: authm.User{ID: 7, IsActive: true}, maySignIn: true},
-		{name: "deactivated", user: authm.User{ID: 7, IsActive: false}},
-		{name: "soft-deleted", user: authm.User{ID: 7, IsActive: false, DeletedAt: &deletedAt}},
-		{name: "deleted-at-only", user: authm.User{ID: 7, IsActive: true, DeletedAt: &deletedAt}},
-	}
-	// The challenge's user id decides which ceremony runs: zero is a
-	// discoverable login, anything else names the account up front.
-	ceremonies := []struct {
-		name          string
+	// Each ceremony begins a login and stores its challenge as login/begin
+	// does: under the account's id for an email-specific login, under zero for
+	// a discoverable one.
+	type begun struct {
+		options       *protocol.CredentialAssertion
+		session       *webauthn.SessionData
 		challengeUser uint
+	}
+	ceremonies := []struct {
+		name  string
+		begin func(userID uint) begun
 	}{
-		{name: "user-specific", challengeUser: 7},
-		{name: "discoverable", challengeUser: 0},
+		{name: "email", begin: func(userID uint) begun {
+			options, session, err := webauthnService.BeginLogin(&authm.User{ID: userID})
+			s.Require().NoError(err)
+			return begun{options, session, userID}
+		}},
+		{name: "discoverable", begin: func(uint) begun {
+			options, session, err := webauthnService.BeginDiscoverableLogin()
+			s.Require().NoError(err)
+			return begun{options, session, 0}
+		}},
 	}
 
 	for _, ceremony := range ceremonies {
-		for _, state := range states {
-			t.Run(ceremony.name+"/"+state.name, func(t *testing.T) {
-				user := state.user
-				tokenMinted := false
+		for _, state := range signInAccountStates {
+			s.Run(ceremony.name+"/"+state.name, func() {
+				user := &authm.User{Email: strPtr("passkey-" + ceremony.name + "-" + state.name + "@test.com"), IsActive: true, EmailVerified: true}
+				s.Require().NoError(s.deps.DB.Create(user).Error)
+				device := s.registerSoftPasskey(webauthnService, user)
+				state.apply(s, user.ID)
 
-				mockWA := &testhelpers.MockWebAuthnService{
-					ConsumeChallengeFn: func(string, string) (*webauthn.SessionData, uint, error) {
-						return &webauthn.SessionData{}, ceremony.challengeUser, nil
-					},
-					FinishLoginFn: func(*authm.User, *webauthn.SessionData, *protocol.ParsedCredentialAssertionData) (*authm.WebAuthnCredential, error) {
-						return &authm.WebAuthnCredential{}, nil
-					},
-					FinishDiscoverableLoginFn: func(*webauthn.SessionData, *protocol.ParsedCredentialAssertionData) (*authm.User, *authm.WebAuthnCredential, error) {
-						return &user, &authm.WebAuthnCredential{}, nil
-					},
-				}
-				mockUS := &testhelpers.MockUserService{
-					GetUserByIDFn: func(uint) (*authm.User, error) { return &user, nil },
-				}
-				mockJWT := &testhelpers.MockJWTService{
-					CreateTokenFn: func(*authm.User) (string, error) {
-						tokenMinted = true
-						return "session-token", nil
-					},
-				}
-				h := testPasskeyHandlerWithMocks(mockWA, mockJWT, mockUS)
+				login := ceremony.begin(user.ID)
+				challengeID, err := webauthnService.StoreChallenge(login.challengeUser, login.session, "authentication")
+				s.Require().NoError(err)
+				assertion, err := device.Assert(login.options)
+				s.Require().NoError(err)
+				input := &FinishLoginRequest{}
+				input.Body.ChallengeID = challengeID
+				input.Body.Response = assertion
 
-				resp, err := h.FinishLoginHandler(context.Background(), finishLoginInput(t))
-				if err != nil {
-					t.Fatalf("unexpected error: %v", err)
-				}
+				resp, err := h.FinishLoginHandler(context.Background(), input)
+				s.Require().NoError(err)
+
+				var stored authm.WebAuthnCredential
+				s.Require().NoError(s.deps.DB.Where("user_id = ?", user.ID).First(&stored).Error)
+
 				if state.maySignIn {
-					if !resp.Body.Success {
-						t.Fatalf("expected success, got code=%s message=%q", resp.Body.ErrorCode, resp.Body.Message)
-					}
-					if resp.SetCookie.Value != "session-token" {
-						t.Errorf("session cookie = %q, want the minted token", resp.SetCookie.Value)
-					}
+					s.True(resp.Body.Success, resp.Body.Message)
+					s.NotEmpty(resp.SetCookie.Value)
+					s.NotNil(stored.LastUsedAt)
 					return
 				}
 
-				if resp.Body.Success {
-					t.Error("expected success=false")
-				}
-				if resp.Body.ErrorCode != autherrors.CodeAccountInactive {
-					t.Errorf("error_code = %q, want %q", resp.Body.ErrorCode, autherrors.CodeAccountInactive)
-				}
-				if resp.Body.Message != inactive.UserMessage() {
-					t.Errorf("message = %q, want %q", resp.Body.Message, inactive.UserMessage())
-				}
-				if tokenMinted {
-					t.Error("a refused sign-in must not mint a session token")
-				}
-				if resp.SetCookie.Value != "" {
-					t.Error("a refused sign-in must not set a session cookie")
-				}
-				if resp.Body.User != nil {
-					t.Error("a refused sign-in must not return the account")
-				}
+				s.False(resp.Body.Success)
+				s.Equal(autherrors.CodeAccountInactive, resp.Body.ErrorCode)
+				s.Equal(inactive.UserMessage(), resp.Body.Message)
+				s.Empty(resp.SetCookie.Value)
+				s.Nil(resp.Body.User)
+				s.Nil(stored.LastUsedAt, "a refused sign-in records no use of the credential")
 			})
 		}
 	}
+}
+
+// registerSoftPasskey registers a fresh software authenticator for user
+// through the WebAuthn service and returns it.
+func (s *OAuthHandlerIntegrationSuite) registerSoftPasskey(webauthnService *authsvc.WebAuthnService, user *authm.User) *softauthn.Authenticator {
+	s.T().Helper()
+	device := softauthn.New(wireOrigin)
+	options, session, err := webauthnService.BeginRegistration(user)
+	s.Require().NoError(err)
+	body, err := device.Register(options)
+	s.Require().NoError(err)
+	parsed, err := protocol.ParseCredentialCreationResponseBytes(body)
+	s.Require().NoError(err)
+	_, err = webauthnService.FinishRegistration(user, session, parsed, "Key")
+	s.Require().NoError(err)
+	return device
 }

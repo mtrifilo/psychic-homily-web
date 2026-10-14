@@ -104,9 +104,9 @@ func (h *PasskeyHandler) BeginRegisterHandler(ctx context.Context, input *BeginR
 	// they would be left holding a passkey the server never recorded.
 	//
 	// What that leaves, stated exactly: no challenge is issued without a recent
-	// factor, a challenge lives five minutes (webauthn.go StoreChallenge), the
-	// first finish that presents it spends it, and FinishRegisterHandler
-	// completes a registration only for the user it was issued to. It is NOT
+	// factor, a challenge lives five minutes (webauthn.go StoreChallenge), and
+	// only the user it was issued to can spend it, which the first finish that
+	// user presents does (ConsumeRegistrationChallenge). It is NOT
 	// bound to the session that passed this gate, so within those five
 	// minutes any live session of that account can complete a registration
 	// with a challenge some other session obtained. Reaching that needs the
@@ -209,23 +209,21 @@ func (h *PasskeyHandler) FinishRegisterHandler(ctx context.Context, input *Finis
 		"user_id", contextUser.ID,
 	)
 
-	session, userID, err := h.webauthnService.ConsumeChallenge(input.Body.ChallengeID, "registration")
+	session, err := h.webauthnService.ConsumeRegistrationChallenge(input.Body.ChallengeID, contextUser.ID)
 	if err != nil {
 		logger.AuthWarn(ctx, "passkey_challenge_invalid",
 			"user_id", contextUser.ID,
 			"error", err.Error(),
 		)
 		resp.Body.Success = false
+		var refusal *autherrors.AuthError
+		if errors.As(err, &refusal) && refusal.Code == autherrors.CodeUnauthorized {
+			resp.Body.Message = refusal.UserMessage()
+			resp.Body.ErrorCode = refusal.Code
+			return resp, nil
+		}
 		resp.Body.Message = "Invalid or expired challenge"
 		resp.Body.ErrorCode = autherrors.CodeValidationFailed
-		return resp, nil
-	}
-
-	// Verify user ID matches
-	if userID != contextUser.ID {
-		resp.Body.Success = false
-		resp.Body.Message = "Challenge belongs to different user"
-		resp.Body.ErrorCode = autherrors.CodeUnauthorized
 		return resp, nil
 	}
 
@@ -439,26 +437,25 @@ func (h *PasskeyHandler) FinishLoginHandler(ctx context.Context, input *FinishLo
 	}
 
 	if err != nil {
-		logger.AuthWarn(ctx, "passkey_login_finish_failed",
-			"error", err.Error(),
-		)
-		resp.Body.Success = false
-		resp.Body.Message = "Invalid passkey"
-		resp.Body.ErrorCode = autherrors.CodeInvalidCredentials
-		return resp, nil
-	}
-
-	// After the assertion verified, so only the credential's holder learns the
-	// account's state.
-	if !user.CanSignIn() {
-		logger.AuthWarn(ctx, "passkey_login_account_inactive",
-			"user_id", user.ID,
-		)
-		inactive := autherrors.ErrAccountInactive()
-		resp.Body.Success = false
-		resp.Body.Message = inactive.UserMessage()
-		resp.Body.ErrorCode = inactive.Code
-		return resp, nil
+		// The service answers a refusal as an AuthError carrying its code and
+		// message, and anything else means it reached no decision. A code with
+		// no case here is treated as the latter.
+		var refusal *autherrors.AuthError
+		if errors.As(err, &refusal) {
+			switch refusal.Code {
+			case autherrors.CodeInvalidCredentials, autherrors.CodeAccountInactive:
+				logger.AuthWarn(ctx, "passkey_login_refused",
+					"error_code", refusal.Code,
+					"error", err.Error(),
+				)
+				resp.Body.Success = false
+				resp.Body.Message = refusal.UserMessage()
+				resp.Body.ErrorCode = refusal.Code
+				return resp, nil
+			}
+		}
+		logger.AuthError(ctx, "passkey_login_finish_failed", err)
+		return nil, autherrors.ErrServiceUnavailable("passkey_login_finish", err)
 	}
 
 	// Generate JWT token
