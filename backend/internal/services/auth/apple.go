@@ -14,7 +14,6 @@ import (
 	"net/http"
 	"sync"
 	"time"
-	"unicode/utf8"
 
 	"github.com/golang-jwt/jwt/v5"
 	"gorm.io/gorm"
@@ -363,7 +362,7 @@ func (s *AppleAuthService) getApplePublicKey(ctx context.Context, kid string) (*
 	s.keysMu.Unlock()
 
 	if starter {
-		go s.runAppleKeysFetch(context.WithoutCancel(ctx), fetch)
+		go s.runAppleKeysFetch(fetch)
 	}
 	select {
 	case <-fetch.done:
@@ -385,8 +384,13 @@ func (s *AppleAuthService) getApplePublicKey(ctx context.Context, kid string) (*
 // errAppleKeyNotFound names at most the first appleKeyIDErrorRunes runes of
 // kid, followed by "..." when kid is longer.
 func errAppleKeyNotFound(kid string) error {
-	if utf8.RuneCountInString(kid) > appleKeyIDErrorRunes {
-		kid = string([]rune(kid)[:appleKeyIDErrorRunes]) + "..."
+	runes := 0
+	for i := range kid {
+		if runes == appleKeyIDErrorRunes {
+			kid = kid[:i] + "..."
+			break
+		}
+		runes++
 	}
 	return fmt.Errorf("apple public key not found for kid: %s", kid)
 }
@@ -395,8 +399,10 @@ func errAppleKeyNotFound(kid string) error {
 // fetch is recovered into its error, so keysFetch never stays set, no waiter
 // blocks on a fetch that has stopped, and the fetch goroutine cannot take the
 // process down.
-func (s *AppleAuthService) runAppleKeysFetch(ctx context.Context, fetch *appleKeysFetch) {
+func (s *AppleAuthService) runAppleKeysFetch(fetch *appleKeysFetch) {
 	var keys map[string]*rsa.PublicKey
+	// err starts as a failure so a fetch that ends without returning or
+	// panicking (runtime.Goexit) still publishes one.
 	err := errors.New("apple key fetch did not complete")
 	defer func() {
 		if r := recover(); r != nil {
@@ -426,21 +432,17 @@ func (s *AppleAuthService) runAppleKeysFetch(ctx context.Context, fetch *appleKe
 		}
 		close(fetch.done)
 	}()
-	keys, err = s.fetchAppleKeys(ctx)
+	keys, err = s.fetchAppleKeys()
 }
 
 // fetchAppleKeys downloads Apple's JWK set and parses it into RSA public keys.
 // Entries that cannot verify an RS256 signature are left out.
-func (s *AppleAuthService) fetchAppleKeys(ctx context.Context) (map[string]*rsa.PublicKey, error) {
+func (s *AppleAuthService) fetchAppleKeys() (map[string]*rsa.PublicKey, error) {
 	keysURL := appleKeysURL
 	if s.fetchAppleKeysFromURL != "" {
 		keysURL = s.fetchAppleKeysFromURL
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, keysURL, nil)
-	if err != nil {
-		return nil, fmt.Errorf("failed to build Apple keys request: %w", err)
-	}
-	resp, err := s.keysClient().Do(req)
+	resp, err := s.keysClient().Get(keysURL)
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch Apple keys: %w", err)
 	}

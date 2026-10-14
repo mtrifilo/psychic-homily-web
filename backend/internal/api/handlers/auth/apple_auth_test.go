@@ -7,7 +7,6 @@ import (
 	"crypto/rsa"
 	"encoding/base64"
 	"io"
-	"log/slog"
 	"math/big"
 	"net/http"
 	"strings"
@@ -18,10 +17,10 @@ import (
 
 	"psychic-homily-backend/internal/api/handlers/shared/testhelpers"
 	autherrors "psychic-homily-backend/internal/errors"
-	"psychic-homily-backend/internal/logger"
 	authm "psychic-homily-backend/internal/models/auth"
 	authsvc "psychic-homily-backend/internal/services/auth"
 	"psychic-homily-backend/internal/services/contracts"
+	"psychic-homily-backend/internal/testlog"
 )
 
 func testAppleAuthHandler() *AppleAuthHandler {
@@ -194,11 +193,12 @@ func TestAppleCallbackHandler_TokenInvalidLogBoundsKeyID(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	var logs bytes.Buffer
-	ctx := logger.NewContext(context.Background(), slog.New(slog.NewTextHandler(&logs, &slog.HandlerOptions{Level: slog.LevelDebug})))
 	input := &AppleCallbackRequest{}
 	input.Body.IdentityToken = signed
-	resp, err := h.AppleCallbackHandler(ctx, input)
+	var resp *AppleCallbackResponse
+	logs := testlog.Capture(t, func() {
+		resp, err = h.AppleCallbackHandler(testlog.Context(t, context.Background()), input)
+	})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -207,7 +207,7 @@ func TestAppleCallbackHandler_TokenInvalidLogBoundsKeyID(t *testing.T) {
 	}
 
 	sawRefusal := false
-	for _, line := range strings.Split(logs.String(), "\n") {
+	for _, line := range strings.Split(logs, "\n") {
 		if !strings.Contains(line, "level=WARN") && !strings.Contains(line, "level=ERROR") {
 			continue
 		}
@@ -222,6 +222,6 @@ func TestAppleCallbackHandler_TokenInvalidLogBoundsKeyID(t *testing.T) {
 		}
 	}
 	if !sawRefusal {
-		t.Fatalf("no apple_auth_token_invalid warning was logged:\n%s", logs.String())
+		t.Fatalf("no apple_auth_token_invalid warning was logged:\n%s", logs)
 	}
 }

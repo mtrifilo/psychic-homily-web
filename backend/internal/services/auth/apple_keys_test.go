@@ -313,6 +313,28 @@ func TestAppleKeys_UnknownKidInsideCooldownSkipsFetch(t *testing.T) {
 	assert.Equal(t, 3, ks.count(), "the cooldown has passed")
 }
 
+// A refused key id longer than 8 runes appears in the error as its first 8
+// runes and "...", on the fetched path and the cooldown path alike.
+func TestAppleKeys_NotFoundErrorBoundsKeyID(t *testing.T) {
+	key := newRSAKey(t)
+	ks := newKeyServer(t, jwks(key, "known-kid"))
+	svc, _, _ := newKeysTestService(ks.URL)
+	_, err := svc.getApplePublicKey(t.Context(), "known-kid")
+	require.NoError(t, err)
+
+	_, err = svc.getApplePublicKey(t.Context(), "kid-from-the-caller-"+strings.Repeat("z", 64))
+	require.Error(t, err)
+	assert.Equal(t, "apple public key not found for kid: kid-from...", err.Error())
+
+	_, err = svc.getApplePublicKey(t.Context(), "ключ-из-запроса")
+	require.Error(t, err)
+	assert.Equal(t, "apple public key not found for kid: ключ-из-... (refresh cooling down, not fetched)", err.Error())
+
+	_, err = svc.getApplePublicKey(t.Context(), "exactly8")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "kid: exactly8 (refresh", "an id of 8 runes is kept whole")
+}
+
 // A rotated key whose id arrives after the cooldown fetches once and
 // validates, then answers from the cache.
 func TestAppleKeys_RotationAfterCooldownFetchesOnceAndValidates(t *testing.T) {
@@ -477,7 +499,7 @@ func TestAppleKeys_OversizedBodyFailsAndKeepsCachedSet(t *testing.T) {
 
 	entry, err := json.Marshal(rsaJWK(key, "new-kid"))
 	require.NoError(t, err)
-	padding := strings.Repeat("x", 4<<20)
+	padding := strings.Repeat("x", appleKeysMaxBodyBytes)
 	ks.serve(http.StatusOK, []byte(`{"pad":"`+padding+`","keys":[`+string(entry)+`]}`))
 
 	_, err = svc.getApplePublicKey(t.Context(), "new-kid")
@@ -497,15 +519,15 @@ func TestAppleKeys_MalformedEntriesNeverReplaceCachedSet(t *testing.T) {
 	key := newRSAKey(t)
 	good := rsaJWK(key, "rotated-kid")
 	cases := []struct {
-		name  string
-		entry func() testJWK
+		name   string
+		mutate func(*testJWK)
 	}{
-		{"empty modulus", func() testJWK { e := good; e.N = ""; return e }},
-		{"zero modulus", func() testJWK { e := good; e.N = "AA"; return e }},
-		{"empty exponent", func() testJWK { e := good; e.E = ""; return e }},
-		{"zero exponent", func() testJWK { e := good; e.E = "AA"; return e }},
-		{"encryption key", func() testJWK { e := good; e.Use = "enc"; return e }},
-		{"other algorithm", func() testJWK { e := good; e.Alg = "RS512"; return e }},
+		{"empty modulus", func(e *testJWK) { e.N = "" }},
+		{"zero modulus", func(e *testJWK) { e.N = "AA" }},
+		{"empty exponent", func(e *testJWK) { e.E = "" }},
+		{"zero exponent", func(e *testJWK) { e.E = "AA" }},
+		{"encryption key", func(e *testJWK) { e.Use = "enc" }},
+		{"other algorithm", func(e *testJWK) { e.Alg = "RS512" }},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -514,7 +536,9 @@ func TestAppleKeys_MalformedEntriesNeverReplaceCachedSet(t *testing.T) {
 			_, err := svc.getApplePublicKey(t.Context(), "known-kid")
 			require.NoError(t, err)
 
-			ks.serve(http.StatusOK, jwkSet(tc.entry()))
+			entry := good
+			tc.mutate(&entry)
+			ks.serve(http.StatusOK, jwkSet(entry))
 			_, err = svc.ValidateIdentityToken(t.Context(), signedToken(t, key, "rotated-kid"))
 			require.Error(t, err)
 			assert.Contains(t, err.Error(), "contained no RSA keys")
@@ -562,13 +586,8 @@ func TestAppleKeys_CancelledCallerStopsWaiting(t *testing.T) {
 		_, _ = w.Write(jwks(key, "kid-a"))
 	}))
 	t.Cleanup(srv.Close)
-	t.Cleanup(func() {
-		select {
-		case <-release:
-		default:
-			close(release)
-		}
-	})
+	releaseOnce := sync.OnceFunc(func() { close(release) })
+	t.Cleanup(releaseOnce)
 	svc, _, _ := newKeysTestService(srv.URL)
 
 	starterCtx, cancelStarter := context.WithCancel(context.Background())
@@ -610,7 +629,7 @@ func TestAppleKeys_CancelledCallerStopsWaiting(t *testing.T) {
 		}
 	}
 
-	close(release)
+	releaseOnce()
 	select {
 	case r := <-patient:
 		require.NoError(t, r.err)
