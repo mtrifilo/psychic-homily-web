@@ -19,6 +19,9 @@
 //   --device NAME       iphone13 (default) | desktop
 //   --viewport WxH      override the viewport (default 390x844 for iphone13)
 //   --headed            headed Chromium (uses the machine's GPU on macOS)
+//   --color-scheme S    light (default) | dark: the prefers-color-scheme the
+//                       page sees, which picks the app theme (the app follows
+//                       the system theme) and with it the Atlas street style
 //   --json FILE         write the full report ({ url, device, verdict, runs },
 //                       every request included) to FILE
 //   --no-budget         report only; exit 0 once every run finishes (2 on a
@@ -98,7 +101,7 @@ const PREVIEW_ONLY_HOSTS = ['vercel.live']
 
 function usage(message) {
   if (message) console.error(`error: ${message}`)
-  console.error('usage: node scripts/atlas-perf.mjs <base-url> [--runs N] [--path P] [--city LNG,LAT] [--device iphone13|desktop] [--viewport WxH] [--headed] [--json FILE] [--no-budget] [--budget-ms MS] [--budget-bytes N] [--first-map-informational NOTE]')
+  console.error('usage: node scripts/atlas-perf.mjs <base-url> [--runs N] [--path P] [--city LNG,LAT] [--device iphone13|desktop] [--viewport WxH] [--headed] [--color-scheme light|dark] [--json FILE] [--no-budget] [--budget-ms MS] [--budget-bytes N] [--first-map-informational NOTE]')
   process.exit(EXIT.HARNESS_ERROR)
 }
 
@@ -110,6 +113,7 @@ function parseArgs(argv) {
     device: 'iphone13',
     viewport: null,
     headed: false,
+    colorScheme: 'light',
     json: null,
     enforce: true,
     firstMapNote: null,
@@ -131,6 +135,7 @@ function parseArgs(argv) {
       const [width, height] = next().split('x').map(Number)
       opts.viewport = { width, height }
     } else if (arg === '--headed') opts.headed = true
+    else if (arg === '--color-scheme') opts.colorScheme = next()
     else if (arg === '--json') opts.json = next()
     else if (arg === '--no-budget') opts.enforce = false
     else if (arg === '--budget-ms') overrides.firstMapMs = next()
@@ -150,6 +155,7 @@ function parseArgs(argv) {
   if (opts.city.length !== 2 || opts.city.some((n) => !Number.isFinite(n))) usage('--city must be LNG,LAT')
   if (!['iphone13', 'desktop'].includes(opts.device)) usage('--device must be iphone13 or desktop')
   if (opts.viewport && !(opts.viewport.width > 0 && opts.viewport.height > 0)) usage('--viewport must be WxH')
+  if (!['light', 'dark'].includes(opts.colorScheme)) usage('--color-scheme must be light or dark')
   if (opts.firstMapNote !== null && !opts.firstMapNote.trim()) usage('--first-map-informational needs a non-empty note')
   const { budget, error } = resolveBudget(overrides)
   if (error) usage(error)
@@ -158,9 +164,9 @@ function parseArgs(argv) {
 
 function contextOptions(opts) {
   if (opts.device === 'desktop') {
-    return { ...devices['Desktop Chrome'], reducedMotion: 'no-preference', viewport: opts.viewport ?? { width: 1440, height: 900 } }
+    return { ...devices['Desktop Chrome'], reducedMotion: 'no-preference', colorScheme: opts.colorScheme, viewport: opts.viewport ?? { width: 1440, height: 900 } }
   }
-  return phoneContextOptions(opts.viewport ?? undefined)
+  return { ...phoneContextOptions(opts.viewport ?? undefined), colorScheme: opts.colorScheme }
 }
 
 function category(request) {
@@ -355,7 +361,7 @@ function printReport(opts, runs, verdict) {
   const ctx = contextOptions(opts)
   // Markdown, so the report reads the same in a terminal and a CI job summary.
   console.log(`\nAtlas perf: ${opts.url.href}\n`)
-  console.log(`- profile: ${opts.device} ${ctx.viewport.width}x${ctx.viewport.height} DPR ${ctx.deviceScaleFactor}, CPU ${CPU_THROTTLE_RATE}x main thread only (workers and GPU unthrottled), ${FAST_4G_LABEL}, cache disabled, ${opts.headed ? 'headed' : 'headless'}`)
+  console.log(`- profile: ${opts.device} ${ctx.viewport.width}x${ctx.viewport.height} DPR ${ctx.deviceScaleFactor}, CPU ${CPU_THROTTLE_RATE}x main thread only (workers and GPU unthrottled), ${FAST_4G_LABEL}, cache disabled, ${opts.colorScheme} color scheme, ${opts.headed ? 'headed' : 'headless'}`)
   console.log(`- WebGL renderer: ${runs[0].renderer}`)
   console.log(`- runs: ${runs.map((r) => `${r.firstMapMs} ms / ${kib(r.entry.totalBytes)} KiB to first map + ${kib(r.afterMap.totalBytes)} KiB after / ${r.rasterRequests} raster requests`).join(', ')}\n`)
 
@@ -407,7 +413,7 @@ const exitCode = await runBudgetCheck({
   report: (runs, verdict) => {
     printReport(opts, runs, verdict)
     if (opts.json) {
-      writeFileSync(opts.json, JSON.stringify({ url: opts.url.href, device: opts.device, verdict, runs }, null, 2))
+      writeFileSync(opts.json, JSON.stringify({ url: opts.url.href, device: opts.device, colorScheme: opts.colorScheme, verdict, runs }, null, 2))
     }
   },
   onError: (failure) => {
