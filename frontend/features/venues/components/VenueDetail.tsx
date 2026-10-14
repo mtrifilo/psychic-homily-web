@@ -296,7 +296,8 @@ export function VenueDetail({ venueId, initialPastYears }: VenueDetailProps) {
               <SocialLinks social={venue.social} className="mt-4" />
             )}
 
-            {/* Tags */}
+            {/* Renders nothing for an untagged venue; the header "Add tag"
+                button owns the add affordance for those. */}
             <EntityTagList
               entityType="venue"
               entityId={venue.id}

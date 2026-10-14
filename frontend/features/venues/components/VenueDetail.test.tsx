@@ -243,12 +243,11 @@ vi.mock('@/features/tags', () => ({
     open: boolean
     entityType: string
     entityId: number
-  }) =>
-    open ? (
-      <div data-testid="add-tag-dialog">
-        Add Tag for {entityType} {entityId}
-      </div>
-    ) : null,
+  }) => (
+    <div data-testid="add-tag-dialog" data-open={String(open)}>
+      {open ? `Add Tag for ${entityType} ${entityId}` : null}
+    </div>
+  ),
 }))
 
 vi.mock('@/components/ui/button', () => ({
@@ -654,7 +653,7 @@ describe('VenueDetail', () => {
       mockAuthContext.mockReturnValue(signedInNewUser())
       render(<VenueDetail venueId="7" />)
 
-      expect(screen.queryByTestId('add-tag-dialog')).not.toBeInTheDocument()
+      expect(screen.getByTestId('add-tag-dialog')).toHaveAttribute('data-open', 'false')
       await user.click(screen.getByRole('button', { name: 'Add tag' }))
       expect(screen.getByTestId('add-tag-dialog')).toHaveTextContent(
         'Add Tag for venue 7',
