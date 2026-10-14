@@ -22,9 +22,12 @@ func setupAuthRoutes(rc RouteContext) {
 	// per-IP counter.
 	authRateLimiter := authScopedRateLimiter(middleware.LimiterAuth, middleware.AuthRequestsPerMinute)
 
-	// Rate-limited OAuth routes
+	// The OAuth sign-in redirects meter on their own counter and on no other
+	// auth one, so spent password attempts cannot refuse a sign-in with a
+	// provider. A refusal here is a redirect to the auth page rather than a
+	// JSON body, because a browser arrives at both routes by navigation.
 	rc.Router.Group(func(r chi.Router) {
-		r.Use(authRateLimiter)
+		r.Use(oauthRedirectRateLimiter(oauthHTTPHandler.RedirectRateLimited))
 		r.Get("/auth/login/{provider}", oauthHTTPHandler.OAuthLoginHTTPHandler)
 		r.Get("/auth/callback/{provider}", oauthHTTPHandler.OAuthCallbackHTTPHandler)
 	})
@@ -52,10 +55,10 @@ func setupAuthRoutes(rc RouteContext) {
 	//
 	// Two properties this conversion must preserve, both easy to break silently:
 	//
-	//  1. authRateLimiter is the SAME closure the OAuth chi group above uses, so
-	//     those raw routes and these operations share ONE counter. Passing the
-	//     variable (rather than building a second limiter here) is what keeps that
-	//     budget shared; a fresh httprate.Limit would quietly double it.
+	//  1. authRateLimiter is the SAME closure the /auth/link chi group above
+	//     uses, so that raw route and these operations share ONE counter. Passing
+	//     the variable (rather than building a second limiter here) is what keeps
+	//     that budget shared; a fresh httprate.Limit would quietly double it.
 	//  2. It may be noopRateLimiter() under DISABLE_AUTH_RATE_LIMITS (PSY-475).
 	//     humaFromHTTP has to let that through cleanly, or every E2E shard — all
 	//     sharing 127.0.0.1 — starts failing register/magic-link again.
@@ -112,6 +115,29 @@ func authScopedRateLimiter(name middleware.LimiterName, requestsPerMinute int) f
 		return noopRateLimiter()
 	}
 	return ipRateLimiter(name, requestsPerMinute, time.Minute)
+}
+
+// oauthRedirectRateLimiter builds the per-IP minute limiter for the OAuth
+// sign-in redirects, at middleware.OAuthRedirectRequestsPerMinute and honoring
+// the same DISABLE_AUTH_RATE_LIMITS escape hatch as authScopedRateLimiter.
+//
+// A refusal logs as middleware.LimiterOAuthRedirect and is answered by
+// redirect, handed the message the JSON 429 carries, so the reader lands on a
+// page that says why rather than on a response body.
+func oauthRedirectRateLimiter(redirect func(http.ResponseWriter, *http.Request, string)) func(http.Handler) http.Handler {
+	if IsAuthRateLimitDisabled(os.Getenv) {
+		return noopRateLimiter()
+	}
+	const window = time.Minute
+	limit := middleware.OAuthRedirectRequestsPerMinute
+	return ipRateLimiterRefusingWith(limit, window, func(w http.ResponseWriter, r *http.Request) {
+		middleware.LogClientIPRateLimitRejection(r, middleware.LimiterOAuthRedirect, limit, window)
+		// httprate sets Retry-After before it calls a refusal handler. On a
+		// redirect that header asks the browser to wait before following it,
+		// and the auth page is not what is limited.
+		w.Header().Del("Retry-After")
+		redirect(w, r, rateLimitExceededMessage)
+	})
 }
 
 // setupProtectedAuthRoutes configures the auth-related Huma routes that run on

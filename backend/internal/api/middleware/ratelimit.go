@@ -26,6 +26,15 @@ const (
 	// Slightly higher due to multi-step nature of WebAuthn flows
 	PasskeyRequestsPerMinute = 20
 
+	// OAuthRedirectRequestsPerMinute is the per-IP rate limit for the OAuth
+	// sign-in redirects: the start that sends a browser to the provider and the
+	// callback the provider sends it back to. One sign-in spends two, so this
+	// admits ten complete round trips a minute from one address, room for a
+	// retry and for several people behind one NAT. A redirect loop spends many
+	// a second and reaches it at once. Its counter is separate from the auth
+	// one, so password attempts cannot spend it and it cannot spend theirs.
+	OAuthRedirectRequestsPerMinute = 20
+
 	// APIRequestsPerMinute is the rate limit for general API endpoints
 	// Provides basic protection against abuse
 	APIRequestsPerMinute = 100
