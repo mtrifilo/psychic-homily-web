@@ -165,17 +165,26 @@ export function hasGatedIntent(searchParams: {
 }
 
 /**
+ * The auth-page query parameter carrying the code of a refusal the OAuth
+ * sign-in callback reports, beside the message the page shows from `error`.
+ * The backend writes it as `authPageErrorCodeParam` in
+ * `backend/internal/api/handlers/auth/oauth_handlers.go`; the two names must
+ * stay the same.
+ */
+export const AUTH_ERROR_CODE_PARAM = 'error_code'
+
+/**
  * Does this auth-page URL carry the OAuth callback's refusal to create an
- * account without recorded consent? The callback writes the refusal's code as
- * `error_code` beside the message the page shows from `error`. The code is
- * compared against one fixed value and never rendered, so it needs no
- * decoding. Only the Create account tab can record that consent.
+ * account without recorded consent? The code is compared against one fixed
+ * value and never rendered, so it needs no decoding. Only the Create account
+ * tab can record that consent.
  */
 export function needsSignupConsent(searchParams: {
   get: (name: string) => string | null
 }): boolean {
   return (
-    searchParams.get('error_code') === AuthErrorCode.TERMS_ACCEPTANCE_REQUIRED
+    searchParams.get(AUTH_ERROR_CODE_PARAM) ===
+    AuthErrorCode.TERMS_ACCEPTANCE_REQUIRED
   )
 }
 

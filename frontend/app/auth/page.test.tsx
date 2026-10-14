@@ -3,6 +3,7 @@ import { Activity } from 'react'
 import { screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { renderWithProviders } from '@/test/utils'
+import { AUTH_ERROR_CODE_PARAM } from '@/lib/auth-href'
 import AuthPage from './page'
 
 // --- Mocks ---
@@ -512,13 +513,15 @@ describe('AuthPage', () => {
   })
 
   // The OAuth callback refuses to create an account from a sign-in that
-  // carried no consent, and names the refusal in ?error_code. The query below
-  // is the callback's own encoding of that redirect.
+  // carried no consent, and names the refusal in ?error_code beside the
+  // message in ?error.
   describe('OAuth refusal that needs signup consent', () => {
     const TERMS_MESSAGE =
       'Please accept the Terms of Service and Privacy Policy before creating an account.'
-    const TERMS_REFUSAL_QUERY =
-      'error=Please+accept+the+Terms+of+Service+and+Privacy+Policy+before+creating+an+account.&error_code=TERMS_ACCEPTANCE_REQUIRED'
+    const TERMS_REFUSAL_QUERY = new URLSearchParams({
+      error: TERMS_MESSAGE,
+      [AUTH_ERROR_CODE_PARAM]: 'TERMS_ACCEPTANCE_REQUIRED',
+    }).toString()
     const termsCheckbox = () =>
       screen.getByRole('checkbox', {
         name: /I agree to the Terms of Service and Privacy Policy/,
@@ -569,6 +572,28 @@ describe('AuthPage', () => {
 
       expect(termsCheckbox()).not.toHaveFocus()
       expect(Element.prototype.scrollIntoView).toHaveBeenCalledTimes(1)
+    })
+
+    it('brings the terms checkbox back into view and focus after the page was hidden', () => {
+      setSearchParams(TERMS_REFUSAL_QUERY)
+      const { rerender } = renderWithProviders(
+        <Activity mode="visible">
+          <AuthPage />
+        </Activity>
+      )
+      rerender(
+        <Activity mode="hidden">
+          <AuthPage />
+        </Activity>
+      )
+      rerender(
+        <Activity mode="visible">
+          <AuthPage />
+        </Activity>
+      )
+
+      expect(termsCheckbox()).toHaveFocus()
+      expect(Element.prototype.scrollIntoView).toHaveBeenCalledTimes(2)
     })
 
     it('neither scrolls nor moves focus on a gated arrival', () => {

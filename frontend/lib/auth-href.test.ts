@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { sanitizeReturnTo } from '@/app/auth/auth-redirect-utils'
 import {
+  AUTH_ERROR_CODE_PARAM,
   AUTH_INTENTS,
   AUTH_PATH,
   buildAuthHref,
@@ -171,6 +172,11 @@ describe('hasGatedIntent', () => {
 })
 
 describe('needsSignupConsent', () => {
+  // The backend's authPageErrorCodeParam spells the same name.
+  it('reads the error_code parameter', () => {
+    expect(AUTH_ERROR_CODE_PARAM).toBe('error_code')
+  })
+
   it('accepts the terms refusal code', () => {
     expect(
       needsSignupConsent(

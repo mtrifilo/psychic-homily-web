@@ -102,18 +102,18 @@ func TestOAuthCallbackErrorRedirect_CarriesRefusalCode(t *testing.T) {
 			req := httptest.NewRequest("GET", "/auth/callback/google", nil)
 			query := errorRedirectQuery(t, failingCallbackHandler(tc.err), req, errorRedirectFrontendURL+"/auth")
 
-			if got := query.Get("error"); got != tc.wantMessage {
+			if got := query.Get(authPageErrorParam); got != tc.wantMessage {
 				t.Errorf("error = %q, want %q", got, tc.wantMessage)
 			}
 			if tc.wantCode == "" {
-				if query.Has("error_code") {
-					t.Errorf("error_code = %q, want the parameter absent", query.Get("error_code"))
+				if query.Has(authPageErrorCodeParam) {
+					t.Errorf("error_code = %q, want the parameter absent", query.Get(authPageErrorCodeParam))
 				}
-			} else if got := query.Get("error_code"); got != tc.wantCode {
+			} else if got := query.Get(authPageErrorCodeParam); got != tc.wantCode {
 				t.Errorf("error_code = %q, want %q", got, tc.wantCode)
 			}
 			for key := range query {
-				if key != "error" && key != "error_code" {
+				if key != authPageErrorParam && key != authPageErrorCodeParam {
 					t.Errorf("unexpected query parameter %q in %s", key, query.Encode())
 				}
 			}
@@ -133,10 +133,10 @@ func TestOAuthCallbackErrorRedirect_CLICallbackCarriesNoCode(t *testing.T) {
 	req.AddCookie(&http.Cookie{Name: "cli_callback_id", Value: callbackID})
 
 	query := errorRedirectQuery(t, failingCallbackHandler(termsRefusal), req, "http://localhost:8888/cli-cb")
-	if got := query.Get("error"); got != termsRefusal.UserMessage() {
+	if got := query.Get(authPageErrorParam); got != termsRefusal.UserMessage() {
 		t.Errorf("error = %q, want %q", got, termsRefusal.UserMessage())
 	}
-	if query.Has("error_code") {
-		t.Errorf("error_code = %q, want the CLI redirect to carry no code", query.Get("error_code"))
+	if query.Has(authPageErrorCodeParam) {
+		t.Errorf("error_code = %q, want the CLI redirect to carry no code", query.Get(authPageErrorCodeParam))
 	}
 }

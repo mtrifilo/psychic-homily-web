@@ -77,16 +77,24 @@ func refusalCode(err error, fallback string) string {
 	return fallback
 }
 
+// The query keys a failed sign-in callback hands the frontend auth page. The
+// page reads the same two names: the message through safeDecodeQueryParam and
+// the code through needsSignupConsent (frontend/lib/auth-href.ts).
+const (
+	authPageErrorParam     = "error"
+	authPageErrorCodeParam = "error_code"
+)
+
 // authPageErrorQuery is the query string a failed sign-in callback hands the
-// frontend auth page: the message it shows as "error", and, for a refusal
-// authRefusalCarriesItsOwnCopy names, that refusal's code as "error_code".
-// The page decides what to do next from the code, never from the message, so
-// the copy can change without moving the reader to the wrong form. A backend
-// fault carries no code, the same way it carries no message of its own.
+// frontend auth page: the message it shows, and, for a refusal
+// authRefusalCarriesItsOwnCopy names, that refusal's code. The page decides
+// what to do next from the code, never from the message, so the copy can
+// change without moving the reader to the wrong form. A backend fault carries
+// no code, the same way it carries no message of its own.
 func authPageErrorQuery(err error, message string) url.Values {
-	query := url.Values{"error": {message}}
+	query := url.Values{authPageErrorParam: {message}}
 	if code := refusalCode(err, ""); code != "" {
-		query.Set("error_code", code)
+		query.Set(authPageErrorCodeParam, code)
 	}
 	return query
 }

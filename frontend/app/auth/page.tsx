@@ -339,9 +339,11 @@ interface SignupFormProps {
   /**
    * The form is showing as the arrival's own tab, and the arrival is an OAuth
    * sign-in refused for want of the consent this form records. The form then
-   * centres the terms checkbox in the viewport and focuses it, which keeps the
-   * Google sign-up button above it and the age confirmation below it on
-   * screen.
+   * centres the terms checkbox in the viewport and focuses it, each time the
+   * page presents that arrival, a re-show after the page was hidden included.
+   * Centring is what puts "Sign up with Google" above the checkbox and the age
+   * confirmation below it on a phone screen, and only while no taller content
+   * sits between them.
    */
   consentRequested: boolean
 }
@@ -680,9 +682,9 @@ function AuthPageContent() {
   // page has not been hidden since (the effect below drops it on hide). Tab
   // changes are never written back to the URL.
   const arrival = searchParams.toString()
+  const isConsentArrival = needsSignupConsent(searchParams) && !isReauth
   const arrivalTab =
-    (hasGatedIntent(searchParams) || needsSignupConsent(searchParams)) &&
-    !isReauth
+    (hasGatedIntent(searchParams) && !isReauth) || isConsentArrival
       ? 'signup'
       : 'login'
   const [pickedTab, setPickedTab] = useState<{
@@ -827,9 +829,7 @@ function AuthPageContent() {
                   <SignupForm
                     returnTo={returnTo}
                     onHandoffChange={setSignupHandoff}
-                    consentRequested={
-                      showingArrivalTab && needsSignupConsent(searchParams)
-                    }
+                    consentRequested={showingArrivalTab && isConsentArrival}
                   />
                 </div>
                 <div className="mt-4">
