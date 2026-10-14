@@ -646,6 +646,10 @@ func (h *PasskeyHandler) BeginSignupHandler(ctx context.Context, input *BeginSig
 		return resp, nil
 	}
 	if refusal := refuseStaleConsentVersions(input.Body.TermsVersion, input.Body.PrivacyVersion); refusal != nil {
+		logger.AuthWarn(ctx, "passkey_signup_begin_consent_refused",
+			"email_hash", logger.HashEmail(email),
+			"error_code", refusal.Code,
+		)
 		resp.Body.Success = false
 		resp.Body.Message = refusal.UserMessage()
 		resp.Body.ErrorCode = refusal.Code

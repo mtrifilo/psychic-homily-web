@@ -364,8 +364,9 @@ func signupAccount(id uint, email string) *authm.User {
 // stored without an acceptance decodes to a zero one, which carries no
 // version and no age confirmation.
 //
-// storedSignupAcceptance carries every field of contracts.LegalAcceptance;
-// TestStoredSignupAcceptanceMirrorsLegalAcceptance fails when they differ.
+// storedSignupAcceptance has exactly the fields of contracts.LegalAcceptance,
+// differing only in tags: the two convert into each other, and the conversion
+// stops compiling when either gains a field the other lacks.
 type signupSessionData struct {
 	Email      string                 `json:"email"`
 	Acceptance storedSignupAcceptance `json:"acceptance"`
@@ -403,17 +404,10 @@ func (s *WebAuthnService) BeginRegistrationForEmail(email string) (*protocol.Cre
 // StoreSignupChallenge saves a signup ceremony's challenge together with the
 // address and the consent its finish step records.
 func (s *WebAuthnService) StoreSignupChallenge(signup contracts.SignupChallenge, session *webauthn.SessionData, operation string) (string, error) {
-	acceptance := signup.Acceptance
 	wrapped := signupSessionData{
-		Email: signup.Email,
-		Acceptance: storedSignupAcceptance{
-			TermsAcceptedAt: acceptance.TermsAcceptedAt,
-			TermsVersion:    acceptance.TermsVersion,
-			PrivacyVersion:  acceptance.PrivacyVersion,
-			AgeConfirmedAt:  acceptance.AgeConfirmedAt,
-			MinAgeAttested:  acceptance.MinAgeAttested,
-		},
-		Session: session,
+		Email:      signup.Email,
+		Acceptance: storedSignupAcceptance(signup.Acceptance),
+		Session:    session,
 	}
 
 	sessionData, err := json.Marshal(wrapped)
@@ -457,16 +451,9 @@ func (s *WebAuthnService) GetSignupChallenge(challengeID string, operation strin
 		return nil, contracts.SignupChallenge{}, fmt.Errorf("failed to unmarshal session: %w", err)
 	}
 
-	stored := wrapped.Acceptance
 	return wrapped.Session, contracts.SignupChallenge{
-		Email: wrapped.Email,
-		Acceptance: contracts.LegalAcceptance{
-			TermsAcceptedAt: stored.TermsAcceptedAt,
-			TermsVersion:    stored.TermsVersion,
-			PrivacyVersion:  stored.PrivacyVersion,
-			AgeConfirmedAt:  stored.AgeConfirmedAt,
-			MinAgeAttested:  stored.MinAgeAttested,
-		},
+		Email:      wrapped.Email,
+		Acceptance: contracts.LegalAcceptance(wrapped.Acceptance),
 	}, nil
 }
 

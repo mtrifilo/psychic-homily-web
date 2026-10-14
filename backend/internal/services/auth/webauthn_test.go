@@ -2,7 +2,6 @@ package auth
 
 import (
 	"fmt"
-	"reflect"
 	"testing"
 	"time"
 
@@ -35,21 +34,6 @@ func TestNewWebAuthnService_Success(t *testing.T) {
 	svc, err := NewWebAuthnService(&gorm.DB{}, cfg)
 	assert.NoError(t, err)
 	assert.NotNil(t, svc)
-}
-
-// A field of contracts.LegalAcceptance that the stored signup challenge does
-// not carry would be recorded as zero for every passkey signup.
-func TestStoredSignupAcceptanceMirrorsLegalAcceptance(t *testing.T) {
-	stored := reflect.TypeOf(storedSignupAcceptance{})
-	contract := reflect.TypeOf(contracts.LegalAcceptance{})
-	assert.Equal(t, contract.NumField(), stored.NumField(), "field count")
-	for i := range contract.NumField() {
-		want := contract.Field(i)
-		got, ok := stored.FieldByName(want.Name)
-		if assert.True(t, ok, "storedSignupAcceptance has no %s", want.Name) {
-			assert.Equal(t, want.Type, got.Type, "type of %s", want.Name)
-		}
-	}
 }
 
 // A login for no account is an error, not a dereference.
