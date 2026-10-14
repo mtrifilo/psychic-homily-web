@@ -44,8 +44,8 @@
 #                       default, because every client of a stack shares
 #                       127.0.0.1.
 #   --secure            SESSION_SECURE=true, so auth cookies carry Secure.
-#                       Env equivalent: STACK_SESSION_SECURE=1. Chromium
-#                       stores and sends Secure cookies on http://localhost.
+#                       Chromium stores and sends Secure cookies on
+#                       http://localhost.
 #
 #   The isolated backend always gets FRONTEND_URL and WEBAUTHN_RP_ORIGINS set
 #   to the stack's own frontend origin, so OAuth results, link-token mints and
@@ -68,7 +68,7 @@ usage() {
 
 MODE=""
 AUTH_RATE_LIMITS="${STACK_AUTH_RATE_LIMITS:-0}"
-SESSION_SECURE_ON="${STACK_SESSION_SECURE:-0}"
+SESSION_SECURE_ON=0
 for arg in "$@"; do
   case "$arg" in
     --mode=none|--mode=shared|--mode=isolated) MODE="${arg#--mode=}" ;;
@@ -78,18 +78,20 @@ for arg in "$@"; do
   esac
 done
 [ -n "$MODE" ] || usage
-case "$AUTH_RATE_LIMITS$SESSION_SECURE_ON" in
-  00|01|10|11) ;;
-  *) echo "STACK_AUTH_RATE_LIMITS and STACK_SESSION_SECURE must be 0 or 1." >&2; exit 64 ;;
-esac
 
 # The backend honors DISABLE_AUTH_RATE_LIMITS only when it is exactly "1", so
 # "0" turns the limiters on even when the caller's environment carries a "1".
-if [ "$AUTH_RATE_LIMITS" = 1 ]; then DISABLE_AUTH_RATE_LIMITS_VALUE=0; else DISABLE_AUTH_RATE_LIMITS_VALUE=1; fi
+case "$AUTH_RATE_LIMITS" in
+  1) DISABLE_AUTH_RATE_LIMITS_VALUE=0 ;;
+  0) DISABLE_AUTH_RATE_LIMITS_VALUE=1 ;;
+  *) echo "STACK_AUTH_RATE_LIMITS must be 0 or 1." >&2; exit 64 ;;
+esac
 if [ "$SESSION_SECURE_ON" = 1 ]; then SESSION_SECURE_VALUE=true; else SESSION_SECURE_VALUE=false; fi
 
-# An RP ID carries no port, so "localhost" covers every stack frontend port;
-# WEBAUTHN_RP_ORIGINS is what pins a ceremony to this stack's frontend.
+# Set explicitly rather than left to the backend's non-production defaults, so
+# a value inherited from the caller's shell or a backend .env file cannot point the
+# stack's ceremonies elsewhere. An RP ID carries no port, so "localhost" covers
+# every stack frontend port; WEBAUTHN_RP_ORIGINS pins this stack's frontend.
 STACK_WEBAUTHN_RP_ID=localhost
 STACK_WEBAUTHN_RP_NAME="Psychic Homily (dispatch stack)"
 
