@@ -14784,7 +14784,7 @@ export interface components {
             mb_artist_id_conflict: boolean;
             /** @description Every distinct MusicBrainz artist id the counted plays carry, sorted */
             mb_artist_ids: string[] | null;
-            /** @description True when a counted play's artist name carries a letter or digit normalization cannot fold to a-z or 0-9 (usually a non-Latin script); the key may then be a fragment of that name, and the candidate is in the human lane */
+            /** @description True when a counted play's artist name carries a character normalization may not fold to a-z, 0-9 or punctuation (usually a non-Latin script, also some symbols such as a registered sign); the key may then be a fragment of that name, and the candidate is in the human lane */
             non_latin_spelling: boolean;
             /** Format: int64 */
             play_count: number;

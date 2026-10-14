@@ -107,7 +107,7 @@ type RadioArtistCandidate struct {
 	MBArtistID          *string                 `json:"mb_artist_id,omitempty" doc:"Set when the counted plays carry exactly one MusicBrainz artist id"`
 	MBArtistIDs         []string                `json:"mb_artist_ids" doc:"Every distinct MusicBrainz artist id the counted plays carry, sorted"`
 	MBArtistIDConflict  bool                    `json:"mb_artist_id_conflict" doc:"True when the counted plays carry more than one MusicBrainz artist id"`
-	NonLatinSpelling    bool                    `json:"non_latin_spelling" doc:"True when a counted play's artist name carries a letter or digit normalization cannot fold to a-z or 0-9 (usually a non-Latin script); the key may then be a fragment of that name, and the candidate is in the human lane"`
+	NonLatinSpelling    bool                    `json:"non_latin_spelling" doc:"True when a counted play's artist name carries a character normalization may not fold to a-z, 0-9 or punctuation (usually a non-Latin script, also some symbols such as a registered sign); the key may then be a fragment of that name, and the candidate is in the human lane"`
 	SharedMBArtistKeys  []string                `json:"shared_mb_artist_keys" doc:"Other candidates' artist keys whose plays carry one of this candidate's MusicBrainz artist ids, sorted; a candidate that has any is in the human lane"`
 }
 

@@ -22,9 +22,9 @@ import (
 // not excluded for the artist ranking (RadioPlayExcludedSQL), is not in the
 // ambiguous match state, and has a name that normalizes to a non-empty key.
 // radio_normalize_name trims every character outside a-z and 0-9 from a
-// name's edges, so a name written partly in a non-Latin script keys on its
-// Latin part alone; a candidate with such a spelling (radioUnfoldableCharSQL)
-// is flagged and kept in the human lane.
+// name's edges, so a name carrying a character it may not fold, such as a
+// non-Latin script, can key on a fragment; a candidate with such a spelling
+// (radioUnfoldableCharSQL) is flagged and kept in the human lane.
 //
 // A key qualifies when its counted plays clear the station and play floors and
 // none of the following holds:
@@ -59,13 +59,14 @@ const (
 // matches any character radio_normalize_name may not fold to a-z or 0-9. It
 // is an allowlist: everything matches except ASCII other than A-Z and the
 // listed punctuation and symbol blocks (Latin-1 punctuation and signs, general
-// punctuation, currency, arrows through dingbats, CJK brackets, variation
-// selectors, the byte-order mark, halfwidth punctuation, emoji). An ASCII
+// punctuation, currency, arrows through dingbats without the circled digits,
+// CJK brackets, variation selectors, the byte-order mark, halfwidth
+// punctuation, regional indicators and emoji). An ASCII
 // capital matches because lower() has already run, so one can only come from
 // a character unaccent folded to a capital, which the normalizer then trims.
 // An unknown character therefore flags its key. The ranges are fixed code
 // points, so the test does not depend on the database locale.
-const radioUnfoldableCharSQL = `[^\u0001-\u0040\u005b-\u007f\u00a0-\u00a9\u00ab-\u00b1\u00b4\u00b6-\u00b8\u00bb\u00bf\u00d7\u00f7\u2000-\u206f\u20a0-\u20cf\u2190-\u245f\u2500-\u2bff\u3000-\u3004\u3008-\u301f\ufe00-\ufe0f\ufeff\uff61-\uff65\U0001f000-\U0001faff]`
+const radioUnfoldableCharSQL = `[^\u0001-\u0040\u005b-\u007f\u00a0-\u00a9\u00ab-\u00b1\u00b4\u00b6-\u00b8\u00bb\u00bf\u00d7\u00f7\u2000-\u206f\u20a0-\u20cf\u2190-\u245f\u2500-\u2775\u2794-\u2bff\u3000-\u3004\u3008-\u301f\ufe00-\ufe0f\ufeff\uff61-\uff65\U0001f000-\U0001f0ff\U0001f1e6-\U0001faff]`
 
 // RadioArtistCandidateScore is the artist candidate ranking score: distinct
 // station rows x ln(plays) x (1 + distinct shows / 10).
@@ -81,8 +82,8 @@ type RadioCandidateLaneFacts struct {
 	// candidate's MusicBrainz ids.
 	MBIDShared bool
 	// NonLatinSpelling is true when a counted play's name carries a
-	// character radio_normalize_name cannot fold to a-z or 0-9, usually a
-	// non-Latin script, so the key may be a fragment of that name.
+	// character radio_normalize_name may not fold (radioUnfoldableCharSQL),
+	// usually a non-Latin script, so the key may be a fragment of that name.
 	NonLatinSpelling bool
 }
 

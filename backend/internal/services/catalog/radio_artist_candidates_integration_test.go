@@ -428,6 +428,8 @@ func (s *RadioArtistCandidatesIntegrationSuite) TestUnfoldableCharacters() {
 		"ⓐ T Circled":      "t circled",
 		"𐐔𐐯 T Deseret":     "t deseret",
 		"𝓜𝓪𝓽𝓽 T Fancy":     "att t fancy",
+		"🅰 T Enclosed":     "t enclosed",
+		"❶ T Dingbat":      "t dingbat",
 	}
 	// unaccent folds each of these to ASCII, so the key loses nothing.
 	plain := map[string]string{
