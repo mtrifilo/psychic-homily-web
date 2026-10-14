@@ -178,7 +178,7 @@ type RadioLabelCandidate struct {
 	FirstAiredOn       string                      `json:"first_aired_on" doc:"Earliest counted play's episode air date (YYYY-MM-DD)"`
 	LastAiredOn        string                      `json:"last_aired_on" doc:"Latest counted play's episode air date (YYYY-MM-DD)"`
 	Stations           []RadioCandidateStation     `json:"stations" doc:"Station rows by play count, descending"`
-	Artists            []RadioLabelCandidateArtist `json:"artists" doc:"Up to five artists by play count, over the plays that also count toward the artist ranking (placeholder artists such as Various Artists are skipped); names that normalize alike are one entry, shown in their most common trimmed spelling"`
+	Artists            []RadioLabelCandidateArtist `json:"artists" doc:"Up to five artists by play count, over the plays not excluded for the artist ranking (placeholder artists such as Various Artists are skipped); names that normalize alike are one entry, shown in their most common trimmed spelling"`
 	ArtistCount        int                         `json:"artist_count" doc:"Distinct normalized artist names, over the same plays as artists"`
 	ReleaseNames       []RadioCandidateName        `json:"release_names" doc:"Up to five release (album) titles by play count; titles that normalize alike are one entry, shown in their most common trimmed spelling, counting all their plays"`
 	ReleaseNameCount   int                         `json:"release_name_count" doc:"Distinct normalized release titles"`

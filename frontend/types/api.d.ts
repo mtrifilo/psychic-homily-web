@@ -15014,7 +15014,7 @@ export interface components {
              * @description Distinct normalized artist names, over the same plays as artists
              */
             artist_count: number;
-            /** @description Up to five artists by play count, over the plays that also count toward the artist ranking (placeholder artists such as Various Artists are skipped); names that normalize alike are one entry, shown in their most common trimmed spelling */
+            /** @description Up to five artists by play count, over the plays not excluded for the artist ranking (placeholder artists such as Various Artists are skipped); names that normalize alike are one entry, shown in their most common trimmed spelling */
             artists: components["schemas"]["RadioLabelCandidateArtist"][] | null;
             /** @description Most common trimmed label spelling among the counted plays */
             display_name: string;

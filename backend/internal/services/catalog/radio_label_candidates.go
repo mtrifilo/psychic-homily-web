@@ -214,8 +214,9 @@ WHERE rn <= %[4]d`, kind, col, refIDs, radioCandidateTopNames, filter)
 }
 
 // radioLabelCandidateEvidenceSQL returns the evidence rows of the selected
-// keys, one radioLabelEvidenceRow per row. The artists list skips plays the
-// artist ranking excludes, such as placeholder artist names. Parameters: the
+// keys, one radioLabelEvidenceRow per row. The artists list skips plays
+// RadioPlayExcludedSQL excludes for the artist ranking, such as placeholder
+// artist names; it does not filter on match state. Parameters: the
 // window's first and last air dates, then the keys.
 var radioLabelCandidateEvidenceSQL = `
 WITH counted AS MATERIALIZED (
