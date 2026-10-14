@@ -415,8 +415,9 @@
  * the status row, at --atlas-top-credit-offset, which GlobeCanvas sets on the
  * same [data-atlas-credit] element from ATLAS_TOP_CREDIT_OFFSET_PX in
  * cityView.ts. Bottom sheets own the bottom edge there and stop
- * ATLAS_SHEET_TOP_INSET_PX from the top, below the credit. The pane spans the
- * viewport at these widths, hence the vw bound. */
+ * ATLAS_SHEET_TOP_INSET_PX from the top, below the credit. The bound is the
+ * viewport's, which is the pane's width with the top nav; with the side nav
+ * the pane is narrower and the credit fits only while its text does. */
 [data-atlas-credit='top']
   .maplibregl-map
   .maplibregl-ctrl-top-left

@@ -19,6 +19,13 @@ export const TARGET = {
 // reported-only after-map row, before the city-view jump.
 export const AFTER_MAP_WINDOW_MS = 3000
 
+// ATLAS_PHONE_PANE_BELOW_PX (features/scenes/atlasViewport.ts), which the
+// tests hold this equal to: below this pane width the Atlas draws the light
+// globe, which requests no raster. The script runs with the default top nav,
+// where the pane is the viewport's full width, so a viewport narrower than
+// this is a compact run.
+export const COMPACT_BELOW_WIDTH = 900
+
 // The workflow's job summary and the script header name these numbers.
 export const EXIT = {
   PASS: 0,

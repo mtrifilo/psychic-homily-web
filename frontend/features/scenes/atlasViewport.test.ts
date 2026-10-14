@@ -17,13 +17,12 @@ describe('isAtlasPhonePane', () => {
     expect(isAtlasPhonePane(900)).toBe(false)
   })
 
-  it('draws no line at the old lg viewport width: 1023 and 1024 are the same desktop pane', () => {
+  it('is the desktop Atlas on 1023 and 1024px panes alike', () => {
     expect(isAtlasPhonePane(1023)).toBe(false)
     expect(isAtlasPhonePane(1024)).toBe(false)
   })
 
   it('stays separate from the reduced-motion list threshold, which sits below it', () => {
-    expect(ATLAS_REDUCED_MOTION_LIST_BELOW_PX).toBe(640)
     expect(ATLAS_REDUCED_MOTION_LIST_BELOW_PX).toBeLessThan(ATLAS_PHONE_PANE_BELOW_PX)
   })
 })

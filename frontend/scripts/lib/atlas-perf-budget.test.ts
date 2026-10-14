@@ -2,7 +2,8 @@ import { spawnSync } from 'node:child_process'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it, vi } from 'vitest'
-import { DEFAULT_BUDGET, EXIT, TARGET, budgetTable, errorMessage, judge, median, resolveBudget, runBudgetCheck, targetLine } from './atlas-perf-budget.mjs'
+import { ATLAS_PHONE_PANE_BELOW_PX } from '../../features/scenes/atlasViewport'
+import { COMPACT_BELOW_WIDTH, DEFAULT_BUDGET, EXIT, TARGET, budgetTable, errorMessage, judge, median, resolveBudget, runBudgetCheck, targetLine } from './atlas-perf-budget.mjs'
 
 const MIB = 1024 * 1024
 
@@ -50,6 +51,10 @@ const check = (results: Array<Run | Error>, overrides: Record<string, unknown> =
 }
 
 describe('atlas perf budget', () => {
+  it('counts a run as compact on exactly the viewports the Atlas draws the light globe on', () => {
+    expect(COMPACT_BELOW_WIDTH).toBe(ATLAS_PHONE_PANE_BELOW_PX)
+  })
+
   it('defaults to the owner budget: first map 3.5 s, entry 1.5 MiB; the target is 2.5 s', () => {
     expect(DEFAULT_BUDGET).toEqual({ firstMapMs: 3500, entryBytes: 1.5 * MIB })
     expect(TARGET).toEqual({ firstMapMs: 2500 })

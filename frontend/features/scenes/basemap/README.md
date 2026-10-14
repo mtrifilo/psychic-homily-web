@@ -81,7 +81,8 @@ changes its schema or endpoints:
 
 On an Atlas pane narrower than 900px (`isAtlasPhonePane` in
 `frontend/features/scenes/atlasViewport.ts`, the rule that also picks the
-sheet layout) the globe shows the light look instead of the NASA GIBS raster: a flat ocean and the Natural Earth land file
+sheet layout) the globe shows the light look instead of the NASA GIBS
+raster: a flat ocean and the Natural Earth land file
 (`globe-land-110m.geojson`, prefetched before the map exists), with three
 overlay files drawn on top. `globeSurface.ts` (in this directory) owns the
 layers and the loading; `globePlaces.ts` (in this directory) holds the

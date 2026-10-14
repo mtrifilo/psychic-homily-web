@@ -764,9 +764,15 @@ export function AtlasGlobe() {
   // The canvas renders only after scenes and the camera focus (which waits on
   // visitor geo) resolve; preload what it needs during that wait. Whatever
   // waits on the Atlas-ready signal is released once no map can follow.
+  // Once per mount, with the look of the pane the map branch first has: after
+  // that the map loads whatever a later look needs itself, so a land prefetch
+  // started then would be a second download nothing reads.
   const { preloadsMap, releasesSignal } = atlasRenderBranchEffects(renderBranch.kind)
+  const mapPreloadedRef = useRef(false)
   useEffect(() => {
-    if (preloadsMap) preloadAtlasMap({ lightGlobe: phonePane })
+    if (!preloadsMap || mapPreloadedRef.current) return
+    mapPreloadedRef.current = true
+    preloadAtlasMap({ lightGlobe: phonePane })
   }, [preloadsMap, phonePane])
   useEffect(() => {
     if (releasesSignal) markAtlasMapReady()

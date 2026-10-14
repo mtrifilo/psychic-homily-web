@@ -986,18 +986,16 @@ describe('AtlasGlobe', () => {
         sheetLayout: sheetLayout(),
         lightGlobe: lastCanvasProps.lightGlobe,
         legendCollapsed: legendCollapsed(),
-        preloadLightGlobe: preloadAtlasMap.mock.lastCall?.[0]?.lightGlobe,
       }
     }
-    const phone = { sheetLayout: true, lightGlobe: true, legendCollapsed: true, preloadLightGlobe: true }
-    const desktop = { sheetLayout: false, lightGlobe: false, legendCollapsed: false, preloadLightGlobe: false }
+    const phone = { sheetLayout: true, lightGlobe: true, legendCollapsed: true }
+    const desktop = { sheetLayout: false, lightGlobe: false, legendCollapsed: false }
 
     it.each([
       [390, phone],
       [ATLAS_PHONE_PANE_BELOW_PX - 1, phone],
       [ATLAS_PHONE_PANE_BELOW_PX, desktop],
-      // The old lg viewport line no longer matters: one side of it is the same
-      // desktop pane as the other.
+      // 1023 and 1024px panes are the same desktop Atlas.
       [1023, desktop],
       [1024, desktop],
     ])('a %ipx pane gets one form for every switch', async (width, expected) => {
@@ -1005,6 +1003,7 @@ describe('AtlasGlobe', () => {
       renderWithProviders(<AtlasGlobe />)
       await screen.findByTestId('globe-canvas')
       expect(switches()).toEqual(expected)
+      expect(preloadAtlasMap).toHaveBeenCalledExactlyOnceWith({ lightGlobe: expected.lightGlobe })
     })
 
     it('renders the 900 to 1023px band as the desktop Atlas: the full globe beside the rail', async () => {
@@ -1034,6 +1033,16 @@ describe('AtlasGlobe', () => {
       setMockContainerWidth(ATLAS_PHONE_PANE_BELOW_PX)
       act(() => reportResize())
       expect(switches()).toEqual(desktop)
+    })
+
+    it('preloads once per mount, leaving a later look to the mounted map', async () => {
+      setMockContainerWidth(ATLAS_PHONE_PANE_BELOW_PX)
+      renderWithProviders(<AtlasGlobe />)
+      await screen.findByTestId('globe-canvas')
+      setMockContainerWidth(ATLAS_PHONE_PANE_BELOW_PX - 1)
+      act(() => reportResize())
+      expect(lastCanvasProps.lightGlobe).toBe(true)
+      expect(preloadAtlasMap).toHaveBeenCalledExactlyOnceWith({ lightGlobe: false })
     })
   })
 

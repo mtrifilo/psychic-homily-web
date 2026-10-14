@@ -305,7 +305,7 @@ test.describe('Atlas phone or desktop by pane width', () => {
  * pill, Drift, the Genres chip and the credit. These are the real controls
  * with their real classes: the label pass finds them by walking the pane, so
  * only a browser shows whether each wrapper lets it through to the control.
- * The compact globe draws its credit only from the street basemap's first
+ * The light globe draws its credit only from the street basemap's first
  * zoom (5), and place labels show below 5.5, so the credit is checked at 5.2.
  */
 for (const colorScheme of ['light', 'dark'] as const) {
