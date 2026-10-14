@@ -66,7 +66,7 @@ func newCLICallbackRegistry(capacity int, ttl time.Duration, now func() time.Tim
 		capacity: capacity,
 		ttl:      ttl,
 		now:      now,
-		entries:  make(map[string]*list.Element),
+		entries:  make(map[string]*list.Element, capacity),
 		order:    list.New(),
 	}
 }
@@ -128,12 +128,6 @@ func (s *cliCallbackRegistry) remove(id string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.removeLocked(id)
-}
-
-func (s *cliCallbackRegistry) size() int {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	return s.order.Len()
 }
 
 func (s *cliCallbackRegistry) removeLocked(id string) {

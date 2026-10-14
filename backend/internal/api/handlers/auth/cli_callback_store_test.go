@@ -23,6 +23,12 @@ func (s *cliCallbackRegistry) reset() {
 	s.lastReportAt = time.Time{}
 }
 
+func (s *cliCallbackRegistry) size() int {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.order.Len()
+}
+
 func cleanCLICallbackStore() {
 	cliCallbackStore.reset()
 }
@@ -40,9 +46,9 @@ func storeExpiredCLICallback(id, callbackURL string) {
 	})
 }
 
-// fakeClock is a manually advanced clock for a registry under test.
+// fakeClock is a manually advanced clock for a registry under test. It is not
+// safe for concurrent use; the concurrent test runs on time.Now.
 type fakeClock struct {
-	mu  sync.Mutex
 	now time.Time
 }
 
@@ -50,17 +56,9 @@ func newFakeClock() *fakeClock {
 	return &fakeClock{now: time.Date(2026, 10, 14, 12, 0, 0, 0, time.UTC)}
 }
 
-func (c *fakeClock) Now() time.Time {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	return c.now
-}
+func (c *fakeClock) Now() time.Time { return c.now }
 
-func (c *fakeClock) Advance(d time.Duration) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	c.now = c.now.Add(d)
-}
+func (c *fakeClock) Advance(d time.Duration) { c.now = c.now.Add(d) }
 
 // assertRegistryConsistent checks that entries and order hold the same ids,
 // order sorted oldest first by expiry, and that the registry is within

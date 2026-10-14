@@ -240,7 +240,7 @@ func (h *OAuthHTTPHandler) OAuthLoginHTTPHandler(w http.ResponseWriter, r *http.
 		if evicted := storeCLICallback(callbackID, cliCallback); evicted > 0 {
 			logger.AuthWarn(ctx, "oauth_cli_callback_store_evicting",
 				"evicted", evicted,
-				"capacity", cliCallbackCapacity,
+				"capacity", cliCallbackStore.capacity,
 			)
 		}
 
