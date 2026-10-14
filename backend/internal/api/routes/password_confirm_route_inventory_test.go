@@ -57,7 +57,8 @@ var (
 	scopePublicNoLimit    = "rc.API with no per-route limiter"
 	scopeLenient          = "lenientGroup: the refresh path, no per-route limiter"
 	scopeOAuthRedirect    = fmt.Sprintf("the OAuth redirect chi group: its own %d/min budget, refused by redirect, exempt from the public-read limiter", middleware.OAuthRedirectRequestsPerMinute)
-	scopeOAuthLink        = fmt.Sprintf("the /auth/link chi group: the %d/min public auth budget, ahead of JWTMiddleware", middleware.AuthRequestsPerMinute)
+	scopeOAuthLink        = fmt.Sprintf("the OAuth redirect chi group: its own %d/min budget, refused by redirect to Settings, exempt from the public-read limiter, ahead of JWTMiddleware", middleware.OAuthRedirectRequestsPerMinute)
+	scopeAppleSignIn      = fmt.Sprintf("appleSignInGroup: its own %d/min budget, refused with the JSON 429", middleware.AppleSignInRequestsPerMinute)
 )
 
 // authRouteRateLimitScope disposes of every route the router serves under
@@ -91,7 +92,7 @@ var authRouteRateLimitScope = map[string]string{
 	"POST /auth/register":                   scopePublicAuth,
 	"POST /auth/magic-link/send":            scopePublicAuth,
 	"POST /auth/magic-link/verify":          scopePublicAuth,
-	"POST /auth/apple/callback":             scopePublicAuth,
+	"POST /auth/apple/callback":             scopeAppleSignIn,
 	"POST /auth/recover-account":            scopePublicAuth,
 	"POST /auth/recover-account/request":    scopePublicAuth,
 	"POST /auth/recover-account/confirm":    scopePublicAuth,

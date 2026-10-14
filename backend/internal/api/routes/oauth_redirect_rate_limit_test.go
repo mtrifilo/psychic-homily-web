@@ -20,7 +20,10 @@ import (
 
 // Written out rather than read from middleware, so a budget retuned there and
 // not here fails this file instead of passing silently.
-const oauthRedirectLimitPerMinute = 20 // middleware.OAuthRedirectRequestsPerMinute
+const (
+	oauthRedirectLimitPerMinute = 20 // middleware.OAuthRedirectRequestsPerMinute
+	appleSignInLimitPerMinute   = 20 // middleware.AppleSignInRequestsPerMinute
+)
 
 // testConfig leaves the frontend URL empty, so the handler's localhost default
 // is where a refused sign-in is sent.
@@ -116,6 +119,12 @@ func TestPasswordBudgetDoesNotRefuseOAuthRedirects(t *testing.T) {
 	}
 	if !oauthCallbackReached(t, router, ip) {
 		t.Error("GET /auth/callback/google did not reach its handler after the password budget was spent")
+	}
+	if !linkStartReached(t, router, ip) {
+		t.Error("GET /auth/link/google did not reach the session check after the password budget was spent")
+	}
+	if !appleCallbackReached(t, router, ip) {
+		t.Error("POST /auth/apple/callback did not reach its handler after the password budget was spent")
 	}
 }
 
@@ -215,7 +224,7 @@ func TestPublicReadLimiterSkipsOnlyTheOAuthRedirects(t *testing.T) {
 		return serveFrom(handler, method, target, ip).Code == http.StatusTooManyRequests
 	}
 
-	for i, target := range []string{"/auth/login/google", "/auth/callback/google?state=s&code=c", "/auth/login/a%2Fb"} {
+	for i, target := range []string{"/auth/login/google", "/auth/callback/google?state=s&code=c", "/auth/login/a%2Fb", "/auth/link/google?t=x"} {
 		if limitedAfterBurst(http.MethodGet, target, fmt.Sprintf("198.51.100.%d:1", 70+i)) {
 			t.Errorf("GET %s was refused by the public-read limiter", target)
 		}
@@ -225,12 +234,13 @@ func TestPublicReadLimiterSkipsOnlyTheOAuthRedirects(t *testing.T) {
 		{http.MethodHead, "/auth/login/google"},
 		{http.MethodGet, "/auth/login/google/extra"},
 		{http.MethodGet, "/auth/login/"},
+		{http.MethodHead, "/auth/link/google"},
+		{http.MethodGet, "/auth/link/google/extra"},
 		// RawPath is not a valid encoding of Path in these two, so EscapedPath
 		// re-encodes Path and reads as an OAuth route while chi routes the raw
 		// spelling to no OAuth handler.
 		{http.MethodGet, "/auth/log%69n/goo|gle"},
 		{http.MethodGet, "/auth%2Flogin/x|"},
-		{http.MethodGet, "/auth/link/google"},
 		{http.MethodGet, "/auth/profile"},
 	} {
 		if !limitedAfterBurst(tc.method, tc.target, fmt.Sprintf("198.51.100.%d:1", 80+i)) {
@@ -288,5 +298,168 @@ func TestOAuthRedirectRefusalLogsItsOwnLimiter(t *testing.T) {
 	if line["event"] != "ratelimit_rejected" || line["limiter"] != string(middleware.LimiterOAuthRedirect) {
 		t.Errorf("rejection line event=%v limiter=%v, want ratelimit_rejected and %s",
 			line["event"], line["limiter"], middleware.LimiterOAuthRedirect)
+	}
+}
+
+// linkStartReached reports whether GET /auth/link/google got past the limiter.
+// The request carries no session, so JWTMiddleware, which runs behind the
+// limiter, answers 401; a refusal by the limiter is a redirect instead.
+func linkStartReached(t *testing.T, router http.Handler, ip string) bool {
+	t.Helper()
+	return serveFrom(router, http.MethodGet, "/auth/link/google", ip).Code == http.StatusUnauthorized
+}
+
+// appleCallbackReached reports whether POST /auth/apple/callback reached its
+// operation. The body omits the required identity token, so the operation
+// answers its own validation error; the limiter answers 429.
+func appleCallbackReached(t *testing.T, router *chi.Mux, ip string) bool {
+	t.Helper()
+	code, body := sendWithBody(t, router, http.MethodPost, "/auth/apple/callback", ip, nil)
+	if code == http.StatusTooManyRequests {
+		return false
+	}
+	assertReachedHandler(t, code, body, "/auth/apple/callback")
+	return true
+}
+
+// assertRefusedToSettings requires a refused link start: a redirect to the
+// Settings tab carrying oauth_link_error=RATE_LIMITED, where every other link
+// result is read, with nothing a browser would render as a JSON page.
+func assertRefusedToSettings(t *testing.T, rr *httptest.ResponseRecorder, path string) {
+	t.Helper()
+	if rr.Code != http.StatusTemporaryRedirect {
+		t.Fatalf("%s refused = %d, want %d", path, rr.Code, http.StatusTemporaryRedirect)
+	}
+	loc, err := url.Parse(rr.Header().Get("Location"))
+	if err != nil {
+		t.Fatalf("%s Location %q does not parse: %v", path, rr.Header().Get("Location"), err)
+	}
+	if got, want := loc.Scheme+"://"+loc.Host+loc.Path, "http://localhost:3000/profile"; got != want {
+		t.Errorf("%s redirects to %q, want %q", path, got, want)
+	}
+	want := url.Values{"tab": {"settings"}, "oauth_link_error": {authh.OAuthRedirectRateLimitedCode}}
+	if got := loc.Query(); got.Encode() != want.Encode() {
+		t.Errorf("%s query = %q, want exactly %q", path, got.Encode(), want.Encode())
+	}
+	if ct := rr.Header().Get("Content-Type"); strings.Contains(ct, "json") {
+		t.Errorf("%s refusal Content-Type = %q, want no JSON", path, ct)
+	}
+	if body := rr.Body.String(); strings.Contains(body, "too_many_requests") {
+		t.Errorf("%s refusal body carries the JSON 429: %s", path, body)
+	}
+	if got := rr.Header().Get("Retry-After"); got != "" {
+		t.Errorf("%s refusal carries Retry-After %q, which asks the browser to wait before following the redirect", path, got)
+	}
+}
+
+// The link start draws on the OAuth redirect counter: half the budget on the
+// sign-in start and half on the link start, and the next request to either is
+// refused, the link start back to Settings and the sign-in start to the auth
+// page.
+func TestLinkStartSharesTheOAuthRedirectBudgetAndRefusesToSettings(t *testing.T) {
+	t.Setenv(DisableAuthRateLimitsEnvVar, "")
+	router := newTestRouter(t)
+	const ip = "203.0.113.68:1234"
+
+	for i := 0; i < oauthRedirectLimitPerMinute/2; i++ {
+		if !oauthStartReached(t, router, ip) {
+			t.Fatalf("start %d was refused before the %d/min budget was spent", i+1, oauthRedirectLimitPerMinute)
+		}
+		if !linkStartReached(t, router, ip) {
+			t.Fatalf("link start %d was refused before the %d/min budget was spent", i+1, oauthRedirectLimitPerMinute)
+		}
+	}
+
+	for _, path := range []string{"/auth/link/google", "/auth/link/github?t=token"} {
+		assertRefusedToSettings(t, serveFrom(router, http.MethodGet, path, ip), path)
+	}
+	assertRefusedToAuthPage(t, serveFrom(router, http.MethodGet, "/auth/login/google", ip), "/auth/login/google")
+
+	if !linkStartReached(t, router, "203.0.113.69:1234") {
+		t.Error("a second address was refused by the first address's OAuth redirect budget")
+	}
+}
+
+func TestLinkStartRefusalsDoNotSpendPasswordBudget(t *testing.T) {
+	t.Setenv(DisableAuthRateLimitsEnvVar, "")
+	router := newTestRouter(t)
+	const ip = "203.0.113.70:1234"
+
+	for i := 0; i < oauthRedirectLimitPerMinute+authLimitPerMinute; i++ {
+		serveFrom(router, http.MethodGet, "/auth/link/google", ip)
+	}
+	assertRefusedToSettings(t, serveFrom(router, http.MethodGet, "/auth/link/google", ip), "/auth/link/google")
+
+	code, body := sendWithBody(t, router, http.MethodPost, "/auth/login", ip, nil)
+	if code == http.StatusTooManyRequests {
+		t.Fatal("POST /auth/login was refused after only link starts were sent; the two budgets share a counter")
+	}
+	assertReachedHandler(t, code, body, "/auth/login")
+}
+
+// The Apple callback is posted by a native client, so its refusal is the JSON
+// 429 with Retry-After, on a counter of its own: password attempts and OAuth
+// redirects cannot spend it, and it spends neither.
+func TestAppleSignInHasItsOwnJSONBudget(t *testing.T) {
+	t.Setenv(DisableAuthRateLimitsEnvVar, "")
+	router := newTestRouter(t)
+	const ip = "203.0.113.71:1234"
+
+	exhaustPasswordBudget(t, router, ip)
+	for i := 0; i < oauthRedirectLimitPerMinute; i++ {
+		serveFrom(router, http.MethodGet, "/auth/login/google", ip)
+	}
+	assertRefusedToAuthPage(t, serveFrom(router, http.MethodGet, "/auth/login/google", ip), "/auth/login/google")
+
+	for i := 0; i < appleSignInLimitPerMinute; i++ {
+		if !appleCallbackReached(t, router, ip) {
+			t.Fatalf("Apple callback %d was refused before its %d/min budget was spent", i+1, appleSignInLimitPerMinute)
+		}
+	}
+
+	rr := serveFrom(router, http.MethodPost, "/auth/apple/callback", ip)
+	if rr.Code != http.StatusTooManyRequests {
+		t.Fatalf("POST /auth/apple/callback past its budget = %d, want 429", rr.Code)
+	}
+	if ct := rr.Header().Get("Content-Type"); ct != "application/json" {
+		t.Errorf("Apple callback refusal Content-Type = %q, want application/json", ct)
+	}
+	if got := rr.Header().Get("Retry-After"); got != "60" {
+		t.Errorf("Apple callback refusal Retry-After = %q, want 60", got)
+	}
+	if loc := rr.Header().Get("Location"); loc != "" {
+		t.Errorf("Apple callback refusal redirects to %q; its caller reads JSON", loc)
+	}
+	want := `{"success":false,"error":"too_many_requests","message":"` + rateLimitExceededMessage + `"}`
+	if body := rr.Body.String(); body != want {
+		t.Errorf("Apple callback refusal body = %s, want %s", body, want)
+	}
+
+	const fresh = "203.0.113.72:1234"
+	for i := 0; i <= appleSignInLimitPerMinute; i++ {
+		serveFrom(router, http.MethodPost, "/auth/apple/callback", fresh)
+	}
+	if !oauthStartReached(t, router, fresh) {
+		t.Error("GET /auth/login/google was refused after only Apple callbacks were sent; the two budgets share a counter")
+	}
+	code, body := sendWithBody(t, router, http.MethodPost, "/auth/login", fresh, nil)
+	if code == http.StatusTooManyRequests {
+		t.Fatal("POST /auth/login was refused after only Apple callbacks were sent; the two budgets share a counter")
+	}
+	assertReachedHandler(t, code, body, "/auth/login")
+}
+
+func TestLinkStartAndAppleRateLimitDisabledFlagIsHonored(t *testing.T) {
+	t.Setenv(DisableAuthRateLimitsEnvVar, "1")
+	router := newTestRouter(t)
+	const ip = "203.0.113.73:1234"
+
+	for i := 0; i < oauthRedirectLimitPerMinute*3; i++ {
+		if !linkStartReached(t, router, ip) {
+			t.Fatalf("link start %d did not reach the session check with %s=1", i+1, DisableAuthRateLimitsEnvVar)
+		}
+		if !appleCallbackReached(t, router, ip) {
+			t.Fatalf("Apple callback %d did not reach its handler with %s=1", i+1, DisableAuthRateLimitsEnvVar)
+		}
 	}
 }

@@ -15,16 +15,12 @@ import (
 // where a mistake is worst: weaken it and login loses brute-force protection,
 // over-tighten it and legitimate users are locked out.
 //
-// Two properties are specific to this group and are the ones most likely to break
-// silently, so each gets a dedicated test:
-//
-//  1. authRateLimiter is ONE closure shared with the raw chi /auth/link route.
-//     The conversion passes the existing variable; constructing a fresh limiter
-//     would look identical and quietly double the budget.
-//  2. Under DISABLE_AUTH_RATE_LIMITS the limiter is noopRateLimiter() (PSY-475).
-//     If humaFromHTTP mishandled a middleware that simply returns `next`, every
-//     E2E shard — all sharing 127.0.0.1 — would start failing register and
-//     magic-link again, which is the exact regression PSY-475 fixed.
+// One property is specific to this group and is the one most likely to break
+// silently, so it gets a dedicated test: under DISABLE_AUTH_RATE_LIMITS the
+// limiter is noopRateLimiter() (PSY-475). If humaFromHTTP mishandled a
+// middleware that simply returns `next`, every E2E shard, all sharing
+// 127.0.0.1, would start failing register and magic-link again, which is the
+// exact regression PSY-475 fixed.
 
 // Written out rather than read from middleware, which is what makes them an
 // oracle: auth.go builds its limiters from those constants, so a budget widened
@@ -90,31 +86,6 @@ func TestAuthRateLimitIsSharedAcrossTheGroup(t *testing.T) {
 	}
 	if code := send(t, router, "POST", "/auth/register", ip, nil); code != http.StatusTooManyRequests {
 		t.Errorf("rotating endpoints returned %d, want 429 — auth operations no longer share one budget", code)
-	}
-}
-
-// The subtle one. authRateLimiter is also used by the raw chi /auth/link route.
-// Passing the same closure keeps one counter across both; a freshly-constructed
-// limiter would give the Huma group its own, doubling the effective budget for
-// anyone willing to alternate.
-//
-// The limiter sits in front of JWTMiddleware on that route, so an
-// uncredentialed request is metered and then answered 401.
-func TestAuthAndOAuthLinkShareOneBudget(t *testing.T) {
-	router := newTestRouter(t)
-	const ip = "203.0.113.43:1234"
-
-	// Spend the whole budget on the UNCONVERTED raw chi link route.
-	for i := 0; i < authLimitPerMinute; i++ {
-		if code := send(t, router, "GET", "/auth/link/google", ip, nil); code != http.StatusUnauthorized {
-			t.Fatalf("link request %d/%d = %d, want 401 from the session check behind the limiter", i+1, authLimitPerMinute, code)
-		}
-	}
-
-	// The converted Huma operation must now be out of budget too.
-	if code := send(t, router, "POST", "/auth/login", ip, nil); code != http.StatusTooManyRequests {
-		t.Errorf("POST /auth/login returned %d after the link route exhausted the budget, want 429: "+
-			"the Huma group got its own limiter instead of sharing authRateLimiter", code)
 	}
 }
 

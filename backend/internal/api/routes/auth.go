@@ -12,51 +12,39 @@ import (
 	"psychic-homily-backend/internal/api/middleware"
 )
 
-// The OAuth start and callback routes. A browser reaches both by top-level
-// navigation, so a refusal there is a redirect, and the routes are registered
-// and exempted from the public-read limiter by these same templates.
-// /auth/link/{provider} is navigated too but is not one of them: it is metered
-// by authRateLimiter and the public-read limiter, and both refuse with JSON.
-const (
-	oauthLoginRoute    = "/auth/login/{provider}"
-	oauthCallbackRoute = "/auth/callback/{provider}"
-)
-
-// oauthRedirectRoutes are the routes on oauthRedirectRateLimiter. Each ends in
-// its one {provider} parameter, which isOAuthRedirectRequest relies on.
-var oauthRedirectRoutes = []string{oauthLoginRoute, oauthCallbackRoute}
+// oauthRedirectRoutes are the routes on oauthRedirectRateLimiter: the OAuth
+// sign-in start, its callback, and the Settings link start. A browser reaches
+// each by top-level navigation, so a refusal there is a redirect, and the
+// routes are registered and exempted from the public-read limiter by these
+// same templates. Each ends in its one {provider} parameter, which
+// isOAuthRedirectRequest relies on.
+var oauthRedirectRoutes = []string{authh.OAuthLoginRoute, authh.OAuthCallbackRoute, authh.OAuthLinkRoute}
 
 // setupAuthRoutes configures all authentication-related endpoints
 func setupAuthRoutes(rc RouteContext) {
 	authHandler := authh.NewAuthHandler(rc.SC.Auth, rc.SC.JWT, rc.SC.User, rc.SC.Email, rc.SC.Discord, rc.SC.PasswordValidator, rc.Cfg)
 	oauthHTTPHandler := authh.NewOAuthHTTPHandler(rc.SC.Auth, rc.SC.JWT, rc.Cfg)
 
-	// The public auth budget: brute force on login, credential stuffing, email
-	// bombing via magic links, and spam account creation all draw on this one
-	// per-IP counter.
-	authRateLimiter := authScopedRateLimiter(middleware.LimiterAuth, middleware.AuthRequestsPerMinute)
-
-	// The OAuth redirects meter on oauthRedirectRateLimiter alone: never on
-	// authRateLimiter, and never on the public-read limiter, which exempts
-	// oauthRedirectRoutes.
+	// The OAuth redirects meter on oauthRedirectRateLimiter alone: never on the
+	// public auth budget, and never on the public-read limiter, which exempts
+	// oauthRedirectRoutes. One limiter on the group is one counter for all
+	// three routes.
 	rc.Router.Group(func(r chi.Router) {
 		r.Use(oauthRedirectRateLimiter(oauthHTTPHandler.RedirectRateLimited))
-		r.Get(oauthLoginRoute, oauthHTTPHandler.OAuthLoginHTTPHandler)
-		r.Get(oauthCallbackRoute, oauthHTTPHandler.OAuthCallbackHTTPHandler)
-	})
+		r.Get(authh.OAuthLoginRoute, oauthHTTPHandler.OAuthLoginHTTPHandler)
+		r.Get(authh.OAuthCallbackRoute, oauthHTTPHandler.OAuthCallbackHTTPHandler)
 
-	// Connecting a provider to an account you are already signed in to. A raw
-	// chi route rather than a Huma operation for the same reason login and
-	// callback are: it answers with a redirect into the provider's consent
-	// screen, not a JSON body.
-	//
-	// JWTMiddleware is what makes this the authenticated path. The account the
-	// identity attaches to comes from the session, never from the address the
-	// provider returns, which is the whole difference from /auth/login.
-	rc.Router.Group(func(r chi.Router) {
-		r.Use(authRateLimiter)
-		r.Use(middleware.JWTMiddleware(rc.SC.JWT))
-		r.Get("/auth/link/{provider}", oauthHTTPHandler.OAuthLinkHTTPHandler)
+		// Connecting a provider to an account you are already signed in to.
+		// A raw chi route rather than a Huma operation for the same reason
+		// login and callback are: it answers with a redirect into the
+		// provider's consent screen, not a JSON body.
+		//
+		// JWTMiddleware is what makes this the authenticated path. The account
+		// the identity attaches to comes from the session, never from the
+		// address the provider returns, which is the whole difference from
+		// the sign-in start. It runs after the limiter, so a request with no
+		// session is metered before it is refused.
+		r.With(middleware.JWTMiddleware(rc.SC.JWT)).Get(authh.OAuthLinkRoute, oauthHTTPHandler.OAuthLinkHTTPHandler)
 	})
 
 	// Rate-limited auth API endpoints.
@@ -66,17 +54,14 @@ func setupAuthRoutes(rc RouteContext) {
 	// authentication surface was missing from the published spec. An external
 	// consumer reading it saw no way to authenticate at all.
 	//
-	// Two properties this conversion must preserve, both easy to break silently:
-	//
-	//  1. authRateLimiter is the SAME closure the /auth/link chi group above
-	//     uses, so that raw route and these operations share ONE counter. Passing
-	//     the variable (rather than building a second limiter here) is what keeps
-	//     that budget shared; a fresh httprate.Limit would quietly double it.
-	//  2. It may be noopRateLimiter() under DISABLE_AUTH_RATE_LIMITS (PSY-475).
-	//     humaFromHTTP has to let that through cleanly, or every E2E shard — all
-	//     sharing 127.0.0.1 — starts failing register/magic-link again.
+	// The public auth budget: brute force on login, credential stuffing, email
+	// bombing via magic links, and spam account creation all draw on this one
+	// per-IP counter. It may be noopRateLimiter() under DISABLE_AUTH_RATE_LIMITS
+	// (PSY-475); humaFromHTTP has to let that through cleanly, or every E2E
+	// shard, all sharing 127.0.0.1, starts failing register/magic-link again.
 	//
 	// No JWT middleware here on purpose: these endpoints are how you GET a token.
+	authRateLimiter := authScopedRateLimiter(middleware.LimiterAuth, middleware.AuthRequestsPerMinute)
 	rateLimitedAuthGroup := huma.NewGroup(rc.API, "")
 	rateLimitedAuthGroup.UseMiddleware(humaFromHTTP(authRateLimiter))
 	rateLimitedAuthGroup.UseMiddleware(middleware.HumaRequestIDMiddleware)
@@ -86,9 +71,15 @@ func setupAuthRoutes(rc RouteContext) {
 	huma.Post(rateLimitedAuthGroup, "/auth/magic-link/send", authHandler.SendMagicLinkHandler)
 	huma.Post(rateLimitedAuthGroup, "/auth/magic-link/verify", authHandler.VerifyMagicLinkHandler)
 
-	// Sign in with Apple (public, rate-limited)
+	// Sign in with Apple. The caller is a native client posting the identity
+	// token as JSON, not a browser, so a refusal stays the JSON 429 with its
+	// Retry-After. It meters on a per-IP budget of its own: password attempts
+	// from the same address cannot spend it, and it cannot spend theirs.
 	appleAuthHandler := authh.NewAppleAuthHandler(rc.SC.AppleAuth, rc.SC.Discord, rc.Cfg)
-	huma.Post(rateLimitedAuthGroup, "/auth/apple/callback", appleAuthHandler.AppleCallbackHandler)
+	appleSignInGroup := huma.NewGroup(rc.API, "")
+	appleSignInGroup.UseMiddleware(humaFromHTTP(authScopedRateLimiter(middleware.LimiterAppleSignIn, middleware.AppleSignInRequestsPerMinute)))
+	appleSignInGroup.UseMiddleware(middleware.HumaRequestIDMiddleware)
+	huma.Post(appleSignInGroup, "/auth/apple/callback", appleAuthHandler.AppleCallbackHandler)
 
 	// Account recovery endpoints (public, rate-limited)
 	huma.Post(rateLimitedAuthGroup, "/auth/recover-account", authHandler.RecoverAccountHandler)
@@ -144,7 +135,7 @@ func oauthRedirectRateLimiter(redirect func(http.ResponseWriter, *http.Request, 
 	return ipRateLimiterRefusingWith(middleware.LimiterOAuthRedirect, middleware.OAuthRedirectRequestsPerMinute, time.Minute, func(w http.ResponseWriter, r *http.Request) {
 		// httprate sets Retry-After before it calls a refusal handler. On a
 		// redirect that header asks the browser to wait before following it,
-		// and the auth page is not what is limited.
+		// and the page it leads to is not what is limited.
 		w.Header().Del("Retry-After")
 		redirect(w, r, rateLimitExceededMessage)
 	})
