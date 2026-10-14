@@ -18,8 +18,6 @@ import (
 	"psychic-homily-backend/internal/services/contracts"
 )
 
-const returnToFrontendURL = "https://frontend.example.com"
-
 func TestSanitizeOAuthReturnTo(t *testing.T) {
 	cases := []struct {
 		name string
@@ -68,22 +66,25 @@ func TestSanitizeOAuthReturnTo(t *testing.T) {
 
 // --- start: the cookie the sign-in start writes ---
 
-func startSignIn(t *testing.T, query string, cookies ...*http.Cookie) *http.Response {
-	t.Helper()
-	target := "/auth/login/google"
-	if query != "" {
-		target += "?" + query
-	}
+// googleRequest is a GET to target as chi routes it: the provider path
+// parameter set to google.
+func googleRequest(target string, cookies ...*http.Cookie) *http.Request {
 	req := httptest.NewRequest("GET", target, nil)
 	for _, c := range cookies {
 		req.AddCookie(c)
 	}
 	rctx := chi.NewRouteContext()
 	rctx.URLParams.Add("provider", "google")
-	req = req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, rctx))
+	return req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, rctx))
+}
 
+func startSignIn(query string, cookies ...*http.Cookie) *http.Response {
+	target := "/auth/login/google"
+	if query != "" {
+		target += "?" + query
+	}
 	w := httptest.NewRecorder()
-	NewOAuthHTTPHandler(nil, nil, nil).OAuthLoginHTTPHandler(w, req)
+	NewOAuthHTTPHandler(nil, nil, nil).OAuthLoginHTTPHandler(w, googleRequest(target, cookies...))
 	return w.Result()
 }
 
@@ -101,7 +102,7 @@ func encodedReturnTo(path string) string {
 }
 
 func TestOAuthLogin_RecordsAnOnSiteReturnTo(t *testing.T) {
-	resp := startSignIn(t, "returnTo="+url.QueryEscape("/profile?tab=settings"))
+	resp := startSignIn("returnTo=" + url.QueryEscape("/profile?tab=settings"))
 
 	cookie := findCookie(resp, oauthReturnToCookieName)
 	if cookie == nil {
@@ -115,17 +116,13 @@ func TestOAuthLogin_RecordsAnOnSiteReturnTo(t *testing.T) {
 	}
 }
 
+// TestSanitizeOAuthReturnTo owns the refusal matrix; this pins only that the
+// start consults it.
 func TestOAuthLogin_RecordsNoRefusedReturnTo(t *testing.T) {
-	for _, raw := range []string{"https://evil.example", "//evil.example", "/\\evil.example", "/auth", ""} {
-		t.Run(raw, func(t *testing.T) {
-			query := ""
-			if raw != "" {
-				query = "returnTo=" + url.QueryEscape(raw)
-			}
-			if cookie := findCookie(startSignIn(t, query), oauthReturnToCookieName); cookie != nil {
-				t.Errorf("expected no return-to cookie for %q, got %+v", raw, cookie)
-			}
-		})
+	for _, query := range []string{"returnTo=" + url.QueryEscape("//evil.example"), ""} {
+		if cookie := findCookie(startSignIn(query), oauthReturnToCookieName); cookie != nil {
+			t.Errorf("start query %q: expected no return-to cookie, got %+v", query, cookie)
+		}
 	}
 }
 
@@ -134,15 +131,12 @@ func TestOAuthLogin_RecordsNoRefusedReturnTo(t *testing.T) {
 func TestOAuthLogin_ClearsAnEarlierStartsReturnTo(t *testing.T) {
 	stale := &http.Cookie{Name: oauthReturnToCookieName, Value: encodedReturnTo("/shows")}
 
-	cookie := findCookie(startSignIn(t, "", stale), oauthReturnToCookieName)
-	if cookie == nil || cookie.MaxAge >= 0 || cookie.Value != "" {
-		t.Fatalf("expected the stale return-to cookie to be cleared, got %+v", cookie)
-	}
+	assertReturnToCleared(t, startSignIn("", stale))
 }
 
 // The consent gate refuses before anything is recorded.
 func TestOAuthLogin_RefusedSignupRecordsNoReturnTo(t *testing.T) {
-	resp := startSignIn(t, "signup_intent=1&returnTo=%2Fshows")
+	resp := startSignIn("signup_intent=1&returnTo=%2Fshows")
 
 	if resp.StatusCode != http.StatusBadRequest {
 		t.Fatalf("status = %d, want 400", resp.StatusCode)
@@ -164,22 +158,14 @@ func signInCallbackHandler() *OAuthHTTPHandler {
 	}
 	return NewOAuthHTTPHandler(authService, nil, &config.Config{
 		Session: config.SessionConfig{Path: "/", HttpOnly: true, SameSite: "lax"},
-		Email:   config.EmailConfig{FrontendURL: returnToFrontendURL},
+		Email:   config.EmailConfig{FrontendURL: errorRedirectFrontendURL},
 	})
 }
 
 func runCallback(t *testing.T, handler *OAuthHTTPHandler, target string, cookies ...*http.Cookie) (*http.Response, string) {
 	t.Helper()
-	req := httptest.NewRequest("GET", target, nil)
-	for _, c := range cookies {
-		req.AddCookie(c)
-	}
-	rctx := chi.NewRouteContext()
-	rctx.URLParams.Add("provider", "google")
-	req = req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, rctx))
-
 	w := httptest.NewRecorder()
-	handler.OAuthCallbackHTTPHandler(w, req)
+	handler.OAuthCallbackHTTPHandler(w, googleRequest(target, cookies...))
 	if w.Code != http.StatusTemporaryRedirect {
 		t.Fatalf("status = %d, want %d", w.Code, http.StatusTemporaryRedirect)
 	}
@@ -200,13 +186,13 @@ func TestOAuthCallback_SuccessLandsOnTheRecordedDestination(t *testing.T) {
 		cookie string
 		want   string
 	}{
-		{"on-site path", encodedReturnTo("/shows"), returnToFrontendURL + "/shows"},
-		{"settings tab", encodedReturnTo("/profile?tab=settings"), returnToFrontendURL + "/profile?tab=settings"},
+		{"on-site path", encodedReturnTo("/shows"), errorRedirectFrontendURL + "/shows"},
+		{"settings tab", encodedReturnTo("/profile?tab=settings"), errorRedirectFrontendURL + "/profile?tab=settings"},
 		// A cookie the start never wrote is checked again, not trusted.
-		{"off-site destination", encodedReturnTo("https://evil.example"), returnToFrontendURL},
-		{"protocol-relative destination", encodedReturnTo("//evil.example"), returnToFrontendURL},
-		{"auth page", encodedReturnTo("/auth"), returnToFrontendURL},
-		{"undecodable value", "%%%not-base64", returnToFrontendURL},
+		{"off-site destination", encodedReturnTo("https://evil.example"), errorRedirectFrontendURL},
+		{"protocol-relative destination", encodedReturnTo("//evil.example"), errorRedirectFrontendURL},
+		{"auth page", encodedReturnTo("/auth"), errorRedirectFrontendURL},
+		{"undecodable value", "%%%not-base64", errorRedirectFrontendURL},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -227,8 +213,8 @@ func TestOAuthCallback_SuccessLandsOnTheRecordedDestination(t *testing.T) {
 func TestOAuthCallback_SuccessWithoutADestinationLandsOnTheRoot(t *testing.T) {
 	resp, location := runCallback(t, signInCallbackHandler(), "/auth/callback/google")
 
-	if location != returnToFrontendURL {
-		t.Errorf("Location = %q, want %q", location, returnToFrontendURL)
+	if location != errorRedirectFrontendURL {
+		t.Errorf("Location = %q, want %q", location, errorRedirectFrontendURL)
 	}
 	if cookie := findCookie(resp, oauthReturnToCookieName); cookie != nil {
 		t.Errorf("expected no return-to cookie write when none was sent, got %+v", cookie)
@@ -239,30 +225,26 @@ func TestOAuthCallback_SuccessWithoutADestinationLandsOnTheRoot(t *testing.T) {
 func TestOAuthCallback_IgnoresADestinationOnItsOwnQuery(t *testing.T) {
 	_, location := runCallback(t, signInCallbackHandler(),
 		"/auth/callback/google?returnTo="+url.QueryEscape("/shows"))
-	if location != returnToFrontendURL {
-		t.Errorf("Location = %q, want %q", location, returnToFrontendURL)
+	if location != errorRedirectFrontendURL {
+		t.Errorf("Location = %q, want %q", location, errorRedirectFrontendURL)
 	}
 
 	_, location = runCallback(t, signInCallbackHandler(),
 		"/auth/callback/google?returnTo="+url.QueryEscape("/shows"),
 		&http.Cookie{Name: oauthReturnToCookieName, Value: encodedReturnTo("/library")})
-	if location != returnToFrontendURL+"/library" {
-		t.Errorf("Location = %q, want the cookie's destination %q", location, returnToFrontendURL+"/library")
+	if location != errorRedirectFrontendURL+"/library" {
+		t.Errorf("Location = %q, want the cookie's destination %q", location, errorRedirectFrontendURL+"/library")
 	}
 }
 
 // A refused sign-in keeps its auth-page redirect and still spends the cookie.
 func TestOAuthCallback_RefusalKeepsItsRedirectAndClearsTheDestination(t *testing.T) {
-	handler := failingCallbackHandler(http.ErrNoCookie)
-	req := httptest.NewRequest("GET", "/auth/callback/google", nil)
-	req.AddCookie(&http.Cookie{Name: oauthReturnToCookieName, Value: encodedReturnTo("/shows")})
-	w := httptest.NewRecorder()
+	resp, raw := runCallback(t, failingCallbackHandler(http.ErrNoCookie), "/auth/callback/google",
+		&http.Cookie{Name: oauthReturnToCookieName, Value: encodedReturnTo("/shows")})
 
-	handler.OAuthCallbackHTTPHandler(w, req)
-
-	location, err := url.Parse(w.Header().Get("Location"))
+	location, err := url.Parse(raw)
 	if err != nil {
-		t.Fatalf("unparseable Location: %v", err)
+		t.Fatalf("unparseable Location %q: %v", raw, err)
 	}
 	if got := location.Scheme + "://" + location.Host + location.Path; got != errorRedirectFrontendURL+"/auth" {
 		t.Errorf("redirect target = %q, want the auth page", got)
@@ -270,7 +252,7 @@ func TestOAuthCallback_RefusalKeepsItsRedirectAndClearsTheDestination(t *testing
 	if location.Query().Has(oauthReturnToParam) {
 		t.Errorf("refusal redirect carries %q: %s", oauthReturnToParam, location.RawQuery)
 	}
-	assertReturnToCleared(t, w.Result())
+	assertReturnToCleared(t, resp)
 }
 
 // The CLI loopback keeps its token redirect; the cookie is spent regardless.
@@ -305,7 +287,7 @@ func TestOAuthCallback_LinkResultIgnoresTheDestination(t *testing.T) {
 		&http.Cookie{Name: oauthLinkIntentCookieName, Value: intentID},
 		&http.Cookie{Name: oauthReturnToCookieName, Value: encodedReturnTo("/shows")})
 
-	if !strings.HasPrefix(location, returnToFrontendURL+oauthLinkSettingsPath+"?") {
+	if !strings.HasPrefix(location, errorRedirectFrontendURL+oauthLinkSettingsPath+"?") {
 		t.Errorf("Location = %q, want the Settings link result", location)
 	}
 	assertReturnToCleared(t, resp)

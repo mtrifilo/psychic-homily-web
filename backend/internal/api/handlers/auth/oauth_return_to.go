@@ -126,8 +126,15 @@ func oauthSignInDestination(frontendURL, returnTo string) string {
 }
 
 func newOAuthReturnToCookie(value string, maxAge int, secure bool) *http.Cookie {
+	return newOAuthHandshakeCookie(oauthReturnToCookieName, value, maxAge, secure)
+}
+
+// newOAuthHandshakeCookie builds a cookie that carries state from an OAuth
+// start to its callback: host-only, script-inaccessible, and sent on the
+// provider's redirect back.
+func newOAuthHandshakeCookie(name, value string, maxAge int, secure bool) *http.Cookie {
 	return &http.Cookie{
-		Name:     oauthReturnToCookieName,
+		Name:     name,
 		Value:    value,
 		Path:     "/",
 		MaxAge:   maxAge,

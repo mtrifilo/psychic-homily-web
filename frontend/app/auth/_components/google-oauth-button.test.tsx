@@ -41,36 +41,27 @@ describe('GoogleOAuthButton', () => {
     })
   })
 
-  it('carries the destination to the sign-in start', async () => {
-    const user = userEvent.setup()
-    renderWithProviders(<GoogleOAuthButton returnTo="/profile?tab=settings" />)
+  it.each([
+    ['a destination', '/profile?tab=settings', '/profile?tab=settings'],
+    ['no destination', undefined, null],
+    ['the site root', '/', null],
+  ])(
+    'hands the sign-in start %s',
+    async (_label, returnTo: string | undefined, expected: string | null) => {
+      const user = userEvent.setup()
+      renderWithProviders(<GoogleOAuthButton returnTo={returnTo} />)
 
-    await user.click(screen.getByRole('button', { name: 'Continue with Google' }))
+      await user.click(
+        screen.getByRole('button', { name: 'Continue with Google' })
+      )
 
-    const url = startUrl()
-    expect(url.origin + url.pathname).toBe(
-      'https://oauth-backend.test/auth/login/google'
-    )
-    expect(url.searchParams.get('returnTo')).toBe('/profile?tab=settings')
-  })
-
-  it('names no destination when the reader came from nowhere in particular', async () => {
-    const user = userEvent.setup()
-    renderWithProviders(<GoogleOAuthButton />)
-
-    await user.click(screen.getByRole('button', { name: 'Continue with Google' }))
-
-    expect(startUrl().searchParams.has('returnTo')).toBe(false)
-  })
-
-  it('names no destination for the site root', async () => {
-    const user = userEvent.setup()
-    renderWithProviders(<GoogleOAuthButton returnTo="/" />)
-
-    await user.click(screen.getByRole('button', { name: 'Continue with Google' }))
-
-    expect(startUrl().searchParams.has('returnTo')).toBe(false)
-  })
+      const url = startUrl()
+      expect(url.origin + url.pathname).toBe(
+        'https://oauth-backend.test/auth/login/google'
+      )
+      expect(url.searchParams.get('returnTo')).toBe(expected)
+    }
+  )
 
   it('carries the destination beside the sign-up consent', async () => {
     const user = userEvent.setup()

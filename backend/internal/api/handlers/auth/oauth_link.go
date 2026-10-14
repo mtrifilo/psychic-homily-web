@@ -148,18 +148,7 @@ func (h *OAuthHTTPHandler) newLinkIntentCookie(value string, maxAge int) *http.C
 	if h.config != nil {
 		secure = h.config.Session.Secure
 	}
-	return &http.Cookie{
-		Name:     oauthLinkIntentCookieName,
-		Value:    value,
-		Path:     "/",
-		MaxAge:   maxAge,
-		HttpOnly: true,
-		// Lax, not Strict: the provider returns the browser to the callback by
-		// a cross-site top-level navigation, which Strict would strip. Same
-		// reasoning as the signup consent cookie.
-		SameSite: http.SameSiteLaxMode,
-		Secure:   secure,
-	}
+	return newOAuthHandshakeCookie(oauthLinkIntentCookieName, value, maxAge, secure)
 }
 
 // OAuthLinkHTTPHandler begins an OAuth link for the authenticated caller.
@@ -345,8 +334,8 @@ func redirectToReauth(w http.ResponseWriter, r *http.Request, frontendURL string
 		oauthLinkSettingsTabKey: {oauthLinkSettingsTabValue},
 	}.Encode()
 	query := url.Values{
-		"returnTo": {settings},
-		"reason":   {oauthLinkErrorReauthRequired},
+		oauthReturnToParam: {settings},
+		"reason":           {oauthLinkErrorReauthRequired},
 	}
 	http.Redirect(w, r, frontendURL+"/auth?"+query.Encode(), http.StatusTemporaryRedirect)
 }

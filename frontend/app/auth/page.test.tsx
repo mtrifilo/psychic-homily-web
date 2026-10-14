@@ -707,15 +707,6 @@ describe('AuthPage', () => {
       )
     })
 
-    it('hands the Google button "/" when returnTo points at an external origin', () => {
-      setSearchParams('returnTo=https%3A%2F%2Fevil.example')
-      renderWithProviders(<AuthPage />)
-
-      expect(googleOAuthProps).toHaveBeenCalledWith(
-        expect.objectContaining({ variant: 'login', returnTo: '/' })
-      )
-    })
-
     it('falls back to "/" when returnTo points at an external origin', () => {
       // Confirms the page routes the raw param through sanitizeReturnTo rather
       // than forwarding it verbatim (open-redirect guard). The sanitizer's full
@@ -725,6 +716,9 @@ describe('AuthPage', () => {
 
       expect(passkeyLoginProps).toHaveBeenCalledWith(
         expect.objectContaining({ returnTo: '/' })
+      )
+      expect(googleOAuthProps).toHaveBeenCalledWith(
+        expect.objectContaining({ variant: 'login', returnTo: '/' })
       )
     })
   })
