@@ -15619,7 +15619,9 @@ export interface components {
             album_name_count: number;
             /** @description Up to five album names by play count; names that normalize alike are one entry, shown in their most common trimmed spelling, counting all their plays */
             album_names: components["schemas"]["RadioCandidateName"][] | null;
-            /** @description Every distinct artist key (radio_normalize_name of the artist name) among the counted plays, by play count; in the unmatched view each is an artist candidate's artist_key */
+            /** @description The artist_keys that are qualifying artist candidates' artist_key, in artist_keys order; in the unmatched view at least one, in the unlinked view always empty (not computed) */
+            artist_candidate_keys: string[] | null;
+            /** @description Every distinct artist key (radio_normalize_name of the artist name) among the counted plays, by play count */
             artist_keys: components["schemas"]["RadioCandidateName"][] | null;
             /** @description Catalog artists the counted plays are linked to, by play count; empty in the unmatched view */
             artists: components["schemas"]["RadioCandidateArtist"][] | null;
@@ -15629,7 +15631,10 @@ export interface components {
             display_title: string;
             /** @description Earliest counted play's episode air date (YYYY-MM-DD) */
             first_aired_on: string;
-            /** @enum {string} */
+            /**
+             * @description auto when the counted plays carry exactly one MusicBrainz release id, it is not on a variant title (variant_release_id), no spelling is non-Latin (non_latin_spelling) and the station floor is met; human otherwise. It describes the release only: an unmatched track can be auto while the artist candidate it joins is human
+             * @enum {string}
+             */
             lane: "auto" | "human";
             /** @description Latest counted play's episode air date (YYYY-MM-DD) */
             last_aired_on: string;
@@ -15672,6 +15677,8 @@ export interface components {
              * @description The radio_tracks row; the candidate's identity
              */
             track_id: number;
+            /** @description True when a counted play carrying a MusicBrainz release id has a title the track key strips (a live, remix, edit, featured or bracketed version), so that id may be the version's release; the candidate is in the human lane */
+            variant_release_id: boolean;
         };
         RadioTrackCandidateListing: {
             /**
@@ -15699,7 +15706,7 @@ export interface components {
             min_station_rows: number;
             /**
              * Format: int64
-             * @description Tracks that clear the floors, in either view or in neither (a track of a catalog artist with a release link, or an unlinked track with an artist key that is not an artist candidate)
+             * @description Tracks that clear the floors, in either view or in neither (a catalog artist's track with a credited release link, or an unlinked track none of whose artist keys is an artist candidate)
              */
             qualifying_tracks: number;
             /**
@@ -21634,7 +21641,7 @@ export interface operations {
     "get-admin-radio-candidates-tracks": {
         parameters: {
             query: {
-                /** @description unlinked: tracks of catalog artists with no release link; unmatched: tracks of artists the catalog does not have, each of whose artist keys is an artist candidate */
+                /** @description unlinked: tracks with a counted play linked to a catalog artist where no play of the track, at any time, is linked to a release credited to that play's artist; unmatched: tracks with no counted play linked to an artist and at least one artist key that is an artist candidate */
                 view: "unlinked" | "unmatched";
                 /** @description Candidates to return (default 50) */
                 limit?: number;

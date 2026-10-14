@@ -83,6 +83,7 @@ func (s *RadioCandidatesIntegrationSuite) cleanup() {
 		"DELETE FROM radio_track_keys",
 		"DELETE FROM radio_tracks",
 		"DELETE FROM radio_plays",
+		"DELETE FROM artist_releases WHERE release_id IN (SELECT id FROM releases WHERE title LIKE 'T %')",
 		"DELETE FROM releases WHERE title LIKE 'T %'",
 		"DELETE FROM radio_episodes",
 		"DELETE FROM radio_shows",

@@ -72,7 +72,7 @@ func (h *RadioCandidatesHandler) AdminListRadioArtistCandidatesHandler(ctx conte
 // AdminListRadioArtistCandidatesRequest's; Huma reads query tags only from a
 // request struct's own fields, so they are not shared by embedding.
 type AdminListRadioTrackCandidatesRequest struct {
-	View  string `query:"view" required:"true" enum:"unlinked,unmatched" doc:"unlinked: tracks of catalog artists with no release link; unmatched: tracks of artists the catalog does not have, each of whose artist keys is an artist candidate"`
+	View  string `query:"view" required:"true" enum:"unlinked,unmatched" doc:"unlinked: tracks with a counted play linked to a catalog artist where no play of the track, at any time, is linked to a release credited to that play's artist; unmatched: tracks with no counted play linked to an artist and at least one artist key that is an artist candidate"`
 	Limit int    `query:"limit" required:"false" default:"50" minimum:"1" maximum:"500" doc:"Candidates to return (default 50)"`
 	Lane  string `query:"lane" required:"false" default:"all" enum:"auto,human,all" doc:"Return the auto lane, the human lane, or both (all, default)"`
 	Sort  string `query:"sort" required:"false" default:"score" enum:"score,plays,stations" doc:"Rank by score (default), plays in the window, or distinct station rows, descending; ties by score, then the most recent play, then track id."`

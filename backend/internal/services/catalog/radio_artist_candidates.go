@@ -257,8 +257,8 @@ func radioCatalogAnswersToSQL(expr string) string {
 // radioCandidateEvidenceSpellingsSQL ranks the exact raw spellings of a text
 // column of the evidence query's counted CTE, per value of its owner column
 // (carried under the same name): up to radioCandidateTopNames rows, each with
-// its play count and the owner's distinct spelling count. Panics on a column
-// that is not an identifier.
+// its play count and the owner's distinct spelling count. Panics on an owner
+// that is not a plain identifier or a column that is not an identifier.
 func radioCandidateEvidenceSpellingsSQL(kind, owner, column string) string {
 	return fmt.Sprintf(`
 SELECT '%[1]s' AS kind, %[2]s, 0 AS ref_id, %[3]s AS name, '' AS slug,
@@ -270,13 +270,13 @@ FROM (
   FROM counted
   GROUP BY %[2]s, %[3]s
 ) spellings
-WHERE rn <= %[4]d`, kind, mustSQLColumnRef(owner), mustSQLColumnRef(column), radioCandidateTopNames)
+WHERE rn <= %[4]d`, kind, mustSQLIdentifier(owner), mustSQLColumnRef(column), radioCandidateTopNames)
 }
 
 // radioCandidateEvidenceStationsSQL lists the station rows of the evidence
 // query's counted CTE, per value of its owner column (carried under the same
-// name), by play count and then station id. Panics on a column that is not an
-// identifier.
+// name), by play count and then station id. Panics on an owner that is not a
+// plain identifier.
 func radioCandidateEvidenceStationsSQL(owner string) string {
 	return fmt.Sprintf(`
 SELECT '%[1]s' AS kind, c.%[2]s, st.id AS ref_id, st.name AS name, st.slug AS slug,
@@ -284,7 +284,7 @@ SELECT '%[1]s' AS kind, c.%[2]s, st.id AS ref_id, st.name AS name, st.slug AS sl
        row_number() OVER (PARTITION BY c.%[2]s ORDER BY count(*) DESC, st.id) AS rn
 FROM counted c
 JOIN radio_stations st ON st.id = c.station_id
-GROUP BY c.%[2]s, st.id, st.name, st.slug`, radioEvidenceStation, mustSQLColumnRef(owner))
+GROUP BY c.%[2]s, st.id, st.name, st.slug`, radioEvidenceStation, mustSQLIdentifier(owner))
 }
 
 // radioCandidateEvidenceNamesSQL ranks the album or label names on the
@@ -292,9 +292,10 @@ GROUP BY c.%[2]s, st.id, st.name, st.slug`, radioEvidenceStation, mustSQLColumnR
 // identity, which the rows carry under the same name): names group by
 // radio_normalize_name, show their most common trimmed spelling, and only rows
 // where onlyWhere (a boolean column of counted, or "" for every row) holds
-// contribute. Panics on a column that is not an identifier.
+// contribute. Panics on an owner that is not a plain identifier or a column
+// that is not an identifier.
 func radioCandidateEvidenceNamesSQL(kind, owner, column, onlyWhere string) string {
-	own := mustSQLColumnRef(owner)
+	own := mustSQLIdentifier(owner)
 	col := mustSQLColumnRef(column)
 	filter := "true"
 	if onlyWhere != "" {

@@ -59,12 +59,14 @@ type RadioTrackCandidateView string
 
 const (
 	// RadioTrackCandidateViewUnlinked holds the tracks of catalog artists that
-	// have no release link: a counted play is linked to an artist and no
-	// counted play is linked to a release.
+	// have no release link: a counted play is linked to an artist, and no play
+	// of the track, at any time, is linked to a release credited to that
+	// play's linked artist.
 	RadioTrackCandidateViewUnlinked RadioTrackCandidateView = "unlinked"
 	// RadioTrackCandidateViewUnmatched holds the tracks of artists the
-	// catalog does not have: no counted play is linked to an artist and every
-	// artist key among the counted plays is an artist candidate's key.
+	// catalog does not have: no counted play is linked to an artist, and at
+	// least one artist key among the counted plays is an artist candidate's
+	// key.
 	RadioTrackCandidateViewUnmatched RadioTrackCandidateView = "unmatched"
 )
 
@@ -152,27 +154,29 @@ type RadioCandidateArtist struct {
 // excluded for the track ranking, not ambiguous, whose track key
 // radio_track_keys maps to this track.
 type RadioTrackCandidate struct {
-	TrackID            uint                    `json:"track_id" doc:"The radio_tracks row; the candidate's identity"`
-	DisplayTitle       string                  `json:"display_title" doc:"Most common raw title spelling among the counted plays"`
-	TitleSpellings     []RadioCandidateName    `json:"title_spellings" doc:"Up to five exact raw title spellings, each with the plays carrying exactly that spelling; the first is display_title"`
-	TitleSpellingCount int                     `json:"title_spelling_count" doc:"Distinct raw title spellings"`
-	DisplayArtist      string                  `json:"display_artist" doc:"Most common raw artist spelling among the counted plays"`
-	ArtistKeys         []RadioCandidateName    `json:"artist_keys" doc:"Every distinct artist key (radio_normalize_name of the artist name) among the counted plays, by play count; in the unmatched view each is an artist candidate's artist_key"`
-	Artists            []RadioCandidateArtist  `json:"artists" doc:"Catalog artists the counted plays are linked to, by play count; empty in the unmatched view"`
-	Lane               RadioCandidateLane      `json:"lane" enum:"auto,human"`
-	Score              float64                 `json:"score" doc:"station rows x ln(plays)"`
-	PlayCount          int                     `json:"play_count"`
-	StationRowCount    int                     `json:"station_row_count" doc:"Distinct radio_stations rows (each WFMU stream counts)"`
-	StationFamilyCount int                     `json:"station_family_count" doc:"Distinct broadcasters (a network counts once)"`
-	ShowCount          int                     `json:"show_count"`
-	FirstAiredOn       string                  `json:"first_aired_on" doc:"Earliest counted play's episode air date (YYYY-MM-DD)"`
-	LastAiredOn        string                  `json:"last_aired_on" doc:"Latest counted play's episode air date (YYYY-MM-DD)"`
-	Stations           []RadioCandidateStation `json:"stations" doc:"Station rows by play count, descending"`
-	AlbumNames         []RadioCandidateName    `json:"album_names" doc:"Up to five album names by play count; names that normalize alike are one entry, shown in their most common trimmed spelling, counting all their plays"`
-	AlbumNameCount     int                     `json:"album_name_count" doc:"Distinct normalized album names"`
-	MBReleaseID        *string                 `json:"mb_release_id,omitempty" doc:"Set when the counted plays carry exactly one MusicBrainz release id"`
-	MBReleaseIDs       []string                `json:"mb_release_ids" doc:"Every distinct MusicBrainz release id the counted plays carry, lower-cased and sorted"`
-	NonLatinSpelling   bool                    `json:"non_latin_spelling" doc:"True when a counted play's artist name or title carries a character normalization may not fold to a-z, 0-9 or punctuation (usually a non-Latin script); a key half may then be a fragment of that name, and the candidate is in the human lane"`
+	TrackID             uint                    `json:"track_id" doc:"The radio_tracks row; the candidate's identity"`
+	DisplayTitle        string                  `json:"display_title" doc:"Most common raw title spelling among the counted plays"`
+	TitleSpellings      []RadioCandidateName    `json:"title_spellings" doc:"Up to five exact raw title spellings, each with the plays carrying exactly that spelling; the first is display_title"`
+	TitleSpellingCount  int                     `json:"title_spelling_count" doc:"Distinct raw title spellings"`
+	DisplayArtist       string                  `json:"display_artist" doc:"Most common raw artist spelling among the counted plays"`
+	ArtistKeys          []RadioCandidateName    `json:"artist_keys" doc:"Every distinct artist key (radio_normalize_name of the artist name) among the counted plays, by play count"`
+	ArtistCandidateKeys []string                `json:"artist_candidate_keys" doc:"The artist_keys that are qualifying artist candidates' artist_key, in artist_keys order; in the unmatched view at least one, in the unlinked view always empty (not computed)"`
+	Artists             []RadioCandidateArtist  `json:"artists" doc:"Catalog artists the counted plays are linked to, by play count; empty in the unmatched view"`
+	Lane                RadioCandidateLane      `json:"lane" enum:"auto,human" doc:"auto when the counted plays carry exactly one MusicBrainz release id, it is not on a variant title (variant_release_id), no spelling is non-Latin (non_latin_spelling) and the station floor is met; human otherwise. It describes the release only: an unmatched track can be auto while the artist candidate it joins is human"`
+	Score               float64                 `json:"score" doc:"station rows x ln(plays)"`
+	PlayCount           int                     `json:"play_count"`
+	StationRowCount     int                     `json:"station_row_count" doc:"Distinct radio_stations rows (each WFMU stream counts)"`
+	StationFamilyCount  int                     `json:"station_family_count" doc:"Distinct broadcasters (a network counts once)"`
+	ShowCount           int                     `json:"show_count"`
+	FirstAiredOn        string                  `json:"first_aired_on" doc:"Earliest counted play's episode air date (YYYY-MM-DD)"`
+	LastAiredOn         string                  `json:"last_aired_on" doc:"Latest counted play's episode air date (YYYY-MM-DD)"`
+	Stations            []RadioCandidateStation `json:"stations" doc:"Station rows by play count, descending"`
+	AlbumNames          []RadioCandidateName    `json:"album_names" doc:"Up to five album names by play count; names that normalize alike are one entry, shown in their most common trimmed spelling, counting all their plays"`
+	AlbumNameCount      int                     `json:"album_name_count" doc:"Distinct normalized album names"`
+	MBReleaseID         *string                 `json:"mb_release_id,omitempty" doc:"Set when the counted plays carry exactly one MusicBrainz release id"`
+	MBReleaseIDs        []string                `json:"mb_release_ids" doc:"Every distinct MusicBrainz release id the counted plays carry, lower-cased and sorted"`
+	NonLatinSpelling    bool                    `json:"non_latin_spelling" doc:"True when a counted play's artist name or title carries a character normalization may not fold to a-z, 0-9 or punctuation (usually a non-Latin script); a key half may then be a fragment of that name, and the candidate is in the human lane"`
+	VariantReleaseID    bool                    `json:"variant_release_id" doc:"True when a counted play carrying a MusicBrainz release id has a title the track key strips (a live, remix, edit, featured or bracketed version), so that id may be the version's release; the candidate is in the human lane"`
 }
 
 // RadioTrackCandidateListing is one snapshot of a track candidate view.
@@ -182,7 +186,7 @@ type RadioTrackCandidateListing struct {
 	Total            int                     `json:"total" doc:"Candidates in the view and the requested lanes"`
 	AutoTotal        int                     `json:"auto_total" doc:"Candidates in the view and the auto lane, whatever the lane filter"`
 	HumanTotal       int                     `json:"human_total" doc:"Candidates in the view and the human lane, whatever the lane filter"`
-	QualifyingTracks int                     `json:"qualifying_tracks" doc:"Tracks that clear the floors, in either view or in neither (a track of a catalog artist with a release link, or an unlinked track with an artist key that is not an artist candidate)"`
+	QualifyingTracks int                     `json:"qualifying_tracks" doc:"Tracks that clear the floors, in either view or in neither (a catalog artist's track with a credited release link, or an unlinked track none of whose artist keys is an artist candidate)"`
 	UntrackedPlays   int64                   `json:"untracked_plays" doc:"Plays in the window, not excluded and not ambiguous, that count toward no track: a key half normalizes to empty, or radio_track_keys has no row for the key yet (the play arrived after the last rebuild)"`
 	AsOf             string                  `json:"as_of" doc:"The UTC date the window ends on (YYYY-MM-DD)"`
 	WindowStart      string                  `json:"window_start" doc:"The earliest episode air date counted (YYYY-MM-DD)"`

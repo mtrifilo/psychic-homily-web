@@ -179,6 +179,7 @@ function trackCandidate(overrides: Partial<TrackCandidate>): TrackCandidate {
     title_spelling_count: 1,
     display_artist: "Party Dozen",
     artist_keys: [{ name: "party dozen", play_count: 35 }],
+    artist_candidate_keys: [],
     artists: [{ artist_id: 806, name: "Party Dozen", slug: "party-dozen", play_count: 35 }],
     lane: "auto",
     score: 14.2214,
@@ -197,6 +198,7 @@ function trackCandidate(overrides: Partial<TrackCandidate>): TrackCandidate {
     mb_release_id: "65f4fc5d-e5fa-4fd8-9718-1629293b2b5e",
     mb_release_ids: ["65f4fc5d-e5fa-4fd8-9718-1629293b2b5e"],
     non_latin_spelling: false,
+    variant_release_id: false,
     ...overrides,
   };
 }
@@ -248,6 +250,8 @@ describe("formatTrackCandidateReport", () => {
               { name: "t joined", play_count: 4 },
               { name: "t joined band", play_count: 4 },
             ],
+            artist_candidate_keys: ["t joined"],
+            variant_release_id: true,
             title_spellings: [
               { name: "Song One", play_count: 6 },
               { name: "song one", play_count: 2 },
@@ -264,6 +268,10 @@ describe("formatTrackCandidateReport", () => {
     expect(lines[0]).toStartWith("Track candidates, unmatched view, as of 2026-10-14");
     expect(lines.some((l) => l.includes("artists:"))).toBe(false);
     expect(lines).toContain("       keys:     t joined (4); t joined band (4)");
+    expect(lines).toContain("       artist candidates: t joined");
+    expect(lines).toContain(
+      "       note:     a release id is on a live, remix, edit or bracketed title; it may be that version's release",
+    );
     expect(lines).toContain("       titles:   Song One (6); song one (2); 3 distinct");
     expect(lines).toContain(
       "       note:     a spelling carries a character normalization may not fold; a key may be a fragment of it",

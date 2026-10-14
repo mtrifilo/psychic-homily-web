@@ -299,9 +299,9 @@ radioCandidatesCmd
 radioCandidatesCmd
   .command("tracks")
   .description(
-    "Tracks that clear the multi-station and play floors, in one view (unlinked: catalog artists' tracks with no release link; unmatched: tracks of artist candidates), ranked with evidence and a lane (auto|human)",
+    "Tracks that clear the multi-station and play floors, in one view, ranked with evidence and a lane (auto|human). unlinked: a counted play is linked to a catalog artist and no play of the track, at any time, is linked to a release credited to that play's artist. unmatched: no counted play is linked to an artist and an artist key is an artist candidate.",
   )
-  .option("--view <view>", "unlinked or unmatched (required by the server)")
+  .requiredOption("--view <view>", "unlinked or unmatched")
   .option("--lane <lane>", "auto, human or all")
   .option("--sort <sort>", "score, plays or stations")
   .option("--limit <n>", "Candidates to print")

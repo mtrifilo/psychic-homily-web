@@ -66,7 +66,7 @@ func TestInRadioTrackCandidateView(t *testing.T) {
 		{"unlinked, artist candidate", []string{"new band"}, nil, false, false, true},
 		{"unlinked, a release link does not matter", []string{"new band"}, nil, true, false, true},
 		{"unlinked, every key a candidate", []string{"new band", "new band two"}, nil, false, false, true},
-		{"unlinked, one key not a candidate", []string{"new band", "catalog name"}, nil, false, false, false},
+		{"unlinked, one key a candidate", []string{"new band", "catalog name"}, nil, false, false, true},
 		{"unlinked, no key a candidate", []string{"catalog name"}, nil, false, false, false},
 		{"no keys", nil, nil, false, false, false},
 	}
@@ -82,6 +82,9 @@ func TestInRadioTrackCandidateView(t *testing.T) {
 	if inRadioTrackCandidateView(radioTrackCandidateRow{ArtistKeys: []string{"new band"}}, unmatched, nil) {
 		t.Error("without the artist candidate keys no unlinked-artist track is in the unmatched view")
 	}
+	if got := rankRadioTrackCandidates([]radioTrackCandidateRow{trackFixtureRow(1, 2, 3, "2026-05-01")}, nil, contracts.RadioCandidateSortScore); got[0].ArtistCandidateKeys == nil || len(got[0].ArtistCandidateKeys) != 0 {
+		t.Errorf("without candidate keys: got %v, want an empty list", got[0].ArtistCandidateKeys)
+	}
 	if inRadioTrackCandidateView(radioTrackCandidateRow{ArtistIDs: []int64{7}}, "bogus", candidates) {
 		t.Error("an unknown view holds no track")
 	}
@@ -91,6 +94,8 @@ func TestRankRadioTrackCandidates(t *testing.T) {
 	const release = "11111111-1111-4111-8111-111111111111"
 	nonLatin := trackFixtureRow(6, 3, 10, "2026-07-02", release)
 	nonLatin.NonLatinSpelling = true
+	variant := trackFixtureRow(7, 2, 3, "2026-05-01", release)
+	variant.VariantReleaseID = true
 	rows := []radioTrackCandidateRow{
 		trackFixtureRow(1, 2, 100, "2026-07-01"),
 		trackFixtureRow(2, 6, 5, "2026-07-01", release),
@@ -100,17 +105,19 @@ func TestRankRadioTrackCandidates(t *testing.T) {
 		// Same counts and date as track 4: the lower id ranks first.
 		trackFixtureRow(5, 3, 10, "2026-07-02", "a", "b"),
 		nonLatin,
+		variant,
 	}
+	keys := map[string]bool{"artist": true}
 
-	byScore := rankRadioTrackCandidates(rows, contracts.RadioCandidateSortScore)
-	// track 1: 2 x ln 100 = 9.21; track 2: 6 x ln 5 = 9.66; the tie group 3 x ln 10 = 6.91.
-	if got, want := trackIDs(byScore), []uint{2, 1, 4, 5, 6, 3}; !slices.Equal(got, want) {
+	byScore := rankRadioTrackCandidates(rows, keys, contracts.RadioCandidateSortScore)
+	// track 1: 2 x ln 100 = 9.21; track 2: 6 x ln 5 = 9.66; the tie group 3 x ln 10 = 6.91; track 7: 2 x ln 3 = 2.20.
+	if got, want := trackIDs(byScore), []uint{2, 1, 4, 5, 6, 3, 7}; !slices.Equal(got, want) {
 		t.Errorf("score order = %v, want %v", got, want)
 	}
-	if got, want := trackIDs(rankRadioTrackCandidates(rows, contracts.RadioCandidateSortPlays)), []uint{1, 4, 5, 6, 3, 2}; !slices.Equal(got, want) {
+	if got, want := trackIDs(rankRadioTrackCandidates(rows, keys, contracts.RadioCandidateSortPlays)), []uint{1, 4, 5, 6, 3, 2, 7}; !slices.Equal(got, want) {
 		t.Errorf("plays order = %v, want %v", got, want)
 	}
-	if got, want := trackIDs(rankRadioTrackCandidates(rows, contracts.RadioCandidateSortStations)), []uint{2, 4, 5, 6, 3, 1}; !slices.Equal(got, want) {
+	if got, want := trackIDs(rankRadioTrackCandidates(rows, keys, contracts.RadioCandidateSortStations)), []uint{2, 4, 5, 6, 3, 1, 7}; !slices.Equal(got, want) {
 		t.Errorf("stations order = %v, want %v", got, want)
 	}
 
@@ -128,6 +135,10 @@ func TestRankRadioTrackCandidates(t *testing.T) {
 			if c.Lane != contracts.RadioCandidateLaneHuman || c.MBReleaseID == nil || !c.NonLatinSpelling {
 				t.Errorf("non-Latin spelling: got lane %q id %v flag %v, want human with the id and the flag", c.Lane, c.MBReleaseID, c.NonLatinSpelling)
 			}
+		case 7:
+			if c.Lane != contracts.RadioCandidateLaneHuman || c.MBReleaseID == nil || !c.VariantReleaseID {
+				t.Errorf("variant release id: got lane %q id %v flag %v, want human with the id and the flag", c.Lane, c.MBReleaseID, c.VariantReleaseID)
+			}
 		default:
 			if c.Lane != contracts.RadioCandidateLaneHuman || c.MBReleaseIDs == nil || len(c.MBReleaseIDs) != 0 {
 				t.Errorf("track %d: got lane %q ids %v, want human and an empty id list", c.TrackID, c.Lane, c.MBReleaseIDs)
@@ -135,6 +146,9 @@ func TestRankRadioTrackCandidates(t *testing.T) {
 		}
 		if c.TitleSpellings == nil || c.ArtistKeys == nil || c.Artists == nil || c.Stations == nil || c.AlbumNames == nil {
 			t.Errorf("track %d: evidence lists must be empty arrays, not nil", c.TrackID)
+		}
+		if !slices.Equal(c.ArtistCandidateKeys, []string{"artist"}) {
+			t.Errorf("track %d: artist candidate keys = %v, want [artist]", c.TrackID, c.ArtistCandidateKeys)
 		}
 	}
 }

@@ -505,6 +505,7 @@ export interface TrackCandidate {
   title_spelling_count: number;
   display_artist: string;
   artist_keys: CandidateCount[];
+  artist_candidate_keys: string[];
   artists: Array<{ artist_id: number; name: string; slug: string; play_count: number }>;
   lane: CandidateLane;
   score: number;
@@ -520,6 +521,7 @@ export interface TrackCandidate {
   mb_release_id?: string;
   mb_release_ids: string[];
   non_latin_spelling: boolean;
+  variant_release_id: boolean;
 }
 
 export interface TrackCandidateListing {
@@ -585,11 +587,17 @@ export function formatTrackCandidateReport(listing: TrackCandidateListing): stri
       );
     }
     lines.push(`       keys:     ${countList(c.artist_keys)}`);
+    if (c.artist_candidate_keys.length > 0) {
+      lines.push(`       artist candidates: ${c.artist_candidate_keys.join(", ")}`);
+    }
     if (c.title_spelling_count > 1) {
       lines.push(`       titles:   ${countList(c.title_spellings, c.title_spelling_count)}`);
     }
     if (c.non_latin_spelling) {
       lines.push("       note:     a spelling carries a character normalization may not fold; a key may be a fragment of it");
+    }
+    if (c.variant_release_id) {
+      lines.push("       note:     a release id is on a live, remix, edit or bracketed title; it may be that version's release");
     }
     lines.push(`       stations: ${stationList(c.stations)}`);
     lines.push(`       albums:   ${countList(c.album_names, c.album_name_count)}`);
