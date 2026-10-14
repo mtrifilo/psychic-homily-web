@@ -472,6 +472,25 @@ func checkConsumed(challenge *authm.WebAuthnChallenge, result *gorm.DB) (*authm.
 	return challenge, nil
 }
 
+// consumeOperationChallenge is consumeChallenge with its outcome classified
+// for the operation-generic consumes: errRegistrationOperation for the
+// registration operation, a CodeValidationFailed refusal for a malformed id
+// or a challenge that does not exist or has expired, any other error when the
+// challenge could not be read.
+func (s *WebAuthnService) consumeOperationChallenge(challengeID string, operation string) (*authm.WebAuthnChallenge, error) {
+	if operation == contracts.WebAuthnRegistrationOperation {
+		return nil, errRegistrationOperation
+	}
+	if !isChallengeID(challengeID) {
+		return nil, refuseChallenge(errChallengeNotFound)
+	}
+	challenge, err := s.consumeChallenge(challengeID, operation)
+	if err != nil {
+		return nil, refuseChallenge(err)
+	}
+	return challenge, nil
+}
+
 func decodeChallengeSession(challenge *authm.WebAuthnChallenge) (*webauthn.SessionData, error) {
 	var session webauthn.SessionData
 	if err := json.Unmarshal(challenge.SessionData, &session); err != nil {
@@ -489,15 +508,9 @@ func decodeChallengeSession(challenge *authm.WebAuthnChallenge) (*webauthn.Sessi
 // could not be read, or operation is contracts.WebAuthnRegistrationOperation,
 // whose challenges only ConsumeRegistrationChallenge consumes.
 func (s *WebAuthnService) ConsumeChallenge(challengeID string, operation string) (*webauthn.SessionData, uint, error) {
-	if operation == contracts.WebAuthnRegistrationOperation {
-		return nil, 0, errRegistrationOperation
-	}
-	if !isChallengeID(challengeID) {
-		return nil, 0, refuseChallenge(errChallengeNotFound)
-	}
-	challenge, err := s.consumeChallenge(challengeID, operation)
+	challenge, err := s.consumeOperationChallenge(challengeID, operation)
 	if err != nil {
-		return nil, 0, refuseChallenge(err)
+		return nil, 0, err
 	}
 	session, err := decodeChallengeSession(challenge)
 	if err != nil {
@@ -667,15 +680,9 @@ func (s *WebAuthnService) StoreSignupChallenge(signup contracts.SignupChallenge,
 // call for the same id fails, as with ConsumeChallenge. Its errors are
 // ConsumeChallenge's.
 func (s *WebAuthnService) ConsumeSignupChallenge(challengeID string, operation string) (*webauthn.SessionData, contracts.SignupChallenge, error) {
-	if operation == contracts.WebAuthnRegistrationOperation {
-		return nil, contracts.SignupChallenge{}, errRegistrationOperation
-	}
-	if !isChallengeID(challengeID) {
-		return nil, contracts.SignupChallenge{}, refuseChallenge(errChallengeNotFound)
-	}
-	challenge, err := s.consumeChallenge(challengeID, operation)
+	challenge, err := s.consumeOperationChallenge(challengeID, operation)
 	if err != nil {
-		return nil, contracts.SignupChallenge{}, refuseChallenge(err)
+		return nil, contracts.SignupChallenge{}, err
 	}
 
 	var wrapped signupSessionData

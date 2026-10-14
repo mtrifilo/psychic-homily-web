@@ -23,12 +23,7 @@ const elsewhereOrigin = "https://elsewhere.example"
 
 func (s *AuthHandlerIntegrationSuite) requireServiceUnavailable(resp *httptest.ResponseRecorder) {
 	s.T().Helper()
-	s.Equal(http.StatusServiceUnavailable, resp.Code, resp.Body.String())
-	body := decodeWireBody(s.T(), resp.Body.Bytes())
-	s.Equal(autherrors.CodeServiceUnavailable, body["error_code"])
-	s.Equal("Service temporarily unavailable", body["message"])
-	s.Empty(resp.Header().Get("Set-Cookie"))
-	assertNoInternalText(s.T(), resp.Body.String(), testutil.FailedInsertMessage, "unavailable.invalid", "database is closed")
+	requireWireOutcome(s.T(), resp, unavailable, testutil.FailedInsertMessage, "unavailable.invalid", "database is closed")
 }
 
 func (s *AuthHandlerIntegrationSuite) credentialCount(userID uint) int64 {

@@ -275,41 +275,31 @@ func TestPasskeyWire_LoginFinishErrorClasses(t *testing.T) {
 	inactive := autherrors.ErrAccountInactive()
 
 	outcomes := []struct {
-		name        string
-		err         error
-		wantStatus  int
-		wantCode    string
-		wantMessage string
+		name string
+		err  error
+		want wireOutcome
 	}{
 		{
-			name:        "assertion refused",
-			err:         autherrors.NewAuthError(autherrors.CodeInvalidCredentials, "Invalid passkey", errWireDriver),
-			wantStatus:  http.StatusOK,
-			wantCode:    autherrors.CodeInvalidCredentials,
-			wantMessage: "Invalid passkey",
+			name: "assertion refused",
+			err:  autherrors.NewAuthError(autherrors.CodeInvalidCredentials, "Invalid passkey", errWireDriver),
+			want: wireOutcome{http.StatusOK, autherrors.CodeInvalidCredentials, "Invalid passkey"},
 		},
 		{
-			name:        "account may not sign in",
-			err:         inactive,
-			wantStatus:  http.StatusOK,
-			wantCode:    autherrors.CodeAccountInactive,
-			wantMessage: inactive.UserMessage(),
+			name: "account may not sign in",
+			err:  inactive,
+			want: wireOutcome{http.StatusOK, autherrors.CodeAccountInactive, inactive.UserMessage()},
 		},
 		{
-			name:        "service failure",
-			err:         fmt.Errorf("failed to update credential: %w", errWireDriver),
-			wantStatus:  http.StatusServiceUnavailable,
-			wantCode:    autherrors.CodeServiceUnavailable,
-			wantMessage: "Service temporarily unavailable",
+			name: "service failure",
+			err:  fmt.Errorf("failed to update credential: %w", errWireDriver),
+			want: unavailable,
 		},
 		{
 			// A refusal code login/finish does not route is answered as a
 			// failure, not with the code's own status (409 here).
-			name:        "unrouted refusal code",
-			err:         autherrors.ErrUserExists("someone@example.com"),
-			wantStatus:  http.StatusServiceUnavailable,
-			wantCode:    autherrors.CodeServiceUnavailable,
-			wantMessage: "Service temporarily unavailable",
+			name: "unrouted refusal code",
+			err:  autherrors.ErrUserExists("someone@example.com"),
+			want: unavailable,
 		},
 	}
 	// The challenge's user id decides which ceremony runs: zero is a
@@ -349,42 +339,10 @@ func TestPasskeyWire_LoginFinishErrorClasses(t *testing.T) {
 					"response":     softAssertion(t, device),
 				})
 
-				if resp.Code != outcome.wantStatus {
-					t.Fatalf("status = %d, want %d; body: %s", resp.Code, outcome.wantStatus, resp.Body.String())
-				}
-				body := decodeWireBody(t, resp.Body.Bytes())
-				if success, _ := body["success"].(bool); success {
-					t.Errorf("expected success=false: %s", resp.Body.String())
-				}
-				if code, _ := body["error_code"].(string); code != outcome.wantCode {
-					t.Errorf("error_code = %q, want %q", code, outcome.wantCode)
-				}
-				if message, _ := body["message"].(string); message != outcome.wantMessage {
-					t.Errorf("message = %q, want %q", message, outcome.wantMessage)
-				}
-				if _, hasUser := body["user"]; hasUser {
-					t.Errorf("a refused or failed sign-in returns no account: %s", resp.Body.String())
-				}
-				if cookie := resp.Header().Get("Set-Cookie"); cookie != "" {
-					t.Errorf("a refused or failed sign-in sets no cookie, got %q", cookie)
-				}
-				assertNoInternalText(t, resp.Body.String(), "failed to update credential", "duplicate email")
+				requireWireOutcome(t, resp, outcome.want)
 			})
 		}
 	}
-}
-
-// requireWireServiceUnavailable asserts a 503 SERVICE_UNAVAILABLE that
-// carries none of errWireDriver's text.
-func requireWireServiceUnavailable(t *testing.T, resp *httptest.ResponseRecorder) {
-	t.Helper()
-	if resp.Code != http.StatusServiceUnavailable {
-		t.Fatalf("status = %d, want 503; body: %s", resp.Code, resp.Body.String())
-	}
-	if code := decodeErrorCode(t, resp.Body.Bytes()); code != autherrors.CodeServiceUnavailable {
-		t.Errorf("error_code = %q, want %q", code, autherrors.CodeServiceUnavailable)
-	}
-	assertNoInternalText(t, resp.Body.String())
 }
 
 // noAccountLoads is a user service that fails the test on any account read.
@@ -439,10 +397,7 @@ func TestPasskeyWire_LoginFinishStepFailures(t *testing.T) {
 				"challenge_id": "c-1",
 				"response":     softAssertion(t, device),
 			})
-			requireWireServiceUnavailable(t, resp)
-			if cookie := resp.Header().Get("Set-Cookie"); cookie != "" {
-				t.Errorf("a failed sign-in sets no cookie, got %q", cookie)
-			}
+			requireWireOutcome(t, resp, unavailable)
 		})
 	}
 }

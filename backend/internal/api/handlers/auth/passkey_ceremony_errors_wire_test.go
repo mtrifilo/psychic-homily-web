@@ -15,31 +15,34 @@ import (
 	"psychic-homily-backend/internal/services/contracts"
 )
 
-// wireOutcome is what a passkey step answers for err from the service.
+// wireOutcome is the status, code and message a refused or failed passkey
+// step answers with.
 type wireOutcome struct {
-	name        string
-	err         error
-	wantStatus  int
-	wantCode    string
-	wantMessage string
+	status  int
+	code    string
+	message string
 }
 
-// requireWireOutcome asserts resp is a failed step answering want, with no
-// session and none of the cause's text.
-func requireWireOutcome(t *testing.T, resp *httptest.ResponseRecorder, want wireOutcome) {
+// unavailable is the outcome every failure answers with.
+var unavailable = wireOutcome{http.StatusServiceUnavailable, autherrors.CodeServiceUnavailable, "Service temporarily unavailable"}
+
+// requireWireOutcome asserts resp is a refused or failed step answering want,
+// with no account, no session, and none of the cause's text: errWireDriver's
+// and the leaks fragments.
+func requireWireOutcome(t *testing.T, resp *httptest.ResponseRecorder, want wireOutcome, leaks ...string) {
 	t.Helper()
-	if resp.Code != want.wantStatus {
-		t.Fatalf("status = %d, want %d; body: %s", resp.Code, want.wantStatus, resp.Body.String())
+	if resp.Code != want.status {
+		t.Fatalf("status = %d, want %d; body: %s", resp.Code, want.status, resp.Body.String())
 	}
 	body := decodeWireBody(t, resp.Body.Bytes())
 	if success, _ := body["success"].(bool); success {
 		t.Errorf("expected success=false: %s", resp.Body.String())
 	}
-	if code, _ := body["error_code"].(string); code != want.wantCode {
-		t.Errorf("error_code = %q, want %q", code, want.wantCode)
+	if code, _ := body["error_code"].(string); code != want.code {
+		t.Errorf("error_code = %q, want %q", code, want.code)
 	}
-	if message, _ := body["message"].(string); message != want.wantMessage {
-		t.Errorf("message = %q, want %q", message, want.wantMessage)
+	if message, _ := body["message"].(string); message != want.message {
+		t.Errorf("message = %q, want %q", message, want.message)
 	}
 	if _, hasUser := body["user"]; hasUser {
 		t.Errorf("a refused or failed step returns no account: %s", resp.Body.String())
@@ -47,150 +50,103 @@ func requireWireOutcome(t *testing.T, resp *httptest.ResponseRecorder, want wire
 	if cookie := resp.Header().Get("Set-Cookie"); cookie != "" {
 		t.Errorf("a refused or failed step sets no cookie, got %q", cookie)
 	}
-	assertNoInternalText(t, resp.Body.String(), "duplicate email", "failed to save", "connection reset")
-}
-
-// serviceUnavailable is the outcome every failure answers with.
-func serviceUnavailable(name string, err error) wireOutcome {
-	return wireOutcome{name, err, http.StatusServiceUnavailable, autherrors.CodeServiceUnavailable, "Service temporarily unavailable"}
+	assertNoInternalText(t, resp.Body.String(), append([]string{"duplicate email", "failed to"}, leaks...)...)
 }
 
 var (
 	errRegistrationRefused = autherrors.NewAuthError(autherrors.CodeValidationFailed, "Invalid credential response", fmt.Errorf("create credential: origin mismatch"))
-	errStoreFailed         = fmt.Errorf("failed to save credential: %w", errWireDriver)
 	// errUnroutedRefusal is a refusal no passkey step in these tests routes,
 	// so each answers it as a failure.
 	errUnroutedRefusal = autherrors.ErrAccountLocked("locked")
+	// errStepFailed is a service failure.
+	errStepFailed = fmt.Errorf("failed to query: %w", errWireDriver)
 )
 
 // register/finish answers a registration the service refuses with the
 // refusal's code and message, and a failure with a 503.
 func TestPasskeyWire_RegisterFinishRegistrationErrors(t *testing.T) {
 	body, _ := softRegistration(t)
-	outcomes := []wireOutcome{
-		{"registration refused", errRegistrationRefused, http.StatusOK, autherrors.CodeValidationFailed, "Invalid credential response"},
-		serviceUnavailable("credential cannot be stored", errStoreFailed),
-		serviceUnavailable("unrouted refusal code", errUnroutedRefusal),
+	cases := []struct {
+		name string
+		err  error
+		want wireOutcome
+	}{
+		{"registration refused", errRegistrationRefused, wireOutcome{http.StatusOK, autherrors.CodeValidationFailed, "Invalid credential response"}},
+		{"credential cannot be stored", errStepFailed, unavailable},
+		{"unrouted refusal code", errUnroutedRefusal, unavailable},
 	}
-	for _, outcome := range outcomes {
-		t.Run(outcome.name, func(t *testing.T) {
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
 			mockWA := &testhelpers.MockWebAuthnService{
 				ConsumeRegistrationChallengeFn: func(string, uint) (*webauthn.SessionData, error) {
 					return &webauthn.SessionData{}, nil
 				},
 				FinishRegistrationFn: func(*authm.User, *webauthn.SessionData, *protocol.ParsedCredentialCreationData, string) (*authm.WebAuthnCredential, error) {
-					return nil, outcome.err
+					return nil, tc.err
 				},
 			}
 			api := newPasskeyWireAPI(t, testPasskeyHandlerWithMocks(mockWA, &testhelpers.MockJWTService{}, &testhelpers.MockUserService{}))
 
 			resp := api.Post("/auth/passkey/register/finish", map[string]any{"challenge_id": "c-1", "response": body})
-			requireWireOutcome(t, resp, outcome)
+			requireWireOutcome(t, resp, tc.want)
 		})
 	}
 }
 
 // login/begin with an email answers a refusal from BeginLogin exactly as it
 // answers an address with no account, and a failure at any step with a 503
-// and no challenge.
+// and no challenge. Each case names the step that errs; every other step
+// succeeds.
 func TestPasskeyWire_LoginBeginErrors(t *testing.T) {
 	email := "holder@example.com"
-	holder := func(string) (*authm.User, error) { return &authm.User{ID: 3, Email: &email, IsActive: true}, nil }
-	began := func(*authm.User) (*protocol.CredentialAssertion, *webauthn.SessionData, error) {
-		return &protocol.CredentialAssertion{}, &webauthn.SessionData{}, nil
-	}
-	noPasskeys := wireOutcome{"", nil, http.StatusOK, autherrors.CodeInvalidCredentials, "No passkeys registered for this account"}
-
-	steps := []struct {
-		name       string
-		body       map[string]any
-		lookup     func(string) (*authm.User, error)
-		beginLogin func(*authm.User) (*protocol.CredentialAssertion, *webauthn.SessionData, error)
-		beginAny   func() (*protocol.CredentialAssertion, *webauthn.SessionData, error)
-		store      func(uint, *webauthn.SessionData, string) (string, error)
-		want       wireOutcome
+	noPasskeys := wireOutcome{http.StatusOK, autherrors.CodeInvalidCredentials, "No passkeys registered for this account"}
+	cases := []struct {
+		name         string
+		discoverable bool
+		noAccount    bool
+		lookupErr    error
+		beginErr     error
+		storeErr     error
+		want         wireOutcome
 	}{
-		{
-			name:   "address with no account",
-			body:   map[string]any{"email": email},
-			lookup: func(string) (*authm.User, error) { return nil, nil },
-			want:   noPasskeys,
-		},
-		{
-			name:   "account BeginLogin refuses",
-			body:   map[string]any{"email": email},
-			lookup: holder,
-			beginLogin: func(*authm.User) (*protocol.CredentialAssertion, *webauthn.SessionData, error) {
-				return nil, nil, errNoPasskeysForTest
-			},
-			want: noPasskeys,
-		},
-		{
-			name:   "address lookup fails",
-			body:   map[string]any{"email": email},
-			lookup: func(string) (*authm.User, error) { return nil, fmt.Errorf("failed to get user: %w", errWireDriver) },
-			want:   serviceUnavailable("", nil),
-		},
-		{
-			name:   "BeginLogin fails",
-			body:   map[string]any{"email": email},
-			lookup: holder,
-			beginLogin: func(*authm.User) (*protocol.CredentialAssertion, *webauthn.SessionData, error) {
-				return nil, nil, fmt.Errorf("failed to load user: %w", errWireDriver)
-			},
-			want: serviceUnavailable("", nil),
-		},
-		{
-			name:   "BeginLogin answers an unrouted refusal code",
-			body:   map[string]any{"email": email},
-			lookup: holder,
-			beginLogin: func(*authm.User) (*protocol.CredentialAssertion, *webauthn.SessionData, error) {
-				return nil, nil, errUnroutedRefusal
-			},
-			want: serviceUnavailable("", nil),
-		},
-		{
-			name:       "email challenge cannot be stored",
-			body:       map[string]any{"email": email},
-			lookup:     holder,
-			beginLogin: began,
-			store: func(uint, *webauthn.SessionData, string) (string, error) {
-				return "", fmt.Errorf("failed to store challenge: %w", errWireDriver)
-			},
-			want: serviceUnavailable("", nil),
-		},
-		{
-			name: "discoverable ceremony cannot start",
-			body: map[string]any{},
-			beginAny: func() (*protocol.CredentialAssertion, *webauthn.SessionData, error) {
-				return nil, nil, fmt.Errorf("failed to begin discoverable login: %w", errWireDriver)
-			},
-			want: serviceUnavailable("", nil),
-		},
-		{
-			name: "discoverable challenge cannot be stored",
-			body: map[string]any{},
-			beginAny: func() (*protocol.CredentialAssertion, *webauthn.SessionData, error) {
-				return &protocol.CredentialAssertion{}, &webauthn.SessionData{}, nil
-			},
-			store: func(uint, *webauthn.SessionData, string) (string, error) {
-				return "", fmt.Errorf("failed to store challenge: %w", errWireDriver)
-			},
-			want: serviceUnavailable("", nil),
-		},
+		{name: "address with no account", noAccount: true, want: noPasskeys},
+		{name: "account BeginLogin refuses", beginErr: errNoPasskeysForTest, want: noPasskeys},
+		{name: "address lookup fails", lookupErr: errStepFailed, want: unavailable},
+		{name: "BeginLogin fails", beginErr: errStepFailed, want: unavailable},
+		{name: "BeginLogin answers an unrouted refusal code", beginErr: errUnroutedRefusal, want: unavailable},
+		{name: "email challenge cannot be stored", storeErr: errStepFailed, want: unavailable},
+		{name: "discoverable ceremony cannot start", discoverable: true, beginErr: errStepFailed, want: unavailable},
+		{name: "discoverable challenge cannot be stored", discoverable: true, storeErr: errStepFailed, want: unavailable},
 	}
-	for _, step := range steps {
-		t.Run(step.name, func(t *testing.T) {
-			mockWA := &testhelpers.MockWebAuthnService{
-				BeginLoginFn:             step.beginLogin,
-				BeginDiscoverableLoginFn: step.beginAny,
-				StoreChallengeFn:         step.store,
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			begin := func() (*protocol.CredentialAssertion, *webauthn.SessionData, error) {
+				if tc.beginErr != nil {
+					return nil, nil, tc.beginErr
+				}
+				return &protocol.CredentialAssertion{}, &webauthn.SessionData{}, nil
 			}
-			users := &testhelpers.MockUserService{GetUserByEmailFn: step.lookup}
+			mockWA := &testhelpers.MockWebAuthnService{
+				BeginLoginFn:             func(*authm.User) (*protocol.CredentialAssertion, *webauthn.SessionData, error) { return begin() },
+				BeginDiscoverableLoginFn: begin,
+				StoreChallengeFn: func(uint, *webauthn.SessionData, string) (string, error) {
+					return "c-1", tc.storeErr
+				},
+			}
+			users := &testhelpers.MockUserService{GetUserByEmailFn: func(string) (*authm.User, error) {
+				if tc.lookupErr != nil || tc.noAccount {
+					return nil, tc.lookupErr
+				}
+				return &authm.User{ID: 3, Email: &email, IsActive: true}, nil
+			}}
 			api := newPasskeyWireAPI(t, testPasskeyHandlerWithMocks(mockWA, &testhelpers.MockJWTService{}, users))
 
-			resp := api.Post("/auth/passkey/login/begin", step.body)
-			requireWireOutcome(t, resp, step.want)
+			request := map[string]any{"email": email}
+			if tc.discoverable {
+				request = map[string]any{}
+			}
+			resp := api.Post("/auth/passkey/login/begin", request)
+			requireWireOutcome(t, resp, tc.want)
 			if _, hasChallenge := decodeWireBody(t, resp.Body.Bytes())["challenge_id"]; hasChallenge {
 				t.Errorf("a refused or failed begin issues no challenge: %s", resp.Body.String())
 			}
@@ -229,92 +185,67 @@ func TestPasskeyWire_EmailLoginFinishAnswersTheDecidedAccount(t *testing.T) {
 }
 
 // signup/finish answers each refusal with its code and message, and a
-// failure at any step with a 503 and no session.
+// failure at any step with a 503 and no session. Each case names the step
+// that errs; every other step succeeds.
 func TestPasskeyWire_SignupFinishErrors(t *testing.T) {
 	body, _ := softRegistration(t)
 	address := "new@example.com"
-	consumed := func(string, string) (*webauthn.SessionData, contracts.SignupChallenge, error) {
-		return &webauthn.SessionData{}, currentSignupChallenge(address), nil
-	}
-	steps := []struct {
-		name    string
-		consume func(string, string) (*webauthn.SessionData, contracts.SignupChallenge, error)
-		lookup  func(string) (*authm.User, error)
-		finish  error
-		mint    func(*authm.User) (string, error)
-		want    wireOutcome
+	cases := []struct {
+		name       string
+		consumeErr error
+		lookupErr  error
+		finishErr  error
+		mintErr    error
+		want       wireOutcome
 	}{
 		{
-			name: "challenge refused",
-			consume: func(string, string) (*webauthn.SessionData, contracts.SignupChallenge, error) {
-				return nil, contracts.SignupChallenge{}, autherrors.NewAuthError(autherrors.CodeValidationFailed, "Invalid or expired challenge", fmt.Errorf("challenge not found"))
-			},
-			want: wireOutcome{"", nil, http.StatusOK, autherrors.CodeValidationFailed, "Invalid or expired challenge"},
+			name:       "challenge refused",
+			consumeErr: autherrors.NewAuthError(autherrors.CodeValidationFailed, "Invalid or expired challenge", fmt.Errorf("challenge not found")),
+			want:       wireOutcome{http.StatusOK, autherrors.CodeValidationFailed, "Invalid or expired challenge"},
+		},
+		{name: "challenge cannot be read", consumeErr: errStepFailed, want: unavailable},
+		{name: "address check fails", lookupErr: errStepFailed, want: unavailable},
+		{
+			name:      "registration refused",
+			finishErr: errRegistrationRefused,
+			want:      wireOutcome{http.StatusOK, autherrors.CodeValidationFailed, "Invalid credential response"},
 		},
 		{
-			name: "challenge cannot be read",
-			consume: func(string, string) (*webauthn.SessionData, contracts.SignupChallenge, error) {
-				return nil, contracts.SignupChallenge{}, fmt.Errorf("failed to consume challenge: %w", errWireDriver)
-			},
-			want: serviceUnavailable("", nil),
+			name:      "address taken at insert",
+			finishErr: autherrors.ErrUserExists(address),
+			want:      wireOutcome{http.StatusOK, autherrors.CodeUserExists, "An account with this email already exists"},
 		},
-		{
-			name:   "address check fails",
-			lookup: func(string) (*authm.User, error) { return nil, fmt.Errorf("failed to get user: %w", errWireDriver) },
-			want:   serviceUnavailable("", nil),
-		},
-		{
-			name:   "registration refused",
-			finish: errRegistrationRefused,
-			want:   wireOutcome{"", nil, http.StatusOK, autherrors.CodeValidationFailed, "Invalid credential response"},
-		},
-		{
-			name:   "address taken at insert",
-			finish: autherrors.ErrUserExists(address),
-			want:   wireOutcome{"", nil, http.StatusOK, autherrors.CodeUserExists, "An account with this email already exists"},
-		},
-		{
-			name:   "account cannot be created",
-			finish: fmt.Errorf("failed to create user preferences: %w", errWireDriver),
-			want:   serviceUnavailable("", nil),
-		},
-		{
-			name:   "unrouted refusal code",
-			finish: errUnroutedRefusal,
-			want:   serviceUnavailable("", nil),
-		},
-		{
-			name: "token cannot be minted",
-			mint: func(*authm.User) (string, error) { return "", fmt.Errorf("sign token: %w", errWireDriver) },
-			want: serviceUnavailable("", nil),
-		},
+		{name: "account cannot be created", finishErr: errStepFailed, want: unavailable},
+		{name: "unrouted refusal code", finishErr: errUnroutedRefusal, want: unavailable},
+		{name: "token cannot be minted", mintErr: errStepFailed, want: unavailable},
 	}
-	for _, step := range steps {
-		t.Run(step.name, func(t *testing.T) {
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
 			mockWA := &testhelpers.MockWebAuthnService{
-				ConsumeSignupChallengeFn: consumed,
+				ConsumeSignupChallengeFn: func(string, string) (*webauthn.SessionData, contracts.SignupChallenge, error) {
+					if tc.consumeErr != nil {
+						return nil, contracts.SignupChallenge{}, tc.consumeErr
+					}
+					return &webauthn.SessionData{}, currentSignupChallenge(address), nil
+				},
 				FinishSignupRegistrationWithLegalFn: func(string, *webauthn.SessionData, *protocol.ParsedCredentialCreationData, string, contracts.LegalAcceptance) (*authm.User, error) {
-					if step.finish != nil {
-						return nil, step.finish
+					if tc.finishErr != nil {
+						return nil, tc.finishErr
 					}
 					return &authm.User{ID: 9, Email: &address}, nil
 				},
 			}
-			if step.consume != nil {
-				mockWA.ConsumeSignupChallengeFn = step.consume
-			}
-			users := &testhelpers.MockUserService{GetUserByEmailFn: func(string) (*authm.User, error) { return nil, nil }}
-			if step.lookup != nil {
-				users.GetUserByEmailFn = step.lookup
-			}
-			jwt := &testhelpers.MockJWTService{CreateTokenFn: func(*authm.User) (string, error) { return "token", nil }}
-			if step.mint != nil {
-				jwt.CreateTokenFn = step.mint
-			}
+			users := &testhelpers.MockUserService{GetUserByEmailFn: func(string) (*authm.User, error) { return nil, tc.lookupErr }}
+			jwt := &testhelpers.MockJWTService{CreateTokenFn: func(*authm.User) (string, error) {
+				if tc.mintErr != nil {
+					return "", tc.mintErr
+				}
+				return "token", nil
+			}}
 			api := newPasskeyWireAPI(t, testPasskeyHandlerWithMocks(mockWA, jwt, users))
 
 			resp := api.Post("/auth/passkey/signup/finish", signupFinishBody("c-1", body))
-			requireWireOutcome(t, resp, step.want)
+			requireWireOutcome(t, resp, tc.want)
 		})
 	}
 }

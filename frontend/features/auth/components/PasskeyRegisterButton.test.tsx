@@ -32,11 +32,11 @@ vi.mock('@/lib/api-base', async (importOriginal) => ({
   API_BASE_URL: 'https://api-base.test',
 }))
 
-function jsonResponse(body: unknown): Response {
+function jsonResponse(body: unknown, status = 200): Response {
   return {
-    ok: true,
-    status: 200,
-    statusText: 'OK',
+    ok: status < 400,
+    status,
+    statusText: '',
     headers: new Headers(),
     json: async () => body,
   } as Response
@@ -143,17 +143,16 @@ describe('PasskeyRegisterButton', () => {
           challenge_id: 'challenge-1',
         })
       )
-      .mockResolvedValueOnce({
-        ok: false,
-        status: 503,
-        statusText: 'Service Unavailable',
-        headers: new Headers(),
-        json: async () => ({
-          success: false,
-          message: 'Service temporarily unavailable',
-          error_code: 'SERVICE_UNAVAILABLE',
-        }),
-      } as Response) as unknown as typeof fetch
+      .mockResolvedValueOnce(
+        jsonResponse(
+          {
+            success: false,
+            message: 'Service temporarily unavailable',
+            error_code: 'SERVICE_UNAVAILABLE',
+          },
+          503
+        )
+      ) as unknown as typeof fetch
     const onError = vi.fn()
     const onSuccess = vi.fn()
 
