@@ -329,7 +329,6 @@ type UserServiceInterface interface {
 	SetEmailVerified(userID uint, verified bool) error
 	GetDeletionSummary(userID uint) (*DeletionSummary, error)
 	SoftDeleteAccount(userID uint, reason *string) error
-	CreateUserWithoutPassword(email string) (*authm.User, error)
 	ExportUserData(userID uint) (*UserDataExport, error)
 	ExportUserDataJSON(userID uint) ([]byte, error)
 	GetOAuthAccounts(userID uint) ([]authm.OAuthAccount, error)
