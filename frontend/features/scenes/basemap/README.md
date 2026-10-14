@@ -110,20 +110,23 @@ changes its schema or endpoints:
 - **What stays dark**: the globe (the NASA night-lights raster, or the light
   globe look on phone panes) is dark in both themes, and so are the CSS
   starfield and halo behind it. Only the street basemap past the crossfade
-  follows the theme. The `/venues` mini Atlas asks for the dark variant in
-  both themes.
-- **Crossfade**: the light variant's ground (`ph-background`) ramps its
-  colour from the dark ground `#0d0805` at the crossfade start to paper at
-  its end, under the same opacity ramp both variants use, so the night globe
-  dissolves into a ground that brightens with it instead of paper showing
-  through a still-dark raster.
+  follows the theme. The `/venues` mini Atlas asks for the dark variant and
+  the dark pin ramp in both themes, and its pane carries the `dark` class so
+  its credit pill takes the dark tokens over its dark map.
+- **Crossfade**: in the light variant every colour of every layer ramps
+  from the dark style's value at the crossfade start to its own at the end
+  (`phBasemapFragment`). Up to the start the light style draws exactly the
+  dark one, so the night globe dissolves into the dark streets as in the dark
+  theme and the whole map brightens to paper by the end: no light fill shows
+  through a still-dark globe.
 - **Markers**: `MARKER_RAMPS` in `frontend/features/scenes/components/globeScale.ts`
   holds one colour ramp per theme for the scene dots and venue pins; the
   light one rings a selected mark in paper.
 - **Map labels**: the scene, venue and stack names are DOM markers in cream
   on a dark halo. In the light theme, from `LABEL_PAPER_GROUND_ZOOM` (where
-  the light ground passes half of paper's brightness, derived from the fade
-  range in `GlobeCanvas.tsx`) they switch to `--foreground` ink on a
+  the light ground, under the globe surface fading out over it, passes half
+  of paper's brightness: `lightGroundPaperZoom` in `phBasemap.ts`) they
+  switch to `--foreground` ink on a
   `--background` halo, through `data-atlas-ground="paper"` on the map root
   and the rule for it in `globals.css`.
 - **Bundle**: both style files are static imports of `phBasemap.ts`, so the
