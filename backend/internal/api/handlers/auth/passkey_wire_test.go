@@ -375,3 +375,90 @@ func TestPasskeyWire_LoginFinishErrorClasses(t *testing.T) {
 		}
 	}
 }
+
+// requireWireServiceUnavailable asserts a 503 SERVICE_UNAVAILABLE that
+// carries none of errWireDriver's text.
+func requireWireServiceUnavailable(t *testing.T, resp *httptest.ResponseRecorder) {
+	t.Helper()
+	if resp.Code != http.StatusServiceUnavailable {
+		t.Fatalf("status = %d, want 503; body: %s", resp.Code, resp.Body.String())
+	}
+	if code := decodeErrorCode(t, resp.Body.Bytes()); code != autherrors.CodeServiceUnavailable {
+		t.Errorf("error_code = %q, want %q", code, autherrors.CodeServiceUnavailable)
+	}
+	assertNoInternalText(t, resp.Body.String())
+}
+
+// An email-specific login whose account cannot be loaded is a failure; only
+// an account that does not exist is refused.
+func TestPasskeyWire_LoginFinishUserLoadFailure(t *testing.T) {
+	_, device := softRegistration(t)
+	mockWA := &testhelpers.MockWebAuthnService{
+		ConsumeChallengeFn: func(string, string) (*webauthn.SessionData, uint, error) {
+			return &webauthn.SessionData{}, 7, nil
+		},
+		FinishLoginFn: func(*authm.User, *webauthn.SessionData, *protocol.ParsedCredentialAssertionData) (*authm.WebAuthnCredential, error) {
+			t.Error("a failed account load must not reach the ceremony")
+			return nil, nil
+		},
+	}
+	users := &testhelpers.MockUserService{
+		GetUserByIDFn: func(uint) (*authm.User, error) { return nil, fmt.Errorf("failed to get user: %w", errWireDriver) },
+	}
+	api := newPasskeyWireAPI(t, testPasskeyHandlerWithMocks(mockWA, &testhelpers.MockJWTService{}, users))
+
+	requireWireServiceUnavailable(t, api.Post("/auth/passkey/login/finish", map[string]any{
+		"challenge_id": "c-1",
+		"response":     softAssertion(t, device),
+	}))
+}
+
+// register/finish answers a refused challenge with the refusal's code and
+// message, and a challenge that could not be read with a 5xx.
+func TestPasskeyWire_RegisterFinishChallengeErrors(t *testing.T) {
+	body, _ := softRegistration(t)
+	outcomes := []struct {
+		name        string
+		err         error
+		wantStatus  int
+		wantCode    string
+		wantMessage string
+	}{
+		{"issued to another user", autherrors.NewAuthError(autherrors.CodeUnauthorized, "Challenge belongs to different user", nil),
+			http.StatusOK, autherrors.CodeUnauthorized, "Challenge belongs to different user"},
+		{"absent or expired", autherrors.NewAuthError(autherrors.CodeValidationFailed, "Invalid or expired challenge", nil),
+			http.StatusOK, autherrors.CodeValidationFailed, "Invalid or expired challenge"},
+		{"could not be read", fmt.Errorf("failed to consume challenge: %w", errWireDriver),
+			http.StatusServiceUnavailable, autherrors.CodeServiceUnavailable, "Service temporarily unavailable"},
+		{"unrouted refusal code", autherrors.ErrUserExists("someone@example.com"),
+			http.StatusServiceUnavailable, autherrors.CodeServiceUnavailable, "Service temporarily unavailable"},
+	}
+	for _, outcome := range outcomes {
+		t.Run(outcome.name, func(t *testing.T) {
+			mockWA := &testhelpers.MockWebAuthnService{
+				ConsumeRegistrationChallengeFn: func(string, uint) (*webauthn.SessionData, error) {
+					return nil, outcome.err
+				},
+				FinishRegistrationFn: func(*authm.User, *webauthn.SessionData, *protocol.ParsedCredentialCreationData, string) (*authm.WebAuthnCredential, error) {
+					t.Error("a refused or unreadable challenge must not reach registration")
+					return nil, nil
+				},
+			}
+			api := newPasskeyWireAPI(t, testPasskeyHandlerWithMocks(mockWA, &testhelpers.MockJWTService{}, &testhelpers.MockUserService{}))
+
+			resp := api.Post("/auth/passkey/register/finish", map[string]any{"challenge_id": "c-1", "response": body})
+
+			if resp.Code != outcome.wantStatus {
+				t.Fatalf("status = %d, want %d; body: %s", resp.Code, outcome.wantStatus, resp.Body.String())
+			}
+			decoded := decodeWireBody(t, resp.Body.Bytes())
+			if code, _ := decoded["error_code"].(string); code != outcome.wantCode {
+				t.Errorf("error_code = %q, want %q", code, outcome.wantCode)
+			}
+			if message, _ := decoded["message"].(string); message != outcome.wantMessage {
+				t.Errorf("message = %q, want %q", message, outcome.wantMessage)
+			}
+			assertNoInternalText(t, resp.Body.String(), "duplicate email")
+		})
+	}
+}

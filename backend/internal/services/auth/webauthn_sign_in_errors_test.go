@@ -75,7 +75,9 @@ func (suite *WebAuthnServiceIntegrationTestSuite) TestSignInRefusesAccountsThatM
 				device := suite.registeredDevice(user)
 				suite.Require().NoError(suite.db.Model(&authm.User{}).Where("id = ?", user.ID).Updates(updates).Error)
 
-				suite.requireRefusal(login(user, device), apperrors.CodeAccountInactive, apperrors.ErrAccountInactive().UserMessage())
+				err := login(user, device)
+				suite.requireRefusal(err, apperrors.CodeAccountInactive, apperrors.ErrAccountInactive().UserMessage())
+				suite.Contains(err.Error(), fmt.Sprintf("user %d may not sign in", user.ID), "the logged error names the account")
 
 				var stored authm.WebAuthnCredential
 				suite.Require().NoError(suite.db.Where("user_id = ?", user.ID).First(&stored).Error)
@@ -177,15 +179,16 @@ func (suite *WebAuthnServiceIntegrationTestSuite) TestConsumeRegistrationChallen
 		_, err := suite.service.ConsumeRegistrationChallenge(challengeID, owner.ID)
 		suite.Require().NoError(err)
 		_, err = suite.service.ConsumeRegistrationChallenge(challengeID, owner.ID)
+		suite.requireRefusal(err, apperrors.CodeValidationFailed, "Invalid or expired challenge")
 		suite.Require().ErrorIs(err, errChallengeNotFound)
 		_, err = suite.service.ConsumeRegistrationChallenge(challengeID, other.ID)
-		suite.Require().ErrorIs(err, errChallengeNotFound)
+		suite.requireRefusal(err, apperrors.CodeValidationFailed, "Invalid or expired challenge")
 	})
 
 	suite.Run("another operation's challenge is neither returned nor spent", func() {
 		challengeID := store("authentication")
 		_, err := suite.service.ConsumeRegistrationChallenge(challengeID, owner.ID)
-		suite.Require().ErrorIs(err, errChallengeNotFound)
+		suite.requireRefusal(err, apperrors.CodeValidationFailed, "Invalid or expired challenge")
 		suite.Equal(int64(1), suite.challengeRows(challengeID))
 	})
 
@@ -194,8 +197,48 @@ func (suite *WebAuthnServiceIntegrationTestSuite) TestConsumeRegistrationChallen
 		suite.Require().NoError(suite.db.Exec("UPDATE webauthn_challenges SET expires_at = ? WHERE id = ?",
 			time.Now().Add(-time.Hour), challengeID).Error)
 		_, err := suite.service.ConsumeRegistrationChallenge(challengeID, owner.ID)
-		suite.Require().Error(err)
-		suite.Contains(err.Error(), "challenge expired")
+		suite.requireRefusal(err, apperrors.CodeValidationFailed, "Invalid or expired challenge")
+		suite.Require().ErrorIs(err, errChallengeExpired)
 		suite.Zero(suite.challengeRows(challengeID))
 	})
+}
+
+// The account's state is decided only for an assertion that validated: an
+// assertion that fails validation is refused as invalid credentials whatever
+// state the account is in, so it learns nothing about that state.
+func (suite *WebAuthnServiceIntegrationTestSuite) TestSignInRefusesInvalidAssertionBeforeAccountState() {
+	logins := map[string]func(target *authm.User, device *softauthn.Authenticator) error{
+		// The device belongs to another account, so the target's login
+		// session does not allow its credential.
+		"email": func(target *authm.User, device *softauthn.Authenticator) error {
+			_, err := suite.emailLogin(target.ID, device)
+			return err
+		},
+		// The assertion names the target's user handle, which is not the
+		// handle of the credential's account.
+		"discoverable": func(target *authm.User, device *softauthn.Authenticator) error {
+			options, session, err := suite.service.BeginDiscoverableLogin()
+			suite.Require().NoError(err)
+			body, err := device.Assert(options)
+			suite.Require().NoError(err)
+			parsed, err := protocol.ParseCredentialRequestResponseBytes(body)
+			suite.Require().NoError(err)
+			parsed.Response.UserHandle = target.WebAuthnID()
+			_, _, err = suite.service.FinishDiscoverableLogin(session, parsed)
+			return err
+		},
+	}
+	for name, login := range logins {
+		suite.Run(name, func() {
+			target := suite.createUser(name + "-inactive-target@test.com")
+			suite.registeredDevice(target)
+			holder := suite.createUser(name + "-holder@test.com")
+			device := suite.registeredDevice(holder)
+			for _, inactive := range []*authm.User{target, holder} {
+				suite.Require().NoError(suite.db.Model(&authm.User{}).Where("id = ?", inactive.ID).Update("is_active", false).Error)
+			}
+
+			suite.requireRefusal(login(target, device), apperrors.CodeInvalidCredentials, "Invalid passkey")
+		})
+	}
 }

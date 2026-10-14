@@ -9,6 +9,7 @@ import (
 
 	"github.com/go-webauthn/webauthn/protocol"
 	"github.com/go-webauthn/webauthn/webauthn"
+	"gorm.io/gorm"
 
 	"psychic-homily-backend/internal/api/handlers/shared/testhelpers"
 	autherrors "psychic-homily-backend/internal/errors"
@@ -162,7 +163,7 @@ func TestFinishRegisterHandler_NoAuth(t *testing.T) {
 func TestFinishRegisterHandler_InvalidChallenge(t *testing.T) {
 	mockWA := &testhelpers.MockWebAuthnService{
 		ConsumeRegistrationChallengeFn: func(string, uint) (*webauthn.SessionData, error) {
-			return nil, fmt.Errorf("challenge not found")
+			return nil, autherrors.NewAuthError(autherrors.CodeValidationFailed, "Invalid or expired challenge", fmt.Errorf("challenge not found"))
 		},
 	}
 	h := testPasskeyHandlerWithMocks(mockWA, &testhelpers.MockJWTService{}, &testhelpers.MockUserService{})
@@ -500,7 +501,7 @@ func TestFinishLoginHandler_UserSpecificLogin_UserNotFound(t *testing.T) {
 	}
 	mockUS := &testhelpers.MockUserService{
 		GetUserByIDFn: func(userID uint) (*authm.User, error) {
-			return nil, fmt.Errorf("user not found")
+			return nil, fmt.Errorf("failed to get user: %w", gorm.ErrRecordNotFound)
 		},
 	}
 	h := testPasskeyHandlerWithMocks(mockWA, &testhelpers.MockJWTService{}, mockUS)

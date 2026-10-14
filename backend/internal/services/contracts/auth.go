@@ -189,13 +189,24 @@ type WebAuthnServiceInterface interface {
 	FinishRegistration(user *authm.User, session *webauthn.SessionData, response *protocol.ParsedCredentialCreationData, displayName string) (*authm.WebAuthnCredential, error)
 	BeginLogin(user *authm.User) (*protocol.CredentialAssertion, *webauthn.SessionData, error)
 	BeginDiscoverableLogin() (*protocol.CredentialAssertion, *webauthn.SessionData, error)
+	// FinishLogin and FinishDiscoverableLogin answer a refused sign-in with an
+	// *errors.AuthError coded INVALID_CREDENTIALS or ACCOUNT_INACTIVE, whose
+	// message is the client's copy. Any other error means no decision was
+	// reached.
 	FinishLogin(user *authm.User, session *webauthn.SessionData, response *protocol.ParsedCredentialAssertionData) (*authm.WebAuthnCredential, error)
 	FinishDiscoverableLogin(session *webauthn.SessionData, response *protocol.ParsedCredentialAssertionData) (*authm.User, *authm.WebAuthnCredential, error)
 	GetUserCredentials(userID uint) ([]authm.WebAuthnCredential, error)
 	DeleteCredential(userID uint, credentialID uint) error
 	UpdateCredentialName(userID uint, credentialID uint, displayName string) error
 	StoreChallenge(userID uint, session *webauthn.SessionData, operation string) (string, error)
+	// ConsumeChallenge refuses the "registration" operation, whose challenges
+	// only ConsumeRegistrationChallenge consumes.
 	ConsumeChallenge(challengeID string, operation string) (*webauthn.SessionData, uint, error)
+	// ConsumeRegistrationChallenge spends a registration challenge only for the
+	// user it was issued to. It answers a refusal with an *errors.AuthError
+	// coded UNAUTHORIZED (issued to another user) or VALIDATION_FAILED (absent
+	// or expired), whose message is the client's copy. Any other error means
+	// the challenge could not be read.
 	ConsumeRegistrationChallenge(challengeID string, userID uint) (*webauthn.SessionData, error)
 	CleanupExpiredChallenges() error
 	BeginRegistrationForEmail(email string) (*protocol.CredentialCreation, *webauthn.SessionData, error)

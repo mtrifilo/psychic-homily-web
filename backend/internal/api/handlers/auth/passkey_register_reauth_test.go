@@ -10,6 +10,7 @@ import (
 
 	"psychic-homily-backend/internal/api/handlers/shared/testhelpers"
 	"psychic-homily-backend/internal/api/middleware"
+	autherrors "psychic-homily-backend/internal/errors"
 	"psychic-homily-backend/internal/legal"
 	authm "psychic-homily-backend/internal/models/auth"
 	"psychic-homily-backend/internal/services/contracts"
@@ -83,7 +84,7 @@ func TestPasskeyRegistration_FinishIsNotGated(t *testing.T) {
 	mockWA := &testhelpers.MockWebAuthnService{
 		ConsumeRegistrationChallengeFn: func(string, uint) (*webauthn.SessionData, error) {
 			reachedChallenge = true
-			return nil, errors.New("challenge lookup is past the gate")
+			return nil, autherrors.NewAuthError(autherrors.CodeValidationFailed, "Invalid or expired challenge", errors.New("challenge lookup is past the gate"))
 		},
 	}
 	h := testPasskeyHandlerWithMocks(mockWA, &testhelpers.MockJWTService{}, &testhelpers.MockUserService{})

@@ -9,6 +9,7 @@ import (
 
 	"github.com/go-webauthn/webauthn/protocol"
 	"github.com/go-webauthn/webauthn/webauthn"
+	"gorm.io/gorm"
 
 	"psychic-homily-backend/internal/api/middleware"
 	"psychic-homily-backend/internal/config"
@@ -211,20 +212,27 @@ func (h *PasskeyHandler) FinishRegisterHandler(ctx context.Context, input *Finis
 
 	session, err := h.webauthnService.ConsumeRegistrationChallenge(input.Body.ChallengeID, contextUser.ID)
 	if err != nil {
-		logger.AuthWarn(ctx, "passkey_challenge_invalid",
-			"user_id", contextUser.ID,
-			"error", err.Error(),
-		)
-		resp.Body.Success = false
+		// A refusal carries its own code and message. Anything else, a code
+		// with no case here included, means the challenge could not be read.
 		var refusal *autherrors.AuthError
-		if errors.As(err, &refusal) && refusal.Code == autherrors.CodeUnauthorized {
-			resp.Body.Message = refusal.UserMessage()
-			resp.Body.ErrorCode = refusal.Code
-			return resp, nil
+		if errors.As(err, &refusal) {
+			switch refusal.Code {
+			case autherrors.CodeUnauthorized, autherrors.CodeValidationFailed:
+				logger.AuthWarn(ctx, "passkey_challenge_refused",
+					"user_id", contextUser.ID,
+					"error_code", refusal.Code,
+					"error", err.Error(),
+				)
+				resp.Body.Success = false
+				resp.Body.Message = refusal.UserMessage()
+				resp.Body.ErrorCode = refusal.Code
+				return resp, nil
+			}
 		}
-		resp.Body.Message = "Invalid or expired challenge"
-		resp.Body.ErrorCode = autherrors.CodeValidationFailed
-		return resp, nil
+		logger.AuthError(ctx, "passkey_challenge_consume_failed", err,
+			"user_id", contextUser.ID,
+		)
+		return nil, autherrors.ErrServiceUnavailable("passkey_register_challenge", err)
 	}
 
 	parsedResponse, err := protocol.ParseCredentialCreationResponseBytes(input.Body.Response)
@@ -423,11 +431,22 @@ func (h *PasskeyHandler) FinishLoginHandler(ctx context.Context, input *FinishLo
 	if userID != 0 {
 		// User-specific login
 		user, err = h.userService.GetUserByID(userID)
-		if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			logger.AuthWarn(ctx, "passkey_login_refused",
+				"user_id", userID,
+				"error_code", autherrors.CodeInvalidCredentials,
+				"error", err.Error(),
+			)
 			resp.Body.Success = false
 			resp.Body.Message = "User not found"
 			resp.Body.ErrorCode = autherrors.CodeInvalidCredentials
 			return resp, nil
+		}
+		if err != nil {
+			logger.AuthError(ctx, "passkey_login_user_load_failed", err,
+				"user_id", userID,
+			)
+			return nil, autherrors.ErrServiceUnavailable("passkey_login_user", err)
 		}
 
 		_, err = h.webauthnService.FinishLogin(user, session, parsedResponse)
@@ -445,6 +464,7 @@ func (h *PasskeyHandler) FinishLoginHandler(ctx context.Context, input *FinishLo
 			switch refusal.Code {
 			case autherrors.CodeInvalidCredentials, autherrors.CodeAccountInactive:
 				logger.AuthWarn(ctx, "passkey_login_refused",
+					"challenge_user_id", userID,
 					"error_code", refusal.Code,
 					"error", err.Error(),
 				)
