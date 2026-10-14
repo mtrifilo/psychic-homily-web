@@ -1,6 +1,4 @@
-import { describe, it, expect, vi, afterEach } from 'vitest'
-import { installMatchMedia } from '@/test/mocks/matchMedia'
-import { ATLAS_COMPACT_VIEWPORT_QUERY } from '../atlasViewport'
+import { describe, it, expect, vi } from 'vitest'
 
 const { canvasModule } = vi.hoisted(() => ({ canvasModule: { requested: 0 } }))
 const prefetchGlobeLand = vi.fn()
@@ -17,19 +15,15 @@ vi.mock('./GlobeCanvas', () => {
 import { preloadAtlasMap } from './atlasMapPreload'
 
 describe('preloadAtlasMap', () => {
-  let restore: () => void = () => {}
-  afterEach(() => restore())
-
-  it('requests the canvas module and prefetches the land data on a compact viewport', async () => {
-    restore = installMatchMedia({ [ATLAS_COMPACT_VIEWPORT_QUERY]: true }).restore
-    preloadAtlasMap()
+  it('requests the canvas module and prefetches the land data for the light globe', async () => {
+    preloadAtlasMap({ lightGlobe: true })
     expect(prefetchGlobeLand).toHaveBeenCalledTimes(1)
     await vi.waitFor(() => expect(canvasModule.requested).toBe(1))
   })
 
-  it('leaves the land data alone on a wide viewport, where the raster draws', () => {
-    restore = installMatchMedia({ [ATLAS_COMPACT_VIEWPORT_QUERY]: false }).restore
-    preloadAtlasMap()
+  it('leaves the land data alone for the full globe, where the raster draws', () => {
+    prefetchGlobeLand.mockClear()
+    preloadAtlasMap({ lightGlobe: false })
     expect(prefetchGlobeLand).not.toHaveBeenCalled()
   })
 })
@@ -46,7 +40,7 @@ describe('preloadAtlasMap when the canvas module fails to load', () => {
     process.on('unhandledRejection', unhandled)
     try {
       const { preloadAtlasMap: preload } = await import('./atlasMapPreload')
-      expect(() => preload()).not.toThrow()
+      expect(() => preload({ lightGlobe: false })).not.toThrow()
       await vi.waitFor(() => expect(attempted).toBe(true))
       await new Promise((resolve) => setTimeout(resolve, 0))
       expect(unhandled).not.toHaveBeenCalled()

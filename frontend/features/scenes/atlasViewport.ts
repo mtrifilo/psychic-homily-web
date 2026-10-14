@@ -1,44 +1,26 @@
 'use client'
 
-import { useMediaQuery } from '@/lib/hooks/common/useMediaQuery'
+/**
+ * Below this Atlas pane width (the whole frame, rail included) the Atlas is
+ * the phone Atlas ({@link isAtlasPhonePane}). At and above it the city-view
+ * rail fits beside a usable map.
+ */
+export const ATLAS_PHONE_PANE_BELOW_PX = 900
 
 /**
- * The Atlas's compact viewport: any viewport narrower than Tailwind's `lg`
- * breakpoint (64rem). This query decides the map's treatment at every width
- * below 64rem wherever the map mounts (see {@link atlasSceneListReason} for
- * where it does not).
+ * Whether an Atlas pane this wide is the phone Atlas, the one rule for every
+ * phone-or-desktop choice on the map:
+ * - the rail and the side panels become bottom sheets over a full-width map;
+ * - the globe draws its light look (flat ocean, vector land, boundary lines
+ *   and place labels) in place of the night-earth raster;
+ * - the genre key is a chip that starts collapsed.
  *
- * Width rather than pointer type: the phone boards are drawn by width, and a
- * viewport at `lg` or wider is desktop-sized whether a finger or a mouse
- * drives it.
- *
- * The exact complement of Tailwind's `lg:` variant (`min-width: 64rem`), so
- * an `lg:` utility and a branch on this query switch at the same width;
- * `not all and (...)` rather than range syntax for browsers that predate
- * Media Queries Level 4 ranges.
+ * Pane width, not viewport width: chrome beside the pane (the side nav) leaves
+ * the pane narrower than the viewport, and every one of these choices is about
+ * the room inside the pane.
  */
-export const ATLAS_COMPACT_VIEWPORT_QUERY = 'not all and (min-width: 64rem)'
-
-/**
- * Whether the viewport is compact right now, read straight from `matchMedia`:
- * for a decision made once, such as a map style built at construction, where
- * a hook's first value could be its server snapshot. False where there is no
- * `matchMedia` (the server, jsdom without a shim).
- */
-export function isAtlasCompactViewport(): boolean {
-  if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') {
-    return false
-  }
-  return window.matchMedia(ATLAS_COMPACT_VIEWPORT_QUERY).matches
-}
-
-/**
- * {@link isAtlasCompactViewport} as a subscription, re-rendering when the
- * viewport crosses the `lg` breakpoint (a window resize, a tablet rotating).
- * False on the server snapshot, per useMediaQuery's contract.
- */
-export function useAtlasCompactViewport(): boolean {
-  return useMediaQuery(ATLAS_COMPACT_VIEWPORT_QUERY)
+export function isAtlasPhonePane(paneWidthPx: number): boolean {
+  return paneWidthPx < ATLAS_PHONE_PANE_BELOW_PX
 }
 
 /**

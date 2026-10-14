@@ -1,8 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, act } from '@testing-library/react'
 import GlobeCanvas from './GlobeCanvas'
-import { ATLAS_COMPACT_VIEWPORT_QUERY } from '../atlasViewport'
-import { installMatchMedia } from '@/test/mocks/matchMedia'
 import {
   GLOBE_COUNTRY_LINES_DATA_URL,
   GLOBE_COUNTRY_LINES_LAYER_ID,
@@ -136,10 +134,23 @@ vi.mock('maplibre-gl', () => {
 
 const POV = { lat: 39.5, lng: -98.35, altitude: 1.8 }
 
-function renderCanvas() {
-  return render(
-    <GlobeCanvas width={390} height={731} scenes={[]} pov={POV} onSelect={() => {}} />,
+function canvas(lightGlobe: boolean) {
+  return (
+    <GlobeCanvas
+      width={390}
+      height={731}
+      scenes={[]}
+      lightGlobe={lightGlobe}
+      pov={POV}
+      onSelect={() => {}}
+    />
   )
+}
+
+/** Renders the canvas; `set` re-renders it with a new `lightGlobe`. */
+function renderCanvas(lightGlobe: boolean) {
+  const { rerender } = render(canvas(lightGlobe))
+  return { set: (next: boolean) => rerender(canvas(next)) }
 }
 
 function theMap(): StubMap {
@@ -156,12 +167,6 @@ function lastVisibilitySet(map: StubMap, layer: string) {
 }
 
 describe('GlobeCanvas globe surface', () => {
-  let restoreMatchMedia: () => void = () => {}
-  function installViewport(compact: boolean) {
-    const mm = installMatchMedia({ [ATLAS_COMPACT_VIEWPORT_QUERY]: compact })
-    restoreMatchMedia = mm.restore
-    return { set: (next: boolean) => mm.set(ATLAS_COMPACT_VIEWPORT_QUERY, next) }
-  }
   beforeEach(() => {
     stubTiles.loaded = true
     maps = []
@@ -171,22 +176,19 @@ describe('GlobeCanvas globe surface', () => {
     vi.stubGlobal('fetch', vi.fn(() => Promise.resolve({ ok: false })))
   })
   afterEach(() => {
-    restoreMatchMedia()
     vi.unstubAllGlobals()
   })
 
-  it('builds a compact-viewport map without the night-earth raster', () => {
-    installViewport(true)
-    renderCanvas()
+  it('builds a light-globe map without the night-earth raster', () => {
+    renderCanvas(true)
     const map = theMap()
     expect(constructedVisibility(map, NIGHT_EARTH_LAYER_ID)).toBe('none')
     expect(constructedVisibility(map, GLOBE_OCEAN_LAYER_ID)).toBe('visible')
     expect(constructedVisibility(map, GLOBE_LAND_LAYER_ID)).toBe('visible')
   })
 
-  it('loads the land file once the compact map style loads', () => {
-    installViewport(true)
-    renderCanvas()
+  it('loads the land file once the light-globe map style loads', () => {
+    renderCanvas(true)
     const map = theMap()
     expect(map.sourceSetData(GLOBE_LAND_SOURCE_ID)).not.toHaveBeenCalled()
     act(() => map.fire('style.load'))
@@ -195,9 +197,8 @@ describe('GlobeCanvas globe surface', () => {
     expect(lastVisibilitySet(map, NIGHT_EARTH_LAYER_ID)).toBe('none')
   })
 
-  it('builds a compact-viewport map with both boundary layers shown, and loads their files after the first full render', async () => {
-    installViewport(true)
-    renderCanvas()
+  it('builds a light-globe map with both boundary layers shown, and loads their files after the first full render', async () => {
+    renderCanvas(true)
     const map = theMap()
     expect(constructedVisibility(map, GLOBE_STATE_LINES_LAYER_ID)).toBe('visible')
     expect(constructedVisibility(map, GLOBE_COUNTRY_LINES_LAYER_ID)).toBe('visible')
@@ -220,8 +221,7 @@ describe('GlobeCanvas globe surface', () => {
   // first full render is what releases it.
   it('releases the Atlas-ready signal at the first full render, once', () => {
     markAtlasMapReady.mockClear()
-    installViewport(true)
-    renderCanvas()
+    renderCanvas(true)
     const map = theMap()
     act(() => map.fire('style.load'))
     stubTiles.loaded = false
@@ -234,8 +234,7 @@ describe('GlobeCanvas globe surface', () => {
   })
 
   it('loads the land and boundary files again into the style a restored context re-creates', async () => {
-    installViewport(true)
-    renderCanvas()
+    renderCanvas(true)
     const map = theMap()
     act(() => map.fire('style.load'))
     act(() => map.fire('render'))
@@ -257,9 +256,8 @@ describe('GlobeCanvas globe surface', () => {
     )
   })
 
-  it('builds a wide-viewport map with the boundary layers hidden and never loads them', () => {
-    installViewport(false)
-    renderCanvas()
+  it('builds a full-globe map with the boundary layers hidden and never loads them', () => {
+    renderCanvas(false)
     const map = theMap()
     act(() => map.fire('style.load'))
     act(() => map.fire('render'))
@@ -270,9 +268,8 @@ describe('GlobeCanvas globe surface', () => {
     expect(fetch).not.toHaveBeenCalled()
   })
 
-  it('builds a wide-viewport map with the raster and no land request', () => {
-    installViewport(false)
-    renderCanvas()
+  it('builds a full-globe map with the raster and no land request', () => {
+    renderCanvas(false)
     const map = theMap()
     act(() => map.fire('style.load'))
     expect(constructedVisibility(map, NIGHT_EARTH_LAYER_ID)).toBe('visible')
@@ -280,35 +277,33 @@ describe('GlobeCanvas globe surface', () => {
     expect(map.sourceSetData(GLOBE_LAND_SOURCE_ID)).not.toHaveBeenCalled()
   })
 
-  it('switches the live map across the breakpoint without rebuilding it', () => {
-    const viewport = installViewport(false)
-    renderCanvas()
+  it('switches the live map when lightGlobe changes, without rebuilding it', () => {
+    const globe = renderCanvas(false)
     const map = theMap()
     act(() => map.fire('style.load'))
 
-    viewport.set(true)
+    globe.set(true)
     expect(lastVisibilitySet(map, NIGHT_EARTH_LAYER_ID)).toBe('none')
     expect(lastVisibilitySet(map, GLOBE_LAND_LAYER_ID)).toBe('visible')
     expect(map.sourceSetData(GLOBE_LAND_SOURCE_ID)).toHaveBeenCalledWith(GLOBE_LAND_DATA_URL)
 
-    viewport.set(false)
+    globe.set(false)
     expect(lastVisibilitySet(map, NIGHT_EARTH_LAYER_ID)).toBe('visible')
     expect(lastVisibilitySet(map, GLOBE_LAND_LAYER_ID)).toBe('none')
     expect(maps).toHaveLength(1)
   })
 
-  it('loads the boundary files when a loaded wide map crosses into the light look', () => {
-    const viewport = installViewport(false)
-    renderCanvas()
+  it('loads the boundary files when a loaded full-globe map switches to the light look', () => {
+    const globe = renderCanvas(false)
     const map = theMap()
     act(() => map.fire('style.load'))
     act(() => map.fire('render'))
     expect(fetch).not.toHaveBeenCalled()
-    act(() => viewport.set(true))
+    act(() => globe.set(true))
     expect(fetch).toHaveBeenCalledWith(GLOBE_STATE_LINES_DATA_URL, expect.anything())
     expect(fetch).toHaveBeenCalledWith(GLOBE_COUNTRY_LINES_DATA_URL, expect.anything())
     expect(lastVisibilitySet(map, GLOBE_STATE_LINES_LAYER_ID)).toBe('visible')
-    act(() => viewport.set(false))
+    act(() => globe.set(false))
     expect(lastVisibilitySet(map, GLOBE_STATE_LINES_LAYER_ID)).toBe('none')
     expect(maps).toHaveLength(1)
   })

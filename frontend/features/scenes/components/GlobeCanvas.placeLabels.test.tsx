@@ -3,8 +3,6 @@ import { render, act, waitFor } from '@testing-library/react'
 import GlobeCanvas from './GlobeCanvas'
 import type { PlaceableScene } from './globeTypes'
 import { clearAtlasCamera } from './atlasCamera'
-import { ATLAS_COMPACT_VIEWPORT_QUERY } from '../atlasViewport'
-import { installMatchMedia } from '@/test/mocks/matchMedia'
 import * as globeSurface from '../basemap/globeSurface'
 import { reportGlobePlacesFailure } from '../basemap/basemapTelemetry'
 
@@ -210,7 +208,6 @@ function placeLabelTexts() {
 }
 
 describe('GlobeCanvas place labels', () => {
-  let restoreMatchMedia: () => void = () => {}
   beforeEach(() => {
     maps = []
     zoom = 2.4
@@ -232,19 +229,18 @@ describe('GlobeCanvas place labels', () => {
     vi.stubGlobal('fetch', vi.fn(() => Promise.resolve({ ok: false })))
   })
   afterEach(() => {
-    restoreMatchMedia()
     vi.unstubAllGlobals()
     vi.restoreAllMocks()
     document.body.innerHTML = ''
   })
 
-  async function showMap(compact: boolean, scenes: PlaceableScene[] = SCENES) {
-    restoreMatchMedia = installMatchMedia({ [ATLAS_COMPACT_VIEWPORT_QUERY]: compact }).restore
+  async function showMap(lightGlobe: boolean, scenes: PlaceableScene[] = SCENES) {
     render(
       <GlobeCanvas
         width={PANE.width}
         height={PANE.height}
         scenes={scenes}
+        lightGlobe={lightGlobe}
         pov={POV}
         onSelect={() => {}}
       />,
@@ -339,16 +335,18 @@ describe('GlobeCanvas place labels', () => {
    * The light look with a Drift button the page draws beside the canvas,
    * whose screen box is whatever `driftRect` returns at each read.
    * `showCityLabel` renders the same page again with that city view label;
-   * `setCompact` moves the viewport across the compact breakpoint.
+   * `setLightGlobe` renders it again with that look.
    */
   async function showMapBesideDrift(driftRect: () => DOMRect, scenes: PlaceableScene[] = SCENES) {
     const drift: { current: HTMLButtonElement | null } = { current: null }
-    const page = (cityLabel: string | null) => (
+    let shown = { cityLabel: null as string | null, lightGlobe: true }
+    const page = ({ cityLabel, lightGlobe }: typeof shown) => (
       <div>
         <GlobeCanvas
           width={PANE.width}
           height={PANE.height}
           scenes={scenes}
+          lightGlobe={lightGlobe}
           pov={POV}
           onSelect={() => {}}
           cityLabel={cityLabel}
@@ -364,9 +362,11 @@ describe('GlobeCanvas place labels', () => {
         </button>
       </div>
     )
-    const media = installMatchMedia({ [ATLAS_COMPACT_VIEWPORT_QUERY]: true })
-    restoreMatchMedia = media.restore
-    const { rerender, unmount } = render(page(null))
+    const { rerender, unmount } = render(page(shown))
+    const show = (next: Partial<typeof shown>) => {
+      shown = { ...shown, ...next }
+      rerender(page(shown))
+    }
     await act(async () => {
       maps[0].fire('style.load')
       maps[0].fire('render')
@@ -374,8 +374,8 @@ describe('GlobeCanvas place labels', () => {
     return {
       map: maps[0],
       drift: drift.current!,
-      showCityLabel: (cityLabel: string | null) => rerender(page(cityLabel)),
-      setCompact: (compact: boolean) => media.set(ATLAS_COMPACT_VIEWPORT_QUERY, compact),
+      showCityLabel: (cityLabel: string | null) => show({ cityLabel }),
+      setLightGlobe: (lightGlobe: boolean) => show({ lightGlobe }),
       unmount,
     }
   }
@@ -474,21 +474,21 @@ describe('GlobeCanvas place labels', () => {
   it('stops the chrome watch on the full look and follows a new one back on the light look', async () => {
     let box = CLEAR_OF_LABELS
     const reads = vi.fn(() => rect(box))
-    const { drift, setCompact } = await showMapBesideDrift(reads)
+    const { drift, setLightGlobe } = await showMapBesideDrift(reads)
     await waitFor(() => expect(placeLabelTexts()).toEqual(['Clear City']))
     expect(reads).toHaveBeenCalledTimes(1)
 
-    // Past the breakpoint: no place labels, and no watch reads Drift as it moves.
-    setCompact(false)
+    // The full look: no place labels, and no watch reads Drift as it moves.
+    setLightGlobe(false)
     expect(placeLabelTexts()).toEqual([])
     box = OVER_CLEAR_CITY
     act(() => drift.setAttribute('data-moved', 'over'))
     await outlastChromeSettle()
     expect(reads).toHaveBeenCalledTimes(1)
 
-    // Back below it: the kept place data is laid out against a new watch,
-    // which reads Drift where it now is.
-    setCompact(true)
+    // The light look again: the kept place data is laid out against a new
+    // watch, which reads Drift where it now is.
+    setLightGlobe(true)
     await waitFor(() => expect(reads).toHaveBeenCalledTimes(2))
     expect(placeLabelTexts()).toEqual([])
     expect(globeSurface.loadGlobePlaces).toHaveBeenCalledTimes(1)
@@ -570,17 +570,22 @@ describe('GlobeCanvas place labels and the first full render', () => {
     maps = []
     clearAtlasCamera()
     const load = vi.spyOn(globeSurface, 'loadGlobePlaces').mockResolvedValue({ data: PLACES })
-    const { restore } = installMatchMedia({ [ATLAS_COMPACT_VIEWPORT_QUERY]: true })
     try {
       render(
-        <GlobeCanvas width={PANE.width} height={PANE.height} scenes={SCENES} pov={POV} onSelect={() => {}} />,
+        <GlobeCanvas
+          width={PANE.width}
+          height={PANE.height}
+          scenes={SCENES}
+          lightGlobe
+          pov={POV}
+          onSelect={() => {}}
+        />,
       )
       await act(async () => maps[0].fire('style.load'))
       expect(load).not.toHaveBeenCalled()
       await act(async () => maps[0].fire('render'))
       expect(load).toHaveBeenCalledTimes(1)
     } finally {
-      restore()
       vi.restoreAllMocks()
       document.body.innerHTML = ''
     }

@@ -38,7 +38,6 @@ import {
   formatNextShowDate,
   resolveAtlasCityPov,
   resolveCityScene,
-  usesAtlasSheetLayout,
   venuePinStacks,
   venueStackLabel,
   venueStackScopeLine,
@@ -84,6 +83,7 @@ import {
   atlasSceneListReason,
   atlasSupportsWebGL2,
   clearAtlasMapFailure,
+  isAtlasPhonePane,
   markAtlasMapFailed,
   reprobeAtlasWebGL2,
 } from '../atlasViewport'
@@ -529,7 +529,7 @@ export function AtlasGlobe() {
   const mapPaneRef = useRef<HTMLDivElement | null>(null)
   // The search list opens below a drawn top-left credit (the sheet layout's
   // placement), and directly under its trigger while there is none to clear:
-  // at globe zoom the compact globe draws no attributed source, so MapLibre
+  // at globe zoom the light globe draws no attributed source, so MapLibre
   // empties the credit, and a map that has not mounted its controls draws
   // none. The line gives way to a raised keyboard inside AtlasSearch.
   // MyScenesStrip keeps a fixed place below the credit's slot instead: it is
@@ -741,8 +741,10 @@ export function AtlasGlobe() {
           prefersReducedMotion,
           mapFailed,
         })
-  const mapSheetLayout =
-    size !== null && sceneListReason === null && usesAtlasSheetLayout(size.width)
+  // The phone or desktop form of the map's layout, globe look and genre key,
+  // on the measured pane: a resize across the threshold re-renders all three.
+  const phonePane = size !== null && isAtlasPhonePane(size.width)
+  const mapSheetLayout = phonePane && sceneListReason === null
   // Reset during render, like the city reset above, so a closed or
   // side-panel preview's detent never reaches the canvas, and a preview that
   // becomes a sheet again opens at Half.
@@ -762,10 +764,16 @@ export function AtlasGlobe() {
   // The canvas renders only after scenes and the camera focus (which waits on
   // visitor geo) resolve; preload what it needs during that wait. Whatever
   // waits on the Atlas-ready signal is released once no map can follow.
+  // Once per mount, with the look of the pane the map branch first has: after
+  // that the map loads whatever a later look needs itself, so a land prefetch
+  // started then would be a second download nothing reads.
   const { preloadsMap, releasesSignal } = atlasRenderBranchEffects(renderBranch.kind)
+  const mapPreloadedRef = useRef(false)
   useEffect(() => {
-    if (preloadsMap) preloadAtlasMap()
-  }, [preloadsMap])
+    if (!preloadsMap || mapPreloadedRef.current) return
+    mapPreloadedRef.current = true
+    preloadAtlasMap({ lightGlobe: phonePane })
+  }, [preloadsMap, phonePane])
   useEffect(() => {
     if (releasesSignal) markAtlasMapReady()
   }, [releasesSignal])
@@ -793,7 +801,7 @@ export function AtlasGlobe() {
     // Narrower panes would leave a uselessly thin map beside a rail, so they
     // keep the map full width and use bottom sheets for the venue list and
     // every panel, with the credit moved to the top-left.
-    const sheetLayout = usesAtlasSheetLayout(paneSize.width)
+    const sheetLayout = phonePane
     const railOpen = cityScene !== null && !sheetLayout
     const canvasWidth = railOpen ? paneSize.width - CITY_RAIL_WIDTH_PX : paneSize.width
     const panelPresentation = sheetLayout ? 'sheet' : 'panel'
@@ -840,6 +848,7 @@ export function AtlasGlobe() {
     )
     const genreLegend = selected ? null : (
       <GenreLegend
+        compact={phonePane}
         openChoice={legendOpenChoice}
         onOpenChange={setLegendOpenChoice}
         className={
@@ -916,6 +925,7 @@ export function AtlasGlobe() {
               height={paneSize.height}
               scenes={placeable}
               pov={pov}
+              lightGlobe={phonePane}
               onSelect={setSelected}
               selected={selected}
               flyToRef={flyToRef}

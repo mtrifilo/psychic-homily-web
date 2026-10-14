@@ -17,9 +17,9 @@ import {
  * Atlas states and layouts, on a first visit with the cookie banner up and,
  * where a test says so, after it is dismissed. Where a credit is due, its
  * whole text is on screen and every sample point across it hits the credit
- * itself. At globe zoom the compact globe (below `lg`) draws no OpenStreetMap
- * data, so there the check is that nothing OSM-derived renders and the
- * control lists nothing.
+ * itself. At globe zoom the light globe (a pane under 900px) draws no
+ * OpenStreetMap data, so there the check is that nothing OSM-derived renders
+ * and the control lists nothing.
  *
  * SwiftShader is required: MapLibre needs a WebGL2 context headless Chromium
  * otherwise lacks.
@@ -67,7 +67,7 @@ async function expectCreditVisible(
 }
 
 /**
- * At globe zoom the compact globe draws ocean, Natural Earth land and PH's own
+ * At globe zoom the light globe draws ocean, Natural Earth land and PH's own
  * scene dots; no layer reading the OpenStreetMap-derived vector source
  * renders, so MapLibre lists no credit and hides its control.
  */

@@ -3,7 +3,9 @@ import { expect, type Page } from '@playwright/test'
 import {
   ATLAS_TEST_TIMEOUT_MS,
   type AtlasMapSeam,
+  atlasPaneWidth,
   dismissBanner,
+  jumpToPhoenix,
   phoenixDotPoint,
   PHONE_CONTEXT,
   stubAtlas,
@@ -122,8 +124,8 @@ test.describe('Atlas city entry', () => {
 })
 
 /**
- * The light globe's boundary lines and place labels on a compact viewport
- * (narrower than `lg`), on an 800px tablet pane.
+ * The light globe's boundary lines and place labels on a phone pane
+ * (narrower than 900px): an 800px tablet.
  */
 test.describe('Atlas light globe outlines and place labels', () => {
   test.use({ viewport: { width: 800, height: 1000 } })
@@ -234,12 +236,76 @@ test.describe('Atlas light globe outlines and place labels', () => {
 })
 
 /**
+ * One rule, pane width under 900px, picks the phone or the desktop Atlas: the
+ * sheet layout, the light globe and the collapsed Genres chip together, or the
+ * rail, the night-earth raster and the open key together. The viewport plays
+ * no part, so a 900 to 1023px viewport is the desktop Atlas, and a 1024px
+ * viewport whose side nav leaves the pane under 900px is the phone Atlas.
+ */
+test.describe('Atlas phone or desktop by pane width', () => {
+  /** Which globe look the live map shows, read off its two surfaces. */
+  function globeLook(page: Page) {
+    return page.evaluate(() => {
+      const m = (window as unknown as { __atlasMap: AtlasMapSeam }).__atlasMap
+      const raster = m.getLayoutProperty('earth', 'visibility')
+      const land = m.getLayoutProperty('globe-land', 'visibility')
+      if (raster === 'visible' && land === 'none') return 'full'
+      if (raster === 'none' && land === 'visible') return 'light'
+      return `mixed: earth ${String(raster)}, globe-land ${String(land)}`
+    })
+  }
+
+  async function expectDesktopAtlas(page: Page) {
+    expect(await globeLook(page)).toBe('full')
+    await expect(page.getByRole('button', { name: 'Genres' })).toHaveAttribute('aria-expanded', 'true')
+    await jumpToPhoenix(page, 12.5)
+    await expect(page.getByTestId('atlas-venue-rail')).toBeVisible({ timeout: 30_000 })
+    await expect(page.getByTestId('atlas-venue-sheet')).toHaveCount(0)
+    await expect(page.locator('[data-atlas-layout="sheet"]')).toHaveCount(0)
+  }
+
+  for (const width of [900, 1023]) {
+    test.describe(`at a ${width}px viewport`, () => {
+      test.use({ viewport: { width, height: 900 } })
+
+      test('is the desktop Atlas: the full globe, the open key and the rail', async ({ page }) => {
+        await stubAtlas(page)
+        await page.goto('/atlas')
+        await waitForMap(page)
+        expect(await atlasPaneWidth(page)).toBe(width)
+        await expectDesktopAtlas(page)
+      })
+    })
+  }
+
+  test.describe('at a 1024px viewport with the side nav', () => {
+    test.use({ viewport: { width: 1024, height: 900 } })
+
+    test('is the phone Atlas on the narrower pane: the light globe, the chip and the sheets', async ({
+      page,
+      baseURL,
+    }) => {
+      await page.context().addCookies([{ name: 'nav_mode', value: 'side', url: baseURL! }])
+      await stubAtlas(page)
+      await page.goto('/atlas')
+      await waitForMap(page)
+      expect(await atlasPaneWidth(page)).toBeLessThan(900)
+      expect(await globeLook(page)).toBe('light')
+      await expect(page.getByRole('button', { name: 'Genres' })).toHaveAttribute('aria-expanded', 'false')
+      await jumpToPhoenix(page, 12.5)
+      await expect(page.getByTestId('atlas-venue-sheet')).toBeVisible({ timeout: 30_000 })
+      await expect(page.getByTestId('atlas-venue-rail')).toHaveCount(0)
+    })
+  })
+})
+
+/**
  * The light globe's place labels against the controls drawn over the map, on
  * a 390x844 phone signed in, so the My Scenes strip shows beside the search
  * pill, Drift, the Genres chip and the credit. These are the real controls
  * with their real classes: the label pass finds them by walking the pane, so
  * only a browser shows whether each wrapper lets it through to the control.
- * The compact globe draws its credit only from the street basemap's first
+ * The light globe draws its credit only from the street basemap's first
  * zoom (5), and place labels show below 5.5, so the credit is checked at 5.2.
  */
 for (const colorScheme of ['light', 'dark'] as const) {
