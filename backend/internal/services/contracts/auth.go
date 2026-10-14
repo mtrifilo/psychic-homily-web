@@ -193,14 +193,21 @@ const WebAuthnRegistrationOperation = "registration"
 // WebAuthnServiceInterface defines the contract for WebAuthn/passkey operations.
 type WebAuthnServiceInterface interface {
 	BeginRegistration(user *authm.User) (*protocol.CredentialCreation, *webauthn.SessionData, error)
+	// FinishRegistration answers a registration response that fails
+	// verification with an *errors.AuthError coded VALIDATION_FAILED, whose
+	// message is the client's copy. Any other error means the credential could
+	// not be stored.
 	FinishRegistration(user *authm.User, session *webauthn.SessionData, response *protocol.ParsedCredentialCreationData, displayName string) (*authm.WebAuthnCredential, error)
+	// BeginLogin answers an account that does not exist or holds no passkey
+	// with an *errors.AuthError coded INVALID_CREDENTIALS. Any other error
+	// means the account could not be read or the ceremony could not start.
 	BeginLogin(user *authm.User) (*protocol.CredentialAssertion, *webauthn.SessionData, error)
 	BeginDiscoverableLogin() (*protocol.CredentialAssertion, *webauthn.SessionData, error)
 	// FinishLogin and FinishDiscoverableLogin answer a refused sign-in with an
 	// *errors.AuthError coded INVALID_CREDENTIALS or ACCOUNT_INACTIVE, whose
 	// message is the client's copy. Any other error means no decision was
-	// reached.
-	FinishLogin(user *authm.User, session *webauthn.SessionData, response *protocol.ParsedCredentialAssertionData) (*authm.WebAuthnCredential, error)
+	// reached. On success both return the account the sign-in was decided on.
+	FinishLogin(user *authm.User, session *webauthn.SessionData, response *protocol.ParsedCredentialAssertionData) (*authm.User, *authm.WebAuthnCredential, error)
 	FinishDiscoverableLogin(session *webauthn.SessionData, response *protocol.ParsedCredentialAssertionData) (*authm.User, *authm.WebAuthnCredential, error)
 	GetUserCredentials(userID uint) ([]authm.WebAuthnCredential, error)
 	DeleteCredential(userID uint, credentialID uint) error
@@ -223,9 +230,13 @@ type WebAuthnServiceInterface interface {
 	CleanupExpiredChallenges(ctx context.Context) (int64, error)
 	BeginRegistrationForEmail(email string) (*protocol.CredentialCreation, *webauthn.SessionData, error)
 	StoreSignupChallenge(signup SignupChallenge, session *webauthn.SessionData, operation string) (string, error)
-	// ConsumeSignupChallenge returns an error for WebAuthnRegistrationOperation,
-	// as ConsumeChallenge does.
+	// ConsumeSignupChallenge's errors are ConsumeChallenge's.
 	ConsumeSignupChallenge(challengeID string, operation string) (*webauthn.SessionData, SignupChallenge, error)
+	// FinishSignupRegistrationWithLegal answers a refusal with an
+	// *errors.AuthError coded VALIDATION_FAILED (a registration response that
+	// fails verification) or USER_EXISTS (an address an account already
+	// holds), whose message is the client's copy. Any other error means the
+	// account was not created, or was created and could not be read back.
 	FinishSignupRegistrationWithLegal(email string, session *webauthn.SessionData, response *protocol.ParsedCredentialCreationData, displayName string, acceptance LegalAcceptance) (*authm.User, error)
 }
 

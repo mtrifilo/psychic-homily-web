@@ -245,6 +245,9 @@ func (s *OAuthHandlerIntegrationSuite) TestPasskeyFinishLogin_AccountState() {
 
 				if state.maySignIn {
 					s.True(resp.Body.Success, resp.Body.Message)
+					s.Require().NotNil(resp.Body.User)
+					s.Equal(user.ID, resp.Body.User.ID)
+					s.Empty(resp.Body.User.PasskeyCredentials)
 					s.NotEmpty(resp.SetCookie.Value)
 					s.NotNil(stored.LastUsedAt)
 					return
