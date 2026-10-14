@@ -5,9 +5,10 @@ echo "Starting entrypoint script (v3)..."
 # Prints a database URL as scheme://***@host:port/db: the userinfo becomes ***
 # and the query and fragment are dropped, since both can carry a password.
 # The host part is the text after the LAST '@', so a password holding a literal
-# '@' or '/' stays hidden. Input that does not reduce to that shape (no scheme,
-# a '?' or '#' before the last '@', or a host part with characters outside
-# [:alnum:] and ._:/-) prints as "set (not shown)" rather than a guess.
+# '@' or '/' stays hidden. Prints "NOT SET" for an empty URL. Returns 1 without
+# printing when the input does not reduce to that shape: no scheme, a '?' or
+# '#' before the last '@', or a host part with characters outside [:alnum:]
+# and ._:/-.
 redact_database_url() {
     redact_url=$1
     if [ -z "$redact_url" ]; then
@@ -16,31 +17,31 @@ redact_database_url() {
     fi
     case $redact_url in
         *://*) ;;
-        *) echo "set (not shown)"; return 0 ;;
+        *) return 1 ;;
     esac
     redact_scheme=${redact_url%%://*}
+    case $redact_scheme in
+        ''|*[![:alnum:]+.-]*) return 1 ;;
+    esac
     redact_rest=${redact_url#*://}
     redact_userinfo=""
     case $redact_rest in
         *@*)
             case ${redact_rest%@*} in
-                *[?#]*) echo "set (not shown)"; return 0 ;;
+                *[?#]*) return 1 ;;
             esac
             redact_rest=${redact_rest##*@}
             redact_userinfo="***@"
             ;;
     esac
     redact_rest=${redact_rest%%[?#]*}
-    case $redact_scheme in
-        ''|*[![:alnum:]+.-]*) echo "set (not shown)"; return 0 ;;
-    esac
     case $redact_rest in
-        ''|*[![:alnum:]._:/-]*) echo "set (not shown)"; return 0 ;;
+        ''|*[![:alnum:]._:/-]*) return 1 ;;
     esac
     printf '%s://%s%s\n' "$redact_scheme" "$redact_userinfo" "$redact_rest"
 }
 
-echo "DATABASE_URL: $(redact_database_url "$DATABASE_URL")"
+echo "DATABASE_URL: $(redact_database_url "$DATABASE_URL" || echo "set (not shown)")"
 
 # Check if DATABASE_URL is set
 if [ -z "$DATABASE_URL" ]; then

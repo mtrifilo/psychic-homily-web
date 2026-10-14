@@ -39,16 +39,10 @@ CASE=""
 OUTPUT=""
 STATUS=0
 
-# run <DATABASE_URL> runs the entrypoint with only PATH and that variable set;
-# run_unset runs it with DATABASE_URL absent from the environment.
+# run [DATABASE_URL] runs the entrypoint with only PATH and that variable set;
+# with no argument, DATABASE_URL is absent from the environment.
 run() {
-  OUTPUT="$(cd "$WORK" && env -i PATH="$STUB_BIN:$PATH" DATABASE_URL="$1" \
-    "$ENTRYPOINT_SHELL" "$UNDER_TEST" 2>&1)"
-  STATUS=$?
-}
-
-run_unset() {
-  OUTPUT="$(cd "$WORK" && env -i PATH="$STUB_BIN:$PATH" \
+  OUTPUT="$(cd "$WORK" && env -i PATH="$STUB_BIN:$PATH" ${1+"DATABASE_URL=$1"} \
     "$ENTRYPOINT_SHELL" "$UNDER_TEST" 2>&1)"
   STATUS=$?
 }
@@ -132,6 +126,12 @@ expect_booted
 expect_line "DATABASE_URL: set (not shown)"
 expect_absent "fixtureuser7" "Zq9fixturePW7731"
 
+CASE="no scheme, but a '://' later in the query: not shown"
+run "fixtureuser7:Zq9fixturePW7731@db.example.test:5432/appdb?next=https://elsewhere.test"
+expect_booted
+expect_line "DATABASE_URL: set (not shown)"
+expect_absent "fixtureuser7" "Zq9fixturePW7731"
+
 CASE="keyword/value DSN (no scheme): not shown"
 run "host=db.example.test user=fixtureuser7 password=KvFixtureSecret dbname=appdb"
 expect_line "DATABASE_URL: set (not shown)"
@@ -144,7 +144,7 @@ expect_line "DATABASE_URL: NOT SET"
 expect_line "ERROR: DATABASE_URL is not set!"
 
 CASE="unset DATABASE_URL: NOT SET, boot refused"
-run_unset
+run
 expect_status 1
 expect_line "DATABASE_URL: NOT SET"
 expect_line "ERROR: DATABASE_URL is not set!"

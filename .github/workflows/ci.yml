@@ -71,10 +71,7 @@ jobs:
       - name: Self-test the production release recorder
         run: bash scripts/record_production_release_test.sh
 
-      # The backend entrypoint logs DATABASE_URL redacted to
-      # scheme://***@host:port/db. This self-test runs the real entrypoint with
-      # stub nc/migrate/main and fails if any part of a fixture user or
-      # password reaches the boot output. It needs no database and no network.
+      # Sub-second, no database or network; the script header has the cases.
       - name: Self-test the entrypoint's DATABASE_URL redaction
         run: bash scripts/check_entrypoint_redaction_test.sh
 
