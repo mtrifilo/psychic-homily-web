@@ -1,21 +1,29 @@
 'use client'
 
 import { useEffect, useRef } from 'react'
+import { usePathname } from 'next/navigation'
 import { ChromeLink } from '@/components/layout/nav/ChromeLink'
 import { Button } from '@/components/ui/button'
 import { useCookieConsent } from '@/lib/context/CookieConsentContext'
+import { cn } from '@/lib/utils'
 import { CookiePreferencesDialog } from './CookiePreferencesDialog'
+import { isFooterHiddenBelowXl } from './footerVisibility'
 
 /* PSY-1029: the consent banner is a slim fixed bottom bar (one compact row of
  * copy + small buttons) instead of the old two-deck layout, so the first
  * content row of the logged-out homepage stays fully visible on first paint.
- * While the bar is visible it mirrors its height into `body` bottom padding,
- * so content at the document end (the footer) stays reachable by scrolling
- * rather than being permanently covered until the visitor consents. */
+ * While the bar is visible an in-flow spacer of the bar's height ends the
+ * document, so content at the document end (the footer) stays reachable by
+ * scrolling rather than being permanently covered until the visitor consents.
+ * The spacer follows the footer: on the routes that hide the footer below
+ * `xl` (footerVisibility.ts) it is hidden below `xl` too, because each of
+ * those routes fills the viewport and gives up the bar's height itself, so a
+ * spacer there would only make the page scroll into an empty band. */
 
 /** The bar's rendered height including its padding, published on <html>
- * while the bar is mounted and absent otherwise. AtlasGlobe's frame subtracts
- * it (with a 0px fallback) so the map ends above the bar. */
+ * while the bar is mounted and absent otherwise. The spacer's height and
+ * AtlasGlobe's frame read it (with a 0px fallback); the frame subtracts it so
+ * the map ends above the bar. */
 const COOKIE_BANNER_HEIGHT_VAR = '--cookie-banner-height'
 
 function ConsentBar() {
@@ -23,25 +31,26 @@ function ConsentBar() {
     useCookieConsent()
   const barRef = useRef<HTMLDivElement>(null)
 
-  // Reserve scroll space matching the bar's rendered height (it varies with
-  // viewport width / text wrapping) and publish that height, releasing both
-  // when the bar unmounts.
+  const spacerHiddenBelowXl = isFooterHiddenBelowXl(usePathname())
+
+  // Publish the bar's rendered height (it varies with viewport width / text
+  // wrapping), withdrawing it when the bar unmounts.
   useEffect(() => {
     const bar = barRef.current
     if (!bar) return
 
-    const reserveSpace = () => {
-      const height = `${bar.offsetHeight}px`
-      document.body.style.paddingBottom = height
-      document.documentElement.style.setProperty(COOKIE_BANNER_HEIGHT_VAR, height)
+    const publishHeight = () => {
+      document.documentElement.style.setProperty(
+        COOKIE_BANNER_HEIGHT_VAR,
+        `${bar.offsetHeight}px`
+      )
     }
-    reserveSpace()
-    const observer = new ResizeObserver(reserveSpace)
+    publishHeight()
+    const observer = new ResizeObserver(publishHeight)
     observer.observe(bar)
 
     return () => {
       observer.disconnect()
-      document.body.style.paddingBottom = ''
       document.documentElement.style.removeProperty(COOKIE_BANNER_HEIGHT_VAR)
     }
   }, [])
@@ -67,48 +76,58 @@ function ConsentBar() {
     //     double-count it and leave a gap between banner and bar. The 0.625rem
     //     in that override is py-2.5 restated (Tailwind spacing unit 0.25rem x
     //     2.5); retune one and retune the other, or the row goes lopsided at xl.
-    // offsetHeight (mirrored into body padding above) grows with this padding,
-    // so the scroll reservation stays correct on every device.
-    <div
-      ref={barRef}
-      className="fixed bottom-[calc(var(--bottom-tab-bar-height)+env(safe-area-inset-bottom))] left-0 right-0 z-50 border-t bg-background py-2.5 pl-[calc(1rem+env(safe-area-inset-left))] pr-[calc(1rem+env(safe-area-inset-right))] motion-safe:animate-in motion-safe:slide-in-from-bottom motion-safe:duration-300 xl:bottom-0 xl:pb-[calc(0.625rem+env(safe-area-inset-bottom))]"
-      role="dialog"
-      aria-label="Cookie consent"
-      aria-describedby="cookie-consent-description"
-    >
-      <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-x-6 gap-y-2">
-        <div className="min-w-0">
-          <p
-            id="cookie-consent-description"
-            className="text-sm text-muted-foreground"
-          >
-            We use cookies to improve your experience.{' '}
-            <ChromeLink
-              href="/privacy"
-              className="underline underline-offset-4 hover:text-foreground"
+    // offsetHeight (published above, read by the spacer) grows with this
+    // padding, so the scroll reservation stays correct on every device.
+    <>
+      <div
+        ref={barRef}
+        className="fixed bottom-[calc(var(--bottom-tab-bar-height)+env(safe-area-inset-bottom))] left-0 right-0 z-50 border-t bg-background py-2.5 pl-[calc(1rem+env(safe-area-inset-left))] pr-[calc(1rem+env(safe-area-inset-right))] motion-safe:animate-in motion-safe:slide-in-from-bottom motion-safe:duration-300 xl:bottom-0 xl:pb-[calc(0.625rem+env(safe-area-inset-bottom))]"
+        role="dialog"
+        aria-label="Cookie consent"
+        aria-describedby="cookie-consent-description"
+      >
+        <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-x-6 gap-y-2">
+          <div className="min-w-0">
+            <p
+              id="cookie-consent-description"
+              className="text-sm text-muted-foreground"
             >
-              Learn more
-            </ChromeLink>
-          </p>
-          {gpcSignalDetected && (
-            <p className="mt-0.5 text-xs text-muted-foreground">
-              We detected a Global Privacy Control signal from your browser.
+              We use cookies to improve your experience.{' '}
+              <ChromeLink
+                href="/privacy"
+                className="underline underline-offset-4 hover:text-foreground"
+              >
+                Learn more
+              </ChromeLink>
             </p>
-          )}
-        </div>
-        <div className="flex items-center gap-2">
-          <Button size="sm" variant="outline" onClick={rejectAll}>
-            Reject All
-          </Button>
-          <Button size="sm" variant="outline" onClick={openPreferences}>
-            Customize
-          </Button>
-          <Button size="sm" onClick={acceptAll}>
-            Accept All
-          </Button>
+            {gpcSignalDetected && (
+              <p className="mt-0.5 text-xs text-muted-foreground">
+                We detected a Global Privacy Control signal from your browser.
+              </p>
+            )}
+          </div>
+          <div className="flex items-center gap-2">
+            <Button size="sm" variant="outline" onClick={rejectAll}>
+              Reject All
+            </Button>
+            <Button size="sm" variant="outline" onClick={openPreferences}>
+              Customize
+            </Button>
+            <Button size="sm" onClick={acceptAll}>
+              Accept All
+            </Button>
+          </div>
         </div>
       </div>
-    </div>
+      <div
+        aria-hidden
+        data-cookie-banner-spacer=""
+        className={cn(
+          'h-[var(--cookie-banner-height,0px)]',
+          spacerHiddenBelowXl && 'hidden xl:block'
+        )}
+      />
+    </>
   )
 }
 

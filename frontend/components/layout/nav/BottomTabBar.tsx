@@ -5,7 +5,9 @@ import { ChromeLink } from '@/components/layout/nav/ChromeLink'
 import { useLinkStatus } from 'next/link'
 import { usePathname } from 'next/navigation'
 import { AUTH_PATH, buildAuthHref } from '@/lib/auth-href'
-import { ExternalLink, LayoutGrid, LogOut, Moon, Sun, User } from 'lucide-react'
+import {
+  ChevronRight, ExternalLink, LayoutGrid, LogOut, Moon, Sun, User,
+} from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { replayOnHydrate } from '@/lib/hydration/clickReplay'
@@ -21,9 +23,10 @@ import {
 } from '@/components/shared/UnreadCountBadge'
 import { useUnreadNotificationCount } from '@/features/notifications/hooks'
 import { useAuthContext } from '@/lib/context/AuthContext'
+import { useCookieConsent } from '@/lib/context/CookieConsentContext'
 import {
   NOTIFICATIONS_HREF, PROFILE_CLAIM_HREF, accountNavItems, isNavActive,
-  mobileBrowseGroups, mobileBrowseHrefs, primaryTabs, sheetLinkClassName,
+  legalSheetRows, mobileBrowseGroups, mobileBrowseHrefs, primaryTabs, sheetLinkClassName,
   navGroupLabelClassName, visibleNavItems,
 } from './navData'
 import type { NavDestination, NavLink } from './navData'
@@ -296,6 +299,45 @@ function BrowseSheetBody({
   )
 }
 
+const legalRowClassName =
+  'flex h-9 w-full items-center justify-between rounded-md px-3 text-left text-sm text-muted-foreground transition-colors hover:bg-accent/50 hover:text-accent-foreground'
+
+// The Account sheet's legal block (navData's legalSheetRows): quiet rows with
+// a trailing chevron and no icons, so they read as legal links rather than
+// destinations. Every row is a SheetClose, so the sheet closes on the same tap.
+// For Cookie preferences that matters beyond tidiness: the preferences dialog
+// opens in that same render, and the sheet must not stay open over it. The
+// links skip prefetching for the reason SheetNavLink gives.
+function LegalSheetRows() {
+  const { openPreferences } = useCookieConsent()
+  return (
+    <>
+      <div className="mx-3 my-2 border-t border-border/30" />
+      {legalSheetRows.map(row => {
+        const content = (
+          <>
+            <span>{row.label}</span>
+            <ChevronRight className="size-3.5 opacity-70" aria-hidden />
+          </>
+        )
+        return (
+          <SheetClose asChild key={row.label}>
+            {row.kind === 'cookie-preferences' ? (
+              <button type="button" onClick={openPreferences} className={legalRowClassName}>
+                {content}
+              </button>
+            ) : (
+              <ChromeLink href={row.href} prefetch={false} className={legalRowClassName}>
+                {content}
+              </ChromeLink>
+            )}
+          </SheetClose>
+        )
+      })}
+    </>
+  )
+}
+
 function AccountSheetBody({
   items,
   pathname,
@@ -326,6 +368,7 @@ function AccountSheetBody({
           </Button>
         </SheetClose>
       </div>
+      <LegalSheetRows />
     </>
   )
 }
@@ -416,7 +459,7 @@ export function BottomTabBar() {
             icon={User}
             active={accountActive}
             subtitle={user.email}
-            description="Your account: notifications, library, profile, settings, and sign out."
+            description="Your account: notifications, library, profile, settings, sign out, cookie preferences, privacy, and terms."
             unreadCount={unreadCount}
           >
             <AccountSheetBody

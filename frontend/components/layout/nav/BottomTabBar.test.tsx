@@ -3,7 +3,7 @@ import { act, fireEvent, render, screen, waitFor, within } from '@testing-librar
 import userEvent from '@testing-library/user-event'
 import { BottomTabBar } from './BottomTabBar'
 import { primaryLinks } from './PrimaryNav'
-import { mobileBrowseHrefs, primaryTabs, sidebarGroups } from './navData'
+import { legalSheetRows, mobileBrowseHrefs, primaryTabs, sidebarGroups } from './navData'
 import { BOTTOM_TAB_BAR_BOX } from '@/test/layoutContracts'
 import type { AuthStatus } from '@/lib/context/AuthContext'
 import { makeAuthFixture, type MockAuthContextValue } from '@/test/authFixture'
@@ -43,6 +43,14 @@ vi.mock('@/lib/context/AuthContext', () => ({
 const mockUnreadCount = vi.fn(() => 0)
 vi.mock('@/features/notifications/hooks', () => ({
   useUnreadNotificationCount: () => mockUnreadCount(),
+}))
+
+// The Account sheet's Cookie preferences row calls the same openPreferences
+// the footer and the banner call; BottomTabBar.legalRows.test.tsx runs it
+// against the real provider and dialog.
+const mockOpenPreferences = vi.fn()
+vi.mock('@/lib/context/CookieConsentContext', () => ({
+  useCookieConsent: () => ({ openPreferences: mockOpenPreferences }),
 }))
 
 // No `theme` field on purpose: the sheet reads useThemeToggle, which keys off
@@ -613,6 +621,91 @@ describe('BottomTabBar', () => {
       render(<BottomTabBar />)
       expect(screen.getByRole('button', { name: 'Account' })).toHaveAttribute('aria-current', 'page')
     })
+  })
+
+  // The legal block (Figma Product Designs 1957:6 / 1957:46): after Sign out,
+  // a separator and three quiet rows, from navData's legalSheetRows.
+  describe('Account sheet legal rows', () => {
+    async function openAccountSheet() {
+      authedAs({ email: 'user@test.com', is_admin: false })
+      const user = userEvent.setup()
+      render(<BottomTabBar />)
+      await user.click(screen.getByRole('button', { name: 'Account' }))
+      const sheet = await screen.findByRole('dialog', { name: 'Account' })
+      return { user, sheet }
+    }
+
+    it('renders Cookie preferences, Privacy and Terms after Sign out, in list order', async () => {
+      const { sheet } = await openAccountSheet()
+      const signOut = within(sheet).getByRole('button', { name: 'Sign out' })
+      const rows = legalSheetRows.map(row =>
+        within(sheet).getByRole(row.kind === 'link' ? 'link' : 'button', {
+          name: row.label,
+        })
+      )
+      expect(rows.map(r => r.textContent)).toEqual([
+        'Cookie preferences',
+        'Privacy',
+        'Terms',
+      ])
+      for (const [i, row] of rows.entries()) {
+        // Sign out precedes every row, and the rows keep the list's order.
+        expect(
+          signOut.compareDocumentPosition(row) & Node.DOCUMENT_POSITION_FOLLOWING
+        ).toBeTruthy()
+        if (i > 0) {
+          expect(
+            rows[i - 1].compareDocumentPosition(row) & Node.DOCUMENT_POSITION_FOLLOWING
+          ).toBeTruthy()
+        }
+      }
+    })
+
+    it('links Privacy to /privacy and Terms to /terms without prefetching', async () => {
+      const { sheet } = await openAccountSheet()
+      const privacy = within(sheet).getByRole('link', { name: 'Privacy' })
+      const terms = within(sheet).getByRole('link', { name: 'Terms' })
+      expect(privacy).toHaveAttribute('href', '/privacy')
+      expect(terms).toHaveAttribute('href', '/terms')
+      expect(privacy).toHaveAttribute('data-prefetch', 'false')
+      expect(terms).toHaveAttribute('data-prefetch', 'false')
+    })
+
+    it('makes Cookie preferences a button that opens the preferences and closes the sheet', async () => {
+      const { user, sheet } = await openAccountSheet()
+      const row = within(sheet).getByRole('button', { name: 'Cookie preferences' })
+      expect(row).toHaveAttribute('type', 'button')
+      await user.click(row)
+      expect(mockOpenPreferences).toHaveBeenCalledTimes(1)
+      await waitFor(() =>
+        expect(screen.queryByRole('dialog', { name: 'Account' })).not.toBeInTheDocument()
+      )
+    })
+
+    it('closes the sheet when Privacy is tapped', async () => {
+      const { user, sheet } = await openAccountSheet()
+      await user.click(within(sheet).getByRole('link', { name: 'Privacy' }))
+      await waitFor(() =>
+        expect(screen.queryByRole('dialog', { name: 'Account' })).not.toBeInTheDocument()
+      )
+    })
+
+    // The rows are route-independent: the routes that hide the site footer
+    // below `xl` (footerVisibility.ts) get them exactly as every other route.
+    it.each(['/', '/atlas', '/shows', '/privacy', '/admin', '/users/me'])(
+      'renders the rows on %s',
+      async pathname => {
+        mockPathname = pathname
+        const { sheet } = await openAccountSheet()
+        for (const row of legalSheetRows) {
+          expect(
+            within(sheet).getByRole(row.kind === 'link' ? 'link' : 'button', {
+              name: row.label,
+            })
+          ).toBeInTheDocument()
+        }
+      }
+    )
   })
 
   // PSY-1819. Below `sm` the top bar hides the notification bell, so before

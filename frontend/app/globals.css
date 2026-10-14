@@ -126,10 +126,10 @@
    * popover max-height (on soft-keyboard viewports only). Below `xl`
    * AtlasGlobe's height also subtracts --topbar-height so it ends at the bar,
    * and its route is listed in components/layout/footerVisibility.ts so the
-   * site footer does not show under it. AtlasGlobe also
-   * subtracts --cookie-banner-height, which CookieConsentBanner publishes on
-   * <html> only while it is up, since the banner sits above the bar's band
-   * there. Floating overlays
+   * site footer and the banner's scroll spacer do not show under it.
+   * AtlasGlobe also subtracts --cookie-banner-height, which
+   * CookieConsentBanner publishes on <html> only while it is up, since the
+   * banner sits above the bar's band there. Floating overlays
    * positioned in JS (FirstSaveHint) measure the bar through its
    * `data-bottom-tab-bar` attribute instead, since this calc() cannot be read
    * back as a number. */

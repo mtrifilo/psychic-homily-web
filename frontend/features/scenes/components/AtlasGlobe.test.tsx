@@ -774,7 +774,7 @@ describe('AtlasGlobe', () => {
     const frame = screen.getByTestId('atlas-pane-frame')
     expect(frame).toHaveClass(
       'h-[calc(100dvh-var(--topbar-height)-var(--bottom-tab-bar-height)-env(safe-area-inset-bottom)-var(--cookie-banner-height,0px))]',
-      'xl:h-[calc(100dvh-4rem-max(env(safe-area-inset-bottom),var(--cookie-banner-height,0px)))]',
+      'xl:h-[calc(100dvh-var(--topbar-height)-max(env(safe-area-inset-bottom),var(--cookie-banner-height,0px)))]',
       'min-h-[calc(480px-var(--cookie-banner-height,0px))]',
     )
   })
