@@ -348,9 +348,9 @@ describe('VenueRail', () => {
     ).toMatch(/at least sometimes/)
   })
 
-  it('promises no affordance the app does not have', () => {
-    // VenueDetail mounts EntityTagList but not the AddTagDialog + "[Add tag]"
-    // control its peers pair with it, so there is nowhere to go add the tag.
+  it('renders no call-to-action in the all-ages empty state', () => {
+    // The add-tag control lives on the venue's own page, and an empty rail
+    // names no venue to send the reader to.
     //
     // Asserts on RENDERED CONTROLS, not on the absence of particular phrases:
     // a phrase-absence test passes no matter what call-to-action someone adds

@@ -3,7 +3,7 @@
 import { useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { ArrowLeft, BadgeCheck, Pencil, Trash2, Loader2, ExternalLink, Flag } from 'lucide-react'
+import { ArrowLeft, BadgeCheck, Pencil, Tag, Trash2, Loader2, ExternalLink, Flag } from 'lucide-react'
 import { useVenue, useVenueGenres } from '../hooks/useVenues'
 import type { VenueShowYearsResponse } from '../types'
 import { useVenueUpdate } from '../hooks/useVenueEdit'
@@ -16,7 +16,7 @@ import { SocialLinks, RevisionHistory, FollowButton, Breadcrumb, TagPill, Entity
 import { EntityCollections } from '@/features/collections'
 import { EntityChartRankBadge } from '@/features/charts'
 import { CommentThread } from '@/features/comments'
-import { EntityTagList } from '@/features/tags'
+import { EntityTagList, AddTagDialog } from '@/features/tags'
 import { FollowAlertsReveal } from '@/components/shared/FollowAlertsReveal'
 import { VenueLocationCard } from './VenueLocationCard'
 import { VenueShowsList } from './VenueShowsList'
@@ -86,6 +86,7 @@ export function VenueDetail({ venueId, initialPastYears }: VenueDetailProps) {
   const [isEditingVenue, setIsEditingVenue] = useState(false)
   const [isDeleteVenueOpen, setIsDeleteVenueOpen] = useState(false)
   const [isReportOpen, setIsReportOpen] = useState(false)
+  const [addTagDialogOpen, setAddTagDialogOpen] = useState(false)
   const { isAuthenticated, user } = useAuthContext()
   const queryClient = useQueryClient()
   const router = useRouter()
@@ -229,6 +230,17 @@ export function VenueDetail({ venueId, initialPastYears }: VenueDetailProps) {
                       >
                         <Pencil className="h-4 w-4 mr-2" />
                         Edit
+                      </Button>
+                      {/* The only add-tag control an untagged venue has:
+                          EntityTagList renders nothing for an entity with no
+                          tags. */}
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setAddTagDialogOpen(true)}
+                      >
+                        <Tag className="h-4 w-4 mr-2" />
+                        Add tag
                       </Button>
                       <Button
                         variant="ghost"
@@ -440,6 +452,15 @@ export function VenueDetail({ venueId, initialPastYears }: VenueDetailProps) {
           entityType="venue"
           entityId={venue.id}
           entityName={venue.name}
+        />
+      )}
+
+      {isAuthenticated && (
+        <AddTagDialog
+          entityType="venue"
+          entityId={venue.id}
+          open={addTagDialogOpen}
+          onOpenChange={setAddTagDialogOpen}
         />
       )}
     </div>
