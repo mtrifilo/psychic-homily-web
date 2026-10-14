@@ -4684,12 +4684,11 @@ type MockWebAuthnService struct {
 	DeleteCredentialFn                  func(uint, uint) error
 	UpdateCredentialNameFn              func(uint, uint, string) error
 	StoreChallengeFn                    func(uint, *webauthn.SessionData, string) (string, error)
-	GetChallengeFn                      func(string, string) (*webauthn.SessionData, uint, error)
-	DeleteChallengeFn                   func(string) error
+	ConsumeChallengeFn                  func(string, string) (*webauthn.SessionData, uint, error)
 	CleanupExpiredChallengesFn          func() error
 	BeginRegistrationForEmailFn         func(string) (*protocol.CredentialCreation, *webauthn.SessionData, error)
 	StoreSignupChallengeFn              func(contracts.SignupChallenge, *webauthn.SessionData, string) (string, error)
-	GetSignupChallengeFn                func(string, string) (*webauthn.SessionData, contracts.SignupChallenge, error)
+	ConsumeSignupChallengeFn            func(string, string) (*webauthn.SessionData, contracts.SignupChallenge, error)
 	FinishSignupRegistrationFn          func(string, *webauthn.SessionData, *protocol.ParsedCredentialCreationData, string) (*authm.User, error)
 	FinishSignupRegistrationWithLegalFn func(string, *webauthn.SessionData, *protocol.ParsedCredentialCreationData, string, contracts.LegalAcceptance) (*authm.User, error)
 }
@@ -4754,17 +4753,11 @@ func (m *MockWebAuthnService) StoreChallenge(userID uint, session *webauthn.Sess
 	}
 	return "challenge-id", nil
 }
-func (m *MockWebAuthnService) GetChallenge(challengeID string, operation string) (*webauthn.SessionData, uint, error) {
-	if m.GetChallengeFn != nil {
-		return m.GetChallengeFn(challengeID, operation)
+func (m *MockWebAuthnService) ConsumeChallenge(challengeID string, operation string) (*webauthn.SessionData, uint, error) {
+	if m.ConsumeChallengeFn != nil {
+		return m.ConsumeChallengeFn(challengeID, operation)
 	}
 	return nil, 0, nil
-}
-func (m *MockWebAuthnService) DeleteChallenge(challengeID string) error {
-	if m.DeleteChallengeFn != nil {
-		return m.DeleteChallengeFn(challengeID)
-	}
-	return nil
 }
 func (m *MockWebAuthnService) CleanupExpiredChallenges() error {
 	if m.CleanupExpiredChallengesFn != nil {
@@ -4784,9 +4777,9 @@ func (m *MockWebAuthnService) StoreSignupChallenge(signup contracts.SignupChalle
 	}
 	return "", nil
 }
-func (m *MockWebAuthnService) GetSignupChallenge(challengeID string, operation string) (*webauthn.SessionData, contracts.SignupChallenge, error) {
-	if m.GetSignupChallengeFn != nil {
-		return m.GetSignupChallengeFn(challengeID, operation)
+func (m *MockWebAuthnService) ConsumeSignupChallenge(challengeID string, operation string) (*webauthn.SessionData, contracts.SignupChallenge, error) {
+	if m.ConsumeSignupChallengeFn != nil {
+		return m.ConsumeSignupChallengeFn(challengeID, operation)
 	}
 	return nil, contracts.SignupChallenge{}, nil
 }

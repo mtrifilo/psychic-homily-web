@@ -190,7 +190,7 @@ func TestPasskeyWire_LoginFinishAcceptsLibraryResponseShape(t *testing.T) {
 	_, device := softRegistration(t)
 	var parsedID string
 	mockWA := &testhelpers.MockWebAuthnService{
-		GetChallengeFn: func(string, string) (*webauthn.SessionData, uint, error) {
+		ConsumeChallengeFn: func(string, string) (*webauthn.SessionData, uint, error) {
 			return &webauthn.SessionData{}, 0, nil
 		},
 		FinishDiscoverableLoginFn: func(_ *webauthn.SessionData, parsed *protocol.ParsedCredentialAssertionData) (*authm.User, *authm.WebAuthnCredential, error) {
@@ -215,7 +215,7 @@ func TestPasskeyWire_SignupFinishWithoutDisplayName(t *testing.T) {
 	body, _ := softRegistration(t)
 	var displayName string
 	mockWA := &testhelpers.MockWebAuthnService{
-		GetSignupChallengeFn: func(string, string) (*webauthn.SessionData, contracts.SignupChallenge, error) {
+		ConsumeSignupChallengeFn: func(string, string) (*webauthn.SessionData, contracts.SignupChallenge, error) {
 			return &webauthn.SessionData{}, currentSignupChallenge("new@example.com"), nil
 		},
 		FinishSignupRegistrationWithLegalFn: func(_ string, _ *webauthn.SessionData, _ *protocol.ParsedCredentialCreationData, name string, _ contracts.LegalAcceptance) (*authm.User, error) {
@@ -247,7 +247,7 @@ func TestPasskeyWire_RegisterFinishWithoutDisplayName(t *testing.T) {
 	body, _ := softRegistration(t)
 	var displayName string
 	mockWA := &testhelpers.MockWebAuthnService{
-		GetChallengeFn: func(string, string) (*webauthn.SessionData, uint, error) {
+		ConsumeChallengeFn: func(string, string) (*webauthn.SessionData, uint, error) {
 			return &webauthn.SessionData{}, 1, nil
 		},
 		FinishRegistrationFn: func(user *authm.User, _ *webauthn.SessionData, _ *protocol.ParsedCredentialCreationData, name string) (*authm.WebAuthnCredential, error) {
