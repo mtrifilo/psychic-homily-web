@@ -1486,9 +1486,9 @@ describe('GlobeCanvas theme', () => {
     const { map } = renderCanvas()
     // The stub opens at zoom 13, on the streets.
     expect(ground()).toBe('paper')
-    zoomTo(map, 6.68)
+    zoomTo(map, LABEL_PAPER_GROUND_ZOOM - 0.01)
     expect(ground()).toBeUndefined()
-    zoomTo(map, 6.7)
+    zoomTo(map, LABEL_PAPER_GROUND_ZOOM)
     expect(ground()).toBe('paper')
     zoomTo(map, 3)
     expect(ground()).toBeUndefined()

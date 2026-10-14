@@ -290,7 +290,7 @@ describe.each(ATLAS_THEMES)('ph-%s-basemap.json', (variant) => {
     for (const [token, hex] of Object.entries(anchors)) {
       expect(
         tokenBlock.css,
-        `${token} moved in globals.css: re-derive the basemap palette (see basemap/README.md) and update this guard`,
+        `${token} moved in globals.css: retune the basemap palette against its source (dark: the .dark tokens; light: the board table, see basemap/README.md) and update this guard`,
       ).toContain(`${token}: ${hex};`)
       expect(raw, `${hex} (${token}) is no longer used by the style`).toContain(
         hex,
@@ -343,7 +343,7 @@ describe('the light style against the dark one', () => {
   it('halos every label in the ground it sits on: paper, or water for water names', () => {
     for (const layer of light.layers) {
       if (layer.type !== 'symbol') continue
-      const ground = layer.id === 'ph-water-name' ? LIGHT_PAINT['ph-water']['fill-color'] : '#f4f1ea'
+      const ground = layer.id === 'ph-water-name' ? LIGHT_PAINT['ph-water']['fill-color'][1] : '#f4f1ea'
       expect(paintOf(layer)['text-halo-color'], layer.id).toBe(ground)
     }
   })
@@ -363,7 +363,16 @@ describe('the light palette derivation', () => {
     expect(() => deriveLightBasemap(dark)).toThrow(/ph-new-layer has no entry/)
   })
 
-  it('refuses a dark layer whose colours no longer match the palette entry', () => {
+  it('refuses a dark layer recoloured without a new light twin', () => {
+    const dark = structuredClone(phDarkBasemap) as unknown as StyleSpecification
+    const road = dark.layers.find((l) => l.id === 'ph-road-minor')
+    if (road?.type !== 'line') throw new Error('unreachable')
+    road.paint = { ...road.paint, 'line-color': '#ff00ff' }
+    expect(() => deriveLightBasemap(dark)).toThrow(/ph-road-minor line-color is #ff00ff/)
+    expect(() => lightBasemapText(JSON.stringify(dark, null, 2))).toThrow(/ph-road-minor/)
+  })
+
+  it('refuses a dark layer that gains or loses a colour property the palette pairs', () => {
     const dark = structuredClone(phDarkBasemap) as unknown as StyleSpecification
     const building = dark.layers.find((l) => l.id === 'ph-building')
     if (building?.type !== 'fill') throw new Error('unreachable')

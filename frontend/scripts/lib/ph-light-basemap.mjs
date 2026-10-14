@@ -9,7 +9,8 @@
 //
 // deriveLightBasemap refuses a dark style the table no longer fits: a colour
 // it names that the dark layer lacks, a colour the dark layer has that it does
-// not name, or a layer on one side only. A regenerated dark style therefore
+// not name, a dark colour other than the one it pairs, or a layer on one side
+// only. A regenerated dark style therefore
 // cannot leave a layer dark in the light map without the derivation failing.
 import { isDeepStrictEqual } from 'node:util'
 
@@ -22,37 +23,43 @@ const WATER = '#dbe4ea'
 
 /** Layer id -> paint property -> light value. Only colours change. */
 export const LIGHT_PAINT = {
-  'ph-background': { 'background-color': PAPER },
-  'ph-landcover-green': { 'fill-color': '#e4e9d4' },
-  'ph-landcover-ice': { 'fill-color': '#eef0f1' },
-  'ph-landcover-sand': { 'fill-color': '#f0e8d5' },
-  'ph-park': { 'fill-color': '#dfe6c9' },
-  'ph-landuse-residential': { 'fill-color': '#efe9dd' },
-  'ph-waterway': { 'line-color': '#c9d6df' },
-  'ph-water': { 'fill-color': WATER },
-  'ph-aeroway-runway': { 'line-color': '#e3dccd' },
-  'ph-road-path': { 'line-color': '#e9e3d6' },
-  'ph-road-service': { 'line-color': '#e4ddcd' },
-  'ph-road-minor': { 'line-color': '#ddd5c2' },
-  'ph-road-secondary-tertiary': { 'line-color': '#d3c9b1' },
+  'ph-background': { 'background-color': ['#0d0805', PAPER] },
+  'ph-landcover-green': { 'fill-color': ['#0f1309', '#e4e9d4'] },
+  'ph-landcover-ice': { 'fill-color': ['#0f1114', '#eef0f1'] },
+  'ph-landcover-sand': { 'fill-color': ['#130e08', '#f0e8d5'] },
+  'ph-park': { 'fill-color': ['#111408', '#dfe6c9'] },
+  'ph-landuse-residential': { 'fill-color': ['#110b07', '#efe9dd'] },
+  'ph-waterway': { 'line-color': ['#12181f', '#c9d6df'] },
+  'ph-water': { 'fill-color': ['#090c12', WATER] },
+  'ph-aeroway-runway': { 'line-color': ['#191209', '#e3dccd'] },
+  'ph-road-path': { 'line-color': ['#181209', '#e9e3d6'] },
+  'ph-road-service': { 'line-color': ['#1b140e', '#e4ddcd'] },
+  'ph-road-minor': { 'line-color': ['#201810', '#ddd5c2'] },
+  'ph-road-secondary-tertiary': { 'line-color': ['#271d13', '#d3c9b1'] },
   // --border
-  'ph-road-primary-trunk': { 'line-color': '#cabe9f' },
-  'ph-road-motorway': { 'line-color': '#bfb18e' },
-  'ph-rail': { 'line-color': '#d6ccb6' },
+  'ph-road-primary-trunk': { 'line-color': ['#2f2216', '#cabe9f'] },
+  'ph-road-motorway': { 'line-color': ['#34251a', '#bfb18e'] },
+  'ph-rail': { 'line-color': ['#1d160f', '#d6ccb6'] },
   // --card fill, --secondary outline
-  'ph-building': { 'fill-color': '#faf7f0', 'fill-outline-color': '#e8e3d6' },
+  'ph-building': {
+    'fill-color': ['#17100b', '#faf7f0'],
+    'fill-outline-color': ['#221b15', '#e8e3d6'],
+  },
   // --border
-  'ph-boundary-state': { 'line-color': '#cabe9f' },
-  'ph-boundary-country': { 'line-color': '#a89b7d' },
-  'ph-water-name': { 'text-color': '#5c6f82', 'text-halo-color': WATER },
-  'ph-road-name-minor': { 'text-color': '#8a7b69', 'text-halo-color': PAPER },
+  'ph-boundary-state': { 'line-color': ['#292017', '#cabe9f'] },
+  'ph-boundary-country': { 'line-color': ['#3a3024', '#a89b7d'] },
+  'ph-water-name': {
+    'text-color': ['#4f5c6e', '#5c6f82'],
+    'text-halo-color': ['#090c12', WATER],
+  },
+  'ph-road-name-minor': { 'text-color': ['#7c6e5e', '#8a7b69'], 'text-halo-color': ['#0d0805', PAPER] },
   // --muted-foreground
-  'ph-road-name-major': { 'text-color': '#6b5e4f', 'text-halo-color': PAPER },
-  'ph-place-suburb': { 'text-color': '#7a6c5c', 'text-halo-color': PAPER },
-  'ph-place-village': { 'text-color': '#5a4f43', 'text-halo-color': PAPER },
-  'ph-place-town': { 'text-color': '#3e352c', 'text-halo-color': PAPER },
+  'ph-road-name-major': { 'text-color': ['#93836f', '#6b5e4f'], 'text-halo-color': ['#0d0805', PAPER] },
+  'ph-place-suburb': { 'text-color': ['#8a7b69', '#7a6c5c'], 'text-halo-color': ['#0d0805', PAPER] },
+  'ph-place-village': { 'text-color': ['#ab9d8a', '#5a4f43'], 'text-halo-color': ['#0d0805', PAPER] },
+  'ph-place-town': { 'text-color': ['#c4b6a1', '#3e352c'], 'text-halo-color': ['#0d0805', PAPER] },
   // --foreground
-  'ph-place-city': { 'text-color': '#1a1714', 'text-halo-color': PAPER },
+  'ph-place-city': { 'text-color': ['#eee7d9', '#1a1714'], 'text-halo-color': ['#0d0805', PAPER] },
 }
 
 // A paint property holds a colour when its name ends in -color.
@@ -80,7 +87,17 @@ export function deriveLightBasemap(dark) {
         `${layer.id}: the dark style colours ${darkColors.join(', ') || 'nothing'}; LIGHT_PAINT names ${named.join(', ')}`,
       )
     }
-    layer.paint = { ...paint, ...colors }
+    for (const [property, [darkValue]] of Object.entries(colors)) {
+      if (paint[property] !== darkValue) {
+        throw new Error(
+          `${layer.id} ${property} is ${paint[property]} in the dark file; LIGHT_PAINT pairs ${darkValue}`,
+        )
+      }
+    }
+    layer.paint = {
+      ...paint,
+      ...Object.fromEntries(Object.entries(colors).map(([property, [, light]]) => [property, light])),
+    }
   }
   return light
 }
@@ -116,7 +133,7 @@ export function lightBasemapText(darkText) {
   )
   const layers = dark.layers.map((layer, i) => {
     let segment = darkText.slice(starts[i], starts[i + 1] ?? darkText.length)
-    for (const [property, value] of Object.entries(LIGHT_PAINT[layer.id])) {
+    for (const [property, [, value]] of Object.entries(LIGHT_PAINT[layer.id])) {
       segment = replaceOnce(
         segment,
         pair(property, layer.paint[property]),
