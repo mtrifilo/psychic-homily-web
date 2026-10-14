@@ -78,10 +78,13 @@ vi.mock('@/app/auth/_components/passkey-signup', () => ({
   },
 }))
 
+const googleOAuthProps = vi.fn()
+
 vi.mock('@/app/auth/_components/google-oauth-button', () => ({
-  GoogleOAuthButton: (props: { variant?: string }) => (
-    <div data-testid="google-oauth" data-variant={props.variant} />
-  ),
+  GoogleOAuthButton: (props: { variant?: string; returnTo?: string }) => {
+    googleOAuthProps(props)
+    return <div data-testid="google-oauth" data-variant={props.variant} />
+  },
 }))
 
 function setSearchParams(query: string) {
@@ -95,6 +98,7 @@ describe('AuthPage', () => {
     mockLoginMutate.mockReset()
     passkeyLoginProps.mockReset()
     passkeySignupProps.mockReset()
+    googleOAuthProps.mockReset()
     mockSearchParams = new URLSearchParams()
     mockAuthState = {
       setUser: vi.fn(),
@@ -682,6 +686,36 @@ describe('AuthPage', () => {
       )
     })
 
+    it('passes the sanitized returnTo down to the login Google button', () => {
+      setSearchParams('returnTo=%2Fshows')
+      renderWithProviders(<AuthPage />)
+
+      expect(googleOAuthProps).toHaveBeenCalledWith(
+        expect.objectContaining({ variant: 'login', returnTo: '/shows' })
+      )
+    })
+
+    it('passes the sanitized returnTo down to the signup Google button', async () => {
+      const user = userEvent.setup()
+      setSearchParams('returnTo=%2Fcollections')
+      renderWithProviders(<AuthPage />)
+
+      await user.click(screen.getByRole('tab', { name: 'Create account' }))
+
+      expect(googleOAuthProps).toHaveBeenCalledWith(
+        expect.objectContaining({ variant: 'signup', returnTo: '/collections' })
+      )
+    })
+
+    it('hands the Google button "/" when returnTo points at an external origin', () => {
+      setSearchParams('returnTo=https%3A%2F%2Fevil.example')
+      renderWithProviders(<AuthPage />)
+
+      expect(googleOAuthProps).toHaveBeenCalledWith(
+        expect.objectContaining({ variant: 'login', returnTo: '/' })
+      )
+    })
+
     it('falls back to "/" when returnTo points at an external origin', () => {
       // Confirms the page routes the raw param through sanitizeReturnTo rather
       // than forwarding it verbatim (open-redirect guard). The sanitizer's full
@@ -858,6 +892,23 @@ describe('AuthPage', () => {
       expect(
         screen.queryByRole('tab', { name: /create account/i })
       ).not.toBeInTheDocument()
+    })
+
+    // The Settings link start sends a stale session here; signing in again
+    // with Google has to land back on Settings, where Connect is.
+    it('sends a Google re-authentication back to Settings', async () => {
+      mockAuthState = { setUser: vi.fn(), authStatus: 'authenticated' }
+      mockSearchParams = new URLSearchParams(reauthParams)
+
+      renderWithProviders(<AuthPage />)
+
+      await screen.findByText("Confirm it's you")
+      expect(googleOAuthProps).toHaveBeenCalledWith(
+        expect.objectContaining({
+          variant: 'login',
+          returnTo: '/profile?tab=settings',
+        })
+      )
     })
 
     it('still bounces an authenticated reader when no reason is given', async () => {

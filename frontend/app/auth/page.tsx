@@ -155,7 +155,11 @@ function LoginForm({ returnTo }: { returnTo: string }) {
 
       {/* OAuth and Passkey login options */}
       <div className="space-y-3">
-        <GoogleOAuthButton className="w-full" variant="login" />
+        <GoogleOAuthButton
+          className="w-full"
+          variant="login"
+          returnTo={returnTo}
+        />
         <PasskeyLoginButton
           onError={setPasskeyError}
           className="w-full"
@@ -460,6 +464,7 @@ function SignupForm({
               privacyVersion={CURRENT_PRIVACY_VERSION}
               ageConfirmed={ageConfirmed}
               minAge={MIN_SIGNUP_AGE}
+              returnTo={returnTo}
               onMissingTermsAcceptance={() => {
                 setOauthError('You must agree to the Terms of Service and Privacy Policy before continuing with Google')
               }}
