@@ -216,11 +216,6 @@ export async function rematchRadioPlaysChunked(
 // ─── Artist enrichment candidates (GET /admin/radio/candidates/artists) ─────
 
 export type CandidateLane = "auto" | "human";
-export type CandidateLaneFilter = CandidateLane | "all";
-export type ArtistCandidateSort = "score" | "plays" | "stations";
-
-export const CANDIDATE_LANE_FILTERS: readonly CandidateLaneFilter[] = ["all", "auto", "human"];
-export const ARTIST_CANDIDATE_SORTS: readonly ArtistCandidateSort[] = ["score", "plays", "stations"];
 
 export interface CandidateCount {
   name: string;
@@ -262,15 +257,18 @@ export interface ArtistCandidateListing {
   tracks_rebuilt_at?: string;
 }
 
-/** Fetch one snapshot of the artist candidate ranking. Read-only. */
+/**
+ * Fetch one snapshot of the artist candidate ranking. Read-only. Unset options
+ * are omitted from the query, so the server's defaults apply.
+ */
 export async function listArtistCandidates(
   client: APIClient,
-  opts: { lane: CandidateLaneFilter; sort: ArtistCandidateSort; limit: number },
+  opts: { lane?: string; sort?: string; limit?: string },
 ): Promise<ArtistCandidateListing> {
   return client.get<ArtistCandidateListing>("/admin/radio/candidates/artists", {
-    lane: opts.lane,
-    sort: opts.sort,
-    limit: String(opts.limit),
+    lane: opts.lane ?? "",
+    sort: opts.sort ?? "",
+    limit: opts.limit ?? "",
   });
 }
 

@@ -40,10 +40,6 @@ const (
 	radioCandidateTopNames  = 5
 )
 
-// radioMBIDPatternSQL is the shape a MusicBrainz id must have to count; any
-// other value is treated as absent.
-const radioMBIDPatternSQL = `'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'`
-
 // RadioArtistCandidateScore is the artist candidate ranking score: distinct
 // station rows x ln(plays) x (1 + distinct shows / 10).
 func RadioArtistCandidateScore(stationRows, plays, shows int) float64 {
@@ -134,7 +130,7 @@ WITH counted AS (
          ` + RadioBroadcasterKeySQL("st") + ` AS family_key,
          e.show_id,
          e.air_date,
-         CASE WHEN lower(btrim(p.musicbrainz_artist_id)) ~ ` + radioMBIDPatternSQL + `
+         CASE WHEN btrim(p.musicbrainz_artist_id) ~ '` + mbidUUIDPattern + `'
               THEN lower(btrim(p.musicbrainz_artist_id)) END AS mb_artist_id
   ` + radioCandidatePlaysFrom + `
 ),
@@ -248,9 +244,7 @@ func (r *RadioCandidatesReader) ListArtistCandidates(ctx context.Context, q cont
 	if r.db == nil {
 		return nil, errors.New("database not initialized")
 	}
-	switch q.Lane {
-	case contracts.RadioCandidateLaneFilterAll, contracts.RadioCandidateLaneFilterAuto, contracts.RadioCandidateLaneFilterHuman:
-	default:
+	if !q.Lane.Valid() {
 		return nil, fmt.Errorf("unknown candidate lane filter %q", q.Lane)
 	}
 	if _, ok := radioArtistCandidateSortKeys[q.Sort]; !ok {
@@ -283,7 +277,7 @@ func (r *RadioCandidatesReader) ListArtistCandidates(ctx context.Context, q cont
 			} else {
 				listing.HumanTotal++
 			}
-			if q.Lane != contracts.RadioCandidateLaneFilterAll && string(q.Lane) != string(c.Lane) {
+			if !q.Lane.Includes(c.Lane) {
 				continue
 			}
 			listing.Total++

@@ -266,11 +266,11 @@ const radioCandidatesCmd = radioCmd
 radioCandidatesCmd
   .command("artists")
   .description(
-    "Unmatched artist names played on 2+ station rows and 3+ times in 180 days, ranked with evidence and a lane (auto|human)",
+    "Unmatched artist names that clear the multi-station and play floors, ranked with evidence and a lane (auto|human)",
   )
-  .option("--lane <lane>", "auto, human or all (default all)")
-  .option("--sort <sort>", "score, plays or stations (default score)")
-  .option("--limit <n>", "Candidates to print, 1 to 500 (default 50)")
+  .option("--lane <lane>", "auto, human or all")
+  .option("--sort <sort>", "score, plays or stations")
+  .option("--limit <n>", "Candidates to print")
   .option("--json", "Print the raw listing as JSON")
   .action(async (opts: { lane?: string; sort?: string; limit?: string; json?: boolean }) => {
     const env = await resolveEnvOrExit(program.opts().env);

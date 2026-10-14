@@ -76,6 +76,25 @@ describe("APIClient ISR revalidation recording (PSY-1691)", () => {
     expect(pendingRevalidationEntities()).toEqual([]);
   });
 
+  test("a validation error names each rejected field", async () => {
+    respondWith(
+      {
+        title: "Unprocessable Entity",
+        status: 422,
+        detail: "validation failed",
+        errors: [
+          { message: 'expected value to be one of "auto, human, all"', location: "query.lane", value: "bogus" },
+          { message: "expected number <= 500", location: "query.limit", value: 501 },
+        ],
+      },
+      422,
+    );
+    await expect(client.get("/admin/radio/candidates/artists")).rejects.toMatchObject({
+      status: 422,
+      message: 'query.lane: expected value to be one of "auto, human, all"; query.limit: expected number <= 500',
+    });
+  });
+
   test("queues nothing when the mutation failed", async () => {
     respondWith({ message: "nope" }, 422);
     await expect(client.post("/shows", {})).rejects.toBeInstanceOf(APIError);

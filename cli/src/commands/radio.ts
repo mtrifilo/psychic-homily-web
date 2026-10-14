@@ -2,13 +2,9 @@ import { APIClient } from "../lib/api";
 import type { EnvironmentConfig } from "../lib/types";
 import * as display from "../lib/display";
 import {
-  ARTIST_CANDIDATE_SORTS,
-  CANDIDATE_LANE_FILTERS,
   formatArtistCandidateReport,
   listArtistCandidates,
   rematchRadioPlaysChunked,
-  type ArtistCandidateSort,
-  type CandidateLaneFilter,
 } from "../lib/radio";
 import { dim } from "../lib/ansi";
 
@@ -109,27 +105,18 @@ export interface RadioArtistCandidatesCliOptions {
   json?: boolean;
 }
 
-const MAX_CANDIDATE_LIMIT = 500;
-
-function parseChoice<T extends string>(value: string | undefined, choices: readonly T[], fallback: T, label: string): T {
-  if (value === undefined || value === "") return fallback;
-  if ((choices as readonly string[]).includes(value)) return value as T;
-  throw new Error(`${label} must be one of ${choices.join(", ")}, got "${value}"`);
-}
-
 /** CLI entry for `ph radio candidates artists`. Read-only: it creates nothing. */
 export async function runRadioArtistCandidates(
   env: EnvironmentConfig,
   opts: RadioArtistCandidatesCliOptions,
 ): Promise<void> {
-  const lane = parseChoice<CandidateLaneFilter>(opts.lane, CANDIDATE_LANE_FILTERS, "all", "--lane");
-  const sort = parseChoice<ArtistCandidateSort>(opts.sort, ARTIST_CANDIDATE_SORTS, "score", "--sort");
-  const limit = parsePositiveInt(opts.limit, "--limit") ?? 50;
-  if (limit > MAX_CANDIDATE_LIMIT) {
-    throw new Error(`--limit must be at most ${MAX_CANDIDATE_LIMIT}, got ${limit}`);
-  }
-
-  const listing = await listArtistCandidates(new APIClient(env), { lane, sort, limit });
+  // The server owns the defaults, the allowed values and the limit range, and
+  // answers 422 for anything outside them.
+  const listing = await listArtistCandidates(new APIClient(env), {
+    lane: opts.lane,
+    sort: opts.sort,
+    limit: opts.limit,
+  });
   if (opts.json) {
     process.stdout.write(`${JSON.stringify(listing, null, 2)}\n`);
     return;

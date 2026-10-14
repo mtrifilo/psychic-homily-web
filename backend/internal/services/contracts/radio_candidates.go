@@ -24,6 +24,20 @@ const (
 	RadioCandidateLaneFilterHuman RadioCandidateLaneFilter = "human"
 )
 
+// Valid reports whether f is one of the declared filters.
+func (f RadioCandidateLaneFilter) Valid() bool {
+	switch f {
+	case RadioCandidateLaneFilterAll, RadioCandidateLaneFilterAuto, RadioCandidateLaneFilterHuman:
+		return true
+	}
+	return false
+}
+
+// Includes reports whether a candidate in the given lane passes the filter.
+func (f RadioCandidateLaneFilter) Includes(lane RadioCandidateLane) bool {
+	return f == RadioCandidateLaneFilterAll || string(f) == string(lane)
+}
+
 // RadioArtistCandidateSort names the order of an artist candidate listing.
 // Every order is descending and breaks ties by score, then by the most recent
 // play, then by artist key.
