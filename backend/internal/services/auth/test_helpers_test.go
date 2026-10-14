@@ -95,10 +95,6 @@ func (n *nilDBUserService) SoftDeleteAccount(userID uint, reason *string) error 
 	return fmt.Errorf("database not initialized")
 }
 
-func (n *nilDBUserService) CreateUserWithoutPassword(email string) (*authm.User, error) {
-	return nil, fmt.Errorf("database not initialized")
-}
-
 func (n *nilDBUserService) ExportUserData(userID uint) (*contracts.UserDataExport, error) {
 	return nil, fmt.Errorf("database not initialized")
 }

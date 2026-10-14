@@ -4123,7 +4123,6 @@ type MockUserService struct {
 	SetEmailVerifiedFn                 func(uint, bool) error
 	GetDeletionSummaryFn               func(uint) (*contracts.DeletionSummary, error)
 	SoftDeleteAccountFn                func(uint, *string) error
-	CreateUserWithoutPasswordFn        func(string) (*authm.User, error)
 	ExportUserDataFn                   func(uint) (*contracts.UserDataExport, error)
 	ExportUserDataJSONFn               func(uint) ([]byte, error)
 	GetOAuthAccountsFn                 func(uint) ([]authm.OAuthAccount, error)
@@ -4280,12 +4279,6 @@ func (m *MockUserService) SoftDeleteAccount(userID uint, reason *string) error {
 		return m.SoftDeleteAccountFn(userID, reason)
 	}
 	return nil
-}
-func (m *MockUserService) CreateUserWithoutPassword(email string) (*authm.User, error) {
-	if m.CreateUserWithoutPasswordFn != nil {
-		return m.CreateUserWithoutPasswordFn(email)
-	}
-	return nil, nil
 }
 func (m *MockUserService) ExportUserData(userID uint) (*contracts.UserDataExport, error) {
 	if m.ExportUserDataFn != nil {
@@ -4690,7 +4683,6 @@ type MockWebAuthnService struct {
 	BeginRegistrationForEmailFn         func(string) (*protocol.CredentialCreation, *webauthn.SessionData, error)
 	StoreSignupChallengeFn              func(contracts.SignupChallenge, *webauthn.SessionData, string) (string, error)
 	ConsumeSignupChallengeFn            func(string, string) (*webauthn.SessionData, contracts.SignupChallenge, error)
-	FinishSignupRegistrationFn          func(string, *webauthn.SessionData, *protocol.ParsedCredentialCreationData, string) (*authm.User, error)
 	FinishSignupRegistrationWithLegalFn func(string, *webauthn.SessionData, *protocol.ParsedCredentialCreationData, string, contracts.LegalAcceptance) (*authm.User, error)
 }
 
@@ -4789,12 +4781,6 @@ func (m *MockWebAuthnService) ConsumeSignupChallenge(challengeID string, operati
 		return m.ConsumeSignupChallengeFn(challengeID, operation)
 	}
 	return nil, contracts.SignupChallenge{}, nil
-}
-func (m *MockWebAuthnService) FinishSignupRegistration(email string, session *webauthn.SessionData, response *protocol.ParsedCredentialCreationData, displayName string) (*authm.User, error) {
-	if m.FinishSignupRegistrationFn != nil {
-		return m.FinishSignupRegistrationFn(email, session, response, displayName)
-	}
-	return nil, nil
 }
 func (m *MockWebAuthnService) FinishSignupRegistrationWithLegal(email string, session *webauthn.SessionData, response *protocol.ParsedCredentialCreationData, displayName string, acceptance contracts.LegalAcceptance) (*authm.User, error) {
 	if m.FinishSignupRegistrationWithLegalFn != nil {
