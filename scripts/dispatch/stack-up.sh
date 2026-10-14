@@ -4,7 +4,7 @@
 # Bring up a dev stack for a dispatched worktree's manual repro phase.
 #
 # Usage: stack-up.sh <worktree-path> --mode={none,shared,isolated}
-#                    [--auth-rate-limits] [--secure]
+#                    [--backend-only] [--auth-rate-limits] [--secure]
 #
 # Modes:
 #   none      No stack. Backend-only changes without migration; integration
@@ -37,8 +37,12 @@
 #   read off `NEXT_PUBLIC_API_URL`, and no single value satisfied both on
 #   a non-default backend port.
 #
-# Auth options. They configure the backend this script starts, so mode none
-# and shared mode on a running dev backend refuse them:
+# Isolated-stack options. They configure the stack this script starts, so mode
+# none and shared mode on a running dev backend refuse them:
+#   --backend-only      Start postgres and the backend, not the frontend. The
+#                       .env still names the frontend port and origin the
+#                       backend was configured for, so a frontend started
+#                       there later works against it.
 #   --auth-rate-limits  Keep the auth, passkey and OAuth rate limiters on.
 #                       Env equivalent: STACK_AUTH_RATE_LIMITS=1. Off by
 #                       default, because every client of a stack shares
@@ -62,16 +66,18 @@ WORKTREE_PATH="${1:?Required: worktree path (e.g. /path/to/.claude/worktrees/age
 shift
 
 usage() {
-  echo "Usage: $0 <worktree-path> --mode={none,shared,isolated} [--auth-rate-limits] [--secure]" >&2
+  echo "Usage: $0 <worktree-path> --mode={none,shared,isolated} [--backend-only] [--auth-rate-limits] [--secure]" >&2
   exit 64
 }
 
 MODE=""
+BACKEND_ONLY=0
 AUTH_RATE_LIMITS="${STACK_AUTH_RATE_LIMITS:-0}"
 SESSION_SECURE_ON=0
 for arg in "$@"; do
   case "$arg" in
     --mode=none|--mode=shared|--mode=isolated) MODE="${arg#--mode=}" ;;
+    --backend-only) BACKEND_ONLY=1 ;;
     --auth-rate-limits) AUTH_RATE_LIMITS=1 ;;
     --secure) SESSION_SECURE_ON=1 ;;
     *) usage ;;
@@ -95,9 +101,9 @@ if [ "$SESSION_SECURE_ON" = 1 ]; then SESSION_SECURE_VALUE=true; else SESSION_SE
 STACK_WEBAUTHN_RP_ID=localhost
 STACK_WEBAUTHN_RP_NAME="Psychic Homily (dispatch stack)"
 
-refuse_backend_options() {
-  if [ "$AUTH_RATE_LIMITS" = 1 ] || [ "$SESSION_SECURE_ON" = 1 ]; then
-    echo "--auth-rate-limits and --secure configure a backend this script starts; $1. Use --mode=isolated." >&2
+refuse_isolated_options() {
+  if [ "$BACKEND_ONLY" = 1 ] || [ "$AUTH_RATE_LIMITS" = 1 ] || [ "$SESSION_SECURE_ON" = 1 ]; then
+    echo "--backend-only, --auth-rate-limits and --secure configure a stack this script starts; $1. Use --mode=isolated." >&2
     exit 64
   fi
 }
@@ -142,7 +148,7 @@ dev_backend_up() {
 # === Mode dispatch ===
 
 if [ "$MODE" = "none" ]; then
-  refuse_backend_options "mode none starts no backend"
+  refuse_isolated_options "mode none starts no backend"
   log "Mode: none. No stack required (backend integration tests are the manual repro)."
   cat > "$STACK_DIR/.env" <<EOF
 STACK_MODE=none
@@ -157,7 +163,7 @@ if [ "$MODE" = "shared" ]; then
     log "Dev backend at :8080 not responding. Escalating to isolated mode."
     MODE="isolated"
   else
-    refuse_backend_options "shared mode reuses the dev backend at :8080"
+    refuse_isolated_options "shared mode reuses the dev backend at :8080"
     log "Dev backend at :8080 is up. Allocating frontend port."
     FRONTEND_PORT="$(free_port)"
     log "Starting frontend on :$FRONTEND_PORT..."
@@ -279,6 +285,7 @@ STACK_BACKEND_URL=$STACK_BACKEND_URL
 STACK_BACKEND_PORT=$BACKEND_PORT
 STACK_FRONTEND_URL=$STACK_FRONTEND_URL
 STACK_FRONTEND_PORT=$FRONTEND_PORT
+STACK_BACKEND_ONLY=$BACKEND_ONLY
 STACK_AUTH_RATE_LIMITS=$AUTH_RATE_LIMITS
 STACK_SESSION_SECURE=$SESSION_SECURE_ON
 STACK_WEBAUTHN_RP_ID=$STACK_WEBAUTHN_RP_ID
@@ -288,6 +295,12 @@ BACKEND_URL=$STACK_BACKEND_URL
 NEXT_PUBLIC_API_URL=$STACK_FRONTEND_URL/api
 NEXT_PUBLIC_OAUTH_BACKEND_URL=$STACK_BACKEND_URL
 EOF
+
+if [ "$BACKEND_ONLY" = 1 ]; then
+  cat "$STACK_DIR/.env"
+  log "Stack up (mode=isolated, backend only): $STACK_BACKEND_URL -> postgres :$POSTGRES_PORT"
+  exit 0
+fi
 
 log "Starting frontend on :$FRONTEND_PORT..."
 cd "$WORKTREE_PATH/frontend"
@@ -306,7 +319,10 @@ echo $! > "$STACK_DIR/frontend.pid"
 disown 2>/dev/null || true
 
 log "Waiting for frontend at $STACK_FRONTEND_URL..."
-wait_for_url "$STACK_FRONTEND_URL" 60
+if ! wait_for_url "$STACK_FRONTEND_URL" 60; then
+  log "The backend is up at $STACK_BACKEND_URL and the stack is recorded in $STACK_DIR/.env, but the frontend did not answer; see $STACK_DIR/frontend.log. Tear down with stack-down.sh, or rerun with --backend-only when the repro needs no frontend."
+  exit 1
+fi
 
 cat "$STACK_DIR/.env"
 log "Stack up (mode=isolated): $STACK_FRONTEND_URL -> $STACK_BACKEND_URL -> postgres :$POSTGRES_PORT"
