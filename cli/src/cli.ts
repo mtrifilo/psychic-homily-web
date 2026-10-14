@@ -282,7 +282,7 @@ radioCandidatesCmd
   .description(
     "Unlinked label names on at least two station rows and gaining play, ranked with evidence and a lane (auto|human)",
   )
-  .option("--lane <lane>", "auto, human or all")
+  .option("--lane <lane>", "auto, human or all (plays carry no MusicBrainz label id today, so the auto lane is empty)")
   .option("--sort <sort>", "score, plays, stations or velocity")
   .option("--limit <n>", "Candidates to print")
   .option("--json", "Print the raw listing as JSON")

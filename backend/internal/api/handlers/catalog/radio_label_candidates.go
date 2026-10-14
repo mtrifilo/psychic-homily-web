@@ -27,7 +27,7 @@ func NewRadioLabelCandidatesHandler(lister RadioLabelCandidatesLister) *RadioLab
 // length of the ranking.
 type AdminListRadioLabelCandidatesRequest struct {
 	Limit int    `query:"limit" required:"false" default:"50" minimum:"1" maximum:"500" doc:"Candidates to return (default 50)"`
-	Lane  string `query:"lane" required:"false" default:"all" enum:"auto,human,all" doc:"Return the auto lane, the human lane, or both (all, default)"`
+	Lane  string `query:"lane" required:"false" default:"all" enum:"auto,human,all" doc:"Return the auto lane, the human lane, or both (all, default). The auto lane needs exactly one MusicBrainz label id across a candidate's plays; plays carry no MusicBrainz label id today, so the auto lane is empty."`
 	Sort  string `query:"sort" required:"false" default:"score" enum:"score,plays,stations,velocity" doc:"Rank by score (default), plays in the window, distinct station rows, or velocity, descending; ties by score, then the most recent play, then label key."`
 }
 

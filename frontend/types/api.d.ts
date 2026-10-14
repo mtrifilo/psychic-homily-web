@@ -21459,7 +21459,7 @@ export interface operations {
             query?: {
                 /** @description Candidates to return (default 50) */
                 limit?: number;
-                /** @description Return the auto lane, the human lane, or both (all, default) */
+                /** @description Return the auto lane, the human lane, or both (all, default). The auto lane needs exactly one MusicBrainz label id across a candidate's plays; plays carry no MusicBrainz label id today, so the auto lane is empty. */
                 lane?: "auto" | "human" | "all";
                 /** @description Rank by score (default), plays in the window, distinct station rows, or velocity, descending; ties by score, then the most recent play, then label key. */
                 sort?: "score" | "plays" | "stations" | "velocity";
