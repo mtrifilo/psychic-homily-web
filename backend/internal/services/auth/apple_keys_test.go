@@ -567,8 +567,12 @@ func TestAppleKeys_MalformedEntriesNeverReplaceCachedSet(t *testing.T) {
 		{"zero modulus", func(e *testJWK) { e.N = "AA" }},
 		{"empty exponent", func(e *testJWK) { e.E = "" }},
 		{"zero exponent", func(e *testJWK) { e.E = "AA" }},
+		{"exponent of one", func(e *testJWK) { e.E = "AQ" }},
+		{"exponent of 2^31", func(e *testJWK) { e.E = "gAAAAA" }},
+		{"exponent wider than 64 bits", func(e *testJWK) { e.E = "AQAAAAAAAAAA" }},
 		{"encryption key", func(e *testJWK) { e.Use = "enc" }},
 		{"other algorithm", func(e *testJWK) { e.Alg = "RS512" }},
+		{"other key type", func(e *testJWK) { e.Kty = "EC" }},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -590,6 +594,80 @@ func TestAppleKeys_MalformedEntriesNeverReplaceCachedSet(t *testing.T) {
 			assert.Equal(t, 2, ks.count())
 		})
 	}
+}
+
+// A body of exactly the cap is accepted; one byte more fails the fetch.
+func TestAppleKeys_BodyCapBoundary(t *testing.T) {
+	key := newRSAKey(t)
+	entry, err := json.Marshal(rsaJWK(key, "new-kid"))
+	require.NoError(t, err)
+	paddedTo := func(size int) []byte {
+		head, tail := `{"pad":"`, `","keys":[`+string(entry)+`]}`
+		return []byte(head + strings.Repeat("x", size-len(head)-len(tail)) + tail)
+	}
+
+	for _, tc := range []struct {
+		size   int
+		accept bool
+	}{
+		{appleKeysMaxBodyBytes, true},
+		{appleKeysMaxBodyBytes + 1, false},
+	} {
+		t.Run(fmt.Sprint(tc.size), func(t *testing.T) {
+			body := paddedTo(tc.size)
+			require.Len(t, body, tc.size)
+			ks := newKeyServer(t, body)
+			svc, _, _ := newKeysTestService(ks.URL)
+
+			_, err := svc.getApplePublicKey(t.Context(), "new-kid")
+			if tc.accept {
+				require.NoError(t, err)
+				return
+			}
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), "exceeds 65536 bytes")
+		})
+	}
+}
+
+// An entry whose modulus is not base64url fails the whole fetch, and the
+// cached set stays.
+func TestAppleKeys_UndecodableEntryFailsFetchAndKeepsCachedSet(t *testing.T) {
+	key := newRSAKey(t)
+	ks := newKeyServer(t, jwks(key, "known-kid"))
+	svc, _, _ := newKeysTestService(ks.URL)
+	_, err := svc.getApplePublicKey(t.Context(), "known-kid")
+	require.NoError(t, err)
+
+	bad := rsaJWK(key, "rotated-kid")
+	bad.N = "not base64url!"
+	ks.serve(http.StatusOK, jwkSet(rsaJWK(key, "other-kid"), bad))
+	_, err = svc.getApplePublicKey(t.Context(), "rotated-kid")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "failed to decode modulus")
+
+	_, err = svc.ValidateIdentityToken(t.Context(), signedToken(t, key, "known-kid"))
+	require.NoError(t, err, "the cached set still validates known kids")
+	assert.Equal(t, 2, ks.count())
+}
+
+// A caller whose context has already ended still gets a fresh cached key; on a
+// miss it gets the context's error without waiting.
+func TestAppleKeys_AlreadyCancelledContext(t *testing.T) {
+	key := newRSAKey(t)
+	ks := newKeyServer(t, jwks(key, "known-kid"))
+	svc, _, _ := newKeysTestService(ks.URL)
+	_, err := svc.getApplePublicKey(t.Context(), "known-kid")
+	require.NoError(t, err)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	got, err := svc.getApplePublicKey(ctx, "known-kid")
+	require.NoError(t, err, "a cache hit does not consult the context")
+	assert.NotNil(t, got)
+
+	_, err = svc.ValidateIdentityToken(ctx, signedToken(t, key, "unknown"))
+	require.ErrorIs(t, err, context.Canceled)
 }
 
 // Malformed entries beside usable ones are dropped and the usable ones kept;
