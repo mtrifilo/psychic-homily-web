@@ -42,6 +42,11 @@ const (
 	// from driving one fetch per request.
 	appleKeysForcedRefreshCooldown = time.Minute
 
+	// appleKeysFailureBackoff is how long after a failed fetch no fetch starts
+	// on any path, cold, expired or forced; lookups that would fetch inside it
+	// get that failure instead. A successful fetch clears it.
+	appleKeysFailureBackoff = 10 * time.Second
+
 	// appleKeysFailureLogInterval is the minimum spacing between two logged
 	// key-set fetch failures.
 	appleKeysFailureLogInterval = time.Minute
@@ -66,6 +71,10 @@ type AppleAuthService struct {
 	// lastForcedRefreshAt is when the latest refresh forced by an unknown key
 	// id started.
 	lastForcedRefreshAt time.Time
+	// lastFetchErr is the error of the latest fetch when it failed, nil when
+	// it succeeded; lastFetchErrAt is when that fetch finished.
+	lastFetchErr   error
+	lastFetchErrAt time.Time
 	// lastFetchFailureLogAt is when a fetch failure was last logged.
 	lastFetchFailureLogAt time.Time
 
@@ -302,10 +311,12 @@ func (s *AppleAuthService) createAppleUser(appleUserID, email, firstName, lastNa
 // getApplePublicKey returns the key for kid, refreshing the cached set when it
 // is stale or lacks kid. Each call starts or joins at most one fetch: a call
 // that arrives while a fetch runs waits for that fetch instead of starting
-// another. A refresh for a kid the fresh set lacks starts at most once per
-// appleKeysForcedRefreshCooldown, and inside that window the lookup fails
-// without a fetch. A failed fetch leaves the cached set and its expiry as they
-// were.
+// another. A call that would start a fetch inside appleKeysFailureBackoff of a
+// failed one fails with that failure instead. A refresh for a kid the fresh set
+// lacks starts at most once per appleKeysForcedRefreshCooldown; inside that
+// window such a lookup joins a fetch already in flight and otherwise fails
+// without starting one. A failed fetch leaves the cached set and its expiry as
+// they were.
 func (s *AppleAuthService) getApplePublicKey(kid string) (*rsa.PublicKey, error) {
 	s.keysMu.Lock()
 	now := s.keysClock()
@@ -317,9 +328,14 @@ func (s *AppleAuthService) getApplePublicKey(kid string) (*rsa.PublicKey, error)
 
 	fetch := s.keysFetch
 	starter := fetch == nil
+	if starter && s.lastFetchErr != nil && now.Sub(s.lastFetchErrAt) < appleKeysFailureBackoff {
+		err := s.lastFetchErr
+		s.keysMu.Unlock()
+		return nil, fmt.Errorf("%w (backing off after a failed fetch, not fetched)", err)
+	}
 	if starter && fresh && now.Sub(s.lastForcedRefreshAt) < appleKeysForcedRefreshCooldown {
 		s.keysMu.Unlock()
-		return nil, errAppleKeyNotFound(kid)
+		return nil, fmt.Errorf("%w (refresh cooling down, not fetched)", errAppleKeyNotFound(kid))
 	}
 	if starter {
 		if fresh {
@@ -361,12 +377,16 @@ func (s *AppleAuthService) runAppleKeysFetch(fetch *appleKeysFetch) {
 		s.keysMu.Lock()
 		now := s.keysClock()
 		logFailure := false
+		s.lastFetchErr = err
 		if err == nil {
 			s.keys = keys
 			s.keysExpAt = now.Add(appleKeysTTL)
-		} else if now.Sub(s.lastFetchFailureLogAt) >= appleKeysFailureLogInterval {
-			s.lastFetchFailureLogAt = now
-			logFailure = true
+		} else {
+			s.lastFetchErrAt = now
+			if now.Sub(s.lastFetchFailureLogAt) >= appleKeysFailureLogInterval {
+				s.lastFetchFailureLogAt = now
+				logFailure = true
+			}
 		}
 		fetch.err = err
 		s.keysFetch = nil
@@ -425,6 +445,11 @@ func (s *AppleAuthService) fetchAppleKeys() (map[string]*rsa.PublicKey, error) {
 		}
 	}
 
+	// A set with no usable key would replace a working one and answer every
+	// lookup with a miss, so it counts as a failed fetch.
+	if len(keys) == 0 {
+		return nil, errors.New("apple JWK set contained no RSA keys")
+	}
 	return keys, nil
 }
 

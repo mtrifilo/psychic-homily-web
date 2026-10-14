@@ -208,7 +208,11 @@ func TestAppleKeys_ConcurrentColdLookupsShareOneFetch(t *testing.T) {
 // for the lookup that started the fetch and for one waiting on it.
 func TestAppleKeys_HangingServerFailsWithinTimeout(t *testing.T) {
 	release := make(chan struct{})
+	arrived := make(chan struct{}, 8)
+	var fetches atomic.Int32
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fetches.Add(1)
+		arrived <- struct{}{}
 		select {
 		case <-release:
 		case <-r.Context().Done():
@@ -218,27 +222,32 @@ func TestAppleKeys_HangingServerFailsWithinTimeout(t *testing.T) {
 	t.Cleanup(func() { close(release) })
 
 	svc, _, logs := newKeysTestService(srv.URL)
-	svc.keysHTTPClient = &http.Client{Timeout: 100 * time.Millisecond}
+	svc.keysHTTPClient = &http.Client{Timeout: 500 * time.Millisecond}
 	key := newRSAKey(t)
+	token := signedToken(t, key, "any-kid")
 
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 	done := make(chan error, 2)
-	for i := 0; i < 2; i++ {
-		go func() {
-			_, err := svc.ValidateIdentityToken(signedToken(t, key, "any-kid"))
-			done <- err
-		}()
+	validate := func() {
+		_, err := svc.ValidateIdentityToken(token)
+		done <- err
 	}
+	go validate()
+	<-arrived
+	// The fetch is now in flight and stays there until the client timeout, so
+	// this lookup finds it running and waits on it.
+	go validate()
 	for i := 0; i < 2; i++ {
 		select {
 		case err := <-done:
 			require.Error(t, err)
 			assert.Contains(t, err.Error(), "failed to fetch Apple keys")
 		case <-ctx.Done():
-			t.Fatal("validation still blocked on the key server after 2s")
+			t.Fatal("validation still blocked on the key server after 3s")
 		}
 	}
+	assert.Equal(t, int32(1), fetches.Load(), "the second lookup waited on the first fetch")
 	assert.Equal(t, 1, logs.count("apple_keys_fetch_failed"))
 }
 
@@ -264,7 +273,7 @@ func TestAppleKeys_UnknownKidInsideCooldownSkipsFetch(t *testing.T) {
 	clock.advance(30 * time.Second)
 	_, err = svc.ValidateIdentityToken(signedToken(t, key, "unknown-2"))
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "apple public key not found for kid: unknown-2")
+	assert.Contains(t, err.Error(), "apple public key not found for kid: unknown-2 (refresh cooling down, not fetched)")
 	assert.Equal(t, 2, ks.count(), "inside the cooldown there is no fetch")
 
 	clock.advance(30 * time.Second)
@@ -306,7 +315,7 @@ func TestAppleKeys_RotationAfterCooldownFetchesOnceAndValidates(t *testing.T) {
 }
 
 // A failed forced refresh keeps the cached set, so known kids still validate
-// without a fetch, and the failure is logged once per cooldown.
+// without a fetch, and the failure is logged once per log interval.
 func TestAppleKeys_FailedRefreshKeepsCachedSet(t *testing.T) {
 	key := newRSAKey(t)
 	ks := newKeyServer(t, jwks(key, "known-kid"))
@@ -326,36 +335,94 @@ func TestAppleKeys_FailedRefreshKeepsCachedSet(t *testing.T) {
 	require.NoError(t, err, "the cached set still validates known kids")
 	assert.Equal(t, 2, ks.count())
 
-	// The next forced refresh after the cooldown fails too and logs again.
-	clock.advance(appleKeysForcedRefreshCooldown)
+	// Once the cooldown, the backoff and the log interval have all passed, the
+	// next forced refresh fetches, fails too and logs again.
+	clock.advance(max(appleKeysForcedRefreshCooldown, appleKeysFailureBackoff, appleKeysFailureLogInterval))
 	_, err = svc.getApplePublicKey("unknown-2")
 	require.Error(t, err)
 	assert.Equal(t, 3, ks.count())
 	assert.Equal(t, 2, logs.count("apple_keys_fetch_failed"))
 }
 
-// An expired set is refreshed on the next lookup without waiting out the
-// cooldown, and never answers a lookup itself. Fetch failures inside one
-// cooldown log once.
-func TestAppleKeys_ExpiredSetRefreshesWithoutCooldown(t *testing.T) {
+// A failed fetch holds off every fetch path, cold and expired included, for
+// the backoff; lookups inside it get the failure without a fetch. An expired
+// set never answers a lookup itself. Failures inside one log interval log
+// once.
+func TestAppleKeys_FailedFetchBacksOffOnEveryPath(t *testing.T) {
+	cases := []struct {
+		name string
+		// prime leaves the service in the state under test, with the key
+		// server answering 500.
+		prime func(t *testing.T, svc *AppleAuthService, ks *keyServer, clock *fakeClock)
+	}{
+		{
+			name: "cold",
+			prime: func(t *testing.T, svc *AppleAuthService, ks *keyServer, clock *fakeClock) {
+				ks.serve(http.StatusInternalServerError, nil)
+			},
+		},
+		{
+			name: "expired",
+			prime: func(t *testing.T, svc *AppleAuthService, ks *keyServer, clock *fakeClock) {
+				_, err := svc.getApplePublicKey("known-kid")
+				require.NoError(t, err)
+				clock.advance(appleKeysTTL + time.Second)
+				ks.serve(http.StatusInternalServerError, nil)
+			},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			key := newRSAKey(t)
+			ks := newKeyServer(t, jwks(key, "known-kid"))
+			svc, clock, logs := newKeysTestService(ks.URL)
+			tc.prime(t, svc, ks, clock)
+			base := ks.count()
+
+			_, err := svc.getApplePublicKey("known-kid")
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), "status 500")
+			require.Equal(t, base+1, ks.count())
+
+			clock.advance(appleKeysFailureBackoff - time.Second)
+			for _, kid := range []string{"known-kid", "made-up"} {
+				_, err = svc.ValidateIdentityToken(signedToken(t, key, kid))
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), "status 500 (backing off after a failed fetch, not fetched)")
+			}
+			assert.Equal(t, base+1, ks.count(), "inside the backoff there is no fetch")
+
+			clock.advance(time.Second)
+			_, err = svc.getApplePublicKey("known-kid")
+			require.Error(t, err)
+			assert.Equal(t, base+2, ks.count(), "the backoff has passed")
+			assert.Equal(t, 1, logs.count("apple_keys_fetch_failed"), "failures inside one log interval log once")
+
+			ks.serve(http.StatusOK, jwks(key, "known-kid"))
+			clock.advance(appleKeysFailureBackoff)
+			_, err = svc.ValidateIdentityToken(signedToken(t, key, "known-kid"))
+			require.NoError(t, err)
+			assert.Equal(t, base+3, ks.count())
+		})
+	}
+}
+
+// A 200 response with no usable key is a failed fetch: the cached set stays.
+func TestAppleKeys_EmptySetKeepsCachedSet(t *testing.T) {
 	key := newRSAKey(t)
 	ks := newKeyServer(t, jwks(key, "known-kid"))
-	svc, clock, logs := newKeysTestService(ks.URL)
+	svc, _, _ := newKeysTestService(ks.URL)
 
 	_, err := svc.getApplePublicKey("known-kid")
 	require.NoError(t, err)
 
-	clock.advance(appleKeysTTL + time.Second)
-	ks.serve(http.StatusInternalServerError, nil)
-	for i := 0; i < 3; i++ {
-		_, err = svc.getApplePublicKey("known-kid")
-		require.Error(t, err, "an expired set does not answer when its refresh fails")
-	}
-	assert.Equal(t, 4, ks.count(), "each lookup on an expired set refreshes")
-	assert.Equal(t, 1, logs.count("apple_keys_fetch_failed"), "failures inside one cooldown log once")
+	ks.serve(http.StatusOK, []byte(`{"keys":[]}`))
+	_, err = svc.getApplePublicKey("unknown-kid")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "contained no RSA keys")
+	require.Equal(t, 2, ks.count())
 
-	ks.serve(http.StatusOK, jwks(key, "known-kid"))
-	_, err = svc.getApplePublicKey("known-kid")
+	_, err = svc.ValidateIdentityToken(signedToken(t, key, "known-kid"))
 	require.NoError(t, err)
-	assert.Equal(t, 5, ks.count())
+	assert.Equal(t, 2, ks.count())
 }
