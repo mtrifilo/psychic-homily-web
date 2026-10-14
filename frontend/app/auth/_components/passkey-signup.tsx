@@ -1,7 +1,6 @@
 'use client'
 
 import { useState } from 'react'
-import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { startRegistration } from '@simplewebauthn/browser'
 import { Fingerprint, Loader2, Mail } from 'lucide-react'
@@ -28,13 +27,20 @@ import { useWebAuthnSupport } from '@/features/auth/hooks/useWebAuthnSupport'
 import { registrationOptionsFrom } from '@/features/auth/passkeyOptions'
 import type { components } from '@/types/api'
 import { CURRENT_PRIVACY_VERSION, CURRENT_TERMS_VERSION, MIN_SIGNUP_AGE } from '@/lib/legal'
-import { BackupAuthPrompt } from './backup-auth-prompt'
 import { API_BASE_URL } from '@/lib/api-base'
+import type { SignupHandoff } from './signup-handoff'
 
 interface PasskeySignupButtonProps {
   onError?: (error: string) => void
+  /**
+   * Reports this sign-up's claim on the page: `pending` before the request
+   * that creates the session goes out, `complete` once the session is set
+   * (this button's dialog closes at the same time), and `null` when the
+   * attempt fails after claiming. What follows a completed sign-up, and the
+   * navigation after it, belong to the page.
+   */
+  onHandoffChange: (handoff: SignupHandoff | null) => void
   className?: string
-  returnTo?: string
   termsVersion?: string
   privacyVersion?: string
   minAge?: number
@@ -42,18 +48,16 @@ interface PasskeySignupButtonProps {
 
 export function PasskeySignupButton({
   onError,
+  onHandoffChange,
   className,
-  returnTo = '/',
   termsVersion = CURRENT_TERMS_VERSION,
   privacyVersion = CURRENT_PRIVACY_VERSION,
   minAge = MIN_SIGNUP_AGE,
 }: PasskeySignupButtonProps) {
-  const router = useRouter()
   const { setUser } = useAuthContext()
   const queryClient = useQueryClient()
   const [isLoading, setIsLoading] = useState(false)
   const [isDialogOpen, setIsDialogOpen] = useState(false)
-  const [showBackupPrompt, setShowBackupPrompt] = useState(false)
   const [email, setEmail] = useState('')
   const [emailError, setEmailError] = useState<string | null>(null)
   const [termsAccepted, setTermsAccepted] = useState(false)
@@ -93,6 +97,7 @@ export function PasskeySignupButton({
     }
 
     setIsLoading(true)
+    let claimed = false
 
     try {
       // Step 1: Begin signup
@@ -125,7 +130,10 @@ export function PasskeySignupButton({
       // Step 2: Perform WebAuthn registration
       const credential = await startRegistration({ optionsJSON })
 
-      // Step 3: Finish signup
+      // Step 3: Finish signup. Claimed before the request goes out; see the
+      // SignupHandoff doc comment for the redirect race this closes.
+      onHandoffChange({ status: 'pending', email })
+      claimed = true
       const finishResponse = await fetch(`${API_BASE_URL}/auth/passkey/signup/finish`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -147,10 +155,18 @@ export function PasskeySignupButton({
         throw new Error(finishData.message || 'Failed to complete passkey signup')
       }
 
-      // Success - update auth context
-      if (finishData.user) {
-        setUser(finishData.user)
+      if (!finishData.user) {
+        // No session to hand off to. The catch releases the claim and says so.
+        throw new Error('Failed to complete passkey signup')
       }
+
+      setUser(finishData.user)
+      setIsDialogOpen(false)
+      onHandoffChange({
+        status: 'complete',
+        email: finishData.user.email || email,
+        method: 'passkey',
+      })
 
       // This path establishes a session with a raw fetch rather than the
       // `useRegister` mutation, so nothing else refetches the profile the auth
@@ -163,11 +179,11 @@ export function PasskeySignupButton({
       // whole payload, so nothing here needs the profile to have landed; the
       // refetch is what lets a later change to the viewer reach the context.
       void refreshCachesForNewSession(queryClient)
-
-      // Close signup dialog and show backup prompt
-      setIsDialogOpen(false)
-      setShowBackupPrompt(true)
     } catch (error) {
+      if (claimed) {
+        onHandoffChange(null)
+      }
+
       // Handle user cancellation gracefully
       if (error instanceof Error) {
         if (error.name === 'NotAllowedError') {
@@ -183,17 +199,12 @@ export function PasskeySignupButton({
     }
   }
 
-  const handleBackupComplete = () => {
-    router.push(returnTo)
-  }
-
   // Don't render if browser doesn't support WebAuthn
   if (!supportsWebAuthn) {
     return null
   }
 
   return (
-    <>
     <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
       <DialogTrigger asChild>
         <Button
@@ -320,12 +331,5 @@ export function PasskeySignupButton({
         </div>
       </DialogContent>
     </Dialog>
-
-    <BackupAuthPrompt
-      open={showBackupPrompt}
-      onOpenChange={setShowBackupPrompt}
-      onComplete={handleBackupComplete}
-    />
-    </>
   )
 }

@@ -57,10 +57,10 @@ vi.mock('@/features/auth', () => ({
   }),
 }))
 
-// Capture the props the auth surfaces hand down to their child auth buttons.
-// The page threads the sanitized returnTo into LoginForm / SignupForm, which
-// forward it to these buttons — so capturing here verifies returnTo
-// propagation without exercising WebAuthn / OAuth redirect machinery.
+// Capture the props the auth surfaces hand down to their child auth buttons,
+// so a test can check what each button is given without exercising WebAuthn or
+// OAuth redirect machinery. The page threads the sanitized returnTo into the
+// login button; the signup button gets the page's handoff reporter instead.
 const passkeyLoginProps = vi.fn()
 const passkeySignupProps = vi.fn()
 
@@ -72,9 +72,9 @@ vi.mock('@/app/auth/_components/passkey-login', () => ({
 }))
 
 vi.mock('@/app/auth/_components/passkey-signup', () => ({
-  PasskeySignupButton: (props: { returnTo?: string }) => {
+  PasskeySignupButton: (props: { onHandoffChange?: unknown }) => {
     passkeySignupProps(props)
-    return <div data-testid="passkey-signup" data-return-to={props.returnTo} />
+    return <div data-testid="passkey-signup" />
   },
 }))
 
@@ -193,10 +193,7 @@ describe('AuthPage', () => {
         screen.getByRole('heading', { name: 'Never miss a show.' })
       ).toBeInTheDocument()
       expect(screen.getByText('shows you plan to catch')).toBeInTheDocument()
-      expect(screen.getByTestId('passkey-signup')).toHaveAttribute(
-        'data-return-to',
-        '/shows/example'
-      )
+      expect(screen.getByTestId('passkey-signup')).toBeInTheDocument()
       expect(screen.queryByTestId('passkey-login')).not.toBeInTheDocument()
     })
 
@@ -687,7 +684,10 @@ describe('AuthPage', () => {
       )
     })
 
-    it('passes the sanitized returnTo down to the signup passkey button', async () => {
+    // The page owns the navigation after a passkey sign-up (see
+    // passkey-signup-handoff.test.tsx), so the button gets the page's handoff
+    // reporter and no destination of its own.
+    it('hands the signup passkey button the handoff reporter, not a destination', async () => {
       const user = userEvent.setup()
       setSearchParams('returnTo=%2Fcollections')
       renderWithProviders(<AuthPage />)
@@ -695,7 +695,7 @@ describe('AuthPage', () => {
       await user.click(screen.getByRole('tab', { name: 'Create account' }))
 
       expect(passkeySignupProps).toHaveBeenCalledWith(
-        expect.objectContaining({ returnTo: '/collections' })
+        expect.objectContaining({ onHandoffChange: expect.any(Function) })
       )
     })
 
