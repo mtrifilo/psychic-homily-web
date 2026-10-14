@@ -5,6 +5,7 @@ import { ChromeLink } from '@/components/layout/nav/ChromeLink'
 import { useCookieConsent } from '@/lib/context/CookieConsentContext'
 import { cn } from '@/lib/utils'
 import { isFooterHiddenBelowXl } from './footerVisibility'
+import { PRIVACY_HREF, TERMS_HREF } from './nav/navData'
 
 /**
  * Footer (PSY-389) — the editorial site footer from the Navigation & Discovery
@@ -123,13 +124,13 @@ export default function Footer() {
               ABOUT
             </p>
             <ChromeLink
-              href="/privacy"
+              href={PRIVACY_HREF}
               className="text-[13px] font-medium text-muted-foreground transition-colors hover:text-foreground"
             >
               Privacy Policy
             </ChromeLink>
             <ChromeLink
-              href="/terms"
+              href={TERMS_HREF}
               className="text-[13px] font-medium text-muted-foreground transition-colors hover:text-foreground"
             >
               Terms of Service

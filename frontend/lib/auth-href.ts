@@ -65,7 +65,7 @@ export function buildAuthHref(returnTo: string): string {
  *
  * That render-time grade has four call sites and no function of its own,
  * because it is just the pathname: `SignInPrompt`, `nav/UserMenu`'s
- * `SignInLink`, `nav/BottomTabBar`'s Account cell, and
+ * `SignInLink`, `nav/BottomTabBar`'s signed-out Account sheet, and
  * `components/shared/CredentialErrorMessage`. A fifth belongs beside them, not
  * as a fresh formula.
  */
@@ -131,7 +131,7 @@ export function buildReauthHref(returnTo: string): string {
  * no other module can import it, and `authGateOwnership.test.ts` refuses the
  * parameter spelled out anywhere else. The auth page opens on Create account when it
  * carries a listed value, unless the arrival is a re-authentication. Every
- * other route into the page (the header link, the mobile Account tab, a route
+ * other route into the page (the header link, the mobile Account sheet, a route
  * guard, `SignInPrompt`, a re-auth link) names no intent and opens on Sign in.
  *
  * The value names a kind of action, never its target, so it is enough to

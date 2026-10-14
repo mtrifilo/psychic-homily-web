@@ -550,6 +550,33 @@ describe('BottomTabBar', () => {
       expect(within(sheet).queryByRole('button', { name: 'Sign out' })).not.toBeInTheDocument()
     })
 
+    // The two arms are keyed apart, so a settle closes an open sheet instead
+    // of swapping its rows under the viewer's finger.
+    it.each<[string, () => void, () => void]>([
+      [
+        'pending to signed in',
+        () => mockAuthContext.mockReturnValue(authFixture({ authStatus: 'pending' })),
+        () => authedAs({ email: 'user@test.com', is_admin: false }),
+      ],
+      [
+        'signed in to anonymous',
+        () => authedAs({ email: 'user@test.com', is_admin: false }),
+        () => mockAuthContext.mockReturnValue(authFixture({ authStatus: 'anonymous' })),
+      ],
+    ])('closes an open Account sheet when auth settles %s', async (_label, before, after) => {
+      before()
+      const user = userEvent.setup()
+      const { rerender } = render(<BottomTabBar />)
+      await user.click(screen.getByRole('button', { name: 'Account' }))
+      await screen.findByRole('dialog', { name: 'Account' })
+      after()
+      rerender(<BottomTabBar />)
+      await waitFor(() =>
+        expect(screen.queryByRole('dialog', { name: 'Account' })).not.toBeInTheDocument()
+      )
+      expect(screen.getByRole('button', { name: 'Account' })).toBeInTheDocument()
+    })
+
     // A logout in flight is 'authenticated' with `isLoading` true: the profile
     // payload is still cached, so the context still names this viewer until
     // the mutation resolves and clears it. The old `isLoading` gate went inert

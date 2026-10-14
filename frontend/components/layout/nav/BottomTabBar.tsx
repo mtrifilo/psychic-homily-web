@@ -406,7 +406,7 @@ export function BottomTabBar() {
   const isActive = (href: string) => isNavActive(pathname, href)
 
   // The one signal every viewer-derived part of the Account cell reads, so
-  // the tab's destination, its active set and its badge cannot disagree about
+  // the sheet's contents, its active set and its badge cannot disagree about
   // who is looking. `user !== null` narrows the type for `user.email` below
   // and adds nothing else: AuthProvider derives 'authenticated' from a
   // non-null user, so each implies the other.
@@ -425,8 +425,8 @@ export function BottomTabBar() {
   // At most one tab lights up (off-map routes like /help light none). Primary
   // tabs win on shared prefixes (e.g.
   // /shows/submit is both a Shows descendant and a Browse-sheet destination —
-  // Shows takes it); Account owns its own routes; Browse takes the rest of its
-  // sheet's destinations. The claim-view alias stays in the active set even
+  // Shows takes it); Account owns its own routes (the legal rows' routes light
+  // no tab); Browse takes the rest of its sheet's destinations. The claim-view alias stays in the active set even
   // when Profile deep-links to /users/<username>.
   const primaryActive = primaryTabs.some(t => isActive(t.href))
   const accountActive = isSettledAuthenticated
@@ -475,10 +475,13 @@ export function BottomTabBar() {
             UserMenu applies in the top bar, and the two are on screen
             together from `sm` up to this bar's own `xl:hidden`, so they have
             to agree. Both arms are the same SheetTab in the same one of five
-            equal grid columns, so the cell does not jump on settle, and a
-            sheet open across a settle stays open with the new viewer's rows. */}
+            equal grid columns, so the cell does not jump on settle. Their keys
+            differ, so a settle remounts the cell and closes a sheet that is
+            open across it, rather than moving different rows under a finger
+            already on its way to one. */}
         {isSettledAuthenticated ? (
           <SheetTab
+            key="account-signed-in"
             label="Account"
             icon={User}
             active={accountActive}
@@ -495,6 +498,7 @@ export function BottomTabBar() {
           </SheetTab>
         ) : (
           <SheetTab
+            key="account-signed-out"
             label="Account"
             icon={User}
             active={accountActive}

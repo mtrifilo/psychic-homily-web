@@ -203,7 +203,7 @@ describe('AuthPage', () => {
       expectSelected('Create account')
     })
 
-    // The header link and the mobile Account tab both build a returnTo with no
+    // The header link and the mobile Account sheet both build a returnTo with no
     // intent. A returnTo alone says nothing about whether the reader has an
     // account.
     it('opens on Sign in for a returnTo that names no intent', () => {

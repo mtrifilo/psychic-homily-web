@@ -102,7 +102,7 @@ test.describe('Registration', () => {
 })
 
 // A gated control names the action it refused; that arrival opens on Create
-// account. A returnTo alone (the header link, the mobile Account tab) and an
+// account. A returnTo alone (the header link, the mobile Account sheet) and an
 // unlisted intent both open on Sign in.
 test.describe('Initial tab', () => {
   test('a gated arrival opens on Create account with its account ledger', async ({ page }) => {

@@ -128,12 +128,13 @@
    * token): below `xl` it ends at the bar, and its route is listed in
    * components/layout/footerVisibility.ts so the site footer does not show
    * under it; at `xl` it ends at the viewport bottom less the home-indicator
-   * inset. AtlasGlobe also subtracts --cookie-banner-height, which
-   * CookieConsentBanner publishes on <html> only while it is up, since the
-   * banner sits above the bar's band there; AppShell's padding reserves the
-   * same height, so on /atlas the two cancel and the document is 100dvh.
-   * (AppShell's min-h-screen floor is 100vh, which exceeds 100dvh while a
-   * mobile browser's toolbar is showing.) Floating overlays
+   * inset, and the footer follows it, so the page scrolls by the footer's
+   * height. AtlasGlobe also subtracts --cookie-banner-height, which
+   * CookieConsentBanner publishes on <html> only while it is up, and
+   * AppShell's padding reserves the same height, so below `xl` on /atlas the
+   * two cancel and the document is 100dvh. (AppShell's min-h-screen floor is
+   * 100vh, which exceeds 100dvh while a mobile browser's toolbar is
+   * showing.) Floating overlays
    * positioned in JS (FirstSaveHint) measure the bar through its
    * `data-bottom-tab-bar` attribute instead, since this calc() cannot be read
    * back as a number. */
