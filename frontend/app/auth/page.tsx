@@ -29,6 +29,8 @@ import {
   SignupIntentPanel,
 } from '@/app/auth/_components/signup-intent-panel'
 import { CheckInboxInterstitial } from '@/app/auth/_components/check-inbox-interstitial'
+import { BackupAuthPrompt } from '@/app/auth/_components/backup-auth-prompt'
+import type { SignupHandoff } from '@/app/auth/_components/signup-handoff'
 import {
   AUTH_ERROR_PARAM,
   hasGatedIntent,
@@ -320,28 +322,13 @@ function LoginForm({ returnTo }: { returnTo: string }) {
   )
 }
 
-/**
- * The signup tab's claim on the page while a registration is in flight or has
- * just landed.
- *
- * Two phases rather than one, because `useRegister` awaits a full
- * `/auth/profile` refetch inside its own `onSuccess` before this component's
- * `onSuccess` ever runs. During that await the viewer is already
- * authenticated, so a one-phase "set the email when it succeeds" handoff would
- * let the already-authenticated redirect fire first and navigate away from an
- * interstitial that had not been claimed yet. `pending` is set synchronously
- * at submit, which closes that window entirely.
- */
-type SignupHandoff =
-  | { status: 'pending'; email: string }
-  | { status: 'complete'; email: string }
-
 interface SignupFormProps {
   returnTo: string
   /**
-   * Reports the signup tab's claim on the page. The page swaps in the
-   * check-your-inbox interstitial rather than navigating, so the address never
-   * has to travel through the URL. `null` releases the claim.
+   * Reports the signup tab's claim on the page, for both the password form and
+   * the passkey button. The page swaps in what follows the sign-up rather than
+   * navigating, so the address never has to travel through the URL. `null`
+   * releases the claim.
    */
   onHandoffChange: (handoff: SignupHandoff | null) => void
   /**
@@ -420,6 +407,7 @@ function SignupForm({
             onHandoffChange({
               status: 'complete',
               email: data.user.email || value.email,
+              method: 'password',
             })
           },
           onError: () => {
@@ -476,8 +464,8 @@ function SignupForm({
         </form.Subscribe>
         <PasskeySignupButton
           onError={setPasskeyError}
+          onHandoffChange={onHandoffChange}
           className="w-full"
-          returnTo={returnTo}
           termsVersion={CURRENT_TERMS_VERSION}
           privacyVersion={CURRENT_PRIVACY_VERSION}
           minAge={MIN_SIGNUP_AGE}
@@ -753,6 +741,23 @@ function AuthPageContent() {
     return (
       <div className="flex min-h-[calc(100vh-64px)] items-center justify-center">
         <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+      </div>
+    )
+  }
+
+  // Every way of closing the prompt releases the claim, which hands the viewer
+  // back to the already-authenticated redirect effect above: an authenticated
+  // viewer goes to returnTo, so the page keeps a single navigation, and a
+  // viewer the profile does not report as signed in sees the form again.
+  if (signupHandoff?.status === 'complete' && signupHandoff.method === 'passkey') {
+    return (
+      <div className="min-h-[calc(100vh-64px)]">
+        <BackupAuthPrompt
+          open
+          onOpenChange={open => {
+            if (!open) setSignupHandoff(null)
+          }}
+        />
       </div>
     )
   }

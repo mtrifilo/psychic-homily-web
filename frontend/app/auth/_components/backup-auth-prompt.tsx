@@ -46,11 +46,11 @@ function GoogleIcon({ className }: { className?: string }) {
 
 interface BackupAuthPromptProps {
   open: boolean
+  /** Reports every close, the skip button included. */
   onOpenChange: (open: boolean) => void
-  onComplete: () => void
 }
 
-export function BackupAuthPrompt({ open, onOpenChange, onComplete }: BackupAuthPromptProps) {
+export function BackupAuthPrompt({ open, onOpenChange }: BackupAuthPromptProps) {
   const [isConnectingGoogle, setIsConnectingGoogle] = useState(false)
 
   const handleConnectGoogle = () => {
@@ -62,7 +62,6 @@ export function BackupAuthPrompt({ open, onOpenChange, onComplete }: BackupAuthP
 
   const handleSkip = () => {
     onOpenChange(false)
-    onComplete()
   }
 
   return (
