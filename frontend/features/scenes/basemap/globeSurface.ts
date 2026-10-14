@@ -58,9 +58,10 @@ export const GLOBE_DATA_HOST = 'same-origin'
  * Atlas page, board 01 "Globe entry (lighter globe)"): sphere `#0A0C18`, land
  * `#111528`, boundary hairlines `#3A3F5C` at 0.75px, place labels `#7A7F9A`.
  * Literal values rather than DS tokens, the same in both themes: the globe
- * surface stays dark in light mode, as the raster and the street basemap do,
- * and the themed border and muted tokens are drawn for the app's paper and
- * ink grounds, not for this one.
+ * surface stays dark in light mode, as the raster does (only the street
+ * basemap past the crossfade follows the theme), and the themed border and
+ * muted tokens are drawn for the app's paper and ink grounds, not for this
+ * one.
  */
 export const GLOBE_OCEAN_COLOR = '#0a0c18'
 export const GLOBE_LAND_COLOR = '#111528'

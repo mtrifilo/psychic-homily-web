@@ -1,13 +1,13 @@
 import { describe, it, expect } from 'vitest'
+import { readFileSync } from 'node:fs'
+import path from 'node:path'
 import {
   compareScenesByActivity,
   DOT_COLOR_BASE,
-  DOT_COLOR_HOVERED,
-  DOT_COLOR_SELECTED,
   LABEL_TOP_K_FLOOR,
   LABEL_DECLUTTER_KM_BY_MIN_COUNT,
   labelDeclutterRadiusKm,
-  DOT_COLOR_FOLLOWED,
+  MARKER_RAMPS,
   labelMinCountForAltitude,
   labelMinCountForZoom,
   altitudeForZoom,
@@ -22,6 +22,9 @@ import {
   visibleLabelScenes,
   zoomForAltitude,
 } from './globeScale'
+import { ATLAS_THEMES } from '../basemap/phBasemap'
+
+const THEMES = ATLAS_THEMES
 
 // PSY-1223: the globe's dot/label sizes were an UNCAPPED sqrt(count), so very
 // dense scenes ballooned; and every scene carried an always-on label, so
@@ -119,19 +122,20 @@ describe('globeScreenRadiusPx (PSY-1538)', () => {
   })
 })
 
-describe('sceneDotColor followed state (PSY-1340)', () => {
+describe.each(THEMES)('sceneDotColor followed state (PSY-1340), %s ramp', (theme) => {
+  const ramp = MARKER_RAMPS[theme]
   const followed = new Set(['phoenix-az'])
 
   it('tints followed dots, with selected/hovered still winning', () => {
-    expect(sceneDotColor('phoenix-az', null, null, followed)).toBe(DOT_COLOR_FOLLOWED)
-    expect(sceneDotColor('phoenix-az', 'phoenix-az', null, followed)).toBe(DOT_COLOR_HOVERED)
-    expect(sceneDotColor('phoenix-az', null, 'phoenix-az', followed)).toBe(DOT_COLOR_SELECTED)
-    expect(sceneDotColor('denver-co', null, null, followed)).toBe(DOT_COLOR_BASE)
+    expect(sceneDotColor(ramp, 'phoenix-az', null, null, followed)).toBe(ramp.followed)
+    expect(sceneDotColor(ramp, 'phoenix-az', 'phoenix-az', null, followed)).toBe(ramp.hovered)
+    expect(sceneDotColor(ramp, 'phoenix-az', null, 'phoenix-az', followed)).toBe(ramp.selected)
+    expect(sceneDotColor(ramp, 'denver-co', null, null, followed)).toBe(ramp.base)
   })
 
   it('treats an absent set as unfollowed (logged-out)', () => {
-    expect(sceneDotColor('phoenix-az', null, null, null)).toBe(DOT_COLOR_BASE)
-    expect(sceneDotColor('phoenix-az', null, null)).toBe(DOT_COLOR_BASE)
+    expect(sceneDotColor(ramp, 'phoenix-az', null, null, null)).toBe(ramp.base)
+    expect(sceneDotColor(ramp, 'phoenix-az', null, null)).toBe(ramp.base)
   })
 })
 
@@ -531,50 +535,97 @@ describe('labelDeclutterRadiusKm', () => {
   })
 })
 
-describe('sceneDotColor (PSY-1312)', () => {
+describe.each(THEMES)('sceneDotColor (PSY-1312), %s ramp', (theme) => {
+  const ramp = MARKER_RAMPS[theme]
   it('base color when nothing is hovered or selected', () => {
-    expect(sceneDotColor('phoenix-az', null, null)).toBe(DOT_COLOR_BASE)
+    expect(sceneDotColor(ramp, 'phoenix-az', null, null)).toBe(ramp.base)
   })
 
   it('hovered color for the hovered dot only', () => {
-    expect(sceneDotColor('phoenix-az', 'phoenix-az', null)).toBe(DOT_COLOR_HOVERED)
-    expect(sceneDotColor('mesa-az', 'phoenix-az', null)).toBe(DOT_COLOR_BASE)
+    expect(sceneDotColor(ramp, 'phoenix-az', 'phoenix-az', null)).toBe(ramp.hovered)
+    expect(sceneDotColor(ramp, 'mesa-az', 'phoenix-az', null)).toBe(ramp.base)
   })
 
   it('selected color for the open-panel dot, persisting without hover', () => {
-    expect(sceneDotColor('phoenix-az', null, 'phoenix-az')).toBe(DOT_COLOR_SELECTED)
+    expect(sceneDotColor(ramp, 'phoenix-az', null, 'phoenix-az')).toBe(ramp.selected)
   })
 
   it('selected wins over hovered on the same dot (no flicker re-hovering the open scene)', () => {
-    expect(sceneDotColor('phoenix-az', 'phoenix-az', 'phoenix-az')).toBe(
-      DOT_COLOR_SELECTED,
+    expect(sceneDotColor(ramp, 'phoenix-az', 'phoenix-az', 'phoenix-az')).toBe(
+      ramp.selected,
     )
   })
 
   it('hovered and selected can differ simultaneously', () => {
-    expect(sceneDotColor('mesa-az', 'mesa-az', 'phoenix-az')).toBe(DOT_COLOR_HOVERED)
-    expect(sceneDotColor('phoenix-az', 'mesa-az', 'phoenix-az')).toBe(
-      DOT_COLOR_SELECTED,
+    expect(sceneDotColor(ramp, 'mesa-az', 'mesa-az', 'phoenix-az')).toBe(ramp.hovered)
+    expect(sceneDotColor(ramp, 'phoenix-az', 'mesa-az', 'phoenix-az')).toBe(
+      ramp.selected,
     )
   })
 })
 
-describe('sceneDotColor genre tint base (PSY-1315)', () => {
+describe.each(THEMES)('sceneDotColor genre tint base (PSY-1315), %s ramp', (theme) => {
+  const ramp = MARKER_RAMPS[theme]
   const GENRE = '#e0b66e' // a resolved family hex, standing in for genreFamilyColor(...)
 
   it('uses the genre base color when nothing is hovered/selected/followed', () => {
-    expect(sceneDotColor('phoenix-az', null, null, null, GENRE)).toBe(GENRE)
+    expect(sceneDotColor(ramp, 'phoenix-az', null, null, null, GENRE)).toBe(GENRE)
   })
 
   it('falls back to the default orange when the scene has no genre base', () => {
-    expect(sceneDotColor('phoenix-az', null, null, null, undefined)).toBe(DOT_COLOR_BASE)
+    expect(sceneDotColor(ramp, 'phoenix-az', null, null, null, undefined)).toBe(ramp.base)
   })
 
   it('hover/select/follow all override the genre base', () => {
     const followed = new Set(['phoenix-az'])
-    expect(sceneDotColor('phoenix-az', 'phoenix-az', null, null, GENRE)).toBe(DOT_COLOR_HOVERED)
-    expect(sceneDotColor('phoenix-az', null, 'phoenix-az', null, GENRE)).toBe(DOT_COLOR_SELECTED)
-    expect(sceneDotColor('phoenix-az', null, null, followed, GENRE)).toBe(DOT_COLOR_FOLLOWED)
+    expect(sceneDotColor(ramp, 'phoenix-az', 'phoenix-az', null, null, GENRE)).toBe(ramp.hovered)
+    expect(sceneDotColor(ramp, 'phoenix-az', null, 'phoenix-az', null, GENRE)).toBe(ramp.selected)
+    expect(sceneDotColor(ramp, 'phoenix-az', null, null, followed, GENRE)).toBe(ramp.followed)
+  })
+})
+
+describe('MARKER_RAMPS', () => {
+  it('keeps the dark ramp as shipped, with no selected ring', () => {
+    expect(MARKER_RAMPS.dark).toEqual({
+      base: '#ff7a3c',
+      hovered: '#ffb066',
+      selected: '#ffe6c2',
+      followed: '#7ee8fa',
+      selectedRing: null,
+    })
+  })
+
+  it('darkens hover, selected and followed for paper, and rings the selected mark', () => {
+    expect(MARKER_RAMPS.light).toEqual({
+      base: '#ff7a3c',
+      hovered: '#e8893f',
+      selected: '#d2541b',
+      followed: '#1f8fa8',
+      selectedRing: { color: '#f4f1ea', widthPx: 1.5 },
+    })
+  })
+
+  it.each(THEMES)('keeps the four states of the %s ramp apart', (theme) => {
+    const { base, hovered, selected, followed } = MARKER_RAMPS[theme]
+    expect(new Set([base, hovered, selected, followed]).size).toBe(4)
+  })
+
+  it('draws the same base orange in both themes', () => {
+    expect(MARKER_RAMPS.light.base).toBe(DOT_COLOR_BASE)
+    expect(MARKER_RAMPS.dark.base).toBe(DOT_COLOR_BASE)
+  })
+
+  // The light ramp's selected mark is --primary on a --background ring, both
+  // copied from the :root tokens; a light-theme repaint that moved either
+  // would leave the mark stale with nothing else failing.
+  it('anchors the light selected mark to the :root tokens in globals.css', () => {
+    const css = readFileSync(
+      path.resolve(__dirname, '../../../app/globals.css'),
+      'utf8',
+    )
+    const root = css.slice(css.indexOf(':root {'), css.indexOf('.dark {'))
+    expect(root).toContain(`--primary: ${MARKER_RAMPS.light.selected};`)
+    expect(root).toContain(`--background: ${MARKER_RAMPS.light.selectedRing?.color};`)
   })
 })
 

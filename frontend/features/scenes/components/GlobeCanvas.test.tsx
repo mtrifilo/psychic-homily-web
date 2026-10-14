@@ -1,4 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { readFileSync } from 'node:fs'
+import path from 'node:path'
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import type { FlyToScene, PlaceableScene, VenuePin, VenueStackMarker } from './globeTypes'
 import { installMatchMedia } from '@/test/mocks/matchMedia'
@@ -10,7 +12,8 @@ import {
 import { CanvasSectionErrorBoundary } from '@/components/shared/CanvasSectionErrorBoundary'
 import { AtlasMapUnrecoverableError } from '../atlasViewport'
 import { ATLAS_CONTEXT_RESTORE_DEADLINE_MS, ATLAS_FIRST_RENDER_DEADLINE_MS } from './atlasMapHealth'
-import { sceneTooltipLabel } from './globeScale'
+import { MARKER_RAMPS, sceneTooltipLabel } from './globeScale'
+import { venuePinPaint } from './venuePinLayer'
 
 /**
  * MapLibre stubbed down to the seams the sheet layout drives: controls by
@@ -232,7 +235,8 @@ vi.mock('maplibre-gl', () => ({
 }))
 vi.mock('maplibre-gl/dist/maplibre-gl.css', () => ({}))
 
-import GlobeCanvas from './GlobeCanvas'
+import GlobeCanvas, { LABEL_PAPER_GROUND_ZOOM } from './GlobeCanvas'
+import { lightGroundPaperZoom } from '../basemap/phBasemap'
 
 const CHICAGO: PlaceableScene = {
   city: 'Chicago',
@@ -1349,6 +1353,27 @@ describe('GlobeCanvas preview camera', () => {
     expect(halo.style.top).toBe(`calc(50% - ${HALF_PX / 2}px)`)
   })
 
+  it('rebuilds the map for a theme change with the padding the old camera had, unmoved', async () => {
+    const { map, rerender, props } = selectChicago()
+    const atPeek = { ...props, selected: CHICAGO, scenePreviewSheetDetent: 'peek' as const }
+    rerender(<GlobeCanvas {...atPeek} />)
+    expect(map.padding).toEqual(padded(HALF_PX))
+
+    try {
+      await act(async () => {
+        document.documentElement.classList.add('dark')
+      })
+      const rebuilt = stub.state.maps[stub.state.maps.length - 1]
+      act(() => rebuilt.fire('style.load'))
+      expect(rebuilt).not.toBe(map)
+      expect(map.remove).toHaveBeenCalled()
+      expect(rebuilt.setPadding).toHaveBeenCalledWith(padded(HALF_PX))
+      expect(rebuilt.easeTo).not.toHaveBeenCalled()
+    } finally {
+      document.documentElement.classList.remove('dark')
+    }
+  })
+
   it('moves once on a map rebuilt while the move for the current selection was still waiting', () => {
     const { map, rerender, props } = renderPreview()
     map.moving = true
@@ -1383,5 +1408,154 @@ describe('GlobeCanvas preview camera', () => {
     map.padding = NO_PADDING
     act(() => map.fire('move'))
     expect(halo.style.top).toBe('')
+  })
+})
+
+describe('GlobeCanvas theme', () => {
+  type StyleLayer = { id: string; paint?: Record<string, unknown> }
+  const layer = (map: StubMap, id: string) =>
+    (map.options as unknown as { style: { layers: StyleLayer[] } }).style.layers.find(
+      (l) => l.id === id,
+    )
+  const venueLabel = (name: string) => screen.getByText(name, { selector: 'div' })
+  const ground = () => screen.getByTestId('globe-cursor-wrap').dataset.atlasGround
+  function zoomTo(map: StubMap, zoom: number) {
+    map.getZoom = () => zoom
+    act(() => map.fire('zoom'))
+  }
+
+  beforeEach(() => {
+    stub.state.maps = []
+    stub.state.markers = []
+    sessionStorage.clear()
+  })
+  afterEach(() => {
+    document.documentElement.classList.remove('dark')
+  })
+
+  it('draws the dark street style and the dark ramp in the dark theme', () => {
+    document.documentElement.classList.add('dark')
+    const { map } = renderCanvas()
+    expect(layer(map, 'ph-background')?.paint?.['background-color']).toBe('#0d0805')
+    expect(layer(map, 'ph-water')?.paint?.['fill-color']).toBe('#090c12')
+    const dots = layer(map, 'scene-dots')?.paint
+    expect((dots?.['circle-color'] as unknown[])[2]).toBe(MARKER_RAMPS.dark.hovered)
+    expect(dots?.['circle-stroke-color']).toBe('rgba(255,230,194,0.35)')
+    expect(dots?.['circle-stroke-width']).toBe(1)
+    expect(layer(map, 'venue-pins')?.paint).toEqual(venuePinPaint(MARKER_RAMPS.dark))
+  })
+
+  it('draws the light street style and the light ramp in the light theme', () => {
+    const { map } = renderCanvas()
+    expect(layer(map, 'ph-background')?.paint?.['background-color']).toEqual([
+      'interpolate',
+      ['linear'],
+      ['zoom'],
+      5.5,
+      '#0d0805',
+      7,
+      '#f4f1ea',
+    ])
+    expect(layer(map, 'ph-water')?.paint?.['fill-color']).toEqual(['interpolate', ['linear'], ['zoom'], 5.5, '#090c12', 7, '#dbe4ea'])
+    const dots = layer(map, 'scene-dots')?.paint
+    expect((dots?.['circle-color'] as unknown[])[2]).toBe(MARKER_RAMPS.light.hovered)
+    expect(dots?.['circle-stroke-color']).toEqual([
+      'case',
+      ['get', 'isSelected'],
+      '#f4f1ea',
+      'rgba(255,230,194,0.35)',
+    ])
+    expect(dots?.['circle-stroke-width']).toEqual(['case', ['get', 'isSelected'], 1.5, 1])
+    expect(layer(map, 'venue-pins')?.paint).toEqual(venuePinPaint(MARKER_RAMPS.light))
+  })
+
+  it('draws every map label in the ink and halo of the ground, cream on a dark halo by default', () => {
+    const { rerender, props } = renderCanvas({ venueStacks: [STACK], onVenueStackSelect: vi.fn() })
+    const stackLabel = screen.getByText(STACK.label, { selector: 'span' })
+    const scene = () => screen.getAllByTestId('atlas-scene-label')[0]
+    const labels = [venueLabel('Thalia Hall'), stackLabel]
+    rerender(<GlobeCanvas {...props} cityLabel={null} venues={[]} venueStacks={[]} />)
+    for (const label of [...labels, scene()]) {
+      expect(label.style.color).toBe('var(--atlas-label-ink, #ffe6c2)')
+      expect(label.style.textShadow).toBe('var(--atlas-label-halo, 0 1px 4px rgba(0,0,0,0.9))')
+    }
+  })
+
+  it('marks the ground paper in the light theme from the zoom where the light ground passes mid-grey', () => {
+    expect(LABEL_PAPER_GROUND_ZOOM).toBe(lightGroundPaperZoom(5.5, 7))
+    const { map } = renderCanvas()
+    // The stub opens at zoom 13, on the streets.
+    expect(ground()).toBe('paper')
+    zoomTo(map, LABEL_PAPER_GROUND_ZOOM - 0.01)
+    expect(ground()).toBeUndefined()
+    zoomTo(map, LABEL_PAPER_GROUND_ZOOM)
+    expect(ground()).toBe('paper')
+    zoomTo(map, 3)
+    expect(ground()).toBeUndefined()
+  })
+
+  it('never marks the ground paper in the dark theme', () => {
+    document.documentElement.classList.add('dark')
+    const { map } = renderCanvas()
+    expect(ground()).toBeUndefined()
+    zoomTo(map, 8)
+    expect(ground()).toBeUndefined()
+  })
+
+  it('stops following the zoom when the map goes', () => {
+    const { map, unmount } = renderCanvas()
+    const listening = map.handlers.get('zoom') ?? []
+    unmount()
+    // The stub keeps the map's own listeners past remove(), which MapLibre
+    // drops; the ground's listener is the one this component takes off.
+    expect(map.handlers.get('zoom')).toHaveLength(listening.length - 1)
+  })
+
+  it('sets the paper-ground ink and halo from the theme tokens in globals.css', () => {
+    const css = readFileSync(path.resolve(__dirname, '../../../app/globals.css'), 'utf8')
+    const at = css.indexOf("[data-atlas-ground='paper'] {")
+    expect(at).toBeGreaterThan(-1)
+    const rule = css.slice(at, css.indexOf('}', at))
+    expect(rule).toContain('--atlas-label-ink: var(--foreground);')
+    expect(rule).toMatch(/--atlas-label-halo:[^;]*var\(--background\)/)
+  })
+
+  it('remounts the map for a theme change, removing the old one and keeping the camera', async () => {
+    const { map } = renderCanvas()
+    map.center = { lng: -87.7, lat: 41.9 }
+    // A remount runs every effect cleanup together, the map's removal last,
+    // so nothing still holds the old map when it goes.
+    let controlsAtRemoval: number | null = null
+    map.remove.mockImplementation(() => {
+      controlsAtRemoval = map.controls.length
+    })
+    await act(async () => {
+      document.documentElement.classList.add('dark')
+    })
+    expect(stub.state.maps).toHaveLength(2)
+    expect(map.remove).toHaveBeenCalledTimes(1)
+    expect(controlsAtRemoval).toBe(0)
+    const rebuilt = stub.state.maps[1]
+    const options = rebuilt.options as unknown as { center: [number, number]; zoom: number }
+    expect(options.center).toEqual([-87.7, 41.9])
+    expect(options.zoom).toBe(13)
+    expect(layer(rebuilt, 'ph-background')?.paint?.['background-color']).toBe('#0d0805')
+    // One live map: the old map's labels went with it, and the dark ground
+    // took over from the paper one.
+    act(() => rebuilt.fire('style.load'))
+    expect(screen.getAllByText('Thalia Hall', { selector: 'div' })).toHaveLength(1)
+    expect(ground()).toBeUndefined()
+  })
+
+  it('keeps the map through an html class change that leaves the theme as it was', async () => {
+    renderCanvas()
+    try {
+      await act(async () => {
+        document.documentElement.classList.add('some-other-class')
+      })
+      expect(stub.state.maps).toHaveLength(1)
+    } finally {
+      document.documentElement.classList.remove('some-other-class')
+    }
   })
 })

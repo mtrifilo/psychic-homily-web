@@ -10,6 +10,7 @@ import { ErrorProbe } from '@/test/ErrorProbe'
 import { installMatchMedia } from '@/test/mocks/matchMedia'
 import { renderedCircle } from '@/test/renderedCircles'
 import { ATLAS_CONTEXT_RESTORE_DEADLINE_MS } from '@/features/scenes/components/atlasMapHealth'
+import { VENUE_PIN_STROKE } from '@/features/scenes/components/venuePinLayer'
 import { VenueMiniAtlas } from './VenueMiniAtlas'
 import { miniAtlasPins } from '../venueMiniAtlas'
 import type { VenueWithShowCount } from '../types'
@@ -170,6 +171,18 @@ describe('VenueMiniAtlas', () => {
       expect(expression[2]).toBeLessThan(1)
       expect(expression[3]).toBe(1)
     }
+  })
+
+  it('draws the dark street style and dark pin ramp, under the dark tokens, in either app theme', () => {
+    const { getByTestId } = renderAtlas()
+    const style = theMap().options.style as {
+      layers: { id: string; paint?: Record<string, unknown> }[]
+    }
+    const paint = (id: string) => style.layers.find(l => l.id === id)?.paint
+    expect(paint('ph-background')?.['background-color']).toBe('#0d0805')
+    expect(paint('ph-water')?.['fill-color']).toBe('#090c12')
+    expect(paint('room-pins')?.['circle-stroke-color']).toBe(VENUE_PIN_STROKE)
+    expect(getByTestId('venue-mini-atlas-canvas')).toHaveClass('dark')
   })
 
   it('keeps the camera above the zoom where the basemap draws nothing', () => {

@@ -1,10 +1,15 @@
-# PH dark basemap (Atlas street view)
+# PH street basemap (Atlas street view)
 
-`ph-dark-basemap.json` is the Psychic Homily-branded dark street style the
-Atlas globe crossfades into past the Black Marble zoom range. It is a
-complete, standalone MapLibre GL style (loadable as-is in Maputnik for
-tuning); `phBasemap.ts` adapts it into the fragment `GlobeCanvas` merges
-into its inline style, applying the globe→street background fade.
+`ph-dark-basemap.json` and `ph-light-basemap.json` are the Psychic
+Homily-branded street styles the Atlas globe crossfades into past the Black
+Marble zoom range, one per app theme. Each is a complete, standalone
+MapLibre GL style (loadable as-is in Maputnik for tuning); `phBasemap.ts`
+adapts the one a map asks for into the fragment `GlobeCanvas` merges into
+its inline style, applying the globe→street background fade.
+
+The dark file is the hand-curated source. The light file is written from it
+by `frontend/scripts/atlas-light-basemap.mjs` (see "Light variant" below);
+never edit it by hand.
 
 This README lives here (not in `docs/`) deliberately: `docs/` is gitignored
 in this repo, and the provenance/fallback notes below must ship with the
@@ -23,17 +28,33 @@ style file they describe.
   as the source-layer/filter reference. This is a deliberate *reduction* of
   Liberty (~111 layers → ~25): no POIs, no highway shields, no transit
   icons, no house numbers, no 3D buildings, no sprite at all — streets are
-  muted browns on the app's `#0d0805` background so the orange scene/venue
-  markers stay the loudest thing on the map.
-- **Palette**: anchored to the `.dark` tokens in `frontend/app/globals.css` —
-  `--background #0d0805`, `--card #17100b`, `--border #221b15`,
-  `--foreground #eee7d9`. Road fills are interpolations within that warm-dark
-  family; water is the one deliberate departure (near-black desaturated blue
-  `#090c12`) so coastlines read against the warm land. `--muted-foreground
-  #9c8c7c` is used by the attribution restyle in `globals.css`, not by the
-  style itself. Nothing reads these tokens at runtime — the style is a
-  hand-copied snapshot — so `phDarkBasemap.test.ts` pins each anchor against
-  `globals.css` and fails if a theme repaint moves one.
+  muted browns on the theme's background (`#0d0805` dark, `#f4f1ea` paper)
+  so the orange scene/venue markers stay the loudest thing on the map.
+- **Dark palette**: anchored to the `.dark` tokens in
+  `frontend/app/globals.css`: `--background #0d0805`, `--card #17100b`,
+  `--border #221b15`, `--foreground #eee7d9`. Road fills are interpolations
+  within that warm-dark family, lightening with importance; water is the one
+  deliberate departure (near-black desaturated blue `#090c12`) so coastlines
+  read against the warm land.
+- **Light palette**: the light column of the palette table on the Figma
+  board (Product Designs, Atlas page, light street row `1973:75`, table
+  `1973:76`) is the authority; `LIGHT_PAINT` copies it value for value. The
+  `:root` tokens are its anchors, not a recipe: background `--background
+  #f4f1ea`; buildings `--card #faf7f0` with a `--secondary #e8e3d6` outline
+  (`--border` reads too loud on paper); roads darken with importance from
+  near the background through `--border #cabe9f` (primary and trunk) to
+  `#bfb18e` (motorway), with country boundaries at `#a89b7d`; water
+  `#dbe4ea`, again the one cool departure, with its names in a cool grey
+  `#5c6f82`; other labels run from `#8a7b69` (minor road names) through
+  `--muted-foreground #6b5e4f` (major road names) to `--foreground #1a1714`
+  (cities), each on a halo of the ground it sits on (paper, or water for
+  water names). Retune against the board, not by re-deriving from tokens.
+- **Token snapshots**: nothing reads these tokens at runtime (each style is
+  a hand-copied snapshot), so `phBasemap.test.ts` pins each variant's
+  anchors against its block of `globals.css` and fails if a theme repaint
+  moves one. The map attribution restyle in `globals.css` reads the tokens
+  directly (`--muted-foreground` on `--background`), so it follows the
+  theme.
 - **Fonts**: OpenFreeMap's glyph server serves a fixed set; only
   `Noto Sans Regular/Bold/Italic` are available (verified by HTTP probe —
   `Space Mono`, `Roboto Mono`, etc. 404). The PH type direction
@@ -53,12 +74,19 @@ changes its schema or endpoints:
    `aeroway`, `transportation`, `transportation_name`, `building`,
    `boundary`, `water_name`, `place`) against `ph-dark-basemap.json`, and
    update filters/source-layers to match. Keep the palette and the layer
-   reduction — do not re-adopt POIs/shields/sprites.
+   reduction; do not re-adopt POIs/shields/sprites. Then rewrite the light
+   file: `node scripts/atlas-light-basemap.mjs` (from `frontend/`). A layer
+   added, dropped or recoloured in the dark file needs its pair in
+   `LIGHT_PAINT` (`scripts/lib/ph-light-basemap.mjs`, each colour as
+   `[dark value, light value]`) first; the script refuses a dark file the
+   table no longer fits, a changed dark hex included.
 3. Re-probe the glyph server if label fonts break
    (`curl -sI "https://tiles.openfreemap.org/fonts/Noto%20Sans%20Regular/0-255.pbf"`).
-4. Run `bun run test:run features/scenes` — `phDarkBasemap.test.ts` pins
-   spec-validity, CSP-host agreement, the available-font set, and the
-   GlobeCanvas merge contract.
+4. Run `bun run test:run features/scenes`: `phBasemap.test.ts` pins, for
+   both files, spec-validity, CSP-host agreement, the available-font set,
+   the GlobeCanvas merge contract and the token anchors; and that the light
+   file differs from the dark one only in colours and is what the script
+   writes today.
 5. If a host changes, update `connect-src` in `frontend/next.config.ts`
    (MapLibre fetches tiles AND glyphs via `fetch()` — connect-src, never
    img-src).
@@ -67,7 +95,7 @@ changes its schema or endpoints:
    declares `https://tiles.openfreemap.org/planet`; the tiles it actually
    fetches come from the `tiles` array inside that TileJSON response. Those
    point at the same host today (verified 2026-07-26), and
-   `phDarkBasemap.test.ts` can only check the DECLARED host — it does no
+   `phBasemap.test.ts` can only check the DECLARED host: it does no
    network I/O, deliberately, so the suite stays offline-safe. If OpenFreeMap
    ever moves delivery to a CDN subdomain, CSP would block tiles in
    production with nothing failing in CI. Re-check by hand whenever the
@@ -76,6 +104,39 @@ changes its schema or endpoints:
    ```
    curl -s https://tiles.openfreemap.org/planet | head -c 200
    ```
+
+## Light variant
+
+- **Selection**: `GlobeCanvas` draws the variant of the app theme (the
+  `<html>` `.dark` class next-themes sets). A theme change remounts the map
+  under a new key, the same remove-and-create a hide and show runs, so a
+  map's style and marker colours are fixed for its lifetime and the camera
+  carries over through `atlasCamera.ts`. There is no `setStyle` path.
+- **What stays dark**: the globe (the NASA night-lights raster, or the light
+  globe look on phone panes) is dark in both themes, and so are the CSS
+  starfield and halo behind it. Only the street basemap past the crossfade
+  follows the theme. The `/venues` mini Atlas asks for the dark variant and
+  the dark pin ramp in both themes, and its pane carries the `dark` class so
+  its credit pill takes the dark tokens over its dark map.
+- **Crossfade**: in the light variant every colour of every layer ramps
+  from the dark style's value at the crossfade start to its own at the end
+  (`phBasemapFragment`). Up to the start the light style draws exactly the
+  dark one, so the night globe dissolves into the dark streets as in the dark
+  theme and the whole map brightens to paper by the end: no light fill shows
+  through a still-dark globe.
+- **Markers**: `MARKER_RAMPS` in `frontend/features/scenes/components/globeScale.ts`
+  holds one colour ramp per theme for the scene dots and venue pins; the
+  light one rings a selected mark in paper.
+- **Map labels**: the scene, venue and stack names are DOM markers in cream
+  on a dark halo. In the light theme, from `LABEL_PAPER_GROUND_ZOOM` (where
+  the light ground, under the globe surface fading out over it, passes half
+  of paper's brightness: `lightGroundPaperZoom` in `phBasemap.ts`) they
+  switch to `--foreground` ink on a
+  `--background` halo, through `data-atlas-ground="paper"` on the map root
+  and the rule for it in `globals.css`.
+- **Bundle**: both style files are static imports of `phBasemap.ts`, so the
+  light file ships in the same lazy chunks as the dark one (the Atlas canvas
+  and the `/venues` mini Atlas), whichever theme is in force.
 
 ## Light globe overlays (phone panes)
 
@@ -187,5 +248,5 @@ planet extract on our own object storage, no tile server:
 5. Update `connect-src` in `next.config.ts` to the bucket host (and drop
    `tiles.openfreemap.org` once fully migrated).
 6. If Protomaps' schema build diverges from OpenMapTiles in a source-layer
-   we use, adjust per the regeneration steps above; `phDarkBasemap.test.ts`
+   we use, adjust per the regeneration steps above; `phBasemap.test.ts`
    will catch host/CSP drift.
