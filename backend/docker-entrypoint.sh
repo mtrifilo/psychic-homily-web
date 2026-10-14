@@ -76,7 +76,7 @@ if ! migrate -path /app/db/migrations -database "$MIGRATE_DATABASE_URL" up; then
     # A failed migration leaves its version marked dirty, and every later
     # `migrate up` refuses until the version is forced.
     echo "ERROR: Migration failed! Schema version now: $(migrate -path /app/db/migrations -database "$MIGRATE_DATABASE_URL" version 2>&1)"
-    echo "ERROR: Boot refused. If that version is (dirty): confirm its DDL did not apply, run 'migrate force <previous version>', then redeploy."
+    echo "ERROR: Boot refused. If that version is (dirty): confirm its DDL did not apply (drop any INVALID index a CONCURRENTLY build left), run 'migrate force <previous version>', then redeploy."
     exit 1
 fi
 echo "Migrations completed successfully!"
