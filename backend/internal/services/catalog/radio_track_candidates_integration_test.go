@@ -114,8 +114,11 @@ func (s *RadioCandidatesIntegrationSuite) TestTrackExcludedAndAmbiguousPlaysAreO
 	// Ambiguous plays do not count, so this track has one play per row.
 	s.addAcross(candidatePlay{artist: "T Band", title: "Ambiguous Song", matchState: catalogm.RadioPlayMatchStateAmbiguous}, 2)
 	s.addAcross(candidatePlay{artist: "T Band", title: "Ambiguous Song"}, 1)
-	// An unkeyable artist name maps to no track; a blank title is excluded.
+	// An unkeyable artist name maps to no track, even when the title is
+	// unkeyable too and the play's key is the unkeyed marker's; a blank title
+	// is excluded.
 	s.addAcross(candidatePlay{artist: "東京", title: "Song"}, 2)
+	s.addAcross(candidatePlay{artist: "東京", title: "大阪"}, 2)
 	s.addAcross(candidatePlay{artist: "T Band", title: ""}, 2)
 
 	// A station-scoped rule removes the WFMU plays of this track, leaving
@@ -136,12 +139,12 @@ func (s *RadioCandidatesIntegrationSuite) TestTrackExcludedAndAmbiguousPlaysAreO
 	}
 	s.Equal([]string{"Real Song"}, titles)
 	s.Equal(1, listing.QualifyingTracks)
-	s.Equal(int64(4), listing.UntrackedPlays, "the unkeyable artist's plays count toward no track")
+	s.Equal(int64(8), listing.UntrackedPlays, "the unkeyable artist's plays count toward no track")
 
 	// A play newer than the last rebuild has no radio_track_keys row yet.
 	s.add(candidatePlay{station: "t-kexp", artist: "T Band", title: "Brand New Song"}, 1)
 	listing = s.listTracks(contracts.RadioTrackCandidateViewUnmatched, contracts.RadioCandidateLaneFilterAll, contracts.RadioCandidateSortScore, 50)
-	s.Equal(int64(5), listing.UntrackedPlays)
+	s.Equal(int64(9), listing.UntrackedPlays)
 }
 
 func (s *RadioCandidatesIntegrationSuite) TestTrackViewSplit() {
