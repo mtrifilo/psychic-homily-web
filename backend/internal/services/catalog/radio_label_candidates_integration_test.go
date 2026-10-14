@@ -338,11 +338,19 @@ func (s *RadioLabelCandidatesIntegrationSuite) TestLinkedLabelsAreNotCandidates(
 	// A linked play inside the window does the same.
 	s.add(labelPlay{station: "t-kexp", label: "T Partly Linked", labelID: &linked}, 1)
 	s.addAcross(labelPlay{label: "T Partly Linked"}, 3)
+	// So does a linked play dated after as_of, or on a row excluded from the
+	// ranking.
+	s.add(labelPlay{station: "t-kexp", label: "T Linked Later", date: "2026-08-05", labelID: &linked}, 1)
+	s.addAcross(labelPlay{label: "T Linked Later"}, 3)
+	s.add(labelPlay{station: "t-kexp", label: "T Linked Talk", artist: "Music behind DJ: T Bed", labelID: &linked}, 1)
+	s.addAcross(labelPlay{label: "T Linked Talk"}, 3)
 	s.addAcross(labelPlay{label: "T Unlinked"}, 3)
 
 	got := s.all()
 	s.NotContains(got, "t was linked")
 	s.NotContains(got, "t partly linked")
+	s.NotContains(got, "t linked later")
+	s.NotContains(got, "t linked talk")
 	s.Contains(got, "t unlinked")
 	s.Len(got, 1)
 }
