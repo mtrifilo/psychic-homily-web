@@ -5,7 +5,6 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"net/http"
-	"net/http/httptest"
 	"net/url"
 	"testing"
 	"time"
@@ -53,6 +52,15 @@ var signInAccountStates = []accountState{
 			s.Require().NoError(s.deps.UserService.SoftDeleteAccount(userID, nil))
 		},
 	},
+	{
+		// Not a state the soft-delete writer leaves; here so deleted_at
+		// refuses on its own.
+		name: "deleted-at-only",
+		apply: func(s *OAuthHandlerIntegrationSuite, userID uint) {
+			s.Require().NoError(s.deps.DB.Model(&authm.User{}).
+				Where("id = ?", userID).Update("deleted_at", time.Now()).Error)
+		},
+	},
 }
 
 // createGoogleAccount creates an active account holding a Google identity.
@@ -66,18 +74,7 @@ func (s *OAuthHandlerIntegrationSuite) createGoogleAccount(address, subject stri
 	return user
 }
 
-func (s *OAuthHandlerIntegrationSuite) assertNoSessionCookie(w *httptest.ResponseRecorder) {
-	s.T().Helper()
-	for _, c := range w.Result().Cookies() {
-		if c.Name == "auth_token" && c.Value != "" {
-			s.Fail("a refused sign-in must not issue a session")
-		}
-	}
-}
-
 func (s *OAuthHandlerIntegrationSuite) TestGoogleCallback_AccountState_WebRedirect() {
-	inactive := autherrors.ErrAccountInactive()
-
 	for _, state := range signInAccountStates {
 		s.Run(state.name, func() {
 			address := "google-web-" + state.name + "@test.com"
@@ -96,15 +93,7 @@ func (s *OAuthHandlerIntegrationSuite) TestGoogleCallback_AccountState_WebRedire
 				return
 			}
 
-			s.Equal(http.StatusTemporaryRedirect, w.Code)
-			location, err := url.Parse(w.Header().Get("Location"))
-			s.Require().NoError(err)
-			s.Equal("http://localhost:3000/auth", location.Scheme+"://"+location.Host+location.Path)
-			s.Equal(url.Values{
-				"error":      {inactive.UserMessage()},
-				"error_code": {autherrors.CodeAccountInactive},
-			}, location.Query())
-			s.assertNoSessionCookie(w)
+			s.assertAuthPageRefusal(w, autherrors.ErrAccountInactive())
 		})
 	}
 }
@@ -254,6 +243,7 @@ func TestFinishLoginHandler_AccountState(t *testing.T) {
 		{name: "active", user: authm.User{ID: 7, IsActive: true}, maySignIn: true},
 		{name: "deactivated", user: authm.User{ID: 7, IsActive: false}},
 		{name: "soft-deleted", user: authm.User{ID: 7, IsActive: false, DeletedAt: &deletedAt}},
+		{name: "deleted-at-only", user: authm.User{ID: 7, IsActive: true, DeletedAt: &deletedAt}},
 	}
 	// The challenge's user id decides which ceremony runs: zero is a
 	// discoverable login, anything else names the account up front.

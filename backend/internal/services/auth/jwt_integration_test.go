@@ -205,6 +205,20 @@ func (s *JWTIntegrationSuite) TestValidateToken_UserDeactivatedAfterTokenCreatio
 	s.Contains(err.Error(), "TOKEN_INVALID")
 }
 
+// deleted_at alone ends a session, without is_active having changed.
+func (s *JWTIntegrationSuite) TestValidateToken_DeletedAtSetAfterTokenCreation() {
+	user := s.createActiveUser("will-gain-deleted-at@example.com")
+	token, err := s.svc.CreateToken(user)
+	s.Require().NoError(err)
+
+	s.Require().NoError(s.db.Model(user).Update("deleted_at", time.Now()).Error)
+
+	validated, err := s.svc.ValidateToken(token)
+	s.Nil(validated)
+	s.Require().Error(err)
+	s.Contains(err.Error(), "TOKEN_INVALID")
+}
+
 // =============================================================================
 // EXPIRED TOKEN
 // =============================================================================

@@ -182,7 +182,7 @@ func (s *JWTService) userFromSessionClaims(claims jwt.MapClaims) (*authm.User, e
 		return nil, fmt.Errorf("failed to get user: %w", err)
 	}
 
-	if !user.IsActive {
+	if !user.CanSignIn() {
 		return nil, apperrors.ErrTokenInvalid(fmt.Errorf("user account is not active"))
 	}
 

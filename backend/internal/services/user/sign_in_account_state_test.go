@@ -1,0 +1,92 @@
+package user
+
+import (
+	"time"
+
+	"github.com/markbates/goth"
+
+	apperrors "psychic-homily-backend/internal/errors"
+	authm "psychic-homily-backend/internal/models/auth"
+)
+
+// An account that may not sign in is refused with ACCOUNT_INACTIVE on every
+// sign-in path this service resolves, and an active one signs in unchanged.
+
+// signInAccountStates are the account states a sign-in path must tell apart.
+// "deleted-at-only" is not a state SoftDeleteAccount or RestoreAccount leaves;
+// it is here so each half of the rule refuses on its own.
+var signInAccountStates = []struct {
+	name      string
+	apply     func(s *UserServiceIntegrationTestSuite, userID uint)
+	maySignIn bool
+}{
+	{name: "active", apply: func(*UserServiceIntegrationTestSuite, uint) {}, maySignIn: true},
+	{name: "deactivated", apply: func(s *UserServiceIntegrationTestSuite, userID uint) {
+		s.Require().NoError(s.db.Model(&authm.User{}).Where("id = ?", userID).Update("is_active", false).Error)
+	}},
+	{name: "soft-deleted", apply: func(s *UserServiceIntegrationTestSuite, userID uint) {
+		s.Require().NoError(s.userService.SoftDeleteAccount(userID, nil))
+	}},
+	{name: "deleted-at-only", apply: func(s *UserServiceIntegrationTestSuite, userID uint) {
+		s.Require().NoError(s.db.Model(&authm.User{}).Where("id = ?", userID).Update("deleted_at", time.Now()).Error)
+	}},
+}
+
+// assertSignInOutcome checks a sign-in result against what the state allows.
+func (suite *UserServiceIntegrationTestSuite) assertSignInOutcome(maySignIn bool, wantID uint, user *authm.User, err error) {
+	suite.T().Helper()
+	if maySignIn {
+		suite.Require().NoError(err)
+		suite.Require().NotNil(user)
+		suite.Equal(wantID, user.ID)
+		return
+	}
+
+	suite.Require().Error(err)
+	suite.Nil(user)
+	var authErr *apperrors.AuthError
+	suite.Require().ErrorAs(err, &authErr)
+	suite.Equal(apperrors.CodeAccountInactive, authErr.Code)
+	suite.Equal(apperrors.ErrAccountInactive().UserMessage(), authErr.UserMessage())
+}
+
+// A returning OAuth identity resolves to its account before anything else is
+// consulted, so the account's state is the only thing between that identity
+// and a session. Both entry points resolve a returning identity the same way.
+func (suite *UserServiceIntegrationTestSuite) TestFindOrCreateUser_AccountState() {
+	for _, state := range signInAccountStates {
+		suite.Run(state.name, func() {
+			identity := goth.User{
+				UserID:  "google-state-" + state.name,
+				Email:   "state." + state.name + "@example.com",
+				RawData: map[string]any{"verified_email": true},
+			}
+			created, err := suite.userService.FindOrCreateUser(identity, "google")
+			suite.Require().NoError(err)
+			state.apply(suite, created.ID)
+
+			user, err := suite.userService.FindOrCreateUser(identity, "google")
+			suite.assertSignInOutcome(state.maySignIn, created.ID, user, err)
+
+			user, err = suite.userService.FindOrCreateUserWithConsent(identity, "google", nil)
+			suite.assertSignInOutcome(state.maySignIn, created.ID, user, err)
+
+			// A refusal leaves the identity attached to the one account.
+			suite.assertOnlyIdentityIs(created.ID, identity.UserID)
+		})
+	}
+}
+
+func (suite *UserServiceIntegrationTestSuite) TestAuthenticateUserWithPassword_AccountState() {
+	for _, state := range signInAccountStates {
+		suite.Run(state.name, func() {
+			address := "password.state." + state.name + "@example.com"
+			created, err := suite.userService.CreateUserWithPassword(address, "CorrectPassword1!", "State", "User")
+			suite.Require().NoError(err)
+			state.apply(suite, created.ID)
+
+			user, err := suite.userService.AuthenticateUserWithPassword(address, "CorrectPassword1!")
+			suite.assertSignInOutcome(state.maySignIn, created.ID, user, err)
+		})
+	}
+}
