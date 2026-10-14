@@ -151,6 +151,12 @@ func (s *AuthHandlerIntegrationSuite) softDeleteUser(userID uint) {
 	s.Require().NoError(err)
 }
 
+func (s *AuthHandlerIntegrationSuite) deactivateUser(userID uint) {
+	err := s.deps.DB.Model(&authm.User{}).Where("id = ?", userID).
+		Update("is_active", false).Error
+	s.Require().NoError(err)
+}
+
 func (s *AuthHandlerIntegrationSuite) softDeleteUserExpired(userID uint) {
 	err := s.deps.DB.Model(&authm.User{}).Where("id = ?", userID).
 		Updates(map[string]interface{}{
@@ -654,10 +660,7 @@ func (s *AuthHandlerIntegrationSuite) TestVerifyMagicLink_InactiveUser() {
 		name  string
 		apply func(userID uint)
 	}{
-		{name: "deactivated", apply: func(userID uint) {
-			s.Require().NoError(s.deps.DB.Model(&authm.User{}).
-				Where("id = ?", userID).Update("is_active", false).Error)
-		}},
+		{name: "deactivated", apply: s.deactivateUser},
 		{name: "soft-deleted", apply: s.softDeleteUser},
 	}
 
