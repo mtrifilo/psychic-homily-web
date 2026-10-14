@@ -161,6 +161,15 @@ func TestCLICallbackStore_CleansExpiredOnStore(t *testing.T) {
 	assertRegistryConsistent(t, cliCallbackStore)
 }
 
+func TestCLICallbackRegistry_RefusesCapacityBelowOne(t *testing.T) {
+	defer func() {
+		if recover() == nil {
+			t.Fatal("expected a capacity of 0 to panic")
+		}
+	}()
+	newCLICallbackRegistry(0, cliCallbackTTL, time.Now)
+}
+
 func TestCLICallbackRegistry_ExpiresAfterTTL(t *testing.T) {
 	clock := newFakeClock()
 	store := newCLICallbackRegistry(10, cliCallbackTTL, clock.Now)
