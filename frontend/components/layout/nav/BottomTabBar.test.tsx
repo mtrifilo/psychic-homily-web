@@ -603,8 +603,8 @@ describe('BottomTabBar', () => {
     // to anonymous. Two things are compared, because either alone passes a
     // reflow: the cell's whole subtree (a spacer or spinner rendered beside
     // the trigger would differ) and the grid's child count (a sixth child in a
-    // `grid-cols-5` row wraps Account outside the fixed bar height, the
-    // PSY-1820 failure). Account is the grid's last child in both arms. The
+    // `grid-cols-5` row wraps Account outside the fixed bar height). Account
+    // is the grid's last child in both arms. The
     // trigger's aria-controls is a per-mount generated id, so it is masked.
     it('renders the pending cell identically to the settled-anonymous cell', () => {
       const cellOf = (authStatus: AuthStatus) => {

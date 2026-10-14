@@ -42,9 +42,9 @@ import type { NavDestination, NavLink } from './navData'
 // (Cookie preferences, Privacy, Terms): for a viewer not settled as signed in
 // (anonymous, and unsettled too) a Sign in link back to the current page; once
 // signed in, the UserMenu entries and Sign out, with the unread-notification
-// badge on both the tab and the sheet's Notifications row (PSY-1819 — below
-// `sm` the top bar's bell is hidden, so without this there is no unread
-// affordance on a phone at all).
+// badge on both the tab and the sheet's Notifications row (below `sm` the top
+// bar's bell is hidden, so without this there is no unread affordance on a
+// phone at all).
 //
 // Rendered by AppShell below `xl` on every page — matching PrimaryNav's
 // xl:flex, so the lg–xl band (tablets) keeps a primary nav; AppShell adds the

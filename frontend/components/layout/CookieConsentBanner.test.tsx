@@ -150,9 +150,9 @@ describe('CookieConsentBanner', () => {
       expect(screen.queryByText(/Global Privacy Control signal/)).not.toBeInTheDocument()
     })
 
-    // PSY-1029: the bar only publishes its height; AppShell reserves it as
-    // bottom padding (AppShell.test.tsx), so the banner never writes the
-    // body's own padding.
+    // The bar only publishes its height; AppShell reserves it as bottom
+    // padding (AppShell.test.tsx), so the banner never writes the body's own
+    // padding.
     it('leaves the body padding alone', () => {
       const { unmount } = render(<CookieConsentBanner />)
       expect(document.body.style.paddingBottom).toBe('')

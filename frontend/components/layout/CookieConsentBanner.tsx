@@ -2,6 +2,7 @@
 
 import { useEffect, useRef } from 'react'
 import { ChromeLink } from '@/components/layout/nav/ChromeLink'
+import { PRIVACY_HREF } from '@/components/layout/nav/navData'
 import { Button } from '@/components/ui/button'
 import { useCookieConsent } from '@/lib/context/CookieConsentContext'
 import { CookiePreferencesDialog } from './CookiePreferencesDialog'
@@ -85,7 +86,7 @@ function ConsentBar() {
           >
             We use cookies to improve your experience.{' '}
             <ChromeLink
-              href="/privacy"
+              href={PRIVACY_HREF}
               className="underline underline-offset-4 hover:text-foreground"
             >
               Learn more

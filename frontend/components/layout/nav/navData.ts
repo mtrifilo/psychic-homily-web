@@ -227,7 +227,7 @@ export function accountNavItems(
   ]
 }
 
-/** The privacy policy and the terms, shared by the Account sheet and Footer. */
+/** The privacy policy and the terms, shared by the Account sheet, Footer and the cookie banner. */
 export const PRIVACY_HREF = '/privacy'
 export const TERMS_HREF = '/terms'
 
