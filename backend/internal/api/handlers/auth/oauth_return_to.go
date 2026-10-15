@@ -41,10 +41,10 @@ const oauthAuthPagePath = "/auth"
 
 // sanitizeOAuthReturnTo returns raw when it is a path on the frontend's own
 // origin that a signed-in reader may be sent to, and oauthReturnToFallback
-// for anything else. It accepts a subset of what the frontend's
-// sanitizeReturnTo (frontend/app/auth/auth-redirect-utils.ts) accepts,
-// checking a value that has not been through a browser URL parser:
+// for anything else. It checks a value that has not been through a browser
+// URL parser:
 //
+//   - at most oauthReturnToMaxLength bytes
 //   - one leading slash: "//host" is protocol-relative
 //   - printable ASCII only, so no whitespace or control byte anywhere: a
 //     browser URL parser strips tabs and newlines, and the frontend's own
@@ -53,15 +53,16 @@ const oauthAuthPagePath = "/auth"
 //     can turn a value that passes the slash test into "//host"
 //   - no "." or ".." path segment, percent-encoded or not: a browser resolves
 //     them, so the path checked here would not be the path visited
-//   - not the sign-in page or anything under it
-//
-// Values the frontend passes through that fall back here:
-//
-//   - longer than oauthReturnToMaxLength
-//   - a malformed percent escape in the path or the fragment ("/shows/%zz",
+//   - no malformed percent escape in the path or the fragment ("/shows/%zz",
 //     "/shows#50%"), which Go's URL parser refuses
-//   - a percent-encoded spelling of the sign-in path ("/%61uth"): the sign-in
-//     rule here judges the decoded path, the frontend's the encoded one
+//   - not the sign-in page or anything under it, judged on the decoded path,
+//     so "/%61uth" is the sign-in page too
+//
+// It accepts a subset of what the frontend's sanitizeReturnTo
+// (frontend/app/auth/auth-redirect-utils.ts) accepts.
+// testdata/return_to_corpus.json is the statement of that parity: both
+// sanitizers' tests read it, and every input the two treat differently
+// carries a `difference` note saying why this one falls back.
 //
 // The callback prefixes the result with the configured frontend URL, so the
 // redirect's host is never taken from raw.

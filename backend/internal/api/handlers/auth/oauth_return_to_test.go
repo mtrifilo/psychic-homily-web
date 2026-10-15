@@ -3,12 +3,10 @@ package auth
 import (
 	"context"
 	"encoding/base64"
-	"encoding/json"
 	"errors"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
-	"os"
 	"strings"
 	"testing"
 
@@ -19,6 +17,7 @@ import (
 	autherrors "psychic-homily-backend/internal/errors"
 	authm "psychic-homily-backend/internal/models/auth"
 	"psychic-homily-backend/internal/services/contracts"
+	"psychic-homily-backend/internal/testcorpus"
 )
 
 // returnToCorpus is testdata/return_to_corpus.json, which the frontend's
@@ -39,14 +38,7 @@ type returnToCorpus struct {
 
 func loadReturnToCorpus(t *testing.T) returnToCorpus {
 	t.Helper()
-	raw, err := os.ReadFile("testdata/return_to_corpus.json")
-	if err != nil {
-		t.Fatalf("read the corpus (the frontend test reads it too; move it only with both readers): %v", err)
-	}
-	var corpus returnToCorpus
-	if err := json.Unmarshal(raw, &corpus); err != nil {
-		t.Fatalf("decode the corpus: %v", err)
-	}
+	corpus := testcorpus.Load[returnToCorpus](t, "testdata/return_to_corpus.json")
 	if len(corpus.Cases) == 0 {
 		t.Fatal("the corpus has no cases")
 	}
