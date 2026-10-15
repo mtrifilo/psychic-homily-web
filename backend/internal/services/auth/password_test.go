@@ -56,6 +56,8 @@ func TestNewPasswordValidator(t *testing.T) {
 	v := NewPasswordValidator()
 	assert.NotNil(t, v)
 	assert.NotNil(t, v.httpClient)
+	assert.Equal(t, breachCheckTimeout, v.httpClient.Timeout)
+	assert.Nil(t, v.httpClient.Transport, "production uses http.DefaultTransport")
 	assert.NotEmpty(t, v.commonPasswords)
 	// Spot-check a few known common passwords
 	assert.True(t, v.commonPasswords["password"])
@@ -70,6 +72,7 @@ func TestNewPasswordValidatorWithTransport_BoundsTheRangeRequest(t *testing.T) {
 		assert.Equal(t, http.MethodGet, req.Method)
 		assert.Equal(t, "api.pwnedpasswords.com", req.URL.Host)
 		assert.Equal(t, "/range/5BAA6", req.URL.Path)
+		assert.Empty(t, req.URL.RawQuery, "the request carries only the hash prefix")
 		deadline, ok := req.Context().Deadline()
 		if assert.True(t, ok, "the range request must carry the breachCheckTimeout deadline") {
 			assert.WithinDuration(t, time.Now().Add(breachCheckTimeout), deadline, time.Second)

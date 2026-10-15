@@ -6,26 +6,32 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"regexp"
 	"strings"
 	"sync/atomic"
+	"syscall"
 	"testing"
 )
 
-// pwnedPasswordsRangePath is the only path the breach check requests: the first
-// five hex characters of the password's SHA-1, never the whole hash.
+// pwnedPasswordsRangePath is the only path the breach check requests: /range/
+// and the first five hex characters of the password's SHA-1.
 var pwnedPasswordsRangePath = regexp.MustCompile(`^/range/[0-9A-F]{5}$`)
 
-// pwnedPasswordsPaddingLine is a range entry no password in these tests hashes
-// to. Every answer carries it, so "suffix absent" is decided by reading a
-// non-empty range rather than an empty one.
-const pwnedPasswordsPaddingLine = "0000000000000000000000000000000000A:0\r\n"
+// pwnedPasswordsOtherLines end every range answer: a breached suffix and a
+// zero-count padding entry, neither of which any password in these tests hashes
+// to. "Suffix absent" is therefore decided against a range that lists other
+// breached suffixes, the shape a real range has.
+const pwnedPasswordsOtherLines = "0000000000000000000000000000000000A:3\r\n" +
+	"0000000000000000000000000000000000B:0\r\n"
 
 // fakePwnedPasswords answers Pwned Passwords range requests in-process, the way
 // api.pwnedpasswords.com does, so no test depends on a live third-party
-// response. It fails the test on a request the breach check would never make,
-// and counts the requests it answers.
+// response. It counts the requests it receives and fails the test on any
+// request the breach check would never make, including one that carries
+// anything beyond the five-character prefix: a query, a body, or a header other
+// than User-Agent and Add-Padding.
 type fakePwnedPasswords struct {
 	t       *testing.T
 	respond func(prefix string) (*http.Response, error)
@@ -34,11 +40,39 @@ type fakePwnedPasswords struct {
 
 func (f *fakePwnedPasswords) RoundTrip(r *http.Request) (*http.Response, error) {
 	f.calls.Add(1)
-	if r.Method != http.MethodGet || r.URL.Host != "api.pwnedpasswords.com" || !pwnedPasswordsRangePath.MatchString(r.URL.Path) {
-		f.t.Errorf("unexpected Pwned Passwords request: %s %s", r.Method, r.URL)
+	if !isPwnedPasswordsRangeRequest(r) {
+		f.t.Errorf("unexpected Pwned Passwords request: %s %s %v", r.Method, r.URL, r.Header)
 		return nil, errors.New("unexpected Pwned Passwords request")
 	}
 	return f.respond(strings.TrimPrefix(r.URL.Path, "/range/"))
+}
+
+// isPwnedPasswordsRangeRequest reports whether r is exactly the k-anonymity
+// range request: a GET of the prefix path with padding asked for, and nothing
+// else that could carry the hash.
+func isPwnedPasswordsRangeRequest(r *http.Request) bool {
+	if r.Method != http.MethodGet || r.URL.Host != "api.pwnedpasswords.com" ||
+		!pwnedPasswordsRangePath.MatchString(r.URL.Path) || r.URL.RawQuery != "" {
+		return false
+	}
+	if r.Body != nil && r.Body != http.NoBody {
+		return false
+	}
+	if r.Header.Get("Add-Padding") != "true" {
+		return false
+	}
+	for name := range r.Header {
+		if name != "User-Agent" && name != "Add-Padding" {
+			return false
+		}
+	}
+	return true
+}
+
+// dialRefused returns the error a refused TCP dial fails with, before any HTTP
+// response exists.
+func dialRefused() error {
+	return &net.OpError{Op: "dial", Net: "tcp", Err: syscall.ECONNREFUSED}
 }
 
 // pwnedPasswordsListing returns a fake whose ranges list the SHA-1 suffix of
@@ -54,7 +88,7 @@ func pwnedPasswordsListing(t *testing.T, breached ...string) *fakePwnedPasswords
 				fmt.Fprintf(&body, "%s:%d\r\n", hash[5:], 42)
 			}
 		}
-		body.WriteString(pwnedPasswordsPaddingLine)
+		body.WriteString(pwnedPasswordsOtherLines)
 		return &http.Response{
 			StatusCode: http.StatusOK,
 			Status:     "200 OK",

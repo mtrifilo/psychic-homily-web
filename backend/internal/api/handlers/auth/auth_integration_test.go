@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"net"
 	"net/http"
 	"strings"
 	"sync/atomic"
@@ -104,12 +103,6 @@ func resendAnswering(status int, body string) *fakeResend {
 // Resend answers an unknown API key.
 func resendRejectingKey() *fakeResend {
 	return resendAnswering(http.StatusUnauthorized, resendInvalidAPIKeyBody)
-}
-
-// dialRefused returns the error a refused TCP dial fails with, before any HTTP
-// response exists.
-func dialRefused() error {
-	return &net.OpError{Op: "dial", Net: "tcp", Err: syscall.ECONNREFUSED}
 }
 
 // resendDialRefused returns a fakeResend whose every call fails the way a
@@ -337,7 +330,7 @@ func (s *AuthHandlerIntegrationSuite) TestLogin_AccountLocked() {
 // TestRegister_Success also pins the breach check's "suffix absent" answer:
 // the password's range is checked once and its suffix is not listed.
 func (s *AuthHandlerIntegrationSuite) TestRegister_Success() {
-	pwned := pwnedPasswordsListing(s.T(), "a-different-breached-password-1!")
+	pwned := pwnedPasswordsListing(s.T())
 	h := s.newAuthHandlerWithPwnedPasswords(pwned)
 
 	input := &RegisterRequest{}
@@ -859,7 +852,7 @@ func (s *AuthHandlerIntegrationSuite) TestVerifyMagicLink_InactiveUser() {
 // TestChangePassword_Success also pins the breach check's "suffix absent"
 // answer: the new password's range is checked once and its suffix is not listed.
 func (s *AuthHandlerIntegrationSuite) TestChangePassword_Success() {
-	pwned := pwnedPasswordsListing(s.T(), "a-different-breached-password-1!")
+	pwned := pwnedPasswordsListing(s.T())
 	h := s.newAuthHandlerWithPwnedPasswords(pwned)
 	user := s.createUserWithPassword("cp-ok@test.com", "old-password-123!")
 	// Reload user to get password hash in context

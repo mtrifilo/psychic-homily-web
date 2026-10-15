@@ -9,9 +9,9 @@ import (
 )
 
 // mbSearchNoExactMatch is an artist search answer whose only candidate is a
-// fuzzy hit: a top score under a name that is not the queried one, so
-// SearchArtist finds no match.
-const mbSearchNoExactMatch = `{"count":1,"offset":0,"artists":[{"id":"65f4f0c5-ef9e-490c-aee3-909e7ae6b2ab","type":"Group","score":100,"name":"Test Artist","sort-name":"Test Artist"}]}`
+// fuzzy hit: a top score under a name no test fixture uses, so SearchArtist
+// finds no match whatever artist is queried.
+const mbSearchNoExactMatch = `{"count":1,"offset":0,"artists":[{"id":"65f4f0c5-ef9e-490c-aee3-909e7ae6b2ab","type":"Group","score":100,"name":"Not The Queried Artist","sort-name":"Queried Artist, Not The"}]}`
 
 // fakeMusicBrainz answers MusicBrainz artist searches in-process with
 // mbSearchNoExactMatch, so no test depends on a live third-party response. It
