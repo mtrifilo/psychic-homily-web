@@ -1294,14 +1294,17 @@ func (h *AuthHandler) VerifyMagicLinkHandler(ctx context.Context, input *VerifyM
 		return resp, nil
 	}
 
-	// Check user may still sign in (deactivated or soft-deleted may not)
+	// An account that may not sign in (deactivated or soft-deleted) is refused
+	// with ACCOUNT_INACTIVE, in the HTTP 200 envelope this handler's other
+	// refusals use.
 	if !user.CanSignIn() {
 		logger.AuthWarn(ctx, "magic_link_user_inactive",
 			"user_id", user.ID,
 		)
+		refusal := autherrors.ErrAccountInactive()
 		resp.Body.Success = false
-		resp.Body.Message = "This account is not active"
-		resp.Body.ErrorCode = autherrors.CodeUnauthorized
+		resp.Body.Message = refusal.UserMessage()
+		resp.Body.ErrorCode = refusal.Code
 		return resp, nil
 	}
 
