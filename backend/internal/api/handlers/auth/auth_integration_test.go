@@ -86,10 +86,6 @@ func (f *fakeResend) RoundTrip(r *http.Request) (*http.Response, error) {
 	return f.respond(r)
 }
 
-func (f *fakeResend) client() *http.Client {
-	return &http.Client{Transport: f}
-}
-
 // resendAnswering returns a fakeResend that answers every call with status
 // and a JSON body, the way Resend's API does.
 func resendAnswering(status int, body string) *fakeResend {
@@ -102,6 +98,12 @@ func resendAnswering(status int, body string) *fakeResend {
 			Request:    r,
 		}, nil
 	}}
+}
+
+// resendRejectingKey returns a fakeResend that answers every call the way
+// Resend answers an unknown API key.
+func resendRejectingKey() *fakeResend {
+	return resendAnswering(http.StatusUnauthorized, resendInvalidAPIKeyBody)
 }
 
 // resendDialRefused returns a fakeResend whose every call fails the way a
@@ -119,7 +121,7 @@ func (s *AuthHandlerIntegrationSuite) newAuthHandler(emailConfigured bool) *Auth
 	if !emailConfigured {
 		return s.buildAuthHandler(s.cfg, nil)
 	}
-	return s.newAuthHandlerWithResend(resendAnswering(http.StatusUnauthorized, resendInvalidAPIKeyBody))
+	return s.newAuthHandlerWithResend(resendRejectingKey())
 }
 
 // newAuthHandlerWithResend builds the handler with email configured and every
@@ -134,7 +136,7 @@ func (s *AuthHandlerIntegrationSuite) newAuthHandlerWithResend(resend *fakeResen
 			FrontendURL:  "http://localhost:3000",
 		},
 	}
-	return s.buildAuthHandler(emailCfg, resend.client())
+	return s.buildAuthHandler(emailCfg, &http.Client{Transport: resend})
 }
 
 func (s *AuthHandlerIntegrationSuite) buildAuthHandler(emailCfg *config.Config, resendClient *http.Client) *AuthHandler {
@@ -470,7 +472,7 @@ func (s *AuthHandlerIntegrationSuite) TestSendVerification_NoEmail() {
 // body is a sent email.
 
 func (s *AuthHandlerIntegrationSuite) TestSendVerification_SendFails() {
-	resend := resendAnswering(http.StatusUnauthorized, resendInvalidAPIKeyBody)
+	resend := resendRejectingKey()
 	h := s.newAuthHandlerWithResend(resend)
 	user := s.createUserWithPassword("verify-fail@test.com", "strong-password-123!")
 	ctx := s.ctxWithUser(user)
@@ -684,7 +686,7 @@ func (s *AuthHandlerIntegrationSuite) TestSendMagicLink_EmailNotVerified() {
 // distinct error response, which would leak that the account exists (PSY-749).
 // Resend answers the send with 401, which makes the underlying send fail.
 func (s *AuthHandlerIntegrationSuite) TestSendMagicLink_SendFails() {
-	resend := resendAnswering(http.StatusUnauthorized, resendInvalidAPIKeyBody)
+	resend := resendRejectingKey()
 	h := s.newAuthHandlerWithResend(resend)
 	user := s.createUserWithPassword("magic-fail@test.com", "strong-password-123!")
 	s.verifyEmail(user.ID)
@@ -1099,7 +1101,7 @@ func (s *AuthHandlerIntegrationSuite) TestRequestRecovery_EmailNotConfigured() {
 // recoverable account must NOT change the response, otherwise the failure
 // itself leaks account existence. Resend answers the send with 401.
 func (s *AuthHandlerIntegrationSuite) TestRequestRecovery_SendFails() {
-	resend := resendAnswering(http.StatusUnauthorized, resendInvalidAPIKeyBody)
+	resend := resendRejectingKey()
 	h := s.newAuthHandlerWithResend(resend)
 	user := s.createUserWithPassword("req-fail@test.com", "strong-password-123!")
 	s.softDeleteUser(user.ID)
