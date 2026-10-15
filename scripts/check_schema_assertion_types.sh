@@ -27,7 +27,8 @@
 #     read as comments.
 #   * An entry counts when its Type is set to anything; the gate does not
 #     compare it with the migration's new type. Entries match anywhere in the
-#     file, outside `//` comments, in any whitespace layout.
+#     file, outside `//` comments, in any whitespace layout, with the fields
+#     in the order Table, Column, Type.
 #   * Only the up migrations the branch adds are read, so merged migrations are
 #     never re-checked and no warning mode is needed for them.
 #
