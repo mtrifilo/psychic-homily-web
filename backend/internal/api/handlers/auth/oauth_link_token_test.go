@@ -179,3 +179,44 @@ func TestRequestIsFromOurFrontend(t *testing.T) {
 		})
 	}
 }
+
+// The origin both the mint and the spend compare against the configured
+// frontend: Origin as sent, else the origin of Referer.
+func TestOriginFromHeaders(t *testing.T) {
+	const ours = "http://localhost:3000"
+
+	cases := []struct {
+		name    string
+		origin  string
+		referer string
+		want    string
+	}{
+		{"no Origin and no Referer", "", "", ""},
+		{"Origin alone", ours, "", ours},
+		{"Referer alone, trimmed to its origin", "", ours + "/profile?tab=settings", ours},
+		{"opaque Origin falls back to Referer", "null", ours + "/profile", ours},
+		// Origin outranks Referer: a foreign Origin is not rescued by ours.
+		{"another Origin with our Referer", "https://evil.example", ours + "/profile", "https://evil.example"},
+		{"opaque Origin and nothing else", "null", "", ""},
+		{"Referer that is not an absolute URL", "", "/profile", ""},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := originFromHeaders(tc.origin, tc.referer); got != tc.want {
+				t.Errorf("originFromHeaders(%q, %q) = %q, want %q", tc.origin, tc.referer, got, tc.want)
+			}
+
+			req := httptest.NewRequest(http.MethodGet, "/auth/link/google", nil)
+			if tc.origin != "" {
+				req.Header.Set("Origin", tc.origin)
+			}
+			if tc.referer != "" {
+				req.Header.Set("Referer", tc.referer)
+			}
+			if got := requestOrigin(req); got != tc.want {
+				t.Errorf("requestOrigin = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}

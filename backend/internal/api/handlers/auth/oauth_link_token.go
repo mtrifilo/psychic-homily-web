@@ -173,17 +173,25 @@ func spendOAuthLinkNonce(nonce string, expiry time.Time) bool {
 	return true
 }
 
-// requestOrigin is the origin a browser says this request came from, as
-// scheme://host, or "" when it says nothing.
+// requestOrigin is originFromHeaders over r's Origin and Referer headers.
+func requestOrigin(r *http.Request) string {
+	return originFromHeaders(r.Header.Get("Origin"), r.Header.Get("Referer"))
+}
+
+// originFromHeaders is the origin a browser says a request came from, given
+// its Origin and Referer header values: scheme://host, or "" when it says
+// nothing.
 //
 // Origin first: it is set by the browser on every cross-origin request and on
-// same-origin navigations that matter here. Referer is the fallback, trimmed to
-// its origin because the path is neither needed nor trustworthy to compare.
-func requestOrigin(r *http.Request) string {
-	if origin := r.Header.Get("Origin"); origin != "" && origin != "null" {
+// same-origin navigations that matter here. An absent or opaque ("null")
+// Origin falls back to Referer, trimmed to its origin because the path is
+// neither needed nor trustworthy to compare. A present Origin is returned as
+// sent, so a foreign Origin is never rescued by a Referer naming us.
+func originFromHeaders(origin, referer string) string {
+	if origin != "" && origin != "null" {
 		return origin
 	}
-	return originOfURL(r.Header.Get("Referer"))
+	return originOfURL(referer)
 }
 
 // originOfURL trims a URL to scheme://host, or "" when it is not one.
