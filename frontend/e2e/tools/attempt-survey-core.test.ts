@@ -205,8 +205,9 @@ describe('htmlReportZip', () => {
     expect(htmlReportZip(html)).toEqual(payload)
   })
 
-  it('returns null for a page without one', () => {
+  it('returns null for a page without one, or with the data URL outside that element', () => {
     expect(htmlReportZip('<html></html>')).toBeNull()
+    expect(htmlReportZip('<script>const prefix = "data:application/zip;base64,UEsDBA"</script>')).toBeNull()
   })
 })
 

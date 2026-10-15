@@ -160,11 +160,13 @@ export function attemptsFromHtmlReport(files: HtmlReportFile[]): TestAttempts[] 
 }
 
 /**
- * The zip an HTML report's index.html embeds as a base64 data URL, or null
- * when the page carries none.
+ * The zip an HTML report's index.html embeds as a base64 data URL in its
+ * playwrightReportBase64 element, or null when the page carries none.
  */
 export function htmlReportZip(indexHtml: string): Buffer | null {
-  const match = /data:application\/zip;base64,([A-Za-z0-9+/=]+)/.exec(indexHtml)
+  const match = /id="playwrightReportBase64"[^>]*>data:application\/zip;base64,([A-Za-z0-9+/=]+)/.exec(
+    indexHtml
+  )
   return match ? Buffer.from(match[1], 'base64') : null
 }
 
@@ -348,9 +350,12 @@ blob reports are merged with its Playwright).
 
 Options:
   --runs N            how many completed runs to read (default 20)
-  --branch NAME       branch whose runs to read (default main)
+  --branch NAME       branch whose runs to read (default main); only pushes
+                      to main run the full sharded suite, so another
+                      branch's runs carry no report to read
   --through-run ID    newest run to read; the N runs end at this one
-  --shards N          shard count of the e2e job (default 4); a run with a
+  --shards N          shard count of the e2e-tests job matrix in
+                      .github/workflows/ci.yml (default 4); a run with a
                       blob report for every shard is read from the blobs,
                       otherwise from the merged HTML report
   --work-dir DIR      keep each run's parsed results here and reuse them on
