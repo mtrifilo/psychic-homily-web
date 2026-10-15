@@ -562,19 +562,6 @@ func (s *CommentNotificationServiceIntegrationSuite) TestNotifyMentioned_HappyPa
 	s.Assert().Contains(calls[0].UnsubscribeURL, "/unsubscribe/mention")
 }
 
-// TestNotifyMentioned_GatedShowReachesOnlyThoseWhoCanSeeIt is the ONLY test that
-// executes the visibility predicate on the mention query (PSY-1983).
-//
-// Every other mention test comments on an ARTIST, so they all short-circuit at
-// whereRecipientMaySeeCommentParent's non-show early return and never reach the
-// SQL. That matters because the mention query is a DIFFERENT STATEMENT from the
-// subscriber one — `FROM users u` after a variadic `IN ?` expansion, rather than
-// a join through comment_subscriptions — so the predicate is spliced into a
-// different shape with different aliases, and nothing else exercises it.
-//
-// The failure mode it guards is silent: CreateComment runs NotifyMentioned in a
-// GoSafe goroutine, so a malformed statement becomes a log line. Mentions would
-// stop working on every show comment with no 5xx and no user-visible signal.
 func (s *CommentNotificationServiceIntegrationSuite) TestNotifyMentioned_SkipsInactiveAndDeletedUsers() {
 	author := s.createUser("author")
 	active := s.createUser("active")
@@ -594,6 +581,19 @@ func (s *CommentNotificationServiceIntegrationSuite) TestNotifyMentioned_SkipsIn
 	s.Equal(*active.Email, calls[0].ToEmail)
 }
 
+// TestNotifyMentioned_GatedShowReachesOnlyThoseWhoCanSeeIt is the ONLY test that
+// executes the visibility predicate on the mention query (PSY-1983).
+//
+// Every other mention test comments on an ARTIST, so they all short-circuit at
+// whereRecipientMaySeeCommentParent's non-show early return and never reach the
+// SQL. That matters because the mention query is a DIFFERENT STATEMENT from the
+// subscriber one — `FROM users u` after a variadic `IN ?` expansion, rather than
+// a join through comment_subscriptions — so the predicate is spliced into a
+// different shape with different aliases, and nothing else exercises it.
+//
+// The failure mode it guards is silent: CreateComment runs NotifyMentioned in a
+// GoSafe goroutine, so a malformed statement becomes a log line. Mentions would
+// stop working on every show comment with no 5xx and no user-visible signal.
 func (s *CommentNotificationServiceIntegrationSuite) TestNotifyMentioned_GatedShowReachesOnlyThoseWhoCanSeeIt() {
 	submitter := s.createUser("showsubmitter")
 	// Named in the comment body below; the assertions are on who gets mailed,

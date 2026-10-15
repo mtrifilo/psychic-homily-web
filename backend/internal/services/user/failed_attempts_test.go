@@ -3,6 +3,7 @@ package user
 import (
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -12,6 +13,7 @@ import (
 
 	apperrors "psychic-homily-backend/internal/errors"
 	authm "psychic-homily-backend/internal/models/auth"
+	"psychic-homily-backend/internal/testutil"
 )
 
 // serviceThatSoftDeletesBeforeItsFirstUpdate returns a UserService whose first
@@ -141,25 +143,15 @@ func (suite *UserServiceIntegrationTestSuite) TestIncrementFailedAttempts_Concur
 
 func (suite *UserServiceIntegrationTestSuite) TestIncrementFailedAttempts_DatabaseErrorIsReturnedWrapped() {
 	user := suite.createLiveAccount("lockout-db-error@example.com")
+	testutil.FailUpdates(suite.T(), suite.db, "users")
 
-	holder := suite.db.Begin()
-	defer holder.Rollback()
-	suite.Require().NoError(holder.Exec("SELECT id FROM users WHERE id = ? FOR UPDATE", user.ID).Error)
-
-	blocked := suite.db.Begin()
-	defer blocked.Rollback()
-	suite.Require().NoError(blocked.Exec("SET LOCAL lock_timeout = '50ms'").Error)
-
-	err := (&UserService{db: blocked}).IncrementFailedAttempts(user.ID)
+	err := suite.userService.IncrementFailedAttempts(user.ID)
 
 	suite.Require().Error(err)
-	suite.Contains(err.Error(), "failed to increment failed attempts: ")
+	suite.True(strings.HasPrefix(err.Error(), "failed to increment failed attempts: "), err.Error())
 	var pgErr *pgconn.PgError
 	suite.Require().ErrorAs(err, &pgErr)
-	suite.Equal("55P03", pgErr.Code, "lock_not_available")
-	suite.NotErrorIs(err, gorm.ErrRecordNotFound)
-
-	suite.Require().NoError(holder.Rollback().Error)
+	suite.Equal(testutil.FailedUpdateMessage, pgErr.Message)
 	got := suite.reloadAccount(user.ID)
 	suite.Zero(got.FailedLoginAttempts)
 	suite.Nil(got.LockedUntil)
