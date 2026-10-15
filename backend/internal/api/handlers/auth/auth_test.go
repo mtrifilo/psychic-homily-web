@@ -2548,11 +2548,17 @@ func TestVerifyMagicLinkHandler_InactiveUser(t *testing.T) {
 			if resp.Body.Success {
 				t.Error("expected success=false")
 			}
-			if resp.Body.ErrorCode != autherrors.CodeUnauthorized {
-				t.Errorf("expected error_code=%s, got %s", autherrors.CodeUnauthorized, resp.Body.ErrorCode)
+			if resp.Body.ErrorCode != autherrors.CodeAccountInactive {
+				t.Errorf("expected error_code=%s, got %s", autherrors.CodeAccountInactive, resp.Body.ErrorCode)
 			}
-			if tokenMinted || resp.SetCookie.Value != "" {
+			if want := autherrors.ErrAccountInactive().UserMessage(); resp.Body.Message != want {
+				t.Errorf("expected message=%q, got %q", want, resp.Body.Message)
+			}
+			if tokenMinted || resp.SetCookie.Value != "" || resp.Body.Token != "" {
 				t.Error("a refused magic link must not mint a session")
+			}
+			if resp.Body.User != nil {
+				t.Error("a refused magic link must not return the account")
 			}
 		})
 	}
