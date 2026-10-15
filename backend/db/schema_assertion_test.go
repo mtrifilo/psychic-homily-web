@@ -1,6 +1,7 @@
 package db
 
 import (
+	"errors"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -100,4 +101,118 @@ func TestAssertRequiredSchema_nilDB(t *testing.T) {
 	err := AssertRequiredSchema(nil)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "database connection is nil")
+}
+
+type fakeColumnTypeReader struct {
+	types         map[string]columnType
+	err           error
+	requestedFrom []string
+}
+
+func (f *fakeColumnTypeReader) ColumnTypes(tables []string) (map[string]columnType, error) {
+	f.requestedFrom = tables
+	return f.types, f.err
+}
+
+// listedColumnTypes renders every typed entry of the production checklist
+// with its required type, keyed the way the reader keys them.
+func listedColumnTypes() map[string]columnType {
+	types := map[string]columnType{}
+	for _, col := range requiredSchemaColumns {
+		if col.Type != "" {
+			types[col.qualifiedName()] = columnType{DataType: col.Type}
+		}
+	}
+	return types
+}
+
+func TestAssertRequiredColumnTypes(t *testing.T) {
+	t.Parallel()
+
+	t.Run("every listed column has its type", func(t *testing.T) {
+		t.Parallel()
+		reader := &fakeColumnTypeReader{types: listedColumnTypes()}
+		require.NoError(t, assertRequiredColumnTypes(reader))
+	})
+
+	t.Run("a listed column with another type fails with the column, actual and expected type", func(t *testing.T) {
+		t.Parallel()
+		types := listedColumnTypes()
+		types["webauthn_credentials.sign_count"] = columnType{DataType: "integer", UDTName: "int4"}
+		err := assertRequiredColumnTypes(&fakeColumnTypeReader{types: types})
+		require.EqualError(t, err,
+			"required schema columns have the wrong type: webauthn_credentials.sign_count is integer, "+
+				"expected bigint (type change recorded but DDL absent?); refusing to boot")
+	})
+
+	t.Run("every wrong column is reported", func(t *testing.T) {
+		t.Parallel()
+		types := listedColumnTypes()
+		types["webauthn_credentials.sign_count"] = columnType{DataType: "integer", UDTName: "int4"}
+		types["shows.event_date"] = columnType{DataType: "timestamp without time zone", UDTName: "timestamp"}
+		err := assertRequiredColumnTypes(&fakeColumnTypeReader{types: types})
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "webauthn_credentials.sign_count is integer, expected bigint")
+		assert.Contains(t, err.Error(), "shows.event_date is timestamp without time zone, expected timestamptz")
+	})
+
+	t.Run("a listed column the reader did not return is reported absent", func(t *testing.T) {
+		t.Parallel()
+		types := listedColumnTypes()
+		delete(types, "webauthn_credentials.sign_count")
+		err := assertRequiredColumnTypes(&fakeColumnTypeReader{types: types})
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "webauthn_credentials.sign_count is absent, expected bigint")
+		assert.Contains(t, err.Error(), "refusing to boot")
+	})
+
+	t.Run("an unlisted column's type is ignored", func(t *testing.T) {
+		t.Parallel()
+		types := listedColumnTypes()
+		types["webauthn_credentials.display_name"] = columnType{DataType: "integer", UDTName: "int4"}
+		types["user_bookmarks.scene_digest_sent_at"] = columnType{DataType: "text", UDTName: "text"}
+		require.NoError(t, assertRequiredColumnTypes(&fakeColumnTypeReader{types: types}))
+	})
+
+	t.Run("a read error refuses boot", func(t *testing.T) {
+		t.Parallel()
+		err := assertRequiredColumnTypes(&fakeColumnTypeReader{err: errors.New("connection reset")})
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "could not read required column types: connection reset")
+		assert.Contains(t, err.Error(), "refusing to boot")
+	})
+
+	t.Run("only the tables of typed entries are read, each once", func(t *testing.T) {
+		t.Parallel()
+		reader := &fakeColumnTypeReader{types: listedColumnTypes()}
+		require.NoError(t, assertRequiredColumnTypes(reader))
+
+		var want []string
+		seen := map[string]bool{}
+		for _, col := range requiredSchemaColumns {
+			if col.Type != "" && !seen[col.Table] {
+				seen[col.Table] = true
+				want = append(want, col.Table)
+			}
+		}
+		assert.Equal(t, want, reader.requestedFrom)
+		assert.NotContains(t, reader.requestedFrom, "user_bookmarks", "a table with only untyped entries")
+	})
+}
+
+func TestColumnTypeMatches(t *testing.T) {
+	t.Parallel()
+
+	bigint := columnType{DataType: "bigint", UDTName: "int8"}
+	timestamptz := columnType{DataType: "timestamp with time zone", UDTName: "timestamptz"}
+
+	assert.True(t, bigint.matches("bigint"))
+	assert.True(t, bigint.matches("int8"))
+	assert.True(t, bigint.matches("BIGINT"))
+	assert.False(t, bigint.matches("integer"))
+	assert.False(t, bigint.matches("int4"))
+	assert.True(t, timestamptz.matches("timestamptz"))
+	assert.True(t, timestamptz.matches("timestamp with time zone"))
+	assert.False(t, timestamptz.matches("timestamp"))
+	assert.False(t, timestamptz.matches("timestamp without time zone"))
 }

@@ -54,3 +54,45 @@ func TestAssertRequiredSchema_emptyTimezoneSnapshot(t *testing.T) {
 	require.Error(t, err, "an empty snapshot must not be allowed to serve traffic")
 	require.Contains(t, err.Error(), "timezone_names_snapshot is empty")
 }
+
+// A column that exists with its pre-migration type has to fail the boot, not
+// only a missing one: the existence check alone passes it.
+func TestAssertRequiredSchema_columnTypeDrift(t *testing.T) {
+	if testing.Short() {
+		t.Skip("integration test")
+	}
+
+	td := testutil.SetupTestPostgres(t)
+	defer td.Cleanup()
+
+	// A freshly migrated database has every listed type.
+	require.NoError(t, AssertRequiredSchema(td.DB))
+
+	sqlDB, err := td.DB.DB()
+	require.NoError(t, err)
+	_, err = sqlDB.Exec(`ALTER TABLE webauthn_credentials ALTER COLUMN sign_count TYPE INTEGER`)
+	require.NoError(t, err)
+
+	require.NoError(t, assertRequiredSchema(td.DB.Migrator()), "the column still exists")
+	err = AssertRequiredSchema(td.DB)
+	require.EqualError(t, err,
+		"required schema columns have the wrong type: webauthn_credentials.sign_count is integer, "+
+			"expected bigint (type change recorded but DDL absent?); refusing to boot")
+}
+
+func TestAssertRequiredSchema_unlistedColumnTypeIgnored(t *testing.T) {
+	if testing.Short() {
+		t.Skip("integration test")
+	}
+
+	td := testutil.SetupTestPostgres(t)
+	defer td.Cleanup()
+
+	sqlDB, err := td.DB.DB()
+	require.NoError(t, err)
+	// Same table as a listed column, so the type read covers it.
+	_, err = sqlDB.Exec(`ALTER TABLE webauthn_credentials ALTER COLUMN display_name TYPE TEXT`)
+	require.NoError(t, err)
+
+	require.NoError(t, AssertRequiredSchema(td.DB))
+}
