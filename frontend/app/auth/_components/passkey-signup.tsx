@@ -202,6 +202,9 @@ export function PasskeySignupButton({
         onHandoffChange(null)
       }
 
+      // The begin and finish requests call fetch directly, not apiRequest, so
+      // this component maps a request that timed out to its step's message
+      // itself, apart from whatever apiRequest does with an abort.
       if (deadlineSignal?.aborted) {
         onError?.(claimed ? FINISH_FAILURE : START_FAILURE)
         return
