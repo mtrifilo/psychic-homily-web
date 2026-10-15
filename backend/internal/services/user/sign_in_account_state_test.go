@@ -1,8 +1,6 @@
 package user
 
 import (
-	"time"
-
 	"github.com/markbates/goth"
 
 	apperrors "psychic-homily-backend/internal/errors"
@@ -13,8 +11,8 @@ import (
 // sign-in path this service resolves, and an active one signs in.
 
 // signInAccountStates are the account states a sign-in path must tell apart.
-// "deleted-at-only" is not a state SoftDeleteAccount or RestoreAccount leaves;
-// it is here so each half of the rule refuses on its own.
+// users_live_account_check refuses an active row with deleted_at set, so that
+// combination is covered by the CanSignIn unit test, not here.
 var signInAccountStates = []struct {
 	name      string
 	apply     func(s *UserServiceIntegrationTestSuite, userID uint)
@@ -26,9 +24,6 @@ var signInAccountStates = []struct {
 	}},
 	{name: "soft-deleted", apply: func(s *UserServiceIntegrationTestSuite, userID uint) {
 		s.Require().NoError(s.userService.SoftDeleteAccount(userID, nil))
-	}},
-	{name: "deleted-at-only", apply: func(s *UserServiceIntegrationTestSuite, userID uint) {
-		s.Require().NoError(s.db.Model(&authm.User{}).Where("id = ?", userID).Update("deleted_at", time.Now()).Error)
 	}},
 }
 
