@@ -160,10 +160,9 @@ const ENTITY_CHECKS: Record<string, (slug: string) => string> = {
  * are real Next routes (e.g. `app/shows/submit/page.tsx`, the show-submission
  * form), NOT entity slugs. The `config.matcher`'s `/shows/:path*` source
  * intercepts them, and the `/<entity>/<slug>` shape guard below would otherwise
- * existence-check
- * `GET ${API_BASE_URL}/shows/submit` → backend 404 → rewrite the real page to a
- * 404 (PSY-913, regressed by PSY-897's shows phase). Excluding these segments
- * lets the genuine page render.
+ * existence-check `GET ${API_BASE_URL}/shows/submit` → backend 404 → rewrite
+ * the real page to a 404 (PSY-913, regressed by PSY-897's shows phase).
+ * Excluding these segments lets the genuine page render.
  *
  * Today only `shows` has static sub-routes; the other six proxied prefixes
  * (venues/artists/releases/labels/festivals/tags) have only `[slug]`. When
