@@ -56,10 +56,11 @@ func (s *JWTIntegrationSuite) TestCompleteOAuthLink_AccountState() {
 			state.apply(user.ID)
 
 			subject := "google-link-" + state.name
-			s.authSvc.SetOAuthCompleter(completingAs(goth.User{Provider: "google", UserID: subject}))
+			svc := NewAuthService(s.db, s.cfg, usersvc.NewUserService(s.db))
+			svc.SetOAuthCompleter(completingAs(goth.User{Provider: "google", UserID: subject}))
 
 			w, r := linkCallbackRequest()
-			linked, err := s.authSvc.CompleteOAuthLink(w, r, "google", user.ID)
+			linked, err := svc.CompleteOAuthLink(w, r, "google", user.ID)
 
 			var rows int64
 			s.Require().NoError(s.db.Model(&authm.OAuthAccount{}).

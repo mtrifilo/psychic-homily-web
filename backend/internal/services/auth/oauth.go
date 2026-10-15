@@ -104,8 +104,8 @@ func (s *AuthService) CompleteOAuthLink(
 		return nil, fmt.Errorf("OAuth completion failed: %w", err)
 	}
 
-	// Read after the handshake, so the state checked is the state at the
-	// callback rather than at the link start.
+	// Read after the handshake, so the round trip to the provider is not a
+	// window in which a change to the account goes unseen.
 	account, err := s.userService.GetUserByID(userID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to load account to link: %w", err)
