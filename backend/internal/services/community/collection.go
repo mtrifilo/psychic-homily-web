@@ -2477,10 +2477,15 @@ func (s *CollectionService) GetUserPublicCollections(userID uint, limit, offset 
 	return responses, total, nil
 }
 
-// GetUserPublicCollectionsByUsername returns public collections by username lookup
+// GetUserPublicCollectionsByUsername returns public collections by username
+// lookup. A username no account holds, including one holding a NUL byte,
+// returns an empty page.
 func (s *CollectionService) GetUserPublicCollectionsByUsername(username string, limit, offset int) ([]*contracts.CollectionListResponse, int64, error) {
 	if s.db == nil {
 		return nil, 0, fmt.Errorf("database not initialized")
+	}
+	if authm.HoldsNUL(username) {
+		return []*contracts.CollectionListResponse{}, 0, nil
 	}
 
 	// Look up user by username
