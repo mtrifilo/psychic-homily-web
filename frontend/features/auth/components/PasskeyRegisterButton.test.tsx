@@ -32,12 +32,12 @@ vi.mock('@/lib/api-base', async (importOriginal) => ({
   API_BASE_URL: 'https://api-base.test',
 }))
 
-function jsonResponse(body: unknown, status = 200): Response {
+function jsonResponse(body: unknown, status = 200, contentType?: string): Response {
   return {
     ok: status < 400,
     status,
     statusText: '',
-    headers: new Headers(),
+    headers: new Headers(contentType ? { 'Content-Type': contentType } : undefined),
     json: async () => body,
   } as Response
 }
@@ -214,4 +214,67 @@ describe('PasskeyRegisterButton', () => {
     expect(reported).not.toBeInstanceOf(AuthError)
     expect((reported as Error).message).toBe('Something broke')
   })
+
+  // The generated response types declare message required, but a refusal that
+  // never passed through the success envelope parses as JSON without one: an
+  // empty object from an edge rule, or huma's own problem+json error model.
+  // Each step then reports its own sentence.
+  const UNENVELOPED_REFUSALS = [
+    { shape: 'an empty JSON object', response: () => jsonResponse({}, 502) },
+    {
+      shape: 'a problem+json error model',
+      response: () =>
+        jsonResponse(
+          { title: 'Unprocessable Entity', status: 422, detail: 'validation failed' },
+          422,
+          'application/problem+json'
+        ),
+    },
+  ]
+
+  it.each(UNENVELOPED_REFUSALS)(
+    'reports the begin step sentence for $shape',
+    async ({ response }) => {
+      global.fetch = vi.fn().mockResolvedValue(response()) as unknown as typeof fetch
+      const onError = vi.fn()
+
+      renderWithProviders(<PasskeyRegisterButton onError={onError} />)
+      await openAndSubmit()
+
+      await waitFor(() => expect(onError).toHaveBeenCalled())
+      const reported = onError.mock.calls[0][0]
+      expect(reported).toBeInstanceOf(Error)
+      expect(reported).not.toBeInstanceOf(AuthError)
+      expect((reported as Error).message).toBe('Failed to start passkey registration')
+    }
+  )
+
+  it.each(UNENVELOPED_REFUSALS)(
+    'reports the finish step sentence for $shape',
+    async ({ response }) => {
+      global.fetch = vi
+        .fn()
+        .mockResolvedValueOnce(
+          jsonResponse({
+            success: true,
+            options: { publicKey: { challenge: 'register-challenge' } },
+            challenge_id: 'challenge-1',
+          })
+        )
+        .mockResolvedValueOnce(response()) as unknown as typeof fetch
+      const onError = vi.fn()
+      const onSuccess = vi.fn()
+
+      renderWithProviders(<PasskeyRegisterButton onError={onError} onSuccess={onSuccess} />)
+      await openAndSubmit()
+
+      await waitFor(() => expect(onError).toHaveBeenCalled())
+      expect(vi.mocked(global.fetch)).toHaveBeenCalledTimes(2)
+      const reported = onError.mock.calls[0][0]
+      expect(reported).toBeInstanceOf(Error)
+      expect(reported).not.toBeInstanceOf(AuthError)
+      expect((reported as Error).message).toBe('Failed to register passkey')
+      expect(onSuccess).not.toHaveBeenCalled()
+    }
+  )
 })
