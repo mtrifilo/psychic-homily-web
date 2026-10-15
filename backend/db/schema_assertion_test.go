@@ -147,12 +147,12 @@ func TestAssertRequiredColumnTypes(t *testing.T) {
 		t.Parallel()
 		types := listedColumnTypes()
 		types["webauthn_credentials.sign_count"] = columnType{DataType: "integer", UDTName: "int4"}
-		types["shows.event_date"] = columnType{DataType: "timestamp without time zone", UDTName: "timestamp"}
+		types["entity_edit_audit_logs.created_at"] = columnType{DataType: "timestamp without time zone", UDTName: "timestamp"}
 		err := assertRequiredColumnTypes(&fakeColumnTypeReader{types: types})
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "webauthn_credentials.sign_count is integer, expected bigint")
 		assert.Contains(t, err.Error(),
-			"shows.event_date is timestamp without time zone, expected timestamp with time zone")
+			"entity_edit_audit_logs.created_at is timestamp without time zone, expected timestamp with time zone")
 	})
 
 	t.Run("a listed column the reader did not return is reported absent", func(t *testing.T) {

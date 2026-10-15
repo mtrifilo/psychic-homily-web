@@ -15,9 +15,9 @@ import (
 // Type, when set, is the column's required type in either spelling Postgres
 // reports (information_schema data_type or udt_name, so "bigint" and "int8"
 // are equivalent); the entries use the data_type spelling, which is also the
-// one the mismatch message prints. An empty Type checks existence only. Set
-// it when a migration changes a column's type, so a recorded-but-absent type
-// change fails boot too.
+// one the mismatch message prints. An empty Type checks existence only. Which
+// columns carry a Type is stated above the typed entries in
+// requiredSchemaColumns.
 type requiredColumn struct {
 	Table  string
 	Column string
@@ -35,8 +35,7 @@ func (c requiredColumn) qualifiedName() string {
 
 // requiredSchemaColumns is the boot-time checklist. Keep it small: only
 // columns whose absence breaks core request paths before any health probe
-// would notice, and typed columns whose old type fails or silently alters
-// the writes the code makes.
+// would notice, plus the typed entries described below.
 var requiredSchemaColumns = []requiredColumn{
 	{Table: "user_bookmarks", Column: "scene_digest_sent_at"},
 	{Table: "user_preferences", Column: "notify_on_scene_digest"},
@@ -70,6 +69,13 @@ var requiredSchemaColumns = []requiredColumn{
 	// Checked by a generated column so the assertion also catches a table
 	// that exists but predates the shape the guard queries.
 	{Table: "timezone_names_snapshot", Column: "name_lower"},
+	// Typed entries: exactly the columns whose type a timestamp-named
+	// migration changed. golang-migrate skips a timestamp-named migration
+	// whose version is below the recorded pointer, which happens when branches
+	// merge out of timestamp order, so the pointer does not prove its DDL ran.
+	// A sequentially numbered migration cannot be skipped that way, so the
+	// pointer alone proves its type changes and they are not typed here.
+	//
 	// The model stores the authenticator's signature counter as a uint32; an
 	// INTEGER column cannot hold the upper half of that range, so the
 	// credential update after such a sign-in fails.
@@ -81,24 +87,6 @@ var requiredSchemaColumns = []requiredColumn{
 	{Table: "entity_edit_audit_logs", Column: "entity_id", Type: sqlBigint},
 	// A TIMESTAMP (without time zone) column discards the zone of the instant
 	// the code writes, and no error says so.
-	{Table: "shows", Column: "event_date", Type: sqlTimestamptz},
-	{Table: "shows", Column: "created_at", Type: sqlTimestamptz},
-	{Table: "shows", Column: "updated_at", Type: sqlTimestamptz},
-	{Table: "artists", Column: "created_at", Type: sqlTimestamptz},
-	{Table: "artists", Column: "updated_at", Type: sqlTimestamptz},
-	{Table: "venues", Column: "created_at", Type: sqlTimestamptz},
-	{Table: "venues", Column: "updated_at", Type: sqlTimestamptz},
-	{Table: "users", Column: "created_at", Type: sqlTimestamptz},
-	{Table: "users", Column: "updated_at", Type: sqlTimestamptz},
-	{Table: "oauth_accounts", Column: "expires_at", Type: sqlTimestamptz},
-	{Table: "oauth_accounts", Column: "created_at", Type: sqlTimestamptz},
-	{Table: "oauth_accounts", Column: "updated_at", Type: sqlTimestamptz},
-	{Table: "user_preferences", Column: "created_at", Type: sqlTimestamptz},
-	{Table: "user_preferences", Column: "updated_at", Type: sqlTimestamptz},
-	{Table: "show_reports", Column: "reviewed_at", Type: sqlTimestamptz},
-	{Table: "show_reports", Column: "created_at", Type: sqlTimestamptz},
-	{Table: "show_reports", Column: "updated_at", Type: sqlTimestamptz},
-	{Table: "audit_logs", Column: "created_at", Type: sqlTimestamptz},
 	{Table: "entity_edit_audit_logs", Column: "created_at", Type: sqlTimestamptz},
 }
 
