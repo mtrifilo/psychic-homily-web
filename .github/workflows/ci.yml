@@ -19,6 +19,16 @@ on:
 permissions:
   contents: read
 
+# Superseded PR runs are cancelled: a pull request whose head moves (a fixup
+# push or an update-branch merge) should not keep a run going for a head
+# nothing reads. Main-branch runs are never cancelled once started, since each
+# one is the record for a distinct merged commit. Main runs share one group, so
+# they run one at a time, and GitHub keeps at most one pending run per group: a
+# main push that arrives while an earlier main run is still pending replaces it.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   migration-lint:
     name: Migration Lint
