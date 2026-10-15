@@ -450,9 +450,9 @@ func (r *RadioCandidatesReader) inSnapshot(ctx context.Context, fn func(tx *gorm
 // boundRadioCandidateListing sets the session limits of a candidate listing
 // transaction. statement_timeout is the server-side bound, which holds even if
 // the client's cancellation is lost. jit is off because the listing statements
-// carry RadioPlayExcludedSQL several times, which puts their cost estimates
-// past the JIT thresholds although they read a few thousand plays: compiling
-// them takes seconds, running them milliseconds.
+// carry RadioPlayExcludedSQL one or more times, which inflates their cost
+// estimates past the JIT thresholds; an evidence statement reads only the
+// selected candidates' plays, so compiling it costs far more than running it.
 func boundRadioCandidateListing(tx *gorm.DB) error {
 	if err := tx.Exec(fmt.Sprintf("SET LOCAL statement_timeout = %d", radioCandidateListingTimeout.Milliseconds())).Error; err != nil {
 		return fmt.Errorf("bounding the listing: %w", err)

@@ -179,9 +179,9 @@ const (
 // radioLabelEvidenceNamesSQL ranks the names in a column of the label
 // evidence query's counted CTE: names group by radio_normalize_name, show
 // their most common trimmed spelling and count all their plays, and only rows
-// where onlyWhere (a boolean column of counted) holds contribute. refIDs is the aggregate the ref_ids column carries for each
-// name, SQL built from constants. Panics on a column that is not an
-// identifier.
+// where onlyWhere (a boolean column of counted) holds contribute. refIDs is
+// the aggregate the ref_ids column carries for each name, SQL built from
+// constants. Panics on a column that is not an identifier.
 func radioLabelEvidenceNamesSQL(kind, column, onlyWhere, refIDs string) string {
 	col := mustSQLColumnRef(column)
 	filter := "c." + mustSQLColumnRef(onlyWhere)
