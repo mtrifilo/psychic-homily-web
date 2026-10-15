@@ -33,12 +33,9 @@ describe('sanitizeReturnTo', () => {
     expect(FALLBACK_RETURN_TO).toBe(corpus.fallback)
   })
 
-  it.each(corpus.cases.map((c) => [c.name, c.input, c.sanitizeReturnTo, c.rule] as const))(
-    '%s',
-    (_name, input, want, rule) => {
-      expect(sanitizeReturnTo(input), rule).toBe(want)
-    }
-  )
+  it.each(corpus.cases)('$name', ({ input, sanitizeReturnTo: want, rule }) => {
+    expect(sanitizeReturnTo(input), rule).toBe(want)
+  })
 
   // The Go sanitizer takes a string, so the shared corpus has no case for these.
   it('returns fallback for null and undefined', () => {

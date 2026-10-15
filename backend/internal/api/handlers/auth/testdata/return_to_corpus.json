@@ -21,31 +21,27 @@
     "",
     "fallback                    = what both sanitizers return for a refused",
     "                              input, and also what they return for \"/\".",
+    "backendMaxLength            = the backend's length cap. The Go suite pins",
+    "                              oauthReturnToMaxLength to it and requires a",
+    "                              kept case of exactly this length and a",
+    "                              refused case one past it. The frontend has",
+    "                              no cap.",
     "cases[].input               = the raw value each sanitizer is handed.",
     "cases[].sanitizeOAuthReturnTo",
     "cases[].sanitizeReturnTo    = each sanitizer's exact return value.",
     "cases[].rule                = the rule the case exercises.",
     "cases[].difference          = present exactly when the two outputs differ:",
     "                              why the backend refuses a value the frontend",
-    "                              accepts or rewrites.",
-    "",
-    "The two length cases are literal strings of 2048 and 2049 characters: the",
-    "backend's cap and one past it."
+    "                              accepts or rewrites."
   ],
   "fallback": "/",
+  "backendMaxLength": 2048,
   "cases": [
     {
       "name": "on-site path",
       "input": "/shows",
       "sanitizeOAuthReturnTo": "/shows",
       "sanitizeReturnTo": "/shows",
-      "rule": "a same-origin path passes unchanged"
-    },
-    {
-      "name": "another on-site path",
-      "input": "/library",
-      "sanitizeOAuthReturnTo": "/library",
-      "sanitizeReturnTo": "/library",
       "rule": "a same-origin path passes unchanged"
     },
     {
@@ -60,13 +56,6 @@
       "input": "/profile?tab=settings",
       "sanitizeOAuthReturnTo": "/profile?tab=settings",
       "sanitizeReturnTo": "/profile?tab=settings",
-      "rule": "a same-origin path passes unchanged"
-    },
-    {
-      "name": "another path with query",
-      "input": "/library?tab=venues",
-      "sanitizeOAuthReturnTo": "/library?tab=venues",
-      "sanitizeReturnTo": "/library?tab=venues",
       "rule": "a same-origin path passes unchanged"
     },
     {
@@ -144,14 +133,14 @@
       "input": "",
       "sanitizeOAuthReturnTo": "/",
       "sanitizeReturnTo": "/",
-      "rule": "a same-origin path passes unchanged"
+      "rule": "only a path: a value that does not start with / is refused"
     },
     {
       "name": "relative path",
       "input": "shows",
       "sanitizeOAuthReturnTo": "/",
       "sanitizeReturnTo": "/",
-      "rule": "a same-origin path passes unchanged"
+      "rule": "only a path: a value that does not start with / is refused"
     },
     {
       "name": "absolute URL",
@@ -163,13 +152,6 @@
     {
       "name": "absolute URL with path",
       "input": "https://evil.example/shows",
-      "sanitizeOAuthReturnTo": "/",
-      "sanitizeReturnTo": "/",
-      "rule": "only a same-origin path: a scheme or host is refused"
-    },
-    {
-      "name": "another absolute URL with path",
-      "input": "https://example.com/evil",
       "sanitizeOAuthReturnTo": "/",
       "sanitizeReturnTo": "/",
       "rule": "only a same-origin path: a scheme or host is refused"
@@ -191,13 +173,6 @@
     {
       "name": "protocol-relative with path",
       "input": "//evil.example/shows",
-      "sanitizeOAuthReturnTo": "/",
-      "sanitizeReturnTo": "/",
-      "rule": "no leading //: it is protocol-relative"
-    },
-    {
-      "name": "another protocol-relative with path",
-      "input": "//evil.com/path",
       "sanitizeOAuthReturnTo": "/",
       "sanitizeReturnTo": "/",
       "rule": "no leading //: it is protocol-relative"
@@ -233,13 +208,6 @@
     {
       "name": "dot-dot into protocol-relative",
       "input": "/..//evil.example",
-      "sanitizeOAuthReturnTo": "/",
-      "sanitizeReturnTo": "/",
-      "rule": "no . or .. path segment, including one that resolves the path into a protocol-relative //host"
-    },
-    {
-      "name": "dot-dot into protocol-relative, another host",
-      "input": "/..//evil.com",
       "sanitizeOAuthReturnTo": "/",
       "sanitizeReturnTo": "/",
       "rule": "no . or .. path segment, including one that resolves the path into a protocol-relative //host"

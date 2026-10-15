@@ -26,8 +26,9 @@ import (
 // sanitizeReturnTo test reads too. Its _comment states the contract the two
 // sanitizers share.
 type returnToCorpus struct {
-	Fallback string `json:"fallback"`
-	Cases    []struct {
+	Fallback         string `json:"fallback"`
+	BackendMaxLength int    `json:"backendMaxLength"`
+	Cases            []struct {
 		Name                  string `json:"name"`
 		Input                 string `json:"input"`
 		SanitizeOAuthReturnTo string `json:"sanitizeOAuthReturnTo"`
@@ -58,6 +59,9 @@ func TestSanitizeOAuthReturnTo(t *testing.T) {
 	if corpus.Fallback != oauthReturnToFallback {
 		t.Errorf("corpus fallback = %q, oauthReturnToFallback = %q", corpus.Fallback, oauthReturnToFallback)
 	}
+	if corpus.BackendMaxLength != oauthReturnToMaxLength {
+		t.Errorf("corpus backendMaxLength = %d, oauthReturnToMaxLength = %d", corpus.BackendMaxLength, oauthReturnToMaxLength)
+	}
 	for _, tc := range corpus.Cases {
 		t.Run(tc.Name, func(t *testing.T) {
 			if got := sanitizeOAuthReturnTo(tc.Input); got != tc.SanitizeOAuthReturnTo {
@@ -70,9 +74,12 @@ func TestSanitizeOAuthReturnTo(t *testing.T) {
 // The frontend suite pins sanitizeReturnTo to the corpus and the test above
 // pins sanitizeOAuthReturnTo, so the contract checked here over the corpus's
 // expectations holds over the two sanitizers on every case.
-func TestReturnToCorpusKeepsTheBackendASubsetOfTheFrontend(t *testing.T) {
+func TestReturnToCorpusHoldsItsContract(t *testing.T) {
 	corpus := loadReturnToCorpus(t)
+	keptAtTheCap, refusedPastTheCap := false, false
 	for _, tc := range corpus.Cases {
+		keptAtTheCap = keptAtTheCap || (len(tc.Input) == corpus.BackendMaxLength && tc.SanitizeOAuthReturnTo == tc.Input)
+		refusedPastTheCap = refusedPastTheCap || (len(tc.Input) == corpus.BackendMaxLength+1 && tc.SanitizeOAuthReturnTo == corpus.Fallback)
 		differ := tc.SanitizeOAuthReturnTo != tc.SanitizeReturnTo
 		if differ && tc.SanitizeOAuthReturnTo != corpus.Fallback {
 			t.Errorf("%s: the backend keeps %q but the frontend returns %q; where the two differ the backend must refuse",
@@ -84,6 +91,10 @@ func TestReturnToCorpusKeepsTheBackendASubsetOfTheFrontend(t *testing.T) {
 		if tc.Rule == "" {
 			t.Errorf("%s: rule is empty", tc.Name)
 		}
+	}
+	if !keptAtTheCap || !refusedPastTheCap {
+		t.Errorf("the corpus needs a case of exactly backendMaxLength (%d) the backend keeps (found: %t) and one a byte past it the backend refuses (found: %t)",
+			corpus.BackendMaxLength, keptAtTheCap, refusedPastTheCap)
 	}
 }
 
