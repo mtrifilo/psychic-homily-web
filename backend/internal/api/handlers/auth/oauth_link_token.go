@@ -42,8 +42,8 @@ const (
 
 // oauthLinkTokenClaims is what the signature covers.
 //
-// No origin. An earlier cut stored the browser's reported origin here and
-// compared it at spend against the browser's reported origin then: two values
+// No origin. Storing the browser's reported origin here and comparing it at
+// spend against the browser's reported origin then would compare two values
 // from the same untrusted source, which proves only that they agree. The
 // origin check that means something compares against the CONFIGURED frontend:
 // both legs compare originFromHeaders with it, the mint in

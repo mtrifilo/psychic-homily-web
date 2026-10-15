@@ -195,7 +195,9 @@ func TestOriginFromHeaders(t *testing.T) {
 		{"opaque Origin falls back to Referer", "null", ours + "/profile", ours},
 		{"another Origin with our Referer", "https://evil.example", ours + "/profile", "https://evil.example"},
 		{"opaque Origin and nothing else", "null", "", ""},
+		{"Origin with a path, returned as sent", ours + "/", "", ours + "/"},
 		{"Referer that is not an absolute URL", "", "/profile", ""},
+		{"Referer that is not a URL", "", "not a url", ""},
 	}
 
 	for _, tc := range cases {
