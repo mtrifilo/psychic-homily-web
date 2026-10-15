@@ -65,6 +65,7 @@ func (suite *UserServiceIntegrationTestSuite) TestIncrementFailedAttempts_LocksA
 	got := suite.reloadAccount(user.ID)
 	suite.Equal(MaxFailedLoginAttempts, got.FailedLoginAttempts)
 	suite.Require().NotNil(got.LockedUntil)
+	// locked_until is stored at microsecond precision, below the nanosecond bound.
 	suite.False(got.LockedUntil.Before(before.Add(AccountLockDuration).Truncate(time.Microsecond)))
 	suite.False(got.LockedUntil.After(after.Add(AccountLockDuration)))
 	suite.True(suite.userService.IsAccountLocked(&got))
@@ -98,7 +99,11 @@ func (suite *UserServiceIntegrationTestSuite) TestIncrementFailedAttempts_BelowT
 }
 
 func (suite *UserServiceIntegrationTestSuite) TestIncrementFailedAttempts_UnknownUserIsAnError() {
-	suite.Error(suite.userService.IncrementFailedAttempts(0))
+	user := suite.createLiveAccount("lockout-unknown-neighbour@example.com")
+
+	err := suite.userService.IncrementFailedAttempts(user.ID + 1_000_000)
+
+	suite.ErrorIs(err, gorm.ErrRecordNotFound)
 }
 
 func (suite *UserServiceIntegrationTestSuite) TestIncrementFailedAttempts_ConcurrentFailuresAreAllCounted() {

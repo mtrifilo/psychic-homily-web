@@ -929,9 +929,10 @@ func (s *UserService) GetLockTimeRemaining(user *authm.User) time.Duration {
 // IncrementFailedAttempts increments the counter and locks the account for
 // AccountLockDuration when the incremented count reaches MaxFailedLoginAttempts.
 //
-// It is one UPDATE of the two lockout columns: Postgres evaluates every SET
-// expression against the row it locked, so concurrent failures are all counted
-// and no other column (is_active, deleted_at) is written.
+// It is one UPDATE of the two lockout columns (and updated_at, which GORM adds):
+// Postgres evaluates every SET expression against the row it locked, so
+// concurrent failures are all counted and is_active and deleted_at are never
+// written.
 func (s *UserService) IncrementFailedAttempts(userID uint) error {
 	if s.db == nil {
 		return fmt.Errorf("database not initialized")
