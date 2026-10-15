@@ -173,9 +173,9 @@ func (suite *UserServiceIntegrationTestSuite) TestIncrementFailedAttempts_Advanc
 	suite.False(got.UpdatedAt.After(after))
 }
 
-// Every request that reads the row before the locking failure commits has its
-// password checked and its failure counted; once the lock is set, even the
-// correct password is refused.
+// Under a parallel burst of wrong passwords, every request whose password is
+// checked is counted; once the lock is set, even the correct password is
+// refused.
 func (suite *UserServiceIntegrationTestSuite) TestAuthenticateUserWithPassword_ParallelWrongPasswordsAreAllCountedThenLock() {
 	const address, password = "lockout-parallel-burst@example.com", "CorrectPassword1!"
 	created, err := suite.userService.CreateUserWithPassword(address, password, "Burst", "User")
