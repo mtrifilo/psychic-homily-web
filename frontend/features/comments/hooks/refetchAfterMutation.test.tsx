@@ -11,8 +11,9 @@ import {
 } from './index'
 import { refetchAfterMutation } from './refetchAfterMutation'
 import {
+  clientWithAppDefaults,
+  deferred,
   makeComment,
-  productionLikeClient,
   routeGets,
 } from './inflightOrdering.fixtures'
 import type { Comment, CommentListResponse } from '../types'
@@ -30,8 +31,8 @@ describe('refetchAfterMutation', () => {
   })
 
   it('starts a new request when the first fetch is still in flight, and discards the late response', async () => {
-    const client = productionLikeClient()
-    const first = Promise.withResolvers<string>()
+    const client = clientWithAppDefaults()
+    const first = deferred<string>()
     const queryFn = vi
       .fn<() => Promise<string>>()
       .mockReturnValueOnce(first.promise)
@@ -54,8 +55,8 @@ describe('refetchAfterMutation', () => {
   })
 
   it('keeps showing existing data while it refetches', async () => {
-    const client = productionLikeClient()
-    const second = Promise.withResolvers<string>()
+    const client = clientWithAppDefaults()
+    const second = deferred<string>()
     const queryFn = vi
       .fn<() => Promise<string>>()
       .mockResolvedValueOnce('before write')
@@ -89,8 +90,8 @@ describe('mutations that refetch after a write while the first fetch is in fligh
   it('useReplyToComment refetches the entity list and the thread', async () => {
     const parent = makeComment({ id: 10 })
     const reply = makeComment({ id: 11, parent_id: 10, root_id: 10, depth: 1 })
-    const staleList = Promise.withResolvers<CommentListResponse>()
-    const staleThread = Promise.withResolvers<{ comments: Comment[] }>()
+    const staleList = deferred<CommentListResponse>()
+    const staleThread = deferred<{ comments: Comment[] }>()
     const gets = routeGets({
       '/entities/venue/42/comments?sort=': {
         stale: staleList.promise,
@@ -110,7 +111,7 @@ describe('mutations that refetch after a write while the first fetch is in fligh
       return Promise.reject(new Error(`unexpected request ${url}`))
     })
 
-    const client = productionLikeClient()
+    const client = clientWithAppDefaults()
     const { result } = renderHook(
       () => ({
         list: useComments('venue', 42),
@@ -148,7 +149,7 @@ describe('mutations that refetch after a write while the first fetch is in fligh
 
   it('useCreateFieldNote refetches the show field notes', async () => {
     const note = makeComment({ id: 20, entity_type: 'show', entity_id: 5 })
-    const staleNotes = Promise.withResolvers<CommentListResponse>()
+    const staleNotes = deferred<CommentListResponse>()
     const gets = routeGets({
       '/shows/5/field-notes': {
         stale: staleNotes.promise,
@@ -164,7 +165,7 @@ describe('mutations that refetch after a write while the first fetch is in fligh
       return Promise.reject(new Error(`unexpected request ${url}`))
     })
 
-    const client = productionLikeClient()
+    const client = clientWithAppDefaults()
     const { result } = renderHook(
       () => ({
         notes: useFieldNotes(5),

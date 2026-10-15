@@ -1,8 +1,10 @@
 import type { QueryClient, QueryKey } from '@tanstack/react-query'
 
 /**
- * Refetch every query under `queryKey` after a write, so the response reflects
- * the write.
+ * Cancel every query under `queryKey`, then invalidate them, so the next data
+ * each one shows reflects the write. Active queries refetch now; inactive and
+ * disabled ones are only marked stale, and any fetch they had in flight is
+ * dropped.
  *
  * `invalidateQueries` alone does not guarantee that. For a query that has no
  * data yet and a fetch in flight, TanStack Query hands back the in-flight

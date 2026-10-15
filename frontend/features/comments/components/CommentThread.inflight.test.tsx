@@ -3,8 +3,9 @@ import { act, fireEvent, screen, waitFor } from '@testing-library/react'
 import { renderWithProviders } from '@/test/utils'
 import { CommentThread } from './CommentThread'
 import {
+  clientWithAppDefaults,
+  deferred,
   makeComment,
-  productionLikeClient,
   routeGets,
 } from '../hooks/inflightOrdering.fixtures'
 import type { CommentListResponse } from '../types'
@@ -37,7 +38,7 @@ describe('CommentThread: a comment posted while the first list fetch is in fligh
 
   it('refetches after the create and renders the comment, never showing the empty state', async () => {
     const created = makeComment({ id: 101, body: BODY, body_html: `<p>${BODY}</p>` })
-    const staleList = Promise.withResolvers<CommentListResponse>()
+    const staleList = deferred<CommentListResponse>()
     const gets = routeGets({
       [LIST]: {
         stale: staleList.promise,
@@ -55,7 +56,7 @@ describe('CommentThread: a comment posted while the first list fetch is in fligh
 
     const { container } = renderWithProviders(
       <CommentThread entityType="venue" entityId={42} />,
-      { queryClient: productionLikeClient() }
+      { queryClient: clientWithAppDefaults() }
     )
 
     // Records every insertion of the empty state, including one that a later

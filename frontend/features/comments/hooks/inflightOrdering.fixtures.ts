@@ -3,17 +3,25 @@ import { defaultQueryOptions } from '@/lib/queryClient'
 import type { Comment } from '../types'
 
 /**
- * A client with the production query defaults, which decide whether anything
- * refetches on its own (staleTime, refetch on focus). Retries are off so an
- * unexpected request fails the test at once.
+ * A client with the app's default query options, which decide whether anything
+ * refetches on its own (staleTime, refetch on focus). It has none of the app
+ * client's cache error handlers. Retries are off, so an unexpected request
+ * settles as an error state rather than waiting out a retry delay.
  */
-export function productionLikeClient(): QueryClient {
+export function clientWithAppDefaults(): QueryClient {
   return new QueryClient({
     defaultOptions: {
       queries: { ...defaultQueryOptions.queries, retry: false },
       mutations: { ...defaultQueryOptions.mutations, retry: false },
     },
   })
+}
+
+/** A promise plus the function that resolves it, for holding a response. */
+export function deferred<T>() {
+  let resolve!: (value: T) => void
+  const promise = new Promise<T>((r) => (resolve = r))
+  return { promise, resolve }
 }
 
 export function makeComment(overrides: Partial<Comment> = {}): Comment {

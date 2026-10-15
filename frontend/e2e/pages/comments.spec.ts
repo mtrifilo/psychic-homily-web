@@ -44,9 +44,17 @@ const visibleMain = (page: Page) =>
   page.locator('main#main-content').filter({ visible: true })
 
 // Distinct across workers, repeats and retries, which can run the same test
-// in the same millisecond.
+// in the same millisecond. Text uniqueness does not lift the backend's 60s
+// per-user, per-entity comment cooldown: a second post by the same seeded user
+// on the same venue inside that window gets a 429, deleted comments included.
 const uniqueText = (prefix: string, testInfo: TestInfo) =>
   `${prefix} w${testInfo.workerIndex}-r${testInfo.repeatEachIndex}-t${testInfo.retry}-${Date.now()}`
+
+function latch() {
+  let release!: () => void
+  const released = new Promise<void>((r) => (release = r))
+  return { release, released }
+}
 
 const CREATE_VENUE_SLUG = 'e2e-comment-create'
 const CREATE_VENUE_NAME = 'E2E [comment-create]'
@@ -134,19 +142,19 @@ test.describe('Comments (general)', () => {
       // response does not contain the new comment.
       const listGet = /\/api\/entities\/venue\/\d+\/comments\?sort=/
       let listGets = 0
-      const firstGetAnswered = Promise.withResolvers<void>()
-      const firstGetReleased = Promise.withResolvers<void>()
-      const secondGetIssued = Promise.withResolvers<void>()
+      const firstGetAnswered = latch()
+      const firstGetReleased = latch()
+      const secondGetIssued = latch()
 
       await authenticatedPage.route(listGet, async (route) => {
         if (route.request().method() !== 'GET') return route.continue()
         listGets += 1
-        if (listGets === 2) secondGetIssued.resolve()
+        if (listGets === 2) secondGetIssued.release()
         if (listGets !== 1) return route.continue()
         const response = await route.fetch()
         const body = await response.text()
-        firstGetAnswered.resolve()
-        await firstGetReleased.promise
+        firstGetAnswered.release()
+        await firstGetReleased.released
         await route.fulfill({ response, body })
       })
 
@@ -157,7 +165,7 @@ test.describe('Comments (general)', () => {
       ).toBeVisible({ timeout: 10_000 })
       const thread = main.getByTestId('comment-thread')
       await expect(thread).toBeVisible({ timeout: 10_000 })
-      await firstGetAnswered.promise
+      await firstGetAnswered.released
 
       const uniqueBody = uniqueText('E2E comment in flight', testInfo)
       await thread.getByTestId('comment-textarea').fill(uniqueBody)
@@ -179,10 +187,10 @@ test.describe('Comments (general)', () => {
       // response once it is issued, or after a bound when it never is, so
       // the visibility assertion below reports the failure.
       await Promise.race([
-        secondGetIssued.promise,
+        secondGetIssued.released,
         new Promise<void>((r) => setTimeout(r, 2_000)),
       ])
-      firstGetReleased.resolve()
+      firstGetReleased.release()
 
       await expect(thread.getByText(uniqueBody)).toBeVisible({ timeout: 10_000 })
       expect(listGets).toBeGreaterThanOrEqual(2)
