@@ -239,6 +239,26 @@ reset_fixture "unbound: a block comment between keywords separates them" unbound
 migration "20260901000000_widen" "ALTER/* c */TABLE t ALTER COLUMN c TYPE BIGINT;"
 expect 1 "takes a strong lock (ALTER TABLE)"
 
+reset_fixture "unbound: '/*' inside a string literal opens no block" unbound
+migration "20260901000000_widen" "COMMENT ON TABLE t IS 'paths like /api/* stay text';
+ALTER TABLE t ALTER COLUMN c TYPE BIGINT;"
+expect 1 "takes a strong lock (ALTER TABLE)"
+
+reset_fixture "unbound: '--' inside a string literal does not hide what follows" unbound
+migration "20260901000000_widen" "SELECT '--'; ALTER TABLE t ALTER COLUMN c TYPE BIGINT;"
+expect 1 "takes a strong lock (ALTER TABLE)"
+
+reset_fixture "unbound: a comment after a doubled quote is still stripped" unbound
+migration "20260901000000_widen" "SELECT 'it''s'; -- lock_timeout is set by the runner.
+ALTER TABLE t ALTER COLUMN c TYPE BIGINT;"
+expect 1 "20260901000000_widen.up.sql"
+
+reset_fixture "unbound: comment markers in a multi-line string literal are text" unbound
+migration "20260901000000_widen" "COMMENT ON TABLE t IS 'line one
+-- not a comment /* nor this';
+ALTER TABLE t ALTER COLUMN c TYPE BIGINT;"
+expect 1 "takes a strong lock (ALTER TABLE)"
+
 reset_fixture "unbound: SET LOCAL lock_timeout after a block comment passes" unbound
 migration "20260901000000_widen" "/* widen */ SET LOCAL lock_timeout = '5s';
 ALTER TABLE t ALTER COLUMN c TYPE BIGINT;"

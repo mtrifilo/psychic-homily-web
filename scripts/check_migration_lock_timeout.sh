@@ -80,13 +80,28 @@ fi
 # statement split across lines still matches. A `--` comment runs to the end
 # of its line; a `/* */` comment nests, may span lines, and reads as one space.
 # Inside a block comment `--` is plain text, and inside a line comment `/*` is.
-# String literals are not parsed: a comment marker inside one is treated as a
-# comment.
+# A single-quoted literal stays in the output, and comment markers inside it
+# are text. Not parsed: backslash escapes in E'' literals, and dollar quoting
+# (a $$ body is scanned as SQL, which matches a function body's comments).
 folded_sql() {
   awk '
+    # first_of(a, b): the smaller of two index() results, ignoring 0 (absent).
+    function first_of(a, b) {
+      if (a == 0) return b
+      if (b == 0 || a < b) return a
+      return b
+    }
     {
       rest = tolower($0)
       while (rest != "") {
+        if (in_quote) {
+          quote_at = index(rest, "\047")
+          if (quote_at == 0) { printf "%s", rest; break }
+          printf "%s", substr(rest, 1, quote_at)
+          rest = substr(rest, quote_at + 1)
+          in_quote = 0
+          continue
+        }
         open_at = index(rest, "/*")
         if (depth > 0) {
           close_at = index(rest, "*/")
@@ -101,14 +116,19 @@ folded_sql() {
           }
         } else {
           dash_at = index(rest, "--")
-          if (open_at == 0 && dash_at == 0) { printf "%s", rest; break }
-          if (dash_at > 0 && (open_at == 0 || dash_at < open_at)) {
-            printf "%s", substr(rest, 1, dash_at - 1)
-            break
+          quote_at = index(rest, "\047")
+          next_at = first_of(first_of(open_at, dash_at), quote_at)
+          if (next_at == 0) { printf "%s", rest; break }
+          printf "%s", substr(rest, 1, next_at - 1)
+          if (next_at == dash_at) break
+          if (next_at == quote_at) {
+            printf "\047"
+            in_quote = 1
+            rest = substr(rest, quote_at + 1)
+          } else {
+            depth = 1
+            rest = substr(rest, open_at + 2)
           }
-          printf "%s", substr(rest, 1, open_at - 1)
-          depth = 1
-          rest = substr(rest, open_at + 2)
         }
       }
       printf " "

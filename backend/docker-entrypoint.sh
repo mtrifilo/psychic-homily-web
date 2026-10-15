@@ -105,15 +105,16 @@ fi
 # -database arguments below; keep them in step with it.
 
 # Succeeds when $1 is a whole number with an optional Postgres time unit
-# (us, ms, s, min, h, d); a bare number is milliseconds. This also keeps the
-# value free of characters that would change the URL around it.
+# (ms, s, min, h, d); a bare number is milliseconds. This also keeps the
+# value free of characters that would change the URL around it. Postgres's
+# `us` unit is refused: it rounds a sub-millisecond timeout to 0, no limit.
 is_pg_duration() {
     pg_duration_unit=${1##*[[:digit:]]}
     case ${1%"$pg_duration_unit"} in
         ''|*[![:digit:]]*) return 1 ;;
     esac
     case $pg_duration_unit in
-        ''|us|ms|s|min|h|d) return 0 ;;
+        ''|ms|s|min|h|d) return 0 ;;
     esac
     return 1
 }
@@ -128,12 +129,12 @@ is_zero_duration() {
 
 MIGRATE_LOCK_TIMEOUT=${MIGRATE_LOCK_TIMEOUT:-5s}
 if ! is_pg_duration "$MIGRATE_LOCK_TIMEOUT" || is_zero_duration "$MIGRATE_LOCK_TIMEOUT"; then
-    echo "WARNING: MIGRATE_LOCK_TIMEOUT is not a positive whole number with an optional unit (us, ms, s, min, h, d); using 5s."
+    echo "WARNING: MIGRATE_LOCK_TIMEOUT is not a positive whole number with an optional unit (ms, s, min, h, d); using 5s."
     MIGRATE_LOCK_TIMEOUT=5s
 fi
 MIGRATE_STATEMENT_TIMEOUT=${MIGRATE_STATEMENT_TIMEOUT:-0}
 if ! is_pg_duration "$MIGRATE_STATEMENT_TIMEOUT"; then
-    echo "WARNING: MIGRATE_STATEMENT_TIMEOUT is not a whole number with an optional unit (us, ms, s, min, h, d); using 0 (not set)."
+    echo "WARNING: MIGRATE_STATEMENT_TIMEOUT is not a whole number with an optional unit (ms, s, min, h, d); using 0 (not set)."
     MIGRATE_STATEMENT_TIMEOUT=0
 fi
 # From here on an empty MIGRATE_STATEMENT_TIMEOUT means "not set".

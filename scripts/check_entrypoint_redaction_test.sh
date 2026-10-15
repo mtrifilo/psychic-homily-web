@@ -229,7 +229,7 @@ expect_line "Migrations wait at most 2500ms for any lock (lock_timeout)."
 expect_line "Each migration statement runs at most 60000ms (statement_timeout)."
 expect_migrate_url "$OPTS_URL?options=-c%20lock_timeout%3D2500ms%20-c%20statement_timeout%3D60000ms"
 
-for unit in us ms s min h d; do
+for unit in ms s min h d; do
   CASE="lock_timeout unit $unit is accepted"
   run "$OPTS_URL" MIGRATE_LOCK_TIMEOUT="7$unit"
   expect_booted
@@ -244,20 +244,20 @@ expect_absent "WARNING"
 expect_line "$NO_STATEMENT_TIMEOUT_LINE"
 expect_migrate_url "$OPTS_URL?$LOCK_5S"
 
-for bad in abc 5S "5 s" -5s 1.5s 5sec s 5s5 0 0ms 000s "5s&options=-c%20x" "5s%20-c%20lock_timeout%3D0"; do
+for bad in abc 5S "5 s" -5s 1.5s 5sec s 5s5 0 0ms 000s 1us 500us "5s&options=-c%20x" "5s%20-c%20lock_timeout%3D0"; do
   CASE="invalid MIGRATE_LOCK_TIMEOUT '$bad' falls back to 5s"
   run "$OPTS_URL" MIGRATE_LOCK_TIMEOUT="$bad"
   expect_booted
-  expect_line "WARNING: MIGRATE_LOCK_TIMEOUT is not a positive whole number with an optional unit (us, ms, s, min, h, d); using 5s."
+  expect_line "WARNING: MIGRATE_LOCK_TIMEOUT is not a positive whole number with an optional unit (ms, s, min, h, d); using 5s."
   expect_line "Migrations wait at most 5s for any lock (lock_timeout)."
   expect_migrate_url "$OPTS_URL?$LOCK_5S"
 done
 
-for bad in abc -1 30S 1.5s "30s%20-c%20lock_timeout%3D0"; do
+for bad in abc -1 30S 1.5s 1us "30s%20-c%20lock_timeout%3D0"; do
   CASE="invalid MIGRATE_STATEMENT_TIMEOUT '$bad' falls back to none"
   run "$OPTS_URL" MIGRATE_STATEMENT_TIMEOUT="$bad"
   expect_booted
-  expect_line "WARNING: MIGRATE_STATEMENT_TIMEOUT is not a whole number with an optional unit (us, ms, s, min, h, d); using 0 (not set)."
+  expect_line "WARNING: MIGRATE_STATEMENT_TIMEOUT is not a whole number with an optional unit (ms, s, min, h, d); using 0 (not set)."
   expect_line "$NO_STATEMENT_TIMEOUT_LINE"
   expect_migrate_url "$OPTS_URL?$LOCK_5S"
 done
