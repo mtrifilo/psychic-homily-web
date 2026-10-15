@@ -105,8 +105,8 @@ func run(database *gorm.DB, confirm bool, limit int, verbose bool, out io.Writer
 	if err != nil {
 		return err
 	}
-	printReport(out, report, confirm, verbose)
-	return nil
+	_, err = io.WriteString(out, formatReport(report, confirm, verbose))
+	return err
 }
 
 var outcomeLabels = map[catalog.RadioReleaseLinkOutcome]string{
@@ -119,7 +119,8 @@ var outcomeLabels = map[catalog.RadioReleaseLinkOutcome]string{
 	catalog.ReleaseLinkRelinkedUniqueTitle:   "Relinked: no artist link, to the unique title whose sole credit matches",
 }
 
-func printReport(out io.Writer, r *catalog.RadioReleaseLinkReport, confirm, verbose bool) {
+func formatReport(r *catalog.RadioReleaseLinkReport, confirm, verbose bool) string {
+	out := &strings.Builder{}
 	fmt.Fprintln(out, "=== Summary ===")
 	fmt.Fprintf(out, "Plays with a release link scanned: %d\n", r.Scanned)
 	for _, outcome := range catalog.RadioReleaseLinkOutcomes {
@@ -152,6 +153,7 @@ func printReport(out io.Writer, r *catalog.RadioReleaseLinkReport, confirm, verb
 	} else {
 		fmt.Fprintln(out, "DRY RUN: no DB writes. Re-run with --confirm to apply.")
 	}
+	return out.String()
 }
 
 func formatChange(c catalog.RadioReleaseLinkChange) string {
