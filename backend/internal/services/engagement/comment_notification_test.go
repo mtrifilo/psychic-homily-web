@@ -575,6 +575,25 @@ func (s *CommentNotificationServiceIntegrationSuite) TestNotifyMentioned_HappyPa
 // The failure mode it guards is silent: CreateComment runs NotifyMentioned in a
 // GoSafe goroutine, so a malformed statement becomes a log line. Mentions would
 // stop working on every show comment with no 5xx and no user-visible signal.
+func (s *CommentNotificationServiceIntegrationSuite) TestNotifyMentioned_SkipsInactiveAndDeletedUsers() {
+	author := s.createUser("author")
+	active := s.createUser("active")
+	inactive := s.createUser("inactive")
+	deleted := s.createUser("deleted")
+	artistID := s.createArtist("Mention Filter Artist")
+
+	s.Require().NoError(s.db.Model(&authm.User{}).Where("id = ?", inactive.ID).Update("is_active", false).Error)
+	s.Require().NoError(s.db.Model(&authm.User{}).Where("id = ?", deleted.ID).
+		Updates(map[string]any{"is_active": false, "deleted_at": time.Now().UTC()}).Error)
+
+	c := s.insertComment(author.ID, artistID, "hello @active @inactive @deleted")
+	s.Require().NoError(s.svc.NotifyMentioned(c.ID))
+
+	calls := s.mock.mentionCallsSorted()
+	s.Require().Len(calls, 1)
+	s.Equal(*active.Email, calls[0].ToEmail)
+}
+
 func (s *CommentNotificationServiceIntegrationSuite) TestNotifyMentioned_GatedShowReachesOnlyThoseWhoCanSeeIt() {
 	submitter := s.createUser("showsubmitter")
 	// Named in the comment body below; the assertions are on who gets mailed,
