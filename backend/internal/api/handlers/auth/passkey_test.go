@@ -585,8 +585,7 @@ func TestDeleteCredentialHandler_Success(t *testing.T) {
 func TestDeleteCredentialHandler_CredentialNotHeld(t *testing.T) {
 	mockWA := &testhelpers.MockWebAuthnService{
 		DeleteCredentialFn: func(userID uint, credentialID uint) error {
-			return autherrors.NewAuthError(autherrors.CodeValidationFailed, "Failed to delete credential",
-				fmt.Errorf("credential not held"))
+			return autherrors.ErrCredentialNotHeld(fmt.Errorf("credential not held"))
 		},
 	}
 	h := testPasskeyHandlerWithMocks(mockWA, &testhelpers.MockJWTService{}, &testhelpers.MockUserService{})
@@ -629,8 +628,7 @@ func TestDeleteCredentialHandler_AnotherUsersCredential(t *testing.T) {
 	mockWA := &testhelpers.MockWebAuthnService{
 		DeleteCredentialFn: func(userID uint, credentialID uint) error {
 			capturedUserID = userID
-			return autherrors.NewAuthError(autherrors.CodeValidationFailed, "Failed to delete credential",
-				fmt.Errorf("credential not held"))
+			return autherrors.ErrCredentialNotHeld(fmt.Errorf("credential not held"))
 		},
 	}
 	h := testPasskeyHandlerWithMocks(mockWA, &testhelpers.MockJWTService{}, &testhelpers.MockUserService{})

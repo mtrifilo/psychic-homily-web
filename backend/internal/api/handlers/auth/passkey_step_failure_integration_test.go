@@ -1,9 +1,7 @@
 package auth
 
 import (
-	"bytes"
 	"context"
-	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"time"
@@ -13,32 +11,21 @@ import (
 
 	"psychic-homily-backend/internal/api/handlers/shared/testhelpers"
 	autherrors "psychic-homily-backend/internal/errors"
-	"psychic-homily-backend/internal/legal"
-	"psychic-homily-backend/internal/logger"
 	authm "psychic-homily-backend/internal/models/auth"
 	usersvc "psychic-homily-backend/internal/services/user"
+	"psychic-homily-backend/internal/testlog"
 	"psychic-homily-backend/internal/testutil"
 	"psychic-homily-backend/internal/testutil/softauthn"
 )
-
-// signupBeginBody is a signup/begin request for email accepting the current
-// documents.
-func signupBeginBody(email string) map[string]any {
-	return map[string]any{
-		"email":            email,
-		"terms_accepted":   true,
-		"terms_version":    legal.CurrentTermsVersion,
-		"privacy_version":  legal.CurrentPrivacyVersion,
-		"age_confirmed":    true,
-		"min_age_attested": MinSignupAge,
-	}
-}
 
 // A begin step, or the credential list, that cannot read or write what it
 // needs answers 503 and hands out no challenge.
 func (s *AuthHandlerIntegrationSuite) TestPasskeyBeginAndListFailuresAnswerServiceUnavailable() {
 	jwt := &testhelpers.MockJWTService{}
-	overDB := func() *PasskeyHandler { return s.newRealPasskeyHandler() }
+	challengeStoreFails := func() *PasskeyHandler {
+		testutil.FailInserts(s.T(), s.deps.DB, "webauthn_challenges")
+		return s.newRealPasskeyHandler()
+	}
 	webauthnUnavailable := func() *PasskeyHandler {
 		return s.newPasskeyHandlerOver(newTestWebAuthnService(s.T(), testutil.UnavailableDB(s.T())))
 	}
@@ -54,28 +41,24 @@ func (s *AuthHandlerIntegrationSuite) TestPasskeyBeginAndListFailuresAnswerServi
 	}
 
 	cases := []struct {
-		name                 string
-		handler              func() *PasskeyHandler
-		failChallengeInserts bool
-		send                 func(humatest.TestAPI) *httptest.ResponseRecorder
+		name    string
+		handler func() *PasskeyHandler
+		send    func(humatest.TestAPI) *httptest.ResponseRecorder
 	}{
-		{"register begin cannot read existing credentials", webauthnUnavailable, false, registerBegin},
-		{"register begin cannot store its challenge", overDB, true, registerBegin},
-		{"credential list cannot be read", webauthnUnavailable, false, func(api humatest.TestAPI) *httptest.ResponseRecorder {
+		{"register begin cannot read existing credentials", webauthnUnavailable, registerBegin},
+		{"register begin cannot store its challenge", challengeStoreFails, registerBegin},
+		{"credential list cannot be read", webauthnUnavailable, func(api humatest.TestAPI) *httptest.ResponseRecorder {
 			return api.Get("/auth/passkey/credentials")
 		}},
-		{"credential delete cannot run", webauthnUnavailable, false, func(api humatest.TestAPI) *httptest.ResponseRecorder {
+		{"credential delete cannot run", webauthnUnavailable, func(api humatest.TestAPI) *httptest.ResponseRecorder {
 			return api.Delete("/auth/passkey/credentials/5")
 		}},
-		{"signup begin cannot check the address", usersUnavailable, false, signupBegin},
-		{"signup begin cannot reserve the account id", webauthnUnavailable, false, signupBegin},
-		{"signup begin cannot store its challenge", overDB, true, signupBegin},
+		{"signup begin cannot check the address", usersUnavailable, signupBegin},
+		{"signup begin cannot reserve the account id", webauthnUnavailable, signupBegin},
+		{"signup begin cannot store its challenge", challengeStoreFails, signupBegin},
 	}
 	for _, tc := range cases {
 		s.Run(tc.name, func() {
-			if tc.failChallengeInserts {
-				testutil.FailInserts(s.T(), s.deps.DB, "webauthn_challenges")
-			}
 			resp := tc.send(newPasskeyWireAPI(s.T(), tc.handler()))
 
 			s.requireServiceUnavailable(resp)
@@ -149,17 +132,18 @@ func (s *AuthHandlerIntegrationSuite) TestPasskeyRegisterFinishRefusesHeldCreden
 // logged as one for an address no account holds, not as a failed lookup.
 func (s *AuthHandlerIntegrationSuite) TestSendMagicLink_NULAddressIsUnknown() {
 	h := s.newAuthHandler(true)
-	var logs bytes.Buffer
-	ctx := logger.NewContext(context.Background(),
-		slog.New(slog.NewTextHandler(&logs, &slog.HandlerOptions{Level: slog.LevelDebug})))
-
 	input := &SendMagicLinkRequest{}
 	input.Body.Email = "no\x00body@test.com"
-	resp, err := h.SendMagicLinkHandler(ctx, input)
+
+	var resp *SendMagicLinkResponse
+	var err error
+	logs := testlog.Capture(s.T(), func() {
+		resp, err = h.SendMagicLinkHandler(testlog.Context(s.T(), context.Background()), input)
+	})
 
 	s.Require().NoError(err)
 	s.True(resp.Body.Success)
 	s.Empty(resp.Body.ErrorCode)
-	s.Contains(logs.String(), "magic_link_user_not_found")
-	s.NotContains(logs.String(), "magic_link_user_lookup_failed")
+	s.Contains(logs, "magic_link_user_not_found")
+	s.NotContains(logs, "magic_link_user_lookup_failed")
 }

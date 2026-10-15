@@ -50,10 +50,6 @@ func (a *Authenticator) UserHandle() []byte { return a.userHandle }
 // Register creates a credential for the given creation options and returns
 // the RegistrationResponseJSON a browser would send to the finish endpoint.
 func (a *Authenticator) Register(creation *protocol.CredentialCreation) ([]byte, error) {
-	if _, ok := creation.Response.User.ID.(protocol.URLEncodedBase64); !ok {
-		return nil, fmt.Errorf("softauthn: unsupported user.id type %T", creation.Response.User.ID)
-	}
-
 	var err error
 	a.key, err = ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {

@@ -348,6 +348,12 @@ func ErrInvalidCredentialResponse(internal error) *AuthError {
 	return NewAuthError(CodeValidationFailed, "Invalid credential response", internal)
 }
 
+// ErrCredentialNotHeld is the refusal for deleting a passkey credential the
+// account does not hold.
+func ErrCredentialNotHeld(internal error) *AuthError {
+	return NewAuthError(CodeValidationFailed, "Failed to delete credential", internal)
+}
+
 // ErrValidationFailed creates a validation error.
 func ErrValidationFailed(message string) *AuthError {
 	return NewAuthError(CodeValidationFailed, message, nil)

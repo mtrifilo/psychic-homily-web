@@ -121,10 +121,8 @@ func (r *FinishSignupResponse) setRefusal(code, message string) {
 	r.Body.Success, r.Body.Message, r.Body.ErrorCode = false, message, code
 }
 
-// refuseInvalidCredentialResponse answers a ceremony response that cannot be
-// parsed.
-func refuseInvalidCredentialResponse[R passkeyResponse](resp R, parseErr error) (R, error) {
-	refusal := autherrors.ErrInvalidCredentialResponse(parseErr)
+// refuseWith answers a refused step with refusal's code and user message.
+func refuseWith[R passkeyResponse](resp R, refusal *autherrors.AuthError) (R, error) {
 	return refusePasskey(resp, refusal.Code, refusal.UserMessage())
 }
 
@@ -274,7 +272,7 @@ func (h *PasskeyHandler) FinishRegisterHandler(ctx context.Context, input *Finis
 				"error_code", refusal.Code,
 				"error", err.Error(),
 			)
-			return refusePasskey(resp, refusal.Code, refusal.UserMessage())
+			return refuseWith(resp, refusal)
 		}
 		logger.AuthError(ctx, "passkey_challenge_consume_failed", err,
 			"user_id", contextUser.ID,
@@ -288,7 +286,7 @@ func (h *PasskeyHandler) FinishRegisterHandler(ctx context.Context, input *Finis
 			"user_id", contextUser.ID,
 			"error", err.Error(),
 		)
-		return refuseInvalidCredentialResponse(resp, err)
+		return refuseWith(resp, autherrors.ErrInvalidCredentialResponse(err))
 	}
 
 	credential, err := h.webauthnService.FinishRegistration(contextUser, session, parsedResponse, passkeyName(input.Body.DisplayName))
@@ -299,7 +297,7 @@ func (h *PasskeyHandler) FinishRegisterHandler(ctx context.Context, input *Finis
 				"error_code", refusal.Code,
 				"error", err.Error(),
 			)
-			return refusePasskey(resp, refusal.Code, refusal.UserMessage())
+			return refuseWith(resp, refusal)
 		}
 		logger.AuthError(ctx, "passkey_register_finish_failed", err,
 			"user_id", contextUser.ID,
@@ -456,7 +454,7 @@ func (h *PasskeyHandler) FinishLoginHandler(ctx context.Context, input *FinishLo
 				"error_code", refusal.Code,
 				"error", err.Error(),
 			)
-			return refusePasskey(resp, refusal.Code, refusal.UserMessage())
+			return refuseWith(resp, refusal)
 		}
 		logger.AuthError(ctx, "passkey_challenge_consume_failed", err)
 		return nil, autherrors.ErrServiceUnavailable("passkey_login_challenge", err)
@@ -467,7 +465,7 @@ func (h *PasskeyHandler) FinishLoginHandler(ctx context.Context, input *FinishLo
 		logger.AuthWarn(ctx, "passkey_response_parse_failed",
 			"error", err.Error(),
 		)
-		return refuseInvalidCredentialResponse(resp, err)
+		return refuseWith(resp, autherrors.ErrInvalidCredentialResponse(err))
 	}
 
 	// The service decides the sign-in, including whether the account exists
@@ -485,7 +483,7 @@ func (h *PasskeyHandler) FinishLoginHandler(ctx context.Context, input *FinishLo
 				"error_code", refusal.Code,
 				"error", err.Error(),
 			)
-			return refusePasskey(resp, refusal.Code, refusal.UserMessage())
+			return refuseWith(resp, refusal)
 		}
 		logger.AuthError(ctx, "passkey_login_finish_failed", err,
 			"user_id", userID,
@@ -588,7 +586,7 @@ func (h *PasskeyHandler) DeleteCredentialHandler(ctx context.Context, input *Del
 				"credential_id", input.CredentialID,
 				"error", err.Error(),
 			)
-			return refusePasskey(resp, refusal.Code, refusal.UserMessage())
+			return refuseWith(resp, refusal)
 		}
 		logger.AuthError(ctx, "passkey_delete_failed", err,
 			"user_id", contextUser.ID,
@@ -657,7 +655,7 @@ func (h *PasskeyHandler) BeginSignupHandler(ctx context.Context, input *BeginSig
 			"email_hash", logger.HashEmail(email),
 			"error_code", refusal.Code,
 		)
-		return refusePasskey(resp, refusal.Code, refusal.UserMessage())
+		return refuseWith(resp, refusal)
 	}
 	if errCode, errMsg, ok := validateSignupAgeConfirmation(input.Body.AgeConfirmed, input.Body.MinAgeAttested); !ok {
 		return refusePasskey(resp, errCode, errMsg)
@@ -762,7 +760,7 @@ func (h *PasskeyHandler) FinishSignupHandler(ctx context.Context, input *FinishS
 				"error_code", refusal.Code,
 				"error", err.Error(),
 			)
-			return refusePasskey(resp, refusal.Code, refusal.UserMessage())
+			return refuseWith(resp, refusal)
 		}
 		logger.AuthError(ctx, "passkey_challenge_consume_failed", err)
 		return nil, autherrors.ErrServiceUnavailable("passkey_signup_challenge", err)
@@ -776,7 +774,7 @@ func (h *PasskeyHandler) FinishSignupHandler(ctx context.Context, input *FinishS
 			"email_hash", logger.HashEmail(email),
 			"error_code", refusal.Code,
 		)
-		return refusePasskey(resp, refusal.Code, refusal.UserMessage())
+		return refuseWith(resp, refusal)
 	}
 	if errCode, errMsg, ok := validateSignupAgeConfirmation(!signup.Acceptance.AgeConfirmedAt.IsZero(), signup.Acceptance.MinAgeAttested); !ok {
 		logger.AuthWarn(ctx, "passkey_signup_finish_consent_refused",
@@ -804,7 +802,7 @@ func (h *PasskeyHandler) FinishSignupHandler(ctx context.Context, input *FinishS
 			"email_hash", logger.HashEmail(email),
 			"error", err.Error(),
 		)
-		return refuseInvalidCredentialResponse(resp, err)
+		return refuseWith(resp, autherrors.ErrInvalidCredentialResponse(err))
 	}
 
 	// Complete registration and create user
@@ -826,7 +824,7 @@ func (h *PasskeyHandler) FinishSignupHandler(ctx context.Context, input *FinishS
 				"error_code", refusal.Code,
 				"error", err.Error(),
 			)
-			return refusePasskey(resp, refusal.Code, refusal.UserMessage())
+			return refuseWith(resp, refusal)
 		}
 		logger.AuthError(ctx, "passkey_signup_finish_failed", err,
 			"email_hash", logger.HashEmail(email),

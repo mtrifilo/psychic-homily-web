@@ -345,8 +345,7 @@ func (s *WebAuthnService) DeleteCredential(userID uint, credentialID uint) error
 		return fmt.Errorf("failed to delete credential: %w", result.Error)
 	}
 	if result.RowsAffected == 0 {
-		return apperrors.NewAuthError(apperrors.CodeValidationFailed, "Failed to delete credential",
-			fmt.Errorf("credential %d not held by user %d", credentialID, userID))
+		return apperrors.ErrCredentialNotHeld(fmt.Errorf("credential %d not held by user %d", credentialID, userID))
 	}
 	return nil
 }
