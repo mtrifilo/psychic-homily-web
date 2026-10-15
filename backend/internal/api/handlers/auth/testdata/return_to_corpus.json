@@ -1,0 +1,360 @@
+{
+  "_comment": [
+    "Shared cross-language cases for the two returnTo sanitizers.",
+    "",
+    "THE CONTRACT: sanitizeOAuthReturnTo (Go, the Google sign-in round trip)",
+    "accepts a subset of what sanitizeReturnTo (TypeScript, the auth page)",
+    "accepts: any value the backend keeps, the frontend returns as the same",
+    "string, and where the two outputs differ the backend's is the fallback. So",
+    "a Google sign-in never lands somewhere the other sign-in methods would not.",
+    "",
+    "Go reads this file in oauth_return_to_test.go (package auth, beside this",
+    "testdata folder); TypeScript reads it in",
+    "frontend/app/auth/auth-redirect-utils.test.ts. Each asserts its own",
+    "sanitizer's exact output for every case and pins its own fallback constant",
+    "to `fallback`, so a rule changed on one side fails that side's suite and",
+    "names the input. The Go suite also checks every case against THE CONTRACT",
+    "and checks that `difference` is set exactly when the two outputs differ, so",
+    "an expectation that breaks the contract, or a difference nobody explained,",
+    "fails too. A rule this file carries no case for is a rule it cannot police,",
+    "so add cases with rules.",
+    "",
+    "fallback                    = what both sanitizers return for a refused",
+    "                              input, and also what they return for \"/\".",
+    "backendMaxLength            = the backend's length cap. The Go suite pins",
+    "                              oauthReturnToMaxLength to it and requires a",
+    "                              kept case of exactly this length and a",
+    "                              refused case one past it. The frontend has",
+    "                              no cap.",
+    "cases[].input               = the raw value each sanitizer is handed.",
+    "cases[].sanitizeOAuthReturnTo",
+    "cases[].sanitizeReturnTo    = each sanitizer's exact return value.",
+    "cases[].rule                = the rule the case exercises.",
+    "cases[].difference          = present exactly when the two outputs differ:",
+    "                              why the backend refuses a value the frontend",
+    "                              accepts or rewrites."
+  ],
+  "fallback": "/",
+  "backendMaxLength": 2048,
+  "cases": [
+    {
+      "name": "on-site path",
+      "input": "/shows",
+      "sanitizeOAuthReturnTo": "/shows",
+      "sanitizeReturnTo": "/shows",
+      "rule": "a same-origin path passes unchanged"
+    },
+    {
+      "name": "site root",
+      "input": "/",
+      "sanitizeOAuthReturnTo": "/",
+      "sanitizeReturnTo": "/",
+      "rule": "a same-origin path passes unchanged"
+    },
+    {
+      "name": "path with query",
+      "input": "/profile?tab=settings",
+      "sanitizeOAuthReturnTo": "/profile?tab=settings",
+      "sanitizeReturnTo": "/profile?tab=settings",
+      "rule": "a same-origin path passes unchanged"
+    },
+    {
+      "name": "path with query and fragment",
+      "input": "/profile?tab=settings#alerts",
+      "sanitizeOAuthReturnTo": "/profile?tab=settings#alerts",
+      "sanitizeReturnTo": "/profile?tab=settings#alerts",
+      "rule": "a same-origin path passes unchanged"
+    },
+    {
+      "name": "path with fragment",
+      "input": "/shows/slug#details",
+      "sanitizeOAuthReturnTo": "/shows/slug#details",
+      "sanitizeReturnTo": "/shows/slug#details",
+      "rule": "a same-origin path passes unchanged"
+    },
+    {
+      "name": "percent-encoded path",
+      "input": "/artists/bj%C3%B6rk",
+      "sanitizeOAuthReturnTo": "/artists/bj%C3%B6rk",
+      "sanitizeReturnTo": "/artists/bj%C3%B6rk",
+      "rule": "a same-origin path passes unchanged"
+    },
+    {
+      "name": "query carrying separators",
+      "input": "/shows?a=1;b=2,3",
+      "sanitizeOAuthReturnTo": "/shows?a=1;b=2,3",
+      "sanitizeReturnTo": "/shows?a=1;b=2,3",
+      "rule": "a same-origin path passes unchanged"
+    },
+    {
+      "name": "a path that only starts with auth",
+      "input": "/authors",
+      "sanitizeOAuthReturnTo": "/authors",
+      "sanitizeReturnTo": "/authors",
+      "rule": "not the sign-in page or anything under it"
+    },
+    {
+      "name": "backslash in the query",
+      "input": "/search?q=a\\b",
+      "sanitizeOAuthReturnTo": "/search?q=a\\b",
+      "sanitizeReturnTo": "/search?q=a\\b",
+      "rule": "the path rules do not apply to the query or fragment"
+    },
+    {
+      "name": "backslash in the fragment",
+      "input": "/shows#a\\b",
+      "sanitizeOAuthReturnTo": "/shows#a\\b",
+      "sanitizeReturnTo": "/shows#a\\b",
+      "rule": "the path rules do not apply to the query or fragment"
+    },
+    {
+      "name": "dot-dot in the query only",
+      "input": "/search?q=..",
+      "sanitizeOAuthReturnTo": "/search?q=..",
+      "sanitizeReturnTo": "/search?q=..",
+      "rule": "the path rules do not apply to the query or fragment"
+    },
+    {
+      "name": "encoded slash inside a segment",
+      "input": "/a/%2E%2E%2Fb",
+      "sanitizeOAuthReturnTo": "/a/%2E%2E%2Fb",
+      "sanitizeReturnTo": "/a/%2E%2E%2Fb",
+      "rule": "a segment is a dot segment only when it decodes to exactly . or .."
+    },
+    {
+      "name": "at the length limit",
+      "input": "/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "sanitizeOAuthReturnTo": "/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "sanitizeReturnTo": "/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "rule": "length cap of 2048 characters"
+    },
+    {
+      "name": "empty",
+      "input": "",
+      "sanitizeOAuthReturnTo": "/",
+      "sanitizeReturnTo": "/",
+      "rule": "only a path: a value that does not start with / is refused"
+    },
+    {
+      "name": "relative path",
+      "input": "shows",
+      "sanitizeOAuthReturnTo": "/",
+      "sanitizeReturnTo": "/",
+      "rule": "only a path: a value that does not start with / is refused"
+    },
+    {
+      "name": "absolute URL",
+      "input": "https://evil.example",
+      "sanitizeOAuthReturnTo": "/",
+      "sanitizeReturnTo": "/",
+      "rule": "only a same-origin path: a scheme or host is refused"
+    },
+    {
+      "name": "absolute URL with path",
+      "input": "https://evil.example/shows",
+      "sanitizeOAuthReturnTo": "/",
+      "sanitizeReturnTo": "/",
+      "rule": "only a same-origin path: a scheme or host is refused"
+    },
+    {
+      "name": "scheme only",
+      "input": "javascript:alert(1)",
+      "sanitizeOAuthReturnTo": "/",
+      "sanitizeReturnTo": "/",
+      "rule": "only a same-origin path: a scheme or host is refused"
+    },
+    {
+      "name": "protocol-relative",
+      "input": "//evil.example",
+      "sanitizeOAuthReturnTo": "/",
+      "sanitizeReturnTo": "/",
+      "rule": "no leading //: it is protocol-relative"
+    },
+    {
+      "name": "protocol-relative with path",
+      "input": "//evil.example/shows",
+      "sanitizeOAuthReturnTo": "/",
+      "sanitizeReturnTo": "/",
+      "rule": "no leading //: it is protocol-relative"
+    },
+    {
+      "name": "backslash after slash",
+      "input": "/\\evil.example",
+      "sanitizeOAuthReturnTo": "/",
+      "sanitizeReturnTo": "/",
+      "rule": "no backslash in the path: a browser reads it as /"
+    },
+    {
+      "name": "tab inside",
+      "input": "/\t/evil.example",
+      "sanitizeOAuthReturnTo": "/",
+      "sanitizeReturnTo": "/",
+      "rule": "printable ASCII only: a browser strips a tab, which here leaves a protocol-relative //host"
+    },
+    {
+      "name": "dot-dot segment",
+      "input": "/shows/../auth",
+      "sanitizeOAuthReturnTo": "/",
+      "sanitizeReturnTo": "/",
+      "rule": "no . or .. path segment, including one that resolves onto the sign-in page"
+    },
+    {
+      "name": "encoded dot-dot segment",
+      "input": "/shows/%2e%2e/auth",
+      "sanitizeOAuthReturnTo": "/",
+      "sanitizeReturnTo": "/",
+      "rule": "no . or .. path segment, including one that resolves onto the sign-in page"
+    },
+    {
+      "name": "dot-dot into protocol-relative",
+      "input": "/..//evil.example",
+      "sanitizeOAuthReturnTo": "/",
+      "sanitizeReturnTo": "/",
+      "rule": "no . or .. path segment, including one that resolves the path into a protocol-relative //host"
+    },
+    {
+      "name": "dot then dot-dot into protocol-relative",
+      "input": "/./..//evil.com",
+      "sanitizeOAuthReturnTo": "/",
+      "sanitizeReturnTo": "/",
+      "rule": "no . or .. path segment, including one that resolves the path into a protocol-relative //host"
+    },
+    {
+      "name": "dot-dot after a segment into protocol-relative",
+      "input": "/a/..//evil.com",
+      "sanitizeOAuthReturnTo": "/",
+      "sanitizeReturnTo": "/",
+      "rule": "no . or .. path segment, including one that resolves the path into a protocol-relative //host"
+    },
+    {
+      "name": "dot-dot into protocol-relative with path and query",
+      "input": "/..//evil.com/phish?a=1",
+      "sanitizeOAuthReturnTo": "/",
+      "sanitizeReturnTo": "/",
+      "rule": "no . or .. path segment, including one that resolves the path into a protocol-relative //host"
+    },
+    {
+      "name": "auth page",
+      "input": "/auth",
+      "sanitizeOAuthReturnTo": "/",
+      "sanitizeReturnTo": "/",
+      "rule": "not the sign-in page or anything under it"
+    },
+    {
+      "name": "auth page with query",
+      "input": "/auth?returnTo=%2Fshows",
+      "sanitizeOAuthReturnTo": "/",
+      "sanitizeReturnTo": "/",
+      "rule": "not the sign-in page or anything under it"
+    },
+    {
+      "name": "auth page with an unencoded returnTo",
+      "input": "/auth?returnTo=/library",
+      "sanitizeOAuthReturnTo": "/",
+      "sanitizeReturnTo": "/",
+      "rule": "not the sign-in page or anything under it"
+    },
+    {
+      "name": "under the auth page",
+      "input": "/auth/magic-link",
+      "sanitizeOAuthReturnTo": "/",
+      "sanitizeReturnTo": "/",
+      "rule": "not the sign-in page or anything under it"
+    },
+    {
+      "name": "under the auth page with query",
+      "input": "/auth/magic-link?token=abc",
+      "sanitizeOAuthReturnTo": "/",
+      "sanitizeReturnTo": "/",
+      "rule": "not the sign-in page or anything under it"
+    },
+    {
+      "name": "backslash later in the path",
+      "input": "/shows\\..\\x",
+      "sanitizeOAuthReturnTo": "/",
+      "sanitizeReturnTo": "/x",
+      "rule": "no backslash in the path: a browser reads it as /",
+      "difference": "the frontend's URL parser reads each backslash as a slash and resolves the dot-dot segment; the backend refuses a backslash rather than resolve it"
+    },
+    {
+      "name": "dot segment",
+      "input": "/./shows",
+      "sanitizeOAuthReturnTo": "/",
+      "sanitizeReturnTo": "/shows",
+      "rule": "no . or .. path segment",
+      "difference": "the frontend's URL parser resolves dot segments; the backend refuses them rather than resolve them"
+    },
+    {
+      "name": "dot-dot segment between on-site paths",
+      "input": "/shows/../library",
+      "sanitizeOAuthReturnTo": "/",
+      "sanitizeReturnTo": "/library",
+      "rule": "no . or .. path segment",
+      "difference": "the frontend's URL parser resolves dot segments; the backend refuses them rather than resolve them"
+    },
+    {
+      "name": "newline inside",
+      "input": "/shows\r\nSet-Cookie: x=1",
+      "sanitizeOAuthReturnTo": "/",
+      "sanitizeReturnTo": "/showsSet-Cookie:%20x=1",
+      "rule": "printable ASCII only",
+      "difference": "the frontend's URL parser strips CR and LF and percent-encodes the space; the backend refuses any whitespace or control byte"
+    },
+    {
+      "name": "space inside",
+      "input": "/shows here",
+      "sanitizeOAuthReturnTo": "/",
+      "sanitizeReturnTo": "/shows%20here",
+      "rule": "printable ASCII only",
+      "difference": "the frontend's URL parser percent-encodes the space; the backend refuses it"
+    },
+    {
+      "name": "leading space",
+      "input": " /shows",
+      "sanitizeOAuthReturnTo": "/",
+      "sanitizeReturnTo": "/shows",
+      "rule": "printable ASCII only",
+      "difference": "the frontend trims surrounding whitespace; the backend refuses it"
+    },
+    {
+      "name": "non-ASCII character",
+      "input": "/artists/björk",
+      "sanitizeOAuthReturnTo": "/",
+      "sanitizeReturnTo": "/artists/bj%C3%B6rk",
+      "rule": "printable ASCII only",
+      "difference": "the frontend's URL parser percent-encodes non-ASCII; the backend refuses it"
+    },
+    {
+      "name": "undecodable segment",
+      "input": "/shows/%zz",
+      "sanitizeOAuthReturnTo": "/",
+      "sanitizeReturnTo": "/shows/%zz",
+      "rule": "every percent escape in the path and fragment decodes",
+      "difference": "the frontend's URL parser passes a malformed percent escape through; Go's URL parser refuses it"
+    },
+    {
+      "name": "undecodable fragment",
+      "input": "/shows#50%",
+      "sanitizeOAuthReturnTo": "/",
+      "sanitizeReturnTo": "/shows#50%",
+      "rule": "every percent escape in the path and fragment decodes",
+      "difference": "the frontend's URL parser passes a malformed percent escape through; Go's URL parser refuses it"
+    },
+    {
+      "name": "encoded spelling of the auth page",
+      "input": "/%61uth",
+      "sanitizeOAuthReturnTo": "/",
+      "sanitizeReturnTo": "/%61uth",
+      "rule": "not the sign-in page or anything under it",
+      "difference": "the backend judges the sign-in rule on the decoded path, the frontend on the encoded one"
+    },
+    {
+      "name": "too long",
+      "input": "/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "sanitizeOAuthReturnTo": "/",
+      "sanitizeReturnTo": "/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "rule": "length cap of 2048 characters",
+      "difference": "the frontend has no length cap; the backend's keeps the encoded return-to cookie inside the browser's 4096-byte cookie limit"
+    }
+  ]
+}

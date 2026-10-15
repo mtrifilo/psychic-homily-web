@@ -1,40 +1,46 @@
+import { readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
+
 import { describe, expect, it } from 'vitest'
+
+import { FALLBACK_RETURN_TO } from '@/lib/auth-href'
+
 import { safeDecodeQueryParam, sanitizeReturnTo } from './auth-redirect-utils'
 
+// Read at runtime, not imported: an import would pull a backend file into the
+// program `next build` typechecks. The Go sanitizer's test reads the same file;
+// its _comment states the contract.
+const corpus = JSON.parse(
+  readFileSync(
+    resolve(
+      __dirname,
+      '../../../backend/internal/api/handlers/auth/testdata/return_to_corpus.json'
+    ),
+    'utf8'
+  )
+) as {
+  fallback: string
+  cases: { name: string; input: string; sanitizeReturnTo: string; rule: string }[]
+}
+
 describe('sanitizeReturnTo', () => {
-  it('returns fallback for empty values', () => {
-    expect(sanitizeReturnTo(undefined)).toBe('/')
-    expect(sanitizeReturnTo(null)).toBe('/')
-    expect(sanitizeReturnTo('')).toBe('/')
+  // Named explicitly: an empty array turns its `it.each` into zero tests.
+  it('reads cases from the shared corpus', () => {
+    expect(corpus.cases.length).toBeGreaterThan(0)
   })
 
-  it('allows safe internal routes', () => {
-    expect(sanitizeReturnTo('/library')).toBe('/library')
-    expect(sanitizeReturnTo('/library?tab=venues')).toBe(
-      '/library?tab=venues'
-    )
-    expect(sanitizeReturnTo('/shows/slug#details')).toBe('/shows/slug#details')
+  it('falls back to the path the backend falls back to', () => {
+    expect(FALLBACK_RETURN_TO).toBe(corpus.fallback)
   })
 
-  it('blocks external and protocol-relative values', () => {
-    expect(sanitizeReturnTo('https://example.com/evil')).toBe('/')
-    expect(sanitizeReturnTo('javascript:alert(1)')).toBe('/')
-    expect(sanitizeReturnTo('//evil.com/path')).toBe('/')
+  it.each(corpus.cases)('$name', ({ input, sanitizeReturnTo: want, rule }) => {
+    expect(sanitizeReturnTo(input), rule).toBe(want)
   })
 
-  it('blocks auth-loop destinations', () => {
-    expect(sanitizeReturnTo('/auth')).toBe('/')
-    expect(sanitizeReturnTo('/auth?returnTo=/library')).toBe('/')
-    expect(sanitizeReturnTo('/auth/magic-link?token=abc')).toBe('/')
-  })
-  it('refuses a destination that normalizes into a protocol-relative URL', () => {
-    // The raw `//` check cannot see this one: URL normalization collapses the
-    // `..` segment, so the parsed origin is still ours while the pathname
-    // becomes `//evil.com`, which every sink navigates cross-origin.
-    expect(sanitizeReturnTo('/..//evil.com')).toBe('/')
-    expect(sanitizeReturnTo('/./..//evil.com')).toBe('/')
-    expect(sanitizeReturnTo('/a/..//evil.com')).toBe('/')
-    expect(sanitizeReturnTo('/..//evil.com/phish?a=1')).toBe('/')
+  // The Go sanitizer takes a string, so the shared corpus has no case for these.
+  it('returns fallback for null and undefined', () => {
+    expect(sanitizeReturnTo(undefined)).toBe(FALLBACK_RETURN_TO)
+    expect(sanitizeReturnTo(null)).toBe(FALLBACK_RETURN_TO)
   })
 })
 
