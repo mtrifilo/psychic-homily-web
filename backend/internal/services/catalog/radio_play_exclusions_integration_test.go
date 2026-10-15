@@ -117,15 +117,16 @@ func (s *RadioPlayExclusionsIntegrationSuite) addPlays(station, artist, title, l
 	s.Require().NoError(s.db.CreateInBatches(plays, 200).Error)
 }
 
-// addAlbumPlay inserts one play carrying an album title on the station.
-func (s *RadioPlayExclusionsIntegrationSuite) addAlbumPlay(station, artist, title, album string) {
+// addAlbumPlay inserts one play carrying a title, an album and a label on the
+// station.
+func (s *RadioPlayExclusionsIntegrationSuite) addAlbumPlay(station, artist, title, album, label string) {
 	s.Require().NoError(s.db.Create(&catalogm.RadioPlay{
 		EpisodeID:      s.episodeBySlug[station],
 		ArtistName:     artist,
 		TrackTitle:     stringPtr(title),
 		AlbumTitle:     stringPtr(album),
-		LabelName:      stringPtr("Sub Pop"),
-		ProviderPlayID: stringPtr(fmt.Sprintf("%s|%s|%s|%s", station, artist, title, album)),
+		LabelName:      stringPtr(label),
+		ProviderPlayID: stringPtr(fmt.Sprintf("%s|%s|%s|%s|%s", station, artist, title, album, label)),
 	}).Error)
 }
 
@@ -643,10 +644,10 @@ func (s *RadioPlayExclusionsIntegrationSuite) TestSeededAlbumPlaceholdersExclude
 		"T Ordinary": "Blue",
 	}
 	for artist, album := range placeholders {
-		s.addAlbumPlay("t-kexp", artist, "Song", album)
+		s.addAlbumPlay("t-kexp", artist, "Song", album, "Sub Pop")
 	}
 	for artist, album := range kept {
-		s.addAlbumPlay("t-wfmu", artist, "Song", album)
+		s.addAlbumPlay("t-wfmu", artist, "Song", album, "Sub Pop")
 	}
 	for _, v := range s.verdicts() {
 		_, isPlaceholder := placeholders[v.ArtistRaw]
@@ -658,9 +659,9 @@ func (s *RadioPlayExclusionsIntegrationSuite) TestSeededAlbumPlaceholdersExclude
 
 // A rule tests only the field its match kind names.
 func (s *RadioPlayExclusionsIntegrationSuite) TestAlbumAndTitleRulesStayOnTheirField() {
-	s.addAlbumPlay("t-kexp", "T Title Single", "Single", "Sub Pop Singles Club")
-	s.addAlbumPlay("t-kexp", "T Album Unknown Track", "Rezzett", "Unknown Track")
-	s.addAlbumPlay("t-kexp", "T Title Unknown Track", "Unknown Track", "Rezzett")
+	s.addAlbumPlay("t-kexp", "T Title Single", "Single", "Sub Pop Singles Club", "Sub Pop")
+	s.addAlbumPlay("t-kexp", "T Album Unknown Track", "Rezzett", "Unknown Track", "Sub Pop")
+	s.addAlbumPlay("t-kexp", "T Title Unknown Track", "Unknown Track", "Rezzett", "Sub Pop")
 
 	titleSingle := s.verdictFor("T Title Single")
 	s.False(titleSingle.ExTrack, "the album rule 'single' does not test the title")
@@ -682,8 +683,8 @@ func (s *RadioPlayExclusionsIntegrationSuite) TestStationScopedAlbumRule() {
 		MatchKind: "album_title", PatternType: "exact", Pattern: "kexp sessions", Category: "placeholder",
 		StationID: &kexp, Reason: "test",
 	}).Error)
-	s.addAlbumPlay("t-kexp", "T On KEXP", "Song", "KEXP Sessions")
-	s.addAlbumPlay("t-nts", "T On NTS", "Song", "KEXP Sessions")
+	s.addAlbumPlay("t-kexp", "T On KEXP", "Song", "KEXP Sessions", "Sub Pop")
+	s.addAlbumPlay("t-nts", "T On NTS", "Song", "KEXP Sessions", "Sub Pop")
 
 	onKEXP := s.verdictFor("T On KEXP")
 	s.True(onKEXP.ExAlbum)
@@ -697,8 +698,8 @@ func (s *RadioPlayExclusionsIntegrationSuite) TestStationScopedAlbumRule() {
 // the whole play from that dimension too; the seed holds no such album or
 // label row, so this covers the predicate once one is added.
 func (s *RadioPlayExclusionsIntegrationSuite) TestTalkRowsOnAlbumAndLabelExcludeWholePlay() {
-	s.addAlbumPlay("t-kexp", "T Ident Album", "Top of the Hour", "Station ID 2026")
-	s.addAlbumPlay("t-kexp", "T Plain", "Top of the Hour", "Real Album")
+	s.addAlbumPlay("t-kexp", "T Ident Album", "Top of the Hour", "Station ID 2026", "Sub Pop")
+	s.addAlbumPlay("t-kexp", "T Plain", "Top of the Hour", "Real Album", "Sub Pop")
 	before := s.verdictFor("T Ident Album")
 	s.False(before.ExArtist || before.ExTrack || before.ExLabel || before.ExAlbum)
 
@@ -708,10 +709,7 @@ func (s *RadioPlayExclusionsIntegrationSuite) TestTalkRowsOnAlbumAndLabelExclude
 	s.Require().NoError(s.db.Create(&catalogm.RadioPlayExclusion{
 		MatchKind: "label_name", PatternType: "exact", Pattern: "kexp promo", Category: "talk", Reason: "test",
 	}).Error)
-	s.Require().NoError(s.db.Create(&catalogm.RadioPlay{
-		EpisodeID: s.episodeBySlug["t-nts"], ArtistName: "T Promo Label", TrackTitle: stringPtr("Spot"),
-		AlbumTitle: stringPtr("Real Album"), LabelName: stringPtr("KEXP Promo"), ProviderPlayID: stringPtr("t-promo"),
-	}).Error)
+	s.addAlbumPlay("t-nts", "T Promo Label", "Spot", "Real Album", "KEXP Promo")
 
 	for _, artist := range []string{"T Ident Album", "T Promo Label"} {
 		v := s.verdictFor(artist)

@@ -298,17 +298,14 @@ GROUP BY c.%[2]s, st.id, st.name, st.slug`, radioEvidenceStation, mustSQLIdentif
 // evidence query's counted CTE, per value of its owner column (the candidate's
 // identity, which the rows carry under the same name): names group by
 // radio_normalize_name, show their most common trimmed spelling, and only rows
-// where onlyWhere (a boolean column of counted, or "" for every row) holds
-// contribute. Panics on a kind or owner that is not a plain identifier or a
-// column that is not an identifier.
+// where onlyWhere (a boolean column of counted) holds contribute. Panics on a
+// kind or owner that is not a plain identifier or a column that is not an
+// identifier.
 func radioCandidateEvidenceNamesSQL(kind, owner, column, onlyWhere string) string {
 	kind = mustSQLIdentifier(kind)
 	own := mustSQLIdentifier(owner)
 	col := mustSQLColumnRef(column)
-	filter := "true"
-	if onlyWhere != "" {
-		filter = mustSQLColumnRef(onlyWhere)
-	}
+	filter := mustSQLColumnRef(onlyWhere)
 	return fmt.Sprintf(`
 SELECT '%[1]s' AS kind, %[5]s, 0 AS ref_id, name, '' AS slug,
        play_count::int AS play_count, distinct_count::int AS distinct_count, rn

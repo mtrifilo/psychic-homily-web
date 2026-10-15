@@ -32,26 +32,25 @@ func mustExclusions(t *testing.T, rows ...catalogm.RadioPlayExclusion) *RadioPla
 	return e
 }
 
+// normValue is a normalized field value as RadioNormalizedPlay carries it: ""
+// stands for a NULL or blank raw value.
+func normValue(v string) *string {
+	if v == "" {
+		return nil
+	}
+	return &v
+}
+
 // normPlay builds a RadioNormalizedPlay from already-normalized values; an
 // empty argument stands for a NULL or blank raw value.
 func normPlay(station uint, artist, title, label string) RadioNormalizedPlay {
-	opt := func(v string) *string {
-		if v == "" {
-			return nil
-		}
-		return &v
-	}
-	return RadioNormalizedPlay{StationID: station, ArtistName: opt(artist), TrackTitle: opt(title), LabelName: opt(label)}
+	return RadioNormalizedPlay{StationID: station, ArtistName: normValue(artist), TrackTitle: normValue(title), LabelName: normValue(label)}
 }
 
 // withAlbum returns the play with its normalized album title set; an empty
 // argument stands for a NULL or blank raw value.
 func withAlbum(p RadioNormalizedPlay, album string) RadioNormalizedPlay {
-	if album == "" {
-		p.AlbumTitle = nil
-	} else {
-		p.AlbumTitle = &album
-	}
+	p.AlbumTitle = normValue(album)
 	return p
 }
 
