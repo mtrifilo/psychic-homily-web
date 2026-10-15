@@ -926,33 +926,36 @@ func (s *UserService) GetLockTimeRemaining(user *authm.User) time.Duration {
 	return remaining
 }
 
-// IncrementFailedAttempts increments the counter and locks if threshold reached
+// IncrementFailedAttempts increments the counter and locks the account for
+// AccountLockDuration when the incremented count reaches MaxFailedLoginAttempts.
+//
+// It is one UPDATE of the two lockout columns: Postgres evaluates every SET
+// expression against the row it locked, so concurrent failures are all counted
+// and no other column (is_active, deleted_at) is written.
 func (s *UserService) IncrementFailedAttempts(userID uint) error {
 	if s.db == nil {
 		return fmt.Errorf("database not initialized")
 	}
 
-	// Use a transaction to atomically increment and check
-	return s.db.Transaction(func(tx *gorm.DB) error {
-		var user authm.User
-		if err := tx.First(&user, userID).Error; err != nil {
-			return fmt.Errorf("failed to get user: %w", err)
-		}
+	lockUntil := time.Now().Add(AccountLockDuration)
+	result := s.db.Model(&authm.User{}).
+		Where("id = ?", userID).
+		Updates(map[string]interface{}{
+			"failed_login_attempts": gorm.Expr("failed_login_attempts + 1"),
+			"locked_until": gorm.Expr(
+				"CASE WHEN failed_login_attempts + 1 >= ? THEN ? ELSE locked_until END",
+				MaxFailedLoginAttempts, lockUntil,
+			),
+		})
 
-		user.FailedLoginAttempts++
+	if result.Error != nil {
+		return fmt.Errorf("failed to increment failed attempts: %w", result.Error)
+	}
+	if result.RowsAffected == 0 {
+		return fmt.Errorf("failed to increment failed attempts: %w", gorm.ErrRecordNotFound)
+	}
 
-		// Lock account if threshold reached
-		if user.FailedLoginAttempts >= MaxFailedLoginAttempts {
-			lockUntil := time.Now().Add(AccountLockDuration)
-			user.LockedUntil = &lockUntil
-		}
-
-		if err := tx.Save(&user).Error; err != nil {
-			return fmt.Errorf("failed to update user: %w", err)
-		}
-
-		return nil
-	})
+	return nil
 }
 
 // ResetFailedAttempts clears the counter and unlocks the account
