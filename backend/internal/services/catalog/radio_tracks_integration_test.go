@@ -188,6 +188,7 @@ func (s *RadioTracksIntegrationSuite) TestTitleKeyFixtures() {
 		{"50 ft Queenie", "50 ft queenie"},
 		{"Ten  Ft Tall", "ten ft tall"},
 		{"Six Ft Under ft. Someone", "six ft under"},
+		{"Kitten ft Someone", "kitten"},
 		// A trailing bracket group is stripped only when it names a version,
 		// format, release status or credit. Any other group is a subtitle or a
 		// part and is kept; the normalizer's edge trim then drops its closing
@@ -209,7 +210,18 @@ func (s *RadioTracksIntegrationSuite) TestTitleKeyFixtures() {
 		{"Klangstudie I (1952)", "klangstudie i"},
 		{"Song (Take 1)", "song"},
 		{"Song (Second Take)", "song"},
+		{"Song (Beatles Cover)", "song"},
+		{"Song (Single)", "song"},
+		{"Song (Radio)", "song"},
+		{"Song (Original)", "song"},
+		{"Song (Album)", "song"},
+		{"Song (A Cappella)", "song"},
 		{"Take It (Take It or Leave It)", "take it (take it or leave it"},
+		// Marker words count only as a whole first or last word, and a year
+		// only as 19xx or 20xx.
+		{"Song (Dubstep Ballad)", "song (dubstep ballad"},
+		{"Song (The Live One)", "song (the live one"},
+		{"Song (1877)", "song (1877"},
 		{"Song (feat. Someone) [Remastered 2011]", "song"},
 		{"Song {Demo}", "song"},
 		{"Song - Radio Edit", "song"},
@@ -220,6 +232,8 @@ func (s *RadioTracksIntegrationSuite) TestTitleKeyFixtures() {
 		// group is trailing once the dash tail is gone.
 		{"Song (Demo) - Live", "song"},
 		{"Song [Clean] - Radio Edit", "song"},
+		// Step 5 keeps a non-marker group that the dash tail exposes.
+		{"Istanbul (Not Constantinople) - Live", "istanbul (not constantinople"},
 		// Stripping empties these, so the unstripped normalized title is kept.
 		{"(Live)", "live"},
 		{"[Demo]", "demo"},
@@ -233,6 +247,9 @@ func (s *RadioTracksIntegrationSuite) TestTitleKeyFixtures() {
 		// Known over-strips of the chosen regexes, pinned so a change is seen.
 		{"A Feat of Strength", "a"},
 		{"2 Ft. O' Buttcrack", "2"},
+		// Known under-strip: a bare "ft" credit right after a number is read
+		// as the unit.
+		{"Song 2 ft Artist", "song 2 ft artist"},
 		{"Hung Up On My Baby - Part 1 (Live) Extended", "hung up on my baby"},
 		// Normalization after stripping: accents, case, edge punctuation,
 		// interior whitespace.

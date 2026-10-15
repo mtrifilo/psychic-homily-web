@@ -1,6 +1,6 @@
 -- Restores the radio_track_title_key body of 20261011200000_create_radio_tracks
 -- (any trailing bracket group stripped, bare "ft" always a credit) and drops
--- the marker-group helpers it no longer calls.
+-- the marker-group helpers, which that body does not call.
 CREATE OR REPLACE FUNCTION public.radio_track_title_key(text)
   RETURNS text
   AS $$
