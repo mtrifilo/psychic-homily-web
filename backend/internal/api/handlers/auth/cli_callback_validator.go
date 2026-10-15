@@ -12,6 +12,12 @@ import (
 // the rejected value back to the caller.
 var errInvalidCLICallback = errors.New("cli_callback must be a loopback (localhost) http URL")
 
+// cliCallbackMaxLength bounds a cli_callback, both as given and in the
+// canonical form validateCLICallback returns and the store holds. Bounding the
+// canonical form too means a value accepted at the start is never refused by
+// the callback's re-validation of what was stored.
+const cliCallbackMaxLength = 2048
+
 // allowedCLICallbackHosts is the set of hostnames the CLI OAuth callback may
 // target. The CLI runs a transient HTTP listener on the user's own machine, so
 // the only legitimate destinations are loopback addresses.
@@ -38,8 +44,12 @@ var allowedCLICallbackHosts = map[string]struct{}{
 // Rejected by construction: non-http schemes (javascript:, data:, file://,
 // https), non-loopback hosts (evil.com), unicode/punycode-spoofed loopback,
 // loopback as a credential or subdomain (http://127.0.0.1@evil.com,
-// http://localhost.evil.com), and empty/garbage input.
+// http://localhost.evil.com), empty/garbage input, and anything longer than
+// cliCallbackMaxLength.
 func validateCLICallback(raw string) (string, error) {
+	if len(raw) > cliCallbackMaxLength {
+		return "", errInvalidCLICallback
+	}
 	raw = strings.TrimSpace(raw)
 	if raw == "" {
 		return "", errInvalidCLICallback
@@ -85,7 +95,11 @@ func validateCLICallback(raw string) (string, error) {
 		}
 	}
 
-	return u.String(), nil
+	canonical := u.String()
+	if len(canonical) > cliCallbackMaxLength {
+		return "", errInvalidCLICallback
+	}
+	return canonical, nil
 }
 
 // isASCII reports whether s contains only ASCII bytes. Used to reject
