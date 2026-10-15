@@ -239,6 +239,7 @@ describe('PasskeyRegisterButton', () => {
       expect(reported).toBeInstanceOf(Error)
       expect(reported).not.toBeInstanceOf(AuthError)
       expect((reported as Error).message).toBe('Failed to start passkey registration')
+      expect(vi.mocked(startRegistration)).not.toHaveBeenCalled()
     }
   )
 
