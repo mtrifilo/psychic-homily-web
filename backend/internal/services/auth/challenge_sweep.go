@@ -49,8 +49,8 @@ func NewChallengeSweep(database *gorm.DB) *ChallengeSweep {
 			return deleteExpiredChallenges(ctx, database)
 		},
 		interval: defaultChallengeSweepInterval,
-		stopCh:     make(chan struct{}),
-		logger:     slog.Default(),
+		stopCh:   make(chan struct{}),
+		logger:   slog.Default(),
 	}
 }
 
