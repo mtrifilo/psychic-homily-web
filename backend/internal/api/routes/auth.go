@@ -289,30 +289,37 @@ func setupPasskeyRoutes(rc RouteContext) {
 
 	passkeyHandler := authh.NewPasskeyHandler(rc.SC.WebAuthn, rc.SC.JWT, rc.SC.User, rc.SC.Email, rc.Cfg)
 
-	// Passkey gets its own budget, more lenient than the auth one because a
-	// WebAuthn flow is several requests.
-	passkeyRateLimiter := authScopedRateLimiter(middleware.LimiterPasskey, middleware.PasskeyRequestsPerMinute)
-
-	// Rate-limited public passkey endpoints.
-	//
-	// PSY-1598: same move as the auth group above, same two properties to preserve —
-	// passkeyRateLimiter is passed as the existing closure so its counter is shared
-	// across all four operations exactly as the chi group shared it, and it may be a
-	// no-op under DISABLE_AUTH_RATE_LIMITS.
+	// Passkey sign-in and the sign-up finish share one per-IP budget, more
+	// lenient than the auth one because a WebAuthn flow is several requests.
+	// One group means one counter across its operations, and the limiter may be
+	// a no-op under DISABLE_AUTH_RATE_LIMITS.
 	passkeyGroup := huma.NewGroup(rc.API, "")
-	passkeyGroup.UseMiddleware(humaFromHTTP(passkeyRateLimiter))
+	passkeyGroup.UseMiddleware(humaFromHTTP(authScopedRateLimiter(middleware.LimiterPasskey, middleware.PasskeyRequestsPerMinute)))
 	passkeyGroup.UseMiddleware(middleware.HumaRequestIDMiddleware)
 
 	// Public passkey login endpoints (no auth required)
 	huma.Post(passkeyGroup, "/auth/passkey/login/begin", passkeyHandler.BeginLoginHandler)
 	huma.Post(passkeyGroup, "/auth/passkey/login/finish", passkeyHandler.FinishLoginHandler)
 
-	// Public passkey signup endpoints (passkey-first registration, no auth required)
-	huma.Post(passkeyGroup, "/auth/passkey/signup/begin", passkeyHandler.BeginSignupHandler)
+	// Passkey-first sign-up (no auth required). Begin reserves a users.id from
+	// the sequence on every call, so it meters on a tighter per-IP budget of
+	// its own. Finish stays on passkeyGroup: by the time it is sent the
+	// authenticator has written the credential, and a begin flood from the same
+	// address must not be able to refuse it.
+	signupBeginGroup := huma.NewGroup(rc.API, "")
+	signupBeginGroup.UseMiddleware(humaFromHTTP(authScopedRateLimiter(middleware.LimiterPasskeySignupBegin, middleware.PasskeySignupBeginRequestsPerMinute)))
+	signupBeginGroup.UseMiddleware(middleware.HumaRequestIDMiddleware)
+	huma.Post(signupBeginGroup, "/auth/passkey/signup/begin", passkeyHandler.BeginSignupHandler)
 	huma.Post(passkeyGroup, "/auth/passkey/signup/finish", passkeyHandler.FinishSignupHandler)
 
-	// Protected passkey registration endpoints (user must be logged in)
-	huma.Post(rc.Protected, "/auth/passkey/register/begin", passkeyHandler.BeginRegisterHandler)
+	// Adding a passkey to a signed-in account. Begin meters on a per-IP budget
+	// of its own; the group hangs off rc.Protected, so HumaJWTMiddleware runs
+	// first and a caller with no session is refused before reaching the
+	// counter. Finish carries no per-route limiter, for the same reason the
+	// sign-up finish is kept off a begin budget.
+	registerBeginGroup := huma.NewGroup(rc.Protected, "")
+	registerBeginGroup.UseMiddleware(humaFromHTTP(authScopedRateLimiter(middleware.LimiterPasskeyRegisterBegin, middleware.PasskeyRegisterBeginRequestsPerMinute)))
+	huma.Post(registerBeginGroup, "/auth/passkey/register/begin", passkeyHandler.BeginRegisterHandler)
 	huma.Post(rc.Protected, "/auth/passkey/register/finish", passkeyHandler.FinishRegisterHandler)
 
 	// Protected passkey management endpoints
