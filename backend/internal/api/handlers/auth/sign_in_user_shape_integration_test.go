@@ -42,9 +42,11 @@ func (s *AuthHandlerIntegrationSuite) TestSignInPathsReturnTheUserInOneShape() {
 		UserID: user.ID, Provider: "google", ProviderUserID: "one-shape-subject",
 	}).Error)
 
-	webauthnService := newTestWebAuthnService(s.T(), s.deps.DB)
-	device := registerSoftPasskey(s.T(), webauthnService, user)
-	passkeyAPI := newPasskeyWireAPI(s.T(), s.newPasskeyHandlerOver(webauthnService))
+	passkeyHandler := s.newRealPasskeyHandler()
+	device := softauthn.New(wireOrigin)
+	registered := s.registerPasskey(passkeyHandler, user, device.Register)
+	s.Require().True(registered.Body.Success, registered.Body.Message)
+	passkeyAPI := newPasskeyWireAPI(s.T(), passkeyHandler)
 	passwordAPI := newWireAPI(s.T(), s.newAuthHandler(false))
 
 	reference := s.signedInUser(passwordAPI.Post("/auth/login", map[string]any{"email": email, "password": password}))
