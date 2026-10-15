@@ -139,7 +139,7 @@ func TestAssertRequiredColumnTypes(t *testing.T) {
 		types["webauthn_credentials.sign_count"] = columnType{DataType: "integer", UDTName: "int4"}
 		err := assertRequiredColumnTypes(&fakeColumnTypeReader{types: types})
 		require.EqualError(t, err,
-			"required schema columns have the wrong type: webauthn_credentials.sign_count is integer, "+
+			"required schema column types do not match: webauthn_credentials.sign_count is integer, "+
 				"expected bigint (type change recorded but DDL absent?); refusing to boot")
 	})
 

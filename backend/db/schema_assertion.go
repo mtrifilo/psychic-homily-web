@@ -180,7 +180,7 @@ func assertRequiredColumnTypes(reader columnTypeReader) error {
 	}
 	if len(wrong) > 0 {
 		return fmt.Errorf(
-			"required schema columns have the wrong type: %s (type change recorded but DDL absent?); refusing to boot",
+			"required schema column types do not match: %s (type change recorded but DDL absent?); refusing to boot",
 			strings.Join(wrong, "; "),
 		)
 	}

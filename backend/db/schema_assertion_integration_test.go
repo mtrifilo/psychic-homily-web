@@ -75,7 +75,7 @@ func TestAssertRequiredSchema_columnTypeDrift(t *testing.T) {
 
 	err = AssertRequiredSchema(td.DB)
 	require.EqualError(t, err,
-		"required schema columns have the wrong type: webauthn_credentials.sign_count is integer, "+
+		"required schema column types do not match: webauthn_credentials.sign_count is integer, "+
 			"expected bigint (type change recorded but DDL absent?); refusing to boot")
 
 	// The type read is also what reports a typed column that is absent.
