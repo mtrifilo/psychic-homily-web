@@ -103,7 +103,7 @@ type ServiceContainer struct {
 	AppleAuth              *auth.AppleAuthService
 	Extraction             *pipeline.ExtractionService
 	WebAuthn               *auth.WebAuthnService // nil if init fails (passkeys optional)
-	ChallengeSweep         *auth.ChallengeSweep  // needs only the database, so non-nil even when WebAuthn is nil
+	ChallengeSweep         *auth.ChallengeSweep  // non-nil even when WebAuthn is nil
 	Cleanup                *adminsvc.CleanupService
 	DataSync               *adminsvc.DataSyncService
 	Discovery              *pipeline.DiscoveryService

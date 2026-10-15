@@ -23,7 +23,8 @@ func (f *failingChallengeCleaner) CleanupExpiredChallenges(context.Context) (int
 // schedule.
 func TestChallengeSweepCycle_FailureDoesNotPanic(t *testing.T) {
 	cleaner := &failingChallengeCleaner{}
-	sweep := newChallengeSweep(cleaner)
+	sweep := NewChallengeSweep(nil)
+	sweep.deleteExpired = cleaner.CleanupExpiredChallenges
 	assert.NotPanics(t, func() { sweep.runCycle(context.Background()) })
 	assert.Equal(t, 1, cleaner.calls)
 }
