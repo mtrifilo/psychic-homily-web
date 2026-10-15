@@ -88,6 +88,11 @@ func (s *JWTIntegrationSuite) createInactiveUser(email string) *authm.User {
 	return user
 }
 
+func (s *JWTIntegrationSuite) softDelete(user *authm.User) {
+	s.T().Helper()
+	s.Require().NoError(usersvc.NewUserService(s.db).SoftDeleteAccount(user.ID, nil))
+}
+
 func (s *JWTIntegrationSuite) createAdminUser(email string) *authm.User {
 	s.T().Helper()
 	user := s.createActiveUser(email)
@@ -205,13 +210,12 @@ func (s *JWTIntegrationSuite) TestValidateToken_UserDeactivatedAfterTokenCreatio
 	s.Contains(err.Error(), "TOKEN_INVALID")
 }
 
-// deleted_at alone ends a session, without is_active having changed.
-func (s *JWTIntegrationSuite) TestValidateToken_DeletedAtSetAfterTokenCreation() {
-	user := s.createActiveUser("will-gain-deleted-at@example.com")
+func (s *JWTIntegrationSuite) TestValidateToken_SoftDeletedAfterTokenCreation() {
+	user := s.createActiveUser("will-soft-delete@example.com")
 	token, err := s.svc.CreateToken(user)
 	s.Require().NoError(err)
 
-	s.Require().NoError(s.db.Model(user).Update("deleted_at", time.Now()).Error)
+	s.softDelete(user)
 
 	validated, err := s.svc.ValidateToken(token)
 	s.Nil(validated)
@@ -497,15 +501,15 @@ func (s *JWTIntegrationSuite) TestRefreshFlow_InactiveUser() {
 	s.Contains(err.Error(), "TOKEN_INVALID")
 }
 
-// The refresh path's lenient validation applies the same account rule, so
-// deleted_at alone refuses a renewal too.
-func (s *JWTIntegrationSuite) TestRefreshFlow_DeletedAtSet() {
-	user := s.createActiveUser("refresh-deleted-at@example.com")
+// The refresh path's lenient validation applies the same account rule, so a
+// soft-deleted account cannot renew either.
+func (s *JWTIntegrationSuite) TestRefreshFlow_SoftDeleted() {
+	user := s.createActiveUser("refresh-soft-deleted@example.com")
 
 	token, err := s.svc.CreateToken(user)
 	s.Require().NoError(err)
 
-	s.Require().NoError(s.db.Model(user).Update("deleted_at", time.Now()).Error)
+	s.softDelete(user)
 
 	refreshed, err := s.renewLikeTheRefreshEndpoint(token)
 	s.Empty(refreshed)

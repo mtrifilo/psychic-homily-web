@@ -166,19 +166,21 @@ func main() {
 	fmt.Println(resp.Token)
 }
 
-// ensureAccountUsable rejects accounts that are deactivated or soft-deleted.
-// User.DeletedAt is a plain *time.Time rather than gorm.DeletedAt, so GORM does
-// NOT filter soft-deleted rows automatically — the check has to be explicit.
+// ensureAccountUsable refuses exactly the accounts User.CanSignIn refuses, the
+// rule the API-token validator applies to a token's owner. User.DeletedAt is a
+// plain *time.Time rather than gorm.DeletedAt, so GORM does NOT filter
+// soft-deleted rows out of the lookup; this check is what refuses them. The
+// fields only choose the message.
 func ensureAccountUsable(user *authm.User) error {
+	if user.CanSignIn() {
+		return nil
+	}
 	if user.DeletedAt != nil {
 		return fmt.Errorf("user %d (%s) is soft-deleted; refusing to mint a token that would go live if the account is restored",
 			user.ID, deref(user.Email))
 	}
-	if !user.IsActive {
-		return fmt.Errorf("user %d (%s) is not active; refusing to mint a token for a deactivated account",
-			user.ID, deref(user.Email))
-	}
-	return nil
+	return fmt.Errorf("user %d (%s) is not active; refusing to mint a token for a deactivated account",
+		user.ID, deref(user.Email))
 }
 
 // isLocalDB reports whether the database URL points at a loopback host. Only
