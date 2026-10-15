@@ -3,6 +3,8 @@ package engagement
 import (
 	"encoding/json"
 	"fmt"
+	"os"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -155,6 +157,55 @@ func TestCollectionDigestService_Construction_EnvOverride(t *testing.T) {
 	cfg.JWT.SecretKey = "test"
 	svc := NewCollectionDigestService(&gorm.DB{}, nil, cfg)
 	assert.Equal(t, 6*time.Hour, svc.interval, "env override should be applied")
+}
+
+func TestDeriveBackendURL(t *testing.T) {
+	tests := []struct {
+		name        string
+		frontendURL string
+		want        string
+	}{
+		{"production apex frontend", "https://psychichomily.com", "https://api.psychichomily.com"},
+		{"production www frontend", "https://www.psychichomily.com", "https://api.psychichomily.com"},
+		{"production apex frontend trailing slash", "https://psychichomily.com/", "https://api.psychichomily.com"},
+		{"production www frontend trailing slash", "https://www.psychichomily.com/", "https://api.psychichomily.com"},
+		{"stage frontend", "https://stage.psychichomily.com", "https://api-stage.psychichomily.com"},
+		{"stage frontend trailing slash", "https://stage.psychichomily.com/", "https://api-stage.psychichomily.com"},
+		{"local frontend falls back to 8080", "http://localhost:3000", "http://localhost:8080"},
+		{"empty frontend falls back to 8080", "", "http://localhost:8080"},
+		{"lookalike host falls back to 8080", "https://psychichomily.com.example.net", "http://localhost:8080"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, DeriveBackendURL(tt.frontendURL))
+		})
+	}
+}
+
+// The Railway env templates document the FRONTEND_URL each deployed
+// environment runs with; an unrecognised value there would silently mint
+// localhost unsubscribe links, so every template value must resolve.
+func TestBackendURLForDeployedFrontend_RailwayTemplates(t *testing.T) {
+	templates := map[string]string{
+		"../../../.env.railway.prod.template":  "https://api.psychichomily.com",
+		"../../../.env.railway.stage.template": "https://api-stage.psychichomily.com",
+	}
+	for path, want := range templates {
+		t.Run(path, func(t *testing.T) {
+			body, err := os.ReadFile(path)
+			require.NoError(t, err)
+			var frontendURL string
+			for _, line := range strings.Split(string(body), "\n") {
+				if value, found := strings.CutPrefix(strings.TrimSpace(line), "FRONTEND_URL="); found {
+					frontendURL = value
+				}
+			}
+			require.NotEmpty(t, frontendURL, "template has no FRONTEND_URL line")
+			got, ok := BackendURLForDeployedFrontend(frontendURL)
+			assert.True(t, ok, "FRONTEND_URL %q is not a recognised deployed frontend", frontendURL)
+			assert.Equal(t, want, got)
+		})
+	}
 }
 
 // =============================================================================
