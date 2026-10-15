@@ -51,8 +51,8 @@ echo ""
 
 # Load environment variables
 if [ -f ".env.production" ]; then
-    # Unquoted on purpose: word splitting turns each KEY=VALUE line into its own
-    # export argument, and quoting would export one malformed variable.
+    # Unquoted on purpose: word splitting makes each KEY=VALUE its own export
+    # argument, so a value cannot contain whitespace.
     # shellcheck disable=SC2046
     export $(cat .env.production | grep -v '^#' | xargs)
 fi
