@@ -7,7 +7,6 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"testing"
-	"time"
 
 	"github.com/go-chi/chi/v5"
 
@@ -107,16 +106,15 @@ func TestRedirectRateLimitedSendsTheBrowserToTheConfiguredAuthPage(t *testing.T)
 func TestRedirectRateLimitedReturnsAPendingLinkToSettings(t *testing.T) {
 	const intentID = "rate-limit-test-intent"
 	storeOAuthLinkIntent(intentID, oauthLinkIntent{
-		userID:    7,
-		provider:  "google",
-		state:     "link-state",
-		expiresAt: time.Now().Add(time.Minute),
+		userID:   7,
+		provider: "google",
+		state:    "link-state",
 	})
 	t.Cleanup(func() { consumeOAuthLinkIntent(intentID) })
 	intentCookie := &http.Cookie{Name: oauthLinkIntentCookieName, Value: intentID}
 
 	assertSettingsPage(t, refuse(t, OAuthCallbackRoute, "/auth/callback/google?state=link-state&code=spent", "google", intentCookie))
-	if _, found := peekOAuthLinkIntent(intentID); !found {
+	if _, _, found := peekOAuthLinkIntent(intentID); !found {
 		t.Error("the refusal consumed the link intent; only the callback handler may")
 	}
 

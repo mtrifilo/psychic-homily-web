@@ -110,19 +110,19 @@ func (s *expiringRegistry[T]) take(id string) (T, bool) {
 	return entry.value, true
 }
 
-// peek returns the value stored under id without consuming it, whether or not
-// it has expired: an expired entry stays visible until a put drops it or it is
-// removed. Callers that need expiry carry their own deadline in the value.
-func (s *expiringRegistry[T]) peek(id string) (T, bool) {
+// peek returns the value stored under id without consuming it. An expired
+// entry is still returned, with expired set, until a put drops it or it is
+// removed; found is false only when the registry holds nothing under id.
+func (s *expiringRegistry[T]) peek(id string) (value T, expired, found bool) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
 	element, ok := s.entries[id]
 	if !ok {
-		var zero T
-		return zero, false
+		return value, false, false
 	}
-	return entryOf[T](element).value, true
+	entry := entryOf[T](element)
+	return entry.value, s.now().After(entry.expiresAt), true
 }
 
 func (s *expiringRegistry[T]) remove(id string) {

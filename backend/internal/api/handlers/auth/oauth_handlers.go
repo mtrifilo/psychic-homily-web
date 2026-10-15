@@ -411,11 +411,11 @@ func (h *OAuthHTTPHandler) OAuthCallbackHTTPHandler(w http.ResponseWriter, r *ht
 	// sign-in they did ask for would strand them on Settings with no session.
 	// An intent that does not match is simply not about this callback.
 	if cookie, cookieErr := r.Cookie(oauthLinkIntentCookieName); cookieErr == nil {
-		intent, found := peekOAuthLinkIntent(cookie.Value)
+		intent, expired, found := peekOAuthLinkIntent(cookie.Value)
 		matchesThisHandshake := found && intent.isForHandshake(provider, r.URL.Query().Get("state"))
 
 		switch {
-		case matchesThisHandshake && time.Now().After(intent.expiresAt):
+		case matchesThisHandshake && expired:
 			// Their link, and they ran out of time. Say so.
 			consumeOAuthLinkIntent(cookie.Value)
 			http.SetCookie(w, h.newLinkIntentCookie("", -1))

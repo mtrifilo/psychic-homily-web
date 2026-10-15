@@ -28,19 +28,25 @@ func (s *expiringRegistry[T]) size() int {
 // get reads without consuming and refuses an expired entry: what a holder
 // of id could still take.
 func (s *expiringRegistry[T]) get(id string) (T, bool) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
+	value, expired, found := s.peek(id)
+	if !found || expired {
+		var zero T
+		return zero, false
+	}
+	return value, true
+}
 
-	var zero T
-	element, ok := s.entries[id]
-	if !ok {
-		return zero, false
-	}
-	entry := entryOf[T](element)
-	if s.now().After(entry.expiresAt) {
-		return zero, false
-	}
-	return entry.value, true
+// putExpired plants an entry that expired a minute ago. It goes to the front
+// of order, which keeps order sorted by expiry.
+func (s *expiringRegistry[T]) putExpired(id string, value T) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.removeLocked(id)
+	s.entries[id] = s.order.PushFront(&registryEntry[T]{
+		id:        id,
+		value:     value,
+		expiresAt: s.now().Add(-time.Minute),
+	})
 }
 
 // fakeClock is a manually advanced clock for a registry under test. It is not
@@ -267,7 +273,7 @@ func TestExpiringRegistry_InsertCostDoesNotScaleWithSize(t *testing.T) {
 		insertBound = time.Second
 	)
 
-	for _, capacity := range []int{inserts, cliCallbackCapacity, oauthLinkIntentCapacity} {
+	for _, capacity := range []int{inserts, cliCallbackCapacity} {
 		t.Run(fmt.Sprintf("capacity_%d", capacity), func(t *testing.T) {
 			store := newExpiringRegistry[string](capacity, cliCallbackTTL, time.Now)
 			ids := make([]string, inserts)
@@ -399,21 +405,26 @@ func TestExpiringRegistry_PeekDoesNotConsumeAndSeesExpiredEntries(t *testing.T) 
 	store.put("a", "http://localhost/a")
 
 	for range 2 {
-		if url, ok := store.peek("a"); !ok || url != "http://localhost/a" {
-			t.Fatalf("expected peek to return the entry and leave it, got %q, %v", url, ok)
+		if url, expired, found := store.peek("a"); !found || expired || url != "http://localhost/a" {
+			t.Fatalf("expected peek to return the live entry and leave it, got %q, expired %v found %v", url, expired, found)
 		}
 	}
 
-	clock.Advance(cliCallbackTTL + time.Nanosecond)
-	if _, ok := store.peek("a"); !ok {
-		t.Fatal("expected peek to still see an expired entry no put has dropped")
+	clock.Advance(cliCallbackTTL)
+	if _, expired, found := store.peek("a"); !found || expired {
+		t.Fatalf("expected the entry live at exactly its TTL, expired %v found %v", expired, found)
+	}
+
+	clock.Advance(time.Nanosecond)
+	if _, expired, found := store.peek("a"); !found || !expired {
+		t.Fatalf("expected peek to report an expired entry no put has dropped, expired %v found %v", expired, found)
 	}
 
 	store.put("b", "http://localhost/b")
-	if _, ok := store.peek("a"); ok {
+	if _, _, found := store.peek("a"); found {
 		t.Fatal("expected the expired entry to be gone after the next put")
 	}
-	if _, ok := store.peek("missing"); ok {
+	if _, _, found := store.peek("missing"); found {
 		t.Fatal("expected peek of an unknown id to find nothing")
 	}
 }

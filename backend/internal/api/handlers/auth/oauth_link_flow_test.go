@@ -106,7 +106,7 @@ func (s *OAuthHandlerIntegrationSuite) TestLink_ArmsAnIntentForTheSessionsAccoun
 	// The cookie names nothing on its own: the account lives in the store.
 	s.NotContains(cookie.Value, "link-start@test.com")
 
-	intent, found := peekOAuthLinkIntent(cookie.Value)
+	intent, _, found := peekOAuthLinkIntent(cookie.Value)
 	s.Require().True(found)
 	s.Equal(user.ID, intent.userID)
 	s.Equal("google", intent.provider)
@@ -119,10 +119,9 @@ func (s *OAuthHandlerIntegrationSuite) TestLink_AtCapacityEvictsOldestAndLogs() 
 	s.T().Cleanup(oauthLinkIntentStore.reset)
 	for i := range oauthLinkIntentCapacity {
 		storeOAuthLinkIntent(fmt.Sprintf("fill-%04d", i), oauthLinkIntent{
-			userID:    1,
-			provider:  "google",
-			state:     "fill-state",
-			expiresAt: time.Now().Add(oauthLinkIntentTTL),
+			userID:   1,
+			provider: "google",
+			state:    "fill-state",
 		})
 	}
 
@@ -137,11 +136,11 @@ func (s *OAuthHandlerIntegrationSuite) TestLink_AtCapacityEvictsOldestAndLogs() 
 
 	cookie := linkIntentCookie(w)
 	s.Require().NotNil(cookie)
-	_, found := peekOAuthLinkIntent(cookie.Value)
+	_, _, found := peekOAuthLinkIntent(cookie.Value)
 	s.True(found, "the new intent is stored")
-	_, found = peekOAuthLinkIntent("fill-0000")
+	_, _, found = peekOAuthLinkIntent("fill-0000")
 	s.False(found, "the oldest pending link is evicted")
-	_, found = peekOAuthLinkIntent("fill-0001")
+	_, _, found = peekOAuthLinkIntent("fill-0001")
 	s.True(found, "only the oldest pending link is evicted")
 	s.Equal(oauthLinkIntentCapacity, oauthLinkIntentStore.size())
 
@@ -391,7 +390,7 @@ func (s *OAuthHandlerIntegrationSuite) TestLinkCallback_IntentIsSingleUse() {
 	s.Contains(w.Header().Get("Location"), "oauth_link=connected")
 
 	// The intent is spent, so nothing is armed for a second link.
-	_, stillHeld := peekOAuthLinkIntent(cookie.Value)
+	_, _, stillHeld := peekOAuthLinkIntent(cookie.Value)
 	s.False(stillHeld, "a completed link must consume its intent")
 
 	// Byte-identical replay: same cookie, same state. The intent is consumed,
@@ -460,11 +459,10 @@ func (s *OAuthHandlerIntegrationSuite) TestLinkCallback_ExpiredIntentRefusedAsEx
 	s.Require().NoError(err)
 	state, err := randomHexID(oauthLinkStateBytes)
 	s.Require().NoError(err)
-	storeOAuthLinkIntent(id, oauthLinkIntent{
-		userID:    user.ID,
-		provider:  "google",
-		state:     state,
-		expiresAt: time.Now().Add(-time.Second),
+	storeExpiredOAuthLinkIntent(id, oauthLinkIntent{
+		userID:   user.ID,
+		provider: "google",
+		state:    state,
 	})
 
 	w, req := oauthCallbackRequest("google")
@@ -517,7 +515,7 @@ func (s *OAuthHandlerIntegrationSuite) TestLinkCallback_StaleIntentDoesNotDivert
 
 	// And the intent survives the look, so the abandoner can still finish the
 	// link they started.
-	_, stillHeld := peekOAuthLinkIntent(cookie.Value)
+	_, _, stillHeld := peekOAuthLinkIntent(cookie.Value)
 	s.True(stillHeld, "a mismatched callback must not burn the intent")
 }
 
@@ -642,14 +640,14 @@ func (s *OAuthHandlerIntegrationSuite) assertSignedIn(w *httptest.ResponseRecord
 func (s *OAuthHandlerIntegrationSuite) TestLinkIntent_ExpiredIsNotUsable() {
 	id, err := randomHexID(oauthLinkIntentIDBytes)
 	s.Require().NoError(err)
-	storeOAuthLinkIntent(id, oauthLinkIntent{
-		userID:    1,
-		provider:  "google",
-		expiresAt: time.Now().Add(-time.Second),
+	storeExpiredOAuthLinkIntent(id, oauthLinkIntent{
+		userID:   1,
+		provider: "google",
 	})
 
-	_, found := peekOAuthLinkIntent(id)
-	s.True(found, "the entry is still held; the CALLER decides it is past its TTL")
+	_, expired, found := peekOAuthLinkIntent(id)
+	s.True(found, "the entry is still held until a later store drops it")
+	s.True(expired, "and reported as past its TTL, so the callback can say so")
 }
 
 // armLinkIntent stores an intent and returns the two things a browser carries
@@ -663,10 +661,9 @@ func (s *OAuthHandlerIntegrationSuite) armLinkIntent(userID uint, provider strin
 	state, err := randomHexID(oauthLinkStateBytes)
 	s.Require().NoError(err)
 	storeOAuthLinkIntent(id, oauthLinkIntent{
-		userID:    userID,
-		provider:  provider,
-		state:     state,
-		expiresAt: time.Now().Add(oauthLinkIntentTTL),
+		userID:   userID,
+		provider: provider,
+		state:    state,
 	})
 	return &http.Cookie{Name: oauthLinkIntentCookieName, Value: id}, state
 }

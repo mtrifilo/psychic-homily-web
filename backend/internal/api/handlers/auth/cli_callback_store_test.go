@@ -27,14 +27,7 @@ func deleteCLICallback(id string) {
 // storeExpiredCLICallback plants an already-expired entry in the process-wide
 // store. It goes to the front of order, which keeps order sorted by expiry.
 func storeExpiredCLICallback(id, callbackURL string) {
-	cliCallbackStore.mu.Lock()
-	defer cliCallbackStore.mu.Unlock()
-	cliCallbackStore.removeLocked(id)
-	cliCallbackStore.entries[id] = cliCallbackStore.order.PushFront(&registryEntry[string]{
-		id:        id,
-		value:     callbackURL,
-		expiresAt: time.Now().Add(-time.Minute),
-	})
+	cliCallbackStore.putExpired(id, callbackURL)
 }
 
 func TestCLICallbackStore_StoreAndRetrieve(t *testing.T) {

@@ -71,10 +71,9 @@ const (
 // machine that would attach the next person's provider identity to the
 // account whose owner started the abandoned link.
 type oauthLinkIntent struct {
-	userID    uint
-	provider  string
-	state     string
-	expiresAt time.Time
+	userID   uint
+	provider string
+	state    string
 }
 
 // isForHandshake reports whether the intent was armed for the handshake a
@@ -93,11 +92,6 @@ const oauthLinkIntentCapacity = 1000
 // and deliberately not durable: an intent that does not survive a restart or a
 // second instance produces an expired-link refusal, which is the fail-closed
 // direction. Mirrors cliCallbackStore, which makes the same trade.
-//
-// Its TTL matches each intent's own expiresAt, which the caller sets no later
-// than put reads the registry clock. So expiry never drops an intent its
-// expiresAt still calls live (capacity eviction can), and an expired one stays
-// visible to a peek until a later put drops it.
 var oauthLinkIntentStore = newExpiringRegistry[oauthLinkIntent](oauthLinkIntentCapacity, oauthLinkIntentTTL, time.Now)
 
 // storeOAuthLinkIntent stores intent under id. Its result is put's
@@ -112,11 +106,11 @@ func storeOAuthLinkIntent(id string, intent oauthLinkIntent) (evictionsToReport 
 // ordinary sign-in that happens to carry the cookie would burn it and then be
 // refused instead of signing the reader in.
 //
-// found distinguishes "this process never held it" from "it is past its TTL",
-// which are different situations: the first is a restart or another replica
+// found false ("this process never held it") and expired ("it is past its
+// TTL") are different situations: the first is a restart or another replica
 // and must not turn a sign-in into a refusal, the second is a reader who
 // genuinely ran out of time and is owed an explanation.
-func peekOAuthLinkIntent(id string) (intent oauthLinkIntent, found bool) {
+func peekOAuthLinkIntent(id string) (intent oauthLinkIntent, expired, found bool) {
 	return oauthLinkIntentStore.peek(id)
 }
 
@@ -227,10 +221,9 @@ func (h *OAuthHTTPHandler) OAuthLinkHTTPHandler(w http.ResponseWriter, r *http.R
 	}
 
 	if evicted := storeOAuthLinkIntent(intentID, oauthLinkIntent{
-		userID:    user.ID,
-		provider:  provider,
-		state:     state,
-		expiresAt: time.Now().Add(oauthLinkIntentTTL),
+		userID:   user.ID,
+		provider: provider,
+		state:    state,
 	}); evicted > 0 {
 		logger.AuthWarn(ctx, "oauth_link_intent_store_evicting",
 			"evicted", evicted,
