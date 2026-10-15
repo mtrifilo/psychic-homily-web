@@ -23,7 +23,7 @@ func (f *failingChallengeCleaner) CleanupExpiredChallenges(context.Context) (int
 // schedule.
 func TestChallengeSweepCycle_FailureDoesNotPanic(t *testing.T) {
 	cleaner := &failingChallengeCleaner{}
-	sweep := NewChallengeSweep(cleaner)
+	sweep := newChallengeSweep(cleaner)
 	assert.NotPanics(t, func() { sweep.runCycle(context.Background()) })
 	assert.Equal(t, 1, cleaner.calls)
 }
@@ -51,7 +51,7 @@ func (suite *WebAuthnServiceIntegrationTestSuite) TestChallengeSweepCycle_Delete
 		suite.storeChallengeExpiringAt(user.ID, now.Add(5*time.Minute)),
 	}
 
-	NewChallengeSweep(suite.service).runCycle(context.Background())
+	NewChallengeSweep(suite.db).runCycle(context.Background())
 
 	for _, id := range expired {
 		suite.Zero(suite.challengeRows(id), "expired challenge %s is deleted", id)
@@ -70,7 +70,7 @@ func (suite *WebAuthnServiceIntegrationTestSuite) TestChallengeSweep_RegistersRu
 		suite.Require().NoError(suite.db.Exec("DELETE FROM background_service_runs WHERE name = ?", ChallengeSweepLoopName).Error)
 	})
 
-	sweep := NewChallengeSweep(suite.service)
+	sweep := NewChallengeSweep(suite.db)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	sweep.Start(ctx)

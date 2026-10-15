@@ -2,10 +2,11 @@ package auth
 
 import (
 	"context"
-	"errors"
 	"log/slog"
 	"sync"
 	"time"
+
+	"gorm.io/gorm"
 
 	"psychic-homily-backend/internal/services/shared"
 )
@@ -24,9 +25,17 @@ const (
 	defaultChallengeSweepInterval = 24 * time.Hour
 )
 
-// expiredChallengeCleaner is the part of WebAuthnService the sweep drives.
+// expiredChallengeCleaner deletes expired challenges and returns how many rows
+// it deleted.
 type expiredChallengeCleaner interface {
 	CleanupExpiredChallenges(ctx context.Context) (int64, error)
+}
+
+// challengeTable cleans the webauthn_challenges table directly.
+type challengeTable struct{ db *gorm.DB }
+
+func (t challengeTable) CleanupExpiredChallenges(ctx context.Context) (int64, error) {
+	return deleteExpiredChallenges(ctx, t.db)
 }
 
 // ChallengeSweep deletes expired WebAuthn challenges on a schedule. A finish
@@ -42,8 +51,15 @@ type ChallengeSweep struct {
 	logger *slog.Logger
 }
 
-// NewChallengeSweep constructs the sweep over challenges.
-func NewChallengeSweep(challenges expiredChallengeCleaner) *ChallengeSweep {
+// NewChallengeSweep constructs the sweep over the challenges in database. It
+// needs only the database, so it runs whether or not the WebAuthn service
+// could be constructed.
+func NewChallengeSweep(database *gorm.DB) *ChallengeSweep {
+	return newChallengeSweep(challengeTable{db: database})
+}
+
+// newChallengeSweep constructs the sweep over challenges.
+func newChallengeSweep(challenges expiredChallengeCleaner) *ChallengeSweep {
 	return &ChallengeSweep{
 		challenges: challenges,
 		interval:   defaultChallengeSweepInterval,
@@ -78,11 +94,7 @@ func (s *ChallengeSweep) Stop() {
 func (s *ChallengeSweep) runCycle(ctx context.Context) {
 	deleted, err := s.challenges.CleanupExpiredChallenges(ctx)
 	if err != nil {
-		logFn := s.logger.Error
-		if errors.Is(err, context.Canceled) {
-			logFn = s.logger.Info
-		}
-		logFn("webauthn challenge sweep: cycle failed", "error", err)
+		shared.LogCycleFailure(s.logger, "webauthn challenge sweep: cycle failed", err)
 		shared.ReportCycle(ctx, 0, err)
 		return
 	}
