@@ -335,8 +335,13 @@ interface SignupFormProps {
    * releases the claim.
    */
   onHandoffChange: (handoff: SignupHandoff | null) => void
-  /** Bounds every sign-up request this tab sends. */
-  requestDeadline: SignupRequestDeadline
+  /**
+   * Bounds the register request and, apart from it, the profile refetch that
+   * follows an accepted registration.
+   */
+  passwordRequestDeadline: SignupRequestDeadline
+  /** Bounds the passkey sign-up button's requests. */
+  passkeyRequestDeadline: SignupRequestDeadline
   /**
    * The form is showing as the arrival's own tab, and the arrival is an OAuth
    * sign-in refused for want of the consent this form records. The form then
@@ -357,7 +362,8 @@ interface SignupFormProps {
 function SignupForm({
   returnTo,
   onHandoffChange,
-  requestDeadline,
+  passwordRequestDeadline,
+  passkeyRequestDeadline,
   consentRequested,
   consentReasonId,
 }: SignupFormProps) {
@@ -400,7 +406,10 @@ function SignupForm({
           privacy_version: CURRENT_PRIVACY_VERSION,
           age_confirmed: value.ageConfirmed,
           min_age_attested: MIN_SIGNUP_AGE,
-          signal: requestDeadline.arm(),
+          signal: passwordRequestDeadline.arm(),
+          onRegistered: () => {
+            passwordRequestDeadline.arm()
+          },
         },
         {
           onSuccess: data => {
@@ -421,7 +430,7 @@ function SignupForm({
           onError: () => {
             onHandoffChange(null)
           },
-          onSettled: requestDeadline.disarm,
+          onSettled: passwordRequestDeadline.disarm,
         }
       )
     },
@@ -474,7 +483,7 @@ function SignupForm({
         <PasskeySignupButton
           onError={setPasskeyError}
           onHandoffChange={onHandoffChange}
-          requestDeadline={requestDeadline}
+          requestDeadline={passkeyRequestDeadline}
           className="w-full"
           termsVersion={CURRENT_TERMS_VERSION}
           privacyVersion={CURRENT_PRIVACY_VERSION}
@@ -715,11 +724,13 @@ function AuthPageContent() {
   // A request past its deadline releases a claim still pending, which the
   // control that sent it cannot do once the page has stopped rendering the
   // form: an authenticated viewer with a pending claim gets neither the form
-  // nor the redirect.
+  // nor the redirect. The two sign-up paths can each have a request in flight
+  // at once, so each has its own deadline.
   const releasePendingSignup = useCallback(() => {
     setSignupHandoff(current => (current?.status === 'pending' ? null : current))
   }, [])
-  const signupRequestDeadline = useSignupRequestDeadline(releasePendingSignup)
+  const passwordSignupDeadline = useSignupRequestDeadline(releasePendingSignup)
+  const passkeySignupDeadline = useSignupRequestDeadline(releasePendingSignup)
   const signInTabRef = useRef<HTMLButtonElement>(null)
 
   // A hidden page runs its effect cleanups, and a shown one reruns the
@@ -868,7 +879,8 @@ function AuthPageContent() {
                   <SignupForm
                     returnTo={returnTo}
                     onHandoffChange={setSignupHandoff}
-                    requestDeadline={signupRequestDeadline}
+                    passwordRequestDeadline={passwordSignupDeadline}
+                    passkeyRequestDeadline={passkeySignupDeadline}
                     consentRequested={showingArrivalTab && isConsentArrival}
                     consentReasonId={urlError ? URL_ERROR_ID : undefined}
                   />

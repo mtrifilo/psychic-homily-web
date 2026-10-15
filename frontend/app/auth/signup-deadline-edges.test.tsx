@@ -167,7 +167,7 @@ describe('sign-up deadlines on /auth', () => {
   })
 
   describe('with both sign-up paths in flight', () => {
-    it('leaves a stalled registration unbounded once a passkey sign-up starts', async () => {
+    it('still bounds a stalled registration after a passkey sign-up starts', async () => {
       routeFetch({
         '/auth/register': stalledRequest,
         '/auth/passkey/signup/begin': () => Promise.resolve(BEGIN_OK),
@@ -186,11 +186,11 @@ describe('sign-up deadlines on /auth', () => {
 
       await advanceFakeTime(SIGNUP_REQUEST_TIMEOUT_MS * 2)
 
-      expect(signalOf('/auth/register').aborted).toBe(false)
-      expect(screen.queryByText('Registration failed')).not.toBeInTheDocument()
+      expect(signalOf('/auth/register').aborted).toBe(true)
+      expect(await screen.findByText('Registration failed')).toBeInTheDocument()
     })
 
-    it('leaves a stalled passkey begin unbounded once the registration is refused', async () => {
+    it('still bounds a stalled passkey begin after the registration is refused', async () => {
       const register = deferred<Response>()
       routeFetch({
         '/auth/register': () => register.promise,
@@ -210,10 +210,12 @@ describe('sign-up deadlines on /auth', () => {
 
       await advanceFakeTime(SIGNUP_REQUEST_TIMEOUT_MS * 2)
 
-      expect(signalOf('/auth/passkey/signup/begin').aborted).toBe(false)
-      expect(
-        within(dialog).getByRole('button', { name: 'Creating account...' })
-      ).toBeDisabled()
+      expect(signalOf('/auth/passkey/signup/begin').aborted).toBe(true)
+      await waitFor(() => {
+        expect(
+          within(dialog).getByRole('button', { name: /continue with passkey/i })
+        ).toBeEnabled()
+      })
     })
   })
 
@@ -251,15 +253,23 @@ describe('sign-up deadlines on /auth', () => {
       return { refetch, profile }
     }
 
-    it('releases the claim 30 s after the submit while the refetch is still out', async () => {
+    // The refetch gets a deadline of its own, from the register answer.
+    it('holds the claim past 30 s from the submit while the refetch is still out', async () => {
       await registerWithStalledRefetch()
       act(() => {
         authStore.set('authenticated')
       })
 
       await advanceFakeTime(PAST_SUBMIT_DEADLINE_MS)
-      expect(signalOf('/auth/register').aborted).toBe(true)
-      expect(mockPush).toHaveBeenCalledWith(RETURN_TO)
+      expect(signalOf('/auth/register').aborted).toBe(false)
+      expect(mockPush).not.toHaveBeenCalled()
+
+      await advanceFakeTime(REGISTER_ANSWER_MS)
+      await waitFor(() => {
+        expect(mockPush).toHaveBeenCalledWith(RETURN_TO)
+      })
+      expect(mockPush).toHaveBeenCalledTimes(1)
+      expect(signalOf('/auth/register').aborted).toBe(false)
     })
 
     it('shows the interstitial when the refetch lands past 30 s from the submit', async () => {
@@ -278,7 +288,8 @@ describe('sign-up deadlines on /auth', () => {
   })
 
   describe('a page hidden with a registration in flight', () => {
-    it('never resumes the redirect after the page is shown again', async () => {
+    // A shown page gives the request a fresh deadline, on the signal it holds.
+    it('resumes the redirect 30 s after the page is shown again', async () => {
       routeFetch({ '/auth/register': stalledRequest })
       const user = setupUser()
       const { rerender } = renderWithProviders(visible(<AuthPage />))
@@ -292,9 +303,17 @@ describe('sign-up deadlines on /auth', () => {
         authStore.set('authenticated')
       })
 
-      await advanceFakeTime(SIGNUP_REQUEST_TIMEOUT_MS * 2)
+      // The fake clock also follows real time, so the lead is not exact.
+      await advanceFakeTime(SIGNUP_REQUEST_TIMEOUT_MS - 1_000)
       expect(signalOf('/auth/register').aborted).toBe(false)
       expect(mockPush).not.toHaveBeenCalled()
+
+      await advanceFakeTime(1_000)
+      await waitFor(() => {
+        expect(mockPush).toHaveBeenCalledWith(RETURN_TO)
+      })
+      expect(mockPush).toHaveBeenCalledTimes(1)
+      expect(signalOf('/auth/register').aborted).toBe(true)
     })
   })
 })

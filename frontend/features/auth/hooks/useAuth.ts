@@ -57,6 +57,12 @@ interface RegisterRequest extends RegisterCredentials {
    * is aborted fails with REGISTRATION_FAILED, whatever the abort rejected with.
    */
   signal?: AbortSignal
+  /**
+   * Called once the register request has answered with success, before the
+   * profile refetch that `onSuccess` awaits. Never sent. A bound on the request
+   * alone ends here.
+   */
+  onRegistered?: () => void
 }
 
 const REGISTRATION_FAILED = 'Registration failed'
@@ -243,6 +249,7 @@ export const useRegister = () => {
   return useMutation({
     mutationFn: async ({
       signal,
+      onRegistered,
       ...credentials
     }: RegisterRequest): Promise<AuthResponse> => {
       authLogger.debug('Registration attempt', {
@@ -287,6 +294,7 @@ export const useRegister = () => {
         )
       }
 
+      onRegistered?.()
       return response
     },
     onSuccess: async data => {
