@@ -61,8 +61,8 @@ const oauthAuthPagePath = "/auth"
 // It accepts a subset of what the frontend's sanitizeReturnTo
 // (frontend/app/auth/auth-redirect-utils.ts) accepts.
 // testdata/return_to_corpus.json is the statement of that parity: both
-// sanitizers' tests read it, and every input the two treat differently
-// carries a `difference` note saying why this one falls back.
+// sanitizers' tests read it, and each of its inputs that the two treat
+// differently carries a `difference` note saying why this one falls back.
 //
 // The callback prefixes the result with the configured frontend URL, so the
 // redirect's host is never taken from raw.
