@@ -5,10 +5,14 @@
 # with a bounded lock_timeout. An unbounded lock wait at boot stalls the deploy
 # and queues every later query on the table behind the migration.
 #
-# A migration takes a strong lock when its SQL (comments stripped) contains
-# ALTER TABLE, LOCK TABLE, DROP TABLE, or CREATE [UNIQUE] INDEX without
-# CONCURRENTLY. It sets its own bound when the SQL contains lock_timeout
-# (e.g. `SET LOCAL lock_timeout = '5s';`).
+# A migration takes a strong lock when its SQL (`--` and nested `/* */`
+# comments stripped) contains ALTER TABLE, LOCK TABLE, DROP TABLE, or
+# CREATE [UNIQUE] INDEX without CONCURRENTLY. It sets its own bound when the
+# SQL contains lock_timeout (e.g. `SET LOCAL lock_timeout = '5s';`).
+#
+# Separately, CREATE [UNIQUE] INDEX CONCURRENTLY IF NOT EXISTS is always a
+# WARNING (exit 0): a failed concurrent build leaves an INVALID index under
+# that name, and the retry's IF NOT EXISTS keeps it.
 #
 # Two modes, chosen by reading backend/docker-entrypoint.sh:
 #   * Runner-level bound in place: the entrypoint passes a lock_timeout option
@@ -72,12 +76,70 @@ if [ -z "$ADDED_UP" ]; then
 fi
 
 # --- 3. classify and report each added up migration --------------------------
-# Prints the strong-lock statement kinds found in $1 (SQL text), one per line.
-# The caller strips line comments; the text is folded to one lowercase line so
-# a statement split across lines still matches.
+# Prints file $1 with its comments removed, in one lowercase line so a
+# statement split across lines still matches. A `--` comment runs to the end
+# of its line; a `/* */` comment nests, may span lines, and reads as one space.
+# Inside a block comment `--` is plain text, and inside a line comment `/*` is.
+# A single-quoted literal stays in the output, and comment markers inside it
+# are text. Not parsed: backslash escapes in E'' literals, and dollar quoting
+# (a $$ body is scanned as SQL, which matches a function body's comments).
+folded_sql() {
+  awk '
+    # first_of(a, b): the smaller of two index() results, ignoring 0 (absent).
+    function first_of(a, b) {
+      if (a == 0) return b
+      if (b == 0 || a < b) return a
+      return b
+    }
+    {
+      rest = tolower($0)
+      while (rest != "") {
+        if (in_quote) {
+          quote_at = index(rest, "\047")
+          if (quote_at == 0) { printf "%s", rest; break }
+          printf "%s", substr(rest, 1, quote_at)
+          rest = substr(rest, quote_at + 1)
+          in_quote = 0
+          continue
+        }
+        open_at = index(rest, "/*")
+        if (depth > 0) {
+          close_at = index(rest, "*/")
+          if (close_at == 0 && open_at == 0) break
+          if (open_at > 0 && (close_at == 0 || open_at < close_at)) {
+            depth++
+            rest = substr(rest, open_at + 2)
+          } else {
+            depth--
+            rest = substr(rest, close_at + 2)
+            if (depth == 0) printf " "
+          }
+        } else {
+          dash_at = index(rest, "--")
+          quote_at = index(rest, "\047")
+          next_at = first_of(first_of(open_at, dash_at), quote_at)
+          if (next_at == 0) { printf "%s", rest; break }
+          printf "%s", substr(rest, 1, next_at - 1)
+          if (next_at == dash_at) break
+          if (next_at == quote_at) {
+            printf "\047"
+            in_quote = 1
+            rest = substr(rest, quote_at + 1)
+          } else {
+            depth = 1
+            rest = substr(rest, open_at + 2)
+          }
+        }
+      }
+      printf " "
+    }
+  ' "$1"
+}
+
+# Prints the strong-lock statement kinds found in $1 (output of folded_sql),
+# one per line.
 strong_locks() {
-  local sql index_heads
-  sql="$(tr '\n\t' '  ' <<<"$1" | tr '[:upper:]' '[:lower:]')"
+  local sql="$1" index_heads
   grep -qE 'alter[[:space:]]+table' <<<"$sql" && echo "ALTER TABLE"
   grep -qE 'lock[[:space:]]+table' <<<"$sql" && echo "LOCK TABLE"
   grep -qE 'drop[[:space:]]+table' <<<"$sql" && echo "DROP TABLE"
@@ -89,9 +151,23 @@ strong_locks() {
   return 0
 }
 
+# warn <file> <message>: a WARNING line, or a file annotation on GitHub Actions.
+warn() {
+  if [ "${GITHUB_ACTIONS:-}" = true ]; then
+    echo "::warning file=$1::$2"
+  else
+    echo "WARNING: $2"
+  fi
+}
+
+CIC_IF_NOT_EXISTS='create[[:space:]]+(unique[[:space:]]+)?index[[:space:]]+concurrently[[:space:]]+if[[:space:]]+not[[:space:]]+exists'
+
 UNBOUNDED=0
 for f in $ADDED_UP; do
-  sql="$(sed 's/--.*$//' "$f")"
+  sql="$(folded_sql "$f")"
+  if grep -qE "$CIC_IF_NOT_EXISTS" <<<"$sql"; then
+    warn "$f" "$f uses CREATE INDEX CONCURRENTLY IF NOT EXISTS: a failed concurrent build leaves an INVALID index that the IF NOT EXISTS retry keeps."
+  fi
   locks="$(strong_locks "$sql")"
   [ -n "$locks" ] || continue
   if grep -qi 'lock_timeout' <<<"$sql"; then
@@ -101,10 +177,8 @@ for f in $ADDED_UP; do
   msg="$f takes a strong lock ($(tr '\n' ',' <<<"$locks" | sed 's/,$//; s/,/, /g')) and sets no lock_timeout."
   if [ "$RUNNER_BOUND" = no ]; then
     echo "ERROR: $msg" >&2
-  elif [ "${GITHUB_ACTIONS:-}" = true ]; then
-    echo "::warning file=$f::$msg $ENTRYPOINT bounds it at boot; a manual migrate run is unbounded."
   else
-    echo "WARNING: $msg $ENTRYPOINT bounds it at boot; a manual migrate run is unbounded."
+    warn "$f" "$msg $ENTRYPOINT bounds it at boot; a manual migrate run is unbounded."
   fi
 done
 
