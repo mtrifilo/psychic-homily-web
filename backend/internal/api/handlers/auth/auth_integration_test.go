@@ -106,11 +106,17 @@ func resendRejectingKey() *fakeResend {
 	return resendAnswering(http.StatusUnauthorized, resendInvalidAPIKeyBody)
 }
 
+// dialRefused returns the error a refused TCP dial fails with, before any HTTP
+// response exists.
+func dialRefused() error {
+	return &net.OpError{Op: "dial", Net: "tcp", Err: syscall.ECONNREFUSED}
+}
+
 // resendDialRefused returns a fakeResend whose every call fails the way a
-// refused TCP dial fails, before any HTTP response exists.
+// refused TCP dial fails.
 func resendDialRefused() *fakeResend {
 	return &fakeResend{respond: func(*http.Request) (*http.Response, error) {
-		return nil, &net.OpError{Op: "dial", Net: "tcp", Err: syscall.ECONNREFUSED}
+		return nil, dialRefused()
 	}}
 }
 
@@ -421,26 +427,12 @@ func (s *AuthHandlerIntegrationSuite) TestRegister_WeakPassword() {
 // SHA-1 suffix the breach check finds in its range.
 const breachedPasswordMessage = "This password has been exposed in a data breach and should not be used"
 
-// registerRequest returns a register request that passes every check ahead of
-// the password validator.
-func registerRequest(email, password string) *RegisterRequest {
-	input := &RegisterRequest{}
-	input.Body.Email = email
-	input.Body.Password = password
-	input.Body.TermsAccepted = true
-	input.Body.TermsVersion = legal.CurrentTermsVersion
-	input.Body.PrivacyVersion = legal.CurrentPrivacyVersion
-	input.Body.AgeConfirmed = true
-	input.Body.MinAgeAttested = MinSignupAge
-	return input
-}
-
 func (s *AuthHandlerIntegrationSuite) TestRegister_BreachedPassword() {
-	const password = "breached-but-long-password-1!"
-	pwned := pwnedPasswordsListing(s.T(), password)
+	input := validRegisterInput("breached@test.com")
+	pwned := pwnedPasswordsListing(s.T(), input.Body.Password)
 	h := s.newAuthHandlerWithPwnedPasswords(pwned)
 
-	resp, err := h.RegisterHandler(context.Background(), registerRequest("breached@test.com", password))
+	resp, err := h.RegisterHandler(context.Background(), input)
 	s.Require().NoError(err)
 	s.False(resp.Body.Success)
 	s.Equal(autherrors.CodeValidationFailed, resp.Body.ErrorCode)
@@ -458,7 +450,7 @@ func (s *AuthHandlerIntegrationSuite) TestRegister_BreachCheckUnreachable() {
 	pwned := pwnedPasswordsUnreachable(s.T())
 	h := s.newAuthHandlerWithPwnedPasswords(pwned)
 
-	resp, err := h.RegisterHandler(context.Background(), registerRequest("hibp-down@test.com", "very-strong-password-123!"))
+	resp, err := h.RegisterHandler(context.Background(), validRegisterInput("hibp-down@test.com"))
 	s.Require().NoError(err)
 	s.True(resp.Body.Success, resp.Body.Message)
 	s.Equal(int32(1), pwned.calls.Load())

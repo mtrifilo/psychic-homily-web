@@ -5,20 +5,10 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
-
-// newReleaseGroupTestClient points a client at an httptest server with a fast
-// throttle so the release-group search tests need no network and no ~1s wait.
-func newReleaseGroupTestClient(baseURL string) *MusicBrainzClient {
-	c := NewMusicBrainzClient()
-	c.baseURL = baseURL
-	c.rateLimit = time.Millisecond
-	return c
-}
 
 func TestMusicBrainzClient_SearchReleaseGroups(t *testing.T) {
 	var gotQuery string
@@ -36,7 +26,7 @@ func TestMusicBrainzClient_SearchReleaseGroups(t *testing.T) {
 	srv := httptest.NewServer(mux)
 	defer srv.Close()
 
-	c := newReleaseGroupTestClient(srv.URL)
+	c := newMusicBrainzTestClient(srv.URL)
 	rgs, err := c.SearchReleaseGroups(context.Background(), "Sleep", "Dopesmoker", 10)
 	require.NoError(t, err)
 	require.Len(t, rgs, 1)
@@ -63,7 +53,7 @@ func TestMusicBrainzClient_SearchReleaseGroups_EmptyArgsNoCall(t *testing.T) {
 	srv := httptest.NewServer(mux)
 	defer srv.Close()
 
-	c := newReleaseGroupTestClient(srv.URL)
+	c := newMusicBrainzTestClient(srv.URL)
 	rgs, err := c.SearchReleaseGroups(context.Background(), "", "Dopesmoker", 10)
 	require.NoError(t, err)
 	assert.Nil(t, rgs)
@@ -80,7 +70,7 @@ func TestMusicBrainzClient_SearchReleaseGroups_StripsInteriorQuotes(t *testing.T
 	srv := httptest.NewServer(mux)
 	defer srv.Close()
 
-	c := newReleaseGroupTestClient(srv.URL)
+	c := newMusicBrainzTestClient(srv.URL)
 	_, err := c.SearchReleaseGroups(context.Background(), `Sleep"`, `Dope"smoker`, 10)
 	require.NoError(t, err)
 	// Interior double quotes become spaces so a value can't break out of the phrase.
@@ -96,7 +86,7 @@ func TestMusicBrainzClient_SearchReleaseGroups_RateLimited(t *testing.T) {
 	srv := httptest.NewServer(mux)
 	defer srv.Close()
 
-	c := newReleaseGroupTestClient(srv.URL)
+	c := newMusicBrainzTestClient(srv.URL)
 	_, err := c.SearchReleaseGroups(context.Background(), "Sleep", "Dopesmoker", 10)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "rate limited")

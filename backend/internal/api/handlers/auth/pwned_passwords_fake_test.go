@@ -6,12 +6,10 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"net"
 	"net/http"
 	"regexp"
 	"strings"
 	"sync/atomic"
-	"syscall"
 	"testing"
 )
 
@@ -67,10 +65,10 @@ func pwnedPasswordsListing(t *testing.T, breached ...string) *fakePwnedPasswords
 }
 
 // pwnedPasswordsUnreachable returns a fake whose every request fails the way a
-// refused TCP dial fails, before any HTTP response exists.
+// refused TCP dial fails.
 func pwnedPasswordsUnreachable(t *testing.T) *fakePwnedPasswords {
 	return &fakePwnedPasswords{t: t, respond: func(string) (*http.Response, error) {
-		return nil, &net.OpError{Op: "dial", Net: "tcp", Err: syscall.ECONNREFUSED}
+		return nil, dialRefused()
 	}}
 }
 

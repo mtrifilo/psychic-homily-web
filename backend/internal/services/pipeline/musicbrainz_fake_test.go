@@ -41,11 +41,16 @@ func newFakeMusicBrainz() *fakeMusicBrainz {
 	return f
 }
 
-// client returns a MusicBrainzClient whose requests reach this fake, with a
-// throttle short enough that a multi-show batch does not wait ~1s per search.
+// client returns a MusicBrainzClient whose requests reach this fake.
 func (f *fakeMusicBrainz) client() *MusicBrainzClient {
+	return newMusicBrainzTestClient(f.server.URL)
+}
+
+// newMusicBrainzTestClient points a client at an httptest server with a fast
+// throttle, so a test needs no network and no ~1s wait between requests.
+func newMusicBrainzTestClient(baseURL string) *MusicBrainzClient {
 	c := NewMusicBrainzClient()
-	c.baseURL = f.server.URL
+	c.baseURL = baseURL
 	c.rateLimit = time.Millisecond
 	return c
 }
