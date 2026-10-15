@@ -209,6 +209,15 @@ const nextConfig: NextConfig = {
         destination: '/library?tab=artists',
         permanent: false,
       },
+      // Saved shows live in Library. Answered here rather than by a page so the
+      // old URL gets a redirect status before anything streams. Next appends the
+      // incoming query string (`?submitted=pending`) to the destination, and this
+      // rule runs before the proxy, so `proxy.ts` never sees the path.
+      {
+        source: '/shows/saved',
+        destination: '/library',
+        permanent: true,
+      },
       // User "collection" page merged into Library (PSY-275)
       {
         source: '/collection',
