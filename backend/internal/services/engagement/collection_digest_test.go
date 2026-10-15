@@ -606,7 +606,7 @@ func (s *CollectionDigestServiceIntegrationSuite) TestDigest_SkipsInactiveOrDele
 	s.Require().NoError(s.db.Model(inactive).Update("is_active", false).Error)
 	// Mark deleted (soft delete)
 	now := time.Now()
-	s.Require().NoError(s.db.Model(deleted).Update("deleted_at", &now).Error)
+	s.Require().NoError(s.db.Model(deleted).Updates(map[string]any{"is_active": false, "deleted_at": &now}).Error)
 
 	coll := s.createCollection(creator, "C1", "c1")
 	s.subscribe(coll, inactive, nil, nil)
