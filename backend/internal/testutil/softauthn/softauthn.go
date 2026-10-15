@@ -50,12 +50,6 @@ func (a *Authenticator) UserHandle() []byte { return a.userHandle }
 // Register creates a credential for the given creation options and returns
 // the RegistrationResponseJSON a browser would send to the finish endpoint.
 func (a *Authenticator) Register(creation *protocol.CredentialCreation) ([]byte, error) {
-	opts := creation.Response
-	handle, ok := opts.User.ID.(protocol.URLEncodedBase64)
-	if !ok {
-		return nil, fmt.Errorf("softauthn: unsupported user.id type %T", opts.User.ID)
-	}
-
 	var err error
 	a.key, err = ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
@@ -64,6 +58,27 @@ func (a *Authenticator) Register(creation *protocol.CredentialCreation) ([]byte,
 	a.credentialID = make([]byte, 32)
 	if _, err := rand.Read(a.credentialID); err != nil {
 		return nil, err
+	}
+	return a.attest(creation)
+}
+
+// RegisterAgain answers the given creation options with the credential
+// Register created, keeping its id and key, as an authenticator that ignores
+// excludeCredentials does.
+func (a *Authenticator) RegisterAgain(creation *protocol.CredentialCreation) ([]byte, error) {
+	if a.key == nil {
+		return nil, fmt.Errorf("softauthn: no credential registered")
+	}
+	return a.attest(creation)
+}
+
+// attest returns the RegistrationResponseJSON for the held credential,
+// created for the user and relying party the creation options name.
+func (a *Authenticator) attest(creation *protocol.CredentialCreation) ([]byte, error) {
+	opts := creation.Response
+	handle, ok := opts.User.ID.(protocol.URLEncodedBase64)
+	if !ok {
+		return nil, fmt.Errorf("softauthn: unsupported user.id type %T", opts.User.ID)
 	}
 	a.userHandle = handle
 	a.rpID = opts.RelyingParty.ID
