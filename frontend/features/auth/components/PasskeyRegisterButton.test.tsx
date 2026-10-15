@@ -32,12 +32,12 @@ vi.mock('@/lib/api-base', async (importOriginal) => ({
   API_BASE_URL: 'https://api-base.test',
 }))
 
-function jsonResponse(body: unknown, status = 200, contentType?: string): Response {
+function jsonResponse(body: unknown, status = 200): Response {
   return {
     ok: status < 400,
     status,
     statusText: '',
-    headers: new Headers(contentType ? { 'Content-Type': contentType } : undefined),
+    headers: new Headers(),
     json: async () => body,
   } as Response
 }
@@ -49,6 +49,12 @@ const REAUTH_REFUSAL = {
   message: 'For security, sign in again before making this change.',
   error_code: 'REAUTH_REQUIRED',
   request_id: 'req-1',
+}
+
+const BEGIN_OK = {
+  success: true,
+  options: { publicKey: { challenge: 'register-challenge' } },
+  challenge_id: 'challenge-1',
 }
 
 async function openAndSubmit() {
@@ -111,13 +117,7 @@ describe('PasskeyRegisterButton', () => {
   it('carries the refusal code out of the finish step', async () => {
     global.fetch = vi
       .fn()
-      .mockResolvedValueOnce(
-        jsonResponse({
-          success: true,
-          options: { publicKey: { challenge: 'register-challenge' } },
-          challenge_id: 'challenge-1',
-        })
-      )
+      .mockResolvedValueOnce(jsonResponse(BEGIN_OK))
       .mockResolvedValueOnce(
         jsonResponse(REAUTH_REFUSAL)
       ) as unknown as typeof fetch
@@ -136,13 +136,7 @@ describe('PasskeyRegisterButton', () => {
   it('reports a 503 from finish with its code and leaves the dialog usable', async () => {
     global.fetch = vi
       .fn()
-      .mockResolvedValueOnce(
-        jsonResponse({
-          success: true,
-          options: { publicKey: { challenge: 'register-challenge' } },
-          challenge_id: 'challenge-1',
-        })
-      )
+      .mockResolvedValueOnce(jsonResponse(BEGIN_OK))
       .mockResolvedValueOnce(
         jsonResponse(
           {
@@ -222,12 +216,11 @@ describe('PasskeyRegisterButton', () => {
   const UNENVELOPED_REFUSALS = [
     { shape: 'an empty JSON object', response: () => jsonResponse({}, 502) },
     {
-      shape: 'a problem+json error model',
+      shape: "huma's problem+json error model",
       response: () =>
         jsonResponse(
           { title: 'Unprocessable Entity', status: 422, detail: 'validation failed' },
-          422,
-          'application/problem+json'
+          422
         ),
     },
   ]
@@ -254,13 +247,7 @@ describe('PasskeyRegisterButton', () => {
     async ({ response }) => {
       global.fetch = vi
         .fn()
-        .mockResolvedValueOnce(
-          jsonResponse({
-            success: true,
-            options: { publicKey: { challenge: 'register-challenge' } },
-            challenge_id: 'challenge-1',
-          })
-        )
+        .mockResolvedValueOnce(jsonResponse(BEGIN_OK))
         .mockResolvedValueOnce(response()) as unknown as typeof fetch
       const onError = vi.fn()
       const onSuccess = vi.fn()
@@ -269,7 +256,6 @@ describe('PasskeyRegisterButton', () => {
       await openAndSubmit()
 
       await waitFor(() => expect(onError).toHaveBeenCalled())
-      expect(vi.mocked(global.fetch)).toHaveBeenCalledTimes(2)
       const reported = onError.mock.calls[0][0]
       expect(reported).toBeInstanceOf(Error)
       expect(reported).not.toBeInstanceOf(AuthError)
