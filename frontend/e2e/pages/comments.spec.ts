@@ -56,6 +56,18 @@ function latch() {
   return { release, released }
 }
 
+async function within(promise: Promise<void>, ms: number, failure: string) {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  const expired = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error(failure)), ms)
+  })
+  try {
+    await Promise.race([promise, expired])
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
 const CREATE_VENUE_SLUG = 'e2e-comment-create'
 const CREATE_VENUE_NAME = 'E2E [comment-create]'
 
@@ -165,7 +177,11 @@ test.describe('Comments (general)', () => {
       ).toBeVisible({ timeout: 10_000 })
       const thread = main.getByTestId('comment-thread')
       await expect(thread).toBeVisible({ timeout: 10_000 })
-      await firstGetAnswered.released
+      await within(
+        firstGetAnswered.released,
+        10_000,
+        'the thread list GET was never intercepted: its URL no longer matches listGet'
+      )
 
       const uniqueBody = uniqueText('E2E comment in flight', testInfo)
       await thread.getByTestId('comment-textarea').fill(uniqueBody)
