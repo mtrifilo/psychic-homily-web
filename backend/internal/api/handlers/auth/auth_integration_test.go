@@ -685,7 +685,7 @@ func (s *AuthHandlerIntegrationSuite) TestSendMagicLink_EmailNotVerified() {
 	input.Body.Email = "unverified@test.com"
 
 	resp, err := h.SendMagicLinkHandler(context.Background(), input)
-	s.Equal(int32(1), resend.calls.Load(), "an unverified account gets the verification email instead")
+	s.Equal(int32(1), resend.calls.Load(), "an unverified account is sent exactly one email")
 	s.Require().NoError(err)
 	s.True(resp.Body.Success)    // enumeration prevention
 	s.Empty(resp.Body.ErrorCode) // no EMAIL_NOT_VERIFIED leak
