@@ -37,7 +37,7 @@ import { chartQueryKeys } from '@/features/charts/api'
 import { commentQueryKeys, fieldNoteQueryKeys } from '@/features/comments/api'
 
 // Default query options for all queries
-const defaultQueryOptions: DefaultOptions = {
+export const defaultQueryOptions: DefaultOptions = {
   queries: {
     // Stale time: how long data is considered fresh
     staleTime: 15 * 60 * 1000, // 15 minutes
