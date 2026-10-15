@@ -171,6 +171,14 @@ assertion '	{Table: "users", Column: "username", Type: "text"},'
 migration "20260901000000_widen" "ALTER TABLE users ALTER COLUMN username TYPE text;"
 expect 0 "users.username"
 
+reset_fixture "every added migration is read, and only timestamp-named ones"
+migration "20260901000000_typed" "ALTER TABLE audit_logs ALTER COLUMN actor_id TYPE BIGINT;"
+migration "20260901000001_untyped" "ALTER TABLE users ALTER COLUMN username TYPE text;"
+migration "000079_sequential" "ALTER TABLE users ALTER COLUMN email TYPE text;"
+expect 1 "20260901000001_untyped.up.sql changes the type of users.username"
+expect_absent "changes the type of audit_logs.actor_id"
+expect_absent "users.email"
+
 reset_fixture "every missing column is named"
 migration "20260901000000_widen" "ALTER TABLE users ALTER COLUMN username TYPE text;
 ALTER TABLE users ALTER COLUMN email TYPE text;"
@@ -261,9 +269,18 @@ reset_fixture "missing schema assertion file fails closed"
 g rm backend/db/schema_assertion.go && g commit -m "drop assertion"
 expect 1 "backend/db/schema_assertion.go not found"
 
+reset_fixture "an added migration missing from the working tree fails closed"
+migration "20260901000000_widen" "ALTER TABLE users ALTER COLUMN username TYPE text;"
+rm "$FIXTURE/backend/db/migrations/20260901000000_widen.up.sql"
+expect 1 "20260901000000_widen.up.sql is added on HEAD but not readable in the working tree."
+
 reset_fixture "missing base ref fails closed"
 BASE_REF=origin/main
 expect 1 "not found in this repository"
+
+reset_fixture "no base ref argument defaults to origin/main"
+BASE_REF=""
+expect 1 "base ref 'origin/main' not found"
 
 if [ "$FAILURES" -ne 0 ]; then
   echo ""
