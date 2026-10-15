@@ -607,22 +607,21 @@ describe('API Module', () => {
     })
 
     describe('an aborted request', () => {
+      const abortBeforeResponse = (abort: DOMException) =>
+        vi.mocked(fetch).mockRejectedValue(abort)
+      const abortDuringBody = (abort: DOMException) =>
+        vi.mocked(fetch).mockResolvedValue({
+          ok: true,
+          status: 200,
+          headers: new Headers(),
+          json: () => Promise.reject(abort),
+        } as unknown as Response)
+
       it.each([
-        [
-          'before the response arrives',
-          (abort: DOMException) => vi.mocked(fetch).mockRejectedValue(abort),
-        ],
-        [
-          'while a successful body is read',
-          (abort: DOMException) =>
-            vi.mocked(fetch).mockResolvedValue({
-              ok: true,
-              status: 200,
-              headers: new Headers(),
-              json: () => Promise.reject(abort),
-            } as unknown as Response),
-        ],
-      ])('rejects %s with the original AbortError, unreported', async (_stage, failWith) => {
+        ['before the response arrives', '/auth/register', abortBeforeResponse],
+        ['while a successful body is read', '/auth/register', abortDuringBody],
+        ['while a successful body is read', '/shows', abortDuringBody],
+      ])('rejects %s on %s with the original AbortError, unreported', async (_stage, path, failWith) => {
         const abort = new DOMException('The operation was aborted.', 'AbortError')
         failWith(abort)
         const { apiRequest, API_BASE_URL } = await import('./api')
@@ -630,7 +629,7 @@ describe('API Module', () => {
         const logError = vi.spyOn(authLogger, 'error').mockImplementation(() => {})
 
         await expect(
-          apiRequest(`${API_BASE_URL}/auth/register`, { method: 'POST' })
+          apiRequest(`${API_BASE_URL}${path}`, { method: 'POST' })
         ).rejects.toBe(abort)
         expect(Sentry.captureException).not.toHaveBeenCalled()
         expect(logError).not.toHaveBeenCalled()
@@ -654,6 +653,10 @@ describe('API Module', () => {
         await expect(
           apiRequest(`${API_BASE_URL}/auth/register`, { method: 'POST' })
         ).rejects.toMatchObject({ status: 503 })
+        expect(Sentry.captureMessage).toHaveBeenCalledWith(
+          'Auth service error: 503',
+          expect.anything()
+        )
       })
     })
   })

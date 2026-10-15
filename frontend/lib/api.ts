@@ -539,8 +539,8 @@ export interface ApiResponse {
 
 /**
  * Whether a thrown value is the rejection fetch gives a request, or its body
- * read, once the request's signal aborts. Read by name rather than by
- * `instanceof`, because not every engine makes a DOMException an Error.
+ * read, once the request's signal aborts. Read by name alone, so any thrown
+ * value named AbortError counts whatever its prototype chain.
  */
 function isAbortError(error: unknown): boolean {
   return (
@@ -592,7 +592,8 @@ export const apiRequest = async <T = unknown>(
   try {
     response = await fetch(endpoint, config)
   } catch (networkError) {
-    // Network failure (backend unreachable, DNS failure, etc.)
+    // Network failure (backend unreachable, DNS failure, etc.) or an abort;
+    // only the former is an outage signal.
     if (isAuthEndpoint && !isAbortError(networkError)) {
       Sentry.captureException(networkError, {
         level: 'error',
