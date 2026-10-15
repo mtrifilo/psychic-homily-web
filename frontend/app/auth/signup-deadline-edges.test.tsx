@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { Activity, type ReactElement } from 'react'
+import { Activity } from 'react'
 import { act, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { createTestQueryClient, renderWithProviders } from '@/test/utils'
@@ -112,14 +112,6 @@ function deferred<T>() {
     resolve = settle
   })
   return { promise, resolve }
-}
-
-function visible(ui: ReactElement) {
-  return <Activity mode="visible">{ui}</Activity>
-}
-
-function hidden(ui: ReactElement) {
-  return <Activity mode="hidden">{ui}</Activity>
 }
 
 function setupUser() {
@@ -292,12 +284,24 @@ describe('sign-up deadlines on /auth', () => {
     it('resumes the redirect 30 s after the page is shown again', async () => {
       routeFetch({ '/auth/register': stalledRequest })
       const user = setupUser()
-      const { rerender } = renderWithProviders(visible(<AuthPage />))
+      const { rerender } = renderWithProviders(
+        <Activity mode="visible">
+          <AuthPage />
+        </Activity>
+      )
 
       await submitPasswordSignup(user)
-      rerender(hidden(<AuthPage />))
+      rerender(
+        <Activity mode="hidden">
+          <AuthPage />
+        </Activity>
+      )
       await advanceFakeTime(SIGNUP_REQUEST_TIMEOUT_MS)
-      rerender(visible(<AuthPage />))
+      rerender(
+        <Activity mode="visible">
+          <AuthPage />
+        </Activity>
+      )
       // Any profile refetch can report the session the register request set.
       act(() => {
         authStore.set('authenticated')

@@ -407,6 +407,8 @@ function SignupForm({
           age_confirmed: value.ageConfirmed,
           min_age_attested: MIN_SIGNUP_AGE,
           signal: passwordRequestDeadline.arm(),
+          // The profile refetch that follows takes no signal: this deadline
+          // bounds only how long the claim waits on it.
           onRegistered: () => {
             passwordRequestDeadline.arm()
           },
