@@ -8,6 +8,7 @@ import (
 
 	"github.com/go-chi/httprate"
 
+	"psychic-homily-backend/internal/config"
 	authm "psychic-homily-backend/internal/models/auth"
 	"psychic-homily-backend/internal/services/auth"
 )
@@ -253,6 +254,14 @@ func TestRateLimitBySessionUser_OneBucketPerAccount(t *testing.T) {
 
 	if rr := serve(handler, mutationReq("9.9.9.9:1000", tokenB)); rr.Code != http.StatusOK {
 		t.Errorf("B on A's address after A's budget was spent: status = %d, want 200", rr.Code)
+	}
+
+	// A browser session rides the auth cookie, not the Authorization header,
+	// and spends the same account's bucket.
+	cookieReq := mutationReq("6.6.6.6:1000", "")
+	cookieReq.AddCookie(&http.Cookie{Name: config.AuthCookieName, Value: tokenA})
+	if rr := serve(handler, cookieReq); rr.Code != http.StatusTooManyRequests {
+		t.Errorf("A's spent budget through the auth cookie: status = %d, want 429", rr.Code)
 	}
 	for i := 0; i < budget*2; i++ {
 		if rr := serve(handler, mutationReq("9.9.9.9:1000", "")); rr.Code != http.StatusOK {
