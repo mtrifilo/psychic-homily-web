@@ -98,13 +98,14 @@ func BackendURLForDeployedFrontend(frontendURL string) (string, bool) {
 }
 
 // DeriveBackendURL maps a frontend URL to the corresponding public API URL:
-// the BackendURLForDeployedFrontend mapping, else http://localhost:8080.
-// Services that mint backend-hosted unsubscribe URLs share this mapping.
+// the BackendURLForDeployedFrontend mapping, else config.BackendPublicURL
+// (BACKEND_PUBLIC_URL, else http://localhost:8080). Services that mint
+// backend-hosted unsubscribe URLs share this mapping.
 func DeriveBackendURL(frontendURL string) string {
 	if backendURL, ok := BackendURLForDeployedFrontend(frontendURL); ok {
 		return backendURL
 	}
-	return "http://localhost:8080"
+	return config.BackendPublicURL()
 }
 
 // Start begins the background digest job.
