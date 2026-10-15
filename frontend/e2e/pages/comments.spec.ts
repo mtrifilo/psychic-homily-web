@@ -134,22 +134,19 @@ test.describe('Comments (general)', () => {
       // response does not contain the new comment.
       const listGet = /\/api\/entities\/venue\/\d+\/comments\?sort=/
       let listGets = 0
-      let releaseFirstGet!: () => void
-      const firstGetReleased = new Promise<void>((r) => (releaseFirstGet = r))
-      let firstGetAnswered!: () => void
-      const firstGetAnsweredP = new Promise<void>((r) => (firstGetAnswered = r))
-      let secondGetIssued!: () => void
-      const secondGetIssuedP = new Promise<void>((r) => (secondGetIssued = r))
+      const firstGetAnswered = Promise.withResolvers<void>()
+      const firstGetReleased = Promise.withResolvers<void>()
+      const secondGetIssued = Promise.withResolvers<void>()
 
       await authenticatedPage.route(listGet, async (route) => {
         if (route.request().method() !== 'GET') return route.continue()
         listGets += 1
-        if (listGets === 2) secondGetIssued()
+        if (listGets === 2) secondGetIssued.resolve()
         if (listGets !== 1) return route.continue()
         const response = await route.fetch()
         const body = await response.text()
-        firstGetAnswered()
-        await firstGetReleased
+        firstGetAnswered.resolve()
+        await firstGetReleased.promise
         await route.fulfill({ response, body })
       })
 
@@ -160,7 +157,7 @@ test.describe('Comments (general)', () => {
       ).toBeVisible({ timeout: 10_000 })
       const thread = main.getByTestId('comment-thread')
       await expect(thread).toBeVisible({ timeout: 10_000 })
-      await firstGetAnsweredP
+      await firstGetAnswered.promise
 
       const uniqueBody = uniqueText('E2E comment in flight', testInfo)
       await thread.getByTestId('comment-textarea').fill(uniqueBody)
@@ -182,10 +179,10 @@ test.describe('Comments (general)', () => {
       // response once it is issued, or after a bound when it never is, so
       // the visibility assertion below reports the failure.
       await Promise.race([
-        secondGetIssuedP,
+        secondGetIssued.promise,
         new Promise<void>((r) => setTimeout(r, 2_000)),
       ])
-      releaseFirstGet()
+      firstGetReleased.resolve()
 
       await expect(thread.getByText(uniqueBody)).toBeVisible({ timeout: 10_000 })
       expect(listGets).toBeGreaterThanOrEqual(2)

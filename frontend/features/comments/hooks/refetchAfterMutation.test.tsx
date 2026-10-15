@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { QueryClient, useQuery } from '@tanstack/react-query'
+import { useQuery } from '@tanstack/react-query'
 import { act, renderHook, waitFor } from '@testing-library/react'
 import { createWrapperWithClient } from '@/test/utils'
 import {
@@ -10,6 +10,11 @@ import {
   useReplyToComment,
 } from './index'
 import { refetchAfterMutation } from './refetchAfterMutation'
+import {
+  makeComment,
+  productionLikeClient,
+  routeGets,
+} from './inflightOrdering.fixtures'
 import type { Comment, CommentListResponse } from '../types'
 
 const mockApiRequest = vi.fn()
@@ -19,71 +24,6 @@ vi.mock('@/lib/api', async (importOriginal) => ({
   apiRequest: (...args: unknown[]) => mockApiRequest(...args),
 }))
 
-function makeComment(overrides: Partial<Comment> = {}): Comment {
-  return {
-    id: 1,
-    entity_type: 'venue',
-    entity_id: 42,
-    user_id: 7,
-    author_name: 'Author',
-    body: 'body',
-    body_html: '<p>body</p>',
-    parent_id: null,
-    root_id: null,
-    depth: 0,
-    ups: 0,
-    downs: 0,
-    score: 0,
-    visibility: 'visible',
-    reply_permission: 'anyone',
-    edit_count: 0,
-    is_edited: false,
-    created_at: '2026-01-01T00:00:00Z',
-    updated_at: '2026-01-01T00:00:00Z',
-    ...overrides,
-  }
-}
-
-function deferred<T>() {
-  let resolve!: (value: T) => void
-  const promise = new Promise<T>((r) => (resolve = r))
-  return { promise, resolve }
-}
-
-// A 15 minute staleTime, as in production, so nothing refetches on its own.
-function productionLikeClient(): QueryClient {
-  return new QueryClient({
-    defaultOptions: {
-      queries: {
-        retry: false,
-        staleTime: 15 * 60 * 1000,
-        refetchOnWindowFocus: false,
-      },
-      mutations: { retry: false },
-    },
-  })
-}
-
-/**
- * Routes GETs by URL fragment. The first GET for each fragment returns the
- * held `stale` response; later GETs return `fresh`.
- */
-function routeGets(
-  routes: Record<string, { stale: Promise<unknown>; fresh: unknown }>
-) {
-  const counts: Record<string, number> = {}
-  const handle = (url: string, init?: RequestInit) => {
-    if ((init?.method ?? 'GET') !== 'GET') return undefined
-    const fragment = Object.keys(routes).find((f) => url.includes(f))
-    if (!fragment) return undefined
-    counts[fragment] = (counts[fragment] ?? 0) + 1
-    return counts[fragment] === 1
-      ? routes[fragment].stale
-      : Promise.resolve(routes[fragment].fresh)
-  }
-  return { counts, handle }
-}
-
 describe('refetchAfterMutation', () => {
   beforeEach(() => {
     mockApiRequest.mockReset()
@@ -91,7 +31,7 @@ describe('refetchAfterMutation', () => {
 
   it('starts a new request when the first fetch is still in flight, and discards the late response', async () => {
     const client = productionLikeClient()
-    const first = deferred<string>()
+    const first = Promise.withResolvers<string>()
     const queryFn = vi
       .fn<() => Promise<string>>()
       .mockReturnValueOnce(first.promise)
@@ -115,7 +55,7 @@ describe('refetchAfterMutation', () => {
 
   it('keeps showing existing data while it refetches', async () => {
     const client = productionLikeClient()
-    const second = deferred<string>()
+    const second = Promise.withResolvers<string>()
     const queryFn = vi
       .fn<() => Promise<string>>()
       .mockResolvedValueOnce('before write')
@@ -149,8 +89,8 @@ describe('mutations that refetch after a write while the first fetch is in fligh
   it('useReplyToComment refetches the entity list and the thread', async () => {
     const parent = makeComment({ id: 10 })
     const reply = makeComment({ id: 11, parent_id: 10, root_id: 10, depth: 1 })
-    const staleList = deferred<CommentListResponse>()
-    const staleThread = deferred<{ comments: Comment[] }>()
+    const staleList = Promise.withResolvers<CommentListResponse>()
+    const staleThread = Promise.withResolvers<{ comments: Comment[] }>()
     const gets = routeGets({
       '/entities/venue/42/comments?sort=': {
         stale: staleList.promise,
@@ -208,7 +148,7 @@ describe('mutations that refetch after a write while the first fetch is in fligh
 
   it('useCreateFieldNote refetches the show field notes', async () => {
     const note = makeComment({ id: 20, entity_type: 'show', entity_id: 5 })
-    const staleNotes = deferred<CommentListResponse>()
+    const staleNotes = Promise.withResolvers<CommentListResponse>()
     const gets = routeGets({
       '/shows/5/field-notes': {
         stale: staleNotes.promise,

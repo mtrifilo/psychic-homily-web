@@ -11,6 +11,9 @@ import type { QueryClient, QueryKey } from '@tanstack/react-query'
  * invalidation, so nothing refetches until the query goes stale. Cancelling
  * first leaves no fetch to reuse, and a cancelled fetch's late response is
  * discarded.
+ *
+ * Use it for a write whose result a query may still be loading for the first
+ * time, such as a list whose form renders before the list has loaded.
  */
 export async function refetchAfterMutation(
   queryClient: QueryClient,
