@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import userEvent from '@testing-library/user-event'
-import { screen, waitFor } from '@testing-library/react'
+import { act, screen, waitFor } from '@testing-library/react'
 import { renderWithProviders } from '@/test/utils'
 import { PasskeySignupButton } from './passkey-signup'
 
@@ -248,6 +248,49 @@ describe('PasskeySignupButton', () => {
     expect(fetchMock).toHaveBeenCalledTimes(1)
     expect(mockOnHandoffChange).not.toHaveBeenCalled()
     expect(mockOnError).not.toHaveBeenCalled()
+  })
+
+  describe('a finish response that never arrives', () => {
+    // A request on a stalled connection: nothing comes back until its signal
+    // aborts, and then it rejects the way fetch does.
+    function stalledRequest(_url: string, init?: RequestInit): Promise<never> {
+      return new Promise((_, reject) => {
+        init?.signal?.addEventListener('abort', () => {
+          reject(new DOMException('The operation was aborted.', 'AbortError'))
+        })
+      })
+    }
+
+    beforeEach(() => {
+      vi.useFakeTimers({ shouldAdvanceTime: true })
+    })
+
+    afterEach(() => {
+      vi.useRealTimers()
+    })
+
+    it('PREMISE: holds the pending claim with no error long after 30 s', async () => {
+      fetchMock.mockResolvedValueOnce(BEGIN_OK)
+      fetchMock.mockImplementationOnce(stalledRequest)
+
+      renderButton()
+      await submitSignup()
+      await waitFor(() => {
+        expect(fetchMock).toHaveBeenCalledTimes(2)
+      })
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(120_000)
+      })
+
+      expect(mockOnHandoffChange.mock.calls).toEqual([
+        [{ status: 'pending', email: 'signup@example.com' }],
+      ])
+      expect(mockOnError).not.toHaveBeenCalled()
+      expect(
+        screen.getByRole('button', { name: /creating account/i })
+      ).toBeDisabled()
+    })
   })
 
   // PSY-1023: the Continue button is disabled and no signup request fires until
