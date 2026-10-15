@@ -51,6 +51,8 @@ var (
 	scopePublicAuth       = fmt.Sprintf("rateLimitedAuthGroup: the %d/min public auth budget", middleware.AuthRequestsPerMinute)
 	scopePasswordConfirm  = fmt.Sprintf("passwordConfirmGroup: the shared %d/min password-confirm budget", PasswordConfirmAttemptsPerMinute)
 	scopePasskey          = fmt.Sprintf("passkeyGroup: the %d/min passkey budget", middleware.PasskeyRequestsPerMinute)
+	scopePasskeySignup    = fmt.Sprintf("signupBeginGroup: its own %d/min passkey sign-up begin budget", middleware.PasskeySignupBeginRequestsPerMinute)
+	scopePasskeyRegister  = fmt.Sprintf("registerBeginGroup: its own %d/min passkey register begin budget, behind HumaJWTMiddleware", middleware.PasskeyRegisterBeginRequestsPerMinute)
 	scopeResendSized      = fmt.Sprintf("its own limiter at the %d/min verification-resend size", VerificationResendPerMinute)
 	scopeProtectedNoLimit = "rc.Protected with no per-route limiter"
 	scopeAdminNoLimit     = "rc.Admin with no per-route limiter"
@@ -100,11 +102,11 @@ var authRouteRateLimitScope = map[string]string{
 	"POST /auth/account/delete":             scopePasswordConfirm,
 	"POST /auth/passkey/login/begin":        scopePasskey,
 	"POST /auth/passkey/login/finish":       scopePasskey,
-	"POST /auth/passkey/signup/begin":       scopePasskey,
+	"POST /auth/passkey/signup/begin":       scopePasskeySignup,
 	"POST /auth/passkey/signup/finish":      scopePasskey,
 	"POST /auth/verify-email/send":          scopeResendSized,
 	"POST /auth/oauth/link-token":           scopeResendSized,
-	"POST /auth/passkey/register/begin":     scopeProtectedNoLimit,
+	"POST /auth/passkey/register/begin":     scopePasskeyRegister,
 	"POST /auth/passkey/register/finish":    scopeProtectedNoLimit,
 	"POST /auth/profile/sections":           scopeProtectedNoLimit,
 	"POST /auth/logout":                     scopePublicNoLimit,
@@ -165,18 +167,18 @@ func TestEveryAuthRouteHasARateLimitDisposition(t *testing.T) {
 	// a block is the condition being false; absent one at a time is a real
 	// stale row.
 	passkeyServed := 0
-	for key, scope := range authRouteRateLimitScope {
-		if scope == scopePasskey && served[key] {
+	for key := range authRouteRateLimitScope {
+		if isPasskeyRoute(key) && served[key] {
 			passkeyServed++
 		}
 	}
 
 	var stale []string
-	for key, scope := range authRouteRateLimitScope {
+	for key := range authRouteRateLimitScope {
 		if served[key] {
 			continue
 		}
-		if scope == scopePasskey && passkeyServed == 0 {
+		if isPasskeyRoute(key) && passkeyServed == 0 {
 			continue
 		}
 		stale = append(stale, key)
@@ -189,6 +191,13 @@ func TestEveryAuthRouteHasARateLimitDisposition(t *testing.T) {
 	if passkeyServed == 0 {
 		t.Log("this build registered no passkey routes, so their dispositions were not swept")
 	}
+}
+
+// isPasskeyRoute reports whether a disposition key names a route
+// setupPasskeyRoutes registers, all of which sit under /auth/passkey/.
+func isPasskeyRoute(key string) bool {
+	_, path, _ := strings.Cut(key, " ")
+	return strings.HasPrefix(path, "/auth/passkey/")
 }
 
 // The disposition table and the routes the throttle test drives must name the
