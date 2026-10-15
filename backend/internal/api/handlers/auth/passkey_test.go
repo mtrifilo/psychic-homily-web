@@ -111,16 +111,8 @@ func TestBeginRegisterHandler_BeginRegistrationFails(t *testing.T) {
 	h := testPasskeyHandlerWithMocks(mockWA, &testhelpers.MockJWTService{}, &testhelpers.MockUserService{})
 	ctx := testhelpers.CtxWithSessionAuthTime(&authm.User{ID: 1}, time.Now())
 
-	resp, err := h.BeginRegisterHandler(ctx, &BeginRegisterRequest{})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if resp.Body.Success {
-		t.Error("expected success=false")
-	}
-	if resp.Body.ErrorCode != autherrors.CodeServiceUnavailable {
-		t.Errorf("expected error_code=%s, got %s", autherrors.CodeServiceUnavailable, resp.Body.ErrorCode)
-	}
+	_, err := h.BeginRegisterHandler(ctx, &BeginRegisterRequest{})
+	requireServiceUnavailableError(t, err)
 }
 
 func TestBeginRegisterHandler_StoreChallengeFailure(t *testing.T) {
@@ -135,19 +127,8 @@ func TestBeginRegisterHandler_StoreChallengeFailure(t *testing.T) {
 	h := testPasskeyHandlerWithMocks(mockWA, &testhelpers.MockJWTService{}, &testhelpers.MockUserService{})
 	ctx := testhelpers.CtxWithSessionAuthTime(&authm.User{ID: 1}, time.Now())
 
-	resp, err := h.BeginRegisterHandler(ctx, &BeginRegisterRequest{})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if resp.Body.Success {
-		t.Error("expected success=false")
-	}
-	if resp.Body.ErrorCode != autherrors.CodeServiceUnavailable {
-		t.Errorf("expected error_code=%s, got %s", autherrors.CodeServiceUnavailable, resp.Body.ErrorCode)
-	}
-	if resp.Body.Message != "Failed to store challenge" {
-		t.Errorf("expected message 'Failed to store challenge', got '%s'", resp.Body.Message)
-	}
+	_, err := h.BeginRegisterHandler(ctx, &BeginRegisterRequest{})
+	requireServiceUnavailableError(t, err)
 }
 
 // ============================================================================
@@ -545,19 +526,8 @@ func TestListCredentialsHandler_ServiceError(t *testing.T) {
 	h := testPasskeyHandlerWithMocks(mockWA, &testhelpers.MockJWTService{}, &testhelpers.MockUserService{})
 	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
 
-	resp, err := h.ListCredentialsHandler(ctx, &struct{}{})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if resp.Body.Success {
-		t.Error("expected success=false")
-	}
-	if resp.Body.ErrorCode != autherrors.CodeServiceUnavailable {
-		t.Errorf("expected error_code=%s, got %s", autherrors.CodeServiceUnavailable, resp.Body.ErrorCode)
-	}
-	if resp.Body.Message != "Failed to get credentials" {
-		t.Errorf("expected 'Failed to get credentials', got '%s'", resp.Body.Message)
-	}
+	_, err := h.ListCredentialsHandler(ctx, &struct{}{})
+	requireServiceUnavailableError(t, err)
 }
 
 // ============================================================================
@@ -612,10 +582,11 @@ func TestDeleteCredentialHandler_Success(t *testing.T) {
 	}
 }
 
-func TestDeleteCredentialHandler_ServiceError(t *testing.T) {
+func TestDeleteCredentialHandler_CredentialNotHeld(t *testing.T) {
 	mockWA := &testhelpers.MockWebAuthnService{
 		DeleteCredentialFn: func(userID uint, credentialID uint) error {
-			return fmt.Errorf("credential not found or not owned by user")
+			return autherrors.NewAuthError(autherrors.CodeValidationFailed, "Failed to delete credential",
+				fmt.Errorf("credential not held"))
 		},
 	}
 	h := testPasskeyHandlerWithMocks(mockWA, &testhelpers.MockJWTService{}, &testhelpers.MockUserService{})
@@ -638,6 +609,19 @@ func TestDeleteCredentialHandler_ServiceError(t *testing.T) {
 	}
 }
 
+func TestDeleteCredentialHandler_ServiceError(t *testing.T) {
+	mockWA := &testhelpers.MockWebAuthnService{
+		DeleteCredentialFn: func(userID uint, credentialID uint) error {
+			return fmt.Errorf("failed to delete credential: db connection error")
+		},
+	}
+	h := testPasskeyHandlerWithMocks(mockWA, &testhelpers.MockJWTService{}, &testhelpers.MockUserService{})
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
+
+	_, err := h.DeleteCredentialHandler(ctx, &DeleteCredentialRequest{CredentialID: 999})
+	requireServiceUnavailableError(t, err)
+}
+
 func TestDeleteCredentialHandler_AnotherUsersCredential(t *testing.T) {
 	// The service layer should enforce ownership, but we can test the handler
 	// passes the correct user ID through
@@ -645,7 +629,8 @@ func TestDeleteCredentialHandler_AnotherUsersCredential(t *testing.T) {
 	mockWA := &testhelpers.MockWebAuthnService{
 		DeleteCredentialFn: func(userID uint, credentialID uint) error {
 			capturedUserID = userID
-			return fmt.Errorf("credential not owned by user")
+			return autherrors.NewAuthError(autherrors.CodeValidationFailed, "Failed to delete credential",
+				fmt.Errorf("credential not held"))
 		},
 	}
 	h := testPasskeyHandlerWithMocks(mockWA, &testhelpers.MockJWTService{}, &testhelpers.MockUserService{})
@@ -793,19 +778,8 @@ func TestBeginSignupHandler_EmailCheckFails(t *testing.T) {
 	input.Body.AgeConfirmed = true
 	input.Body.MinAgeAttested = MinSignupAge
 
-	resp, err := h.BeginSignupHandler(context.Background(), input)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if resp.Body.Success {
-		t.Error("expected success=false")
-	}
-	if resp.Body.ErrorCode != autherrors.CodeServiceUnavailable {
-		t.Errorf("expected error_code=%s, got %s", autherrors.CodeServiceUnavailable, resp.Body.ErrorCode)
-	}
-	if resp.Body.Message != "Failed to check email" {
-		t.Errorf("expected 'Failed to check email', got '%s'", resp.Body.Message)
-	}
+	_, err := h.BeginSignupHandler(context.Background(), input)
+	requireServiceUnavailableError(t, err)
 }
 
 func TestBeginSignupHandler_EmailAlreadyExists(t *testing.T) {
@@ -861,16 +835,8 @@ func TestBeginSignupHandler_BeginRegistrationForEmailFails(t *testing.T) {
 	input.Body.AgeConfirmed = true
 	input.Body.MinAgeAttested = MinSignupAge
 
-	resp, err := h.BeginSignupHandler(context.Background(), input)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if resp.Body.Success {
-		t.Error("expected success=false")
-	}
-	if resp.Body.ErrorCode != autherrors.CodeServiceUnavailable {
-		t.Errorf("expected error_code=%s, got %s", autherrors.CodeServiceUnavailable, resp.Body.ErrorCode)
-	}
+	_, err := h.BeginSignupHandler(context.Background(), input)
+	requireServiceUnavailableError(t, err)
 }
 
 func TestBeginSignupHandler_StoreSignupChallengeFails(t *testing.T) {
@@ -897,19 +863,8 @@ func TestBeginSignupHandler_StoreSignupChallengeFails(t *testing.T) {
 	input.Body.AgeConfirmed = true
 	input.Body.MinAgeAttested = MinSignupAge
 
-	resp, err := h.BeginSignupHandler(context.Background(), input)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if resp.Body.Success {
-		t.Error("expected success=false")
-	}
-	if resp.Body.ErrorCode != autherrors.CodeServiceUnavailable {
-		t.Errorf("expected error_code=%s, got %s", autherrors.CodeServiceUnavailable, resp.Body.ErrorCode)
-	}
-	if resp.Body.Message != "Failed to store challenge" {
-		t.Errorf("expected 'Failed to store challenge', got '%s'", resp.Body.Message)
-	}
+	_, err := h.BeginSignupHandler(context.Background(), input)
+	requireServiceUnavailableError(t, err)
 }
 
 func TestBeginSignupHandler_Success(t *testing.T) {

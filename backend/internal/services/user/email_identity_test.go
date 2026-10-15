@@ -62,6 +62,28 @@ func (suite *UserServiceIntegrationTestSuite) TestGetUserByEmailIncludingDeleted
 	suite.Equal("Deleted.Case@Example.com", *found.Email)
 }
 
+// TestIdentityLookups_NULIsNotFound covers an address or username holding a
+// NUL byte, which no stored row can hold: each lookup answers "not found", as
+// for any other value no account holds, instead of failing.
+func (suite *UserServiceIntegrationTestSuite) TestIdentityLookups_NULIsNotFound() {
+	lookups := map[string]func() (*authm.User, error){
+		"GetUserByEmail": func() (*authm.User, error) {
+			return suite.userService.GetUserByEmail("no\x00body@example.com")
+		},
+		"GetUserByEmailIncludingDeleted": func() (*authm.User, error) {
+			return suite.userService.GetUserByEmailIncludingDeleted("no\x00body@example.com")
+		},
+		"GetUserByUsername": func() (*authm.User, error) {
+			return suite.userService.GetUserByUsername("no\x00body")
+		},
+	}
+	for name, lookup := range lookups {
+		found, err := lookup()
+		suite.NoError(err, name)
+		suite.Nil(found, name)
+	}
+}
+
 // TestAuthenticateUserWithPassword_CaseInsensitive proves the login path end to
 // end: registered in one casing, authenticated in another.
 func (suite *UserServiceIntegrationTestSuite) TestAuthenticateUserWithPassword_CaseInsensitive() {

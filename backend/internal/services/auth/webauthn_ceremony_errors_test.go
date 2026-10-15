@@ -4,6 +4,7 @@ import (
 	"errors"
 	"time"
 
+	"github.com/go-webauthn/webauthn/protocol"
 	"github.com/go-webauthn/webauthn/webauthn"
 
 	"psychic-homily-backend/internal/config"
@@ -77,6 +78,27 @@ func (suite *WebAuthnServiceIntegrationTestSuite) TestFinishRegistrationRefusesU
 			suite.Zero(suite.credentialRows(user.ID))
 		})
 	}
+}
+
+// A verified registration of a credential id an account already holds is
+// refused and stores nothing.
+func (suite *WebAuthnServiceIntegrationTestSuite) TestFinishRegistrationRefusesHeldCredential() {
+	user := suite.createUser("register-held@test.com")
+	device := softauthn.New(ceremonyOrigin)
+	register := func(answer func(*protocol.CredentialCreation) ([]byte, error)) error {
+		options, session, err := suite.service.BeginRegistration(user)
+		suite.Require().NoError(err)
+		body, err := answer(options)
+		suite.Require().NoError(err)
+		_, err = suite.service.FinishRegistration(user, session, suite.parseCreation(body), "Key")
+		return err
+	}
+	suite.Require().NoError(register(device.Register))
+
+	err := register(device.RegisterAgain)
+
+	suite.requireRefusal(err, apperrors.CodeValidationFailed, "Invalid credential response")
+	suite.Equal(int64(1), suite.credentialRows(user.ID))
 }
 
 // A verified registration whose credential cannot be stored is a failure.

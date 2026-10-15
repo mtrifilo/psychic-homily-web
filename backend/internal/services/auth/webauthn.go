@@ -103,36 +103,27 @@ func (s *WebAuthnService) BeginRegistration(user *authm.User) (*protocol.Credent
 	return options, session, nil
 }
 
-// invalidRegistrationMessage is the user-facing message of the
-// CodeValidationFailed refusals FinishRegistration and
-// FinishSignupRegistrationWithLegal return for a registration that fails
-// verification.
-const invalidRegistrationMessage = "Invalid credential response"
-
-// refuseRegistration is the refusal for a registration response that fails
-// verification against its session: a signature, origin, challenge, relying
-// party or flag the ceremony does not accept.
-func refuseRegistration(internal error) *apperrors.AuthError {
-	return apperrors.NewAuthError(apperrors.CodeValidationFailed, invalidRegistrationMessage, internal)
-}
-
 // FinishRegistration verifies a registration response for user and stores
 // the credential it creates.
 //
 // A refusal is a CodeValidationFailed *apperrors.AuthError for a response
-// that fails verification. Any other error means the credential could not be
-// stored.
+// that fails verification or whose credential id an account already holds.
+// Any other error means the credential could not be stored.
 func (s *WebAuthnService) FinishRegistration(user *authm.User, session *webauthn.SessionData, response *protocol.ParsedCredentialCreationData, displayName string) (*authm.WebAuthnCredential, error) {
 	credential, err := s.webAuthn.CreateCredential(user, *session, response)
 	if err != nil {
-		return nil, refuseRegistration(fmt.Errorf("create credential: %w", err))
+		return nil, apperrors.ErrInvalidCredentialResponse(fmt.Errorf("create credential: %w", err))
 	}
 
-	// Convert to our model
 	webauthnCred := authm.ToWebAuthnCredential(user.ID, credential, displayName)
 
-	// Save to database
+	// credential_id is the only unique column the insert writes (id is
+	// assigned by its sequence), so a duplicate key is a credential some
+	// account already holds.
 	if err := s.db.Create(webauthnCred).Error; err != nil {
+		if shared.IsDuplicateKey(err) {
+			return nil, apperrors.ErrInvalidCredentialResponse(fmt.Errorf("credential already registered: %w", err))
+		}
 		return nil, fmt.Errorf("failed to save credential: %w", err)
 	}
 
@@ -341,7 +332,10 @@ func (s *WebAuthnService) GetUserCredentials(userID uint) ([]authm.WebAuthnCrede
 	return credentials, nil
 }
 
-// DeleteCredential removes a passkey credential
+// DeleteCredential removes userID's passkey credential credentialID.
+//
+// A refusal is a CodeValidationFailed *apperrors.AuthError for a credential
+// userID does not hold. Any other error means the delete could not run.
 func (s *WebAuthnService) DeleteCredential(userID uint, credentialID uint) error {
 	if s.db == nil {
 		return fmt.Errorf("database not initialized")
@@ -351,7 +345,8 @@ func (s *WebAuthnService) DeleteCredential(userID uint, credentialID uint) error
 		return fmt.Errorf("failed to delete credential: %w", result.Error)
 	}
 	if result.RowsAffected == 0 {
-		return fmt.Errorf("credential not found")
+		return apperrors.NewAuthError(apperrors.CodeValidationFailed, "Failed to delete credential",
+			fmt.Errorf("credential %d not held by user %d", credentialID, userID))
 	}
 	return nil
 }
@@ -700,10 +695,10 @@ func (s *WebAuthnService) ConsumeSignupChallenge(challengeID string, operation s
 // response, then creates the account under the id its session reserved, with
 // the acceptance recorded, its default preferences and the credential.
 //
-// A refusal is an *apperrors.AuthError: CodeValidationFailed for a response
-// that fails verification, CodeUserExists for an address an account already
-// holds. Any other error means the account was not created, or was created
-// and could not be read back.
+// It returns the account as created, with its preferences. A refusal is an
+// *apperrors.AuthError: CodeValidationFailed for a response that fails
+// verification, CodeUserExists for an address an account already holds. Any
+// other error means the account was not created.
 func (s *WebAuthnService) FinishSignupRegistrationWithLegal(
 	email string,
 	session *webauthn.SessionData,
@@ -718,7 +713,7 @@ func (s *WebAuthnService) FinishSignupRegistrationWithLegal(
 
 	credential, err := s.webAuthn.CreateCredential(signupAccount(reservedID, email), *session, response)
 	if err != nil {
-		return nil, refuseRegistration(fmt.Errorf("create credential: %w", err))
+		return nil, apperrors.ErrInvalidCredentialResponse(fmt.Errorf("create credential: %w", err))
 	}
 
 	// Start a transaction to create user and credential atomically
@@ -789,10 +784,6 @@ func (s *WebAuthnService) FinishSignupRegistrationWithLegal(
 		return nil, fmt.Errorf("failed to commit transaction: %w", err)
 	}
 
-	// Load relationships
-	if err := s.db.Preload("Preferences").First(user, user.ID).Error; err != nil {
-		return nil, fmt.Errorf("failed to load user relationships: %w", err)
-	}
-
+	user.Preferences = preferences
 	return user, nil
 }
