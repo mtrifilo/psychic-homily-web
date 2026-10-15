@@ -301,9 +301,8 @@ func (r *RadioCandidatesReader) ListLabelCandidates(ctx context.Context, q contr
 	ctx, cancel := context.WithTimeout(ctx, radioCandidateListingTimeout)
 	defer cancel()
 	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		// The server-side bound holds even if the client's cancellation is lost.
-		if err := tx.Exec(fmt.Sprintf("SET LOCAL statement_timeout = %d", radioCandidateListingTimeout.Milliseconds())).Error; err != nil {
-			return fmt.Errorf("bounding the listing: %w", err)
+		if err := boundRadioCandidateListing(tx); err != nil {
+			return err
 		}
 		var rows []radioLabelCandidateRow
 		if err := tx.Raw(radioLabelCandidatesSQL,

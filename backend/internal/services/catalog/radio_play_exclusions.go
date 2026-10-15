@@ -289,12 +289,16 @@ func RadioPlayExcludedSQL(dim RadioRankingDimension, cols RadioPlayColumns) stri
 	var normalized, blankKey, globalMatch, scopedCases []string
 	for _, f := range fields {
 		value := "n." + f.matchKind
-		normalized = append(normalized, RadioNormalizedFieldSQL(f.column)+" AS "+f.matchKind)
 		scopedCases = append(scopedCases, fmt.Sprintf("WHEN '%s' THEN %s", f.matchKind, value))
 		inKey := slices.Contains(keyKinds, f.matchKind)
+		fieldSQL := RadioNormalizedFieldSQL(f.column)
 		if inKey {
 			blankKey = append(blankKey, value+" IS NULL")
+		} else {
+			fieldSQL = fmt.Sprintf("CASE WHEN (SELECT bool_or(category <> '%s') FROM radio_play_exclusions WHERE match_kind = '%s') THEN %s END",
+				catalogm.RadioPlayExclusionCategoryPlaceholder, f.matchKind, fieldSQL)
 		}
+		normalized = append(normalized, fieldSQL+" AS "+f.matchKind)
 		// Rules that apply to this field for this dimension: every station
 		// element and talk rule, plus placeholders when the field is in the key.
 		rules := fmt.Sprintf("station_id IS NULL AND match_kind = '%s'", f.matchKind)
@@ -317,6 +321,10 @@ func RadioPlayExcludedSQL(dim RadioRankingDimension, cols RadioPlayColumns) stri
 	// Shape, and why:
 	//   * OFFSET 0 keeps the planner from inlining the normalization subquery,
 	//     so each field is normalized once per play rather than once per rule.
+	//   * A field outside the dimension's key is normalized only while the
+	//     table holds a station element or talk rule of its kind (read once
+	//     per query): no other rule applies to it, so without one it is NULL,
+	//     which matches nothing, and the per-play normalization is skipped.
 	//   * Global rules are read through uncorrelated scalar subqueries, which
 	//     Postgres evaluates once per query (InitPlans), not once per play.
 	//   * Regex rules are joined into alternations of at most

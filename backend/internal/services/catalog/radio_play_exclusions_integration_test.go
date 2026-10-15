@@ -692,3 +692,32 @@ func (s *RadioPlayExclusionsIntegrationSuite) TestStationScopedAlbumRule() {
 	s.False(onNTS.ExAlbum || onNTS.ExArtist || onNTS.ExTrack || onNTS.ExLabel)
 	s.assertGoAgreesWithSQL()
 }
+
+// A station element or talk row on a field outside a dimension's key excludes
+// the whole play from that dimension too; the seed holds no such album or
+// label row, so this covers the predicate once one is added.
+func (s *RadioPlayExclusionsIntegrationSuite) TestTalkRowsOnAlbumAndLabelExcludeWholePlay() {
+	s.addAlbumPlay("t-kexp", "T Ident Album", "Top of the Hour", "Station ID 2026")
+	s.addAlbumPlay("t-kexp", "T Plain", "Top of the Hour", "Real Album")
+	before := s.verdictFor("T Ident Album")
+	s.False(before.ExArtist || before.ExTrack || before.ExLabel || before.ExAlbum)
+
+	s.Require().NoError(s.db.Create(&catalogm.RadioPlayExclusion{
+		MatchKind: "album_title", PatternType: "regex", Pattern: "^station ids? ", Category: "station_element", Reason: "test",
+	}).Error)
+	s.Require().NoError(s.db.Create(&catalogm.RadioPlayExclusion{
+		MatchKind: "label_name", PatternType: "exact", Pattern: "kexp promo", Category: "talk", Reason: "test",
+	}).Error)
+	s.Require().NoError(s.db.Create(&catalogm.RadioPlay{
+		EpisodeID: s.episodeBySlug["t-nts"], ArtistName: "T Promo Label", TrackTitle: stringPtr("Spot"),
+		AlbumTitle: stringPtr("Real Album"), LabelName: stringPtr("KEXP Promo"), ProviderPlayID: stringPtr("t-promo"),
+	}).Error)
+
+	for _, artist := range []string{"T Ident Album", "T Promo Label"} {
+		v := s.verdictFor(artist)
+		s.True(v.ExArtist && v.ExTrack && v.ExLabel && v.ExAlbum, "%q is excluded from every dimension", artist)
+	}
+	plain := s.verdictFor("T Plain")
+	s.False(plain.ExArtist || plain.ExTrack || plain.ExLabel || plain.ExAlbum)
+	s.assertGoAgreesWithSQL()
+}

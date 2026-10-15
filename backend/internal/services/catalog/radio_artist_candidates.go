@@ -443,12 +443,27 @@ func (r *RadioCandidatesReader) inSnapshot(ctx context.Context, fn func(tx *gorm
 	ctx, cancel := context.WithTimeout(ctx, radioCandidateListingTimeout)
 	defer cancel()
 	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		// The server-side bound holds even if the client's cancellation is lost.
-		if err := tx.Exec(fmt.Sprintf("SET LOCAL statement_timeout = %d", radioCandidateListingTimeout.Milliseconds())).Error; err != nil {
-			return fmt.Errorf("bounding the listing: %w", err)
+		if err := boundRadioCandidateListing(tx); err != nil {
+			return err
 		}
 		return fn(tx)
 	}, &sql.TxOptions{Isolation: sql.LevelRepeatableRead, ReadOnly: true})
+}
+
+// boundRadioCandidateListing sets the session limits of a candidate listing
+// transaction. statement_timeout is the server-side bound, which holds even if
+// the client's cancellation is lost. jit is off because the listing statements
+// carry RadioPlayExcludedSQL several times, which puts their cost estimates
+// past the JIT thresholds although they read a few thousand plays: compiling
+// them takes seconds, running them milliseconds.
+func boundRadioCandidateListing(tx *gorm.DB) error {
+	if err := tx.Exec(fmt.Sprintf("SET LOCAL statement_timeout = %d", radioCandidateListingTimeout.Milliseconds())).Error; err != nil {
+		return fmt.Errorf("bounding the listing: %w", err)
+	}
+	if err := tx.Exec("SET LOCAL jit = off").Error; err != nil {
+		return fmt.Errorf("disabling jit for the listing: %w", err)
+	}
+	return nil
 }
 
 // radioTracksRebuiltAt returns when the radio_tracks rebuild loop last
