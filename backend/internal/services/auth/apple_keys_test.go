@@ -652,7 +652,8 @@ func TestAppleKeys_UndecodableEntryFailsFetchAndKeepsCachedSet(t *testing.T) {
 }
 
 // A caller whose context has already ended still gets a fresh cached key; on a
-// miss it gets the context's error without waiting.
+// miss it gets the context's error without starting a fetch or spending the
+// forced-refresh cooldown.
 func TestAppleKeys_AlreadyCancelledContext(t *testing.T) {
 	key := newRSAKey(t)
 	ks := newKeyServer(t, jwks(key, "known-kid"))
@@ -668,6 +669,16 @@ func TestAppleKeys_AlreadyCancelledContext(t *testing.T) {
 
 	_, err = svc.ValidateIdentityToken(ctx, signedToken(t, key, "unknown"))
 	require.ErrorIs(t, err, context.Canceled)
+	svc.keysMu.Lock()
+	cooldownSpent := !svc.lastForcedRefreshAt.IsZero()
+	svc.keysMu.Unlock()
+	assert.False(t, cooldownSpent, "a miss with an ended context starts no forced refresh")
+	assert.Equal(t, 1, ks.count(), "a miss with an ended context starts no fetch")
+
+	_, err = svc.getApplePublicKey(t.Context(), "unknown")
+	require.EqualError(t, err, "apple public key not found for kid: unknown",
+		"the next live caller fetches: no cooldown was spent")
+	assert.Equal(t, 2, ks.count())
 }
 
 // Malformed entries beside usable ones are dropped and the usable ones kept;

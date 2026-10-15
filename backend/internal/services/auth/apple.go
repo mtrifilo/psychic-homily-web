@@ -330,8 +330,10 @@ func (s *AppleAuthService) createAppleUser(appleUserID, email, firstName, lastNa
 // lacks starts at most once per appleKeysForcedRefreshCooldown; inside that
 // window such a lookup joins a fetch already in flight and otherwise fails
 // without starting one. A failed fetch leaves the cached set and its expiry as
-// they were. A call whose ctx ends while it waits returns ctx's error; the
-// fetch it started or joined still completes and publishes its outcome.
+// they were. A call that misses the cache with ctx already ended returns ctx's
+// error without starting or joining a fetch. A call whose ctx ends while it
+// waits returns ctx's error; the fetch it started or joined still completes and
+// publishes its outcome.
 func (s *AppleAuthService) getApplePublicKey(ctx context.Context, kid string) (*rsa.PublicKey, error) {
 	s.keysMu.Lock()
 	now := s.keysClock()
@@ -339,6 +341,10 @@ func (s *AppleAuthService) getApplePublicKey(ctx context.Context, kid string) (*
 	if key, ok := s.keys[kid]; ok && fresh {
 		s.keysMu.Unlock()
 		return key, nil
+	}
+	if err := ctx.Err(); err != nil {
+		s.keysMu.Unlock()
+		return nil, err
 	}
 
 	fetch := s.keysFetch
