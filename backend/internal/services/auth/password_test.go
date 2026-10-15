@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -22,9 +23,7 @@ func (f roundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) {
 
 // newMockValidator creates a PasswordValidator with a mock HTTP transport.
 func newMockValidator(transport http.RoundTripper) *PasswordValidator {
-	v := NewPasswordValidator()
-	v.httpClient = &http.Client{Transport: transport}
-	return v
+	return NewPasswordValidatorWithTransport(transport)
 }
 
 // mockHIBPResponse returns a RoundTripper that serves the given body for HIBP range requests.
@@ -62,6 +61,30 @@ func TestNewPasswordValidator(t *testing.T) {
 	assert.True(t, v.commonPasswords["password"])
 	assert.True(t, v.commonPasswords["123456"])
 	assert.True(t, v.commonPasswords["qwerty"])
+}
+
+func TestNewPasswordValidatorWithTransport_BoundsTheRangeRequest(t *testing.T) {
+	var calls int
+	transport := roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		calls++
+		assert.Equal(t, http.MethodGet, req.Method)
+		assert.Equal(t, "api.pwnedpasswords.com", req.URL.Host)
+		assert.Equal(t, "/range/5BAA6", req.URL.Path)
+		deadline, ok := req.Context().Deadline()
+		if assert.True(t, ok, "the range request must carry the breachCheckTimeout deadline") {
+			assert.WithinDuration(t, time.Now().Add(breachCheckTimeout), deadline, time.Second)
+		}
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Body:       io.NopCloser(strings.NewReader(hibpSuffix("password") + ":10\r\n")),
+			Header:     make(http.Header),
+		}, nil
+	})
+
+	breached, err := NewPasswordValidatorWithTransport(transport).IsBreached("password")
+	require.NoError(t, err)
+	assert.True(t, breached)
+	assert.Equal(t, 1, calls)
 }
 
 // --- IsCommonPassword ---

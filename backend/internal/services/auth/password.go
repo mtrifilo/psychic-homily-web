@@ -24,11 +24,26 @@ type PasswordValidator struct {
 	commonPasswords map[string]bool
 }
 
+// breachCheckTimeout bounds every outbound Pwned Passwords range request.
+const breachCheckTimeout = 5 * time.Second
+
 // NewPasswordValidator creates a new password validator
 func NewPasswordValidator() *PasswordValidator {
+	return NewPasswordValidatorWithTransport(nil)
+}
+
+// NewPasswordValidatorWithTransport is NewPasswordValidator with every Pwned
+// Passwords range request carried by transport, which is how a test answers the
+// breach check in-process instead of over the network. A nil transport means
+// http.DefaultTransport. The client around the transport is built here, so
+// every request carries the breachCheckTimeout deadline whatever transport the
+// caller passes; a transport that ignores its request's context is not bounded
+// by it.
+func NewPasswordValidatorWithTransport(transport http.RoundTripper) *PasswordValidator {
 	return &PasswordValidator{
 		httpClient: &http.Client{
-			Timeout: 5 * time.Second,
+			Timeout:   breachCheckTimeout,
+			Transport: transport,
 		},
 		commonPasswords: buildCommonPasswordsMap(),
 	}
