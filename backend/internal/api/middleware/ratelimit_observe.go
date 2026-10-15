@@ -45,6 +45,8 @@ const (
 	LimiterEntityRequestBatchSustained LimiterName = "entity_request_batch_sustained"
 	LimiterAuth                        LimiterName = "auth"
 	LimiterPasskey                     LimiterName = "passkey"
+	LimiterPasskeySignupBegin          LimiterName = "passkey_signup_begin"
+	LimiterPasskeyRegisterBegin        LimiterName = "passkey_register_begin"
 	LimiterOAuthRedirect               LimiterName = "oauth_redirect"
 	LimiterAppleSignIn                 LimiterName = "apple_sign_in"
 	LimiterVerificationResend          LimiterName = "verification_resend"
