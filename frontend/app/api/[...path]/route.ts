@@ -8,6 +8,9 @@ import {
 
 const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:8080'
 
+/** Browser-set headers that say where a request came from. */
+const PROVENANCE_HEADERS = ['Origin', 'Referer'] as const
+
 /**
  * Proxy all API requests to the backend.
  * This makes cookies same-origin so SameSite=Lax works in development.
@@ -34,6 +37,17 @@ async function proxyRequest(request: NextRequest) {
       : undefined
     if (cookieHeader) {
       headers['Cookie'] = cookieHeader
+    }
+
+    // The backend decides which site a request came from by reading these,
+    // so they pass through exactly as the browser sent them and stay absent
+    // when it sent none. The proxy never supplies its own: a value it made up
+    // would be the proxy vouching for a request the browser did not.
+    for (const name of PROVENANCE_HEADERS) {
+      const value = request.headers.get(name)
+      if (value) {
+        headers[name] = value
+      }
     }
 
     // Capture the request body so it can be forwarded AND inspected by the
