@@ -22,9 +22,23 @@ const (
 	// Strict limit to prevent brute force and credential stuffing
 	AuthRequestsPerMinute = 10
 
-	// PasskeyRequestsPerMinute is the rate limit for passkey/WebAuthn endpoints
-	// Slightly higher due to multi-step nature of WebAuthn flows
+	// PasskeyRequestsPerMinute is the per-IP rate limit for passkey sign-in
+	// (login begin and finish) and for the finish of a passkey sign-up.
+	// Slightly higher than the auth one due to the multi-step nature of
+	// WebAuthn flows.
 	PasskeyRequestsPerMinute = 20
+
+	// PasskeySignupBeginRequestsPerMinute is the per-IP rate limit for passkey
+	// sign-up begin. Every call reserves a users.id from the sequence before
+	// any account exists, so this bounds how fast one address can draw ids.
+	// A person signs up once and may retry once or twice; five leaves room for
+	// a shared NAT.
+	PasskeySignupBeginRequestsPerMinute = 5
+
+	// PasskeyRegisterBeginRequestsPerMinute is the per-IP rate limit for adding
+	// a passkey to a signed-in account (register begin). A person adds one
+	// passkey at a time; five leaves room for a retry and a shared NAT.
+	PasskeyRegisterBeginRequestsPerMinute = 5
 
 	// OAuthRedirectRequestsPerMinute is the per-IP rate limit for the OAuth
 	// redirects: the sign-in start and the Settings link start that send a
