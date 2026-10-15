@@ -183,11 +183,12 @@ func requestOrigin(r *http.Request) string {
 // its Origin and Referer header values: scheme://host, or "" when it says
 // nothing.
 //
-// Origin first: it is set by the browser on every cross-origin request and on
-// same-origin navigations that matter here. An absent or opaque ("null")
-// Origin falls back to Referer, trimmed to its origin because the path is
-// neither needed nor trustworthy to compare. A present Origin is returned as
-// sent, so a foreign Origin is never rescued by a Referer naming us.
+// Origin first: a browser sends it on every CORS request and every POST, so
+// the mint (a POST) carries it; a top-level GET navigation, which the spend
+// is, carries none. An absent or opaque ("null") Origin falls back to Referer,
+// trimmed to its origin because the path is neither needed nor trustworthy to
+// compare. A present Origin is returned as sent, so a foreign Origin is never
+// rescued by a Referer naming us.
 func originFromHeaders(origin, referer string) string {
 	if origin != "" && origin != "null" {
 		return origin
