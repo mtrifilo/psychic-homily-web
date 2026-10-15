@@ -330,8 +330,7 @@ func (h *OAuthHTTPHandler) OAuthCallbackHTTPHandler(w http.ResponseWriter, r *ht
 	var cliCallback string
 	if cookie, err := r.Cookie("cli_callback_id"); err == nil {
 		callbackID := cookie.Value
-		if callback, ok := getCLICallback(callbackID); ok {
-			deleteCLICallback(callbackID)
+		if callback, ok := takeCLICallback(callbackID); ok {
 			// Defense in depth: re-validate the stored callback before we
 			// build a token-bearing redirect from it. Even though the value
 			// was checked at initiation, never trust a stored redirect target
@@ -412,11 +411,11 @@ func (h *OAuthHTTPHandler) OAuthCallbackHTTPHandler(w http.ResponseWriter, r *ht
 	// sign-in they did ask for would strand them on Settings with no session.
 	// An intent that does not match is simply not about this callback.
 	if cookie, cookieErr := r.Cookie(oauthLinkIntentCookieName); cookieErr == nil {
-		intent, found := peekOAuthLinkIntent(cookie.Value)
+		intent, expired, found := peekOAuthLinkIntent(cookie.Value)
 		matchesThisHandshake := found && intent.isForHandshake(provider, r.URL.Query().Get("state"))
 
 		switch {
-		case matchesThisHandshake && time.Now().After(intent.expiresAt):
+		case matchesThisHandshake && expired:
 			// Their link, and they ran out of time. Say so.
 			consumeOAuthLinkIntent(cookie.Value)
 			http.SetCookie(w, h.newLinkIntentCookie("", -1))
