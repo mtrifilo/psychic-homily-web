@@ -129,6 +129,56 @@ describe('api/[...path] proxy route', () => {
     })
   })
 
+  describe('Origin and Referer forwarding', () => {
+    const FRONTEND = 'http://localhost:3000'
+
+    it.each([
+      {
+        name: 'forwards both unchanged',
+        origin: FRONTEND,
+        referer: `${FRONTEND}/profile?tab=settings`,
+      },
+      {
+        name: 'forwards a foreign Origin as sent rather than replacing it',
+        origin: 'https://evil.example',
+        referer: undefined,
+      },
+      {
+        name: 'forwards an opaque Origin as sent',
+        origin: 'null',
+        referer: `${FRONTEND}/profile`,
+      },
+      {
+        name: 'forwards Referer alone when the browser sent no Origin',
+        origin: undefined,
+        referer: `${FRONTEND}/profile`,
+      },
+      {
+        name: 'adds neither when the browser sent neither',
+        origin: undefined,
+        referer: undefined,
+      },
+    ])('$name', async ({ origin, referer }) => {
+      fetchSpy.mockResolvedValue(new Response('ok', { status: 200 }))
+
+      const sent: Record<string, string> = {}
+      if (origin) sent.origin = origin
+      if (referer) sent.referer = referer
+      const req = new NextRequest(`${FRONTEND}/api/auth/oauth/link-token`, {
+        method: 'POST',
+        headers: sent,
+      })
+      await POST(req)
+
+      const headers = fetchSpy.mock.calls[0][1]?.headers as Record<
+        string,
+        string
+      >
+      expect(headers['Origin']).toBe(origin)
+      expect(headers['Referer']).toBe(referer)
+    })
+  })
+
   describe('non-GET forwarding', () => {
     it('forwards the body for POST', async () => {
       fetchSpy.mockResolvedValue(new Response('created', { status: 201 }))
