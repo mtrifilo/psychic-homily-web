@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"net/url"
+	"testing"
 
 	"github.com/go-webauthn/webauthn/protocol"
 	"github.com/go-webauthn/webauthn/webauthn"
@@ -215,7 +216,7 @@ func (s *OAuthHandlerIntegrationSuite) TestPasskeyFinishLogin_AccountState() {
 			s.Run(ceremony.name+"/"+state.name, func() {
 				user := &authm.User{Email: strPtr("passkey-" + ceremony.name + "-" + state.name + "@test.com"), IsActive: true, EmailVerified: true}
 				s.Require().NoError(s.deps.DB.Create(user).Error)
-				device := s.registerSoftPasskey(webauthnService, user)
+				device := registerSoftPasskey(s.T(), webauthnService, user)
 				state.apply(s, user.ID)
 
 				login := ceremony.begin(user.ID)
@@ -256,16 +257,23 @@ func (s *OAuthHandlerIntegrationSuite) TestPasskeyFinishLogin_AccountState() {
 
 // registerSoftPasskey registers a fresh software authenticator for user
 // through the WebAuthn service and returns it.
-func (s *OAuthHandlerIntegrationSuite) registerSoftPasskey(webauthnService *authsvc.WebAuthnService, user *authm.User) *softauthn.Authenticator {
-	s.T().Helper()
+func registerSoftPasskey(t *testing.T, webauthnService *authsvc.WebAuthnService, user *authm.User) *softauthn.Authenticator {
+	t.Helper()
 	device := softauthn.New(wireOrigin)
 	options, session, err := webauthnService.BeginRegistration(user)
-	s.Require().NoError(err)
+	if err != nil {
+		t.Fatalf("BeginRegistration: %v", err)
+	}
 	body, err := device.Register(options)
-	s.Require().NoError(err)
+	if err != nil {
+		t.Fatalf("Register: %v", err)
+	}
 	parsed, err := protocol.ParseCredentialCreationResponseBytes(body)
-	s.Require().NoError(err)
-	_, err = webauthnService.FinishRegistration(user, session, parsed, "Key")
-	s.Require().NoError(err)
+	if err != nil {
+		t.Fatalf("ParseCredentialCreationResponseBytes: %v", err)
+	}
+	if _, err := webauthnService.FinishRegistration(user, session, parsed, "Key"); err != nil {
+		t.Fatalf("FinishRegistration: %v", err)
+	}
 	return device
 }
