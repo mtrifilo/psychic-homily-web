@@ -32,6 +32,10 @@ import { CheckInboxInterstitial } from '@/app/auth/_components/check-inbox-inter
 import { BackupAuthPrompt } from '@/app/auth/_components/backup-auth-prompt'
 import type { SignupHandoff } from '@/app/auth/_components/signup-handoff'
 import {
+  useSignupRequestDeadline,
+  type SignupRequestDeadline,
+} from '@/app/auth/_components/signup-request-deadline'
+import {
   AUTH_ERROR_PARAM,
   hasGatedIntent,
   isReauthReason,
@@ -331,6 +335,8 @@ interface SignupFormProps {
    * releases the claim.
    */
   onHandoffChange: (handoff: SignupHandoff | null) => void
+  /** Bounds every sign-up request this tab sends. */
+  requestDeadline: SignupRequestDeadline
   /**
    * The form is showing as the arrival's own tab, and the arrival is an OAuth
    * sign-in refused for want of the consent this form records. The form then
@@ -351,6 +357,7 @@ interface SignupFormProps {
 function SignupForm({
   returnTo,
   onHandoffChange,
+  requestDeadline,
   consentRequested,
   consentReasonId,
 }: SignupFormProps) {
@@ -393,6 +400,7 @@ function SignupForm({
           privacy_version: CURRENT_PRIVACY_VERSION,
           age_confirmed: value.ageConfirmed,
           min_age_attested: MIN_SIGNUP_AGE,
+          signal: requestDeadline.arm(),
         },
         {
           onSuccess: data => {
@@ -413,6 +421,7 @@ function SignupForm({
           onError: () => {
             onHandoffChange(null)
           },
+          onSettled: requestDeadline.disarm,
         }
       )
     },
@@ -465,6 +474,7 @@ function SignupForm({
         <PasskeySignupButton
           onError={setPasskeyError}
           onHandoffChange={onHandoffChange}
+          requestDeadline={requestDeadline}
           className="w-full"
           termsVersion={CURRENT_TERMS_VERSION}
           privacyVersion={CURRENT_PRIVACY_VERSION}
@@ -702,6 +712,13 @@ function AuthPageContent() {
   const activeTab = showingArrivalTab ? arrivalTab : pickedTab.tab
   const setActiveTab = (tab: string) => setPickedTab({ arrival, tab })
   const [signupHandoff, setSignupHandoff] = useState<SignupHandoff | null>(null)
+  // A request past its deadline releases a claim still pending, which the
+  // control that sent it cannot do once the page has stopped rendering the
+  // form: an authenticated viewer with a pending claim gets neither the form
+  // nor the redirect.
+  const signupRequestDeadline = useSignupRequestDeadline(() => {
+    setSignupHandoff(current => (current?.status === 'pending' ? null : current))
+  })
   const signInTabRef = useRef<HTMLButtonElement>(null)
 
   // A hidden page runs its effect cleanups, and a shown one reruns the
@@ -850,6 +867,7 @@ function AuthPageContent() {
                   <SignupForm
                     returnTo={returnTo}
                     onHandoffChange={setSignupHandoff}
+                    requestDeadline={signupRequestDeadline}
                     consentRequested={showingArrivalTab && isConsentArrival}
                     consentReasonId={urlError ? URL_ERROR_ID : undefined}
                   />

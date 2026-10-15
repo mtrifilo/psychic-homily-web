@@ -3,6 +3,7 @@ import { act, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { renderWithProviders } from '@/test/utils'
 import AuthPage from './page'
+import { SIGNUP_REQUEST_TIMEOUT_MS } from './_components/signup-request-deadline'
 
 // The page with the real passkey sign-up button and the real backup prompt, so
 // these tests cover the hand-off between them rather than either one alone.
@@ -252,6 +253,78 @@ describe('passkey sign-up on /auth', () => {
 
     expect(await screen.findByRole('dialog', PROMPT)).toBeInTheDocument()
     expect(mockPush).not.toHaveBeenCalled()
+  })
+
+  describe('a finish response that never arrives', () => {
+    // A request on a stalled connection: nothing comes back until its signal
+    // aborts, and then it rejects the way fetch does.
+    function stalledRequest(_url: string, init?: RequestInit): Promise<never> {
+      return new Promise((_, reject) => {
+        init?.signal?.addEventListener('abort', () => {
+          reject(new DOMException('The operation was aborted.', 'AbortError'))
+        })
+      })
+    }
+
+    async function advance(ms: number) {
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(ms)
+      })
+    }
+
+    beforeEach(() => {
+      vi.useFakeTimers({ shouldAdvanceTime: true })
+      fetchMock.mockResolvedValueOnce(BEGIN_OK).mockImplementationOnce(stalledRequest)
+    })
+
+    afterEach(() => {
+      vi.useRealTimers()
+    })
+
+    it('shows the form and the generic failure after 30 s', async () => {
+      await submitPasskeySignup()
+      await waitFor(() => {
+        expect(fetchMock).toHaveBeenCalledTimes(2)
+      })
+
+      await advance(SIGNUP_REQUEST_TIMEOUT_MS)
+
+      expect(
+        await screen.findByText('Failed to complete passkey signup')
+      ).toBeInTheDocument()
+      const dialog = screen.getByRole('dialog', { name: 'Create account with passkey' })
+      expect(
+        within(dialog).getByRole('button', { name: /continue with passkey/i })
+      ).toBeEnabled()
+      expect(mockSetUser).not.toHaveBeenCalled()
+      expect(mockPush).not.toHaveBeenCalled()
+    })
+
+    // The page renders neither the form nor the redirect while it holds a
+    // pending claim for an authenticated viewer, so the control that sent the
+    // request is gone by the time the deadline passes.
+    it('resumes the redirect after 30 s once the session already exists', async () => {
+      await submitPasskeySignup()
+      await waitFor(() => {
+        expect(fetchMock).toHaveBeenCalledTimes(2)
+      })
+
+      act(() => {
+        authStore.set('authenticated')
+      })
+      expect(
+        screen.queryByRole('tab', { name: 'Create account' })
+      ).not.toBeInTheDocument()
+      // The fake clock also follows real time, so the lead is not exact.
+      await advance(SIGNUP_REQUEST_TIMEOUT_MS - 1_000)
+      expect(mockPush).not.toHaveBeenCalled()
+
+      await advance(1_000)
+      await waitFor(() => {
+        expect(mockPush).toHaveBeenCalledWith(RETURN_TO)
+      })
+      expect(mockPush).toHaveBeenCalledTimes(1)
+    })
   })
 
   it('keeps the form and reports the error when the finish request is refused', async () => {

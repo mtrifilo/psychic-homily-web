@@ -51,6 +51,16 @@ interface RegisterCredentials {
   min_age_attested: number
 }
 
+interface RegisterRequest extends RegisterCredentials {
+  /**
+   * Handed to the request and never sent. A registration that fails while it
+   * is aborted fails with REGISTRATION_FAILED, whatever the abort rejected with.
+   */
+  signal?: AbortSignal
+}
+
+const REGISTRATION_FAILED = 'Registration failed'
+
 /**
  * The envelope every auth endpoint answers with.
  *
@@ -231,21 +241,33 @@ export const useRegister = () => {
   const queryClient = useQueryClient()
 
   return useMutation({
-    mutationFn: async (
-      credentials: RegisterCredentials
-    ): Promise<AuthResponse> => {
+    mutationFn: async ({
+      signal,
+      ...credentials
+    }: RegisterRequest): Promise<AuthResponse> => {
       authLogger.debug('Registration attempt', {
         email: credentials.email.slice(0, 2) + '***',
       })
 
-      const response = await apiRequest<AuthResponse>(
-        API_ENDPOINTS.AUTH.REGISTER,
-        {
-          method: 'POST',
-          body: JSON.stringify(credentials),
-          credentials: 'include',
+      let response: AuthResponse
+      try {
+        response = await apiRequest<AuthResponse>(
+          API_ENDPOINTS.AUTH.REGISTER,
+          {
+            method: 'POST',
+            body: JSON.stringify(credentials),
+            credentials: 'include',
+            signal,
+          }
+        )
+      } catch (error) {
+        if (signal?.aborted) {
+          throw new AuthError(REGISTRATION_FAILED, AuthErrorCode.UNKNOWN, {
+            cause: error instanceof Error ? error : undefined,
+          })
         }
-      )
+        throw error
+      }
 
       // Throw a typed error if registration was unsuccessful
       if (!response.success) {
@@ -259,7 +281,7 @@ export const useRegister = () => {
         )
 
         throw new AuthError(
-          response.message || 'Registration failed',
+          response.message || REGISTRATION_FAILED,
           response.error_code || AuthErrorCode.UNKNOWN,
           {
             requestId: response.request_id,

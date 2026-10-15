@@ -261,6 +261,7 @@ describe('SignupForm deferred validation', () => {
           privacy_version: CURRENT_PRIVACY_VERSION,
           age_confirmed: true,
           min_age_attested: MIN_SIGNUP_AGE,
+          signal: expect.any(AbortSignal),
         },
         expect.any(Object),
       )
