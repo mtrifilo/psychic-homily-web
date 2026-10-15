@@ -719,3 +719,31 @@ func (s *RadioPlayExclusionsIntegrationSuite) TestTalkRowsOnAlbumAndLabelExclude
 	s.False(plain.ExArtist || plain.ExTrack || plain.ExLabel || plain.ExAlbum)
 	s.assertGoAgreesWithSQL()
 }
+
+// A station-scoped station element album row applies on its station although
+// no global non-placeholder album row exists, and a regex placeholder album
+// row disqualifies only the album.
+func (s *RadioPlayExclusionsIntegrationSuite) TestScopedStationElementAndRegexPlaceholderAlbumRows() {
+	kexp := s.stationBySlug["t-kexp"]
+	s.Require().NoError(s.db.Create(&catalogm.RadioPlayExclusion{
+		MatchKind: "album_title", PatternType: "exact", Pattern: "kexp morning ident", Category: "station_element",
+		StationID: &kexp, Reason: "test",
+	}).Error)
+	s.Require().NoError(s.db.Create(&catalogm.RadioPlayExclusion{
+		MatchKind: "album_title", PatternType: "regex", Pattern: "^promo cd( |$)", Category: "placeholder", Reason: "test",
+	}).Error)
+	s.addAlbumPlay("t-kexp", "T Ident KEXP", "Song", "KEXP Morning Ident", "Sub Pop")
+	s.addAlbumPlay("t-nts", "T Ident NTS", "Song", "KEXP Morning Ident", "Sub Pop")
+	s.addAlbumPlay("t-nts", "T Promo", "Song", "Promo CD 2026", "Sub Pop")
+	s.addAlbumPlay("t-nts", "T Promotion", "Song", "Promo CDs", "Sub Pop")
+
+	ident := s.verdictFor("T Ident KEXP")
+	s.True(ident.ExArtist && ident.ExTrack && ident.ExLabel && ident.ExAlbum, "the scoped station element row excludes the whole play on its station")
+	other := s.verdictFor("T Ident NTS")
+	s.False(other.ExArtist || other.ExTrack || other.ExLabel || other.ExAlbum, "the scoped row does not apply on other stations")
+	promo := s.verdictFor("T Promo")
+	s.True(promo.ExAlbum)
+	s.False(promo.ExArtist || promo.ExTrack || promo.ExLabel, "a placeholder album leaves the other rankings counting")
+	s.False(s.verdictFor("T Promotion").ExAlbum, "the regex is anchored on a word boundary")
+	s.assertGoAgreesWithSQL()
+}

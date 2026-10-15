@@ -597,3 +597,15 @@ func (s *RadioTracksIntegrationSuite) TestRebuildAlbumPlayCountSkipsPlaceholderA
 	s.Equal(4, t.PlayCount)
 	s.Equal(1, t.AlbumPlayCount)
 }
+
+// A play that a talk or station element row excludes is not album evidence
+// either: album_play_count leaves it out while play_count counts it.
+func (s *RadioTracksIntegrationSuite) TestRebuildAlbumPlayCountSkipsTalkPlays() {
+	s.addPlay(radioTrackFixturePlay{station: "t-kexp", artist: "T Break Band", title: stringPtr("We Are On A Break"),
+		album: stringPtr("Real Album")}, 2)
+	s.rebuild()
+
+	t := s.track("t break band", "we are on a break")
+	s.Equal(2, t.PlayCount)
+	s.Equal(0, t.AlbumPlayCount, "the seeded talk title row excludes the whole play")
+}

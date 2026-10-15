@@ -594,3 +594,21 @@ func (s *RadioCandidatesIntegrationSuite) TestEvidenceSkipsPlaceholderAlbums() {
 	s.Equal(1, c.AlbumNameCount)
 	s.Equal([]contracts.RadioCandidateName{{Name: "Real Album", PlayCount: 2}}, c.AlbumNames)
 }
+
+// Every candidate listing transaction runs with jit off.
+func (s *RadioCandidatesIntegrationSuite) TestListingTransactionsRunWithoutJIT() {
+	var inSnapshot string
+	s.Require().NoError(s.reader.inSnapshot(context.Background(), func(tx *gorm.DB) error {
+		return tx.Raw("SHOW jit").Row().Scan(&inSnapshot)
+	}))
+	s.Equal("off", inSnapshot)
+
+	var bounded string
+	s.Require().NoError(s.db.Transaction(func(tx *gorm.DB) error {
+		if err := boundRadioCandidateListing(tx); err != nil {
+			return err
+		}
+		return tx.Raw("SHOW jit").Row().Scan(&bounded)
+	}))
+	s.Equal("off", bounded, "the label listing's transaction uses the same bounds")
+}
