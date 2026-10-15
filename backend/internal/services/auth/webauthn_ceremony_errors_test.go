@@ -79,6 +79,22 @@ func (suite *WebAuthnServiceIntegrationTestSuite) TestFinishRegistrationRefusesU
 	}
 }
 
+// A verified registration of a credential id an account already holds is
+// refused and stores nothing.
+func (suite *WebAuthnServiceIntegrationTestSuite) TestFinishRegistrationRefusesHeldCredential() {
+	user := suite.createUser("register-held@test.com")
+	device := suite.registeredDevice(user)
+	options, session, err := suite.service.BeginRegistration(user)
+	suite.Require().NoError(err)
+	body, err := device.RegisterAgain(options)
+	suite.Require().NoError(err)
+
+	_, err = suite.service.FinishRegistration(user, session, suite.parseCreation(body), "Key")
+
+	suite.requireRefusal(err, apperrors.CodeValidationFailed, "Invalid credential response")
+	suite.Equal(int64(1), suite.credentialRows(user.ID))
+}
+
 // A verified registration whose credential cannot be stored is a failure.
 func (suite *WebAuthnServiceIntegrationTestSuite) TestFinishRegistrationStoreFailureIsNotARefusal() {
 	user := suite.createUser("register-store-fails@test.com")
