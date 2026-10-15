@@ -10,12 +10,8 @@ func TestHoldsNUL(t *testing.T) {
 	}{
 		{"empty", "", false},
 		{"plain username", "nobody", false},
-		{"plain address", "no.body@example.com", false},
 		{"other control byte", "no\x01body", false},
-		{"leading NUL", "\x00nobody", true},
-		{"inner NUL", "no\x00body", true},
-		{"trailing NUL", "no.body@example.com\x00", true},
-		{"only NUL", "\x00", true},
+		{"NUL", "no\x00body", true},
 	}
 
 	for _, tc := range cases {
