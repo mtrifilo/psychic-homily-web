@@ -18,6 +18,10 @@ const invalidIndexDefinitionLimit = 120
 // read.
 const invalidIndexSentrySource = "schema.invalid_index"
 
+// invalidIndexReadErrorMessage is the ERROR line and Sentry message for a
+// failed read, which is never reported as a clean result.
+const invalidIndexReadErrorMessage = "could not read pg_index; INVALID indexes were not checked"
+
 // invalidIndex is an index in the connection's current schema whose
 // pg_index.indisvalid is false. The planner never uses such an index.
 type invalidIndex struct {
@@ -45,22 +49,19 @@ func readInvalidIndexes(gormDB *gorm.DB) ([]invalidIndex, error) {
 		  ORDER BY t.relname, i.relname`,
 		invalidIndexDefinitionLimit,
 	).Scan(&indexes).Error
-	if err != nil {
-		return nil, err
-	}
-	return indexes, nil
+	return indexes, err
 }
 
 // FlagInvalidIndexes logs one ERROR line per INVALID index in the current
 // schema and captures one Sentry event naming them all; with none it logs and
 // captures nothing. A failed read is logged and captured as a read error, so
 // it is never mistaken for a clean result. It returns nothing: neither outcome
-// refuses boot. Call after AssertRequiredSchema in cmd/server.
+// refuses boot.
 func FlagInvalidIndexes(gormDB *gorm.DB, logger *slog.Logger, hub *sentry.Hub) {
 	indexes, err := readInvalidIndexes(gormDB)
 	if err != nil {
-		logger.Error("could not read pg_index; INVALID indexes were not checked", "error", err)
-		captureInvalidIndexEvent(hub, fmt.Errorf("could not read pg_index; INVALID indexes were not checked: %w", err))
+		logger.Error(invalidIndexReadErrorMessage, "error", err)
+		captureInvalidIndexEvent(hub, fmt.Errorf("%s: %w", invalidIndexReadErrorMessage, err))
 		return
 	}
 	if len(indexes) == 0 {

@@ -26,10 +26,7 @@ func leaveInvalidIndex(t *testing.T, gormDB *gorm.DB) {
 	_, err = sqlDB.ExecContext(ctx, `CREATE TABLE invalid_index_probe (value integer)`)
 	require.NoError(t, err)
 
-	writer, err := sqlDB.Conn(ctx)
-	require.NoError(t, err)
-	defer func() { assert.NoError(t, writer.Close()) }()
-	_, err = writer.ExecContext(ctx, `BEGIN`)
+	writer, err := sqlDB.BeginTx(ctx, nil)
 	require.NoError(t, err)
 	_, err = writer.ExecContext(ctx, `INSERT INTO invalid_index_probe VALUES (1)`)
 	require.NoError(t, err)
@@ -47,8 +44,7 @@ func leaveInvalidIndex(t *testing.T, gormDB *gorm.DB) {
 	_, err = builder.ExecContext(ctx, `RESET lock_timeout`)
 	require.NoError(t, err)
 
-	_, err = writer.ExecContext(ctx, `ROLLBACK`)
-	require.NoError(t, err)
+	require.NoError(t, writer.Rollback())
 
 	var valid bool
 	require.NoError(t, sqlDB.QueryRowContext(ctx,
@@ -57,15 +53,21 @@ func leaveInvalidIndex(t *testing.T, gormDB *gorm.DB) {
 	require.False(t, valid, "the failed build must leave the index INVALID")
 }
 
-// A failed concurrent build leaves an INVALID index that the schema assertion
-// passes; FlagInvalidIndexes reports it by name and boot continues.
-func TestFlagInvalidIndexes_failedConcurrentBuild(t *testing.T) {
+// A freshly migrated database has no INVALID index, so it logs and captures
+// nothing. A failed concurrent build then leaves an INVALID index that the
+// schema assertion passes; FlagInvalidIndexes reports it by name and boot
+// continues.
+func TestFlagInvalidIndexes(t *testing.T) {
 	if testing.Short() {
 		t.Skip("integration test")
 	}
 
 	td := testutil.SetupTestPostgres(t)
 	defer td.Cleanup()
+
+	logs, events := runFlagInvalidIndexes(t, td.DB)
+	assert.Empty(t, logs, "a freshly migrated database must log nothing")
+	assert.Empty(t, events, "a freshly migrated database must capture nothing")
 
 	leaveInvalidIndex(t, td.DB)
 
@@ -78,7 +80,7 @@ func TestFlagInvalidIndexes_failedConcurrentBuild(t *testing.T) {
 	require.Greater(t, len(fullDefinition), invalidIndexDefinitionLimit,
 		"the probe's definition must be long enough to show the cut")
 
-	logs, events := runFlagInvalidIndexes(t, td.DB)
+	logs, events = runFlagInvalidIndexes(t, td.DB)
 
 	require.Len(t, logs, 1)
 	assert.Equal(t, "ERROR", logs[0]["level"])
@@ -93,23 +95,4 @@ func TestFlagInvalidIndexes_failedConcurrentBuild(t *testing.T) {
 	assert.Equal(t,
 		"1 INVALID index(es): public."+probeIndexName+" on invalid_index_probe",
 		events[0].Exception[0].Value)
-}
-
-// A freshly migrated database has no INVALID index, so it logs and captures
-// nothing.
-func TestFlagInvalidIndexes_cleanDatabase(t *testing.T) {
-	if testing.Short() {
-		t.Skip("integration test")
-	}
-
-	td := testutil.SetupTestPostgres(t)
-	defer td.Cleanup()
-
-	indexes, err := readInvalidIndexes(td.DB)
-	require.NoError(t, err)
-	assert.Empty(t, indexes)
-
-	logs, events := runFlagInvalidIndexes(t, td.DB)
-	assert.Empty(t, logs)
-	assert.Empty(t, events)
 }

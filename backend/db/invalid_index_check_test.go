@@ -35,12 +35,9 @@ func runFlagInvalidIndexes(t *testing.T, gormDB *gorm.DB) ([]map[string]any, []*
 	FlagInvalidIndexes(gormDB, slog.New(slog.NewJSONHandler(&buf, nil)), hub)
 
 	var logs []map[string]any
-	for _, line := range bytes.Split(bytes.TrimSpace(buf.Bytes()), []byte("\n")) {
-		if len(line) == 0 {
-			continue
-		}
+	for dec := json.NewDecoder(&buf); dec.More(); {
 		var record map[string]any
-		require.NoError(t, json.Unmarshal(line, &record))
+		require.NoError(t, dec.Decode(&record))
 		logs = append(logs, record)
 	}
 	return logs, events
@@ -55,7 +52,7 @@ func TestFlagInvalidIndexes_readError(t *testing.T) {
 
 	require.Len(t, logs, 1)
 	assert.Equal(t, "ERROR", logs[0]["level"])
-	assert.Equal(t, "could not read pg_index; INVALID indexes were not checked", logs[0]["msg"])
+	assert.Equal(t, invalidIndexReadErrorMessage, logs[0]["msg"])
 	assert.NotEmpty(t, logs[0]["error"])
 
 	require.Len(t, events, 1)
@@ -63,6 +60,5 @@ func TestFlagInvalidIndexes_readError(t *testing.T) {
 	// The wrapped read error is its own entry; the outermost error is last.
 	exceptions := events[0].Exception
 	require.NotEmpty(t, exceptions)
-	assert.Contains(t, exceptions[len(exceptions)-1].Value,
-		"could not read pg_index; INVALID indexes were not checked: ")
+	assert.Contains(t, exceptions[len(exceptions)-1].Value, invalidIndexReadErrorMessage+": ")
 }

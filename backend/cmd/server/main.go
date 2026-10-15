@@ -218,8 +218,7 @@ func main() {
 		log.Fatalf("PSY-1384 schema assertion: %v", err)
 	}
 
-	// The schema assertion reads columns only, so an INVALID index (a failed
-	// concurrent build) passes it. This reports one and keeps booting.
+	// An INVALID index (a failed concurrent build) is reported, never fatal.
 	db.FlagInvalidIndexes(database, slog.Default(), sentry.CurrentHub())
 
 	// PSY-1761: bring the venue-local zone guard's allowlist up to date with
