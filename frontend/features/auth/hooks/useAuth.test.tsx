@@ -250,6 +250,16 @@ describe('useAuth hooks', () => {
   })
 
   describe('useRegister', () => {
+    const REGISTER_VARIABLES = {
+      email: 'new@example.com',
+      password: 'password123',
+      terms_accepted: true,
+      terms_version: '2026-01-31',
+      privacy_version: '2026-02-15',
+      age_confirmed: true,
+      min_age_attested: 16,
+    }
+
     it('calls register endpoint with credentials', async () => {
       mockApiRequest.mockResolvedValueOnce({
         success: true,
@@ -325,6 +335,67 @@ describe('useAuth hooks', () => {
       expect((result.current.error as unknown as { code: string }).code).toBe(
         AuthErrorCode.USER_EXISTS
       )
+    })
+
+    it('hands the signal to the request and keeps it out of the body', async () => {
+      mockApiRequest.mockResolvedValueOnce({
+        success: true,
+        message: 'Registration successful',
+        user: { id: '1', email: 'new@example.com' },
+      })
+      const controller = new AbortController()
+
+      const { result } = renderHook(() => useRegister(), {
+        wrapper: createWrapper(),
+      })
+
+      await act(async () => {
+        result.current.mutate({ ...REGISTER_VARIABLES, signal: controller.signal })
+      })
+
+      await waitFor(() => expect(result.current.isSuccess).toBe(true))
+      const [, options] = mockApiRequest.mock.calls[0] as [string, RequestInit]
+      expect(options.signal).toBe(controller.signal)
+      expect(JSON.parse(options.body as string)).toEqual(REGISTER_VARIABLES)
+    })
+
+    it('fails an aborted registration with the generic message', async () => {
+      const controller = new AbortController()
+      mockApiRequest.mockImplementationOnce(() => {
+        controller.abort()
+        return Promise.reject(
+          new DOMException('The operation was aborted.', 'AbortError')
+        )
+      })
+
+      const { result } = renderHook(() => useRegister(), {
+        wrapper: createWrapper(),
+      })
+
+      await act(async () => {
+        result.current.mutate({ ...REGISTER_VARIABLES, signal: controller.signal })
+      })
+
+      await waitFor(() => expect(result.current.isError).toBe(true))
+      expect(result.current.error).toBeInstanceOf(AuthError)
+      expect(result.current.error?.message).toBe('Registration failed')
+    })
+
+    it('passes through a failure that is not an abort', async () => {
+      const controller = new AbortController()
+      mockApiRequest.mockRejectedValueOnce(new TypeError('Failed to fetch'))
+
+      const { result } = renderHook(() => useRegister(), {
+        wrapper: createWrapper(),
+      })
+
+      await act(async () => {
+        result.current.mutate({ ...REGISTER_VARIABLES, signal: controller.signal })
+      })
+
+      await waitFor(() => expect(result.current.isError).toBe(true))
+      expect(result.current.error).toBeInstanceOf(TypeError)
+      expect(result.current.error?.message).toBe('Failed to fetch')
     })
   })
 
