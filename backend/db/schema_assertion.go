@@ -11,14 +11,31 @@ import (
 // Add entries here when a migration introduces columns that hot code paths
 // assume exist — drift between schema_migrations and actual DDL then fails
 // boot instead of surfacing as silent 422s at request time (PSY-1384).
+//
+// Type, when set, is the column's required type in either spelling Postgres
+// reports (information_schema data_type or udt_name, so "bigint" and "int8"
+// are equivalent); the entries use the data_type spelling, which is also the
+// one the mismatch message prints. An empty Type checks existence only. Which
+// columns carry a Type is stated above the typed entries in
+// requiredSchemaColumns.
 type requiredColumn struct {
 	Table  string
 	Column string
+	Type   string
+}
+
+const (
+	sqlBigint      = "bigint"
+	sqlTimestamptz = "timestamp with time zone"
+)
+
+func (c requiredColumn) qualifiedName() string {
+	return c.Table + "." + c.Column
 }
 
 // requiredSchemaColumns is the boot-time checklist. Keep it small: only
 // columns whose absence breaks core request paths before any health probe
-// would notice.
+// would notice, plus the typed entries described below.
 var requiredSchemaColumns = []requiredColumn{
 	{Table: "user_bookmarks", Column: "scene_digest_sent_at"},
 	{Table: "user_preferences", Column: "notify_on_scene_digest"},
@@ -52,17 +69,41 @@ var requiredSchemaColumns = []requiredColumn{
 	// Checked by a generated column so the assertion also catches a table
 	// that exists but predates the shape the guard queries.
 	{Table: "timezone_names_snapshot", Column: "name_lower"},
+	// Typed entries: exactly the columns whose type a timestamp-named
+	// migration changed. golang-migrate skips a timestamp-named migration
+	// whose version is below the recorded pointer, which happens when branches
+	// merge out of timestamp order, so the pointer does not prove its DDL ran.
+	// A sequentially numbered migration cannot be skipped that way, so the
+	// pointer alone proves its type changes and they are not typed here.
+	//
+	// The model stores the authenticator's signature counter as a uint32; an
+	// INTEGER column cannot hold the upper half of that range, so the
+	// credential update after such a sign-in fails.
+	{Table: "webauthn_credentials", Column: "sign_count", Type: sqlBigint},
+	// The audit models type both ids as uint.
+	{Table: "audit_logs", Column: "actor_id", Type: sqlBigint},
+	{Table: "audit_logs", Column: "entity_id", Type: sqlBigint},
+	{Table: "entity_edit_audit_logs", Column: "actor_id", Type: sqlBigint},
+	{Table: "entity_edit_audit_logs", Column: "entity_id", Type: sqlBigint},
+	// A TIMESTAMP (without time zone) column discards the zone of the instant
+	// the code writes, and no error says so.
+	{Table: "entity_edit_audit_logs", Column: "created_at", Type: sqlTimestamptz},
 }
 
 type columnChecker interface {
 	HasColumn(table interface{}, column string) bool
 }
 
+// assertRequiredSchema checks existence for the untyped entries only; the
+// type read in assertRequiredColumnTypes reports a typed entry that is absent.
 func assertRequiredSchema(checker columnChecker) error {
 	var missing []string
 	for _, col := range requiredSchemaColumns {
+		if col.Type != "" {
+			continue
+		}
 		if !checker.HasColumn(col.Table, col.Column) {
-			missing = append(missing, col.Table+"."+col.Column)
+			missing = append(missing, col.qualifiedName())
 		}
 	}
 	if len(missing) > 0 {
@@ -74,13 +115,109 @@ func assertRequiredSchema(checker columnChecker) error {
 	return nil
 }
 
-// AssertRequiredSchema verifies that critical columns exist before the server
-// accepts traffic. Call after db.Connect in cmd/server.
+// columnType is a column's type as information_schema.columns reports it.
+type columnType struct {
+	DataType string // SQL-standard name, e.g. "bigint", "timestamp with time zone"
+	UDTName  string // Postgres internal name, e.g. "int8", "timestamptz"
+}
+
+func (c columnType) matches(want string) bool {
+	return strings.EqualFold(want, c.DataType) || strings.EqualFold(want, c.UDTName)
+}
+
+// columnTypeReader returns the type of every column of the named tables,
+// keyed by "table.column".
+type columnTypeReader interface {
+	ColumnTypes(tables []string) (map[string]columnType, error)
+}
+
+// assertRequiredColumnTypes checks only the entries that declare a Type; no
+// other column's type is compared.
+func assertRequiredColumnTypes(reader columnTypeReader) error {
+	var typed []requiredColumn
+	var tables []string
+	seenTable := map[string]bool{}
+	for _, col := range requiredSchemaColumns {
+		if col.Type == "" {
+			continue
+		}
+		typed = append(typed, col)
+		if !seenTable[col.Table] {
+			seenTable[col.Table] = true
+			tables = append(tables, col.Table)
+		}
+	}
+	if len(typed) == 0 {
+		return nil
+	}
+
+	actual, err := reader.ColumnTypes(tables)
+	if err != nil {
+		return fmt.Errorf("could not read required column types: %w; refusing to boot", err)
+	}
+
+	var wrong []string
+	for _, col := range typed {
+		got, ok := actual[col.qualifiedName()]
+		switch {
+		case !ok:
+			wrong = append(wrong, fmt.Sprintf("%s is absent, expected %s", col.qualifiedName(), col.Type))
+		case !got.matches(col.Type):
+			wrong = append(wrong, fmt.Sprintf("%s is %s, expected %s", col.qualifiedName(), got.DataType, col.Type))
+		}
+	}
+	if len(wrong) > 0 {
+		return fmt.Errorf(
+			"required schema column types do not match: %s (type change recorded but DDL absent?); refusing to boot",
+			strings.Join(wrong, "; "),
+		)
+	}
+	return nil
+}
+
+// informationSchemaColumnTypes reads column types from the connection's
+// current schema, the schema GORM's Migrator().HasColumn consults, in one
+// query. Migrator().ColumnTypes is not used: it runs several queries per table
+// and reads a data row from each.
+type informationSchemaColumnTypes struct {
+	db *gorm.DB
+}
+
+func (r informationSchemaColumnTypes) ColumnTypes(tables []string) (map[string]columnType, error) {
+	var rows []struct {
+		TableName  string
+		ColumnName string
+		DataType   string
+		UdtName    string
+	}
+	err := r.db.Raw(
+		`SELECT table_name, column_name, data_type, udt_name
+		   FROM information_schema.columns
+		  WHERE table_schema = current_schema() AND table_name IN ?`,
+		tables,
+	).Scan(&rows).Error
+	if err != nil {
+		return nil, err
+	}
+	types := make(map[string]columnType, len(rows))
+	for _, row := range rows {
+		key := requiredColumn{Table: row.TableName, Column: row.ColumnName}.qualifiedName()
+		types[key] = columnType{DataType: row.DataType, UDTName: row.UdtName}
+	}
+	return types, nil
+}
+
+// AssertRequiredSchema verifies that critical columns exist, and have their
+// required type where one is listed, before the server accepts traffic. Call
+// after db.Connect in cmd/server.
 func AssertRequiredSchema(gormDB *gorm.DB) error {
 	if gormDB == nil {
 		return fmt.Errorf("database connection is nil")
 	}
 	if err := assertRequiredSchema(gormDB.Migrator()); err != nil {
+		return err
+	}
+	if err := assertRequiredColumnTypes(informationSchemaColumnTypes{db: gormDB}); err != nil {
 		return err
 	}
 	return assertTimezoneSnapshotPopulated(gormDB)
