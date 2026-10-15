@@ -392,6 +392,11 @@ VALUES
     'E2E [comment-reply]',
     '202 Reserved Way', 'Phoenix', 'AZ', '85001',
     true, NOW(), NOW(), 'e2e-comment-reply'
+  ),
+  (
+    'E2E [comment-create-inflight]',
+    '203 Reserved Way', 'Phoenix', 'AZ', '85001',
+    true, NOW(), NOW(), 'e2e-comment-create-inflight'
   )
 ON CONFLICT DO NOTHING;
 
