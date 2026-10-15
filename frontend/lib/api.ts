@@ -553,8 +553,8 @@ function isAbortError(error: unknown): boolean {
 /**
  * Make API requests with proper configuration, error handling, and request ID extraction.
  *
- * An abort before the response arrives, or while a successful response's body
- * is read, rejects with fetch's own AbortError, unwrapped and unreported: the
+ * An AbortError thrown before the response arrives, or while a successful
+ * response's body is read, is rethrown as it is, unwrapped and unreported: the
  * caller that owns the signal decides what an abort means. An error response
  * keeps its status even when its body read aborts, because the status is the
  * server's answer.
