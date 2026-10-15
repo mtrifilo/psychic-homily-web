@@ -263,8 +263,14 @@ func (m *RadioMatchingEngine) matchPlayWithErr(play *catalogm.RadioPlay) (bool, 
 		updates["match_state"] = catalogm.RadioPlayMatchStateNoMatch
 	}
 
-	// 2. Match release (by MB ID or exact title match)
-	if releaseID := m.matchRelease(play.AlbumTitle, play.MusicBrainzReleaseID); releaseID != nil {
+	// 2. Match release. The play's linked artist after this update is the one
+	// just resolved, else the artist_id it already carries (updates never
+	// clear artist_id).
+	linkedArtistID := play.ArtistID
+	if artistMatched {
+		linkedArtistID = artistID
+	}
+	if releaseID := m.matchRelease(linkedArtistID, play.ArtistName, play.AlbumTitle, play.MusicBrainzReleaseID); releaseID != nil {
 		updates["release_id"] = *releaseID
 	}
 
@@ -376,25 +382,28 @@ func appendUniqueUint(ids []uint, id uint) []uint {
 	return append(ids, id)
 }
 
-// matchRelease tries to match a release by MusicBrainz ID or exact title.
-func (m *RadioMatchingEngine) matchRelease(title *string, mbID *string) *uint {
+// matchRelease returns the release pickReleaseLink chooses for a play's album
+// title, given the play's linked artist (nil when it has none) and its raw
+// artist name. It never returns a release that is not credited to the linked
+// artist.
+func (m *RadioMatchingEngine) matchRelease(artistID *uint, artistName string, title *string, mbID *string) *uint {
 	// Note: Releases table doesn't have a musicbrainz_id column yet.
 	// When it exists, add MB ID matching here.
 
 	if title == nil || *title == "" {
 		return nil
 	}
-	normalized := normalizeName(*title)
-	if normalized == "" {
+	titleKey := normalizeName(*title)
+	if titleKey == "" {
 		return nil
 	}
 
-	var release catalogm.Release
-	if err := m.db.Where(whereRadioNormalized("title"), normalized).First(&release).Error; err == nil {
-		return &release.ID
+	candidates, err := loadReleaseLinkCandidates(m.db, []string{titleKey})
+	if err != nil {
+		slog.Warn("radio match: release lookup failed", "error", err)
+		return nil
 	}
-
-	return nil
+	return pickReleaseLink(artistID, normalizeName(artistName), candidates[titleKey])
 }
 
 // matchLabel tries to match a label by exact name (case-insensitive).
