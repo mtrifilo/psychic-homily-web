@@ -109,13 +109,18 @@ jobs:
       - name: Harden apt against mirror stalls
         uses: ./.github/actions/harden-apt
 
-      # 4 = the same bound as the other single-package apt installs, above the
-      # harden-apt action's ~160s single-item worst case.
+      # Installs shellcheck from the Ubuntu archive only when the runner image
+      # lacks it, so the usual run of this required job needs no apt mirror;
+      # check_shell.sh prints the version in use either way. 4 = the same
+      # bound as the other single-package apt installs, above the harden-apt
+      # action's ~160s single-item worst case.
       - name: Shellcheck the repository's shell scripts
         timeout-minutes: 4
         run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y -qq --no-install-recommends shellcheck
+          if ! command -v shellcheck >/dev/null 2>&1; then
+            sudo apt-get update -qq
+            sudo apt-get install -y -qq --no-install-recommends shellcheck
+          fi
           bash scripts/check_shell.sh
 
   migration-reversibility:
