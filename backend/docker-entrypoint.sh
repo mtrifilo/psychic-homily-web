@@ -108,18 +108,19 @@ fi
 # (us, ms, s, min, h, d); a bare number is milliseconds. This also keeps the
 # value free of characters that would change the URL around it.
 is_pg_duration() {
-    case $1 in
-        ''|[![:digit:]]*|*[![:digit:][:lower:]]*|*[[:lower:]]*[[:digit:]]*) return 1 ;;
+    pg_duration_unit=${1##*[[:digit:]]}
+    case ${1%"$pg_duration_unit"} in
+        ''|*[![:digit:]]*) return 1 ;;
     esac
-    case ${1##*[[:digit:]]} in
+    case $pg_duration_unit in
         ''|us|ms|s|min|h|d) return 0 ;;
     esac
     return 1
 }
 
-# Succeeds when the number part of duration $1 is zero.
+# Succeeds when the number part of valid duration $1 is zero.
 is_zero_duration() {
-    case ${1%%[[:lower:]]*} in
+    case ${1%%[![:digit:]]*} in
         *[!0]*) return 1 ;;
     esac
     return 0
@@ -135,12 +136,16 @@ if ! is_pg_duration "$MIGRATE_STATEMENT_TIMEOUT"; then
     echo "WARNING: MIGRATE_STATEMENT_TIMEOUT is not a whole number with an optional unit (us, ms, s, min, h, d); using 0 (not set)."
     MIGRATE_STATEMENT_TIMEOUT=0
 fi
+# From here on an empty MIGRATE_STATEMENT_TIMEOUT means "not set".
+if is_zero_duration "$MIGRATE_STATEMENT_TIMEOUT"; then
+    MIGRATE_STATEMENT_TIMEOUT=""
+fi
 # A bare number is milliseconds; naming the unit keeps the boot lines unambiguous.
 case $MIGRATE_LOCK_TIMEOUT in *[[:digit:]]) MIGRATE_LOCK_TIMEOUT="${MIGRATE_LOCK_TIMEOUT}ms" ;; esac
 case $MIGRATE_STATEMENT_TIMEOUT in *[[:digit:]]) MIGRATE_STATEMENT_TIMEOUT="${MIGRATE_STATEMENT_TIMEOUT}ms" ;; esac
 
 MIGRATE_OPTIONS_PARAM="options=-c%20lock_timeout%3D${MIGRATE_LOCK_TIMEOUT}"
-if ! is_zero_duration "$MIGRATE_STATEMENT_TIMEOUT"; then
+if [ -n "$MIGRATE_STATEMENT_TIMEOUT" ]; then
     MIGRATE_OPTIONS_PARAM="${MIGRATE_OPTIONS_PARAM}%20-c%20statement_timeout%3D${MIGRATE_STATEMENT_TIMEOUT}"
 fi
 case "$DATABASE_URL" in
@@ -153,10 +158,10 @@ case "$DATABASE_URL" in
     *options=*) echo "WARNING: DATABASE_URL carries its own 'options' parameter; migrations run WITHOUT the ${MIGRATE_LOCK_TIMEOUT} lock_timeout or any statement_timeout from MIGRATE_STATEMENT_TIMEOUT." ;;
     *)
         echo "Migrations wait at most ${MIGRATE_LOCK_TIMEOUT} for any lock (lock_timeout)."
-        if is_zero_duration "$MIGRATE_STATEMENT_TIMEOUT"; then
-            echo "Migrations get no statement_timeout from this script (MIGRATE_STATEMENT_TIMEOUT=0)."
-        else
+        if [ -n "$MIGRATE_STATEMENT_TIMEOUT" ]; then
             echo "Each migration statement runs at most ${MIGRATE_STATEMENT_TIMEOUT} (statement_timeout)."
+        else
+            echo "Migrations get no statement_timeout from this script (MIGRATE_STATEMENT_TIMEOUT=0)."
         fi
         ;;
 esac

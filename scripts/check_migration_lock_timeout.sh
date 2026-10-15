@@ -85,7 +85,7 @@ fi
 folded_sql() {
   awk '
     {
-      rest = $0
+      rest = tolower($0)
       while (rest != "") {
         open_at = index(rest, "/*")
         if (depth > 0) {
@@ -113,7 +113,7 @@ folded_sql() {
       }
       printf " "
     }
-  ' "$1" | tr '\t' ' ' | tr '[:upper:]' '[:lower:]'
+  ' "$1"
 }
 
 # Prints the strong-lock statement kinds found in $1 (output of folded_sql),

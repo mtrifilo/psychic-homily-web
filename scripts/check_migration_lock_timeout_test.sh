@@ -247,11 +247,7 @@ expect 0 "every new strong-lock migration sets its own lock_timeout"
 # --- CREATE INDEX CONCURRENTLY IF NOT EXISTS warns in both modes -------------
 reset_fixture "unbound: CONCURRENTLY IF NOT EXISTS warns and passes" unbound
 migration "20260901000000_idx" "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_t_c ON t (c);"
-expect 0 "WARNING: backend/db/migrations/20260901000000_idx.up.sql uses CREATE INDEX CONCURRENTLY IF NOT EXISTS"
-
-reset_fixture "CONCURRENTLY IF NOT EXISTS warning gives the reason" unbound
-migration "20260901000000_idx" "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_t_c ON t (c);"
-expect 0 "a failed concurrent build leaves an INVALID index that the IF NOT EXISTS retry keeps"
+expect 0 "WARNING: backend/db/migrations/20260901000000_idx.up.sql uses CREATE INDEX CONCURRENTLY IF NOT EXISTS: a failed concurrent build leaves an INVALID index that the IF NOT EXISTS retry keeps."
 
 reset_fixture "bound: UNIQUE, lowercase, multi-line CONCURRENTLY IF NOT EXISTS warns" bound
 migration "20260901000000_idx" "create unique index concurrently

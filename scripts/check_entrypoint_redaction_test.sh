@@ -89,14 +89,8 @@ expect_booted() {
 # expect_migrate_url <url>: the stub migrate got exactly this -database value.
 expect_migrate_url() {
   local got
-  got="$(grep -A1 -xF -- '-database' "$MIGRATE_ARGS" 2>/dev/null | sed -n 2p)"
+  got="$(sed -n '/^-database$/{n;p;q;}' "$MIGRATE_ARGS" 2>/dev/null)"
   [ "$got" = "$1" ] || fail "migrate got -database '$got', expected '$1'"
-}
-
-expect_no_warning() {
-  if grep -q 'WARNING' <<<"$OUTPUT"; then
-    fail "unexpected WARNING"
-  fi
 }
 
 # ---------------------------------------------------------------- cases
@@ -206,7 +200,7 @@ NO_STATEMENT_TIMEOUT_LINE="Migrations get no statement_timeout from this script 
 CASE="defaults: 5s lock_timeout, no statement_timeout"
 run "$OPTS_URL"
 expect_booted
-expect_no_warning
+expect_absent "WARNING"
 expect_line "Migrations wait at most 5s for any lock (lock_timeout)."
 expect_line "$NO_STATEMENT_TIMEOUT_LINE"
 expect_migrate_url "$OPTS_URL?$LOCK_5S"
@@ -214,7 +208,7 @@ expect_migrate_url "$OPTS_URL?$LOCK_5S"
 CASE="empty overrides read as the defaults"
 run "$OPTS_URL" MIGRATE_LOCK_TIMEOUT= MIGRATE_STATEMENT_TIMEOUT=
 expect_booted
-expect_no_warning
+expect_absent "WARNING"
 expect_line "Migrations wait at most 5s for any lock (lock_timeout)."
 expect_line "$NO_STATEMENT_TIMEOUT_LINE"
 expect_migrate_url "$OPTS_URL?$LOCK_5S"
@@ -222,7 +216,7 @@ expect_migrate_url "$OPTS_URL?$LOCK_5S"
 CASE="valid overrides with units, joined after an existing query"
 run "$OPTS_URL?sslmode=disable" MIGRATE_LOCK_TIMEOUT=30s MIGRATE_STATEMENT_TIMEOUT=10min
 expect_booted
-expect_no_warning
+expect_absent "WARNING"
 expect_line "Migrations wait at most 30s for any lock (lock_timeout)."
 expect_line "Each migration statement runs at most 10min (statement_timeout)."
 expect_migrate_url "$OPTS_URL?sslmode=disable&options=-c%20lock_timeout%3D30s%20-c%20statement_timeout%3D10min"
@@ -230,7 +224,7 @@ expect_migrate_url "$OPTS_URL?sslmode=disable&options=-c%20lock_timeout%3D30s%20
 CASE="valid overrides as bare milliseconds name the unit"
 run "$OPTS_URL" MIGRATE_LOCK_TIMEOUT=2500 MIGRATE_STATEMENT_TIMEOUT=60000
 expect_booted
-expect_no_warning
+expect_absent "WARNING"
 expect_line "Migrations wait at most 2500ms for any lock (lock_timeout)."
 expect_line "Each migration statement runs at most 60000ms (statement_timeout)."
 expect_migrate_url "$OPTS_URL?options=-c%20lock_timeout%3D2500ms%20-c%20statement_timeout%3D60000ms"
@@ -239,14 +233,14 @@ for unit in us ms s min h d; do
   CASE="lock_timeout unit $unit is accepted"
   run "$OPTS_URL" MIGRATE_LOCK_TIMEOUT="7$unit"
   expect_booted
-  expect_no_warning
+  expect_absent "WARNING"
   expect_migrate_url "$OPTS_URL?options=-c%20lock_timeout%3D7$unit"
 done
 
 CASE="statement_timeout of 0s adds nothing"
 run "$OPTS_URL" MIGRATE_STATEMENT_TIMEOUT=0s
 expect_booted
-expect_no_warning
+expect_absent "WARNING"
 expect_line "$NO_STATEMENT_TIMEOUT_LINE"
 expect_migrate_url "$OPTS_URL?$LOCK_5S"
 
