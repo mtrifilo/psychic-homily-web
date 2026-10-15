@@ -1,6 +1,9 @@
 package auth
 
 import (
+	"encoding/json"
+	"time"
+
 	"github.com/go-webauthn/webauthn/protocol"
 	"github.com/google/uuid"
 
@@ -116,6 +119,40 @@ func (suite *WebAuthnServiceIntegrationTestSuite) TestSignupPasskeySignsInAfterw
 	signedIn, err := suite.discoverableLogin(device)
 	suite.Require().NoError(err)
 	suite.Equal(user.ID, signedIn.ID)
+}
+
+// Signup returns the account as it was stored, with its preferences and the
+// values their columns default to, so a caller has nothing to read back.
+func (suite *WebAuthnServiceIntegrationTestSuite) TestSignupReturnsTheAccountAsStored() {
+	device := softauthn.New(ceremonyOrigin)
+	options, session, err := suite.service.BeginRegistrationForEmail("as-stored@test.com")
+	suite.Require().NoError(err)
+	body, err := device.Register(options)
+	suite.Require().NoError(err)
+
+	created, err := suite.service.FinishSignupRegistrationWithLegal(
+		"as-stored@test.com", session, suite.parseCreation(body), "My Passkey",
+		contracts.LegalAcceptance{TermsVersion: "v1", PrivacyVersion: "v1", MinAgeAttested: 16},
+	)
+	suite.Require().NoError(err)
+
+	var stored authm.User
+	suite.Require().NoError(suite.db.Preload("Preferences").First(&stored, created.ID).Error)
+	suite.Require().NotNil(created.Preferences)
+	suite.Require().NotNil(stored.Preferences)
+	// The database keeps microseconds; the account in hand keeps what the
+	// clock read.
+	for _, ts := range []*time.Time{
+		&created.CreatedAt, &created.UpdatedAt, &created.Preferences.CreatedAt, &created.Preferences.UpdatedAt,
+		&stored.CreatedAt, &stored.UpdatedAt, &stored.Preferences.CreatedAt, &stored.Preferences.UpdatedAt,
+	} {
+		*ts = ts.UTC().Truncate(time.Microsecond)
+	}
+	createdJSON, err := json.Marshal(created)
+	suite.Require().NoError(err)
+	storedJSON, err := json.Marshal(&stored)
+	suite.Require().NoError(err)
+	suite.JSONEq(string(storedJSON), string(createdJSON))
 }
 
 func (suite *WebAuthnServiceIntegrationTestSuite) TestSignupHandleCarriesNoEmail() {

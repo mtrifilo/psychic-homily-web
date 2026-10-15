@@ -231,8 +231,7 @@ func (suite *WebAuthnServiceIntegrationTestSuite) TestDeleteCredential_Success()
 func (suite *WebAuthnServiceIntegrationTestSuite) TestDeleteCredential_NotFound() {
 	user := suite.createUser("user@test.com")
 	err := suite.service.DeleteCredential(user.ID, 99999)
-	suite.Require().Error(err)
-	suite.Contains(err.Error(), "credential not found")
+	suite.requireRefusal(err, apperrors.CodeValidationFailed, "Failed to delete credential")
 }
 
 func (suite *WebAuthnServiceIntegrationTestSuite) TestDeleteCredential_WrongUser() {
@@ -241,8 +240,10 @@ func (suite *WebAuthnServiceIntegrationTestSuite) TestDeleteCredential_WrongUser
 	credID := suite.insertCredential(user1.ID, "Key 1")
 
 	err := suite.service.DeleteCredential(user2.ID, credID)
-	suite.Require().Error(err)
-	suite.Contains(err.Error(), "credential not found")
+	suite.requireRefusal(err, apperrors.CodeValidationFailed, "Failed to delete credential")
+	creds, err := suite.service.GetUserCredentials(user1.ID)
+	suite.Require().NoError(err)
+	suite.Len(creds, 1)
 }
 
 func (suite *WebAuthnServiceIntegrationTestSuite) TestUpdateCredentialName_Success() {

@@ -342,6 +342,19 @@ func ErrOAuthLinkExpired() *AuthError {
 	)
 }
 
+// ErrInvalidCredentialResponse is the refusal for a passkey ceremony response
+// the relying party does not accept. Its callers state which responses those
+// are.
+func ErrInvalidCredentialResponse(internal error) *AuthError {
+	return NewAuthError(CodeValidationFailed, "Invalid credential response", internal)
+}
+
+// ErrCredentialNotHeld is the refusal for deleting a passkey credential the
+// account does not hold.
+func ErrCredentialNotHeld(internal error) *AuthError {
+	return NewAuthError(CodeValidationFailed, "Failed to delete credential", internal)
+}
+
 // ErrValidationFailed creates a validation error.
 func ErrValidationFailed(message string) *AuthError {
 	return NewAuthError(CodeValidationFailed, message, nil)
