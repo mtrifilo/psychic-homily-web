@@ -331,8 +331,11 @@ describe('PasskeySignupButton', () => {
       }
     )
 
-    it('claims nothing and reports the start failure when begin stalls for 30 s', async () => {
-      fetchMock.mockImplementationOnce(stalledRequest)
+    it.each([
+      ['the begin response', stalledRequest],
+      ['the begin response body', stalledResponseBody],
+    ])('claims nothing and reports the start failure when %s stalls for 30 s', async (_label, begin) => {
+      fetchMock.mockImplementationOnce(begin)
 
       renderButton()
       submitWithFireEvent()
@@ -350,6 +353,24 @@ describe('PasskeySignupButton', () => {
       expect(
         screen.getByRole('button', { name: /continue with passkey/i })
       ).toBeEnabled()
+    })
+
+    it('disarms the deadline when finish is refused before it passes', async () => {
+      fetchMock.mockResolvedValueOnce(BEGIN_OK)
+      fetchMock.mockResolvedValueOnce({
+        json: async () => ({ success: false, message: 'Email already registered' }),
+      })
+
+      renderButton()
+      submitWithFireEvent()
+      await waitFor(() => {
+        expect(mockOnError).toHaveBeenCalledWith('Email already registered')
+      })
+
+      await advanceFakeTime(SIGNUP_REQUEST_TIMEOUT_MS * 2)
+      expect(requestSignal(fetchMock, 1).aborted).toBe(false)
+      expect(mockOnDeadlineExpire).not.toHaveBeenCalled()
+      expect(mockOnError).toHaveBeenCalledTimes(1)
     })
 
     it('gives the passkey ceremony no deadline', async () => {

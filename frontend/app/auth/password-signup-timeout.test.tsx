@@ -139,6 +139,24 @@ describe('password sign-up under the request deadline', () => {
     expect(mockPush).toHaveBeenCalledTimes(1)
   })
 
+  it('disarms the deadline when registration is refused before it passes', async () => {
+    fetchMock.mockResolvedValue(
+      new Response(
+        JSON.stringify({ success: false, message: 'Email already registered' }),
+        { status: 409, headers: { 'Content-Type': 'application/json' } }
+      )
+    )
+    await submitPasswordSignup()
+    expect(await screen.findByText('Email already registered')).toBeInTheDocument()
+
+    await advanceFakeTime(SIGNUP_REQUEST_TIMEOUT_MS * 2)
+
+    // Only an expiring deadline aborts the signal.
+    expect(requestSignal(fetchMock, 0).aborted).toBe(false)
+    expect(screen.getByText('Email already registered')).toBeInTheDocument()
+    expect(screen.queryByText('Registration failed')).not.toBeInTheDocument()
+  })
+
   it('leaves a completed sign-up alone once the deadline would have passed', async () => {
     fetchMock.mockResolvedValue(
       new Response(
