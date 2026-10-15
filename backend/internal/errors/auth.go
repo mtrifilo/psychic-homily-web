@@ -36,8 +36,9 @@ const (
 	// (authm.User.CanSignIn: deactivated or soft-deleted). Distinct from
 	// CodeInvalidCredentials so the frontend can special-case the copy. It is
 	// returned only after the caller has proved the credential (a password, a
-	// provider-authenticated identity, or a verified passkey assertion), so it
-	// is not an enumeration oracle beyond what sign-in already exposes.
+	// provider-authenticated identity, a verified passkey assertion, or, on an
+	// OAuth link, a signed session for the account being linked), so it is not
+	// an enumeration oracle beyond what sign-in already exposes.
 	CodeAccountInactive = "ACCOUNT_INACTIVE"
 	// CodeNoPasswordSet indicates the user has no password (OAuth-only account)
 	CodeNoPasswordSet = "NO_PASSWORD_SET"
