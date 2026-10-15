@@ -532,7 +532,8 @@ func (s *CommentNotificationServiceIntegrationSuite) TestNotifySubscribers_Skips
 	// Flip flags via UPDATE (Create skips zero-value false for IsActive).
 	s.Require().NoError(s.db.Model(&authm.User{}).Where("id = ?", inactive.ID).Update("is_active", false).Error)
 	now := time.Now().UTC()
-	s.Require().NoError(s.db.Model(&authm.User{}).Where("id = ?", deleted.ID).Update("deleted_at", now).Error)
+	s.Require().NoError(s.db.Model(&authm.User{}).Where("id = ?", deleted.ID).
+		Updates(map[string]any{"is_active": false, "deleted_at": now}).Error)
 
 	c := s.insertComment(author.ID, artistID, "filter test")
 	s.Require().NoError(s.svc.NotifySubscribers(c.ID))

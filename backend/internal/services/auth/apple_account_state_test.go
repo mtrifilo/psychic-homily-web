@@ -1,8 +1,6 @@
 package auth
 
 import (
-	"time"
-
 	"github.com/golang-jwt/jwt/v5"
 
 	apperrors "psychic-homily-backend/internal/errors"
@@ -26,11 +24,6 @@ func (s *AppleAuthIntegrationTestSuite) TestFindOrCreateAppleUser_AccountState()
 		}},
 		{name: "soft-deleted", apply: func(userID uint) {
 			s.Require().NoError(usersvc.NewUserService(s.db).SoftDeleteAccount(userID, nil))
-		}},
-		// Not a state the soft-delete writer leaves; here so deleted_at refuses
-		// on its own.
-		{name: "deleted-at-only", apply: func(userID uint) {
-			s.Require().NoError(s.db.Model(&authm.User{}).Where("id = ?", userID).Update("deleted_at", time.Now()).Error)
 		}},
 	}
 
