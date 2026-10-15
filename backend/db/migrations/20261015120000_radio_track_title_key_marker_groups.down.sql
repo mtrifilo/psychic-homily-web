@@ -1,6 +1,6 @@
 -- Restores the radio_track_title_key body of 20261011200000_create_radio_tracks
 -- (any trailing bracket group stripped, bare "ft" always a credit) and drops
--- the marker-group helper it no longer calls.
+-- the marker-group helpers it no longer calls.
 CREATE OR REPLACE FUNCTION public.radio_track_title_key(text)
   RETURNS text
   AS $$
@@ -22,3 +22,4 @@ CREATE OR REPLACE FUNCTION public.radio_track_title_key(text)
   LANGUAGE SQL IMMUTABLE PARALLEL SAFE STRICT;
 
 DROP FUNCTION IF EXISTS public.radio_track_strip_marker_groups(text);
+DROP FUNCTION IF EXISTS public.radio_track_title_marker_words();

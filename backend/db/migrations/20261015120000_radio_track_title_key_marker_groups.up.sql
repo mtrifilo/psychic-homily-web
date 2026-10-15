@@ -1,3 +1,15 @@
+-- radio_track_title_marker_words is the alternation of marker words that
+-- radio_track_strip_marker_groups matches as a group's first or last word.
+CREATE OR REPLACE FUNCTION public.radio_track_title_marker_words()
+  RETURNS text
+  AS $$
+    SELECT 'remix|remixes|rmx|mix|edit|version|rework|refix|reinterpretation|dub|dubmix|flip|bootleg|vip'
+      || '|extended|alternate|alt|live|demo|instrumental|instr|acoustic|unplugged|acapella|session'
+      || '|performance|rehearsal|outtake|excerpt|excerpts|exc|mono|stereo|remaster|remastered|lp|45'
+      || '|unreleased|unissued|forthcoming|bonus|clean|explicit|dirty|vocal|feat|ft|featuring|prod'
+  $$
+  LANGUAGE SQL IMMUTABLE PARALLEL SAFE;
+
 -- radio_track_strip_marker_groups removes the run of trailing bracket groups,
 -- (...), [...] or {...}, in which every group names a version, a format, a
 -- release status or a credit; it stops at the first group from the end that
@@ -8,27 +20,24 @@
 --   * its last word is a marker word, or "take", "cover" or "single", with an
 --     optional number after it: "(ron trent remix)", "(alternate take)",
 --     "(remix #2)";
---   * the whole group is a year, "radio", "original", "album", "a cappella"
---     or "take" and a number: "(1969)", "(take 1)";
+--   * the whole group is a year, "radio", "original", "album" or
+--     "a cappella": "(1969)", "(radio)";
 --   * it starts with "listen:", a playlist page link label: "(listen: pop-up)".
 -- Words are matched whole. Parts, reprises, intros and interludes are not
 -- markers: "x (part 1)" and "x (part 2)" are different pieces.
+-- A title that does not end in a closing bracket has no trailing group, so it
+-- skips the pattern match.
 CREATE OR REPLACE FUNCTION public.radio_track_strip_marker_groups(text)
   RETURNS text
   AS $$
-    SELECT regexp_replace($1,
-      '(\s*[\(\[\{](?:'
-        || '[^\(\)\[\]\{\}a-z0-9]*(?:' || w.marker || ')\M[^\(\)\[\]\{\}]*'
-        || '|[^\(\)\[\]\{\}]*\m(?:' || w.marker || '|take|cover|single)(?:\s*#?[0-9]+)?[^\(\)\[\]\{\}a-z0-9]*'
-        || '|[^\(\)\[\]\{\}a-z0-9]*(?:(?:19|20)[0-9]{2}|radio|original|album|a cappella|take\s*#?[0-9]+)[^\(\)\[\]\{\}a-z0-9]*'
+    SELECT CASE WHEN $1 ~ '[\)\]\}]\s*$' THEN regexp_replace($1,
+      '(?:\s*[\(\[\{](?:'
+        || '[^\(\)\[\]\{\}a-z0-9]*(?:' || public.radio_track_title_marker_words() || ')\M[^\(\)\[\]\{\}]*'
+        || '|[^\(\)\[\]\{\}]*\m(?:' || public.radio_track_title_marker_words()
+        || '|take|cover|single)(?:\s*#?[0-9]+)?[^\(\)\[\]\{\}a-z0-9]*'
+        || '|[^\(\)\[\]\{\}a-z0-9]*(?:(?:19|20)[0-9]{2}|radio|original|album|a cappella)[^\(\)\[\]\{\}a-z0-9]*'
         || '|listen:[^\(\)\[\]\{\}]*'
-      || ')[\)\]\}])+\s*$', '')
-    FROM (SELECT
-      'remix|remixes|rmx|mix|edit|version|rework|refix|reinterpretation|dub|dubmix|flip|bootleg|vip'
-      || '|extended|alternate|alt|live|demo|instrumental|instr|acoustic|unplugged|acapella|session'
-      || '|performance|rehearsal|outtake|excerpt|excerpts|exc|mono|stereo|remaster|remastered|lp|45'
-      || '|unreleased|unissued|forthcoming|bonus|clean|explicit|dirty|vocal|feat|ft|featuring|prod'
-      AS marker) w
+      || ')[\)\]\}])+\s*$', '') ELSE $1 END
   $$
   LANGUAGE SQL IMMUTABLE PARALLEL SAFE STRICT;
 

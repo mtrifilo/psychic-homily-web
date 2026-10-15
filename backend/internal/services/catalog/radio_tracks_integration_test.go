@@ -208,7 +208,7 @@ func (s *RadioTracksIntegrationSuite) TestTitleKeyFixtures() {
 		{"Shotz (feat. 2Shy) (Jumpin Jack Frost VIP)", "shotz"},
 		{"Klangstudie I (1952)", "klangstudie i"},
 		{"Song (Take 1)", "song"},
-		{"Song (Alternate Take)", "song"},
+		{"Song (Second Take)", "song"},
 		{"Take It (Take It or Leave It)", "take it (take it or leave it"},
 		{"Song (feat. Someone) [Remastered 2011]", "song"},
 		{"Song {Demo}", "song"},
