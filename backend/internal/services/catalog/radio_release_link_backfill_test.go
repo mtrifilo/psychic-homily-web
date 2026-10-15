@@ -8,6 +8,7 @@ import (
 
 	catalogm "psychic-homily-backend/internal/models/catalog"
 	"psychic-homily-backend/internal/services/contracts"
+	"psychic-homily-backend/internal/services/shared"
 	"psychic-homily-backend/internal/testutil"
 )
 
@@ -61,8 +62,9 @@ func (suite *RadioMatchingIntegrationTestSuite) seedReleaseLinkFixture() release
 	audit := func(playID, releaseID uint) {
 		suite.Require().NoError(suite.db.Exec(`
 INSERT INTO audit_logs (action, entity_type, entity_id, metadata)
-VALUES (?, 'radio_play', ?, jsonb_build_object('release_id', ?::int, 'artist_id', NULL))`,
-			contracts.AuditActionLinkRadioPlay, playID, releaseID).Error)
+VALUES (?, ?, ?, jsonb_build_object(?::text, ?::int, ?::text, NULL))`,
+			contracts.AuditActionLinkRadioPlay, contracts.AuditEntityRadioPlay, playID,
+			contracts.AuditMetaReleaseID, releaseID, contracts.AuditMetaArtistID).Error)
 	}
 	audit(f.adminSet, f.niceNiceChrome)
 	audit(f.adminSetOtherRelease, f.borisFlood)
@@ -85,11 +87,16 @@ func (suite *RadioMatchingIntegrationTestSuite) TestBackfillReleaseLinks_DryRunC
 	before := suite.releaseLinkState()
 
 	recorder := testutil.NewSQLRecorder()
+	var readOnly, isolation string
 	report, err := BackfillRadioReleaseLinks(
 		suite.db.Session(&gorm.Session{Logger: recorder}),
-		RadioReleaseLinkBackfillOptions{DryRun: true},
+		RadioReleaseLinkBackfillOptions{DryRun: true, txProbe: func(tx *gorm.DB) error {
+			return tx.Raw("SELECT current_setting('transaction_read_only'), current_setting('transaction_isolation')").Row().Scan(&readOnly, &isolation)
+		}},
 	)
 	suite.Require().NoError(err)
+	suite.Equal("on", readOnly, "the dry run's transaction is READ ONLY")
+	suite.Equal("repeatable read", isolation)
 
 	suite.Equal(9, report.Scanned, "plays without a release link are not scanned")
 	suite.Equal(map[RadioReleaseLinkOutcome]int{
@@ -201,6 +208,32 @@ func (suite *RadioMatchingIntegrationTestSuite) TestBackfillReleaseLinks_Confirm
 	rerun, err := BackfillRadioReleaseLinks(suite.db, RadioReleaseLinkBackfillOptions{DryRun: true})
 	suite.Require().NoError(err)
 	suite.Empty(rerun.Changes, "a second run finds nothing to change")
+}
+
+func (suite *RadioMatchingIntegrationTestSuite) TestBackfillReleaseLinks_LiveRunIsRepeatableReadWrite() {
+	suite.seedReleaseLinkFixture()
+	var readOnly, isolation string
+	_, err := BackfillRadioReleaseLinks(suite.db, RadioReleaseLinkBackfillOptions{txProbe: func(tx *gorm.DB) error {
+		return tx.Raw("SELECT current_setting('transaction_read_only'), current_setting('transaction_isolation')").Row().Scan(&readOnly, &isolation)
+	}})
+	suite.Require().NoError(err)
+	suite.Equal("off", readOnly)
+	suite.Equal("repeatable read", isolation)
+}
+
+func (suite *RadioMatchingIntegrationTestSuite) TestBackfillReleaseLinks_ConcurrentUpdateAbortsTheRun() {
+	f := suite.seedReleaseLinkFixture()
+
+	_, err := BackfillRadioReleaseLinks(suite.db, RadioReleaseLinkBackfillOptions{
+		BeforeApply: func(*RadioReleaseLinkReport) error {
+			// Another session changes a play this run is about to clear.
+			return suite.db.Exec("UPDATE radio_plays SET release_id = ? WHERE id = ?", f.borisFlood, f.notCredited).Error
+		},
+	})
+	suite.Require().Error(err)
+	suite.True(shared.IsSerializationFailure(err), "got %v", err)
+	suite.Equal(&f.borisFlood, suite.reloadPlay(f.notCredited).ReleaseID, "the other session's change stands")
+	suite.Equal(&f.borisFlood, suite.reloadPlay(f.relinkCredited).ReleaseID, "nothing from the aborted run is applied")
 }
 
 func (suite *RadioMatchingIntegrationTestSuite) TestBackfillReleaseLinks_BeforeApplyErrorWritesNothing() {

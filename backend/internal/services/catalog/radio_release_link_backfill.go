@@ -2,6 +2,7 @@ package catalog
 
 import (
 	"database/sql"
+	"errors"
 	"fmt"
 
 	"github.com/lib/pq"
@@ -112,24 +113,41 @@ type RadioReleaseLinkBackfillOptions struct {
 	// inside the transaction before any write; an error aborts the run with
 	// nothing written.
 	BeforeApply func(*RadioReleaseLinkReport) error
+	// txProbe, when set, runs first inside the run's transaction.
+	txProbe func(tx *gorm.DB) error
 }
 
-// BackfillRadioReleaseLinks re-evaluates every play's release_id under
-// pickReleaseLink, except that a relink for a play with a linked artist needs
-// exactly one credited release with the title. Unless DryRun, it clears the
-// links the rule refuses and points relinks at the chosen release, touching
-// only release_id.
+// BackfillRadioReleaseLinks judges every play's existing release_id and,
+// unless DryRun, clears the links it refuses and relinks the rest it can,
+// touching only release_id. Its judgement differs from the matcher, which
+// only chooses a release for a play it is matching:
 //
-// Evaluation and writes share one REPEATABLE READ transaction. If another
-// session changes a scanned play after the snapshot, Postgres rejects the
-// write with a serialization failure (SQLSTATE 40001) and the whole run rolls
-// back; re-running is safe.
+//   - A play with a linked artist keeps any release credited to that artist,
+//     whatever the release's title; otherwise it relinks only when exactly one
+//     release with the play's title credits the artist, and is cleared when
+//     none or several do (the matcher takes the lowest-id credited release).
+//   - A play without a linked artist keeps or gets the release pickReleaseLink
+//     chooses, and is cleared when it chooses none.
+//
+// Evaluation and writes share one REPEATABLE READ transaction, so every play
+// is judged as of one snapshot. If another session changes a play this run
+// updates, Postgres rejects the update with a serialization failure (SQLSTATE
+// 40001) and the whole run rolls back; re-running is safe. A commit that fails
+// returns ErrRadioReleaseLinkCommitUnknown: the server may or may not have
+// applied the changes.
 func BackfillRadioReleaseLinks(db *gorm.DB, opts RadioReleaseLinkBackfillOptions) (*RadioReleaseLinkReport, error) {
 	var report *RadioReleaseLinkReport
+	bodySucceeded := false
 	err := withReleaseLinkBackfillTx(db, opts.DryRun, func(tx *gorm.DB) error {
+		if opts.txProbe != nil {
+			if err := opts.txProbe(tx); err != nil {
+				return err
+			}
+		}
 		var err error
 		report, err = evaluateRadioReleaseLinks(tx, opts.Limit)
 		if err != nil || opts.DryRun {
+			bodySucceeded = err == nil
 			return err
 		}
 		if opts.BeforeApply != nil {
@@ -137,13 +155,25 @@ func BackfillRadioReleaseLinks(db *gorm.DB, opts RadioReleaseLinkBackfillOptions
 				return err
 			}
 		}
-		return applyRadioReleaseLinkChanges(tx, report)
+		if err := applyRadioReleaseLinkChanges(tx, report); err != nil {
+			return err
+		}
+		bodySucceeded = true
+		return nil
 	})
 	if err != nil {
+		if bodySucceeded && !opts.DryRun {
+			return nil, fmt.Errorf("%w: %w", ErrRadioReleaseLinkCommitUnknown, err)
+		}
 		return nil, err
 	}
 	return report, nil
 }
+
+// ErrRadioReleaseLinkCommitUnknown wraps a live run's failed COMMIT: every
+// update succeeded inside the transaction, and whether the server applied
+// them is unknown to the client.
+var ErrRadioReleaseLinkCommitUnknown = errors.New("commit failed; whether the changes were applied is unknown")
 
 // withReleaseLinkBackfillTx runs fn in one REPEATABLE READ transaction. A
 // read-only run's transaction is READ ONLY: the server rejects any write in it.
@@ -280,10 +310,14 @@ func loadAdminSetReleaseLinks(tx *gorm.DB) (map[uint]map[uint]bool, error) {
 		ReleaseID uint
 	}
 	if err := tx.Raw(`
-SELECT entity_id AS play_id, (metadata->>'release_id')::bigint AS release_id
+SELECT entity_id AS play_id, (metadata->>@key)::bigint AS release_id
 FROM audit_logs
-WHERE action = ? AND entity_type = 'radio_play'
-  AND metadata->>'release_id' ~ '^[0-9]+$'`, contracts.AuditActionLinkRadioPlay).Scan(&rows).Error; err != nil {
+WHERE action = @action AND entity_type = @entity
+  AND metadata->>@key ~ '^[0-9]+$'`, map[string]interface{}{
+		"key":    contracts.AuditMetaReleaseID,
+		"action": contracts.AuditActionLinkRadioPlay,
+		"entity": contracts.AuditEntityRadioPlay,
+	}).Scan(&rows).Error; err != nil {
 		return nil, fmt.Errorf("loading admin-set release links: %w", err)
 	}
 	set := make(map[uint]map[uint]bool)

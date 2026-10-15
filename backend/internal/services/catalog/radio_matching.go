@@ -276,7 +276,9 @@ func (m *RadioMatchingEngine) matchPlayWithErr(play *catalogm.RadioPlay) (bool, 
 		updates["release_id"] = *releaseID
 	case gainsArtist(play.ArtistID, artistMatched, artistID) && play.ReleaseID != nil && !m.releaseCreditsArtist(*play.ReleaseID, *artistID):
 		// Giving a play a new artist never leaves it on a release credited to
-		// someone else. A play keeping its artist keeps its release.
+		// someone else. A play keeping its artist is never cleared here: the
+		// matcher only revokes a link when it changes the artist the link was
+		// judged against, and re-judging existing links is the backfill's job.
 		slog.Info("radio match: cleared release not credited to the newly linked artist",
 			"play_id", play.ID, "release_id", *play.ReleaseID, "artist_id", *artistID)
 		updates["release_id"] = nil

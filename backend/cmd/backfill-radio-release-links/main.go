@@ -1,13 +1,17 @@
-// Command backfill-radio-release-links re-evaluates every radio_plays.release_id
-// under the radio matcher's release-link rule: a play with a linked artist keeps
-// a release only when that release is credited to the artist (any
-// artist_releases role); a play without one keeps it only when the album title
+// Command backfill-radio-release-links judges every existing
+// radio_plays.release_id and clears or relinks the ones it refuses. A play with
+// a linked artist keeps a release credited to that artist (any artist_releases
+// role); otherwise it is relinked when exactly one release with the play's
+// album title credits the artist, and cleared when none or several do. A play
+// without a linked artist keeps or gets a release only when the album title
 // matches exactly one catalog release whose only credited artist has the play's
-// artist name. Links the rule refuses are cleared (release_id set to NULL) or,
-// when the rule finds exactly one replacement, pointed at that release. Plays
-// and releases are never deleted, and no column but release_id changes. Links
-// an admin set through the link-play endpoint are re-evaluated too; the report
-// lists every change to one in full.
+// artist name, and is cleared otherwise. This is stricter than the matcher,
+// which links the lowest-id credited release and never re-judges a play that
+// keeps its artist (see catalog.BackfillRadioReleaseLinks). Plays and releases
+// are never deleted, and no column but release_id changes. Links with a
+// link_radio_play audit row (set through the admin link-play endpoint) are
+// judged like any other and listed in full; audit writes are best effort, so
+// an admin link without a row is not listed.
 //
 // Usage:
 //
@@ -21,17 +25,21 @@
 // The dry run reads inside a READ ONLY transaction, so the server refuses any
 // write. A live run needs --out: the full change list (play, outcome, the
 // release it had, the release it gets) is written to that new file before any
-// UPDATE, and a failed write aborts the run. With --plan, the live run aborts
-// unless its change list equals that reviewed dry-run plan row for row.
-// Evaluation and writes share one REPEATABLE READ transaction; if another
-// session changes a scanned play meanwhile, nothing is applied and the run can
-// be repeated. When a live run fails after writing --out, the file is renamed
-// <out>.NOT-APPLIED. To undo a run, set release_id back to from_release_id only
-// on rows whose release_id still equals to_release_id (NULL for a removal).
+// UPDATE, and a failed write removes the file and aborts the run. With --plan,
+// the live run aborts unless its change list equals that reviewed dry-run plan
+// row for row. Evaluation and writes share one REPEATABLE READ transaction:
+// every play is judged as of one snapshot, and if another session changes a
+// play this run updates, nothing is applied and the run can be repeated. When
+// a live run fails before COMMIT, --out is renamed <out>.NOT-APPLIED; when
+// COMMIT itself fails, the outcome is unknown, --out keeps its name, and a dry
+// run shows what is now on the rows. To undo a run, set release_id back to
+// from_release_id only on rows whose release_id still equals to_release_id
+// (NULL for a removal).
 package main
 
 import (
 	"encoding/csv"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -78,7 +86,7 @@ func main() {
 	flag.IntVar(&opts.limit, "limit", 0, "Max plays scanned, lowest id first (0 = all)")
 	flag.StringVar(&opts.outPath, "out", "", "New file to receive every change as CSV (required with --confirm)")
 	flag.StringVar(&opts.planPath, "plan", "", "Reviewed dry-run --out file; with --confirm, abort unless the live change list equals it")
-	flag.StringVar(&envFile, "env", "", "Path to .env file; its values override the shell (defaults to .env.development / .env)")
+	flag.StringVar(&envFile, "env", "", "Path to a .env file whose values override the shell; without it, .env.development or else .env fills only unset variables")
 	flag.Parse()
 
 	if opts.confirm && opts.outPath == "" {
@@ -116,7 +124,7 @@ func main() {
 
 	if err := run(db.GetDB(), opts, os.Stdout); err != nil {
 		if shared.IsSerializationFailure(err) {
-			log.Fatalf("backfill: another session changed a scanned play during the run; nothing was applied; re-run (%v)", err)
+			log.Fatalf("backfill: another session changed a play this run updates; nothing was applied; re-run (%v)", err)
 		}
 		log.Fatalf("backfill: %v", err)
 	}
@@ -169,6 +177,9 @@ func run(database *gorm.DB, opts runOptions, out io.Writer) error {
 	}
 	report, err := catalog.BackfillRadioReleaseLinks(database, backfill)
 	if err != nil {
+		if errors.Is(err, catalog.ErrRadioReleaseLinkCommitUnknown) {
+			return fmt.Errorf("%w; %s lists every change the run tried; run a dry run to see what the rows hold now", err, opts.outPath)
+		}
 		if wroteChangeList {
 			return markNotApplied(opts.outPath, err)
 		}
@@ -189,9 +200,13 @@ func run(database *gorm.DB, opts runOptions, out io.Writer) error {
 }
 
 // markNotApplied renames a change list whose run rolled back to
-// <path>.NOT-APPLIED and adds that to the run's error.
+// <path>.NOT-APPLIED, never over an existing file, and adds that to the run's
+// error.
 func markNotApplied(path string, runErr error) error {
 	renamed := path + ".NOT-APPLIED"
+	if _, err := os.Lstat(renamed); err == nil {
+		return fmt.Errorf("%w; none of the changes listed in %s were applied (not renamed: %s exists)", runErr, path, renamed)
+	}
 	if err := os.Rename(path, renamed); err != nil {
 		return fmt.Errorf("%w; none of the changes listed in %s were applied (renaming it failed: %w)", runErr, path, err)
 	}
@@ -264,7 +279,8 @@ func readChangeList(path string) (rows [][]string, err error) {
 }
 
 // writeChangeList writes rows as CSV to a file that must not exist yet, and
-// syncs the file and its directory entry to disk.
+// syncs the file and its directory entry to disk. On any failure after
+// creating the file it removes it.
 func writeChangeList(path string, rows [][]string) (err error) {
 	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
 	if err != nil {
@@ -273,6 +289,11 @@ func writeChangeList(path string, rows [][]string) (err error) {
 	defer func() {
 		if closeErr := f.Close(); err == nil && closeErr != nil {
 			err = fmt.Errorf("closing change list: %w", closeErr)
+		}
+		if err != nil {
+			if removeErr := os.Remove(path); removeErr != nil {
+				err = fmt.Errorf("%w (removing the partial change list failed: %w)", err, removeErr)
+			}
 		}
 	}()
 	if err := csv.NewWriter(f).WriteAll(rows); err != nil {
@@ -325,7 +346,7 @@ func formatReport(r *catalog.RadioReleaseLinkReport, opts runOptions) string {
 			adminSet = append(adminSet, c)
 		}
 	}
-	fmt.Fprintf(out, "--- Changes to links an admin set (link_radio_play audit rows; all %d) ---\n", len(adminSet))
+	fmt.Fprintf(out, "--- Changes to links with a link_radio_play audit row (all %d; audit writes are best effort) ---\n", len(adminSet))
 	writeChanges(out, adminSet)
 
 	if opts.verbose {

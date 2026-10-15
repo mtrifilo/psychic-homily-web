@@ -221,3 +221,21 @@ func TestDiffChangeLists(t *testing.T) {
 	changed := []string{"2", "relinked_credited", "7", "11", "13", "false"}
 	assert.Equal(t, "1 planned rows absent, 1 rows not in the plan", diffChangeLists([][]string{header, a, b}, [][]string{header, a, changed}))
 }
+
+func TestMarkNotAppliedNeverOverwrites(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "changes.csv")
+	require.NoError(t, writeChangeList(path, [][]string{changeListHeader}))
+	runErr := errors.New("update failed")
+
+	err := markNotApplied(path, runErr)
+	require.ErrorIs(t, err, runErr)
+	assert.FileExists(t, path+".NOT-APPLIED")
+	assert.NoFileExists(t, path)
+
+	require.NoError(t, writeChangeList(path, [][]string{changeListHeader}))
+	err = markNotApplied(path, runErr)
+	require.ErrorIs(t, err, runErr)
+	assert.Contains(t, err.Error(), "not renamed")
+	assert.FileExists(t, path, "an existing .NOT-APPLIED file is never replaced")
+}
