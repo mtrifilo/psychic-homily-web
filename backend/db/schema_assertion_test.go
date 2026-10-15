@@ -6,9 +6,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"gorm.io/driver/postgres"
-	"gorm.io/gorm"
-	"gorm.io/gorm/logger"
+
+	"psychic-homily-backend/internal/testutil"
 )
 
 // allRequiredColumnKeys renders the production checklist in the "table.column"
@@ -16,7 +15,7 @@ import (
 func allRequiredColumnKeys() []string {
 	keys := make([]string, 0, len(requiredSchemaColumns))
 	for _, col := range requiredSchemaColumns {
-		keys = append(keys, col.Table+"."+col.Column)
+		keys = append(keys, col.qualifiedName())
 	}
 	return keys
 }
@@ -87,21 +86,11 @@ func TestAssertRequiredSchema(t *testing.T) {
 }
 
 // A database that cannot be reached must refuse boot naming the failed read,
-// not report the required columns as missing. Nothing listens on port 1, so
-// every query fails with a refused connection.
+// not report the required columns as missing.
 func TestAssertRequiredSchema_unreachableDatabase(t *testing.T) {
 	t.Parallel()
 
-	gormDB, err := gorm.Open(
-		postgres.Open("host=127.0.0.1 port=1 user=nobody dbname=nothing sslmode=disable connect_timeout=2"),
-		&gorm.Config{DisableAutomaticPing: true, Logger: logger.Discard},
-	)
-	require.NoError(t, err)
-	sqlDB, err := gormDB.DB()
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = sqlDB.Close() })
-
-	err = AssertRequiredSchema(gormDB)
+	err := AssertRequiredSchema(testutil.UnavailableDB(t))
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "could not read required schema: ")
 	assert.Contains(t, err.Error(), "refusing to boot")
@@ -134,6 +123,18 @@ func listedColumnTypes() map[string]columnType {
 	for _, col := range requiredSchemaColumns {
 		if col.Type != "" {
 			types[col.qualifiedName()] = columnType{DataType: col.Type}
+		}
+	}
+	return types
+}
+
+// passingColumnTypes renders every entry of the production checklist, the
+// typed ones with their required type, so both checks pass on it.
+func passingColumnTypes() map[string]columnType {
+	types := listedColumnTypes()
+	for _, key := range allRequiredColumnKeys() {
+		if _, ok := types[key]; !ok {
+			types[key] = columnType{}
 		}
 	}
 	return types
@@ -193,13 +194,7 @@ func TestAssertRequiredColumns(t *testing.T) {
 
 	t.Run("one read covers every listed table", func(t *testing.T) {
 		t.Parallel()
-		types := listedColumnTypes()
-		for _, key := range allRequiredColumnKeys() {
-			if _, ok := types[key]; !ok {
-				types[key] = columnType{}
-			}
-		}
-		reader := &fakeColumnTypeReader{types: types}
+		reader := &fakeColumnTypeReader{types: passingColumnTypes()}
 		require.NoError(t, assertRequiredColumns(reader))
 
 		require.Len(t, reader.reads, 1)
@@ -227,12 +222,7 @@ func TestAssertRequiredColumns(t *testing.T) {
 
 	t.Run("a mistyped column is reported once every untyped column exists", func(t *testing.T) {
 		t.Parallel()
-		types := listedColumnTypes()
-		for _, key := range allRequiredColumnKeys() {
-			if _, ok := types[key]; !ok {
-				types[key] = columnType{}
-			}
-		}
+		types := passingColumnTypes()
 		types["audit_logs.actor_id"] = columnType{DataType: "integer", UDTName: "int4"}
 		err := assertRequiredColumns(&fakeColumnTypeReader{types: types})
 		require.EqualError(t, err,
