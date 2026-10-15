@@ -178,23 +178,52 @@ func (s *RadioTracksIntegrationSuite) TestTitleKeyFixtures() {
 		{"Here Comes My Baby (Mono)", "here comes my baby"},
 		{"Whip It - Live", "whip it"},
 		{"Whip It - Live (2004)", "whip it"},
-		{"B.O.B. (Bombs Over Baghdad)", "b.o.b"},
-		{"This Must Be the Place (Naive Melody)", "this must be the place"},
 		{"Never Alone feat. The Interrupters", "never alone"},
 		{"Never Alone ft. The Interrupters", "never alone"},
 		{"Never Alone Featuring The Interrupters", "never alone"},
 		{"Never Alone feat The Interrupters", "never alone"},
+		{"Move Time ft John Glacier", "move time"},
+		// A bare "ft" right after a number is the unit, not a credit.
+		{"Ten Ft Tall", "ten ft tall"},
+		{"50 ft Queenie", "50 ft queenie"},
+		{"Ten  Ft Tall", "ten ft tall"},
+		{"Six Ft Under ft. Someone", "six ft under"},
+		// A trailing bracket group is stripped only when it names a version,
+		// format, release status or credit. Any other group is a subtitle or a
+		// part and is kept; the normalizer's edge trim then drops its closing
+		// bracket, as it does for every spelling of the title.
+		{"Istanbul (Not Constantinople)", "istanbul (not constantinople"},
+		{"B.O.B. (Bombs Over Baghdad)", "b.o.b. (bombs over baghdad"},
+		{"This Must Be the Place (Naive Melody)", "this must be the place (naive melody"},
+		{"I Can't Go for That (No Can Do)", "i can't go for that (no can do"},
+		{"Lowdown (Part I)", "lowdown (part i"},
+		{"Help Me (Get This Feeling) (Pt. 1)", "help me (get this feeling) (pt. 1"},
+		// Stripping stops at the first group from the end that is kept.
+		{"Song (Live) (Part 1)", "song (live) (part 1"},
+		{"Song (Part 1) (Live)", "song (part 1"},
+		{"Four Women (Desiree Remix)", "four women"},
+		{"Dub War (Pascal & Sponge Remix #2)", "dub war"},
+		{"Tell It to the Rain (Stereo LP Version)", "tell it to the rain"},
+		{"Victory Dance (Dubmix) (listen: pop-up)", "victory dance"},
+		{"Shotz (feat. 2Shy) (Jumpin Jack Frost VIP)", "shotz"},
+		{"Klangstudie I (1952)", "klangstudie i"},
+		{"Song (Take 1)", "song"},
+		{"Song (Alternate Take)", "song"},
+		{"Take It (Take It or Leave It)", "take it (take it or leave it"},
 		{"Song (feat. Someone) [Remastered 2011]", "song"},
 		{"Song {Demo}", "song"},
 		{"Song - Radio Edit", "song"},
 		{"Song \u2013 Extended Version", "song"},
 		{"Song \u2014 Live at KEXP", "song"},
 		{"Song - Stereo Mix", "song"},
-		// Only the second bracket strip (step 4) reaches these: the bracket
+		// Only the second bracket strip (step 5) reaches these: the bracket
 		// group is trailing once the dash tail is gone.
 		{"Song (Demo) - Live", "song"},
 		{"Song [Clean] - Radio Edit", "song"},
 		// Stripping empties these, so the unstripped normalized title is kept.
+		{"(Live)", "live"},
+		{"[Demo]", "demo"},
+		// Kept groups that are the whole title: the edge trim drops both brackets.
 		{"(Intro)", "intro"},
 		{"[Untitled]", "untitled"},
 		// Not stripped: no keyword in the dash tail, or no dash before it.
@@ -203,6 +232,7 @@ func (s *RadioTracksIntegrationSuite) TestTitleKeyFixtures() {
 		{"Liveforever - Liveness", "liveforever - liveness"},
 		// Known over-strips of the chosen regexes, pinned so a change is seen.
 		{"A Feat of Strength", "a"},
+		{"2 Ft. O' Buttcrack", "2"},
 		{"Hung Up On My Baby - Part 1 (Live) Extended", "hung up on my baby"},
 		// Normalization after stripping: accents, case, edge punctuation,
 		// interior whitespace.
