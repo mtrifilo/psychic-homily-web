@@ -215,24 +215,33 @@ test.describe('Not-found pages — HTTP 404 status', () => {
     test('/shows/saved is NOT 404-ed by proxy (server-redirects to /library → anon lands on /auth)', async ({
       page,
     }) => {
+      // Room for `goto` (up to about 11 s on a cold CI runner) plus the 25 s
+      // bound below.
+      test.setTimeout(45_000)
+
       // `/shows/saved` is a server component that unconditionally
-      // `redirect('/library')` (no auth gate — verified app/shows/saved/page.tsx).
-      // `page.goto` follows the server redirect; the final document is the
-      // `/library` 200 (its own client-side anon-redirect to /auth fires after).
-      // Pre-fix the proxy rewrote `/shows/saved` to the synthetic no-route path
-      // → 404, so the redirect chain never ran. The 200 below is the load-bearing
-      // proof the exclusion let the real route through (PSY-913).
+      // `redirect('/library')`s (app/shows/saved/page.tsx). The root layout's
+      // Suspense has already streamed the shell by then, so the redirect rides
+      // in the streamed body: the `/shows/saved` document itself answers 200
+      // and the browser then loads `/library` as a new document. A proxy
+      // rewrite to the synthetic no-route path answers 404 instead, so this
+      // 200 is the proof the proxy let the real route through.
       const response = await page.goto('/shows/saved')
       expect(
         response?.status(),
         '/shows/saved must resolve to 200 (server redirect to /library) — proxy.ts must not existence-check this static route (PSY-913)'
       ).toBe(200)
 
-      // Settle point: /library is a client component that redirects anon
-      // visitors to /auth (verified app/library/page.tsx LibraryContent). A
-      // 404 body would never reach that redirect, so landing on /auth confirms
-      // the real route rendered.
-      await page.waitForURL(/\/auth/, { timeout: 10_000 })
+      // `/library` sends a settled-anonymous visitor to `/auth`, again as a new
+      // document. The visitor has no cookie, so the server render seeds the
+      // anonymous profile and the browser makes no profile request to wait
+      // on: the `/auth` navigation itself is the signal, and a 404 body never
+      // reaches that redirect, so it also confirms the real route rendered.
+      // It settles on commit, not on `/auth`'s load event, which also waits
+      // for every subresource of a third cold page and says nothing about
+      // where the chain ended. The chain after `goto` takes up to about 10 s
+      // on a cold CI runner; the bound leaves room for a slower one.
+      await page.waitForURL(/\/auth/, { waitUntil: 'commit', timeout: 25_000 })
     })
   })
   /**
