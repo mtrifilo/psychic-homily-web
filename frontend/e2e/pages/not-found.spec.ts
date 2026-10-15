@@ -215,9 +215,9 @@ test.describe('Not-found pages — HTTP 404 status', () => {
     test('/shows/saved is NOT 404-ed by proxy (server-redirects to /library → anon lands on /auth)', async ({
       page,
     }) => {
-      // At a CI shard's start `goto` takes up to about 11 s and the redirects
-      // after it up to about 10 s. The 25 s wait below and this budget leave
-      // room for a slower runner.
+      // At a CI shard's start `goto` takes up to about 11 s, and a passing
+      // run spends up to about 10 s in the redirects after it. The 25 s wait
+      // below and this budget leave room for a slower runner.
       test.setTimeout(45_000)
 
       // `/shows/saved` is a server component that unconditionally
