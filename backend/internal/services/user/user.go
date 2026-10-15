@@ -824,12 +824,22 @@ func (s *UserService) GetUserByID(userID uint) (*authm.User, error) {
 	return &user, nil
 }
 
+// holdsNUL reports whether value holds a NUL byte. Postgres text cannot store
+// one, so no users row has such an email or username, and a query carrying
+// one fails rather than matching nothing.
+func holdsNUL(value string) bool {
+	return strings.ContainsRune(value, 0)
+}
+
 // GetUserByEmail retrieves a user by email. The match is case-insensitive
 // (authm.EmailIdentityWhere), so the caller may pass the address in whatever
-// casing its owner typed.
+// casing its owner typed. An address holding a NUL byte is not found.
 func (s *UserService) GetUserByEmail(email string) (*authm.User, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
+	}
+	if holdsNUL(email) {
+		return nil, nil
 	}
 
 	var user authm.User
@@ -849,9 +859,14 @@ func (s *UserService) GetUserByEmail(email string) (*authm.User, error) {
 	return &user, nil
 }
 
+// GetUserByUsername retrieves a user by username. A username holding a NUL
+// byte is not found.
 func (s *UserService) GetUserByUsername(username string) (*authm.User, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
+	}
+	if holdsNUL(username) {
+		return nil, nil
 	}
 
 	var user authm.User
@@ -1621,10 +1636,13 @@ const AccountRecoveryGracePeriod = 30 * 24 * time.Hour // 30 days
 
 // GetUserByEmailIncludingDeleted retrieves a user by email, including
 // soft-deleted accounts. The match is case-insensitive
-// (authm.EmailIdentityWhere).
+// (authm.EmailIdentityWhere). An address holding a NUL byte is not found.
 func (s *UserService) GetUserByEmailIncludingDeleted(email string) (*authm.User, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
+	}
+	if holdsNUL(email) {
+		return nil, nil
 	}
 
 	var user authm.User
