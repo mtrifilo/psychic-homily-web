@@ -2,9 +2,11 @@ package auth
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -14,6 +16,7 @@ import (
 	"psychic-homily-backend/internal/api/middleware"
 	autherrors "psychic-homily-backend/internal/errors"
 	authm "psychic-homily-backend/internal/models/auth"
+	"psychic-homily-backend/internal/testlog"
 )
 
 // testFrontendOrigin is the origin the test config names as the frontend, and
@@ -103,10 +106,53 @@ func (s *OAuthHandlerIntegrationSuite) TestLink_ArmsAnIntentForTheSessionsAccoun
 	// The cookie names nothing on its own: the account lives in the store.
 	s.NotContains(cookie.Value, "link-start@test.com")
 
-	intent, found := peekOAuthLinkIntent(cookie.Value)
+	intent, _, found := peekOAuthLinkIntent(cookie.Value)
 	s.Require().True(found)
 	s.Equal(user.ID, intent.userID)
 	s.Equal("google", intent.provider)
+}
+
+// A link start against a full intent store still arms its intent: the oldest
+// pending link makes room, and the eviction is logged.
+func (s *OAuthHandlerIntegrationSuite) TestLink_AtCapacityEvictsOldestAndLogs() {
+	oauthLinkIntentStore.reset()
+	s.T().Cleanup(oauthLinkIntentStore.reset)
+	for i := range oauthLinkIntentCapacity {
+		storeOAuthLinkIntent(fmt.Sprintf("fill-%04d", i), oauthLinkIntent{
+			userID:   1,
+			provider: "google",
+			state:    "fill-state",
+		})
+	}
+
+	user := &authm.User{Email: strPtr("link-at-capacity@test.com"), IsActive: true, EmailVerified: true}
+	s.Require().NoError(s.deps.DB.Create(user).Error)
+
+	handler := s.newHandler(&mockOAuthCompleter{})
+	w, req := s.oauthLinkRequest("google", user)
+	output := testlog.Capture(s.T(), func() {
+		handler.OAuthLinkHTTPHandler(w, testlog.Request(s.T(), req))
+	})
+
+	cookie := linkIntentCookie(w)
+	s.Require().NotNil(cookie)
+	_, _, found := peekOAuthLinkIntent(cookie.Value)
+	s.True(found, "the new intent is stored")
+	_, _, found = peekOAuthLinkIntent("fill-0000")
+	s.False(found, "the oldest pending link is evicted")
+	_, _, found = peekOAuthLinkIntent("fill-0001")
+	s.True(found, "only the oldest pending link is evicted")
+	s.Equal(oauthLinkIntentCapacity, oauthLinkIntentStore.size())
+
+	s.Contains(output, "msg=oauth_link_started", "positive marker: the capture saw the handler's log")
+	for _, want := range []string{
+		"msg=oauth_link_intent_store_evicting",
+		"evicted=1",
+		fmt.Sprintf("capacity=%d", oauthLinkIntentCapacity),
+	} {
+		s.Contains(output, want)
+	}
+	s.False(strings.Contains(output, cookie.Value), "the intent id is never logged")
 }
 
 // The CSRF gate. /auth/link/{provider} is a cookie-authenticated GET and the
@@ -344,7 +390,7 @@ func (s *OAuthHandlerIntegrationSuite) TestLinkCallback_IntentIsSingleUse() {
 	s.Contains(w.Header().Get("Location"), "oauth_link=connected")
 
 	// The intent is spent, so nothing is armed for a second link.
-	_, stillHeld := peekOAuthLinkIntent(cookie.Value)
+	_, _, stillHeld := peekOAuthLinkIntent(cookie.Value)
 	s.False(stillHeld, "a completed link must consume its intent")
 
 	// Byte-identical replay: same cookie, same state. The intent is consumed,
@@ -413,11 +459,10 @@ func (s *OAuthHandlerIntegrationSuite) TestLinkCallback_ExpiredIntentRefusedAsEx
 	s.Require().NoError(err)
 	state, err := randomHexID(oauthLinkStateBytes)
 	s.Require().NoError(err)
-	storeOAuthLinkIntent(id, oauthLinkIntent{
-		userID:    user.ID,
-		provider:  "google",
-		state:     state,
-		expiresAt: time.Now().Add(-time.Second),
+	storeExpiredOAuthLinkIntent(id, oauthLinkIntent{
+		userID:   user.ID,
+		provider: "google",
+		state:    state,
 	})
 
 	w, req := oauthCallbackRequest("google")
@@ -470,7 +515,7 @@ func (s *OAuthHandlerIntegrationSuite) TestLinkCallback_StaleIntentDoesNotDivert
 
 	// And the intent survives the look, so the abandoner can still finish the
 	// link they started.
-	_, stillHeld := peekOAuthLinkIntent(cookie.Value)
+	_, _, stillHeld := peekOAuthLinkIntent(cookie.Value)
 	s.True(stillHeld, "a mismatched callback must not burn the intent")
 }
 
@@ -595,14 +640,14 @@ func (s *OAuthHandlerIntegrationSuite) assertSignedIn(w *httptest.ResponseRecord
 func (s *OAuthHandlerIntegrationSuite) TestLinkIntent_ExpiredIsNotUsable() {
 	id, err := randomHexID(oauthLinkIntentIDBytes)
 	s.Require().NoError(err)
-	storeOAuthLinkIntent(id, oauthLinkIntent{
-		userID:    1,
-		provider:  "google",
-		expiresAt: time.Now().Add(-time.Second),
+	storeExpiredOAuthLinkIntent(id, oauthLinkIntent{
+		userID:   1,
+		provider: "google",
 	})
 
-	_, found := peekOAuthLinkIntent(id)
-	s.True(found, "the entry is still held; the CALLER decides it is past its TTL")
+	_, expired, found := peekOAuthLinkIntent(id)
+	s.True(found, "the entry is still held until a later store drops it")
+	s.True(expired, "and reported as past its TTL, so the callback can say so")
 }
 
 // armLinkIntent stores an intent and returns the two things a browser carries
@@ -616,10 +661,9 @@ func (s *OAuthHandlerIntegrationSuite) armLinkIntent(userID uint, provider strin
 	state, err := randomHexID(oauthLinkStateBytes)
 	s.Require().NoError(err)
 	storeOAuthLinkIntent(id, oauthLinkIntent{
-		userID:    userID,
-		provider:  provider,
-		state:     state,
-		expiresAt: time.Now().Add(oauthLinkIntentTTL),
+		userID:   userID,
+		provider: provider,
+		state:    state,
 	})
 	return &http.Cookie{Name: oauthLinkIntentCookieName, Value: id}, state
 }
