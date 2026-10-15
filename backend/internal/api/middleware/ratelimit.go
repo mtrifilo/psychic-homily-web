@@ -37,8 +37,8 @@ const (
 
 	// PasskeyRegisterBeginRequestsPerMinute is the per-user rate limit for
 	// adding a passkey to a signed-in account (register begin). Each call the
-	// handler accepts stores a challenge row. A person adds one passkey at a time; five
-	// leaves room for a cancelled ceremony and a retry or two.
+	// handler accepts stores a challenge row. A person adds one passkey at a
+	// time; five leaves room for a cancelled ceremony and a retry or two.
 	PasskeyRegisterBeginRequestsPerMinute = 5
 
 	// OAuthRedirectRequestsPerMinute is the per-IP rate limit for the OAuth

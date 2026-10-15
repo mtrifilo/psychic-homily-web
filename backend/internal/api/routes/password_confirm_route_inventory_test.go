@@ -195,14 +195,9 @@ func sweepAuthDispositions(routes map[string][]string) authDispositionSweep {
 			served[key] = true
 			if _, ok := authRouteRateLimitScope[key]; !ok {
 				sweep.unrecorded = append(sweep.unrecorded, key)
+			} else if isPasskeyRoute(key) {
+				sweep.passkeySwept = true
 			}
-		}
-	}
-
-	for key := range authRouteRateLimitScope {
-		if isPasskeyRoute(key) && served[key] {
-			sweep.passkeySwept = true
-			break
 		}
 	}
 
