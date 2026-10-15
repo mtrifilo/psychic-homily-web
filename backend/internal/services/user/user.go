@@ -681,9 +681,10 @@ func (s *UserService) LinkOAuthAccountToUser(userID uint, gothUser goth.User, pr
 			return nil, apperrors.ErrOAuthIdentityInUse(provider)
 		}
 		// Already this user's identity. Refresh the stored profile and tokens
-		// so a repeat connect is idempotent rather than an error. Only the
-		// columns applyGothUserToOAuthAccount set are written, plus
-		// updated_at, which GORM adds.
+		// so a repeat connect is idempotent rather than an error. The write
+		// names the columns applyGothUserToOAuthAccount set (GORM adds
+		// updated_at) rather than using Save: Save writes back every column
+		// it read, and turns an update that matches no row into an insert.
 		refreshed := applyGothUserToOAuthAccount(&bySubject, gothUser)
 		if err := tx.Model(&bySubject).Select(refreshed).Updates(&bySubject).Error; err != nil {
 			tx.Rollback()

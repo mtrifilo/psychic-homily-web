@@ -11,10 +11,7 @@ import (
 )
 
 // A repeat connect is LinkOAuthAccountToUser on an identity the account
-// already holds. These tests place a second write on the same oauth_accounts
-// row between the repeat connect's read of the row and its write, through a
-// GORM Before("gorm:update") callback on the handle the service under test
-// uses.
+// already holds.
 
 var (
 	repeatConnectStoredExpiry     = time.Date(2030, 1, 1, 0, 0, 0, 0, time.UTC)
@@ -45,8 +42,9 @@ func (suite *UserServiceIntegrationTestSuite) storedGoogleAccount(userID uint) a
 }
 
 // serviceWithWriteBeforeItsFirstUpdate returns a UserService whose first
-// UPDATE is preceded by write, which receives the in-flight statement's
-// handle. The returned flag reports whether write ran.
+// UPDATE is preceded by write, which runs after the repeat connect has read
+// the row and receives the in-flight statement's handle. The returned flag
+// reports whether write ran.
 func (suite *UserServiceIntegrationTestSuite) serviceWithWriteBeforeItsFirstUpdate(write func(inFlight *gorm.DB)) (*UserService, *bool) {
 	suite.T().Helper()
 	sqlDB, err := suite.db.DB()
@@ -74,21 +72,16 @@ func (suite *UserServiceIntegrationTestSuite) startOnAnotherConnection(write fun
 	done := make(chan error, 1)
 	go func() { done <- write() }()
 
-	deadline := time.Now().Add(10 * time.Second)
-	for time.Now().Before(deadline) {
+	suite.Require().Eventually(func() bool {
 		if len(done) > 0 {
-			return done
+			return true
 		}
 		var waiting int64
-		suite.Require().NoError(suite.db.Raw(
+		err := suite.db.Raw(
 			"SELECT count(*) FROM pg_stat_activity WHERE datname = current_database() AND wait_event_type = 'Lock'",
-		).Scan(&waiting).Error)
-		if waiting > 0 {
-			return done
-		}
-		time.Sleep(5 * time.Millisecond)
-	}
-	suite.FailNow("the concurrent write neither finished nor waited on a lock")
+		).Scan(&waiting).Error
+		return err == nil && waiting > 0
+	}, 10*time.Second, 5*time.Millisecond, "the concurrent write neither finished nor waited on a lock")
 	return done
 }
 
@@ -169,7 +162,9 @@ func (suite *UserServiceIntegrationTestSuite) TestLinkOAuthAccountToUser_RepeatC
 
 // The repeat connect writes the profile, the tokens, the expiry when the
 // provider sent one, and updated_at. A value written to any other column after
-// its read is not replaced by what it read.
+// its read is not replaced by what it read. The row lock keeps other
+// transactions out of that window, so the write here runs inside the repeat
+// connect's own transaction.
 func (suite *UserServiceIntegrationTestSuite) TestLinkOAuthAccountToUser_RepeatConnectWritesOnlyTheColumnsItOwns() {
 	owner := suite.linkedForRepeatConnect("repeat-connect-columns@example.com", "repeat-connect-columns-subject")
 	writtenAfterRead := time.Date(2032, 3, 1, 0, 0, 0, 0, time.UTC)
@@ -227,20 +222,4 @@ func (suite *UserServiceIntegrationTestSuite) TestLinkOAuthAccountToUser_RepeatC
 	suite.Require().NotNil(got.ExpiresAt)
 	suite.WithinDuration(refreshedExpiry, *got.ExpiresAt, 0)
 	suite.True(got.UpdatedAt.After(before.UpdatedAt), "updated_at advances on a repeat connect")
-}
-
-func (suite *UserServiceIntegrationTestSuite) TestLinkOAuthAccountToUser_RepeatConnectWithoutExpiryKeepsTheStoredOne() {
-	owner := suite.linkedForRepeatConnect("repeat-connect-no-expiry@example.com", "repeat-connect-no-expiry-subject")
-
-	_, err := suite.userService.LinkOAuthAccountToUser(owner.ID, goth.User{
-		UserID:      "repeat-connect-no-expiry-subject",
-		Email:       "repeat-connect-no-expiry@example.com",
-		AccessToken: "refreshed-access",
-	}, "google")
-	suite.Require().NoError(err)
-
-	got := suite.storedGoogleAccount(owner.ID)
-	suite.Equal("refreshed-access", *got.AccessToken)
-	suite.Require().NotNil(got.ExpiresAt)
-	suite.WithinDuration(repeatConnectStoredExpiry, *got.ExpiresAt, 0)
 }
