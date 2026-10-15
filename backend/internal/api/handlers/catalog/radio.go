@@ -1617,7 +1617,7 @@ func (h *RadioHandler) AdminLinkPlayHandler(ctx context.Context, req *AdminLinkP
 	// Audit log (fire and forget)
 	if h.auditLogService != nil {
 		servicesshared.SubmitAuditWrite("audit_log", func() {
-			h.auditLogService.LogAction(user.ID, "link_radio_play", "radio_play", req.PlayID, map[string]interface{}{
+			h.auditLogService.LogAction(user.ID, contracts.AuditActionLinkRadioPlay, "radio_play", req.PlayID, map[string]interface{}{
 				"artist_id":  req.Body.ArtistID,
 				"release_id": req.Body.ReleaseID,
 				"label_id":   req.Body.LabelID,

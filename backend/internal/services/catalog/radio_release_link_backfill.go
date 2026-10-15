@@ -1,10 +1,13 @@
 package catalog
 
 import (
+	"database/sql"
 	"fmt"
 
 	"github.com/lib/pq"
 	"gorm.io/gorm"
+
+	"psychic-homily-backend/internal/services/contracts"
 )
 
 // RadioReleaseLinkOutcome classifies one existing radio_plays.release_id under
@@ -18,8 +21,8 @@ const (
 	// ReleaseLinkKeptUniqueTitle: the play has no linked artist and the release
 	// is the one pickReleaseLink chooses for it.
 	ReleaseLinkKeptUniqueTitle RadioReleaseLinkOutcome = "kept_unique_title"
-	// ReleaseLinkKeptAdminSet: an admin set this release on this play through
-	// the link-play endpoint, so the backfill leaves it alone.
+	// ReleaseLinkKeptAdminSet: the rule would remove or replace the link, but an
+	// admin set this release on this play through the link-play endpoint.
 	ReleaseLinkKeptAdminSet RadioReleaseLinkOutcome = "kept_admin_set"
 	// ReleaseLinkRemovedNotCredited: the play has a linked artist, the release
 	// is not credited to it, and no release with the title is.
@@ -51,14 +54,14 @@ func (o RadioReleaseLinkOutcome) IsRemoval() bool {
 	return o == ReleaseLinkRemovedNotCredited || o == ReleaseLinkRemovedUnlinkedArtist
 }
 
-// IsRelink reports whether the outcome points the play at another release.
-func (o RadioReleaseLinkOutcome) IsRelink() bool {
+func (o RadioReleaseLinkOutcome) isRelink() bool {
 	return o == ReleaseLinkRelinkedCredited || o == ReleaseLinkRelinkedUniqueTitle
 }
 
-// adminLinkPlayAuditAction is the audit_logs.action the admin link-play
-// endpoint records, with the release it set in metadata.release_id.
-const adminLinkPlayAuditAction = "link_radio_play"
+// ChangesLink reports whether the outcome removes or replaces the link.
+func (o RadioReleaseLinkOutcome) ChangesLink() bool {
+	return o.IsRemoval() || o.isRelink()
+}
 
 // RadioReleaseLinkChange is one play whose release link the backfill removes
 // or replaces.
@@ -121,32 +124,26 @@ func BackfillRadioReleaseLinks(db *gorm.DB, opts RadioReleaseLinkBackfillOptions
 // snapshot fails the write instead of being overwritten. A read-only run's
 // transaction is READ ONLY: the server rejects any write in it.
 func withReleaseLinkBackfillTx(db *gorm.DB, readOnly bool, fn func(tx *gorm.DB) error) error {
-	mode := "SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ WRITE"
-	if readOnly {
-		mode = "SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY"
-	}
-	return db.Transaction(func(tx *gorm.DB) error {
-		if err := tx.Exec(mode).Error; err != nil {
-			return fmt.Errorf("setting transaction mode: %w", err)
-		}
-		return fn(tx)
-	})
+	return db.Transaction(fn, &sql.TxOptions{Isolation: sql.LevelRepeatableRead, ReadOnly: readOnly})
 }
 
 type linkedRadioPlay struct {
-	ID         uint
-	ArtistID   *uint
-	ArtistName string
-	AlbumTitle *string
-	ReleaseID  uint
+	ID                  uint
+	ArtistID            *uint
+	ArtistName          string
+	AlbumTitle          *string
+	ReleaseID           uint
+	CurrentReleaseTitle string
+	titleKey            string
 }
 
 func evaluateRadioReleaseLinks(tx *gorm.DB, limit int) (*RadioReleaseLinkReport, error) {
 	var plays []linkedRadioPlay
-	q := tx.Table("radio_plays").
-		Select("id, artist_id, artist_name, album_title, release_id").
-		Where("release_id IS NOT NULL").
-		Order("id")
+	q := tx.Table("radio_plays AS p").
+		Select("p.id, p.artist_id, p.artist_name, p.album_title, p.release_id, COALESCE(r.title, '') AS current_release_title").
+		Joins("LEFT JOIN releases r ON r.id = p.release_id").
+		Where("p.release_id IS NOT NULL").
+		Order("p.id")
 	if limit > 0 {
 		q = q.Limit(limit)
 	}
@@ -158,10 +155,12 @@ func evaluateRadioReleaseLinks(tx *gorm.DB, limit int) (*RadioReleaseLinkReport,
 	seenKeys := make(map[string]bool)
 	currentIDs := make([]int64, 0, len(plays))
 	seenReleases := make(map[uint]bool)
-	for _, p := range plays {
-		if key := normalizeName(derefString(p.AlbumTitle)); key != "" && !seenKeys[key] {
-			seenKeys[key] = true
-			titleKeys = append(titleKeys, key)
+	for i := range plays {
+		p := &plays[i]
+		p.titleKey = normalizeName(derefString(p.AlbumTitle))
+		if p.titleKey != "" && !seenKeys[p.titleKey] {
+			seenKeys[p.titleKey] = true
+			titleKeys = append(titleKeys, p.titleKey)
 		}
 		if !seenReleases[p.ReleaseID] {
 			seenReleases[p.ReleaseID] = true
@@ -173,13 +172,9 @@ func evaluateRadioReleaseLinks(tx *gorm.DB, limit int) (*RadioReleaseLinkReport,
 	if err != nil {
 		return nil, err
 	}
-	creditRows, err := loadReleaseCreditRows(tx, currentIDs)
+	currentCredits, err := loadReleaseCredits(tx, currentIDs)
 	if err != nil {
 		return nil, err
-	}
-	currentCredits := make(map[uint][]releaseCreditRow)
-	for _, row := range creditRows {
-		currentCredits[row.ReleaseID] = append(currentCredits[row.ReleaseID], row)
 	}
 	adminSet, err := loadAdminSetReleaseLinks(tx)
 	if err != nil {
@@ -191,72 +186,68 @@ func evaluateRadioReleaseLinks(tx *gorm.DB, limit int) (*RadioReleaseLinkReport,
 		Counts:  make(map[RadioReleaseLinkOutcome]int, len(RadioReleaseLinkOutcomes)),
 	}
 	for _, p := range plays {
-		outcome, newID := classifyReleaseLink(p, candidates, currentCredits[p.ReleaseID], adminSet)
+		current := releaseLinkCandidate{ReleaseID: p.ReleaseID, Title: p.CurrentReleaseTitle, Credits: currentCredits[p.ReleaseID]}
+		outcome, picked := classifyReleaseLink(p, current, candidates[p.titleKey], adminSet[p.ID][p.ReleaseID])
 		report.Counts[outcome]++
-		if !outcome.IsRemoval() && !outcome.IsRelink() {
+		if !outcome.ChangesLink() {
 			continue
 		}
 		change := RadioReleaseLinkChange{
-			PlayID:           p.ID,
-			Outcome:          outcome,
-			ArtistID:         p.ArtistID,
-			ArtistName:       p.ArtistName,
-			AlbumTitle:       derefString(p.AlbumTitle),
-			CurrentReleaseID: p.ReleaseID,
-			NewReleaseID:     newID,
+			PlayID:              p.ID,
+			Outcome:             outcome,
+			ArtistID:            p.ArtistID,
+			ArtistName:          p.ArtistName,
+			AlbumTitle:          derefString(p.AlbumTitle),
+			CurrentReleaseID:    p.ReleaseID,
+			CurrentReleaseTitle: p.CurrentReleaseTitle,
 		}
-		for _, row := range currentCredits[p.ReleaseID] {
-			change.CurrentReleaseArtists = append(change.CurrentReleaseArtists, row.ArtistName)
+		for _, credit := range current.Credits {
+			change.CurrentReleaseArtists = append(change.CurrentReleaseArtists, credit.ArtistName)
+		}
+		if picked != nil {
+			change.NewReleaseID = &picked.ReleaseID
+			change.NewReleaseTitle = picked.Title
 		}
 		report.Changes = append(report.Changes, change)
-	}
-
-	if err := fillReleaseTitles(tx, report.Changes); err != nil {
-		return nil, err
 	}
 	return report, nil
 }
 
 // classifyReleaseLink returns the outcome for one play and, for a relink, the
-// release pickReleaseLink chooses. A link the rule would remove or replace is
-// kept when an admin set that release on that play.
+// release pickReleaseLink chooses. A linked artist keeps any release credited
+// to it; a link the rule would remove or replace is kept when adminSet.
 func classifyReleaseLink(
 	p linkedRadioPlay,
-	candidates map[string][]releaseLinkCandidate,
-	currentCredits []releaseCreditRow,
-	adminSet map[uint]map[uint]bool,
-) (RadioReleaseLinkOutcome, *uint) {
-	outcome, picked := classifyByRule(p, candidates, currentCredits)
-	if (outcome.IsRemoval() || outcome.IsRelink()) && adminSet[p.ID][p.ReleaseID] {
-		return ReleaseLinkKeptAdminSet, nil
+	current releaseLinkCandidate,
+	candidates []releaseLinkCandidate,
+	adminSet bool,
+) (RadioReleaseLinkOutcome, *releaseLinkCandidate) {
+	if p.ArtistID != nil && current.creditsArtist(*p.ArtistID) {
+		return ReleaseLinkKeptCredited, nil
 	}
-	return outcome, picked
-}
-
-func classifyByRule(
-	p linkedRadioPlay,
-	candidates map[string][]releaseLinkCandidate,
-	currentCredits []releaseCreditRow,
-) (RadioReleaseLinkOutcome, *uint) {
-	if p.ArtistID != nil {
-		for _, row := range currentCredits {
-			if row.ArtistID == *p.ArtistID {
-				return ReleaseLinkKeptCredited, nil
+	var picked *releaseLinkCandidate
+	if id := pickReleaseLink(p.ArtistID, p.ArtistName, candidates); id != nil {
+		for i := range candidates {
+			if candidates[i].ReleaseID == *id {
+				picked = &candidates[i]
 			}
 		}
 	}
-	picked := pickReleaseLink(p.ArtistID, normalizeName(p.ArtistName), candidates[normalizeName(derefString(p.AlbumTitle))])
+	if p.ArtistID == nil && picked != nil && picked.ReleaseID == p.ReleaseID {
+		return ReleaseLinkKeptUniqueTitle, nil
+	}
+	if adminSet {
+		return ReleaseLinkKeptAdminSet, nil
+	}
 	switch {
-	case p.ArtistID != nil && picked != nil:
+	case picked != nil && p.ArtistID != nil:
 		return ReleaseLinkRelinkedCredited, picked
+	case picked != nil:
+		return ReleaseLinkRelinkedUniqueTitle, picked
 	case p.ArtistID != nil:
 		return ReleaseLinkRemovedNotCredited, nil
-	case picked == nil:
-		return ReleaseLinkRemovedUnlinkedArtist, nil
-	case *picked == p.ReleaseID:
-		return ReleaseLinkKeptUniqueTitle, nil
 	default:
-		return ReleaseLinkRelinkedUniqueTitle, picked
+		return ReleaseLinkRemovedUnlinkedArtist, nil
 	}
 }
 
@@ -271,7 +262,7 @@ func loadAdminSetReleaseLinks(tx *gorm.DB) (map[uint]map[uint]bool, error) {
 SELECT entity_id AS play_id, (metadata->>'release_id')::bigint AS release_id
 FROM audit_logs
 WHERE action = ? AND entity_type = 'radio_play'
-  AND metadata->>'release_id' ~ '^[0-9]+$'`, adminLinkPlayAuditAction).Scan(&rows).Error; err != nil {
+  AND metadata->>'release_id' ~ '^[0-9]+$'`, contracts.AuditActionLinkRadioPlay).Scan(&rows).Error; err != nil {
 		return nil, fmt.Errorf("loading admin-set release links: %w", err)
 	}
 	set := make(map[uint]map[uint]bool)
@@ -284,37 +275,6 @@ WHERE action = ? AND entity_type = 'radio_play'
 	return set, nil
 }
 
-func fillReleaseTitles(tx *gorm.DB, changes []RadioReleaseLinkChange) error {
-	ids := make([]int64, 0, 2*len(changes))
-	for _, c := range changes {
-		ids = append(ids, int64(c.CurrentReleaseID))
-		if c.NewReleaseID != nil {
-			ids = append(ids, int64(*c.NewReleaseID))
-		}
-	}
-	if len(ids) == 0 {
-		return nil
-	}
-	var rows []struct {
-		ID    uint
-		Title string
-	}
-	if err := tx.Raw(`SELECT id, title FROM releases WHERE id = ANY(?)`, pq.Array(ids)).Scan(&rows).Error; err != nil {
-		return fmt.Errorf("loading release titles: %w", err)
-	}
-	titles := make(map[uint]string, len(rows))
-	for _, row := range rows {
-		titles[row.ID] = row.Title
-	}
-	for i := range changes {
-		changes[i].CurrentReleaseTitle = titles[changes[i].CurrentReleaseID]
-		if changes[i].NewReleaseID != nil {
-			changes[i].NewReleaseTitle = titles[*changes[i].NewReleaseID]
-		}
-	}
-	return nil
-}
-
 func applyRadioReleaseLinkChanges(tx *gorm.DB, report *RadioReleaseLinkReport) error {
 	var clearIDs, clearFrom, relinkIDs, relinkFrom, relinkTo []int64
 	for _, c := range report.Changes {
@@ -322,7 +282,7 @@ func applyRadioReleaseLinkChanges(tx *gorm.DB, report *RadioReleaseLinkReport) e
 		case c.Outcome.IsRemoval():
 			clearIDs = append(clearIDs, int64(c.PlayID))
 			clearFrom = append(clearFrom, int64(c.CurrentReleaseID))
-		case c.Outcome.IsRelink():
+		case c.Outcome.isRelink():
 			relinkIDs = append(relinkIDs, int64(c.PlayID))
 			relinkFrom = append(relinkFrom, int64(c.CurrentReleaseID))
 			relinkTo = append(relinkTo, int64(*c.NewReleaseID))

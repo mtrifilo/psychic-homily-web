@@ -128,18 +128,18 @@ func formatReport(r *catalog.RadioReleaseLinkReport, confirm, verbose bool) stri
 	}
 	fmt.Fprintln(out)
 
-	var removals []catalog.RadioReleaseLinkChange
-	for _, c := range r.Changes {
-		if c.Outcome.IsRemoval() {
-			removals = append(removals, c)
-		}
-	}
 	if verbose {
 		fmt.Fprintf(out, "--- Every removal and relink (%d) ---\n", len(r.Changes))
 		for _, c := range r.Changes {
 			fmt.Fprintln(out, formatChange(c))
 		}
 	} else {
+		var removals []catalog.RadioReleaseLinkChange
+		for _, c := range r.Changes {
+			if c.Outcome.IsRemoval() {
+				removals = append(removals, c)
+			}
+		}
 		sample := sampleRemovals(removals, removalSampleSize)
 		fmt.Fprintf(out, "--- Sample of removals (%d of %d) ---\n", len(sample), len(removals))
 		for _, c := range sample {

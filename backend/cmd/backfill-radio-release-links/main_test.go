@@ -2,16 +2,12 @@ package main
 
 import (
 	"bytes"
-	"context"
 	"strings"
-	"sync"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"
-	"gorm.io/gorm/logger"
 
 	catalogm "psychic-homily-backend/internal/models/catalog"
 	"psychic-homily-backend/internal/services/catalog"
@@ -96,22 +92,6 @@ func TestSampleRemovals(t *testing.T) {
 	}
 }
 
-// statementRecorder is a GORM logger that records every statement GORM executes.
-type statementRecorder struct {
-	logger.Interface
-	mu         sync.Mutex
-	statements []string
-}
-
-func (r *statementRecorder) LogMode(logger.LogLevel) logger.Interface { return r }
-
-func (r *statementRecorder) Trace(_ context.Context, _ time.Time, fc func() (string, int64), _ error) {
-	sql, _ := fc()
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	r.statements = append(r.statements, strings.TrimSpace(sql))
-}
-
 func TestRun_DryRunThenConfirm(t *testing.T) {
 	testDB := testutil.SetupTestPostgres(t)
 	defer testDB.Cleanup()
@@ -156,7 +136,7 @@ func TestRun_DryRunThenConfirm(t *testing.T) {
 		return p.ReleaseID
 	}
 
-	recorder := &statementRecorder{Interface: logger.Discard}
+	recorder := testutil.NewSQLRecorder()
 	var out bytes.Buffer
 	require.NoError(t, run(db.Session(&gorm.Session{Logger: recorder}), false, 0, false, &out))
 	assert.Contains(t, out.String(), "DRY RUN: no DB writes.")
@@ -165,9 +145,8 @@ func TestRun_DryRunThenConfirm(t *testing.T) {
 	assert.Contains(t, out.String(), "credited to Nice Nice")
 	assert.Equal(t, &chrome, releaseOf(removed))
 	assert.Equal(t, &borisFlood, releaseOf(relinked))
-	require.NotEmpty(t, recorder.statements)
-	assert.Equal(t, "SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY", recorder.statements[0])
-	for _, stmt := range recorder.statements[1:] {
+	require.NotEmpty(t, recorder.Statements())
+	for _, stmt := range recorder.Statements() {
 		assert.True(t, strings.HasPrefix(strings.ToUpper(stmt), "SELECT"), "dry run issued a non-SELECT statement: %s", stmt)
 	}
 

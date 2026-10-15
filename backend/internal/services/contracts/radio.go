@@ -789,6 +789,11 @@ type SuggestedMatch struct {
 	ArtistSlug string `json:"artist_slug"`
 }
 
+// AuditActionLinkRadioPlay is the audit_logs.action recorded when an admin
+// links one radio play; its metadata carries artist_id, release_id and
+// label_id as set by the request.
+const AuditActionLinkRadioPlay = "link_radio_play"
+
 // LinkPlayRequest represents a request to link a play to entities.
 type LinkPlayRequest struct {
 	ArtistID  *uint `json:"artist_id"`

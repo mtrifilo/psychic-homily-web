@@ -1,40 +1,13 @@
 package catalog
 
 import (
-	"context"
 	"strings"
-	"sync"
-	"time"
 
 	"gorm.io/gorm"
-	"gorm.io/gorm/logger"
 
 	catalogm "psychic-homily-backend/internal/models/catalog"
+	"psychic-homily-backend/internal/testutil"
 )
-
-// sqlRecorder is a GORM logger that records every statement GORM executes.
-type sqlRecorder struct {
-	logger.Interface
-	mu         sync.Mutex
-	statements []string
-}
-
-func newSQLRecorder() *sqlRecorder { return &sqlRecorder{Interface: logger.Discard} }
-
-func (r *sqlRecorder) LogMode(logger.LogLevel) logger.Interface { return r }
-
-func (r *sqlRecorder) Trace(_ context.Context, _ time.Time, fc func() (string, int64), _ error) {
-	sql, _ := fc()
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	r.statements = append(r.statements, strings.TrimSpace(sql))
-}
-
-func (r *sqlRecorder) recorded() []string {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	return append([]string(nil), r.statements...)
-}
 
 // releaseLinkFixture is one play per backfill outcome plus a play without a
 // release link.
@@ -100,7 +73,7 @@ func (suite *RadioMatchingIntegrationTestSuite) TestBackfillReleaseLinks_DryRunC
 	f := suite.seedReleaseLinkFixture()
 	before := suite.releaseLinkState()
 
-	recorder := newSQLRecorder()
+	recorder := testutil.NewSQLRecorder()
 	report, err := BackfillRadioReleaseLinks(
 		suite.db.Session(&gorm.Session{Logger: recorder}),
 		RadioReleaseLinkBackfillOptions{DryRun: true},
@@ -138,10 +111,9 @@ func (suite *RadioMatchingIntegrationTestSuite) TestBackfillReleaseLinks_DryRunC
 	suite.Equal("Unique LP", byPlay[f.relinkUnique].NewReleaseTitle)
 
 	suite.Equal(before, suite.releaseLinkState(), "a dry run changes no play")
-	statements := recorder.recorded()
+	statements := recorder.Statements()
 	suite.Require().NotEmpty(statements)
-	suite.Equal("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY", statements[0])
-	for _, stmt := range statements[1:] {
+	for _, stmt := range statements {
 		suite.True(strings.HasPrefix(strings.ToUpper(stmt), "SELECT"), "dry run issued a non-SELECT statement: %s", stmt)
 	}
 }
@@ -161,7 +133,7 @@ func (suite *RadioMatchingIntegrationTestSuite) TestBackfillReleaseLinks_Confirm
 	f := suite.seedReleaseLinkFixture()
 	before := suite.releaseLinkState()
 
-	recorder := newSQLRecorder()
+	recorder := testutil.NewSQLRecorder()
 	report, err := BackfillRadioReleaseLinks(
 		suite.db.Session(&gorm.Session{Logger: recorder}),
 		RadioReleaseLinkBackfillOptions{DryRun: false},
@@ -171,7 +143,7 @@ func (suite *RadioMatchingIntegrationTestSuite) TestBackfillReleaseLinks_Confirm
 	suite.Equal(int64(2), report.Relinked)
 
 	updates := 0
-	for _, stmt := range recorder.recorded() {
+	for _, stmt := range recorder.Statements() {
 		if strings.HasPrefix(stmt, "UPDATE radio_plays") {
 			updates++
 		}

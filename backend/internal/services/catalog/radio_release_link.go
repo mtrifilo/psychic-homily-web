@@ -7,18 +7,18 @@ import (
 	"gorm.io/gorm"
 )
 
-// releaseLinkCandidate is a catalog release whose normalized title equals a
-// play's album title key, with every distinct artist credited on it.
+// releaseLinkCandidate is a catalog release with every distinct artist
+// credited on it (any artist_releases role).
 type releaseLinkCandidate struct {
 	ReleaseID uint
+	Title     string
 	Credits   []releaseCredit
 }
 
-// releaseCredit is one artist credited on a release (any artist_releases
-// role), with the artist name in normalizeName form.
+// releaseCredit is one artist credited on a release.
 type releaseCredit struct {
-	ArtistID uint
-	NameKey  string
+	ArtistID   uint
+	ArtistName string
 }
 
 func (c releaseLinkCandidate) creditsArtist(artistID uint) bool {
@@ -37,11 +37,11 @@ func (c releaseLinkCandidate) creditsArtist(artistID uint) bool {
 //   - A play with a linked artist links the lowest-id candidate credited to
 //     that artist.
 //   - A play without one links only when exactly one release carries the title,
-//     that release credits exactly one artist, and that artist's name key equals
-//     the play's artist name key.
+//     that release credits exactly one artist, and that artist's name equals
+//     the play's artist name under normalizeName.
 //
 // Anything else returns nil: the play gets no release link.
-func pickReleaseLink(artistID *uint, artistNameKey string, candidates []releaseLinkCandidate) *uint {
+func pickReleaseLink(artistID *uint, artistName string, candidates []releaseLinkCandidate) *uint {
 	if artistID != nil {
 		for i := range candidates {
 			if candidates[i].creditsArtist(*artistID) {
@@ -50,71 +50,74 @@ func pickReleaseLink(artistID *uint, artistNameKey string, candidates []releaseL
 		}
 		return nil
 	}
-	if artistNameKey == "" || len(candidates) != 1 {
+	if len(candidates) != 1 || len(candidates[0].Credits) != 1 {
 		return nil
 	}
-	only := candidates[0]
-	if len(only.Credits) != 1 || only.Credits[0].NameKey != artistNameKey {
+	nameKey := normalizeName(artistName)
+	if nameKey == "" || normalizeName(candidates[0].Credits[0].ArtistName) != nameKey {
 		return nil
 	}
-	return &only.ReleaseID
+	return &candidates[0].ReleaseID
+}
+
+// releaseCreditRow is one (release, credited artist) row; the artist columns
+// are NULL for a release without credits.
+type releaseCreditRow struct {
+	ReleaseID  uint
+	Title      string
+	TitleKey   string
+	ArtistID   *uint
+	ArtistName *string
 }
 
 // loadReleaseLinkCandidates returns, per title key, the releases whose
-// radio_normalize_name(title) equals that key, each with its credited artists.
-// Keys are normalizeName output; releases are ordered by id within a key.
+// radio_normalize_name(title) equals that key, each with its credited artists,
+// in one query. Keys are normalizeName output; releases are ordered by id.
 func loadReleaseLinkCandidates(db *gorm.DB, titleKeys []string) (map[string][]releaseLinkCandidate, error) {
 	byKey := make(map[string][]releaseLinkCandidate)
 	if len(titleKeys) == 0 {
 		return byKey, nil
 	}
-
-	var releases []struct {
-		ID       uint
-		TitleKey string
-	}
+	var rows []releaseCreditRow
 	if err := db.Raw(`
-SELECT id, radio_normalize_name(title) AS title_key
-FROM releases
-WHERE radio_normalize_name(title) = ANY(?)
-ORDER BY id`, pq.Array(titleKeys)).Scan(&releases).Error; err != nil {
+SELECT r.id AS release_id, r.title, radio_normalize_name(r.title) AS title_key,
+       c.artist_id, c.artist_name
+FROM releases r
+LEFT JOIN LATERAL (
+  SELECT DISTINCT ar.artist_id, a.name AS artist_name
+  FROM artist_releases ar
+  JOIN artists a ON a.id = ar.artist_id
+  WHERE ar.release_id = r.id
+) c ON true
+WHERE radio_normalize_name(r.title) = ANY(?)
+ORDER BY r.id, c.artist_id`, pq.Array(titleKeys)).Scan(&rows).Error; err != nil {
 		return nil, fmt.Errorf("loading releases by title: %w", err)
 	}
-	if len(releases) == 0 {
-		return byKey, nil
-	}
-
-	releaseIDs := make([]int64, len(releases))
-	for i, r := range releases {
-		releaseIDs[i] = int64(r.ID)
-	}
-	credits, err := loadReleaseCredits(db, releaseIDs)
-	if err != nil {
-		return nil, err
-	}
-	for _, r := range releases {
-		byKey[r.TitleKey] = append(byKey[r.TitleKey], releaseLinkCandidate{
-			ReleaseID: r.ID,
-			Credits:   credits[r.ID],
-		})
+	for _, row := range rows {
+		list := byKey[row.TitleKey]
+		if n := len(list); n == 0 || list[n-1].ReleaseID != row.ReleaseID {
+			list = append(list, releaseLinkCandidate{ReleaseID: row.ReleaseID, Title: row.Title})
+		}
+		if row.ArtistID != nil {
+			last := &list[len(list)-1]
+			last.Credits = append(last.Credits, releaseCredit{ArtistID: *row.ArtistID, ArtistName: derefString(row.ArtistName)})
+		}
+		byKey[row.TitleKey] = list
 	}
 	return byKey, nil
 }
 
-// releaseCreditRow is one credited artist of a release, with the artist's
-// display name.
-type releaseCreditRow struct {
-	ReleaseID  uint
-	ArtistID   uint
-	ArtistName string
-}
-
-// loadReleaseCreditRows returns the distinct artists credited on each release
-// (any role), ordered by release id then artist id.
-func loadReleaseCreditRows(db *gorm.DB, releaseIDs []int64) ([]releaseCreditRow, error) {
-	var rows []releaseCreditRow
+// loadReleaseCredits returns the distinct artists credited on each release
+// (any role), ordered by artist id.
+func loadReleaseCredits(db *gorm.DB, releaseIDs []int64) (map[uint][]releaseCredit, error) {
+	credits := make(map[uint][]releaseCredit)
 	if len(releaseIDs) == 0 {
-		return rows, nil
+		return credits, nil
+	}
+	var rows []struct {
+		ReleaseID  uint
+		ArtistID   uint
+		ArtistName string
 	}
 	if err := db.Raw(`
 SELECT DISTINCT ar.release_id, ar.artist_id, a.name AS artist_name
@@ -124,21 +127,8 @@ WHERE ar.release_id = ANY(?)
 ORDER BY ar.release_id, ar.artist_id`, pq.Array(releaseIDs)).Scan(&rows).Error; err != nil {
 		return nil, fmt.Errorf("loading release credits: %w", err)
 	}
-	return rows, nil
-}
-
-// loadReleaseCredits returns the distinct artists credited on each release.
-func loadReleaseCredits(db *gorm.DB, releaseIDs []int64) (map[uint][]releaseCredit, error) {
-	rows, err := loadReleaseCreditRows(db, releaseIDs)
-	if err != nil {
-		return nil, err
-	}
-	credits := make(map[uint][]releaseCredit)
 	for _, row := range rows {
-		credits[row.ReleaseID] = append(credits[row.ReleaseID], releaseCredit{
-			ArtistID: row.ArtistID,
-			NameKey:  normalizeName(row.ArtistName),
-		})
+		credits[row.ReleaseID] = append(credits[row.ReleaseID], releaseCredit{ArtistID: row.ArtistID, ArtistName: row.ArtistName})
 	}
 	return credits, nil
 }

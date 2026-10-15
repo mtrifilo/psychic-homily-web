@@ -403,7 +403,7 @@ func (m *RadioMatchingEngine) matchRelease(artistID *uint, artistName string, ti
 		slog.Warn("radio match: release lookup failed", "error", err)
 		return nil
 	}
-	return pickReleaseLink(artistID, normalizeName(artistName), candidates[titleKey])
+	return pickReleaseLink(artistID, artistName, candidates[titleKey])
 }
 
 // matchLabel tries to match a label by exact name (case-insensitive).
