@@ -128,8 +128,10 @@ type AuthServiceInterface interface {
 	OAuthCallback(w http.ResponseWriter, r *http.Request, provider string) (*authm.User, string, error)
 	OAuthCallbackWithConsent(w http.ResponseWriter, r *http.Request, provider string, consent *OAuthSignupConsent) (*authm.User, string, error)
 	// CompleteOAuthLink attaches the handshake's identity to an already
-	// authenticated userID and issues no session. Refuses with the typed
-	// AuthErrors UserServiceInterface.LinkOAuthAccountToUser documents.
+	// authenticated userID and issues no session. Refuses with a typed
+	// AuthError carrying CodeAccountInactive when the account may not sign in
+	// (authm.User.CanSignIn), and with the typed AuthErrors
+	// UserServiceInterface.LinkOAuthAccountToUser documents.
 	CompleteOAuthLink(w http.ResponseWriter, r *http.Request, provider string, userID uint) (*authm.User, error)
 	GetUserProfile(userID uint) (*authm.User, error)
 	// RefreshUserToken renews a session, carrying authAt through unchanged.
