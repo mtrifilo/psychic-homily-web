@@ -28,15 +28,11 @@ export function loadBackendCorpus<T>(pathUnderBackend: string): T {
   try {
     text = readFileSync(path, 'utf8')
   } catch (cause) {
-    throw new Error(`Cannot read backend corpus ${path}: ${String(cause)}`, {
-      cause,
-    })
+    throw new Error(`Cannot read backend corpus ${path}`, { cause })
   }
   try {
     return JSON.parse(text) as T
   } catch (cause) {
-    throw new Error(`Cannot parse backend corpus ${path}: ${String(cause)}`, {
-      cause,
-    })
+    throw new Error(`Cannot parse backend corpus ${path}`, { cause })
   }
 }

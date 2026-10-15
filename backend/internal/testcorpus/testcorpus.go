@@ -1,8 +1,5 @@
-// Package testcorpus reads the JSON corpora that Go tests share with other
-// suites, most often a frontend Vitest suite that reads the same file, so
-// every Go reader resolves, reads and decodes a corpus the same way. Load
-// takes a testing.TB, so non-test code cannot call it without importing
-// testing.
+// Package testcorpus reads a JSON corpus that a Go test shares with another
+// suite, most often a frontend Vitest suite that reads the same file.
 package testcorpus
 
 import (
