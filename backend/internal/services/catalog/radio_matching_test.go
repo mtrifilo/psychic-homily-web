@@ -616,6 +616,32 @@ func (suite *RadioMatchingIntegrationTestSuite) TestMatchRelease_LinkingAnArtist
 	suite.Nil(reloaded.ReleaseID)
 }
 
+// TestMatchRelease_LabelRematchKeepsTheReleaseOfAnArtistLinkedPlay: a play
+// that already carries its artist and a release not credited to it (as the
+// admin link-play endpoint can set) keeps that release when a new label name
+// rematches it.
+func (suite *RadioMatchingIntegrationTestSuite) TestMatchRelease_LabelRematchKeepsTheReleaseOfAnArtistLinkedPlay() {
+	tmbg := suite.createArtist("They Might Be Giants")
+	boris := suite.createArtist("Boris")
+	borisFlood := suite.createCreditedRelease("Flood", boris.ID)
+
+	episodeID := suite.createStationShowEpisode()
+	play := suite.createPlay(episodeID, 1, "They Might Be Giants", strPtr("Flood"), strPtr("Elektra"))
+	suite.Require().NoError(suite.db.Model(play).Updates(map[string]interface{}{
+		"artist_id": tmbg.ID, "release_id": borisFlood.ID,
+	}).Error)
+	label := suite.createLabel("Elektra")
+
+	result, err := suite.engine.MatchUnmatchedPlaysForLabelName("Elektra")
+	suite.Require().NoError(err)
+	suite.Equal(1, result.Total)
+	reloaded := suite.reloadPlay(play.ID)
+	suite.Require().NotNil(reloaded.LabelID)
+	suite.Equal(label.ID, *reloaded.LabelID)
+	suite.Require().NotNil(reloaded.ReleaseID)
+	suite.Equal(borisFlood.ID, *reloaded.ReleaseID)
+}
+
 // TestMatchRelease_LinkingAnArtistKeepsACreditedRelease: the play's current
 // release is credited to the artist the matcher links, under another title.
 func (suite *RadioMatchingIntegrationTestSuite) TestMatchRelease_LinkingAnArtistKeepsACreditedRelease() {

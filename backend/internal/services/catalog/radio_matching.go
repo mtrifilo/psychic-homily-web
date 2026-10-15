@@ -274,9 +274,11 @@ func (m *RadioMatchingEngine) matchPlayWithErr(play *catalogm.RadioPlay) (bool, 
 	switch {
 	case releaseID != nil:
 		updates["release_id"] = *releaseID
-	case artistMatched && play.ReleaseID != nil && !m.releaseCreditsArtist(*play.ReleaseID, *artistID):
-		// Linking an artist never leaves the play on a release credited to
-		// someone else.
+	case gainsArtist(play.ArtistID, artistMatched, artistID) && play.ReleaseID != nil && !m.releaseCreditsArtist(*play.ReleaseID, *artistID):
+		// Giving a play a new artist never leaves it on a release credited to
+		// someone else. A play keeping its artist keeps its release.
+		slog.Info("radio match: cleared release not credited to the newly linked artist",
+			"play_id", play.ID, "release_id", *play.ReleaseID, "artist_id", *artistID)
 		updates["release_id"] = nil
 	}
 
@@ -413,6 +415,12 @@ func (m *RadioMatchingEngine) matchRelease(artistID *uint, artistName string, ti
 		return &picked.ReleaseID
 	}
 	return nil
+}
+
+// gainsArtist reports whether this match links an artist the play does not
+// already carry.
+func gainsArtist(current *uint, matched bool, resolved *uint) bool {
+	return matched && (current == nil || *current != *resolved)
 }
 
 // releaseCreditsArtist reports whether the release credits the artist (any

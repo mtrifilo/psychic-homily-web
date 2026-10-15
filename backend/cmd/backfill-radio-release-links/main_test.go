@@ -2,9 +2,8 @@ package main
 
 import (
 	"bytes"
-	"encoding/csv"
+	"errors"
 	"fmt"
-	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -159,7 +158,7 @@ func TestRun_DryRunThenConfirm(t *testing.T) {
 	for _, stmt := range recorder.Statements() {
 		assert.True(t, strings.HasPrefix(strings.ToUpper(stmt), "SELECT"), "dry run issued a non-SELECT statement: %s", stmt)
 	}
-	assert.Equal(t, changeListRows(t, planPath), [][]string{
+	assert.Equal(t, mustReadChangeList(t, planPath), [][]string{
 		{"play_id", "outcome", "artist_id", "from_release_id", "to_release_id", "admin_set"},
 		{fmt.Sprint(removed), "removed_not_credited", fmt.Sprint(tySegall.ID), fmt.Sprint(chrome), "", "false"},
 		{fmt.Sprint(relinked), "relinked_credited", fmt.Sprint(tmbg.ID), fmt.Sprint(borisFlood), fmt.Sprint(tmbgFlood), "false"},
@@ -171,22 +170,54 @@ func TestRun_DryRunThenConfirm(t *testing.T) {
 	assert.Equal(t, &chrome, releaseOf(removed), "a refused change list leaves every play unchanged")
 	assert.Equal(t, &borisFlood, releaseOf(relinked))
 
+	stalePlanPath := filepath.Join(dir, "stale-plan.csv")
+	require.NoError(t, writeChangeList(stalePlanPath, mustReadChangeList(t, planPath)[:2]))
+	rejectedPath := filepath.Join(dir, "rejected.csv")
+	err = run(db, runOptions{confirm: true, outPath: rejectedPath, planPath: stalePlanPath}, &out)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "differs from the reviewed plan")
+	assert.Contains(t, err.Error(), "0 planned rows absent, 1 rows not in the plan")
+	assert.NoFileExists(t, rejectedPath, "a plan mismatch aborts before the change list is written")
+	assert.Equal(t, &chrome, releaseOf(removed))
+
+	const failUpdates = "test:fail_radio_plays_update"
+	require.NoError(t, db.Callback().Raw().Before("gorm:raw").Register(failUpdates, func(tx *gorm.DB) {
+		if strings.HasPrefix(strings.TrimSpace(tx.Statement.SQL.String()), "UPDATE radio_plays") {
+			_ = tx.AddError(errors.New("simulated update failure"))
+		}
+	}))
+	failedPath := filepath.Join(dir, "failed.csv")
+	err = run(db, runOptions{confirm: true, outPath: failedPath, planPath: planPath}, &out)
+	require.NoError(t, db.Callback().Raw().Remove(failUpdates))
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "none of the changes listed in "+failedPath+".NOT-APPLIED were applied")
+	assert.NoFileExists(t, failedPath)
+	assert.FileExists(t, failedPath+".NOT-APPLIED")
+	assert.Equal(t, &chrome, releaseOf(removed), "a failed live run rolls back")
+
 	changesPath := filepath.Join(dir, "changes.csv")
 	out.Reset()
-	require.NoError(t, run(db, runOptions{confirm: true, verbose: true, outPath: changesPath}, &out))
+	require.NoError(t, run(db, runOptions{confirm: true, verbose: true, outPath: changesPath, planPath: planPath}, &out))
 	assert.Contains(t, out.String(), "LIVE: release links cleared 1, relinked 1. Every change is listed in "+changesPath)
 	assert.Contains(t, out.String(), "Every removal and relink (2)")
 	assert.Nil(t, releaseOf(removed))
 	assert.Equal(t, &tmbgFlood, releaseOf(relinked))
-	assert.Equal(t, changeListRows(t, planPath), changeListRows(t, changesPath), "the live run applies the reviewed plan")
+	assert.Equal(t, mustReadChangeList(t, planPath), mustReadChangeList(t, changesPath), "the live run applies the reviewed plan")
 }
 
-func changeListRows(t *testing.T, path string) [][]string {
+func mustReadChangeList(t *testing.T, path string) [][]string {
 	t.Helper()
-	f, err := os.Open(path)
-	require.NoError(t, err)
-	defer func() { require.NoError(t, f.Close()) }()
-	rows, err := csv.NewReader(f).ReadAll()
+	rows, err := readChangeList(path)
 	require.NoError(t, err)
 	return rows
+}
+
+func TestDiffChangeLists(t *testing.T) {
+	header := changeListHeader
+	a := []string{"1", "removed_not_credited", "7", "10", "", "false"}
+	b := []string{"2", "relinked_credited", "7", "11", "12", "false"}
+	assert.Empty(t, diffChangeLists([][]string{header, a, b}, [][]string{header, b, a}), "row order does not matter")
+	assert.Equal(t, "1 planned rows absent, 0 rows not in the plan", diffChangeLists([][]string{header, a, b}, [][]string{header, a}))
+	changed := []string{"2", "relinked_credited", "7", "11", "13", "false"}
+	assert.Equal(t, "1 planned rows absent, 1 rows not in the plan", diffChangeLists([][]string{header, a, b}, [][]string{header, a, changed}))
 }
