@@ -505,6 +505,8 @@ func TestRateLimitLogValuesAreStable(t *testing.T) {
 		"LimiterEntityRequestBatchSustained": "entity_request_batch_sustained",
 		"LimiterAuth":                        "auth",
 		"LimiterPasskey":                     "passkey",
+		"LimiterPasskeySignupBegin":          "passkey_signup_begin",
+		"LimiterPasskeyRegisterBegin":        "passkey_register_begin",
 		"LimiterOAuthRedirect":               "oauth_redirect",
 		"LimiterAppleSignIn":                 "apple_sign_in",
 		"LimiterVerificationResend":          "verification_resend",
