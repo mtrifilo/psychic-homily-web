@@ -2,9 +2,11 @@ package auth
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -14,6 +16,7 @@ import (
 	"psychic-homily-backend/internal/api/middleware"
 	autherrors "psychic-homily-backend/internal/errors"
 	authm "psychic-homily-backend/internal/models/auth"
+	"psychic-homily-backend/internal/testlog"
 )
 
 // testFrontendOrigin is the origin the test config names as the frontend, and
@@ -107,6 +110,50 @@ func (s *OAuthHandlerIntegrationSuite) TestLink_ArmsAnIntentForTheSessionsAccoun
 	s.Require().True(found)
 	s.Equal(user.ID, intent.userID)
 	s.Equal("google", intent.provider)
+}
+
+// A link start against a full intent store still arms its intent: the oldest
+// pending link makes room, and the eviction is logged.
+func (s *OAuthHandlerIntegrationSuite) TestLink_AtCapacityEvictsOldestAndLogs() {
+	oauthLinkIntentStore.reset()
+	s.T().Cleanup(oauthLinkIntentStore.reset)
+	for i := range oauthLinkIntentCapacity {
+		storeOAuthLinkIntent(fmt.Sprintf("fill-%04d", i), oauthLinkIntent{
+			userID:    1,
+			provider:  "google",
+			state:     "fill-state",
+			expiresAt: time.Now().Add(oauthLinkIntentTTL),
+		})
+	}
+
+	user := &authm.User{Email: strPtr("link-at-capacity@test.com"), IsActive: true, EmailVerified: true}
+	s.Require().NoError(s.deps.DB.Create(user).Error)
+
+	handler := s.newHandler(&mockOAuthCompleter{})
+	w, req := s.oauthLinkRequest("google", user)
+	output := testlog.Capture(s.T(), func() {
+		handler.OAuthLinkHTTPHandler(w, testlog.Request(s.T(), req))
+	})
+
+	cookie := linkIntentCookie(w)
+	s.Require().NotNil(cookie)
+	_, found := peekOAuthLinkIntent(cookie.Value)
+	s.True(found, "the new intent is stored")
+	_, found = peekOAuthLinkIntent("fill-0000")
+	s.False(found, "the oldest pending link is evicted")
+	_, found = peekOAuthLinkIntent("fill-0001")
+	s.True(found, "only the oldest pending link is evicted")
+	s.Equal(oauthLinkIntentCapacity, oauthLinkIntentStore.size())
+
+	s.Contains(output, "msg=oauth_link_started", "positive marker: the capture saw the handler's log")
+	for _, want := range []string{
+		"msg=oauth_link_intent_store_evicting",
+		"evicted=1",
+		fmt.Sprintf("capacity=%d", oauthLinkIntentCapacity),
+	} {
+		s.Contains(output, want)
+	}
+	s.False(strings.Contains(output, cookie.Value), "the intent id is never logged")
 }
 
 // The CSRF gate. /auth/link/{provider} is a cookie-authenticated GET and the

@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/go-chi/chi/v5"
@@ -146,6 +147,41 @@ func TestOAuthLoginHTTPHandler_CLICallbackRejected_400(t *testing.T) {
 		if c.Name == "cli_callback_id" {
 			t.Error("expected no cli_callback_id cookie for rejected callback")
 		}
+	}
+}
+
+// A cli_callback over cliCallbackMaxLength is refused at the start with the
+// same 400 as an off-allowlist one, and nothing is stored; one at the cap is
+// stored.
+func TestOAuthLoginHTTPHandler_CLICallbackLengthCap(t *testing.T) {
+	cleanCLICallbackStore()
+	t.Cleanup(cleanCLICallbackStore)
+	handler := NewOAuthHTTPHandler(nil, nil, nil)
+
+	for _, n := range []int{cliCallbackMaxLength + 1, 10000} {
+		w, req := oauthLoginRequest("google")
+		req.URL.RawQuery = "cli_callback=" + callbackOfLength(t, n, "a")
+		handler.OAuthLoginHTTPHandler(w, req)
+
+		if w.Code != http.StatusBadRequest || !strings.Contains(w.Body.String(), "Invalid cli_callback") {
+			t.Errorf("%d bytes: expected 400 Invalid cli_callback, got %d %q", n, w.Code, w.Body.String())
+		}
+		for _, c := range w.Result().Cookies() {
+			if c.Name == "cli_callback_id" {
+				t.Errorf("%d bytes: expected no cli_callback_id cookie", n)
+			}
+		}
+		if size := cliCallbackStore.size(); size != 0 {
+			t.Errorf("%d bytes: expected nothing stored, store holds %d", n, size)
+		}
+	}
+
+	atCap := callbackOfLength(t, cliCallbackMaxLength, "a")
+	w, req := oauthLoginRequest("google")
+	req.URL.RawQuery = "cli_callback=" + atCap
+	handler.OAuthLoginHTTPHandler(w, req)
+	if stored, ok := getCLICallback(cliCallbackID(t, w)); !ok || stored != atCap {
+		t.Errorf("expected the %d-byte callback to be stored, got %d bytes, %v", len(atCap), len(stored), ok)
 	}
 }
 

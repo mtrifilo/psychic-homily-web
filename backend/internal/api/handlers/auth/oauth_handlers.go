@@ -330,8 +330,7 @@ func (h *OAuthHTTPHandler) OAuthCallbackHTTPHandler(w http.ResponseWriter, r *ht
 	var cliCallback string
 	if cookie, err := r.Cookie("cli_callback_id"); err == nil {
 		callbackID := cookie.Value
-		if callback, ok := getCLICallback(callbackID); ok {
-			deleteCLICallback(callbackID)
+		if callback, ok := takeCLICallback(callbackID); ok {
 			// Defense in depth: re-validate the stored callback before we
 			// build a token-bearing redirect from it. Even though the value
 			// was checked at initiation, never trust a stored redirect target
