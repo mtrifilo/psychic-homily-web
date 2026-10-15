@@ -23,6 +23,7 @@ export const PHONE_CONTEXT = { hasTouch: true, isMobile: true, deviceScaleFactor
 export type AtlasMapSeam = {
   isStyleLoaded: () => boolean
   areTilesLoaded: () => boolean
+  isMoving: () => boolean
   getZoom: () => number
   getCenter: () => { lng: number; lat: number }
   getStyle: () => {
@@ -226,13 +227,16 @@ export async function dismissBanner(page: Page, { via = 'tap' }: { via?: 'tap' |
   await expect(page.getByRole('dialog', { name: 'Cookie consent' })).toHaveCount(0)
 }
 
-/** Where `point` falls in the viewport, through the map's own projection. */
+/**
+ * Where `point` falls in the viewport, through the map's own projection, and
+ * whether the camera is moving, read in one evaluation.
+ */
 export function mapPoint(page: Page, point: { lat: number; lng: number }) {
   return page.evaluate(({ lng, lat }) => {
     const m = (window as unknown as { __atlasMap: AtlasMapSeam }).__atlasMap
     const p = m.project([lng, lat])
     const r = m.getCanvas().getBoundingClientRect()
-    return { x: r.left + p.x, y: r.top + p.y }
+    return { x: r.left + p.x, y: r.top + p.y, moving: m.isMoving() }
   }, point)
 }
 
