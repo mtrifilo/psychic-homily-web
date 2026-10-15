@@ -237,6 +237,22 @@ for unit in ms s min h d; do
   expect_migrate_url "$OPTS_URL?options=-c%20lock_timeout%3D7$unit"
 done
 
+CASE="statement_timeout alone keeps the default lock_timeout"
+run "$OPTS_URL" MIGRATE_STATEMENT_TIMEOUT=30s
+expect_booted
+expect_absent "WARNING"
+expect_line "Migrations wait at most 5s for any lock (lock_timeout)."
+expect_line "Each migration statement runs at most 30s (statement_timeout)."
+expect_migrate_url "$OPTS_URL?$LOCK_5S%20-c%20statement_timeout%3D30s"
+
+for unit in ms s min h d; do
+  CASE="statement_timeout unit $unit is accepted"
+  run "$OPTS_URL" MIGRATE_STATEMENT_TIMEOUT="7$unit"
+  expect_booted
+  expect_absent "WARNING"
+  expect_migrate_url "$OPTS_URL?$LOCK_5S%20-c%20statement_timeout%3D7$unit"
+done
+
 CASE="statement_timeout of 0s adds nothing"
 run "$OPTS_URL" MIGRATE_STATEMENT_TIMEOUT=0s
 expect_booted
@@ -263,9 +279,11 @@ for bad in abc -1 30S 1.5s 1us "30s%20-c%20lock_timeout%3D0"; do
 done
 
 CASE="an options parameter in DATABASE_URL is reported as shadowing both"
-run "$OPTS_URL?options=-c%20work_mem%3D8MB" MIGRATE_STATEMENT_TIMEOUT=30s
+run "$OPTS_URL?options=-c%20work_mem%3D8MB" MIGRATE_LOCK_TIMEOUT=30s MIGRATE_STATEMENT_TIMEOUT=30s
 expect_booted
-expect_line "WARNING: DATABASE_URL carries its own 'options' parameter; migrations run WITHOUT the 5s lock_timeout or any statement_timeout from MIGRATE_STATEMENT_TIMEOUT."
+expect_line "WARNING: DATABASE_URL carries its own 'options' parameter; migrations run WITHOUT the 30s lock_timeout or any statement_timeout from MIGRATE_STATEMENT_TIMEOUT."
+expect_absent "Migrations wait at most" "Each migration statement runs at most"
+expect_migrate_url "$OPTS_URL?options=-c%20work_mem%3D8MB&options=-c%20lock_timeout%3D30s%20-c%20statement_timeout%3D30s"
 
 # ---------------------------------------------------------------- result
 

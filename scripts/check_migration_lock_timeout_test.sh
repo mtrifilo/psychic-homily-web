@@ -259,6 +259,23 @@ migration "20260901000000_widen" "COMMENT ON TABLE t IS 'line one
 ALTER TABLE t ALTER COLUMN c TYPE BIGINT;"
 expect 1 "takes a strong lock (ALTER TABLE)"
 
+reset_fixture "unbound: an apostrophe in a line comment opens no literal" unbound
+migration "20260901000000_widen" "-- don't forget: lock_timeout is the runner's job.
+ALTER TABLE t ALTER COLUMN c TYPE BIGINT;"
+expect 1 "takes a strong lock (ALTER TABLE)"
+
+reset_fixture "unbound: an apostrophe in a block comment opens no literal" unbound
+migration "20260901000000_widen" "/* it's widened here */ ALTER TABLE t ALTER COLUMN c TYPE BIGINT;"
+expect 1 "takes a strong lock (ALTER TABLE)"
+
+reset_fixture "unbound: a block comment nested across lines is stripped" unbound
+migration "20260901000000_widen" "/* outer
+  /* inner
+  */ lock_timeout still commented
+*/
+ALTER TABLE t ALTER COLUMN c TYPE BIGINT;"
+expect 1 "20260901000000_widen.up.sql"
+
 reset_fixture "unbound: SET LOCAL lock_timeout after a block comment passes" unbound
 migration "20260901000000_widen" "/* widen */ SET LOCAL lock_timeout = '5s';
 ALTER TABLE t ALTER COLUMN c TYPE BIGINT;"
@@ -277,6 +294,12 @@ expect 0 "uses CREATE INDEX CONCURRENTLY IF NOT EXISTS"
 reset_fixture "bound: CONCURRENTLY IF NOT EXISTS gets a file annotation" bound
 migration "20260901000000_idx" "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_t_c ON t (c);"
 GITHUB_ACTIONS=true expect 0 "::warning file=backend/db/migrations/20260901000000_idx.up.sql::"
+
+reset_fixture "unbound: a CIC warning does not mask a strong-lock failure in the same file" unbound
+migration "20260901000000_idx" "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_t_c ON t (c);
+ALTER TABLE t ADD COLUMN d int;"
+expect 1 "takes a strong lock (ALTER TABLE)"
+expect 1 "uses CREATE INDEX CONCURRENTLY IF NOT EXISTS"
 
 reset_fixture "unbound: CONCURRENTLY without IF NOT EXISTS does not warn" unbound
 migration "20260901000000_idx" "CREATE INDEX CONCURRENTLY idx_t_c ON t (c);"
