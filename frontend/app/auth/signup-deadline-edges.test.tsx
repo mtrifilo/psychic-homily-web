@@ -279,6 +279,42 @@ describe('sign-up deadlines on /auth', () => {
     })
   })
 
+  describe('a registration whose profile refetch outlasts its own deadline', () => {
+    it('releases the claim without a failure, then shows the interstitial once the refetch lands', async () => {
+      const queryClient = createTestQueryClient()
+      const refetch = deferred<{ success: boolean }>()
+      const profile = vi
+        .fn()
+        .mockResolvedValueOnce({ success: false })
+        .mockReturnValueOnce(refetch.promise)
+      await queryClient.fetchQuery({
+        queryKey: queryKeys.auth.profile,
+        queryFn: profile,
+        gcTime: Infinity,
+      })
+      routeFetch({ '/auth/register': () => Promise.resolve(jsonResponse(REGISTERED)) })
+      const user = setupUser()
+      renderWithProviders(<AuthPage />, { queryClient })
+
+      await submitPasswordSignup(user)
+      await waitFor(() => {
+        expect(profile).toHaveBeenCalledTimes(2)
+      })
+      await advanceFakeTime(SIGNUP_REQUEST_TIMEOUT_MS * 2)
+
+      expect(screen.queryByText('Registration failed')).not.toBeInTheDocument()
+      expect(screen.getByLabelText('Email')).toHaveValue('signup@example.com')
+
+      await act(async () => {
+        refetch.resolve({ success: true })
+      })
+      expect(
+        await screen.findByRole('heading', { name: 'Check your inbox.' })
+      ).toBeInTheDocument()
+      expect(mockPush).not.toHaveBeenCalled()
+    })
+  })
+
   describe('a page hidden with a registration in flight', () => {
     // A shown page gives the request a fresh deadline, on the signal it holds.
     it('resumes the redirect 30 s after the page is shown again', async () => {
