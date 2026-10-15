@@ -88,3 +88,59 @@ func TestUnlinkOAuthAccountHandler_InvalidProvider(t *testing.T) {
 	_, err := h.UnlinkOAuthAccountHandler(ctx, req)
 	testhelpers.AssertHumaError(t, err, 422)
 }
+
+// --- StartOAuthLinkHandler ---
+
+func TestStartOAuthLinkHandler_NoAuth(t *testing.T) {
+	h := testOAuthAccountHandler()
+
+	_, err := h.StartOAuthLinkHandler(context.Background(), &StartOAuthLinkRequest{Origin: "http://localhost:3000"})
+	testhelpers.AssertHumaError(t, err, 401)
+}
+
+// The mint answers only a request that names the configured frontend, by
+// Origin or, when Origin is absent or opaque, by Referer. A request naming
+// neither is refused: nothing then says where it came from.
+func TestStartOAuthLinkHandler_OriginGate(t *testing.T) {
+	const frontend = "http://localhost:3000"
+
+	cases := []struct {
+		name     string
+		origin   string
+		referer  string
+		wantMint bool
+	}{
+		{"no Origin and no Referer", "", "", false},
+		{"our Origin", frontend, "", true},
+		{"our Referer alone", "", frontend + "/profile?tab=settings", true},
+		{"opaque Origin with our Referer", "null", frontend + "/profile", true},
+		{"another Origin", "https://evil.example", "", false},
+		{"another Referer alone", "", "https://evil.example/profile", false},
+		// Origin outranks Referer: a foreign Origin is not rescued by ours.
+		{"another Origin with our Referer", "https://evil.example", frontend + "/profile", false},
+		{"opaque Origin and nothing else", "null", "", false},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			h := testOAuthAccountHandler()
+			user := &authm.User{ID: 7}
+			ctx := testhelpers.CtxWithUser(user)
+
+			resp, err := h.StartOAuthLinkHandler(ctx, &StartOAuthLinkRequest{Origin: tc.origin, Referer: tc.referer})
+			if !tc.wantMint {
+				testhelpers.AssertHumaErrorWithDetail(t, err, 403, "Start the connection from Settings")
+				return
+			}
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if !resp.Body.Success || resp.Body.Token == "" {
+				t.Fatalf("expected a minted token, got success=%v token=%q", resp.Body.Success, resp.Body.Token)
+			}
+			if !consumeOAuthLinkToken("test-secret", resp.Body.Token, user.ID) {
+				t.Error("minted token does not spend for the user it was minted for")
+			}
+		})
+	}
+}
