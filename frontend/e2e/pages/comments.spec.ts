@@ -1,4 +1,4 @@
-import type { Page } from '@playwright/test'
+import type { Page, TestInfo } from '@playwright/test'
 import { test, expect } from '../fixtures'
 
 // PSY-456: golden-path E2E coverage for the general comments surface
@@ -43,8 +43,36 @@ import { test, expect } from '../fixtures'
 const visibleMain = (page: Page) =>
   page.locator('main#main-content').filter({ visible: true })
 
+// Distinct across workers, repeats and retries, which can run the same test
+// in the same millisecond. Text uniqueness does not lift the backend's 60s
+// per-user, per-entity comment cooldown: a second post by the same seeded user
+// on the same venue inside that window gets a 429, deleted comments included.
+const uniqueText = (prefix: string, testInfo: TestInfo) =>
+  `${prefix} w${testInfo.workerIndex}-r${testInfo.repeatEachIndex}-t${testInfo.retry}-${Date.now()}`
+
+function latch() {
+  let release!: () => void
+  const released = new Promise<void>((r) => (release = r))
+  return { release, released }
+}
+
+async function within(promise: Promise<void>, ms: number, failure: string) {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  const expired = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error(failure)), ms)
+  })
+  try {
+    await Promise.race([promise, expired])
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
 const CREATE_VENUE_SLUG = 'e2e-comment-create'
 const CREATE_VENUE_NAME = 'E2E [comment-create]'
+
+const INFLIGHT_VENUE_SLUG = 'e2e-comment-create-inflight'
+const INFLIGHT_VENUE_NAME = 'E2E [comment-create-inflight]'
 
 const VOTE_VENUE_SLUG = 'e2e-comment-vote'
 const VOTE_VENUE_NAME = 'E2E [comment-vote]'
@@ -60,7 +88,7 @@ test.describe('Comments (general)', () => {
   test(
     'authenticated user creates a comment on an entity',
     { tag: '@smoke' },
-    async ({ authenticatedPage }) => {
+    async ({ authenticatedPage }, testInfo) => {
       await authenticatedPage.goto(`/venues/${CREATE_VENUE_SLUG}`)
       const main = visibleMain(authenticatedPage)
 
@@ -77,7 +105,7 @@ test.describe('Comments (general)', () => {
       const thread = main.getByTestId('comment-thread')
       await expect(thread).toBeVisible({ timeout: 10_000 })
 
-      const uniqueBody = `E2E comment create ${Date.now()}`
+      const uniqueBody = uniqueText('E2E comment create', testInfo)
       await thread
         .getByTestId('comment-textarea')
         .fill(uniqueBody)
@@ -110,6 +138,79 @@ test.describe('Comments (general)', () => {
       // `page.request.*` returns APIResponse directly — no browser-level
       // waitForResponse needed (and it wouldn't fire anyway since the
       // request bypasses the browser).
+      const deleteResp = await authenticatedPage.request.delete(
+        `/api/comments/${createdId}`
+      )
+      expect(deleteResp.status()).toBeLessThan(400)
+    }
+  )
+
+  test(
+    'a comment posted while the first list fetch is in flight appears',
+    async ({ authenticatedPage }, testInfo) => {
+      // Forces this ordering: the backend answers the thread's first list
+      // GET before the create commits, and that response reaches the page
+      // only after the create's response has been handled. The held
+      // response does not contain the new comment.
+      const listGet = /\/api\/entities\/venue\/\d+\/comments\?sort=/
+      let listGets = 0
+      const firstGetAnswered = latch()
+      const firstGetReleased = latch()
+      const secondGetIssued = latch()
+
+      await authenticatedPage.route(listGet, async (route) => {
+        if (route.request().method() !== 'GET') return route.continue()
+        listGets += 1
+        if (listGets === 2) secondGetIssued.release()
+        if (listGets !== 1) return route.continue()
+        const response = await route.fetch()
+        const body = await response.text()
+        firstGetAnswered.release()
+        await firstGetReleased.released
+        await route.fulfill({ response, body })
+      })
+
+      await authenticatedPage.goto(`/venues/${INFLIGHT_VENUE_SLUG}`)
+      const main = visibleMain(authenticatedPage)
+      await expect(
+        main.getByRole('heading', { level: 1, name: INFLIGHT_VENUE_NAME })
+      ).toBeVisible({ timeout: 10_000 })
+      const thread = main.getByTestId('comment-thread')
+      await expect(thread).toBeVisible({ timeout: 10_000 })
+      await within(
+        firstGetAnswered.released,
+        10_000,
+        'the thread list GET was never intercepted: its URL no longer matches listGet'
+      )
+
+      const uniqueBody = uniqueText('E2E comment in flight', testInfo)
+      await thread.getByTestId('comment-textarea').fill(uniqueBody)
+
+      const [createResp] = await Promise.all([
+        authenticatedPage.waitForResponse(
+          (resp) =>
+            resp.url().includes('/entities/venue/') &&
+            resp.url().endsWith('/comments') &&
+            resp.request().method() === 'POST',
+          { timeout: 30_000 }
+        ),
+        thread.getByTestId('comment-submit').click(),
+      ])
+      expect(createResp.status()).toBeLessThan(400)
+      const createdId = ((await createResp.json()) as { id: number }).id
+
+      // The post-create refetch is the request under test. Release the held
+      // response once it is issued, or after a bound when it never is, so
+      // the visibility assertion below reports the failure.
+      await Promise.race([
+        secondGetIssued.released,
+        new Promise<void>((r) => setTimeout(r, 2_000)),
+      ])
+      firstGetReleased.release()
+
+      await expect(thread.getByText(uniqueBody)).toBeVisible({ timeout: 10_000 })
+      expect(listGets).toBeGreaterThanOrEqual(2)
+
       const deleteResp = await authenticatedPage.request.delete(
         `/api/comments/${createdId}`
       )
@@ -194,7 +295,7 @@ test.describe('Comments (general)', () => {
   test(
     'authenticated user replies to a comment (nested, depth <= 2)',
     { tag: '@smoke' },
-    async ({ authenticatedPage }) => {
+    async ({ authenticatedPage }, testInfo) => {
       await authenticatedPage.goto(`/venues/${REPLY_VENUE_SLUG}`)
       const main = visibleMain(authenticatedPage)
 
@@ -223,7 +324,7 @@ test.describe('Comments (general)', () => {
         .getByRole('button', { name: 'Reply', exact: true })
         .click()
 
-      const uniqueReply = `E2E reply ${Date.now()}`
+      const uniqueReply = uniqueText('E2E reply', testInfo)
       await parentCard.getByTestId('comment-textarea').fill(uniqueReply)
 
       // Submit the reply and wait for the server POST to settle.
