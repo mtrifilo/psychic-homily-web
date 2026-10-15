@@ -327,6 +327,19 @@ describe('surveyMarkdown', () => {
     )
   })
 
+  it('names the project when more than one ran, and caps each test at three errors', () => {
+    const attempt = (error?: string) => [{ retry: 0, status: 'failed', error }]
+    const runs = ['one', 'two', 'three', 'four'].map(error => [
+      { file: FILE, titlePath: ['t'], project: 'chromium', attempts: attempt(`Error: ${error}`) },
+      { file: FILE, titlePath: ['t'], project: 'webkit', attempts: attempt() },
+    ])
+    const markdown = surveyMarkdown(sortByFirstAttemptRate(tallyAttempts(runs)))
+    expect(markdown).toContain(`| 100.0% | 4 | 4 | 0 | 4 | 4 of 4 | ${FILE} > t [chromium] |`)
+    expect(markdown).toContain(`| 100.0% | 4 | 4 | 0 | 4 | 4 of 4 | ${FILE} > t [webkit] |`)
+    expect(markdown).toContain('  - 1 other distinct errors')
+    expect(markdown).toContain('  - 4x (no error message; status failed)')
+  })
+
   it('lists every test with includeClean, and escapes a pipe in a title', () => {
     const piped = tallies.map(entry => ({ ...entry, titlePath: [...entry.titlePath.slice(0, -1), 'a | b'] }))
     const markdown = surveyMarkdown(piped, { includeClean: true })
@@ -424,6 +437,8 @@ describe('parseSurveyArgs', () => {
   it('rejects a bad count and an unknown flag', () => {
     expect(() => parseSurveyArgs(['--runs', '0'])).toThrow('--runs takes a positive integer')
     expect(() => parseSurveyArgs(['--runs', '2x'])).toThrow('--runs takes a positive integer')
+    expect(() => parseSurveyArgs(['--shards', '0'])).toThrow('--shards takes a positive integer')
+    expect(() => parseSurveyArgs(['--through-run', 'latest'])).toThrow('--through-run takes a positive integer')
     expect(() => parseSurveyArgs(['--since', 'monday'])).toThrow()
   })
 })
