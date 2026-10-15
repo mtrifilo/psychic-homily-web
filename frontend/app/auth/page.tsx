@@ -1,6 +1,6 @@
 'use client'
 
-import { Suspense, useEffect, useRef, useState } from 'react'
+import { Suspense, useCallback, useEffect, useRef, useState } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import { useForm } from '@tanstack/react-form'
@@ -716,9 +716,10 @@ function AuthPageContent() {
   // control that sent it cannot do once the page has stopped rendering the
   // form: an authenticated viewer with a pending claim gets neither the form
   // nor the redirect.
-  const signupRequestDeadline = useSignupRequestDeadline(() => {
+  const releasePendingSignup = useCallback(() => {
     setSignupHandoff(current => (current?.status === 'pending' ? null : current))
-  })
+  }, [])
+  const signupRequestDeadline = useSignupRequestDeadline(releasePendingSignup)
   const signInTabRef = useRef<HTMLButtonElement>(null)
 
   // A hidden page runs its effect cleanups, and a shown one reruns the

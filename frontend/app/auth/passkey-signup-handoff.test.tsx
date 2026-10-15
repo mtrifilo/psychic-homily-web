@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { act, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { renderWithProviders } from '@/test/utils'
+import { advanceFakeTime, stalledRequest } from '@/test/stalledFetch'
 import AuthPage from './page'
 import { SIGNUP_REQUEST_TIMEOUT_MS } from './_components/signup-request-deadline'
 
@@ -256,22 +257,6 @@ describe('passkey sign-up on /auth', () => {
   })
 
   describe('a finish response that never arrives', () => {
-    // A request on a stalled connection: nothing comes back until its signal
-    // aborts, and then it rejects the way fetch does.
-    function stalledRequest(_url: string, init?: RequestInit): Promise<never> {
-      return new Promise((_, reject) => {
-        init?.signal?.addEventListener('abort', () => {
-          reject(new DOMException('The operation was aborted.', 'AbortError'))
-        })
-      })
-    }
-
-    async function advance(ms: number) {
-      await act(async () => {
-        await vi.advanceTimersByTimeAsync(ms)
-      })
-    }
-
     beforeEach(() => {
       vi.useFakeTimers({ shouldAdvanceTime: true })
       fetchMock.mockResolvedValueOnce(BEGIN_OK).mockImplementationOnce(stalledRequest)
@@ -287,7 +272,7 @@ describe('passkey sign-up on /auth', () => {
         expect(fetchMock).toHaveBeenCalledTimes(2)
       })
 
-      await advance(SIGNUP_REQUEST_TIMEOUT_MS)
+      await advanceFakeTime(SIGNUP_REQUEST_TIMEOUT_MS)
 
       expect(
         await screen.findByText('Failed to complete passkey signup')
@@ -316,10 +301,10 @@ describe('passkey sign-up on /auth', () => {
         screen.queryByRole('tab', { name: 'Create account' })
       ).not.toBeInTheDocument()
       // The fake clock also follows real time, so the lead is not exact.
-      await advance(SIGNUP_REQUEST_TIMEOUT_MS - 1_000)
+      await advanceFakeTime(SIGNUP_REQUEST_TIMEOUT_MS - 1_000)
       expect(mockPush).not.toHaveBeenCalled()
 
-      await advance(1_000)
+      await advanceFakeTime(1_000)
       await waitFor(() => {
         expect(mockPush).toHaveBeenCalledWith(RETURN_TO)
       })

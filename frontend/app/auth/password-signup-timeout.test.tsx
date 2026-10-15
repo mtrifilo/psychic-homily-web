@@ -2,6 +2,12 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { act, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { renderWithProviders } from '@/test/utils'
+import {
+  advanceFakeTime,
+  requestSignal,
+  stalledRequest,
+  stalledResponseBody,
+} from '@/test/stalledFetch'
 import AuthPage from './page'
 import { SIGNUP_REQUEST_TIMEOUT_MS } from './_components/signup-request-deadline'
 
@@ -60,36 +66,6 @@ vi.mock('@/app/auth/_components/google-oauth-button', () => ({
 
 const fetchMock = vi.fn()
 
-// A request on a stalled connection: nothing comes back until its signal
-// aborts, and then it rejects the way fetch does.
-function stalled(signal: AbortSignal | null | undefined): Promise<never> {
-  return new Promise((_, reject) => {
-    signal?.addEventListener('abort', () => {
-      reject(new DOMException('The operation was aborted.', 'AbortError'))
-    })
-  })
-}
-
-const stalledRequest = (_url: string, init?: RequestInit) => stalled(init?.signal)
-
-// Headers arrived; the body never does.
-const stalledBody = async (_url: string, init?: RequestInit) => ({
-  ok: true,
-  status: 200,
-  headers: new Headers({ 'Content-Type': 'application/json' }),
-  json: () => stalled(init?.signal),
-})
-
-function registerSignal(): AbortSignal {
-  return (fetchMock.mock.calls[0]?.[1] as RequestInit).signal as AbortSignal
-}
-
-async function advance(ms: number) {
-  await act(async () => {
-    await vi.advanceTimersByTimeAsync(ms)
-  })
-}
-
 async function submitPasswordSignup() {
   const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
   renderWithProviders(<AuthPage />)
@@ -123,7 +99,7 @@ describe('password sign-up under the request deadline', () => {
 
   it.each([
     ['the register response', stalledRequest],
-    ['the register response body', stalledBody],
+    ['the register response body', stalledResponseBody],
   ])(
     'releases the claim and shows the generic failure when %s stalls for 30 s',
     async (_label, register) => {
@@ -131,13 +107,13 @@ describe('password sign-up under the request deadline', () => {
       await submitPasswordSignup()
 
       // The fake clock also follows real time, so the lead is not exact.
-      await advance(SIGNUP_REQUEST_TIMEOUT_MS - 1_000)
-      expect(registerSignal().aborted).toBe(false)
+      await advanceFakeTime(SIGNUP_REQUEST_TIMEOUT_MS - 1_000)
+      expect(requestSignal(fetchMock, 0).aborted).toBe(false)
       expect(screen.queryByRole('alert')).not.toBeInTheDocument()
 
-      await advance(1_000)
+      await advanceFakeTime(1_000)
       expect(await screen.findByText('Registration failed')).toBeInTheDocument()
-      expect(registerSignal().aborted).toBe(true)
+      expect(requestSignal(fetchMock, 0).aborted).toBe(true)
       expect(screen.getByLabelText('Email')).toHaveValue('signup@example.com')
       await waitFor(() => {
         expect(screen.getByRole('button', { name: 'Create account' })).toBeEnabled()
@@ -153,10 +129,10 @@ describe('password sign-up under the request deadline', () => {
     act(() => {
       authStore.set('authenticated')
     })
-    await advance(SIGNUP_REQUEST_TIMEOUT_MS - 1_000)
+    await advanceFakeTime(SIGNUP_REQUEST_TIMEOUT_MS - 1_000)
     expect(mockPush).not.toHaveBeenCalled()
 
-    await advance(1_000)
+    await advanceFakeTime(1_000)
     await waitFor(() => {
       expect(mockPush).toHaveBeenCalledWith(RETURN_TO)
     })
@@ -179,9 +155,9 @@ describe('password sign-up under the request deadline', () => {
     expect(
       await screen.findByRole('heading', { name: 'Check your inbox.' })
     ).toBeInTheDocument()
-    await advance(SIGNUP_REQUEST_TIMEOUT_MS * 2)
+    await advanceFakeTime(SIGNUP_REQUEST_TIMEOUT_MS * 2)
 
-    expect(registerSignal().aborted).toBe(false)
+    expect(requestSignal(fetchMock, 0).aborted).toBe(false)
     expect(screen.getByRole('heading', { name: 'Check your inbox.' })).toBeInTheDocument()
     expect(screen.queryByText('Registration failed')).not.toBeInTheDocument()
   })

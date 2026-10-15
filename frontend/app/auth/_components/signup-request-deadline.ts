@@ -1,4 +1,4 @@
-import { useCallback, useRef } from 'react'
+import { useCallback, useMemo, useRef } from 'react'
 import { useDismissTimer } from '@/lib/hooks/common/useDismissTimer'
 
 /** How long a sign-up request may go unanswered before it is abandoned. */
@@ -28,10 +28,10 @@ export interface SignupRequestDeadline {
 export function useSignupRequestDeadline(
   onExpire: () => void
 ): SignupRequestDeadline {
+  // Read only by the timer, which runs only while the latest arm() is pending.
   const controllerRef = useRef<AbortController | null>(null)
   const { schedule, cancel } = useDismissTimer(() => {
     controllerRef.current?.abort()
-    controllerRef.current = null
     onExpire()
   }, SIGNUP_REQUEST_TIMEOUT_MS)
 
@@ -42,10 +42,5 @@ export function useSignupRequestDeadline(
     return controller.signal
   }, [schedule])
 
-  const disarm = useCallback(() => {
-    cancel()
-    controllerRef.current = null
-  }, [cancel])
-
-  return { arm, disarm }
+  return useMemo(() => ({ arm, disarm: cancel }), [arm, cancel])
 }

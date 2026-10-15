@@ -250,6 +250,16 @@ describe('useAuth hooks', () => {
   })
 
   describe('useRegister', () => {
+    const REGISTER_VARIABLES = {
+      email: 'new@example.com',
+      password: 'password123',
+      terms_accepted: true,
+      terms_version: '2026-01-31',
+      privacy_version: '2026-02-15',
+      age_confirmed: true,
+      min_age_attested: 16,
+    }
+
     it('calls register endpoint with credentials', async () => {
       mockApiRequest.mockResolvedValueOnce({
         success: true,
@@ -326,16 +336,6 @@ describe('useAuth hooks', () => {
         AuthErrorCode.USER_EXISTS
       )
     })
-
-    const REGISTER_VARIABLES = {
-      email: 'new@example.com',
-      password: 'password123',
-      terms_accepted: true,
-      terms_version: '2026-01-31',
-      privacy_version: '2026-02-15',
-      age_confirmed: true,
-      min_age_attested: 16,
-    }
 
     it('hands the signal to the request and keeps it out of the body', async () => {
       mockApiRequest.mockResolvedValueOnce({

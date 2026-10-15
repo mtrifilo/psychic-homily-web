@@ -249,25 +249,22 @@ export const useRegister = () => {
         email: credentials.email.slice(0, 2) + '***',
       })
 
-      let response: AuthResponse
-      try {
-        response = await apiRequest<AuthResponse>(
-          API_ENDPOINTS.AUTH.REGISTER,
-          {
-            method: 'POST',
-            body: JSON.stringify(credentials),
-            credentials: 'include',
-            signal,
-          }
-        )
-      } catch (error) {
+      const response = await apiRequest<AuthResponse>(
+        API_ENDPOINTS.AUTH.REGISTER,
+        {
+          method: 'POST',
+          body: JSON.stringify(credentials),
+          credentials: 'include',
+          signal,
+        }
+      ).catch((error: unknown) => {
         if (signal?.aborted) {
           throw new AuthError(REGISTRATION_FAILED, AuthErrorCode.UNKNOWN, {
             cause: error instanceof Error ? error : undefined,
           })
         }
         throw error
-      }
+      })
 
       // Throw a typed error if registration was unsuccessful
       if (!response.success) {
