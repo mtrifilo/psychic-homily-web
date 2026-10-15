@@ -215,8 +215,9 @@ test.describe('Not-found pages — HTTP 404 status', () => {
     test('/shows/saved is NOT 404-ed by proxy (server-redirects to /library → anon lands on /auth)', async ({
       page,
     }) => {
-      // Room for `goto` (up to about 11 s on a cold CI runner) plus the 25 s
-      // bound below.
+      // At a CI shard's start `goto` takes up to about 11 s and the redirects
+      // after it up to about 10 s. The 25 s wait below and this budget leave
+      // room for a slower runner.
       test.setTimeout(45_000)
 
       // `/shows/saved` is a server component that unconditionally
@@ -232,15 +233,13 @@ test.describe('Not-found pages — HTTP 404 status', () => {
         '/shows/saved must resolve to 200 (server redirect to /library) — proxy.ts must not existence-check this static route (PSY-913)'
       ).toBe(200)
 
-      // `/library` sends a settled-anonymous visitor to `/auth`, again as a new
-      // document. The visitor has no cookie, so the server render seeds the
-      // anonymous profile and the browser makes no profile request to wait
-      // on: the `/auth` navigation itself is the signal, and a 404 body never
-      // reaches that redirect, so it also confirms the real route rendered.
-      // It settles on commit, not on `/auth`'s load event, which also waits
-      // for every subresource of a third cold page and says nothing about
-      // where the chain ended. The chain after `goto` takes up to about 10 s
-      // on a cold CI runner; the bound leaves room for a slower one.
+      // `/library` sends the anonymous visitor to `/auth`, again as a new
+      // document, and a 404 body never reaches that redirect, so landing on
+      // `/auth` confirms the real route rendered. The `/auth` navigation is
+      // the signal (with no cookie the server render seeds the anonymous
+      // profile, so there is no profile request to wait on). It settles on
+      // commit: `/auth`'s load event also waits for every subresource of the
+      // page, which says nothing about where the chain ended.
       await page.waitForURL(/\/auth/, { waitUntil: 'commit', timeout: 25_000 })
     })
   })
