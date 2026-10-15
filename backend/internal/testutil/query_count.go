@@ -23,6 +23,12 @@ type queryCounter struct {
 	n *int
 }
 
+// LogMode keeps the counter on a session that changes the log level, as
+// db.Debug() does.
+func (q queryCounter) LogMode(level gormlogger.LogLevel) gormlogger.Interface {
+	return queryCounter{Interface: q.Interface.LogMode(level), n: q.n}
+}
+
 func (q queryCounter) Trace(context.Context, time.Time, func() (string, int64), error) {
 	*q.n++
 }
