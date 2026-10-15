@@ -94,20 +94,71 @@ fi
 # The bound is a libpq startup option on the migrate connection only, enforced
 # by the server; the application server connects with DATABASE_URL unchanged.
 # It bounds the wait to acquire a lock, not how long a granted lock is held.
+# MIGRATE_LOCK_TIMEOUT overrides the 5s default; an invalid value or zero
+# (which Postgres reads as "no limit") falls back to 5s, never to unbounded.
+#
+# MIGRATE_STATEMENT_TIMEOUT, when not 0, adds a statement_timeout to the same
+# option string, which also bounds how long a granted lock is held. It
+# defaults to 0, which adds nothing, so the role or server setting applies.
 #
 # scripts/check_migration_lock_timeout.sh reads the option string and the
 # -database arguments below; keep them in step with it.
-MIGRATE_LOCK_TIMEOUT=5s
-MIGRATE_LOCK_TIMEOUT_OPTION="options=-c%20lock_timeout%3D${MIGRATE_LOCK_TIMEOUT}"
+
+# Succeeds when $1 is a whole number with an optional Postgres time unit
+# (us, ms, s, min, h, d); a bare number is milliseconds. This also keeps the
+# value free of characters that would change the URL around it.
+is_pg_duration() {
+    case $1 in
+        ''|[![:digit:]]*|*[![:digit:][:lower:]]*|*[[:lower:]]*[[:digit:]]*) return 1 ;;
+    esac
+    case ${1##*[[:digit:]]} in
+        ''|us|ms|s|min|h|d) return 0 ;;
+    esac
+    return 1
+}
+
+# Succeeds when the number part of duration $1 is zero.
+is_zero_duration() {
+    case ${1%%[[:lower:]]*} in
+        *[!0]*) return 1 ;;
+    esac
+    return 0
+}
+
+MIGRATE_LOCK_TIMEOUT=${MIGRATE_LOCK_TIMEOUT:-5s}
+if ! is_pg_duration "$MIGRATE_LOCK_TIMEOUT" || is_zero_duration "$MIGRATE_LOCK_TIMEOUT"; then
+    echo "WARNING: MIGRATE_LOCK_TIMEOUT is not a positive whole number with an optional unit (us, ms, s, min, h, d); using 5s."
+    MIGRATE_LOCK_TIMEOUT=5s
+fi
+MIGRATE_STATEMENT_TIMEOUT=${MIGRATE_STATEMENT_TIMEOUT:-0}
+if ! is_pg_duration "$MIGRATE_STATEMENT_TIMEOUT"; then
+    echo "WARNING: MIGRATE_STATEMENT_TIMEOUT is not a whole number with an optional unit (us, ms, s, min, h, d); using 0 (not set)."
+    MIGRATE_STATEMENT_TIMEOUT=0
+fi
+# A bare number is milliseconds; naming the unit keeps the boot lines unambiguous.
+case $MIGRATE_LOCK_TIMEOUT in *[[:digit:]]) MIGRATE_LOCK_TIMEOUT="${MIGRATE_LOCK_TIMEOUT}ms" ;; esac
+case $MIGRATE_STATEMENT_TIMEOUT in *[[:digit:]]) MIGRATE_STATEMENT_TIMEOUT="${MIGRATE_STATEMENT_TIMEOUT}ms" ;; esac
+
+MIGRATE_OPTIONS_PARAM="options=-c%20lock_timeout%3D${MIGRATE_LOCK_TIMEOUT}"
+if ! is_zero_duration "$MIGRATE_STATEMENT_TIMEOUT"; then
+    MIGRATE_OPTIONS_PARAM="${MIGRATE_OPTIONS_PARAM}%20-c%20statement_timeout%3D${MIGRATE_STATEMENT_TIMEOUT}"
+fi
 case "$DATABASE_URL" in
-    *\?*) MIGRATE_DATABASE_URL="${DATABASE_URL}&${MIGRATE_LOCK_TIMEOUT_OPTION}" ;;
-    *) MIGRATE_DATABASE_URL="${DATABASE_URL}?${MIGRATE_LOCK_TIMEOUT_OPTION}" ;;
+    *\?*) MIGRATE_DATABASE_URL="${DATABASE_URL}&${MIGRATE_OPTIONS_PARAM}" ;;
+    *) MIGRATE_DATABASE_URL="${DATABASE_URL}?${MIGRATE_OPTIONS_PARAM}" ;;
 esac
 # The driver reads only the first `options` parameter, so one already in
-# DATABASE_URL replaces the lock_timeout above.
+# DATABASE_URL replaces both timeouts above.
 case "$DATABASE_URL" in
-    *options=*) echo "WARNING: DATABASE_URL carries its own 'options' parameter; migrations run WITHOUT the ${MIGRATE_LOCK_TIMEOUT} lock_timeout." ;;
-    *) echo "Migrations wait at most ${MIGRATE_LOCK_TIMEOUT} for any lock (lock_timeout)." ;;
+    *options=*) echo "WARNING: DATABASE_URL carries its own 'options' parameter; migrations run WITHOUT the ${MIGRATE_LOCK_TIMEOUT} lock_timeout or any statement_timeout from MIGRATE_STATEMENT_TIMEOUT." ;;
+    *)
+        echo "Migrations wait at most ${MIGRATE_LOCK_TIMEOUT} for any lock (lock_timeout)."
+        if is_zero_duration "$MIGRATE_STATEMENT_TIMEOUT"; then
+            echo "Migrations get no statement_timeout from this script (MIGRATE_STATEMENT_TIMEOUT=0)."
+        else
+            echo "Each migration statement runs at most ${MIGRATE_STATEMENT_TIMEOUT} (statement_timeout)."
+        fi
+        ;;
 esac
 
 echo "Running database migrations..."

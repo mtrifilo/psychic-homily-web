@@ -96,12 +96,14 @@ reset_fixture() {
 
 # expect <code> [needle] [base-ref]: assert the gate's exit code and that its
 # output (stderr folded into stdout) contains the needle. The base ref
-# defaults to main.
+# defaults to main. The output stays in LAST_OUT for refute.
+LAST_OUT=""
 expect() {
   local want_code="$1" needle="${2:-}" base_ref="${3:-main}"
   local out code
   out="$(bash "$FIXTURE/scripts/check_migration_lock_timeout.sh" "$base_ref" 2>&1)"
   code=$?
+  LAST_OUT="$out"
   if [ "$code" -ne "$want_code" ]; then
     echo "FAIL [$CASE]: exit $code, wanted $want_code"
     printf '%s\n' "$out" | sed 's/^/    /'
@@ -115,6 +117,15 @@ expect() {
     return
   fi
   echo "ok   [$CASE]"
+}
+
+# refute <needle>: assert the output of the last expect does not contain it.
+refute() {
+  if printf '%s' "$LAST_OUT" | grep -qF -- "$1"; then
+    echo "FAIL [$CASE]: output contains unexpected text: $1"
+    printf '%s\n' "$LAST_OUT" | sed 's/^/    /'
+    FAILURES=$((FAILURES + 1))
+  fi
 }
 
 # --- runner-level bound absent: strong-lock migrations without their own
@@ -190,6 +201,78 @@ printf 'SELECT 1;\n' >"$FIXTURE/backend/db/migrations/20260901000000_add.up.sql"
 printf 'DROP TABLE t;\n' >"$FIXTURE/backend/db/migrations/20260901000000_add.down.sql"
 g add -A && g commit -m "down only"
 expect 0 "every new strong-lock migration sets its own lock_timeout"
+
+# --- block comments are stripped like line comments, and nest as in Postgres --
+reset_fixture "unbound: lock_timeout only inside a block comment fails" unbound
+migration "20260901000000_widen" "/* lock_timeout is set by the runner. */
+ALTER TABLE t ALTER COLUMN c TYPE BIGINT;"
+expect 1 "20260901000000_widen.up.sql"
+
+reset_fixture "unbound: lock_timeout only inside a multi-line block comment fails" unbound
+migration "20260901000000_widen" "/*
+ * lock_timeout is set by the runner.
+ */
+ALTER TABLE t ALTER COLUMN c TYPE BIGINT;"
+expect 1 "20260901000000_widen.up.sql"
+
+reset_fixture "unbound: lock_timeout inside a nested block comment fails" unbound
+migration "20260901000000_widen" "/* outer /* inner */ lock_timeout still commented */
+ALTER TABLE t ALTER COLUMN c TYPE BIGINT;"
+expect 1 "20260901000000_widen.up.sql"
+
+reset_fixture "unbound: ALTER TABLE only inside a block comment passes" unbound
+migration "20260901000000_note" "/* ALTER TABLE t is done
+   in the next migration. */
+SELECT 1;"
+expect 0 "every new strong-lock migration sets its own lock_timeout"
+
+reset_fixture "unbound: '--' inside a block comment does not hide what follows" unbound
+migration "20260901000000_widen" "/* -- note */ ALTER TABLE t ALTER COLUMN c TYPE BIGINT;"
+expect 1 "takes a strong lock (ALTER TABLE)"
+
+reset_fixture "unbound: '/*' inside a line comment opens no block" unbound
+migration "20260901000000_widen" "-- see /* below
+ALTER TABLE t ALTER COLUMN c TYPE BIGINT;"
+expect 1 "takes a strong lock (ALTER TABLE)"
+
+reset_fixture "unbound: a block comment between keywords separates them" unbound
+migration "20260901000000_widen" "ALTER/* c */TABLE t ALTER COLUMN c TYPE BIGINT;"
+expect 1 "takes a strong lock (ALTER TABLE)"
+
+reset_fixture "unbound: SET LOCAL lock_timeout after a block comment passes" unbound
+migration "20260901000000_widen" "/* widen */ SET LOCAL lock_timeout = '5s';
+ALTER TABLE t ALTER COLUMN c TYPE BIGINT;"
+expect 0 "every new strong-lock migration sets its own lock_timeout"
+
+# --- CREATE INDEX CONCURRENTLY IF NOT EXISTS warns in both modes -------------
+reset_fixture "unbound: CONCURRENTLY IF NOT EXISTS warns and passes" unbound
+migration "20260901000000_idx" "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_t_c ON t (c);"
+expect 0 "WARNING: backend/db/migrations/20260901000000_idx.up.sql uses CREATE INDEX CONCURRENTLY IF NOT EXISTS"
+
+reset_fixture "CONCURRENTLY IF NOT EXISTS warning gives the reason" unbound
+migration "20260901000000_idx" "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_t_c ON t (c);"
+expect 0 "a failed concurrent build leaves an INVALID index that the IF NOT EXISTS retry keeps"
+
+reset_fixture "bound: UNIQUE, lowercase, multi-line CONCURRENTLY IF NOT EXISTS warns" bound
+migration "20260901000000_idx" "create unique index concurrently
+    if not exists idx_t_c on t (c);"
+expect 0 "uses CREATE INDEX CONCURRENTLY IF NOT EXISTS"
+
+reset_fixture "bound: CONCURRENTLY IF NOT EXISTS gets a file annotation" bound
+migration "20260901000000_idx" "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_t_c ON t (c);"
+GITHUB_ACTIONS=true expect 0 "::warning file=backend/db/migrations/20260901000000_idx.up.sql::"
+
+reset_fixture "unbound: CONCURRENTLY without IF NOT EXISTS does not warn" unbound
+migration "20260901000000_idx" "CREATE INDEX CONCURRENTLY idx_t_c ON t (c);"
+expect 0 "every new strong-lock migration sets its own lock_timeout"
+refute "WARNING"
+
+reset_fixture "unbound: CONCURRENTLY IF NOT EXISTS only inside comments does not warn" unbound
+migration "20260901000000_idx" "/* CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_t_c ON t (c); */
+-- CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_t_d ON t (d);
+SELECT 1;"
+expect 0 "every new strong-lock migration sets its own lock_timeout"
+refute "WARNING"
 
 # --- runner-level bound present: the same migrations only warn ----------------
 reset_fixture "bound: ALTER TABLE without lock_timeout warns and passes" bound
