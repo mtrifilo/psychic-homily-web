@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import * as Sentry from '@sentry/nextjs'
 import { AuthError, AuthErrorCode } from './errors'
+import { stalledRequest, stalledResponseBody } from '@/test/stalledFetch'
 
 
 // We need to test the module functions, but getApiBaseUrl runs at module load time
@@ -604,6 +605,60 @@ describe('API Module', () => {
         // Original parse error preserved as details for debuggability.
         expect((error as { details: unknown }).details).toBe(parseError)
       }
+    })
+
+    describe('a request whose signal aborts', () => {
+      it('reports a header-stage abort as an auth network failure', async () => {
+        const controller = new AbortController()
+        vi.mocked(fetch).mockImplementation(
+          stalledRequest as unknown as typeof fetch
+        )
+        const { apiRequest, API_BASE_URL } = await import('./api')
+
+        const pending = apiRequest(`${API_BASE_URL}/auth/register`, {
+          method: 'POST',
+          signal: controller.signal,
+        })
+        controller.abort()
+
+        await expect(pending).rejects.toMatchObject({ name: 'AbortError' })
+        expect(Sentry.captureException).toHaveBeenCalledWith(
+          expect.objectContaining({ name: 'AbortError' }),
+          expect.objectContaining({
+            tags: expect.objectContaining({ error_type: 'network_failure' }),
+          })
+        )
+      })
+
+      it('logs a body-stage abort as a parse failure and wraps it', async () => {
+        const controller = new AbortController()
+        vi.mocked(fetch).mockImplementation(
+          stalledResponseBody as unknown as typeof fetch
+        )
+        const { apiRequest, API_BASE_URL } = await import('./api')
+        const { authLogger } = await import('./utils/authLogger')
+        const logError = vi.spyOn(authLogger, 'error').mockImplementation(() => {})
+
+        const pending = apiRequest(`${API_BASE_URL}/auth/register`, {
+          method: 'POST',
+          signal: controller.signal,
+        })
+        await vi.waitFor(() => expect(fetch).toHaveBeenCalled())
+        controller.abort()
+
+        const error = await pending.catch((e: unknown) => e)
+        expect(error).not.toBeInstanceOf(DOMException)
+        expect((error as { status: number }).status).toBe(200)
+        expect((error as { details: { name: string } }).details.name).toBe(
+          'AbortError'
+        )
+        expect(logError).toHaveBeenCalledWith(
+          'API response parse failed',
+          expect.anything(),
+          expect.anything(),
+          undefined
+        )
+      })
     })
   })
 
