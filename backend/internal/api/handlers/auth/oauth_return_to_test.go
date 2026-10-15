@@ -3,10 +3,12 @@ package auth
 import (
 	"context"
 	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"os"
 	"strings"
 	"testing"
 
@@ -19,56 +21,79 @@ import (
 	"psychic-homily-backend/internal/services/contracts"
 )
 
-func TestSanitizeOAuthReturnTo(t *testing.T) {
-	cases := []struct {
-		name string
-		raw  string
-		want string
-	}{
-		{"on-site path", "/shows", "/shows"},
-		{"path with query", "/profile?tab=settings", "/profile?tab=settings"},
-		{"path with query and fragment", "/profile?tab=settings#alerts", "/profile?tab=settings#alerts"},
-		{"percent-encoded path", "/artists/bj%C3%B6rk", "/artists/bj%C3%B6rk"},
-		{"query carrying separators", "/shows?a=1;b=2,3", "/shows?a=1;b=2,3"},
-		{"site root", "/", "/"},
-		{"empty", "", "/"},
-		{"absolute URL", "https://evil.example", "/"},
-		{"absolute URL with path", "https://evil.example/shows", "/"},
-		{"protocol-relative", "//evil.example", "/"},
-		{"protocol-relative with path", "//evil.example/shows", "/"},
-		{"backslash after slash", "/\\evil.example", "/"},
-		{"backslash later in the path", "/shows\\..\\x", "/"},
-		{"backslash in the query", "/search?q=a\\b", "/search?q=a\\b"},
-		{"backslash in the fragment", "/shows#a\\b", "/shows#a\\b"},
-		{"encoded slash inside a segment", "/a/%2E%2E%2Fb", "/a/%2E%2E%2Fb"},
-		{"undecodable segment", "/shows/%zz", "/"},
-		{"undecodable fragment", "/shows#50%", "/"},
-		{"dot-dot in the query only", "/search?q=..", "/search?q=.."},
-		{"tab inside", "/\t/evil.example", "/"},
-		{"newline inside", "/shows\r\nSet-Cookie: x=1", "/"},
-		{"space inside", "/shows here", "/"},
-		{"leading space", " /shows", "/"},
-		{"non-ASCII byte", "/artists/björk", "/"},
-		{"relative path", "shows", "/"},
-		{"scheme only", "javascript:alert(1)", "/"},
-		{"dot-dot segment", "/shows/../auth", "/"},
-		{"dot-dot into protocol-relative", "/..//evil.example", "/"},
-		{"encoded dot-dot segment", "/shows/%2e%2e/auth", "/"},
-		{"dot segment", "/./shows", "/"},
-		{"auth page", "/auth", "/"},
-		{"auth page with query", "/auth?returnTo=%2Fshows", "/"},
-		{"under the auth page", "/auth/magic-link", "/"},
-		{"encoded spelling of the auth page", "/%61uth", "/"},
-		{"a path that only starts with auth", "/authors", "/authors"},
-		{"too long", "/" + strings.Repeat("a", oauthReturnToMaxLength), "/"},
-		{"at the length limit", "/" + strings.Repeat("a", oauthReturnToMaxLength-1), "/" + strings.Repeat("a", oauthReturnToMaxLength-1)},
+// returnToCorpus is testdata/return_to_corpus.json, which the frontend's
+// sanitizeReturnTo test reads too. Its _comment states the contract the two
+// sanitizers share.
+type returnToCorpus struct {
+	Fallback         string `json:"fallback"`
+	BackendMaxLength int    `json:"backendMaxLength"`
+	Cases            []struct {
+		Name                  string `json:"name"`
+		Input                 string `json:"input"`
+		SanitizeOAuthReturnTo string `json:"sanitizeOAuthReturnTo"`
+		SanitizeReturnTo      string `json:"sanitizeReturnTo"`
+		Rule                  string `json:"rule"`
+		Difference            string `json:"difference"`
+	} `json:"cases"`
+}
+
+func loadReturnToCorpus(t *testing.T) returnToCorpus {
+	t.Helper()
+	raw, err := os.ReadFile("testdata/return_to_corpus.json")
+	if err != nil {
+		t.Fatalf("read the corpus (the frontend test reads it too; move it only with both readers): %v", err)
 	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			if got := sanitizeOAuthReturnTo(tc.raw); got != tc.want {
-				t.Errorf("sanitizeOAuthReturnTo(%q) = %q, want %q", tc.raw, got, tc.want)
+	var corpus returnToCorpus
+	if err := json.Unmarshal(raw, &corpus); err != nil {
+		t.Fatalf("decode the corpus: %v", err)
+	}
+	if len(corpus.Cases) == 0 {
+		t.Fatal("the corpus has no cases")
+	}
+	return corpus
+}
+
+func TestSanitizeOAuthReturnTo(t *testing.T) {
+	corpus := loadReturnToCorpus(t)
+	if corpus.Fallback != oauthReturnToFallback {
+		t.Errorf("corpus fallback = %q, oauthReturnToFallback = %q", corpus.Fallback, oauthReturnToFallback)
+	}
+	if corpus.BackendMaxLength != oauthReturnToMaxLength {
+		t.Errorf("corpus backendMaxLength = %d, oauthReturnToMaxLength = %d", corpus.BackendMaxLength, oauthReturnToMaxLength)
+	}
+	for _, tc := range corpus.Cases {
+		t.Run(tc.Name, func(t *testing.T) {
+			if got := sanitizeOAuthReturnTo(tc.Input); got != tc.SanitizeOAuthReturnTo {
+				t.Errorf("sanitizeOAuthReturnTo(%q) = %q, want %q (rule: %s)", tc.Input, got, tc.SanitizeOAuthReturnTo, tc.Rule)
 			}
 		})
+	}
+}
+
+// The frontend suite pins sanitizeReturnTo to the corpus and the test above
+// pins sanitizeOAuthReturnTo, so the contract checked here over the corpus's
+// expectations holds over the two sanitizers on every case.
+func TestReturnToCorpusHoldsItsContract(t *testing.T) {
+	corpus := loadReturnToCorpus(t)
+	keptAtTheCap, refusedPastTheCap := false, false
+	for _, tc := range corpus.Cases {
+		keptAtTheCap = keptAtTheCap || (len(tc.Input) == corpus.BackendMaxLength && tc.SanitizeOAuthReturnTo == tc.Input)
+		refusedPastTheCap = refusedPastTheCap || (len(tc.Input) == corpus.BackendMaxLength+1 && tc.SanitizeOAuthReturnTo == corpus.Fallback)
+		differ := tc.SanitizeOAuthReturnTo != tc.SanitizeReturnTo
+		if differ && tc.SanitizeOAuthReturnTo != corpus.Fallback {
+			t.Errorf("%s: the backend keeps %q but the frontend returns %q; where the two differ the backend must refuse",
+				tc.Name, tc.SanitizeOAuthReturnTo, tc.SanitizeReturnTo)
+		}
+		if differ != (tc.Difference != "") {
+			t.Errorf("%s: difference must be set exactly when the two outputs differ (outputs differ: %t)", tc.Name, differ)
+		}
+		if tc.Rule == "" {
+			t.Errorf("%s: rule is empty", tc.Name)
+		}
+	}
+	if !keptAtTheCap || !refusedPastTheCap {
+		t.Errorf("the corpus needs a case of exactly backendMaxLength (%d) the backend keeps (found: %t) and one a byte past it the backend refuses (found: %t)",
+			corpus.BackendMaxLength, keptAtTheCap, refusedPastTheCap)
 	}
 }
 
