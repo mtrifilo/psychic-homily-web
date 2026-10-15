@@ -211,12 +211,12 @@ describe('PasskeyRegisterButton', () => {
 
   // The generated response types declare message required, but a refusal that
   // never passed through the success envelope parses as JSON without one: an
-  // empty object from an edge rule, or huma's own problem+json error model.
+  // empty object, or huma's problem+json error model (title, status, detail).
   // Each step then reports its own sentence.
   const UNENVELOPED_REFUSALS = [
     { shape: 'an empty JSON object', response: () => jsonResponse({}, 502) },
     {
-      shape: "huma's problem+json error model",
+      shape: 'the huma problem+json error model',
       response: () =>
         jsonResponse(
           { title: 'Unprocessable Entity', status: 422, detail: 'validation failed' },
