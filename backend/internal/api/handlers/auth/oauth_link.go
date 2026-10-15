@@ -3,7 +3,6 @@ package auth
 import (
 	"net/http"
 	"net/url"
-	"sync"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -72,10 +71,9 @@ const (
 // machine that would attach the next person's provider identity to the
 // account whose owner started the abandoned link.
 type oauthLinkIntent struct {
-	userID    uint
-	provider  string
-	state     string
-	expiresAt time.Time
+	userID   uint
+	provider string
+	state    string
 }
 
 // isForHandshake reports whether the intent was armed for the handshake a
@@ -85,29 +83,21 @@ func (i oauthLinkIntent) isForHandshake(provider, state string) bool {
 	return i.provider == provider && i.state == state
 }
 
+// oauthLinkIntentCapacity bounds the intent store. Past it the oldest pending
+// link is evicted, and its callback is handled as one whose intent this
+// process never held.
+const oauthLinkIntentCapacity = 1000
+
 // oauthLinkIntentStore holds pending link intents by opaque id. Process-local
 // and deliberately not durable: an intent that does not survive a restart or a
 // second instance produces an expired-link refusal, which is the fail-closed
 // direction. Mirrors cliCallbackStore, which makes the same trade.
-var oauthLinkIntentStore = struct {
-	sync.Mutex
-	intents map[string]oauthLinkIntent
-}{
-	intents: make(map[string]oauthLinkIntent),
-}
+var oauthLinkIntentStore = newExpiringRegistry[oauthLinkIntent](oauthLinkIntentCapacity, oauthLinkIntentTTL, time.Now)
 
-func storeOAuthLinkIntent(id string, intent oauthLinkIntent) {
-	oauthLinkIntentStore.Lock()
-	defer oauthLinkIntentStore.Unlock()
-
-	now := time.Now()
-	for k, v := range oauthLinkIntentStore.intents {
-		if now.After(v.expiresAt) {
-			delete(oauthLinkIntentStore.intents, k)
-		}
-	}
-
-	oauthLinkIntentStore.intents[id] = intent
+// storeOAuthLinkIntent stores intent under id. Its result is put's
+// evictionsToReport.
+func storeOAuthLinkIntent(id string, intent oauthLinkIntent) (evictionsToReport int) {
+	return oauthLinkIntentStore.put(id, intent)
 }
 
 // peekOAuthLinkIntent reads an intent WITHOUT consuming it, so the callback can
@@ -116,25 +106,19 @@ func storeOAuthLinkIntent(id string, intent oauthLinkIntent) {
 // ordinary sign-in that happens to carry the cookie would burn it and then be
 // refused instead of signing the reader in.
 //
-// found distinguishes "this process never held it" from "it is past its TTL",
-// which are different situations: the first is a restart or another replica
+// found false ("this process never held it") and expired ("it is past its
+// TTL") are different situations: the first is a restart or another replica
 // and must not turn a sign-in into a refusal, the second is a reader who
 // genuinely ran out of time and is owed an explanation.
-func peekOAuthLinkIntent(id string) (intent oauthLinkIntent, found bool) {
-	oauthLinkIntentStore.Lock()
-	defer oauthLinkIntentStore.Unlock()
-
-	intent, found = oauthLinkIntentStore.intents[id]
-	return intent, found
+func peekOAuthLinkIntent(id string) (intent oauthLinkIntent, expired, found bool) {
+	return oauthLinkIntentStore.peek(id)
 }
 
 // consumeOAuthLinkIntent removes an intent once it has been matched to the
 // handshake in hand. Single use: a completed or refused link must not leave the
 // next callback on this browser armed.
 func consumeOAuthLinkIntent(id string) {
-	oauthLinkIntentStore.Lock()
-	defer oauthLinkIntentStore.Unlock()
-	delete(oauthLinkIntentStore.intents, id)
+	oauthLinkIntentStore.remove(id)
 }
 
 // oauthLinkIntentIDBytes sizes the intent id and the link token,
@@ -236,12 +220,16 @@ func (h *OAuthHTTPHandler) OAuthLinkHTTPHandler(w http.ResponseWriter, r *http.R
 		return
 	}
 
-	storeOAuthLinkIntent(intentID, oauthLinkIntent{
-		userID:    user.ID,
-		provider:  provider,
-		state:     state,
-		expiresAt: time.Now().Add(oauthLinkIntentTTL),
-	})
+	if evicted := storeOAuthLinkIntent(intentID, oauthLinkIntent{
+		userID:   user.ID,
+		provider: provider,
+		state:    state,
+	}); evicted > 0 {
+		logger.AuthWarn(ctx, "oauth_link_intent_store_evicting",
+			"evicted", evicted,
+			"capacity", oauthLinkIntentStore.capacity,
+		)
+	}
 	http.SetCookie(w, h.newLinkIntentCookie(intentID, int(oauthLinkIntentTTL.Seconds())))
 	clearOAuthReturnToCookie(w, r, h.config != nil && h.config.Session.Secure)
 
