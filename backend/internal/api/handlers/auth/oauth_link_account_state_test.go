@@ -36,11 +36,9 @@ func (s *OAuthHandlerIntegrationSuite) TestLinkCallback_AccountThatMayNotSignInI
 	// Spent and cleared, the same as any other refusal past the intent match.
 	_, stillHeld := peekOAuthLinkIntent(cookie.Value)
 	s.False(stillHeld, "a refused link must consume its intent")
+	s.assertNoSessionCookie(w)
 	var intentCleared bool
 	for _, c := range w.Result().Cookies() {
-		if c.Name == "auth_token" && c.Value != "" {
-			s.Fail("a link must not issue a session")
-		}
 		if c.Name == oauthLinkIntentCookieName && c.MaxAge < 0 {
 			intentCleared = true
 		}

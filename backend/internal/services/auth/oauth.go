@@ -87,11 +87,8 @@ func (s *AuthService) OAuthCallbackWithConsent(
 //
 // The caller's proof of userID is a session it holds, not a loaded account, so
 // the account's state is read here: an account that may not hold a session
-// (authm.User.CanSignIn) may not gain a way to sign in either.
-//
-// Returns a typed *apperrors.AuthError carrying CodeAccountInactive for that
-// refusal, and for the refusals UserServiceInterface.LinkOAuthAccountToUser
-// documents.
+// (authm.User.CanSignIn) may not gain a way to sign in either. Refusals are
+// the ones contracts.AuthServiceInterface.CompleteOAuthLink documents.
 func (s *AuthService) CompleteOAuthLink(
 	w http.ResponseWriter,
 	r *http.Request,
@@ -114,10 +111,7 @@ func (s *AuthService) CompleteOAuthLink(
 		return nil, fmt.Errorf("failed to load account to link: %w", err)
 	}
 	if !account.CanSignIn() {
-		logger.AuthWarn(r.Context(), "oauth_link_refused_account_inactive",
-			"provider", provider,
-			"user_id", userID)
-		return nil, apperrors.ErrAccountInactive()
+		return nil, refuseInactiveAccount(userID)
 	}
 
 	linked, err := s.userService.LinkOAuthAccountToUser(userID, gothUser, provider)
