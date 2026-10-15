@@ -270,8 +270,14 @@ func (m *RadioMatchingEngine) matchPlayWithErr(play *catalogm.RadioPlay) (bool, 
 	if artistMatched {
 		linkedArtistID = artistID
 	}
-	if releaseID := m.matchRelease(linkedArtistID, play.ArtistName, play.AlbumTitle, play.MusicBrainzReleaseID); releaseID != nil {
+	releaseID := m.matchRelease(linkedArtistID, play.ArtistName, play.AlbumTitle, play.MusicBrainzReleaseID)
+	switch {
+	case releaseID != nil:
 		updates["release_id"] = *releaseID
+	case artistMatched && play.ReleaseID != nil && !m.releaseCreditsArtist(*play.ReleaseID, *artistID):
+		// Linking an artist never leaves the play on a release credited to
+		// someone else.
+		updates["release_id"] = nil
 	}
 
 	// 3. Match label (exact name match)
@@ -403,7 +409,21 @@ func (m *RadioMatchingEngine) matchRelease(artistID *uint, artistName string, ti
 		slog.Warn("radio match: release lookup failed", "error", err)
 		return nil
 	}
-	return pickReleaseLink(artistID, artistName, candidates[titleKey])
+	if picked := pickReleaseLink(artistID, artistName, candidates[titleKey]); picked != nil {
+		return &picked.ReleaseID
+	}
+	return nil
+}
+
+// releaseCreditsArtist reports whether the release credits the artist (any
+// role). A failed lookup reports true, so a read error never clears a link.
+func (m *RadioMatchingEngine) releaseCreditsArtist(releaseID, artistID uint) bool {
+	credits, err := loadReleaseCredits(m.db, []int64{int64(releaseID)})
+	if err != nil {
+		slog.Warn("radio match: release credit lookup failed", "release_id", releaseID, "error", err)
+		return true
+	}
+	return releaseLinkCandidate{ReleaseID: releaseID, Credits: credits[releaseID]}.creditsArtist(artistID)
 }
 
 // matchLabel tries to match a label by exact name (case-insensitive).

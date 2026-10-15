@@ -596,6 +596,43 @@ func (suite *RadioMatchingIntegrationTestSuite) TestMatchRelease_KeepsTheArtistA
 	suite.Equal(credited.ID, *reloaded.ReleaseID)
 }
 
+// TestMatchRelease_LinkingAnArtistClearsAnUncreditedRelease: a play without
+// an artist link carries a release credited to someone else; when the matcher
+// links the play's artist and finds no credited release, it clears the link.
+func (suite *RadioMatchingIntegrationTestSuite) TestMatchRelease_LinkingAnArtistClearsAnUncreditedRelease() {
+	boris := suite.createArtist("Boris")
+	borisFlood := suite.createCreditedRelease("Flood", boris.ID)
+	tmbg := suite.createArtist("They Might Be Giants")
+
+	episodeID := suite.createStationShowEpisode()
+	play := suite.createPlay(episodeID, 1, "They Might Be Giants", strPtr("Flood"), nil)
+	suite.Require().NoError(suite.db.Model(play).Update("release_id", borisFlood.ID).Error)
+	play.ReleaseID = &borisFlood.ID
+
+	suite.True(suite.engine.matchPlay(play))
+	reloaded := suite.reloadPlay(play.ID)
+	suite.Require().NotNil(reloaded.ArtistID)
+	suite.Equal(tmbg.ID, *reloaded.ArtistID)
+	suite.Nil(reloaded.ReleaseID)
+}
+
+// TestMatchRelease_LinkingAnArtistKeepsACreditedRelease: the play's current
+// release is credited to the artist the matcher links, under another title.
+func (suite *RadioMatchingIntegrationTestSuite) TestMatchRelease_LinkingAnArtistKeepsACreditedRelease() {
+	tmbg := suite.createArtist("They Might Be Giants")
+	lincoln := suite.createCreditedRelease("Lincoln", tmbg.ID)
+
+	episodeID := suite.createStationShowEpisode()
+	play := suite.createPlay(episodeID, 1, "They Might Be Giants", strPtr("Flood"), nil)
+	suite.Require().NoError(suite.db.Model(play).Update("release_id", lincoln.ID).Error)
+	play.ReleaseID = &lincoln.ID
+
+	suite.True(suite.engine.matchPlay(play))
+	reloaded := suite.reloadPlay(play.ID)
+	suite.Require().NotNil(reloaded.ReleaseID)
+	suite.Equal(lincoln.ID, *reloaded.ReleaseID)
+}
+
 // TestMatchRelease_UnlinkedArtistUniqueTitleAndSoleCreditLinks covers the rule
 // for a play without a linked artist: one release with the title, one credited
 // artist, and that artist's name equal to the play's after normalization.

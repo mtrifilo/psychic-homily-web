@@ -43,11 +43,11 @@ func TestPickReleaseLink(t *testing.T) {
 			got := pickReleaseLink(tt.artistID, tt.artistName, tt.candidates)
 			switch {
 			case tt.want == nil && got != nil:
-				t.Fatalf("got release %d, want none", *got)
+				t.Fatalf("got release %d, want none", got.ReleaseID)
 			case tt.want != nil && got == nil:
 				t.Fatalf("got none, want release %d", *tt.want)
-			case tt.want != nil && *got != *tt.want:
-				t.Fatalf("got release %d, want %d", *got, *tt.want)
+			case tt.want != nil && got.ReleaseID != *tt.want:
+				t.Fatalf("got release %d, want %d", got.ReleaseID, *tt.want)
 			}
 		})
 	}

@@ -2,6 +2,10 @@ package main
 
 import (
 	"bytes"
+	"encoding/csv"
+	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -42,54 +46,56 @@ func TestRedactDatabaseURL(t *testing.T) {
 	}
 }
 
-func TestSampleRemovals(t *testing.T) {
-	changes := func(outcome catalog.RadioReleaseLinkOutcome, firstID, n int) []catalog.RadioReleaseLinkChange {
+func TestSampleByGroup(t *testing.T) {
+	changes := func(firstID, n int) []catalog.RadioReleaseLinkChange {
 		out := make([]catalog.RadioReleaseLinkChange, n)
 		for i := range out {
-			out[i] = catalog.RadioReleaseLinkChange{PlayID: uint(firstID + i), Outcome: outcome}
+			out[i] = catalog.RadioReleaseLinkChange{PlayID: uint(firstID + i)}
 		}
 		return out
 	}
-	count := func(sample []catalog.RadioReleaseLinkChange, outcome catalog.RadioReleaseLinkOutcome) int {
-		n := 0
-		for _, c := range sample {
-			if c.Outcome == outcome {
-				n++
-			}
-		}
-		return n
-	}
-	notCredited := catalog.ReleaseLinkRemovedNotCredited
-	unlinked := catalog.ReleaseLinkRemovedUnlinkedArtist
-
 	tests := []struct {
-		name                    string
-		notCredited, unlinked   int
-		wantNotCred, wantUnlink int
+		name  string
+		sizes []int
+		want  []int
 	}{
-		{"both groups large", 400, 5000, 25, 25},
-		{"small first group cedes its share", 10, 5000, 10, 40},
-		{"small second group cedes its share", 400, 7, 43, 7},
-		{"fewer than n in total", 3, 4, 3, 4},
-		{"only one group", 0, 80, 0, 50},
-		{"none", 0, 0, 0, 0},
+		{"two large groups", []int{400, 5000}, []int{25, 25}},
+		{"small first group cedes its share", []int{10, 5000}, []int{10, 40}},
+		{"small second group cedes its share", []int{400, 7}, []int{43, 7}},
+		{"three groups, one tiny", []int{400, 2, 5000}, []int{24, 2, 24}},
+		{"fewer than n in total", []int{3, 4}, []int{3, 4}},
+		{"only one group", []int{0, 80}, []int{0, 50}},
+		{"none", []int{0, 0}, []int{0, 0}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			removals := append(changes(notCredited, 1, tt.notCredited), changes(unlinked, 100000, tt.unlinked)...)
-			sample := sampleRemovals(removals, 50)
-			assert.Equal(t, tt.wantNotCred, count(sample, notCredited))
-			assert.Equal(t, tt.wantUnlink, count(sample, unlinked))
+			groups := make([][]catalog.RadioReleaseLinkChange, len(tt.sizes))
+			for i, size := range tt.sizes {
+				groups[i] = changes((i+1)*100000, size)
+			}
+			sample := sampleByGroup(groups, 50)
+			got := make([]int, len(groups))
 			seen := make(map[uint]bool)
 			for _, c := range sample {
+				got[int(c.PlayID)/100000-1]++
 				assert.False(t, seen[c.PlayID], "play %d sampled twice", c.PlayID)
 				seen[c.PlayID] = true
 			}
-			if tt.notCredited > 0 {
-				assert.Equal(t, uint(1), sample[0].PlayID, "the first play of a group is included")
+			assert.Equal(t, tt.want, got)
+			if len(sample) > 0 {
+				assert.Equal(t, groups[firstNonEmpty(groups)][0].PlayID, sample[0].PlayID, "a group's first play is included")
 			}
 		})
 	}
+}
+
+func firstNonEmpty(groups [][]catalog.RadioReleaseLinkChange) int {
+	for i, g := range groups {
+		if len(g) > 0 {
+			return i
+		}
+	}
+	return -1
 }
 
 func TestRun_DryRunThenConfirm(t *testing.T) {
@@ -136,11 +142,15 @@ func TestRun_DryRunThenConfirm(t *testing.T) {
 		return p.ReleaseID
 	}
 
+	dir := t.TempDir()
+	planPath := filepath.Join(dir, "plan.csv")
 	recorder := testutil.NewSQLRecorder()
 	var out bytes.Buffer
-	require.NoError(t, run(db.Session(&gorm.Session{Logger: recorder}), false, 0, false, &out))
-	assert.Contains(t, out.String(), "DRY RUN: no DB writes.")
+	require.NoError(t, run(db.Session(&gorm.Session{Logger: recorder}), runOptions{outPath: planPath}, &out))
+	assert.Contains(t, out.String(), "DRY RUN: no DB writes. Planned changes are listed in "+planPath)
 	assert.Contains(t, out.String(), "Sample of removals (1 of 1)")
+	assert.Contains(t, out.String(), "Sample of relinks (1 of 1)")
+	assert.Contains(t, out.String(), `artist "Ty Segall" (linked: "Ty Segall" #`)
 	assert.Contains(t, out.String(), `album "Chrome": release `)
 	assert.Contains(t, out.String(), "credited to Nice Nice")
 	assert.Equal(t, &chrome, releaseOf(removed))
@@ -149,11 +159,34 @@ func TestRun_DryRunThenConfirm(t *testing.T) {
 	for _, stmt := range recorder.Statements() {
 		assert.True(t, strings.HasPrefix(strings.ToUpper(stmt), "SELECT"), "dry run issued a non-SELECT statement: %s", stmt)
 	}
+	assert.Equal(t, changeListRows(t, planPath), [][]string{
+		{"play_id", "outcome", "artist_id", "from_release_id", "to_release_id", "admin_set"},
+		{fmt.Sprint(removed), "removed_not_credited", fmt.Sprint(tySegall.ID), fmt.Sprint(chrome), "", "false"},
+		{fmt.Sprint(relinked), "relinked_credited", fmt.Sprint(tmbg.ID), fmt.Sprint(borisFlood), fmt.Sprint(tmbgFlood), "false"},
+	})
 
 	out.Reset()
-	require.NoError(t, run(db, true, 0, true, &out))
-	assert.Contains(t, out.String(), "LIVE: release links cleared 1, relinked 1.")
+	err := run(db, runOptions{confirm: true, outPath: planPath}, &out)
+	require.Error(t, err, "a live run never overwrites an existing change list")
+	assert.Equal(t, &chrome, releaseOf(removed), "a refused change list leaves every play unchanged")
+	assert.Equal(t, &borisFlood, releaseOf(relinked))
+
+	changesPath := filepath.Join(dir, "changes.csv")
+	out.Reset()
+	require.NoError(t, run(db, runOptions{confirm: true, verbose: true, outPath: changesPath}, &out))
+	assert.Contains(t, out.String(), "LIVE: release links cleared 1, relinked 1. Every change is listed in "+changesPath)
 	assert.Contains(t, out.String(), "Every removal and relink (2)")
 	assert.Nil(t, releaseOf(removed))
 	assert.Equal(t, &tmbgFlood, releaseOf(relinked))
+	assert.Equal(t, changeListRows(t, planPath), changeListRows(t, changesPath), "the live run applies the reviewed plan")
+}
+
+func changeListRows(t *testing.T, path string) [][]string {
+	t.Helper()
+	f, err := os.Open(path)
+	require.NoError(t, err)
+	defer func() { require.NoError(t, f.Close()) }()
+	rows, err := csv.NewReader(f).ReadAll()
+	require.NoError(t, err)
+	return rows
 }

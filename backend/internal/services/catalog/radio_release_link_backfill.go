@@ -15,61 +15,69 @@ import (
 type RadioReleaseLinkOutcome string
 
 const (
-	// ReleaseLinkKeptCredited: the play has a linked artist and the release is
-	// credited to it.
-	ReleaseLinkKeptCredited RadioReleaseLinkOutcome = "kept_credited"
-	// ReleaseLinkKeptUniqueTitle: the play has no linked artist and the release
-	// is the one pickReleaseLink chooses for it.
-	ReleaseLinkKeptUniqueTitle RadioReleaseLinkOutcome = "kept_unique_title"
-	// ReleaseLinkKeptAdminSet: the rule would remove or replace the link, but an
-	// admin set this release on this play through the link-play endpoint.
-	ReleaseLinkKeptAdminSet RadioReleaseLinkOutcome = "kept_admin_set"
-	// ReleaseLinkRemovedNotCredited: the play has a linked artist, the release
-	// is not credited to it, and no release with the title is.
-	ReleaseLinkRemovedNotCredited RadioReleaseLinkOutcome = "removed_not_credited"
-	// ReleaseLinkRemovedUnlinkedArtist: the play has no linked artist and
+	// RadioReleaseLinkKeptCredited: the play has a linked artist and the release
+	// is credited to it.
+	RadioReleaseLinkKeptCredited RadioReleaseLinkOutcome = "kept_credited"
+	// RadioReleaseLinkKeptUniqueTitle: the play has no linked artist and the
+	// release is the one pickReleaseLink chooses for it.
+	RadioReleaseLinkKeptUniqueTitle RadioReleaseLinkOutcome = "kept_unique_title"
+	// RadioReleaseLinkRemovedNotCredited: the play has a linked artist, the
+	// release is not credited to it, and no release with the title is.
+	RadioReleaseLinkRemovedNotCredited RadioReleaseLinkOutcome = "removed_not_credited"
+	// RadioReleaseLinkRemovedSeveralCredited: the play has a linked artist, the
+	// release is not credited to it, and two or more releases with the title
+	// are, so no single release replaces it.
+	RadioReleaseLinkRemovedSeveralCredited RadioReleaseLinkOutcome = "removed_several_credited"
+	// RadioReleaseLinkRemovedUnlinkedArtist: the play has no linked artist and
 	// pickReleaseLink chooses no release for it.
-	ReleaseLinkRemovedUnlinkedArtist RadioReleaseLinkOutcome = "removed_unlinked_artist"
-	// ReleaseLinkRelinkedCredited: the play has a linked artist, the release is
-	// not credited to it, and another release with the title is.
-	ReleaseLinkRelinkedCredited RadioReleaseLinkOutcome = "relinked_credited"
-	// ReleaseLinkRelinkedUniqueTitle: the play has no linked artist and
+	RadioReleaseLinkRemovedUnlinkedArtist RadioReleaseLinkOutcome = "removed_unlinked_artist"
+	// RadioReleaseLinkRelinkedCredited: the play has a linked artist, the
+	// release is not credited to it, and exactly one release with the title is.
+	RadioReleaseLinkRelinkedCredited RadioReleaseLinkOutcome = "relinked_credited"
+	// RadioReleaseLinkRelinkedUniqueTitle: the play has no linked artist and
 	// pickReleaseLink chooses a different release for it.
-	ReleaseLinkRelinkedUniqueTitle RadioReleaseLinkOutcome = "relinked_unique_title"
+	RadioReleaseLinkRelinkedUniqueTitle RadioReleaseLinkOutcome = "relinked_unique_title"
 )
 
 // RadioReleaseLinkOutcomes lists every outcome in report order.
 var RadioReleaseLinkOutcomes = []RadioReleaseLinkOutcome{
-	ReleaseLinkKeptCredited,
-	ReleaseLinkKeptUniqueTitle,
-	ReleaseLinkKeptAdminSet,
-	ReleaseLinkRemovedNotCredited,
-	ReleaseLinkRemovedUnlinkedArtist,
-	ReleaseLinkRelinkedCredited,
-	ReleaseLinkRelinkedUniqueTitle,
+	RadioReleaseLinkKeptCredited,
+	RadioReleaseLinkKeptUniqueTitle,
+	RadioReleaseLinkRemovedNotCredited,
+	RadioReleaseLinkRemovedSeveralCredited,
+	RadioReleaseLinkRemovedUnlinkedArtist,
+	RadioReleaseLinkRelinkedCredited,
+	RadioReleaseLinkRelinkedUniqueTitle,
 }
 
 // IsRemoval reports whether the outcome clears the play's release link.
 func (o RadioReleaseLinkOutcome) IsRemoval() bool {
-	return o == ReleaseLinkRemovedNotCredited || o == ReleaseLinkRemovedUnlinkedArtist
+	switch o {
+	case RadioReleaseLinkRemovedNotCredited, RadioReleaseLinkRemovedSeveralCredited, RadioReleaseLinkRemovedUnlinkedArtist:
+		return true
+	}
+	return false
 }
 
-func (o RadioReleaseLinkOutcome) isRelink() bool {
-	return o == ReleaseLinkRelinkedCredited || o == ReleaseLinkRelinkedUniqueTitle
+// IsRelink reports whether the outcome points the play at another release.
+func (o RadioReleaseLinkOutcome) IsRelink() bool {
+	return o == RadioReleaseLinkRelinkedCredited || o == RadioReleaseLinkRelinkedUniqueTitle
 }
 
 // ChangesLink reports whether the outcome removes or replaces the link.
 func (o RadioReleaseLinkOutcome) ChangesLink() bool {
-	return o.IsRemoval() || o.isRelink()
+	return o.IsRemoval() || o.IsRelink()
 }
 
 // RadioReleaseLinkChange is one play whose release link the backfill removes
 // or replaces.
 type RadioReleaseLinkChange struct {
-	PlayID                uint
-	Outcome               RadioReleaseLinkOutcome
-	ArtistID              *uint
-	ArtistName            string
+	PlayID     uint
+	Outcome    RadioReleaseLinkOutcome
+	ArtistID   *uint
+	ArtistName string
+	// LinkedArtistName is the catalog name of ArtistID, empty when nil.
+	LinkedArtistName      string
 	AlbumTitle            string
 	CurrentReleaseID      uint
 	CurrentReleaseTitle   string
@@ -77,6 +85,10 @@ type RadioReleaseLinkChange struct {
 	// NewReleaseID and NewReleaseTitle are set for relinks only.
 	NewReleaseID    *uint
 	NewReleaseTitle string
+	// AdminSet: an audit_logs link_radio_play row records an admin setting
+	// this play's current release. Admin links are re-evaluated like any other;
+	// the flag only marks them for review.
+	AdminSet bool
 }
 
 // RadioReleaseLinkReport is the result of one backfill run. Changes holds every
@@ -96,13 +108,22 @@ type RadioReleaseLinkBackfillOptions struct {
 	DryRun bool
 	// Limit caps the plays scanned, lowest id first; 0 scans all.
 	Limit int
+	// BeforeApply, when set on a live run, receives the evaluated report
+	// inside the transaction before any write; an error aborts the run with
+	// nothing written.
+	BeforeApply func(*RadioReleaseLinkReport) error
 }
 
 // BackfillRadioReleaseLinks re-evaluates every play's release_id under
-// pickReleaseLink. Unless DryRun, it clears the links the rule refuses and
-// points relinks at the rule's release, touching only release_id and only on
-// rows whose release_id is still the one evaluated. Plays the admin link-play
-// endpoint linked to their current release are kept as they are.
+// pickReleaseLink, except that a relink for a play with a linked artist needs
+// exactly one credited release with the title. Unless DryRun, it clears the
+// links the rule refuses and points relinks at the chosen release, touching
+// only release_id.
+//
+// Evaluation and writes share one REPEATABLE READ transaction. If another
+// session changes a scanned play after the snapshot, Postgres rejects the
+// write with a serialization failure (SQLSTATE 40001) and the whole run rolls
+// back; re-running is safe.
 func BackfillRadioReleaseLinks(db *gorm.DB, opts RadioReleaseLinkBackfillOptions) (*RadioReleaseLinkReport, error) {
 	var report *RadioReleaseLinkReport
 	err := withReleaseLinkBackfillTx(db, opts.DryRun, func(tx *gorm.DB) error {
@@ -110,6 +131,11 @@ func BackfillRadioReleaseLinks(db *gorm.DB, opts RadioReleaseLinkBackfillOptions
 		report, err = evaluateRadioReleaseLinks(tx, opts.Limit)
 		if err != nil || opts.DryRun {
 			return err
+		}
+		if opts.BeforeApply != nil {
+			if err := opts.BeforeApply(report); err != nil {
+				return err
+			}
 		}
 		return applyRadioReleaseLinkChanges(tx, report)
 	})
@@ -119,18 +145,18 @@ func BackfillRadioReleaseLinks(db *gorm.DB, opts RadioReleaseLinkBackfillOptions
 	return report, nil
 }
 
-// withReleaseLinkBackfillTx runs fn in one REPEATABLE READ transaction, so every
-// read sees one snapshot and a row changed by another session after that
-// snapshot fails the write instead of being overwritten. A read-only run's
-// transaction is READ ONLY: the server rejects any write in it.
+// withReleaseLinkBackfillTx runs fn in one REPEATABLE READ transaction. A
+// read-only run's transaction is READ ONLY: the server rejects any write in it.
 func withReleaseLinkBackfillTx(db *gorm.DB, readOnly bool, fn func(tx *gorm.DB) error) error {
 	return db.Transaction(fn, &sql.TxOptions{Isolation: sql.LevelRepeatableRead, ReadOnly: readOnly})
 }
 
-type linkedRadioPlay struct {
+// playWithRelease is a radio play that carries a release_id.
+type playWithRelease struct {
 	ID                  uint
 	ArtistID            *uint
 	ArtistName          string
+	LinkedArtistName    string
 	AlbumTitle          *string
 	ReleaseID           uint
 	CurrentReleaseTitle string
@@ -138,9 +164,11 @@ type linkedRadioPlay struct {
 }
 
 func evaluateRadioReleaseLinks(tx *gorm.DB, limit int) (*RadioReleaseLinkReport, error) {
-	var plays []linkedRadioPlay
+	var plays []playWithRelease
 	q := tx.Table("radio_plays AS p").
-		Select("p.id, p.artist_id, p.artist_name, p.album_title, p.release_id, COALESCE(r.title, '') AS current_release_title").
+		Select(`p.id, p.artist_id, p.artist_name, COALESCE(a.name, '') AS linked_artist_name,
+			p.album_title, p.release_id, COALESCE(r.title, '') AS current_release_title`).
+		Joins("LEFT JOIN artists a ON a.id = p.artist_id").
 		Joins("LEFT JOIN releases r ON r.id = p.release_id").
 		Where("p.release_id IS NOT NULL").
 		Order("p.id")
@@ -148,7 +176,7 @@ func evaluateRadioReleaseLinks(tx *gorm.DB, limit int) (*RadioReleaseLinkReport,
 		q = q.Limit(limit)
 	}
 	if err := q.Scan(&plays).Error; err != nil {
-		return nil, fmt.Errorf("loading linked plays: %w", err)
+		return nil, fmt.Errorf("loading plays with a release: %w", err)
 	}
 
 	titleKeys := make([]string, 0, len(plays))
@@ -187,7 +215,7 @@ func evaluateRadioReleaseLinks(tx *gorm.DB, limit int) (*RadioReleaseLinkReport,
 	}
 	for _, p := range plays {
 		current := releaseLinkCandidate{ReleaseID: p.ReleaseID, Title: p.CurrentReleaseTitle, Credits: currentCredits[p.ReleaseID]}
-		outcome, picked := classifyReleaseLink(p, current, candidates[p.titleKey], adminSet[p.ID][p.ReleaseID])
+		outcome, picked := classifyReleaseLink(p, current, candidates[p.titleKey])
 		report.Counts[outcome]++
 		if !outcome.ChangesLink() {
 			continue
@@ -197,9 +225,11 @@ func evaluateRadioReleaseLinks(tx *gorm.DB, limit int) (*RadioReleaseLinkReport,
 			Outcome:             outcome,
 			ArtistID:            p.ArtistID,
 			ArtistName:          p.ArtistName,
+			LinkedArtistName:    p.LinkedArtistName,
 			AlbumTitle:          derefString(p.AlbumTitle),
 			CurrentReleaseID:    p.ReleaseID,
 			CurrentReleaseTitle: p.CurrentReleaseTitle,
+			AdminSet:            adminSet[p.ID][p.ReleaseID],
 		}
 		for _, credit := range current.Credits {
 			change.CurrentReleaseArtists = append(change.CurrentReleaseArtists, credit.ArtistName)
@@ -214,45 +244,36 @@ func evaluateRadioReleaseLinks(tx *gorm.DB, limit int) (*RadioReleaseLinkReport,
 }
 
 // classifyReleaseLink returns the outcome for one play and, for a relink, the
-// release pickReleaseLink chooses. A linked artist keeps any release credited
-// to it; a link the rule would remove or replace is kept when adminSet.
-func classifyReleaseLink(
-	p linkedRadioPlay,
-	current releaseLinkCandidate,
-	candidates []releaseLinkCandidate,
-	adminSet bool,
-) (RadioReleaseLinkOutcome, *releaseLinkCandidate) {
-	if p.ArtistID != nil && current.creditsArtist(*p.ArtistID) {
-		return ReleaseLinkKeptCredited, nil
-	}
-	var picked *releaseLinkCandidate
-	if id := pickReleaseLink(p.ArtistID, p.ArtistName, candidates); id != nil {
-		for i := range candidates {
-			if candidates[i].ReleaseID == *id {
-				picked = &candidates[i]
-			}
+// release it moves to. A linked artist keeps any release credited to it.
+func classifyReleaseLink(p playWithRelease, current releaseLinkCandidate, candidates []releaseLinkCandidate) (RadioReleaseLinkOutcome, *releaseLinkCandidate) {
+	if p.ArtistID != nil {
+		if current.creditsArtist(*p.ArtistID) {
+			return RadioReleaseLinkKeptCredited, nil
+		}
+		switch countCreditedTo(*p.ArtistID, candidates) {
+		case 0:
+			return RadioReleaseLinkRemovedNotCredited, nil
+		case 1:
+			return RadioReleaseLinkRelinkedCredited, pickReleaseLink(p.ArtistID, p.ArtistName, candidates)
+		default:
+			return RadioReleaseLinkRemovedSeveralCredited, nil
 		}
 	}
-	if p.ArtistID == nil && picked != nil && picked.ReleaseID == p.ReleaseID {
-		return ReleaseLinkKeptUniqueTitle, nil
-	}
-	if adminSet {
-		return ReleaseLinkKeptAdminSet, nil
-	}
+	picked := pickReleaseLink(nil, p.ArtistName, candidates)
 	switch {
-	case picked != nil && p.ArtistID != nil:
-		return ReleaseLinkRelinkedCredited, picked
-	case picked != nil:
-		return ReleaseLinkRelinkedUniqueTitle, picked
-	case p.ArtistID != nil:
-		return ReleaseLinkRemovedNotCredited, nil
+	case picked == nil:
+		return RadioReleaseLinkRemovedUnlinkedArtist, nil
+	case picked.ReleaseID == p.ReleaseID:
+		return RadioReleaseLinkKeptUniqueTitle, nil
 	default:
-		return ReleaseLinkRemovedUnlinkedArtist, nil
+		return RadioReleaseLinkRelinkedUniqueTitle, picked
 	}
 }
 
-// loadAdminSetReleaseLinks returns, per play id, the release ids an admin set
-// on it through the link-play endpoint.
+// loadAdminSetReleaseLinks returns, per play id, the release ids that
+// audit_logs records an admin setting on it through the link-play endpoint.
+// Audit writes are best effort, so a missing row does not prove a link was
+// machine-made.
 func loadAdminSetReleaseLinks(tx *gorm.DB) (map[uint]map[uint]bool, error) {
 	var rows []struct {
 		PlayID    uint
@@ -275,6 +296,10 @@ WHERE action = ? AND entity_type = 'radio_play'
 	return set, nil
 }
 
+// applyRadioReleaseLinkChanges writes the report's removals and relinks. Each
+// UPDATE matches a play only while its release_id is still the evaluated one,
+// so a caller running it outside the evaluation snapshot never overwrites a
+// newer link.
 func applyRadioReleaseLinkChanges(tx *gorm.DB, report *RadioReleaseLinkReport) error {
 	var clearIDs, clearFrom, relinkIDs, relinkFrom, relinkTo []int64
 	for _, c := range report.Changes {
@@ -282,7 +307,7 @@ func applyRadioReleaseLinkChanges(tx *gorm.DB, report *RadioReleaseLinkReport) e
 		case c.Outcome.IsRemoval():
 			clearIDs = append(clearIDs, int64(c.PlayID))
 			clearFrom = append(clearFrom, int64(c.CurrentReleaseID))
-		case c.Outcome.isRelink():
+		case c.Outcome.IsRelink():
 			relinkIDs = append(relinkIDs, int64(c.PlayID))
 			relinkFrom = append(relinkFrom, int64(c.CurrentReleaseID))
 			relinkTo = append(relinkTo, int64(*c.NewReleaseID))

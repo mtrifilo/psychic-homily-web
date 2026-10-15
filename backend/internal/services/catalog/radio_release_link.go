@@ -41,11 +41,11 @@ func (c releaseLinkCandidate) creditsArtist(artistID uint) bool {
 //     the play's artist name under normalizeName.
 //
 // Anything else returns nil: the play gets no release link.
-func pickReleaseLink(artistID *uint, artistName string, candidates []releaseLinkCandidate) *uint {
+func pickReleaseLink(artistID *uint, artistName string, candidates []releaseLinkCandidate) *releaseLinkCandidate {
 	if artistID != nil {
 		for i := range candidates {
 			if candidates[i].creditsArtist(*artistID) {
-				return &candidates[i].ReleaseID
+				return &candidates[i]
 			}
 		}
 		return nil
@@ -57,7 +57,18 @@ func pickReleaseLink(artistID *uint, artistName string, candidates []releaseLink
 	if nameKey == "" || normalizeName(candidates[0].Credits[0].ArtistName) != nameKey {
 		return nil
 	}
-	return &candidates[0].ReleaseID
+	return &candidates[0]
+}
+
+// countCreditedTo returns how many candidates credit the artist.
+func countCreditedTo(artistID uint, candidates []releaseLinkCandidate) int {
+	n := 0
+	for _, c := range candidates {
+		if c.creditsArtist(artistID) {
+			n++
+		}
+	}
+	return n
 }
 
 // releaseCreditRow is one (release, credited artist) row; the artist columns
