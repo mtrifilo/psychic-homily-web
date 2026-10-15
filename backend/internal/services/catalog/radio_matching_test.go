@@ -642,6 +642,28 @@ func (suite *RadioMatchingIntegrationTestSuite) TestMatchRelease_LabelRematchKee
 	suite.Equal(borisFlood.ID, *reloaded.ReleaseID)
 }
 
+// TestMatchRelease_ChangingTheArtistClearsAnUncreditedRelease: a play linked to
+// one artist whose billing now resolves to another loses a release credited
+// only to the first.
+func (suite *RadioMatchingIntegrationTestSuite) TestMatchRelease_ChangingTheArtistClearsAnUncreditedRelease() {
+	first := suite.createArtist("First Artist")
+	firstLP := suite.createCreditedRelease("Debut", first.ID)
+	second := suite.createArtist("Second Artist")
+
+	episodeID := suite.createStationShowEpisode()
+	play := suite.createPlay(episodeID, 1, "Second Artist", strPtr("Debut"), nil)
+	suite.Require().NoError(suite.db.Model(play).Updates(map[string]interface{}{
+		"artist_id": first.ID, "release_id": firstLP.ID,
+	}).Error)
+	play.ArtistID, play.ReleaseID = &first.ID, &firstLP.ID
+
+	suite.True(suite.engine.matchPlay(play))
+	reloaded := suite.reloadPlay(play.ID)
+	suite.Require().NotNil(reloaded.ArtistID)
+	suite.Equal(second.ID, *reloaded.ArtistID)
+	suite.Nil(reloaded.ReleaseID)
+}
+
 // TestMatchRelease_LinkingAnArtistKeepsACreditedRelease: the play's current
 // release is credited to the artist the matcher links, under another title.
 func (suite *RadioMatchingIntegrationTestSuite) TestMatchRelease_LinkingAnArtistKeepsACreditedRelease() {

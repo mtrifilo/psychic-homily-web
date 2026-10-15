@@ -271,3 +271,41 @@ func (suite *RadioMatchingIntegrationTestSuite) TestBackfillReleaseLinks_LimitSc
 	suite.Require().Len(report.Changes, 1)
 	suite.Equal(f.notCredited, report.Changes[0].PlayID)
 }
+
+func (suite *RadioMatchingIntegrationTestSuite) TestBackfillReleaseLinks_EdgeRows() {
+	tmbg := suite.createArtist("They Might Be Giants")
+	lincoln := suite.createCreditedRelease("Lincoln", tmbg.ID)
+	boris := suite.createArtist("Boris")
+	borisFlood := suite.createCreditedRelease("Flood", boris.ID)
+
+	episodeID := suite.createStationShowEpisode()
+	position := 0
+	play := func(artistName string, album *string, artistID *uint, releaseID uint) uint {
+		position++
+		p := suite.createPlay(episodeID, position, artistName, album, nil)
+		suite.Require().NoError(suite.db.Model(p).Updates(map[string]interface{}{
+			"artist_id": artistID, "release_id": releaseID,
+		}).Error)
+		return p.ID
+	}
+	otherTitle := play("They Might Be Giants", strPtr("Flood"), &tmbg.ID, lincoln.ID)
+	emptyTitle := play("They Might Be Giants", strPtr("  "), &tmbg.ID, borisFlood.ID)
+	noTitle := play("Somebody", nil, nil, borisFlood.ID)
+	suite.Require().NoError(suite.db.Exec(`
+INSERT INTO audit_logs (action, entity_type, entity_id, metadata)
+VALUES (?, ?, ?, jsonb_build_object(?::text, NULL))`,
+		contracts.AuditActionLinkRadioPlay, contracts.AuditEntityRadioPlay, emptyTitle, contracts.AuditMetaReleaseID).Error)
+
+	report, err := BackfillRadioReleaseLinks(suite.db, RadioReleaseLinkBackfillOptions{DryRun: true})
+	suite.Require().NoError(err)
+	byPlay := make(map[uint]RadioReleaseLinkChange)
+	for _, c := range report.Changes {
+		byPlay[c.PlayID] = c
+	}
+	suite.NotContains(byPlay, otherTitle, "a release credited to the play's artist is kept whatever its title")
+	suite.Equal(1, report.Counts[RadioReleaseLinkKeptCredited])
+	suite.Equal(RadioReleaseLinkRemovedNotCredited, byPlay[emptyTitle].Outcome, "a title that normalizes to empty finds no credited release")
+	suite.False(byPlay[emptyTitle].AdminSet, "an audit row with a null release_id flags nothing")
+	suite.Equal(RadioReleaseLinkRemovedUnlinkedArtist, byPlay[noTitle].Outcome)
+	suite.Empty(byPlay[noTitle].AlbumTitle)
+}

@@ -89,17 +89,11 @@ func main() {
 	flag.StringVar(&envFile, "env", "", "Path to a .env file whose values override the shell; without it, .env.development or else .env fills only unset variables")
 	flag.Parse()
 
-	if opts.confirm && opts.outPath == "" {
-		log.Fatal("--confirm requires --out <new file>: the change list is the record needed to undo the run")
-	}
-	if opts.planPath != "" && !opts.confirm {
-		log.Fatal("--plan applies only with --confirm")
+	if err := validateOptions(opts); err != nil {
+		log.Fatal(err)
 	}
 	if opts.confirm && opts.planPath == "" {
 		log.Println("WARNING: --confirm without --plan applies whatever this run evaluates, unchecked against a reviewed dry run")
-	}
-	if opts.limit < 0 {
-		log.Fatal("--limit must be 0 (all) or positive")
 	}
 
 	loadEnv(envFile)
@@ -149,8 +143,24 @@ func loadEnv(envFile string) {
 	log.Println("no .env loaded; using process environment")
 }
 
+// validateOptions rejects flag combinations the command refuses to run.
+func validateOptions(opts runOptions) error {
+	switch {
+	case opts.confirm && opts.outPath == "":
+		return errors.New("--confirm requires --out <new file>: the change list is the record needed to undo the run")
+	case opts.planPath != "" && !opts.confirm:
+		return errors.New("--plan applies only with --confirm")
+	case opts.limit < 0:
+		return errors.New("--limit must be 0 (all) or positive")
+	}
+	return nil
+}
+
 // run evaluates (and with confirm, applies) the backfill and prints the report.
 func run(database *gorm.DB, opts runOptions, out io.Writer) error {
+	if err := validateOptions(opts); err != nil {
+		return err
+	}
 	var plan [][]string
 	if opts.planPath != "" {
 		var err error

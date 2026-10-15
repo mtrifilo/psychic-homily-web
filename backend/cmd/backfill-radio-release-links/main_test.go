@@ -239,3 +239,47 @@ func TestMarkNotAppliedNeverOverwrites(t *testing.T) {
 	assert.Contains(t, err.Error(), "not renamed")
 	assert.FileExists(t, path, "an existing .NOT-APPLIED file is never replaced")
 }
+
+func TestValidateOptions(t *testing.T) {
+	tests := []struct {
+		name    string
+		opts    runOptions
+		wantErr string
+	}{
+		{"dry run", runOptions{}, ""},
+		{"dry run with --out", runOptions{outPath: "plan.csv"}, ""},
+		{"live run with --out", runOptions{confirm: true, outPath: "changes.csv"}, ""},
+		{"live run with --out and --plan", runOptions{confirm: true, outPath: "changes.csv", planPath: "plan.csv"}, ""},
+		{"live run without --out", runOptions{confirm: true}, "--confirm requires --out"},
+		{"--plan on a dry run", runOptions{planPath: "plan.csv"}, "--plan applies only with --confirm"},
+		{"negative --limit", runOptions{limit: -1}, "--limit must be 0 (all) or positive"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := validateOptions(tt.opts)
+			if tt.wantErr == "" {
+				assert.NoError(t, err)
+				return
+			}
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), tt.wantErr)
+		})
+	}
+}
+
+func TestReadChangeListRejects(t *testing.T) {
+	dir := t.TempDir()
+	_, err := readChangeList(filepath.Join(dir, "missing.csv"))
+	require.Error(t, err)
+
+	other := filepath.Join(dir, "other.csv")
+	require.NoError(t, writeChangeList(other, [][]string{{"id", "name"}, {"1", "x"}}))
+	_, err = readChangeList(other)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "is not a change list written by this command")
+
+	empty := filepath.Join(dir, "empty.csv")
+	require.NoError(t, writeChangeList(empty, nil))
+	_, err = readChangeList(empty)
+	require.Error(t, err)
+}
