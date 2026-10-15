@@ -31,14 +31,24 @@ type EmailService struct {
 // than blocking.
 const sendTimeout = 15 * time.Second
 
-// NewEmailService creates a new email service instance
+// NewEmailService creates a new email service instance whose Resend calls are
+// bounded by sendTimeout.
 func NewEmailService(cfg *config.Config) *EmailService {
+	return NewEmailServiceWithHTTPClient(cfg, nil)
+}
+
+// NewEmailServiceWithHTTPClient is NewEmailService with every Resend API call
+// sent through httpClient, which is how a test answers Resend locally instead
+// of over the network. A nil httpClient means the default client bounded by
+// sendTimeout; it never falls through to the SDK's unbounded default.
+func NewEmailServiceWithHTTPClient(cfg *config.Config, httpClient *http.Client) *EmailService {
+	if httpClient == nil {
+		httpClient = &http.Client{Timeout: sendTimeout}
+	}
+
 	var client *resend.Client
 	if cfg.Email.ResendAPIKey != "" {
-		client = resend.NewCustomClient(
-			&http.Client{Timeout: sendTimeout},
-			cfg.Email.ResendAPIKey,
-		)
+		client = resend.NewCustomClient(httpClient, cfg.Email.ResendAPIKey)
 	}
 
 	return &EmailService{

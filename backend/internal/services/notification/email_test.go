@@ -2,9 +2,11 @@ package notification
 
 import (
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -103,6 +105,58 @@ func TestNewEmailService_NotConfigured(t *testing.T) {
 	svc := NewEmailService(cfg)
 
 	assert.Nil(t, svc.client)
+}
+
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
+
+func TestNewEmailServiceWithHTTPClient_SendsThroughClient(t *testing.T) {
+	var got *http.Request
+	httpClient := &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		got = r
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Header:     http.Header{"Content-Type": []string{"application/json"}},
+			Body:       io.NopCloser(strings.NewReader(`{"id":"test-email-id"}`)),
+			Request:    r,
+		}, nil
+	})}
+	cfg := &config.Config{
+		Email: config.EmailConfig{
+			ResendAPIKey: "re_123abc",
+			FromEmail:    "noreply@example.com",
+			FrontendURL:  "http://localhost:3000",
+		},
+	}
+
+	svc := NewEmailServiceWithHTTPClient(cfg, httpClient)
+	require.NoError(t, svc.SendVerificationEmail("user@example.com", "tok"))
+
+	require.NotNil(t, got, "the send must go through the injected client")
+	assert.Equal(t, http.MethodPost, got.Method)
+	assert.Equal(t, "/emails", got.URL.Path)
+	assert.Equal(t, "Bearer re_123abc", got.Header.Get("Authorization"))
+}
+
+// resendHTTPClientTimeout reads the timeout of the *http.Client inside a
+// resend.Client. The SDK keeps that client in an unexported field named
+// "client"; if the SDK renames it this helper fails the test rather than
+// passing vacuously.
+func resendHTTPClientTimeout(t *testing.T, c *resend.Client) time.Duration {
+	t.Helper()
+	field := reflect.ValueOf(c).Elem().FieldByName("client")
+	require.True(t, field.IsValid(), "resend.Client has no field named client")
+	require.False(t, field.IsNil(), "resend.Client.client is nil")
+	return time.Duration(field.Elem().FieldByName("Timeout").Int())
+}
+
+func TestNewEmailService_DefaultClientBoundedBySendTimeout(t *testing.T) {
+	cfg := &config.Config{Email: config.EmailConfig{ResendAPIKey: "re_123abc"}}
+
+	assert.Equal(t, sendTimeout, resendHTTPClientTimeout(t, NewEmailService(cfg).client))
+	assert.Equal(t, sendTimeout, resendHTTPClientTimeout(t, NewEmailServiceWithHTTPClient(cfg, nil).client),
+		"a nil client must fall back to the bounded default, not the SDK's unbounded one")
 }
 
 func TestEmailIsConfigured_True(t *testing.T) {
