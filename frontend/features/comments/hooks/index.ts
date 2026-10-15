@@ -20,6 +20,7 @@ import type {
   ReplyPermission,
   VenueFieldNoteListResponse,
 } from '../types'
+import { refetchAfterMutation } from './refetchAfterMutation'
 
 // ============================================================================
 // Error formatting (PSY-589)
@@ -151,9 +152,10 @@ export function useCreateComment() {
         ),
       }),
     onSuccess: (_data, variables) => {
-      queryClient.invalidateQueries({
-        queryKey: commentQueryKeys.entity(variables.entityType, variables.entityId),
-      })
+      void refetchAfterMutation(
+        queryClient,
+        commentQueryKeys.entity(variables.entityType, variables.entityId)
+      )
     },
   })
 }
@@ -182,12 +184,14 @@ export function useReplyToComment() {
         ),
       }),
     onSuccess: (_data, variables) => {
-      queryClient.invalidateQueries({
-        queryKey: commentQueryKeys.entity(variables.entityType, variables.entityId),
-      })
-      queryClient.invalidateQueries({
-        queryKey: commentQueryKeys.thread(variables.commentId),
-      })
+      void refetchAfterMutation(
+        queryClient,
+        commentQueryKeys.entity(variables.entityType, variables.entityId)
+      )
+      void refetchAfterMutation(
+        queryClient,
+        commentQueryKeys.thread(variables.commentId)
+      )
     },
   })
 }
@@ -524,9 +528,10 @@ export function useCreateFieldNote() {
         body: JSON.stringify(input),
       }),
     onSuccess: (_data, variables) => {
-      queryClient.invalidateQueries({
-        queryKey: fieldNoteQueryKeys.show(variables.showId),
-      })
+      void refetchAfterMutation(
+        queryClient,
+        fieldNoteQueryKeys.show(variables.showId)
+      )
     },
   })
 }
