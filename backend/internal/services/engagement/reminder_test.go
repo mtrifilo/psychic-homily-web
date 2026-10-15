@@ -456,7 +456,8 @@ func (s *ReminderServiceIntegrationTestSuite) TestRunReminderCycle_SoftDeletedUs
 
 	// Soft-delete the user
 	now := time.Now()
-	s.db.Model(&authm.User{}).Where("id = ?", user.ID).Update("deleted_at", now)
+	s.Require().NoError(s.db.Model(&authm.User{}).Where("id = ?", user.ID).
+		Updates(map[string]any{"is_active": false, "deleted_at": now}).Error)
 
 	s.reminderService.RunReminderCycleNow()
 
