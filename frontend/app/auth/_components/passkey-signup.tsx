@@ -29,6 +29,10 @@ import type { components } from '@/types/api'
 import { CURRENT_PRIVACY_VERSION, CURRENT_TERMS_VERSION, MIN_SIGNUP_AGE } from '@/lib/legal'
 import { API_BASE_URL } from '@/lib/api-base'
 import type { SignupHandoff } from './signup-handoff'
+import type { SignupRequestDeadline } from './signup-request-deadline'
+
+const START_FAILURE = 'Failed to start passkey signup'
+const FINISH_FAILURE = 'Failed to complete passkey signup'
 
 interface PasskeySignupButtonProps {
   onError?: (error: string) => void
@@ -40,6 +44,11 @@ interface PasskeySignupButtonProps {
    * navigation after it, belong to the page.
    */
   onHandoffChange: (handoff: SignupHandoff | null) => void
+  /**
+   * Bounds the begin and finish requests. A request that times out fails with
+   * the generic message for its step. Owned by the page that owns the handoff.
+   */
+  requestDeadline: SignupRequestDeadline
   className?: string
   termsVersion?: string
   privacyVersion?: string
@@ -49,6 +58,7 @@ interface PasskeySignupButtonProps {
 export function PasskeySignupButton({
   onError,
   onHandoffChange,
+  requestDeadline,
   className,
   termsVersion = CURRENT_TERMS_VERSION,
   privacyVersion = CURRENT_PRIVACY_VERSION,
@@ -98,13 +108,18 @@ export function PasskeySignupButton({
 
     setIsLoading(true)
     let claimed = false
+    // The signal of the request most recently put under the deadline. A
+    // failure while it is aborted is that request timing out.
+    let deadlineSignal: AbortSignal | null = null
 
     try {
       // Step 1: Begin signup
+      deadlineSignal = requestDeadline.arm()
       const beginResponse = await fetch(`${API_BASE_URL}/auth/passkey/signup/begin`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
+        signal: deadlineSignal,
         body: JSON.stringify({
           email,
           terms_accepted: true,
@@ -117,14 +132,15 @@ export function PasskeySignupButton({
 
       const beginData: components['schemas']['BeginSignupResponseBody'] =
         await beginResponse.json()
+      // The ceremony below waits on the person, not the network.
+      requestDeadline.disarm()
 
-      const startFailure = 'Failed to start passkey signup'
       if (!beginData.success) {
-        throw new Error(beginData.message || startFailure)
+        throw new Error(beginData.message || START_FAILURE)
       }
       const optionsJSON = registrationOptionsFrom(beginData.options)
       if (!optionsJSON) {
-        throw new Error(startFailure)
+        throw new Error(START_FAILURE)
       }
 
       // Step 2: Perform WebAuthn registration
@@ -134,10 +150,12 @@ export function PasskeySignupButton({
       // SignupHandoff doc comment for the redirect race this closes.
       onHandoffChange({ status: 'pending', email })
       claimed = true
+      deadlineSignal = requestDeadline.arm()
       const finishResponse = await fetch(`${API_BASE_URL}/auth/passkey/signup/finish`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
+        signal: deadlineSignal,
         body: JSON.stringify({
           challenge_id: beginData.challenge_id,
           response: credential,
@@ -152,12 +170,12 @@ export function PasskeySignupButton({
       const finishData: AuthResponse = await finishResponse.json()
 
       if (!finishData.success) {
-        throw new Error(finishData.message || 'Failed to complete passkey signup')
+        throw new Error(finishData.message || FINISH_FAILURE)
       }
 
       if (!finishData.user) {
         // No session to hand off to. The catch releases the claim and says so.
-        throw new Error('Failed to complete passkey signup')
+        throw new Error(FINISH_FAILURE)
       }
 
       setUser(finishData.user)
@@ -184,6 +202,11 @@ export function PasskeySignupButton({
         onHandoffChange(null)
       }
 
+      if (deadlineSignal?.aborted) {
+        onError?.(claimed ? FINISH_FAILURE : START_FAILURE)
+        return
+      }
+
       // Handle user cancellation gracefully
       if (error instanceof Error) {
         if (error.name === 'NotAllowedError') {
@@ -195,6 +218,7 @@ export function PasskeySignupButton({
         onError?.('An unexpected error occurred')
       }
     } finally {
+      requestDeadline.disarm()
       setIsLoading(false)
     }
   }
