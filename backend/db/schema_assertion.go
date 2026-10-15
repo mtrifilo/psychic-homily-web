@@ -14,14 +14,20 @@ import (
 //
 // Type, when set, is the column's required type in either spelling Postgres
 // reports (information_schema data_type or udt_name, so "bigint" and "int8"
-// are equivalent). An empty Type checks existence only. Set it when a
-// migration changes a column's type, so a recorded-but-absent type change
-// fails boot too.
+// are equivalent); the entries use the data_type spelling, which is also the
+// one the mismatch message prints. An empty Type checks existence only. Set
+// it when a migration changes a column's type, so a recorded-but-absent type
+// change fails boot too.
 type requiredColumn struct {
 	Table  string
 	Column string
 	Type   string
 }
+
+const (
+	sqlBigint      = "bigint"
+	sqlTimestamptz = "timestamp with time zone"
+)
 
 func (c requiredColumn) qualifiedName() string {
 	return c.Table + "." + c.Column
@@ -67,42 +73,47 @@ var requiredSchemaColumns = []requiredColumn{
 	// The model stores the authenticator's signature counter as a uint32; an
 	// INTEGER column cannot hold the upper half of that range, so the
 	// credential update after such a sign-in fails.
-	{Table: "webauthn_credentials", Column: "sign_count", Type: "bigint"},
+	{Table: "webauthn_credentials", Column: "sign_count", Type: sqlBigint},
 	// The audit models type both ids as uint.
-	{Table: "audit_logs", Column: "actor_id", Type: "bigint"},
-	{Table: "audit_logs", Column: "entity_id", Type: "bigint"},
-	{Table: "entity_edit_audit_logs", Column: "actor_id", Type: "bigint"},
-	{Table: "entity_edit_audit_logs", Column: "entity_id", Type: "bigint"},
+	{Table: "audit_logs", Column: "actor_id", Type: sqlBigint},
+	{Table: "audit_logs", Column: "entity_id", Type: sqlBigint},
+	{Table: "entity_edit_audit_logs", Column: "actor_id", Type: sqlBigint},
+	{Table: "entity_edit_audit_logs", Column: "entity_id", Type: sqlBigint},
 	// A TIMESTAMP (without time zone) column discards the zone of the instant
 	// the code writes, and no error says so.
-	{Table: "shows", Column: "event_date", Type: "timestamptz"},
-	{Table: "shows", Column: "created_at", Type: "timestamptz"},
-	{Table: "shows", Column: "updated_at", Type: "timestamptz"},
-	{Table: "artists", Column: "created_at", Type: "timestamptz"},
-	{Table: "artists", Column: "updated_at", Type: "timestamptz"},
-	{Table: "venues", Column: "created_at", Type: "timestamptz"},
-	{Table: "venues", Column: "updated_at", Type: "timestamptz"},
-	{Table: "users", Column: "created_at", Type: "timestamptz"},
-	{Table: "users", Column: "updated_at", Type: "timestamptz"},
-	{Table: "oauth_accounts", Column: "expires_at", Type: "timestamptz"},
-	{Table: "oauth_accounts", Column: "created_at", Type: "timestamptz"},
-	{Table: "oauth_accounts", Column: "updated_at", Type: "timestamptz"},
-	{Table: "user_preferences", Column: "created_at", Type: "timestamptz"},
-	{Table: "user_preferences", Column: "updated_at", Type: "timestamptz"},
-	{Table: "show_reports", Column: "reviewed_at", Type: "timestamptz"},
-	{Table: "show_reports", Column: "created_at", Type: "timestamptz"},
-	{Table: "show_reports", Column: "updated_at", Type: "timestamptz"},
-	{Table: "audit_logs", Column: "created_at", Type: "timestamptz"},
-	{Table: "entity_edit_audit_logs", Column: "created_at", Type: "timestamptz"},
+	{Table: "shows", Column: "event_date", Type: sqlTimestamptz},
+	{Table: "shows", Column: "created_at", Type: sqlTimestamptz},
+	{Table: "shows", Column: "updated_at", Type: sqlTimestamptz},
+	{Table: "artists", Column: "created_at", Type: sqlTimestamptz},
+	{Table: "artists", Column: "updated_at", Type: sqlTimestamptz},
+	{Table: "venues", Column: "created_at", Type: sqlTimestamptz},
+	{Table: "venues", Column: "updated_at", Type: sqlTimestamptz},
+	{Table: "users", Column: "created_at", Type: sqlTimestamptz},
+	{Table: "users", Column: "updated_at", Type: sqlTimestamptz},
+	{Table: "oauth_accounts", Column: "expires_at", Type: sqlTimestamptz},
+	{Table: "oauth_accounts", Column: "created_at", Type: sqlTimestamptz},
+	{Table: "oauth_accounts", Column: "updated_at", Type: sqlTimestamptz},
+	{Table: "user_preferences", Column: "created_at", Type: sqlTimestamptz},
+	{Table: "user_preferences", Column: "updated_at", Type: sqlTimestamptz},
+	{Table: "show_reports", Column: "reviewed_at", Type: sqlTimestamptz},
+	{Table: "show_reports", Column: "created_at", Type: sqlTimestamptz},
+	{Table: "show_reports", Column: "updated_at", Type: sqlTimestamptz},
+	{Table: "audit_logs", Column: "created_at", Type: sqlTimestamptz},
+	{Table: "entity_edit_audit_logs", Column: "created_at", Type: sqlTimestamptz},
 }
 
 type columnChecker interface {
 	HasColumn(table interface{}, column string) bool
 }
 
+// assertRequiredSchema checks existence for the untyped entries only; the
+// type read in assertRequiredColumnTypes reports a typed entry that is absent.
 func assertRequiredSchema(checker columnChecker) error {
 	var missing []string
 	for _, col := range requiredSchemaColumns {
+		if col.Type != "" {
+			continue
+		}
 		if !checker.HasColumn(col.Table, col.Column) {
 			missing = append(missing, col.qualifiedName())
 		}
@@ -177,7 +188,9 @@ func assertRequiredColumnTypes(reader columnTypeReader) error {
 }
 
 // informationSchemaColumnTypes reads column types from the connection's
-// current schema, the schema GORM's Migrator().HasColumn consults.
+// current schema, the schema GORM's Migrator().HasColumn consults, in one
+// query. Migrator().ColumnTypes is not used: it runs several queries per table
+// and reads a data row from each.
 type informationSchemaColumnTypes struct {
 	db *gorm.DB
 }
@@ -200,7 +213,8 @@ func (r informationSchemaColumnTypes) ColumnTypes(tables []string) (map[string]c
 	}
 	types := make(map[string]columnType, len(rows))
 	for _, row := range rows {
-		types[row.TableName+"."+row.ColumnName] = columnType{DataType: row.DataType, UDTName: row.UdtName}
+		key := requiredColumn{Table: row.TableName, Column: row.ColumnName}.qualifiedName()
+		types[key] = columnType{DataType: row.DataType, UDTName: row.UdtName}
 	}
 	return types, nil
 }

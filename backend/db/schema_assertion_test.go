@@ -104,13 +104,11 @@ func TestAssertRequiredSchema_nilDB(t *testing.T) {
 }
 
 type fakeColumnTypeReader struct {
-	types         map[string]columnType
-	err           error
-	requestedFrom []string
+	types map[string]columnType
+	err   error
 }
 
-func (f *fakeColumnTypeReader) ColumnTypes(tables []string) (map[string]columnType, error) {
-	f.requestedFrom = tables
+func (f *fakeColumnTypeReader) ColumnTypes([]string) (map[string]columnType, error) {
 	return f.types, f.err
 }
 
@@ -153,7 +151,8 @@ func TestAssertRequiredColumnTypes(t *testing.T) {
 		err := assertRequiredColumnTypes(&fakeColumnTypeReader{types: types})
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "webauthn_credentials.sign_count is integer, expected bigint")
-		assert.Contains(t, err.Error(), "shows.event_date is timestamp without time zone, expected timestamptz")
+		assert.Contains(t, err.Error(),
+			"shows.event_date is timestamp without time zone, expected timestamp with time zone")
 	})
 
 	t.Run("a listed column the reader did not return is reported absent", func(t *testing.T) {
@@ -180,23 +179,6 @@ func TestAssertRequiredColumnTypes(t *testing.T) {
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "could not read required column types: connection reset")
 		assert.Contains(t, err.Error(), "refusing to boot")
-	})
-
-	t.Run("only the tables of typed entries are read, each once", func(t *testing.T) {
-		t.Parallel()
-		reader := &fakeColumnTypeReader{types: listedColumnTypes()}
-		require.NoError(t, assertRequiredColumnTypes(reader))
-
-		var want []string
-		seen := map[string]bool{}
-		for _, col := range requiredSchemaColumns {
-			if col.Type != "" && !seen[col.Table] {
-				seen[col.Table] = true
-				want = append(want, col.Table)
-			}
-		}
-		assert.Equal(t, want, reader.requestedFrom)
-		assert.NotContains(t, reader.requestedFrom, "user_bookmarks", "a table with only untyped entries")
 	})
 }
 

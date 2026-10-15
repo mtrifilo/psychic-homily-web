@@ -73,11 +73,17 @@ func TestAssertRequiredSchema_columnTypeDrift(t *testing.T) {
 	_, err = sqlDB.Exec(`ALTER TABLE webauthn_credentials ALTER COLUMN sign_count TYPE INTEGER`)
 	require.NoError(t, err)
 
-	require.NoError(t, assertRequiredSchema(td.DB.Migrator()), "the column still exists")
 	err = AssertRequiredSchema(td.DB)
 	require.EqualError(t, err,
 		"required schema columns have the wrong type: webauthn_credentials.sign_count is integer, "+
 			"expected bigint (type change recorded but DDL absent?); refusing to boot")
+
+	// The type read is also what reports a typed column that is absent.
+	_, err = sqlDB.Exec(`ALTER TABLE webauthn_credentials DROP COLUMN sign_count`)
+	require.NoError(t, err)
+	err = AssertRequiredSchema(td.DB)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "webauthn_credentials.sign_count is absent, expected bigint")
 }
 
 func TestAssertRequiredSchema_unlistedColumnTypeIgnored(t *testing.T) {
