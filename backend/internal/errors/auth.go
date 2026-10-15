@@ -342,8 +342,8 @@ func ErrOAuthLinkExpired() *AuthError {
 }
 
 // ErrInvalidCredentialResponse is the refusal for a passkey ceremony response
-// that cannot be parsed, fails verification against its session, or carries a
-// credential id an account already holds.
+// the relying party does not accept. Its callers state which responses those
+// are.
 func ErrInvalidCredentialResponse(internal error) *AuthError {
 	return NewAuthError(CodeValidationFailed, "Invalid credential response", internal)
 }
