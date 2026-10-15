@@ -163,6 +163,7 @@ var radioCandidatePlayCols = RadioPlayColumns{
 	ArtistName: "p.artist_name",
 	TrackTitle: "p.track_title",
 	LabelName:  "p.label_name",
+	AlbumTitle: "p.album_title",
 }
 
 // radioCandidatePlaysFromSQL returns a FROM clause that joins a play to its
@@ -335,14 +336,16 @@ WHERE rn <= %[4]d`, kind, col, filter, radioCandidateTopNames, own)
 // keys, one radioCandidateEvidenceRow per row. Parameters: the window's first
 // air date, then the keys. The artist_id IS NULL condition holds for every
 // counted play of a qualifying key and lets the lookup use the partial
-// normalized-name index.
+// normalized-name index. The album list counts only plays whose album counts
+// as release evidence (RadioRankingAlbum).
 var radioArtistCandidateEvidenceSQL = `
 WITH counted AS MATERIALIZED (
   SELECT k.artist_key,
          p.artist_name, p.track_title, p.album_title, p.label_name,
          sh.station_id,
          ` + RadioPlayExcludedSQL(RadioRankingTrack, radioCandidatePlayCols) + ` AS track_excluded,
-         NOT ` + RadioPlayExcludedSQL(RadioRankingLabel, radioCandidatePlayCols) + ` AS label_counts
+         NOT ` + RadioPlayExcludedSQL(RadioRankingLabel, radioCandidatePlayCols) + ` AS label_counts,
+         NOT ` + RadioPlayExcludedSQL(RadioRankingAlbum, radioCandidatePlayCols) + ` AS album_counts
   ` + radioCandidatePlaysFromSQL(RadioRankingArtist) + `
     AND p.artist_id IS NULL
     AND radio_normalize_name(p.artist_name) = ANY (?::text[])
@@ -366,7 +369,7 @@ FROM (
   GROUP BY c.artist_key, t.id, t.display_title
 ) tracks
 WHERE rn <= ` + fmt.Sprint(radioCandidateTopTracks) + `
-UNION ALL` + radioCandidateEvidenceNamesSQL(radioEvidenceAlbum, "artist_key", "album_title", "") + `
+UNION ALL` + radioCandidateEvidenceNamesSQL(radioEvidenceAlbum, "artist_key", "album_title", "album_counts") + `
 UNION ALL` + radioCandidateEvidenceNamesSQL(radioEvidenceLabel, "artist_key", "label_name", "label_counts") + `
 ORDER BY kind, artist_key, rn`
 

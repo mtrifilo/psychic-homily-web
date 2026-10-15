@@ -16,10 +16,11 @@ import (
 // rankings. Display aggregations (charts, top artists, now playing) filter the
 // WFMU "Music behind DJ:" prefix separately with pseudoArtistExclusionSQL.
 
-// RadioRankingDimension names what an enrichment ranking counts plays toward.
-// It decides which fields form the key: a play with a blank key field never
-// counts toward that dimension, and a placeholder exclusion disqualifies a play
-// only for dimensions whose key includes the matched field.
+// RadioRankingDimension names what an enrichment ranking counts plays toward:
+// a ranking's key, or the album evidence the rankings list. It decides which
+// fields form the key: a play with a blank key field never counts toward that
+// dimension, and a placeholder exclusion disqualifies a play only for
+// dimensions whose key includes the matched field.
 type RadioRankingDimension string
 
 const (
@@ -29,6 +30,9 @@ const (
 	RadioRankingTrack RadioRankingDimension = "track"
 	// RadioRankingLabel keys on the label name.
 	RadioRankingLabel RadioRankingDimension = "label"
+	// RadioRankingAlbum keys on the album title. A play's album counts as
+	// release evidence only when the play is not excluded for this dimension.
+	RadioRankingAlbum RadioRankingDimension = "album"
 )
 
 // keyMatchKinds returns the radio_play_exclusions match kinds that form the
@@ -42,6 +46,8 @@ func (d RadioRankingDimension) keyMatchKinds() []string {
 		return []string{catalogm.RadioPlayExclusionMatchArtistName, catalogm.RadioPlayExclusionMatchTrackTitle}
 	case RadioRankingLabel:
 		return []string{catalogm.RadioPlayExclusionMatchLabelName}
+	case RadioRankingAlbum:
+		return []string{catalogm.RadioPlayExclusionMatchAlbumTitle}
 	default:
 		panic(fmt.Sprintf("catalog: unknown radio ranking dimension %q", string(d)))
 	}
@@ -59,6 +65,7 @@ type RadioNormalizedPlay struct {
 	ArtistName *string
 	TrackTitle *string
 	LabelName  *string
+	AlbumTitle *string
 }
 
 func (p RadioNormalizedPlay) field(matchKind string) *string {
@@ -69,6 +76,8 @@ func (p RadioNormalizedPlay) field(matchKind string) *string {
 		return p.TrackTitle
 	case catalogm.RadioPlayExclusionMatchLabelName:
 		return p.LabelName
+	case catalogm.RadioPlayExclusionMatchAlbumTitle:
+		return p.AlbumTitle
 	default:
 		return nil
 	}
@@ -141,7 +150,8 @@ func NewRadioPlayExclusions(rows []catalogm.RadioPlayExclusion) (*RadioPlayExclu
 		switch row.MatchKind {
 		case catalogm.RadioPlayExclusionMatchArtistName,
 			catalogm.RadioPlayExclusionMatchTrackTitle,
-			catalogm.RadioPlayExclusionMatchLabelName:
+			catalogm.RadioPlayExclusionMatchLabelName,
+			catalogm.RadioPlayExclusionMatchAlbumTitle:
 		default:
 			return nil, fmt.Errorf("%s: unknown match kind", desc)
 		}
@@ -223,6 +233,7 @@ type RadioPlayColumns struct {
 	ArtistName string
 	TrackTitle string
 	LabelName  string
+	AlbumTitle string
 }
 
 var (
@@ -266,21 +277,27 @@ const radioExclusionRegexChunk = 8
 // column reference that is not an identifier, both programming errors.
 func RadioPlayExcludedSQL(dim RadioRankingDimension, cols RadioPlayColumns) string {
 	keyKinds := dim.keyMatchKinds()
-	kinds := []struct{ matchKind, value string }{
-		{catalogm.RadioPlayExclusionMatchArtistName, "n.artist_name"},
-		{catalogm.RadioPlayExclusionMatchTrackTitle, "n.track_title"},
-		{catalogm.RadioPlayExclusionMatchLabelName, "n.label_name"},
+	// Each field's normalized value is selected under its match kind's name,
+	// so rules of kind k test n.<k>.
+	fields := []struct{ matchKind, column string }{
+		{catalogm.RadioPlayExclusionMatchArtistName, cols.ArtistName},
+		{catalogm.RadioPlayExclusionMatchTrackTitle, cols.TrackTitle},
+		{catalogm.RadioPlayExclusionMatchLabelName, cols.LabelName},
+		{catalogm.RadioPlayExclusionMatchAlbumTitle, cols.AlbumTitle},
 	}
 
-	var blankKey, globalMatch []string
-	for _, k := range kinds {
-		inKey := slices.Contains(keyKinds, k.matchKind)
+	var normalized, blankKey, globalMatch, scopedCases []string
+	for _, f := range fields {
+		value := "n." + f.matchKind
+		normalized = append(normalized, RadioNormalizedFieldSQL(f.column)+" AS "+f.matchKind)
+		scopedCases = append(scopedCases, fmt.Sprintf("WHEN '%s' THEN %s", f.matchKind, value))
+		inKey := slices.Contains(keyKinds, f.matchKind)
 		if inKey {
-			blankKey = append(blankKey, k.value+" IS NULL")
+			blankKey = append(blankKey, value+" IS NULL")
 		}
 		// Rules that apply to this field for this dimension: every station
 		// element and talk rule, plus placeholders when the field is in the key.
-		rules := fmt.Sprintf("station_id IS NULL AND match_kind = '%s'", k.matchKind)
+		rules := fmt.Sprintf("station_id IS NULL AND match_kind = '%s'", f.matchKind)
 		if !inKey {
 			rules += fmt.Sprintf(" AND category <> '%s'", catalogm.RadioPlayExclusionCategoryPlaceholder)
 		}
@@ -293,15 +310,9 @@ func RadioPlayExcludedSQL(dim RadioRankingDimension, cols RadioPlayColumns) stri
                       FROM radio_play_exclusions
                       WHERE %[2]s AND pattern_type = '%[5]s') r
                 GROUP BY chunk))))`,
-			k.value, rules, catalogm.RadioPlayExclusionPatternExact, radioExclusionRegexChunk, catalogm.RadioPlayExclusionPatternRegex))
+			value, rules, catalogm.RadioPlayExclusionPatternExact, radioExclusionRegexChunk, catalogm.RadioPlayExclusionPatternRegex))
 	}
-
-	scopedField := fmt.Sprintf(
-		"CASE x.match_kind WHEN '%s' THEN n.artist_name WHEN '%s' THEN n.track_title WHEN '%s' THEN n.label_name END",
-		catalogm.RadioPlayExclusionMatchArtistName,
-		catalogm.RadioPlayExclusionMatchTrackTitle,
-		catalogm.RadioPlayExclusionMatchLabelName,
-	)
+	scopedField := "CASE x.match_kind " + strings.Join(scopedCases, " ") + " END"
 
 	// Shape, and why:
 	//   * OFFSET 0 keeps the planner from inlining the normalization subquery,
@@ -321,9 +332,7 @@ func RadioPlayExcludedSQL(dim RadioRankingDimension, cols RadioPlayColumns) stri
 	//     serial: Postgres does not run this predicate under a parallel scan.
 	return fmt.Sprintf(`EXISTS (
   SELECT 1
-  FROM (SELECT %s AS artist_name,
-               %s AS track_title,
-               %s AS label_name
+  FROM (SELECT %s
         OFFSET 0) n
   WHERE %s
      OR %s
@@ -337,9 +346,7 @@ func RadioPlayExcludedSQL(dim RadioRankingDimension, cols RadioPlayColumns) stri
           ELSE false
         END
 )`,
-		RadioNormalizedFieldSQL(cols.ArtistName),
-		RadioNormalizedFieldSQL(cols.TrackTitle),
-		RadioNormalizedFieldSQL(cols.LabelName),
+		strings.Join(normalized, ",\n               "),
 		strings.Join(blankKey, " OR "),
 		strings.Join(globalMatch, "\n     OR "),
 		mustSQLColumnRef(cols.StationID),

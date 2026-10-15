@@ -579,3 +579,18 @@ func indexOf(xs []string, x string) int {
 	}
 	return -1
 }
+
+// A placeholder album (radio_play_exclusions, album_title) is not album
+// evidence, yet its plays still count toward the artist.
+func (s *RadioCandidatesIntegrationSuite) TestEvidenceSkipsPlaceholderAlbums() {
+	s.add(candidatePlay{station: "t-kexp", artist: "T Album Evidence", title: "Song One", album: "Single"}, 3)
+	s.add(candidatePlay{station: "t-wfmu", artist: "T Album Evidence", title: "Song Two", album: "Real Album"}, 2)
+	s.add(candidatePlay{station: "t-wfmu", artist: "T Album Evidence", title: "Song Three", album: "Live on KEXP"}, 1)
+
+	got := s.all()
+	s.Require().Contains(got, "t album evidence")
+	c := got["t album evidence"]
+	s.Equal(6, c.PlayCount, "plays with a placeholder album still count for the artist")
+	s.Equal(1, c.AlbumNameCount)
+	s.Equal([]contracts.RadioCandidateName{{Name: "Real Album", PlayCount: 2}}, c.AlbumNames)
+}

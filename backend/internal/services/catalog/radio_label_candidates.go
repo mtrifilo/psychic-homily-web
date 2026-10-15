@@ -216,7 +216,8 @@ WHERE rn <= %[4]d`, kind, col, refIDs, radioCandidateTopNames, filter)
 // radioLabelCandidateEvidenceSQL returns the evidence rows of the selected
 // keys, one radioLabelEvidenceRow per row. The artists list skips plays
 // RadioPlayExcludedSQL excludes for the artist ranking, such as placeholder
-// artist names; it does not filter on match state. Parameters: the
+// artist names, and the release list skips plays it excludes for album
+// evidence (RadioRankingAlbum); neither filters on match state. Parameters: the
 // window's first and last air dates, then the keys.
 var radioLabelCandidateEvidenceSQL = `
 WITH counted AS MATERIALIZED (
@@ -225,6 +226,7 @@ WITH counted AS MATERIALIZED (
          CASE WHEN btrim(p.musicbrainz_release_id) ~ '` + mbidUUIDPattern + `'
               THEN lower(btrim(p.musicbrainz_release_id)) END AS mb_release_id,
          NOT ` + RadioPlayExcludedSQL(RadioRankingArtist, radioCandidatePlayCols) + ` AS artist_counts,
+         NOT ` + RadioPlayExcludedSQL(RadioRankingAlbum, radioCandidatePlayCols) + ` AS album_counts,
          sh.station_id
   ` + radioLabelCandidatePlaysFrom + `
     AND k.label_key = ANY (?::text[])
@@ -248,7 +250,7 @@ JOIN radio_stations st ON st.id = c.station_id
 GROUP BY c.label_key, st.id, st.name, st.slug
 UNION ALL` + radioLabelEvidenceNamesSQL(radioLabelEvidenceArtist, "artist_name", "artist_counts",
 	`coalesce(array_agg(DISTINCT artist_id::bigint ORDER BY artist_id::bigint) FILTER (WHERE artist_id IS NOT NULL), '{}')`) + `
-UNION ALL` + radioLabelEvidenceNamesSQL(radioLabelEvidenceRelease, "album_title", "", `'{}'::bigint[]`) + `
+UNION ALL` + radioLabelEvidenceNamesSQL(radioLabelEvidenceRelease, "album_title", "album_counts", `'{}'::bigint[]`) + `
 UNION ALL
 SELECT '` + radioLabelEvidenceMBRelease + `' AS kind, label_key, 0 AS ref_id, mb_release_id AS name, '' AS slug,
        play_count::int AS play_count, distinct_count::int AS distinct_count, '{}'::bigint[] AS ref_ids, rn

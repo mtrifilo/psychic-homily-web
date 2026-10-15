@@ -581,3 +581,19 @@ func (s *RadioTracksIntegrationSuite) TestJoiningTwoExistingTracksKeepsTheOlderR
 	s.Equal(2, merged.StationFamilyCount)
 	s.Equal(older.ID, s.trackIDForKey("prince and the revolution", "let's go crazy"))
 }
+
+// album_play_count counts only plays whose album counts as release evidence:
+// a placeholder album (radio_play_exclusions, album_title) is left out, while
+// play_count still counts the play.
+func (s *RadioTracksIntegrationSuite) TestRebuildAlbumPlayCountSkipsPlaceholderAlbums() {
+	s.addPlay(radioTrackFixturePlay{station: "t-kexp", artist: "T Album Count", title: stringPtr("Counted"),
+		album: stringPtr("Live on KEXP")}, 2)
+	s.addPlay(radioTrackFixturePlay{station: "t-wfmu", artist: "T Album Count", title: stringPtr("Counted"),
+		album: stringPtr("Real Album")}, 1)
+	s.addPlay(radioTrackFixturePlay{station: "t-wfmu", artist: "T Album Count", title: stringPtr("Counted")}, 1)
+	s.rebuild()
+
+	t := s.track("t album count", "counted")
+	s.Equal(4, t.PlayCount)
+	s.Equal(1, t.AlbumPlayCount)
+}
