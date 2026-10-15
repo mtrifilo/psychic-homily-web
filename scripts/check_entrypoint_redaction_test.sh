@@ -8,6 +8,10 @@
 # the fixture's user or password appears ANYWHERE in the boot output, so a new
 # line that prints the URL fails here too.
 #
+# The migrate-options cases at the end assert the URL the stub migrate
+# received and the boot lines for MIGRATE_LOCK_TIMEOUT and
+# MIGRATE_STATEMENT_TIMEOUT: defaults, valid overrides, invalid overrides.
+#
 # Runs in CI (Migration Lint) and locally:
 #   bash scripts/check_entrypoint_redaction_test.sh [shell, default sh]
 #
@@ -28,9 +32,12 @@ WORK="$FIXTURE/work"
 mkdir -p "$STUB_BIN" "$WORK"
 
 # The database wait and the migration succeed without touching a network;
-# ./main is what the entrypoint execs last.
+# ./main is what the entrypoint execs last. The stub migrate writes its
+# arguments, one per line, to MIGRATE_ARGS rather than to the boot output.
+MIGRATE_ARGS="$FIXTURE/migrate-args"
 printf '#!/bin/sh\nexit 0\n' >"$STUB_BIN/nc"
-printf '#!/bin/sh\necho "stub migrate ran"\nexit 0\n' >"$STUB_BIN/migrate"
+printf '#!/bin/sh\nprintf "%%s\\n" "$@" >"%s"\necho "stub migrate ran"\nexit 0\n' \
+  "$MIGRATE_ARGS" >"$STUB_BIN/migrate"
 printf '#!/bin/sh\necho "stub main ran"\nexit 0\n' >"$WORK/main"
 chmod +x "$STUB_BIN/nc" "$STUB_BIN/migrate" "$WORK/main"
 
@@ -39,11 +46,13 @@ CASE=""
 OUTPUT=""
 STATUS=0
 
-# run [DATABASE_URL] runs the entrypoint with only PATH and that variable set;
-# with no argument, DATABASE_URL is absent from the environment.
+# run [DATABASE_URL [NAME=value...]] runs the entrypoint with only PATH, that
+# variable and the given assignments set; with no argument, DATABASE_URL is
+# absent from the environment.
 run() {
+  rm -f "$MIGRATE_ARGS"
   OUTPUT="$(cd "$WORK" && env -i PATH="$STUB_BIN:$PATH" ${1+"DATABASE_URL=$1"} \
-    "$ENTRYPOINT_SHELL" "$UNDER_TEST" 2>&1)"
+    "${@:2}" "$ENTRYPOINT_SHELL" "$UNDER_TEST" 2>&1)"
   STATUS=$?
 }
 
@@ -75,6 +84,13 @@ expect_booted() {
   expect_status 0
   expect_line "Migrations completed successfully!"
   expect_line "stub main ran"
+}
+
+# expect_migrate_url <url>: the stub migrate got exactly this -database value.
+expect_migrate_url() {
+  local got
+  got="$(sed -n '/^-database$/{n;p;q;}' "$MIGRATE_ARGS" 2>/dev/null)"
+  [ "$got" = "$1" ] || fail "migrate got -database '$got', expected '$1'"
 }
 
 # ---------------------------------------------------------------- cases
@@ -174,6 +190,100 @@ run
 expect_status 1
 expect_line "DATABASE_URL: NOT SET"
 expect_line "ERROR: DATABASE_URL is not set!"
+
+# ------------------------------------------------- migrate options cases
+
+OPTS_URL="postgresql://fixtureuser7:Zq9fixturePW7731@postgres.railway.internal:5432/railway"
+LOCK_5S="options=-c%20lock_timeout%3D5s"
+NO_STATEMENT_TIMEOUT_LINE="Migrations get no statement_timeout from this script (MIGRATE_STATEMENT_TIMEOUT=0)."
+
+CASE="defaults: 5s lock_timeout, no statement_timeout"
+run "$OPTS_URL"
+expect_booted
+expect_absent "WARNING"
+expect_line "Migrations wait at most 5s for any lock (lock_timeout)."
+expect_line "$NO_STATEMENT_TIMEOUT_LINE"
+expect_migrate_url "$OPTS_URL?$LOCK_5S"
+
+CASE="empty overrides read as the defaults"
+run "$OPTS_URL" MIGRATE_LOCK_TIMEOUT= MIGRATE_STATEMENT_TIMEOUT=
+expect_booted
+expect_absent "WARNING"
+expect_line "Migrations wait at most 5s for any lock (lock_timeout)."
+expect_line "$NO_STATEMENT_TIMEOUT_LINE"
+expect_migrate_url "$OPTS_URL?$LOCK_5S"
+
+CASE="valid overrides with units, joined after an existing query"
+run "$OPTS_URL?sslmode=disable" MIGRATE_LOCK_TIMEOUT=30s MIGRATE_STATEMENT_TIMEOUT=10min
+expect_booted
+expect_absent "WARNING"
+expect_line "Migrations wait at most 30s for any lock (lock_timeout)."
+expect_line "Each migration statement runs at most 10min (statement_timeout)."
+expect_migrate_url "$OPTS_URL?sslmode=disable&options=-c%20lock_timeout%3D30s%20-c%20statement_timeout%3D10min"
+
+CASE="valid overrides as bare milliseconds name the unit"
+run "$OPTS_URL" MIGRATE_LOCK_TIMEOUT=2500 MIGRATE_STATEMENT_TIMEOUT=60000
+expect_booted
+expect_absent "WARNING"
+expect_line "Migrations wait at most 2500ms for any lock (lock_timeout)."
+expect_line "Each migration statement runs at most 60000ms (statement_timeout)."
+expect_migrate_url "$OPTS_URL?options=-c%20lock_timeout%3D2500ms%20-c%20statement_timeout%3D60000ms"
+
+for unit in ms s min h d; do
+  CASE="lock_timeout unit $unit is accepted"
+  run "$OPTS_URL" MIGRATE_LOCK_TIMEOUT="7$unit"
+  expect_booted
+  expect_absent "WARNING"
+  expect_migrate_url "$OPTS_URL?options=-c%20lock_timeout%3D7$unit"
+done
+
+CASE="statement_timeout alone keeps the default lock_timeout"
+run "$OPTS_URL" MIGRATE_STATEMENT_TIMEOUT=30s
+expect_booted
+expect_absent "WARNING"
+expect_line "Migrations wait at most 5s for any lock (lock_timeout)."
+expect_line "Each migration statement runs at most 30s (statement_timeout)."
+expect_migrate_url "$OPTS_URL?$LOCK_5S%20-c%20statement_timeout%3D30s"
+
+for unit in ms s min h d; do
+  CASE="statement_timeout unit $unit is accepted"
+  run "$OPTS_URL" MIGRATE_STATEMENT_TIMEOUT="7$unit"
+  expect_booted
+  expect_absent "WARNING"
+  expect_migrate_url "$OPTS_URL?$LOCK_5S%20-c%20statement_timeout%3D7$unit"
+done
+
+CASE="statement_timeout of 0s adds nothing"
+run "$OPTS_URL" MIGRATE_STATEMENT_TIMEOUT=0s
+expect_booted
+expect_absent "WARNING"
+expect_line "$NO_STATEMENT_TIMEOUT_LINE"
+expect_migrate_url "$OPTS_URL?$LOCK_5S"
+
+for bad in abc 5S "5 s" -5s 1.5s 5sec s 5s5 0 0ms 000s 1us 500us "5s&options=-c%20x" "5s%20-c%20lock_timeout%3D0"; do
+  CASE="invalid MIGRATE_LOCK_TIMEOUT '$bad' falls back to 5s"
+  run "$OPTS_URL" MIGRATE_LOCK_TIMEOUT="$bad"
+  expect_booted
+  expect_line "WARNING: MIGRATE_LOCK_TIMEOUT is not a positive whole number with an optional unit (ms, s, min, h, d); using 5s."
+  expect_line "Migrations wait at most 5s for any lock (lock_timeout)."
+  expect_migrate_url "$OPTS_URL?$LOCK_5S"
+done
+
+for bad in abc -1 30S 1.5s 1us "30s%20-c%20lock_timeout%3D0"; do
+  CASE="invalid MIGRATE_STATEMENT_TIMEOUT '$bad' falls back to none"
+  run "$OPTS_URL" MIGRATE_STATEMENT_TIMEOUT="$bad"
+  expect_booted
+  expect_line "WARNING: MIGRATE_STATEMENT_TIMEOUT is not a whole number with an optional unit (ms, s, min, h, d); using 0 (not set)."
+  expect_line "$NO_STATEMENT_TIMEOUT_LINE"
+  expect_migrate_url "$OPTS_URL?$LOCK_5S"
+done
+
+CASE="an options parameter in DATABASE_URL is reported as shadowing both"
+run "$OPTS_URL?options=-c%20work_mem%3D8MB" MIGRATE_LOCK_TIMEOUT=30s MIGRATE_STATEMENT_TIMEOUT=30s
+expect_booted
+expect_line "WARNING: DATABASE_URL carries its own 'options' parameter; migrations run WITHOUT the 30s lock_timeout or any statement_timeout from MIGRATE_STATEMENT_TIMEOUT."
+expect_absent "Migrations wait at most" "Each migration statement runs at most"
+expect_migrate_url "$OPTS_URL?options=-c%20work_mem%3D8MB&options=-c%20lock_timeout%3D30s%20-c%20statement_timeout%3D30s"
 
 # ---------------------------------------------------------------- result
 
