@@ -8,6 +8,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"reflect"
 	"regexp"
 	"strings"
 	"sync/atomic"
@@ -30,8 +31,8 @@ const pwnedPasswordsOtherLines = "0000000000000000000000000000000000A:3\r\n" +
 // api.pwnedpasswords.com does, so no test depends on a live third-party
 // response. It counts the requests it receives and fails the test on any
 // request the breach check would never make, including one that carries
-// anything beyond the five-character prefix: a query, a body, or a header other
-// than User-Agent and Add-Padding.
+// anything beyond the five-character prefix: a query, a body, or headers other
+// than pwnedPasswordsRequestHeaders.
 type fakePwnedPasswords struct {
 	t       *testing.T
 	respond func(prefix string) (*http.Response, error)
@@ -47,9 +48,15 @@ func (f *fakePwnedPasswords) RoundTrip(r *http.Request) (*http.Response, error) 
 	return f.respond(strings.TrimPrefix(r.URL.Path, "/range/"))
 }
 
+// pwnedPasswordsRequestHeaders is the exact header set of the range request.
+var pwnedPasswordsRequestHeaders = http.Header{
+	"User-Agent":  {"PsychicHomily-PasswordCheck"},
+	"Add-Padding": {"true"},
+}
+
 // isPwnedPasswordsRangeRequest reports whether r is exactly the k-anonymity
-// range request: a GET of the prefix path with padding asked for, and nothing
-// else that could carry the hash.
+// range request: a GET of the prefix path with exactly
+// pwnedPasswordsRequestHeaders, and nothing else that could carry the hash.
 func isPwnedPasswordsRangeRequest(r *http.Request) bool {
 	if r.Method != http.MethodGet || r.URL.Host != "api.pwnedpasswords.com" ||
 		!pwnedPasswordsRangePath.MatchString(r.URL.Path) || r.URL.RawQuery != "" {
@@ -58,15 +65,7 @@ func isPwnedPasswordsRangeRequest(r *http.Request) bool {
 	if r.Body != nil && r.Body != http.NoBody {
 		return false
 	}
-	if r.Header.Get("Add-Padding") != "true" {
-		return false
-	}
-	for name := range r.Header {
-		if name != "User-Agent" && name != "Add-Padding" {
-			return false
-		}
-	}
-	return true
+	return reflect.DeepEqual(r.Header, pwnedPasswordsRequestHeaders)
 }
 
 // dialRefused returns the error a refused TCP dial fails with, before any HTTP
