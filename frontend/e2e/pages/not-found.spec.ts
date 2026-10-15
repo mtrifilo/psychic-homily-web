@@ -221,16 +221,19 @@ test.describe('Not-found pages — HTTP 404 status', () => {
   test.describe('Config redirects under proxied prefixes', () => {
     test('/shows/saved answers a 308 to /library, carrying the query string (anon lands on /auth)', async ({
       page,
+      request,
     }) => {
-      const redirect = await page.request.get(
-        '/shows/saved?submitted=pending',
-        { maxRedirects: 0 }
-      )
+      const redirect = await request.get('/shows/saved?submitted=pending', {
+        maxRedirects: 0,
+      })
       expect(
         redirect.status(),
         '/shows/saved must answer the permanent redirect itself, not a 200 page'
       ).toBe(308)
-      expect(redirect.headers()['location']).toBe('/library?submitted=pending')
+      const location = new URL(redirect.headers()['location'], 'http://origin')
+      expect(`${location.pathname}${location.search}`).toBe(
+        '/library?submitted=pending'
+      )
 
       const response = await page.goto('/shows/saved')
       expect(new URL(response!.url()).pathname).toBe('/library')

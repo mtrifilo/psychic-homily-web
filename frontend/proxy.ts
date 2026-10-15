@@ -158,8 +158,9 @@ const ENTITY_CHECKS: Record<string, (slug: string) => string> = {
 /**
  * Static (non-`[slug]`) routes that live UNDER a proxied entity prefix. These
  * are real Next routes (e.g. `app/shows/submit/page.tsx`, the show-submission
- * form), NOT entity slugs. The `config.matcher`'s `/shows/:path*` source intercepts them,
- * and the `/<entity>/<slug>` shape guard below would otherwise existence-check
+ * form), NOT entity slugs. The `config.matcher`'s `/shows/:path*` source
+ * intercepts them, and the `/<entity>/<slug>` shape guard below would otherwise
+ * existence-check
  * `GET ${API_BASE_URL}/shows/submit` → backend 404 → rewrite the real page to a
  * 404 (PSY-913, regressed by PSY-897's shows phase). Excluding these segments
  * lets the genuine page render.
@@ -571,8 +572,8 @@ export async function proxy(request: NextRequest): Promise<NextResponse> {
   }
 
   // `/<entity>/<segment>` where <segment> is a real static route (e.g.
-  // `/shows/submit`), not an entity slug: never existence-check
-  // it, or we'd 404 a genuine page (PSY-913).
+  // `/shows/submit`), not an entity slug: never existence-check it, or we'd
+  // 404 a genuine page (PSY-913).
   if (RESERVED_SEGMENTS[entityType]?.has(slug)) {
     return NextResponse.next()
   }
