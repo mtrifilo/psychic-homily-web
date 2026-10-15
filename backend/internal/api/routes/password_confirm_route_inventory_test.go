@@ -52,7 +52,7 @@ var (
 	scopePasswordConfirm  = fmt.Sprintf("passwordConfirmGroup: the shared %d/min password-confirm budget", PasswordConfirmAttemptsPerMinute)
 	scopePasskey          = fmt.Sprintf("passkeyGroup: the %d/min passkey budget", middleware.PasskeyRequestsPerMinute)
 	scopePasskeySignup    = fmt.Sprintf("signupBeginGroup: its own %d/min passkey sign-up begin budget", middleware.PasskeySignupBeginRequestsPerMinute)
-	scopePasskeyRegister  = fmt.Sprintf("registerBeginGroup: its own %d/min passkey register begin budget, behind HumaJWTMiddleware", middleware.PasskeyRegisterBeginRequestsPerMinute)
+	scopePasskeyRegister  = fmt.Sprintf("registerBeginGroup: its own %d/min passkey register begin budget per session user, behind HumaJWTMiddleware", middleware.PasskeyRegisterBeginRequestsPerMinute)
 	scopeResendSized      = fmt.Sprintf("its own limiter at the %d/min verification-resend size", VerificationResendPerMinute)
 	scopeProtectedNoLimit = "rc.Protected with no per-route limiter"
 	scopeAdminNoLimit     = "rc.Admin with no per-route limiter"
