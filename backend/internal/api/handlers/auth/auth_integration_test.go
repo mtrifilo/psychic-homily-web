@@ -5,6 +5,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
+	"net"
+	"net/http"
+	"strings"
+	"sync/atomic"
+	"syscall"
 	"testing"
 	"time"
 
@@ -64,23 +70,88 @@ func (s *AuthHandlerIntegrationSuite) TearDownSuite() {
 
 // --- Helpers ---
 
-func (s *AuthHandlerIntegrationSuite) newAuthHandler(emailConfigured bool) *AuthHandler {
-	emailCfg := s.cfg
-	if emailConfigured {
-		emailCfg = &config.Config{
-			JWT:     s.cfg.JWT,
-			Session: s.cfg.Session,
-			Email: config.EmailConfig{
-				ResendAPIKey: "re_fake_key_for_testing",
-				FromEmail:    "test@psychichomily.com",
-				FrontendURL:  "http://localhost:3000",
-			},
-		}
-	}
+// resendInvalidAPIKeyBody is the body Resend's API answers a request carrying
+// an unknown API key with, alongside HTTP 401.
+const resendInvalidAPIKeyBody = `{"message":"API key is invalid","name":"validation_error","statusCode":401}`
 
+// fakeResend answers Resend API calls in-process, so no test in this suite
+// depends on a live third-party response. It counts the calls it answers.
+type fakeResend struct {
+	respond func(*http.Request) (*http.Response, error)
+	calls   atomic.Int32
+}
+
+func (f *fakeResend) RoundTrip(r *http.Request) (*http.Response, error) {
+	f.calls.Add(1)
+	return f.respond(r)
+}
+
+// resendAnswering returns a fakeResend that answers every call with status
+// and a JSON body, the way Resend's API does.
+func resendAnswering(status int, body string) *fakeResend {
+	return &fakeResend{respond: func(r *http.Request) (*http.Response, error) {
+		return &http.Response{
+			StatusCode: status,
+			Status:     fmt.Sprintf("%d %s", status, http.StatusText(status)),
+			Header:     http.Header{"Content-Type": []string{"application/json"}},
+			Body:       io.NopCloser(strings.NewReader(body)),
+			Request:    r,
+		}, nil
+	}}
+}
+
+// resendRejectingKey returns a fakeResend that answers every call the way
+// Resend answers an unknown API key.
+func resendRejectingKey() *fakeResend {
+	return resendAnswering(http.StatusUnauthorized, resendInvalidAPIKeyBody)
+}
+
+// resendDialRefused returns a fakeResend whose every call fails the way a
+// refused TCP dial fails, before any HTTP response exists.
+func resendDialRefused() *fakeResend {
+	return &fakeResend{respond: func(*http.Request) (*http.Response, error) {
+		return nil, &net.OpError{Op: "dial", Net: "tcp", Err: syscall.ECONNREFUSED}
+	}}
+}
+
+// resendForbidden returns a fakeResend that fails t on any call, for a test
+// whose handler must not send email.
+func resendForbidden(t *testing.T) *fakeResend {
+	return &fakeResend{respond: func(r *http.Request) (*http.Response, error) {
+		t.Errorf("unexpected Resend call: %s %s", r.Method, r.URL)
+		return nil, errors.New("unexpected Resend call")
+	}}
+}
+
+// newAuthHandler builds the handler around the real services. With
+// emailConfigured, the email service is configured but any send fails the
+// test; a test whose handler sends uses newAuthHandlerWithResend.
+func (s *AuthHandlerIntegrationSuite) newAuthHandler(emailConfigured bool) *AuthHandler {
+	if !emailConfigured {
+		return s.buildAuthHandler(s.cfg, nil)
+	}
+	return s.newAuthHandlerWithResend(resendForbidden(s.T()))
+}
+
+// newAuthHandlerWithResend builds the handler with email configured and every
+// Resend API call answered by resend.
+func (s *AuthHandlerIntegrationSuite) newAuthHandlerWithResend(resend *fakeResend) *AuthHandler {
+	emailCfg := &config.Config{
+		JWT:     s.cfg.JWT,
+		Session: s.cfg.Session,
+		Email: config.EmailConfig{
+			ResendAPIKey: "re_fake_key_for_testing",
+			FromEmail:    "test@psychichomily.com",
+			FrontendURL:  "http://localhost:3000",
+		},
+	}
+	return s.buildAuthHandler(emailCfg, resend)
+}
+
+func (s *AuthHandlerIntegrationSuite) buildAuthHandler(emailCfg *config.Config, resendTransport http.RoundTripper) *AuthHandler {
 	authSvc := auth.NewAuthService(s.deps.DB, emailCfg, s.deps.UserService)
 	jwtSvc := auth.NewJWTService(s.deps.DB, emailCfg, s.deps.UserService)
-	emailSvc := notification.NewEmailService(emailCfg)
+	emailSvc := notification.NewEmailServiceWithTransport(emailCfg, resendTransport)
 	discordSvc := notification.NewDiscordService(emailCfg)
 	pv := auth.NewPasswordValidator()
 
@@ -404,8 +475,13 @@ func (s *AuthHandlerIntegrationSuite) TestSendVerification_NoEmail() {
 	s.Equal("NO_EMAIL", resp.Body.ErrorCode)
 }
 
+// TestSendVerification_SendFails, _ResendUnreachable and _ResendAccepts pin
+// the handler's answer to three Resend outcomes: a 401 with Resend's JSON
+// error body, a transport error before any response, and a 200 with a JSON
+// body.
 func (s *AuthHandlerIntegrationSuite) TestSendVerification_SendFails() {
-	h := s.newAuthHandler(true) // email configured with fake API key
+	resend := resendRejectingKey()
+	h := s.newAuthHandlerWithResend(resend)
 	user := s.createUserWithPassword("verify-fail@test.com", "strong-password-123!")
 	ctx := s.ctxWithUser(user)
 
@@ -414,12 +490,46 @@ func (s *AuthHandlerIntegrationSuite) TestSendVerification_SendFails() {
 	// Fail-closed: a real email-send failure surfaces as a 5xx so monitoring
 	// sees the incident; the response body carries the canonical
 	// SERVICE_UNAVAILABLE shape even though the transport-level status is 5xx.
+	s.Equal(int32(1), resend.calls.Load(), "the send must reach Resend")
 	s.Require().Error(err)
+	s.ErrorContains(err, "API key is invalid")
 	var authErr *autherrors.AuthError
 	s.Require().True(errors.As(err, &authErr), "expected returned error to wrap *AuthError")
 	s.Equal(autherrors.CodeServiceUnavailable, authErr.Code)
 	s.False(resp.Body.Success)
 	s.Equal(autherrors.CodeServiceUnavailable, resp.Body.ErrorCode)
+}
+
+func (s *AuthHandlerIntegrationSuite) TestSendVerification_ResendUnreachable() {
+	resend := resendDialRefused()
+	h := s.newAuthHandlerWithResend(resend)
+	user := s.createUserWithPassword("verify-unreachable@test.com", "strong-password-123!")
+	ctx := s.ctxWithUser(user)
+
+	resp, err := h.SendVerificationEmailHandler(ctx, &struct{}{})
+
+	s.Equal(int32(1), resend.calls.Load(), "the send must reach the transport")
+	s.Require().Error(err)
+	s.ErrorIs(err, syscall.ECONNREFUSED)
+	var authErr *autherrors.AuthError
+	s.Require().True(errors.As(err, &authErr), "expected returned error to wrap *AuthError")
+	s.Equal(autherrors.CodeServiceUnavailable, authErr.Code)
+	s.False(resp.Body.Success)
+	s.Equal(autherrors.CodeServiceUnavailable, resp.Body.ErrorCode)
+}
+
+func (s *AuthHandlerIntegrationSuite) TestSendVerification_ResendAccepts() {
+	resend := resendAnswering(http.StatusOK, `{}`)
+	h := s.newAuthHandlerWithResend(resend)
+	user := s.createUserWithPassword("verify-sent@test.com", "strong-password-123!")
+	ctx := s.ctxWithUser(user)
+
+	resp, err := h.SendVerificationEmailHandler(ctx, &struct{}{})
+
+	s.Equal(int32(1), resend.calls.Load(), "the send must reach Resend")
+	s.Require().NoError(err)
+	s.True(resp.Body.Success, resp.Body.Message)
+	s.Empty(resp.Body.ErrorCode)
 }
 
 // TestRegisterThenVerify_RoundTrip is the PSY-1871 acceptance test: signing up
@@ -567,13 +677,15 @@ func (s *AuthHandlerIntegrationSuite) TestSendMagicLink_UserNotFound() {
 // leaks its state: the response is the generic enumeration-safe success body,
 // identical to the unknown-email case (PSY-749).
 func (s *AuthHandlerIntegrationSuite) TestSendMagicLink_EmailNotVerified() {
-	h := s.newAuthHandler(true)
+	resend := resendAnswering(http.StatusOK, `{}`)
+	h := s.newAuthHandlerWithResend(resend)
 	s.createUserWithPassword("unverified@test.com", "strong-password-123!")
 
 	input := &SendMagicLinkRequest{}
 	input.Body.Email = "unverified@test.com"
 
 	resp, err := h.SendMagicLinkHandler(context.Background(), input)
+	s.Equal(int32(1), resend.calls.Load(), "an unverified account is sent exactly one email")
 	s.Require().NoError(err)
 	s.True(resp.Body.Success)    // enumeration prevention
 	s.Empty(resp.Body.ErrorCode) // no EMAIL_NOT_VERIFIED leak
@@ -582,9 +694,10 @@ func (s *AuthHandlerIntegrationSuite) TestSendMagicLink_EmailNotVerified() {
 // TestSendMagicLink_SendFails verifies a downstream send failure for a
 // known-verified account stays generic — the failure must not surface as a
 // distinct error response, which would leak that the account exists (PSY-749).
-// The fake Resend API key makes the underlying send fail.
+// Resend answers the send with 401, which makes the underlying send fail.
 func (s *AuthHandlerIntegrationSuite) TestSendMagicLink_SendFails() {
-	h := s.newAuthHandler(true) // email configured but fake API key
+	resend := resendRejectingKey()
+	h := s.newAuthHandlerWithResend(resend)
 	user := s.createUserWithPassword("magic-fail@test.com", "strong-password-123!")
 	s.verifyEmail(user.ID)
 
@@ -592,6 +705,7 @@ func (s *AuthHandlerIntegrationSuite) TestSendMagicLink_SendFails() {
 	input.Body.Email = "magic-fail@test.com"
 
 	resp, err := h.SendMagicLinkHandler(context.Background(), input)
+	s.Equal(int32(1), resend.calls.Load(), "the send must reach Resend")
 	s.Require().NoError(err)
 	s.True(resp.Body.Success)
 	s.Empty(resp.Body.ErrorCode)
@@ -995,9 +1109,10 @@ func (s *AuthHandlerIntegrationSuite) TestRequestRecovery_EmailNotConfigured() {
 
 // TestRequestRecovery_SendFails: PSY-774 — a downstream send failure for a
 // recoverable account must NOT change the response, otherwise the failure
-// itself leaks account existence.
+// itself leaks account existence. Resend answers the send with 401.
 func (s *AuthHandlerIntegrationSuite) TestRequestRecovery_SendFails() {
-	h := s.newAuthHandler(true) // email configured but fake API key
+	resend := resendRejectingKey()
+	h := s.newAuthHandlerWithResend(resend)
 	user := s.createUserWithPassword("req-fail@test.com", "strong-password-123!")
 	s.softDeleteUser(user.ID)
 
@@ -1005,6 +1120,7 @@ func (s *AuthHandlerIntegrationSuite) TestRequestRecovery_SendFails() {
 	input.Body.Email = "req-fail@test.com"
 
 	resp, err := h.RequestAccountRecoveryHandler(context.Background(), input)
+	s.Equal(int32(1), resend.calls.Load(), "the send must reach Resend")
 	s.Require().NoError(err)
 	s.True(resp.Body.Success)
 	s.Empty(resp.Body.ErrorCode)
