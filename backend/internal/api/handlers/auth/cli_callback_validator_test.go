@@ -1,6 +1,9 @@
 package auth
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestValidateCLICallback_Allowed(t *testing.T) {
 	cases := []struct {
@@ -66,5 +69,45 @@ func TestValidateCLICallback_Rejected(t *testing.T) {
 				t.Fatalf("expected %q to be rejected, got allowed value %q", tc.raw, got)
 			}
 		})
+	}
+}
+
+// callbackOfLength builds a loopback cli_callback exactly n bytes long, the
+// path padded with pad.
+func callbackOfLength(t *testing.T, n int, pad string) string {
+	t.Helper()
+	const prefix = "http://localhost:8888/"
+	raw := prefix + strings.Repeat(pad, (n-len(prefix))/len(pad))
+	if len(raw) != n {
+		t.Fatalf("built a %d-byte callback, want %d", len(raw), n)
+	}
+	return raw
+}
+
+func TestValidateCLICallback_LengthCap(t *testing.T) {
+	atCap := callbackOfLength(t, cliCallbackMaxLength, "a")
+	got, err := validateCLICallback(atCap)
+	if err != nil {
+		t.Fatalf("expected a %d-byte callback to be allowed, got %v", len(atCap), err)
+	}
+	if got != atCap {
+		t.Errorf("expected the at-cap callback unchanged, got %d bytes", len(got))
+	}
+
+	for _, n := range []int{cliCallbackMaxLength + 1, 10000} {
+		if got, err := validateCLICallback(callbackOfLength(t, n, "a")); err == nil {
+			t.Errorf("expected a %d-byte callback to be rejected, got %d bytes back", n, len(got))
+		}
+	}
+
+	// Within the cap as given, over it once canonicalized: each space in the
+	// path becomes "%20". The store holds the canonical form and the callback
+	// re-validates it, so the start has to refuse it.
+	if _, err := validateCLICallback(callbackOfLength(t, 100, " a")); err != nil {
+		t.Fatalf("expected a short callback with spaces in its path to be allowed, got %v", err)
+	}
+	expands := callbackOfLength(t, cliCallbackMaxLength-10, " a")
+	if got, err := validateCLICallback(expands); err == nil {
+		t.Errorf("expected a callback whose canonical form is over the cap to be rejected, got %d bytes back", len(got))
 	}
 }
