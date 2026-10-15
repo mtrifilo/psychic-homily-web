@@ -5,7 +5,9 @@ import (
 	"log"
 	"math"
 	"net/http"
+	"net/url"
 	"os"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -62,6 +64,11 @@ const (
 	EnvResendAPIKey = "RESEND_API_KEY"
 	EnvFromEmail    = "FROM_EMAIL"
 	EnvFrontendURL  = "FRONTEND_URL"
+
+	// BACKEND_PUBLIC_URL: the origin browsers and OAuth providers reach this
+	// backend at (e.g. "http://localhost:61001"). It feeds the default OAuth
+	// callback URLs and the backend links minted for unmapped frontend URLs.
+	EnvBackendPublicURL = "BACKEND_PUBLIC_URL"
 
 	// Discord
 	EnvDiscordWebhookURL = "DISCORD_WEBHOOK_URL"
@@ -182,10 +189,10 @@ type CORSConfig struct {
 type OAuthConfig struct {
 	GoogleClientID     string `env:"GOOGLE_CLIENT_ID"`
 	GoogleClientSecret string `env:"GOOGLE_CLIENT_SECRET"`
-	GoogleCallbackURL  string `env:"GOOGLE_CALLBACK_URL" envDefault:"http://localhost:8080/auth/callback/google"`
+	GoogleCallbackURL  string `env:"GOOGLE_CALLBACK_URL"`
 	GitHubClientID     string `env:"GITHUB_CLIENT_ID"`
 	GitHubClientSecret string `env:"GITHUB_CLIENT_SECRET"`
-	GitHubCallbackURL  string `env:"GITHUB_CALLBACK_URL" envDefault:"http://localhost:8080/auth/callback/github"`
+	GitHubCallbackURL  string `env:"GITHUB_CALLBACK_URL"`
 	SecretKey          string `env:"OAUTH_SECRET_KEY" envDefault:"your-secret-key-change-in-production"`
 }
 
@@ -299,6 +306,7 @@ func Load() (*Config, error) {
 
 	// Get CORS origins from environment or use defaults
 	corsOrigins := getCORSOrigins()
+	backendURL := BackendPublicURL()
 
 	cfg := &Config{
 		Server: ServerConfig{
@@ -313,10 +321,10 @@ func Load() (*Config, error) {
 		OAuth: OAuthConfig{
 			GoogleClientID:     GetEnv(EnvGoogleClientID, ""),
 			GoogleClientSecret: GetEnv(EnvGoogleClientSecret, ""),
-			GoogleCallbackURL:  GetEnv(EnvGoogleCallbackURL, "http://localhost:8080/auth/callback/google"),
+			GoogleCallbackURL:  GetEnv(EnvGoogleCallbackURL, backendURL+"/auth/callback/google"),
 			GitHubClientID:     GetEnv(EnvGitHubClientID, ""),
 			GitHubClientSecret: GetEnv(EnvGitHubClientSecret, ""),
-			GitHubCallbackURL:  GetEnv(EnvGitHubCallbackURL, "http://localhost:8080/auth/callback/github"),
+			GitHubCallbackURL:  GetEnv(EnvGitHubCallbackURL, backendURL+"/auth/callback/github"),
 			SecretKey:          oauthSecretKey,
 		},
 		Database: databaseConfigFromEnv(),
@@ -375,8 +383,8 @@ func Load() (*Config, error) {
 
 // getFrontendURL returns the frontend URL based on environment
 func getFrontendURL() string {
-	if url := os.Getenv(EnvFrontendURL); url != "" {
-		return url
+	if frontendURL := os.Getenv(EnvFrontendURL); frontendURL != "" {
+		return frontendURL
 	}
 
 	env := os.Getenv(EnvEnvironment)
@@ -390,13 +398,48 @@ func getFrontendURL() string {
 	}
 }
 
-// Add this helper function
+// defaultBackendPublicURL is the backend origin when BACKEND_PUBLIC_URL is
+// unset: the local development server on its default port.
+const defaultBackendPublicURL = "http://localhost:8080"
+
+// BackendPublicURL returns BACKEND_PUBLIC_URL without a trailing slash, or
+// http://localhost:8080 when it is unset.
+func BackendPublicURL() string {
+	if u := strings.TrimRight(strings.TrimSpace(os.Getenv(EnvBackendPublicURL)), "/"); u != "" {
+		return u
+	}
+	return defaultBackendPublicURL
+}
+
+// getCORSOrigins returns CORS_ALLOWED_ORIGINS verbatim when it is set.
+// Otherwise it returns the environment's default origins plus the frontend
+// URL's origin, so a frontend on any port is allowed without listing it twice.
 func getCORSOrigins() []string {
 	if corsEnv := os.Getenv(EnvCORSAllowedOrigins); corsEnv != "" {
 		return strings.Split(corsEnv, ",")
 	}
 
-	// Default origins based on environment
+	origins := defaultCORSOrigins()
+	if origin, ok := urlOrigin(getFrontendURL()); ok && !slices.Contains(origins, origin) {
+		origins = append(origins, origin)
+	}
+	return origins
+}
+
+// urlOrigin returns the scheme://host[:port] origin of rawURL, the form a
+// browser sends in the Origin header. ok is false when rawURL has no scheme
+// or host.
+func urlOrigin(rawURL string) (origin string, ok bool) {
+	u, err := url.Parse(strings.TrimSpace(rawURL))
+	if err != nil || u.Scheme == "" || u.Host == "" {
+		return "", false
+	}
+	return u.Scheme + "://" + u.Host, true
+}
+
+// defaultCORSOrigins returns the allowed origins for the current ENVIRONMENT
+// when CORS_ALLOWED_ORIGINS is unset.
+func defaultCORSOrigins() []string {
 	env := os.Getenv(EnvEnvironment)
 	if env == EnvProduction {
 		return []string{
