@@ -85,8 +85,13 @@ func (s *AuthService) OAuthCallbackWithConsent(
 // issued and no token is returned: the caller already holds one, and a link
 // must never be able to change who the browser is signed in as.
 //
-// Returns a typed *apperrors.AuthError for the refusals
-// UserServiceInterface.LinkOAuthAccountToUser documents.
+// The caller's proof of userID is a session it holds, not a loaded account, so
+// the account's state is read here: an account that may not hold a session
+// (authm.User.CanSignIn) may not gain a way to sign in either.
+//
+// Returns a typed *apperrors.AuthError carrying CodeAccountInactive for that
+// refusal, and for the refusals UserServiceInterface.LinkOAuthAccountToUser
+// documents.
 func (s *AuthService) CompleteOAuthLink(
 	w http.ResponseWriter,
 	r *http.Request,
@@ -100,6 +105,19 @@ func (s *AuthService) CompleteOAuthLink(
 	gothUser, err := s.oauthCompleter.CompleteUserAuth(w, r)
 	if err != nil {
 		return nil, fmt.Errorf("OAuth completion failed: %w", err)
+	}
+
+	// Read after the handshake, so the state checked is the state at the
+	// callback rather than at the link start.
+	account, err := s.userService.GetUserByID(userID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to load account to link: %w", err)
+	}
+	if !account.CanSignIn() {
+		logger.AuthWarn(r.Context(), "oauth_link_refused_account_inactive",
+			"provider", provider,
+			"user_id", userID)
+		return nil, apperrors.ErrAccountInactive()
 	}
 
 	linked, err := s.userService.LinkOAuthAccountToUser(userID, gothUser, provider)
