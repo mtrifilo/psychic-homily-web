@@ -43,18 +43,24 @@ func (s *AuthHandlerIntegrationSuite) creationOptions(raw []byte) *protocol.Cred
 	return &creation
 }
 
-// beginPasskeySignup runs signup/begin for email with the current documents
-// accepted and returns the challenge id, the registration a fresh software
-// authenticator answers it with, and that authenticator.
-func (s *AuthHandlerIntegrationSuite) beginPasskeySignup(api humatest.TestAPI, email string) (string, json.RawMessage, *softauthn.Authenticator) {
-	begin := api.Post("/auth/passkey/signup/begin", map[string]any{
+// signupBeginBody is a signup/begin request for email accepting the current
+// documents.
+func signupBeginBody(email string) map[string]any {
+	return map[string]any{
 		"email":            email,
 		"terms_accepted":   true,
 		"terms_version":    legal.CurrentTermsVersion,
 		"privacy_version":  legal.CurrentPrivacyVersion,
 		"age_confirmed":    true,
 		"min_age_attested": MinSignupAge,
-	})
+	}
+}
+
+// beginPasskeySignup runs signup/begin for email with the current documents
+// accepted and returns the challenge id, the registration a fresh software
+// authenticator answers it with, and that authenticator.
+func (s *AuthHandlerIntegrationSuite) beginPasskeySignup(api humatest.TestAPI, email string) (string, json.RawMessage, *softauthn.Authenticator) {
+	begin := api.Post("/auth/passkey/signup/begin", signupBeginBody(email))
 	requireWireSuccess(s.T(), begin)
 	challengeID, _ := decodeWireBody(s.T(), begin.Body.Bytes())["challenge_id"].(string)
 	s.Require().NotEmpty(challengeID)
