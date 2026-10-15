@@ -46,9 +46,9 @@ CREATE OR REPLACE FUNCTION public.radio_track_strip_marker_groups(text)
 -- trim cannot eat a closing bracket first. Steps, in order:
 --   1. an unbracketed credit to the end: " feat. x", " feat x", " ft. x",
 --      " featuring x"
---   2. an unbracketed bare " ft x" to the end, unless a number written in
---      digits or as an English number word comes right before it, where "ft"
---      is the unit: "ten ft tall" and "50 ft queenie" are kept whole
+--   2. an unbracketed bare " ft x" to the end, unless digits or one of the
+--      number words listed in the pattern come right before it, where "ft" is
+--      the unit: "ten ft tall" and "50 ft queenie" are kept whole
 --   3. trailing marker groups (radio_track_strip_marker_groups)
 --   4. a dash tail carrying a keyword: " - live at x", " - radio edit"
 --   5. step 3 again, for "x (demo) - live", whose bracket group is exposed
