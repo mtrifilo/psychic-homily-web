@@ -7,9 +7,9 @@ import { FALLBACK_RETURN_TO } from '@/lib/auth-href'
 
 import { safeDecodeQueryParam, sanitizeReturnTo } from './auth-redirect-utils'
 
-// Read at runtime, not imported, for the reason lib/releaseLinks.test.ts gives:
-// an import would pull a backend file into the program `next build` typechecks.
-// The Go sanitizer's test reads the same file; its _comment states the contract.
+// Read at runtime, not imported: an import would pull a backend file into the
+// program `next build` typechecks. The Go sanitizer's test reads the same file;
+// its _comment states the contract.
 const corpus = JSON.parse(
   readFileSync(
     resolve(
