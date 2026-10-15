@@ -9,7 +9,6 @@ import (
 	"net/url"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/go-chi/chi/v5"
 
@@ -375,11 +374,10 @@ func TestOAuthCallback_CLILoopbackIgnoresTheDestination(t *testing.T) {
 func TestOAuthCallback_LinkResultIgnoresTheDestination(t *testing.T) {
 	const intentID = "return-to-link-intent"
 	const state = "return-to-link-state"
-	storeOAuthLinkIntent(intentID, oauthLinkIntent{
-		userID:    42,
-		provider:  "google",
-		state:     state,
-		expiresAt: time.Now().Add(-time.Minute),
+	storeExpiredOAuthLinkIntent(intentID, oauthLinkIntent{
+		userID:   42,
+		provider: "google",
+		state:    state,
 	})
 	t.Cleanup(func() { consumeOAuthLinkIntent(intentID) })
 
