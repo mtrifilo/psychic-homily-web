@@ -45,8 +45,9 @@ const (
 // No origin. An earlier cut stored the browser's reported origin here and
 // compared it at spend against the browser's reported origin then: two values
 // from the same untrusted source, which proves only that they agree. The
-// origin check that means something compares against the CONFIGURED frontend,
-// and it lives in requestIsFromOurFrontend, which both legs already run.
+// origin check that means something compares against the CONFIGURED frontend:
+// both legs compare originFromHeaders with it, the mint in
+// StartOAuthLinkHandler and the spend in requestIsFromOurFrontend.
 type oauthLinkTokenClaims struct {
 	userID uint
 	expiry time.Time
@@ -203,9 +204,11 @@ func originOfURL(raw string) string {
 	return parsed.Scheme + "://" + parsed.Host
 }
 
-// requestIsFromOurFrontend reports whether this request came from our own
-// frontend, for both legs of the link: the mint (an XHR, which sends Origin)
-// and the spend (a top-level GET, which does not, and so relies on Referer).
+// requestIsFromOurFrontend reports whether the spend of a link token came from
+// our own frontend. The spend is a top-level GET, which sends no Origin and so
+// relies on Referer. The mint (an XHR, which sends Origin) does not run this:
+// StartOAuthLinkHandler refuses any origin other than the configured frontend,
+// with no fetch-metadata fallback.
 //
 // The CONFIGURED frontend is the primary test, not fetch metadata. Metadata
 // answers "same site as this API", and on stage and every preview the frontend
