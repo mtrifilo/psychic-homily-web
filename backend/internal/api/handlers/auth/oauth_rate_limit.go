@@ -76,6 +76,6 @@ func completesPendingLink(r *http.Request) bool {
 	if err != nil {
 		return false
 	}
-	intent, found := peekOAuthLinkIntent(cookie.Value)
+	intent, _, found := peekOAuthLinkIntent(cookie.Value)
 	return found && intent.isForHandshake(chi.URLParam(r, "provider"), r.URL.Query().Get("state"))
 }
