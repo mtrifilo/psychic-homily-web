@@ -15,6 +15,7 @@ import (
 	"psychic-homily-backend/internal/logger"
 	"psychic-homily-backend/internal/respond"
 	"psychic-homily-backend/internal/services/contracts"
+	engagementsvc "psychic-homily-backend/internal/services/engagement"
 )
 
 // CalendarHandler handles calendar feed and token management
@@ -246,22 +247,19 @@ func (h *CalendarHandler) DeleteCalendarTokenHandler(ctx context.Context, req *D
 }
 
 // getAPIBaseURL derives the API's public base URL from config.
-// Prod/stage map from the frontend origin; local/dev prefers API_ADDR when set
-// (dispatch isolated stacks bind a free port) and otherwise falls back to :8080.
+// Deployed frontend origins map through
+// engagementsvc.BackendURLForDeployedFrontend; any other origin prefers
+// API_ADDR when set (dispatch isolated stacks bind a free port) and otherwise
+// falls back to :8080.
 func getAPIBaseURL(cfg *config.Config) string {
-	frontendURL := cfg.Email.FrontendURL
-	switch frontendURL {
-	case "https://psychichomily.com":
-		return "https://api.psychichomily.com"
-	case "https://stage.psychichomily.com":
-		return "https://api-stage.psychichomily.com"
-	default:
-		if addr := strings.TrimSpace(os.Getenv("API_ADDR")); addr != "" {
-			if strings.HasPrefix(addr, "http://") || strings.HasPrefix(addr, "https://") {
-				return strings.TrimRight(addr, "/")
-			}
-			return "http://" + strings.TrimRight(addr, "/")
-		}
-		return "http://localhost:8080"
+	if backendURL, ok := engagementsvc.BackendURLForDeployedFrontend(cfg.Email.FrontendURL); ok {
+		return backendURL
 	}
+	if addr := strings.TrimSpace(os.Getenv("API_ADDR")); addr != "" {
+		if strings.HasPrefix(addr, "http://") || strings.HasPrefix(addr, "https://") {
+			return strings.TrimRight(addr, "/")
+		}
+		return "http://" + strings.TrimRight(addr, "/")
+	}
+	return "http://localhost:8080"
 }
