@@ -3,6 +3,7 @@ package auth
 import (
 	"fmt"
 	"testing"
+	"time"
 )
 
 // storeExpiredOAuthLinkIntent plants an already-expired intent in the
@@ -43,4 +44,23 @@ func TestOAuthLinkIntentStore_TenThousandInsertsStayBounded(t *testing.T) {
 		t.Error("expected the newest intent to be kept")
 	}
 	assertRegistryConsistent(t, oauthLinkIntentStore)
+}
+
+// An intent stays live for oauthLinkIntentTTL from the moment it is stored.
+func TestOAuthLinkIntentStore_ExpiresAfterTheIntentTTL(t *testing.T) {
+	oauthLinkIntentStore.reset()
+	t.Cleanup(oauthLinkIntentStore.reset)
+
+	before := time.Now()
+	storeOAuthLinkIntent("ttl-intent", oauthLinkIntent{userID: 1, provider: "google", state: "state"})
+	after := time.Now()
+
+	oauthLinkIntentStore.mu.RLock()
+	expiresAt := entryOf[oauthLinkIntent](oauthLinkIntentStore.entries["ttl-intent"]).expiresAt
+	oauthLinkIntentStore.mu.RUnlock()
+
+	if expiresAt.Before(before.Add(oauthLinkIntentTTL)) || expiresAt.After(after.Add(oauthLinkIntentTTL)) {
+		t.Errorf("expiresAt %v is not %v after the store (between %v and %v)",
+			expiresAt, oauthLinkIntentTTL, before.Add(oauthLinkIntentTTL), after.Add(oauthLinkIntentTTL))
+	}
 }

@@ -2,6 +2,7 @@ package auth
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -180,9 +181,15 @@ func TestOAuthLoginHTTPHandler_CLICallbackLengthCap(t *testing.T) {
 	w, req := oauthLoginRequest("google")
 	req.URL.RawQuery = "cli_callback=" + atCap
 	handler.OAuthLoginHTTPHandler(w, req)
-	if stored, ok := getCLICallback(cliCallbackID(t, w)); !ok || stored != atCap {
-		t.Errorf("expected the %d-byte callback to be stored, got %d bytes, %v", len(atCap), len(stored), ok)
+	callbackID := cliCallbackID(t, w)
+	if stored, ok := getCLICallback(callbackID); !ok || stored != atCap {
+		t.Fatalf("expected the %d-byte callback to be stored, got %d bytes, %v", len(atCap), len(stored), ok)
 	}
+
+	// The callback re-validates what was stored and redirects to it.
+	callback := httptest.NewRequest("GET", "/auth/callback/google", nil)
+	callback.AddCookie(&http.Cookie{Name: "cli_callback_id", Value: callbackID})
+	errorRedirectQuery(t, failingCallbackHandler(errors.New("provider refused")), callback, atCap)
 }
 
 func TestOAuthLoginHTTPHandler_ValidProvider_GoogleQueryParam(t *testing.T) {

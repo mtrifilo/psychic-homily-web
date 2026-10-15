@@ -103,6 +103,22 @@ func TestRedirectRateLimitedSendsTheBrowserToTheConfiguredAuthPage(t *testing.T)
 	assertAuthPage(t, refuse(t, OAuthCallbackRoute, "/auth/callback/google?code=spent", "google"), "")
 }
 
+// An intent past its TTL that the store still holds is still the reader's
+// link: the callback would answer it with the expired-link refusal on
+// Settings, so the rate-limited answer goes to Settings too.
+func TestRedirectRateLimitedReturnsAnExpiredPendingLinkToSettings(t *testing.T) {
+	const intentID = "rate-limit-expired-intent"
+	storeExpiredOAuthLinkIntent(intentID, oauthLinkIntent{
+		userID:   7,
+		provider: "google",
+		state:    "link-state",
+	})
+	t.Cleanup(func() { consumeOAuthLinkIntent(intentID) })
+
+	assertSettingsPage(t, refuse(t, OAuthCallbackRoute, "/auth/callback/google?state=link-state&code=spent", "google",
+		&http.Cookie{Name: oauthLinkIntentCookieName, Value: intentID}))
+}
+
 func TestRedirectRateLimitedReturnsAPendingLinkToSettings(t *testing.T) {
 	const intentID = "rate-limit-test-intent"
 	storeOAuthLinkIntent(intentID, oauthLinkIntent{
