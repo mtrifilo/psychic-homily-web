@@ -218,6 +218,10 @@ func main() {
 		log.Fatalf("PSY-1384 schema assertion: %v", err)
 	}
 
+	// The schema assertion reads columns only, so an INVALID index (a failed
+	// concurrent build) passes it. This reports one and keeps booting.
+	db.FlagInvalidIndexes(database, slog.Default(), sentry.CurrentHub())
+
 	// PSY-1761: bring the venue-local zone guard's allowlist up to date with
 	// this server's catalog. Boot is when it is most likely to have moved — a
 	// Postgres upgrade, a base-image bump or a restore is what changes

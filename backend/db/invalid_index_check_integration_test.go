@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"
 
@@ -27,7 +28,7 @@ func leaveInvalidIndex(t *testing.T, gormDB *gorm.DB) {
 
 	writer, err := sqlDB.Conn(ctx)
 	require.NoError(t, err)
-	defer writer.Close()
+	defer func() { assert.NoError(t, writer.Close()) }()
 	_, err = writer.ExecContext(ctx, `BEGIN`)
 	require.NoError(t, err)
 	_, err = writer.ExecContext(ctx, `INSERT INTO invalid_index_probe VALUES (1)`)
@@ -35,13 +36,16 @@ func leaveInvalidIndex(t *testing.T, gormDB *gorm.DB) {
 
 	builder, err := sqlDB.Conn(ctx)
 	require.NoError(t, err)
-	defer builder.Close()
+	defer func() { assert.NoError(t, builder.Close()) }()
 	_, err = builder.ExecContext(ctx, `SET lock_timeout = '200ms'`)
 	require.NoError(t, err)
 	_, err = builder.ExecContext(ctx,
-		`CREATE INDEX CONCURRENTLY `+probeIndexName+` ON invalid_index_probe (value)`)
+		`CREATE INDEX CONCURRENTLY `+probeIndexName+
+			` ON invalid_index_probe (value) WHERE value > 0 AND value < 1000000`)
 	require.Error(t, err, "the build must time out waiting for the open writer")
 	require.Contains(t, err.Error(), "lock timeout")
+	_, err = builder.ExecContext(ctx, `RESET lock_timeout`)
+	require.NoError(t, err)
 
 	_, err = writer.ExecContext(ctx, `ROLLBACK`)
 	require.NoError(t, err)
@@ -53,7 +57,9 @@ func leaveInvalidIndex(t *testing.T, gormDB *gorm.DB) {
 	require.False(t, valid, "the failed build must leave the index INVALID")
 }
 
-func TestInvalidIndex_premise(t *testing.T) {
+// A failed concurrent build leaves an INVALID index that the schema assertion
+// passes; FlagInvalidIndexes reports it by name and boot continues.
+func TestFlagInvalidIndexes_failedConcurrentBuild(t *testing.T) {
 	if testing.Short() {
 		t.Skip("integration test")
 	}
@@ -65,4 +71,45 @@ func TestInvalidIndex_premise(t *testing.T) {
 
 	// The schema assertion reads columns only, so it passes over the INVALID index.
 	require.NoError(t, AssertRequiredSchema(td.DB))
+
+	var fullDefinition string
+	require.NoError(t, td.DB.Raw(
+		`SELECT pg_get_indexdef(?::regclass)`, probeIndexName).Scan(&fullDefinition).Error)
+	require.Greater(t, len(fullDefinition), invalidIndexDefinitionLimit,
+		"the probe's definition must be long enough to show the cut")
+
+	logs, events := runFlagInvalidIndexes(t, td.DB)
+
+	require.Len(t, logs, 1)
+	assert.Equal(t, "ERROR", logs[0]["level"])
+	assert.Equal(t, "public", logs[0]["schema"])
+	assert.Equal(t, "invalid_index_probe", logs[0]["table"])
+	assert.Equal(t, probeIndexName, logs[0]["index"])
+	assert.Equal(t, fullDefinition[:invalidIndexDefinitionLimit], logs[0]["definition"])
+
+	require.Len(t, events, 1)
+	assert.Equal(t, invalidIndexSentrySource, events[0].Tags["source"])
+	require.Len(t, events[0].Exception, 1)
+	assert.Equal(t,
+		"1 INVALID index(es): public."+probeIndexName+" on invalid_index_probe",
+		events[0].Exception[0].Value)
+}
+
+// A freshly migrated database has no INVALID index, so it logs and captures
+// nothing.
+func TestFlagInvalidIndexes_cleanDatabase(t *testing.T) {
+	if testing.Short() {
+		t.Skip("integration test")
+	}
+
+	td := testutil.SetupTestPostgres(t)
+	defer td.Cleanup()
+
+	indexes, err := readInvalidIndexes(td.DB)
+	require.NoError(t, err)
+	assert.Empty(t, indexes)
+
+	logs, events := runFlagInvalidIndexes(t, td.DB)
+	assert.Empty(t, logs)
+	assert.Empty(t, events)
 }
