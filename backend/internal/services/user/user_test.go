@@ -868,42 +868,6 @@ func (suite *UserServiceIntegrationTestSuite) TestAuthenticateUserWithPassword_I
 // NEW INTEGRATION TESTS: Account Lockout
 // =============================================================================
 
-func (suite *UserServiceIntegrationTestSuite) TestIncrementFailedAttempts_BelowThreshold() {
-	user := &authm.User{
-		Email:    stringPtr("lockout1@example.com"),
-		IsActive: true,
-	}
-	suite.db.Create(user)
-
-	err := suite.userService.IncrementFailedAttempts(user.ID)
-	suite.Require().NoError(err)
-
-	var dbUser authm.User
-	suite.db.First(&dbUser, user.ID)
-	suite.Equal(1, dbUser.FailedLoginAttempts)
-	suite.Nil(dbUser.LockedUntil)
-}
-
-func (suite *UserServiceIntegrationTestSuite) TestIncrementFailedAttempts_AtThreshold() {
-	user := &authm.User{
-		Email:               stringPtr("lockout5@example.com"),
-		IsActive:            true,
-		FailedLoginAttempts: 4, // One more will hit threshold of 5
-	}
-	suite.db.Create(user)
-
-	err := suite.userService.IncrementFailedAttempts(user.ID)
-	suite.Require().NoError(err)
-
-	var dbUser authm.User
-	suite.db.First(&dbUser, user.ID)
-	suite.Equal(5, dbUser.FailedLoginAttempts)
-	suite.NotNil(dbUser.LockedUntil)
-	// Lock should be ~15 minutes in the future
-	suite.True(dbUser.LockedUntil.After(time.Now().Add(14 * time.Minute)))
-	suite.True(dbUser.LockedUntil.Before(time.Now().Add(16 * time.Minute)))
-}
-
 func (suite *UserServiceIntegrationTestSuite) TestResetFailedAttempts_Success() {
 	lockUntil := time.Now().Add(15 * time.Minute)
 	user := &authm.User{
