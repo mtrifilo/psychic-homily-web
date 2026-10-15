@@ -1,11 +1,22 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import userEvent from '@testing-library/user-event'
-import { screen, waitFor } from '@testing-library/react'
+import { fireEvent, screen, waitFor } from '@testing-library/react'
 import { renderWithProviders } from '@/test/utils'
+import {
+  advanceFakeTime,
+  requestSignal,
+  stalledRequest,
+  stalledResponseBody,
+} from '@/test/stalledFetch'
 import { PasskeySignupButton } from './passkey-signup'
+import {
+  SIGNUP_REQUEST_TIMEOUT_MS,
+  useSignupRequestDeadline,
+} from './signup-request-deadline'
 
 const mockSetUser = vi.fn()
 const mockOnHandoffChange = vi.fn()
+const mockOnDeadlineExpire = vi.fn()
 const mockOnError = vi.fn()
 const mockStartRegistration = vi.fn()
 const fetchMock = vi.fn()
@@ -31,6 +42,7 @@ describe('PasskeySignupButton', () => {
   beforeEach(() => {
     mockSetUser.mockReset()
     mockOnHandoffChange.mockReset()
+    mockOnDeadlineExpire.mockReset()
     mockOnError.mockReset()
     mockStartRegistration.mockReset()
     fetchMock.mockReset()
@@ -43,13 +55,20 @@ describe('PasskeySignupButton', () => {
     vi.unstubAllGlobals()
   })
 
-  function renderButton() {
-    renderWithProviders(
+  // Stands in for the page, which owns the deadline in production.
+  function PasskeySignup() {
+    const requestDeadline = useSignupRequestDeadline(mockOnDeadlineExpire)
+    return (
       <PasskeySignupButton
         onHandoffChange={mockOnHandoffChange}
         onError={mockOnError}
+        requestDeadline={requestDeadline}
       />
     )
+  }
+
+  function renderButton() {
+    renderWithProviders(<PasskeySignup />)
   }
 
   async function submitSignup() {
@@ -248,6 +267,153 @@ describe('PasskeySignupButton', () => {
     expect(fetchMock).toHaveBeenCalledTimes(1)
     expect(mockOnHandoffChange).not.toHaveBeenCalled()
     expect(mockOnError).not.toHaveBeenCalled()
+  })
+
+  describe('under the request deadline', () => {
+    // fireEvent rather than userEvent: no focus moves, so nothing but this
+    // component schedules work while the fake clock runs.
+    function submitWithFireEvent() {
+      fireEvent.click(screen.getByRole('button', { name: /sign up with passkey/i }))
+      fireEvent.change(screen.getByLabelText('Email'), {
+        target: { value: 'signup@example.com' },
+      })
+      fireEvent.click(screen.getByRole('checkbox', { name: /Terms of Service/ }))
+      fireEvent.click(screen.getByRole('checkbox', { name: /at least 16 years old/ }))
+      fireEvent.click(screen.getByRole('button', { name: /continue with passkey/i }))
+    }
+
+    beforeEach(() => {
+      vi.useFakeTimers({ shouldAdvanceTime: true })
+    })
+
+    afterEach(() => {
+      vi.useRealTimers()
+    })
+
+    it.each([
+      ['the finish response', stalledRequest],
+      ['the finish response body', stalledResponseBody],
+    ])(
+      'releases its claim and reports the generic failure when %s stalls for 30 s',
+      async (_label, finish) => {
+        fetchMock.mockResolvedValueOnce(BEGIN_OK)
+        fetchMock.mockImplementationOnce(finish)
+
+        renderButton()
+        submitWithFireEvent()
+        await waitFor(() => {
+          expect(fetchMock).toHaveBeenCalledTimes(2)
+        })
+
+        // The fake clock also follows real time, so the lead is not exact.
+        await advanceFakeTime(SIGNUP_REQUEST_TIMEOUT_MS - 1_000)
+        expect(requestSignal(fetchMock, 1).aborted).toBe(false)
+        expect(mockOnHandoffChange.mock.calls).toEqual([
+          [{ status: 'pending', email: 'signup@example.com' }],
+        ])
+        expect(mockOnError).not.toHaveBeenCalled()
+
+        await advanceFakeTime(1_000)
+        await waitFor(() => {
+          expect(mockOnError).toHaveBeenCalledWith('Failed to complete passkey signup')
+        })
+        expect(requestSignal(fetchMock, 1).aborted).toBe(true)
+        expect(mockOnDeadlineExpire).toHaveBeenCalledTimes(1)
+        expect(mockOnHandoffChange.mock.calls).toEqual([
+          [{ status: 'pending', email: 'signup@example.com' }],
+          [null],
+        ])
+        expect(mockSetUser).not.toHaveBeenCalled()
+        expect(
+          screen.getByRole('button', { name: /continue with passkey/i })
+        ).toBeEnabled()
+        expect(screen.getByLabelText('Email')).toHaveValue('signup@example.com')
+      }
+    )
+
+    it.each([
+      ['the begin response', stalledRequest],
+      ['the begin response body', stalledResponseBody],
+    ])('claims nothing and reports the start failure when %s stalls for 30 s', async (_label, begin) => {
+      fetchMock.mockImplementationOnce(begin)
+
+      renderButton()
+      submitWithFireEvent()
+      await waitFor(() => {
+        expect(fetchMock).toHaveBeenCalledTimes(1)
+      })
+
+      await advanceFakeTime(SIGNUP_REQUEST_TIMEOUT_MS)
+      await waitFor(() => {
+        expect(mockOnError).toHaveBeenCalledWith('Failed to start passkey signup')
+      })
+      expect(requestSignal(fetchMock, 0).aborted).toBe(true)
+      expect(mockStartRegistration).not.toHaveBeenCalled()
+      expect(mockOnHandoffChange).not.toHaveBeenCalled()
+      expect(
+        screen.getByRole('button', { name: /continue with passkey/i })
+      ).toBeEnabled()
+    })
+
+    it('disarms the deadline when finish is refused before it passes', async () => {
+      fetchMock.mockResolvedValueOnce(BEGIN_OK)
+      fetchMock.mockResolvedValueOnce({
+        json: async () => ({ success: false, message: 'Email already registered' }),
+      })
+
+      renderButton()
+      submitWithFireEvent()
+      await waitFor(() => {
+        expect(mockOnError).toHaveBeenCalledWith('Email already registered')
+      })
+
+      await advanceFakeTime(SIGNUP_REQUEST_TIMEOUT_MS * 2)
+      expect(requestSignal(fetchMock, 1).aborted).toBe(false)
+      expect(mockOnDeadlineExpire).not.toHaveBeenCalled()
+      expect(mockOnError).toHaveBeenCalledTimes(1)
+    })
+
+    it('gives the passkey ceremony no deadline', async () => {
+      fetchMock.mockResolvedValueOnce(BEGIN_OK)
+      mockStartRegistration.mockReturnValueOnce(new Promise(() => {}))
+
+      renderButton()
+      submitWithFireEvent()
+      await waitFor(() => {
+        expect(mockStartRegistration).toHaveBeenCalled()
+      })
+
+      await advanceFakeTime(SIGNUP_REQUEST_TIMEOUT_MS * 4)
+      expect(requestSignal(fetchMock, 0).aborted).toBe(false)
+      expect(mockOnDeadlineExpire).not.toHaveBeenCalled()
+      expect(mockOnError).not.toHaveBeenCalled()
+      expect(mockOnHandoffChange).not.toHaveBeenCalled()
+    })
+
+    it('leaves a completed sign-up alone once the deadline would have passed', async () => {
+      fetchMock.mockResolvedValueOnce(BEGIN_OK)
+      fetchMock.mockResolvedValueOnce({
+        json: async () => ({
+          success: true,
+          user: { id: 100, email: 'signup@example.com', email_verified: false },
+        }),
+      })
+
+      renderButton()
+      submitWithFireEvent()
+      await waitFor(() => {
+        expect(mockOnHandoffChange).toHaveBeenCalledTimes(2)
+      })
+
+      await advanceFakeTime(SIGNUP_REQUEST_TIMEOUT_MS * 2)
+      expect(requestSignal(fetchMock, 1).aborted).toBe(false)
+      expect(mockOnHandoffChange.mock.calls).toEqual([
+        [{ status: 'pending', email: 'signup@example.com' }],
+        [{ status: 'complete', email: 'signup@example.com', method: 'passkey' }],
+      ])
+      expect(mockOnError).not.toHaveBeenCalled()
+      expect(mockOnDeadlineExpire).not.toHaveBeenCalled()
+    })
   })
 
   // PSY-1023: the Continue button is disabled and no signup request fires until
