@@ -608,7 +608,11 @@ describe('API Module', () => {
     })
 
     describe('a request whose signal aborts', () => {
-      it('reports a header-stage abort as an auth network failure', async () => {
+      function abortError() {
+        return new DOMException('The operation was aborted.', 'AbortError')
+      }
+
+      it('rejects a header-stage abort with the AbortError and reports nothing', async () => {
         const controller = new AbortController()
         vi.mocked(fetch).mockImplementation(
           stalledRequest as unknown as typeof fetch
@@ -621,23 +625,41 @@ describe('API Module', () => {
         })
         controller.abort()
 
-        await expect(pending).rejects.toMatchObject({ name: 'AbortError' })
-        expect(Sentry.captureException).toHaveBeenCalledWith(
-          expect.objectContaining({ name: 'AbortError' }),
-          expect.objectContaining({
-            tags: expect.objectContaining({ error_type: 'network_failure' }),
-          })
-        )
+        const error = await pending.catch((e: unknown) => e)
+        expect(error).toBeInstanceOf(DOMException)
+        expect((error as DOMException).name).toBe('AbortError')
+        expect(Sentry.captureException).not.toHaveBeenCalled()
       })
 
-      it('logs a body-stage abort as a parse failure and wraps it', async () => {
+      it('rejects a body-stage abort with the AbortError, unwrapped and unlogged', async () => {
+        const controller = new AbortController()
+        const bodyAbort = abortError()
+        vi.mocked(fetch).mockResolvedValue({
+          ok: true,
+          status: 200,
+          headers: new Headers(),
+          json: () => Promise.reject(bodyAbort),
+        } as unknown as Response)
+        const { apiRequest, API_BASE_URL } = await import('./api')
+        const { authLogger } = await import('./utils/authLogger')
+        const logError = vi.spyOn(authLogger, 'error').mockImplementation(() => {})
+
+        await expect(
+          apiRequest(`${API_BASE_URL}/auth/register`, {
+            method: 'POST',
+            signal: controller.signal,
+          })
+        ).rejects.toBe(bodyAbort)
+        expect(logError).not.toHaveBeenCalled()
+        expect(Sentry.captureException).not.toHaveBeenCalled()
+      })
+
+      it('rejects a stalled body with the AbortError once the signal aborts', async () => {
         const controller = new AbortController()
         vi.mocked(fetch).mockImplementation(
           stalledResponseBody as unknown as typeof fetch
         )
         const { apiRequest, API_BASE_URL } = await import('./api')
-        const { authLogger } = await import('./utils/authLogger')
-        const logError = vi.spyOn(authLogger, 'error').mockImplementation(() => {})
 
         const pending = apiRequest(`${API_BASE_URL}/auth/register`, {
           method: 'POST',
@@ -647,17 +669,47 @@ describe('API Module', () => {
         controller.abort()
 
         const error = await pending.catch((e: unknown) => e)
+        expect(error).toBeInstanceOf(DOMException)
+        expect((error as DOMException).name).toBe('AbortError')
+      })
+
+      it('still reports a network failure that is not an abort', async () => {
+        const controller = new AbortController()
+        const networkError = new TypeError('Failed to fetch')
+        vi.mocked(fetch).mockRejectedValueOnce(networkError)
+        const { apiRequest, API_BASE_URL } = await import('./api')
+
+        await expect(
+          apiRequest(`${API_BASE_URL}/auth/register`, {
+            method: 'POST',
+            signal: controller.signal,
+          })
+        ).rejects.toBe(networkError)
+        expect(Sentry.captureException).toHaveBeenCalledWith(
+          networkError,
+          expect.objectContaining({
+            tags: expect.objectContaining({ error_type: 'network_failure' }),
+          })
+        )
+      })
+
+      it('keeps an error response its status when its body read aborts', async () => {
+        vi.mocked(fetch).mockResolvedValue({
+          ok: false,
+          status: 503,
+          statusText: 'Service Unavailable',
+          headers: new Headers(),
+          json: () => Promise.reject(abortError()),
+        } as unknown as Response)
+        const { apiRequest, API_BASE_URL } = await import('./api')
+        const { authLogger } = await import('./utils/authLogger')
+        vi.spyOn(authLogger, 'error').mockImplementation(() => {})
+
+        const error = await apiRequest(`${API_BASE_URL}/auth/register`, {
+          method: 'POST',
+        }).catch((e: unknown) => e)
         expect(error).not.toBeInstanceOf(DOMException)
-        expect((error as { status: number }).status).toBe(200)
-        expect((error as { details: { name: string } }).details.name).toBe(
-          'AbortError'
-        )
-        expect(logError).toHaveBeenCalledWith(
-          'API response parse failed',
-          expect.anything(),
-          expect.anything(),
-          undefined
-        )
+        expect((error as { status: number }).status).toBe(503)
       })
     })
   })
