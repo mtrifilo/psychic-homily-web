@@ -2,6 +2,7 @@ package notification
 
 import (
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -103,6 +104,46 @@ func TestNewEmailService_NotConfigured(t *testing.T) {
 	svc := NewEmailService(cfg)
 
 	assert.Nil(t, svc.client)
+}
+
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
+
+func TestNewEmailServiceWithTransport_SendsThroughTransportWithinSendTimeout(t *testing.T) {
+	var got *http.Request
+	var budget time.Duration
+	var hasDeadline bool
+	transport := roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		got = r
+		var deadline time.Time
+		deadline, hasDeadline = r.Context().Deadline()
+		budget = time.Until(deadline)
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Header:     http.Header{"Content-Type": []string{"application/json"}},
+			Body:       io.NopCloser(strings.NewReader(`{"id":"test-email-id"}`)),
+			Request:    r,
+		}, nil
+	})
+	cfg := &config.Config{
+		Email: config.EmailConfig{
+			ResendAPIKey: "re_123abc",
+			FromEmail:    "noreply@example.com",
+			FrontendURL:  "http://localhost:3000",
+		},
+	}
+
+	svc := NewEmailServiceWithTransport(cfg, transport)
+	require.NoError(t, svc.SendVerificationEmail("user@example.com", "tok"))
+
+	require.NotNil(t, got, "the send must go through the injected transport")
+	assert.Equal(t, http.MethodPost, got.Method)
+	assert.Equal(t, "/emails", got.URL.Path)
+	assert.Equal(t, "Bearer re_123abc", got.Header.Get("Authorization"))
+	require.True(t, hasDeadline, "the call must carry the sendTimeout deadline")
+	assert.InDelta(t, float64(sendTimeout), float64(budget), float64(time.Second),
+		"the call's deadline must be sendTimeout away")
 }
 
 func TestEmailIsConfigured_True(t *testing.T) {

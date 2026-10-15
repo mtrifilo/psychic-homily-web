@@ -33,10 +33,20 @@ const sendTimeout = 15 * time.Second
 
 // NewEmailService creates a new email service instance
 func NewEmailService(cfg *config.Config) *EmailService {
+	return NewEmailServiceWithTransport(cfg, nil)
+}
+
+// NewEmailServiceWithTransport is NewEmailService with every Resend API call
+// carried by transport, which is how a test answers Resend in-process instead
+// of over the network. A nil transport means http.DefaultTransport. The client
+// around the transport is built here, so every call carries the sendTimeout
+// deadline whatever transport the caller passes; a transport that ignores its
+// request's context is not bounded by it.
+func NewEmailServiceWithTransport(cfg *config.Config, transport http.RoundTripper) *EmailService {
 	var client *resend.Client
 	if cfg.Email.ResendAPIKey != "" {
 		client = resend.NewCustomClient(
-			&http.Client{Timeout: sendTimeout},
+			&http.Client{Timeout: sendTimeout, Transport: transport},
 			cfg.Email.ResendAPIKey,
 		)
 	}
