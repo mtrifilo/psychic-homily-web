@@ -151,6 +151,12 @@ func (s *AuthHandlerIntegrationSuite) softDeleteUser(userID uint) {
 	s.Require().NoError(err)
 }
 
+func (s *AuthHandlerIntegrationSuite) deactivateUser(userID uint) {
+	err := s.deps.DB.Model(&authm.User{}).Where("id = ?", userID).
+		Update("is_active", false).Error
+	s.Require().NoError(err)
+}
+
 func (s *AuthHandlerIntegrationSuite) softDeleteUserExpired(userID uint) {
 	err := s.deps.DB.Model(&authm.User{}).Where("id = ?", userID).
 		Updates(map[string]interface{}{
@@ -648,21 +654,39 @@ func (s *AuthHandlerIntegrationSuite) TestVerifyMagicLink_EmailMismatch() {
 
 func (s *AuthHandlerIntegrationSuite) TestVerifyMagicLink_InactiveUser() {
 	h := s.newAuthHandler(false)
-	user := s.createUserWithPassword("ml-inactive@test.com", "strong-password-123!")
-	s.verifyEmail(user.ID)
-	s.softDeleteUser(user.ID)
-
 	jwtSvc := auth.NewJWTService(s.deps.DB, s.cfg, s.deps.UserService)
-	token, err := jwtSvc.CreateMagicLinkToken(user.ID, "ml-inactive@test.com")
-	s.Require().NoError(err)
 
-	input := &VerifyMagicLinkRequest{}
-	input.Body.Token = token
+	states := []struct {
+		name  string
+		apply func(userID uint)
+	}{
+		{name: "deactivated", apply: s.deactivateUser},
+		{name: "soft-deleted", apply: s.softDeleteUser},
+	}
 
-	resp, err := h.VerifyMagicLinkHandler(context.Background(), input)
-	s.Require().NoError(err)
-	s.False(resp.Body.Success)
-	s.Equal(autherrors.CodeUnauthorized, resp.Body.ErrorCode)
+	for _, state := range states {
+		s.Run(state.name, func() {
+			address := "ml-inactive-" + state.name + "@test.com"
+			user := s.createUserWithPassword(address, "strong-password-123!")
+			s.verifyEmail(user.ID)
+			state.apply(user.ID)
+
+			token, err := jwtSvc.CreateMagicLinkToken(user.ID, address)
+			s.Require().NoError(err)
+
+			input := &VerifyMagicLinkRequest{}
+			input.Body.Token = token
+
+			resp, err := h.VerifyMagicLinkHandler(context.Background(), input)
+			s.Require().NoError(err)
+			s.False(resp.Body.Success)
+			s.Equal(autherrors.CodeAccountInactive, resp.Body.ErrorCode)
+			s.Equal(autherrors.ErrAccountInactive().UserMessage(), resp.Body.Message)
+			s.Empty(resp.Body.Token)
+			s.Nil(resp.Body.User)
+			s.Empty(resp.SetCookie.Value)
+		})
+	}
 }
 
 // --- ChangePasswordHandler ---
