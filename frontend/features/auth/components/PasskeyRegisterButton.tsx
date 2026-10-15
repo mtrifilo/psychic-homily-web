@@ -22,6 +22,9 @@ import { AuthError, AuthErrorCode, type AuthErrorCodeType } from '@/lib/errors'
 import type { components } from '@/types/api'
 import { API_BASE_URL } from '@/lib/api-base'
 
+type BeginRegisterResponse = components['schemas']['BeginRegisterResponseBody']
+type FinishRegisterResponse = components['schemas']['FinishRegisterResponseBody']
+
 interface PasskeyRegisterButtonProps {
   onSuccess?: () => void
   /**
@@ -45,13 +48,15 @@ interface PasskeyRegisterButtonProps {
  * for everyone else: a non-JSON refusal from an edge rule or a protection page,
  * which must not surface as a parse error with no remedy.
  */
-async function readRegistrationResponse(
+async function readRegistrationResponse<
+  Body extends BeginRegisterResponse | FinishRegisterResponse,
+>(
   response: Response,
   fallback: string
-): Promise<{ ok: true; body: RegistrationStepBody } | { ok: false; error: Error }> {
-  let body: RegistrationStepBody | null = null
+): Promise<{ ok: true; body: Body } | { ok: false; error: Error }> {
+  let body: Body | null = null
   try {
-    body = (await response.json()) as RegistrationStepBody
+    body = (await response.json()) as Body
   } catch {
     body = null
   }
@@ -68,14 +73,6 @@ async function readRegistrationResponse(
       (code as AuthErrorCodeType) || AuthErrorCode.UNKNOWN
     ),
   }
-}
-
-interface RegistrationStepBody {
-  success?: boolean
-  message?: string
-  error_code?: string
-  options?: components['schemas']['CredentialCreation']
-  challenge_id?: string
 }
 
 export function PasskeyRegisterButton({ onSuccess, onError, className }: PasskeyRegisterButtonProps) {
@@ -102,7 +99,7 @@ export function PasskeyRegisterButton({ onSuccess, onError, className }: Passkey
         body: JSON.stringify({ display_name: displayName }),
       })
 
-      const begin = await readRegistrationResponse(
+      const begin = await readRegistrationResponse<BeginRegisterResponse>(
         beginResponse,
         'Failed to start passkey registration'
       )
@@ -128,7 +125,7 @@ export function PasskeyRegisterButton({ onSuccess, onError, className }: Passkey
         }),
       })
 
-      const finish = await readRegistrationResponse(
+      const finish = await readRegistrationResponse<FinishRegisterResponse>(
         finishResponse,
         'Failed to register passkey'
       )
