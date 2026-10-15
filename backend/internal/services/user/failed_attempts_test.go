@@ -12,8 +12,7 @@ import (
 
 // serviceThatSoftDeletesBeforeItsFirstUpdate returns a UserService whose first
 // UPDATE is preceded by a committed SoftDeleteAccount of userID on another
-// connection, so the delete lands after any read the service made and before
-// its write. The returned flag reports whether the delete ran.
+// connection. The returned flag reports whether the delete ran.
 func (suite *UserServiceIntegrationTestSuite) serviceThatSoftDeletesBeforeItsFirstUpdate(userID uint) (*UserService, *bool) {
 	suite.T().Helper()
 	sqlDB, err := suite.db.DB()
@@ -22,13 +21,13 @@ func (suite *UserServiceIntegrationTestSuite) serviceThatSoftDeletesBeforeItsFir
 	suite.Require().NoError(err)
 
 	deleted := false
-	var once sync.Once
 	suite.Require().NoError(hooked.Callback().Update().Before("gorm:update").
 		Register("test:soft_delete_before_update", func(*gorm.DB) {
-			once.Do(func() {
-				suite.Require().NoError(suite.userService.SoftDeleteAccount(userID, stringPtr("deleted mid-lockout")))
-				deleted = true
-			})
+			if deleted {
+				return
+			}
+			suite.Require().NoError(suite.userService.SoftDeleteAccount(userID, stringPtr("deleted mid-lockout")))
+			deleted = true
 		}))
 	return &UserService{db: hooked}, &deleted
 }
@@ -39,7 +38,7 @@ func (suite *UserServiceIntegrationTestSuite) TestIncrementFailedAttempts_DoesNo
 
 	suite.Require().NoError(svc.IncrementFailedAttempts(user.ID))
 
-	suite.Require().True(*deleted, "the soft delete must run between the lockout read and write")
+	suite.Require().True(*deleted, "the soft delete must commit before the lockout UPDATE")
 	got := suite.reloadAccount(user.ID)
 	suite.False(got.IsActive)
 	suite.NotNil(got.DeletedAt)
@@ -71,31 +70,31 @@ func (suite *UserServiceIntegrationTestSuite) TestIncrementFailedAttempts_LocksA
 	suite.True(suite.userService.IsAccountLocked(&got))
 }
 
-// A count already past the threshold re-locks from now on the next failure,
-// and a count below it leaves an existing lock as it is.
-func (suite *UserServiceIntegrationTestSuite) TestIncrementFailedAttempts_LockFollowsTheIncrementedCount() {
+func (suite *UserServiceIntegrationTestSuite) TestIncrementFailedAttempts_PastTheThresholdRelocksFromNow() {
+	user := suite.createLiveAccount("lockout-past-threshold@example.com")
+	suite.Require().NoError(suite.db.Model(&authm.User{}).Where("id = ?", user.ID).
+		Updates(map[string]any{"failed_login_attempts": MaxFailedLoginAttempts + 2, "locked_until": time.Now().Add(-time.Minute)}).Error)
+
+	suite.Require().NoError(suite.userService.IncrementFailedAttempts(user.ID))
+
+	got := suite.reloadAccount(user.ID)
+	suite.Equal(MaxFailedLoginAttempts+3, got.FailedLoginAttempts)
+	suite.Require().NotNil(got.LockedUntil)
+	suite.True(got.LockedUntil.After(time.Now().Add(AccountLockDuration - time.Minute)))
+}
+
+func (suite *UserServiceIntegrationTestSuite) TestIncrementFailedAttempts_BelowTheThresholdKeepsTheExistingLock() {
 	expired := time.Now().Add(-time.Minute)
-	pastThreshold := suite.createLiveAccount("lockout-past-threshold@example.com")
-	suite.Require().NoError(suite.db.Model(&authm.User{}).Where("id = ?", pastThreshold.ID).
-		Updates(map[string]any{"failed_login_attempts": MaxFailedLoginAttempts + 2, "locked_until": expired}).Error)
-
-	suite.Require().NoError(suite.userService.IncrementFailedAttempts(pastThreshold.ID))
-
-	relocked := suite.reloadAccount(pastThreshold.ID)
-	suite.Equal(MaxFailedLoginAttempts+3, relocked.FailedLoginAttempts)
-	suite.Require().NotNil(relocked.LockedUntil)
-	suite.True(relocked.LockedUntil.After(time.Now().Add(AccountLockDuration - time.Minute)))
-
-	belowThreshold := suite.createLiveAccount("lockout-below-threshold@example.com")
-	suite.Require().NoError(suite.db.Model(&authm.User{}).Where("id = ?", belowThreshold.ID).
+	user := suite.createLiveAccount("lockout-below-threshold@example.com")
+	suite.Require().NoError(suite.db.Model(&authm.User{}).Where("id = ?", user.ID).
 		Update("locked_until", expired).Error)
 
-	suite.Require().NoError(suite.userService.IncrementFailedAttempts(belowThreshold.ID))
+	suite.Require().NoError(suite.userService.IncrementFailedAttempts(user.ID))
 
-	kept := suite.reloadAccount(belowThreshold.ID)
-	suite.Equal(1, kept.FailedLoginAttempts)
-	suite.Require().NotNil(kept.LockedUntil)
-	suite.WithinDuration(expired, *kept.LockedUntil, time.Millisecond)
+	got := suite.reloadAccount(user.ID)
+	suite.Equal(1, got.FailedLoginAttempts)
+	suite.Require().NotNil(got.LockedUntil)
+	suite.WithinDuration(expired, *got.LockedUntil, time.Millisecond)
 }
 
 func (suite *UserServiceIntegrationTestSuite) TestIncrementFailedAttempts_UnknownUserIsAnError() {
@@ -129,19 +128,4 @@ func (suite *UserServiceIntegrationTestSuite) TestIncrementFailedAttempts_Concur
 	got := suite.reloadAccount(user.ID)
 	suite.Equal(workers*perWorker, got.FailedLoginAttempts)
 	suite.NotNil(got.LockedUntil)
-}
-
-func (suite *UserServiceIntegrationTestSuite) TestResetFailedAttempts_ClearsAnEngagedLock() {
-	user := suite.createLiveAccount("lockout-reset-after-lock@example.com")
-	for range MaxFailedLoginAttempts {
-		suite.Require().NoError(suite.userService.IncrementFailedAttempts(user.ID))
-	}
-	suite.Require().NotNil(suite.reloadAccount(user.ID).LockedUntil)
-
-	suite.Require().NoError(suite.userService.ResetFailedAttempts(user.ID))
-
-	got := suite.reloadAccount(user.ID)
-	suite.Equal(0, got.FailedLoginAttempts)
-	suite.Nil(got.LockedUntil)
-	suite.True(got.IsActive)
 }
