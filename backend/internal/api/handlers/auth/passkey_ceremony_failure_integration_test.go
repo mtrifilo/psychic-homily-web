@@ -8,7 +8,6 @@ import (
 
 	"psychic-homily-backend/internal/api/handlers/shared/testhelpers"
 	autherrors "psychic-homily-backend/internal/errors"
-	"psychic-homily-backend/internal/legal"
 	authm "psychic-homily-backend/internal/models/auth"
 	usersvc "psychic-homily-backend/internal/services/user"
 	"psychic-homily-backend/internal/testutil"
@@ -109,14 +108,7 @@ func (s *AuthHandlerIntegrationSuite) TestPasskeySignupFinishRefusalAndFailures(
 
 	s.Run("registration from another origin is refused", func() {
 		email := "signup-elsewhere@example.com"
-		begin := api.Post("/auth/passkey/signup/begin", map[string]any{
-			"email":            email,
-			"terms_accepted":   true,
-			"terms_version":    legal.CurrentTermsVersion,
-			"privacy_version":  legal.CurrentPrivacyVersion,
-			"age_confirmed":    true,
-			"min_age_attested": MinSignupAge,
-		})
+		begin := api.Post("/auth/passkey/signup/begin", signupBeginBody(email))
 		requireWireSuccess(s.T(), begin)
 		challengeID, _ := decodeWireBody(s.T(), begin.Body.Bytes())["challenge_id"].(string)
 		registration, err := softauthn.New(elsewhereOrigin).Register(s.creationOptions(begin.Body.Bytes()))
