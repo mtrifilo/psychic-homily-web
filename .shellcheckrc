@@ -1,0 +1,7 @@
+# Repository shellcheck configuration. Its presence stops shellcheck from
+# falling back to a personal ~/.shellcheckrc, so scripts/check_shell.sh
+# applies the same rules on a laptop as in CI.
+#
+# It carries no disable= entries: an entry here would apply to every shell
+# script in the repository. Accepted patterns are excluded on their own line,
+# next to the code, with the reason (see scripts/check_shell.sh).

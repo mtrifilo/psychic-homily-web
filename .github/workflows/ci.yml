@@ -106,6 +106,15 @@ jobs:
       - name: Check new strong-lock migrations have a bounded lock_timeout
         run: bash scripts/check_migration_lock_timeout.sh origin/main
 
+      # shellcheck at warning severity over the file set listed in
+      # scripts/check_shell.sh, which also prints the installed version.
+      # Installed from the runner's Ubuntu archive, no third-party action.
+      - name: Shellcheck the repository's shell scripts
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq --no-install-recommends shellcheck
+          bash scripts/check_shell.sh
+
   migration-reversibility:
     name: Migration Reversibility
     runs-on: ubuntu-latest
