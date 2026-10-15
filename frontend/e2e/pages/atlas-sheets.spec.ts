@@ -114,25 +114,50 @@ async function expectDetentHeight(page: Page, testId: string, detent: Detent) {
   return { host, height }
 }
 
+/** Resolves on the page's next animation frame. */
+function nextFrame(page: Page) {
+  return page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => resolve())))
+}
+
+/** How long `settledMapPoint` waits for the camera to come to rest. */
+const SETTLE_TIMEOUT_MS = 5_000
+
 /**
- * Where `at` falls in the viewport, through the map's own projection, once it
- * has stopped moving on screen (the map resizes when the banner leaves).
+ * Where `at` falls in the viewport, through the map's own projection, once
+ * two reads 250ms apart find the camera still and the point unmoved. Each
+ * read waits for an animation frame first, so a camera move the page queues
+ * for the frame after a move ends has started by the second read. A move the
+ * page has not queued by then (one a pending React effect will start) is not
+ * waited for: a caller that has just changed what the camera follows retries
+ * its own check. A camera ease can render no frame for longer than 250ms
+ * under SwiftShader, so an unmoved point alone does not mean a still camera;
+ * `isMoving()` stays true until the ease's last frame. The unmoved point
+ * covers what `isMoving()` does not: the map resizing when the banner leaves.
  */
 async function settledMapPoint(page: Page, at: { lat: number; lng: number }) {
-  const rounded = async () => {
+  const read = async () => {
+    await nextFrame(page)
     const p = await mapPoint(page, at)
-    return { x: Math.round(p.x), y: Math.round(p.y) }
+    return { x: Math.round(p.x), y: Math.round(p.y), moving: p.moving }
   }
-  let point = await rounded()
+  let point = await read()
   await expect
-    .poll(async () => {
-      const previous = point
-      await page.waitForTimeout(250)
-      point = await rounded()
-      return point.x === previous.x && point.y === previous.y
-    })
+    .poll(
+      async () => {
+        const previous = point
+        await page.waitForTimeout(250)
+        point = await read()
+        return (
+          !previous.moving &&
+          !point.moving &&
+          point.x === previous.x &&
+          point.y === previous.y
+        )
+      },
+      { message: 'the camera comes to rest', timeout: SETTLE_TIMEOUT_MS },
+    )
     .toBe(true)
-  return point
+  return { x: point.x, y: point.y }
 }
 
 /** A tap on the Phoenix scene dot once it has stopped moving on screen. */
@@ -719,9 +744,16 @@ test.describe('Atlas pin and dot taps on a 390x844 phone', () => {
       if (detent === 'full') await sheet.locator('[data-bottom-sheet-grabber]').tap()
       await expectDetentHeight(page, 'atlas-scene-preview-sheet', detent)
       const sheetTop = await sheet.evaluate((el) => el.getBoundingClientRect().top)
-      const dot = await settledMapPoint(page, PHOENIX)
-      expect(dot.y, `the dot is above the sheet at ${detent}`).toBeLessThan(sheetTop)
-      expect(dot.y, `the dot is below the top of the map at ${detent}`).toBeGreaterThan(mapTop)
+      // The tap and the detent change each start the camera's ease from a
+      // React effect; a settle that runs before that effect finds the dot
+      // where it was, under the sheet, so the check is retried. The budget is
+      // two settle attempts, and each attempt already waits 250ms between its
+      // reads, so no interval is added.
+      await expect(async () => {
+        const dot = await settledMapPoint(page, PHOENIX)
+        expect(dot.y, `the dot is above the sheet at ${detent}`).toBeLessThan(sheetTop)
+        expect(dot.y, `the dot is below the top of the map at ${detent}`).toBeGreaterThan(mapTop)
+      }).toPass({ timeout: 2 * SETTLE_TIMEOUT_MS, intervals: [0] })
       expect(
         (await globeRadiusPx(page)) / radiusBefore,
         `the globe is drawn at the same size at ${detent}`,
