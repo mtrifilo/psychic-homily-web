@@ -6,6 +6,7 @@ import {
   attemptsFromHtmlReport,
   attemptsFromReporterJson,
   chooseReportSource,
+  htmlReportFileNames,
   htmlReportZip,
   parseSurveyArgs,
   readHtmlReportFile,
@@ -15,8 +16,10 @@ import {
 } from './attempt-survey-core'
 
 const FILE = 'pages/example.spec.ts'
-const RED = '\u001b[31m'
-const RESET = '\u001b[39m'
+// The same three errors in both report shapes; MOVED carries colour codes.
+const MOVED = 'Error: the dot \u001b[31mmoved\u001b[39m\n\nExpected: < 458'
+const TIMEOUT = '\nTest timeout of 30000ms exceeded.'
+const BROKEN = 'Error: still broken'
 
 type Result = { retry: number; status: string; message?: string }
 
@@ -53,7 +56,7 @@ const reporterReport: ReporterReport = {
                   projectName: 'chromium',
                   results: results(
                     { retry: 1, status: 'passed' },
-                    { retry: 0, status: 'failed', message: `Error: the dot ${RED}moved${RESET}\n\nExpected: < 458` }
+                    { retry: 0, status: 'failed', message: MOVED }
                   ),
                 },
               ],
@@ -70,9 +73,9 @@ const reporterReport: ReporterReport = {
                     {
                       projectName: 'chromium',
                       results: results(
-                        { retry: 0, status: 'timedOut', message: '\nTest timeout of 30000ms exceeded.' },
-                        { retry: 1, status: 'failed', message: 'Error: still broken' },
-                        { retry: 2, status: 'failed', message: 'Error: still broken' }
+                        { retry: 0, status: 'timedOut', message: TIMEOUT },
+                        { retry: 1, status: 'failed', message: BROKEN },
+                        { retry: 2, status: 'failed', message: BROKEN }
                       ),
                     },
                   ],
@@ -109,7 +112,7 @@ const htmlFiles: HtmlReportFile[] = [
         'rescued by a retry',
         ['Example'],
         [
-          { retry: 0, status: 'failed', message: `Error: the dot ${RED}moved${RESET}\n\nExpected: < 458` },
+          { retry: 0, status: 'failed', message: MOVED },
           { retry: 1, status: 'passed' },
         ]
       ),
@@ -117,9 +120,9 @@ const htmlFiles: HtmlReportFile[] = [
         'fails every attempt',
         ['Example', 'nested'],
         [
-          { retry: 0, status: 'timedOut', message: '\nTest timeout of 30000ms exceeded.' },
-          { retry: 1, status: 'failed', message: 'Error: still broken' },
-          { retry: 2, status: 'failed', message: 'Error: still broken' },
+          { retry: 0, status: 'timedOut', message: TIMEOUT },
+          { retry: 1, status: 'failed', message: BROKEN },
+          { retry: 2, status: 'failed', message: BROKEN },
         ]
       ),
       htmlTest('is skipped', ['Example', 'nested'], [{ retry: 0, status: 'skipped' }]),
@@ -181,6 +184,17 @@ describe('readHtmlReportFile', () => {
     expect(() =>
       readHtmlReportFile({ fileName: FILE, tests: [{ title: 'no results' }] }, 'b.json')
     ).toThrow(/b.json has a test without results/)
+  })
+})
+
+describe('htmlReportFileNames', () => {
+  it('names each listed file data file and rejects a bad list', () => {
+    expect(htmlReportFileNames({ files: [{ fileId: 'a1-b2' }, { fileId: 'c3' }] })).toEqual([
+      'a1-b2.json',
+      'c3.json',
+    ])
+    expect(() => htmlReportFileNames({})).toThrow('no file list')
+    expect(() => htmlReportFileNames({ files: [{ fileId: '../x' }] })).toThrow('bad file id: ../x')
   })
 })
 

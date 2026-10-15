@@ -9,7 +9,7 @@
 // attempt is the highest. Any status other than 'passed' or 'skipped' is a
 // failure; the suite marks no test with test.fail(), which would invert that.
 
-import { parseArgs } from 'node:util'
+import { parseArgs, stripVTControlCharacters } from 'node:util'
 
 export interface Attempt {
   retry: number
@@ -77,22 +77,25 @@ export interface HtmlReportFile {
   tests: HtmlTest[]
 }
 
-const ANSI_COLOUR = /\u001b\[[0-9;]*m/g
-
 function firstErrorLine(errors: (ReporterError | string)[] | undefined): string | undefined {
   const first = errors?.[0]
   const message = typeof first === 'string' ? first : first?.message
   if (!message) return undefined
-  const line = message
-    .replace(ANSI_COLOUR, '')
+  return stripVTControlCharacters(message)
     .split('\n')
     .map(text => text.trim())
     .find(text => text.length > 0)
-  return line
 }
 
-function byRetry(a: Attempt, b: Attempt): number {
-  return a.retry - b.retry
+/** One test's results in either report shape, as attempts in retry order. */
+function toAttempts(results: { retry: number; status?: string; errors?: (ReporterError | string)[] }[]): Attempt[] {
+  return results
+    .map(result => ({
+      retry: result.retry,
+      status: result.status ?? 'unknown',
+      error: firstErrorLine(result.errors),
+    }))
+    .sort((a, b) => a.retry - b.retry)
 }
 
 /** Every test in a JSON reporter report, with its attempts in retry order. */
@@ -105,13 +108,7 @@ export function attemptsFromReporterJson(report: ReporterReport): TestAttempts[]
           file: spec.file,
           titlePath: [...describePath, spec.title],
           project: test.projectName,
-          attempts: test.results
-            .map(result => ({
-              retry: result.retry,
-              status: result.status ?? 'unknown',
-              error: firstErrorLine(result.errors),
-            }))
-            .sort(byRetry),
+          attempts: toAttempts(test.results),
         })
       }
     }
@@ -121,6 +118,19 @@ export function attemptsFromReporterJson(report: ReporterReport): TestAttempts[]
   // already carries.
   for (const fileSuite of report.suites ?? []) visit(fileSuite, [])
   return tests
+}
+
+/** The per-file data names listed by an HTML report's parsed report.json. */
+export function htmlReportFileNames(index: unknown): string[] {
+  const files = (index as { files?: unknown } | null)?.files
+  if (!Array.isArray(files)) throw new Error('the HTML report data has no file list')
+  return files.map(file => {
+    const fileId = (file as { fileId?: unknown } | null)?.fileId
+    if (typeof fileId !== 'string' || !/^[\w-]+$/.test(fileId)) {
+      throw new Error(`the HTML report data lists a bad file id: ${String(fileId)}`)
+    }
+    return `${fileId}.json`
+  })
 }
 
 /** Checks one parsed <fileId>.json from an HTML report and returns it typed. */
@@ -144,13 +154,7 @@ export function attemptsFromHtmlReport(files: HtmlReportFile[]): TestAttempts[] 
       file: test.location.file,
       titlePath: [...test.path, test.title],
       project: test.projectName,
-      attempts: test.results
-        .map(result => ({
-          retry: result.retry,
-          status: result.status,
-          error: firstErrorLine(result.errors),
-        }))
-        .sort(byRetry),
+      attempts: toAttempts(test.results),
     }))
   )
 }
@@ -178,7 +182,7 @@ export interface SourceChoice {
   artifacts: ArtifactInfo[]
 }
 
-export const MERGED_REPORT_ARTIFACT = 'playwright-report'
+const MERGED_REPORT_ARTIFACT = 'playwright-report'
 const BLOB_ARTIFACT = /^blob-report-(\d+)$/
 
 /**
@@ -199,10 +203,9 @@ export function chooseReportSource(artifacts: ArtifactInfo[], shardCount: number
     .filter(artifact => BLOB_ARTIFACT.test(artifact.name))
     .sort((a, b) => a.name.localeCompare(b.name, 'en', { numeric: true }))
   const shards = new Set(blobs.map(blob => Number(BLOB_ARTIFACT.exec(blob.name)?.[1])))
-  const everyShard = Array.from({ length: shardCount }, (_, index) => index + 1).every(shard =>
-    shards.has(shard)
-  )
-  if (blobs.length > 0 && everyShard) return { source: 'blob', artifacts: blobs }
+  let everyShard = true
+  for (let shard = 1; shard <= shardCount; shard++) everyShard &&= shards.has(shard)
+  if (everyShard) return { source: 'blob', artifacts: blobs }
   const merged = oldestByName.get(MERGED_REPORT_ARTIFACT)
   if (merged) return { source: 'html', artifacts: [merged] }
   if (blobs.length > 0) return { source: 'partial-blob', artifacts: blobs }
@@ -350,8 +353,9 @@ Options:
   --shards N          shard count of the e2e job (default 4); a run with a
                       blob report for every shard is read from the blobs,
                       otherwise from the merged HTML report
-  --work-dir DIR      keep downloads here and reuse them on the next run
-                      (default: a temporary directory, removed at exit)
+  --work-dir DIR      keep each run's parsed results here and reuse them on
+                      the next invocation (default: a temporary directory,
+                      removed at exit)
   --all               also list tests that never failed an attempt
   --dry-run           list the runs and the artifacts that would be read;
                       download nothing
@@ -380,8 +384,6 @@ function positiveInteger(value: string, flag: string): number {
 export function parseSurveyArgs(argv: string[]): SurveyOptions {
   const { values } = parseArgs({
     args: argv,
-    strict: true,
-    allowPositionals: false,
     options: {
       runs: { type: 'string', default: '20' },
       branch: { type: 'string', default: 'main' },
