@@ -669,6 +669,9 @@ func TestAppleKeys_AlreadyCancelledContext(t *testing.T) {
 
 	_, err = svc.ValidateIdentityToken(ctx, signedToken(t, key, "unknown"))
 	require.ErrorIs(t, err, context.Canceled)
+	// A started forced refresh stamps lastForcedRefreshAt before the call
+	// returns, and the stamp outlives the fetch; the request count and the
+	// live lookup below cannot see a fetch that is still in flight.
 	svc.keysMu.Lock()
 	cooldownSpent := !svc.lastForcedRefreshAt.IsZero()
 	svc.keysMu.Unlock()
