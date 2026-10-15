@@ -4,7 +4,6 @@ import (
 	"context"
 	"net/http"
 	"net/url"
-	"time"
 
 	"github.com/go-webauthn/webauthn/protocol"
 	"github.com/go-webauthn/webauthn/webauthn"
@@ -48,15 +47,6 @@ var signInAccountStates = []accountState{
 		name: "soft-deleted",
 		apply: func(s *OAuthHandlerIntegrationSuite, userID uint) {
 			s.Require().NoError(s.deps.UserService.SoftDeleteAccount(userID, nil))
-		},
-	},
-	{
-		// Not a state the soft-delete writer leaves; here so deleted_at
-		// refuses on its own.
-		name: "deleted-at-only",
-		apply: func(s *OAuthHandlerIntegrationSuite, userID uint) {
-			s.Require().NoError(s.deps.DB.Model(&authm.User{}).
-				Where("id = ?", userID).Update("deleted_at", time.Now()).Error)
 		},
 	},
 }

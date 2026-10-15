@@ -194,9 +194,9 @@ func APITokenValidator(svc *adminsvc.APITokenService) func(string) bool {
 // CalendarTokenValidator adapts the calendar service to the predicate the
 // public-read limiter's personal-feed exemption takes: true only for a
 // plaintext feed token CalendarService.ValidateCalendarToken resolves to a live
-// row on an active user. Whatever that method rejects, the exemption rejects,
-// including a database error, so a degraded database meters feed pollers rather
-// than exempting them.
+// row on a user who may sign in. Whatever that method rejects, the exemption
+// rejects, including a database error, so a degraded database meters feed
+// pollers rather than exempting them.
 //
 // The predicate is not cheap. ValidateCalendarToken hashes, reads
 // calendar_tokens on its unique index, and preloads the owning user, so a call

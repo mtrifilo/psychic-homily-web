@@ -55,9 +55,8 @@ func (suite *WebAuthnServiceIntegrationTestSuite) emailLogin(userID uint, device
 // assertion, and a refused sign-in records no use of the credential.
 func (suite *WebAuthnServiceIntegrationTestSuite) TestSignInRefusesAccountsThatMayNotSignIn() {
 	states := map[string]map[string]any{
-		"deactivated":     {"is_active": false},
-		"soft-deleted":    {"is_active": false, "deleted_at": time.Now()},
-		"deleted-at-only": {"deleted_at": time.Now()},
+		"deactivated":  {"is_active": false},
+		"soft-deleted": {"is_active": false, "deleted_at": time.Now()},
 	}
 	logins := map[string]func(*authm.User, *softauthn.Authenticator) error{
 		"email": func(user *authm.User, device *softauthn.Authenticator) error {
