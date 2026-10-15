@@ -34,7 +34,7 @@ func (s *OAuthHandlerIntegrationSuite) TestLinkCallback_AccountThatMayNotSignInI
 	s.Equal(int64(0), rows, "a refused link must write no identity")
 
 	// Spent and cleared, the same as any other refusal past the intent match.
-	_, stillHeld := peekOAuthLinkIntent(cookie.Value)
+	_, _, stillHeld := peekOAuthLinkIntent(cookie.Value)
 	s.False(stillHeld, "a refused link must consume its intent")
 	s.assertNoSessionCookie(w)
 	var intentCleared bool
