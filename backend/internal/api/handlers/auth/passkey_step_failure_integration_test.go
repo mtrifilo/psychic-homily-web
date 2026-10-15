@@ -18,8 +18,8 @@ import (
 	"psychic-homily-backend/internal/testutil/softauthn"
 )
 
-// A begin step, or the credential list, that cannot read or write what it
-// needs answers 503 and hands out no challenge.
+// A begin step, the credential list, or a credential delete that cannot read
+// or write what it needs answers 503 and hands out no challenge.
 func (s *AuthHandlerIntegrationSuite) TestPasskeyBeginAndListFailuresAnswerServiceUnavailable() {
 	jwt := &testhelpers.MockJWTService{}
 	challengeStoreFails := func() *PasskeyHandler {

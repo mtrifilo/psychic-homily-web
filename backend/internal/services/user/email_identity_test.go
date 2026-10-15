@@ -82,6 +82,12 @@ func (suite *UserServiceIntegrationTestSuite) TestIdentityLookups_NULIsNotFound(
 		suite.NoError(err, name)
 		suite.Nil(found, name)
 	}
+
+	// Password sign-in for such an address is the unknown-address refusal.
+	_, err := suite.userService.AuthenticateUserWithPassword("no\x00body@example.com", "StrongPass123!")
+	var refusal *apperrors.AuthError
+	suite.Require().True(errors.As(err, &refusal), "expected an AuthError, got %v", err)
+	suite.Equal(apperrors.CodeInvalidCredentials, refusal.Code)
 }
 
 // TestAuthenticateUserWithPassword_CaseInsensitive proves the login path end to
