@@ -50,6 +50,18 @@ func newPasskeyWireAPI(t *testing.T, h *PasskeyHandler) humatest.TestAPI {
 		Path:        "/auth/passkey/register/finish",
 		Middlewares: withUser,
 	}, h.FinishRegisterHandler)
+	huma.Register(api, huma.Operation{
+		OperationID: "passkey-credentials",
+		Method:      http.MethodGet,
+		Path:        "/auth/passkey/credentials",
+		Middlewares: withUser,
+	}, h.ListCredentialsHandler)
+	huma.Register(api, huma.Operation{
+		OperationID: "passkey-credential-delete",
+		Method:      http.MethodDelete,
+		Path:        "/auth/passkey/credentials/{credential_id}",
+		Middlewares: withUser,
+	}, h.DeleteCredentialHandler)
 	return api
 }
 
