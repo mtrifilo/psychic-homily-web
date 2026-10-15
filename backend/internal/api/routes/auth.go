@@ -62,9 +62,8 @@ func setupAuthRoutes(rc RouteContext) {
 	// sharing 127.0.0.1, fails register and magic-link.
 	//
 	// No JWT middleware here on purpose: these endpoints are how you GET a token.
-	authRateLimiter := authScopedRateLimiter(middleware.LimiterAuth, middleware.AuthRequestsPerMinute)
 	rateLimitedAuthGroup := huma.NewGroup(rc.API, "")
-	rateLimitedAuthGroup.UseMiddleware(humaFromHTTP(authRateLimiter))
+	useAuthBudget(rateLimitedAuthGroup, authScopedRateLimiter(middleware.LimiterAuth, middleware.AuthRequestsPerMinute))
 	rateLimitedAuthGroup.UseMiddleware(middleware.HumaRequestIDMiddleware)
 
 	huma.Post(rateLimitedAuthGroup, "/auth/login", authHandler.LoginHandler)
@@ -78,7 +77,7 @@ func setupAuthRoutes(rc RouteContext) {
 	// from the same address cannot spend it, and it cannot spend theirs.
 	appleAuthHandler := authh.NewAppleAuthHandler(rc.SC.AppleAuth, rc.SC.Discord, rc.Cfg)
 	appleSignInGroup := huma.NewGroup(rc.API, "")
-	appleSignInGroup.UseMiddleware(humaFromHTTP(authScopedRateLimiter(middleware.LimiterAppleSignIn, middleware.AppleSignInRequestsPerMinute)))
+	useAuthBudget(appleSignInGroup, authScopedRateLimiter(middleware.LimiterAppleSignIn, middleware.AppleSignInRequestsPerMinute))
 	appleSignInGroup.UseMiddleware(middleware.HumaRequestIDMiddleware)
 	huma.Post(appleSignInGroup, "/auth/apple/callback", appleAuthHandler.AppleCallbackHandler)
 
@@ -120,6 +119,15 @@ func authScopedRateLimiter(name middleware.LimiterName, requestsPerMinute int) f
 		return noopRateLimiter()
 	}
 	return ipRateLimiter(name, requestsPerMinute, time.Minute)
+}
+
+// useAuthBudget puts limiter in front of every operation registered on group
+// after this call, ahead of any middleware added to group later. group is a
+// child group built for that one budget: on a shared parent such as rc.API or
+// rc.Protected, the limiter would meter every route registered there
+// afterwards.
+func useAuthBudget(group huma.API, limiter func(http.Handler) http.Handler) {
+	group.UseMiddleware(humaFromHTTP(limiter))
 }
 
 // oauthRedirectRateLimiter builds the per-IP minute limiter for
@@ -167,7 +175,7 @@ func setupProtectedAuthRoutes(rc RouteContext) {
 	// DISABLE_AUTH_RATE_LIMITS escape hatch as the public auth group, so E2E
 	// shards sharing 127.0.0.1 are unaffected.
 	verifyEmailGroup := huma.NewGroup(rc.Protected, "")
-	verifyEmailGroup.UseMiddleware(humaFromHTTP(authScopedRateLimiter(middleware.LimiterVerificationResend, VerificationResendPerMinute)))
+	useAuthBudget(verifyEmailGroup, authScopedRateLimiter(middleware.LimiterVerificationResend, VerificationResendPerMinute))
 	huma.Post(verifyEmailGroup, "/auth/verify-email/send", authHandler.SendVerificationEmailHandler)
 
 	// Every route on this group takes the account password as confirmation, and
@@ -181,7 +189,7 @@ func setupProtectedAuthRoutes(rc RouteContext) {
 	// its own. The route inventory guard requires every mutating route under
 	// /auth/ to record which budget meters it.
 	passwordConfirmGroup := huma.NewGroup(rc.Protected, "")
-	passwordConfirmGroup.UseMiddleware(humaFromHTTP(authScopedRateLimiter(middleware.LimiterPasswordConfirm, PasswordConfirmAttemptsPerMinute)))
+	useAuthBudget(passwordConfirmGroup, authScopedRateLimiter(middleware.LimiterPasswordConfirm, PasswordConfirmAttemptsPerMinute))
 	huma.Post(passwordConfirmGroup, "/auth/change-password", authHandler.ChangePasswordHandler)
 
 	// Token refresh uses lenient middleware (accepts tokens expired within 7 days)
@@ -213,7 +221,7 @@ func setupProtectedAuthRoutes(rc RouteContext) {
 	// own: it is an unauthenticated-shaped primitive behind a session, and
 	// nothing else bounds how fast a client can ask for signed tokens.
 	linkTokenGroup := huma.NewGroup(rc.Protected, "")
-	linkTokenGroup.UseMiddleware(humaFromHTTP(authScopedRateLimiter(middleware.LimiterOAuthLinkToken, VerificationResendPerMinute)))
+	useAuthBudget(linkTokenGroup, authScopedRateLimiter(middleware.LimiterOAuthLinkToken, VerificationResendPerMinute))
 	huma.Post(linkTokenGroup, "/auth/oauth/link-token", oauthAccountHandler.StartOAuthLinkHandler)
 
 	// User preferences endpoints
@@ -294,7 +302,7 @@ func setupPasskeyRoutes(rc RouteContext) {
 	// One group means one counter across its operations, and the limiter may be
 	// a no-op under DISABLE_AUTH_RATE_LIMITS.
 	passkeyGroup := huma.NewGroup(rc.API, "")
-	passkeyGroup.UseMiddleware(humaFromHTTP(authScopedRateLimiter(middleware.LimiterPasskey, middleware.PasskeyRequestsPerMinute)))
+	useAuthBudget(passkeyGroup, authScopedRateLimiter(middleware.LimiterPasskey, middleware.PasskeyRequestsPerMinute))
 	passkeyGroup.UseMiddleware(middleware.HumaRequestIDMiddleware)
 
 	// Public passkey login endpoints (no auth required)
@@ -307,7 +315,7 @@ func setupPasskeyRoutes(rc RouteContext) {
 	// authenticator has written the credential, and a begin flood from the same
 	// address must not be able to refuse it.
 	signupBeginGroup := huma.NewGroup(rc.API, "")
-	signupBeginGroup.UseMiddleware(humaFromHTTP(authScopedRateLimiter(middleware.LimiterPasskeySignupBegin, middleware.PasskeySignupBeginRequestsPerMinute)))
+	useAuthBudget(signupBeginGroup, authScopedRateLimiter(middleware.LimiterPasskeySignupBegin, middleware.PasskeySignupBeginRequestsPerMinute))
 	signupBeginGroup.UseMiddleware(middleware.HumaRequestIDMiddleware)
 	huma.Post(signupBeginGroup, "/auth/passkey/signup/begin", passkeyHandler.BeginSignupHandler)
 	huma.Post(passkeyGroup, "/auth/passkey/signup/finish", passkeyHandler.FinishSignupHandler)
@@ -318,7 +326,7 @@ func setupPasskeyRoutes(rc RouteContext) {
 	// counter. Finish carries no per-route limiter, for the same reason the
 	// sign-up finish is kept off a begin budget.
 	registerBeginGroup := huma.NewGroup(rc.Protected, "")
-	registerBeginGroup.UseMiddleware(humaFromHTTP(authScopedRateLimiter(middleware.LimiterPasskeyRegisterBegin, middleware.PasskeyRegisterBeginRequestsPerMinute)))
+	useAuthBudget(registerBeginGroup, authScopedRateLimiter(middleware.LimiterPasskeyRegisterBegin, middleware.PasskeyRegisterBeginRequestsPerMinute))
 	huma.Post(registerBeginGroup, "/auth/passkey/register/begin", passkeyHandler.BeginRegisterHandler)
 	huma.Post(rc.Protected, "/auth/passkey/register/finish", passkeyHandler.FinishRegisterHandler)
 
