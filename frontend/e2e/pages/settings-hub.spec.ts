@@ -226,4 +226,38 @@ test.describe('/settings hub', () => {
     await expect(alertsCard).toBeFocused()
     await expect(alertsCard).toBeInViewport()
   })
+
+  // Every artist and venue show-alert email links /settings/notifications as
+  // its "manage" CTA. A config redirect answers it, so the reader's browser
+  // follows a real 307 and cold-loads the Alerts card with its fragment.
+  test('the alert-email manage link lands on the Alerts card', async ({
+    authenticatedPage: page,
+    request,
+  }) => {
+    const redirect = await request.get(
+      '/settings/notifications?utm_source=email',
+      { maxRedirects: 0 }
+    )
+    expect(
+      redirect.status(),
+      '/settings/notifications must answer the redirect itself, not a 200 page'
+    ).toBe(307)
+    const location = new URL(redirect.headers()['location'], 'http://origin')
+    expect(location.pathname).toBe('/profile')
+    expect(location.searchParams.get('tab')).toBe('settings')
+    expect(location.searchParams.get('utm_source')).toBe('email')
+    expect(location.hash).toBe('#alerts')
+
+    await page.setViewportSize({ width: 1440, height: 900 })
+    const response = await page.goto('/settings/notifications')
+    expect(response?.status()).toBe(200)
+    await expect(page).toHaveURL(/\/profile\?tab=settings#alerts$/)
+    await expect(page.getByRole('tab', { name: 'Settings' })).toHaveAttribute(
+      'data-state',
+      'active'
+    )
+    const alertsCard = page.getByRole('tabpanel').locator('[id="alerts"]')
+    await expect(alertsCard).toBeFocused({ timeout: 10_000 })
+    await expect(alertsCard).toBeInViewport()
+  })
 })
