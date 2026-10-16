@@ -6,20 +6,10 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
-
-// newAreaTestClient points a client at an httptest server with a fast throttle
-// so the area-lookup tests need no network and no ~1s wait.
-func newAreaTestClient(baseURL string) *MusicBrainzClient {
-	c := NewMusicBrainzClient()
-	c.baseURL = baseURL
-	c.rateLimit = time.Millisecond
-	return c
-}
 
 func TestMusicBrainzClient_LookupAreaRelations(t *testing.T) {
 	var gotPath, gotInc string
@@ -40,7 +30,7 @@ func TestMusicBrainzClient_LookupAreaRelations(t *testing.T) {
 	srv := httptest.NewServer(mux)
 	defer srv.Close()
 
-	c := newAreaTestClient(srv.URL)
+	c := newMusicBrainzTestClient(srv.URL)
 	rels, err := c.LookupAreaRelations(context.Background(), "city-1")
 	require.NoError(t, err)
 
@@ -72,7 +62,7 @@ func TestMusicBrainzClient_LookupAreaRelations_EscapesID(t *testing.T) {
 	srv := httptest.NewServer(mux)
 	defer srv.Close()
 
-	c := newAreaTestClient(srv.URL)
+	c := newMusicBrainzTestClient(srv.URL)
 	_, err := c.LookupAreaRelations(context.Background(), "a/b?x=1")
 	require.NoError(t, err)
 	assert.Contains(t, gotRawPath, "a%2Fb%3Fx=1")
