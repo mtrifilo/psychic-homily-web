@@ -143,11 +143,14 @@ jobs:
           fi
 
       # The gate's set is every tracked shell script; the script header has
-      # the rule and the self-test has the cases. Both need the step above.
+      # the rule and the self-test has the cases. Both need the step above,
+      # each runs in seconds, and both carry the install step's bound.
       - name: Self-test the shellcheck gate
+        timeout-minutes: 4
         run: bash scripts/check_shell_test.sh
 
       - name: Shellcheck the repository's shell scripts
+        timeout-minutes: 4
         run: bash scripts/check_shell.sh
 
   migration-reversibility:

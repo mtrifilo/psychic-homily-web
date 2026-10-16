@@ -108,6 +108,16 @@ write bin/dash-tool '#!/bin/dash' "$UNUSED"
 g add -A
 expect 1 "bin/dash-tool" "SC2034"
 
+reset_fixture "warning in an extensionless env NAME=value bash script fails"
+write bin/env-assign-tool '#!/usr/bin/env FOO=1 bash' "$UNUSED"
+g add -A
+expect 1 "bin/env-assign-tool" "SC2034"
+
+reset_fixture ".sh with no #! line is checked by its name"
+write lib/no-shebang.sh 'echo "no shebang"'
+g add -A
+expect 1 "lib/no-shebang.sh" "SC2148"
+
 reset_fixture "CRLF extensionless bash script is checked"
 printf '#!/bin/bash\r\necho "crlf"\r\n' >"$FIXTURE/bin/crlf-tool"
 g add -A
@@ -134,6 +144,13 @@ write bin/bare '#!' "$UNUSED"
 g add -A
 expect 0 "checking 3 tracked files" "no findings"
 
+reset_fixture "empty and binary files are not checked"
+: >"$FIXTURE/bin/empty"
+# 300 bytes with NULs and no newline: longer than the gate's first-line cap.
+head -c 300 /dev/zero >"$FIXTURE/bin/blob"
+g add -A
+expect 0 "checking 3 tracked files" "no findings"
+
 reset_fixture "zsh script is skipped with a notice naming it"
 write bin/zsh-tool '#!/usr/bin/env zsh' 'arr=(a b)' 'echo "${(j:,:)arr}"'
 g add -A
@@ -144,11 +161,20 @@ ln -s lib "$FIXTURE/lib-link"
 g add -A
 expect 0 "checking 3 tracked files" "no findings"
 
+reset_fixture "gitlink to another repository is skipped"
+mkdir -p "$FIXTURE/vendored"
+g update-index --add --cacheinfo 160000,1111111111111111111111111111111111111111,vendored
+expect 0 "checking 3 tracked files" "no findings"
+
 # Fail-closed cases: when the gate cannot see the set it is checking it must
 # go RED, never quietly green.
 reset_fixture "tracked script missing from the work tree fails closed"
 rm "$FIXTURE/lib/clean.sh"
 expect 1 "tracked files are missing from the work tree" "lib/clean.sh"
+
+reset_fixture "index with no shell scripts fails closed"
+g rm -q --cached scripts/check_shell.sh lib/clean.sh bin/tool
+expect 1 "listed no shell scripts"
 
 CASE="no git repository fails closed"
 rm -rf "$FIXTURE/.git"
