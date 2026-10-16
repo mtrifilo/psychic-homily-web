@@ -1,5 +1,6 @@
 import { test } from '../fixtures/error-detection'
 import { expect } from '@playwright/test'
+import { BACKEND_BASE_URL } from '../backend-url'
 
 /**
  * PSY-722: end-to-end coverage for the public radio browse flow.
@@ -94,6 +95,10 @@ const KEXP_SHOW_SLUG = 'the-morning-show'
 // PSY-899 seeds exactly one episode for the-morning-show, keyed by air date.
 // Episodes are addressed by air date, so this is also the deep-chain route.
 const KEXP_EPISODE_AIR_DATE = '2025-01-15'
+// A non-flagship station in the seeded WFMU network, and the channel URL it
+// is served at.
+const WFMU_SUB_STREAM_SLUG = 'wfmu-drummer'
+const WFMU_SUB_STREAM_CHANNEL_PATH = '/radio/wfmu/channel/drummer'
 
 // Landmark names this spec scopes to. Hoisted like the seed literals above so
 // a rename is one edit here rather than a hunt through the file. Both are
@@ -318,6 +323,51 @@ test.describe('Radio browse flow', () => {
       page.getByRole('main').getByRole('heading', { name: 'Radio', level: 1 })
     ).toBeVisible({ timeout: 10_000 })
   })
+})
+
+// Station URLs that are not a station's canonical address. Station ids are
+// assigned by the seed's insert order, so each test reads the id it needs
+// from the API instead of hard-coding one.
+test.describe('Radio station URLs', () => {
+  test('an unknown station slug renders the not-found page, unindexed', async ({
+    page,
+  }) => {
+    // The status line is not asserted. The page decides after the root
+    // layout has begun streaming, which commits a 200; a 404 status needs a
+    // proxy.ts existence check that answers before the page renders.
+    await page.goto('/radio/does-not-exist')
+
+    await expect(
+      page.getByRole('main').getByRole('heading', { name: '404', level: 1 })
+    ).toBeVisible({ timeout: 10_000 })
+    // Presence, not a count: the dev server and a production build emit the
+    // tag a different number of times.
+    await expect(
+      page.locator('meta[name="robots"][content="noindex"]').first()
+    ).toBeAttached()
+  })
+
+  for (const { slug, canonicalPath } of [
+    { slug: WFMU_SUB_STREAM_SLUG, canonicalPath: WFMU_SUB_STREAM_CHANNEL_PATH },
+    { slug: KEXP_SLUG, canonicalPath: `/radio/${KEXP_SLUG}` },
+  ]) {
+    test(`a numeric station id lands on ${canonicalPath}`, async ({
+      page,
+      request,
+    }) => {
+      const station = await request.get(
+        `${BACKEND_BASE_URL}/radio-stations/${slug}`
+      )
+      expect(station.ok()).toBe(true)
+      const { id } = (await station.json()) as { id: number }
+
+      await page.goto(`/radio/${id}`)
+
+      await expect(page).toHaveURL(new RegExp(`${canonicalPath}$`), {
+        timeout: 10_000,
+      })
+    })
+  }
 })
 
 // The show page's episode archive stacks each row below `sm`. At phone width
