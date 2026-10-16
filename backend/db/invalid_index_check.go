@@ -65,11 +65,8 @@ func FlagInvalidIndexes(gormDB *gorm.DB, logger *slog.Logger, hub *sentry.Hub) {
 }
 
 func flagInvalidIndexesWithin(gormDB *gorm.DB, logger *slog.Logger, hub *sentry.Hub, bound time.Duration) {
-	var indexes []invalidIndex
-	err := readWithin(bound, func(ctx context.Context) error {
-		var err error
-		indexes, err = readInvalidIndexes(gormDB.WithContext(ctx))
-		return err
+	indexes, err := readWithin(bound, func(ctx context.Context) ([]invalidIndex, error) {
+		return readInvalidIndexes(gormDB.WithContext(ctx))
 	})
 	if err != nil {
 		logger.Error(invalidIndexReadErrorMessage, "error", err)

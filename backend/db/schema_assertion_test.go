@@ -2,19 +2,13 @@ package db
 
 import (
 	"context"
-	"database/sql"
 	"errors"
-	"net"
-	"strconv"
 	"strings"
-	"sync"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"gorm.io/driver/postgres"
-	"gorm.io/gorm"
 
 	"psychic-homily-backend/internal/testutil"
 )
@@ -163,21 +157,19 @@ func passingColumnTypesWithout(keys ...string) map[string]columnType {
 	return types
 }
 
-// The column-types refusal, as a schema whose every untyped column exists gets
-// it.
 func TestColumnTypesRefusal(t *testing.T) {
 	t.Parallel()
 
 	t.Run("every listed column has its type", func(t *testing.T) {
 		t.Parallel()
-		require.NoError(t, schemaRefusal(nil, typedColumnFaults(listedColumnTypes())))
+		assert.Empty(t, typedColumnFaults(listedColumnTypes()))
 	})
 
 	t.Run("a listed column with another type fails with the column, actual and expected type", func(t *testing.T) {
 		t.Parallel()
 		types := listedColumnTypes()
 		types["webauthn_credentials.sign_count"] = columnType{DataType: "integer", UDTName: "int4"}
-		err := schemaRefusal(nil, typedColumnFaults(types))
+		err := columnTypesRefusal(typedColumnFaults(types))
 		require.EqualError(t, err,
 			"required schema column types do not match: webauthn_credentials.sign_count is integer, "+
 				"expected bigint (type change recorded but DDL absent?); refusing to boot")
@@ -188,7 +180,7 @@ func TestColumnTypesRefusal(t *testing.T) {
 		types := listedColumnTypes()
 		types["webauthn_credentials.sign_count"] = columnType{DataType: "integer", UDTName: "int4"}
 		types["entity_edit_audit_logs.created_at"] = columnType{DataType: "timestamp without time zone", UDTName: "timestamp"}
-		err := schemaRefusal(nil, typedColumnFaults(types))
+		err := columnTypesRefusal(typedColumnFaults(types))
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "webauthn_credentials.sign_count is integer, expected bigint")
 		assert.Contains(t, err.Error(),
@@ -199,7 +191,7 @@ func TestColumnTypesRefusal(t *testing.T) {
 		t.Parallel()
 		types := listedColumnTypes()
 		delete(types, "webauthn_credentials.sign_count")
-		err := schemaRefusal(nil, typedColumnFaults(types))
+		err := columnTypesRefusal(typedColumnFaults(types))
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "webauthn_credentials.sign_count is absent, expected bigint")
 		assert.Contains(t, err.Error(), "refusing to boot")
@@ -210,7 +202,7 @@ func TestColumnTypesRefusal(t *testing.T) {
 		types := listedColumnTypes()
 		types["webauthn_credentials.display_name"] = columnType{DataType: "integer", UDTName: "int4"}
 		types["user_bookmarks.scene_digest_sent_at"] = columnType{DataType: "text", UDTName: "text"}
-		require.NoError(t, schemaRefusal(nil, typedColumnFaults(types)))
+		assert.Empty(t, typedColumnFaults(types))
 	})
 }
 
@@ -309,52 +301,13 @@ func TestAssertRequiredColumns(t *testing.T) {
 	})
 }
 
-// unansweringDB returns a GORM Postgres handle on a local listener that
-// accepts connections and never writes to them, so every read waits until its
-// context ends.
-func unansweringDB(t *testing.T) *gorm.DB {
-	t.Helper()
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
-	require.NoError(t, err)
-
-	var mu sync.Mutex
-	var conns []net.Conn
-	go func() {
-		for {
-			conn, err := ln.Accept()
-			if err != nil {
-				return
-			}
-			mu.Lock()
-			conns = append(conns, conn)
-			mu.Unlock()
-		}
-	}()
-	t.Cleanup(func() {
-		_ = ln.Close()
-		mu.Lock()
-		defer mu.Unlock()
-		for _, conn := range conns {
-			_ = conn.Close()
-		}
-	})
-
-	port := strconv.Itoa(ln.Addr().(*net.TCPAddr).Port)
-	sqlDB, err := sql.Open("pgx", "host=127.0.0.1 port="+port+" user=nobody dbname=nothing sslmode=disable")
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = sqlDB.Close() })
-	gormDB, err := gorm.Open(postgres.New(postgres.Config{Conn: sqlDB}), &gorm.Config{DisableAutomaticPing: true})
-	require.NoError(t, err)
-	return gormDB
-}
-
 // Through the real driver: a database that never answers refuses boot within
 // the bound instead of holding it.
 func TestAssertRequiredSchema_unansweringDatabase(t *testing.T) {
 	t.Parallel()
 
 	started := time.Now()
-	err := assertRequiredSchemaWithin(unansweringDB(t), 200*time.Millisecond)
+	err := assertRequiredSchemaWithin(testutil.UnansweringDB(t), 200*time.Millisecond)
 	assert.Less(t, time.Since(started), 5*time.Second)
 	require.Error(t, err)
 	assert.True(t, strings.HasPrefix(err.Error(), "could not read required schema: no answer within 200ms: "), err.Error())

@@ -78,7 +78,7 @@ func TestFlagInvalidIndexes_readError(t *testing.T) {
 func TestFlagInvalidIndexes_unansweringDatabase(t *testing.T) {
 	t.Parallel()
 
-	gormDB := unansweringDB(t)
+	gormDB := testutil.UnansweringDB(t)
 	started := time.Now()
 	logs, events := captureFlagInvalidIndexes(t, func(logger *slog.Logger, hub *sentry.Hub) {
 		flagInvalidIndexesWithin(gormDB, logger, hub, 200*time.Millisecond)
