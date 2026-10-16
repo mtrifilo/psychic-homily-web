@@ -785,20 +785,28 @@ func main() {
 }
 
 // useRequestCorrelation registers, outermost first, the middleware that gives
-// each request its id, its Sentry hub and its access log line. Call it before
-// any other router.Use, so every later middleware and the Huma API see the
-// request id it puts on the context.
+// each request its id, its panic recovery, its Sentry hub and its access log
+// line. Call it before any other router.Use, so every later middleware and the
+// Huma API see the request id it puts on the context.
 func useRequestCorrelation(router chi.Router) {
 	router.Use(middleware.RequestIDMiddleware)
 
-	// Sentry error tracking and panic recovery, early enough to capture errors
-	// from every handler after it.
+	// Outside the Sentry handler: it answers the panic Sentry re-panics after
+	// capturing it.
+	router.Use(middleware.RecoverPanic)
+
+	// Sentry error tracking, early enough to capture a panic from every handler
+	// after it. Repanic hands the panic on to RecoverPanic once captured. The
+	// Sentry transaction finishes before RecoverPanic writes the 500, so a
+	// panicked request's transaction carries the status written before the
+	// panic (200 when none was).
 	sentryHandler := sentryhttp.New(sentryhttp.Options{
-		Repanic:         false, // Recover from panics gracefully (no other recoverer in chain)
+		Repanic:         true,
 		WaitForDelivery: false, // Don't block responses waiting for Sentry
 		Timeout:         2 * time.Second,
 	})
 	router.Use(sentryHandler.Handle)
+	router.Use(middleware.SentryRequestIDTag)
 
 	router.Use(logRequest)
 }
