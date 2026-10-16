@@ -14,7 +14,7 @@ import (
 
 type failingChallengeCleaner struct{ calls int }
 
-func (f *failingChallengeCleaner) CleanupExpiredChallenges(context.Context) (int64, error) {
+func (f *failingChallengeCleaner) deleteExpired(context.Context) (int64, error) {
 	f.calls++
 	return 0, errors.New("database unavailable")
 }
@@ -24,7 +24,7 @@ func (f *failingChallengeCleaner) CleanupExpiredChallenges(context.Context) (int
 func TestChallengeSweepCycle_FailureDoesNotPanic(t *testing.T) {
 	cleaner := &failingChallengeCleaner{}
 	sweep := NewChallengeSweep(nil)
-	sweep.deleteExpired = cleaner.CleanupExpiredChallenges
+	sweep.deleteExpired = cleaner.deleteExpired
 	assert.NotPanics(t, func() { sweep.runCycle(context.Background()) })
 	assert.Equal(t, 1, cleaner.calls)
 }
