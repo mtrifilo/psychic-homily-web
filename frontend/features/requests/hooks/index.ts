@@ -9,6 +9,7 @@
 import { useQuery, useMutation, useQueryClient, keepPreviousData } from '@tanstack/react-query'
 import { apiRequest, API_ENDPOINTS } from '@/lib/api'
 import { queryKeys } from '@/lib/queryClient'
+import { refetchAfterMutation } from '@/lib/refetchAfterMutation'
 import type { Request, RequestListResponse } from '../types'
 
 // ──────────────────────────────────────────────
@@ -75,7 +76,7 @@ export function useCreateRequest() {
         body: JSON.stringify(data),
       }),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.requests.all })
+      void refetchAfterMutation(queryClient, queryKeys.requests.all)
     },
   })
 }
@@ -97,10 +98,11 @@ export function useUpdateRequest() {
         body: JSON.stringify(data),
       }),
     onSuccess: (_data, variables) => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.requests.all })
-      queryClient.invalidateQueries({
-        queryKey: queryKeys.requests.detail(variables.requestId),
-      })
+      void refetchAfterMutation(
+        queryClient,
+        queryKeys.requests.all,
+        queryKeys.requests.detail(variables.requestId)
+      )
     },
   })
 }
@@ -114,7 +116,7 @@ export function useDeleteRequest() {
         method: 'DELETE',
       }),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.requests.all })
+      void refetchAfterMutation(queryClient, queryKeys.requests.all)
     },
   })
 }
@@ -194,12 +196,11 @@ export function useVoteRequest() {
       }
     },
     onSettled: (_data, _error, variables) => {
-      queryClient.invalidateQueries({
-        queryKey: queryKeys.requests.detail(variables.requestId),
-      })
-      queryClient.invalidateQueries({
-        queryKey: queryKeys.requests.all,
-      })
+      void refetchAfterMutation(
+        queryClient,
+        queryKeys.requests.detail(variables.requestId),
+        queryKeys.requests.all
+      )
     },
   })
 }
@@ -252,12 +253,11 @@ export function useRemoveVoteRequest() {
       }
     },
     onSettled: (_data, _error, variables) => {
-      queryClient.invalidateQueries({
-        queryKey: queryKeys.requests.detail(variables.requestId),
-      })
-      queryClient.invalidateQueries({
-        queryKey: queryKeys.requests.all,
-      })
+      void refetchAfterMutation(
+        queryClient,
+        queryKeys.requests.detail(variables.requestId),
+        queryKeys.requests.all
+      )
     },
   })
 }
@@ -278,10 +278,11 @@ export function useFulfillRequest() {
         body: JSON.stringify({ fulfilled_entity_id }),
       }),
     onSuccess: (_data, variables) => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.requests.all })
-      queryClient.invalidateQueries({
-        queryKey: queryKeys.requests.detail(variables.requestId),
-      })
+      void refetchAfterMutation(
+        queryClient,
+        queryKeys.requests.all,
+        queryKeys.requests.detail(variables.requestId)
+      )
     },
   })
 }
@@ -299,10 +300,11 @@ export function useApproveFulfillment() {
         method: 'POST',
       }),
     onSuccess: (_data, variables) => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.requests.all })
-      queryClient.invalidateQueries({
-        queryKey: queryKeys.requests.detail(variables.requestId),
-      })
+      void refetchAfterMutation(
+        queryClient,
+        queryKeys.requests.all,
+        queryKeys.requests.detail(variables.requestId)
+      )
     },
   })
 }
@@ -320,10 +322,11 @@ export function useRejectFulfillment() {
         method: 'POST',
       }),
     onSuccess: (_data, variables) => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.requests.all })
-      queryClient.invalidateQueries({
-        queryKey: queryKeys.requests.detail(variables.requestId),
-      })
+      void refetchAfterMutation(
+        queryClient,
+        queryKeys.requests.all,
+        queryKeys.requests.detail(variables.requestId)
+      )
     },
   })
 }
@@ -337,10 +340,11 @@ export function useCloseRequest() {
         method: 'POST',
       }),
     onSuccess: (_data, variables) => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.requests.all })
-      queryClient.invalidateQueries({
-        queryKey: queryKeys.requests.detail(variables.requestId),
-      })
+      void refetchAfterMutation(
+        queryClient,
+        queryKeys.requests.all,
+        queryKeys.requests.detail(variables.requestId)
+      )
     },
   })
 }
