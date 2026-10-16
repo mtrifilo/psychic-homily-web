@@ -37,7 +37,7 @@ func TestMusicBrainzClient_BrowseArtistReleaseGroups(t *testing.T) {
 	srv := httptest.NewServer(mux)
 	defer srv.Close()
 
-	c := newReleaseGroupTestClient(srv.URL)
+	c := newMusicBrainzTestClient(srv.URL)
 	rgs, err := c.BrowseArtistReleaseGroups(context.Background(), "art-mbid",
 		map[string]bool{"album": true, "ep": true})
 	require.NoError(t, err)
@@ -62,7 +62,7 @@ func TestMusicBrainzClient_BrowseArtistReleaseGroups_NoFilter(t *testing.T) {
 	srv := httptest.NewServer(mux)
 	defer srv.Close()
 
-	c := newReleaseGroupTestClient(srv.URL)
+	c := newMusicBrainzTestClient(srv.URL)
 	rgs, err := c.BrowseArtistReleaseGroups(context.Background(), "art-mbid", nil)
 	require.NoError(t, err)
 	assert.Len(t, rgs, 2)
@@ -79,7 +79,7 @@ func TestMusicBrainzClient_BrowseArtistReleaseGroups_EmptyMBIDNoCall(t *testing.
 	srv := httptest.NewServer(mux)
 	defer srv.Close()
 
-	c := newReleaseGroupTestClient(srv.URL)
+	c := newMusicBrainzTestClient(srv.URL)
 	rgs, err := c.BrowseArtistReleaseGroups(context.Background(), "   ", map[string]bool{"album": true})
 	require.NoError(t, err)
 	assert.Nil(t, rgs)
