@@ -227,9 +227,6 @@ type WebAuthnServiceInterface interface {
 	// VALIDATION_FAILED (absent or expired), whose message is the client's
 	// copy. Any other error means the challenge could not be read.
 	ConsumeRegistrationChallenge(challengeID string, userID uint) (*webauthn.SessionData, error)
-	// CleanupExpiredChallenges deletes every challenge past its expiry and
-	// returns how many rows it deleted.
-	CleanupExpiredChallenges(ctx context.Context) (int64, error)
 	BeginRegistrationForEmail(email string) (*protocol.CredentialCreation, *webauthn.SessionData, error)
 	StoreSignupChallenge(signup SignupChallenge, session *webauthn.SessionData, operation string) (string, error)
 	// ConsumeSignupChallenge's errors are ConsumeChallenge's.
