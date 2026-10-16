@@ -200,6 +200,10 @@ function startBackend(): ChildProcess {
       // Without this the server took its default :8080 while everything else
       // followed BACKEND_URL elsewhere.
       API_ADDR: `localhost:${BACKEND_PORT}`,
+      // Matches NEXT_PUBLIC_OAUTH_BACKEND_URL in playwright.config.ts, so the
+      // default OAuth callbacks return to the backend holding the host-scoped
+      // state cookie, and backend-hosted email links name this backend.
+      BACKEND_PUBLIC_URL: BACKEND_BASE_URL,
       JWT_SECRET_KEY: 'e2e-jwt-secret-key-for-testing-only',
       OAUTH_SECRET_KEY: 'e2e-oauth-secret-key-for-testing-only',
       CORS_ALLOWED_ORIGINS: 'http://localhost:3000',
