@@ -605,6 +605,60 @@ describe('API Module', () => {
         expect((error as { details: unknown }).details).toBe(parseError)
       }
     })
+
+    describe('an aborted request', () => {
+      const abortBeforeResponse = (abort: DOMException) =>
+        vi.mocked(fetch).mockRejectedValue(abort)
+      const abortDuringBody = (abort: DOMException) =>
+        vi.mocked(fetch).mockResolvedValue({
+          ok: true,
+          status: 200,
+          headers: new Headers(),
+          json: () => Promise.reject(abort),
+        } as unknown as Response)
+
+      it.each([
+        ['before the response arrives', '/auth/register', abortBeforeResponse],
+        ['while a successful body is read', '/auth/register', abortDuringBody],
+        ['while a successful body is read', '/shows', abortDuringBody],
+      ])('rejects %s on %s with the original AbortError, unreported', async (_stage, path, failWith) => {
+        const abort = new DOMException('The operation was aborted.', 'AbortError')
+        failWith(abort)
+        const { apiRequest, API_BASE_URL } = await import('./api')
+        const { authLogger } = await import('./utils/authLogger')
+        const logError = vi.spyOn(authLogger, 'error').mockImplementation(() => {})
+
+        await expect(
+          apiRequest(`${API_BASE_URL}${path}`, { method: 'POST' })
+        ).rejects.toBe(abort)
+        expect(Sentry.captureException).not.toHaveBeenCalled()
+        expect(logError).not.toHaveBeenCalled()
+      })
+
+      it('keeps an error response its status when its body read aborts', async () => {
+        vi.mocked(fetch).mockResolvedValue({
+          ok: false,
+          status: 503,
+          statusText: 'Service Unavailable',
+          headers: new Headers(),
+          json: () =>
+            Promise.reject(
+              new DOMException('The operation was aborted.', 'AbortError')
+            ),
+        } as unknown as Response)
+        const { apiRequest, API_BASE_URL } = await import('./api')
+        const { authLogger } = await import('./utils/authLogger')
+        vi.spyOn(authLogger, 'error').mockImplementation(() => {})
+
+        await expect(
+          apiRequest(`${API_BASE_URL}/auth/register`, { method: 'POST' })
+        ).rejects.toMatchObject({ status: 503 })
+        expect(Sentry.captureMessage).toHaveBeenCalledWith(
+          'Auth service error: 503',
+          expect.anything()
+        )
+      })
+    })
   })
 
   describe('getEnvironmentInfo', () => {
