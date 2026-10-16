@@ -136,7 +136,6 @@ type OAuthSignupConsent struct {
 // AuthServiceInterface defines the contract for authentication operations.
 type AuthServiceInterface interface {
 	OAuthLogin(w http.ResponseWriter, r *http.Request, provider string) error
-	OAuthCallback(w http.ResponseWriter, r *http.Request, provider string) (*authm.User, string, error)
 	OAuthCallbackWithConsent(w http.ResponseWriter, r *http.Request, provider string, consent *OAuthSignupConsent) (*authm.User, string, error)
 	// CompleteOAuthLink attaches the handshake's identity to an already
 	// authenticated userID and issues no session. Refuses with a typed
@@ -244,7 +243,8 @@ type WebAuthnServiceInterface interface {
 	// ConsumeSignupChallenge's errors are ConsumeChallenge's.
 	ConsumeSignupChallenge(challengeID string, operation string) (*webauthn.SessionData, SignupChallenge, error)
 	// FinishSignupRegistrationWithLegal answers a refusal with an
-	// *errors.AuthError coded VALIDATION_FAILED (a registration response that
+	// *errors.AuthError coded TERMS_ACCEPTANCE_REQUIRED (an acceptance that
+	// names no terms version), VALIDATION_FAILED (a registration response that
 	// fails verification) or USER_EXISTS (an address an account already
 	// holds), whose message is the client's copy. Any other error means the
 	// account was not created, or was created and could not be read back.

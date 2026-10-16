@@ -11,6 +11,7 @@ import (
 	authm "psychic-homily-backend/internal/models/auth"
 	"psychic-homily-backend/internal/services/contracts"
 	"psychic-homily-backend/internal/testutil"
+	"psychic-homily-backend/internal/testutil/signupconsent"
 	"psychic-homily-backend/internal/testutil/softauthn"
 )
 
@@ -196,7 +197,7 @@ func (suite *WebAuthnServiceIntegrationTestSuite) signupRegistration(email, orig
 func (suite *WebAuthnServiceIntegrationTestSuite) finishSignup(email string, session *webauthn.SessionData, body []byte) error {
 	_, err := suite.service.FinishSignupRegistrationWithLegal(
 		email, session, suite.parseCreation(body), "Key",
-		contracts.LegalAcceptance{TermsVersion: "v1", PrivacyVersion: "v1", MinAgeAttested: 16},
+		signupconsent.CurrentLegalAcceptance(),
 	)
 	return err
 }
@@ -232,4 +233,39 @@ func (suite *WebAuthnServiceIntegrationTestSuite) TestFinishSignupRefusalsAndFai
 			suite.Zero(suite.accountRows(email))
 		})
 	}
+}
+
+// An acceptance that names no terms version records no consent, so the
+// passkey sign-up refuses it and creates no account.
+func (suite *WebAuthnServiceIntegrationTestSuite) TestFinishSignupRefusesEmptyAcceptance() {
+	for _, tc := range []struct {
+		email      string
+		acceptance contracts.LegalAcceptance
+	}{
+		{"signup-zero-acceptance@test.com", contracts.LegalAcceptance{}},
+		{"signup-no-terms-version@test.com", contracts.LegalAcceptance{PrivacyVersion: "v1", MinAgeAttested: 16}},
+	} {
+		suite.Run(tc.email, func() {
+			session, body := suite.signupRegistration(tc.email, ceremonyOrigin)
+			_, err := suite.service.FinishSignupRegistrationWithLegal(
+				tc.email, session, suite.parseCreation(body), "Key", tc.acceptance,
+			)
+			suite.requireRefusal(err, apperrors.CodeTermsAcceptanceRequired,
+				"Please accept the Terms of Service and Privacy Policy before creating an account.")
+			suite.Zero(suite.accountRows(tc.email))
+		})
+	}
+
+	// The acceptance is refused before the registration is verified, so a
+	// response from another origin still answers with the terms refusal.
+	suite.Run("registration from another origin", func() {
+		email := "signup-empty-elsewhere@test.com"
+		session, body := suite.signupRegistration(email, "https://elsewhere.example")
+		_, err := suite.service.FinishSignupRegistrationWithLegal(
+			email, session, suite.parseCreation(body), "Key", contracts.LegalAcceptance{},
+		)
+		suite.requireRefusal(err, apperrors.CodeTermsAcceptanceRequired,
+			"Please accept the Terms of Service and Privacy Policy before creating an account.")
+		suite.Zero(suite.accountRows(email))
+	})
 }
