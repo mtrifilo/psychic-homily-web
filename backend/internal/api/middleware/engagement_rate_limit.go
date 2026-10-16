@@ -114,6 +114,19 @@ func RateLimitEntityRequestBatchSustained() func(http.Handler) http.Handler {
 	return perUserMutationLimiter(LimiterEntityRequestBatchSustained, EntityRequestBatchSustainedPerHour, time.Hour)
 }
 
+// RateLimitBySessionUser meters each signed-in user on a minute bucket of its
+// own, requestsPerMinute deep and logged as name, keyed by the session user the
+// way RateLimitMutationsByUser keys the mutation budgets. Accounts behind one
+// address do not share a bucket, and one account does not get a fresh bucket by
+// changing address. A request with no session token passes through unmetered,
+// as it does on the mutation budgets.
+func RateLimitBySessionUser(jwtService *auth.JWTService, name LimiterName, requestsPerMinute int) func(http.Handler) http.Handler {
+	return RateLimitMutationsByUser(jwtService, perUserMutationLimiter(name, requestsPerMinute, time.Minute), withoutSecondWindow)
+}
+
+// withoutSecondWindow is the inner window for a budget that has only one.
+func withoutSecondWindow(next http.Handler) http.Handler { return next }
+
 // RateLimitMutationsByUser meters an authenticated mutation against a per-user
 // budget: it stashes the user id from the verified session JWT into context and
 // routes the request through burstLimiter (minute) OUTER and sustainedLimiter
