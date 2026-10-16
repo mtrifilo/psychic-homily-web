@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { renderWithProviders } from '@/test/utils'
+import { deferred } from '@/test/inflightOrdering'
 import { PasskeyManagement } from './passkey-management'
 import {
   AuthError,
@@ -420,6 +421,41 @@ describe('PasskeyManagement', () => {
 
     // The mock PasskeyRegisterButton fires onSuccess on click → triggers refetch.
     await user.click(screen.getByTestId('register-passkey-btn'))
+
+    await waitFor(() => {
+      expect(screen.getByText('Newly registered')).toBeInTheDocument()
+    })
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+  })
+
+  it('shows a passkey registered while the list is still loading', async () => {
+    const staleList = deferred<Response>()
+    const fetchMock = vi.fn()
+      .mockReturnValueOnce(staleList.promise)
+      .mockResolvedValueOnce(
+        jsonResponse({
+          success: true,
+          credentials: [
+            {
+              id: 1,
+              display_name: 'Newly registered',
+              created_at: '2025-06-15T10:00:00Z',
+              last_used_at: null,
+              backup_eligible: false,
+              backup_state: false,
+            },
+          ],
+        })
+      )
+    vi.spyOn(global, 'fetch').mockImplementation(fetchMock)
+
+    const user = userEvent.setup()
+    renderWithProviders(<PasskeyManagement />)
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1))
+
+    await user.click(screen.getByTestId('register-passkey-btn'))
+    // The list response that was produced before the registration lands last.
+    staleList.resolve(jsonResponse({ success: true, credentials: [] }))
 
     await waitFor(() => {
       expect(screen.getByText('Newly registered')).toBeInTheDocument()

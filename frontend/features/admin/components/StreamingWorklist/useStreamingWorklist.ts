@@ -18,6 +18,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { apiRequest, API_ENDPOINTS } from '@/lib/api'
 import { queryKeys } from '@/lib/queryClient'
+import { refetchAfterMutation } from '@/lib/refetchAfterMutation'
 import type {
   StreamingWorklistResult,
   StreamingWorklistStatusFilter,
@@ -102,9 +103,7 @@ export function useUpdateStreamingDiscoveryStatus() {
       // Invalidate the whole worklist branch — status filter and
       // pagination both vary by key, so a single invalidation needs to
       // hit every cached page.
-      queryClient.invalidateQueries({
-        queryKey: ['admin', 'streamingWorklist'],
-      })
+      void refetchAfterMutation(queryClient, ['admin', 'streamingWorklist'])
     },
   })
 }

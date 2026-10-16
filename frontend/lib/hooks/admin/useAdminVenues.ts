@@ -2,7 +2,8 @@
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { apiRequest, API_ENDPOINTS } from '../../api'
-import { queryKeys, createInvalidateQueries } from '../../queryClient'
+import { queryKeys } from '../../queryClient'
+import { refetchAfterMutation } from '@/lib/refetchAfterMutation'
 import type { Venue, UnverifiedVenuesResponse } from '@/features/venues'
 
 /**
@@ -38,7 +39,6 @@ export function useUnverifiedVenues(options?: {
  */
 export function useVerifyVenue() {
   const queryClient = useQueryClient()
-  const invalidateQueries = createInvalidateQueries(queryClient)
 
   return useMutation({
     mutationFn: async (venueId: number) => {
@@ -47,12 +47,14 @@ export function useVerifyVenue() {
       })
     },
     onSuccess: () => {
-      // Invalidate venue queries
-      invalidateQueries.venues()
-      // Also invalidate pending shows since venue verification status may have changed
-      queryClient.invalidateQueries({ queryKey: ['admin', 'shows', 'pending'] })
-      // Invalidate unverified venues list
-      queryClient.invalidateQueries({ queryKey: ['admin', 'venues', 'unverified'] })
+      // The venue itself; pending shows, which display their venue's
+      // verification status; and the unverified list, which loses this venue
+      void refetchAfterMutation(
+        queryClient,
+        queryKeys.venues.all,
+        ['admin', 'shows', 'pending'],
+        ['admin', 'venues', 'unverified']
+      )
     },
   })
 }

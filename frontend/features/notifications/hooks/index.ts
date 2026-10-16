@@ -10,6 +10,7 @@ import { useQuery, useMutation, useQueryClient, keepPreviousData } from '@tansta
 import { apiRequest, API_BASE_URL } from '@/lib/api'
 import { useAuthContext } from '@/lib/context/AuthContext'
 import { queryKeys } from '@/lib/queryClient'
+import { refetchAfterMutation } from '@/lib/refetchAfterMutation'
 import type {
   NotificationFilter,
   CreateFilterInput,
@@ -150,9 +151,7 @@ export function useCreateFilter() {
         body: JSON.stringify(input),
       }),
     onSuccess: () => {
-      queryClient.invalidateQueries({
-        queryKey: queryKeys.notificationFilters.all,
-      })
+      void refetchAfterMutation(queryClient, queryKeys.notificationFilters.all)
     },
   })
 }
@@ -167,9 +166,7 @@ export function useUpdateFilter() {
         body: JSON.stringify(input),
       }),
     onSuccess: () => {
-      queryClient.invalidateQueries({
-        queryKey: queryKeys.notificationFilters.all,
-      })
+      void refetchAfterMutation(queryClient, queryKeys.notificationFilters.all)
     },
   })
 }
@@ -183,9 +180,7 @@ export function useDeleteFilter() {
         method: 'DELETE',
       }),
     onSuccess: () => {
-      queryClient.invalidateQueries({
-        queryKey: queryKeys.notificationFilters.all,
-      })
+      void refetchAfterMutation(queryClient, queryKeys.notificationFilters.all)
     },
   })
 }
@@ -209,9 +204,7 @@ export function useQuickCreateFilter() {
         }),
       }),
     onSuccess: () => {
-      queryClient.invalidateQueries({
-        queryKey: queryKeys.notificationFilters.all,
-      })
+      void refetchAfterMutation(queryClient, queryKeys.notificationFilters.all)
     },
   })
 }
@@ -318,9 +311,7 @@ export function useMarkNotificationsRead() {
         body: JSON.stringify({ ids: ids ?? [] }),
       }),
     onSuccess: () => {
-      queryClient.invalidateQueries({
-        queryKey: NOTIFICATION_LOG_KEY,
-      })
+      void refetchAfterMutation(queryClient, NOTIFICATION_LOG_KEY)
     },
   })
 }

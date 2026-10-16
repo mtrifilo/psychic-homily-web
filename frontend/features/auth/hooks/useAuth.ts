@@ -21,6 +21,7 @@ import {
   releaseExpiredSessionLatch,
   resetViewerTierQueries,
 } from '@/lib/queryClient'
+import { refetchAfterMutation } from '@/lib/refetchAfterMutation'
 import { authLogger } from '@/lib/utils/authLogger'
 import {
   AuthError,
@@ -172,6 +173,7 @@ interface RefreshTokenResponse {
  * must not block on it.
  */
 export async function refreshCachesForNewSession(queryClient: QueryClient) {
+  // eslint-disable-next-line no-restricted-syntax -- the profile is refetched without a cancel because the cache error handlers in lib/queryClient.ts read its fetchStatus; the SSR seed gives it data whenever the backend answered, so the refetch restarts an in-flight fetch instead of reusing it (an unseeded first fetch still in flight at sign-in can still reuse a pre-login response)
   await queryClient.refetchQueries({ queryKey: queryKeys.auth.profile })
   void refreshViewerTierQueries(queryClient)
 }
@@ -489,6 +491,7 @@ export const useUpdateProfile = () => {
     onSuccess: async () => {
       authLogger.info('Profile updated successfully')
       // Refetch profile to get updated user data
+      // eslint-disable-next-line no-restricted-syntax -- the profile editor renders only for a signed-in viewer, whose profile holds data, so this restarts an in-flight fetch rather than reusing it (see refetchSignedInProfile)
       await queryClient.refetchQueries({ queryKey: queryKeys.auth.profile })
     },
   })
@@ -1107,7 +1110,7 @@ export const useUnlinkOAuthAccount = () => {
         data.request_id
       )
       // Refetch OAuth accounts list
-      queryClient.invalidateQueries({ queryKey: ['auth', 'oauth-accounts'] })
+      void refetchAfterMutation(queryClient, ['auth', 'oauth-accounts'])
     },
   })
 }
@@ -1232,7 +1235,7 @@ export const useDeletePasskey = () => {
     },
     onSettled: () => {
       // Reconcile with server truth after the mutation resolves either way.
-      queryClient.invalidateQueries({ queryKey: queryKeys.passkeys.credentials })
+      void refetchAfterMutation(queryClient, queryKeys.passkeys.credentials)
     },
   })
 }
@@ -1527,8 +1530,7 @@ export const useCreateAPIToken = () => {
     },
     onSuccess: () => {
       authLogger.info('API token created successfully')
-      // Invalidate tokens list to refetch
-      queryClient.invalidateQueries({ queryKey: ['admin', 'api-tokens'] })
+      void refetchAfterMutation(queryClient, ['admin', 'api-tokens'])
     },
   })
 }
@@ -1555,8 +1557,7 @@ export const useRevokeAPIToken = () => {
       authLogger.info('API token revoked successfully', {
         message: data.message,
       })
-      // Invalidate tokens list to refetch
-      queryClient.invalidateQueries({ queryKey: ['admin', 'api-tokens'] })
+      void refetchAfterMutation(queryClient, ['admin', 'api-tokens'])
     },
   })
 }
