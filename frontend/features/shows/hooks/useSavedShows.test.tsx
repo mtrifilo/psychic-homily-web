@@ -309,6 +309,14 @@ describe('useSavedShows', () => {
     expect(cached?.pages[0].shows).toEqual([{ id: 2 }, { id: 3 }, { id: 4 }])
     expect(cached?.pages[0].total).toBe(104)
     expect(cached?.pages[1].total).toBe(104)
+    expect(refetchAfterMutation).toHaveBeenCalledWith(
+      queryClient,
+      queryKeys.savedShows.listPrefix('1'),
+      queryKeys.savedShows.countBatchPrefix('1'),
+      ['savedShows', 'countBatch', false, null],
+      queryKeys.savedShows.count(1, true, '1'),
+      queryKeys.savedShows.count(1, false)
+    )
     // The narrow refetch has landed once the plain list is marked; the
     // patched infinite pages must not have been marked with it.
     await waitFor(() =>
@@ -718,6 +726,12 @@ describe('useSaveShowToggle', () => {
       save_count: 4,
       is_saved: false,
     })
+    // The optimistic premise may itself have been stale, so the failure
+    // re-syncs the whole saved-shows family from the server.
+    expect(refetchAfterMutation).toHaveBeenCalledWith(
+      queryClient,
+      queryKeys.savedShows.all
+    )
   })
 
   it('never drives the cached count negative', async () => {

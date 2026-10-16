@@ -39,10 +39,9 @@ describe('the refetchAfterMutation lint block', () => {
 
   it('names every feature file that refetches through the helper', () => {
     const listed = new Set(lintedFiles())
+    const importsHelper = /from\s+['"]@\/lib\/refetchAfterMutation['"]/
     const adopters = sourceFilesUnder('features').filter(file =>
-      fs
-        .readFileSync(path.join(FRONTEND, file), 'utf8')
-        .includes("from '@/lib/refetchAfterMutation'")
+      importsHelper.test(fs.readFileSync(path.join(FRONTEND, file), 'utf8'))
     )
     expect(adopters.length).toBeGreaterThan(0)
     expect(adopters.filter(file => !listed.has(file))).toEqual([])

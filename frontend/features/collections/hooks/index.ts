@@ -379,8 +379,8 @@ export function useAddCollectionItem() {
       void refetchAfterMutation(
         queryClient,
         queryKeys.collections.detail(variables.slug),
-        // PSY-359: pre-check answer for this entity is now stale; the popover
-        // should show the new collection as already-containing on next open.
+        // The popover's pre-check answer for this entity: it shows the
+        // collection as already containing the entity on its next open.
         queryKeys.collections.containing(
           variables.entityType,
           variables.entityId
@@ -388,9 +388,8 @@ export function useAddCollectionItem() {
         // Public "appears in" backlinks on the entity page also need to
         // refresh (if the collection is public).
         queryKeys.collections.entity(variables.entityType, variables.entityId),
-        // PSY-829: the user's collection list carries item_count, now surfaced
-        // as the "N items" subtitle in the Add-to-Collection popover, so
-        // refresh it to keep the count current right after an add.
+        // The user's collection list carries item_count, shown as the
+        // "N items" subtitle in the Add-to-Collection popover.
         queryKeys.collections.my
       )
     },
