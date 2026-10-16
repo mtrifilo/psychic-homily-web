@@ -1267,6 +1267,52 @@ func TestAdminLinkPlay_Success(t *testing.T) {
 	}
 }
 
+// The link-play audit row is the shape the release-link backfill reads: the
+// action, entity type and release_id key it queries by.
+func TestAdminLinkPlay_AuditRowMatchesTheBackfillReader(t *testing.T) {
+	type auditRow struct {
+		action, entityType string
+		entityID           uint
+		metadata           map[string]interface{}
+	}
+	logged := make(chan auditRow, 1)
+	audit := &testhelpers.MockAuditLogService{
+		LogActionFn: func(_ uint, action, entityType string, entityID uint, metadata map[string]interface{}) {
+			logged <- auditRow{action, entityType, entityID, metadata}
+		},
+	}
+	radio := &testhelpers.MockRadioService{
+		LinkPlayFn: func(uint, *contracts.LinkPlayRequest) error { return nil },
+	}
+	h := NewRadioHandler(radio, &mockArtistSlugResolver{}, &mockReleaseSlugResolver{}, audit)
+	releaseID := uint(99)
+	req := &AdminLinkPlayRequest{PlayID: 7}
+	req.Body.ReleaseID = &releaseID
+
+	if _, err := h.AdminLinkPlayHandler(radioAdminCtx(), req); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	select {
+	case row := <-logged:
+		if row.action != contracts.AuditActionLinkRadioPlay {
+			t.Errorf("action = %q, want %q", row.action, contracts.AuditActionLinkRadioPlay)
+		}
+		if row.entityType != contracts.AuditEntityRadioPlay {
+			t.Errorf("entity type = %q, want %q", row.entityType, contracts.AuditEntityRadioPlay)
+		}
+		if row.entityID != 7 {
+			t.Errorf("entity id = %d, want the play id 7", row.entityID)
+		}
+		got, ok := row.metadata[contracts.AuditMetaReleaseID].(*uint)
+		if !ok || got == nil || *got != releaseID {
+			t.Errorf("metadata[%q] = %#v, want the release id %d", contracts.AuditMetaReleaseID, row.metadata[contracts.AuditMetaReleaseID], releaseID)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("linking a play must write an audit row")
+	}
+}
+
 func TestAdminLinkPlay_ServiceError(t *testing.T) {
 	mock := &testhelpers.MockRadioService{
 		LinkPlayFn: func(_ uint, _ *contracts.LinkPlayRequest) error {
