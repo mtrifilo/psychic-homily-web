@@ -3,9 +3,12 @@ package routes
 import (
 	"fmt"
 	"os"
+	"slices"
 	"sort"
 	"strings"
 	"testing"
+
+	"github.com/go-chi/chi/v5"
 
 	"psychic-homily-backend/internal/api/middleware"
 )
@@ -52,7 +55,7 @@ var (
 	scopePasswordConfirm  = fmt.Sprintf("passwordConfirmGroup: the shared %d/min password-confirm budget", PasswordConfirmAttemptsPerMinute)
 	scopePasskey          = fmt.Sprintf("passkeyGroup: the %d/min passkey budget", middleware.PasskeyRequestsPerMinute)
 	scopePasskeySignup    = fmt.Sprintf("signupBeginGroup: its own %d/min passkey sign-up begin budget", middleware.PasskeySignupBeginRequestsPerMinute)
-	scopePasskeyRegister  = fmt.Sprintf("registerBeginGroup: its own %d/min passkey register begin budget, behind HumaJWTMiddleware", middleware.PasskeyRegisterBeginRequestsPerMinute)
+	scopePasskeyRegister  = fmt.Sprintf("registerBeginGroup: its own %d/min passkey register begin budget per session user, behind HumaJWTMiddleware", middleware.PasskeyRegisterBeginRequestsPerMinute)
 	scopeResendSized      = fmt.Sprintf("its own limiter at the %d/min verification-resend size", VerificationResendPerMinute)
 	scopeProtectedNoLimit = "rc.Protected with no per-route limiter"
 	scopeAdminNoLimit     = "rc.Admin with no per-route limiter"
@@ -141,7 +144,46 @@ var authRouteRateLimitScope = map[string]string{
 }
 
 func TestEveryAuthRouteHasARateLimitDisposition(t *testing.T) {
-	routes := chiRoutes(t, newTestRouter(t))
+	sweep := sweepAuthDispositions(chiRoutes(t, newTestRouter(t)))
+
+	for _, key := range sweep.unrecorded {
+		t.Errorf("the router serves %q and no budget is written down for it: "+
+			"record the group it is REGISTERED on, reading auth.go rather than copying a "+
+			"neighbouring constant, since a wrong sentence here passes this test and "+
+			"misleads the next reader; if it takes the account password it belongs on "+
+			"passwordConfirmGroup", key)
+	}
+	for _, key := range sweep.stale {
+		t.Errorf("%q is dispositioned here but the router no longer serves it: "+
+			"a stale entry hides the next route that takes its place", key)
+	}
+	if !sweep.passkeySwept {
+		t.Log("this build registered no passkey routes, so their dispositions were not swept")
+	}
+}
+
+// authDispositionSweep is what comparing a router's routes against
+// authRouteRateLimitScope finds. Both lists are sorted.
+type authDispositionSweep struct {
+	// unrecorded are served routes with no disposition.
+	unrecorded []string
+	// stale are dispositions for routes the router does not serve.
+	stale []string
+	// passkeySwept is false when the router serves no passkey route at all, in
+	// which case the passkey rows are neither required nor reported stale.
+	passkeySwept bool
+}
+
+// sweepAuthDispositions compares the routes chiRoutes returns, under
+// authInventoryPrefix on a method in authInventoryMethods, against
+// authRouteRateLimitScope.
+//
+// The passkey routes are registered only when the WebAuthn service built, so
+// on a build without it every passkey row would read as stale and the guard
+// would go red over configuration rather than over routing. Absent as a block
+// is the condition being false; absent one at a time is a real stale row.
+func sweepAuthDispositions(routes map[string][]string) authDispositionSweep {
+	var sweep authDispositionSweep
 
 	served := map[string]bool{}
 	for _, method := range authInventoryMethods {
@@ -152,44 +194,92 @@ func TestEveryAuthRouteHasARateLimitDisposition(t *testing.T) {
 			key := method + " " + pattern
 			served[key] = true
 			if _, ok := authRouteRateLimitScope[key]; !ok {
-				t.Errorf("the router serves %q and no budget is written down for it: "+
-					"record the group it is REGISTERED on, reading auth.go rather than copying a "+
-					"neighbouring constant, since a wrong sentence here passes this test and "+
-					"misleads the next reader; if it takes the account password it belongs on "+
-					"passwordConfirmGroup", key)
+				sweep.unrecorded = append(sweep.unrecorded, key)
+			} else if isPasskeyRoute(key) {
+				sweep.passkeySwept = true
 			}
 		}
 	}
 
-	// The passkey routes are registered only when the WebAuthn service built,
-	// so on a build without it every passkey row would read as stale and this
-	// guard would go red over configuration rather than over routing. Absent as
-	// a block is the condition being false; absent one at a time is a real
-	// stale row.
-	passkeyServed := 0
-	for key := range authRouteRateLimitScope {
-		if isPasskeyRoute(key) && served[key] {
-			passkeyServed++
-		}
-	}
-
-	var stale []string
 	for key := range authRouteRateLimitScope {
 		if served[key] {
 			continue
 		}
-		if isPasskeyRoute(key) && passkeyServed == 0 {
+		if isPasskeyRoute(key) && !sweep.passkeySwept {
 			continue
 		}
-		stale = append(stale, key)
+		sweep.stale = append(sweep.stale, key)
 	}
-	sort.Strings(stale)
-	for _, key := range stale {
-		t.Errorf("%q is dispositioned here but the router no longer serves it: "+
-			"a stale entry hides the next route that takes its place", key)
+	sort.Strings(sweep.unrecorded)
+	sort.Strings(sweep.stale)
+	return sweep
+}
+
+// On a build whose WebAuthn service did not build, setupPasskeyRoutes
+// registers nothing, and the sweep has to skip the passkey rows as a block
+// rather than report each one stale.
+func TestAuthDispositionSweepSkipsPasskeyRowsWithoutWebAuthn(t *testing.T) {
+	cfg := testConfig()
+	sc := testContainer(cfg)
+	sc.WebAuthn = nil
+	router := chi.NewRouter()
+	SetupRoutes(router, sc, cfg)
+	routes := chiRoutes(t, router)
+
+	for method, patterns := range routes {
+		for _, pattern := range patterns {
+			if isPasskeyRoute(method + " " + pattern) {
+				t.Errorf("a build without WebAuthn serves %s %s", method, pattern)
+			}
+		}
 	}
-	if passkeyServed == 0 {
-		t.Log("this build registered no passkey routes, so their dispositions were not swept")
+
+	passkeyRows := 0
+	for key := range authRouteRateLimitScope {
+		if isPasskeyRoute(key) {
+			passkeyRows++
+		}
+	}
+	if passkeyRows == 0 {
+		t.Fatal("authRouteRateLimitScope has no passkey rows, so there is nothing for the skip to cover")
+	}
+
+	sweep := sweepAuthDispositions(routes)
+	if sweep.passkeySwept {
+		t.Error("the sweep reports passkey rows swept on a build that registered no passkey route")
+	}
+	if len(sweep.stale) != 0 {
+		t.Errorf("the sweep reports %v stale on a build without WebAuthn; the %d passkey rows should be skipped as a block "+
+			"and every other row is served", sweep.stale, passkeyRows)
+	}
+	if len(sweep.unrecorded) != 0 {
+		t.Errorf("the sweep reports %v with no disposition on a build without WebAuthn", sweep.unrecorded)
+	}
+}
+
+// The block skip must not hide a single passkey row the router stopped
+// serving while the rest are still registered.
+func TestAuthDispositionSweepReportsOneMissingPasskeyRoute(t *testing.T) {
+	const dropped = "/auth/passkey/register/finish"
+	routes := chiRoutes(t, newTestRouter(t))
+
+	var kept []string
+	for _, pattern := range routes["POST"] {
+		if pattern != dropped {
+			kept = append(kept, pattern)
+		}
+	}
+	if len(kept) == len(routes["POST"]) {
+		t.Fatalf("the router does not serve POST %s, so dropping it proves nothing", dropped)
+	}
+	routes["POST"] = kept
+
+	sweep := sweepAuthDispositions(routes)
+	if !sweep.passkeySwept {
+		t.Fatal("the sweep skipped the passkey rows although every other passkey route is served")
+	}
+	if want := []string{"POST " + dropped}; !slices.Equal(sweep.stale, want) {
+		t.Errorf("stale = %v, want %v", sweep.stale, want)
 	}
 }
 
