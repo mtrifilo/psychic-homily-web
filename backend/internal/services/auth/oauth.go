@@ -64,22 +64,6 @@ func (s *AuthService) OAuthLogin(w http.ResponseWriter, r *http.Request, provide
 	return nil
 }
 
-// OAuthCallback handles OAuth callback and user creation/linking.
-// This legacy path does not enforce signup consent requirements.
-func (s *AuthService) OAuthCallback(w http.ResponseWriter, r *http.Request, provider string) (*authm.User, string, error) {
-	return s.oauthCallbackInternal(w, r, provider, nil, false)
-}
-
-// OAuthCallbackWithConsent enforces terms acceptance for brand-new OAuth users.
-func (s *AuthService) OAuthCallbackWithConsent(
-	w http.ResponseWriter,
-	r *http.Request,
-	provider string,
-	consent *contracts.OAuthSignupConsent,
-) (*authm.User, string, error) {
-	return s.oauthCallbackInternal(w, r, provider, consent, true)
-}
-
 // CompleteOAuthLink finishes the provider handshake and attaches the resulting
 // identity to userID, which the caller has already authenticated. No session is
 // issued and no token is returned: the caller already holds one, and a link
@@ -121,12 +105,14 @@ func (s *AuthService) CompleteOAuthLink(
 	return linked, nil
 }
 
-func (s *AuthService) oauthCallbackInternal(
+// OAuthCallbackWithConsent finishes the provider handshake, resolves or creates
+// the account through UserServiceInterface.FindOrCreateUserWithConsent, which
+// refuses to create one without consent, and issues a session for it.
+func (s *AuthService) OAuthCallbackWithConsent(
 	w http.ResponseWriter,
 	r *http.Request,
 	provider string,
 	consent *contracts.OAuthSignupConsent,
-	enforceConsent bool,
 ) (*authm.User, string, error) {
 	// Check for nil request
 	if r == nil {
@@ -153,13 +139,7 @@ func (s *AuthService) oauthCallbackInternal(
 		"provider_user_id", gothUser.UserID,
 	)
 
-	// Find or create user using user service
-	var user *authm.User
-	if enforceConsent {
-		user, err = s.userService.FindOrCreateUserWithConsent(gothUser, provider, consent)
-	} else {
-		user, err = s.userService.FindOrCreateUser(gothUser, provider)
-	}
+	user, err := s.userService.FindOrCreateUserWithConsent(gothUser, provider, consent)
 	if err != nil {
 		return nil, "", fmt.Errorf("failed to find or create user: %w", err)
 	}

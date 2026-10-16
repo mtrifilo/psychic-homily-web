@@ -476,7 +476,6 @@ func (m *MockAuditLogService) GetAuditLogs(limit int, offset int, filters contra
 
 type MockAuthService struct {
 	OAuthLoginFn               func(http.ResponseWriter, *http.Request, string) error
-	OAuthCallbackFn            func(http.ResponseWriter, *http.Request, string) (*authm.User, string, error)
 	OAuthCallbackWithConsentFn func(http.ResponseWriter, *http.Request, string, *contracts.OAuthSignupConsent) (*authm.User, string, error)
 	CompleteOAuthLinkFn        func(http.ResponseWriter, *http.Request, string, uint) (*authm.User, error)
 	GetUserProfileFn           func(uint) (*authm.User, error)
@@ -490,12 +489,6 @@ func (m *MockAuthService) OAuthLogin(w http.ResponseWriter, r *http.Request, pro
 		return m.OAuthLoginFn(w, r, provider)
 	}
 	return nil
-}
-func (m *MockAuthService) OAuthCallback(w http.ResponseWriter, r *http.Request, provider string) (*authm.User, string, error) {
-	if m.OAuthCallbackFn != nil {
-		return m.OAuthCallbackFn(w, r, provider)
-	}
-	return nil, "", nil
 }
 func (m *MockAuthService) OAuthCallbackWithConsent(w http.ResponseWriter, r *http.Request, provider string, consent *contracts.OAuthSignupConsent) (*authm.User, string, error) {
 	if m.OAuthCallbackWithConsentFn != nil {
@@ -4103,11 +4096,9 @@ func (m *MockTagService) PruneDownvotedTags() (int64, error) {
 
 type MockUserService struct {
 	ListUsersFn                        func(int, int, contracts.AdminUserFilters) ([]*contracts.AdminUserResponse, int64, error)
-	FindOrCreateUserFn                 func(goth.User, string) (*authm.User, error)
 	FindOrCreateUserWithConsentFn      func(goth.User, string, *contracts.OAuthSignupConsent) (*authm.User, error)
 	LinkOAuthAccountToUserFn           func(uint, goth.User, string) (*authm.User, error)
 	AuthenticateUserWithPasswordFn     func(string, string) (*authm.User, error)
-	CreateUserWithPasswordFn           func(string, string, string, string) (*authm.User, error)
 	CreateUserWithPasswordWithLegalFn  func(string, string, string, string, contracts.LegalAcceptance) (*authm.User, error)
 	GetUserByIDFn                      func(uint) (*authm.User, error)
 	GetUserByEmailFn                   func(string) (*authm.User, error)
@@ -4160,12 +4151,6 @@ func (m *MockUserService) ListUsers(limit int, offset int, filters contracts.Adm
 	}
 	return nil, 0, nil
 }
-func (m *MockUserService) FindOrCreateUser(gothUser goth.User, provider string) (*authm.User, error) {
-	if m.FindOrCreateUserFn != nil {
-		return m.FindOrCreateUserFn(gothUser, provider)
-	}
-	return nil, nil
-}
 func (m *MockUserService) FindOrCreateUserWithConsent(gothUser goth.User, provider string, consent *contracts.OAuthSignupConsent) (*authm.User, error) {
 	if m.FindOrCreateUserWithConsentFn != nil {
 		return m.FindOrCreateUserWithConsentFn(gothUser, provider, consent)
@@ -4181,12 +4166,6 @@ func (m *MockUserService) LinkOAuthAccountToUser(userID uint, gothUser goth.User
 func (m *MockUserService) AuthenticateUserWithPassword(email string, password string) (*authm.User, error) {
 	if m.AuthenticateUserWithPasswordFn != nil {
 		return m.AuthenticateUserWithPasswordFn(email, password)
-	}
-	return nil, nil
-}
-func (m *MockUserService) CreateUserWithPassword(email string, password string, firstName string, lastName string) (*authm.User, error) {
-	if m.CreateUserWithPasswordFn != nil {
-		return m.CreateUserWithPasswordFn(email, password, firstName, lastName)
 	}
 	return nil, nil
 }

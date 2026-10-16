@@ -8,6 +8,7 @@ import (
 
 	apperrors "psychic-homily-backend/internal/errors"
 	authm "psychic-homily-backend/internal/models/auth"
+	"psychic-homily-backend/internal/testutil/signupconsent"
 )
 
 // TestGetUserByEmail_CaseInsensitive covers the password-login lookup:
@@ -97,8 +98,8 @@ func (suite *UserServiceIntegrationTestSuite) TestIdentityLookups_RejectedTextIs
 // end: registered in one casing, authenticated in another.
 func (suite *UserServiceIntegrationTestSuite) TestAuthenticateUserWithPassword_CaseInsensitive() {
 	const password = "StrongPass123!"
-	created, err := suite.userService.CreateUserWithPassword(
-		"Login.Case@Example.com", password, "Login", "Case",
+	created, err := suite.userService.CreateUserWithPasswordWithLegal(
+		"Login.Case@Example.com", password, "Login", "Case", signupconsent.CurrentLegalAcceptance(),
 	)
 	suite.Require().NoError(err)
 
@@ -110,17 +111,17 @@ func (suite *UserServiceIntegrationTestSuite) TestAuthenticateUserWithPassword_C
 	suite.Equal(created.ID, authenticated.ID)
 }
 
-// TestCreateUserWithPassword_DuplicateByCase pins the registration refusal: a
+// TestCreateUserWithPasswordWithLegal_DuplicateByCase pins the registration refusal: a
 // case variant of a registered address is the same identity, refused with the
 // same error the byte-identical duplicate gets, and writes no row.
-func (suite *UserServiceIntegrationTestSuite) TestCreateUserWithPassword_DuplicateByCase() {
-	_, err := suite.userService.CreateUserWithPassword(
-		"Case.Dupe@Example.com", "Pass123!", "First", "Last",
+func (suite *UserServiceIntegrationTestSuite) TestCreateUserWithPasswordWithLegal_DuplicateByCase() {
+	_, err := suite.userService.CreateUserWithPasswordWithLegal(
+		"Case.Dupe@Example.com", "Pass123!", "First", "Last", signupconsent.CurrentLegalAcceptance(),
 	)
 	suite.Require().NoError(err)
 
-	user, err := suite.userService.CreateUserWithPassword(
-		"CASE.DUPE@example.com", "Pass456!", "Other", "Name",
+	user, err := suite.userService.CreateUserWithPasswordWithLegal(
+		"CASE.DUPE@example.com", "Pass456!", "Other", "Name", signupconsent.CurrentLegalAcceptance(),
 	)
 	suite.Require().Error(err)
 	suite.Nil(user)
@@ -137,13 +138,13 @@ func (suite *UserServiceIntegrationTestSuite) TestCreateUserWithPassword_Duplica
 	suite.Equal(int64(1), rows)
 }
 
-// TestFindOrCreateUser_RefusesCaseVariantEmail covers the goth OAuth callback:
+// TestFindOrCreateUserWithConsent_RefusesCaseVariantEmail covers the goth OAuth callback:
 // a provider returning the address in different casing than the row stores
 // resolves to that row, and an address that resolves to an account refuses the
 // sign-in. The refusal is what proves the fold ran: without it the address
 // would resolve to nothing and the sign-in would mint a second account for the
 // mailbox, which assertSingleUserForEmail pins.
-func (suite *UserServiceIntegrationTestSuite) TestFindOrCreateUser_RefusesCaseVariantEmail() {
+func (suite *UserServiceIntegrationTestSuite) TestFindOrCreateUserWithConsent_RefusesCaseVariantEmail() {
 	existing := &authm.User{
 		Email:         stringPtr("Goth.Case@Example.com"),
 		IsActive:      true,
@@ -151,11 +152,11 @@ func (suite *UserServiceIntegrationTestSuite) TestFindOrCreateUser_RefusesCaseVa
 	}
 	suite.Require().NoError(suite.db.Create(existing).Error)
 
-	linked, err := suite.userService.FindOrCreateUser(goth.User{
+	linked, err := suite.userService.FindOrCreateUserWithConsent(goth.User{
 		UserID:  "goth-case-subject",
 		Email:   "goth.case@example.com",
 		RawData: map[string]any{"verified_email": true},
-	}, "google")
+	}, "google", signupconsent.CurrentOAuthSignupConsent())
 
 	suite.Require().Error(err)
 	suite.Require().Nil(linked)

@@ -9,6 +9,7 @@ import (
 	fauxauth "psychic-homily-backend/internal/auth"
 	apperrors "psychic-homily-backend/internal/errors"
 	authm "psychic-homily-backend/internal/models/auth"
+	"psychic-homily-backend/internal/testutil/signupconsent"
 )
 
 func TestProviderAssertsEmailVerified(t *testing.T) {
@@ -67,7 +68,7 @@ func TestProviderAssertsEmailVerified_ReadsTheFauxProvidersKey(t *testing.T) {
 // the provider claims about it. providerAssertsEmailVerified still runs, but
 // only on the create path, where it decides the new row's email_verified.
 
-func (suite *UserServiceIntegrationTestSuite) TestFindOrCreateUser_UnverifiedEmail_RefusesLink() {
+func (suite *UserServiceIntegrationTestSuite) TestFindOrCreateUserWithConsent_UnverifiedEmail_RefusesLink() {
 	existing := &authm.User{
 		Email:         stringPtr("unverified.link@example.com"),
 		IsActive:      true,
@@ -75,11 +76,11 @@ func (suite *UserServiceIntegrationTestSuite) TestFindOrCreateUser_UnverifiedEma
 	}
 	suite.Require().NoError(suite.db.Create(existing).Error)
 
-	linked, err := suite.userService.FindOrCreateUser(goth.User{
+	linked, err := suite.userService.FindOrCreateUserWithConsent(goth.User{
 		UserID:  "goth-unverified-subject",
 		Email:   "unverified.link@example.com",
 		RawData: map[string]any{"verified_email": false},
-	}, "google")
+	}, "google", signupconsent.CurrentOAuthSignupConsent())
 
 	suite.Require().Error(err)
 	suite.Require().Nil(linked)
@@ -95,7 +96,7 @@ func (suite *UserServiceIntegrationTestSuite) TestFindOrCreateUser_UnverifiedEma
 // The RawData shape goth's github provider produces: the GET /user body, with
 // no verification field under either key. Refused, like any other provider
 // that asserts nothing.
-func (suite *UserServiceIntegrationTestSuite) TestFindOrCreateUser_AbsentVerificationSignal_RefusesLink() {
+func (suite *UserServiceIntegrationTestSuite) TestFindOrCreateUserWithConsent_AbsentVerificationSignal_RefusesLink() {
 	existing := &authm.User{
 		Email:         stringPtr("absent.signal@example.com"),
 		IsActive:      true,
@@ -103,11 +104,11 @@ func (suite *UserServiceIntegrationTestSuite) TestFindOrCreateUser_AbsentVerific
 	}
 	suite.Require().NoError(suite.db.Create(existing).Error)
 
-	linked, err := suite.userService.FindOrCreateUser(goth.User{
+	linked, err := suite.userService.FindOrCreateUserWithConsent(goth.User{
 		UserID:  "github-absent-subject",
 		Email:   "absent.signal@example.com",
 		RawData: map[string]any{"login": "octocat"},
-	}, "github")
+	}, "github", signupconsent.CurrentOAuthSignupConsent())
 
 	suite.Require().Error(err)
 	suite.Require().Nil(linked)
@@ -123,7 +124,7 @@ func (suite *UserServiceIntegrationTestSuite) TestFindOrCreateUser_AbsentVerific
 // The strongest verification claim a provider can make is still a claim about
 // the MAILBOX, so it refuses like the absent one. The copy names the one way
 // past the refusal, which is a session that already holds the account.
-func (suite *UserServiceIntegrationTestSuite) TestFindOrCreateUser_VerifiedEmail_RefusesLink() {
+func (suite *UserServiceIntegrationTestSuite) TestFindOrCreateUserWithConsent_VerifiedEmail_RefusesLink() {
 	existing := &authm.User{
 		Email:         stringPtr("verified.link@example.com"),
 		IsActive:      true,
@@ -131,11 +132,11 @@ func (suite *UserServiceIntegrationTestSuite) TestFindOrCreateUser_VerifiedEmail
 	}
 	suite.Require().NoError(suite.db.Create(existing).Error)
 
-	linked, err := suite.userService.FindOrCreateUser(goth.User{
+	linked, err := suite.userService.FindOrCreateUserWithConsent(goth.User{
 		UserID:  "goth-verified-subject",
 		Email:   "verified.link@example.com",
 		RawData: map[string]any{"verified_email": true},
-	}, "google")
+	}, "google", signupconsent.CurrentOAuthSignupConsent())
 
 	suite.Require().Error(err)
 	suite.Require().Nil(linked)
@@ -154,7 +155,7 @@ func (suite *UserServiceIntegrationTestSuite) TestFindOrCreateUser_VerifiedEmail
 // oauth_accounts resolves by provider_user_id and never reaches the address
 // comparison, so an established sign-in is unaffected by the address rule and
 // by whether the provider still sends a verification flag.
-func (suite *UserServiceIntegrationTestSuite) TestFindOrCreateUser_AlreadyLinkedAccount_UnaffectedByVerification() {
+func (suite *UserServiceIntegrationTestSuite) TestFindOrCreateUserWithConsent_AlreadyLinkedAccount_UnaffectedByVerification() {
 	existing := &authm.User{
 		Email:         stringPtr("already.linked@example.com"),
 		IsActive:      true,
@@ -167,10 +168,10 @@ func (suite *UserServiceIntegrationTestSuite) TestFindOrCreateUser_AlreadyLinked
 		ProviderUserID: "goth-already-linked-subject",
 	}).Error)
 
-	resolved, err := suite.userService.FindOrCreateUser(goth.User{
+	resolved, err := suite.userService.FindOrCreateUserWithConsent(goth.User{
 		UserID: "goth-already-linked-subject",
 		Email:  "already.linked@example.com",
-	}, "google")
+	}, "google", signupconsent.CurrentOAuthSignupConsent())
 
 	suite.Require().NoError(err)
 	suite.Require().NotNil(resolved)
@@ -180,12 +181,12 @@ func (suite *UserServiceIntegrationTestSuite) TestFindOrCreateUser_AlreadyLinked
 // The other half of the blast radius: an address matching nobody is not a
 // takeover, so a first-time signup still creates an account. The account it
 // creates is UNVERIFIED, because nothing vouched for the address.
-func (suite *UserServiceIntegrationTestSuite) TestFindOrCreateUser_UnverifiedEmail_NoExistingAccount_CreatesUnverified() {
-	created, err := suite.userService.FindOrCreateUser(goth.User{
+func (suite *UserServiceIntegrationTestSuite) TestFindOrCreateUserWithConsent_UnverifiedEmail_NoExistingAccount_CreatesUnverified() {
+	created, err := suite.userService.FindOrCreateUserWithConsent(goth.User{
 		UserID:  "goth-fresh-unverified-subject",
 		Email:   "fresh.unverified@example.com",
 		RawData: map[string]any{"verified_email": false},
-	}, "google")
+	}, "google", signupconsent.CurrentOAuthSignupConsent())
 
 	suite.Require().NoError(err)
 	suite.Require().NotNil(created)
@@ -196,12 +197,12 @@ func (suite *UserServiceIntegrationTestSuite) TestFindOrCreateUser_UnverifiedEma
 
 // The RawData shape goth's github provider produces carries no signal at all,
 // which is not verification either.
-func (suite *UserServiceIntegrationTestSuite) TestFindOrCreateUser_AbsentSignal_NoExistingAccount_CreatesUnverified() {
-	created, err := suite.userService.FindOrCreateUser(goth.User{
+func (suite *UserServiceIntegrationTestSuite) TestFindOrCreateUserWithConsent_AbsentSignal_NoExistingAccount_CreatesUnverified() {
+	created, err := suite.userService.FindOrCreateUserWithConsent(goth.User{
 		UserID:  "github-fresh-subject",
 		Email:   "fresh.github@example.com",
 		RawData: map[string]any{"login": "octocat", "id": 1},
-	}, "github")
+	}, "github", signupconsent.CurrentOAuthSignupConsent())
 
 	suite.Require().NoError(err)
 	suite.Require().NotNil(created)
@@ -209,12 +210,12 @@ func (suite *UserServiceIntegrationTestSuite) TestFindOrCreateUser_AbsentSignal_
 	suite.assertStoredEmailVerified(created.ID, false)
 }
 
-func (suite *UserServiceIntegrationTestSuite) TestFindOrCreateUser_VerifiedEmail_NoExistingAccount_CreatesVerified() {
-	created, err := suite.userService.FindOrCreateUser(goth.User{
+func (suite *UserServiceIntegrationTestSuite) TestFindOrCreateUserWithConsent_VerifiedEmail_NoExistingAccount_CreatesVerified() {
+	created, err := suite.userService.FindOrCreateUserWithConsent(goth.User{
 		UserID:  "goth-fresh-verified-subject",
 		Email:   "fresh.verified@example.com",
 		RawData: map[string]any{"verified_email": true},
-	}, "google")
+	}, "google", signupconsent.CurrentOAuthSignupConsent())
 
 	suite.Require().NoError(err)
 	suite.Require().NotNil(created)
@@ -224,20 +225,20 @@ func (suite *UserServiceIntegrationTestSuite) TestFindOrCreateUser_VerifiedEmail
 
 // The faux "google" provider stamps its flag under the key it owns, so a
 // create driven by it lands on the same arm a real Google create would.
-func (suite *UserServiceIntegrationTestSuite) TestFindOrCreateUser_FauxProviderShape_CreatesFromItsFlag() {
-	unverified, err := suite.userService.FindOrCreateUser(goth.User{
+func (suite *UserServiceIntegrationTestSuite) TestFindOrCreateUserWithConsent_FauxProviderShape_CreatesFromItsFlag() {
+	unverified, err := suite.userService.FindOrCreateUserWithConsent(goth.User{
 		UserID:  "faux-unverified-subject",
 		Email:   "faux.unverified@example.com",
 		RawData: map[string]any{fauxauth.EmailVerifiedRawDataKey: false},
-	}, "google")
+	}, "google", signupconsent.CurrentOAuthSignupConsent())
 	suite.Require().NoError(err)
 	suite.False(unverified.EmailVerified)
 
-	verified, err := suite.userService.FindOrCreateUser(goth.User{
+	verified, err := suite.userService.FindOrCreateUserWithConsent(goth.User{
 		UserID:  "faux-verified-subject",
 		Email:   "faux.verified@example.com",
 		RawData: map[string]any{fauxauth.EmailVerifiedRawDataKey: true},
-	}, "google")
+	}, "google", signupconsent.CurrentOAuthSignupConsent())
 	suite.Require().NoError(err)
 	suite.True(verified.EmailVerified)
 }
@@ -248,20 +249,20 @@ func (suite *UserServiceIntegrationTestSuite) TestFindOrCreateUser_FauxProviderS
 // the same address. The owner must be refused rather than joined into the
 // account the attacker holds, and the attacker's account must be left exactly
 // as it was.
-func (suite *UserServiceIntegrationTestSuite) TestFindOrCreateUser_SquattedUnverifiedAccount_RefusesVerifiedOwner() {
-	squatted, err := suite.userService.FindOrCreateUser(goth.User{
+func (suite *UserServiceIntegrationTestSuite) TestFindOrCreateUserWithConsent_SquattedUnverifiedAccount_RefusesVerifiedOwner() {
+	squatted, err := suite.userService.FindOrCreateUserWithConsent(goth.User{
 		UserID:  "goth-squatter-subject",
 		Email:   "squatted@example.com",
 		RawData: map[string]any{"verified_email": false},
-	}, "google")
+	}, "google", signupconsent.CurrentOAuthSignupConsent())
 	suite.Require().NoError(err)
 	suite.Require().False(squatted.EmailVerified)
 
-	owner, err := suite.userService.FindOrCreateUser(goth.User{
+	owner, err := suite.userService.FindOrCreateUserWithConsent(goth.User{
 		UserID:  "goth-real-owner-subject",
 		Email:   "squatted@example.com",
 		RawData: map[string]any{"verified_email": true},
-	}, "google")
+	}, "google", signupconsent.CurrentOAuthSignupConsent())
 
 	suite.Require().Error(err)
 	suite.Require().Nil(owner)
@@ -285,7 +286,7 @@ func (suite *UserServiceIntegrationTestSuite) TestFindOrCreateUser_SquattedUnver
 // The same rule, reached from the ordinary direction: a password account whose
 // owner never clicked the verification link has not proven the mailbox either,
 // so a verified provider identity does not join it by address.
-func (suite *UserServiceIntegrationTestSuite) TestFindOrCreateUser_UnverifiedExistingAccount_RefusesVerifiedProvider() {
+func (suite *UserServiceIntegrationTestSuite) TestFindOrCreateUserWithConsent_UnverifiedExistingAccount_RefusesVerifiedProvider() {
 	existing := &authm.User{
 		Email:         stringPtr("never.verified@example.com"),
 		IsActive:      true,
@@ -293,11 +294,11 @@ func (suite *UserServiceIntegrationTestSuite) TestFindOrCreateUser_UnverifiedExi
 	}
 	suite.Require().NoError(suite.db.Create(existing).Error)
 
-	linked, err := suite.userService.FindOrCreateUser(goth.User{
+	linked, err := suite.userService.FindOrCreateUserWithConsent(goth.User{
 		UserID:  "goth-into-unverified-subject",
 		Email:   "never.verified@example.com",
 		RawData: map[string]any{"verified_email": true},
-	}, "google")
+	}, "google", signupconsent.CurrentOAuthSignupConsent())
 
 	suite.Require().Error(err)
 	suite.Require().Nil(linked)
@@ -312,7 +313,7 @@ func (suite *UserServiceIntegrationTestSuite) TestFindOrCreateUser_UnverifiedExi
 
 // provider_user_id permits the empty string, so a stored row with one would be
 // matched by any provider that returns no subject, ahead of the address gate.
-func (suite *UserServiceIntegrationTestSuite) TestFindOrCreateUser_EmptyProviderUserID_Refused() {
+func (suite *UserServiceIntegrationTestSuite) TestFindOrCreateUserWithConsent_EmptyProviderUserID_Refused() {
 	owner := &authm.User{
 		Email:         stringPtr("empty.subject.owner@example.com"),
 		IsActive:      true,
@@ -325,11 +326,11 @@ func (suite *UserServiceIntegrationTestSuite) TestFindOrCreateUser_EmptyProvider
 		ProviderUserID: "",
 	}).Error)
 
-	resolved, err := suite.userService.FindOrCreateUser(goth.User{
+	resolved, err := suite.userService.FindOrCreateUserWithConsent(goth.User{
 		UserID:  "",
 		Email:   "someone.else@example.com",
 		RawData: map[string]any{"verified_email": true},
-	}, "google")
+	}, "google", signupconsent.CurrentOAuthSignupConsent())
 
 	suite.Require().Error(err)
 	suite.Require().Nil(resolved)
