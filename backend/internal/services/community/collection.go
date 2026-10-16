@@ -2479,7 +2479,8 @@ func (s *CollectionService) GetUserPublicCollections(userID uint, limit, offset 
 
 // GetUserPublicCollectionsByUsername returns public collections by username
 // lookup. A username no account holds, including one Postgres rejects as text
-// (authm.PostgresRejectsText), returns an empty page.
+// (authm.PostgresRejectsText), returns an empty page. A failed lookup returns
+// its error, so a database failure is never served as an empty page.
 func (s *CollectionService) GetUserPublicCollectionsByUsername(username string, limit, offset int) ([]*contracts.CollectionListResponse, int64, error) {
 	if s.db == nil {
 		return nil, 0, fmt.Errorf("database not initialized")
@@ -2488,12 +2489,13 @@ func (s *CollectionService) GetUserPublicCollectionsByUsername(username string, 
 		return []*contracts.CollectionListResponse{}, 0, nil
 	}
 
-	// Look up user by username
 	var user authm.User
 	err := s.db.Where("username = ?", username).First(&user).Error
-	if err != nil {
-		// User not found - return empty
+	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return []*contracts.CollectionListResponse{}, 0, nil
+	}
+	if err != nil {
+		return nil, 0, fmt.Errorf("look up user by username: %w", err)
 	}
 
 	return s.GetUserPublicCollections(user.ID, limit, offset)
