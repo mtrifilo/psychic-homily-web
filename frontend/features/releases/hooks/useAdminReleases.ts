@@ -9,7 +9,8 @@
 
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { apiRequest } from '@/lib/api'
-import { createInvalidateQueries } from '@/lib/queryClient'
+import { queryKeys } from '@/lib/queryClient'
+import { refetchAfterMutation } from '@/lib/refetchAfterMutation'
 import { releaseEndpoints } from '@/features/releases/api'
 import type { ReleaseDetail, ReleaseExternalLink } from '../types'
 
@@ -56,7 +57,6 @@ export interface UpdateReleaseInput {
  */
 export function useCreateRelease() {
   const queryClient = useQueryClient()
-  const invalidateQueries = createInvalidateQueries(queryClient)
 
   return useMutation({
     mutationFn: async (input: CreateReleaseInput): Promise<ReleaseDetail> => {
@@ -66,7 +66,7 @@ export function useCreateRelease() {
       })
     },
     onSuccess: () => {
-      invalidateQueries.releases()
+      void refetchAfterMutation(queryClient, queryKeys.releases.all)
     },
   })
 }
@@ -76,7 +76,6 @@ export function useCreateRelease() {
  */
 export function useUpdateRelease() {
   const queryClient = useQueryClient()
-  const invalidateQueries = createInvalidateQueries(queryClient)
 
   return useMutation({
     mutationFn: async ({
@@ -92,7 +91,7 @@ export function useUpdateRelease() {
       })
     },
     onSuccess: () => {
-      invalidateQueries.releases()
+      void refetchAfterMutation(queryClient, queryKeys.releases.all)
     },
   })
 }
@@ -102,7 +101,6 @@ export function useUpdateRelease() {
  */
 export function useDeleteRelease() {
   const queryClient = useQueryClient()
-  const invalidateQueries = createInvalidateQueries(queryClient)
 
   return useMutation({
     mutationFn: async (releaseId: number): Promise<void> => {
@@ -111,7 +109,7 @@ export function useDeleteRelease() {
       })
     },
     onSuccess: () => {
-      invalidateQueries.releases()
+      void refetchAfterMutation(queryClient, queryKeys.releases.all)
     },
   })
 }
@@ -121,7 +119,6 @@ export function useDeleteRelease() {
  */
 export function useAddReleaseLink() {
   const queryClient = useQueryClient()
-  const invalidateQueries = createInvalidateQueries(queryClient)
 
   return useMutation({
     mutationFn: async ({
@@ -142,7 +139,7 @@ export function useAddReleaseLink() {
       )
     },
     onSuccess: () => {
-      invalidateQueries.releases()
+      void refetchAfterMutation(queryClient, queryKeys.releases.all)
     },
   })
 }
@@ -152,7 +149,6 @@ export function useAddReleaseLink() {
  */
 export function useRemoveReleaseLink() {
   const queryClient = useQueryClient()
-  const invalidateQueries = createInvalidateQueries(queryClient)
 
   return useMutation({
     mutationFn: async ({
@@ -167,7 +163,7 @@ export function useRemoveReleaseLink() {
       })
     },
     onSuccess: () => {
-      invalidateQueries.releases()
+      void refetchAfterMutation(queryClient, queryKeys.releases.all)
     },
   })
 }
