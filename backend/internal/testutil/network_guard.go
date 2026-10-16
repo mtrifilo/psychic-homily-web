@@ -14,7 +14,8 @@ import (
 )
 
 // ErrNonLoopbackRequest is the error a request refused by the network guard
-// wraps.
+// wraps, so a test that expects its code under test to be refused can match it
+// with errors.Is.
 var ErrNonLoopbackRequest = errors.New("network guard: non-loopback request refused in a test")
 
 // RefuseNonLoopbackNetwork runs the package's tests with http.DefaultTransport
@@ -102,6 +103,8 @@ func (g *networkGuard) refusals() []refusedRequest {
 // the default transport swapped. Each reason is printed.
 func (g *networkGuard) exitCode(code int) int {
 	failed := false
+	// The summary repeats the refusals printed as they happened, because under
+	// -v those lines are interleaved with every test's output.
 	if refused := g.refusals(); len(refused) > 0 {
 		failed = true
 		_, _ = fmt.Fprintf(g.log, "network guard: %d non-loopback request(s) refused; failing the package run:\n", len(refused))
