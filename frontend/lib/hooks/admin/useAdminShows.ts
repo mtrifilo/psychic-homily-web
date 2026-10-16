@@ -3,6 +3,7 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { apiRequest, API_ENDPOINTS } from '../../api'
 import { createInvalidateQueries } from '../../queryClient'
+import { refetchAfterMutation } from '@/lib/refetchAfterMutation'
 import type {
   ShowResponse,
   PendingShowsResponse,
@@ -116,13 +117,15 @@ export function useApproveShow() {
       )
     },
     onSuccess: () => {
-      // Invalidate pending and rejected shows lists
-      queryClient.invalidateQueries({ queryKey: ['admin', 'shows', 'pending'] })
-      queryClient.invalidateQueries({ queryKey: ['admin', 'shows', 'rejected'] })
-      // Invalidate public shows list since a show was approved
+      // The pending and rejected lists, and the dashboard counts
+      void refetchAfterMutation(
+        queryClient,
+        ['admin', 'shows', 'pending'],
+        ['admin', 'shows', 'rejected'],
+        ['admin', 'stats']
+      )
+      // The public shows list, which now includes the approved show
       invalidateQueries.shows()
-      // Invalidate admin stats (dashboard counts)
-      queryClient.invalidateQueries({ queryKey: ['admin', 'stats'] })
     },
   })
 }
@@ -151,10 +154,12 @@ export function useRejectShow() {
       )
     },
     onSuccess: () => {
-      // Invalidate pending shows list
-      queryClient.invalidateQueries({ queryKey: ['admin', 'shows', 'pending'] })
-      // Invalidate admin stats (dashboard counts)
-      queryClient.invalidateQueries({ queryKey: ['admin', 'stats'] })
+      // The pending list and the dashboard counts
+      void refetchAfterMutation(
+        queryClient,
+        ['admin', 'shows', 'pending'],
+        ['admin', 'stats']
+      )
     },
   })
 }
@@ -237,10 +242,13 @@ export function useBatchApproveShows() {
       )
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['admin', 'shows', 'pending'] })
-      queryClient.invalidateQueries({ queryKey: ['admin', 'shows', 'rejected'] })
+      void refetchAfterMutation(
+        queryClient,
+        ['admin', 'shows', 'pending'],
+        ['admin', 'shows', 'rejected'],
+        ['admin', 'stats']
+      )
       invalidateQueries.shows()
-      queryClient.invalidateQueries({ queryKey: ['admin', 'stats'] })
     },
   })
 }
@@ -274,8 +282,11 @@ export function useBatchRejectShows() {
       )
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['admin', 'shows', 'pending'] })
-      queryClient.invalidateQueries({ queryKey: ['admin', 'stats'] })
+      void refetchAfterMutation(
+        queryClient,
+        ['admin', 'shows', 'pending'],
+        ['admin', 'stats']
+      )
     },
   })
 }

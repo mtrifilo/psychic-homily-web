@@ -47,6 +47,10 @@ function makeRun(id: number, status: RadioSyncRun['status']): RadioSyncRun {
   }
 }
 
+/** Lets refetchAfterMutation's cancel step settle so its invalidation lands. */
+const settleRefetch = () =>
+  act(() => new Promise(resolve => setTimeout(resolve, 0)))
+
 function setup() {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   const invalidateSpy = vi.spyOn(queryClient, 'invalidateQueries')
@@ -78,31 +82,35 @@ describe('useTrackedSyncRun (PSY-1136)', () => {
     expect(result.current.isRunning).toBe(true)
   })
 
-  it('invalidates the lists once when a run settles, and not while running', () => {
+  it('invalidates the lists once when a run settles, and not while running', async () => {
     const { result, rerender, invalidateSpy } = setup()
     syncRunData = makeRun(7, 'running')
     act(() => {
       result.current.trackRun(syncRunData!)
     })
     rerender()
+    await settleRefetch()
     expect(invalidateSpy).not.toHaveBeenCalled() // running → no invalidation
 
     syncRunData = makeRun(7, 'success')
     rerender()
+    await settleRefetch()
     const afterSettle = invalidateSpy.mock.calls.length
     expect(afterSettle).toBeGreaterThanOrEqual(3) // shows + stations + stats
 
     rerender() // still success
+    await settleRefetch()
     expect(invalidateSpy.mock.calls.length).toBe(afterSettle) // guard: no double-invalidate
   })
 
-  it('invalidates AGAIN for a second run that ends on the same terminal status', () => {
+  it('invalidates AGAIN for a second run that ends on the same terminal status', async () => {
     const { result, rerender, invalidateSpy } = setup()
     syncRunData = makeRun(7, 'success')
     act(() => {
       result.current.trackRun(syncRunData!)
     })
     rerender()
+    await settleRefetch()
     const afterFirst = invalidateSpy.mock.calls.length
     expect(afterFirst).toBeGreaterThanOrEqual(3)
 
@@ -113,6 +121,7 @@ describe('useTrackedSyncRun (PSY-1136)', () => {
       result.current.trackRun(syncRunData!)
     })
     rerender()
+    await settleRefetch()
     expect(invalidateSpy.mock.calls.length).toBeGreaterThan(afterFirst)
   })
 
