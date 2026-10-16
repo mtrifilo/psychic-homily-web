@@ -223,6 +223,23 @@ const nextConfig: NextConfig = {
         destination: '/library',
         permanent: false,
       },
+      // Discovery lives at /graph. A config redirect rather than a page, so
+      // /explore answers 308 before anything streams.
+      {
+        source: '/explore',
+        destination: '/graph',
+        permanent: true,
+      },
+      // The "manage" link of every artist and venue show-alert email. Temporary
+      // because the target follows whichever surface owns alert preferences.
+      // The destination is `ALERTS_HREF` (components/shared/followAlertChoices)
+      // spelled out, since this file imports packages only;
+      // next.config.redirect-only-pages.test.ts fails if the two drift.
+      {
+        source: '/settings/notifications',
+        destination: '/profile?tab=settings#alerts',
+        permanent: false,
+      },
     ]
   },
   async rewrites() {
