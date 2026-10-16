@@ -385,3 +385,23 @@ func (s *RadioCandidatesIntegrationSuite) TestTrackEvidence() {
 	s.False(c.VariantReleaseID, "plain spellings carry a release id too")
 	s.Equal(contracts.RadioCandidateLaneHuman, c.Lane)
 }
+
+// A placeholder album (radio_play_exclusions, album_title) is not album
+// evidence, yet its plays still count toward the track.
+func (s *RadioCandidatesIntegrationSuite) TestTrackEvidenceSkipsPlaceholderAlbums() {
+	known := s.createArtist("T Album Band", nil)
+	add := func(station, album string, n int) {
+		s.add(candidatePlay{station: station, artist: "T Album Band", title: "Album Song", album: album, artistID: &known}, n)
+	}
+	add("t-kexp", "Single", 2)
+	add("t-wfmu", "Real Album", 1)
+	add("t-wfmu", "S/T", 1)
+	s.rebuildTracks()
+
+	got := s.tracks(contracts.RadioTrackCandidateViewUnlinked)
+	s.Require().Contains(got, "Album Song")
+	c := got["Album Song"]
+	s.Equal(4, c.PlayCount, "plays with a placeholder album still count for the track")
+	s.Equal(1, c.AlbumNameCount)
+	s.Equal([]contracts.RadioCandidateName{{Name: "Real Album", PlayCount: 1}}, c.AlbumNames)
+}
