@@ -221,6 +221,32 @@ migration "20260901000000_widen" "ALTER TABLE audit_logs
     ALTER COLUMN entity_id TYPE bigint;"
 expect 0 "audit_logs.actor_id (sqlBigint)" "audit_logs.entity_id (sqlBigint)"
 
+reset_fixture "a COLLATE clause is dropped from the new type"
+assertion '	{Table: "events", Column: "starts_at", Type: sqlTimestamptz},'
+migration "20260901000000_zone" 'ALTER TABLE events ALTER COLUMN starts_at TYPE timestamptz COLLATE "C";'
+expect 0 "events.starts_at (sqlTimestamptz)"
+
+reset_fixture "SET DATA TYPE reads the new type"
+migration "20260901000000_widen" "ALTER TABLE audit_logs ALTER COLUMN actor_id SET DATA TYPE bigint;"
+expect 0 "audit_logs.actor_id (sqlBigint)"
+
+reset_fixture "a string-literal Type with spaces counts"
+assertion '	{Table: "events", Column: "starts_at", Type: "timestamp with time zone"},'
+migration "20260901000000_zone" "ALTER TABLE events ALTER COLUMN starts_at TYPE timestamptz;"
+expect 0 "events.starts_at (sqlTimestamptz)"
+
+reset_fixture "one matching entry among several for the column counts"
+assertion '	{Table: "events", Column: "starts_at", Type: sqlBigint},
+	{Table: "events", Column: "starts_at", Type: sqlTimestamptz},'
+migration "20260901000000_zone" "ALTER TABLE events ALTER COLUMN starts_at TYPE timestamptz;"
+expect 0 "events.starts_at (sqlTimestamptz)"
+
+reset_fixture "a mismatch names every entry for the column"
+assertion '	{Table: "events", Column: "starts_at", Type: sqlBigint},
+	{Table: "events", Column: "starts_at", Type: "integer"},'
+migration "20260901000000_zone" "ALTER TABLE events ALTER COLUMN starts_at TYPE timestamptz;"
+expect 1 'needs Type: sqlTimestamptz (it has Type: "integer", Type: sqlBigint).'
+
 reset_fixture "a mismatched Type fails, naming the expected constant"
 assertion '	{Table: "events", Column: "starts_at", Type: sqlTimestamptz},'
 migration "20260901000000_widen" "ALTER TABLE events ALTER COLUMN starts_at TYPE bigint;"
@@ -302,7 +328,7 @@ expect 1 "changes the type of users.username"
 
 # The comment rule is the shared one in scripts/lib/sql_strip_comments.sh,
 # which check_migration_lock_timeout_test.sh covers case by case; these are
-# the shapes where it differs from a non-nesting, quote-blind stripper.
+# the shapes a non-nesting or quote-blind stripper misreads.
 reset_fixture "type change only inside a nested block comment is ignored"
 migration "20260901000000_note" "/* outer /* inner */ ALTER TABLE users ALTER COLUMN username TYPE text; */
 SELECT 1;"
