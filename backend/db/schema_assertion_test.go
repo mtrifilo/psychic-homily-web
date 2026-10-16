@@ -6,26 +6,16 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"psychic-homily-backend/internal/testutil"
 )
 
-type mockColumnChecker struct {
-	present map[string]bool
-}
-
-func (m *mockColumnChecker) HasColumn(table interface{}, column string) bool {
-	tableName, ok := table.(string)
-	if !ok {
-		return false
-	}
-	return m.present[tableName+"."+column]
-}
-
 // allRequiredColumnKeys renders the production checklist in the "table.column"
-// form the mock checker keys on.
+// form the column read keys on.
 func allRequiredColumnKeys() []string {
 	keys := make([]string, 0, len(requiredSchemaColumns))
 	for _, col := range requiredSchemaColumns {
-		keys = append(keys, col.Table+"."+col.Column)
+		keys = append(keys, col.qualifiedName())
 	}
 	return keys
 }
@@ -77,12 +67,12 @@ func TestAssertRequiredSchema(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			present := make(map[string]bool, len(tc.present))
+			present := make(map[string]columnType, len(tc.present))
 			for _, key := range tc.present {
-				present[key] = true
+				present[key] = columnType{}
 			}
 
-			err := assertRequiredSchema(&mockColumnChecker{present: present})
+			err := assertRequiredSchema(present)
 			if tc.wantErr == "" {
 				require.NoError(t, err)
 				return
@@ -93,6 +83,18 @@ func TestAssertRequiredSchema(t *testing.T) {
 			assert.Contains(t, err.Error(), "refusing to boot")
 		})
 	}
+}
+
+// A database that cannot be reached must refuse boot naming the failed read,
+// not report the required columns as missing.
+func TestAssertRequiredSchema_unreachableDatabase(t *testing.T) {
+	t.Parallel()
+
+	err := AssertRequiredSchema(testutil.UnavailableDB(t))
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "could not read required schema: ")
+	assert.Contains(t, err.Error(), "refusing to boot")
+	assert.NotContains(t, err.Error(), "missing")
 }
 
 func TestAssertRequiredSchema_nilDB(t *testing.T) {
@@ -106,9 +108,11 @@ func TestAssertRequiredSchema_nilDB(t *testing.T) {
 type fakeColumnTypeReader struct {
 	types map[string]columnType
 	err   error
+	reads [][]string
 }
 
-func (f *fakeColumnTypeReader) ColumnTypes([]string) (map[string]columnType, error) {
+func (f *fakeColumnTypeReader) ColumnTypes(tables []string) (map[string]columnType, error) {
+	f.reads = append(f.reads, tables)
 	return f.types, f.err
 }
 
@@ -124,20 +128,31 @@ func listedColumnTypes() map[string]columnType {
 	return types
 }
 
+// passingColumnTypes renders every entry of the production checklist, the
+// typed ones with their required type, so both checks pass on it.
+func passingColumnTypes() map[string]columnType {
+	types := listedColumnTypes()
+	for _, key := range allRequiredColumnKeys() {
+		if _, ok := types[key]; !ok {
+			types[key] = columnType{}
+		}
+	}
+	return types
+}
+
 func TestAssertRequiredColumnTypes(t *testing.T) {
 	t.Parallel()
 
 	t.Run("every listed column has its type", func(t *testing.T) {
 		t.Parallel()
-		reader := &fakeColumnTypeReader{types: listedColumnTypes()}
-		require.NoError(t, assertRequiredColumnTypes(reader))
+		require.NoError(t, assertRequiredColumnTypes(listedColumnTypes()))
 	})
 
 	t.Run("a listed column with another type fails with the column, actual and expected type", func(t *testing.T) {
 		t.Parallel()
 		types := listedColumnTypes()
 		types["webauthn_credentials.sign_count"] = columnType{DataType: "integer", UDTName: "int4"}
-		err := assertRequiredColumnTypes(&fakeColumnTypeReader{types: types})
+		err := assertRequiredColumnTypes(types)
 		require.EqualError(t, err,
 			"required schema column types do not match: webauthn_credentials.sign_count is integer, "+
 				"expected bigint (type change recorded but DDL absent?); refusing to boot")
@@ -148,7 +163,7 @@ func TestAssertRequiredColumnTypes(t *testing.T) {
 		types := listedColumnTypes()
 		types["webauthn_credentials.sign_count"] = columnType{DataType: "integer", UDTName: "int4"}
 		types["entity_edit_audit_logs.created_at"] = columnType{DataType: "timestamp without time zone", UDTName: "timestamp"}
-		err := assertRequiredColumnTypes(&fakeColumnTypeReader{types: types})
+		err := assertRequiredColumnTypes(types)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "webauthn_credentials.sign_count is integer, expected bigint")
 		assert.Contains(t, err.Error(),
@@ -159,7 +174,7 @@ func TestAssertRequiredColumnTypes(t *testing.T) {
 		t.Parallel()
 		types := listedColumnTypes()
 		delete(types, "webauthn_credentials.sign_count")
-		err := assertRequiredColumnTypes(&fakeColumnTypeReader{types: types})
+		err := assertRequiredColumnTypes(types)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "webauthn_credentials.sign_count is absent, expected bigint")
 		assert.Contains(t, err.Error(), "refusing to boot")
@@ -170,15 +185,49 @@ func TestAssertRequiredColumnTypes(t *testing.T) {
 		types := listedColumnTypes()
 		types["webauthn_credentials.display_name"] = columnType{DataType: "integer", UDTName: "int4"}
 		types["user_bookmarks.scene_digest_sent_at"] = columnType{DataType: "text", UDTName: "text"}
-		require.NoError(t, assertRequiredColumnTypes(&fakeColumnTypeReader{types: types}))
+		require.NoError(t, assertRequiredColumnTypes(types))
+	})
+}
+
+func TestAssertRequiredColumns(t *testing.T) {
+	t.Parallel()
+
+	t.Run("one read covers every listed table", func(t *testing.T) {
+		t.Parallel()
+		reader := &fakeColumnTypeReader{types: passingColumnTypes()}
+		require.NoError(t, assertRequiredColumns(reader))
+
+		require.Len(t, reader.reads, 1)
+		for _, col := range requiredSchemaColumns {
+			assert.Contains(t, reader.reads[0], col.Table)
+		}
 	})
 
-	t.Run("a read error refuses boot", func(t *testing.T) {
+	// The existence check and the type check share the read, so its failure
+	// has to surface as itself rather than as either check's verdict on an
+	// empty result.
+	t.Run("a read error refuses boot naming the read, not a missing or mistyped column", func(t *testing.T) {
 		t.Parallel()
-		err := assertRequiredColumnTypes(&fakeColumnTypeReader{err: errors.New("connection reset")})
+		err := assertRequiredColumns(&fakeColumnTypeReader{err: errors.New("connection refused")})
+		require.EqualError(t, err, "could not read required schema: connection refused; refusing to boot")
+	})
+
+	t.Run("a missing untyped column is reported by the existence check", func(t *testing.T) {
+		t.Parallel()
+		types := listedColumnTypes()
+		err := assertRequiredColumns(&fakeColumnTypeReader{types: types})
 		require.Error(t, err)
-		assert.Contains(t, err.Error(), "could not read required column types: connection reset")
-		assert.Contains(t, err.Error(), "refusing to boot")
+		assert.Contains(t, err.Error(), "required schema columns missing: user_bookmarks.scene_digest_sent_at")
+	})
+
+	t.Run("a mistyped column is reported once every untyped column exists", func(t *testing.T) {
+		t.Parallel()
+		types := passingColumnTypes()
+		types["audit_logs.actor_id"] = columnType{DataType: "integer", UDTName: "int4"}
+		err := assertRequiredColumns(&fakeColumnTypeReader{types: types})
+		require.EqualError(t, err,
+			"required schema column types do not match: audit_logs.actor_id is integer, "+
+				"expected bigint (type change recorded but DDL absent?); refusing to boot")
 	})
 }
 
