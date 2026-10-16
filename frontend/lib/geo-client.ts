@@ -11,9 +11,8 @@
  * that mount before any write lands can each fire `/api/geo` once — an extra
  * idempotent edge hit, not a correctness issue.)
  *
- * Client-safe by construction: unlike `lib/geo-default.ts` (which imports
- * `next/headers` for the server read path), nothing here touches server-only
- * APIs, so it's importable from any 'use client' module.
+ * Client-safe by construction: nothing here touches server-only APIs, so it's
+ * importable from any 'use client' module.
  */
 
 import type { GeoLocation } from '@/lib/geo-default'

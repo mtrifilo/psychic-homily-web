@@ -100,7 +100,6 @@ describe('CanvasSectionErrorBoundary', () => {
 
   // Recovery is deliberately NOT a boundary "reset": a reset would re-render the
   // same React.lazy, which permanently caches a rejected chunk import and just
-  // re-throws. A working retry lives at the surface (InlineGraph), which remounts
-  // this boundary with a fresh key around a freshly-created lazy component — see
-  // InlineGraph.errorBoundary.test.tsx.
+  // re-throws. A working retry belongs at the surface, which remounts this
+  // boundary with a fresh key around a freshly-created lazy component.
 })
