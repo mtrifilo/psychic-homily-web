@@ -10,7 +10,6 @@ import (
 	"net/http/httptest"
 	"os"
 	"os/exec"
-	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -22,6 +21,7 @@ import (
 	"psychic-homily-backend/internal/api/middleware"
 	"psychic-homily-backend/internal/api/routes"
 	"psychic-homily-backend/internal/config"
+	"psychic-homily-backend/internal/logger"
 	"psychic-homily-backend/internal/services"
 )
 
@@ -35,8 +35,8 @@ import (
 // Every one of those log lines goes through logger.Default(), whose handler is
 // bound to os.Stdout the first time it is used and cannot be redirected
 // afterwards. So the requests are served in a child process running this same
-// test, and this process reads the child's stdout: the lines it sees are
-// exactly the lines production writes.
+// test with the JSON logger production initializes, and this process reads the
+// child's stdout: the lines it sees are exactly the lines production writes.
 func TestRequestCorrelationCarriesOneID(t *testing.T) {
 	if os.Getenv(correlationChildEnv) == "1" {
 		serveCorrelationCases(t)
@@ -56,11 +56,14 @@ func TestRequestCorrelationCarriesOneID(t *testing.T) {
 			assertOneID(t, name, inbound, res, logReachedHandler)
 		}
 
-		refusal := firstRefusal(t, results, correlationCaseName("refusal", inbound))
-		if refusal == nil {
+		// The child stops at the first refusal, so the last attempt it reports
+		// under this name is that refusal.
+		name := correlationCaseName("refusal", inbound)
+		if res := results[name]; res.Status != http.StatusTooManyRequests {
+			t.Errorf("%s: the auth group limiter refused none of the attempts; last status %d", name, res.Status)
 			continue
 		}
-		assertOneID(t, correlationCaseName("refusal", inbound), inbound, *refusal, logRefusal)
+		assertOneID(t, name, inbound, results[name], logRefusal)
 	}
 }
 
@@ -93,7 +96,6 @@ func correlationCaseName(route, inbound string) string {
 
 // caseEnd is what the child reports about one request once it is served.
 type caseEnd struct {
-	Name      string `json:"name"`
 	Status    int    `json:"status"`
 	Header    string `json:"header"`
 	SentryTag string `json:"sentry_tag"`
@@ -110,6 +112,8 @@ type caseResult struct {
 // production-shaped router and brackets each one with markers on stdout, the
 // stream logger.Default() writes to.
 func serveCorrelationCases(t *testing.T) {
+	logger.Init(true, true)
+
 	cfg := &config.Config{
 		JWT:   config.JWTConfig{SecretKey: "test-secret-key-32-chars-minimum", Expiry: 24},
 		OAuth: config.OAuthConfig{SecretKey: "test-oauth-secret-key-32-chars"},
@@ -139,7 +143,7 @@ func serveCorrelationCases(t *testing.T) {
 		rr := httptest.NewRecorder()
 		router.ServeHTTP(rr, req)
 
-		end := caseEnd{Name: name, Status: rr.Code, Header: rr.Header().Get(middleware.RequestIDHeader)}
+		end := caseEnd{Status: rr.Code, Header: rr.Header().Get(middleware.RequestIDHeader)}
 		if hub != nil {
 			end.SentryTag = hub.Scope().ApplyToEvent(&sentry.Event{}, nil, nil).Tags["request_id"]
 		}
@@ -189,12 +193,10 @@ func runCorrelationChild(t *testing.T) []byte {
 }
 
 // parseCorrelationOutput groups the child's log lines by the case whose markers
-// bracket them. Every name appears once except the refusal cases, whose attempts
-// share one name; those are kept under name#attempt.
+// bracket them. A name served more than once keeps its last attempt.
 func parseCorrelationOutput(t *testing.T, out []byte) map[string]caseResult {
 	t.Helper()
 	results := map[string]caseResult{}
-	attempts := map[string]int{}
 	var current string
 	var lines []string
 
@@ -207,19 +209,14 @@ func parseCorrelationOutput(t *testing.T, out []byte) map[string]caseResult {
 			current = strings.TrimPrefix(line, caseBeginMarker)
 			lines = nil
 		case strings.HasPrefix(line, caseEndMarker):
+			if current == "" {
+				t.Fatalf("case end with no open case: %q", line)
+			}
 			var end caseEnd
 			if err := json.Unmarshal([]byte(strings.TrimPrefix(line, caseEndMarker)), &end); err != nil {
 				t.Fatalf("decode case end %q: %v", line, err)
 			}
-			if end.Name != current {
-				t.Fatalf("case end %q closes case %q", end.Name, current)
-			}
-			key := end.Name
-			if strings.HasPrefix(key, "refusal/") {
-				key = fmt.Sprintf("%s#%d", key, attempts[end.Name])
-				attempts[end.Name]++
-			}
-			results[key] = caseResult{caseEnd: end, lines: lines}
+			results[current] = caseResult{caseEnd: end, lines: lines}
 			current = ""
 		case current != "":
 			lines = append(lines, line)
@@ -234,22 +231,6 @@ func parseCorrelationOutput(t *testing.T, out []byte) map[string]caseResult {
 	return results
 }
 
-// firstRefusal returns the first attempt of the named refusal case that the
-// group limiter refused.
-func firstRefusal(t *testing.T, results map[string]caseResult, name string) *caseResult {
-	t.Helper()
-	for i := 0; ; i++ {
-		res, ok := results[fmt.Sprintf("%s#%d", name, i)]
-		if !ok {
-			t.Errorf("%s: the auth group limiter refused none of %d attempts", name, i)
-			return nil
-		}
-		if res.Status == http.StatusTooManyRequests {
-			return &res
-		}
-	}
-}
-
 // logKind sorts a case's log lines by who wrote them.
 type logKind string
 
@@ -259,23 +240,45 @@ const (
 	logReachedHandler logKind = "Huma context logger line"
 )
 
-var (
-	logMsgPattern       = regexp.MustCompile(`(?:^| )msg=("(?:[^"\\]|\\.)*"|\S+)`)
-	logRequestIDPattern = regexp.MustCompile(`(?:^| )request_id=("(?:[^"\\]|\\.)*"|\S*)`)
-)
-
-func classifyLogLine(line string) (logKind, bool) {
-	m := logMsgPattern.FindStringSubmatch(line)
-	if m == nil {
-		return "", false
+// logRecord reads one JSON log line: its message and every request_id field on
+// it, in order. The logger.Auth* helpers write request_id twice (the context
+// logger's and their own), and both must be the request's id. A line that is
+// not a JSON object is not a log record.
+func logRecord(line string) (msg string, requestIDs []string, ok bool) {
+	dec := json.NewDecoder(strings.NewReader(line))
+	if tok, err := dec.Token(); err != nil || tok != json.Delim('{') {
+		return "", nil, false
 	}
-	switch strings.Trim(m[1], `"`) {
+	for dec.More() {
+		keyTok, err := dec.Token()
+		if err != nil {
+			return "", nil, false
+		}
+		var value json.RawMessage
+		if err := dec.Decode(&value); err != nil {
+			return "", nil, false
+		}
+		var text string
+		switch keyTok {
+		case "msg":
+			_ = json.Unmarshal(value, &text)
+			msg = text
+		case "request_id":
+			_ = json.Unmarshal(value, &text)
+			requestIDs = append(requestIDs, text)
+		}
+	}
+	return msg, requestIDs, true
+}
+
+func classifyLogLine(msg string, requestIDs []string) (logKind, bool) {
+	switch msg {
 	case "request":
 		return logAccess, true
 	case "rate limit exceeded":
 		return logRefusal, true
 	}
-	if !logRequestIDPattern.MatchString(line) {
+	if len(requestIDs) == 0 {
 		return "", false
 	}
 	return logReachedHandler, true
@@ -302,17 +305,20 @@ func assertOneID(t *testing.T, name, inbound string, res caseResult, want logKin
 
 	seen := map[logKind]bool{}
 	for _, line := range res.lines {
-		kind, ok := classifyLogLine(line)
+		msg, requestIDs, ok := logRecord(line)
+		if !ok {
+			continue
+		}
+		kind, ok := classifyLogLine(msg, requestIDs)
 		if !ok {
 			continue
 		}
 		seen[kind] = true
-		matches := logRequestIDPattern.FindAllStringSubmatch(line, -1)
-		if len(matches) == 0 {
+		if len(requestIDs) == 0 {
 			t.Errorf("%s: %s carries no request_id: %s", name, kind, line)
 		}
-		for _, m := range matches {
-			if got := strings.Trim(m[1], `"`); got != id {
+		for _, got := range requestIDs {
+			if got != id {
 				t.Errorf("%s: %s request_id = %q, X-Request-ID = %q: %s", name, kind, got, id, line)
 			}
 		}
