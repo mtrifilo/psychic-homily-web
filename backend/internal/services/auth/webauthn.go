@@ -761,8 +761,8 @@ func (s *WebAuthnService) FinishSignupRegistrationWithLegal(
 		TermsVersion:    &acceptance.TermsVersion,
 		PrivacyVersion:  &acceptance.PrivacyVersion,
 	}
-	// Record the minimum-age confirmation alongside terms (PSY-1023), only when
-	// an age was attested.
+	// Record the minimum-age confirmation alongside terms, only when an age was
+	// attested.
 	if acceptance.MinAgeAttested > 0 {
 		ageConfirmedAt := acceptance.AgeConfirmedAt
 		if ageConfirmedAt.IsZero() {

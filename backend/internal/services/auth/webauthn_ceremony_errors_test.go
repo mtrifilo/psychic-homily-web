@@ -255,4 +255,17 @@ func (suite *WebAuthnServiceIntegrationTestSuite) TestFinishSignupRefusesEmptyAc
 			suite.Zero(suite.accountRows(tc.email))
 		})
 	}
+
+	// The acceptance is refused before the registration is verified, so a
+	// response from another origin still answers with the terms refusal.
+	suite.Run("registration from another origin", func() {
+		email := "signup-empty-elsewhere@test.com"
+		session, body := suite.signupRegistration(email, "https://elsewhere.example")
+		_, err := suite.service.FinishSignupRegistrationWithLegal(
+			email, session, suite.parseCreation(body), "Key", contracts.LegalAcceptance{},
+		)
+		suite.requireRefusal(err, apperrors.CodeTermsAcceptanceRequired,
+			"Please accept the Terms of Service and Privacy Policy before creating an account.")
+		suite.Zero(suite.accountRows(email))
+	})
 }

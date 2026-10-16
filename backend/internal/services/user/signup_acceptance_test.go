@@ -6,6 +6,7 @@ import (
 	apperrors "psychic-homily-backend/internal/errors"
 	authm "psychic-homily-backend/internal/models/auth"
 	"psychic-homily-backend/internal/services/contracts"
+	"psychic-homily-backend/internal/testutil/signupconsent"
 )
 
 // An acceptance that names no terms version records no consent, so the
@@ -30,4 +31,17 @@ func (suite *UserServiceIntegrationTestSuite) TestCreateUserWithPasswordWithLega
 			suite.Zero(count)
 		})
 	}
+
+	// The acceptance is refused before the address is looked up, so a held
+	// address does not turn the refusal into USER_EXISTS.
+	suite.Run("held address", func() {
+		const held = "held.acceptance@example.com"
+		_, err := suite.userService.CreateUserWithPasswordWithLegal(held, "CorrectPassword1!", "Held", "Address", signupconsent.CurrentLegalAcceptance())
+		suite.Require().NoError(err)
+
+		_, err = suite.userService.CreateUserWithPasswordWithLegal(held, "CorrectPassword1!", "Held", "Again", contracts.LegalAcceptance{})
+		var authErr *apperrors.AuthError
+		suite.Require().True(errors.As(err, &authErr), "got %v", err)
+		suite.Equal(apperrors.CodeTermsAcceptanceRequired, authErr.Code)
+	})
 }
