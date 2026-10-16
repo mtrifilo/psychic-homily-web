@@ -20,7 +20,7 @@ import type {
   ReplyPermission,
   VenueFieldNoteListResponse,
 } from '../types'
-import { refetchAfterMutation } from './refetchAfterMutation'
+import { refetchAfterMutation } from '@/lib/refetchAfterMutation'
 
 // ============================================================================
 // Error formatting (PSY-589)
