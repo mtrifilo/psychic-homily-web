@@ -66,6 +66,7 @@ reset_fixture() {
   rm -rf "$FIXTURE"
   mkdir -p "$FIXTURE/scripts" "$FIXTURE/backend/db/migrations"
   cp "$UNDER_TEST" "$FIXTURE/scripts/check_schema_assertion_types.sh"
+  cp -R "$SCRIPT_DIR/lib" "$FIXTURE/scripts/lib"
   g init -b main
   g config user.email test@example.com
   g config user.name "Schema Assertion Types Gate Test"
@@ -208,6 +209,24 @@ expect 0 "no new timestamp-named migration changes a column type"
 
 reset_fixture "a block comment does not hide the statement after it"
 migration "20260901000000_widen" "/* widen */ ALTER TABLE users /* why */ ALTER COLUMN username TYPE text;"
+expect 1 "changes the type of users.username"
+
+# The comment rule is the shared one in scripts/lib/sql_strip_comments.sh,
+# which check_migration_lock_timeout_test.sh covers case by case; these are
+# the shapes where it differs from a non-nesting, quote-blind stripper.
+reset_fixture "type change only inside a nested block comment is ignored"
+migration "20260901000000_note" "/* outer /* inner */ ALTER TABLE users ALTER COLUMN username TYPE text; */
+SELECT 1;"
+expect 0 "no new timestamp-named migration changes a column type"
+
+reset_fixture "comment markers inside string literals do not hide a type change"
+migration "20260901000000_widen" "SELECT '/*';
+ALTER TABLE users ALTER COLUMN username TYPE text;
+SELECT '*/';"
+expect 1 "changes the type of users.username"
+
+reset_fixture "'--' inside a block comment does not hide what follows"
+migration "20260901000000_widen" "/* note -- why */ ALTER TABLE users ALTER COLUMN username TYPE text;"
 expect 1 "changes the type of users.username"
 
 reset_fixture "other column actions are not type changes"

@@ -21,10 +21,9 @@
 #     statement, anywhere in the file (a DO block included). A schema prefix on
 #     the table is dropped; identifiers compare case-insensitively with double
 #     quotes removed.
-#   * Comments are stripped first: `--` to the end of the line, then `/* */`
-#     blocks. Block comments do not nest here, a `--` inside a block comment
-#     still ends its line, and comment markers inside a string literal are
-#     read as comments.
+#   * Comments are stripped first, by the rule in
+#     scripts/lib/sql_strip_comments.sh: `--` to the end of the line and
+#     nested `/* */` blocks, neither inside a string literal.
 #   * An entry counts when its Type is set to anything; the gate does not
 #     compare it with the migration's new type. Entries match anywhere in the
 #     file, outside `//` comments, in any whitespace layout, with the fields
@@ -50,6 +49,9 @@ ASSERTION_FILE="backend/db/schema_assertion.go"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 cd "$REPO_ROOT"
+
+# shellcheck source=scripts/lib/sql_strip_comments.sh
+. "$SCRIPT_DIR/lib/sql_strip_comments.sh"
 
 if ! git rev-parse --verify --quiet "${BASE_REF}^{commit}" >/dev/null; then
   echo "ERROR: base ref '$BASE_REF' not found in this repository." >&2
@@ -89,12 +91,11 @@ TYPED_ENTRIES="$(sed 's|//.*$||' "$ASSERTION_FILE" \
   | sort -u || true)"
 
 # --- 3. column type changes in each added migration ---------------------------
-# Prints file $1 with `--` and then `/* */` comments removed, as one lowercase
-# line without double quotes, one statement per line.
+# Prints file $1 with its comments stripped (lib/sql_strip_comments.sh),
+# lowercase and without double quotes, one statement per line.
 statements() {
-  sed 's/--.*$//' "$1" \
-    | tr '\n\t' '  ' \
-    | sed -E 's#/\*([^*]|\*+[^*/])*\*+/# #g' \
+  sql_strip_comments "$1" \
+    | tr '\t' ' ' \
     | tr -d '"' \
     | tr '[:upper:]' '[:lower:]' \
     | tr ';' '\n'

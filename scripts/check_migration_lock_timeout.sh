@@ -5,8 +5,9 @@
 # with a bounded lock_timeout. An unbounded lock wait at boot stalls the deploy
 # and queues every later query on the table behind the migration.
 #
-# A migration takes a strong lock when its SQL (`--` and nested `/* */`
-# comments stripped) contains ALTER TABLE, LOCK TABLE, DROP TABLE, or
+# A migration takes a strong lock when its SQL (comments stripped by the rule
+# in scripts/lib/sql_strip_comments.sh: `--`, nested `/* */`, and neither
+# inside a string literal) contains ALTER TABLE, LOCK TABLE, DROP TABLE, or
 # CREATE [UNIQUE] INDEX without CONCURRENTLY. It sets its own bound when the
 # SQL contains lock_timeout (e.g. `SET LOCAL lock_timeout = '5s';`).
 #
@@ -40,6 +41,9 @@ RUNNER_OPTION='options=-c%20lock_timeout%3D'
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 cd "$REPO_ROOT"
+
+# shellcheck source=scripts/lib/sql_strip_comments.sh
+. "$SCRIPT_DIR/lib/sql_strip_comments.sh"
 
 if ! git rev-parse --verify --quiet "${BASE_REF}^{commit}" >/dev/null; then
   echo "ERROR: base ref '$BASE_REF' not found in this repository." >&2
@@ -76,64 +80,10 @@ if [ -z "$ADDED_UP" ]; then
 fi
 
 # --- 3. classify and report each added up migration --------------------------
-# Prints file $1 with its comments removed, in one lowercase line so a
-# statement split across lines still matches. A `--` comment runs to the end
-# of its line; a `/* */` comment nests, may span lines, and reads as one space.
-# Inside a block comment `--` is plain text, and inside a line comment `/*` is.
-# A single-quoted literal stays in the output, and comment markers inside it
-# are text. Not parsed: backslash escapes in E'' literals, and dollar quoting
-# (a $$ body is scanned as SQL, which matches a function body's comments).
+# Prints file $1 with its comments stripped by the rule in
+# lib/sql_strip_comments.sh, in one lowercase line.
 folded_sql() {
-  awk '
-    # first_of(a, b): the smaller of two index() results, ignoring 0 (absent).
-    function first_of(a, b) {
-      if (a == 0) return b
-      if (b == 0 || a < b) return a
-      return b
-    }
-    {
-      rest = tolower($0)
-      while (rest != "") {
-        if (in_quote) {
-          quote_at = index(rest, "\047")
-          if (quote_at == 0) { printf "%s", rest; break }
-          printf "%s", substr(rest, 1, quote_at)
-          rest = substr(rest, quote_at + 1)
-          in_quote = 0
-          continue
-        }
-        open_at = index(rest, "/*")
-        if (depth > 0) {
-          close_at = index(rest, "*/")
-          if (close_at == 0 && open_at == 0) break
-          if (open_at > 0 && (close_at == 0 || open_at < close_at)) {
-            depth++
-            rest = substr(rest, open_at + 2)
-          } else {
-            depth--
-            rest = substr(rest, close_at + 2)
-            if (depth == 0) printf " "
-          }
-        } else {
-          dash_at = index(rest, "--")
-          quote_at = index(rest, "\047")
-          next_at = first_of(first_of(open_at, dash_at), quote_at)
-          if (next_at == 0) { printf "%s", rest; break }
-          printf "%s", substr(rest, 1, next_at - 1)
-          if (next_at == dash_at) break
-          if (next_at == quote_at) {
-            printf "\047"
-            in_quote = 1
-            rest = substr(rest, quote_at + 1)
-          } else {
-            depth = 1
-            rest = substr(rest, open_at + 2)
-          }
-        }
-      }
-      printf " "
-    }
-  ' "$1"
+  sql_strip_comments "$1" | tr '[:upper:]' '[:lower:]'
 }
 
 # Prints the strong-lock statement kinds found in $1 (output of folded_sql),

@@ -86,6 +86,7 @@ reset_fixture() {
   rm -rf "$FIXTURE"
   mkdir -p "$FIXTURE/scripts" "$FIXTURE/backend/db/migrations"
   cp "$UNDER_TEST" "$FIXTURE/scripts/check_migration_lock_timeout.sh"
+  cp -R "$SCRIPT_DIR/lib" "$FIXTURE/scripts/lib"
   g init -b main
   g config user.email test@example.com
   g config user.name "Lock Timeout Gate Test"
