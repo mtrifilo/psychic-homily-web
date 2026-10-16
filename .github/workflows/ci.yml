@@ -294,7 +294,7 @@ jobs:
           password: ${{ secrets.DOCKERHUB_TOKEN }}
         continue-on-error: true
 
-      - uses: actions/setup-go@v4
+      - uses: actions/setup-go@v7
         with:
           go-version: '1.24'
           cache-dependency-path: backend/go.sum
@@ -380,7 +380,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: actions/setup-go@v4
+      - uses: actions/setup-go@v7
         with:
           go-version: '1.24'
           cache-dependency-path: backend/go.sum
@@ -407,7 +407,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: actions/setup-go@v4
+      - uses: actions/setup-go@v7
         with:
           go-version: '1.24'
           cache-dependency-path: backend/go.sum
@@ -444,7 +444,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: actions/setup-go@v4
+      - uses: actions/setup-go@v7
         with:
           go-version: '1.24'
           cache-dependency-path: backend/go.sum
@@ -670,7 +670,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: actions/setup-go@v4
+      - uses: actions/setup-go@v7
         with:
           go-version: '1.24'
           cache-dependency-path: backend/go.sum
@@ -785,7 +785,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: actions/setup-go@v4
+      - uses: actions/setup-go@v7
         with:
           go-version: '1.24'
           cache-dependency-path: backend/go.sum
