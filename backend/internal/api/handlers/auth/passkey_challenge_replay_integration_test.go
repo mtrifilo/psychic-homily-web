@@ -46,7 +46,13 @@ func signupFinishBody(challengeID string, response json.RawMessage) map[string]a
 // beginDiscoverableLogin starts a discoverable login and returns its
 // challenge id and the options the authenticator answers.
 func (s *AuthHandlerIntegrationSuite) beginDiscoverableLogin(api humatest.TestAPI) (string, *protocol.CredentialAssertion) {
-	begin := api.Post("/auth/passkey/login/begin", map[string]any{})
+	return s.beginPasskeyLogin(api, map[string]any{})
+}
+
+// beginPasskeyLogin posts request to login/begin and returns the challenge
+// id and the options the authenticator answers.
+func (s *AuthHandlerIntegrationSuite) beginPasskeyLogin(api humatest.TestAPI, request map[string]any) (string, *protocol.CredentialAssertion) {
+	begin := api.Post("/auth/passkey/login/begin", request)
 	requireWireSuccess(s.T(), begin)
 	var body struct {
 		ChallengeID string                        `json:"challenge_id"`
