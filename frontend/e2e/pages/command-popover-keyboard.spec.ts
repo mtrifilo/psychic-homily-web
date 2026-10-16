@@ -1,4 +1,5 @@
 import { test } from '../fixtures/error-detection'
+import { waitForAnimationsSettled } from '../helpers/animations'
 import {
   installVisualViewportShim,
   raiseKeyboard,
@@ -90,6 +91,13 @@ type Geometry = {
 }
 
 /**
+ * How long a reading waits for the popover's enter animation to settle. The
+ * animation advances only when Chromium draws a frame, which a running map
+ * can hold off under SwiftShader.
+ */
+const POPOVER_SETTLE_TIMEOUT_MS = 10_000
+
+/**
  * Waits out the popover's enter animation, then takes the whole reading in one
  * round-trip so it comes from a single layout rather than from several that a
  * reposition tick can fall between.
@@ -99,14 +107,12 @@ type Geometry = {
  * scales and slides the popover, so a rect read while it runs understates the
  * bottom edge by a couple of px, which is exactly the size of the overshoot
  * being asserted against. A settled reading has to be the only kind available.
- * A cancelled animation never finishes, so its rejection is swallowed rather
- * than failing the reading.
  */
-function measure(content: Locator): Promise<Geometry> {
+async function measure(content: Locator): Promise<Geometry> {
+  await waitForAnimationsSettled(content, {
+    budgetMs: POPOVER_SETTLE_TIMEOUT_MS,
+  })
   return content.evaluate(async el => {
-    await Promise.all(
-      el.getAnimations().map(animation => animation.finished.catch(() => {}))
-    )
     await new Promise(resolve => requestAnimationFrame(resolve))
     const style = getComputedStyle(el)
     const rect = el.getBoundingClientRect()
@@ -138,13 +144,11 @@ function creditBottomPx(page: Page): Promise<number | null> {
 }
 
 /** The popover's top edge in the viewport, once its animation has settled. */
-function contentTopPx(content: Locator): Promise<number> {
-  return content.evaluate(async el => {
-    await Promise.all(
-      el.getAnimations().map(animation => animation.finished.catch(() => {}))
-    )
-    return el.getBoundingClientRect().top
+async function contentTopPx(content: Locator): Promise<number> {
+  await waitForAnimationsSettled(content, {
+    budgetMs: POPOVER_SETTLE_TIMEOUT_MS,
   })
+  return content.evaluate(el => el.getBoundingClientRect().top)
 }
 
 /**

@@ -10,11 +10,13 @@ import {
   mapPoint,
   PHOENIX,
   PHONE_CONTEXT,
+  SHEET_SETTLE_TIMEOUT_MS,
   STREET_ROOM,
   stubAtlas,
   waitForMap,
   waitForMapSize,
 } from '../helpers/atlas'
+import { waitForAnimationsSettled } from '../helpers/animations'
 
 /**
  * The Atlas sheet layout under touch: panes narrower than the rail's 900px
@@ -94,14 +96,18 @@ function hostHeight(page: Page, testId: string) {
 }
 
 /**
- * Waits until the sheet has settled at `detent` and its height matches the
- * rule for its host, to the layout's subpixel rounding. Returns the measured
- * host and sheet heights.
+ * Waits until the sheet has settled at `detent` (its height transition has
+ * ended) and its height matches the rule for its host, to the layout's
+ * subpixel rounding. Returns the measured host and sheet heights.
  */
 async function expectDetentHeight(page: Page, testId: string, detent: Detent) {
   const sheet = page.getByTestId(testId)
   await expect(sheet).toHaveAttribute('data-detent', detent)
   await expect(sheet).not.toHaveAttribute('data-dragging', 'true')
+  await waitForAnimationsSettled(sheet, {
+    budgetMs: SHEET_SETTLE_TIMEOUT_MS,
+    label: `${testId} at ${detent}`,
+  })
   const host = await hostHeight(page, testId)
   const expected = detentPx(detent, host)
   let height = 0
