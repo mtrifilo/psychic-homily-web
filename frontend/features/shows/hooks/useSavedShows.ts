@@ -8,7 +8,8 @@ import {
   useQueryClient,
 } from '@tanstack/react-query'
 import { apiRequest, API_ENDPOINTS } from '@/lib/api'
-import { queryKeys, createInvalidateQueries } from '@/lib/queryClient'
+import { queryKeys } from '@/lib/queryClient'
+import { refetchAfterMutation } from '@/lib/refetchAfterMutation'
 import { SAVED_SHOWS_COLLAPSED_COUNT } from '../savedShowsConstants'
 import { useAuthContext } from '@/lib/context/AuthContext'
 // Note: useSavedShows uses SAVED_SHOWS endpoints from lib/api (not show-specific)
@@ -194,7 +195,6 @@ export const useShowSaveCountBatch = (
  */
 export const useSaveShow = () => {
   const queryClient = useQueryClient()
-  const invalidateQueries = createInvalidateQueries(queryClient)
 
   return useMutation({
     mutationFn: async (showId: number): Promise<SaveShowResponse> => {
@@ -207,12 +207,12 @@ export const useSaveShow = () => {
     },
     onSuccess: () => {
       // Re-sync the user's list and every cached save count from the server.
-      invalidateQueries.savedShows()
+      void refetchAfterMutation(queryClient, queryKeys.savedShows.all)
     },
     onSettled: () => {
       // Optional chart stats must reconcile even when the server committed but
       // the mutation response was lost. Never hold the core save pending on it.
-      void invalidateQueries.personalCharts()
+      void refetchAfterMutation(queryClient, queryKeys.charts.personalRoot)
     },
   })
 }
@@ -231,7 +231,6 @@ export const useUnsaveShow = ({
   userId,
 }: UseUnsaveShowOptions = {}) => {
   const queryClient = useQueryClient()
-  const invalidateQueries = createInvalidateQueries(queryClient)
 
   return useMutation({
     mutationFn: async (showId: number): Promise<SaveShowResponse> => {
@@ -245,7 +244,7 @@ export const useUnsaveShow = ({
     onSuccess: (_, showId) => {
       if (syncMode === 'invalidate') {
         // Re-sync the user's list and every cached save count from the server.
-        invalidateQueries.savedShows()
+        void refetchAfterMutation(queryClient, queryKeys.savedShows.all)
         return
       }
 
@@ -277,24 +276,17 @@ export const useUnsaveShow = ({
 
       // Other list shapes and save-count surfaces still need server truth,
       // but these narrow invalidations avoid reloading the infinite pages.
-      void queryClient.invalidateQueries({
-        queryKey: queryKeys.savedShows.listPrefix(userId),
-      })
-      void queryClient.invalidateQueries({
-        queryKey: queryKeys.savedShows.countBatchPrefix(userId),
-      })
-      void queryClient.invalidateQueries({
-        queryKey: ['savedShows', 'countBatch', false, null],
-      })
-      void queryClient.invalidateQueries({
-        queryKey: queryKeys.savedShows.count(showId, true, userId),
-      })
-      void queryClient.invalidateQueries({
-        queryKey: queryKeys.savedShows.count(showId, false),
-      })
+      void refetchAfterMutation(
+        queryClient,
+        queryKeys.savedShows.listPrefix(userId),
+        queryKeys.savedShows.countBatchPrefix(userId),
+        ['savedShows', 'countBatch', false, null],
+        queryKeys.savedShows.count(showId, true, userId),
+        queryKeys.savedShows.count(showId, false)
+      )
     },
     onSettled: () => {
-      void invalidateQueries.personalCharts()
+      void refetchAfterMutation(queryClient, queryKeys.charts.personalRoot)
     },
   })
 }
@@ -392,7 +384,7 @@ export const useSaveShowToggle = (
       // The optimistic premise (`isSaved`) may itself have been stale — e.g. the
       // row was already unsaved from another tab. Restoring the snapshot only
       // undoes our guess, so re-sync from the server rather than trusting it.
-      queryClient.invalidateQueries({ queryKey: queryKeys.savedShows.all })
+      void refetchAfterMutation(queryClient, queryKeys.savedShows.all)
       throw error
     }
   }
