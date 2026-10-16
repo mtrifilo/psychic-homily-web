@@ -181,27 +181,18 @@ func NewUserService(database *gorm.DB) *UserService {
 	}
 }
 
-// FindOrCreateUser finds existing user or creates new one from OAuth data.
-// This legacy path does not enforce signup consent for new OAuth users.
+// FindOrCreateUserWithConsent returns the account the OAuth identity is
+// attached to, or creates one from the identity when consent passes
+// validateOAuthSignupConsent.
 //
 // Returns a typed *apperrors.AuthError for each refusal: CodeOAuthLinkRefused
 // when the address already belongs to an account the identity is not attached
-// to, CodeUserExists when a concurrent signup claims the address first, and
+// to, CodeUserExists when a concurrent signup claims the address first,
 // CodeAccountInactive when the identity resolves to an account that may not
-// sign in (authm.User.CanSignIn). Callers that render a refusal differently
-// from a fault must discriminate on the code.
-func (s *UserService) FindOrCreateUser(gothUser goth.User, provider string) (*authm.User, error) {
-	return s.findOrCreateOAuthUser(gothUser, provider, nil, false)
-}
-
-// FindOrCreateUserWithConsent enforces terms acceptance for brand-new OAuth
-// users. It refuses a held address and an account that may not sign in the
-// same way FindOrCreateUser does.
+// sign in (authm.User.CanSignIn), and the consent refusals of
+// validateOAuthSignupConsent when an account would be created. Callers that
+// render a refusal differently from a fault must discriminate on the code.
 func (s *UserService) FindOrCreateUserWithConsent(gothUser goth.User, provider string, consent *contracts.OAuthSignupConsent) (*authm.User, error) {
-	return s.findOrCreateOAuthUser(gothUser, provider, consent, true)
-}
-
-func (s *UserService) findOrCreateOAuthUser(gothUser goth.User, provider string, consent *contracts.OAuthSignupConsent, enforceConsent bool) (*authm.User, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
 	}
@@ -268,15 +259,12 @@ func (s *UserService) findOrCreateOAuthUser(gothUser goth.User, provider string,
 	}
 
 	// Create new user
-	return s.createNewUserOauthWithConsent(gothUser, provider, consent, enforceConsent)
-}
-
-// CreateUserWithPassword creates a new user with email and password.
-func (s *UserService) CreateUserWithPassword(email, password, firstName, lastName string) (*authm.User, error) {
-	return s.createUserWithPassword(email, password, firstName, lastName, nil)
+	return s.createNewUserOauthWithConsent(gothUser, provider, consent)
 }
 
 // CreateUserWithPasswordWithLegal creates a new user and records legal acceptance metadata.
+// An acceptance that names no terms version records no consent, so it is
+// refused with CodeTermsAcceptanceRequired and no account is created.
 func (s *UserService) CreateUserWithPasswordWithLegal(
 	email,
 	password,
@@ -284,18 +272,11 @@ func (s *UserService) CreateUserWithPasswordWithLegal(
 	lastName string,
 	acceptance contracts.LegalAcceptance,
 ) (*authm.User, error) {
-	return s.createUserWithPassword(email, password, firstName, lastName, &acceptance)
-}
-
-func (s *UserService) createUserWithPassword(
-	email,
-	password,
-	firstName,
-	lastName string,
-	acceptance *contracts.LegalAcceptance,
-) (*authm.User, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
+	}
+	if acceptance.TermsVersion == "" {
+		return nil, apperrors.ErrTermsAcceptanceRequired("password signup acceptance names no terms version")
 	}
 
 	existingUser, err := s.GetUserByEmail(email)
@@ -327,18 +308,16 @@ func (s *UserService) createUserWithPassword(
 		IsActive:      true,
 		EmailVerified: false, // Email verification required for password users
 	}
-	if acceptance != nil {
-		acceptedAt := acceptance.TermsAcceptedAt
-		if acceptedAt.IsZero() {
-			acceptedAt = time.Now().UTC()
-		}
-		termsVersion := acceptance.TermsVersion
-		privacyVersion := acceptance.PrivacyVersion
-		user.TermsAcceptedAt = &acceptedAt
-		user.TermsVersion = &termsVersion
-		user.PrivacyVersion = &privacyVersion
-		applyAgeConfirmation(user, acceptance.AgeConfirmedAt, acceptance.MinAgeAttested)
+	acceptedAt := acceptance.TermsAcceptedAt
+	if acceptedAt.IsZero() {
+		acceptedAt = time.Now().UTC()
 	}
+	termsVersion := acceptance.TermsVersion
+	privacyVersion := acceptance.PrivacyVersion
+	user.TermsAcceptedAt = &acceptedAt
+	user.TermsVersion = &termsVersion
+	user.PrivacyVersion = &privacyVersion
+	applyAgeConfirmation(user, acceptance.AgeConfirmedAt, acceptance.MinAgeAttested)
 
 	if err := tx.Create(user).Error; err != nil {
 		tx.Rollback()
@@ -473,15 +452,12 @@ func (s *UserService) createNewUserOauthWithConsent(
 	gothUser goth.User,
 	provider string,
 	consent *contracts.OAuthSignupConsent,
-	enforceConsent bool,
 ) (*authm.User, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
 	}
-	if enforceConsent {
-		if err := validateOAuthSignupConsent(consent); err != nil {
-			return nil, err
-		}
+	if err := validateOAuthSignupConsent(consent); err != nil {
+		return nil, err
 	}
 
 	// Start transaction
@@ -510,20 +486,16 @@ func (s *UserService) createNewUserOauthWithConsent(
 	if gothUser.Email != "" {
 		user.Email = &gothUser.Email
 	}
-	if consent != nil && consent.TermsAccepted && consent.TermsVersion != "" {
-		acceptedAt := consent.AcceptedAt
-		if acceptedAt.IsZero() {
-			acceptedAt = time.Now().UTC()
-		}
-		termsVersion := consent.TermsVersion
-		privacyVersion := consent.PrivacyVersion
-		user.TermsAcceptedAt = &acceptedAt
-		user.TermsVersion = &termsVersion
-		user.PrivacyVersion = &privacyVersion
-		if consent.AgeConfirmed {
-			applyAgeConfirmation(user, acceptedAt, consent.MinAgeAttested)
-		}
+	acceptedAt := consent.AcceptedAt
+	if acceptedAt.IsZero() {
+		acceptedAt = time.Now().UTC()
 	}
+	termsVersion := consent.TermsVersion
+	privacyVersion := consent.PrivacyVersion
+	user.TermsAcceptedAt = &acceptedAt
+	user.TermsVersion = &termsVersion
+	user.PrivacyVersion = &privacyVersion
+	applyAgeConfirmation(user, acceptedAt, consent.MinAgeAttested)
 
 	if err := tx.Create(user).Error; err != nil {
 		tx.Rollback()

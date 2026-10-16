@@ -62,10 +62,10 @@ func TestAuthService_OAuthLogin(t *testing.T) {
 	})
 }
 
-// TestAuthService_OAuthCallback tests the OAuth callback error path.
+// TestAuthService_OAuthCallbackWithConsent tests the OAuth callback error path.
 // Without configured providers, CompleteUserAuth fails before examining
 // request details, so varying headers/body/query params is redundant.
-func TestAuthService_OAuthCallback(t *testing.T) {
+func TestAuthService_OAuthCallbackWithConsent(t *testing.T) {
 	cfg := &config.Config{
 		JWT: config.JWTConfig{
 			SecretKey: "test-secret-key-32-chars-minimum",
@@ -78,7 +78,7 @@ func TestAuthService_OAuthCallback(t *testing.T) {
 	t.Run("nil_request", func(t *testing.T) {
 		w := httptest.NewRecorder()
 
-		user, token, err := authService.OAuthCallback(w, nil, "google")
+		user, token, err := authService.OAuthCallbackWithConsent(w, nil, "google", nil)
 
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "request cannot be nil")
@@ -90,7 +90,7 @@ func TestAuthService_OAuthCallback(t *testing.T) {
 		req := httptest.NewRequest("GET", "/auth/callback/google", nil)
 		w := httptest.NewRecorder()
 
-		user, token, err := authService.OAuthCallback(w, req, "google")
+		user, token, err := authService.OAuthCallbackWithConsent(w, req, "google", nil)
 
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "OAuth completion failed")
@@ -99,9 +99,9 @@ func TestAuthService_OAuthCallback(t *testing.T) {
 	})
 }
 
-// TestAuthService_OAuthCallback_WithMock tests OAuth callback with mocked OAuth completer
+// TestAuthService_OAuthCallbackWithConsent_WithMock tests OAuth callback with mocked OAuth completer
 // to exercise code paths beyond the initial CompleteUserAuth call.
-func TestAuthService_OAuthCallback_WithMock(t *testing.T) {
+func TestAuthService_OAuthCallbackWithConsent_WithMock(t *testing.T) {
 	cfg := &config.Config{
 		JWT: config.JWTConfig{
 			SecretKey: "test-secret-key-32-chars-minimum",
@@ -120,7 +120,7 @@ func TestAuthService_OAuthCallback_WithMock(t *testing.T) {
 
 		mockCompleter.On("CompleteUserAuth", w, req).Return(goth.User{}, assert.AnError)
 
-		user, token, err := authService.OAuthCallback(w, req, "google")
+		user, token, err := authService.OAuthCallbackWithConsent(w, req, "google", nil)
 
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "OAuth completion failed")
