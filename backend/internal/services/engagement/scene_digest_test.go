@@ -288,6 +288,26 @@ func (s *SceneDigestSuite) TestNewBandsSinceCursorAndIdempotency() {
 	s.Empty(s.mock.calls, "second run must send nothing (cursor advanced)")
 }
 
+func (s *SceneDigestSuite) TestSkipsInactiveAndDeletedFollowers() {
+	sceneID, venueID := s.createScene()
+	s.createThisWeekShow(venueID)
+	activeID, activeEmail := s.createUser()
+	inactiveID, _ := s.createUser()
+	deletedID, _ := s.createUser()
+	for _, id := range []uint{activeID, inactiveID, deletedID} {
+		s.setSceneDigestPref(id, true)
+		s.followScene(id, sceneID, nil, time.Now().Add(-24*time.Hour))
+	}
+	s.Require().NoError(s.db.Model(&authm.User{}).Where("id = ?", inactiveID).Update("is_active", false).Error)
+	s.Require().NoError(s.db.Model(&authm.User{}).Where("id = ?", deletedID).
+		Updates(map[string]any{"is_active": false, "deleted_at": time.Now().UTC()}).Error)
+
+	s.svc.RunDigestCycleNow()
+
+	s.Require().Len(s.mock.calls, 1)
+	s.Equal(activeEmail, s.mock.calls[0].ToEmail)
+}
+
 func (s *SceneDigestSuite) TestEmptySceneSendsNothing() {
 	userID, _ := s.createUser()
 	sceneID, _ := s.createScene() // venues but no shows, no new bands
