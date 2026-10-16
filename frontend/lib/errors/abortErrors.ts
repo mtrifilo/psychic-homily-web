@@ -1,9 +1,8 @@
 /**
  * Read by name alone, not `instanceof Error` or `instanceof DOMException`:
- * fetch, body reads and `navigator.share` reject with a `DOMException`, and
- * `DOMException extends Error` is a recent WebIDL guarantee that older engines
- * do not honour. Any thrown object carrying the name counts, whatever its
- * prototype chain.
+ * platform APIs reject with a `DOMException`, and not every engine makes
+ * `DOMException` extend `Error`. Any thrown object carrying the name counts,
+ * whatever its prototype chain.
  */
 function hasErrorName(error: unknown, name: string): boolean {
   return (

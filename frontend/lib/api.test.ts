@@ -667,6 +667,22 @@ describe('API Module', () => {
         expect(logError).not.toHaveBeenCalled()
       })
 
+      it('rejects any failure thrown once its signal has aborted as it is, unreported', async () => {
+        const unrelated = new SyntaxError('Unexpected end of JSON input')
+        abortDuringBody(unrelated)
+        const { apiRequest, API_BASE_URL } = await import('./api')
+        const { authLogger } = await import('./utils/authLogger')
+        const logError = vi.spyOn(authLogger, 'error').mockImplementation(() => {})
+
+        await expect(
+          apiRequest(`${API_BASE_URL}/auth/register`, {
+            method: 'POST',
+            signal: AbortSignal.abort(),
+          })
+        ).rejects.toBe(unrelated)
+        expect(logError).not.toHaveBeenCalled()
+      })
+
       describe('a TimeoutError while the signal has not aborted', () => {
         const timeout = () =>
           new DOMException('The operation timed out.', 'TimeoutError')
