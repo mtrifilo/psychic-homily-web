@@ -136,8 +136,8 @@ type appleJWK struct {
 // claims. When ctx ends while the lookup waits on a key-set fetch, it returns
 // ctx's error at once and the fetch runs on for any other caller. A key id the
 // key set lacks fails with *contracts.AppleKeyNotFoundError wrapped. A token
-// with no exp claim is refused with jwt.ErrTokenRequiredClaimMissing wrapped.
-// No error text carries the token or text taken from its header or claims.
+// with no exp claim, or a null one, is refused. No error text carries the
+// token or text taken from its header or claims.
 func (s *AppleAuthService) ValidateIdentityToken(ctx context.Context, identityToken string) (*contracts.AppleIdentityTokenClaims, error) {
 	// Parse the token header to get the key ID
 	parser := jwt.NewParser(jwt.WithoutClaimsValidation())
