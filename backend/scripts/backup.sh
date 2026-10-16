@@ -45,6 +45,9 @@ fi
 # Load environment variables
 if [ -f ".env.production" ]; then
     echo -e "${BLUE}📋 Loading production environment variables...${NC}"
+    # Unquoted on purpose: word splitting makes each KEY=VALUE its own export
+    # argument, so a value cannot contain whitespace.
+    # shellcheck disable=SC2046
     export $(cat .env.production | grep -v '^#' | xargs)
 else
     echo -e "${RED}❌ Error: .env.production not found!${NC}"
