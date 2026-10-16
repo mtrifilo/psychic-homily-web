@@ -158,7 +158,9 @@ func TestRadioCandidateEvidenceSQLRefusesNonIdentifiers(t *testing.T) {
 		"qualified station owner":  func() { radioCandidateEvidenceStationsSQL("c.track_id") },
 		"qualified spelling owner": func() { radioCandidateEvidenceSpellingsSQL(radioEvidenceTitle, "c.track_id", "track_title") },
 		"quoted spelling kind":     func() { radioCandidateEvidenceSpellingsSQL("title' OR '1", "track_id", "track_title") },
-		"quoted names kind":        func() { radioCandidateEvidenceNamesSQL("album' OR '1", "track_id", "album_title", "") },
+		"quoted names kind":        func() { radioCandidateEvidenceNamesSQL("album' OR '1", "track_id", "album_title", "album_counts") },
+		"names without a filter":   func() { radioCandidateEvidenceNamesSQL(radioEvidenceAlbum, "track_id", "album_title", "") },
+		"label names without one":  func() { radioLabelEvidenceNamesSQL(radioLabelEvidenceRelease, "album_title", "", `'{}'::bigint[]`) },
 		"non-Latin column":         func() { radioNonLatinSQL("p.track_title; DROP TABLE x") },
 	}
 	for name, build := range cases {
