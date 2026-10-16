@@ -63,18 +63,21 @@ export async function generateMetadata({ params }: StationPageProps): Promise<Me
       ? station.description.slice(0, 155) + (station.description.length > 155 ? '...' : '')
       : `${station.name} radio station${location ? ` from ${location}` : ''} on Psychic Homily`
     const title = `${station.name} — Radio`
+    // The page redirects any other address to this one, so the metadata
+    // names it too.
+    const canonicalPath = getStationDetailUrl(station.slug, station.network)
 
     return {
       title,
       description,
       alternates: {
-        canonical: `https://psychichomily.com/radio/${stationSlug}`,
+        canonical: `https://psychichomily.com${canonicalPath}`,
       },
       openGraph: {
         title,
         description,
         type: 'website',
-        url: `/radio/${stationSlug}`,
+        url: canonicalPath,
       },
     }
   }

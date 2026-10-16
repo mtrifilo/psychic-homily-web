@@ -17,7 +17,7 @@ vi.mock('./_components/StationDetail', () => ({
 }))
 
 import { notFound, redirect } from 'next/navigation'
-import StationPage from './page'
+import StationPage, { generateMetadata } from './page'
 
 const WFMU_SUB_STREAM = { slug: 'wfmu', is_flagship: false }
 const WFMU_FLAGSHIP = { slug: 'wfmu', is_flagship: true }
@@ -94,5 +94,35 @@ describe('radio/[station-slug] page', () => {
 
     await expect(renderPage('9')).rejects.toThrow('NEXT_REDIRECT')
     expect(redirect).toHaveBeenCalledWith('/radio/wfmu/channel/drummer')
+  })
+})
+
+describe('radio/[station-slug] generateMetadata', () => {
+  function metadataFor(stationSlug: string) {
+    return generateMetadata({
+      params: Promise.resolve({ 'station-slug': stationSlug }),
+    })
+  }
+
+  it('names the slug URL of a network-less station', async () => {
+    fetchMock.mockResolvedValueOnce(okResponse(station('kexp')))
+
+    const meta = await metadataFor('kexp')
+
+    expect(meta.alternates?.canonical).toBe('https://psychichomily.com/radio/kexp')
+    expect(meta.openGraph?.url).toBe('/radio/kexp')
+  })
+
+  it('names the canonical URL, not the requested segment, for a numeric id', async () => {
+    fetchMock.mockResolvedValueOnce(
+      okResponse(station('wfmu-drummer', WFMU_SUB_STREAM))
+    )
+
+    const meta = await metadataFor('9')
+
+    expect(meta.alternates?.canonical).toBe(
+      'https://psychichomily.com/radio/wfmu/channel/drummer'
+    )
+    expect(meta.openGraph?.url).toBe('/radio/wfmu/channel/drummer')
   })
 })
