@@ -6,9 +6,16 @@
  * TanStack Query hooks for collection CRUD, items, and subscriptions.
  */
 
-import { useQuery, useMutation, useQueryClient, keepPreviousData } from '@tanstack/react-query'
+import {
+  hashKey,
+  keepPreviousData,
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from '@tanstack/react-query'
 import { apiRequest, API_ENDPOINTS } from '@/lib/api'
 import { queryKeys } from '@/lib/queryClient'
+import { refetchAfterMutation } from '@/lib/refetchAfterMutation'
 import { useAuthContext } from '@/lib/context/AuthContext'
 import type {
   AddCollectionTagResponse,
@@ -233,7 +240,7 @@ export function useSetFeatured() {
         body: JSON.stringify({ featured }),
       }),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.collections.all })
+      void refetchAfterMutation(queryClient, queryKeys.collections.all)
     },
   })
 }
@@ -261,8 +268,7 @@ export function useCreateCollection() {
         body: JSON.stringify(data),
       }),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.collections.all })
-      queryClient.invalidateQueries({ queryKey: queryKeys.collections.my })
+      void refetchAfterMutation(queryClient, queryKeys.collections.all)
     },
   })
 }
@@ -292,12 +298,8 @@ export function useUpdateCollection() {
         method: 'PUT',
         body: JSON.stringify(data),
       }),
-    onSuccess: (_data, variables) => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.collections.all })
-      queryClient.invalidateQueries({
-        queryKey: queryKeys.collections.detail(variables.slug),
-      })
-      queryClient.invalidateQueries({ queryKey: queryKeys.collections.my })
+    onSuccess: () => {
+      void refetchAfterMutation(queryClient, queryKeys.collections.all)
     },
   })
 }
@@ -316,20 +318,19 @@ export function useCloneCollection() {
       apiRequest<CollectionDetail>(API_ENDPOINTS.COLLECTIONS.CLONE(slug), {
         method: 'POST',
       }),
-    onSuccess: (newCollection, variables) => {
-      // The original collection's `forks_count` just incremented; the
-      // user's collection list gained an entry.
-      queryClient.invalidateQueries({ queryKey: queryKeys.collections.all })
-      queryClient.invalidateQueries({ queryKey: queryKeys.collections.my })
-      // Source detail (if cached) needs the bumped forks_count.
-      queryClient.invalidateQueries({
-        queryKey: queryKeys.collections.detail(variables.slug),
-      })
+    onSuccess: newCollection => {
       // Pre-warm the new collection in cache so navigation is instant.
-      queryClient.setQueryData(
-        queryKeys.collections.detail(newCollection.slug),
-        newCollection
-      )
+      const newDetailKey = queryKeys.collections.detail(newCollection.slug)
+      queryClient.setQueryData(newDetailKey, newCollection)
+      // The source collection's `forks_count` just incremented and the user's
+      // collection list gained an entry; the family root covers both. The
+      // pre-warmed entry is skipped: the clone response is its server state,
+      // and marking it stale would refetch it as soon as its page mounts.
+      const newDetailHash = hashKey(newDetailKey)
+      void refetchAfterMutation(queryClient, {
+        queryKey: queryKeys.collections.all,
+        predicate: query => query.queryHash !== newDetailHash,
+      })
     },
   })
 }
@@ -343,8 +344,7 @@ export function useDeleteCollection() {
         method: 'DELETE',
       }),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.collections.all })
-      queryClient.invalidateQueries({ queryKey: queryKeys.collections.my })
+      void refetchAfterMutation(queryClient, queryKeys.collections.all)
     },
   })
 }
@@ -376,31 +376,22 @@ export function useAddCollectionItem() {
         }),
       }),
     onSuccess: (_data, variables) => {
-      queryClient.invalidateQueries({
-        queryKey: queryKeys.collections.detail(variables.slug),
-      })
-      // PSY-359: pre-check answer for this entity is now stale — the popover
-      // should show the new collection as already-containing on next open.
-      queryClient.invalidateQueries({
-        queryKey: queryKeys.collections.containing(
+      void refetchAfterMutation(
+        queryClient,
+        queryKeys.collections.detail(variables.slug),
+        // The popover's pre-check answer for this entity: it shows the
+        // collection as already containing the entity on its next open.
+        queryKeys.collections.containing(
           variables.entityType,
           variables.entityId
         ),
-      })
-      // Public "appears in" backlinks on the entity page also need to refresh
-      // (if the collection is public).
-      queryClient.invalidateQueries({
-        queryKey: queryKeys.collections.entity(
-          variables.entityType,
-          variables.entityId
-        ),
-      })
-      // PSY-829: the user's collection list carries item_count, now surfaced as
-      // the "N items" subtitle in the Add-to-Collection popover — refresh it so
-      // the count isn't stale right after an add.
-      queryClient.invalidateQueries({
-        queryKey: queryKeys.collections.my,
-      })
+        // Public "appears in" backlinks on the entity page also need to
+        // refresh (if the collection is public).
+        queryKeys.collections.entity(variables.entityType, variables.entityId),
+        // The user's collection list carries item_count, shown as the
+        // "N items" subtitle in the Add-to-Collection popover.
+        queryKeys.collections.my
+      )
     },
   })
 }
@@ -456,23 +447,20 @@ export function useBulkAddCollectionItems() {
         body: JSON.stringify({ items }),
       }),
     onSuccess: (data, variables) => {
-      queryClient.invalidateQueries({
-        queryKey: queryKeys.collections.detail(variables.slug),
-      })
       // Invalidate the contains-check + backlinks caches for entities that
       // ACTUALLY committed — `data.added` is the partial-success slice,
       // `variables.items` includes rows the backend rejected as duplicate
       // or invalid. Iterating the rejected set wastes refetches AND
       // pollutes the cache with bogus keys when error_code=VALIDATION
       // carries a typo'd entity_type.
-      for (const added of data.added) {
-        queryClient.invalidateQueries({
-          queryKey: queryKeys.collections.containing(added.entity_type, added.entity_id),
-        })
-        queryClient.invalidateQueries({
-          queryKey: queryKeys.collections.entity(added.entity_type, added.entity_id),
-        })
-      }
+      void refetchAfterMutation(
+        queryClient,
+        queryKeys.collections.detail(variables.slug),
+        ...data.added.flatMap(added => [
+          queryKeys.collections.containing(added.entity_type, added.entity_id),
+          queryKeys.collections.entity(added.entity_type, added.entity_id),
+        ])
+      )
     },
   })
 }
@@ -520,18 +508,17 @@ export function useRemoveCollectionItem() {
         method: 'DELETE',
       }),
     onSuccess: (_data, variables) => {
-      queryClient.invalidateQueries({
-        queryKey: queryKeys.collections.detail(variables.slug),
-      })
       // PSY-829: the user's collection list carries item_count, surfaced as the
       // "N items" subtitle in the Add-to-Collection popover — refresh it so the
       // count isn't stale after a remove. (The popover additionally invalidates
       // the contains + entity-backlink caches itself, since the remove is keyed
       // by {slug, itemId} and this hook doesn't know the entity coordinates
       // those caches require.)
-      queryClient.invalidateQueries({
-        queryKey: queryKeys.collections.my,
-      })
+      void refetchAfterMutation(
+        queryClient,
+        queryKeys.collections.detail(variables.slug),
+        queryKeys.collections.my
+      )
     },
   })
 }
@@ -552,9 +539,10 @@ export function useReorderCollectionItems() {
         body: JSON.stringify({ items }),
       }),
     onSuccess: (_data, variables) => {
-      queryClient.invalidateQueries({
-        queryKey: queryKeys.collections.detail(variables.slug),
-      })
+      void refetchAfterMutation(
+        queryClient,
+        queryKeys.collections.detail(variables.slug)
+      )
     },
   })
 }
@@ -577,9 +565,10 @@ export function useUpdateCollectionItem() {
         body: JSON.stringify({ notes }),
       }),
     onSuccess: (_data, variables) => {
-      queryClient.invalidateQueries({
-        queryKey: queryKeys.collections.detail(variables.slug),
-      })
+      void refetchAfterMutation(
+        queryClient,
+        queryKeys.collections.detail(variables.slug)
+      )
     },
   })
 }
@@ -593,9 +582,10 @@ export function useSubscribeCollection() {
         method: 'POST',
       }),
     onSuccess: (_data, variables) => {
-      queryClient.invalidateQueries({
-        queryKey: queryKeys.collections.detail(variables.slug),
-      })
+      void refetchAfterMutation(
+        queryClient,
+        queryKeys.collections.detail(variables.slug)
+      )
     },
   })
 }
@@ -609,9 +599,10 @@ export function useUnsubscribeCollection() {
         method: 'DELETE',
       }),
     onSuccess: (_data, variables) => {
-      queryClient.invalidateQueries({
-        queryKey: queryKeys.collections.detail(variables.slug),
-      })
+      void refetchAfterMutation(
+        queryClient,
+        queryKeys.collections.detail(variables.slug)
+      )
     },
   })
 }
@@ -707,7 +698,7 @@ export function useLikeCollection() {
       }
       // List queries display like_count too — invalidate so they re-fetch
       // (cheap; the user only sees this happen on tab-switch).
-      queryClient.invalidateQueries({ queryKey: queryKeys.collections.all })
+      void refetchAfterMutation(queryClient, queryKeys.collections.all)
     },
   })
 }
@@ -750,7 +741,7 @@ export function useUnlikeCollection() {
           user_likes_this: data.user_likes_this,
         })
       }
-      queryClient.invalidateQueries({ queryKey: queryKeys.collections.all })
+      void refetchAfterMutation(queryClient, queryKeys.collections.all)
     },
   })
 }
@@ -829,13 +820,10 @@ export function useAddCollectionTag() {
         method: 'POST',
         body: JSON.stringify({ tag_id, tag_name, category }),
       }),
-    onSuccess: (_data, variables) => {
-      queryClient.invalidateQueries({
-        queryKey: queryKeys.collections.detail(variables.slug),
-      })
-      // Browse cards display tag chips too — invalidate the public + my
-      // lists so the next view reflects the new tag.
-      queryClient.invalidateQueries({ queryKey: queryKeys.collections.all })
+    onSuccess: () => {
+      // The family root covers the detail and the browse cards, which display
+      // tag chips too.
+      void refetchAfterMutation(queryClient, queryKeys.collections.all)
     },
   })
 }
@@ -855,11 +843,8 @@ export function useRemoveCollectionTag() {
       apiRequest<void>(API_ENDPOINTS.COLLECTIONS.TAG(slug, tagId), {
         method: 'DELETE',
       }),
-    onSuccess: (_data, variables) => {
-      queryClient.invalidateQueries({
-        queryKey: queryKeys.collections.detail(variables.slug),
-      })
-      queryClient.invalidateQueries({ queryKey: queryKeys.collections.all })
+    onSuccess: () => {
+      void refetchAfterMutation(queryClient, queryKeys.collections.all)
     },
   })
 }

@@ -1,7 +1,11 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { useQuery } from '@tanstack/react-query'
 import { act, renderHook, waitFor } from '@testing-library/react'
 import { createWrapperWithClient } from '@/test/utils'
+import {
+  clientWithAppDefaults,
+  deferred,
+  routeGets,
+} from '@/test/inflightOrdering'
 import {
   useComments,
   useCommentThread,
@@ -9,13 +13,7 @@ import {
   useFieldNotes,
   useReplyToComment,
 } from './index'
-import { refetchAfterMutation } from './refetchAfterMutation'
-import {
-  clientWithAppDefaults,
-  deferred,
-  makeComment,
-  routeGets,
-} from './inflightOrdering.fixtures'
+import { makeComment } from './commentFixtures'
 import type { Comment, CommentListResponse } from '../types'
 
 const mockApiRequest = vi.fn()
@@ -24,63 +22,6 @@ vi.mock('@/lib/api', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/lib/api')>()),
   apiRequest: (...args: unknown[]) => mockApiRequest(...args),
 }))
-
-describe('refetchAfterMutation', () => {
-  beforeEach(() => {
-    mockApiRequest.mockReset()
-  })
-
-  it('starts a new request when the first fetch is still in flight, and discards the late response', async () => {
-    const client = clientWithAppDefaults()
-    const first = deferred<string>()
-    const queryFn = vi
-      .fn<() => Promise<string>>()
-      .mockReturnValueOnce(first.promise)
-      .mockResolvedValueOnce('after write')
-
-    const { result } = renderHook(
-      () => useQuery({ queryKey: ['comments', 'venue', 42, 'best'], queryFn }),
-      { wrapper: createWrapperWithClient(client) }
-    )
-    await waitFor(() => expect(queryFn).toHaveBeenCalledTimes(1))
-
-    await act(() => refetchAfterMutation(client, ['comments', 'venue', 42]))
-    await act(async () => {
-      first.resolve('before write')
-      await first.promise
-    })
-
-    await waitFor(() => expect(result.current.data).toBe('after write'))
-    expect(queryFn).toHaveBeenCalledTimes(2)
-  })
-
-  it('keeps showing existing data while it refetches', async () => {
-    const client = clientWithAppDefaults()
-    const second = deferred<string>()
-    const queryFn = vi
-      .fn<() => Promise<string>>()
-      .mockResolvedValueOnce('before write')
-      .mockReturnValueOnce(second.promise)
-
-    const { result } = renderHook(
-      () => useQuery({ queryKey: ['comments', 'venue', 42, 'best'], queryFn }),
-      { wrapper: createWrapperWithClient(client) }
-    )
-    await waitFor(() => expect(result.current.data).toBe('before write'))
-
-    act(() => {
-      void refetchAfterMutation(client, ['comments', 'venue', 42])
-    })
-    await waitFor(() => expect(queryFn).toHaveBeenCalledTimes(2))
-    expect(result.current.data).toBe('before write')
-
-    await act(async () => {
-      second.resolve('after write')
-      await second.promise
-    })
-    await waitFor(() => expect(result.current.data).toBe('after write'))
-  })
-})
 
 describe('mutations that refetch after a write while the first fetch is in flight', () => {
   beforeEach(() => {
