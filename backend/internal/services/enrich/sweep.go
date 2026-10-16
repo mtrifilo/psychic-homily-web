@@ -123,7 +123,7 @@ func (s *ArtistLocationSweep) runCycle(ctx context.Context) {
 	})
 	if err != nil {
 		shared.ReportCycle(ctx, 0, err)
-		s.logger.Error("artist location sweep: cycle failed", "error", err)
+		shared.LogCycleFailure(s.logger, "artist location sweep: cycle failed", err)
 		return
 	}
 	shared.ReportCycle(ctx, report.ArtistsScanned, nil)

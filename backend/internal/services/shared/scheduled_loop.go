@@ -642,10 +642,18 @@ func (r *loopRunner) runWork(ctx context.Context) (panicked bool) {
 	return false
 }
 
-// LogCycleFailure logs a scheduled-loop cycle that returned err, with "error"
-// as the first attribute and args after it. A canceled context is the normal
-// shutdown path (a deploy landing mid-cycle), so it logs at Info; every other
-// error logs at Error.
+// LogCycleFailure logs err, a failure inside a scheduled-loop cycle, with
+// "error" as the first attribute and args after it. A canceled context is the
+// normal shutdown path (a deploy landing mid-cycle), so it logs at Info; every
+// other error logs at Error.
+//
+// The level is read from err, while runCycle records a cycle as Interrupted
+// from ctx.Err(). The two agree when the loop's context ends only by
+// cancellation and the cycle returns that cancellation bare or wrapped with %w,
+// which is how database/sql and net/http report a call the context cut short.
+// An error that does not wrap context.Canceled logs at Error even when shutdown
+// interrupts the same cycle: it reports a failure the cancellation did not
+// cause.
 //
 // The record carries the caller's program counter, so a handler with AddSource
 // attributes the line to the loop that failed rather than to this helper.

@@ -258,8 +258,8 @@ func (s *VenueTimezoneSweep) runCycle(ctx context.Context) {
 	// two contradictory log lines for one fact. The sweep owns the signal
 	// because it is the half that also fixes the row.
 	if _, err := RefreshTimezoneNamesSnapshot(ctx, s.db); err != nil {
-		s.logger.Error("could not refresh the timezone name snapshot; the venue-local "+
-			"zone guard is running against a possibly stale allowlist", "error", err)
+		shared.LogCycleFailure(s.logger, "could not refresh the timezone name snapshot; the venue-local "+
+			"zone guard is running against a possibly stale allowlist", err)
 	}
 
 	report, err := SweepVenueTimezones(ctx, s.db)
