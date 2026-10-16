@@ -4679,7 +4679,6 @@ type MockWebAuthnService struct {
 	StoreChallengeFn                    func(uint, *webauthn.SessionData, string) (string, error)
 	ConsumeChallengeFn                  func(string, string) (*webauthn.SessionData, uint, error)
 	ConsumeRegistrationChallengeFn      func(string, uint) (*webauthn.SessionData, error)
-	CleanupExpiredChallengesFn          func(context.Context) (int64, error)
 	BeginRegistrationForEmailFn         func(string) (*protocol.CredentialCreation, *webauthn.SessionData, error)
 	StoreSignupChallengeFn              func(contracts.SignupChallenge, *webauthn.SessionData, string) (string, error)
 	ConsumeSignupChallengeFn            func(string, string) (*webauthn.SessionData, contracts.SignupChallenge, error)
@@ -4757,12 +4756,6 @@ func (m *MockWebAuthnService) ConsumeRegistrationChallenge(challengeID string, u
 		return m.ConsumeRegistrationChallengeFn(challengeID, userID)
 	}
 	return nil, nil
-}
-func (m *MockWebAuthnService) CleanupExpiredChallenges(ctx context.Context) (int64, error) {
-	if m.CleanupExpiredChallengesFn != nil {
-		return m.CleanupExpiredChallengesFn(ctx)
-	}
-	return 0, nil
 }
 func (m *MockWebAuthnService) BeginRegistrationForEmail(email string) (*protocol.CredentialCreation, *webauthn.SessionData, error) {
 	if m.BeginRegistrationForEmailFn != nil {
