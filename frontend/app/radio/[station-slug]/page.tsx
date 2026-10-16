@@ -17,11 +17,11 @@ interface StationNetwork {
 
 interface StationData {
   name: string
-  slug?: string
+  slug: string
   description?: string | null
   city?: string | null
   state?: string | null
-  network?: StationNetwork | null
+  network: StationNetwork | null
 }
 
 // Wrapped with `React.cache()` so `generateMetadata` and the page body
@@ -97,10 +97,7 @@ export default async function StationPage({ params }: StationPageProps) {
   if (!station) {
     notFound()
   }
-  const canonicalPath = getStationDetailUrl(
-    station.slug ?? stationSlug,
-    station.network ?? null
-  )
+  const canonicalPath = getStationDetailUrl(station.slug, station.network)
   if (canonicalPath !== `/radio/${stationSlug}`) {
     redirect(canonicalPath)
   }
