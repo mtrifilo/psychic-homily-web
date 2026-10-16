@@ -9,6 +9,7 @@
 import { useQuery, useMutation, useQueryClient, keepPreviousData, type QueryClient } from '@tanstack/react-query'
 import { apiRequest, API_ENDPOINTS } from '@/lib/api'
 import { queryKeys } from '@/lib/queryClient'
+import { refetchAfterMutation } from '@/lib/refetchAfterMutation'
 import { buildCitiesParam } from '@/components/filters/cityParams'
 import type { CityState } from '@/components/filters'
 import type {
@@ -213,14 +214,16 @@ function invalidateAfterEntityTagChange(
   entityType: string,
   entityId: number,
 ) {
-  queryClient.invalidateQueries({
-    queryKey: queryKeys.tags.entityTags(entityType, entityId),
-  })
-  queryClient.invalidateQueries({ queryKey: queryKeys.tags.all })
-  if (entityType === 'venue') {
-    queryClient.invalidateQueries({ queryKey: [...queryKeys.venues.all, 'list'] })
-    queryClient.invalidateQueries({ queryKey: queryKeys.venues.cities })
-  }
+  const venueKeys =
+    entityType === 'venue'
+      ? [[...queryKeys.venues.all, 'list'], queryKeys.venues.cities]
+      : []
+  void refetchAfterMutation(
+    queryClient,
+    queryKeys.tags.entityTags(entityType, entityId),
+    queryKeys.tags.all,
+    ...venueKeys
+  )
 }
 
 /** Add a tag to an entity (creates tag inline if not found for contributor+ users) */
@@ -343,9 +346,10 @@ export function useVoteOnTag() {
       }
     },
     onSettled: (_data, _error, variables) => {
-      queryClient.invalidateQueries({
-        queryKey: queryKeys.tags.entityTags(variables.entityType, variables.entityId),
-      })
+      void refetchAfterMutation(
+        queryClient,
+        queryKeys.tags.entityTags(variables.entityType, variables.entityId)
+      )
     },
   })
 }
@@ -411,9 +415,10 @@ export function useRemoveTagVote() {
       }
     },
     onSettled: (_data, _error, variables) => {
-      queryClient.invalidateQueries({
-        queryKey: queryKeys.tags.entityTags(variables.entityType, variables.entityId),
-      })
+      void refetchAfterMutation(
+        queryClient,
+        queryKeys.tags.entityTags(variables.entityType, variables.entityId)
+      )
     },
   })
 }
