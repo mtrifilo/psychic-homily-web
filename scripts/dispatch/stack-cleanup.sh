@@ -40,7 +40,7 @@ else
 fi
 
 log() { echo "[stack-cleanup] $*"; }
-DO() {
+run_unless_dry_run() {
   if [ "$DRY_RUN" -eq 1 ]; then
     echo "  [dry-run] would run: $*"
   else
@@ -59,7 +59,7 @@ if command -v docker >/dev/null 2>&1; then
     while IFS= read -r project; do
       [ -z "$project" ] && continue
       log "Found compose project: $project"
-      DO docker compose -p "$project" -f "$REPO_ROOT/backend/docker-compose.dispatch.yml" down -v
+      run_unless_dry_run docker compose -p "$project" -f "$REPO_ROOT/backend/docker-compose.dispatch.yml" down -v
     done <<< "$PROJECTS"
   else
     log "  (no dispatch-* compose projects)"
@@ -99,10 +99,10 @@ for stack_dir in "$WORKTREES_DIR"/*/dispatch-stack; do
       pid="$(cat "$pidfile" 2>/dev/null || true)"
       if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then
         log "  killing orphan PID $pid"
-        DO kill "$pid"
+        run_unless_dry_run kill "$pid"
       fi
     done
-    DO rm -rf "$stack_dir"
+    run_unless_dry_run rm -rf "$stack_dir"
   else
     # Worktree alive — clean dead PID files only (process exited but file
     # never got removed; benign but accumulates over time).
@@ -111,7 +111,7 @@ for stack_dir in "$WORKTREES_DIR"/*/dispatch-stack; do
       pid="$(cat "$pidfile" 2>/dev/null || true)"
       if [ -z "$pid" ] || ! kill -0 "$pid" 2>/dev/null; then
         log "Dead PID file: $pidfile"
-        DO rm -f "$pidfile"
+        run_unless_dry_run rm -f "$pidfile"
       fi
     done
   fi
