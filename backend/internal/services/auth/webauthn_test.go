@@ -369,7 +369,7 @@ func (suite *WebAuthnServiceIntegrationTestSuite) TestConsumeChallenge_Expired()
 	suite.Zero(suite.challengeRows(challengeID), "the refusal removes the expired row")
 }
 
-func (suite *WebAuthnServiceIntegrationTestSuite) TestCleanupExpiredChallenges_Success() {
+func (suite *WebAuthnServiceIntegrationTestSuite) TestDeleteExpiredChallenges_Success() {
 	user := suite.createUser("user@test.com")
 
 	// Create an active challenge
@@ -390,8 +390,7 @@ func (suite *WebAuthnServiceIntegrationTestSuite) TestCleanupExpiredChallenges_S
 	suite.Require().NoError(suite.db.Exec("UPDATE webauthn_challenges SET expires_at = ? WHERE id = ?",
 		time.Now().Add(-1*time.Hour), expiredID).Error)
 
-	// Cleanup
-	deleted, err := suite.service.CleanupExpiredChallenges(context.Background())
+	deleted, err := deleteExpiredChallenges(context.Background(), suite.db)
 	suite.Require().NoError(err)
 	suite.Equal(int64(1), deleted)
 
