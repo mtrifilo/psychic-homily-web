@@ -209,6 +209,14 @@ const nextConfig: NextConfig = {
         destination: '/library?tab=artists',
         permanent: false,
       },
+      // Saved shows live in Library. A config redirect rather than a page, so
+      // the old URL answers 308 before anything streams; Next appends the
+      // incoming query string to the destination.
+      {
+        source: '/shows/saved',
+        destination: '/library',
+        permanent: true,
+      },
       // User "collection" page merged into Library (PSY-275)
       {
         source: '/collection',
