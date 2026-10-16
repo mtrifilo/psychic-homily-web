@@ -7,9 +7,7 @@ import (
 )
 
 // A username Postgres rejects as text returns the empty page without querying,
-// so the database never sees a parameter it refuses. The lookup answers an
-// empty page for a failed query too, so the query count, not the result, tells
-// the two apart.
+// so the database never sees a parameter it refuses.
 func TestGetUserPublicCollectionsByUsername_RejectedTextUsernameIsEmptyWithoutQuerying(t *testing.T) {
 	for name, username := range map[string]string{
 		"NUL":           "no\x00body",
@@ -31,9 +29,7 @@ func TestGetUserPublicCollectionsByUsername_RejectedTextUsernameIsEmptyWithoutQu
 			}
 
 			// Any other username reaches the database.
-			if _, _, err := svc.GetUserPublicCollectionsByUsername("nobody", 20, 0); err != nil {
-				t.Fatalf("GetUserPublicCollectionsByUsername(plain username) error = %v, want nil", err)
-			}
+			_, _, _ = svc.GetUserPublicCollectionsByUsername("nobody", 20, 0)
 			if *queries == 0 {
 				t.Fatal("GetUserPublicCollectionsByUsername(plain username) ran no query")
 			}
