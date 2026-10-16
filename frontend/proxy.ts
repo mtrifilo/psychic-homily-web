@@ -157,20 +157,21 @@ const ENTITY_CHECKS: Record<string, (slug: string) => string> = {
 
 /**
  * Static (non-`[slug]`) routes that live UNDER a proxied entity prefix. These
- * are real Next routes — e.g. `app/shows/submit/page.tsx` (the show-submission
- * form) and `app/shows/saved/page.tsx` (a server redirect to `/library`) — NOT
- * entity slugs. The `config.matcher`'s `/shows/:path*` source intercepts them,
- * and the `/<entity>/<slug>` shape guard below would otherwise existence-check
- * `GET ${API_BASE_URL}/shows/submit` → backend 404 → rewrite the real page to a
- * 404 (PSY-913, regressed by PSY-897's shows phase). Excluding these segments
- * lets the genuine page render.
+ * are real Next routes (e.g. `app/shows/submit/page.tsx`, the show-submission
+ * form), NOT entity slugs. The `config.matcher`'s `/shows/:path*` source
+ * intercepts them, and the `/<entity>/<slug>` shape guard below would otherwise
+ * existence-check `GET ${API_BASE_URL}/shows/submit` → backend 404 → rewrite
+ * the real page to a 404 (PSY-913, regressed by PSY-897's shows phase).
+ * Excluding these segments lets the genuine page render.
  *
  * Today only `shows` has static sub-routes; the other six proxied prefixes
  * (venues/artists/releases/labels/festivals/tags) have only `[slug]`. When
- * adding a NEW static route under ANY proxied prefix, add its segment here.
+ * adding a NEW static route under ANY proxied prefix, add its segment here. A
+ * path answered by a `redirects()` entry in `next.config.ts` never reaches the
+ * proxy, so it needs no entry.
  */
 const RESERVED_SEGMENTS: Record<string, ReadonlySet<string>> = {
-  shows: new Set(['submit', 'saved']),
+  shows: new Set(['submit']),
 }
 
 /**
@@ -570,8 +571,8 @@ export async function proxy(request: NextRequest): Promise<NextResponse> {
   }
 
   // `/<entity>/<segment>` where <segment> is a real static route (e.g.
-  // `/shows/submit`, `/shows/saved`), not an entity slug — never existence-check
-  // it, or we'd 404 a genuine page (PSY-913).
+  // `/shows/submit`), not an entity slug: never existence-check it, or we'd
+  // 404 a genuine page (PSY-913).
   if (RESERVED_SEGMENTS[entityType]?.has(slug)) {
     return NextResponse.next()
   }
