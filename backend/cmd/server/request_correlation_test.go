@@ -45,7 +45,7 @@ func TestRequestCorrelationCarriesOneID(t *testing.T) {
 		return
 	}
 
-	results := parseCorrelationOutput(t, runCorrelationChild(t))
+	results := parseCorrelationOutput(t, runTestChild(t, "TestRequestCorrelationCarriesOneID", correlationChildEnv))
 
 	for _, inbound := range []string{"", correlationInboundID} {
 		for _, c := range correlationRoutes {
@@ -178,18 +178,18 @@ func serveCorrelationCases(t *testing.T) {
 	}
 }
 
-// runCorrelationChild re-runs this test binary with only this test selected and
-// the child switch set, and returns its combined output. The auth rate-limit
+// runTestChild re-runs this test binary with only testName selected and the
+// childEnv switch set, and returns its combined output. The auth rate-limit
 // escape hatch is cleared so the group limiter is real in the child.
-func runCorrelationChild(t *testing.T) []byte {
+func runTestChild(t *testing.T, testName, childEnv string) []byte {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
 
-	cmd := exec.CommandContext(ctx, os.Args[0], "-test.run=^TestRequestCorrelationCarriesOneID$", "-test.count=1")
-	env := []string{correlationChildEnv + "=1"}
+	cmd := exec.CommandContext(ctx, os.Args[0], "-test.run=^"+testName+"$", "-test.count=1")
+	env := []string{childEnv + "=1"}
 	for _, kv := range os.Environ() {
-		if !strings.HasPrefix(kv, routes.DisableAuthRateLimitsEnvVar+"=") && !strings.HasPrefix(kv, correlationChildEnv+"=") {
+		if !strings.HasPrefix(kv, routes.DisableAuthRateLimitsEnvVar+"=") && !strings.HasPrefix(kv, childEnv+"=") {
 			env = append(env, kv)
 		}
 	}
@@ -201,11 +201,32 @@ func runCorrelationChild(t *testing.T) []byte {
 	return out
 }
 
-// parseCorrelationOutput groups the child's log lines by the case whose markers
-// bracket them. A name served more than once keeps its last attempt.
+// parseCorrelationOutput decodes each case the child served into a caseResult.
 func parseCorrelationOutput(t *testing.T, out []byte) map[string]caseResult {
 	t.Helper()
 	results := map[string]caseResult{}
+	for name, c := range parseChildCases(t, out) {
+		var end caseEnd
+		if err := json.Unmarshal(c.end, &end); err != nil {
+			t.Fatalf("decode case end of %s: %v", name, err)
+		}
+		results[name] = caseResult{caseEnd: end, lines: c.lines}
+	}
+	return results
+}
+
+// childCase is one case a child served: the JSON it reported at the case end
+// marker and every line written between the case's markers.
+type childCase struct {
+	end   json.RawMessage
+	lines []string
+}
+
+// parseChildCases groups a child's output lines by the case whose markers
+// bracket them. A name served more than once keeps its last attempt.
+func parseChildCases(t *testing.T, out []byte) map[string]childCase {
+	t.Helper()
+	results := map[string]childCase{}
 	var current string
 	var lines []string
 
@@ -221,11 +242,11 @@ func parseCorrelationOutput(t *testing.T, out []byte) map[string]caseResult {
 			if current == "" {
 				t.Fatalf("case end with no open case: %q", line)
 			}
-			var end caseEnd
-			if err := json.Unmarshal([]byte(strings.TrimPrefix(line, caseEndMarker)), &end); err != nil {
-				t.Fatalf("decode case end %q: %v", line, err)
+			end := strings.TrimPrefix(line, caseEndMarker)
+			if !json.Valid([]byte(end)) {
+				t.Fatalf("case end is not JSON: %q", line)
 			}
-			results[current] = caseResult{caseEnd: end, lines: lines}
+			results[current] = childCase{end: json.RawMessage(end), lines: lines}
 			current = ""
 		case current != "":
 			lines = append(lines, line)

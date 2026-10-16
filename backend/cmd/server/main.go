@@ -785,22 +785,42 @@ func main() {
 }
 
 // useRequestCorrelation registers, outermost first, the middleware that gives
-// each request its id, its Sentry hub and its access log line. Call it before
-// any other router.Use, so every later middleware and the Huma API see the
-// request id it puts on the context.
+// each request its id, its panic recovery, its Sentry hub and its access log
+// line. Call it before any other router.Use, so every later middleware and the
+// Huma API see the request id it puts on the context.
 func useRequestCorrelation(router chi.Router) {
 	router.Use(middleware.RequestIDMiddleware)
 
-	// Sentry error tracking and panic recovery, early enough to capture errors
-	// from every handler after it.
+	// Outside the Sentry handler: it answers the panic Sentry re-panics after
+	// capturing it.
+	router.Use(middleware.RecoverPanic)
+
+	// Sentry error tracking, early enough to capture a panic from every handler
+	// after it. Repanic hands the panic on to RecoverPanic once captured.
 	sentryHandler := sentryhttp.New(sentryhttp.Options{
-		Repanic:         false, // Recover from panics gracefully (no other recoverer in chain)
+		Repanic:         true,
 		WaitForDelivery: false, // Don't block responses waiting for Sentry
 		Timeout:         2 * time.Second,
 	})
 	router.Use(sentryHandler.Handle)
+	router.Use(tagSentryRequestID)
 
 	router.Use(logRequest)
+}
+
+// tagSentryRequestID tags the request's Sentry scope with its request id, so an
+// event from a route registered directly on chi carries the id its response and
+// log lines carry. Huma operations get the same tag from
+// middleware.HumaSentryContextMiddleware.
+func tagSentryRequestID(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if hub := sentry.GetHubFromContext(r.Context()); hub != nil {
+			if requestID := logger.GetRequestID(r.Context()); requestID != "" {
+				hub.Scope().SetTag("request_id", requestID)
+			}
+		}
+		next.ServeHTTP(w, r)
+	})
 }
 
 // logRequest writes one access log line per request, carrying the request id
