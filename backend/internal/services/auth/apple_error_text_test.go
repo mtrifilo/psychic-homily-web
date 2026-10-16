@@ -169,6 +169,12 @@ func TestValidateIdentityToken_ErrorTextCarriesNoCallerText(t *testing.T) {
 				c["aud"] = callerMark
 			})
 		}},
+		{name: "no exp", kind: jwt.ErrTokenRequiredClaimMissing, token: func(t *testing.T) string {
+			return sign(t, jwt.SigningMethodRS256, key, "known-kid", func(c map[string]any) { delete(c, "exp") })
+		}},
+		{name: "exp null", kind: jwt.ErrTokenRequiredClaimMissing, token: func(t *testing.T) string {
+			return sign(t, jwt.SigningMethodRS256, key, "known-kid", func(c map[string]any) { c["exp"] = nil })
+		}},
 		{name: "not yet valid", kind: jwt.ErrTokenNotValidYet, token: func(t *testing.T) string {
 			return sign(t, jwt.SigningMethodRS256, key, "known-kid", func(c map[string]any) { c["nbf"] = time.Now().Add(time.Hour).Unix() })
 		}},
