@@ -35,7 +35,7 @@ type dstClockCorpus struct {
 
 func loadDSTClockCorpus(t *testing.T) dstClockCorpus {
 	t.Helper()
-	corpus := testcorpus.Load[dstClockCorpus](t, "testdata/dst_clock_corpus.json")
+	corpus := testcorpus.Load[dstClockCorpus](t, "internal/utils/testdata/dst_clock_corpus.json")
 	require.NotEmpty(t, corpus.Cases)
 	return corpus
 }
