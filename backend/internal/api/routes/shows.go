@@ -105,7 +105,6 @@ func setupShowRoutes(rc RouteContext) {
 		middleware.ShowCreateRequestsPerHour,
 		time.Hour,
 	)))
-	showCreateGroup.UseMiddleware(middleware.HumaRequestIDMiddleware)
 	showCreateGroup.UseMiddleware(middleware.HumaJWTMiddleware(rc.SC.JWT, rc.Cfg.Session))
 	huma.Post(showCreateGroup, "/shows", showHandler.CreateShowHandler)
 
@@ -113,7 +112,6 @@ func setupShowRoutes(rc RouteContext) {
 	// Calls external Anthropic API — expensive operation
 	aiProcessGroup := huma.NewGroup(rc.API, "")
 	aiProcessGroup.UseMiddleware(humaFromHTTP(ipRateLimiter(middleware.LimiterAIProcess, middleware.AIProcessRequestsPerMinute, time.Minute)))
-	aiProcessGroup.UseMiddleware(middleware.HumaRequestIDMiddleware)
 	aiProcessGroup.UseMiddleware(middleware.HumaJWTMiddleware(rc.SC.JWT, rc.Cfg.Session))
 	huma.Post(aiProcessGroup, "/shows/ai-process", showHandler.AIProcessShowHandler)
 

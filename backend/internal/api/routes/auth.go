@@ -65,7 +65,6 @@ func setupAuthRoutes(rc RouteContext) {
 	// No JWT middleware here on purpose: these endpoints are how you GET a token.
 	rateLimitedAuthGroup := huma.NewGroup(rc.API, "")
 	useAuthBudget(rateLimitedAuthGroup, authScopedRateLimiter(middleware.LimiterAuth, middleware.AuthRequestsPerMinute))
-	rateLimitedAuthGroup.UseMiddleware(middleware.HumaRequestIDMiddleware)
 
 	huma.Post(rateLimitedAuthGroup, "/auth/login", authHandler.LoginHandler)
 	huma.Post(rateLimitedAuthGroup, "/auth/register", authHandler.RegisterHandler)
@@ -79,7 +78,6 @@ func setupAuthRoutes(rc RouteContext) {
 	appleAuthHandler := authh.NewAppleAuthHandler(rc.SC.AppleAuth, rc.SC.Discord, rc.Cfg)
 	appleSignInGroup := huma.NewGroup(rc.API, "")
 	useAuthBudget(appleSignInGroup, authScopedRateLimiter(middleware.LimiterAppleSignIn, middleware.AppleSignInRequestsPerMinute))
-	appleSignInGroup.UseMiddleware(middleware.HumaRequestIDMiddleware)
 	huma.Post(appleSignInGroup, "/auth/apple/callback", appleAuthHandler.AppleCallbackHandler)
 
 	// Account recovery endpoints (public, rate-limited)
@@ -315,7 +313,6 @@ func setupPasskeyRoutes(rc RouteContext) {
 	// a no-op under DISABLE_AUTH_RATE_LIMITS.
 	passkeyGroup := huma.NewGroup(rc.API, "")
 	useAuthBudget(passkeyGroup, authScopedRateLimiter(middleware.LimiterPasskey, middleware.PasskeyRequestsPerMinute))
-	passkeyGroup.UseMiddleware(middleware.HumaRequestIDMiddleware)
 
 	// Public passkey login endpoints (no auth required)
 	huma.Post(passkeyGroup, "/auth/passkey/login/begin", passkeyHandler.BeginLoginHandler)
@@ -328,7 +325,6 @@ func setupPasskeyRoutes(rc RouteContext) {
 	// address must not be able to refuse it.
 	signupBeginGroup := huma.NewGroup(rc.API, "")
 	useAuthBudget(signupBeginGroup, authScopedRateLimiter(middleware.LimiterPasskeySignupBegin, middleware.PasskeySignupBeginRequestsPerMinute))
-	signupBeginGroup.UseMiddleware(middleware.HumaRequestIDMiddleware)
 	huma.Post(signupBeginGroup, "/auth/passkey/signup/begin", passkeyHandler.BeginSignupHandler)
 	huma.Post(passkeyGroup, "/auth/passkey/signup/finish", passkeyHandler.FinishSignupHandler)
 
