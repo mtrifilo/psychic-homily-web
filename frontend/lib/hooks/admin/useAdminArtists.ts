@@ -10,6 +10,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { apiRequest, API_ENDPOINTS } from '../../api'
 import { queryKeys } from '../../queryClient'
+import { refetchAfterMutation } from '@/lib/refetchAfterMutation'
 import type { Artist, ArtistEditRequest, ArtistAliasesResponse, ArtistAlias, MergeArtistResult } from '@/features/artists'
 // The discover-music response types below are aliased from the generated
 // OpenAPI types, not hand-written (PSY-1550/1600). Regenerate with
@@ -174,7 +175,7 @@ export function useUpdateArtistBandcamp() {
       // are different VALUES (detail() stringifies either, so it's not a
       // key-shape difference), so an id-keyed invalidation never matches. The
       // prefix does, regardless of id-vs-slug. (PSY-1109)
-      queryClient.invalidateQueries({ queryKey: queryKeys.artists.all })
+      void refetchAfterMutation(queryClient, queryKeys.artists.all)
     },
   })
 }
@@ -216,7 +217,7 @@ export function useClearArtistBandcamp() {
       // are different VALUES (detail() stringifies either, so it's not a
       // key-shape difference), so an id-keyed invalidation never matches. The
       // prefix does, regardless of id-vs-slug. (PSY-1109)
-      queryClient.invalidateQueries({ queryKey: queryKeys.artists.all })
+      void refetchAfterMutation(queryClient, queryKeys.artists.all)
     },
   })
 }
@@ -269,7 +270,7 @@ export function useUpdateArtistSpotify() {
       // are different VALUES (detail() stringifies either, so it's not a
       // key-shape difference), so an id-keyed invalidation never matches. The
       // prefix does, regardless of id-vs-slug. (PSY-1109)
-      queryClient.invalidateQueries({ queryKey: queryKeys.artists.all })
+      void refetchAfterMutation(queryClient, queryKeys.artists.all)
     },
   })
 }
@@ -311,7 +312,7 @@ export function useClearArtistSpotify() {
       // are different VALUES (detail() stringifies either, so it's not a
       // key-shape difference), so an id-keyed invalidation never matches. The
       // prefix does, regardless of id-vs-slug. (PSY-1109)
-      queryClient.invalidateQueries({ queryKey: queryKeys.artists.all })
+      void refetchAfterMutation(queryClient, queryKeys.artists.all)
     },
   })
 }
@@ -357,8 +358,11 @@ export function useArtistUpdate() {
       // detail(id) line: these hooks know the numeric id, but the page caches
       // under detail(slug) — different VALUES, so an id-keyed invalidation never
       // matches; the prefix matches regardless. (PSY-1109)
-      queryClient.invalidateQueries({ queryKey: queryKeys.artists.all })
-      queryClient.invalidateQueries({ queryKey: queryKeys.shows.all })
+      void refetchAfterMutation(
+        queryClient,
+        queryKeys.artists.all,
+        queryKeys.shows.all
+      )
     },
   })
 }
@@ -398,9 +402,10 @@ export function useCreateArtistAlias() {
       )
     },
     onSuccess: (_data, variables) => {
-      queryClient.invalidateQueries({
-        queryKey: queryKeys.artists.aliases(variables.artistId),
-      })
+      void refetchAfterMutation(
+        queryClient,
+        queryKeys.artists.aliases(variables.artistId)
+      )
     },
   })
 }
@@ -425,9 +430,10 @@ export function useDeleteArtistAlias() {
       )
     },
     onSuccess: (_data, variables) => {
-      queryClient.invalidateQueries({
-        queryKey: queryKeys.artists.aliases(variables.artistId),
-      })
+      void refetchAfterMutation(
+        queryClient,
+        queryKeys.artists.aliases(variables.artistId)
+      )
     },
   })
 }
@@ -458,8 +464,11 @@ export function useMergeArtists() {
       )
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.artists.all })
-      queryClient.invalidateQueries({ queryKey: queryKeys.shows.all })
+      void refetchAfterMutation(
+        queryClient,
+        queryKeys.artists.all,
+        queryKeys.shows.all
+      )
     },
   })
 }

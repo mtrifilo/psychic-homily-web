@@ -1,5 +1,6 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { apiRequest, API_BASE_URL } from '@/lib/api'
+import { refetchAfterMutation } from '@/lib/refetchAfterMutation'
 
 export const useCancelPendingEdit = () => {
   const queryClient = useQueryClient()
@@ -12,7 +13,7 @@ export const useCancelPendingEdit = () => {
       )
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['my-pending-edits'] })
+      void refetchAfterMutation(queryClient, ['my-pending-edits'])
     },
   })
 }

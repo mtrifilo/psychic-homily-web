@@ -3,7 +3,8 @@ import userEvent from '@testing-library/user-event'
 import { renderWithProviders, screen, waitFor } from '@/test/utils'
 import type { ShowResponse } from '../types'
 
-const { mockInvalidateQueries } = vi.hoisted(() => ({
+const { mockCancelQueries, mockInvalidateQueries } = vi.hoisted(() => ({
+  mockCancelQueries: vi.fn(() => Promise.resolve()),
   mockInvalidateQueries: vi.fn(),
 }))
 const mockPush = vi.fn()
@@ -21,7 +22,10 @@ vi.mock('@tanstack/react-query', async () => {
   )
   return {
     ...actual,
-    useQueryClient: () => ({ invalidateQueries: mockInvalidateQueries }),
+    useQueryClient: () => ({
+      cancelQueries: mockCancelQueries,
+      invalidateQueries: mockInvalidateQueries,
+    }),
   }
 })
 
@@ -442,9 +446,14 @@ describe('ShowSubmissionsConsole', () => {
       { onSuccess: expect.any(Function) }
     )
     mockSetSoldOut.mock.calls[0][1].onSuccess()
-    expect(mockInvalidateQueries).toHaveBeenCalledWith({
+    expect(mockCancelQueries).toHaveBeenCalledWith({
       queryKey: ['mySubmissions'],
     })
+    await waitFor(() =>
+      expect(mockInvalidateQueries).toHaveBeenCalledWith({
+        queryKey: ['mySubmissions'],
+      })
+    )
 
     await user.click(actionButtons[1])
     expect(screen.getByRole('menuitem', { name: 'Publish show' })).toBeTruthy()

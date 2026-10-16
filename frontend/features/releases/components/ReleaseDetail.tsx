@@ -41,6 +41,7 @@ import { CommentThread } from '@/features/comments'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { queryKeys } from '@/lib/queryClient'
+import { refetchAfterMutation } from '@/lib/refetchAfterMutation'
 import {
   findBandcampEmbedUrl,
   findSpotifyEmbedUrl,
@@ -444,9 +445,10 @@ export function ReleaseDetail({ idOrSlug }: ReleaseDetailProps) {
           canEditDirectly={!!canEditDirectly}
           focusField={editFocusField}
           onSuccess={result => {
-            queryClient.invalidateQueries({
-              queryKey: queryKeys.releases.detail(idOrSlug),
-            })
+            void refetchAfterMutation(
+              queryClient,
+              queryKeys.releases.detail(idOrSlug)
+            )
             saveBanner.handleSaveSuccess(result)
           }}
         />

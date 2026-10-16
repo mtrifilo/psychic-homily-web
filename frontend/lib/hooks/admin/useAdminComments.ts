@@ -10,6 +10,7 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { apiRequest, API_BASE_URL } from '../../api'
 import { commentQueryKeys } from '@/features/comments/api'
+import { refetchAfterMutation } from '@/lib/refetchAfterMutation'
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 //
@@ -98,8 +99,11 @@ export function useAdminApproveComment() {
       })
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: adminCommentQueryKeys.all })
-      queryClient.invalidateQueries({ queryKey: commentQueryKeys.all })
+      void refetchAfterMutation(
+        queryClient,
+        adminCommentQueryKeys.all,
+        commentQueryKeys.all
+      )
     },
   })
 }
@@ -124,8 +128,11 @@ export function useAdminRejectComment() {
       })
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: adminCommentQueryKeys.all })
-      queryClient.invalidateQueries({ queryKey: commentQueryKeys.all })
+      void refetchAfterMutation(
+        queryClient,
+        adminCommentQueryKeys.all,
+        commentQueryKeys.all
+      )
     },
   })
 }
@@ -150,9 +157,12 @@ export function useAdminHideComment() {
       })
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: adminCommentQueryKeys.all })
-      queryClient.invalidateQueries({ queryKey: commentQueryKeys.all })
-      queryClient.invalidateQueries({ queryKey: ['admin', 'entityReports'] })
+      void refetchAfterMutation(
+        queryClient,
+        adminCommentQueryKeys.all,
+        commentQueryKeys.all,
+        ['admin', 'entityReports']
+      )
     },
   })
 }
@@ -170,8 +180,11 @@ export function useAdminRestoreComment() {
       })
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: adminCommentQueryKeys.all })
-      queryClient.invalidateQueries({ queryKey: commentQueryKeys.all })
+      void refetchAfterMutation(
+        queryClient,
+        adminCommentQueryKeys.all,
+        commentQueryKeys.all
+      )
     },
   })
 }

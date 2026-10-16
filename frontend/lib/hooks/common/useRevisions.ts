@@ -1,6 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { apiRequest, API_ENDPOINTS } from '@/lib/api'
 import { queryKeys } from '@/lib/queryClient'
+import { refetchAfterMutation } from '@/lib/refetchAfterMutation'
 import type { components } from '@/types/api'
 
 // --- Types ---
@@ -148,10 +149,11 @@ export function useRollbackRevision(entityType?: string) {
         method: 'POST',
       }),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.revisions.all })
-      if (entityType) {
-        queryClient.invalidateQueries({ queryKey: [`${entityType}s`, 'detail'] })
-      }
+      void refetchAfterMutation(
+        queryClient,
+        queryKeys.revisions.all,
+        ...(entityType ? [[`${entityType}s`, 'detail']] : [])
+      )
     },
   })
 }

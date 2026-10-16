@@ -29,6 +29,7 @@ import { AttributionLine, EntityEditDrawer, EntitySaveSuccessBanner, ReportEntit
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { queryKeys } from '@/lib/queryClient'
+import { refetchAfterMutation } from '@/lib/refetchAfterMutation'
 import { hasRenderableSocialLink } from '@/lib/socialLinks'
 import {
   getLabelStatusLabel,
@@ -380,9 +381,7 @@ export function LabelDetail({ idOrSlug }: LabelDetailProps) {
         canEditDirectly={!!canEditDirectly}
         focusField={editFocusField}
         onSuccess={(result) => {
-          queryClient.invalidateQueries({
-            queryKey: queryKeys.labels.detail(idOrSlug),
-          })
+          void refetchAfterMutation(queryClient, queryKeys.labels.detail(idOrSlug))
           saveBanner.handleSaveSuccess(result)
         }}
       />
