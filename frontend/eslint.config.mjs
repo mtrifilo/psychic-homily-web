@@ -103,6 +103,42 @@ const eslintConfig = defineConfig([
       ],
     },
   },
+  {
+    // Mutation hooks in these files refetch through refetchAfterMutation
+    // (lib/refetchAfterMutation.ts), which cancels before it invalidates. A
+    // bare invalidate hands back a query's in-flight first fetch, whose
+    // response can predate the write, and its success clears the
+    // invalidation. createInvalidateQueries is banned here for the same
+    // reason: its entries invalidate without cancelling. The rule covers only
+    // the files named here; add a file once its mutations use the helper. A
+    // site that is safe without the cancel carries an eslint-disable-next-line
+    // comment giving the reason.
+    files: [
+      "features/auth/hooks/useContributorProfile.ts",
+      "features/collections/hooks/index.ts",
+      "features/comments/hooks/index.ts",
+      "features/festivals/hooks/useAdminFestivals.ts",
+      "features/releases/hooks/useAdminReleases.ts",
+      "features/requests/hooks/index.ts",
+      "features/shows/hooks/useSavedShows.ts",
+      "features/tags/hooks/index.ts",
+    ],
+    rules: {
+      "no-restricted-syntax": [
+        "error",
+        {
+          selector: "CallExpression[callee.property.name='invalidateQueries']",
+          message:
+            "Refetch through refetchAfterMutation from @/lib/refetchAfterMutation: a bare invalidateQueries reuses an in-flight first fetch whose response can predate the write. If this site is safe without the cancel, disable this line and say why.",
+        },
+        {
+          selector: "CallExpression[callee.name='createInvalidateQueries']",
+          message:
+            "Refetch through refetchAfterMutation from @/lib/refetchAfterMutation: createInvalidateQueries invalidates without cancelling, so an in-flight first fetch's pre-write response can win.",
+        },
+      ],
+    },
+  },
 ]);
 
 export default eslintConfig;

@@ -215,9 +215,11 @@ export function useUpdateReplyPermission() {
         body: JSON.stringify({ permission }),
       }),
     onSuccess: (_data, variables) => {
+      // eslint-disable-next-line no-restricted-syntax -- the owner acts on a card rendered from the loaded list, so the list has data and a plain invalidate restarts its fetch
       queryClient.invalidateQueries({
         queryKey: commentQueryKeys.entity(variables.entityType, variables.entityId),
       })
+      // eslint-disable-next-line no-restricted-syntax -- CommentCard renders only the thread's replies, which a permission change leaves as they were
       queryClient.invalidateQueries({
         queryKey: commentQueryKeys.thread(variables.commentId),
       })
@@ -239,6 +241,7 @@ export function useSetDefaultReplyPermission() {
         }
       ),
     onSuccess: () => {
+      // eslint-disable-next-line no-restricted-syntax -- the setting renders only for a signed-in viewer whose profile has loaded, and the cache error handlers in lib/queryClient.ts coordinate this query's refetches
       queryClient.invalidateQueries({ queryKey: queryKeys.auth.profile })
     },
   })
@@ -272,6 +275,7 @@ export function useUpdateComment() {
         ),
       }),
     onSuccess: (_data, variables) => {
+      // eslint-disable-next-line no-restricted-syntax -- the edit or delete acts on a card rendered from the loaded list, so the list has data and a plain invalidate restarts its fetch
       queryClient.invalidateQueries({
         queryKey: commentQueryKeys.entity(variables.entityType, variables.entityId),
       })
@@ -279,6 +283,7 @@ export function useUpdateComment() {
       // query cache (`fieldNoteQueryKeys.show`). Field-note edits flow through
       // this hook too, so refresh that cache when the target is a show.
       if (variables.entityType === 'show') {
+        // eslint-disable-next-line no-restricted-syntax -- a field note is edited or deleted from its card in the loaded field-notes list, and editing or deleting a regular show comment leaves that list as it was
         queryClient.invalidateQueries({
           queryKey: fieldNoteQueryKeys.show(variables.entityId),
         })
@@ -302,11 +307,13 @@ export function useDeleteComment() {
         method: 'DELETE',
       }),
     onSuccess: (_data, variables) => {
+      // eslint-disable-next-line no-restricted-syntax -- the edit or delete acts on a card rendered from the loaded list, so the list has data and a plain invalidate restarts its fetch
       queryClient.invalidateQueries({
         queryKey: commentQueryKeys.entity(variables.entityType, variables.entityId),
       })
       // PSY-590: see useUpdateComment — keep the field-note cache in sync.
       if (variables.entityType === 'show') {
+        // eslint-disable-next-line no-restricted-syntax -- a field note is edited or deleted from its card in the loaded field-notes list, and editing or deleting a regular show comment leaves that list as it was
         queryClient.invalidateQueries({
           queryKey: fieldNoteQueryKeys.show(variables.entityId),
         })
@@ -389,6 +396,7 @@ export function useVoteComment() {
       }
     },
     onSettled: (_data, _err, variables) => {
+      // eslint-disable-next-line no-restricted-syntax -- onMutate already cancelled this list, and the vote acts on a card rendered from its loaded data
       queryClient.invalidateQueries({
         queryKey: commentQueryKeys.entity(variables.entityType, variables.entityId),
       })
@@ -456,6 +464,7 @@ export function useUnvoteComment() {
       }
     },
     onSettled: (_data, _err, variables) => {
+      // eslint-disable-next-line no-restricted-syntax -- onMutate already cancelled this list, and the vote acts on a card rendered from its loaded data
       queryClient.invalidateQueries({
         queryKey: commentQueryKeys.entity(variables.entityType, variables.entityId),
       })
