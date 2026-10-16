@@ -264,11 +264,7 @@ func (s *VenueTimezoneSweep) runCycle(ctx context.Context) {
 
 	report, err := SweepVenueTimezones(ctx, s.db)
 	if err != nil {
-		logFn := s.logger.Error
-		if errors.Is(err, context.Canceled) {
-			logFn = s.logger.Info
-		}
-		logFn("venue timezone sweep: cycle failed", "error", err)
+		shared.LogCycleFailure(s.logger, "venue timezone sweep: cycle failed", err)
 		shared.ReportCycle(ctx, 0, err)
 		return
 	}
