@@ -103,7 +103,7 @@ type ServiceContainer struct {
 	AppleAuth              *auth.AppleAuthService
 	Extraction             *pipeline.ExtractionService
 	WebAuthn               *auth.WebAuthnService // nil if init fails (passkeys optional)
-	ChallengeSweep         *auth.ChallengeSweep  // nil when WebAuthn is nil
+	ChallengeSweep         *auth.ChallengeSweep  // non-nil even when WebAuthn is nil
 	Cleanup                *adminsvc.CleanupService
 	DataSync               *adminsvc.DataSyncService
 	Discovery              *pipeline.DiscoveryService
@@ -154,10 +154,6 @@ func NewServiceContainer(database *gorm.DB, cfg *config.Config) *ServiceContaine
 	webauthnService, err := auth.NewWebAuthnService(database, cfg)
 	if err != nil {
 		log.Printf("Warning: WebAuthn service init failed (passkeys disabled): %v", err)
-	}
-	var challengeSweep *auth.ChallengeSweep
-	if webauthnService != nil {
-		challengeSweep = auth.NewChallengeSweep(webauthnService)
 	}
 
 	savedShow := engagement.NewSavedShowService(database)
@@ -389,7 +385,7 @@ func NewServiceContainer(database *gorm.DB, cfg *config.Config) *ServiceContaine
 		AppleAuth:              auth.NewAppleAuthService(database, cfg, jwtService),
 		Extraction:             extraction,
 		WebAuthn:               webauthnService,
-		ChallengeSweep:         challengeSweep,
+		ChallengeSweep:         auth.NewChallengeSweep(database),
 		Cleanup:                adminsvc.NewCleanupService(database, userService),
 		DataSync:               adminsvc.NewDataSyncService(database),
 		Discovery:              discovery,
