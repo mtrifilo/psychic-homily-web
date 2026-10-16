@@ -16,8 +16,7 @@ import { citiesEqual } from './cityParams'
  * render-derived selection (URL value ?? favorites ?? geo). The only effect
  * inside is the `/api/geo` fetch itself, a genuine external-system sync.
  *
- * Two geo SOURCES, one hook (see the two-read-paths note in
- * `lib/geo-default.ts`):
+ * Two geo SOURCES, one hook:
  *   - a caller on an already-dynamic route passes `geoFromServer` (read
  *     server-side via `next/headers`) and sets `enableClientFetch: false`, so
  *     that route makes no extra client request.
@@ -76,7 +75,7 @@ interface UseGeoDefaultCityParams {
    *  e.g. /shows has a `?cities=` URL param, or the caller already seeded
    *  favorites. When true the hook never seeds and shows no affordance. */
   hasExistingSelection: boolean
-  /** The geo value read server-side (/explore) — `{city,state}` plus optional
+  /** A geo value the caller read server-side: `{city,state}` plus optional
    *  visitor lat/long (PSY-981). When provided, the client fetch is skipped.
    *  `undefined` (not passed) → use the client fetch. */
   geoFromServer?: GeoLocation | null
@@ -88,7 +87,7 @@ interface UseGeoDefaultCityParams {
    * cities (PSY-2103's signed-in home, which names the resolved city in its
    * copy and so must have one).
    *
-   * Off by default, which keeps /shows and /explore on the anonymous-only rule.
+   * Off by default, which keeps /shows on the anonymous-only rule.
    * `authStatus === 'authenticated'` alone does NOT mean the favorites have
    * arrived: a passkey sign-in sets the user before its profile refetch lands.
    * So an opted-in caller must also say when the favorites are known, via
@@ -139,7 +138,7 @@ interface UseGeoDefaultCityResult {
  * navigation within a session doesn't re-hit the edge.
  *
  * Returns `geoFromServer` verbatim when the caller already has a server-read
- * value (/explore) — no fetch, no cache.
+ * value: no fetch, no cache.
  */
 function useGeoSource(
   geoFromServer: GeoLocation | null | undefined,

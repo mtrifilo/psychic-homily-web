@@ -1,12 +1,12 @@
 import type { CSSProperties, ReactNode } from 'react'
 
 /**
- * Height-reserving placeholder for a lazy-mounted graph, shared across all three
- * graph surfaces (PSY-1347, PSY-1359):
- *   - InlineGraph (PSY-837) and HomeSceneGraph (PSY-1344) use the DEFAULT form —
- *     a bordered, muted, pulsing, full-width, aria-hidden CLS placeholder — for
- *     their pre-mount state, data-loading state, AND dynamic-import loading
- *     fallback, so those can't drift apart.
+ * Height-reserving placeholder for a lazy-mounted graph, shared across graph
+ * surfaces (PSY-1347, PSY-1359):
+ *   - HomeSceneGraph (PSY-1344) uses the DEFAULT form (a bordered, muted,
+ *     pulsing, full-width, aria-hidden CLS placeholder) for its pre-mount
+ *     state, data-loading state, AND dynamic-import loading fallback, so those
+ *     can't drift apart.
  *   - ArtistGraph's ego dialog (PSY-1359) passes `children` — a visible spinner +
  *     "Loading graph…" label — for the modal's chunk-loading state, where an
  *     announced indicator beats an invisible pulse. With children the box does
