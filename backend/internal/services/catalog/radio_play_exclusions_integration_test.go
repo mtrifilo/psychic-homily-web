@@ -37,6 +37,7 @@ var radioExclusionTestCols = RadioPlayColumns{
 	ArtistName: "rp.artist_name",
 	TrackTitle: "rp.track_title",
 	LabelName:  "rp.label_name",
+	AlbumTitle: "rp.album_title",
 }
 
 const radioExclusionTestFrom = `
@@ -116,6 +117,19 @@ func (s *RadioPlayExclusionsIntegrationSuite) addPlays(station, artist, title, l
 	s.Require().NoError(s.db.CreateInBatches(plays, 200).Error)
 }
 
+// addAlbumPlay inserts one play carrying a title, an album and a label on the
+// station.
+func (s *RadioPlayExclusionsIntegrationSuite) addAlbumPlay(station, artist, title, album, label string) {
+	s.Require().NoError(s.db.Create(&catalogm.RadioPlay{
+		EpisodeID:      s.episodeBySlug[station],
+		ArtistName:     artist,
+		TrackTitle:     stringPtr(title),
+		AlbumTitle:     stringPtr(album),
+		LabelName:      stringPtr(label),
+		ProviderPlayID: stringPtr(fmt.Sprintf("%s|%s|%s|%s|%s", station, artist, title, album, label)),
+	}).Error)
+}
+
 type radioPlayVerdict struct {
 	PlayID     uint
 	StationID  uint
@@ -123,23 +137,27 @@ type radioPlayVerdict struct {
 	ArtistNorm *string
 	TitleNorm  *string
 	LabelNorm  *string
+	AlbumNorm  *string
 	ExArtist   bool
 	ExTrack    bool
 	ExLabel    bool
+	ExAlbum    bool
 }
 
 // verdicts evaluates RadioPlayExcludedSQL for every fixture play and every
 // dimension, together with the SQL-normalized fields the Go predicate takes.
 func (s *RadioPlayExclusionsIntegrationSuite) verdicts() []radioPlayVerdict {
 	q := fmt.Sprintf(`SELECT rp.id AS play_id, rsh.station_id AS station_id, rp.artist_name AS artist_raw,
-       %s AS artist_norm, %s AS title_norm, %s AS label_norm,
-       %s AS ex_artist, %s AS ex_track, %s AS ex_label %s ORDER BY rp.id`,
+       %s AS artist_norm, %s AS title_norm, %s AS label_norm, %s AS album_norm,
+       %s AS ex_artist, %s AS ex_track, %s AS ex_label, %s AS ex_album %s ORDER BY rp.id`,
 		RadioNormalizedFieldSQL("rp.artist_name"),
 		RadioNormalizedFieldSQL("rp.track_title"),
 		RadioNormalizedFieldSQL("rp.label_name"),
+		RadioNormalizedFieldSQL("rp.album_title"),
 		RadioPlayExcludedSQL(RadioRankingArtist, radioExclusionTestCols),
 		RadioPlayExcludedSQL(RadioRankingTrack, radioExclusionTestCols),
 		RadioPlayExcludedSQL(RadioRankingLabel, radioExclusionTestCols),
+		RadioPlayExcludedSQL(RadioRankingAlbum, radioExclusionTestCols),
 		radioExclusionTestFrom)
 	var out []radioPlayVerdict
 	s.Require().NoError(s.db.Raw(q).Scan(&out).Error)
@@ -162,10 +180,11 @@ func (s *RadioPlayExclusionsIntegrationSuite) assertGoAgreesWithSQL() {
 	excl, err := LoadRadioPlayExclusions(s.db)
 	s.Require().NoError(err)
 	for _, v := range s.verdicts() {
-		play := RadioNormalizedPlay{StationID: v.StationID, ArtistName: v.ArtistNorm, TrackTitle: v.TitleNorm, LabelName: v.LabelNorm}
+		play := RadioNormalizedPlay{StationID: v.StationID, ArtistName: v.ArtistNorm, TrackTitle: v.TitleNorm, LabelName: v.LabelNorm, AlbumTitle: v.AlbumNorm}
 		s.Equal(v.ExArtist, excl.Excludes(RadioRankingArtist, play), "artist dimension, play %q", v.ArtistRaw)
 		s.Equal(v.ExTrack, excl.Excludes(RadioRankingTrack, play), "track dimension, play %q", v.ArtistRaw)
 		s.Equal(v.ExLabel, excl.Excludes(RadioRankingLabel, play), "label dimension, play %q", v.ArtistRaw)
+		s.Equal(v.ExAlbum, excl.Excludes(RadioRankingAlbum, play), "album dimension, play %q", v.ArtistRaw)
 	}
 }
 
@@ -592,7 +611,7 @@ func (s *RadioPlayExclusionsIntegrationSuite) TestConstraintsRejectInvalidRows()
 		"postgres word start":         {MatchKind: "artist_name", PatternType: "regex", Pattern: `\mdj`, Category: "talk", Reason: "r"},
 		"posix class":                 {MatchKind: "artist_name", PatternType: "regex", Pattern: `^[[:alpha:]]+$`, Category: "talk", Reason: "r"},
 		"inline flags":                {MatchKind: "artist_name", PatternType: "regex", Pattern: `(?i)dj`, Category: "talk", Reason: "r"},
-		"unknown kind":                {MatchKind: "album_title", PatternType: "exact", Pattern: "x", Category: "talk", Reason: "r"},
+		"unknown kind":                {MatchKind: "show_name", PatternType: "exact", Pattern: "x", Category: "talk", Reason: "r"},
 		"unknown category":            {MatchKind: "artist_name", PatternType: "exact", Pattern: "x", Category: "spam", Reason: "r"},
 		"blank reason":                {MatchKind: "artist_name", PatternType: "exact", Pattern: "x", Category: "talk", Reason: "  "},
 		"duplicate seeded rule":       {MatchKind: "artist_name", PatternType: "exact", Pattern: "unknown artist", Category: "placeholder", Reason: "dup"},
@@ -604,4 +623,127 @@ func (s *RadioPlayExclusionsIntegrationSuite) TestConstraintsRejectInvalidRows()
 	// An exact pattern that is not a valid regex is fine: it never reaches ~.
 	ok := catalogm.RadioPlayExclusion{MatchKind: "label_name", PatternType: "exact", Pattern: "no label (boot", Category: "placeholder", Reason: "r"}
 	s.NoError(s.db.Create(&ok).Error)
+}
+
+// The seeded album_title rows match the album as logged and disqualify only
+// the album: the play still counts toward the artist, track and label
+// rankings. Real album titles that contain a seeded name are kept.
+func (s *RadioPlayExclusionsIntegrationSuite) TestSeededAlbumPlaceholdersExcludeOnlyTheAlbum() {
+	placeholders := map[string]string{
+		"T Single":   "Single",
+		"T ST":       "S/T",
+		"T KEXP":     "Live on KEXP",
+		"T WFMU On":  "Live On WFMU",
+		"T WFMU At":  " Live at WFMU ",
+		"T Single 2": "[Single]",
+	}
+	kept := map[string]string{
+		"T Volume":   "Live at KEXP, Volume Three",
+		"T Rider":    "Single Rider",
+		"T Trans":    "Live on KEXP from Trans Musicales",
+		"T Ordinary": "Blue",
+	}
+	for artist, album := range placeholders {
+		s.addAlbumPlay("t-kexp", artist, "Song", album, "Sub Pop")
+	}
+	for artist, album := range kept {
+		s.addAlbumPlay("t-wfmu", artist, "Song", album, "Sub Pop")
+	}
+	for _, v := range s.verdicts() {
+		_, isPlaceholder := placeholders[v.ArtistRaw]
+		s.Equal(isPlaceholder, v.ExAlbum, "album of %q", v.ArtistRaw)
+		s.False(v.ExArtist || v.ExTrack || v.ExLabel, "%q still counts toward the artist, track and label rankings", v.ArtistRaw)
+	}
+	s.assertGoAgreesWithSQL()
+}
+
+// A rule tests only the field its match kind names.
+func (s *RadioPlayExclusionsIntegrationSuite) TestAlbumAndTitleRulesStayOnTheirField() {
+	s.addAlbumPlay("t-kexp", "T Title Single", "Single", "Sub Pop Singles Club", "Sub Pop")
+	s.addAlbumPlay("t-kexp", "T Album Unknown Track", "Rezzett", "Unknown Track", "Sub Pop")
+	s.addAlbumPlay("t-kexp", "T Title Unknown Track", "Unknown Track", "Rezzett", "Sub Pop")
+
+	titleSingle := s.verdictFor("T Title Single")
+	s.False(titleSingle.ExTrack, "the album rule 'single' does not test the title")
+	s.False(titleSingle.ExAlbum)
+	albumUnknown := s.verdictFor("T Album Unknown Track")
+	s.False(albumUnknown.ExAlbum, "the title rule 'unknown track' does not test the album")
+	s.False(albumUnknown.ExTrack)
+	titleUnknown := s.verdictFor("T Title Unknown Track")
+	s.True(titleUnknown.ExTrack)
+	s.False(titleUnknown.ExAlbum, "a placeholder title leaves the album counting")
+	s.assertGoAgreesWithSQL()
+}
+
+// Station-scoped album rows follow the same dimension rules, on their station
+// only.
+func (s *RadioPlayExclusionsIntegrationSuite) TestStationScopedAlbumRule() {
+	kexp := s.stationBySlug["t-kexp"]
+	s.Require().NoError(s.db.Create(&catalogm.RadioPlayExclusion{
+		MatchKind: "album_title", PatternType: "exact", Pattern: "kexp sessions", Category: "placeholder",
+		StationID: &kexp, Reason: "test",
+	}).Error)
+	s.addAlbumPlay("t-kexp", "T On KEXP", "Song", "KEXP Sessions", "Sub Pop")
+	s.addAlbumPlay("t-nts", "T On NTS", "Song", "KEXP Sessions", "Sub Pop")
+
+	onKEXP := s.verdictFor("T On KEXP")
+	s.True(onKEXP.ExAlbum)
+	s.False(onKEXP.ExArtist || onKEXP.ExTrack || onKEXP.ExLabel)
+	onNTS := s.verdictFor("T On NTS")
+	s.False(onNTS.ExAlbum || onNTS.ExArtist || onNTS.ExTrack || onNTS.ExLabel)
+	s.assertGoAgreesWithSQL()
+}
+
+// A station element or talk row on a field outside a dimension's key excludes
+// the whole play from that dimension too; the seed holds no such album or
+// label row, so this covers the predicate once one is added.
+func (s *RadioPlayExclusionsIntegrationSuite) TestTalkRowsOnAlbumAndLabelExcludeWholePlay() {
+	s.addAlbumPlay("t-kexp", "T Ident Album", "Top of the Hour", "Station ID 2026", "Sub Pop")
+	s.addAlbumPlay("t-kexp", "T Plain", "Top of the Hour", "Real Album", "Sub Pop")
+	before := s.verdictFor("T Ident Album")
+	s.False(before.ExArtist || before.ExTrack || before.ExLabel || before.ExAlbum)
+
+	s.Require().NoError(s.db.Create(&catalogm.RadioPlayExclusion{
+		MatchKind: "album_title", PatternType: "regex", Pattern: "^station ids? ", Category: "station_element", Reason: "test",
+	}).Error)
+	s.Require().NoError(s.db.Create(&catalogm.RadioPlayExclusion{
+		MatchKind: "label_name", PatternType: "exact", Pattern: "kexp promo", Category: "talk", Reason: "test",
+	}).Error)
+	s.addAlbumPlay("t-nts", "T Promo Label", "Spot", "Real Album", "KEXP Promo")
+
+	for _, artist := range []string{"T Ident Album", "T Promo Label"} {
+		v := s.verdictFor(artist)
+		s.True(v.ExArtist && v.ExTrack && v.ExLabel && v.ExAlbum, "%q is excluded from every dimension", artist)
+	}
+	plain := s.verdictFor("T Plain")
+	s.False(plain.ExArtist || plain.ExTrack || plain.ExLabel || plain.ExAlbum)
+	s.assertGoAgreesWithSQL()
+}
+
+// A station-scoped station element album row applies on its station although
+// no global non-placeholder album row exists, and a regex placeholder album
+// row disqualifies only the album.
+func (s *RadioPlayExclusionsIntegrationSuite) TestScopedStationElementAndRegexPlaceholderAlbumRows() {
+	kexp := s.stationBySlug["t-kexp"]
+	s.Require().NoError(s.db.Create(&catalogm.RadioPlayExclusion{
+		MatchKind: "album_title", PatternType: "exact", Pattern: "kexp morning ident", Category: "station_element",
+		StationID: &kexp, Reason: "test",
+	}).Error)
+	s.Require().NoError(s.db.Create(&catalogm.RadioPlayExclusion{
+		MatchKind: "album_title", PatternType: "regex", Pattern: "^promo cd( |$)", Category: "placeholder", Reason: "test",
+	}).Error)
+	s.addAlbumPlay("t-kexp", "T Ident KEXP", "Song", "KEXP Morning Ident", "Sub Pop")
+	s.addAlbumPlay("t-nts", "T Ident NTS", "Song", "KEXP Morning Ident", "Sub Pop")
+	s.addAlbumPlay("t-nts", "T Promo", "Song", "Promo CD 2026", "Sub Pop")
+	s.addAlbumPlay("t-nts", "T Promotion", "Song", "Promo CDs", "Sub Pop")
+
+	ident := s.verdictFor("T Ident KEXP")
+	s.True(ident.ExArtist && ident.ExTrack && ident.ExLabel && ident.ExAlbum, "the scoped station element row excludes the whole play on its station")
+	other := s.verdictFor("T Ident NTS")
+	s.False(other.ExArtist || other.ExTrack || other.ExLabel || other.ExAlbum, "the scoped row does not apply on other stations")
+	promo := s.verdictFor("T Promo")
+	s.True(promo.ExAlbum)
+	s.False(promo.ExArtist || promo.ExTrack || promo.ExLabel, "a placeholder album leaves the other rankings counting")
+	s.False(s.verdictFor("T Promotion").ExAlbum, "the regex is anchored on a word boundary")
+	s.assertGoAgreesWithSQL()
 }
