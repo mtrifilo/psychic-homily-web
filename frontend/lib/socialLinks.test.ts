@@ -1,7 +1,6 @@
-import { readFileSync } from 'node:fs'
-import { resolve } from 'node:path'
-
 import { describe, it, expect } from 'vitest'
+
+import { loadBackendCorpus } from '@/test/loadBackendCorpus'
 
 import {
   SOCIAL_LINK_PLATFORMS,
@@ -14,19 +13,7 @@ import {
   type SocialLinkPlatform,
 } from './socialLinks'
 
-// Read at RUNTIME, not imported.
-//
-// `import ... from '../../backend/...json'` would pull a backend file into the
-// frontend TypeScript program, and `next build` typechecks that program, so a
-// Vercel project rooted at frontend/ without "include source files outside the
-// root directory" would fail the BUILD on a test fixture. readFileSync keeps the
-// single shared source of truth while staying invisible to tsc and to the bundle.
-const corpus = JSON.parse(
-  readFileSync(
-    resolve(__dirname, '../../backend/internal/utils/testdata/social_link_corpus.json'),
-    'utf8'
-  )
-) as {
+const corpus = loadBackendCorpus<{
   platforms: Record<string, string[]>
   unanchored: string[]
   handleBases: Record<string, string>
@@ -38,7 +25,7 @@ const corpus = JSON.parse(
     why: string
     rendersAnyway: boolean
   }[]
-}
+}>('internal/utils/testdata/social_link_corpus.json')
 
 /**
  * The gate's parameter is typed, so a production typo fails the build. The
