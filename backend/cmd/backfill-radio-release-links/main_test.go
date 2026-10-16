@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -135,6 +136,7 @@ func TestRun_DryRunThenConfirm(t *testing.T) {
 	}
 	removed := play(1, tySegall, "Chrome", chrome)
 	relinked := play(2, tmbg, "Flood", borisFlood)
+	require.NoError(t, db.Exec("UPDATE radio_plays SET release_link_source = ? WHERE id = ?", catalogm.RadioPlayReleaseLinkSourceMatcher, removed).Error)
 	releaseOf := func(playID uint) *uint {
 		var p catalogm.RadioPlay
 		require.NoError(t, db.First(&p, playID).Error)
@@ -159,9 +161,9 @@ func TestRun_DryRunThenConfirm(t *testing.T) {
 		assert.True(t, strings.HasPrefix(strings.ToUpper(stmt), "SELECT"), "dry run issued a non-SELECT statement: %s", stmt)
 	}
 	assert.Equal(t, mustReadChangeList(t, planPath), [][]string{
-		{"play_id", "outcome", "artist_id", "from_release_id", "to_release_id", "admin_set"},
-		{fmt.Sprint(removed), "removed_not_credited", fmt.Sprint(tySegall.ID), fmt.Sprint(chrome), "", "false"},
-		{fmt.Sprint(relinked), "relinked_credited", fmt.Sprint(tmbg.ID), fmt.Sprint(borisFlood), fmt.Sprint(tmbgFlood), "false"},
+		{"play_id", "outcome", "artist_id", "from_release_id", "to_release_id", "admin_set", "from_source"},
+		{fmt.Sprint(removed), "removed_not_credited", fmt.Sprint(tySegall.ID), fmt.Sprint(chrome), "", "false", catalogm.RadioPlayReleaseLinkSourceMatcher},
+		{fmt.Sprint(relinked), "relinked_credited", fmt.Sprint(tmbg.ID), fmt.Sprint(borisFlood), fmt.Sprint(tmbgFlood), "false", ""},
 	})
 
 	out.Reset()
@@ -210,6 +212,26 @@ func mustReadChangeList(t *testing.T, path string) [][]string {
 	rows, err := readChangeList(path)
 	require.NoError(t, err)
 	return rows
+}
+
+func TestFormatReport_CountsAdminLinksAndEverySource(t *testing.T) {
+	report := &catalog.RadioReleaseLinkReport{
+		Scanned: 6,
+		Counts:  map[catalog.RadioReleaseLinkOutcome]int{catalog.RadioReleaseLinkKeptAdmin: 2, catalog.RadioReleaseLinkKeptCredited: 4},
+		// A source no scanned play carries has no key, as in a real report.
+		SourceCounts: map[string]int{
+			catalogm.RadioPlayReleaseLinkSourceMatcher: 3,
+			catalogm.RadioPlayReleaseLinkSourceAdmin:   2,
+			"":                                         1,
+		},
+	}
+	out := formatReport(report, runOptions{})
+	assert.Regexp(t, `(?m)^  `+regexp.QuoteMeta("Kept: an admin chose the release (never judged):")+` +2$`, out)
+	assert.Regexp(t, `(?m)^By release_link_source \(who chose the release\):\n`+
+		`  matcher: +3\n`+
+		`  admin: +2\n`+
+		`  backfill: +0\n`+
+		`  no source: +1$`, out, "every source prints, in order, zero counts included")
 }
 
 func TestDiffChangeLists(t *testing.T) {
