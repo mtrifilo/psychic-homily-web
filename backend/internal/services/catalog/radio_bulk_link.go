@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+
+	"gorm.io/gorm"
 )
 
 // mbidUUIDPattern is the SQL-side mirror of utils.IsValidMBID — canonical
@@ -41,6 +43,7 @@ FROM (
 	HAVING COUNT(DISTINCT a.id) = 1
 ) sub
 WHERE rp.id = sub.play_id
+RETURNING rp.id
 `
 
 // bulkLinkExactNameSQL links when radio_normalize_name(play.artist_name)
@@ -60,6 +63,7 @@ FROM (
 	HAVING COUNT(DISTINCT a.id) = 1
 ) sub
 WHERE rp.id = sub.play_id
+RETURNING rp.id
 `
 
 // bulkLinkAliasSQL links when the play artist_name matches exactly one alias row.
@@ -78,10 +82,13 @@ FROM (
 	HAVING COUNT(DISTINCT aa.artist_id) = 1
 ) sub
 WHERE rp.id = sub.play_id
+RETURNING rp.id
 `
 
 // BulkLinkUnmatchedArtistPlays runs MBID → exact name → alias UPDATE passes for
-// plays where artist_id IS NULL. Each phase runs in its own transaction.
+// plays where artist_id IS NULL. Each phase runs in its own transaction, which
+// also applies the release credit rule (applyReleaseCreditRule) to the plays
+// the phase linked.
 // Remaining plays (collab billing, punctuation/whitespace noise, ambiguous names)
 // are left for matchPlays / ReMatchUnmatchedChunked.
 func (m *RadioMatchingEngine) BulkLinkUnmatchedArtistPlays(ctx context.Context) (*BulkLinkArtistsResult, error) {
@@ -119,27 +126,23 @@ func (m *RadioMatchingEngine) BulkLinkUnmatchedArtistPlays(ctx context.Context) 
 }
 
 func (m *RadioMatchingEngine) bulkLinkPhase(ctx context.Context, query string) (int64, error) {
-	sqlDB, err := m.db.DB()
-	if err != nil {
-		return 0, fmt.Errorf("sql db: %w", err)
-	}
-
-	tx, err := sqlDB.BeginTx(ctx, nil)
-	if err != nil {
-		return 0, fmt.Errorf("begin tx: %w", err)
-	}
-	defer func() { _ = tx.Rollback() }()
-
-	result, err := tx.ExecContext(ctx, query)
+	var linkedPlays, linkedReleases, clearedReleases int64
+	err := m.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		var playIDs []int64
+		if err := tx.Raw(query).Scan(&playIDs).Error; err != nil {
+			return err
+		}
+		linkedPlays = int64(len(playIDs))
+		var err error
+		linkedReleases, clearedReleases, err = applyReleaseCreditRule(tx, playIDs)
+		return err
+	})
 	if err != nil {
 		return 0, err
 	}
-	rows, err := result.RowsAffected()
-	if err != nil {
-		return 0, fmt.Errorf("rows affected: %w", err)
+	if linkedReleases > 0 || clearedReleases > 0 {
+		slog.Info("radio bulk link: applied the release credit rule",
+			"releases_linked", linkedReleases, "releases_cleared", clearedReleases)
 	}
-	if err := tx.Commit(); err != nil {
-		return 0, fmt.Errorf("commit: %w", err)
-	}
-	return rows, nil
+	return linkedPlays, nil
 }

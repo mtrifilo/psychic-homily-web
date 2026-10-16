@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -210,6 +211,29 @@ func mustReadChangeList(t *testing.T, path string) [][]string {
 	rows, err := readChangeList(path)
 	require.NoError(t, err)
 	return rows
+}
+
+func TestFormatReport_CountsAdminLinksAndEverySource(t *testing.T) {
+	report := &catalog.RadioReleaseLinkReport{
+		Scanned: 6,
+		Counts:  map[catalog.RadioReleaseLinkOutcome]int{catalog.RadioReleaseLinkKeptAdmin: 2, catalog.RadioReleaseLinkKeptCredited: 4},
+		SourceCounts: map[string]int{
+			catalogm.RadioPlayReleaseLinkSourceMatcher:  3,
+			catalogm.RadioPlayReleaseLinkSourceAdmin:    2,
+			catalogm.RadioPlayReleaseLinkSourceBackfill: 0,
+			"": 1,
+		},
+	}
+	out := formatReport(report, runOptions{})
+	for label, count := range map[string]int{
+		"Kept: an admin chose the release (never judged):": 2,
+		"matcher:":   3,
+		"admin:":     2,
+		"backfill:":  0,
+		"no source:": 1,
+	} {
+		assert.Regexp(t, fmt.Sprintf(`(?m)^  %s +%d$`, regexp.QuoteMeta(label), count), out)
+	}
 }
 
 func TestDiffChangeLists(t *testing.T) {

@@ -8,6 +8,7 @@ import (
 	"github.com/lib/pq"
 	"gorm.io/gorm"
 
+	catalogm "psychic-homily-backend/internal/models/catalog"
 	"psychic-homily-backend/internal/services/contracts"
 )
 
@@ -16,6 +17,9 @@ import (
 type RadioReleaseLinkOutcome string
 
 const (
+	// RadioReleaseLinkKeptAdmin: an admin chose the release
+	// (release_link_source 'admin'); the backfill never judges it.
+	RadioReleaseLinkKeptAdmin RadioReleaseLinkOutcome = "kept_admin"
 	// RadioReleaseLinkKeptCredited: the play has a linked artist and the release
 	// is credited to it.
 	RadioReleaseLinkKeptCredited RadioReleaseLinkOutcome = "kept_credited"
@@ -42,6 +46,7 @@ const (
 
 // RadioReleaseLinkOutcomes lists every outcome in report order.
 var RadioReleaseLinkOutcomes = []RadioReleaseLinkOutcome{
+	RadioReleaseLinkKeptAdmin,
 	RadioReleaseLinkKeptCredited,
 	RadioReleaseLinkKeptUniqueTitle,
 	RadioReleaseLinkRemovedNotCredited,
@@ -87,8 +92,9 @@ type RadioReleaseLinkChange struct {
 	NewReleaseID    *uint
 	NewReleaseTitle string
 	// AdminSet: an audit_logs link_radio_play row records an admin setting
-	// this play's current release. Admin links are re-evaluated like any other;
-	// the flag only marks them for review.
+	// this play's current release, though its release_link_source is not
+	// 'admin' (a play marked 'admin' is never changed). The flag only marks
+	// the change for review.
 	AdminSet bool
 }
 
@@ -97,7 +103,10 @@ type RadioReleaseLinkChange struct {
 type RadioReleaseLinkReport struct {
 	Scanned int
 	Counts  map[RadioReleaseLinkOutcome]int
-	Changes []RadioReleaseLinkChange
+	// SourceCounts counts the scanned plays by release_link_source; the empty
+	// key counts plays whose release link carries no source.
+	SourceCounts map[string]int
+	Changes      []RadioReleaseLinkChange
 	// Cleared and Relinked count rows written; both stay zero on a dry run.
 	Cleared  int64
 	Relinked int64
@@ -119,9 +128,11 @@ type RadioReleaseLinkBackfillOptions struct {
 
 // BackfillRadioReleaseLinks judges every play's existing release_id and,
 // unless DryRun, clears the links it refuses and relinks the rest it can,
-// touching only release_id. Its judgement differs from the matcher, which
-// only chooses a release for a play it is matching:
+// touching only release_id and release_link_source. Its judgement differs
+// from the matcher, which only chooses a release for a play it is matching:
 //
+//   - A release an admin chose (release_link_source 'admin') is kept and
+//     never judged.
 //   - A play with a linked artist keeps any release credited to that artist,
 //     whatever the release's title; otherwise it relinks only when exactly one
 //     release with the play's title credits the artist, and is cleared when
@@ -189,6 +200,7 @@ type playWithRelease struct {
 	LinkedArtistName    string
 	AlbumTitle          *string
 	ReleaseID           uint
+	ReleaseLinkSource   string
 	CurrentReleaseTitle string
 	titleKey            string
 }
@@ -197,7 +209,8 @@ func evaluateRadioReleaseLinks(tx *gorm.DB, limit int) (*RadioReleaseLinkReport,
 	var plays []playWithRelease
 	q := tx.Table("radio_plays AS p").
 		Select(`p.id, p.artist_id, p.artist_name, COALESCE(a.name, '') AS linked_artist_name,
-			p.album_title, p.release_id, COALESCE(r.title, '') AS current_release_title`).
+			p.album_title, p.release_id, COALESCE(p.release_link_source, '') AS release_link_source,
+			COALESCE(r.title, '') AS current_release_title`).
 		Joins("LEFT JOIN artists a ON a.id = p.artist_id").
 		Joins("LEFT JOIN releases r ON r.id = p.release_id").
 		Where("p.release_id IS NOT NULL").
@@ -240,10 +253,12 @@ func evaluateRadioReleaseLinks(tx *gorm.DB, limit int) (*RadioReleaseLinkReport,
 	}
 
 	report := &RadioReleaseLinkReport{
-		Scanned: len(plays),
-		Counts:  make(map[RadioReleaseLinkOutcome]int, len(RadioReleaseLinkOutcomes)),
+		Scanned:      len(plays),
+		Counts:       make(map[RadioReleaseLinkOutcome]int, len(RadioReleaseLinkOutcomes)),
+		SourceCounts: make(map[string]int),
 	}
 	for _, p := range plays {
+		report.SourceCounts[p.ReleaseLinkSource]++
 		current := releaseLinkCandidate{ReleaseID: p.ReleaseID, Title: p.CurrentReleaseTitle, Credits: currentCredits[p.ReleaseID]}
 		outcome, picked := classifyReleaseLink(p, current, candidates[p.titleKey])
 		report.Counts[outcome]++
@@ -274,17 +289,21 @@ func evaluateRadioReleaseLinks(tx *gorm.DB, limit int) (*RadioReleaseLinkReport,
 }
 
 // classifyReleaseLink returns the outcome for one play and, for a relink, the
-// release it moves to. A linked artist keeps any release credited to it.
+// release it moves to. An admin-chosen release is kept unjudged; a linked
+// artist keeps any release credited to it.
 func classifyReleaseLink(p playWithRelease, current releaseLinkCandidate, candidates []releaseLinkCandidate) (RadioReleaseLinkOutcome, *releaseLinkCandidate) {
+	if p.ReleaseLinkSource == catalogm.RadioPlayReleaseLinkSourceAdmin {
+		return RadioReleaseLinkKeptAdmin, nil
+	}
 	if p.ArtistID != nil {
-		if current.creditsArtist(*p.ArtistID) {
+		kept, credited, picked := judgeArtistRelease(*p.ArtistID, &current, candidates)
+		switch {
+		case kept:
 			return RadioReleaseLinkKeptCredited, nil
-		}
-		switch countCreditedTo(*p.ArtistID, candidates) {
-		case 0:
+		case credited == 0:
 			return RadioReleaseLinkRemovedNotCredited, nil
-		case 1:
-			return RadioReleaseLinkRelinkedCredited, pickReleaseLink(p.ArtistID, p.ArtistName, candidates)
+		case picked != nil:
+			return RadioReleaseLinkRelinkedCredited, picked
 		default:
 			return RadioReleaseLinkRemovedSeveralCredited, nil
 		}
@@ -330,10 +349,11 @@ WHERE action = @action AND entity_type = @entity
 	return set, nil
 }
 
-// applyRadioReleaseLinkChanges writes the report's removals and relinks. Each
-// UPDATE matches a play only while its release_id is still the evaluated one,
-// so a caller running it outside the evaluation snapshot never overwrites a
-// newer link.
+// applyRadioReleaseLinkChanges writes the report's removals and relinks,
+// marking each relink 'backfill' and clearing the source with each removal.
+// Each UPDATE matches a play only while its release_id is still the evaluated
+// one and no admin chose it, so a caller running it outside the evaluation
+// snapshot never overwrites a newer or an admin link.
 func applyRadioReleaseLinkChanges(tx *gorm.DB, report *RadioReleaseLinkReport) error {
 	var clearIDs, clearFrom, relinkIDs, relinkFrom, relinkTo []int64
 	for _, c := range report.Changes {
@@ -350,10 +370,11 @@ func applyRadioReleaseLinkChanges(tx *gorm.DB, report *RadioReleaseLinkReport) e
 
 	if len(clearIDs) > 0 {
 		res := tx.Exec(`
-UPDATE radio_plays AS p SET release_id = NULL
+UPDATE radio_plays AS p SET release_id = NULL, release_link_source = NULL
 FROM unnest(?::bigint[], ?::bigint[]) AS v(play_id, from_release_id)
-WHERE p.id = v.play_id AND p.release_id = v.from_release_id`,
-			pq.Array(clearIDs), pq.Array(clearFrom))
+WHERE p.id = v.play_id AND p.release_id = v.from_release_id
+  AND p.release_link_source IS DISTINCT FROM ?`,
+			pq.Array(clearIDs), pq.Array(clearFrom), catalogm.RadioPlayReleaseLinkSourceAdmin)
 		if res.Error != nil {
 			return fmt.Errorf("clearing release links: %w", res.Error)
 		}
@@ -361,10 +382,12 @@ WHERE p.id = v.play_id AND p.release_id = v.from_release_id`,
 	}
 	if len(relinkIDs) > 0 {
 		res := tx.Exec(`
-UPDATE radio_plays AS p SET release_id = v.to_release_id
+UPDATE radio_plays AS p SET release_id = v.to_release_id, release_link_source = ?
 FROM unnest(?::bigint[], ?::bigint[], ?::bigint[]) AS v(play_id, from_release_id, to_release_id)
-WHERE p.id = v.play_id AND p.release_id = v.from_release_id`,
-			pq.Array(relinkIDs), pq.Array(relinkFrom), pq.Array(relinkTo))
+WHERE p.id = v.play_id AND p.release_id = v.from_release_id
+  AND p.release_link_source IS DISTINCT FROM ?`,
+			catalogm.RadioPlayReleaseLinkSourceBackfill, pq.Array(relinkIDs), pq.Array(relinkFrom), pq.Array(relinkTo),
+			catalogm.RadioPlayReleaseLinkSourceAdmin)
 		if res.Error != nil {
 			return fmt.Errorf("relinking releases: %w", res.Error)
 		}
