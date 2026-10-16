@@ -18,7 +18,7 @@
  * shows. Whether it should re-point at /graph is an open question, not a
  * documented decision; do not read this note as one.
  *
- * Perf posture mirrors InlineGraph (PSY-868/PSY-837): the section
+ * Perf posture (PSY-868): the section
  * lazy-mounts via IntersectionObserver, all data fetching waits for
  * scroll-intent (and, for the graph payload, for a canvas-capable width),
  * and ForceGraphView loads in its own dynamic(ssr:false) chunk so nothing
@@ -73,8 +73,7 @@ import { CanvasSectionErrorBoundary } from '@/components/shared/CanvasSectionErr
 // re-exports the scenes component tree (AtlasGlobe / SceneList / …)
 // whose module bodies run top-level dynamic() calls the bundler can't drop,
 // so importing it from a statically-mounted homepage component would drag
-// scenes module code into the homepage's initial JS. Same precedent as
-// InlineGraph's deep import of useArtistGraph (PSY-868).
+// scenes module code into the homepage's initial JS.
 import { useScenes, useSceneGraph } from '@/features/scenes/hooks/useScenes'
 import type { SceneGraphNode } from '@/features/scenes/types'
 import { useArtistGraphCard } from '@/features/artists/hooks/useArtistGraphCard'

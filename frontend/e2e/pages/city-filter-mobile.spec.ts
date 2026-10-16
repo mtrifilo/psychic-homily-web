@@ -34,8 +34,7 @@ async function settleOnScreen(locator: Locator, limit: number) {
 /**
  * The routes that render a city filter against the e2e seed. `/artists` also
  * mounts the filter, but the seeded artists carry no city, so the filter bar
- * renders nothing there; the fifth consumer, `UpcomingShowsList`, has no route
- * pointing at it. Both are covered at the unit level instead.
+ * renders nothing there, so it is covered at the unit level instead.
  */
 const MOUNT_SITES = ['/venues', '/shows', '/'] as const
 

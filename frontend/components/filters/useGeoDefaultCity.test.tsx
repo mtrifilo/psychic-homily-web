@@ -89,7 +89,7 @@ describe('shouldShowGeoAffordance', () => {
 
 // The hook RETURNS the derived default (appliedGeoDefault); it never seeds a
 // URL or caller state. These tests assert on the returned value only.
-describe('useGeoDefaultCity — server-prop path (/explore)', () => {
+describe('useGeoDefaultCity: server-prop path', () => {
   it('derives the canonical geo city for an anon visitor when it has shows', () => {
     const { result } = renderHook(() =>
       useGeoDefaultCity(
@@ -526,7 +526,7 @@ describe('useGeoDefaultCity — nearest has-shows city by haversine (PSY-981)', 
 
   it('derives the nearest via the client-fetch path too (home / /shows parity)', async () => {
     // The same nearest logic must fire on the client-fetch surfaces, not just
-    // /explore's server prop — home and /shows fetch /api/geo with coords.
+    // the server prop: home and /shows fetch /api/geo with coords.
     mockGeoFetchPV(PARADISE_VALLEY)
     const { result } = renderHook(() =>
       useGeoDefaultCity(

@@ -22,8 +22,8 @@ import { venueLocalDateKey } from '@/lib/utils/showTiming'
  * ISR revalidation rules for mutations routed through the catch-all API
  * proxy (app/api/[...path]/route.ts) — PSY-939.
  *
- * Entity pages are ISR-cached (revalidate: 3600; /explore: 300) and re-seed
- * the TanStack Query cache via prefetchEntity on load. Any mutation that
+ * Entity pages are ISR-cached (revalidate: 3600) and re-seed the TanStack
+ * Query cache via prefetchEntity on load. Any mutation that
  * changes data embedded in an ISR payload must revalidate the affected
  * paths, or a reload within the window re-serves pre-mutation data and the
  * save appears lost (PSY-936/PSY-937).
@@ -272,7 +272,6 @@ const RULES: readonly RevalidationRule[] = [
       '/shows',
       ALL_SHOW_MONTH_PAGES,
       ALL_SHOW_DAY_PAGES,
-      '/explore',
       '/artists',
       '/venues',
       SCENE_LIST_PAGE,
@@ -304,7 +303,6 @@ const RULES: readonly RevalidationRule[] = [
       '/shows',
       ALL_SHOW_MONTH_PAGES,
       ALL_SHOW_DAY_PAGES,
-      '/explore',
       '/artists',
       '/venues',
       SCENE_LIST_PAGE,
