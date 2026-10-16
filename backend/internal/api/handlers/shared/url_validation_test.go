@@ -2,7 +2,6 @@ package shared
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"math"
 	"os"
@@ -13,6 +12,7 @@ import (
 
 	"psychic-homily-backend/internal/api/handlers/shared/testhelpers"
 	"psychic-homily-backend/internal/services/contracts"
+	"psychic-homily-backend/internal/testcorpus"
 	"psychic-homily-backend/internal/utils/urlguard"
 )
 
@@ -91,14 +91,7 @@ type socialCorpusFields struct {
 
 func loadSocialCorpusFields(t *testing.T) socialCorpusFields {
 	t.Helper()
-	raw, err := os.ReadFile("../../../utils/testdata/social_link_corpus.json")
-	if err != nil {
-		t.Fatalf("read shared corpus: %v", err)
-	}
-	var corpus socialCorpusFields
-	if err := json.Unmarshal(raw, &corpus); err != nil {
-		t.Fatalf("parse shared corpus: %v", err)
-	}
+	corpus := testcorpus.Load[socialCorpusFields](t, "../../../utils/testdata/social_link_corpus.json")
 	if len(corpus.Platforms) == 0 || len(corpus.Unanchored) == 0 {
 		t.Fatal("shared corpus names no fields")
 	}

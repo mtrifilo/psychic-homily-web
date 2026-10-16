@@ -2,6 +2,9 @@ import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 
 import { describe, it, expect, vi, afterEach } from 'vitest'
+
+import { loadBackendCorpus } from '@/test/loadBackendCorpus'
+
 import {
   parseBandcampEmbedId,
   swapAlbumTrackPath,
@@ -345,24 +348,10 @@ describe('resolveBandcampEmbed', () => {
 // is deliberately the stricter side on the bandcamp.com apex and on surrounding
 // whitespace, both of which this parser accepts.
 describe('cross-language corpus (store is a subset of render)', () => {
-  // Read at RUNTIME, not imported.
-  //
-  // `import ... from '../../backend/...json'` would pull a backend file into the
-  // frontend TypeScript program, and `next build` typechecks that program, so a
-  // Vercel project rooted at frontend/ without "include source files outside the
-  // root directory" would fail the BUILD on a test fixture. The two existing
-  // cross-boundary references in e2e/ are runtime path.resolve calls for exactly
-  // this reason. readFileSync keeps the single shared source of truth while
-  // staying invisible to tsc and to the bundle.
-  const corpus = JSON.parse(
-    readFileSync(
-      resolve(__dirname, '../../backend/internal/utils/testdata/bandcamp_url_corpus.json'),
-      'utf8'
-    )
-  ) as {
+  const corpus = loadBackendCorpus<{
     storable: string[]
     rejected: { url: string; why: string; alsoRejectedByReader: boolean }[]
-  }
+  }>('internal/utils/testdata/bandcamp_url_corpus.json')
 
   it('has entries on both sides', () => {
     expect(corpus.storable.length).toBeGreaterThan(0)

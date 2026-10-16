@@ -1,12 +1,12 @@
 package utils
 
 import (
-	"encoding/json"
-	"os"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"psychic-homily-backend/internal/testcorpus"
 )
 
 // bandcampURLCorpus mirrors testdata/bandcamp_url_corpus.json, the file this
@@ -33,11 +33,7 @@ type bandcampURLCorpus struct {
 // the same file and asserts the reader's, including that every `storable` entry
 // renders, which is the contract direction.
 func TestBandcampURLCorpus(t *testing.T) {
-	raw, err := os.ReadFile("testdata/bandcamp_url_corpus.json")
-	require.NoError(t, err, "the corpus is shared with the frontend test; do not move it without updating both")
-
-	var corpus bandcampURLCorpus
-	require.NoError(t, json.Unmarshal(raw, &corpus))
+	corpus := testcorpus.Load[bandcampURLCorpus](t, "testdata/bandcamp_url_corpus.json")
 	require.NotEmpty(t, corpus.Storable)
 	require.NotEmpty(t, corpus.Rejected)
 
