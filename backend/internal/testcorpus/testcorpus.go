@@ -9,7 +9,6 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
-	"sync"
 	"testing"
 )
 
@@ -50,13 +49,13 @@ func Load[T any](t testing.TB, path string) T {
 // as the compiler recorded its path. The recorded path is absolute unless the
 // test binary was built with -trimpath, in which case resolution fails rather
 // than guessing from the working directory.
-var moduleRoot = sync.OnceValues(func() (string, error) {
+func moduleRoot() (string, error) {
 	_, file, _, ok := runtime.Caller(0)
 	if !ok {
 		return "", errors.New("runtime.Caller reported no source file for package testcorpus")
 	}
 	return enclosingModuleRoot(file)
-})
+}
 
 // enclosingModuleRoot walks up from the directory of file, which must be
 // absolute, to the nearest directory that holds a go.mod.
@@ -64,12 +63,15 @@ func enclosingModuleRoot(file string) (string, error) {
 	if !filepath.IsAbs(file) {
 		return "", fmt.Errorf("source path %q is not absolute (built with -trimpath?), so the module root cannot be found", file)
 	}
-	for dir := filepath.Dir(file); ; dir = filepath.Dir(dir) {
+	dir := filepath.Dir(file)
+	for {
 		if _, err := os.Stat(filepath.Join(dir, "go.mod")); err == nil {
 			return dir, nil
 		}
-		if parent := filepath.Dir(dir); parent == dir {
+		parent := filepath.Dir(dir)
+		if parent == dir {
 			return "", fmt.Errorf("no go.mod encloses %s", file)
 		}
+		dir = parent
 	}
 }

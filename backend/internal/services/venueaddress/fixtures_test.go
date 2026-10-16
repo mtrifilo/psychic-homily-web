@@ -49,6 +49,8 @@ func loadAddressFixtures(t *testing.T) []addressFixture {
 	return fixtures
 }
 
+// html reads the fixture's page. Page names are relative to this package's
+// testdata directory, and go test runs in the package directory.
 func (f addressFixture) html(t *testing.T) []byte {
 	t.Helper()
 	b, err := os.ReadFile(filepath.Join("testdata", f.Page))
