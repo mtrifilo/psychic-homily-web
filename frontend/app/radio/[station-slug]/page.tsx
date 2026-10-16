@@ -1,9 +1,10 @@
 import { cache } from 'react'
 import { Metadata } from 'next'
-import { redirect } from 'next/navigation'
+import { notFound, redirect } from 'next/navigation'
 import * as Sentry from '@sentry/nextjs'
 import StationDetail from './_components/StationDetail'
 import { API_BASE_URL } from '@/lib/api-base'
+import { getStationDetailUrl } from '@/features/radio/types'
 
 interface StationPageProps {
   params: Promise<{ 'station-slug': string }>
@@ -16,17 +17,17 @@ interface StationNetwork {
 
 interface StationData {
   name: string
-  slug?: string
+  slug: string
   description?: string | null
   city?: string | null
   state?: string | null
-  network?: StationNetwork | null
+  network: StationNetwork | null
 }
 
 // Wrapped with `React.cache()` so `generateMetadata` and the page body
 // share ONE backend fetch per request instead of two. The body needs the
-// result for the sub-stream `redirect()` below. Matches the entity-page
-// pattern in `app/artists/[slug]/page.tsx`.
+// result for the `notFound()` and canonical `redirect()` below. Matches the
+// entity-page pattern in `app/artists/[slug]/page.tsx`.
 const getStation = cache(async (slug: string): Promise<StationData | null> => {
   try {
     const res = await fetch(`${API_BASE_URL}/radio-stations/${slug}`, {
@@ -62,18 +63,21 @@ export async function generateMetadata({ params }: StationPageProps): Promise<Me
       ? station.description.slice(0, 155) + (station.description.length > 155 ? '...' : '')
       : `${station.name} radio station${location ? ` from ${location}` : ''} on Psychic Homily`
     const title = `${station.name} — Radio`
+    // The page redirects any other address to this one, so the metadata
+    // names it too.
+    const canonicalPath = getStationDetailUrl(station.slug, station.network)
 
     return {
       title,
       description,
       alternates: {
-        canonical: `https://psychichomily.com/radio/${stationSlug}`,
+        canonical: `https://psychichomily.com${canonicalPath}`,
       },
       openGraph: {
         title,
         description,
         type: 'website',
-        url: `/radio/${stationSlug}`,
+        url: canonicalPath,
       },
     }
   }
@@ -86,19 +90,19 @@ export async function generateMetadata({ params }: StationPageProps): Promise<Me
 
 export default async function StationPage({ params }: StationPageProps) {
   const { 'station-slug': stationSlug } = await params
-  // PSY-674: sub-streams (non-flagship stations in a network) live under
-  // /radio/{network-slug}/channel/{local-slug} now. Old direct URLs like
-  // /radio/wfmu-drummer 308-redirect to /radio/wfmu/channel/drummer so
-  // shared links keep working. The literal "channel" segment disambiguates
-  // sub-streams from show pages (/radio/{station-slug}/{show-slug}).
-  // Flagship + network-less stations stay on the 1-segment URL.
+  // Sub-streams (non-flagship stations in a network) are served at
+  // /radio/{network-slug}/channel/{local-slug}; flagship and network-less
+  // stations at /radio/{slug}. The backend resolves a numeric id as well as a
+  // slug, so the canonical URL is built from the slug the read returned, not
+  // the requested segment: a sub-stream's one-segment URL and a numeric id
+  // both redirect to it.
   const station = await getStation(stationSlug)
-  if (station?.network && !station.network.is_flagship) {
-    const prefix = `${station.network.slug}-`
-    const localSlug = stationSlug.startsWith(prefix)
-      ? stationSlug.slice(prefix.length)
-      : stationSlug
-    redirect(`/radio/${station.network.slug}/channel/${localSlug}`)
+  if (!station) {
+    notFound()
+  }
+  const canonicalPath = getStationDetailUrl(station.slug, station.network)
+  if (canonicalPath !== `/radio/${stationSlug}`) {
+    redirect(canonicalPath)
   }
   return <StationDetail stationSlug={stationSlug} />
 }
