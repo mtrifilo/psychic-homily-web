@@ -318,13 +318,15 @@ const (
 // the track ids. A counted play of a selected track is either linked to one
 // of those artists or unlinked under one of those keys, so the key and id
 // condition only narrows the scan to the plays the indexes on artist_id and
-// on the normalized name of an unlinked play can find.
+// on the normalized name of an unlinked play can find. The album list counts
+// only plays whose album counts as release evidence (RadioRankingAlbum).
 var radioTrackCandidateEvidenceSQL = `
 WITH plays AS MATERIALIZED (
   SELECT ` + radioTrackKeyColumnsSQL + `,
          k.artist_key,
          p.artist_name, p.track_title, p.album_title, p.artist_id,
-         sh.station_id
+         sh.station_id,
+         NOT ` + RadioPlayExcludedSQL(RadioRankingAlbum, radioCandidatePlayCols) + ` AS album_counts
   ` + radioCandidatePlaysFromSQL(RadioRankingTrack) + `
     AND ((p.artist_id IS NULL AND radio_normalize_name(p.artist_name) = ANY (?::text[]))
          OR p.artist_id = ANY (?::bigint[]))
@@ -359,7 +361,7 @@ FROM counted c
 JOIN artists a ON a.id = c.artist_id
 GROUP BY c.track_id, a.id, a.name, a.slug
 UNION ALL` + radioCandidateEvidenceStationsSQL("track_id") + `
-UNION ALL` + radioCandidateEvidenceNamesSQL(radioEvidenceAlbum, "track_id", "album_title", "") + `
+UNION ALL` + radioCandidateEvidenceNamesSQL(radioEvidenceAlbum, "track_id", "album_title", "album_counts") + `
 ORDER BY kind, track_id, rn`
 
 // attachRadioTrackCandidateEvidence fills the evidence lists of the candidates
