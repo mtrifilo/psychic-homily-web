@@ -35,8 +35,9 @@ import (
 // Every one of those log lines goes through logger.Default(), whose handler is
 // bound to os.Stdout the first time it is used and cannot be redirected
 // afterwards. So the requests are served in a child process running this same
-// test with the JSON logger production initializes, and this process reads the
-// child's stdout: the lines it sees are exactly the lines production writes.
+// test with the logger production initializes (JSON, debug off), and this
+// process reads the child's stdout: the lines it sees are the lines production
+// writes.
 func TestRequestCorrelationCarriesOneID(t *testing.T) {
 	if os.Getenv(correlationChildEnv) == "1" {
 		serveCorrelationCases(t)
@@ -74,10 +75,10 @@ const (
 	caseEndMarker        = "correlation-case-end "
 )
 
-// correlationRoutes are one route per family that sits behind a group rate
-// limiter, plus the entity-report group as the regression row. Each request
-// reaches the code past the limiter: the login handler, or the JWT gate that
-// refuses a caller with no session.
+// correlationRoutes sample the groups that sit behind a group rate limiter (an
+// auth route, show creation, a tag route) plus the entity-report group as the
+// regression row. Each request reaches the code past the limiter: the login
+// handler, or the JWT gate that refuses a caller with no session.
 var correlationRoutes = []struct {
 	name, path, body, ip string
 }{
@@ -112,7 +113,7 @@ type caseResult struct {
 // production-shaped router and brackets each one with markers on stdout, the
 // stream logger.Default() writes to.
 func serveCorrelationCases(t *testing.T) {
-	logger.Init(true, true)
+	logger.Init(true, false)
 
 	cfg := &config.Config{
 		JWT:   config.JWTConfig{SecretKey: "test-secret-key-32-chars-minimum", Expiry: 24},
@@ -235,10 +236,18 @@ func parseCorrelationOutput(t *testing.T, out []byte) map[string]caseResult {
 type logKind string
 
 const (
-	logAccess         logKind = "access log line"
-	logRefusal        logKind = "rate limiter refusal line"
+	logAccess  logKind = "access log line"
+	logRefusal logKind = "rate limiter refusal line"
+	// logReachedHandler is a line written past the limiter through the Huma
+	// context logger.
 	logReachedHandler logKind = "Huma context logger line"
 )
+
+// processScopedLogMsgs are lines that describe the process rather than a
+// request, so they carry no request_id wherever they land.
+var processScopedLogMsgs = map[string]bool{
+	"ratelimit_proxy_trust": true,
+}
 
 // logRecord reads one JSON log line: its message and every request_id field on
 // it, in order. The logger.Auth* helpers write request_id twice (the context
@@ -271,24 +280,26 @@ func logRecord(line string) (msg string, requestIDs []string, ok bool) {
 	return msg, requestIDs, true
 }
 
-func classifyLogLine(msg string, requestIDs []string) (logKind, bool) {
+func classifyLogLine(msg string) logKind {
 	switch msg {
 	case "request":
-		return logAccess, true
+		return logAccess
 	case "rate limit exceeded":
-		return logRefusal, true
+		return logRefusal
 	}
-	if len(requestIDs) == 0 {
-		return "", false
-	}
-	return logReachedHandler, true
+	return logReachedHandler
 }
 
 // assertOneID checks that the response header, the Sentry tag and every
-// request_id on every log line of the case are the same id, that the id is the
-// inbound one when the client sent one and a minted UUID otherwise, and that
+// request_id on every log line of the case are the same id; that every line of
+// the case except a process-scoped one carries a request_id; that the id is the
+// inbound one when the client sent one and a minted UUID otherwise; and that
 // the access line and the wanted kind of line are both present, so a stream the
 // parent cannot see fails rather than passing with nothing to compare.
+//
+// A Huma context logger line counts as present only when it carries request_id
+// twice: the logger.Auth* helpers add the context id to a logger that already
+// carries it, so a line with one copy means the context logger lost the id.
 func assertOneID(t *testing.T, name, inbound string, res caseResult, want logKind) {
 	t.Helper()
 	id := res.Header
@@ -309,11 +320,13 @@ func assertOneID(t *testing.T, name, inbound string, res caseResult, want logKin
 		if !ok {
 			continue
 		}
-		kind, ok := classifyLogLine(msg, requestIDs)
-		if !ok {
+		if processScopedLogMsgs[msg] {
 			continue
 		}
-		seen[kind] = true
+		kind := classifyLogLine(msg)
+		if kind != logReachedHandler || len(requestIDs) >= 2 {
+			seen[kind] = true
+		}
 		if len(requestIDs) == 0 {
 			t.Errorf("%s: %s carries no request_id: %s", name, kind, line)
 		}
@@ -325,7 +338,7 @@ func assertOneID(t *testing.T, name, inbound string, res caseResult, want logKin
 	}
 	for _, kind := range []logKind{logAccess, want} {
 		if !seen[kind] {
-			t.Errorf("%s: no %s was written; lines seen:\n%s", name, kind, strings.Join(res.lines, "\n"))
+			t.Errorf("%s: no %s carrying the request id was written; lines seen:\n%s", name, kind, strings.Join(res.lines, "\n"))
 		}
 	}
 }

@@ -784,9 +784,9 @@ func main() {
 }
 
 // useRequestCorrelation registers, outermost first, the middleware that gives
-// each request its id, its Sentry hub and its access log line. It runs ahead of
-// every other middleware on router, so everything after it, the Huma API
-// included, sees the request id it put on the context.
+// each request its id, its Sentry hub and its access log line. Call it before
+// any other router.Use, so every later middleware and the Huma API see the
+// request id it puts on the context.
 func useRequestCorrelation(router chi.Router) {
 	router.Use(middleware.RequestIDMiddleware)
 
