@@ -30,6 +30,7 @@ vi.mock('../../api', () => ({
 
 // Mock queryClient module
 vi.mock('../../queryClient', () => ({
+  queryKeys: { admin: { stats: ['admin', 'stats'] }, shows: { all: ['shows'] } },
   createInvalidateQueries: () => ({
     shows: mockInvalidateShows,
   }),
@@ -276,7 +277,7 @@ describe('useAdminShows', () => {
         queryKey: ['admin', 'shows', 'pending'],
       })
       // Should invalidate public shows
-      expect(mockInvalidateShows).toHaveBeenCalled()
+      expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['shows'] })
     })
 
     it('handles approval errors', async () => {
@@ -392,7 +393,7 @@ describe('useAdminShows', () => {
       expect(invalidateSpy).toHaveBeenCalledWith({
         queryKey: ['admin', 'shows', 'rejected'],
       })
-      expect(mockInvalidateShows).toHaveBeenCalled()
+      expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['shows'] })
     })
 
   })

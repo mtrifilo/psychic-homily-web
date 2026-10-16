@@ -10,7 +10,7 @@
 import { useMemo } from 'react'
 import { useQuery, useMutation, useQueryClient, keepPreviousData } from '@tanstack/react-query'
 import { apiRequest, API_BASE_URL } from '@/lib/api'
-import { createInvalidateQueries } from '@/lib/queryClient'
+import { refetchAfterMutation } from '@/lib/refetchAfterMutation'
 import type { components } from '@/types/api'
 
 // ============================================================================
@@ -364,7 +364,6 @@ export function useRadioStats() {
  */
 export function useCreateRadioStation() {
   const queryClient = useQueryClient()
-  const invalidate = createInvalidateQueries(queryClient)
 
   return useMutation({
     mutationFn: async (input: CreateRadioStationInput) => {
@@ -374,8 +373,11 @@ export function useCreateRadioStation() {
       })
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: radioQueryKeys.stations })
-      queryClient.invalidateQueries({ queryKey: radioQueryKeys.stats })
+      void refetchAfterMutation(
+        queryClient,
+        radioQueryKeys.stations,
+        radioQueryKeys.stats
+      )
     },
   })
 }
@@ -393,10 +395,13 @@ export function useUpdateRadioStation() {
         body: JSON.stringify(input),
       })
     },
-    onSuccess: (_data, variables) => {
-      queryClient.invalidateQueries({ queryKey: radioQueryKeys.stations })
-      queryClient.invalidateQueries({ queryKey: radioQueryKeys.stationDetail(variables.id) })
-      queryClient.invalidateQueries({ queryKey: radioQueryKeys.stats })
+    onSuccess: () => {
+      // The stations prefix covers the station's detail entry.
+      void refetchAfterMutation(
+        queryClient,
+        radioQueryKeys.stations,
+        radioQueryKeys.stats
+      )
     },
   })
 }
@@ -414,8 +419,11 @@ export function useDeleteRadioStation() {
       })
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: radioQueryKeys.stations })
-      queryClient.invalidateQueries({ queryKey: radioQueryKeys.stats })
+      void refetchAfterMutation(
+        queryClient,
+        radioQueryKeys.stations,
+        radioQueryKeys.stats
+      )
     },
   })
 }
@@ -434,9 +442,12 @@ export function useCreateRadioShow() {
       })
     },
     onSuccess: (_data, variables) => {
-      queryClient.invalidateQueries({ queryKey: radioQueryKeys.shows(variables.stationId) })
-      queryClient.invalidateQueries({ queryKey: radioQueryKeys.stations })
-      queryClient.invalidateQueries({ queryKey: radioQueryKeys.stats })
+      void refetchAfterMutation(
+        queryClient,
+        radioQueryKeys.shows(variables.stationId),
+        radioQueryKeys.stations,
+        radioQueryKeys.stats
+      )
     },
   })
 }
@@ -455,8 +466,11 @@ export function useUpdateRadioShow() {
       })
     },
     onSuccess: (_data, variables) => {
-      queryClient.invalidateQueries({ queryKey: radioQueryKeys.shows(variables.stationId) })
-      queryClient.invalidateQueries({ queryKey: radioQueryKeys.stations })
+      void refetchAfterMutation(
+        queryClient,
+        radioQueryKeys.shows(variables.stationId),
+        radioQueryKeys.stations
+      )
     },
   })
 }
@@ -502,8 +516,11 @@ export function useBulkSetShowLifecycle() {
       }
     },
     onSettled: (_data, _err, variables) => {
-      queryClient.invalidateQueries({ queryKey: radioQueryKeys.shows(variables.stationId) })
-      queryClient.invalidateQueries({ queryKey: radioQueryKeys.stations })
+      void refetchAfterMutation(
+        queryClient,
+        radioQueryKeys.shows(variables.stationId),
+        radioQueryKeys.stations
+      )
     },
   })
 }
@@ -521,9 +538,12 @@ export function useDeleteRadioShow() {
       })
     },
     onSuccess: (_data, variables) => {
-      queryClient.invalidateQueries({ queryKey: radioQueryKeys.shows(variables.stationId) })
-      queryClient.invalidateQueries({ queryKey: radioQueryKeys.stations })
-      queryClient.invalidateQueries({ queryKey: radioQueryKeys.stats })
+      void refetchAfterMutation(
+        queryClient,
+        radioQueryKeys.shows(variables.stationId),
+        radioQueryKeys.stations,
+        radioQueryKeys.stats
+      )
     },
   })
 }
@@ -754,7 +774,7 @@ export function useCancelSyncRun() {
       })
     },
     onSuccess: (_data, runId) => {
-      queryClient.invalidateQueries({ queryKey: radioQueryKeys.syncRun(runId) })
+      void refetchAfterMutation(queryClient, radioQueryKeys.syncRun(runId))
     },
   })
 }
@@ -795,9 +815,11 @@ export function useBulkLinkPlays() {
       })
     },
     onSuccess: () => {
-      // Invalidate unmatched queries and stats
-      queryClient.invalidateQueries({ queryKey: ['radio', 'unmatched'] })
-      queryClient.invalidateQueries({ queryKey: radioQueryKeys.stats })
+      void refetchAfterMutation(
+        queryClient,
+        ['radio', 'unmatched'],
+        radioQueryKeys.stats
+      )
     },
   })
 }

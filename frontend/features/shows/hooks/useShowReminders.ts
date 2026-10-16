@@ -2,7 +2,7 @@
 
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { apiRequest, API_ENDPOINTS } from '@/lib/api'
-import { queryKeys } from '@/lib/queryClient'
+import { refetchSignedInProfile } from '@/lib/queryClient'
 
 interface SetShowRemindersResponse {
   success: boolean
@@ -27,7 +27,7 @@ export const useSetShowReminders = () => {
       )
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.auth.profile })
+      void refetchSignedInProfile(queryClient)
     },
   })
 }

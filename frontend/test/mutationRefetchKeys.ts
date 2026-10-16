@@ -2,6 +2,11 @@ import { act, renderHook } from '@testing-library/react'
 import type { QueryClient, QueryKey } from '@tanstack/react-query'
 import { createWrapperWithClient } from '@/test/utils'
 
+/** Lets refetchAfterMutation's cancel step settle so its invalidation lands. */
+export function settleRefetch(): Promise<void> {
+  return act(() => new Promise<void>(resolve => setTimeout(resolve, 0)))
+}
+
 /**
  * Runs one mutation against a client whose queries are only seeded (no
  * observers, so nothing refetches over the network), then lets the refetch
@@ -18,7 +23,7 @@ export async function runMutation<TVariables>(
     wrapper: createWrapperWithClient(client),
   })
   await act(() => result.current.mutateAsync(variables))
-  await act(() => new Promise(resolve => setTimeout(resolve, 0)))
+  await settleRefetch()
   unmount()
 }
 

@@ -5,9 +5,11 @@ import {
   useMutation,
   useQuery,
   useQueryClient,
+  type InvalidateQueryFilters,
 } from '@tanstack/react-query'
 import { apiRequest, API_ENDPOINTS } from '@/lib/api'
 import { queryKeys, createInvalidateQueries } from '@/lib/queryClient'
+import { refetchAfterMutation } from '@/lib/refetchAfterMutation'
 import { useAuthContext } from '@/lib/context/AuthContext'
 import type {
   FollowStatus,
@@ -93,17 +95,24 @@ const isBatchFollowQueryForEntity = (
   queryKey[2] === entityType &&
   queryKey.slice(4).includes(entityId)
 
-const invalidateGlobalFollowCounts = (
-  queryClient: ReturnType<typeof useQueryClient>,
+/** Every single-entity and batch follow-count query that carries this entity. */
+const globalFollowCounts = (
   entityType: string,
   entityId: number | string
-) => {
-  queryClient.invalidateQueries({
-    predicate: query =>
-      isEntityFollowQuery(query.queryKey, entityType, entityId) ||
-      isBatchFollowQueryForEntity(query.queryKey, entityType, entityId),
-  })
-}
+): InvalidateQueryFilters => ({
+  predicate: query =>
+    isEntityFollowQuery(query.queryKey, entityType, entityId) ||
+    isBatchFollowQueryForEntity(query.queryKey, entityType, entityId),
+})
+
+/** The viewer's following lists that can hold an entity of this type. */
+const myFollowingOfType = (
+  singularType: string,
+  userId?: string | number
+): InvalidateQueryFilters => ({
+  predicate: query =>
+    isMyFollowingQueryForType(query.queryKey, singularType, userId),
+})
 
 /**
  * The follow IS the alert subscription (PSY-1893), so its endpoint 404s until
@@ -126,17 +135,6 @@ const dropFollowAlerts = (
   userId?: string | number
 ) => {
   queryClient.removeQueries({
-    queryKey: queryKeys.follows.alerts(entityType, entityId, userId),
-  })
-}
-
-const invalidateFollowAlerts = (
-  queryClient: ReturnType<typeof useQueryClient>,
-  entityType: string,
-  entityId: number | string,
-  userId?: string | number
-) => {
-  queryClient.invalidateQueries({
     queryKey: queryKeys.follows.alerts(entityType, entityId, userId),
   })
 }
@@ -354,21 +352,17 @@ export const useFollow = () => {
     },
     onSettled: (_data, _error, { entityType, entityId }) => {
       const singularType = toSingularFollowType(entityType)
-      invalidateGlobalFollowCounts(queryClient, entityType, entityId)
-      invalidateFollowAlerts(queryClient, entityType, entityId, user?.id)
+      void refetchAfterMutation(
+        queryClient,
+        globalFollowCounts(entityType, entityId),
+        queryKeys.follows.alerts(entityType, entityId, user?.id),
+        myFollowingOfType(singularType, user?.id),
+        queryKeys.follows.libraryFollowing(singularType, user?.id),
+        queryKeys.follows.libraryCounts(user?.id)
+      )
       // Reconcile broad first_activity_at semantics without making the core
       // follow mutation wait on an optional /charts/me request.
       void invalidateQueries.personalCharts()
-      queryClient.invalidateQueries({
-        predicate: query =>
-          isMyFollowingQueryForType(query.queryKey, singularType, user?.id),
-      })
-      queryClient.invalidateQueries({
-        queryKey: queryKeys.follows.libraryFollowing(singularType, user?.id),
-      })
-      queryClient.invalidateQueries({
-        queryKey: queryKeys.follows.libraryCounts(user?.id),
-      })
     },
   })
 }
@@ -569,19 +563,15 @@ export const useUnfollow = () => {
     },
     onSettled: (_data, _error, { entityType, entityId }) => {
       const singularType = toSingularFollowType(entityType)
-      invalidateGlobalFollowCounts(queryClient, entityType, entityId)
       dropFollowAlerts(queryClient, entityType, entityId, user?.id)
+      void refetchAfterMutation(
+        queryClient,
+        globalFollowCounts(entityType, entityId),
+        queryKeys.follows.libraryFollowing(singularType, user?.id),
+        queryKeys.follows.libraryCounts(user?.id),
+        myFollowingOfType(singularType, user?.id)
+      )
       void invalidateQueries.personalCharts()
-      queryClient.invalidateQueries({
-        queryKey: queryKeys.follows.libraryFollowing(singularType, user?.id),
-      })
-      queryClient.invalidateQueries({
-        queryKey: queryKeys.follows.libraryCounts(user?.id),
-      })
-      queryClient.invalidateQueries({
-        predicate: query =>
-          isMyFollowingQueryForType(query.queryKey, singularType, user?.id),
-      })
     },
   })
 }

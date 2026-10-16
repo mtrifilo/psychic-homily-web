@@ -20,6 +20,7 @@ import {
   useUserCollectionsContaining,
 } from '@/features/collections/hooks'
 import { queryKeys } from '@/lib/queryClient'
+import { refetchAfterMutation } from '@/lib/refetchAfterMutation'
 import { useAuthContext } from '@/lib/context/AuthContext'
 import { useAuthGatedAction } from '@/lib/hooks/common/useAuthGatedAction'
 import { replayOnHydrate } from '@/lib/hydration/clickReplay'
@@ -384,23 +385,18 @@ export function AddToCollectionButton({
         return next
       })
       setRemoveConfirmId(null)
-      // Cancel any in-flight contains refetch first: a just-submitted add fires
-      // its own contains refetch, and if that GET (sent before this DELETE
-      // committed) lands after the delete it would briefly re-seed this row as
-      // "Added". Cancelling it before we invalidate avoids that flicker.
-      queryClient.cancelQueries({
-        queryKey: queryKeys.collections.containing(entityType, entityId),
-      })
       // Refresh the contains-check + public backlinks for this entity so a
       // reopen (and the entity page's "appears in" list) reflect the removal.
-      // The re-seed guard above preserves any un-submitted pending adds, so
-      // this refetch can't clobber the user's in-progress selection.
-      queryClient.invalidateQueries({
-        queryKey: queryKeys.collections.containing(entityType, entityId),
-      })
-      queryClient.invalidateQueries({
-        queryKey: queryKeys.collections.entity(entityType, entityId),
-      })
+      // The helper cancels first: a just-submitted add fires its own contains
+      // refetch, and if that GET (sent before this DELETE committed) landed
+      // after the delete it would briefly re-seed this row as "Added". The
+      // re-seed guard above preserves any un-submitted pending adds, so this
+      // refetch can't clobber the user's in-progress selection.
+      void refetchAfterMutation(
+        queryClient,
+        queryKeys.collections.containing(entityType, entityId),
+        queryKeys.collections.entity(entityType, entityId)
+      )
     } catch (err) {
       setRemoveError({ collectionId, message: describeError(err) })
     } finally {

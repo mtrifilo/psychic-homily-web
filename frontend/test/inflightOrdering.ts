@@ -24,11 +24,15 @@ export function clientWithAppDefaults(): QueryClient {
   })
 }
 
-/** A promise plus the function that resolves it, for holding a response. */
+/** A promise plus the functions that settle it, for holding a response. */
 export function deferred<T>() {
   let resolve!: (value: T) => void
-  const promise = new Promise<T>((r) => (resolve = r))
-  return { promise, resolve }
+  let reject!: (reason?: unknown) => void
+  const promise = new Promise<T>((res, rej) => {
+    resolve = res
+    reject = rej
+  })
+  return { promise, resolve, reject }
 }
 
 /**

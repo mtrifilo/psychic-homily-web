@@ -24,6 +24,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { apiRequest, API_ENDPOINTS } from '@/lib/api'
 import { queryKeys } from '@/lib/queryClient'
+import { refetchAfterMutation } from '@/lib/refetchAfterMutation'
 import type { LinkSuggestionListResult, LinkSuggestionReviewResult } from './types'
 
 export interface UseLinkSuggestionsParams {
@@ -93,17 +94,15 @@ export function useReviewLinkSuggestion() {
       return apiRequest<LinkSuggestionReviewResult>(url, { method: 'POST' })
     },
     onSuccess: (_result, variables) => {
-      // Drop the reviewed row from every cached page (pagination varies by
-      // key, so a single invalidation needs to hit the whole branch).
-      queryClient.invalidateQueries({
-        queryKey: ['admin', 'linkSuggestions'],
-      })
-      // An accept writes the artist's social link server-side; refetch the
-      // artists prefix so the detail page renders the new embed. (Reject
-      // touches nothing on the artist, so skip the broad invalidation there.)
-      if (variables.verdict === 'accept') {
-        queryClient.invalidateQueries({ queryKey: queryKeys.artists.all })
-      }
+      // The whole suggestions branch, so the reviewed row leaves every cached
+      // page (pagination varies by key). An accept also writes the artist's
+      // social link server-side, so it refetches the artists prefix for the
+      // detail page's new embed; a reject touches nothing on the artist.
+      void refetchAfterMutation(
+        queryClient,
+        ['admin', 'linkSuggestions'],
+        ...(variables.verdict === 'accept' ? [queryKeys.artists.all] : [])
+      )
     },
   })
 }
