@@ -3,7 +3,7 @@ import { renderHook, waitFor, act } from '@testing-library/react'
 import { createWrapper } from '@/test/utils'
 
 const mockApiRequest = vi.fn()
-const mockInvalidateReleases = vi.fn()
+const mockRefetchReleases = vi.fn()
 
 vi.mock('@/lib/api', () => ({
   apiRequest: (...args: unknown[]) => mockApiRequest(...args),
@@ -20,12 +20,15 @@ vi.mock('@/features/releases/api', () => ({
   },
 }))
 
-// createInvalidateQueries(queryClient).releases() is the cache-bust path all
-// five admin mutations share on success.
+// Refetching the releases family is the cache-bust path all five admin
+// mutations share on success.
 vi.mock('@/lib/queryClient', () => ({
-  createInvalidateQueries: () => ({
-    releases: mockInvalidateReleases,
-  }),
+  queryKeys: { releases: { all: ['releases'] } },
+}))
+
+vi.mock('@/lib/refetchAfterMutation', () => ({
+  refetchAfterMutation: (_queryClient: unknown, ...keys: unknown[]) =>
+    mockRefetchReleases(...keys),
 }))
 
 import {
@@ -39,7 +42,7 @@ import {
 beforeEach(() => {
   vi.clearAllMocks()
   mockApiRequest.mockReset()
-  mockInvalidateReleases.mockReset()
+  mockRefetchReleases.mockReset()
 })
 
 describe('useCreateRelease', () => {
@@ -74,7 +77,7 @@ describe('useCreateRelease', () => {
     })
 
     await waitFor(() => expect(result.current.isSuccess).toBe(true))
-    expect(mockInvalidateReleases).toHaveBeenCalledTimes(1)
+    expect(mockRefetchReleases).toHaveBeenCalledExactlyOnceWith(['releases'])
   })
 
   it('surfaces errors and does not invalidate the cache', async () => {
@@ -90,7 +93,7 @@ describe('useCreateRelease', () => {
 
     await waitFor(() => expect(result.current.isError).toBe(true))
     expect((result.current.error as Error).message).toBe('Validation failed')
-    expect(mockInvalidateReleases).not.toHaveBeenCalled()
+    expect(mockRefetchReleases).not.toHaveBeenCalled()
   })
 
   it('reports a pending state while in flight', async () => {
@@ -154,7 +157,7 @@ describe('useUpdateRelease', () => {
     })
 
     await waitFor(() => expect(result.current.isSuccess).toBe(true))
-    expect(mockInvalidateReleases).toHaveBeenCalledTimes(1)
+    expect(mockRefetchReleases).toHaveBeenCalledExactlyOnceWith(['releases'])
   })
 
   it('does not invalidate the cache on error', async () => {
@@ -169,7 +172,7 @@ describe('useUpdateRelease', () => {
     })
 
     await waitFor(() => expect(result.current.isError).toBe(true))
-    expect(mockInvalidateReleases).not.toHaveBeenCalled()
+    expect(mockRefetchReleases).not.toHaveBeenCalled()
   })
 })
 
@@ -204,7 +207,7 @@ describe('useDeleteRelease', () => {
     })
 
     await waitFor(() => expect(result.current.isSuccess).toBe(true))
-    expect(mockInvalidateReleases).toHaveBeenCalledTimes(1)
+    expect(mockRefetchReleases).toHaveBeenCalledExactlyOnceWith(['releases'])
   })
 
   it('propagates delete errors without invalidating', async () => {
@@ -219,7 +222,7 @@ describe('useDeleteRelease', () => {
     })
 
     await waitFor(() => expect(result.current.isError).toBe(true))
-    expect(mockInvalidateReleases).not.toHaveBeenCalled()
+    expect(mockRefetchReleases).not.toHaveBeenCalled()
   })
 })
 
@@ -270,7 +273,7 @@ describe('useAddReleaseLink', () => {
     })
 
     await waitFor(() => expect(result.current.isSuccess).toBe(true))
-    expect(mockInvalidateReleases).toHaveBeenCalledTimes(1)
+    expect(mockRefetchReleases).toHaveBeenCalledExactlyOnceWith(['releases'])
   })
 })
 
@@ -305,7 +308,7 @@ describe('useRemoveReleaseLink', () => {
     })
 
     await waitFor(() => expect(result.current.isSuccess).toBe(true))
-    expect(mockInvalidateReleases).toHaveBeenCalledTimes(1)
+    expect(mockRefetchReleases).toHaveBeenCalledExactlyOnceWith(['releases'])
   })
 
   it('does not invalidate the cache on error', async () => {
@@ -320,6 +323,6 @@ describe('useRemoveReleaseLink', () => {
     })
 
     await waitFor(() => expect(result.current.isError).toBe(true))
-    expect(mockInvalidateReleases).not.toHaveBeenCalled()
+    expect(mockRefetchReleases).not.toHaveBeenCalled()
   })
 })

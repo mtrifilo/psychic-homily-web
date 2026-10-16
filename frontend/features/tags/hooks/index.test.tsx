@@ -402,6 +402,7 @@ describe('venue tag changes invalidate venue lists', () => {
   const railKey = ['venues', 'list', { city: 'Tucson', includeRail: true }]
   const scopedCitiesKey = ['venues', 'cities', { tags: ['all-ages'] }]
   const detailKey = ['venues', 'detail', '5']
+  const entityTagsKey = ['tags', 'entityTags', 'venue', 5]
 
   function seededClient() {
     const queryClient = new QueryClient({
@@ -410,6 +411,7 @@ describe('venue tag changes invalidate venue lists', () => {
     queryClient.setQueryData(railKey, { venues: [] })
     queryClient.setQueryData(scopedCitiesKey, { cities: [] })
     queryClient.setQueryData(detailKey, { id: 5 })
+    queryClient.setQueryData(entityTagsKey, { tags: [] })
     return queryClient
   }
 
@@ -430,6 +432,7 @@ describe('venue tag changes invalidate venue lists', () => {
     })
 
     await waitFor(() => expect(result.current.isSuccess).toBe(true))
+    expect(queryClient.getQueryState(entityTagsKey)?.isInvalidated).toBe(true)
     expect(queryClient.getQueryState(railKey)?.isInvalidated).toBe(true)
     expect(queryClient.getQueryState(scopedCitiesKey)?.isInvalidated).toBe(true)
     expect(queryClient.getQueryState(detailKey)?.isInvalidated).toBe(false)
@@ -447,6 +450,7 @@ describe('venue tag changes invalidate venue lists', () => {
     })
 
     await waitFor(() => expect(result.current.isSuccess).toBe(true))
+    expect(queryClient.getQueryState(entityTagsKey)?.isInvalidated).toBe(true)
     expect(queryClient.getQueryState(railKey)?.isInvalidated).toBe(true)
     expect(queryClient.getQueryState(scopedCitiesKey)?.isInvalidated).toBe(true)
   })
@@ -463,6 +467,10 @@ describe('venue tag changes invalidate venue lists', () => {
     })
 
     await waitFor(() => expect(result.current.isSuccess).toBe(true))
+    // The tags family still refetches.
+    await waitFor(() =>
+      expect(queryClient.getQueryState(entityTagsKey)?.isInvalidated).toBe(true)
+    )
     expect(queryClient.getQueryState(railKey)?.isInvalidated).toBe(false)
     expect(queryClient.getQueryState(scopedCitiesKey)?.isInvalidated).toBe(false)
   })
@@ -550,5 +558,61 @@ describe('useRemoveTagVote', () => {
       '/tags/1/entities/artist/42/votes',
       expect.objectContaining({ method: 'DELETE' })
     )
+  })
+})
+
+describe('tag votes refetch the entity tags when they settle', () => {
+  const entityTagsKey = ['tags', 'entityTags', 'artist', 42]
+  const otherTagsKey = ['tags', 'list', undefined]
+
+  function seededClient() {
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    })
+    queryClient.setQueryData(entityTagsKey, { tags: [] })
+    queryClient.setQueryData(otherTagsKey, { tags: [] })
+    return queryClient
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockApiRequest.mockReset()
+  })
+
+  it.each([
+    ['succeeds', () => mockApiRequest.mockResolvedValueOnce(undefined)],
+    ['fails', () => mockApiRequest.mockRejectedValueOnce(new Error('boom'))],
+  ])('useVoteOnTag when the vote %s', async (_outcome, answer) => {
+    answer()
+    const queryClient = seededClient()
+    const { result } = renderHook(() => useVoteOnTag(), {
+      wrapper: createWrapperWithClient(queryClient),
+    })
+
+    await act(async () => {
+      result.current.mutate({ tagId: 1, entityType: 'artist', entityId: 42, is_upvote: true })
+    })
+
+    await waitFor(() =>
+      expect(queryClient.getQueryState(entityTagsKey)?.isInvalidated).toBe(true)
+    )
+    expect(queryClient.getQueryState(otherTagsKey)?.isInvalidated).toBe(false)
+  })
+
+  it('useRemoveTagVote', async () => {
+    mockApiRequest.mockResolvedValueOnce(undefined)
+    const queryClient = seededClient()
+    const { result } = renderHook(() => useRemoveTagVote(), {
+      wrapper: createWrapperWithClient(queryClient),
+    })
+
+    await act(async () => {
+      result.current.mutate({ tagId: 1, entityType: 'artist', entityId: 42 })
+    })
+
+    await waitFor(() =>
+      expect(queryClient.getQueryState(entityTagsKey)?.isInvalidated).toBe(true)
+    )
+    expect(queryClient.getQueryState(otherTagsKey)?.isInvalidated).toBe(false)
   })
 })
