@@ -163,9 +163,13 @@ func contributionStatActionNames() []string {
 // =============================================================================
 
 // GetPublicProfile returns a user's public profile with privacy-gated fields.
+// A username Postgres rejects as text (authm.PostgresRejectsText) is not found.
 func (s *ContributorProfileService) GetPublicProfile(username string, viewer contracts.ShowViewer) (*contracts.PublicProfileResponse, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
+	}
+	if authm.PostgresRejectsText(username) {
+		return nil, nil
 	}
 
 	var user authm.User
