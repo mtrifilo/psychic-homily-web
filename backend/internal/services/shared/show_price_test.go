@@ -1,13 +1,12 @@
 package shared
 
 import (
-	"encoding/json"
-	"os"
-	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"psychic-homily-backend/internal/testcorpus"
 )
 
 // The dense-money register, pinned where every backend surface can reach it.
@@ -55,6 +54,16 @@ func TestShowPriceText(t *testing.T) {
 	}
 }
 
+// showPriceVectors mirrors testdata/show_price_vectors.json.
+type showPriceVectors struct {
+	Cases []struct {
+		Name    string   `json:"name"`
+		Advance *float64 `json:"advance"`
+		Door    *float64 `json:"door"`
+		Text    string   `json:"text"`
+	} `json:"cases"`
+}
+
 // The SHARED vector table, read by this suite and by
 // frontend/lib/utils/showPrice.test.ts from the same file. It is what actually
 // holds the Go and TypeScript renderings together: they are hand-written twins
@@ -64,18 +73,7 @@ func TestShowPriceText(t *testing.T) {
 //
 // Add a case to the JSON, never to one suite.
 func TestShowPriceText_SharedVectors(t *testing.T) {
-	raw, err := os.ReadFile(filepath.Join("testdata", "show_price_vectors.json"))
-	require.NoError(t, err)
-
-	var table struct {
-		Cases []struct {
-			Name    string   `json:"name"`
-			Advance *float64 `json:"advance"`
-			Door    *float64 `json:"door"`
-			Text    string   `json:"text"`
-		} `json:"cases"`
-	}
-	require.NoError(t, json.Unmarshal(raw, &table))
+	table := testcorpus.Load[showPriceVectors](t, "internal/services/shared/testdata/show_price_vectors.json")
 	require.NotEmpty(t, table.Cases, "the shared vector file must not be empty")
 
 	for _, tc := range table.Cases {
