@@ -420,7 +420,10 @@ const (
 
 // Release-link sources (radio_plays.release_link_source): the writer that
 // chose a play's release_id. The radio_plays_release_link_source_check CHECK
-// accepts exactly these; the column is NULL when release_id is.
+// accepts exactly these. Every writer sets the source with release_id and
+// clears it with release_id, but deleting a release nulls release_id (ON
+// DELETE SET NULL) and leaves the source, so the source describes release_id
+// only while release_id is set.
 const (
 	RadioPlayReleaseLinkSourceMatcher  = "matcher"
 	RadioPlayReleaseLinkSourceAdmin    = "admin"
@@ -1080,7 +1083,7 @@ type RadioPlay struct {
 	ReleaseID *uint `gorm:"column:release_id"`
 	LabelID   *uint `gorm:"column:label_id"`
 	// ReleaseLinkSource is one of the RadioPlayReleaseLinkSource* values, the
-	// writer that chose ReleaseID; nil when the play has no release link.
+	// writer that chose ReleaseID; meaningful only while ReleaseID is set.
 	ReleaseLinkSource *string `gorm:"column:release_link_source"`
 
 	// External IDs for cross-referencing and deduplication

@@ -35,8 +35,9 @@
 // a live run fails before COMMIT, --out is renamed <out>.NOT-APPLIED; when
 // COMMIT itself fails, the outcome is unknown, --out keeps its name, and a dry
 // run shows what is now on the rows. To undo a run, set release_id back to
-// from_release_id only on rows whose release_id still equals to_release_id
-// (NULL for a removal).
+// from_release_id and release_link_source back to from_source (NULL when
+// empty) only on rows whose release_id still equals to_release_id (NULL for a
+// removal).
 package main
 
 import (
@@ -227,7 +228,7 @@ func markNotApplied(path string, runErr error) error {
 	return fmt.Errorf("%w; none of the changes listed in %s were applied", runErr, renamed)
 }
 
-var changeListHeader = []string{"play_id", "outcome", "artist_id", "from_release_id", "to_release_id", "admin_set"}
+var changeListHeader = []string{"play_id", "outcome", "artist_id", "from_release_id", "to_release_id", "admin_set", "from_source"}
 
 // changeListRows renders changes as CSV rows, header first.
 func changeListRows(changes []catalog.RadioReleaseLinkChange) [][]string {
@@ -243,6 +244,7 @@ func changeListRows(changes []catalog.RadioReleaseLinkChange) [][]string {
 		rows = append(rows, []string{
 			strconv.FormatUint(uint64(c.PlayID), 10), string(c.Outcome), artistID,
 			strconv.FormatUint(uint64(c.CurrentReleaseID), 10), toRelease, strconv.FormatBool(c.AdminSet),
+			c.CurrentReleaseLinkSource,
 		})
 	}
 	return rows

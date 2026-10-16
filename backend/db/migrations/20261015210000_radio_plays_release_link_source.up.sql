@@ -1,5 +1,6 @@
 -- radio_plays.release_link_source names the writer that chose the play's
--- release_id: 'matcher' (the matching engine and its bulk-link passes),
+-- release_id: 'matcher' (a rule chose it: the matching engine, its bulk-link
+-- passes, and the admin bulk-link endpoint, which picks no release itself),
 -- 'admin' (the admin link-play endpoint), 'backfill' (the release-link
 -- backfill). It is NULL when the play has no release link. A release deleted
 -- out from under a play nulls release_id (ON DELETE SET NULL) and leaves this

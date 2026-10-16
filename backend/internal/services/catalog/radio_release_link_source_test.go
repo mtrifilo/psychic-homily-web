@@ -8,6 +8,7 @@ import (
 
 	catalogm "psychic-homily-backend/internal/models/catalog"
 	"psychic-homily-backend/internal/services/contracts"
+	"psychic-homily-backend/internal/utils"
 )
 
 // TestBulkLink_AppliesTheCreditRuleToReleases: when a bulk-link pass links a
@@ -222,8 +223,9 @@ func (suite *RadioMatchingIntegrationTestSuite) TestBulkLink_SeveralCreditedRele
 	uncredited := suite.createPlay(episodeID, 2, "They Might Be Giants", strPtr("Flood"), nil)
 	suite.setReleaseLink(uncredited.ID, borisFlood.ID, catalogm.RadioPlayReleaseLinkSourceMatcher)
 
-	_, err := suite.engine.BulkLinkUnmatchedArtistPlays(context.Background())
+	bulk, err := suite.engine.BulkLinkUnmatchedArtistPlays(context.Background())
 	suite.Require().NoError(err)
+	suite.Equal(int64(2), bulk.NameLinked, "both plays get the artist")
 	suite.Nil(suite.reloadPlay(unlinked.ID).ReleaseID)
 	suite.Nil(suite.reloadPlay(uncredited.ID).ReleaseID)
 	suite.Empty(suite.releaseLinkSource(uncredited.ID))
@@ -350,6 +352,7 @@ func (suite *RadioMatchingIntegrationTestSuite) TestReleaseLinkSourceMigration_M
 	otherAction := play(3, &flood.ID)
 	noAudit := play(4, &pink.ID)
 	noRelease := play(5, nil)
+	otherEntity := play(6, &flood.ID)
 	audit := func(action string, playID uint, releaseID *uint) {
 		suite.Require().NoError(suite.db.Exec(`
 INSERT INTO audit_logs (action, entity_type, entity_id, metadata)
@@ -361,6 +364,10 @@ VALUES (?, ?, ?, jsonb_build_object(?::text, ?::int, ?::text, NULL))`,
 	audit(contracts.AuditActionLinkRadioPlay, otherRelease, &pink.ID)
 	audit("bulk_link_radio_plays", otherAction, &flood.ID)
 	audit(contracts.AuditActionLinkRadioPlay, noRelease, nil)
+	suite.Require().NoError(suite.db.Exec(`
+INSERT INTO audit_logs (action, entity_type, entity_id, metadata)
+VALUES (?, 'artist', ?, jsonb_build_object(?::text, ?::int))`,
+		contracts.AuditActionLinkRadioPlay, otherEntity, contracts.AuditMetaReleaseID, flood.ID).Error)
 
 	for _, direction := range []string{"down", "up"} {
 		body, err := os.ReadFile("../../../db/migrations/20261015210000_radio_plays_release_link_source." + direction + ".sql")
@@ -376,8 +383,173 @@ VALUES (?, ?, ?, jsonb_build_object(?::text, ?::int, ?::text, NULL))`,
 		otherAction:  catalogm.RadioPlayReleaseLinkSourceMatcher,
 		noAudit:      catalogm.RadioPlayReleaseLinkSourceMatcher,
 		noRelease:    "",
+		otherEntity:  catalogm.RadioPlayReleaseLinkSourceMatcher,
 	}
 	for playID, source := range want {
 		suite.Equal(source, suite.releaseLinkSource(playID), "release_link_source of play %d", playID)
 	}
+}
+
+// TestMatchPlay_StaleCopyKeepsAnAdminRelease: a matcher working from a play
+// loaded before an admin linked it neither replaces nor clears the admin's
+// release; the guard reads the stored row.
+func (suite *RadioMatchingIntegrationTestSuite) TestMatchPlay_StaleCopyKeepsAnAdminRelease() {
+	tmbg := suite.createArtist("They Might Be Giants")
+	suite.createCreditedRelease("Flood", tmbg.ID)
+	deluxe := suite.createCreditedRelease("Flood", tmbg.ID)
+	boris := suite.createArtist("Boris")
+	borisFlood := suite.createCreditedRelease("Flood", boris.ID)
+	borisPink := suite.createCreditedRelease("Pink", boris.ID)
+	episodeID := suite.createStationShowEpisode()
+	svc := &RadioService{db: suite.db}
+
+	replaced := suite.createPlay(episodeID, 1, "They Might Be Giants", strPtr("Flood"), nil)
+	staleReplaced := suite.reloadPlay(replaced.ID)
+	suite.Require().NoError(svc.LinkPlay(replaced.ID, &contracts.LinkPlayRequest{ReleaseID: &deluxe.ID}))
+	suite.True(suite.engine.matchPlay(&staleReplaced))
+	suite.Equal(&tmbg.ID, suite.reloadPlay(replaced.ID).ArtistID, "the artist still links")
+	suite.Equal(&deluxe.ID, suite.reloadPlay(replaced.ID).ReleaseID, "the lower-id credited release does not replace it")
+	suite.Equal(catalogm.RadioPlayReleaseLinkSourceAdmin, suite.releaseLinkSource(replaced.ID))
+
+	cleared := suite.createPlay(episodeID, 2, "They Might Be Giants", strPtr("Pink"), nil)
+	suite.setReleaseLink(cleared.ID, borisPink.ID, catalogm.RadioPlayReleaseLinkSourceMatcher)
+	staleCleared := suite.reloadPlay(cleared.ID)
+	suite.Require().NoError(svc.LinkPlay(cleared.ID, &contracts.LinkPlayRequest{ReleaseID: &borisFlood.ID}))
+	suite.True(suite.engine.matchPlay(&staleCleared))
+	suite.Equal(&borisFlood.ID, suite.reloadPlay(cleared.ID).ReleaseID, "the uncredited-release clear does not remove it")
+	suite.Equal(catalogm.RadioPlayReleaseLinkSourceAdmin, suite.releaseLinkSource(cleared.ID))
+}
+
+// TestMatchPlay_ReplacingAMarkedReleaseMarksItMatcher: a matcher relink of a
+// release another writer chose is marked 'matcher'.
+func (suite *RadioMatchingIntegrationTestSuite) TestMatchPlay_ReplacingAMarkedReleaseMarksItMatcher() {
+	tmbg := suite.createArtist("They Might Be Giants")
+	lincoln := suite.createCreditedRelease("Lincoln", tmbg.ID)
+	flood := suite.createCreditedRelease("Flood", tmbg.ID)
+
+	play := suite.createPlay(suite.createStationShowEpisode(), 1, "They Might Be Giants", strPtr("Flood"), nil)
+	suite.Require().NoError(suite.db.Model(play).Update("artist_id", tmbg.ID).Error)
+	suite.setReleaseLink(play.ID, lincoln.ID, catalogm.RadioPlayReleaseLinkSourceBackfill)
+	reloaded := suite.reloadPlay(play.ID)
+	suite.True(suite.engine.matchPlay(&reloaded))
+	suite.Equal(&flood.ID, suite.reloadPlay(play.ID).ReleaseID)
+	suite.Equal(catalogm.RadioPlayReleaseLinkSourceMatcher, suite.releaseLinkSource(play.ID))
+}
+
+// TestReleaseLinkSource_StaleAdminWithoutAReleaseDoesNotBlockLinking: a play
+// whose release was deleted keeps release_link_source 'admin' with release_id
+// NULL; the matcher and the bulk link still give it a release.
+func (suite *RadioMatchingIntegrationTestSuite) TestReleaseLinkSource_StaleAdminWithoutAReleaseDoesNotBlockLinking() {
+	tmbg := suite.createArtist("They Might Be Giants")
+	flood := suite.createCreditedRelease("Flood", tmbg.ID)
+	episodeID := suite.createStationShowEpisode()
+	staleAdmin := func(position int) uint {
+		p := suite.createPlay(episodeID, position, "They Might Be Giants", strPtr("Flood"), nil)
+		suite.Require().NoError(suite.db.Exec("UPDATE radio_plays SET release_link_source = ? WHERE id = ?",
+			catalogm.RadioPlayReleaseLinkSourceAdmin, p.ID).Error)
+		return p.ID
+	}
+
+	matched := staleAdmin(1)
+	reloaded := suite.reloadPlay(matched)
+	suite.True(suite.engine.matchPlay(&reloaded))
+	suite.Equal(&flood.ID, suite.reloadPlay(matched).ReleaseID)
+	suite.Equal(catalogm.RadioPlayReleaseLinkSourceMatcher, suite.releaseLinkSource(matched))
+
+	bulkLinked := staleAdmin(2)
+	bulk, err := suite.engine.BulkLinkUnmatchedArtistPlays(context.Background())
+	suite.Require().NoError(err)
+	suite.Equal(int64(1), bulk.NameLinked)
+	suite.Equal(&flood.ID, suite.reloadPlay(bulkLinked).ReleaseID)
+	suite.Equal(catalogm.RadioPlayReleaseLinkSourceMatcher, suite.releaseLinkSource(bulkLinked))
+}
+
+// TestBulkLink_KeepsACreditedReleaseAndItsSource: a play whose release is
+// already credited to the artist a bulk link gives it keeps that release and
+// its source, whatever the release's title; through the SQL passes and the
+// admin bulk link.
+func (suite *RadioMatchingIntegrationTestSuite) TestBulkLink_KeepsACreditedReleaseAndItsSource() {
+	tmbg := suite.createArtist("They Might Be Giants")
+	lincoln := suite.createCreditedRelease("Lincoln", tmbg.ID)
+	suite.createCreditedRelease("Flood", tmbg.ID)
+	episodeID := suite.createStationShowEpisode()
+
+	bySQLPass := suite.createPlay(episodeID, 1, "They Might Be Giants", strPtr("Flood"), nil)
+	suite.setReleaseLink(bySQLPass.ID, lincoln.ID, catalogm.RadioPlayReleaseLinkSourceBackfill)
+	bulk, err := suite.engine.BulkLinkUnmatchedArtistPlays(context.Background())
+	suite.Require().NoError(err)
+	suite.Equal(int64(1), bulk.NameLinked)
+	suite.Equal(&lincoln.ID, suite.reloadPlay(bySQLPass.ID).ReleaseID)
+	suite.Equal(catalogm.RadioPlayReleaseLinkSourceBackfill, suite.releaseLinkSource(bySQLPass.ID))
+
+	byAdmin := suite.createPlay(episodeID, 2, "TMBG", strPtr("Flood"), nil)
+	suite.setReleaseLink(byAdmin.ID, lincoln.ID, catalogm.RadioPlayReleaseLinkSourceBackfill)
+	svc := &RadioService{db: suite.db}
+	result, err := svc.BulkLinkPlays(&contracts.BulkLinkRequest{ArtistName: "TMBG", ArtistID: tmbg.ID})
+	suite.Require().NoError(err)
+	suite.Equal(1, result.Updated)
+	suite.Equal(&lincoln.ID, suite.reloadPlay(byAdmin.ID).ReleaseID)
+	suite.Equal(catalogm.RadioPlayReleaseLinkSourceBackfill, suite.releaseLinkSource(byAdmin.ID))
+}
+
+// TestBulkLink_MBIDAndAliasPassesApplyTheCreditRule: the MBID and alias
+// passes clear an uncredited release, relink to the one credited release, and
+// keep an admin-chosen release, as the exact-name pass does.
+func (suite *RadioMatchingIntegrationTestSuite) TestBulkLink_MBIDAndAliasPassesApplyTheCreditRule() {
+	const mbid = "a74b1b7f-71a5-4011-9441-d0b5e4122711"
+	slug := utils.GenerateArtistSlug("They Might Be Giants")
+	tmbg := &catalogm.Artist{Name: "They Might Be Giants", Slug: &slug, MusicBrainzArtistID: strPtr(mbid)}
+	suite.Require().NoError(suite.db.Create(tmbg).Error)
+	suite.createAlias(tmbg.ID, "Dial-A-Song")
+	tmbgApollo := suite.createCreditedRelease("Apollo 18", tmbg.ID)
+	boris := suite.createArtist("Boris")
+	borisFlood := suite.createCreditedRelease("Flood", boris.ID)
+	borisPink := suite.createCreditedRelease("Pink", boris.ID)
+	borisApollo := suite.createCreditedRelease("Apollo 18", boris.ID)
+
+	episodeID := suite.createStationShowEpisode()
+	play := func(position int, name string, mb *string, album string, releaseID uint, source string) uint {
+		p := &catalogm.RadioPlay{EpisodeID: episodeID, Position: position, ArtistName: name, AlbumTitle: strPtr(album), MusicBrainzArtistID: mb}
+		suite.Require().NoError(suite.db.Create(p).Error)
+		suite.setReleaseLink(p.ID, releaseID, source)
+		return p.ID
+	}
+	mbidCleared := play(1, "Unknown Billing", strPtr(mbid), "Pink", borisPink.ID, catalogm.RadioPlayReleaseLinkSourceMatcher)
+	mbidAdmin := play(2, "Unknown Billing", strPtr(mbid), "Flood", borisFlood.ID, catalogm.RadioPlayReleaseLinkSourceAdmin)
+	aliasRelinked := play(3, "Dial-A-Song", nil, "Apollo 18", borisApollo.ID, catalogm.RadioPlayReleaseLinkSourceMatcher)
+	aliasAdmin := play(4, "Dial-A-Song", nil, "Pink", borisPink.ID, catalogm.RadioPlayReleaseLinkSourceAdmin)
+
+	bulk, err := suite.engine.BulkLinkUnmatchedArtistPlays(context.Background())
+	suite.Require().NoError(err)
+	suite.Equal(int64(2), bulk.MBIDLinked)
+	suite.Equal(int64(2), bulk.AliasLinked)
+
+	for _, id := range []uint{mbidCleared, mbidAdmin, aliasRelinked, aliasAdmin} {
+		suite.Equal(&tmbg.ID, suite.reloadPlay(id).ArtistID)
+	}
+	suite.Nil(suite.reloadPlay(mbidCleared).ReleaseID)
+	suite.Empty(suite.releaseLinkSource(mbidCleared))
+	suite.Equal(&borisFlood.ID, suite.reloadPlay(mbidAdmin).ReleaseID)
+	suite.Equal(catalogm.RadioPlayReleaseLinkSourceAdmin, suite.releaseLinkSource(mbidAdmin))
+	suite.Equal(&tmbgApollo.ID, suite.reloadPlay(aliasRelinked).ReleaseID)
+	suite.Equal(catalogm.RadioPlayReleaseLinkSourceMatcher, suite.releaseLinkSource(aliasRelinked))
+	suite.Equal(&borisPink.ID, suite.reloadPlay(aliasAdmin).ReleaseID)
+	suite.Equal(catalogm.RadioPlayReleaseLinkSourceAdmin, suite.releaseLinkSource(aliasAdmin))
+}
+
+// TestBackfillReleaseLinks_KeepsAnAdminLinkOnAPlayWithoutAnArtist: an admin
+// link on a play with no artist link is kept unjudged, though the title rule
+// would refuse it.
+func (suite *RadioMatchingIntegrationTestSuite) TestBackfillReleaseLinks_KeepsAnAdminLinkOnAPlayWithoutAnArtist() {
+	boris := suite.createArtist("Boris")
+	borisFlood := suite.createCreditedRelease("Flood", boris.ID)
+
+	play := suite.createPlay(suite.createStationShowEpisode(), 1, "Somebody Else", strPtr("Flood"), nil)
+	svc := &RadioService{db: suite.db}
+	suite.Require().NoError(svc.LinkPlay(play.ID, &contracts.LinkPlayRequest{ReleaseID: &borisFlood.ID}))
+
+	report, err := BackfillRadioReleaseLinks(suite.db, RadioReleaseLinkBackfillOptions{DryRun: true})
+	suite.Require().NoError(err)
+	suite.Equal(map[RadioReleaseLinkOutcome]int{RadioReleaseLinkKeptAdmin: 1}, report.Counts)
+	suite.Empty(report.Changes)
 }

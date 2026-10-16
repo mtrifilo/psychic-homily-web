@@ -42,7 +42,7 @@ FROM (
 	GROUP BY rp2.id
 	HAVING COUNT(DISTINCT a.id) = 1
 ) sub
-WHERE rp.id = sub.play_id
+WHERE rp.id = sub.play_id AND rp.artist_id IS NULL
 RETURNING rp.id, rp.artist_id, rp.album_title, rp.release_id, rp.release_link_source
 `
 
@@ -62,7 +62,7 @@ FROM (
 	GROUP BY rp2.id
 	HAVING COUNT(DISTINCT a.id) = 1
 ) sub
-WHERE rp.id = sub.play_id
+WHERE rp.id = sub.play_id AND rp.artist_id IS NULL
 RETURNING rp.id, rp.artist_id, rp.album_title, rp.release_id, rp.release_link_source
 `
 
@@ -81,7 +81,7 @@ FROM (
 	GROUP BY rp2.id
 	HAVING COUNT(DISTINCT aa.artist_id) = 1
 ) sub
-WHERE rp.id = sub.play_id
+WHERE rp.id = sub.play_id AND rp.artist_id IS NULL
 RETURNING rp.id, rp.artist_id, rp.album_title, rp.release_id, rp.release_link_source
 `
 

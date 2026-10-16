@@ -83,11 +83,14 @@ type RadioReleaseLinkChange struct {
 	ArtistID   *uint
 	ArtistName string
 	// LinkedArtistName is the catalog name of ArtistID, empty when nil.
-	LinkedArtistName      string
-	AlbumTitle            string
-	CurrentReleaseID      uint
-	CurrentReleaseTitle   string
-	CurrentReleaseArtists []string
+	LinkedArtistName string
+	AlbumTitle       string
+	CurrentReleaseID uint
+	// CurrentReleaseLinkSource is the play's release_link_source before the
+	// change, "" for NULL.
+	CurrentReleaseLinkSource string
+	CurrentReleaseTitle      string
+	CurrentReleaseArtists    []string
 	// NewReleaseID and NewReleaseTitle are set for relinks only.
 	NewReleaseID    *uint
 	NewReleaseTitle string
@@ -253,15 +256,16 @@ func evaluateRadioReleaseLinks(tx *gorm.DB, limit int) (*RadioReleaseLinkReport,
 			continue
 		}
 		change := RadioReleaseLinkChange{
-			PlayID:              p.ID,
-			Outcome:             outcome,
-			ArtistID:            p.ArtistID,
-			ArtistName:          p.ArtistName,
-			LinkedArtistName:    p.LinkedArtistName,
-			AlbumTitle:          derefString(p.AlbumTitle),
-			CurrentReleaseID:    p.ReleaseID,
-			CurrentReleaseTitle: p.CurrentReleaseTitle,
-			AdminSet:            adminSet[p.ID][p.ReleaseID],
+			PlayID:                   p.ID,
+			Outcome:                  outcome,
+			ArtistID:                 p.ArtistID,
+			ArtistName:               p.ArtistName,
+			LinkedArtistName:         p.LinkedArtistName,
+			AlbumTitle:               derefString(p.AlbumTitle),
+			CurrentReleaseID:         p.ReleaseID,
+			CurrentReleaseLinkSource: p.ReleaseLinkSource,
+			CurrentReleaseTitle:      p.CurrentReleaseTitle,
+			AdminSet:                 adminSet[p.ID][p.ReleaseID],
 		}
 		for _, credit := range current.Credits {
 			change.CurrentReleaseArtists = append(change.CurrentReleaseArtists, credit.ArtistName)

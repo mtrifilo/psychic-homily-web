@@ -2,6 +2,7 @@ package catalog
 
 import (
 	"fmt"
+	"log/slog"
 
 	"github.com/lib/pq"
 	"gorm.io/gorm"
@@ -109,7 +110,7 @@ type linkedPlay struct {
 func linkArtistsWithCreditRule(tx *gorm.DB, query string, args ...interface{}) (linkedPlays, linkedReleases, clearedReleases int64, err error) {
 	var plays []linkedPlay
 	if err := tx.Raw(query, args...).Scan(&plays).Error; err != nil {
-		return 0, 0, 0, err
+		return 0, 0, 0, fmt.Errorf("linking artists: %w", err)
 	}
 	titleKeys := make([]string, len(plays))
 	var currentIDs []uint
@@ -136,9 +137,17 @@ func linkArtistsWithCreditRule(tx *gorm.DB, query string, args ...interface{}) (
 		outcome, picked := classifyArtistRelease(p.ArtistID, current, candidates[titleKeys[i]])
 		switch {
 		case outcome.IsRelink():
+			var fromReleaseID any
+			if current != nil {
+				fromReleaseID = current.ReleaseID
+			}
+			slog.Info("radio bulk link: linked the release credited to the play's artist",
+				"play_id", p.ID, "artist_id", p.ArtistID, "from_release_id", fromReleaseID, "to_release_id", picked.ReleaseID)
 			linkIDs = append(linkIDs, int64(p.ID))
 			linkTo = append(linkTo, int64(picked.ReleaseID))
 		case outcome.IsRemoval() && current != nil:
+			slog.Info("radio bulk link: cleared release not credited to the play's artist",
+				"play_id", p.ID, "artist_id", p.ArtistID, "release_id", *p.ReleaseID, "outcome", outcome)
 			clearIDs = append(clearIDs, int64(p.ID))
 		}
 	}

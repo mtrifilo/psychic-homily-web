@@ -264,7 +264,8 @@ func (m *RadioMatchingEngine) matchPlayWithErr(play *catalogm.RadioPlay) (bool, 
 	}
 
 	// 2. Match release, unless an admin chose the play's release: the matcher
-	// never replaces or clears an admin link.
+	// never replaces or clears an admin link (setReleaseUnlessAdmin re-checks
+	// that against the stored row).
 	if !hasAdminRelease(play) {
 		m.matchPlayRelease(play, artistMatched, artistID, updates)
 	}
@@ -408,7 +409,9 @@ func (m *RadioMatchingEngine) matchRelease(artistID *uint, artistName string, ti
 // to updates. The play's linked artist after this match is the one just
 // resolved, else the artist_id it already carries (updates never clear
 // artist_id). A play keeping a marked release gets no release update, so its
-// source stays the writer that chose it.
+// source stays the writer that chose it. The changes go through
+// setReleaseUnlessAdmin, so a play loaded before an admin linked it keeps the
+// admin's release.
 func (m *RadioMatchingEngine) matchPlayRelease(play *catalogm.RadioPlay, artistMatched bool, artistID *uint, updates map[string]interface{}) {
 	linkedArtistID := play.ArtistID
 	if artistMatched {
@@ -418,8 +421,8 @@ func (m *RadioMatchingEngine) matchPlayRelease(play *catalogm.RadioPlay, artistM
 	switch {
 	case releaseID != nil:
 		if play.ReleaseID == nil || *play.ReleaseID != *releaseID || play.ReleaseLinkSource == nil {
-			updates["release_id"] = *releaseID
-			updates["release_link_source"] = catalogm.RadioPlayReleaseLinkSourceMatcher
+			source := catalogm.RadioPlayReleaseLinkSourceMatcher
+			setReleaseUnlessAdmin(updates, releaseID, &source)
 		}
 	case gainsArtist(play.ArtistID, artistMatched, artistID) && play.ReleaseID != nil && !m.releaseCreditsArtist(*play.ReleaseID, *artistID):
 		// Giving a play a new artist never leaves it on a release credited to
@@ -428,9 +431,18 @@ func (m *RadioMatchingEngine) matchPlayRelease(play *catalogm.RadioPlay, artistM
 		// judged against, and re-judging existing links is the backfill's job.
 		slog.Info("radio match: cleared release not credited to the newly linked artist",
 			"play_id", play.ID, "release_id", *play.ReleaseID, "artist_id", *artistID)
-		updates["release_id"] = nil
-		updates["release_link_source"] = nil
+		setReleaseUnlessAdmin(updates, nil, nil)
 	}
+}
+
+// setReleaseUnlessAdmin adds release_id and release_link_source assignments
+// to updates that keep the row's current values when, as the UPDATE reads the
+// row, its release is admin-chosen. nil writes NULL.
+func setReleaseUnlessAdmin(updates map[string]interface{}, releaseID *uint, source *string) {
+	const rowHasAdminRelease = "release_id IS NOT NULL AND release_link_source = ?"
+	admin := catalogm.RadioPlayReleaseLinkSourceAdmin
+	updates["release_id"] = gorm.Expr("CASE WHEN "+rowHasAdminRelease+" THEN release_id ELSE CAST(? AS bigint) END", admin, releaseID)
+	updates["release_link_source"] = gorm.Expr("CASE WHEN "+rowHasAdminRelease+" THEN release_link_source ELSE CAST(? AS text) END", admin, source)
 }
 
 // hasAdminRelease reports whether an admin chose the play's current release.
