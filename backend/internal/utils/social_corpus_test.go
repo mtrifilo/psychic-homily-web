@@ -38,7 +38,7 @@ type socialLinkCorpus struct {
 
 func loadSocialLinkCorpus(t *testing.T) socialLinkCorpus {
 	t.Helper()
-	corpus := testcorpus.Load[socialLinkCorpus](t, "testdata/social_link_corpus.json")
+	corpus := testcorpus.Load[socialLinkCorpus](t, "internal/utils/testdata/social_link_corpus.json")
 	require.NotEmpty(t, corpus.Platforms)
 	require.NotEmpty(t, corpus.Storable)
 	require.NotEmpty(t, corpus.StorableButUnrenderable)

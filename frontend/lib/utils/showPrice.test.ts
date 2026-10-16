@@ -1,6 +1,5 @@
-import { readFileSync } from 'node:fs'
-import { resolve } from 'node:path'
 import { describe, it, expect } from 'vitest'
+import { loadBackendCorpus } from '@/test/loadBackendCorpus'
 import { statedShowPrices, showPriceLabel } from './showPrice'
 
 describe('statedShowPrices', () => {
@@ -80,22 +79,14 @@ describe('showPriceLabel', () => {
 //
 // Add a case to the JSON, never to one suite.
 describe('the shared Go/TypeScript price vectors', () => {
-  const vectors = JSON.parse(
-    readFileSync(
-      resolve(
-        __dirname,
-        '../../../backend/internal/services/shared/testdata/show_price_vectors.json'
-      ),
-      'utf8'
-    )
-  ) as {
+  const vectors = loadBackendCorpus<{
     cases: Array<{
       name: string
       advance: number | null
       door: number | null
       text: string
     }>
-  }
+  }>('internal/services/shared/testdata/show_price_vectors.json')
 
   it('has cases to check', () => {
     expect(vectors.cases.length).toBeGreaterThan(0)
