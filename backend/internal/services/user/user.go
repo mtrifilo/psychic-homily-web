@@ -411,7 +411,9 @@ func (s *UserService) AuthenticateUserWithPassword(email, password string) (*aut
 		return nil, apperrors.ErrInvalidCredentials(nil)
 	}
 
-	// Check if account is locked before password verification
+	// The gate is per request and the failure count is exact: a request that
+	// loaded the row above before the locking failure committed still gets one
+	// password check, and that failure is counted.
 	if s.IsAccountLocked(user) {
 		remaining := s.GetLockTimeRemaining(user)
 		minutes := int(remaining.Minutes()) + 1 // Round up
