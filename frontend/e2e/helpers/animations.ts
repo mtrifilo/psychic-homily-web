@@ -26,7 +26,7 @@ export async function readAnimationsAfterSettle(el: Element, readMs: number): Pr
   clearTimeout(timer)
   return el
     .getAnimations()
-    .map((a) => ('transitionProperty' in a ? String(a.transitionProperty) : a.constructor.name))
+    .map((a) => (a instanceof CSSTransition ? a.transitionProperty : a.constructor.name))
 }
 
 /**
@@ -34,11 +34,9 @@ export async function readAnimationsAfterSettle(el: Element, readMs: number): Pr
  * `budgetMs` with what still runs. `getAnimations()` flushes style first, so a
  * transition that a committed attribute or style starts is listed until it
  * finishes. Each read ends on the frame the animations do rather than a poll
- * interval later.
- *
- * Under SwiftShader an animation advances only when Chromium draws a frame,
- * and a map redraw can hold off frames for seconds, so a caller on /atlas
- * budgets for that rather than for the animation's own duration.
+ * interval later. An animation advances only when the browser draws a frame,
+ * so `budgetMs` covers how long frames can be held off, not only the
+ * animation's own duration.
  */
 export async function waitForAnimationsSettled(
   locator: Locator,

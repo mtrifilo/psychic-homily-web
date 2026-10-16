@@ -102,34 +102,40 @@ const POPOVER_SETTLE_TIMEOUT_MS = 10_000
  * round-trip so it comes from a single layout rather than from several that a
  * reposition tick can fall between.
  *
- * The wait is inside the reader, not a step beside it, because a reading taken
- * mid-animation is the failure this spec exists to catch: the enter animation
- * scales and slides the popover, so a rect read while it runs understates the
- * bottom edge by a couple of px, which is exactly the size of the overshoot
- * being asserted against. A settled reading has to be the only kind available.
+ * A reading taken mid-animation is the failure this spec exists to catch: the
+ * enter animation scales and slides the popover, so a rect read while it runs
+ * understates the bottom edge by a couple of px, which is exactly the size of
+ * the overshoot being asserted against. A settled reading has to be the only
+ * kind available, so the reading also fails if any animation is running in
+ * the frame it reads.
  */
 async function measure(content: Locator): Promise<Geometry> {
   await waitForAnimationsSettled(content, {
     budgetMs: POPOVER_SETTLE_TIMEOUT_MS,
   })
-  return content.evaluate(async el => {
+  const { animating, geometry } = await content.evaluate(async el => {
     await new Promise(resolve => requestAnimationFrame(resolve))
     const style = getComputedStyle(el)
     const rect = el.getBoundingClientRect()
     const column = el.querySelector('[cmdk-root]') as HTMLElement
     const list = el.querySelector('[cmdk-list]') as HTMLElement
     return {
-      available: Number.parseFloat(
-        style.getPropertyValue('--radix-popover-content-available-height')
-      ),
-      columnHeight: column.getBoundingClientRect().height,
-      contentBottom: rect.bottom,
-      contentHeight: rect.height,
-      contentMaxHeight: Number.parseFloat(style.maxHeight),
-      listScrolls: list.scrollHeight > list.clientHeight,
-      optionCount: el.querySelectorAll('[cmdk-item]').length,
+      animating: el.getAnimations().length,
+      geometry: {
+        available: Number.parseFloat(
+          style.getPropertyValue('--radix-popover-content-available-height')
+        ),
+        columnHeight: column.getBoundingClientRect().height,
+        contentBottom: rect.bottom,
+        contentHeight: rect.height,
+        contentMaxHeight: Number.parseFloat(style.maxHeight),
+        listScrolls: list.scrollHeight > list.clientHeight,
+        optionCount: el.querySelectorAll('[cmdk-item]').length,
+      },
     }
   })
+  expect(animating, 'popover animations running at the reading').toBe(0)
+  return geometry
 }
 
 /** The map credit's bottom edge in the viewport, or null while none is drawn. */

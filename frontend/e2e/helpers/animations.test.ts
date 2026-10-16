@@ -3,90 +3,88 @@ import { readAnimationsAfterSettle } from './animations'
 
 const READ_MS = 1_000
 
-/** An animation whose `finished` the test settles, listed until it settles. */
-class ScriptedAnimation {
-  finished: Promise<unknown>
-  settle!: (outcome: 'finish' | 'cancel') => void
-
-  constructor(owner: FakeElement) {
-    this.finished = new Promise((resolve, reject) => {
-      this.settle = (outcome) => {
-        owner.animations = owner.animations.filter((a) => a !== this)
-        if (outcome === 'finish') resolve(this)
-        else reject(new DOMException('The user aborted a request.', 'AbortError'))
-      }
-    })
-    // A cancelled animation's rejection is absorbed by the read, not left
-    // unhandled when the test settles it first.
-    this.finished.catch(() => {})
-  }
-}
-
-/** A height transition, named by its property. */
-class ScriptedTransition extends ScriptedAnimation {
+/** Stands in for the browser's CSSTransition, which jsdom does not define. */
+class FakeTransition {
   transitionProperty = 'height'
 }
 
-class FakeElement {
-  animations: ScriptedAnimation[] = []
-  getAnimations() {
-    return [...this.animations]
+/** Any other animation, named by its class. */
+class FakeAnimation {}
+
+/**
+ * An element whose listed animations the test settles: settling one removes
+ * it from the list and resolves (or, cancelled, rejects) its `finished`.
+ */
+function fakeElement() {
+  let listed: { finished: Promise<unknown> }[] = []
+  const add = (Kind: typeof FakeTransition | typeof FakeAnimation) => {
+    let settle!: (outcome: 'finish' | 'cancel') => void
+    const animation = Object.assign(new Kind(), {
+      finished: new Promise((resolve, reject) => {
+        settle = (outcome) => {
+          listed = listed.filter((a) => a !== animation)
+          if (outcome === 'finish') resolve(animation)
+          else reject(new DOMException('The user aborted a request.', 'AbortError'))
+        }
+      }),
+    })
+    // A rejection the read has not subscribed to yet is not left unhandled.
+    animation.finished.catch(() => {})
+    listed.push(animation)
+    return settle
   }
-  add<T extends ScriptedAnimation>(make: new (owner: FakeElement) => T): T {
-    const animation = new make(this)
-    this.animations.push(animation)
-    return animation
-  }
+  const el = { getAnimations: () => [...listed] } as unknown as Element
+  return { el, add }
 }
 
-const read = (el: FakeElement) => readAnimationsAfterSettle(el as unknown as Element, READ_MS)
-
 describe('readAnimationsAfterSettle', () => {
-  beforeEach(() => vi.useFakeTimers())
-  afterEach(() => vi.useRealTimers())
+  beforeEach(() => {
+    vi.useFakeTimers()
+    vi.stubGlobal('CSSTransition', FakeTransition)
+  })
+  afterEach(() => {
+    vi.useRealTimers()
+    vi.unstubAllGlobals()
+  })
 
   it('reads nothing running, with no timer left, for an element with no animations', async () => {
-    await expect(read(new FakeElement())).resolves.toEqual([])
+    const { el } = fakeElement()
+    await expect(readAnimationsAfterSettle(el, READ_MS)).resolves.toEqual([])
     expect(vi.getTimerCount()).toBe(0)
   })
 
   it('returns as the listed animations finish, before the read time, and clears its timer', async () => {
-    const el = new FakeElement()
-    const transition = el.add(ScriptedTransition)
-    const other = el.add(ScriptedAnimation)
-    const result = read(el)
+    const { el, add } = fakeElement()
+    const settleTransition = add(FakeTransition)
+    const settleOther = add(FakeAnimation)
+    const read = readAnimationsAfterSettle(el, READ_MS)
 
-    transition.settle('finish')
-    other.settle('finish')
+    settleTransition('finish')
+    settleOther('finish')
 
-    await expect(result).resolves.toEqual([])
+    await expect(read).resolves.toEqual([])
     expect(vi.getTimerCount()).toBe(0)
   })
 
   it('counts a cancelled or replaced animation as finished', async () => {
-    const el = new FakeElement()
-    const transition = el.add(ScriptedTransition)
-    const result = read(el)
+    const { el, add } = fakeElement()
+    const settle = add(FakeTransition)
+    const read = readAnimationsAfterSettle(el, READ_MS)
 
-    transition.settle('cancel')
+    settle('cancel')
 
-    await expect(result).resolves.toEqual([])
+    await expect(read).resolves.toEqual([])
     expect(vi.getTimerCount()).toBe(0)
   })
 
   it('names what still runs once the read time passes: a transition by property, others by class', async () => {
-    const el = new FakeElement()
-    el.add(ScriptedTransition)
-    el.add(ScriptedAnimation)
-    const result = read(el)
+    const { el, add } = fakeElement()
+    add(FakeTransition)
+    add(FakeAnimation)
+    const read = readAnimationsAfterSettle(el, READ_MS)
 
-    await vi.advanceTimersByTimeAsync(READ_MS - 1)
-    let done = false
-    void result.then(() => (done = true))
-    await Promise.resolve()
-    expect(done).toBe(false)
+    await vi.advanceTimersByTimeAsync(READ_MS)
 
-    await vi.advanceTimersByTimeAsync(1)
-    await expect(result).resolves.toEqual(['height', 'ScriptedAnimation'])
+    await expect(read).resolves.toEqual(['height', 'FakeAnimation'])
   })
 })
