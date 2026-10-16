@@ -263,9 +263,25 @@ func (m *RadioMatchingEngine) matchPlayWithErr(play *catalogm.RadioPlay) (bool, 
 		updates["match_state"] = catalogm.RadioPlayMatchStateNoMatch
 	}
 
-	// 2. Match release (by MB ID or exact title match)
-	if releaseID := m.matchRelease(play.AlbumTitle, play.MusicBrainzReleaseID); releaseID != nil {
+	// 2. Match release. The play's linked artist after this update is the one
+	// just resolved, else the artist_id it already carries (updates never
+	// clear artist_id).
+	linkedArtistID := play.ArtistID
+	if artistMatched {
+		linkedArtistID = artistID
+	}
+	releaseID := m.matchRelease(linkedArtistID, play.ArtistName, play.AlbumTitle, play.MusicBrainzReleaseID)
+	switch {
+	case releaseID != nil:
 		updates["release_id"] = *releaseID
+	case gainsArtist(play.ArtistID, artistMatched, artistID) && play.ReleaseID != nil && !m.releaseCreditsArtist(*play.ReleaseID, *artistID):
+		// Giving a play a new artist never leaves it on a release credited to
+		// someone else. A play keeping its artist is never cleared here: the
+		// matcher only revokes a link when it changes the artist the link was
+		// judged against, and re-judging existing links is the backfill's job.
+		slog.Info("radio match: cleared release not credited to the newly linked artist",
+			"play_id", play.ID, "release_id", *play.ReleaseID, "artist_id", *artistID)
+		updates["release_id"] = nil
 	}
 
 	// 3. Match label (exact name match)
@@ -376,25 +392,48 @@ func appendUniqueUint(ids []uint, id uint) []uint {
 	return append(ids, id)
 }
 
-// matchRelease tries to match a release by MusicBrainz ID or exact title.
-func (m *RadioMatchingEngine) matchRelease(title *string, mbID *string) *uint {
+// matchRelease returns the release pickReleaseLink chooses for a play's album
+// title, given the play's linked artist (nil when it has none) and its raw
+// artist name. It never returns a release that is not credited to the linked
+// artist.
+func (m *RadioMatchingEngine) matchRelease(artistID *uint, artistName string, title *string, mbID *string) *uint {
 	// Note: Releases table doesn't have a musicbrainz_id column yet.
 	// When it exists, add MB ID matching here.
 
 	if title == nil || *title == "" {
 		return nil
 	}
-	normalized := normalizeName(*title)
-	if normalized == "" {
+	titleKey := normalizeName(*title)
+	if titleKey == "" {
 		return nil
 	}
 
-	var release catalogm.Release
-	if err := m.db.Where(whereRadioNormalized("title"), normalized).First(&release).Error; err == nil {
-		return &release.ID
+	candidates, err := loadReleaseLinkCandidates(m.db, []string{titleKey})
+	if err != nil {
+		slog.Warn("radio match: release lookup failed", "error", err)
+		return nil
 	}
-
+	if picked := pickReleaseLink(artistID, artistName, candidates[titleKey]); picked != nil {
+		return &picked.ReleaseID
+	}
 	return nil
+}
+
+// gainsArtist reports whether this match links an artist the play does not
+// already carry.
+func gainsArtist(current *uint, matched bool, resolved *uint) bool {
+	return matched && (current == nil || *current != *resolved)
+}
+
+// releaseCreditsArtist reports whether the release credits the artist (any
+// role). A failed lookup reports true, so a read error never clears a link.
+func (m *RadioMatchingEngine) releaseCreditsArtist(releaseID, artistID uint) bool {
+	credits, err := loadReleaseCredits(m.db, []int64{int64(releaseID)})
+	if err != nil {
+		slog.Warn("radio match: release credit lookup failed", "release_id", releaseID, "error", err)
+		return true
+	}
+	return releaseLinkCandidate{ReleaseID: releaseID, Credits: credits[releaseID]}.creditsArtist(artistID)
 }
 
 // matchLabel tries to match a label by exact name (case-insensitive).
