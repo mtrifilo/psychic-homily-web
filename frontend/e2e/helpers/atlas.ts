@@ -176,6 +176,15 @@ const MOST_MAP_WAITS_IN_ONE_TEST = 2
 export const ATLAS_TEST_TIMEOUT_MS = (MOST_MAP_WAITS_IN_ONE_TEST + 1) * MAP_READY_TIMEOUT_MS
 
 /**
+ * How long a check waits for an Atlas bottom sheet to settle at its detent.
+ * The sheet's 200 ms height transition advances only when Chromium draws a
+ * frame, and under SwiftShader a map redraw (the map resizing as the banner
+ * leaves, or after a camera move) can hold off frames, and block the page's
+ * main thread, for several seconds.
+ */
+export const SHEET_SETTLE_TIMEOUT_MS = 30_000
+
+/**
  * Waits until the style and visible tiles are loaded. `idle` and `load` never
  * fire on /atlas (its pulse ring repaints every frame), so they are not used.
  * Its short poll interval sees a ready map within about a quarter second.
