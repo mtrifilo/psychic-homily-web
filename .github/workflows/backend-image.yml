@@ -54,14 +54,13 @@ on:
   push:
     branches: [main]
 
-# Superseded PR runs are cancelled: a PR's runs share one group per ref, and
+# A PR's runs share one group per ref and the newest cancels the rest, since
 # nothing reads a build for a head that has moved (a fixup push or an
-# update-branch merge), so the newest run cancels the rest. Every other run
-# (each push to main) gets a group of its own commit SHA, so main runs are
-# never cancelled and never queue behind each other, and each one is the
-# record for its merged commit. Two main runs can therefore build at once;
-# both export to the same cache scope, and the index of whichever finishes
-# last is the one later runs restore.
+# update-branch merge). Every other run (each push to main) gets a group of
+# its own commit SHA, so main runs are never cancelled and never queue behind
+# each other, and each one is the record for its merged commit. Two main runs
+# can therefore build at once; both export to the same cache scope, and the
+# index of whichever finishes last is the one later runs restore.
 concurrency:
   group: backend-image-${{ github.event_name == 'pull_request' && github.ref || github.sha }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
