@@ -10,6 +10,7 @@ import type { ApiError } from '@/lib/api'
 import { useSetShowSoldOut, useSetShowCancelled } from '@/lib/hooks/admin/useAdminShows'
 import { useAuthContext } from '@/lib/context/AuthContext'
 import { queryKeys } from '@/lib/queryClient'
+import { refetchAfterMutation } from '@/lib/refetchAfterMutation'
 import { Button } from '@/components/ui/button'
 import { EntityDetailLayout, EntityDetailContainer, RevisionHistory } from '@/components/shared'
 import { EntityCollections } from '@/features/collections'
@@ -367,25 +368,22 @@ export function ShowDetail({
           entity={show as unknown as Record<string, unknown>}
           canEditDirectly={true}
           onSuccess={(result) => {
-            queryClient.invalidateQueries({
-              queryKey: queryKeys.shows.detail(String(showId)),
-            })
-            queryClient.invalidateQueries({
-              queryKey: queryKeys.revisions.entity('show', show.id),
-            })
-            // The timeline is computed FROM the fields this drawer edits, so it
-            // is stale the moment one of them changes. Without this the header
-            // repaints on the new date while the spine still holds neighbours
-            // ranked against the old instant, and moving a show past its own
-            // `next` leaves an arrow pointing backwards.
-            //
-            // The whole timeline PREFIX, not this show's key: moving a date
-            // also reorders the spines of every show this one neighbours, and
-            // those are cached under their own ids where a per-id invalidation
-            // cannot reach them.
-            queryClient.invalidateQueries({
-              queryKey: queryKeys.shows.timelineAll(),
-            })
+            void refetchAfterMutation(
+              queryClient,
+              queryKeys.shows.detail(String(showId)),
+              queryKeys.revisions.entity('show', show.id),
+              // The timeline is computed FROM the fields this drawer edits, so
+              // it is stale the moment one of them changes. Without this the
+              // header repaints on the new date while the spine still holds
+              // neighbours ranked against the old instant, and moving a show
+              // past its own `next` leaves an arrow pointing backwards.
+              //
+              // The whole timeline PREFIX, not this show's key: moving a date
+              // also reorders the spines of every show this one neighbours,
+              // and those are cached under their own ids where a per-id
+              // invalidation cannot reach them.
+              queryKeys.shows.timelineAll()
+            )
             saveBanner.handleSaveSuccess(result)
           }}
         />
