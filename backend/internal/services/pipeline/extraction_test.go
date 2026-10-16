@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -745,12 +746,18 @@ func TestCallAnthropic(t *testing.T) {
 	})
 
 	t.Run("http_client_error", func(t *testing.T) {
+		// A loopback port with no listener refuses the connection.
+		ln, err := net.Listen("tcp", "127.0.0.1:0")
+		require.NoError(t, err)
+		closedAddr := ln.Addr().String()
+		require.NoError(t, ln.Close())
+
 		svc := &ExtractionService{
 			config: &config.Config{
 				Anthropic: config.AnthropicConfig{APIKey: "test-key"},
 			},
 			httpClient:       &http.Client{Timeout: 1 * time.Millisecond},
-			anthropicBaseURL: "http://192.0.2.1:1", // RFC 5737 TEST-NET, unreachable
+			anthropicBaseURL: "http://" + closedAddr,
 		}
 
 		result, err := svc.callAnthropic([]interface{}{map[string]string{"type": "text", "text": "test"}})
