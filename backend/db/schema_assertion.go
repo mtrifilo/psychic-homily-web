@@ -90,31 +90,6 @@ var requiredSchemaColumns = []requiredColumn{
 	{Table: "entity_edit_audit_logs", Column: "created_at", Type: sqlTimestamptz},
 }
 
-type columnChecker interface {
-	HasColumn(table interface{}, column string) bool
-}
-
-// assertRequiredSchema checks existence for the untyped entries only; the
-// type read in assertRequiredColumnTypes reports a typed entry that is absent.
-func assertRequiredSchema(checker columnChecker) error {
-	var missing []string
-	for _, col := range requiredSchemaColumns {
-		if col.Type != "" {
-			continue
-		}
-		if !checker.HasColumn(col.Table, col.Column) {
-			missing = append(missing, col.qualifiedName())
-		}
-	}
-	if len(missing) > 0 {
-		return fmt.Errorf(
-			"required schema columns missing: %s (migration recorded but DDL absent?); refusing to boot",
-			strings.Join(missing, ", "),
-		)
-	}
-	return nil
-}
-
 // columnType is a column's type as information_schema.columns reports it.
 type columnType struct {
 	DataType string // SQL-standard name, e.g. "bigint", "timestamp with time zone"
@@ -131,33 +106,58 @@ type columnTypeReader interface {
 	ColumnTypes(tables []string) (map[string]columnType, error)
 }
 
-// assertRequiredColumnTypes checks only the entries that declare a Type; no
-// other column's type is compared.
-func assertRequiredColumnTypes(reader columnTypeReader) error {
-	var typed []requiredColumn
+// assertRequiredColumns reads every table the checklist names once and runs
+// both checks on that read, so a failed read refuses boot as a read error
+// rather than as columns reported missing.
+func assertRequiredColumns(reader columnTypeReader) error {
 	var tables []string
 	seenTable := map[string]bool{}
 	for _, col := range requiredSchemaColumns {
-		if col.Type == "" {
-			continue
-		}
-		typed = append(typed, col)
 		if !seenTable[col.Table] {
 			seenTable[col.Table] = true
 			tables = append(tables, col.Table)
 		}
 	}
-	if len(typed) == 0 {
-		return nil
-	}
 
 	actual, err := reader.ColumnTypes(tables)
 	if err != nil {
-		return fmt.Errorf("could not read required column types: %w; refusing to boot", err)
+		return fmt.Errorf("could not read required schema: %w; refusing to boot", err)
 	}
+	if err := assertRequiredSchema(actual); err != nil {
+		return err
+	}
+	return assertRequiredColumnTypes(actual)
+}
 
+// assertRequiredSchema checks existence for the untyped entries only;
+// assertRequiredColumnTypes reports a typed entry that is absent.
+func assertRequiredSchema(actual map[string]columnType) error {
+	var missing []string
+	for _, col := range requiredSchemaColumns {
+		if col.Type != "" {
+			continue
+		}
+		if _, ok := actual[col.qualifiedName()]; !ok {
+			missing = append(missing, col.qualifiedName())
+		}
+	}
+	if len(missing) > 0 {
+		return fmt.Errorf(
+			"required schema columns missing: %s (migration recorded but DDL absent?); refusing to boot",
+			strings.Join(missing, ", "),
+		)
+	}
+	return nil
+}
+
+// assertRequiredColumnTypes checks only the entries that declare a Type; no
+// other column's type is compared.
+func assertRequiredColumnTypes(actual map[string]columnType) error {
 	var wrong []string
-	for _, col := range typed {
+	for _, col := range requiredSchemaColumns {
+		if col.Type == "" {
+			continue
+		}
 		got, ok := actual[col.qualifiedName()]
 		switch {
 		case !ok:
@@ -176,9 +176,10 @@ func assertRequiredColumnTypes(reader columnTypeReader) error {
 }
 
 // informationSchemaColumnTypes reads column types from the connection's
-// current schema, the schema GORM's Migrator().HasColumn consults, in one
-// query. Migrator().ColumnTypes is not used: it runs several queries per table
-// and reads a data row from each.
+// current schema in one query and returns the query's error. GORM's
+// Migrator().HasColumn is not used: it reports a failed query as an absent
+// column. Migrator().ColumnTypes is not used either: it runs several queries
+// per table and reads a data row from each.
 type informationSchemaColumnTypes struct {
 	db *gorm.DB
 }
@@ -214,10 +215,7 @@ func AssertRequiredSchema(gormDB *gorm.DB) error {
 	if gormDB == nil {
 		return fmt.Errorf("database connection is nil")
 	}
-	if err := assertRequiredSchema(gormDB.Migrator()); err != nil {
-		return err
-	}
-	if err := assertRequiredColumnTypes(informationSchemaColumnTypes{db: gormDB}); err != nil {
+	if err := assertRequiredColumns(informationSchemaColumnTypes{db: gormDB}); err != nil {
 		return err
 	}
 	return assertTimezoneSnapshotPopulated(gormDB)
