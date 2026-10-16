@@ -5,6 +5,7 @@ import (
 
 	apperrors "psychic-homily-backend/internal/errors"
 	authm "psychic-homily-backend/internal/models/auth"
+	"psychic-homily-backend/internal/testutil/signupconsent"
 )
 
 // The two squats, end to end, each ending in a refusal.
@@ -21,11 +22,11 @@ import (
 func (suite *UserServiceIntegrationTestSuite) TestSquat_OAuthCreated_VerifiedOwnerStillRefused() {
 	const address = "squat.oauth@example.com"
 
-	squatted, err := suite.userService.FindOrCreateUser(goth.User{
+	squatted, err := suite.userService.FindOrCreateUserWithConsent(goth.User{
 		UserID:  "squat-oauth-attacker",
 		Email:   address,
 		RawData: map[string]any{"verified_email": false},
-	}, "google")
+	}, "google", signupconsent.CurrentOAuthSignupConsent())
 	suite.Require().NoError(err)
 	suite.Require().False(squatted.EmailVerified)
 
@@ -34,11 +35,11 @@ func (suite *UserServiceIntegrationTestSuite) TestSquat_OAuthCreated_VerifiedOwn
 	suite.assertStoredEmailVerified(squatted.ID, true)
 
 	// The owner now signs in with a provider that DOES vouch for the address.
-	owner, err := suite.userService.FindOrCreateUser(goth.User{
+	owner, err := suite.userService.FindOrCreateUserWithConsent(goth.User{
 		UserID:  "squat-oauth-real-owner",
 		Email:   address,
 		RawData: map[string]any{"verified_email": true},
-	}, "google")
+	}, "google", signupconsent.CurrentOAuthSignupConsent())
 
 	suite.Require().Error(err)
 	suite.Require().Nil(owner)
@@ -56,18 +57,18 @@ func (suite *UserServiceIntegrationTestSuite) TestSquat_OAuthCreated_VerifiedOwn
 func (suite *UserServiceIntegrationTestSuite) TestSquat_PasswordRegistered_VerifiedOwnerStillRefused() {
 	const address = "squat.password@example.com"
 
-	squatted, err := suite.userService.CreateUserWithPassword(address, "Attacker123!", "Squat", "Ter")
+	squatted, err := suite.userService.CreateUserWithPasswordWithLegal(address, "Attacker123!", "Squat", "Ter", signupconsent.CurrentLegalAcceptance())
 	suite.Require().NoError(err)
 	suite.Require().False(squatted.EmailVerified)
 
 	suite.Require().NoError(suite.userService.SetEmailVerified(squatted.ID, true))
 	suite.assertStoredEmailVerified(squatted.ID, true)
 
-	owner, err := suite.userService.FindOrCreateUser(goth.User{
+	owner, err := suite.userService.FindOrCreateUserWithConsent(goth.User{
 		UserID:  "squat-password-real-owner",
 		Email:   address,
 		RawData: map[string]any{"verified_email": true},
-	}, "google")
+	}, "google", signupconsent.CurrentOAuthSignupConsent())
 
 	suite.Require().Error(err)
 	suite.Require().Nil(owner)
@@ -88,7 +89,7 @@ func (suite *UserServiceIntegrationTestSuite) TestSquat_PasswordRegistered_Verif
 // A verified address on a verified account is still not a link reason. This is
 // the case most likely to be re-admitted by someone reasoning that both sides
 // look trustworthy, so it is pinned on its own.
-func (suite *UserServiceIntegrationTestSuite) TestFindOrCreateUser_VerifiedAccount_VerifiedProvider_StillRefused() {
+func (suite *UserServiceIntegrationTestSuite) TestFindOrCreateUserWithConsent_VerifiedAccount_VerifiedProvider_StillRefused() {
 	existing := &authm.User{
 		Email:         stringPtr("fully.verified@example.com"),
 		IsActive:      true,
@@ -96,11 +97,11 @@ func (suite *UserServiceIntegrationTestSuite) TestFindOrCreateUser_VerifiedAccou
 	}
 	suite.Require().NoError(suite.db.Create(existing).Error)
 
-	linked, err := suite.userService.FindOrCreateUser(goth.User{
+	linked, err := suite.userService.FindOrCreateUserWithConsent(goth.User{
 		UserID:  "verified-into-verified",
 		Email:   "fully.verified@example.com",
 		RawData: map[string]any{"verified_email": true},
-	}, "google")
+	}, "google", signupconsent.CurrentOAuthSignupConsent())
 
 	suite.Require().Error(err)
 	suite.Require().Nil(linked)

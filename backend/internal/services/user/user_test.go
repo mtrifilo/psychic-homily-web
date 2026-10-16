@@ -18,6 +18,7 @@ import (
 	engagementm "psychic-homily-backend/internal/models/engagement"
 	"psychic-homily-backend/internal/services/contracts"
 	"psychic-homily-backend/internal/testutil"
+	"psychic-homily-backend/internal/testutil/signupconsent"
 )
 
 // =============================================================================
@@ -268,7 +269,7 @@ func (suite *UserServiceIntegrationTestSuite) TestUpdateUser_Success() {
 	assert.Equal(suite.T(), "Name", *updatedUser.LastName)
 }
 
-func (suite *UserServiceIntegrationTestSuite) TestFindOrCreateUser_NewUser() {
+func (suite *UserServiceIntegrationTestSuite) TestFindOrCreateUserWithConsent_NewUser() {
 	gothUser := goth.User{
 		UserID:    "new_user_123",
 		Email:     "newuser@example.com",
@@ -279,7 +280,7 @@ func (suite *UserServiceIntegrationTestSuite) TestFindOrCreateUser_NewUser() {
 		ExpiresAt: time.Now().Add(24 * time.Hour),
 	}
 
-	user, err := suite.userService.FindOrCreateUser(gothUser, "google")
+	user, err := suite.userService.FindOrCreateUserWithConsent(gothUser, "google", signupconsent.CurrentOAuthSignupConsent())
 
 	assert.NoError(suite.T(), err)
 	assert.NotNil(suite.T(), user)
@@ -303,7 +304,7 @@ func (suite *UserServiceIntegrationTestSuite) TestFindOrCreateUser_NewUser() {
 	assert.Equal(suite.T(), int64(1), prefCount)
 }
 
-func (suite *UserServiceIntegrationTestSuite) TestFindOrCreateUser_ExistingOAuthAccount() {
+func (suite *UserServiceIntegrationTestSuite) TestFindOrCreateUserWithConsent_ExistingOAuthAccount() {
 	user := &authm.User{
 		Email:         stringPtr("existing@example.com"),
 		FirstName:     stringPtr("Existing"),
@@ -336,7 +337,7 @@ func (suite *UserServiceIntegrationTestSuite) TestFindOrCreateUser_ExistingOAuth
 		AvatarURL: "https://example.com/avatar.jpg",
 	}
 
-	retrievedUser, err := suite.userService.FindOrCreateUser(gothUser, "github")
+	retrievedUser, err := suite.userService.FindOrCreateUserWithConsent(gothUser, "github", signupconsent.CurrentOAuthSignupConsent())
 
 	assert.NoError(suite.T(), err)
 	assert.NotNil(suite.T(), retrievedUser)
@@ -601,12 +602,12 @@ func (suite *UserServiceIntegrationTestSuite) TestGetUserByUsername_VeryLongUser
 }
 
 // =============================================================================
-// NEW INTEGRATION TESTS: CreateUserWithPassword
+// NEW INTEGRATION TESTS: CreateUserWithPasswordWithLegal
 // =============================================================================
 
-func (suite *UserServiceIntegrationTestSuite) TestCreateUserWithPassword_Success() {
-	user, err := suite.userService.CreateUserWithPassword(
-		"pwuser@example.com", "StrongPass123!", "Alice", "Smith",
+func (suite *UserServiceIntegrationTestSuite) TestCreateUserWithPasswordWithLegal_Success() {
+	user, err := suite.userService.CreateUserWithPasswordWithLegal(
+		"pwuser@example.com", "StrongPass123!", "Alice", "Smith", signupconsent.CurrentLegalAcceptance(),
 	)
 
 	suite.Require().NoError(err)
@@ -622,15 +623,15 @@ func (suite *UserServiceIntegrationTestSuite) TestCreateUserWithPassword_Success
 	suite.NotNil(user.Preferences)
 }
 
-func (suite *UserServiceIntegrationTestSuite) TestCreateUserWithPassword_DuplicateEmail() {
-	_, err := suite.userService.CreateUserWithPassword(
-		"dupepw@example.com", "Pass123!", "First", "Last",
+func (suite *UserServiceIntegrationTestSuite) TestCreateUserWithPasswordWithLegal_DuplicateEmail() {
+	_, err := suite.userService.CreateUserWithPasswordWithLegal(
+		"dupepw@example.com", "Pass123!", "First", "Last", signupconsent.CurrentLegalAcceptance(),
 	)
 	suite.Require().NoError(err)
 
 	// Try again with same email
-	user, err := suite.userService.CreateUserWithPassword(
-		"dupepw@example.com", "Pass456!", "Other", "Name",
+	user, err := suite.userService.CreateUserWithPasswordWithLegal(
+		"dupepw@example.com", "Pass456!", "Other", "Name", signupconsent.CurrentLegalAcceptance(),
 	)
 	suite.Require().Error(err)
 	suite.Nil(user)
@@ -641,9 +642,9 @@ func (suite *UserServiceIntegrationTestSuite) TestCreateUserWithPassword_Duplica
 	suite.Equal(apperrors.CodeUserExists, authErr.Code)
 }
 
-func (suite *UserServiceIntegrationTestSuite) TestCreateUserWithPassword_PreferencesCreated() {
-	user, err := suite.userService.CreateUserWithPassword(
-		"prefcheck@example.com", "Pass123!", "Pref", "Check",
+func (suite *UserServiceIntegrationTestSuite) TestCreateUserWithPasswordWithLegal_PreferencesCreated() {
+	user, err := suite.userService.CreateUserWithPasswordWithLegal(
+		"prefcheck@example.com", "Pass123!", "Pref", "Check", signupconsent.CurrentLegalAcceptance(),
 	)
 	suite.Require().NoError(err)
 
@@ -652,9 +653,9 @@ func (suite *UserServiceIntegrationTestSuite) TestCreateUserWithPassword_Prefere
 	suite.Equal(int64(1), prefCount)
 }
 
-func (suite *UserServiceIntegrationTestSuite) TestCreateUserWithPassword_PasswordHashed() {
-	user, err := suite.userService.CreateUserWithPassword(
-		"hashcheck@example.com", "MyPassword99!", "Hash", "Check",
+func (suite *UserServiceIntegrationTestSuite) TestCreateUserWithPasswordWithLegal_PasswordHashed() {
+	user, err := suite.userService.CreateUserWithPasswordWithLegal(
+		"hashcheck@example.com", "MyPassword99!", "Hash", "Check", signupconsent.CurrentLegalAcceptance(),
 	)
 	suite.Require().NoError(err)
 	suite.Require().NotNil(user.PasswordHash)
@@ -672,8 +673,8 @@ func (suite *UserServiceIntegrationTestSuite) TestCreateUserWithPassword_Passwor
 // =============================================================================
 
 func (suite *UserServiceIntegrationTestSuite) TestAuthenticate_Success() {
-	_, err := suite.userService.CreateUserWithPassword(
-		"authsuccess@example.com", "CorrectPassword1!", "Auth", "Success",
+	_, err := suite.userService.CreateUserWithPasswordWithLegal(
+		"authsuccess@example.com", "CorrectPassword1!", "Auth", "Success", signupconsent.CurrentLegalAcceptance(),
 	)
 	suite.Require().NoError(err)
 
@@ -691,8 +692,8 @@ func (suite *UserServiceIntegrationTestSuite) TestAuthenticate_Success() {
 }
 
 func (suite *UserServiceIntegrationTestSuite) TestAuthenticate_WrongPassword() {
-	_, err := suite.userService.CreateUserWithPassword(
-		"authwrong@example.com", "CorrectPassword1!", "Auth", "Wrong",
+	_, err := suite.userService.CreateUserWithPasswordWithLegal(
+		"authwrong@example.com", "CorrectPassword1!", "Auth", "Wrong", signupconsent.CurrentLegalAcceptance(),
 	)
 	suite.Require().NoError(err)
 
@@ -725,12 +726,12 @@ func (suite *UserServiceIntegrationTestSuite) TestAuthenticate_NonexistentEmail(
 }
 
 func (suite *UserServiceIntegrationTestSuite) TestAuthenticate_OAuthOnlyUser() {
-	consent := currentOAuthSignupConsent()
+	consent := signupconsent.CurrentOAuthSignupConsent()
 	_, err := suite.userService.FindOrCreateUserWithConsent(goth.User{
 		UserID:  "oauthonly_auth_google_123",
 		Email:   "oauthonly-auth@example.com",
 		RawData: map[string]any{"verified_email": true},
-	}, "google", &consent)
+	}, "google", consent)
 	suite.Require().NoError(err)
 
 	user, err := suite.userService.AuthenticateUserWithPassword(
@@ -745,8 +746,8 @@ func (suite *UserServiceIntegrationTestSuite) TestAuthenticate_OAuthOnlyUser() {
 }
 
 func (suite *UserServiceIntegrationTestSuite) TestAuthenticate_LockedAccount() {
-	_, err := suite.userService.CreateUserWithPassword(
-		"authlocked@example.com", "CorrectPassword1!", "Locked", "User",
+	_, err := suite.userService.CreateUserWithPasswordWithLegal(
+		"authlocked@example.com", "CorrectPassword1!", "Locked", "User", signupconsent.CurrentLegalAcceptance(),
 	)
 	suite.Require().NoError(err)
 
@@ -770,8 +771,8 @@ func (suite *UserServiceIntegrationTestSuite) TestAuthenticate_LockedAccount() {
 }
 
 func (suite *UserServiceIntegrationTestSuite) TestAuthenticate_InactiveUser() {
-	_, err := suite.userService.CreateUserWithPassword(
-		"authinactive@example.com", "CorrectPassword1!", "Inactive", "User",
+	_, err := suite.userService.CreateUserWithPasswordWithLegal(
+		"authinactive@example.com", "CorrectPassword1!", "Inactive", "User", signupconsent.CurrentLegalAcceptance(),
 	)
 	suite.Require().NoError(err)
 
@@ -797,8 +798,8 @@ func (suite *UserServiceIntegrationTestSuite) TestAuthenticate_InactiveUser() {
 // LoginHandler return HTTP 200 + ACCOUNT_INACTIVE instead of falling through
 // the post-PSY-864 fail-closed outer fallback to a 5xx.
 func (suite *UserServiceIntegrationTestSuite) TestAuthenticateUserWithPassword_InactiveAccountReturnsTyped() {
-	_, err := suite.userService.CreateUserWithPassword(
-		"inactive-typed@example.com", "CorrectPassword1!", "Inactive", "Typed",
+	_, err := suite.userService.CreateUserWithPasswordWithLegal(
+		"inactive-typed@example.com", "CorrectPassword1!", "Inactive", "Typed", signupconsent.CurrentLegalAcceptance(),
 	)
 	suite.Require().NoError(err)
 
@@ -830,8 +831,8 @@ func (suite *UserServiceIntegrationTestSuite) TestAuthenticateUserWithPassword_I
 // an attacker brute-force without ever tripping lockout.
 func (suite *UserServiceIntegrationTestSuite) TestAuthenticateUserWithPassword_IncrementErrorFailsClosed() {
 	// Create a real user the auth flow can find + bcrypt-verify.
-	_, err := suite.userService.CreateUserWithPassword(
-		"failclosed@example.com", "CorrectPassword1!", "Fail", "Closed",
+	_, err := suite.userService.CreateUserWithPasswordWithLegal(
+		"failclosed@example.com", "CorrectPassword1!", "Fail", "Closed", signupconsent.CurrentLegalAcceptance(),
 	)
 	suite.Require().NoError(err)
 
@@ -892,8 +893,8 @@ func (suite *UserServiceIntegrationTestSuite) TestResetFailedAttempts_Success() 
 // =============================================================================
 
 func (suite *UserServiceIntegrationTestSuite) TestUpdatePassword_Success() {
-	user, err := suite.userService.CreateUserWithPassword(
-		"updatepw@example.com", "OldPassword1!", "Update", "PW",
+	user, err := suite.userService.CreateUserWithPasswordWithLegal(
+		"updatepw@example.com", "OldPassword1!", "Update", "PW", signupconsent.CurrentLegalAcceptance(),
 	)
 	suite.Require().NoError(err)
 
@@ -910,8 +911,8 @@ func (suite *UserServiceIntegrationTestSuite) TestUpdatePassword_Success() {
 }
 
 func (suite *UserServiceIntegrationTestSuite) TestUpdatePassword_WrongCurrent() {
-	user, err := suite.userService.CreateUserWithPassword(
-		"updatepwwrong@example.com", "CorrectOld1!", "Wrong", "Current",
+	user, err := suite.userService.CreateUserWithPasswordWithLegal(
+		"updatepwwrong@example.com", "CorrectOld1!", "Wrong", "Current", signupconsent.CurrentLegalAcceptance(),
 	)
 	suite.Require().NoError(err)
 
@@ -1194,8 +1195,8 @@ func (suite *UserServiceIntegrationTestSuite) TestPermanentlyDeleteUser() {
 
 func (suite *UserServiceIntegrationTestSuite) TestExportUserData_Success() {
 	// Create user with password
-	user, err := suite.userService.CreateUserWithPassword(
-		"exportuser@example.com", "ExportPass1!", "Export", "User",
+	user, err := suite.userService.CreateUserWithPasswordWithLegal(
+		"exportuser@example.com", "ExportPass1!", "Export", "User", signupconsent.CurrentLegalAcceptance(),
 	)
 	suite.Require().NoError(err)
 
@@ -1280,8 +1281,8 @@ func (suite *UserServiceIntegrationTestSuite) TestExportUserData_Success() {
 }
 
 func (suite *UserServiceIntegrationTestSuite) TestExportUserDataJSON() {
-	user, err := suite.userService.CreateUserWithPassword(
-		"exportjson@example.com", "ExportPass1!", "JSON", "Export",
+	user, err := suite.userService.CreateUserWithPasswordWithLegal(
+		"exportjson@example.com", "ExportPass1!", "JSON", "Export", signupconsent.CurrentLegalAcceptance(),
 	)
 	suite.Require().NoError(err)
 
@@ -1342,8 +1343,8 @@ func (suite *UserServiceIntegrationTestSuite) TestGetOAuthAccounts_Success() {
 
 func (suite *UserServiceIntegrationTestSuite) TestCanUnlinkOAuthAccount_HasPassword() {
 	// Create user with password + OAuth
-	user, err := suite.userService.CreateUserWithPassword(
-		"canunlink-pw@example.com", "Pass123!", "Can", "Unlink",
+	user, err := suite.userService.CreateUserWithPasswordWithLegal(
+		"canunlink-pw@example.com", "Pass123!", "Can", "Unlink", signupconsent.CurrentLegalAcceptance(),
 	)
 	suite.Require().NoError(err)
 
@@ -1362,12 +1363,12 @@ func (suite *UserServiceIntegrationTestSuite) TestCanUnlinkOAuthAccount_HasPassw
 
 func (suite *UserServiceIntegrationTestSuite) TestCanUnlinkOAuthAccount_OnlyAuth() {
 	// No password; the one OAuth account is the only sign-in method.
-	consent := currentOAuthSignupConsent()
+	consent := signupconsent.CurrentOAuthSignupConsent()
 	user, err := suite.userService.FindOrCreateUserWithConsent(goth.User{
 		UserID:  "canunlink_only_google_123",
 		Email:   "canunlink-only@example.com",
 		RawData: map[string]any{"verified_email": true},
-	}, "google", &consent)
+	}, "google", consent)
 	suite.Require().NoError(err)
 
 	canUnlink, reason, err := suite.userService.CanUnlinkOAuthAccount(user.ID, "google")
@@ -1378,8 +1379,8 @@ func (suite *UserServiceIntegrationTestSuite) TestCanUnlinkOAuthAccount_OnlyAuth
 
 func (suite *UserServiceIntegrationTestSuite) TestUnlinkOAuthAccount_Success() {
 	// Create user with password + two OAuth accounts
-	user, err := suite.userService.CreateUserWithPassword(
-		"unlinktest@example.com", "Pass123!", "Unlink", "Test",
+	user, err := suite.userService.CreateUserWithPasswordWithLegal(
+		"unlinktest@example.com", "Pass123!", "Unlink", "Test", signupconsent.CurrentLegalAcceptance(),
 	)
 	suite.Require().NoError(err)
 
@@ -1486,8 +1487,8 @@ func (suite *UserServiceIntegrationTestSuite) TestListUsers_WithSearch() {
 
 func (suite *UserServiceIntegrationTestSuite) TestListUsers_WithAuthMethods() {
 	// Create user with password + OAuth
-	user, err := suite.userService.CreateUserWithPassword(
-		"listauth@authmethods.example.com", "Pass123!", "List", "Auth",
+	user, err := suite.userService.CreateUserWithPasswordWithLegal(
+		"listauth@authmethods.example.com", "Pass123!", "List", "Auth", signupconsent.CurrentLegalAcceptance(),
 	)
 	suite.Require().NoError(err)
 
@@ -1540,8 +1541,8 @@ func TestUserService_SetDefaultReplyPermission_InvalidValue(t *testing.T) {
 }
 
 func (suite *UserServiceIntegrationTestSuite) TestSetDefaultReplyPermission_CreatesRowWhenMissing() {
-	user, err := suite.userService.CreateUserWithPassword(
-		"rp-prefs-create@example.com", "Pass123!", "RP", "Prefs",
+	user, err := suite.userService.CreateUserWithPasswordWithLegal(
+		"rp-prefs-create@example.com", "Pass123!", "RP", "Prefs", signupconsent.CurrentLegalAcceptance(),
 	)
 	suite.Require().NoError(err)
 
@@ -1556,12 +1557,12 @@ func (suite *UserServiceIntegrationTestSuite) TestSetDefaultReplyPermission_Crea
 }
 
 func (suite *UserServiceIntegrationTestSuite) TestSetDefaultReplyPermission_UpdatesExisting() {
-	user, err := suite.userService.CreateUserWithPassword(
-		"rp-prefs-update@example.com", "Pass123!", "RP", "Prefs",
+	user, err := suite.userService.CreateUserWithPasswordWithLegal(
+		"rp-prefs-update@example.com", "Pass123!", "RP", "Prefs", signupconsent.CurrentLegalAcceptance(),
 	)
 	suite.Require().NoError(err)
 
-	// CreateUserWithPassword auto-creates a preferences row. Set it once to
+	// CreateUserWithPasswordWithLegal auto-creates a preferences row. Set it once to
 	// establish a baseline, then update.
 	suite.Require().NoError(suite.userService.SetDefaultReplyPermission(user.ID, "followers"))
 	suite.Require().NoError(suite.userService.SetDefaultReplyPermission(user.ID, "author_only"))
@@ -1572,8 +1573,8 @@ func (suite *UserServiceIntegrationTestSuite) TestSetDefaultReplyPermission_Upda
 }
 
 func (suite *UserServiceIntegrationTestSuite) TestSetChartDefaults_SaveAndClear() {
-	user, err := suite.userService.CreateUserWithPassword(
-		"chart-defaults@example.com", "Pass123!", "Chart", "Defaults",
+	user, err := suite.userService.CreateUserWithPasswordWithLegal(
+		"chart-defaults@example.com", "Pass123!", "Chart", "Defaults", signupconsent.CurrentLegalAcceptance(),
 	)
 	suite.Require().NoError(err)
 
@@ -1599,8 +1600,8 @@ func (suite *UserServiceIntegrationTestSuite) TestSetChartDefaults_SaveAndClear(
 }
 
 func (suite *UserServiceIntegrationTestSuite) TestSetChartDefaults_RejectsInvalidWindow() {
-	user, err := suite.userService.CreateUserWithPassword(
-		"chart-defaults-bad@example.com", "Pass123!", "Chart", "Bad",
+	user, err := suite.userService.CreateUserWithPasswordWithLegal(
+		"chart-defaults-bad@example.com", "Pass123!", "Chart", "Bad", signupconsent.CurrentLegalAcceptance(),
 	)
 	suite.Require().NoError(err)
 
