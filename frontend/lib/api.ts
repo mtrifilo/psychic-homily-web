@@ -12,7 +12,7 @@
  */
 
 import { authLogger } from './utils/authLogger'
-import { AuthError, AuthErrorCode } from './errors'
+import { AuthError, AuthErrorCode, isAbortError } from './errors'
 import * as Sentry from '@sentry/nextjs'
 import { recordRateLimitHit, toTelemetryPath } from './rate-limit-telemetry'
 import { artistEndpoints } from '@/features/artists/api'
@@ -538,26 +538,16 @@ export interface ApiResponse {
 }
 
 /**
- * Whether a thrown value is the rejection fetch gives a request, or its body
- * read, once the request's signal aborts. Read by name alone, so any thrown
- * value named AbortError counts whatever its prototype chain.
- */
-function isAbortError(error: unknown): boolean {
-  return (
-    typeof error === 'object' &&
-    error !== null &&
-    (error as { name?: unknown }).name === 'AbortError'
-  )
-}
-
-/**
  * Make API requests with proper configuration, error handling, and request ID extraction.
  *
- * An AbortError thrown before the response arrives, or while a successful
+ * An abort thrown before the response arrives, or while a successful
  * response's body is read, is rethrown as it is, unwrapped and unreported: the
- * caller that owns the signal decides what an abort means. An error response
- * keeps its status even when its body read aborts, because the status is the
- * server's answer.
+ * caller that owns the signal decides what an abort means. An abort is an
+ * AbortError, or anything thrown once the request's own signal has aborted,
+ * which covers `abort(reason)` and an `AbortSignal.timeout` TimeoutError. A
+ * TimeoutError while the signal has not aborted is a failure like any other.
+ * An error response keeps its status even when its body read aborts, because
+ * the status is the server's answer.
  */
 export const apiRequest = async <T = unknown>(
   endpoint: string,
@@ -582,6 +572,8 @@ export const apiRequest = async <T = unknown>(
   // to Sentry as-is. Everything reported below goes through this scrubbed form
   // instead; `authLogger` keeps the raw path because it is console-only.
   const telemetryPath = toTelemetryPath(endpointPath)
+  const isAbort = (error: unknown) =>
+    isAbortError(error) || config.signal?.aborted === true
 
   authLogger.debug('API request', {
     endpoint: endpointPath,
@@ -594,7 +586,7 @@ export const apiRequest = async <T = unknown>(
   } catch (networkError) {
     // Network failure (backend unreachable, DNS failure, etc.) or an abort;
     // only the former is an outage signal.
-    if (isAuthEndpoint && !isAbortError(networkError)) {
+    if (isAuthEndpoint && !isAbort(networkError)) {
       Sentry.captureException(networkError, {
         level: 'error',
         tags: { service: 'auth', error_type: 'network_failure' },
@@ -722,7 +714,7 @@ export const apiRequest = async <T = unknown>(
   try {
     data = (await response.json()) as T
   } catch (parseError) {
-    if (isAbortError(parseError)) throw parseError
+    if (isAbort(parseError)) throw parseError
 
     const parseMessage =
       parseError instanceof Error ? parseError.message : String(parseError)

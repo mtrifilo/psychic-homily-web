@@ -13,6 +13,7 @@ import { BracketLink } from './BracketLink'
 import { SITE_URL } from '@/lib/seo/siteMetadata'
 import { replayOnHydrate } from '@/lib/hydration/clickReplay'
 import { cn } from '@/lib/utils'
+import { isAbortError } from '@/lib/errors'
 
 /**
  * What this browser can actually do.
@@ -81,24 +82,6 @@ export function buildShareUrl(path: string): string | null {
   if (resolved.pathname === '/') return null
   canonical.pathname = resolved.pathname
   return canonical.toString()
-}
-
-/**
- * Did the user simply dismiss the share sheet?
- *
- * Deliberately duck-typed on `name` rather than `instanceof Error`: browsers
- * reject with a `DOMException`, and `DOMException extends Error` is a
- * relatively recent WebIDL guarantee that older engines do not honour. An
- * `instanceof` check that returns false in one browser would quietly turn every
- * cancelled share into a red "Copy failed", which is precisely the misreport
- * this function exists to prevent.
- */
-function isAbortError(error: unknown): boolean {
-  return (
-    typeof error === 'object' &&
-    error !== null &&
-    (error as { name?: unknown }).name === 'AbortError'
-  )
 }
 
 /**
