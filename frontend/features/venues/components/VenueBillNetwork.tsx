@@ -231,8 +231,8 @@ export function VenueBillNetwork({ venueIdOrSlug, venueName }: VenueBillNetworkP
   // and the graph canvas never renders below the breakpoint, so desktop never
   // reached it. Instead we keep a stable, zero-height measuring wrapper
   // mounted (see the return below) and gate the section CONTENT on this flag.
-  // This matches the six peer graph surfaces (SceneGraph, StationGraph,
-  // CollectionGraph, InlineGraph, HomeSceneGraph, BillComposition): the ref
+  // This matches the peer graph surfaces (SceneGraph, StationGraph,
+  // CollectionGraph, HomeSceneGraph, BillComposition): the ref
   // node lives for the component's lifetime; only its children are width-gated.
   // Desktop still shows the header + filter (below) so the user understands
   // WHY the graph isn't drawing and can re-scope the window.

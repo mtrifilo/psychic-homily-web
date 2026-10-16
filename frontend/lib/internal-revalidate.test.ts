@@ -150,7 +150,6 @@ describe('revalidateEntities', () => {
       expect.arrayContaining([
         '/shows/a-big-gig',
         '/shows',
-        '/explore',
         '/artists',
         '/venues',
         '/scenes',

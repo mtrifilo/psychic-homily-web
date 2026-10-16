@@ -12,9 +12,9 @@ import {
  * type + `CityFilters` component they serve (PSY-840).
  *
  * Single source of truth for the `?cities=` wire format (PSY-928):
- * every surface that reads or writes the param — the shows/venues/
- * artists list components and their data hooks, HomeShowList, and
- * /explore's UpcomingShowsList — imports these, so a format change
+ * every surface that reads or writes the param (the shows/venues/
+ * artists list components and their data hooks, and HomeShowList)
+ * imports these, so a format change
  * lands in exactly one place. The CityState type has a single source
  * too (CityFilters.tsx).
  *
