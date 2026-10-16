@@ -13,11 +13,11 @@
  * The route handler `app/api/geo/route.ts` calls
  * `decodeGeoHeaders(request.headers)` and is fetched CLIENT-SIDE by
  * `useGeoDefaultCity`. The pages that consume the suggestion are ISR or static
- * (for example `/shows` and home) and must NOT read `next/headers`: doing so opts the whole
- * route into dynamic rendering and defeats ISR/static. A separate route handler
- * is inherently dynamic without touching the page's cache mode. Making one of
- * those pages read geo server-side would silently un-ISR it; keep the client
- * fetch.
+ * (for example `/shows` and home) and must NOT read `next/headers`: doing so
+ * opts the whole route into dynamic rendering and defeats ISR/static. A
+ * separate route handler is inherently dynamic without touching the page's
+ * cache mode. Making one of those pages read geo server-side would silently
+ * un-ISR it; keep the client fetch.
  *
  * The decoded value is a SUGGESTION only: it is reconciled against PH's
  * has-shows data on the client (`useGeoDefaultCity` -> `geoCityWithShows`) and
@@ -73,11 +73,11 @@ const HEADER_LONGITUDE = 'x-vercel-ip-longitude'
  * `.get(name) => string | null` shape works.
  *
  * This is a SUGGESTION only: it is NOT validated against PH's shows data
- * here (the edge has no cheap access to the cities-with-counts list). The client (`useGeoDefaultCity`) reconciles it
- * against `useShowCities` data and only pre-selects it when the city actually
- * has upcoming shows; otherwise it falls back to "All cities". Keeping the
- * has-shows check on the client reuses PSY-840's existing data source instead
- * of inventing a server lookup.
+ * here (the edge has no cheap access to the cities-with-counts list). The
+ * client (`useGeoDefaultCity`) reconciles it against `useShowCities` data and
+ * only pre-selects it when the city actually has upcoming shows; otherwise it
+ * falls back to "All cities". Keeping the has-shows check on the client reuses
+ * PSY-840's existing data source instead of inventing a server lookup.
  *
  * Returns `null` (→ "All cities" fallback) when ANY of these hold:
  *   - the city header is missing or empty (no geo / proxy stripped it),

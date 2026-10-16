@@ -7,9 +7,10 @@
  * graph-shaped out of the host page's initial JS (PSY-868).
  *
  * Used by HomeSceneGraph (PSY-1344). The height-reserving `loading` skeleton is
- * the one parameter, since each surface reserves CLS height its own way. Peer ForceGraphView consumers (Scene /
- * Venue / Collection graphs) keep a STATIC import on purpose — there the graph is
- * the page's primary content, so a split would only add a chunk round-trip.
+ * the one parameter, since each surface reserves CLS height its own way. Peer
+ * ForceGraphView consumers (Scene / Venue / Collection graphs) keep a STATIC
+ * import on purpose: there the graph is the page's primary content, so a split
+ * would only add a chunk round-trip.
  *
  * ssr:false costs nothing (the canvas never renders server-side). NOTE: in the
  * App Router a failed chunk fetch THROWS to the nearest error boundary (it does
