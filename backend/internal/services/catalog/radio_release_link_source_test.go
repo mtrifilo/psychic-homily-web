@@ -553,3 +553,37 @@ func (suite *RadioMatchingIntegrationTestSuite) TestBackfillReleaseLinks_KeepsAn
 	suite.Equal(map[RadioReleaseLinkOutcome]int{RadioReleaseLinkKeptAdmin: 1}, report.Counts)
 	suite.Empty(report.Changes)
 }
+
+// TestMatchPlay_MarksAnUnmarkedReleaseItKeeps: a play whose current release
+// carries no source and is the one the matcher picks keeps the release and is
+// marked 'matcher'.
+func (suite *RadioMatchingIntegrationTestSuite) TestMatchPlay_MarksAnUnmarkedReleaseItKeeps() {
+	tmbg := suite.createArtist("They Might Be Giants")
+	flood := suite.createCreditedRelease("Flood", tmbg.ID)
+
+	play := suite.createPlay(suite.createStationShowEpisode(), 1, "They Might Be Giants", strPtr("Flood"), nil)
+	suite.setReleaseLink(play.ID, flood.ID, "")
+	reloaded := suite.reloadPlay(play.ID)
+	suite.True(suite.engine.matchPlay(&reloaded))
+	suite.Equal(&flood.ID, suite.reloadPlay(play.ID).ReleaseID)
+	suite.Equal(catalogm.RadioPlayReleaseLinkSourceMatcher, suite.releaseLinkSource(play.ID))
+}
+
+// TestBulkLink_ClearsAnUncreditedReleaseOnAPlayWithoutAnAlbumTitle: with no
+// album title there is no credited candidate, so an uncredited release is
+// cleared when the bulk link gives the play its artist.
+func (suite *RadioMatchingIntegrationTestSuite) TestBulkLink_ClearsAnUncreditedReleaseOnAPlayWithoutAnAlbumTitle() {
+	tmbg := suite.createArtist("They Might Be Giants")
+	boris := suite.createArtist("Boris")
+	borisFlood := suite.createCreditedRelease("Flood", boris.ID)
+
+	play := suite.createPlay(suite.createStationShowEpisode(), 1, "They Might Be Giants", nil, nil)
+	suite.setReleaseLink(play.ID, borisFlood.ID, catalogm.RadioPlayReleaseLinkSourceMatcher)
+	bulk, err := suite.engine.BulkLinkUnmatchedArtistPlays(context.Background())
+	suite.Require().NoError(err)
+	suite.Equal(int64(1), bulk.NameLinked)
+	after := suite.reloadPlay(play.ID)
+	suite.Equal(&tmbg.ID, after.ArtistID)
+	suite.Nil(after.ReleaseID)
+	suite.Empty(suite.releaseLinkSource(play.ID))
+}
