@@ -40,7 +40,7 @@ func TestMusicBrainzClient_BrowseReleaseURLRelations(t *testing.T) {
 	srv := httptest.NewServer(mux)
 	defer srv.Close()
 
-	c := newReleaseGroupTestClient(srv.URL)
+	c := newMusicBrainzTestClient(srv.URL)
 	rels, err := c.BrowseReleaseURLRelations(context.Background(), "rg-mbid")
 	require.NoError(t, err)
 
@@ -62,7 +62,7 @@ func TestMusicBrainzClient_BrowseReleaseURLRelations_EmptyMBIDNoCall(t *testing.
 	}))
 	defer srv.Close()
 
-	c := newReleaseGroupTestClient(srv.URL)
+	c := newMusicBrainzTestClient(srv.URL)
 	rels, err := c.BrowseReleaseURLRelations(context.Background(), "  ")
 	require.NoError(t, err)
 	assert.Nil(t, rels)
