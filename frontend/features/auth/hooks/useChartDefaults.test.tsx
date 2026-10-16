@@ -14,12 +14,6 @@ vi.mock('@/lib/api', () => ({
   },
 }))
 
-vi.mock('@/lib/queryClient', () => ({
-  queryKeys: {
-    auth: { profile: ['auth', 'profile'] },
-  },
-}))
-
 import { useSetChartDefaults } from './useChartDefaults'
 
 function wrapper({ children }: { children: ReactNode }) {

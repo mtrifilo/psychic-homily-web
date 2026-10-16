@@ -9,6 +9,7 @@
  */
 
 import { useMutation, useQueryClient } from '@tanstack/react-query'
+import { refetchAfterMutation } from '@/lib/refetchAfterMutation'
 import { apiRequest, type ApiError } from '@/lib/api'
 import { venueEndpoints, venueQueryKeys } from '@/features/venues/api'
 import type { VenueConfirmationResponse } from '../types'
@@ -41,7 +42,7 @@ export function useVenueConfirm() {
         method: 'POST',
       }),
     onSuccess: () => {
-      void queryClient.invalidateQueries({
+      void refetchAfterMutation(queryClient, {
         predicate: (query) =>
           query.queryKey[0] === venueQueryKeys.all[0] &&
           (query.queryKey[1] === 'list' || query.queryKey[1] === 'detail'),

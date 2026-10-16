@@ -3,6 +3,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { apiRequest, API_ENDPOINTS } from '@/lib/api'
 import { queryKeys } from '@/lib/queryClient'
+import { refetchAfterMutation } from '@/lib/refetchAfterMutation'
 import { useAuthContext } from '@/lib/context/AuthContext'
 import type { UserFollowStatus } from '@/lib/types/follow'
 import type { PublicProfileResponse } from '@/features/auth'
@@ -105,12 +106,11 @@ export const useUserFollow = () => {
       }
     },
     onSettled: (_data, _error, username) => {
-      queryClient.invalidateQueries({
-        queryKey: queryKeys.follows.user(username, user?.id),
-      })
-      queryClient.invalidateQueries({
-        queryKey: queryKeys.contributor.profile(username),
-      })
+      void refetchAfterMutation(
+        queryClient,
+        queryKeys.follows.user(username, user?.id),
+        queryKeys.contributor.profile(username)
+      )
     },
   })
 }
@@ -172,12 +172,11 @@ export const useUserUnfollow = () => {
       }
     },
     onSettled: (_data, _error, username) => {
-      queryClient.invalidateQueries({
-        queryKey: queryKeys.follows.user(username, user?.id),
-      })
-      queryClient.invalidateQueries({
-        queryKey: queryKeys.contributor.profile(username),
-      })
+      void refetchAfterMutation(
+        queryClient,
+        queryKeys.follows.user(username, user?.id),
+        queryKeys.contributor.profile(username)
+      )
     },
   })
 }

@@ -3,6 +3,7 @@
 import { useQuery, useMutation, useQueryClient, keepPreviousData } from '@tanstack/react-query'
 import { apiRequest, API_ENDPOINTS } from '@/lib/api'
 import { queryKeys } from '@/lib/queryClient'
+import { refetchAfterMutation } from '@/lib/refetchAfterMutation'
 import type {
   TagDetailResponse,
   TagAliasesResponse,
@@ -67,7 +68,7 @@ export function useCreateTag() {
         body: JSON.stringify(input),
       }),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.tags.all })
+      void refetchAfterMutation(queryClient, queryKeys.tags.all)
     },
   })
 }
@@ -92,11 +93,9 @@ export function useUpdateTag() {
         method: 'PUT',
         body: JSON.stringify(data),
       }),
-    onSuccess: (_data, variables) => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.tags.all })
-      queryClient.invalidateQueries({
-        queryKey: queryKeys.tags.detail(variables.tagId),
-      })
+    onSuccess: () => {
+      // The family root covers the tag's detail entry.
+      void refetchAfterMutation(queryClient, queryKeys.tags.all)
     },
   })
 }
@@ -110,7 +109,7 @@ export function useDeleteTag() {
         method: 'DELETE',
       }),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.tags.all })
+      void refetchAfterMutation(queryClient, queryKeys.tags.all)
     },
   })
 }
@@ -130,12 +129,11 @@ export function useCreateAlias() {
         body: JSON.stringify({ alias }),
       }),
     onSuccess: (_data, variables) => {
-      queryClient.invalidateQueries({
-        queryKey: queryKeys.tags.aliases(variables.tagId),
-      })
-      queryClient.invalidateQueries({
-        queryKey: queryKeys.tags.detail(variables.tagId),
-      })
+      void refetchAfterMutation(
+        queryClient,
+        queryKeys.tags.aliases(variables.tagId),
+        queryKeys.tags.detail(variables.tagId)
+      )
     },
   })
 }
@@ -154,12 +152,11 @@ export function useDeleteAlias() {
         method: 'DELETE',
       }),
     onSuccess: (_data, variables) => {
-      queryClient.invalidateQueries({
-        queryKey: queryKeys.tags.aliases(variables.tagId),
-      })
-      queryClient.invalidateQueries({
-        queryKey: queryKeys.tags.detail(variables.tagId),
-      })
+      void refetchAfterMutation(
+        queryClient,
+        queryKeys.tags.aliases(variables.tagId),
+        queryKeys.tags.detail(variables.tagId)
+      )
     },
   })
 }
@@ -200,8 +197,8 @@ export function useBulkImportAliases() {
         }
       ),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['tags', 'aliases'] })
-      queryClient.invalidateQueries({ queryKey: queryKeys.tags.all })
+      // The family root covers every alias listing.
+      void refetchAfterMutation(queryClient, queryKeys.tags.all)
     },
   })
 }
@@ -253,8 +250,8 @@ export function useMergeTags() {
         body: JSON.stringify({ target_id: targetId }),
       }),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.tags.all })
-      queryClient.invalidateQueries({ queryKey: ['tags', 'aliases'] })
+      // The family root covers every alias listing.
+      void refetchAfterMutation(queryClient, queryKeys.tags.all)
     },
   })
 }
@@ -295,8 +292,8 @@ export function useSnoozeTag() {
         method: 'POST',
       }),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.tags.lowQuality() })
-      queryClient.invalidateQueries({ queryKey: queryKeys.tags.all })
+      // The family root covers the low-quality queue.
+      void refetchAfterMutation(queryClient, queryKeys.tags.all)
     },
   })
 }
@@ -320,8 +317,8 @@ export function useBulkLowQualityAction() {
         body: JSON.stringify({ action, tag_ids: tagIds }),
       }),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.tags.lowQuality() })
-      queryClient.invalidateQueries({ queryKey: queryKeys.tags.all })
+      // The family root covers the low-quality queue.
+      void refetchAfterMutation(queryClient, queryKeys.tags.all)
     },
   })
 }
@@ -338,10 +335,9 @@ export function useMarkTagOfficial() {
         method: 'PUT',
         body: JSON.stringify({ is_official: true }),
       }),
-    onSuccess: (_data, tagId) => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.tags.lowQuality() })
-      queryClient.invalidateQueries({ queryKey: queryKeys.tags.all })
-      queryClient.invalidateQueries({ queryKey: queryKeys.tags.detail(tagId) })
+    onSuccess: () => {
+      // The family root covers the low-quality queue and the tag's detail.
+      void refetchAfterMutation(queryClient, queryKeys.tags.all)
     },
   })
 }
@@ -385,15 +381,9 @@ export function useSetTagParent() {
         method: 'PATCH',
         body: JSON.stringify({ parent_id: parentId }),
       }),
-    onSuccess: (_data, variables) => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.tags.genreHierarchy })
-      queryClient.invalidateQueries({ queryKey: queryKeys.tags.all })
-      queryClient.invalidateQueries({
-        queryKey: queryKeys.tags.detail(variables.tagId),
-      })
-      queryClient.invalidateQueries({
-        queryKey: queryKeys.tags.enrichedDetail(variables.tagId),
-      })
+    onSuccess: () => {
+      // The family root covers the genre hierarchy and both detail entries.
+      void refetchAfterMutation(queryClient, queryKeys.tags.all)
     },
   })
 }
