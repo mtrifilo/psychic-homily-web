@@ -7,7 +7,9 @@ import { Button } from '@/components/ui/button'
 import { BracketLink } from '@/components/shared/BracketLink'
 import { SectionHeader } from '@/components/shared/SectionHeader'
 import {
+  getStationDetailUrl,
   useRadioShow,
+  useRadioStation,
   useRadioEpisodes,
   useRadioTopArtists,
   useRadioTopLabels,
@@ -103,6 +105,15 @@ const PAGE_SIZE = 25
 
 export default function RadioShowDetail({ stationSlug, showSlug }: RadioShowDetailProps) {
   const { data: show, isLoading, error } = useRadioShow(showSlug)
+  // The show read carries no network, so the station links resolve the
+  // canonical URL (a sub-stream's channel URL) from the station read. Until
+  // it lands, or if it fails, they link `/radio/{stationSlug}`, which the
+  // station page redirects to the canonical URL.
+  const { data: station } = useRadioStation(stationSlug)
+  const stationUrl = getStationDetailUrl(
+    station?.slug ?? stationSlug,
+    station?.network ?? null
+  )
   const [offset, setOffset] = useState(0)
   const { data: episodesData, isLoading: episodesLoading } = useRadioEpisodes({
     showSlug,
@@ -139,7 +150,7 @@ export default function RadioShowDetail({ stationSlug, showSlug }: RadioShowDeta
             The radio show you&apos;re looking for doesn&apos;t exist.
           </p>
           <Button asChild variant="outline">
-            <Link href={`/radio/${stationSlug}`}>
+            <Link href={stationUrl}>
               <ArrowLeft className="h-4 w-4 mr-2" />
               Back to Station
             </Link>
@@ -182,7 +193,7 @@ export default function RadioShowDetail({ stationSlug, showSlug }: RadioShowDeta
         {/* Breadcrumb */}
         <div className="mb-6 font-mono text-xs text-muted-foreground">
           <Link
-            href={`/radio/${stationSlug}`}
+            href={stationUrl}
             className="hover:text-foreground transition-colors"
           >
             ← {show.station_name}

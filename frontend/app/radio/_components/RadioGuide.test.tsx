@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { render, screen } from '@testing-library/react'
-import { RadioGuide } from './RadioGuide'
+import { RadioGuide, type StationNetworksBySlug } from './RadioGuide'
 import { localIso } from '@/features/radio/lib/localIso.testutil'
 import type { RadioGuideRow } from '@/features/radio/types'
 
@@ -9,6 +9,14 @@ import type { RadioGuideRow } from '@/features/radio/types'
 // station timezone is pinned to the VIEWER's zone so the station-local aside
 // is deterministically absent in the main fixtures.
 const viewerZone = Intl.DateTimeFormat().resolvedOptions().timeZone
+
+const NO_NETWORKS: StationNetworksBySlug = new Map()
+
+const WFMU_NETWORKS: StationNetworksBySlug = new Map([
+  ['wfmu', { slug: 'wfmu', name: 'WFMU', is_flagship: true }],
+  ['wfmu-drummer', { slug: 'wfmu', name: 'WFMU', is_flagship: false }],
+  ['kexp', null],
+])
 
 function row(overrides: Partial<RadioGuideRow> = {}): RadioGuideRow {
   return {
@@ -33,6 +41,7 @@ describe('RadioGuide', () => {
             ends_at: localIso(2026, 6, 8, 21),
           }),
         ]}
+        stationNetworks={NO_NETWORKS}
       />
     )
 
@@ -60,7 +69,13 @@ describe('RadioGuide', () => {
     // the aside is legitimately absent — guard the assertion instead of
     // producing a machine-dependent failure.
     const stationZone = 'Pacific/Kiritimati'
-    render(<RadioGuide onNow={[row({ station_timezone: stationZone })]} upNext={[]} />)
+    render(
+      <RadioGuide
+        onNow={[row({ station_timezone: stationZone })]}
+        upNext={[]}
+        stationNetworks={NO_NETWORKS}
+      />
+    )
     if (viewerZone !== stationZone) {
       // The aside is the parenthesized station-zone range with a zone label.
       expect(screen.getByText(/\(.+GMT\+14.*\)/)).toBeInTheDocument()
@@ -80,13 +95,80 @@ describe('RadioGuide', () => {
               t.getFullYear(), t.getMonth(), t.getDate() + 1, 12),
           }),
         ]}
+        stationNetworks={NO_NETWORKS}
       />
     )
     expect(screen.getByText(/tomorrow/)).toBeInTheDocument()
   })
 
   it('renders nothing when both groups are empty', () => {
-    const { container } = render(<RadioGuide onNow={[]} upNext={null} />)
+    const { container } = render(
+      <RadioGuide onNow={[]} upNext={null} stationNetworks={NO_NETWORKS} />
+    )
     expect(container).toBeEmptyDOMElement()
+  })
+
+  it("links a sub-stream's station name to its channel URL", () => {
+    render(
+      <RadioGuide
+        onNow={[
+          row({
+            station: { slug: 'wfmu-drummer', name: 'Give the Drummer Radio' },
+          }),
+        ]}
+        upNext={[]}
+        stationNetworks={WFMU_NETWORKS}
+      />
+    )
+
+    expect(
+      screen.getByRole('link', { name: 'Give the Drummer Radio' })
+    ).toHaveAttribute('href', '/radio/wfmu/channel/drummer')
+    // The show link keeps the station-slug show URL.
+    expect(screen.getByRole('link', { name: 'Wake' })).toHaveAttribute(
+      'href',
+      '/radio/wfmu-drummer/wake'
+    )
+  })
+
+  it('links flagship and network-less stations to their slug URL', () => {
+    render(
+      <RadioGuide
+        onNow={[row()]}
+        upNext={[
+          row({
+            station: { slug: 'kexp', name: 'KEXP' },
+            show: { id: 2, slug: 'morning', name: 'Morning', host_name: null },
+          }),
+        ]}
+        stationNetworks={WFMU_NETWORKS}
+      />
+    )
+
+    expect(screen.getByRole('link', { name: 'WFMU 91.1' })).toHaveAttribute(
+      'href',
+      '/radio/wfmu'
+    )
+    expect(screen.getByRole('link', { name: 'KEXP' })).toHaveAttribute(
+      'href',
+      '/radio/kexp'
+    )
+  })
+
+  it('links a station missing from the network map to its slug URL', () => {
+    render(
+      <RadioGuide
+        onNow={[
+          row({ station: { slug: 'wfmu-sheena', name: 'Sheena' } }),
+        ]}
+        upNext={[]}
+        stationNetworks={WFMU_NETWORKS}
+      />
+    )
+
+    expect(screen.getByRole('link', { name: 'Sheena' })).toHaveAttribute(
+      'href',
+      '/radio/wfmu-sheena'
+    )
   })
 })
