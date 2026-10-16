@@ -60,32 +60,37 @@ func (suite *UserServiceIntegrationTestSuite) TestGetUserByEmailIncludingDeleted
 	suite.Equal("Deleted.Case@Example.com", *found.Email)
 }
 
-// TestIdentityLookups_NULIsNotFound covers an address or username holding a
-// NUL byte, which no stored row can hold: each lookup answers "not found", as
-// for any other value no account holds, instead of failing.
-func (suite *UserServiceIntegrationTestSuite) TestIdentityLookups_NULIsNotFound() {
-	lookups := map[string]func() (*authm.User, error){
-		"GetUserByEmail": func() (*authm.User, error) {
-			return suite.userService.GetUserByEmail("no\x00body@example.com")
-		},
-		"GetUserByEmailIncludingDeleted": func() (*authm.User, error) {
-			return suite.userService.GetUserByEmailIncludingDeleted("no\x00body@example.com")
-		},
-		"GetUserByUsername": func() (*authm.User, error) {
-			return suite.userService.GetUserByUsername("no\x00body")
-		},
-	}
-	for name, lookup := range lookups {
-		found, err := lookup()
-		suite.NoError(err, name)
-		suite.Nil(found, name)
-	}
+// TestIdentityLookups_RejectedTextIsNotFound covers an address or username
+// Postgres rejects as text (a NUL byte, or invalid UTF-8), which no stored row
+// can hold: each lookup answers "not found", as for any other value no account
+// holds, instead of failing.
+func (suite *UserServiceIntegrationTestSuite) TestIdentityLookups_RejectedTextIsNotFound() {
+	for _, bad := range []string{"\x00", "\xff"} {
+		email := "no" + bad + "body@example.com"
+		username := "no" + bad + "body"
+		lookups := map[string]func() (*authm.User, error){
+			"GetUserByEmail": func() (*authm.User, error) {
+				return suite.userService.GetUserByEmail(email)
+			},
+			"GetUserByEmailIncludingDeleted": func() (*authm.User, error) {
+				return suite.userService.GetUserByEmailIncludingDeleted(email)
+			},
+			"GetUserByUsername": func() (*authm.User, error) {
+				return suite.userService.GetUserByUsername(username)
+			},
+		}
+		for name, lookup := range lookups {
+			found, err := lookup()
+			suite.NoError(err, "%s(%q)", name, bad)
+			suite.Nil(found, "%s(%q)", name, bad)
+		}
 
-	// Password sign-in for such an address is the unknown-address refusal.
-	_, err := suite.userService.AuthenticateUserWithPassword("no\x00body@example.com", "StrongPass123!")
-	var refusal *apperrors.AuthError
-	suite.Require().True(errors.As(err, &refusal), "expected an AuthError, got %v", err)
-	suite.Equal(apperrors.CodeInvalidCredentials, refusal.Code)
+		// Password sign-in for such an address is the unknown-address refusal.
+		_, err := suite.userService.AuthenticateUserWithPassword(email, "StrongPass123!")
+		var refusal *apperrors.AuthError
+		suite.Require().True(errors.As(err, &refusal), "%q: expected an AuthError, got %v", bad, err)
+		suite.Equal(apperrors.CodeInvalidCredentials, refusal.Code, "%q", bad)
+	}
 }
 
 // TestAuthenticateUserWithPassword_CaseInsensitive proves the login path end to
