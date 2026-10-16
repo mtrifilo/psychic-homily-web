@@ -35,7 +35,7 @@ var errNonLoopbackRequest = errors.New("network guard: non-loopback request refu
 // net.Dial and a DNS lookup all go around the guard.
 //
 // Each refusal is printed when it happens, naming the method, the URL with its
-// userinfo and query omitted, and the Test function on the requesting
+// userinfo, query and fragment omitted, and the Test function on the requesting
 // goroutine's stack. A RoundTripper has no handle on the *testing.T, so the
 // guard fails the package run instead of the test: it returns a non-zero code
 // when any request was refused, or when a test left http.DefaultTransport or
