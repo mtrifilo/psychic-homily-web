@@ -532,6 +532,7 @@ type EnrichmentIntegrationTestSuite struct {
 	container testcontainers.Container
 	db        *gorm.DB
 	svc       *EnrichmentService
+	mb        *fakeMusicBrainz
 	ctx       context.Context
 }
 
@@ -571,10 +572,14 @@ func (s *EnrichmentIntegrationTestSuite) SetupSuite() {
 	testutil.RunAllMigrations(s.T(), sqlDB, migrationDir)
 
 	mockArtist := &mockArtistServiceForEnrichment{}
-	s.svc = NewEnrichmentService(db, mockArtist, "", nil)
+	s.mb = newFakeMusicBrainz()
+	s.svc = NewEnrichmentService(db, mockArtist, "", s.mb.client())
 }
 
 func (s *EnrichmentIntegrationTestSuite) TearDownSuite() {
+	if s.mb != nil {
+		s.mb.server.Close()
+	}
 	if s.container != nil {
 		//nolint:errcheck // test teardown best-effort; container is going away
 		s.container.Terminate(s.ctx)
@@ -589,6 +594,10 @@ func (s *EnrichmentIntegrationTestSuite) SetupTest() {
 	s.db.Exec("DELETE FROM shows")
 	s.db.Exec("DELETE FROM artists")
 	s.db.Exec("DELETE FROM venues")
+}
+
+func (s *EnrichmentIntegrationTestSuite) TearDownTest() {
+	s.Zero(s.mb.unexpected.Swap(0), "every MusicBrainz request must be one the fake answers")
 }
 
 func (s *EnrichmentIntegrationTestSuite) createTestShow() uint {
@@ -724,6 +733,7 @@ func (s *EnrichmentIntegrationTestSuite) TestEnrichShow_ShowNotFound() {
 // Test: EnrichShow - successful enrichment
 func (s *EnrichmentIntegrationTestSuite) TestEnrichShow_Success() {
 	showID, _ := s.createTestShowWithArtist()
+	searchesBefore := s.mb.searches.Load()
 
 	result, err := s.svc.EnrichShow(s.ctx, showID)
 	s.Require().NoError(err)
@@ -732,6 +742,10 @@ func (s *EnrichmentIntegrationTestSuite) TestEnrichShow_Success() {
 	s.Contains(result.CompletedSteps, "artist_match")
 	s.Contains(result.CompletedSteps, "musicbrainz")
 	s.Contains(result.CompletedSteps, "api_crossref")
+
+	s.Equal(searchesBefore+1, s.mb.searches.Load(), "the show's one artist is searched once")
+	s.Require().Len(result.MusicBrainz, 1)
+	s.False(result.MusicBrainz[0].Found, "a fuzzy hit under another name is not a match")
 }
 
 // Test: EnrichShow - context cancellation
