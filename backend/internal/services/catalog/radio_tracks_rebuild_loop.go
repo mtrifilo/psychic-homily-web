@@ -2,7 +2,6 @@ package catalog
 
 import (
 	"context"
-	"errors"
 	"log/slog"
 	"sync"
 	"time"
@@ -75,11 +74,7 @@ func (l *RadioTracksRebuildLoop) runCycle(ctx context.Context) {
 	start := time.Now()
 	report, err := RebuildRadioTracks(ctx, l.db)
 	if err != nil {
-		logFn := l.logger.Error
-		if errors.Is(err, context.Canceled) {
-			logFn = l.logger.Info
-		}
-		logFn("radio tracks rebuild: cycle failed", "error", err)
+		shared.LogCycleFailure(l.logger, "radio tracks rebuild: cycle failed", err)
 		shared.ReportCycle(ctx, 0, err)
 		return
 	}
