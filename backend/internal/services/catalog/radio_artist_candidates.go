@@ -163,6 +163,7 @@ var radioCandidatePlayCols = RadioPlayColumns{
 	ArtistName: "p.artist_name",
 	TrackTitle: "p.track_title",
 	LabelName:  "p.label_name",
+	AlbumTitle: "p.album_title",
 }
 
 // radioCandidatePlaysFromSQL returns a FROM clause that joins a play to its
@@ -297,17 +298,14 @@ GROUP BY c.%[2]s, st.id, st.name, st.slug`, radioEvidenceStation, mustSQLIdentif
 // evidence query's counted CTE, per value of its owner column (the candidate's
 // identity, which the rows carry under the same name): names group by
 // radio_normalize_name, show their most common trimmed spelling, and only rows
-// where onlyWhere (a boolean column of counted, or "" for every row) holds
-// contribute. Panics on a kind or owner that is not a plain identifier or a
-// column that is not an identifier.
+// where onlyWhere (a boolean column of counted) holds contribute. Panics on a
+// kind or owner that is not a plain identifier or a column that is not an
+// identifier.
 func radioCandidateEvidenceNamesSQL(kind, owner, column, onlyWhere string) string {
 	kind = mustSQLIdentifier(kind)
 	own := mustSQLIdentifier(owner)
 	col := mustSQLColumnRef(column)
-	filter := "true"
-	if onlyWhere != "" {
-		filter = mustSQLColumnRef(onlyWhere)
-	}
+	filter := mustSQLColumnRef(onlyWhere)
 	return fmt.Sprintf(`
 SELECT '%[1]s' AS kind, %[5]s, 0 AS ref_id, name, '' AS slug,
        play_count::int AS play_count, distinct_count::int AS distinct_count, rn
@@ -335,14 +333,16 @@ WHERE rn <= %[4]d`, kind, col, filter, radioCandidateTopNames, own)
 // keys, one radioCandidateEvidenceRow per row. Parameters: the window's first
 // air date, then the keys. The artist_id IS NULL condition holds for every
 // counted play of a qualifying key and lets the lookup use the partial
-// normalized-name index.
+// normalized-name index. The album list counts only plays whose album counts
+// as release evidence (RadioRankingAlbum).
 var radioArtistCandidateEvidenceSQL = `
 WITH counted AS MATERIALIZED (
   SELECT k.artist_key,
          p.artist_name, p.track_title, p.album_title, p.label_name,
          sh.station_id,
          ` + RadioPlayExcludedSQL(RadioRankingTrack, radioCandidatePlayCols) + ` AS track_excluded,
-         NOT ` + RadioPlayExcludedSQL(RadioRankingLabel, radioCandidatePlayCols) + ` AS label_counts
+         NOT ` + RadioPlayExcludedSQL(RadioRankingLabel, radioCandidatePlayCols) + ` AS label_counts,
+         NOT ` + RadioPlayExcludedSQL(RadioRankingAlbum, radioCandidatePlayCols) + ` AS album_counts
   ` + radioCandidatePlaysFromSQL(RadioRankingArtist) + `
     AND p.artist_id IS NULL
     AND radio_normalize_name(p.artist_name) = ANY (?::text[])
@@ -366,7 +366,7 @@ FROM (
   GROUP BY c.artist_key, t.id, t.display_title
 ) tracks
 WHERE rn <= ` + fmt.Sprint(radioCandidateTopTracks) + `
-UNION ALL` + radioCandidateEvidenceNamesSQL(radioEvidenceAlbum, "artist_key", "album_title", "") + `
+UNION ALL` + radioCandidateEvidenceNamesSQL(radioEvidenceAlbum, "artist_key", "album_title", "album_counts") + `
 UNION ALL` + radioCandidateEvidenceNamesSQL(radioEvidenceLabel, "artist_key", "label_name", "label_counts") + `
 ORDER BY kind, artist_key, rn`
 
@@ -440,12 +440,27 @@ func (r *RadioCandidatesReader) inSnapshot(ctx context.Context, fn func(tx *gorm
 	ctx, cancel := context.WithTimeout(ctx, radioCandidateListingTimeout)
 	defer cancel()
 	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		// The server-side bound holds even if the client's cancellation is lost.
-		if err := tx.Exec(fmt.Sprintf("SET LOCAL statement_timeout = %d", radioCandidateListingTimeout.Milliseconds())).Error; err != nil {
-			return fmt.Errorf("bounding the listing: %w", err)
+		if err := boundRadioCandidateListing(tx); err != nil {
+			return err
 		}
 		return fn(tx)
 	}, &sql.TxOptions{Isolation: sql.LevelRepeatableRead, ReadOnly: true})
+}
+
+// boundRadioCandidateListing sets the session limits of a candidate listing
+// transaction. statement_timeout is the server-side bound, which holds even if
+// the client's cancellation is lost. jit is off because the listing statements
+// carry RadioPlayExcludedSQL one or more times, which inflates their cost
+// estimates past the JIT thresholds; an evidence statement reads only the
+// selected candidates' plays, so compiling it costs far more than running it.
+func boundRadioCandidateListing(tx *gorm.DB) error {
+	if err := tx.Exec(fmt.Sprintf("SET LOCAL statement_timeout = %d", radioCandidateListingTimeout.Milliseconds())).Error; err != nil {
+		return fmt.Errorf("bounding the listing: %w", err)
+	}
+	if err := tx.Exec("SET LOCAL jit = off").Error; err != nil {
+		return fmt.Errorf("disabling jit for the listing: %w", err)
+	}
+	return nil
 }
 
 // radioTracksRebuiltAt returns when the radio_tracks rebuild loop last
