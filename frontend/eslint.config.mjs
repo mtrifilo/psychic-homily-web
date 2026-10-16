@@ -111,10 +111,11 @@ const eslintConfig = defineConfig([
     // clears the invalidation. The createInvalidateQueries entries go through
     // the helper too, apart from `auth`, which carries its own annotation.
     // The selectors see member calls, optional and computed; a method pulled
-    // off the client by destructuring is not caught. The rule covers the hooks
-    // trees plus the files named here that hold a mutation's refetch outside
-    // them (refetchAfterMutation.lint.test.ts checks every file that imports
-    // the helper is covered). A site that is safe without the cancel carries
+    // off the client by destructuring, and a query result's own refetch(), are
+    // not caught. The rule covers the hooks trees plus the files named here
+    // that refetch after a write outside them; refetchAfterMutation.lint.test.ts
+    // checks that every source file calling the helper, the factory or a bare
+    // invalidate or refetch is covered. A site that is safe without the cancel carries
     // an eslint-disable-next-line comment giving the reason. A later block
     // that sets no-restricted-syntax for these files replaces these selectors
     // rather than merging with them, so extend this block instead.
@@ -127,6 +128,7 @@ const eslintConfig = defineConfig([
       "features/admin/components/DiscoveryTriage/useDiscoveryTriage.ts",
       "features/admin/components/StreamingWorklist/useStreamingWorklist.ts",
       "features/artists/components/ArtistDetail.tsx",
+      "features/auth/components/settings/passkey-management.tsx",
       "features/festivals/components/FestivalDetail.tsx",
       "features/labels/components/LabelDetail.tsx",
       "features/releases/components/ReleaseDetail.tsx",

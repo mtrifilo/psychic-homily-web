@@ -295,7 +295,7 @@ function recoverFromSessionExpiry(erroredQueryKey?: readonly unknown[]) {
   // races with the very auth-gated buttons the seed was meant to make safe.
   if (profileAlreadyKnowsAnonymous(client)) return
 
-  // eslint-disable-next-line no-restricted-syntax -- reached only when no profile fetch is under way (profileAlreadyKnowsAnonymous returns first), so there is no in-flight response to reuse
+  // eslint-disable-next-line no-restricted-syntax -- reached only when no profile fetch is running (profileAlreadyKnowsAnonymous returns first); a paused fetch has not sent its request, so there is no stale response to reuse
   client.invalidateQueries({ queryKey: queryKeys.auth.profile })
 }
 
@@ -943,14 +943,29 @@ export function resetViewerTierQueries(queryClient: QueryClient) {
 }
 
 /**
+ * Refetch the viewer's profile after a write only a signed-in viewer can make.
+ *
+ * A plain invalidate rather than refetchAfterMutation: a signed-in viewer's
+ * profile already holds data, and invalidating a query that holds data
+ * cancels and restarts any fetch in flight instead of reusing it, so a
+ * pre-write response cannot win. Skipping the explicit cancel keeps the
+ * profile's fetchStatus steady for the cache error handlers above, which read
+ * it (profileAlreadyKnowsAnonymous).
+ */
+export function refetchSignedInProfile(queryClient: QueryClient) {
+  // eslint-disable-next-line no-restricted-syntax -- the profile holds data here, so this invalidate restarts an in-flight fetch rather than reusing it; see the doc comment
+  return queryClient.invalidateQueries({ queryKey: queryKeys.auth.profile })
+}
+
+/**
  * Refetches grouped by query family. Every entry except `auth` goes through
  * `refetchAfterMutation`, so a write that lands during a query's first fetch is
- * not hidden by that fetch's pre-write response. Each entry returns the
- * helper's promise, which never rejects; callers that need not wait `void` it.
+ * not hidden by that fetch's pre-write response. Each entry returns a promise
+ * that never rejects.
  */
 export const createInvalidateQueries = (queryClient: QueryClient) => ({
   auth: () =>
-    // eslint-disable-next-line no-restricted-syntax -- the auth family holds the profile, whose fetchStatus the cache error handlers read (profileAlreadyKnowsAnonymous), and a cancel would revert it underneath them
+    // eslint-disable-next-line no-restricted-syntax -- a token refresh runs inside a signed-in session whose profile holds data, so this restarts the profile's in-flight fetch rather than reusing it, and the profile stays uncancelled for the cache error handlers (see refetchSignedInProfile)
     queryClient.invalidateQueries({ queryKey: ['auth'] }),
 
   shows: () => refetchAfterMutation(queryClient, queryKeys.shows.all),

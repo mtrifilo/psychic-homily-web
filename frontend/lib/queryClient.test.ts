@@ -183,6 +183,35 @@ describe('queryClient module', () => {
     })
   })
 
+  describe('refreshViewerTierQueries', () => {
+    it('restarts a first fetch sent under the previous session', async () => {
+      const { refreshViewerTierQueries } = await import('./queryClient')
+      const queryClient = new QueryClient({
+        defaultOptions: { queries: { retry: false } },
+      })
+      // A comment thread: its payload carries the viewer's own vote.
+      const queryKey = ['comments', 'artist', 7] as const
+      const anonymous = deferred<{ user_vote: number | null }>()
+      const queryFn = vi
+        .fn<() => Promise<{ user_vote: number | null }>>()
+        .mockImplementationOnce(() => anonymous.promise)
+        .mockResolvedValue({ user_vote: 1 })
+      const observer = new QueryObserver(queryClient, { queryKey, queryFn })
+      const unsubscribe = observer.subscribe(() => {})
+
+      await vi.waitFor(() => expect(queryFn).toHaveBeenCalledTimes(1))
+      await refreshViewerTierQueries(queryClient)
+
+      expect(queryFn).toHaveBeenCalledTimes(2)
+      expect(queryClient.getQueryData(queryKey)).toEqual({ user_vote: 1 })
+
+      anonymous.resolve({ user_vote: null })
+      await Promise.resolve()
+      expect(queryClient.getQueryData(queryKey)).toEqual({ user_vote: 1 })
+      unsubscribe()
+    })
+  })
+
   describe('retry logic', () => {
     it('does not retry on 4xx errors other than 429', async () => {
       const { getQueryClient } = await import('./queryClient')

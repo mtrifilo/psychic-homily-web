@@ -6,8 +6,9 @@ import path from 'node:path'
  * Source guard for the eslint.config.mjs block that bans bare invalidates
  * outside refetchAfterMutation. ESLint does not report a `files` entry that
  * matches nothing, so a renamed file or a mistyped glob would silently leave
- * the rule; and a file outside the hooks trees that refetches after a write is
- * only protected once it is listed.
+ * the rule; and a file outside the hooks trees is only linted once it is
+ * listed, so any source file that refetches (through the helper, the factory
+ * or a bare call) must be covered by the block.
  */
 
 const FRONTEND = path.resolve(__dirname, '..')
@@ -50,13 +51,16 @@ describe('the refetchAfterMutation lint block', () => {
     }
   })
 
-  it('covers every file that refetches through the helper or the factory', () => {
+  it('covers every file that refetches: through the helper, the factory, or a bare call', () => {
     const refetches =
-      /from\s+['"]@\/lib\/refetchAfterMutation['"]|createInvalidateQueries\(/
+      /from\s+['"][^'"]*refetchAfterMutation['"]|createInvalidateQueries\(|\b(invalidate|refetch)Queries\s*\(/
+    // Comments may name the methods; only code counts.
+    const code = (source: string) =>
+      source.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '')
     const adopters = sourceFiles.filter(
       file =>
         file !== path.join('lib', 'refetchAfterMutation.ts') &&
-        refetches.test(fs.readFileSync(path.join(FRONTEND, file), 'utf8'))
+        refetches.test(code(fs.readFileSync(path.join(FRONTEND, file), 'utf8')))
     )
     expect(adopters.length).toBeGreaterThan(0)
     expect(adopters.filter(file => !covered(file))).toEqual([])

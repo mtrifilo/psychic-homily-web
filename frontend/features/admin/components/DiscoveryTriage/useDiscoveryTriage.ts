@@ -94,11 +94,10 @@ export function useReviewLinkSuggestion() {
       return apiRequest<LinkSuggestionReviewResult>(url, { method: 'POST' })
     },
     onSuccess: (_result, variables) => {
-      // Drop the reviewed row from every cached page (pagination varies by
-      // key, so a single invalidation needs to hit the whole branch).
-      // An accept writes the artist's social link server-side; refetch the
-      // artists prefix so the detail page renders the new embed. (Reject
-      // touches nothing on the artist, so skip the broad invalidation there.)
+      // The whole suggestions branch, so the reviewed row leaves every cached
+      // page (pagination varies by key). An accept also writes the artist's
+      // social link server-side, so it refetches the artists prefix for the
+      // detail page's new embed; a reject touches nothing on the artist.
       void refetchAfterMutation(
         queryClient,
         ['admin', 'linkSuggestions'],

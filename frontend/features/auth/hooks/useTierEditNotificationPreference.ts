@@ -2,7 +2,7 @@
 
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { apiRequest, API_ENDPOINTS } from '@/lib/api'
-import { queryKeys } from '@/lib/queryClient'
+import { refetchSignedInProfile } from '@/lib/queryClient'
 
 /**
  * Update payload for the tier-change / edit-review email preferences.
@@ -51,8 +51,7 @@ export const useSetTierEditNotificationPreference = () => {
       )
     },
     onSuccess: () => {
-      // eslint-disable-next-line no-restricted-syntax -- runs only for a signed-in viewer, whose profile has loaded, and the cache error handlers in lib/queryClient.ts coordinate this query's refetches
-      queryClient.invalidateQueries({ queryKey: queryKeys.auth.profile })
+      void refetchSignedInProfile(queryClient)
     },
   })
 }

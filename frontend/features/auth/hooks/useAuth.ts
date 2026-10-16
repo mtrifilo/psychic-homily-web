@@ -173,7 +173,7 @@ interface RefreshTokenResponse {
  * must not block on it.
  */
 export async function refreshCachesForNewSession(queryClient: QueryClient) {
-  // eslint-disable-next-line no-restricted-syntax -- the profile stays a plain refetch: the cache error handlers in lib/queryClient.ts read its fetchStatus, and the SSR seed gives it data whenever the backend answered
+  // eslint-disable-next-line no-restricted-syntax -- the profile is refetched without a cancel because the cache error handlers in lib/queryClient.ts read its fetchStatus; the SSR seed gives it data whenever the backend answered, so the refetch restarts an in-flight fetch instead of reusing it (an unseeded first fetch still in flight at sign-in can still reuse a pre-login response)
   await queryClient.refetchQueries({ queryKey: queryKeys.auth.profile })
   void refreshViewerTierQueries(queryClient)
 }
@@ -491,7 +491,7 @@ export const useUpdateProfile = () => {
     onSuccess: async () => {
       authLogger.info('Profile updated successfully')
       // Refetch profile to get updated user data
-      // eslint-disable-next-line no-restricted-syntax -- the profile editor renders only for a signed-in viewer whose profile has loaded, and the cache error handlers in lib/queryClient.ts coordinate this query's refetches
+      // eslint-disable-next-line no-restricted-syntax -- the profile editor renders only for a signed-in viewer, whose profile holds data, so this restarts an in-flight fetch rather than reusing it (see refetchSignedInProfile)
       await queryClient.refetchQueries({ queryKey: queryKeys.auth.profile })
     },
   })
