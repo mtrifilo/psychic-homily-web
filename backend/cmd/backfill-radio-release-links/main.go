@@ -7,11 +7,13 @@
 // matches exactly one catalog release whose only credited artist has the play's
 // artist name, and is cleared otherwise. This is stricter than the matcher,
 // which links the lowest-id credited release and never re-judges a play that
-// keeps its artist (see catalog.BackfillRadioReleaseLinks). Plays and releases
-// are never deleted, and no column but release_id changes. Links with a
-// link_radio_play audit row (set through the admin link-play endpoint) are
-// judged like any other and listed in full; audit writes are best effort, so
-// an admin link without a row is not listed.
+// keeps its artist (see catalog.BackfillRadioReleaseLinks). A release whose
+// release_link_source is 'admin' (set through the admin link-play endpoint)
+// is kept and never judged. Plays and releases are never deleted, and no
+// column but release_id and release_link_source changes: a relink is marked
+// 'backfill' and a removal clears the source. A change to a link that a
+// link_radio_play audit row names but that is not marked 'admin' is listed in
+// full. The summary counts the scanned links by release_link_source.
 //
 // Usage:
 //
@@ -33,8 +35,9 @@
 // a live run fails before COMMIT, --out is renamed <out>.NOT-APPLIED; when
 // COMMIT itself fails, the outcome is unknown, --out keeps its name, and a dry
 // run shows what is now on the rows. To undo a run, set release_id back to
-// from_release_id only on rows whose release_id still equals to_release_id
-// (NULL for a removal).
+// from_release_id and release_link_source back to from_source (NULL when
+// empty) only on rows whose release_id still equals to_release_id (NULL for a
+// removal).
 package main
 
 import (
@@ -46,6 +49,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -54,6 +58,7 @@ import (
 
 	"psychic-homily-backend/db"
 	"psychic-homily-backend/internal/config"
+	catalogm "psychic-homily-backend/internal/models/catalog"
 	"psychic-homily-backend/internal/services/catalog"
 	"psychic-homily-backend/internal/services/shared"
 )
@@ -223,7 +228,7 @@ func markNotApplied(path string, runErr error) error {
 	return fmt.Errorf("%w; none of the changes listed in %s were applied", runErr, renamed)
 }
 
-var changeListHeader = []string{"play_id", "outcome", "artist_id", "from_release_id", "to_release_id", "admin_set"}
+var changeListHeader = []string{"play_id", "outcome", "artist_id", "from_release_id", "to_release_id", "admin_set", "from_source"}
 
 // changeListRows renders changes as CSV rows, header first.
 func changeListRows(changes []catalog.RadioReleaseLinkChange) [][]string {
@@ -239,6 +244,7 @@ func changeListRows(changes []catalog.RadioReleaseLinkChange) [][]string {
 		rows = append(rows, []string{
 			strconv.FormatUint(uint64(c.PlayID), 10), string(c.Outcome), artistID,
 			strconv.FormatUint(uint64(c.CurrentReleaseID), 10), toRelease, strconv.FormatBool(c.AdminSet),
+			c.CurrentReleaseLinkSource,
 		})
 	}
 	return rows
@@ -332,6 +338,7 @@ func syncDir(dir string) (err error) {
 }
 
 var outcomeLabels = map[catalog.RadioReleaseLinkOutcome]string{
+	catalog.RadioReleaseLinkKeptAdmin:              "Kept: an admin chose the release (never judged)",
 	catalog.RadioReleaseLinkKeptCredited:           "Kept: release credited to the play's artist",
 	catalog.RadioReleaseLinkKeptUniqueTitle:        "Kept: no artist link, unique title, sole credit has the play's artist name",
 	catalog.RadioReleaseLinkRemovedNotCredited:     "Removed: release not credited to the play's artist, none with the title is",
@@ -341,12 +348,24 @@ var outcomeLabels = map[catalog.RadioReleaseLinkOutcome]string{
 	catalog.RadioReleaseLinkRelinkedUniqueTitle:    "Relinked: no artist link, to the unique title whose sole credit matches",
 }
 
+// sourceOrder lists every release_link_source in report order; "" is a
+// release link that carries no source.
+var sourceOrder = append(slices.Clone(catalogm.RadioPlayReleaseLinkSources), "")
+
 func formatReport(r *catalog.RadioReleaseLinkReport, opts runOptions) string {
 	out := &strings.Builder{}
 	fmt.Fprintln(out, "=== Summary ===")
 	fmt.Fprintf(out, "Plays with a release link scanned: %d\n", r.Scanned)
 	for _, outcome := range catalog.RadioReleaseLinkOutcomes {
 		fmt.Fprintf(out, "  %-82s %d\n", outcomeLabels[outcome]+":", r.Counts[outcome])
+	}
+	fmt.Fprintln(out, "By release_link_source (who chose the release):")
+	for _, source := range sourceOrder {
+		label := source
+		if label == "" {
+			label = "no source"
+		}
+		fmt.Fprintf(out, "  %-82s %d\n", label+":", r.SourceCounts[source])
 	}
 	fmt.Fprintln(out)
 
