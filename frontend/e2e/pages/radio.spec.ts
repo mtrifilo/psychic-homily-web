@@ -94,6 +94,10 @@ const KEXP_SHOW_SLUG = 'the-morning-show'
 // PSY-899 seeds exactly one episode for the-morning-show, keyed by air date.
 // Episodes are addressed by air date, so this is also the deep-chain route.
 const KEXP_EPISODE_AIR_DATE = '2025-01-15'
+// A non-flagship station in the seeded WFMU network, and the channel URL it
+// is served at.
+const WFMU_SUB_STREAM_SLUG = 'wfmu-drummer'
+const WFMU_SUB_STREAM_CHANNEL_PATH = '/radio/wfmu/channel/drummer'
 
 // Landmark names this spec scopes to. Hoisted like the seed literals above so
 // a rename is one edit here rather than a hunt through the file. Both are
@@ -317,6 +321,29 @@ test.describe('Radio browse flow', () => {
     await expect(
       page.getByRole('main').getByRole('heading', { name: 'Radio', level: 1 })
     ).toBeVisible({ timeout: 10_000 })
+  })
+
+  test('a sub-stream station URL permanently redirects to its channel URL', async ({
+    page,
+    request,
+  }) => {
+    const legacy = await request.get(`/radio/${WFMU_SUB_STREAM_SLUG}?ref=e2e`, {
+      maxRedirects: 0,
+    })
+    expect(legacy.status()).toBe(308)
+    const location = new URL(legacy.headers()['location'], 'http://origin')
+    expect(`${location.pathname}${location.search}`).toBe(
+      `${WFMU_SUB_STREAM_CHANNEL_PATH}?ref=e2e`
+    )
+
+    // The channel URL is the end of the chain: no second redirect.
+    const channel = await request.get(WFMU_SUB_STREAM_CHANNEL_PATH, {
+      maxRedirects: 0,
+    })
+    expect(channel.status()).toBe(200)
+
+    await page.goto(`/radio/${WFMU_SUB_STREAM_SLUG}`)
+    await expect(page).toHaveURL(new RegExp(`${WFMU_SUB_STREAM_CHANNEL_PATH}$`))
   })
 })
 

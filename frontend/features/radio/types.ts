@@ -5,6 +5,11 @@
  * for radio endpoints.
  */
 
+import {
+  radioSubStreamChannelPath,
+  type RadioStationNetwork,
+} from '@/lib/seo/radioStationCanonical'
+
 // ============================================================================
 // Radio Station
 // ============================================================================
@@ -81,25 +86,14 @@ export function sortDialStations<T extends { slug: string; name: string }>(
   })
 }
 
-// PSY-674: returns the canonical /radio detail URL for a station.
-//   Network-less or flagship → /radio/{slug}
-//   Sub-stream                → /radio/{network-slug}/channel/{local-slug}
-// where local-slug = station.slug with the "{network-slug}-" prefix stripped.
-// The "channel" literal segment disambiguates sub-streams from show pages,
-// which live at /radio/{station-slug}/{show-slug}. Sub-stream slugs follow
-// the network-prefix convention (wfmu-drummer, wfmu-rocknsoulradio,
-// wfmu-sheena); a slug without the prefix falls back to the full slug
-// rather than producing a malformed URL.
+// The canonical /radio detail URL for a station: /radio/{slug} for a
+// flagship or network-less station, the channel URL for a sub-stream (see
+// radioSubStreamChannelPath, which the station page and proxy.ts also use).
 export function getStationDetailUrl(
   slug: string,
-  network: { slug: string; is_flagship: boolean } | null
+  network: RadioStationNetwork | null
 ): string {
-  if (!network || network.is_flagship) {
-    return `/radio/${slug}`
-  }
-  const prefix = `${network.slug}-`
-  const localSlug = slug.startsWith(prefix) ? slug.slice(prefix.length) : slug
-  return `/radio/${network.slug}/channel/${localSlug}`
+  return radioSubStreamChannelPath(slug, network) ?? `/radio/${slug}`
 }
 
 export interface RadioStationDetail {
