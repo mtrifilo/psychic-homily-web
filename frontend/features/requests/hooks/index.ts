@@ -9,6 +9,7 @@
 import { useQuery, useMutation, useQueryClient, keepPreviousData } from '@tanstack/react-query'
 import { apiRequest, API_ENDPOINTS } from '@/lib/api'
 import { queryKeys } from '@/lib/queryClient'
+import { refetchAfterMutation } from '@/lib/refetchAfterMutation'
 import type { Request, RequestListResponse } from '../types'
 
 // ──────────────────────────────────────────────
@@ -75,7 +76,7 @@ export function useCreateRequest() {
         body: JSON.stringify(data),
       }),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.requests.all })
+      void refetchAfterMutation(queryClient, queryKeys.requests.all)
     },
   })
 }
@@ -96,11 +97,8 @@ export function useUpdateRequest() {
         method: 'PUT',
         body: JSON.stringify(data),
       }),
-    onSuccess: (_data, variables) => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.requests.all })
-      queryClient.invalidateQueries({
-        queryKey: queryKeys.requests.detail(variables.requestId),
-      })
+    onSuccess: () => {
+      void refetchAfterMutation(queryClient, queryKeys.requests.all)
     },
   })
 }
@@ -114,7 +112,7 @@ export function useDeleteRequest() {
         method: 'DELETE',
       }),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.requests.all })
+      void refetchAfterMutation(queryClient, queryKeys.requests.all)
     },
   })
 }
@@ -193,13 +191,8 @@ export function useVoteRequest() {
         )
       }
     },
-    onSettled: (_data, _error, variables) => {
-      queryClient.invalidateQueries({
-        queryKey: queryKeys.requests.detail(variables.requestId),
-      })
-      queryClient.invalidateQueries({
-        queryKey: queryKeys.requests.all,
-      })
+    onSettled: () => {
+      void refetchAfterMutation(queryClient, queryKeys.requests.all)
     },
   })
 }
@@ -251,13 +244,8 @@ export function useRemoveVoteRequest() {
         )
       }
     },
-    onSettled: (_data, _error, variables) => {
-      queryClient.invalidateQueries({
-        queryKey: queryKeys.requests.detail(variables.requestId),
-      })
-      queryClient.invalidateQueries({
-        queryKey: queryKeys.requests.all,
-      })
+    onSettled: () => {
+      void refetchAfterMutation(queryClient, queryKeys.requests.all)
     },
   })
 }
@@ -277,11 +265,8 @@ export function useFulfillRequest() {
         method: 'POST',
         body: JSON.stringify({ fulfilled_entity_id }),
       }),
-    onSuccess: (_data, variables) => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.requests.all })
-      queryClient.invalidateQueries({
-        queryKey: queryKeys.requests.detail(variables.requestId),
-      })
+    onSuccess: () => {
+      void refetchAfterMutation(queryClient, queryKeys.requests.all)
     },
   })
 }
@@ -298,11 +283,8 @@ export function useApproveFulfillment() {
       apiRequest<void>(API_ENDPOINTS.REQUESTS.APPROVE_FULFILLMENT(requestId), {
         method: 'POST',
       }),
-    onSuccess: (_data, variables) => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.requests.all })
-      queryClient.invalidateQueries({
-        queryKey: queryKeys.requests.detail(variables.requestId),
-      })
+    onSuccess: () => {
+      void refetchAfterMutation(queryClient, queryKeys.requests.all)
     },
   })
 }
@@ -319,11 +301,8 @@ export function useRejectFulfillment() {
       apiRequest<void>(API_ENDPOINTS.REQUESTS.REJECT_FULFILLMENT(requestId), {
         method: 'POST',
       }),
-    onSuccess: (_data, variables) => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.requests.all })
-      queryClient.invalidateQueries({
-        queryKey: queryKeys.requests.detail(variables.requestId),
-      })
+    onSuccess: () => {
+      void refetchAfterMutation(queryClient, queryKeys.requests.all)
     },
   })
 }
@@ -336,11 +315,8 @@ export function useCloseRequest() {
       apiRequest<Request>(API_ENDPOINTS.REQUESTS.CLOSE(requestId), {
         method: 'POST',
       }),
-    onSuccess: (_data, variables) => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.requests.all })
-      queryClient.invalidateQueries({
-        queryKey: queryKeys.requests.detail(variables.requestId),
-      })
+    onSuccess: () => {
+      void refetchAfterMutation(queryClient, queryKeys.requests.all)
     },
   })
 }
