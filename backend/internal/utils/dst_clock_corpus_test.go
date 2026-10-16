@@ -1,15 +1,15 @@
 package utils
 
 import (
-	"encoding/json"
 	"fmt"
-	"os"
 	"testing"
 	"time"
 	_ "time/tzdata" // embed the IANA database so the corpus zones load host-independently
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"psychic-homily-backend/internal/testcorpus"
 )
 
 // dstClockCase is one wall clock the corpus makes a claim about.
@@ -35,11 +35,7 @@ type dstClockCorpus struct {
 
 func loadDSTClockCorpus(t *testing.T) dstClockCorpus {
 	t.Helper()
-	raw, err := os.ReadFile("testdata/dst_clock_corpus.json")
-	require.NoError(t, err, "the corpus is shared with the frontend test; do not move it without updating both")
-
-	var corpus dstClockCorpus
-	require.NoError(t, json.Unmarshal(raw, &corpus))
+	corpus := testcorpus.Load[dstClockCorpus](t, "testdata/dst_clock_corpus.json")
 	require.NotEmpty(t, corpus.Cases)
 	return corpus
 }
