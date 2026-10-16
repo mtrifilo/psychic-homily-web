@@ -579,3 +579,36 @@ func indexOf(xs []string, x string) int {
 	}
 	return -1
 }
+
+// A placeholder album (radio_play_exclusions, album_title) is not album
+// evidence, yet its plays still count toward the artist.
+func (s *RadioCandidatesIntegrationSuite) TestEvidenceSkipsPlaceholderAlbums() {
+	s.add(candidatePlay{station: "t-kexp", artist: "T Album Evidence", title: "Song One", album: "Single"}, 3)
+	s.add(candidatePlay{station: "t-wfmu", artist: "T Album Evidence", title: "Song Two", album: "Real Album"}, 2)
+	s.add(candidatePlay{station: "t-wfmu", artist: "T Album Evidence", title: "Song Three", album: "Live on KEXP"}, 1)
+
+	got := s.all()
+	s.Require().Contains(got, "t album evidence")
+	c := got["t album evidence"]
+	s.Equal(6, c.PlayCount, "plays with a placeholder album still count for the artist")
+	s.Equal(1, c.AlbumNameCount)
+	s.Equal([]contracts.RadioCandidateName{{Name: "Real Album", PlayCount: 2}}, c.AlbumNames)
+}
+
+// Every candidate listing transaction runs with jit off.
+func (s *RadioCandidatesIntegrationSuite) TestListingTransactionsRunWithoutJIT() {
+	var inSnapshot string
+	s.Require().NoError(s.reader.inSnapshot(context.Background(), func(tx *gorm.DB) error {
+		return tx.Raw("SHOW jit").Row().Scan(&inSnapshot)
+	}))
+	s.Equal("off", inSnapshot)
+
+	var bounded string
+	s.Require().NoError(s.db.Transaction(func(tx *gorm.DB) error {
+		if err := boundRadioCandidateListing(tx); err != nil {
+			return err
+		}
+		return tx.Raw("SHOW jit").Row().Scan(&bounded)
+	}))
+	s.Equal("off", bounded, "the label listing's transaction uses the same bounds")
+}
