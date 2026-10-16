@@ -306,6 +306,55 @@ describe('useAuth hooks', () => {
       )
     })
 
+    it('reports an accepted registration before the profile refetch starts', async () => {
+      mockApiRequest.mockResolvedValueOnce({
+        success: true,
+        message: 'Registration successful',
+        user: { id: '1', email: 'new@example.com' },
+      })
+      const queryClient = createTestQueryClient()
+      const refetchQueries = vi.spyOn(queryClient, 'refetchQueries')
+      let refetchesWhenRegistered: number | undefined
+      const onRegistered = vi.fn(() => {
+        refetchesWhenRegistered = refetchQueries.mock.calls.length
+      })
+
+      const { result } = renderHook(() => useRegister(), {
+        wrapper: createWrapperWithClient(queryClient),
+      })
+
+      await act(async () => {
+        result.current.mutate({ ...REGISTER_VARIABLES, onRegistered })
+      })
+
+      await waitFor(() => expect(result.current.isSuccess).toBe(true))
+      expect(onRegistered).toHaveBeenCalledTimes(1)
+      expect(refetchesWhenRegistered).toBe(0)
+      expect(refetchQueries).toHaveBeenCalledWith({ queryKey: ['auth', 'profile'] })
+      const [, options] = mockApiRequest.mock.calls[0] as [string, RequestInit]
+      expect(JSON.parse(options.body as string)).toEqual(REGISTER_VARIABLES)
+    })
+
+    it('does not report a refused registration as accepted', async () => {
+      mockApiRequest.mockResolvedValueOnce({
+        success: false,
+        message: 'Email already exists',
+        error_code: 'USER_EXISTS',
+      })
+      const onRegistered = vi.fn()
+
+      const { result } = renderHook(() => useRegister(), {
+        wrapper: createWrapper(),
+      })
+
+      await act(async () => {
+        result.current.mutate({ ...REGISTER_VARIABLES, onRegistered })
+      })
+
+      await waitFor(() => expect(result.current.isError).toBe(true))
+      expect(onRegistered).not.toHaveBeenCalled()
+    })
+
     it('throws AuthError when registration fails', async () => {
       mockApiRequest.mockResolvedValueOnce({
         success: false,
