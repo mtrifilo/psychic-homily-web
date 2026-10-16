@@ -9,6 +9,7 @@
 import { useQuery, useMutation, useQueryClient, keepPreviousData, type QueryClient } from '@tanstack/react-query'
 import { apiRequest, API_ENDPOINTS } from '@/lib/api'
 import { queryKeys } from '@/lib/queryClient'
+import { refetchAfterMutation } from '@/lib/refetchAfterMutation'
 import { buildCitiesParam } from '@/components/filters/cityParams'
 import type { CityState } from '@/components/filters'
 import type {
@@ -203,24 +204,21 @@ export function useTagIntersection(
 // ──────────────────────────────────────────────
 
 /**
- * The reads an applied or removed tag changes. Venue list rows and the venue
- * city counts are tag-derived (`hosts_all_ages`, the `?tags=` filter and its
- * scoped city facet), so a venue tag change also invalidates those. The
- * venue's own detail and shows queries carry no tags and are left alone.
+ * The reads an applied or removed tag changes: the tags family, which holds the
+ * entity's own tags. Venue list rows and the venue city counts are tag-derived
+ * (`hosts_all_ages`, the `?tags=` filter and its scoped city facet), so a venue
+ * tag change also invalidates those. The venue's own detail and shows queries
+ * carry no tags and are left alone.
  */
 function invalidateAfterEntityTagChange(
   queryClient: QueryClient,
   entityType: string,
-  entityId: number,
 ) {
-  queryClient.invalidateQueries({
-    queryKey: queryKeys.tags.entityTags(entityType, entityId),
-  })
-  queryClient.invalidateQueries({ queryKey: queryKeys.tags.all })
-  if (entityType === 'venue') {
-    queryClient.invalidateQueries({ queryKey: [...queryKeys.venues.all, 'list'] })
-    queryClient.invalidateQueries({ queryKey: queryKeys.venues.cities })
-  }
+  const venueKeys =
+    entityType === 'venue'
+      ? [[...queryKeys.venues.all, 'list'], queryKeys.venues.cities]
+      : []
+  void refetchAfterMutation(queryClient, queryKeys.tags.all, ...venueKeys)
 }
 
 /** Add a tag to an entity (creates tag inline if not found for contributor+ users) */
@@ -245,7 +243,7 @@ export function useAddTagToEntity() {
         body: JSON.stringify({ tag_id, tag_name, category }),
       }),
     onSuccess: (_data, variables) =>
-      invalidateAfterEntityTagChange(queryClient, variables.entityType, variables.entityId),
+      invalidateAfterEntityTagChange(queryClient, variables.entityType),
   })
 }
 
@@ -266,7 +264,7 @@ export function useRemoveTagFromEntity() {
         method: 'DELETE',
       }),
     onSuccess: (_data, variables) =>
-      invalidateAfterEntityTagChange(queryClient, variables.entityType, variables.entityId),
+      invalidateAfterEntityTagChange(queryClient, variables.entityType),
   })
 }
 
@@ -343,9 +341,10 @@ export function useVoteOnTag() {
       }
     },
     onSettled: (_data, _error, variables) => {
-      queryClient.invalidateQueries({
-        queryKey: queryKeys.tags.entityTags(variables.entityType, variables.entityId),
-      })
+      void refetchAfterMutation(
+        queryClient,
+        queryKeys.tags.entityTags(variables.entityType, variables.entityId)
+      )
     },
   })
 }
@@ -411,9 +410,10 @@ export function useRemoveTagVote() {
       }
     },
     onSettled: (_data, _error, variables) => {
-      queryClient.invalidateQueries({
-        queryKey: queryKeys.tags.entityTags(variables.entityType, variables.entityId),
-      })
+      void refetchAfterMutation(
+        queryClient,
+        queryKeys.tags.entityTags(variables.entityType, variables.entityId)
+      )
     },
   })
 }

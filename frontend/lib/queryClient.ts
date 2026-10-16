@@ -34,6 +34,7 @@ import { labelQueryKeys } from '@/features/labels/api'
 import { festivalQueryKeys } from '@/features/festivals/api'
 import { radioQueryKeys } from '@/features/radio/api'
 import { chartQueryKeys } from '@/features/charts/api'
+import { refetchAfterMutation } from '@/lib/refetchAfterMutation'
 import { commentQueryKeys, fieldNoteQueryKeys } from '@/features/comments/api'
 
 // Default query options for all queries
@@ -955,7 +956,13 @@ export function resetViewerTierQueries(queryClient: QueryClient) {
   )
 }
 
-// Utility function to invalidate related queries
+/**
+ * Invalidations grouped by query family. Apart from `personalCharts`, each
+ * entry invalidates without cancelling first, so a write that lands during a
+ * query's first fetch can be hidden by that fetch's pre-write response. A
+ * mutation that can run then refetches through `refetchAfterMutation`
+ * (lib/refetchAfterMutation.ts) instead.
+ */
 export const createInvalidateQueries = (queryClient: QueryClient) => ({
   // Invalidate all auth-related queries
   auth: () => queryClient.invalidateQueries({ queryKey: ['auth'] }),
@@ -1022,24 +1029,6 @@ export const createInvalidateQueries = (queryClient: QueryClient) => ({
   adminEntityRequests: () =>
     queryClient.invalidateQueries({ queryKey: ['admin', 'entityRequests'] }),
 
-  // Invalidate contributor profile queries
-  contributor: () =>
-    queryClient.invalidateQueries({ queryKey: ['contributor'] }),
-
-  // Invalidate own contributor profile queries
-  ownContributor: () =>
-    Promise.all([
-      queryClient.invalidateQueries({
-        queryKey: ['contributor', 'ownProfile'],
-      }),
-      queryClient.invalidateQueries({
-        queryKey: ['contributor', 'ownSections'],
-      }),
-      queryClient.invalidateQueries({
-        queryKey: ['contributor', 'ownContributions'],
-      }),
-    ]),
-
   // Invalidate collection queries
   collections: () =>
     queryClient.invalidateQueries({ queryKey: ['collections'] }),
@@ -1061,15 +1050,10 @@ export const createInvalidateQueries = (queryClient: QueryClient) => ({
 
   // Invalidate the authenticated user's /charts summary after a contributing
   // save/follow mutation. Public chart modules use sibling keys and stay cached.
-  personalCharts: async () => {
-    // A plain invalidation cannot restart an active query whose initial fetch
-    // is still pending. Cancel first so a mutation cannot be overwritten by a
-    // pre-mutation /charts/me snapshot that resolves afterward.
-    await queryClient.cancelQueries({ queryKey: chartQueryKeys.personalRoot })
-    return queryClient.invalidateQueries({
-      queryKey: chartQueryKeys.personalRoot,
-    })
-  },
+  // It cancels first so a pre-mutation /charts/me snapshot still in flight
+  // cannot overwrite the mutation's effect.
+  personalCharts: () =>
+    refetchAfterMutation(queryClient, chartQueryKeys.personalRoot),
 
   // Invalidate scene queries
   scenes: () => queryClient.invalidateQueries({ queryKey: ['scenes'] }),
