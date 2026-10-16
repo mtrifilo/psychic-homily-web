@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"net"
 	"net/http"
 	"strings"
 	"sync/atomic"
@@ -107,10 +106,10 @@ func resendRejectingKey() *fakeResend {
 }
 
 // resendDialRefused returns a fakeResend whose every call fails the way a
-// refused TCP dial fails, before any HTTP response exists.
+// refused TCP dial fails.
 func resendDialRefused() *fakeResend {
 	return &fakeResend{respond: func(*http.Request) (*http.Response, error) {
-		return nil, &net.OpError{Op: "dial", Net: "tcp", Err: syscall.ECONNREFUSED}
+		return nil, dialRefused()
 	}}
 }
 
@@ -125,12 +124,20 @@ func resendForbidden(t *testing.T) *fakeResend {
 
 // newAuthHandler builds the handler around the real services. With
 // emailConfigured, the email service is configured but any send fails the
-// test; a test whose handler sends uses newAuthHandlerWithResend.
+// test; a test whose handler sends uses newAuthHandlerWithResend. Any breach
+// check fails the test; a test whose handler validates a password uses
+// newAuthHandlerWithPwnedPasswords.
 func (s *AuthHandlerIntegrationSuite) newAuthHandler(emailConfigured bool) *AuthHandler {
 	if !emailConfigured {
-		return s.buildAuthHandler(s.cfg, nil)
+		return s.buildAuthHandler(s.cfg, nil, pwnedPasswordsForbidden(s.T()))
 	}
 	return s.newAuthHandlerWithResend(resendForbidden(s.T()))
+}
+
+// newAuthHandlerWithPwnedPasswords builds the handler with email unconfigured
+// and every breach-check request answered by pwned.
+func (s *AuthHandlerIntegrationSuite) newAuthHandlerWithPwnedPasswords(pwned *fakePwnedPasswords) *AuthHandler {
+	return s.buildAuthHandler(s.cfg, nil, pwned)
 }
 
 // newAuthHandlerWithResend builds the handler with email configured and every
@@ -145,15 +152,15 @@ func (s *AuthHandlerIntegrationSuite) newAuthHandlerWithResend(resend *fakeResen
 			FrontendURL:  "http://localhost:3000",
 		},
 	}
-	return s.buildAuthHandler(emailCfg, resend)
+	return s.buildAuthHandler(emailCfg, resend, pwnedPasswordsForbidden(s.T()))
 }
 
-func (s *AuthHandlerIntegrationSuite) buildAuthHandler(emailCfg *config.Config, resendTransport http.RoundTripper) *AuthHandler {
+func (s *AuthHandlerIntegrationSuite) buildAuthHandler(emailCfg *config.Config, resendTransport, pwnedPasswordsTransport http.RoundTripper) *AuthHandler {
 	authSvc := auth.NewAuthService(s.deps.DB, emailCfg, s.deps.UserService)
 	jwtSvc := auth.NewJWTService(s.deps.DB, emailCfg, s.deps.UserService)
 	emailSvc := notification.NewEmailServiceWithTransport(emailCfg, resendTransport)
 	discordSvc := notification.NewDiscordService(emailCfg)
-	pv := auth.NewPasswordValidator()
+	pv := auth.NewPasswordValidatorWithTransport(pwnedPasswordsTransport)
 
 	return NewAuthHandler(
 		authSvc,
@@ -169,9 +176,9 @@ func (s *AuthHandlerIntegrationSuite) buildAuthHandler(emailCfg *config.Config, 
 // newAuthHandlerCapturingEmail builds the handler with the REAL jwt + user
 // services (so tokens are genuinely signed and validated) but a capturing email
 // service, which is the only way to observe the verification token that
-// registration puts in the user's inbox. Returns the handler plus a pointer to
-// the captured token.
-func (s *AuthHandlerIntegrationSuite) newAuthHandlerCapturingEmail() (*AuthHandler, *string) {
+// registration puts in the user's inbox. Every breach-check request is answered
+// by pwned. Returns the handler plus a pointer to the captured token.
+func (s *AuthHandlerIntegrationSuite) newAuthHandlerCapturingEmail(pwned *fakePwnedPasswords) (*AuthHandler, *string) {
 	cfg := &config.Config{
 		JWT:     s.cfg.JWT,
 		Session: s.cfg.Session,
@@ -197,7 +204,7 @@ func (s *AuthHandlerIntegrationSuite) newAuthHandlerCapturingEmail() (*AuthHandl
 		s.deps.UserService,
 		emailSvc,
 		notification.NewDiscordService(cfg),
-		auth.NewPasswordValidator(),
+		auth.NewPasswordValidatorWithTransport(pwned),
 		cfg,
 	)
 	return h, captured
@@ -320,8 +327,11 @@ func (s *AuthHandlerIntegrationSuite) TestLogin_AccountLocked() {
 
 // --- RegisterHandler ---
 
+// TestRegister_Success also pins the breach check's "suffix absent" answer:
+// the password's range is checked once and its suffix is not listed.
 func (s *AuthHandlerIntegrationSuite) TestRegister_Success() {
-	h := s.newAuthHandler(false)
+	pwned := pwnedPasswordsListing(s.T())
+	h := s.newAuthHandlerWithPwnedPasswords(pwned)
 
 	input := &RegisterRequest{}
 	input.Body.Email = "new-user@test.com"
@@ -341,6 +351,7 @@ func (s *AuthHandlerIntegrationSuite) TestRegister_Success() {
 	s.NotNil(resp.Body.User)
 	s.Equal("new-user@test.com", *resp.Body.User.Email)
 	s.NotEmpty(resp.SetCookie.Name)
+	s.Equal(int32(1), pwned.calls.Load(), "registration must check the password's range once")
 
 	// PSY-1023: the age confirmation is persisted on the new user.
 	created := s.reloadUser(resp.Body.User.ID)
@@ -369,7 +380,7 @@ func (s *AuthHandlerIntegrationSuite) TestRegister_MissingAgeConfirmation() {
 }
 
 func (s *AuthHandlerIntegrationSuite) TestRegister_DuplicateEmail() {
-	h := s.newAuthHandler(false)
+	h := s.newAuthHandlerWithPwnedPasswords(pwnedPasswordsListing(s.T()))
 	s.createUserWithPassword("dup@test.com", "strong-password-123!")
 
 	input := &RegisterRequest{}
@@ -388,7 +399,7 @@ func (s *AuthHandlerIntegrationSuite) TestRegister_DuplicateEmail() {
 }
 
 func (s *AuthHandlerIntegrationSuite) TestRegister_WeakPassword() {
-	h := s.newAuthHandler(false)
+	h := s.newAuthHandlerWithPwnedPasswords(pwnedPasswordsListing(s.T()))
 
 	input := &RegisterRequest{}
 	input.Body.Email = "weak-pass@test.com"
@@ -403,6 +414,39 @@ func (s *AuthHandlerIntegrationSuite) TestRegister_WeakPassword() {
 	s.Require().NoError(err)
 	s.False(resp.Body.Success)
 	s.Equal(autherrors.CodeValidationFailed, resp.Body.ErrorCode)
+}
+
+// breachedPasswordMessage is the validator's refusal for a password whose
+// SHA-1 suffix the breach check finds in its range.
+const breachedPasswordMessage = "This password has been exposed in a data breach and should not be used"
+
+func (s *AuthHandlerIntegrationSuite) TestRegister_BreachedPassword() {
+	input := validRegisterInput("breached@test.com")
+	pwned := pwnedPasswordsListing(s.T(), input.Body.Password)
+	h := s.newAuthHandlerWithPwnedPasswords(pwned)
+
+	resp, err := h.RegisterHandler(context.Background(), input)
+	s.Require().NoError(err)
+	s.False(resp.Body.Success)
+	s.Equal(autherrors.CodeValidationFailed, resp.Body.ErrorCode)
+	s.Equal(breachedPasswordMessage, resp.Body.Message)
+	s.Equal(int32(1), pwned.calls.Load())
+
+	user, err := s.deps.UserService.GetUserByEmail("breached@test.com")
+	s.Require().NoError(err)
+	s.Nil(user, "a refused registration must not create the account")
+}
+
+// TestRegister_BreachCheckUnreachable pins the breach check as fail-open: when
+// the range request fails before any response, registration goes ahead.
+func (s *AuthHandlerIntegrationSuite) TestRegister_BreachCheckUnreachable() {
+	pwned := pwnedPasswordsUnreachable(s.T())
+	h := s.newAuthHandlerWithPwnedPasswords(pwned)
+
+	resp, err := h.RegisterHandler(context.Background(), validRegisterInput("hibp-down@test.com"))
+	s.Require().NoError(err)
+	s.True(resp.Body.Success, resp.Body.Message)
+	s.Equal(int32(1), pwned.calls.Load())
 }
 
 // --- RefreshTokenHandler ---
@@ -539,7 +583,7 @@ func (s *AuthHandlerIntegrationSuite) TestSendVerification_ResendAccepts() {
 // stubbed token, so a mismatch between what CreateVerificationToken mints and
 // what ValidateVerificationToken accepts would fail here.
 func (s *AuthHandlerIntegrationSuite) TestRegisterThenVerify_RoundTrip() {
-	h, capturedToken := s.newAuthHandlerCapturingEmail()
+	h, capturedToken := s.newAuthHandlerCapturingEmail(pwnedPasswordsListing(s.T()))
 
 	input := &RegisterRequest{}
 	input.Body.Email = "roundtrip-v@test.com"
@@ -805,8 +849,11 @@ func (s *AuthHandlerIntegrationSuite) TestVerifyMagicLink_InactiveUser() {
 
 // --- ChangePasswordHandler ---
 
+// TestChangePassword_Success also pins the breach check's "suffix absent"
+// answer: the new password's range is checked once and its suffix is not listed.
 func (s *AuthHandlerIntegrationSuite) TestChangePassword_Success() {
-	h := s.newAuthHandler(false)
+	pwned := pwnedPasswordsListing(s.T())
+	h := s.newAuthHandlerWithPwnedPasswords(pwned)
 	user := s.createUserWithPassword("cp-ok@test.com", "old-password-123!")
 	// Reload user to get password hash in context
 	user = s.reloadUser(user.ID)
@@ -819,6 +866,7 @@ func (s *AuthHandlerIntegrationSuite) TestChangePassword_Success() {
 	resp, err := h.ChangePasswordHandler(ctx, input)
 	s.Require().NoError(err)
 	s.True(resp.Body.Success)
+	s.Equal(int32(1), pwned.calls.Load(), "a password change must check the new password's range once")
 
 	// Verify new password works
 	loginInput := &LoginRequest{}
@@ -830,7 +878,7 @@ func (s *AuthHandlerIntegrationSuite) TestChangePassword_Success() {
 }
 
 func (s *AuthHandlerIntegrationSuite) TestChangePassword_WrongCurrent() {
-	h := s.newAuthHandler(false)
+	h := s.newAuthHandlerWithPwnedPasswords(pwnedPasswordsListing(s.T()))
 	user := s.createUserWithPassword("cp-wrong@test.com", "real-password-123!")
 	user = s.reloadUser(user.ID)
 	ctx := s.ctxWithUser(user)
@@ -846,7 +894,7 @@ func (s *AuthHandlerIntegrationSuite) TestChangePassword_WrongCurrent() {
 }
 
 func (s *AuthHandlerIntegrationSuite) TestChangePassword_NoPasswordSet() {
-	h := s.newAuthHandler(false)
+	h := s.newAuthHandlerWithPwnedPasswords(pwnedPasswordsListing(s.T()))
 	// Create an OAuth-only user (no password hash)
 	user := testhelpers.CreateTestUser(s.deps.DB) // EmailVerified=true, no password
 	ctx := s.ctxWithUser(user)
@@ -862,7 +910,7 @@ func (s *AuthHandlerIntegrationSuite) TestChangePassword_NoPasswordSet() {
 }
 
 func (s *AuthHandlerIntegrationSuite) TestChangePassword_WeakNew() {
-	h := s.newAuthHandler(false)
+	h := s.newAuthHandlerWithPwnedPasswords(pwnedPasswordsListing(s.T()))
 	user := s.createUserWithPassword("cp-weak@test.com", "old-password-123!")
 	user = s.reloadUser(user.ID)
 	ctx := s.ctxWithUser(user)
@@ -875,6 +923,58 @@ func (s *AuthHandlerIntegrationSuite) TestChangePassword_WeakNew() {
 	s.Require().NoError(err)
 	s.False(resp.Body.Success)
 	s.Equal(autherrors.CodeValidationFailed, resp.Body.ErrorCode)
+}
+
+// changePasswordAs creates a user with oldPassword and asks h to change it to
+// newPassword on that user's behalf.
+func (s *AuthHandlerIntegrationSuite) changePasswordAs(h *AuthHandler, email, oldPassword, newPassword string) *ChangePasswordResponse {
+	user := s.reloadUser(s.createUserWithPassword(email, oldPassword).ID)
+
+	input := &ChangePasswordRequest{}
+	input.Body.CurrentPassword = oldPassword
+	input.Body.NewPassword = newPassword
+
+	resp, err := h.ChangePasswordHandler(s.ctxWithUser(user), input)
+	s.Require().NoError(err)
+	return resp
+}
+
+// loginSucceeds reports whether h accepts email and password.
+func (s *AuthHandlerIntegrationSuite) loginSucceeds(h *AuthHandler, email, password string) bool {
+	input := &LoginRequest{}
+	input.Body.Email = email
+	input.Body.Password = password
+	resp, err := h.LoginHandler(context.Background(), input)
+	s.Require().NoError(err)
+	return resp.Body.Success
+}
+
+func (s *AuthHandlerIntegrationSuite) TestChangePassword_BreachedNew() {
+	const newPassword = "breached-but-long-password-1!"
+	pwned := pwnedPasswordsListing(s.T(), newPassword)
+	h := s.newAuthHandlerWithPwnedPasswords(pwned)
+
+	resp := s.changePasswordAs(h, "cp-breached@test.com", "old-password-123!", newPassword)
+	s.False(resp.Body.Success)
+	s.Equal(autherrors.CodeValidationFailed, resp.Body.ErrorCode)
+	s.Equal(breachedPasswordMessage, resp.Body.Message)
+	s.Equal(int32(1), pwned.calls.Load())
+
+	s.True(s.loginSucceeds(h, "cp-breached@test.com", "old-password-123!"), "a refused change must keep the old password")
+	s.False(s.loginSucceeds(h, "cp-breached@test.com", newPassword))
+}
+
+// TestChangePassword_BreachCheckUnreachable pins the breach check as fail-open:
+// when the range request fails before any response, the change goes ahead.
+func (s *AuthHandlerIntegrationSuite) TestChangePassword_BreachCheckUnreachable() {
+	pwned := pwnedPasswordsUnreachable(s.T())
+	h := s.newAuthHandlerWithPwnedPasswords(pwned)
+
+	resp := s.changePasswordAs(h, "cp-hibp-down@test.com", "old-password-123!", "new-password-456!!")
+	s.True(resp.Body.Success, resp.Body.Message)
+	s.Equal(int32(1), pwned.calls.Load())
+
+	s.True(s.loginSucceeds(h, "cp-hibp-down@test.com", "new-password-456!!"))
 }
 
 // --- GetDeletionSummaryHandler ---
