@@ -258,31 +258,7 @@ func main() {
 	// Create router
 	router := chi.NewMux()
 
-	// Add request ID middleware (must be first to ensure all subsequent middleware has access)
-	router.Use(middleware.RequestIDMiddleware)
-
-	// Add Sentry middleware for error tracking and panic recovery
-	// Must come early to capture errors from all subsequent handlers
-	sentryHandler := sentryhttp.New(sentryhttp.Options{
-		Repanic:         false, // Recover from panics gracefully (no other recoverer in chain)
-		WaitForDelivery: false, // Don't block responses waiting for Sentry
-		Timeout:         2 * time.Second,
-	})
-	router.Use(sentryHandler.Handle)
-
-	// Add request logging middleware
-	router.Use(func(next http.Handler) http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			requestID := logger.GetRequestID(r.Context())
-			logger.Default().Info("request",
-				"method", r.Method,
-				"path", r.URL.Path,
-				"origin", r.Header.Get("Origin"),
-				"request_id", requestID,
-			)
-			next.ServeHTTP(w, r)
-		})
-	})
+	useRequestCorrelation(router)
 
 	// Setup CORS middleware
 	log.Printf("CORS Configuration: Origins=%v, Methods=%v, Headers=%v, ExposedHeaders=%v, Credentials=%v",
@@ -805,6 +781,40 @@ func main() {
 	}
 
 	log.Println("Server gracefully stopped.")
+}
+
+// useRequestCorrelation registers, outermost first, the middleware that gives
+// each request its id, its Sentry hub and its access log line. It runs ahead of
+// every other middleware on router, so everything after it, the Huma API
+// included, sees the request id it put on the context.
+func useRequestCorrelation(router chi.Router) {
+	router.Use(middleware.RequestIDMiddleware)
+
+	// Sentry error tracking and panic recovery, early enough to capture errors
+	// from every handler after it.
+	sentryHandler := sentryhttp.New(sentryhttp.Options{
+		Repanic:         false, // Recover from panics gracefully (no other recoverer in chain)
+		WaitForDelivery: false, // Don't block responses waiting for Sentry
+		Timeout:         2 * time.Second,
+	})
+	router.Use(sentryHandler.Handle)
+
+	router.Use(logRequest)
+}
+
+// logRequest writes one access log line per request, carrying the request id
+// RequestIDMiddleware put on the context.
+func logRequest(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requestID := logger.GetRequestID(r.Context())
+		logger.Default().Info("request",
+			"method", r.Method,
+			"path", r.URL.Path,
+			"origin", r.Header.Get("Origin"),
+			"request_id", requestID,
+		)
+		next.ServeHTTP(w, r)
+	})
 }
 
 // newCORSMiddleware builds the chi CORS middleware from the configured
