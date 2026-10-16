@@ -562,6 +562,25 @@ func (s *CommentNotificationServiceIntegrationSuite) TestNotifyMentioned_HappyPa
 	s.Assert().Contains(calls[0].UnsubscribeURL, "/unsubscribe/mention")
 }
 
+func (s *CommentNotificationServiceIntegrationSuite) TestNotifyMentioned_SkipsInactiveAndDeletedUsers() {
+	author := s.createUser("author")
+	active := s.createUser("active")
+	inactive := s.createUser("inactive")
+	deleted := s.createUser("deleted")
+	artistID := s.createArtist("Mention Filter Artist")
+
+	s.Require().NoError(s.db.Model(&authm.User{}).Where("id = ?", inactive.ID).Update("is_active", false).Error)
+	s.Require().NoError(s.db.Model(&authm.User{}).Where("id = ?", deleted.ID).
+		Updates(map[string]any{"is_active": false, "deleted_at": time.Now().UTC()}).Error)
+
+	c := s.insertComment(author.ID, artistID, "hello @active @inactive @deleted")
+	s.Require().NoError(s.svc.NotifyMentioned(c.ID))
+
+	calls := s.mock.mentionCallsSorted()
+	s.Require().Len(calls, 1)
+	s.Equal(*active.Email, calls[0].ToEmail)
+}
+
 // TestNotifyMentioned_GatedShowReachesOnlyThoseWhoCanSeeIt is the ONLY test that
 // executes the visibility predicate on the mention query (PSY-1983).
 //
