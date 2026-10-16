@@ -212,7 +212,7 @@ func main() {
 			cfg.Database.MaxOpenConns, servicesshared.AuditWriteWorkers)
 	}
 
-	// PSY-1384: refuse to boot if critical columns are missing — catches
+	// PSY-1384: refuse to boot if critical columns are missing or mistyped: catches
 	// schema_migrations/DDL drift before engagement writes 422 at runtime.
 	if err := db.AssertRequiredSchema(database); err != nil {
 		log.Fatalf("PSY-1384 schema assertion: %v", err)
