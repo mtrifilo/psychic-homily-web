@@ -12,6 +12,7 @@ import (
 	"gorm.io/gorm"
 
 	"psychic-homily-backend/internal/testutil"
+	"psychic-homily-backend/internal/testutil/netguard"
 )
 
 // The scheduler's correctness ultimately rests on one SQL statement — the claim
@@ -49,7 +50,7 @@ func setupRunStore(t *testing.T) (*gorm.DB, *GormRunStore) {
 // TestMain owns the shared container's lifetime; a t.Cleanup would tear it down
 // after whichever test happened to create it, leaving the rest with no database.
 func TestMain(m *testing.M) {
-	code := testutil.RefuseNonLoopbackNetwork(m)
+	code := netguard.RefuseNonLoopbackNetwork(m)
 	if runStoreClean != nil {
 		runStoreClean()
 	}

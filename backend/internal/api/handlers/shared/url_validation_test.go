@@ -13,7 +13,7 @@ import (
 	"psychic-homily-backend/internal/api/handlers/shared/testhelpers"
 	"psychic-homily-backend/internal/services/contracts"
 	"psychic-homily-backend/internal/testcorpus"
-	"psychic-homily-backend/internal/testutil"
+	"psychic-homily-backend/internal/testutil/netguard"
 	"psychic-homily-backend/internal/utils/urlguard"
 )
 
@@ -36,7 +36,7 @@ func TestMain(m *testing.M) {
 	restore := urlguard.Default.UseResolver(urlguard.MapResolver{
 		"example.com": {"93.184.216.34"},
 	})
-	code := testutil.RefuseNonLoopbackNetwork(m)
+	code := netguard.RefuseNonLoopbackNetwork(m)
 	restore()
 	os.Exit(code)
 }

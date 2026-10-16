@@ -1,4 +1,4 @@
-package testutil
+package netguard
 
 import (
 	"errors"
@@ -24,7 +24,7 @@ var errNonLoopbackRequest = errors.New("network guard: non-loopback request refu
 // other request without dialing, and returns the exit code for os.Exit. It is
 // called from the package's TestMain:
 //
-//	func TestMain(m *testing.M) { os.Exit(testutil.RefuseNonLoopbackNetwork(m)) }
+//	func TestMain(m *testing.M) { os.Exit(netguard.RefuseNonLoopbackNetwork(m)) }
 //
 // Loopback means a host of localhost or an IP in 127.0.0.0/8 or ::1, which
 // covers every httptest server; a loopback request can still reach a local

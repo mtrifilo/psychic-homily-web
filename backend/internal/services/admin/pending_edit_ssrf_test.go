@@ -13,7 +13,7 @@ import (
 	handlershared "psychic-homily-backend/internal/api/handlers/shared"
 	adminm "psychic-homily-backend/internal/models/admin"
 	"psychic-homily-backend/internal/services/contracts"
-	"psychic-homily-backend/internal/testutil"
+	"psychic-homily-backend/internal/testutil/netguard"
 	"psychic-homily-backend/internal/utils/urlguard"
 )
 
@@ -29,7 +29,7 @@ func TestMain(m *testing.M) {
 		"example.com":         {"93.184.216.34"},
 		"rebind.example.test": {"169.254.169.254"},
 	})
-	code := testutil.RefuseNonLoopbackNetwork(m)
+	code := netguard.RefuseNonLoopbackNetwork(m)
 	restore()
 	os.Exit(code)
 }

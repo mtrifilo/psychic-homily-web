@@ -1,4 +1,4 @@
-package testutil
+package netguard
 
 import (
 	"bytes"
@@ -68,7 +68,7 @@ func TestNetworkGuard_RefusesNonLoopbackRequestNamingIt(t *testing.T) {
 	if len(refused) != 1 {
 		t.Fatalf("refusals = %v, want exactly one", refused)
 	}
-	want := "GET https://api.example.test/v1/thing (query omitted) from testutil.TestNetworkGuard_RefusesNonLoopbackRequestNamingIt"
+	want := "GET https://api.example.test/v1/thing (query omitted) from netguard.TestNetworkGuard_RefusesNonLoopbackRequestNamingIt"
 	if got := refused[0].String(); got != want {
 		t.Fatalf("refusal = %q, want %q", got, want)
 	}
@@ -98,13 +98,13 @@ func TestNetworkGuard_NamesTheTestFromASubtestAndSuiteStyleMethod(t *testing.T) 
 	if len(refused) != 2 {
 		t.Fatalf("refusals = %v, want two", refused)
 	}
-	if got := refused[0].caller; got != "testutil.TestNetworkGuard_NamesTheTestFromASubtestAndSuiteStyleMethod.func1" {
+	if got := refused[0].caller; got != "netguard.TestNetworkGuard_NamesTheTestFromASubtestAndSuiteStyleMethod.func1" {
 		t.Errorf("subtest caller = %q", got)
 	}
 	if !body.closed.Load() {
 		t.Error("the refused request's body was not closed")
 	}
-	if got := refused[1].caller; got != "testutil.(*fakeSuite).TestSomething" {
+	if got := refused[1].caller; got != "netguard.(*fakeSuite).TestSomething" {
 		t.Errorf("suite method caller = %q", got)
 	}
 	if got := refused[1].url; got != "https://[2001:db8::1]/y (userinfo, fragment omitted)" {
@@ -132,7 +132,7 @@ func TestNetworkGuard_NamesTheGoroutineWhenNoTestIsOnTheStack(t *testing.T) {
 	if len(refused) != 1 {
 		t.Fatalf("refusals = %v, want one", refused)
 	}
-	want := "a goroutine with no Test function on its stack, started in testutil.backgroundFetch"
+	want := "a goroutine with no Test function on its stack, started in netguard.backgroundFetch"
 	if refused[0].caller != want {
 		t.Fatalf("caller = %q, want %q", refused[0].caller, want)
 	}
@@ -309,7 +309,7 @@ func TestNetworkGuard_FailsTheRunWhenATestLeavesTheDefaultSwapped(t *testing.T) 
 		if code := guard.exitCode(0); code != 1 {
 			t.Fatalf("exitCode(0) = %d, want 1", code)
 		}
-		if !strings.Contains(log.String(), "left http.DefaultTransport replaced with *testutil.countingTransport") {
+		if !strings.Contains(log.String(), "left http.DefaultTransport replaced with *netguard.countingTransport") {
 			t.Fatalf("log = %q", log.String())
 		}
 	})
@@ -320,7 +320,7 @@ func TestNetworkGuard_FailsTheRunWhenATestLeavesTheDefaultSwapped(t *testing.T) 
 		if code := guard.exitCode(0); code != 1 {
 			t.Fatalf("exitCode(0) = %d, want 1", code)
 		}
-		if !strings.Contains(log.String(), "left http.DefaultClient.Transport set to *testutil.countingTransport") {
+		if !strings.Contains(log.String(), "left http.DefaultClient.Transport set to *netguard.countingTransport") {
 			t.Fatalf("log = %q", log.String())
 		}
 	})

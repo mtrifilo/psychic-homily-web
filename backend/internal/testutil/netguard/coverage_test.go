@@ -1,4 +1,4 @@
-package testutil
+package netguard
 
 import (
 	"io/fs"
@@ -14,33 +14,34 @@ import (
 // package belongs here only when its test binary links no outbound HTTP client
 // and its tests send no HTTP request.
 var unguardedTestPackages = map[string]string{
-	"config":         "no outbound HTTP client linked; tests read http constants only",
-	"errors":         "no outbound HTTP client linked; tests read http status constants only",
-	"legal":          "no outbound HTTP client linked",
-	"models/admin":   "no outbound HTTP client linked",
-	"models/auth":    "no outbound HTTP client linked",
-	"models/catalog": "no outbound HTTP client linked",
-	"respond":        "no outbound HTTP client linked; tests write to an httptest recorder",
-	"scoring":        "no outbound HTTP client linked",
-	"seeddata":       "no outbound HTTP client linked",
-	"testcorpus":     "no outbound HTTP client linked",
-	"testenv":        "no outbound HTTP client linked",
-	"testlog":        "no outbound HTTP client linked",
-	"testutil":       "the guard's own tests install and remove it per test",
-	"utils":          "no outbound HTTP client linked",
-	"utils/urlguard": "no outbound HTTP client linked; its tests pin DNS through a map resolver",
+	"config":            "no outbound HTTP client linked; tests read http constants only",
+	"errors":            "no outbound HTTP client linked; tests read http status constants only",
+	"legal":             "no outbound HTTP client linked",
+	"models/admin":      "no outbound HTTP client linked",
+	"models/auth":       "no outbound HTTP client linked",
+	"models/catalog":    "no outbound HTTP client linked",
+	"respond":           "no outbound HTTP client linked; tests write to an httptest recorder",
+	"scoring":           "no outbound HTTP client linked",
+	"seeddata":          "no outbound HTTP client linked",
+	"testcorpus":        "no outbound HTTP client linked",
+	"testenv":           "no outbound HTTP client linked",
+	"testlog":           "no outbound HTTP client linked",
+	"testutil":          "no outbound HTTP client linked",
+	"testutil/netguard": "the guard's own tests install and remove it per test",
+	"utils":             "no outbound HTTP client linked",
+	"utils/urlguard":    "no outbound HTTP client linked; its tests pin DNS through a map resolver",
 }
 
 // guardCall is split so this file's own source does not contain it and count
-// testutil as guarded.
-const guardCall = "testutil." + "RefuseNonLoopbackNetwork(m)"
+// netguard as guarded.
+const guardCall = "netguard." + "RefuseNonLoopbackNetwork(m)"
 
 // TestNetworkGuard_EveryInternalTestPackageInstallsItOrIsListed keeps the
 // guard from going missing in a new package: every package under internal/
 // with test files calls RefuseNonLoopbackNetwork from its TestMain or is in
 // unguardedTestPackages, and no listed package installs it.
 func TestNetworkGuard_EveryInternalTestPackageInstallsItOrIsListed(t *testing.T) {
-	internalDir, err := filepath.Abs("..")
+	internalDir, err := filepath.Abs(filepath.Join("..", ".."))
 	if err != nil {
 		t.Fatal(err)
 	}
