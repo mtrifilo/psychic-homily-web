@@ -1,4 +1,6 @@
+import { cache } from 'react'
 import { Metadata } from 'next'
+import { notFound } from 'next/navigation'
 import * as Sentry from '@sentry/nextjs'
 import StationDetail from '../../_components/StationDetail'
 import { API_BASE_URL } from '@/lib/api-base'
@@ -27,7 +29,9 @@ function reconstructStationSlug(networkSlug: string, subSlug: string): string {
   return subSlug.startsWith(expectedPrefix) ? subSlug : `${networkSlug}-${subSlug}`
 }
 
-async function getStation(slug: string): Promise<StationData | null> {
+// Wrapped with `React.cache()` so `generateMetadata` and the page body
+// share ONE backend fetch per request.
+const getStation = cache(async (slug: string): Promise<StationData | null> => {
   try {
     const res = await fetch(`${API_BASE_URL}/radio-stations/${slug}`, {
       next: { revalidate: 3600 },
@@ -50,7 +54,7 @@ async function getStation(slug: string): Promise<StationData | null> {
     })
   }
   return null
-}
+})
 
 export async function generateMetadata({ params }: SubStationPageProps): Promise<Metadata> {
   const { 'station-slug': networkSlug, 'sub-slug': subSlug } = await params
@@ -87,5 +91,8 @@ export async function generateMetadata({ params }: SubStationPageProps): Promise
 export default async function SubStationPage({ params }: SubStationPageProps) {
   const { 'station-slug': networkSlug, 'sub-slug': subSlug } = await params
   const fullSlug = reconstructStationSlug(networkSlug, subSlug)
+  if (!(await getStation(fullSlug))) {
+    notFound()
+  }
   return <StationDetail stationSlug={fullSlug} />
 }
