@@ -132,7 +132,7 @@ func (suite *RadioMatchingIntegrationTestSuite) TestBackfillReleaseLinks_DryRunC
 	suite.Equal(f.niceNiceUnique, *byPlay[f.relinkUnique].NewReleaseID)
 	suite.Equal("Unique LP", byPlay[f.relinkUnique].NewReleaseTitle)
 	suite.True(byPlay[f.adminSet].AdminSet, "an audit row naming the current release flags the change")
-	suite.Equal(RadioReleaseLinkRemovedNotCredited, byPlay[f.adminSet].Outcome, "admin links are re-evaluated like any other")
+	suite.Equal(RadioReleaseLinkRemovedNotCredited, byPlay[f.adminSet].Outcome, "a link an audit row names but not marked 'admin' is judged like any other")
 	suite.False(byPlay[f.adminSetOtherRelease].AdminSet, "an audit row naming another release does not flag it")
 
 	suite.Equal(before, suite.releaseLinkState(), "a dry run changes no play")
