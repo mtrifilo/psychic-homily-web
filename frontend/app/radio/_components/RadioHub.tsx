@@ -38,8 +38,12 @@ export default function RadioHub() {
   // errored guide must render nothing, not yesterday's ON NOW forever.
   const { data: guideData, isError: guideError } = useRadioGuide()
 
-  const stations = sortDialStations(
-    (stationsQuery.data?.stations ?? []).filter(isStationVisibleOnIndex)
+  const allStations = stationsQuery.data?.stations ?? []
+  const stations = sortDialStations(allStations.filter(isStationVisibleOnIndex))
+  // Every station, sub-streams included: the guide schedules sub-streams the
+  // dial hides.
+  const stationNetworks = new Map(
+    allStations.map(station => [station.slug, station.network])
   )
 
   return (
@@ -104,6 +108,7 @@ export default function RadioHub() {
         <RadioGuide
           onNow={guideError ? null : guideData?.on_now}
           upNext={guideError ? null : guideData?.up_next}
+          stationNetworks={stationNetworks}
         />
 
         {/* Latest playlists + sidebar */}
