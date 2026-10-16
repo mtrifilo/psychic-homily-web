@@ -14,6 +14,7 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"runtime"
 	"runtime/debug"
 	"sync"
 	"sync/atomic"
@@ -639,4 +640,28 @@ func (r *loopRunner) runWork(ctx context.Context) (panicked bool) {
 	}()
 	r.work(ctx)
 	return false
+}
+
+// LogCycleFailure logs a scheduled-loop cycle that returned err, with "error"
+// as the first attribute and args after it. A canceled context is the normal
+// shutdown path (a deploy landing mid-cycle), so it logs at Info; every other
+// error logs at Error.
+//
+// The record carries the caller's program counter, so a handler with AddSource
+// attributes the line to the loop that failed rather than to this helper.
+func LogCycleFailure(logger *slog.Logger, msg string, err error, args ...any) {
+	level := slog.LevelError
+	if errors.Is(err, context.Canceled) {
+		level = slog.LevelInfo
+	}
+	ctx := context.Background()
+	if !logger.Enabled(ctx, level) {
+		return
+	}
+	var pcs [1]uintptr
+	runtime.Callers(2, pcs[:]) // skip runtime.Callers and LogCycleFailure
+	record := slog.NewRecord(time.Now(), level, msg, pcs[0])
+	record.Add("error", err)
+	record.Add(args...)
+	_ = logger.Handler().Handle(ctx, record)
 }
