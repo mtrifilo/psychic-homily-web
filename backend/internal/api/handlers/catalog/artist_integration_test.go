@@ -2,6 +2,7 @@ package catalog
 
 import (
 	"fmt"
+	"net/http"
 	"testing"
 	"time"
 
@@ -9,17 +10,27 @@ import (
 
 	"psychic-homily-backend/internal/api/handlers/shared/testhelpers"
 	catalogm "psychic-homily-backend/internal/models/catalog"
+	"psychic-homily-backend/internal/services/catalog"
 	"psychic-homily-backend/internal/services/contracts"
 )
 
 type ArtistHandlerIntegrationSuite struct {
 	suite.Suite
-	deps    *testhelpers.IntegrationDeps
-	handler *ArtistHandler
+	deps     *testhelpers.IntegrationDeps
+	handler  *ArtistHandler
+	bandcamp *refusingBandcampTransport
 }
 
+// SetupSuite gives the artist service a Bandcamp resolver whose every request
+// is refused in-process. An update that sets a Bandcamp profile still
+// dispatches the background resolve the way production does; the resolve just
+// cannot reach bandcamp.com.
 func (s *ArtistHandlerIntegrationSuite) SetupSuite() {
 	s.deps = testhelpers.SetupIntegrationDeps(s.T())
+	s.bandcamp = &refusingBandcampTransport{}
+	s.deps.ArtistService.SetBandcampResolver(
+		catalog.NewBandcampProfileResolverWithClient(&http.Client{Transport: s.bandcamp}),
+	)
 	s.handler = NewArtistHandler(s.deps.ArtistService, s.deps.AuditLogService, nil, nil)
 }
 
@@ -632,6 +643,25 @@ func (s *ArtistHandlerIntegrationSuite) TestUpdateBandcamp_NotFound() {
 
 	_, err := s.handler.UpdateArtistBandcampHandler(ctx, req)
 	testhelpers.AssertHumaError(s.T(), err, 404)
+}
+
+// TestBandcampResolve_RefusedInProcess shows the service resolves Bandcamp
+// profiles through the refusing transport SetupSuite installed: a resolve for
+// an artist with no embed reaches that transport, every request is refused, and
+// the embed stays unset.
+func (s *ArtistHandlerIntegrationSuite) TestBandcampResolve_RefusedInProcess() {
+	artistID := s.createArtistViaService("Resolve Refused Artist")
+	before := s.bandcamp.refused.Load()
+
+	s.deps.ArtistService.FillProfileResolvedEmbedFromBandcamp(artistID, "https://artist.bandcamp.com")
+
+	s.Eventually(func() bool { return s.bandcamp.refused.Load() > before },
+		5*time.Second, 10*time.Millisecond,
+		"the background resolve must reach the suite's refusing transport")
+
+	var artist catalogm.Artist
+	s.Require().NoError(s.deps.DB.First(&artist, artistID).Error)
+	s.Nil(artist.BandcampEmbedURL)
 }
 
 // --- UpdateArtistSpotifyHandler ---
