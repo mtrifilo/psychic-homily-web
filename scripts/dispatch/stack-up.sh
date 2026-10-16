@@ -53,8 +53,11 @@
 #
 #   The isolated backend always gets FRONTEND_URL and WEBAUTHN_RP_ORIGINS set
 #   to the stack's own frontend origin, so OAuth results, link-token mints and
-#   passkey ceremonies resolve against this stack rather than :3000. The dev
-#   backend shared mode reuses keeps its own values for all of these.
+#   passkey ceremonies resolve against this stack rather than :3000. It also
+#   gets BACKEND_PUBLIC_URL set to its own origin, so the default OAuth
+#   provider callback URLs and backend-hosted email links point at this stack
+#   rather than :8080. The dev backend shared mode reuses keeps its own values
+#   for all of these.
 #
 # Output:
 #   Writes <worktree>/dispatch-stack/.env with STACK_* vars + .pid files.
@@ -239,6 +242,7 @@ nohup env \
   API_ADDR="localhost:$BACKEND_PORT" \
   CORS_ALLOWED_ORIGINS="$STACK_FRONTEND_URL" \
   FRONTEND_URL="$STACK_FRONTEND_URL" \
+  BACKEND_PUBLIC_URL="$STACK_BACKEND_URL" \
   WEBAUTHN_RP_ID="$STACK_WEBAUTHN_RP_ID" \
   WEBAUTHN_RP_NAME="$STACK_WEBAUTHN_RP_NAME" \
   WEBAUTHN_RP_ORIGINS="$STACK_FRONTEND_URL" \
@@ -283,6 +287,7 @@ STACK_POSTGRES_URL=$STACK_POSTGRES_URL
 STACK_POSTGRES_PORT=$POSTGRES_PORT
 STACK_BACKEND_URL=$STACK_BACKEND_URL
 STACK_BACKEND_PORT=$BACKEND_PORT
+STACK_BACKEND_PUBLIC_URL=$STACK_BACKEND_URL
 STACK_FRONTEND_URL=$STACK_FRONTEND_URL
 STACK_FRONTEND_PORT=$FRONTEND_PORT
 STACK_BACKEND_ONLY=$BACKEND_ONLY
