@@ -3,6 +3,7 @@ import { renderHook, act } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import type { ReactNode } from 'react'
 import type { RadioSyncRun } from '@/lib/hooks/admin/useAdminRadio'
+import { settleRefetch } from '@/test/mutationRefetchKeys'
 
 // useTrackedSyncRun is the load-bearing abstraction PSY-1136 added: it tracks a
 // triggered run, polls it, and invalidates the shows/stations/stats lists exactly
@@ -78,31 +79,35 @@ describe('useTrackedSyncRun (PSY-1136)', () => {
     expect(result.current.isRunning).toBe(true)
   })
 
-  it('invalidates the lists once when a run settles, and not while running', () => {
+  it('invalidates the lists once when a run settles, and not while running', async () => {
     const { result, rerender, invalidateSpy } = setup()
     syncRunData = makeRun(7, 'running')
     act(() => {
       result.current.trackRun(syncRunData!)
     })
     rerender()
+    await settleRefetch()
     expect(invalidateSpy).not.toHaveBeenCalled() // running → no invalidation
 
     syncRunData = makeRun(7, 'success')
     rerender()
+    await settleRefetch()
     const afterSettle = invalidateSpy.mock.calls.length
     expect(afterSettle).toBeGreaterThanOrEqual(3) // shows + stations + stats
 
     rerender() // still success
+    await settleRefetch()
     expect(invalidateSpy.mock.calls.length).toBe(afterSettle) // guard: no double-invalidate
   })
 
-  it('invalidates AGAIN for a second run that ends on the same terminal status', () => {
+  it('invalidates AGAIN for a second run that ends on the same terminal status', async () => {
     const { result, rerender, invalidateSpy } = setup()
     syncRunData = makeRun(7, 'success')
     act(() => {
       result.current.trackRun(syncRunData!)
     })
     rerender()
+    await settleRefetch()
     const afterFirst = invalidateSpy.mock.calls.length
     expect(afterFirst).toBeGreaterThanOrEqual(3)
 
@@ -113,6 +118,7 @@ describe('useTrackedSyncRun (PSY-1136)', () => {
       result.current.trackRun(syncRunData!)
     })
     rerender()
+    await settleRefetch()
     expect(invalidateSpy.mock.calls.length).toBeGreaterThan(afterFirst)
   })
 

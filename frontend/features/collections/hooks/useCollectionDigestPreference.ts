@@ -2,7 +2,7 @@
 
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { apiRequest, API_ENDPOINTS } from '@/lib/api'
-import { queryKeys } from '@/lib/queryClient'
+import { refetchSignedInProfile } from '@/lib/queryClient'
 
 interface SetCollectionDigestResponse {
   success: boolean
@@ -35,7 +35,7 @@ export const useSetCollectionDigestPreference = () => {
       )
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.auth.profile })
+      void refetchSignedInProfile(queryClient)
     },
   })
 }

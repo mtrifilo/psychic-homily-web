@@ -4,6 +4,7 @@ import { act, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { createTestQueryClient, renderWithProviders } from '@/test/utils'
 import { advanceFakeTime, stalledRequest } from '@/test/stalledFetch'
+import { deferred } from '@/test/inflightOrdering'
 import { queryKeys } from '@/lib/queryClient'
 import AuthPage from './page'
 import { SIGNUP_REQUEST_TIMEOUT_MS } from './_components/signup-request-deadline'
@@ -104,14 +105,6 @@ const BEGIN_OK = {
     options: { publicKey: { challenge: 'begin-signup-challenge' } },
     challenge_id: 'challenge-id',
   }),
-}
-
-function deferred<T>() {
-  let resolve: (value: T) => void = () => {}
-  const promise = new Promise<T>(settle => {
-    resolve = settle
-  })
-  return { promise, resolve }
 }
 
 function setupUser() {

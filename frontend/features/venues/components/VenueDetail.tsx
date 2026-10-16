@@ -12,6 +12,7 @@ import { useAuthContext } from '@/lib/context/AuthContext'
 import { isSameUserId } from '@/features/auth/authUser'
 import { useQueryClient } from '@tanstack/react-query'
 import { queryKeys } from '@/lib/queryClient'
+import { refetchAfterMutation } from '@/lib/refetchAfterMutation'
 import { SocialLinks, RevisionHistory, FollowButton, Breadcrumb, TagPill, EntityDescription, AddToCollectionButton, EntityHeader } from '@/components/shared'
 import { EntityCollections } from '@/features/collections'
 import { EntityChartRankBadge } from '@/features/charts'
@@ -107,18 +108,15 @@ export function VenueDetail({ venueId, initialPastYears }: VenueDetailProps) {
   )
 
   const handleVenueUpdated = (result: EntityEditSuccess) => {
-    // Invalidate venue detail query
-    queryClient.invalidateQueries({
-      queryKey: queryKeys.venues.detail(String(venueId)),
-    })
+    void refetchAfterMutation(
+      queryClient,
+      queryKeys.venues.detail(String(venueId))
+    )
     saveBanner.handleSaveSuccess(result)
   }
 
   const handleShowAdded = () => {
-    // Invalidate venue shows queries
-    queryClient.invalidateQueries({
-      queryKey: queryKeys.venues.shows(venueId),
-    })
+    void refetchAfterMutation(queryClient, queryKeys.venues.shows(venueId))
   }
 
   if (isLoading) {
@@ -318,9 +316,10 @@ export function VenueDetail({ venueId, initialPastYears }: VenueDetailProps) {
                       { venueId: venue.id, data: { description } },
                       {
                         onSuccess: () => {
-                          queryClient.invalidateQueries({
-                            queryKey: queryKeys.venues.detail(String(venueId)),
-                          })
+                          void refetchAfterMutation(
+                            queryClient,
+                            queryKeys.venues.detail(String(venueId))
+                          )
                           resolve()
                         },
                         onError: (err) => reject(err),

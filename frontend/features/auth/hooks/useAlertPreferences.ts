@@ -3,6 +3,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { apiRequest, API_ENDPOINTS } from '@/lib/api'
 import { queryKeys } from '@/lib/queryClient'
+import { refetchAfterMutation } from '@/lib/refetchAfterMutation'
 import { useAuthContext } from '@/lib/context/AuthContext'
 import type { HomeMetroState } from '@/components/shared/followAlertChoices'
 
@@ -110,13 +111,14 @@ const seedAndStaleFollows =
       queryKeys.auth.alertPreferences(userId),
       preferences
     )
-    queryClient.invalidateQueries({
-      predicate: query =>
-        query.queryKey[0] === 'follows' && query.queryKey[1] === 'alerts',
-    })
-    queryClient.invalidateQueries({
-      queryKey: queryKeys.follows.libraryFollowingRoot(userId),
-    })
+    void refetchAfterMutation(
+      queryClient,
+      {
+        predicate: query =>
+          query.queryKey[0] === 'follows' && query.queryKey[1] === 'alerts',
+      },
+      queryKeys.follows.libraryFollowingRoot(userId)
+    )
   }
 
 /**

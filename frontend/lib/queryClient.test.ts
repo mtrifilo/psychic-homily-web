@@ -1,14 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { QueryClient, QueryObserver } from '@tanstack/react-query'
 import * as Sentry from '@sentry/nextjs'
-
-function createDeferred<T>() {
-  let resolve: (value: T) => void = () => {}
-  const promise = new Promise<T>(res => {
-    resolve = res
-  })
-  return { promise, resolve }
-}
+import { deferred } from '@/test/inflightOrdering'
 
 describe('queryClient module', () => {
   beforeEach(() => {
@@ -101,106 +94,66 @@ describe('queryClient module', () => {
   })
 
   describe('createInvalidateQueries', () => {
-    it('creates invalidate helpers for auth', async () => {
+    type Factory = ReturnType<
+      typeof import('./queryClient').createInvalidateQueries
+    >
+
+    // What each entry refetches. `auth` stays a plain invalidate and has its
+    // own test below; the `satisfies` makes a new entry without a row a type
+    // error.
+    const routed = {
+      shows: [['shows']],
+      artists: [['artists']],
+      releases: [['releases']],
+      labels: [['labels']],
+      festivals: [['festivals']],
+      venues: [['venues']],
+      calendar: [['calendar']],
+      savedShows: [['savedShows']],
+      showReports: [['showReports']],
+      adminPendingEdits: [['admin', 'pendingEdits']],
+      adminEntityReports: [['admin', 'entityReports']],
+      adminEntityRequests: [['admin', 'entityRequests']],
+      collections: [['collections']],
+      personalCharts: [['charts', 'personal']],
+    } satisfies Record<Exclude<keyof Factory, 'auth'>, unknown[][]>
+
+    function spiedClient() {
+      const client = new QueryClient()
+      return {
+        client,
+        cancel: vi.spyOn(client, 'cancelQueries'),
+        invalidate: vi.spyOn(client, 'invalidateQueries'),
+      }
+    }
+
+    const keysOf = (spy: { mock: { calls: unknown[][] } }) =>
+      spy.mock.calls.map(([filters]) => (filters as { queryKey: unknown[] }).queryKey)
+
+    it.each(Object.entries(routed) as [keyof typeof routed, unknown[][]][])(
+      '%s cancels its keys before it invalidates them',
+      async (entry, keys) => {
+        const { createInvalidateQueries } = await import('./queryClient')
+        const { client, cancel, invalidate } = spiedClient()
+
+        await createInvalidateQueries(client)[entry]()
+
+        expect(keysOf(cancel)).toEqual(keys)
+        expect(keysOf(invalidate)).toEqual(keys)
+        const lastCancel = Math.max(...cancel.mock.invocationCallOrder)
+        const firstInvalidate = Math.min(...invalidate.mock.invocationCallOrder)
+        expect(lastCancel).toBeLessThan(firstInvalidate)
+      }
+    )
+
+    it('auth invalidates the auth family without cancelling', async () => {
       const { createInvalidateQueries } = await import('./queryClient')
-      const mockQueryClient = {
-        invalidateQueries: vi.fn(),
-      } as unknown as QueryClient
+      const { client, cancel, invalidate } = spiedClient()
 
-      const helpers = createInvalidateQueries(mockQueryClient)
-      helpers.auth()
+      await createInvalidateQueries(client).auth()
 
-      expect(mockQueryClient.invalidateQueries).toHaveBeenCalledWith({
-        queryKey: ['auth'],
-      })
-    })
-
-    it('creates invalidate helpers for shows', async () => {
-      const { createInvalidateQueries } = await import('./queryClient')
-      const mockQueryClient = {
-        invalidateQueries: vi.fn(),
-      } as unknown as QueryClient
-
-      const helpers = createInvalidateQueries(mockQueryClient)
-      helpers.shows()
-
-      expect(mockQueryClient.invalidateQueries).toHaveBeenCalledWith({
-        queryKey: ['shows'],
-      })
-    })
-
-    it('creates invalidate helpers for specific show', async () => {
-      const { createInvalidateQueries } = await import('./queryClient')
-      const mockQueryClient = {
-        invalidateQueries: vi.fn(),
-      } as unknown as QueryClient
-
-      const helpers = createInvalidateQueries(mockQueryClient)
-      helpers.show('show-789')
-
-      expect(mockQueryClient.invalidateQueries).toHaveBeenCalledWith({
-        queryKey: ['shows', 'detail', 'show-789'],
-      })
-    })
-
-    it('creates invalidate helpers for artists', async () => {
-      const { createInvalidateQueries } = await import('./queryClient')
-      const mockQueryClient = {
-        invalidateQueries: vi.fn(),
-      } as unknown as QueryClient
-
-      const helpers = createInvalidateQueries(mockQueryClient)
-      helpers.artists()
-
-      expect(mockQueryClient.invalidateQueries).toHaveBeenCalledWith({
-        queryKey: ['artists'],
-      })
-    })
-
-    it('creates invalidate helpers for venues', async () => {
-      const { createInvalidateQueries } = await import('./queryClient')
-      const mockQueryClient = {
-        invalidateQueries: vi.fn(),
-      } as unknown as QueryClient
-
-      const helpers = createInvalidateQueries(mockQueryClient)
-      helpers.venues()
-
-      expect(mockQueryClient.invalidateQueries).toHaveBeenCalledWith({
-        queryKey: ['venues'],
-      })
-    })
-
-    it('creates invalidate helpers for savedShows', async () => {
-      const { createInvalidateQueries } = await import('./queryClient')
-      const mockQueryClient = {
-        invalidateQueries: vi.fn(),
-      } as unknown as QueryClient
-
-      const helpers = createInvalidateQueries(mockQueryClient)
-      helpers.savedShows()
-
-      expect(mockQueryClient.invalidateQueries).toHaveBeenCalledWith({
-        queryKey: ['savedShows'],
-      })
-    })
-
-    it('creates an invalidate helper for personal charts', async () => {
-      const { createInvalidateQueries } = await import('./queryClient')
-      const mockQueryClient = {
-        cancelQueries: vi.fn(),
-        invalidateQueries: vi.fn(),
-      } as unknown as QueryClient
-
-      const helpers = createInvalidateQueries(mockQueryClient)
-      await helpers.personalCharts()
-
-      expect(mockQueryClient.cancelQueries).toHaveBeenCalledWith({
-        queryKey: ['charts', 'personal'],
-      })
-      expect(mockQueryClient.invalidateQueries).toHaveBeenCalledWith({
-        queryKey: ['charts', 'personal'],
-      })
+      expect(cancel).not.toHaveBeenCalled()
+      expect(keysOf(invalidate)).toEqual([['auth']])
     })
 
     it('restarts a pending personal fetch before stale data can land', async () => {
@@ -209,7 +162,7 @@ describe('queryClient module', () => {
         defaultOptions: { queries: { retry: false } },
       })
       const queryKey = ['charts', 'personal', '42'] as const
-      const firstResponse = createDeferred<{ saved_shows: number }>()
+      const firstResponse = deferred<{ saved_shows: number }>()
       const queryFn = vi
         .fn<() => Promise<{ saved_shows: number }>>()
         .mockImplementationOnce(() => firstResponse.promise)
@@ -228,19 +181,34 @@ describe('queryClient module', () => {
       expect(queryClient.getQueryData(queryKey)).toEqual({ saved_shows: 1 })
       unsubscribe()
     })
+  })
 
-    it('creates invalidate helpers for mySubmissions', async () => {
-      const { createInvalidateQueries } = await import('./queryClient')
-      const mockQueryClient = {
-        invalidateQueries: vi.fn(),
-      } as unknown as QueryClient
-
-      const helpers = createInvalidateQueries(mockQueryClient)
-      helpers.mySubmissions()
-
-      expect(mockQueryClient.invalidateQueries).toHaveBeenCalledWith({
-        queryKey: ['mySubmissions'],
+  describe('refreshViewerTierQueries', () => {
+    it('restarts a first fetch sent under the previous session', async () => {
+      const { refreshViewerTierQueries } = await import('./queryClient')
+      const queryClient = new QueryClient({
+        defaultOptions: { queries: { retry: false } },
       })
+      // A comment thread: its payload carries the viewer's own vote.
+      const queryKey = ['comments', 'artist', 7] as const
+      const anonymous = deferred<{ user_vote: number | null }>()
+      const queryFn = vi
+        .fn<() => Promise<{ user_vote: number | null }>>()
+        .mockImplementationOnce(() => anonymous.promise)
+        .mockResolvedValue({ user_vote: 1 })
+      const observer = new QueryObserver(queryClient, { queryKey, queryFn })
+      const unsubscribe = observer.subscribe(() => {})
+
+      await vi.waitFor(() => expect(queryFn).toHaveBeenCalledTimes(1))
+      await refreshViewerTierQueries(queryClient)
+
+      expect(queryFn).toHaveBeenCalledTimes(2)
+      expect(queryClient.getQueryData(queryKey)).toEqual({ user_vote: 1 })
+
+      anonymous.resolve({ user_vote: null })
+      await Promise.resolve()
+      expect(queryClient.getQueryData(queryKey)).toEqual({ user_vote: 1 })
+      unsubscribe()
     })
   })
 

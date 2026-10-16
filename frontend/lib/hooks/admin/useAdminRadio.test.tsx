@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { renderHook, waitFor, act } from '@testing-library/react'
+import { QueryClient } from '@tanstack/react-query'
 import { createWrapper, createWrapperWithClient, createTestQueryClient } from '@/test/utils'
 
 const mockApiRequest = vi.fn()
@@ -219,7 +220,12 @@ describe('useUpdateRadioStation', () => {
     // list) so that any detail page picks up the change without a refresh.
     mockApiRequest.mockResolvedValueOnce({ id: 42, name: 'KEXP Renamed' })
 
-    const queryClient = createTestQueryClient()
+    // The default gcTime keeps the seeded, unobserved detail entry cached.
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    })
+    const detailKey = radioQueryKeys.stationDetail(42)
+    queryClient.setQueryData(detailKey, { id: 42, name: 'KEXP' })
     const invalidateSpy = vi.spyOn(queryClient, 'invalidateQueries')
 
     const { result } = renderHook(() => useUpdateRadioStation(), {
@@ -238,11 +244,14 @@ describe('useUpdateRadioStation', () => {
         body: JSON.stringify({ name: 'KEXP Renamed' }),
       })
     )
-    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['radio', 'stations'] })
-    expect(invalidateSpy).toHaveBeenCalledWith({
-      queryKey: ['radio', 'stations', 42],
-    })
+    await waitFor(() =>
+      expect(invalidateSpy).toHaveBeenCalledWith({
+        queryKey: ['radio', 'stations'],
+      })
+    )
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['radio', 'stats'] })
+    // The stations prefix reaches the detail entry.
+    expect(queryClient.getQueryState(detailKey)?.isInvalidated).toBe(true)
   })
 })
 

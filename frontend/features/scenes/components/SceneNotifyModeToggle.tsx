@@ -3,6 +3,7 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { apiRequest, API_ENDPOINTS } from '@/lib/api'
 import { queryKeys } from '@/lib/queryClient'
+import { refetchAfterMutation } from '@/lib/refetchAfterMutation'
 import { useAuthContext } from '@/lib/context/AuthContext'
 import { useFollowStatus } from '@/lib/hooks/common/useFollow'
 import { InfoTooltip } from '@/components/shared/InfoTooltip'
@@ -59,9 +60,10 @@ export function SceneNotifyModeToggle({ slug }: { slug: string }) {
       }
     },
     onSettled: () => {
-      queryClient.invalidateQueries({
-        queryKey: queryKeys.follows.entity('scenes', slug, user?.id),
-      })
+      void refetchAfterMutation(
+        queryClient,
+        queryKeys.follows.entity('scenes', slug, user?.id)
+      )
     },
   })
 
