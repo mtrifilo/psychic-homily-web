@@ -231,16 +231,15 @@ func (s *WebAuthnService) FinishLogin(user *authm.User, session *webauthn.Sessio
 	// runs against a fresh load and leaves the caller's copy untouched. The
 	// account state the sign-in is decided on, and the account returned, are
 	// this load's.
-	var owner authm.User
-	if err := s.db.Preload("PasskeyCredentials").Preload("OAuthAccounts").Preload("Preferences").
-		First(&owner, user.ID).Error; err != nil {
+	owner, err := s.loadSignInAccount(user.ID)
+	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, nil, apperrors.NewAuthError(apperrors.CodeInvalidCredentials, accountNotFoundMessage, err)
 		}
 		return nil, nil, signInLookupError("user", err)
 	}
 
-	credential, err := s.webAuthn.ValidateLogin(&owner, *session, response)
+	credential, err := s.webAuthn.ValidateLogin(owner, *session, response)
 	if err != nil {
 		return nil, nil, refusePasskey(fmt.Errorf("validate login: %w", err))
 	}
@@ -257,7 +256,20 @@ func (s *WebAuthnService) FinishLogin(user *authm.User, session *webauthn.Sessio
 	}
 
 	owner.PasskeyCredentials = nil
-	return &owner, &webauthnCred, nil
+	return owner, &webauthnCred, nil
+}
+
+// loadSignInAccount loads account userID for a passkey sign-in: with its
+// passkey credentials, which validation needs, and with its OAuth accounts and
+// preferences, which the signed-in account is returned with. Both passkey
+// sign-ins load their account here, so they return it in one shape.
+func (s *WebAuthnService) loadSignInAccount(userID uint) (*authm.User, error) {
+	var account authm.User
+	if err := s.db.Preload("PasskeyCredentials").Preload("OAuthAccounts").Preload("Preferences").
+		First(&account, userID).Error; err != nil {
+		return nil, err
+	}
+	return &account, nil
 }
 
 // recordCredentialUse writes what a validated assertion changes on the stored
@@ -282,23 +294,24 @@ func (s *WebAuthnService) recordCredentialUse(stored *authm.WebAuthnCredential, 
 }
 
 // FinishDiscoverableLogin completes a discoverable login and returns the
-// account it signs in and the credential it used. Its errors, and when it
-// checks the account's state, are FinishLogin's.
+// account it signs in, in the shape FinishLogin returns it, and the credential
+// it used. Its errors, and when it checks the account's state, are
+// FinishLogin's.
 func (s *WebAuthnService) FinishDiscoverableLogin(session *webauthn.SessionData, response *protocol.ParsedCredentialAssertionData) (*authm.User, *authm.WebAuthnCredential, error) {
 	var webauthnCred authm.WebAuthnCredential
 	if err := s.db.Where("credential_id = ?", response.RawID).First(&webauthnCred).Error; err != nil {
 		return nil, nil, signInLookupError("credential", err)
 	}
 
-	var user authm.User
-	if err := s.db.Preload("PasskeyCredentials").First(&user, webauthnCred.UserID).Error; err != nil {
+	user, err := s.loadSignInAccount(webauthnCred.UserID)
+	if err != nil {
 		return nil, nil, signInLookupError("user", err)
 	}
 
 	// Validation refuses an assertion whose user handle is not this account's.
 	credential, err := s.webAuthn.ValidateDiscoverableLogin(
 		func(rawID, userHandle []byte) (webauthn.User, error) {
-			return &user, nil
+			return user, nil
 		},
 		*session,
 		response,
@@ -317,7 +330,7 @@ func (s *WebAuthnService) FinishDiscoverableLogin(session *webauthn.SessionData,
 	// The credentials were loaded for validation only; the returned user is
 	// what the login response carries, so it goes back without them.
 	user.PasskeyCredentials = nil
-	return &user, &webauthnCred, nil
+	return user, &webauthnCred, nil
 }
 
 // GetUserCredentials returns all passkey credentials for a user
