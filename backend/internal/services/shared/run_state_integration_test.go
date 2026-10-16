@@ -49,7 +49,7 @@ func setupRunStore(t *testing.T) (*gorm.DB, *GormRunStore) {
 // TestMain owns the shared container's lifetime; a t.Cleanup would tear it down
 // after whichever test happened to create it, leaving the rest with no database.
 func TestMain(m *testing.M) {
-	code := m.Run()
+	code := testutil.RefuseNonLoopbackNetwork(m)
 	if runStoreClean != nil {
 		runStoreClean()
 	}

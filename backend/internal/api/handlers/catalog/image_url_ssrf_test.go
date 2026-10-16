@@ -7,6 +7,7 @@ import (
 	"psychic-homily-backend/internal/api/handlers/shared/testhelpers"
 	authm "psychic-homily-backend/internal/models/auth"
 	"psychic-homily-backend/internal/services/contracts"
+	"psychic-homily-backend/internal/testutil"
 	"psychic-homily-backend/internal/utils/urlguard"
 )
 
@@ -22,7 +23,7 @@ func TestMain(m *testing.M) {
 		"example.com":         {"93.184.216.34"},
 		"rebind.example.test": {"169.254.169.254"},
 	})
-	code := m.Run()
+	code := testutil.RefuseNonLoopbackNetwork(m)
 	restore()
 	os.Exit(code)
 }
