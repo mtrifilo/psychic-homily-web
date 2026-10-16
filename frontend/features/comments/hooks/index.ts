@@ -186,10 +186,7 @@ export function useReplyToComment() {
     onSuccess: (_data, variables) => {
       void refetchAfterMutation(
         queryClient,
-        commentQueryKeys.entity(variables.entityType, variables.entityId)
-      )
-      void refetchAfterMutation(
-        queryClient,
+        commentQueryKeys.entity(variables.entityType, variables.entityId),
         commentQueryKeys.thread(variables.commentId)
       )
     },
@@ -272,19 +269,16 @@ export function useUpdateComment() {
         ),
       }),
     onSuccess: (_data, variables) => {
-      void refetchAfterMutation(
-        queryClient,
-        commentQueryKeys.entity(variables.entityType, variables.entityId)
-      )
       // PSY-590: field notes share the comments table but live in a separate
       // query cache (`fieldNoteQueryKeys.show`). Field-note edits flow through
       // this hook too, so refresh that cache when the target is a show.
-      if (variables.entityType === 'show') {
-        void refetchAfterMutation(
-          queryClient,
-          fieldNoteQueryKeys.show(variables.entityId)
-        )
-      }
+      void refetchAfterMutation(
+        queryClient,
+        commentQueryKeys.entity(variables.entityType, variables.entityId),
+        ...(variables.entityType === 'show'
+          ? [fieldNoteQueryKeys.show(variables.entityId)]
+          : [])
+      )
     },
   })
 }
@@ -304,17 +298,14 @@ export function useDeleteComment() {
         method: 'DELETE',
       }),
     onSuccess: (_data, variables) => {
+      // PSY-590: see useUpdateComment — keep the field-note cache in sync.
       void refetchAfterMutation(
         queryClient,
-        commentQueryKeys.entity(variables.entityType, variables.entityId)
+        commentQueryKeys.entity(variables.entityType, variables.entityId),
+        ...(variables.entityType === 'show'
+          ? [fieldNoteQueryKeys.show(variables.entityId)]
+          : [])
       )
-      // PSY-590: see useUpdateComment — keep the field-note cache in sync.
-      if (variables.entityType === 'show') {
-        void refetchAfterMutation(
-          queryClient,
-          fieldNoteQueryKeys.show(variables.entityId)
-        )
-      }
     },
   })
 }

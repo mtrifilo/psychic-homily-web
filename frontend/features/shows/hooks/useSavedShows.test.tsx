@@ -288,6 +288,13 @@ describe('useSavedShows', () => {
       <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
     )
 
+    const narrowListKey = queryKeys.savedShows.list('1')
+    queryClient.setQueryData(narrowListKey, {
+      shows: [],
+      total: 0,
+      limit: 50,
+      offset: 0,
+    })
     const { result } = renderHook(
       () => useUnsaveShow({ syncMode: 'patch-infinite', userId: '1' }),
       { wrapper }
@@ -302,10 +309,12 @@ describe('useSavedShows', () => {
     expect(cached?.pages[0].shows).toEqual([{ id: 2 }, { id: 3 }, { id: 4 }])
     expect(cached?.pages[0].total).toBe(104)
     expect(cached?.pages[1].total).toBe(104)
-    expect(refetchAfterMutation).not.toHaveBeenCalledWith(
-      expect.anything(),
-      queryKeys.savedShows.all
+    // The narrow refetch has landed once the plain list is marked; the
+    // patched infinite pages must not have been marked with it.
+    await waitFor(() =>
+      expect(queryClient.getQueryState(narrowListKey)?.isInvalidated).toBe(true)
     )
+    expect(queryClient.getQueryState(queryKey)?.isInvalidated).toBe(false)
 
     const infinite = renderHook(() => useInfiniteSavedShows('upcoming', '1'), {
       wrapper,

@@ -106,13 +106,18 @@ const eslintConfig = defineConfig([
   {
     // Mutation hooks in these files refetch through refetchAfterMutation
     // (lib/refetchAfterMutation.ts), which cancels before it invalidates. A
-    // bare invalidate hands back a query's in-flight first fetch, whose
-    // response can predate the write, and its success clears the
-    // invalidation. createInvalidateQueries is banned here for the same
-    // reason: its entries invalidate without cancelling. The rule covers only
-    // the files named here; add a file once its mutations use the helper. A
-    // site that is safe without the cancel carries an eslint-disable-next-line
-    // comment giving the reason.
+    // bare invalidateQueries or refetchQueries hands back a query's in-flight
+    // first fetch, whose response can predate the write, and its success
+    // clears the invalidation. createInvalidateQueries is banned here too:
+    // apart from personalCharts, its entries invalidate without cancelling.
+    // The selectors see member calls, optional and computed; a method pulled
+    // off the client by destructuring is not caught. The rule covers only the
+    // files named here (refetchAfterMutation.lint.test.ts checks they exist);
+    // add a file once its mutations use the helper. A site that is safe
+    // without the cancel carries an eslint-disable-next-line comment giving
+    // the reason. A later block that sets no-restricted-syntax for these files
+    // replaces these selectors rather than merging with them, so extend this
+    // block instead.
     files: [
       "features/auth/hooks/useContributorProfile.ts",
       "features/collections/hooks/index.ts",
@@ -127,14 +132,21 @@ const eslintConfig = defineConfig([
       "no-restricted-syntax": [
         "error",
         {
-          selector: "CallExpression[callee.property.name='invalidateQueries']",
+          selector:
+            "CallExpression[callee.property.name=/^(invalidate|refetch)Queries$/]",
           message:
-            "Refetch through refetchAfterMutation from @/lib/refetchAfterMutation: a bare invalidateQueries reuses an in-flight first fetch whose response can predate the write. If this site is safe without the cancel, disable this line and say why.",
+            "Refetch through refetchAfterMutation from @/lib/refetchAfterMutation: a bare invalidateQueries or refetchQueries reuses an in-flight first fetch whose response can predate the write. If this site is safe without the cancel, disable this line and say why.",
+        },
+        {
+          selector:
+            "CallExpression[callee.computed=true][callee.property.value=/^(invalidate|refetch)Queries$/]",
+          message:
+            "Refetch through refetchAfterMutation from @/lib/refetchAfterMutation: a bare invalidateQueries or refetchQueries reuses an in-flight first fetch whose response can predate the write. If this site is safe without the cancel, disable this line and say why.",
         },
         {
           selector: "CallExpression[callee.name='createInvalidateQueries']",
           message:
-            "Refetch through refetchAfterMutation from @/lib/refetchAfterMutation: createInvalidateQueries invalidates without cancelling, so an in-flight first fetch's pre-write response can win.",
+            "Refetch through refetchAfterMutation from @/lib/refetchAfterMutation: most createInvalidateQueries entries invalidate without cancelling, so an in-flight first fetch's pre-write response can win.",
         },
       ],
     },

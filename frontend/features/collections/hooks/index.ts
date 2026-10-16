@@ -6,7 +6,13 @@
  * TanStack Query hooks for collection CRUD, items, and subscriptions.
  */
 
-import { useQuery, useMutation, useQueryClient, keepPreviousData } from '@tanstack/react-query'
+import {
+  hashKey,
+  keepPreviousData,
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from '@tanstack/react-query'
 import { apiRequest, API_ENDPOINTS } from '@/lib/api'
 import { queryKeys } from '@/lib/queryClient'
 import { refetchAfterMutation } from '@/lib/refetchAfterMutation'
@@ -313,14 +319,18 @@ export function useCloneCollection() {
         method: 'POST',
       }),
     onSuccess: newCollection => {
-      // The source collection's `forks_count` just incremented and the
-      // user's collection list gained an entry; the family root covers both.
-      void refetchAfterMutation(queryClient, queryKeys.collections.all)
       // Pre-warm the new collection in cache so navigation is instant.
-      queryClient.setQueryData(
-        queryKeys.collections.detail(newCollection.slug),
-        newCollection
-      )
+      const newDetailKey = queryKeys.collections.detail(newCollection.slug)
+      queryClient.setQueryData(newDetailKey, newCollection)
+      // The source collection's `forks_count` just incremented and the user's
+      // collection list gained an entry; the family root covers both. The
+      // pre-warmed entry is skipped: the clone response is its server state,
+      // and marking it stale would refetch it as soon as its page mounts.
+      const newDetailHash = hashKey(newDetailKey)
+      void refetchAfterMutation(queryClient, {
+        queryKey: queryKeys.collections.all,
+        predicate: query => query.queryHash !== newDetailHash,
+      })
     },
   })
 }
@@ -369,7 +379,7 @@ export function useAddCollectionItem() {
       void refetchAfterMutation(
         queryClient,
         queryKeys.collections.detail(variables.slug),
-        // PSY-359: pre-check answer for this entity is now stale — the popover
+        // PSY-359: pre-check answer for this entity is now stale; the popover
         // should show the new collection as already-containing on next open.
         queryKeys.collections.containing(
           variables.entityType,
@@ -379,8 +389,8 @@ export function useAddCollectionItem() {
         // refresh (if the collection is public).
         queryKeys.collections.entity(variables.entityType, variables.entityId),
         // PSY-829: the user's collection list carries item_count, now surfaced
-        // as the "N items" subtitle in the Add-to-Collection popover — refresh
-        // it so the count isn't stale right after an add.
+        // as the "N items" subtitle in the Add-to-Collection popover, so
+        // refresh it to keep the count current right after an add.
         queryKeys.collections.my
       )
     },

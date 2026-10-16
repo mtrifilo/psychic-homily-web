@@ -1,10 +1,17 @@
-import type { QueryClient, QueryKey } from '@tanstack/react-query'
+import type {
+  InvalidateQueryFilters,
+  QueryClient,
+  QueryKey,
+} from '@tanstack/react-query'
+
+/** A query key prefix, or full filters for a target a key cannot describe. */
+export type RefetchTarget = QueryKey | InvalidateQueryFilters
 
 /**
- * Cancel every query under each of `queryKeys`, then invalidate them, so the
- * next data each one shows reflects the write. Active queries refetch now;
- * inactive and disabled ones are only marked stale, and any fetch they had in
- * flight is dropped.
+ * Cancel every query each target matches, then invalidate them, so the next
+ * data each one shows reflects the write. Active queries refetch now; inactive
+ * and disabled ones are only marked stale, and any fetch they had in flight is
+ * dropped.
  *
  * `invalidateQueries` alone does not guarantee that. For a query that has no
  * data yet and a fetch in flight, TanStack Query hands back the in-flight
@@ -14,22 +21,30 @@ import type { QueryClient, QueryKey } from '@tanstack/react-query'
  * first leaves no fetch to reuse, and a cancelled fetch's late response is
  * discarded.
  *
- * Every key is cancelled before any is invalidated, so with overlapping keys
- * (a family root and one of its members) no cancel can land on a refetch that
- * another key's invalidation has just started.
+ * Every target is cancelled before any is invalidated. Pass each query once:
+ * a key already covered by another target's prefix makes a member with data
+ * refetch twice.
  *
- * Mutation hooks call it from `onSuccess` or `onSettled` with `void`, so the
- * mutation settles without waiting for the refetch, as a bare
- * `invalidateQueries` did. Neither step rejects: both swallow fetch errors.
+ * The invalidation runs only after the cancel settles, a few microtasks after
+ * the call, so it also marks stale anything the caller writes with
+ * `setQueryData` under a target in the meantime; exclude such an entry with a
+ * filters target. Neither step rejects: both swallow fetch errors. Callers
+ * that do not need the refetch to finish `void` the returned promise, so the
+ * mutation settles without waiting for it.
  */
 export async function refetchAfterMutation(
   queryClient: QueryClient,
-  ...queryKeys: QueryKey[]
+  ...targets: RefetchTarget[]
 ): Promise<void> {
-  await Promise.all(
-    queryKeys.map(queryKey => queryClient.cancelQueries({ queryKey }))
-  )
-  await Promise.all(
-    queryKeys.map(queryKey => queryClient.invalidateQueries({ queryKey }))
-  )
+  const filters = targets.map(toFilters)
+  await Promise.all(filters.map(f => queryClient.cancelQueries(f)))
+  await Promise.all(filters.map(f => queryClient.invalidateQueries(f)))
+}
+
+function toFilters(target: RefetchTarget): InvalidateQueryFilters {
+  return isQueryKey(target) ? { queryKey: target } : target
+}
+
+function isQueryKey(target: RefetchTarget): target is QueryKey {
+  return Array.isArray(target)
 }

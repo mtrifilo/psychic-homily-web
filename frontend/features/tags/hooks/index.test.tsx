@@ -402,6 +402,7 @@ describe('venue tag changes invalidate venue lists', () => {
   const railKey = ['venues', 'list', { city: 'Tucson', includeRail: true }]
   const scopedCitiesKey = ['venues', 'cities', { tags: ['all-ages'] }]
   const detailKey = ['venues', 'detail', '5']
+  const entityTagsKey = ['tags', 'entityTags', 'venue', 5]
 
   function seededClient() {
     const queryClient = new QueryClient({
@@ -410,6 +411,7 @@ describe('venue tag changes invalidate venue lists', () => {
     queryClient.setQueryData(railKey, { venues: [] })
     queryClient.setQueryData(scopedCitiesKey, { cities: [] })
     queryClient.setQueryData(detailKey, { id: 5 })
+    queryClient.setQueryData(entityTagsKey, { tags: [] })
     return queryClient
   }
 
@@ -430,6 +432,7 @@ describe('venue tag changes invalidate venue lists', () => {
     })
 
     await waitFor(() => expect(result.current.isSuccess).toBe(true))
+    expect(queryClient.getQueryState(entityTagsKey)?.isInvalidated).toBe(true)
     expect(queryClient.getQueryState(railKey)?.isInvalidated).toBe(true)
     expect(queryClient.getQueryState(scopedCitiesKey)?.isInvalidated).toBe(true)
     expect(queryClient.getQueryState(detailKey)?.isInvalidated).toBe(false)
@@ -447,6 +450,7 @@ describe('venue tag changes invalidate venue lists', () => {
     })
 
     await waitFor(() => expect(result.current.isSuccess).toBe(true))
+    expect(queryClient.getQueryState(entityTagsKey)?.isInvalidated).toBe(true)
     expect(queryClient.getQueryState(railKey)?.isInvalidated).toBe(true)
     expect(queryClient.getQueryState(scopedCitiesKey)?.isInvalidated).toBe(true)
   })

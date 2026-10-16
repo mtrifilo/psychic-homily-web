@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest'
-import { useQuery } from '@tanstack/react-query'
+import { hashKey, useQuery } from '@tanstack/react-query'
 import { act, renderHook, waitFor } from '@testing-library/react'
 import { createWrapperWithClient } from '@/test/utils'
 import { clientWithAppDefaults, deferred } from '@/test/inflightOrdering'
@@ -104,6 +104,22 @@ describe('refetchAfterMutation', () => {
     })
     expect(listFn).toHaveBeenCalledTimes(2)
     expect(detailFn).toHaveBeenCalledTimes(2)
+  })
+
+  it('takes filters for a target a key cannot describe', async () => {
+    const client = clientWithAppDefaults()
+    const kept = ['collections', 'detail', 'new-one']
+    const refetched = ['collections', 'list']
+    client.setQueryData(kept, 'written by the caller')
+    client.setQueryData(refetched, 'before write')
+
+    await refetchAfterMutation(client, {
+      queryKey: ['collections'],
+      predicate: query => query.queryHash !== hashKey(kept),
+    })
+
+    expect(client.getQueryState(kept)?.isInvalidated).toBe(false)
+    expect(client.getQueryState(refetched)?.isInvalidated).toBe(true)
   })
 
   it('cancels every key before it invalidates any', async () => {

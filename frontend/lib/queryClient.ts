@@ -956,7 +956,13 @@ export function resetViewerTierQueries(queryClient: QueryClient) {
   )
 }
 
-// Utility function to invalidate related queries
+/**
+ * Invalidations grouped by query family. Apart from `personalCharts`, each
+ * entry invalidates without cancelling first, so a write that lands during a
+ * query's first fetch can be hidden by that fetch's pre-write response. A
+ * mutation that can run then refetches through `refetchAfterMutation`
+ * (lib/refetchAfterMutation.ts) instead.
+ */
 export const createInvalidateQueries = (queryClient: QueryClient) => ({
   // Invalidate all auth-related queries
   auth: () => queryClient.invalidateQueries({ queryKey: ['auth'] }),
