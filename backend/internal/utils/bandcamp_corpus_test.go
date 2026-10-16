@@ -33,7 +33,7 @@ type bandcampURLCorpus struct {
 // the same file and asserts the reader's, including that every `storable` entry
 // renders, which is the contract direction.
 func TestBandcampURLCorpus(t *testing.T) {
-	corpus := testcorpus.Load[bandcampURLCorpus](t, "testdata/bandcamp_url_corpus.json")
+	corpus := testcorpus.Load[bandcampURLCorpus](t, "internal/utils/testdata/bandcamp_url_corpus.json")
 	require.NotEmpty(t, corpus.Storable)
 	require.NotEmpty(t, corpus.Rejected)
 
