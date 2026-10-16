@@ -13,10 +13,12 @@ import { API_BASE_URL } from '@/lib/api-base'
  */
 
 /**
- * The data-cache window for the station read, shared by the page and the
- * proxy. Next keys a cached fetch on its URL and init but not on this window,
- * so both callers read and refresh ONE entry only while they also build the
- * same URL with the same init, which is why both come from here.
+ * The data-cache window for the station read, shared by the station pages and
+ * the proxy. Next keys a cached fetch on its URL and init (`method`,
+ * `headers`, `redirect` and more) but not on this window, so every caller
+ * reads and refreshes ONE entry only while it builds the URL here and passes
+ * no init beyond `next.revalidate` and a `signal`. Any other option splits
+ * the entry and doubles the backend reads.
  */
 export const RADIO_STATION_REVALIDATE_SECONDS = 3600
 
@@ -32,14 +34,14 @@ export interface RadioStationNetwork {
 }
 
 /**
- * The channel path a request for `/radio/{requestedSlug}` redirects to, or
- * null when the station is served at the one-segment URL.
+ * The channel path a sub-stream is served at, or null when the station is
+ * served at `/radio/{requestedSlug}` (a flagship or network-less station).
  *
  * The local slug is the requested slug with the `{network-slug}-` prefix
  * stripped; a slug without the prefix is used whole rather than producing a
  * malformed URL.
  */
-export function radioSubStreamRedirectPath(
+export function radioSubStreamChannelPath(
   requestedSlug: string,
   network: RadioStationNetwork | null | undefined
 ): string | null {

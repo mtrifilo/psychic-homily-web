@@ -9,6 +9,10 @@ function requestFor(pathname: string): NextRequest {
   } as unknown as NextRequest
 }
 
+function passedThrough(response: Response): boolean {
+  return response.headers.get('x-middleware-next') === '1'
+}
+
 describe('proxy entity existence checks', () => {
   afterEach(() => {
     vi.restoreAllMocks()
@@ -65,10 +69,6 @@ describe('proxy numeric show ids', () => {
       status: 200,
       headers: { 'content-type': 'application/json' },
     })
-  }
-
-  function passedThrough(response: Response): boolean {
-    return response.headers.get('x-middleware-next') === '1'
   }
 
   it('reads the show by id instead of the HEAD probe', async () => {
@@ -231,10 +231,6 @@ describe('proxy radio sub-stream redirect', () => {
   const SUB_STREAM = { slug: 'wfmu', name: 'WFMU', is_flagship: false }
   const FLAGSHIP = { slug: 'wfmu', name: 'WFMU', is_flagship: true }
 
-  function passedThrough(response: Response): boolean {
-    return response.headers.get('x-middleware-next') === '1'
-  }
-
   it('reads the station with the page URL and cache window', async () => {
     const fetchMock = vi
       .spyOn(globalThis, 'fetch')
@@ -247,8 +243,7 @@ describe('proxy radio sub-stream redirect', () => {
       'http://localhost:8080/radio-stations/kexp',
       expect.objectContaining({ next: { revalidate: 3600 } })
     )
-    // Next keys a cached fetch on `redirect` and `method` among others; the
-    // page sets neither, so setting one here would split the shared entry.
+    // The shared-entry rule on RADIO_STATION_REVALIDATE_SECONDS.
     const init = fetchMock.mock.calls[0][1] as RequestInit
     expect(init.redirect).toBeUndefined()
     expect(init.method).toBeUndefined()
@@ -307,24 +302,16 @@ describe('proxy radio sub-stream redirect', () => {
   })
 
   it('passes through on a backend error, a bad body or a network failure', async () => {
-    vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(
-      new Response(null, { status: 503 })
-    )
-    expect(passedThrough(await proxy(requestFor('/radio/wfmu-drummer')))).toBe(
-      true
-    )
-
-    vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(
-      new Response('not json', { status: 200 })
-    )
-    expect(passedThrough(await proxy(requestFor('/radio/wfmu-drummer')))).toBe(
-      true
-    )
-
-    vi.spyOn(globalThis, 'fetch').mockRejectedValueOnce(new Error('ECONNRESET'))
-    expect(passedThrough(await proxy(requestFor('/radio/wfmu-drummer')))).toBe(
-      true
-    )
+    for (const answer of [
+      () => Promise.resolve(new Response(null, { status: 503 })),
+      () => Promise.resolve(new Response('not json', { status: 200 })),
+      () => Promise.reject(new Error('ECONNRESET')),
+    ]) {
+      vi.spyOn(globalThis, 'fetch').mockImplementation(answer)
+      expect(
+        passedThrough(await proxy(requestFor('/radio/wfmu-drummer')))
+      ).toBe(true)
+    }
   })
 
   it('passes a malformed network through to the page', async () => {

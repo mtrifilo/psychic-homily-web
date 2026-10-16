@@ -1,7 +1,10 @@
 import { Metadata } from 'next'
 import * as Sentry from '@sentry/nextjs'
 import StationDetail from '../../_components/StationDetail'
-import { API_BASE_URL } from '@/lib/api-base'
+import {
+  RADIO_STATION_REVALIDATE_SECONDS,
+  radioStationApiUrl,
+} from '@/lib/seo/radioStationCanonical'
 
 interface SubStationPageProps {
   params: Promise<{ 'station-slug': string; 'sub-slug': string }>
@@ -29,8 +32,8 @@ function reconstructStationSlug(networkSlug: string, subSlug: string): string {
 
 async function getStation(slug: string): Promise<StationData | null> {
   try {
-    const res = await fetch(`${API_BASE_URL}/radio-stations/${slug}`, {
-      next: { revalidate: 3600 },
+    const res = await fetch(radioStationApiUrl(slug), {
+      next: { revalidate: RADIO_STATION_REVALIDATE_SECONDS },
     })
     if (res.ok) {
       return res.json()

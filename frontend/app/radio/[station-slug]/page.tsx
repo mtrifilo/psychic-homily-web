@@ -6,7 +6,7 @@ import StationDetail from './_components/StationDetail'
 import {
   RADIO_STATION_REVALIDATE_SECONDS,
   radioStationApiUrl,
-  radioSubStreamRedirectPath,
+  radioSubStreamChannelPath,
   type RadioStationNetwork,
 } from '@/lib/seo/radioStationCanonical'
 
@@ -86,15 +86,10 @@ export async function generateMetadata({ params }: StationPageProps): Promise<Me
 
 export default async function StationPage({ params }: StationPageProps) {
   const { 'station-slug': stationSlug } = await params
-  // Sub-streams live under /radio/{network-slug}/channel/{local-slug}, and
-  // `proxy.ts` answers their one-segment URL with a real 308 before this page
-  // streams. This redirect is the fallback for a request the proxy let
-  // through (backend unreachable from the proxy, or a prefetch it skips); it
-  // arrives inside the streamed document, not as a status. The literal
-  // "channel" segment disambiguates sub-streams from show pages
-  // (/radio/{station-slug}/{show-slug}).
+  // Fallback for a sub-stream request proxy.ts let through (see
+  // radioSubStreamRedirect there): it arrives inside the streamed document.
   const station = await getStation(stationSlug)
-  const channelPath = radioSubStreamRedirectPath(stationSlug, station?.network)
+  const channelPath = radioSubStreamChannelPath(stationSlug, station?.network)
   if (channelPath) {
     redirect(channelPath)
   }

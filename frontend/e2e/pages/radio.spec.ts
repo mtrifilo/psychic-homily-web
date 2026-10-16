@@ -323,9 +323,6 @@ test.describe('Radio browse flow', () => {
     ).toBeVisible({ timeout: 10_000 })
   })
 
-  // A sub-stream's one-segment URL is answered by proxy.ts with a real 308
-  // before the page streams; the page's own redirect() would arrive as a 200
-  // document carrying the redirect inside it.
   test('a sub-stream station URL permanently redirects to its channel URL', async ({
     page,
     request,

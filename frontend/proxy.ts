@@ -8,7 +8,7 @@ import {
 import {
   RADIO_STATION_REVALIDATE_SECONDS,
   radioStationApiUrl,
-  radioSubStreamRedirectPath,
+  radioSubStreamChannelPath,
   type RadioStationNetwork,
 } from '@/lib/seo/radioStationCanonical'
 
@@ -804,14 +804,27 @@ async function numericShowRedirect(
     if (!target) {
       return NextResponse.next()
     }
-    const url = new URL(target, request.url)
-    url.search = request.nextUrl.search
-    const redirect = NextResponse.redirect(url, 308)
-    redirect.headers.set('Cache-Control', NUMERIC_SHOW_REDIRECT_CACHE_CONTROL)
-    return redirect
+    return permanentRedirect(request, target, NUMERIC_SHOW_REDIRECT_CACHE_CONTROL)
   } catch {
     return NextResponse.next()
   }
+}
+
+/**
+ * A 308 to a site-relative path that keeps the request's query string, with a
+ * bounded browser lifetime: a 308 sent without one is cached indefinitely, and
+ * every target this file redirects to is data that can change.
+ */
+function permanentRedirect(
+  request: NextRequest,
+  path: string,
+  cacheControl: string
+): NextResponse {
+  const url = new URL(path, request.url)
+  url.search = request.nextUrl.search
+  const redirect = NextResponse.redirect(url, 308)
+  redirect.headers.set('Cache-Control', cacheControl)
+  return redirect
 }
 
 /**
@@ -827,9 +840,8 @@ const RADIO_STATIC_SEGMENTS: ReadonlySet<string> = new Set([
 /**
  * How long a browser may reuse a sub-stream redirect before asking again.
  *
- * Bounded for the reason the numeric show redirect is: a station's network
- * membership is admin-editable, and a 308 sent without a lifetime is cached
- * indefinitely. The window matches the station read's own cache window.
+ * A station's network membership is admin-editable. The window matches the
+ * station read's own cache window.
  */
 const RADIO_SUBSTREAM_REDIRECT_CACHE_CONTROL = `private, max-age=${RADIO_STATION_REVALIDATE_SECONDS}`
 
@@ -854,12 +866,9 @@ function parseRadioStationNetwork(body: unknown): RadioStationNetwork | null {
  * committed a 200, so it reaches the browser inside the document. The page keeps
  * its `redirect()` as the fallback for every request this lets through.
  *
- * The read is the page's own: the same URL and init with the same
- * `next.revalidate`, so the two resolve to one data-cache key and a station
- * cached by either is served to the other inside the window. Adding an init
- * option Next keys on (`redirect`, `method`, `headers`, ...) splits that entry
- * and doubles the backend reads. A GET rather than a HEAD probe, because the
- * answer needed is the network membership.
+ * The read is the page's own URL and init, so the two share one data-cache
+ * entry (see RADIO_STATION_REVALIDATE_SECONDS). A GET rather than a HEAD probe,
+ * because the answer needed is the network membership.
  *
  * Every answer that is not a sub-stream passes through, the failures included:
  * a 404 (the page renders its own not-found state), any other non-2xx, a body
@@ -881,18 +890,14 @@ async function radioSubStreamRedirect(
       await res.body?.cancel().catch(() => {})
       return NextResponse.next()
     }
-    const target = radioSubStreamRedirectPath(
+    const target = radioSubStreamChannelPath(
       slug,
       parseRadioStationNetwork(await res.json())
     )
     if (!target) {
       return NextResponse.next()
     }
-    const url = new URL(target, request.url)
-    url.search = request.nextUrl.search
-    const redirect = NextResponse.redirect(url, 308)
-    redirect.headers.set('Cache-Control', RADIO_SUBSTREAM_REDIRECT_CACHE_CONTROL)
-    return redirect
+    return permanentRedirect(request, target, RADIO_SUBSTREAM_REDIRECT_CACHE_CONTROL)
   } catch {
     return NextResponse.next()
   }
@@ -1187,7 +1192,8 @@ export const config = {
    * to the exact `/<entity>/<slug>` detail shape — bare `/<entity>` list pages
    * and `/<entity>/<slug>/<sub>` routes pass through untouched. Charts is an
    * allowlist check (no backend probe), not an `ENTITY_CHECKS` entry. Radio
-   * is not one either: it redirects sub-stream station URLs and never 404s.
+   * is not one either: it matches only `/radio/<slug>`, redirects sub-stream
+   * station URLs and never 404s.
    *
    * Each entry's `missing` excludes RSC prefetch requests (`next-router-
    * prefetch` / `purpose: prefetch` headers) so client-side route prefetches
@@ -1264,7 +1270,7 @@ export const config = {
       ],
     },
     {
-      source: '/radio/:path*',
+      source: '/radio/:slug',
       missing: [
         { type: 'header', key: 'next-router-prefetch' },
         { type: 'header', key: 'purpose', value: 'prefetch' },

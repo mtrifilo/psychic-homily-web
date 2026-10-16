@@ -5,7 +5,10 @@
  * for radio endpoints.
  */
 
-import { radioSubStreamRedirectPath } from '@/lib/seo/radioStationCanonical'
+import {
+  radioSubStreamChannelPath,
+  type RadioStationNetwork,
+} from '@/lib/seo/radioStationCanonical'
 
 // ============================================================================
 // Radio Station
@@ -85,12 +88,12 @@ export function sortDialStations<T extends { slug: string; name: string }>(
 
 // The canonical /radio detail URL for a station: /radio/{slug} for a
 // flagship or network-less station, the channel URL for a sub-stream (see
-// radioSubStreamRedirectPath, which the station page and proxy.ts also use).
+// radioSubStreamChannelPath, which the station page and proxy.ts also use).
 export function getStationDetailUrl(
   slug: string,
-  network: { slug: string; is_flagship: boolean } | null
+  network: RadioStationNetwork | null
 ): string {
-  return radioSubStreamRedirectPath(slug, network) ?? `/radio/${slug}`
+  return radioSubStreamChannelPath(slug, network) ?? `/radio/${slug}`
 }
 
 export interface RadioStationDetail {
