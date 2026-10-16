@@ -1,13 +1,19 @@
 package user
 
 import (
+	"errors"
+	"fmt"
+	"strings"
 	"sync"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgconn"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 
+	apperrors "psychic-homily-backend/internal/errors"
 	authm "psychic-homily-backend/internal/models/auth"
+	"psychic-homily-backend/internal/testutil"
 )
 
 // serviceThatSoftDeletesBeforeItsFirstUpdate returns a UserService whose first
@@ -133,4 +139,87 @@ func (suite *UserServiceIntegrationTestSuite) TestIncrementFailedAttempts_Concur
 	got := suite.reloadAccount(user.ID)
 	suite.Equal(workers*perWorker, got.FailedLoginAttempts)
 	suite.NotNil(got.LockedUntil)
+}
+
+func (suite *UserServiceIntegrationTestSuite) TestIncrementFailedAttempts_DatabaseErrorIsReturnedWrapped() {
+	user := suite.createLiveAccount("lockout-db-error@example.com")
+	testutil.FailUpdates(suite.T(), suite.db, "users")
+
+	err := suite.userService.IncrementFailedAttempts(user.ID)
+
+	suite.Require().Error(err)
+	suite.True(strings.HasPrefix(err.Error(), "failed to increment failed attempts: "), err.Error())
+	var pgErr *pgconn.PgError
+	suite.Require().ErrorAs(err, &pgErr)
+	suite.Equal(testutil.FailedUpdateMessage, pgErr.Message)
+	got := suite.reloadAccount(user.ID)
+	suite.Zero(got.FailedLoginAttempts)
+	suite.Nil(got.LockedUntil)
+}
+
+func (suite *UserServiceIntegrationTestSuite) TestIncrementFailedAttempts_AdvancesUpdatedAt() {
+	user := suite.createLiveAccount("lockout-updated-at@example.com")
+	stale := time.Now().Add(-time.Hour)
+	suite.Require().NoError(suite.db.Model(&authm.User{}).Where("id = ?", user.ID).
+		UpdateColumn("updated_at", stale).Error)
+
+	before := time.Now()
+	suite.Require().NoError(suite.userService.IncrementFailedAttempts(user.ID))
+	after := time.Now()
+
+	got := suite.reloadAccount(user.ID)
+	// updated_at is stored at microsecond precision, below the nanosecond bound.
+	suite.False(got.UpdatedAt.Before(before.Truncate(time.Microsecond)))
+	suite.False(got.UpdatedAt.After(after))
+}
+
+// Under a parallel burst of wrong passwords, every request whose password is
+// checked is counted; once the lock is set, even the correct password is
+// refused.
+func (suite *UserServiceIntegrationTestSuite) TestAuthenticateUserWithPassword_ParallelWrongPasswordsAreAllCountedThenLock() {
+	const address, password = "lockout-parallel-burst@example.com", "CorrectPassword1!"
+	created, err := suite.userService.CreateUserWithPassword(address, password, "Burst", "User")
+	suite.Require().NoError(err)
+	const requests = 2 * MaxFailedLoginAttempts
+
+	start := make(chan struct{})
+	codes := make(chan string, requests)
+	var wg sync.WaitGroup
+	for range requests {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			<-start
+			_, err := suite.userService.AuthenticateUserWithPassword(address, "WrongPassword1!")
+			var authErr *apperrors.AuthError
+			if errors.As(err, &authErr) {
+				codes <- authErr.Code
+				return
+			}
+			codes <- fmt.Sprintf("unexpected: %v", err)
+		}()
+	}
+	close(start)
+	wg.Wait()
+	close(codes)
+
+	checked, refused := 0, 0
+	for code := range codes {
+		switch code {
+		case apperrors.CodeInvalidCredentials:
+			checked++
+		case apperrors.CodeAccountLocked:
+			refused++
+		default:
+			suite.Failf("unexpected outcome", "%s", code)
+		}
+	}
+	suite.Equal(requests, checked+refused)
+	suite.GreaterOrEqual(checked, MaxFailedLoginAttempts)
+	suite.Equal(checked, suite.reloadAccount(created.ID).FailedLoginAttempts)
+
+	_, err = suite.userService.AuthenticateUserWithPassword(address, password)
+	var authErr *apperrors.AuthError
+	suite.Require().ErrorAs(err, &authErr)
+	suite.Equal(apperrors.CodeAccountLocked, authErr.Code)
 }
