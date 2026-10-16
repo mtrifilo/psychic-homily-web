@@ -8,8 +8,7 @@ import {
 
 // Create mocks
 const mockApiRequest = vi.fn()
-const mockInvalidateOwnContributor = vi.fn()
-const mockInvalidateContributor = vi.fn()
+const mockRefetchContributor = vi.fn()
 
 // Mock the api module
 vi.mock('@/lib/api', () => ({
@@ -38,6 +37,7 @@ vi.mock('@/lib/api', () => ({
 vi.mock('@/lib/queryClient', () => ({
   queryKeys: {
     contributor: {
+      all: ['contributor'],
       profile: (username: string) => ['contributor', 'profile', username],
       ownProfile: ['contributor', 'ownProfile'],
       advancement: ['contributor', 'advancement'],
@@ -48,10 +48,11 @@ vi.mock('@/lib/queryClient', () => ({
       rankings: (username: string) => ['contributor', 'rankings', username],
     },
   },
-  createInvalidateQueries: () => ({
-    ownContributor: mockInvalidateOwnContributor,
-    contributor: mockInvalidateContributor,
-  }),
+}))
+
+vi.mock('@/lib/refetchAfterMutation', () => ({
+  refetchAfterMutation: (_queryClient: unknown, ...keys: unknown[]) =>
+    mockRefetchContributor(...keys),
 }))
 
 // Import hooks after mocks are set up
@@ -612,8 +613,7 @@ describe('useUpdateVisibility', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mockApiRequest.mockReset()
-    mockInvalidateOwnContributor.mockReset()
-    mockInvalidateContributor.mockReset()
+    mockRefetchContributor.mockReset()
   })
 
   it('updates profile visibility and invalidates queries', async () => {
@@ -637,8 +637,7 @@ describe('useUpdateVisibility', () => {
       method: 'PATCH',
       body: JSON.stringify({ visibility: 'private' }),
     })
-    expect(mockInvalidateOwnContributor).toHaveBeenCalled()
-    expect(mockInvalidateContributor).toHaveBeenCalled()
+    expect(mockRefetchContributor).toHaveBeenCalledExactlyOnceWith(['contributor'])
   })
 
   it('handles update errors', async () => {
@@ -658,8 +657,7 @@ describe('useUpdateVisibility', () => {
       }
     })
 
-    expect(mockInvalidateOwnContributor).not.toHaveBeenCalled()
-    expect(mockInvalidateContributor).not.toHaveBeenCalled()
+    expect(mockRefetchContributor).not.toHaveBeenCalled()
   })
 })
 
@@ -667,8 +665,7 @@ describe('useUpdatePrivacy', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mockApiRequest.mockReset()
-    mockInvalidateOwnContributor.mockReset()
-    mockInvalidateContributor.mockReset()
+    mockRefetchContributor.mockReset()
   })
 
   it('updates privacy settings and invalidates queries', async () => {
@@ -705,8 +702,7 @@ describe('useUpdatePrivacy', () => {
       method: 'PATCH',
       body: JSON.stringify(privacyInput),
     })
-    expect(mockInvalidateOwnContributor).toHaveBeenCalled()
-    expect(mockInvalidateContributor).toHaveBeenCalled()
+    expect(mockRefetchContributor).toHaveBeenCalledExactlyOnceWith(['contributor'])
   })
 })
 
@@ -714,8 +710,7 @@ describe('useCreateSection', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mockApiRequest.mockReset()
-    mockInvalidateOwnContributor.mockReset()
-    mockInvalidateContributor.mockReset()
+    mockRefetchContributor.mockReset()
   })
 
   it('creates a new section and invalidates queries', async () => {
@@ -748,8 +743,7 @@ describe('useCreateSection', () => {
       method: 'POST',
       body: JSON.stringify(input),
     })
-    expect(mockInvalidateOwnContributor).toHaveBeenCalled()
-    expect(mockInvalidateContributor).toHaveBeenCalled()
+    expect(mockRefetchContributor).toHaveBeenCalledExactlyOnceWith(['contributor'])
   })
 
   it('handles creation errors', async () => {
@@ -773,7 +767,7 @@ describe('useCreateSection', () => {
       }
     })
 
-    expect(mockInvalidateOwnContributor).not.toHaveBeenCalled()
+    expect(mockRefetchContributor).not.toHaveBeenCalled()
   })
 })
 
@@ -781,8 +775,7 @@ describe('useUpdateSection', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mockApiRequest.mockReset()
-    mockInvalidateOwnContributor.mockReset()
-    mockInvalidateContributor.mockReset()
+    mockRefetchContributor.mockReset()
   })
 
   it('updates a section and invalidates queries', async () => {
@@ -812,8 +805,7 @@ describe('useUpdateSection', () => {
       method: 'PUT',
       body: JSON.stringify({ title: 'Updated Title', content: 'Updated content' }),
     })
-    expect(mockInvalidateOwnContributor).toHaveBeenCalled()
-    expect(mockInvalidateContributor).toHaveBeenCalled()
+    expect(mockRefetchContributor).toHaveBeenCalledExactlyOnceWith(['contributor'])
   })
 
   it('handles section not found error', async () => {
@@ -836,7 +828,7 @@ describe('useUpdateSection', () => {
       }
     })
 
-    expect(mockInvalidateOwnContributor).not.toHaveBeenCalled()
+    expect(mockRefetchContributor).not.toHaveBeenCalled()
   })
 })
 
@@ -844,8 +836,7 @@ describe('useDeleteSection', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mockApiRequest.mockReset()
-    mockInvalidateOwnContributor.mockReset()
-    mockInvalidateContributor.mockReset()
+    mockRefetchContributor.mockReset()
   })
 
   it('deletes a section and invalidates queries', async () => {
@@ -862,8 +853,7 @@ describe('useDeleteSection', () => {
     expect(mockApiRequest).toHaveBeenCalledWith('/auth/profile/sections/5', {
       method: 'DELETE',
     })
-    expect(mockInvalidateOwnContributor).toHaveBeenCalled()
-    expect(mockInvalidateContributor).toHaveBeenCalled()
+    expect(mockRefetchContributor).toHaveBeenCalledExactlyOnceWith(['contributor'])
   })
 
   it('handles deletion errors', async () => {
@@ -883,6 +873,6 @@ describe('useDeleteSection', () => {
       }
     })
 
-    expect(mockInvalidateOwnContributor).not.toHaveBeenCalled()
+    expect(mockRefetchContributor).not.toHaveBeenCalled()
   })
 })
