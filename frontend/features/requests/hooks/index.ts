@@ -97,12 +97,8 @@ export function useUpdateRequest() {
         method: 'PUT',
         body: JSON.stringify(data),
       }),
-    onSuccess: (_data, variables) => {
-      void refetchAfterMutation(
-        queryClient,
-        queryKeys.requests.all,
-        queryKeys.requests.detail(variables.requestId)
-      )
+    onSuccess: () => {
+      void refetchAfterMutation(queryClient, queryKeys.requests.all)
     },
   })
 }
@@ -195,12 +191,8 @@ export function useVoteRequest() {
         )
       }
     },
-    onSettled: (_data, _error, variables) => {
-      void refetchAfterMutation(
-        queryClient,
-        queryKeys.requests.detail(variables.requestId),
-        queryKeys.requests.all
-      )
+    onSettled: () => {
+      void refetchAfterMutation(queryClient, queryKeys.requests.all)
     },
   })
 }
@@ -252,12 +244,8 @@ export function useRemoveVoteRequest() {
         )
       }
     },
-    onSettled: (_data, _error, variables) => {
-      void refetchAfterMutation(
-        queryClient,
-        queryKeys.requests.detail(variables.requestId),
-        queryKeys.requests.all
-      )
+    onSettled: () => {
+      void refetchAfterMutation(queryClient, queryKeys.requests.all)
     },
   })
 }
@@ -277,12 +265,8 @@ export function useFulfillRequest() {
         method: 'POST',
         body: JSON.stringify({ fulfilled_entity_id }),
       }),
-    onSuccess: (_data, variables) => {
-      void refetchAfterMutation(
-        queryClient,
-        queryKeys.requests.all,
-        queryKeys.requests.detail(variables.requestId)
-      )
+    onSuccess: () => {
+      void refetchAfterMutation(queryClient, queryKeys.requests.all)
     },
   })
 }
@@ -299,12 +283,8 @@ export function useApproveFulfillment() {
       apiRequest<void>(API_ENDPOINTS.REQUESTS.APPROVE_FULFILLMENT(requestId), {
         method: 'POST',
       }),
-    onSuccess: (_data, variables) => {
-      void refetchAfterMutation(
-        queryClient,
-        queryKeys.requests.all,
-        queryKeys.requests.detail(variables.requestId)
-      )
+    onSuccess: () => {
+      void refetchAfterMutation(queryClient, queryKeys.requests.all)
     },
   })
 }
@@ -321,12 +301,8 @@ export function useRejectFulfillment() {
       apiRequest<void>(API_ENDPOINTS.REQUESTS.REJECT_FULFILLMENT(requestId), {
         method: 'POST',
       }),
-    onSuccess: (_data, variables) => {
-      void refetchAfterMutation(
-        queryClient,
-        queryKeys.requests.all,
-        queryKeys.requests.detail(variables.requestId)
-      )
+    onSuccess: () => {
+      void refetchAfterMutation(queryClient, queryKeys.requests.all)
     },
   })
 }
@@ -339,12 +315,8 @@ export function useCloseRequest() {
       apiRequest<Request>(API_ENDPOINTS.REQUESTS.CLOSE(requestId), {
         method: 'POST',
       }),
-    onSuccess: (_data, variables) => {
-      void refetchAfterMutation(
-        queryClient,
-        queryKeys.requests.all,
-        queryKeys.requests.detail(variables.requestId)
-      )
+    onSuccess: () => {
+      void refetchAfterMutation(queryClient, queryKeys.requests.all)
     },
   })
 }

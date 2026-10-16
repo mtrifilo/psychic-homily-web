@@ -34,6 +34,7 @@ import { labelQueryKeys } from '@/features/labels/api'
 import { festivalQueryKeys } from '@/features/festivals/api'
 import { radioQueryKeys } from '@/features/radio/api'
 import { chartQueryKeys } from '@/features/charts/api'
+import { refetchAfterMutation } from '@/lib/refetchAfterMutation'
 import { commentQueryKeys, fieldNoteQueryKeys } from '@/features/comments/api'
 
 // Default query options for all queries
@@ -1022,24 +1023,6 @@ export const createInvalidateQueries = (queryClient: QueryClient) => ({
   adminEntityRequests: () =>
     queryClient.invalidateQueries({ queryKey: ['admin', 'entityRequests'] }),
 
-  // Invalidate contributor profile queries
-  contributor: () =>
-    queryClient.invalidateQueries({ queryKey: ['contributor'] }),
-
-  // Invalidate own contributor profile queries
-  ownContributor: () =>
-    Promise.all([
-      queryClient.invalidateQueries({
-        queryKey: ['contributor', 'ownProfile'],
-      }),
-      queryClient.invalidateQueries({
-        queryKey: ['contributor', 'ownSections'],
-      }),
-      queryClient.invalidateQueries({
-        queryKey: ['contributor', 'ownContributions'],
-      }),
-    ]),
-
   // Invalidate collection queries
   collections: () =>
     queryClient.invalidateQueries({ queryKey: ['collections'] }),
@@ -1061,15 +1044,10 @@ export const createInvalidateQueries = (queryClient: QueryClient) => ({
 
   // Invalidate the authenticated user's /charts summary after a contributing
   // save/follow mutation. Public chart modules use sibling keys and stay cached.
-  personalCharts: async () => {
-    // A plain invalidation cannot restart an active query whose initial fetch
-    // is still pending. Cancel first so a mutation cannot be overwritten by a
-    // pre-mutation /charts/me snapshot that resolves afterward.
-    await queryClient.cancelQueries({ queryKey: chartQueryKeys.personalRoot })
-    return queryClient.invalidateQueries({
-      queryKey: chartQueryKeys.personalRoot,
-    })
-  },
+  // It cancels first so a pre-mutation /charts/me snapshot still in flight
+  // cannot overwrite the mutation's effect.
+  personalCharts: () =>
+    refetchAfterMutation(queryClient, chartQueryKeys.personalRoot),
 
   // Invalidate scene queries
   scenes: () => queryClient.invalidateQueries({ queryKey: ['scenes'] }),

@@ -262,11 +262,7 @@ export function useCreateCollection() {
         body: JSON.stringify(data),
       }),
     onSuccess: () => {
-      void refetchAfterMutation(
-        queryClient,
-        queryKeys.collections.all,
-        queryKeys.collections.my
-      )
+      void refetchAfterMutation(queryClient, queryKeys.collections.all)
     },
   })
 }
@@ -296,13 +292,8 @@ export function useUpdateCollection() {
         method: 'PUT',
         body: JSON.stringify(data),
       }),
-    onSuccess: (_data, variables) => {
-      void refetchAfterMutation(
-        queryClient,
-        queryKeys.collections.all,
-        queryKeys.collections.detail(variables.slug),
-        queryKeys.collections.my
-      )
+    onSuccess: () => {
+      void refetchAfterMutation(queryClient, queryKeys.collections.all)
     },
   })
 }
@@ -321,16 +312,10 @@ export function useCloneCollection() {
       apiRequest<CollectionDetail>(API_ENDPOINTS.COLLECTIONS.CLONE(slug), {
         method: 'POST',
       }),
-    onSuccess: (newCollection, variables) => {
-      // The original collection's `forks_count` just incremented; the
-      // user's collection list gained an entry. Source detail (if cached)
-      // needs the bumped forks_count.
-      void refetchAfterMutation(
-        queryClient,
-        queryKeys.collections.all,
-        queryKeys.collections.my,
-        queryKeys.collections.detail(variables.slug)
-      )
+    onSuccess: newCollection => {
+      // The source collection's `forks_count` just incremented and the
+      // user's collection list gained an entry; the family root covers both.
+      void refetchAfterMutation(queryClient, queryKeys.collections.all)
       // Pre-warm the new collection in cache so navigation is instant.
       queryClient.setQueryData(
         queryKeys.collections.detail(newCollection.slug),
@@ -349,11 +334,7 @@ export function useDeleteCollection() {
         method: 'DELETE',
       }),
     onSuccess: () => {
-      void refetchAfterMutation(
-        queryClient,
-        queryKeys.collections.all,
-        queryKeys.collections.my
-      )
+      void refetchAfterMutation(queryClient, queryKeys.collections.all)
     },
   })
 }
@@ -830,14 +811,10 @@ export function useAddCollectionTag() {
         method: 'POST',
         body: JSON.stringify({ tag_id, tag_name, category }),
       }),
-    onSuccess: (_data, variables) => {
-      // Browse cards display tag chips too — invalidate the public + my
-      // lists so the next view reflects the new tag.
-      void refetchAfterMutation(
-        queryClient,
-        queryKeys.collections.detail(variables.slug),
-        queryKeys.collections.all
-      )
+    onSuccess: () => {
+      // The family root covers the detail and the browse cards, which display
+      // tag chips too.
+      void refetchAfterMutation(queryClient, queryKeys.collections.all)
     },
   })
 }
@@ -857,12 +834,8 @@ export function useRemoveCollectionTag() {
       apiRequest<void>(API_ENDPOINTS.COLLECTIONS.TAG(slug, tagId), {
         method: 'DELETE',
       }),
-    onSuccess: (_data, variables) => {
-      void refetchAfterMutation(
-        queryClient,
-        queryKeys.collections.detail(variables.slug),
-        queryKeys.collections.all
-      )
+    onSuccess: () => {
+      void refetchAfterMutation(queryClient, queryKeys.collections.all)
     },
   })
 }

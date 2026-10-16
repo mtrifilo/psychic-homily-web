@@ -7,7 +7,7 @@ import {
   deferred,
   routeGets,
 } from '@/test/inflightOrdering'
-import { makeComment } from '../hooks/inflightOrdering.fixtures'
+import { makeComment } from '../hooks/commentFixtures'
 import type { CommentListResponse } from '../types'
 
 const mockApiRequest = vi.fn()

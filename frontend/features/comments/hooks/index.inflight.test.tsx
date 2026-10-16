@@ -13,7 +13,7 @@ import {
   useFieldNotes,
   useReplyToComment,
 } from './index'
-import { makeComment } from './inflightOrdering.fixtures'
+import { makeComment } from './commentFixtures'
 import type { Comment, CommentListResponse } from '../types'
 
 const mockApiRequest = vi.fn()
