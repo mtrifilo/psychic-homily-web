@@ -26,11 +26,34 @@ function lintBlock(): { files: string[]; ignores: string[] } {
   return { files: list('files'), ignores: list('ignores') }
 }
 
+/**
+ * The subset of ESLint's glob syntax the block uses: `**` spans directories
+ * and `*` stays within one. Anything else throws, so a pattern this cannot
+ * read fails the test instead of matching nothing.
+ */
+function globMatcher(glob: string): (file: string) => boolean {
+  if (/[?[\]{}!]/.test(glob)) throw new Error(`unsupported glob syntax: ${glob}`)
+  const escape = (s: string) => s.replace(/[.+^$()|\\]/g, '\\$&')
+  const source = glob
+    .split('**/')
+    .map(part =>
+      part
+        .split('**')
+        .map(segment => segment.split('*').map(escape).join('[^/]*'))
+        .join('.*')
+    )
+    .join('(?:.*/)?')
+  const pattern = new RegExp(`^${source}$`)
+  return file => pattern.test(file.split(path.sep).join('/'))
+}
+
 const { files, ignores } = lintBlock()
+const fileMatchers = files.map(globMatcher)
+const ignoreMatchers = ignores.map(globMatcher)
 
 const covered = (file: string) =>
-  files.some(pattern => path.matchesGlob(file, pattern)) &&
-  !ignores.some(pattern => path.matchesGlob(file, pattern))
+  fileMatchers.some(matches => matches(file)) &&
+  !ignoreMatchers.some(matches => matches(file))
 
 const sourceFiles = ['app', 'components', 'features', 'lib']
   .flatMap(dir =>
@@ -43,12 +66,9 @@ const sourceFiles = ['app', 'components', 'features', 'lib']
 describe('the refetchAfterMutation lint block', () => {
   it('names only files and globs that match a source file', () => {
     expect(files.length).toBeGreaterThan(0)
-    for (const pattern of files) {
-      expect(
-        sourceFiles.some(file => path.matchesGlob(file, pattern)),
-        pattern
-      ).toBe(true)
-    }
+    files.forEach((pattern, i) => {
+      expect(sourceFiles.some(fileMatchers[i]), pattern).toBe(true)
+    })
   })
 
   it('covers every file that refetches: through the helper, the factory, or a bare call', () => {
