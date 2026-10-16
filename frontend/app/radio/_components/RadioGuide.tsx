@@ -5,7 +5,19 @@ import {
   formatLocalTimeRange,
   formatTimeRangeInZone,
 } from '@/features/radio/lib/stationOverview'
-import type { RadioGuideRow } from '@/features/radio/types'
+import {
+  getStationDetailUrl,
+  type RadioGuideRow,
+  type RadioNetworkInfo,
+} from '@/features/radio/types'
+
+/**
+ * Network membership by station slug. Guide rows carry no network, so a
+ * station link resolves its canonical URL (a sub-stream's channel URL)
+ * against this map; a slug missing from it links `/radio/{slug}`, which the
+ * station page redirects to the canonical URL.
+ */
+export type StationNetworksBySlug = ReadonlyMap<string, RadioNetworkInfo | null>
 
 /**
  * ON NOW / UP NEXT guide rows on the /radio hub (PSY-1053 — the Option B
@@ -26,9 +38,11 @@ import type { RadioGuideRow } from '@/features/radio/types'
 export function RadioGuide({
   onNow,
   upNext,
+  stationNetworks,
 }: {
   onNow: RadioGuideRow[] | null | undefined
   upNext: RadioGuideRow[] | null | undefined
+  stationNetworks: StationNetworksBySlug
 }) {
   const onNowRows = onNow ?? []
   const upNextRows = upNext ?? []
@@ -37,8 +51,16 @@ export function RadioGuide({
   return (
     <section className="mb-10" aria-label="Program guide">
       <div className="grid gap-x-10 gap-y-4 sm:grid-cols-2">
-        <GuideGroup label="On now" rows={onNowRows} />
-        <GuideGroup label="Up next" rows={upNextRows} />
+        <GuideGroup
+          label="On now"
+          rows={onNowRows}
+          stationNetworks={stationNetworks}
+        />
+        <GuideGroup
+          label="Up next"
+          rows={upNextRows}
+          stationNetworks={stationNetworks}
+        />
       </div>
       <p className="mt-3 font-mono text-[11px] text-muted-foreground/70">
         Scheduled programming only — unscheduled streams appear in the feed
@@ -48,7 +70,15 @@ export function RadioGuide({
   )
 }
 
-function GuideGroup({ label, rows }: { label: string; rows: RadioGuideRow[] }) {
+function GuideGroup({
+  label,
+  rows,
+  stationNetworks,
+}: {
+  label: string
+  rows: RadioGuideRow[]
+  stationNetworks: StationNetworksBySlug
+}) {
   if (rows.length === 0) return null
   return (
     <div>
@@ -57,14 +87,24 @@ function GuideGroup({ label, rows }: { label: string; rows: RadioGuideRow[] }) {
       </h3>
       <ul className="flex flex-col gap-1.5">
         {rows.map(row => (
-          <GuideRow key={`${row.station.slug}-${row.show.slug}-${row.starts_at}`} row={row} />
+          <GuideRow
+            key={`${row.station.slug}-${row.show.slug}-${row.starts_at}`}
+            row={row}
+            stationNetworks={stationNetworks}
+          />
         ))}
       </ul>
     </div>
   )
 }
 
-function GuideRow({ row }: { row: RadioGuideRow }) {
+function GuideRow({
+  row,
+  stationNetworks,
+}: {
+  row: RadioGuideRow
+  stationNetworks: StationNetworksBySlug
+}) {
   const local = formatLocalTimeRange(row.starts_at, row.ends_at)
   // The UP NEXT horizon is 24h, so a row can start past viewer-local
   // midnight — a bare "3–6 PM" would read as today and send the viewer to
@@ -93,7 +133,13 @@ function GuideRow({ row }: { row: RadioGuideRow }) {
         <span className="text-muted-foreground"> · {row.show.host_name}</span>
       )}
       <span className="block font-mono text-xs text-muted-foreground">
-        <Link href={`/radio/${row.station.slug}`} className="hover:underline">
+        <Link
+          href={getStationDetailUrl(
+            row.station.slug,
+            stationNetworks.get(row.station.slug) ?? null
+          )}
+          className="hover:underline"
+        >
           {row.station.name}
         </Link>
         {local && (
