@@ -42,6 +42,23 @@ async function expectLandedBelowTopBar(page: Page, sectionId: string) {
     .toBe(true)
 }
 
+/**
+ * On the profile's Settings tab with its own Alerts card focused and in view:
+ * the card, not the hub's hidden section that carries the same id.
+ */
+async function expectOnProfileAlertsCard(page: Page) {
+  await expect(page).toHaveURL(/\/profile\?tab=settings#alerts$/, {
+    timeout: CLIENT_NAVIGATION_TIMEOUT_MS,
+  })
+  await expect(page.getByRole('tab', { name: 'Settings' })).toHaveAttribute(
+    'data-state',
+    'active'
+  )
+  const alertsCard = page.getByRole('tabpanel').locator('[id="alerts"]')
+  await expect(alertsCard).toBeFocused()
+  await expect(alertsCard).toBeInViewport()
+}
+
 test.describe('/settings hub', () => {
   // The link rows reach /profile by client navigation.
   test.beforeAll(async ({ browser }, testInfo) => {
@@ -213,17 +230,33 @@ test.describe('/settings hub', () => {
     await alerts
       .getByRole('link', { name: 'Manage in profile settings' })
       .click()
-    await expect(page).toHaveURL(/\/profile\?tab=settings#alerts$/, {
-      timeout: CLIENT_NAVIGATION_TIMEOUT_MS,
-    })
-    await expect(page.getByRole('tab', { name: 'Settings' })).toHaveAttribute(
-      'data-state',
-      'active'
+    await expectOnProfileAlertsCard(page)
+  })
+
+  // Every artist and venue show-alert email links /settings/notifications as
+  // its "manage" CTA. A config redirect answers it, so the reader's browser
+  // follows a real 307 and cold-loads the Alerts card with its fragment.
+  test('the alert-email manage link lands on the Alerts card', async ({
+    authenticatedPage: page,
+    request,
+  }) => {
+    const redirect = await request.get(
+      '/settings/notifications?utm_source=email',
+      { maxRedirects: 0 }
     )
-    // The profile's own alerts card, not the hub's hidden section that
-    // carries the same id.
-    const alertsCard = page.getByRole('tabpanel').locator('[id="alerts"]')
-    await expect(alertsCard).toBeFocused()
-    await expect(alertsCard).toBeInViewport()
+    expect(
+      redirect.status(),
+      '/settings/notifications must answer the redirect itself, not a 200 page'
+    ).toBe(307)
+    const location = new URL(redirect.headers()['location'], 'http://origin')
+    expect(location.pathname).toBe('/profile')
+    expect(location.searchParams.get('tab')).toBe('settings')
+    expect(location.searchParams.get('utm_source')).toBe('email')
+    expect(location.hash).toBe('#alerts')
+
+    await page.setViewportSize({ width: 1440, height: 900 })
+    const response = await page.goto('/settings/notifications')
+    expect(response?.status()).toBe(200)
+    await expectOnProfileAlertsCard(page)
   })
 })
