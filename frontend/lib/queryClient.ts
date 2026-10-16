@@ -953,40 +953,24 @@ export const createInvalidateQueries = (queryClient: QueryClient) => ({
     // eslint-disable-next-line no-restricted-syntax -- the auth family holds the profile, whose fetchStatus the cache error handlers read (profileAlreadyKnowsAnonymous), and a cancel would revert it underneath them
     queryClient.invalidateQueries({ queryKey: ['auth'] }),
 
-  shows: () => refetchAfterMutation(queryClient, ['shows']),
+  shows: () => refetchAfterMutation(queryClient, queryKeys.shows.all),
 
-  // Gig timelines are derived from show dates, venues and bills, and a change
-  // to ONE show reorders the spines of every show it neighbours. Those are
-  // cached under their own ids, so the whole prefix goes rather than this id's
-  // entry alone.
-  show: (id: string) =>
-    refetchAfterMutation(
-      queryClient,
-      ['shows', 'detail', id],
-      ['shows', 'timeline']
-    ),
+  artists: () => refetchAfterMutation(queryClient, queryKeys.artists.all),
 
-  artists: () => refetchAfterMutation(queryClient, ['artists']),
+  releases: () => refetchAfterMutation(queryClient, queryKeys.releases.all),
 
-  releases: () => refetchAfterMutation(queryClient, ['releases']),
+  labels: () => refetchAfterMutation(queryClient, queryKeys.labels.all),
 
-  labels: () => refetchAfterMutation(queryClient, ['labels']),
+  festivals: () => refetchAfterMutation(queryClient, queryKeys.festivals.all),
 
-  festivals: () => refetchAfterMutation(queryClient, ['festivals']),
+  venues: () => refetchAfterMutation(queryClient, queryKeys.venues.all),
 
-  venues: () => refetchAfterMutation(queryClient, ['venues']),
+  calendar: () => refetchAfterMutation(queryClient, queryKeys.calendar.all),
 
-  calendar: () => refetchAfterMutation(queryClient, ['calendar']),
+  savedShows: () => refetchAfterMutation(queryClient, queryKeys.savedShows.all),
 
-  savedShows: () => refetchAfterMutation(queryClient, ['savedShows']),
-
-  mySubmissions: () => refetchAfterMutation(queryClient, ['mySubmissions']),
-
-  showReports: () => refetchAfterMutation(queryClient, ['showReports']),
-
-  auditLogs: () => refetchAfterMutation(queryClient, ['admin', 'auditLogs']),
-
-  adminUsers: () => refetchAfterMutation(queryClient, ['admin', 'users']),
+  showReports: () =>
+    refetchAfterMutation(queryClient, queryKeys.showReports.all),
 
   adminPendingEdits: () =>
     refetchAfterMutation(queryClient, ['admin', 'pendingEdits']),
@@ -998,31 +982,11 @@ export const createInvalidateQueries = (queryClient: QueryClient) => ({
   adminEntityRequests: () =>
     refetchAfterMutation(queryClient, ['admin', 'entityRequests']),
 
-  collections: () => refetchAfterMutation(queryClient, ['collections']),
-
-  requests: () => refetchAfterMutation(queryClient, ['requests']),
-
-  tags: () => refetchAfterMutation(queryClient, ['tags']),
-
-  entityTags: (entityType: string, entityId: number) =>
-    refetchAfterMutation(queryClient, [
-      'tags',
-      'entityTags',
-      entityType,
-      entityId,
-    ]),
-
-  follows: () => refetchAfterMutation(queryClient, ['follows']),
+  collections: () =>
+    refetchAfterMutation(queryClient, queryKeys.collections.all),
 
   // The authenticated user's /charts summary, after a contributing save or
   // follow. Public chart modules use sibling keys and stay cached.
   personalCharts: () =>
     refetchAfterMutation(queryClient, chartQueryKeys.personalRoot),
-
-  scenes: () => refetchAfterMutation(queryClient, ['scenes']),
-
-  revisions: () => refetchAfterMutation(queryClient, ['revisions']),
-
-  notificationFilters: () =>
-    refetchAfterMutation(queryClient, ['notificationFilters']),
 })

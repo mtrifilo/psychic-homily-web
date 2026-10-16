@@ -25,40 +25,35 @@ function lintBlock(): { files: string[]; ignores: string[] } {
   return { files: list('files'), ignores: list('ignores') }
 }
 
-const isGlob = (pattern: string) => pattern.includes('*')
+const { files, ignores } = lintBlock()
 
-function covered(file: string): boolean {
-  const { files, ignores } = lintBlock()
-  return (
-    files.some(pattern => path.matchesGlob(file, pattern)) &&
-    !ignores.some(pattern => path.matchesGlob(file, pattern))
+const covered = (file: string) =>
+  files.some(pattern => path.matchesGlob(file, pattern)) &&
+  !ignores.some(pattern => path.matchesGlob(file, pattern))
+
+const sourceFiles = ['app', 'components', 'features', 'lib']
+  .flatMap(dir =>
+    fs
+      .readdirSync(path.join(FRONTEND, dir), { recursive: true, encoding: 'utf8' })
+      .map(f => path.join(dir, f))
   )
-}
-
-function sourceFiles(): string[] {
-  return ['app', 'components', 'features', 'lib']
-    .flatMap(dir =>
-      fs
-        .readdirSync(path.join(FRONTEND, dir), { recursive: true, encoding: 'utf8' })
-        .map(f => path.join(dir, f))
-    )
-    .filter(f => /\.tsx?$/.test(f) && !/\.test\.tsx?$/.test(f))
-}
+  .filter(f => /\.tsx?$/.test(f) && !/\.test\.tsx?$/.test(f))
 
 describe('the refetchAfterMutation lint block', () => {
-  it('names only files that exist, and globs rooted in directories that exist', () => {
-    const { files } = lintBlock()
+  it('names only files and globs that match a source file', () => {
     expect(files.length).toBeGreaterThan(0)
     for (const pattern of files) {
-      const root = isGlob(pattern) ? pattern.slice(0, pattern.indexOf('*')) : pattern
-      expect(fs.existsSync(path.join(FRONTEND, root)), pattern).toBe(true)
+      expect(
+        sourceFiles.some(file => path.matchesGlob(file, pattern)),
+        pattern
+      ).toBe(true)
     }
   })
 
   it('covers every file that refetches through the helper or the factory', () => {
     const refetches =
       /from\s+['"]@\/lib\/refetchAfterMutation['"]|createInvalidateQueries\(/
-    const adopters = sourceFiles().filter(
+    const adopters = sourceFiles.filter(
       file =>
         file !== path.join('lib', 'refetchAfterMutation.ts') &&
         refetches.test(fs.readFileSync(path.join(FRONTEND, file), 'utf8'))

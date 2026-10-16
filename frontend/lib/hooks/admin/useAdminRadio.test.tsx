@@ -224,7 +224,7 @@ describe('useUpdateRadioStation', () => {
     const queryClient = new QueryClient({
       defaultOptions: { queries: { retry: false } },
     })
-    const detailKey = ['radio', 'stations', 42]
+    const detailKey = radioQueryKeys.stationDetail(42)
     queryClient.setQueryData(detailKey, { id: 42, name: 'KEXP' })
     const invalidateSpy = vi.spyOn(queryClient, 'invalidateQueries')
 

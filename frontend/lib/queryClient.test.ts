@@ -97,64 +97,26 @@ describe('queryClient module', () => {
     type Factory = ReturnType<
       typeof import('./queryClient').createInvalidateQueries
     >
-    type Entry = keyof Factory
 
-    // What each entry refetches, by its call. `auth` is left out: it stays a
-    // plain invalidate and has its own test below.
-    const routed: Array<[Entry, (f: Factory) => unknown, unknown[][]]> = [
-      ['shows', f => f.shows(), [['shows']]],
-      [
-        'show',
-        f => f.show('show-789'),
-        [
-          ['shows', 'detail', 'show-789'],
-          ['shows', 'timeline'],
-        ],
-      ],
-      ['artists', f => f.artists(), [['artists']]],
-      ['releases', f => f.releases(), [['releases']]],
-      ['labels', f => f.labels(), [['labels']]],
-      ['festivals', f => f.festivals(), [['festivals']]],
-      ['venues', f => f.venues(), [['venues']]],
-      ['calendar', f => f.calendar(), [['calendar']]],
-      ['savedShows', f => f.savedShows(), [['savedShows']]],
-      ['mySubmissions', f => f.mySubmissions(), [['mySubmissions']]],
-      ['showReports', f => f.showReports(), [['showReports']]],
-      ['auditLogs', f => f.auditLogs(), [['admin', 'auditLogs']]],
-      ['adminUsers', f => f.adminUsers(), [['admin', 'users']]],
-      [
-        'adminPendingEdits',
-        f => f.adminPendingEdits(),
-        [['admin', 'pendingEdits']],
-      ],
-      [
-        'adminEntityReports',
-        f => f.adminEntityReports(),
-        [['admin', 'entityReports']],
-      ],
-      [
-        'adminEntityRequests',
-        f => f.adminEntityRequests(),
-        [['admin', 'entityRequests']],
-      ],
-      ['collections', f => f.collections(), [['collections']]],
-      ['requests', f => f.requests(), [['requests']]],
-      ['tags', f => f.tags(), [['tags']]],
-      [
-        'entityTags',
-        f => f.entityTags('artist', 7),
-        [['tags', 'entityTags', 'artist', 7]],
-      ],
-      ['follows', f => f.follows(), [['follows']]],
-      ['personalCharts', f => f.personalCharts(), [['charts', 'personal']]],
-      ['scenes', f => f.scenes(), [['scenes']]],
-      ['revisions', f => f.revisions(), [['revisions']]],
-      [
-        'notificationFilters',
-        f => f.notificationFilters(),
-        [['notificationFilters']],
-      ],
-    ]
+    // What each entry refetches. `auth` stays a plain invalidate and has its
+    // own test below; the `satisfies` makes a new entry without a row a type
+    // error.
+    const routed = {
+      shows: [['shows']],
+      artists: [['artists']],
+      releases: [['releases']],
+      labels: [['labels']],
+      festivals: [['festivals']],
+      venues: [['venues']],
+      calendar: [['calendar']],
+      savedShows: [['savedShows']],
+      showReports: [['showReports']],
+      adminPendingEdits: [['admin', 'pendingEdits']],
+      adminEntityReports: [['admin', 'entityReports']],
+      adminEntityRequests: [['admin', 'entityRequests']],
+      collections: [['collections']],
+      personalCharts: [['charts', 'personal']],
+    } satisfies Record<Exclude<keyof Factory, 'auth'>, unknown[][]>
 
     function spiedClient() {
       const client = new QueryClient()
@@ -168,21 +130,13 @@ describe('queryClient module', () => {
     const keysOf = (spy: { mock: { calls: unknown[][] } }) =>
       spy.mock.calls.map(([filters]) => (filters as { queryKey: unknown[] }).queryKey)
 
-    it('has a row for every entry', async () => {
-      const { createInvalidateQueries } = await import('./queryClient')
-      const entries = Object.keys(createInvalidateQueries(new QueryClient()))
-      expect(entries.sort()).toEqual(
-        ['auth', ...routed.map(([entry]) => entry)].sort()
-      )
-    })
-
-    it.each(routed)(
+    it.each(Object.entries(routed) as [keyof typeof routed, unknown[][]][])(
       '%s cancels its keys before it invalidates them',
-      async (_entry, call, keys) => {
+      async (entry, keys) => {
         const { createInvalidateQueries } = await import('./queryClient')
         const { client, cancel, invalidate } = spiedClient()
 
-        await call(createInvalidateQueries(client))
+        await createInvalidateQueries(client)[entry]()
 
         expect(keysOf(cancel)).toEqual(keys)
         expect(keysOf(invalidate)).toEqual(keys)

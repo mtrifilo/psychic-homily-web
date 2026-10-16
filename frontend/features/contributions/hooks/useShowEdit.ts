@@ -1,5 +1,6 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { apiRequest, API_BASE_URL } from '@/lib/api'
+import { queryKeys } from '@/lib/queryClient'
 import { refetchAfterMutation } from '@/lib/refetchAfterMutation'
 import type { FieldChange, SuggestEditResponse } from '../types'
 
@@ -57,7 +58,7 @@ export const useShowEdit = () => {
       }
     },
     onSuccess: () => {
-      void refetchAfterMutation(queryClient, ['shows'])
+      void refetchAfterMutation(queryClient, queryKeys.shows.all)
     },
   })
 }

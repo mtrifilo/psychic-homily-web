@@ -2,7 +2,7 @@
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { apiRequest, API_ENDPOINTS } from '../../api'
-import { createInvalidateQueries } from '../../queryClient'
+import { createInvalidateQueries, queryKeys } from '../../queryClient'
 import { refetchAfterMutation } from '@/lib/refetchAfterMutation'
 import type {
   ShowResponse,
@@ -97,7 +97,6 @@ export function useRejectedShows(options?: {
  */
 export function useApproveShow() {
   const queryClient = useQueryClient()
-  const invalidateQueries = createInvalidateQueries(queryClient)
 
   return useMutation({
     mutationFn: async ({
@@ -117,15 +116,15 @@ export function useApproveShow() {
       )
     },
     onSuccess: () => {
-      // The pending and rejected lists, and the dashboard counts
+      // The pending and rejected lists, the dashboard counts, and the public
+      // shows list, which now includes the approved show
       void refetchAfterMutation(
         queryClient,
         ['admin', 'shows', 'pending'],
         ['admin', 'shows', 'rejected'],
-        ['admin', 'stats']
+        queryKeys.admin.stats,
+        queryKeys.shows.all
       )
-      // The public shows list, which now includes the approved show
-      invalidateQueries.shows()
     },
   })
 }
@@ -158,7 +157,7 @@ export function useRejectShow() {
       void refetchAfterMutation(
         queryClient,
         ['admin', 'shows', 'pending'],
-        ['admin', 'stats']
+        queryKeys.admin.stats
       )
     },
   })
@@ -229,7 +228,6 @@ export function useSetShowCancelled() {
  */
 export function useBatchApproveShows() {
   const queryClient = useQueryClient()
-  const invalidateQueries = createInvalidateQueries(queryClient)
 
   return useMutation({
     mutationFn: async (showIds: number[]) => {
@@ -246,9 +244,9 @@ export function useBatchApproveShows() {
         queryClient,
         ['admin', 'shows', 'pending'],
         ['admin', 'shows', 'rejected'],
-        ['admin', 'stats']
+        queryKeys.admin.stats,
+        queryKeys.shows.all
       )
-      invalidateQueries.shows()
     },
   })
 }
@@ -285,7 +283,7 @@ export function useBatchRejectShows() {
       void refetchAfterMutation(
         queryClient,
         ['admin', 'shows', 'pending'],
-        ['admin', 'stats']
+        queryKeys.admin.stats
       )
     },
   })

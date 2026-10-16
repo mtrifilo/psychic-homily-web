@@ -4,7 +4,6 @@ import { createWrapper, createWrapperWithClient, createTestQueryClient } from '@
 
 // Create mocks
 const mockApiRequest = vi.fn()
-const mockInvalidateVenues = vi.fn()
 
 // Mock the api module
 vi.mock('../../api', () => ({
@@ -27,10 +26,8 @@ vi.mock('../../queryClient', () => ({
       unverifiedVenues: (limit: number, offset: number) =>
         ['admin', 'venues', 'unverified', { limit, offset }],
     },
+    venues: { all: ['venues'] },
   },
-  createInvalidateQueries: () => ({
-    venues: mockInvalidateVenues,
-  }),
 }))
 
 // Import hooks after mocks are set up
@@ -41,7 +38,6 @@ describe('useAdminVenues', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mockApiRequest.mockReset()
-    mockInvalidateVenues.mockReset()
   })
 
   describe('useUnverifiedVenues', () => {
@@ -137,7 +133,7 @@ describe('useAdminVenues', () => {
 
       await waitFor(() => expect(result.current.isSuccess).toBe(true))
 
-      expect(mockInvalidateVenues).toHaveBeenCalled()
+      expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['venues'] })
       expect(invalidateSpy).toHaveBeenCalledWith({
         queryKey: ['admin', 'shows', 'pending'],
       })

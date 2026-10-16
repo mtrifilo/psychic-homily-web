@@ -3,6 +3,7 @@ import { renderHook, act } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import type { ReactNode } from 'react'
 import type { RadioSyncRun } from '@/lib/hooks/admin/useAdminRadio'
+import { settleRefetch } from '@/test/mutationRefetchKeys'
 
 // useTrackedSyncRun is the load-bearing abstraction PSY-1136 added: it tracks a
 // triggered run, polls it, and invalidates the shows/stations/stats lists exactly
@@ -46,10 +47,6 @@ function makeRun(id: number, status: RadioSyncRun['status']): RadioSyncRun {
     updated_at: '2026-01-01T00:00:00Z',
   }
 }
-
-/** Lets refetchAfterMutation's cancel step settle so its invalidation lands. */
-const settleRefetch = () =>
-  act(() => new Promise(resolve => setTimeout(resolve, 0)))
 
 function setup() {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })

@@ -121,7 +121,6 @@ const eslintConfig = defineConfig([
     files: [
       "features/**/hooks/**",
       "lib/hooks/**",
-      "app/**/hooks/**",
       "lib/queryClient.ts",
       "app/admin/radio/_components/RadioManagement.tsx",
       "components/shared/AddToCollectionButton.tsx",
