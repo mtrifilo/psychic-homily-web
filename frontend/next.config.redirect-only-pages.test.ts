@@ -1,10 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { PHASE_DEVELOPMENT_SERVER } from 'next/constants'
 import nextConfigForPhase from './next.config'
-import {
-  ALERTS_HREF,
-  CUSTOM_ALERTS_HREF,
-} from './components/shared/followAlertChoices'
+import { ALERTS_HREF } from './components/shared/followAlertChoices'
 
 /**
  * `/explore` and `/settings/notifications` have no page: these rules are the
@@ -38,11 +35,5 @@ describe('the /settings/notifications redirect', () => {
         permanent: false,
       },
     ])
-  })
-
-  it('lands on the anchored matrix, not the Custom alerts builder', async () => {
-    const [rule] = await rulesFor('/settings/notifications')
-    expect(rule.destination).toMatch(/#alerts$/)
-    expect(rule.destination).not.toBe(CUSTOM_ALERTS_HREF)
   })
 })

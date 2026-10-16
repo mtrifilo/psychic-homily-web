@@ -42,6 +42,23 @@ async function expectLandedBelowTopBar(page: Page, sectionId: string) {
     .toBe(true)
 }
 
+/**
+ * On the profile's Settings tab with its own Alerts card focused and in view:
+ * the card, not the hub's hidden section that carries the same id.
+ */
+async function expectOnProfileAlertsCard(page: Page) {
+  await expect(page).toHaveURL(/\/profile\?tab=settings#alerts$/, {
+    timeout: CLIENT_NAVIGATION_TIMEOUT_MS,
+  })
+  await expect(page.getByRole('tab', { name: 'Settings' })).toHaveAttribute(
+    'data-state',
+    'active'
+  )
+  const alertsCard = page.getByRole('tabpanel').locator('[id="alerts"]')
+  await expect(alertsCard).toBeFocused()
+  await expect(alertsCard).toBeInViewport()
+}
+
 test.describe('/settings hub', () => {
   // The link rows reach /profile by client navigation.
   test.beforeAll(async ({ browser }, testInfo) => {
@@ -213,18 +230,7 @@ test.describe('/settings hub', () => {
     await alerts
       .getByRole('link', { name: 'Manage in profile settings' })
       .click()
-    await expect(page).toHaveURL(/\/profile\?tab=settings#alerts$/, {
-      timeout: CLIENT_NAVIGATION_TIMEOUT_MS,
-    })
-    await expect(page.getByRole('tab', { name: 'Settings' })).toHaveAttribute(
-      'data-state',
-      'active'
-    )
-    // The profile's own alerts card, not the hub's hidden section that
-    // carries the same id.
-    const alertsCard = page.getByRole('tabpanel').locator('[id="alerts"]')
-    await expect(alertsCard).toBeFocused()
-    await expect(alertsCard).toBeInViewport()
+    await expectOnProfileAlertsCard(page)
   })
 
   // Every artist and venue show-alert email links /settings/notifications as
@@ -251,13 +257,6 @@ test.describe('/settings hub', () => {
     await page.setViewportSize({ width: 1440, height: 900 })
     const response = await page.goto('/settings/notifications')
     expect(response?.status()).toBe(200)
-    await expect(page).toHaveURL(/\/profile\?tab=settings#alerts$/)
-    await expect(page.getByRole('tab', { name: 'Settings' })).toHaveAttribute(
-      'data-state',
-      'active'
-    )
-    const alertsCard = page.getByRole('tabpanel').locator('[id="alerts"]')
-    await expect(alertsCard).toBeFocused({ timeout: 10_000 })
-    await expect(alertsCard).toBeInViewport()
+    await expectOnProfileAlertsCard(page)
   })
 })

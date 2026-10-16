@@ -222,16 +222,11 @@ const nextConfig: NextConfig = {
         destination: '/graph',
         permanent: true,
       },
-      // The "manage" link of every artist and venue show-alert email, so this
-      // path outlives any page: it answers 307 to the Alerts card in profile
-      // settings before anything streams. Temporary because the target follows
-      // whichever surface owns alert preferences.
-      //
-      // The destination is `ALERTS_HREF` (components/shared/followAlertChoices),
-      // spelled out because this file imports packages only;
-      // next.config.redirect-only-pages.test.ts fails if the two drift. Next
-      // carries the fragment into `Location` and adds the incoming query to the
-      // destination's, whose `tab` wins a collision.
+      // The "manage" link of every artist and venue show-alert email. Temporary
+      // because the target follows whichever surface owns alert preferences.
+      // The destination is `ALERTS_HREF` (components/shared/followAlertChoices)
+      // spelled out, since this file imports packages only;
+      // next.config.redirect-only-pages.test.ts fails if the two drift.
       {
         source: '/settings/notifications',
         destination: '/profile?tab=settings#alerts',
