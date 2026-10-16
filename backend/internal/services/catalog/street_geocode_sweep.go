@@ -2,7 +2,6 @@ package catalog
 
 import (
 	"context"
-	"errors"
 	"log/slog"
 	"sync"
 	"time"
@@ -157,18 +156,11 @@ func (s *StreetGeocodeSweep) runCycle(ctx context.Context) {
 	})
 	if err != nil {
 		// Load failure (report == nil) or ctx cancellation mid-run (partial
-		// report). Log partial progress when there is any — a shutdown that
-		// interrupts a cycle shouldn't hide what it already wrote. A canceled
-		// ctx is the NORMAL shutdown path, not a fault — log it at Info so a
-		// deploy that happens to land mid-cycle doesn't read as an error.
-		logFn := s.logger.Error
-		if errors.Is(err, context.Canceled) {
-			logFn = s.logger.Info
-		}
+		// report). Log partial progress when there is any: a shutdown that
+		// interrupts a cycle shouldn't hide what it already wrote.
 		if report != nil {
 			shared.ReportCycle(ctx, report.Scanned, err)
-			logFn("street geocode sweep: cycle interrupted",
-				"error", err,
+			shared.LogCycleFailure(s.logger, "street geocode sweep: cycle interrupted", err,
 				"scanned", report.Scanned,
 				"set", report.Set,
 				"updated", report.Updated,
@@ -177,7 +169,7 @@ func (s *StreetGeocodeSweep) runCycle(ctx context.Context) {
 			)
 		} else {
 			shared.ReportCycle(ctx, 0, err)
-			logFn("street geocode sweep: cycle failed", "error", err)
+			shared.LogCycleFailure(s.logger, "street geocode sweep: cycle failed", err)
 		}
 		return
 	}
