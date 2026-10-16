@@ -873,8 +873,7 @@ function parseRadioStationNetwork(body: unknown): RadioStationNetwork | null {
  * Every answer that is not a sub-stream passes through, the failures included:
  * a 404 (the page renders its own not-found state), any other non-2xx, a body
  * without a well-formed network, a network error or a timeout. The page then
- * decides, exactly as it did before this branch existed. Query parameters
- * survive the redirect.
+ * decides. Query parameters survive the redirect.
  */
 async function radioSubStreamRedirect(
   request: NextRequest,

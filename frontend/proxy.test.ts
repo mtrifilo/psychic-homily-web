@@ -247,6 +247,8 @@ describe('proxy radio sub-stream redirect', () => {
     const init = fetchMock.mock.calls[0][1] as RequestInit
     expect(init.redirect).toBeUndefined()
     expect(init.method).toBeUndefined()
+    // Bounded: a slow backend falls into the pass-through path.
+    expect(init.signal).toBeInstanceOf(AbortSignal)
   })
 
   it('permanently redirects a sub-stream to its channel URL', async () => {
@@ -305,6 +307,7 @@ describe('proxy radio sub-stream redirect', () => {
     for (const answer of [
       () => Promise.resolve(new Response(null, { status: 503 })),
       () => Promise.resolve(new Response('not json', { status: 200 })),
+      () => Promise.resolve(new Response('null', { status: 200 })),
       () => Promise.reject(new Error('ECONNRESET')),
     ]) {
       vi.spyOn(globalThis, 'fetch').mockImplementation(answer)
