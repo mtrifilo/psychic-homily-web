@@ -58,9 +58,10 @@ const (
 	// larger one fails the fetch without being read past this size.
 	appleKeysMaxBodyBytes = 64 << 10
 
-	// appleKeyIDErrorRunes is how much of a token's key id an error carries.
-	// The key id is caller-supplied, and these errors reach warn-level logs.
-	appleKeyIDErrorRunes = 8
+	// appleKeysMinModulusBits is the shortest modulus a key-set entry may have
+	// to be kept, so a set holding only shorter moduli fails the fetch instead
+	// of replacing the cached set.
+	appleKeysMinModulusBits = 2048
 )
 
 // appleKeysHTTPClient serves every key-set fetch of a service whose
@@ -133,13 +134,15 @@ type appleJWK struct {
 
 // ValidateIdentityToken validates an Apple identity token and returns the
 // claims. When ctx ends while the lookup waits on a key-set fetch, it returns
-// ctx's error at once and the fetch runs on for any other caller.
+// ctx's error at once and the fetch runs on for any other caller. A key id the
+// key set lacks fails with *contracts.AppleKeyNotFoundError wrapped. No error
+// text carries the token or text taken from its header or claims.
 func (s *AppleAuthService) ValidateIdentityToken(ctx context.Context, identityToken string) (*contracts.AppleIdentityTokenClaims, error) {
 	// Parse the token header to get the key ID
 	parser := jwt.NewParser(jwt.WithoutClaimsValidation())
 	unverifiedToken, _, err := parser.ParseUnverified(identityToken, &contracts.AppleIdentityTokenClaims{})
 	if err != nil {
-		return nil, fmt.Errorf("failed to parse token header: %w", err)
+		return nil, fmt.Errorf("failed to parse token header: %w", jwtFailureKind(err))
 	}
 
 	kid, ok := unverifiedToken.Header["kid"].(string)
@@ -166,7 +169,7 @@ func (s *AppleAuthService) ValidateIdentityToken(ctx context.Context, identityTo
 	)
 
 	if err != nil {
-		return nil, fmt.Errorf("invalid Apple identity token: %w", err)
+		return nil, fmt.Errorf("invalid Apple identity token: %w", jwtFailureKind(err))
 	}
 
 	if !token.Valid {
@@ -174,6 +177,40 @@ func (s *AppleAuthService) ValidateIdentityToken(ctx context.Context, identityTo
 	}
 
 	return claims, nil
+}
+
+// jwtFailureKinds are the sentinels jwt wraps into its parse and validation
+// errors, the most specific first.
+var jwtFailureKinds = []error{
+	jwt.ErrTokenExpired,
+	jwt.ErrTokenNotValidYet,
+	jwt.ErrTokenUsedBeforeIssued,
+	jwt.ErrTokenInvalidIssuer,
+	jwt.ErrTokenInvalidAudience,
+	jwt.ErrTokenInvalidSubject,
+	jwt.ErrTokenInvalidId,
+	jwt.ErrTokenRequiredClaimMissing,
+	jwt.ErrTokenSignatureInvalid,
+	jwt.ErrTokenMalformed,
+	jwt.ErrTokenUnverifiable,
+	jwt.ErrTokenInvalidClaims,
+}
+
+// errJWTUnclassified stands in for a jwt error that wraps none of
+// jwtFailureKinds.
+var errJWTUnclassified = errors.New("token refused")
+
+// jwtFailureKind is the first of jwtFailureKinds that err wraps, without err's
+// own text: jwt quotes a header or claim value that fails to decode into that
+// text, and the keyfunc's error, which names the header's alg, is wrapped in
+// it too.
+func jwtFailureKind(err error) error {
+	for _, kind := range jwtFailureKinds {
+		if errors.Is(err, kind) {
+			return kind
+		}
+	}
+	return errJWTUnclassified
 }
 
 // FindOrCreateAppleUser finds or creates a user from Apple Sign In data.
@@ -356,7 +393,7 @@ func (s *AppleAuthService) getApplePublicKey(ctx context.Context, kid string) (*
 	}
 	if starter && fresh && now.Sub(s.lastForcedRefreshAt) < appleKeysForcedRefreshCooldown {
 		s.keysMu.Unlock()
-		return nil, fmt.Errorf("%w (refresh cooling down, not fetched)", errAppleKeyNotFound(kid))
+		return nil, fmt.Errorf("%w (refresh cooling down, not fetched)", &contracts.AppleKeyNotFoundError{KeyID: kid})
 	}
 	if starter {
 		if fresh {
@@ -384,21 +421,7 @@ func (s *AppleAuthService) getApplePublicKey(ctx context.Context, kid string) (*
 	if fetch.err != nil {
 		return nil, fetch.err
 	}
-	return nil, errAppleKeyNotFound(kid)
-}
-
-// errAppleKeyNotFound names at most the first appleKeyIDErrorRunes runes of
-// kid, followed by "..." when kid is longer.
-func errAppleKeyNotFound(kid string) error {
-	runes := 0
-	for i := range kid {
-		if runes == appleKeyIDErrorRunes {
-			kid = kid[:i] + "..."
-			break
-		}
-		runes++
-	}
-	return fmt.Errorf("apple public key not found for kid: %s", kid)
+	return nil, &contracts.AppleKeyNotFoundError{KeyID: kid}
 }
 
 // runAppleKeysFetch performs fetch and publishes its outcome. The publish is
@@ -437,7 +460,8 @@ func (s *AppleAuthService) runAppleKeysFetch(fetch *appleKeysFetch) {
 }
 
 // fetchAppleKeys downloads Apple's JWK set and parses it into RSA public keys.
-// Entries that cannot verify an RS256 signature are left out.
+// Entries that cannot verify an RS256 signature are left out, and each entry
+// left out because it does not decode is logged at warn.
 func (s *AppleAuthService) fetchAppleKeys() (map[string]*rsa.PublicKey, error) {
 	keysURL := appleKeysURL
 	if s.fetchAppleKeysFromURL != "" {
@@ -470,7 +494,8 @@ func (s *AppleAuthService) fetchAppleKeys() (map[string]*rsa.PublicKey, error) {
 	for _, jwk := range jwkSet.Keys {
 		key, err := jwk.rs256PublicKey()
 		if err != nil {
-			return nil, err
+			s.keysLog().Warn("apple_keys_entry_dropped", "kid", jwk.Kid, "error", err.Error())
+			continue
 		}
 		if key != nil {
 			keys[jwk.Kid] = key
@@ -487,9 +512,9 @@ func (s *AppleAuthService) fetchAppleKeys() (map[string]*rsa.PublicKey, error) {
 
 // rs256PublicKey returns the RSA public key jwk holds, or nil when jwk cannot
 // verify an RS256 signature: a kty other than RSA, a use other than "sig" or
-// an alg other than "RS256" (use and alg count only when present), a zero
-// modulus, or an exponent outside the range crypto/rsa accepts. A modulus or
-// exponent that is not base64url is an error.
+// an alg other than "RS256" (use and alg count only when present), a modulus
+// shorter than appleKeysMinModulusBits, or an exponent outside the range
+// crypto/rsa accepts. A modulus or exponent that is not base64url is an error.
 func (jwk appleJWK) rs256PublicKey() (*rsa.PublicKey, error) {
 	if jwk.Kty != "RSA" || (jwk.Use != "" && jwk.Use != "sig") || (jwk.Alg != "" && jwk.Alg != "RS256") {
 		return nil, nil
@@ -497,16 +522,16 @@ func (jwk appleJWK) rs256PublicKey() (*rsa.PublicKey, error) {
 
 	nBytes, err := base64.RawURLEncoding.DecodeString(jwk.N)
 	if err != nil {
-		return nil, fmt.Errorf("failed to decode modulus for kid %s: %w", jwk.Kid, err)
+		return nil, fmt.Errorf("failed to decode modulus: %w", err)
 	}
 	eBytes, err := base64.RawURLEncoding.DecodeString(jwk.E)
 	if err != nil {
-		return nil, fmt.Errorf("failed to decode exponent for kid %s: %w", jwk.Kid, err)
+		return nil, fmt.Errorf("failed to decode exponent: %w", err)
 	}
 
 	n := new(big.Int).SetBytes(nBytes)
 	e := new(big.Int).SetBytes(eBytes)
-	if n.Sign() == 0 || !e.IsInt64() || e.Int64() < 2 || e.Int64() > math.MaxInt32 {
+	if n.BitLen() < appleKeysMinModulusBits || !e.IsInt64() || e.Int64() < 2 || e.Int64() > math.MaxInt32 {
 		return nil, nil
 	}
 	return &rsa.PublicKey{N: n, E: int(e.Int64())}, nil
