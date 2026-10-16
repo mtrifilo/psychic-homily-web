@@ -560,9 +560,15 @@ func (s *WebAuthnService) liveChallengeExists(challengeID string, operation stri
 }
 
 // CleanupExpiredChallenges deletes every challenge past its expiry and returns
-// how many rows it deleted. ChallengeSweep runs it on a schedule.
+// how many rows it deleted.
 func (s *WebAuthnService) CleanupExpiredChallenges(ctx context.Context) (int64, error) {
-	result := s.db.WithContext(ctx).Where("expires_at < ?", time.Now()).Delete(&authm.WebAuthnChallenge{})
+	return deleteExpiredChallenges(ctx, s.db)
+}
+
+// deleteExpiredChallenges deletes every challenge in database past its expiry
+// and returns how many rows it deleted.
+func deleteExpiredChallenges(ctx context.Context, database *gorm.DB) (int64, error) {
+	result := database.WithContext(ctx).Where("expires_at < ?", time.Now()).Delete(&authm.WebAuthnChallenge{})
 	if result.Error != nil {
 		return 0, fmt.Errorf("failed to delete expired challenges: %w", result.Error)
 	}
