@@ -559,12 +559,6 @@ func (s *WebAuthnService) liveChallengeExists(challengeID string, operation stri
 	return count > 0, nil
 }
 
-// CleanupExpiredChallenges deletes every challenge past its expiry and returns
-// how many rows it deleted.
-func (s *WebAuthnService) CleanupExpiredChallenges(ctx context.Context) (int64, error) {
-	return deleteExpiredChallenges(ctx, s.db)
-}
-
 // deleteExpiredChallenges deletes every challenge in database past its expiry
 // and returns how many rows it deleted.
 func deleteExpiredChallenges(ctx context.Context, database *gorm.DB) (int64, error) {

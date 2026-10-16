@@ -1,40 +1,19 @@
 package shared
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"fmt"
 	"log/slog"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-)
+	"gorm.io/gorm"
 
-// newCycleLogCapture returns a JSON logger with AddSource on, as production
-// logs, writing to the returned buffer. Time is dropped and the source line
-// zeroed so two records written from different lines of one function compare
-// byte for byte.
-func newCycleLogCapture(level slog.Level) (*slog.Logger, *bytes.Buffer) {
-	buf := &bytes.Buffer{}
-	handler := slog.NewJSONHandler(buf, &slog.HandlerOptions{
-		Level:     level,
-		AddSource: true,
-		ReplaceAttr: func(groups []string, a slog.Attr) slog.Attr {
-			switch a.Key {
-			case slog.TimeKey:
-				return slog.Attr{}
-			case slog.SourceKey:
-				if src, ok := a.Value.Any().(*slog.Source); ok {
-					return slog.Any(slog.SourceKey, &slog.Source{Function: src.Function, File: src.File})
-				}
-			}
-			return a
-		},
-	})
-	return slog.New(handler), buf
-}
+	"psychic-homily-backend/internal/testutil"
+)
 
 func TestLogCycleFailure_Level(t *testing.T) {
 	cases := []struct {
@@ -49,7 +28,7 @@ func TestLogCycleFailure_Level(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			logger, buf := newCycleLogCapture(slog.LevelDebug)
+			logger, buf := testutil.NewLogCapture(slog.LevelDebug)
 			LogCycleFailure(logger, "sweep: cycle failed", tc.err)
 			assert.Contains(t, buf.String(), `"level":"`+tc.level+`"`)
 		})
@@ -62,14 +41,14 @@ func TestLogCycleFailure_Level(t *testing.T) {
 func TestLogCycleFailure_MatchesInlinePattern(t *testing.T) {
 	for _, err := range []error{context.Canceled, errors.New("database unavailable")} {
 		t.Run(err.Error(), func(t *testing.T) {
-			logger, inline := newCycleLogCapture(slog.LevelDebug)
+			logger, inline := testutil.NewLogCapture(slog.LevelDebug)
 			logFn := logger.Error
 			if errors.Is(err, context.Canceled) {
 				logFn = logger.Info
 			}
 			logFn("sweep: cycle interrupted", "error", err, "scanned", 7, "set", 2)
 
-			logger, helper := newCycleLogCapture(slog.LevelDebug)
+			logger, helper := testutil.NewLogCapture(slog.LevelDebug)
 			LogCycleFailure(logger, "sweep: cycle interrupted", err, "scanned", 7, "set", 2)
 
 			require.NotEmpty(t, inline.String())
@@ -80,10 +59,41 @@ func TestLogCycleFailure_MatchesInlinePattern(t *testing.T) {
 }
 
 func TestLogCycleFailure_RespectsHandlerLevel(t *testing.T) {
-	logger, buf := newCycleLogCapture(slog.LevelWarn)
+	logger, buf := testutil.NewLogCapture(slog.LevelWarn)
 	LogCycleFailure(logger, "sweep: cycle failed", context.Canceled)
 	assert.Empty(t, buf.String(), "an Info record is dropped by a Warn handler")
 
 	LogCycleFailure(logger, "sweep: cycle failed", errors.New("database unavailable"))
 	assert.Contains(t, buf.String(), `"level":"ERROR"`)
+}
+
+// A statement that a canceled context cuts short fails with an error wrapping
+// context.Canceled, so a cycle that shutdown interrupts mid-query logs at Info,
+// the level that agrees with the runner recording the cycle as interrupted.
+func TestLogCycleFailure_QueryCanceledMidStatementLogsAtInfo(t *testing.T) {
+	db, _ := setupRunStore(t)
+	sleep := func(tx *gorm.DB) error { return tx.Exec("SELECT pg_sleep(5)").Error }
+	cases := map[string]func(*gorm.DB) error{
+		"statement":   sleep,
+		"transaction": func(tx *gorm.DB) error { return tx.Transaction(sleep) },
+	}
+	for name, run := range cases {
+		t.Run(name, func(t *testing.T) {
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			const cancelAfter = 50 * time.Millisecond
+			timer := time.AfterFunc(cancelAfter, cancel)
+			defer timer.Stop()
+
+			start := time.Now()
+			err := run(db.WithContext(ctx))
+			require.Error(t, err)
+			assert.GreaterOrEqual(t, time.Since(start), cancelAfter, "the statement was running when the context ended")
+			assert.ErrorIs(t, err, context.Canceled)
+
+			logger, buf := testutil.NewLogCapture(slog.LevelDebug)
+			LogCycleFailure(logger, "sweep: cycle failed", fmt.Errorf("load venues: %w", err))
+			assert.Contains(t, buf.String(), `"level":"INFO"`)
+		})
+	}
 }
