@@ -26,7 +26,8 @@ import (
 )
 
 // A request's id is ONE id across everything that reports it: the X-Request-ID
-// response header, the access log line, the Huma context logger the handler and
+// response header, the request_id in an error response body, the access log
+// line, the Huma context logger the handler and
 // the JWT middleware write through, the Sentry scope's request_id tag, and a
 // group rate limiter's refusal line. The router is the production correlation
 // stack (useRequestCorrelation) in front of routes.SetupRoutes, the order
@@ -97,9 +98,10 @@ func correlationCaseName(route, inbound string) string {
 
 // caseEnd is what the child reports about one request once it is served.
 type caseEnd struct {
-	Status    int    `json:"status"`
-	Header    string `json:"header"`
-	SentryTag string `json:"sentry_tag"`
+	Status        int    `json:"status"`
+	Header        string `json:"header"`
+	BodyRequestID string `json:"body_request_id"`
+	SentryTag     string `json:"sentry_tag"`
 }
 
 // caseResult is one served request: what the child reported plus every log
@@ -145,6 +147,12 @@ func serveCorrelationCases(t *testing.T) {
 		router.ServeHTTP(rr, req)
 
 		end := caseEnd{Status: rr.Code, Header: rr.Header().Get(middleware.RequestIDHeader)}
+		var errorBody struct {
+			RequestID string `json:"request_id"`
+		}
+		if json.Unmarshal(rr.Body.Bytes(), &errorBody) == nil {
+			end.BodyRequestID = errorBody.RequestID
+		}
 		if hub != nil {
 			end.SentryTag = hub.Scope().ApplyToEvent(&sentry.Event{}, nil, nil).Tags["request_id"]
 		}
@@ -312,6 +320,13 @@ func assertOneID(t *testing.T, name, inbound string, res caseResult, want logKin
 	}
 	if res.SentryTag != id {
 		t.Errorf("%s: Sentry request_id tag = %q, X-Request-ID = %q", name, res.SentryTag, id)
+	}
+	// Every response past the limiter is an error body that names the request
+	// (the login handler's or the JWT gate's); the limiter's 429 body names none.
+	if want == logReachedHandler || res.BodyRequestID != "" {
+		if res.BodyRequestID != id {
+			t.Errorf("%s: response body request_id = %q, X-Request-ID = %q", name, res.BodyRequestID, id)
+		}
 	}
 
 	seen := map[logKind]bool{}
