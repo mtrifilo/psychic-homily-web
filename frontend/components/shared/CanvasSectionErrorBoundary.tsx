@@ -39,7 +39,7 @@
  * dominant real failure is a deploy rotating the hashed chunk — the open page's
  * baked-in chunk URL then 404s no matter how often it re-imports; only fresh HTML
  * carries the new URL. So the only reliable recovery is a full page reload, which
- * a visible fallback can offer (see InlineGraph); the homepage just self-hides.
+ * a visible fallback can offer; the homepage just self-hides.
  *
  * Class component because React error boundaries have no hook equivalent.
  */

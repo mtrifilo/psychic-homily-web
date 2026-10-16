@@ -8,11 +8,10 @@ import { decodeGeoHeaders, type GeoLocation } from '@/lib/geo-default'
  * edge geo headers, or `null` when geo is unavailable / ambiguous / non-US-CA.
  * This is the CLIENT-FETCH transport for the geo default on `/shows` (ISR) and
  * home (static), which can't read `next/headers` server-side without
- * un-ISR-ing themselves. /explore uses the server `next/headers()` path
- * instead — see the two-read-paths note in `lib/geo-default.ts`.
+ * un-ISR-ing themselves (see the read-path note in `lib/geo-default.ts`).
  *
  * The response echoes only the geo HEADERS Vercel already injected for THIS
- * request through the same US/CA gate /explore uses; it exposes nothing the
+ * request through the US/CA gate in `decodeGeoHeaders`; it exposes nothing the
  * caller's own request didn't already carry, so the unauthenticated public
  * endpoint leaks nothing and needs no rate limiting (it's strictly cheaper
  * than the page render it precedes).
