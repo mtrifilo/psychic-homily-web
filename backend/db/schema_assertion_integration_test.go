@@ -1,8 +1,12 @@
 package db
 
 import (
+	"context"
+	"strings"
 	"testing"
+	"time"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"psychic-homily-backend/internal/testutil"
@@ -99,6 +103,60 @@ func TestAssertRequiredSchema_unlistedColumnTypeIgnored(t *testing.T) {
 	// Same table as a listed column, so the type read covers it.
 	_, err = sqlDB.Exec(`ALTER TABLE webauthn_credentials ALTER COLUMN display_name TYPE TEXT`)
 	require.NoError(t, err)
+
+	require.NoError(t, AssertRequiredSchema(td.DB))
+}
+
+// A missing column and a mistyped one are refused together, in one boot.
+func TestAssertRequiredSchema_missingAndMistypedColumns(t *testing.T) {
+	if testing.Short() {
+		t.Skip("integration test")
+	}
+
+	td := testutil.SetupTestPostgres(t)
+	defer td.Cleanup()
+
+	sqlDB, err := td.DB.DB()
+	require.NoError(t, err)
+	_, err = sqlDB.Exec(`ALTER TABLE shows DROP COLUMN doors_at`)
+	require.NoError(t, err)
+	_, err = sqlDB.Exec(`ALTER TABLE webauthn_credentials ALTER COLUMN sign_count TYPE INTEGER`)
+	require.NoError(t, err)
+
+	err = AssertRequiredSchema(td.DB)
+	require.EqualError(t, err,
+		"required schema columns missing or mistyped: missing: shows.doors_at; "+
+			"mistyped: webauthn_credentials.sign_count (want bigint, got integer) "+
+			"(migration recorded but DDL absent?); refusing to boot")
+}
+
+// A read the server holds open (here, behind another session's lock) refuses
+// boot within the bound, and the connection it ran on stays usable.
+func TestAssertRequiredSchema_readHeldPastBound(t *testing.T) {
+	if testing.Short() {
+		t.Skip("integration test")
+	}
+
+	td := testutil.SetupTestPostgres(t)
+	defer td.Cleanup()
+
+	ctx := context.Background()
+	sqlDB, err := td.DB.DB()
+	require.NoError(t, err)
+	locker, err := sqlDB.BeginTx(ctx, nil)
+	require.NoError(t, err)
+	_, err = locker.ExecContext(ctx, `LOCK TABLE timezone_names_snapshot IN ACCESS EXCLUSIVE MODE`)
+	require.NoError(t, err)
+
+	started := time.Now()
+	err = assertRequiredSchemaWithin(td.DB, 500*time.Millisecond)
+	elapsed := time.Since(started)
+	require.NoError(t, locker.Rollback())
+
+	assert.Less(t, elapsed, 5*time.Second)
+	require.Error(t, err)
+	assert.True(t, strings.HasPrefix(err.Error(), "could not read timezone_names_snapshot: no answer within 500ms: "), err.Error())
+	assert.True(t, strings.HasSuffix(err.Error(), "; refusing to boot"), err.Error())
 
 	require.NoError(t, AssertRequiredSchema(td.DB))
 }

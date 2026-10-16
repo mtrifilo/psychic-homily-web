@@ -1,9 +1,11 @@
 package db
 
 import (
+	"context"
 	"fmt"
 	"log/slog"
 	"strings"
+	"time"
 
 	"github.com/getsentry/sentry-go"
 	"gorm.io/gorm"
@@ -54,11 +56,21 @@ func readInvalidIndexes(gormDB *gorm.DB) ([]invalidIndex, error) {
 
 // FlagInvalidIndexes logs one ERROR line per INVALID index in the current
 // schema and captures one Sentry event naming them all; with none it logs and
-// captures nothing. A failed read is logged and captured as a read error, so
-// it is never mistaken for a clean result. It returns nothing: neither outcome
+// captures nothing. A failed read, including one that does not answer within
+// bootSchemaReadTimeout, is logged and captured as a read error, so it is
+// never mistaken for a clean result. It returns nothing: neither outcome
 // refuses boot.
 func FlagInvalidIndexes(gormDB *gorm.DB, logger *slog.Logger, hub *sentry.Hub) {
-	indexes, err := readInvalidIndexes(gormDB)
+	flagInvalidIndexesWithin(gormDB, logger, hub, bootSchemaReadTimeout)
+}
+
+func flagInvalidIndexesWithin(gormDB *gorm.DB, logger *slog.Logger, hub *sentry.Hub, bound time.Duration) {
+	var indexes []invalidIndex
+	err := readWithin(bound, func(ctx context.Context) error {
+		var err error
+		indexes, err = readInvalidIndexes(gormDB.WithContext(ctx))
+		return err
+	})
 	if err != nil {
 		logger.Error(invalidIndexReadErrorMessage, "error", err)
 		captureInvalidIndexEvent(hub, fmt.Errorf("%s: %w", invalidIndexReadErrorMessage, err))

@@ -1,8 +1,12 @@
 package db
 
 import (
+	"context"
+	"errors"
 	"fmt"
+	"slices"
 	"strings"
+	"time"
 
 	"gorm.io/gorm"
 )
@@ -101,15 +105,15 @@ func (c columnType) matches(want string) bool {
 }
 
 // columnTypeReader returns the type of every column of the named tables,
-// keyed by "table.column".
+// keyed by "table.column". It stops waiting when ctx ends.
 type columnTypeReader interface {
-	ColumnTypes(tables []string) (map[string]columnType, error)
+	ColumnTypes(ctx context.Context, tables []string) (map[string]columnType, error)
 }
 
-// assertRequiredColumns reads every table the checklist names once and runs
-// both checks on that read, so a failed read refuses boot as a read error
-// rather than as columns reported missing.
-func assertRequiredColumns(reader columnTypeReader) error {
+// assertRequiredColumns reads every table the checklist names once, within
+// bound, and runs both checks on that read, so a failed read refuses boot as
+// a read error rather than as columns reported missing.
+func assertRequiredColumns(reader columnTypeReader, bound time.Duration) error {
 	var tables []string
 	seenTable := map[string]bool{}
 	for _, col := range requiredSchemaColumns {
@@ -119,41 +123,46 @@ func assertRequiredColumns(reader columnTypeReader) error {
 		}
 	}
 
-	actual, err := reader.ColumnTypes(tables)
+	var actual map[string]columnType
+	err := readWithin(bound, func(ctx context.Context) error {
+		var err error
+		actual, err = reader.ColumnTypes(ctx, tables)
+		return err
+	})
 	if err != nil {
 		return fmt.Errorf("could not read required schema: %w; refusing to boot", err)
 	}
-	if err := assertRequiredSchema(actual); err != nil {
-		return err
-	}
-	return assertRequiredColumnTypes(actual)
+	return schemaRefusal(absentUntypedColumns(actual), typedColumnFaults(actual))
 }
 
-// assertRequiredSchema checks existence for the untyped entries only;
-// assertRequiredColumnTypes reports a typed entry that is absent.
-func assertRequiredSchema(actual map[string]columnType) error {
-	var missing []string
+// absentUntypedColumns checks existence for the untyped entries only, and
+// returns the ones the read did not return. typedColumnFaults reports a typed
+// entry that is absent.
+func absentUntypedColumns(actual map[string]columnType) []string {
+	var absent []string
 	for _, col := range requiredSchemaColumns {
 		if col.Type != "" {
 			continue
 		}
 		if _, ok := actual[col.qualifiedName()]; !ok {
-			missing = append(missing, col.qualifiedName())
+			absent = append(absent, col.qualifiedName())
 		}
 	}
-	if len(missing) > 0 {
-		return fmt.Errorf(
-			"required schema columns missing: %s (migration recorded but DDL absent?); refusing to boot",
-			strings.Join(missing, ", "),
-		)
-	}
-	return nil
+	return absent
 }
 
-// assertRequiredColumnTypes checks only the entries that declare a Type; no
-// other column's type is compared.
-func assertRequiredColumnTypes(actual map[string]columnType) error {
-	var wrong []string
+// columnTypeFault is a typed entry the read did not return (absent) or
+// returned with another type (got).
+type columnTypeFault struct {
+	column requiredColumn
+	absent bool
+	got    columnType
+}
+
+// typedColumnFaults checks only the entries that declare a Type, in checklist
+// order; no other column's type is compared.
+func typedColumnFaults(actual map[string]columnType) []columnTypeFault {
+	var faults []columnTypeFault
 	for _, col := range requiredSchemaColumns {
 		if col.Type == "" {
 			continue
@@ -161,18 +170,66 @@ func assertRequiredColumnTypes(actual map[string]columnType) error {
 		got, ok := actual[col.qualifiedName()]
 		switch {
 		case !ok:
-			wrong = append(wrong, fmt.Sprintf("%s is absent, expected %s", col.qualifiedName(), col.Type))
+			faults = append(faults, columnTypeFault{column: col, absent: true})
 		case !got.matches(col.Type):
-			wrong = append(wrong, fmt.Sprintf("%s is %s, expected %s", col.qualifiedName(), got.DataType, col.Type))
+			faults = append(faults, columnTypeFault{column: col, got: got})
 		}
 	}
-	if len(wrong) > 0 {
+	return faults
+}
+
+// schemaRefusal is nil when neither check found a fault. Faults from one
+// check alone get that check's refusal. Faults from both get one refusal
+// naming every absent column, typed or not, and every mistyped one, so a
+// single boot reports all of them; when every typed fault is an absence that
+// refusal is the missing-columns one.
+func schemaRefusal(absentUntyped []string, typedFaults []columnTypeFault) error {
+	switch {
+	case len(absentUntyped) == 0 && len(typedFaults) == 0:
+		return nil
+	case len(typedFaults) == 0:
+		return missingColumnsRefusal(absentUntyped)
+	case len(absentUntyped) == 0:
+		wrong := make([]string, 0, len(typedFaults))
+		for _, f := range typedFaults {
+			name := f.column.qualifiedName()
+			if f.absent {
+				wrong = append(wrong, fmt.Sprintf("%s is absent, expected %s", name, f.column.Type))
+			} else {
+				wrong = append(wrong, fmt.Sprintf("%s is %s, expected %s", name, f.got.DataType, f.column.Type))
+			}
+		}
 		return fmt.Errorf(
 			"required schema column types do not match: %s (type change recorded but DDL absent?); refusing to boot",
 			strings.Join(wrong, "; "),
 		)
 	}
-	return nil
+
+	missing := slices.Clone(absentUntyped)
+	var mistyped []string
+	for _, f := range typedFaults {
+		name := f.column.qualifiedName()
+		if f.absent {
+			missing = append(missing, name)
+		} else {
+			mistyped = append(mistyped, fmt.Sprintf("%s (want %s, got %s)", name, f.column.Type, f.got.DataType))
+		}
+	}
+	if len(mistyped) == 0 {
+		return missingColumnsRefusal(missing)
+	}
+	return fmt.Errorf(
+		"required schema columns missing or mistyped: missing: %s; mistyped: %s (migration recorded but DDL absent?); refusing to boot",
+		strings.Join(missing, ", "),
+		strings.Join(mistyped, ", "),
+	)
+}
+
+func missingColumnsRefusal(missing []string) error {
+	return fmt.Errorf(
+		"required schema columns missing: %s (migration recorded but DDL absent?); refusing to boot",
+		strings.Join(missing, ", "),
+	)
 }
 
 // informationSchemaColumnTypes reads column types from the connection's
@@ -184,14 +241,14 @@ type informationSchemaColumnTypes struct {
 	db *gorm.DB
 }
 
-func (r informationSchemaColumnTypes) ColumnTypes(tables []string) (map[string]columnType, error) {
+func (r informationSchemaColumnTypes) ColumnTypes(ctx context.Context, tables []string) (map[string]columnType, error) {
 	var rows []struct {
 		TableName  string
 		ColumnName string
 		DataType   string
 		UdtName    string
 	}
-	err := r.db.Raw(
+	err := r.db.WithContext(ctx).Raw(
 		`SELECT table_name, column_name, data_type, udt_name
 		   FROM information_schema.columns
 		  WHERE table_schema = current_schema() AND table_name IN ?`,
@@ -208,17 +265,40 @@ func (r informationSchemaColumnTypes) ColumnTypes(tables []string) (map[string]c
 	return types, nil
 }
 
+// bootSchemaReadTimeout bounds each boot-time catalog read: the schema
+// assertion's two reads and FlagInvalidIndexes' one. A healthy read answers in
+// milliseconds, so a read still waiting at the bound is on a connection that
+// is not answering, and boot reports it instead of waiting with it.
+const bootSchemaReadTimeout = 10 * time.Second
+
+// readWithin runs read with a context that ends after bound. When a failed
+// read ran past the bound, the error says so and names the bound.
+func readWithin(bound time.Duration, read func(ctx context.Context) error) error {
+	ctx, cancel := context.WithTimeout(context.Background(), bound)
+	defer cancel()
+	err := read(ctx)
+	if err != nil && errors.Is(ctx.Err(), context.DeadlineExceeded) {
+		return fmt.Errorf("no answer within %s: %w", bound, err)
+	}
+	return err
+}
+
 // AssertRequiredSchema verifies that critical columns exist, and have their
-// required type where one is listed, before the server accepts traffic. Call
-// after db.Connect in cmd/server.
+// required type where one is listed, before the server accepts traffic. Each
+// read is bounded by bootSchemaReadTimeout, and a read that does not answer
+// within it refuses boot. Call after db.Connect in cmd/server.
 func AssertRequiredSchema(gormDB *gorm.DB) error {
+	return assertRequiredSchemaWithin(gormDB, bootSchemaReadTimeout)
+}
+
+func assertRequiredSchemaWithin(gormDB *gorm.DB, bound time.Duration) error {
 	if gormDB == nil {
 		return fmt.Errorf("database connection is nil")
 	}
-	if err := assertRequiredColumns(informationSchemaColumnTypes{db: gormDB}); err != nil {
+	if err := assertRequiredColumns(informationSchemaColumnTypes{db: gormDB}, bound); err != nil {
 		return err
 	}
-	return assertTimezoneSnapshotPopulated(gormDB)
+	return assertTimezoneSnapshotPopulated(gormDB, bound)
 }
 
 // assertTimezoneSnapshotPopulated refuses to boot against an EMPTY
@@ -239,9 +319,12 @@ func AssertRequiredSchema(gormDB *gorm.DB) error {
 // emptiness guard only covers the catalog read returning nothing). Failing the
 // boot turns a silent, sitewide, wrong-date condition into an obvious one that
 // `migrate up` on the next deploy repairs.
-func assertTimezoneSnapshotPopulated(gormDB *gorm.DB) error {
+func assertTimezoneSnapshotPopulated(gormDB *gorm.DB, bound time.Duration) error {
 	var zones int64
-	if err := gormDB.Raw("SELECT count(*) FROM timezone_names_snapshot").Scan(&zones).Error; err != nil {
+	err := readWithin(bound, func(ctx context.Context) error {
+		return gormDB.WithContext(ctx).Raw("SELECT count(*) FROM timezone_names_snapshot").Scan(&zones).Error
+	})
+	if err != nil {
 		return fmt.Errorf("could not read timezone_names_snapshot: %w; refusing to boot", err)
 	}
 	if zones == 0 {
