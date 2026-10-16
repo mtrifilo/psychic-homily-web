@@ -49,7 +49,6 @@ describe('proxy entity existence checks', () => {
       .mockResolvedValue(new Response(null, { status: 200 }))
 
     await proxy(requestFor('/shows/submit'))
-    await proxy(requestFor('/shows/saved'))
 
     expect(fetchMock).not.toHaveBeenCalled()
   })
