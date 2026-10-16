@@ -10,7 +10,8 @@
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { apiRequest, API_ENDPOINTS } from '@/lib/api'
-import { queryKeys, createInvalidateQueries } from '@/lib/queryClient'
+import { queryKeys } from '@/lib/queryClient'
+import { refetchAfterMutation } from '@/lib/refetchAfterMutation'
 import type {
   PublicProfileResponse,
   ContributionsResponse,
@@ -282,13 +283,16 @@ export function useAdvancementProgress(enabled = true) {
 // ============================================================================
 // Mutations
 // ============================================================================
+//
+// Each mutation refetches the contributor family root, which covers the
+// viewer's own profile, sections and contributions as well as every public
+// view of a profile.
 
 /**
  * Hook to update profile visibility (public/private)
  */
 export function useUpdateVisibility() {
   const queryClient = useQueryClient()
-  const invalidateQueries = createInvalidateQueries(queryClient)
 
   return useMutation({
     mutationFn: async (input: UpdateVisibilityInput): Promise<PublicProfileResponse> => {
@@ -301,8 +305,7 @@ export function useUpdateVisibility() {
       )
     },
     onSuccess: () => {
-      invalidateQueries.ownContributor()
-      invalidateQueries.contributor()
+      void refetchAfterMutation(queryClient, queryKeys.contributor.all)
     },
   })
 }
@@ -312,7 +315,6 @@ export function useUpdateVisibility() {
  */
 export function useUpdatePrivacy() {
   const queryClient = useQueryClient()
-  const invalidateQueries = createInvalidateQueries(queryClient)
 
   return useMutation({
     mutationFn: async (input: UpdatePrivacyInput): Promise<PublicProfileResponse> => {
@@ -325,8 +327,7 @@ export function useUpdatePrivacy() {
       )
     },
     onSuccess: () => {
-      invalidateQueries.ownContributor()
-      invalidateQueries.contributor()
+      void refetchAfterMutation(queryClient, queryKeys.contributor.all)
     },
   })
 }
@@ -336,7 +337,6 @@ export function useUpdatePrivacy() {
  */
 export function useCreateSection() {
   const queryClient = useQueryClient()
-  const invalidateQueries = createInvalidateQueries(queryClient)
 
   return useMutation({
     mutationFn: async (input: CreateSectionInput): Promise<ProfileSectionResponse> => {
@@ -349,8 +349,7 @@ export function useCreateSection() {
       )
     },
     onSuccess: () => {
-      invalidateQueries.ownContributor()
-      invalidateQueries.contributor()
+      void refetchAfterMutation(queryClient, queryKeys.contributor.all)
     },
   })
 }
@@ -360,7 +359,6 @@ export function useCreateSection() {
  */
 export function useUpdateSection() {
   const queryClient = useQueryClient()
-  const invalidateQueries = createInvalidateQueries(queryClient)
 
   return useMutation({
     mutationFn: async ({
@@ -379,8 +377,7 @@ export function useUpdateSection() {
       )
     },
     onSuccess: () => {
-      invalidateQueries.ownContributor()
-      invalidateQueries.contributor()
+      void refetchAfterMutation(queryClient, queryKeys.contributor.all)
     },
   })
 }
@@ -390,7 +387,6 @@ export function useUpdateSection() {
  */
 export function useDeleteSection() {
   const queryClient = useQueryClient()
-  const invalidateQueries = createInvalidateQueries(queryClient)
 
   return useMutation({
     mutationFn: async (sectionId: number): Promise<void> => {
@@ -400,8 +396,7 @@ export function useDeleteSection() {
       )
     },
     onSuccess: () => {
-      invalidateQueries.ownContributor()
-      invalidateQueries.contributor()
+      void refetchAfterMutation(queryClient, queryKeys.contributor.all)
     },
   })
 }
