@@ -11,6 +11,7 @@ import (
 
 	"psychic-homily-backend/internal/api/handlers/shared/testhelpers"
 	authm "psychic-homily-backend/internal/models/auth"
+	"psychic-homily-backend/internal/testutil/signupconsent"
 )
 
 // An OAuth sign-in whose provider would not vouch for the address creates an
@@ -58,17 +59,17 @@ func (s *ShowHandlerIntegrationSuite) TestCreateShow_UnvouchedOAuthAccountAllowe
 //
 // Inserting the row directly would make both tests here pass with the
 // production stamp reverted to a hard-coded true, which is the whole thing
-// they exist to catch. Going through FindOrCreateUser means the account is
+// they exist to catch. Going through FindOrCreateUserWithConsent means the account is
 // unverified because the code under test decided it was.
 func (s *ShowHandlerIntegrationSuite) createUnvouchedOAuthUser(email, subject string) *authm.User {
 	s.T().Helper()
-	user, err := s.deps.UserService.FindOrCreateUser(goth.User{
+	user, err := s.deps.UserService.FindOrCreateUserWithConsent(goth.User{
 		UserID: subject,
 		Email:  email,
 		// No verification signal at all: the shape goth's github provider
 		// produces, and the one Google produces when it will not vouch.
 		RawData: map[string]any{"login": "octocat"},
-	}, "google")
+	}, "google", signupconsent.CurrentOAuthSignupConsent())
 	s.Require().NoError(err)
 	s.Require().NotNil(user)
 	s.Require().False(user.EmailVerified,

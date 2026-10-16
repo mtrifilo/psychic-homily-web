@@ -3,7 +3,6 @@ package user
 import (
 	"errors"
 	"testing"
-	"time"
 
 	"github.com/markbates/goth"
 
@@ -11,18 +10,8 @@ import (
 	"psychic-homily-backend/internal/legal"
 	authm "psychic-homily-backend/internal/models/auth"
 	"psychic-homily-backend/internal/services/contracts"
+	"psychic-homily-backend/internal/testutil/signupconsent"
 )
-
-func currentOAuthSignupConsent() contracts.OAuthSignupConsent {
-	return contracts.OAuthSignupConsent{
-		TermsAccepted:  true,
-		TermsVersion:   legal.CurrentTermsVersion,
-		PrivacyVersion: legal.CurrentPrivacyVersion,
-		AcceptedAt:     time.Now().UTC(),
-		AgeConfirmed:   true,
-		MinAgeAttested: minOAuthSignupAge,
-	}
-}
 
 // The consent reaches the callback in a cookie the caller can write, so the
 // account-creating check refuses any version that is not current on its own.
@@ -34,9 +23,9 @@ func TestValidateOAuthSignupConsent_RefusesVersionsThatAreNotCurrent(t *testing.
 		"privacy empty":   func(c *contracts.OAuthSignupConsent) { c.PrivacyVersion = "" },
 	} {
 		t.Run(name, func(t *testing.T) {
-			consent := currentOAuthSignupConsent()
-			mutate(&consent)
-			err := validateOAuthSignupConsent(&consent)
+			consent := signupconsent.CurrentOAuthSignupConsent()
+			mutate(consent)
+			err := validateOAuthSignupConsent(consent)
 			var authErr *apperrors.AuthError
 			if !errors.As(err, &authErr) || authErr.Code != apperrors.CodeTermsAcceptanceRequired {
 				t.Fatalf("expected %s, got %v", apperrors.CodeTermsAcceptanceRequired, err)
@@ -44,14 +33,14 @@ func TestValidateOAuthSignupConsent_RefusesVersionsThatAreNotCurrent(t *testing.
 		})
 	}
 
-	consent := currentOAuthSignupConsent()
-	if err := validateOAuthSignupConsent(&consent); err != nil {
+	consent := signupconsent.CurrentOAuthSignupConsent()
+	if err := validateOAuthSignupConsent(consent); err != nil {
 		t.Fatalf("current consent refused: %v", err)
 	}
 }
 
 func (suite *UserServiceIntegrationTestSuite) TestFindOrCreateUserWithConsent_StaleVersionCreatesNoAccount() {
-	consent := currentOAuthSignupConsent()
+	consent := signupconsent.CurrentOAuthSignupConsent()
 	consent.PrivacyVersion = "2025-01-01"
 	identity := goth.User{
 		UserID:  "google-stale-consent",
@@ -59,7 +48,7 @@ func (suite *UserServiceIntegrationTestSuite) TestFindOrCreateUserWithConsent_St
 		RawData: map[string]any{"verified_email": true},
 	}
 
-	_, err := suite.userService.FindOrCreateUserWithConsent(identity, "google", &consent)
+	_, err := suite.userService.FindOrCreateUserWithConsent(identity, "google", consent)
 	var authErr *apperrors.AuthError
 	suite.Require().True(errors.As(err, &authErr), "got %v", err)
 	suite.Equal(apperrors.CodeTermsAcceptanceRequired, authErr.Code)
@@ -70,14 +59,14 @@ func (suite *UserServiceIntegrationTestSuite) TestFindOrCreateUserWithConsent_St
 }
 
 func (suite *UserServiceIntegrationTestSuite) TestFindOrCreateUserWithConsent_RecordsCurrentVersions() {
-	consent := currentOAuthSignupConsent()
+	consent := signupconsent.CurrentOAuthSignupConsent()
 	identity := goth.User{
 		UserID:  "google-current-consent",
 		Email:   "current.consent@example.com",
 		RawData: map[string]any{"verified_email": true},
 	}
 
-	user, err := suite.userService.FindOrCreateUserWithConsent(identity, "google", &consent)
+	user, err := suite.userService.FindOrCreateUserWithConsent(identity, "google", consent)
 	suite.Require().NoError(err)
 
 	var stored authm.User
