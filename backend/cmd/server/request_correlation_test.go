@@ -45,7 +45,7 @@ func TestRequestCorrelationCarriesOneID(t *testing.T) {
 		return
 	}
 
-	results := parseCorrelationOutput(t, runTestChild(t, "TestRequestCorrelationCarriesOneID", correlationChildEnv))
+	results := parseChildCases[caseEnd](t, runTestChild(t, "TestRequestCorrelationCarriesOneID", correlationChildEnv))
 
 	for _, inbound := range []string{"", correlationInboundID} {
 		for _, c := range correlationRoutes {
@@ -61,8 +61,8 @@ func TestRequestCorrelationCarriesOneID(t *testing.T) {
 		// The child stops at the first refusal, so the last attempt it reports
 		// under this name is that refusal.
 		name := correlationCaseName("refusal", inbound)
-		if res := results[name]; res.Status != http.StatusTooManyRequests {
-			t.Errorf("%s: the auth group limiter refused none of the attempts; last status %d", name, res.Status)
+		if res := results[name]; res.end.Status != http.StatusTooManyRequests {
+			t.Errorf("%s: the auth group limiter refused none of the attempts; last status %d", name, res.end.Status)
 			continue
 		}
 		assertOneID(t, name, inbound, results[name], logRefusal)
@@ -102,13 +102,6 @@ type caseEnd struct {
 	Header        string `json:"header"`
 	BodyRequestID string `json:"body_request_id"`
 	SentryTag     string `json:"sentry_tag"`
-}
-
-// caseResult is one served request: what the child reported plus every log
-// line written between its begin and end markers.
-type caseResult struct {
-	caseEnd
-	lines []string
 }
 
 // serveCorrelationCases runs in the child. It serves every case through the
@@ -201,32 +194,18 @@ func runTestChild(t *testing.T, testName, childEnv string) []byte {
 	return out
 }
 
-// parseCorrelationOutput decodes each case the child served into a caseResult.
-func parseCorrelationOutput(t *testing.T, out []byte) map[string]caseResult {
-	t.Helper()
-	results := map[string]caseResult{}
-	for name, c := range parseChildCases(t, out) {
-		var end caseEnd
-		if err := json.Unmarshal(c.end, &end); err != nil {
-			t.Fatalf("decode case end of %s: %v", name, err)
-		}
-		results[name] = caseResult{caseEnd: end, lines: c.lines}
-	}
-	return results
-}
-
-// childCase is one case a child served: the JSON it reported at the case end
+// childCase is one case a child served: what it reported at the case end
 // marker and every line written between the case's markers.
-type childCase struct {
-	end   json.RawMessage
+type childCase[T any] struct {
+	end   T
 	lines []string
 }
 
 // parseChildCases groups a child's output lines by the case whose markers
 // bracket them. A name served more than once keeps its last attempt.
-func parseChildCases(t *testing.T, out []byte) map[string]childCase {
+func parseChildCases[T any](t *testing.T, out []byte) map[string]childCase[T] {
 	t.Helper()
-	results := map[string]childCase{}
+	results := map[string]childCase[T]{}
 	var current string
 	var lines []string
 
@@ -242,11 +221,11 @@ func parseChildCases(t *testing.T, out []byte) map[string]childCase {
 			if current == "" {
 				t.Fatalf("case end with no open case: %q", line)
 			}
-			end := strings.TrimPrefix(line, caseEndMarker)
-			if !json.Valid([]byte(end)) {
-				t.Fatalf("case end is not JSON: %q", line)
+			var end T
+			if err := json.Unmarshal([]byte(strings.TrimPrefix(line, caseEndMarker)), &end); err != nil {
+				t.Fatalf("decode case end %q: %v", line, err)
 			}
-			results[current] = childCase{end: json.RawMessage(end), lines: lines}
+			results[current] = childCase[T]{end: end, lines: lines}
 			current = ""
 		case current != "":
 			lines = append(lines, line)
@@ -329,9 +308,9 @@ func classifyLogLine(msg string) logKind {
 // A Huma context logger line counts as present only when it carries request_id
 // twice: the logger.Auth* helpers add the context id to a logger that already
 // carries it, so a line with one copy means the context logger lost the id.
-func assertOneID(t *testing.T, name, inbound string, res caseResult, want logKind) {
+func assertOneID(t *testing.T, name, inbound string, res childCase[caseEnd], want logKind) {
 	t.Helper()
-	id := res.Header
+	id := res.end.Header
 	if inbound != "" {
 		if id != inbound {
 			t.Errorf("%s: X-Request-ID = %q, want the inbound %q", name, id, inbound)
@@ -339,14 +318,14 @@ func assertOneID(t *testing.T, name, inbound string, res caseResult, want logKin
 	} else if _, err := uuid.Parse(id); err != nil {
 		t.Errorf("%s: X-Request-ID = %q, want a minted UUID", name, id)
 	}
-	if res.SentryTag != id {
-		t.Errorf("%s: Sentry request_id tag = %q, X-Request-ID = %q", name, res.SentryTag, id)
+	if res.end.SentryTag != id {
+		t.Errorf("%s: Sentry request_id tag = %q, X-Request-ID = %q", name, res.end.SentryTag, id)
 	}
 	// Every response past the limiter is an error body that names the request
 	// (the login handler's or the JWT gate's); the limiter's 429 body names none.
-	if want == logReachedHandler || res.BodyRequestID != "" {
-		if res.BodyRequestID != id {
-			t.Errorf("%s: response body request_id = %q, X-Request-ID = %q", name, res.BodyRequestID, id)
+	if want == logReachedHandler || res.end.BodyRequestID != "" {
+		if res.end.BodyRequestID != id {
+			t.Errorf("%s: response body request_id = %q, X-Request-ID = %q", name, res.end.BodyRequestID, id)
 		}
 	}
 

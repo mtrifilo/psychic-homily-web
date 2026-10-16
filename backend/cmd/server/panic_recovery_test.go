@@ -26,12 +26,12 @@ import (
 	"psychic-homily-backend/internal/services"
 )
 
-// A handler panic answers 500 with the auth error envelope naming the request,
-// is captured by Sentry once with the request's id as its tag, and is logged
-// once at ERROR with that id and the scrubbed panic value, for a route
-// registered directly on chi and for a Huma operation alike. A panic after the
-// response started aborts the connection instead, and a handler's own
-// http.ErrAbortHandler passes through unlogged.
+// A handler panic answers 500 with the error envelope naming the request, is
+// captured by Sentry once with the request's id as its tag, and is logged once
+// at ERROR with that id, for a route registered directly on chi and for a Huma
+// operation alike; a panic after the response started cuts the response off.
+// middleware.RecoverPanic's own tests pin the envelope, the scrubbing and the
+// header handling; this test pins the order the production chain runs them in.
 //
 // The router is the production correlation stack in front of
 // routes.SetupRoutes, with the response compressor (the global middleware that
@@ -45,22 +45,13 @@ func TestHandlerPanicAnswers500(t *testing.T) {
 		return
 	}
 
-	cases := parseChildCases(t, runTestChild(t, "TestHandlerPanicAnswers500", panicChildEnv))
+	cases := parseChildCases[panicCaseEnd](t, runTestChild(t, "TestHandlerPanicAnswers500", panicChildEnv))
 	result := func(name string) (panicCaseEnd, []map[string]any) {
 		c, ok := cases[name]
 		if !ok {
 			t.Fatalf("%s: the child served no such case", name)
 		}
-		var end panicCaseEnd
-		if err := json.Unmarshal(c.end, &end); err != nil {
-			t.Fatalf("%s: decode case end: %v", name, err)
-		}
-		for _, line := range c.lines {
-			if strings.Contains(line, panicProbeHeaderValue) {
-				t.Errorf("%s: a log line carries a request header value: %s", name, line)
-			}
-		}
-		return end, logObjects(c.lines)
+		return c.end, logObjects(c.lines)
 	}
 
 	for _, name := range []string{"raw-route", "huma-operation"} {
@@ -69,53 +60,32 @@ func TestHandlerPanicAnswers500(t *testing.T) {
 		if _, err := uuid.Parse(id); err != nil {
 			t.Errorf("%s: X-Request-ID = %q, want a minted UUID", name, id)
 		}
-		if end.Status != http.StatusInternalServerError {
-			t.Errorf("%s: status = %d, want 500 (body %q)", name, end.Status, end.Body)
-		}
-		if end.ContentType != "application/json" {
-			t.Errorf("%s: Content-Type = %q, want application/json", name, end.ContentType)
-		}
 		var body middleware.JWTErrorResponse
-		if err := json.Unmarshal([]byte(end.Body), &body); err != nil {
-			t.Errorf("%s: body %q is not the error envelope: %v", name, end.Body, err)
-		}
-		want := middleware.JWTErrorResponse{
-			Success:   false,
-			Message:   autherrors.ToExternalMessage(autherrors.CodeUnknown),
-			ErrorCode: autherrors.CodeUnknown,
-			RequestID: id,
-		}
-		if body != want {
-			t.Errorf("%s: body = %+v, want %+v", name, body, want)
+		_ = json.Unmarshal([]byte(end.Body), &body)
+		if end.Status != http.StatusInternalServerError || body.ErrorCode != autherrors.CodeUnknown || body.RequestID != id {
+			t.Errorf("%s: status %d body %q, want 500 with the error envelope naming %s", name, end.Status, end.Body, id)
 		}
 
 		if len(end.Events) != 1 {
 			t.Errorf("%s: Sentry captured %d events, want 1", name, len(end.Events))
 		}
 		for _, ev := range end.Events {
-			if ev.RequestIDTag != id {
-				t.Errorf("%s: Sentry request_id tag = %q, X-Request-ID = %q", name, ev.RequestIDTag, id)
-			}
-			if !strings.Contains(ev.Exception, panicProbeMessage) {
-				t.Errorf("%s: Sentry exception = %q, want the panic value", name, ev.Exception)
+			if ev.RequestIDTag != id || !strings.Contains(ev.Exception, panicProbeMessage) {
+				t.Errorf("%s: Sentry event %+v, want the panic value tagged with %s", name, ev, id)
 			}
 		}
 
-		if n := countRecords(records, "request", id); n != 1 {
-			t.Errorf("%s: %d access lines carry the request id, want 1", name, n)
+		access, panics := 0, recordsWithMsg(records, panicLogMsg)
+		for _, record := range recordsWithMsg(records, "request") {
+			if record["request_id"] == id {
+				access++
+			}
 		}
-		panics := recordsWithMsg(records, panicLogMsg)
-		if len(panics) != 1 {
-			t.Errorf("%s: %d %s lines, want 1; lines: %v", name, len(panics), panicLogMsg, records)
-			continue
+		if access != 1 {
+			t.Errorf("%s: %d access lines carry the request id, want 1", name, access)
 		}
-		line := panics[0]
-		if line["level"] != "ERROR" || line["request_id"] != id || line["status"] != float64(http.StatusInternalServerError) || line["response_started"] != false {
-			t.Errorf("%s: panic line = %v, want level ERROR, request_id %s, status 500, response_started false", name, line, id)
-		}
-		panicText, _ := line["panic"].(string)
-		if !strings.Contains(panicText, panicProbeMessage) || strings.Contains(panicText, panicProbeSecret) {
-			t.Errorf("%s: panic line value = %q, want the panic message with its secret scrubbed", name, panicText)
+		if len(panics) != 1 || panics[0]["level"] != "ERROR" || panics[0]["request_id"] != id || panics[0]["status"] != float64(http.StatusInternalServerError) {
+			t.Errorf("%s: %s lines = %v, want one at ERROR with request_id %s and status 500", name, panicLogMsg, panics, id)
 		}
 	}
 
@@ -128,38 +98,21 @@ func TestHandlerPanicAnswers500(t *testing.T) {
 			t.Errorf("Sentry captured %d events, want 1", len(end.Events))
 		}
 		panics := recordsWithMsg(records, panicLogMsg)
-		if len(panics) != 1 {
-			t.Errorf("%d %s lines, want 1; lines: %v", len(panics), panicLogMsg, records)
-			return
-		}
-		if line := panics[0]; line["response_started"] != true || line["status"] != nil || line["request_id"] != end.RequestIDHeader {
-			t.Errorf("panic line = %v, want response_started true, no status, request_id %s", line, end.RequestIDHeader)
-		}
-	})
-
-	t.Run("handler aborts", func(t *testing.T) {
-		end, records := result("abort")
-		if end.ClientError == "" {
-			t.Errorf("status %d with body %q: want the connection aborted", end.Status, end.Body)
-		}
-		if n := len(recordsWithMsg(records, panicLogMsg)); n != 0 {
-			t.Errorf("%d %s lines for http.ErrAbortHandler, want 0", n, panicLogMsg)
+		if len(panics) != 1 || panics[0]["response_started"] != true || panics[0]["request_id"] != end.RequestIDHeader {
+			t.Errorf("%s lines = %v, want one with response_started true and request_id %s", panicLogMsg, panics, end.RequestIDHeader)
 		}
 	})
 }
 
 const (
-	panicChildEnv         = "PSY_TEST_PANIC_RECOVERY_CHILD"
-	panicLogMsg           = "handler_panic"
-	panicProbeMessage     = "probe panic"
-	panicProbeSecret      = "probe-secret-value"
-	panicProbeHeaderValue = "probe-header-value"
+	panicChildEnv     = "PSY_TEST_PANIC_RECOVERY_CHILD"
+	panicLogMsg       = "handler_panic"
+	panicProbeMessage = "probe panic"
 )
 
 // panicCaseEnd is what the child reports about one request once it is served.
 type panicCaseEnd struct {
 	Status          int          `json:"status"`
-	ContentType     string       `json:"content_type"`
 	RequestIDHeader string       `json:"request_id_header"`
 	Body            string       `json:"body"`
 	ClientError     string       `json:"client_error"`
@@ -204,7 +157,7 @@ func servePanicCases(t *testing.T) {
 	router.Use(middleware.ResponseCompression())
 	api := routes.SetupRoutes(router, services.NewServiceContainer(nil, cfg), cfg)
 
-	probe := errors.New(panicProbeMessage + ": token=" + panicProbeSecret)
+	probe := errors.New(panicProbeMessage)
 	router.Get("/test-panic/raw", func(http.ResponseWriter, *http.Request) {
 		panic(probe)
 	})
@@ -221,9 +174,6 @@ func servePanicCases(t *testing.T) {
 		_ = http.NewResponseController(w).Flush()
 		panic(probe)
 	})
-	router.Get("/test-panic/abort", func(http.ResponseWriter, *http.Request) {
-		panic(http.ErrAbortHandler)
-	})
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		hub := sentry.NewHub(client, sentry.NewScope())
@@ -238,17 +188,11 @@ func servePanicCases(t *testing.T) {
 		mu.Unlock()
 
 		var end panicCaseEnd
-		req, err := http.NewRequest(http.MethodGet, server.URL+path, nil)
-		if err != nil {
-			t.Fatalf("%s: build request: %v", name, err)
-		}
-		req.Header.Set("Authorization", "Bearer "+panicProbeHeaderValue)
-		resp, err := server.Client().Do(req)
+		resp, err := server.Client().Get(server.URL + path)
 		if err != nil {
 			end.ClientError = err.Error()
 		} else {
 			end.Status = resp.StatusCode
-			end.ContentType = resp.Header.Get("Content-Type")
 			end.RequestIDHeader = resp.Header.Get(middleware.RequestIDHeader)
 			body, readErr := io.ReadAll(resp.Body)
 			_ = resp.Body.Close()
@@ -271,7 +215,6 @@ func servePanicCases(t *testing.T) {
 	serve("raw-route", "/test-panic/raw")
 	serve("huma-operation", "/test-panic/huma")
 	serve("started", "/test-panic/started")
-	serve("abort", "/test-panic/abort")
 }
 
 // logObjects decodes the lines that are JSON log records.
@@ -294,14 +237,4 @@ func recordsWithMsg(records []map[string]any, msg string) []map[string]any {
 		}
 	}
 	return matched
-}
-
-func countRecords(records []map[string]any, msg, requestID string) int {
-	n := 0
-	for _, record := range recordsWithMsg(records, msg) {
-		if record["request_id"] == requestID {
-			n++
-		}
-	}
-	return n
 }

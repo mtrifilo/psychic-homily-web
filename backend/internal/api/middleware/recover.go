@@ -52,11 +52,12 @@ func RecoverPanic(next http.Handler) http.Handler {
 			}
 			log.Error(panicLogMsg, append(attrs, "status", http.StatusInternalServerError)...)
 
-			// These headers describe the representation the handler meant to
-			// send; left in place they would mislabel the error body or let a
-			// cache keep it.
+			// The error body inherits no representation metadata from the
+			// response the handler meant to send, so nothing mislabels it or
+			// lets a cache keep it. Headers about the exchange (CORS, security,
+			// the request ID) stay.
 			header := w.Header()
-			for _, name := range []string{"Content-Length", "Content-Encoding", "Content-Disposition", "ETag", "Last-Modified"} {
+			for _, name := range representationHeaders {
 				header.Del(name)
 			}
 			header.Set("Cache-Control", "no-store")
@@ -75,12 +76,19 @@ func isAbortHandler(recovered any) bool {
 	return ok && errors.Is(err, http.ErrAbortHandler)
 }
 
+// representationHeaders describe a response's content or its cache validity.
+var representationHeaders = []string{
+	"Content-Disposition", "Content-Encoding", "Content-Language", "Content-Length",
+	"Content-Location", "Content-Range", "ETag", "Expires", "Last-Modified",
+}
+
 // panicLogMsg is the msg of the line RecoverPanic logs.
 const panicLogMsg = "handler_panic"
 
 // startTrackingWriter records whether any part of the response has gone out.
-// It forwards Flush, Hijack and Push by assertion as well as through Unwrap,
-// so the writers inside it keep those capabilities.
+// It implements Flush, Hijack and Push as well as Unwrap, for the reason
+// bodylessEncodingStripper gives: chi's writers find those capabilities by
+// direct type assertion.
 type startTrackingWriter struct {
 	http.ResponseWriter
 	started bool

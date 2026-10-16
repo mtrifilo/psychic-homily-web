@@ -803,24 +803,9 @@ func useRequestCorrelation(router chi.Router) {
 		Timeout:         2 * time.Second,
 	})
 	router.Use(sentryHandler.Handle)
-	router.Use(tagSentryRequestID)
+	router.Use(middleware.SentryRequestIDTag)
 
 	router.Use(logRequest)
-}
-
-// tagSentryRequestID tags the request's Sentry scope with its request id, so an
-// event from a route registered directly on chi carries the id its response and
-// log lines carry. Huma operations get the same tag from
-// middleware.HumaSentryContextMiddleware.
-func tagSentryRequestID(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if hub := sentry.GetHubFromContext(r.Context()); hub != nil {
-			if requestID := logger.GetRequestID(r.Context()); requestID != "" {
-				hub.Scope().SetTag("request_id", requestID)
-			}
-		}
-		next.ServeHTTP(w, r)
-	})
 }
 
 // logRequest writes one access log line per request, carrying the request id

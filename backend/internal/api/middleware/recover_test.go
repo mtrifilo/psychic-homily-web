@@ -67,6 +67,8 @@ func TestRecoverPanic_AnswersEnvelopeWhenNothingWasWritten(t *testing.T) {
 		h.Set("ETag", `"v1"`)
 		h.Set("Last-Modified", "Mon, 05 Oct 2026 00:00:00 GMT")
 		h.Set("Cache-Control", "public, max-age=300")
+		h.Set("Expires", "Mon, 05 Oct 2026 00:05:00 GMT")
+		h.Set("Content-Range", "bytes 0-99/4096")
 		panic(errors.New("boom: password=panic-secret"))
 	})
 
@@ -97,7 +99,7 @@ func TestRecoverPanic_AnswersEnvelopeWhenNothingWasWritten(t *testing.T) {
 	if got := h.Get("Cache-Control"); got != "no-store" {
 		t.Errorf("Cache-Control = %q, want no-store", got)
 	}
-	for _, name := range []string{"Content-Disposition", "Content-Length", "Content-Encoding", "ETag", "Last-Modified"} {
+	for _, name := range []string{"Content-Disposition", "Content-Length", "Content-Encoding", "ETag", "Last-Modified", "Expires", "Content-Range"} {
 		if got := h.Get(name); got != "" {
 			t.Errorf("%s = %q survived onto the error response", name, got)
 		}
