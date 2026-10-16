@@ -2,10 +2,11 @@ package auth
 
 import (
 	"context"
-	"errors"
 	"log/slog"
 	"sync"
 	"time"
+
+	"gorm.io/gorm"
 
 	"psychic-homily-backend/internal/services/shared"
 )
@@ -24,31 +25,32 @@ const (
 	defaultChallengeSweepInterval = 24 * time.Hour
 )
 
-// expiredChallengeCleaner is the part of WebAuthnService the sweep drives.
-type expiredChallengeCleaner interface {
-	CleanupExpiredChallenges(ctx context.Context) (int64, error)
-}
-
 // ChallengeSweep deletes expired WebAuthn challenges on a schedule. A finish
 // consumes the challenge it presents, so the rows this deletes are the ones
 // whose ceremony was begun and never finished. It runs no cycle on the boot
 // path; RunScheduledLoop schedules the first cycle from persisted run state.
 type ChallengeSweep struct {
-	challenges expiredChallengeCleaner
-	interval   time.Duration
+	// deleteExpired deletes expired challenges and returns how many rows it
+	// deleted.
+	deleteExpired func(ctx context.Context) (int64, error)
+	interval      time.Duration
 
 	stopCh chan struct{}
 	wg     sync.WaitGroup
 	logger *slog.Logger
 }
 
-// NewChallengeSweep constructs the sweep over challenges.
-func NewChallengeSweep(challenges expiredChallengeCleaner) *ChallengeSweep {
+// NewChallengeSweep constructs the sweep over the challenges in database. It
+// needs only the database, so it runs whether or not the WebAuthn service
+// could be constructed.
+func NewChallengeSweep(database *gorm.DB) *ChallengeSweep {
 	return &ChallengeSweep{
-		challenges: challenges,
-		interval:   defaultChallengeSweepInterval,
-		stopCh:     make(chan struct{}),
-		logger:     slog.Default(),
+		deleteExpired: func(ctx context.Context) (int64, error) {
+			return deleteExpiredChallenges(ctx, database)
+		},
+		interval: defaultChallengeSweepInterval,
+		stopCh:   make(chan struct{}),
+		logger:   slog.Default(),
 	}
 }
 
@@ -76,13 +78,9 @@ func (s *ChallengeSweep) Stop() {
 // runCycle deletes expired challenges and reports the deleted count to the run
 // state.
 func (s *ChallengeSweep) runCycle(ctx context.Context) {
-	deleted, err := s.challenges.CleanupExpiredChallenges(ctx)
+	deleted, err := s.deleteExpired(ctx)
 	if err != nil {
-		logFn := s.logger.Error
-		if errors.Is(err, context.Canceled) {
-			logFn = s.logger.Info
-		}
-		logFn("webauthn challenge sweep: cycle failed", "error", err)
+		shared.LogCycleFailure(s.logger, "webauthn challenge sweep: cycle failed", err)
 		shared.ReportCycle(ctx, 0, err)
 		return
 	}
