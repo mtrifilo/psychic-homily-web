@@ -491,12 +491,6 @@ export const API_ENDPOINTS = {
   // Charts endpoints (public)
   CHARTS: chartEndpoints,
 
-  // /explore landing (PSY-835/836) — public read endpoints still used by
-  // leftover explore UI pieces (upcoming shows). Featured slots retired PSY-1480.
-  EXPLORE: {
-    UPCOMING_SHOWS: `${API_BASE_URL}/explore/upcoming-shows`,
-  },
-
   // Cross-surface discovery actions. The backend path remains under /explore
   // for compatibility; consumers do not inherit the retired page's namespace.
   DISCOVERY: {
