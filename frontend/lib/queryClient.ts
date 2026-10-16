@@ -295,6 +295,7 @@ function recoverFromSessionExpiry(erroredQueryKey?: readonly unknown[]) {
   // races with the very auth-gated buttons the seed was meant to make safe.
   if (profileAlreadyKnowsAnonymous(client)) return
 
+  // eslint-disable-next-line no-restricted-syntax -- reached only when no profile fetch is under way (profileAlreadyKnowsAnonymous returns first), so there is no in-flight response to reuse
   client.invalidateQueries({ queryKey: queryKeys.auth.profile })
 }
 
@@ -892,22 +893,19 @@ const VIEWER_TIER_QUERY_KEYS: readonly (readonly unknown[])[] = [
  * (login, registration, magic-link sign-in, email verification, account
  * recovery).
  *
- * `invalidateQueries` rather than `resetQueries`: on the way UP the cached
- * payload is a subset of what the new viewer may see, so keeping it painted
- * during the refetch is a seamless upgrade rather than a loading flash.
+ * A refetch rather than `resetQueries`: on the way UP the cached payload is a
+ * subset of what the new viewer may see, so keeping it painted during the
+ * refetch is a seamless upgrade rather than a loading flash. It cancels first
+ * (`refetchAfterMutation`), so a first fetch that went out under the previous
+ * session cannot answer for the new one.
  *
- * Safe to leave unawaited: `invalidateQueries` swallows per-query fetch
- * errors into query state and resolves rather than rejecting, so a floating
- * call here cannot produce an unhandled rejection.
+ * Safe to leave unawaited: neither the cancel nor the invalidation rejects, so
+ * a floating call here cannot produce an unhandled rejection.
  *
  * See `resetViewerTierQueries` for the other direction.
  */
 export function refreshViewerTierQueries(queryClient: QueryClient) {
-  return Promise.all(
-    VIEWER_TIER_QUERY_KEYS.map(queryKey =>
-      queryClient.invalidateQueries({ queryKey })
-    )
-  )
+  return refetchAfterMutation(queryClient, ...VIEWER_TIER_QUERY_KEYS)
 }
 
 /**
@@ -945,111 +943,86 @@ export function resetViewerTierQueries(queryClient: QueryClient) {
 }
 
 /**
- * Invalidations grouped by query family. Apart from `personalCharts`, each
- * entry invalidates without cancelling first, so a write that lands during a
- * query's first fetch can be hidden by that fetch's pre-write response. A
- * mutation that can run then refetches through `refetchAfterMutation`
- * (lib/refetchAfterMutation.ts) instead.
+ * Refetches grouped by query family. Every entry except `auth` goes through
+ * `refetchAfterMutation`, so a write that lands during a query's first fetch is
+ * not hidden by that fetch's pre-write response. Each entry returns the
+ * helper's promise, which never rejects; callers that need not wait `void` it.
  */
 export const createInvalidateQueries = (queryClient: QueryClient) => ({
-  // Invalidate all auth-related queries
-  auth: () => queryClient.invalidateQueries({ queryKey: ['auth'] }),
+  auth: () =>
+    // eslint-disable-next-line no-restricted-syntax -- the auth family holds the profile, whose fetchStatus the cache error handlers read (profileAlreadyKnowsAnonymous), and a cancel would revert it underneath them
+    queryClient.invalidateQueries({ queryKey: ['auth'] }),
 
-  // Invalidate all show-related queries
-  shows: () => queryClient.invalidateQueries({ queryKey: ['shows'] }),
+  shows: () => refetchAfterMutation(queryClient, ['shows']),
 
-  // Invalidate specific show queries
-  show: (id: string) => {
-    queryClient.invalidateQueries({ queryKey: ['shows', 'detail', id] })
-    // Gig timelines are derived from show dates, venues and bills, and a change
-    // to ONE show reorders the spines of every show it neighbours. Those are
-    // cached under their own ids, so the whole prefix goes rather than this id's
-    // entry alone.
-    queryClient.invalidateQueries({ queryKey: ['shows', 'timeline'] })
-  },
+  // Gig timelines are derived from show dates, venues and bills, and a change
+  // to ONE show reorders the spines of every show it neighbours. Those are
+  // cached under their own ids, so the whole prefix goes rather than this id's
+  // entry alone.
+  show: (id: string) =>
+    refetchAfterMutation(
+      queryClient,
+      ['shows', 'detail', id],
+      ['shows', 'timeline']
+    ),
 
-  // Invalidate artist queries
-  artists: () => queryClient.invalidateQueries({ queryKey: ['artists'] }),
+  artists: () => refetchAfterMutation(queryClient, ['artists']),
 
-  // Invalidate release queries
-  releases: () => queryClient.invalidateQueries({ queryKey: ['releases'] }),
+  releases: () => refetchAfterMutation(queryClient, ['releases']),
 
-  // Invalidate label queries
-  labels: () => queryClient.invalidateQueries({ queryKey: ['labels'] }),
+  labels: () => refetchAfterMutation(queryClient, ['labels']),
 
-  // Invalidate festival queries
-  festivals: () => queryClient.invalidateQueries({ queryKey: ['festivals'] }),
+  festivals: () => refetchAfterMutation(queryClient, ['festivals']),
 
-  // Invalidate all venue-related queries
-  venues: () => queryClient.invalidateQueries({ queryKey: ['venues'] }),
+  venues: () => refetchAfterMutation(queryClient, ['venues']),
 
-  // Invalidate calendar queries
-  calendar: () => queryClient.invalidateQueries({ queryKey: ['calendar'] }),
+  calendar: () => refetchAfterMutation(queryClient, ['calendar']),
 
-  // Invalidate saved shows queries
-  savedShows: () => queryClient.invalidateQueries({ queryKey: ['savedShows'] }),
+  savedShows: () => refetchAfterMutation(queryClient, ['savedShows']),
 
-  // Invalidate user's submissions queries
-  mySubmissions: () =>
-    queryClient.invalidateQueries({ queryKey: ['mySubmissions'] }),
+  mySubmissions: () => refetchAfterMutation(queryClient, ['mySubmissions']),
 
-  // Invalidate show reports queries
-  showReports: () =>
-    queryClient.invalidateQueries({ queryKey: ['showReports'] }),
+  showReports: () => refetchAfterMutation(queryClient, ['showReports']),
 
-  // Invalidate audit logs queries
-  auditLogs: () =>
-    queryClient.invalidateQueries({ queryKey: ['admin', 'auditLogs'] }),
+  auditLogs: () => refetchAfterMutation(queryClient, ['admin', 'auditLogs']),
 
-  // Invalidate admin users queries
-  adminUsers: () =>
-    queryClient.invalidateQueries({ queryKey: ['admin', 'users'] }),
+  adminUsers: () => refetchAfterMutation(queryClient, ['admin', 'users']),
 
-  // Invalidate admin pending edits queries
   adminPendingEdits: () =>
-    queryClient.invalidateQueries({ queryKey: ['admin', 'pendingEdits'] }),
+    refetchAfterMutation(queryClient, ['admin', 'pendingEdits']),
 
-  // Invalidate admin entity reports queries
   adminEntityReports: () =>
-    queryClient.invalidateQueries({ queryKey: ['admin', 'entityReports'] }),
+    refetchAfterMutation(queryClient, ['admin', 'entityReports']),
 
-  // PSY-871: invalidate admin entity-request (moderation) queries
+  // The moderation queue of entity requests.
   adminEntityRequests: () =>
-    queryClient.invalidateQueries({ queryKey: ['admin', 'entityRequests'] }),
+    refetchAfterMutation(queryClient, ['admin', 'entityRequests']),
 
-  // Invalidate collection queries
-  collections: () =>
-    queryClient.invalidateQueries({ queryKey: ['collections'] }),
+  collections: () => refetchAfterMutation(queryClient, ['collections']),
 
-  // Invalidate request queries
-  requests: () => queryClient.invalidateQueries({ queryKey: ['requests'] }),
+  requests: () => refetchAfterMutation(queryClient, ['requests']),
 
-  // Invalidate tag queries
-  tags: () => queryClient.invalidateQueries({ queryKey: ['tags'] }),
+  tags: () => refetchAfterMutation(queryClient, ['tags']),
 
-  // Invalidate entity tag queries
   entityTags: (entityType: string, entityId: number) =>
-    queryClient.invalidateQueries({
-      queryKey: ['tags', 'entityTags', entityType, entityId],
-    }),
+    refetchAfterMutation(queryClient, [
+      'tags',
+      'entityTags',
+      entityType,
+      entityId,
+    ]),
 
-  // Invalidate follow queries
-  follows: () => queryClient.invalidateQueries({ queryKey: ['follows'] }),
+  follows: () => refetchAfterMutation(queryClient, ['follows']),
 
-  // Invalidate the authenticated user's /charts summary after a contributing
-  // save/follow mutation. Public chart modules use sibling keys and stay cached.
-  // It cancels first so a pre-mutation /charts/me snapshot still in flight
-  // cannot overwrite the mutation's effect.
+  // The authenticated user's /charts summary, after a contributing save or
+  // follow. Public chart modules use sibling keys and stay cached.
   personalCharts: () =>
     refetchAfterMutation(queryClient, chartQueryKeys.personalRoot),
 
-  // Invalidate scene queries
-  scenes: () => queryClient.invalidateQueries({ queryKey: ['scenes'] }),
+  scenes: () => refetchAfterMutation(queryClient, ['scenes']),
 
-  // Invalidate revision queries
-  revisions: () => queryClient.invalidateQueries({ queryKey: ['revisions'] }),
+  revisions: () => refetchAfterMutation(queryClient, ['revisions']),
 
-  // Invalidate notification filter queries
   notificationFilters: () =>
-    queryClient.invalidateQueries({ queryKey: ['notificationFilters'] }),
+    refetchAfterMutation(queryClient, ['notificationFilters']),
 })

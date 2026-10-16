@@ -1,14 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { QueryClient, QueryObserver } from '@tanstack/react-query'
 import * as Sentry from '@sentry/nextjs'
-
-function createDeferred<T>() {
-  let resolve: (value: T) => void = () => {}
-  const promise = new Promise<T>(res => {
-    resolve = res
-  })
-  return { promise, resolve }
-}
+import { deferred } from '@/test/inflightOrdering'
 
 describe('queryClient module', () => {
   beforeEach(() => {
@@ -101,106 +94,112 @@ describe('queryClient module', () => {
   })
 
   describe('createInvalidateQueries', () => {
-    it('creates invalidate helpers for auth', async () => {
+    type Factory = ReturnType<
+      typeof import('./queryClient').createInvalidateQueries
+    >
+    type Entry = keyof Factory
+
+    // What each entry refetches, by its call. `auth` is left out: it stays a
+    // plain invalidate and has its own test below.
+    const routed: Array<[Entry, (f: Factory) => unknown, unknown[][]]> = [
+      ['shows', f => f.shows(), [['shows']]],
+      [
+        'show',
+        f => f.show('show-789'),
+        [
+          ['shows', 'detail', 'show-789'],
+          ['shows', 'timeline'],
+        ],
+      ],
+      ['artists', f => f.artists(), [['artists']]],
+      ['releases', f => f.releases(), [['releases']]],
+      ['labels', f => f.labels(), [['labels']]],
+      ['festivals', f => f.festivals(), [['festivals']]],
+      ['venues', f => f.venues(), [['venues']]],
+      ['calendar', f => f.calendar(), [['calendar']]],
+      ['savedShows', f => f.savedShows(), [['savedShows']]],
+      ['mySubmissions', f => f.mySubmissions(), [['mySubmissions']]],
+      ['showReports', f => f.showReports(), [['showReports']]],
+      ['auditLogs', f => f.auditLogs(), [['admin', 'auditLogs']]],
+      ['adminUsers', f => f.adminUsers(), [['admin', 'users']]],
+      [
+        'adminPendingEdits',
+        f => f.adminPendingEdits(),
+        [['admin', 'pendingEdits']],
+      ],
+      [
+        'adminEntityReports',
+        f => f.adminEntityReports(),
+        [['admin', 'entityReports']],
+      ],
+      [
+        'adminEntityRequests',
+        f => f.adminEntityRequests(),
+        [['admin', 'entityRequests']],
+      ],
+      ['collections', f => f.collections(), [['collections']]],
+      ['requests', f => f.requests(), [['requests']]],
+      ['tags', f => f.tags(), [['tags']]],
+      [
+        'entityTags',
+        f => f.entityTags('artist', 7),
+        [['tags', 'entityTags', 'artist', 7]],
+      ],
+      ['follows', f => f.follows(), [['follows']]],
+      ['personalCharts', f => f.personalCharts(), [['charts', 'personal']]],
+      ['scenes', f => f.scenes(), [['scenes']]],
+      ['revisions', f => f.revisions(), [['revisions']]],
+      [
+        'notificationFilters',
+        f => f.notificationFilters(),
+        [['notificationFilters']],
+      ],
+    ]
+
+    function spiedClient() {
+      const client = new QueryClient()
+      return {
+        client,
+        cancel: vi.spyOn(client, 'cancelQueries'),
+        invalidate: vi.spyOn(client, 'invalidateQueries'),
+      }
+    }
+
+    const keysOf = (spy: { mock: { calls: unknown[][] } }) =>
+      spy.mock.calls.map(([filters]) => (filters as { queryKey: unknown[] }).queryKey)
+
+    it('has a row for every entry', async () => {
       const { createInvalidateQueries } = await import('./queryClient')
-      const mockQueryClient = {
-        invalidateQueries: vi.fn(),
-      } as unknown as QueryClient
-
-      const helpers = createInvalidateQueries(mockQueryClient)
-      helpers.auth()
-
-      expect(mockQueryClient.invalidateQueries).toHaveBeenCalledWith({
-        queryKey: ['auth'],
-      })
+      const entries = Object.keys(createInvalidateQueries(new QueryClient()))
+      expect(entries.sort()).toEqual(
+        ['auth', ...routed.map(([entry]) => entry)].sort()
+      )
     })
 
-    it('creates invalidate helpers for shows', async () => {
+    it.each(routed)(
+      '%s cancels its keys before it invalidates them',
+      async (_entry, call, keys) => {
+        const { createInvalidateQueries } = await import('./queryClient')
+        const { client, cancel, invalidate } = spiedClient()
+
+        await call(createInvalidateQueries(client))
+
+        expect(keysOf(cancel)).toEqual(keys)
+        expect(keysOf(invalidate)).toEqual(keys)
+        const lastCancel = Math.max(...cancel.mock.invocationCallOrder)
+        const firstInvalidate = Math.min(...invalidate.mock.invocationCallOrder)
+        expect(lastCancel).toBeLessThan(firstInvalidate)
+      }
+    )
+
+    it('auth invalidates the auth family without cancelling', async () => {
       const { createInvalidateQueries } = await import('./queryClient')
-      const mockQueryClient = {
-        invalidateQueries: vi.fn(),
-      } as unknown as QueryClient
+      const { client, cancel, invalidate } = spiedClient()
 
-      const helpers = createInvalidateQueries(mockQueryClient)
-      helpers.shows()
+      await createInvalidateQueries(client).auth()
 
-      expect(mockQueryClient.invalidateQueries).toHaveBeenCalledWith({
-        queryKey: ['shows'],
-      })
-    })
-
-    it('creates invalidate helpers for specific show', async () => {
-      const { createInvalidateQueries } = await import('./queryClient')
-      const mockQueryClient = {
-        invalidateQueries: vi.fn(),
-      } as unknown as QueryClient
-
-      const helpers = createInvalidateQueries(mockQueryClient)
-      helpers.show('show-789')
-
-      expect(mockQueryClient.invalidateQueries).toHaveBeenCalledWith({
-        queryKey: ['shows', 'detail', 'show-789'],
-      })
-    })
-
-    it('creates invalidate helpers for artists', async () => {
-      const { createInvalidateQueries } = await import('./queryClient')
-      const mockQueryClient = {
-        invalidateQueries: vi.fn(),
-      } as unknown as QueryClient
-
-      const helpers = createInvalidateQueries(mockQueryClient)
-      helpers.artists()
-
-      expect(mockQueryClient.invalidateQueries).toHaveBeenCalledWith({
-        queryKey: ['artists'],
-      })
-    })
-
-    it('creates invalidate helpers for venues', async () => {
-      const { createInvalidateQueries } = await import('./queryClient')
-      const mockQueryClient = {
-        invalidateQueries: vi.fn(),
-      } as unknown as QueryClient
-
-      const helpers = createInvalidateQueries(mockQueryClient)
-      helpers.venues()
-
-      expect(mockQueryClient.invalidateQueries).toHaveBeenCalledWith({
-        queryKey: ['venues'],
-      })
-    })
-
-    it('creates invalidate helpers for savedShows', async () => {
-      const { createInvalidateQueries } = await import('./queryClient')
-      const mockQueryClient = {
-        invalidateQueries: vi.fn(),
-      } as unknown as QueryClient
-
-      const helpers = createInvalidateQueries(mockQueryClient)
-      helpers.savedShows()
-
-      expect(mockQueryClient.invalidateQueries).toHaveBeenCalledWith({
-        queryKey: ['savedShows'],
-      })
-    })
-
-    it('creates an invalidate helper for personal charts', async () => {
-      const { createInvalidateQueries } = await import('./queryClient')
-      const mockQueryClient = {
-        cancelQueries: vi.fn(),
-        invalidateQueries: vi.fn(),
-      } as unknown as QueryClient
-
-      const helpers = createInvalidateQueries(mockQueryClient)
-      await helpers.personalCharts()
-
-      expect(mockQueryClient.cancelQueries).toHaveBeenCalledWith({
-        queryKey: ['charts', 'personal'],
-      })
-      expect(mockQueryClient.invalidateQueries).toHaveBeenCalledWith({
-        queryKey: ['charts', 'personal'],
-      })
+      expect(cancel).not.toHaveBeenCalled()
+      expect(keysOf(invalidate)).toEqual([['auth']])
     })
 
     it('restarts a pending personal fetch before stale data can land', async () => {
@@ -209,7 +208,7 @@ describe('queryClient module', () => {
         defaultOptions: { queries: { retry: false } },
       })
       const queryKey = ['charts', 'personal', '42'] as const
-      const firstResponse = createDeferred<{ saved_shows: number }>()
+      const firstResponse = deferred<{ saved_shows: number }>()
       const queryFn = vi
         .fn<() => Promise<{ saved_shows: number }>>()
         .mockImplementationOnce(() => firstResponse.promise)
@@ -227,20 +226,6 @@ describe('queryClient module', () => {
       await Promise.resolve()
       expect(queryClient.getQueryData(queryKey)).toEqual({ saved_shows: 1 })
       unsubscribe()
-    })
-
-    it('creates invalidate helpers for mySubmissions', async () => {
-      const { createInvalidateQueries } = await import('./queryClient')
-      const mockQueryClient = {
-        invalidateQueries: vi.fn(),
-      } as unknown as QueryClient
-
-      const helpers = createInvalidateQueries(mockQueryClient)
-      helpers.mySubmissions()
-
-      expect(mockQueryClient.invalidateQueries).toHaveBeenCalledWith({
-        queryKey: ['mySubmissions'],
-      })
     })
   })
 
