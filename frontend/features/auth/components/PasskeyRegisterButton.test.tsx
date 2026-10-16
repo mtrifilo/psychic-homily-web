@@ -51,6 +51,12 @@ const REAUTH_REFUSAL = {
   request_id: 'req-1',
 }
 
+const BEGIN_OK = {
+  success: true,
+  options: { publicKey: { challenge: 'register-challenge' } },
+  challenge_id: 'challenge-1',
+}
+
 async function openAndSubmit() {
   const user = userEvent.setup()
   await user.click(screen.getByRole('button', { name: /Add passkey/i }))
@@ -111,13 +117,7 @@ describe('PasskeyRegisterButton', () => {
   it('carries the refusal code out of the finish step', async () => {
     global.fetch = vi
       .fn()
-      .mockResolvedValueOnce(
-        jsonResponse({
-          success: true,
-          options: { publicKey: { challenge: 'register-challenge' } },
-          challenge_id: 'challenge-1',
-        })
-      )
+      .mockResolvedValueOnce(jsonResponse(BEGIN_OK))
       .mockResolvedValueOnce(
         jsonResponse(REAUTH_REFUSAL)
       ) as unknown as typeof fetch
@@ -136,13 +136,7 @@ describe('PasskeyRegisterButton', () => {
   it('reports a 503 from finish with its code and leaves the dialog usable', async () => {
     global.fetch = vi
       .fn()
-      .mockResolvedValueOnce(
-        jsonResponse({
-          success: true,
-          options: { publicKey: { challenge: 'register-challenge' } },
-          challenge_id: 'challenge-1',
-        })
-      )
+      .mockResolvedValueOnce(jsonResponse(BEGIN_OK))
       .mockResolvedValueOnce(
         jsonResponse(
           {
@@ -214,4 +208,60 @@ describe('PasskeyRegisterButton', () => {
     expect(reported).not.toBeInstanceOf(AuthError)
     expect((reported as Error).message).toBe('Something broke')
   })
+
+  // The generated response types declare message required, but a refusal that
+  // never passed through the success envelope parses as JSON without one: an
+  // empty object, or huma's problem+json error model (title, status, detail).
+  // Each step then reports its own sentence.
+  const UNENVELOPED_REFUSALS = [
+    { shape: 'an empty JSON object', response: () => jsonResponse({}, 502) },
+    {
+      shape: 'the huma problem+json error model',
+      response: () =>
+        jsonResponse(
+          { title: 'Unprocessable Entity', status: 422, detail: 'validation failed' },
+          422
+        ),
+    },
+  ]
+
+  it.each(UNENVELOPED_REFUSALS)(
+    'reports the begin step sentence for $shape',
+    async ({ response }) => {
+      global.fetch = vi.fn().mockResolvedValue(response()) as unknown as typeof fetch
+      const onError = vi.fn()
+
+      renderWithProviders(<PasskeyRegisterButton onError={onError} />)
+      await openAndSubmit()
+
+      await waitFor(() => expect(onError).toHaveBeenCalled())
+      const reported = onError.mock.calls[0][0]
+      expect(reported).toBeInstanceOf(Error)
+      expect(reported).not.toBeInstanceOf(AuthError)
+      expect((reported as Error).message).toBe('Failed to start passkey registration')
+      expect(vi.mocked(startRegistration)).not.toHaveBeenCalled()
+    }
+  )
+
+  it.each(UNENVELOPED_REFUSALS)(
+    'reports the finish step sentence for $shape',
+    async ({ response }) => {
+      global.fetch = vi
+        .fn()
+        .mockResolvedValueOnce(jsonResponse(BEGIN_OK))
+        .mockResolvedValueOnce(response()) as unknown as typeof fetch
+      const onError = vi.fn()
+      const onSuccess = vi.fn()
+
+      renderWithProviders(<PasskeyRegisterButton onError={onError} onSuccess={onSuccess} />)
+      await openAndSubmit()
+
+      await waitFor(() => expect(onError).toHaveBeenCalled())
+      const reported = onError.mock.calls[0][0]
+      expect(reported).toBeInstanceOf(Error)
+      expect(reported).not.toBeInstanceOf(AuthError)
+      expect((reported as Error).message).toBe('Failed to register passkey')
+      expect(onSuccess).not.toHaveBeenCalled()
+    }
+  )
 })
