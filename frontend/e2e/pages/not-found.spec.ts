@@ -223,6 +223,11 @@ test.describe('Not-found pages — HTTP 404 status', () => {
       page,
       request,
     }) => {
+      // At a CI shard's start `goto` takes up to about 11 s, and a passing
+      // run spends up to about 10 s in the redirects after it. The 25 s wait
+      // below and this budget leave room for a slower runner.
+      test.setTimeout(45_000)
+
       const redirect = await request.get('/shows/saved?submitted=pending', {
         maxRedirects: 0,
       })
@@ -239,9 +244,13 @@ test.describe('Not-found pages — HTTP 404 status', () => {
       expect(new URL(response!.url()).pathname).toBe('/library')
       expect(response?.status()).toBe(200)
 
-      // Settle point: /library is a client component that redirects anon
-      // visitors to /auth (`useAuthRouteGuard` in app/library/page.tsx).
-      await page.waitForURL(/\/auth/, { timeout: 10_000 })
+      // `/library` sends the anonymous visitor to `/auth` as a new document
+      // (`useAuthRouteGuard` in app/library/page.tsx). The `/auth` navigation
+      // is the signal (with no cookie the server render seeds the anonymous
+      // profile, so there is no profile request to wait on). It settles on
+      // commit: `/auth`'s load event also waits for every subresource of the
+      // page, which says nothing about where the chain ended.
+      await page.waitForURL(/\/auth/, { waitUntil: 'commit', timeout: 25_000 })
     })
   })
   /**
