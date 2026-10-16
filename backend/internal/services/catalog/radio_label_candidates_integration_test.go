@@ -551,3 +551,17 @@ func (s *RadioLabelCandidatesIntegrationSuite) TestSortsAndRecentPlayTieBreak() 
 	s.Equal("t plays", keys(contracts.RadioLabelCandidateSortPlays)[0])
 	s.Equal("t stations", keys(contracts.RadioLabelCandidateSortStations)[0])
 }
+
+// A placeholder album (radio_play_exclusions, album_title) is not a release
+// of the label, yet its plays still count toward the label.
+func (s *RadioLabelCandidatesIntegrationSuite) TestReleaseEvidenceSkipsPlaceholderAlbums() {
+	s.addAcross(labelPlay{label: "T Album Label", artist: "T One", album: "Single"}, 2)
+	s.add(labelPlay{station: "t-kexp", label: "T Album Label", artist: "T Two", album: "Real Release"}, 1)
+
+	got := s.all()
+	s.Require().Contains(got, "t album label")
+	c := got["t album label"]
+	s.Equal(5, c.RecentPlayCount, "plays with a placeholder album still count for the label")
+	s.Equal(1, c.ReleaseNameCount)
+	s.Equal([]contracts.RadioCandidateName{{Name: "Real Release", PlayCount: 1}}, c.ReleaseNames)
+}
