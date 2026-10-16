@@ -607,9 +607,9 @@ describe('API Module', () => {
     })
 
     describe('an aborted request', () => {
-      const abortBeforeResponse = (abort: DOMException) =>
+      const abortBeforeResponse = (abort: unknown) =>
         vi.mocked(fetch).mockRejectedValue(abort)
-      const abortDuringBody = (abort: DOMException) =>
+      const abortDuringBody = (abort: unknown) =>
         vi.mocked(fetch).mockResolvedValue({
           ok: true,
           status: 200,
@@ -633,6 +633,85 @@ describe('API Module', () => {
         ).rejects.toBe(abort)
         expect(Sentry.captureException).not.toHaveBeenCalled()
         expect(logError).not.toHaveBeenCalled()
+      })
+
+      // fetch rejects with the signal's reason, whatever its name, once the
+      // request's own signal aborts.
+      const timedOutSignal = async () => {
+        const signal = AbortSignal.timeout(1)
+        await new Promise((resolve) =>
+          signal.addEventListener('abort', resolve, { once: true })
+        )
+        return signal
+      }
+      const signalAbortedWithReason = async () => {
+        const controller = new AbortController()
+        controller.abort(new Error('superseded by a newer request'))
+        return controller.signal
+      }
+
+      it.each([
+        ['AbortSignal.timeout', 'before the response arrives', timedOutSignal, 'TimeoutError', abortBeforeResponse],
+        ['AbortSignal.timeout', 'while a successful body is read', timedOutSignal, 'TimeoutError', abortDuringBody],
+        ['abort(reason)', 'before the response arrives', signalAbortedWithReason, 'Error', abortBeforeResponse],
+        ['abort(reason)', 'while a successful body is read', signalAbortedWithReason, 'Error', abortDuringBody],
+      ])('rejects a signal aborted by %s %s with its original reason, unreported', async (_how, _stage, abortedSignal, reasonName, failWith) => {
+        const signal = await abortedSignal()
+        expect(signal.reason).toHaveProperty('name', reasonName)
+        failWith(signal.reason)
+        const { apiRequest, API_BASE_URL } = await import('./api')
+        const { authLogger } = await import('./utils/authLogger')
+        const logError = vi.spyOn(authLogger, 'error').mockImplementation(() => {})
+
+        await expect(
+          apiRequest(`${API_BASE_URL}/auth/register`, { method: 'POST', signal })
+        ).rejects.toBe(signal.reason)
+        expect(Sentry.captureException).not.toHaveBeenCalled()
+        expect(logError).not.toHaveBeenCalled()
+      })
+
+      describe('a TimeoutError while the signal has not aborted', () => {
+        const timeout = () =>
+          new DOMException('The operation timed out.', 'TimeoutError')
+
+        it('is reported as a network failure on an auth endpoint', async () => {
+          const error = timeout()
+          abortBeforeResponse(error)
+          const { apiRequest, API_BASE_URL } = await import('./api')
+
+          await expect(
+            apiRequest(`${API_BASE_URL}/auth/register`, {
+              method: 'POST',
+              signal: new AbortController().signal,
+            })
+          ).rejects.toBe(error)
+          expect(Sentry.captureException).toHaveBeenCalledWith(
+            error,
+            expect.objectContaining({
+              tags: expect.objectContaining({ error_type: 'network_failure' }),
+            })
+          )
+        })
+
+        it('is wrapped in an ApiError while a successful body is read', async () => {
+          const error = timeout()
+          abortDuringBody(error)
+          const { apiRequest, API_BASE_URL } = await import('./api')
+          const { authLogger } = await import('./utils/authLogger')
+          const logError = vi.spyOn(authLogger, 'error').mockImplementation(() => {})
+
+          await expect(
+            apiRequest(`${API_BASE_URL}/shows`, {
+              signal: new AbortController().signal,
+            })
+          ).rejects.toMatchObject({ status: 200, details: error })
+          expect(logError).toHaveBeenCalledWith(
+            'API response parse failed',
+            expect.anything(),
+            expect.anything(),
+            undefined
+          )
+        })
       })
 
       it('keeps an error response its status when its body read aborts', async () => {
