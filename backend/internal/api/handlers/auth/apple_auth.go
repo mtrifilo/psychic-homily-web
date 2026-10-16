@@ -100,7 +100,7 @@ func (h *AppleAuthHandler) AppleCallbackHandler(ctx context.Context, input *Appl
 	}
 
 	// Validate the Apple identity token
-	claims, err := h.appleAuthService.ValidateIdentityToken(input.Body.IdentityToken)
+	claims, err := h.appleAuthService.ValidateIdentityToken(ctx, input.Body.IdentityToken)
 	if err != nil {
 		logger.AuthWarn(ctx, "apple_auth_token_invalid",
 			"error", err.Error(),
