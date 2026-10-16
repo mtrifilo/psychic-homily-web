@@ -21,6 +21,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"psychic-homily-backend/internal/config"
+	"psychic-homily-backend/internal/services/contracts"
 )
 
 const keysTestBundleID = "com.psychichomily.ios"
@@ -298,13 +299,13 @@ func TestAppleKeys_UnknownKidInsideCooldownSkipsFetch(t *testing.T) {
 
 	_, err = svc.getApplePublicKey(t.Context(), "unk-1")
 	require.Error(t, err)
-	assert.Equal(t, "apple public key not found for kid: unk-1", err.Error(), "fetched and absent, not a cooldown refusal")
+	assert.Equal(t, "apple public key not found for the token's key id", err.Error(), "fetched and absent, not a cooldown refusal")
 	require.Equal(t, 2, ks.count(), "the first unknown kid forces a refresh")
 
 	clock.advance(30 * time.Second)
 	_, err = svc.ValidateIdentityToken(t.Context(), signedToken(t, key, "unk-2"))
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "apple public key not found for kid: unk-2 (refresh cooling down, not fetched)")
+	assert.Contains(t, err.Error(), "apple public key not found for the token's key id (refresh cooling down, not fetched)")
 	assert.Equal(t, 2, ks.count(), "inside the cooldown there is no fetch")
 
 	clock.advance(30 * time.Second)
@@ -354,26 +355,31 @@ func TestAppleKeys_PanickingFetchPublishesFailure(t *testing.T) {
 	assert.Equal(t, int32(1), fetches.Load())
 }
 
-// A refused key id longer than 8 runes appears in the error as its first 8
-// runes and "...", on the fetched path and the cooldown path alike.
-func TestAppleKeys_NotFoundErrorBoundsKeyID(t *testing.T) {
+// A refused key id rides in a typed error whole, on the fetched path and the
+// cooldown path alike, and the error text leaves it out.
+func TestAppleKeys_NotFoundErrorCarriesKeyID(t *testing.T) {
 	key := newRSAKey(t)
 	ks := newKeyServer(t, jwks(key, "known-kid"))
 	svc, _, _ := newKeysTestService(ks.URL)
 	_, err := svc.getApplePublicKey(t.Context(), "known-kid")
 	require.NoError(t, err)
 
-	_, err = svc.getApplePublicKey(t.Context(), "kid-from-the-caller-"+strings.Repeat("z", 64))
-	require.Error(t, err)
-	assert.Equal(t, "apple public key not found for kid: kid-from...", err.Error())
-
-	_, err = svc.getApplePublicKey(t.Context(), "ключ-из-запроса")
-	require.Error(t, err)
-	assert.Equal(t, "apple public key not found for kid: ключ-из-... (refresh cooling down, not fetched)", err.Error())
-
-	_, err = svc.getApplePublicKey(t.Context(), "exactly8")
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "kid: exactly8 (refresh", "an id of 8 runes is kept whole")
+	for _, tc := range []struct {
+		kid  string
+		path string
+	}{
+		{"AbCdEfGhIj", "fetched"},
+		{"kid-from-the-caller-" + strings.Repeat("z", 64), "cooldown"},
+		{"ключ-из-запроса", "cooldown"},
+	} {
+		_, err = svc.getApplePublicKey(t.Context(), tc.kid)
+		var notFound *contracts.AppleKeyNotFoundError
+		require.ErrorAs(t, err, &notFound, tc.kid)
+		assert.Equal(t, tc.kid, notFound.KeyID)
+		assert.Equal(t, tc.path == "cooldown", strings.Contains(err.Error(), "refresh cooling down"), tc.kid)
+		assert.NotContains(t, err.Error(), tc.kid)
+	}
+	assert.Equal(t, 2, ks.count(), "the first unknown id fetched; the others were inside the cooldown")
 }
 
 // A rotated key whose id arrives after the cooldown fetches once and
@@ -573,6 +579,10 @@ func TestAppleKeys_MalformedEntriesNeverReplaceCachedSet(t *testing.T) {
 		{"encryption key", func(e *testJWK) { e.Use = "enc" }},
 		{"other algorithm", func(e *testJWK) { e.Alg = "RS512" }},
 		{"other key type", func(e *testJWK) { e.Kty = "EC" }},
+		{"512-bit modulus", func(e *testJWK) { e.N = modulusOfBits(512) }},
+		{"2047-bit modulus", func(e *testJWK) { e.N = modulusOfBits(2047) }},
+		{"modulus not base64url", func(e *testJWK) { e.N = "not base64url!" }},
+		{"exponent not base64url", func(e *testJWK) { e.E = "AQ=AB" }},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -630,27 +640,6 @@ func TestAppleKeys_BodyCapBoundary(t *testing.T) {
 	}
 }
 
-// An entry whose modulus is not base64url fails the whole fetch, and the
-// cached set stays.
-func TestAppleKeys_UndecodableEntryFailsFetchAndKeepsCachedSet(t *testing.T) {
-	key := newRSAKey(t)
-	ks := newKeyServer(t, jwks(key, "known-kid"))
-	svc, _, _ := newKeysTestService(ks.URL)
-	_, err := svc.getApplePublicKey(t.Context(), "known-kid")
-	require.NoError(t, err)
-
-	bad := rsaJWK(key, "rotated-kid")
-	bad.N = "not base64url!"
-	ks.serve(http.StatusOK, jwkSet(rsaJWK(key, "other-kid"), bad))
-	_, err = svc.getApplePublicKey(t.Context(), "rotated-kid")
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "failed to decode modulus")
-
-	_, err = svc.ValidateIdentityToken(t.Context(), signedToken(t, key, "known-kid"))
-	require.NoError(t, err, "the cached set still validates known kids")
-	assert.Equal(t, 2, ks.count())
-}
-
 // A caller whose context has already ended still gets a fresh cached key; on a
 // miss it gets the context's error without starting a fetch or spending the
 // forced-refresh cooldown.
@@ -679,7 +668,7 @@ func TestAppleKeys_AlreadyCancelledContext(t *testing.T) {
 	assert.Equal(t, 1, ks.count(), "a miss with an ended context starts no fetch")
 
 	_, err = svc.getApplePublicKey(t.Context(), "unknown")
-	require.EqualError(t, err, "apple public key not found for kid: unknown",
+	require.EqualError(t, err, "apple public key not found for the token's key id",
 		"the next live caller fetches: no cooldown was spent")
 	assert.Equal(t, 2, ks.count())
 }
@@ -775,4 +764,38 @@ func TestAppleKeys_CancelledCallerStopsWaiting(t *testing.T) {
 	_, err := svc.getApplePublicKey(t.Context(), "kid-a")
 	require.NoError(t, err, "the fetch outlived the cancelled callers and filled the cache")
 	assert.Equal(t, int32(1), fetches.Load())
+}
+
+// modulusOfBits is a base64url modulus exactly bits long. It is not the
+// product of two primes; the filter judges only its size.
+func modulusOfBits(bits int) string {
+	n := new(big.Int).Lsh(big.NewInt(1), uint(bits-1))
+	n.Or(n, big.NewInt(1))
+	return base64.RawURLEncoding.EncodeToString(n.Bytes())
+}
+
+// An entry whose modulus or exponent is not base64url is dropped with one
+// warning each; the fetch succeeds on the entries left, so they validate.
+func TestAppleKeys_UndecodableEntryIsDropped(t *testing.T) {
+	key := newRSAKey(t)
+	ks := newKeyServer(t, jwks(key, "known-kid"))
+	svc, _, logs := newKeysTestService(ks.URL)
+	_, err := svc.getApplePublicKey(t.Context(), "known-kid")
+	require.NoError(t, err)
+
+	badN := rsaJWK(key, "bad-n-kid")
+	badN.N = "not base64url!"
+	badE := rsaJWK(key, "bad-e-kid")
+	badE.E = "AQ=AB"
+	ks.serve(http.StatusOK, jwkSet(badN, rsaJWK(key, "rotated-kid"), badE))
+
+	_, err = svc.ValidateIdentityToken(t.Context(), signedToken(t, key, "rotated-kid"))
+	require.NoError(t, err, "the decodable entry beside the undecodable ones is served")
+	assert.Equal(t, 2, ks.count())
+	assert.Equal(t, 2, logs.count("apple_keys_entry_dropped"), "one warning per dropped entry")
+
+	for _, kid := range []string{"bad-n-kid", "bad-e-kid", "known-kid"} {
+		_, err = svc.getApplePublicKey(t.Context(), kid)
+		require.Error(t, err, kid)
+	}
 }

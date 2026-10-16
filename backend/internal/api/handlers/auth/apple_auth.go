@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"strings"
 	"time"
 
 	"psychic-homily-backend/internal/config"
@@ -102,9 +103,12 @@ func (h *AppleAuthHandler) AppleCallbackHandler(ctx context.Context, input *Appl
 	// Validate the Apple identity token
 	claims, err := h.appleAuthService.ValidateIdentityToken(ctx, input.Body.IdentityToken)
 	if err != nil {
-		logger.AuthWarn(ctx, "apple_auth_token_invalid",
-			"error", err.Error(),
-		)
+		attrs := []any{"error", err.Error()}
+		var notFound *contracts.AppleKeyNotFoundError
+		if errors.As(err, &notFound) {
+			attrs = append(attrs, "kid", appleKeyIDForLog(notFound.KeyID))
+		}
+		logger.AuthWarn(ctx, "apple_auth_token_invalid", attrs...)
 		resp.Body.Success = false
 		resp.Body.Message = "Invalid Apple identity token"
 		resp.Body.ErrorCode = autherrors.CodeTokenInvalid
@@ -164,4 +168,31 @@ func (h *AppleAuthHandler) AppleCallbackHandler(ctx context.Context, input *Appl
 	resp.Body.User = user
 
 	return resp, nil
+}
+
+// appleKeyIDLogRunes is how many runes of a caller's key id a log record
+// carries. It exceeds the length of the key ids in Apple's key set, so those
+// log whole.
+const appleKeyIDLogRunes = 16
+
+// appleKeyIDForLog is kid as a log record carries it: its first
+// appleKeyIDLogRunes runes, each one outside ASCII letters, digits, '-', '_'
+// and '.' replaced by '?', followed by "..." when kid is longer.
+func appleKeyIDForLog(kid string) string {
+	var b strings.Builder
+	runes := 0
+	for _, r := range kid {
+		if runes == appleKeyIDLogRunes {
+			b.WriteString("...")
+			break
+		}
+		runes++
+		switch {
+		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9', r == '-', r == '_', r == '.':
+			b.WriteRune(r)
+		default:
+			b.WriteByte('?')
+		}
+	}
+	return b.String()
 }

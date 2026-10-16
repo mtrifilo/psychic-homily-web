@@ -164,9 +164,11 @@ func stubAppleKeyEndpoint(t *testing.T, body []byte) {
 }
 
 // The key id in an identity token header is caller-supplied text. A token
-// whose key id Apple's set lacks is refused, and no warn-or-higher record of
-// the attempt carries more than the id's first 8 characters.
-func TestAppleCallbackHandler_TokenInvalidLogBoundsKeyID(t *testing.T) {
+// whose key id Apple's set lacks is refused. The refusal's warn record names
+// the key id in its kid attribute only: whole when it is short and plain,
+// otherwise cut and with other characters replaced. No other warn-or-higher
+// record and no response field carries it.
+func TestAppleCallbackHandler_TokenInvalidLogsBoundedKeyID(t *testing.T) {
 	key, err := rsa.GenerateKey(rand.Reader, 2048)
 	if err != nil {
 		t.Fatal(err)
@@ -177,51 +179,74 @@ func TestAppleCallbackHandler_TokenInvalidLogBoundsKeyID(t *testing.T) {
 
 	cfg := testConfig()
 	cfg.Apple.BundleID = "com.psychichomily.ios"
-	h := NewAppleAuthHandler(authsvc.NewAppleAuthService(nil, cfg, nil), &testhelpers.MockDiscordService{}, cfg)
 
-	callerKid := "kid-from-the-caller-" + strings.Repeat("z", 64)
-	token := jwt.NewWithClaims(jwt.SigningMethodRS256, jwt.MapClaims{
-		"iss": "https://appleid.apple.com",
-		"aud": cfg.Apple.BundleID,
-		"sub": "apple-sub-1",
-		"exp": time.Now().Add(time.Hour).Unix(),
-		"iat": time.Now().Unix(),
-	})
-	token.Header["kid"] = callerKid
-	signed, err := token.SignedString(key)
-	if err != nil {
-		t.Fatal(err)
+	cases := []struct {
+		name string
+		kid  string
+		// logged is the kid attribute the refusal record carries.
+		logged string
+		// absent is caller text no warn-or-higher record carries outside
+		// that attribute, and no response field carries at all.
+		absent string
+	}{
+		{"an id shaped like Apple's logs whole", "AbCdEfGhIj", "AbCdEfGhIj", "AbCdEfGhIj"},
+		{"a long id is cut", "kid-from-the-caller-" + strings.Repeat("z", 64), "kid-from-the-cal...", "kid-from-the-call"},
+		{"other characters are replaced", "k\u202ei d\x01", "k?i?d?", "k\u202ei"},
 	}
-
-	input := &AppleCallbackRequest{}
-	input.Body.IdentityToken = signed
-	var resp *AppleCallbackResponse
-	logs := testlog.Capture(t, func() {
-		resp, err = h.AppleCallbackHandler(testlog.Context(t, context.Background()), input)
-	})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if resp.Body.ErrorCode != autherrors.CodeTokenInvalid {
-		t.Fatalf("error_code = %q, want %q", resp.Body.ErrorCode, autherrors.CodeTokenInvalid)
-	}
-
-	sawRefusal := false
-	for _, line := range strings.Split(logs, "\n") {
-		if !strings.Contains(line, "level=WARN") && !strings.Contains(line, "level=ERROR") {
-			continue
-		}
-		if strings.Contains(line, "msg=apple_auth_token_invalid") {
-			sawRefusal = true
-			if !strings.Contains(line, callerKid[:8]) {
-				t.Errorf("the refusal should carry the key id's first 8 characters: %s", line)
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			h := NewAppleAuthHandler(authsvc.NewAppleAuthService(nil, cfg, nil), &testhelpers.MockDiscordService{}, cfg)
+			token := jwt.NewWithClaims(jwt.SigningMethodRS256, jwt.MapClaims{
+				"iss": "https://appleid.apple.com",
+				"aud": cfg.Apple.BundleID,
+				"sub": "apple-sub-1",
+				"exp": time.Now().Add(time.Hour).Unix(),
+				"iat": time.Now().Unix(),
+			})
+			token.Header["kid"] = tc.kid
+			signed, err := token.SignedString(key)
+			if err != nil {
+				t.Fatal(err)
 			}
-		}
-		if strings.Contains(line, callerKid[:9]) {
-			t.Errorf("a warn-or-higher record carries more than 8 characters of the caller's key id: %s", line)
-		}
-	}
-	if !sawRefusal {
-		t.Fatalf("no apple_auth_token_invalid warning was logged:\n%s", logs)
+
+			input := &AppleCallbackRequest{}
+			input.Body.IdentityToken = signed
+			var resp *AppleCallbackResponse
+			logs := testlog.Capture(t, func() {
+				resp, err = h.AppleCallbackHandler(testlog.Context(t, context.Background()), input)
+			})
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if resp.Body.ErrorCode != autherrors.CodeTokenInvalid {
+				t.Fatalf("error_code = %q, want %q", resp.Body.ErrorCode, autherrors.CodeTokenInvalid)
+			}
+			for _, field := range []string{resp.Body.Message, resp.Body.ErrorCode, resp.Body.Token, resp.Body.RequestID} {
+				if strings.Contains(field, tc.absent) || strings.Contains(field, tc.logged) {
+					t.Errorf("a response field carries the key id: %q", field)
+				}
+			}
+
+			attr := " kid=" + tc.logged
+			sawRefusal := false
+			for _, line := range strings.Split(logs, "\n") {
+				if !strings.Contains(line, "level=WARN") && !strings.Contains(line, "level=ERROR") {
+					continue
+				}
+				if strings.Contains(line, "msg=apple_auth_token_invalid") {
+					sawRefusal = true
+					if !strings.Contains(line+" ", attr+" ") {
+						t.Errorf("the refusal should carry%s: %s", attr, line)
+					}
+					line = strings.Replace(line, attr, "", 1)
+				}
+				if strings.Contains(line, tc.absent) {
+					t.Errorf("a warn-or-higher record carries the key id outside the kid attribute: %s", line)
+				}
+			}
+			if !sawRefusal {
+				t.Fatalf("no apple_auth_token_invalid warning was logged:\n%s", logs)
+			}
+		})
 	}
 }

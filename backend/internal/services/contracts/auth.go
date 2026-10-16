@@ -79,6 +79,16 @@ func ParseEmailVerifiedClaim(raw any) (verified bool, present bool) {
 	return false, false
 }
 
+// AppleKeyNotFoundError refuses an Apple identity token whose key id Apple's
+// key set does not hold. KeyID is the key id exactly as the token's header
+// carries it, which is caller-supplied; Error leaves it out, so whoever logs
+// the error decides how much of it to show.
+type AppleKeyNotFoundError struct{ KeyID string }
+
+func (e *AppleKeyNotFoundError) Error() string {
+	return "apple public key not found for the token's key id"
+}
+
 // PasswordValidationResult contains the result of password validation
 type PasswordValidationResult struct {
 	Valid    bool
@@ -173,7 +183,10 @@ type JWTServiceInterface interface {
 // AppleAuthServiceInterface defines the contract for Apple authentication operations.
 type AppleAuthServiceInterface interface {
 	// Returns ctx's error when ctx ends while the lookup waits on a key-set
-	// fetch.
+	// fetch. A token whose key id Apple's set lacks fails with an error that
+	// wraps *AppleKeyNotFoundError. No error text carries the token or text
+	// taken from its header or claims; the one header value an error may name
+	// is the name of a signing method jwt registers.
 	ValidateIdentityToken(ctx context.Context, identityToken string) (*AppleIdentityTokenClaims, error)
 	// Refuses with a typed AuthError carrying CodeOAuthLinkRefused when the
 	// claims' address already belongs to an account this identity may not join
