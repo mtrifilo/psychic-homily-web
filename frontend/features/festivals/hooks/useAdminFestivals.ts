@@ -9,7 +9,8 @@
 
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { apiRequest } from '@/lib/api'
-import { createInvalidateQueries } from '@/lib/queryClient'
+import { queryKeys } from '@/lib/queryClient'
+import { refetchAfterMutation } from '@/lib/refetchAfterMutation'
 import { festivalEndpoints } from '@/features/festivals/api'
 import type {
   FestivalDetail,
@@ -88,7 +89,6 @@ export interface AddFestivalVenueInput {
  */
 export function useCreateFestival() {
   const queryClient = useQueryClient()
-  const invalidateQueries = createInvalidateQueries(queryClient)
 
   return useMutation({
     mutationFn: async (input: CreateFestivalInput): Promise<FestivalDetail> => {
@@ -98,7 +98,7 @@ export function useCreateFestival() {
       })
     },
     onSuccess: () => {
-      invalidateQueries.festivals()
+      void refetchAfterMutation(queryClient, queryKeys.festivals.all)
     },
   })
 }
@@ -108,7 +108,6 @@ export function useCreateFestival() {
  */
 export function useUpdateFestival() {
   const queryClient = useQueryClient()
-  const invalidateQueries = createInvalidateQueries(queryClient)
 
   return useMutation({
     mutationFn: async ({
@@ -127,7 +126,7 @@ export function useUpdateFestival() {
       )
     },
     onSuccess: () => {
-      invalidateQueries.festivals()
+      void refetchAfterMutation(queryClient, queryKeys.festivals.all)
     },
   })
 }
@@ -137,7 +136,6 @@ export function useUpdateFestival() {
  */
 export function useDeleteFestival() {
   const queryClient = useQueryClient()
-  const invalidateQueries = createInvalidateQueries(queryClient)
 
   return useMutation({
     mutationFn: async (festivalId: number): Promise<void> => {
@@ -146,7 +144,7 @@ export function useDeleteFestival() {
       })
     },
     onSuccess: () => {
-      invalidateQueries.festivals()
+      void refetchAfterMutation(queryClient, queryKeys.festivals.all)
     },
   })
 }
@@ -160,7 +158,6 @@ export function useDeleteFestival() {
  */
 export function useAddFestivalArtist() {
   const queryClient = useQueryClient()
-  const invalidateQueries = createInvalidateQueries(queryClient)
 
   return useMutation({
     mutationFn: async ({
@@ -179,7 +176,7 @@ export function useAddFestivalArtist() {
       )
     },
     onSuccess: () => {
-      invalidateQueries.festivals()
+      void refetchAfterMutation(queryClient, queryKeys.festivals.all)
     },
   })
 }
@@ -189,7 +186,6 @@ export function useAddFestivalArtist() {
  */
 export function useUpdateFestivalArtist() {
   const queryClient = useQueryClient()
-  const invalidateQueries = createInvalidateQueries(queryClient)
 
   return useMutation({
     mutationFn: async ({
@@ -210,7 +206,7 @@ export function useUpdateFestivalArtist() {
       )
     },
     onSuccess: () => {
-      invalidateQueries.festivals()
+      void refetchAfterMutation(queryClient, queryKeys.festivals.all)
     },
   })
 }
@@ -220,7 +216,6 @@ export function useUpdateFestivalArtist() {
  */
 export function useRemoveFestivalArtist() {
   const queryClient = useQueryClient()
-  const invalidateQueries = createInvalidateQueries(queryClient)
 
   return useMutation({
     mutationFn: async ({
@@ -236,7 +231,7 @@ export function useRemoveFestivalArtist() {
       )
     },
     onSuccess: () => {
-      invalidateQueries.festivals()
+      void refetchAfterMutation(queryClient, queryKeys.festivals.all)
     },
   })
 }
@@ -250,7 +245,6 @@ export function useRemoveFestivalArtist() {
  */
 export function useAddFestivalVenue() {
   const queryClient = useQueryClient()
-  const invalidateQueries = createInvalidateQueries(queryClient)
 
   return useMutation({
     mutationFn: async ({
@@ -269,7 +263,7 @@ export function useAddFestivalVenue() {
       )
     },
     onSuccess: () => {
-      invalidateQueries.festivals()
+      void refetchAfterMutation(queryClient, queryKeys.festivals.all)
     },
   })
 }
@@ -279,7 +273,6 @@ export function useAddFestivalVenue() {
  */
 export function useRemoveFestivalVenue() {
   const queryClient = useQueryClient()
-  const invalidateQueries = createInvalidateQueries(queryClient)
 
   return useMutation({
     mutationFn: async ({
@@ -295,7 +288,7 @@ export function useRemoveFestivalVenue() {
       )
     },
     onSuccess: () => {
-      invalidateQueries.festivals()
+      void refetchAfterMutation(queryClient, queryKeys.festivals.all)
     },
   })
 }

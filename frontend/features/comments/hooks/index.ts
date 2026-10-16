@@ -20,7 +20,7 @@ import type {
   ReplyPermission,
   VenueFieldNoteListResponse,
 } from '../types'
-import { refetchAfterMutation } from './refetchAfterMutation'
+import { refetchAfterMutation } from '@/lib/refetchAfterMutation'
 
 // ============================================================================
 // Error formatting (PSY-589)
@@ -186,10 +186,7 @@ export function useReplyToComment() {
     onSuccess: (_data, variables) => {
       void refetchAfterMutation(
         queryClient,
-        commentQueryKeys.entity(variables.entityType, variables.entityId)
-      )
-      void refetchAfterMutation(
-        queryClient,
+        commentQueryKeys.entity(variables.entityType, variables.entityId),
         commentQueryKeys.thread(variables.commentId)
       )
     },
@@ -215,12 +212,11 @@ export function useUpdateReplyPermission() {
         body: JSON.stringify({ permission }),
       }),
     onSuccess: (_data, variables) => {
-      queryClient.invalidateQueries({
-        queryKey: commentQueryKeys.entity(variables.entityType, variables.entityId),
-      })
-      queryClient.invalidateQueries({
-        queryKey: commentQueryKeys.thread(variables.commentId),
-      })
+      void refetchAfterMutation(
+        queryClient,
+        commentQueryKeys.entity(variables.entityType, variables.entityId),
+        commentQueryKeys.thread(variables.commentId)
+      )
     },
   })
 }
@@ -239,6 +235,7 @@ export function useSetDefaultReplyPermission() {
         }
       ),
     onSuccess: () => {
+      // eslint-disable-next-line no-restricted-syntax -- the setting renders only for a signed-in viewer whose profile has loaded, and the cache error handlers in lib/queryClient.ts coordinate this query's refetches
       queryClient.invalidateQueries({ queryKey: queryKeys.auth.profile })
     },
   })
@@ -272,17 +269,16 @@ export function useUpdateComment() {
         ),
       }),
     onSuccess: (_data, variables) => {
-      queryClient.invalidateQueries({
-        queryKey: commentQueryKeys.entity(variables.entityType, variables.entityId),
-      })
       // PSY-590: field notes share the comments table but live in a separate
       // query cache (`fieldNoteQueryKeys.show`). Field-note edits flow through
       // this hook too, so refresh that cache when the target is a show.
-      if (variables.entityType === 'show') {
-        queryClient.invalidateQueries({
-          queryKey: fieldNoteQueryKeys.show(variables.entityId),
-        })
-      }
+      void refetchAfterMutation(
+        queryClient,
+        commentQueryKeys.entity(variables.entityType, variables.entityId),
+        ...(variables.entityType === 'show'
+          ? [fieldNoteQueryKeys.show(variables.entityId)]
+          : [])
+      )
     },
   })
 }
@@ -302,15 +298,14 @@ export function useDeleteComment() {
         method: 'DELETE',
       }),
     onSuccess: (_data, variables) => {
-      queryClient.invalidateQueries({
-        queryKey: commentQueryKeys.entity(variables.entityType, variables.entityId),
-      })
       // PSY-590: see useUpdateComment — keep the field-note cache in sync.
-      if (variables.entityType === 'show') {
-        queryClient.invalidateQueries({
-          queryKey: fieldNoteQueryKeys.show(variables.entityId),
-        })
-      }
+      void refetchAfterMutation(
+        queryClient,
+        commentQueryKeys.entity(variables.entityType, variables.entityId),
+        ...(variables.entityType === 'show'
+          ? [fieldNoteQueryKeys.show(variables.entityId)]
+          : [])
+      )
     },
   })
 }
@@ -389,9 +384,10 @@ export function useVoteComment() {
       }
     },
     onSettled: (_data, _err, variables) => {
-      queryClient.invalidateQueries({
-        queryKey: commentQueryKeys.entity(variables.entityType, variables.entityId),
-      })
+      void refetchAfterMutation(
+        queryClient,
+        commentQueryKeys.entity(variables.entityType, variables.entityId)
+      )
     },
   })
 }
@@ -456,9 +452,10 @@ export function useUnvoteComment() {
       }
     },
     onSettled: (_data, _err, variables) => {
-      queryClient.invalidateQueries({
-        queryKey: commentQueryKeys.entity(variables.entityType, variables.entityId),
-      })
+      void refetchAfterMutation(
+        queryClient,
+        commentQueryKeys.entity(variables.entityType, variables.entityId)
+      )
     },
   })
 }
