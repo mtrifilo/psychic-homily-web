@@ -30,7 +30,7 @@ import (
 //
 // What it does NOT do is follow calls: it sees the site that names the method,
 // not every path that can reach that site. A new caller of an already-listed
-// wrapper (AppleAuthService.GenerateToken, AuthService.OAuthCallback) is not
+// wrapper (AppleAuthService.GenerateToken, AuthService.OAuthCallbackWithConsent) is not
 // reported here and is on the author.
 //
 // If you add a site, choose one:
@@ -50,7 +50,7 @@ var sessionMintAllowlist = map[string]string{
 	"internal/api/handlers/auth/passkey.go:PasskeyHandler.FinishLoginHandler:CreateToken":      "webauthn assertion",
 	"internal/api/handlers/auth/passkey.go:PasskeyHandler.FinishSignupHandler:CreateToken":     "webauthn registration at signup",
 	"internal/services/auth/apple.go:AppleAuthService.GenerateToken:CreateToken":               "apple identity token, verified by AppleCallbackHandler before this runs",
-	"internal/services/auth/oauth.go:AuthService.oauthCallbackInternal:CreateToken":            "provider handshake",
+	"internal/services/auth/oauth.go:AuthService.OAuthCallbackWithConsent:CreateToken":         "provider handshake",
 
 	// Session renewals: the authentication time comes from the caller's own
 	// credential, so these mint no freshness.
