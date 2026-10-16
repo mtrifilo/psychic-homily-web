@@ -262,6 +262,7 @@ describe('SignupForm deferred validation', () => {
           age_confirmed: true,
           min_age_attested: MIN_SIGNUP_AGE,
           signal: expect.any(AbortSignal),
+          onRegistered: expect.any(Function),
         },
         expect.any(Object),
       )
