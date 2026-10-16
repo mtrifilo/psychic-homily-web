@@ -5,9 +5,9 @@ import { CommentThread } from './CommentThread'
 import {
   clientWithAppDefaults,
   deferred,
-  makeComment,
   routeGets,
-} from '../hooks/inflightOrdering.fixtures'
+} from '@/test/inflightOrdering'
+import { makeComment } from '../hooks/commentFixtures'
 import type { CommentListResponse } from '../types'
 
 const mockApiRequest = vi.fn()
