@@ -1,7 +1,7 @@
-import { readFileSync } from 'node:fs'
-import { resolve } from 'node:path'
-
 import { describe, it, expect } from 'vitest'
+
+import { loadBackendCorpus } from '@/test/loadBackendCorpus'
+
 import {
   FALLBACK_SHOW_TIMEZONE,
   getTimezoneForState,
@@ -515,23 +515,7 @@ describe('toZonedDateOnly', () => {
   })
 })
 
-// Read at RUNTIME, not imported.
-//
-// `import ... from '../../../backend/...json'` would pull a backend file into
-// the frontend TypeScript program, and `next build` typechecks that program, so
-// a Vercel project rooted at frontend/ without "include source files outside the
-// root directory" would fail the BUILD on a test fixture. readFileSync keeps the
-// single shared source of truth while staying invisible to tsc and to the
-// bundle. Same idiom as lib/socialLinks.test.ts.
-const dstCorpus = JSON.parse(
-  readFileSync(
-    resolve(
-      __dirname,
-      '../../../backend/internal/utils/testdata/dst_clock_corpus.json'
-    ),
-    'utf8'
-  )
-) as {
+const dstCorpus = loadBackendCorpus<{
   cases: {
     date: string
     clock: string
@@ -541,7 +525,7 @@ const dstCorpus = JSON.parse(
     ambiguous: boolean
     why: string
   }[]
-}
+}>('internal/utils/testdata/dst_clock_corpus.json')
 
 describe('cross-language DST corpus (this resolver and the Go writers are one rule)', () => {
   it('has rows on every side of both transitions', () => {

@@ -1,15 +1,15 @@
 package utils
 
 import (
-	"encoding/json"
 	"maps"
-	"os"
 	"slices"
 	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"psychic-homily-backend/internal/testcorpus"
 )
 
 // releaseLinkCorpus mirrors testdata/release_link_corpus.json, the file this
@@ -31,11 +31,7 @@ type releaseLinkCorpus struct {
 
 func loadReleaseLinkCorpus(t *testing.T) releaseLinkCorpus {
 	t.Helper()
-	raw, err := os.ReadFile("testdata/release_link_corpus.json")
-	require.NoError(t, err, "the corpus is shared with the frontend test; do not move it without updating both")
-
-	var corpus releaseLinkCorpus
-	require.NoError(t, json.Unmarshal(raw, &corpus))
+	corpus := testcorpus.Load[releaseLinkCorpus](t, "testdata/release_link_corpus.json")
 	require.NotEmpty(t, corpus.Platforms)
 	require.NotEmpty(t, corpus.Renderable)
 	require.NotEmpty(t, corpus.Refused)
