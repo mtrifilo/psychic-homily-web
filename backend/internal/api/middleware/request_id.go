@@ -39,8 +39,17 @@ func RequestIDMiddleware(next http.Handler) http.Handler {
 }
 
 // HumaRequestIDMiddleware is the Huma-compatible version of RequestIDMiddleware.
+//
+// A request's id is, in order: the id already on the request context, which
+// RequestIDMiddleware puts there when it runs ahead of Huma; else the inbound
+// X-Request-ID header; else a fresh UUID. The response header, the context id
+// and the context logger all carry that one id, so a request keeps the id it
+// arrived with however many times this runs.
 func HumaRequestIDMiddleware(ctx huma.Context, next func(huma.Context)) {
-	requestID := ctx.Header(RequestIDHeader)
+	requestID := logger.GetRequestID(ctx.Context())
+	if requestID == "" {
+		requestID = ctx.Header(RequestIDHeader)
+	}
 	if requestID == "" {
 		requestID = uuid.New().String()
 	}
