@@ -179,16 +179,12 @@ const (
 // radioLabelEvidenceNamesSQL ranks the names in a column of the label
 // evidence query's counted CTE: names group by radio_normalize_name, show
 // their most common trimmed spelling and count all their plays, and only rows
-// where onlyWhere (a boolean column of counted, or "" for every row) holds
-// contribute. refIDs is the aggregate the ref_ids column carries for each
-// name, SQL built from constants. Panics on a column that is not an
-// identifier.
+// where onlyWhere (a boolean column of counted) holds contribute. refIDs is
+// the aggregate the ref_ids column carries for each name, SQL built from
+// constants. Panics on a column that is not an identifier.
 func radioLabelEvidenceNamesSQL(kind, column, onlyWhere, refIDs string) string {
 	col := mustSQLColumnRef(column)
-	filter := "true"
-	if onlyWhere != "" {
-		filter = "c." + mustSQLColumnRef(onlyWhere)
-	}
+	filter := "c." + mustSQLColumnRef(onlyWhere)
 	return fmt.Sprintf(`
 SELECT '%[1]s' AS kind, label_key, 0 AS ref_id, name, '' AS slug,
        play_count::int AS play_count, distinct_count::int AS distinct_count, ref_ids, rn
@@ -216,7 +212,8 @@ WHERE rn <= %[4]d`, kind, col, refIDs, radioCandidateTopNames, filter)
 // radioLabelCandidateEvidenceSQL returns the evidence rows of the selected
 // keys, one radioLabelEvidenceRow per row. The artists list skips plays
 // RadioPlayExcludedSQL excludes for the artist ranking, such as placeholder
-// artist names; it does not filter on match state. Parameters: the
+// artist names, and the release list skips plays it excludes for album
+// evidence (RadioRankingAlbum); neither filters on match state. Parameters: the
 // window's first and last air dates, then the keys.
 var radioLabelCandidateEvidenceSQL = `
 WITH counted AS MATERIALIZED (
@@ -225,6 +222,7 @@ WITH counted AS MATERIALIZED (
          CASE WHEN btrim(p.musicbrainz_release_id) ~ '` + mbidUUIDPattern + `'
               THEN lower(btrim(p.musicbrainz_release_id)) END AS mb_release_id,
          NOT ` + RadioPlayExcludedSQL(RadioRankingArtist, radioCandidatePlayCols) + ` AS artist_counts,
+         NOT ` + RadioPlayExcludedSQL(RadioRankingAlbum, radioCandidatePlayCols) + ` AS album_counts,
          sh.station_id
   ` + radioLabelCandidatePlaysFrom + `
     AND k.label_key = ANY (?::text[])
@@ -248,7 +246,7 @@ JOIN radio_stations st ON st.id = c.station_id
 GROUP BY c.label_key, st.id, st.name, st.slug
 UNION ALL` + radioLabelEvidenceNamesSQL(radioLabelEvidenceArtist, "artist_name", "artist_counts",
 	`coalesce(array_agg(DISTINCT artist_id::bigint ORDER BY artist_id::bigint) FILTER (WHERE artist_id IS NOT NULL), '{}')`) + `
-UNION ALL` + radioLabelEvidenceNamesSQL(radioLabelEvidenceRelease, "album_title", "", `'{}'::bigint[]`) + `
+UNION ALL` + radioLabelEvidenceNamesSQL(radioLabelEvidenceRelease, "album_title", "album_counts", `'{}'::bigint[]`) + `
 UNION ALL
 SELECT '` + radioLabelEvidenceMBRelease + `' AS kind, label_key, 0 AS ref_id, mb_release_id AS name, '' AS slug,
        play_count::int AS play_count, distinct_count::int AS distinct_count, '{}'::bigint[] AS ref_ids, rn
@@ -299,9 +297,8 @@ func (r *RadioCandidatesReader) ListLabelCandidates(ctx context.Context, q contr
 	ctx, cancel := context.WithTimeout(ctx, radioCandidateListingTimeout)
 	defer cancel()
 	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		// The server-side bound holds even if the client's cancellation is lost.
-		if err := tx.Exec(fmt.Sprintf("SET LOCAL statement_timeout = %d", radioCandidateListingTimeout.Milliseconds())).Error; err != nil {
-			return fmt.Errorf("bounding the listing: %w", err)
+		if err := boundRadioCandidateListing(tx); err != nil {
+			return err
 		}
 		var rows []radioLabelCandidateRow
 		if err := tx.Raw(radioLabelCandidatesSQL,
