@@ -17,8 +17,6 @@ vi.mock('@/lib/context/AuthContext', () => ({
 
 // Create mocks
 const mockApiRequest = vi.fn()
-const mockInvalidateSavedShows = vi.fn()
-const mockInvalidatePersonalCharts = vi.fn()
 
 // Mock the api module
 vi.mock('@/lib/api', () => ({
@@ -89,15 +87,21 @@ vi.mock('@/lib/queryClient', () => ({
         showIds,
       ],
     },
+    charts: { personalRoot: ['charts', 'personal'] },
   },
-  createInvalidateQueries: () => ({
-    savedShows: mockInvalidateSavedShows,
-    personalCharts: mockInvalidatePersonalCharts,
-  }),
 }))
+
+// The real helper runs against the real client; the spy records which keys
+// each mutation refetches.
+vi.mock('@/lib/refetchAfterMutation', async importOriginal => {
+  const actual =
+    await importOriginal<typeof import('@/lib/refetchAfterMutation')>()
+  return { refetchAfterMutation: vi.fn(actual.refetchAfterMutation) }
+})
 
 // Import hooks after mocks are set up (queryKeys resolves to the mock above)
 import { queryKeys } from '@/lib/queryClient'
+import { refetchAfterMutation } from '@/lib/refetchAfterMutation'
 import {
   useInfiniteSavedShows,
   useSavedShows,
@@ -298,7 +302,10 @@ describe('useSavedShows', () => {
     expect(cached?.pages[0].shows).toEqual([{ id: 2 }, { id: 3 }, { id: 4 }])
     expect(cached?.pages[0].total).toBe(104)
     expect(cached?.pages[1].total).toBe(104)
-    expect(mockInvalidateSavedShows).not.toHaveBeenCalled()
+    expect(refetchAfterMutation).not.toHaveBeenCalledWith(
+      expect.anything(),
+      queryKeys.savedShows.all
+    )
 
     const infinite = renderHook(() => useInfiniteSavedShows('upcoming', '1'), {
       wrapper,
@@ -426,8 +433,6 @@ describe('useSaveShow', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mockApiRequest.mockReset()
-    mockInvalidateSavedShows.mockReset()
-    mockInvalidatePersonalCharts.mockReset()
   })
 
   it('saves a show with correct endpoint', async () => {
@@ -467,8 +472,14 @@ describe('useSaveShow', () => {
 
     await waitFor(() => expect(result.current.isSuccess).toBe(true))
 
-    expect(mockInvalidateSavedShows).toHaveBeenCalled()
-    expect(mockInvalidatePersonalCharts).toHaveBeenCalled()
+    expect(refetchAfterMutation).toHaveBeenCalledWith(
+      expect.anything(),
+      queryKeys.savedShows.all
+    )
+    expect(refetchAfterMutation).toHaveBeenCalledWith(
+      expect.anything(),
+      queryKeys.charts.personalRoot
+    )
   })
 
   it('handles save errors', async () => {
@@ -487,7 +498,10 @@ describe('useSaveShow', () => {
     await waitFor(() => expect(result.current.isError).toBe(true))
 
     expect(result.current.error).toBeDefined()
-    expect(mockInvalidatePersonalCharts).toHaveBeenCalled()
+    expect(refetchAfterMutation).toHaveBeenCalledWith(
+      expect.anything(),
+      queryKeys.charts.personalRoot
+    )
   })
 })
 
@@ -495,8 +509,6 @@ describe('useUnsaveShow', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mockApiRequest.mockReset()
-    mockInvalidateSavedShows.mockReset()
-    mockInvalidatePersonalCharts.mockReset()
   })
 
   it('unsaves a show with correct endpoint', async () => {
@@ -535,8 +547,14 @@ describe('useUnsaveShow', () => {
 
     await waitFor(() => expect(result.current.isSuccess).toBe(true))
 
-    expect(mockInvalidateSavedShows).toHaveBeenCalled()
-    expect(mockInvalidatePersonalCharts).toHaveBeenCalled()
+    expect(refetchAfterMutation).toHaveBeenCalledWith(
+      expect.anything(),
+      queryKeys.savedShows.all
+    )
+    expect(refetchAfterMutation).toHaveBeenCalledWith(
+      expect.anything(),
+      queryKeys.charts.personalRoot
+    )
   })
 
   it('handles unsave errors', async () => {
@@ -555,7 +573,10 @@ describe('useUnsaveShow', () => {
     await waitFor(() => expect(result.current.isError).toBe(true))
 
     expect(result.current.error).toBeDefined()
-    expect(mockInvalidatePersonalCharts).toHaveBeenCalled()
+    expect(refetchAfterMutation).toHaveBeenCalledWith(
+      expect.anything(),
+      queryKeys.charts.personalRoot
+    )
   })
 })
 
@@ -563,7 +584,6 @@ describe('useSaveShowToggle', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mockApiRequest.mockReset()
-    mockInvalidateSavedShows.mockReset()
   })
 
   it('toggle saves an unsaved show', async () => {
