@@ -179,3 +179,32 @@ func TestRequestIsFromOurFrontend(t *testing.T) {
 		})
 	}
 }
+
+func TestOriginFromHeaders(t *testing.T) {
+	const ours = "http://localhost:3000"
+
+	cases := []struct {
+		name    string
+		origin  string
+		referer string
+		want    string
+	}{
+		{"no Origin and no Referer", "", "", ""},
+		{"Origin alone", ours, "", ours},
+		{"Referer alone, trimmed to its origin", "", ours + "/profile?tab=settings", ours},
+		{"opaque Origin falls back to Referer", "null", ours + "/profile", ours},
+		{"another Origin with our Referer", "https://evil.example", ours + "/profile", "https://evil.example"},
+		{"opaque Origin and nothing else", "null", "", ""},
+		{"Origin with a path, returned as sent", ours + "/", "", ours + "/"},
+		{"Referer that is not an absolute URL", "", "/profile", ""},
+		{"Referer that is not a URL", "", "not a url", ""},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := originFromHeaders(tc.origin, tc.referer); got != tc.want {
+				t.Errorf("originFromHeaders(%q, %q) = %q, want %q", tc.origin, tc.referer, got, tc.want)
+			}
+		})
+	}
+}
