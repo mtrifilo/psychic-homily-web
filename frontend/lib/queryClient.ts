@@ -766,18 +766,6 @@ export const queryKeys = {
     all: ['notificationFilters'] as const,
   },
 
-  // /explore landing read endpoints (PSY-835/836/837)
-  explore: {
-    upcomingShows: (params?: {
-      limit?: number
-      offset?: number
-      cities?: Array<{ city: string; state: string }>
-    }) =>
-      params && Object.values(params).some(v => v != null)
-        ? (['explore', 'upcomingShows', params] as const)
-        : (['explore', 'upcomingShows'] as const),
-  },
-
   discovery: {
     randomArtistTarget: ['discovery', 'randomArtistTarget'] as const,
   },
@@ -845,7 +833,7 @@ export const queryKeys = {
  *     only, with no anonymous variant to be confused with. Logout drops them
  *     wholesale via `queryClient.clear()`.
  *   - `tags` list/detail/search/entities, public `charts`, and the venue /
- *     release / label / festival / scene / radio / graph / explore families:
+ *     release / label / festival / scene / radio / graph families:
  *     served by routes registered without auth middleware, so the backend
  *     cannot see a viewer and the payload cannot vary.
  */

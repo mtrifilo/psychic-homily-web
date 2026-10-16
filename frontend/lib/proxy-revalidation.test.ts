@@ -108,7 +108,6 @@ describe('show rules', () => {
     '/shows',
     '/shows/2026/07',
     '/shows/2026/07/01',
-    '/explore',
     '/artists',
     '/venues',
     // The scene BROWSE page as well as the per-scene pages: since PSY-1624 it
@@ -171,7 +170,6 @@ describe('show rules', () => {
       // Counts, not slugs, so the month and day pages cannot be named either.
       '/shows/[slug]/[month]',
       '/shows/[slug]/[month]/[day]',
-      '/explore',
       '/artists',
       '/venues',
       // Batch-approve is how shows go public in bulk, and the /scenes cards
@@ -204,7 +202,6 @@ describe('show rules', () => {
       // the one month and day that actually changed.
       '/shows/[slug]/[month]',
       '/shows/[slug]/[month]/[day]',
-      '/explore',
       '/artists',
       '/venues',
       '/scenes',
@@ -299,7 +296,6 @@ describe('show rules', () => {
     await run({ method: 'POST', path: '/shows', responseText: 'created' })
     expect(revalidated()).toEqual([
       '/shows',
-      '/explore',
       '/artists',
       '/venues',
       '/scenes',
@@ -986,9 +982,9 @@ describe('resilience', () => {
     await expect(
       run({ method: 'DELETE', path: '/shows/7' })
     ).resolves.toBeUndefined()
-    // show-delete touches 4 list pages + the two date-page patterns + scenes +
+    // show-delete touches 3 list pages + the two date-page patterns + scenes +
     // the collection cascade; each failure is captured separately.
-    expect(mockCaptureException).toHaveBeenCalledTimes(9)
+    expect(mockCaptureException).toHaveBeenCalledTimes(8)
   })
 
   it('never throws when the lookup fetch rejects — skips the page and reports', async () => {
