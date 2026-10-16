@@ -72,6 +72,10 @@ var requiredSchemaColumns = []requiredColumn{
 	// Checked by a generated column so the assertion also catches a table
 	// that exists but predates the shape the guard queries.
 	{Table: "timezone_names_snapshot", Column: "name_lower"},
+	// GORM's Create enumerates every model column, so this one appears in
+	// every radio play INSERT the playlist import runs. Absent DDL fails every
+	// import at request time instead of at boot.
+	{Table: "radio_plays", Column: "release_link_source"},
 	// Typed entries: exactly the columns whose type a timestamp-named
 	// migration changed. golang-migrate skips a timestamp-named migration
 	// whose version is below the recorded pointer, which happens when branches

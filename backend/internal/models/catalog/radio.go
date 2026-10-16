@@ -418,6 +418,25 @@ const (
 	RadioPlayMatchStateNoMatch   = "no_match"
 )
 
+// Release-link sources (radio_plays.release_link_source): the writer that
+// chose a play's release_id. The radio_plays_release_link_source_check CHECK
+// accepts exactly these. Every writer sets the source with release_id and
+// clears it with release_id, but deleting a release nulls release_id (ON
+// DELETE SET NULL) and leaves the source, so the source describes release_id
+// only while release_id is set.
+const (
+	RadioPlayReleaseLinkSourceMatcher  = "matcher"
+	RadioPlayReleaseLinkSourceAdmin    = "admin"
+	RadioPlayReleaseLinkSourceBackfill = "backfill"
+)
+
+// RadioPlayReleaseLinkSources lists every release-link source.
+var RadioPlayReleaseLinkSources = []string{
+	RadioPlayReleaseLinkSourceMatcher,
+	RadioPlayReleaseLinkSourceAdmin,
+	RadioPlayReleaseLinkSourceBackfill,
+}
+
 // BroadcastTypes is the list of valid broadcast types
 var BroadcastTypes = []string{
 	BroadcastTypeTerrestrial,
@@ -1063,6 +1082,9 @@ type RadioPlay struct {
 	ArtistID  *uint `gorm:"column:artist_id"`
 	ReleaseID *uint `gorm:"column:release_id"`
 	LabelID   *uint `gorm:"column:label_id"`
+	// ReleaseLinkSource is one of the RadioPlayReleaseLinkSource* values, the
+	// writer that chose ReleaseID; meaningful only while ReleaseID is set.
+	ReleaseLinkSource *string `gorm:"column:release_link_source"`
 
 	// External IDs for cross-referencing and deduplication
 	MusicBrainzRecordingID *string `gorm:"column:musicbrainz_recording_id"`
