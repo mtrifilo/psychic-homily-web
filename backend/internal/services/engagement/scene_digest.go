@@ -321,8 +321,8 @@ func (s *SceneDigestService) queryFollows(cutoff time.Time) ([]sceneFollowRow, e
 		JOIN scenes sc ON sc.id = b.entity_id
 		LEFT JOIN user_preferences up ON up.user_id = b.user_id
 		WHERE b.entity_type = 'scene' AND b.action = 'follow'
+		  -- is_active alone selects live accounts: users_live_account_check refuses is_active with deleted_at set.
 		  AND u.is_active = TRUE
-		  AND u.deleted_at IS NULL
 		  AND COALESCE(up.notify_on_scene_digest, FALSE) = TRUE
 		  AND (b.scene_digest_sent_at IS NULL OR b.scene_digest_sent_at <= ?)
 		ORDER BY b.user_id ASC, sc.city ASC, sc.state ASC, sc.id ASC
