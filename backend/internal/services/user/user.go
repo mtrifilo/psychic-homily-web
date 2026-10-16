@@ -660,8 +660,8 @@ func (s *UserService) LinkOAuthAccountToUser(userID uint, gothUser goth.User, pr
 	// by design keeps this correct if that constraint is ever relaxed, and it
 	// gives the caller an error naming the user rather than a driver message.
 	//
-	// It also has to be one that may sign in, judged here rather than only by
-	// the caller, so an account closed after the caller looked is still
+	// It also has to be one that may sign in, judged in the transaction that
+	// writes the link, so an account closed after any earlier check is still
 	// refused. FOR SHARE: a deactivation or deletion of the row waits for this
 	// transaction, so the account cannot close between this read and the write.
 	var account authm.User
