@@ -1,16 +1,20 @@
 package middleware
 
 import (
+	"bufio"
 	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"log/slog"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	sentryhttp "github.com/getsentry/sentry-go/http"
 
 	autherrors "psychic-homily-backend/internal/errors"
 	"psychic-homily-backend/internal/logger"
@@ -61,14 +65,11 @@ func TestRecoverPanic_AnswersEnvelopeWhenNothingWasWritten(t *testing.T) {
 		h := w.Header()
 		h.Set("Access-Control-Allow-Origin", "https://app.example.com")
 		h.Set("Content-Type", "text/calendar")
-		h.Set("Content-Disposition", `attachment; filename="shows.ics"`)
-		h.Set("Content-Length", "4096")
-		h.Set("Content-Encoding", "gzip")
-		h.Set("ETag", `"v1"`)
-		h.Set("Last-Modified", "Mon, 05 Oct 2026 00:00:00 GMT")
 		h.Set("Cache-Control", "public, max-age=300")
-		h.Set("Expires", "Mon, 05 Oct 2026 00:05:00 GMT")
-		h.Set("Content-Range", "bytes 0-99/4096")
+		h.Set("Set-Cookie", "link_intent=; Max-Age=0")
+		for _, name := range representationHeaders {
+			h.Set(name, "handler value")
+		}
 		panic(errors.New("boom: password=panic-secret"))
 	})
 
@@ -99,13 +100,16 @@ func TestRecoverPanic_AnswersEnvelopeWhenNothingWasWritten(t *testing.T) {
 	if got := h.Get("Cache-Control"); got != "no-store" {
 		t.Errorf("Cache-Control = %q, want no-store", got)
 	}
-	for _, name := range []string{"Content-Disposition", "Content-Length", "Content-Encoding", "ETag", "Last-Modified", "Expires", "Content-Range"} {
+	for _, name := range representationHeaders {
 		if got := h.Get(name); got != "" {
 			t.Errorf("%s = %q survived onto the error response", name, got)
 		}
 	}
 	if got := h.Get("Access-Control-Allow-Origin"); got != "https://app.example.com" {
 		t.Errorf("Access-Control-Allow-Origin = %q, want it kept so a browser can read the error", got)
+	}
+	if got := h.Get("Set-Cookie"); got == "" {
+		t.Error("Set-Cookie was dropped, want the handler's cookie kept")
 	}
 
 	lines := panicLogLines(t, logs)
@@ -204,7 +208,18 @@ func (w *fixedWriter) Header() http.Header         { return w.header }
 func (w *fixedWriter) Write(p []byte) (int, error) { return len(p), nil }
 func (w *fixedWriter) WriteHeader(int)             {}
 
+// hijackableWriter is a fixedWriter whose Hijack succeeds.
+type hijackableWriter struct{ fixedWriter }
+
+func (w *hijackableWriter) Hijack() (net.Conn, *bufio.ReadWriter, error) { return nil, nil, nil }
+
 func TestStartTrackingWriter(t *testing.T) {
+	t.Run("a successful hijack starts the response", func(t *testing.T) {
+		w := &startTrackingWriter{ResponseWriter: &hijackableWriter{fixedWriter{header: http.Header{}}}}
+		if _, _, err := w.Hijack(); err != nil || !w.started {
+			t.Errorf("Hijack err %v, started %t; want nil and started", err, w.started)
+		}
+	})
 	t.Run("switching protocols starts the response", func(t *testing.T) {
 		w := &startTrackingWriter{ResponseWriter: &fixedWriter{header: http.Header{}}}
 		w.WriteHeader(http.StatusSwitchingProtocols)
@@ -225,6 +240,18 @@ func TestStartTrackingWriter(t *testing.T) {
 			t.Error("an unsupported flush or hijack marked the response started")
 		}
 	})
+	t.Run("a copy into the writer starts the response", func(t *testing.T) {
+		for name, inner := range map[string]http.ResponseWriter{
+			"inner ReaderFrom":    httptest.NewRecorder(),
+			"no inner ReaderFrom": &fixedWriter{header: http.Header{}},
+		} {
+			w := &startTrackingWriter{ResponseWriter: inner}
+			n, err := io.Copy(w, io.LimitReader(strings.NewReader("body"), 4))
+			if n != 4 || err != nil || !w.started {
+				t.Errorf("%s: copied %d, err %v, started %t; want 4 bytes and started", name, n, err, w.started)
+			}
+		}
+	})
 	t.Run("a supported flush reaches the inner writer", func(t *testing.T) {
 		rr := httptest.NewRecorder()
 		w := &startTrackingWriter{ResponseWriter: rr}
@@ -233,4 +260,37 @@ func TestStartTrackingWriter(t *testing.T) {
 			t.Errorf("flushed %t started %t, want both", rr.Flushed, w.started)
 		}
 	})
+}
+
+// Behind RecoverPanic, the Sentry handler and the response compressor, the
+// order production registers them in, a handler can still hijack an HTTP/1
+// connection, and a panic after the hijack aborts instead of writing a 500.
+func TestRecoverPanic_KeepsHijackThroughTheProductionChain(t *testing.T) {
+	hijacked := make(chan error, 1)
+	handler := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		conn, _, err := http.NewResponseController(w).Hijack()
+		hijacked <- err
+		if err != nil {
+			return
+		}
+		_, _ = conn.Write([]byte("HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok"))
+		_ = conn.Close()
+		panic("after hijack")
+	})
+	chain := RecoverPanic(sentryhttp.New(sentryhttp.Options{Repanic: true}).Handle(ResponseCompression()(handler)))
+	server := httptest.NewServer(chain)
+	defer server.Close()
+
+	resp, err := server.Client().Get(server.URL)
+	if hijackErr := <-hijacked; hijackErr != nil {
+		t.Fatalf("Hijack through the chain: %v", hijackErr)
+	}
+	if err != nil {
+		t.Fatalf("request: %v", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	body, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusOK || string(body) != "ok" {
+		t.Errorf("status %d body %q, want the hijacked connection's own 200 ok", resp.StatusCode, body)
+	}
 }

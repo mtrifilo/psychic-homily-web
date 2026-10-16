@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 
@@ -25,7 +26,8 @@ import (
 // re-panics with http.ErrAbortHandler, on which net/http closes the HTTP/1
 // connection or resets the HTTP/2 stream without logging a stack, so the client
 // sees a truncated response rather than a complete one. A handler's own
-// http.ErrAbortHandler passes through unlogged.
+// http.ErrAbortHandler passes through with no log line (the Sentry handler,
+// which sits inside, still captures it).
 func RecoverPanic(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		tracked := &startTrackingWriter{ResponseWriter: w}
@@ -54,8 +56,9 @@ func RecoverPanic(next http.Handler) http.Handler {
 
 			// The error body inherits no representation metadata from the
 			// response the handler meant to send, so nothing mislabels it or
-			// lets a cache keep it. Headers about the exchange (CORS, security,
-			// the request ID) stay.
+			// lets a cache keep it. Every other header stays: CORS, security and
+			// the request ID, and also any Set-Cookie the handler set, which
+			// can be the clearing of a stale cookie.
 			header := w.Header()
 			for _, name := range representationHeaders {
 				header.Del(name)
@@ -86,9 +89,11 @@ var representationHeaders = []string{
 const panicLogMsg = "handler_panic"
 
 // startTrackingWriter records whether any part of the response has gone out.
-// It implements Flush, Hijack and Push as well as Unwrap, for the reason
-// bodylessEncodingStripper gives: chi's writers find those capabilities by
-// direct type assertion.
+// It implements Flush, Hijack, Push and io.ReaderFrom as well as Unwrap, for
+// the reason bodylessEncodingStripper gives: the writers inside it find those
+// capabilities by direct type assertion. sentryhttp's HTTP/1 wrapper offers
+// Hijack only when its inner writer is a Flusher, a Hijacker and an
+// io.ReaderFrom together.
 type startTrackingWriter struct {
 	http.ResponseWriter
 	started bool
@@ -120,6 +125,17 @@ func (w *startTrackingWriter) Hijack() (net.Conn, *bufio.ReadWriter, error) {
 		w.started = true
 	}
 	return conn, rw, err
+}
+
+// ReadFrom marks the response started, as net/http's own ReadFrom writes the
+// header before copying.
+func (w *startTrackingWriter) ReadFrom(src io.Reader) (int64, error) {
+	w.started = true
+	if rf, ok := w.ResponseWriter.(io.ReaderFrom); ok {
+		return rf.ReadFrom(src)
+	}
+	// The anonymous struct hides this ReadFrom from io.Copy.
+	return io.Copy(struct{ io.Writer }{w.ResponseWriter}, src)
 }
 
 func (w *startTrackingWriter) Push(target string, opts *http.PushOptions) error {

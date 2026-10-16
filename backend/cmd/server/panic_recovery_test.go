@@ -87,6 +87,9 @@ func TestHandlerPanicAnswers500(t *testing.T) {
 		if len(panics) != 1 || panics[0]["level"] != "ERROR" || panics[0]["request_id"] != id || panics[0]["status"] != float64(http.StatusInternalServerError) {
 			t.Errorf("%s: %s lines = %v, want one at ERROR with request_id %s and status 500", name, panicLogMsg, panics, id)
 		}
+		if n := len(recordsAtLevel(records, "ERROR")); n != 1 {
+			t.Errorf("%s: %d ERROR lines, want only the %s line", name, n, panicLogMsg)
+		}
 	}
 
 	t.Run("response already started", func(t *testing.T) {
@@ -100,6 +103,22 @@ func TestHandlerPanicAnswers500(t *testing.T) {
 		panics := recordsWithMsg(records, panicLogMsg)
 		if len(panics) != 1 || panics[0]["response_started"] != true || panics[0]["request_id"] != end.RequestIDHeader {
 			t.Errorf("%s lines = %v, want one with response_started true and request_id %s", panicLogMsg, panics, end.RequestIDHeader)
+		}
+	})
+
+	// The handler's own abort reaches net/http as the sentinel: the connection
+	// closes, nothing is logged, and Sentry, which captures every panic it
+	// sees, holds one event.
+	t.Run("handler aborts", func(t *testing.T) {
+		end, records := result("abort")
+		if end.ClientError == "" {
+			t.Errorf("status %d with body %q: want the connection aborted", end.Status, end.Body)
+		}
+		if n := len(recordsAtLevel(records, "ERROR")); n != 0 {
+			t.Errorf("%d ERROR lines for http.ErrAbortHandler, want 0", n)
+		}
+		if len(end.Events) != 1 {
+			t.Errorf("Sentry captured %d events, want 1", len(end.Events))
 		}
 	})
 }
@@ -168,6 +187,9 @@ func servePanicCases(t *testing.T) {
 	}, func(context.Context, *struct{}) (*struct{}, error) {
 		panic(probe)
 	})
+	router.Get("/test-panic/abort", func(http.ResponseWriter, *http.Request) {
+		panic(http.ErrAbortHandler)
+	})
 	router.Get("/test-panic/started", func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte("partial"))
@@ -215,6 +237,7 @@ func servePanicCases(t *testing.T) {
 	serve("raw-route", "/test-panic/raw")
 	serve("huma-operation", "/test-panic/huma")
 	serve("started", "/test-panic/started")
+	serve("abort", "/test-panic/abort")
 }
 
 // logObjects decodes the lines that are JSON log records.
@@ -233,6 +256,16 @@ func recordsWithMsg(records []map[string]any, msg string) []map[string]any {
 	var matched []map[string]any
 	for _, record := range records {
 		if record["msg"] == msg {
+			matched = append(matched, record)
+		}
+	}
+	return matched
+}
+
+func recordsAtLevel(records []map[string]any, level string) []map[string]any {
+	var matched []map[string]any
+	for _, record := range records {
+		if record["level"] == level {
 			matched = append(matched, record)
 		}
 	}

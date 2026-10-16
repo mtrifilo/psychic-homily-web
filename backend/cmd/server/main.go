@@ -796,7 +796,10 @@ func useRequestCorrelation(router chi.Router) {
 	router.Use(middleware.RecoverPanic)
 
 	// Sentry error tracking, early enough to capture a panic from every handler
-	// after it. Repanic hands the panic on to RecoverPanic once captured.
+	// after it. Repanic hands the panic on to RecoverPanic once captured. The
+	// Sentry transaction finishes before RecoverPanic writes the 500, so a
+	// panicked request's transaction carries the status written before the
+	// panic (200 when none was).
 	sentryHandler := sentryhttp.New(sentryhttp.Options{
 		Repanic:         true,
 		WaitForDelivery: false, // Don't block responses waiting for Sentry
