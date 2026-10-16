@@ -175,16 +175,19 @@ func TestColumnTypesRefusal(t *testing.T) {
 				"expected bigint (type change recorded but DDL absent?); refusing to boot")
 	})
 
-	t.Run("every wrong column is reported", func(t *testing.T) {
+	t.Run("every wrong column is reported, absent or mistyped, in checklist order", func(t *testing.T) {
 		t.Parallel()
 		types := listedColumnTypes()
 		types["webauthn_credentials.sign_count"] = columnType{DataType: "integer", UDTName: "int4"}
+		delete(types, "audit_logs.entity_id")
 		types["entity_edit_audit_logs.created_at"] = columnType{DataType: "timestamp without time zone", UDTName: "timestamp"}
 		err := columnTypesRefusal(typedColumnFaults(types))
-		require.Error(t, err)
-		assert.Contains(t, err.Error(), "webauthn_credentials.sign_count is integer, expected bigint")
-		assert.Contains(t, err.Error(),
-			"entity_edit_audit_logs.created_at is timestamp without time zone, expected timestamp with time zone")
+		require.EqualError(t, err,
+			"required schema column types do not match: "+
+				"webauthn_credentials.sign_count is integer, expected bigint; "+
+				"audit_logs.entity_id is absent, expected bigint; "+
+				"entity_edit_audit_logs.created_at is timestamp without time zone, expected timestamp with time zone "+
+				"(type change recorded but DDL absent?); refusing to boot")
 	})
 
 	t.Run("a listed column the reader did not return is reported absent", func(t *testing.T) {
