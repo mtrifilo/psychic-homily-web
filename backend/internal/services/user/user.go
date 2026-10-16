@@ -665,10 +665,7 @@ func (s *UserService) LinkOAuthAccountToUser(userID uint, gothUser goth.User, pr
 	// refused. FOR SHARE: a deactivation or deletion of the row waits for this
 	// transaction, so the account cannot close between this read and the write.
 	var account authm.User
-	if err := tx.
-		Clauses(clause.Locking{Strength: "SHARE"}).
-		Select("id", "is_active", "deleted_at").
-		First(&account, userID).Error; err != nil {
+	if err := tx.Clauses(clause.Locking{Strength: "SHARE"}).First(&account, userID).Error; err != nil {
 		tx.Rollback()
 		return nil, fmt.Errorf("failed to get user: %w", err)
 	}
