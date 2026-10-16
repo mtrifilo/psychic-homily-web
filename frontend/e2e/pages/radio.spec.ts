@@ -333,8 +333,8 @@ test.describe('Radio station URLs', () => {
     page,
   }) => {
     // The status line is not asserted. The page decides after the root
-    // layout has begun streaming, so only a proxy.ts check can set a 404
-    // status, and no proxy check covers /radio.
+    // layout has begun streaming, which commits a 200; a 404 status needs a
+    // proxy.ts existence check that answers before the page renders.
     await page.goto('/radio/does-not-exist')
 
     await expect(
