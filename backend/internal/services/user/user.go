@@ -659,10 +659,25 @@ func (s *UserService) LinkOAuthAccountToUser(userID uint, gothUser goth.User, pr
 	// oauth_accounts foreign key would refuse the write anyway, but a refusal
 	// by design keeps this correct if that constraint is ever relaxed, and it
 	// gives the caller an error naming the user rather than a driver message.
-	var exists authm.User
-	if err := tx.Select("id").First(&exists, userID).Error; err != nil {
+	//
+	// It also has to be one that may sign in, judged here rather than only by
+	// the caller, so an account closed after the caller looked is still
+	// refused. FOR SHARE: a deactivation or deletion of the row waits for this
+	// transaction, so the account cannot close between this read and the write.
+	var account authm.User
+	if err := tx.
+		Clauses(clause.Locking{Strength: "SHARE"}).
+		Select("id", "is_active", "deleted_at").
+		First(&account, userID).Error; err != nil {
 		tx.Rollback()
 		return nil, fmt.Errorf("failed to get user: %w", err)
+	}
+	if !account.CanSignIn() {
+		tx.Rollback()
+		logger.Default().Warn("oauth_link_refused_account_inactive",
+			"provider", provider,
+			"user_id", userID)
+		return nil, apperrors.ErrAccountInactive()
 	}
 
 	// FOR UPDATE: a concurrent connect or unlink of this row waits for this
