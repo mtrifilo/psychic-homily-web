@@ -10,6 +10,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { apiRequest, API_ENDPOINTS } from '../../api'
 import { queryKeys } from '../../queryClient'
+import { isTimeoutError } from '../../errors'
 import { refetchAfterMutation } from '@/lib/refetchAfterMutation'
 import type { Artist, ArtistEditRequest, ArtistAliasesResponse, ArtistAlias, MergeArtistResult } from '@/features/artists'
 // The discover-music response types below are aliased from the generated
@@ -100,7 +101,7 @@ export function useDiscoverMusic() {
           }
         )
       } catch (err) {
-        if (err instanceof DOMException && err.name === 'TimeoutError') {
+        if (isTimeoutError(err)) {
           throw new Error('Discovery timed out — try again, or use manual entry.')
         }
         throw err

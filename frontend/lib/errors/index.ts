@@ -16,3 +16,5 @@ export {
   getShowErrorMessage,
   type ShowErrorCodeType,
 } from './showErrors'
+
+export { isAbortError, isTimeoutError } from './abortErrors'
