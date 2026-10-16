@@ -26,6 +26,7 @@ import {
 
 let queryClient: QueryClient
 let invalidateSpy: ReturnType<typeof vi.spyOn>
+let cancelSpy: ReturnType<typeof vi.spyOn>
 
 beforeEach(() => {
   vi.clearAllMocks()
@@ -34,6 +35,7 @@ beforeEach(() => {
     defaultOptions: { mutations: { retry: false }, queries: { retry: false } },
   })
   invalidateSpy = vi.spyOn(queryClient, 'invalidateQueries')
+  cancelSpy = vi.spyOn(queryClient, 'cancelQueries')
 })
 
 function wrapper() {
@@ -68,7 +70,15 @@ describe('useCreateFestival', () => {
         end_date: '2026-03-08',
       }),
     })
-    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['festivals'] })
+    await waitFor(() =>
+      expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['festivals'] })
+    )
+    // Cancelling first keeps an in-flight first fetch's pre-write response
+    // from winning over the refetch.
+    expect(cancelSpy).toHaveBeenCalledWith({ queryKey: ['festivals'] })
+    expect(cancelSpy.mock.invocationCallOrder[0]).toBeLessThan(
+      invalidateSpy.mock.invocationCallOrder[0]
+    )
   })
 
   it('surfaces the error and does not invalidate when the request fails', async () => {
