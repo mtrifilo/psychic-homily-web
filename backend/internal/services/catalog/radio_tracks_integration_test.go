@@ -628,3 +628,31 @@ func (s *RadioTracksIntegrationSuite) TestJoiningTwoExistingTracksKeepsTheOlderR
 	s.Equal(2, merged.StationFamilyCount)
 	s.Equal(older.ID, s.trackIDForKey("prince and the revolution", "let's go crazy"))
 }
+
+// album_play_count counts only plays whose album counts as release evidence:
+// a placeholder album (radio_play_exclusions, album_title) is left out, while
+// play_count still counts the play.
+func (s *RadioTracksIntegrationSuite) TestRebuildAlbumPlayCountSkipsPlaceholderAlbums() {
+	s.addPlay(radioTrackFixturePlay{station: "t-kexp", artist: "T Album Count", title: stringPtr("Counted"),
+		album: stringPtr("Live on KEXP")}, 2)
+	s.addPlay(radioTrackFixturePlay{station: "t-wfmu", artist: "T Album Count", title: stringPtr("Counted"),
+		album: stringPtr("Real Album")}, 1)
+	s.addPlay(radioTrackFixturePlay{station: "t-wfmu", artist: "T Album Count", title: stringPtr("Counted")}, 1)
+	s.rebuild()
+
+	t := s.track("t album count", "counted")
+	s.Equal(4, t.PlayCount)
+	s.Equal(1, t.AlbumPlayCount)
+}
+
+// A play that a talk or station element row excludes is not album evidence
+// either: album_play_count leaves it out while play_count counts it.
+func (s *RadioTracksIntegrationSuite) TestRebuildAlbumPlayCountSkipsTalkPlays() {
+	s.addPlay(radioTrackFixturePlay{station: "t-kexp", artist: "T Break Band", title: stringPtr("We Are On A Break"),
+		album: stringPtr("Real Album")}, 2)
+	s.rebuild()
+
+	t := s.track("t break band", "we are on a break")
+	s.Equal(2, t.PlayCount)
+	s.Equal(0, t.AlbumPlayCount, "the seeded talk title row excludes the whole play")
+}
