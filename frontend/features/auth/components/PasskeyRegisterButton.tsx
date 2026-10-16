@@ -42,11 +42,11 @@ interface PasskeyRegisterButtonProps {
  * one a caller has to tell apart, so this carries the code through instead of
  * flattening the response to its sentence.
  *
- * This is the one credential surface that does not go through `apiRequest`,
- * because it drives the WebAuthn ceremony between the two calls. Reading the
- * response is therefore its own job, including the case `apiRequest` handles
- * for everyone else: a non-JSON refusal from an edge rule or a protection page,
- * which must not surface as a parse error with no remedy.
+ * Both registration requests call fetch directly, not `apiRequest`, because
+ * the WebAuthn ceremony runs between them. Reading the response is therefore
+ * its own job, including the case `apiRequest` handles for its callers: a
+ * non-JSON refusal from an edge rule or a protection page, which must not
+ * surface as a parse error with no remedy.
  */
 async function readRegistrationResponse<
   Body extends BeginRegisterResponse | FinishRegisterResponse,
