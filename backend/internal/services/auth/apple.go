@@ -142,7 +142,7 @@ func (s *AppleAuthService) ValidateIdentityToken(ctx context.Context, identityTo
 	parser := jwt.NewParser(jwt.WithoutClaimsValidation())
 	unverifiedToken, _, err := parser.ParseUnverified(identityToken, &contracts.AppleIdentityTokenClaims{})
 	if err != nil {
-		return nil, fmt.Errorf("failed to parse token header: %w", tokenParseFailureKind(err))
+		return nil, fmt.Errorf("failed to parse token header: %w", jwtFailureKind(err))
 	}
 
 	kid, ok := unverifiedToken.Header["kid"].(string)
@@ -160,8 +160,7 @@ func (s *AppleAuthService) ValidateIdentityToken(ctx context.Context, identityTo
 	claims := &contracts.AppleIdentityTokenClaims{}
 	token, err := jwt.ParseWithClaims(identityToken, claims, func(t *jwt.Token) (interface{}, error) {
 		if _, ok := t.Method.(*jwt.SigningMethodRSA); !ok {
-			// t.Method is a method jwt registers, so its name is jwt's text.
-			return nil, fmt.Errorf("unexpected signing method: %s", t.Method.Alg())
+			return nil, fmt.Errorf("unexpected signing method: %v", t.Header["alg"])
 		}
 		return publicKey, nil
 	},
@@ -170,7 +169,7 @@ func (s *AppleAuthService) ValidateIdentityToken(ctx context.Context, identityTo
 	)
 
 	if err != nil {
-		return nil, fmt.Errorf("invalid Apple identity token: %w", err)
+		return nil, fmt.Errorf("invalid Apple identity token: %w", jwtFailureKind(err))
 	}
 
 	if !token.Valid {
@@ -180,15 +179,38 @@ func (s *AppleAuthService) ValidateIdentityToken(ctx context.Context, identityTo
 	return claims, nil
 }
 
-// tokenParseFailureKind is the jwt sentinel err matches, without err's own
-// text: a header or claim that fails to decode can be quoted into that text.
-func tokenParseFailureKind(err error) error {
-	for _, kind := range []error{jwt.ErrTokenMalformed, jwt.ErrTokenUnverifiable} {
+// jwtFailureKinds are the sentinels jwt wraps into its parse and validation
+// errors, the most specific first.
+var jwtFailureKinds = []error{
+	jwt.ErrTokenExpired,
+	jwt.ErrTokenNotValidYet,
+	jwt.ErrTokenUsedBeforeIssued,
+	jwt.ErrTokenInvalidIssuer,
+	jwt.ErrTokenInvalidAudience,
+	jwt.ErrTokenInvalidSubject,
+	jwt.ErrTokenInvalidId,
+	jwt.ErrTokenRequiredClaimMissing,
+	jwt.ErrTokenSignatureInvalid,
+	jwt.ErrTokenMalformed,
+	jwt.ErrTokenUnverifiable,
+	jwt.ErrTokenInvalidClaims,
+}
+
+// errJWTUnclassified stands in for a jwt error that wraps none of
+// jwtFailureKinds.
+var errJWTUnclassified = errors.New("token refused")
+
+// jwtFailureKind is the first of jwtFailureKinds that err wraps, without err's
+// own text: jwt quotes a header or claim value that fails to decode into that
+// text, and the keyfunc's error, which names the header's alg, is wrapped in
+// it too.
+func jwtFailureKind(err error) error {
+	for _, kind := range jwtFailureKinds {
 		if errors.Is(err, kind) {
 			return kind
 		}
 	}
-	return errors.New("token could not be parsed")
+	return errJWTUnclassified
 }
 
 // FindOrCreateAppleUser finds or creates a user from Apple Sign In data.

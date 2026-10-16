@@ -227,7 +227,6 @@ func TestAppleCallbackHandler_TokenInvalidLogsBoundedKeyID(t *testing.T) {
 				}
 			}
 
-			attr := " kid=" + tc.logged
 			sawRefusal := false
 			for _, line := range strings.Split(logs, "\n") {
 				if !strings.Contains(line, "level=WARN") && !strings.Contains(line, "level=ERROR") {
@@ -235,10 +234,12 @@ func TestAppleCallbackHandler_TokenInvalidLogsBoundedKeyID(t *testing.T) {
 				}
 				if strings.Contains(line, "msg=apple_auth_token_invalid") {
 					sawRefusal = true
-					if !strings.Contains(line+" ", attr+" ") {
-						t.Errorf("the refusal should carry%s: %s", attr, line)
+					before, attrAndRest, _ := strings.Cut(line, " kid=")
+					kid, rest, _ := strings.Cut(attrAndRest, " ")
+					if kid != tc.logged {
+						t.Errorf("kid attribute = %q, want %q: %s", kid, tc.logged, line)
 					}
-					line = strings.Replace(line, attr, "", 1)
+					line = before + " " + rest
 				}
 				if strings.Contains(line, tc.absent) {
 					t.Errorf("a warn-or-higher record carries the key id outside the kid attribute: %s", line)

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"maps"
 	"net/http"
 	"strings"
 	"testing"
@@ -61,27 +62,26 @@ func TestValidateIdentityToken_ErrorTextCarriesNoCallerText(t *testing.T) {
 		require.NoError(t, err)
 		return out
 	}
-	withHeader := func(change map[string]any) map[string]any {
-		h := map[string]any{}
-		for k, v := range header {
-			h[k] = v
-		}
-		for k, v := range change {
-			if v == nil {
-				delete(h, k)
-			} else {
-				h[k] = v
-			}
+	// withHeader is header with key set to value, or removed when value is nil.
+	withHeader := func(key string, value any) map[string]any {
+		h := maps.Clone(header)
+		if value == nil {
+			delete(h, key)
+		} else {
+			h[key] = value
 		}
 		return h
 	}
 
 	cases := []struct {
 		name string
-		// token builds the token under test; prime may run lookups first and
-		// returns the context the validation runs under.
+		// token builds the token under test; prime may run lookups first.
 		token func(t *testing.T) string
-		prime func(t *testing.T, svc *AppleAuthService, ks *keyServer) context.Context
+		prime func(t *testing.T, svc *AppleAuthService, ks *keyServer)
+		// cancelled runs the validation under a context that has ended.
+		cancelled bool
+		// kind, when set, is the jwt sentinel the error still wraps.
+		kind error
 	}{
 		{name: "not three segments", token: func(*testing.T) string { return "not-a-jwt-" + callerMark }},
 		{name: "header not base64url", token: func(*testing.T) string { return "!" + callerMark + "!.e30.c2ln" }},
@@ -90,7 +90,7 @@ func TestValidateIdentityToken_ErrorTextCarriesNoCallerText(t *testing.T) {
 			return strings.Split(rawToken(t, header, map[string]any{}, ""), ".")[0] + ".!" + callerMark + "!.c2ln"
 		}},
 		{name: "claims not JSON", token: func(t *testing.T) string { return rawToken(t, header, "{"+callerMark, "c2ln") }},
-		{name: "exp a string", token: func(t *testing.T) string {
+		{name: "exp a string", kind: jwt.ErrTokenMalformed, token: func(t *testing.T) string {
 			return rawToken(t, header, map[string]any{"exp": callerMark}, "c2ln")
 		}},
 		{name: "aud an object", token: func(t *testing.T) string {
@@ -100,74 +100,67 @@ func TestValidateIdentityToken_ErrorTextCarriesNoCallerText(t *testing.T) {
 			return rawToken(t, header, map[string]any{"email": map[string]any{callerMark: callerMark}}, "c2ln")
 		}},
 		{name: "unknown alg", token: func(t *testing.T) string {
-			return rawToken(t, withHeader(map[string]any{"alg": callerMark}), liveClaims(), "c2ln")
+			return rawToken(t, withHeader("alg", callerMark), liveClaims(), "c2ln")
 		}},
 		{name: "no alg", token: func(t *testing.T) string {
-			return rawToken(t, withHeader(map[string]any{"alg": nil}), liveClaims(), "c2ln")
+			return rawToken(t, withHeader("alg", nil), liveClaims(), "c2ln")
 		}},
 		{name: "no kid", token: func(t *testing.T) string {
-			return rawToken(t, withHeader(map[string]any{"kid": nil}), liveClaims(), "c2ln")
+			return rawToken(t, withHeader("kid", nil), liveClaims(), "c2ln")
 		}},
 		{name: "kid an object", token: func(t *testing.T) string {
-			return rawToken(t, withHeader(map[string]any{"kid": map[string]any{callerMark: callerMark}}), liveClaims(), "c2ln")
+			return rawToken(t, withHeader("kid", map[string]any{callerMark: callerMark}), liveClaims(), "c2ln")
 		}},
 		{name: "unknown kid, fetched", token: func(t *testing.T) string { return sign(t, jwt.SigningMethodRS256, key, callerMark, nil) }},
 		{
 			name:  "unknown kid, refresh cooling down",
 			token: func(t *testing.T) string { return sign(t, jwt.SigningMethodRS256, key, callerMark, nil) },
-			prime: func(t *testing.T, svc *AppleAuthService, _ *keyServer) context.Context {
+			prime: func(t *testing.T, svc *AppleAuthService, _ *keyServer) {
 				_, err := svc.getApplePublicKey(t.Context(), "spend-the-refresh")
 				require.Error(t, err)
-				return t.Context()
 			},
 		},
 		{
 			name:  "key set fetch failing",
 			token: func(t *testing.T) string { return sign(t, jwt.SigningMethodRS256, key, callerMark, nil) },
-			prime: func(t *testing.T, _ *AppleAuthService, ks *keyServer) context.Context {
+			prime: func(t *testing.T, _ *AppleAuthService, ks *keyServer) {
 				ks.serve(http.StatusInternalServerError, []byte(callerMark))
-				return t.Context()
 			},
 		},
 		{
 			name:  "backing off after a failed fetch",
 			token: func(t *testing.T) string { return sign(t, jwt.SigningMethodRS256, key, callerMark, nil) },
-			prime: func(t *testing.T, svc *AppleAuthService, ks *keyServer) context.Context {
+			prime: func(t *testing.T, svc *AppleAuthService, ks *keyServer) {
 				ks.serve(http.StatusInternalServerError, nil)
 				_, err := svc.getApplePublicKey(t.Context(), "cold-lookup")
 				require.Error(t, err)
-				return t.Context()
 			},
 		},
 		{
-			name:  "caller context ended",
-			token: func(t *testing.T) string { return sign(t, jwt.SigningMethodRS256, key, callerMark, nil) },
-			prime: func(t *testing.T, _ *AppleAuthService, _ *keyServer) context.Context {
-				ctx, cancel := context.WithCancel(t.Context())
-				cancel()
-				return ctx
-			},
+			name:      "caller context ended",
+			token:     func(t *testing.T) string { return sign(t, jwt.SigningMethodRS256, key, callerMark, nil) },
+			cancelled: true,
 		},
-		{name: "HMAC algorithm", token: func(t *testing.T) string {
+		{name: "HMAC algorithm", kind: jwt.ErrTokenUnverifiable, token: func(t *testing.T) string {
 			return sign(t, jwt.SigningMethodHS256, []byte(callerMark), "known-kid", nil)
 		}},
 		{name: "signature not base64url", token: func(t *testing.T) string {
 			parts := strings.Split(sign(t, jwt.SigningMethodRS256, key, "known-kid", nil), ".")
 			return parts[0] + "." + parts[1] + ".!" + callerMark + "!"
 		}},
-		{name: "signed by another key", token: func(t *testing.T) string {
+		{name: "signed by another key", kind: jwt.ErrTokenSignatureInvalid, token: func(t *testing.T) string {
 			return sign(t, jwt.SigningMethodRS256, otherKey, "known-kid", nil)
 		}},
-		{name: "other issuer", token: func(t *testing.T) string {
+		{name: "other issuer", kind: jwt.ErrTokenInvalidIssuer, token: func(t *testing.T) string {
 			return sign(t, jwt.SigningMethodRS256, key, "known-kid", func(c map[string]any) { c["iss"] = "https://" + callerMark })
 		}},
-		{name: "other audience", token: func(t *testing.T) string {
+		{name: "other audience", kind: jwt.ErrTokenInvalidAudience, token: func(t *testing.T) string {
 			return sign(t, jwt.SigningMethodRS256, key, "known-kid", func(c map[string]any) { c["aud"] = callerMark })
 		}},
-		{name: "expired", token: func(t *testing.T) string {
+		{name: "expired", kind: jwt.ErrTokenExpired, token: func(t *testing.T) string {
 			return sign(t, jwt.SigningMethodRS256, key, "known-kid", func(c map[string]any) { c["exp"] = time.Now().Add(-time.Hour).Unix() })
 		}},
-		{name: "not yet valid", token: func(t *testing.T) string {
+		{name: "not yet valid", kind: jwt.ErrTokenNotValidYet, token: func(t *testing.T) string {
 			return sign(t, jwt.SigningMethodRS256, key, "known-kid", func(c map[string]any) { c["nbf"] = time.Now().Add(time.Hour).Unix() })
 		}},
 	}
@@ -177,15 +170,22 @@ func TestValidateIdentityToken_ErrorTextCarriesNoCallerText(t *testing.T) {
 			svc, _, _ := newKeysTestService(ks.URL)
 			_, err := svc.getApplePublicKey(t.Context(), "known-kid")
 			require.NoError(t, err)
-			ctx := t.Context()
 			if tc.prime != nil {
-				ctx = tc.prime(t, svc, ks)
+				tc.prime(t, svc, ks)
+			}
+			ctx, cancel := context.WithCancel(t.Context())
+			defer cancel()
+			if tc.cancelled {
+				cancel()
 			}
 			token := tc.token(t)
 
 			_, err = svc.ValidateIdentityToken(ctx, token)
 			require.Error(t, err)
 			text := err.Error()
+			if tc.kind != nil {
+				require.ErrorIs(t, err, tc.kind)
+			}
 			require.NotContains(t, text, callerMark)
 			require.NotContains(t, text, token)
 			for _, seg := range strings.Split(token, ".") {

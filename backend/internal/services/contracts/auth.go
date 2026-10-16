@@ -185,8 +185,7 @@ type AppleAuthServiceInterface interface {
 	// Returns ctx's error when ctx ends while the lookup waits on a key-set
 	// fetch. A token whose key id Apple's set lacks fails with an error that
 	// wraps *AppleKeyNotFoundError. No error text carries the token or text
-	// taken from its header or claims; the one header value an error may name
-	// is the name of a signing method jwt registers.
+	// taken from its header or claims.
 	ValidateIdentityToken(ctx context.Context, identityToken string) (*AppleIdentityTokenClaims, error)
 	// Refuses with a typed AuthError carrying CodeOAuthLinkRefused when the
 	// claims' address already belongs to an account this identity may not join
