@@ -6,8 +6,8 @@
 # and queues every later query on the table behind the migration.
 #
 # A migration takes a strong lock when its SQL (comments stripped by the rule
-# in scripts/lib/sql_strip_comments.sh: `--`, nested `/* */`, and neither
-# inside a string literal) contains ALTER TABLE, LOCK TABLE, DROP TABLE, or
+# in scripts/lib/sql_strip_comments.sh) contains ALTER TABLE, LOCK TABLE,
+# DROP TABLE, or
 # CREATE [UNIQUE] INDEX without CONCURRENTLY. It sets its own bound when the
 # SQL contains lock_timeout (e.g. `SET LOCAL lock_timeout = '5s';`).
 #

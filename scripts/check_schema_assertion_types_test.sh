@@ -235,7 +235,7 @@ expect 1 "changes the type of events.starts_at to timestamp, a type with no sql*
 reset_fixture "an unknown type fails, naming the type"
 assertion '	{Table: "users", Column: "username", Type: sqlText},'
 migration "20260901000000_widen" "ALTER TABLE users ALTER COLUMN username TYPE varchar(50);"
-expect 1 "ERROR: backend/db/migrations/20260901000000_widen.up.sql changes the type of users.username to varchar(50), a type with no sql* constant in this gate." \
+expect 1 "ERROR: backend/db/migrations/20260901000000_widen.up.sql changes the type of users.username to varchar, a type with no sql* constant in this gate." \
   "Add the constant to backend/db/schema_assertion.go and its spellings to type_constant in scripts/check_schema_assertion_types.sh."
 expect_absent "Fix: add {"
 
@@ -264,6 +264,11 @@ expect 1 "events.starts_at to timestamptz, so its typed entry" \
   "changes the type of users.email, and" \
   "Fix: add {"
 expect_absent "changes the type of audit_logs.actor_id"
+
+reset_fixture "tabs separate words like spaces"
+assertion '	{Table: "events", Column: "starts_at", Type: sqlTimestamptz},'
+migration "20260901000000_zone" $'ALTER\tTABLE\tevents\n\tALTER\tCOLUMN\tstarts_at\tTYPE\ttimestamp\twith\ttime\tzone;'
+expect 0 "events.starts_at (sqlTimestamptz)"
 
 reset_fixture "a final statement without a semicolon is read"
 migration "20260901000000_widen" "ALTER TABLE users ALTER COLUMN username TYPE bigint"

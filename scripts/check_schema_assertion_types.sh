@@ -22,8 +22,7 @@
 #     the table is dropped; identifiers compare case-insensitively with double
 #     quotes removed.
 #   * Comments are stripped first, by the rule in
-#     scripts/lib/sql_strip_comments.sh: `--` to the end of the line and
-#     nested `/* */` blocks, neither inside a string literal.
+#     scripts/lib/sql_strip_comments.sh.
 #   * The entry's Type must be the sql* constant for the migration's new type;
 #     type_constant below maps each type the gate knows to its constant, and a
 #     type it does not know fails the gate, naming the type. A string-literal
@@ -82,21 +81,22 @@ if [ -z "$ADDED_TIMESTAMPED" ]; then
 fi
 
 # --- 2. typed entries in the schema assertion ---------------------------------
-# One "table column Type" line per entry whose Type is set (an identifier, or a
-# non-empty string literal with its quotes), table and column lowercased. The
-# file is folded to one line so an entry split across lines still matches.
+# One tab-separated "table column Type" line per entry whose Type is set (an
+# identifier, or a non-empty string literal with its quotes), table and column
+# lowercased. The file is folded to one line so an entry split across lines
+# still matches.
 TYPED_ENTRIES="$(sed 's|//.*$||' "$ASSERTION_FILE" \
   | tr '\n\t' '  ' \
   | grep -oE '\{[[:space:]]*Table:[[:space:]]*"[^"]+"[[:space:]]*,[[:space:]]*Column:[[:space:]]*"[^"]+"[[:space:]]*,[[:space:]]*Type:[[:space:]]*([A-Za-z_][A-Za-z0-9_]*|"[^"]+")' \
   | sed -E 's/.*Table:[[:space:]]*"([^"]+)".*Column:[[:space:]]*"([^"]+)".*Type:[[:space:]]*/\1 \2 /' \
-  | awk '{ type = $0; sub(/^[^ ]* [^ ]* /, "", type); print tolower($1), tolower($2), type }' \
+  | awk '{ type = $0; sub(/^[^ ]* [^ ]* /, "", type); print tolower($1) "\t" tolower($2) "\t" type }' \
   | sort -u || true)"
 
 # entry_types <table> <column>: the Type of each typed entry for the column,
 # one per line.
 entry_types() {
-  awk -v table="$1" -v column="$2" \
-    '$1 == table && $2 == column { sub(/^[^ ]* [^ ]* /, ""); print }' <<<"$TYPED_ENTRIES"
+  awk -F '\t' -v table="$1" -v column="$2" \
+    '$1 == table && $2 == column { print $3 }' <<<"$TYPED_ENTRIES"
 }
 
 # type_constant <type>: the sql* constant in $ASSERTION_FILE that a column of
@@ -132,7 +132,6 @@ names_constant() {
 # lowercase and without double quotes, one statement per line.
 statements() {
   sql_strip_comments "$1" \
-    | tr '\t' ' ' \
     | tr -d '"' \
     | tr '[:upper:]' '[:lower:]' \
     | tr ';' '\n'
@@ -140,7 +139,8 @@ statements() {
 
 # Prints "table column type" for every column type change in file $1, once
 # each. The type is the new type with any USING or COLLATE clause and any
-# timestamp precision dropped (information_schema reports neither), and its
+# parenthesised modifier, such as a precision or a length, dropped
+# (information_schema's data_type and udt_name carry neither), and its
 # whitespace collapsed.
 type_changes() {
   local name='[a-z_][a-z0-9_$]*' sp='[[:space:]]+' table actions
@@ -154,8 +154,7 @@ type_changes() {
         grep -oE "[[:space:],]alter${sp}(column${sp})?$name${sp}(set${sp}data${sp})?type${sp}([^,(]|\\([^)]*\\))*" <<<" $actions " \
           | sed -E "s/^[[:space:],]alter${sp}(column${sp})?($name)${sp}(set${sp}data${sp})?type${sp}/$table \\2 /" || true
       done \
-    | sed -E 's/[[:space:]](using|collate)[[:space:]].*$//; s/[[:space:]]+/ /g; s/ $//' \
-    | sed -E 's/ (timestamptz|timestamp) ?\( ?[0-6] ?\)( with time zone)?$/ \1\2/' \
+    | sed -E 's/[[:space:]](using|collate)[[:space:]].*$//; s/[[:space:]]*\([^)]*\)//g; s/[[:space:]]+/ /g; s/ $//' \
     | sort -u
 }
 
