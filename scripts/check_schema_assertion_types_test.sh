@@ -66,6 +66,7 @@ reset_fixture() {
   rm -rf "$FIXTURE"
   mkdir -p "$FIXTURE/scripts" "$FIXTURE/backend/db/migrations"
   cp "$UNDER_TEST" "$FIXTURE/scripts/check_schema_assertion_types.sh"
+  cp -R "$SCRIPT_DIR/lib" "$FIXTURE/scripts/lib"
   g init -b main
   g config user.email test@example.com
   g config user.name "Schema Assertion Types Gate Test"
@@ -138,8 +139,8 @@ expect 1 "timestamp order; the typed entry is what catches that at boot." \
   'Fix: add {Table: "<table>", Column: "<column>", Type: <type>}'
 
 reset_fixture "entry added in the same branch passes"
-assertion '	{Table: "users", Column: "username", Type: sqlText},'
-migration "20260901000000_widen" "ALTER TABLE users ALTER COLUMN username TYPE text;"
+assertion '	{Table: "users", Column: "username", Type: sqlBigint},'
+migration "20260901000000_widen" "ALTER TABLE users ALTER COLUMN username TYPE bigint;"
 expect 0 "users.username"
 
 reset_fixture "an untyped entry for the column does not count"
@@ -161,14 +162,14 @@ reset_fixture "a typed entry split across lines counts"
 assertion '	{
 		Table:  "users",
 		Column: "username",
-		Type:   sqlText,
+		Type:   sqlBigint,
 	},'
-migration "20260901000000_widen" "ALTER TABLE users ALTER COLUMN username TYPE text;"
+migration "20260901000000_widen" "ALTER TABLE users ALTER COLUMN username TYPE bigint;"
 expect 0 "users.username"
 
 reset_fixture "a string-literal Type counts"
-assertion '	{Table: "users", Column: "username", Type: "text"},'
-migration "20260901000000_widen" "ALTER TABLE users ALTER COLUMN username TYPE text;"
+assertion '	{Table: "users", Column: "username", Type: "bigint"},'
+migration "20260901000000_widen" "ALTER TABLE users ALTER COLUMN username TYPE bigint;"
 expect 0 "users.username"
 
 reset_fixture "every added migration is read, and only timestamp-named ones"
@@ -183,6 +184,121 @@ reset_fixture "every missing column is named"
 migration "20260901000000_widen" "ALTER TABLE users ALTER COLUMN username TYPE text;
 ALTER TABLE users ALTER COLUMN email TYPE text;"
 expect 1 "changes the type of users.email" "changes the type of users.username"
+
+# --- the entry's Type matches the new type -----------------------------------
+reset_fixture "bigint needs sqlBigint"
+migration "20260901000000_widen" "ALTER TABLE audit_logs ALTER COLUMN actor_id TYPE bigint;"
+expect 0 "audit_logs.actor_id (sqlBigint)"
+
+reset_fixture "int8 needs sqlBigint"
+migration "20260901000000_widen" "ALTER TABLE audit_logs ALTER COLUMN actor_id TYPE int8;"
+expect 0 "audit_logs.actor_id (sqlBigint)"
+
+reset_fixture "timestamptz needs sqlTimestamptz"
+assertion '	{Table: "events", Column: "starts_at", Type: sqlTimestamptz},'
+migration "20260901000000_zone" "ALTER TABLE events ALTER COLUMN starts_at TYPE timestamptz;"
+expect 0 "events.starts_at (sqlTimestamptz)"
+
+reset_fixture "timestamp with time zone needs sqlTimestamptz"
+assertion '	{Table: "events", Column: "starts_at", Type: sqlTimestamptz},'
+migration "20260901000000_zone" "ALTER TABLE events ALTER COLUMN starts_at TYPE TIMESTAMP
+    WITH  TIME ZONE;"
+expect 0 "events.starts_at (sqlTimestamptz)"
+
+reset_fixture "a timestamp precision and a USING clause are allowed"
+assertion '	{Table: "events", Column: "starts_at", Type: sqlTimestamptz},
+	{Table: "events", Column: "ends_at", Type: sqlTimestamptz},'
+migration "20260901000000_zone" "ALTER TABLE events
+    ALTER COLUMN starts_at TYPE timestamptz(3) USING starts_at AT TIME ZONE 'UTC',
+    ALTER COLUMN ends_at TYPE timestamp (6) with time zone;"
+expect 0 "events.starts_at (sqlTimestamptz)" "events.ends_at (sqlTimestamptz)"
+
+reset_fixture "a USING call with a comma does not run into the next action"
+assertion '	{Table: "audit_logs", Column: "actor_id", Type: sqlBigint},
+	{Table: "audit_logs", Column: "entity_id", Type: sqlBigint},'
+migration "20260901000000_widen" "ALTER TABLE audit_logs
+    ALTER COLUMN actor_id TYPE bigint USING coalesce(actor_id, 0),
+    ALTER COLUMN entity_id TYPE bigint;"
+expect 0 "audit_logs.actor_id (sqlBigint)" "audit_logs.entity_id (sqlBigint)"
+
+reset_fixture "a COLLATE clause is dropped from the new type"
+assertion '	{Table: "events", Column: "starts_at", Type: sqlTimestamptz},'
+migration "20260901000000_zone" 'ALTER TABLE events ALTER COLUMN starts_at TYPE timestamptz COLLATE "C";'
+expect 0 "events.starts_at (sqlTimestamptz)"
+
+reset_fixture "SET DATA TYPE reads the new type"
+migration "20260901000000_widen" "ALTER TABLE audit_logs ALTER COLUMN actor_id SET DATA TYPE bigint;"
+expect 0 "audit_logs.actor_id (sqlBigint)"
+
+reset_fixture "a string-literal Type with spaces counts"
+assertion '	{Table: "events", Column: "starts_at", Type: "timestamp with time zone"},'
+migration "20260901000000_zone" "ALTER TABLE events ALTER COLUMN starts_at TYPE timestamptz;"
+expect 0 "events.starts_at (sqlTimestamptz)"
+
+reset_fixture "one matching entry among several for the column counts"
+assertion '	{Table: "events", Column: "starts_at", Type: sqlBigint},
+	{Table: "events", Column: "starts_at", Type: sqlTimestamptz},'
+migration "20260901000000_zone" "ALTER TABLE events ALTER COLUMN starts_at TYPE timestamptz;"
+expect 0 "events.starts_at (sqlTimestamptz)"
+
+reset_fixture "a mismatch names every entry for the column"
+assertion '	{Table: "events", Column: "starts_at", Type: sqlBigint},
+	{Table: "events", Column: "starts_at", Type: "integer"},'
+migration "20260901000000_zone" "ALTER TABLE events ALTER COLUMN starts_at TYPE timestamptz;"
+expect 1 'needs Type: sqlTimestamptz (it has Type: "integer", Type: sqlBigint).'
+
+reset_fixture "a mismatched Type fails, naming the expected constant"
+assertion '	{Table: "events", Column: "starts_at", Type: sqlTimestamptz},'
+migration "20260901000000_widen" "ALTER TABLE events ALTER COLUMN starts_at TYPE bigint;"
+expect 1 "ERROR: backend/db/migrations/20260901000000_widen.up.sql changes the type of events.starts_at to bigint, so its typed entry in backend/db/schema_assertion.go needs Type: sqlBigint (it has Type: sqlTimestamptz)."
+expect_absent "Fix: add {"
+
+reset_fixture "timestamp without time zone is not timestamptz"
+assertion '	{Table: "events", Column: "starts_at", Type: sqlTimestamptz},'
+migration "20260901000000_zone" "ALTER TABLE events ALTER COLUMN starts_at TYPE timestamp(3);"
+expect 1 "changes the type of events.starts_at to timestamp, a type with no sql* constant in this gate."
+
+reset_fixture "an unknown type fails, naming the type"
+assertion '	{Table: "users", Column: "username", Type: sqlText},'
+migration "20260901000000_widen" "ALTER TABLE users ALTER COLUMN username TYPE varchar(50);"
+expect 1 "ERROR: backend/db/migrations/20260901000000_widen.up.sql changes the type of users.username to varchar, a type with no sql* constant in this gate." \
+  "Add the constant to backend/db/schema_assertion.go and its spellings to type_constant in scripts/check_schema_assertion_types.sh."
+expect_absent "Fix: add {"
+
+reset_fixture "a string-literal Type in the other spelling counts, in any case"
+assertion '	{Table: "audit_logs", Column: "entity_id", Type: "INT8"},
+	{Table: "events", Column: "starts_at", Type: "timestamptz"},'
+migration "20260901000000_widen" "ALTER TABLE audit_logs ALTER COLUMN entity_id TYPE bigint;
+ALTER TABLE events ALTER COLUMN starts_at TYPE timestamp with time zone;"
+expect 0 "audit_logs.entity_id (sqlBigint)" "events.starts_at (sqlTimestamptz)"
+
+reset_fixture "a string-literal Type of another type does not count"
+assertion '	{Table: "audit_logs", Column: "entity_id", Type: "integer"},'
+migration "20260901000000_widen" "ALTER TABLE audit_logs ALTER COLUMN entity_id TYPE bigint;"
+expect 1 'needs Type: sqlBigint (it has Type: "integer").'
+
+reset_fixture "missing, mismatched and unknown are each reported"
+assertion '	{Table: "audit_logs", Column: "actor_id", Type: sqlBigint},
+	{Table: "events", Column: "starts_at", Type: sqlBigint},
+	{Table: "users", Column: "username", Type: sqlText},'
+migration "20260901000000_widen" "ALTER TABLE events ALTER COLUMN starts_at TYPE timestamptz;
+ALTER TABLE users ALTER COLUMN username TYPE text;
+ALTER TABLE users ALTER COLUMN email TYPE text;
+ALTER TABLE audit_logs ALTER COLUMN actor_id TYPE bigint;"
+expect 1 "events.starts_at to timestamptz, so its typed entry" \
+  "users.username to text, a type with no sql* constant" \
+  "changes the type of users.email, and" \
+  "Fix: add {"
+expect_absent "changes the type of audit_logs.actor_id"
+
+reset_fixture "tabs separate words like spaces"
+assertion '	{Table: "events", Column: "starts_at", Type: sqlTimestamptz},'
+migration "20260901000000_zone" $'ALTER\tTABLE\tevents\n\tALTER\tCOLUMN\tstarts_at\tTYPE\ttimestamp\twith\ttime\tzone;'
+expect 0 "events.starts_at (sqlTimestamptz)"
+
+reset_fixture "a final statement without a semicolon is read"
+migration "20260901000000_widen" "ALTER TABLE users ALTER COLUMN username TYPE bigint"
+expect 1 "changes the type of users.username, and"
 
 # --- scope -------------------------------------------------------------------
 reset_fixture "sequential migration with a type change is ignored"
@@ -208,6 +324,24 @@ expect 0 "no new timestamp-named migration changes a column type"
 
 reset_fixture "a block comment does not hide the statement after it"
 migration "20260901000000_widen" "/* widen */ ALTER TABLE users /* why */ ALTER COLUMN username TYPE text;"
+expect 1 "changes the type of users.username"
+
+# The comment rule is the shared one in scripts/lib/sql_strip_comments.sh,
+# which check_migration_lock_timeout_test.sh covers case by case; these are
+# the shapes a non-nesting or quote-blind stripper misreads.
+reset_fixture "type change only inside a nested block comment is ignored"
+migration "20260901000000_note" "/* outer /* inner */ ALTER TABLE users ALTER COLUMN username TYPE text; */
+SELECT 1;"
+expect 0 "no new timestamp-named migration changes a column type"
+
+reset_fixture "comment markers inside string literals do not hide a type change"
+migration "20260901000000_widen" "SELECT '/*';
+ALTER TABLE users ALTER COLUMN username TYPE text;
+SELECT '*/';"
+expect 1 "changes the type of users.username"
+
+reset_fixture "'--' inside a block comment does not hide what follows"
+migration "20260901000000_widen" "/* note -- why */ ALTER TABLE users ALTER COLUMN username TYPE text;"
 expect 1 "changes the type of users.username"
 
 reset_fixture "other column actions are not type changes"
