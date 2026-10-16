@@ -1,14 +1,14 @@
 package utils
 
 import (
-	"encoding/json"
 	"maps"
-	"os"
 	"slices"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"psychic-homily-backend/internal/testcorpus"
 )
 
 // socialCorpusCase is one field/value pair the corpus makes a claim about.
@@ -38,11 +38,7 @@ type socialLinkCorpus struct {
 
 func loadSocialLinkCorpus(t *testing.T) socialLinkCorpus {
 	t.Helper()
-	raw, err := os.ReadFile("testdata/social_link_corpus.json")
-	require.NoError(t, err, "the corpus is shared with the frontend test; do not move it without updating both")
-
-	var corpus socialLinkCorpus
-	require.NoError(t, json.Unmarshal(raw, &corpus))
+	corpus := testcorpus.Load[socialLinkCorpus](t, "testdata/social_link_corpus.json")
 	require.NotEmpty(t, corpus.Platforms)
 	require.NotEmpty(t, corpus.Storable)
 	require.NotEmpty(t, corpus.StorableButUnrenderable)
