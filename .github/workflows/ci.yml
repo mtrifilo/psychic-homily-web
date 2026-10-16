@@ -134,14 +134,21 @@ jobs:
       # check_shell.sh prints the version in use either way. 4 = the same
       # bound as the other single-package apt installs, above the harden-apt
       # action's ~160s single-item worst case.
-      - name: Shellcheck the repository's shell scripts
+      - name: Install shellcheck if the runner image lacks it
         timeout-minutes: 4
         run: |
           if ! command -v shellcheck >/dev/null 2>&1; then
             sudo apt-get update -qq
             sudo apt-get install -y -qq --no-install-recommends shellcheck
           fi
-          bash scripts/check_shell.sh
+
+      # The gate's set is every tracked shell script; the script header has
+      # the rule and the self-test has the cases. Both need the step above.
+      - name: Self-test the shellcheck gate
+        run: bash scripts/check_shell_test.sh
+
+      - name: Shellcheck the repository's shell scripts
+        run: bash scripts/check_shell.sh
 
   migration-reversibility:
     name: Migration Reversibility
