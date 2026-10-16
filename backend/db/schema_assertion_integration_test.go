@@ -1,8 +1,12 @@
 package db
 
 import (
+	"context"
+	"strings"
 	"testing"
+	"time"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"psychic-homily-backend/internal/testutil"
@@ -18,8 +22,25 @@ func TestAssertRequiredSchema_integration(t *testing.T) {
 
 	require.NoError(t, AssertRequiredSchema(td.DB))
 
+	// A read the server holds open (here, behind another session's lock)
+	// refuses boot within the bound, and the connection it ran on stays usable.
+	ctx := context.Background()
 	sqlDB, err := td.DB.DB()
 	require.NoError(t, err)
+	locker, err := sqlDB.BeginTx(ctx, nil)
+	require.NoError(t, err)
+	_, err = locker.ExecContext(ctx, `LOCK TABLE timezone_names_snapshot IN ACCESS EXCLUSIVE MODE`)
+	require.NoError(t, err)
+	started := time.Now()
+	err = assertRequiredSchemaWithin(td.DB, 500*time.Millisecond)
+	elapsed := time.Since(started)
+	require.NoError(t, locker.Rollback())
+	assert.Less(t, elapsed, 5*time.Second)
+	require.Error(t, err)
+	assert.True(t, strings.HasPrefix(err.Error(), "could not read timezone_names_snapshot: no answer within 500ms: "), err.Error())
+	assert.True(t, strings.HasSuffix(err.Error(), "; refusing to boot"), err.Error())
+	require.NoError(t, AssertRequiredSchema(td.DB))
+
 	_, err = sqlDB.Exec(`ALTER TABLE user_bookmarks DROP COLUMN scene_digest_sent_at`)
 	require.NoError(t, err)
 
@@ -77,6 +98,17 @@ func TestAssertRequiredSchema_columnTypeDrift(t *testing.T) {
 	require.EqualError(t, err,
 		"required schema column types do not match: webauthn_credentials.sign_count is integer, "+
 			"expected bigint (type change recorded but DDL absent?); refusing to boot")
+
+	// With a missing column as well, one refusal names both.
+	_, err = sqlDB.Exec(`ALTER TABLE shows RENAME COLUMN doors_at TO doors_at_renamed`)
+	require.NoError(t, err)
+	err = AssertRequiredSchema(td.DB)
+	require.EqualError(t, err,
+		"required schema columns missing or mistyped: missing: shows.doors_at; "+
+			"mistyped: webauthn_credentials.sign_count (want bigint, got integer) "+
+			"(migration recorded but DDL absent?); refusing to boot")
+	_, err = sqlDB.Exec(`ALTER TABLE shows RENAME COLUMN doors_at_renamed TO doors_at`)
+	require.NoError(t, err)
 
 	// The type read is also what reports a typed column that is absent.
 	_, err = sqlDB.Exec(`ALTER TABLE webauthn_credentials DROP COLUMN sign_count`)
