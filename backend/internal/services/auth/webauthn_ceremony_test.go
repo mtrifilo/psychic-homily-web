@@ -47,10 +47,18 @@ func (suite *WebAuthnServiceIntegrationTestSuite) TestRegisteredPasskeySignsIn()
 	suite.Require().NoError(err)
 	suite.Equal(uuid.UUID(softauthn.AAGUID).String(), cred.AAGUID)
 
+	suite.Require().NoError(suite.db.Create(&authm.UserPreferences{UserID: user.ID}).Error)
+	oauth := authm.OAuthAccount{UserID: user.ID, Provider: "google", ProviderUserID: "discoverable-subject"}
+	suite.Require().NoError(suite.db.Create(&oauth).Error)
+	defer suite.db.Delete(&oauth)
+
 	signedIn, err := suite.discoverableLogin(device)
 	suite.Require().NoError(err)
 	suite.Equal(user.ID, signedIn.ID)
 	suite.Empty(signedIn.PasskeyCredentials, "the signed-in user is returned without its credentials")
+	suite.Require().NotNil(signedIn.Preferences, "the signed-in user is returned with its preferences")
+	suite.Require().Len(signedIn.OAuthAccounts, 1, "the signed-in user is returned with its OAuth accounts")
+	suite.Equal(oauth.ID, signedIn.OAuthAccounts[0].ID)
 
 	var stored authm.WebAuthnCredential
 	suite.Require().NoError(suite.db.First(&stored, cred.ID).Error)
