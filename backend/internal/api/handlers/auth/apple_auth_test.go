@@ -164,9 +164,11 @@ func stubAppleKeyEndpoint(t *testing.T, body []byte) {
 }
 
 // The key id in an identity token header is caller-supplied text. A token
-// whose key id Apple's set lacks is refused, and no warn-or-higher record of
-// the attempt carries more than the id's first 8 characters.
-func TestAppleCallbackHandler_TokenInvalidLogBoundsKeyID(t *testing.T) {
+// whose key id Apple's set lacks is refused. The refusal's warn record names
+// the key id in its kid attribute only: whole when it is short and plain,
+// otherwise cut and with other characters replaced. No other warn-or-higher
+// record and no response field carries it.
+func TestAppleCallbackHandler_TokenInvalidLogsBoundedKeyID(t *testing.T) {
 	key, err := rsa.GenerateKey(rand.Reader, 2048)
 	if err != nil {
 		t.Fatal(err)
@@ -177,51 +179,144 @@ func TestAppleCallbackHandler_TokenInvalidLogBoundsKeyID(t *testing.T) {
 
 	cfg := testConfig()
 	cfg.Apple.BundleID = "com.psychichomily.ios"
-	h := NewAppleAuthHandler(authsvc.NewAppleAuthService(nil, cfg, nil), &testhelpers.MockDiscordService{}, cfg)
 
-	callerKid := "kid-from-the-caller-" + strings.Repeat("z", 64)
+	cases := []struct {
+		name string
+		kid  string
+		// logged is the kid attribute the refusal record carries.
+		logged string
+		// absent is caller text no warn-or-higher record carries outside
+		// that attribute, and no response field carries at all.
+		absent string
+	}{
+		{"an id shaped like Apple's logs whole", "AbCdEfGhIj", "AbCdEfGhIj", "AbCdEfGhIj"},
+		{"a long id is cut", "kid-from-the-caller-" + strings.Repeat("z", 64), "kid-from-the-cal...", "kid-from-the-call"},
+		{"other characters are replaced", "k\u202ei d\x01", "k?i?d?", "k\u202ei"},
+		{"an id of 16 runes logs whole", "abcdefghijklmnop", "abcdefghijklmnop", "abcdefghijklmnop"},
+		{"an id of 17 runes is cut", "abcdefghijklmnopq", "abcdefghijklmnop...", "abcdefghijklmnopq"},
+		{"runes, not bytes, are counted", strings.Repeat("\u0436", 20), strings.Repeat("?", 16) + "...", "\u0436"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			h := NewAppleAuthHandler(authsvc.NewAppleAuthService(nil, cfg, nil), &testhelpers.MockDiscordService{}, cfg)
+			input := &AppleCallbackRequest{}
+			input.Body.IdentityToken = signedAppleToken(t, key, cfg.Apple.BundleID, tc.kid, time.Now().Add(time.Hour))
+			var err error
+			var resp *AppleCallbackResponse
+			logs := testlog.Capture(t, func() {
+				resp, err = h.AppleCallbackHandler(testlog.Context(t, context.Background()), input)
+			})
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if resp.Body.ErrorCode != autherrors.CodeTokenInvalid {
+				t.Fatalf("error_code = %q, want %q", resp.Body.ErrorCode, autherrors.CodeTokenInvalid)
+			}
+			for _, field := range []string{resp.Body.Message, resp.Body.ErrorCode, resp.Body.Token, resp.Body.RequestID} {
+				if strings.Contains(field, tc.absent) || strings.Contains(field, tc.logged) {
+					t.Errorf("a response field carries the key id: %q", field)
+				}
+			}
+
+			sawRefusal := false
+			for _, line := range strings.Split(logs, "\n") {
+				if !strings.Contains(line, "level=WARN") && !strings.Contains(line, "level=ERROR") {
+					continue
+				}
+				if strings.Contains(line, "msg=apple_auth_token_invalid") {
+					sawRefusal = true
+					before, attrAndRest, _ := strings.Cut(line, " kid=")
+					kid, rest, _ := strings.Cut(attrAndRest, " ")
+					if kid != tc.logged {
+						t.Errorf("kid attribute = %q, want %q: %s", kid, tc.logged, line)
+					}
+					line = before + " " + rest
+				}
+				if strings.Contains(line, tc.absent) {
+					t.Errorf("a warn-or-higher record carries the key id outside the kid attribute: %s", line)
+				}
+			}
+			if !sawRefusal {
+				t.Fatalf("no apple_auth_token_invalid warning was logged:\n%s", logs)
+			}
+		})
+	}
+}
+
+// signedAppleToken is an identity token for aud under kid, signed by key and
+// expiring at exp.
+func signedAppleToken(t *testing.T, key *rsa.PrivateKey, aud, kid string, exp time.Time) string {
+	t.Helper()
 	token := jwt.NewWithClaims(jwt.SigningMethodRS256, jwt.MapClaims{
 		"iss": "https://appleid.apple.com",
-		"aud": cfg.Apple.BundleID,
+		"aud": aud,
 		"sub": "apple-sub-1",
-		"exp": time.Now().Add(time.Hour).Unix(),
+		"exp": exp.Unix(),
 		"iat": time.Now().Unix(),
 	})
-	token.Header["kid"] = callerKid
+	token.Header["kid"] = kid
 	signed, err := token.SignedString(key)
 	if err != nil {
 		t.Fatal(err)
 	}
+	return signed
+}
 
-	input := &AppleCallbackRequest{}
-	input.Body.IdentityToken = signed
-	var resp *AppleCallbackResponse
-	logs := testlog.Capture(t, func() {
-		resp, err = h.AppleCallbackHandler(testlog.Context(t, context.Background()), input)
-	})
+// The refusal carries a kid attribute when the key id is unknown, on the
+// fetched path and inside the forced-refresh cooldown alike, and none when the
+// token is refused for another reason.
+func TestAppleCallbackHandler_KidAttributeOnlyOnUnknownKeyID(t *testing.T) {
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
 	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+		t.Fatal(err)
 	}
-	if resp.Body.ErrorCode != autherrors.CodeTokenInvalid {
-		t.Fatalf("error_code = %q, want %q", resp.Body.ErrorCode, autherrors.CodeTokenInvalid)
-	}
+	n := base64.RawURLEncoding.EncodeToString(key.N.Bytes())
+	e := base64.RawURLEncoding.EncodeToString(big.NewInt(int64(key.E)).Bytes())
+	stubAppleKeyEndpoint(t, []byte(`{"keys":[{"kty":"RSA","kid":"known-kid","use":"sig","alg":"RS256","n":"`+n+`","e":"`+e+`"}]}`))
 
-	sawRefusal := false
-	for _, line := range strings.Split(logs, "\n") {
-		if !strings.Contains(line, "level=WARN") && !strings.Contains(line, "level=ERROR") {
-			continue
+	cfg := testConfig()
+	cfg.Apple.BundleID = "com.psychichomily.ios"
+	// One service across the steps: the first fetch fills a cold cache, the
+	// second unknown id forces a refresh, and the third meets its cooldown.
+	h := NewAppleAuthHandler(authsvc.NewAppleAuthService(nil, cfg, nil), &testhelpers.MockDiscordService{}, cfg)
+
+	for _, step := range []struct {
+		name, kid string
+		exp       time.Time
+		// wantKid is the kid attribute, empty when there must be none.
+		wantKid      string
+		wantCooldown bool
+	}{
+		{"unknown id, cold fetch", "first-kid", time.Now().Add(time.Hour), "first-kid", false},
+		{"unknown id, forced refresh", "second-kid", time.Now().Add(time.Hour), "second-kid", false},
+		{"unknown id, cooling down", "third-kid", time.Now().Add(time.Hour), "third-kid", true},
+		{"known id, expired token", "known-kid", time.Now().Add(-time.Hour), "", false},
+	} {
+		input := &AppleCallbackRequest{}
+		input.Body.IdentityToken = signedAppleToken(t, key, cfg.Apple.BundleID, step.kid, step.exp)
+		var resp *AppleCallbackResponse
+		logs := testlog.Capture(t, func() {
+			resp, err = h.AppleCallbackHandler(testlog.Context(t, context.Background()), input)
+		})
+		if err != nil || resp.Body.ErrorCode != autherrors.CodeTokenInvalid {
+			t.Fatalf("%s: err = %v, error_code = %q", step.name, err, resp.Body.ErrorCode)
 		}
-		if strings.Contains(line, "msg=apple_auth_token_invalid") {
-			sawRefusal = true
-			if !strings.Contains(line, callerKid[:8]) {
-				t.Errorf("the refusal should carry the key id's first 8 characters: %s", line)
+		var refusal string
+		for _, line := range strings.Split(logs, "\n") {
+			if strings.Contains(line, "msg=apple_auth_token_invalid") {
+				refusal = line
 			}
 		}
-		if strings.Contains(line, callerKid[:9]) {
-			t.Errorf("a warn-or-higher record carries more than 8 characters of the caller's key id: %s", line)
+		if refusal == "" {
+			t.Fatalf("%s: no apple_auth_token_invalid warning was logged:\n%s", step.name, logs)
 		}
-	}
-	if !sawRefusal {
-		t.Fatalf("no apple_auth_token_invalid warning was logged:\n%s", logs)
+		_, attrAndRest, hasKid := strings.Cut(refusal, " kid=")
+		kid, _, _ := strings.Cut(attrAndRest, " ")
+		if hasKid != (step.wantKid != "") || kid != step.wantKid {
+			t.Errorf("%s: kid attribute = %q (present %v), want %q: %s", step.name, kid, hasKid, step.wantKid, refusal)
+		}
+		if strings.Contains(refusal, "refresh cooling down") != step.wantCooldown {
+			t.Errorf("%s: cooldown in the refusal = %v, want %v: %s", step.name, !step.wantCooldown, step.wantCooldown, refusal)
+		}
 	}
 }
