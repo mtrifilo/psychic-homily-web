@@ -171,8 +171,7 @@ func (h *AppleAuthHandler) AppleCallbackHandler(ctx context.Context, input *Appl
 }
 
 // appleKeyIDLogRunes is how many runes of a caller's key id a log record
-// carries. It exceeds the length of the key ids in Apple's key set, so those
-// log whole.
+// carries: room for a real key id, and a bound on a made-up one.
 const appleKeyIDLogRunes = 16
 
 // appleKeyIDForLog is kid as a log record carries it: its first

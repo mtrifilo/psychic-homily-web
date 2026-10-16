@@ -15,7 +15,8 @@ import (
 )
 
 // callerMark is planted in every caller-controlled value of the tokens below.
-// It is short enough that no prefix bound on a key id could hide it.
+// It is seven runes, so a key id made of it survives a prefix bound of eight
+// runes or more whole.
 const callerMark = "Qz7mark"
 
 // rawToken joins a header and claims of any shape with sig as the signature
