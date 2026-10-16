@@ -3,7 +3,6 @@ package venueaddress
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -14,6 +13,7 @@ import (
 
 	"psychic-homily-backend/internal/services/contracts"
 	"psychic-homily-backend/internal/services/geo"
+	"psychic-homily-backend/internal/testcorpus"
 )
 
 // addressFixture is one recorded venue page and the street it prints for the
@@ -42,14 +42,7 @@ func (f addressFixture) venue() Venue {
 // loadAddressFixtures reads the recorded page fixtures.
 func loadAddressFixtures(t *testing.T) []addressFixture {
 	t.Helper()
-	raw, err := os.ReadFile(filepath.Join("testdata", "venue_address_fixtures.json"))
-	if err != nil {
-		t.Fatalf("read fixtures: %v", err)
-	}
-	var fixtures []addressFixture
-	if err := json.Unmarshal(raw, &fixtures); err != nil {
-		t.Fatalf("parse fixtures: %v", err)
-	}
+	fixtures := testcorpus.Load[[]addressFixture](t, "internal/services/venueaddress/testdata/venue_address_fixtures.json")
 	if len(fixtures) < 10 {
 		t.Fatalf("want at least 10 recorded fixtures, have %d", len(fixtures))
 	}
