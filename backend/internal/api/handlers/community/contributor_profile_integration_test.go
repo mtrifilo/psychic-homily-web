@@ -106,6 +106,15 @@ func (s *ContributorProfileHandlerIntegrationSuite) TestGetPublicProfile_NotFoun
 	testhelpers.AssertHumaError(s.T(), err, 404)
 }
 
+// A username Postgres rejects as text is a 404 like any other unknown name,
+// not a failed lookup.
+func (s *ContributorProfileHandlerIntegrationSuite) TestGetPublicProfile_RejectedTextUsernameIsNotFound() {
+	for _, username := range []string{"no\x00body", "no\xffbody"} {
+		_, err := s.handler.GetPublicProfileHandler(s.deps.Ctx, &GetPublicProfileRequest{Username: username})
+		testhelpers.AssertHumaError(s.T(), err, 404)
+	}
+}
+
 func (s *ContributorProfileHandlerIntegrationSuite) TestGetPublicProfile_PrivateProfile_NotOwner() {
 	_ = s.createPrivateUser("privateuser")
 
