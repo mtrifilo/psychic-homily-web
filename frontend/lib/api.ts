@@ -538,7 +538,26 @@ export interface ApiResponse {
 }
 
 /**
- * Make API requests with proper configuration, error handling, and request ID extraction
+ * Whether a thrown value is the rejection fetch gives a request, or its body
+ * read, once the request's signal aborts. Read by name alone, so any thrown
+ * value named AbortError counts whatever its prototype chain.
+ */
+function isAbortError(error: unknown): boolean {
+  return (
+    typeof error === 'object' &&
+    error !== null &&
+    (error as { name?: unknown }).name === 'AbortError'
+  )
+}
+
+/**
+ * Make API requests with proper configuration, error handling, and request ID extraction.
+ *
+ * An AbortError thrown before the response arrives, or while a successful
+ * response's body is read, is rethrown as it is, unwrapped and unreported: the
+ * caller that owns the signal decides what an abort means. An error response
+ * keeps its status even when its body read aborts, because the status is the
+ * server's answer.
  */
 export const apiRequest = async <T = unknown>(
   endpoint: string,
@@ -573,8 +592,9 @@ export const apiRequest = async <T = unknown>(
   try {
     response = await fetch(endpoint, config)
   } catch (networkError) {
-    // Network failure (backend unreachable, DNS failure, etc.)
-    if (isAuthEndpoint) {
+    // Network failure (backend unreachable, DNS failure, etc.) or an abort;
+    // only the former is an outage signal.
+    if (isAuthEndpoint && !isAbortError(networkError)) {
       Sentry.captureException(networkError, {
         level: 'error',
         tags: { service: 'auth', error_type: 'network_failure' },
@@ -702,6 +722,8 @@ export const apiRequest = async <T = unknown>(
   try {
     data = (await response.json()) as T
   } catch (parseError) {
+    if (isAbortError(parseError)) throw parseError
+
     const parseMessage =
       parseError instanceof Error ? parseError.message : String(parseError)
     const message = `Invalid JSON in successful response from ${endpointPath} (HTTP ${response.status}): ${parseMessage}`
