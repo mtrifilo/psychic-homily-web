@@ -1,4 +1,5 @@
 import { test } from '../fixtures/error-detection'
+import { waitForAnimationsSettled } from '../helpers/animations'
 import {
   installVisualViewportShim,
   raiseKeyboard,
@@ -90,40 +91,51 @@ type Geometry = {
 }
 
 /**
+ * How long a reading waits for the popover's enter animation to settle. The
+ * animation advances only when Chromium draws a frame, which a running map
+ * can hold off under SwiftShader.
+ */
+const POPOVER_SETTLE_TIMEOUT_MS = 10_000
+
+/**
  * Waits out the popover's enter animation, then takes the whole reading in one
  * round-trip so it comes from a single layout rather than from several that a
  * reposition tick can fall between.
  *
- * The wait is inside the reader, not a step beside it, because a reading taken
- * mid-animation is the failure this spec exists to catch: the enter animation
- * scales and slides the popover, so a rect read while it runs understates the
- * bottom edge by a couple of px, which is exactly the size of the overshoot
- * being asserted against. A settled reading has to be the only kind available.
- * A cancelled animation never finishes, so its rejection is swallowed rather
- * than failing the reading.
+ * A reading taken mid-animation is the failure this spec exists to catch: the
+ * enter animation scales and slides the popover, so a rect read while it runs
+ * understates the bottom edge by a couple of px, which is exactly the size of
+ * the overshoot being asserted against. A settled reading has to be the only
+ * kind available, so the reading also fails if any animation is running in
+ * the frame it reads.
  */
-function measure(content: Locator): Promise<Geometry> {
-  return content.evaluate(async el => {
-    await Promise.all(
-      el.getAnimations().map(animation => animation.finished.catch(() => {}))
-    )
+async function measure(content: Locator): Promise<Geometry> {
+  await waitForAnimationsSettled(content, {
+    budgetMs: POPOVER_SETTLE_TIMEOUT_MS,
+  })
+  const { animating, geometry } = await content.evaluate(async el => {
     await new Promise(resolve => requestAnimationFrame(resolve))
     const style = getComputedStyle(el)
     const rect = el.getBoundingClientRect()
     const column = el.querySelector('[cmdk-root]') as HTMLElement
     const list = el.querySelector('[cmdk-list]') as HTMLElement
     return {
-      available: Number.parseFloat(
-        style.getPropertyValue('--radix-popover-content-available-height')
-      ),
-      columnHeight: column.getBoundingClientRect().height,
-      contentBottom: rect.bottom,
-      contentHeight: rect.height,
-      contentMaxHeight: Number.parseFloat(style.maxHeight),
-      listScrolls: list.scrollHeight > list.clientHeight,
-      optionCount: el.querySelectorAll('[cmdk-item]').length,
+      animating: el.getAnimations().length,
+      geometry: {
+        available: Number.parseFloat(
+          style.getPropertyValue('--radix-popover-content-available-height')
+        ),
+        columnHeight: column.getBoundingClientRect().height,
+        contentBottom: rect.bottom,
+        contentHeight: rect.height,
+        contentMaxHeight: Number.parseFloat(style.maxHeight),
+        listScrolls: list.scrollHeight > list.clientHeight,
+        optionCount: el.querySelectorAll('[cmdk-item]').length,
+      },
     }
   })
+  expect(animating, 'popover animations running at the reading').toBe(0)
+  return geometry
 }
 
 /** The map credit's bottom edge in the viewport, or null while none is drawn. */
@@ -138,13 +150,11 @@ function creditBottomPx(page: Page): Promise<number | null> {
 }
 
 /** The popover's top edge in the viewport, once its animation has settled. */
-function contentTopPx(content: Locator): Promise<number> {
-  return content.evaluate(async el => {
-    await Promise.all(
-      el.getAnimations().map(animation => animation.finished.catch(() => {}))
-    )
-    return el.getBoundingClientRect().top
+async function contentTopPx(content: Locator): Promise<number> {
+  await waitForAnimationsSettled(content, {
+    budgetMs: POPOVER_SETTLE_TIMEOUT_MS,
   })
+  return content.evaluate(el => el.getBoundingClientRect().top)
 }
 
 /**
