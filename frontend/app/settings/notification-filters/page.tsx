@@ -20,7 +20,8 @@
  * path the "manage" CTA of every artist show-alert email and what that reader
  * wants is the matrix, not this criteria builder. Reaching here is now via the
  * side nav, the command palette, the notification inbox, or the matrix's own
- * custom-alerts row (`app/settings/notifications/page.tsx`).
+ * custom-alerts row. The `/settings/notifications` rule lives in
+ * `next.config.ts` `redirects()`.
  */
 
 import { useAuthRouteGuard } from '@/lib/hooks/common/useAuthRouteGuard'
