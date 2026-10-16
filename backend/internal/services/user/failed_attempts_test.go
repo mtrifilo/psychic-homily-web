@@ -14,6 +14,7 @@ import (
 	apperrors "psychic-homily-backend/internal/errors"
 	authm "psychic-homily-backend/internal/models/auth"
 	"psychic-homily-backend/internal/testutil"
+	"psychic-homily-backend/internal/testutil/signupconsent"
 )
 
 // serviceThatSoftDeletesBeforeItsFirstUpdate returns a UserService whose first
@@ -178,7 +179,7 @@ func (suite *UserServiceIntegrationTestSuite) TestIncrementFailedAttempts_Advanc
 // refused.
 func (suite *UserServiceIntegrationTestSuite) TestAuthenticateUserWithPassword_ParallelWrongPasswordsAreAllCountedThenLock() {
 	const address, password = "lockout-parallel-burst@example.com", "CorrectPassword1!"
-	created, err := suite.userService.CreateUserWithPassword(address, password, "Burst", "User")
+	created, err := suite.userService.CreateUserWithPasswordWithLegal(address, password, "Burst", "User", signupconsent.CurrentLegalAcceptance())
 	suite.Require().NoError(err)
 	const requests = 2 * MaxFailedLoginAttempts
 

@@ -120,7 +120,9 @@ func (h *AppleAuthHandler) AppleCallbackHandler(ctx context.Context, input *Appl
 		"has_email", claims.Email != "",
 	)
 
-	// Find or create user
+	// AppleCallbackRequest carries no terms, privacy or age acceptance, so an
+	// account this creates records none. It is the one sign-up path that does
+	// not refuse an empty acceptance; giving it one is PSY-2256.
 	user, err := h.appleAuthService.FindOrCreateAppleUser(claims, firstName, lastName)
 	if err != nil {
 		resp.Body.Success = false

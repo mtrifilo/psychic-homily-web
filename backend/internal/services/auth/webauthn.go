@@ -714,9 +714,10 @@ func (s *WebAuthnService) ConsumeSignupChallenge(challengeID string, operation s
 // the acceptance recorded, its default preferences and the credential.
 //
 // It returns the account as created, with its preferences. A refusal is an
-// *apperrors.AuthError: CodeValidationFailed for a response that fails
-// verification, CodeUserExists for an address an account already holds. Any
-// other error means the account was not created.
+// *apperrors.AuthError: CodeTermsAcceptanceRequired for an acceptance that
+// names no terms version, which records no consent, CodeValidationFailed for
+// a response that fails verification, CodeUserExists for an address an
+// account already holds. Any other error means the account was not created.
 func (s *WebAuthnService) FinishSignupRegistrationWithLegal(
 	email string,
 	session *webauthn.SessionData,
@@ -724,6 +725,10 @@ func (s *WebAuthnService) FinishSignupRegistrationWithLegal(
 	displayName string,
 	acceptance contracts.LegalAcceptance,
 ) (*authm.User, error) {
+	if acceptance.TermsVersion == "" {
+		return nil, apperrors.ErrTermsAcceptanceRequired("passkey signup acceptance names no terms version")
+	}
+
 	reservedID, ok := authm.UserIDFromWebAuthnID(session.UserID)
 	if !ok {
 		return nil, fmt.Errorf("signup session carries no reserved user id")
@@ -743,22 +748,18 @@ func (s *WebAuthnService) FinishSignupRegistrationWithLegal(
 	}()
 
 	// Create user without password, under the id its passkey's handle encodes
-	user := &authm.User{
-		ID:            reservedID,
-		Email:         &email,
-		IsActive:      true,
-		EmailVerified: false,
+	acceptedAt := acceptance.TermsAcceptedAt
+	if acceptedAt.IsZero() {
+		acceptedAt = time.Now().UTC()
 	}
-	if acceptance.TermsVersion != "" {
-		acceptedAt := acceptance.TermsAcceptedAt
-		if acceptedAt.IsZero() {
-			acceptedAt = time.Now().UTC()
-		}
-		termsVersion := acceptance.TermsVersion
-		privacyVersion := acceptance.PrivacyVersion
-		user.TermsAcceptedAt = &acceptedAt
-		user.TermsVersion = &termsVersion
-		user.PrivacyVersion = &privacyVersion
+	user := &authm.User{
+		ID:              reservedID,
+		Email:           &email,
+		IsActive:        true,
+		EmailVerified:   false,
+		TermsAcceptedAt: &acceptedAt,
+		TermsVersion:    &acceptance.TermsVersion,
+		PrivacyVersion:  &acceptance.PrivacyVersion,
 	}
 	// Record the minimum-age confirmation alongside terms (PSY-1023). Mirrors the
 	// terms block: only applied when an age was attested.

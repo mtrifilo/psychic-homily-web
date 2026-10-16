@@ -1591,7 +1591,7 @@ func TestRegisterHandler_UnconfiguredEmailServiceSkipsSend(t *testing.T) {
 }
 
 // TestRegisterHandler_NoVerificationEmailWithoutAddress guards the nil-email
-// branch of the helper. CreateUserWithPassword always yields an email today,
+// branch of the helper. CreateUserWithPasswordWithLegal always yields an email today,
 // but the helper is shared with the passkey path and must never dereference a
 // nil pointer.
 func TestRegisterHandler_NoVerificationEmailWithoutAddress(t *testing.T) {

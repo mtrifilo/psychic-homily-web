@@ -10,6 +10,7 @@ import (
 	apperrors "psychic-homily-backend/internal/errors"
 	authm "psychic-homily-backend/internal/models/auth"
 	"psychic-homily-backend/internal/services/contracts"
+	"psychic-homily-backend/internal/testutil/signupconsent"
 	"psychic-homily-backend/internal/testutil/softauthn"
 )
 
@@ -201,7 +202,7 @@ func (suite *WebAuthnServiceIntegrationTestSuite) TestSignupFinishRejectsSession
 
 	session.UserID = []byte("legacy@test.com")
 	_, err = suite.service.FinishSignupRegistrationWithLegal(
-		"legacy@test.com", session, suite.parseCreation(body), "My Passkey", contracts.LegalAcceptance{},
+		"legacy@test.com", session, suite.parseCreation(body), "My Passkey", signupconsent.CurrentLegalAcceptance(),
 	)
 	suite.Require().Error(err)
 

@@ -233,3 +233,25 @@ func (suite *WebAuthnServiceIntegrationTestSuite) TestFinishSignupRefusalsAndFai
 		})
 	}
 }
+
+// An acceptance that names no terms version records no consent, so the
+// passkey sign-up refuses it and creates no account.
+func (suite *WebAuthnServiceIntegrationTestSuite) TestFinishSignupRefusesEmptyAcceptance() {
+	for _, tc := range []struct {
+		email      string
+		acceptance contracts.LegalAcceptance
+	}{
+		{"signup-zero-acceptance@test.com", contracts.LegalAcceptance{}},
+		{"signup-no-terms-version@test.com", contracts.LegalAcceptance{PrivacyVersion: "v1", MinAgeAttested: 16}},
+	} {
+		suite.Run(tc.email, func() {
+			session, body := suite.signupRegistration(tc.email, ceremonyOrigin)
+			_, err := suite.service.FinishSignupRegistrationWithLegal(
+				tc.email, session, suite.parseCreation(body), "Key", tc.acceptance,
+			)
+			suite.requireRefusal(err, apperrors.CodeTermsAcceptanceRequired,
+				"Please accept the Terms of Service and Privacy Policy before creating an account.")
+			suite.Zero(suite.accountRows(tc.email))
+		})
+	}
+}

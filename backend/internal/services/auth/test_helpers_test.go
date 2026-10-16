@@ -19,10 +19,6 @@ func (n *nilDBUserService) ListUsers(limit, offset int, filters contracts.AdminU
 	return nil, 0, fmt.Errorf("database not initialized")
 }
 
-func (n *nilDBUserService) FindOrCreateUser(gothUser goth.User, provider string) (*authm.User, error) {
-	return nil, fmt.Errorf("database not initialized")
-}
-
 func (n *nilDBUserService) FindOrCreateUserWithConsent(gothUser goth.User, provider string, consent *contracts.OAuthSignupConsent) (*authm.User, error) {
 	return nil, fmt.Errorf("database not initialized")
 }
@@ -32,10 +28,6 @@ func (n *nilDBUserService) LinkOAuthAccountToUser(userID uint, gothUser goth.Use
 }
 
 func (n *nilDBUserService) AuthenticateUserWithPassword(email, password string) (*authm.User, error) {
-	return nil, fmt.Errorf("database not initialized")
-}
-
-func (n *nilDBUserService) CreateUserWithPassword(email, password, firstName, lastName string) (*authm.User, error) {
 	return nil, fmt.Errorf("database not initialized")
 }
 

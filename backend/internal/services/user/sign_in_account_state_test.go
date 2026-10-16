@@ -5,6 +5,7 @@ import (
 
 	apperrors "psychic-homily-backend/internal/errors"
 	authm "psychic-homily-backend/internal/models/auth"
+	"psychic-homily-backend/internal/testutil/signupconsent"
 )
 
 // An account that may not sign in is refused with ACCOUNT_INACTIVE on every
@@ -48,7 +49,7 @@ func (suite *UserServiceIntegrationTestSuite) assertSignInOutcome(maySignIn bool
 // A returning OAuth identity resolves to its account before anything else is
 // consulted, so the account's state is the only thing between that identity
 // and a session. Both entry points resolve a returning identity the same way.
-func (suite *UserServiceIntegrationTestSuite) TestFindOrCreateUser_AccountState() {
+func (suite *UserServiceIntegrationTestSuite) TestFindOrCreateUserWithConsent_AccountState() {
 	for _, state := range signInAccountStates {
 		suite.Run(state.name, func() {
 			identity := goth.User{
@@ -56,11 +57,11 @@ func (suite *UserServiceIntegrationTestSuite) TestFindOrCreateUser_AccountState(
 				Email:   "state." + state.name + "@example.com",
 				RawData: map[string]any{"verified_email": true},
 			}
-			created, err := suite.userService.FindOrCreateUser(identity, "google")
+			created, err := suite.userService.FindOrCreateUserWithConsent(identity, "google", signupconsent.CurrentOAuthSignupConsent())
 			suite.Require().NoError(err)
 			state.apply(suite, created.ID)
 
-			user, err := suite.userService.FindOrCreateUser(identity, "google")
+			user, err := suite.userService.FindOrCreateUserWithConsent(identity, "google", signupconsent.CurrentOAuthSignupConsent())
 			suite.assertSignInOutcome(state.maySignIn, created.ID, user, err)
 
 			user, err = suite.userService.FindOrCreateUserWithConsent(identity, "google", nil)
@@ -76,7 +77,7 @@ func (suite *UserServiceIntegrationTestSuite) TestAuthenticateUserWithPassword_A
 	for _, state := range signInAccountStates {
 		suite.Run(state.name, func() {
 			address := "password.state." + state.name + "@example.com"
-			created, err := suite.userService.CreateUserWithPassword(address, "CorrectPassword1!", "State", "User")
+			created, err := suite.userService.CreateUserWithPasswordWithLegal(address, "CorrectPassword1!", "State", "User", signupconsent.CurrentLegalAcceptance())
 			suite.Require().NoError(err)
 			state.apply(suite, created.ID)
 
