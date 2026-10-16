@@ -11,6 +11,7 @@ import (
 	"github.com/markbates/goth"
 	"golang.org/x/crypto/bcrypt"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 
 	"psychic-homily-backend/db"
 	apperrors "psychic-homily-backend/internal/errors"
@@ -664,8 +665,12 @@ func (s *UserService) LinkOAuthAccountToUser(userID uint, gothUser goth.User, pr
 		return nil, fmt.Errorf("failed to get user: %w", err)
 	}
 
+	// FOR UPDATE: a concurrent connect or unlink of this row waits for this
+	// transaction, so the row cannot change between this read and the write
+	// below.
 	var bySubject authm.OAuthAccount
 	err := tx.
+		Clauses(clause.Locking{Strength: "UPDATE"}).
 		Where("provider = ? AND provider_user_id = ?", provider, gothUser.UserID).
 		First(&bySubject).Error
 	switch {
@@ -678,10 +683,12 @@ func (s *UserService) LinkOAuthAccountToUser(userID uint, gothUser goth.User, pr
 			return nil, apperrors.ErrOAuthIdentityInUse(provider)
 		}
 		// Already this user's identity. Refresh the stored profile and tokens
-		// so a repeat connect is idempotent rather than an error. The row is
-		// already in hand, so nothing is looked up again to write it.
-		applyGothUserToOAuthAccount(&bySubject, gothUser)
-		if err := tx.Save(&bySubject).Error; err != nil {
+		// so a repeat connect is idempotent rather than an error. The write
+		// names the columns applyGothUserToOAuthAccount set (GORM adds
+		// updated_at) rather than using Save: Save writes back every column
+		// it read, and turns an update that matches no row into an insert.
+		refreshed := applyGothUserToOAuthAccount(&bySubject, gothUser)
+		if err := tx.Model(&bySubject).Select(refreshed).Updates(&bySubject).Error; err != nil {
 			tx.Rollback()
 			return nil, fmt.Errorf("failed to update OAuth account: %w", err)
 		}
@@ -780,21 +787,24 @@ func (s *UserService) resolveLinkRace(userID uint, subject, provider string) (*a
 }
 
 // applyGothUserToOAuthAccount copies the provider's profile and tokens onto an
-// oauth_accounts row. It deliberately leaves ProviderUserID alone: the subject
-// is the identity a row is keyed on, and rewriting it retargets which provider
-// account signs in as the row's owner.
+// oauth_accounts row and returns the columns it set. It deliberately leaves
+// ProviderUserID alone: the subject is the identity a row is keyed on, and
+// rewriting it retargets which provider account signs in as the row's owner.
 //
-// ExpiresAt is written only when the provider supplied one, so a provider that
+// ExpiresAt is set only when the provider supplied one, so a provider that
 // stops sending an expiry does not blank a stored value.
-func applyGothUserToOAuthAccount(account *authm.OAuthAccount, gothUser goth.User) {
+func applyGothUserToOAuthAccount(account *authm.OAuthAccount, gothUser goth.User) []string {
 	account.ProviderEmail = &gothUser.Email
 	account.ProviderName = &gothUser.Name
 	account.ProviderAvatarURL = &gothUser.AvatarURL
 	account.AccessToken = &gothUser.AccessToken
 	account.RefreshToken = &gothUser.RefreshToken
+	columns := []string{"provider_email", "provider_name", "provider_avatar_url", "access_token", "refresh_token"}
 	if !gothUser.ExpiresAt.IsZero() {
 		account.ExpiresAt = &gothUser.ExpiresAt
+		columns = append(columns, "expires_at")
 	}
+	return columns
 }
 
 // reloadUserWithRelations returns the user as callers of the OAuth paths
