@@ -540,14 +540,13 @@ export interface ApiResponse {
 /**
  * Make API requests with proper configuration, error handling, and request ID extraction.
  *
- * An abort thrown before the response arrives, or while a successful
- * response's body is read, is rethrown as it is, unwrapped and unreported: the
- * caller that owns the signal decides what an abort means. An abort is an
- * AbortError, or anything thrown once the request's own signal has aborted,
- * which covers `abort(reason)` and an `AbortSignal.timeout` TimeoutError. A
- * TimeoutError while the signal has not aborted is a failure like any other.
- * An error response keeps its status even when its body read aborts, because
- * the status is the server's answer.
+ * An abort is an AbortError, or anything thrown once the request's own signal
+ * has aborted (`abort(reason)`, an `AbortSignal.timeout` TimeoutError); a
+ * TimeoutError while the signal has not aborted is an ordinary failure. An
+ * abort before the response arrives, or while a successful response's body is
+ * read, is rethrown as it is, unwrapped and unreported: the caller that owns
+ * the signal decides what it means. An error response keeps its status even
+ * when its body read aborts, because the status is the server's answer.
  */
 export const apiRequest = async <T = unknown>(
   endpoint: string,
@@ -572,7 +571,7 @@ export const apiRequest = async <T = unknown>(
   // to Sentry as-is. Everything reported below goes through this scrubbed form
   // instead; `authLogger` keeps the raw path because it is console-only.
   const telemetryPath = toTelemetryPath(endpointPath)
-  const isAbort = (error: unknown) =>
+  const isRequestAbort = (error: unknown) =>
     isAbortError(error) || config.signal?.aborted === true
 
   authLogger.debug('API request', {
@@ -586,7 +585,7 @@ export const apiRequest = async <T = unknown>(
   } catch (networkError) {
     // Network failure (backend unreachable, DNS failure, etc.) or an abort;
     // only the former is an outage signal.
-    if (isAuthEndpoint && !isAbort(networkError)) {
+    if (isAuthEndpoint && !isRequestAbort(networkError)) {
       Sentry.captureException(networkError, {
         level: 'error',
         tags: { service: 'auth', error_type: 'network_failure' },
@@ -714,7 +713,7 @@ export const apiRequest = async <T = unknown>(
   try {
     data = (await response.json()) as T
   } catch (parseError) {
-    if (isAbort(parseError)) throw parseError
+    if (isRequestAbort(parseError)) throw parseError
 
     const parseMessage =
       parseError instanceof Error ? parseError.message : String(parseError)

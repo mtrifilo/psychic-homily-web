@@ -644,11 +644,8 @@ describe('API Module', () => {
         )
         return signal
       }
-      const signalAbortedWithReason = async () => {
-        const controller = new AbortController()
-        controller.abort(new Error('superseded by a newer request'))
-        return controller.signal
-      }
+      const signalAbortedWithReason = () =>
+        AbortSignal.abort(new Error('superseded by a newer request'))
 
       it.each([
         ['AbortSignal.timeout', 'before the response arrives', timedOutSignal, 'TimeoutError', abortBeforeResponse],
