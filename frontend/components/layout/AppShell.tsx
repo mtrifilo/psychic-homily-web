@@ -26,9 +26,9 @@ import { BottomTabBar } from './nav/BottomTabBar'
 // this adds no extra backend fetch.
 //
 // Reading these here makes only the per-request shell dynamic; pages keep their
-// own cache modes (same pattern as the auth-hydration + geo shell reads — see
-// lib/geo-default.ts). The shell already renders inside the root layout's
-// <Suspense> boundary alongside the cookie-reading AuthHydrator.
+// own cache modes (same pattern as the auth-hydration shell read). The shell
+// already renders inside the root layout's <Suspense> boundary alongside the
+// cookie-reading AuthHydrator.
 //
 // Below `xl` the BottomTabBar is the primary nav (PSY-1020) in BOTH nav modes —
 // the nav-mode preference is desktop chrome, and the bar is xl:hidden (paired

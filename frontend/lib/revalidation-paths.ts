@@ -127,7 +127,7 @@ export function entityPages(
 
 /**
  * Pages affected by a show mutation: the show itself, the upcoming-show
- * surfaces (/shows, /explore), the date-addressed lists the show falls in, the
+ * surface (/shows), the date-addressed lists the show falls in, the
  * /artists and /venues lists (both embed upcoming-show data), the /scenes list
  * and every scene page (per-city show counts in SceneStats), and each billed
  * artist's detail page (artist pages ISR-cache stats.shows_tracked).
@@ -149,7 +149,6 @@ export function showPages(
     slug ? `/shows/${slug}` : undefined,
     '/shows',
     ...datePages,
-    '/explore',
     '/artists',
     '/venues',
     // The /scenes LIST, not only the per-scene pages below: since PSY-1624 it
