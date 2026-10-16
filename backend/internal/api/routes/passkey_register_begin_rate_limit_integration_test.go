@@ -14,9 +14,9 @@ import (
 	"psychic-homily-backend/internal/testutil"
 )
 
-// Adding a passkey to a signed-in account, driven through the ROUTER by a
-// caller holding a real session. Register begin sits behind HumaJWTMiddleware,
-// so reaching its counter takes a session, and a session takes a database.
+// Adding a passkey to a signed-in account, driven through the ROUTER by callers
+// holding real sessions. Register begin sits behind HumaJWTMiddleware, so
+// reaching its counter takes a session, and a session takes a database.
 
 const (
 	passkeyRegisterBeginPath  = "/auth/passkey/register/begin"
@@ -26,11 +26,11 @@ const (
 	passkeyRegisterBeginReached = `"success":true`
 )
 
-// passkeyRegisterFixture builds a signed-in user, returning a constructor for
-// routers over one container and that user's session. Building the router is
-// left to the caller because the limiters read DISABLE_AUTH_RATE_LIMITS when
-// the routes are set up.
-func passkeyRegisterFixture(t *testing.T, email string) (func() *chi.Mux, string) {
+// passkeyRegisterFixture returns a constructor for routers over one container
+// and a function that creates a signed-in user and returns its session.
+// Building the router is left to the caller because the limiters read
+// DISABLE_AUTH_RATE_LIMITS when the routes are set up.
+func passkeyRegisterFixture(t *testing.T) (newRouter func() *chi.Mux, signIn func(email string) string) {
 	t.Helper()
 
 	td := testutil.SetupTestPostgres(t)
@@ -45,16 +45,20 @@ func passkeyRegisterFixture(t *testing.T, email string) (func() *chi.Mux, string
 		t.Fatal("the WebAuthn service did not build, so no passkey route is registered")
 	}
 
-	user := &authm.User{Email: &email, IsActive: true, EmailVerified: true}
-	if err := td.DB.Create(user).Error; err != nil {
-		t.Fatalf("create user: %v", err)
-	}
-	newRouter := func() *chi.Mux {
+	newRouter = func() *chi.Mux {
 		router := chi.NewRouter()
 		SetupRoutes(router, sc, cfg)
 		return router
 	}
-	return newRouter, mintToken(t, sc, user)
+	signIn = func(email string) string {
+		t.Helper()
+		user := &authm.User{Email: &email, IsActive: true, EmailVerified: true}
+		if err := td.DB.Create(user).Error; err != nil {
+			t.Fatalf("create user %s: %v", email, err)
+		}
+		return mintToken(t, sc, user)
+	}
+	return newRouter, signIn
 }
 
 func requireRegisterBeginReached(t *testing.T, router *chi.Mux, ip, session, why string) {
@@ -72,7 +76,9 @@ func TestPasskeyRegisterBeginThrottledThroughRouter(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping integration test in short mode")
 	}
-	newRouter, session := passkeyRegisterFixture(t, "passkey-register-throttle@test.com")
+	newRouter, signIn := passkeyRegisterFixture(t)
+	session := signIn("passkey-register-throttle@test.com")
+	neighbour := signIn("passkey-register-neighbour@test.com")
 
 	t.Run("limits on", func(t *testing.T) {
 		t.Setenv(DisableAuthRateLimitsEnvVar, "")
@@ -99,6 +105,17 @@ func TestPasskeyRegisterBeginThrottledThroughRouter(t *testing.T) {
 			t.Errorf("rejection lines name limiters %v, want exactly [%s]", limiters, middleware.LimiterPasskeyRegisterBegin)
 		}
 
+		// The budget follows the session, not the address: the same account
+		// from another address is still refused.
+		if w := sendAuthed(t, router, http.MethodPost, passkeyRegisterBeginPath, "{}", "198.51.100.121:4444", session); w.Code != http.StatusTooManyRequests {
+			t.Errorf("register begin for the spent account from a second address = %d, want 429", w.Code)
+		}
+
+		// Another account behind the same address has a budget of its own.
+		for i := 0; i < passkeyRegisterBeginLimitPerMinute; i++ {
+			requireRegisterBeginReached(t, router, ip, neighbour, "a second account on the same address was refused by the first one's budget")
+		}
+
 		// The finishes are not on this budget: the authenticator has written
 		// the credential by the time one is sent.
 		finish := sendAuthed(t, router, http.MethodPost, passkeyRegisterFinishPath, "{}", ip, session)
@@ -118,9 +135,6 @@ func TestPasskeyRegisterBeginThrottledThroughRouter(t *testing.T) {
 		if w := sendAuthed(t, router, http.MethodGet, "/auth/passkey/credentials", "", ip, session); w.Code != http.StatusOK {
 			t.Errorf("GET /auth/passkey/credentials with only the register begin budget spent = %d, want 200", w.Code)
 		}
-
-		// The budget is per IP.
-		requireRegisterBeginReached(t, router, "198.51.100.121:4444", session, "a second address was refused by the first one's budget")
 	})
 
 	t.Run("limits disabled", func(t *testing.T) {
