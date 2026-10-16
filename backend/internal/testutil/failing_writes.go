@@ -2,7 +2,10 @@ package testutil
 
 import (
 	"database/sql"
+	"net"
+	"strconv"
 	"strings"
+	"sync"
 	"testing"
 
 	"gorm.io/driver/postgres"
@@ -69,6 +72,52 @@ func UnavailableDB(t *testing.T) *gorm.DB {
 	db, err := gorm.Open(postgres.New(postgres.Config{Conn: conn}), &gorm.Config{DisableAutomaticPing: true})
 	if err != nil {
 		t.Fatalf("wrap unavailable database: %v", err)
+	}
+	return db
+}
+
+// UnansweringDB returns a Postgres GORM handle on a local listener that accepts
+// connections and never writes to them, so every query waits until its
+// context ends, as one over a connection that stopped answering does. It
+// needs no running database.
+func UnansweringDB(t *testing.T) *gorm.DB {
+	t.Helper()
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen for unanswering database: %v", err)
+	}
+
+	var mu sync.Mutex
+	var accepted []net.Conn
+	go func() {
+		for {
+			c, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			mu.Lock()
+			accepted = append(accepted, c)
+			mu.Unlock()
+		}
+	}()
+
+	port := strconv.Itoa(ln.Addr().(*net.TCPAddr).Port)
+	conn, err := sql.Open("pgx", "host=127.0.0.1 port="+port+" user=nobody dbname=nothing sslmode=disable")
+	if err != nil {
+		t.Fatalf("open unanswering database: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = conn.Close()
+		_ = ln.Close()
+		mu.Lock()
+		defer mu.Unlock()
+		for _, c := range accepted {
+			_ = c.Close()
+		}
+	})
+	db, err := gorm.Open(postgres.New(postgres.Config{Conn: conn}), &gorm.Config{DisableAutomaticPing: true})
+	if err != nil {
+		t.Fatalf("wrap unanswering database: %v", err)
 	}
 	return db
 }
