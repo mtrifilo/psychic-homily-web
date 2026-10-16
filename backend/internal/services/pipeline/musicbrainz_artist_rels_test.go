@@ -5,18 +5,10 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
-
-func newArtistRelsTestClient(baseURL string) *MusicBrainzClient {
-	c := NewMusicBrainzClient()
-	c.baseURL = baseURL
-	c.rateLimit = time.Millisecond
-	return c
-}
 
 func TestMusicBrainzClient_LookupArtistArtistRelations(t *testing.T) {
 	var gotPath, gotInc string
@@ -39,7 +31,7 @@ func TestMusicBrainzClient_LookupArtistArtistRelations(t *testing.T) {
 	srv := httptest.NewServer(mux)
 	defer srv.Close()
 
-	c := newArtistRelsTestClient(srv.URL)
+	c := newMusicBrainzTestClient(srv.URL)
 	rels, err := c.LookupArtistArtistRelations(context.Background(), "person-1")
 	require.NoError(t, err)
 
@@ -71,7 +63,7 @@ func TestMusicBrainzClient_LookupArtistArtistRelations_EscapesID(t *testing.T) {
 	srv := httptest.NewServer(mux)
 	defer srv.Close()
 
-	c := newArtistRelsTestClient(srv.URL)
+	c := newMusicBrainzTestClient(srv.URL)
 	_, err := c.LookupArtistArtistRelations(context.Background(), "a/b?x=1")
 	require.NoError(t, err)
 	assert.Contains(t, gotRawPath, "a%2Fb%3Fx=1")
