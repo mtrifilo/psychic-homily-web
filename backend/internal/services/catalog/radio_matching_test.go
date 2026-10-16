@@ -229,6 +229,7 @@ func (suite *RadioMatchingIntegrationTestSuite) cleanup() {
 	_, _ = sqlDB.Exec("DELETE FROM artists")
 	_, _ = sqlDB.Exec("DELETE FROM releases")
 	_, _ = sqlDB.Exec("DELETE FROM labels")
+	_, _ = sqlDB.Exec("DELETE FROM audit_logs")
 }
 
 func TestRadioMatchingIntegrationTestSuite(t *testing.T) {
@@ -252,6 +253,24 @@ func (suite *RadioMatchingIntegrationTestSuite) createRelease(title string) *cat
 	r := &catalogm.Release{Title: title}
 	suite.Require().NoError(suite.db.Create(r).Error)
 	return r
+}
+
+// createCreditedRelease inserts a release credited ('main') to each artist.
+func (suite *RadioMatchingIntegrationTestSuite) createCreditedRelease(title string, artistIDs ...uint) *catalogm.Release {
+	r := suite.createRelease(title)
+	for i, artistID := range artistIDs {
+		suite.Require().NoError(suite.db.Create(&catalogm.ArtistRelease{
+			ArtistID: artistID, ReleaseID: r.ID, Role: catalogm.ArtistReleaseRoleMain, Position: i,
+		}).Error)
+	}
+	return r
+}
+
+// reloadPlay reads a play back from the database.
+func (suite *RadioMatchingIntegrationTestSuite) reloadPlay(id uint) catalogm.RadioPlay {
+	var reloaded catalogm.RadioPlay
+	suite.Require().NoError(suite.db.First(&reloaded, id).Error)
+	return reloaded
 }
 
 func (suite *RadioMatchingIntegrationTestSuite) createLabel(name string) *catalogm.Label {
@@ -467,7 +486,7 @@ func (suite *RadioMatchingIntegrationTestSuite) TestMatchArtist_FalsePositiveGua
 // TestMatchRelease_DiacriticInsensitive — release-side parity.
 func (suite *RadioMatchingIntegrationTestSuite) TestMatchRelease_DiacriticInsensitive() {
 	a := suite.createArtist("Jose Gonzalez")
-	r := suite.createRelease("Veneer") // boring ascii title for the join side
+	r := suite.createCreditedRelease("Veneer", a.ID) // boring ascii title for the join side
 
 	episodeID := suite.createStationShowEpisode()
 	title := "Veneer"
@@ -487,8 +506,8 @@ func (suite *RadioMatchingIntegrationTestSuite) TestMatchRelease_DiacriticInsens
 func (suite *RadioMatchingIntegrationTestSuite) TestMatchRelease_WithDiacritic() {
 	// Artist seeded so matchPlay reports artist-matched true; we assert on
 	// the release-side resolution here.
-	suite.createArtist("Stereolab")
-	r := suite.createRelease("Cobra et Phasès") // diacritic stored
+	stereolab := suite.createArtist("Stereolab")
+	r := suite.createCreditedRelease("Cobra et Phasès", stereolab.ID) // diacritic stored
 
 	episodeID := suite.createStationShowEpisode()
 	title := "Cobra et Phases"
@@ -499,6 +518,225 @@ func (suite *RadioMatchingIntegrationTestSuite) TestMatchRelease_WithDiacritic()
 	suite.Require().NoError(suite.db.First(&reloaded, play.ID).Error)
 	suite.Require().NotNil(reloaded.ReleaseID)
 	suite.Equal(r.ID, *reloaded.ReleaseID)
+}
+
+// TestMatchRelease_SharedTitleLinksTheCreditedArtistsRelease: two artists each
+// have a release with the same title, and the other artist's release has the
+// lower id. A play by the second artist links that artist's release.
+func (suite *RadioMatchingIntegrationTestSuite) TestMatchRelease_SharedTitleLinksTheCreditedArtistsRelease() {
+	artistB := suite.createArtist("Artist B")
+	suite.createCreditedRelease("Shared Title", artistB.ID)
+	artistA := suite.createArtist("Artist A")
+	releaseA := suite.createCreditedRelease("Shared Title", artistA.ID)
+
+	episodeID := suite.createStationShowEpisode()
+	play := suite.createPlay(episodeID, 1, "Artist A", strPtr("Shared Title"), nil)
+
+	suite.True(suite.engine.matchPlay(play))
+	reloaded := suite.reloadPlay(play.ID)
+	suite.Require().NotNil(reloaded.ArtistID)
+	suite.Equal(artistA.ID, *reloaded.ArtistID)
+	suite.Require().NotNil(reloaded.ReleaseID)
+	suite.Equal(releaseA.ID, *reloaded.ReleaseID, "the release credited to the play's artist, not the lowest id")
+}
+
+// TestMatchRelease_TySegallChromeIsNotLinkedToNiceNice: the only catalog
+// release titled "Chrome" belongs to Nice Nice, so a Ty Segall play titled
+// "Chrome" links the artist and leaves the release unlinked.
+func (suite *RadioMatchingIntegrationTestSuite) TestMatchRelease_TySegallChromeIsNotLinkedToNiceNice() {
+	niceNice := suite.createArtist("Nice Nice")
+	suite.createCreditedRelease("Chrome", niceNice.ID)
+	tySegall := suite.createArtist("Ty Segall")
+
+	episodeID := suite.createStationShowEpisode()
+	play := suite.createPlay(episodeID, 1, "Ty Segall", strPtr("Chrome"), nil)
+
+	suite.True(suite.engine.matchPlay(play))
+	reloaded := suite.reloadPlay(play.ID)
+	suite.Require().NotNil(reloaded.ArtistID)
+	suite.Equal(tySegall.ID, *reloaded.ArtistID)
+	suite.Equal(catalogm.RadioPlayMatchStateMatched, reloaded.MatchState)
+	suite.Nil(reloaded.ReleaseID, "a release credited to another artist is never linked")
+}
+
+// TestMatchRelease_FloodLinksTheyMightBeGiantsNotBoris: Boris and They Might Be
+// Giants each have a release titled "Flood", Boris's with the lower id.
+func (suite *RadioMatchingIntegrationTestSuite) TestMatchRelease_FloodLinksTheyMightBeGiantsNotBoris() {
+	boris := suite.createArtist("Boris")
+	suite.createCreditedRelease("Flood", boris.ID)
+	tmbg := suite.createArtist("They Might Be Giants")
+	tmbgFlood := suite.createCreditedRelease("Flood", tmbg.ID)
+
+	episodeID := suite.createStationShowEpisode()
+	play := suite.createPlay(episodeID, 1, "They Might Be Giants", strPtr("Flood"), nil)
+
+	suite.True(suite.engine.matchPlay(play))
+	reloaded := suite.reloadPlay(play.ID)
+	suite.Require().NotNil(reloaded.ReleaseID)
+	suite.Equal(tmbgFlood.ID, *reloaded.ReleaseID)
+}
+
+// TestMatchRelease_KeepsTheArtistAPlayAlreadyCarries: a play whose artist_id is
+// already set but whose name no longer resolves (the label rematch path loads
+// such plays) is judged against the artist it carries.
+func (suite *RadioMatchingIntegrationTestSuite) TestMatchRelease_KeepsTheArtistAPlayAlreadyCarries() {
+	linked := suite.createArtist("Linked Artist")
+	credited := suite.createCreditedRelease("Shared Title", linked.ID)
+	other := suite.createArtist("Other Artist")
+	suite.createCreditedRelease("Shared Title", other.ID)
+
+	episodeID := suite.createStationShowEpisode()
+	play := suite.createPlay(episodeID, 1, "Unresolvable Billing", strPtr("Shared Title"), nil)
+	suite.Require().NoError(suite.db.Model(play).Update("artist_id", linked.ID).Error)
+	play.ArtistID = &linked.ID
+
+	suite.False(suite.engine.matchPlay(play))
+	reloaded := suite.reloadPlay(play.ID)
+	suite.Require().NotNil(reloaded.ReleaseID)
+	suite.Equal(credited.ID, *reloaded.ReleaseID)
+}
+
+// TestMatchRelease_LinkingAnArtistClearsAnUncreditedRelease: a play without
+// an artist link carries a release credited to someone else; when the matcher
+// links the play's artist and finds no credited release, it clears the link.
+func (suite *RadioMatchingIntegrationTestSuite) TestMatchRelease_LinkingAnArtistClearsAnUncreditedRelease() {
+	boris := suite.createArtist("Boris")
+	borisFlood := suite.createCreditedRelease("Flood", boris.ID)
+	tmbg := suite.createArtist("They Might Be Giants")
+
+	episodeID := suite.createStationShowEpisode()
+	play := suite.createPlay(episodeID, 1, "They Might Be Giants", strPtr("Flood"), nil)
+	suite.Require().NoError(suite.db.Model(play).Update("release_id", borisFlood.ID).Error)
+	play.ReleaseID = &borisFlood.ID
+
+	suite.True(suite.engine.matchPlay(play))
+	reloaded := suite.reloadPlay(play.ID)
+	suite.Require().NotNil(reloaded.ArtistID)
+	suite.Equal(tmbg.ID, *reloaded.ArtistID)
+	suite.Nil(reloaded.ReleaseID)
+}
+
+// TestMatchRelease_LabelRematchKeepsTheReleaseOfAnArtistLinkedPlay: a play
+// that already carries its artist and a release not credited to it (as the
+// admin link-play endpoint can set) keeps that release when a new label name
+// rematches it.
+func (suite *RadioMatchingIntegrationTestSuite) TestMatchRelease_LabelRematchKeepsTheReleaseOfAnArtistLinkedPlay() {
+	tmbg := suite.createArtist("They Might Be Giants")
+	boris := suite.createArtist("Boris")
+	borisFlood := suite.createCreditedRelease("Flood", boris.ID)
+
+	episodeID := suite.createStationShowEpisode()
+	play := suite.createPlay(episodeID, 1, "They Might Be Giants", strPtr("Flood"), strPtr("Elektra"))
+	suite.Require().NoError(suite.db.Model(play).Updates(map[string]interface{}{
+		"artist_id": tmbg.ID, "release_id": borisFlood.ID,
+	}).Error)
+	label := suite.createLabel("Elektra")
+
+	result, err := suite.engine.MatchUnmatchedPlaysForLabelName("Elektra")
+	suite.Require().NoError(err)
+	suite.Equal(1, result.Total)
+	reloaded := suite.reloadPlay(play.ID)
+	suite.Require().NotNil(reloaded.LabelID)
+	suite.Equal(label.ID, *reloaded.LabelID)
+	suite.Require().NotNil(reloaded.ReleaseID)
+	suite.Equal(borisFlood.ID, *reloaded.ReleaseID)
+}
+
+// TestMatchRelease_ChangingTheArtistClearsAnUncreditedRelease: a play linked to
+// one artist whose billing now resolves to another loses a release credited
+// only to the first.
+func (suite *RadioMatchingIntegrationTestSuite) TestMatchRelease_ChangingTheArtistClearsAnUncreditedRelease() {
+	first := suite.createArtist("First Artist")
+	firstLP := suite.createCreditedRelease("Debut", first.ID)
+	second := suite.createArtist("Second Artist")
+
+	episodeID := suite.createStationShowEpisode()
+	play := suite.createPlay(episodeID, 1, "Second Artist", strPtr("Debut"), nil)
+	suite.Require().NoError(suite.db.Model(play).Updates(map[string]interface{}{
+		"artist_id": first.ID, "release_id": firstLP.ID,
+	}).Error)
+	play.ArtistID, play.ReleaseID = &first.ID, &firstLP.ID
+
+	suite.True(suite.engine.matchPlay(play))
+	reloaded := suite.reloadPlay(play.ID)
+	suite.Require().NotNil(reloaded.ArtistID)
+	suite.Equal(second.ID, *reloaded.ArtistID)
+	suite.Nil(reloaded.ReleaseID)
+}
+
+// TestMatchRelease_LinkingAnArtistKeepsACreditedRelease: the play's current
+// release is credited to the artist the matcher links, under another title.
+func (suite *RadioMatchingIntegrationTestSuite) TestMatchRelease_LinkingAnArtistKeepsACreditedRelease() {
+	tmbg := suite.createArtist("They Might Be Giants")
+	lincoln := suite.createCreditedRelease("Lincoln", tmbg.ID)
+
+	episodeID := suite.createStationShowEpisode()
+	play := suite.createPlay(episodeID, 1, "They Might Be Giants", strPtr("Flood"), nil)
+	suite.Require().NoError(suite.db.Model(play).Update("release_id", lincoln.ID).Error)
+	play.ReleaseID = &lincoln.ID
+
+	suite.True(suite.engine.matchPlay(play))
+	reloaded := suite.reloadPlay(play.ID)
+	suite.Require().NotNil(reloaded.ReleaseID)
+	suite.Equal(lincoln.ID, *reloaded.ReleaseID)
+}
+
+// TestMatchRelease_UnlinkedArtistUniqueTitleAndSoleCreditLinks covers the rule
+// for a play without a linked artist: one release with the title, one credited
+// artist, and that artist's name equal to the play's after normalization.
+func (suite *RadioMatchingIntegrationTestSuite) TestMatchRelease_UnlinkedArtistUniqueTitleAndSoleCreditLinks() {
+	niceNice := suite.createArtist("Nice Nice")
+	chrome := suite.createCreditedRelease("Chrome", niceNice.ID)
+
+	got := suite.engine.matchRelease(nil, "NICE NICE!", strPtr("chrome"), nil)
+	suite.Require().NotNil(got)
+	suite.Equal(chrome.ID, *got)
+}
+
+// TestMatchRelease_UnlinkedArtistNameMismatchRefused: the unique release's only
+// artist is not the play's artist.
+func (suite *RadioMatchingIntegrationTestSuite) TestMatchRelease_UnlinkedArtistNameMismatchRefused() {
+	niceNice := suite.createArtist("Nice Nice")
+	suite.createCreditedRelease("Chrome", niceNice.ID)
+
+	suite.Nil(suite.engine.matchRelease(nil, "Ty Segall", strPtr("Chrome"), nil))
+	suite.Nil(suite.engine.matchRelease(nil, "", strPtr("Chrome"), nil))
+}
+
+// TestMatchRelease_UnlinkedArtistSharedTitleRefused: two releases carry the
+// title, so a play without a linked artist links neither, even when one of
+// them is credited to an artist of the play's name.
+func (suite *RadioMatchingIntegrationTestSuite) TestMatchRelease_UnlinkedArtistSharedTitleRefused() {
+	boris := suite.createArtist("Boris")
+	suite.createCreditedRelease("Flood", boris.ID)
+	tmbg := suite.createArtist("They Might Be Giants")
+	suite.createCreditedRelease("Flood", tmbg.ID)
+
+	suite.Nil(suite.engine.matchRelease(nil, "Boris", strPtr("Flood"), nil))
+}
+
+// TestMatchRelease_UnlinkedArtistTwoCreditedArtistsRefused: the only release
+// with the title credits two artists, so a play without a linked artist does
+// not link it.
+func (suite *RadioMatchingIntegrationTestSuite) TestMatchRelease_UnlinkedArtistTwoCreditedArtistsRefused() {
+	first := suite.createArtist("First Artist")
+	second := suite.createArtist("Second Artist")
+	suite.createCreditedRelease("Split LP", first.ID, second.ID)
+
+	suite.Nil(suite.engine.matchRelease(nil, "First Artist", strPtr("Split LP"), nil))
+}
+
+// TestMatchRelease_LinkedArtistAnyCreditRole: a non-main credit counts.
+func (suite *RadioMatchingIntegrationTestSuite) TestMatchRelease_LinkedArtistAnyCreditRole() {
+	artist := suite.createArtist("Remixer")
+	release := suite.createRelease("Remixes")
+	suite.Require().NoError(suite.db.Create(&catalogm.ArtistRelease{
+		ArtistID: artist.ID, ReleaseID: release.ID, Role: catalogm.ArtistReleaseRoleRemixer,
+	}).Error)
+
+	got := suite.engine.matchRelease(&artist.ID, "Remixer", strPtr("Remixes"), nil)
+	suite.Require().NotNil(got)
+	suite.Equal(release.ID, *got)
 }
 
 // TestMatchLabel_DiacriticInsensitive — label-side parity.
