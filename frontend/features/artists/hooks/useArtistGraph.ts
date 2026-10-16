@@ -9,6 +9,7 @@
 import { useCallback } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { apiRequest } from '@/lib/api'
+import { refetchAfterMutation } from '@/lib/refetchAfterMutation'
 import { artistEndpoints, artistQueryKeys } from '@/features/artists/api'
 import type { ArtistGraph } from '../types'
 
@@ -101,9 +102,11 @@ export function useArtistRelationshipVote() {
       )
     },
     onSuccess: (_, variables) => {
-      queryClient.invalidateQueries({
-        queryKey: ['artists', 'graph', String(variables.centerArtistId)],
-      })
+      void refetchAfterMutation(queryClient, [
+        'artists',
+        'graph',
+        String(variables.centerArtistId),
+      ])
     },
   })
 }
@@ -134,9 +137,11 @@ export function useCreateArtistRelationship() {
       })
     },
     onSuccess: (_, variables) => {
-      queryClient.invalidateQueries({
-        queryKey: ['artists', 'graph', String(variables.centerArtistId)],
-      })
+      void refetchAfterMutation(queryClient, [
+        'artists',
+        'graph',
+        String(variables.centerArtistId),
+      ])
     },
   })
 }

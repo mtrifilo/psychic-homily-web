@@ -1,5 +1,6 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { apiRequest, API_BASE_URL, isConflictError } from '@/lib/api'
+import { refetchAfterMutation } from '@/lib/refetchAfterMutation'
 import type { EditableEntityType, SuggestEditRequest, SuggestEditResponse } from '../types'
 
 /**
@@ -42,9 +43,11 @@ export const useSuggestEdit = () => {
       )
     },
     onSuccess: (_data, { entityType }) => {
-      const pluralType = ENTITY_PLURAL[entityType]
-      queryClient.invalidateQueries({ queryKey: [pluralType] })
-      queryClient.invalidateQueries({ queryKey: ['my-pending-edits'] })
+      void refetchAfterMutation(
+        queryClient,
+        [ENTITY_PLURAL[entityType]],
+        ['my-pending-edits']
+      )
     },
     // A 409 means the server refused because the entity is not in the state the
     // submission described: the field moved since the form was loaded, or this
@@ -64,7 +67,7 @@ export const useSuggestEdit = () => {
     // would refresh nothing on exactly the surface the drawer opens from.
     onError: (error, { entityType }) => {
       if (!isConflictError(error)) return
-      queryClient.invalidateQueries({ queryKey: [ENTITY_PLURAL[entityType], 'detail'] })
+      void refetchAfterMutation(queryClient, [ENTITY_PLURAL[entityType], 'detail'])
     },
   })
 }

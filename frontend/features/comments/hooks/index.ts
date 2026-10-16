@@ -2,7 +2,7 @@
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { apiRequest, type ApiError } from '@/lib/api'
-import { queryKeys } from '@/lib/queryClient'
+import { refetchSignedInProfile } from '@/lib/queryClient'
 import {
   commentEndpoints,
   commentQueryKeys,
@@ -235,8 +235,7 @@ export function useSetDefaultReplyPermission() {
         }
       ),
     onSuccess: () => {
-      // eslint-disable-next-line no-restricted-syntax -- the setting renders only for a signed-in viewer whose profile has loaded, and the cache error handlers in lib/queryClient.ts coordinate this query's refetches
-      queryClient.invalidateQueries({ queryKey: queryKeys.auth.profile })
+      void refetchSignedInProfile(queryClient)
     },
   })
 }

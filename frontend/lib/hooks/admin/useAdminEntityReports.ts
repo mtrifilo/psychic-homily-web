@@ -125,7 +125,7 @@ export function useAdminHideCollection() {
     onSuccess: () => {
       invalidateQueries.adminEntityReports()
       // Detail + list pages may surface the now-private collection's flag.
-      queryClient.invalidateQueries({ queryKey: ['collections'] })
+      invalidateQueries.collections()
     },
   })
 }

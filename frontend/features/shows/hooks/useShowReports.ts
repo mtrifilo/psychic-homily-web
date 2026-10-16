@@ -59,12 +59,9 @@ export const useReportShow = () => {
         }
       )
     },
-    onSuccess: (_data, { showId }) => {
-      // Invalidate the user's report check for this show
-      queryClient.invalidateQueries({
-        queryKey: queryKeys.showReports.myReport(String(showId)),
-      })
-      // Invalidate admin reports list (if user is admin viewing their own reports)
+    onSuccess: () => {
+      // The family root covers the viewer's report check for this show and
+      // the admin reports list.
       invalidateQueries.showReports()
     },
   })
