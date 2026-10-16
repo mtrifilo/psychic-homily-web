@@ -104,7 +104,7 @@ func (s *ReleaseLinksSweep) runCycle(ctx context.Context) {
 	})
 	if err != nil {
 		shared.ReportCycle(ctx, 0, err)
-		s.logger.Error("release links sweep: cycle failed", "error", err)
+		shared.LogCycleFailure(s.logger, "release links sweep: cycle failed", err)
 		return
 	}
 	shared.ReportCycle(ctx, report.ReleasesScanned, nil)
