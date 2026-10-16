@@ -48,6 +48,7 @@ import { EntityEditDrawer, EntitySaveSuccessBanner, useEntitySaveSuccessBanner, 
 import { CommentThread } from '@/features/comments'
 import { EntityTagList, AddTagDialog } from '@/features/tags'
 import { useQueryClient } from '@tanstack/react-query'
+import { refetchAfterMutation } from '@/lib/refetchAfterMutation'
 
 interface FestivalDetailProps {
   idOrSlug: string | number
@@ -440,9 +441,7 @@ export function FestivalDetail({ idOrSlug }: FestivalDetailProps) {
         canEditDirectly={!!canEditDirectly}
         focusField={editFocusField}
         onSuccess={(result) => {
-          queryClient.invalidateQueries({
-            queryKey: ['festivals', 'detail'],
-          })
+          void refetchAfterMutation(queryClient, ['festivals', 'detail'])
           saveBanner.handleSaveSuccess(result)
         }}
       />

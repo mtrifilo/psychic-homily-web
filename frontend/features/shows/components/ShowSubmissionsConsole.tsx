@@ -20,6 +20,7 @@ import {
 import { useAuthContext } from '@/lib/context/AuthContext'
 import { useAuthRouteGuard } from '@/lib/hooks/common/useAuthRouteGuard'
 import { queryKeys } from '@/lib/queryClient'
+import { refetchAfterMutation } from '@/lib/refetchAfterMutation'
 import {
   formatShowDate,
   formatShowTime,
@@ -458,9 +459,7 @@ export function ShowSubmissionsConsole() {
   const showSuccessDialog = !dialogDismissed && isPrivateSubmission
   const currentUserId = user?.id
   const refreshSubmissions = useCallback(() => {
-    void queryClient.invalidateQueries({
-      queryKey: queryKeys.mySubmissions.all,
-    })
+    void refetchAfterMutation(queryClient, queryKeys.mySubmissions.all)
   }, [queryClient])
   const handleSubmissionDeleted = useCallback(() => {
     refreshSubmissions()

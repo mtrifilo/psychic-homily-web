@@ -99,6 +99,7 @@ import {
   type UnmatchedPlayGroup,
   type SuggestedMatch,
 } from '@/lib/hooks/admin/useAdminRadio'
+import { refetchAfterMutation } from '@/lib/refetchAfterMutation'
 import { unanchoredLinkHref } from '@/lib/socialLinks'
 
 // ============================================================================
@@ -819,9 +820,12 @@ export function useTrackedSyncRun(stationId: number) {
     if (runId == null || !status || status === 'running') return
     if (settledRunRef.current === runId) return
     settledRunRef.current = runId
-    queryClient.invalidateQueries({ queryKey: radioQueryKeys.shows(stationId) })
-    queryClient.invalidateQueries({ queryKey: radioQueryKeys.stations })
-    queryClient.invalidateQueries({ queryKey: radioQueryKeys.stats })
+    void refetchAfterMutation(
+      queryClient,
+      radioQueryKeys.shows(stationId),
+      radioQueryKeys.stations,
+      radioQueryKeys.stats
+    )
   }, [runId, status, queryClient, stationId])
 
   const trackRun = useCallback(

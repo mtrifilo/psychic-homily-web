@@ -110,7 +110,13 @@ describe('useMergeTags', () => {
 
   it('POSTs source→target and invalidates tag lists + aliases on success', async () => {
     mockApiRequest.mockResolvedValueOnce({ merged_count: 7 })
-    const { queryClient, invalidateSpy } = setupClient()
+    // The default gcTime keeps the seeded, unobserved alias listing cached.
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    })
+    const aliasListing = ['tags', 'aliases', 'all', {}]
+    queryClient.setQueryData(aliasListing, { aliases: [] })
+    const rootSpy = vi.spyOn(queryClient, 'invalidateQueries')
 
     const { result } = renderHook(() => useMergeTags(), {
       wrapper: createWrapperWithClient(queryClient),
@@ -124,8 +130,9 @@ describe('useMergeTags', () => {
       method: 'POST',
       body: JSON.stringify({ target_id: 8 }),
     })
-    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['tags'] })
-    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['tags', 'aliases'] })
+    expect(rootSpy).toHaveBeenCalledWith({ queryKey: ['tags'] })
+    // The family root reaches every alias listing.
+    expect(queryClient.getQueryState(aliasListing)?.isInvalidated).toBe(true)
   })
 
   it('surfaces a merge error and skips invalidation', async () => {

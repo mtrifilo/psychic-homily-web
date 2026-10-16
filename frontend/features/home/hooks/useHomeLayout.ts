@@ -206,6 +206,7 @@ export function useWriteHomeLayout() {
     onSettled: () => {
       // Marked stale, not refetched: the entry is already reconciled, and the
       // next natural read (a remount, a focus) re-validates it for free.
+      // eslint-disable-next-line no-restricted-syntax -- refetchType none starts no fetch, and onMutate cancelled the one in flight when the write began
       queryClient.invalidateQueries({
         queryKey: queryKeys.auth.profile,
         refetchType: 'none',

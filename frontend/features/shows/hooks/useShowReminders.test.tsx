@@ -14,14 +14,6 @@ vi.mock('@/lib/api', () => ({
   API_BASE_URL: 'http://localhost:8080',
 }))
 
-vi.mock('@/lib/queryClient', () => ({
-  queryKeys: {
-    auth: {
-      profile: ['auth', 'profile'],
-    },
-  },
-}))
-
 import { useSetShowReminders } from './useShowReminders'
 
 

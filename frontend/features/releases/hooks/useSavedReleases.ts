@@ -3,6 +3,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { apiRequest } from '@/lib/api'
 import { createInvalidateQueries } from '@/lib/queryClient'
+import { refetchAfterMutation } from '@/lib/refetchAfterMutation'
 import { useAuthContext } from '@/lib/context/AuthContext'
 import { releaseEndpoints, releaseQueryKeys } from '../api'
 import type {
@@ -170,11 +171,12 @@ export function useReleaseSaveToggle(
       // mutation response makes the outcome ambiguous. Keep this optional
       // reconciliation out of the core toggle's awaited invalidations.
       void invalidateQueries.personalCharts()
-      await Promise.all([
-        queryClient.invalidateQueries({ queryKey: ['releases', 'saved'] }),
-        queryClient.invalidateQueries({ queryKey: singleKey }),
-        queryClient.invalidateQueries({ queryKey: batchPrefix }),
-      ])
+      await refetchAfterMutation(
+        queryClient,
+        ['releases', 'saved'],
+        singleKey,
+        batchPrefix
+      )
     }
   }
 
