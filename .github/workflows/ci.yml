@@ -20,9 +20,11 @@ permissions:
   contents: read
 
 # Superseded PR runs are cancelled: nothing reads a run for a head that has
-# moved (a fixup push or an update-branch merge). Main runs are never cancelled
-# once started, but they share one group, so they run one at a time and a newer
-# main push replaces an earlier main run that is still pending.
+# moved (a fixup push or an update-branch merge). A cancelled run still runs
+# its `always()` jobs (the Frontend Unit Tests aggregator), and the newer run
+# stays pending until they finish. Main runs are never cancelled once started,
+# but they share one group, so they run one at a time and a newer main push
+# replaces an earlier main run that is still pending.
 concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
