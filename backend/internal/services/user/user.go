@@ -312,9 +312,11 @@ func (s *UserService) CreateUserWithPasswordWithLegal(
 	if acceptedAt.IsZero() {
 		acceptedAt = time.Now().UTC()
 	}
+	termsVersion := acceptance.TermsVersion
+	privacyVersion := acceptance.PrivacyVersion
 	user.TermsAcceptedAt = &acceptedAt
-	user.TermsVersion = &acceptance.TermsVersion
-	user.PrivacyVersion = &acceptance.PrivacyVersion
+	user.TermsVersion = &termsVersion
+	user.PrivacyVersion = &privacyVersion
 	applyAgeConfirmation(user, acceptance.AgeConfirmedAt, acceptance.MinAgeAttested)
 
 	if err := tx.Create(user).Error; err != nil {

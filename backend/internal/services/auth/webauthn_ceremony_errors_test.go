@@ -11,6 +11,7 @@ import (
 	authm "psychic-homily-backend/internal/models/auth"
 	"psychic-homily-backend/internal/services/contracts"
 	"psychic-homily-backend/internal/testutil"
+	"psychic-homily-backend/internal/testutil/signupconsent"
 	"psychic-homily-backend/internal/testutil/softauthn"
 )
 
@@ -196,7 +197,7 @@ func (suite *WebAuthnServiceIntegrationTestSuite) signupRegistration(email, orig
 func (suite *WebAuthnServiceIntegrationTestSuite) finishSignup(email string, session *webauthn.SessionData, body []byte) error {
 	_, err := suite.service.FinishSignupRegistrationWithLegal(
 		email, session, suite.parseCreation(body), "Key",
-		contracts.LegalAcceptance{TermsVersion: "v1", PrivacyVersion: "v1", MinAgeAttested: 16},
+		signupconsent.CurrentLegalAcceptance(),
 	)
 	return err
 }
