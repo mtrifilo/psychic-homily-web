@@ -454,9 +454,9 @@ func TestRegisterHandler_NilUserService(t *testing.T) {
 }
 
 func TestRegisterHandler_WeakPassword(t *testing.T) {
-	// NewPasswordValidator works standalone; the HIBP call may fail in tests
-	// but the length check happens first and short-circuits the result.
-	pv := auth.NewPasswordValidator()
+	// The validator runs the breach check even for a password that fails the
+	// length check, so its range request is answered in-process.
+	pv := auth.NewPasswordValidatorWithTransport(pwnedPasswordsListing(t))
 	h := NewAuthHandler(nil, nil, nil, nil, nil, pv, testConfig())
 	input := &RegisterRequest{}
 	input.Body.Email = "user@example.com"
