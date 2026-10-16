@@ -18,7 +18,7 @@ import {
 } from '@/components/ui/dialog'
 import { useWebAuthnSupport } from '@/features/auth/hooks/useWebAuthnSupport'
 import { registrationOptionsFrom } from '@/features/auth/passkeyOptions'
-import { AuthError, AuthErrorCode, type AuthErrorCodeType } from '@/lib/errors'
+import { AuthError, type AuthErrorCodeType } from '@/lib/errors'
 import type { components } from '@/types/api'
 import { API_BASE_URL } from '@/lib/api-base'
 
@@ -68,10 +68,7 @@ async function readRegistrationResponse<
   if (!code) return { ok: false, error: new Error(message) }
   return {
     ok: false,
-    error: new AuthError(
-      message,
-      (code as AuthErrorCodeType) || AuthErrorCode.UNKNOWN
-    ),
+    error: new AuthError(message, code as AuthErrorCodeType),
   }
 }
 
