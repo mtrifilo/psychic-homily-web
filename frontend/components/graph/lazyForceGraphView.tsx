@@ -6,9 +6,8 @@
  * chunk fetched only when a below-the-fold graph section mounts, keeping anything
  * graph-shaped out of the host page's initial JS (PSY-868).
  *
- * Shared by InlineGraph (PSY-837) and HomeSceneGraph (PSY-1344); they differ only
- * in the height-reserving `loading` skeleton (each surface reserves CLS height its
- * own way), so that is the one parameter. Peer ForceGraphView consumers (Scene /
+ * Used by HomeSceneGraph (PSY-1344). The height-reserving `loading` skeleton is
+ * the one parameter, since each surface reserves CLS height its own way. Peer ForceGraphView consumers (Scene /
  * Venue / Collection graphs) keep a STATIC import on purpose — there the graph is
  * the page's primary content, so a split would only add a chunk round-trip.
  *

@@ -69,12 +69,11 @@ const HEADER_LONGITUDE = 'x-vercel-ip-longitude'
  * Decode a `Headers`-like object carrying the Vercel edge geo headers into a
  * `{ city, state }` suggestion, or `null` when geo is unavailable / ambiguous.
  *
- * Pure (no `next/headers`): the edge route handler passes `request.headers`.
- * Anything with a `.get(name) => string | null` shape works.
+ * The edge route handler passes `request.headers`; anything with a
+ * `.get(name) => string | null` shape works.
  *
- * This is a SUGGESTION only — it is NOT validated against PH's shows data
- * here (neither the server nor the edge has cheap access to the
- * cities-with-counts list). The client (`useGeoDefaultCity`) reconciles it
+ * This is a SUGGESTION only: it is NOT validated against PH's shows data
+ * here (the edge has no cheap access to the cities-with-counts list). The client (`useGeoDefaultCity`) reconciles it
  * against `useShowCities` data and only pre-selects it when the city actually
  * has upcoming shows; otherwise it falls back to "All cities". Keeping the
  * has-shows check on the client reuses PSY-840's existing data source instead

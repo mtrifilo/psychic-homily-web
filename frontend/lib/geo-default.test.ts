@@ -1,11 +1,8 @@
 import { describe, it, expect } from 'vitest'
 import { decodeGeoHeaders } from './geo-default'
 
-/** Decode a header store backed by the given (lowercased) map. */
 function decodeFrom(map: Record<string, string>) {
-  return decodeGeoHeaders({
-    get: (key: string) => map[key.toLowerCase()] ?? null,
-  })
+  return decodeGeoHeaders(new Headers(map))
 }
 
 describe('decodeGeoHeaders', () => {
