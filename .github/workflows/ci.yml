@@ -19,14 +19,15 @@ on:
 permissions:
   contents: read
 
-# Superseded PR runs are cancelled: nothing reads a run for a head that has
-# moved (a fixup push or an update-branch merge). A cancelled run closes as
-# soon as its jobs stop, since no job-level `if:` here uses `always()`, so the
-# newer run starts without waiting. Main runs are never cancelled once
-# started, but they share one group, so they run one at a time and a newer
-# main push replaces an earlier main run that is still pending.
+# Superseded PR runs are cancelled: a PR's runs share one group per ref, and
+# nothing reads a run for a head that has moved (a fixup push or an
+# update-branch merge). A cancelled run closes as soon as its running jobs
+# stop, since no job-level `if:` here uses `always()` and no job waits for a
+# runner after the cancel; the newer run starts then. Every other run (each
+# push to main) gets a group of its own commit SHA, so main runs are never
+# cancelled and never queue behind each other.
 concurrency:
-  group: ci-${{ github.ref }}
+  group: ci-${{ github.event_name == 'pull_request' && github.ref || github.sha }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
@@ -511,9 +512,8 @@ jobs:
   # required check, so a red shard could merge. It is not `always()` because in
   # a cancelled run (a superseded PR head) this job would still wait for a
   # runner, holding the run open while the newer run in the concurrency group
-  # stays pending. A cancelled run therefore leaves this check skipped, which
-  # counts as passing: rerun a hand-cancelled run of a PR's current head before
-  # merging.
+  # stays pending. In a cancelled run this check is marked cancelled without
+  # taking a runner, and a cancelled required check blocks the merge.
   frontend-unit-tests:
     name: Frontend Unit Tests
     runs-on: ubuntu-latest
