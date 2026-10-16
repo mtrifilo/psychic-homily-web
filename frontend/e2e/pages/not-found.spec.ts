@@ -177,15 +177,14 @@ test.describe('Not-found pages — HTTP 404 status', () => {
   /**
    * PSY-913 over-404 guard for RESERVED static routes under a proxied prefix.
    *
-   * `proxy.ts`'s `/shows/:path*` matcher intercepts `/shows/submit` and
-   * `/shows/saved` — both are REAL Next routes (`app/shows/submit/page.tsx`,
-   * `app/shows/saved/page.tsx`), NOT entity slugs. PSY-897's shows phase made
-   * the proxy existence-check `submit`/`saved` as if they were slugs → backend
-   * 404 → rewrote the genuine page to a 404, breaking the full E2E suite on
-   * main (`submit-show.spec.ts`). `RESERVED_SEGMENTS` excludes them. These tests
-   * pin that the proxy lets each real page through. (Distinct from the seeded-
-   * slug guard above: a slug-existence backend call would 404 these; the
-   * exclusion is what saves them.)
+   * `proxy.ts`'s `/shows/:path*` matcher intercepts `/shows/submit`, a REAL
+   * Next route (`app/shows/submit/page.tsx`), NOT an entity slug. PSY-897's
+   * shows phase made the proxy existence-check `submit` as if it were a slug →
+   * backend 404 → rewrote the genuine page to a 404, breaking the full E2E
+   * suite on main (`submit-show.spec.ts`). `RESERVED_SEGMENTS` excludes it.
+   * This test pins that the proxy lets the real page through. (Distinct from
+   * the seeded-slug guard above: a slug-existence backend call would 404 it;
+   * the exclusion is what saves it.)
    */
   test.describe('Reserved static routes under proxied prefixes (PSY-913)', () => {
     test('/shows/submit is NOT 404-ed by proxy (real route renders, anon → client-redirect to /auth)', async ({
@@ -211,32 +210,43 @@ test.describe('Not-found pages — HTTP 404 status', () => {
         page.getByText('Sign in to your account')
       ).toBeVisible({ timeout: 5_000 })
     })
+  })
 
-    test('/shows/saved is NOT 404-ed by proxy (server-redirects to /library → anon lands on /auth)', async ({
+  /**
+   * `/shows/saved` sits under the proxied `/shows/:path*` prefix but is not a
+   * page: a `redirects()` entry in `next.config.ts` answers it, and Next
+   * evaluates that before the proxy, so no existence check can 404 it and no
+   * page streams a 200 ahead of the redirect.
+   */
+  test.describe('Config redirects under proxied prefixes', () => {
+    test('/shows/saved answers a 308 to /library, carrying the query string (anon lands on /auth)', async ({
       page,
+      request,
     }) => {
       // At a CI shard's start `goto` takes up to about 11 s, and a passing
       // run spends up to about 10 s in the redirects after it. The 25 s wait
       // below and this budget leave room for a slower runner.
       test.setTimeout(45_000)
 
-      // `/shows/saved` is a server component that unconditionally
-      // `redirect('/library')`s (app/shows/saved/page.tsx). The root layout's
-      // Suspense has already streamed the shell by then, so the redirect rides
-      // in the streamed body: the `/shows/saved` document itself answers 200
-      // and the browser then loads `/library` as a new document. A proxy
-      // rewrite to the synthetic no-route path answers 404 instead, so this
-      // 200 is the proof the proxy let the real route through.
-      const response = await page.goto('/shows/saved')
+      const redirect = await request.get('/shows/saved?submitted=pending', {
+        maxRedirects: 0,
+      })
       expect(
-        response?.status(),
-        '/shows/saved must resolve to 200 (server redirect to /library) — proxy.ts must not existence-check this static route (PSY-913)'
-      ).toBe(200)
+        redirect.status(),
+        '/shows/saved must answer the permanent redirect itself, not a 200 page'
+      ).toBe(308)
+      const location = new URL(redirect.headers()['location'], 'http://origin')
+      expect(`${location.pathname}${location.search}`).toBe(
+        '/library?submitted=pending'
+      )
 
-      // `/library` sends the anonymous visitor to `/auth`, again as a new
-      // document, and a 404 body never reaches that redirect, so landing on
-      // `/auth` confirms the real route rendered. The `/auth` navigation is
-      // the signal (with no cookie the server render seeds the anonymous
+      const response = await page.goto('/shows/saved')
+      expect(new URL(response!.url()).pathname).toBe('/library')
+      expect(response?.status()).toBe(200)
+
+      // `/library` sends the anonymous visitor to `/auth` as a new document
+      // (`useAuthRouteGuard` in app/library/page.tsx). The `/auth` navigation
+      // is the signal (with no cookie the server render seeds the anonymous
       // profile, so there is no profile request to wait on). It settles on
       // commit: `/auth`'s load event also waits for every subresource of the
       // page, which says nothing about where the chain ended.
