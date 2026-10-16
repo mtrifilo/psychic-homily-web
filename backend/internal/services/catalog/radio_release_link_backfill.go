@@ -222,28 +222,15 @@ func evaluateRadioReleaseLinks(tx *gorm.DB, limit int) (*RadioReleaseLinkReport,
 		return nil, fmt.Errorf("loading plays with a release: %w", err)
 	}
 
-	titleKeys := make([]string, 0, len(plays))
-	seenKeys := make(map[string]bool)
-	currentIDs := make([]int64, 0, len(plays))
-	seenReleases := make(map[uint]bool)
+	titleKeys := make([]string, len(plays))
+	currentIDs := make([]uint, len(plays))
 	for i := range plays {
 		p := &plays[i]
 		p.titleKey = normalizeName(derefString(p.AlbumTitle))
-		if p.titleKey != "" && !seenKeys[p.titleKey] {
-			seenKeys[p.titleKey] = true
-			titleKeys = append(titleKeys, p.titleKey)
-		}
-		if !seenReleases[p.ReleaseID] {
-			seenReleases[p.ReleaseID] = true
-			currentIDs = append(currentIDs, int64(p.ReleaseID))
-		}
+		titleKeys[i] = p.titleKey
+		currentIDs[i] = p.ReleaseID
 	}
-
-	candidates, err := loadReleaseLinkCandidates(tx, titleKeys)
-	if err != nil {
-		return nil, err
-	}
-	currentCredits, err := loadReleaseCredits(tx, currentIDs)
+	candidates, currentCredits, err := loadReleaseLinkInputs(tx, titleKeys, currentIDs)
 	if err != nil {
 		return nil, err
 	}
@@ -296,17 +283,7 @@ func classifyReleaseLink(p playWithRelease, current releaseLinkCandidate, candid
 		return RadioReleaseLinkKeptAdmin, nil
 	}
 	if p.ArtistID != nil {
-		kept, credited, picked := judgeArtistRelease(*p.ArtistID, &current, candidates)
-		switch {
-		case kept:
-			return RadioReleaseLinkKeptCredited, nil
-		case credited == 0:
-			return RadioReleaseLinkRemovedNotCredited, nil
-		case picked != nil:
-			return RadioReleaseLinkRelinkedCredited, picked
-		default:
-			return RadioReleaseLinkRemovedSeveralCredited, nil
-		}
+		return classifyArtistRelease(*p.ArtistID, &current, candidates)
 	}
 	picked := pickReleaseLink(nil, p.ArtistName, candidates)
 	switch {

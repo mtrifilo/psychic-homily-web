@@ -92,20 +92,13 @@ func (suite *RadioMatchingIntegrationTestSuite) TestBackfillReleaseLinks_KeepsAn
 
 // releaseLinkSource reads a play's release_link_source, "" for NULL.
 func (suite *RadioMatchingIntegrationTestSuite) releaseLinkSource(playID uint) string {
-	if source := suite.reloadPlay(playID).ReleaseLinkSource; source != nil {
-		return *source
-	}
-	return ""
+	return derefString(suite.reloadPlay(playID).ReleaseLinkSource)
 }
 
 // setReleaseLink points a play at a release with the given source ("" for NULL).
 func (suite *RadioMatchingIntegrationTestSuite) setReleaseLink(playID, releaseID uint, source string) {
-	var src interface{}
-	if source != "" {
-		src = source
-	}
 	suite.Require().NoError(suite.db.Exec(
-		"UPDATE radio_plays SET release_id = ?, release_link_source = ? WHERE id = ?", releaseID, src, playID).Error)
+		"UPDATE radio_plays SET release_id = ?, release_link_source = ? WHERE id = ?", releaseID, nilIfEmpty(source), playID).Error)
 }
 
 func (suite *RadioMatchingIntegrationTestSuite) TestReleaseLinkSource_CheckRefusesAnUnknownSource() {

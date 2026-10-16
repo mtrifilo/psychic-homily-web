@@ -62,82 +62,83 @@ func pickReleaseLink(artistID *uint, artistName string, candidates []releaseLink
 	return &candidates[0]
 }
 
-// judgeArtistRelease is the credit rule for a play linked to artistID whose
-// current release is current (nil when it has none). kept reports that
-// current is credited to the artist. Otherwise credited counts the candidates
-// credited to the artist, and picked is the one of them when credited is 1,
-// else nil.
-func judgeArtistRelease(artistID uint, current *releaseLinkCandidate, candidates []releaseLinkCandidate) (kept bool, credited int, picked *releaseLinkCandidate) {
+// classifyArtistRelease is the credit rule for a play linked to artistID
+// whose current release is current (nil when it has none). A current release
+// credited to the artist is kept; otherwise the play relinks to the one
+// candidate credited to the artist, and is left with no release when none or
+// several are. It returns the outcome and, for a relink, the release.
+func classifyArtistRelease(artistID uint, current *releaseLinkCandidate, candidates []releaseLinkCandidate) (RadioReleaseLinkOutcome, *releaseLinkCandidate) {
 	if current != nil && current.creditsArtist(artistID) {
-		return true, 0, nil
+		return RadioReleaseLinkKeptCredited, nil
 	}
-	credited = countCreditedTo(artistID, candidates)
-	if credited == 1 {
-		picked = pickReleaseLink(&artistID, "", candidates)
+	var picked *releaseLinkCandidate
+	for i := range candidates {
+		if !candidates[i].creditsArtist(artistID) {
+			continue
+		}
+		if picked != nil {
+			return RadioReleaseLinkRemovedSeveralCredited, nil
+		}
+		picked = &candidates[i]
 	}
-	return false, credited, picked
+	if picked == nil {
+		return RadioReleaseLinkRemovedNotCredited, nil
+	}
+	return RadioReleaseLinkRelinkedCredited, picked
 }
 
-// applyReleaseCreditRule applies judgeArtistRelease to each play in playIDs
-// that has a linked artist and no admin-chosen release: a credited release is
-// kept, the one credited candidate is linked and marked 'matcher', and the
-// play is left with no release when none or several candidates are credited.
-// It returns how many plays it linked and how many it cleared. Callers hold
-// the row locks on playIDs (they run it in the transaction that linked the
-// artists), so the rows it reads are the rows it writes.
-func applyReleaseCreditRule(tx *gorm.DB, playIDs []int64) (linked, cleared int64, err error) {
-	if len(playIDs) == 0 {
-		return 0, 0, nil
-	}
-	var plays []struct {
-		ID         uint
-		ArtistID   uint
-		AlbumTitle *string
-		ReleaseID  *uint
-	}
-	if err := tx.Raw(`
-SELECT id, artist_id, album_title, release_id
-FROM radio_plays
-WHERE id = ANY(?) AND artist_id IS NOT NULL
-  AND (release_id IS NULL OR release_link_source IS DISTINCT FROM ?)
-ORDER BY id`, pq.Array(playIDs), catalogm.RadioPlayReleaseLinkSourceAdmin).Scan(&plays).Error; err != nil {
-		return 0, 0, fmt.Errorf("loading linked plays: %w", err)
-	}
+// linkedPlay is a play an artist-linking UPDATE returns, with the columns the
+// credit rule reads.
+type linkedPlay struct {
+	ID                uint
+	ArtistID          uint
+	AlbumTitle        *string
+	ReleaseID         *uint
+	ReleaseLinkSource *string
+}
 
-	var titleKeys []string
-	seenKeys := make(map[string]bool)
-	var currentIDs []int64
-	for _, p := range plays {
-		if key := normalizeName(derefString(p.AlbumTitle)); key != "" && !seenKeys[key] {
-			seenKeys[key] = true
-			titleKeys = append(titleKeys, key)
-		}
+// linkArtistsWithCreditRule runs query, an UPDATE that links artists to plays
+// and RETURNs each linked play's linkedPlay columns, then applies
+// classifyArtistRelease to those plays in the same transaction: a credited
+// release is kept, the one credited candidate is linked and marked 'matcher',
+// and the play is left with no release when none or several candidates are
+// credited. A release an admin chose is never changed. The UPDATE holds the
+// row locks on every play it returns until tx ends, so the rows judged are the
+// rows written. It returns how many plays the query linked, and how many
+// releases it linked and cleared.
+func linkArtistsWithCreditRule(tx *gorm.DB, query string, args ...interface{}) (linkedPlays, linkedReleases, clearedReleases int64, err error) {
+	var plays []linkedPlay
+	if err := tx.Raw(query, args...).Scan(&plays).Error; err != nil {
+		return 0, 0, 0, err
+	}
+	titleKeys := make([]string, len(plays))
+	var currentIDs []uint
+	for i, p := range plays {
+		titleKeys[i] = normalizeName(derefString(p.AlbumTitle))
 		if p.ReleaseID != nil {
-			currentIDs = append(currentIDs, int64(*p.ReleaseID))
+			currentIDs = append(currentIDs, *p.ReleaseID)
 		}
 	}
-	candidates, err := loadReleaseLinkCandidates(tx, titleKeys)
+	candidates, credits, err := loadReleaseLinkInputs(tx, titleKeys, currentIDs)
 	if err != nil {
-		return 0, 0, err
-	}
-	credits, err := loadReleaseCredits(tx, currentIDs)
-	if err != nil {
-		return 0, 0, err
+		return 0, 0, 0, err
 	}
 
 	var linkIDs, linkTo, clearIDs []int64
-	for _, p := range plays {
+	for i, p := range plays {
 		var current *releaseLinkCandidate
 		if p.ReleaseID != nil {
+			if derefString(p.ReleaseLinkSource) == catalogm.RadioPlayReleaseLinkSourceAdmin {
+				continue
+			}
 			current = &releaseLinkCandidate{ReleaseID: *p.ReleaseID, Credits: credits[*p.ReleaseID]}
 		}
-		kept, _, picked := judgeArtistRelease(p.ArtistID, current, candidates[normalizeName(derefString(p.AlbumTitle))])
+		outcome, picked := classifyArtistRelease(p.ArtistID, current, candidates[titleKeys[i]])
 		switch {
-		case kept:
-		case picked != nil:
+		case outcome.IsRelink():
 			linkIDs = append(linkIDs, int64(p.ID))
 			linkTo = append(linkTo, int64(picked.ReleaseID))
-		case current != nil:
+		case outcome.IsRemoval() && current != nil:
 			clearIDs = append(clearIDs, int64(p.ID))
 		}
 	}
@@ -149,29 +150,48 @@ FROM unnest(?::bigint[], ?::bigint[]) AS v(play_id, release_id)
 WHERE p.id = v.play_id`,
 			catalogm.RadioPlayReleaseLinkSourceMatcher, pq.Array(linkIDs), pq.Array(linkTo))
 		if res.Error != nil {
-			return 0, 0, fmt.Errorf("linking credited releases: %w", res.Error)
+			return 0, 0, 0, fmt.Errorf("linking credited releases: %w", res.Error)
 		}
-		linked = res.RowsAffected
+		linkedReleases = res.RowsAffected
 	}
 	if len(clearIDs) > 0 {
 		res := tx.Exec(`UPDATE radio_plays SET release_id = NULL, release_link_source = NULL WHERE id = ANY(?)`, pq.Array(clearIDs))
 		if res.Error != nil {
-			return 0, 0, fmt.Errorf("clearing uncredited releases: %w", res.Error)
+			return 0, 0, 0, fmt.Errorf("clearing uncredited releases: %w", res.Error)
 		}
-		cleared = res.RowsAffected
+		clearedReleases = res.RowsAffected
 	}
-	return linked, cleared, nil
+	return int64(len(plays)), linkedReleases, clearedReleases, nil
 }
 
-// countCreditedTo returns how many candidates credit the artist.
-func countCreditedTo(artistID uint, candidates []releaseLinkCandidate) int {
-	n := 0
-	for _, c := range candidates {
-		if c.creditsArtist(artistID) {
-			n++
+// loadReleaseLinkInputs loads the candidates for every non-empty title key and
+// the credits of every release id; duplicates in either list are queried once.
+func loadReleaseLinkInputs(db *gorm.DB, titleKeys []string, releaseIDs []uint) (map[string][]releaseLinkCandidate, map[uint][]releaseCredit, error) {
+	keys := make([]string, 0, len(titleKeys))
+	seenKeys := make(map[string]bool, len(titleKeys))
+	for _, key := range titleKeys {
+		if key != "" && !seenKeys[key] {
+			seenKeys[key] = true
+			keys = append(keys, key)
 		}
 	}
-	return n
+	ids := make([]int64, 0, len(releaseIDs))
+	seenIDs := make(map[uint]bool, len(releaseIDs))
+	for _, id := range releaseIDs {
+		if !seenIDs[id] {
+			seenIDs[id] = true
+			ids = append(ids, int64(id))
+		}
+	}
+	candidates, err := loadReleaseLinkCandidates(db, keys)
+	if err != nil {
+		return nil, nil, err
+	}
+	credits, err := loadReleaseCredits(db, ids)
+	if err != nil {
+		return nil, nil, err
+	}
+	return candidates, credits, nil
 }
 
 // releaseCreditRow is one (release, credited artist) row; the artist columns

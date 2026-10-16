@@ -239,8 +239,8 @@ func (s *RadioService) LinkPlay(playID uint, req *contracts.LinkPlayRequest) err
 }
 
 // BulkLinkPlays links all unmatched plays with a given artist_name to an
-// artist, and applies the release credit rule (applyReleaseCreditRule) to the
-// plays it linked in the same transaction.
+// artist, and applies the release credit rule (linkArtistsWithCreditRule) to
+// the plays it linked in the same transaction.
 func (s *RadioService) BulkLinkPlays(req *contracts.BulkLinkRequest) (*contracts.BulkLinkResult, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
@@ -253,23 +253,22 @@ func (s *RadioService) BulkLinkPlays(req *contracts.BulkLinkRequest) (*contracts
 		return nil, fmt.Errorf("artist_id is required")
 	}
 
-	var playIDs []int64
+	var updated int64
 	err := s.db.Transaction(func(tx *gorm.DB) error {
-		if err := tx.Raw(`
+		var err error
+		updated, _, _, err = linkArtistsWithCreditRule(tx, `
 UPDATE radio_plays SET artist_id = ?, match_state = ?
 WHERE artist_name = ? AND artist_id IS NULL
-RETURNING id`, req.ArtistID, catalogm.RadioPlayMatchStateMatched, req.ArtistName).Scan(&playIDs).Error; err != nil {
-			return fmt.Errorf("bulk linking plays: %w", err)
-		}
-		_, _, err := applyReleaseCreditRule(tx, playIDs)
+RETURNING id, artist_id, album_title, release_id, release_link_source`,
+			req.ArtistID, catalogm.RadioPlayMatchStateMatched, req.ArtistName)
 		return err
 	})
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("bulk linking plays: %w", err)
 	}
 
 	return &contracts.BulkLinkResult{
-		Updated: len(playIDs),
+		Updated: int(updated),
 	}, nil
 }
 

@@ -43,7 +43,7 @@ FROM (
 	HAVING COUNT(DISTINCT a.id) = 1
 ) sub
 WHERE rp.id = sub.play_id
-RETURNING rp.id
+RETURNING rp.id, rp.artist_id, rp.album_title, rp.release_id, rp.release_link_source
 `
 
 // bulkLinkExactNameSQL links when radio_normalize_name(play.artist_name)
@@ -63,7 +63,7 @@ FROM (
 	HAVING COUNT(DISTINCT a.id) = 1
 ) sub
 WHERE rp.id = sub.play_id
-RETURNING rp.id
+RETURNING rp.id, rp.artist_id, rp.album_title, rp.release_id, rp.release_link_source
 `
 
 // bulkLinkAliasSQL links when the play artist_name matches exactly one alias row.
@@ -82,13 +82,13 @@ FROM (
 	HAVING COUNT(DISTINCT aa.artist_id) = 1
 ) sub
 WHERE rp.id = sub.play_id
-RETURNING rp.id
+RETURNING rp.id, rp.artist_id, rp.album_title, rp.release_id, rp.release_link_source
 `
 
 // BulkLinkUnmatchedArtistPlays runs MBID → exact name → alias UPDATE passes for
 // plays where artist_id IS NULL. Each phase runs in its own transaction, which
-// also applies the release credit rule (applyReleaseCreditRule) to the plays
-// the phase linked.
+// also applies the release credit rule (linkArtistsWithCreditRule) to the
+// plays the phase linked.
 // Remaining plays (collab billing, punctuation/whitespace noise, ambiguous names)
 // are left for matchPlays / ReMatchUnmatchedChunked.
 func (m *RadioMatchingEngine) BulkLinkUnmatchedArtistPlays(ctx context.Context) (*BulkLinkArtistsResult, error) {
@@ -128,13 +128,8 @@ func (m *RadioMatchingEngine) BulkLinkUnmatchedArtistPlays(ctx context.Context) 
 func (m *RadioMatchingEngine) bulkLinkPhase(ctx context.Context, query string) (int64, error) {
 	var linkedPlays, linkedReleases, clearedReleases int64
 	err := m.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		var playIDs []int64
-		if err := tx.Raw(query).Scan(&playIDs).Error; err != nil {
-			return err
-		}
-		linkedPlays = int64(len(playIDs))
 		var err error
-		linkedReleases, clearedReleases, err = applyReleaseCreditRule(tx, playIDs)
+		linkedPlays, linkedReleases, clearedReleases, err = linkArtistsWithCreditRule(tx, query)
 		return err
 	})
 	if err != nil {

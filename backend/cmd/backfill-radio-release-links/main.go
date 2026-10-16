@@ -48,6 +48,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -347,12 +348,7 @@ var outcomeLabels = map[catalog.RadioReleaseLinkOutcome]string{
 
 // sourceOrder lists every release_link_source in report order; "" is a
 // release link that carries no source.
-var sourceOrder = []string{
-	catalogm.RadioPlayReleaseLinkSourceMatcher,
-	catalogm.RadioPlayReleaseLinkSourceAdmin,
-	catalogm.RadioPlayReleaseLinkSourceBackfill,
-	"",
-}
+var sourceOrder = append(slices.Clone(catalogm.RadioPlayReleaseLinkSources), "")
 
 func formatReport(r *catalog.RadioReleaseLinkReport, opts runOptions) string {
 	out := &strings.Builder{}

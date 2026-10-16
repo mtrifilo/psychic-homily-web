@@ -427,6 +427,13 @@ const (
 	RadioPlayReleaseLinkSourceBackfill = "backfill"
 )
 
+// RadioPlayReleaseLinkSources lists every release-link source.
+var RadioPlayReleaseLinkSources = []string{
+	RadioPlayReleaseLinkSourceMatcher,
+	RadioPlayReleaseLinkSourceAdmin,
+	RadioPlayReleaseLinkSourceBackfill,
+}
+
 // BroadcastTypes is the list of valid broadcast types
 var BroadcastTypes = []string{
 	BroadcastTypeTerrestrial,

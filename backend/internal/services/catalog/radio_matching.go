@@ -435,8 +435,7 @@ func (m *RadioMatchingEngine) matchPlayRelease(play *catalogm.RadioPlay, artistM
 
 // hasAdminRelease reports whether an admin chose the play's current release.
 func hasAdminRelease(play *catalogm.RadioPlay) bool {
-	return play.ReleaseID != nil && play.ReleaseLinkSource != nil &&
-		*play.ReleaseLinkSource == catalogm.RadioPlayReleaseLinkSourceAdmin
+	return play.ReleaseID != nil && derefString(play.ReleaseLinkSource) == catalogm.RadioPlayReleaseLinkSourceAdmin
 }
 
 // gainsArtist reports whether this match links an artist the play does not
