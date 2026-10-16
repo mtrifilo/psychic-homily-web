@@ -24,8 +24,7 @@ func setupShowReportRoutes(rc RouteContext) {
 	// humaFromHTTP.
 	//
 	// No HumaRequestIDMiddleware here: the main API already applies it (routes.go)
-	// and a Huma group inherits its parent's middleware. See the note on the
-	// entity-report group below for why re-applying it is not merely redundant.
+	// and a Huma group inherits its parent's middleware.
 	reportSubmitGroup := huma.NewGroup(rc.API, "")
 	reportSubmitGroup.UseMiddleware(humaFromHTTP(ipRateLimiter(middleware.LimiterShowReport, middleware.ReportRequestsPerMinute, time.Minute)))
 	reportSubmitGroup.UseMiddleware(middleware.HumaJWTMiddleware(rc.SC.JWT, rc.Cfg.Session))
@@ -81,15 +80,7 @@ func setupEntityReportRoutes(rc RouteContext) {
 	//     API-token or admin hatch, and reports are the admin queue's inbox: a
 	//     bypass appearing here would be an abuse regression, not a convenience.
 	//
-	// Deliberately NOT re-registering HumaRequestIDMiddleware. The sub-API needed
-	// its own copy because a separate instance inherits nothing; a group inherits
-	// the main API's. Adding it again is not inert — HumaRequestIDMiddleware reads
-	// the inbound X-Request-ID *request* header, which the first pass never sets,
-	// so a second pass mints a fresh UUID and overwrites both the response header
-	// and the context value. Sentry would then tag the event with the first ID
-	// while the client and the handler logs carry the second, and nothing would
-	// correlate. The groups converted in shows.go, tags.go and auth.go still carry
-	// the redundant copy; removing it there is a follow-up.
+	// No HumaRequestIDMiddleware here: the group inherits the main API's.
 	entityReportGroup := huma.NewGroup(rc.API, "")
 	entityReportGroup.UseMiddleware(humaFromHTTP(ipRateLimiter(middleware.LimiterEntityReport, middleware.ReportRequestsPerMinute, time.Minute)))
 	entityReportGroup.UseMiddleware(middleware.HumaJWTMiddleware(rc.SC.JWT, rc.Cfg.Session))

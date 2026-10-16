@@ -297,3 +297,75 @@ func TestRequestIDMiddleware_ContextKeyType(t *testing.T) {
 		t.Errorf("logger.GetRequestID = %q, want %q", got, "from-logger-key")
 	}
 }
+
+// --- HumaRequestIDMiddleware id precedence ---
+
+// The id a request keeps is, in order: the one already on the request context
+// (RequestIDMiddleware's, when it runs ahead of Huma), else the inbound
+// X-Request-ID header, else a fresh UUID. Whichever wins, the response header
+// and the context id handed to next are that same id.
+func TestHumaRequestIDMiddleware_IDPrecedence(t *testing.T) {
+	const contextID = "id-from-context"
+	const headerID = "id-from-header"
+
+	for _, tc := range []struct {
+		name      string
+		contextID string
+		headerID  string
+		want      string // "" means a freshly minted UUID
+	}{
+		{name: "context id wins over the inbound header", contextID: contextID, headerID: headerID, want: contextID},
+		{name: "context id wins over minting", contextID: contextID, want: contextID},
+		{name: "inbound header when the context has no id", headerID: headerID, want: headerID},
+		{name: "minted when there is neither", want: ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodGet, "/test", nil)
+			if tc.contextID != "" {
+				req = req.WithContext(logger.SetRequestID(req.Context(), tc.contextID))
+			}
+			if tc.headerID != "" {
+				req.Header.Set(RequestIDHeader, tc.headerID)
+			}
+			rr := httptest.NewRecorder()
+
+			var nextID string
+			HumaRequestIDMiddleware(humatest.NewContext(nil, req, rr), func(next huma.Context) {
+				nextID = logger.GetRequestID(next.Context())
+			})
+
+			if tc.want == "" {
+				if _, err := uuid.Parse(nextID); err != nil {
+					t.Fatalf("context id %q is not a minted UUID: %v", nextID, err)
+				}
+			} else if nextID != tc.want {
+				t.Fatalf("context id = %q, want %q", nextID, tc.want)
+			}
+			if got := rr.Header().Get(RequestIDHeader); got != nextID {
+				t.Errorf("response header = %q, context id = %q; they must be one id", got, nextID)
+			}
+		})
+	}
+}
+
+// Running the middleware twice on one request, as a group that re-registers it
+// under the main API would, keeps the first pass's id.
+func TestHumaRequestIDMiddleware_SecondPassKeepsTheID(t *testing.T) {
+	req := httptest.NewRequest(http.MethodGet, "/test", nil)
+	rr := httptest.NewRecorder()
+
+	var firstID, secondID string
+	HumaRequestIDMiddleware(humatest.NewContext(nil, req, rr), func(first huma.Context) {
+		firstID = logger.GetRequestID(first.Context())
+		HumaRequestIDMiddleware(first, func(second huma.Context) {
+			secondID = logger.GetRequestID(second.Context())
+		})
+	})
+
+	if firstID == "" || secondID != firstID {
+		t.Fatalf("second pass id = %q, first pass id = %q; want the first kept", secondID, firstID)
+	}
+	if got := rr.Header().Get(RequestIDHeader); got != firstID {
+		t.Errorf("response header = %q, want the first pass's id %q", got, firstID)
+	}
+}
