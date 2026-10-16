@@ -3,6 +3,7 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { createWrapper } from '@/test/utils'
+import { deferred } from '@/test/inflightOrdering'
 
 const mockPush = vi.fn()
 const mockFollowMutate = vi.fn()
@@ -549,16 +550,6 @@ describe('FollowButton — bracket variant (PSY-641)', () => {
 // optimistic-update path was deleted. We assert the optimistic state
 // while the mutation is still in-flight to lock that in.
 describe('FollowButton — optimistic update + rollback (real hooks)', () => {
-  function deferred<T = unknown>() {
-    let resolve!: (value: T) => void
-    let reject!: (reason?: unknown) => void
-    const promise = new Promise<T>((res, rej) => {
-      resolve = res
-      reject = rej
-    })
-    return { promise, resolve, reject }
-  }
-
   // queryKeys.follows.entity(entityType, entityId) — mirrors lib/queryClient
   // (kept inline so this test isn't load-bearing on internal key shape).
   const ENTITY_TYPE = 'artists'

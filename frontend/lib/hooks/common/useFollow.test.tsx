@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { renderHook, waitFor, act } from '@testing-library/react'
 import { QueryClient } from '@tanstack/react-query'
 import { createWrapper, createWrapperWithClient } from '@/test/utils'
+import { deferred } from '@/test/inflightOrdering'
 import type { FollowingListResponse } from '@/lib/types/follow'
 
 const mockApiRequest = vi.fn()
@@ -97,20 +98,6 @@ import {
 } from './useFollow'
 
 type CachedFollow = { follower_count: number; is_following: boolean }
-
-function createDeferred<T = void>(): {
-  promise: Promise<T>
-  resolve: (value: T) => void
-  reject: (reason?: unknown) => void
-} {
-  let resolve: (value: T) => void = () => {}
-  let reject: (reason?: unknown) => void = () => {}
-  const promise = new Promise<T>((res, rej) => {
-    resolve = res
-    reject = rej
-  })
-  return { promise, resolve, reject }
-}
 
 describe('useFollowStatus', () => {
   beforeEach(() => {
@@ -489,7 +476,7 @@ describe('useFollow', () => {
       tags: 0,
     })
 
-    const cancelGate = createDeferred<void>()
+    const cancelGate = deferred<void>()
     const cancelSpy = vi
       .spyOn(queryClient, 'cancelQueries')
       .mockImplementation(() => cancelGate.promise)
@@ -747,7 +734,7 @@ describe('useUnfollow', () => {
       is_following: true,
     })
 
-    const cancelGate = createDeferred<void>()
+    const cancelGate = deferred<void>()
     const cancelSpy = vi
       .spyOn(queryClient, 'cancelQueries')
       .mockImplementation(() => cancelGate.promise)
@@ -889,8 +876,8 @@ describe('useUnfollow', () => {
       is_following: true,
     })
 
-    const failed = createDeferred<{ success: boolean }>()
-    const succeeded = createDeferred<{ success: boolean }>()
+    const failed = deferred<{ success: boolean }>()
+    const succeeded = deferred<{ success: boolean }>()
     mockApiRequest
       .mockReturnValueOnce(failed.promise)
       .mockReturnValueOnce(succeeded.promise)

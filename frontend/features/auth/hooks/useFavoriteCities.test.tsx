@@ -17,14 +17,6 @@ vi.mock('@/lib/api', () => ({
 }))
 
 // Mock queryClient module
-vi.mock('@/lib/queryClient', () => ({
-  queryKeys: {
-    auth: {
-      profile: ['auth', 'profile'],
-    },
-  },
-}))
-
 // Import hooks after mocks are set up
 import { useSetFavoriteCities } from './useFavoriteCities'
 

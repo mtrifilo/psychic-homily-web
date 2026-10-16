@@ -1,13 +1,10 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { renderHook, waitFor, act } from '@testing-library/react'
-import {
-  createWrapper,
-  createWrapperWithClient,
-  createTestQueryClient,
-} from '@/test/utils'
+import { createWrapper } from '@/test/utils'
 
 const mockApiRequest = vi.fn()
 const mockInvalidateAdminEntityReports = vi.fn()
+const mockInvalidateCollections = vi.fn()
 
 vi.mock('@/lib/api', () => ({
   apiRequest: (...args: unknown[]) => mockApiRequest(...args),
@@ -37,6 +34,7 @@ vi.mock('@/lib/queryClient', () => ({
   },
   createInvalidateQueries: () => ({
     adminEntityReports: mockInvalidateAdminEntityReports,
+    collections: mockInvalidateCollections,
   }),
 }))
 
@@ -317,11 +315,8 @@ describe('useAdminHideCollection', () => {
     // list (so the now-private record stops appearing in browse).
     mockApiRequest.mockResolvedValueOnce(undefined)
 
-    const queryClient = createTestQueryClient()
-    const invalidateSpy = vi.spyOn(queryClient, 'invalidateQueries')
-
     const { result } = renderHook(() => useAdminHideCollection(), {
-      wrapper: createWrapperWithClient(queryClient),
+      wrapper: createWrapper(),
     })
 
     await act(async () => {
@@ -330,8 +325,6 @@ describe('useAdminHideCollection', () => {
 
     await waitFor(() => expect(result.current.isSuccess).toBe(true))
     expect(mockInvalidateAdminEntityReports).toHaveBeenCalledTimes(1)
-    expect(invalidateSpy).toHaveBeenCalledWith({
-      queryKey: ['collections'],
-    })
+    expect(mockInvalidateCollections).toHaveBeenCalledTimes(1)
   })
 })

@@ -20,6 +20,7 @@ import { useArtistReleases } from '@/features/releases/hooks/useReleases'
 import { useArtistAliases } from '@/lib/hooks/admin/useAdminArtists'
 import { useArtistLabels, useLabelRoster } from '@/features/labels/hooks/useLabels'
 import { queryKeys } from '@/lib/queryClient'
+import { refetchAfterMutation } from '@/lib/refetchAfterMutation'
 import { useIsAuthenticated } from '@/features/auth'
 import {
   useDiscoverMusic,
@@ -1283,9 +1284,10 @@ export function ArtistDetail({ artistId }: ArtistDetailProps) {
                     { artistId: artist.id, data: { description } },
                     {
                       onSuccess: () => {
-                        queryClient.invalidateQueries({
-                          queryKey: queryKeys.artists.detail(artistId),
-                        })
+                        void refetchAfterMutation(
+                          queryClient,
+                          queryKeys.artists.detail(artistId)
+                        )
                         resolve()
                       },
                       onError: reject,
@@ -1357,9 +1359,7 @@ export function ArtistDetail({ artistId }: ArtistDetailProps) {
           entity={artist as unknown as Record<string, unknown>}
           canEditDirectly={!!canEditDirectly}
           onSuccess={(result) => {
-            queryClient.invalidateQueries({
-              queryKey: queryKeys.artists.detail(artistId),
-            })
+            void refetchAfterMutation(queryClient, queryKeys.artists.detail(artistId))
             saveBanner.handleSaveSuccess(result)
           }}
         />

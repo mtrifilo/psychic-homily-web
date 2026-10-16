@@ -1,6 +1,7 @@
 'use client'
 
 import { useState } from 'react'
+import { useQueryClient } from '@tanstack/react-query'
 import { Trash2, Loader2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
@@ -12,6 +13,8 @@ import {
   useWebAuthnSupport,
 } from '@/features/auth'
 import { isAuthError } from '@/lib/errors'
+import { queryKeys } from '@/lib/queryClient'
+import { refetchAfterMutation } from '@/lib/refetchAfterMutation'
 import { CredentialErrorMessage } from '@/components/shared/CredentialErrorMessage'
 
 export function PasskeyManagement() {
@@ -23,6 +26,7 @@ export function PasskeyManagement() {
   // capability is known (one commit after hydration, per the hook).
   const credentialsQuery = usePasskeyCredentials(supportsWebAuthn)
   const deletePasskey = useDeletePasskey()
+  const queryClient = useQueryClient()
 
   // Action errors (delete failures + register-button callbacks) are surfaced
   // separately from the load error so a failed delete doesn't read as "failed
@@ -164,7 +168,10 @@ export function PasskeyManagement() {
           <PasskeyRegisterButton
             onSuccess={() => {
               setActionError(null)
-              credentialsQuery.refetch()
+              void refetchAfterMutation(
+                queryClient,
+                queryKeys.passkeys.credentials
+              )
             }}
             onError={err => setActionError(err)}
           />

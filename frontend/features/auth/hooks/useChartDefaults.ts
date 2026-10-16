@@ -2,7 +2,7 @@
 
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { apiRequest, API_ENDPOINTS } from '@/lib/api'
-import { queryKeys } from '@/lib/queryClient'
+import { refetchSignedInProfile } from '@/lib/queryClient'
 
 export type ChartDefaultWindow = 'month' | 'quarter' | 'all_time'
 
@@ -37,7 +37,7 @@ export const useSetChartDefaults = () => {
       )
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.auth.profile })
+      void refetchSignedInProfile(queryClient)
     },
   })
 }
