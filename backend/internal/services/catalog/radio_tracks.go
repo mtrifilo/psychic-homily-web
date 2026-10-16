@@ -70,6 +70,13 @@ const (
 // the empty string when either half is empty or NULL, which routes the play to
 // the unkeyed marker row. A recording id that is not shaped like a UUID is
 // treated as absent, so it can neither join keys nor set a track's id.
+// has_album is the one radio_play_exclusions read of the rebuild: it holds
+// when the play's album counts as release evidence (RadioRankingAlbum), which
+// needs a non-blank album that no placeholder album row matches and a play
+// that no station element or talk row excludes. album_play_count follows the
+// exclusion rows as of the latest rebuild; every other column counts every
+// play. The blank test runs first so a play without an album skips the
+// predicate.
 var radioTrackRebuildPlaysSQL = `
 CREATE TEMP TABLE ` + radioTrackRebuildPlaysTable + ` ON COMMIT DROP AS
 SELECT CASE WHEN k.unkeyed THEN '' ELSE raw.a END AS artist_key,
@@ -81,7 +88,8 @@ SELECT CASE WHEN k.unkeyed THEN '' ELSE raw.a END AS artist_key,
        p.artist_name,
        p.track_title,
        mb.id AS mb_recording_id,
-       coalesce(p.album_title ~ '[^[:space:]]', false) AS has_album,
+       coalesce(p.album_title ~ '[^[:space:]]', false)
+         AND NOT ` + RadioPlayExcludedSQL(RadioRankingAlbum, radioCandidatePlayCols) + ` AS has_album,
        coalesce(p.label_name ~ '[^[:space:]]', false) AS has_label
 FROM radio_plays p
 JOIN radio_episodes e ON e.id = p.episode_id
