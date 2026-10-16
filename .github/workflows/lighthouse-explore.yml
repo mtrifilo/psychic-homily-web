@@ -67,6 +67,13 @@ on:
       # If a regression in those areas materializes on /explore later,
       # widen the filter rather than fix it after the fact.
 
+# One Lighthouse run per PR: a newer push to the same PR supersedes a run
+# still waiting or measuring. The only trigger is pull_request, so no run on
+# main exists for this group to cancel.
+concurrency:
+  group: lighthouse-explore-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
 # Pinned so the GITHUB_TOKEN does not depend on the repository's
 # Workflow-permissions setting. Default for jobs without their own block; a
 # job-scoped `permissions:` block REPLACES this rather than extending it.
