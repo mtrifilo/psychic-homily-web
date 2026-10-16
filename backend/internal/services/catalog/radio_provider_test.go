@@ -1272,8 +1272,11 @@ func (suite *RadioImportIntegrationTestSuite) TestMatchPlays_ReleaseMatch() {
 	}
 	suite.Require().NoError(suite.db.Create(play).Error)
 
-	suite.createArtist("Radiohead")
-	suite.createRelease("Kid A")
+	radiohead := suite.createArtist("Radiohead")
+	kidA := suite.createRelease("Kid A")
+	suite.Require().NoError(suite.db.Create(&catalogm.ArtistRelease{
+		ArtistID: radiohead.ID, ReleaseID: kidA.ID, Role: catalogm.ArtistReleaseRoleMain,
+	}).Error)
 
 	result, err := suite.radioService.MatchPlays(ep.ID)
 
@@ -1283,7 +1286,8 @@ func (suite *RadioImportIntegrationTestSuite) TestMatchPlays_ReleaseMatch() {
 	var updated catalogm.RadioPlay
 	suite.db.First(&updated, play.ID)
 	suite.NotNil(updated.ArtistID)
-	suite.NotNil(updated.ReleaseID)
+	suite.Require().NotNil(updated.ReleaseID)
+	suite.Equal(kidA.ID, *updated.ReleaseID)
 }
 
 func (suite *RadioImportIntegrationTestSuite) TestMatchPlays_SkipsAlreadyMatched() {
