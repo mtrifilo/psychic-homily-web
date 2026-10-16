@@ -188,6 +188,30 @@ describe('RadioHub', () => {
     ).toBeTruthy()
   })
 
+  it("links a guide row's sub-stream to the channel URL from the station list", () => {
+    mockUseRadioGuide.mockReturnValue({
+      data: {
+        on_now: [
+          {
+            station: { slug: 'wfmu-drummer', name: 'Give the Drummer Radio' },
+            show: { id: 1, slug: 'wake', name: 'Wake', host_name: null },
+            starts_at: new Date().toISOString(),
+            ends_at: new Date(Date.now() + 2 * 3600e3).toISOString(),
+            station_timezone: 'America/New_York',
+          },
+        ],
+        up_next: [],
+        generated_at: new Date().toISOString(),
+      },
+      isError: false,
+    })
+    render(<RadioHub />)
+
+    expect(
+      screen.getByRole('link', { name: 'Give the Drummer Radio' })
+    ).toHaveAttribute('href', '/radio/wfmu/channel/drummer')
+  })
+
   it('links the full playlists feed under the latest-playlists table (PSY-1076)', () => {
     mockUseRecentRadioEpisodes.mockReturnValue({
       data: {
