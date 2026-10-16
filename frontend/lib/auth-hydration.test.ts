@@ -344,6 +344,47 @@ describe('prefetchHomeSavedShows', () => {
     expect(seeded(state as { queries: SeededEntry[] })).toBeUndefined()
   })
 
+  function stubSavedShowsRejection(error: unknown) {
+    mockGet.mockReturnValue({ value: 'token' })
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string) => {
+        if (url.endsWith('/auth/profile')) {
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({ success: true, user: { id: 'u1' } }),
+          }
+        }
+        throw error
+      })
+    )
+  }
+
+  it.each([
+    ['a deadline TimeoutError', new DOMException('The operation timed out.', 'TimeoutError')],
+    ['an AbortError', new DOMException('The operation was aborted.', 'AbortError')],
+    ['a network TypeError', new TypeError('fetch failed')],
+  ])('seeds nothing and reports nothing when the read fails with %s', async (_label, error) => {
+    stubSavedShowsRejection(error)
+    const Sentry = await import('@sentry/nextjs')
+
+    const state = await prefetchHomeSavedShows()
+
+    expect(seeded(state as { queries: SeededEntry[] })).toBeUndefined()
+    expect(Sentry.captureException).not.toHaveBeenCalled()
+  })
+
+  it('reports any other failure of the read', async () => {
+    const error = new RangeError('unexpected')
+    stubSavedShowsRejection(error)
+    const Sentry = await import('@sentry/nextjs')
+
+    await prefetchHomeSavedShows()
+
+    expect(Sentry.captureException).toHaveBeenCalledWith(error)
+  })
+
   it('seeds nothing and reads nothing for a viewer with no session', async () => {
     mockGet.mockReturnValue(undefined)
     const fetchSpy = vi.fn()

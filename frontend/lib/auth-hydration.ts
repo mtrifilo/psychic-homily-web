@@ -43,7 +43,12 @@ import {
   isHomeLayoutDocument,
   type HomeLayoutDocument,
 } from '@/features/home/sections'
-import { AuthErrorCode, isDefinitiveUnauthenticated } from '@/lib/errors'
+import {
+  AuthErrorCode,
+  isAbortError,
+  isDefinitiveUnauthenticated,
+  isTimeoutError,
+} from '@/lib/errors'
 
 // Mirror the relevant subset of `UserProfile` from
 // features/auth/hooks/useAuth.ts. Duplicated here (rather than imported)
@@ -259,8 +264,9 @@ export const prefetchHomeSavedShows = cache(async () => {
     // Same posture as the profile read: a failed prefetch is not an answer.
     // A deadline or network failure is expected and quiet; anything else is
     // a programming error and is reported rather than swallowed.
-    const name = error instanceof Error ? error.name : ''
-    if (name !== 'TimeoutError' && name !== 'AbortError' && name !== 'TypeError') {
+    const isExpected =
+      isTimeoutError(error) || isAbortError(error) || error instanceof TypeError
+    if (!isExpected) {
       Sentry.captureException(error)
     }
   }
