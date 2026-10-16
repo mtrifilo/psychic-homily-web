@@ -150,9 +150,9 @@ jobs:
       # deployment_status was posted). Separate step so the failure
       # message points at the right thing.
       #
-      # A 3xx means /explore is a redirect rather than a page, so there is
-      # nothing at that URL to audit: the step sets `skip=true` and the
-      # Lighthouse steps below do not run.
+      # A 3xx to /graph means /explore is a redirect rather than a page, so
+      # there is nothing at that URL to audit: the step sets `skip=true` and
+      # the Lighthouse steps below do not run. Any other 3xx keeps polling.
       - name: Verify preview is reachable with bypass
         id: preview-probe
         env:
@@ -174,9 +174,17 @@ jobs:
             fi
             case "$STATUS" in
               3??)
-                echo "::notice::The /explore page no longer exists: it is a config redirect to /graph since PSY-2387 (HTTP $STATUS). Lighthouse is skipped pending the owner's decision on PSY-2421 (retarget to /graph with its own budget, or retire this gate)."
-                echo "skip=true" >> "$GITHUB_OUTPUT"
-                exit 0
+                LOCATION=$(curl -sS -o /dev/null -w '%{redirect_url}' \
+                  -H "x-vercel-protection-bypass: $BYPASS" \
+                  "$PREVIEW_URL/explore" || true)
+                echo "Redirects to: $LOCATION"
+                case "$LOCATION" in
+                  */graph)
+                    echo "::notice::The /explore page no longer exists: it is a config redirect to /graph since PSY-2387 (HTTP $STATUS). Lighthouse is skipped pending the owner's decision on PSY-2421 (retarget to /graph with its own budget, or retire this gate)."
+                    echo "skip=true" >> "$GITHUB_OUTPUT"
+                    exit 0
+                    ;;
+                esac
                 ;;
             esac
             sleep 5
