@@ -5,6 +5,7 @@ import (
 
 	apperrors "psychic-homily-backend/internal/errors"
 	authm "psychic-homily-backend/internal/models/auth"
+	"psychic-homily-backend/internal/testutil/signupconsent"
 )
 
 // The authenticated link resolves the account from the caller's session, so
@@ -207,7 +208,7 @@ func (suite *UserServiceIntegrationTestSuite) TestLinkOAuthAccountToUser_Complet
 		RawData: map[string]any{"verified_email": true},
 	}
 
-	refused, err := suite.userService.FindOrCreateUser(gothUser, "google")
+	refused, err := suite.userService.FindOrCreateUserWithConsent(gothUser, "google", signupconsent.CurrentOAuthSignupConsent())
 	suite.Require().Error(err)
 	suite.Require().Nil(refused)
 
@@ -218,7 +219,7 @@ func (suite *UserServiceIntegrationTestSuite) TestLinkOAuthAccountToUser_Complet
 
 	// And the identity now resolves by subject, so the next sign-in is a
 	// sign-in rather than the refused address comparison.
-	resolved, err := suite.userService.FindOrCreateUser(gothUser, "google")
+	resolved, err := suite.userService.FindOrCreateUserWithConsent(gothUser, "google", signupconsent.CurrentOAuthSignupConsent())
 	suite.Require().NoError(err)
 	suite.Equal(account.ID, resolved.ID)
 }

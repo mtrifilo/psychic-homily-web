@@ -24,6 +24,7 @@ import (
 	authm "psychic-homily-backend/internal/models/auth"
 	"psychic-homily-backend/internal/services/auth"
 	"psychic-homily-backend/internal/services/notification"
+	"psychic-homily-backend/internal/testutil/signupconsent"
 )
 
 // --- Suite ---
@@ -211,7 +212,7 @@ func (s *AuthHandlerIntegrationSuite) newAuthHandlerCapturingEmail(pwned *fakePw
 }
 
 func (s *AuthHandlerIntegrationSuite) createUserWithPassword(email, password string) *authm.User {
-	user, err := s.deps.UserService.CreateUserWithPassword(email, password, "Test", "User")
+	user, err := s.deps.UserService.CreateUserWithPasswordWithLegal(email, password, "Test", "User", signupconsent.CurrentLegalAcceptance())
 	s.Require().NoError(err)
 	return user
 }

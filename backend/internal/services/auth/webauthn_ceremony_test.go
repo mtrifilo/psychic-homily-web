@@ -9,7 +9,7 @@ import (
 
 	apperrors "psychic-homily-backend/internal/errors"
 	authm "psychic-homily-backend/internal/models/auth"
-	"psychic-homily-backend/internal/services/contracts"
+	"psychic-homily-backend/internal/testutil/signupconsent"
 	"psychic-homily-backend/internal/testutil/softauthn"
 )
 
@@ -118,7 +118,7 @@ func (suite *WebAuthnServiceIntegrationTestSuite) TestSignupPasskeySignsInAfterw
 
 	user, err := suite.service.FinishSignupRegistrationWithLegal(
 		"passkey-first@test.com", session, suite.parseCreation(body), "My Passkey",
-		contracts.LegalAcceptance{TermsVersion: "v1", PrivacyVersion: "v1", MinAgeAttested: 16},
+		signupconsent.CurrentLegalAcceptance(),
 	)
 	suite.Require().NoError(err)
 	suite.Equal(user.WebAuthnID(), device.UserHandle(),
@@ -140,7 +140,7 @@ func (suite *WebAuthnServiceIntegrationTestSuite) TestSignupReturnsTheAccountAsS
 
 	created, err := suite.service.FinishSignupRegistrationWithLegal(
 		"as-stored@test.com", session, suite.parseCreation(body), "My Passkey",
-		contracts.LegalAcceptance{TermsVersion: "v1", PrivacyVersion: "v1", MinAgeAttested: 16},
+		signupconsent.CurrentLegalAcceptance(),
 	)
 	suite.Require().NoError(err)
 
@@ -201,7 +201,7 @@ func (suite *WebAuthnServiceIntegrationTestSuite) TestSignupFinishRejectsSession
 
 	session.UserID = []byte("legacy@test.com")
 	_, err = suite.service.FinishSignupRegistrationWithLegal(
-		"legacy@test.com", session, suite.parseCreation(body), "My Passkey", contracts.LegalAcceptance{},
+		"legacy@test.com", session, suite.parseCreation(body), "My Passkey", signupconsent.CurrentLegalAcceptance(),
 	)
 	suite.Require().Error(err)
 
