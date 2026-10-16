@@ -150,13 +150,9 @@ func (h *OAuthAccountHandler) StartOAuthLinkHandler(ctx context.Context, req *St
 	// with credentials, so an attacker origin could otherwise call this and
 	// read the answer; refusing here means it never gets a token at all.
 	//
-	// Origin is what an XHR sends; Referer is the fallback for a client that
-	// sends none. A request naming neither is refused, because nothing then
-	// says where it came from.
-	origin := req.Origin
-	if origin == "" || origin == "null" {
-		origin = originOfURL(req.Referer)
-	}
+	// A request naming neither Origin nor Referer is refused, because nothing
+	// then says where it came from.
+	origin := originFromHeaders(req.Origin, req.Referer)
 	if origin == "" || !sameOrigin(origin, h.frontendURL) {
 		logger.FromContext(ctx).Warn("oauth_link_token_refused_origin",
 			"user_id", user.ID,
