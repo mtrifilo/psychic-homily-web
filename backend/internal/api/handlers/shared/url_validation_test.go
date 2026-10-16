@@ -92,7 +92,7 @@ type socialCorpusFields struct {
 
 func loadSocialCorpusFields(t *testing.T) socialCorpusFields {
 	t.Helper()
-	corpus := testcorpus.Load[socialCorpusFields](t, "../../../utils/testdata/social_link_corpus.json")
+	corpus := testcorpus.Load[socialCorpusFields](t, "internal/utils/testdata/social_link_corpus.json")
 	if len(corpus.Platforms) == 0 || len(corpus.Unanchored) == 0 {
 		t.Fatal("shared corpus names no fields")
 	}

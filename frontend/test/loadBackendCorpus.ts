@@ -7,7 +7,8 @@ const backendRoot = resolve(import.meta.dirname, '../../backend')
  * Read a JSON corpus that a backend Go test reads too, at a path relative to
  * the repo's `backend/` directory
  * (`internal/utils/testdata/social_link_corpus.json`), so a suite names the
- * same path whatever folder it sits in.
+ * same path whatever folder it sits in. Go's `testcorpus.Load` resolves from
+ * the same directory, so both readers of one corpus pass the same string.
  *
  * Read at runtime, never imported: an `import` of a backend JSON file would
  * pull it into the frontend TypeScript program, and `next build` typechecks

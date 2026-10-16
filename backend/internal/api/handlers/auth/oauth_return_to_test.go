@@ -38,7 +38,7 @@ type returnToCorpus struct {
 
 func loadReturnToCorpus(t *testing.T) returnToCorpus {
 	t.Helper()
-	corpus := testcorpus.Load[returnToCorpus](t, "testdata/return_to_corpus.json")
+	corpus := testcorpus.Load[returnToCorpus](t, "internal/api/handlers/auth/testdata/return_to_corpus.json")
 	if len(corpus.Cases) == 0 {
 		t.Fatal("the corpus has no cases")
 	}
