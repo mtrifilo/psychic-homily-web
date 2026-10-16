@@ -633,11 +633,9 @@ func main() {
 	}
 
 	// Start the WebAuthn challenge sweep: deletes expired passkey challenges.
-	// Default ON: it deletes only rows past their own expiry. It does not exist
-	// when the WebAuthn service failed to initialise.
-	if sc.ChallengeSweep == nil {
-		log.Printf("WebAuthn service unavailable: skipping webauthn challenge sweep startup")
-	} else if !servicesshared.EnvServiceDisabled(authsvc.DisableChallengeSweepEnvVar) {
+	// Default ON: it deletes only rows past their own expiry. It needs only the
+	// database, so it starts whether or not the WebAuthn service initialised.
+	if !servicesshared.EnvServiceDisabled(authsvc.DisableChallengeSweepEnvVar) {
 		var challengeSweepCtx context.Context
 		challengeSweepCtx, challengeSweepCancel = context.WithCancel(context.Background())
 		sc.ChallengeSweep.Start(challengeSweepCtx)
