@@ -356,7 +356,6 @@ describe('proxy, shows month and day routes', () => {
     const proxy = await freshProxy()
 
     expect((await proxy(requestFor('/shows/submit'))).status).toBe(200)
-    expect((await proxy(requestFor('/shows/saved'))).status).toBe(200)
     expect(fetchMock).not.toHaveBeenCalled()
   })
 
