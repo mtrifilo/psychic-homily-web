@@ -106,6 +106,15 @@ jobs:
       - name: Check new strong-lock migrations have a bounded lock_timeout
         run: bash scripts/check_migration_lock_timeout.sh origin/main
 
+      # A column type change in a new timestamp-named migration needs a typed
+      # entry in backend/db/schema_assertion.go; the script header has the
+      # rule and its scope. It reads the origin/main ref fetched above.
+      - name: Self-test the schema assertion types gate
+        run: bash scripts/check_schema_assertion_types_test.sh
+
+      - name: Check new column type changes have a typed schema assertion entry
+        run: bash scripts/check_schema_assertion_types.sh origin/main
+
       - name: Harden apt against mirror stalls
         uses: ./.github/actions/harden-apt
 
