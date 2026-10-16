@@ -119,3 +119,36 @@ func TestCompleteOAuthLink_AccountLookupFailureLinksNothing(t *testing.T) {
 	var authErr *apperrors.AuthError
 	assert.False(t, errors.As(err, &authErr), "a lookup failure is not a refusal with its own copy")
 }
+
+// linkRefusingUserService reads every account as live and refuses every link
+// as an account that may not sign in.
+type linkRefusingUserService struct {
+	stubUserServiceWithGetByID
+}
+
+func (s *linkRefusingUserService) LinkOAuthAccountToUser(uint, goth.User, string) (*authm.User, error) {
+	return nil, apperrors.ErrAccountInactive()
+}
+
+// An account that closes after this check passes is refused by the link write,
+// and that refusal reaches the caller as ACCOUNT_INACTIVE, the same code this
+// check answers with.
+func TestCompleteOAuthLink_LinkWritersRefusalKeepsItsCode(t *testing.T) {
+	userSvc := &linkRefusingUserService{stubUserServiceWithGetByID: stubUserServiceWithGetByID{
+		getByID: func(userID uint) (*authm.User, error) {
+			return &authm.User{ID: userID, IsActive: true}, nil
+		},
+	}}
+	cfg := &config.Config{JWT: config.JWTConfig{SecretKey: "test-secret-key-32-chars-minimum", Expiry: 24}}
+	svc := NewAuthService(nil, cfg, userSvc)
+	svc.SetOAuthCompleter(completingAs(goth.User{Provider: "google", UserID: "google-closed-in-window"}))
+
+	w, r := linkCallbackRequest()
+	linked, err := svc.CompleteOAuthLink(w, r, "google", 7)
+
+	require.Error(t, err)
+	assert.Nil(t, linked)
+	var authErr *apperrors.AuthError
+	require.ErrorAs(t, err, &authErr)
+	assert.Equal(t, apperrors.CodeAccountInactive, authErr.Code)
+}
