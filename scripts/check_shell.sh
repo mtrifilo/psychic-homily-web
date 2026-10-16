@@ -109,7 +109,9 @@ fi
 shellcheck --version | sed -n 's/^version: /check_shell: shellcheck /p'
 echo "check_shell: checking ${#files[@]} tracked files at severity warning"
 
-if ! shellcheck --severity=warning "${files[@]}"; then
+# `--` keeps a tracked root-level file named like an option (for example
+# --severity=error) from being parsed as one and weakening the whole run.
+if ! shellcheck --severity=warning -- "${files[@]}"; then
   echo "ERROR: fix each finding above, or exclude it on its own line with a reason (see this script's header)." >&2
   exit 1
 fi

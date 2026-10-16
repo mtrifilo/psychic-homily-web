@@ -23,9 +23,10 @@ FAILURES=0
 CASE=""
 
 # Fixture git. The gate reads only the index, so staging a file is what puts
-# it in the set; no case needs a commit.
+# it in the set; no case needs a commit. A global ignore file is neutralised
+# so `add -A` stages every fixture file on any machine.
 g() {
-  git -C "$FIXTURE" "$@" >/dev/null 2>&1
+  git -C "$FIXTURE" -c core.excludesFile=/dev/null "$@" >/dev/null 2>&1
 }
 
 # write <path> <first line> [<body line>...]: one file, one line per argument.
@@ -116,6 +117,12 @@ reset_fixture "path with spaces is checked"
 write 'dir with space/a script.sh' '#!/usr/bin/env bash' "$UNUSED"
 g add -A
 expect 1 "dir with space/a script.sh" "SC2034"
+
+reset_fixture "root-level script named like an option cannot weaken the run"
+write '--severity=error' '#!/usr/bin/env bash' 'echo "named like an option"'
+write lib/warn.sh '#!/usr/bin/env bash' "$UNUSED"
+g add -A
+expect 1 "lib/warn.sh" "SC2034"
 
 reset_fixture "untracked script is not checked"
 write scratch/untracked.sh '#!/usr/bin/env bash' "$UNUSED"
