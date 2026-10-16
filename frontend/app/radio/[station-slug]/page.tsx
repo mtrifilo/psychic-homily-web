@@ -3,15 +3,15 @@ import { Metadata } from 'next'
 import { redirect } from 'next/navigation'
 import * as Sentry from '@sentry/nextjs'
 import StationDetail from './_components/StationDetail'
-import { API_BASE_URL } from '@/lib/api-base'
+import {
+  RADIO_STATION_REVALIDATE_SECONDS,
+  radioStationApiUrl,
+  radioSubStreamRedirectPath,
+  type RadioStationNetwork,
+} from '@/lib/seo/radioStationCanonical'
 
 interface StationPageProps {
   params: Promise<{ 'station-slug': string }>
-}
-
-interface StationNetwork {
-  slug: string
-  is_flagship: boolean
 }
 
 interface StationData {
@@ -20,7 +20,7 @@ interface StationData {
   description?: string | null
   city?: string | null
   state?: string | null
-  network?: StationNetwork | null
+  network?: RadioStationNetwork | null
 }
 
 // Wrapped with `React.cache()` so `generateMetadata` and the page body
@@ -29,8 +29,8 @@ interface StationData {
 // pattern in `app/artists/[slug]/page.tsx`.
 const getStation = cache(async (slug: string): Promise<StationData | null> => {
   try {
-    const res = await fetch(`${API_BASE_URL}/radio-stations/${slug}`, {
-      next: { revalidate: 3600 },
+    const res = await fetch(radioStationApiUrl(slug), {
+      next: { revalidate: RADIO_STATION_REVALIDATE_SECONDS },
     })
     if (res.ok) {
       return res.json()
@@ -86,19 +86,17 @@ export async function generateMetadata({ params }: StationPageProps): Promise<Me
 
 export default async function StationPage({ params }: StationPageProps) {
   const { 'station-slug': stationSlug } = await params
-  // PSY-674: sub-streams (non-flagship stations in a network) live under
-  // /radio/{network-slug}/channel/{local-slug} now. Old direct URLs like
-  // /radio/wfmu-drummer 308-redirect to /radio/wfmu/channel/drummer so
-  // shared links keep working. The literal "channel" segment disambiguates
-  // sub-streams from show pages (/radio/{station-slug}/{show-slug}).
-  // Flagship + network-less stations stay on the 1-segment URL.
+  // Sub-streams live under /radio/{network-slug}/channel/{local-slug}, and
+  // `proxy.ts` answers their one-segment URL with a real 308 before this page
+  // streams. This redirect is the fallback for a request the proxy let
+  // through (backend unreachable from the proxy, or a prefetch it skips); it
+  // arrives inside the streamed document, not as a status. The literal
+  // "channel" segment disambiguates sub-streams from show pages
+  // (/radio/{station-slug}/{show-slug}).
   const station = await getStation(stationSlug)
-  if (station?.network && !station.network.is_flagship) {
-    const prefix = `${station.network.slug}-`
-    const localSlug = stationSlug.startsWith(prefix)
-      ? stationSlug.slice(prefix.length)
-      : stationSlug
-    redirect(`/radio/${station.network.slug}/channel/${localSlug}`)
+  const channelPath = radioSubStreamRedirectPath(stationSlug, station?.network)
+  if (channelPath) {
+    redirect(channelPath)
   }
   return <StationDetail stationSlug={stationSlug} />
 }

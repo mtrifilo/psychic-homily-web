@@ -215,3 +215,147 @@ describe('proxy numeric show ids', () => {
     )
   })
 })
+
+describe('proxy radio sub-stream redirect', () => {
+  afterEach(() => {
+    vi.restoreAllMocks()
+  })
+
+  function stationBody(network: unknown): Response {
+    return new Response(JSON.stringify({ name: 'Station', network }), {
+      status: 200,
+      headers: { 'content-type': 'application/json' },
+    })
+  }
+
+  const SUB_STREAM = { slug: 'wfmu', name: 'WFMU', is_flagship: false }
+  const FLAGSHIP = { slug: 'wfmu', name: 'WFMU', is_flagship: true }
+
+  function passedThrough(response: Response): boolean {
+    return response.headers.get('x-middleware-next') === '1'
+  }
+
+  it('reads the station with the page URL and cache window', async () => {
+    const fetchMock = vi
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValue(stationBody(null))
+
+    await proxy(requestFor('/radio/kexp'))
+
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    expect(fetchMock).toHaveBeenCalledWith(
+      'http://localhost:8080/radio-stations/kexp',
+      expect.objectContaining({ next: { revalidate: 3600 } })
+    )
+    // Next keys a cached fetch on `redirect` and `method` among others; the
+    // page sets neither, so setting one here would split the shared entry.
+    const init = fetchMock.mock.calls[0][1] as RequestInit
+    expect(init.redirect).toBeUndefined()
+    expect(init.method).toBeUndefined()
+  })
+
+  it('permanently redirects a sub-stream to its channel URL', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(stationBody(SUB_STREAM))
+
+    const response = await proxy(requestFor('/radio/wfmu-drummer'))
+
+    expect(response.status).toBe(308)
+    expect(response.headers.get('location')).toBe(
+      'http://localhost:3000/radio/wfmu/channel/drummer'
+    )
+    expect(response.headers.get('cache-control')).toBe('private, max-age=3600')
+  })
+
+  it('keeps the query string across the redirect', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(stationBody(SUB_STREAM))
+
+    const response = await proxy(
+      requestFor('/radio/wfmu-drummer?utm_source=news&a=1')
+    )
+
+    expect(response.headers.get('location')).toBe(
+      'http://localhost:3000/radio/wfmu/channel/drummer?utm_source=news&a=1'
+    )
+  })
+
+  it('uses a slug without the network prefix whole', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(stationBody(SUB_STREAM))
+
+    const response = await proxy(requestFor('/radio/legacy-show'))
+
+    expect(response.headers.get('location')).toBe(
+      'http://localhost:3000/radio/wfmu/channel/legacy-show'
+    )
+  })
+
+  it('passes a flagship or network-less station through to the page', async () => {
+    for (const network of [FLAGSHIP, null]) {
+      vi.spyOn(globalThis, 'fetch').mockResolvedValue(stationBody(network))
+      expect(passedThrough(await proxy(requestFor('/radio/wfmu')))).toBe(true)
+    }
+  })
+
+  it('passes an unknown station through to the page rather than a 404', async () => {
+    const errorBody = new Response('{"title":"Not Found"}', { status: 404 })
+    const cancel = vi.spyOn(errorBody.body!, 'cancel')
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(errorBody)
+
+    const response = await proxy(requestFor('/radio/no-such-station'))
+
+    expect(passedThrough(response)).toBe(true)
+    expect(cancel).toHaveBeenCalled()
+  })
+
+  it('passes through on a backend error, a bad body or a network failure', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(
+      new Response(null, { status: 503 })
+    )
+    expect(passedThrough(await proxy(requestFor('/radio/wfmu-drummer')))).toBe(
+      true
+    )
+
+    vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(
+      new Response('not json', { status: 200 })
+    )
+    expect(passedThrough(await proxy(requestFor('/radio/wfmu-drummer')))).toBe(
+      true
+    )
+
+    vi.spyOn(globalThis, 'fetch').mockRejectedValueOnce(new Error('ECONNRESET'))
+    expect(passedThrough(await proxy(requestFor('/radio/wfmu-drummer')))).toBe(
+      true
+    )
+  })
+
+  it('passes a malformed network through to the page', async () => {
+    for (const network of [
+      { slug: 'wfmu' },
+      { slug: '', is_flagship: false },
+      { slug: 7, is_flagship: false },
+      'wfmu',
+    ]) {
+      vi.spyOn(globalThis, 'fetch').mockResolvedValue(stationBody(network))
+      expect(
+        passedThrough(await proxy(requestFor('/radio/wfmu-drummer')))
+      ).toBe(true)
+    }
+  })
+
+  it('never reads a station for the hub, its static routes or deeper routes', async () => {
+    const fetchMock = vi
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValue(stationBody(SUB_STREAM))
+
+    for (const path of [
+      '/radio',
+      '/radio/playlists',
+      '/radio/new-releases',
+      '/radio/wfmu/channel/drummer',
+      '/radio/kexp/the-morning-show',
+      '/radio/kexp/the-morning-show/2025-01-15',
+    ]) {
+      expect(passedThrough(await proxy(requestFor(path)))).toBe(true)
+    }
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
+})
