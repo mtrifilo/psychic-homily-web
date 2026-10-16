@@ -584,10 +584,12 @@ func TestAppleKeys_MalformedEntriesNeverReplaceCachedSet(t *testing.T) {
 		{"modulus not base64url", func(e *testJWK) { e.N = "not base64url!" }},
 		{"exponent not base64url", func(e *testJWK) { e.E = "AQ=AB" }},
 	}
+	// Only an entry that does not decode is dropped with a warning.
+	warns := map[string]bool{"modulus not base64url": true, "exponent not base64url": true}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			ks := newKeyServer(t, jwks(key, "known-kid"))
-			svc, _, _ := newKeysTestService(ks.URL)
+			svc, _, logs := newKeysTestService(ks.URL)
 			_, err := svc.getApplePublicKey(t.Context(), "known-kid")
 			require.NoError(t, err)
 
@@ -598,6 +600,11 @@ func TestAppleKeys_MalformedEntriesNeverReplaceCachedSet(t *testing.T) {
 			require.Error(t, err)
 			assert.Contains(t, err.Error(), "contained no RSA keys")
 			require.Equal(t, 2, ks.count())
+			wantWarns := 0
+			if warns[tc.name] {
+				wantWarns = 1
+			}
+			assert.Equal(t, wantWarns, logs.count("apple_keys_entry_dropped"))
 
 			_, err = svc.ValidateIdentityToken(t.Context(), signedToken(t, key, "known-kid"))
 			require.NoError(t, err, "the cached set still validates known kids")

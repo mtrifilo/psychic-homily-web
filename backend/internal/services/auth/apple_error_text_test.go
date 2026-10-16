@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"maps"
 	"net/http"
 	"strings"
@@ -81,7 +83,7 @@ func TestValidateIdentityToken_ErrorTextCarriesNoCallerText(t *testing.T) {
 		prime func(t *testing.T, svc *AppleAuthService, ks *keyServer)
 		// cancelled runs the validation under a context that has ended.
 		cancelled bool
-		// kind, when set, is the jwt sentinel the error still wraps.
+		// kind, when set, is the jwt sentinel the error wraps.
 		kind error
 	}{
 		{name: "not three segments", token: func(*testing.T) string { return "not-a-jwt-" + callerMark }},
@@ -161,6 +163,12 @@ func TestValidateIdentityToken_ErrorTextCarriesNoCallerText(t *testing.T) {
 		{name: "expired", kind: jwt.ErrTokenExpired, token: func(t *testing.T) string {
 			return sign(t, jwt.SigningMethodRS256, key, "known-kid", func(c map[string]any) { c["exp"] = time.Now().Add(-time.Hour).Unix() })
 		}},
+		{name: "expired and other audience", kind: jwt.ErrTokenExpired, token: func(t *testing.T) string {
+			return sign(t, jwt.SigningMethodRS256, key, "known-kid", func(c map[string]any) {
+				c["exp"] = time.Now().Add(-time.Hour).Unix()
+				c["aud"] = callerMark
+			})
+		}},
 		{name: "not yet valid", kind: jwt.ErrTokenNotValidYet, token: func(t *testing.T) string {
 			return sign(t, jwt.SigningMethodRS256, key, "known-kid", func(c map[string]any) { c["nbf"] = time.Now().Add(time.Hour).Unix() })
 		}},
@@ -196,4 +204,12 @@ func TestValidateIdentityToken_ErrorTextCarriesNoCallerText(t *testing.T) {
 			}
 		})
 	}
+}
+
+// jwtFailureKind keeps the most specific sentinel of a joined jwt error, and
+// an error that wraps no jwt sentinel becomes errJWTUnclassified.
+func TestJWTFailureKind(t *testing.T) {
+	joined := fmt.Errorf("%w: %w", jwt.ErrTokenInvalidClaims, errors.Join(jwt.ErrTokenInvalidAudience, jwt.ErrTokenExpired))
+	require.Equal(t, jwt.ErrTokenExpired, jwtFailureKind(joined))
+	require.Equal(t, errJWTUnclassified, jwtFailureKind(errors.New(callerMark)))
 }
