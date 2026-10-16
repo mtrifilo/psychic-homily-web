@@ -31,7 +31,7 @@ type releaseLinkCorpus struct {
 
 func loadReleaseLinkCorpus(t *testing.T) releaseLinkCorpus {
 	t.Helper()
-	corpus := testcorpus.Load[releaseLinkCorpus](t, "testdata/release_link_corpus.json")
+	corpus := testcorpus.Load[releaseLinkCorpus](t, "internal/utils/testdata/release_link_corpus.json")
 	require.NotEmpty(t, corpus.Platforms)
 	require.NotEmpty(t, corpus.Renderable)
 	require.NotEmpty(t, corpus.Refused)
