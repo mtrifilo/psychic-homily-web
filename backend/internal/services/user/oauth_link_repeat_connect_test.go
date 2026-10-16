@@ -41,11 +41,14 @@ func (suite *UserServiceIntegrationTestSuite) storedGoogleAccount(userID uint) a
 	return account
 }
 
-// serviceWithWriteBeforeItsFirstUpdate returns a UserService whose first
-// UPDATE is preceded by write, which runs after the repeat connect has read
-// the row and receives the in-flight statement's handle. The returned flag
-// reports whether write ran.
-func (suite *UserServiceIntegrationTestSuite) serviceWithWriteBeforeItsFirstUpdate(write func(inFlight *gorm.DB)) (*UserService, *bool) {
+// serviceWithWriteBeforeItsFirst returns a UserService on the suite's
+// connections that runs write once, before the first statement the hook that
+// register installs fires on. write receives the in-flight statement's handle.
+// The returned flag reports whether write ran.
+func (suite *UserServiceIntegrationTestSuite) serviceWithWriteBeforeItsFirst(
+	register func(hooked *gorm.DB, hook func(*gorm.DB)) error,
+	write func(inFlight *gorm.DB),
+) (*UserService, *bool) {
 	suite.T().Helper()
 	sqlDB, err := suite.db.DB()
 	suite.Require().NoError(err)
@@ -53,15 +56,23 @@ func (suite *UserServiceIntegrationTestSuite) serviceWithWriteBeforeItsFirstUpda
 	suite.Require().NoError(err)
 
 	ran := false
-	suite.Require().NoError(hooked.Callback().Update().Before("gorm:update").
-		Register("test:write_before_update", func(inFlight *gorm.DB) {
-			if ran {
-				return
-			}
-			ran = true
-			write(inFlight)
-		}))
+	suite.Require().NoError(register(hooked, func(inFlight *gorm.DB) {
+		if ran {
+			return
+		}
+		ran = true
+		write(inFlight)
+	}))
 	return &UserService{db: hooked}, &ran
+}
+
+// serviceWithWriteBeforeItsFirstUpdate runs write before the service's first
+// UPDATE, which a repeat connect issues after it has read the row.
+func (suite *UserServiceIntegrationTestSuite) serviceWithWriteBeforeItsFirstUpdate(write func(inFlight *gorm.DB)) (*UserService, *bool) {
+	suite.T().Helper()
+	return suite.serviceWithWriteBeforeItsFirst(func(hooked *gorm.DB, hook func(*gorm.DB)) error {
+		return hooked.Callback().Update().Before("gorm:update").Register("test:write_before_update", hook)
+	}, write)
 }
 
 // startOnAnotherConnection runs write in a goroutine on the suite's own handle
