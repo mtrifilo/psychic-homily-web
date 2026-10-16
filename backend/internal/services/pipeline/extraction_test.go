@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -756,7 +757,7 @@ func TestCallAnthropic(t *testing.T) {
 			config: &config.Config{
 				Anthropic: config.AnthropicConfig{APIKey: "test-key"},
 			},
-			httpClient:       &http.Client{Timeout: 1 * time.Millisecond},
+			httpClient:       &http.Client{Timeout: 5 * time.Second},
 			anthropicBaseURL: "http://" + closedAddr,
 		}
 
@@ -765,6 +766,7 @@ func TestCallAnthropic(t *testing.T) {
 		assert.Error(t, err)
 		assert.Empty(t, result)
 		assert.Contains(t, err.Error(), "request failed")
+		assert.ErrorIs(t, err, syscall.ECONNREFUSED, "the closed port refuses the connection")
 	})
 }
 

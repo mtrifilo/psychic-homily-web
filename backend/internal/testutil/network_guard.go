@@ -4,19 +4,20 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"net"
 	"net/http"
+	"net/netip"
 	"os"
 	"runtime"
 	"strings"
 	"sync"
 	"testing"
+	"unicode"
+	"unicode/utf8"
 )
 
-// ErrNonLoopbackRequest is the error a request refused by the network guard
-// wraps, so a test that expects its code under test to be refused can match it
-// with errors.Is.
-var ErrNonLoopbackRequest = errors.New("network guard: non-loopback request refused in a test")
+// errNonLoopbackRequest is the error a request refused by the network guard
+// wraps. There is no expected refusal: any refusal fails the package run.
+var errNonLoopbackRequest = errors.New("network guard: non-loopback request refused in a test")
 
 // RefuseNonLoopbackNetwork runs the package's tests with http.DefaultTransport
 // replaced by a transport that sends loopback requests on and refuses every
@@ -26,25 +27,33 @@ var ErrNonLoopbackRequest = errors.New("network guard: non-loopback request refu
 //	func TestMain(m *testing.M) { os.Exit(testutil.RefuseNonLoopbackNetwork(m)) }
 //
 // Loopback means a host of localhost or an IP in 127.0.0.0/8 or ::1, which
-// covers every httptest server. http.DefaultClient, http.Get and any client
-// with a nil Transport read http.DefaultTransport per request, so they are
-// guarded too. A client built around its own transport is not: the guard
-// covers the default only, so an explicitly injected fake answers as usual.
+// covers every httptest server; a loopback request can still reach a local
+// service that is not the test's own. http.DefaultClient, http.Get and any
+// client with a nil Transport read http.DefaultTransport per request, so they
+// are guarded too. Nothing else is: a client built around its own transport
+// (an injected fake, or a production client with its own dialer), a raw
+// net.Dial and a DNS lookup all go around the guard.
 //
 // Each refusal is printed when it happens, naming the method, the URL with its
-// query omitted, and the Test function on the requesting goroutine's stack. A
-// RoundTripper has no handle on the *testing.T, so the guard fails the package
-// run instead of the test: it returns a non-zero code when any request was
-// refused, or when a test left http.DefaultTransport or
+// userinfo and query omitted, and the Test function on the requesting
+// goroutine's stack. A RoundTripper has no handle on the *testing.T, so the
+// guard fails the package run instead of the test: it returns a non-zero code
+// when any request was refused, or when a test left http.DefaultTransport or
 // http.DefaultClient.Transport swapped, which would have switched the guard
 // off for the tests after it. A test that swaps the default transport for its
 // own duration and restores it in t.Cleanup composes with the guard.
+//
+// The guard stays installed after the tests finish, so a goroutine that
+// outlives its test is still guarded and never races a restore.
 func RefuseNonLoopbackNetwork(m *testing.M) int {
-	guard, restore := installNetworkGuard(os.Stderr)
-	code := m.Run()
-	code = guard.exitCode(code)
-	restore()
-	return code
+	return runGuarded(m.Run, os.Stderr)
+}
+
+// runGuarded installs a guard that logs to log, calls run and returns its exit
+// code as the guard amends it.
+func runGuarded(run func() int, log io.Writer) int {
+	guard := installNetworkGuard(log)
+	return guard.exitCode(run())
 }
 
 // refusedRequest is one request the guard refused.
@@ -61,19 +70,18 @@ func (r refusedRequest) String() string {
 // networkGuard is the http.RoundTripper installed as http.DefaultTransport.
 type networkGuard struct {
 	loopback http.RoundTripper // the transport loopback requests go through
-	log      io.Writer
 
-	mu      sync.Mutex
+	mu      sync.Mutex // guards log and refused
+	log     io.Writer
 	refused []refusedRequest
 }
 
-// installNetworkGuard makes a new guard http.DefaultTransport and returns it
-// with the function that puts the previous default back.
-func installNetworkGuard(log io.Writer) (*networkGuard, func()) {
-	previous := http.DefaultTransport
-	guard := &networkGuard{loopback: previous, log: log}
+// installNetworkGuard makes a new guard, logging to log, http.DefaultTransport.
+// Loopback requests go through the default it replaces.
+func installNetworkGuard(log io.Writer) *networkGuard {
+	guard := &networkGuard{loopback: http.DefaultTransport, log: log}
 	http.DefaultTransport = guard
-	return guard, func() { http.DefaultTransport = previous }
+	return guard
 }
 
 func (g *networkGuard) RoundTrip(req *http.Request) (*http.Response, error) {
@@ -84,12 +92,12 @@ func (g *networkGuard) RoundTrip(req *http.Request) (*http.Response, error) {
 	if req.Body != nil {
 		_ = req.Body.Close()
 	}
-	refused := refusedRequest{method: req.Method, url: urlWithoutQuery(req), caller: requestingTest()}
+	refused := refusedRequest{method: req.Method, url: redactedURL(req), caller: requestingTest()}
 	g.mu.Lock()
 	g.refused = append(g.refused, refused)
+	_, _ = fmt.Fprintf(g.log, "network guard: refused %s (requests through http.DefaultTransport in tests may reach loopback hosts only: inject a transport or use an httptest server)\n", refused)
 	g.mu.Unlock()
-	_, _ = fmt.Fprintf(g.log, "network guard: refused %s (tests may reach loopback hosts only: inject a transport or use an httptest server)\n", refused)
-	return nil, fmt.Errorf("%w: %s", ErrNonLoopbackRequest, refused)
+	return nil, fmt.Errorf("%w: %s", errNonLoopbackRequest, refused)
 }
 
 // refusals returns a copy of every request refused so far.
@@ -102,13 +110,15 @@ func (g *networkGuard) refusals() []refusedRequest {
 // exitCode is code, or 1 when code is 0 and the run refused a request or left
 // the default transport swapped. Each reason is printed.
 func (g *networkGuard) exitCode(code int) int {
+	g.mu.Lock()
+	defer g.mu.Unlock()
 	failed := false
 	// The summary repeats the refusals printed as they happened, because under
 	// -v those lines are interleaved with every test's output.
-	if refused := g.refusals(); len(refused) > 0 {
+	if len(g.refused) > 0 {
 		failed = true
-		_, _ = fmt.Fprintf(g.log, "network guard: %d non-loopback request(s) refused; failing the package run:\n", len(refused))
-		for _, r := range refused {
+		_, _ = fmt.Fprintf(g.log, "network guard: %d non-loopback request(s) refused; failing the package run (no test is marked FAIL for them):\n", len(g.refused))
+		for _, r := range g.refused {
 			_, _ = fmt.Fprintf(g.log, "\t%s\n", r)
 		}
 	}
@@ -132,29 +142,42 @@ func isLoopbackHost(host string) bool {
 	if strings.EqualFold(host, "localhost") {
 		return true
 	}
-	ip := net.ParseIP(host)
-	return ip != nil && ip.IsLoopback()
+	addr, err := netip.ParseAddr(host)
+	return err == nil && addr.WithZone("").Unmap().IsLoopback()
 }
 
-// urlWithoutQuery is the request URL with any userinfo password redacted and
-// the query left out, since a query can carry a credential.
-func urlWithoutQuery(req *http.Request) string {
+// redactedURL is the request URL without its userinfo, query and fragment,
+// any of which can carry a credential, marking what was left out.
+func redactedURL(req *http.Request) string {
 	u := *req.URL
-	hadQuery := u.RawQuery != "" || u.ForceQuery
-	u.RawQuery, u.ForceQuery, u.Fragment, u.RawFragment = "", false, "", ""
-	s := u.Redacted()
-	if hadQuery {
-		s += "?(query omitted)"
+	var omitted []string
+	if u.User != nil {
+		omitted = append(omitted, "userinfo")
 	}
-	return s
+	if u.RawQuery != "" || u.ForceQuery {
+		omitted = append(omitted, "query")
+	}
+	if u.Fragment != "" {
+		omitted = append(omitted, "fragment")
+	}
+	u.User, u.RawQuery, u.ForceQuery, u.Fragment, u.RawFragment = nil, "", false, "", ""
+	if len(omitted) == 0 {
+		return u.String()
+	}
+	return u.String() + " (" + strings.Join(omitted, ", ") + " omitted)"
 }
 
 // requestingTest names the innermost Test function on the calling goroutine's
 // stack, or, for a goroutine a test started, the function the goroutine began
 // in.
 func requestingTest() string {
-	pcs := make([]uintptr, 128)
-	frames := runtime.CallersFrames(pcs[:runtime.Callers(2, pcs)])
+	pcs := make([]uintptr, 256)
+	n := runtime.Callers(2, pcs)
+	for n == len(pcs) {
+		pcs = make([]uintptr, 2*len(pcs))
+		n = runtime.Callers(2, pcs)
+	}
+	frames := runtime.CallersFrames(pcs[:n])
 	outermost := ""
 	for {
 		frame, more := frames.Next()
@@ -190,9 +213,23 @@ func isTestFunc(name string) bool {
 		return false
 	}
 	for _, p := range parts[1:] {
-		if strings.HasPrefix(p, "Test") || strings.HasPrefix(p, "Fuzz") || strings.HasPrefix(p, "Benchmark") {
+		if hasTestPrefix(p, "Test") || hasTestPrefix(p, "Fuzz") || hasTestPrefix(p, "Benchmark") {
 			return true
 		}
 	}
 	return false
+}
+
+// hasTestPrefix applies go test's naming rule: name is prefix alone, or prefix
+// followed by a character that is not a lower-case letter, so TestFoo and
+// Test_foo count and Testdata does not.
+func hasTestPrefix(name, prefix string) bool {
+	if !strings.HasPrefix(name, prefix) {
+		return false
+	}
+	if len(name) == len(prefix) {
+		return true
+	}
+	r, _ := utf8.DecodeRuneInString(name[len(prefix):])
+	return !unicode.IsLower(r)
 }
