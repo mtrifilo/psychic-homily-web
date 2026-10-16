@@ -3,8 +3,6 @@ package auth
 import (
 	"crypto/rand"
 	"crypto/rsa"
-	"encoding/base64"
-	"math/big"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -100,13 +98,8 @@ func TestValidateIdentityToken(t *testing.T) {
 
 	// Create a mock Apple keys server
 	mockServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Encode public key as JWK
-		nBase64 := base64.RawURLEncoding.EncodeToString(privateKey.N.Bytes())
-		eBytes := big.NewInt(int64(privateKey.PublicKey.E)).Bytes()
-		eBase64 := base64.RawURLEncoding.EncodeToString(eBytes)
-
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"keys":[{"kty":"RSA","kid":"` + kid + `","use":"sig","alg":"RS256","n":"` + nBase64 + `","e":"` + eBase64 + `"}]}`))
+		_, _ = w.Write(jwks(privateKey, kid))
 	}))
 	defer mockServer.Close()
 
@@ -124,7 +117,7 @@ func TestValidateIdentityToken(t *testing.T) {
 		// Create a valid Apple identity token
 		token := createAppleIdentityToken(t, privateKey, kid, bundleID, "apple-user-123", "test@example.com", time.Now().Add(1*time.Hour))
 
-		claims, err := svc.ValidateIdentityToken(token)
+		claims, err := svc.ValidateIdentityToken(t.Context(), token)
 
 		assert.NoError(t, err)
 		require.NotNil(t, claims)
@@ -137,7 +130,7 @@ func TestValidateIdentityToken(t *testing.T) {
 
 		token := createAppleIdentityToken(t, privateKey, kid, bundleID, "apple-user-456", "expired@example.com", time.Now().Add(-1*time.Hour))
 
-		_, err := svc.ValidateIdentityToken(token)
+		_, err := svc.ValidateIdentityToken(t.Context(), token)
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "invalid Apple identity token")
 	})
@@ -147,7 +140,7 @@ func TestValidateIdentityToken(t *testing.T) {
 
 		token := createAppleIdentityToken(t, privateKey, kid, "com.wrong.bundle", "apple-user-789", "wrong-aud@example.com", time.Now().Add(1*time.Hour))
 
-		_, err := svc.ValidateIdentityToken(token)
+		_, err := svc.ValidateIdentityToken(t.Context(), token)
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "invalid Apple identity token")
 	})
@@ -157,7 +150,7 @@ func TestValidateIdentityToken(t *testing.T) {
 
 		token := createAppleIdentityToken(t, privateKey, "wrong-kid", bundleID, "apple-user-000", "wrong-kid@example.com", time.Now().Add(1*time.Hour))
 
-		_, err := svc.ValidateIdentityToken(token)
+		_, err := svc.ValidateIdentityToken(t.Context(), token)
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "apple public key not found")
 	})
@@ -171,7 +164,7 @@ func TestValidateIdentityToken(t *testing.T) {
 
 		token := createAppleIdentityToken(t, wrongKey, kid, bundleID, "apple-user-wrong", "wrong-key@example.com", time.Now().Add(1*time.Hour))
 
-		_, err = svc.ValidateIdentityToken(token)
+		_, err = svc.ValidateIdentityToken(t.Context(), token)
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "invalid Apple identity token")
 	})
@@ -179,7 +172,7 @@ func TestValidateIdentityToken(t *testing.T) {
 	t.Run("malformed_token_rejected", func(t *testing.T) {
 		svc := createTestAppleService(cfg, mockServer.URL)
 
-		_, err := svc.ValidateIdentityToken("not-a-jwt")
+		_, err := svc.ValidateIdentityToken(t.Context(), "not-a-jwt")
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "failed to parse token header")
 	})
@@ -205,22 +198,19 @@ func TestAppleKeyFetching(t *testing.T) {
 
 		mockServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			callCount++
-			nBase64 := base64.RawURLEncoding.EncodeToString(privateKey.N.Bytes())
-			eBytes := big.NewInt(int64(privateKey.PublicKey.E)).Bytes()
-			eBase64 := base64.RawURLEncoding.EncodeToString(eBytes)
-			_, _ = w.Write([]byte(`{"keys":[{"kty":"RSA","kid":"cached-kid","use":"sig","alg":"RS256","n":"` + nBase64 + `","e":"` + eBase64 + `"}]}`))
+			_, _ = w.Write(jwks(privateKey, "cached-kid"))
 		}))
 		defer mockServer.Close()
 
 		svc := createTestAppleService(cfg, mockServer.URL)
 
 		// First call fetches
-		_, err = svc.getApplePublicKey("cached-kid")
+		_, err = svc.getApplePublicKey(t.Context(), "cached-kid")
 		assert.NoError(t, err)
 		assert.Equal(t, 1, callCount)
 
 		// Second call uses cache
-		_, err = svc.getApplePublicKey("cached-kid")
+		_, err = svc.getApplePublicKey(t.Context(), "cached-kid")
 		assert.NoError(t, err)
 		assert.Equal(t, 1, callCount) // Should still be 1
 	})
@@ -232,21 +222,18 @@ func TestAppleKeyFetching(t *testing.T) {
 
 		mockServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			callCount++
-			nBase64 := base64.RawURLEncoding.EncodeToString(privateKey.N.Bytes())
-			eBytes := big.NewInt(int64(privateKey.PublicKey.E)).Bytes()
-			eBase64 := base64.RawURLEncoding.EncodeToString(eBytes)
-			_, _ = w.Write([]byte(`{"keys":[{"kty":"RSA","kid":"known-kid","use":"sig","alg":"RS256","n":"` + nBase64 + `","e":"` + eBase64 + `"}]}`))
+			_, _ = w.Write(jwks(privateKey, "known-kid"))
 		}))
 		defer mockServer.Close()
 
 		svc := createTestAppleService(cfg, mockServer.URL)
 
 		// First call
-		_, err = svc.getApplePublicKey("known-kid")
+		_, err = svc.getApplePublicKey(t.Context(), "known-kid")
 		assert.NoError(t, err)
 
 		// Unknown kid triggers refetch
-		_, err = svc.getApplePublicKey("unknown-kid")
+		_, err = svc.getApplePublicKey(t.Context(), "unknown-kid")
 		assert.Error(t, err)
 		assert.Equal(t, 2, callCount) // Should have refetched
 	})
@@ -259,7 +246,7 @@ func TestAppleKeyFetching(t *testing.T) {
 
 		svc := createTestAppleService(cfg, mockServer.URL)
 
-		_, err := svc.getApplePublicKey("any-kid")
+		_, err := svc.getApplePublicKey(t.Context(), "any-kid")
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "status 500")
 	})
