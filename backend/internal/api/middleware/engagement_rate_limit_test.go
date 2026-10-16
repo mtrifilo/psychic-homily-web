@@ -8,6 +8,7 @@ import (
 
 	"github.com/go-chi/httprate"
 
+	"psychic-homily-backend/internal/config"
 	authm "psychic-homily-backend/internal/models/auth"
 	"psychic-homily-backend/internal/services/auth"
 )
@@ -225,5 +226,46 @@ func TestRateLimitMutationsByUser_StandaloneLimiterFailsLoud(t *testing.T) {
 	rr := serve(handler, mutationReq("9.9.9.9:1000", ""))
 	if rr.Code != http.StatusPreconditionRequired {
 		t.Errorf("standalone burst limiter: status = %d, want 428 (misuse must fail loud)", rr.Code)
+	}
+}
+
+// A session-user budget is requestsPerMinute deep for each account wherever it
+// connects from, a second account on the same address has its own, and a
+// request with no session passes through to the auth gate downstream.
+func TestRateLimitBySessionUser_OneBucketPerAccount(t *testing.T) {
+	jwtService := newTestJWTService()
+	tokenA := mkEngagementToken(t, jwtService, 42)
+	tokenB := mkEngagementToken(t, jwtService, 99)
+	const budget = 2
+	handler := RateLimitBySessionUser(jwtService, LimiterPasskeyRegisterBegin, budget)(okHandler())
+
+	for i, addr := range []string{"9.9.9.9:1000", "8.8.8.8:1000"} {
+		if rr := serve(handler, mutationReq(addr, tokenA)); rr.Code != http.StatusOK {
+			t.Fatalf("A request %d from %s: status = %d, want 200", i+1, addr, rr.Code)
+		}
+	}
+	rr := serve(handler, mutationReq("7.7.7.7:1000", tokenA))
+	if rr.Code != http.StatusTooManyRequests {
+		t.Fatalf("A past its budget from a third address: status = %d, want 429", rr.Code)
+	}
+	if got := rr.Header().Get("Retry-After"); got != "60" {
+		t.Errorf("Retry-After = %q, want 60", got)
+	}
+
+	if rr := serve(handler, mutationReq("9.9.9.9:1000", tokenB)); rr.Code != http.StatusOK {
+		t.Errorf("B on A's address after A's budget was spent: status = %d, want 200", rr.Code)
+	}
+
+	// A browser session rides the auth cookie, not the Authorization header,
+	// and spends the same account's bucket.
+	cookieReq := mutationReq("6.6.6.6:1000", "")
+	cookieReq.AddCookie(&http.Cookie{Name: config.AuthCookieName, Value: tokenA})
+	if rr := serve(handler, cookieReq); rr.Code != http.StatusTooManyRequests {
+		t.Errorf("A's spent budget through the auth cookie: status = %d, want 429", rr.Code)
+	}
+	for i := 0; i < budget*2; i++ {
+		if rr := serve(handler, mutationReq("9.9.9.9:1000", "")); rr.Code != http.StatusOK {
+			t.Fatalf("request %d with no session: status = %d, want 200 (passed to the auth gate)", i+1, rr.Code)
+		}
 	}
 }
