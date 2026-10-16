@@ -22,11 +22,10 @@ trap 'rm -rf "$FIXTURE"' EXIT
 FAILURES=0
 CASE=""
 
-# Fixture git. Commit signing and a global core.hooksPath are neutralised so
-# the self-test behaves the same on a CI runner and on a laptop that has either
-# turned on globally.
+# Fixture git. The gate reads only the index, so staging a file is what puts
+# it in the set; no case needs a commit.
 g() {
-  git -C "$FIXTURE" -c commit.gpgsign=false -c core.hooksPath=/dev/null "$@" >/dev/null 2>&1
+  git -C "$FIXTURE" "$@" >/dev/null 2>&1
 }
 
 # write <path> <first line> [<body line>...]: one file, one line per argument.
@@ -49,23 +48,26 @@ expect() {
   out="$(bash "$FIXTURE/scripts/check_shell.sh" 2>&1)"
   code=$?
   if [ "$code" -ne "$want_code" ]; then
-    echo "FAIL [$CASE]: exit $code, wanted $want_code"
-    printf '%s\n' "$out" | sed 's/^/    /'
-    FAILURES=$((FAILURES + 1))
+    fail "exit $code, wanted $want_code"
     return
   fi
   for needle in "$@"; do
     if ! printf '%s' "$out" | grep -qF -- "$needle"; then
-      echo "FAIL [$CASE]: output missing expected text: $needle"
-      printf '%s\n' "$out" | sed 's/^/    /'
-      FAILURES=$((FAILURES + 1))
+      fail "output missing expected text: $needle"
       return
     fi
   done
   echo "ok   [$CASE]"
 }
 
-# Reset the fixture to a committed tree holding the gate itself, a clean .sh
+# fail <reason>: records a failed case and dumps the gate output from expect.
+fail() {
+  echo "FAIL [$CASE]: $1"
+  printf '%s\n' "$out" | sed 's/^/    /'
+  FAILURES=$((FAILURES + 1))
+}
+
+# Reset the fixture to an index holding the gate itself, a clean .sh
 # in a directory the gate never names, a clean extensionless bash script, a
 # non-shell script with a #! line, and a plain text file: 3 shell scripts.
 reset_fixture() {
@@ -78,11 +80,8 @@ reset_fixture() {
   write bin/tool '#!/usr/bin/env bash' 'echo "tool"'
   write bin/report.mjs '#!/usr/bin/env node' 'const unused = 1;'
   write README.md 'not a script'
-  g init -b main
-  g config user.email test@example.com
-  g config user.name "Shell Gate Test"
+  g init
   g add -A
-  g commit -m baseline
 }
 
 reset_fixture "clean tree passes and counts the .sh and the shebang file"
@@ -90,27 +89,32 @@ expect 0 "checking 3 tracked files" "no findings"
 
 reset_fixture "warning in a new .sh in an unlisted directory fails"
 write brand/new/dir/scratch.sh '#!/usr/bin/env bash' "$UNUSED"
-g add -A && g commit -m "new script"
+g add -A
 expect 1 "checking 4 tracked files" "brand/new/dir/scratch.sh" "SC2034" "fix each finding above"
 
 reset_fixture "warning in an extensionless #!/bin/sh script fails"
 write bin/posix-tool '#!/bin/sh' "$UNUSED"
-g add -A && g commit -m "posix tool"
+g add -A
 expect 1 "bin/posix-tool" "SC2034"
 
 reset_fixture "warning in an extensionless env -S bash script fails"
 write bin/env-tool '#!/usr/bin/env -S bash -e' "$UNUSED"
-g add -A && g commit -m "env -S tool"
+g add -A
 expect 1 "bin/env-tool" "SC2034"
 
 reset_fixture "warning in an extensionless #!/bin/dash script fails"
 write bin/dash-tool '#!/bin/dash' "$UNUSED"
-g add -A && g commit -m "dash tool"
+g add -A
 expect 1 "bin/dash-tool" "SC2034"
+
+reset_fixture "CRLF extensionless bash script is checked"
+printf '#!/bin/bash\r\necho "crlf"\r\n' >"$FIXTURE/bin/crlf-tool"
+g add -A
+expect 1 "bin/crlf-tool" "SC1017"
 
 reset_fixture "path with spaces is checked"
 write 'dir with space/a script.sh' '#!/usr/bin/env bash' "$UNUSED"
-g add -A && g commit -m "spaced path"
+g add -A
 expect 1 "dir with space/a script.sh" "SC2034"
 
 reset_fixture "untracked script is not checked"
@@ -120,17 +124,17 @@ expect 0 "checking 3 tracked files" "no findings"
 reset_fixture "non-shell and bare #! files are not checked"
 write bin/tool.py '#!/usr/bin/env python3' 'unused = 1'
 write bin/bare '#!' "$UNUSED"
-g add -A && g commit -m "non-shell"
+g add -A
 expect 0 "checking 3 tracked files" "no findings"
 
 reset_fixture "zsh script is skipped with a notice naming it"
 write bin/zsh-tool '#!/usr/bin/env zsh' 'arr=(a b)' 'echo "${(j:,:)arr}"'
-g add -A && g commit -m "zsh tool"
+g add -A
 expect 0 "NOTICE: skipping zsh script" "bin/zsh-tool" "checking 3 tracked files"
 
 reset_fixture "tracked symlink to a directory is skipped"
 ln -s lib "$FIXTURE/lib-link"
-g add -A && g commit -m "symlink"
+g add -A
 expect 0 "checking 3 tracked files" "no findings"
 
 # Fail-closed cases: when the gate cannot see the set it is checking it must

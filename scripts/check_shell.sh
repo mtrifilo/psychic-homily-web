@@ -47,7 +47,6 @@ if ! git ls-files -z >"$listing"; then
 fi
 
 files=()
-zsh_files=()
 missing=()
 while IFS= read -r -d '' path; do
   # A tracked symlink's target is listed on its own when it is tracked, and a
@@ -62,14 +61,15 @@ while IFS= read -r -d '' path; do
 
   # The interpreter is the first word of the #! line that is not env, an env
   # option or an env assignment: `#!/usr/bin/env -S bash -e` gives bash. The
-  # read is capped so a binary file with no newline is not read whole.
+  # read is capped so a binary file with no newline is not read whole, and \r
+  # splits like a blank so a CRLF line still names its interpreter.
   first_line=""
   IFS= read -r -n 256 first_line <"$path" || true
   interpreter=""
   case "$first_line" in
     '#!'*)
       shebang_words=()
-      read -r -a shebang_words <<<"${first_line#\#!}" || true
+      IFS=$' \t\r' read -r -a shebang_words <<<"${first_line#\#!}" || true
       # The +-guard keeps a bare `#!` (no words) from tripping `set -u` on
       # bash 3.2, which treats an empty array expansion as unbound.
       for word in ${shebang_words[@]+"${shebang_words[@]}"}; do
@@ -77,14 +77,13 @@ while IFS= read -r -d '' path; do
           env | */env | -* | *=*) continue ;;
         esac
         interpreter="${word##*/}"
-        interpreter="${interpreter%$'\r'}"
         break
       done
       ;;
   esac
 
   case "$interpreter" in
-    zsh) zsh_files+=("$path") ;;
+    zsh) echo "check_shell: NOTICE: skipping zsh script (shellcheck does not support zsh): $path" ;;
     sh | bash | dash) files+=("$path") ;;
     *)
       case "$path" in
@@ -108,11 +107,6 @@ if [ "${#files[@]}" -eq 0 ]; then
 fi
 
 shellcheck --version | sed -n 's/^version: /check_shell: shellcheck /p'
-if [ "${#zsh_files[@]}" -gt 0 ]; then
-  for path in "${zsh_files[@]}"; do
-    echo "check_shell: NOTICE: skipping zsh script (shellcheck does not support zsh): $path"
-  done
-fi
 echo "check_shell: checking ${#files[@]} tracked files at severity warning"
 
 if ! shellcheck --severity=warning "${files[@]}"; then
