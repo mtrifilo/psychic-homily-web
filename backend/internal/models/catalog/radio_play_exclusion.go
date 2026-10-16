@@ -8,6 +8,7 @@ const (
 	RadioPlayExclusionMatchArtistName = "artist_name"
 	RadioPlayExclusionMatchTrackTitle = "track_title"
 	RadioPlayExclusionMatchLabelName  = "label_name"
+	RadioPlayExclusionMatchAlbumTitle = "album_title"
 )
 
 // Pattern types for radio_play_exclusions.pattern_type. Exact patterns are
