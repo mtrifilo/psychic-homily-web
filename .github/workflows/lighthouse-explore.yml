@@ -156,7 +156,12 @@ jobs:
       # serves 2xx (e.g. Vercel build still propagating after the
       # deployment_status was posted). Separate step so the failure
       # message points at the right thing.
+      #
+      # A 3xx to /graph means /explore is a redirect rather than a page, so
+      # there is nothing at that URL to audit: the step sets `skip=true` and
+      # the Lighthouse steps below do not run. Any other 3xx keeps polling.
       - name: Verify preview is reachable with bypass
+        id: preview-probe
         env:
           PREVIEW_URL: ${{ steps.vercel-preview.outputs.url }}
           BYPASS: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}
@@ -174,6 +179,21 @@ jobs:
               echo "Preview /explore is reachable with bypass."
               exit 0
             fi
+            case "$STATUS" in
+              3??)
+                LOCATION=$(curl -sS -o /dev/null -w '%{redirect_url}' \
+                  -H "x-vercel-protection-bypass: $BYPASS" \
+                  "$PREVIEW_URL/explore" || true)
+                echo "Redirects to: $LOCATION"
+                case "$LOCATION" in
+                  */graph)
+                    echo "::notice::The /explore page no longer exists: it is a config redirect to /graph since PSY-2387 (HTTP $STATUS). Lighthouse is skipped pending the owner's decision on PSY-2421 (retarget to /graph with its own budget, or retire this gate)."
+                    echo "skip=true" >> "$GITHUB_OUTPUT"
+                    exit 0
+                    ;;
+                esac
+                ;;
+            esac
             sleep 5
           done
           echo "::error::Preview URL never returned 200 with bypass header after 5 minutes."
@@ -184,6 +204,7 @@ jobs:
       # the bypass header. Cookie-based approach skipped because
       # extraHeaders applies to all requests, not just the initial.
       - name: Inject bypass header into lighthouserc.json
+        if: steps.preview-probe.outputs.skip != 'true'
         env:
           BYPASS: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}
         run: |
@@ -200,6 +221,7 @@ jobs:
       # @lhci/cli internally; no local package.json wiring needed
       # for the CI path. (Local runs use the devDependency.)
       - name: Run Lighthouse CI
+        if: steps.preview-probe.outputs.skip != 'true'
         uses: treosh/lighthouse-ci-action@v12
         with:
           urls: |
