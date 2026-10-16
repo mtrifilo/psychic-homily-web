@@ -172,7 +172,9 @@ type JWTServiceInterface interface {
 
 // AppleAuthServiceInterface defines the contract for Apple authentication operations.
 type AppleAuthServiceInterface interface {
-	ValidateIdentityToken(identityToken string) (*AppleIdentityTokenClaims, error)
+	// Returns ctx's error when ctx ends while the lookup waits on a key-set
+	// fetch.
+	ValidateIdentityToken(ctx context.Context, identityToken string) (*AppleIdentityTokenClaims, error)
 	// Refuses with a typed AuthError carrying CodeOAuthLinkRefused when the
 	// claims' address already belongs to an account this identity may not join
 	// on the address alone. Creates with email_verified from the claim, so an

@@ -132,7 +132,7 @@ type presetClaimsAppleService struct {
 	claims *contracts.AppleIdentityTokenClaims
 }
 
-func (p presetClaimsAppleService) ValidateIdentityToken(string) (*contracts.AppleIdentityTokenClaims, error) {
+func (p presetClaimsAppleService) ValidateIdentityToken(context.Context, string) (*contracts.AppleIdentityTokenClaims, error) {
 	return p.claims, nil
 }
 
