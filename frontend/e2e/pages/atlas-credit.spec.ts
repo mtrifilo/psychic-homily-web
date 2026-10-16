@@ -7,10 +7,12 @@ import {
   jumpToPhoenix,
   phoenixDotPoint,
   PHONE_CONTEXT,
+  SHEET_SETTLE_TIMEOUT_MS,
   stubAtlas,
   waitForMap,
   type AtlasMapSeam,
 } from '../helpers/atlas'
+import { waitForAnimationsSettled } from '../helpers/animations'
 
 /**
  * The map credit (the OpenStreetMap attribution the ODbL requires) across
@@ -116,42 +118,16 @@ async function pressSceneDot(page: Page, how: 'tap' | 'click') {
   else await page.mouse.click(point.x, point.y)
 }
 
-/**
- * How long `stepDetent` waits for the sheet to settle. The sheet's height
- * transition advances only when Chromium draws a frame, and under SwiftShader
- * a map redraw (the map resizing as the banner leaves, or after a camera move)
- * can hold off frames, and block the page's main thread, for several seconds.
- */
-const DETENT_SETTLE_TIMEOUT_MS = 30_000
-
-/**
- * How long one in-page wait on the sheet's animations runs before the check
- * reads them again, so a failure reports what is still running.
- */
-const DETENT_SETTLE_READ_MS = 1_000
-
 async function stepDetent(page: Page, sheetTestId: string, to: string) {
   const sheet = page.getByTestId(sheetTestId)
   await sheet.locator('[data-bottom-sheet-grabber]').tap()
   await expect(sheet).toHaveAttribute('data-detent', to)
-  // Wait out the settle animation before measuring. The detent attribute is
-  // already committed, and getAnimations() flushes style first, so the height
-  // transition it starts is listed until it finishes. Each read waits in the
-  // page for every listed animation to finish (or be replaced by a newer
-  // one), so the wait ends on the frame the transition does rather than a
-  // poll interval later, then lists what is running now.
-  await expect(async () => {
-    const running = await sheet.evaluate(async (el, readMs) => {
-      await Promise.race([
-        Promise.allSettled(el.getAnimations().map((a) => a.finished)),
-        new Promise((resolve) => setTimeout(resolve, readMs)),
-      ])
-      return el
-        .getAnimations()
-        .map((a) => (a instanceof CSSTransition ? a.transitionProperty : a.constructor.name))
-    }, DETENT_SETTLE_READ_MS)
-    expect(running, `${sheetTestId} animations still running at ${to}`).toEqual([])
-  }).toPass({ timeout: DETENT_SETTLE_TIMEOUT_MS, intervals: [0] })
+  // Wait out the settle animation before measuring: the detent attribute is
+  // committed, so the height transition it starts is listed until it ends.
+  await waitForAnimationsSettled(sheet, {
+    budgetMs: SHEET_SETTLE_TIMEOUT_MS,
+    label: `${sheetTestId} at ${to}`,
+  })
 }
 
 /**
