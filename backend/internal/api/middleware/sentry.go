@@ -2,6 +2,7 @@ package middleware
 
 import (
 	"fmt"
+	"net/http"
 
 	"github.com/danielgtaylor/huma/v2"
 	"github.com/getsentry/sentry-go"
@@ -9,18 +10,28 @@ import (
 	"psychic-homily-backend/internal/logger"
 )
 
-// HumaSentryContextMiddleware enriches the Sentry scope with request-level
-// context: request ID, HTTP metadata, and user information (if authenticated).
-// It should be applied after HumaRequestIDMiddleware and works with the hub
-// injected by the sentryhttp Chi middleware.
+// SentryRequestIDTag tags the request's Sentry scope with the request ID, so
+// every event from a route registered on chi or a Huma operation carries the
+// ID its response and log lines carry. Register it after RequestIDMiddleware
+// and the sentryhttp handler, whose hub it tags.
+func SentryRequestIDTag(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if hub := sentry.GetHubFromContext(r.Context()); hub != nil {
+			if requestID := logger.GetRequestID(r.Context()); requestID != "" {
+				hub.Scope().SetTag("request_id", requestID)
+			}
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+// HumaSentryContextMiddleware enriches the Sentry scope with HTTP metadata and
+// user information (if authenticated). The request ID tag comes from
+// SentryRequestIDTag in the chi chain. It works with the hub injected by the
+// sentryhttp Chi middleware.
 func HumaSentryContextMiddleware(ctx huma.Context, next func(huma.Context)) {
 	if hub := sentry.GetHubFromContext(ctx.Context()); hub != nil {
 		hub.ConfigureScope(func(scope *sentry.Scope) {
-			// Request ID for log correlation
-			if reqID := logger.GetRequestID(ctx.Context()); reqID != "" {
-				scope.SetTag("request_id", reqID)
-			}
-
 			// HTTP context. The raw query string is deliberately NOT
 			// tagged: secret-bearing routes (magic-link ?token=, digest
 			// unsubscribe ?sig=) would otherwise land in searchable Sentry
