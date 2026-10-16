@@ -79,8 +79,16 @@ test.describe('Music Knowledge Graph', () => {
     ).toBeVisible()
   })
 
-  test('/explore hands off to the Observatory', async ({ page }) => {
-    await page.goto('/explore')
+  test('/explore hands off to the Observatory', async ({ page, request }) => {
+    const redirect = await request.get('/explore', { maxRedirects: 0 })
+    expect(
+      redirect.status(),
+      '/explore must answer the permanent redirect itself, not a 200 page',
+    ).toBe(308)
+    expect(new URL(redirect.headers()['location'], 'http://origin').pathname).toBe('/graph')
+
+    const response = await page.goto('/explore')
+    expect(response?.status()).toBe(200)
     await expect(page).toHaveURL(/\/graph$/)
     await expect(page.getByRole('heading', { name: 'Music Knowledge Graph' })).toBeVisible()
   })
