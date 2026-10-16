@@ -17,8 +17,6 @@ vi.mock('@/lib/context/AuthContext', () => ({
 
 // Create mocks
 const mockApiRequest = vi.fn()
-const mockInvalidateSavedShows = vi.fn()
-const mockInvalidatePersonalCharts = vi.fn()
 
 // Mock the api module
 vi.mock('@/lib/api', () => ({
@@ -89,15 +87,21 @@ vi.mock('@/lib/queryClient', () => ({
         showIds,
       ],
     },
+    charts: { personalRoot: ['charts', 'personal'] },
   },
-  createInvalidateQueries: () => ({
-    savedShows: mockInvalidateSavedShows,
-    personalCharts: mockInvalidatePersonalCharts,
-  }),
 }))
+
+// The real helper runs against the real client; the spy records which keys
+// each mutation refetches.
+vi.mock('@/lib/refetchAfterMutation', async importOriginal => {
+  const actual =
+    await importOriginal<typeof import('@/lib/refetchAfterMutation')>()
+  return { refetchAfterMutation: vi.fn(actual.refetchAfterMutation) }
+})
 
 // Import hooks after mocks are set up (queryKeys resolves to the mock above)
 import { queryKeys } from '@/lib/queryClient'
+import { refetchAfterMutation } from '@/lib/refetchAfterMutation'
 import {
   useInfiniteSavedShows,
   useSavedShows,
@@ -284,6 +288,13 @@ describe('useSavedShows', () => {
       <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
     )
 
+    const narrowListKey = queryKeys.savedShows.list('1')
+    queryClient.setQueryData(narrowListKey, {
+      shows: [],
+      total: 0,
+      limit: 50,
+      offset: 0,
+    })
     const { result } = renderHook(
       () => useUnsaveShow({ syncMode: 'patch-infinite', userId: '1' }),
       { wrapper }
@@ -298,7 +309,20 @@ describe('useSavedShows', () => {
     expect(cached?.pages[0].shows).toEqual([{ id: 2 }, { id: 3 }, { id: 4 }])
     expect(cached?.pages[0].total).toBe(104)
     expect(cached?.pages[1].total).toBe(104)
-    expect(mockInvalidateSavedShows).not.toHaveBeenCalled()
+    expect(refetchAfterMutation).toHaveBeenCalledWith(
+      queryClient,
+      queryKeys.savedShows.listPrefix('1'),
+      queryKeys.savedShows.countBatchPrefix('1'),
+      ['savedShows', 'countBatch', false, null],
+      queryKeys.savedShows.count(1, true, '1'),
+      queryKeys.savedShows.count(1, false)
+    )
+    // The narrow refetch has landed once the plain list is marked; the
+    // patched infinite pages must not have been marked with it.
+    await waitFor(() =>
+      expect(queryClient.getQueryState(narrowListKey)?.isInvalidated).toBe(true)
+    )
+    expect(queryClient.getQueryState(queryKey)?.isInvalidated).toBe(false)
 
     const infinite = renderHook(() => useInfiniteSavedShows('upcoming', '1'), {
       wrapper,
@@ -426,8 +450,6 @@ describe('useSaveShow', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mockApiRequest.mockReset()
-    mockInvalidateSavedShows.mockReset()
-    mockInvalidatePersonalCharts.mockReset()
   })
 
   it('saves a show with correct endpoint', async () => {
@@ -467,8 +489,14 @@ describe('useSaveShow', () => {
 
     await waitFor(() => expect(result.current.isSuccess).toBe(true))
 
-    expect(mockInvalidateSavedShows).toHaveBeenCalled()
-    expect(mockInvalidatePersonalCharts).toHaveBeenCalled()
+    expect(refetchAfterMutation).toHaveBeenCalledWith(
+      expect.anything(),
+      queryKeys.savedShows.all
+    )
+    expect(refetchAfterMutation).toHaveBeenCalledWith(
+      expect.anything(),
+      queryKeys.charts.personalRoot
+    )
   })
 
   it('handles save errors', async () => {
@@ -487,7 +515,10 @@ describe('useSaveShow', () => {
     await waitFor(() => expect(result.current.isError).toBe(true))
 
     expect(result.current.error).toBeDefined()
-    expect(mockInvalidatePersonalCharts).toHaveBeenCalled()
+    expect(refetchAfterMutation).toHaveBeenCalledWith(
+      expect.anything(),
+      queryKeys.charts.personalRoot
+    )
   })
 })
 
@@ -495,8 +526,6 @@ describe('useUnsaveShow', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mockApiRequest.mockReset()
-    mockInvalidateSavedShows.mockReset()
-    mockInvalidatePersonalCharts.mockReset()
   })
 
   it('unsaves a show with correct endpoint', async () => {
@@ -535,8 +564,14 @@ describe('useUnsaveShow', () => {
 
     await waitFor(() => expect(result.current.isSuccess).toBe(true))
 
-    expect(mockInvalidateSavedShows).toHaveBeenCalled()
-    expect(mockInvalidatePersonalCharts).toHaveBeenCalled()
+    expect(refetchAfterMutation).toHaveBeenCalledWith(
+      expect.anything(),
+      queryKeys.savedShows.all
+    )
+    expect(refetchAfterMutation).toHaveBeenCalledWith(
+      expect.anything(),
+      queryKeys.charts.personalRoot
+    )
   })
 
   it('handles unsave errors', async () => {
@@ -555,7 +590,10 @@ describe('useUnsaveShow', () => {
     await waitFor(() => expect(result.current.isError).toBe(true))
 
     expect(result.current.error).toBeDefined()
-    expect(mockInvalidatePersonalCharts).toHaveBeenCalled()
+    expect(refetchAfterMutation).toHaveBeenCalledWith(
+      expect.anything(),
+      queryKeys.charts.personalRoot
+    )
   })
 })
 
@@ -563,7 +601,6 @@ describe('useSaveShowToggle', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mockApiRequest.mockReset()
-    mockInvalidateSavedShows.mockReset()
   })
 
   it('toggle saves an unsaved show', async () => {
@@ -689,6 +726,12 @@ describe('useSaveShowToggle', () => {
       save_count: 4,
       is_saved: false,
     })
+    // The optimistic premise may itself have been stale, so the failure
+    // re-syncs the whole saved-shows family from the server.
+    expect(refetchAfterMutation).toHaveBeenCalledWith(
+      queryClient,
+      queryKeys.savedShows.all
+    )
   })
 
   it('never drives the cached count negative', async () => {
