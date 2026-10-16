@@ -1614,13 +1614,16 @@ func (h *RadioHandler) AdminLinkPlayHandler(ctx context.Context, req *AdminLinkP
 		)
 	}
 
-	// Audit log (fire and forget)
+	// Audit log (fire and forget). The action is a string literal because the
+	// audit-metadata disposition sweep reads actions from source and accepts
+	// only literals; it equals contracts.AuditActionLinkRadioPlay, which the
+	// release-link backfill reads.
 	if h.auditLogService != nil {
 		servicesshared.SubmitAuditWrite("audit_log", func() {
-			h.auditLogService.LogAction(user.ID, "link_radio_play", "radio_play", req.PlayID, map[string]interface{}{
-				"artist_id":  req.Body.ArtistID,
-				"release_id": req.Body.ReleaseID,
-				"label_id":   req.Body.LabelID,
+			h.auditLogService.LogAction(user.ID, "link_radio_play", contracts.AuditEntityRadioPlay, req.PlayID, map[string]interface{}{
+				contracts.AuditMetaArtistID:  req.Body.ArtistID,
+				contracts.AuditMetaReleaseID: req.Body.ReleaseID,
+				contracts.AuditMetaLabelID:   req.Body.LabelID,
 			})
 		})
 	}
