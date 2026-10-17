@@ -196,7 +196,8 @@ type AppleAuthServiceInterface interface {
 	// Apple identity signs in whatever consent carries, nil included. A
 	// creation whose consent fails shared.ValidateOAuthSignupConsent is refused
 	// with that typed AuthError (CodeTermsAcceptanceRequired or
-	// CodeAgeConfirmationRequired) and writes nothing.
+	// CodeAgeConfirmationRequired) and writes nothing. An email claim Postgres
+	// rejects as text is refused with CodeValidationFailed before any query.
 	FindOrCreateAppleUser(claims *AppleIdentityTokenClaims, firstName, lastName string, consent *OAuthSignupConsent) (*authm.User, error)
 	GenerateToken(user *authm.User) (string, error)
 }
@@ -251,9 +252,10 @@ type WebAuthnServiceInterface interface {
 	// FinishSignupRegistrationWithLegal answers a refusal with an
 	// *errors.AuthError coded TERMS_ACCEPTANCE_REQUIRED (an acceptance that
 	// names no terms version), VALIDATION_FAILED (a registration response that
-	// fails verification) or USER_EXISTS (an address an account already
-	// holds), whose message is the client's copy. Any other error means the
-	// account was not created, or was created and could not be read back.
+	// fails verification, or whose credential id an account already holds) or
+	// USER_EXISTS (an address an account already holds), whose message is the
+	// client's copy. Any other error means the account was not created, or was
+	// created and could not be read back.
 	FinishSignupRegistrationWithLegal(email string, session *webauthn.SessionData, response *protocol.ParsedCredentialCreationData, displayName string, acceptance LegalAcceptance) (*authm.User, error)
 }
 

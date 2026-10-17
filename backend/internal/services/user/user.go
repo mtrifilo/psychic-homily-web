@@ -190,7 +190,8 @@ func NewUserService(database *gorm.DB) *UserService {
 // CodeAccountInactive when the identity resolves to an account that may not
 // sign in (authm.User.CanSignIn), CodeAccountRecoverable in place of either of
 // those two when the account was deleted and is inside its recovery window
-// (see closedAccountRefusal and the address branch below), and the consent
+// (see closedAccountRefusal and the address branch below), the refusal of
+// shared.ValidateProviderEmailClaim before any query, and the consent
 // refusals of shared.ValidateOAuthSignupConsent when an account would be
 // created. Callers that render a refusal differently from a fault must
 // discriminate on the code.
@@ -205,6 +206,10 @@ func (s *UserService) FindOrCreateUserWithConsent(gothUser goth.User, provider s
 	// owner, ahead of every check below.
 	if gothUser.UserID == "" {
 		return nil, fmt.Errorf("oauth provider %q returned no user id", provider)
+	}
+
+	if err := shared.ValidateProviderEmailClaim(provider, gothUser.Email); err != nil {
+		return nil, err
 	}
 
 	// First, try to find existing OAuth account

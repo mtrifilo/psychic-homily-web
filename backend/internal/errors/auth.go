@@ -380,6 +380,14 @@ func ErrValidationFailed(message string) *AuthError {
 	return NewAuthError(CodeValidationFailed, message, nil)
 }
 
+// ErrProviderEmailUnstorable is the refusal for an identity provider's email
+// claim that no users row can hold: one Postgres rejects as text. Neither its
+// message nor its internal error carries the claim.
+func ErrProviderEmailUnstorable() *AuthError {
+	return NewAuthError(CodeValidationFailed, ToExternalMessage(CodeValidationFailed),
+		fmt.Errorf("provider email claim is not storable text"))
+}
+
 // ErrAccountLocked creates an account locked error with the unlock time.
 func ErrAccountLocked(message string) *AuthError {
 	return NewAuthError(CodeAccountLocked, message, nil)
