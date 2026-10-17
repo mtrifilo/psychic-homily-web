@@ -129,33 +129,42 @@ func (suite *UserServiceIntegrationTestSuite) TestAuthenticateUserWithPassword_A
 	}
 }
 
-// An OAuth identity attached to no account, whose address belongs to one, is
-// refused with OAUTH_LINK_REFUSED in every state of that account except one: a
-// recoverable deleted account, when the provider vouches for the address, is
-// refused with ACCOUNT_RECOVERABLE. Nothing is attached and nothing is created
-// either way.
+// providerVouches are the shapes of a provider's email-verification claim: a
+// vouch, an explicit refusal to vouch, and no claim at all.
+var providerVouches = []struct {
+	kind    string
+	rawData map[string]any
+	vouched bool
+}{
+	{kind: "vouched", rawData: map[string]any{"verified_email": true}, vouched: true},
+	{kind: "unvouched", rawData: map[string]any{"verified_email": false}},
+	{kind: "no-claim", rawData: nil},
+}
+
+// An OAuth identity attached to no account, whose address belongs to a
+// verified one, is refused with OAUTH_LINK_REFUSED in every state of that
+// account except one: a recoverable deleted account, when the provider vouches
+// for the address, is refused with ACCOUNT_RECOVERABLE. Nothing is attached and
+// nothing is created either way.
 func (suite *UserServiceIntegrationTestSuite) TestFindOrCreateUserWithConsent_AddressOfClosedAccount() {
 	for _, state := range signInAccountStates {
-		for _, vouched := range []bool{true, false} {
-			kind := "vouched"
-			if !vouched {
-				kind = "unvouched"
-			}
-			suite.Run(state.name+"/"+kind, func() {
-				suffix := state.name + "." + kind
+		for _, vouch := range providerVouches {
+			suite.Run(state.name+"/"+vouch.kind, func() {
+				suffix := state.name + "." + vouch.kind
 				address := "address.state." + suffix + "@example.com"
 				existing, err := suite.userService.CreateUserWithPasswordWithLegal(address, "CorrectPassword1!", "State", "User", signupconsent.CurrentLegalAcceptance())
 				suite.Require().NoError(err)
+				suite.Require().NoError(suite.userService.SetEmailVerified(existing.ID, true))
 				state.apply(suite, existing.ID)
 
 				user, err := suite.userService.FindOrCreateUserWithConsent(goth.User{
 					UserID:  "address-state-" + suffix,
 					Email:   address,
-					RawData: map[string]any{"verified_email": vouched},
+					RawData: vouch.rawData,
 				}, "google", signupconsent.CurrentOAuthSignupConsent())
 
 				want := apperrors.ErrOAuthLinkRefused(address)
-				if vouched && state.recoverable() {
+				if vouch.vouched && state.recoverable() {
 					want = apperrors.ErrAccountRecoverable()
 				}
 				suite.assertSignInOutcome(want, existing.ID, user, err)
@@ -165,4 +174,40 @@ func (suite *UserServiceIntegrationTestSuite) TestFindOrCreateUserWithConsent_Ad
 			})
 		}
 	}
+}
+
+// A recoverable deleted account whose address was never verified may be a
+// squat on the caller's address, and recovery would restore it with the
+// squatter's password on it. A vouched OAuth sign-in on that address is
+// refused with OAUTH_LINK_REFUSED, never sent to recovery.
+func (suite *UserServiceIntegrationTestSuite) TestFindOrCreateUserWithConsent_AddressOfRecoverableUnverifiedAccount() {
+	const address = "address.recoverable.unverified@example.com"
+	squatted, err := suite.userService.CreateUserWithPasswordWithLegal(address, "Squatter123!", "Squat", "Ter", signupconsent.CurrentLegalAcceptance())
+	suite.Require().NoError(err)
+	suite.Require().False(squatted.EmailVerified)
+	suite.Require().NoError(suite.userService.SoftDeleteAccount(squatted.ID, nil))
+
+	user, err := suite.userService.FindOrCreateUserWithConsent(goth.User{
+		UserID:  "address-recoverable-unverified-owner",
+		Email:   address,
+		RawData: map[string]any{"verified_email": true},
+	}, "google", signupconsent.CurrentOAuthSignupConsent())
+
+	suite.assertSignInOutcome(apperrors.ErrOAuthLinkRefused(address), squatted.ID, user, err)
+	suite.assertNoOAuthAccountFor(squatted.ID)
+	suite.assertSingleUserForEmail(address)
+}
+
+// Account recovery finds and mails an account by its address, so a recoverable
+// deleted account with none is not sent there: its identity's sign-in is
+// refused with ACCOUNT_INACTIVE.
+func (suite *UserServiceIntegrationTestSuite) TestFindOrCreateUserWithConsent_RecoverableAccountWithNoAddress() {
+	identity := goth.User{UserID: "github-no-address"}
+	created, err := suite.userService.FindOrCreateUserWithConsent(identity, "github", signupconsent.CurrentOAuthSignupConsent())
+	suite.Require().NoError(err)
+	suite.Require().Nil(created.Email)
+	suite.Require().NoError(suite.userService.SoftDeleteAccount(created.ID, nil))
+
+	user, err := suite.userService.FindOrCreateUserWithConsent(identity, "github", nil)
+	suite.assertSignInOutcome(apperrors.ErrAccountInactive(), created.ID, user, err)
 }

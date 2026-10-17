@@ -57,42 +57,54 @@ func (s *AuthHandlerIntegrationSuite) TestLogin_AccountState() {
 }
 
 // A Google identity attached to no account, whose address belongs to a
-// recoverable deleted account, is sent to recovery when Google vouches for the
-// address and gets the ordinary link refusal when it does not. Neither attaches
-// the identity, and the address stays out of the redirect.
+// recoverable deleted account, is sent to recovery only when Google vouches for
+// the address and the account's address is verified; otherwise it gets the
+// ordinary link refusal. None of them attaches the identity or creates an
+// account, and the address stays out of the redirect.
 func (s *OAuthHandlerIntegrationSuite) TestGoogleCallback_AddressOfRecoverableAccount() {
-	for _, vouched := range []bool{true, false} {
-		kind := "vouched"
-		if !vouched {
-			kind = "unvouched"
-		}
-		s.Run(kind, func() {
-			address := "callback-recoverable-" + kind + "@test.com"
-			existing := &authm.User{Email: strPtr(address), IsActive: true, EmailVerified: true}
+	cases := []struct {
+		name            string
+		vouched         bool
+		accountVerified bool
+	}{
+		{name: "vouched", vouched: true, accountVerified: true},
+		{name: "unvouched", vouched: false, accountVerified: true},
+		{name: "vouched-unverified-account", vouched: true, accountVerified: false},
+	}
+	for _, tc := range cases {
+		s.Run(tc.name, func() {
+			address := "callback-recoverable-" + tc.name + "@test.com"
+			subject := "google-recoverable-" + tc.name
+			existing := &authm.User{Email: strPtr(address), IsActive: true, EmailVerified: tc.accountVerified}
 			s.Require().NoError(s.deps.DB.Create(existing).Error)
 			s.Require().NoError(s.deps.UserService.SoftDeleteAccount(existing.ID, nil))
 
 			handler := s.newHandler(&mockOAuthCompleter{user: goth.User{
 				Provider: "google",
-				UserID:   "google-recoverable-" + kind,
+				UserID:   subject,
 				Email:    address,
-				RawData:  map[string]any{"verified_email": vouched},
+				RawData:  map[string]any{"verified_email": tc.vouched},
 			}})
 			w, req := oauthCallbackRequest("google")
 			s.addSignupConsentCookie(req)
 			handler.OAuthCallbackHTTPHandler(w, req)
 
-			if vouched {
+			if tc.vouched && tc.accountVerified {
 				s.assertAuthPageRefusal(w, autherrors.ErrAccountRecoverable())
 				s.NotContains(w.Header().Get("Location"), address)
 			} else {
 				s.assertSignInRefusal(w, address)
 			}
 
-			var oauthRows int64
+			var identityRows int64
 			s.Require().NoError(s.deps.DB.Model(&authm.OAuthAccount{}).
-				Where("user_id = ?", existing.ID).Count(&oauthRows).Error)
-			s.Equal(int64(0), oauthRows)
+				Where("user_id = ? OR provider_user_id = ?", existing.ID, subject).Count(&identityRows).Error)
+			s.Equal(int64(0), identityRows, "a refusal attaches the identity to no account")
+
+			var accounts int64
+			s.Require().NoError(s.deps.DB.Model(&authm.User{}).
+				Where(authm.EmailIdentityWhere, address).Count(&accounts).Error)
+			s.Equal(int64(1), accounts, "a refusal creates no account")
 		})
 	}
 }

@@ -254,14 +254,19 @@ func (s *UserService) FindOrCreateUserWithConsent(gothUser goth.User, provider s
 			// /auth/link/{provider}, which the refusal names.
 			//
 			// A deleted account inside its recovery window cannot be signed
-			// in to, so that remediation is a dead end for it. When the
-			// provider vouches for the address, the refusal sends the caller
-			// to account recovery instead. Recovery mails that address, so
-			// it reveals the deletion to no one the recovery email would not
-			// reach, and it attaches nothing. Without the provider's vouch
-			// the caller may not hold the mailbox, and the refusal stays the
-			// one that says nothing of the account's state.
-			if providerAssertsEmailVerified(gothUser) && s.IsAccountRecoverable(&existingUser) {
+			// in to, so that remediation is a dead end for it. The refusal
+			// sends the caller to account recovery instead when both sides
+			// vouch for the mailbox: the provider for the caller, and this
+			// system's own verification for the account. Recovery mails that
+			// address, so the refusal reveals the deletion to no one the
+			// recovery email would not reach, and it attaches nothing.
+			//
+			// Without the provider's vouch the caller may not hold the
+			// mailbox. Without the account's, the account may be a squat on
+			// the caller's address, and recovery restores it with the
+			// squatter's password still on it. Either way the refusal stays
+			// the one that says nothing of the account's state.
+			if providerAssertsEmailVerified(gothUser) && existingUser.EmailVerified && s.recoverableByEmail(&existingUser) {
 				logger.Default().Warn("oauth_signin_refused_account_recoverable",
 					"provider", provider,
 					"user_id", existingUser.ID)
@@ -1637,14 +1642,22 @@ func (s *UserService) IsAccountRecoverable(user *authm.User) bool {
 
 // closedAccountRefusal is the refusal for a sign-in into user, an account that
 // may not sign in (authm.User.CanSignIn), by a caller who has proved its
-// credential: CodeAccountRecoverable while the account is recoverable
-// (IsAccountRecoverable), so the caller can be sent to account recovery, and
+// credential: CodeAccountRecoverable when account recovery can restore it
+// (recoverableByEmail), so the caller can be sent there, and
 // CodeAccountInactive otherwise.
 func (s *UserService) closedAccountRefusal(user *authm.User) *apperrors.AuthError {
-	if s.IsAccountRecoverable(user) {
+	if s.recoverableByEmail(user) {
 		return apperrors.ErrAccountRecoverable()
 	}
 	return apperrors.ErrAccountInactive()
+}
+
+// recoverableByEmail reports whether account recovery can restore user: it is
+// recoverable (IsAccountRecoverable) and has the address recovery finds it by
+// and mails. An account with no address cannot be restored there, so sending
+// its holder to recovery would be a dead end.
+func (s *UserService) recoverableByEmail(user *authm.User) bool {
+	return s.IsAccountRecoverable(user) && user.Email != nil && *user.Email != ""
 }
 
 // GetDaysUntilPermanentDeletion returns the number of days until an account is permanently deleted

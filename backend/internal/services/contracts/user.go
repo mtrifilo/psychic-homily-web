@@ -302,8 +302,8 @@ type UserServiceInterface interface {
 	// FindOrCreateUserWithConsent refuses with a typed AuthError carrying
 	// CodeOAuthLinkRefused when the provider's address already belongs to an
 	// account the identity is not attached to, with CodeAccountRecoverable
-	// instead when that account is recoverable and the provider vouches for
-	// the address, and with CodeTermsAcceptanceRequired or
+	// instead when that account is recoverable, its address is verified and
+	// the provider vouches for the address, and with CodeTermsAcceptanceRequired or
 	// CodeAgeConfirmationRequired when it would create an account without
 	// consent. It creates the account with
 	// email_verified set to what the provider asserted, so an unvouched

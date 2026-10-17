@@ -48,9 +48,11 @@ const (
 	//
 	// It names the deletion, which CodeAccountInactive does not, so it goes
 	// only to a caller who may already learn it: one who proved the account's
-	// credential, or an OAuth sign-in whose provider vouches for the
-	// account's address. Account recovery answers that mailbox's holder with
-	// a recovery email exactly when the account is recoverable.
+	// credential, or an OAuth sign-in whose provider vouches for the address
+	// of an account whose address is verified. Account recovery answers that
+	// mailbox's holder with a recovery email exactly when the account is
+	// recoverable. An account with no address cannot be recovered there and
+	// keeps CodeAccountInactive.
 	CodeAccountRecoverable = "ACCOUNT_RECOVERABLE"
 	// CodeNoPasswordSet indicates the user has no password (OAuth-only account)
 	CodeNoPasswordSet = "NO_PASSWORD_SET"
@@ -287,7 +289,7 @@ const (
 	// The browser auth page renders its own copy for ACCOUNT_RECOVERABLE with
 	// a link to account recovery (frontend/app/auth/page.tsx), so this string
 	// is what a CLI, a native client or a curl reader sees.
-	accountRecoverableMessage = "This account was deleted recently and can still be recovered. Recover it from the sign-in page."
+	accountRecoverableMessage = "This account was deleted recently and can still be recovered. Request a recovery email from account recovery on the website."
 )
 
 // ErrOAuthLinkRefused creates the refusal a goth OAuth sign-in gets when its
