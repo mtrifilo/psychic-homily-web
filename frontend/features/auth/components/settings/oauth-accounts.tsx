@@ -9,6 +9,11 @@ import {
   useUnlinkOAuthAccount,
 } from '@/features/auth'
 import { oauthLinkStartUrl } from '@/features/auth/oauthLinkStart'
+import {
+  OAUTH_LINK_ERROR_PARAM,
+  OAUTH_LINK_RESULT_PARAM,
+  withoutOAuthLinkResult,
+} from '@/lib/auth-href'
 // Subpath import, not the shared barrel: this panel is reachable from a
 // browse route and the barrel pulls the whole shared surface into its chunk.
 import { InlineErrorBanner } from '@/components/shared/InlineErrorBanner'
@@ -56,14 +61,6 @@ function GoogleIcon({ className }: { className?: string }) {
     </svg>
   )
 }
-
-/**
- * How the backend reports a finished link attempt on the redirect back here.
- * The same two names are written by redirectToLinkResult in
- * backend/internal/api/handlers/auth/oauth_link.go.
- */
-const OAUTH_LINK_RESULT_PARAM = 'oauth_link'
-const OAUTH_LINK_ERROR_PARAM = 'oauth_link_error'
 
 type OAuthLinkResult =
   | { status: 'connected' }
@@ -141,13 +138,6 @@ function readOAuthLinkResult(
     : null
 }
 
-function withoutOAuthLinkResult(params: URLSearchParams): string {
-  const next = new URLSearchParams(params.toString())
-  next.delete(OAUTH_LINK_RESULT_PARAM)
-  next.delete(OAUTH_LINK_ERROR_PARAM)
-  return next.toString()
-}
-
 export function OAuthAccounts() {
   const { data, isLoading, error } = useOAuthAccounts()
   const unlinkMutation = useUnlinkOAuthAccount()
@@ -166,10 +156,11 @@ export function OAuthAccounts() {
   useEffect(() => {
     // The rewrite is self-limiting: once the parameters are gone the stripped
     // query equals the current one and there is nothing left to replace.
-    const query = withoutOAuthLinkResult(searchParams)
-    if (!linkResult || query === searchParams.toString()) return
+    const current = searchParams.toString()
+    const stripped = withoutOAuthLinkResult(current)
+    if (!linkResult || stripped === (current ? `?${current}` : '')) return
 
-    router.replace(query ? `${pathname}?${query}` : pathname, { scroll: false })
+    router.replace(`${pathname}${stripped}`, { scroll: false })
   }, [linkResult, searchParams, pathname, router])
 
   const startLink = useStartOAuthLink()

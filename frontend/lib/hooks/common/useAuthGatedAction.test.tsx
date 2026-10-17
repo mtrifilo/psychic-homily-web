@@ -96,6 +96,19 @@ describe('useAuthGatedAction', () => {
     )
   })
 
+  it('leaves an OAuth link result out of returnTo', () => {
+    mockAuthStatus = 'anonymous'
+    mockPathname = '/profile'
+    setLocation('/profile?tab=settings&oauth_link=connected')
+    const { result } = renderHook(() => useAuthGatedAction('save', vi.fn()))
+
+    act(() => result.current.onClick())
+
+    expect(mockPush).toHaveBeenCalledWith(
+      '/auth?returnTo=%2Fprofile%3Ftab%3Dsettings&intent=save'
+    )
+  })
+
   it('suppresses the event default and propagation before it branches', () => {
     const preventDefault = vi.fn()
     const stopPropagation = vi.fn()
