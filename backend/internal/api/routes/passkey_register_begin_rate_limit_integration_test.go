@@ -144,7 +144,8 @@ func TestPasskeyRegisterBeginThrottledThroughRouter(t *testing.T) {
 		router := newRouter()
 		const ip = "198.51.100.122:4444"
 
-		for i := 0; i < passkeyRegisterBeginLimitPerMinute*3; i++ {
+		// Past both the account's budget and the address's ceiling.
+		for i := 0; i <= passkeyRegisterBeginIPCeiling; i++ {
 			requireRegisterBeginReached(t, router, ip, session, "refused with the rate limits disabled")
 		}
 	})

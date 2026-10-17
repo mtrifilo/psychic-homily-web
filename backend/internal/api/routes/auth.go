@@ -332,8 +332,8 @@ func setupPasskeyRoutes(rc RouteContext) {
 
 	// Adding a passkey to a signed-in account. Begin meters each account on a
 	// budget of its own, keyed by the session user, so accounts behind one
-	// address do not share it, and every account behind one address together
-	// on a per-IP ceiling. The group hangs off rc.Protected, so
+	// address do not share it, and meters every account behind one address
+	// together on a per-IP ceiling. The group hangs off rc.Protected, so
 	// HumaJWTMiddleware runs first and a caller with no session is refused
 	// before reaching either counter. Finish carries no per-route limiter, for
 	// the same reason the sign-up finish is kept off a begin budget.

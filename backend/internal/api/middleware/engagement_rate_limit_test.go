@@ -280,50 +280,68 @@ func TestRateLimitBySessionUser_OneBucketPerAccount(t *testing.T) {
 }
 
 // serveSessionUserLogged serves one request through handler with a capturing
-// logger and returns the response and the limiters its rejection lines name.
-func serveSessionUserLogged(t *testing.T, handler http.Handler, remoteAddr, bearer string) (*httptest.ResponseRecorder, []any) {
+// logger and returns the response and its ratelimit_rejected lines.
+func serveSessionUserLogged(t *testing.T, handler http.Handler, remoteAddr, bearer string) (*httptest.ResponseRecorder, []map[string]any) {
 	t.Helper()
 	logs := newLogCapture(t)
 	rr := serve(handler, logs.attach(mutationReq(remoteAddr, bearer)))
-	var limiters []any
-	for _, line := range logs.events(rateLimitRejectedEvent) {
-		limiters = append(limiters, line["limiter"])
+	return rr, logs.events(rateLimitRejectedEvent)
+}
+
+// requireOneRejection requires exactly one rejection line, naming limiter and
+// fingerprinting bucketKey, the bucket that refused.
+func requireOneRejection(t *testing.T, who string, lines []map[string]any, limiter LimiterName, bucketKey string) {
+	t.Helper()
+	if len(lines) != 1 {
+		t.Fatalf("%s: %d rejection lines, want 1", who, len(lines))
 	}
-	return rr, limiters
+	if lines[0]["limiter"] != string(limiter) {
+		t.Errorf("%s: rejection line names limiter %v, want %s", who, lines[0]["limiter"], limiter)
+	}
+	if got, want := lines[0]["key_fingerprint"], fingerprint(bucketKey); got != want {
+		t.Errorf("%s: key_fingerprint = %v, want the fingerprint of %q (%s)", who, got, bucketKey, want)
+	}
 }
 
 // Accounts behind one address each keep their own budget, and together they
 // are bounded by the address's ceiling: past it a fresh account, its own budget
-// untouched, is refused by the ceiling with the same 429 and Retry-After.
+// untouched, is refused by the ceiling with the same 429 and Retry-After. Each
+// refusal line fingerprints the bucket that refused: the account for its own
+// budget, the address for the ceiling.
 func TestRateLimitBySessionUser_IPCeilingBoundsAccountsTogether(t *testing.T) {
 	jwtService := newTestJWTService()
 	const perUser, ceiling = 2, 3
 	handler := sessionUserMW(jwtService, perUser, ceiling)(okHandler())
-	const sharedIP = "5.5.5.5:1000"
+	const sharedIP, sharedIPKey = "5.5.5.5:1000", "5.5.5.5"
 	tokenA := mkEngagementToken(t, jwtService, 1)
 	tokenB := mkEngagementToken(t, jwtService, 2)
 	tokenC := mkEngagementToken(t, jwtService, 3)
+	tokenD := mkEngagementToken(t, jwtService, 4)
 
 	for i := 0; i < perUser; i++ {
 		if rr := serve(handler, mutationReq(sharedIP, tokenA)); rr.Code != http.StatusOK {
 			t.Fatalf("A request %d: status = %d, want 200", i+1, rr.Code)
 		}
 	}
-	rr, limiters := serveSessionUserLogged(t, handler, sharedIP, tokenA)
-	if rr.Code != http.StatusTooManyRequests || len(limiters) != 1 || limiters[0] != string(LimiterPasskeyRegisterBegin) {
-		t.Fatalf("A past its own budget: status = %d, rejection lines name %v, want 429 from [%s]", rr.Code, limiters, LimiterPasskeyRegisterBegin)
+	rr, lines := serveSessionUserLogged(t, handler, sharedIP, tokenA)
+	if rr.Code != http.StatusTooManyRequests {
+		t.Fatalf("A past its own budget: status = %d, want 429", rr.Code)
 	}
+	requireOneRejection(t, "A past its own budget", lines, LimiterPasskeyRegisterBegin, "user:1")
 
 	if rr := serve(handler, mutationReq(sharedIP, tokenB)); rr.Code != http.StatusOK {
 		t.Fatalf("B first, filling the ceiling: status = %d, want 200", rr.Code)
 	}
-	rr, limiters = serveSessionUserLogged(t, handler, sharedIP, tokenC)
+	rr, lines = serveSessionUserLogged(t, handler, sharedIP, tokenC)
 	if rr.Code != http.StatusTooManyRequests {
 		t.Fatalf("C first on a full ceiling: status = %d, want 429", rr.Code)
 	}
-	if len(limiters) != 1 || limiters[0] != string(LimiterPasskeyRegisterBeginIPCeiling) {
-		t.Errorf("C's refusal lines name %v, want exactly [%s]", limiters, LimiterPasskeyRegisterBeginIPCeiling)
+	requireOneRejection(t, "C on a full ceiling", lines, LimiterPasskeyRegisterBeginIPCeiling, sharedIPKey)
+	rrD, linesD := serveSessionUserLogged(t, handler, sharedIP, tokenD)
+	if rrD.Code != http.StatusTooManyRequests {
+		t.Fatalf("D first on a full ceiling: status = %d, want 429", rrD.Code)
 	}
+	requireOneRejection(t, "D on a full ceiling", linesD, LimiterPasskeyRegisterBeginIPCeiling, sharedIPKey)
 	if got := rr.Header().Get("Retry-After"); got != "60" {
 		t.Errorf("ceiling refusal Retry-After = %q, want 60", got)
 	}
