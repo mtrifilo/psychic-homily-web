@@ -13,6 +13,7 @@ import (
 
 	"psychic-homily-backend/db"
 	"psychic-homily-backend/internal/config"
+	authm "psychic-homily-backend/internal/models/auth"
 	"psychic-homily-backend/internal/services/contracts"
 	"psychic-homily-backend/internal/services/shared"
 )
@@ -126,8 +127,7 @@ func (s *ReminderService) runReminderCycle() {
 			AND s.status = 'approved'
 			AND s.is_cancelled = false
 			AND up.show_reminders = true
-			-- is_active alone selects live accounts: users_live_account_check refuses is_active with deleted_at set.
-			AND u.is_active = true
+			AND `+authm.LiveAccountSQL("u")+`
 			AND u.email IS NOT NULL
 			AND ub.reminder_sent_at IS NULL
 	`, windowStart, windowEnd).Scan(&rows).Error

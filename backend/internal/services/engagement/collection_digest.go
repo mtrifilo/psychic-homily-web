@@ -430,8 +430,7 @@ func (s *CollectionDigestService) queryCandidates(now time.Time) ([]digestCandid
 			AND ci.created_at <= ?
 		LEFT JOIN users added_by ON added_by.id = ci.added_by_user_id
 		LEFT JOIN user_preferences up ON up.user_id = cs.user_id
-		-- is_active alone selects live accounts: users_live_account_check refuses is_active with deleted_at set.
-		WHERE u.is_active = TRUE
+		WHERE `+authm.LiveAccountSQL("u")+`
 			AND COALESCE(up.notify_on_collection_digest, FALSE) = TRUE
 			AND `+visibleToSubscriber+`
 		ORDER BY cs.user_id ASC, c.id ASC, ci.created_at ASC

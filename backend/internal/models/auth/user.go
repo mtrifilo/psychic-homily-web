@@ -31,11 +31,11 @@ const (
 // User represents a user account.
 //
 // The users_live_account_check constraint refuses IsActive true with DeletedAt
-// set, so a soft-deleted row is always inactive and a filter on is_active alone
-// selects the rows CanSignIn accepts. Write the two fields together. Create
-// omits a false IsActive (default:true), so a row created with DeletedAt set
-// gets is_active true and is refused; set DeletedAt by an update that also sets
-// is_active false.
+// set, so a soft-deleted row is always inactive and LiveAccountSQL, a filter on
+// is_active alone, selects the rows CanSignIn accepts. Write the two fields
+// together. Create omits a false IsActive (default:true), so a row created with
+// DeletedAt set gets is_active true and is refused; set DeletedAt by an update
+// that also sets is_active false.
 type User struct {
 	ID uint `json:"id" gorm:"primaryKey"`
 	// Address uniqueness is enforced case-INSENSITIVELY by the functional unique

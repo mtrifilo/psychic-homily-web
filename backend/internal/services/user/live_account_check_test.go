@@ -11,7 +11,8 @@ import (
 )
 
 // users_live_account_check refuses an active row with deleted_at set, so a
-// filter on is_active alone selects exactly the rows User.CanSignIn accepts.
+// filter on is_active alone (authm.LiveAccountSQL) selects exactly the rows
+// User.CanSignIn accepts.
 
 func (suite *UserServiceIntegrationTestSuite) createLiveAccount(address string) *authm.User {
 	suite.T().Helper()
@@ -89,4 +90,32 @@ func (suite *UserServiceIntegrationTestSuite) TestLiveAccountCheck_SoftDeleteAnd
 	suite.True(restored.IsActive)
 	suite.Nil(restored.DeletedAt)
 	suite.True(restored.CanSignIn())
+}
+
+// LiveAccountSQL selects exactly the rows CanSignIn accepts, under the table
+// name and under an alias, across every account state the constraint admits.
+func (suite *UserServiceIntegrationTestSuite) TestLiveAccountSQL_SelectsTheRowsCanSignInAccepts() {
+	live := suite.createLiveAccount("live-sql-live@example.com")
+	deactivated := suite.createLiveAccount("live-sql-deactivated@example.com")
+	deleted := suite.createLiveAccount("live-sql-deleted@example.com")
+	suite.Require().NoError(suite.db.Model(&authm.User{}).Where("id = ?", deactivated.ID).
+		Update("is_active", false).Error)
+	suite.Require().NoError(suite.userService.SoftDeleteAccount(deleted.ID, nil))
+	ids := []uint{live.ID, deactivated.ID, deleted.ID}
+
+	var signInable []uint
+	for _, id := range ids {
+		if account := suite.reloadAccount(id); account.CanSignIn() {
+			signInable = append(signInable, id)
+		}
+	}
+	suite.Equal([]uint{live.ID}, signInable)
+
+	var byTable, byAlias []uint
+	suite.Require().NoError(suite.db.Model(&authm.User{}).
+		Where("id IN ?", ids).Where(authm.LiveAccountSQL("users")).Pluck("id", &byTable).Error)
+	suite.Require().NoError(suite.db.Table("users u").
+		Where("u.id IN ?", ids).Where(authm.LiveAccountSQL("u")).Pluck("u.id", &byAlias).Error)
+	suite.ElementsMatch(signInable, byTable)
+	suite.ElementsMatch(signInable, byAlias)
 }

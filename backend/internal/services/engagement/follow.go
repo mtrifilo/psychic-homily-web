@@ -32,7 +32,7 @@ var validFollowEntityTypes = map[string]bool{
 	string(engagementm.BookmarkEntityTag):       true,
 	string(engagementm.BookmarkEntityScene):     true,
 	string(engagementm.BookmarkEntityRadioShow): true,
-	FollowEntityUser: true,
+	FollowEntityUser:                            true,
 }
 
 var libraryFollowEntityTypes = map[string]bool{
@@ -653,7 +653,8 @@ func (s *FollowService) GetLibraryFollowing(userID uint, entityType string, limi
 	return following, nextCursor, nil
 }
 
-// GetFollowers lists followers of an entity. Returns user info.
+// GetFollowers lists the live accounts (authm.LiveAccountSQL) following an
+// entity, with their user info.
 func (s *FollowService) GetFollowers(entityType string, entityID uint, limit, offset int) ([]*contracts.FollowerResponse, int64, error) {
 	if s.db == nil {
 		return nil, 0, fmt.Errorf("database not initialized")
@@ -691,7 +692,7 @@ func (s *FollowService) GetFollowers(entityType string, entityID uint, limit, of
 		Joins("JOIN users ON users.id = user_bookmarks.user_id").
 		Where("user_bookmarks.entity_type = ? AND user_bookmarks.entity_id = ? AND user_bookmarks.action = ?",
 			engagementm.BookmarkEntityType(entityType), entityID, engagementm.BookmarkActionFollow).
-		Where("users.deleted_at IS NULL").
+		Where(authm.LiveAccountSQL("users")).
 		Order("user_bookmarks.created_at DESC").
 		Limit(limit).Offset(offset).
 		Find(&rows).Error
