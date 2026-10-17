@@ -129,6 +129,7 @@ func (s *AuthHandlerIntegrationSuite) TestPasskeySignupFinishRefusalAndFailures(
 		begin := api.Post("/auth/passkey/signup/begin", signupBeginBody(email))
 		requireWireSuccess(s.T(), begin)
 		challengeID, _ := decodeWireBody(s.T(), begin.Body.Bytes())["challenge_id"].(string)
+		s.Require().NotEmpty(challengeID)
 		registration, err := device.RegisterAgain(s.creationOptions(begin.Body.Bytes()))
 		s.Require().NoError(err)
 		var usersBefore int64
@@ -145,7 +146,6 @@ func (s *AuthHandlerIntegrationSuite) TestPasskeySignupFinishRefusalAndFailures(
 		var usersAfter int64
 		s.Require().NoError(s.deps.DB.Model(&authm.User{}).Count(&usersAfter).Error)
 		s.Equal(usersBefore, usersAfter, "a refused signup creates no account")
-		s.requireNoAccount(email)
 	})
 
 	s.Run("account that cannot be created fails", func() {

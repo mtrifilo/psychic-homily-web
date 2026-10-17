@@ -117,17 +117,23 @@ func (s *WebAuthnService) FinishRegistration(user *authm.User, session *webauthn
 
 	webauthnCred := authm.ToWebAuthnCredential(user.ID, credential, displayName)
 
-	// credential_id is the only unique column the insert writes (id is
-	// assigned by its sequence), so a duplicate key is a credential some
-	// account already holds.
 	if err := s.db.Create(webauthnCred).Error; err != nil {
-		if shared.IsDuplicateKey(err) {
-			return nil, apperrors.ErrInvalidCredentialResponse(fmt.Errorf("credential already registered: %w", err))
-		}
-		return nil, fmt.Errorf("failed to save credential: %w", err)
+		return nil, credentialSaveError(err)
 	}
 
 	return webauthnCred, nil
+}
+
+// credentialSaveError is the error for a failed webauthn_credentials insert:
+// the invalid-credential-response refusal for a duplicate key, which is a
+// credential some account already holds because credential_id is the only
+// unique column the insert writes (id is assigned by its sequence), and a
+// failure otherwise.
+func credentialSaveError(err error) error {
+	if shared.IsDuplicateKey(err) {
+		return apperrors.ErrInvalidCredentialResponse(fmt.Errorf("credential already registered: %w", err))
+	}
+	return fmt.Errorf("failed to save credential: %w", err)
 }
 
 // noPasskeysMessage is the user-facing message of BeginLogin's refusal.
@@ -773,14 +779,9 @@ func (s *WebAuthnService) FinishSignupRegistrationWithLegal(
 	// Convert and save credential with real user ID
 	webauthnCred := authm.ToWebAuthnCredential(user.ID, credential, displayName)
 
-	// As in FinishRegistration, a duplicate key here is a credential some
-	// account already holds.
 	if err := tx.Create(webauthnCred).Error; err != nil {
 		tx.Rollback()
-		if shared.IsDuplicateKey(err) {
-			return nil, apperrors.ErrInvalidCredentialResponse(fmt.Errorf("credential already registered: %w", err))
-		}
-		return nil, fmt.Errorf("failed to save credential: %w", err)
+		return nil, credentialSaveError(err)
 	}
 
 	if err := tx.Commit().Error; err != nil {

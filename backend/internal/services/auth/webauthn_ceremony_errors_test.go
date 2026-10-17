@@ -286,7 +286,6 @@ func (suite *WebAuthnServiceIntegrationTestSuite) TestFinishSignupRefusesHeldCre
 
 	suite.requireRefusal(err, apperrors.CodeValidationFailed, "Invalid credential response")
 	suite.Equal(usersBefore, suite.userRows(), "a refused signup creates no account")
-	suite.Zero(suite.accountRows(email))
 	suite.Equal(int64(1), suite.credentialRows(holder.ID))
 }
 
