@@ -33,6 +33,9 @@ func (suite *UserServiceIntegrationTestSuite) TestFindOrCreateUserWithConsent_St
 
 func (suite *UserServiceIntegrationTestSuite) TestFindOrCreateUserWithConsent_RecordsCurrentVersions() {
 	consent := signupconsent.CurrentOAuthSignupConsent()
+	// An hour back, so a creation that records "now" instead of the consent's
+	// own time cannot pass.
+	consent.AcceptedAt = time.Now().Add(-time.Hour).UTC().Truncate(time.Microsecond)
 	identity := goth.User{
 		UserID:  "google-current-consent",
 		Email:   "current.consent@example.com",
@@ -53,7 +56,7 @@ func (suite *UserServiceIntegrationTestSuite) TestFindOrCreateUserWithConsent_Re
 	suite.Require().NotNil(stored.TermsAcceptedAt)
 	suite.Require().NotNil(stored.AgeConfirmedAt)
 	suite.Require().NotNil(stored.MinAgeAttested)
-	suite.WithinDuration(consent.AcceptedAt, *stored.TermsAcceptedAt, time.Millisecond)
+	suite.True(consent.AcceptedAt.Equal(*stored.TermsAcceptedAt), "terms_accepted_at = %v, want %v", *stored.TermsAcceptedAt, consent.AcceptedAt)
 	suite.True(stored.AgeConfirmedAt.Equal(*stored.TermsAcceptedAt))
 	suite.Equal(legal.MinSignupAge, *stored.MinAgeAttested)
 }

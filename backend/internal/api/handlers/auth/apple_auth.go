@@ -42,7 +42,7 @@ type AppleCallbackRequest struct {
 		IdentityToken  string  `json:"identity_token" doc:"Apple identity token (JWT)"`
 		FirstName      *string `json:"first_name,omitempty" doc:"User's first name (only provided on first sign-in)"`
 		LastName       *string `json:"last_name,omitempty" doc:"User's last name (only provided on first sign-in)"`
-		TermsAccepted  bool    `json:"terms_accepted,omitempty" doc:"Whether the user accepted the Terms of Service and Privacy Policy. Required to create an account; a callback that would create one without it is refused with TERMS_ACCEPTANCE_REQUIRED. Not read for an Apple identity that already has an account, though like every consent field it must be a boolean when sent."`
+		TermsAccepted  bool    `json:"terms_accepted,omitempty" doc:"Whether the user accepted the Terms of Service and Privacy Policy. Required to create an account; a callback that would create one without it is refused with TERMS_ACCEPTANCE_REQUIRED. Not read for an Apple identity that already has an account, though, like every consent field, it must match its schema type when sent."`
 		TermsVersion   string  `json:"terms_version,omitempty" doc:"Accepted Terms of Service version. Required to create an account; anything other than the current version is refused with TERMS_ACCEPTANCE_REQUIRED."`
 		PrivacyVersion string  `json:"privacy_version,omitempty" doc:"Accepted Privacy Policy version. Required to create an account; anything other than the current version is refused with TERMS_ACCEPTANCE_REQUIRED."`
 		AgeConfirmed   bool    `json:"age_confirmed,omitempty" doc:"Whether the user confirmed they meet the minimum age. Required to create an account; without it the callback is refused with AGE_CONFIRMATION_REQUIRED."`
