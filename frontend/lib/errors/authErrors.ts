@@ -32,6 +32,11 @@ export const AuthErrorCode = {
    * A missing age confirmation is a separate backend code.
    */
   TERMS_ACCEPTANCE_REQUIRED: 'TERMS_ACCEPTANCE_REQUIRED',
+  /**
+   * A sign-in refused because the account was deleted and is still inside its
+   * recovery window. The remedy is account recovery, never support.
+   */
+  ACCOUNT_RECOVERABLE: 'ACCOUNT_RECOVERABLE',
 } as const
 
 export type AuthErrorCodeType =
@@ -205,6 +210,14 @@ export const REAUTH_REQUIRED_MESSAGE =
  */
 export function isReauthRequired(error: unknown): boolean {
   return isAuthError(error) && error.code === AuthErrorCode.REAUTH_REQUIRED
+}
+
+/**
+ * Was this sign-in refused because the account was deleted and can still be
+ * recovered?
+ */
+export function isAccountRecoverable(error: unknown): boolean {
+  return isAuthError(error) && error.code === AuthErrorCode.ACCOUNT_RECOVERABLE
 }
 
 /**

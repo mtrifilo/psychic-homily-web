@@ -199,6 +199,20 @@ export function needsSignupConsent(searchParams: {
 }
 
 /**
+ * Does this auth-page URL carry the OAuth callback's refusal of a deleted
+ * account still inside its recovery window? The code is compared against one
+ * fixed value and never rendered, so it needs no decoding.
+ */
+export function isAccountRecoverableRefusal(searchParams: {
+  get: (name: string) => string | null
+}): boolean {
+  return (
+    searchParams.get(AUTH_ERROR_CODE_PARAM) ===
+    AuthErrorCode.ACCOUNT_RECOVERABLE
+  )
+}
+
+/**
  * The auth-page href for an anonymous viewer a gated control turned away:
  * `buildAuthHref`'s destination plus the intent that opens Create account.
  *

@@ -31,6 +31,7 @@ var wantAuthStatus = map[string]int{
 	CodeUnknown:                    http.StatusInternalServerError,
 	CodeAccountLocked:              http.StatusLocked,
 	CodeAccountInactive:            http.StatusForbidden,
+	CodeAccountRecoverable:         http.StatusForbidden,
 	CodeNoPasswordSet:              http.StatusConflict,
 	CodeTermsAcceptanceRequired:    http.StatusUnprocessableEntity,
 	CodeAgeConfirmationRequired:    http.StatusUnprocessableEntity,
