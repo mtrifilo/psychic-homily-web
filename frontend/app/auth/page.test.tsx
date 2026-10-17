@@ -5,6 +5,10 @@ import userEvent from '@testing-library/user-event'
 import { renderWithProviders } from '@/test/utils'
 import { AUTH_ERROR_CODE_PARAM } from '@/lib/auth-href'
 import { AuthError, AuthErrorCode } from '@/lib/errors'
+import {
+  ACCOUNT_RECOVERABLE_LINK_TEXT,
+  ACCOUNT_RECOVERABLE_MESSAGE,
+} from '@/app/auth/_components/account-recoverable-message'
 import AuthPage from './page'
 
 // --- Mocks ---
@@ -522,14 +526,11 @@ describe('AuthPage', () => {
   // surfaces answer in the page's own words with a link to account recovery,
   // never in the text the refusal carried.
   describe('recoverable account refusal', () => {
-    const RECOVERABLE_SENTENCE =
-      'This account was deleted recently and can still be recovered.'
-
     function expectRecoveryOffer() {
-      const link = screen.getByRole('link', { name: 'Recover your account' })
+      const link = screen.getByRole('link', { name: ACCOUNT_RECOVERABLE_LINK_TEXT })
       expect(link).toHaveAttribute('href', '/auth/recover')
       expect(link.closest('[role="alert"]')).not.toBeNull()
-      expect(screen.getByText(RECOVERABLE_SENTENCE, { exact: false })).toBeInTheDocument()
+      expect(screen.getByText(ACCOUNT_RECOVERABLE_MESSAGE, { exact: false })).toBeInTheDocument()
     }
 
     it('offers recovery when password sign-in is refused with the code', () => {
@@ -554,7 +555,7 @@ describe('AuthPage', () => {
 
       expect(screen.getByText('Invalid email or password')).toBeInTheDocument()
       expect(
-        screen.queryByRole('link', { name: 'Recover your account' })
+        screen.queryByRole('link', { name: ACCOUNT_RECOVERABLE_LINK_TEXT })
       ).not.toBeInTheDocument()
     })
 
@@ -595,7 +596,7 @@ describe('AuthPage', () => {
         screen.getByText('Account unavailable. Please contact support.')
       ).toBeInTheDocument()
       expect(
-        screen.queryByRole('link', { name: 'Recover your account' })
+        screen.queryByRole('link', { name: ACCOUNT_RECOVERABLE_LINK_TEXT })
       ).not.toBeInTheDocument()
     })
   })

@@ -43,7 +43,7 @@ import {
   isReauthReason,
   needsSignupConsent,
 } from '@/lib/auth-href'
-import { AuthErrorCode, isAuthError } from '@/lib/errors'
+import { isAccountRecoverable } from '@/lib/errors'
 import { getUniqueErrors } from '@/lib/utils/formErrors'
 import { CURRENT_PRIVACY_VERSION, CURRENT_TERMS_VERSION, MIN_SIGNUP_AGE } from '@/lib/legal'
 import {
@@ -94,9 +94,7 @@ function LoginForm({ returnTo }: { returnTo: string }) {
   const [passkeyError, setPasskeyError] = useState<string | null>(null)
   const [magicLinkSent, setMagicLinkSent] = useState(false)
   const [magicLinkError, setMagicLinkError] = useState<string | null>(null)
-  const loginRefusedRecoverable =
-    isAuthError(loginMutation.error) &&
-    loginMutation.error.code === AuthErrorCode.ACCOUNT_RECOVERABLE
+  const loginRefusedRecoverable = isAccountRecoverable(loginMutation.error)
 
   const form = useForm({
     defaultValues: {

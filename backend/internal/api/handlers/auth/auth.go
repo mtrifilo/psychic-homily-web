@@ -273,32 +273,22 @@ func (h *AuthHandler) LoginHandler(ctx context.Context, input *LoginRequest) (*L
 				resp.Body.Message = authErr.UserMessage()
 				resp.Body.ErrorCode = autherrors.ToExternalCode(autherrors.CodeInvalidCredentials)
 				return resp, nil
-			case autherrors.CodeAccountInactive:
+			case autherrors.CodeAccountInactive, autherrors.CodeAccountRecoverable:
 				// An account that may not sign in (authm.User.CanSignIn:
 				// deactivated or soft-deleted). The account exists in a
 				// known state and the service is healthy, so this is NOT a
-				// fail-closed 5xx — return HTTP 200 with the distinct
-				// ACCOUNT_INACTIVE code so the frontend can show contact-support
-				// copy. The password check already ran (no extra enumeration
-				// signal); the user-facing message stays intentionally vague.
+				// fail-closed 5xx — return HTTP 200 with the distinct code:
+				// ACCOUNT_RECOVERABLE for a deleted account inside its
+				// recovery window, so the frontend can offer recovery, and
+				// ACCOUNT_INACTIVE, with contact-support copy, otherwise. The
+				// password check already ran (no extra enumeration signal).
 				logger.AuthWarn(ctx, "login_account_inactive",
 					"email_hash", logger.HashEmail(input.Body.Email),
+					"code", authErr.Code,
 				)
 				resp.Body.Success = false
 				resp.Body.Message = authErr.UserMessage()
-				resp.Body.ErrorCode = autherrors.CodeAccountInactive
-				return resp, nil
-			case autherrors.CodeAccountRecoverable:
-				// A deleted account inside its recovery window, after the
-				// password check, on the same HTTP 200 terms as
-				// ACCOUNT_INACTIVE. The distinct code lets the frontend send
-				// the caller to account recovery.
-				logger.AuthWarn(ctx, "login_account_recoverable",
-					"email_hash", logger.HashEmail(input.Body.Email),
-				)
-				resp.Body.Success = false
-				resp.Body.Message = authErr.UserMessage()
-				resp.Body.ErrorCode = autherrors.CodeAccountRecoverable
+				resp.Body.ErrorCode = authErr.Code
 				return resp, nil
 			case autherrors.CodeServiceUnavailable:
 				// Fail-closed surface from AuthenticateUserWithPassword: the

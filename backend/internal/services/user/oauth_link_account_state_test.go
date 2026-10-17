@@ -72,7 +72,7 @@ func (suite *UserServiceIntegrationTestSuite) TestLinkOAuthAccountToUser_RepeatC
 				AccessToken: "refused-access",
 			}, "google")
 
-			suite.assertSignInOutcome(apperrors.ErrAccountInactive, owner.ID, linked, err)
+			suite.assertSignInOutcome(apperrors.ErrAccountInactive(), owner.ID, linked, err)
 			suite.Equal("stored-access", *suite.storedGoogleAccount(owner.ID).AccessToken)
 		})
 	}
@@ -102,7 +102,7 @@ func (suite *UserServiceIntegrationTestSuite) TestLinkOAuthAccountToUser_Account
 			}, "google")
 
 			suite.Require().True(*ran, "the account must close inside the link's window")
-			suite.assertSignInOutcome(apperrors.ErrAccountInactive, owner.ID, linked, err)
+			suite.assertSignInOutcome(apperrors.ErrAccountInactive(), owner.ID, linked, err)
 			suite.assertNoOAuthAccountFor(owner.ID)
 		})
 	}

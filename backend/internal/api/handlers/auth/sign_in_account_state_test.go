@@ -4,7 +4,6 @@ import (
 	"context"
 	"net/http"
 	"net/url"
-	"time"
 
 	"github.com/go-webauthn/webauthn/protocol"
 	"github.com/go-webauthn/webauthn/webauthn"
@@ -16,7 +15,6 @@ import (
 	authm "psychic-homily-backend/internal/models/auth"
 	authsvc "psychic-homily-backend/internal/services/auth"
 	"psychic-homily-backend/internal/services/contracts"
-	usersvc "psychic-homily-backend/internal/services/user"
 	"psychic-homily-backend/internal/testutil/signupconsent"
 	"psychic-homily-backend/internal/testutil/softauthn"
 )
@@ -69,10 +67,7 @@ var signInAccountStates = []accountState{
 	{
 		name: "soft-deleted-past-window",
 		apply: func(s *OAuthHandlerIntegrationSuite, userID uint) {
-			s.Require().NoError(s.deps.DB.Model(&authm.User{}).Where("id = ?", userID).Updates(map[string]any{
-				"is_active":  false,
-				"deleted_at": time.Now().Add(-usersvc.AccountRecoveryGracePeriod - 24*time.Hour),
-			}).Error)
+			s.Require().NoError(softDeletePastRecoveryWindow(s.deps.DB, userID))
 		},
 	},
 }

@@ -21,21 +21,24 @@ type signInAccountState struct {
 	apply func(s *UserServiceIntegrationTestSuite, userID uint)
 	// refusal is the refusal a proved credential gets in this state, or nil
 	// when the state may sign in.
-	refusal func() *apperrors.AuthError
-	// recoverable is a deleted account inside its recovery window.
-	recoverable bool
+	refusal *apperrors.AuthError
 }
 
 func (state signInAccountState) maySignIn() bool { return state.refusal == nil }
 
+// recoverable is a deleted account inside its recovery window.
+func (state signInAccountState) recoverable() bool {
+	return state.refusal != nil && state.refusal.Code == apperrors.CodeAccountRecoverable
+}
+
 // linkRefusal is the refusal LinkOAuthAccountToUser gives in this state, or nil
 // when the state may sign in. A link names no recovery: its caller holds a
 // session, which no closed account may.
-func (state signInAccountState) linkRefusal() func() *apperrors.AuthError {
+func (state signInAccountState) linkRefusal() *apperrors.AuthError {
 	if state.maySignIn() {
 		return nil
 	}
-	return apperrors.ErrAccountInactive
+	return apperrors.ErrAccountInactive()
 }
 
 // signInAccountStates are the states every sign-in path is tested in.
@@ -45,12 +48,12 @@ var signInAccountStates = []signInAccountState{
 	{name: "active", apply: func(*UserServiceIntegrationTestSuite, uint) {}},
 	{name: "deactivated", apply: func(s *UserServiceIntegrationTestSuite, userID uint) {
 		s.Require().NoError(s.db.Model(&authm.User{}).Where("id = ?", userID).Update("is_active", false).Error)
-	}, refusal: apperrors.ErrAccountInactive},
+	}, refusal: apperrors.ErrAccountInactive()},
 	{name: "soft-deleted", apply: func(s *UserServiceIntegrationTestSuite, userID uint) {
 		s.Require().NoError(s.userService.SoftDeleteAccount(userID, nil))
-	}, refusal: apperrors.ErrAccountRecoverable, recoverable: true},
+	}, refusal: apperrors.ErrAccountRecoverable()},
 	{name: "soft-deleted-past-window", apply: (*UserServiceIntegrationTestSuite).softDeletePastRecoveryWindow,
-		refusal: apperrors.ErrAccountInactive},
+		refusal: apperrors.ErrAccountInactive()},
 }
 
 // softDeletePastRecoveryWindow soft-deletes the account with a deleted_at a day
@@ -64,7 +67,7 @@ func (suite *UserServiceIntegrationTestSuite) softDeletePastRecoveryWindow(userI
 
 // assertSignInOutcome checks a sign-in result against what the state allows:
 // the account itself when refusal is nil, otherwise exactly that refusal.
-func (suite *UserServiceIntegrationTestSuite) assertSignInOutcome(refusal func() *apperrors.AuthError, wantID uint, user *authm.User, err error) {
+func (suite *UserServiceIntegrationTestSuite) assertSignInOutcome(refusal *apperrors.AuthError, wantID uint, user *authm.User, err error) {
 	suite.T().Helper()
 	if refusal == nil {
 		suite.Require().NoError(err)
@@ -77,9 +80,8 @@ func (suite *UserServiceIntegrationTestSuite) assertSignInOutcome(refusal func()
 	suite.Nil(user)
 	var authErr *apperrors.AuthError
 	suite.Require().ErrorAs(err, &authErr)
-	want := refusal()
-	suite.Equal(want.Code, authErr.Code)
-	suite.Equal(want.UserMessage(), authErr.UserMessage())
+	suite.Equal(refusal.Code, authErr.Code)
+	suite.Equal(refusal.UserMessage(), authErr.UserMessage())
 }
 
 // A returning OAuth identity resolves to its account before anything else is
@@ -122,7 +124,7 @@ func (suite *UserServiceIntegrationTestSuite) TestAuthenticateUserWithPassword_A
 
 			// A wrong password learns nothing of the account's state.
 			user, err = suite.userService.AuthenticateUserWithPassword(address, "WrongPassword1!")
-			suite.assertSignInOutcome(func() *apperrors.AuthError { return apperrors.ErrInvalidCredentials(nil) }, created.ID, user, err)
+			suite.assertSignInOutcome(apperrors.ErrInvalidCredentials(nil), created.ID, user, err)
 		})
 	}
 }
@@ -153,15 +155,10 @@ func (suite *UserServiceIntegrationTestSuite) TestFindOrCreateUserWithConsent_Ad
 				}, "google", signupconsent.CurrentOAuthSignupConsent())
 
 				want := apperrors.ErrOAuthLinkRefused(address)
-				if vouched && state.recoverable {
+				if vouched && state.recoverable() {
 					want = apperrors.ErrAccountRecoverable()
 				}
-				suite.Require().Error(err)
-				suite.Nil(user)
-				var authErr *apperrors.AuthError
-				suite.Require().ErrorAs(err, &authErr)
-				suite.Equal(want.Code, authErr.Code)
-				suite.Equal(want.UserMessage(), authErr.UserMessage())
+				suite.assertSignInOutcome(want, existing.ID, user, err)
 
 				suite.assertNoOAuthAccountFor(existing.ID)
 				suite.assertSingleUserForEmail(address)

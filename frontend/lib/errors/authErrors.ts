@@ -213,6 +213,14 @@ export function isReauthRequired(error: unknown): boolean {
 }
 
 /**
+ * Was this sign-in refused because the account was deleted and can still be
+ * recovered?
+ */
+export function isAccountRecoverable(error: unknown): boolean {
+  return isAuthError(error) && error.code === AuthErrorCode.ACCOUNT_RECOVERABLE
+}
+
+/**
  * Get a user-friendly message for an error code
  */
 export function getAuthErrorMessage(code: AuthErrorCodeType): string {
