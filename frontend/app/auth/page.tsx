@@ -30,6 +30,7 @@ import {
 } from '@/app/auth/_components/signup-intent-panel'
 import { CheckInboxInterstitial } from '@/app/auth/_components/check-inbox-interstitial'
 import { BackupAuthPrompt } from '@/app/auth/_components/backup-auth-prompt'
+import { AccountRecoverableMessage } from '@/app/auth/_components/account-recoverable-message'
 import type { SignupHandoff } from '@/app/auth/_components/signup-handoff'
 import {
   useSignupRequestDeadline,
@@ -40,9 +41,11 @@ import {
   AUTH_ERROR_PARAM,
   AUTH_REASON_PARAM,
   hasGatedIntent,
+  isAccountRecoverableRefusal,
   isReauthReason,
   needsSignupConsent,
 } from '@/lib/auth-href'
+import { isAccountRecoverable } from '@/lib/errors'
 import { getUniqueErrors } from '@/lib/utils/formErrors'
 import { CURRENT_PRIVACY_VERSION, CURRENT_TERMS_VERSION, MIN_SIGNUP_AGE } from '@/lib/legal'
 import {
@@ -98,6 +101,7 @@ function LoginForm({ returnTo }: { returnTo: string }) {
   const [passkeyError, setPasskeyError] = useState<string | null>(null)
   const [magicLinkSent, setMagicLinkSent] = useState(false)
   const [magicLinkError, setMagicLinkError] = useState<string | null>(null)
+  const loginRefusedRecoverable = isAccountRecoverable(loginMutation.error)
 
   const form = useForm({
     defaultValues: {
@@ -162,7 +166,13 @@ function LoginForm({ returnTo }: { returnTo: string }) {
       {(loginMutation.error || passkeyError) && (
         <Alert variant="destructive">
           <AlertCircle className="h-4 w-4" />
-          <AlertDescription>{loginMutation.error?.message || passkeyError}</AlertDescription>
+          <AlertDescription>
+            {loginRefusedRecoverable ? (
+              <AccountRecoverableMessage />
+            ) : (
+              loginMutation.error?.message || passkeyError
+            )}
+          </AlertDescription>
         </Alert>
       )}
 
@@ -688,6 +698,8 @@ function AuthPageContent() {
 
   // Get error from URL query params (e.g., OAuth errors)
   const urlError = safeDecodeQueryParam(searchParams.get(AUTH_ERROR_PARAM))
+  // Shown in the page's own words with its recovery link, whatever ?error says.
+  const urlRefusalRecoverable = isAccountRecoverableRefusal(searchParams)
 
   // Get returnTo from URL query params (for redirecting after login)
   const returnTo = sanitizeReturnTo(searchParams.get('returnTo'))
@@ -843,11 +855,11 @@ function AuthPageContent() {
         </div>
 
         {/* OAuth/URL Error Display */}
-        {urlError && (
+        {(urlError || urlRefusalRecoverable) && (
           <Alert variant="destructive" className="mb-6">
             <AlertCircle className="h-4 w-4" />
             <AlertDescription id={URL_ERROR_ID}>
-              {urlError}
+              {urlRefusalRecoverable ? <AccountRecoverableMessage /> : urlError}
             </AlertDescription>
           </Alert>
         )}

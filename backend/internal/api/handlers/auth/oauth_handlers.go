@@ -525,7 +525,11 @@ func authRefusalCarriesItsOwnCopy(code string) bool {
 		// its subject to the account; on a link, a signed session for the
 		// account the link intent names. Either way the caller learns only
 		// that account's state.
-		autherrors.CodeAccountInactive:
+		autherrors.CodeAccountInactive,
+		// Returned on sign-in only to the callers CodeAccountRecoverable
+		// names: an identity that resolved by its subject to the account, or
+		// a provider that vouched for the verified address of the account.
+		autherrors.CodeAccountRecoverable:
 		return true
 	default:
 		return false

@@ -47,9 +47,10 @@ const TestProviderUserID = "e2e-oauth-faux-user-id"
 
 // TestProviderUnverifiedEmailEnvVar makes the clone report its address as NOT
 // verified by the provider. Unset, the clone reports verified. The flag decides
-// email_verified on an account this clone's address CREATES; it decides nothing
-// about an address that already belongs to an account, which is refused either
-// way.
+// email_verified on an account this clone's address CREATES. An address that
+// already belongs to an account is refused either way; the flag decides only
+// which refusal a recoverable deleted account's address gets, because the
+// recovery refusal requires the provider's vouch.
 //
 // Read at request time, and only by isOAuthTestProviderEmailUnverified, in a
 // provider that newTestProvider builds and SetupGoth registers only behind the

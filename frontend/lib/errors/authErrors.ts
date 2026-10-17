@@ -34,6 +34,11 @@ export const AuthErrorCode = {
   TERMS_ACCEPTANCE_REQUIRED: 'TERMS_ACCEPTANCE_REQUIRED',
   /** The account exists but may no longer sign in (deactivated or deleted). */
   ACCOUNT_INACTIVE: 'ACCOUNT_INACTIVE',
+  /**
+   * A sign-in refused because the account was deleted and is still inside its
+   * recovery window. The remedy is account recovery, never support.
+   */
+  ACCOUNT_RECOVERABLE: 'ACCOUNT_RECOVERABLE',
 } as const
 
 export type AuthErrorCodeType =
@@ -207,6 +212,14 @@ export const REAUTH_REQUIRED_MESSAGE =
  */
 export function isReauthRequired(error: unknown): boolean {
   return isAuthError(error) && error.code === AuthErrorCode.REAUTH_REQUIRED
+}
+
+/**
+ * Was this sign-in refused because the account was deleted and can still be
+ * recovered?
+ */
+export function isAccountRecoverable(error: unknown): boolean {
+  return isAuthError(error) && error.code === AuthErrorCode.ACCOUNT_RECOVERABLE
 }
 
 /**
