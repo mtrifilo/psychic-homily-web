@@ -1,29 +1,33 @@
 'use client'
 
+import { useState } from 'react'
+import { Loader2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-// Direct backend origin, never the Next.js /api proxy: OAuth is a full-page
-// redirect and the redirect chain does not survive the proxy. See
-// lib/api-base.ts for the resolution order (PSY-1649).
-import { OAUTH_BACKEND_URL } from '@/lib/api-base'
 import { FALLBACK_RETURN_TO } from '@/lib/auth-href'
+import { useConsentVersions } from '@/features/auth/hooks/useLegalVersions'
+import {
+  forgetGoogleSignupStart,
+  googleStartUrl,
+  rememberGoogleSignupStart,
+} from './google-signup-start'
 
 interface GoogleOAuthButtonProps {
   className?: string
   variant?: 'login' | 'signup'
   termsAccepted?: boolean
-  termsVersion?: string
-  privacyVersion?: string
   onMissingTermsAcceptance?: () => void
   // PSY-1023: required minimum-age confirmation, mirroring terms acceptance.
   ageConfirmed?: boolean
   minAge?: number
   onMissingAgeConfirmation?: () => void
   /**
+   * A sign-up start was not made because the published consent versions could
+   * not be read.
+   */
+  onConsentVersionsUnavailable?: () => void
+  /**
    * Where the reader lands after signing in, already through
-   * sanitizeReturnTo. The backend start route reads it as `returnTo`
-   * (`oauthReturnToParam` in backend/internal/api/handlers/auth/oauth_return_to.go),
-   * checks it again, records it for its callback, and lands on the site root
-   * for anything it refuses.
+   * sanitizeReturnTo. See googleStartUrl for what the backend does with it.
    */
   returnTo?: string
 }
@@ -32,45 +36,51 @@ export function GoogleOAuthButton({
   className,
   variant = 'login',
   termsAccepted = false,
-  termsVersion,
-  privacyVersion,
   onMissingTermsAcceptance,
   ageConfirmed = false,
   minAge,
   onMissingAgeConfirmation,
+  onConsentVersionsUnavailable,
   returnTo = FALLBACK_RETURN_TO,
 }: GoogleOAuthButtonProps) {
-  const handleGoogleLogin = () => {
-    if (variant === 'signup' && !termsAccepted) {
+  const consentVersions = useConsentVersions()
+  const [isReadingVersions, setIsReadingVersions] = useState(false)
+
+  const handleGoogleLogin = async () => {
+    if (variant === 'login') {
+      // A sign-in is never retried as a sign-up, whatever it is refused with.
+      forgetGoogleSignupStart()
+      window.location.href = googleStartUrl({ returnTo })
+      return
+    }
+    if (!termsAccepted) {
       onMissingTermsAcceptance?.()
       return
     }
-    if (variant === 'signup' && !ageConfirmed) {
+    if (!ageConfirmed) {
       onMissingAgeConfirmation?.()
       return
     }
 
-    // Redirect to backend OAuth endpoint
-    // The backend will redirect to Google, then back to callback, then to frontend
-    const loginUrl = new URL(`${OAUTH_BACKEND_URL}/auth/login/google`)
-    if (variant === 'signup') {
-      loginUrl.searchParams.set('signup_intent', '1')
-      loginUrl.searchParams.set('terms_accepted', 'true')
-      if (termsVersion) {
-        loginUrl.searchParams.set('terms_version', termsVersion)
-      }
-      if (privacyVersion) {
-        loginUrl.searchParams.set('privacy_version', privacyVersion)
-      }
-      loginUrl.searchParams.set('age_confirmed', 'true')
-      if (minAge) {
-        loginUrl.searchParams.set('min_age_attested', String(minAge))
-      }
+    setIsReadingVersions(true)
+    let versions
+    try {
+      versions = await consentVersions.read()
+    } catch {
+      setIsReadingVersions(false)
+      onConsentVersionsUnavailable?.()
+      return
     }
-    if (returnTo !== FALLBACK_RETURN_TO) {
-      loginUrl.searchParams.set('returnTo', returnTo)
-    }
-    window.location.href = loginUrl.toString()
+    // The backend redirects to Google, then back to its callback, then to the
+    // frontend; a consent refusal on the way lands on the auth page, which
+    // retries a start recorded here once.
+    rememberGoogleSignupStart()
+    window.location.href = googleStartUrl({
+      returnTo,
+      signup: { versions, minAge },
+    })
+    // A page restored from the back-forward cache keeps this state.
+    setIsReadingVersions(false)
   }
 
   return (
@@ -78,9 +88,14 @@ export function GoogleOAuthButton({
       type="button"
       variant="outline"
       onClick={handleGoogleLogin}
+      disabled={isReadingVersions}
       className={className}
     >
-      <GoogleIcon className="h-4 w-4" />
+      {isReadingVersions ? (
+        <Loader2 className="h-4 w-4 animate-spin" />
+      ) : (
+        <GoogleIcon className="h-4 w-4" />
+      )}
       {variant === 'signup' ? 'Sign up with Google' : 'Continue with Google'}
     </Button>
   )

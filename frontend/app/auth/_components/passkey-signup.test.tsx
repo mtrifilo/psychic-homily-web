@@ -1,7 +1,13 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import userEvent from '@testing-library/user-event'
 import { fireEvent, screen, waitFor } from '@testing-library/react'
-import { renderWithProviders } from '@/test/utils'
+import { createTestQueryClient, renderWithProviders } from '@/test/utils'
+import { clientWithConsentVersions } from '@/test/consentVersions'
+import { deferred } from '@/test/inflightOrdering'
+import {
+  CONSENT_RETRY_NOTICE,
+  CONSENT_VERSIONS_UNAVAILABLE,
+} from './consent-versions-notice'
 import {
   advanceFakeTime,
   requestSignal,
@@ -67,8 +73,9 @@ describe('PasskeySignupButton', () => {
     )
   }
 
-  function renderButton() {
-    renderWithProviders(<PasskeySignup />)
+  // Seeded by default, so the fetch calls a test counts are the sign-up's own.
+  function renderButton(queryClient = clientWithConsentVersions()) {
+    renderWithProviders(<PasskeySignup />, { queryClient })
   }
 
   async function submitSignup() {
@@ -432,5 +439,154 @@ describe('PasskeySignupButton', () => {
       screen.getByRole('button', { name: /continue with passkey/i })
     ).toBeDisabled()
     expect(fetchMock).not.toHaveBeenCalled()
+  })
+
+  // Begin sends the versions GET /legal/versions publishes, never the build
+  // constants, and a consent refusal of them is retried once with versions
+  // read again past every cache.
+  describe('consent versions', () => {
+    const PUBLISHED = { termsVersion: '2031-03-01', privacyVersion: '2031-03-02' }
+    const REPUBLISHED = { terms_version: '2031-04-01', privacy_version: '2031-04-02' }
+    const CONSENT_REFUSAL = {
+      json: async () => ({
+        success: false,
+        error_code: 'TERMS_ACCEPTANCE_REQUIRED',
+        message: 'Please accept the Terms of Service and Privacy Policy before creating an account.',
+      }),
+    }
+    const FINISH_OK = {
+      json: async () => ({
+        success: true,
+        user: { id: 100, email: 'signup@example.com', email_verified: false },
+      }),
+    }
+
+    function versionsResponse(body: unknown, status = 200) {
+      return new Response(JSON.stringify(body), {
+        status,
+        headers: { 'Content-Type': 'application/json' },
+      })
+    }
+
+    /** Routes the versions read apart from the sign-up's own requests. */
+    function routeVersions(
+      answer: () => Promise<Response>,
+      signup: Array<unknown>
+    ) {
+      const queue = [...signup]
+      fetchMock.mockImplementation((url: string) =>
+        new URL(url).pathname === '/legal/versions'
+          ? answer()
+          : Promise.resolve(queue.shift())
+      )
+    }
+
+    const beginCalls = () =>
+      fetchMock.mock.calls.filter(
+        ([url]) => new URL(url as string).pathname === '/auth/passkey/signup/begin'
+      )
+    const versionsCalls = () =>
+      fetchMock.mock.calls.filter(
+        ([url]) => new URL(url as string).pathname === '/legal/versions'
+      )
+    const bodyOf = (call: unknown[]) =>
+      JSON.parse((call[1] as { body: string }).body)
+
+    it('begins and finishes with the versions the route publishes', async () => {
+      fetchMock.mockResolvedValueOnce(BEGIN_OK).mockResolvedValueOnce(FINISH_OK)
+
+      renderButton(clientWithConsentVersions(PUBLISHED))
+      await submitSignup()
+
+      await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2))
+      for (const call of fetchMock.mock.calls) {
+        expect(bodyOf(call)).toMatchObject({
+          terms_version: '2031-03-01',
+          privacy_version: '2031-03-02',
+        })
+      }
+    })
+
+    it('does not begin, and says why, when the versions cannot be read', async () => {
+      routeVersions(async () => versionsResponse({ detail: 'unavailable' }, 503), [])
+
+      renderButton(createTestQueryClient())
+      await submitSignup()
+
+      await waitFor(() => {
+        expect(mockOnError).toHaveBeenCalledWith(CONSENT_VERSIONS_UNAVAILABLE)
+      })
+      expect(beginCalls()).toHaveLength(0)
+      expect(mockOnHandoffChange).not.toHaveBeenCalled()
+    })
+
+    it('begins again once, with a notice, after a refusal of the published versions', async () => {
+      const republished = deferred<Response>()
+      routeVersions(() => republished.promise, [CONSENT_REFUSAL, BEGIN_OK, FINISH_OK])
+
+      renderButton(clientWithConsentVersions(PUBLISHED))
+      await submitSignup()
+
+      expect(await screen.findByText(CONSENT_RETRY_NOTICE)).toBeInTheDocument()
+      expect(versionsCalls()).toHaveLength(1)
+      expect((versionsCalls()[0][1] as RequestInit).cache).toBe('no-cache')
+      republished.resolve(versionsResponse({ ...REPUBLISHED, min_signup_age: 16, grace_until: null }))
+
+      await waitFor(() => {
+        expect(mockOnHandoffChange).toHaveBeenLastCalledWith({
+          status: 'complete',
+          email: 'signup@example.com',
+          method: 'passkey',
+        })
+      })
+      const [refused, retried] = beginCalls()
+      expect(bodyOf(refused)).toMatchObject({ terms_version: '2031-03-01' })
+      expect(bodyOf(retried)).toMatchObject({
+        terms_version: '2031-04-01',
+        privacy_version: '2031-04-02',
+      })
+      const finish = fetchMock.mock.calls.find(
+        ([url]) => new URL(url as string).pathname === '/auth/passkey/signup/finish'
+      )!
+      expect(bodyOf(finish)).toMatchObject({ terms_version: '2031-04-01' })
+      expect(screen.queryByText(CONSENT_RETRY_NOTICE)).not.toBeInTheDocument()
+      expect(mockOnError).not.toHaveBeenCalled()
+    })
+
+    it('reports a second refusal instead of beginning again', async () => {
+      routeVersions(
+        async () => versionsResponse({ ...REPUBLISHED, min_signup_age: 16, grace_until: null }),
+        [CONSENT_REFUSAL, CONSENT_REFUSAL]
+      )
+
+      renderButton(clientWithConsentVersions(PUBLISHED))
+      await submitSignup()
+
+      await waitFor(() => {
+        expect(mockOnError).toHaveBeenCalledWith(
+          'Please accept the Terms of Service and Privacy Policy before creating an account.'
+        )
+      })
+      expect(beginCalls()).toHaveLength(2)
+      expect(versionsCalls()).toHaveLength(1)
+      expect(mockStartRegistration).not.toHaveBeenCalled()
+      expect(screen.queryByText(CONSENT_RETRY_NOTICE)).not.toBeInTheDocument()
+    })
+
+    it('does not begin again when the versions for the retry cannot be read', async () => {
+      routeVersions(
+        async () => versionsResponse({ detail: 'unavailable' }, 503),
+        [CONSENT_REFUSAL]
+      )
+
+      renderButton(clientWithConsentVersions(PUBLISHED))
+      await submitSignup()
+
+      await waitFor(() => {
+        expect(mockOnError).toHaveBeenCalledWith(CONSENT_VERSIONS_UNAVAILABLE)
+      })
+      expect(beginCalls()).toHaveLength(1)
+      expect(mockStartRegistration).not.toHaveBeenCalled()
+    })
   })
 })

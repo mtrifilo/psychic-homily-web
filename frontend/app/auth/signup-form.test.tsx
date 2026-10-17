@@ -2,7 +2,16 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { act, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { renderWithProviders } from '@/test/utils'
+import { http, HttpResponse } from 'msw'
+import { server } from '@/test/mocks/server'
+import { TEST_API_BASE } from '@/test/mocks/handlers'
+import { deferred } from '@/test/inflightOrdering'
 import { CURRENT_PRIVACY_VERSION, CURRENT_TERMS_VERSION, MIN_SIGNUP_AGE } from '@/lib/legal'
+import { AuthError, AuthErrorCode } from '@/lib/errors'
+import {
+  CONSENT_RETRY_NOTICE,
+  CONSENT_VERSIONS_UNAVAILABLE,
+} from './_components/consent-versions-notice'
 import AuthPage from './page'
 
 // Accessible names for the two required signup checkboxes (PSY-1023 added age).
@@ -21,11 +30,13 @@ vi.mock('next/navigation', () => ({
 }))
 
 const mockRegisterMutate = vi.fn()
+// The error the register mutation reports, as a refused sign-up leaves it.
+let mockRegisterError: Error | null = null
 vi.mock('@/features/auth', () => ({
   useRegister: () => ({
     mutate: mockRegisterMutate,
     isPending: false,
-    error: null as Error | null,
+    error: mockRegisterError,
   }),
   useLogin: () => ({
     mutate: vi.fn(),
@@ -91,6 +102,7 @@ describe('SignupForm deferred validation', () => {
   beforeEach(() => {
     mockPush.mockReset()
     mockRegisterMutate.mockReset()
+    mockRegisterError = null
     mockAuthState = {
       setUser: vi.fn(),
       authStatus: 'anonymous',
@@ -397,5 +409,156 @@ describe('SignupForm deferred validation', () => {
     // Find the email error alert and verify it has no duplicated text
     const emailError = screen.getByText('Please enter a valid email address')
     expect(emailError.textContent).toBe('Please enter a valid email address')
+  })
+
+  // Every registration sends the versions GET /legal/versions publishes,
+  // never the build constants, and a consent refusal of those versions is
+  // retried once with versions read again past every cache.
+  describe('consent versions', () => {
+    // Versions no build names, so a test can tell the route from the constants.
+    const PUBLISHED = { terms_version: '2031-03-01', privacy_version: '2031-03-02' }
+    const REPUBLISHED = { terms_version: '2031-04-01', privacy_version: '2031-04-02' }
+    const CONSENT_REFUSAL = new AuthError(
+      'Please accept the Terms of Service and Privacy Policy before creating an account.',
+      AuthErrorCode.TERMS_ACCEPTANCE_REQUIRED
+    )
+
+    /** Answers each GET /legal/versions with the next entry in turn. */
+    function publishInTurn(...answers: Array<() => Response | Promise<Response>>) {
+      let reads = 0
+      server.use(
+        http.get(`${TEST_API_BASE}/legal/versions`, () => {
+          const answer = answers[Math.min(reads, answers.length - 1)]
+          reads += 1
+          return answer()
+        })
+      )
+      return { reads: () => reads }
+    }
+
+    const versionsBody = (versions: typeof PUBLISHED) =>
+      HttpResponse.json({ ...versions, min_signup_age: 16, grace_until: null })
+    const unavailable = () => HttpResponse.json({ detail: 'unavailable' }, { status: 503 })
+
+    async function submitFilledForm() {
+      const { user, rerender } = await renderSignupForm()
+      await user.type(screen.getByLabelText('Email'), 'test@example.com')
+      await user.type(screen.getByLabelText('Password'), 'validPassword123!')
+      await user.click(screen.getByRole('checkbox', { name: TERMS_CHECKBOX }))
+      await user.click(screen.getByRole('checkbox', { name: AGE_CHECKBOX }))
+      await user.click(screen.getByRole('button', { name: 'Create account' }))
+      return { user, rerender }
+    }
+
+    function registerCall(index: number) {
+      const [request, callbacks] = mockRegisterMutate.mock.calls[index] as [
+        { terms_version: string; privacy_version: string },
+        { onError: (error: unknown) => void; onSuccess: (data: unknown) => void },
+      ]
+      return { request, callbacks }
+    }
+
+    it('sends the versions the route publishes, not the build constants', async () => {
+      publishInTurn(() => versionsBody(PUBLISHED))
+
+      await submitFilledForm()
+
+      await waitFor(() => expect(mockRegisterMutate).toHaveBeenCalledTimes(1))
+      expect(registerCall(0).request).toMatchObject({
+        terms_version: '2031-03-01',
+        privacy_version: '2031-03-02',
+      })
+    })
+
+    it('does not register, and says why, when the versions cannot be read', async () => {
+      publishInTurn(unavailable)
+
+      await submitFilledForm()
+
+      expect(await screen.findByText(CONSENT_VERSIONS_UNAVAILABLE)).toBeInTheDocument()
+      expect(mockRegisterMutate).not.toHaveBeenCalled()
+    })
+
+    it('retries once, with a notice, after a refusal of the published versions', async () => {
+      const republished = deferred<Response>()
+      const versions = publishInTurn(
+        () => versionsBody(PUBLISHED),
+        () => republished.promise
+      )
+      await submitFilledForm()
+      await waitFor(() => expect(mockRegisterMutate).toHaveBeenCalledTimes(1))
+      const readsBeforeRefusal = versions.reads()
+
+      act(() => {
+        registerCall(0).callbacks.onError(CONSENT_REFUSAL)
+      })
+
+      expect(await screen.findByText(CONSENT_RETRY_NOTICE)).toBeInTheDocument()
+      expect(screen.queryByText(CONSENT_REFUSAL.message)).not.toBeInTheDocument()
+      expect(screen.getByRole('button', { name: /Creating account/ })).toBeDisabled()
+      await waitFor(() => expect(versions.reads()).toBe(readsBeforeRefusal + 1))
+
+      republished.resolve(versionsBody(REPUBLISHED))
+
+      await waitFor(() => expect(mockRegisterMutate).toHaveBeenCalledTimes(2))
+      expect(registerCall(1).request).toMatchObject({
+        terms_version: '2031-04-01',
+        privacy_version: '2031-04-02',
+      })
+    })
+
+    it('shows a second refusal instead of retrying again', async () => {
+      publishInTurn(() => versionsBody(PUBLISHED), () => versionsBody(REPUBLISHED))
+      const { rerender } = await submitFilledForm()
+      await waitFor(() => expect(mockRegisterMutate).toHaveBeenCalledTimes(1))
+      act(() => {
+        registerCall(0).callbacks.onError(CONSENT_REFUSAL)
+      })
+      await waitFor(() => expect(mockRegisterMutate).toHaveBeenCalledTimes(2))
+
+      mockRegisterError = CONSENT_REFUSAL
+      act(() => {
+        registerCall(1).callbacks.onError(CONSENT_REFUSAL)
+      })
+      act(() => {
+        rerender()
+      })
+
+      expect(await screen.findByText(CONSENT_REFUSAL.message)).toBeInTheDocument()
+      expect(screen.queryByText(CONSENT_RETRY_NOTICE)).not.toBeInTheDocument()
+      expect(mockRegisterMutate).toHaveBeenCalledTimes(2)
+      expect(screen.getByRole('button', { name: 'Create account' })).toBeEnabled()
+    })
+
+    it('does not retry a refusal of anything other than consent', async () => {
+      const versions = publishInTurn(() => versionsBody(PUBLISHED))
+      await submitFilledForm()
+      await waitFor(() => expect(mockRegisterMutate).toHaveBeenCalledTimes(1))
+      const readsBeforeRefusal = versions.reads()
+
+      act(() => {
+        registerCall(0).callbacks.onError(
+          new AuthError('Email already registered', AuthErrorCode.USER_EXISTS)
+        )
+      })
+
+      expect(screen.queryByText(CONSENT_RETRY_NOTICE)).not.toBeInTheDocument()
+      expect(mockRegisterMutate).toHaveBeenCalledTimes(1)
+      expect(versions.reads()).toBe(readsBeforeRefusal)
+    })
+
+    it('does not retry when the versions for the retry cannot be read', async () => {
+      publishInTurn(() => versionsBody(PUBLISHED), unavailable)
+      await submitFilledForm()
+      await waitFor(() => expect(mockRegisterMutate).toHaveBeenCalledTimes(1))
+
+      act(() => {
+        registerCall(0).callbacks.onError(CONSENT_REFUSAL)
+      })
+
+      expect(await screen.findByText(CONSENT_VERSIONS_UNAVAILABLE)).toBeInTheDocument()
+      expect(screen.queryByText(CONSENT_RETRY_NOTICE)).not.toBeInTheDocument()
+      expect(mockRegisterMutate).toHaveBeenCalledTimes(1)
+    })
   })
 })

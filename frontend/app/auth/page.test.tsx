@@ -1,8 +1,20 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { Activity } from 'react'
 import { screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import { http, HttpResponse } from 'msw'
 import { renderWithProviders } from '@/test/utils'
+import { server } from '@/test/mocks/server'
+import { TEST_API_BASE } from '@/test/mocks/handlers'
+import { deferred } from '@/test/inflightOrdering'
+import {
+  CONSENT_RETRY_NOTICE,
+  CONSENT_VERSIONS_UNAVAILABLE,
+} from '@/app/auth/_components/consent-versions-notice'
+import {
+  GOOGLE_SIGNUP_START_KEY,
+  GOOGLE_SIGNUP_START_TTL_MS,
+} from '@/app/auth/_components/google-signup-start'
 import { AUTH_ERROR_CODE_PARAM } from '@/lib/auth-href'
 import { AuthError, AuthErrorCode } from '@/lib/errors'
 import {
@@ -800,6 +812,153 @@ describe('AuthPage', () => {
       expect(
         screen.queryByRole('tab', { name: /create account/i })
       ).not.toBeInTheDocument()
+    })
+  })
+
+  // A consent refusal answering a Google sign-up start this tab recorded is
+  // retried once, with versions read again past every cache.
+  describe('Google sign-up consent retry', () => {
+    const TERMS_MESSAGE =
+      'Please accept the Terms of Service and Privacy Policy before creating an account.'
+    const REPUBLISHED = { terms_version: '2031-04-01', privacy_version: '2031-04-02' }
+    const navigatedTo = vi.fn<(href: string) => void>()
+    const originalLocation = window.location
+
+    function consentArrival(returnTo?: string) {
+      setSearchParams(
+        new URLSearchParams({
+          error: TERMS_MESSAGE,
+          [AUTH_ERROR_CODE_PARAM]: 'TERMS_ACCEPTANCE_REQUIRED',
+          ...(returnTo && { returnTo }),
+        }).toString()
+      )
+    }
+
+    function recordStart(ageMs = 0) {
+      sessionStorage.setItem(GOOGLE_SIGNUP_START_KEY, String(Date.now() - ageMs))
+    }
+
+    function publish(answer: () => Response | Promise<Response>) {
+      let reads = 0
+      server.use(
+        http.get(`${TEST_API_BASE}/legal/versions`, () => {
+          reads += 1
+          return answer()
+        })
+      )
+      return { reads: () => reads }
+    }
+
+    const termsCheckbox = () =>
+      screen.getByRole('checkbox', {
+        name: /I agree to the Terms of Service and Privacy Policy/,
+      })
+
+    beforeEach(() => {
+      navigatedTo.mockReset()
+      sessionStorage.clear()
+      Object.defineProperty(window, 'location', {
+        value: { ...originalLocation },
+        writable: true,
+        configurable: true,
+      })
+      Object.defineProperty(window.location, 'href', {
+        set: navigatedTo,
+        configurable: true,
+      })
+    })
+
+    afterEach(() => {
+      Object.defineProperty(window, 'location', {
+        value: originalLocation,
+        writable: true,
+        configurable: true,
+      })
+    })
+
+    it('shows a notice and starts the sign-up again with re-read versions', async () => {
+      const republished = deferred<Response>()
+      // The open form reads too, so each read gets its own copy.
+      const versions = publish(() => republished.promise.then(r => r.clone()))
+      recordStart()
+      consentArrival('/shows')
+
+      renderWithProviders(<AuthPage />)
+
+      expect(screen.getByText(CONSENT_RETRY_NOTICE)).toBeInTheDocument()
+      expect(screen.queryByText(TERMS_MESSAGE)).not.toBeInTheDocument()
+      expect(termsCheckbox()).not.toHaveFocus()
+      // The form's read and the retry's own, which does not wait on it.
+      await waitFor(() => expect(versions.reads()).toBe(2))
+
+      republished.resolve(HttpResponse.json({ ...REPUBLISHED, min_signup_age: 16, grace_until: null }))
+
+      await waitFor(() => expect(navigatedTo).toHaveBeenCalledTimes(1))
+      const start = new URL(navigatedTo.mock.calls[0][0])
+      expect(start.pathname).toBe('/auth/login/google')
+      expect(Object.fromEntries(start.searchParams)).toEqual({
+        signup_intent: '1',
+        terms_accepted: 'true',
+        terms_version: '2031-04-01',
+        privacy_version: '2031-04-02',
+        age_confirmed: 'true',
+        min_age_attested: '16',
+        returnTo: '/shows',
+      })
+      // Gone before the retry leaves, so the retry's own refusal is shown.
+      expect(sessionStorage.getItem(GOOGLE_SIGNUP_START_KEY)).toBeNull()
+    })
+
+    it('shows the refusal, with the consent controls focused, when no start was recorded', async () => {
+      const versions = publish(() =>
+        HttpResponse.json({ ...REPUBLISHED, min_signup_age: 16, grace_until: null })
+      )
+      consentArrival()
+
+      renderWithProviders(<AuthPage />)
+
+      expect(screen.getByText(TERMS_MESSAGE)).toBeInTheDocument()
+      expect(screen.queryByText(CONSENT_RETRY_NOTICE)).not.toBeInTheDocument()
+      expect(termsCheckbox()).toHaveFocus()
+      // The form's own read, not a retry's: nothing navigates.
+      await waitFor(() => expect(versions.reads()).toBe(1))
+      expect(navigatedTo).not.toHaveBeenCalled()
+    })
+
+    it(`does not retry a start older than ${GOOGLE_SIGNUP_START_TTL_MS / 60000} minutes`, async () => {
+      recordStart(GOOGLE_SIGNUP_START_TTL_MS)
+      consentArrival()
+
+      renderWithProviders(<AuthPage />)
+
+      expect(screen.getByText(TERMS_MESSAGE)).toBeInTheDocument()
+      expect(screen.queryByText(CONSENT_RETRY_NOTICE)).not.toBeInTheDocument()
+      expect(sessionStorage.getItem(GOOGLE_SIGNUP_START_KEY)).toBeNull()
+      expect(navigatedTo).not.toHaveBeenCalled()
+    })
+
+    it('says why, and does not start again, when the versions cannot be read', async () => {
+      publish(() => HttpResponse.json({ detail: 'unavailable' }, { status: 503 }))
+      recordStart()
+      consentArrival()
+
+      renderWithProviders(<AuthPage />)
+
+      expect(await screen.findByText(CONSENT_VERSIONS_UNAVAILABLE)).toBeInTheDocument()
+      expect(screen.queryByText(CONSENT_RETRY_NOTICE)).not.toBeInTheDocument()
+      expect(sessionStorage.getItem(GOOGLE_SIGNUP_START_KEY)).toBeNull()
+      expect(navigatedTo).not.toHaveBeenCalled()
+    })
+
+    it('drops a recorded start on any other arrival', () => {
+      recordStart()
+      setSearchParams('returnTo=%2Fshows')
+
+      renderWithProviders(<AuthPage />)
+
+      expect(sessionStorage.getItem(GOOGLE_SIGNUP_START_KEY)).toBeNull()
+      expect(screen.queryByText(CONSENT_RETRY_NOTICE)).not.toBeInTheDocument()
+      expect(navigatedTo).not.toHaveBeenCalled()
     })
   })
 
