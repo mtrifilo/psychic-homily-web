@@ -137,9 +137,9 @@ func (h *AppleAuthHandler) AppleCallbackHandler(ctx context.Context, input *Appl
 
 	// The service reads the consent only when this callback would create an
 	// account, and refuses that creation when the consent does not name
-	// versions legal.AcceptedVersions takes, with the minimum age attested. AcceptedAt stays zero:
-	// the consent is given in this request, and the account records a zero
-	// acceptance time as the moment it is created.
+	// versions legal.AcceptedVersions takes, with the minimum age attested.
+	// AcceptedAt stays zero: the consent is given in this request, and the
+	// account records a zero acceptance time as the moment it is created.
 	consent := &contracts.OAuthSignupConsent{
 		TermsAccepted:  input.Body.TermsAccepted,
 		TermsVersion:   input.Body.TermsVersion,

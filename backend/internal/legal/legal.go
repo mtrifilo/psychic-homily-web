@@ -30,8 +30,7 @@ const (
 // It covers a client behind this backend, never one ahead of it: a version
 // this build does not name yet is refused whatever the window, as is every
 // sign-up from a frontend that deploys a bump before this backend does. GET
-// /legal/versions publishes the versions this build accepts, for a client to
-// send in place of the ones its own build names.
+// /legal/versions publishes the versions this build accepts.
 //
 // They are empty, and graceUntil is the zero time, while no window is open. A
 // bump sets both previous versions to the pair the frontend sent before it
