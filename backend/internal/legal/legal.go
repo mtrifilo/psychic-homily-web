@@ -20,11 +20,18 @@ const (
 	CurrentPrivacyVersion = "2026-02-15"
 )
 
-// The grace set. A version bump refuses every sign-up from a frontend that
-// still sends the old value: a browser tab that loaded the form before the
-// frontend deployed, and every client while the backend and the frontend are
-// deployed at different values. Until graceUntil, AcceptedVersions also takes
-// these previous versions, either document's alone or both together.
+// The grace set. A version bump refuses every sign-up that still sends the
+// outgoing value: a browser tab that loaded the form before the frontend
+// deployed, a frontend still at the outgoing versions while this backend is
+// ahead of it, and an OAuth or passkey sign-up begun before the bump and
+// finished after it. Until graceUntil, AcceptedVersions also takes these
+// previous versions, either document's alone or both together.
+//
+// It covers a client behind this backend, never one ahead of it: a version
+// this build does not name yet is refused whatever the window, as is every
+// sign-up from a frontend that deploys a bump before this backend does. GET
+// /legal/versions publishes the versions this build accepts, for a client to
+// send in place of the ones its own build names.
 //
 // They are empty, and graceUntil is the zero time, while no window is open. A
 // bump sets both previous versions to the pair the frontend sent before it

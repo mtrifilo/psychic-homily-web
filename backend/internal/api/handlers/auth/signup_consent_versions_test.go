@@ -22,6 +22,7 @@ import (
 	"psychic-homily-backend/internal/legal"
 	authm "psychic-homily-backend/internal/models/auth"
 	"psychic-homily-backend/internal/services/contracts"
+	"psychic-homily-backend/internal/testutil/signupconsent"
 )
 
 // currentConsentVersionsQuery is the version pair the Google start accepts,
@@ -122,21 +123,34 @@ func TestRegisterWire_RefusesConsentVersionsThatAreNotCurrent(t *testing.T) {
 	}
 }
 
-func TestRegisterWire_RecordsCurrentConsentVersions(t *testing.T) {
-	var recorded contracts.LegalAcceptance
-	users := &testhelpers.MockUserService{
-		CreateUserWithPasswordWithLegalFn: func(email, _, _, _ string, acceptance contracts.LegalAcceptance) (*authm.User, error) {
-			recorded = acceptance
-			return &authm.User{ID: 1, Email: &email}, nil
-		},
+// acceptedVersionPairs is signupconsent.AcceptedVersionPairs at the moment the
+// test runs, each pair as the two pointers withVersions takes.
+func acceptedVersionPairs() map[string][2]*string {
+	out := map[string][2]*string{}
+	for name, pair := range signupconsent.AcceptedVersionPairs(time.Now()) {
+		terms, privacy := pair.Terms, pair.Privacy
+		out[name] = [2]*string{&terms, &privacy}
 	}
-	api := newRegisterWireAPI(t, users)
+	return out
+}
 
-	current := legal.CurrentTermsVersion
-	privacy := legal.CurrentPrivacyVersion
-	requireWireSuccess(t, api.Post("/auth/register", withVersions(registerConsentBody, [2]*string{&current, &privacy})))
-	if recorded.TermsVersion != legal.CurrentTermsVersion || recorded.PrivacyVersion != legal.CurrentPrivacyVersion {
-		t.Errorf("recorded versions %q/%q, want the current ones", recorded.TermsVersion, recorded.PrivacyVersion)
+func TestRegisterWire_RecordsAcceptedConsentVersionsAsSent(t *testing.T) {
+	for name, pair := range acceptedVersionPairs() {
+		t.Run(name, func(t *testing.T) {
+			var recorded contracts.LegalAcceptance
+			users := &testhelpers.MockUserService{
+				CreateUserWithPasswordWithLegalFn: func(email, _, _, _ string, acceptance contracts.LegalAcceptance) (*authm.User, error) {
+					recorded = acceptance
+					return &authm.User{ID: 1, Email: &email}, nil
+				},
+			}
+			api := newRegisterWireAPI(t, users)
+
+			requireWireSuccess(t, api.Post("/auth/register", withVersions(registerConsentBody, pair)))
+			if recorded.TermsVersion != *pair[0] || recorded.PrivacyVersion != *pair[1] {
+				t.Errorf("recorded versions %q/%q, want the ones sent, %q/%q", recorded.TermsVersion, recorded.PrivacyVersion, *pair[0], *pair[1])
+			}
+		})
 	}
 }
 
@@ -173,31 +187,34 @@ func TestPasskeySignupBeginWire_RefusesConsentVersionsThatAreNotCurrent(t *testi
 // signup/begin stores the consent it validated on the challenge, which is
 // where signup/finish reads it from.
 func TestPasskeySignupBeginWire_StoresValidatedConsentOnChallenge(t *testing.T) {
-	var stored contracts.SignupChallenge
-	mockWA := &testhelpers.MockWebAuthnService{
-		BeginRegistrationForEmailFn: func(string) (*protocol.CredentialCreation, *webauthn.SessionData, error) {
-			return wireWebAuthn(t).BeginRegistration(&authm.User{ID: 5})
-		},
-		StoreSignupChallengeFn: func(signup contracts.SignupChallenge, _ *webauthn.SessionData, _ string) (string, error) {
-			stored = signup
-			return "c-1", nil
-		},
-	}
-	users := &testhelpers.MockUserService{GetUserByEmailFn: func(string) (*authm.User, error) { return nil, nil }}
-	api := newPasskeyWireAPI(t, testPasskeyHandlerWithMocks(mockWA, &testhelpers.MockJWTService{}, users))
+	for name, pair := range acceptedVersionPairs() {
+		t.Run(name, func(t *testing.T) {
+			var stored contracts.SignupChallenge
+			mockWA := &testhelpers.MockWebAuthnService{
+				BeginRegistrationForEmailFn: func(string) (*protocol.CredentialCreation, *webauthn.SessionData, error) {
+					return wireWebAuthn(t).BeginRegistration(&authm.User{ID: 5})
+				},
+				StoreSignupChallengeFn: func(signup contracts.SignupChallenge, _ *webauthn.SessionData, _ string) (string, error) {
+					stored = signup
+					return "c-1", nil
+				},
+			}
+			users := &testhelpers.MockUserService{GetUserByEmailFn: func(string) (*authm.User, error) { return nil, nil }}
+			api := newPasskeyWireAPI(t, testPasskeyHandlerWithMocks(mockWA, &testhelpers.MockJWTService{}, users))
 
-	terms, privacy := legal.CurrentTermsVersion, legal.CurrentPrivacyVersion
-	requireWireSuccess(t, api.Post("/auth/passkey/signup/begin", withVersions(passkeySignupBeginBody, [2]*string{&terms, &privacy})))
+			requireWireSuccess(t, api.Post("/auth/passkey/signup/begin", withVersions(passkeySignupBeginBody, pair)))
 
-	if stored.Email != "new@example.com" {
-		t.Errorf("stored email %q", stored.Email)
-	}
-	got := stored.Acceptance
-	if got.TermsVersion != terms || got.PrivacyVersion != privacy || got.MinAgeAttested != MinSignupAge {
-		t.Errorf("stored acceptance %+v, want the current versions and age %d", got, MinSignupAge)
-	}
-	if got.TermsAcceptedAt.IsZero() || got.AgeConfirmedAt.IsZero() {
-		t.Errorf("stored acceptance %+v carries no acceptance times", got)
+			if stored.Email != "new@example.com" {
+				t.Errorf("stored email %q", stored.Email)
+			}
+			got := stored.Acceptance
+			if got.TermsVersion != *pair[0] || got.PrivacyVersion != *pair[1] || got.MinAgeAttested != MinSignupAge {
+				t.Errorf("stored acceptance %+v, want the versions sent (%q/%q) and age %d", got, *pair[0], *pair[1], MinSignupAge)
+			}
+			if got.TermsAcceptedAt.IsZero() || got.AgeConfirmedAt.IsZero() {
+				t.Errorf("stored acceptance %+v carries no acceptance times", got)
+			}
+		})
 	}
 }
 
@@ -241,6 +258,32 @@ func TestPasskeySignupFinishWire_RecordsTheConsentBeginValidated(t *testing.T) {
 	}))
 	if recorded != signup.Acceptance {
 		t.Errorf("recorded %+v, want the challenge's %+v", recorded, signup.Acceptance)
+	}
+}
+
+// finish re-checks the challenge's versions at the moment the account is
+// made, so every pair begin may have stored must still be accepted there.
+func TestPasskeySignupFinishWire_AcceptsEveryAcceptedVersionPair(t *testing.T) {
+	registration, _ := softRegistration(t)
+	for name, pair := range signupconsent.AcceptedVersionPairs(time.Now()) {
+		t.Run(name, func(t *testing.T) {
+			signup := currentSignupChallenge("new@example.com")
+			signup.Acceptance.TermsVersion = pair.Terms
+			signup.Acceptance.PrivacyVersion = pair.Privacy
+			var recorded contracts.LegalAcceptance
+			api := passkeySignupFinishAPI(t, signup, &recorded)
+
+			requireWireSuccess(t, api.Post("/auth/passkey/signup/finish", map[string]any{
+				"challenge_id":     "c-1",
+				"response":         registration,
+				"terms_accepted":   true,
+				"age_confirmed":    true,
+				"min_age_attested": MinSignupAge,
+			}))
+			if recorded != signup.Acceptance {
+				t.Errorf("recorded %+v, want the challenge's %+v", recorded, signup.Acceptance)
+			}
+		})
 	}
 }
 
@@ -337,23 +380,30 @@ func TestGoogleSignupStart_RefusesConsentVersionsThatAreNotCurrent(t *testing.T)
 	}
 }
 
-func TestGoogleSignupStart_RecordsCurrentConsentVersions(t *testing.T) {
-	w := googleSignupStart(t, currentConsentVersionsQuery)
+func TestGoogleSignupStart_RecordsAcceptedConsentVersionsAsSent(t *testing.T) {
+	for name, pair := range signupconsent.AcceptedVersionPairs(time.Now()) {
+		t.Run(name, func(t *testing.T) {
+			w := googleSignupStart(t, url.Values{
+				"terms_version":   {pair.Terms},
+				"privacy_version": {pair.Privacy},
+			}.Encode())
 
-	for _, c := range w.Result().Cookies() {
-		if c.Name != oauthSignupConsentCookieName {
-			continue
-		}
-		consent, err := decodeOAuthSignupConsent(c.Value)
-		if err != nil {
-			t.Fatalf("decode consent cookie: %v", err)
-		}
-		if consent.TermsVersion != legal.CurrentTermsVersion || consent.PrivacyVersion != legal.CurrentPrivacyVersion {
-			t.Errorf("consent versions %q/%q, want the current ones", consent.TermsVersion, consent.PrivacyVersion)
-		}
-		return
+			for _, c := range w.Result().Cookies() {
+				if c.Name != oauthSignupConsentCookieName {
+					continue
+				}
+				consent, err := decodeOAuthSignupConsent(c.Value)
+				if err != nil {
+					t.Fatalf("decode consent cookie: %v", err)
+				}
+				if consent.TermsVersion != pair.Terms || consent.PrivacyVersion != pair.Privacy {
+					t.Errorf("consent versions %q/%q, want the ones sent, %q/%q", consent.TermsVersion, consent.PrivacyVersion, pair.Terms, pair.Privacy)
+				}
+				return
+			}
+			t.Fatalf("expected a signup-consent cookie, status %d", w.Code)
+		})
 	}
-	t.Fatalf("expected a signup-consent cookie, status %d", w.Code)
 }
 
 // --- POST /auth/passkey/login/begin with an email ---
