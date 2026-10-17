@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 
@@ -167,6 +168,11 @@ func TestPasskeyRegisterBeginIPCeilingThroughRouter(t *testing.T) {
 	sessions := make([]string, accounts)
 	for a := range sessions {
 		sessions[a] = signIn(fmt.Sprintf("passkey-register-ceiling-%d@test.com", a))
+	}
+	fresh := signIn("passkey-register-ceiling-fresh@test.com")
+
+	window := startInOneRateWindow(t, ceilingTestWindowNeed)
+	for a := range sessions {
 		for i := 0; i < passkeyRegisterBeginLimitPerMinute; i++ {
 			requireRegisterBeginReached(t, router, ip, sessions[a],
 				fmt.Sprintf("account %d begin %d refused below both its own budget and the ceiling", a+1, i+1))
@@ -183,7 +189,6 @@ func TestPasskeyRegisterBeginIPCeilingThroughRouter(t *testing.T) {
 		t.Errorf("own-budget rejection lines name limiters %v, want exactly [%s]", limiters, middleware.LimiterPasskeyRegisterBegin)
 	}
 
-	fresh := signIn("passkey-register-ceiling-fresh@test.com")
 	req = jsonRequest(http.MethodPost, passkeyRegisterBeginPath, ip)
 	req.Header.Set("Authorization", "Bearer "+fresh)
 	refused, limiters = serveLoggingRejections(router, req)
@@ -191,8 +196,39 @@ func TestPasskeyRegisterBeginIPCeilingThroughRouter(t *testing.T) {
 	if len(limiters) != 1 || limiters[0] != string(middleware.LimiterPasskeyRegisterBeginIPCeiling) {
 		t.Errorf("ceiling rejection lines name limiters %v, want exactly [%s]", limiters, middleware.LimiterPasskeyRegisterBeginIPCeiling)
 	}
+	requireSameRateWindow(t, window)
 
 	// The ceiling is per address: the same fresh account from another one is
 	// served.
 	requireRegisterBeginReached(t, router, "198.51.100.131:4444", fresh, "refused by another address's ceiling")
+}
+
+// ceilingTestWindowNeed is how much of one minute window the ceiling test's
+// burst and refusals must fit in.
+const ceilingTestWindowNeed = 20 * time.Second
+
+// startInOneRateWindow waits, if it has to, until at least need is left in the
+// current minute window, and returns that window's start. httprate meters on a
+// sliding window over UTC minutes: once a minute boundary passes, the previous
+// minute's count decays, and a full ceiling of 50 decays below its limit about
+// 0.6s later. A refusal asserted across a boundary would then pass by chance.
+func startInOneRateWindow(t *testing.T, need time.Duration) time.Time {
+	t.Helper()
+	now := time.Now().UTC()
+	window := now.Truncate(time.Minute)
+	if left := window.Add(time.Minute).Sub(now); left < need {
+		time.Sleep(left)
+		window = time.Now().UTC().Truncate(time.Minute)
+	}
+	return window
+}
+
+// requireSameRateWindow fails the test if the minute window that
+// startInOneRateWindow returned has ended, since the refusals asserted since
+// then no longer prove the limit.
+func requireSameRateWindow(t *testing.T, window time.Time) {
+	t.Helper()
+	if now := time.Now().UTC(); !now.Truncate(time.Minute).Equal(window) {
+		t.Fatalf("the test ran past its minute window (started %s, now %s); its refusals are not evidence of the limit", window, now)
+	}
 }
