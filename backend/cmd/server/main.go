@@ -218,8 +218,13 @@ func main() {
 		log.Fatalf("PSY-1384 schema assertion: %v", err)
 	}
 
-	// An INVALID index (a failed concurrent build) is reported, never fatal.
-	db.FlagInvalidIndexes(database, slog.Default(), sentry.CurrentHub())
+	// An INVALID index (a failed concurrent build) refuses boot; an unreadable
+	// catalog is reported and boot continues. log.Fatalf skips the deferred
+	// Flush, so the Sentry event the check captured is flushed first.
+	if err := db.CheckInvalidIndexes(database, slog.Default(), sentry.CurrentHub()); err != nil {
+		sentry.Flush(2 * time.Second)
+		log.Fatalf("invalid index check: %v", err)
+	}
 
 	// PSY-1761: bring the venue-local zone guard's allowlist up to date with
 	// this server's catalog. Boot is when it is most likely to have moved — a
