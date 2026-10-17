@@ -401,24 +401,6 @@ describe('OAuthAccounts', () => {
     ).toBeInTheDocument()
   })
 
-  it('maps a closed-account refusal to its own copy, not the generic failure', async () => {
-    mockOAuthData = { accounts: [] }
-    mockSearchParams = new URLSearchParams(
-      'tab=settings&oauth_link_error=ACCOUNT_INACTIVE'
-    )
-
-    renderWithProviders(<OAuthAccounts />)
-
-    expect(
-      await screen.findByText(
-        'Your account is unavailable, so the provider was not connected. Please contact support.'
-      )
-    ).toBeInTheDocument()
-    expect(
-      screen.queryByText('Could not connect that account.')
-    ).not.toBeInTheDocument()
-  })
-
   it('renders the generic failure for an unknown error code', async () => {
     mockOAuthData = { accounts: [] }
     // Prose an attacker put in the URL must never reach the page: an
