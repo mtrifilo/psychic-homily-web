@@ -67,3 +67,8 @@ sql_strip_comments() {
     END { print "" }
   ' "$1"
 }
+
+# sql_folded <file>: sql_strip_comments, lowercased, so a match ignores case.
+sql_folded() {
+  sql_strip_comments "$1" | tr '[:upper:]' '[:lower:]'
+}

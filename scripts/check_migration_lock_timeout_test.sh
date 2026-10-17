@@ -284,13 +284,13 @@ expect 0 "every new strong-lock migration sets its own lock_timeout"
 
 # --- CREATE INDEX CONCURRENTLY IF NOT EXISTS fails in both modes for a new
 # migration, and only warns for one at or below the pinned version -----------
-# PINNED is the gate's own constant, so these cases test its boundary.
-PINNED="$(sed -n 's/^CIC_IF_NOT_EXISTS_GRANDFATHERED_THROUGH=\([0-9]*\)$/\1/p' "$UNDER_TEST")"
-if [ -z "$PINNED" ]; then
-  echo "FAIL: CIC_IF_NOT_EXISTS_GRANDFATHERED_THROUGH not found in $UNDER_TEST"
-  FAILURES=$((FAILURES + 1))
-  PINNED=0
-fi
+# The gate's own libraries, so these cases test its pinned version's boundary
+# and the repository scan below applies the gate's rule.
+# shellcheck source=scripts/lib/sql_strip_comments.sh
+. "$SCRIPT_DIR/lib/sql_strip_comments.sh"
+# shellcheck source=scripts/lib/cic_if_not_exists.sh
+. "$SCRIPT_DIR/lib/cic_if_not_exists.sh"
+PINNED="$CIC_IF_NOT_EXISTS_GRANDFATHERED_THROUGH"
 NEWER="$((10#$PINNED + 1))"
 CIC_HAZARD="uses CREATE INDEX CONCURRENTLY IF NOT EXISTS: a failed concurrent build leaves an INVALID index that the IF NOT EXISTS retry keeps."
 CIC_CONVENTION="Rebuildable concurrent index: DROP INDEX CONCURRENTLY IF EXISTS <index>; in one migration, then CREATE INDEX CONCURRENTLY <index> ON ...; (no IF NOT EXISTS) in the next, one CONCURRENTLY statement per file."
@@ -359,17 +359,12 @@ refute "ERROR"
 # Every migration in the repository that uses the spelling is at or below the
 # pinned version, so none of them would be refused if it were added again.
 CASE="repository: every CONCURRENTLY IF NOT EXISTS migration is grandfathered"
-# shellcheck source=scripts/lib/sql_strip_comments.sh
-. "$SCRIPT_DIR/lib/sql_strip_comments.sh"
 REPO_CIC_FILES=0
 for repo_up in "$SCRIPT_DIR"/../backend/db/migrations/*.up.sql; do
-  if sql_strip_comments "$repo_up" | tr '[:upper:]' '[:lower:]' \
-       | grep -qE 'create[[:space:]]+(unique[[:space:]]+)?index[[:space:]]+concurrently[[:space:]]+if[[:space:]]+not[[:space:]]+exists'; then
+  if cic_if_not_exists_in "$(sql_folded "$repo_up")"; then
     REPO_CIC_FILES=$((REPO_CIC_FILES + 1))
-    repo_version="${repo_up##*/}"
-    repo_version="${repo_version%%_*}"
-    if [ "$((10#$repo_version))" -gt "$((10#$PINNED))" ]; then
-      echo "FAIL [$CASE]: ${repo_up##*/} is above $PINNED"
+    if ! cic_grandfathered "$repo_up"; then
+      echo "FAIL [$CASE]: ${repo_up##*/} is not grandfathered (above $PINNED)"
       FAILURES=$((FAILURES + 1))
     fi
   fi

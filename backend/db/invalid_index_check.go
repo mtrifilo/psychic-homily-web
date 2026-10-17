@@ -62,12 +62,20 @@ type invalidIndexesError struct {
 	indexes []invalidIndex // never empty
 }
 
+// describeInvalidIndexes names each index as "<QualifiedName> on <table>",
+// comma-separated: the form both the refusal and the Sentry event use.
+func describeInvalidIndexes(indexes []invalidIndex) string {
+	names := make([]string, 0, len(indexes))
+	for _, idx := range indexes {
+		names = append(names, idx.QualifiedName+" on "+idx.TableName)
+	}
+	return strings.Join(names, ", ")
+}
+
 func (e *invalidIndexesError) Error() string {
-	names := make([]string, 0, len(e.indexes))
 	drops := make([]string, 0, len(e.indexes))
 	for _, idx := range e.indexes {
-		names = append(names, fmt.Sprintf("%s on %s", idx.QualifiedName, idx.TableName))
-		drops = append(drops, fmt.Sprintf("DROP INDEX CONCURRENTLY IF EXISTS %s;", idx.QualifiedName))
+		drops = append(drops, "DROP INDEX CONCURRENTLY IF EXISTS "+idx.QualifiedName+";")
 	}
 	return fmt.Sprintf(
 		"%d INVALID index(es), which queries do not use: %s. Recover each with %s "+
@@ -76,7 +84,7 @@ func (e *invalidIndexesError) Error() string {
 			"An index whose concurrent build is still running is INVALID until the build "+
 			"finishes, so each of these is possibly a build in progress: if one is, let it "+
 			"finish and restart instead of dropping it. Refusing to boot",
-		len(e.indexes), strings.Join(names, ", "), strings.Join(drops, " "))
+		len(e.indexes), describeInvalidIndexes(e.indexes), strings.Join(drops, " "))
 }
 
 // CheckInvalidIndexes returns an error naming every INVALID index in the
@@ -103,7 +111,6 @@ func checkInvalidIndexesWithin(gormDB *gorm.DB, logger *slog.Logger, hub *sentry
 		return nil
 	}
 
-	names := make([]string, 0, len(indexes))
 	for _, idx := range indexes {
 		logger.Error("INVALID index: queries do not use it; drop it and rerun its build",
 			"schema", idx.SchemaName,
@@ -111,9 +118,8 @@ func checkInvalidIndexesWithin(gormDB *gorm.DB, logger *slog.Logger, hub *sentry
 			"index", idx.IndexName,
 			"definition", idx.Definition,
 		)
-		names = append(names, fmt.Sprintf("%s.%s on %s", idx.SchemaName, idx.IndexName, idx.TableName))
 	}
-	captureInvalidIndexEvent(hub, fmt.Errorf("%d INVALID index(es): %s", len(indexes), strings.Join(names, ", ")))
+	captureInvalidIndexEvent(hub, fmt.Errorf("%d INVALID index(es): %s", len(indexes), describeInvalidIndexes(indexes)))
 	return &invalidIndexesError{indexes: indexes}
 }
 

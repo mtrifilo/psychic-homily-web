@@ -18,7 +18,8 @@
 # CREATE INDEX CONCURRENTLY in the next. A migration whose version is at or
 # below CIC_IF_NOT_EXISTS_GRANDFATHERED_THROUGH predates that rule and only
 # gets a WARNING (exit 0); a version that is not all digits is never
-# grandfathered.
+# grandfathered. The pattern, the pinned version and the grandfather check are
+# in scripts/lib/cic_if_not_exists.sh.
 #
 # Two modes, chosen by reading backend/docker-entrypoint.sh:
 #   * Runner-level bound in place: the entrypoint passes a lock_timeout option
@@ -42,9 +43,6 @@ BASE_REF="${1:-origin/main}"
 MIGRATIONS_PATH="backend/db/migrations"
 ENTRYPOINT="backend/docker-entrypoint.sh"
 RUNNER_OPTION='options=-c%20lock_timeout%3D'
-# The newest migration version merged before CREATE INDEX CONCURRENTLY IF NOT
-# EXISTS became an error. Fixed: raising it would grandfather new migrations.
-CIC_IF_NOT_EXISTS_GRANDFATHERED_THROUGH=20261015210000
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
@@ -52,6 +50,8 @@ cd "$REPO_ROOT"
 
 # shellcheck source=scripts/lib/sql_strip_comments.sh
 . "$SCRIPT_DIR/lib/sql_strip_comments.sh"
+# shellcheck source=scripts/lib/cic_if_not_exists.sh
+. "$SCRIPT_DIR/lib/cic_if_not_exists.sh"
 
 if ! git rev-parse --verify --quiet "${BASE_REF}^{commit}" >/dev/null; then
   echo "ERROR: base ref '$BASE_REF' not found in this repository." >&2
@@ -88,13 +88,7 @@ if [ -z "$ADDED_UP" ]; then
 fi
 
 # --- 3. classify and report each added up migration --------------------------
-# Prints file $1 with its comments stripped by the rule in
-# lib/sql_strip_comments.sh, in one lowercase line.
-folded_sql() {
-  sql_strip_comments "$1" | tr '[:upper:]' '[:lower:]'
-}
-
-# Prints the strong-lock statement kinds found in $1 (output of folded_sql),
+# Prints the strong-lock statement kinds found in $1 (output of sql_folded),
 # one per line.
 strong_locks() {
   local sql="$1" index_heads
@@ -109,51 +103,31 @@ strong_locks() {
   return 0
 }
 
-# warn <file> <message>: a WARNING line, or a file annotation on GitHub Actions.
-warn() {
+# annotate warning|error <file> <message>: a WARNING line on stdout or an ERROR
+# line on stderr, or a file annotation of that level on GitHub Actions.
+annotate() {
   if [ "${GITHUB_ACTIONS:-}" = true ]; then
-    echo "::warning file=$1::$2"
+    echo "::$1 file=$2::$3"
+  elif [ "$1" = error ]; then
+    echo "ERROR: $3" >&2
   else
-    echo "WARNING: $2"
+    echo "WARNING: $3"
   fi
 }
 
-# refuse <file> <message>: an ERROR line, or a file annotation on GitHub Actions.
-refuse() {
-  if [ "${GITHUB_ACTIONS:-}" = true ]; then
-    echo "::error file=$1::$2"
-  else
-    echo "ERROR: $2" >&2
-  fi
-}
-
-# grandfathered <file>: true when the file's version (the digits before the
-# first '_') is at or below CIC_IF_NOT_EXISTS_GRANDFATHERED_THROUGH. A version
-# that is empty, not all digits, or longer than a timestamp is not.
-grandfathered() {
-  local version="${1##*/}"
-  version="${version%%_*}"
-  case "$version" in
-    '' | *[!0-9]*) return 1 ;;
-  esac
-  [ "${#version}" -le 14 ] || return 1
-  [ "$((10#$version))" -le "$((10#$CIC_IF_NOT_EXISTS_GRANDFATHERED_THROUGH))" ]
-}
-
-CIC_IF_NOT_EXISTS='create[[:space:]]+(unique[[:space:]]+)?index[[:space:]]+concurrently[[:space:]]+if[[:space:]]+not[[:space:]]+exists'
 CIC_HAZARD="uses CREATE INDEX CONCURRENTLY IF NOT EXISTS: a failed concurrent build leaves an INVALID index that the IF NOT EXISTS retry keeps."
 CIC_CONVENTION="Rebuildable concurrent index: DROP INDEX CONCURRENTLY IF EXISTS <index>; in one migration, then CREATE INDEX CONCURRENTLY <index> ON ...; (no IF NOT EXISTS) in the next, one CONCURRENTLY statement per file."
 
 UNBOUNDED=0
 REFUSED=0
 for f in $ADDED_UP; do
-  sql="$(folded_sql "$f")"
-  if grep -qE "$CIC_IF_NOT_EXISTS" <<<"$sql"; then
-    if grandfathered "$f"; then
-      warn "$f" "$f $CIC_HAZARD It predates the rule (version at or below $CIC_IF_NOT_EXISTS_GRANDFATHERED_THROUGH)."
+  sql="$(sql_folded "$f")"
+  if cic_if_not_exists_in "$sql"; then
+    if cic_grandfathered "$f"; then
+      annotate warning "$f" "$f $CIC_HAZARD It predates the rule (version at or below $CIC_IF_NOT_EXISTS_GRANDFATHERED_THROUGH)."
     else
       REFUSED=$((REFUSED + 1))
-      refuse "$f" "$f $CIC_HAZARD $CIC_CONVENTION"
+      annotate error "$f" "$f $CIC_HAZARD $CIC_CONVENTION"
     fi
   fi
   locks="$(strong_locks "$sql")"
@@ -166,7 +140,7 @@ for f in $ADDED_UP; do
   if [ "$RUNNER_BOUND" = no ]; then
     echo "ERROR: $msg" >&2
   else
-    warn "$f" "$msg $ENTRYPOINT bounds it at boot; a manual migrate run is unbounded."
+    annotate warning "$f" "$msg $ENTRYPOINT bounds it at boot; a manual migrate run is unbounded."
   fi
 done
 
