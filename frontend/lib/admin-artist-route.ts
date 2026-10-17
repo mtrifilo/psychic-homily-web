@@ -1,7 +1,7 @@
-// Shared helpers for the admin artist BFF routes (bandcamp / spotify), which
-// had the admin auth gate and the backend-forward copy-pasted across every
-// handler (PSY-1111). The lower-level /auth/profile
-// fetch lives in lib/auth-profile (also used by the AI extract routes).
+// Shared helpers for the admin artist BFF routes (bandcamp / spotify): the
+// admin auth gate and the backend forward every handler uses. The lower-level
+// /auth/profile fetch lives in lib/auth-profile (also used by the AI extract
+// routes).
 
 import { cookies } from 'next/headers'
 import { NextResponse } from 'next/server'
