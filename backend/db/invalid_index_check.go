@@ -16,7 +16,7 @@ import (
 const invalidIndexDefinitionLimit = 120
 
 // invalidIndexSentrySource is the value of the "source" tag on the Sentry
-// event FlagInvalidIndexes captures, for both an INVALID index and a failed
+// event CheckInvalidIndexes captures, for both an INVALID index and a failed
 // read.
 const invalidIndexSentrySource = "schema.invalid_index"
 
@@ -27,10 +27,11 @@ const invalidIndexReadErrorMessage = "could not read pg_index; INVALID indexes w
 // invalidIndex is an index in the connection's current schema whose
 // pg_index.indisvalid is false. The planner never uses such an index.
 type invalidIndex struct {
-	SchemaName string
-	TableName  string
-	IndexName  string
-	Definition string // the first invalidIndexDefinitionLimit characters
+	SchemaName    string
+	TableName     string
+	IndexName     string
+	QualifiedName string // schema.index, each part quoted where Postgres needs it
+	Definition    string // the first invalidIndexDefinitionLimit characters
 }
 
 // readInvalidIndexes returns every index in the current schema that is not
@@ -42,6 +43,7 @@ func readInvalidIndexes(gormDB *gorm.DB) ([]invalidIndex, error) {
 		`SELECT n.nspname AS schema_name,
 		        t.relname AS table_name,
 		        i.relname AS index_name,
+		        quote_ident(n.nspname) || '.' || quote_ident(i.relname) AS qualified_name,
 		        left(pg_get_indexdef(x.indexrelid), ?) AS definition
 		   FROM pg_index x
 		   JOIN pg_class i ON i.oid = x.indexrelid
@@ -54,27 +56,51 @@ func readInvalidIndexes(gormDB *gorm.DB) ([]invalidIndex, error) {
 	return indexes, err
 }
 
-// FlagInvalidIndexes logs one ERROR line per INVALID index in the current
-// schema and captures one Sentry event naming them all; with none it logs and
-// captures nothing. A failed read, including one that does not answer within
-// bootSchemaReadTimeout, is logged and captured as a read error, so it is
-// never mistaken for a clean result. It returns nothing: neither outcome
-// refuses boot.
-func FlagInvalidIndexes(gormDB *gorm.DB, logger *slog.Logger, hub *sentry.Hub) {
-	flagInvalidIndexesWithin(gormDB, logger, hub, bootSchemaReadTimeout)
+// invalidIndexesError is the refusal CheckInvalidIndexes returns. Its message
+// names every INVALID index and the commands that recover each one.
+type invalidIndexesError struct {
+	indexes []invalidIndex // never empty
 }
 
-func flagInvalidIndexesWithin(gormDB *gorm.DB, logger *slog.Logger, hub *sentry.Hub, bound time.Duration) {
+func (e *invalidIndexesError) Error() string {
+	names := make([]string, 0, len(e.indexes))
+	drops := make([]string, 0, len(e.indexes))
+	for _, idx := range e.indexes {
+		names = append(names, fmt.Sprintf("%s on %s", idx.QualifiedName, idx.TableName))
+		drops = append(drops, fmt.Sprintf("DROP INDEX CONCURRENTLY IF EXISTS %s;", idx.QualifiedName))
+	}
+	return fmt.Sprintf(
+		"%d INVALID index(es), which queries do not use: %s. Recover each with %s "+
+			"then rerun its CREATE INDEX CONCURRENTLY from its migration "+
+			"(IF NOT EXISTS keeps an INVALID index, so the drop comes first). "+
+			"An index whose concurrent build is still running is INVALID until the build "+
+			"finishes, so each of these is possibly a build in progress: if one is, let it "+
+			"finish and restart instead of dropping it. Refusing to boot",
+		len(e.indexes), strings.Join(names, ", "), strings.Join(drops, " "))
+}
+
+// CheckInvalidIndexes returns an error naming every INVALID index in the
+// current schema, after logging one ERROR line per index and capturing one
+// Sentry event naming them all; the caller refuses boot on that error. With no
+// INVALID index it returns nil and logs and captures nothing. A failed read,
+// including one that does not answer within bootSchemaReadTimeout, is logged
+// and captured as a read error and returns nil: an unreadable catalog is not
+// an INVALID index, so it does not refuse boot.
+func CheckInvalidIndexes(gormDB *gorm.DB, logger *slog.Logger, hub *sentry.Hub) error {
+	return checkInvalidIndexesWithin(gormDB, logger, hub, bootSchemaReadTimeout)
+}
+
+func checkInvalidIndexesWithin(gormDB *gorm.DB, logger *slog.Logger, hub *sentry.Hub, bound time.Duration) error {
 	indexes, err := readWithin(bound, func(ctx context.Context) ([]invalidIndex, error) {
 		return readInvalidIndexes(gormDB.WithContext(ctx))
 	})
 	if err != nil {
 		logger.Error(invalidIndexReadErrorMessage, "error", err)
 		captureInvalidIndexEvent(hub, fmt.Errorf("%s: %w", invalidIndexReadErrorMessage, err))
-		return
+		return nil
 	}
 	if len(indexes) == 0 {
-		return
+		return nil
 	}
 
 	names := make([]string, 0, len(indexes))
@@ -88,6 +114,7 @@ func flagInvalidIndexesWithin(gormDB *gorm.DB, logger *slog.Logger, hub *sentry.
 		names = append(names, fmt.Sprintf("%s.%s on %s", idx.SchemaName, idx.IndexName, idx.TableName))
 	}
 	captureInvalidIndexEvent(hub, fmt.Errorf("%d INVALID index(es): %s", len(indexes), strings.Join(names, ", ")))
+	return &invalidIndexesError{indexes: indexes}
 }
 
 func captureInvalidIndexEvent(hub *sentry.Hub, err error) {
