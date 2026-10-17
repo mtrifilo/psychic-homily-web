@@ -46,9 +46,9 @@ export function isAuthPath(pathname: string): boolean {
  * or fragment survives the round trip instead of being parsed as part of the
  * auth page's own params.
  *
- * A destination `sanitizeReturnTo` would discard is omitted rather than
- * encoded: the auth surface's own routes and the fallback both land the reader
- * at `/` with or without the param, so emitting one would put a self-defeating
+ * The fallback and the auth surface's own routes are omitted rather than
+ * encoded: `sanitizeReturnTo` discards them, and they land the reader at `/`
+ * with or without the param, so emitting one would put a self-defeating
  * query string in the markup of every page that carries no destination worth
  * returning to.
  */

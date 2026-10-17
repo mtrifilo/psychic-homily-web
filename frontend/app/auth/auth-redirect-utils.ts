@@ -10,11 +10,11 @@ import { FALLBACK_RETURN_TO, isAuthPath } from '@/lib/auth-href'
 /** The backend's `oauthReturnToMaxLength`. */
 const RETURN_TO_MAX_LENGTH = 2048
 
+/** Every character from "!" to "~": no space, control character or non-ASCII. */
+const PRINTABLE_ASCII = /^[!-~]*$/
+
 /** A `%` not followed by two hex digits. */
 const MALFORMED_ESCAPE = /%(?![0-9A-Fa-f]{2})/
-
-/** A path segment that decodes to "." or "..". */
-const DOT_SEGMENT = /^(?:\.|%2e){1,2}$/i
 
 /**
  * Returns `rawReturnTo` unchanged when it is a path on this origin that a
@@ -50,19 +50,16 @@ export function sanitizeReturnTo(
   if (!raw.startsWith('/') || raw.startsWith('//')) {
     return FALLBACK_RETURN_TO
   }
-  if (!/^[!-~]*$/.test(raw)) {
+  if (!PRINTABLE_ASCII.test(raw)) {
     return FALLBACK_RETURN_TO
   }
 
-  const pathEnd = raw.search(/[?#]/)
-  const path = pathEnd === -1 ? raw : raw.slice(0, pathEnd)
+  const path = raw.split(/[?#]/)[0]
   if (path.includes('\\')) {
     return FALLBACK_RETURN_TO
   }
-  for (const segment of path.split('/')) {
-    if (MALFORMED_ESCAPE.test(segment) || DOT_SEGMENT.test(segment)) {
-      return FALLBACK_RETURN_TO
-    }
+  if (MALFORMED_ESCAPE.test(path) || path.split('/').some(isDotSegment)) {
+    return FALLBACK_RETURN_TO
   }
 
   const fragmentStart = raw.indexOf('#')
@@ -75,11 +72,17 @@ export function sanitizeReturnTo(
   return raw
 }
 
+function isDotSegment(segment: string): boolean {
+  const decoded = decodeAsciiEscapes(segment)
+  return decoded === '.' || decoded === '..'
+}
+
 /**
  * Decodes the percent escapes of ASCII bytes and leaves the rest encoded.
- * The sign-in page's path is ASCII, so a byte left encoded changes no
- * `isAuthPath` outcome, and `decodeURIComponent` would throw on an escape
- * that is not UTF-8 ("/a/%FF"), which Go decodes and keeps.
+ * Every value it is compared against (".", "..", the sign-in page's path) is
+ * ASCII, so a byte left encoded changes no outcome, and `decodeURIComponent`
+ * would throw on an escape that is not UTF-8 ("/a/%FF"), which Go decodes
+ * and keeps.
  */
 function decodeAsciiEscapes(path: string): string {
   return path.replace(/%([0-7][0-9A-Fa-f])/g, (_, hex: string) =>
