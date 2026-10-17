@@ -261,6 +261,7 @@ func (s *OAuthHandlerIntegrationSuite) TestLink_StaleSessionRefused() {
 	s.Require().NoError(err)
 	s.Equal("/auth", parsed.Path)
 	s.Contains(parsed.Query().Get("returnTo"), "tab=settings")
+	s.Equal(oauthLinkErrorReauthRequired, parsed.Query().Get(authPageReasonParam))
 	s.Nil(linkIntentCookie(w))
 
 	// The token is checked AFTER re-auth, so a refusal here leaves it usable
@@ -297,6 +298,7 @@ func (s *OAuthHandlerIntegrationSuite) TestLink_SessionWithNoAuthTimeRefused() {
 	s.Require().NoError(err)
 	s.Equal("/auth", parsed.Path)
 	s.Contains(parsed.Query().Get("returnTo"), "tab=settings")
+	s.Equal(oauthLinkErrorReauthRequired, parsed.Query().Get(authPageReasonParam))
 	s.Nil(linkIntentCookie(w))
 
 	// Re-auth is checked before the token is spent, so the refusal leaves it

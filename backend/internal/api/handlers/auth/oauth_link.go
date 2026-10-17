@@ -39,7 +39,8 @@ const (
 )
 
 // The query keys the result travels back under. The Settings panel reads the
-// same two names.
+// same two names as OAUTH_LINK_RESULT_PARAM and OAUTH_LINK_ERROR_PARAM
+// (frontend/lib/auth-href.ts).
 //
 // The error parameter carries a CODE, never prose. The panel renders whatever
 // it finds there into the page, so server-authored copy travelling in the URL
