@@ -294,7 +294,7 @@ func (h *OAuthHTTPHandler) completeOAuthLink(
 			"provider", provider,
 			"user_id", intent.userID,
 		)
-		redirectToLinkResult(w, r, frontendURL, autherrors.CodeAccountInactive)
+		redirectToAccountUnavailable(w, r, frontendURL)
 		return
 	case err == nil || errors.As(err, &credentialRefusal):
 		logger.AuthWarn(ctx, "oauth_link_refused_session_mismatch",
@@ -322,7 +322,14 @@ func (h *OAuthHTTPHandler) completeOAuthLink(
 			"user_id", intent.userID,
 			"error", observability.ScrubText(utils.RedactErrorURL(err).Error()),
 		)
-		redirectToLinkResult(w, r, frontendURL, refusalCode(err, autherrors.CodeUnknown))
+		// The account can close during the exchange, and the reads after it
+		// report that with the same code the session gate does.
+		code := refusalCode(err, autherrors.CodeUnknown)
+		if code == autherrors.CodeAccountInactive {
+			redirectToAccountUnavailable(w, r, frontendURL)
+			return
+		}
+		redirectToLinkResult(w, r, frontendURL, code)
 		return
 	}
 
@@ -338,13 +345,8 @@ func (h *OAuthHTTPHandler) completeOAuthLink(
 // success case; any other value is an error code the panel maps to its own
 // copy. Codes, not sentences: see the parameter's own comment.
 //
-// ACCOUNT_INACTIVE is the one code that does not go to Settings: see
-// redirectToAccountUnavailable.
+// ACCOUNT_INACTIVE never comes here: see redirectToAccountUnavailable.
 func redirectToLinkResult(w http.ResponseWriter, r *http.Request, frontendURL, code string) {
-	if code == autherrors.CodeAccountInactive {
-		redirectToAccountUnavailable(w, r, frontendURL)
-		return
-	}
 	query := url.Values{oauthLinkSettingsTabKey: {oauthLinkSettingsTabValue}}
 	if code == "" {
 		query.Set(oauthLinkResultParam, "connected")
@@ -365,16 +367,9 @@ func redirectToReauth(w http.ResponseWriter, r *http.Request, frontendURL string
 	settings := oauthLinkSettingsPath + "?" + url.Values{
 		oauthLinkSettingsTabKey: {oauthLinkSettingsTabValue},
 	}.Encode()
-	query := url.Values{
-		oauthReturnToParam:  {settings},
-		authPageReasonParam: {oauthLinkErrorReauthRequired},
-	}
-	http.Redirect(w, r, frontendURL+oauthAuthPagePath+"?"+query.Encode(), http.StatusTemporaryRedirect)
+	query := url.Values{authPageReasonParam: {oauthLinkErrorReauthRequired}}
+	http.Redirect(w, r, authPageURLWithReturnTo(frontendURL, query, settings), http.StatusTemporaryRedirect)
 }
-
-// authPageReasonParam is the query key the frontend auth page reads to say why
-// the reader was sent there (frontend/lib/auth-href.ts).
-const authPageReasonParam = "reason"
 
 // redirectToAccountUnavailable answers a link refused because the account may
 // no longer sign in. Settings cannot show that refusal: a closed account's
@@ -386,7 +381,7 @@ const authPageReasonParam = "reason"
 // reactivated, return its owner to a refusal that is no longer true.
 func redirectToAccountUnavailable(w http.ResponseWriter, r *http.Request, frontendURL string) {
 	query := url.Values{authPageReasonParam: {autherrors.CodeAccountInactive}}
-	http.Redirect(w, r, frontendURL+oauthAuthPagePath+"?"+query.Encode(), http.StatusTemporaryRedirect)
+	http.Redirect(w, r, authPageURLWithReturnTo(frontendURL, query, oauthReturnToFallback), http.StatusTemporaryRedirect)
 }
 
 // jwtSecret signs the one-time link token. The same secret the session uses:

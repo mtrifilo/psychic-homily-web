@@ -513,8 +513,6 @@ describe('AuthPage', () => {
     })
   })
 
-  // The OAuth link callback sends a closed account here, because its session
-  // no longer opens Settings where every other link result is shown.
   describe('OAuth link refused for a closed account', () => {
     const MESSAGE =
       'Your account is unavailable, so the provider was not connected; please contact support.'

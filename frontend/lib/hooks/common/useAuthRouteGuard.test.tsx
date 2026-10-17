@@ -111,8 +111,7 @@ describe('useAuthRouteGuard', () => {
     )
   })
 
-  // The profile guard's own mode. A link result in the query would otherwise
-  // ride returnTo and replay on Settings after a later sign-in.
+  // The profile guard's own mode.
   it('leaves an OAuth link result out of returnTo', () => {
     mockAuthStatus = 'anonymous'
     mockPathname = '/profile'

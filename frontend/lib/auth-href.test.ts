@@ -83,9 +83,6 @@ describe('currentLocationReturnTo', () => {
     expect(sanitizeReturnTo(returnTo)).toBe('/users/alice?tab=bio')
   })
 
-  // An OAuth link result is read once, by Settings, on the redirect that
-  // carries it. Kept in returnTo it replays after any later sign-in through
-  // that link, including one long after the result stopped being true.
   it('drops an OAuth link error so a later sign-in does not replay it', () => {
     window.history.replaceState(
       {},

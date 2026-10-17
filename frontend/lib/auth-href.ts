@@ -107,9 +107,10 @@ const OAUTH_LINK_RESULT_PARAMS: readonly string[] = [
  * keeps the spelling the location gave it, so a destination that carries no
  * link result comes back byte for byte. A name is compared decoded, the way
  * Settings reads it, so an encoded spelling of a link parameter is dropped
- * too.
+ * too. Returns `''` or a query string with its leading `?`; the leading `?` on
+ * the input is optional.
  */
-function withoutOAuthLinkResult(search: string): string {
+export function withoutOAuthLinkResult(search: string): string {
   const kept = search
     .replace(/^\?/, '')
     .split('&')
@@ -155,16 +156,19 @@ export function isReauthReason(reason: string | null): boolean {
 }
 
 /**
- * The reason the backend puts on an `/auth` link when an OAuth link was
- * refused because the account may no longer sign in. It is the backend error
- * code verbatim (autherrors.CodeAccountInactive), written by
- * redirectToAccountUnavailable in
- * backend/internal/api/handlers/auth/oauth_link.go.
- *
- * Not a re-authentication reason: signing in again cannot satisfy it, so the
- * page keeps its ordinary sign-in form and adds the refusal's own copy.
+ * The reason redirectToAccountUnavailable
+ * (backend/internal/api/handlers/auth/oauth_link.go) puts on an `/auth` link:
+ * an OAuth link refused because the account may no longer sign in. Not a
+ * re-authentication reason, since signing in again cannot satisfy it.
  */
-export const ACCOUNT_INACTIVE_REASON = 'ACCOUNT_INACTIVE'
+export const ACCOUNT_INACTIVE_REASON = AuthErrorCode.ACCOUNT_INACTIVE
+
+/**
+ * The auth-page query parameter that says why the reader was sent there. The
+ * backend writes it as `authPageReasonParam` in
+ * `backend/internal/api/handlers/auth/oauth_handlers.go`.
+ */
+export const AUTH_REASON_PARAM = 'reason'
 
 /**
  * The auth-page href for a reader who is signed in and has to prove it again.
@@ -177,7 +181,7 @@ export const ACCOUNT_INACTIVE_REASON = 'ACCOUNT_INACTIVE'
 export function buildReauthHref(returnTo: string): string {
   return appendAuthParam(
     buildAuthHref(returnTo),
-    'reason',
+    AUTH_REASON_PARAM,
     REAUTH_REASON_CREDENTIAL_MINT
   )
 }

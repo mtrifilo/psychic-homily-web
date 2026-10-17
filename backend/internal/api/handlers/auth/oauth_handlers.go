@@ -76,12 +76,14 @@ func refusalCode(err error, fallback string) string {
 	return fallback
 }
 
-// The query keys a failed sign-in callback hands the frontend auth page. The
-// page reads the same two names as AUTH_ERROR_PARAM and AUTH_ERROR_CODE_PARAM
-// (frontend/lib/auth-href.ts).
+// The query keys the backend hands the frontend auth page: a failed sign-in
+// callback's message and code, which the page reads as AUTH_ERROR_PARAM and
+// AUTH_ERROR_CODE_PARAM, and the reason an OAuth link sent the reader there,
+// which it reads as AUTH_REASON_PARAM (frontend/lib/auth-href.ts).
 const (
 	authPageErrorParam     = "error"
 	authPageErrorCodeParam = "error_code"
+	authPageReasonParam    = "reason"
 )
 
 // authPageErrorQuery is the query string a failed sign-in callback hands the

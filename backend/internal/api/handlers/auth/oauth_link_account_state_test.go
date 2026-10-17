@@ -76,10 +76,8 @@ func (s *OAuthHandlerIntegrationSuite) TestLinkCallback_AccountClosedDuringHands
 	}
 }
 
-// A closed account's session no longer opens Settings, so its refusal lands on
-// the sign-in page, which reads the code from reason. No returnTo: a
-// destination kept here would bring a reactivated account back to a result
-// that is no longer true.
+// The landing redirectToAccountUnavailable documents: the sign-in page, the
+// code in reason, and no returnTo.
 func (s *OAuthHandlerIntegrationSuite) assertAccountUnavailableLanding(w *httptest.ResponseRecorder) {
 	s.T().Helper()
 	s.Equal(http.StatusTemporaryRedirect, w.Code)

@@ -32,6 +32,8 @@ export const AuthErrorCode = {
    * A missing age confirmation is a separate backend code.
    */
   TERMS_ACCEPTANCE_REQUIRED: 'TERMS_ACCEPTANCE_REQUIRED',
+  /** The account exists but may no longer sign in (deactivated or deleted). */
+  ACCOUNT_INACTIVE: 'ACCOUNT_INACTIVE',
 } as const
 
 export type AuthErrorCodeType =
