@@ -138,9 +138,8 @@ type AuthEmailOutbox struct {
 	sender authEmailSender
 	queue  *shared.JobQueue[authm.AuthEmailOutboxItem]
 
-	interval       time.Duration
-	batch          int
-	finalizeBudget time.Duration
+	interval time.Duration
+	batch    int
 
 	// lastHousekeeping is read and written only by the loop goroutine.
 	lastHousekeeping time.Time
@@ -166,11 +165,10 @@ func NewAuthEmailOutbox(database *gorm.DB, users authEmailUsers, tokens authEmai
 				Failed:     authm.AuthEmailStatusFailed,
 				Terminal:   []string{authm.AuthEmailStatusSent, authm.AuthEmailStatusSkipped, authm.AuthEmailStatusFailed},
 			}, slog.Default()),
-		interval:       shared.EnvPositiveDuration("AUTH_EMAIL_OUTBOX_INTERVAL_SECONDS", time.Second, defaultAuthEmailOutboxInterval),
-		batch:          shared.EnvPositiveInt("AUTH_EMAIL_OUTBOX_BATCH", defaultAuthEmailOutboxBatch),
-		finalizeBudget: authEmailFinalizeBudget,
-		stopCh:         make(chan struct{}),
-		logger:         slog.Default(),
+		interval: shared.EnvPositiveDuration("AUTH_EMAIL_OUTBOX_INTERVAL_SECONDS", time.Second, defaultAuthEmailOutboxInterval),
+		batch:    shared.EnvPositiveInt("AUTH_EMAIL_OUTBOX_BATCH", defaultAuthEmailOutboxBatch),
+		stopCh:   make(chan struct{}),
+		logger:   slog.Default(),
 	}
 }
 
@@ -269,33 +267,10 @@ func (o *AuthEmailOutbox) processTick(ctx context.Context) {
 }
 
 // claim takes up to batch pending rows whose next_attempt_at has come and
-// that have attempts left, and flips them to `processing` with attempts+1 in
-// the same transaction. Returned rows carry their pre-increment attempts.
-//
-// shared.JobQueue.Claim has no readiness predicate, which the backoff needs,
-// so the claim is written here with the same locking and flip.
+// that have attempts left, flipped to `processing` with attempts+1. Returned
+// rows carry their pre-increment attempts.
 func (o *AuthEmailOutbox) claim(ctx context.Context) ([]authm.AuthEmailOutboxItem, error) {
-	var items []authm.AuthEmailOutboxItem
-	err := o.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		if err := tx.
-			Clauses(clause.Locking{Strength: clause.LockingStrengthUpdate, Options: clause.LockingOptionsSkipLocked}).
-			Where("status = ? AND attempts < max_attempts AND next_attempt_at <= NOW()", authm.AuthEmailStatusPending).
-			Order("created_at ASC").
-			Limit(o.batch).
-			Find(&items).Error; err != nil {
-			return err
-		}
-		if len(items) == 0 {
-			return nil
-		}
-		return tx.Model(&authm.AuthEmailOutboxItem{}).
-			Where("id IN ?", shared.QueueRowIDs(items)).
-			Updates(map[string]interface{}{
-				"status":   authm.AuthEmailStatusProcessing,
-				"attempts": gorm.Expr("attempts + 1"),
-			}).Error
-	})
-	return items, err
+	return o.queue.ClaimReady(ctx, o.batch, "next_attempt_at <= NOW()")
 }
 
 // processItem sends one row's email and records the outcome. It returns true
@@ -402,7 +377,7 @@ func (o *AuthEmailOutbox) housekeep(ctx context.Context) {
 
 func (o *AuthEmailOutbox) markSent(ctx context.Context, item authm.AuthEmailOutboxItem) {
 	now := time.Now()
-	o.finalize(ctx, item.ID, map[string]interface{}{
+	o.finalize(ctx, []uint{item.ID}, map[string]interface{}{
 		"status":     authm.AuthEmailStatusSent,
 		"sent_at":    &now,
 		"last_error": nil,
@@ -411,7 +386,7 @@ func (o *AuthEmailOutbox) markSent(ctx context.Context, item authm.AuthEmailOutb
 }
 
 func (o *AuthEmailOutbox) markSkipped(ctx context.Context, item authm.AuthEmailOutboxItem, reason string) {
-	o.finalize(ctx, item.ID, map[string]interface{}{
+	o.finalize(ctx, []uint{item.ID}, map[string]interface{}{
 		"status":     authm.AuthEmailStatusSkipped,
 		"last_error": reason,
 	})
@@ -427,7 +402,7 @@ func (o *AuthEmailOutbox) markFailedOrRetry(ctx context.Context, item authm.Auth
 		return
 	}
 	delay := authEmailRetryBase << item.Attempts
-	o.finalize(ctx, item.ID, map[string]interface{}{
+	o.finalize(ctx, []uint{item.ID}, map[string]interface{}{
 		"status":          authm.AuthEmailStatusPending,
 		"last_error":      cause.Error(),
 		"next_attempt_at": gorm.Expr("NOW() + make_interval(secs => ?)", delay.Seconds()),
@@ -440,7 +415,7 @@ func (o *AuthEmailOutbox) markFailedOrRetry(ctx context.Context, item authm.Auth
 // error has already been reported once per attempt by the email service; this
 // report is the one that says the person never got their email.
 func (o *AuthEmailOutbox) markFailed(ctx context.Context, item authm.AuthEmailOutboxItem, cause error) {
-	o.finalize(ctx, item.ID, map[string]interface{}{
+	o.finalize(ctx, []uint{item.ID}, map[string]interface{}{
 		"status":     authm.AuthEmailStatusFailed,
 		"last_error": cause.Error(),
 	})
@@ -456,20 +431,18 @@ func (o *AuthEmailOutbox) markFailed(ctx context.Context, item authm.AuthEmailOu
 // requeueWithoutAttempt returns rows to `pending` and undoes the claim's
 // attempt, for rows a cancelled tick never reached.
 func (o *AuthEmailOutbox) requeueWithoutAttempt(ctx context.Context, items []authm.AuthEmailOutboxItem) {
-	fctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), o.finalizeBudget)
-	defer cancel()
-	o.queue.Finalize(fctx, shared.QueueRowIDs(items), map[string]interface{}{
+	o.finalize(ctx, shared.QueueRowIDs(items), map[string]interface{}{
 		"status":   authm.AuthEmailStatusPending,
 		"attempts": gorm.Expr("GREATEST(attempts - 1, 0)"),
 	})
 }
 
-// finalize writes one row's outcome on a context detached from the tick's
+// finalize writes rows' outcome on a context detached from the tick's
 // cancellation, so a shutdown right after a send still records it (a row left
 // `processing` would be reclaimed and sent again), and bounded so a hung
 // database cannot wedge Stop.
-func (o *AuthEmailOutbox) finalize(ctx context.Context, id uint, updates map[string]interface{}) {
-	fctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), o.finalizeBudget)
+func (o *AuthEmailOutbox) finalize(ctx context.Context, ids []uint, updates map[string]interface{}) {
+	fctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), authEmailFinalizeBudget)
 	defer cancel()
-	o.queue.Finalize(fctx, []uint{id}, updates)
+	o.queue.Finalize(fctx, ids, updates)
 }

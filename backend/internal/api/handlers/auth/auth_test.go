@@ -3445,16 +3445,9 @@ func TestRequestAccountRecoveryHandler_RecoverableQueuesEmail(t *testing.T) {
 // email triggers NO email send — the response stays generic but no side
 // effect leaks downstream (PSY-774).
 func TestRequestAccountRecoveryHandler_UnknownDoesNotSend(t *testing.T) {
-	var recoverySent bool
 	var queued []queuedAuthEmail
 	h := authHandler(func(ah *AuthHandler) {
-		ah.emailService = &testhelpers.MockEmailService{
-			IsConfiguredFn: func() bool { return true },
-			SendAccountRecoveryEmailFn: func(string, string, int) error {
-				recoverySent = true
-				return nil
-			},
-		}
+		ah.emailService = forbidSends(t)
 		ah.emailOutbox = recordingOutbox(&queued, nil)
 		ah.userService = &testhelpers.MockUserService{
 			GetUserByEmailIncludingDeletedFn: func(string) (*authm.User, error) { return nil, nil },
@@ -3471,8 +3464,8 @@ func TestRequestAccountRecoveryHandler_UnknownDoesNotSend(t *testing.T) {
 	if !resp.Body.Success {
 		t.Error("expected success=true (silent failure)")
 	}
-	if recoverySent || len(queued) != 0 {
-		t.Errorf("expected NO recovery email for unknown user, sent=%v queued=%v", recoverySent, queued)
+	if len(queued) != 0 {
+		t.Errorf("expected NO recovery email for unknown user, queued=%v", queued)
 	}
 }
 

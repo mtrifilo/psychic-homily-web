@@ -76,11 +76,23 @@ func NewJobQueue[T QueueRow](db *gorm.DB, name string, statuses QueueStatuses, l
 // Returned rows carry their PRE-increment attempts (scanned before the update),
 // so a caller reasoning about the post-increment count uses attempts+1.
 func (q *JobQueue[T]) Claim(ctx context.Context, batch int) ([]T, error) {
+	return q.ClaimReady(ctx, batch, "")
+}
+
+// ClaimReady is Claim restricted to the pending rows that also match ready, a
+// SQL condition with ? placeholders bound to args (for example a backoff's
+// "next_attempt_at <= NOW()"). An empty ready claims every pending row with
+// attempts left, exactly as Claim does.
+func (q *JobQueue[T]) ClaimReady(ctx context.Context, batch int, ready string, args ...any) ([]T, error) {
 	var items []T
 	err := q.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		if ferr := tx.
+		sel := tx.
 			Clauses(clause.Locking{Strength: clause.LockingStrengthUpdate, Options: clause.LockingOptionsSkipLocked}).
-			Where("status = ? AND attempts < max_attempts", q.statuses.Pending).
+			Where("status = ? AND attempts < max_attempts", q.statuses.Pending)
+		if ready != "" {
+			sel = sel.Where(ready, args...)
+		}
+		if ferr := sel.
 			Order("created_at ASC").
 			Limit(batch).
 			Find(&items).Error; ferr != nil {
