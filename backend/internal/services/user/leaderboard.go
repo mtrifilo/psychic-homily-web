@@ -7,6 +7,7 @@ import (
 
 	"psychic-homily-backend/db"
 	apperrors "psychic-homily-backend/internal/errors"
+	authm "psychic-homily-backend/internal/models/auth"
 	"psychic-homily-backend/internal/services/contracts"
 	"psychic-homily-backend/internal/services/shared"
 )
@@ -153,7 +154,7 @@ func (s *LeaderboardService) buildLeaderboardQuery(dimension string, period stri
 		SELECT sub.user_id, u.username, u.avatar_url, u.user_tier, sub.count
 		FROM (%s) sub
 		JOIN users u ON u.id = sub.user_id
-		WHERE u.is_active = true
+		WHERE `+authm.LiveAccountSQL("u")+`
 		  AND u.username IS NOT NULL
 		  AND (u.privacy_settings IS NULL OR u.privacy_settings->>'contributions' != 'hidden')
 		  AND sub.count > 0
@@ -189,7 +190,7 @@ func (s *LeaderboardService) buildOverallQuery(periodFilter string, limit int) (
 		LEFT JOIN (%s) tags ON tags.user_id = u.id
 		LEFT JOIN (%s) edits ON edits.user_id = u.id
 		LEFT JOIN (%s) requests ON requests.user_id = u.id
-		WHERE u.is_active = true
+		WHERE `+authm.LiveAccountSQL("u")+`
 		  AND u.username IS NOT NULL
 		  AND (u.privacy_settings IS NULL OR u.privacy_settings->>'contributions' != 'hidden')
 		  AND (
