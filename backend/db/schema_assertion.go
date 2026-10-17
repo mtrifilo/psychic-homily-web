@@ -270,7 +270,7 @@ func (r informationSchemaColumnTypes) ColumnTypes(ctx context.Context, tables []
 }
 
 // bootSchemaReadTimeout bounds each boot-time catalog read: the schema
-// assertion's two reads and FlagInvalidIndexes' one. A healthy read answers in
+// assertion's two reads and CheckInvalidIndexes' one. A healthy read answers in
 // milliseconds, so a read still waiting at the bound is on a connection that
 // is not answering, and boot reports it instead of waiting with it.
 const bootSchemaReadTimeout = 10 * time.Second
