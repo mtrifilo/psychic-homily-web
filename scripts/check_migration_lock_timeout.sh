@@ -11,9 +11,14 @@
 # CREATE [UNIQUE] INDEX without CONCURRENTLY. It sets its own bound when the
 # SQL contains lock_timeout (e.g. `SET LOCAL lock_timeout = '5s';`).
 #
-# Separately, CREATE [UNIQUE] INDEX CONCURRENTLY IF NOT EXISTS is always a
-# WARNING (exit 0): a failed concurrent build leaves an INVALID index under
-# that name, and the retry's IF NOT EXISTS keeps it.
+# Separately, CREATE [UNIQUE] INDEX CONCURRENTLY IF NOT EXISTS is an ERROR
+# (exit 1) in either mode: a failed concurrent build leaves an INVALID index
+# under that name, and the retry's IF NOT EXISTS keeps it. A rebuildable
+# concurrent index is DROP INDEX CONCURRENTLY IF EXISTS in one migration, then
+# CREATE INDEX CONCURRENTLY in the next. A migration whose version is at or
+# below CIC_IF_NOT_EXISTS_GRANDFATHERED_THROUGH predates that rule and only
+# gets a WARNING (exit 0); a version that is not all digits is never
+# grandfathered.
 #
 # Two modes, chosen by reading backend/docker-entrypoint.sh:
 #   * Runner-level bound in place: the entrypoint passes a lock_timeout option
@@ -37,6 +42,9 @@ BASE_REF="${1:-origin/main}"
 MIGRATIONS_PATH="backend/db/migrations"
 ENTRYPOINT="backend/docker-entrypoint.sh"
 RUNNER_OPTION='options=-c%20lock_timeout%3D'
+# The newest migration version merged before CREATE INDEX CONCURRENTLY IF NOT
+# EXISTS became an error. Fixed: raising it would grandfather new migrations.
+CIC_IF_NOT_EXISTS_GRANDFATHERED_THROUGH=20261015210000
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
@@ -110,13 +118,43 @@ warn() {
   fi
 }
 
+# refuse <file> <message>: an ERROR line, or a file annotation on GitHub Actions.
+refuse() {
+  if [ "${GITHUB_ACTIONS:-}" = true ]; then
+    echo "::error file=$1::$2"
+  else
+    echo "ERROR: $2" >&2
+  fi
+}
+
+# grandfathered <file>: true when the file's version (the digits before the
+# first '_') is at or below CIC_IF_NOT_EXISTS_GRANDFATHERED_THROUGH. A version
+# that is empty, not all digits, or longer than a timestamp is not.
+grandfathered() {
+  local version="${1##*/}"
+  version="${version%%_*}"
+  case "$version" in
+    '' | *[!0-9]*) return 1 ;;
+  esac
+  [ "${#version}" -le 14 ] || return 1
+  [ "$((10#$version))" -le "$((10#$CIC_IF_NOT_EXISTS_GRANDFATHERED_THROUGH))" ]
+}
+
 CIC_IF_NOT_EXISTS='create[[:space:]]+(unique[[:space:]]+)?index[[:space:]]+concurrently[[:space:]]+if[[:space:]]+not[[:space:]]+exists'
+CIC_HAZARD="uses CREATE INDEX CONCURRENTLY IF NOT EXISTS: a failed concurrent build leaves an INVALID index that the IF NOT EXISTS retry keeps."
+CIC_CONVENTION="Rebuildable concurrent index: DROP INDEX CONCURRENTLY IF EXISTS <index>; in one migration, then CREATE INDEX CONCURRENTLY <index> ON ...; (no IF NOT EXISTS) in the next, one CONCURRENTLY statement per file."
 
 UNBOUNDED=0
+REFUSED=0
 for f in $ADDED_UP; do
   sql="$(folded_sql "$f")"
   if grep -qE "$CIC_IF_NOT_EXISTS" <<<"$sql"; then
-    warn "$f" "$f uses CREATE INDEX CONCURRENTLY IF NOT EXISTS: a failed concurrent build leaves an INVALID index that the IF NOT EXISTS retry keeps."
+    if grandfathered "$f"; then
+      warn "$f" "$f $CIC_HAZARD It predates the rule (version at or below $CIC_IF_NOT_EXISTS_GRANDFATHERED_THROUGH)."
+    else
+      REFUSED=$((REFUSED + 1))
+      refuse "$f" "$f $CIC_HAZARD $CIC_CONVENTION"
+    fi
   fi
   locks="$(strong_locks "$sql")"
   [ -n "$locks" ] || continue
@@ -133,19 +171,31 @@ for f in $ADDED_UP; do
 done
 
 # --- 4. verdict ------------------------------------------------------------------
+STATUS=0
+
+if [ "$REFUSED" -ne 0 ]; then
+  echo "" >&2
+  echo "$REFUSED new migration(s) use CREATE INDEX CONCURRENTLY IF NOT EXISTS." >&2
+  echo "Fix: $CIC_CONVENTION" >&2
+  STATUS=1
+fi
+
+if [ "$UNBOUNDED" -ne 0 ] && [ "$RUNNER_BOUND" = no ]; then
+  echo "" >&2
+  echo "$ENTRYPOINT does not pass a lock_timeout to the migrate CLI" >&2
+  echo "(expected '$RUNNER_OPTION<duration>' and no -database \"\$DATABASE_URL\")." >&2
+  echo "Fix: restore the runner-level lock_timeout in $ENTRYPOINT, or add" >&2
+  echo "     SET LOCAL lock_timeout = '5s'; before the first locking statement." >&2
+  STATUS=1
+fi
+
+if [ "$STATUS" -ne 0 ]; then
+  exit "$STATUS"
+fi
+
 if [ "$UNBOUNDED" -eq 0 ]; then
   echo "OK: every new strong-lock migration sets its own lock_timeout (or none takes a strong lock)."
-  exit 0
-fi
-
-if [ "$RUNNER_BOUND" = yes ]; then
+else
   echo "OK (warnings only): the runner-level lock_timeout in $ENTRYPOINT is in place."
-  exit 0
 fi
-
-echo "" >&2
-echo "$ENTRYPOINT does not pass a lock_timeout to the migrate CLI" >&2
-echo "(expected '$RUNNER_OPTION<duration>' and no -database \"\$DATABASE_URL\")." >&2
-echo "Fix: restore the runner-level lock_timeout in $ENTRYPOINT, or add" >&2
-echo "     SET LOCAL lock_timeout = '5s'; before the first locking statement." >&2
-exit 1
+exit 0

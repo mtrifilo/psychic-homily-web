@@ -282,37 +282,104 @@ migration "20260901000000_widen" "/* widen */ SET LOCAL lock_timeout = '5s';
 ALTER TABLE t ALTER COLUMN c TYPE BIGINT;"
 expect 0 "every new strong-lock migration sets its own lock_timeout"
 
-# --- CREATE INDEX CONCURRENTLY IF NOT EXISTS warns in both modes -------------
-reset_fixture "unbound: CONCURRENTLY IF NOT EXISTS warns and passes" unbound
-migration "20260901000000_idx" "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_t_c ON t (c);"
-expect 0 "WARNING: backend/db/migrations/20260901000000_idx.up.sql uses CREATE INDEX CONCURRENTLY IF NOT EXISTS: a failed concurrent build leaves an INVALID index that the IF NOT EXISTS retry keeps."
+# --- CREATE INDEX CONCURRENTLY IF NOT EXISTS fails in both modes for a new
+# migration, and only warns for one at or below the pinned version -----------
+# PINNED is the gate's own constant, so these cases test its boundary.
+PINNED="$(sed -n 's/^CIC_IF_NOT_EXISTS_GRANDFATHERED_THROUGH=\([0-9]*\)$/\1/p' "$UNDER_TEST")"
+if [ -z "$PINNED" ]; then
+  echo "FAIL: CIC_IF_NOT_EXISTS_GRANDFATHERED_THROUGH not found in $UNDER_TEST"
+  FAILURES=$((FAILURES + 1))
+  PINNED=0
+fi
+NEWER="$((10#$PINNED + 1))"
+CIC_HAZARD="uses CREATE INDEX CONCURRENTLY IF NOT EXISTS: a failed concurrent build leaves an INVALID index that the IF NOT EXISTS retry keeps."
+CIC_CONVENTION="Rebuildable concurrent index: DROP INDEX CONCURRENTLY IF EXISTS <index>; in one migration, then CREATE INDEX CONCURRENTLY <index> ON ...; (no IF NOT EXISTS) in the next, one CONCURRENTLY statement per file."
 
-reset_fixture "bound: UNIQUE, lowercase, multi-line CONCURRENTLY IF NOT EXISTS warns" bound
-migration "20260901000000_idx" "create unique index concurrently
+reset_fixture "unbound: a new CONCURRENTLY IF NOT EXISTS fails and states the convention" unbound
+migration "${NEWER}_idx" "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_t_c ON t (c);"
+expect 1 "ERROR: backend/db/migrations/${NEWER}_idx.up.sql $CIC_HAZARD $CIC_CONVENTION"
+expect 1 "Fix: $CIC_CONVENTION"
+
+reset_fixture "bound: a new CONCURRENTLY IF NOT EXISTS fails" bound
+migration "${NEWER}_idx" "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_t_c ON t (c);"
+expect 1 "ERROR: backend/db/migrations/${NEWER}_idx.up.sql $CIC_HAZARD"
+refute "OK"
+
+reset_fixture "bound: UNIQUE, lowercase, multi-line CONCURRENTLY IF NOT EXISTS fails" bound
+migration "${NEWER}_idx" "create unique index concurrently
     if not exists idx_t_c on t (c);"
-expect 0 "uses CREATE INDEX CONCURRENTLY IF NOT EXISTS"
+expect 1 "$CIC_HAZARD"
 
-reset_fixture "bound: CONCURRENTLY IF NOT EXISTS gets a file annotation" bound
-migration "20260901000000_idx" "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_t_c ON t (c);"
-GITHUB_ACTIONS=true expect 0 "::warning file=backend/db/migrations/20260901000000_idx.up.sql::"
+reset_fixture "bound: a refused CONCURRENTLY IF NOT EXISTS gets an error annotation" bound
+migration "${NEWER}_idx" "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_t_c ON t (c);"
+GITHUB_ACTIONS=true expect 1 "::error file=backend/db/migrations/${NEWER}_idx.up.sql::"
 
-reset_fixture "unbound: a CIC warning does not mask a strong-lock failure in the same file" unbound
-migration "20260901000000_idx" "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_t_c ON t (c);
+reset_fixture "unbound: a CIC refusal and a strong-lock failure in one file are both reported" unbound
+migration "${NEWER}_idx" "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_t_c ON t (c);
 ALTER TABLE t ADD COLUMN d int;"
 expect 1 "takes a strong lock (ALTER TABLE)"
-expect 1 "uses CREATE INDEX CONCURRENTLY IF NOT EXISTS"
+expect 1 "$CIC_HAZARD"
+expect 1 "does not pass a lock_timeout to the migrate CLI"
 
-reset_fixture "unbound: CONCURRENTLY without IF NOT EXISTS does not warn" unbound
-migration "20260901000000_idx" "CREATE INDEX CONCURRENTLY idx_t_c ON t (c);"
+reset_fixture "unbound: a migration at the pinned version only warns" unbound
+migration "${PINNED}_idx" "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_t_c ON t (c);"
+expect 0 "WARNING: backend/db/migrations/${PINNED}_idx.up.sql $CIC_HAZARD It predates the rule (version at or below $PINNED)."
+refute "ERROR"
+
+reset_fixture "bound: a legacy sequential migration only warns" bound
+migration "000027_idx" "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_t_c ON t (c);"
+expect 0 "WARNING: backend/db/migrations/000027_idx.up.sql $CIC_HAZARD"
+refute "ERROR"
+
+reset_fixture "bound: a version that is not all digits is not grandfathered" bound
+migration "v1_idx" "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_t_c ON t (c);"
+expect 1 "ERROR: backend/db/migrations/v1_idx.up.sql $CIC_HAZARD"
+
+reset_fixture "unbound: CONCURRENTLY without IF NOT EXISTS passes" unbound
+migration "${NEWER}_idx" "CREATE INDEX CONCURRENTLY idx_t_c ON t (c);"
 expect 0 "every new strong-lock migration sets its own lock_timeout"
 refute "WARNING"
+refute "ERROR"
 
-reset_fixture "unbound: CONCURRENTLY IF NOT EXISTS only inside comments does not warn" unbound
-migration "20260901000000_idx" "/* CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_t_c ON t (c); */
+reset_fixture "bound: the drop-then-create pair passes" bound
+migration "${NEWER}_drop_idx" "DROP INDEX CONCURRENTLY IF EXISTS idx_t_c;"
+migration "$((NEWER + 1))_create_idx" "CREATE INDEX CONCURRENTLY idx_t_c ON t (c);"
+expect 0 "every new strong-lock migration sets its own lock_timeout"
+refute "WARNING"
+refute "ERROR"
+
+reset_fixture "unbound: CONCURRENTLY IF NOT EXISTS only inside comments passes" unbound
+migration "${NEWER}_idx" "/* CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_t_c ON t (c); */
 -- CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_t_d ON t (d);
 SELECT 1;"
 expect 0 "every new strong-lock migration sets its own lock_timeout"
 refute "WARNING"
+refute "ERROR"
+
+# Every migration in the repository that uses the spelling is at or below the
+# pinned version, so none of them would be refused if it were added again.
+CASE="repository: every CONCURRENTLY IF NOT EXISTS migration is grandfathered"
+# shellcheck source=scripts/lib/sql_strip_comments.sh
+. "$SCRIPT_DIR/lib/sql_strip_comments.sh"
+REPO_CIC_FILES=0
+for repo_up in "$SCRIPT_DIR"/../backend/db/migrations/*.up.sql; do
+  if sql_strip_comments "$repo_up" | tr '[:upper:]' '[:lower:]' \
+       | grep -qE 'create[[:space:]]+(unique[[:space:]]+)?index[[:space:]]+concurrently[[:space:]]+if[[:space:]]+not[[:space:]]+exists'; then
+    REPO_CIC_FILES=$((REPO_CIC_FILES + 1))
+    repo_version="${repo_up##*/}"
+    repo_version="${repo_version%%_*}"
+    if [ "$((10#$repo_version))" -gt "$((10#$PINNED))" ]; then
+      echo "FAIL [$CASE]: ${repo_up##*/} is above $PINNED"
+      FAILURES=$((FAILURES + 1))
+    fi
+  fi
+done
+if [ "$REPO_CIC_FILES" -eq 0 ]; then
+  echo "FAIL [$CASE]: found no migration using the spelling; the scan is not reading the repository"
+  FAILURES=$((FAILURES + 1))
+else
+  echo "ok   [$CASE] ($REPO_CIC_FILES files)"
+fi
 
 # --- runner-level bound present: the same migrations only warn ----------------
 reset_fixture "bound: ALTER TABLE without lock_timeout warns and passes" bound
