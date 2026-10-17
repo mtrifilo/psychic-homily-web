@@ -85,7 +85,9 @@ const getApiBaseUrl = (): string => {
   // Check for environment-specific API URL first. Deliberately NOT run
   // through isAbsoluteHttpUrl: a relative value is legitimate here (`/api`
   // is the whole point of the proxy) and only the OAuth base, which feeds a
-  // full-page navigation, requires an absolute origin.
+  // full-page navigation, requires an absolute origin. The proxy answers only
+  // in development or with ENABLE_DEV_API_PROXY=1 (lib/dev-api-proxy), so a
+  // built app whose value is its own `/api` must run with that set.
   if (process.env.NEXT_PUBLIC_API_URL) {
     return process.env.NEXT_PUBLIC_API_URL
   }

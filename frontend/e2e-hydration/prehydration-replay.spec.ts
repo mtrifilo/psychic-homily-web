@@ -33,7 +33,11 @@
  *    renders without its data and the control never appears at all.
  *
  *        NEXT_PUBLIC_API_URL=http://localhost:3099/api bun run build
- *        BACKEND_URL=http://localhost:8099 bun run start --port 3099
+ *        ENABLE_DEV_API_PROXY=1 BACKEND_URL=http://localhost:8099 \
+ *          bun run start --port 3099
+ *
+ *    `ENABLE_DEV_API_PROXY=1` is what lets the built app's `/api` proxy
+ *    forward; without it every `/api` call answers 404 (lib/dev-api-proxy).
  *
  * 4. `bunx playwright test --config=e2e-hydration/playwright.hydration.config.ts`
  *

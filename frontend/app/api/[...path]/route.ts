@@ -5,6 +5,7 @@ import {
   isMutationMethod,
   revalidateAfterProxyMutation,
 } from '@/lib/proxy-revalidation'
+import { isDevApiProxyEnabled } from '@/lib/dev-api-proxy'
 
 const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:8080'
 
@@ -12,10 +13,21 @@ const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:8080'
 const PROVENANCE_HEADERS = ['Origin', 'Referer'] as const
 
 /**
+ * Answers in place of the proxy where it is disabled (see
+ * `isDevApiProxyEnabled`): the same 404 for every method, with no backend call
+ * and no cookie read.
+ */
+function proxyDisabledResponse() {
+  return NextResponse.json({ error: 'Not found' }, { status: 404 })
+}
+
+/**
  * Proxy all API requests to the backend.
  * This makes cookies same-origin so SameSite=Lax works in development.
  */
 async function proxyRequest(request: NextRequest) {
+  if (!isDevApiProxyEnabled()) return proxyDisabledResponse()
+
   const path = request.nextUrl.pathname.replace(/^\/api/, '')
   const url = `${BACKEND_URL}${path}${request.nextUrl.search}`
 
@@ -164,7 +176,8 @@ export async function PATCH(request: NextRequest) {
   return proxyRequest(request)
 }
 
-export async function OPTIONS(request: NextRequest) {
-  // Handle preflight - no need to proxy, just respond
+export async function OPTIONS() {
+  if (!isDevApiProxyEnabled()) return proxyDisabledResponse()
+  // Preflight is answered here rather than proxied.
   return new NextResponse(null, { status: 204 })
 }

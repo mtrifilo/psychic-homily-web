@@ -79,11 +79,15 @@ export interface UpdateSpotifyResponse {
  * nothing is saved by this call. Save happens via the bandcamp/spotify accept
  * paths in AdminMusicControls after the admin picks a candidate.
  *
- * The POST flows through the catch-all API proxy (frontend/app/api/[...path])
- * to the admin-gated backend endpoint, which does the MusicBrainz lookups and
- * SSRF-guarded liveness probes (server-side ~55s bound). Errors are surfaced as
- * Huma `detail` strings (the backend error shape); the client backstop timeout
- * maps to friendly copy.
+ * The POST goes to the admin-gated backend endpoint at `API_BASE_URL`, the
+ * origin the `API_ENDPOINTS.ADMIN` calls use. The endpoint does the MusicBrainz lookups
+ * and SSRF-guarded liveness probes (server-side ~55s bound). Errors are
+ * surfaced as Huma `detail` strings (the backend error shape); the client
+ * backstop timeout maps to friendly copy.
+ *
+ * Raw fetch rather than `apiRequest`, which builds its message from `detail`,
+ * `message` and the status text only: this hook also reads the `error` body of
+ * the development proxy's own 502 and falls back to "Discovery failed (HTTP N)".
  */
 export function useDiscoverMusic() {
   return useMutation({
@@ -91,7 +95,7 @@ export function useDiscoverMusic() {
       let response: Response
       try {
         response = await fetch(
-          `/api/admin/artists/${artistId}/discover-music`,
+          API_ENDPOINTS.ADMIN.ARTISTS.DISCOVER_MUSIC(artistId),
           {
             method: 'POST',
             credentials: 'include',
@@ -107,14 +111,14 @@ export function useDiscoverMusic() {
         throw err
       }
 
-      // The body may not be JSON on an upstream-gateway failure: the catch-all
-      // proxy re-emits the backend response verbatim, so a 502/504 can carry an
-      // HTML or empty body. Parse defensively so a non-ok status surfaces as a
-      // status-based message instead of a masking "Unexpected token" parse error.
+      // The body may not be JSON on an upstream-gateway failure: a gateway in
+      // front of the backend, or the development proxy re-emitting one verbatim,
+      // can answer a 502/504 with an HTML or empty body. Parse defensively so a
+      // non-ok status surfaces as a status-based message instead of a masking
+      // "Unexpected token" parse error.
       const data = await response.json().catch(() => null)
 
       if (!response.ok) {
-        // Huma errors carry `detail`; the proxy 502 carries `error`.
         throw new Error(
           data?.detail ||
             data?.message ||
