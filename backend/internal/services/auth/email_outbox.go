@@ -142,9 +142,9 @@ type (
 // verification emails.
 //
 // The enumeration-safe request handlers call Enqueue for a known account and
-// answer at once; the poller sends. A handler therefore does the same work for a known
-// and an unknown address apart from one indexed insert, and its response time
-// no longer depends on the email provider.
+// answer at once; the poller sends. A handler's response time therefore does
+// not depend on the email provider: a known address costs the account
+// lookup's preloads and one indexed insert more than an unknown one.
 //
 // The poller reads the account and mints the token at send time:
 //
