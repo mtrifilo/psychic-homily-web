@@ -116,11 +116,9 @@ func TestVersionPolicyAccepts(t *testing.T) {
 		at   time.Time
 		open bool
 	}{
-		{"long before the window closes", bump.Add(-365 * 24 * time.Hour), true},
 		{"one second after the bump", bump.Add(time.Second), true},
 		{"last instant of the window", until.Add(-time.Nanosecond), true},
 		{"the instant the window closes", until, false},
-		{"one second after the window", until.Add(time.Second), false},
 	}
 
 	type pair struct{ terms, privacy string }

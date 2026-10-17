@@ -45,18 +45,16 @@ type LegalVersionsResponse struct {
 // and, while a version bump's grace window is open, the previous versions the
 // backend also accepts and when they stop being accepted.
 func LegalVersionsHandler(_ context.Context, _ *struct{}) (*LegalVersionsResponse, error) {
-	return legalVersionsAt(time.Now(), legal.GraceWindow), nil
+	return legalVersionsFor(legal.GraceWindow(time.Now())), nil
 }
 
-// graceWindowFunc is the signature of legal.GraceWindow.
-type graceWindowFunc func(now time.Time) (previous legal.Versions, until time.Time, open bool)
-
-func legalVersionsAt(now time.Time, graceWindow graceWindowFunc) *LegalVersionsResponse {
+// legalVersionsFor builds the response from legal.GraceWindow's results.
+func legalVersionsFor(previous legal.Versions, until time.Time, open bool) *LegalVersionsResponse {
 	resp := &LegalVersionsResponse{CacheControl: legalVersionsCacheControl}
 	resp.Body.TermsVersion = legal.CurrentTermsVersion
 	resp.Body.PrivacyVersion = legal.CurrentPrivacyVersion
 	resp.Body.MinSignupAge = legal.MinSignupAge
-	if previous, until, open := graceWindow(now); open {
+	if open {
 		until = until.UTC()
 		resp.Body.GraceUntil = &until
 		resp.Body.Previous = &LegalVersionsPrevious{TermsVersion: previous.Terms, PrivacyVersion: previous.Privacy}

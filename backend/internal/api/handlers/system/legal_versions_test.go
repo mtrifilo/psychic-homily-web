@@ -2,9 +2,9 @@ package system
 
 import (
 	"encoding/json"
+	"maps"
 	"net/http"
-	"reflect"
-	"sort"
+	"slices"
 	"testing"
 	"time"
 
@@ -30,25 +30,14 @@ func serveLegalVersions(t *testing.T) (*http.Response, map[string]json.RawMessag
 	return resp.Result(), body
 }
 
-func sortedKeys(m map[string]json.RawMessage) []string {
-	keys := make([]string, 0, len(m))
-	for k := range m {
-		if k != "$schema" {
-			keys = append(keys, k)
-		}
-	}
-	sort.Strings(keys)
-	return keys
-}
-
 // The wire answer with the configuration this package ships: the current
 // versions and the minimum age the sign-up validators enforce, and the grace
 // fields only while legal.GraceWindow reports a window open.
 func TestLegalVersionsServesWhatTheValidatorsEnforce(t *testing.T) {
 	resp, body := serveLegalVersions(t)
 
-	if got := resp.Header.Get("Cache-Control"); got != "public, max-age=300" {
-		t.Errorf("Cache-Control = %q, want %q", got, "public, max-age=300")
+	if got := resp.Header.Get("Cache-Control"); got != legalVersionsCacheControl {
+		t.Errorf("Cache-Control = %q, want %q", got, legalVersionsCacheControl)
 	}
 
 	var terms, privacy string
@@ -76,7 +65,8 @@ func TestLegalVersionsServesWhatTheValidatorsEnforce(t *testing.T) {
 		return
 	}
 	want := []string{"grace_until", "min_signup_age", "privacy_version", "terms_version"}
-	if got := sortedKeys(body); !reflect.DeepEqual(got, want) {
+	delete(body, "$schema")
+	if got := slices.Sorted(maps.Keys(body)); !slices.Equal(got, want) {
 		t.Errorf("fields = %v, want %v (previous absent while no window is open)", got, want)
 	}
 	if string(body["grace_until"]) != "null" {
@@ -88,16 +78,8 @@ func TestLegalVersionsPublishesAnOpenWindow(t *testing.T) {
 	phoenix := time.FixedZone("MST", -7*60*60)
 	until := time.Date(2026, time.October, 31, 17, 0, 0, 0, phoenix)
 	previous := legal.Versions{Terms: "2025-12-01", Privacy: "2025-12-02"}
-	var askedAt time.Time
-	now := time.Date(2026, time.October, 30, 0, 0, 0, 0, time.UTC)
 
-	resp := legalVersionsAt(now, func(at time.Time) (legal.Versions, time.Time, bool) {
-		askedAt = at
-		return previous, until, true
-	})
-	if !askedAt.Equal(now) {
-		t.Errorf("window read at %v, want the request instant %v", askedAt, now)
-	}
+	resp := legalVersionsFor(previous, until, true)
 
 	wire, err := json.Marshal(resp.Body)
 	if err != nil {
@@ -114,9 +96,7 @@ func TestLegalVersionsPublishesAnOpenWindow(t *testing.T) {
 		t.Errorf("previous = %s, want %s", got, want)
 	}
 
-	closed := legalVersionsAt(now, func(time.Time) (legal.Versions, time.Time, bool) {
-		return legal.Versions{}, time.Time{}, false
-	})
+	closed := legalVersionsFor(legal.Versions{}, time.Time{}, false)
 	if closed.Body.GraceUntil != nil || closed.Body.Previous != nil {
 		t.Errorf("closed window published grace fields: %+v", closed.Body)
 	}

@@ -40,10 +40,10 @@ func setupSystemRoutes(rc RouteContext) {
 	// configured for. Go discards the body for HEAD, so the handler is unchanged.
 	huma.Head(rc.API, "/health/ready", systemh.ReadinessHandler, withServiceUnavailable)
 
-	// The legal versions an account creation must send, so a sign-up form can
-	// read them at submit time rather than trust the build it loaded with. Public
-	// and identical for every caller; it meters on the global public-read limiter
-	// like every other anonymous GET.
+	// The legal versions an account creation must send, readable at run time by
+	// a client whose build may predate them. Public and identical for every
+	// caller; it meters on the global public-read limiter like every other
+	// anonymous GET.
 	huma.Get(rc.API, systemh.LegalVersionsRoute, systemh.LegalVersionsHandler)
 
 	// OpenAPI specification endpoint
