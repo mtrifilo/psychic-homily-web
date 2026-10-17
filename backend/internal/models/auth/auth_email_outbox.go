@@ -9,6 +9,9 @@ type AuthEmailKind string
 const (
 	AuthEmailKindMagicLink       AuthEmailKind = "magic_link"
 	AuthEmailKindAccountRecovery AuthEmailKind = "account_recovery"
+	// AuthEmailKindVerification is the email-verification link a magic-link
+	// request sends instead when the account is not yet verified.
+	AuthEmailKindVerification AuthEmailKind = "verification"
 )
 
 // auth_email_outbox status values.
@@ -24,8 +27,8 @@ const (
 	AuthEmailStatusFailed     = "failed"
 )
 
-// AuthEmailOutboxItem is one magic-link or account-recovery email a request
-// handler has promised to send. The row names the account and the kind only:
+// AuthEmailOutboxItem is one magic-link, account-recovery or verification email
+// a request handler has promised to send. The row names the account and the kind only:
 // the poller reads the account and mints the link token at send time, so the
 // table never holds a bearer token.
 type AuthEmailOutboxItem struct {

@@ -1,8 +1,9 @@
--- auth_email_outbox holds the magic-link and account-recovery emails the
--- request handlers have promised to send. A handler inserts one row for an
--- eligible account and answers at once; a poller in the server sends it. The
--- handlers answer an unknown address and a known one in the same time because
--- neither waits on the email provider.
+-- auth_email_outbox holds the emails the enumeration-safe request handlers
+-- have promised to send: a magic link, an account-recovery link, or, when a
+-- magic link is asked for an unverified account, a verification link. A
+-- handler inserts one row for a known account and answers at once; a poller in
+-- the server sends it. The handlers answer an unknown address and a known one
+-- in the same time because none of them waits on the email provider.
 --
 -- A row names the account and the kind of email, nothing else. The poller
 -- reads the account at send time and mints the link token then, so no bearer
@@ -27,7 +28,7 @@ CREATE TABLE auth_email_outbox (
     id BIGSERIAL PRIMARY KEY,
     kind VARCHAR(32) NOT NULL
         CONSTRAINT auth_email_outbox_kind_check
-        CHECK (kind IN ('magic_link', 'account_recovery')),
+        CHECK (kind IN ('magic_link', 'account_recovery', 'verification')),
     user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     status VARCHAR(20) NOT NULL DEFAULT 'pending'
         CONSTRAINT auth_email_outbox_status_check

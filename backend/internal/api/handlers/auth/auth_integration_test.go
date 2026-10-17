@@ -734,22 +734,32 @@ func (s *AuthHandlerIntegrationSuite) TestSendMagicLink_UserNotFound() {
 	s.True(resp.Body.Success) // enumeration prevention
 }
 
-// TestSendMagicLink_EmailNotVerified verifies an unverified account no longer
-// leaks its state: the response is the generic enumeration-safe success body,
-// identical to the unknown-email case (PSY-749).
+// TestSendMagicLink_EmailNotVerified verifies an unverified account gets the
+// unknown-email response, whole body, and that its verification email is
+// queued rather than sent: the poller sends it.
 func (s *AuthHandlerIntegrationSuite) TestSendMagicLink_EmailNotVerified() {
 	resend := resendAnswering(http.StatusOK, `{}`)
 	h := s.newAuthHandlerWithResend(resend)
-	s.createUserWithPassword("unverified@test.com", "strong-password-123!")
+	user := s.createUserWithPassword("unverified@test.com", "strong-password-123!")
 
-	input := &SendMagicLinkRequest{}
-	input.Body.Email = "unverified@test.com"
+	send := func(email string) *SendMagicLinkResponse {
+		input := &SendMagicLinkRequest{}
+		input.Body.Email = email
+		resp, err := h.SendMagicLinkHandler(context.Background(), input)
+		s.Require().NoError(err)
+		return resp
+	}
+	unknown := send("nobody@test.com")
+	known := send("unverified@test.com")
+	s.Equal(unknown.Body, known.Body, "an unverified account must not change the response")
+	s.Equal(int32(0), resend.calls.Load(), "the handler must not reach Resend")
 
-	resp, err := h.SendMagicLinkHandler(context.Background(), input)
-	s.Equal(int32(1), resend.calls.Load(), "an unverified account is sent exactly one email")
-	s.Require().NoError(err)
-	s.True(resp.Body.Success)    // enumeration prevention
-	s.Empty(resp.Body.ErrorCode) // no EMAIL_NOT_VERIFIED leak
+	s.runOutbox(h)
+	s.Equal(int32(1), resend.calls.Load(), "the poller sends exactly one email")
+	rows := s.outboxRows(user.ID)
+	s.Require().Len(rows, 1)
+	s.Equal(authm.AuthEmailKindVerification, rows[0].Kind)
+	s.Equal(authm.AuthEmailStatusSent, rows[0].Status)
 }
 
 // TestSendMagicLink_SendFails verifies a known-verified account whose send

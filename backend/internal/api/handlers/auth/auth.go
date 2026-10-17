@@ -1189,10 +1189,20 @@ func (h *AuthHandler) SendMagicLinkHandler(ctx context.Context, input *SendMagic
 	}
 
 	// Unverified accounts can't receive a magic link (it would skip the
-	// verification step), so re-send the verification email as a side effect
-	// and return the generic response. The user proceeds via that link.
+	// verification step), so they get a verification email instead, queued
+	// like the magic link so this branch answers in the same time as the
+	// others. The user proceeds via that link.
 	if !user.EmailVerified {
-		sendVerificationEmailBestEffort(ctx, h.jwtService, h.emailService, user, verificationTriggerMagicLink)
+		if err := h.emailOutbox.Enqueue(ctx, authm.AuthEmailKindVerification, user.ID); err != nil {
+			logger.AuthError(ctx, "magic_link_verification_enqueue_failed", err,
+				"user_id", user.ID,
+			)
+			return resp, nil
+		}
+		logger.AuthInfo(ctx, "magic_link_verification_queued",
+			"user_id", user.ID,
+			"email_hash", logger.HashEmail(input.Body.Email),
+		)
 		return resp, nil
 	}
 

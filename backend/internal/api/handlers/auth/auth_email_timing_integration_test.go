@@ -18,15 +18,17 @@ import (
 // never answers inside it.
 const blockedSenderResponseBound = 2 * time.Second
 
-// blockingSender is an email service whose magic-link and recovery sends block
-// until release is called, counting the sends that complete.
+// blockingSender is an email service whose magic-link, recovery and
+// verification sends block until release is called, counting the sends that
+// complete.
 type blockingSender struct {
 	*testhelpers.MockEmailService
-	released     chan struct{}
-	releaseOnce  sync.Once
-	magicLinks   atomic.Int32
-	recoveries   atomic.Int32
-	lastRecovery atomic.Int32 // daysRemaining of the last recovery send
+	released      chan struct{}
+	releaseOnce   sync.Once
+	magicLinks    atomic.Int32
+	recoveries    atomic.Int32
+	verifications atomic.Int32
+	lastRecovery  atomic.Int32 // daysRemaining of the last recovery send
 }
 
 func newBlockingSender() *blockingSender {
@@ -42,6 +44,11 @@ func newBlockingSender() *blockingSender {
 			<-b.released
 			b.recoveries.Add(1)
 			b.lastRecovery.Store(int32(daysRemaining))
+			return nil
+		},
+		SendVerificationEmailFn: func(string, string) error {
+			<-b.released
+			b.verifications.Add(1)
 			return nil
 		},
 	}
@@ -103,6 +110,7 @@ func (s *AuthHandlerIntegrationSuite) TestSendMagicLink_AnswersWithoutWaitingOnS
 	h, outbox := s.newHandlerWithBlockingSender(sender)
 	user := s.createUserWithPassword("magic-timing@test.com", "strong-password-123!")
 	s.verifyEmail(user.ID)
+	unverifiedUser := s.createUserWithPassword("magic-timing-unverified@test.com", "strong-password-123!")
 
 	send := func(email string) func() *SendMagicLinkResponse {
 		return func() *SendMagicLinkResponse {
@@ -115,24 +123,36 @@ func (s *AuthHandlerIntegrationSuite) TestSendMagicLink_AnswersWithoutWaitingOnS
 	}
 	unknown := answersWithin(s, "unknown email", send("nobody@test.com"))
 	known := answersWithin(s, "known verified email", send("magic-timing@test.com"))
+	unverified := answersWithin(s, "known unverified email", send("magic-timing-unverified@test.com"))
 	s.Require().NotNil(unknown)
 	s.Require().NotNil(known)
+	s.Require().NotNil(unverified)
 	s.Equal(unknown.Body, known.Body, "known and unknown emails get the same body")
-	s.Equal(int32(0), sender.magicLinks.Load(), "the handler sends nothing itself")
+	s.Equal(unknown.Body, unverified.Body, "unverified and unknown emails get the same body")
+	s.Equal(int32(0), sender.magicLinks.Load(), "the handler sends no magic link itself")
+	s.Equal(int32(0), sender.verifications.Load(), "the handler sends no verification email itself")
 
 	rows := s.outboxRows(user.ID)
 	s.Require().Len(rows, 1)
 	s.Equal(authm.AuthEmailKindMagicLink, rows[0].Kind)
 	s.Equal(authm.AuthEmailStatusPending, rows[0].Status)
+	unverifiedRows := s.outboxRows(unverifiedUser.ID)
+	s.Require().Len(unverifiedRows, 1)
+	s.Equal(authm.AuthEmailKindVerification, unverifiedRows[0].Kind)
+	s.Equal(authm.AuthEmailStatusPending, unverifiedRows[0].Status)
 
 	sender.release()
 	outbox.RunNow(context.Background())
 
 	s.Equal(int32(1), sender.magicLinks.Load(), "the poller sends the queued magic link once")
+	s.Equal(int32(1), sender.verifications.Load(), "the poller sends the queued verification email once")
 	rows = s.outboxRows(user.ID)
 	s.Require().Len(rows, 1)
 	s.Equal(authm.AuthEmailStatusSent, rows[0].Status)
 	s.NotNil(rows[0].SentAt)
+	unverifiedRows = s.outboxRows(unverifiedUser.ID)
+	s.Require().Len(unverifiedRows, 1)
+	s.Equal(authm.AuthEmailStatusSent, unverifiedRows[0].Status)
 }
 
 func (s *AuthHandlerIntegrationSuite) TestRequestRecovery_AnswersWithoutWaitingOnSender() {

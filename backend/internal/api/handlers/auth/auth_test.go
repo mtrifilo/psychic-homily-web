@@ -2325,32 +2325,24 @@ func TestSendMagicLinkHandler_ResponseIdenticalAcrossAccountStates(t *testing.T)
 	}
 }
 
-// TestSendMagicLinkHandler_UnverifiedResendsVerification asserts the side
-// effect: an unverified account triggers a re-sent verification email (not a
-// magic link), so the user can still proceed (PSY-749).
-func TestSendMagicLinkHandler_UnverifiedResendsVerification(t *testing.T) {
-	email := "unverified@example.com"
-	var verificationSent, magicLinkSent bool
+// TestSendMagicLinkHandler_UnverifiedQueuesVerification asserts an unverified
+// account gets a verification email (not a magic link), queued rather than
+// sent, so the user can still proceed and the branch answers in the time the
+// others do.
+func TestSendMagicLinkHandler_UnverifiedQueuesVerification(t *testing.T) {
 	var queued []queuedAuthEmail
 	h := authHandler(func(ah *AuthHandler) {
-		ah.emailService = &testhelpers.MockEmailService{
-			IsConfiguredFn:          func() bool { return true },
-			SendVerificationEmailFn: func(string, string) error { verificationSent = true; return nil },
-			SendMagicLinkEmailFn:    func(string, string) error { magicLinkSent = true; return nil },
-		}
+		ah.emailService = forbidSends(t)
 		ah.emailOutbox = recordingOutbox(&queued, nil)
 		ah.userService = &testhelpers.MockUserService{
 			GetUserByEmailFn: func(e string) (*authm.User, error) {
-				return &authm.User{ID: 1, Email: &e, EmailVerified: false}, nil
+				return &authm.User{ID: 5, Email: &e, EmailVerified: false}, nil
 			},
-		}
-		ah.jwtService = &testhelpers.MockJWTService{
-			CreateVerificationTokenFn: func(uint, string) (string, error) { return "verify-token", nil },
 		}
 	})
 
 	input := &SendMagicLinkRequest{}
-	input.Body.Email = email
+	input.Body.Email = "unverified@example.com"
 
 	resp, err := h.SendMagicLinkHandler(context.Background(), input)
 	if err != nil {
@@ -2359,11 +2351,9 @@ func TestSendMagicLinkHandler_UnverifiedResendsVerification(t *testing.T) {
 	if !resp.Body.Success {
 		t.Error("expected success=true")
 	}
-	if !verificationSent {
-		t.Error("expected verification email to be re-sent for unverified account")
-	}
-	if magicLinkSent || len(queued) != 0 {
-		t.Errorf("expected no magic link for unverified account, sent=%v queued=%v", magicLinkSent, queued)
+	want := []queuedAuthEmail{{kind: authm.AuthEmailKindVerification, userID: 5}}
+	if !reflect.DeepEqual(queued, want) {
+		t.Errorf("queued = %v, want %v", queued, want)
 	}
 }
 

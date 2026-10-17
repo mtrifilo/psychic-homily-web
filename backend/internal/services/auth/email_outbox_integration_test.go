@@ -54,6 +54,10 @@ func (r *recordingSender) SendAccountRecoveryEmail(to, token string, daysRemaini
 	return r.record(recordedSend{kind: authm.AuthEmailKindAccountRecovery, to: to, token: token, daysRemaining: daysRemaining})
 }
 
+func (r *recordingSender) SendVerificationEmail(to, token string) error {
+	return r.record(recordedSend{kind: authm.AuthEmailKindVerification, to: to, token: token})
+}
+
 func (r *recordingSender) recorded() []recordedSend {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -177,6 +181,25 @@ func (s *AuthEmailOutboxSuite) TestRecovery_DaysRemainingComputedAtSend() {
 	s.Equal(authm.AuthEmailStatusSent, s.onlyRow().Status)
 }
 
+func (s *AuthEmailOutboxSuite) TestVerification_MintedAtSendForTheCurrentAddress() {
+	user := s.verifiedUser("unverified-old@example.com")
+	s.Require().NoError(s.db.Model(user).Update("email_verified", false).Error)
+	s.enqueue(authm.AuthEmailKindVerification, user.ID)
+	s.Require().NoError(s.db.Model(user).Update("email", "unverified-new@example.com").Error)
+
+	s.outbox.RunNow(context.Background())
+
+	sends := s.sender.recorded()
+	s.Require().Len(sends, 1)
+	s.Equal(authm.AuthEmailKindVerification, sends[0].kind)
+	s.Equal("unverified-new@example.com", sends[0].to, "the email goes to the account's address at send time")
+	claims, err := s.jwt.ValidateVerificationToken(sends[0].token)
+	s.Require().NoError(err, "the token is a valid verification token")
+	s.Equal(user.ID, claims.UserID)
+	s.Equal("unverified-new@example.com", claims.Email)
+	s.Equal(authm.AuthEmailStatusSent, s.onlyRow().Status)
+}
+
 func (s *AuthEmailOutboxSuite) TestEnqueue_SurvivesCanceledRequestContext() {
 	user := s.verifiedUser("hung-up@example.com")
 	ctx, cancel := context.WithCancel(context.Background())
@@ -278,10 +301,16 @@ func (s *AuthEmailOutboxSuite) TestIneligibleAtSend_Skipped() {
 	s.Require().NoError(s.db.Exec(
 		"UPDATE users SET deleted_at = NOW() - INTERVAL '31 days' WHERE id = ?", lapsed.ID).Error)
 
+	// Queued for verification, then verified some other way while queued.
+	verifiedMeanwhile := s.verifiedUser("verified-meanwhile@example.com")
+	s.Require().NoError(s.db.Model(verifiedMeanwhile).Update("email_verified", false).Error)
+	s.enqueue(authm.AuthEmailKindVerification, verifiedMeanwhile.ID)
+	s.Require().NoError(s.db.Model(verifiedMeanwhile).Update("email_verified", true).Error)
+
 	s.outbox.RunNow(context.Background())
 
 	s.Empty(s.sender.recorded())
-	s.Require().Len(s.rows(), 3)
+	s.Require().Len(s.rows(), 4)
 	for _, row := range s.rows() {
 		s.Equal(authm.AuthEmailStatusSkipped, row.Status)
 		s.Require().NotNil(row.LastError)

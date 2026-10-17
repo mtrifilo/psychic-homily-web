@@ -272,8 +272,8 @@ type PasswordValidatorInterface interface {
 // Auth Email Outbox Interface
 // ──────────────────────────────────────────────
 
-// AuthEmailOutboxInterface queues a magic-link or account-recovery email for
-// an account. A background poller sends it, so a request handler that calls
+// AuthEmailOutboxInterface queues a magic-link, account-recovery or
+// verification email for an account. A background poller sends it, so a request handler that calls
 // Enqueue never waits on the email provider.
 type AuthEmailOutboxInterface interface {
 	// Enqueue queues one email of kind for userID. A call while one is still

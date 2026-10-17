@@ -22,7 +22,8 @@ const (
 
 	// DisableAuthEmailOutboxEnvVar set to "1" switches the outbox off at both
 	// ends: Enqueue refuses new rows and the poller sends nothing, so no
-	// magic-link or account-recovery email goes out while it is set. It is
+	// magic-link, account-recovery or magic-link verification email goes out
+	// while it is set. It is
 	// read from the process environment, so it takes effect when a server
 	// starts with it set (a restart or redeploy), not on a running one.
 	DisableAuthEmailOutboxEnvVar = "DISABLE_AUTH_EMAIL_OUTBOX"
@@ -109,18 +110,21 @@ type (
 	authEmailTokens interface {
 		CreateMagicLinkToken(userID uint, email string) (string, error)
 		CreateAccountRecoveryToken(userID uint, email string) (string, error)
+		CreateVerificationToken(userID uint, email string) (string, error)
 	}
 	authEmailSender interface {
 		IsConfigured() bool
 		SendMagicLinkEmail(toEmail, token string) error
 		SendAccountRecoveryEmail(toEmail, token string, daysRemaining int) error
+		SendVerificationEmail(toEmail, token string) error
 	}
 )
 
-// AuthEmailOutbox queues and sends magic-link and account-recovery emails.
+// AuthEmailOutbox queues and sends magic-link, account-recovery and
+// verification emails.
 //
-// The request handlers call Enqueue for an eligible account and answer at
-// once; the poller sends. A handler therefore does the same work for a known
+// The enumeration-safe request handlers call Enqueue for a known account and
+// answer at once; the poller sends. A handler therefore does the same work for a known
 // and an unknown address apart from one indexed insert, and its response time
 // no longer depends on the email provider.
 //
@@ -328,8 +332,9 @@ var errUnknownAuthEmailKind = errors.New(authEmailFailUnknownKind)
 // an error when the attempt failed.
 //
 // The eligibility rules are the request handlers': a magic link needs a
-// verified address; a recovery email needs a soft-deleted account still
-// inside its recovery window.
+// verified address; a verification email needs an address not yet verified;
+// a recovery email needs a soft-deleted account still inside its recovery
+// window.
 func (o *AuthEmailOutbox) deliver(item authm.AuthEmailOutboxItem) (string, error) {
 	user, err := o.users.GetUserByID(item.UserID)
 	if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -356,6 +361,16 @@ func (o *AuthEmailOutbox) deliver(item authm.AuthEmailOutboxItem) (string, error
 			return "", err
 		}
 		return "", o.sender.SendMagicLinkEmail(email, token)
+
+	case authm.AuthEmailKindVerification:
+		if user.EmailVerified {
+			return authEmailSkipIneligible, nil
+		}
+		token, err := o.tokens.CreateVerificationToken(user.ID, email)
+		if err != nil {
+			return "", err
+		}
+		return "", o.sender.SendVerificationEmail(email, token)
 
 	case authm.AuthEmailKindAccountRecovery:
 		if user.IsActive || !o.users.IsAccountRecoverable(user) {
