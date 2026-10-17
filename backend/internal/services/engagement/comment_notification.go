@@ -17,6 +17,7 @@ import (
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 
+	authm "psychic-homily-backend/internal/models/auth"
 	engagementm "psychic-homily-backend/internal/models/engagement"
 	notificationm "psychic-homily-backend/internal/models/notification"
 	"psychic-homily-backend/internal/services/contracts"
@@ -328,8 +329,7 @@ func (s *CommentNotificationService) NotifySubscribers(commentID uint) error {
 		Joins("LEFT JOIN user_preferences up ON up.user_id = cs.user_id").
 		Where("cs.entity_type = ? AND cs.entity_id = ?", string(comment.EntityType), comment.EntityID).
 		Where("cs.user_id <> ?", comment.UserID).
-		// is_active alone selects live accounts: users_live_account_check refuses is_active with deleted_at set.
-		Where("u.is_active = TRUE")
+		Where(authm.LiveAccountSQL("u"))
 	q = whereRecipientMaySeeCommentParent(q, &comment, "cs.user_id", "u.is_admin")
 	err := q.Scan(&rows).Error
 	if err != nil {
@@ -520,8 +520,7 @@ func (s *CommentNotificationService) NotifyMentioned(commentID uint) error {
 			COALESCE(up.notify_on_mention, TRUE) AS notify_on_mention`).
 		Joins("LEFT JOIN user_preferences up ON up.user_id = u.id").
 		Where("LOWER(u.username) IN ?", mentions).
-		// is_active alone selects live accounts: users_live_account_check refuses is_active with deleted_at set.
-		Where("u.is_active = TRUE")
+		Where(authm.LiveAccountSQL("u"))
 	q = whereRecipientMaySeeCommentParent(q, &comment, "u.id", "u.is_admin")
 	err := q.Scan(&rows).Error
 	if err != nil {

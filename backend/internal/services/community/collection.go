@@ -2478,9 +2478,11 @@ func (s *CollectionService) GetUserPublicCollections(userID uint, limit, offset 
 }
 
 // GetUserPublicCollectionsByUsername returns public collections by username
-// lookup. A username no account holds, including one Postgres rejects as text
-// (authm.PostgresRejectsText), returns an empty page. A failed lookup returns
-// its error, so a database failure is never served as an empty page.
+// lookup. A username no live account holds (authm.LiveAccountSQL), including
+// one Postgres rejects as text (authm.PostgresRejectsText), returns an empty
+// page, so this method answers a deactivated or soft-deleted account exactly as
+// it answers an unknown username. A failed lookup returns its error, so a
+// database failure is never served as an empty page.
 func (s *CollectionService) GetUserPublicCollectionsByUsername(username string, limit, offset int) ([]*contracts.CollectionListResponse, int64, error) {
 	if s.db == nil {
 		return nil, 0, fmt.Errorf("database not initialized")
@@ -2490,7 +2492,7 @@ func (s *CollectionService) GetUserPublicCollectionsByUsername(username string, 
 	}
 
 	var user authm.User
-	err := s.db.Where("username = ?", username).First(&user).Error
+	err := s.db.Where("username = ?", username).Where(authm.LiveAccountSQL("users")).First(&user).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return []*contracts.CollectionListResponse{}, 0, nil
 	}

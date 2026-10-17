@@ -2,7 +2,9 @@ package community
 
 import (
 	"testing"
+	"time"
 
+	authm "psychic-homily-backend/internal/models/auth"
 	"psychic-homily-backend/internal/testutil"
 )
 
@@ -47,4 +49,39 @@ func (suite *CollectionServiceIntegrationTestSuite) TestGetUserPublicCollections
 	suite.Require().Len(collections, 1)
 	suite.Equal(public.Slug, collections[0].Slug)
 	suite.EqualValues(1, total)
+}
+
+// A deactivated or soft-deleted account's public collections answer the empty
+// page an unknown username answers, and reactivating or restoring the account
+// lists them again.
+func (suite *CollectionServiceIntegrationTestSuite) TestGetUserPublicCollectionsByUsername_NonLiveAccountIsEmptyUntilRestored() {
+	deactivated := suite.createTestUserWithUsername("Deactivated", "deactivated-crates")
+	deleted := suite.createTestUserWithUsername("Deleted", "deleted-crates")
+	suite.createPublicCollection(deactivated, "Deactivated Picks")
+	suite.createPublicCollection(deleted, "Deleted Picks")
+
+	suite.Require().NoError(suite.db.Model(&authm.User{}).Where("id = ?", deactivated.ID).
+		Update("is_active", false).Error)
+	suite.Require().NoError(suite.db.Model(&authm.User{}).Where("id = ?", deleted.ID).
+		Updates(map[string]any{"is_active": false, "deleted_at": time.Now()}).Error)
+
+	for _, u := range []*authm.User{deactivated, deleted} {
+		collections, total, err := suite.collectionService.GetUserPublicCollectionsByUsername(*u.Username, 20, 0)
+		suite.Require().NoError(err)
+		suite.Require().NotNil(collections, *u.Username)
+		suite.Empty(collections, *u.Username)
+		suite.Zero(total, *u.Username)
+	}
+
+	suite.Require().NoError(suite.db.Model(&authm.User{}).Where("id = ?", deactivated.ID).
+		Update("is_active", true).Error)
+	suite.Require().NoError(suite.db.Model(&authm.User{}).Where("id = ?", deleted.ID).
+		Updates(map[string]any{"is_active": true, "deleted_at": nil}).Error)
+
+	for _, u := range []*authm.User{deactivated, deleted} {
+		collections, total, err := suite.collectionService.GetUserPublicCollectionsByUsername(*u.Username, 20, 0)
+		suite.Require().NoError(err)
+		suite.Len(collections, 1, *u.Username)
+		suite.EqualValues(1, total, *u.Username)
+	}
 }
