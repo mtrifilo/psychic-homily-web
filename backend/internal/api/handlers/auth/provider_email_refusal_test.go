@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
@@ -45,6 +46,26 @@ func TestAppleCallbackHandler_UnstorableEmailClaimIsAValidationRefusal(t *testin
 		t.Errorf("message = %q, want %q", resp.Body.Message, "Validation failed")
 	}
 	requireRefusalLoggedAtWarn(t, output, "msg=apple_auth_refused")
+}
+
+// The loopback CLI redirect carries the validation refusal's copy, with no
+// code, as it does every refusal's.
+func TestOAuthCallbackHandler_CLICallbackCarriesUnstorableEmailCopy(t *testing.T) {
+	t.Cleanup(cleanCLICallbackStore)
+	const callbackID = "unstorable-email-cli-id"
+	storeCLICallback(callbackID, "http://localhost:8888/cli-cb")
+	req := httptest.NewRequest("GET", "/auth/callback/google", nil)
+	req.AddCookie(&http.Cookie{Name: "cli_callback_id", Value: callbackID})
+
+	refusal := fmt.Errorf("failed to find or create user: %w", autherrors.ErrProviderEmailUnstorable())
+	query := errorRedirectQuery(t, failingCallbackHandler(refusal), req, "http://localhost:8888/cli-cb")
+
+	if got := query.Get("error"); got != "Validation failed" {
+		t.Errorf("error = %q, want %q", got, "Validation failed")
+	}
+	if query.Has("error_code") {
+		t.Errorf("error_code = %q, want the CLI redirect to carry no code", query.Get("error_code"))
+	}
 }
 
 // The sign-in callback logs a refusal that carries its own copy at WARN with
