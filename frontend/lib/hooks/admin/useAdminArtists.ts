@@ -80,14 +80,14 @@ export interface UpdateSpotifyResponse {
  * paths in AdminMusicControls after the admin picks a candidate.
  *
  * The POST goes to the admin-gated backend endpoint at `API_BASE_URL`, the
- * origin every other admin call uses. The endpoint does the MusicBrainz lookups
+ * origin the `API_ENDPOINTS.ADMIN` calls use. The endpoint does the MusicBrainz lookups
  * and SSRF-guarded liveness probes (server-side ~55s bound). Errors are
  * surfaced as Huma `detail` strings (the backend error shape); the client
  * backstop timeout maps to friendly copy.
  *
  * Raw fetch rather than `apiRequest`, which builds its message from `detail`,
- * `message` and the status text only: this hook also reads the development
- * proxy's `error` body and falls back to the HTTP status.
+ * `message` and the status text only: this hook also reads the `error` body of
+ * the development proxy's own 502 and falls back to "Discovery failed (HTTP N)".
  */
 export function useDiscoverMusic() {
   return useMutation({
@@ -119,8 +119,6 @@ export function useDiscoverMusic() {
       const data = await response.json().catch(() => null)
 
       if (!response.ok) {
-        // Huma errors carry `detail`; the development proxy's own 502 carries
-        // `error`.
         throw new Error(
           data?.detail ||
             data?.message ||

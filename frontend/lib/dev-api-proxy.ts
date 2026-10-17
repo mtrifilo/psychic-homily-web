@@ -3,7 +3,9 @@
  * to the backend in this process.
  *
  * Only development serves it: `next dev`, which the Playwright harness and the
- * dispatch stacks run, and a built app started with `ENABLE_DEV_API_PROXY=1`.
+ * dispatch stacks run, and a built app started with `ENABLE_DEV_API_PROXY=1`
+ * (the pre-hydration harness in e2e-hydration/ builds with
+ * `NEXT_PUBLIC_API_URL=<its own origin>/api` and needs it).
  * Deployed builds call the backend origin directly, so anywhere else the proxy
  * would only be a second public path to the backend, and the route answers 404.
  *

@@ -13,10 +13,21 @@ const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:8080'
 const PROVENANCE_HEADERS = ['Origin', 'Referer'] as const
 
 /**
+ * Answers in place of the proxy where it is disabled (see
+ * `isDevApiProxyEnabled`): no backend call, no cookie read, and the same 404
+ * for every method, so a deployed site does not reveal that the route exists.
+ */
+function proxyDisabledResponse() {
+  return NextResponse.json({ error: 'Not found' }, { status: 404 })
+}
+
+/**
  * Proxy all API requests to the backend.
  * This makes cookies same-origin so SameSite=Lax works in development.
  */
 async function proxyRequest(request: NextRequest) {
+  if (!isDevApiProxyEnabled()) return proxyDisabledResponse()
+
   const path = request.nextUrl.pathname.replace(/^\/api/, '')
   const url = `${BACKEND_URL}${path}${request.nextUrl.search}`
 
@@ -145,37 +156,23 @@ async function proxyRequest(request: NextRequest) {
   }
 }
 
-/**
- * Answers in place of the proxy where it is disabled (see
- * `isDevApiProxyEnabled`): no backend call, no cookie read, and the same 404
- * for every method, so a deployed site does not reveal that the route exists.
- */
-function proxyDisabledResponse() {
-  return NextResponse.json({ error: 'Not found' }, { status: 404 })
-}
-
 export async function GET(request: NextRequest) {
-  if (!isDevApiProxyEnabled()) return proxyDisabledResponse()
   return proxyRequest(request)
 }
 
 export async function POST(request: NextRequest) {
-  if (!isDevApiProxyEnabled()) return proxyDisabledResponse()
   return proxyRequest(request)
 }
 
 export async function PUT(request: NextRequest) {
-  if (!isDevApiProxyEnabled()) return proxyDisabledResponse()
   return proxyRequest(request)
 }
 
 export async function DELETE(request: NextRequest) {
-  if (!isDevApiProxyEnabled()) return proxyDisabledResponse()
   return proxyRequest(request)
 }
 
 export async function PATCH(request: NextRequest) {
-  if (!isDevApiProxyEnabled()) return proxyDisabledResponse()
   return proxyRequest(request)
 }
 

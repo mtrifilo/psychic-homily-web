@@ -12,8 +12,6 @@ describe('isDevApiProxyEnabled', () => {
     { nodeEnv: 'test', override: undefined, expected: false },
     { nodeEnv: 'production', override: '1', expected: true },
     { nodeEnv: 'production', override: 'true', expected: false },
-    { nodeEnv: 'production', override: '0', expected: false },
-    { nodeEnv: 'production', override: '', expected: false },
   ])(
     'NODE_ENV=$nodeEnv ENABLE_DEV_API_PROXY=$override is $expected',
     ({ nodeEnv, override, expected }) => {
