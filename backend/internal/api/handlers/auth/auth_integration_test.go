@@ -15,6 +15,7 @@ import (
 
 	"github.com/danielgtaylor/huma/v2"
 	"github.com/stretchr/testify/suite"
+	"gorm.io/gorm"
 
 	"psychic-homily-backend/internal/api/handlers/shared/testhelpers"
 	"psychic-homily-backend/internal/api/middleware"
@@ -24,6 +25,7 @@ import (
 	authm "psychic-homily-backend/internal/models/auth"
 	"psychic-homily-backend/internal/services/auth"
 	"psychic-homily-backend/internal/services/notification"
+	usersvc "psychic-homily-backend/internal/services/user"
 	"psychic-homily-backend/internal/testutil/signupconsent"
 )
 
@@ -237,12 +239,16 @@ func (s *AuthHandlerIntegrationSuite) deactivateUser(userID uint) {
 }
 
 func (s *AuthHandlerIntegrationSuite) softDeleteUserExpired(userID uint) {
-	err := s.deps.DB.Model(&authm.User{}).Where("id = ?", userID).
-		Updates(map[string]interface{}{
-			"is_active":  false,
-			"deleted_at": time.Now().AddDate(0, 0, -31),
-		}).Error
-	s.Require().NoError(err)
+	s.Require().NoError(softDeletePastRecoveryWindow(s.deps.DB, userID))
+}
+
+// softDeletePastRecoveryWindow soft-deletes the account with a deleted_at a day
+// older than the recovery window, so it is deleted and no longer recoverable.
+func softDeletePastRecoveryWindow(db *gorm.DB, userID uint) error {
+	return db.Model(&authm.User{}).Where("id = ?", userID).Updates(map[string]any{
+		"is_active":  false,
+		"deleted_at": time.Now().Add(-usersvc.AccountRecoveryGracePeriod - 24*time.Hour),
+	}).Error
 }
 
 func (s *AuthHandlerIntegrationSuite) lockAccount(userID uint) {

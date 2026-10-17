@@ -4,6 +4,7 @@ export {
   isAuthError,
   isDefinitiveUnauthenticated,
   isReauthRequired,
+  isAccountRecoverable,
   getAuthErrorMessage,
   REAUTH_REQUIRED_MESSAGE,
   type AuthErrorCodeType,

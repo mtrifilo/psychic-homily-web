@@ -6,6 +6,7 @@ import {
   isDefinitiveUnauthenticated,
   getAuthErrorMessage,
   isReauthRequired,
+  isAccountRecoverable,
   REAUTH_REQUIRED_MESSAGE,
 } from './authErrors'
 
@@ -231,6 +232,24 @@ describe('isAuthError', () => {
 
   it('returns false for plain objects', () => {
     expect(isAuthError({ code: 'UNKNOWN', message: 'test' })).toBe(false)
+  })
+})
+
+describe('isAccountRecoverable', () => {
+  it('recognizes the recoverable-account refusal', () => {
+    expect(
+      isAccountRecoverable(
+        new AuthError('refused', AuthErrorCode.ACCOUNT_RECOVERABLE)
+      )
+    ).toBe(true)
+  })
+
+  it('does not read any other failure as recoverable', () => {
+    expect(
+      isAccountRecoverable(new AuthError('nope', AuthErrorCode.INVALID_CREDENTIALS))
+    ).toBe(false)
+    expect(isAccountRecoverable(new Error('ACCOUNT_RECOVERABLE'))).toBe(false)
+    expect(isAccountRecoverable(null)).toBe(false)
   })
 })
 
