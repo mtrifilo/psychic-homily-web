@@ -1,53 +1,90 @@
 /**
  * Reads `returnTo` back out of the auth page's URL and decides whether to
  * trust it. The other half of the contract, which builds those links, is
- * `buildAuthHref` in `lib/auth-href.ts` — change one and check the other.
+ * `buildAuthHref` in `lib/auth-href.ts`; change one and check the other.
  * `lib/auth-href.test.ts` pins the round trip between them.
- *
- * Google sign-in carries the destination through the backend, which applies
- * these rules again in `sanitizeOAuthReturnTo`
- * (`backend/internal/api/handlers/auth/oauth_return_to.go`) and refuses a few
- * values they accept; its doc lists them. A rule changed here has to change
- * there too, or Google sign-in lands somewhere the other sign-in methods do
- * not.
  */
 
 import { FALLBACK_RETURN_TO, isAuthPath } from '@/lib/auth-href'
 
-const BASE_ORIGIN = 'https://psychichomily.com'
+/** The backend's `oauthReturnToMaxLength`. */
+const RETURN_TO_MAX_LENGTH = 2048
 
+/** A `%` not followed by two hex digits. */
+const MALFORMED_ESCAPE = /%(?![0-9A-Fa-f]{2})/
+
+/** A path segment that decodes to "." or "..". */
+const DOT_SEGMENT = /^(?:\.|%2e){1,2}$/i
+
+/**
+ * Returns `rawReturnTo` unchanged when it is a path on this origin that a
+ * signed-in reader may be sent to, and FALLBACK_RETURN_TO for anything else.
+ *
+ * The rules are `sanitizeOAuthReturnTo` in
+ * `backend/internal/api/handlers/auth/oauth_return_to.go`, which is their
+ * source of truth and documents why each exists. Google sign-in carries the
+ * destination through that function, so the two refuse the same values and
+ * every sign-in method lands in the same place. They are applied here in the
+ * same order:
+ *
+ *   - at most RETURN_TO_MAX_LENGTH characters
+ *   - one leading slash: "//host" is protocol-relative
+ *   - printable ASCII only: no whitespace, control character or non-ASCII
+ *   - no backslash in the path
+ *   - no "." or ".." path segment, percent-encoded or not
+ *   - no malformed percent escape in the path or the fragment
+ *   - not the sign-in page or anything under it, judged on the decoded path
+ *
+ * `backend/internal/api/handlers/auth/testdata/return_to_corpus.json` holds
+ * the cases both sanitizers' tests assert, with one expected output each.
+ */
 export function sanitizeReturnTo(
   rawReturnTo: string | null | undefined
 ): string {
-  if (!rawReturnTo) {
+  const raw = rawReturnTo ?? ''
+  // Go counts bytes and this counts UTF-16 code units. They differ only on
+  // non-ASCII input, which the printable-ASCII rule refuses either way.
+  if (raw === '' || raw.length > RETURN_TO_MAX_LENGTH) {
+    return FALLBACK_RETURN_TO
+  }
+  if (!raw.startsWith('/') || raw.startsWith('//')) {
+    return FALLBACK_RETURN_TO
+  }
+  if (!/^[!-~]*$/.test(raw)) {
     return FALLBACK_RETURN_TO
   }
 
-  const trimmed = rawReturnTo.trim()
-  if (!trimmed || !trimmed.startsWith('/') || trimmed.startsWith('//')) {
+  const pathEnd = raw.search(/[?#]/)
+  const path = pathEnd === -1 ? raw : raw.slice(0, pathEnd)
+  if (path.includes('\\')) {
     return FALLBACK_RETURN_TO
   }
-
-  try {
-    const parsed = new URL(trimmed, BASE_ORIGIN)
-    if (parsed.origin !== BASE_ORIGIN || isAuthPath(parsed.pathname)) {
+  for (const segment of path.split('/')) {
+    if (MALFORMED_ESCAPE.test(segment) || DOT_SEGMENT.test(segment)) {
       return FALLBACK_RETURN_TO
     }
+  }
 
-    const destination = `${parsed.pathname}${parsed.search}${parsed.hash}`
-    // The `//` test above runs on the RAW input; this one runs on the result,
-    // and they are not the same test. URL normalization collapses `..`
-    // segments, so `/..//evil.com` arrives past the raw check as a same-origin
-    // URL whose pathname is `//evil.com`. Returned unchecked that is a
-    // protocol-relative destination, and both sinks (`router.push` and the
-    // interstitial's `<Link>`) navigate cross-origin on it.
-    if (destination.startsWith('//')) {
-      return FALLBACK_RETURN_TO
-    }
-    return destination
-  } catch {
+  const fragmentStart = raw.indexOf('#')
+  if (fragmentStart !== -1 && MALFORMED_ESCAPE.test(raw.slice(fragmentStart + 1))) {
     return FALLBACK_RETURN_TO
   }
+  if (isAuthPath(decodeAsciiEscapes(path))) {
+    return FALLBACK_RETURN_TO
+  }
+  return raw
+}
+
+/**
+ * Decodes the percent escapes of ASCII bytes and leaves the rest encoded.
+ * The sign-in page's path is ASCII, so a byte left encoded changes no
+ * `isAuthPath` outcome, and `decodeURIComponent` would throw on an escape
+ * that is not UTF-8 ("/a/%FF"), which Go decodes and keeps.
+ */
+function decodeAsciiEscapes(path: string): string {
+  return path.replace(/%([0-7][0-9A-Fa-f])/g, (_, hex: string) =>
+    String.fromCharCode(Number.parseInt(hex, 16))
+  )
 }
 
 export function safeDecodeQueryParam(
