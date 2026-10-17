@@ -158,6 +158,9 @@ func (s *AuthEmailOutboxSuite) TestMagicLink_MintedAtSendForTheCurrentAddress() 
 func (s *AuthEmailOutboxSuite) TestRecovery_DaysRemainingComputedAtSend() {
 	user := s.softDeletedUser("gone@example.com")
 	s.enqueue(authm.AuthEmailKindAccountRecovery, user.ID)
+	// Ten days pass between the request and the send.
+	s.Require().NoError(s.db.Exec(
+		"UPDATE users SET deleted_at = deleted_at - INTERVAL '10 days' WHERE id = ?", user.ID).Error)
 
 	s.outbox.RunNow(context.Background())
 
@@ -165,12 +168,23 @@ func (s *AuthEmailOutboxSuite) TestRecovery_DaysRemainingComputedAtSend() {
 	s.Require().Len(sends, 1)
 	s.Equal(authm.AuthEmailKindAccountRecovery, sends[0].kind)
 	s.Equal("gone@example.com", sends[0].to)
-	stored, err := s.users.GetUserByID(user.ID)
-	s.Require().NoError(err)
-	s.Equal(s.users.GetDaysUntilPermanentDeletion(stored), sends[0].daysRemaining)
-	_, err = s.jwt.ValidateAccountRecoveryToken(sends[0].token)
-	s.NoError(err, "the token is a valid recovery token")
+	fullWindowDays := int(usersvc.AccountRecoveryGracePeriod / (24 * time.Hour))
+	s.Equal(fullWindowDays-10, sends[0].daysRemaining, "days remaining counts from the send, not the request")
+	claims, err := s.jwt.ValidateAccountRecoveryToken(sends[0].token)
+	s.Require().NoError(err, "the token is a valid recovery token")
+	s.Equal(user.ID, claims.UserID)
+	s.Equal("gone@example.com", claims.Email)
 	s.Equal(authm.AuthEmailStatusSent, s.onlyRow().Status)
+}
+
+func (s *AuthEmailOutboxSuite) TestEnqueue_SurvivesCanceledRequestContext() {
+	user := s.verifiedUser("hung-up@example.com")
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	s.Require().NoError(s.outbox.Enqueue(ctx, authm.AuthEmailKindMagicLink, user.ID),
+		"a client that disconnects after asking still gets its email")
+	s.Len(s.rows(), 1)
 }
 
 func (s *AuthEmailOutboxSuite) TestEnqueue_OneQueuedEmailPerAccountAndKind() {
@@ -258,9 +272,16 @@ func (s *AuthEmailOutboxSuite) TestIneligibleAtSend_Skipped() {
 	s.enqueue(authm.AuthEmailKindAccountRecovery, restored.ID)
 	s.Require().NoError(s.users.RestoreAccount(restored.ID))
 
+	// Still soft-deleted, but its recovery window closes while it is queued.
+	lapsed := s.softDeletedUser("lapsed@example.com")
+	s.enqueue(authm.AuthEmailKindAccountRecovery, lapsed.ID)
+	s.Require().NoError(s.db.Exec(
+		"UPDATE users SET deleted_at = NOW() - INTERVAL '31 days' WHERE id = ?", lapsed.ID).Error)
+
 	s.outbox.RunNow(context.Background())
 
 	s.Empty(s.sender.recorded())
+	s.Require().Len(s.rows(), 3)
 	for _, row := range s.rows() {
 		s.Equal(authm.AuthEmailStatusSkipped, row.Status)
 		s.Require().NotNil(row.LastError)
@@ -268,18 +289,37 @@ func (s *AuthEmailOutboxSuite) TestIneligibleAtSend_Skipped() {
 	}
 }
 
-func (s *AuthEmailOutboxSuite) TestExpiredRequest_SkippedUnsent() {
-	user := s.verifiedUser("late@example.com")
+// expiredRow queues a magic link whose request is older than authEmailMaxAge.
+func (s *AuthEmailOutboxSuite) expiredRow(email string) {
+	user := s.verifiedUser(email)
 	s.enqueue(authm.AuthEmailKindMagicLink, user.ID)
 	s.Require().NoError(s.db.Exec("UPDATE auth_email_outbox SET created_at = NOW() - INTERVAL '16 minutes'").Error)
+}
 
-	s.outbox.RunNow(context.Background())
-
+func (s *AuthEmailOutboxSuite) assertSkippedExpired(wantAttempts int) {
 	s.Empty(s.sender.recorded())
 	row := s.onlyRow()
 	s.Equal(authm.AuthEmailStatusSkipped, row.Status)
+	s.Equal(wantAttempts, row.Attempts)
 	s.Require().NotNil(row.LastError)
 	s.Equal(authEmailSkipExpired, *row.LastError)
+}
+
+func (s *AuthEmailOutboxSuite) TestExpiredRequest_ReapedByHousekeeping() {
+	s.expiredRow("late-reap@example.com")
+
+	s.outbox.housekeep(context.Background())
+
+	s.assertSkippedExpired(0)
+}
+
+func (s *AuthEmailOutboxSuite) TestExpiredRequest_SkippedWhenClaimed() {
+	s.expiredRow("late-claim@example.com")
+	s.outbox.lastHousekeeping = time.Now() // no reap this tick
+
+	s.outbox.processTick(context.Background())
+
+	s.assertSkippedExpired(1)
 }
 
 func (s *AuthEmailOutboxSuite) TestStrandedProcessingRow_ReclaimedAndSent() {

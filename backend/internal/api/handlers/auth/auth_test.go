@@ -2385,10 +2385,15 @@ func recordingOutbox(queued *[]queuedAuthEmail, err error) *testhelpers.MockAuth
 }
 
 // forbidSends returns an email service that is configured and fails t on any
-// magic-link or recovery send: the request handlers only queue those.
+// send: the request handlers queue magic-link and recovery emails, and send a
+// verification email only for an unverified account.
 func forbidSends(t *testing.T) *testhelpers.MockEmailService {
 	return &testhelpers.MockEmailService{
 		IsConfiguredFn: func() bool { return true },
+		SendVerificationEmailFn: func(string, string) error {
+			t.Error("the handler must not send a verification email here")
+			return nil
+		},
 		SendMagicLinkEmailFn: func(string, string) error {
 			t.Error("the handler must queue the magic link, not send it")
 			return nil

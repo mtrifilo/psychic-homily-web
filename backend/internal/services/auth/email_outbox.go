@@ -22,9 +22,9 @@ const (
 
 	// DisableAuthEmailOutboxEnvVar set to "1" switches the outbox off at both
 	// ends: Enqueue refuses new rows and the poller sends nothing, so no
-	// magic-link or account-recovery email goes out while it is set. The
-	// poller re-reads it every tick, so setting it on a running server stops
-	// sending within one interval.
+	// magic-link or account-recovery email goes out while it is set. It is
+	// read from the process environment, so it takes effect when a server
+	// starts with it set (a restart or redeploy), not on a running one.
 	DisableAuthEmailOutboxEnvVar = "DISABLE_AUTH_EMAIL_OUTBOX"
 
 	// defaultAuthEmailOutboxInterval is short because a person is waiting on
@@ -32,9 +32,15 @@ const (
 	// rows.
 	defaultAuthEmailOutboxInterval = 5 * time.Second
 
-	// defaultAuthEmailOutboxBatch bounds one tick's wall-clock: each row is
-	// one synchronous provider call, bounded by the email client's 15 s
-	// timeout, so a tick is at most about 150 s.
+	// maxAuthEmailOutboxInterval caps AUTH_EMAIL_OUTBOX_INTERVAL_SECONDS far
+	// below authEmailMaxAge, so a queued row is always claimed before it is
+	// old enough to be reaped unsent.
+	maxAuthEmailOutboxInterval = time.Minute
+
+	// defaultAuthEmailOutboxBatch is also the most AUTH_EMAIL_OUTBOX_BATCH may
+	// set. Each row is one synchronous provider call, bounded by the email
+	// client's 15 s timeout, so a tick is at most about 150 s, which
+	// authEmailStaleReclaim must exceed.
 	defaultAuthEmailOutboxBatch = 10
 
 	// authEmailMaxAge is how long a request may wait before it is dropped
@@ -51,8 +57,10 @@ const (
 
 	// authEmailStaleReclaim must exceed the worst-case tick wall-clock (about
 	// 150 s, see defaultAuthEmailOutboxBatch), or a row still being sent is
-	// reclaimed and sent twice.
-	authEmailStaleReclaim = 10 * time.Minute
+	// reclaimed and sent twice. It is also how long a row stranded in
+	// `processing` by a crash blocks that account's next request of the same
+	// kind (the active-row unique index), so it is kept close to that bound.
+	authEmailStaleReclaim = 4 * time.Minute
 
 	// authEmailRetention is how long terminal rows stay as an audit trail of
 	// what was sent, skipped or given up on.
@@ -165,11 +173,25 @@ func NewAuthEmailOutbox(database *gorm.DB, users authEmailUsers, tokens authEmai
 				Failed:     authm.AuthEmailStatusFailed,
 				Terminal:   []string{authm.AuthEmailStatusSent, authm.AuthEmailStatusSkipped, authm.AuthEmailStatusFailed},
 			}, slog.Default()),
-		interval: shared.EnvPositiveDuration("AUTH_EMAIL_OUTBOX_INTERVAL_SECONDS", time.Second, defaultAuthEmailOutboxInterval),
-		batch:    shared.EnvPositiveInt("AUTH_EMAIL_OUTBOX_BATCH", defaultAuthEmailOutboxBatch),
-		stopCh:   make(chan struct{}),
-		logger:   slog.Default(),
+		interval: capped("AUTH_EMAIL_OUTBOX_INTERVAL_SECONDS",
+			shared.EnvPositiveDuration("AUTH_EMAIL_OUTBOX_INTERVAL_SECONDS", time.Second, defaultAuthEmailOutboxInterval),
+			maxAuthEmailOutboxInterval),
+		batch: capped("AUTH_EMAIL_OUTBOX_BATCH",
+			shared.EnvPositiveInt("AUTH_EMAIL_OUTBOX_BATCH", defaultAuthEmailOutboxBatch),
+			defaultAuthEmailOutboxBatch),
+		stopCh: make(chan struct{}),
+		logger: slog.Default(),
 	}
+}
+
+// capped returns v, or limit with a warning when v exceeds it.
+func capped[T int | time.Duration](key string, v, limit T) T {
+	if v > limit {
+		slog.Default().Warn("auth email outbox: env value above its limit, using the limit",
+			"key", key, "value", v, "limit", limit)
+		return limit
+	}
+	return v
 }
 
 // Enqueue queues one email of kind for userID. A call while one is already

@@ -623,8 +623,7 @@ func main() {
 	// Start the auth email outbox poller: sends the magic-link and
 	// account-recovery emails the request handlers queue. Default ON: without
 	// it no sign-in or recovery link is ever delivered. The same flag makes
-	// Enqueue refuse new rows, and the poller re-reads it every tick, so
-	// setting it on a running server stops these emails within one interval.
+	// Enqueue refuse new rows; it takes effect when the server starts with it.
 	if !authsvc.AuthEmailOutboxDisabled() {
 		var authEmailOutboxCtx context.Context
 		authEmailOutboxCtx, authEmailOutboxCancel = context.WithCancel(context.Background())
@@ -688,6 +687,13 @@ func main() {
 	log.Println("Shutting down Psychic Homily API...")
 
 	// Stop background services only if they were started (cancel is nil if DISABLE_* was set).
+	// The auth email outbox stops first: its tick hands every row it has not
+	// sent back to `pending` once its context is cancelled, and a row left
+	// `processing` blocks that account's next request until reclaimed.
+	if authEmailOutboxCancel != nil {
+		authEmailOutboxCancel()
+		sc.AuthEmailOutbox.Stop()
+	}
 	if cleanupCancel != nil {
 		cleanupCancel()
 		sc.Cleanup.Stop()
@@ -767,10 +773,6 @@ func main() {
 	if challengeSweepCancel != nil {
 		challengeSweepCancel()
 		sc.ChallengeSweep.Stop()
-	}
-	if authEmailOutboxCancel != nil {
-		authEmailOutboxCancel()
-		sc.AuthEmailOutbox.Stop()
 	}
 	if sweepHealthCheckCancel != nil {
 		sweepHealthCheckCancel()
