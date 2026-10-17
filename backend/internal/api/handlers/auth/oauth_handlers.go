@@ -57,11 +57,10 @@ func randomHexID(n int) (string, error) {
 //
 // The sign-in callback's two redirects use this; the auth-page redirect also
 // carries refusalCode's answer. AppleCallbackHandler consults
-// authRefusalCarriesItsOwnCopy directly to answer with both in its JSON body.
+// refusalWithOwnCopy directly to answer with both in its JSON body.
 func refusalMessage(err error, fallback string) string {
-	var authErr *autherrors.AuthError
-	if errors.As(err, &authErr) && authRefusalCarriesItsOwnCopy(authErr.Code) {
-		return authErr.UserMessage()
+	if refusal, ok := refusalWithOwnCopy(err); ok {
+		return refusal.UserMessage()
 	}
 	return fallback
 }
@@ -70,11 +69,20 @@ func refusalMessage(err error, fallback string) string {
 // own code when it is one a caller may act on, and fallback for everything
 // else, so a backend fault is never described to a caller in its own terms.
 func refusalCode(err error, fallback string) string {
-	var authErr *autherrors.AuthError
-	if errors.As(err, &authErr) && authRefusalCarriesItsOwnCopy(authErr.Code) {
-		return authErr.Code
+	if refusal, ok := refusalWithOwnCopy(err); ok {
+		return refusal.Code
 	}
 	return fallback
+}
+
+// refusalWithOwnCopy is the *AuthError err wraps when its code is one
+// authRefusalCarriesItsOwnCopy names.
+func refusalWithOwnCopy(err error) (*autherrors.AuthError, bool) {
+	var authErr *autherrors.AuthError
+	if errors.As(err, &authErr) && authRefusalCarriesItsOwnCopy(authErr.Code) {
+		return authErr, true
+	}
+	return nil, false
 }
 
 // The query keys the backend hands the frontend auth page: a failed sign-in
@@ -489,9 +497,8 @@ func (h *OAuthHTTPHandler) OAuthCallbackHTTPHandler(w http.ResponseWriter, r *ht
 // logCallbackError records a failed sign-in callback: a refusal that carries
 // its own copy at WARN with its code, everything else at ERROR.
 func logCallbackError(ctx context.Context, provider string, err error) {
-	var authErr *autherrors.AuthError
-	if errors.As(err, &authErr) && authRefusalCarriesItsOwnCopy(authErr.Code) {
-		logger.AuthWarn(ctx, "oauth_callback_refused", "provider", provider, "error_code", authErr.Code)
+	if refusal, ok := refusalWithOwnCopy(err); ok {
+		logger.AuthWarn(ctx, "oauth_callback_refused", "provider", provider, "error_code", refusal.Code)
 		return
 	}
 	// A provider error can carry credentials two ways: a *url.Error whose URL

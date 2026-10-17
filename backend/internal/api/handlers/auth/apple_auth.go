@@ -151,11 +151,10 @@ func (h *AppleAuthHandler) AppleCallbackHandler(ctx context.Context, input *Appl
 	if err != nil {
 		resp.Body.Success = false
 		// A refusal keeps its own code and copy; only a fault reports as one.
-		var authErr *autherrors.AuthError
-		if errors.As(err, &authErr) && authRefusalCarriesItsOwnCopy(authErr.Code) {
-			logger.AuthWarn(ctx, "apple_auth_refused", "error_code", authErr.Code)
-			resp.Body.Message = authErr.UserMessage()
-			resp.Body.ErrorCode = authErr.Code
+		if refusal, ok := refusalWithOwnCopy(err); ok {
+			logger.AuthWarn(ctx, "apple_auth_refused", "error_code", refusal.Code)
+			resp.Body.Message = refusal.UserMessage()
+			resp.Body.ErrorCode = refusal.Code
 			return resp, nil
 		}
 		logger.AuthError(ctx, "apple_auth_user_create_failed", err)
