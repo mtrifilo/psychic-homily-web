@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"errors"
 	"testing"
 	"time"
 
@@ -91,6 +92,15 @@ func (s *JWTIntegrationSuite) createInactiveUser(email string) *authm.User {
 func (s *JWTIntegrationSuite) softDelete(user *authm.User) {
 	s.T().Helper()
 	s.Require().NoError(usersvc.NewUserService(s.db).SoftDeleteAccount(user.ID, nil))
+}
+
+// assertClosedAccountRefusal checks that err is a refusal a caller can tell
+// apart from a bad credential, naming the account that is closed.
+func (s *JWTIntegrationSuite) assertClosedAccountRefusal(err error, userID uint) {
+	s.T().Helper()
+	var closed *SessionAccountClosedError
+	s.Require().True(errors.As(err, &closed), "a closed account is told apart from a bad credential: got %v", err)
+	s.Equal(userID, closed.UserID)
 }
 
 func (s *JWTIntegrationSuite) createAdminUser(email string) *authm.User {
@@ -194,6 +204,7 @@ func (s *JWTIntegrationSuite) TestValidateToken_InactiveUser_Rejected() {
 	s.Nil(validated)
 	s.Require().Error(err)
 	s.Contains(err.Error(), "TOKEN_INVALID")
+	s.assertClosedAccountRefusal(err, user.ID)
 }
 
 func (s *JWTIntegrationSuite) TestValidateToken_UserDeactivatedAfterTokenCreation() {
@@ -208,6 +219,7 @@ func (s *JWTIntegrationSuite) TestValidateToken_UserDeactivatedAfterTokenCreatio
 	s.Nil(validated)
 	s.Require().Error(err)
 	s.Contains(err.Error(), "TOKEN_INVALID")
+	s.assertClosedAccountRefusal(err, user.ID)
 }
 
 func (s *JWTIntegrationSuite) TestValidateToken_SoftDeletedAfterTokenCreation() {
@@ -221,6 +233,7 @@ func (s *JWTIntegrationSuite) TestValidateToken_SoftDeletedAfterTokenCreation() 
 	s.Nil(validated)
 	s.Require().Error(err)
 	s.Contains(err.Error(), "TOKEN_INVALID")
+	s.assertClosedAccountRefusal(err, user.ID)
 }
 
 // =============================================================================
@@ -312,6 +325,8 @@ func (s *JWTIntegrationSuite) TestValidateToken_NonExistentUserID() {
 	s.Nil(validated)
 	s.Require().Error(err)
 	s.Contains(err.Error(), "failed to get user")
+	var closed *SessionAccountClosedError
+	s.False(errors.As(err, &closed), "no account was read, so none is reported closed")
 }
 
 func (s *JWTIntegrationSuite) TestValidateToken_UserDeletedAfterTokenCreation() {
