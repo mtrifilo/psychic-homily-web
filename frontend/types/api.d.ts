@@ -4975,6 +4975,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/legal/versions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get legal versions */
+        get: operations["get-legal-versions"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/me/comment-subscriptions": {
         parameters: {
             query?: never;
@@ -8394,11 +8411,11 @@ export interface components {
              * @description Minimum age the user attested to. Required to create an account; below the minimum the callback is refused with AGE_CONFIRMATION_REQUIRED.
              */
             min_age_attested?: number;
-            /** @description Accepted Privacy Policy version. Required to create an account; anything other than the current version is refused with TERMS_ACCEPTANCE_REQUIRED. */
+            /** @description Accepted Privacy Policy version. Required to create an account: the current one, or the previous one while a grace window is open (both published at GET /legal/versions); anything else is refused with TERMS_ACCEPTANCE_REQUIRED. */
             privacy_version?: string;
             /** @description Whether the user accepted the Terms of Service and Privacy Policy. Required to create an account; a callback that would create one without it is refused with TERMS_ACCEPTANCE_REQUIRED. Not read for an Apple identity that already has an account, though, like every consent field, it must match its schema type when sent. */
             terms_accepted?: boolean;
-            /** @description Accepted Terms of Service version. Required to create an account; anything other than the current version is refused with TERMS_ACCEPTANCE_REQUIRED. */
+            /** @description Accepted Terms of Service version. Required to create an account: the current one, or the previous one while a grace window is open (both published at GET /legal/versions); anything else is refused with TERMS_ACCEPTANCE_REQUIRED. */
             terms_version?: string;
         };
         AppleCallbackResponseBody: {
@@ -9103,11 +9120,11 @@ export interface components {
              * @description Minimum age the user attested to
              */
             min_age_attested?: number;
-            /** @description Accepted Privacy Policy version; anything other than the current version is refused with TERMS_ACCEPTANCE_REQUIRED */
+            /** @description Accepted Privacy Policy version: the current one, or the previous one while a grace window is open (both published at GET /legal/versions); anything else is refused with TERMS_ACCEPTANCE_REQUIRED */
             privacy_version?: string;
             /** @description Whether user accepted Terms of Service */
             terms_accepted: boolean;
-            /** @description Accepted Terms of Service version; anything other than the current version is refused with TERMS_ACCEPTANCE_REQUIRED */
+            /** @description Accepted Terms of Service version: the current one, or the previous one while a grace window is open (both published at GET /legal/versions); anything else is refused with TERMS_ACCEPTANCE_REQUIRED */
             terms_version?: string;
         };
         BeginSignupResponseBody: {
@@ -13573,6 +13590,49 @@ export interface components {
             user_tier: string;
             username: string;
         };
+        LegalVersionsPrevious: {
+            /**
+             * @description Privacy Policy version accepted until grace_until
+             * @example 2026-02-15
+             */
+            privacy_version: string;
+            /**
+             * @description Terms of Service version accepted until grace_until
+             * @example 2026-01-31
+             */
+            terms_version: string;
+        };
+        LegalVersionsResponseBody: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/schemas/LegalVersionsResponseBody.json
+             */
+            readonly $schema?: string;
+            /**
+             * Format: date-time
+             * @description While a grace window is open, the instant (UTC) the previous versions stop being accepted; null otherwise
+             */
+            grace_until: string | null;
+            /**
+             * Format: int64
+             * @description Minimum age a sign-up must attest as min_age_attested
+             * @example 16
+             */
+            min_signup_age: number;
+            /** @description While a grace window is open, the versions also accepted until grace_until (either alone or both together); absent otherwise */
+            previous?: components["schemas"]["LegalVersionsPrevious"];
+            /**
+             * @description Current Privacy Policy version; a sign-up sends it as privacy_version
+             * @example 2026-02-15
+             */
+            privacy_version: string;
+            /**
+             * @description Current Terms of Service version; a sign-up sends it as terms_version
+             * @example 2026-01-31
+             */
+            terms_version: string;
+        };
         LibraryFollowingCounts: {
             /**
              * Format: uri
@@ -15936,11 +15996,11 @@ export interface components {
              * @example password
              */
             password: string;
-            /** @description Accepted Privacy Policy version; anything other than the current version is refused with TERMS_ACCEPTANCE_REQUIRED */
+            /** @description Accepted Privacy Policy version: the current one, or the previous one while a grace window is open (both published at GET /legal/versions); anything else is refused with TERMS_ACCEPTANCE_REQUIRED */
             privacy_version?: string;
             /** @description Whether user accepted Terms of Service */
             terms_accepted: boolean;
-            /** @description Accepted Terms of Service version; anything other than the current version is refused with TERMS_ACCEPTANCE_REQUIRED */
+            /** @description Accepted Terms of Service version: the current one, or the previous one while a grace window is open (both published at GET /legal/versions); anything else is refused with TERMS_ACCEPTANCE_REQUIRED */
             terms_version?: string;
         };
         RegisterResponseBody: {
@@ -31345,6 +31405,36 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["GetLabelCatalogResponseBody"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "get-legal-versions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    "Cache-Control"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LegalVersionsResponseBody"];
                 };
             };
             /** @description Error */

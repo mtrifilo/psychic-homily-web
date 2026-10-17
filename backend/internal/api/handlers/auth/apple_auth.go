@@ -43,8 +43,8 @@ type AppleCallbackRequest struct {
 		FirstName      *string `json:"first_name,omitempty" doc:"User's first name (only provided on first sign-in)"`
 		LastName       *string `json:"last_name,omitempty" doc:"User's last name (only provided on first sign-in)"`
 		TermsAccepted  bool    `json:"terms_accepted,omitempty" doc:"Whether the user accepted the Terms of Service and Privacy Policy. Required to create an account; a callback that would create one without it is refused with TERMS_ACCEPTANCE_REQUIRED. Not read for an Apple identity that already has an account, though, like every consent field, it must match its schema type when sent."`
-		TermsVersion   string  `json:"terms_version,omitempty" doc:"Accepted Terms of Service version. Required to create an account; anything other than the current version is refused with TERMS_ACCEPTANCE_REQUIRED."`
-		PrivacyVersion string  `json:"privacy_version,omitempty" doc:"Accepted Privacy Policy version. Required to create an account; anything other than the current version is refused with TERMS_ACCEPTANCE_REQUIRED."`
+		TermsVersion   string  `json:"terms_version,omitempty" doc:"Accepted Terms of Service version. Required to create an account: the current one, or the previous one while a grace window is open (both published at GET /legal/versions); anything else is refused with TERMS_ACCEPTANCE_REQUIRED."`
+		PrivacyVersion string  `json:"privacy_version,omitempty" doc:"Accepted Privacy Policy version. Required to create an account: the current one, or the previous one while a grace window is open (both published at GET /legal/versions); anything else is refused with TERMS_ACCEPTANCE_REQUIRED."`
 		AgeConfirmed   bool    `json:"age_confirmed,omitempty" doc:"Whether the user confirmed they meet the minimum age. Required to create an account; without it the callback is refused with AGE_CONFIRMATION_REQUIRED."`
 		MinAgeAttested int     `json:"min_age_attested,omitempty" doc:"Minimum age the user attested to. Required to create an account; below the minimum the callback is refused with AGE_CONFIRMATION_REQUIRED."`
 	}
@@ -136,10 +136,10 @@ func (h *AppleAuthHandler) AppleCallbackHandler(ctx context.Context, input *Appl
 	)
 
 	// The service reads the consent only when this callback would create an
-	// account, and refuses that creation when the consent does not accept the
-	// current versions with the minimum age attested. AcceptedAt stays zero:
-	// the consent is given in this request, and the account records a zero
-	// acceptance time as the moment it is created.
+	// account, and refuses that creation when the consent does not name
+	// versions legal.AcceptedVersions takes, with the minimum age attested.
+	// AcceptedAt stays zero: the consent is given in this request, and the
+	// account records a zero acceptance time as the moment it is created.
 	consent := &contracts.OAuthSignupConsent{
 		TermsAccepted:  input.Body.TermsAccepted,
 		TermsVersion:   input.Body.TermsVersion,

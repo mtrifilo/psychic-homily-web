@@ -57,8 +57,9 @@ const (
 	// CodeNoPasswordSet indicates the user has no password (OAuth-only account)
 	CodeNoPasswordSet = "NO_PASSWORD_SET"
 	// CodeTermsAcceptanceRequired indicates a sign-up arrived without an
-	// acceptance of the current Terms of Service and Privacy Policy: none at
-	// all, or one naming a version that is not the current one.
+	// acceptance of a Terms of Service and Privacy Policy version an account
+	// may be created with: none at all, or one naming a version
+	// legal.AcceptedVersions refuses.
 	CodeTermsAcceptanceRequired = "TERMS_ACCEPTANCE_REQUIRED"
 	// CodeAgeConfirmationRequired indicates a signup arrived without the required
 	// minimum-age confirmation (PSY-1023).
@@ -422,7 +423,7 @@ func ErrNoPasswordSet() *AuthError {
 }
 
 // ErrTermsAcceptanceRequired creates a signup terms-not-accepted error. The
-// detail distinguishes "no consent / not accepted" from "version not current"
+// detail distinguishes "no consent / not accepted" from "version not accepted"
 // so logs keep the cause without the handler string-matching the message.
 func ErrTermsAcceptanceRequired(detail string) *AuthError {
 	return NewAuthError(CodeTermsAcceptanceRequired, "Please accept the Terms of Service and Privacy Policy before creating an account.", fmt.Errorf("%s", detail))

@@ -612,8 +612,8 @@ type BeginSignupRequest struct {
 	Body struct {
 		Email          string `json:"email" example:"user@example.com" doc:"Email for the new account"`
 		TermsAccepted  bool   `json:"terms_accepted" doc:"Whether user accepted Terms of Service"`
-		TermsVersion   string `json:"terms_version,omitempty" doc:"Accepted Terms of Service version; anything other than the current version is refused with TERMS_ACCEPTANCE_REQUIRED"`
-		PrivacyVersion string `json:"privacy_version,omitempty" doc:"Accepted Privacy Policy version; anything other than the current version is refused with TERMS_ACCEPTANCE_REQUIRED"`
+		TermsVersion   string `json:"terms_version,omitempty" doc:"Accepted Terms of Service version: the current one, or the previous one while a grace window is open (both published at GET /legal/versions); anything else is refused with TERMS_ACCEPTANCE_REQUIRED"`
+		PrivacyVersion string `json:"privacy_version,omitempty" doc:"Accepted Privacy Policy version: the current one, or the previous one while a grace window is open (both published at GET /legal/versions); anything else is refused with TERMS_ACCEPTANCE_REQUIRED"`
 		AgeConfirmed   bool   `json:"age_confirmed" doc:"Whether user confirmed they meet the minimum age"`
 		MinAgeAttested int    `json:"min_age_attested,omitempty" doc:"Minimum age the user attested to"`
 	}
@@ -767,7 +767,7 @@ func (h *PasskeyHandler) FinishSignupHandler(ctx context.Context, input *FinishS
 	}
 	email := signup.Email
 	// The challenge's consent passed these checks at begin. A challenge that
-	// carries none, or carries versions that stopped being current since,
+	// carries none, or carries versions that stopped being accepted since,
 	// fails them here.
 	if refusal := refuseStaleConsentVersions(signup.Acceptance.TermsVersion, signup.Acceptance.PrivacyVersion); refusal != nil {
 		logger.AuthWarn(ctx, "passkey_signup_finish_consent_refused",
