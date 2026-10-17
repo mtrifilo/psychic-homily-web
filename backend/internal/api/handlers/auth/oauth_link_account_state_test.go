@@ -1,6 +1,10 @@
 package auth
 
 import (
+	"net/http"
+	"net/http/httptest"
+	"net/url"
+
 	"github.com/markbates/goth"
 
 	autherrors "psychic-homily-backend/internal/errors"
@@ -33,7 +37,7 @@ func (s *OAuthHandlerIntegrationSuite) TestLinkCallback_AccountThatMayNotSignInI
 
 		handler.OAuthCallbackHTTPHandler(w, req)
 
-		s.assertLinkRefusal(w, autherrors.CodeAccountInactive)
+		s.assertAccountUnavailableLanding(w)
 		s.Zero(completer.calls, "%s: a closed account must be refused before the provider token exchange", state.name)
 		s.assertNoIdentityLinked(user.ID)
 		s.assertLinkIntentSpent(w, cookie)
@@ -66,10 +70,21 @@ func (s *OAuthHandlerIntegrationSuite) TestLinkCallback_AccountClosedDuringHands
 		handler.OAuthCallbackHTTPHandler(w, req)
 
 		s.Equal(1, completer.calls, "%s: an open account passes the session gate and reaches the provider", state.name)
-		s.assertLinkRefusal(w, autherrors.CodeAccountInactive)
+		s.assertAccountUnavailableLanding(w)
 		s.assertNoIdentityLinked(user.ID)
 		s.assertLinkIntentSpent(w, cookie)
 	}
+}
+
+// The landing redirectToAccountUnavailable documents: the sign-in page, the
+// code in reason, and no returnTo.
+func (s *OAuthHandlerIntegrationSuite) assertAccountUnavailableLanding(w *httptest.ResponseRecorder) {
+	s.T().Helper()
+	s.Equal(http.StatusTemporaryRedirect, w.Code)
+	parsed, err := url.Parse(w.Header().Get("Location"))
+	s.Require().NoError(err)
+	s.Equal("http://localhost:3000/auth", parsed.Scheme+"://"+parsed.Host+parsed.Path)
+	s.Equal(url.Values{"reason": {autherrors.CodeAccountInactive}}, parsed.Query())
 }
 
 func (s *OAuthHandlerIntegrationSuite) assertNoIdentityLinked(userID uint) {

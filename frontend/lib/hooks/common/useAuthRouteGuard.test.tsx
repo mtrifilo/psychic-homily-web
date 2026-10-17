@@ -111,6 +111,23 @@ describe('useAuthRouteGuard', () => {
     )
   })
 
+  // The profile guard's own mode.
+  it('leaves an OAuth link result out of returnTo', () => {
+    mockAuthStatus = 'anonymous'
+    mockPathname = '/profile'
+    window.history.replaceState(
+      {},
+      '',
+      '/profile?oauth_link_error=OAUTH_LINK_REAUTH_REQUIRED&tab=settings'
+    )
+
+    renderHook(() => useAuthRouteGuard('redirect'))
+
+    expect(mockRedirect).toHaveBeenCalledWith(
+      '/auth?returnTo=%2Fprofile%3Ftab%3Dsettings'
+    )
+  })
+
   it('navigates once for a viewer whose status does not change', () => {
     mockAuthStatus = 'anonymous'
 

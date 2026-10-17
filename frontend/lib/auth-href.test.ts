@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { sanitizeReturnTo } from '@/app/auth/auth-redirect-utils'
 import {
+  ACCOUNT_INACTIVE_REASON,
   AUTH_ERROR_CODE_PARAM,
   AUTH_ERROR_PARAM,
   AUTH_INTENTS,
@@ -82,6 +83,45 @@ describe('currentLocationReturnTo', () => {
     )
     expect(sanitizeReturnTo(returnTo)).toBe('/users/alice?tab=bio')
   })
+
+  it('drops an OAuth link error so a later sign-in does not replay it', () => {
+    window.history.replaceState(
+      {},
+      '',
+      '/profile?tab=settings&oauth_link_error=ACCOUNT_INACTIVE'
+    )
+    expect(currentLocationReturnTo('/profile')).toBe('/profile?tab=settings')
+  })
+
+  it('drops an OAuth link success the same way', () => {
+    window.history.replaceState({}, '', '/profile?oauth_link=connected&tab=settings')
+    expect(currentLocationReturnTo('/profile')).toBe('/profile?tab=settings')
+  })
+
+  it('is the bare pathname when the link result was the whole query', () => {
+    window.history.replaceState(
+      {},
+      '',
+      '/profile?oauth_link_error=OAUTH_LINK_REAUTH_REQUIRED&oauth_link=connected'
+    )
+    expect(currentLocationReturnTo('/profile')).toBe('/profile')
+  })
+
+  it('recognizes a link parameter by its decoded name, as Settings reads it', () => {
+    window.history.replaceState({}, '', '/profile?tab=settings&oauth%5Flink%5Ferror=X')
+    expect(currentLocationReturnTo('/profile')).toBe('/profile?tab=settings')
+  })
+
+  it('leaves every other parameter exactly as the location spells it', () => {
+    window.history.replaceState(
+      {},
+      '',
+      '/shows?q=a%20b&oauth_link=connected&city=phoenix&oauth_linked=1'
+    )
+    expect(currentLocationReturnTo('/shows')).toBe(
+      '/shows?q=a%20b&city=phoenix&oauth_linked=1'
+    )
+  })
 })
 
 // A refused credential mint offers a link here. Two things have to hold or the
@@ -118,6 +158,12 @@ describe('isReauthReason', () => {
   it('rejects an absent or unknown reason, which must not suppress the bounce', () => {
     expect(isReauthReason(null)).toBe(false)
     expect(isReauthReason('SOMETHING_ELSE')).toBe(false)
+  })
+
+  // Signing in again cannot reopen a closed account, so this reason must not
+  // turn the page into the re-authentication form.
+  it('does not count a closed account as a re-authentication', () => {
+    expect(isReauthReason(ACCOUNT_INACTIVE_REASON)).toBe(false)
   })
 })
 

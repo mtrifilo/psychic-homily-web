@@ -441,6 +441,19 @@ describe('OAuthAccounts', () => {
     })
   })
 
+  it('rewrites to the bare path when the link result was the whole query', async () => {
+    mockOAuthData = { accounts: [] }
+    mockSearchParams = new URLSearchParams('oauth_link_error=OAUTH_LINK_EXPIRED')
+
+    renderWithProviders(<OAuthAccounts />)
+
+    await waitFor(() => {
+      expect(mockRouterReplace).toHaveBeenCalledWith('/profile', {
+        scroll: false,
+      })
+    })
+  })
+
   it('leaves the URL alone when no link result is present', async () => {
     mockOAuthData = { accounts: [] }
     mockSearchParams = new URLSearchParams('tab=settings')
