@@ -11,7 +11,7 @@ import (
 )
 
 // signupMinimumAge is the minimum age a sign-up attests.
-const signupMinimumAge = 16
+const signupMinimumAge = legal.MinSignupAge
 
 // CurrentLegalAcceptance is a password or passkey sign-up's acceptance of the
 // current terms and privacy versions with the minimum age attested.
@@ -37,5 +37,15 @@ func CurrentOAuthSignupConsent() *contracts.OAuthSignupConsent {
 		AcceptedAt:     time.Now().UTC(),
 		AgeConfirmed:   true,
 		MinAgeAttested: signupMinimumAge,
+	}
+}
+
+// CurrentOAuthSignupConsentWith is CurrentOAuthSignupConsent changed by
+// mutate, built anew on each call of the returned function.
+func CurrentOAuthSignupConsentWith(mutate func(*contracts.OAuthSignupConsent)) func() *contracts.OAuthSignupConsent {
+	return func() *contracts.OAuthSignupConsent {
+		consent := CurrentOAuthSignupConsent()
+		mutate(consent)
+		return consent
 	}
 }

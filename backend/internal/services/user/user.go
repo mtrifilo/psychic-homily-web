@@ -429,7 +429,8 @@ func (s *UserService) createNewUserOauthWithConsent(
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
 	}
-	if err := shared.ValidateOAuthSignupConsent(consent); err != nil {
+	acceptance, err := shared.ValidateOAuthSignupConsent(consent)
+	if err != nil {
 		return nil, err
 	}
 
@@ -459,7 +460,7 @@ func (s *UserService) createNewUserOauthWithConsent(
 	if gothUser.Email != "" {
 		user.Email = &gothUser.Email
 	}
-	shared.StampLegalAcceptance(user, consent.LegalAcceptance())
+	shared.StampLegalAcceptance(user, acceptance)
 
 	if err := tx.Create(user).Error; err != nil {
 		tx.Rollback()

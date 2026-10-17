@@ -7,6 +7,8 @@ import (
 	"net/http/httptest"
 	"time"
 
+	"github.com/golang-jwt/jwt/v5"
+
 	apperrors "psychic-homily-backend/internal/errors"
 	"psychic-homily-backend/internal/legal"
 	authm "psychic-homily-backend/internal/models/auth"
@@ -16,26 +18,9 @@ import (
 
 // An Apple account is created only with consent to the current Terms of
 // Service and Privacy Policy and the minimum age attested, and records that
-// consent. A returning Apple identity signs in without any.
-
-// signedAppleClaims is the claims of an identity token for subject and email,
-// signed by a key the service fetches from a stub key server and verified by
-// the real ValidateIdentityToken, so each test starts where the callback does.
-func (s *AppleAuthIntegrationTestSuite) signedAppleClaims(svc *AppleAuthService, subject, email string) *contracts.AppleIdentityTokenClaims {
-	s.T().Helper()
-	key, err := rsa.GenerateKey(rand.Reader, 2048)
-	s.Require().NoError(err)
-	keys := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		_, _ = w.Write(jwks(key, "consent-kid"))
-	}))
-	s.T().Cleanup(keys.Close)
-	svc.fetchAppleKeysFromURL = keys.URL
-
-	token := createAppleIdentityToken(s.T(), key, "consent-kid", s.cfg.Apple.BundleID, subject, email, time.Now().Add(time.Hour))
-	claims, err := svc.ValidateIdentityToken(s.T().Context(), token)
-	s.Require().NoError(err)
-	return claims
-}
+// consent. A returning Apple identity signs in without any. The full set of
+// refusable consent shapes is pinned against the shared validator; these pin
+// where this service consults it.
 
 func (s *AppleAuthIntegrationTestSuite) countRows(model any) int64 {
 	s.T().Helper()
@@ -44,7 +29,29 @@ func (s *AppleAuthIntegrationTestSuite) countRows(model any) int64 {
 	return n
 }
 
+func appleClaims(subject, email string) *contracts.AppleIdentityTokenClaims {
+	return &contracts.AppleIdentityTokenClaims{
+		Email:            email,
+		EmailVerified:    true,
+		RegisteredClaims: jwt.RegisteredClaims{Subject: subject},
+	}
+}
+
+// The claims come from a validly signed token verified by the real
+// ValidateIdentityToken, so the refusal starts where the callback does.
 func (s *AppleAuthIntegrationTestSuite) TestFindOrCreateAppleUser_CreationWithoutConsent_RefusedAndWritesNothing() {
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	s.Require().NoError(err)
+	keys := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write(jwks(key, "consent-kid"))
+	}))
+	defer keys.Close()
+	svc := s.newService()
+	svc.fetchAppleKeysFromURL = keys.URL
+	token := createAppleIdentityToken(s.T(), key, "consent-kid", s.cfg.Apple.BundleID, "apple-sub-no-consent", "no-consent@example.com", time.Now().Add(time.Hour))
+	claims, err := svc.ValidateIdentityToken(s.T().Context(), token)
+	s.Require().NoError(err)
+
 	for name, tc := range map[string]struct {
 		consent  func() *contracts.OAuthSignupConsent
 		wantCode string
@@ -54,36 +61,19 @@ func (s *AppleAuthIntegrationTestSuite) TestFindOrCreateAppleUser_CreationWithou
 			apperrors.CodeTermsAcceptanceRequired,
 		},
 		"empty consent, as a client that sends no consent fields": {
-			func() *contracts.OAuthSignupConsent {
-				return &contracts.OAuthSignupConsent{AcceptedAt: time.Now().UTC()}
-			},
-			apperrors.CodeTermsAcceptanceRequired,
-		},
-		"terms not accepted": {
-			withConsent(func(c *contracts.OAuthSignupConsent) { c.TermsAccepted = false }),
-			apperrors.CodeTermsAcceptanceRequired,
-		},
-		"stale terms version": {
-			withConsent(func(c *contracts.OAuthSignupConsent) { c.TermsVersion = "2025-01-01" }),
+			func() *contracts.OAuthSignupConsent { return &contracts.OAuthSignupConsent{} },
 			apperrors.CodeTermsAcceptanceRequired,
 		},
 		"stale privacy version": {
-			withConsent(func(c *contracts.OAuthSignupConsent) { c.PrivacyVersion = "2025-01-01" }),
+			signupconsent.CurrentOAuthSignupConsentWith(func(c *contracts.OAuthSignupConsent) { c.PrivacyVersion = "2025-01-01" }),
 			apperrors.CodeTermsAcceptanceRequired,
 		},
-		"age not confirmed": {
-			withConsent(func(c *contracts.OAuthSignupConsent) { c.AgeConfirmed = false }),
-			apperrors.CodeAgeConfirmationRequired,
-		},
 		"attested age below the minimum": {
-			withConsent(func(c *contracts.OAuthSignupConsent) { c.MinAgeAttested = 15 }),
+			signupconsent.CurrentOAuthSignupConsentWith(func(c *contracts.OAuthSignupConsent) { c.MinAgeAttested = legal.MinSignupAge - 1 }),
 			apperrors.CodeAgeConfirmationRequired,
 		},
 	} {
 		s.Run(name, func() {
-			svc := s.newService()
-			claims := s.signedAppleClaims(svc, "apple-sub-no-consent", "no-consent@example.com")
-
 			user, err := svc.FindOrCreateAppleUser(claims, "No", "Consent", tc.consent())
 
 			s.Require().Error(err)
@@ -98,20 +88,11 @@ func (s *AppleAuthIntegrationTestSuite) TestFindOrCreateAppleUser_CreationWithou
 	}
 }
 
-func withConsent(mutate func(*contracts.OAuthSignupConsent)) func() *contracts.OAuthSignupConsent {
-	return func() *contracts.OAuthSignupConsent {
-		consent := signupconsent.CurrentOAuthSignupConsent()
-		mutate(consent)
-		return consent
-	}
-}
-
 func (s *AppleAuthIntegrationTestSuite) TestFindOrCreateAppleUser_CreationWithConsent_RecordsIt() {
 	svc := s.newService()
-	claims := s.signedAppleClaims(svc, "apple-sub-consent", "consent@example.com")
 	consent := signupconsent.CurrentOAuthSignupConsent()
 
-	user, err := svc.FindOrCreateAppleUser(claims, "With", "Consent", consent)
+	user, err := svc.FindOrCreateAppleUser(appleClaims("apple-sub-consent", "consent@example.com"), "With", "Consent", consent)
 	s.Require().NoError(err)
 
 	var stored authm.User
@@ -133,16 +114,16 @@ func (s *AppleAuthIntegrationTestSuite) TestFindOrCreateAppleUser_CreationWithCo
 // a refusable one stops the sign-in, and the record made at creation stands.
 func (s *AppleAuthIntegrationTestSuite) TestFindOrCreateAppleUser_ReturningIdentity_SignsInWithoutConsent() {
 	svc := s.newService()
-	claims := s.signedAppleClaims(svc, "apple-sub-returning-consent", "returning-consent@example.com")
+	claims := appleClaims("apple-sub-returning-consent", "returning-consent@example.com")
 	created, err := svc.FindOrCreateAppleUser(claims, "", "", signupconsent.CurrentOAuthSignupConsent())
 	s.Require().NoError(err)
 	var before authm.User
 	s.Require().NoError(s.db.First(&before, created.ID).Error)
 
 	for name, consent := range map[string]*contracts.OAuthSignupConsent{
-		"no consent":      nil,
-		"empty consent":   {},
-		"refusable stale": withConsent(func(c *contracts.OAuthSignupConsent) { c.TermsVersion = "2025-01-01" })(),
+		"no consent":    nil,
+		"empty consent": {},
+		"stale consent": signupconsent.CurrentOAuthSignupConsentWith(func(c *contracts.OAuthSignupConsent) { c.TermsVersion = "2025-01-01" })(),
 	} {
 		s.Run(name, func() {
 			user, err := svc.FindOrCreateAppleUser(claims, "", "", consent)
@@ -169,10 +150,7 @@ func (s *AppleAuthIntegrationTestSuite) TestFindOrCreateAppleUser_HeldAddress_Re
 	existing := &authm.User{Email: stringPtr("held-consent@example.com"), IsActive: true, EmailVerified: true}
 	s.Require().NoError(s.db.Create(existing).Error)
 
-	svc := s.newService()
-	claims := s.signedAppleClaims(svc, "apple-sub-held-consent", "held-consent@example.com")
-
-	user, err := svc.FindOrCreateAppleUser(claims, "", "", nil)
+	user, err := s.newService().FindOrCreateAppleUser(appleClaims("apple-sub-held-consent", "held-consent@example.com"), "", "", nil)
 
 	s.Require().Error(err)
 	s.Nil(user)

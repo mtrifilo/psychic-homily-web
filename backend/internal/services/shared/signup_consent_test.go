@@ -6,6 +6,7 @@ import (
 	"time"
 
 	apperrors "psychic-homily-backend/internal/errors"
+	"psychic-homily-backend/internal/legal"
 	authm "psychic-homily-backend/internal/models/auth"
 	"psychic-homily-backend/internal/services/contracts"
 	"psychic-homily-backend/internal/testutil/signupconsent"
@@ -28,40 +29,40 @@ func TestValidateOAuthSignupConsent(t *testing.T) {
 			apperrors.CodeTermsAcceptanceRequired,
 		},
 		"terms not accepted": {
-			mutated(func(c *contracts.OAuthSignupConsent) { c.TermsAccepted = false }),
+			signupconsent.CurrentOAuthSignupConsentWith(func(c *contracts.OAuthSignupConsent) { c.TermsAccepted = false }),
 			apperrors.CodeTermsAcceptanceRequired,
 		},
 		"terms stale": {
-			mutated(func(c *contracts.OAuthSignupConsent) { c.TermsVersion = "2025-01-01" }),
+			signupconsent.CurrentOAuthSignupConsentWith(func(c *contracts.OAuthSignupConsent) { c.TermsVersion = "2025-01-01" }),
 			apperrors.CodeTermsAcceptanceRequired,
 		},
 		"terms empty": {
-			mutated(func(c *contracts.OAuthSignupConsent) { c.TermsVersion = "" }),
+			signupconsent.CurrentOAuthSignupConsentWith(func(c *contracts.OAuthSignupConsent) { c.TermsVersion = "" }),
 			apperrors.CodeTermsAcceptanceRequired,
 		},
 		"privacy unknown": {
-			mutated(func(c *contracts.OAuthSignupConsent) { c.PrivacyVersion = "x" }),
+			signupconsent.CurrentOAuthSignupConsentWith(func(c *contracts.OAuthSignupConsent) { c.PrivacyVersion = "x" }),
 			apperrors.CodeTermsAcceptanceRequired,
 		},
 		"privacy empty": {
-			mutated(func(c *contracts.OAuthSignupConsent) { c.PrivacyVersion = "" }),
+			signupconsent.CurrentOAuthSignupConsentWith(func(c *contracts.OAuthSignupConsent) { c.PrivacyVersion = "" }),
 			apperrors.CodeTermsAcceptanceRequired,
 		},
 		"age not confirmed": {
-			mutated(func(c *contracts.OAuthSignupConsent) { c.AgeConfirmed = false }),
+			signupconsent.CurrentOAuthSignupConsentWith(func(c *contracts.OAuthSignupConsent) { c.AgeConfirmed = false }),
 			apperrors.CodeAgeConfirmationRequired,
 		},
 		"age below minimum": {
-			mutated(func(c *contracts.OAuthSignupConsent) { c.MinAgeAttested = minOAuthSignupAge - 1 }),
+			signupconsent.CurrentOAuthSignupConsentWith(func(c *contracts.OAuthSignupConsent) { c.MinAgeAttested = legal.MinSignupAge - 1 }),
 			apperrors.CodeAgeConfirmationRequired,
 		},
 		"age absent": {
-			mutated(func(c *contracts.OAuthSignupConsent) { c.MinAgeAttested = 0 }),
+			signupconsent.CurrentOAuthSignupConsentWith(func(c *contracts.OAuthSignupConsent) { c.MinAgeAttested = 0 }),
 			apperrors.CodeAgeConfirmationRequired,
 		},
 	} {
 		t.Run(name, func(t *testing.T) {
-			err := ValidateOAuthSignupConsent(tc.consent())
+			_, err := ValidateOAuthSignupConsent(tc.consent())
 			var authErr *apperrors.AuthError
 			if !errors.As(err, &authErr) || authErr.Code != tc.wantCode {
 				t.Fatalf("expected %s, got %v", tc.wantCode, err)
@@ -69,16 +70,20 @@ func TestValidateOAuthSignupConsent(t *testing.T) {
 		})
 	}
 
-	if err := ValidateOAuthSignupConsent(signupconsent.CurrentOAuthSignupConsent()); err != nil {
+	consent := signupconsent.CurrentOAuthSignupConsent()
+	acceptance, err := ValidateOAuthSignupConsent(consent)
+	if err != nil {
 		t.Fatalf("current consent refused: %v", err)
 	}
-}
-
-func mutated(mutate func(*contracts.OAuthSignupConsent)) func() *contracts.OAuthSignupConsent {
-	return func() *contracts.OAuthSignupConsent {
-		consent := signupconsent.CurrentOAuthSignupConsent()
-		mutate(consent)
-		return consent
+	want := contracts.LegalAcceptance{
+		TermsAcceptedAt: consent.AcceptedAt,
+		TermsVersion:    consent.TermsVersion,
+		PrivacyVersion:  consent.PrivacyVersion,
+		AgeConfirmedAt:  consent.AcceptedAt,
+		MinAgeAttested:  consent.MinAgeAttested,
+	}
+	if acceptance != want {
+		t.Errorf("acceptance = %+v, want %+v", acceptance, want)
 	}
 }
 

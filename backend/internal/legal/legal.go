@@ -1,8 +1,14 @@
 // Package legal names the versions of the Terms of Service and the Privacy
 // Policy that email registration, passkey signup, the Google/GitHub sign-up and
-// a Sign in with Apple account creation accept. Each of those refuses any other
-// version.
+// a Sign in with Apple account creation accept, and the minimum age each of
+// them requires. Each of those refuses any other version.
 package legal
+
+// MinSignupAge is the minimum age (in years) a user must confirm at signup,
+// matching the /terms and /privacy minimum-age clauses. The backend is the
+// authoritative gate: every account-creation path requires an age confirmation
+// of at least this value, independent of the frontend checkbox.
+const MinSignupAge = 16
 
 // The versions the frontend's sign-up forms send (CURRENT_TERMS_VERSION and
 // CURRENT_PRIVACY_VERSION in frontend/lib/legal.ts).

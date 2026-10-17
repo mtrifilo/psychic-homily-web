@@ -292,10 +292,11 @@ func (s *AppleAuthService) FindOrCreateAppleUser(claims *contracts.AppleIdentity
 		}
 	}
 
-	if err := shared.ValidateOAuthSignupConsent(consent); err != nil {
+	acceptance, err := shared.ValidateOAuthSignupConsent(consent)
+	if err != nil {
 		return nil, err
 	}
-	return s.createAppleUser(appleUserID, claims.Email, firstName, lastName, claims.IsEmailVerified(), consent.LegalAcceptance())
+	return s.createAppleUser(appleUserID, claims.Email, firstName, lastName, claims.IsEmailVerified(), acceptance)
 }
 
 // GenerateToken creates a JWT for the user

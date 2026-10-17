@@ -129,19 +129,6 @@ type OAuthSignupConsent struct {
 	MinAgeAttested int
 }
 
-// LegalAcceptance is the acceptance an account created from c records: both
-// versions, and AcceptedAt as when the terms were accepted and the age
-// confirmed. Call it only on a consent that has been validated.
-func (c *OAuthSignupConsent) LegalAcceptance() LegalAcceptance {
-	return LegalAcceptance{
-		TermsAcceptedAt: c.AcceptedAt,
-		TermsVersion:    c.TermsVersion,
-		PrivacyVersion:  c.PrivacyVersion,
-		AgeConfirmedAt:  c.AcceptedAt,
-		MinAgeAttested:  c.MinAgeAttested,
-	}
-}
-
 // ──────────────────────────────────────────────
 // Auth Service Interface
 // ──────────────────────────────────────────────

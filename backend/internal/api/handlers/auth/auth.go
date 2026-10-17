@@ -22,11 +22,8 @@ import (
 	"psychic-homily-backend/internal/services/contracts"
 )
 
-// MinSignupAge is the minimum age (in years) a user must confirm at signup.
-// Locked at 16 (PSY-1023) to match the /terms and /privacy minimum-age clauses.
-// The backend is the authoritative gate: every account-creation path requires an
-// age confirmation of at least this value, independent of the frontend checkbox.
-const MinSignupAge = 16
+// MinSignupAge is legal.MinSignupAge, the minimum age a sign-up must confirm.
+const MinSignupAge = legal.MinSignupAge
 
 // validateSignupAgeConfirmation enforces the required minimum-age confirmation
 // shared by every account-creation handler (PSY-1023). It mirrors the terms
