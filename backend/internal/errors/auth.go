@@ -44,7 +44,7 @@ const (
 	// was deleted and is still inside its recovery window, so the caller can
 	// restore it through account recovery. It takes the place of
 	// CodeAccountInactive for that one state and for no other: a deactivated
-	// account, or a deleted one past its window, keeps the refusal it had.
+	// account, or a deleted one past its window, gets CodeAccountInactive.
 	//
 	// It names the deletion, which CodeAccountInactive does not, so it goes
 	// only to a caller who may already learn it: one who proved the account's

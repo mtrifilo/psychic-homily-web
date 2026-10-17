@@ -277,9 +277,9 @@ func (h *AuthHandler) LoginHandler(ctx context.Context, input *LoginRequest) (*L
 				// An account that may not sign in (authm.User.CanSignIn:
 				// deactivated or soft-deleted). The account exists in a
 				// known state and the service is healthy, so this is NOT a
-				// fail-closed 5xx — return HTTP 200 with the distinct code:
-				// ACCOUNT_RECOVERABLE for a deleted account inside its
-				// recovery window, so the frontend can offer recovery, and
+				// fail-closed 5xx. It answers HTTP 200 with the distinct code:
+				// ACCOUNT_RECOVERABLE for a deleted account that account
+				// recovery can restore, so the frontend can offer recovery, and
 				// ACCOUNT_INACTIVE, with contact-support copy, otherwise. The
 				// password check already ran (no extra enumeration signal).
 				logger.AuthWarn(ctx, "login_account_inactive",
