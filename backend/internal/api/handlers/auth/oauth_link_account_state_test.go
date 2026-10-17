@@ -36,18 +36,7 @@ func (s *OAuthHandlerIntegrationSuite) TestLinkCallback_AccountThatMayNotSignInI
 		s.assertLinkRefusal(w, autherrors.CodeAccountInactive)
 		s.Zero(completer.calls, "%s: a closed account must be refused before the provider token exchange", state.name)
 		s.assertNoIdentityLinked(user.ID)
-
-		// Spent and cleared, the same as any other refusal past the intent match.
-		_, _, stillHeld := peekOAuthLinkIntent(cookie.Value)
-		s.False(stillHeld, "%s: a refused link must consume its intent", state.name)
-		s.assertNoSessionCookie(w)
-		var intentCleared bool
-		for _, c := range w.Result().Cookies() {
-			if c.Name == oauthLinkIntentCookieName && c.MaxAge < 0 {
-				intentCleared = true
-			}
-		}
-		s.True(intentCleared, "%s: a refused link must clear the intent cookie", state.name)
+		s.assertLinkIntentSpent(w, cookie)
 	}
 }
 
@@ -71,7 +60,7 @@ func (s *OAuthHandlerIntegrationSuite) TestLinkCallback_AccountClosedDuringHands
 		handler := s.newHandler(completer)
 
 		w, req := oauthCallbackRequest("google")
-		s.armLinkIntentOn(req, user.ID, "google")
+		cookie, _ := s.armLinkIntentOn(req, user.ID, "google")
 		s.addSessionCookie(req, user)
 
 		handler.OAuthCallbackHTTPHandler(w, req)
@@ -79,6 +68,7 @@ func (s *OAuthHandlerIntegrationSuite) TestLinkCallback_AccountClosedDuringHands
 		s.Equal(1, completer.calls, "%s: an open account passes the session gate and reaches the provider", state.name)
 		s.assertLinkRefusal(w, autherrors.CodeAccountInactive)
 		s.assertNoIdentityLinked(user.ID)
+		s.assertLinkIntentSpent(w, cookie)
 	}
 }
 

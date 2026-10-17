@@ -276,22 +276,40 @@ func (h *OAuthHTTPHandler) completeOAuthLink(
 	// CompleteOAuthLink re-reads the account after the exchange, and the link
 	// write checks it again inside its transaction; those catch a change that
 	// lands during the round trip, and are not the gate.
+	//
+	// ACCOUNT_INACTIVE is reported only when the closed account is the one the
+	// intent names, so the code tells a caller nothing about any account but
+	// the one it started linking. Any other refusal of the session is a
+	// mismatch. A fault in resolving the session is reported as a fault, not
+	// as a verdict on the session.
 	sessionUser, err := middleware.SessionUserFromRequest(h.jwtService, r)
-	if errors.Is(err, authsvc.ErrSessionAccountMayNotSignIn) {
+	var closed *authsvc.SessionAccountClosedError
+	var credentialRefusal *autherrors.AuthError
+	switch {
+	case err == nil && sessionUser.ID == intent.userID:
+		// The live session names the intent's account, which may still sign
+		// in: the link proceeds to the provider token exchange.
+	case errors.As(err, &closed) && closed.UserID == intent.userID:
 		logger.AuthWarn(ctx, "oauth_link_refused_account_inactive",
 			"provider", provider,
-			"intent_user_id", intent.userID,
+			"user_id", intent.userID,
 		)
 		redirectToLinkResult(w, r, frontendURL, autherrors.CodeAccountInactive)
 		return
-	}
-	if err != nil || sessionUser.ID != intent.userID {
+	case err == nil || errors.As(err, &credentialRefusal):
 		logger.AuthWarn(ctx, "oauth_link_refused_session_mismatch",
 			"provider", provider,
 			"intent_user_id", intent.userID,
 			"session_present", err == nil,
 		)
 		redirectToLinkResult(w, r, frontendURL, oauthLinkErrorReauthRequired)
+		return
+	default:
+		logger.AuthError(ctx, "oauth_link_session_check_failed", err,
+			"provider", provider,
+			"intent_user_id", intent.userID,
+		)
+		redirectToLinkResult(w, r, frontendURL, autherrors.CodeUnknown)
 		return
 	}
 

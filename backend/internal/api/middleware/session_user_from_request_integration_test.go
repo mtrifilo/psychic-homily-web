@@ -29,6 +29,15 @@ func (s *JWTMiddlewareIntegrationSuite) sessionTokenFor(user *authm.User) string
 	return token
 }
 
+// assertClosedAccountRefusal checks that err tells a closed account apart from
+// a bad credential, and names the account.
+func (s *JWTMiddlewareIntegrationSuite) assertClosedAccountRefusal(err error, userID uint) {
+	s.T().Helper()
+	var closed *auth.SessionAccountClosedError
+	s.Require().True(errors.As(err, &closed), "got %v", err)
+	s.Equal(userID, closed.UserID)
+}
+
 func (s *JWTMiddlewareIntegrationSuite) TestSessionUserFromRequest_ActiveAccountResolves() {
 	user := s.createActiveUser("session-active@test.com")
 
@@ -49,7 +58,7 @@ func (s *JWTMiddlewareIntegrationSuite) TestSessionUserFromRequest_DeactivatedAf
 	got, err := SessionUserFromRequest(s.jwtService, sessionCookieRequest(token))
 
 	s.Nil(got)
-	s.True(errors.Is(err, auth.ErrSessionAccountMayNotSignIn), "got %v", err)
+	s.assertClosedAccountRefusal(err, user.ID)
 }
 
 func (s *JWTMiddlewareIntegrationSuite) TestSessionUserFromRequest_SoftDeletedAfterSignInIsRefusedAsClosed() {
@@ -60,13 +69,15 @@ func (s *JWTMiddlewareIntegrationSuite) TestSessionUserFromRequest_SoftDeletedAf
 	got, err := SessionUserFromRequest(s.jwtService, sessionCookieRequest(token))
 
 	s.Nil(got)
-	s.True(errors.Is(err, auth.ErrSessionAccountMayNotSignIn), "got %v", err)
+	s.assertClosedAccountRefusal(err, user.ID)
 }
 
-// Every other failure is a missing or unusable credential, never the closed-
-// account reason: that reason is reported to the reader, so it is only given
-// for a credential that proved which account they hold.
-func (s *JWTMiddlewareIntegrationSuite) TestSessionUserFromRequest_UnusableCredentialIsNotReportedAsClosed() {
+// Every other failure is never the closed-account reason: that reason is
+// reported to the reader, so it is only given for a credential that proved
+// which account they hold. Refusals of the credential are AuthErrors with the
+// code that says why; a failure to resolve the session at all is not an
+// AuthError, so a caller cannot mistake a fault for a verdict.
+func (s *JWTMiddlewareIntegrationSuite) TestSessionUserFromRequest_FailuresAreNotReportedAsClosed() {
 	user := s.createActiveUser("session-hard-deleted@test.com")
 	hardDeletedToken := s.sessionTokenFor(user)
 	sqlDB, _ := s.db.DB()
@@ -80,29 +91,46 @@ func (s *JWTMiddlewareIntegrationSuite) TestSessionUserFromRequest_UnusableCrede
 	forged, err := otherKey.CreateToken(&authm.User{ID: user.ID})
 	s.Require().NoError(err)
 
-	// wantCode is checked only where the refusal's code is part of the
-	// contract: a request with no credential at all is TOKEN_MISSING.
+	pastExpiry := auth.NewJWTService(s.db, &config.Config{JWT: config.JWTConfig{
+		SecretKey: s.cfg.JWT.SecretKey,
+		Expiry:    -1,
+	}}, nil)
+	live := s.createActiveUser("session-expired@test.com")
+	expired, err := pastExpiry.CreateToken(live)
+	s.Require().NoError(err)
+
+	storeUnavailable := auth.NewJWTService(nil, s.cfg, usersvc.NewUserService(nil))
+	liveToken := s.sessionTokenFor(live)
+
+	// wantCode is the credential refusal's code; empty means a fault, which
+	// must not be an AuthError at all.
 	cases := map[string]struct {
 		service  *auth.JWTService
 		req      *http.Request
 		wantCode string
 	}{
-		"no credential":            {s.jwtService, sessionCookieRequest(""), autherrors.CodeTokenMissing},
-		"not a token":              {s.jwtService, sessionCookieRequest("not-a-jwt"), ""},
-		"signed by another key":    {s.jwtService, sessionCookieRequest(forged), ""},
-		"account no longer exists": {s.jwtService, sessionCookieRequest(hardDeletedToken), ""},
-		"no resolver":              {nil, sessionCookieRequest(hardDeletedToken), ""},
-		"no request":               {s.jwtService, nil, ""},
+		"no credential":             {s.jwtService, sessionCookieRequest(""), autherrors.CodeTokenMissing},
+		"not a token":               {s.jwtService, sessionCookieRequest("not-a-jwt"), autherrors.CodeTokenInvalid},
+		"signed by another key":     {s.jwtService, sessionCookieRequest(forged), autherrors.CodeTokenInvalid},
+		"expired":                   {s.jwtService, sessionCookieRequest(expired), autherrors.CodeTokenExpired},
+		"account no longer exists":  {s.jwtService, sessionCookieRequest(hardDeletedToken), autherrors.CodeTokenInvalid},
+		"account store unavailable": {storeUnavailable, sessionCookieRequest(liveToken), ""},
+		"no resolver":               {nil, sessionCookieRequest(liveToken), ""},
+		"no request":                {s.jwtService, nil, ""},
 	}
 	for name, tc := range cases {
 		got, err := SessionUserFromRequest(tc.service, tc.req)
 		s.Nil(got, name)
 		s.Require().Error(err, name)
-		s.False(errors.Is(err, auth.ErrSessionAccountMayNotSignIn), "%s: got %v", name, err)
-		if tc.wantCode != "" {
-			var authErr *autherrors.AuthError
-			s.Require().True(errors.As(err, &authErr), name)
-			s.Equal(tc.wantCode, authErr.Code, name)
+		var closed *auth.SessionAccountClosedError
+		s.False(errors.As(err, &closed), "%s: got %v", name, err)
+		var refusal *autherrors.AuthError
+		isRefusal := errors.As(err, &refusal)
+		if tc.wantCode == "" {
+			s.False(isRefusal, "%s: a fault must not read as a credential refusal: got %v", name, err)
+			continue
 		}
+		s.Require().True(isRefusal, "%s: got %v", name, err)
+		s.Equal(tc.wantCode, refusal.Code, name)
 	}
 }

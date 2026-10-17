@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/danielgtaylor/huma/v2"
+	"gorm.io/gorm"
 
 	"psychic-homily-backend/internal/config"
 	autherrors "psychic-homily-backend/internal/errors"
@@ -365,8 +366,12 @@ func OptionalHumaJWTMiddleware(jwtService *auth.JWTService) func(ctx huma.Contex
 // NOT pass through the JWT middleware, with the checks that middleware applies
 // (JWTService.ValidateSession): a valid session credential naming an account
 // that may still sign in. err is non-nil whenever the request establishes no
-// such account; errors.Is(err, auth.ErrSessionAccountMayNotSignIn) separates a
-// closed account from a missing or invalid credential.
+// such account, and its shape says why:
+//   - an *autherrors.AuthError is a refusal of the credential (missing,
+//     invalid, expired, or naming an account that no longer exists);
+//   - within those, an *auth.SessionAccountClosedError (errors.As) is a valid
+//     credential for an account that may no longer sign in, and names it;
+//   - any other error is a fault in resolving the session, not a verdict on it.
 //
 // The OAuth callback is such a request: it is a public route, because the
 // provider redirects the browser to it, yet the link path has to know whether
@@ -383,6 +388,9 @@ func SessionUserFromRequest(jwtService *auth.JWTService, r *http.Request) (*auth
 		return nil, autherrors.ErrTokenMissing()
 	}
 	user, _, err := jwtService.ValidateSession(token)
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, autherrors.ErrTokenInvalid(err)
+	}
 	if err != nil {
 		return nil, err
 	}
