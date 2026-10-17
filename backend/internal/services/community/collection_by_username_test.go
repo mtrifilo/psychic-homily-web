@@ -5,6 +5,7 @@ import (
 	"time"
 
 	authm "psychic-homily-backend/internal/models/auth"
+	"psychic-homily-backend/internal/services/contracts"
 	"psychic-homily-backend/internal/testutil"
 )
 
@@ -14,7 +15,7 @@ import (
 func TestGetUserPublicCollectionsByUsername_FailedLookupReturnsError(t *testing.T) {
 	svc := NewCollectionService(testutil.UnavailableDB(t))
 
-	collections, total, err := svc.GetUserPublicCollectionsByUsername("nobody", 20, 0)
+	collections, total, err := svc.GetUserPublicCollectionsByUsername("nobody", contracts.ShowViewer{}, 20, 0)
 	if err == nil {
 		t.Fatalf("GetUserPublicCollectionsByUsername over a failing database = (%v, %d, nil), want an error", collections, total)
 	}
@@ -27,7 +28,7 @@ func TestGetUserPublicCollectionsByUsername_FailedLookupReturnsError(t *testing.
 // answer an empty non-nil page with no error; an account's public collections
 // are listed and its private ones are not.
 func (suite *CollectionServiceIntegrationTestSuite) TestGetUserPublicCollectionsByUsername_EmptyAndFoundPages() {
-	collections, total, err := suite.collectionService.GetUserPublicCollectionsByUsername("no-such-user", 20, 0)
+	collections, total, err := suite.collectionService.GetUserPublicCollectionsByUsername("no-such-user", contracts.ShowViewer{}, 20, 0)
 	suite.Require().NoError(err)
 	suite.Require().NotNil(collections)
 	suite.Empty(collections)
@@ -36,7 +37,7 @@ func (suite *CollectionServiceIntegrationTestSuite) TestGetUserPublicCollections
 	user := suite.createTestUserWithUsername("Owner", "crate-owner")
 	suite.createBasicCollection(user, "Private Only")
 
-	collections, total, err = suite.collectionService.GetUserPublicCollectionsByUsername("crate-owner", 20, 0)
+	collections, total, err = suite.collectionService.GetUserPublicCollectionsByUsername("crate-owner", contracts.ShowViewer{}, 20, 0)
 	suite.Require().NoError(err)
 	suite.Require().NotNil(collections)
 	suite.Empty(collections)
@@ -44,7 +45,7 @@ func (suite *CollectionServiceIntegrationTestSuite) TestGetUserPublicCollections
 
 	public := suite.createPublicCollection(user, "Public Picks")
 
-	collections, total, err = suite.collectionService.GetUserPublicCollectionsByUsername("crate-owner", 20, 0)
+	collections, total, err = suite.collectionService.GetUserPublicCollectionsByUsername("crate-owner", contracts.ShowViewer{}, 20, 0)
 	suite.Require().NoError(err)
 	suite.Require().Len(collections, 1)
 	suite.Equal(public.Slug, collections[0].Slug)
@@ -66,7 +67,7 @@ func (suite *CollectionServiceIntegrationTestSuite) TestGetUserPublicCollections
 		Updates(map[string]any{"is_active": false, "deleted_at": time.Now()}).Error)
 
 	for _, u := range []*authm.User{deactivated, deleted} {
-		collections, total, err := suite.collectionService.GetUserPublicCollectionsByUsername(*u.Username, 20, 0)
+		collections, total, err := suite.collectionService.GetUserPublicCollectionsByUsername(*u.Username, contracts.ShowViewer{}, 20, 0)
 		suite.Require().NoError(err)
 		suite.Require().NotNil(collections, *u.Username)
 		suite.Empty(collections, *u.Username)
@@ -79,9 +80,48 @@ func (suite *CollectionServiceIntegrationTestSuite) TestGetUserPublicCollections
 		Updates(map[string]any{"is_active": true, "deleted_at": nil}).Error)
 
 	for _, u := range []*authm.User{deactivated, deleted} {
-		collections, total, err := suite.collectionService.GetUserPublicCollectionsByUsername(*u.Username, 20, 0)
+		collections, total, err := suite.collectionService.GetUserPublicCollectionsByUsername(*u.Username, contracts.ShowViewer{}, 20, 0)
 		suite.Require().NoError(err)
 		suite.Len(collections, 1, *u.Username)
 		suite.EqualValues(1, total, *u.Username)
 	}
+}
+
+// A private profile's public collections answer the empty page an unknown
+// username answers to every viewer but the owner, admins included, and making
+// the profile public lists them to everyone again.
+func (suite *CollectionServiceIntegrationTestSuite) TestGetUserPublicCollectionsByUsername_PrivateProfileIsListedOnlyToItsOwner() {
+	owner := suite.createTestUserWithUsername("Private", "private-crates")
+	other := suite.createTestUserWithUsername("Other", "other-viewer")
+	public := suite.createPublicCollection(owner, "Private Owner Picks")
+	suite.Require().NoError(suite.db.Model(&authm.User{}).Where("id = ?", owner.ID).
+		Update("profile_visibility", "private").Error)
+
+	hiddenFrom := map[string]contracts.ShowViewer{
+		"anonymous":       {},
+		"signed-in other": {UserID: other.ID},
+		"admin other":     {UserID: other.ID, IsAdmin: true},
+	}
+	for name, viewer := range hiddenFrom {
+		collections, total, err := suite.collectionService.GetUserPublicCollectionsByUsername("private-crates", viewer, 20, 0)
+		suite.Require().NoError(err, name)
+		suite.Require().NotNil(collections, name)
+		suite.Empty(collections, name)
+		suite.Zero(total, name)
+	}
+
+	collections, total, err := suite.collectionService.GetUserPublicCollectionsByUsername("private-crates", contracts.ShowViewer{UserID: owner.ID}, 20, 0)
+	suite.Require().NoError(err)
+	suite.Require().Len(collections, 1)
+	suite.Equal(public.Slug, collections[0].Slug)
+	suite.EqualValues(1, total)
+
+	suite.Require().NoError(suite.db.Model(&authm.User{}).Where("id = ?", owner.ID).
+		Update("profile_visibility", "public").Error)
+
+	collections, total, err = suite.collectionService.GetUserPublicCollectionsByUsername("private-crates", contracts.ShowViewer{}, 20, 0)
+	suite.Require().NoError(err)
+	suite.Require().Len(collections, 1)
+	suite.Equal(public.Slug, collections[0].Slug)
+	suite.EqualValues(1, total)
 }

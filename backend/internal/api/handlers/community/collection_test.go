@@ -130,7 +130,7 @@ func TestGetEntityCollections_ServiceError(t *testing.T) {
 
 func TestGetUserPublicCollections_Success(t *testing.T) {
 	mock := &testhelpers.MockCollectionService{
-		GetUserPublicCollectionsByUsernameFn: func(username string, limit, offset int) ([]*contracts.CollectionListResponse, int64, error) {
+		GetUserPublicCollectionsByUsernameFn: func(username string, _ contracts.ShowViewer, limit, offset int) ([]*contracts.CollectionListResponse, int64, error) {
 			if username != "johndoe" {
 				t.Errorf("unexpected username=%q", username)
 			}
@@ -153,11 +153,42 @@ func TestGetUserPublicCollections_Success(t *testing.T) {
 
 func TestGetUserPublicCollections_ServiceError(t *testing.T) {
 	mock := &testhelpers.MockCollectionService{
-		GetUserPublicCollectionsByUsernameFn: func(_ string, _, _ int) ([]*contracts.CollectionListResponse, int64, error) {
+		GetUserPublicCollectionsByUsernameFn: func(_ string, _ contracts.ShowViewer, _, _ int) ([]*contracts.CollectionListResponse, int64, error) {
 			return nil, 0, fmt.Errorf("db error")
 		},
 	}
 	h := NewCollectionHandler(mock, nil, testhelpers.AllShowsVisible())
 	_, err := h.GetUserPublicCollectionsHandler(context.Background(), &GetUserPublicCollectionsHandlerRequest{Username: "johndoe"})
 	testhelpers.AssertHumaError(t, err, 500)
+}
+
+// The handler passes the optional session's viewer to the service, which owns
+// the private-profile gate: an anonymous request is the zero viewer.
+func TestGetUserPublicCollections_PassesSessionViewer(t *testing.T) {
+	cases := map[string]struct {
+		ctx  context.Context
+		want contracts.ShowViewer
+	}{
+		"anonymous": {ctx: context.Background(), want: contracts.ShowViewer{}},
+		"signed-in": {ctx: testhelpers.CtxWithUser(&authm.User{ID: 7}), want: contracts.ShowViewer{UserID: 7}},
+		"admin":     {ctx: testhelpers.CtxWithUser(&authm.User{ID: 9, IsAdmin: true}), want: contracts.ShowViewer{UserID: 9, IsAdmin: true}},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			var got contracts.ShowViewer
+			mock := &testhelpers.MockCollectionService{
+				GetUserPublicCollectionsByUsernameFn: func(_ string, viewer contracts.ShowViewer, _, _ int) ([]*contracts.CollectionListResponse, int64, error) {
+					got = viewer
+					return []*contracts.CollectionListResponse{}, 0, nil
+				},
+			}
+			h := NewCollectionHandler(mock, nil, testhelpers.AllShowsVisible())
+			if _, err := h.GetUserPublicCollectionsHandler(tc.ctx, &GetUserPublicCollectionsHandlerRequest{Username: "johndoe"}); err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if got != tc.want {
+				t.Errorf("service viewer = %+v, want %+v", got, tc.want)
+			}
+		})
+	}
 }

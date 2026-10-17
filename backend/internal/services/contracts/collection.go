@@ -589,7 +589,9 @@ type CollectionServiceInterface interface {
 	// viewerID == 0 for anonymous callers. PSY-583.
 	GetEntityCollections(entityType string, entityID uint, viewerID uint, limit int) ([]*CollectionListResponse, error)
 	GetUserPublicCollections(userID uint, limit, offset int) ([]*CollectionListResponse, int64, error)
-	GetUserPublicCollectionsByUsername(username string, limit, offset int) ([]*CollectionListResponse, int64, error)
+	// GetUserPublicCollectionsByUsername answers a private profile with the
+	// empty page an unknown username gets, unless viewer is its owner.
+	GetUserPublicCollectionsByUsername(username string, viewer ShowViewer, limit, offset int) ([]*CollectionListResponse, int64, error)
 	// SetFeatured flips collections.is_featured AND opens/closes a
 	// collection_feature_runs journal row in one transaction (PSY-1500).
 	// actorID is the acting admin (featured_by / unfeatured_by); pass 0 for an
