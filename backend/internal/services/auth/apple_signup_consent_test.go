@@ -142,6 +142,27 @@ func (s *AppleAuthIntegrationTestSuite) TestFindOrCreateAppleUser_ReturningIdent
 	s.Equal(int64(1), s.countRows(&authm.User{}))
 }
 
+// An Apple account that holds no terms, privacy or age record, as every one
+// created before consent was required does, signs in without consent and is
+// left without one: the returning branch neither refuses it nor backfills it.
+func (s *AppleAuthIntegrationTestSuite) TestFindOrCreateAppleUser_AccountWithoutLegalRecord_SignsIn() {
+	legacy := &authm.User{Email: stringPtr("legacy-apple@example.com"), IsActive: true, EmailVerified: true}
+	s.Require().NoError(s.db.Create(legacy).Error)
+	s.Require().NoError(s.db.Create(&authm.OAuthAccount{UserID: legacy.ID, Provider: "apple", ProviderUserID: "apple-sub-legacy"}).Error)
+
+	user, err := s.newService().FindOrCreateAppleUser(appleClaims("apple-sub-legacy", "legacy-apple@example.com"), "", "", nil)
+
+	s.Require().NoError(err)
+	s.Equal(legacy.ID, user.ID)
+	var stored authm.User
+	s.Require().NoError(s.db.First(&stored, legacy.ID).Error)
+	s.Nil(stored.TermsVersion)
+	s.Nil(stored.PrivacyVersion)
+	s.Nil(stored.TermsAcceptedAt)
+	s.Nil(stored.AgeConfirmedAt)
+	s.Nil(stored.MinAgeAttested)
+}
+
 // An address that already belongs to an account refuses the sign-in before the
 // consent is consulted, as the Google path does, so a client with no consent
 // step is told the address is taken rather than asked for consent it cannot

@@ -35,12 +35,14 @@ func NewAppleAuthHandler(appleAuthService contracts.AppleAuthServiceInterface, d
 // The consent fields are optional in the schema because a callback for an
 // Apple identity that already has an account never reads them. A callback that
 // would create an account is refused without them, before anything is written.
+// A field that is sent must still have its schema type on every callback: the
+// body is validated before the handler knows whether the identity is new.
 type AppleCallbackRequest struct {
 	Body struct {
 		IdentityToken  string  `json:"identity_token" doc:"Apple identity token (JWT)"`
 		FirstName      *string `json:"first_name,omitempty" doc:"User's first name (only provided on first sign-in)"`
 		LastName       *string `json:"last_name,omitempty" doc:"User's last name (only provided on first sign-in)"`
-		TermsAccepted  bool    `json:"terms_accepted,omitempty" doc:"Whether the user accepted the Terms of Service and Privacy Policy. Required to create an account; a callback that would create one without it is refused with TERMS_ACCEPTANCE_REQUIRED. Ignored for an Apple identity that already has an account."`
+		TermsAccepted  bool    `json:"terms_accepted,omitempty" doc:"Whether the user accepted the Terms of Service and Privacy Policy. Required to create an account; a callback that would create one without it is refused with TERMS_ACCEPTANCE_REQUIRED. Not read for an Apple identity that already has an account, though like every consent field it must be a boolean when sent."`
 		TermsVersion   string  `json:"terms_version,omitempty" doc:"Accepted Terms of Service version. Required to create an account; anything other than the current version is refused with TERMS_ACCEPTANCE_REQUIRED."`
 		PrivacyVersion string  `json:"privacy_version,omitempty" doc:"Accepted Privacy Policy version. Required to create an account; anything other than the current version is refused with TERMS_ACCEPTANCE_REQUIRED."`
 		AgeConfirmed   bool    `json:"age_confirmed,omitempty" doc:"Whether the user confirmed they meet the minimum age. Required to create an account; without it the callback is refused with AGE_CONFIRMATION_REQUIRED."`
@@ -85,13 +87,17 @@ func (h *AppleAuthHandler) AppleCallbackHandler(ctx context.Context, input *Appl
 	//
 	// A refused name is DROPPED, not turned into an error, which is where this
 	// diverges from those two. Apple sends a name only on the first authorization,
-	// so clients cache it and resend it on later callbacks, and
-	// FindOrCreateAppleUser ignores both names entirely once the Apple account is
-	// known. Refusing would therefore fail an authentication over a field the
-	// request was going to discard. Dropping keeps the column clean, which is the
-	// property the guard is for, without making a cosmetic field able to block
-	// sign-in. firstName/lastName already default to "" when Apple omits them, so
-	// a dropped name is a shape the create path handles.
+	// so a client that resends a cached name on later callbacks would otherwise be
+	// refused over it, and FindOrCreateAppleUser ignores both names entirely once
+	// the Apple account is known. Refusing would therefore fail an authentication
+	// over a field the request was going to discard. Dropping keeps the column
+	// clean, which is the property the guard is for, without making a cosmetic
+	// field able to block sign-in. firstName/lastName already default to "" when
+	// Apple omits them, so a dropped name is a shape the create path handles.
+	//
+	// The server keeps no name from a callback that creates no account: a name
+	// sent with a refused sign-up reaches the account only if the client sends it
+	// again on the callback that creates it.
 	firstName := ""
 	lastName := ""
 	if input.Body.FirstName != nil {

@@ -2,6 +2,7 @@ package user
 
 import (
 	"errors"
+	"time"
 
 	"github.com/markbates/goth"
 
@@ -47,4 +48,12 @@ func (suite *UserServiceIntegrationTestSuite) TestFindOrCreateUserWithConsent_Re
 	suite.Require().NotNil(stored.PrivacyVersion)
 	suite.Equal(legal.CurrentTermsVersion, *stored.TermsVersion)
 	suite.Equal(legal.CurrentPrivacyVersion, *stored.PrivacyVersion)
+
+	// The age evidence is recorded too, at the instant the terms were accepted.
+	suite.Require().NotNil(stored.TermsAcceptedAt)
+	suite.Require().NotNil(stored.AgeConfirmedAt)
+	suite.Require().NotNil(stored.MinAgeAttested)
+	suite.WithinDuration(consent.AcceptedAt, *stored.TermsAcceptedAt, time.Millisecond)
+	suite.True(stored.AgeConfirmedAt.Equal(*stored.TermsAcceptedAt))
+	suite.Equal(legal.MinSignupAge, *stored.MinAgeAttested)
 }

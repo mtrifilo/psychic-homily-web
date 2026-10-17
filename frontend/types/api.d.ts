@@ -8396,7 +8396,7 @@ export interface components {
             min_age_attested?: number;
             /** @description Accepted Privacy Policy version. Required to create an account; anything other than the current version is refused with TERMS_ACCEPTANCE_REQUIRED. */
             privacy_version?: string;
-            /** @description Whether the user accepted the Terms of Service and Privacy Policy. Required to create an account; a callback that would create one without it is refused with TERMS_ACCEPTANCE_REQUIRED. Ignored for an Apple identity that already has an account. */
+            /** @description Whether the user accepted the Terms of Service and Privacy Policy. Required to create an account; a callback that would create one without it is refused with TERMS_ACCEPTANCE_REQUIRED. Not read for an Apple identity that already has an account, though like every consent field it must be a boolean when sent. */
             terms_accepted?: boolean;
             /** @description Accepted Terms of Service version. Required to create an account; anything other than the current version is refused with TERMS_ACCEPTANCE_REQUIRED. */
             terms_version?: string;

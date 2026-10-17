@@ -4,7 +4,10 @@ import (
 	"context"
 	"crypto/rand"
 	"crypto/rsa"
+	"net/http"
 	"time"
+
+	"github.com/danielgtaylor/huma/v2"
 
 	"psychic-homily-backend/internal/api/handlers/shared/testhelpers"
 	autherrors "psychic-homily-backend/internal/errors"
@@ -59,9 +62,17 @@ func (s *OAuthHandlerIntegrationSuite) TestAppleCallback_NewIdentityWithoutConse
 			func(*AppleCallbackRequest) {},
 			autherrors.ErrTermsAcceptanceRequired(""),
 		},
+		"terms not accepted": {
+			func(in *AppleCallbackRequest) { withCurrentConsent(in); in.Body.TermsAccepted = false },
+			autherrors.ErrTermsAcceptanceRequired(""),
+		},
 		"stale terms version": {
 			func(in *AppleCallbackRequest) { withCurrentConsent(in); in.Body.TermsVersion = "2025-01-01" },
 			autherrors.ErrTermsAcceptanceRequired(""),
+		},
+		"age not confirmed": {
+			func(in *AppleCallbackRequest) { withCurrentConsent(in); in.Body.AgeConfirmed = false },
+			autherrors.ErrAgeConfirmationRequired(""),
 		},
 		"attested age below the minimum": {
 			func(in *AppleCallbackRequest) { withCurrentConsent(in); in.Body.MinAgeAttested = MinSignupAge - 1 },
@@ -135,4 +146,65 @@ func (s *OAuthHandlerIntegrationSuite) TestAppleCallback_ReturningIdentityWithou
 	s.Require().True(resp.Body.Success, "code=%s message=%q", resp.Body.ErrorCode, resp.Body.Message)
 	s.NotEmpty(resp.Body.Token)
 	s.Equal(created.Body.User.ID, resp.Body.User.ID)
+}
+
+// The JSON contract through Huma's decoding and schema validation: a body with
+// the identity token alone still signs in an account that holds no legal
+// record (as every Apple account created before consent was required does)
+// and is refused for a new identity, and the snake_case consent fields create
+// the account.
+func (s *OAuthHandlerIntegrationSuite) TestAppleCallback_Wire() {
+	h, sign := s.appleConsentCallback()
+	api, _ := newWireTestAPI(s.T())
+	huma.Post(api, "/auth/apple/callback", h.AppleCallbackHandler)
+
+	legacy := &authm.User{Email: strPtr("apple-legacy@test.com"), IsActive: true, EmailVerified: true}
+	s.Require().NoError(s.deps.DB.Create(legacy).Error)
+	s.Require().NoError(s.deps.DB.Create(&authm.OAuthAccount{UserID: legacy.ID, Provider: "apple", ProviderUserID: "apple-sub-legacy"}).Error)
+
+	s.Run("token alone signs in an account without a legal record", func() {
+		resp := api.Post("/auth/apple/callback", map[string]any{"identity_token": sign("apple-sub-legacy", "apple-legacy@test.com")})
+		requireWireSuccess(s.T(), resp)
+		user, _ := decodeWireBody(s.T(), resp.Body.Bytes())["user"].(map[string]any)
+		s.InDelta(float64(legacy.ID), user["id"], 0)
+
+		var stored authm.User
+		s.Require().NoError(s.deps.DB.First(&stored, legacy.ID).Error)
+		s.Nil(stored.TermsVersion)
+		s.Nil(stored.AgeConfirmedAt)
+		s.Nil(stored.MinAgeAttested)
+	})
+
+	s.Run("token alone is refused for a new identity", func() {
+		resp := api.Post("/auth/apple/callback", map[string]any{"identity_token": sign("apple-sub-wire-new", "apple-wire-new@test.com")})
+		s.Equal(http.StatusOK, resp.Code, resp.Body.String())
+		body := decodeWireBody(s.T(), resp.Body.Bytes())
+		s.Equal(false, body["success"])
+		s.Equal(autherrors.CodeTermsAcceptanceRequired, body["error_code"])
+
+		var identities int64
+		s.Require().NoError(s.deps.DB.Model(&authm.OAuthAccount{}).Where("provider_user_id = ?", "apple-sub-wire-new").Count(&identities).Error)
+		s.Zero(identities)
+	})
+
+	s.Run("snake_case consent creates the account", func() {
+		resp := api.Post("/auth/apple/callback", map[string]any{
+			"identity_token":   sign("apple-sub-wire-consent", "apple-wire-consent@test.com"),
+			"terms_accepted":   true,
+			"terms_version":    legal.CurrentTermsVersion,
+			"privacy_version":  legal.CurrentPrivacyVersion,
+			"age_confirmed":    true,
+			"min_age_attested": MinSignupAge,
+		})
+		requireWireSuccess(s.T(), resp)
+
+		var stored authm.User
+		s.Require().NoError(s.deps.DB.Where("email = ?", "apple-wire-consent@test.com").First(&stored).Error)
+		s.Require().NotNil(stored.TermsVersion)
+		s.Require().NotNil(stored.PrivacyVersion)
+		s.Require().NotNil(stored.MinAgeAttested)
+		s.Equal(legal.CurrentTermsVersion, *stored.TermsVersion)
+		s.Equal(legal.CurrentPrivacyVersion, *stored.PrivacyVersion)
+		s.Equal(MinSignupAge, *stored.MinAgeAttested)
+	})
 }
