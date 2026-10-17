@@ -509,6 +509,14 @@ describe('api/[...path] proxy route', () => {
       expect(fetchSpy).not.toHaveBeenCalled()
     })
 
+    it('OPTIONS answers 204 again when ENABLE_DEV_API_PROXY=1', async () => {
+      vi.stubEnv('ENABLE_DEV_API_PROXY', '1')
+
+      const res = await OPTIONS()
+
+      expect(res.status).toBe(204)
+    })
+
     it('forwards when ENABLE_DEV_API_PROXY=1 overrides the gate', async () => {
       vi.stubEnv('ENABLE_DEV_API_PROXY', '1')
       fetchSpy.mockResolvedValue(new Response('ok', { status: 200 }))

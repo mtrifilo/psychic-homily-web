@@ -1,6 +1,6 @@
-// Shared helpers for the admin artist BFF routes (bandcamp / spotify /
-// discover-music), which had the admin auth gate and the backend-forward
-// copy-pasted across every handler (PSY-1111). The lower-level /auth/profile
+// Shared helpers for the admin artist BFF routes (bandcamp / spotify), which
+// had the admin auth gate and the backend-forward copy-pasted across every
+// handler (PSY-1111). The lower-level /auth/profile
 // fetch lives in lib/auth-profile (also used by the AI extract routes).
 
 import { cookies } from 'next/headers'
@@ -16,8 +16,6 @@ const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:8080'
 // 401/403 envelopes the routes returned inline, so the caller does:
 //   const auth = await requireAdmin()
 //   if (!auth.ok) return auth.response
-// (discover-music intentionally does NOT use this — it inlines the same gate so
-// it can run the profile fetch concurrently with its artist lookup.)
 export async function requireAdmin(): Promise<
   { ok: true; authToken: string } | { ok: false; response: NextResponse }
 > {

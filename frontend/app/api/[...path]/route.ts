@@ -14,8 +14,8 @@ const PROVENANCE_HEADERS = ['Origin', 'Referer'] as const
 
 /**
  * Answers in place of the proxy where it is disabled (see
- * `isDevApiProxyEnabled`): no backend call, no cookie read, and the same 404
- * for every method, so a deployed site does not reveal that the route exists.
+ * `isDevApiProxyEnabled`): the same 404 for every method, with no backend call
+ * and no cookie read.
  */
 function proxyDisabledResponse() {
   return NextResponse.json({ error: 'Not found' }, { status: 404 })
