@@ -36,6 +36,25 @@ const (
 // API-token principals are of that shape.
 const jwtAuthTimeClaim = "auth_at"
 
+// SessionAccountClosedError is the cause inside the TOKEN_INVALID refusal
+// ValidateSession returns for a correctly signed session that names an account
+// which may no longer hold one (authm.User.CanSignIn). UserID is that account,
+// so a caller that owes a reader the specific reason (errors.As) can first check
+// that the closed account is the one it is acting for.
+//
+// The outer code is TOKEN_INVALID rather than ACCOUNT_INACTIVE because every
+// ValidateSession refusal means "this request holds no session": TOKEN_INVALID
+// maps to 401, which the frontend reads as signed out, while ACCOUNT_INACTIVE
+// maps to 403, which would leave the closed account's session in place for any
+// caller that answers with the refusal's own code.
+type SessionAccountClosedError struct {
+	UserID uint
+}
+
+func (e *SessionAccountClosedError) Error() string {
+	return fmt.Sprintf("user %d may not hold a session", e.UserID)
+}
+
 type JWTService struct {
 	config      *config.Config
 	userService contracts.UserServiceInterface
@@ -184,7 +203,7 @@ func (s *JWTService) userFromSessionClaims(claims jwt.MapClaims) (*authm.User, e
 	}
 
 	if !user.CanSignIn() {
-		return nil, apperrors.ErrTokenInvalid(fmt.Errorf("user account may not hold a session"))
+		return nil, apperrors.ErrTokenInvalid(&SessionAccountClosedError{UserID: user.ID})
 	}
 
 	return user, nil
