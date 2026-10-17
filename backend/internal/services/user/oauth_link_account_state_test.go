@@ -4,6 +4,7 @@ import (
 	"github.com/markbates/goth"
 	"gorm.io/gorm"
 
+	apperrors "psychic-homily-backend/internal/errors"
 	authm "psychic-homily-backend/internal/models/auth"
 )
 
@@ -42,8 +43,8 @@ func (suite *UserServiceIntegrationTestSuite) TestLinkOAuthAccountToUser_Account
 				Email:  address,
 			}, "google")
 
-			suite.assertSignInOutcome(state.maySignIn, owner.ID, linked, err)
-			if state.maySignIn {
+			suite.assertSignInOutcome(state.linkRefusal(), owner.ID, linked, err)
+			if state.maySignIn() {
 				suite.Require().Len(linked.OAuthAccounts, 1)
 			} else {
 				suite.assertNoOAuthAccountFor(owner.ID)
@@ -56,7 +57,7 @@ func (suite *UserServiceIntegrationTestSuite) TestLinkOAuthAccountToUser_Account
 // stored identity keeps the tokens it held.
 func (suite *UserServiceIntegrationTestSuite) TestLinkOAuthAccountToUser_RepeatConnectOnClosedAccount_Refused() {
 	for _, state := range signInAccountStates {
-		if state.maySignIn {
+		if state.maySignIn() {
 			continue
 		}
 		suite.Run(state.name, func() {
@@ -71,7 +72,7 @@ func (suite *UserServiceIntegrationTestSuite) TestLinkOAuthAccountToUser_RepeatC
 				AccessToken: "refused-access",
 			}, "google")
 
-			suite.assertSignInOutcome(false, owner.ID, linked, err)
+			suite.assertSignInOutcome(apperrors.ErrAccountInactive, owner.ID, linked, err)
 			suite.Equal("stored-access", *suite.storedGoogleAccount(owner.ID).AccessToken)
 		})
 	}
@@ -81,7 +82,7 @@ func (suite *UserServiceIntegrationTestSuite) TestLinkOAuthAccountToUser_RepeatC
 // is still refused: the write itself enforces the rule.
 func (suite *UserServiceIntegrationTestSuite) TestLinkOAuthAccountToUser_AccountClosedAfterCallersCheck_Refused() {
 	for _, state := range signInAccountStates {
-		if state.maySignIn {
+		if state.maySignIn() {
 			continue
 		}
 		suite.Run(state.name, func() {
@@ -101,7 +102,7 @@ func (suite *UserServiceIntegrationTestSuite) TestLinkOAuthAccountToUser_Account
 			}, "google")
 
 			suite.Require().True(*ran, "the account must close inside the link's window")
-			suite.assertSignInOutcome(false, owner.ID, linked, err)
+			suite.assertSignInOutcome(apperrors.ErrAccountInactive, owner.ID, linked, err)
 			suite.assertNoOAuthAccountFor(owner.ID)
 		})
 	}

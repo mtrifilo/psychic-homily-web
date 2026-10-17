@@ -301,9 +301,11 @@ type UserServiceInterface interface {
 	ListUsers(limit, offset int, filters AdminUserFilters) ([]*AdminUserResponse, int64, error)
 	// FindOrCreateUserWithConsent refuses with a typed AuthError carrying
 	// CodeOAuthLinkRefused when the provider's address already belongs to an
-	// account the identity is not attached to, and with
-	// CodeTermsAcceptanceRequired or CodeAgeConfirmationRequired when it would
-	// create an account without consent. It creates the account with
+	// account the identity is not attached to, with CodeAccountRecoverable
+	// instead when that account is recoverable and the provider vouches for
+	// the address, and with CodeTermsAcceptanceRequired or
+	// CodeAgeConfirmationRequired when it would create an account without
+	// consent. It creates the account with
 	// email_verified set to what the provider asserted, so an unvouched
 	// address produces an unverified account.
 	FindOrCreateUserWithConsent(gothUser goth.User, provider string, consent *OAuthSignupConsent) (*authm.User, error)
@@ -312,6 +314,10 @@ type UserServiceInterface interface {
 	// typed AuthError carrying CodeOAuthIdentityInUse or
 	// CodeOAuthProviderAlreadyLinked rather than retargeting an existing link.
 	LinkOAuthAccountToUser(userID uint, gothUser goth.User, provider string) (*authm.User, error)
+	// AuthenticateUserWithPassword refuses a correct password for an account
+	// that may not sign in with a typed AuthError carrying
+	// CodeAccountRecoverable while the account is recoverable and
+	// CodeAccountInactive otherwise.
 	AuthenticateUserWithPassword(email, password string) (*authm.User, error)
 	// CreateUserWithPasswordWithLegal refuses an acceptance that names no terms
 	// version with a typed AuthError carrying CodeTermsAcceptanceRequired.

@@ -40,6 +40,18 @@ const (
 	// OAuth link, a signed session for the account being linked), so it is not
 	// an enumeration oracle beyond what sign-in already exposes.
 	CodeAccountInactive = "ACCOUNT_INACTIVE"
+	// CodeAccountRecoverable indicates the account may not sign in because it
+	// was deleted and is still inside its recovery window, so the caller can
+	// restore it through account recovery. It takes the place of
+	// CodeAccountInactive for that one state and for no other: a deactivated
+	// account, or a deleted one past its window, keeps the refusal it had.
+	//
+	// It names the deletion, which CodeAccountInactive does not, so it goes
+	// only to a caller who may already learn it: one who proved the account's
+	// credential, or an OAuth sign-in whose provider vouches for the
+	// account's address. Account recovery answers that mailbox's holder with
+	// a recovery email exactly when the account is recoverable.
+	CodeAccountRecoverable = "ACCOUNT_RECOVERABLE"
 	// CodeNoPasswordSet indicates the user has no password (OAuth-only account)
 	CodeNoPasswordSet = "NO_PASSWORD_SET"
 	// CodeTermsAcceptanceRequired indicates a sign-up arrived without an
@@ -129,6 +141,7 @@ var authCodeHTTPStatus = map[string]int{
 	CodeUnknown:                    http.StatusInternalServerError,
 	CodeAccountLocked:              http.StatusLocked,
 	CodeAccountInactive:            http.StatusForbidden,
+	CodeAccountRecoverable:         http.StatusForbidden,
 	CodeNoPasswordSet:              http.StatusConflict,
 	CodeTermsAcceptanceRequired:    http.StatusUnprocessableEntity,
 	CodeAgeConfirmationRequired:    http.StatusUnprocessableEntity,
@@ -271,6 +284,10 @@ const (
 	// edit here changes only what a CLI or a curl reader sees. Keep the two
 	// saying the same thing.
 	reauthRequiredMessage = "For security, sign in again before making this change."
+	// The browser auth page renders its own copy for ACCOUNT_RECOVERABLE with
+	// a link to account recovery (frontend/app/auth/page.tsx), so this string
+	// is what a CLI, a native client or a curl reader sees.
+	accountRecoverableMessage = "This account was deleted recently and can still be recovered. Recover it from the sign-in page."
 )
 
 // ErrOAuthLinkRefused creates the refusal a goth OAuth sign-in gets when its
@@ -387,6 +404,16 @@ func ErrAccountInactive() *AuthError {
 	}
 }
 
+// ErrAccountRecoverable creates the refusal for an account that may not sign
+// in because it was deleted and is inside its recovery window
+// (CodeAccountRecoverable).
+func ErrAccountRecoverable() *AuthError {
+	return &AuthError{
+		Code:    CodeAccountRecoverable,
+		Message: accountRecoverableMessage,
+	}
+}
+
 // ErrNoPasswordSet creates an error for OAuth-only accounts that don't have a password.
 func ErrNoPasswordSet() *AuthError {
 	return NewAuthError(CodeNoPasswordSet, "Cannot change password for OAuth-only accounts", nil)
@@ -475,6 +502,8 @@ func ToExternalMessage(code string) string {
 		return "Account temporarily locked. Please try again later."
 	case CodeAccountInactive:
 		return "Account unavailable. Please contact support."
+	case CodeAccountRecoverable:
+		return accountRecoverableMessage
 	case CodeNoPasswordSet:
 		return "Cannot change password for OAuth-only accounts"
 	default:

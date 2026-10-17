@@ -188,9 +188,12 @@ func NewUserService(database *gorm.DB) *UserService {
 // when the address already belongs to an account the identity is not attached
 // to, CodeUserExists when a concurrent signup claims the address first,
 // CodeAccountInactive when the identity resolves to an account that may not
-// sign in (authm.User.CanSignIn), and the consent refusals of
-// shared.ValidateOAuthSignupConsent when an account would be created. Callers
-// that render a refusal differently from a fault must discriminate on the code.
+// sign in (authm.User.CanSignIn), CodeAccountRecoverable in place of either of
+// those two when the account was deleted and is inside its recovery window
+// (see closedAccountRefusal and the address branch below), and the consent
+// refusals of shared.ValidateOAuthSignupConsent when an account would be
+// created. Callers that render a refusal differently from a fault must
+// discriminate on the code.
 func (s *UserService) FindOrCreateUserWithConsent(gothUser goth.User, provider string, consent *contracts.OAuthSignupConsent) (*authm.User, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
@@ -218,10 +221,12 @@ func (s *UserService) FindOrCreateUserWithConsent(gothUser goth.User, provider s
 			return nil, fmt.Errorf("failed to get user: %w", err)
 		}
 		if !user.CanSignIn() {
+			refusal := s.closedAccountRefusal(&user)
 			logger.Default().Warn("oauth_signin_refused_account_inactive",
 				"provider", provider,
-				"user_id", user.ID)
-			return nil, apperrors.ErrAccountInactive()
+				"user_id", user.ID,
+				"code", refusal.Code)
+			return nil, refusal
 		}
 		return &user, nil
 	}
@@ -247,6 +252,21 @@ func (s *UserService) FindOrCreateUserWithConsent(gothUser goth.User, provider s
 			// So there is no by-address link at all. An identity is attached
 			// only from a session that already holds the account, at
 			// /auth/link/{provider}, which the refusal names.
+			//
+			// A deleted account inside its recovery window cannot be signed
+			// in to, so that remediation is a dead end for it. When the
+			// provider vouches for the address, the refusal sends the caller
+			// to account recovery instead. Recovery mails that address, so
+			// it reveals the deletion to no one the recovery email would not
+			// reach, and it attaches nothing. Without the provider's vouch
+			// the caller may not hold the mailbox, and the refusal stays the
+			// one that says nothing of the account's state.
+			if providerAssertsEmailVerified(gothUser) && s.IsAccountRecoverable(&existingUser) {
+				logger.Default().Warn("oauth_signin_refused_account_recoverable",
+					"provider", provider,
+					"user_id", existingUser.ID)
+				return nil, apperrors.ErrAccountRecoverable()
+			}
 			logger.Default().Warn("oauth_signin_refused_address_belongs_to_account",
 				"provider", provider,
 				"email_hash", logger.HashEmail(gothUser.Email))
@@ -405,7 +425,7 @@ func (s *UserService) AuthenticateUserWithPassword(email, password string) (*aut
 	}
 
 	if !user.CanSignIn() {
-		return nil, apperrors.ErrAccountInactive()
+		return nil, s.closedAccountRefusal(user)
 	}
 
 	// Reset failed attempts on successful login. Log + continue on failure:
@@ -1613,6 +1633,18 @@ func (s *UserService) IsAccountRecoverable(user *authm.User) bool {
 	gracePeriodEnd := deletedAt.Add(AccountRecoveryGracePeriod)
 
 	return time.Now().Before(gracePeriodEnd)
+}
+
+// closedAccountRefusal is the refusal for a sign-in into user, an account that
+// may not sign in (authm.User.CanSignIn), by a caller who has proved its
+// credential: CodeAccountRecoverable while the account is recoverable
+// (IsAccountRecoverable), so the caller can be sent to account recovery, and
+// CodeAccountInactive otherwise.
+func (s *UserService) closedAccountRefusal(user *authm.User) *apperrors.AuthError {
+	if s.IsAccountRecoverable(user) {
+		return apperrors.ErrAccountRecoverable()
+	}
+	return apperrors.ErrAccountInactive()
 }
 
 // GetDaysUntilPermanentDeletion returns the number of days until an account is permanently deleted

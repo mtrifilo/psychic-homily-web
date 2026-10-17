@@ -288,6 +288,18 @@ func (h *AuthHandler) LoginHandler(ctx context.Context, input *LoginRequest) (*L
 				resp.Body.Message = authErr.UserMessage()
 				resp.Body.ErrorCode = autherrors.CodeAccountInactive
 				return resp, nil
+			case autherrors.CodeAccountRecoverable:
+				// A deleted account inside its recovery window, after the
+				// password check, on the same HTTP 200 terms as
+				// ACCOUNT_INACTIVE. The distinct code lets the frontend send
+				// the caller to account recovery.
+				logger.AuthWarn(ctx, "login_account_recoverable",
+					"email_hash", logger.HashEmail(input.Body.Email),
+				)
+				resp.Body.Success = false
+				resp.Body.Message = authErr.UserMessage()
+				resp.Body.ErrorCode = autherrors.CodeAccountRecoverable
+				return resp, nil
 			case autherrors.CodeServiceUnavailable:
 				// Fail-closed surface from AuthenticateUserWithPassword: the
 				// lockout-counter write failed, so we cannot let the request

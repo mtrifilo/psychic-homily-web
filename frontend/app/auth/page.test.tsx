@@ -4,6 +4,7 @@ import { screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { renderWithProviders } from '@/test/utils'
 import { AUTH_ERROR_CODE_PARAM } from '@/lib/auth-href'
+import { AuthError, AuthErrorCode } from '@/lib/errors'
 import AuthPage from './page'
 
 // --- Mocks ---
@@ -40,9 +41,11 @@ vi.mock('@/lib/context/AuthContext', async () => {
 // Captures the per-call options `LoginForm` hands `useLogin().mutate`, so a
 // test can drive the success callback with a real login payload.
 const mockLoginMutate = vi.fn()
+// The error the login mutation reports, as a refused sign-in leaves it.
+let mockLoginError: Error | null = null
 
 vi.mock('@/features/auth', () => ({
-  useLogin: () => ({ mutate: mockLoginMutate, isPending: false, error: null as Error | null }),
+  useLogin: () => ({ mutate: mockLoginMutate, isPending: false, error: mockLoginError }),
   useRegister: () => ({ mutate: vi.fn(), isPending: false, error: null as Error | null }),
   useSendMagicLink: () => ({ mutate: vi.fn(), isPending: false }),
   // Pulled in by the check-your-inbox interstitial (PSY-1900). Mocking the
@@ -96,6 +99,7 @@ describe('AuthPage', () => {
     mockPush.mockReset()
     mockReplace.mockReset()
     mockLoginMutate.mockReset()
+    mockLoginError = null
     passkeyLoginProps.mockReset()
     passkeySignupProps.mockReset()
     googleOAuthProps.mockReset()
@@ -510,6 +514,89 @@ describe('AuthPage', () => {
       // The login-form passkey error alert region is absent and no decoded
       // error text leaks in; the only "alert"-ish content would be the banner.
       expect(screen.queryByText('Email already exists')).not.toBeInTheDocument()
+    })
+  })
+
+  // A deleted account inside its recovery window is refused with
+  // ACCOUNT_RECOVERABLE on password sign-in and on the OAuth callback. Both
+  // surfaces answer in the page's own words with a link to account recovery,
+  // never in the text the refusal carried.
+  describe('recoverable account refusal', () => {
+    const RECOVERABLE_SENTENCE =
+      'This account was deleted recently and can still be recovered.'
+
+    function expectRecoveryOffer() {
+      const link = screen.getByRole('link', { name: 'Recover your account' })
+      expect(link).toHaveAttribute('href', '/auth/recover')
+      expect(link.closest('[role="alert"]')).not.toBeNull()
+      expect(screen.getByText(RECOVERABLE_SENTENCE, { exact: false })).toBeInTheDocument()
+    }
+
+    it('offers recovery when password sign-in is refused with the code', () => {
+      mockLoginError = new AuthError(
+        'Server copy for the recoverable refusal',
+        AuthErrorCode.ACCOUNT_RECOVERABLE
+      )
+      renderWithProviders(<AuthPage />)
+
+      expectRecoveryOffer()
+      expect(
+        screen.queryByText('Server copy for the recoverable refusal')
+      ).not.toBeInTheDocument()
+    })
+
+    it('keeps the message of a password refusal with any other code', () => {
+      mockLoginError = new AuthError(
+        'Invalid email or password',
+        AuthErrorCode.INVALID_CREDENTIALS
+      )
+      renderWithProviders(<AuthPage />)
+
+      expect(screen.getByText('Invalid email or password')).toBeInTheDocument()
+      expect(
+        screen.queryByRole('link', { name: 'Recover your account' })
+      ).not.toBeInTheDocument()
+    })
+
+    it('offers recovery in the banner for an OAuth refusal with the code, on Sign in', () => {
+      setSearchParams(
+        new URLSearchParams({
+          error: 'Text the page does not show',
+          [AUTH_ERROR_CODE_PARAM]: 'ACCOUNT_RECOVERABLE',
+        }).toString()
+      )
+      renderWithProviders(<AuthPage />)
+
+      expectRecoveryOffer()
+      expect(screen.queryByText('Text the page does not show')).not.toBeInTheDocument()
+      expect(screen.getByRole('tab', { name: 'Sign in' })).toHaveAttribute(
+        'aria-selected',
+        'true'
+      )
+    })
+
+    it('offers recovery for the code even when the refusal carries no message', () => {
+      setSearchParams(`${AUTH_ERROR_CODE_PARAM}=ACCOUNT_RECOVERABLE`)
+      renderWithProviders(<AuthPage />)
+
+      expectRecoveryOffer()
+    })
+
+    it('shows the message of an OAuth refusal with any other code', () => {
+      setSearchParams(
+        new URLSearchParams({
+          error: 'Account unavailable. Please contact support.',
+          [AUTH_ERROR_CODE_PARAM]: 'ACCOUNT_INACTIVE',
+        }).toString()
+      )
+      renderWithProviders(<AuthPage />)
+
+      expect(
+        screen.getByText('Account unavailable. Please contact support.')
+      ).toBeInTheDocument()
+      expect(
+        screen.queryByRole('link', { name: 'Recover your account' })
+      ).not.toBeInTheDocument()
     })
   })
 

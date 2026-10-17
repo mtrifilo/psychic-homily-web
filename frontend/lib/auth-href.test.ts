@@ -11,6 +11,7 @@ import {
   currentLocationReturnTo,
   isReauthReason,
   hasGatedIntent,
+  isAccountRecoverableRefusal,
   needsSignupConsent,
   REAUTH_REASON_CREDENTIAL_MINT,
   REAUTH_REASON_OAUTH_LINK,
@@ -169,6 +170,30 @@ describe('hasGatedIntent', () => {
     expect(hasGatedIntent(new URLSearchParams('intent=bogus&intent=save'))).toBe(
       false
     )
+  })
+})
+
+describe('isAccountRecoverableRefusal', () => {
+  it('accepts the recoverable refusal code', () => {
+    expect(
+      isAccountRecoverableRefusal(
+        new URLSearchParams('error=x&error_code=ACCOUNT_RECOVERABLE')
+      )
+    ).toBe(true)
+  })
+
+  it('rejects an absent, different, or near-miss code', () => {
+    for (const query of [
+      '',
+      'error=This+account+was+deleted+recently',
+      'error_code=',
+      'error_code=ACCOUNT_INACTIVE',
+      'error_code=account_recoverable',
+      'error_code=%20ACCOUNT_RECOVERABLE',
+      'error_code=ACCOUNT_RECOVERABLE_X',
+    ]) {
+      expect(isAccountRecoverableRefusal(new URLSearchParams(query))).toBe(false)
+    }
   })
 })
 

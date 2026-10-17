@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"net/url"
+	"time"
 
 	"github.com/go-webauthn/webauthn/protocol"
 	"github.com/go-webauthn/webauthn/webauthn"
@@ -15,13 +16,16 @@ import (
 	authm "psychic-homily-backend/internal/models/auth"
 	authsvc "psychic-homily-backend/internal/services/auth"
 	"psychic-homily-backend/internal/services/contracts"
+	usersvc "psychic-homily-backend/internal/services/user"
 	"psychic-homily-backend/internal/testutil/signupconsent"
 	"psychic-homily-backend/internal/testutil/softauthn"
 )
 
 // An account that may not sign in (deactivated, or soft-deleted) is refused on
-// the Google, Apple and passkey sign-in paths with ACCOUNT_INACTIVE, and no
-// session is minted. An active account on the same path signs in.
+// the Google, Apple and passkey sign-in paths, and no session is minted. An
+// active account on the same path signs in. Google refuses a deleted account
+// inside its recovery window with ACCOUNT_RECOVERABLE; every other refusal here
+// is ACCOUNT_INACTIVE.
 
 // accountState puts an existing account into one of the states a sign-in path
 // must tell apart.
@@ -29,6 +33,17 @@ type accountState struct {
 	name      string
 	apply     func(s *OAuthHandlerIntegrationSuite, userID uint)
 	maySignIn bool
+	// recoverable is a deleted account inside its recovery window.
+	recoverable bool
+}
+
+// googleRefusal is the refusal the Google callback gives an identity attached
+// to an account in this state that may not sign in.
+func (state accountState) googleRefusal() *autherrors.AuthError {
+	if state.recoverable {
+		return autherrors.ErrAccountRecoverable()
+	}
+	return autherrors.ErrAccountInactive()
 }
 
 var signInAccountStates = []accountState{
@@ -48,6 +63,16 @@ var signInAccountStates = []accountState{
 		name: "soft-deleted",
 		apply: func(s *OAuthHandlerIntegrationSuite, userID uint) {
 			s.Require().NoError(s.deps.UserService.SoftDeleteAccount(userID, nil))
+		},
+		recoverable: true,
+	},
+	{
+		name: "soft-deleted-past-window",
+		apply: func(s *OAuthHandlerIntegrationSuite, userID uint) {
+			s.Require().NoError(s.deps.DB.Model(&authm.User{}).Where("id = ?", userID).Updates(map[string]any{
+				"is_active":  false,
+				"deleted_at": time.Now().Add(-usersvc.AccountRecoveryGracePeriod - 24*time.Hour),
+			}).Error)
 		},
 	},
 }
@@ -82,14 +107,12 @@ func (s *OAuthHandlerIntegrationSuite) TestGoogleCallback_AccountState_WebRedire
 				return
 			}
 
-			s.assertAuthPageRefusal(w, autherrors.ErrAccountInactive())
+			s.assertAuthPageRefusal(w, state.googleRefusal())
 		})
 	}
 }
 
 func (s *OAuthHandlerIntegrationSuite) TestGoogleCallback_AccountState_CLIRedirect() {
-	inactive := autherrors.ErrAccountInactive()
-
 	for _, state := range signInAccountStates {
 		s.Run(state.name, func() {
 			address := "google-cli-" + state.name + "@test.com"
@@ -119,7 +142,7 @@ func (s *OAuthHandlerIntegrationSuite) TestGoogleCallback_AccountState_CLIRedire
 
 			// The loopback redirect carries the message alone, as every CLI
 			// error redirect does, and never a token.
-			s.Equal(url.Values{"error": {inactive.UserMessage()}}, location.Query())
+			s.Equal(url.Values{"error": {state.googleRefusal().UserMessage()}}, location.Query())
 			s.assertNoSessionCookie(w)
 		})
 	}
