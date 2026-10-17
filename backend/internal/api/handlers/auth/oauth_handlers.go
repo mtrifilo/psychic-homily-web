@@ -160,7 +160,7 @@ func (h *OAuthHTTPHandler) OAuthLoginHTTPHandler(w http.ResponseWriter, r *http.
 			http.Error(w, "Terms acceptance is required for account creation", http.StatusBadRequest)
 			return
 		}
-		// A version that is not the current one goes back to the auth page
+		// A version legal.AcceptedVersions refuses goes back to the auth page
 		// with the refusal the callback gives a sign-up without consent, so the
 		// reader lands on a freshly loaded form, which sends the versions the
 		// deployed frontend names. The other refusals here stay plain 400s:
