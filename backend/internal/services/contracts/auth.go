@@ -191,7 +191,13 @@ type AppleAuthServiceInterface interface {
 	// on the address alone. Creates with email_verified from the claim, so an
 	// address Apple will not vouch for produces an unverified account. claims
 	// must already be verified by the caller.
-	FindOrCreateAppleUser(claims *AppleIdentityTokenClaims, firstName, lastName string) (*authm.User, error)
+	//
+	// consent is read only when the call would create an account: a known
+	// Apple identity signs in whatever consent carries, nil included. A
+	// creation whose consent fails shared.ValidateOAuthSignupConsent is refused
+	// with that typed AuthError (CodeTermsAcceptanceRequired or
+	// CodeAgeConfirmationRequired) and writes nothing.
+	FindOrCreateAppleUser(claims *AppleIdentityTokenClaims, firstName, lastName string, consent *OAuthSignupConsent) (*authm.User, error)
 	GenerateToken(user *authm.User) (string, error)
 }
 

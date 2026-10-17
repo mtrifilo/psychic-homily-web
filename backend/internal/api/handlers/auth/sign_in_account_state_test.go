@@ -15,6 +15,7 @@ import (
 	authm "psychic-homily-backend/internal/models/auth"
 	authsvc "psychic-homily-backend/internal/services/auth"
 	"psychic-homily-backend/internal/services/contracts"
+	"psychic-homily-backend/internal/testutil/signupconsent"
 	"psychic-homily-backend/internal/testutil/softauthn"
 )
 
@@ -149,7 +150,7 @@ func (s *OAuthHandlerIntegrationSuite) TestAppleCallback_AccountState() {
 					RegisteredClaims: jwt.RegisteredClaims{Subject: "apple-state-" + state.name},
 				},
 			}
-			created, err := svc.FindOrCreateAppleUser(svc.claims, "", "")
+			created, err := svc.FindOrCreateAppleUser(svc.claims, "", "", signupconsent.CurrentOAuthSignupConsent())
 			s.Require().NoError(err)
 			state.apply(s, created.ID)
 

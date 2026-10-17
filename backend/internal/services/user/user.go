@@ -15,7 +15,6 @@ import (
 
 	"psychic-homily-backend/db"
 	apperrors "psychic-homily-backend/internal/errors"
-	"psychic-homily-backend/internal/legal"
 	"psychic-homily-backend/internal/logger"
 	authm "psychic-homily-backend/internal/models/auth"
 	catalogm "psychic-homily-backend/internal/models/catalog"
@@ -183,15 +182,15 @@ func NewUserService(database *gorm.DB) *UserService {
 
 // FindOrCreateUserWithConsent returns the account the OAuth identity is
 // attached to, or creates one from the identity when consent passes
-// validateOAuthSignupConsent.
+// shared.ValidateOAuthSignupConsent.
 //
 // Returns a typed *apperrors.AuthError for each refusal: CodeOAuthLinkRefused
 // when the address already belongs to an account the identity is not attached
 // to, CodeUserExists when a concurrent signup claims the address first,
 // CodeAccountInactive when the identity resolves to an account that may not
 // sign in (authm.User.CanSignIn), and the consent refusals of
-// validateOAuthSignupConsent when an account would be created. Callers that
-// render a refusal differently from a fault must discriminate on the code.
+// shared.ValidateOAuthSignupConsent when an account would be created. Callers
+// that render a refusal differently from a fault must discriminate on the code.
 func (s *UserService) FindOrCreateUserWithConsent(gothUser goth.User, provider string, consent *contracts.OAuthSignupConsent) (*authm.User, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
@@ -308,16 +307,7 @@ func (s *UserService) CreateUserWithPasswordWithLegal(
 		IsActive:      true,
 		EmailVerified: false, // Email verification required for password users
 	}
-	acceptedAt := acceptance.TermsAcceptedAt
-	if acceptedAt.IsZero() {
-		acceptedAt = time.Now().UTC()
-	}
-	termsVersion := acceptance.TermsVersion
-	privacyVersion := acceptance.PrivacyVersion
-	user.TermsAcceptedAt = &acceptedAt
-	user.TermsVersion = &termsVersion
-	user.PrivacyVersion = &privacyVersion
-	applyAgeConfirmation(user, acceptance.AgeConfirmedAt, acceptance.MinAgeAttested)
+	shared.StampLegalAcceptance(user, acceptance)
 
 	if err := tx.Create(user).Error; err != nil {
 		tx.Rollback()
@@ -347,23 +337,6 @@ func (s *UserService) CreateUserWithPasswordWithLegal(
 	}
 
 	return user, nil
-}
-
-// applyAgeConfirmation records the "I am at least N years old" confirmation on a
-// user being created (PSY-1023). It mirrors the terms-acceptance fields: only
-// applied when a minimum age was attested (minAge > 0), defaulting the timestamp
-// to now if the caller left it zero.
-func applyAgeConfirmation(user *authm.User, confirmedAt time.Time, minAge int) {
-	if minAge <= 0 {
-		return
-	}
-	at := confirmedAt
-	if at.IsZero() {
-		at = time.Now().UTC()
-	}
-	minAgeCopy := minAge
-	user.AgeConfirmedAt = &at
-	user.MinAgeAttested = &minAgeCopy
 }
 
 func (s *UserService) AuthenticateUserWithPassword(email, password string) (*authm.User, error) {
@@ -456,7 +429,8 @@ func (s *UserService) createNewUserOauthWithConsent(
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
 	}
-	if err := validateOAuthSignupConsent(consent); err != nil {
+	acceptance, err := shared.ValidateOAuthSignupConsent(consent)
+	if err != nil {
 		return nil, err
 	}
 
@@ -486,16 +460,7 @@ func (s *UserService) createNewUserOauthWithConsent(
 	if gothUser.Email != "" {
 		user.Email = &gothUser.Email
 	}
-	acceptedAt := consent.AcceptedAt
-	if acceptedAt.IsZero() {
-		acceptedAt = time.Now().UTC()
-	}
-	termsVersion := consent.TermsVersion
-	privacyVersion := consent.PrivacyVersion
-	user.TermsAcceptedAt = &acceptedAt
-	user.TermsVersion = &termsVersion
-	user.PrivacyVersion = &privacyVersion
-	applyAgeConfirmation(user, acceptedAt, consent.MinAgeAttested)
+	shared.StampLegalAcceptance(user, acceptance)
 
 	if err := tx.Create(user).Error; err != nil {
 		tx.Rollback()
@@ -548,33 +513,6 @@ func (s *UserService) createNewUserOauthWithConsent(
 	}
 
 	return user, nil
-}
-
-// minOAuthSignupAge is the minimum age a new OAuth user must have attested to.
-// Kept in sync with the handler-level MinSignupAge constant; duplicated here to
-// avoid a service→handler import cycle. Both enforce 16 (PSY-1023).
-const minOAuthSignupAge = 16
-
-func validateOAuthSignupConsent(consent *contracts.OAuthSignupConsent) error {
-	if consent == nil {
-		return apperrors.ErrTermsAcceptanceRequired("terms acceptance required for OAuth signup")
-	}
-	if !consent.TermsAccepted {
-		return apperrors.ErrTermsAcceptanceRequired("terms acceptance required for OAuth signup")
-	}
-	// The consent arrives in a cookie the caller can set, so the versions the
-	// start handler checked are checked again here, where the account is made.
-	if !legal.AcceptsCurrentVersions(consent.TermsVersion, consent.PrivacyVersion) {
-		return apperrors.ErrTermsAcceptanceRequired("terms or privacy version is not current for OAuth signup")
-	}
-	// Age confirmation is required for OAuth signup (PSY-1023), mirroring terms.
-	if !consent.AgeConfirmed {
-		return apperrors.ErrAgeConfirmationRequired("age confirmation required for OAuth signup")
-	}
-	if consent.MinAgeAttested < minOAuthSignupAge {
-		return apperrors.ErrAgeConfirmationRequired("attested age below minimum for OAuth signup")
-	}
-	return nil
 }
 
 // LinkOAuthAccountToUser attaches a provider identity to the account named by
