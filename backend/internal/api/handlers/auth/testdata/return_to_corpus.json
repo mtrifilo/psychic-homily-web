@@ -327,6 +327,48 @@
       "input": "/auth%2Fmagic-link",
       "want": "/",
       "rule": "not the sign-in page or anything under it, judged on the decoded path"
+    },
+    {
+      "name": "characters kept as written",
+      "input": "/a\"b<c>{d}",
+      "want": "/a\"b<c>{d}",
+      "rule": "a kept value is returned as written: neither sanitizer re-encodes it"
+    },
+    {
+      "name": "encoded double slash",
+      "input": "/%2F%2Fevil.example",
+      "want": "/%2F%2Fevil.example",
+      "rule": "one leading slash: an encoded slash is not a slash, so the value stays a path on this origin"
+    },
+    {
+      "name": "trailing space",
+      "input": "/shows ",
+      "want": "/",
+      "rule": "printable ASCII only: surrounding whitespace is refused, not trimmed"
+    },
+    {
+      "name": "delete character",
+      "input": "/a",
+      "want": "/",
+      "rule": "printable ASCII only: DEL is a control character"
+    },
+    {
+      "name": "tilde",
+      "input": "/~user",
+      "want": "/~user",
+      "rule": "printable ASCII only: tilde is the last printable character"
+    },
+    {
+      "name": "auth page in another case",
+      "input": "/AUTH",
+      "want": "/AUTH",
+      "rule": "the sign-in page rule is case-sensitive, as paths are"
+    },
+    {
+      "name": "auth page with fragment",
+      "input": "/auth#x",
+      "want": "/",
+      "rule": "not the sign-in page or anything under it, judged on the decoded path"
     }
   ]
 }
