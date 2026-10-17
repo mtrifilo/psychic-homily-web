@@ -19,6 +19,7 @@ import (
 	authm "psychic-homily-backend/internal/models/auth"
 	"psychic-homily-backend/internal/services/contracts"
 	"psychic-homily-backend/internal/testutil"
+	"psychic-homily-backend/internal/testutil/signupconsent"
 )
 
 // =============================================================================
@@ -344,7 +345,7 @@ func (s *AppleAuthIntegrationTestSuite) TestFindOrCreateAppleUser_NewUser_Create
 		},
 	}
 
-	user, err := svc.FindOrCreateAppleUser(claims, "John", "Doe")
+	user, err := svc.FindOrCreateAppleUser(claims, "John", "Doe", signupconsent.CurrentOAuthSignupConsent())
 
 	s.Require().NoError(err)
 	s.Require().NotNil(user)
@@ -375,7 +376,7 @@ func (s *AppleAuthIntegrationTestSuite) TestFindOrCreateAppleUser_NewUser_NoEmai
 		},
 	}
 
-	user, err := svc.FindOrCreateAppleUser(claims, "No", "Email")
+	user, err := svc.FindOrCreateAppleUser(claims, "No", "Email", signupconsent.CurrentOAuthSignupConsent())
 
 	s.Require().NoError(err)
 	s.Require().NotNil(user)
@@ -395,11 +396,12 @@ func (s *AppleAuthIntegrationTestSuite) TestFindOrCreateAppleUser_ExistingAppleU
 			Subject: "apple-sub-existing",
 		},
 	}
-	firstUser, err := svc.FindOrCreateAppleUser(claims, "First", "Call")
+	firstUser, err := svc.FindOrCreateAppleUser(claims, "First", "Call", signupconsent.CurrentOAuthSignupConsent())
 	s.Require().NoError(err)
 
-	// Second call with same apple subject
-	secondUser, err := svc.FindOrCreateAppleUser(claims, "Second", "Call")
+	// Second call with same apple subject and no consent: a returning
+	// identity never needs one.
+	secondUser, err := svc.FindOrCreateAppleUser(claims, "Second", "Call", nil)
 
 	s.Require().NoError(err)
 	s.Equal(firstUser.ID, secondUser.ID)
@@ -434,7 +436,7 @@ func (s *AppleAuthIntegrationTestSuite) TestFindOrCreateAppleUser_ExistingEmail_
 		},
 	}
 
-	user, err := svc.FindOrCreateAppleUser(claims, "Apple", "Name")
+	user, err := svc.FindOrCreateAppleUser(claims, "Apple", "Name", signupconsent.CurrentOAuthSignupConsent())
 
 	s.Require().Error(err)
 	s.Require().Nil(user)
@@ -459,7 +461,7 @@ func (s *AppleAuthIntegrationTestSuite) TestFindOrCreateAppleUser_ExistingEmail_
 			Subject: "apple-sub-first",
 		},
 	}
-	firstUser, err := svc.FindOrCreateAppleUser(claims1, "First", "User")
+	firstUser, err := svc.FindOrCreateAppleUser(claims1, "First", "User", signupconsent.CurrentOAuthSignupConsent())
 	s.Require().NoError(err)
 
 	// Second call with a different apple subject but the same address. The
@@ -472,7 +474,7 @@ func (s *AppleAuthIntegrationTestSuite) TestFindOrCreateAppleUser_ExistingEmail_
 			Subject: "apple-sub-second",
 		},
 	}
-	secondUser, err := svc.FindOrCreateAppleUser(claims2, "Second", "User")
+	secondUser, err := svc.FindOrCreateAppleUser(claims2, "Second", "User", signupconsent.CurrentOAuthSignupConsent())
 
 	s.Require().Error(err)
 	s.Require().Nil(secondUser)
@@ -500,7 +502,7 @@ func (s *AppleAuthIntegrationTestSuite) TestFindOrCreateAppleUser_ExistingEmail_
 func (s *AppleAuthIntegrationTestSuite) TestCreateAppleUser_Success() {
 	svc := s.newService()
 
-	user, err := svc.createAppleUser("apple-create-id", "create@example.com", "Create", "User", true)
+	user, err := svc.createAppleUser("apple-create-id", "create@example.com", "Create", "User", true, signupconsent.CurrentLegalAcceptance())
 
 	s.Require().NoError(err)
 	s.Require().NotNil(user)
@@ -527,7 +529,7 @@ func (s *AppleAuthIntegrationTestSuite) TestCreateAppleUser_NoEmail() {
 
 	// An addressless Apple account has nothing to verify, which is why the
 	// caller passes false here.
-	user, err := svc.createAppleUser("apple-noemail-id", "", "No", "Email", false)
+	user, err := svc.createAppleUser("apple-noemail-id", "", "No", "Email", false, signupconsent.CurrentLegalAcceptance())
 
 	s.Require().NoError(err)
 	s.Require().NotNil(user)
@@ -554,7 +556,7 @@ func (s *AppleAuthIntegrationTestSuite) TestCreateAppleUser_DuplicateEmail() {
 	// skips the pre-check FindOrCreateAppleUser does and lands on the index the
 	// way a lost race would. The service returns USER_EXISTS; AppleCallbackHandler
 	// still collapses it to its own generic shape, which this does not assert.
-	_, err := svc.createAppleUser("apple-dupe-id", "DUPE@Example.com", "Dupe", "User", true)
+	_, err := svc.createAppleUser("apple-dupe-id", "DUPE@Example.com", "Dupe", "User", true, signupconsent.CurrentLegalAcceptance())
 
 	s.Require().Error(err)
 	var authErr *apperrors.AuthError

@@ -16,6 +16,7 @@ import (
 	"psychic-homily-backend/internal/api/handlers/shared/testhelpers"
 	"psychic-homily-backend/internal/config"
 	autherrors "psychic-homily-backend/internal/errors"
+	"psychic-homily-backend/internal/legal"
 	authm "psychic-homily-backend/internal/models/auth"
 	"psychic-homily-backend/internal/services/auth"
 	"psychic-homily-backend/internal/services/contracts"
@@ -298,7 +299,7 @@ func (s *OAuthHandlerIntegrationSuite) TestCallback_TermsNotAccepted_RedirectsWi
 		},
 	})
 
-	// No consent cookie → validateOAuthSignupConsent(nil) → terms error.
+	// No consent cookie → shared.ValidateOAuthSignupConsent(nil) → terms error.
 	w, req := oauthCallbackRequest("google")
 	handler.OAuthCallbackHTTPHandler(w, req)
 
@@ -311,6 +312,32 @@ func (s *OAuthHandlerIntegrationSuite) TestCallback_TermsNotAccepted_RedirectsWi
 	parsed, err := url.Parse(location)
 	s.Require().NoError(err)
 	s.Equal(autherrors.CodeTermsAcceptanceRequired, parsed.Query().Get("error_code"))
+}
+
+// The start handler refuses a sign-up without the age confirmation, but the
+// consent cookie is caller-writable, so the callback refuses one too, in its
+// own words, and creates nothing.
+func (s *OAuthHandlerIntegrationSuite) TestCallback_ConsentCookieWithoutAge_RedirectsWithAgeRefusal() {
+	identity := goth.User{Email: "oauth-noage@test.com", Provider: "google", UserID: "google-noage-1"}
+	handler := s.newHandler(&mockOAuthCompleter{user: identity})
+	encoded, err := encodeOAuthSignupConsent(contracts.OAuthSignupConsent{
+		TermsAccepted:  true,
+		TermsVersion:   legal.CurrentTermsVersion,
+		PrivacyVersion: legal.CurrentPrivacyVersion,
+		AcceptedAt:     time.Now().UTC(),
+		AgeConfirmed:   false,
+		MinAgeAttested: MinSignupAge,
+	})
+	s.Require().NoError(err)
+
+	w, req := oauthCallbackRequest("google")
+	req.AddCookie(&http.Cookie{Name: oauthSignupConsentCookieName, Value: encoded})
+	handler.OAuthCallbackHTTPHandler(w, req)
+
+	s.assertAuthPageRefusal(w, autherrors.ErrAgeConfirmationRequired(""))
+	var users int64
+	s.Require().NoError(s.deps.DB.Model(&authm.User{}).Where("email = ?", identity.Email).Count(&users).Error)
+	s.Zero(users)
 }
 
 // --- OAuthCallbackHTTPHandler: success paths ---

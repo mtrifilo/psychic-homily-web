@@ -510,6 +510,9 @@ func (h *OAuthHTTPHandler) OAuthCallbackHTTPHandler(w http.ResponseWriter, r *ht
 func authRefusalCarriesItsOwnCopy(code string) bool {
 	switch code {
 	case autherrors.CodeTermsAcceptanceRequired,
+		// Says only that the caller's own consent lacked the age attestation;
+		// it names nothing about any account.
+		autherrors.CodeAgeConfirmationRequired,
 		autherrors.CodeUserExists,
 		autherrors.CodeOAuthLinkRefused,
 		autherrors.CodeOAuthIdentityInUse,

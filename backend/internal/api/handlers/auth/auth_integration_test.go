@@ -359,6 +359,12 @@ func (s *AuthHandlerIntegrationSuite) TestRegister_Success() {
 	s.Require().NotNil(created.AgeConfirmedAt, "expected age_confirmed_at recorded on new user")
 	s.Require().NotNil(created.MinAgeAttested, "expected min_age_attested recorded on new user")
 	s.Equal(MinSignupAge, *created.MinAgeAttested)
+	s.Require().NotNil(created.TermsVersion)
+	s.Require().NotNil(created.PrivacyVersion)
+	s.Require().NotNil(created.TermsAcceptedAt)
+	s.Equal(legal.CurrentTermsVersion, *created.TermsVersion)
+	s.Equal(legal.CurrentPrivacyVersion, *created.PrivacyVersion)
+	s.WithinDuration(time.Now(), *created.TermsAcceptedAt, time.Minute)
 }
 
 // TestRegister_MissingAgeConfirmation asserts the integration-level register

@@ -66,7 +66,7 @@ func (m *mockAppleAuthService) ValidateIdentityToken(context.Context, string) (*
 	}, nil
 }
 
-func (m *mockAppleAuthService) FindOrCreateAppleUser(_ *contracts.AppleIdentityTokenClaims, firstName, lastName string) (*authm.User, error) {
+func (m *mockAppleAuthService) FindOrCreateAppleUser(_ *contracts.AppleIdentityTokenClaims, firstName, lastName string, _ *contracts.OAuthSignupConsent) (*authm.User, error) {
 	m.called = true
 	m.gotFirstName = firstName
 	m.gotLastName = lastName
@@ -163,6 +163,14 @@ func stubAppleKeyEndpoint(t *testing.T, body []byte) {
 	t.Cleanup(func() { http.DefaultTransport = orig })
 }
 
+// appleKeySet is a JWK set holding key's public half under kid, as Apple's key
+// endpoint publishes it.
+func appleKeySet(key *rsa.PrivateKey, kid string) []byte {
+	n := base64.RawURLEncoding.EncodeToString(key.N.Bytes())
+	e := base64.RawURLEncoding.EncodeToString(big.NewInt(int64(key.E)).Bytes())
+	return []byte(`{"keys":[{"kty":"RSA","kid":"` + kid + `","use":"sig","alg":"RS256","n":"` + n + `","e":"` + e + `"}]}`)
+}
+
 // The key id in an identity token header is caller-supplied text. A token
 // whose key id Apple's set lacks is refused. The refusal's warn record names
 // the key id in its kid attribute only: whole when it is short and plain,
@@ -173,9 +181,7 @@ func TestAppleCallbackHandler_TokenInvalidLogsBoundedKeyID(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	n := base64.RawURLEncoding.EncodeToString(key.N.Bytes())
-	e := base64.RawURLEncoding.EncodeToString(big.NewInt(int64(key.E)).Bytes())
-	stubAppleKeyEndpoint(t, []byte(`{"keys":[{"kty":"RSA","kid":"known-kid","use":"sig","alg":"RS256","n":"`+n+`","e":"`+e+`"}]}`))
+	stubAppleKeyEndpoint(t, appleKeySet(key, "known-kid"))
 
 	cfg := testConfig()
 	cfg.Apple.BundleID = "com.psychichomily.ios"
@@ -244,16 +250,28 @@ func TestAppleCallbackHandler_TokenInvalidLogsBoundedKeyID(t *testing.T) {
 }
 
 // signedAppleToken is an identity token for aud under kid, signed by key and
-// expiring at exp.
+// expiring at exp, for subject apple-sub-1 with no address.
 func signedAppleToken(t *testing.T, key *rsa.PrivateKey, aud, kid string, exp time.Time) string {
 	t.Helper()
-	token := jwt.NewWithClaims(jwt.SigningMethodRS256, jwt.MapClaims{
+	return signedAppleTokenFor(t, key, aud, kid, "apple-sub-1", "", exp)
+}
+
+// signedAppleTokenFor is signedAppleToken for subject sub, carrying email as
+// an address Apple verified when email is not empty.
+func signedAppleTokenFor(t *testing.T, key *rsa.PrivateKey, aud, kid, sub, email string, exp time.Time) string {
+	t.Helper()
+	claims := jwt.MapClaims{
 		"iss": "https://appleid.apple.com",
 		"aud": aud,
-		"sub": "apple-sub-1",
+		"sub": sub,
 		"exp": exp.Unix(),
 		"iat": time.Now().Unix(),
-	})
+	}
+	if email != "" {
+		claims["email"] = email
+		claims["email_verified"] = "true"
+	}
+	token := jwt.NewWithClaims(jwt.SigningMethodRS256, claims)
 	token.Header["kid"] = kid
 	signed, err := token.SignedString(key)
 	if err != nil {
@@ -270,9 +288,7 @@ func TestAppleCallbackHandler_KidAttributeOnlyOnUnknownKeyID(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	n := base64.RawURLEncoding.EncodeToString(key.N.Bytes())
-	e := base64.RawURLEncoding.EncodeToString(big.NewInt(int64(key.E)).Bytes())
-	stubAppleKeyEndpoint(t, []byte(`{"keys":[{"kty":"RSA","kid":"known-kid","use":"sig","alg":"RS256","n":"`+n+`","e":"`+e+`"}]}`))
+	stubAppleKeyEndpoint(t, appleKeySet(key, "known-kid"))
 
 	cfg := testConfig()
 	cfg.Apple.BundleID = "com.psychichomily.ios"

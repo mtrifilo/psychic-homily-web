@@ -742,30 +742,13 @@ func (s *WebAuthnService) FinishSignupRegistrationWithLegal(
 	}()
 
 	// Create user without password, under the id its passkey's handle encodes
-	acceptedAt := acceptance.TermsAcceptedAt
-	if acceptedAt.IsZero() {
-		acceptedAt = time.Now().UTC()
-	}
 	user := &authm.User{
-		ID:              reservedID,
-		Email:           &email,
-		IsActive:        true,
-		EmailVerified:   false,
-		TermsAcceptedAt: &acceptedAt,
-		TermsVersion:    &acceptance.TermsVersion,
-		PrivacyVersion:  &acceptance.PrivacyVersion,
+		ID:            reservedID,
+		Email:         &email,
+		IsActive:      true,
+		EmailVerified: false,
 	}
-	// Record the minimum-age confirmation alongside terms, only when an age was
-	// attested.
-	if acceptance.MinAgeAttested > 0 {
-		ageConfirmedAt := acceptance.AgeConfirmedAt
-		if ageConfirmedAt.IsZero() {
-			ageConfirmedAt = time.Now().UTC()
-		}
-		minAge := acceptance.MinAgeAttested
-		user.AgeConfirmedAt = &ageConfirmedAt
-		user.MinAgeAttested = &minAge
-	}
+	shared.StampLegalAcceptance(user, acceptance)
 
 	if err := tx.Create(user).Error; err != nil {
 		tx.Rollback()
