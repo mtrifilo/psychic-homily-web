@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/base64"
 	"encoding/hex"
@@ -453,19 +454,7 @@ func (h *OAuthHTTPHandler) OAuthCallbackHTTPHandler(w http.ResponseWriter, r *ht
 	// Use AuthService to handle the complete OAuth flow. New users require consent.
 	user, token, err := h.authService.OAuthCallbackWithConsent(w, r, provider, signupConsent)
 	if err != nil {
-		// A provider error can carry credentials two ways: a *url.Error whose
-		// URL holds an access token in the query, and an error whose text
-		// embeds the token endpoint's raw response body. RedactErrorURL keeps
-		// scheme and host and drops path and query, which also drops the
-		// wrapper text; ScrubText then covers the shapes that are not a
-		// *url.Error and caps an unbounded body. The wrapped value carries the
-		// scrubbed text and not the original chain, because AuthError renders
-		// whatever error it is handed; the chain is still read below for
-		// errors.As.
-		logger.AuthError(ctx, "oauth_callback_failed",
-			errors.New(observability.ScrubText(utils.RedactErrorURL(err).Error())),
-			"provider", provider,
-		)
+		logCallbackError(ctx, provider, err)
 		errorMessage := refusalMessage(err, "authentication failed")
 
 		// Handle CLI callback error
@@ -495,6 +484,27 @@ func (h *OAuthHTTPHandler) OAuthCallbackHTTPHandler(w http.ResponseWriter, r *ht
 	http.SetCookie(w, &cookie)
 
 	http.Redirect(w, r, oauthSignInDestination(frontendURL, returnTo), http.StatusTemporaryRedirect)
+}
+
+// logCallbackError records a failed sign-in callback: a refusal that carries
+// its own copy at WARN with its code, everything else at ERROR.
+func logCallbackError(ctx context.Context, provider string, err error) {
+	var authErr *autherrors.AuthError
+	if errors.As(err, &authErr) && authRefusalCarriesItsOwnCopy(authErr.Code) {
+		logger.AuthWarn(ctx, "oauth_callback_refused", "provider", provider, "error_code", authErr.Code)
+		return
+	}
+	// A provider error can carry credentials two ways: a *url.Error whose URL
+	// holds an access token in the query, and an error whose text embeds the
+	// token endpoint's raw response body. RedactErrorURL keeps scheme and host
+	// and drops path and query, which also drops the wrapper text; ScrubText
+	// then covers the shapes that are not a *url.Error and caps an unbounded
+	// body. The logged value carries the scrubbed text and not the original
+	// chain, because AuthError renders whatever error it is handed.
+	logger.AuthError(ctx, "oauth_callback_failed",
+		errors.New(observability.ScrubText(utils.RedactErrorURL(err).Error())),
+		"provider", provider,
+	)
 }
 
 // authRefusalCarriesItsOwnCopy names the refusals an OAuth callback reports in
@@ -529,7 +539,13 @@ func authRefusalCarriesItsOwnCopy(code string) bool {
 		// Returned on sign-in only to the callers CodeAccountRecoverable
 		// names: an identity that resolved by its subject to the account, or
 		// a provider that vouched for the verified address of the account.
-		autherrors.CodeAccountRecoverable:
+		autherrors.CodeAccountRecoverable,
+		// Says only that the provider's own claim cannot be stored
+		// (shared.ValidateProviderEmailClaim); it names nothing about any
+		// account. Every CodeValidationFailed refusal these surfaces receive
+		// carries its own text to the caller, so its message must be fixed
+		// copy that names no value from the request or the database.
+		autherrors.CodeValidationFailed:
 		return true
 	default:
 		return false
