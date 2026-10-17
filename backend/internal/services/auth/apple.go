@@ -222,7 +222,9 @@ func jwtFailureKind(err error) error {
 // address already belongs to an account. There is no by-address link on any
 // path: a matching address says who owns the mailbox, never who owns the
 // account. Returns CodeAccountInactive when the Apple identity resolves to an
-// account that may not sign in (authm.User.CanSignIn). Callers that render a
+// account that may not sign in (authm.User.CanSignIn). Returns
+// CodeValidationFailed (apperrors.ErrProviderEmailUnstorable) for an email
+// claim Postgres rejects as text, before any query. Callers that render a
 // refusal differently from a fault must discriminate on the code.
 //
 // A created account carries email_verified from the token's own claim, so an
@@ -242,6 +244,13 @@ func (s *AppleAuthService) FindOrCreateAppleUser(claims *contracts.AppleIdentity
 	// owner, ahead of every check below.
 	if appleUserID == "" {
 		return nil, fmt.Errorf("apple identity token has no subject")
+	}
+
+	// An email claim Postgres rejects as text fails every query that binds it
+	// and every insert that stores it, so it is refused before any of them.
+	if authm.PostgresRejectsText(claims.Email) {
+		logger.Default().Warn("oauth_signin_refused_provider_email_unstorable", "provider", "apple")
+		return nil, apperrors.ErrProviderEmailUnstorable()
 	}
 
 	// Look for existing OAuth account with provider=apple

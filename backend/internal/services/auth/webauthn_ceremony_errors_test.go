@@ -269,3 +269,29 @@ func (suite *WebAuthnServiceIntegrationTestSuite) TestFinishSignupRefusesEmptyAc
 		suite.Zero(suite.accountRows(email))
 	})
 }
+
+// A verified signup registration of a credential id another account already
+// holds is refused as register finish refuses it, and creates no account.
+func (suite *WebAuthnServiceIntegrationTestSuite) TestFinishSignupRefusesHeldCredential() {
+	holder := suite.createUser("signup-held-holder@test.com")
+	device := suite.registeredDevice(holder)
+	email := "signup-held@test.com"
+	options, session, err := suite.service.BeginRegistrationForEmail(email)
+	suite.Require().NoError(err)
+	body, err := device.RegisterAgain(options)
+	suite.Require().NoError(err)
+	usersBefore := suite.userRows()
+
+	err = suite.finishSignup(email, session, body)
+
+	suite.requireRefusal(err, apperrors.CodeValidationFailed, "Invalid credential response")
+	suite.Equal(usersBefore, suite.userRows(), "a refused signup creates no account")
+	suite.Zero(suite.accountRows(email))
+	suite.Equal(int64(1), suite.credentialRows(holder.ID))
+}
+
+func (suite *WebAuthnServiceIntegrationTestSuite) userRows() int64 {
+	var count int64
+	suite.Require().NoError(suite.db.Model(&authm.User{}).Count(&count).Error)
+	return count
+}

@@ -123,6 +123,31 @@ func (s *AuthHandlerIntegrationSuite) TestPasskeySignupFinishRefusalAndFailures(
 		s.requireNoAccount(email)
 	})
 
+	s.Run("credential id another account holds is refused", func() {
+		device := s.signUpWithPasskey(api, "signup-held-holder@example.com")
+		email := "signup-held@example.com"
+		begin := api.Post("/auth/passkey/signup/begin", signupBeginBody(email))
+		requireWireSuccess(s.T(), begin)
+		challengeID, _ := decodeWireBody(s.T(), begin.Body.Bytes())["challenge_id"].(string)
+		registration, err := device.RegisterAgain(s.creationOptions(begin.Body.Bytes()))
+		s.Require().NoError(err)
+		var usersBefore int64
+		s.Require().NoError(s.deps.DB.Model(&authm.User{}).Count(&usersBefore).Error)
+
+		refused := api.Post("/auth/passkey/signup/finish", signupFinishBody(challengeID, json.RawMessage(registration)))
+
+		s.Equal(http.StatusOK, refused.Code, refused.Body.String())
+		body := decodeWireBody(s.T(), refused.Body.Bytes())
+		s.Equal(false, body["success"])
+		s.Equal(autherrors.CodeValidationFailed, body["error_code"])
+		s.Equal("Invalid credential response", body["message"])
+		s.Empty(refused.Header().Get("Set-Cookie"))
+		var usersAfter int64
+		s.Require().NoError(s.deps.DB.Model(&authm.User{}).Count(&usersAfter).Error)
+		s.Equal(usersBefore, usersAfter, "a refused signup creates no account")
+		s.requireNoAccount(email)
+	})
+
 	s.Run("account that cannot be created fails", func() {
 		email := "signup-insert-fails@example.com"
 		challengeID, registration, _ := s.beginPasskeySignup(api, email)

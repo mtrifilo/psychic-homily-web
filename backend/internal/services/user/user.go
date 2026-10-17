@@ -190,10 +190,11 @@ func NewUserService(database *gorm.DB) *UserService {
 // CodeAccountInactive when the identity resolves to an account that may not
 // sign in (authm.User.CanSignIn), CodeAccountRecoverable in place of either of
 // those two when the account was deleted and is inside its recovery window
-// (see closedAccountRefusal and the address branch below), and the consent
-// refusals of shared.ValidateOAuthSignupConsent when an account would be
-// created. Callers that render a refusal differently from a fault must
-// discriminate on the code.
+// (see closedAccountRefusal and the address branch below), CodeValidationFailed
+// (apperrors.ErrProviderEmailUnstorable) for an email claim Postgres rejects as
+// text, before any query, and the consent refusals of
+// shared.ValidateOAuthSignupConsent when an account would be created. Callers
+// that render a refusal differently from a fault must discriminate on the code.
 func (s *UserService) FindOrCreateUserWithConsent(gothUser goth.User, provider string, consent *contracts.OAuthSignupConsent) (*authm.User, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
@@ -205,6 +206,13 @@ func (s *UserService) FindOrCreateUserWithConsent(gothUser goth.User, provider s
 	// owner, ahead of every check below.
 	if gothUser.UserID == "" {
 		return nil, fmt.Errorf("oauth provider %q returned no user id", provider)
+	}
+
+	// An email claim Postgres rejects as text fails every query that binds it
+	// and every insert that stores it, so it is refused before any of them.
+	if authm.PostgresRejectsText(gothUser.Email) {
+		logger.Default().Warn("oauth_signin_refused_provider_email_unstorable", "provider", provider)
+		return nil, apperrors.ErrProviderEmailUnstorable()
 	}
 
 	// First, try to find existing OAuth account

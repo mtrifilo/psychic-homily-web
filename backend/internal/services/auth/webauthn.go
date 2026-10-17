@@ -710,8 +710,10 @@ func (s *WebAuthnService) ConsumeSignupChallenge(challengeID string, operation s
 // It returns the account as created, with its preferences. A refusal is an
 // *apperrors.AuthError: CodeTermsAcceptanceRequired for an acceptance that
 // names no terms version, which records no consent, CodeValidationFailed for
-// a response that fails verification, CodeUserExists for an address an
-// account already holds. Any other error means the account was not created.
+// a response that fails verification or whose credential id an account
+// already holds, CodeUserExists for an address an account already holds. A
+// refusal creates no account. Any other error means the account was not
+// created.
 func (s *WebAuthnService) FinishSignupRegistrationWithLegal(
 	email string,
 	session *webauthn.SessionData,
@@ -771,8 +773,13 @@ func (s *WebAuthnService) FinishSignupRegistrationWithLegal(
 	// Convert and save credential with real user ID
 	webauthnCred := authm.ToWebAuthnCredential(user.ID, credential, displayName)
 
+	// As in FinishRegistration, a duplicate key here is a credential some
+	// account already holds.
 	if err := tx.Create(webauthnCred).Error; err != nil {
 		tx.Rollback()
+		if shared.IsDuplicateKey(err) {
+			return nil, apperrors.ErrInvalidCredentialResponse(fmt.Errorf("credential already registered: %w", err))
+		}
 		return nil, fmt.Errorf("failed to save credential: %w", err)
 	}
 

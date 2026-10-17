@@ -305,7 +305,8 @@ type UserServiceInterface interface {
 	// instead when that account is recoverable, its address is verified and
 	// the provider vouches for the address, and with CodeTermsAcceptanceRequired or
 	// CodeAgeConfirmationRequired when it would create an account without
-	// consent. It creates the account with
+	// consent. It refuses with CodeValidationFailed, before any query, an
+	// email claim Postgres rejects as text. It creates the account with
 	// email_verified set to what the provider asserted, so an unvouched
 	// address produces an unverified account.
 	FindOrCreateUserWithConsent(gothUser goth.User, provider string, consent *OAuthSignupConsent) (*authm.User, error)
