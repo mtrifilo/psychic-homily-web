@@ -10,11 +10,12 @@ import (
 )
 
 // ValidateOAuthSignupConsent refuses an identity-provider sign-up (Google,
-// GitHub, Apple) whose consent does not accept the current Terms of Service
-// and Privacy Policy with the minimum age attested, and otherwise returns the
-// acceptance the account records: both versions, and AcceptedAt as when the
-// terms were accepted and the age confirmed. A nil consent, an unaccepted one,
-// or a version that is not current answers CodeTermsAcceptanceRequired; a
+// GitHub, Apple) whose consent does not accept a Terms of Service and Privacy
+// Policy version that legal.AcceptedVersions takes at the moment of creation,
+// with the minimum age attested, and otherwise returns the acceptance the
+// account records: both versions as sent, and AcceptedAt as when the terms
+// were accepted and the age confirmed. A nil consent, an unaccepted one, or a
+// version AcceptedVersions refuses answers CodeTermsAcceptanceRequired; a
 // missing or short age attestation answers CodeAgeConfirmationRequired. The
 // consent is caller-supplied on every path that reaches this (a cookie, a
 // request body), so this is the check that stands where the account is made.
@@ -22,8 +23,8 @@ func ValidateOAuthSignupConsent(consent *contracts.OAuthSignupConsent) (contract
 	if consent == nil || !consent.TermsAccepted {
 		return contracts.LegalAcceptance{}, apperrors.ErrTermsAcceptanceRequired("terms acceptance required for OAuth signup")
 	}
-	if !legal.AcceptsCurrentVersions(consent.TermsVersion, consent.PrivacyVersion) {
-		return contracts.LegalAcceptance{}, apperrors.ErrTermsAcceptanceRequired("terms or privacy version is not current for OAuth signup")
+	if !legal.AcceptedVersions(consent.TermsVersion, consent.PrivacyVersion, time.Now()) {
+		return contracts.LegalAcceptance{}, apperrors.ErrTermsAcceptanceRequired("terms or privacy version is not accepted for OAuth signup")
 	}
 	if !consent.AgeConfirmed {
 		return contracts.LegalAcceptance{}, apperrors.ErrAgeConfirmationRequired("age confirmation required for OAuth signup")

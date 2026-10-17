@@ -70,20 +70,25 @@ func TestValidateOAuthSignupConsent(t *testing.T) {
 		})
 	}
 
-	consent := signupconsent.CurrentOAuthSignupConsent()
-	acceptance, err := ValidateOAuthSignupConsent(consent)
-	if err != nil {
-		t.Fatalf("current consent refused: %v", err)
-	}
-	want := contracts.LegalAcceptance{
-		TermsAcceptedAt: consent.AcceptedAt,
-		TermsVersion:    consent.TermsVersion,
-		PrivacyVersion:  consent.PrivacyVersion,
-		AgeConfirmedAt:  consent.AcceptedAt,
-		MinAgeAttested:  consent.MinAgeAttested,
-	}
-	if acceptance != want {
-		t.Errorf("acceptance = %+v, want %+v", acceptance, want)
+	for name, pair := range signupconsent.AcceptedVersionPairs(time.Now()) {
+		t.Run("accepts the "+name+" as sent", func(t *testing.T) {
+			consent := signupconsent.CurrentOAuthSignupConsent()
+			consent.TermsVersion, consent.PrivacyVersion = pair.Terms, pair.Privacy
+			acceptance, err := ValidateOAuthSignupConsent(consent)
+			if err != nil {
+				t.Fatalf("consent refused: %v", err)
+			}
+			want := contracts.LegalAcceptance{
+				TermsAcceptedAt: consent.AcceptedAt,
+				TermsVersion:    pair.Terms,
+				PrivacyVersion:  pair.Privacy,
+				AgeConfirmedAt:  consent.AcceptedAt,
+				MinAgeAttested:  consent.MinAgeAttested,
+			}
+			if acceptance != want {
+				t.Errorf("acceptance = %+v, want %+v", acceptance, want)
+			}
+		})
 	}
 }
 
