@@ -2375,8 +2375,8 @@ func recordingOutbox(queued *[]queuedAuthEmail, err error) *testhelpers.MockAuth
 }
 
 // forbidSends returns an email service that is configured and fails t on any
-// send: the request handlers queue magic-link and recovery emails, and send a
-// verification email only for an unverified account.
+// send: the magic-link and recovery request handlers queue every email they
+// promise, the verification email for an unverified account included.
 func forbidSends(t *testing.T) *testhelpers.MockEmailService {
 	return &testhelpers.MockEmailService{
 		IsConfiguredFn: func() bool { return true },
@@ -2449,9 +2449,13 @@ func TestSendMagicLinkHandler_EnqueueFailureStaysGeneric(t *testing.T) {
 
 	email := "verified@example.com"
 	unknown := respFor(nil)
-	failed := respFor(&authm.User{ID: 7, Email: &email, EmailVerified: true})
-	if failed.Body != unknown.Body {
-		t.Errorf("enqueue failure body differs from unknown-email body:\n  got  %+v\n  want %+v", failed.Body, unknown.Body)
+	for name, user := range map[string]*authm.User{
+		"verified":   {ID: 7, Email: &email, EmailVerified: true},
+		"unverified": {ID: 8, Email: &email, EmailVerified: false},
+	} {
+		if failed := respFor(user); failed.Body != unknown.Body {
+			t.Errorf("%s: enqueue failure body differs from unknown-email body:\n  got  %+v\n  want %+v", name, failed.Body, unknown.Body)
+		}
 	}
 }
 

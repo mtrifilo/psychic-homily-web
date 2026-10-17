@@ -53,6 +53,10 @@ CREATE INDEX idx_auth_email_outbox_pending
     ON auth_email_outbox (created_at)
     WHERE status = 'pending';
 
+-- The users FK's ON DELETE CASCADE: finds an account's rows in every status.
+CREATE INDEX idx_auth_email_outbox_user
+    ON auth_email_outbox (user_id);
+
 -- The retention prune: terminal rows older than the audit window.
 CREATE INDEX idx_auth_email_outbox_terminal
     ON auth_email_outbox (updated_at)

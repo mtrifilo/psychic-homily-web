@@ -3,7 +3,9 @@ package auth
 import (
 	"context"
 	"errors"
+	"fmt"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -351,6 +353,37 @@ func (s *AuthEmailOutboxSuite) TestExpiredRequest_SkippedWhenClaimed() {
 	s.assertSkippedExpired(1)
 }
 
+func (s *AuthEmailOutboxSuite) TestTick_DrainsPastOneBatch() {
+	for i := 0; i < 2*defaultAuthEmailOutboxBatch+3; i++ {
+		user := s.verifiedUser(fmt.Sprintf("burst-%d@example.com", i))
+		s.enqueue(authm.AuthEmailKindMagicLink, user.ID)
+	}
+
+	s.outbox.RunNow(context.Background())
+
+	s.Len(s.sender.recorded(), 2*defaultAuthEmailOutboxBatch+3, "one tick claims again while claims come back full")
+	for _, row := range s.rows() {
+		s.Equal(authm.AuthEmailStatusSent, row.Status)
+	}
+}
+
+func (s *AuthEmailOutboxSuite) TestTick_RowsPastTheStartBudgetGoBackUnattempted() {
+	user := s.verifiedUser("late-start@example.com")
+	s.enqueue(authm.AuthEmailKindMagicLink, user.ID)
+	items, err := s.outbox.claim(context.Background())
+	s.Require().NoError(err)
+	s.Require().Len(items, 1)
+
+	var sent, other, requeued atomic.Int32
+	s.outbox.sendBatch(context.Background(), items, time.Now().Add(-time.Second), &sent, &other, &requeued)
+
+	s.Empty(s.sender.recorded(), "a row reached after the start budget is not sent")
+	s.Equal(int32(1), requeued.Load())
+	row := s.onlyRow()
+	s.Equal(authm.AuthEmailStatusPending, row.Status)
+	s.Equal(0, row.Attempts, "with its claim's attempt undone")
+}
+
 func (s *AuthEmailOutboxSuite) TestStrandedProcessingRow_ReclaimedAndSent() {
 	user := s.verifiedUser("stranded@example.com")
 	s.enqueue(authm.AuthEmailKindMagicLink, user.ID)
@@ -390,6 +423,7 @@ func (s *AuthEmailOutboxSuite) TestCanceledTick_RequeuesUnreachedRowsWithoutAtte
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	s.sender.onSend = cancel
+	s.outbox.workers = 1 // the second row is reached only after the cancel
 	s.outbox.RunNow(ctx)
 
 	s.Len(s.sender.recorded(), 1, "the tick stops after the send that saw the cancellation")

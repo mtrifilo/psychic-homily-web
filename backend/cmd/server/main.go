@@ -620,16 +620,16 @@ func main() {
 		log.Printf("%s=1: skipping webauthn challenge sweep startup", authsvc.DisableChallengeSweepEnvVar)
 	}
 
-	// Start the auth email outbox poller: sends the magic-link and
-	// account-recovery emails the request handlers queue. Default ON: without
-	// it no sign-in or recovery link is ever delivered. The same flag makes
+	// Start the auth email outbox poller: sends the magic-link,
+	// account-recovery and magic-link verification emails the request handlers
+	// queue. Default ON: without it none of those links is ever delivered. The same flag makes
 	// Enqueue refuse new rows; it takes effect when the server starts with it.
 	if !authsvc.AuthEmailOutboxDisabled() {
 		var authEmailOutboxCtx context.Context
 		authEmailOutboxCtx, authEmailOutboxCancel = context.WithCancel(context.Background())
 		sc.AuthEmailOutbox.Start(authEmailOutboxCtx)
 	} else {
-		log.Printf("%s=1: skipping auth email outbox startup; magic-link and recovery emails will not be sent", authsvc.DisableAuthEmailOutboxEnvVar)
+		log.Printf("%s=1: skipping auth email outbox startup; magic-link, recovery and magic-link verification emails will not be sent", authsvc.DisableAuthEmailOutboxEnvVar)
 	}
 
 	// Start sweep health check (PSY-1612: reports background loops that have

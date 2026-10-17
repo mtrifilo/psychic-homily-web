@@ -5,6 +5,7 @@ import (
 	"errors"
 	"log/slog"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/getsentry/sentry-go"
@@ -38,11 +39,25 @@ const (
 	// old enough to be reaped unsent.
 	maxAuthEmailOutboxInterval = time.Minute
 
-	// defaultAuthEmailOutboxBatch is also the most AUTH_EMAIL_OUTBOX_BATCH may
-	// set. Each row is one synchronous provider call, bounded by the email
-	// client's 15 s timeout, so a tick is at most about 150 s, which
-	// authEmailStaleReclaim must exceed.
+	// defaultAuthEmailOutboxBatch is how many rows one claim takes, and the
+	// most AUTH_EMAIL_OUTBOX_BATCH may set. A tick claims again while claims
+	// come back full, so the batch bounds one claim's lock, not the drain rate.
 	defaultAuthEmailOutboxBatch = 10
+
+	// authEmailSendWorkers is how many sends run at once. Resend allows 10
+	// requests per second per team, shared with every other email this server
+	// sends, so two concurrent sends (roughly 6 per second at typical
+	// latency) leave headroom while draining a burst well inside
+	// authEmailMaxAge.
+	authEmailSendWorkers = 2
+
+	// authEmailStartBudget is how long after a tick begins a worker may still
+	// start a row; rows not started by then go back to `pending` for the next
+	// tick. Every row therefore starts within this long of its claim and
+	// finishes within one send (the email client's 15 s timeout) plus one
+	// finalize (authEmailFinalizeBudget) after that, which keeps it well
+	// inside authEmailStaleReclaim.
+	authEmailStartBudget = 2 * time.Minute
 
 	// authEmailMaxAge is how long a request may wait before it is dropped
 	// unsent. Someone who asked for a sign-in or recovery link that long ago
@@ -56,9 +71,10 @@ const (
 	// a row is retried after 30 s and 60 s, well inside authEmailMaxAge.
 	authEmailRetryBase = 30 * time.Second
 
-	// authEmailStaleReclaim must exceed the worst-case tick wall-clock (about
-	// 150 s, see defaultAuthEmailOutboxBatch), or a row still being sent is
-	// reclaimed and sent twice. It is also how long a row stranded in
+	// authEmailStaleReclaim must exceed the longest a claimed row can stay in
+	// flight, authEmailStartBudget plus one send and one finalize (about 2.5
+	// minutes, plus whatever the account read takes), or a row still being
+	// sent is reclaimed and sent twice. It is also how long a row stranded in
 	// `processing` by a crash blocks that account's next request of the same
 	// kind (the active-row unique index), so it is kept close to that bound.
 	authEmailStaleReclaim = 4 * time.Minute
@@ -75,7 +91,7 @@ const (
 	authEmailEnqueueTimeout = 5 * time.Second
 
 	// authEmailFinalizeBudget caps the finalize write after a send.
-	authEmailFinalizeBudget = 30 * time.Second
+	authEmailFinalizeBudget = 10 * time.Second
 )
 
 // Reasons recorded in last_error. They are fixed strings so an operator can
@@ -139,10 +155,11 @@ type (
 //     account restored, deleted or changed while queued gets no stale email.
 //
 // Claiming uses SELECT ... FOR UPDATE SKIP LOCKED, and rows flip to
-// `processing` inside the claim's transaction; the send runs outside it.
-// Finalize writes are guarded by status = 'processing' (shared.JobQueue). A
-// reclaimed row that a slow worker then finalizes is sent twice; the stale
-// reclaim window exceeds the worst-case tick to keep that from happening.
+// `processing` inside the claim's transaction; the sends run outside it, on
+// authEmailSendWorkers workers. Finalize writes are guarded by status =
+// 'processing' (shared.JobQueue). A reclaimed row that a slow worker then
+// finalizes is sent twice; authEmailStartBudget keeps every row's time in
+// flight under the stale reclaim window to keep that from happening.
 type AuthEmailOutbox struct {
 	db     *gorm.DB
 	users  authEmailUsers
@@ -152,6 +169,7 @@ type AuthEmailOutbox struct {
 
 	interval time.Duration
 	batch    int
+	workers  int
 
 	// lastHousekeeping is read and written only by the loop goroutine.
 	lastHousekeeping time.Time
@@ -183,8 +201,9 @@ func NewAuthEmailOutbox(database *gorm.DB, users authEmailUsers, tokens authEmai
 		batch: capped("AUTH_EMAIL_OUTBOX_BATCH",
 			shared.EnvPositiveInt("AUTH_EMAIL_OUTBOX_BATCH", defaultAuthEmailOutboxBatch),
 			defaultAuthEmailOutboxBatch),
-		stopCh: make(chan struct{}),
-		logger: slog.Default(),
+		workers: authEmailSendWorkers,
+		stopCh:  make(chan struct{}),
+		logger:  slog.Default(),
 	}
 }
 
@@ -246,9 +265,10 @@ func (o *AuthEmailOutbox) RunNow(ctx context.Context) {
 	o.processTick(ctx)
 }
 
-// processTick runs housekeeping when it is due, then claims and sends one
-// batch. Rows are finalized one at a time, so a failed send never re-queues a
-// neighbour that was already sent.
+// processTick runs housekeeping when it is due, then claims and sends batches
+// until a claim comes back short or authEmailStartBudget runs out. Rows are
+// finalized one at a time, so a failed send never re-queues a neighbour that
+// was already sent.
 func (o *AuthEmailOutbox) processTick(ctx context.Context) {
 	if AuthEmailOutboxDisabled() {
 		return
@@ -265,31 +285,56 @@ func (o *AuthEmailOutbox) processTick(ctx context.Context) {
 		o.lastHousekeeping = time.Now()
 	}
 
-	items, err := o.claim(ctx)
-	if err != nil {
-		shared.LogCycleFailure(o.logger, "auth email outbox: claim failed", err)
-		return
-	}
-
-	var sent, other int
-	for i := range items {
-		// A cancelled tick (a deploy) hands every row it has not reached back
-		// to `pending` with the claim's attempt undone, so the next process
-		// sends them on its first tick.
-		if ctx.Err() != nil {
-			o.requeueWithoutAttempt(ctx, items[i:])
-			o.logger.Info("auth email outbox: tick canceled, requeued", "count", len(items[i:]))
+	startBy := time.Now().Add(authEmailStartBudget)
+	var claimed int
+	var sent, other, requeued atomic.Int32
+	for ctx.Err() == nil && time.Now().Before(startBy) {
+		items, err := o.claim(ctx)
+		if err != nil {
+			shared.LogCycleFailure(o.logger, "auth email outbox: claim failed", err)
 			break
 		}
-		if o.processItem(ctx, items[i]) {
-			sent++
-		} else {
-			other++
+		claimed += len(items)
+		o.sendBatch(ctx, items, startBy, &sent, &other, &requeued)
+		if len(items) < o.batch {
+			break
 		}
 	}
-	if len(items) > 0 {
-		o.logger.Info("auth email outbox tick", "claimed", len(items), "sent", sent, "other", other)
+	if claimed > 0 {
+		o.logger.Info("auth email outbox tick", "claimed", claimed,
+			"sent", sent.Load(), "other", other.Load(), "requeued", requeued.Load())
 	}
+}
+
+// sendBatch processes items on o.workers workers. A row a worker reaches after
+// the tick is cancelled (a deploy) or after startBy goes back to `pending`
+// with the claim's attempt undone, so the next tick sends it.
+func (o *AuthEmailOutbox) sendBatch(ctx context.Context, items []authm.AuthEmailOutboxItem, startBy time.Time, sent, other, requeued *atomic.Int32) {
+	next := make(chan authm.AuthEmailOutboxItem)
+	var wg sync.WaitGroup
+	for w := 0; w < o.workers; w++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for item := range next {
+				if ctx.Err() != nil || !time.Now().Before(startBy) {
+					o.requeueWithoutAttempt(ctx, []authm.AuthEmailOutboxItem{item})
+					requeued.Add(1)
+					continue
+				}
+				if o.processItem(ctx, item) {
+					sent.Add(1)
+				} else {
+					other.Add(1)
+				}
+			}
+		}()
+	}
+	for _, item := range items {
+		next <- item
+	}
+	close(next)
+	wg.Wait()
 }
 
 // claim takes up to batch pending rows whose next_attempt_at has come and
@@ -306,6 +351,7 @@ func (o *AuthEmailOutbox) processItem(ctx context.Context, item authm.AuthEmailO
 	// attempts.
 	if time.Since(item.CreatedAt) > authEmailMaxAge {
 		o.markSkipped(ctx, item, authEmailSkipExpired)
+		reportDroppedUnsent(1)
 		return false
 	}
 
@@ -405,6 +451,7 @@ func (o *AuthEmailOutbox) housekeep(ctx context.Context) {
 	} else if res.RowsAffected > 0 {
 		o.logger.Warn("auth email outbox: dropped expired requests unsent",
 			"count", res.RowsAffected, "max_age", authEmailMaxAge)
+		reportDroppedUnsent(res.RowsAffected)
 	}
 
 	if n := o.queue.PruneTerminal(ctx, authEmailRetention); n > 0 {
@@ -462,6 +509,19 @@ func (o *AuthEmailOutbox) markFailed(ctx context.Context, item authm.AuthEmailOu
 		scope.SetTag("service", AuthEmailOutboxLoopName)
 		scope.SetTag("email_type", string(item.Kind))
 		sentry.CaptureException(cause)
+	})
+}
+
+// reportDroppedUnsent reports to Sentry that n requests aged out unsent: each
+// is a person who asked for a sign-in, recovery or verification link and got
+// none. One event per pass, so a backlog is one alert rather than thousands.
+func reportDroppedUnsent(n int64) {
+	sentry.WithScope(func(scope *sentry.Scope) {
+		scope.SetTag("service", AuthEmailOutboxLoopName)
+		scope.SetLevel(sentry.LevelWarning)
+		scope.SetExtra("count", n)
+		scope.SetExtra("max_age", authEmailMaxAge.String())
+		sentry.CaptureMessage("auth email outbox: requests expired unsent")
 	})
 }
 
