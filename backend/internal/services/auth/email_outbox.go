@@ -3,7 +3,9 @@ package auth
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
+	"runtime/debug"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -287,7 +289,7 @@ func (o *AuthEmailOutbox) processTick(ctx context.Context) {
 
 	startBy := time.Now().Add(authEmailStartBudget)
 	var claimed int
-	var sent, other, requeued atomic.Int32
+	var c batchCounts
 	for ctx.Err() == nil && time.Now().Before(startBy) {
 		items, err := o.claim(ctx)
 		if err != nil {
@@ -295,21 +297,30 @@ func (o *AuthEmailOutbox) processTick(ctx context.Context) {
 			break
 		}
 		claimed += len(items)
-		o.sendBatch(ctx, items, startBy, &sent, &other, &requeued)
+		o.sendBatch(ctx, items, startBy, &c)
 		if len(items) < o.batch {
 			break
 		}
 	}
+	if n := c.expired.Load(); n > 0 {
+		reportDroppedUnsent(int64(n))
+	}
 	if claimed > 0 {
 		o.logger.Info("auth email outbox tick", "claimed", claimed,
-			"sent", sent.Load(), "other", other.Load(), "requeued", requeued.Load())
+			"sent", c.sent.Load(), "other", c.other.Load(), "requeued", c.requeued.Load(),
+			"expired", c.expired.Load())
 	}
+}
+
+// batchCounts tallies one tick's outcomes across the send workers.
+type batchCounts struct {
+	sent, other, requeued, expired atomic.Int32
 }
 
 // sendBatch processes items on o.workers workers. A row a worker reaches after
 // the tick is cancelled (a deploy) or after startBy goes back to `pending`
 // with the claim's attempt undone, so the next tick sends it.
-func (o *AuthEmailOutbox) sendBatch(ctx context.Context, items []authm.AuthEmailOutboxItem, startBy time.Time, sent, other, requeued *atomic.Int32) {
+func (o *AuthEmailOutbox) sendBatch(ctx context.Context, items []authm.AuthEmailOutboxItem, startBy time.Time, c *batchCounts) {
 	next := make(chan authm.AuthEmailOutboxItem)
 	var wg sync.WaitGroup
 	for w := 0; w < o.workers; w++ {
@@ -319,13 +330,16 @@ func (o *AuthEmailOutbox) sendBatch(ctx context.Context, items []authm.AuthEmail
 			for item := range next {
 				if ctx.Err() != nil || !time.Now().Before(startBy) {
 					o.requeueWithoutAttempt(ctx, []authm.AuthEmailOutboxItem{item})
-					requeued.Add(1)
+					c.requeued.Add(1)
 					continue
 				}
-				if o.processItem(ctx, item) {
-					sent.Add(1)
-				} else {
-					other.Add(1)
+				switch o.processItemContained(ctx, item) {
+				case outcomeSent:
+					c.sent.Add(1)
+				case outcomeExpired:
+					c.expired.Add(1)
+				default:
+					c.other.Add(1)
 				}
 			}
 		}()
@@ -337,6 +351,46 @@ func (o *AuthEmailOutbox) sendBatch(ctx context.Context, items []authm.AuthEmail
 	wg.Wait()
 }
 
+// processItemContained runs processItem and contains a panic to its row.
+//
+// The workers are goroutines of their own, outside RunScheduledLoop's
+// per-cycle recover, so a panic that escaped here would end the process. It
+// is recovered per row, not per worker, so a worker always returns to the
+// channel and sendBatch's producer can never block on a worker that died.
+// The row is marked failed rather than left `processing`, so one row that
+// panics is retired once instead of being reclaimed into the same panic.
+func (o *AuthEmailOutbox) processItemContained(ctx context.Context, item authm.AuthEmailOutboxItem) (outcome itemOutcome) {
+	defer func() {
+		r := recover()
+		if r == nil {
+			return
+		}
+		outcome = outcomeOther
+		o.logger.Error("auth email outbox: row panicked",
+			"id", item.ID, "kind", item.Kind, "user_id", item.UserID,
+			"panic", r, "stack", string(debug.Stack()))
+		func() {
+			defer func() {
+				if r2 := recover(); r2 != nil {
+					o.logger.Error("auth email outbox: marking a panicked row failed panicked too",
+						"id", item.ID, "panic", r2)
+				}
+			}()
+			o.markFailed(ctx, item, fmt.Errorf("panic while sending: %v", r))
+		}()
+	}()
+	return o.processItem(ctx, item)
+}
+
+// itemOutcome is what processItem did with one row.
+type itemOutcome int
+
+const (
+	outcomeOther itemOutcome = iota
+	outcomeSent
+	outcomeExpired
+)
+
 // claim takes up to batch pending rows whose next_attempt_at has come and
 // that have attempts left, flipped to `processing` with attempts+1. Returned
 // rows carry their pre-increment attempts.
@@ -344,31 +398,29 @@ func (o *AuthEmailOutbox) claim(ctx context.Context) ([]authm.AuthEmailOutboxIte
 	return o.queue.ClaimReady(ctx, o.batch, "next_attempt_at <= NOW()")
 }
 
-// processItem sends one row's email and records the outcome. It returns true
-// when the email was sent.
-func (o *AuthEmailOutbox) processItem(ctx context.Context, item authm.AuthEmailOutboxItem) bool {
+// processItem sends one row's email and records the outcome.
+func (o *AuthEmailOutbox) processItem(ctx context.Context, item authm.AuthEmailOutboxItem) itemOutcome {
 	// Age first: it is the one bound that retires every row, whatever its
-	// attempts.
+	// attempts. The tick reports these to Sentry once, with the count.
 	if time.Since(item.CreatedAt) > authEmailMaxAge {
 		o.markSkipped(ctx, item, authEmailSkipExpired)
-		reportDroppedUnsent(1)
-		return false
+		return outcomeExpired
 	}
 
 	skipReason, err := o.deliver(item)
 	switch {
 	case errors.Is(err, errUnknownAuthEmailKind):
 		o.markFailed(ctx, item, err)
-		return false
+		return outcomeOther
 	case err != nil:
 		o.markFailedOrRetry(ctx, item, err)
-		return false
+		return outcomeOther
 	case skipReason != "":
 		o.markSkipped(ctx, item, skipReason)
-		return false
+		return outcomeOther
 	}
 	o.markSent(ctx, item)
-	return true
+	return outcomeSent
 }
 
 var errUnknownAuthEmailKind = errors.New(authEmailFailUnknownKind)
@@ -505,24 +557,28 @@ func (o *AuthEmailOutbox) markFailed(ctx context.Context, item authm.AuthEmailOu
 	})
 	o.logger.Error("auth email outbox: giving up on email",
 		"id", item.ID, "kind", item.Kind, "user_id", item.UserID, "error", cause)
-	sentry.WithScope(func(scope *sentry.Scope) {
+	// A cloned hub, so two workers reporting at once never share a scope.
+	hub := sentry.CurrentHub().Clone()
+	hub.ConfigureScope(func(scope *sentry.Scope) {
 		scope.SetTag("service", AuthEmailOutboxLoopName)
 		scope.SetTag("email_type", string(item.Kind))
-		sentry.CaptureException(cause)
 	})
+	hub.CaptureException(cause)
 }
 
 // reportDroppedUnsent reports to Sentry that n requests aged out unsent: each
 // is a person who asked for a sign-in, recovery or verification link and got
-// none. One event per pass, so a backlog is one alert rather than thousands.
+// none. One event per reap pass and one per tick, so a backlog is a few alerts
+// rather than thousands.
 func reportDroppedUnsent(n int64) {
-	sentry.WithScope(func(scope *sentry.Scope) {
+	hub := sentry.CurrentHub().Clone()
+	hub.ConfigureScope(func(scope *sentry.Scope) {
 		scope.SetTag("service", AuthEmailOutboxLoopName)
 		scope.SetLevel(sentry.LevelWarning)
 		scope.SetExtra("count", n)
 		scope.SetExtra("max_age", authEmailMaxAge.String())
-		sentry.CaptureMessage("auth email outbox: requests expired unsent")
 	})
+	hub.CaptureMessage("auth email outbox: requests expired unsent")
 }
 
 // requeueWithoutAttempt returns rows to `pending` and undoes the claim's

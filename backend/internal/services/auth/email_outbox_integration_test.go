@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"sync"
-	"sync/atomic"
 	"testing"
 	"time"
 
@@ -18,13 +17,14 @@ import (
 	"psychic-homily-backend/internal/testutil"
 )
 
-// recordingSender records every magic-link and recovery send and answers each
-// with err. onSend, when set, runs before the answer.
+// recordingSender records every magic-link, recovery and verification send and
+// answers each with err. onSend, when set, runs before the answer, with the
+// recipient.
 type recordingSender struct {
 	mu            sync.Mutex
 	sends         []recordedSend
 	err           error
-	onSend        func()
+	onSend        func(to string)
 	notConfigured bool
 }
 
@@ -43,7 +43,7 @@ func (r *recordingSender) record(send recordedSend) error {
 	onSend, err := r.onSend, r.err
 	r.mu.Unlock()
 	if onSend != nil {
-		onSend()
+		onSend(send.to)
 	}
 	return err
 }
@@ -374,14 +374,45 @@ func (s *AuthEmailOutboxSuite) TestTick_RowsPastTheStartBudgetGoBackUnattempted(
 	s.Require().NoError(err)
 	s.Require().Len(items, 1)
 
-	var sent, other, requeued atomic.Int32
-	s.outbox.sendBatch(context.Background(), items, time.Now().Add(-time.Second), &sent, &other, &requeued)
+	var c batchCounts
+	s.outbox.sendBatch(context.Background(), items, time.Now().Add(-time.Second), &c)
 
 	s.Empty(s.sender.recorded(), "a row reached after the start budget is not sent")
-	s.Equal(int32(1), requeued.Load())
+	s.Equal(int32(1), c.requeued.Load())
 	row := s.onlyRow()
 	s.Equal(authm.AuthEmailStatusPending, row.Status)
 	s.Equal(0, row.Attempts, "with its claim's attempt undone")
+}
+
+func (s *AuthEmailOutboxSuite) TestPanickingRow_FailedOnceAndNeighboursSent() {
+	for _, email := range []string{"poison@example.com", "fine-1@example.com", "fine-2@example.com", "fine-3@example.com"} {
+		user := s.verifiedUser(email)
+		s.enqueue(authm.AuthEmailKindMagicLink, user.ID)
+	}
+	s.sender.onSend = func(to string) {
+		if to == "poison@example.com" {
+			panic("template exploded")
+		}
+	}
+
+	s.NotPanics(func() { s.outbox.RunNow(context.Background()) }, "a panicking row must not escape the tick")
+
+	var poison, fine int
+	for _, row := range s.rows() {
+		user, err := s.users.GetUserByID(row.UserID)
+		s.Require().NoError(err)
+		if *user.Email == "poison@example.com" {
+			poison++
+			s.Equal(authm.AuthEmailStatusFailed, row.Status, "the panicking row is retired, not left processing")
+			s.Require().NotNil(row.LastError)
+			s.Contains(*row.LastError, "panic while sending")
+			continue
+		}
+		fine++
+		s.Equal(authm.AuthEmailStatusSent, row.Status, "the batch's other rows are still sent")
+	}
+	s.Equal(1, poison)
+	s.Equal(3, fine)
 }
 
 func (s *AuthEmailOutboxSuite) TestStrandedProcessingRow_ReclaimedAndSent() {
@@ -422,7 +453,7 @@ func (s *AuthEmailOutboxSuite) TestCanceledTick_RequeuesUnreachedRowsWithoutAtte
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	s.sender.onSend = cancel
+	s.sender.onSend = func(string) { cancel() }
 	s.outbox.workers = 1 // the second row is reached only after the cancel
 	s.outbox.RunNow(ctx)
 
