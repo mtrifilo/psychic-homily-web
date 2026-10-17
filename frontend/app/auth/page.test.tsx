@@ -513,6 +513,49 @@ describe('AuthPage', () => {
     })
   })
 
+  // The OAuth link callback sends a closed account here, because its session
+  // no longer opens Settings where every other link result is shown.
+  describe('OAuth link refused for a closed account', () => {
+    const MESSAGE =
+      'Your account is unavailable, so the provider was not connected; please contact support.'
+
+    it('shows the refusal above the ordinary sign-in form', () => {
+      setSearchParams('reason=ACCOUNT_INACTIVE')
+      renderWithProviders(<AuthPage />)
+
+      expect(screen.getByRole('alert')).toHaveTextContent(MESSAGE)
+      // Not a re-authentication: signing in again cannot fix this, so the
+      // page keeps its own heading and both tabs.
+      expect(screen.getByText('Welcome to Psychic Homily')).toBeInTheDocument()
+      expect(screen.queryByText("Confirm it's you")).not.toBeInTheDocument()
+      expect(screen.getByRole('tab', { name: 'Sign in' })).toHaveAttribute(
+        'aria-selected',
+        'true'
+      )
+      expect(screen.getByRole('tab', { name: 'Create account' })).toBeInTheDocument()
+    })
+
+    it('sends a signed-in reader on without showing it', async () => {
+      mockAuthState = { setUser: vi.fn(), authStatus: 'authenticated' }
+      setSearchParams('reason=ACCOUNT_INACTIVE')
+      renderWithProviders(<AuthPage />)
+
+      await waitFor(() => expect(mockPush).toHaveBeenCalledWith('/'))
+      expect(screen.queryByText(MESSAGE)).not.toBeInTheDocument()
+    })
+
+    it('shows nothing for another reason or none', () => {
+      setSearchParams('reason=account_inactive')
+      const { unmount } = renderWithProviders(<AuthPage />)
+      expect(screen.queryByText(MESSAGE)).not.toBeInTheDocument()
+      unmount()
+
+      setSearchParams('')
+      renderWithProviders(<AuthPage />)
+      expect(screen.queryByText(MESSAGE)).not.toBeInTheDocument()
+    })
+  })
+
   // The OAuth callback refuses to create an account from a sign-in that
   // carried no consent, and names the refusal in ?error_code beside the
   // message in ?error.

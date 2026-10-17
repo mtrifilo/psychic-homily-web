@@ -337,7 +337,14 @@ func (h *OAuthHTTPHandler) completeOAuthLink(
 // redirectToLinkResult returns the browser to Settings. An empty code is the
 // success case; any other value is an error code the panel maps to its own
 // copy. Codes, not sentences: see the parameter's own comment.
+//
+// ACCOUNT_INACTIVE is the one code that does not go to Settings: see
+// redirectToAccountUnavailable.
 func redirectToLinkResult(w http.ResponseWriter, r *http.Request, frontendURL, code string) {
+	if code == autherrors.CodeAccountInactive {
+		redirectToAccountUnavailable(w, r, frontendURL)
+		return
+	}
 	query := url.Values{oauthLinkSettingsTabKey: {oauthLinkSettingsTabValue}}
 	if code == "" {
 		query.Set(oauthLinkResultParam, "connected")
@@ -359,10 +366,27 @@ func redirectToReauth(w http.ResponseWriter, r *http.Request, frontendURL string
 		oauthLinkSettingsTabKey: {oauthLinkSettingsTabValue},
 	}.Encode()
 	query := url.Values{
-		oauthReturnToParam: {settings},
-		"reason":           {oauthLinkErrorReauthRequired},
+		oauthReturnToParam:  {settings},
+		authPageReasonParam: {oauthLinkErrorReauthRequired},
 	}
-	http.Redirect(w, r, frontendURL+"/auth?"+query.Encode(), http.StatusTemporaryRedirect)
+	http.Redirect(w, r, frontendURL+oauthAuthPagePath+"?"+query.Encode(), http.StatusTemporaryRedirect)
+}
+
+// authPageReasonParam is the query key the frontend auth page reads to say why
+// the reader was sent there (frontend/lib/auth-href.ts).
+const authPageReasonParam = "reason"
+
+// redirectToAccountUnavailable answers a link refused because the account may
+// no longer sign in. Settings cannot show that refusal: a closed account's
+// session no longer opens it, so the code would reach the reader only inside
+// the returnTo the Settings guard builds. The sign-in page reads the code from
+// reason and renders its own copy for it.
+//
+// It carries no returnTo. A destination kept here would, once the account is
+// reactivated, return its owner to a refusal that is no longer true.
+func redirectToAccountUnavailable(w http.ResponseWriter, r *http.Request, frontendURL string) {
+	query := url.Values{authPageReasonParam: {autherrors.CodeAccountInactive}}
+	http.Redirect(w, r, frontendURL+oauthAuthPagePath+"?"+query.Encode(), http.StatusTemporaryRedirect)
 }
 
 // jwtSecret signs the one-time link token. The same secret the session uses:

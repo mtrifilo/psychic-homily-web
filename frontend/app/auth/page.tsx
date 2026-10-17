@@ -36,6 +36,7 @@ import {
   type SignupRequestDeadline,
 } from '@/app/auth/_components/signup-request-deadline'
 import {
+  ACCOUNT_INACTIVE_REASON,
   AUTH_ERROR_PARAM,
   hasGatedIntent,
   isReauthReason,
@@ -50,6 +51,12 @@ import {
 
 // The id of the message banner an OAuth refusal puts above the auth card.
 const URL_ERROR_ID = 'auth-url-error'
+
+// Shown for ACCOUNT_INACTIVE_REASON. Fixed copy keyed by the code, never text
+// from the URL. It says no more about the account than "unavailable", the
+// same restraint as the backend's own refusal message.
+const ACCOUNT_INACTIVE_MESSAGE =
+  'Your account is unavailable, so the provider was not connected; please contact support.'
 
 // Password validation constants
 const MIN_PASSWORD_LENGTH = 12
@@ -693,6 +700,12 @@ function AuthPageContent() {
   // that just refused them, with nothing changed and no way to tell why.
   const isReauth = isReauthReason(searchParams.get('reason'))
 
+  // An OAuth link refused because the account may no longer sign in. The
+  // reader's session no longer counts as signed in, so the ordinary form is
+  // what they see; the banner says why the link did not finish.
+  const isAccountInactive =
+    searchParams.get('reason') === ACCOUNT_INACTIVE_REASON
+
   // Two arrivals open on Create account: a gated control naming the action it
   // refused an anonymous viewer, and an OAuth sign-in refused for want of the
   // consent only that tab records, whose message the banner above the card
@@ -840,6 +853,13 @@ function AuthPageContent() {
             <AlertDescription id={URL_ERROR_ID}>
               {urlError}
             </AlertDescription>
+          </Alert>
+        )}
+
+        {isAccountInactive && (
+          <Alert variant="destructive" className="mb-6">
+            <AlertCircle className="h-4 w-4" />
+            <AlertDescription>{ACCOUNT_INACTIVE_MESSAGE}</AlertDescription>
           </Alert>
         )}
 

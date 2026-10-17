@@ -77,10 +77,48 @@ export function buildAuthHref(returnTo: string): string {
  * `SignInLink`, `nav/BottomTabBar`'s signed-out Account sheet, and
  * `components/shared/CredentialErrorMessage`. A fifth belongs beside them, not
  * as a fresh formula.
+ *
+ * An OAuth link result is left out of the query. Settings reads it once, on
+ * the redirect that delivers it; kept in returnTo it would replay after any
+ * later sign-in through this link, however long after it stopped being true.
  */
 export function currentLocationReturnTo(pathname: string): string {
   const search = typeof window === 'undefined' ? '' : window.location.search
-  return `${pathname}${search}`
+  return `${pathname}${withoutOAuthLinkResult(search)}`
+}
+
+/**
+ * The query parameters the backend's OAuth link redirect delivers its result
+ * under, read by the Settings panel. The backend writes them as
+ * `oauthLinkResultParam` and `oauthLinkErrorParam` in
+ * `backend/internal/api/handlers/auth/oauth_link.go`; the names on both sides
+ * must stay the same.
+ */
+export const OAUTH_LINK_RESULT_PARAM = 'oauth_link'
+export const OAUTH_LINK_ERROR_PARAM = 'oauth_link_error'
+
+const OAUTH_LINK_RESULT_PARAMS: readonly string[] = [
+  OAUTH_LINK_RESULT_PARAM,
+  OAUTH_LINK_ERROR_PARAM,
+]
+
+/**
+ * `search` without the OAuth link result parameters. Every other parameter
+ * keeps the spelling the location gave it, so a destination that carries no
+ * link result comes back byte for byte. A name is compared decoded, the way
+ * Settings reads it, so an encoded spelling of a link parameter is dropped
+ * too.
+ */
+function withoutOAuthLinkResult(search: string): string {
+  const kept = search
+    .replace(/^\?/, '')
+    .split('&')
+    .filter(pair => {
+      if (pair === '') return false
+      const [name] = new URLSearchParams(pair).keys()
+      return !OAUTH_LINK_RESULT_PARAMS.includes(name)
+    })
+  return kept.length === 0 ? '' : `?${kept.join('&')}`
 }
 
 /**
@@ -115,6 +153,18 @@ export const REAUTH_REASONS: readonly string[] = [
 export function isReauthReason(reason: string | null): boolean {
   return reason !== null && REAUTH_REASONS.includes(reason)
 }
+
+/**
+ * The reason the backend puts on an `/auth` link when an OAuth link was
+ * refused because the account may no longer sign in. It is the backend error
+ * code verbatim (autherrors.CodeAccountInactive), written by
+ * redirectToAccountUnavailable in
+ * backend/internal/api/handlers/auth/oauth_link.go.
+ *
+ * Not a re-authentication reason: signing in again cannot satisfy it, so the
+ * page keeps its ordinary sign-in form and adds the refusal's own copy.
+ */
+export const ACCOUNT_INACTIVE_REASON = 'ACCOUNT_INACTIVE'
 
 /**
  * The auth-page href for a reader who is signed in and has to prove it again.

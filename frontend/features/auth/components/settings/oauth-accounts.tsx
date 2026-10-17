@@ -9,6 +9,7 @@ import {
   useUnlinkOAuthAccount,
 } from '@/features/auth'
 import { oauthLinkStartUrl } from '@/features/auth/oauthLinkStart'
+import { OAUTH_LINK_ERROR_PARAM, OAUTH_LINK_RESULT_PARAM } from '@/lib/auth-href'
 // Subpath import, not the shared barrel: this panel is reachable from a
 // browse route and the barrel pulls the whole shared surface into its chunk.
 import { InlineErrorBanner } from '@/components/shared/InlineErrorBanner'
@@ -56,14 +57,6 @@ function GoogleIcon({ className }: { className?: string }) {
     </svg>
   )
 }
-
-/**
- * How the backend reports a finished link attempt on the redirect back here.
- * The same two names are written by redirectToLinkResult in
- * backend/internal/api/handlers/auth/oauth_link.go.
- */
-const OAUTH_LINK_RESULT_PARAM = 'oauth_link'
-const OAUTH_LINK_ERROR_PARAM = 'oauth_link_error'
 
 type OAuthLinkResult =
   | { status: 'connected' }
