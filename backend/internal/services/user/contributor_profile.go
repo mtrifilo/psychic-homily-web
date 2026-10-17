@@ -164,8 +164,8 @@ func contributionStatActionNames() []string {
 
 // GetPublicProfile returns a user's public profile with privacy-gated fields.
 // A username Postgres rejects as text (authm.PostgresRejectsText) is not found,
-// and so is a deactivated or soft-deleted account (authm.LiveAccountSQL), so a
-// closed account cannot be told apart from a username no account holds.
+// and so is a deactivated or soft-deleted account (authm.LiveAccountSQL): this
+// method answers a closed account exactly as it answers an unknown username.
 func (s *ContributorProfileService) GetPublicProfile(username string, viewer contracts.ShowViewer) (*contracts.PublicProfileResponse, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")

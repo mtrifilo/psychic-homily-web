@@ -13,9 +13,7 @@ func (u *User) CanSignIn() bool {
 }
 
 // LiveAccountSQL is the WHERE fragment that keeps, from the users table under
-// alias, exactly the accounts CanSignIn accepts. Every read that must leave out
-// deactivated and soft-deleted accounts (recipients, follower lists, public
-// profile lookups) filters with it.
+// alias, exactly the accounts CanSignIn accepts.
 //
 // It reads is_active alone because users_live_account_check refuses is_active
 // true with deleted_at set, so every soft-deleted row is already inactive. It
