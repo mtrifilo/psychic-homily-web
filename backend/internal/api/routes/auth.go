@@ -120,15 +120,17 @@ func authScopedRateLimiter(name middleware.LimiterName, requestsPerMinute int) f
 	return ipRateLimiter(name, requestsPerMinute, time.Minute)
 }
 
-// authScopedUserRateLimiter is authScopedRateLimiter keyed by the session user
-// instead of the client address, for a route that already sits behind
-// HumaJWTMiddleware. It honors the same DISABLE_AUTH_RATE_LIMITS escape hatch,
-// and each call likewise returns a limiter with its own counter.
-func authScopedUserRateLimiter(jwtService *auth.JWTService, name middleware.LimiterName, requestsPerMinute int) func(http.Handler) http.Handler {
+// authScopedUserRateLimiter meters a route that already sits behind
+// HumaJWTMiddleware with middleware.RateLimitBySessionUser: userLimiter keyed by
+// the session user, inside it ipCeilingLimiter keyed by the client address. It
+// honors the same DISABLE_AUTH_RATE_LIMITS escape hatch as authScopedRateLimiter,
+// which turns both off. Each limiter keeps its own counter, so routes share a
+// budget only when they are handed the same limiters.
+func authScopedUserRateLimiter(jwtService *auth.JWTService, userLimiter, ipCeilingLimiter func(http.Handler) http.Handler) func(http.Handler) http.Handler {
 	if IsAuthRateLimitDisabled(os.Getenv) {
 		return noopRateLimiter()
 	}
-	return middleware.RateLimitBySessionUser(jwtService, name, requestsPerMinute)
+	return middleware.RateLimitBySessionUser(jwtService, userLimiter, ipCeilingLimiter)
 }
 
 // useAuthBudget puts limiter in front of every operation registered on group
@@ -330,12 +332,14 @@ func setupPasskeyRoutes(rc RouteContext) {
 
 	// Adding a passkey to a signed-in account. Begin meters each account on a
 	// budget of its own, keyed by the session user, so accounts behind one
-	// address do not share it. The group hangs off rc.Protected, so
+	// address do not share it, and every account behind one address together
+	// on a per-IP ceiling. The group hangs off rc.Protected, so
 	// HumaJWTMiddleware runs first and a caller with no session is refused
-	// before reaching the counter. Finish carries no per-route limiter, for the
-	// same reason the sign-up finish is kept off a begin budget.
+	// before reaching either counter. Finish carries no per-route limiter, for
+	// the same reason the sign-up finish is kept off a begin budget.
 	registerBeginGroup := huma.NewGroup(rc.Protected, "")
-	useAuthBudget(registerBeginGroup, authScopedUserRateLimiter(rc.SC.JWT, middleware.LimiterPasskeyRegisterBegin, middleware.PasskeyRegisterBeginRequestsPerMinute))
+	useAuthBudget(registerBeginGroup, authScopedUserRateLimiter(rc.SC.JWT,
+		middleware.RateLimitPasskeyRegisterBeginUser(), middleware.RateLimitPasskeyRegisterBeginIPCeiling()))
 	huma.Post(registerBeginGroup, "/auth/passkey/register/begin", passkeyHandler.BeginRegisterHandler)
 	huma.Post(rc.Protected, "/auth/passkey/register/finish", passkeyHandler.FinishRegisterHandler)
 

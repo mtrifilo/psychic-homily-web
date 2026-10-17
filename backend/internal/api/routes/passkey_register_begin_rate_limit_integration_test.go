@@ -1,6 +1,7 @@
 package routes
 
 import (
+	"fmt"
 	"net/http"
 	"strings"
 	"testing"
@@ -146,4 +147,52 @@ func TestPasskeyRegisterBeginThrottledThroughRouter(t *testing.T) {
 			requireRegisterBeginReached(t, router, ip, session, "refused with the rate limits disabled")
 		}
 	})
+}
+
+// Every account behind one address together is bounded by the per-IP ceiling,
+// while each stays bounded by its own budget. Filling the ceiling takes
+// ceiling/budget accounts spending their whole budgets; one more account, its
+// own budget untouched, is then refused by the ceiling, and only on that
+// address.
+func TestPasskeyRegisterBeginIPCeilingThroughRouter(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test in short mode")
+	}
+	newRouter, signIn := passkeyRegisterFixture(t)
+	t.Setenv(DisableAuthRateLimitsEnvVar, "")
+	router := newRouter()
+	const ip = "198.51.100.130:4444"
+
+	accounts := passkeyRegisterBeginIPCeiling / passkeyRegisterBeginLimitPerMinute
+	sessions := make([]string, accounts)
+	for a := range sessions {
+		sessions[a] = signIn(fmt.Sprintf("passkey-register-ceiling-%d@test.com", a))
+		for i := 0; i < passkeyRegisterBeginLimitPerMinute; i++ {
+			requireRegisterBeginReached(t, router, ip, sessions[a],
+				fmt.Sprintf("account %d begin %d refused below both its own budget and the ceiling", a+1, i+1))
+		}
+	}
+
+	// An account past its own budget is refused by its own limiter, not the
+	// ceiling, even with the ceiling full.
+	req := jsonRequest(http.MethodPost, passkeyRegisterBeginPath, ip)
+	req.Header.Set("Authorization", "Bearer "+sessions[0])
+	refused, limiters := serveLoggingRejections(router, req)
+	assertJSONRefusal(t, refused, "POST "+passkeyRegisterBeginPath+" past the account's own budget")
+	if len(limiters) != 1 || limiters[0] != string(middleware.LimiterPasskeyRegisterBegin) {
+		t.Errorf("own-budget rejection lines name limiters %v, want exactly [%s]", limiters, middleware.LimiterPasskeyRegisterBegin)
+	}
+
+	fresh := signIn("passkey-register-ceiling-fresh@test.com")
+	req = jsonRequest(http.MethodPost, passkeyRegisterBeginPath, ip)
+	req.Header.Set("Authorization", "Bearer "+fresh)
+	refused, limiters = serveLoggingRejections(router, req)
+	assertJSONRefusal(t, refused, "POST "+passkeyRegisterBeginPath+" on a full ceiling")
+	if len(limiters) != 1 || limiters[0] != string(middleware.LimiterPasskeyRegisterBeginIPCeiling) {
+		t.Errorf("ceiling rejection lines name limiters %v, want exactly [%s]", limiters, middleware.LimiterPasskeyRegisterBeginIPCeiling)
+	}
+
+	// The ceiling is per address: the same fresh account from another one is
+	// served.
+	requireRegisterBeginReached(t, router, "198.51.100.131:4444", fresh, "refused by another address's ceiling")
 }
