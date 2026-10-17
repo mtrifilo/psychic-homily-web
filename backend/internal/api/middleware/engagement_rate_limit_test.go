@@ -235,7 +235,7 @@ func TestRateLimitMutationsByUser_StandaloneLimiterFailsLoud(t *testing.T) {
 func sessionUserMW(jwtService *auth.JWTService, perUser, ceiling int) func(http.Handler) http.Handler {
 	return RateLimitBySessionUser(jwtService,
 		perUserMutationLimiter(LimiterPasskeyRegisterBegin, perUser, time.Minute),
-		limiterSpec{name: LimiterPasskeyRegisterBeginIPCeiling, limit: ceiling, window: time.Minute, key: KeyByClientIP}.handler())
+		perIPLimiter(LimiterPasskeyRegisterBeginIPCeiling, ceiling, time.Minute))
 }
 
 // A session-user budget is perUser deep for each account wherever it connects

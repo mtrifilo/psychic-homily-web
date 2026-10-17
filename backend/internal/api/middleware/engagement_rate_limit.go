@@ -88,6 +88,13 @@ func perUserMutationLimiter(name LimiterName, limit int, window time.Duration) f
 	return limiterSpec{name: name, limit: limit, window: window, key: mutationUserKeyFunc}.handler()
 }
 
+// perIPLimiter builds one per-IP window: limit requests per window, keyed by
+// KeyByClientIP, with its own httprate store and the JSON 429 naming the
+// window's length in Retry-After.
+func perIPLimiter(name LimiterName, limit int, window time.Duration) func(http.Handler) http.Handler {
+	return limiterSpec{name: name, limit: limit, window: window, key: KeyByClientIP}.handler()
+}
+
 // RateLimitEngagementMutationBurst is the shared budget's minute window. Pair
 // with RateLimitMutationsByUser, which supplies the user id via context.
 func RateLimitEngagementMutationBurst() func(http.Handler) http.Handler {
@@ -150,12 +157,7 @@ func RateLimitPasskeyRegisterBeginUser() func(http.Handler) http.Handler {
 // the address bucket, and the user limiter's lines fingerprint the account
 // bucket, so a refusal line names the bucket that refused.
 func RateLimitPasskeyRegisterBeginIPCeiling() func(http.Handler) http.Handler {
-	return limiterSpec{
-		name:   LimiterPasskeyRegisterBeginIPCeiling,
-		limit:  PasskeyRegisterBeginIPCeilingPerMinute,
-		window: time.Minute,
-		key:    KeyByClientIP,
-	}.handler()
+	return perIPLimiter(LimiterPasskeyRegisterBeginIPCeiling, PasskeyRegisterBeginIPCeilingPerMinute, time.Minute)
 }
 
 // meterSessionUser routes a request carrying a verified session token through
