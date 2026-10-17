@@ -1,7 +1,14 @@
 package user
 
 import (
+	"encoding/json"
+	"fmt"
+	"time"
+
+	adminm "psychic-homily-backend/internal/models/admin"
 	authm "psychic-homily-backend/internal/models/auth"
+	catalogm "psychic-homily-backend/internal/models/catalog"
+	communitym "psychic-homily-backend/internal/models/community"
 	"psychic-homily-backend/internal/services/contracts"
 )
 
@@ -35,5 +42,50 @@ func (suite *ContributorProfileServiceIntegrationTestSuite) TestGetPublicProfile
 		suite.Require().NoError(err)
 		suite.Require().NotNil(profile, *u.Username)
 		suite.Equal(*u.Username, profile.Username)
+	}
+}
+
+// The percentile cohort is live accounts only, in the population count and in
+// every dimension: closed accounts with no contributions neither dilute the
+// denominator nor count as ranked below the subject.
+func (suite *ContributorProfileServiceIntegrationTestSuite) TestPercentileRankings_CohortIsLiveAccountsOnly() {
+	live := suite.createManyUsers("livecohort", 10)
+	subject := live[0]
+	closed := suite.createManyUsers("closedcohort", 10)
+	for i, u := range closed {
+		updates := map[string]any{"is_active": false}
+		if i%2 == 1 {
+			updates["deleted_at"] = time.Now()
+		}
+		suite.Require().NoError(suite.db.Model(&authm.User{}).Where("id = ?", u.ID).Updates(updates).Error)
+	}
+
+	show := suite.createShow(subject.ID, "Cohort Show")
+	suite.createVenue(subject.ID, "Cohort Venue")
+	tag := &catalogm.Tag{Name: "cohort tag", Slug: "cohort-tag", Category: catalogm.TagCategoryGenre}
+	suite.Require().NoError(suite.db.Create(tag).Error)
+	suite.Require().NoError(suite.db.Create(&catalogm.EntityTag{
+		TagID: tag.ID, EntityType: "show", EntityID: show.ID, AddedByUserID: subject.ID,
+	}).Error)
+	changes := json.RawMessage(`[{"field":"name","old_value":"Old","new_value":"New"}]`)
+	suite.Require().NoError(suite.db.Create(&adminm.PendingEntityEdit{
+		EntityType: "artist", EntityID: 1, SubmittedBy: subject.ID, FieldChanges: &changes,
+		Summary: "Cohort edit", Status: adminm.PendingEditStatusApproved,
+	}).Error)
+	suite.Require().NoError(suite.db.Create(&communitym.Request{
+		Title: "Cohort request", EntityType: "artist", RequesterID: live[1].ID,
+		FulfillerID: &subject.ID, Status: communitym.RequestStatusFulfilled,
+	}).Error)
+
+	result, err := suite.profileService.GetPercentileRankings(subject.ID)
+	suite.Require().NoError(err)
+	suite.Require().NotNil(result)
+	suite.Require().Len(result.Rankings, len(percentileDimensions))
+	for _, r := range result.Rankings {
+		suite.Equal(int64(1), r.Value, r.Dimension)
+		// 9 of the 10 live accounts have none: 90. Counting the 10 closed
+		// accounts in the population gives 45; counting them as ranked below
+		// gives 100.
+		suite.Equal(90, r.Percentile, fmt.Sprintf("%s percentile", r.Dimension))
 	}
 }

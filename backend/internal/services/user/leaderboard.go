@@ -154,13 +154,13 @@ func (s *LeaderboardService) buildLeaderboardQuery(dimension string, period stri
 		SELECT sub.user_id, u.username, u.avatar_url, u.user_tier, sub.count
 		FROM (%s) sub
 		JOIN users u ON u.id = sub.user_id
-		WHERE `+authm.LiveAccountSQL("u")+`
+		WHERE %s
 		  AND u.username IS NOT NULL
 		  AND (u.privacy_settings IS NULL OR u.privacy_settings->>'contributions' != 'hidden')
 		  AND sub.count > 0
 		ORDER BY sub.count DESC, u.username ASC
 		LIMIT ?
-	`, countSubquery)
+	`, countSubquery, authm.LiveAccountSQL("u"))
 
 	return query, []interface{}{limit}
 }
@@ -190,7 +190,7 @@ func (s *LeaderboardService) buildOverallQuery(periodFilter string, limit int) (
 		LEFT JOIN (%s) tags ON tags.user_id = u.id
 		LEFT JOIN (%s) edits ON edits.user_id = u.id
 		LEFT JOIN (%s) requests ON requests.user_id = u.id
-		WHERE `+authm.LiveAccountSQL("u")+`
+		WHERE %s
 		  AND u.username IS NOT NULL
 		  AND (u.privacy_settings IS NULL OR u.privacy_settings->>'contributions' != 'hidden')
 		  AND (
@@ -213,6 +213,7 @@ func (s *LeaderboardService) buildOverallQuery(periodFilter string, limit int) (
 		tagsSubquery,
 		editsSubquery,
 		requestsSubquery,
+		authm.LiveAccountSQL("u"),
 	)
 
 	return query, []interface{}{limit}

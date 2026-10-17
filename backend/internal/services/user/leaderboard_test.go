@@ -503,6 +503,25 @@ func (suite *LeaderboardServiceIntegrationTestSuite) TestGetLeaderboard_Excludes
 	suite.Equal("active-user", entries[0].Username)
 }
 
+// The overall leaderboard lists live accounts only.
+func (suite *LeaderboardServiceIntegrationTestSuite) TestGetLeaderboard_OverallExcludesClosedAccounts() {
+	active := suite.createTestUser("overall-active")
+	deactivated := suite.createTestUser("overall-deactivated")
+	deleted := suite.createTestUser("overall-deleted")
+	for _, u := range []*authm.User{active, deactivated, deleted} {
+		suite.createShow(u.ID, "Overall Show "+*u.Username)
+	}
+	suite.Require().NoError(suite.db.Model(&authm.User{}).Where("id = ?", deactivated.ID).
+		Update("is_active", false).Error)
+	suite.Require().NoError(suite.db.Model(&authm.User{}).Where("id = ?", deleted.ID).
+		Updates(map[string]any{"is_active": false, "deleted_at": time.Now()}).Error)
+
+	entries, err := suite.leaderboardService.GetLeaderboard("overall", "all_time", 25)
+	suite.Require().NoError(err)
+	suite.Require().Len(entries, 1)
+	suite.Equal("overall-active", entries[0].Username)
+}
+
 func (suite *LeaderboardServiceIntegrationTestSuite) TestGetLeaderboard_LimitClamped() {
 	alice := suite.createTestUser("alice-limit")
 	suite.createShow(alice.ID, "Show Limit")
