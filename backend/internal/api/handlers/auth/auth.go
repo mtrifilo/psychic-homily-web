@@ -44,14 +44,15 @@ func validateSignupAgeConfirmation(ageConfirmed bool, minAgeAttested int) (code,
 }
 
 // refuseStaleConsentVersions returns the refusal for an account creation
-// whose terms or privacy version is not the current one, or nil when both are.
-// An empty, stale or unknown version is an acceptance of some document other
-// than the current one, so it answers TERMS_ACCEPTANCE_REQUIRED.
+// whose terms or privacy version legal.AcceptedVersions does not accept now, or
+// nil when it does. An empty, stale or unknown version is an acceptance of some
+// document other than one an account may be created with, so it answers
+// TERMS_ACCEPTANCE_REQUIRED.
 func refuseStaleConsentVersions(termsVersion, privacyVersion string) *autherrors.AuthError {
-	if legal.AcceptsCurrentVersions(termsVersion, privacyVersion) {
+	if legal.AcceptedVersions(termsVersion, privacyVersion, time.Now()) {
 		return nil
 	}
-	return autherrors.ErrTermsAcceptanceRequired("terms or privacy version is not current")
+	return autherrors.ErrTermsAcceptanceRequired("terms or privacy version is not accepted")
 }
 
 // maxProfileFieldRunes bounds the user-supplied profile text columns in RUNES,
@@ -676,8 +677,8 @@ type RegisterRequest struct {
 		FirstName      *string `json:"first_name,omitempty" example:"John" doc:"User first name (optional)"`
 		LastName       *string `json:"last_name,omitempty" example:"Doe" doc:"User last name (optional)"`
 		TermsAccepted  bool    `json:"terms_accepted" doc:"Whether user accepted Terms of Service"`
-		TermsVersion   string  `json:"terms_version,omitempty" doc:"Accepted Terms of Service version; anything other than the current version is refused with TERMS_ACCEPTANCE_REQUIRED"`
-		PrivacyVersion string  `json:"privacy_version,omitempty" doc:"Accepted Privacy Policy version; anything other than the current version is refused with TERMS_ACCEPTANCE_REQUIRED"`
+		TermsVersion   string  `json:"terms_version,omitempty" doc:"Accepted Terms of Service version: the current one, or the previous one while a grace window is open (both published at GET /legal/versions); anything else is refused with TERMS_ACCEPTANCE_REQUIRED"`
+		PrivacyVersion string  `json:"privacy_version,omitempty" doc:"Accepted Privacy Policy version: the current one, or the previous one while a grace window is open (both published at GET /legal/versions); anything else is refused with TERMS_ACCEPTANCE_REQUIRED"`
 		AgeConfirmed   bool    `json:"age_confirmed" doc:"Whether user confirmed they meet the minimum age"`
 		MinAgeAttested int     `json:"min_age_attested,omitempty" doc:"Minimum age the user attested to"`
 	}
