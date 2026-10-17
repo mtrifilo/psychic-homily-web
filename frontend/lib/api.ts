@@ -156,6 +156,8 @@ export const API_ENDPOINTS = {
       DELETE_ALIAS: (artistId: string | number, aliasId: string | number) =>
         `${API_BASE_URL}/admin/artists/${artistId}/aliases/${aliasId}`,
       MERGE: `${API_BASE_URL}/admin/artists/merge`,
+      DISCOVER_MUSIC: (artistId: string | number) =>
+        `${API_BASE_URL}/admin/artists/${artistId}/discover-music`,
       // Streaming-discovery triage status mutation. Engine seam: the
       // worklist concentrates the state write; the discovery engine
       // itself stays stateless. See StreamingWorklist.tsx.

@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeAll, beforeEach, afterAll } from 'vitest'
+import { describe, it, expect, vi, beforeAll, beforeEach, afterAll, onTestFinished } from 'vitest'
 import { renderHook, waitFor, act } from '@testing-library/react'
 import { createWrapper, createWrapperWithClient, createTestQueryClient } from '@/test/utils'
 import { server } from '@/test/mocks/server'
@@ -124,8 +124,10 @@ describe('useAdminArtists', () => {
 
       await waitFor(() => expect(result.current.isSuccess).toBe(true))
 
+      // The backend origin (NEXT_PUBLIC_API_URL in vitest.config.mts), never
+      // the site's own /api path: deployed sites do not serve that proxy.
       expect(mockFetch).toHaveBeenCalledWith(
-        '/api/admin/artists/123/discover-music',
+        'http://localhost:8080/admin/artists/123/discover-music',
         expect.objectContaining({
           method: 'POST',
           credentials: 'include',
@@ -137,7 +139,7 @@ describe('useAdminArtists', () => {
     })
 
     it('surfaces the Huma `detail` error string on failure', async () => {
-      // The backend (via the catch-all proxy) returns Huma errors as `detail`.
+      // The backend returns Huma errors as `detail`.
       mockFetch.mockResolvedValueOnce({
         ok: false,
         status: 502,
@@ -178,6 +180,75 @@ describe('useAdminArtists', () => {
       expect((result.current.error as Error).message).toBe(
         'Discovery is rate-limited right now — try again in about a minute.'
       )
+    })
+
+    it("surfaces the development proxy's `error` body when there is no `detail`", async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: false,
+        status: 502,
+        headers: new Headers(),
+        json: async () => ({ error: 'Backend service unavailable' }),
+      })
+
+      const { result } = renderHook(() => useDiscoverMusic(), {
+        wrapper: createWrapper(),
+      })
+
+      await act(async () => {
+        result.current.mutate(999)
+      })
+
+      await waitFor(() => expect(result.current.isError).toBe(true))
+
+      expect((result.current.error as Error).message).toBe(
+        'Backend service unavailable'
+      )
+    })
+
+    it('falls back to the HTTP status when the error body is not JSON', async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: false,
+        status: 504,
+        headers: new Headers(),
+        json: async () => {
+          throw new SyntaxError('Unexpected token < in JSON at position 0')
+        },
+      })
+
+      const { result } = renderHook(() => useDiscoverMusic(), {
+        wrapper: createWrapper(),
+      })
+
+      await act(async () => {
+        result.current.mutate(999)
+      })
+
+      await waitFor(() => expect(result.current.isError).toBe(true))
+
+      expect((result.current.error as Error).message).toBe(
+        'Discovery failed (HTTP 504)'
+      )
+    })
+
+    it('bounds the request with a 70 s client-side timeout signal', async () => {
+      const timeoutSpy = vi.spyOn(AbortSignal, 'timeout')
+      onTestFinished(() => timeoutSpy.mockRestore())
+      mockFetchResponse({ artist_id: 123, candidates: [] })
+
+      const { result } = renderHook(() => useDiscoverMusic(), {
+        wrapper: createWrapper(),
+      })
+
+      await act(async () => {
+        result.current.mutate(123)
+      })
+
+      await waitFor(() => expect(result.current.isSuccess).toBe(true))
+
+      expect(timeoutSpy).toHaveBeenCalledTimes(1)
+      expect(timeoutSpy).toHaveBeenCalledWith(70_000)
+      const init = mockFetch.mock.calls[0][1] as RequestInit
+      expect(init.signal).toBe(timeoutSpy.mock.results[0].value)
     })
 
     it('maps the client-side AbortSignal timeout to a friendly message', async () => {
