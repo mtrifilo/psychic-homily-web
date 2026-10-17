@@ -53,10 +53,15 @@ beforeEach(() => {
   vi.resetAllMocks()
   setAuthToken()
   fetchSpy = vi.spyOn(globalThis, 'fetch')
+  // The proxy forwards only in development (lib/dev-api-proxy); vitest runs
+  // with NODE_ENV=test, so every forwarding test opts in here.
+  vi.stubEnv('NODE_ENV', 'development')
+  vi.stubEnv('ENABLE_DEV_API_PROXY', undefined)
 })
 
 afterEach(() => {
   fetchSpy.mockRestore()
+  vi.unstubAllEnvs()
 })
 
 describe('api/[...path] proxy route', () => {
@@ -459,14 +464,60 @@ describe('api/[...path] proxy route', () => {
 
   describe('OPTIONS preflight', () => {
     it('short-circuits with 204 and does not hit the backend', async () => {
-      const req = new NextRequest('http://localhost:3000/api/shows', {
-        method: 'OPTIONS',
-      })
-      const res = await OPTIONS(req)
+      const res = await OPTIONS()
 
       expect(res.status).toBe(204)
       expect(fetchSpy).not.toHaveBeenCalled()
       expect(await res.text()).toBe('')
+    })
+  })
+
+  describe('outside development', () => {
+    beforeEach(() => {
+      vi.stubEnv('NODE_ENV', 'production')
+    })
+
+    it.each([
+      { method: 'GET', handler: GET },
+      { method: 'POST', handler: POST },
+      { method: 'PUT', handler: PUT },
+      { method: 'DELETE', handler: DELETE },
+      { method: 'PATCH', handler: PATCH },
+    ])(
+      '$method answers 404 without calling the backend or reading cookies',
+      async ({ method, handler }) => {
+        setAuthToken('abc123')
+        const req = new NextRequest('http://localhost:3000/api/health', {
+          method,
+          body: method === 'GET' ? undefined : '{}',
+        })
+        const res = await handler(req)
+
+        expect(res.status).toBe(404)
+        expect(await res.json()).toEqual({ error: 'Not found' })
+        expect(fetchSpy).not.toHaveBeenCalled()
+        expect(mockCookies).not.toHaveBeenCalled()
+        expect(mockRevalidatePath).not.toHaveBeenCalled()
+      }
+    )
+
+    it('OPTIONS answers the same 404 instead of a preflight 204', async () => {
+      const res = await OPTIONS()
+
+      expect(res.status).toBe(404)
+      expect(await res.json()).toEqual({ error: 'Not found' })
+      expect(fetchSpy).not.toHaveBeenCalled()
+    })
+
+    it('forwards when ENABLE_DEV_API_PROXY=1 overrides the gate', async () => {
+      vi.stubEnv('ENABLE_DEV_API_PROXY', '1')
+      fetchSpy.mockResolvedValue(new Response('ok', { status: 200 }))
+
+      const res = await GET(new NextRequest('http://localhost:3000/api/health'))
+
+      expect(res.status).toBe(200)
+      expect(fetchSpy).toHaveBeenCalledTimes(1)
+      expect(fetchSpy.mock.calls[0][0]).toBe(`${BACKEND}/health`)
     })
   })
 
