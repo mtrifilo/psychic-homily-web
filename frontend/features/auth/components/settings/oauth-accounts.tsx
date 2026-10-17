@@ -107,6 +107,11 @@ const OAUTH_LINK_ERROR_COPY = new Map<string, string>([
     'Sign in again, then connect the provider from this page.',
   ],
   [
+    // Says no more about the account than the backend's own refusal does.
+    'ACCOUNT_INACTIVE',
+    'Your account is unavailable, so the provider was not connected. Please contact support.',
+  ],
+  [
     'USER_EXISTS',
     'An account already uses that email address. Sign in to it instead.',
   ],

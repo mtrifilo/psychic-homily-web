@@ -361,25 +361,32 @@ func OptionalHumaJWTMiddleware(jwtService *auth.JWTService) func(ctx huma.Contex
 	}
 }
 
-// GetUserFromContext extracts user from request context
-// SessionUserIDFromRequest resolves the signed-in user from a request that did
-// NOT pass through the JWT middleware, returning ok=false when there is no
-// usable session credential.
+// SessionUserFromRequest resolves the signed-in account from a request that did
+// NOT pass through the JWT middleware, with the checks that middleware applies
+// (JWTService.ValidateSession): a valid session credential naming an account
+// that may still sign in. err is non-nil whenever the request establishes no
+// such account; errors.Is(err, auth.ErrSessionAccountMayNotSignIn) separates a
+// closed account from a missing or invalid credential.
 //
 // The OAuth callback is such a request: it is a public route, because the
 // provider redirects the browser to it, yet the link path has to know whether
-// the person finishing a handshake is still the person who started it. Reading
-// the credential here rather than at the call site keeps every read of the
-// auth cookie in this file.
-func SessionUserIDFromRequest(jwtService *auth.JWTService, r *http.Request) (uint, bool) {
+// the person finishing a handshake is still the person who started it, and
+// whether that account may still gain a way to sign in. Reading the credential
+// here rather than at the call site keeps every read of the auth cookie in this
+// file.
+func SessionUserFromRequest(jwtService *auth.JWTService, r *http.Request) (*authm.User, error) {
 	if jwtService == nil || r == nil {
-		return 0, false
+		return nil, errors.New("no session resolver for this request")
 	}
 	token, _ := credentialFromRequest(r)
 	if token == "" {
-		return 0, false
+		return nil, autherrors.ErrTokenMissing()
 	}
-	return jwtService.SessionUserID(token)
+	user, _, err := jwtService.ValidateSession(token)
+	if err != nil {
+		return nil, err
+	}
+	return user, nil
 }
 
 // GetSessionAuthTimeFromContext returns when an authentication factor last
@@ -391,6 +398,7 @@ func GetSessionAuthTimeFromContext(ctx context.Context) time.Time {
 	return authAt
 }
 
+// GetUserFromContext extracts user from request context
 func GetUserFromContext(ctx context.Context) *authm.User {
 	if user, ok := ctx.Value(UserContextKey).(*authm.User); ok {
 		return user

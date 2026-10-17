@@ -22,12 +22,17 @@ import (
 )
 
 // mockOAuthCompleter implements contracts.OAuthCompleter for testing
+// mockOAuthCompleter stands in for the provider token exchange. calls counts
+// the exchanges, so a test can assert that a refusal came before the provider
+// was contacted.
 type mockOAuthCompleter struct {
-	user goth.User
-	err  error
+	user  goth.User
+	err   error
+	calls int
 }
 
 func (m *mockOAuthCompleter) CompleteUserAuth(w http.ResponseWriter, r *http.Request) (goth.User, error) {
+	m.calls++
 	return m.user, m.err
 }
 

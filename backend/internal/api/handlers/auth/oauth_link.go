@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"errors"
 	"net/http"
 	"net/url"
 	"time"
@@ -11,6 +12,7 @@ import (
 	autherrors "psychic-homily-backend/internal/errors"
 	"psychic-homily-backend/internal/logger"
 	"psychic-homily-backend/internal/observability"
+	authsvc "psychic-homily-backend/internal/services/auth"
 	"psychic-homily-backend/internal/utils"
 )
 
@@ -268,14 +270,28 @@ func (h *OAuthHTTPHandler) completeOAuthLink(
 	// Back and signing in with THEIR provider account attaches their identity
 	// to the account named by the intent. Signing out does not clear the
 	// intent cookie either, so it survives the obvious precaution.
-	sessionUserID, ok := middleware.SessionUserIDFromRequest(h.jwtService, r)
-	if !ok || sessionUserID != intent.userID {
+	//
+	// This is also the account-state gate: a session whose account may no
+	// longer sign in is refused here, before the provider token exchange.
+	// CompleteOAuthLink re-reads the account after the exchange, and the link
+	// write checks it again inside its transaction; those catch a change that
+	// lands during the round trip, and are not the gate.
+	sessionUser, err := middleware.SessionUserFromRequest(h.jwtService, r)
+	if errors.Is(err, authsvc.ErrSessionAccountMayNotSignIn) {
+		logger.AuthWarn(ctx, "oauth_link_refused_account_inactive",
+			"provider", provider,
+			"intent_user_id", intent.userID,
+		)
+		redirectToLinkResult(w, r, frontendURL, autherrors.CodeAccountInactive)
+		return
+	}
+	if err != nil || sessionUser.ID != intent.userID {
 		logger.AuthWarn(ctx, "oauth_link_refused_session_mismatch",
 			"provider", provider,
 			"intent_user_id", intent.userID,
-			"session_present", ok,
+			"session_present", err == nil,
 		)
-		redirectToLinkResult(w, r, h.frontendURL(), oauthLinkErrorReauthRequired)
+		redirectToLinkResult(w, r, frontendURL, oauthLinkErrorReauthRequired)
 		return
 	}
 

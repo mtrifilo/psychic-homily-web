@@ -194,6 +194,7 @@ func (s *JWTIntegrationSuite) TestValidateToken_InactiveUser_Rejected() {
 	s.Nil(validated)
 	s.Require().Error(err)
 	s.Contains(err.Error(), "TOKEN_INVALID")
+	s.ErrorIs(err, ErrSessionAccountMayNotSignIn, "a closed account is told apart from a bad credential")
 }
 
 func (s *JWTIntegrationSuite) TestValidateToken_UserDeactivatedAfterTokenCreation() {
@@ -208,6 +209,7 @@ func (s *JWTIntegrationSuite) TestValidateToken_UserDeactivatedAfterTokenCreatio
 	s.Nil(validated)
 	s.Require().Error(err)
 	s.Contains(err.Error(), "TOKEN_INVALID")
+	s.ErrorIs(err, ErrSessionAccountMayNotSignIn, "a closed account is told apart from a bad credential")
 }
 
 func (s *JWTIntegrationSuite) TestValidateToken_SoftDeletedAfterTokenCreation() {
@@ -221,6 +223,7 @@ func (s *JWTIntegrationSuite) TestValidateToken_SoftDeletedAfterTokenCreation() 
 	s.Nil(validated)
 	s.Require().Error(err)
 	s.Contains(err.Error(), "TOKEN_INVALID")
+	s.ErrorIs(err, ErrSessionAccountMayNotSignIn, "a closed account is told apart from a bad credential")
 }
 
 // =============================================================================
@@ -312,6 +315,7 @@ func (s *JWTIntegrationSuite) TestValidateToken_NonExistentUserID() {
 	s.Nil(validated)
 	s.Require().Error(err)
 	s.Contains(err.Error(), "failed to get user")
+	s.NotErrorIs(err, ErrSessionAccountMayNotSignIn, "no account was read, so none is reported closed")
 }
 
 func (s *JWTIntegrationSuite) TestValidateToken_UserDeletedAfterTokenCreation() {

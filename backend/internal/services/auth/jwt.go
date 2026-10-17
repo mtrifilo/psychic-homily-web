@@ -36,6 +36,13 @@ const (
 // API-token principals are of that shape.
 const jwtAuthTimeClaim = "auth_at"
 
+// ErrSessionAccountMayNotSignIn is the cause inside the TOKEN_INVALID refusal
+// ValidateSession returns for a correctly signed session that names an account
+// which may no longer hold one (authm.User.CanSignIn). The outer code stays
+// TOKEN_INVALID, so a protected route treats it as no session at all; a caller
+// that owes the reader the specific reason tests for it with errors.Is.
+var ErrSessionAccountMayNotSignIn = errors.New("user account may not hold a session")
+
 type JWTService struct {
 	config      *config.Config
 	userService contracts.UserServiceInterface
@@ -184,7 +191,7 @@ func (s *JWTService) userFromSessionClaims(claims jwt.MapClaims) (*authm.User, e
 	}
 
 	if !user.CanSignIn() {
-		return nil, apperrors.ErrTokenInvalid(fmt.Errorf("user account may not hold a session"))
+		return nil, apperrors.ErrTokenInvalid(ErrSessionAccountMayNotSignIn)
 	}
 
 	return user, nil
