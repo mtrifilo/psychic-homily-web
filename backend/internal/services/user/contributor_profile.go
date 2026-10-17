@@ -163,7 +163,9 @@ func contributionStatActionNames() []string {
 // =============================================================================
 
 // GetPublicProfile returns a user's public profile with privacy-gated fields.
-// A username Postgres rejects as text (authm.PostgresRejectsText) is not found.
+// A username Postgres rejects as text (authm.PostgresRejectsText) is not found,
+// and so is a deactivated or soft-deleted account (authm.LiveAccountSQL): this
+// method answers a closed account exactly as it answers an unknown username.
 func (s *ContributorProfileService) GetPublicProfile(username string, viewer contracts.ShowViewer) (*contracts.PublicProfileResponse, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
@@ -173,7 +175,7 @@ func (s *ContributorProfileService) GetPublicProfile(username string, viewer con
 	}
 
 	var user authm.User
-	err := s.db.Where("username = ?", username).First(&user).Error
+	err := s.db.Where("username = ?", username).Where(authm.LiveAccountSQL("users")).First(&user).Error
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, nil
@@ -1686,7 +1688,7 @@ func (s *ContributorProfileService) GetPercentileRankings(userID uint) (*contrac
 
 	// Check total active users
 	var totalUsers int64
-	if err := s.db.Model(&authm.User{}).Where("is_active = ?", true).Count(&totalUsers).Error; err != nil {
+	if err := s.db.Model(&authm.User{}).Where(authm.LiveAccountSQL("users")).Count(&totalUsers).Error; err != nil {
 		return nil, fmt.Errorf("failed to count active users: %w", err)
 	}
 	if totalUsers < 10 {
@@ -1777,7 +1779,7 @@ func (s *ContributorProfileService) GetPercentileRankings(userID uint) (*contrac
 					SELECT u.id, COUNT(s.id) AS cnt
 					FROM users u
 					LEFT JOIN shows s ON s.submitted_by = u.id AND `+shared.PublicShowPredicateSQL("s")+`
-					WHERE u.is_active = true
+					WHERE `+authm.LiveAccountSQL("u")+`
 					GROUP BY u.id
 				) sub WHERE sub.cnt < ?
 			`, userVal).Scan(&usersWithLess)
@@ -1787,7 +1789,7 @@ func (s *ContributorProfileService) GetPercentileRankings(userID uint) (*contrac
 					SELECT u.id, COUNT(v.id) AS cnt
 					FROM users u
 					LEFT JOIN venues v ON v.submitted_by = u.id
-					WHERE u.is_active = true
+					WHERE `+authm.LiveAccountSQL("u")+`
 					GROUP BY u.id
 				) sub WHERE sub.cnt < ?
 			`, userVal).Scan(&usersWithLess)
@@ -1802,7 +1804,7 @@ func (s *ContributorProfileService) GetPercentileRankings(userID uint) (*contrac
 					SELECT u.id, COUNT(et.id) AS cnt
 					FROM users u
 					LEFT JOIN entity_tags et ON et.added_by_user_id = u.id AND `+shared.PublicEntityTagsSQL("et")+`
-					WHERE u.is_active = true
+					WHERE `+authm.LiveAccountSQL("u")+`
 					GROUP BY u.id
 				) sub WHERE sub.cnt < ?
 			`, userVal).Scan(&usersWithLess)
@@ -1813,7 +1815,7 @@ func (s *ContributorProfileService) GetPercentileRankings(userID uint) (*contrac
 						COALESCE((SELECT COUNT(*) FROM pending_entity_edits pe WHERE pe.submitted_by = u.id AND pe.status = 'approved'), 0) +
 						COALESCE((SELECT COUNT(*) FROM revisions r WHERE r.user_id = u.id AND `+shared.PublicShowRevisionsSQL("r")+`), 0) AS cnt
 					FROM users u
-					WHERE u.is_active = true
+					WHERE `+authm.LiveAccountSQL("u")+`
 				) sub WHERE sub.cnt < ?
 			`, userVal).Scan(&usersWithLess)
 		case "requests_fulfilled":
@@ -1822,7 +1824,7 @@ func (s *ContributorProfileService) GetPercentileRankings(userID uint) (*contrac
 					SELECT u.id, COUNT(req.id) AS cnt
 					FROM users u
 					LEFT JOIN requests req ON req.fulfiller_id = u.id
-					WHERE u.is_active = true
+					WHERE `+authm.LiveAccountSQL("u")+`
 					GROUP BY u.id
 				) sub WHERE sub.cnt < ?
 			`, userVal).Scan(&usersWithLess)

@@ -876,6 +876,42 @@ func (suite *FollowServiceIntegrationTestSuite) TestGetFollowers_Pagination() {
 	suite.Len(page2, 2)
 }
 
+// A deactivated or soft-deleted follower is left out of the followers list, and
+// reactivating or restoring the account lists it again.
+func (suite *FollowServiceIntegrationTestSuite) TestGetFollowers_ListsOnlyLiveAccounts() {
+	artistID := suite.createTestArtist("Live Followers Artist")
+	live := suite.createTestUserWithUsername("live-follower")
+	deactivated := suite.createTestUserWithUsername("deactivated-follower")
+	deleted := suite.createTestUserWithUsername("deleted-follower")
+	for _, u := range []*authm.User{live, deactivated, deleted} {
+		suite.Require().NoError(suite.followService.Follow(u.ID, "artist", artistID))
+	}
+
+	suite.Require().NoError(suite.db.Model(&authm.User{}).Where("id = ?", deactivated.ID).
+		Update("is_active", false).Error)
+	suite.Require().NoError(suite.db.Model(&authm.User{}).Where("id = ?", deleted.ID).
+		Updates(map[string]any{"is_active": false, "deleted_at": time.Now()}).Error)
+
+	listedIDs := func() []uint {
+		followers, _, err := suite.followService.GetFollowers("artist", artistID, 10, 0)
+		suite.Require().NoError(err)
+		ids := make([]uint, 0, len(followers))
+		for _, f := range followers {
+			ids = append(ids, f.UserID)
+		}
+		return ids
+	}
+
+	suite.ElementsMatch([]uint{live.ID}, listedIDs())
+
+	suite.Require().NoError(suite.db.Model(&authm.User{}).Where("id = ?", deactivated.ID).
+		Update("is_active", true).Error)
+	suite.Require().NoError(suite.db.Model(&authm.User{}).Where("id = ?", deleted.ID).
+		Updates(map[string]any{"is_active": true, "deleted_at": nil}).Error)
+
+	suite.ElementsMatch([]uint{live.ID, deactivated.ID, deleted.ID}, listedIDs())
+}
+
 func (suite *FollowServiceIntegrationTestSuite) TestGetFollowers_Empty() {
 	artistID := suite.createTestArtist("No Followers Artist")
 
