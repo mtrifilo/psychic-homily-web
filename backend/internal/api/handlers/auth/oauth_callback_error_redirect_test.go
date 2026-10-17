@@ -103,6 +103,12 @@ func TestOAuthCallbackErrorRedirect_CarriesRefusalCode(t *testing.T) {
 			wantCode:    autherrors.CodeAccountInactive,
 		},
 		{
+			name:        "provider email claim no account can store, wrapped",
+			err:         fmt.Errorf("failed to find or create user: %w", autherrors.ErrProviderEmailUnstorable()),
+			wantMessage: "Validation failed",
+			wantCode:    autherrors.CodeValidationFailed,
+		},
+		{
 			name:        "auth error outside the refusal list",
 			err:         autherrors.ErrServiceUnavailable("database", nil),
 			wantMessage: "authentication failed",

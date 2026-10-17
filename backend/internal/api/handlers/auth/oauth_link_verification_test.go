@@ -141,6 +141,10 @@ func (s *OAuthHandlerIntegrationSuite) TestAuthRefusalCarriesItsOwnCopy() {
 		autherrors.CodeOAuthProviderAlreadyLinked,
 		autherrors.CodeOAuthLinkExpired,
 		autherrors.CodeAccountInactive,
+		autherrors.CodeAccountRecoverable,
+		// The refusal of a provider email claim no account can store reaches
+		// the caller as a refusal, not as a fault.
+		autherrors.CodeValidationFailed,
 	}
 	for _, code := range actionable {
 		s.True(authRefusalCarriesItsOwnCopy(code), "expected %s to carry its own copy", code)
@@ -150,7 +154,6 @@ func (s *OAuthHandlerIntegrationSuite) TestAuthRefusalCarriesItsOwnCopy() {
 		autherrors.CodeServiceUnavailable,
 		autherrors.CodeInvalidCredentials,
 		autherrors.CodeUnknown,
-		autherrors.CodeValidationFailed,
 		"",
 	}
 	for _, code := range generic {

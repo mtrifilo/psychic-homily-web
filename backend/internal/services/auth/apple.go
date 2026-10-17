@@ -222,7 +222,8 @@ func jwtFailureKind(err error) error {
 // address already belongs to an account. There is no by-address link on any
 // path: a matching address says who owns the mailbox, never who owns the
 // account. Returns CodeAccountInactive when the Apple identity resolves to an
-// account that may not sign in (authm.User.CanSignIn). Callers that render a
+// account that may not sign in (authm.User.CanSignIn), and the refusal of
+// shared.ValidateProviderEmailClaim before any query. Callers that render a
 // refusal differently from a fault must discriminate on the code.
 //
 // A created account carries email_verified from the token's own claim, so an
@@ -242,6 +243,10 @@ func (s *AppleAuthService) FindOrCreateAppleUser(claims *contracts.AppleIdentity
 	// owner, ahead of every check below.
 	if appleUserID == "" {
 		return nil, fmt.Errorf("apple identity token has no subject")
+	}
+
+	if err := shared.ValidateProviderEmailClaim("apple", claims.Email); err != nil {
+		return nil, err
 	}
 
 	// Look for existing OAuth account with provider=apple
