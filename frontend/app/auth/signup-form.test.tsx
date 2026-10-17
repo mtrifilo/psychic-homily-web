@@ -2,10 +2,12 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { act, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { renderWithProviders } from '@/test/utils'
-import { http, HttpResponse } from 'msw'
-import { server } from '@/test/mocks/server'
-import { TEST_API_BASE } from '@/test/mocks/handlers'
 import { deferred } from '@/test/inflightOrdering'
+import {
+  publishLegalVersionsInTurn as publishInTurn,
+  publishedVersions as versionsBody,
+  versionsUnavailable as unavailable,
+} from '@/test/consentVersions'
 import { CURRENT_PRIVACY_VERSION, CURRENT_TERMS_VERSION, MIN_SIGNUP_AGE } from '@/lib/legal'
 import { AuthError, AuthErrorCode } from '@/lib/errors'
 import {
@@ -422,23 +424,6 @@ describe('SignupForm deferred validation', () => {
       'Please accept the Terms of Service and Privacy Policy before creating an account.',
       AuthErrorCode.TERMS_ACCEPTANCE_REQUIRED
     )
-
-    /** Answers each GET /legal/versions with the next entry in turn. */
-    function publishInTurn(...answers: Array<() => Response | Promise<Response>>) {
-      let reads = 0
-      server.use(
-        http.get(`${TEST_API_BASE}/legal/versions`, () => {
-          const answer = answers[Math.min(reads, answers.length - 1)]
-          reads += 1
-          return answer()
-        })
-      )
-      return { reads: () => reads }
-    }
-
-    const versionsBody = (versions: typeof PUBLISHED) =>
-      HttpResponse.json({ ...versions, min_signup_age: 16, grace_until: null })
-    const unavailable = () => HttpResponse.json({ detail: 'unavailable' }, { status: 503 })
 
     async function submitFilledForm() {
       const { user, rerender } = await renderSignupForm()

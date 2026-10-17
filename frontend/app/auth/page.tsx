@@ -560,7 +560,6 @@ function SignupForm({
               variant="signup"
               termsAccepted={termsAccepted}
               ageConfirmed={ageConfirmed}
-              minAge={MIN_SIGNUP_AGE}
               returnTo={returnTo}
               onMissingTermsAcceptance={() => {
                 setOauthError('You must agree to the Terms of Service and Privacy Policy before continuing with Google')
@@ -916,6 +915,16 @@ function AuthPageContent() {
     return null
   }
 
+  // What the banner above the card says, most specific first.
+  const urlBanner =
+    googleSignupRetry === 'unavailable' ? (
+      CONSENT_VERSIONS_UNAVAILABLE
+    ) : urlRefusalRecoverable ? (
+      <AccountRecoverableMessage />
+    ) : (
+      urlError
+    )
+
   return (
     <div className="flex min-h-[calc(100vh-64px)] items-center justify-center px-4 py-12">
       <div className="w-full max-w-md">
@@ -938,18 +947,10 @@ function AuthPageContent() {
         {googleSignupRetry === 'retrying' ? (
           <ConsentRetryNotice className="mb-6" />
         ) : (
-          (urlError || urlRefusalRecoverable || googleSignupRetry === 'unavailable') && (
+          urlBanner && (
             <Alert variant="destructive" className="mb-6">
               <AlertCircle className="h-4 w-4" />
-              <AlertDescription id={URL_ERROR_ID}>
-                {googleSignupRetry === 'unavailable' ? (
-                  CONSENT_VERSIONS_UNAVAILABLE
-                ) : urlRefusalRecoverable ? (
-                  <AccountRecoverableMessage />
-                ) : (
-                  urlError
-                )}
-              </AlertDescription>
+              <AlertDescription id={URL_ERROR_ID}>{urlBanner}</AlertDescription>
             </Alert>
           )
         )}

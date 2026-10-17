@@ -1,6 +1,7 @@
-// Version identifiers persisted at account creation for legal acceptance evidence.
-// The backend accepts these exact values (backend/internal/legal/legal.go,
-// pinned to this file by TestVersionsMatchFrontend), so a bump changes both.
+// The Terms of Service and Privacy Policy versions this build was released
+// with, pinned to backend/internal/legal/legal.go by TestVersionsMatchFrontend,
+// so a bump changes both. The sign-up forms do not send these: they send the
+// versions GET /legal/versions publishes at submit time.
 export const CURRENT_TERMS_VERSION = '2026-01-31'
 export const CURRENT_PRIVACY_VERSION = '2026-02-15'
 

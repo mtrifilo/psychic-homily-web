@@ -58,16 +58,22 @@ export interface ConsentVersionsReader {
   refresh: () => Promise<ConsentVersions>
 }
 
+// Every read shares one cache entry and one freshness, so a submit joins the
+// form's early read. No retries: a submit made while the early read retried
+// would wait out the backoff, and the next submit reads again anyway.
+const legalVersionsQuery = {
+  queryKey: queryKeys.legal.versions,
+  queryFn: ({ signal }: { signal: AbortSignal }) => fetchConsentVersions(signal),
+  staleTime: LEGAL_VERSIONS_STALE_TIME_MS,
+  retry: false,
+}
+
 /**
  * Starts reading the published versions as soon as a sign-up form shows, so a
  * submit rarely has to wait for them.
  */
 export function useLegalVersions() {
-  return useQuery({
-    queryKey: queryKeys.legal.versions,
-    queryFn: () => fetchConsentVersions(),
-    staleTime: LEGAL_VERSIONS_STALE_TIME_MS,
-  })
+  return useQuery(legalVersionsQuery)
 }
 
 /** The reader for the shared query client. It never fetches on mount. */
@@ -88,25 +94,18 @@ export function isConsentRefusal(code: string | null | undefined): boolean {
 function consentVersionsReader(queryClient: QueryClient): ConsentVersionsReader {
   return {
     read: () =>
-      withinConsentWait(
-        queryClient.fetchQuery({
-          queryKey: queryKeys.legal.versions,
-          queryFn: () => fetchConsentVersions(),
-          staleTime: LEGAL_VERSIONS_STALE_TIME_MS,
-          retry: false,
-        })
-      ),
+      withinConsentWait(queryClient, queryClient.fetchQuery(legalVersionsQuery)),
     refresh: () =>
       withinConsentWait(
+        queryClient,
         (async () => {
           // A fetch already in flight may be answered from the HTTP cache, and
           // fetchQuery would hand that fetch back instead of starting this one.
           await queryClient.cancelQueries({ queryKey: queryKeys.legal.versions })
           return queryClient.fetchQuery({
-            queryKey: queryKeys.legal.versions,
-            queryFn: () => fetchConsentVersions('no-cache'),
+            ...legalVersionsQuery,
+            queryFn: ({ signal }) => fetchConsentVersions(signal, 'no-cache'),
             staleTime: 0,
-            retry: false,
           })
         })()
       ),
@@ -114,11 +113,12 @@ function consentVersionsReader(queryClient: QueryClient): ConsentVersionsReader 
 }
 
 async function fetchConsentVersions(
+  signal: AbortSignal,
   cache?: RequestCache
 ): Promise<ConsentVersions> {
   const body = await apiRequest<LegalVersionsResponse>(
     API_ENDPOINTS.LEGAL_VERSIONS,
-    { method: 'GET', ...(cache && { cache }) }
+    { method: 'GET', signal, ...(cache && { cache }) }
   )
   if (!isVersion(body?.terms_version) || !isVersion(body?.privacy_version)) {
     throw new Error('GET /legal/versions answered without both versions')
@@ -133,15 +133,18 @@ function isVersion(value: unknown): value is string {
   return typeof value === 'string' && value.length > 0
 }
 
+// A read that misses the wait is aborted, so the next submit starts a read of
+// its own instead of joining the stalled one.
 async function withinConsentWait(
+  queryClient: QueryClient,
   read: Promise<ConsentVersions>
 ): Promise<ConsentVersions> {
   let timer: ReturnType<typeof setTimeout> | undefined
   const deadline = new Promise<never>((_, reject) => {
-    timer = setTimeout(
-      () => reject(new ConsentVersionsUnavailableError()),
-      CONSENT_VERSIONS_WAIT_MS
-    )
+    timer = setTimeout(() => {
+      void queryClient.cancelQueries({ queryKey: queryKeys.legal.versions })
+      reject(new ConsentVersionsUnavailableError())
+    }, CONSENT_VERSIONS_WAIT_MS)
   })
   try {
     return await Promise.race([read, deadline])

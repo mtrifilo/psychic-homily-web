@@ -2,11 +2,13 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { Activity } from 'react'
 import { screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { http, HttpResponse } from 'msw'
 import { renderWithProviders } from '@/test/utils'
-import { server } from '@/test/mocks/server'
-import { TEST_API_BASE } from '@/test/mocks/handlers'
 import { deferred } from '@/test/inflightOrdering'
+import {
+  publishLegalVersionsInTurn as publish,
+  publishedVersions,
+  versionsUnavailable,
+} from '@/test/consentVersions'
 import {
   CONSENT_RETRY_NOTICE,
   CONSENT_VERSIONS_UNAVAILABLE,
@@ -838,17 +840,6 @@ describe('AuthPage', () => {
       sessionStorage.setItem(GOOGLE_SIGNUP_START_KEY, String(Date.now() - ageMs))
     }
 
-    function publish(answer: () => Response | Promise<Response>) {
-      let reads = 0
-      server.use(
-        http.get(`${TEST_API_BASE}/legal/versions`, () => {
-          reads += 1
-          return answer()
-        })
-      )
-      return { reads: () => reads }
-    }
-
     const termsCheckbox = () =>
       screen.getByRole('checkbox', {
         name: /I agree to the Terms of Service and Privacy Policy/,
@@ -891,7 +882,7 @@ describe('AuthPage', () => {
       // The form's read and the retry's own, which does not wait on it.
       await waitFor(() => expect(versions.reads()).toBe(2))
 
-      republished.resolve(HttpResponse.json({ ...REPUBLISHED, min_signup_age: 16, grace_until: null }))
+      republished.resolve(publishedVersions(REPUBLISHED))
 
       await waitFor(() => expect(navigatedTo).toHaveBeenCalledTimes(1))
       const start = new URL(navigatedTo.mock.calls[0][0])
@@ -910,9 +901,7 @@ describe('AuthPage', () => {
     })
 
     it('shows the refusal, with the consent controls focused, when no start was recorded', async () => {
-      const versions = publish(() =>
-        HttpResponse.json({ ...REPUBLISHED, min_signup_age: 16, grace_until: null })
-      )
+      const versions = publish(() => publishedVersions(REPUBLISHED))
       consentArrival()
 
       renderWithProviders(<AuthPage />)
@@ -938,7 +927,7 @@ describe('AuthPage', () => {
     })
 
     it('says why, and does not start again, when the versions cannot be read', async () => {
-      publish(() => HttpResponse.json({ detail: 'unavailable' }, { status: 503 }))
+      publish(versionsUnavailable)
       recordStart()
       consentArrival()
 

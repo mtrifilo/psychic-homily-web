@@ -2,7 +2,11 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import userEvent from '@testing-library/user-event'
 import { fireEvent, screen, waitFor } from '@testing-library/react'
 import { createTestQueryClient, renderWithProviders } from '@/test/utils'
-import { clientWithConsentVersions } from '@/test/consentVersions'
+import {
+  clientWithConsentVersions,
+  publishedVersions,
+  versionsUnavailable,
+} from '@/test/consentVersions'
 import { deferred } from '@/test/inflightOrdering'
 import {
   CONSENT_RETRY_NOTICE,
@@ -461,24 +465,20 @@ describe('PasskeySignupButton', () => {
       }),
     }
 
-    function versionsResponse(body: unknown, status = 200) {
-      return new Response(JSON.stringify(body), {
-        status,
-        headers: { 'Content-Type': 'application/json' },
-      })
-    }
-
-    /** Routes the versions read apart from the sign-up's own requests. */
+    /**
+     * Routes the versions read apart from the sign-up's own requests, which
+     * take the queued answers in order; a request past the queue fails.
+     */
     function routeVersions(
       answer: () => Promise<Response>,
       signup: Array<unknown>
     ) {
       const queue = [...signup]
-      fetchMock.mockImplementation((url: string) =>
-        new URL(url).pathname === '/legal/versions'
-          ? answer()
-          : Promise.resolve(queue.shift())
-      )
+      fetchMock.mockImplementation((url: string) => {
+        if (new URL(url).pathname === '/legal/versions') return answer()
+        if (queue.length === 0) throw new Error(`unexpected fetch: ${url}`)
+        return Promise.resolve(queue.shift())
+      })
     }
 
     const beginCalls = () =>
@@ -508,7 +508,7 @@ describe('PasskeySignupButton', () => {
     })
 
     it('does not begin, and says why, when the versions cannot be read', async () => {
-      routeVersions(async () => versionsResponse({ detail: 'unavailable' }, 503), [])
+      routeVersions(async () => versionsUnavailable(), [])
 
       renderButton(createTestQueryClient())
       await submitSignup()
@@ -530,7 +530,7 @@ describe('PasskeySignupButton', () => {
       expect(await screen.findByText(CONSENT_RETRY_NOTICE)).toBeInTheDocument()
       expect(versionsCalls()).toHaveLength(1)
       expect((versionsCalls()[0][1] as RequestInit).cache).toBe('no-cache')
-      republished.resolve(versionsResponse({ ...REPUBLISHED, min_signup_age: 16, grace_until: null }))
+      republished.resolve(publishedVersions(REPUBLISHED))
 
       await waitFor(() => {
         expect(mockOnHandoffChange).toHaveBeenLastCalledWith({
@@ -555,7 +555,7 @@ describe('PasskeySignupButton', () => {
 
     it('reports a second refusal instead of beginning again', async () => {
       routeVersions(
-        async () => versionsResponse({ ...REPUBLISHED, min_signup_age: 16, grace_until: null }),
+        async () => publishedVersions(REPUBLISHED),
         [CONSENT_REFUSAL, CONSENT_REFUSAL]
       )
 
@@ -575,7 +575,7 @@ describe('PasskeySignupButton', () => {
 
     it('does not begin again when the versions for the retry cannot be read', async () => {
       routeVersions(
-        async () => versionsResponse({ detail: 'unavailable' }, 503),
+        async () => versionsUnavailable(),
         [CONSENT_REFUSAL]
       )
 

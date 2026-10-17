@@ -1,26 +1,21 @@
 'use client'
 
-import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
+import { useEffect, useRef, useState } from 'react'
 // Direct backend origin, never the Next.js /api proxy: OAuth is a full-page
 // redirect and the redirect chain does not survive the proxy. See
 // lib/api-base.ts for the resolution order (PSY-1649).
 import { OAUTH_BACKEND_URL } from '@/lib/api-base'
 import { FALLBACK_RETURN_TO } from '@/lib/auth-href'
+import { useHydrated } from '@/lib/hooks/common/useHydrated'
 import { MIN_SIGNUP_AGE } from '@/lib/legal'
 import {
   useConsentVersions,
   type ConsentVersions,
 } from '@/features/auth/hooks/useLegalVersions'
 
-/** What a Google sign-up start carries for the account it may create. */
-export interface GoogleSignupConsent {
-  versions: ConsentVersions
-  minAge?: number
-}
-
 /**
- * The backend route that starts a Google sign-in, and with `signup` a sign-up.
- * The route reads `returnTo` (`oauthReturnToParam` in
+ * The backend route that starts a Google sign-in, and with `signup` a sign-up
+ * that accepts those versions and attests MIN_SIGNUP_AGE. The route reads `returnTo` (`oauthReturnToParam` in
  * backend/internal/api/handlers/auth/oauth_return_to.go), checks it again,
  * records it for its callback, and lands on the site root for anything it
  * refuses.
@@ -30,18 +25,16 @@ export function googleStartUrl({
   signup,
 }: {
   returnTo: string
-  signup?: GoogleSignupConsent
+  signup?: ConsentVersions
 }): string {
   const url = new URL(`${OAUTH_BACKEND_URL}/auth/login/google`)
   if (signup) {
     url.searchParams.set('signup_intent', '1')
     url.searchParams.set('terms_accepted', 'true')
-    url.searchParams.set('terms_version', signup.versions.termsVersion)
-    url.searchParams.set('privacy_version', signup.versions.privacyVersion)
+    url.searchParams.set('terms_version', signup.termsVersion)
+    url.searchParams.set('privacy_version', signup.privacyVersion)
     url.searchParams.set('age_confirmed', 'true')
-    if (signup.minAge) {
-      url.searchParams.set('min_age_attested', String(signup.minAge))
-    }
+    url.searchParams.set('min_age_attested', String(MIN_SIGNUP_AGE))
   }
   if (returnTo !== FALLBACK_RETURN_TO) {
     url.searchParams.set('returnTo', returnTo)
@@ -86,16 +79,6 @@ function hasRetryableGoogleSignupStart(): boolean {
   }
 }
 
-// The record changes only in this tab's own handlers, each of which also
-// changes React state or leaves the page, so nothing needs to subscribe.
-function subscribeToNothing(): () => void {
-  return () => {}
-}
-
-function noRecordOnServer(): boolean {
-  return false
-}
-
 /**
  * - `none`: no retry; the page shows the refusal it arrived with.
  * - `retrying`: the start is being sent again with freshly read versions.
@@ -128,12 +111,10 @@ export function useGoogleSignupRetry({
 }): GoogleSignupRetry {
   const consentVersions = useConsentVersions()
   // The record stays until the retry leaves the page or fails, so this holds
-  // for the whole retry.
-  const startRecorded = useSyncExternalStore(
-    subscribeToNothing,
-    hasRetryableGoogleSignupStart,
-    noRecordOnServer
-  )
+  // for the whole retry. Read only after hydration: the server has no storage.
+  const hydrated = useHydrated()
+  const startRecorded =
+    hydrated && consentArrival && hasRetryableGoogleSignupStart()
   // The arrival whose retry could not read the versions.
   const [unavailableArrival, setUnavailableArrival] = useState<string | null>(
     null
@@ -171,10 +152,7 @@ export function useGoogleSignupRetry({
           // A page hidden or left meanwhile shows its refusal on return rather
           // than navigating on its own.
           if (mountedRef.current) {
-            window.location.href = googleStartUrl({
-              returnTo,
-              signup: { versions, minAge: MIN_SIGNUP_AGE },
-            })
+            window.location.href = googleStartUrl({ returnTo, signup: versions })
           }
         },
         () => {
@@ -190,5 +168,5 @@ export function useGoogleSignupRetry({
   if (unavailableArrival === arrival) {
     return 'unavailable'
   }
-  return consentArrival && startRecorded ? 'retrying' : 'none'
+  return startRecorded ? 'retrying' : 'none'
 }

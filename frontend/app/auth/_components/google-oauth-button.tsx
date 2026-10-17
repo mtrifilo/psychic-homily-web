@@ -18,7 +18,6 @@ interface GoogleOAuthButtonProps {
   onMissingTermsAcceptance?: () => void
   // PSY-1023: required minimum-age confirmation, mirroring terms acceptance.
   ageConfirmed?: boolean
-  minAge?: number
   onMissingAgeConfirmation?: () => void
   /**
    * A sign-up start was not made because the published consent versions could
@@ -38,7 +37,6 @@ export function GoogleOAuthButton({
   termsAccepted = false,
   onMissingTermsAcceptance,
   ageConfirmed = false,
-  minAge,
   onMissingAgeConfirmation,
   onConsentVersionsUnavailable,
   returnTo = FALLBACK_RETURN_TO,
@@ -75,10 +73,7 @@ export function GoogleOAuthButton({
     // frontend; a consent refusal on the way lands on the auth page, which
     // retries a start recorded here once.
     rememberGoogleSignupStart()
-    window.location.href = googleStartUrl({
-      returnTo,
-      signup: { versions, minAge },
-    })
+    window.location.href = googleStartUrl({ returnTo, signup: versions })
     // A page restored from the back-forward cache keeps this state.
     setIsReadingVersions(false)
   }

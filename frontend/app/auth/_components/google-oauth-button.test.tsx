@@ -75,7 +75,6 @@ describe('GoogleOAuthButton', () => {
         variant="signup"
         termsAccepted
         ageConfirmed
-        minAge={16}
         returnTo="/shows"
       />
     )
@@ -100,7 +99,6 @@ describe('GoogleOAuthButton', () => {
           variant="signup"
           termsAccepted
           ageConfirmed
-          minAge={16}
           onConsentVersionsUnavailable={onConsentVersionsUnavailable}
         />
       )
