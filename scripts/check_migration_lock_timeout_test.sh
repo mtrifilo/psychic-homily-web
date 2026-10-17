@@ -335,6 +335,22 @@ reset_fixture "bound: a version that is not all digits is not grandfathered" bou
 migration "v1_idx" "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_t_c ON t (c);"
 expect 1 "ERROR: backend/db/migrations/v1_idx.up.sql $CIC_HAZARD"
 
+reset_fixture "bound: a version longer than a timestamp is not grandfathered" bound
+migration "00000000000000000001_idx" "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_t_c ON t (c);"
+expect 1 "ERROR: backend/db/migrations/00000000000000000001_idx.up.sql $CIC_HAZARD"
+
+reset_fixture "bound: a CIC refusal beside a strong-lock warning still fails" bound
+migration "${NEWER}_idx" "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_t_c ON t (c);
+ALTER TABLE t ADD COLUMN d int;"
+expect 1 "$CIC_HAZARD"
+expect 1 "takes a strong lock (ALTER TABLE) and sets no lock_timeout"
+refute "OK"
+
+reset_fixture "bound: a grandfathered migration gets a warning annotation" bound
+migration "${PINNED}_idx" "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_t_c ON t (c);"
+GITHUB_ACTIONS=true expect 0 "::warning file=backend/db/migrations/${PINNED}_idx.up.sql::"
+refute "::error"
+
 reset_fixture "unbound: CONCURRENTLY without IF NOT EXISTS passes" unbound
 migration "${NEWER}_idx" "CREATE INDEX CONCURRENTLY idx_t_c ON t (c);"
 expect 0 "every new strong-lock migration sets its own lock_timeout"
