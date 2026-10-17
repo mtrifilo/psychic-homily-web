@@ -4,12 +4,12 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
-	"time"
 
 	"psychic-homily-backend/internal/config"
 	autherrors "psychic-homily-backend/internal/errors"
 	authm "psychic-homily-backend/internal/models/auth"
 	"psychic-homily-backend/internal/services/auth"
+	usersvc "psychic-homily-backend/internal/services/user"
 )
 
 // sessionCookieRequest is a request carrying token the way a browser returning
@@ -55,10 +55,7 @@ func (s *JWTMiddlewareIntegrationSuite) TestSessionUserFromRequest_DeactivatedAf
 func (s *JWTMiddlewareIntegrationSuite) TestSessionUserFromRequest_SoftDeletedAfterSignInIsRefusedAsClosed() {
 	user := s.createActiveUser("session-soft-deleted@test.com")
 	token := s.sessionTokenFor(user)
-	s.Require().NoError(s.db.Model(user).Updates(map[string]any{
-		"is_active":  false,
-		"deleted_at": time.Now(),
-	}).Error)
+	s.Require().NoError(usersvc.NewUserService(s.db).SoftDeleteAccount(user.ID, nil))
 
 	got, err := SessionUserFromRequest(s.jwtService, sessionCookieRequest(token))
 
@@ -83,26 +80,29 @@ func (s *JWTMiddlewareIntegrationSuite) TestSessionUserFromRequest_UnusableCrede
 	forged, err := otherKey.CreateToken(&authm.User{ID: user.ID})
 	s.Require().NoError(err)
 
+	// wantCode is checked only where the refusal's code is part of the
+	// contract: a request with no credential at all is TOKEN_MISSING.
 	cases := map[string]struct {
-		service *auth.JWTService
-		req     *http.Request
+		service  *auth.JWTService
+		req      *http.Request
+		wantCode string
 	}{
-		"no credential":            {s.jwtService, sessionCookieRequest("")},
-		"not a token":              {s.jwtService, sessionCookieRequest("not-a-jwt")},
-		"signed by another key":    {s.jwtService, sessionCookieRequest(forged)},
-		"account no longer exists": {s.jwtService, sessionCookieRequest(hardDeletedToken)},
-		"no resolver":              {nil, sessionCookieRequest(hardDeletedToken)},
-		"no request":               {s.jwtService, nil},
+		"no credential":            {s.jwtService, sessionCookieRequest(""), autherrors.CodeTokenMissing},
+		"not a token":              {s.jwtService, sessionCookieRequest("not-a-jwt"), ""},
+		"signed by another key":    {s.jwtService, sessionCookieRequest(forged), ""},
+		"account no longer exists": {s.jwtService, sessionCookieRequest(hardDeletedToken), ""},
+		"no resolver":              {nil, sessionCookieRequest(hardDeletedToken), ""},
+		"no request":               {s.jwtService, nil, ""},
 	}
 	for name, tc := range cases {
 		got, err := SessionUserFromRequest(tc.service, tc.req)
 		s.Nil(got, name)
-		s.Error(err, name)
+		s.Require().Error(err, name)
 		s.False(errors.Is(err, auth.ErrSessionAccountMayNotSignIn), "%s: got %v", name, err)
+		if tc.wantCode != "" {
+			var authErr *autherrors.AuthError
+			s.Require().True(errors.As(err, &authErr), name)
+			s.Equal(tc.wantCode, authErr.Code, name)
+		}
 	}
-
-	_, err = SessionUserFromRequest(s.jwtService, sessionCookieRequest(""))
-	var authErr *autherrors.AuthError
-	s.Require().True(errors.As(err, &authErr))
-	s.Equal(autherrors.CodeTokenMissing, authErr.Code)
 }

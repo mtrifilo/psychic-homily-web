@@ -21,18 +21,22 @@ import (
 	"psychic-homily-backend/internal/services/contracts"
 )
 
-// mockOAuthCompleter implements contracts.OAuthCompleter for testing
 // mockOAuthCompleter stands in for the provider token exchange. calls counts
 // the exchanges, so a test can assert that a refusal came before the provider
-// was contacted.
+// was contacted; onExchange, when set, runs during the exchange, the window in
+// which the reader is at the provider.
 type mockOAuthCompleter struct {
-	user  goth.User
-	err   error
-	calls int
+	user       goth.User
+	err        error
+	calls      int
+	onExchange func()
 }
 
 func (m *mockOAuthCompleter) CompleteUserAuth(w http.ResponseWriter, r *http.Request) (goth.User, error) {
 	m.calls++
+	if m.onExchange != nil {
+		m.onExchange()
+	}
 	return m.user, m.err
 }
 

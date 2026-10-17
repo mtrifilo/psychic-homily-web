@@ -38,9 +38,14 @@ const jwtAuthTimeClaim = "auth_at"
 
 // ErrSessionAccountMayNotSignIn is the cause inside the TOKEN_INVALID refusal
 // ValidateSession returns for a correctly signed session that names an account
-// which may no longer hold one (authm.User.CanSignIn). The outer code stays
-// TOKEN_INVALID, so a protected route treats it as no session at all; a caller
-// that owes the reader the specific reason tests for it with errors.Is.
+// which may no longer hold one (authm.User.CanSignIn). A caller that owes the
+// reader the specific reason tests for it with errors.Is.
+//
+// The outer code is TOKEN_INVALID rather than ACCOUNT_INACTIVE because every
+// ValidateSession refusal means "this request holds no session": TOKEN_INVALID
+// maps to 401, which the frontend reads as signed out, while ACCOUNT_INACTIVE
+// maps to 403, which would leave the closed account's session in place for any
+// caller that answers with the refusal's own code.
 var ErrSessionAccountMayNotSignIn = errors.New("user account may not hold a session")
 
 type JWTService struct {
