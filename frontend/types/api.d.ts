@@ -8381,12 +8381,25 @@ export interface components {
              * @example https://example.com/schemas/AppleCallbackRequestBody.json
              */
             readonly $schema?: string;
+            /** @description Whether the user confirmed they meet the minimum age. Required to create an account; without it the callback is refused with AGE_CONFIRMATION_REQUIRED. */
+            age_confirmed?: boolean;
             /** @description User's first name (only provided on first sign-in) */
             first_name?: string;
             /** @description Apple identity token (JWT) */
             identity_token: string;
             /** @description User's last name (only provided on first sign-in) */
             last_name?: string;
+            /**
+             * Format: int64
+             * @description Minimum age the user attested to. Required to create an account; below the minimum the callback is refused with AGE_CONFIRMATION_REQUIRED.
+             */
+            min_age_attested?: number;
+            /** @description Accepted Privacy Policy version. Required to create an account; anything other than the current version is refused with TERMS_ACCEPTANCE_REQUIRED. */
+            privacy_version?: string;
+            /** @description Whether the user accepted the Terms of Service and Privacy Policy. Required to create an account; a callback that would create one without it is refused with TERMS_ACCEPTANCE_REQUIRED. Ignored for an Apple identity that already has an account. */
+            terms_accepted?: boolean;
+            /** @description Accepted Terms of Service version. Required to create an account; anything other than the current version is refused with TERMS_ACCEPTANCE_REQUIRED. */
+            terms_version?: string;
         };
         AppleCallbackResponseBody: {
             /**

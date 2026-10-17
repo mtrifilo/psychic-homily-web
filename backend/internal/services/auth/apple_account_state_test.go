@@ -7,6 +7,7 @@ import (
 	authm "psychic-homily-backend/internal/models/auth"
 	"psychic-homily-backend/internal/services/contracts"
 	usersvc "psychic-homily-backend/internal/services/user"
+	"psychic-homily-backend/internal/testutil/signupconsent"
 )
 
 // A returning Apple identity resolves to its account before anything else is
@@ -35,11 +36,12 @@ func (s *AppleAuthIntegrationTestSuite) TestFindOrCreateAppleUser_AccountState()
 				EmailVerified:    true,
 				RegisteredClaims: jwt.RegisteredClaims{Subject: "apple-sub-" + state.name},
 			}
-			created, err := svc.FindOrCreateAppleUser(claims, "", "")
+			created, err := svc.FindOrCreateAppleUser(claims, "", "", signupconsent.CurrentOAuthSignupConsent())
 			s.Require().NoError(err)
 			state.apply(created.ID)
 
-			user, err := svc.FindOrCreateAppleUser(claims, "", "")
+			// No consent: a returning identity never needs one.
+			user, err := svc.FindOrCreateAppleUser(claims, "", "", nil)
 
 			if state.maySignIn {
 				s.Require().NoError(err)

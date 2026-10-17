@@ -49,11 +49,12 @@ func TestAppleCallbackHandler_EmptyToken(t *testing.T) {
 	}
 }
 
-// mockAppleAuthService records the names the handler passes through, so a test
-// can assert what would reach the users row.
+// mockAppleAuthService records the names and the consent the handler passes
+// through, so a test can assert what would reach the users row.
 type mockAppleAuthService struct {
 	gotFirstName string
 	gotLastName  string
+	gotConsent   *contracts.OAuthSignupConsent
 	called       bool
 	// findErr, when set, is what FindOrCreateAppleUser returns instead of a user.
 	findErr error
@@ -66,10 +67,11 @@ func (m *mockAppleAuthService) ValidateIdentityToken(context.Context, string) (*
 	}, nil
 }
 
-func (m *mockAppleAuthService) FindOrCreateAppleUser(_ *contracts.AppleIdentityTokenClaims, firstName, lastName string) (*authm.User, error) {
+func (m *mockAppleAuthService) FindOrCreateAppleUser(_ *contracts.AppleIdentityTokenClaims, firstName, lastName string, consent *contracts.OAuthSignupConsent) (*authm.User, error) {
 	m.called = true
 	m.gotFirstName = firstName
 	m.gotLastName = lastName
+	m.gotConsent = consent
 	if m.findErr != nil {
 		return nil, m.findErr
 	}
@@ -135,6 +137,38 @@ func TestAppleCallbackHandler_NameGuard(t *testing.T) {
 				t.Errorf("last_name reaching the service = %q, want %q", svc.gotLastName, tc.wantLast)
 			}
 		})
+	}
+}
+
+// Every consent field in the body reaches the service as sent, and the service
+// always receives a consent, stamped with when the callback arrived. Deciding
+// whether it suffices is the service's, on the creation branch only.
+func TestAppleCallbackHandler_ForwardsConsent(t *testing.T) {
+	svc := &mockAppleAuthService{}
+	h := NewAppleAuthHandler(svc, &testhelpers.MockDiscordService{}, testConfig())
+	input := &AppleCallbackRequest{}
+	input.Body.IdentityToken = "any-token"
+	input.Body.TermsAccepted = true
+	input.Body.TermsVersion = "terms-sent"
+	input.Body.PrivacyVersion = "privacy-sent"
+	input.Body.AgeConfirmed = true
+	input.Body.MinAgeAttested = 17
+
+	before := time.Now().UTC()
+	if _, err := h.AppleCallbackHandler(context.Background(), input); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	got := svc.gotConsent
+	if got == nil {
+		t.Fatal("the service received no consent")
+	}
+	if !got.TermsAccepted || got.TermsVersion != "terms-sent" || got.PrivacyVersion != "privacy-sent" ||
+		!got.AgeConfirmed || got.MinAgeAttested != 17 {
+		t.Errorf("consent reaching the service = %+v", *got)
+	}
+	if got.AcceptedAt.Before(before) {
+		t.Errorf("accepted_at = %v, want at or after %v", got.AcceptedAt, before)
 	}
 }
 

@@ -2,42 +2,14 @@ package user
 
 import (
 	"errors"
-	"testing"
 
 	"github.com/markbates/goth"
 
 	apperrors "psychic-homily-backend/internal/errors"
 	"psychic-homily-backend/internal/legal"
 	authm "psychic-homily-backend/internal/models/auth"
-	"psychic-homily-backend/internal/services/contracts"
 	"psychic-homily-backend/internal/testutil/signupconsent"
 )
-
-// The consent reaches the callback in a cookie the caller can write, so the
-// account-creating check refuses any version that is not current on its own.
-func TestValidateOAuthSignupConsent_RefusesVersionsThatAreNotCurrent(t *testing.T) {
-	for name, mutate := range map[string]func(*contracts.OAuthSignupConsent){
-		"terms stale":     func(c *contracts.OAuthSignupConsent) { c.TermsVersion = "2025-01-01" },
-		"terms empty":     func(c *contracts.OAuthSignupConsent) { c.TermsVersion = "" },
-		"privacy unknown": func(c *contracts.OAuthSignupConsent) { c.PrivacyVersion = "x" },
-		"privacy empty":   func(c *contracts.OAuthSignupConsent) { c.PrivacyVersion = "" },
-	} {
-		t.Run(name, func(t *testing.T) {
-			consent := signupconsent.CurrentOAuthSignupConsent()
-			mutate(consent)
-			err := validateOAuthSignupConsent(consent)
-			var authErr *apperrors.AuthError
-			if !errors.As(err, &authErr) || authErr.Code != apperrors.CodeTermsAcceptanceRequired {
-				t.Fatalf("expected %s, got %v", apperrors.CodeTermsAcceptanceRequired, err)
-			}
-		})
-	}
-
-	consent := signupconsent.CurrentOAuthSignupConsent()
-	if err := validateOAuthSignupConsent(consent); err != nil {
-		t.Fatalf("current consent refused: %v", err)
-	}
-}
 
 func (suite *UserServiceIntegrationTestSuite) TestFindOrCreateUserWithConsent_StaleVersionCreatesNoAccount() {
 	consent := signupconsent.CurrentOAuthSignupConsent()

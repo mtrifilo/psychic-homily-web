@@ -6,6 +6,7 @@ import (
 	apperrors "psychic-homily-backend/internal/errors"
 	authm "psychic-homily-backend/internal/models/auth"
 	"psychic-homily-backend/internal/services/contracts"
+	"psychic-homily-backend/internal/testutil/signupconsent"
 )
 
 // TestFindOrCreateAppleUser_ExistingEmail_CaseVariant_RefusesSignIn covers the
@@ -31,7 +32,7 @@ func (s *AppleAuthIntegrationTestSuite) TestFindOrCreateAppleUser_ExistingEmail_
 		RegisteredClaims: jwt.RegisteredClaims{
 			Subject: "apple-sub-case-variant",
 		},
-	}, "Apple", "Name")
+	}, "Apple", "Name", signupconsent.CurrentOAuthSignupConsent())
 
 	s.Require().Error(err)
 	s.Require().Nil(user)

@@ -129,6 +129,19 @@ type OAuthSignupConsent struct {
 	MinAgeAttested int
 }
 
+// LegalAcceptance is the acceptance an account created from c records: both
+// versions, and AcceptedAt as when the terms were accepted and the age
+// confirmed. Call it only on a consent that has been validated.
+func (c *OAuthSignupConsent) LegalAcceptance() LegalAcceptance {
+	return LegalAcceptance{
+		TermsAcceptedAt: c.AcceptedAt,
+		TermsVersion:    c.TermsVersion,
+		PrivacyVersion:  c.PrivacyVersion,
+		AgeConfirmedAt:  c.AcceptedAt,
+		MinAgeAttested:  c.MinAgeAttested,
+	}
+}
+
 // ──────────────────────────────────────────────
 // Auth Service Interface
 // ──────────────────────────────────────────────
@@ -191,7 +204,13 @@ type AppleAuthServiceInterface interface {
 	// on the address alone. Creates with email_verified from the claim, so an
 	// address Apple will not vouch for produces an unverified account. claims
 	// must already be verified by the caller.
-	FindOrCreateAppleUser(claims *AppleIdentityTokenClaims, firstName, lastName string) (*authm.User, error)
+	//
+	// consent is read only when the call would create an account: a known
+	// Apple identity signs in whatever consent carries, nil included. A
+	// creation whose consent fails shared.ValidateOAuthSignupConsent is refused
+	// with that typed AuthError (CodeTermsAcceptanceRequired or
+	// CodeAgeConfirmationRequired) and writes nothing.
+	FindOrCreateAppleUser(claims *AppleIdentityTokenClaims, firstName, lastName string, consent *OAuthSignupConsent) (*authm.User, error)
 	GenerateToken(user *authm.User) (string, error)
 }
 

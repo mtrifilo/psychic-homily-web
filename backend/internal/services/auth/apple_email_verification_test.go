@@ -6,6 +6,7 @@ import (
 	apperrors "psychic-homily-backend/internal/errors"
 	authm "psychic-homily-backend/internal/models/auth"
 	"psychic-homily-backend/internal/services/contracts"
+	"psychic-homily-backend/internal/testutil/signupconsent"
 )
 
 // Apple's email_verified claim arrives as a JSON bool or as the string "true".
@@ -29,7 +30,7 @@ func (s *AppleAuthIntegrationTestSuite) TestFindOrCreateAppleUser_UnverifiedEmai
 		RegisteredClaims: jwt.RegisteredClaims{
 			Subject: "apple-sub-unverified",
 		},
-	}, "Apple", "Name")
+	}, "Apple", "Name", signupconsent.CurrentOAuthSignupConsent())
 
 	s.Require().Error(err)
 	s.Require().Nil(user)
@@ -56,7 +57,7 @@ func (s *AppleAuthIntegrationTestSuite) TestFindOrCreateAppleUser_AbsentVerifica
 		RegisteredClaims: jwt.RegisteredClaims{
 			Subject: "apple-sub-absent",
 		},
-	}, "Apple", "Name")
+	}, "Apple", "Name", signupconsent.CurrentOAuthSignupConsent())
 
 	s.Require().Error(err)
 	s.Require().Nil(user)
@@ -85,7 +86,7 @@ func (s *AppleAuthIntegrationTestSuite) TestFindOrCreateAppleUser_StringVerified
 		RegisteredClaims: jwt.RegisteredClaims{
 			Subject: "apple-sub-string-verified",
 		},
-	}, "Apple", "Name")
+	}, "Apple", "Name", signupconsent.CurrentOAuthSignupConsent())
 
 	s.Require().Error(err)
 	s.Require().Nil(user)
@@ -107,7 +108,7 @@ func (s *AppleAuthIntegrationTestSuite) TestFindOrCreateAppleUser_StringVerified
 		RegisteredClaims: jwt.RegisteredClaims{
 			Subject: "apple-sub-fresh-string-verified",
 		},
-	}, "Apple", "Name")
+	}, "Apple", "Name", signupconsent.CurrentOAuthSignupConsent())
 
 	s.Require().NoError(err)
 	s.Require().NotNil(user)
@@ -125,7 +126,7 @@ func (s *AppleAuthIntegrationTestSuite) TestFindOrCreateAppleUser_ExistingAppleA
 		RegisteredClaims: jwt.RegisteredClaims{
 			Subject: "apple-sub-returning",
 		},
-	}, "Apple", "Name")
+	}, "Apple", "Name", signupconsent.CurrentOAuthSignupConsent())
 	s.Require().NoError(err)
 
 	second, err := svc.FindOrCreateAppleUser(&contracts.AppleIdentityTokenClaims{
@@ -133,7 +134,7 @@ func (s *AppleAuthIntegrationTestSuite) TestFindOrCreateAppleUser_ExistingAppleA
 		RegisteredClaims: jwt.RegisteredClaims{
 			Subject: "apple-sub-returning",
 		},
-	}, "Apple", "Name")
+	}, "Apple", "Name", nil)
 
 	s.Require().NoError(err)
 	s.Equal(first.ID, second.ID)
@@ -150,7 +151,7 @@ func (s *AppleAuthIntegrationTestSuite) TestFindOrCreateAppleUser_UnverifiedEmai
 		RegisteredClaims: jwt.RegisteredClaims{
 			Subject: "apple-sub-fresh-unverified",
 		},
-	}, "Apple", "Name")
+	}, "Apple", "Name", signupconsent.CurrentOAuthSignupConsent())
 
 	s.Require().NoError(err)
 	s.Require().NotNil(user)
@@ -167,7 +168,7 @@ func (s *AppleAuthIntegrationTestSuite) TestFindOrCreateAppleUser_AbsentClaim_No
 		RegisteredClaims: jwt.RegisteredClaims{
 			Subject: "apple-sub-fresh-absent",
 		},
-	}, "Apple", "Name")
+	}, "Apple", "Name", signupconsent.CurrentOAuthSignupConsent())
 
 	s.Require().NoError(err)
 	s.Require().NotNil(user)
@@ -183,7 +184,7 @@ func (s *AppleAuthIntegrationTestSuite) TestFindOrCreateAppleUser_VerifiedClaim_
 		RegisteredClaims: jwt.RegisteredClaims{
 			Subject: "apple-sub-fresh-verified",
 		},
-	}, "Apple", "Name")
+	}, "Apple", "Name", signupconsent.CurrentOAuthSignupConsent())
 
 	s.Require().NoError(err)
 	s.Require().NotNil(user)
@@ -202,7 +203,7 @@ func (s *AppleAuthIntegrationTestSuite) TestFindOrCreateAppleUser_SquattedUnveri
 		RegisteredClaims: jwt.RegisteredClaims{
 			Subject: "apple-sub-squatter",
 		},
-	}, "Apple", "Name")
+	}, "Apple", "Name", signupconsent.CurrentOAuthSignupConsent())
 	s.Require().NoError(err)
 	s.Require().False(squatted.EmailVerified)
 
@@ -212,7 +213,7 @@ func (s *AppleAuthIntegrationTestSuite) TestFindOrCreateAppleUser_SquattedUnveri
 		RegisteredClaims: jwt.RegisteredClaims{
 			Subject: "apple-sub-real-owner",
 		},
-	}, "Apple", "Name")
+	}, "Apple", "Name", signupconsent.CurrentOAuthSignupConsent())
 
 	s.Require().Error(err)
 	s.Require().Nil(owner)
@@ -247,7 +248,7 @@ func (s *AppleAuthIntegrationTestSuite) TestFindOrCreateAppleUser_UnverifiedExis
 		RegisteredClaims: jwt.RegisteredClaims{
 			Subject: "apple-sub-into-unverified",
 		},
-	}, "Apple", "Name")
+	}, "Apple", "Name", signupconsent.CurrentOAuthSignupConsent())
 
 	s.Require().Error(err)
 	s.Require().Nil(user)
@@ -286,7 +287,7 @@ func (s *AppleAuthIntegrationTestSuite) TestFindOrCreateAppleUser_EmptySubject_R
 	user, err := svc.FindOrCreateAppleUser(&contracts.AppleIdentityTokenClaims{
 		Email:         "apple-someone-else@example.com",
 		EmailVerified: true,
-	}, "Apple", "Name")
+	}, "Apple", "Name", signupconsent.CurrentOAuthSignupConsent())
 
 	s.Require().Error(err)
 	s.Require().Nil(user)

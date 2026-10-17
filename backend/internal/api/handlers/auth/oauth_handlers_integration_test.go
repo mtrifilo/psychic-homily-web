@@ -289,7 +289,7 @@ func (s *OAuthHandlerIntegrationSuite) TestCallback_TermsNotAccepted_RedirectsWi
 		},
 	})
 
-	// No consent cookie → validateOAuthSignupConsent(nil) → terms error.
+	// No consent cookie → shared.ValidateOAuthSignupConsent(nil) → terms error.
 	w, req := oauthCallbackRequest("google")
 	handler.OAuthCallbackHTTPHandler(w, req)
 

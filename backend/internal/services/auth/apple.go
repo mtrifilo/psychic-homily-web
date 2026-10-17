@@ -227,7 +227,13 @@ func jwtFailureKind(err error) error {
 //
 // A created account carries email_verified from the token's own claim, so an
 // address Apple will not vouch for produces an unverified account.
-func (s *AppleAuthService) FindOrCreateAppleUser(claims *contracts.AppleIdentityTokenClaims, firstName, lastName string) (*authm.User, error) {
+//
+// consent is read only on the creation branch, after both refusals above: an
+// Apple identity that already has an account signs in whatever consent
+// carries. A creation whose consent fails shared.ValidateOAuthSignupConsent
+// returns that refusal before any write, so no user and no oauth_accounts row
+// exist without the terms, privacy and age record the consent carries.
+func (s *AppleAuthService) FindOrCreateAppleUser(claims *contracts.AppleIdentityTokenClaims, firstName, lastName string, consent *contracts.OAuthSignupConsent) (*authm.User, error) {
 	appleUserID := claims.Subject
 
 	// The subject is the identity this whole function resolves on, and
@@ -286,8 +292,10 @@ func (s *AppleAuthService) FindOrCreateAppleUser(claims *contracts.AppleIdentity
 		}
 	}
 
-	// Create a new user
-	return s.createAppleUser(appleUserID, claims.Email, firstName, lastName, claims.IsEmailVerified())
+	if err := shared.ValidateOAuthSignupConsent(consent); err != nil {
+		return nil, err
+	}
+	return s.createAppleUser(appleUserID, claims.Email, firstName, lastName, claims.IsEmailVerified(), consent.LegalAcceptance())
 }
 
 // GenerateToken creates a JWT for the user
@@ -295,8 +303,9 @@ func (s *AppleAuthService) GenerateToken(user *authm.User) (string, error) {
 	return s.jwtService.CreateToken(user)
 }
 
-// createAppleUser creates a new user from Apple Sign In data
-func (s *AppleAuthService) createAppleUser(appleUserID, email, firstName, lastName string, emailVerified bool) (*authm.User, error) {
+// createAppleUser creates a new user from Apple Sign In data, recording
+// acceptance as its terms, privacy and age record.
+func (s *AppleAuthService) createAppleUser(appleUserID, email, firstName, lastName string, emailVerified bool, acceptance contracts.LegalAcceptance) (*authm.User, error) {
 	tx := s.db.Begin()
 	defer func() {
 		if r := recover(); r != nil {
@@ -317,6 +326,7 @@ func (s *AppleAuthService) createAppleUser(appleUserID, email, firstName, lastNa
 	if email != "" {
 		user.Email = &email
 	}
+	shared.StampLegalAcceptance(user, acceptance)
 
 	if err := tx.Create(user).Error; err != nil {
 		tx.Rollback()

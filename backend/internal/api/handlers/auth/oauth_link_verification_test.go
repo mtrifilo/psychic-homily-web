@@ -134,6 +134,7 @@ func (s *OAuthHandlerIntegrationSuite) TestCallback_VerifiedEmailMatch_Redirects
 func (s *OAuthHandlerIntegrationSuite) TestAuthRefusalCarriesItsOwnCopy() {
 	actionable := []string{
 		autherrors.CodeTermsAcceptanceRequired,
+		autherrors.CodeAgeConfirmationRequired,
 		autherrors.CodeUserExists,
 		autherrors.CodeOAuthLinkRefused,
 		autherrors.CodeOAuthIdentityInUse,

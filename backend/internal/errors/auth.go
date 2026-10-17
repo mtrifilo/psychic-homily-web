@@ -403,7 +403,7 @@ func ErrTermsAcceptanceRequired(detail string) *AuthError {
 // The detail distinguishes "not confirmed" from "attested age below minimum"
 // so logs keep the cause without the handler string-matching the message.
 // NOTE: the "16" in the user-facing copy is kept in sync by hand with
-// auth-handler MinSignupAge / user-service minOAuthSignupAge / the
+// auth-handler MinSignupAge / services/shared minOAuthSignupAge / the
 // testutil/signupconsent fixture's signupMinimumAge; if the minimum
 // changes, update this string too (the threshold is enforced by those
 // constants, not parsed from this message).

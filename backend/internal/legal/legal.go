@@ -1,7 +1,7 @@
 // Package legal names the versions of the Terms of Service and the Privacy
-// Policy that email registration, passkey signup and the Google/GitHub sign-up
-// accept. Each of those refuses any other version. The Apple callback takes no
-// consent at all and does not consult this package.
+// Policy that email registration, passkey signup, the Google/GitHub sign-up and
+// a Sign in with Apple account creation accept. Each of those refuses any other
+// version.
 package legal
 
 // The versions the frontend's sign-up forms send (CURRENT_TERMS_VERSION and
