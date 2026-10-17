@@ -357,6 +357,7 @@ func main() {
 		venueTimezoneSweepCancel     context.CancelFunc
 		radioTracksRebuildCancel     context.CancelFunc
 		challengeSweepCancel         context.CancelFunc
+		authEmailOutboxCancel        context.CancelFunc
 		sweepHealthCheckCancel       context.CancelFunc
 	)
 
@@ -619,6 +620,19 @@ func main() {
 		log.Printf("%s=1: skipping webauthn challenge sweep startup", authsvc.DisableChallengeSweepEnvVar)
 	}
 
+	// Start the auth email outbox poller: sends the magic-link and
+	// account-recovery emails the request handlers queue. Default ON: without
+	// it no sign-in or recovery link is ever delivered. The same flag makes
+	// Enqueue refuse new rows, and the poller re-reads it every tick, so
+	// setting it on a running server stops these emails within one interval.
+	if !authsvc.AuthEmailOutboxDisabled() {
+		var authEmailOutboxCtx context.Context
+		authEmailOutboxCtx, authEmailOutboxCancel = context.WithCancel(context.Background())
+		sc.AuthEmailOutbox.Start(authEmailOutboxCtx)
+	} else {
+		log.Printf("%s=1: skipping auth email outbox startup; magic-link and recovery emails will not be sent", authsvc.DisableAuthEmailOutboxEnvVar)
+	}
+
 	// Start sweep health check (PSY-1612: reports background loops that have
 	// stopped running). Default ON — this is the monitoring that would have caught
 	// PSY-1606's seven silently-dead sweeps in days instead of weeks, so it should
@@ -753,6 +767,10 @@ func main() {
 	if challengeSweepCancel != nil {
 		challengeSweepCancel()
 		sc.ChallengeSweep.Stop()
+	}
+	if authEmailOutboxCancel != nil {
+		authEmailOutboxCancel()
+		sc.AuthEmailOutbox.Stop()
 	}
 	if sweepHealthCheckCancel != nil {
 		sweepHealthCheckCancel()

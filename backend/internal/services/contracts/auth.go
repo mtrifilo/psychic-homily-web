@@ -267,3 +267,18 @@ type PasswordValidatorInterface interface {
 	IsBreached(password string) (bool, error)
 	IsCommonPassword(password string) bool
 }
+
+// ──────────────────────────────────────────────
+// Auth Email Outbox Interface
+// ──────────────────────────────────────────────
+
+// AuthEmailOutboxInterface queues a magic-link or account-recovery email for
+// an account. A background poller sends it, so a request handler that calls
+// Enqueue never waits on the email provider.
+type AuthEmailOutboxInterface interface {
+	// Enqueue queues one email of kind for userID. A call while one is still
+	// queued for the same account and kind is a no-op that returns nil. It
+	// returns an error when the row could not be written or the outbox is
+	// switched off; in both cases no email is sent for this call.
+	Enqueue(ctx context.Context, kind authm.AuthEmailKind, userID uint) error
+}

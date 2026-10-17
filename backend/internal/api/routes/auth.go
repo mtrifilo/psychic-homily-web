@@ -24,7 +24,7 @@ var oauthRedirectRoutes = []string{authh.OAuthLoginRoute, authh.OAuthCallbackRou
 
 // setupAuthRoutes configures all authentication-related endpoints
 func setupAuthRoutes(rc RouteContext) {
-	authHandler := authh.NewAuthHandler(rc.SC.Auth, rc.SC.JWT, rc.SC.User, rc.SC.Email, rc.SC.Discord, rc.SC.PasswordValidator, rc.Cfg)
+	authHandler := authh.NewAuthHandler(rc.SC.Auth, rc.SC.JWT, rc.SC.User, rc.SC.Email, rc.SC.AuthEmailOutbox, rc.SC.Discord, rc.SC.PasswordValidator, rc.Cfg)
 	oauthHTTPHandler := authh.NewOAuthHTTPHandler(rc.SC.Auth, rc.SC.JWT, rc.Cfg)
 
 	// The OAuth redirects meter on oauthRedirectRateLimiter alone: never on the
@@ -165,7 +165,7 @@ func oauthRedirectRateLimiter(redirect func(http.ResponseWriter, *http.Request, 
 // and the email-verify confirm endpoint). Split out of SetupRoutes during the
 // PSY-422 routes.go decomposition; behavior unchanged.
 func setupProtectedAuthRoutes(rc RouteContext) {
-	authHandler := authh.NewAuthHandler(rc.SC.Auth, rc.SC.JWT, rc.SC.User, rc.SC.Email, rc.SC.Discord, rc.SC.PasswordValidator, rc.Cfg)
+	authHandler := authh.NewAuthHandler(rc.SC.Auth, rc.SC.JWT, rc.SC.User, rc.SC.Email, rc.SC.AuthEmailOutbox, rc.SC.Discord, rc.SC.PasswordValidator, rc.Cfg)
 
 	huma.Get(rc.Protected, "/auth/profile", authHandler.GetProfileHandler)
 	huma.Patch(rc.Protected, "/auth/profile", authHandler.UpdateProfileHandler)

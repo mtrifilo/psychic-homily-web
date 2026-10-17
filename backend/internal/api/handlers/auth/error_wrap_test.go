@@ -51,7 +51,7 @@ func TestUnhandledAuthCodeAnswersServiceUnavailable(t *testing.T) {
 			mock := &testhelpers.MockUserService{
 				UpdateUserFn: func(uint, map[string]any) (*authm.User, error) { return nil, unrouted },
 			}
-			h := NewAuthHandler(nil, nil, mock, nil, nil, nil, testConfig())
+			h := NewAuthHandler(nil, nil, mock, nil, nil, nil, nil, testConfig())
 			req := &UpdateProfileRequest{}
 			req.Body.FirstName = strPtr("Jane")
 			_, err := h.UpdateProfileHandler(testhelpers.CtxWithUser(&authm.User{ID: 1}), req)
