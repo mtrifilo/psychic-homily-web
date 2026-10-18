@@ -6,9 +6,9 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"math"
 	"net/url"
 	"os"
-	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -26,17 +26,18 @@ var (
 )
 
 // connectTimeout bounds opening the database. A healthy server answers a
-// connection in milliseconds, so a connection still waiting at the bound is to
-// a server that accepted TCP and is not answering, and boot reports it instead
-// of waiting with it. It is the bound on the boot reads that follow the
+// connection in milliseconds, so a connection still waiting at the bound is
+// one that is not being answered (a server that accepted TCP and never writes,
+// a dial or lookup that never completes), and boot reports it instead of
+// waiting with it. It is the same bound as the boot reads that follow the
 // connect.
 const connectTimeout = bootSchemaReadTimeout
 
 // Connect opens the database, pings it, and sets DB. The first ping is bounded
-// by connectTimeout. Every pool connection's dial and startup is bounded by
-// connect_timeout on the DSN, which is connectTimeout unless the DSN or
-// PGCONNECT_TIMEOUT sets its own. A server that accepts TCP and never answers
-// therefore refuses boot instead of stalling it.
+// by connectTimeout. Every pool connection's dial and startup is bounded, per
+// address tried, by connect_timeout on the DSN, which is connectTimeout unless
+// the DSN or PGCONNECT_TIMEOUT sets its own. A server that accepts TCP and
+// never answers therefore refuses boot instead of stalling it.
 func Connect(cfg *config.Config) error {
 	return connectWithin(cfg, connectTimeout)
 }
@@ -102,24 +103,25 @@ func connectWithin(cfg *config.Config, bound time.Duration) error {
 	return nil
 }
 
-// keywordConnectTimeout matches a connect_timeout key in a keyword/value DSN.
-var keywordConnectTimeout = regexp.MustCompile(`(^|\s)connect_timeout\s*=`)
-
 // withDefaultConnectTimeout returns dsn with connect_timeout set to bound,
 // unless dsn or PGCONNECT_TIMEOUT already sets one, which is kept. It accepts
 // both DSN forms pgx does: a postgres:// or postgresql:// URL, and
-// keyword/value.
+// keyword/value. A blank dsn is returned as it is, so pgx reads it as it would
+// without the bound. The setting is whole seconds, rounded up, since
+// connect_timeout=0 is no bound at all.
 func withDefaultConnectTimeout(dsn string, bound time.Duration) string {
-	if os.Getenv("PGCONNECT_TIMEOUT") != "" {
+	if os.Getenv("PGCONNECT_TIMEOUT") != "" || strings.TrimSpace(dsn) == "" {
 		return dsn
 	}
-	setting := "connect_timeout=" + strconv.Itoa(int(bound/time.Second))
+	seconds := max(int(math.Ceil(bound.Seconds())), 1)
+	setting := "connect_timeout=" + strconv.Itoa(seconds)
 
 	if !strings.HasPrefix(dsn, "postgres://") && !strings.HasPrefix(dsn, "postgresql://") {
-		if keywordConnectTimeout.MatchString(dsn) {
-			return dsn
-		}
-		return dsn + " " + setting
+		// pgx keeps the last value of a repeated keyword, so a leading setting
+		// is the default an explicit one later in dsn replaces. Leading also
+		// keeps it out of a trailing empty value ("dbname=" would read a
+		// following setting as its value).
+		return setting + " " + dsn
 	}
 
 	beforeFragment, fragment, hasFragment := strings.Cut(dsn, "#")
@@ -153,8 +155,9 @@ func effectiveConnectTimeout(dsn string) time.Duration {
 
 // pingWithin runs the first ping, which also opens the first connection, with
 // a context that ends after bound. A ping that ran out of time says so and
-// names the bound that ended it, which is dialBound when that is set and
-// shorter, because the dial then gives up first.
+// names the bound that ended it. That is dialBound when it is set and shorter,
+// since the dial then gives up first; it applies per address, so a DSN with
+// several addresses can wait a multiple of it before bound ends the ping.
 func pingWithin(sqlDB *sql.DB, bound, dialBound time.Duration) error {
 	ctx, cancel := context.WithTimeout(context.Background(), bound)
 	defer cancel()
@@ -163,11 +166,10 @@ func pingWithin(sqlDB *sql.DB, bound, dialBound time.Duration) error {
 		return nil
 	}
 	if errors.Is(err, context.DeadlineExceeded) {
-		ended := bound
 		if dialBound > 0 && dialBound < bound {
-			ended = dialBound
+			return fmt.Errorf("database did not answer within %s per address (connect_timeout): %w", dialBound, err)
 		}
-		return fmt.Errorf("database did not answer within %s: %w", ended, err)
+		return fmt.Errorf("database did not answer within %s: %w", bound, err)
 	}
 	return fmt.Errorf("failed to connect to database: %w", err)
 }

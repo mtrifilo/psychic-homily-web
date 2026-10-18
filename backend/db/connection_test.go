@@ -46,8 +46,7 @@ func connectReturn(t *testing.T, limit time.Duration, connect func() error) (tim
 }
 
 // A server that accepts TCP and never answers is the case boot must refuse
-// rather than wait on: without a bound, Connect waits until the operating
-// system gives up on the socket.
+// rather than wait on: nothing else in Connect ends that wait.
 func TestConnectRefusesUnansweringDatabaseWithinBound(t *testing.T) {
 	cfg := connectConfig(t, testutil.UnansweringDSN(t))
 
@@ -70,47 +69,80 @@ func TestConnectWithinPingBoundCoversAnUnboundedDial(t *testing.T) {
 	require.ErrorContains(t, err, "database did not answer within 1s")
 }
 
-// An explicit connect_timeout on the DSN is kept and reaches pgx: a shorter one
-// ends the wait before the ping bound does, and the refusal names it.
+// An explicit connect_timeout on the DSN is kept and reaches pgx, in both DSN
+// forms: a shorter one ends the wait before the ping bound does, and the
+// refusal names it.
 func TestConnectWithinNamesTheShorterDialBound(t *testing.T) {
-	cfg := connectConfig(t, testutil.UnansweringDSN(t)+" connect_timeout=1")
+	keyword := testutil.UnansweringDSN(t)
+	parsed, err := pgconn.ParseConfig(keyword)
+	require.NoError(t, err)
+	urlForm := fmt.Sprintf("postgres://nobody@127.0.0.1:%d/nothing?sslmode=disable&connect_timeout=1", parsed.Port)
 
-	_, err := connectReturn(t, time.Second+connectReturnSlack, func() error { return connectWithin(cfg, 30*time.Second) })
+	for name, dsn := range map[string]string{"keyword/value": keyword + " connect_timeout=1", "url": urlForm} {
+		t.Run(name, func(t *testing.T) {
+			cfg := connectConfig(t, dsn)
 
-	require.ErrorContains(t, err, "database did not answer within 1s")
+			_, err := connectReturn(t, time.Second+connectReturnSlack, func() error { return connectWithin(cfg, 30*time.Second) })
+
+			require.ErrorContains(t, err, "database did not answer within 1s per address (connect_timeout)")
+		})
+	}
 }
 
 func TestWithDefaultConnectTimeout(t *testing.T) {
 	cases := []struct {
-		name string
-		dsn  string
-		want string
+		name        string
+		dsn         string
+		want        string
+		wantTimeout time.Duration
 	}{
-		{"keyword/value without one", "host=db port=5432 dbname=app", "host=db port=5432 dbname=app connect_timeout=10"},
-		{"keyword/value with one", "host=db connect_timeout=3 dbname=app", "host=db connect_timeout=3 dbname=app"},
-		{"keyword/value with spaced one", "host=db connect_timeout = 3", "host=db connect_timeout = 3"},
-		{"keyword/value with a lookalike key", "host=db xconnect_timeout=3", "host=db xconnect_timeout=3 connect_timeout=10"},
-		{"url without a query", "postgres://u:p@db:5432/app", "postgres://u:p@db:5432/app?connect_timeout=10"},
-		{"url with a query", "postgres://u:p@db:5432/app?sslmode=disable", "postgres://u:p@db:5432/app?sslmode=disable&connect_timeout=10"},
-		{"url with an empty query", "postgres://u:p@db:5432/app?", "postgres://u:p@db:5432/app?connect_timeout=10"},
-		{"url with a trailing ampersand", "postgres://u:p@db/app?sslmode=disable&", "postgres://u:p@db/app?sslmode=disable&connect_timeout=10"},
-		{"url with one", "postgres://u:p@db/app?connect_timeout=3&sslmode=disable", "postgres://u:p@db/app?connect_timeout=3&sslmode=disable"},
-		{"postgresql scheme", "postgresql://u:p@db/app", "postgresql://u:p@db/app?connect_timeout=10"},
-		{"url with a fragment", "postgres://u:p@db/app?sslmode=disable#x", "postgres://u:p@db/app?sslmode=disable&connect_timeout=10#x"},
-		{"multi-host url", "postgres://u:p@a:5432,b:5432/app", "postgres://u:p@a:5432,b:5432/app?connect_timeout=10"},
+		{"keyword/value without one", "host=db port=5432 dbname=app", "connect_timeout=10 host=db port=5432 dbname=app", 10 * time.Second},
+		{"keyword/value with one", "host=db connect_timeout=3 dbname=app", "connect_timeout=10 host=db connect_timeout=3 dbname=app", 3 * time.Second},
+		{"keyword/value with spaced one", "host=db connect_timeout = 3", "connect_timeout=10 host=db connect_timeout = 3", 3 * time.Second},
+		{"keyword/value ending in an empty value", "host=db dbname=", "connect_timeout=10 host=db dbname=", 10 * time.Second},
+		{"keyword/value with the key inside a quoted value", "host=db password='a connect_timeout=1 b'", "connect_timeout=10 host=db password='a connect_timeout=1 b'", 10 * time.Second},
+		{"url without a query", "postgres://u:p@db:5432/app", "postgres://u:p@db:5432/app?connect_timeout=10", 10 * time.Second},
+		{"url with a query", "postgres://u:p@db:5432/app?sslmode=disable", "postgres://u:p@db:5432/app?sslmode=disable&connect_timeout=10", 10 * time.Second},
+		{"url with an empty query", "postgres://u:p@db:5432/app?", "postgres://u:p@db:5432/app?connect_timeout=10", 10 * time.Second},
+		{"url with a trailing ampersand", "postgres://u:p@db/app?sslmode=disable&", "postgres://u:p@db/app?sslmode=disable&connect_timeout=10", 10 * time.Second},
+		{"url with one", "postgres://u:p@db/app?connect_timeout=3&sslmode=disable", "postgres://u:p@db/app?connect_timeout=3&sslmode=disable", 3 * time.Second},
+		{"postgresql scheme", "postgresql://u:p@db/app", "postgresql://u:p@db/app?connect_timeout=10", 10 * time.Second},
+		{"url with a fragment", "postgres://u:p@db/app?sslmode=disable#x", "postgres://u:p@db/app?sslmode=disable&connect_timeout=10#x", 10 * time.Second},
+		{"multi-host url", "postgres://u:p@a:5432,b:5432/app", "postgres://u:p@a:5432,b:5432/app?connect_timeout=10", 10 * time.Second},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Setenv("PGCONNECT_TIMEOUT", "")
 			got := withDefaultConnectTimeout(tc.dsn, connectTimeout)
 			require.Equal(t, tc.want, got)
-
-			// The rewritten DSN is one pgx parses, with the bound it says.
-			parsed, err := pgconn.ParseConfig(got)
-			require.NoError(t, err)
-			require.Positive(t, parsed.ConnectTimeout)
+			require.Equal(t, tc.wantTimeout, effectiveConnectTimeout(got), "the bound pgx reads from the rewritten DSN")
 		})
 	}
+
+	t.Run("the rewrite leaves every other setting as pgx read it", func(t *testing.T) {
+		t.Setenv("PGCONNECT_TIMEOUT", "")
+		for _, dsn := range []string{"host=db dbname=", "host=db user=app password=", "host=db password='a connect_timeout=1 b'"} {
+			before, err := pgconn.ParseConfig(dsn)
+			require.NoError(t, err)
+			after, err := pgconn.ParseConfig(withDefaultConnectTimeout(dsn, connectTimeout))
+			require.NoError(t, err)
+			require.Equal(t, before.Database, after.Database, dsn)
+			require.Equal(t, before.User, after.User, dsn)
+			require.Equal(t, before.Password, after.Password, dsn)
+		}
+	})
+
+	t.Run("a blank DSN is left for pgx to read as it would", func(t *testing.T) {
+		t.Setenv("PGCONNECT_TIMEOUT", "")
+		for _, dsn := range []string{"", "   "} {
+			require.Equal(t, dsn, withDefaultConnectTimeout(dsn, connectTimeout))
+		}
+	})
+
+	t.Run("a sub-second bound rounds up rather than to no bound", func(t *testing.T) {
+		t.Setenv("PGCONNECT_TIMEOUT", "")
+		require.Equal(t, "connect_timeout=1 host=db", withDefaultConnectTimeout("host=db", 500*time.Millisecond))
+	})
 
 	t.Run("PGCONNECT_TIMEOUT is kept", func(t *testing.T) {
 		t.Setenv("PGCONNECT_TIMEOUT", "4")
@@ -121,7 +153,7 @@ func TestWithDefaultConnectTimeout(t *testing.T) {
 }
 
 // A healthy server connects as before, through the URL form the deploy uses,
-// and the connect bound reaches the pool.
+// with the bounded ping on and the default connect_timeout on the DSN.
 func TestConnectHealthyDatabase(t *testing.T) {
 	if testing.Short() {
 		t.Skip("integration test")
@@ -149,5 +181,4 @@ func TestConnectHealthyDatabase(t *testing.T) {
 	var one int
 	require.NoError(t, DB.Raw("SELECT 1").Scan(&one).Error)
 	require.Equal(t, 1, one)
-	require.Equal(t, connectTimeout, effectiveConnectTimeout(withDefaultConnectTimeout(dsn, connectTimeout)))
 }
