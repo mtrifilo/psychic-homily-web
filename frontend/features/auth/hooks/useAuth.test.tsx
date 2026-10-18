@@ -457,7 +457,7 @@ describe('useAuth hooks', () => {
           onSuccess: vi.fn(() => {
             events.push(`onSuccess after ${refetchQueries.mock.calls.length} refetch`)
           }),
-          onError: vi.fn(() => {
+          onError: vi.fn((_error: Error) => {
             events.push('onError')
           }),
           onSettled: vi.fn(() => {
@@ -484,7 +484,6 @@ describe('useAuth hooks', () => {
 
         await waitFor(() => expect(callbacks.onSettled).toHaveBeenCalledTimes(1))
         expect(callbacks.onSuccess).toHaveBeenCalledWith(registered, REGISTER_VARIABLES)
-        expect(callbacks.onError).not.toHaveBeenCalled()
         expect(events).toEqual(['onSuccess after 1 refetch', 'onSettled'])
       })
 
@@ -493,8 +492,7 @@ describe('useAuth hooks', () => {
         const { callbacks, events } = registerThenUnmount(Promise.reject(failure))
 
         await waitFor(() => expect(callbacks.onSettled).toHaveBeenCalledTimes(1))
-        expect(callbacks.onError).toHaveBeenCalledWith(failure)
-        expect(callbacks.onSuccess).not.toHaveBeenCalled()
+        expect(callbacks.onError.mock.calls[0]?.[0]).toBe(failure)
         expect(events).toEqual(['onError', 'onSettled'])
       })
     })

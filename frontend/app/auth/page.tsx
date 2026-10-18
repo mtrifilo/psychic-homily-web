@@ -386,9 +386,7 @@ function SignupForm({
 }: SignupFormProps) {
   const { setUser } = useAuthContext()
   // On the hook, not on `mutate`: the page stops rendering this form once the
-  // profile reports the new session while the claim is pending, and TanStack
-  // Query skips `mutate`'s callbacks after the form unmounts. Everything these
-  // call belongs to the page or the auth context, so it outlives the form.
+  // profile reports the new session while the claim is pending.
   const registerMutation = useRegister({
     onSuccess: (data, variables) => {
       if (!data.user) {

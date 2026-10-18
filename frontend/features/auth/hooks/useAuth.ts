@@ -325,12 +325,8 @@ export const useRegister = (callbacks: RegisterCallbacks = {}) => {
       }
       callbacks.onSuccess?.(data, variables)
     },
-    onError: error => {
-      callbacks.onError?.(error)
-    },
-    onSettled: () => {
-      callbacks.onSettled?.()
-    },
+    onError: callbacks.onError,
+    onSettled: callbacks.onSettled,
   })
 }
 

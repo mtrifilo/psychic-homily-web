@@ -1,9 +1,9 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach, onTestFinished } from 'vitest'
 import { act, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { renderWithProviders } from '@/test/utils'
 import { deferred } from '@/test/inflightOrdering'
-import { advanceFakeTime } from '@/test/stalledFetch'
+import { advanceFakeTime, headersThenBody } from '@/test/stalledFetch'
 import { AuthProvider } from '@/lib/context/AuthContext'
 import { queryKeys } from '@/lib/queryClient'
 import AuthPage from './page'
@@ -43,16 +43,6 @@ function jsonResponse(body: unknown) {
   })
 }
 
-/** A 200 whose headers, and so its session cookie, are in but whose body is not. */
-function headersOnlyResponse(body: Promise<unknown>) {
-  return {
-    ok: true,
-    status: 200,
-    headers: new Headers({ 'Content-Type': 'application/json' }),
-    json: () => body,
-  } as unknown as Response
-}
-
 const USER = { id: 100, email: 'signup@example.com', email_verified: false }
 const REGISTERED = { success: true, message: 'ok', user: USER }
 const SIGNED_IN_PROFILE = { success: true, user: USER }
@@ -78,11 +68,14 @@ function routeFetch(routes: {
   return { profileRequests: () => profileRequests }
 }
 
-function registerSignal(): AbortSignal {
-  const call = fetchMock.mock.calls.find(
+function registerCall() {
+  return fetchMock.mock.calls.find(
     ([url]) => new URL(url as string).pathname === '/auth/register'
   )
-  return (call?.[1] as RequestInit).signal as AbortSignal
+}
+
+function registerSignal(): AbortSignal {
+  return (registerCall()?.[1] as RequestInit).signal as AbortSignal
 }
 
 /** Notes whether the page ever renders nothing once the form has shown. */
@@ -91,13 +84,11 @@ function watchForBlankPage(container: HTMLElement) {
   let blankSeen = false
   const observer = new MutationObserver(() => {
     if (container.querySelector('form')) formShown = true
-    if (formShown && container.innerHTML === '') blankSeen = true
+    if (formShown && container.firstChild === null) blankSeen = true
   })
   observer.observe(container, { childList: true, subtree: true })
-  return {
-    blankSeen: () => blankSeen,
-    stop: () => observer.disconnect(),
-  }
+  onTestFinished(() => observer.disconnect())
+  return { blankSeen: () => blankSeen }
 }
 
 function renderPage() {
@@ -150,8 +141,10 @@ describe('password sign-up success with the real profile query', () => {
 
     await submitPasswordSignup(user)
     await waitFor(() => expect(requests.profileRequests()).toBe(2))
+    // A turn of the task queue, so the refetch lands after the register
+    // answer's own notifications have reached React.
     await act(async () => {
-      await new Promise(resolve => setTimeout(resolve, 50))
+      await new Promise(resolve => setTimeout(resolve, 0))
     })
     await act(async () => {
       refetch.resolve(jsonResponse(SIGNED_IN_PROFILE))
@@ -162,7 +155,6 @@ describe('password sign-up success with the real profile query', () => {
     ).toBeInTheDocument()
     expect(page.blankSeen()).toBe(false)
     expect(mockPush).not.toHaveBeenCalled()
-    page.stop()
   })
 
   // Another profile fetch (a focus or reconnect refetch, say) can land between
@@ -175,13 +167,14 @@ describe('password sign-up success with the real profile query', () => {
       const requests = routeFetch({
         profile: n =>
           Promise.resolve(jsonResponse(n === 1 ? ANONYMOUS_PROFILE : SIGNED_IN_PROFILE)),
-        register: () => Promise.resolve(headersOnlyResponse(registerBody.promise)),
+        // Its headers, and so the session cookie, are in; its body is not.
+        register: () => Promise.resolve(headersThenBody(() => registerBody.promise)),
       })
       const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
       const { container, queryClient } = renderPage()
 
       await submitPasswordSignup(user)
-      await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2))
+      await waitFor(() => expect(registerCall()).toBeDefined())
       await act(async () => {
         await queryClient.refetchQueries({ queryKey: queryKeys.auth.profile })
       })
