@@ -39,19 +39,6 @@ func TestNewWebAuthnService_Success(t *testing.T) {
 	assert.NotNil(t, svc)
 }
 
-// A login for no account is an error, not a dereference.
-func TestBeginLogin_NilUser(t *testing.T) {
-	svc, err := NewWebAuthnService(&gorm.DB{}, &config.Config{
-		WebAuthn: config.WebAuthnConfig{RPDisplayName: "Test App", RPID: "localhost", RPOrigins: []string{"http://localhost:3000"}},
-	})
-	assert.NoError(t, err)
-
-	options, session, err := svc.BeginLogin(nil)
-	assert.Error(t, err)
-	assert.Nil(t, options)
-	assert.Nil(t, session)
-}
-
 func TestNewWebAuthnService_DefaultRPID(t *testing.T) {
 	cfg := &config.Config{
 		WebAuthn: config.WebAuthnConfig{
@@ -304,14 +291,13 @@ func (suite *WebAuthnServiceIntegrationTestSuite) TestConsumeChallenge_Success()
 	challengeID, err := suite.service.StoreChallenge(user.ID, session, "authentication")
 	suite.Require().NoError(err)
 
-	retrieved, userID, err := suite.service.ConsumeChallenge(challengeID, "authentication")
+	retrieved, err := suite.service.ConsumeChallenge(challengeID, "authentication")
 	suite.Require().NoError(err)
-	suite.Equal(user.ID, userID)
 	suite.Equal("test-challenge-data", retrieved.Challenge)
 }
 
 func (suite *WebAuthnServiceIntegrationTestSuite) TestConsumeChallenge_NotFound() {
-	_, _, err := suite.service.ConsumeChallenge("non-existent-id", "authentication")
+	_, err := suite.service.ConsumeChallenge("non-existent-id", "authentication")
 	suite.Require().Error(err)
 	suite.Contains(err.Error(), "challenge not found")
 }
@@ -326,7 +312,7 @@ func (suite *WebAuthnServiceIntegrationTestSuite) TestConsumeChallenge_WrongOper
 	challengeID, err := suite.service.StoreChallenge(user.ID, session, "registration")
 	suite.Require().NoError(err)
 
-	_, _, err = suite.service.ConsumeChallenge(challengeID, "authentication")
+	_, err = suite.service.ConsumeChallenge(challengeID, "authentication")
 	suite.Require().Error(err)
 	suite.Contains(err.Error(), "challenge not found")
 	_, _, err = suite.service.ConsumeSignupChallenge(challengeID, "signup")
@@ -344,7 +330,7 @@ func (suite *WebAuthnServiceIntegrationTestSuite) TestConsumeChallenge_RefusesRe
 	challengeID, err := suite.service.StoreChallenge(user.ID, &webauthn.SessionData{Challenge: "c"}, "registration")
 	suite.Require().NoError(err)
 
-	_, _, err = suite.service.ConsumeChallenge(challengeID, "registration")
+	_, err = suite.service.ConsumeChallenge(challengeID, "registration")
 	suite.Require().Error(err)
 	suite.Equal(int64(1), suite.challengeRows(challengeID))
 }
@@ -363,7 +349,7 @@ func (suite *WebAuthnServiceIntegrationTestSuite) TestConsumeChallenge_Expired()
 	suite.Require().NoError(suite.db.Exec("UPDATE webauthn_challenges SET expires_at = ? WHERE id = ?",
 		time.Now().Add(-1*time.Hour), challengeID).Error)
 
-	_, _, err = suite.service.ConsumeChallenge(challengeID, "authentication")
+	_, err = suite.service.ConsumeChallenge(challengeID, "authentication")
 	suite.Require().Error(err)
 	suite.Contains(err.Error(), "challenge expired")
 	suite.Zero(suite.challengeRows(challengeID), "the refusal removes the expired row")
@@ -409,9 +395,8 @@ func (suite *WebAuthnServiceIntegrationTestSuite) TestStoreAndConsumeChallenge_R
 	challengeID, err := suite.service.StoreChallenge(user.ID, session, "authentication")
 	suite.Require().NoError(err)
 
-	retrieved, userID, err := suite.service.ConsumeChallenge(challengeID, "authentication")
+	retrieved, err := suite.service.ConsumeChallenge(challengeID, "authentication")
 	suite.Require().NoError(err)
-	suite.Equal(user.ID, userID)
 	suite.Equal(session.Challenge, retrieved.Challenge)
 	suite.Equal(session.UserVerification, retrieved.UserVerification)
 }
@@ -554,36 +539,6 @@ func (suite *WebAuthnServiceIntegrationTestSuite) TestBeginRegistration_WithExcl
 	suite.NotNil(session)
 	// The exclusion list should be populated
 	suite.Len(options.Response.CredentialExcludeList, 1)
-}
-
-func (suite *WebAuthnServiceIntegrationTestSuite) TestBeginLogin_NoCredentials() {
-	email := "user@test.com"
-	user := &authm.User{
-		Email:         &email,
-		IsActive:      true,
-		EmailVerified: true,
-	}
-	suite.Require().NoError(suite.db.Create(user).Error)
-
-	_, _, err := suite.service.BeginLogin(user)
-	suite.requireRefusal(err, apperrors.CodeInvalidCredentials, "No passkeys registered for this account")
-}
-
-func (suite *WebAuthnServiceIntegrationTestSuite) TestBeginLogin_WithCredentials() {
-	email := "user@test.com"
-	user := &authm.User{
-		Email:         &email,
-		IsActive:      true,
-		EmailVerified: true,
-	}
-	suite.Require().NoError(suite.db.Create(user).Error)
-	suite.insertCredential(user.ID, "My Key")
-
-	options, session, err := suite.service.BeginLogin(user)
-	suite.Require().NoError(err)
-	suite.NotNil(options)
-	suite.NotNil(session)
-	suite.NotEmpty(session.Challenge)
 }
 
 func (suite *WebAuthnServiceIntegrationTestSuite) TestBeginDiscoverableLogin_Success() {
