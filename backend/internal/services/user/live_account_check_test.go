@@ -118,4 +118,11 @@ func (suite *UserServiceIntegrationTestSuite) TestLiveAccountSQL_SelectsTheRowsC
 		Where("u.id IN ?", ids).Where(authm.LiveAccountSQL("u")).Pluck("u.id", &byAlias).Error)
 	suite.ElementsMatch(signInable, byTable)
 	suite.ElementsMatch(signInable, byAlias)
+
+	// The EXISTS form, correlated on a user id held by the outer query, keeps
+	// the same rows.
+	var byExists []uint
+	suite.Require().NoError(suite.db.Table("users u").
+		Where("u.id IN ?", ids).Where(authm.LiveAccountExistsSQL("u.id")).Pluck("u.id", &byExists).Error)
+	suite.ElementsMatch(signInable, byExists)
 }

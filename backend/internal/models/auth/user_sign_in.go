@@ -21,3 +21,21 @@ func (u *User) CanSignIn() bool {
 func LiveAccountSQL(alias string) string {
 	return alias + ".is_active = TRUE"
 }
+
+// liveAccountExistsAlias is the alias LiveAccountExistsSQL binds the users
+// table to, distinct from any alias a calling query uses so the correlation on
+// userIDExpr cannot be shadowed by the subquery.
+const liveAccountExistsAlias = "live_account"
+
+// LiveAccountExistsSQL is the correlated EXISTS condition, true when the users
+// row userIDExpr names is an account CanSignIn accepts. It is LiveAccountSQL for
+// a query that holds a user id in another table's column rather than joining
+// users itself, and like it binds no arguments.
+//
+// userIDExpr is SQL the caller controls and must be a literal in the calling
+// code.
+func LiveAccountExistsSQL(userIDExpr string) string {
+	return "EXISTS (SELECT 1 FROM users " + liveAccountExistsAlias +
+		" WHERE " + liveAccountExistsAlias + ".id = " + userIDExpr +
+		" AND " + LiveAccountSQL(liveAccountExistsAlias) + ")"
+}
