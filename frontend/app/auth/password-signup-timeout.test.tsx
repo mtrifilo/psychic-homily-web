@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { act, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { renderWithProviders } from '@/test/utils'
+import { clientWithConsentVersions } from '@/test/consentVersions'
 import {
   advanceFakeTime,
   requestSignal,
@@ -68,7 +69,7 @@ const fetchMock = vi.fn()
 
 async function submitPasswordSignup() {
   const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
-  renderWithProviders(<AuthPage />)
+  renderWithProviders(<AuthPage />, { queryClient: clientWithConsentVersions() })
 
   await user.click(screen.getByRole('tab', { name: 'Create account' }))
   await user.type(screen.getByLabelText('Email'), 'signup@example.com')
