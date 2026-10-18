@@ -384,8 +384,32 @@ function SignupForm({
   consentRequested,
   consentReasonId,
 }: SignupFormProps) {
-  const registerMutation = useRegister()
   const { setUser } = useAuthContext()
+  // On the hook, not on `mutate`: the page stops rendering this form once the
+  // profile reports the new session while the claim is pending, and TanStack
+  // Query skips `mutate`'s callbacks after the form unmounts. Everything these
+  // call belongs to the page or the auth context, so it outlives the form.
+  const registerMutation = useRegister({
+    onSuccess: (data, variables) => {
+      if (!data.user) {
+        // No session to hand off to. Release the claim so the page behaves
+        // exactly as it did before the attempt.
+        onHandoffChange(null)
+        return
+      }
+
+      setUser(data.user)
+      onHandoffChange({
+        status: 'complete',
+        email: data.user.email || variables.email,
+        method: 'password',
+      })
+    },
+    onError: () => {
+      onHandoffChange(null)
+    },
+    onSettled: passwordRequestDeadline.disarm,
+  })
   const [showPassword, setShowPassword] = useState(false)
   const [passwordValue, setPasswordValue] = useState('')
   const [passkeyError, setPasskeyError] = useState<string | null>(null)
@@ -414,44 +438,21 @@ function SignupForm({
       // SignupHandoff doc comment for the redirect race this closes.
       onHandoffChange({ status: 'pending', email: value.email })
 
-      registerMutation.mutate(
-        {
-          email: value.email,
-          password: value.password,
-          terms_accepted: value.termsAccepted,
-          terms_version: CURRENT_TERMS_VERSION,
-          privacy_version: CURRENT_PRIVACY_VERSION,
-          age_confirmed: value.ageConfirmed,
-          min_age_attested: MIN_SIGNUP_AGE,
-          signal: passwordRequestDeadline.arm(),
-          // The profile refetch that follows takes no signal: this deadline
-          // bounds only how long the claim waits on it.
-          onRegistered: () => {
-            passwordRequestDeadline.arm()
-          },
+      registerMutation.mutate({
+        email: value.email,
+        password: value.password,
+        terms_accepted: value.termsAccepted,
+        terms_version: CURRENT_TERMS_VERSION,
+        privacy_version: CURRENT_PRIVACY_VERSION,
+        age_confirmed: value.ageConfirmed,
+        min_age_attested: MIN_SIGNUP_AGE,
+        signal: passwordRequestDeadline.arm(),
+        // The profile refetch that follows takes no signal: this deadline
+        // bounds only how long the claim waits on it.
+        onRegistered: () => {
+          passwordRequestDeadline.arm()
         },
-        {
-          onSuccess: data => {
-            if (!data.user) {
-              // No session to hand off to. Release the claim so the page
-              // behaves exactly as it did before the attempt.
-              onHandoffChange(null)
-              return
-            }
-
-            setUser(data.user)
-            onHandoffChange({
-              status: 'complete',
-              email: data.user.email || value.email,
-              method: 'password',
-            })
-          },
-          onError: () => {
-            onHandoffChange(null)
-          },
-          onSettled: passwordRequestDeadline.disarm,
-        }
-      )
+      })
     },
     validators: {
       ...(hasAttemptedSubmit && { onChange: signupSchema }),
@@ -744,11 +745,11 @@ function AuthPageContent() {
   const activeTab = showingArrivalTab ? arrivalTab : pickedTab.tab
   const setActiveTab = (tab: string) => setPickedTab({ arrival, tab })
   const [signupHandoff, setSignupHandoff] = useState<SignupHandoff | null>(null)
-  // A request past its deadline releases a claim still pending, which the
-  // control that sent it cannot do once the page has stopped rendering the
-  // form: an authenticated viewer with a pending claim gets neither the form
-  // nor the redirect. The two sign-up paths can each have a request in flight
-  // at once, so each has its own deadline.
+  // A request that never answers leaves its claim pending, and an
+  // authenticated viewer with a pending claim gets neither the form nor the
+  // redirect, so a request past its deadline releases the claim. The two
+  // sign-up paths can each have a request in flight at once, so each has its
+  // own deadline.
   const releasePendingSignup = useCallback(() => {
     setSignupHandoff(current => (current?.status === 'pending' ? null : current))
   }, [])

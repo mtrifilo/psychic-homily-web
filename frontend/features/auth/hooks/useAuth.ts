@@ -66,6 +66,19 @@ interface RegisterRequest extends RegisterCredentials {
   onRegistered?: () => void
 }
 
+/**
+ * What the caller of `useRegister` does with the outcome, handed to the hook
+ * rather than to `mutate`. TanStack Query skips `mutate`'s own callbacks once
+ * the component that called it has unmounted; these run for every
+ * registration, so anything they set must outlive that component.
+ */
+interface RegisterCallbacks {
+  /** Runs after the profile refetch a registration with a user awaits. */
+  onSuccess?: (data: AuthResponse, variables: RegisterRequest) => void
+  onError?: (error: Error) => void
+  onSettled?: () => void
+}
+
 const REGISTRATION_FAILED = 'Registration failed'
 
 /**
@@ -245,7 +258,7 @@ export const useLogin = () => {
 }
 
 // Register mutation
-export const useRegister = () => {
+export const useRegister = (callbacks: RegisterCallbacks = {}) => {
   const queryClient = useQueryClient()
 
   return useMutation({
@@ -299,7 +312,7 @@ export const useRegister = () => {
       onRegistered?.()
       return response
     },
-    onSuccess: async data => {
+    onSuccess: async (data, variables) => {
       if (data.success && data.user) {
         authLogger.info(
           'Registration successful',
@@ -310,6 +323,13 @@ export const useRegister = () => {
         // Refetch profile to ensure we have complete user data
         await refreshCachesForNewSession(queryClient)
       }
+      callbacks.onSuccess?.(data, variables)
+    },
+    onError: error => {
+      callbacks.onError?.(error)
+    },
+    onSettled: () => {
+      callbacks.onSettled?.()
     },
   })
 }

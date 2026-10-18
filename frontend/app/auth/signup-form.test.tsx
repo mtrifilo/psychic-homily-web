@@ -21,12 +21,20 @@ vi.mock('next/navigation', () => ({
 }))
 
 const mockRegisterMutate = vi.fn()
+// The callbacks the form hands `useRegister` on its latest render.
+let registerCallbacks: {
+  onSuccess: (data: unknown, variables: unknown) => void
+  onError: (error: unknown) => void
+}
 vi.mock('@/features/auth', () => ({
-  useRegister: () => ({
-    mutate: mockRegisterMutate,
-    isPending: false,
-    error: null as Error | null,
-  }),
+  useRegister: (callbacks: typeof registerCallbacks) => {
+    registerCallbacks = callbacks
+    return {
+      mutate: mockRegisterMutate,
+      isPending: false,
+      error: null as Error | null,
+    }
+  },
   useLogin: () => ({
     mutate: vi.fn(),
     isPending: false,
@@ -263,8 +271,7 @@ describe('SignupForm deferred validation', () => {
           min_age_attested: MIN_SIGNUP_AGE,
           signal: expect.any(AbortSignal),
           onRegistered: expect.any(Function),
-        },
-        expect.any(Object),
+        }
       )
     })
   })
@@ -288,27 +295,39 @@ describe('SignupForm deferred validation', () => {
 
       return {
         rerender,
-        callbacks: mockRegisterMutate.mock.calls[0][1] as {
-          onSuccess: (data: unknown) => void
-          onError: (error: unknown) => void
-        },
+        callbacks: registerCallbacks,
+        variables: mockRegisterMutate.mock.calls[0][0] as unknown,
       }
     }
 
     it('shows the interstitial for the registered address instead of navigating', async () => {
-      const { callbacks } = await submitValidSignup()
+      const { callbacks, variables } = await submitValidSignup()
 
       act(() => {
-        callbacks.onSuccess({
-          user: { id: '1', email: 'test@example.com' },
-        })
+        callbacks.onSuccess(
+          { user: { id: '1', email: 'registered@example.com' } },
+          variables
+        )
+      })
+
+      expect(
+        await screen.findByRole('heading', { name: 'Check your inbox.' })
+      ).toBeInTheDocument()
+      expect(screen.getByText('registered@example.com')).toBeInTheDocument()
+      expect(mockPush).not.toHaveBeenCalled()
+    })
+
+    it('falls back to the submitted address when the response user has none', async () => {
+      const { callbacks, variables } = await submitValidSignup()
+
+      act(() => {
+        callbacks.onSuccess({ user: { id: '1', email: '' } }, variables)
       })
 
       expect(
         await screen.findByRole('heading', { name: 'Check your inbox.' })
       ).toBeInTheDocument()
       expect(screen.getByText('test@example.com')).toBeInTheDocument()
-      expect(mockPush).not.toHaveBeenCalled()
     })
 
     // The redirect race this closes is real: `useRegister` awaits a full
@@ -357,10 +376,10 @@ describe('SignupForm deferred validation', () => {
     // response with no user leaves the form untouched with no error shown.
     // Worth fixing, but it predates the interstitial and is not this change.
     it('leaves the form in place when the response carries no user', async () => {
-      const { callbacks } = await submitValidSignup()
+      const { callbacks, variables } = await submitValidSignup()
 
       act(() => {
-        callbacks.onSuccess({ success: true })
+        callbacks.onSuccess({ success: true }, variables)
       })
 
       expect(
