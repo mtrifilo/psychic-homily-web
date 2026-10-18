@@ -29,8 +29,10 @@ export const FALLBACK_RETURN_TO = '/'
  *
  * Go cannot import it, so `sanitizeOAuthReturnTo` in
  * `backend/internal/api/handlers/auth/oauth_return_to.go` restates the rule
- * for Google sign-in, judging the decoded path where this judges the encoded
- * one; a change here has to be made there too.
+ * for Google sign-in; a change here has to be made there too. Both sanitizers
+ * judge the percent-decoded path, so "/%61uth" is the auth page to them. The
+ * builder judges the path as written, so it can carry such a spelling, which
+ * the auth page then refuses: the reader still lands on FALLBACK_RETURN_TO.
  */
 export function isAuthPath(pathname: string): boolean {
   return pathname === AUTH_PATH || pathname.startsWith(`${AUTH_PATH}/`)
@@ -44,9 +46,9 @@ export function isAuthPath(pathname: string): boolean {
  * or fragment survives the round trip instead of being parsed as part of the
  * auth page's own params.
  *
- * A destination `sanitizeReturnTo` would discard is omitted rather than
- * encoded: the auth surface's own routes and the fallback both land the reader
- * at `/` with or without the param, so emitting one would put a self-defeating
+ * The fallback and the auth surface's own routes are omitted rather than
+ * encoded: `sanitizeReturnTo` discards them, and they land the reader at `/`
+ * with or without the param, so emitting one would put a self-defeating
  * query string in the markup of every page that carries no destination worth
  * returning to.
  */
