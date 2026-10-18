@@ -59,7 +59,7 @@ func (suite *WebAuthnServiceIntegrationTestSuite) TestConcurrentFinishesConsumeA
 						_, err := suite.service.ConsumeRegistrationChallenge(challengeID, user.ID)
 						return err
 					}
-					_, _, err := suite.service.ConsumeChallenge(challengeID, operation)
+					_, err := suite.service.ConsumeChallenge(challengeID, operation)
 					return err
 				}))
 			}
@@ -87,11 +87,11 @@ func (suite *WebAuthnServiceIntegrationTestSuite) TestConsumedChallengeAnswersNo
 	challengeID, err := suite.service.StoreChallenge(user.ID, &webauthn.SessionData{Challenge: "spent"}, "authentication")
 	suite.Require().NoError(err)
 
-	_, _, err = suite.service.ConsumeChallenge(challengeID, "authentication")
+	_, err = suite.service.ConsumeChallenge(challengeID, "authentication")
 	suite.Require().NoError(err)
 	suite.Zero(suite.challengeRows(challengeID))
 
-	_, _, err = suite.service.ConsumeChallenge(challengeID, "authentication")
+	_, err = suite.service.ConsumeChallenge(challengeID, "authentication")
 	suite.Require().Error(err)
 	suite.Contains(err.Error(), "challenge not found")
 }

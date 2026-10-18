@@ -20,10 +20,10 @@ func (s *AuthHandlerIntegrationSuite) signedInUser(resp *httptest.ResponseRecord
 	return user
 }
 
-// passkeySignIn runs a passkey login with device, begun with beginBody, and
-// returns the user object the finish answers with.
-func (s *AuthHandlerIntegrationSuite) passkeySignIn(api humatest.TestAPI, device *softauthn.Authenticator, beginBody map[string]any) map[string]any {
-	challengeID, options := s.beginPasskeyLogin(api, beginBody)
+// passkeySignIn runs a passkey login with device and returns the user object
+// the finish answers with.
+func (s *AuthHandlerIntegrationSuite) passkeySignIn(api humatest.TestAPI, device *softauthn.Authenticator) map[string]any {
+	challengeID, options := s.beginDiscoverableLogin(api)
 	assertion, err := device.Assert(options)
 	s.Require().NoError(err)
 	return s.signedInUser(api.Post("/auth/passkey/login/finish", map[string]any{
@@ -32,9 +32,9 @@ func (s *AuthHandlerIntegrationSuite) passkeySignIn(api humatest.TestAPI, device
 	}))
 }
 
-// The password login, the email-specific passkey login and the discoverable
-// passkey login answer with the same account in one shape: the same user
-// keys, carrying the account's OAuth accounts and preferences.
+// The password login and the passkey login answer with the same account in
+// one shape: the same user keys, carrying the account's OAuth accounts and
+// preferences.
 func (s *AuthHandlerIntegrationSuite) TestSignInPathsReturnTheUserInOneShape() {
 	email, password := "one-shape@test.com", "strong-password-123!"
 	user := s.createUserWithPassword(email, password)
@@ -53,17 +53,9 @@ func (s *AuthHandlerIntegrationSuite) TestSignInPathsReturnTheUserInOneShape() {
 	s.Require().Contains(reference, "oauth_accounts", "the password sign-in is the reference shape")
 	s.Require().Contains(reference, "preferences", "the password sign-in is the reference shape")
 
-	passkeyPaths := []struct {
-		name string
-		user map[string]any
-	}{
-		{"email passkey", s.passkeySignIn(passkeyAPI, device, map[string]any{"email": email})},
-		{"discoverable passkey", s.passkeySignIn(passkeyAPI, device, map[string]any{})},
-	}
-	for _, path := range passkeyPaths {
-		s.Equal(slices.Sorted(maps.Keys(reference)), slices.Sorted(maps.Keys(path.user)), "%s: user keys", path.name)
-		s.Equal(reference["id"], path.user["id"], "%s: account", path.name)
-		s.Equal(reference["oauth_accounts"], path.user["oauth_accounts"], "%s: OAuth accounts", path.name)
-		s.Equal(reference["preferences"], path.user["preferences"], "%s: preferences", path.name)
-	}
+	passkey := s.passkeySignIn(passkeyAPI, device)
+	s.Equal(slices.Sorted(maps.Keys(reference)), slices.Sorted(maps.Keys(passkey)), "user keys")
+	s.Equal(reference["id"], passkey["id"], "account")
+	s.Equal(reference["oauth_accounts"], passkey["oauth_accounts"], "OAuth accounts")
+	s.Equal(reference["preferences"], passkey["preferences"], "preferences")
 }
