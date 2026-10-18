@@ -3,6 +3,7 @@ package db
 import (
 	"context"
 	"fmt"
+	"net"
 	"testing"
 	"time"
 
@@ -152,8 +153,30 @@ func TestWithDefaultConnectTimeout(t *testing.T) {
 	})
 }
 
-// A healthy server connects as before, through the URL form the deploy uses,
-// with the bounded ping on and the default connect_timeout on the DSN.
+// A database that refuses the connection fails fast with the driver's error,
+// not the bound, and leaves no handle behind.
+func TestConnectReportsARefusedConnectionWithoutTheBound(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	port := ln.Addr().(*net.TCPAddr).Port
+	require.NoError(t, ln.Close())
+	cfg := connectConfig(t, fmt.Sprintf("host=127.0.0.1 port=%d user=nobody dbname=nothing sslmode=disable", port))
+
+	took, err := connectReturn(t, connectReturnSlack, func() error { return connectWithin(cfg, 30*time.Second) })
+
+	require.ErrorContains(t, err, "failed to connect to database:")
+	require.NotContains(t, err.Error(), "did not answer within")
+	require.Less(t, took, connectReturnSlack)
+	require.Nil(t, DB)
+}
+
+func TestDescribeBound(t *testing.T) {
+	require.Equal(t, "none", describeBound(0))
+	require.Equal(t, "10s", describeBound(connectTimeout))
+}
+
+// A healthy server connects through the URL form the deploy uses, with the
+// bounded ping on and the default connect_timeout on the DSN.
 func TestConnectHealthyDatabase(t *testing.T) {
 	if testing.Short() {
 		t.Skip("integration test")

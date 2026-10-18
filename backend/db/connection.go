@@ -95,8 +95,8 @@ func connectWithin(cfg *config.Config, bound time.Duration) error {
 	DB = gormDB
 
 	// The pool shape and connect bound are logged, not just configured. Both are
-	// the kind of assumption that fails silently -- a wrong number keeps serving
-	// and simply does the wrong thing -- so they have to be readable from a
+	// the kind of assumption that fails silently: a wrong number keeps serving
+	// and simply does the wrong thing. So they have to be readable from a
 	// deploy's logs rather than inferred from the code.
 	log.Printf("✅ Database connected successfully (pool: max_open=%d max_idle=%d conn_max_lifetime=%s; connect_timeout=%s)",
 		cfg.Database.MaxOpenConns, cfg.Database.MaxIdleConns, cfg.Database.ConnMaxLifetime, describeBound(dialBound))
