@@ -3,6 +3,7 @@ package community
 import (
 	"testing"
 
+	"psychic-homily-backend/internal/services/contracts"
 	"psychic-homily-backend/internal/testutil"
 )
 
@@ -17,7 +18,7 @@ func TestGetUserPublicCollectionsByUsername_RejectedTextUsernameIsEmptyWithoutQu
 			db, queries := testutil.CountQueries(testutil.UnavailableDB(t))
 			svc := NewCollectionService(db)
 
-			collections, total, err := svc.GetUserPublicCollectionsByUsername(username, 20, 0)
+			collections, total, err := svc.GetUserPublicCollectionsByUsername(username, contracts.ShowViewer{}, 20, 0)
 			if err != nil {
 				t.Fatalf("GetUserPublicCollectionsByUsername(%q) error = %v, want nil", username, err)
 			}
@@ -29,7 +30,7 @@ func TestGetUserPublicCollectionsByUsername_RejectedTextUsernameIsEmptyWithoutQu
 			}
 
 			// Any other username reaches the database.
-			_, _, _ = svc.GetUserPublicCollectionsByUsername("nobody", 20, 0)
+			_, _, _ = svc.GetUserPublicCollectionsByUsername("nobody", contracts.ShowViewer{}, 20, 0)
 			if *queries == 0 {
 				t.Fatal("GetUserPublicCollectionsByUsername(plain username) ran no query")
 			}
