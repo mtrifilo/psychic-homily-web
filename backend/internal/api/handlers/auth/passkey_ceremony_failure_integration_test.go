@@ -9,7 +9,6 @@ import (
 	"psychic-homily-backend/internal/api/handlers/shared/testhelpers"
 	autherrors "psychic-homily-backend/internal/errors"
 	authm "psychic-homily-backend/internal/models/auth"
-	usersvc "psychic-homily-backend/internal/services/user"
 	"psychic-homily-backend/internal/testutil"
 	"psychic-homily-backend/internal/testutil/softauthn"
 )
@@ -66,38 +65,6 @@ func (s *AuthHandlerIntegrationSuite) TestPasskeyRegisterFinishRefusalAndFailure
 		requireServiceUnavailableError(s.T(), err)
 		s.Zero(s.credentialCount(user.ID))
 	})
-}
-
-// An email login begin that cannot read the account or its credentials fails
-// instead of answering as an address that cannot sign in.
-func (s *AuthHandlerIntegrationSuite) TestPasskeyEmailLoginBeginFailures() {
-	email := "begin-split@example.com"
-	s.signUpWithPasskey(newPasskeyWireAPI(s.T(), s.newRealPasskeyHandler()), email)
-	jwt := &testhelpers.MockJWTService{}
-	unavailable := testutil.UnavailableDB(s.T())
-
-	handlers := map[string]*PasskeyHandler{
-		"account lookup fails": NewPasskeyHandler(newTestWebAuthnService(s.T(), s.deps.DB), jwt,
-			usersvc.NewUserService(unavailable), &testhelpers.MockEmailService{}, testConfig()),
-		"credential load fails": NewPasskeyHandler(newTestWebAuthnService(s.T(), unavailable), jwt,
-			s.deps.UserService, &testhelpers.MockEmailService{}, testConfig()),
-	}
-	for name, h := range handlers {
-		s.Run(name, func() {
-			s.requireServiceUnavailable(newPasskeyWireAPI(s.T(), h).Post("/auth/passkey/login/begin", map[string]any{"email": email}))
-		})
-	}
-}
-
-// An address no account can hold answers as an unknown address, not as a
-// failed lookup.
-func (s *AuthHandlerIntegrationSuite) TestPasskeyEmailLoginBeginRefusesUnstorableAddress() {
-	api := newPasskeyWireAPI(s.T(), s.newRealPasskeyHandler())
-
-	unknown := api.Post("/auth/passkey/login/begin", map[string]any{"email": "no-account@example.com"})
-	unstorable := api.Post("/auth/passkey/login/begin", map[string]any{"email": "no\x00account@example.com"})
-
-	requireIdenticalResponses(s.T(), unknown, unstorable)
 }
 
 // A signup is refused for a registration the relying party does not accept,

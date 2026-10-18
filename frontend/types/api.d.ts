@@ -9042,11 +9042,6 @@ export interface components {
              * @example https://example.com/schemas/BeginLoginRequestBody.json
              */
             readonly $schema?: string;
-            /**
-             * @description Email for user-specific login (optional)
-             * @example user@example.com
-             */
-            email?: string;
         };
         BeginLoginResponseBody: {
             /**

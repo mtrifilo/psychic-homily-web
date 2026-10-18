@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/go-webauthn/webauthn/protocol"
+	"github.com/go-webauthn/webauthn/webauthn"
 	"github.com/google/uuid"
 
 	apperrors "psychic-homily-backend/internal/errors"
@@ -24,12 +25,21 @@ func (suite *WebAuthnServiceIntegrationTestSuite) parseCreation(body []byte) *pr
 }
 
 func (suite *WebAuthnServiceIntegrationTestSuite) discoverableLogin(device *softauthn.Authenticator) (*authm.User, error) {
+	return suite.discoverableLoginAltered(device, nil)
+}
+
+// discoverableLoginAltered runs a discoverable login with device, letting
+// alter change the session and the parsed assertion before the finish.
+func (suite *WebAuthnServiceIntegrationTestSuite) discoverableLoginAltered(device *softauthn.Authenticator, alter func(*webauthn.SessionData, *protocol.ParsedCredentialAssertionData)) (*authm.User, error) {
 	options, session, err := suite.service.BeginDiscoverableLogin()
 	suite.Require().NoError(err)
 	body, err := device.Assert(options)
 	suite.Require().NoError(err)
 	parsed, err := protocol.ParseCredentialRequestResponseBytes(body)
 	suite.Require().NoError(err)
+	if alter != nil {
+		alter(session, parsed)
+	}
 	user, _, err := suite.service.FinishDiscoverableLogin(session, parsed)
 	return user, err
 }
@@ -64,48 +74,6 @@ func (suite *WebAuthnServiceIntegrationTestSuite) TestRegisteredPasskeySignsIn()
 	suite.Require().NoError(suite.db.First(&stored, cred.ID).Error)
 	suite.NotNil(stored.LastUsedAt)
 	suite.Equal(uint32(1), stored.SignCount)
-}
-
-// The email-specific login receives the user as the user service loads it,
-// without its credentials, and must still validate against them.
-func (suite *WebAuthnServiceIntegrationTestSuite) TestRegisteredPasskeySignsInByEmail() {
-	user := suite.createUser("by-email@test.com")
-	device := softauthn.New(ceremonyOrigin)
-
-	options, session, err := suite.service.BeginRegistration(user)
-	suite.Require().NoError(err)
-	body, err := device.Register(options)
-	suite.Require().NoError(err)
-	cred, err := suite.service.FinishRegistration(user, session, suite.parseCreation(body), "Laptop")
-	suite.Require().NoError(err)
-
-	loginOptions, loginSession, err := suite.service.BeginLogin(&authm.User{ID: user.ID})
-	suite.Require().NoError(err)
-	assertion, err := device.Assert(loginOptions)
-	suite.Require().NoError(err)
-	parsed, err := protocol.ParseCredentialRequestResponseBytes(assertion)
-	suite.Require().NoError(err)
-
-	var asLoadedByUserService authm.User
-	suite.Require().NoError(suite.db.First(&asLoadedByUserService, user.ID).Error)
-	suite.Require().Empty(asLoadedByUserService.PasskeyCredentials)
-
-	suite.Require().NoError(suite.db.Create(&authm.UserPreferences{UserID: user.ID}).Error)
-	oauth := authm.OAuthAccount{UserID: user.ID, Provider: "google", ProviderUserID: "by-email-subject"}
-	suite.Require().NoError(suite.db.Create(&oauth).Error)
-	defer suite.db.Delete(&oauth)
-
-	signedIn, used, err := suite.service.FinishLogin(&asLoadedByUserService, loginSession, parsed)
-	suite.Require().NoError(err)
-	suite.Empty(asLoadedByUserService.PasskeyCredentials, "the caller's copy of the user is not modified")
-	suite.Equal(user.ID, signedIn.ID)
-	suite.Empty(signedIn.PasskeyCredentials, "the signed-in user is returned without its credentials")
-	suite.Require().NotNil(signedIn.Preferences, "the signed-in user is returned with its preferences")
-	suite.Require().Len(signedIn.OAuthAccounts, 1, "the signed-in user is returned with its OAuth accounts")
-	suite.Equal(oauth.ID, signedIn.OAuthAccounts[0].ID)
-	suite.Equal(cred.ID, used.ID)
-	suite.NotNil(used.LastUsedAt)
-	suite.Equal(uint32(1), used.SignCount)
 }
 
 func (suite *WebAuthnServiceIntegrationTestSuite) TestSignupPasskeySignsInAfterwards() {
@@ -229,28 +197,26 @@ func (suite *WebAuthnServiceIntegrationTestSuite) TestDiscoverableLoginRefusesAn
 	other := suite.createUser("other@test.com")
 	device := suite.registeredDevice(owner)
 
-	options, session, err := suite.service.BeginDiscoverableLogin()
-	suite.Require().NoError(err)
-	body, err := device.Assert(options)
-	suite.Require().NoError(err)
-	parsed, err := protocol.ParseCredentialRequestResponseBytes(body)
-	suite.Require().NoError(err)
-	parsed.Response.UserHandle = other.WebAuthnID()
-
-	_, _, err = suite.service.FinishDiscoverableLogin(session, parsed)
+	_, err := suite.discoverableLoginAltered(device, func(_ *webauthn.SessionData, parsed *protocol.ParsedCredentialAssertionData) {
+		parsed.Response.UserHandle = other.WebAuthnID()
+	})
 	suite.requireRefusal(err, apperrors.CodeInvalidCredentials, "Invalid passkey")
 }
 
-// An email-specific login session for one account does not accept another
-// account's credential.
-func (suite *WebAuthnServiceIntegrationTestSuite) TestEmailLoginRefusesAnotherAccountsCredential() {
-	owner := suite.createUser("owner@test.com")
-	target := suite.createUser("target@test.com")
+// A session that names an account is not a discoverable login's, so a valid
+// assertion from that account's own credential is refused with it.
+func (suite *WebAuthnServiceIntegrationTestSuite) TestDiscoverableLoginRefusesSessionNamingAnAccount() {
+	owner := suite.createUser("named-session@test.com")
 	device := suite.registeredDevice(owner)
-	suite.registeredDevice(target)
 
-	_, err := suite.emailLogin(target.ID, device)
+	_, err := suite.discoverableLoginAltered(device, func(session *webauthn.SessionData, _ *protocol.ParsedCredentialAssertionData) {
+		session.UserID = owner.WebAuthnID()
+	})
 	suite.requireRefusal(err, apperrors.CodeInvalidCredentials, "Invalid passkey")
+
+	var stored authm.WebAuthnCredential
+	suite.Require().NoError(suite.db.Where("user_id = ?", owner.ID).First(&stored).Error)
+	suite.Nil(stored.LastUsedAt, "a refused sign-in records no use of the credential")
 }
 
 // A sign-in records the backup state the authenticator reports now, so a
