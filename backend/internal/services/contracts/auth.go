@@ -217,9 +217,10 @@ const WebAuthnRegistrationOperation = "registration"
 type WebAuthnServiceInterface interface {
 	BeginRegistration(user *authm.User) (*protocol.CredentialCreation, *webauthn.SessionData, error)
 	// FinishRegistration answers a registration response that fails
-	// verification with an *errors.AuthError coded VALIDATION_FAILED, whose
-	// message is the client's copy. Any other error means the credential could
-	// not be stored.
+	// verification with an *errors.AuthError coded VALIDATION_FAILED, and an
+	// account that may not sign in when the credential is written with one
+	// coded ACCOUNT_INACTIVE; each message is the client's copy. Any other
+	// error means the credential could not be stored.
 	FinishRegistration(user *authm.User, session *webauthn.SessionData, response *protocol.ParsedCredentialCreationData, displayName string) (*authm.WebAuthnCredential, error)
 	BeginDiscoverableLogin() (*protocol.CredentialAssertion, *webauthn.SessionData, error)
 	// FinishDiscoverableLogin answers a refused sign-in with an
