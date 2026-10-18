@@ -221,16 +221,11 @@ type WebAuthnServiceInterface interface {
 	// message is the client's copy. Any other error means the credential could
 	// not be stored.
 	FinishRegistration(user *authm.User, session *webauthn.SessionData, response *protocol.ParsedCredentialCreationData, displayName string) (*authm.WebAuthnCredential, error)
-	// BeginLogin answers an account that does not exist or holds no passkey
-	// with an *errors.AuthError coded INVALID_CREDENTIALS. Any other error
-	// means the account could not be read or the ceremony could not start.
-	BeginLogin(user *authm.User) (*protocol.CredentialAssertion, *webauthn.SessionData, error)
 	BeginDiscoverableLogin() (*protocol.CredentialAssertion, *webauthn.SessionData, error)
-	// FinishLogin and FinishDiscoverableLogin answer a refused sign-in with an
+	// FinishDiscoverableLogin answers a refused sign-in with an
 	// *errors.AuthError coded INVALID_CREDENTIALS or ACCOUNT_INACTIVE, whose
 	// message is the client's copy. Any other error means no decision was
-	// reached. On success both return the account the sign-in was decided on.
-	FinishLogin(user *authm.User, session *webauthn.SessionData, response *protocol.ParsedCredentialAssertionData) (*authm.User, *authm.WebAuthnCredential, error)
+	// reached. On success it returns the account the sign-in was decided on.
 	FinishDiscoverableLogin(session *webauthn.SessionData, response *protocol.ParsedCredentialAssertionData) (*authm.User, *authm.WebAuthnCredential, error)
 	GetUserCredentials(userID uint) ([]authm.WebAuthnCredential, error)
 	DeleteCredential(userID uint, credentialID uint) error
@@ -241,7 +236,7 @@ type WebAuthnServiceInterface interface {
 	// client's copy. Any other error means the challenge could not be read, or
 	// the operation was WebAuthnRegistrationOperation, whose challenges only
 	// ConsumeRegistrationChallenge consumes.
-	ConsumeChallenge(challengeID string, operation string) (*webauthn.SessionData, uint, error)
+	ConsumeChallenge(challengeID string, operation string) (*webauthn.SessionData, error)
 	// ConsumeRegistrationChallenge spends a registration challenge only for the
 	// user it was issued to. It answers a refusal with an *errors.AuthError
 	// coded UNAUTHORIZED (an unexpired challenge issued to another user) or

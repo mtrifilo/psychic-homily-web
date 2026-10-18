@@ -6,7 +6,6 @@ import (
 	"net/url"
 
 	"github.com/go-webauthn/webauthn/protocol"
-	"github.com/go-webauthn/webauthn/webauthn"
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/markbates/goth"
 
@@ -198,77 +197,53 @@ func (s *OAuthHandlerIntegrationSuite) TestAppleCallback_AccountState() {
 // The passkey refusal against real account rows and a real signature: a
 // software authenticator signs the assertion, the real WebAuthn service
 // verifies it and decides on the account, and the real JWT service mints any
-// session, on both ceremonies.
+// session.
 func (s *OAuthHandlerIntegrationSuite) TestPasskeyFinishLogin_AccountState() {
 	inactive := autherrors.ErrAccountInactive()
 	webauthnService := newTestWebAuthnService(s.T(), s.deps.DB)
 	h := NewPasskeyHandler(webauthnService, s.jwtService(), s.deps.UserService, &testhelpers.MockEmailService{}, s.cfg)
 
-	// Each ceremony begins a login and stores its challenge as login/begin
-	// does: under the account's id for an email-specific login, under zero for
-	// a discoverable one.
-	type begun struct {
-		options       *protocol.CredentialAssertion
-		session       *webauthn.SessionData
-		challengeUser uint
-	}
-	ceremonies := []struct {
-		name  string
-		begin func(userID uint) begun
-	}{
-		{name: "email", begin: func(userID uint) begun {
-			options, session, err := webauthnService.BeginLogin(&authm.User{ID: userID})
-			s.Require().NoError(err)
-			return begun{options, session, userID}
-		}},
-		{name: "discoverable", begin: func(uint) begun {
+	for _, state := range signInAccountStates {
+		s.Run(state.name, func() {
+			user := &authm.User{Email: strPtr("passkey-" + state.name + "@test.com"), IsActive: true, EmailVerified: true}
+			s.Require().NoError(s.deps.DB.Create(user).Error)
+			device := s.registerSoftPasskey(webauthnService, user)
+			state.apply(s, user.ID)
+
+			// The challenge is stored as login/begin stores it, under no account.
 			options, session, err := webauthnService.BeginDiscoverableLogin()
 			s.Require().NoError(err)
-			return begun{options, session, 0}
-		}},
-	}
+			challengeID, err := webauthnService.StoreChallenge(0, session, "authentication")
+			s.Require().NoError(err)
+			assertion, err := device.Assert(options)
+			s.Require().NoError(err)
+			input := &FinishLoginRequest{}
+			input.Body.ChallengeID = challengeID
+			input.Body.Response = assertion
 
-	for _, ceremony := range ceremonies {
-		for _, state := range signInAccountStates {
-			s.Run(ceremony.name+"/"+state.name, func() {
-				user := &authm.User{Email: strPtr("passkey-" + ceremony.name + "-" + state.name + "@test.com"), IsActive: true, EmailVerified: true}
-				s.Require().NoError(s.deps.DB.Create(user).Error)
-				device := s.registerSoftPasskey(webauthnService, user)
-				state.apply(s, user.ID)
+			resp, err := h.FinishLoginHandler(context.Background(), input)
+			s.Require().NoError(err)
 
-				login := ceremony.begin(user.ID)
-				challengeID, err := webauthnService.StoreChallenge(login.challengeUser, login.session, "authentication")
-				s.Require().NoError(err)
-				assertion, err := device.Assert(login.options)
-				s.Require().NoError(err)
-				input := &FinishLoginRequest{}
-				input.Body.ChallengeID = challengeID
-				input.Body.Response = assertion
+			var stored authm.WebAuthnCredential
+			s.Require().NoError(s.deps.DB.Where("user_id = ?", user.ID).First(&stored).Error)
 
-				resp, err := h.FinishLoginHandler(context.Background(), input)
-				s.Require().NoError(err)
+			if state.maySignIn {
+				s.True(resp.Body.Success, resp.Body.Message)
+				s.Require().NotNil(resp.Body.User)
+				s.Equal(user.ID, resp.Body.User.ID)
+				s.Empty(resp.Body.User.PasskeyCredentials)
+				s.NotEmpty(resp.SetCookie.Value)
+				s.NotNil(stored.LastUsedAt)
+				return
+			}
 
-				var stored authm.WebAuthnCredential
-				s.Require().NoError(s.deps.DB.Where("user_id = ?", user.ID).First(&stored).Error)
-
-				if state.maySignIn {
-					s.True(resp.Body.Success, resp.Body.Message)
-					s.Require().NotNil(resp.Body.User)
-					s.Equal(user.ID, resp.Body.User.ID)
-					s.Empty(resp.Body.User.PasskeyCredentials)
-					s.NotEmpty(resp.SetCookie.Value)
-					s.NotNil(stored.LastUsedAt)
-					return
-				}
-
-				s.False(resp.Body.Success)
-				s.Equal(autherrors.CodeAccountInactive, resp.Body.ErrorCode)
-				s.Equal(inactive.UserMessage(), resp.Body.Message)
-				s.Empty(resp.SetCookie.Value)
-				s.Nil(resp.Body.User)
-				s.Nil(stored.LastUsedAt, "a refused sign-in records no use of the credential")
-			})
-		}
+			s.False(resp.Body.Success)
+			s.Equal(autherrors.CodeAccountInactive, resp.Body.ErrorCode)
+			s.Equal(inactive.UserMessage(), resp.Body.Message)
+			s.Empty(resp.SetCookie.Value)
+			s.Nil(resp.Body.User)
+			s.Nil(stored.LastUsedAt, "a refused sign-in records no use of the credential")
+		})
 	}
 }
 
