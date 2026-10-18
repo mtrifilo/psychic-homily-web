@@ -471,6 +471,21 @@ func (m *MockAuditLogService) GetAuditLogs(limit int, offset int, filters contra
 }
 
 // ============================================================================
+// Mock: AuthEmailOutboxInterface
+// ============================================================================
+
+type MockAuthEmailOutbox struct {
+	EnqueueFn func(context.Context, authm.AuthEmailKind, uint) error
+}
+
+func (m *MockAuthEmailOutbox) Enqueue(ctx context.Context, kind authm.AuthEmailKind, userID uint) error {
+	if m.EnqueueFn != nil {
+		return m.EnqueueFn(ctx, kind, userID)
+	}
+	return nil
+}
+
+// ============================================================================
 // Mock: AuthServiceInterface
 // ============================================================================
 
@@ -4757,6 +4772,7 @@ var _ contracts.AnalyticsServiceInterface = (*MockAnalyticsService)(nil)
 var _ contracts.ArtistRelationshipServiceInterface = (*MockArtistRelationshipService)(nil)
 var _ contracts.ArtistServiceInterface = (*MockArtistService)(nil)
 var _ contracts.AuditLogServiceInterface = (*MockAuditLogService)(nil)
+var _ contracts.AuthEmailOutboxInterface = (*MockAuthEmailOutbox)(nil)
 var _ contracts.AuthServiceInterface = (*MockAuthService)(nil)
 var _ contracts.AutoPromotionServiceInterface = (*MockAutoPromotionService)(nil)
 var _ contracts.BandcampProfileFillerInterface = (*MockBandcampProfileFiller)(nil)

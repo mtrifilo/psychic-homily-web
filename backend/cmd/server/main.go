@@ -362,6 +362,7 @@ func main() {
 		venueTimezoneSweepCancel     context.CancelFunc
 		radioTracksRebuildCancel     context.CancelFunc
 		challengeSweepCancel         context.CancelFunc
+		authEmailOutboxCancel        context.CancelFunc
 		sweepHealthCheckCancel       context.CancelFunc
 	)
 
@@ -624,6 +625,18 @@ func main() {
 		log.Printf("%s=1: skipping webauthn challenge sweep startup", authsvc.DisableChallengeSweepEnvVar)
 	}
 
+	// Start the auth email outbox poller: sends the magic-link,
+	// account-recovery and magic-link verification emails the request handlers
+	// queue. Default ON: without it none of those links is ever delivered. The same flag makes
+	// Enqueue refuse new rows; it takes effect when the server starts with it.
+	if !authsvc.AuthEmailOutboxDisabled() {
+		var authEmailOutboxCtx context.Context
+		authEmailOutboxCtx, authEmailOutboxCancel = context.WithCancel(context.Background())
+		sc.AuthEmailOutbox.Start(authEmailOutboxCtx)
+	} else {
+		log.Printf("%s=1: skipping auth email outbox startup; magic-link, recovery and magic-link verification emails will not be sent", authsvc.DisableAuthEmailOutboxEnvVar)
+	}
+
 	// Start sweep health check (PSY-1612: reports background loops that have
 	// stopped running). Default ON — this is the monitoring that would have caught
 	// PSY-1606's seven silently-dead sweeps in days instead of weeks, so it should
@@ -679,6 +692,13 @@ func main() {
 	log.Println("Shutting down Psychic Homily API...")
 
 	// Stop background services only if they were started (cancel is nil if DISABLE_* was set).
+	// The auth email outbox stops first: its tick hands every row it has not
+	// sent back to `pending` once its context is cancelled, and a row left
+	// `processing` blocks that account's next request until reclaimed.
+	if authEmailOutboxCancel != nil {
+		authEmailOutboxCancel()
+		sc.AuthEmailOutbox.Stop()
+	}
 	if cleanupCancel != nil {
 		cleanupCancel()
 		sc.Cleanup.Stop()

@@ -91,6 +91,28 @@ func TestClaim_FlipsAtomicallyAndIncrements(t *testing.T) {
 	}
 }
 
+// TestClaimReady_TakesOnlyRowsMatchingTheReadyCondition pins the readiness
+// predicate: pending rows that fail it stay pending and unclaimed.
+func TestClaimReady_TakesOnlyRowsMatchingTheReadyCondition(t *testing.T) {
+	db, q := setupJobQueue(t)
+	seedRows(t, db, 2, "pending", 0)
+	seedRows(t, db, 1, "pending", 2)
+
+	items, err := q.ClaimReady(context.Background(), 10, "attempts = ?", 0)
+	if err != nil {
+		t.Fatalf("claim: %v", err)
+	}
+	if len(items) != 2 {
+		t.Fatalf("claimed %d rows, want the 2 matching the ready condition", len(items))
+	}
+
+	var stillPending int64
+	db.Model(&jobQueueTestRow{}).Where("status = ? AND attempts = 2", "pending").Count(&stillPending)
+	if stillPending != 1 {
+		t.Errorf("non-matching pending rows left pending: %d, want 1", stillPending)
+	}
+}
+
 // TestClaim_SkipsRowsLockedByAnotherTransaction is the deterministic proof of
 // FOR UPDATE SKIP LOCKED. An open transaction holds a row lock; a concurrent Claim
 // must step over that row rather than block on it or double-claim it.

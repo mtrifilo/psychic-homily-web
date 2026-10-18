@@ -76,6 +76,10 @@ var requiredSchemaColumns = []requiredColumn{
 	// every radio play INSERT the playlist import runs. Absent DDL fails every
 	// import at request time instead of at boot.
 	{Table: "radio_plays", Column: "release_link_source"},
+	// The magic-link and account-recovery handlers queue their email here and
+	// swallow a failed insert to keep the response enumeration-safe, so absent
+	// DDL would stop every sign-in and recovery email without a visible error.
+	{Table: "auth_email_outbox", Column: "next_attempt_at"},
 	// Typed entries: exactly the columns whose type a timestamp-named
 	// migration changed. golang-migrate skips a timestamp-named migration
 	// whose version is below the recorded pointer, which happens when branches

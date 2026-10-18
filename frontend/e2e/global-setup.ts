@@ -243,6 +243,12 @@ function startBackend(): ChildProcess {
       DISABLE_RADIO_TRACKS_REBUILD: '1',
       // Default-ON and deletes expired webauthn_challenges rows on a schedule.
       DISABLE_WEBAUTHN_CHALLENGE_SWEEP: '1',
+      // Default-ON and polls auth_email_outbox every few seconds. Nothing here
+      // needs it to drain: this backend has no email provider configured, so
+      // the magic-link and recovery handlers answer SERVICE_UNAVAILABLE before
+      // they would queue anything, and magic-link.spec.ts and recover.spec.ts
+      // mint their own tokens (helpers/jwt.ts).
+      DISABLE_AUTH_EMAIL_OUTBOX: '1',
       // PSY-432: enable the /admin/test-fixtures/reset endpoint. Guarded by
       // a default-deny ENVIRONMENT check on the backend — the server
       // refuses to boot if ENABLE_TEST_FIXTURES=1 and ENVIRONMENT is not

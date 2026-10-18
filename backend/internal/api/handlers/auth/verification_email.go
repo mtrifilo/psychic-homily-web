@@ -20,24 +20,25 @@ const (
 	// verificationTriggerPasskeySignup is passkey-first registration
 	// (POST /auth/passkey/signup/finish).
 	verificationTriggerPasskeySignup verificationEmailTrigger = "passkey_signup"
-	// verificationTriggerMagicLink is the magic-link fallback: an unverified
-	// account cannot receive a magic link, so it receives a verification link
-	// instead.
-	verificationTriggerMagicLink verificationEmailTrigger = "magic_link"
 )
 
 // sendVerificationEmailBestEffort mints an email-verification token and sends
 // the verification email, swallowing every failure into a log line.
 //
 // Best-effort on purpose. Every caller has already completed the user-visible
-// operation by the time this runs (the account exists, the magic link was
-// requested), so an email-service outage must not roll that back or turn a
-// successful signup into an error response. The user is never stranded: the
+// operation by the time this runs (the account exists), so an email-service
+// outage must not roll that back or turn a successful signup into an error
+// response.
+//
+// It sends synchronously, which is safe only where the response already says
+// the account exists: a caller that answers known and unknown addresses alike
+// (the magic-link request) queues its verification email through the auth
+// email outbox instead, or its response time would reveal the account. The user is never stranded: the
 // resend affordance on the submission gate and in Settings re-triggers the same
 // send through SendVerificationEmailHandler, which does surface failures.
 //
 // Package-level rather than a method because two handler types need it:
-// AuthHandler (registration, magic link) and PasskeyHandler (passkey signup).
+// AuthHandler (registration) and PasskeyHandler (passkey signup).
 func sendVerificationEmailBestEffort(
 	ctx context.Context,
 	jwtService contracts.JWTServiceInterface,

@@ -170,6 +170,7 @@ func (s *AuthHandlerIntegrationSuite) buildAuthHandler(emailCfg *config.Config, 
 		jwtSvc,
 		s.deps.UserService,
 		emailSvc,
+		auth.NewAuthEmailOutbox(s.deps.DB, s.deps.UserService, jwtSvc, emailSvc),
 		discordSvc,
 		pv,
 		emailCfg,
@@ -201,16 +202,25 @@ func (s *AuthHandlerIntegrationSuite) newAuthHandlerCapturingEmail(pwned *fakePw
 		},
 	}
 
+	jwtSvc := auth.NewJWTService(s.deps.DB, cfg, s.deps.UserService)
 	h := NewAuthHandler(
 		auth.NewAuthService(s.deps.DB, cfg, s.deps.UserService),
-		auth.NewJWTService(s.deps.DB, cfg, s.deps.UserService),
+		jwtSvc,
 		s.deps.UserService,
 		emailSvc,
+		auth.NewAuthEmailOutbox(s.deps.DB, s.deps.UserService, jwtSvc, emailSvc),
 		notification.NewDiscordService(cfg),
 		auth.NewPasswordValidatorWithTransport(pwned),
 		cfg,
 	)
 	return h, captured
+}
+
+// runOutbox runs one tick of the outbox h queues into.
+func (s *AuthHandlerIntegrationSuite) runOutbox(h *AuthHandler) {
+	outbox, ok := h.emailOutbox.(*auth.AuthEmailOutbox)
+	s.Require().True(ok, "the handler is built around the real outbox")
+	outbox.RunNow(context.Background())
 }
 
 func (s *AuthHandlerIntegrationSuite) createUserWithPassword(email, password string) *authm.User {
@@ -730,42 +740,66 @@ func (s *AuthHandlerIntegrationSuite) TestSendMagicLink_UserNotFound() {
 	s.True(resp.Body.Success) // enumeration prevention
 }
 
-// TestSendMagicLink_EmailNotVerified verifies an unverified account no longer
-// leaks its state: the response is the generic enumeration-safe success body,
-// identical to the unknown-email case (PSY-749).
+// TestSendMagicLink_EmailNotVerified verifies an unverified account gets the
+// unknown-email response, whole body, and that its verification email is
+// queued rather than sent: the poller sends it.
 func (s *AuthHandlerIntegrationSuite) TestSendMagicLink_EmailNotVerified() {
 	resend := resendAnswering(http.StatusOK, `{}`)
 	h := s.newAuthHandlerWithResend(resend)
-	s.createUserWithPassword("unverified@test.com", "strong-password-123!")
+	user := s.createUserWithPassword("unverified@test.com", "strong-password-123!")
 
-	input := &SendMagicLinkRequest{}
-	input.Body.Email = "unverified@test.com"
+	send := func(email string) *SendMagicLinkResponse {
+		input := &SendMagicLinkRequest{}
+		input.Body.Email = email
+		resp, err := h.SendMagicLinkHandler(context.Background(), input)
+		s.Require().NoError(err)
+		return resp
+	}
+	unknown := send("nobody@test.com")
+	known := send("unverified@test.com")
+	s.Equal(unknown.Body, known.Body, "an unverified account must not change the response")
+	s.Equal(int32(0), resend.calls.Load(), "the handler must not reach Resend")
 
-	resp, err := h.SendMagicLinkHandler(context.Background(), input)
-	s.Equal(int32(1), resend.calls.Load(), "an unverified account is sent exactly one email")
-	s.Require().NoError(err)
-	s.True(resp.Body.Success)    // enumeration prevention
-	s.Empty(resp.Body.ErrorCode) // no EMAIL_NOT_VERIFIED leak
+	s.runOutbox(h)
+	s.Equal(int32(1), resend.calls.Load(), "the poller sends exactly one email")
+	rows := s.outboxRows(user.ID)
+	s.Require().Len(rows, 1)
+	s.Equal(authm.AuthEmailKindVerification, rows[0].Kind)
+	s.Equal(authm.AuthEmailStatusSent, rows[0].Status)
 }
 
-// TestSendMagicLink_SendFails verifies a downstream send failure for a
-// known-verified account stays generic — the failure must not surface as a
-// distinct error response, which would leak that the account exists (PSY-749).
-// Resend answers the send with 401, which makes the underlying send fail.
+// TestSendMagicLink_SendFails verifies a known-verified account whose send
+// will fail gets the unknown-email response, whole body: the handler only
+// queues the email, and the outbox poller meets the failure. Resend answers
+// the send with 401.
 func (s *AuthHandlerIntegrationSuite) TestSendMagicLink_SendFails() {
 	resend := resendRejectingKey()
 	h := s.newAuthHandlerWithResend(resend)
 	user := s.createUserWithPassword("magic-fail@test.com", "strong-password-123!")
 	s.verifyEmail(user.ID)
 
-	input := &SendMagicLinkRequest{}
-	input.Body.Email = "magic-fail@test.com"
+	send := func(email string) *SendMagicLinkResponse {
+		input := &SendMagicLinkRequest{}
+		input.Body.Email = email
+		resp, err := h.SendMagicLinkHandler(context.Background(), input)
+		s.Require().NoError(err)
+		return resp
+	}
+	unknown := send("nobody@test.com")
+	known := send("magic-fail@test.com")
+	s.Equal(unknown.Body, known.Body, "a failing send must not change the response")
+	s.True(known.Body.Success)
+	s.Empty(known.Body.ErrorCode)
+	s.Equal(int32(0), resend.calls.Load(), "the handler must not reach Resend")
 
-	resp, err := h.SendMagicLinkHandler(context.Background(), input)
-	s.Equal(int32(1), resend.calls.Load(), "the send must reach Resend")
-	s.Require().NoError(err)
-	s.True(resp.Body.Success)
-	s.Empty(resp.Body.ErrorCode)
+	s.runOutbox(h)
+	s.Equal(int32(1), resend.calls.Load(), "the poller's send must reach Resend")
+	rows := s.outboxRows(user.ID)
+	s.Require().Len(rows, 1)
+	s.Equal(authm.AuthEmailStatusPending, rows[0].Status, "a failed send is retried")
+	s.Equal(1, rows[0].Attempts)
+	s.Require().NotNil(rows[0].LastError)
+	s.True(rows[0].NextAttemptAt.After(rows[0].CreatedAt), "the retry waits out the backoff")
 }
 
 // --- VerifyMagicLinkHandler ---
@@ -1220,23 +1254,37 @@ func (s *AuthHandlerIntegrationSuite) TestRequestRecovery_EmailNotConfigured() {
 	s.Equal(autherrors.CodeServiceUnavailable, resp.Body.ErrorCode)
 }
 
-// TestRequestRecovery_SendFails: PSY-774 — a downstream send failure for a
-// recoverable account must NOT change the response, otherwise the failure
-// itself leaks account existence. Resend answers the send with 401.
+// TestRequestRecovery_SendFails verifies a recoverable account whose send
+// will fail gets the unknown-email response, whole body: the handler only
+// queues the email, and the outbox poller meets the failure. Resend answers
+// the send with 401.
 func (s *AuthHandlerIntegrationSuite) TestRequestRecovery_SendFails() {
 	resend := resendRejectingKey()
 	h := s.newAuthHandlerWithResend(resend)
 	user := s.createUserWithPassword("req-fail@test.com", "strong-password-123!")
 	s.softDeleteUser(user.ID)
 
-	input := &RequestAccountRecoveryRequest{}
-	input.Body.Email = "req-fail@test.com"
+	request := func(email string) *RequestAccountRecoveryResponse {
+		input := &RequestAccountRecoveryRequest{}
+		input.Body.Email = email
+		resp, err := h.RequestAccountRecoveryHandler(context.Background(), input)
+		s.Require().NoError(err)
+		return resp
+	}
+	unknown := request("nobody@test.com")
+	known := request("req-fail@test.com")
+	s.Equal(unknown.Body, known.Body, "a failing send must not change the response")
+	s.True(known.Body.Success)
+	s.Empty(known.Body.ErrorCode)
+	s.Equal(int32(0), resend.calls.Load(), "the handler must not reach Resend")
 
-	resp, err := h.RequestAccountRecoveryHandler(context.Background(), input)
-	s.Equal(int32(1), resend.calls.Load(), "the send must reach Resend")
-	s.Require().NoError(err)
-	s.True(resp.Body.Success)
-	s.Empty(resp.Body.ErrorCode)
+	s.runOutbox(h)
+	s.Equal(int32(1), resend.calls.Load(), "the poller's send must reach Resend")
+	rows := s.outboxRows(user.ID)
+	s.Require().Len(rows, 1)
+	s.Equal(authm.AuthEmailStatusPending, rows[0].Status, "a failed send is retried")
+	s.Equal(1, rows[0].Attempts)
+	s.Require().NotNil(rows[0].LastError)
 }
 
 // --- ConfirmAccountRecoveryHandler ---

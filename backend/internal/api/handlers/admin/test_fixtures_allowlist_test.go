@@ -53,6 +53,7 @@ var testFixturesAllowlistContractSkips = map[string]string{
 	"oauth_accounts":       "owned by auth flow; not mutated by E2E scenarios",
 	"webauthn_credentials": "owned by passkey flow; not mutated by E2E scenarios",
 	"webauthn_challenges":  "transient, short TTL; backend expires them itself",
+	"auth_email_outbox":    "never written in E2E: the harness has no email provider and sets DISABLE_AUTH_EMAIL_OUTBOX; rows cascade on user delete and the poller prunes them",
 	"user_preferences":     "upsert-on-login; resetting would hide regressions",
 
 	// Cross-user behavior + audit — reset would destroy cross-test signal.

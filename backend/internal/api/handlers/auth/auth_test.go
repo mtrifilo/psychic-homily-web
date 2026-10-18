@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -40,7 +41,7 @@ func testConfig() *config.Config {
 }
 
 func testAuthHandler() *AuthHandler {
-	return NewAuthHandler(nil, nil, nil, nil, nil, nil, testConfig())
+	return NewAuthHandler(nil, nil, nil, nil, nil, nil, nil, testConfig())
 }
 
 func strPtr(s string) *string {
@@ -207,7 +208,7 @@ func TestRefreshTokenHandler_NilAuthServiceReturnsServerError(t *testing.T) {
 func TestRefreshTokenHandler_NoUserContext(t *testing.T) {
 	// Need a non-nil authService to pass the nil check
 	authSvc := auth.NewAuthService(nil, testConfig(), usersvc.NewUserService(nil))
-	h := NewAuthHandler(authSvc, nil, nil, nil, nil, nil, testConfig())
+	h := NewAuthHandler(authSvc, nil, nil, nil, nil, nil, nil, testConfig())
 
 	resp, err := h.RefreshTokenHandler(context.Background(), &struct{}{})
 	if err != nil {
@@ -266,7 +267,7 @@ func TestGetProfileHandler_NilAuthServiceReturnsServerError(t *testing.T) {
 
 func TestGetProfileHandler_NoUserContext(t *testing.T) {
 	authSvc := auth.NewAuthService(nil, testConfig(), usersvc.NewUserService(nil))
-	h := NewAuthHandler(authSvc, nil, nil, nil, nil, nil, testConfig())
+	h := NewAuthHandler(authSvc, nil, nil, nil, nil, nil, nil, testConfig())
 
 	resp, err := h.GetProfileHandler(context.Background(), &struct{}{})
 	if err != nil {
@@ -457,7 +458,7 @@ func TestRegisterHandler_WeakPassword(t *testing.T) {
 	// The validator runs the breach check even for a password that fails the
 	// length check, so its range request is answered in-process.
 	pv := auth.NewPasswordValidatorWithTransport(pwnedPasswordsListing(t))
-	h := NewAuthHandler(nil, nil, nil, nil, nil, pv, testConfig())
+	h := NewAuthHandler(nil, nil, nil, nil, nil, nil, pv, testConfig())
 	input := &RegisterRequest{}
 	input.Body.Email = "user@example.com"
 	input.Body.Password = "abc" // too short (min 12)
@@ -536,7 +537,7 @@ func TestConfirmVerificationHandler_EmptyToken(t *testing.T) {
 
 func TestConfirmVerificationHandler_InvalidToken(t *testing.T) {
 	jwtSvc := testJWTService()
-	h := NewAuthHandler(nil, jwtSvc, nil, nil, nil, nil, testConfig())
+	h := NewAuthHandler(nil, jwtSvc, nil, nil, nil, nil, nil, testConfig())
 	input := &ConfirmVerificationRequest{}
 	input.Body.Token = "invalid.garbage.token"
 
@@ -590,7 +591,7 @@ func TestVerifyMagicLinkHandler_EmptyToken(t *testing.T) {
 
 func TestVerifyMagicLinkHandler_InvalidToken(t *testing.T) {
 	jwtSvc := testJWTService()
-	h := NewAuthHandler(nil, jwtSvc, nil, nil, nil, nil, testConfig())
+	h := NewAuthHandler(nil, jwtSvc, nil, nil, nil, nil, nil, testConfig())
 	input := &VerifyMagicLinkRequest{}
 	input.Body.Token = "invalid.garbage.token"
 
@@ -813,7 +814,7 @@ func TestConfirmAccountRecoveryHandler_EmptyToken(t *testing.T) {
 
 func TestConfirmAccountRecoveryHandler_InvalidToken(t *testing.T) {
 	jwtSvc := testJWTService()
-	h := NewAuthHandler(nil, jwtSvc, nil, nil, nil, nil, testConfig())
+	h := NewAuthHandler(nil, jwtSvc, nil, nil, nil, nil, nil, testConfig())
 	input := &ConfirmAccountRecoveryRequest{}
 	input.Body.Token = "invalid.garbage.token"
 
@@ -857,6 +858,7 @@ func authHandler(opts ...func(*AuthHandler)) *AuthHandler {
 		jwtService:        &testhelpers.MockJWTService{},
 		userService:       &testhelpers.MockUserService{},
 		emailService:      &testhelpers.MockEmailService{},
+		emailOutbox:       &testhelpers.MockAuthEmailOutbox{},
 		discordService:    &testhelpers.MockDiscordService{},
 		passwordValidator: &testhelpers.MockPasswordValidator{},
 		config:            testConfig(),
@@ -2323,30 +2325,24 @@ func TestSendMagicLinkHandler_ResponseIdenticalAcrossAccountStates(t *testing.T)
 	}
 }
 
-// TestSendMagicLinkHandler_UnverifiedResendsVerification asserts the side
-// effect: an unverified account triggers a re-sent verification email (not a
-// magic link), so the user can still proceed (PSY-749).
-func TestSendMagicLinkHandler_UnverifiedResendsVerification(t *testing.T) {
-	email := "unverified@example.com"
-	var verificationSent, magicLinkSent bool
+// TestSendMagicLinkHandler_UnverifiedQueuesVerification asserts an unverified
+// account gets a verification email (not a magic link), queued rather than
+// sent, so the user can still proceed and the branch answers in the time the
+// others do.
+func TestSendMagicLinkHandler_UnverifiedQueuesVerification(t *testing.T) {
+	var queued []queuedAuthEmail
 	h := authHandler(func(ah *AuthHandler) {
-		ah.emailService = &testhelpers.MockEmailService{
-			IsConfiguredFn:          func() bool { return true },
-			SendVerificationEmailFn: func(string, string) error { verificationSent = true; return nil },
-			SendMagicLinkEmailFn:    func(string, string) error { magicLinkSent = true; return nil },
-		}
+		ah.emailService = forbidSends(t)
+		ah.emailOutbox = recordingOutbox(&queued, nil)
 		ah.userService = &testhelpers.MockUserService{
 			GetUserByEmailFn: func(e string) (*authm.User, error) {
-				return &authm.User{ID: 1, Email: &e, EmailVerified: false}, nil
+				return &authm.User{ID: 5, Email: &e, EmailVerified: false}, nil
 			},
-		}
-		ah.jwtService = &testhelpers.MockJWTService{
-			CreateVerificationTokenFn: func(uint, string) (string, error) { return "verify-token", nil },
 		}
 	})
 
 	input := &SendMagicLinkRequest{}
-	input.Body.Email = email
+	input.Body.Email = "unverified@example.com"
 
 	resp, err := h.SendMagicLinkHandler(context.Background(), input)
 	if err != nil {
@@ -2355,37 +2351,66 @@ func TestSendMagicLinkHandler_UnverifiedResendsVerification(t *testing.T) {
 	if !resp.Body.Success {
 		t.Error("expected success=true")
 	}
-	if !verificationSent {
-		t.Error("expected verification email to be re-sent for unverified account")
-	}
-	if magicLinkSent {
-		t.Error("expected no magic link email for unverified account")
+	want := []queuedAuthEmail{{kind: authm.AuthEmailKindVerification, userID: 5}}
+	if !reflect.DeepEqual(queued, want) {
+		t.Errorf("queued = %v, want %v", queued, want)
 	}
 }
 
-// TestSendMagicLinkHandler_VerifiedSendsMagicLink asserts the verified path
-// sends a magic link (and not a verification email).
-func TestSendMagicLinkHandler_VerifiedSendsMagicLink(t *testing.T) {
-	email := "verified@example.com"
-	var verificationSent, magicLinkSent bool
+// queuedAuthEmail is one Enqueue call a recordingOutbox saw.
+type queuedAuthEmail struct {
+	kind   authm.AuthEmailKind
+	userID uint
+}
+
+// recordingOutbox returns an outbox mock that appends every Enqueue call to
+// queued and answers it with err.
+func recordingOutbox(queued *[]queuedAuthEmail, err error) *testhelpers.MockAuthEmailOutbox {
+	return &testhelpers.MockAuthEmailOutbox{
+		EnqueueFn: func(_ context.Context, kind authm.AuthEmailKind, userID uint) error {
+			*queued = append(*queued, queuedAuthEmail{kind: kind, userID: userID})
+			return err
+		},
+	}
+}
+
+// forbidSends returns an email service that is configured and fails t on any
+// send: the magic-link and recovery request handlers queue every email they
+// promise, the verification email for an unverified account included.
+func forbidSends(t *testing.T) *testhelpers.MockEmailService {
+	return &testhelpers.MockEmailService{
+		IsConfiguredFn: func() bool { return true },
+		SendVerificationEmailFn: func(string, string) error {
+			t.Error("the handler must not send a verification email here")
+			return nil
+		},
+		SendMagicLinkEmailFn: func(string, string) error {
+			t.Error("the handler must queue the magic link, not send it")
+			return nil
+		},
+		SendAccountRecoveryEmailFn: func(string, string, int) error {
+			t.Error("the handler must queue the recovery email, not send it")
+			return nil
+		},
+	}
+}
+
+// TestSendMagicLinkHandler_VerifiedQueuesMagicLink asserts the verified path
+// queues one magic link for the account and sends nothing itself.
+func TestSendMagicLinkHandler_VerifiedQueuesMagicLink(t *testing.T) {
+	var queued []queuedAuthEmail
 	h := authHandler(func(ah *AuthHandler) {
-		ah.emailService = &testhelpers.MockEmailService{
-			IsConfiguredFn:          func() bool { return true },
-			SendVerificationEmailFn: func(string, string) error { verificationSent = true; return nil },
-			SendMagicLinkEmailFn:    func(string, string) error { magicLinkSent = true; return nil },
-		}
+		ah.emailService = forbidSends(t)
+		ah.emailOutbox = recordingOutbox(&queued, nil)
 		ah.userService = &testhelpers.MockUserService{
 			GetUserByEmailFn: func(e string) (*authm.User, error) {
-				return &authm.User{ID: 1, Email: &e, EmailVerified: true}, nil
+				return &authm.User{ID: 7, Email: &e, EmailVerified: true}, nil
 			},
-		}
-		ah.jwtService = &testhelpers.MockJWTService{
-			CreateMagicLinkTokenFn: func(uint, string) (string, error) { return "magic-token", nil },
 		}
 	})
 
 	input := &SendMagicLinkRequest{}
-	input.Body.Email = email
+	input.Body.Email = "verified@example.com"
 
 	resp, err := h.SendMagicLinkHandler(context.Background(), input)
 	if err != nil {
@@ -2394,46 +2419,43 @@ func TestSendMagicLinkHandler_VerifiedSendsMagicLink(t *testing.T) {
 	if !resp.Body.Success {
 		t.Error("expected success=true")
 	}
-	if !magicLinkSent {
-		t.Error("expected magic link email for verified account")
-	}
-	if verificationSent {
-		t.Error("expected no verification email for verified account")
+	want := []queuedAuthEmail{{kind: authm.AuthEmailKindMagicLink, userID: 7}}
+	if !reflect.DeepEqual(queued, want) {
+		t.Errorf("queued = %v, want %v", queued, want)
 	}
 }
 
-// TestSendMagicLinkHandler_SendFailureStaysGeneric asserts that a downstream
-// send failure for a known-verified account does NOT change the response —
-// otherwise the failure response would leak that the account exists (PSY-749).
-func TestSendMagicLinkHandler_SendFailureStaysGeneric(t *testing.T) {
+// TestSendMagicLinkHandler_EnqueueFailureStaysGeneric asserts that a failed
+// enqueue for a known-verified account returns the unknown-email body, whole:
+// a distinct response would leak that the account exists.
+func TestSendMagicLinkHandler_EnqueueFailureStaysGeneric(t *testing.T) {
+	respFor := func(user *authm.User) SendMagicLinkResponse {
+		var queued []queuedAuthEmail
+		h := authHandler(func(ah *AuthHandler) {
+			ah.emailService = forbidSends(t)
+			ah.emailOutbox = recordingOutbox(&queued, errors.New("insert failed"))
+			ah.userService = &testhelpers.MockUserService{
+				GetUserByEmailFn: func(string) (*authm.User, error) { return user, nil },
+			}
+		})
+		input := &SendMagicLinkRequest{}
+		input.Body.Email = "verified@example.com"
+		resp, err := h.SendMagicLinkHandler(context.Background(), input)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		return *resp
+	}
+
 	email := "verified@example.com"
-	h := authHandler(func(ah *AuthHandler) {
-		ah.emailService = &testhelpers.MockEmailService{
-			IsConfiguredFn:       func() bool { return true },
-			SendMagicLinkEmailFn: func(string, string) error { return fmt.Errorf("resend exploded") },
+	unknown := respFor(nil)
+	for name, user := range map[string]*authm.User{
+		"verified":   {ID: 7, Email: &email, EmailVerified: true},
+		"unverified": {ID: 8, Email: &email, EmailVerified: false},
+	} {
+		if failed := respFor(user); failed.Body != unknown.Body {
+			t.Errorf("%s: enqueue failure body differs from unknown-email body:\n  got  %+v\n  want %+v", name, failed.Body, unknown.Body)
 		}
-		ah.userService = &testhelpers.MockUserService{
-			GetUserByEmailFn: func(e string) (*authm.User, error) {
-				return &authm.User{ID: 1, Email: &e, EmailVerified: true}, nil
-			},
-		}
-		ah.jwtService = &testhelpers.MockJWTService{
-			CreateMagicLinkTokenFn: func(uint, string) (string, error) { return "magic-token", nil },
-		}
-	})
-
-	input := &SendMagicLinkRequest{}
-	input.Body.Email = email
-
-	resp, err := h.SendMagicLinkHandler(context.Background(), input)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if !resp.Body.Success {
-		t.Error("expected success=true even when send fails (no enumeration leak)")
-	}
-	if resp.Body.ErrorCode != "" {
-		t.Errorf("expected empty error_code on send failure, got %q", resp.Body.ErrorCode)
 	}
 }
 
@@ -3385,34 +3407,25 @@ func TestRequestAccountRecoveryHandler_ResponseIdenticalAcrossAccountStates(t *t
 	}
 }
 
-// TestRequestAccountRecoveryHandler_RecoverableSendsEmail asserts the side
-// effect: a recoverable account triggers a real recovery email (PSY-774).
-func TestRequestAccountRecoveryHandler_RecoverableSendsEmail(t *testing.T) {
-	email := "recoverable@example.com"
+// TestRequestAccountRecoveryHandler_RecoverableQueuesEmail asserts a
+// recoverable account queues one recovery email and the handler sends
+// nothing itself.
+func TestRequestAccountRecoveryHandler_RecoverableQueuesEmail(t *testing.T) {
 	hash := "$2a$10$fakehash"
-	var recoverySent bool
+	var queued []queuedAuthEmail
 	h := authHandler(func(ah *AuthHandler) {
-		ah.emailService = &testhelpers.MockEmailService{
-			IsConfiguredFn: func() bool { return true },
-			SendAccountRecoveryEmailFn: func(toEmail, token string, daysRemaining int) error {
-				recoverySent = true
-				return nil
-			},
-		}
+		ah.emailService = forbidSends(t)
+		ah.emailOutbox = recordingOutbox(&queued, nil)
 		ah.userService = &testhelpers.MockUserService{
 			GetUserByEmailIncludingDeletedFn: func(e string) (*authm.User, error) {
-				return &authm.User{ID: 1, Email: &e, PasswordHash: &hash, IsActive: false}, nil
+				return &authm.User{ID: 9, Email: &e, PasswordHash: &hash, IsActive: false}, nil
 			},
-			IsAccountRecoverableFn:          func(*authm.User) bool { return true },
-			GetDaysUntilPermanentDeletionFn: func(*authm.User) int { return 20 },
-		}
-		ah.jwtService = &testhelpers.MockJWTService{
-			CreateAccountRecoveryTokenFn: func(uint, string) (string, error) { return "recovery-token", nil },
+			IsAccountRecoverableFn: func(*authm.User) bool { return true },
 		}
 	})
 
 	input := &RequestAccountRecoveryRequest{}
-	input.Body.Email = email
+	input.Body.Email = "recoverable@example.com"
 
 	resp, err := h.RequestAccountRecoveryHandler(context.Background(), input)
 	if err != nil {
@@ -3421,8 +3434,9 @@ func TestRequestAccountRecoveryHandler_RecoverableSendsEmail(t *testing.T) {
 	if !resp.Body.Success {
 		t.Error("expected success=true")
 	}
-	if !recoverySent {
-		t.Error("expected recovery email to be sent for recoverable account")
+	want := []queuedAuthEmail{{kind: authm.AuthEmailKindAccountRecovery, userID: 9}}
+	if !reflect.DeepEqual(queued, want) {
+		t.Errorf("queued = %v, want %v", queued, want)
 	}
 }
 
@@ -3430,15 +3444,10 @@ func TestRequestAccountRecoveryHandler_RecoverableSendsEmail(t *testing.T) {
 // email triggers NO email send — the response stays generic but no side
 // effect leaks downstream (PSY-774).
 func TestRequestAccountRecoveryHandler_UnknownDoesNotSend(t *testing.T) {
-	var recoverySent bool
+	var queued []queuedAuthEmail
 	h := authHandler(func(ah *AuthHandler) {
-		ah.emailService = &testhelpers.MockEmailService{
-			IsConfiguredFn: func() bool { return true },
-			SendAccountRecoveryEmailFn: func(string, string, int) error {
-				recoverySent = true
-				return nil
-			},
-		}
+		ah.emailService = forbidSends(t)
+		ah.emailOutbox = recordingOutbox(&queued, nil)
 		ah.userService = &testhelpers.MockUserService{
 			GetUserByEmailIncludingDeletedFn: func(string) (*authm.User, error) { return nil, nil },
 		}
@@ -3454,47 +3463,40 @@ func TestRequestAccountRecoveryHandler_UnknownDoesNotSend(t *testing.T) {
 	if !resp.Body.Success {
 		t.Error("expected success=true (silent failure)")
 	}
-	if recoverySent {
-		t.Error("expected NO recovery email for unknown user")
+	if len(queued) != 0 {
+		t.Errorf("expected NO recovery email for unknown user, queued=%v", queued)
 	}
 }
 
-// TestRequestAccountRecoveryHandler_SendFailureStaysGeneric asserts that a
-// downstream send failure for a recoverable account does NOT change the
-// response — otherwise the failure response would leak account state
-// (PSY-774).
-func TestRequestAccountRecoveryHandler_SendFailureStaysGeneric(t *testing.T) {
+// TestRequestAccountRecoveryHandler_EnqueueFailureStaysGeneric asserts that
+// a failed enqueue for a recoverable account returns the unknown-email body,
+// whole: a distinct response would leak account state.
+func TestRequestAccountRecoveryHandler_EnqueueFailureStaysGeneric(t *testing.T) {
+	respFor := func(user *authm.User) RequestAccountRecoveryResponse {
+		var queued []queuedAuthEmail
+		h := authHandler(func(ah *AuthHandler) {
+			ah.emailService = forbidSends(t)
+			ah.emailOutbox = recordingOutbox(&queued, errors.New("insert failed"))
+			ah.userService = &testhelpers.MockUserService{
+				GetUserByEmailIncludingDeletedFn: func(string) (*authm.User, error) { return user, nil },
+				IsAccountRecoverableFn:           func(*authm.User) bool { return true },
+			}
+		})
+		input := &RequestAccountRecoveryRequest{}
+		input.Body.Email = "recoverable@example.com"
+		resp, err := h.RequestAccountRecoveryHandler(context.Background(), input)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		return *resp
+	}
+
 	email := "recoverable@example.com"
 	hash := "$2a$10$fakehash"
-	h := authHandler(func(ah *AuthHandler) {
-		ah.emailService = &testhelpers.MockEmailService{
-			IsConfiguredFn:             func() bool { return true },
-			SendAccountRecoveryEmailFn: func(string, string, int) error { return fmt.Errorf("send exploded") },
-		}
-		ah.userService = &testhelpers.MockUserService{
-			GetUserByEmailIncludingDeletedFn: func(e string) (*authm.User, error) {
-				return &authm.User{ID: 1, Email: &e, PasswordHash: &hash, IsActive: false}, nil
-			},
-			IsAccountRecoverableFn:          func(*authm.User) bool { return true },
-			GetDaysUntilPermanentDeletionFn: func(*authm.User) int { return 20 },
-		}
-		ah.jwtService = &testhelpers.MockJWTService{
-			CreateAccountRecoveryTokenFn: func(uint, string) (string, error) { return "recovery-token", nil },
-		}
-	})
-
-	input := &RequestAccountRecoveryRequest{}
-	input.Body.Email = email
-
-	resp, err := h.RequestAccountRecoveryHandler(context.Background(), input)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if !resp.Body.Success {
-		t.Error("expected success=true even when send fails (no enumeration leak)")
-	}
-	if resp.Body.ErrorCode != "" {
-		t.Errorf("expected empty error_code on send failure, got %q", resp.Body.ErrorCode)
+	unknown := respFor(nil)
+	failed := respFor(&authm.User{ID: 9, Email: &email, PasswordHash: &hash, IsActive: false})
+	if failed.Body != unknown.Body {
+		t.Errorf("enqueue failure body differs from unknown-email body:\n  got  %+v\n  want %+v", failed.Body, unknown.Body)
 	}
 }
 
@@ -3910,7 +3912,7 @@ func TestUpdateProfileHandler_NavModeSuccess(t *testing.T) {
 			return &authm.User{ID: 1, NavMode: authm.NavModeSide}, nil
 		},
 	}
-	h := NewAuthHandler(nil, nil, mock, nil, nil, nil, testConfig())
+	h := NewAuthHandler(nil, nil, mock, nil, nil, nil, nil, testConfig())
 	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
 	req := &UpdateProfileRequest{}
 	req.Body.NavMode = strPtr(authm.NavModeSide)
@@ -3952,7 +3954,7 @@ func TestUpdateProfileHandler_Success(t *testing.T) {
 			return &authm.User{ID: 1, Username: strPtr("new_name")}, nil
 		},
 	}
-	h := NewAuthHandler(nil, nil, mock, nil, nil, nil, testConfig())
+	h := NewAuthHandler(nil, nil, mock, nil, nil, nil, nil, testConfig())
 	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
 	req := &UpdateProfileRequest{}
 	req.Body.Username = strPtr("new_name")
@@ -3975,7 +3977,7 @@ func TestUpdateProfileHandler_DuplicateUsername(t *testing.T) {
 			return nil, autherrors.ErrUsernameTaken(fmt.Errorf("duplicate key value violates unique constraint"))
 		},
 	}
-	h := NewAuthHandler(nil, nil, mock, nil, nil, nil, testConfig())
+	h := NewAuthHandler(nil, nil, mock, nil, nil, nil, nil, testConfig())
 	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
 	req := &UpdateProfileRequest{}
 	req.Body.Username = strPtr("taken_name")
@@ -4000,7 +4002,7 @@ func TestUpdateProfileHandler_ServiceError(t *testing.T) {
 			return nil, fmt.Errorf("db connection lost")
 		},
 	}
-	h := NewAuthHandler(nil, nil, mock, nil, nil, nil, testConfig())
+	h := NewAuthHandler(nil, nil, mock, nil, nil, nil, nil, testConfig())
 	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
 	req := &UpdateProfileRequest{}
 	req.Body.FirstName = strPtr("Jane")
@@ -4038,7 +4040,7 @@ func TestUpdateProfileHandler_UnknownAuthCodeFailsClosed(t *testing.T) {
 			return nil, unknownErr
 		},
 	}
-	h := NewAuthHandler(nil, nil, mock, nil, nil, nil, testConfig())
+	h := NewAuthHandler(nil, nil, mock, nil, nil, nil, nil, testConfig())
 	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
 	req := &UpdateProfileRequest{}
 	req.Body.FirstName = strPtr("Jane")
@@ -4502,7 +4504,7 @@ func TestUpdateProfileHandler_IdentityNamesShareOneGuard(t *testing.T) {
 						return &authm.User{ID: 1}, nil
 					},
 				}
-				h := NewAuthHandler(nil, nil, mock, nil, nil, nil, testConfig())
+				h := NewAuthHandler(nil, nil, mock, nil, nil, nil, nil, testConfig())
 				ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
 				req := &UpdateProfileRequest{}
 				field.set(req, refusal.value)
@@ -4529,7 +4531,7 @@ func TestUpdateProfileHandler_IdentityNamesShareOneGuard(t *testing.T) {
 					return &authm.User{ID: 1}, nil
 				},
 			}
-			h := NewAuthHandler(nil, nil, mock, nil, nil, nil, testConfig())
+			h := NewAuthHandler(nil, nil, mock, nil, nil, nil, nil, testConfig())
 			ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
 			req := &UpdateProfileRequest{}
 			field.set(req, "  "+atBound+"  ")
@@ -4610,7 +4612,7 @@ func TestUpdateProfileHandler_BioBoundIsRunes(t *testing.T) {
 					return &authm.User{ID: 1}, nil
 				},
 			}
-			h := NewAuthHandler(nil, nil, mock, nil, nil, nil, testConfig())
+			h := NewAuthHandler(nil, nil, mock, nil, nil, nil, nil, testConfig())
 			ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
 			req := &UpdateProfileRequest{}
 			req.Body.Bio = strPtr(tc.bio)

@@ -182,6 +182,7 @@ type AuthHandler struct {
 	jwtService        contracts.JWTServiceInterface
 	userService       contracts.UserServiceInterface
 	emailService      contracts.EmailServiceInterface
+	emailOutbox       contracts.AuthEmailOutboxInterface
 	discordService    contracts.DiscordServiceInterface
 	passwordValidator contracts.PasswordValidatorInterface
 	config            *config.Config
@@ -193,6 +194,7 @@ func NewAuthHandler(
 	jwtService contracts.JWTServiceInterface,
 	userService contracts.UserServiceInterface,
 	emailService contracts.EmailServiceInterface,
+	emailOutbox contracts.AuthEmailOutboxInterface,
 	discordService contracts.DiscordServiceInterface,
 	passwordValidator contracts.PasswordValidatorInterface,
 	cfg *config.Config,
@@ -202,6 +204,7 @@ func NewAuthHandler(
 		jwtService:        jwtService,
 		userService:       userService,
 		emailService:      emailService,
+		emailOutbox:       emailOutbox,
 		discordService:    discordService,
 		passwordValidator: passwordValidator,
 		config:            cfg,
@@ -1189,31 +1192,34 @@ func (h *AuthHandler) SendMagicLinkHandler(ctx context.Context, input *SendMagic
 	}
 
 	// Unverified accounts can't receive a magic link (it would skip the
-	// verification step), so re-send the verification email as a side effect
-	// and return the generic response. The user proceeds via that link.
+	// verification step), so they get a verification email instead, queued
+	// like the magic link so this branch answers in the same time as the
+	// others. The user proceeds via that link.
 	if !user.EmailVerified {
-		sendVerificationEmailBestEffort(ctx, h.jwtService, h.emailService, user, verificationTriggerMagicLink)
+		if err := h.emailOutbox.Enqueue(ctx, authm.AuthEmailKindVerification, user.ID); err != nil {
+			logger.AuthError(ctx, "magic_link_verification_enqueue_failed", err,
+				"user_id", user.ID,
+			)
+			return resp, nil
+		}
+		logger.AuthInfo(ctx, "magic_link_verification_queued",
+			"user_id", user.ID,
+			"email_hash", logger.HashEmail(input.Body.Email),
+		)
 		return resp, nil
 	}
 
-	// Generate magic link token
-	token, err := h.jwtService.CreateMagicLinkToken(user.ID, *user.Email)
-	if err != nil {
-		logger.AuthError(ctx, "magic_link_token_failed", err,
+	// Queue the email rather than send it: the outbox poller mints the token
+	// and sends, so this branch answers in the time the unknown-email branch
+	// does instead of waiting on the email provider.
+	if err := h.emailOutbox.Enqueue(ctx, authm.AuthEmailKindMagicLink, user.ID); err != nil {
+		logger.AuthError(ctx, "magic_link_enqueue_failed", err,
 			"user_id", user.ID,
 		)
 		return resp, nil
 	}
 
-	// Send magic link email
-	if err := h.emailService.SendMagicLinkEmail(*user.Email, token); err != nil {
-		logger.AuthError(ctx, "magic_link_email_failed", err,
-			"user_id", user.ID,
-		)
-		return resp, nil
-	}
-
-	logger.AuthInfo(ctx, "magic_link_sent",
+	logger.AuthInfo(ctx, "magic_link_queued",
 		"user_id", user.ID,
 		"email_hash", logger.HashEmail(input.Body.Email),
 	)
@@ -2062,36 +2068,20 @@ func (h *AuthHandler) RequestAccountRecoveryHandler(ctx context.Context, input *
 		return resp, nil
 	}
 
-	h.sendAccountRecoveryEmail(ctx, user)
-	return resp, nil
-}
-
-// sendAccountRecoveryEmail mints a recovery token and sends the recovery
-// email as a side effect of a recovery request. Failures are logged but
-// never surfaced to the caller, so the response stays enumeration-safe.
-func (h *AuthHandler) sendAccountRecoveryEmail(ctx context.Context, user *authm.User) {
-	if user.Email == nil || *user.Email == "" {
-		return
-	}
-	daysRemaining := h.userService.GetDaysUntilPermanentDeletion(user)
-	token, err := h.jwtService.CreateAccountRecoveryToken(user.ID, *user.Email)
-	if err != nil {
-		logger.AuthError(ctx, "request_recovery_token_failed", err,
+	// Queue the email rather than send it, for the same reason as the magic
+	// link: the poller mints the token, computes the days remaining at send
+	// time, and sends.
+	if err := h.emailOutbox.Enqueue(ctx, authm.AuthEmailKindAccountRecovery, user.ID); err != nil {
+		logger.AuthError(ctx, "request_recovery_enqueue_failed", err,
 			"user_id", user.ID,
 		)
-		return
+		return resp, nil
 	}
-	if err := h.emailService.SendAccountRecoveryEmail(*user.Email, token, daysRemaining); err != nil {
-		logger.AuthError(ctx, "request_recovery_email_failed", err,
-			"user_id", user.ID,
-		)
-		return
-	}
-	logger.AuthInfo(ctx, "request_recovery_email_sent",
+	logger.AuthInfo(ctx, "request_recovery_email_queued",
 		"user_id", user.ID,
-		"email_hash", logger.HashEmail(*user.Email),
-		"days_remaining", daysRemaining,
+		"email_hash", logger.HashEmail(input.Body.Email),
 	)
+	return resp, nil
 }
 
 // ConfirmAccountRecoveryHandler handles magic link account recovery confirmation
