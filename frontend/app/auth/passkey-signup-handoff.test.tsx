@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { act, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { renderWithProviders } from '@/test/utils'
+import { clientWithConsentVersions } from '@/test/consentVersions'
 import { advanceFakeTime, stalledRequest } from '@/test/stalledFetch'
 import AuthPage from './page'
 import { SIGNUP_REQUEST_TIMEOUT_MS } from './_components/signup-request-deadline'
@@ -103,7 +104,7 @@ const FINISH_OK = {
 
 async function submitPasskeySignup() {
   const user = userEvent.setup()
-  renderWithProviders(<AuthPage />)
+  renderWithProviders(<AuthPage />, { queryClient: clientWithConsentVersions() })
 
   await user.click(screen.getByRole('tab', { name: 'Create account' }))
   await user.click(screen.getByRole('button', { name: /sign up with passkey/i }))
