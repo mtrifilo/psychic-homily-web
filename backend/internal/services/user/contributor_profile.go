@@ -549,10 +549,13 @@ func (s *ContributorProfileService) GetContributionStats(userID uint, viewer con
 		Where("user_id = ? AND action = ? AND entity_type <> ?",
 			userID, engagementm.BookmarkActionFollow, svcsengagement.FollowEntityUser).
 		Count(&stats.FollowingCount)
-	s.db.Model(&engagementm.UserBookmark{}).
-		Where("entity_type = ? AND entity_id = ? AND action = ?",
-			svcsengagement.FollowEntityUser, userID, engagementm.BookmarkActionFollow).
-		Count(&stats.FollowersCount)
+	// Followers are counted by the follow service, so this count and the follow
+	// route's count are one query: live accounts only. A failed count leaves
+	// zero, as every count here does.
+	if followers, err := svcsengagement.NewFollowService(s.db).
+		GetFollowerCount(svcsengagement.FollowEntityUser, userID); err == nil {
+		stats.FollowersCount = followers
+	}
 
 	// Approval rate from pending_entity_edits
 	var approved, rejected int64
