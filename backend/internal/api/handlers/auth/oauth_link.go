@@ -131,14 +131,6 @@ const (
 	oauthLinkStateBytes    = 32
 )
 
-func (h *OAuthHTTPHandler) newLinkIntentCookie(value string, maxAge int) *http.Cookie {
-	secure := false
-	if h.config != nil {
-		secure = h.config.Session.Secure
-	}
-	return newOAuthHandshakeCookie(oauthLinkIntentCookieName, value, maxAge, secure)
-}
-
 // OAuthLinkHTTPHandler begins an OAuth link for the authenticated caller.
 //
 // It is the authenticated counterpart to OAuthLoginHTTPHandler and shares its
@@ -233,8 +225,8 @@ func (h *OAuthHTTPHandler) OAuthLinkHTTPHandler(w http.ResponseWriter, r *http.R
 			"capacity", oauthLinkIntentStore.capacity,
 		)
 	}
-	http.SetCookie(w, h.newLinkIntentCookie(intentID, int(oauthLinkIntentTTL.Seconds())))
-	clearOAuthReturnToCookie(w, r, h.config != nil && h.config.Session.Secure)
+	setOAuthHandshakeCookie(w, oauthLinkIntentCookieName, intentID, int(oauthLinkIntentTTL.Seconds()), h.secureCookies())
+	clearOAuthReturnToCookie(w, r, h.secureCookies())
 
 	logger.AuthInfo(ctx, "oauth_link_started",
 		"provider", provider,
