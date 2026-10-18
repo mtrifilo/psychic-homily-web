@@ -188,7 +188,10 @@ type AppleAuthServiceInterface interface {
 	ValidateIdentityToken(ctx context.Context, identityToken string) (*AppleIdentityTokenClaims, error)
 	// Refuses with a typed AuthError carrying CodeOAuthLinkRefused when the
 	// claims' address already belongs to an account this identity may not join
-	// on the address alone. Creates with email_verified from the claim, so an
+	// on the address alone, with CodeAccountRecoverable instead when
+	// shared.AddressMatchIsRecoverable holds, and with
+	// shared.ClosedAccountRefusal when the identity resolves to an account that
+	// may not sign in. Creates with email_verified from the claim, so an
 	// address Apple will not vouch for produces an unverified account. claims
 	// must already be verified by the caller.
 	//
