@@ -11,6 +11,11 @@
  */
 
 import { http, HttpResponse } from 'msw'
+import {
+  CURRENT_PRIVACY_VERSION,
+  CURRENT_TERMS_VERSION,
+  MIN_SIGNUP_AGE,
+} from '@/lib/legal'
 
 /**
  * The base URL used in tests. In the test environment (Node/jsdom),
@@ -336,10 +341,30 @@ export const nextRouteHandlers = [
 ]
 
 // ============================================================================
+// Legal Handlers
+// ============================================================================
+
+/**
+ * The consent versions every sign-up form reads as it shows. Default: the
+ * pair this build names, with no grace window open.
+ */
+export const legalHandlers = [
+  http.get(`${TEST_API_BASE}/legal/versions`, () => {
+    return HttpResponse.json({
+      terms_version: CURRENT_TERMS_VERSION,
+      privacy_version: CURRENT_PRIVACY_VERSION,
+      min_signup_age: MIN_SIGNUP_AGE,
+      grace_until: null,
+    })
+  }),
+]
+
+// ============================================================================
 // All Handlers (combined for default server setup)
 // ============================================================================
 
 export const handlers = [
+  ...legalHandlers,
   ...adminHandlers,
   ...sceneHandlers,
   ...venueHandlers,

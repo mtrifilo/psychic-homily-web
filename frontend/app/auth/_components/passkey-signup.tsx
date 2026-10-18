@@ -24,15 +24,29 @@ import {
   type AuthResponse,
 } from '@/features/auth/hooks/useAuth'
 import { useWebAuthnSupport } from '@/features/auth/hooks/useWebAuthnSupport'
+import {
+  ConsentVersionsChangedError,
+  ConsentVersionsUnavailableError,
+  isConsentRefusal,
+  useConsentVersions,
+  type ConsentVersions,
+} from '@/features/auth/hooks/useLegalVersions'
 import { registrationOptionsFrom } from '@/features/auth/passkeyOptions'
 import type { components } from '@/types/api'
-import { CURRENT_PRIVACY_VERSION, CURRENT_TERMS_VERSION, MIN_SIGNUP_AGE } from '@/lib/legal'
+import { MIN_SIGNUP_AGE } from '@/lib/legal'
 import { API_BASE_URL } from '@/lib/api-base'
+import {
+  CONSENT_VERSIONS_UNAVAILABLE,
+  ConsentRetryNotice,
+  ConsentVersionsChangedNotice,
+} from './consent-versions-notice'
 import type { SignupHandoff } from './signup-handoff'
 import type { SignupRequestDeadline } from './signup-request-deadline'
 
 const START_FAILURE = 'Failed to start passkey signup'
 const FINISH_FAILURE = 'Failed to complete passkey signup'
+
+type BeginSignupResponse = components['schemas']['BeginSignupResponseBody']
 
 interface PasskeySignupButtonProps {
   onError?: (error: string) => void
@@ -50,9 +64,12 @@ interface PasskeySignupButtonProps {
    */
   requestDeadline: SignupRequestDeadline
   className?: string
-  termsVersion?: string
-  privacyVersion?: string
   minAge?: number
+  /**
+   * The form's latest read found consent versions other than this build's.
+   * While it holds, the dialog says so and sends nothing.
+   */
+  versionsChanged?: boolean
 }
 
 export function PasskeySignupButton({
@@ -60,13 +77,14 @@ export function PasskeySignupButton({
   onHandoffChange,
   requestDeadline,
   className,
-  termsVersion = CURRENT_TERMS_VERSION,
-  privacyVersion = CURRENT_PRIVACY_VERSION,
   minAge = MIN_SIGNUP_AGE,
+  versionsChanged = false,
 }: PasskeySignupButtonProps) {
   const { setUser } = useAuthContext()
   const queryClient = useQueryClient()
+  const consentVersions = useConsentVersions()
   const [isLoading, setIsLoading] = useState(false)
+  const [isRetryingConsent, setIsRetryingConsent] = useState(false)
   const [isDialogOpen, setIsDialogOpen] = useState(false)
   const [email, setEmail] = useState('')
   const [emailError, setEmailError] = useState<string | null>(null)
@@ -112,28 +130,46 @@ export function PasskeySignupButton({
     // failure while it is aborted is that request timing out.
     let deadlineSignal: AbortSignal | null = null
 
-    try {
-      // Step 1: Begin signup
-      deadlineSignal = requestDeadline.arm()
+    // Step 1: Begin signup, under the deadline. The versions are the ones the
+    // backend publishes, never this build's.
+    const beginSignup = async (
+      versions: ConsentVersions,
+      signal: AbortSignal
+    ): Promise<BeginSignupResponse> => {
       const beginResponse = await fetch(`${API_BASE_URL}/auth/passkey/signup/begin`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
-        signal: deadlineSignal,
+        signal,
         body: JSON.stringify({
           email,
           terms_accepted: true,
-          terms_version: termsVersion,
-          privacy_version: privacyVersion,
+          terms_version: versions.termsVersion,
+          privacy_version: versions.privacyVersion,
           age_confirmed: true,
           min_age_attested: minAge,
         }),
       })
-
-      const beginData: components['schemas']['BeginSignupResponseBody'] =
-        await beginResponse.json()
-      // The ceremony below waits on the person, not the network.
+      const beginData: BeginSignupResponse = await beginResponse.json()
+      // The ceremony after it waits on the person, not the network.
       requestDeadline.disarm()
+      return beginData
+    }
+
+    try {
+      let versions = await consentVersions.read()
+      deadlineSignal = requestDeadline.arm()
+      let beginData = await beginSignup(versions, deadlineSignal)
+      // Refused with versions the backend published: the read was older than
+      // the backend's answer. Read again past every cache and begin once more;
+      // a second refusal is shown as it is.
+      if (!beginData.success && isConsentRefusal(beginData.error_code)) {
+        setIsRetryingConsent(true)
+        versions = await consentVersions.refresh()
+        deadlineSignal = requestDeadline.arm()
+        beginData = await beginSignup(versions, deadlineSignal)
+        setIsRetryingConsent(false)
+      }
 
       if (!beginData.success) {
         throw new Error(beginData.message || START_FAILURE)
@@ -160,8 +196,8 @@ export function PasskeySignupButton({
           challenge_id: beginData.challenge_id,
           response: credential,
           terms_accepted: true,
-          terms_version: termsVersion,
-          privacy_version: privacyVersion,
+          terms_version: versions.termsVersion,
+          privacy_version: versions.privacyVersion,
           age_confirmed: true,
           min_age_attested: minAge,
         }),
@@ -210,6 +246,15 @@ export function PasskeySignupButton({
         return
       }
 
+      if (error instanceof ConsentVersionsUnavailableError) {
+        onError?.(CONSENT_VERSIONS_UNAVAILABLE)
+        return
+      }
+      // Shown in the dialog from versionsChanged, once the page has the read.
+      if (error instanceof ConsentVersionsChangedError) {
+        return
+      }
+
       // Handle user cancellation gracefully
       if (error instanceof Error) {
         if (error.name === 'NotAllowedError') {
@@ -222,6 +267,7 @@ export function PasskeySignupButton({
       }
     } finally {
       requestDeadline.disarm()
+      setIsRetryingConsent(false)
       setIsLoading(false)
     }
   }
@@ -238,6 +284,7 @@ export function PasskeySignupButton({
           type="button"
           variant="outline"
           className={className}
+          disabled={versionsChanged}
         >
           <Fingerprint className="h-4 w-4" />
           Sign up with passkey
@@ -337,10 +384,17 @@ export function PasskeySignupButton({
               <p role="alert" className="text-sm text-destructive">{ageError}</p>
             )}
           </div>
+          {versionsChanged ? (
+            <ConsentVersionsChangedNotice />
+          ) : (
+            isRetryingConsent && <ConsentRetryNotice />
+          )}
           <Button
             type="button"
             onClick={handlePasskeySignup}
-            disabled={isLoading || !email || !termsAccepted || !ageConfirmed}
+            disabled={
+              isLoading || versionsChanged || !email || !termsAccepted || !ageConfirmed
+            }
             className="w-full"
           >
             {isLoading ? (
