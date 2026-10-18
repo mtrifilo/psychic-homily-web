@@ -250,6 +250,14 @@ func (suite *CollectionServiceIntegrationTestSuite) TestCollectionPeopleCounts_C
 		suite.Equal(people, rows[0].LikeCount, "row likes: %s", msg)
 		suite.Equal(3, rows[0].ItemCount, "row items: %s", msg)
 		suite.Equal(3, rows[0].EntityTypeCounts["artist"], "row per-type: %s", msg)
+
+		// The like response a live liker gets counts what the detail counts.
+		unliked, err := suite.collectionService.Unlike(c.Slug, live.ID)
+		suite.Require().NoError(err)
+		suite.Equal(people-1, unliked.LikeCount, "unlike response: %s", msg)
+		liked, err := suite.collectionService.Like(c.Slug, live.ID)
+		suite.Require().NoError(err)
+		suite.Equal(people, liked.LikeCount, "like response: %s", msg)
 	}
 
 	assertCounts(3, "all accounts live")

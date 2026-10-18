@@ -1295,10 +1295,13 @@ func (s *ContributorProfileService) scrubCloneSourceMetadata(entries []*contract
 			ID   uint
 			Slug string
 		}
+		// A source whose creator is closed is not served by its detail route, so
+		// it loses its attribution here as a fork's detail does.
 		s.db.Table("collections").
 			Select("id, slug").
 			Where("id IN ?", sourceIDs).
 			Where(visible, visibleArgs...).
+			Where(shared.CollectionCreatorIsLiveSQL("collections")).
 			Scan(&rows)
 		for _, r := range rows {
 			visibleIDs[r.ID] = true
