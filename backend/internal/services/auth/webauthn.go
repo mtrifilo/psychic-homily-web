@@ -136,43 +136,6 @@ func credentialSaveError(err error) error {
 	return fmt.Errorf("failed to save credential: %w", err)
 }
 
-// noPasskeysMessage is the user-facing message of BeginLogin's refusal.
-const noPasskeysMessage = "No passkeys registered for this account"
-
-func refuseLoginBegin(internal error) *apperrors.AuthError {
-	return apperrors.NewAuthError(apperrors.CodeInvalidCredentials, noPasskeysMessage, internal)
-}
-
-// BeginLogin starts an email-specific passkey login for user, loading the
-// account's credentials into user so the options name them.
-//
-// A refusal is a CodeInvalidCredentials *apperrors.AuthError for an account
-// that does not exist or holds no passkey. Any other error means the account
-// could not be read or the ceremony could not start.
-func (s *WebAuthnService) BeginLogin(user *authm.User) (*protocol.CredentialAssertion, *webauthn.SessionData, error) {
-	if user == nil {
-		return nil, nil, fmt.Errorf("no user to begin login for")
-	}
-	if err := s.db.Preload("PasskeyCredentials").First(user, user.ID).Error; err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return nil, nil, refuseLoginBegin(fmt.Errorf("user %d not found: %w", user.ID, err))
-		}
-		return nil, nil, fmt.Errorf("failed to load user: %w", err)
-	}
-
-	if len(user.PasskeyCredentials) == 0 {
-		return nil, nil, refuseLoginBegin(fmt.Errorf("user %d has no registered passkeys", user.ID))
-	}
-
-	// Create login options
-	options, session, err := s.webAuthn.BeginLogin(user)
-	if err != nil {
-		return nil, nil, fmt.Errorf("failed to begin login: %w", err)
-	}
-
-	return options, session, nil
-}
-
 // BeginDiscoverableLogin starts a discoverable (usernameless) login
 func (s *WebAuthnService) BeginDiscoverableLogin() (*protocol.CredentialAssertion, *webauthn.SessionData, error) {
 	options, session, err := s.webAuthn.BeginDiscoverableLogin()
@@ -184,14 +147,8 @@ func (s *WebAuthnService) BeginDiscoverableLogin() (*protocol.CredentialAssertio
 }
 
 // invalidPasskeyMessage is the user-facing message of the
-// CodeInvalidCredentials refusals FinishLogin and FinishDiscoverableLogin
-// return, except FinishLogin's for an account that does not exist, which is
-// accountNotFoundMessage.
+// CodeInvalidCredentials refusals FinishDiscoverableLogin returns.
 const invalidPasskeyMessage = "Invalid passkey"
-
-// accountNotFoundMessage is the user-facing message of FinishLogin's refusal
-// for an account that does not exist.
-const accountNotFoundMessage = "User not found"
 
 func refusePasskey(internal error) *apperrors.AuthError {
 	return apperrors.NewAuthError(apperrors.CodeInvalidCredentials, invalidPasskeyMessage, internal)
@@ -214,61 +171,9 @@ func signInLookupError(what string, err error) error {
 	return fmt.Errorf("failed to load %s: %w", what, err)
 }
 
-// FinishLogin completes an email-specific passkey login for the account
-// user.ID and returns that account, as loaded for the decision with its
-// OAuth accounts and preferences and without its credentials, and the
-// credential it used.
-//
-// Its errors come in two kinds. A refusal is an *apperrors.AuthError:
-// CodeInvalidCredentials when the assertion does not prove a credential of an
-// existing account (it fails validation, carries another account's user
-// handle, or names a credential or account that does not exist), and
-// CodeAccountInactive when it does but the account may not sign in
-// (authm.User.CanSignIn). Any other error means no decision was reached: a
-// lookup or the credential update failed.
-//
-// The account's state is checked only after the assertion validated, so only
-// the credential's holder learns it, and a refused sign-in writes nothing. A
-// clone warning (a sign count that did not advance) is recorded on the
-// credential and does not refuse the sign-in.
-func (s *WebAuthnService) FinishLogin(user *authm.User, session *webauthn.SessionData, response *protocol.ParsedCredentialAssertionData) (*authm.User, *authm.WebAuthnCredential, error) {
-	// Validation checks the assertion against the account's stored
-	// credentials, which the caller's copy of the user need not hold, so it
-	// runs against a fresh load and leaves the caller's copy untouched. The
-	// account state the sign-in is decided on, and the account returned, are
-	// this load's.
-	owner, err := s.loadSignInAccount(user.ID)
-	if err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return nil, nil, apperrors.NewAuthError(apperrors.CodeInvalidCredentials, accountNotFoundMessage, err)
-		}
-		return nil, nil, signInLookupError("user", err)
-	}
-
-	credential, err := s.webAuthn.ValidateLogin(owner, *session, response)
-	if err != nil {
-		return nil, nil, refusePasskey(fmt.Errorf("validate login: %w", err))
-	}
-	if !owner.CanSignIn() {
-		return nil, nil, refuseInactiveAccount(owner.ID)
-	}
-
-	var webauthnCred authm.WebAuthnCredential
-	if err := s.db.Where("user_id = ? AND credential_id = ?", owner.ID, credential.ID).First(&webauthnCred).Error; err != nil {
-		return nil, nil, signInLookupError("credential", err)
-	}
-	if err := s.recordCredentialUse(&webauthnCred, credential); err != nil {
-		return nil, nil, err
-	}
-
-	owner.PasskeyCredentials = nil
-	return owner, &webauthnCred, nil
-}
-
 // loadSignInAccount loads account userID for a passkey sign-in: with its
 // passkey credentials, which validation needs, and with its OAuth accounts and
-// preferences, which the signed-in account is returned with. Both passkey
-// sign-ins load their account here, so they return it in one shape.
+// preferences, which the signed-in account is returned with.
 func (s *WebAuthnService) loadSignInAccount(userID uint) (*authm.User, error) {
 	var account authm.User
 	if err := s.db.Preload("PasskeyCredentials").Preload("OAuthAccounts").Preload("Preferences").
@@ -299,10 +204,23 @@ func (s *WebAuthnService) recordCredentialUse(stored *authm.WebAuthnCredential, 
 	return nil
 }
 
-// FinishDiscoverableLogin completes a discoverable login and returns the
-// account it signs in, in the shape FinishLogin returns it, and the credential
-// it used. Its errors, and when it checks the account's state, are
-// FinishLogin's.
+// FinishDiscoverableLogin completes a discoverable passkey login and returns
+// the account it signs in, as loaded for the decision with its OAuth accounts
+// and preferences and without its credentials, and the credential it used.
+//
+// Its errors come in two kinds. A refusal is an *apperrors.AuthError:
+// CodeInvalidCredentials when the assertion does not prove a credential of an
+// existing account (it fails validation, carries another account's user
+// handle, comes from a session that is not a discoverable login's, or names a
+// credential or account that does not exist), and CodeAccountInactive when it
+// does but the account may not sign in (authm.User.CanSignIn). Any other
+// error means no decision was reached: a lookup or the credential update
+// failed.
+//
+// The account's state is checked only after the assertion validated, so only
+// the credential's holder learns it, and a refused sign-in writes nothing. A
+// clone warning (a sign count that did not advance) is recorded on the
+// credential and does not refuse the sign-in.
 func (s *WebAuthnService) FinishDiscoverableLogin(session *webauthn.SessionData, response *protocol.ParsedCredentialAssertionData) (*authm.User, *authm.WebAuthnCredential, error) {
 	var webauthnCred authm.WebAuthnCredential
 	if err := s.db.Where("credential_id = ?", response.RawID).First(&webauthnCred).Error; err != nil {

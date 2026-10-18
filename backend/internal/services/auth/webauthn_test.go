@@ -39,19 +39,6 @@ func TestNewWebAuthnService_Success(t *testing.T) {
 	assert.NotNil(t, svc)
 }
 
-// A login for no account is an error, not a dereference.
-func TestBeginLogin_NilUser(t *testing.T) {
-	svc, err := NewWebAuthnService(&gorm.DB{}, &config.Config{
-		WebAuthn: config.WebAuthnConfig{RPDisplayName: "Test App", RPID: "localhost", RPOrigins: []string{"http://localhost:3000"}},
-	})
-	assert.NoError(t, err)
-
-	options, session, err := svc.BeginLogin(nil)
-	assert.Error(t, err)
-	assert.Nil(t, options)
-	assert.Nil(t, session)
-}
-
 func TestNewWebAuthnService_DefaultRPID(t *testing.T) {
 	cfg := &config.Config{
 		WebAuthn: config.WebAuthnConfig{
@@ -554,36 +541,6 @@ func (suite *WebAuthnServiceIntegrationTestSuite) TestBeginRegistration_WithExcl
 	suite.NotNil(session)
 	// The exclusion list should be populated
 	suite.Len(options.Response.CredentialExcludeList, 1)
-}
-
-func (suite *WebAuthnServiceIntegrationTestSuite) TestBeginLogin_NoCredentials() {
-	email := "user@test.com"
-	user := &authm.User{
-		Email:         &email,
-		IsActive:      true,
-		EmailVerified: true,
-	}
-	suite.Require().NoError(suite.db.Create(user).Error)
-
-	_, _, err := suite.service.BeginLogin(user)
-	suite.requireRefusal(err, apperrors.CodeInvalidCredentials, "No passkeys registered for this account")
-}
-
-func (suite *WebAuthnServiceIntegrationTestSuite) TestBeginLogin_WithCredentials() {
-	email := "user@test.com"
-	user := &authm.User{
-		Email:         &email,
-		IsActive:      true,
-		EmailVerified: true,
-	}
-	suite.Require().NoError(suite.db.Create(user).Error)
-	suite.insertCredential(user.ID, "My Key")
-
-	options, session, err := suite.service.BeginLogin(user)
-	suite.Require().NoError(err)
-	suite.NotNil(options)
-	suite.NotNil(session)
-	suite.NotEmpty(session.Challenge)
 }
 
 func (suite *WebAuthnServiceIntegrationTestSuite) TestBeginDiscoverableLogin_Success() {

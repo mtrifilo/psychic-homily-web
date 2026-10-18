@@ -66,48 +66,6 @@ func (suite *WebAuthnServiceIntegrationTestSuite) TestRegisteredPasskeySignsIn()
 	suite.Equal(uint32(1), stored.SignCount)
 }
 
-// The email-specific login receives the user as the user service loads it,
-// without its credentials, and must still validate against them.
-func (suite *WebAuthnServiceIntegrationTestSuite) TestRegisteredPasskeySignsInByEmail() {
-	user := suite.createUser("by-email@test.com")
-	device := softauthn.New(ceremonyOrigin)
-
-	options, session, err := suite.service.BeginRegistration(user)
-	suite.Require().NoError(err)
-	body, err := device.Register(options)
-	suite.Require().NoError(err)
-	cred, err := suite.service.FinishRegistration(user, session, suite.parseCreation(body), "Laptop")
-	suite.Require().NoError(err)
-
-	loginOptions, loginSession, err := suite.service.BeginLogin(&authm.User{ID: user.ID})
-	suite.Require().NoError(err)
-	assertion, err := device.Assert(loginOptions)
-	suite.Require().NoError(err)
-	parsed, err := protocol.ParseCredentialRequestResponseBytes(assertion)
-	suite.Require().NoError(err)
-
-	var asLoadedByUserService authm.User
-	suite.Require().NoError(suite.db.First(&asLoadedByUserService, user.ID).Error)
-	suite.Require().Empty(asLoadedByUserService.PasskeyCredentials)
-
-	suite.Require().NoError(suite.db.Create(&authm.UserPreferences{UserID: user.ID}).Error)
-	oauth := authm.OAuthAccount{UserID: user.ID, Provider: "google", ProviderUserID: "by-email-subject"}
-	suite.Require().NoError(suite.db.Create(&oauth).Error)
-	defer suite.db.Delete(&oauth)
-
-	signedIn, used, err := suite.service.FinishLogin(&asLoadedByUserService, loginSession, parsed)
-	suite.Require().NoError(err)
-	suite.Empty(asLoadedByUserService.PasskeyCredentials, "the caller's copy of the user is not modified")
-	suite.Equal(user.ID, signedIn.ID)
-	suite.Empty(signedIn.PasskeyCredentials, "the signed-in user is returned without its credentials")
-	suite.Require().NotNil(signedIn.Preferences, "the signed-in user is returned with its preferences")
-	suite.Require().Len(signedIn.OAuthAccounts, 1, "the signed-in user is returned with its OAuth accounts")
-	suite.Equal(oauth.ID, signedIn.OAuthAccounts[0].ID)
-	suite.Equal(cred.ID, used.ID)
-	suite.NotNil(used.LastUsedAt)
-	suite.Equal(uint32(1), used.SignCount)
-}
-
 func (suite *WebAuthnServiceIntegrationTestSuite) TestSignupPasskeySignsInAfterwards() {
 	device := softauthn.New(ceremonyOrigin)
 
@@ -238,18 +196,6 @@ func (suite *WebAuthnServiceIntegrationTestSuite) TestDiscoverableLoginRefusesAn
 	parsed.Response.UserHandle = other.WebAuthnID()
 
 	_, _, err = suite.service.FinishDiscoverableLogin(session, parsed)
-	suite.requireRefusal(err, apperrors.CodeInvalidCredentials, "Invalid passkey")
-}
-
-// An email-specific login session for one account does not accept another
-// account's credential.
-func (suite *WebAuthnServiceIntegrationTestSuite) TestEmailLoginRefusesAnotherAccountsCredential() {
-	owner := suite.createUser("owner@test.com")
-	target := suite.createUser("target@test.com")
-	device := suite.registeredDevice(owner)
-	suite.registeredDevice(target)
-
-	_, err := suite.emailLogin(target.ID, device)
 	suite.requireRefusal(err, apperrors.CodeInvalidCredentials, "Invalid passkey")
 }
 

@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/go-webauthn/webauthn/protocol"
-	"github.com/go-webauthn/webauthn/webauthn"
 
 	"psychic-homily-backend/internal/api/middleware"
 	"psychic-homily-backend/internal/config"
@@ -318,11 +317,11 @@ func (h *PasskeyHandler) FinishRegisterHandler(ctx context.Context, input *Finis
 
 // --- Login Endpoints ---
 
-// BeginLoginRequest represents the request to begin passkey login
+// BeginLoginRequest represents the request to begin a discoverable passkey
+// login. Its body declares no fields, so the schema refuses any field a
+// client sends (an email included) with a 422.
 type BeginLoginRequest struct {
-	Body struct {
-		Email string `json:"email,omitempty" example:"user@example.com" doc:"Email for user-specific login (optional)"`
-	}
+	Body struct{}
 }
 
 // BeginLoginResponse represents the response with WebAuthn login options
@@ -337,73 +336,23 @@ type BeginLoginResponse struct {
 	}
 }
 
-// refuseEmailPasskeyLogin is the one answer an email-specific login begin
-// gives for an address that cannot start a passkey sign-in, whether or not an
-// account holds it.
-func refuseEmailPasskeyLogin(resp *BeginLoginResponse) (*BeginLoginResponse, error) {
-	return refusePasskey(resp, autherrors.CodeInvalidCredentials, "No passkeys registered for this account")
-}
-
-// BeginLoginHandler starts the passkey login process. A refusal answers 200
-// with its code; a failure at any step answers 503 with no challenge issued.
+// BeginLoginHandler starts a discoverable (usernameless) passkey login: the
+// account is known only once login/finish validates the assertion. A failure
+// at any step answers 503 with no challenge issued.
 func (h *PasskeyHandler) BeginLoginHandler(ctx context.Context, input *BeginLoginRequest) (*BeginLoginResponse, error) {
 	resp := &BeginLoginResponse{}
 	requestID := logger.GetRequestID(ctx)
 	resp.Body.RequestID = requestID
 
-	var options *protocol.CredentialAssertion
-	var session *webauthn.SessionData
-	var userID uint
-
-	if input.Body.Email != "" {
-		// User-specific login. An address with no account and an account with
-		// no passkey get the same refusal, refuseEmailPasskeyLogin's, never the
-		// service refusal's own message. An account with a passkey gets
-		// options naming its credentials.
-		user, err := h.userService.GetUserByEmail(input.Body.Email)
-		if err != nil {
-			logger.AuthError(ctx, "passkey_login_begin_failed", err)
-			return nil, autherrors.ErrServiceUnavailable("passkey_login_begin_user", err)
-		}
-		if user == nil {
-			logger.AuthDebug(ctx, "passkey_login_begin_refused",
-				"error", "no account for this address",
-			)
-			return refuseEmailPasskeyLogin(resp)
-		}
-
-		opts, sess, err := h.webauthnService.BeginLogin(user)
-		if err != nil {
-			if _, ok := passkeyRefusal(err, autherrors.CodeInvalidCredentials); ok {
-				logger.AuthDebug(ctx, "passkey_login_begin_refused",
-					"error", err.Error(),
-				)
-				return refuseEmailPasskeyLogin(resp)
-			}
-			logger.AuthError(ctx, "passkey_login_begin_failed", err,
-				"user_id", user.ID,
-			)
-			return nil, autherrors.ErrServiceUnavailable("passkey_login_begin", err)
-		}
-
-		options = opts
-		session = sess
-		userID = user.ID
-	} else {
-		// Discoverable login (usernameless)
-		opts, sess, err := h.webauthnService.BeginDiscoverableLogin()
-		if err != nil {
-			logger.AuthError(ctx, "passkey_discoverable_login_begin_failed", err)
-			return nil, autherrors.ErrServiceUnavailable("passkey_login_begin", err)
-		}
-
-		options = opts
-		session = sess
-		userID = 0 // Will be determined during finish
+	options, session, err := h.webauthnService.BeginDiscoverableLogin()
+	if err != nil {
+		logger.AuthError(ctx, "passkey_discoverable_login_begin_failed", err)
+		return nil, autherrors.ErrServiceUnavailable("passkey_login_begin", err)
 	}
 
-	// Store challenge
-	challengeID, err := h.webauthnService.StoreChallenge(userID, session, "authentication")
+	// The challenge names no account; FinishDiscoverableLogin finds the
+	// account from the credential the assertion carries.
+	challengeID, err := h.webauthnService.StoreChallenge(0, session, "authentication")
 	if err != nil {
 		logger.AuthError(ctx, "passkey_challenge_store_failed", err)
 		return nil, autherrors.ErrServiceUnavailable("passkey_login_challenge_store", err)
@@ -447,7 +396,9 @@ func (h *PasskeyHandler) FinishLoginHandler(ctx context.Context, input *FinishLo
 
 	logger.AuthDebug(ctx, "passkey_login_finish")
 
-	session, userID, err := h.webauthnService.ConsumeChallenge(input.Body.ChallengeID, "authentication")
+	// The challenge's user id is not read: login/begin stores every
+	// authentication challenge under no account.
+	session, _, err := h.webauthnService.ConsumeChallenge(input.Body.ChallengeID, "authentication")
 	if err != nil {
 		if refusal, ok := passkeyRefusal(err, autherrors.CodeValidationFailed); ok {
 			logger.AuthWarn(ctx, "passkey_challenge_refused",
@@ -470,24 +421,16 @@ func (h *PasskeyHandler) FinishLoginHandler(ctx context.Context, input *FinishLo
 
 	// The service decides the sign-in, including whether the account exists
 	// and may sign in, and returns the account it decided on.
-	var user *authm.User
-	if userID != 0 {
-		user, _, err = h.webauthnService.FinishLogin(&authm.User{ID: userID}, session, parsedResponse)
-	} else {
-		user, _, err = h.webauthnService.FinishDiscoverableLogin(session, parsedResponse)
-	}
+	user, _, err := h.webauthnService.FinishDiscoverableLogin(session, parsedResponse)
 	if err != nil {
 		if refusal, ok := passkeyRefusal(err, autherrors.CodeInvalidCredentials, autherrors.CodeAccountInactive); ok {
 			logger.AuthWarn(ctx, "passkey_login_refused",
-				"user_id", userID,
 				"error_code", refusal.Code,
 				"error", err.Error(),
 			)
 			return refuseWith(resp, refusal)
 		}
-		logger.AuthError(ctx, "passkey_login_finish_failed", err,
-			"user_id", userID,
-		)
+		logger.AuthError(ctx, "passkey_login_finish_failed", err)
 		return nil, autherrors.ErrServiceUnavailable("passkey_login_finish", err)
 	}
 

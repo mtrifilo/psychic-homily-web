@@ -93,78 +93,101 @@ func TestPasskeyWire_RegisterFinishRegistrationErrors(t *testing.T) {
 	}
 }
 
-// login/begin with an email answers a refusal from BeginLogin exactly as it
-// answers an address with no account, and a failure at any step with a 503
-// and no challenge. Each case names the step that errs; every other step
-// succeeds.
+// login/begin answers a failure at any step with a 503 and no challenge. Each
+// case names the step that errs; every other step succeeds.
 func TestPasskeyWire_LoginBeginErrors(t *testing.T) {
-	email := "holder@example.com"
-	noPasskeys := wireOutcome{http.StatusOK, autherrors.CodeInvalidCredentials, "No passkeys registered for this account"}
 	cases := []struct {
-		name         string
-		discoverable bool
-		noAccount    bool
-		lookupErr    error
-		beginErr     error
-		storeErr     error
-		want         wireOutcome
+		name     string
+		beginErr error
+		storeErr error
 	}{
-		{name: "address with no account", noAccount: true, want: noPasskeys},
-		{name: "account BeginLogin refuses", beginErr: errNoPasskeysForTest, want: noPasskeys},
-		{name: "address lookup fails", lookupErr: errStepFailed, want: unavailable},
-		{name: "BeginLogin fails", beginErr: errStepFailed, want: unavailable},
-		{name: "BeginLogin answers an unrouted refusal code", beginErr: errUnroutedRefusal, want: unavailable},
-		{name: "email challenge cannot be stored", storeErr: errStepFailed, want: unavailable},
-		{name: "discoverable ceremony cannot start", discoverable: true, beginErr: errStepFailed, want: unavailable},
-		{name: "discoverable challenge cannot be stored", discoverable: true, storeErr: errStepFailed, want: unavailable},
+		{name: "ceremony cannot start", beginErr: errStepFailed},
+		{name: "challenge cannot be stored", storeErr: errStepFailed},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			begin := func() (*protocol.CredentialAssertion, *webauthn.SessionData, error) {
-				if tc.beginErr != nil {
-					return nil, nil, tc.beginErr
-				}
-				return &protocol.CredentialAssertion{}, &webauthn.SessionData{}, nil
-			}
 			mockWA := &testhelpers.MockWebAuthnService{
-				BeginLoginFn:             func(*authm.User) (*protocol.CredentialAssertion, *webauthn.SessionData, error) { return begin() },
-				BeginDiscoverableLoginFn: begin,
+				BeginDiscoverableLoginFn: func() (*protocol.CredentialAssertion, *webauthn.SessionData, error) {
+					if tc.beginErr != nil {
+						return nil, nil, tc.beginErr
+					}
+					return &protocol.CredentialAssertion{}, &webauthn.SessionData{}, nil
+				},
 				StoreChallengeFn: func(uint, *webauthn.SessionData, string) (string, error) {
 					return "c-1", tc.storeErr
 				},
 			}
-			users := &testhelpers.MockUserService{GetUserByEmailFn: func(string) (*authm.User, error) {
-				if tc.lookupErr != nil || tc.noAccount {
-					return nil, tc.lookupErr
-				}
-				return &authm.User{ID: 3, Email: &email, IsActive: true}, nil
-			}}
-			api := newPasskeyWireAPI(t, testPasskeyHandlerWithMocks(mockWA, &testhelpers.MockJWTService{}, users))
+			api := newPasskeyWireAPI(t, testPasskeyHandlerWithMocks(mockWA, &testhelpers.MockJWTService{}, &testhelpers.MockUserService{}))
 
-			request := map[string]any{"email": email}
-			if tc.discoverable {
-				request = map[string]any{}
-			}
-			resp := api.Post("/auth/passkey/login/begin", request)
-			requireWireOutcome(t, resp, tc.want)
+			resp := api.Post("/auth/passkey/login/begin", map[string]any{})
+			requireWireOutcome(t, resp, unavailable)
 			if _, hasChallenge := decodeWireBody(t, resp.Body.Bytes())["challenge_id"]; hasChallenge {
-				t.Errorf("a refused or failed begin issues no challenge: %s", resp.Body.String())
+				t.Errorf("a failed begin issues no challenge: %s", resp.Body.String())
 			}
 		})
 	}
 }
 
-// login/finish for an email-specific challenge answers with the account the
-// service decided on, and reads no account of its own.
-func TestPasskeyWire_EmailLoginFinishAnswersTheDecidedAccount(t *testing.T) {
+// login/begin's body declares no fields: the schema refuses an email, or any
+// other field, with a 422 before the handler runs, so no ceremony starts and
+// no challenge is stored. An empty body begins a discoverable login.
+func TestPasskeyWire_LoginBeginRefusesBodyFields(t *testing.T) {
+	var begun, stored int
+	mockWA := &testhelpers.MockWebAuthnService{
+		BeginDiscoverableLoginFn: func() (*protocol.CredentialAssertion, *webauthn.SessionData, error) {
+			begun++
+			return &protocol.CredentialAssertion{}, &webauthn.SessionData{}, nil
+		},
+		StoreChallengeFn: func(userID uint, _ *webauthn.SessionData, _ string) (string, error) {
+			stored++
+			if userID != 0 {
+				t.Errorf("challenge stored under user %d, want no account", userID)
+			}
+			return "c-1", nil
+		},
+	}
+	api := newPasskeyWireAPI(t, testPasskeyHandlerWithMocks(mockWA, &testhelpers.MockJWTService{}, &testhelpers.MockUserService{}))
+
+	for name, body := range map[string]map[string]any{
+		"email":         {"email": "holder@example.com"},
+		"empty email":   {"email": ""},
+		"unknown field": {"username": "holder"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			resp := api.Post("/auth/passkey/login/begin", body)
+			if resp.Code != http.StatusUnprocessableEntity {
+				t.Fatalf("status = %d, want %d: %s", resp.Code, http.StatusUnprocessableEntity, resp.Body.String())
+			}
+			if _, hasChallenge := decodeWireBody(t, resp.Body.Bytes())["challenge_id"]; hasChallenge {
+				t.Errorf("a refused body issues no challenge: %s", resp.Body.String())
+			}
+		})
+	}
+	if begun != 0 || stored != 0 {
+		t.Fatalf("a refused body reached the handler: %d ceremonies begun, %d challenges stored", begun, stored)
+	}
+
+	resp := api.Post("/auth/passkey/login/begin", map[string]any{})
+	requireWireSuccess(t, resp)
+	if got, _ := decodeWireBody(t, resp.Body.Bytes())["challenge_id"].(string); got != "c-1" {
+		t.Errorf("challenge_id = %q, want %q", got, "c-1")
+	}
+	if begun != 1 || stored != 1 {
+		t.Errorf("an empty body began %d ceremonies and stored %d challenges, want 1 and 1", begun, stored)
+	}
+}
+
+// login/finish answers with the account the service decided on, and reads no
+// account of its own.
+func TestPasskeyWire_LoginFinishAnswersTheDecidedAccount(t *testing.T) {
 	_, device := softRegistration(t)
 	email := "decided@example.com"
 	mockWA := &testhelpers.MockWebAuthnService{
 		ConsumeChallengeFn: func(string, string) (*webauthn.SessionData, uint, error) {
-			return &webauthn.SessionData{}, 7, nil
+			return &webauthn.SessionData{}, 0, nil
 		},
-		FinishLoginFn: func(user *authm.User, _ *webauthn.SessionData, _ *protocol.ParsedCredentialAssertionData) (*authm.User, *authm.WebAuthnCredential, error) {
-			return &authm.User{ID: user.ID, Email: &email, IsActive: true}, &authm.WebAuthnCredential{ID: 1}, nil
+		FinishDiscoverableLoginFn: func(*webauthn.SessionData, *protocol.ParsedCredentialAssertionData) (*authm.User, *authm.WebAuthnCredential, error) {
+			return &authm.User{ID: 7, Email: &email, IsActive: true}, &authm.WebAuthnCredential{ID: 1}, nil
 		},
 	}
 	jwt := &testhelpers.MockJWTService{CreateTokenFn: func(*authm.User) (string, error) { return "token", nil }}

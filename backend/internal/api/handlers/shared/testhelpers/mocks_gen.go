@@ -4648,9 +4648,7 @@ func (m *MockVenueService) GetVenueBillNetwork(venueID uint, window string, year
 type MockWebAuthnService struct {
 	BeginRegistrationFn                 func(*authm.User) (*protocol.CredentialCreation, *webauthn.SessionData, error)
 	FinishRegistrationFn                func(*authm.User, *webauthn.SessionData, *protocol.ParsedCredentialCreationData, string) (*authm.WebAuthnCredential, error)
-	BeginLoginFn                        func(*authm.User) (*protocol.CredentialAssertion, *webauthn.SessionData, error)
 	BeginDiscoverableLoginFn            func() (*protocol.CredentialAssertion, *webauthn.SessionData, error)
-	FinishLoginFn                       func(*authm.User, *webauthn.SessionData, *protocol.ParsedCredentialAssertionData) (*authm.User, *authm.WebAuthnCredential, error)
 	FinishDiscoverableLoginFn           func(*webauthn.SessionData, *protocol.ParsedCredentialAssertionData) (*authm.User, *authm.WebAuthnCredential, error)
 	GetUserCredentialsFn                func(uint) ([]authm.WebAuthnCredential, error)
 	DeleteCredentialFn                  func(uint, uint) error
@@ -4676,21 +4674,9 @@ func (m *MockWebAuthnService) FinishRegistration(user *authm.User, session *weba
 	}
 	return nil, nil
 }
-func (m *MockWebAuthnService) BeginLogin(user *authm.User) (*protocol.CredentialAssertion, *webauthn.SessionData, error) {
-	if m.BeginLoginFn != nil {
-		return m.BeginLoginFn(user)
-	}
-	return nil, nil, nil
-}
 func (m *MockWebAuthnService) BeginDiscoverableLogin() (*protocol.CredentialAssertion, *webauthn.SessionData, error) {
 	if m.BeginDiscoverableLoginFn != nil {
 		return m.BeginDiscoverableLoginFn()
-	}
-	return nil, nil, nil
-}
-func (m *MockWebAuthnService) FinishLogin(user *authm.User, session *webauthn.SessionData, response *protocol.ParsedCredentialAssertionData) (*authm.User, *authm.WebAuthnCredential, error) {
-	if m.FinishLoginFn != nil {
-		return m.FinishLoginFn(user, session, response)
 	}
 	return nil, nil, nil
 }
