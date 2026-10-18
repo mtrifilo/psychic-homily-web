@@ -3,28 +3,24 @@ package community
 import (
 	stderrors "errors"
 	"strconv"
-	"time"
 
 	apperrors "psychic-homily-backend/internal/errors"
 	authm "psychic-homily-backend/internal/models/auth"
 	"psychic-homily-backend/internal/services/contracts"
+	"psychic-homily-backend/internal/testutil"
 )
 
 // closeAccounts deactivates one account and soft-deletes the other, the two
 // ways an account stops being live.
 func (suite *CollectionServiceIntegrationTestSuite) closeAccounts(deactivated, deleted *authm.User) {
-	suite.Require().NoError(suite.db.Model(&authm.User{}).Where("id = ?", deactivated.ID).
-		Update("is_active", false).Error)
-	suite.Require().NoError(suite.db.Model(&authm.User{}).Where("id = ?", deleted.ID).
-		Updates(map[string]any{"is_active": false, "deleted_at": time.Now()}).Error)
+	testutil.DeactivateAccount(suite.T(), suite.db, deactivated.ID)
+	testutil.SoftDeleteAccount(suite.T(), suite.db, deleted.ID)
 }
 
 // reopenAccounts reverses closeAccounts.
 func (suite *CollectionServiceIntegrationTestSuite) reopenAccounts(deactivated, deleted *authm.User) {
-	suite.Require().NoError(suite.db.Model(&authm.User{}).Where("id = ?", deactivated.ID).
-		Update("is_active", true).Error)
-	suite.Require().NoError(suite.db.Model(&authm.User{}).Where("id = ?", deleted.ID).
-		Updates(map[string]any{"is_active": true, "deleted_at": nil}).Error)
+	testutil.ReopenAccount(suite.T(), suite.db, deactivated.ID)
+	testutil.ReopenAccount(suite.T(), suite.db, deleted.ID)
 }
 
 // requireCollectionNotFound asserts err is the not-found answer a never-used
@@ -184,13 +180,8 @@ func (suite *CollectionServiceIntegrationTestSuite) TestClosedCreator_ForkSource
 		for _, fork := range forks {
 			detail, err := suite.collectionService.GetBySlug(fork.Slug, 0)
 			suite.Require().NoError(err)
-			if attributed {
-				suite.NotNil(detail.ForkedFrom, "detail snapshot: %s", msg)
-				suite.NotNil(detail.ForkedFromCollectionID, "detail id: %s", msg)
-			} else {
-				suite.Nil(detail.ForkedFrom, "detail snapshot: %s", msg)
-				suite.Nil(detail.ForkedFromCollectionID, "detail id: %s", msg)
-			}
+			suite.Equal(attributed, detail.ForkedFrom != nil, "detail snapshot: %s", msg)
+			suite.Equal(attributed, detail.ForkedFromCollectionID != nil, "detail id: %s", msg)
 		}
 
 		browse, _, err := suite.collectionService.ListCollections(
@@ -201,11 +192,7 @@ func (suite *CollectionServiceIntegrationTestSuite) TestClosedCreator_ForkSource
 		for name, rows := range map[string][]*contracts.CollectionListResponse{"browse": browse, "library": library} {
 			suite.Len(rows, len(forks), "%s rows: %s", name, msg)
 			for _, row := range rows {
-				if attributed {
-					suite.NotNil(row.ForkedFromCollectionID, "%s row id: %s", name, msg)
-				} else {
-					suite.Nil(row.ForkedFromCollectionID, "%s row id: %s", name, msg)
-				}
+				suite.Equal(attributed, row.ForkedFromCollectionID != nil, "%s row id: %s", name, msg)
 			}
 		}
 	}

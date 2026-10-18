@@ -4,6 +4,7 @@ import (
 	"time"
 
 	authm "psychic-homily-backend/internal/models/auth"
+	"psychic-homily-backend/internal/testutil"
 )
 
 // EvaluateAllUsers evaluates live accounts only: of three otherwise identical
@@ -20,10 +21,8 @@ func (s *AutoPromotionIntegrationTestSuite) TestEvaluateAllUsers_EvaluatesOnlyLi
 			s.createApprovedPendingEdit(u.ID, "artist", artist.ID)
 		}
 	}
-	s.Require().NoError(s.db.Model(&authm.User{}).Where("id = ?", deactivated.ID).
-		Update("is_active", false).Error)
-	s.Require().NoError(s.db.Model(&authm.User{}).Where("id = ?", deleted.ID).
-		Updates(map[string]any{"is_active": false, "deleted_at": time.Now()}).Error)
+	testutil.DeactivateAccount(s.T(), s.db, deactivated.ID)
+	testutil.SoftDeleteAccount(s.T(), s.db, deleted.ID)
 
 	result, err := s.svc.EvaluateAllUsers()
 	s.Require().NoError(err)

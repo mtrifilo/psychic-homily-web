@@ -27,9 +27,9 @@ import (
 //     profile's answer everywhere: the per-user list is hidden, the content is
 //     not.
 
-// collectionCreatorAlias is the alias the creator-state conditions bind the
-// users table to. Distinct from every alias a calling query uses, so the
-// correlation on alias.creator_id cannot be shadowed by the subquery.
+// collectionCreatorAlias is the alias the profile condition binds the users
+// table to. Distinct from every alias a calling query uses, so the correlation
+// on alias.creator_id cannot be shadowed by the subquery.
 const collectionCreatorAlias = "collection_creator"
 
 // CollectionCreatorIsLiveSQL returns a correlated EXISTS condition, true for the
@@ -38,30 +38,23 @@ const collectionCreatorAlias = "collection_creator"
 //
 // alias is SQL the CALLER controls and must be a literal in the calling code.
 func CollectionCreatorIsLiveSQL(alias string) string {
-	return collectionCreatorExistsSQL(alias, "")
+	return authm.LiveAccountExistsSQL(alias + ".creator_id")
 }
 
-// CollectionCreatorIsListedSQL returns a correlated EXISTS condition, true for
-// the rows of the collections table alias that a listing may carry for viewer:
-// the creator is a live account, and their profile is public or viewer is the
-// creator. Its only bind argument is the viewer's own id.
+// CollectionCreatorIsListedSQL returns a condition, true for the rows of the
+// collections table alias that a listing may carry for viewer: the creator is a
+// live account (CollectionCreatorIsLiveSQL), and their profile is public or
+// viewer is the creator. Its only bind argument is the viewer's own id.
 //
 // alias is SQL the CALLER controls and must be a literal in the calling code.
 func CollectionCreatorIsListedSQL(alias string, viewer contracts.ShowViewer) (string, []interface{}) {
-	profileListed := collectionCreatorAlias + ".profile_visibility <> 'private'"
-	if viewer.UserID == 0 {
-		return collectionCreatorExistsSQL(alias, " AND "+profileListed), nil
-	}
-	return collectionCreatorExistsSQL(alias,
-			" AND ("+profileListed+" OR "+collectionCreatorAlias+".id = ?)"),
-		[]interface{}{viewer.UserID}
-}
-
-// collectionCreatorExistsSQL is the EXISTS both conditions share, so the two
-// cannot correlate on different columns or disagree about what a live account
-// is. extra is appended inside the subquery's WHERE.
-func collectionCreatorExistsSQL(alias, extra string) string {
-	return "EXISTS (SELECT 1 FROM users " + collectionCreatorAlias +
+	live := CollectionCreatorIsLiveSQL(alias)
+	publicProfile := "EXISTS (SELECT 1 FROM users " + collectionCreatorAlias +
 		" WHERE " + collectionCreatorAlias + ".id = " + alias + ".creator_id" +
-		" AND " + authm.LiveAccountSQL(collectionCreatorAlias) + extra + ")"
+		" AND " + collectionCreatorAlias + ".profile_visibility <> 'private')"
+	if viewer.UserID == 0 {
+		return "(" + live + " AND " + publicProfile + ")", nil
+	}
+	return "(" + live + " AND (" + alias + ".creator_id = ? OR " + publicProfile + "))",
+		[]interface{}{viewer.UserID}
 }

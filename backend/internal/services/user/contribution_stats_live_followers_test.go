@@ -1,11 +1,10 @@
 package user
 
 import (
-	"time"
-
 	authm "psychic-homily-backend/internal/models/auth"
 	engagementm "psychic-homily-backend/internal/models/engagement"
 	"psychic-homily-backend/internal/services/contracts"
+	"psychic-homily-backend/internal/testutil"
 )
 
 // The profile's followers count counts live accounts only: a deactivated or a
@@ -31,17 +30,11 @@ func (suite *ContributorProfileServiceIntegrationTestSuite) TestGetContributionS
 
 	suite.Equal(int64(3), followers())
 
-	suite.Require().NoError(suite.db.Model(&authm.User{}).Where("id = ?", deactivated.ID).
-		Update("is_active", false).Error)
-	suite.Require().NoError(suite.db.Model(&authm.User{}).Where("id = ?", deleted.ID).
-		Updates(map[string]any{"is_active": false, "deleted_at": time.Now()}).Error)
-
+	testutil.DeactivateAccount(suite.T(), suite.db, deactivated.ID)
+	testutil.SoftDeleteAccount(suite.T(), suite.db, deleted.ID)
 	suite.Equal(int64(1), followers())
 
-	suite.Require().NoError(suite.db.Model(&authm.User{}).Where("id = ?", deactivated.ID).
-		Update("is_active", true).Error)
-	suite.Require().NoError(suite.db.Model(&authm.User{}).Where("id = ?", deleted.ID).
-		Updates(map[string]any{"is_active": true, "deleted_at": nil}).Error)
-
+	testutil.ReopenAccount(suite.T(), suite.db, deactivated.ID)
+	testutil.ReopenAccount(suite.T(), suite.db, deleted.ID)
 	suite.Equal(int64(3), followers())
 }

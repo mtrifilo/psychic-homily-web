@@ -8,22 +8,17 @@ import (
 
 	authm "psychic-homily-backend/internal/models/auth"
 	communitym "psychic-homily-backend/internal/models/community"
+	"psychic-homily-backend/internal/testutil"
 )
 
 // closeDigestAccount closes u: soft-deleted when softDelete, otherwise
 // deactivated.
 func (s *CollectionDigestServiceIntegrationSuite) closeDigestAccount(u *authm.User, softDelete bool) {
-	updates := map[string]any{"is_active": false}
 	if softDelete {
-		updates["deleted_at"] = time.Now()
+		testutil.SoftDeleteAccount(s.T(), s.db, u.ID)
+		return
 	}
-	s.Require().NoError(s.db.Model(&authm.User{}).Where("id = ?", u.ID).Updates(updates).Error)
-}
-
-// reopenDigestAccount reverses closeDigestAccount.
-func (s *CollectionDigestServiceIntegrationSuite) reopenDigestAccount(u *authm.User) {
-	s.Require().NoError(s.db.Model(&authm.User{}).Where("id = ?", u.ID).
-		Updates(map[string]any{"is_active": true, "deleted_at": nil}).Error)
+	testutil.DeactivateAccount(s.T(), s.db, u.ID)
 }
 
 // An item added by a deactivated or soft-deleted account still goes out, under
@@ -53,7 +48,7 @@ func (s *CollectionDigestServiceIntegrationSuite) TestDigest_ClosedAdderIsNotNam
 		assert.NotContains(s.T(), g.Items[0].AddedBy, *adder.Username)
 		assert.Equal(s.T(), first.Name, g.Items[0].EntityName, "the item still goes out")
 
-		s.reopenDigestAccount(adder)
+		testutil.ReopenAccount(s.T(), s.db, adder.ID)
 		s.mock.calls = nil
 		second := s.createArtist("Reopened Adder Artist " + coll.Slug)
 		s.addItem(coll, adder, communitym.CollectionEntityArtist, second.ID, time.Now())
@@ -95,8 +90,8 @@ func (s *CollectionDigestServiceIntegrationSuite) TestDigest_ClosedCreatorsColle
 	require.Len(s.T(), s.mock.calls[0].Groups, 1, "only the live creator's collection is mailed")
 	assert.Equal(s.T(), collBy[live.ID].Title, s.mock.calls[0].Groups[0].CollectionTitle)
 
-	s.reopenDigestAccount(deactivated)
-	s.reopenDigestAccount(deleted)
+	testutil.ReopenAccount(s.T(), s.db, deactivated.ID)
+	testutil.ReopenAccount(s.T(), s.db, deleted.ID)
 	s.mock.calls = nil
 
 	s.svc.RunDigestCycleNow()

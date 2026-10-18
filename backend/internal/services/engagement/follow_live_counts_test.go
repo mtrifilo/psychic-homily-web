@@ -1,26 +1,21 @@
 package engagement
 
 import (
-	"time"
-
 	authm "psychic-homily-backend/internal/models/auth"
+	"psychic-homily-backend/internal/testutil"
 )
 
 // closeFollowerAccounts deactivates one account and soft-deletes the other, the
 // two ways an account stops being live.
 func (suite *FollowServiceIntegrationTestSuite) closeFollowerAccounts(deactivated, deleted *authm.User) {
-	suite.Require().NoError(suite.db.Model(&authm.User{}).Where("id = ?", deactivated.ID).
-		Update("is_active", false).Error)
-	suite.Require().NoError(suite.db.Model(&authm.User{}).Where("id = ?", deleted.ID).
-		Updates(map[string]any{"is_active": false, "deleted_at": time.Now()}).Error)
+	testutil.DeactivateAccount(suite.T(), suite.db, deactivated.ID)
+	testutil.SoftDeleteAccount(suite.T(), suite.db, deleted.ID)
 }
 
 // reopenFollowerAccounts reverses closeFollowerAccounts.
 func (suite *FollowServiceIntegrationTestSuite) reopenFollowerAccounts(deactivated, deleted *authm.User) {
-	suite.Require().NoError(suite.db.Model(&authm.User{}).Where("id = ?", deactivated.ID).
-		Update("is_active", true).Error)
-	suite.Require().NoError(suite.db.Model(&authm.User{}).Where("id = ?", deleted.ID).
-		Updates(map[string]any{"is_active": true, "deleted_at": nil}).Error)
+	testutil.ReopenAccount(suite.T(), suite.db, deactivated.ID)
+	testutil.ReopenAccount(suite.T(), suite.db, deleted.ID)
 }
 
 // Every follower count counts the live accounts the followers list shows: a

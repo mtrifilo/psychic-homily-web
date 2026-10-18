@@ -470,17 +470,14 @@ func (s *CollectionService) GetByID(id uint, viewerID uint) (*contracts.Collecti
 	return s.GetBySlug(collection.Slug, viewerID)
 }
 
-// GetBySlug retrieves a collection by slug with full detail.
+// loadReadableBySlug loads the collection a READ addressed by slug may serve:
+// one whose creator is a live account (shared.CollectionCreatorIsLiveSQL). A
+// closed creator's collection answers the not-found error a slug nobody has
+// used gets. The caller still applies the is_public rule.
 //
-// A collection whose creator is closed answers as a slug nobody has used
-// (shared.CollectionCreatorIsLiveSQL). Its people counts (subscribers,
-// contributors, likes) count live accounts only; its item count counts every
-// item.
-func (s *CollectionService) GetBySlug(slug string, viewerID uint) (*contracts.CollectionDetailResponse, error) {
-	if s.db == nil {
-		return nil, fmt.Errorf("database not initialized")
-	}
-
+// Every slug-addressed read (detail, stats, graph) loads through here. Writes
+// addressed by slug load the row themselves and do not apply this rule.
+func (s *CollectionService) loadReadableBySlug(slug string) (*communitym.Collection, error) {
 	var collection communitym.Collection
 	err := s.db.Where("slug = ?", slug).Where(shared.CollectionCreatorIsLiveSQL("collections")).
 		First(&collection).Error
@@ -489,6 +486,23 @@ func (s *CollectionService) GetBySlug(slug string, viewerID uint) (*contracts.Co
 			return nil, apperrors.ErrCollectionNotFound(slug)
 		}
 		return nil, fmt.Errorf("failed to get collection: %w", err)
+	}
+	return &collection, nil
+}
+
+// GetBySlug retrieves a collection by slug with full detail.
+//
+// A collection whose creator is closed answers as a slug nobody has used
+// (loadReadableBySlug). Its people counts (subscribers, contributors, likes)
+// count live accounts only; its item count counts every item.
+func (s *CollectionService) GetBySlug(slug string, viewerID uint) (*contracts.CollectionDetailResponse, error) {
+	if s.db == nil {
+		return nil, fmt.Errorf("database not initialized")
+	}
+
+	collection, err := s.loadReadableBySlug(slug)
+	if err != nil {
+		return nil, err
 	}
 
 	// Check access: private collections are only visible to the creator.
@@ -512,8 +526,10 @@ func (s *CollectionService) GetBySlug(slug string, viewerID uint) (*contracts.Co
 	// Resolve entity names for items
 	itemResponses := s.buildItemResponses(items)
 
-	subscriberCount := s.countLiveSubscribers(collection.ID)
-	contributorCount := s.countLiveContributors(collection.ID)
+	collectionIDs := []uint{collection.ID}
+	subscriberCount := s.batchCountSubscribers(collectionIDs)[collection.ID]
+	contributorCount := s.batchCountContributors(collectionIDs)[collection.ID]
+	likeCount := s.batchCountLikes(collectionIDs)[collection.ID]
 
 	// Count forks (public social signal — PSY-351). Live COUNT mirrors
 	// the existing collection counter pattern and is cheap thanks to the
@@ -558,13 +574,8 @@ func (s *CollectionService) GetBySlug(slug string, viewerID uint) (*contracts.Co
 		isSubscribed = subCount > 0
 	}
 
-	// PSY-352: aggregate like count + caller's like state. UserLikesThis
+	// PSY-352: caller's like state (the count is loaded above). UserLikesThis
 	// is always false for anonymous viewers (viewerID == 0).
-	var likeCount int64
-	s.db.Model(&communitym.CollectionLike{}).
-		Where("collection_id = ?", collection.ID).
-		Where(liveUserExistsSQL("collection_likes.user_id")).
-		Count(&likeCount)
 	userLikesThis := false
 	if viewerID > 0 {
 		var ulCount int64
@@ -616,14 +627,14 @@ func (s *CollectionService) GetBySlug(slug string, viewerID uint) (*contracts.Co
 		IsFeatured:             collection.IsFeatured,
 		DisplayMode:            collection.DisplayMode,
 		ItemCount:              len(itemResponses),
-		SubscriberCount:        int(subscriberCount),
-		ContributorCount:       int(contributorCount),
+		SubscriberCount:        subscriberCount,
+		ContributorCount:       contributorCount,
 		ForksCount:             int(forksCount),
 		ForkedFromCollectionID: forkedFromID,
 		ForkedFrom:             forkedFrom,
 		Items:                  itemResponses,
 		IsSubscribed:           isSubscribed,
-		LikeCount:              int(likeCount),
+		LikeCount:              likeCount,
 		UserLikesThis:          userLikesThis,
 		Tags:                   tags,
 		CreatedAt:              collection.CreatedAt,
@@ -1981,7 +1992,7 @@ func (s *CollectionService) buildLikeResponse(collectionID uint, userID uint) (*
 	var likeCount int64
 	if err := s.db.Model(&communitym.CollectionLike{}).
 		Where("collection_id = ?", collectionID).
-		Where(liveUserExistsSQL("collection_likes.user_id")).
+		Where(authm.LiveAccountExistsSQL("collection_likes.user_id")).
 		Count(&likeCount).Error; err != nil {
 		return nil, fmt.Errorf("failed to count likes: %w", err)
 	}
@@ -2035,14 +2046,9 @@ func (s *CollectionService) GetStats(slug string, viewerID uint) (*contracts.Col
 		return nil, fmt.Errorf("database not initialized")
 	}
 
-	var collection communitym.Collection
-	err := s.db.Where("slug = ?", slug).Where(shared.CollectionCreatorIsLiveSQL("collections")).
-		First(&collection).Error
+	collection, err := s.loadReadableBySlug(slug)
 	if err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return nil, apperrors.ErrCollectionNotFound(slug)
-		}
-		return nil, fmt.Errorf("failed to get collection: %w", err)
+		return nil, err
 	}
 
 	if !shared.CollectionVisibleTo(s.db, collection.ID, contracts.ShowViewer{UserID: viewerID}) {
@@ -2053,8 +2059,9 @@ func (s *CollectionService) GetStats(slug string, viewerID uint) (*contracts.Col
 	var itemCount int64
 	s.db.Model(&communitym.CollectionItem{}).Where("collection_id = ?", collection.ID).Count(&itemCount)
 
-	subscriberCount := s.countLiveSubscribers(collection.ID)
-	contributorCount := s.countLiveContributors(collection.ID)
+	collectionIDs := []uint{collection.ID}
+	subscriberCount := s.batchCountSubscribers(collectionIDs)[collection.ID]
+	contributorCount := s.batchCountContributors(collectionIDs)[collection.ID]
 
 	// Entity type counts
 	type TypeCount struct {
@@ -2075,8 +2082,8 @@ func (s *CollectionService) GetStats(slug string, viewerID uint) (*contracts.Col
 
 	return &contracts.CollectionStatsResponse{
 		ItemCount:        int(itemCount),
-		SubscriberCount:  int(subscriberCount),
-		ContributorCount: int(contributorCount),
+		SubscriberCount:  subscriberCount,
+		ContributorCount: contributorCount,
 		EntityTypeCounts: entityTypeCounts,
 	}, nil
 }
@@ -2979,41 +2986,12 @@ func (s *CollectionService) batchEntityTypeCounts(collectionIDs []uint) map[uint
 	return result
 }
 
-// liveUserExistsSQL returns a correlated EXISTS condition, true when the users
-// row userIDExpr names is a live account (authm.LiveAccountSQL).
-//
-// Every count of PEOPLE on a collection (subscribers, contributors, likes)
-// filters with it, so a closed account leaves the count exactly as it leaves
-// the lists. Counts of things (items, forks) do not.
-//
-// userIDExpr is SQL the CALLER controls and must be a literal in the calling
-// code.
-func liveUserExistsSQL(userIDExpr string) string {
-	return "EXISTS (SELECT 1 FROM users live_user WHERE live_user.id = " + userIDExpr +
-		" AND " + authm.LiveAccountSQL("live_user") + ")"
-}
-
-// countLiveSubscribers counts the live accounts subscribed to collectionID.
-func (s *CollectionService) countLiveSubscribers(collectionID uint) int64 {
-	var count int64
-	s.db.Model(&communitym.CollectionSubscriber{}).
-		Where("collection_id = ?", collectionID).
-		Where(liveUserExistsSQL("collection_subscribers.user_id")).
-		Count(&count)
-	return count
-}
-
-// countLiveContributors counts the distinct live accounts that added an item to
-// collectionID.
-func (s *CollectionService) countLiveContributors(collectionID uint) int64 {
-	var count int64
-	s.db.Model(&communitym.CollectionItem{}).
-		Where("collection_id = ?", collectionID).
-		Where(liveUserExistsSQL("collection_items.added_by_user_id")).
-		Distinct("added_by_user_id").
-		Count(&count)
-	return count
-}
+// COUNTS OF PEOPLE count live accounts only (authm.LiveAccountExistsSQL), so a
+// closed account leaves a count exactly as it leaves the lists: subscribers
+// (batchCountSubscribers), contributors (batchCountContributors) and likes
+// (batchCountLikes, buildLikeResponse). The detail and stats readers call the
+// batch helpers with one id rather than keeping copies. Counts of THINGS
+// (items, the per-type breakdown, new-since-visit, forks) count every row.
 
 // batchCountSubscribers returns live-account subscriber counts per collection ID
 func (s *CollectionService) batchCountSubscribers(collectionIDs []uint) map[uint]int {
@@ -3030,7 +3008,7 @@ func (s *CollectionService) batchCountSubscribers(collectionIDs []uint) map[uint
 	s.db.Model(&communitym.CollectionSubscriber{}).
 		Select("collection_id, COUNT(*) as count").
 		Where("collection_id IN ?", collectionIDs).
-		Where(liveUserExistsSQL("collection_subscribers.user_id")).
+		Where(authm.LiveAccountExistsSQL("collection_subscribers.user_id")).
 		Group("collection_id").
 		Find(&results)
 
@@ -3102,7 +3080,7 @@ func (s *CollectionService) batchCountContributors(collectionIDs []uint) map[uin
 	s.db.Model(&communitym.CollectionItem{}).
 		Select("collection_id, COUNT(DISTINCT added_by_user_id) as count").
 		Where("collection_id IN ?", collectionIDs).
-		Where(liveUserExistsSQL("collection_items.added_by_user_id")).
+		Where(authm.LiveAccountExistsSQL("collection_items.added_by_user_id")).
 		Group("collection_id").
 		Find(&results)
 
@@ -3228,7 +3206,7 @@ func (s *CollectionService) batchCountLikes(collectionIDs []uint) map[uint]int {
 	s.db.Model(&communitym.CollectionLike{}).
 		Select("collection_id, COUNT(*) as count").
 		Where("collection_id IN ?", collectionIDs).
-		Where(liveUserExistsSQL("collection_likes.user_id")).
+		Where(authm.LiveAccountExistsSQL("collection_likes.user_id")).
 		Group("collection_id").
 		Find(&results)
 
@@ -3741,14 +3719,9 @@ func (s *CollectionService) GetCollectionGraph(slug string, viewerID uint, types
 		return nil, fmt.Errorf("database not initialized")
 	}
 
-	// A closed creator's collection answers as missing, as GetBySlug's does.
-	var collection communitym.Collection
-	if err := s.db.Where("slug = ?", slug).Where(shared.CollectionCreatorIsLiveSQL("collections")).
-		First(&collection).Error; err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return nil, apperrors.ErrCollectionNotFound(slug)
-		}
-		return nil, fmt.Errorf("failed to get collection: %w", err)
+	collection, err := s.loadReadableBySlug(slug)
+	if err != nil {
+		return nil, err
 	}
 
 	if !collection.IsPublic && collection.CreatorID != viewerID {
