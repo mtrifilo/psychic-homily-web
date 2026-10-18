@@ -21,9 +21,9 @@ import (
 
 // An account that may not sign in (deactivated, or soft-deleted) is refused on
 // the Google, Apple and passkey sign-in paths, and no session is minted. An
-// active account on the same path signs in. Google refuses a deleted account
-// inside its recovery window with ACCOUNT_RECOVERABLE; every other refusal here
-// is ACCOUNT_INACTIVE.
+// active account on the same path signs in. Google and Apple refuse a deleted
+// account inside its recovery window with ACCOUNT_RECOVERABLE; every other
+// refusal here is ACCOUNT_INACTIVE.
 
 // accountState puts an existing account into one of the states a sign-in path
 // must tell apart.
@@ -35,9 +35,9 @@ type accountState struct {
 	recoverable bool
 }
 
-// googleRefusal is the refusal the Google callback gives an identity attached
-// to an account in this state that may not sign in.
-func (state accountState) googleRefusal() *autherrors.AuthError {
+// providerRefusal is the refusal the Google and Apple callbacks give an
+// identity attached to an account in this state that may not sign in.
+func (state accountState) providerRefusal() *autherrors.AuthError {
 	if state.recoverable {
 		return autherrors.ErrAccountRecoverable()
 	}
@@ -102,7 +102,7 @@ func (s *OAuthHandlerIntegrationSuite) TestGoogleCallback_AccountState_WebRedire
 				return
 			}
 
-			s.assertAuthPageRefusal(w, state.googleRefusal())
+			s.assertAuthPageRefusal(w, state.providerRefusal())
 		})
 	}
 }
@@ -137,7 +137,7 @@ func (s *OAuthHandlerIntegrationSuite) TestGoogleCallback_AccountState_CLIRedire
 
 			// The loopback redirect carries the message alone, as every CLI
 			// error redirect does, and never a token.
-			s.Equal(url.Values{"error": {state.googleRefusal().UserMessage()}}, location.Query())
+			s.Equal(url.Values{"error": {state.providerRefusal().UserMessage()}}, location.Query())
 			s.assertNoSessionCookie(w)
 		})
 	}
@@ -156,8 +156,6 @@ func (p presetClaimsAppleService) ValidateIdentityToken(context.Context, string)
 }
 
 func (s *OAuthHandlerIntegrationSuite) TestAppleCallback_AccountState() {
-	inactive := autherrors.ErrAccountInactive()
-
 	for _, state := range signInAccountStates {
 		s.Run(state.name, func() {
 			svc := presetClaimsAppleService{
@@ -186,9 +184,10 @@ func (s *OAuthHandlerIntegrationSuite) TestAppleCallback_AccountState() {
 				return
 			}
 
+			refusal := state.providerRefusal()
 			s.False(resp.Body.Success)
-			s.Equal(autherrors.CodeAccountInactive, resp.Body.ErrorCode)
-			s.Equal(inactive.UserMessage(), resp.Body.Message)
+			s.Equal(refusal.Code, resp.Body.ErrorCode)
+			s.Equal(refusal.UserMessage(), resp.Body.Message)
 			s.Empty(resp.Body.Token)
 			s.Nil(resp.Body.User)
 			s.Empty(resp.SetCookie.Value)

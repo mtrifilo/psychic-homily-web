@@ -190,10 +190,10 @@ func NewUserService(database *gorm.DB) *UserService {
 // CodeAccountInactive when the identity resolves to an account that may not
 // sign in (authm.User.CanSignIn), CodeAccountRecoverable in place of either of
 // those two when the account was deleted and is inside its recovery window
-// (see closedAccountRefusal and the address branch below), the refusal of
-// shared.ValidateProviderEmailClaim before any query, and the consent
-// refusals of shared.ValidateOAuthSignupConsent when an account would be
-// created. Callers that render a refusal differently from a fault must
+// (shared.ClosedAccountRefusal and shared.AddressMatchIsRecoverable), the
+// refusal of shared.ValidateProviderEmailClaim before any query, and the
+// consent refusals of shared.ValidateOAuthSignupConsent when an account would
+// be created. Callers that render a refusal differently from a fault must
 // discriminate on the code.
 func (s *UserService) FindOrCreateUserWithConsent(gothUser goth.User, provider string, consent *contracts.OAuthSignupConsent) (*authm.User, error) {
 	if s.db == nil {
@@ -226,7 +226,7 @@ func (s *UserService) FindOrCreateUserWithConsent(gothUser goth.User, provider s
 			return nil, fmt.Errorf("failed to get user: %w", err)
 		}
 		if !user.CanSignIn() {
-			refusal := s.closedAccountRefusal(&user)
+			refusal := shared.ClosedAccountRefusal(&user)
 			logger.Default().Warn("oauth_signin_refused_account_inactive",
 				"provider", provider,
 				"user_id", user.ID,
@@ -258,20 +258,9 @@ func (s *UserService) FindOrCreateUserWithConsent(gothUser goth.User, provider s
 			// only from a session that already holds the account, at
 			// /auth/link/{provider}, which the refusal names.
 			//
-			// A deleted account inside its recovery window cannot be signed
-			// in to, so that remediation is a dead end for it. The refusal
-			// sends the caller to account recovery instead when both sides
-			// vouch for the mailbox: the provider for the caller, and this
-			// system's own verification for the account. Recovery mails that
-			// address, so the refusal reveals the deletion to no one the
-			// recovery email would not reach, and it attaches nothing.
-			//
-			// Without the provider's vouch the caller may not hold the
-			// mailbox. Without the account's, the account may be a squat on
-			// the caller's address, and recovery restores it with the
-			// squatter's password still on it. Either way the refusal stays
-			// the one that says nothing of the account's state.
-			if providerAssertsEmailVerified(gothUser) && existingUser.EmailVerified && s.recoverableByEmail(&existingUser) {
+			// A recoverable deleted account is the exception, for the reasons
+			// shared.AddressMatchIsRecoverable states.
+			if shared.AddressMatchIsRecoverable(&existingUser, providerAssertsEmailVerified(gothUser)) {
 				logger.Default().Warn("oauth_signin_refused_account_recoverable",
 					"provider", provider,
 					"user_id", existingUser.ID)
@@ -435,7 +424,7 @@ func (s *UserService) AuthenticateUserWithPassword(email, password string) (*aut
 	}
 
 	if !user.CanSignIn() {
-		return nil, s.closedAccountRefusal(user)
+		return nil, shared.ClosedAccountRefusal(user)
 	}
 
 	// Reset failed attempts on successful login. Log + continue on failure:
@@ -1593,8 +1582,8 @@ func (s *UserService) GetOAuthAccounts(userID uint) ([]authm.OAuthAccount, error
 	return accounts, nil
 }
 
-// Account recovery grace period constant
-const AccountRecoveryGracePeriod = 30 * 24 * time.Hour // 30 days
+// AccountRecoveryGracePeriod is shared.AccountRecoveryGracePeriod.
+const AccountRecoveryGracePeriod = shared.AccountRecoveryGracePeriod
 
 // GetUserByEmailIncludingDeleted retrieves a user by email, including
 // soft-deleted accounts. The match is case-insensitive
@@ -1626,43 +1615,10 @@ func (s *UserService) GetUserByEmailIncludingDeleted(email string) (*authm.User,
 	return &user, nil
 }
 
-// IsAccountRecoverable checks if a soft-deleted account can still be recovered
-// Returns true if account is deleted and within the 30-day grace period
+// IsAccountRecoverable reports whether user is a soft-deleted account still
+// inside its recovery window (shared.IsAccountRecoverable).
 func (s *UserService) IsAccountRecoverable(user *authm.User) bool {
-	if user == nil {
-		return false
-	}
-
-	// Account must be soft-deleted (not active and has deleted_at set)
-	if user.IsActive || user.DeletedAt == nil {
-		return false
-	}
-
-	// Check if within grace period
-	deletedAt := *user.DeletedAt
-	gracePeriodEnd := deletedAt.Add(AccountRecoveryGracePeriod)
-
-	return time.Now().Before(gracePeriodEnd)
-}
-
-// closedAccountRefusal is the refusal for a sign-in into user, an account that
-// may not sign in (authm.User.CanSignIn), by a caller who has proved its
-// credential: CodeAccountRecoverable when account recovery can restore it
-// (recoverableByEmail), so the caller can be sent there, and
-// CodeAccountInactive otherwise.
-func (s *UserService) closedAccountRefusal(user *authm.User) *apperrors.AuthError {
-	if s.recoverableByEmail(user) {
-		return apperrors.ErrAccountRecoverable()
-	}
-	return apperrors.ErrAccountInactive()
-}
-
-// recoverableByEmail reports whether account recovery can restore user: it is
-// recoverable (IsAccountRecoverable) and has the address recovery finds it by
-// and mails. An account with no address cannot be restored there, so sending
-// its holder to recovery would be a dead end.
-func (s *UserService) recoverableByEmail(user *authm.User) bool {
-	return s.IsAccountRecoverable(user) && user.Email != nil && *user.Email != ""
+	return shared.IsAccountRecoverable(user)
 }
 
 // GetDaysUntilPermanentDeletion returns the number of days until an account is permanently deleted
