@@ -66,14 +66,19 @@ var (
 // refusal's code and message, and a failure with a 503.
 func TestPasskeyWire_RegisterFinishRegistrationErrors(t *testing.T) {
 	body, _ := softRegistration(t)
+	inactive := autherrors.ErrAccountInactive()
+	inactive.Internal = fmt.Errorf("user 7 may not sign in")
 	cases := []struct {
-		name string
-		err  error
-		want wireOutcome
+		name  string
+		err   error
+		want  wireOutcome
+		leaks []string
 	}{
-		{"registration refused", errRegistrationRefused, wireOutcome{http.StatusOK, autherrors.CodeValidationFailed, "Invalid credential response"}},
-		{"credential cannot be stored", errStepFailed, unavailable},
-		{"unrouted refusal code", errUnroutedRefusal, unavailable},
+		{"registration refused", errRegistrationRefused, wireOutcome{http.StatusOK, autherrors.CodeValidationFailed, "Invalid credential response"}, nil},
+		{"account may not sign in", inactive,
+			wireOutcome{http.StatusOK, autherrors.CodeAccountInactive, autherrors.ErrAccountInactive().UserMessage()}, []string{"may not sign in"}},
+		{"credential cannot be stored", errStepFailed, unavailable, nil},
+		{"unrouted refusal code", errUnroutedRefusal, unavailable, nil},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -88,7 +93,7 @@ func TestPasskeyWire_RegisterFinishRegistrationErrors(t *testing.T) {
 			api := newPasskeyWireAPI(t, testPasskeyHandlerWithMocks(mockWA, &testhelpers.MockJWTService{}, &testhelpers.MockUserService{}))
 
 			resp := api.Post("/auth/passkey/register/finish", map[string]any{"challenge_id": "c-1", "response": body})
-			requireWireOutcome(t, resp, tc.want)
+			requireWireOutcome(t, resp, tc.want, tc.leaks...)
 		})
 	}
 }
