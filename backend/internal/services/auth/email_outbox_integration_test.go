@@ -13,6 +13,7 @@ import (
 
 	"psychic-homily-backend/internal/config"
 	authm "psychic-homily-backend/internal/models/auth"
+	"psychic-homily-backend/internal/services/shared"
 	usersvc "psychic-homily-backend/internal/services/user"
 	"psychic-homily-backend/internal/testutil"
 )
@@ -174,7 +175,7 @@ func (s *AuthEmailOutboxSuite) TestRecovery_DaysRemainingComputedAtSend() {
 	s.Require().Len(sends, 1)
 	s.Equal(authm.AuthEmailKindAccountRecovery, sends[0].kind)
 	s.Equal("gone@example.com", sends[0].to)
-	fullWindowDays := int(usersvc.AccountRecoveryGracePeriod / (24 * time.Hour))
+	fullWindowDays := int(shared.AccountRecoveryGracePeriod / (24 * time.Hour))
 	s.Equal(fullWindowDays-10, sends[0].daysRemaining, "days remaining counts from the send, not the request")
 	claims, err := s.jwt.ValidateAccountRecoveryToken(sends[0].token)
 	s.Require().NoError(err, "the token is a valid recovery token")
