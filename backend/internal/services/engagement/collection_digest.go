@@ -160,7 +160,8 @@ type digestCandidate struct {
 	// the profile (user/contributor_profile.go folds CollectionItemsAdded into
 	// TotalContributions), so this byline is under the contributions setting.
 	//
-	// AddedByUserID is nil when the LEFT JOIN found no row. It is carried rather
+	// AddedByUserID is nil when the LEFT JOIN found no row, which it also finds
+	// for an adder whose account is closed. It is carried rather
 	// than faked because the resolver's nil/ID-0 guard is what turns a missing
 	// adder into the empty-state label, and privacy_settings is what the gate
 	// reads: a fabricated id with no privacy blob would unmarshal to the
@@ -403,6 +404,14 @@ func (s *CollectionDigestService) queryCandidates(now time.Time) ([]digestCandid
 	// The predicate is a literal from services/shared, spliced rather than
 	// written out: a digest that decided a collection on its own terms would be a
 	// second rule, and the one that leaks is always the second one.
+	//
+	// A collection whose creator is closed is not mailed: its detail route
+	// answers not found, so the link would be dead. Its subscription cursor is
+	// not advanced, so its items go out once the creator is reopened.
+	//
+	// A closed ADDER matches no added_by row, so the item goes out under the
+	// label digestDisplayName gives a missing adder and no closed account is
+	// named.
 	visibleToSubscriber := shared.VisibleCollectionRecipientPredicateSQL("c", "cs.user_id")
 	err := s.db.Raw(`
 		SELECT
@@ -429,10 +438,12 @@ func (s *CollectionDigestService) queryCandidates(now time.Time) ([]digestCandid
 			AND ci.created_at > GREATEST(COALESCE(cs.last_digest_sent_at, cs.created_at), cs.created_at)
 			AND ci.created_at <= ?
 		LEFT JOIN users added_by ON added_by.id = ci.added_by_user_id
+			AND `+authm.LiveAccountSQL("added_by")+`
 		LEFT JOIN user_preferences up ON up.user_id = cs.user_id
 		WHERE `+authm.LiveAccountSQL("u")+`
 			AND COALESCE(up.notify_on_collection_digest, FALSE) = TRUE
 			AND `+visibleToSubscriber+`
+			AND `+shared.CollectionCreatorIsLiveSQL("c")+`
 		ORDER BY cs.user_id ASC, c.id ASC, ci.created_at ASC
 	`, now).Scan(&rows).Error
 	if err != nil {

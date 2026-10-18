@@ -193,7 +193,21 @@ func (s *FollowService) IsFollowing(userID uint, entityType string, entityID uin
 	return count > 0, nil
 }
 
-// GetFollowerCount returns the number of followers for a specific entity.
+// liveFollowRows scopes user_bookmarks, joined to users, to the follow rows of
+// entityType held by live accounts (authm.LiveAccountSQL).
+//
+// The followers list and every follower count start here, so a count cannot
+// include an account the list leaves out. Callers add the entity_id condition.
+func (s *FollowService) liveFollowRows(entityType string) *gorm.DB {
+	return s.db.Table("user_bookmarks").
+		Joins("JOIN users ON users.id = user_bookmarks.user_id").
+		Where("user_bookmarks.entity_type = ? AND user_bookmarks.action = ?",
+			engagementm.BookmarkEntityType(entityType), engagementm.BookmarkActionFollow).
+		Where(authm.LiveAccountSQL("users"))
+}
+
+// GetFollowerCount returns the number of live accounts following a specific
+// entity.
 func (s *FollowService) GetFollowerCount(entityType string, entityID uint) (int64, error) {
 	if s.db == nil {
 		return 0, fmt.Errorf("database not initialized")
@@ -203,9 +217,8 @@ func (s *FollowService) GetFollowerCount(entityType string, entityID uint) (int6
 	}
 
 	var count int64
-	err := s.db.Model(&engagementm.UserBookmark{}).
-		Where("entity_type = ? AND entity_id = ? AND action = ?",
-			engagementm.BookmarkEntityType(entityType), entityID, engagementm.BookmarkActionFollow).
+	err := s.liveFollowRows(entityType).
+		Where("user_bookmarks.entity_id = ?", entityID).
 		Count(&count).Error
 	if err != nil {
 		return 0, fmt.Errorf("failed to get follower count: %w", err)
@@ -213,7 +226,8 @@ func (s *FollowService) GetFollowerCount(entityType string, entityID uint) (int6
 	return count, nil
 }
 
-// GetBatchFollowerCounts returns follower counts for multiple entities of the same type.
+// GetBatchFollowerCounts returns live-account follower counts for multiple
+// entities of the same type.
 func (s *FollowService) GetBatchFollowerCounts(entityType string, entityIDs []uint) (map[uint]int64, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
@@ -233,11 +247,10 @@ func (s *FollowService) GetBatchFollowerCounts(entityType string, entityIDs []ui
 	}
 	var rows []countRow
 
-	err := s.db.Model(&engagementm.UserBookmark{}).
-		Select("entity_id, COUNT(*) as count").
-		Where("entity_type = ? AND entity_id IN ? AND action = ?",
-			engagementm.BookmarkEntityType(entityType), entityIDs, engagementm.BookmarkActionFollow).
-		Group("entity_id").
+	err := s.liveFollowRows(entityType).
+		Select("user_bookmarks.entity_id, COUNT(*) as count").
+		Where("user_bookmarks.entity_id IN ?", entityIDs).
+		Group("user_bookmarks.entity_id").
 		Find(&rows).Error
 	if err != nil {
 		return nil, fmt.Errorf("failed to get batch follower counts: %w", err)
@@ -654,7 +667,7 @@ func (s *FollowService) GetLibraryFollowing(userID uint, entityType string, limi
 }
 
 // GetFollowers lists the live accounts (authm.LiveAccountSQL) following an
-// entity, with their user info.
+// entity, with their user info. The total counts the same accounts.
 func (s *FollowService) GetFollowers(entityType string, entityID uint, limit, offset int) ([]*contracts.FollowerResponse, int64, error) {
 	if s.db == nil {
 		return nil, 0, fmt.Errorf("database not initialized")
@@ -663,11 +676,9 @@ func (s *FollowService) GetFollowers(entityType string, entityID uint, limit, of
 		return nil, 0, err
 	}
 
-	// Count total followers
 	var total int64
-	err := s.db.Model(&engagementm.UserBookmark{}).
-		Where("entity_type = ? AND entity_id = ? AND action = ?",
-			engagementm.BookmarkEntityType(entityType), entityID, engagementm.BookmarkActionFollow).
+	err := s.liveFollowRows(entityType).
+		Where("user_bookmarks.entity_id = ?", entityID).
 		Count(&total).Error
 	if err != nil {
 		return nil, 0, fmt.Errorf("failed to count followers: %w", err)
@@ -684,15 +695,12 @@ func (s *FollowService) GetFollowers(entityType string, entityID uint, limit, of
 	}
 	var rows []followerRow
 
-	err = s.db.Table("user_bookmarks").
+	err = s.liveFollowRows(entityType).
 		// display_name falls back to first_name for rows predating PSY-1063
 		// (this hand-rolled projection predates the shared resolver; NULLIF
 		// keeps a cleared display_name from masking the fallback).
 		Select("user_bookmarks.user_id, users.username, COALESCE(NULLIF(users.display_name, ''), users.first_name) as display_name").
-		Joins("JOIN users ON users.id = user_bookmarks.user_id").
-		Where("user_bookmarks.entity_type = ? AND user_bookmarks.entity_id = ? AND user_bookmarks.action = ?",
-			engagementm.BookmarkEntityType(entityType), entityID, engagementm.BookmarkActionFollow).
-		Where(authm.LiveAccountSQL("users")).
+		Where("user_bookmarks.entity_id = ?", entityID).
 		Order("user_bookmarks.created_at DESC").
 		Limit(limit).Offset(offset).
 		Find(&rows).Error
