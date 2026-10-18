@@ -19,9 +19,10 @@ export const CONSENT_VERSIONS_CHANGED =
   'The Terms of Service or Privacy Policy were updated. Reload this page to continue.'
 
 /**
- * Shown in place of every other sign-up message while the published versions
- * differ from this build's; every sign-up control stays disabled until a
- * reload.
+ * Shown in place of every other sign-up message while the form's latest read
+ * of the published versions differs from this build's; every sign-up control
+ * stays disabled meanwhile. A later read that matches lifts it, as does a
+ * reload that brings a build whose versions match.
  */
 export function ConsentVersionsChangedNotice({
   className,

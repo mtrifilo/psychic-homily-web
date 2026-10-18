@@ -66,8 +66,8 @@ interface PasskeySignupButtonProps {
   className?: string
   minAge?: number
   /**
-   * The backend publishes consent versions other than this build's. The
-   * dialog then says so and sends nothing until a reload.
+   * The form's latest read found consent versions other than this build's.
+   * While it holds, the dialog says so and sends nothing.
    */
   versionsChanged?: boolean
 }
