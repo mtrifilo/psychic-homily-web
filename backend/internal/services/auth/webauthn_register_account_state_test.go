@@ -183,3 +183,61 @@ func (suite *WebAuthnServiceIntegrationTestSuite) TestFinishRegistration_Deactiv
 	suite.Require().NoError(suite.db.First(&account, user.ID).Error)
 	suite.False(account.IsActive)
 }
+
+// A registration that reaches the account while a deactivation holds the row
+// waits for it, then reads the committed state and is refused.
+func (suite *WebAuthnServiceIntegrationTestSuite) TestFinishRegistration_WaitsForAnInFlightDeactivationThenRefuses() {
+	user := suite.createUser("register-behind-deactivation@test.com")
+	session, body := suite.pendingRegistration(user)
+
+	var committed <-chan error
+	svc, ran := suite.serviceWithWriteBeforeItsFirstStatement(func() {
+		deactivation := suite.db.Begin()
+		suite.Require().NoError(deactivation.Error)
+		suite.Require().NoError(deactivation.Model(&authm.User{}).Where("id = ?", user.ID).Update("is_active", false).Error)
+		done := make(chan error, 1)
+		committed = done
+		go func() {
+			deadline := time.Now().Add(10 * time.Second)
+			for time.Now().Before(deadline) {
+				var waiting int64
+				err := suite.db.Raw(
+					"SELECT count(*) FROM pg_stat_activity WHERE datname = current_database() AND wait_event_type = 'Lock'",
+				).Scan(&waiting).Error
+				if err == nil && waiting > 0 {
+					break
+				}
+				time.Sleep(5 * time.Millisecond)
+			}
+			done <- deactivation.Commit().Error
+		}()
+	})
+
+	cred, err := svc.FinishRegistration(user, session, suite.parseCreation(body), "Laptop")
+
+	suite.Require().True(*ran, "the deactivation must hold the row before the registration reads it")
+	suite.awaitConcurrentWrite(committed)
+	suite.Nil(cred)
+	suite.requireRefusal(err, apperrors.CodeAccountInactive, apperrors.ErrAccountInactive().UserMessage())
+	suite.Zero(suite.credentialRows(user.ID), "a refused registration stores no credential")
+}
+
+// An account removed after the caller checked it is not found by the
+// registration's read, which is a failure rather than a refusal, and stores
+// no credential.
+func (suite *WebAuthnServiceIntegrationTestSuite) TestFinishRegistration_AccountRemovedAfterCallersCheckFails() {
+	user := suite.createUser("register-removed@test.com")
+	session, body := suite.pendingRegistration(user)
+
+	svc, ran := suite.serviceWithWriteBeforeItsFirstStatement(func() {
+		suite.Require().NoError(suite.db.Exec("DELETE FROM users WHERE id = ?", user.ID).Error)
+	})
+
+	cred, err := svc.FinishRegistration(user, session, suite.parseCreation(body), "Laptop")
+
+	suite.Require().True(*ran, "the account must be removed inside the registration's window")
+	suite.Nil(cred)
+	suite.requireFailure(err)
+	suite.Contains(err.Error(), "failed to load user")
+	suite.Zero(suite.credentialRows(user.ID))
+}
