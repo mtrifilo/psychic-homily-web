@@ -204,6 +204,44 @@ describe('sign-up deadlines on /auth', () => {
     })
   })
 
+  describe('a registration from a form the tab switch remounted', () => {
+    // Radix unmounts an inactive tab's panel, so leaving and coming back gives
+    // a fresh form whose submit is enabled while the first request is still out.
+    it('leaves the newer registration its own deadline when the first one lands', async () => {
+      const first = deferred<Response>()
+      let registers = 0
+      routeFetch({
+        '/auth/register': (url, init) => {
+          registers += 1
+          return registers === 1 ? first.promise : stalledRequest(url, init)
+        },
+      })
+      const user = setupUser()
+      renderWithProviders(<AuthPage />)
+
+      await submitPasswordSignup(user)
+      await user.click(screen.getByRole('tab', { name: 'Sign in' }))
+      await user.click(screen.getByRole('tab', { name: 'Create account' }))
+      await user.type(screen.getByLabelText('Email'), 'signup@example.com')
+      await user.type(screen.getByLabelText('Password'), 'validPassword123!')
+      await user.click(screen.getByRole('checkbox', { name: /Terms of Service/ }))
+      await user.click(screen.getByRole('checkbox', { name: /at least 16 years old/ }))
+      await user.click(screen.getByRole('button', { name: 'Create account' }))
+      await waitFor(() => {
+        expect(callsTo('/auth/register')).toHaveLength(2)
+      })
+
+      await act(async () => {
+        first.resolve(jsonResponse(REGISTERED))
+      })
+      await advanceFakeTime(SIGNUP_REQUEST_TIMEOUT_MS)
+
+      const [, secondInit] = callsTo('/auth/register')[1] as [string, RequestInit]
+      expect((secondInit.signal as AbortSignal).aborted).toBe(true)
+      expect(await screen.findByText('Registration failed')).toBeInTheDocument()
+    })
+  })
+
   describe('a registration that settles after a passkey sign-up completed', () => {
     const PROMPT = { name: 'Add a backup sign-in method' }
     const FINISH_OK = {

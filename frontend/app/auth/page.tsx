@@ -351,6 +351,14 @@ function LoginForm({ returnTo }: { returnTo: string }) {
   )
 }
 
+/** A password sign-up request in flight, as the form that sent it tracks it. */
+interface PasswordSignupRequest {
+  /** The claim it made on the page. */
+  claim: SignupHandoff
+  /** The signal that stands for it under the page's deadline. */
+  deadlineSignal: AbortSignal
+}
+
 interface SignupFormProps {
   returnTo: string
   /**
@@ -394,14 +402,16 @@ function SignupForm({
   consentReasonId,
 }: SignupFormProps) {
   const { setUser } = useAuthContext()
-  // The claim the password request in flight made. The submit button is
-  // disabled while it is in flight, so there is one per form instance.
-  const passwordClaimRef = useRef<SignupHandoff | null>(null)
-  // A password request settles the claim it made, or no claim once its
-  // deadline has released that one, and never a claim another request holds:
-  // the passkey path's, or one a remounted form made.
+  // The password request in flight: the claim it made and the signal that
+  // stands for it under the page's deadline. The submit button is disabled
+  // while it is in flight, so there is one per form instance. It outlives the
+  // form, and it touches neither a claim nor a deadline another request holds:
+  // the passkey path's, or a remounted form's.
+  const passwordRequestRef = useRef<PasswordSignupRequest | null>(null)
+  // Settles the claim this request made, or no claim once its deadline has
+  // released that one.
   const settlePasswordClaim = (next: SignupHandoff | null) => {
-    const claim = passwordClaimRef.current
+    const claim = passwordRequestRef.current?.claim
     onHandoffChange(current =>
       current === claim || current === null ? next : current
     )
@@ -427,7 +437,12 @@ function SignupForm({
     onError: () => {
       settlePasswordClaim(null)
     },
-    onSettled: passwordRequestDeadline.disarm,
+    onSettled: () => {
+      const request = passwordRequestRef.current
+      if (request) {
+        passwordRequestDeadline.disarm(request.deadlineSignal)
+      }
+    },
   })
   const [showPassword, setShowPassword] = useState(false)
   const [passwordValue, setPasswordValue] = useState('')
@@ -455,9 +470,12 @@ function SignupForm({
     onSubmit: async ({ value }) => {
       // Claimed before the request goes out, not after it lands. See the
       // SignupHandoff doc comment for the redirect race this closes.
-      const claim: SignupHandoff = { status: 'pending', email: value.email }
-      passwordClaimRef.current = claim
-      onHandoffChange(claim)
+      const request: PasswordSignupRequest = {
+        claim: { status: 'pending', email: value.email },
+        deadlineSignal: passwordRequestDeadline.arm(),
+      }
+      passwordRequestRef.current = request
+      onHandoffChange(request.claim)
 
       registerMutation.mutate({
         email: value.email,
@@ -467,11 +485,11 @@ function SignupForm({
         privacy_version: CURRENT_PRIVACY_VERSION,
         age_confirmed: value.ageConfirmed,
         min_age_attested: MIN_SIGNUP_AGE,
-        signal: passwordRequestDeadline.arm(),
+        signal: request.deadlineSignal,
         // The profile refetch that follows takes no signal: this deadline
         // bounds only how long the claim waits on it.
         onRegistered: () => {
-          passwordRequestDeadline.arm()
+          request.deadlineSignal = passwordRequestDeadline.rearm(request.deadlineSignal)
         },
       })
     },
