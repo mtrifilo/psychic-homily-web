@@ -19,8 +19,9 @@ import (
 // Written out rather than read from middleware, so a budget retuned there and
 // not here fails this file instead of passing silently.
 const (
-	passkeySignupBeginLimitPerMinute   = 5 // middleware.PasskeySignupBeginRequestsPerMinute
-	passkeyRegisterBeginLimitPerMinute = 5 // middleware.PasskeyRegisterBeginRequestsPerMinute
+	passkeySignupBeginLimitPerMinute   = 5  // middleware.PasskeySignupBeginRequestsPerMinute
+	passkeyRegisterBeginLimitPerMinute = 5  // middleware.PasskeyRegisterBeginRequestsPerMinute
+	passkeyRegisterBeginIPCeiling      = 50 // middleware.PasskeyRegisterBeginIPCeilingPerMinute
 )
 
 const (

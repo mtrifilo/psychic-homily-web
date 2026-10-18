@@ -41,6 +41,14 @@ const (
 	// time; five leaves room for a cancelled ceremony and a retry or two.
 	PasskeyRegisterBeginRequestsPerMinute = 5
 
+	// PasskeyRegisterBeginIPCeilingPerMinute is the per-IP ceiling on register
+	// begin across every signed-in account behind one address, on top of each
+	// account's own PasskeyRegisterBeginRequestsPerMinute. It is ten accounts'
+	// full budgets, so it bounds the challenge rows one address can have stored
+	// by minting accounts without refusing a household or office whose people
+	// each add a passkey.
+	PasskeyRegisterBeginIPCeilingPerMinute = 50
+
 	// OAuthRedirectRequestsPerMinute is the per-IP rate limit for the OAuth
 	// redirects: the sign-in start and the Settings link start that send a
 	// browser to the provider, and the callback the provider sends it back to,

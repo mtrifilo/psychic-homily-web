@@ -229,15 +229,24 @@ func TestRateLimitMutationsByUser_StandaloneLimiterFailsLoud(t *testing.T) {
 	}
 }
 
-// A session-user budget is requestsPerMinute deep for each account wherever it
-// connects from, a second account on the same address has its own, and a
-// request with no session passes through to the auth gate downstream.
+// sessionUserMW builds RateLimitBySessionUser over a per-user budget of
+// perUser and a per-IP ceiling of ceiling, both a minute long and logged under
+// the register begin limiter names.
+func sessionUserMW(jwtService *auth.JWTService, perUser, ceiling int) func(http.Handler) http.Handler {
+	return RateLimitBySessionUser(jwtService,
+		perUserMutationLimiter(LimiterPasskeyRegisterBegin, perUser, time.Minute),
+		perIPLimiter(LimiterPasskeyRegisterBeginIPCeiling, ceiling, time.Minute))
+}
+
+// A session-user budget is perUser deep for each account wherever it connects
+// from, a second account on the same address has its own, and a request with no
+// session passes through to the auth gate downstream.
 func TestRateLimitBySessionUser_OneBucketPerAccount(t *testing.T) {
 	jwtService := newTestJWTService()
 	tokenA := mkEngagementToken(t, jwtService, 42)
 	tokenB := mkEngagementToken(t, jwtService, 99)
 	const budget = 2
-	handler := RateLimitBySessionUser(jwtService, LimiterPasskeyRegisterBegin, budget)(okHandler())
+	handler := sessionUserMW(jwtService, budget, 1000)(okHandler())
 
 	for i, addr := range []string{"9.9.9.9:1000", "8.8.8.8:1000"} {
 		if rr := serve(handler, mutationReq(addr, tokenA)); rr.Code != http.StatusOK {
@@ -267,5 +276,102 @@ func TestRateLimitBySessionUser_OneBucketPerAccount(t *testing.T) {
 		if rr := serve(handler, mutationReq("9.9.9.9:1000", "")); rr.Code != http.StatusOK {
 			t.Fatalf("request %d with no session: status = %d, want 200 (passed to the auth gate)", i+1, rr.Code)
 		}
+	}
+}
+
+// serveSessionUserLogged serves one request through handler with a capturing
+// logger and returns the response and its ratelimit_rejected lines.
+func serveSessionUserLogged(t *testing.T, handler http.Handler, remoteAddr, bearer string) (*httptest.ResponseRecorder, []map[string]any) {
+	t.Helper()
+	logs := newLogCapture(t)
+	rr := serve(handler, logs.attach(mutationReq(remoteAddr, bearer)))
+	return rr, logs.events(rateLimitRejectedEvent)
+}
+
+// requireOneRejection requires exactly one rejection line, naming limiter and
+// fingerprinting bucketKey, the bucket that refused.
+func requireOneRejection(t *testing.T, who string, lines []map[string]any, limiter LimiterName, bucketKey string) {
+	t.Helper()
+	if len(lines) != 1 {
+		t.Fatalf("%s: %d rejection lines, want 1", who, len(lines))
+	}
+	if lines[0]["limiter"] != string(limiter) {
+		t.Errorf("%s: rejection line names limiter %v, want %s", who, lines[0]["limiter"], limiter)
+	}
+	if got, want := lines[0]["key_fingerprint"], fingerprint(bucketKey); got != want {
+		t.Errorf("%s: key_fingerprint = %v, want the fingerprint of %q (%s)", who, got, bucketKey, want)
+	}
+}
+
+// Accounts behind one address each keep their own budget, and together they
+// are bounded by the address's ceiling: past it a fresh account, its own budget
+// untouched, is refused by the ceiling with the same 429 and Retry-After. Each
+// refusal line fingerprints the bucket that refused: the account for its own
+// budget, the address for the ceiling.
+func TestRateLimitBySessionUser_IPCeilingBoundsAccountsTogether(t *testing.T) {
+	jwtService := newTestJWTService()
+	const perUser, ceiling = 2, 3
+	handler := sessionUserMW(jwtService, perUser, ceiling)(okHandler())
+	const sharedIP, sharedIPKey = "5.5.5.5:1000", "5.5.5.5"
+	tokenA := mkEngagementToken(t, jwtService, 1)
+	tokenB := mkEngagementToken(t, jwtService, 2)
+	tokenC := mkEngagementToken(t, jwtService, 3)
+	tokenD := mkEngagementToken(t, jwtService, 4)
+
+	for i := 0; i < perUser; i++ {
+		if rr := serve(handler, mutationReq(sharedIP, tokenA)); rr.Code != http.StatusOK {
+			t.Fatalf("A request %d: status = %d, want 200", i+1, rr.Code)
+		}
+	}
+	rr, lines := serveSessionUserLogged(t, handler, sharedIP, tokenA)
+	if rr.Code != http.StatusTooManyRequests {
+		t.Fatalf("A past its own budget: status = %d, want 429", rr.Code)
+	}
+	requireOneRejection(t, "A past its own budget", lines, LimiterPasskeyRegisterBegin, "user:1")
+
+	if rr := serve(handler, mutationReq(sharedIP, tokenB)); rr.Code != http.StatusOK {
+		t.Fatalf("B first, filling the ceiling: status = %d, want 200", rr.Code)
+	}
+	rr, lines = serveSessionUserLogged(t, handler, sharedIP, tokenC)
+	if rr.Code != http.StatusTooManyRequests {
+		t.Fatalf("C first on a full ceiling: status = %d, want 429", rr.Code)
+	}
+	requireOneRejection(t, "C on a full ceiling", lines, LimiterPasskeyRegisterBeginIPCeiling, sharedIPKey)
+	rrD, linesD := serveSessionUserLogged(t, handler, sharedIP, tokenD)
+	if rrD.Code != http.StatusTooManyRequests {
+		t.Fatalf("D first on a full ceiling: status = %d, want 429", rrD.Code)
+	}
+	requireOneRejection(t, "D on a full ceiling", linesD, LimiterPasskeyRegisterBeginIPCeiling, sharedIPKey)
+	if got := rr.Header().Get("Retry-After"); got != "60" {
+		t.Errorf("ceiling refusal Retry-After = %q, want 60", got)
+	}
+
+	// The ceiling is per address, not one bucket for the site.
+	if rr := serve(handler, mutationReq("4.4.4.4:1000", tokenC)); rr.Code != http.StatusOK {
+		t.Errorf("C from another address: status = %d, want 200", rr.Code)
+	}
+}
+
+// An account retrying past its own budget is refused by the user limiter and
+// never reaches the shared ceiling, so it cannot spend the address's ceiling
+// and refuse the other accounts behind it. This fails if the ceiling is the
+// outer limiter.
+func TestRateLimitBySessionUser_OwnBudgetRefusalsDoNotSpendTheCeiling(t *testing.T) {
+	jwtService := newTestJWTService()
+	handler := sessionUserMW(jwtService, 1, 2)(okHandler())
+	const sharedIP = "3.3.3.3:400"
+	tokenA := mkEngagementToken(t, jwtService, 1)
+	tokenB := mkEngagementToken(t, jwtService, 2)
+
+	if rr := serve(handler, mutationReq(sharedIP, tokenA)); rr.Code != http.StatusOK {
+		t.Fatalf("A first: status = %d, want 200", rr.Code)
+	}
+	for i := 0; i < 20; i++ {
+		if rr := serve(handler, mutationReq(sharedIP, tokenA)); rr.Code != http.StatusTooManyRequests {
+			t.Fatalf("A retry %d: status = %d, want 429", i+1, rr.Code)
+		}
+	}
+	if rr := serve(handler, mutationReq(sharedIP, tokenB)); rr.Code != http.StatusOK {
+		t.Errorf("B on A's address after A's refused retries: status = %d, want 200", rr.Code)
 	}
 }
