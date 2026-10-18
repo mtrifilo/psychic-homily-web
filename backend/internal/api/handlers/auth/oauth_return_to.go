@@ -20,9 +20,13 @@ const oauthReturnToParam = "returnTo"
 // the one channel the provider does not control.
 const oauthReturnToCookieName = "oauth_return_to"
 
-// oauthReturnToCookieMaxAge matches the signup consent cookie: long enough
+// oauthReturnToCookie lives as long as the signup consent cookie: long enough
 // for a consent screen and a second factor at the provider.
-const oauthReturnToCookieMaxAge = 600
+var oauthReturnToCookie = oauthHandshakeCookie{
+	name:                  oauthReturnToCookieName,
+	lifetime:              oauthSignupConsentCookieLifetime,
+	rolloverReadsBareName: true,
+}
 
 // oauthReturnToFallback is where a sign-in lands when it names no destination
 // this file accepts. The frontend's FALLBACK_RETURN_TO (frontend/lib/auth-href.ts)
@@ -116,7 +120,7 @@ func setOAuthReturnToCookie(w http.ResponseWriter, r *http.Request, secure bool)
 	// value and quotes a value holding "," or a space, and a destination's
 	// query string can carry any of them.
 	encoded := base64.RawURLEncoding.EncodeToString([]byte(returnTo))
-	http.SetCookie(w, newOAuthReturnToCookie(encoded, oauthReturnToCookieMaxAge, secure))
+	oauthReturnToCookie.set(w, encoded, secure)
 }
 
 // clearOAuthReturnToCookie removes a destination an earlier, abandoned start
@@ -124,9 +128,7 @@ func setOAuthReturnToCookie(w http.ResponseWriter, r *http.Request, secure bool)
 // destination of its own calls it, so a callback that resolves as a sign-in
 // never lands on another start's destination.
 func clearOAuthReturnToCookie(w http.ResponseWriter, r *http.Request, secure bool) {
-	if _, err := r.Cookie(oauthReturnToCookieName); err == nil {
-		http.SetCookie(w, newOAuthReturnToCookie("", -1, secure))
-	}
+	oauthReturnToCookie.clear(w, r, secure)
 }
 
 // takeOAuthReturnTo reads the destination the sign-in start recorded, clears
@@ -134,11 +136,10 @@ func clearOAuthReturnToCookie(w http.ResponseWriter, r *http.Request, secure boo
 // or oauthReturnToFallback when there is none. Single use: every callback
 // consumes it, whatever the callback then does.
 func takeOAuthReturnTo(w http.ResponseWriter, r *http.Request, secure bool) string {
-	cookie, err := r.Cookie(oauthReturnToCookieName)
-	if err != nil {
+	cookie, ok := oauthReturnToCookie.take(w, r, secure)
+	if !ok {
 		return oauthReturnToFallback
 	}
-	http.SetCookie(w, newOAuthReturnToCookie("", -1, secure))
 
 	decoded, err := base64.RawURLEncoding.DecodeString(cookie.Value)
 	if err != nil {
@@ -171,25 +172,4 @@ func authPageURLWithReturnTo(frontendURL string, query url.Values, returnTo stri
 		query.Set(oauthReturnToParam, returnTo)
 	}
 	return frontendURL + oauthAuthPagePath + "?" + query.Encode()
-}
-
-func newOAuthReturnToCookie(value string, maxAge int, secure bool) *http.Cookie {
-	return newOAuthHandshakeCookie(oauthReturnToCookieName, value, maxAge, secure)
-}
-
-// newOAuthHandshakeCookie builds a cookie that carries state from an OAuth
-// start to its callback: host-only, script-inaccessible, and sent on the
-// provider's redirect back.
-func newOAuthHandshakeCookie(name, value string, maxAge int, secure bool) *http.Cookie {
-	return &http.Cookie{
-		Name:     name,
-		Value:    value,
-		Path:     "/",
-		MaxAge:   maxAge,
-		HttpOnly: true,
-		// Lax, not Strict: the provider returns the browser to the callback by
-		// a cross-site top-level navigation, which Strict would strip.
-		SameSite: http.SameSiteLaxMode,
-		Secure:   secure,
-	}
 }

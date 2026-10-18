@@ -57,6 +57,13 @@ func (s *OAuthHandlerIntegrationSuite) oauthLinkRequest(provider string, user *a
 // that carries no authentication time at all.
 func (s *OAuthHandlerIntegrationSuite) oauthLinkRequestWithoutToken(provider string, user *authm.User, authAt time.Time) (*httptest.ResponseRecorder, *http.Request) {
 	s.T().Helper()
+	return newLinkStartRequest(provider, user, authAt)
+}
+
+// newLinkStartRequest is a link start from our own Settings page with no link
+// token on it, for user (none when nil) whose session last authenticated at
+// authAt.
+func newLinkStartRequest(provider string, user *authm.User, authAt time.Time) (*httptest.ResponseRecorder, *http.Request) {
 	req := httptest.NewRequest("GET", "/auth/link/"+provider, nil)
 	// A browser navigating from our own Settings page says so; the start
 	// refuses a request that claims nothing.
