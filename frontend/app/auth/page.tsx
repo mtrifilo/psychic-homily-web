@@ -53,9 +53,24 @@ import {
   isReauthReason,
   needsSignupConsent,
 } from '@/lib/auth-href'
-import { isAccountRecoverable } from '@/lib/errors'
+import { isAccountRecoverable, isAuthError } from '@/lib/errors'
 import { getUniqueErrors } from '@/lib/utils/formErrors'
-import { CURRENT_PRIVACY_VERSION, CURRENT_TERMS_VERSION, MIN_SIGNUP_AGE } from '@/lib/legal'
+import { MIN_SIGNUP_AGE } from '@/lib/legal'
+import {
+  ConsentVersionsChangedError,
+  isConsentRefusal,
+  matchesBuildVersions,
+  useConsentVersions,
+  useLegalVersions,
+  type ConsentVersions,
+} from '@/features/auth/hooks/useLegalVersions'
+import {
+  CONSENT_VERSIONS_UNAVAILABLE,
+  ConsentRetryNotice,
+  ConsentVersionsChangedNotice,
+} from '@/app/auth/_components/consent-versions-notice'
+import { useGoogleSignupRetry } from '@/app/auth/_components/google-signup-start'
+import { useHydrated } from '@/lib/hooks/common/useHydrated'
 import {
   safeDecodeQueryParam,
   sanitizeReturnTo,
@@ -357,6 +372,10 @@ interface PasswordSignupRequest {
   claim: SignupHandoff
   /** The signal that stands for it under the page's deadline. */
   deadlineSignal: AbortSignal
+  /** What was submitted, for the one retry a consent refusal gets. */
+  value: SignupFormData
+  /** This request is that retry. */
+  consentRetried: boolean
 }
 
 interface SignupFormProps {
@@ -434,8 +453,21 @@ function SignupForm({
         method: 'password',
       })
     },
-    onError: () => {
+    onError: error => {
       settlePasswordClaim(null)
+      // Refused with versions the backend published: the read was older than
+      // the backend's answer. Retried once, and only from a form still shown;
+      // a second refusal is shown as it is.
+      const request = passwordRequestRef.current
+      if (
+        mountedRef.current &&
+        request &&
+        !request.consentRetried &&
+        isAuthError(error) &&
+        isConsentRefusal(error.code)
+      ) {
+        void retryAfterConsentRefusal(request.value)
+      }
     },
     onSettled: () => {
       const request = passwordRequestRef.current
@@ -444,12 +476,41 @@ function SignupForm({
       }
     },
   })
+  // Read as the form shows, so a submit rarely waits on it, and so a backend
+  // publishing versions other than the ones this page's legal links show
+  // blocks every sign-up control before anyone fills the form in.
+  const { data: publishedVersions } = useLegalVersions()
+  const versionsChanged =
+    publishedVersions !== undefined && !matchesBuildVersions(publishedVersions)
+  const consentVersions = useConsentVersions()
   const [showPassword, setShowPassword] = useState(false)
   const [passwordValue, setPasswordValue] = useState('')
   const [passkeyError, setPasskeyError] = useState<string | null>(null)
   const [oauthError, setOauthError] = useState<string | null>(null)
+  const [consentVersionsError, setConsentVersionsError] = useState<string | null>(null)
+  const [isRetryingConsent, setIsRetryingConsent] = useState(false)
+  // The form's banner shows one message: the latest one set through here.
+  const showError = (
+    set: (message: string | null) => void,
+    message: string | null
+  ) => {
+    setConsentVersionsError(null)
+    setPasskeyError(null)
+    setOauthError(null)
+    set(message)
+  }
   const [hasAttemptedSubmit, setHasAttemptedSubmit] = useState(false)
   const termsCheckboxRef = useRef<HTMLButtonElement>(null)
+  // A retry still waiting on its versions when the form goes away is dropped,
+  // so no registration goes out from a form nobody can see.
+  const mountedRef = useRef(false)
+
+  useEffect(() => {
+    mountedRef.current = true
+    return () => {
+      mountedRef.current = false
+    }
+  }, [])
 
   useEffect(() => {
     const termsCheckbox = termsCheckboxRef.current
@@ -460,6 +521,62 @@ function SignupForm({
     termsCheckbox.focus({ preventScroll: true })
   }, [consentRequested])
 
+  const register = (
+    value: SignupFormData,
+    versions: ConsentVersions,
+    consentRetried: boolean
+  ) => {
+    // Claimed before the request goes out, not after it lands. See the
+    // SignupHandoff doc comment for the redirect race this closes.
+    const request: PasswordSignupRequest = {
+      claim: { status: 'pending', email: value.email },
+      deadlineSignal: passwordRequestDeadline.arm(),
+      value,
+      consentRetried,
+    }
+    passwordRequestRef.current = request
+    onHandoffChange(request.claim)
+
+    registerMutation.mutate({
+      email: value.email,
+      password: value.password,
+      terms_accepted: value.termsAccepted,
+      terms_version: versions.termsVersion,
+      privacy_version: versions.privacyVersion,
+      age_confirmed: value.ageConfirmed,
+      min_age_attested: MIN_SIGNUP_AGE,
+      signal: request.deadlineSignal,
+      // The profile refetch that follows takes no signal: this deadline
+      // bounds only how long the claim waits on it.
+      onRegistered: () => {
+        request.deadlineSignal = passwordRequestDeadline.rearm(request.deadlineSignal)
+      },
+    })
+  }
+
+  // The notice covers only the re-read: it ends before the retried request
+  // goes out, whose own pending state and answer the form shows as usual, so
+  // nothing that skips a mutation callback can leave it up.
+  const retryAfterConsentRefusal = async (value: SignupFormData) => {
+    setIsRetryingConsent(true)
+    let versions: ConsentVersions
+    try {
+      versions = await consentVersions.refresh()
+    } catch (error) {
+      setIsRetryingConsent(false)
+      // Versions other than this build's are never sent; the form shows
+      // why from the read that found them.
+      if (!(error instanceof ConsentVersionsChangedError)) {
+        showError(setConsentVersionsError, CONSENT_VERSIONS_UNAVAILABLE)
+      }
+      return
+    }
+    if (mountedRef.current) {
+      register(value, versions, true)
+    }
+    setIsRetryingConsent(false)
+  }
+
   const form = useForm({
     defaultValues: {
       email: '',
@@ -468,30 +585,19 @@ function SignupForm({
       ageConfirmed: false,
     } as SignupFormData,
     onSubmit: async ({ value }) => {
-      // Claimed before the request goes out, not after it lands. See the
-      // SignupHandoff doc comment for the redirect race this closes.
-      const request: PasswordSignupRequest = {
-        claim: { status: 'pending', email: value.email },
-        deadlineSignal: passwordRequestDeadline.arm(),
+      setConsentVersionsError(null)
+      let versions: ConsentVersions
+      try {
+        versions = await consentVersions.read()
+      } catch (error) {
+        // Sent only once the backend confirms this build's versions; a read
+        // that found others leaves the form showing why.
+        if (!(error instanceof ConsentVersionsChangedError)) {
+          showError(setConsentVersionsError, CONSENT_VERSIONS_UNAVAILABLE)
+        }
+        return
       }
-      passwordRequestRef.current = request
-      onHandoffChange(request.claim)
-
-      registerMutation.mutate({
-        email: value.email,
-        password: value.password,
-        terms_accepted: value.termsAccepted,
-        terms_version: CURRENT_TERMS_VERSION,
-        privacy_version: CURRENT_PRIVACY_VERSION,
-        age_confirmed: value.ageConfirmed,
-        min_age_attested: MIN_SIGNUP_AGE,
-        signal: request.deadlineSignal,
-        // The profile refetch that follows takes no signal: this deadline
-        // bounds only how long the claim waits on it.
-        onRegistered: () => {
-          request.deadlineSignal = passwordRequestDeadline.rearm(request.deadlineSignal)
-        },
-      })
+      register(value, versions, false)
     },
     validators: {
       ...(hasAttemptedSubmit && { onChange: signupSchema }),
@@ -510,11 +616,19 @@ function SignupForm({
       }}
       className="space-y-4"
     >
-      {(registerMutation.error || passkeyError || oauthError) && (
-        <Alert variant="destructive">
-          <AlertCircle className="h-4 w-4" />
-          <AlertDescription>{registerMutation.error?.message || passkeyError || oauthError}</AlertDescription>
-        </Alert>
+      {versionsChanged ? (
+        <ConsentVersionsChangedNotice />
+      ) : isRetryingConsent ? (
+        <ConsentRetryNotice />
+      ) : (
+        (consentVersionsError || registerMutation.error || passkeyError || oauthError) && (
+          <Alert variant="destructive">
+            <AlertCircle className="h-4 w-4" />
+            <AlertDescription>
+              {consentVersionsError || registerMutation.error?.message || passkeyError || oauthError}
+            </AlertDescription>
+          </Alert>
+        )
       )}
 
       {/* OAuth and Passkey signup options */}
@@ -525,28 +639,28 @@ function SignupForm({
               className="w-full"
               variant="signup"
               termsAccepted={termsAccepted}
-              termsVersion={CURRENT_TERMS_VERSION}
-              privacyVersion={CURRENT_PRIVACY_VERSION}
               ageConfirmed={ageConfirmed}
-              minAge={MIN_SIGNUP_AGE}
+              disabled={versionsChanged}
               returnTo={returnTo}
               onMissingTermsAcceptance={() => {
-                setOauthError('You must agree to the Terms of Service and Privacy Policy before continuing with Google')
+                showError(setOauthError, 'You must agree to the Terms of Service and Privacy Policy before continuing with Google')
               }}
               onMissingAgeConfirmation={() => {
-                setOauthError(`You must confirm that you are at least ${MIN_SIGNUP_AGE} years old before continuing with Google`)
+                showError(setOauthError, `You must confirm that you are at least ${MIN_SIGNUP_AGE} years old before continuing with Google`)
+              }}
+              onConsentVersionsUnavailable={() => {
+                showError(setOauthError, CONSENT_VERSIONS_UNAVAILABLE)
               }}
             />
           )}
         </form.Subscribe>
         <PasskeySignupButton
-          onError={setPasskeyError}
+          onError={message => showError(setPasskeyError, message)}
           onHandoffChange={onHandoffChange}
           requestDeadline={passkeyRequestDeadline}
           className="w-full"
-          termsVersion={CURRENT_TERMS_VERSION}
-          privacyVersion={CURRENT_PRIVACY_VERSION}
           minAge={MIN_SIGNUP_AGE}
+          versionsChanged={versionsChanged}
         />
         <div className="relative">
           <div className="absolute inset-0 flex items-center">
@@ -714,9 +828,9 @@ function SignupForm({
           <Button
             type="submit"
             className="w-full"
-            disabled={!canSubmit || isSubmitting || registerMutation.isPending || (passwordValue.length > 0 && passwordValue.length < MIN_PASSWORD_LENGTH)}
+            disabled={!canSubmit || isSubmitting || registerMutation.isPending || isRetryingConsent || versionsChanged || (passwordValue.length > 0 && passwordValue.length < MIN_PASSWORD_LENGTH)}
           >
-            {isSubmitting || registerMutation.isPending ? (
+            {isSubmitting || registerMutation.isPending || isRetryingConsent ? (
               <>
                 <Loader2 className="h-4 w-4 animate-spin" />
                 Creating account...
@@ -795,6 +909,16 @@ function AuthPageContent() {
   const passwordSignupDeadline = useSignupRequestDeadline(releasePendingSignup)
   const passkeySignupDeadline = useSignupRequestDeadline(releasePendingSignup)
   const signInTabRef = useRef<HTMLButtonElement>(null)
+  // A consent arrival answering a Google sign-up start from this tab is
+  // retried once instead of asking for consent the reader already gave.
+  // The hydration render cannot see whether a retry is due, so the consent
+  // controls are focused only from the render after it.
+  const hydrated = useHydrated()
+  const googleSignupRetry = useGoogleSignupRetry({
+    arrival,
+    consentArrival: isConsentArrival && authStatus !== 'authenticated',
+    returnTo,
+  })
 
   // A hidden page runs its effect cleanups, and a shown one reruns the
   // effects, so this cleanup is the page's "hidden" signal.
@@ -876,6 +1000,17 @@ function AuthPageContent() {
     return null
   }
 
+  // What the banner above the card says, most specific first. Versions that
+  // changed are explained by the sign-up form's own notice, not here.
+  const urlBanner =
+    googleSignupRetry === 'changed' ? null : googleSignupRetry === 'unavailable' ? (
+      CONSENT_VERSIONS_UNAVAILABLE
+    ) : urlRefusalRecoverable ? (
+      <AccountRecoverableMessage />
+    ) : (
+      urlError
+    )
+
   return (
     <div className="flex min-h-[calc(100vh-64px)] items-center justify-center px-4 py-12">
       <div className="w-full max-w-md">
@@ -895,13 +1030,15 @@ function AuthPageContent() {
         </div>
 
         {/* OAuth/URL Error Display */}
-        {(urlError || urlRefusalRecoverable) && (
-          <Alert variant="destructive" className="mb-6">
-            <AlertCircle className="h-4 w-4" />
-            <AlertDescription id={URL_ERROR_ID}>
-              {urlRefusalRecoverable ? <AccountRecoverableMessage /> : urlError}
-            </AlertDescription>
-          </Alert>
+        {googleSignupRetry === 'retrying' ? (
+          <ConsentRetryNotice className="mb-6" />
+        ) : (
+          urlBanner && (
+            <Alert variant="destructive" className="mb-6">
+              <AlertCircle className="h-4 w-4" />
+              <AlertDescription id={URL_ERROR_ID}>{urlBanner}</AlertDescription>
+            </Alert>
+          )
         )}
 
         {isAccountInactive && (
@@ -951,8 +1088,18 @@ function AuthPageContent() {
                     onHandoffChange={setSignupHandoff}
                     passwordRequestDeadline={passwordSignupDeadline}
                     passkeyRequestDeadline={passkeySignupDeadline}
-                    consentRequested={showingArrivalTab && isConsentArrival}
-                    consentReasonId={urlError ? URL_ERROR_ID : undefined}
+                    consentRequested={
+                      hydrated &&
+                      showingArrivalTab &&
+                      isConsentArrival &&
+                      googleSignupRetry !== 'retrying' &&
+                      googleSignupRetry !== 'changed'
+                    }
+                    consentReasonId={
+                      urlError || googleSignupRetry === 'unavailable'
+                        ? URL_ERROR_ID
+                        : undefined
+                    }
                   />
                 </div>
                 <div className="mt-4">

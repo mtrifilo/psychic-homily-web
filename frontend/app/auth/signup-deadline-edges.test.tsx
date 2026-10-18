@@ -2,7 +2,8 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { Activity } from 'react'
 import { act, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { createTestQueryClient, renderWithProviders } from '@/test/utils'
+import { renderWithProviders } from '@/test/utils'
+import { clientWithConsentVersions } from '@/test/consentVersions'
 import { advanceFakeTime, stalledRequest } from '@/test/stalledFetch'
 import { deferred } from '@/test/inflightOrdering'
 import { queryKeys } from '@/lib/queryClient'
@@ -161,7 +162,7 @@ describe('sign-up deadlines on /auth', () => {
         new DOMException('The operation was cancelled.', 'NotAllowedError')
       )
       const user = setupUser()
-      renderWithProviders(<AuthPage />)
+      renderWithProviders(<AuthPage />, { queryClient: clientWithConsentVersions() })
 
       await submitPasswordSignup(user)
       await startPasskeySignup(user)
@@ -182,7 +183,7 @@ describe('sign-up deadlines on /auth', () => {
         '/auth/passkey/signup/begin': stalledRequest,
       })
       const user = setupUser()
-      renderWithProviders(<AuthPage />)
+      renderWithProviders(<AuthPage />, { queryClient: clientWithConsentVersions() })
 
       await submitPasswordSignup(user)
       const dialog = await startPasskeySignup(user)
@@ -217,7 +218,7 @@ describe('sign-up deadlines on /auth', () => {
         },
       })
       const user = setupUser()
-      renderWithProviders(<AuthPage />)
+      renderWithProviders(<AuthPage />, { queryClient: clientWithConsentVersions() })
 
       await submitPasswordSignup(user)
       await user.click(screen.getByRole('tab', { name: 'Sign in' }))
@@ -259,7 +260,7 @@ describe('sign-up deadlines on /auth', () => {
       })
       mockStartRegistration.mockResolvedValue({ id: 'credential-id' })
       const user = setupUser()
-      renderWithProviders(<AuthPage />)
+      renderWithProviders(<AuthPage />, { queryClient: clientWithConsentVersions() })
 
       await submitPasswordSignup(user)
       await startPasskeySignup(user)
@@ -301,7 +302,7 @@ describe('sign-up deadlines on /auth', () => {
     const PAST_SUBMIT_DEADLINE_MS = SIGNUP_REQUEST_TIMEOUT_MS - REGISTER_ANSWER_MS + 1_000
 
     async function registerWithStalledRefetch() {
-      const queryClient = createTestQueryClient()
+      const queryClient = clientWithConsentVersions()
       const refetch = deferred<{ success: boolean }>()
       const profile = vi
         .fn()
@@ -364,7 +365,7 @@ describe('sign-up deadlines on /auth', () => {
 
   describe('a registration whose profile refetch outlasts its own deadline', () => {
     it('releases the claim without a failure, then shows the interstitial once the refetch lands', async () => {
-      const queryClient = createTestQueryClient()
+      const queryClient = clientWithConsentVersions()
       const refetch = deferred<{ success: boolean }>()
       const profile = vi
         .fn()
@@ -406,7 +407,8 @@ describe('sign-up deadlines on /auth', () => {
       const { rerender } = renderWithProviders(
         <Activity mode="visible">
           <AuthPage />
-        </Activity>
+        </Activity>,
+        { queryClient: clientWithConsentVersions() }
       )
 
       await submitPasswordSignup(user)

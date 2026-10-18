@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach, onTestFinished } from 
 import { act, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { renderWithProviders } from '@/test/utils'
+import { clientWithConsentVersions } from '@/test/consentVersions'
 import { deferred } from '@/test/inflightOrdering'
 import { advanceFakeTime, headersThenBody } from '@/test/stalledFetch'
 import { AuthProvider } from '@/lib/context/AuthContext'
@@ -95,7 +96,8 @@ function renderPage() {
   return renderWithProviders(
     <AuthProvider>
       <AuthPage />
-    </AuthProvider>
+    </AuthProvider>,
+    { queryClient: clientWithConsentVersions() }
   )
 }
 

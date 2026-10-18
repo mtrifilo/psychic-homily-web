@@ -779,6 +779,12 @@ export const queryKeys = {
     credentials: ['passkeys', 'credentials'] as const,
   },
 
+  // The consent versions a sign-up sends (GET /legal/versions). The same for
+  // every caller, so it carries no viewer dimension.
+  legal: {
+    versions: ['legal', 'versions'] as const,
+  },
+
   // Bandcamp embed resolution (PSY-1102). MusicEmbed renders one instance
   // per show/artist card, so list pages mount many copies pointing at the
   // same album URL. Keying on the album URL dedups the `/api/bandcamp/album-id`
@@ -834,8 +840,9 @@ export const queryKeys = {
  *     `passkeys`, `mySubmissions`, `calendar`, `savedShows.list`: signed-in
  *     only, with no anonymous variant to be confused with. Logout drops them
  *     wholesale via `queryClient.clear()`.
- *   - `tags` list/detail/search/entities, public `charts`, and the venue /
- *     release / label / festival / scene / radio / graph families:
+ *   - `tags` list/detail/search/entities, public `charts`, `legal.versions`,
+ *     and the venue / release / label / festival / scene / radio / graph
+ *     families:
  *     served by routes registered without auth middleware, so the backend
  *     cannot see a viewer and the payload cannot vary.
  */
