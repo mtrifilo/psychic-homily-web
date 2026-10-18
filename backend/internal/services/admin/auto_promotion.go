@@ -173,14 +173,15 @@ func (s *AutoPromotionService) RunEvaluationNow() {
 	s.runEvaluationCycle()
 }
 
-// EvaluateAllUsers checks all active, non-admin users for promotion/demotion eligibility.
+// EvaluateAllUsers checks all live (authm.LiveAccountSQL), non-admin users for
+// promotion/demotion eligibility.
 func (s *AutoPromotionService) EvaluateAllUsers() (*contracts.AutoPromotionResult, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
 	}
 
 	var users []authm.User
-	err := s.db.Where("is_active = ? AND is_admin = ? AND deleted_at IS NULL", true, false).
+	err := s.db.Where(authm.LiveAccountSQL("users")).Where("is_admin = ?", false).
 		Find(&users).Error
 	if err != nil {
 		return nil, fmt.Errorf("failed to query users: %w", err)
