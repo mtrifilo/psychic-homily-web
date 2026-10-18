@@ -14,18 +14,22 @@ import (
 // request context still carries the account as the session check loaded it,
 // live.
 func (s *AuthHandlerIntegrationSuite) TestPasskeyRegisterFinishRefusesAccountClosedSinceTheSessionCheck() {
-	closures := map[string]func(userID uint){
-		"deactivated": func(userID uint) {
+	closures := []struct {
+		name         string
+		closeAccount func(userID uint)
+	}{
+		{"deactivated", func(userID uint) {
 			s.Require().NoError(s.deps.DB.Model(&authm.User{}).Where("id = ?", userID).Update("is_active", false).Error)
-		},
-		"soft-deleted": func(userID uint) {
+		}},
+		{"soft-deleted", func(userID uint) {
 			s.Require().NoError(usersvc.NewUserService(s.deps.DB).SoftDeleteAccount(userID, nil))
-		},
+		}},
 	}
 	h := s.newRealPasskeyHandler()
 	inactive := autherrors.ErrAccountInactive()
 
-	for name, closeAccount := range closures {
+	for _, closure := range closures {
+		name, closeAccount := closure.name, closure.closeAccount
 		s.Run(name, func() {
 			email := "register-closed-" + name + "@example.com"
 			user := &authm.User{Email: &email, IsActive: true}

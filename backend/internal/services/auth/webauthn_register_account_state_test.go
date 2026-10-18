@@ -56,7 +56,9 @@ func (suite *WebAuthnServiceIntegrationTestSuite) serviceWithWriteBeforeItsFirst
 		ran = true
 		write()
 	}))
-	return &WebAuthnService{webAuthn: suite.service.webAuthn, db: hooked, config: suite.service.config}, &ran
+	svc, err := NewWebAuthnService(hooked, suite.service.config)
+	suite.Require().NoError(err)
+	return svc, &ran
 }
 
 // serviceWithWriteBeforeItsFirstStatement runs write before the service's
@@ -147,7 +149,7 @@ func (suite *WebAuthnServiceIntegrationTestSuite) TestFinishRegistration_Account
 				return
 			}
 			suite.Nil(cred)
-			suite.requireRefusal(err, apperrors.CodeAccountInactive, "Account unavailable. Please contact support.")
+			suite.requireRefusal(err, apperrors.CodeAccountInactive, apperrors.ErrAccountInactive().UserMessage())
 			suite.Zero(suite.credentialRows(user.ID), "a refused registration stores no credential")
 		})
 	}
