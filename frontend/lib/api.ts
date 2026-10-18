@@ -502,6 +502,8 @@ export const API_ENDPOINTS = {
   // System endpoints
   HEALTH: `${API_BASE_URL}/health`,
   OPENAPI: `${API_BASE_URL}/openapi.json`,
+  // The consent versions every sign-up path sends. Public and cached.
+  LEGAL_VERSIONS: `${API_BASE_URL}/legal/versions`,
 } as const
 
 /**
