@@ -111,30 +111,6 @@ func (suite *WebAuthnServiceIntegrationTestSuite) TestFinishRegistrationStoreFai
 	suite.Contains(err.Error(), "failed to save credential")
 }
 
-// An email-specific login begin refuses an account that does not exist or
-// holds no passkey, and fails when the account cannot be read.
-func (suite *WebAuthnServiceIntegrationTestSuite) TestBeginLoginRefusalsAndFailures() {
-	suite.Run("account that does not exist", func() {
-		user := suite.createUser("begin-vanished@test.com")
-		suite.Require().NoError(suite.db.Exec("DELETE FROM users WHERE id = ?", user.ID).Error)
-
-		_, _, err := suite.service.BeginLogin(&authm.User{ID: user.ID})
-		suite.requireRefusal(err, apperrors.CodeInvalidCredentials, "No passkeys registered for this account")
-	})
-
-	suite.Run("account without a passkey", func() {
-		user := suite.createUser("begin-passkeyless@test.com")
-		_, _, err := suite.service.BeginLogin(&authm.User{ID: user.ID})
-		suite.requireRefusal(err, apperrors.CodeInvalidCredentials, "No passkeys registered for this account")
-	})
-
-	suite.Run("account that cannot be read", func() {
-		_, _, err := suite.unavailableService().BeginLogin(&authm.User{ID: 1})
-		suite.requireFailure(err)
-		suite.Contains(err.Error(), "failed to load user")
-	})
-}
-
 // A signup challenge that does not exist, has expired or has a malformed id is
 // refused; one that cannot be read is a failure.
 func (suite *WebAuthnServiceIntegrationTestSuite) TestConsumeSignupChallengeRefusalsAndFailures() {

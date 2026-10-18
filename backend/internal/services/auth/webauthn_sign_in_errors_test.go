@@ -39,57 +39,34 @@ func (suite *WebAuthnServiceIntegrationTestSuite) requireRefusal(err error, code
 	suite.Equal(message, refusal.UserMessage())
 }
 
-// emailLogin runs an email-specific login for userID with device.
-func (suite *WebAuthnServiceIntegrationTestSuite) emailLogin(userID uint, device *softauthn.Authenticator) (*authm.WebAuthnCredential, error) {
-	options, session, err := suite.service.BeginLogin(&authm.User{ID: userID})
-	suite.Require().NoError(err)
-	body, err := device.Assert(options)
-	suite.Require().NoError(err)
-	parsed, err := protocol.ParseCredentialRequestResponseBytes(body)
-	suite.Require().NoError(err)
-	_, used, err := suite.service.FinishLogin(&authm.User{ID: userID}, session, parsed)
-	return used, err
-}
-
-// The account gate runs in the service on both ceremonies, after a valid
-// assertion, and a refused sign-in records no use of the credential.
+// The account gate runs in the service after a valid assertion, and a
+// refused sign-in records no use of the credential.
 func (suite *WebAuthnServiceIntegrationTestSuite) TestSignInRefusesAccountsThatMayNotSignIn() {
 	states := map[string]map[string]any{
 		"deactivated":  {"is_active": false},
 		"soft-deleted": {"is_active": false, "deleted_at": time.Now()},
 	}
-	logins := map[string]func(*authm.User, *softauthn.Authenticator) error{
-		"email": func(user *authm.User, device *softauthn.Authenticator) error {
-			_, err := suite.emailLogin(user.ID, device)
-			return err
-		},
-		"discoverable": func(_ *authm.User, device *softauthn.Authenticator) error {
+	for stateName, updates := range states {
+		suite.Run(stateName, func() {
+			user := suite.createUser(stateName + "@test.com")
+			device := suite.registeredDevice(user)
+			suite.Require().NoError(suite.db.Model(&authm.User{}).Where("id = ?", user.ID).Updates(updates).Error)
+
 			_, err := suite.discoverableLogin(device)
-			return err
-		},
-	}
-	for loginName, login := range logins {
-		for stateName, updates := range states {
-			suite.Run(loginName+"/"+stateName, func() {
-				user := suite.createUser(loginName + "-" + stateName + "@test.com")
-				device := suite.registeredDevice(user)
-				suite.Require().NoError(suite.db.Model(&authm.User{}).Where("id = ?", user.ID).Updates(updates).Error)
+			suite.requireRefusal(err, apperrors.CodeAccountInactive, apperrors.ErrAccountInactive().UserMessage())
+			suite.Contains(err.Error(), fmt.Sprintf("user %d may not sign in", user.ID), "the logged error names the account")
 
-				err := login(user, device)
-				suite.requireRefusal(err, apperrors.CodeAccountInactive, apperrors.ErrAccountInactive().UserMessage())
-				suite.Contains(err.Error(), fmt.Sprintf("user %d may not sign in", user.ID), "the logged error names the account")
-
-				var stored authm.WebAuthnCredential
-				suite.Require().NoError(suite.db.Where("user_id = ?", user.ID).First(&stored).Error)
-				suite.Nil(stored.LastUsedAt)
-				suite.Zero(stored.SignCount)
-			})
-		}
+			var stored authm.WebAuthnCredential
+			suite.Require().NoError(suite.db.Where("user_id = ?", user.ID).First(&stored).Error)
+			suite.Nil(stored.LastUsedAt)
+			suite.Zero(stored.SignCount)
+		})
 	}
 }
 
-// A credential or account that does not exist is refused as invalid
-// credentials. Validation refusals are in webauthn_ceremony_test.go.
+// A credential that does not exist is refused as invalid credentials,
+// including one deleted with its account. Validation refusals are in
+// webauthn_ceremony_test.go.
 func (suite *WebAuthnServiceIntegrationTestSuite) TestSignInRefusesWhatDoesNotExist() {
 	suite.Run("credential the server does not hold", func() {
 		device := softauthn.New(ceremonyOrigin)
@@ -103,38 +80,29 @@ func (suite *WebAuthnServiceIntegrationTestSuite) TestSignInRefusesWhatDoesNotEx
 		suite.requireRefusal(err, apperrors.CodeInvalidCredentials, "Invalid passkey")
 	})
 
-	suite.Run("account that does not exist", func() {
+	suite.Run("credential deleted with its account", func() {
 		user := suite.createUser("vanished@test.com")
 		device := suite.registeredDevice(user)
-		options, session, err := suite.service.BeginLogin(&authm.User{ID: user.ID})
-		suite.Require().NoError(err)
-		body, err := device.Assert(options)
-		suite.Require().NoError(err)
-		parsed, err := protocol.ParseCredentialRequestResponseBytes(body)
-		suite.Require().NoError(err)
 		suite.Require().NoError(suite.db.Exec("DELETE FROM users WHERE id = ?", user.ID).Error)
 
-		_, _, err = suite.service.FinishLogin(&authm.User{ID: user.ID}, session, parsed)
-		suite.requireRefusal(err, apperrors.CodeInvalidCredentials, "User not found")
+		_, err := suite.discoverableLogin(device)
+		suite.requireRefusal(err, apperrors.CodeInvalidCredentials, "Invalid passkey")
 	})
 }
 
 // A valid assertion whose credential update fails is a failure, not a
-// refusal, on both ceremonies.
+// refusal.
 func (suite *WebAuthnServiceIntegrationTestSuite) TestSignInUpdateFailureIsNotARefusal() {
 	user := suite.createUser("update-fails@test.com")
 	device := suite.registeredDevice(user)
 
 	testutil.FailUpdates(suite.T(), suite.db, "webauthn_credentials")
 
-	_, emailErr := suite.emailLogin(user.ID, device)
-	_, discoverableErr := suite.discoverableLogin(device)
-	for name, err := range map[string]error{"email": emailErr, "discoverable": discoverableErr} {
-		suite.Require().Error(err, name)
-		var refusal *apperrors.AuthError
-		suite.False(errors.As(err, &refusal), "%s: an update failure is not a refusal: %v", name, err)
-		suite.Contains(err.Error(), "failed to update credential", name)
-	}
+	_, err := suite.discoverableLogin(device)
+	suite.Require().Error(err)
+	var refusal *apperrors.AuthError
+	suite.False(errors.As(err, &refusal), "an update failure is not a refusal: %v", err)
+	suite.Contains(err.Error(), "failed to update credential")
 }
 
 // sign_count holds every value an authenticator's 32-bit counter can take.
@@ -207,40 +175,19 @@ func (suite *WebAuthnServiceIntegrationTestSuite) TestConsumeRegistrationChallen
 // assertion that fails validation is refused as invalid credentials whatever
 // state the account is in, so it learns nothing about that state.
 func (suite *WebAuthnServiceIntegrationTestSuite) TestSignInRefusesInvalidAssertionBeforeAccountState() {
-	logins := map[string]func(target *authm.User, device *softauthn.Authenticator) error{
-		// The device belongs to another account, so the target's login
-		// session does not allow its credential.
-		"email": func(target *authm.User, device *softauthn.Authenticator) error {
-			_, err := suite.emailLogin(target.ID, device)
-			return err
-		},
-		// The assertion names the target's user handle, which is not the
-		// handle of the credential's account.
-		"discoverable": func(target *authm.User, device *softauthn.Authenticator) error {
-			options, session, err := suite.service.BeginDiscoverableLogin()
-			suite.Require().NoError(err)
-			body, err := device.Assert(options)
-			suite.Require().NoError(err)
-			parsed, err := protocol.ParseCredentialRequestResponseBytes(body)
-			suite.Require().NoError(err)
-			parsed.Response.UserHandle = target.WebAuthnID()
-			_, _, err = suite.service.FinishDiscoverableLogin(session, parsed)
-			return err
-		},
+	target := suite.createUser("inactive-target@test.com")
+	holder := suite.createUser("holder@test.com")
+	device := suite.registeredDevice(holder)
+	for _, inactive := range []*authm.User{target, holder} {
+		suite.Require().NoError(suite.db.Model(&authm.User{}).Where("id = ?", inactive.ID).Update("is_active", false).Error)
 	}
-	for name, login := range logins {
-		suite.Run(name, func() {
-			target := suite.createUser(name + "-inactive-target@test.com")
-			suite.registeredDevice(target)
-			holder := suite.createUser(name + "-holder@test.com")
-			device := suite.registeredDevice(holder)
-			for _, inactive := range []*authm.User{target, holder} {
-				suite.Require().NoError(suite.db.Model(&authm.User{}).Where("id = ?", inactive.ID).Update("is_active", false).Error)
-			}
 
-			suite.requireRefusal(login(target, device), apperrors.CodeInvalidCredentials, "Invalid passkey")
-		})
-	}
+	// The assertion names the target's user handle, which is not the handle
+	// of the credential's account.
+	_, err := suite.discoverableLoginAltered(device, func(_ *webauthn.SessionData, parsed *protocol.ParsedCredentialAssertionData) {
+		parsed.Response.UserHandle = target.WebAuthnID()
+	})
+	suite.requireRefusal(err, apperrors.CodeInvalidCredentials, "Invalid passkey")
 }
 
 // A challenge id StoreChallenge could not have issued is refused before any
@@ -248,7 +195,7 @@ func (suite *WebAuthnServiceIntegrationTestSuite) TestSignInRefusesInvalidAssert
 func (suite *WebAuthnServiceIntegrationTestSuite) TestConsumeRefusesMalformedChallengeIDs() {
 	user := suite.createUser("malformed@test.com")
 	for _, challengeID := range []string{"", "not-a-uuid", "\x00"} {
-		_, _, err := suite.service.ConsumeChallenge(challengeID, "authentication")
+		_, err := suite.service.ConsumeChallenge(challengeID, "authentication")
 		suite.requireRefusal(err, apperrors.CodeValidationFailed, "Invalid or expired challenge")
 		_, err = suite.service.ConsumeRegistrationChallenge(challengeID, user.ID)
 		suite.requireRefusal(err, apperrors.CodeValidationFailed, "Invalid or expired challenge")
@@ -261,7 +208,7 @@ func (suite *WebAuthnServiceIntegrationTestSuite) TestGenericConsumesRefuseRegis
 	challengeID, err := suite.service.StoreChallenge(user.ID, &webauthn.SessionData{Challenge: "c"}, "registration")
 	suite.Require().NoError(err)
 
-	_, _, err = suite.service.ConsumeChallenge(challengeID, "registration")
+	_, err = suite.service.ConsumeChallenge(challengeID, "registration")
 	suite.Require().ErrorIs(err, errRegistrationOperation)
 	_, _, err = suite.service.ConsumeSignupChallenge(challengeID, "registration")
 	suite.Require().ErrorIs(err, errRegistrationOperation)

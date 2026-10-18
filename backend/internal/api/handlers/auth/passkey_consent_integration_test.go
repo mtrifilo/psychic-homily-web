@@ -101,17 +101,3 @@ func (s *AuthHandlerIntegrationSuite) TestPasskeySignupRecordsTheConsentBeginVal
 	s.NotNil(stored.TermsAcceptedAt)
 	s.NotNil(stored.AgeConfirmedAt)
 }
-
-// An address with no account and an account with no passkey answer the same
-// bytes from the email-specific login begin.
-func (s *AuthHandlerIntegrationSuite) TestPasskeyEmailLoginBeginAnswersUnknownAndPasskeylessAlike() {
-	known := "no-passkey@example.com"
-	s.Require().NoError(s.deps.DB.Create(&authm.User{Email: &known, IsActive: true}).Error)
-	api := newPasskeyWireAPI(s.T(), s.newRealPasskeyHandler())
-
-	unknown := api.Post("/auth/passkey/login/begin", map[string]any{"email": "no-account@example.com"})
-	passkeyless := api.Post("/auth/passkey/login/begin", map[string]any{"email": known})
-
-	requireIdenticalResponses(s.T(), unknown, passkeyless)
-	s.NotEmpty(unknown.Body.Bytes(), "the refusal has a body")
-}

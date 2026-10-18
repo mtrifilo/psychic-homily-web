@@ -1,14 +1,11 @@
 package auth
 
 import (
-	"bytes"
 	"encoding/json"
-	"errors"
 	"maps"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
-	"reflect"
 	"testing"
 	"time"
 
@@ -403,56 +400,5 @@ func TestGoogleSignupStart_RecordsAcceptedConsentVersionsAsSent(t *testing.T) {
 			}
 			t.Fatalf("expected a signup-consent cookie, status %d", w.Code)
 		})
-	}
-}
-
-// --- POST /auth/passkey/login/begin with an email ---
-
-// An address with no account and an account with no passkey answer the same
-// bytes.
-func TestPasskeyLoginBeginWire_UnknownAndPasskeylessAnswerIdentically(t *testing.T) {
-	known := "has-account@example.com"
-	mockWA := &testhelpers.MockWebAuthnService{
-		BeginLoginFn: func(user *authm.User) (*protocol.CredentialAssertion, *webauthn.SessionData, error) {
-			if user == nil {
-				t.Fatal("BeginLogin reached with a nil user")
-			}
-			return nil, nil, errNoPasskeysForTest
-		},
-	}
-	users := &testhelpers.MockUserService{GetUserByEmailFn: func(email string) (*authm.User, error) {
-		if email == known {
-			return &authm.User{ID: 3, Email: &known, IsActive: true}, nil
-		}
-		return nil, nil
-	}}
-	api := newPasskeyWireAPI(t, testPasskeyHandlerWithMocks(mockWA, &testhelpers.MockJWTService{}, users))
-
-	unknown := api.Post("/auth/passkey/login/begin", map[string]any{"email": "no-account@example.com"})
-	passkeyless := api.Post("/auth/passkey/login/begin", map[string]any{"email": known})
-
-	requireIdenticalResponses(t, unknown, passkeyless)
-	body := decodeWireBody(t, unknown.Body.Bytes())
-	if code, _ := body["error_code"].(string); code != autherrors.CodeInvalidCredentials {
-		t.Errorf("error_code = %q, want %q", code, autherrors.CodeInvalidCredentials)
-	}
-}
-
-// errNoPasskeysForTest is BeginLogin's refusal, with a message of its own so
-// the test shows the handler answers with its own copy instead.
-var errNoPasskeysForTest = autherrors.NewAuthError(autherrors.CodeInvalidCredentials, "service copy", errors.New("user 3 has no registered passkeys"))
-
-// requireIdenticalResponses fails unless a and b carry the same status, the
-// same headers and the same body bytes.
-func requireIdenticalResponses(t *testing.T, a, b *httptest.ResponseRecorder) {
-	t.Helper()
-	if a.Code != b.Code {
-		t.Errorf("status %d vs %d", a.Code, b.Code)
-	}
-	if ah, bh := a.Result().Header, b.Result().Header; !reflect.DeepEqual(ah, bh) {
-		t.Errorf("headers differ:\n%v\n%v", ah, bh)
-	}
-	if !bytes.Equal(a.Body.Bytes(), b.Body.Bytes()) {
-		t.Errorf("bodies differ:\n%s\n%s", a.Body.String(), b.Body.String())
 	}
 }
