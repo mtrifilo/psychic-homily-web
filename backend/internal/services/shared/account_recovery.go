@@ -50,7 +50,7 @@ func ClosedAccountRefusal(user *authm.User) *apperrors.AuthError {
 // recovery restores it with the squatter's password still on it. Either way
 // the caller keeps the refusal that says nothing of the account's state.
 func AddressMatchIsRecoverable(account *authm.User, providerVouchesAddress bool) bool {
-	return providerVouchesAddress && account != nil && account.EmailVerified && recoverableByEmail(account)
+	return providerVouchesAddress && recoverableByEmail(account) && account.EmailVerified
 }
 
 // recoverableByEmail reports whether account recovery can restore user: it is

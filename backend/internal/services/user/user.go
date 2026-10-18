@@ -1582,9 +1582,6 @@ func (s *UserService) GetOAuthAccounts(userID uint) ([]authm.OAuthAccount, error
 	return accounts, nil
 }
 
-// AccountRecoveryGracePeriod is shared.AccountRecoveryGracePeriod.
-const AccountRecoveryGracePeriod = shared.AccountRecoveryGracePeriod
-
 // GetUserByEmailIncludingDeleted retrieves a user by email, including
 // soft-deleted accounts. The match is case-insensitive
 // (authm.EmailIdentityWhere). An address Postgres rejects as text
@@ -1628,7 +1625,7 @@ func (s *UserService) GetDaysUntilPermanentDeletion(user *authm.User) int {
 		return 0
 	}
 
-	gracePeriodEnd := user.DeletedAt.Add(AccountRecoveryGracePeriod)
+	gracePeriodEnd := user.DeletedAt.Add(shared.AccountRecoveryGracePeriod)
 	remaining := time.Until(gracePeriodEnd)
 
 	if remaining <= 0 {
@@ -1672,7 +1669,7 @@ func (s *UserService) GetExpiredDeletedAccounts() ([]authm.User, error) {
 		return nil, fmt.Errorf("database not initialized")
 	}
 
-	cutoffDate := time.Now().Add(-AccountRecoveryGracePeriod)
+	cutoffDate := time.Now().Add(-shared.AccountRecoveryGracePeriod)
 
 	var users []authm.User
 	result := s.db.

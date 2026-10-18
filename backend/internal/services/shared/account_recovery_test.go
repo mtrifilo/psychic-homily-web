@@ -34,6 +34,19 @@ func closedAccount(state string) *authm.User {
 	panic("unknown state " + state)
 }
 
+// The recovery window is 30 days. Sign-in refusals, the recovery endpoints and
+// the expired-account sweep all read it, so its length is pinned here rather
+// than only in tests that compute their fixtures from it.
+func TestAccountRecoveryGracePeriod_IsThirtyDays(t *testing.T) {
+	if AccountRecoveryGracePeriod != 30*24*time.Hour {
+		t.Fatalf("AccountRecoveryGracePeriod = %v, want 720h", AccountRecoveryGracePeriod)
+	}
+	deletedAt := time.Now().Add(-29 * 24 * time.Hour)
+	if !IsAccountRecoverable(&authm.User{IsActive: false, DeletedAt: &deletedAt}) {
+		t.Error("an account deleted 29 days ago: want recoverable")
+	}
+}
+
 func TestIsAccountRecoverable(t *testing.T) {
 	if IsAccountRecoverable(nil) {
 		t.Error("nil account: want false")

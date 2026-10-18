@@ -103,9 +103,9 @@ func (s *AppleAuthIntegrationTestSuite) TestFindOrCreateAppleUser_AddressOfDelet
 		appleVouches    bool
 		accountVerified bool
 		pastWindow      bool
-		wantRecoverable bool
+		recoverable     bool
 	}{
-		{name: "vouched-verified", appleVouches: true, accountVerified: true, wantRecoverable: true},
+		{name: "vouched-verified", appleVouches: true, accountVerified: true, recoverable: true},
 		{name: "vouched-unverified-account", appleVouches: true, accountVerified: false},
 		{name: "unvouched-verified", appleVouches: false, accountVerified: true},
 		{name: "vouched-verified-past-window", appleVouches: true, accountVerified: true, pastWindow: true},
@@ -134,7 +134,7 @@ func (s *AppleAuthIntegrationTestSuite) TestFindOrCreateAppleUser_AddressOfDelet
 			var authErr *apperrors.AuthError
 			s.Require().ErrorAs(err, &authErr)
 			want := apperrors.ErrAppleSignInRefused(address)
-			if tc.wantRecoverable {
+			if tc.recoverable {
 				want = apperrors.ErrAccountRecoverable()
 			}
 			s.Equal(want.Code, authErr.Code)
