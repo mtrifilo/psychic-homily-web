@@ -54,14 +54,14 @@ const (
 )
 
 // mutationUserIDKey is the context key under which
-// RateLimitMutationsByUser stashes the authenticated user id so the
+// meterSessionUser stashes the authenticated user id so the
 // per-user limiters' key func can read it without re-parsing the token. It is
 // deliberately distinct from the public-read limiter's key so the two never
 // share a bucket even though both key "user:<id>".
 type mutationUserIDKey struct{}
 
 // mutationUserKeyFunc keys every per-user mutation limiter by the user id
-// RateLimitMutationsByUser stashes in context. If the value is absent
+// meterSessionUser stashes in context. If the value is absent
 // it FAILS LOUD (httprate turns a key-func error into a 428) rather than
 // silently keying every request into one shared bucket — so mounting a bare
 // per-user limiter without the wrapper that sets the id is a detectable
@@ -71,13 +71,13 @@ func mutationUserKeyFunc(r *http.Request) (string, error) {
 	if !ok {
 		return "", fmt.Errorf(
 			"mutationUserKeyFunc: no authenticated user id in context; " +
-				"per-user mutation limiters must be mounted via RateLimitMutationsByUser")
+				"per-user mutation limiters must be mounted via RateLimitMutationsByUser or RateLimitBySessionUser")
 	}
 	return "user:" + strconv.FormatUint(uint64(uid), 10), nil
 }
 
 // perUserMutationLimiter builds one per-USER window: limit requests per window,
-// keyed by the user id RateLimitMutationsByUser stashes in context (NOT by IP,
+// keyed by the user id meterSessionUser stashes in context (NOT by IP,
 // so shared-IP logged-in users each get their own bucket). Every call mints its
 // OWN httprate store, so two budgets built here never draw on one counter.
 //
@@ -86,6 +86,13 @@ func mutationUserKeyFunc(r *http.Request) (string, error) {
 // countdown copy through ApiError.retryAfter.
 func perUserMutationLimiter(name LimiterName, limit int, window time.Duration) func(http.Handler) http.Handler {
 	return limiterSpec{name: name, limit: limit, window: window, key: mutationUserKeyFunc}.handler()
+}
+
+// perIPLimiter builds one per-IP window: limit requests per window, keyed by
+// KeyByClientIP, with its own httprate store and the JSON 429 naming the
+// window's length in Retry-After.
+func perIPLimiter(name LimiterName, limit int, window time.Duration) func(http.Handler) http.Handler {
+	return limiterSpec{name: name, limit: limit, window: window, key: KeyByClientIP}.handler()
 }
 
 // RateLimitEngagementMutationBurst is the shared budget's minute window. Pair
@@ -114,18 +121,58 @@ func RateLimitEntityRequestBatchSustained() func(http.Handler) http.Handler {
 	return perUserMutationLimiter(LimiterEntityRequestBatchSustained, EntityRequestBatchSustainedPerHour, time.Hour)
 }
 
-// RateLimitBySessionUser meters each signed-in user on a minute bucket of its
-// own, requestsPerMinute deep and logged as name, keyed by the session user the
-// way RateLimitMutationsByUser keys the mutation budgets. Accounts behind one
-// address do not share a bucket, and one account does not get a fresh bucket by
-// changing address. A request with no session token passes through unmetered,
-// as it does on the mutation budgets.
-func RateLimitBySessionUser(jwtService *auth.JWTService, name LimiterName, requestsPerMinute int) func(http.Handler) http.Handler {
-	return RateLimitMutationsByUser(jwtService, perUserMutationLimiter(name, requestsPerMinute, time.Minute), withoutSecondWindow)
+// RateLimitBySessionUser meters each signed-in request against two minute
+// budgets: userLimiter, keyed by the session user the way
+// RateLimitMutationsByUser keys the mutation budgets, and ipCeilingLimiter, keyed
+// by the client address. Accounts behind one address do not share a user bucket,
+// and one account does not get a fresh one by changing address; the ceiling
+// bounds what every account behind one address spends together. A request with
+// no session token passes through unmetered, as it does on the mutation budgets.
+//
+// ORDER: user OUTER, ceiling INNER, the order RateLimitPublicReadsByAuthState
+// uses and for the same reason. httprate counts a request against a limiter once
+// it clears that limiter's own limit, whether or not a limiter further in refuses
+// it. With the ceiling inside, an account retrying past its own budget is refused
+// by the user limiter and never reaches the shared ceiling, so it cannot spend
+// the address's ceiling and refuse every other account behind that address. The
+// cost of this order is the other direction: a request the ceiling refuses has
+// already spent one from its account's own budget.
+func RateLimitBySessionUser(jwtService *auth.JWTService, userLimiter, ipCeilingLimiter func(http.Handler) http.Handler) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return meterSessionUser(jwtService, userLimiter(ipCeilingLimiter(next)), next)
+	}
 }
 
-// withoutSecondWindow is the inner window for a budget that has only one.
-func withoutSecondWindow(next http.Handler) http.Handler { return next }
+// RateLimitPasskeyRegisterBeginUser is the per-user register begin budget:
+// PasskeyRegisterBeginRequestsPerMinute per session user. Pair with
+// RateLimitBySessionUser, which supplies the user id via context.
+func RateLimitPasskeyRegisterBeginUser() func(http.Handler) http.Handler {
+	return perUserMutationLimiter(LimiterPasskeyRegisterBegin, PasskeyRegisterBeginRequestsPerMinute, time.Minute)
+}
+
+// RateLimitPasskeyRegisterBeginIPCeiling is the per-IP ceiling over every
+// account's register begin budget: PasskeyRegisterBeginIPCeilingPerMinute per
+// KeyByClientIP bucket. Chained INSIDE RateLimitPasskeyRegisterBeginUser by
+// RateLimitBySessionUser (see the ORDER note there). Its log lines fingerprint
+// the address bucket, and the user limiter's lines fingerprint the account
+// bucket, so a refusal line names the bucket that refused.
+func RateLimitPasskeyRegisterBeginIPCeiling() func(http.Handler) http.Handler {
+	return perIPLimiter(LimiterPasskeyRegisterBeginIPCeiling, PasskeyRegisterBeginIPCeilingPerMinute, time.Minute)
+}
+
+// meterSessionUser routes a request carrying a verified session token through
+// metered with the session user's id in context, where mutationUserKeyFunc reads
+// it, and any other request straight to next.
+func meterSessionUser(jwtService *auth.JWTService, metered, next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if uid, ok := sessionUserID(jwtService, r); ok {
+			ctx := context.WithValue(r.Context(), mutationUserIDKey{}, uid)
+			metered.ServeHTTP(w, r.WithContext(ctx))
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
 
 // RateLimitMutationsByUser meters an authenticated mutation against a per-user
 // budget: it stashes the user id from the verified session JWT into context and
@@ -153,14 +200,6 @@ func withoutSecondWindow(next http.Handler) http.Handler { return next }
 // order just matches the policy doc (outer = minute burst).
 func RateLimitMutationsByUser(jwtService *auth.JWTService, burstLimiter, sustainedLimiter func(http.Handler) http.Handler) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
-		limited := burstLimiter(sustainedLimiter(next))
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			if uid, ok := sessionUserID(jwtService, r); ok {
-				ctx := context.WithValue(r.Context(), mutationUserIDKey{}, uid)
-				limited.ServeHTTP(w, r.WithContext(ctx))
-				return
-			}
-			next.ServeHTTP(w, r)
-		})
+		return meterSessionUser(jwtService, burstLimiter(sustainedLimiter(next)), next)
 	}
 }

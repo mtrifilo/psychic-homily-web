@@ -325,7 +325,8 @@ func TestSampleAt_HonoursRate(t *testing.T) {
 	}
 }
 
-// The public-read limiters carry their own names and windows on the 429 line.
+// The per-IP limiters built here carry their own names and windows on the 429
+// line.
 func TestLimiterFactories_NameTheirRejections(t *testing.T) {
 	for _, tc := range []struct {
 		name    string
@@ -336,6 +337,7 @@ func TestLimiterFactories_NameTheirRejections(t *testing.T) {
 	}{
 		{"anonymous public read", RateLimitPublicReadAnonymousEndpoints(), APIRequestsPerMinute, LimiterPublicReadAnonymous, 60},
 		{"authenticated ip ceiling", RateLimitPublicReadAuthenticatedIPCeiling(), PublicReadAuthenticatedIPCeilingPerMinute, LimiterPublicReadIPCeiling, 60},
+		{"passkey register begin ip ceiling", RateLimitPasskeyRegisterBeginIPCeiling(), PasskeyRegisterBeginIPCeilingPerMinute, LimiterPasskeyRegisterBeginIPCeiling, 60},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			logs := newLogCapture(t)
@@ -496,28 +498,29 @@ func TestRateLimitLogValuesAreStable(t *testing.T) {
 	}
 
 	limiters := map[string]LimiterName{
-		"LimiterPublicReadAnonymous":         "public_read_anonymous",
-		"LimiterPublicReadUser":              "public_read_user",
-		"LimiterPublicReadIPCeiling":         "public_read_ip_ceiling",
-		"LimiterEngagementMutationBurst":     "engagement_mutation_burst",
-		"LimiterEngagementMutationSustained": "engagement_mutation_sustained",
-		"LimiterEntityRequestBatchBurst":     "entity_request_batch_burst",
-		"LimiterEntityRequestBatchSustained": "entity_request_batch_sustained",
-		"LimiterAuth":                        "auth",
-		"LimiterPasskey":                     "passkey",
-		"LimiterPasskeySignupBegin":          "passkey_signup_begin",
-		"LimiterPasskeyRegisterBegin":        "passkey_register_begin",
-		"LimiterOAuthRedirect":               "oauth_redirect",
-		"LimiterAppleSignIn":                 "apple_sign_in",
-		"LimiterVerificationResend":          "verification_resend",
-		"LimiterPasswordConfirm":             "password_confirm",
-		"LimiterOAuthLinkToken":              "oauth_link_token",
-		"LimiterTagCreate":                   "tag_create",
-		"LimiterTagVote":                     "tag_vote",
-		"LimiterShowReport":                  "show_report",
-		"LimiterEntityReport":                "entity_report",
-		"LimiterShowCreate":                  "show_create",
-		"LimiterAIProcess":                   "ai_process",
+		"LimiterPublicReadAnonymous":           "public_read_anonymous",
+		"LimiterPublicReadUser":                "public_read_user",
+		"LimiterPublicReadIPCeiling":           "public_read_ip_ceiling",
+		"LimiterEngagementMutationBurst":       "engagement_mutation_burst",
+		"LimiterEngagementMutationSustained":   "engagement_mutation_sustained",
+		"LimiterEntityRequestBatchBurst":       "entity_request_batch_burst",
+		"LimiterEntityRequestBatchSustained":   "entity_request_batch_sustained",
+		"LimiterAuth":                          "auth",
+		"LimiterPasskey":                       "passkey",
+		"LimiterPasskeySignupBegin":            "passkey_signup_begin",
+		"LimiterPasskeyRegisterBegin":          "passkey_register_begin",
+		"LimiterPasskeyRegisterBeginIPCeiling": "passkey_register_begin_ip_ceiling",
+		"LimiterOAuthRedirect":                 "oauth_redirect",
+		"LimiterAppleSignIn":                   "apple_sign_in",
+		"LimiterVerificationResend":            "verification_resend",
+		"LimiterPasswordConfirm":               "password_confirm",
+		"LimiterOAuthLinkToken":                "oauth_link_token",
+		"LimiterTagCreate":                     "tag_create",
+		"LimiterTagVote":                       "tag_vote",
+		"LimiterShowReport":                    "show_report",
+		"LimiterEntityReport":                  "entity_report",
+		"LimiterShowCreate":                    "show_create",
+		"LimiterAIProcess":                     "ai_process",
 	}
 
 	declared := declaredLimiterNames(t)
