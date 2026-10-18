@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { Activity } from 'react'
-import { screen, waitFor } from '@testing-library/react'
+import { act, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { renderWithProviders } from '@/test/utils'
 import { deferred } from '@/test/inflightOrdering'
@@ -914,8 +914,28 @@ describe('AuthPage', () => {
       expect(navigatedTo).not.toHaveBeenCalled()
     })
 
-    it(`does not retry a start older than ${GOOGLE_SIGNUP_START_TTL_MS / 60000} minutes`, async () => {
-      recordStart(GOOGLE_SIGNUP_START_TTL_MS)
+    it('keeps a start retryable for the lifetime of the backend consent cookie', () => {
+      // oauth_handlers.go sets the signup consent cookie for 600 s.
+      expect(GOOGLE_SIGNUP_START_TTL_MS).toBe(600_000)
+    })
+
+    it('retries a start just inside that lifetime', async () => {
+      publish(() => publishedVersions(REPUBLISHED))
+      recordStart(GOOGLE_SIGNUP_START_TTL_MS - 1000)
+      consentArrival()
+
+      renderWithProviders(<AuthPage />)
+
+      expect(screen.getByText(CONSENT_RETRY_NOTICE)).toBeInTheDocument()
+      await waitFor(() => expect(navigatedTo).toHaveBeenCalledTimes(1))
+    })
+
+    it.each([
+      ['older than its lifetime', GOOGLE_SIGNUP_START_TTL_MS],
+      ['stamped in the future', -60_000],
+    ])('does not retry a start %s', async (_label, ageMs) => {
+      const versions = publish(() => publishedVersions(REPUBLISHED))
+      recordStart(ageMs)
       consentArrival()
 
       renderWithProviders(<AuthPage />)
@@ -923,6 +943,56 @@ describe('AuthPage', () => {
       expect(screen.getByText(TERMS_MESSAGE)).toBeInTheDocument()
       expect(screen.queryByText(CONSENT_RETRY_NOTICE)).not.toBeInTheDocument()
       expect(sessionStorage.getItem(GOOGLE_SIGNUP_START_KEY)).toBeNull()
+      // Only the form's own read goes out, and nothing navigates after it.
+      await waitFor(() => expect(versions.reads()).toBe(1))
+      await new Promise(resolve => setTimeout(resolve, 0))
+      expect(versions.reads()).toBe(1)
+      expect(navigatedTo).not.toHaveBeenCalled()
+    })
+
+    it('does not retry for a signed-in viewer, and drops the start', async () => {
+      mockAuthState = { setUser: vi.fn(), authStatus: 'authenticated' }
+      recordStart()
+      consentArrival()
+
+      renderWithProviders(<AuthPage />)
+
+      await waitFor(() => {
+        expect(sessionStorage.getItem(GOOGLE_SIGNUP_START_KEY)).toBeNull()
+      })
+      expect(navigatedTo).not.toHaveBeenCalled()
+    })
+
+    it('drops a start when the page comes back from the back-forward cache', () => {
+      renderWithProviders(<AuthPage />)
+      recordStart()
+
+      window.dispatchEvent(new PageTransitionEvent('pageshow', { persisted: true }))
+
+      expect(sessionStorage.getItem(GOOGLE_SIGNUP_START_KEY)).toBeNull()
+    })
+
+    it('shows the refusal, without navigating, when the page is hidden during the retry', async () => {
+      const republished = deferred<Response>()
+      publish(() => republished.promise.then(r => r.clone()))
+      recordStart()
+      consentArrival()
+      const page = (mode: 'visible' | 'hidden') => (
+        <Activity mode={mode}>
+          <AuthPage />
+        </Activity>
+      )
+      const rendered = renderWithProviders(page('visible'))
+      expect(screen.getByText(CONSENT_RETRY_NOTICE)).toBeInTheDocument()
+
+      rendered.rerender(page('hidden'))
+      await act(async () => {
+        republished.resolve(publishedVersions(REPUBLISHED))
+      })
+      rendered.rerender(page('visible'))
+
+      expect(await screen.findByText(TERMS_MESSAGE)).toBeInTheDocument()
+      expect(screen.queryByText(CONSENT_RETRY_NOTICE)).not.toBeInTheDocument()
       expect(navigatedTo).not.toHaveBeenCalled()
     })
 
@@ -948,6 +1018,51 @@ describe('AuthPage', () => {
       expect(sessionStorage.getItem(GOOGLE_SIGNUP_START_KEY)).toBeNull()
       expect(screen.queryByText(CONSENT_RETRY_NOTICE)).not.toBeInTheDocument()
       expect(navigatedTo).not.toHaveBeenCalled()
+    })
+  })
+
+  // The sign-up form's banner for its Google and passkey buttons.
+  describe('sign-up form errors', () => {
+    type ButtonCallbacks = {
+      variant?: string
+      onConsentVersionsUnavailable?: () => void
+      onMissingTermsAcceptance?: () => void
+      onError?: (message: string) => void
+    }
+    const latest = (props: ReturnType<typeof vi.fn>) =>
+      props.mock.calls.at(-1)?.[0] as ButtonCallbacks
+
+    async function openSignup() {
+      const user = userEvent.setup()
+      renderWithProviders(<AuthPage />)
+      await user.click(screen.getByRole('tab', { name: 'Create account' }))
+    }
+
+    it('says why when the Google sign-up could not read the versions', async () => {
+      await openSignup()
+      const google = latest(googleOAuthProps)
+      expect(google.variant).toBe('signup')
+
+      act(() => {
+        google.onConsentVersionsUnavailable?.()
+      })
+
+      expect(await screen.findByText(CONSENT_VERSIONS_UNAVAILABLE)).toBeInTheDocument()
+    })
+
+    it('shows only the latest error', async () => {
+      await openSignup()
+      act(() => {
+        latest(passkeySignupProps).onError?.('Failed to start passkey signup')
+      })
+      expect(await screen.findByText('Failed to start passkey signup')).toBeInTheDocument()
+
+      act(() => {
+        latest(googleOAuthProps).onConsentVersionsUnavailable?.()
+      })
+
+      expect(await screen.findByText(CONSENT_VERSIONS_UNAVAILABLE)).toBeInTheDocument()
+      expect(screen.queryByText('Failed to start passkey signup')).not.toBeInTheDocument()
     })
   })
 

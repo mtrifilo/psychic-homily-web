@@ -7,6 +7,11 @@ import { server } from '@/test/mocks/server'
 import { TEST_API_BASE } from '@/test/mocks/handlers'
 import { GoogleOAuthButton } from './google-oauth-button'
 import { GOOGLE_SIGNUP_START_KEY } from './google-signup-start'
+import { deferred } from '@/test/inflightOrdering'
+import {
+  publishLegalVersionsInTurn,
+  publishedVersions,
+} from '@/test/consentVersions'
 
 vi.mock('@/lib/api-base', async importOriginal => ({
   ...(await importOriginal<typeof import('@/lib/api-base')>()),
@@ -138,6 +143,43 @@ describe('GoogleOAuthButton', () => {
       expect(navigatedTo).not.toHaveBeenCalled()
       expect(sessionStorage.getItem(GOOGLE_SIGNUP_START_KEY)).toBeNull()
       expect(screen.getByRole('button', { name: 'Sign up with Google' })).toBeEnabled()
+    })
+
+    it('is disabled while it reads the versions, and starts once', async () => {
+      const published = deferred<Response>()
+      publishLegalVersionsInTurn(() => published.promise)
+      const user = userEvent.setup()
+      renderSignup()
+
+      await user.click(screen.getByRole('button', { name: 'Sign up with Google' }))
+
+      expect(screen.getByRole('button', { name: 'Sign up with Google' })).toBeDisabled()
+      published.resolve(publishedVersions(PUBLISHED))
+      await waitFor(() => expect(navigatedTo).toHaveBeenCalledTimes(1))
+    })
+
+    it('neither starts nor records a sign-up whose versions arrive after it is gone', async () => {
+      const published = deferred<Response>()
+      publishLegalVersionsInTurn(() => published.promise)
+      const user = userEvent.setup()
+      const onConsentVersionsUnavailable = vi.fn()
+      const { unmount } = renderWithProviders(
+        <GoogleOAuthButton
+          variant="signup"
+          termsAccepted
+          ageConfirmed
+          onConsentVersionsUnavailable={onConsentVersionsUnavailable}
+        />
+      )
+
+      await user.click(screen.getByRole('button', { name: 'Sign up with Google' }))
+      unmount()
+      published.resolve(publishedVersions(PUBLISHED))
+      await new Promise(resolve => setTimeout(resolve, 0))
+
+      expect(navigatedTo).not.toHaveBeenCalled()
+      expect(sessionStorage.getItem(GOOGLE_SIGNUP_START_KEY)).toBeNull()
+      expect(onConsentVersionsUnavailable).not.toHaveBeenCalled()
     })
 
     it('drops a recorded sign-up start when a sign-in starts', async () => {

@@ -406,6 +406,16 @@ function SignupForm({
   const [oauthError, setOauthError] = useState<string | null>(null)
   const [consentVersionsError, setConsentVersionsError] = useState<string | null>(null)
   const [isRetryingConsent, setIsRetryingConsent] = useState(false)
+  // The form's banner shows one message: the latest one set through here.
+  const showError = (
+    set: (message: string | null) => void,
+    message: string | null
+  ) => {
+    setConsentVersionsError(null)
+    setPasskeyError(null)
+    setOauthError(null)
+    set(message)
+  }
   const [hasAttemptedSubmit, setHasAttemptedSubmit] = useState(false)
   const termsCheckboxRef = useRef<HTMLButtonElement>(null)
   // A retry still waiting on its versions when the form goes away is dropped,
@@ -455,7 +465,6 @@ function SignupForm({
       },
       {
         onSuccess: data => {
-          setIsRetryingConsent(false)
           if (!data.user) {
             // No session to hand off to. Release the claim so the page
             // behaves exactly as it did before the attempt.
@@ -477,15 +486,16 @@ function SignupForm({
           // shown as it is.
           if (!consentRetried && isAuthError(error) && isConsentRefusal(error.code)) {
             void retryAfterConsentRefusal(value)
-            return
           }
-          setIsRetryingConsent(false)
         },
         onSettled: passwordRequestDeadline.disarm,
       }
     )
   }
 
+  // The notice covers only the re-read: it ends before the retried request
+  // goes out, whose own pending state and answer the form shows as usual, so
+  // nothing that skips a mutation callback can leave it up.
   const retryAfterConsentRefusal = async (value: SignupFormData) => {
     setIsRetryingConsent(true)
     let versions: ConsentVersions
@@ -493,12 +503,13 @@ function SignupForm({
       versions = await consentVersions.refresh()
     } catch {
       setIsRetryingConsent(false)
-      setConsentVersionsError(CONSENT_VERSIONS_UNAVAILABLE)
+      showError(setConsentVersionsError, CONSENT_VERSIONS_UNAVAILABLE)
       return
     }
     if (mountedRef.current) {
       register(value, versions, true)
     }
+    setIsRetryingConsent(false)
   }
 
   const form = useForm({
@@ -516,7 +527,7 @@ function SignupForm({
       } catch {
         // Never sent with this build's versions: the backend's answer is the
         // only source of the versions a sign-up carries.
-        setConsentVersionsError(CONSENT_VERSIONS_UNAVAILABLE)
+        showError(setConsentVersionsError, CONSENT_VERSIONS_UNAVAILABLE)
         return
       }
       register(value, versions, false)
@@ -562,19 +573,19 @@ function SignupForm({
               ageConfirmed={ageConfirmed}
               returnTo={returnTo}
               onMissingTermsAcceptance={() => {
-                setOauthError('You must agree to the Terms of Service and Privacy Policy before continuing with Google')
+                showError(setOauthError, 'You must agree to the Terms of Service and Privacy Policy before continuing with Google')
               }}
               onMissingAgeConfirmation={() => {
-                setOauthError(`You must confirm that you are at least ${MIN_SIGNUP_AGE} years old before continuing with Google`)
+                showError(setOauthError, `You must confirm that you are at least ${MIN_SIGNUP_AGE} years old before continuing with Google`)
               }}
               onConsentVersionsUnavailable={() => {
-                setOauthError(CONSENT_VERSIONS_UNAVAILABLE)
+                showError(setOauthError, CONSENT_VERSIONS_UNAVAILABLE)
               }}
             />
           )}
         </form.Subscribe>
         <PasskeySignupButton
-          onError={setPasskeyError}
+          onError={message => showError(setPasskeyError, message)}
           onHandoffChange={onHandoffChange}
           requestDeadline={passkeyRequestDeadline}
           className="w-full"
@@ -831,7 +842,7 @@ function AuthPageContent() {
   // retried once instead of asking for consent the reader already gave.
   const googleSignupRetry = useGoogleSignupRetry({
     arrival,
-    consentArrival: isConsentArrival,
+    consentArrival: isConsentArrival && authStatus !== 'authenticated',
     returnTo,
   })
 

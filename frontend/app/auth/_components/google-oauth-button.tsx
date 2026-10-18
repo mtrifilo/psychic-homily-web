@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Loader2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { FALLBACK_RETURN_TO } from '@/lib/auth-href'
@@ -43,6 +43,16 @@ export function GoogleOAuthButton({
 }: GoogleOAuthButtonProps) {
   const consentVersions = useConsentVersions()
   const [isReadingVersions, setIsReadingVersions] = useState(false)
+  // A start whose versions arrive after the button is gone is dropped, so it
+  // cannot replace whatever the reader did next.
+  const mountedRef = useRef(false)
+
+  useEffect(() => {
+    mountedRef.current = true
+    return () => {
+      mountedRef.current = false
+    }
+  }, [])
 
   const handleGoogleLogin = async () => {
     if (variant === 'login') {
@@ -66,7 +76,11 @@ export function GoogleOAuthButton({
       versions = await consentVersions.read()
     } catch {
       setIsReadingVersions(false)
-      onConsentVersionsUnavailable?.()
+      if (mountedRef.current) onConsentVersionsUnavailable?.()
+      return
+    }
+    if (!mountedRef.current) {
+      setIsReadingVersions(false)
       return
     }
     // The backend redirects to Google, then back to its callback, then to the

@@ -15,7 +15,8 @@ import {
 
 /**
  * The backend route that starts a Google sign-in, and with `signup` a sign-up
- * that accepts those versions and attests MIN_SIGNUP_AGE. The route reads `returnTo` (`oauthReturnToParam` in
+ * that accepts those versions and attests MIN_SIGNUP_AGE. The route reads
+ * `returnTo` (`oauthReturnToParam` in
  * backend/internal/api/handlers/auth/oauth_return_to.go), checks it again,
  * records it for its callback, and lands on the site root for anything it
  * refuses.
@@ -95,8 +96,9 @@ export type GoogleSignupRetry = 'none' | 'retrying' | 'unavailable'
  * arrival answers a start the sign-up form recorded in this tab within
  * GOOGLE_SIGNUP_START_TTL_MS, the versions are read again past every cache
  * and the start is sent again, consent and returnTo included. Any other
- * arrival, a sign-in from "Continue with Google" among them, keeps its
- * refusal, and every arrival drops the record.
+ * arrival, a signed-in one or a sign-in from "Continue with Google" among
+ * them, keeps its refusal, and every arrival drops the record, as does a
+ * return to the page from the back-forward cache.
  */
 export function useGoogleSignupRetry({
   arrival,
@@ -129,6 +131,16 @@ export function useGoogleSignupRetry({
     }
   }, [])
 
+  // A page restored from the back-forward cache runs no effects, and the
+  // reader who went back from the provider abandoned that start.
+  useEffect(() => {
+    const dropOnRestore = (event: PageTransitionEvent) => {
+      if (event.persisted) forgetGoogleSignupStart()
+    }
+    window.addEventListener('pageshow', dropOnRestore)
+    return () => window.removeEventListener('pageshow', dropOnRestore)
+  }, [])
+
   useEffect(() => {
     if (!consentArrival) {
       forgetGoogleSignupStart()
@@ -150,7 +162,8 @@ export function useGoogleSignupRetry({
           // no start to retry: the one-attempt bound.
           forgetGoogleSignupStart()
           // A page hidden or left meanwhile shows its refusal on return rather
-          // than navigating on its own.
+          // than navigating on its own: showing it renders again, and the
+          // record is gone by then.
           if (mountedRef.current) {
             window.location.href = googleStartUrl({ returnTo, signup: versions })
           }

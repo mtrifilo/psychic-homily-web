@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { Activity } from 'react'
 import { act, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { renderWithProviders } from '@/test/utils'
@@ -470,12 +471,17 @@ describe('SignupForm deferred validation', () => {
         () => versionsBody(PUBLISHED),
         () => republished.promise
       )
-      await submitFilledForm()
+      const { rerender } = await submitFilledForm()
       await waitFor(() => expect(mockRegisterMutate).toHaveBeenCalledTimes(1))
       const readsBeforeRefusal = versions.reads()
 
+      // The mutation reports the refusal, as the real one does.
+      mockRegisterError = CONSENT_REFUSAL
       act(() => {
         registerCall(0).callbacks.onError(CONSENT_REFUSAL)
+      })
+      act(() => {
+        rerender()
       })
 
       expect(await screen.findByText(CONSENT_RETRY_NOTICE)).toBeInTheDocument()
@@ -490,6 +496,58 @@ describe('SignupForm deferred validation', () => {
         terms_version: '2031-04-01',
         privacy_version: '2031-04-02',
       })
+      // The notice ends once the retried request is out.
+      await waitFor(() => {
+        expect(screen.queryByText(CONSENT_RETRY_NOTICE)).not.toBeInTheDocument()
+      })
+    })
+
+    it('drops a retry, and leaves the form usable, when the page is hidden during the re-read', async () => {
+      const republished = deferred<Response>()
+      publishInTurn(() => versionsBody(PUBLISHED), () => republished.promise)
+      const user = userEvent.setup()
+      const page = (mode: 'visible' | 'hidden') => (
+        <Activity mode={mode}>
+          <AuthPage />
+        </Activity>
+      )
+      const rendered = renderWithProviders(page('visible'))
+      await user.click(screen.getByRole('tab', { name: 'Create account' }))
+      await user.type(screen.getByLabelText('Email'), 'test@example.com')
+      await user.type(screen.getByLabelText('Password'), 'validPassword123!')
+      await user.click(screen.getByRole('checkbox', { name: TERMS_CHECKBOX }))
+      await user.click(screen.getByRole('checkbox', { name: AGE_CHECKBOX }))
+      await user.click(screen.getByRole('button', { name: 'Create account' }))
+      await waitFor(() => expect(mockRegisterMutate).toHaveBeenCalledTimes(1))
+      act(() => {
+        registerCall(0).callbacks.onError(CONSENT_REFUSAL)
+      })
+      expect(await screen.findByText(CONSENT_RETRY_NOTICE)).toBeInTheDocument()
+
+      rendered.rerender(page('hidden'))
+      await act(async () => {
+        republished.resolve(versionsBody(REPUBLISHED))
+      })
+      rendered.rerender(page('visible'))
+      // A shown page reopens on its arrival's tab.
+      await user.click(screen.getByRole('tab', { name: 'Create account' }))
+
+      expect(screen.queryByText(CONSENT_RETRY_NOTICE)).not.toBeInTheDocument()
+      expect(screen.getByRole('button', { name: 'Create account' })).toBeEnabled()
+      expect(mockRegisterMutate).toHaveBeenCalledTimes(1)
+    })
+
+    it('shows only the latest of the form errors', async () => {
+      publishInTurn(unavailable)
+      await submitFilledForm()
+      expect(await screen.findByText(CONSENT_VERSIONS_UNAVAILABLE)).toBeInTheDocument()
+
+      // Submitting again with the versions readable clears it.
+      publishInTurn(() => versionsBody(PUBLISHED))
+      await userEvent.setup().click(screen.getByRole('button', { name: 'Create account' }))
+
+      await waitFor(() => expect(mockRegisterMutate).toHaveBeenCalledTimes(1))
+      expect(screen.queryByText(CONSENT_VERSIONS_UNAVAILABLE)).not.toBeInTheDocument()
     })
 
     it('shows a second refusal instead of retrying again', async () => {
