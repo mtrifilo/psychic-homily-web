@@ -24,15 +24,13 @@ import (
 // sanitizeReturnTo test reads too. Its _comment states the contract the two
 // sanitizers share.
 type returnToCorpus struct {
-	Fallback         string `json:"fallback"`
-	BackendMaxLength int    `json:"backendMaxLength"`
-	Cases            []struct {
-		Name                  string `json:"name"`
-		Input                 string `json:"input"`
-		SanitizeOAuthReturnTo string `json:"sanitizeOAuthReturnTo"`
-		SanitizeReturnTo      string `json:"sanitizeReturnTo"`
-		Rule                  string `json:"rule"`
-		Difference            string `json:"difference"`
+	Fallback  string `json:"fallback"`
+	MaxLength int    `json:"maxLength"`
+	Cases     []struct {
+		Name  string `json:"name"`
+		Input string `json:"input"`
+		Want  string `json:"want"`
+		Rule  string `json:"rule"`
 	} `json:"cases"`
 }
 
@@ -50,42 +48,33 @@ func TestSanitizeOAuthReturnTo(t *testing.T) {
 	if corpus.Fallback != oauthReturnToFallback {
 		t.Errorf("corpus fallback = %q, oauthReturnToFallback = %q", corpus.Fallback, oauthReturnToFallback)
 	}
-	if corpus.BackendMaxLength != oauthReturnToMaxLength {
-		t.Errorf("corpus backendMaxLength = %d, oauthReturnToMaxLength = %d", corpus.BackendMaxLength, oauthReturnToMaxLength)
+	if corpus.MaxLength != oauthReturnToMaxLength {
+		t.Errorf("corpus maxLength = %d, oauthReturnToMaxLength = %d", corpus.MaxLength, oauthReturnToMaxLength)
 	}
 	for _, tc := range corpus.Cases {
 		t.Run(tc.Name, func(t *testing.T) {
-			if got := sanitizeOAuthReturnTo(tc.Input); got != tc.SanitizeOAuthReturnTo {
-				t.Errorf("sanitizeOAuthReturnTo(%q) = %q, want %q (rule: %s)", tc.Input, got, tc.SanitizeOAuthReturnTo, tc.Rule)
+			if got := sanitizeOAuthReturnTo(tc.Input); got != tc.Want {
+				t.Errorf("sanitizeOAuthReturnTo(%q) = %q, want %q (rule: %s)", tc.Input, got, tc.Want, tc.Rule)
 			}
 		})
 	}
 }
 
-// The frontend suite pins sanitizeReturnTo to the corpus and the test above
-// pins sanitizeOAuthReturnTo, so the contract checked here over the corpus's
-// expectations holds over the two sanitizers on every case.
+// Every case names the rule it exercises, and the length cap has a kept case
+// on it and a refused case one past it.
 func TestReturnToCorpusHoldsItsContract(t *testing.T) {
 	corpus := loadReturnToCorpus(t)
 	keptAtTheCap, refusedPastTheCap := false, false
 	for _, tc := range corpus.Cases {
-		keptAtTheCap = keptAtTheCap || (len(tc.Input) == corpus.BackendMaxLength && tc.SanitizeOAuthReturnTo == tc.Input)
-		refusedPastTheCap = refusedPastTheCap || (len(tc.Input) == corpus.BackendMaxLength+1 && tc.SanitizeOAuthReturnTo == corpus.Fallback)
-		differ := tc.SanitizeOAuthReturnTo != tc.SanitizeReturnTo
-		if differ && tc.SanitizeOAuthReturnTo != corpus.Fallback {
-			t.Errorf("%s: the backend keeps %q but the frontend returns %q; where the two differ the backend must refuse",
-				tc.Name, tc.SanitizeOAuthReturnTo, tc.SanitizeReturnTo)
-		}
-		if differ != (tc.Difference != "") {
-			t.Errorf("%s: difference must be set exactly when the two outputs differ (outputs differ: %t)", tc.Name, differ)
-		}
+		keptAtTheCap = keptAtTheCap || (len(tc.Input) == corpus.MaxLength && tc.Want == tc.Input)
+		refusedPastTheCap = refusedPastTheCap || (len(tc.Input) == corpus.MaxLength+1 && tc.Want == corpus.Fallback)
 		if tc.Rule == "" {
 			t.Errorf("%s: rule is empty", tc.Name)
 		}
 	}
 	if !keptAtTheCap || !refusedPastTheCap {
-		t.Errorf("the corpus needs a case of exactly backendMaxLength (%d) the backend keeps (found: %t) and one a byte past it the backend refuses (found: %t)",
-			corpus.BackendMaxLength, keptAtTheCap, refusedPastTheCap)
+		t.Errorf("the corpus needs a case of exactly maxLength (%d) that is kept (found: %t) and one a byte past it that is refused (found: %t)",
+			corpus.MaxLength, keptAtTheCap, refusedPastTheCap)
 	}
 }
 
