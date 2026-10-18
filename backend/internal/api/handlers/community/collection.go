@@ -1056,7 +1056,7 @@ func (h *CollectionHandler) GetUserPublicCollectionsHandler(ctx context.Context,
 		limit = 20
 	}
 
-	collections, total, err := h.collectionService.GetUserPublicCollectionsByUsername(req.Username, limit, req.Offset)
+	collections, total, err := h.collectionService.GetUserPublicCollectionsByUsername(req.Username, middleware.GetShowViewerFromContext(ctx), limit, req.Offset)
 	if err != nil {
 		return nil, huma.Error500InternalServerError("Failed to fetch user collections", err)
 	}
