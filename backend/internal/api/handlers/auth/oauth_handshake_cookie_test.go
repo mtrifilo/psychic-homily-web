@@ -258,6 +258,31 @@ func TestOAuthHandshakeCookies_SecureCallbackIgnoresABareStoreID(t *testing.T) {
 	})
 }
 
+// The consent cookie is single use whatever it holds: one that does not decode
+// carries no consent and is cleared all the same.
+func TestOAuthHandshakeCookies_UndecodableConsentIsStillCleared(t *testing.T) {
+	var received *contracts.OAuthSignupConsent
+	h := handshakeCookieHandler(true)
+	h.authService = &testhelpers.MockAuthService{
+		OAuthCallbackWithConsentFn: func(
+			_ http.ResponseWriter, _ *http.Request, _ string, consent *contracts.OAuthSignupConsent,
+		) (*authm.User, string, error) {
+			received = consent
+			return nil, "", errors.New("provider refused")
+		},
+	}
+	name := oauthHostCookiePrefix + oauthSignupConsentCookieName
+
+	resp, _ := runCallback(t, h, "/auth/callback/google", &http.Cookie{Name: name, Value: "not-a-consent"})
+
+	if received != nil {
+		t.Errorf("want no consent from an undecodable cookie, got %+v", received)
+	}
+	if cleared := assertHandshakeCookie(t, resp, name, true); cleared.MaxAge >= 0 {
+		t.Errorf("want the consent cookie expired, got Max-Age %d", cleared.MaxAge)
+	}
+}
+
 // A request carrying both names is read under the prefixed one, which a
 // sibling subdomain cannot plant, and loses both.
 func TestOAuthHandshakeCookies_PrefixedNameWinsAndBothAreCleared(t *testing.T) {
