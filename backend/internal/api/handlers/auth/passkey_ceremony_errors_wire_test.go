@@ -128,9 +128,10 @@ func TestPasskeyWire_LoginBeginErrors(t *testing.T) {
 	}
 }
 
-// login/begin's body declares no fields: the schema refuses an email, or any
-// other field, with a 422 before the handler runs, so no ceremony starts and
-// no challenge is stored. An empty body begins a discoverable login.
+// login/begin's body declares no fields: the schema refuses an email, like any
+// field it does not declare, with a 422 before the handler runs, so no
+// ceremony starts and no challenge is stored. An empty body begins a
+// discoverable login.
 func TestPasskeyWire_LoginBeginRefusesBodyFields(t *testing.T) {
 	var begun, stored int
 	mockWA := &testhelpers.MockWebAuthnService{

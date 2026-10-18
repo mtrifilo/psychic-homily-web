@@ -64,8 +64,9 @@ func (suite *WebAuthnServiceIntegrationTestSuite) TestSignInRefusesAccountsThatM
 	}
 }
 
-// A credential or account that does not exist is refused as invalid
-// credentials. Validation refusals are in webauthn_ceremony_test.go.
+// A credential that does not exist is refused as invalid credentials,
+// including one deleted with its account. Validation refusals are in
+// webauthn_ceremony_test.go.
 func (suite *WebAuthnServiceIntegrationTestSuite) TestSignInRefusesWhatDoesNotExist() {
 	suite.Run("credential the server does not hold", func() {
 		device := softauthn.New(ceremonyOrigin)
@@ -79,7 +80,7 @@ func (suite *WebAuthnServiceIntegrationTestSuite) TestSignInRefusesWhatDoesNotEx
 		suite.requireRefusal(err, apperrors.CodeInvalidCredentials, "Invalid passkey")
 	})
 
-	suite.Run("account that does not exist", func() {
+	suite.Run("credential deleted with its account", func() {
 		user := suite.createUser("vanished@test.com")
 		device := suite.registeredDevice(user)
 		suite.Require().NoError(suite.db.Exec("DELETE FROM users WHERE id = ?", user.ID).Error)

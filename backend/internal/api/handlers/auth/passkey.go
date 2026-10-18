@@ -318,8 +318,8 @@ func (h *PasskeyHandler) FinishRegisterHandler(ctx context.Context, input *Finis
 // --- Login Endpoints ---
 
 // BeginLoginRequest represents the request to begin a discoverable passkey
-// login. Its body declares no fields, so the schema refuses any field a
-// client sends (an email included) with a 422.
+// login. Its body declares no fields, so the schema refuses an email, like any
+// field it does not declare, with a 422.
 type BeginLoginRequest struct {
 	Body struct{}
 }
