@@ -2383,7 +2383,10 @@ func (s *CollectionService) GetEntityCollections(entityType string, entityID uin
 	return responses, nil
 }
 
-// GetUserPublicCollections returns public collections created by a specific user
+// GetUserPublicCollections returns public collections created by a specific
+// user. It applies no profile-visibility gate: a caller serving a per-user list
+// to a viewer applies the private-profile gate first, as
+// GetUserPublicCollectionsByUsername does.
 func (s *CollectionService) GetUserPublicCollections(userID uint, limit, offset int) ([]*contracts.CollectionListResponse, int64, error) {
 	if s.db == nil {
 		return nil, 0, fmt.Errorf("database not initialized")

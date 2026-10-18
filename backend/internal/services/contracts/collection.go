@@ -588,6 +588,8 @@ type CollectionServiceInterface interface {
 	// own private collections are included when viewerID > 0. Pass
 	// viewerID == 0 for anonymous callers. PSY-583.
 	GetEntityCollections(entityType string, entityID uint, viewerID uint, limit int) ([]*CollectionListResponse, error)
+	// GetUserPublicCollections applies no profile-visibility gate; a caller
+	// serving a per-user list to a viewer applies the private-profile gate.
 	GetUserPublicCollections(userID uint, limit, offset int) ([]*CollectionListResponse, int64, error)
 	// GetUserPublicCollectionsByUsername answers a private profile with the
 	// empty page an unknown username gets, unless viewer is its owner.
