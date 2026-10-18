@@ -17,18 +17,14 @@ import (
 // the bound ends the wait, and closing the pool and the dial follow it.
 const connectReturnSlack = 3 * time.Second
 
-// keepGlobalDB restores DB when the test ends, since Connect sets it.
-func keepGlobalDB(t *testing.T) {
-	t.Helper()
-	saved := DB
-	t.Cleanup(func() { DB = saved })
-}
-
+// connectConfig returns a config for dsn and restores DB when the test ends,
+// since Connect sets it.
 func connectConfig(t *testing.T, dsn string) *config.Config {
 	t.Helper()
 	// An empty PGCONNECT_TIMEOUT is unset to pgx, so the DSN alone decides.
 	t.Setenv("PGCONNECT_TIMEOUT", "")
-	keepGlobalDB(t)
+	saved := DB
+	t.Cleanup(func() { DB = saved })
 	DB = nil
 	return &config.Config{Database: config.DatabaseConfig{URL: dsn, MaxOpenConns: 2, MaxIdleConns: 1}}
 }

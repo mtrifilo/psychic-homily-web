@@ -2,6 +2,7 @@ package db
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"log"
@@ -27,9 +28,9 @@ var (
 // connectTimeout bounds opening the database. A healthy server answers a
 // connection in milliseconds, so a connection still waiting at the bound is to
 // a server that accepted TCP and is not answering, and boot reports it instead
-// of waiting with it. It equals bootSchemaReadTimeout, the bound on the boot
-// reads that follow the connect.
-const connectTimeout = 10 * time.Second
+// of waiting with it. It is the bound on the boot reads that follow the
+// connect.
+const connectTimeout = bootSchemaReadTimeout
 
 // Connect opens the database, pings it, and sets DB. The first ping is bounded
 // by connectTimeout. Every pool connection's dial and startup is bounded by
@@ -81,11 +82,13 @@ func connectWithin(cfg *config.Config, bound time.Duration) error {
 		return err
 	}
 
+	sqlDB, err := gormDB.DB()
+	if err != nil {
+		return fmt.Errorf("failed to reach the underlying sql.DB: %w", err)
+	}
 	dialBound := effectiveConnectTimeout(dsn)
-	if err := pingWithin(gormDB, bound, dialBound); err != nil {
-		if sqlDB, dbErr := gormDB.DB(); dbErr == nil {
-			_ = sqlDB.Close()
-		}
+	if err := pingWithin(sqlDB, bound, dialBound); err != nil {
+		_ = sqlDB.Close()
 		return err
 	}
 	DB = gormDB
@@ -152,19 +155,14 @@ func effectiveConnectTimeout(dsn string) time.Duration {
 // a context that ends after bound. A ping that ran out of time says so and
 // names the bound that ended it, which is dialBound when that is set and
 // shorter, because the dial then gives up first.
-func pingWithin(gormDB *gorm.DB, bound, dialBound time.Duration) error {
-	sqlDB, err := gormDB.DB()
-	if err != nil {
-		return fmt.Errorf("failed to reach the underlying sql.DB: %w", err)
-	}
-
+func pingWithin(sqlDB *sql.DB, bound, dialBound time.Duration) error {
 	ctx, cancel := context.WithTimeout(context.Background(), bound)
 	defer cancel()
-	err = sqlDB.PingContext(ctx)
+	err := sqlDB.PingContext(ctx)
 	if err == nil {
 		return nil
 	}
-	if errors.Is(err, context.DeadlineExceeded) || errors.Is(ctx.Err(), context.DeadlineExceeded) {
+	if errors.Is(err, context.DeadlineExceeded) {
 		ended := bound
 		if dialBound > 0 && dialBound < bound {
 			ended = dialBound
