@@ -7,6 +7,7 @@ import (
 
 	apperrors "psychic-homily-backend/internal/errors"
 	authm "psychic-homily-backend/internal/models/auth"
+	"psychic-homily-backend/internal/services/shared"
 	"psychic-homily-backend/internal/testutil/signupconsent"
 )
 
@@ -61,7 +62,7 @@ var signInAccountStates = []signInAccountState{
 func (suite *UserServiceIntegrationTestSuite) softDeletePastRecoveryWindow(userID uint) {
 	suite.Require().NoError(suite.db.Model(&authm.User{}).Where("id = ?", userID).Updates(map[string]any{
 		"is_active":  false,
-		"deleted_at": time.Now().Add(-AccountRecoveryGracePeriod - 24*time.Hour),
+		"deleted_at": time.Now().Add(-shared.AccountRecoveryGracePeriod - 24*time.Hour),
 	}).Error)
 }
 

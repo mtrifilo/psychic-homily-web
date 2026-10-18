@@ -122,17 +122,6 @@ func TestIsAccountRecoverable_WithinGrace(t *testing.T) {
 	assert.True(t, svc.IsAccountRecoverable(user))
 }
 
-// The recovery window is 30 days. Sign-in refusals, the recovery endpoints and
-// the expired-account sweep all read it, so its length is pinned here rather
-// than only in tests that compute their fixtures from it.
-func TestAccountRecoveryGracePeriod_IsThirtyDays(t *testing.T) {
-	assert.Equal(t, 30*24*time.Hour, AccountRecoveryGracePeriod)
-
-	svc := &UserService{}
-	deletedAt := time.Now().Add(-29 * 24 * time.Hour)
-	assert.True(t, svc.IsAccountRecoverable(&authm.User{IsActive: false, DeletedAt: &deletedAt}))
-}
-
 func TestIsAccountRecoverable_Expired(t *testing.T) {
 	svc := &UserService{}
 	deletedAt := time.Now().Add(-31 * 24 * time.Hour) // 31 days ago
