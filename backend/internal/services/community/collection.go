@@ -574,7 +574,7 @@ func (s *CollectionService) GetBySlug(slug string, viewerID uint) (*contracts.Co
 		isSubscribed = subCount > 0
 	}
 
-	// PSY-352: caller's like state (the count is loaded above). UserLikesThis
+	// The caller's like state (the count is loaded above). UserLikesThis
 	// is always false for anonymous viewers (viewerID == 0).
 	userLikesThis := false
 	if viewerID > 0 {
@@ -1986,8 +1986,8 @@ func (s *CollectionService) Unlike(slug string, userID uint) (*contracts.Collect
 }
 
 // buildLikeResponse loads the post-mutation aggregate count and the caller's
-// like state for the given collection. PSY-352. The count counts live accounts,
-// as the detail and the listings do.
+// like state for the given collection. The count counts live accounts, as the
+// detail and the listings do.
 func (s *CollectionService) buildLikeResponse(collectionID uint, userID uint) (*contracts.CollectionLikeResponse, error) {
 	var likeCount int64
 	if err := s.db.Model(&communitym.CollectionLike{}).
@@ -3190,8 +3190,8 @@ func (s *CollectionService) batchVisibleForkSources(collections []communitym.Col
 	return publishable
 }
 
-// batchCountLikes returns live-account like counts keyed by collection ID. Live
-// COUNT — mirrors batchCountSubscribers / batchCountForks. PSY-352.
+// batchCountLikes returns live-account like counts keyed by collection ID, in
+// one grouped COUNT like batchCountSubscribers.
 func (s *CollectionService) batchCountLikes(collectionIDs []uint) map[uint]int {
 	counts := make(map[uint]int)
 	if len(collectionIDs) == 0 {
