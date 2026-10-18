@@ -111,9 +111,8 @@ func signOAuthLinkToken(secret, payload string) string {
 //
 // Every check is a refusal, and none of them tell the caller which one failed.
 func consumeOAuthLinkToken(secret, token string, userID uint) bool {
-	// Split at the LAST dot, not the first: the payload carries a
-	// percent-escaped origin, and "." is unreserved so it survives escaping.
-	// base64url has no dots, so the final one is always the separator.
+	// The payload (decimal fields and a hex nonce joined by "|") and the
+	// base64url signature hold no dot, so the last dot is the separator.
 	dot := strings.LastIndex(token, ".")
 	if dot <= 0 || dot == len(token)-1 {
 		return false
@@ -221,12 +220,12 @@ func originOfURL(raw string) string {
 //	otherwise, metadata says cross-site    -> refuse
 //	otherwise, no Origin and no Referer    -> refuse
 //
-// Referer is present on the spend because next.config.ts:203 sets
-// Referrer-Policy: strict-origin-when-cross-origin, which keeps the origin on
-// a cross-origin navigation. A stricter policy there, or a browser that strips
-// it, drops the spend to the metadata branch: a same-site deployment still
-// works, a cross-site one would not. That coupling is why the policy is named
-// here.
+// Referer is present on the spend because the site-wide headers in
+// frontend/next.config.ts set Referrer-Policy: strict-origin-when-cross-origin,
+// which keeps the origin on a cross-origin navigation. A stricter policy
+// there, or a browser that strips it, drops the spend to the metadata branch:
+// a same-site deployment still works, a cross-site one would not. That
+// coupling is why the policy is named here.
 func requestIsFromOurFrontend(r *http.Request, frontendURL string) bool {
 	if origin := requestOrigin(r); origin != "" && sameOrigin(origin, frontendURL) {
 		return true

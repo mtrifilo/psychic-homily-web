@@ -43,15 +43,16 @@ func (h *OAuthHTTPHandler) RedirectRateLimited(w http.ResponseWriter, r *http.Re
 		return
 	}
 
+	secureCookie := h.secureCookies()
 	returnTo := oauthReturnToFallback
 	switch chi.RouteContext(r.Context()).RoutePattern() {
 	case OAuthLoginRoute:
 		returnTo = sanitizeOAuthReturnTo(r.URL.Query().Get(oauthReturnToParam))
 	case OAuthCallbackRoute:
-		returnTo = takeOAuthReturnTo(w, r, h.config != nil && h.config.Session.Secure)
+		returnTo = takeOAuthReturnTo(w, r, secureCookie)
 	}
 
-	if completesPendingLink(r) {
+	if completesPendingLink(r, secureCookie) {
 		redirectToLinkResult(w, r, h.frontendURL(), OAuthRedirectRateLimitedCode)
 		return
 	}
@@ -71,9 +72,9 @@ func startsLink(r *http.Request) bool {
 
 // completesPendingLink reports whether r carries a link intent armed for its
 // own provider and state. It only reads the intent; the callback consumes it.
-func completesPendingLink(r *http.Request) bool {
-	cookie, err := r.Cookie(oauthLinkIntentCookieName)
-	if err != nil {
+func completesPendingLink(r *http.Request, secure bool) bool {
+	cookie, ok := oauthLinkIntentCookie.read(r, secure)
+	if !ok {
 		return false
 	}
 	intent, _, found := peekOAuthLinkIntent(cookie.Value)

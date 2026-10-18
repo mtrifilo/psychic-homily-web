@@ -20,7 +20,17 @@ const rateLimitedTestMessage = "Rate limit exceeded. Please try again in 60 seco
 // wrote after checking that it is a redirect.
 func refuseRecorded(t *testing.T, route, target, provider string, cookies ...*http.Cookie) *httptest.ResponseRecorder {
 	t.Helper()
-	h := NewOAuthHTTPHandler(nil, nil, &config.Config{Email: config.EmailConfig{FrontendURL: "https://psychichomily.com"}})
+	return refuseRecordedWith(t, false, route, target, provider, cookies...)
+}
+
+// refuseRecordedWith is refuseRecorded on a deployment that marks cookies
+// Secure or not.
+func refuseRecordedWith(t *testing.T, secure bool, route, target, provider string, cookies ...*http.Cookie) *httptest.ResponseRecorder {
+	t.Helper()
+	h := NewOAuthHTTPHandler(nil, nil, &config.Config{
+		Session: config.SessionConfig{Secure: secure},
+		Email:   config.EmailConfig{FrontendURL: "https://psychichomily.com"},
+	})
 	req := httptest.NewRequest(http.MethodGet, target, nil)
 	for _, c := range cookies {
 		req.AddCookie(c)
@@ -200,4 +210,38 @@ func TestRedirectRateLimitedCarriesTheCallbackDestination(t *testing.T) {
 	assertAuthPage(t, refuse(t, OAuthCallbackRoute, "/auth/callback/google?code=spent", "google", returnToCookie("//evil.example")), "")
 	assertAuthPage(t, refuse(t, OAuthCallbackRoute, "/auth/callback/google?code=spent", "google",
 		&http.Cookie{Name: oauthReturnToCookieName, Value: "not base64!"}), "")
+}
+
+// On a Secure deployment a refused callback reads the handshake cookies under
+// the names the starts set, "__Host-" prefixed, as the callback handler does.
+func TestRedirectRateLimitedReadsThePrefixedNamesWhenSecure(t *testing.T) {
+	const intentID = "rate-limit-secure-intent"
+	storeOAuthLinkIntent(intentID, oauthLinkIntent{userID: 7, provider: "google", state: "link-state"})
+	t.Cleanup(func() { consumeOAuthLinkIntent(intentID) })
+	target := "/auth/callback/google?state=link-state&code=spent"
+
+	refuseSecure := func(cookies ...*http.Cookie) (*httptest.ResponseRecorder, *url.URL) {
+		t.Helper()
+		rr := refuseRecordedWith(t, true, OAuthCallbackRoute, target, "google", cookies...)
+		loc, err := url.Parse(rr.Header().Get("Location"))
+		if err != nil {
+			t.Fatalf("Location %q does not parse: %v", rr.Header().Get("Location"), err)
+		}
+		return rr, loc
+	}
+
+	_, loc := refuseSecure(&http.Cookie{Name: oauthHostCookiePrefix + oauthLinkIntentCookieName, Value: intentID})
+	assertSettingsPage(t, loc)
+
+	// A bare intent id names nothing a Secure deployment set.
+	_, loc = refuseSecure(&http.Cookie{Name: oauthLinkIntentCookieName, Value: intentID})
+	assertAuthPage(t, loc, "")
+
+	prefixedReturnTo := returnToCookie("/shows")
+	prefixedReturnTo.Name = oauthHostCookiePrefix + oauthReturnToCookieName
+	rr, loc := refuseSecure(prefixedReturnTo)
+	assertAuthPage(t, loc, "/shows")
+	if cleared := findCookie(rr.Result(), prefixedReturnTo.Name); cleared == nil || cleared.MaxAge >= 0 || !cleared.Secure {
+		t.Errorf("want the prefixed destination cookie cleared with Secure, got %+v", cleared)
+	}
 }
