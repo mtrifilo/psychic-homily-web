@@ -25,7 +25,7 @@ import (
 	authm "psychic-homily-backend/internal/models/auth"
 	"psychic-homily-backend/internal/services/auth"
 	"psychic-homily-backend/internal/services/notification"
-	usersvc "psychic-homily-backend/internal/services/user"
+	servicesshared "psychic-homily-backend/internal/services/shared"
 	"psychic-homily-backend/internal/testutil/signupconsent"
 )
 
@@ -257,7 +257,7 @@ func (s *AuthHandlerIntegrationSuite) softDeleteUserExpired(userID uint) {
 func softDeletePastRecoveryWindow(db *gorm.DB, userID uint) error {
 	return db.Model(&authm.User{}).Where("id = ?", userID).Updates(map[string]any{
 		"is_active":  false,
-		"deleted_at": time.Now().Add(-usersvc.AccountRecoveryGracePeriod - 24*time.Hour),
+		"deleted_at": time.Now().Add(-servicesshared.AccountRecoveryGracePeriod - 24*time.Hour),
 	}).Error
 }
 
