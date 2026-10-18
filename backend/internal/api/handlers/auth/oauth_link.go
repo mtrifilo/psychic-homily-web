@@ -26,6 +26,8 @@ const oauthLinkIntentCookieName = "oauth_link_intent"
 // does not stay armed on a shared machine. Matches the signup consent cookie.
 const oauthLinkIntentTTL = 10 * time.Minute
 
+var oauthLinkIntentCookie = oauthHandshakeCookie{name: oauthLinkIntentCookieName, lifetime: oauthLinkIntentTTL}
+
 // Where every finished link attempt returns the browser, whichever page of the
 // frontend started it: Settings, which renders the result next to the control
 // that retries or undoes it. Split into path and query
@@ -131,14 +133,6 @@ const (
 	oauthLinkStateBytes    = 32
 )
 
-func (h *OAuthHTTPHandler) newLinkIntentCookie(value string, maxAge int) *http.Cookie {
-	secure := false
-	if h.config != nil {
-		secure = h.config.Session.Secure
-	}
-	return newOAuthHandshakeCookie(oauthLinkIntentCookieName, value, maxAge, secure)
-}
-
 // OAuthLinkHTTPHandler begins an OAuth link for the authenticated caller.
 //
 // It is the authenticated counterpart to OAuthLoginHTTPHandler and shares its
@@ -233,8 +227,9 @@ func (h *OAuthHTTPHandler) OAuthLinkHTTPHandler(w http.ResponseWriter, r *http.R
 			"capacity", oauthLinkIntentStore.capacity,
 		)
 	}
-	http.SetCookie(w, h.newLinkIntentCookie(intentID, int(oauthLinkIntentTTL.Seconds())))
-	clearOAuthReturnToCookie(w, r, h.config != nil && h.config.Session.Secure)
+	secureCookie := h.secureCookies()
+	oauthLinkIntentCookie.set(w, intentID, secureCookie)
+	clearOAuthReturnToCookie(w, r, secureCookie)
 
 	logger.AuthInfo(ctx, "oauth_link_started",
 		"provider", provider,
