@@ -59,6 +59,7 @@ import {
   ConsentRetryNotice,
 } from '@/app/auth/_components/consent-versions-notice'
 import { useGoogleSignupRetry } from '@/app/auth/_components/google-signup-start'
+import { useHydrated } from '@/lib/hooks/common/useHydrated'
 import {
   safeDecodeQueryParam,
   sanitizeReturnTo,
@@ -840,6 +841,9 @@ function AuthPageContent() {
   const signInTabRef = useRef<HTMLButtonElement>(null)
   // A consent arrival answering a Google sign-up start from this tab is
   // retried once instead of asking for consent the reader already gave.
+  // The hydration render cannot see whether a retry is due, so the consent
+  // controls are focused only from the render after it.
+  const hydrated = useHydrated()
   const googleSignupRetry = useGoogleSignupRetry({
     arrival,
     consentArrival: isConsentArrival && authStatus !== 'authenticated',
@@ -1014,6 +1018,7 @@ function AuthPageContent() {
                     passwordRequestDeadline={passwordSignupDeadline}
                     passkeyRequestDeadline={passkeySignupDeadline}
                     consentRequested={
+                      hydrated &&
                       showingArrivalTab &&
                       isConsentArrival &&
                       googleSignupRetry !== 'retrying'

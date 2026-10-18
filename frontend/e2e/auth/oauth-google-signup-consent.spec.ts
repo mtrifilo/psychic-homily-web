@@ -7,10 +7,10 @@ import { expect, type Request } from '@playwright/test'
 //
 // Every versions read before the first start is answered with a version no
 // backend accepts, standing in for a cached answer older than the deployed
-// backend; every later read reaches the real route. The real backend start refuses the stale
-// start, and the retried start reaches the faux provider's AuthURL
-// (example.com, see oauth-google.spec.ts), which is as far as a sign-up start
-// goes without a consent screen.
+// backend; every later read reaches the real route. The real backend start
+// refuses the stale start, and the retried start reaches the faux provider's
+// AuthURL (example.com, see oauth-google.spec.ts), which is as far as a
+// sign-up start goes without a consent screen.
 
 const STALE_TERMS_VERSION = '2000-01-01'
 
@@ -29,7 +29,10 @@ test.describe('Google sign-up consent retry', () => {
       }
       const response = await route.fetch()
       const body = await response.json()
-      await route.fulfill({ response, json: { ...body, terms_version: STALE_TERMS_VERSION } })
+      await route.fulfill({
+        response,
+        json: { ...body, terms_version: STALE_TERMS_VERSION },
+      })
     })
     const fauxRedirect = page.waitForRequest(
       request => new URL(request.url()).hostname === 'example.com',
