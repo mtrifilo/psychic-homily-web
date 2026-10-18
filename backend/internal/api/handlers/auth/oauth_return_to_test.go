@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 
@@ -93,12 +94,16 @@ func googleRequest(target string, cookies ...*http.Cookie) *http.Request {
 }
 
 func startSignIn(query string, cookies ...*http.Cookie) *http.Response {
+	return startSignInOn(NewOAuthHTTPHandler(nil, nil, nil), query, cookies...)
+}
+
+func startSignInOn(h *OAuthHTTPHandler, query string, cookies ...*http.Cookie) *http.Response {
 	target := "/auth/login/google"
 	if query != "" {
 		target += "?" + query
 	}
 	w := httptest.NewRecorder()
-	NewOAuthHTTPHandler(nil, nil, nil).OAuthLoginHTTPHandler(w, googleRequest(target, cookies...))
+	h.OAuthLoginHTTPHandler(w, googleRequest(target, cookies...))
 	return w.Result()
 }
 
@@ -125,8 +130,8 @@ func TestOAuthLogin_RecordsAnOnSiteReturnTo(t *testing.T) {
 	if cookie.Value != encodedReturnTo("/profile?tab=settings") {
 		t.Errorf("cookie value = %q, want the encoded destination", cookie.Value)
 	}
-	if cookie.MaxAge != oauthReturnToCookieMaxAge || !cookie.HttpOnly || cookie.SameSite != http.SameSiteLaxMode || cookie.Path != "/" {
-		t.Errorf("cookie attributes = %+v, want HttpOnly, Lax, path /, MaxAge %d", cookie, oauthReturnToCookieMaxAge)
+	if cookie.MaxAge != int(oauthReturnToCookie.lifetime/time.Second) || !cookie.HttpOnly || cookie.SameSite != http.SameSiteLaxMode || cookie.Path != "/" {
+		t.Errorf("cookie attributes = %+v, want HttpOnly, Lax, path /, MaxAge %d", cookie, int(oauthReturnToCookie.lifetime/time.Second))
 	}
 }
 

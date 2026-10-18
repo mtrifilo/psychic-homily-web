@@ -1,20 +1,14 @@
 package auth
 
 import (
-	"context"
 	"errors"
 	"net/http"
-	"net/http/httptest"
 	"net/url"
 	"strings"
 	"testing"
 	"time"
 
-	"github.com/go-chi/chi/v5"
-
 	"psychic-homily-backend/internal/api/handlers/shared/testhelpers"
-	"psychic-homily-backend/internal/api/middleware"
-	"psychic-homily-backend/internal/config"
 	authm "psychic-homily-backend/internal/models/auth"
 	"psychic-homily-backend/internal/services/contracts"
 )
@@ -25,30 +19,14 @@ const handshakeTestSecret = "handshake-test-secret-at-least-32-characters"
 // so a callback runs every cookie read and clear and then redirects, with
 // cookies marked Secure or not.
 func handshakeCookieHandler(secure bool) *OAuthHTTPHandler {
-	authService := &testhelpers.MockAuthService{
-		OAuthCallbackWithConsentFn: func(
-			http.ResponseWriter, *http.Request, string, *contracts.OAuthSignupConsent,
-		) (*authm.User, string, error) {
-			return nil, "", errors.New("provider refused")
-		},
-	}
-	return NewOAuthHTTPHandler(authService, nil, &config.Config{
-		JWT:     config.JWTConfig{SecretKey: handshakeTestSecret},
-		Session: config.SessionConfig{Path: "/", HttpOnly: true, SameSite: "lax", Secure: secure},
-		Email:   config.EmailConfig{FrontendURL: testFrontendOrigin},
-	})
+	h := failingCallbackHandler(errors.New("provider refused"))
+	h.config.JWT.SecretKey = handshakeTestSecret
+	h.config.Session.Secure = secure
+	h.config.Email.FrontendURL = testFrontendOrigin
+	return h
 }
 
-// handshakeCallback runs the callback with cookies on the request and returns
-// the response.
-func handshakeCallback(h *OAuthHTTPHandler, target string, cookies ...*http.Cookie) *http.Response {
-	w := httptest.NewRecorder()
-	h.OAuthCallbackHTTPHandler(w, googleRequest(target, cookies...))
-	return w.Result()
-}
-
-// startLinkFromSettings runs a link start that passes every gate, the way one
-// arrives from Settings.
+// startLinkFromSettings runs a link start that passes every gate.
 func startLinkFromSettings(t *testing.T, h *OAuthHTTPHandler) *http.Response {
 	t.Helper()
 	user := &authm.User{ID: 7}
@@ -56,82 +34,36 @@ func startLinkFromSettings(t *testing.T, h *OAuthHTTPHandler) *http.Response {
 	if err != nil {
 		t.Fatalf("mintOAuthLinkToken: %v", err)
 	}
-	req := httptest.NewRequest("GET", "/auth/link/google?"+url.Values{oauthLinkTokenParam: {token}}.Encode(), nil)
-	req.Header.Set("Sec-Fetch-Site", "same-origin")
-	req.Header.Set("Origin", testFrontendOrigin)
-	ctx := testhelpers.CtxWithUser(user)
-	ctx = context.WithValue(ctx, middleware.SessionAuthTimeContextKey, time.Now())
-	rctx := chi.NewRouteContext()
-	rctx.URLParams.Add("provider", "google")
-	ctx = context.WithValue(ctx, chi.RouteCtxKey, rctx)
-
-	w := httptest.NewRecorder()
-	h.OAuthLinkHTTPHandler(w, req.WithContext(ctx))
+	w, req := newLinkStartRequest("google", user, time.Now())
+	req.URL.RawQuery = url.Values{oauthLinkTokenParam: {token}}.Encode()
+	h.OAuthLinkHTTPHandler(w, req)
 	return w.Result()
 }
 
-func startSignInWith(h *OAuthHTTPHandler, query string) *http.Response {
-	w := httptest.NewRecorder()
-	h.OAuthLoginHTTPHandler(w, googleRequest("/auth/login/google?"+query))
-	return w.Result()
+// handshakeCookieCase is one of the four handshake cookies, with the start
+// that sets it. The callback clears every one of them; beforeClear arranges
+// the state that makes it do so.
+type handshakeCookieCase struct {
+	cookie      oauthHandshakeCookie
+	set         func(t *testing.T, h *OAuthHTTPHandler) *http.Response
+	beforeClear func(sent *http.Cookie)
 }
 
-// handshakeCookieCases are the four cookies that carry state from an OAuth
-// start to its callback, each with the start that sets it and the callback
-// that clears it.
-func handshakeCookieCases() []struct {
-	name   string
-	maxAge int
-	set    func(t *testing.T, h *OAuthHTTPHandler) *http.Response
-	clear  func(h *OAuthHTTPHandler, sent *http.Cookie) *http.Response
-} {
+func handshakeCookieCases() []handshakeCookieCase {
 	signUp := "signup_intent=1&terms_accepted=true&age_confirmed=true&min_age_attested=16&" + currentConsentVersionsQuery
-	return []struct {
-		name   string
-		maxAge int
-		set    func(t *testing.T, h *OAuthHTTPHandler) *http.Response
-		clear  func(h *OAuthHTTPHandler, sent *http.Cookie) *http.Response
-	}{
+	startSignInWith := func(query string) func(*testing.T, *OAuthHTTPHandler) *http.Response {
+		return func(_ *testing.T, h *OAuthHTTPHandler) *http.Response { return startSignInOn(h, query) }
+	}
+	return []handshakeCookieCase{
+		{cookie: oauthSignupConsentCookie, set: startSignInWith(signUp)},
+		{cookie: cliCallbackIDCookie, set: startSignInWith("cli_callback=" + url.QueryEscape("http://localhost:8888/cb"))},
+		{cookie: oauthReturnToCookie, set: startSignInWith("returnTo=" + url.QueryEscape("/shows"))},
 		{
-			name:   oauthSignupConsentCookieName,
-			maxAge: oauthSignupConsentCookieMaxAge,
-			set: func(_ *testing.T, h *OAuthHTTPHandler) *http.Response {
-				return startSignInWith(h, signUp)
-			},
-			clear: func(h *OAuthHTTPHandler, sent *http.Cookie) *http.Response {
-				return handshakeCallback(h, "/auth/callback/google", sent)
-			},
-		},
-		{
-			name:   cliCallbackIDCookieName,
-			maxAge: int(cliCallbackTTL / time.Second),
-			set: func(_ *testing.T, h *OAuthHTTPHandler) *http.Response {
-				return startSignInWith(h, "cli_callback="+url.QueryEscape("http://localhost:8888/cb"))
-			},
-			clear: func(h *OAuthHTTPHandler, sent *http.Cookie) *http.Response {
-				return handshakeCallback(h, "/auth/callback/google", sent)
-			},
-		},
-		{
-			name:   oauthReturnToCookieName,
-			maxAge: oauthReturnToCookieMaxAge,
-			set: func(_ *testing.T, h *OAuthHTTPHandler) *http.Response {
-				return startSignInWith(h, "returnTo="+url.QueryEscape("/shows"))
-			},
-			clear: func(h *OAuthHTTPHandler, sent *http.Cookie) *http.Response {
-				return handshakeCallback(h, "/auth/callback/google", sent)
-			},
-		},
-		{
-			name:   oauthLinkIntentCookieName,
-			maxAge: int(oauthLinkIntentTTL / time.Second),
+			cookie: oauthLinkIntentCookie,
 			set:    startLinkFromSettings,
-			clear: func(h *OAuthHTTPHandler, sent *http.Cookie) *http.Response {
-				// An intent this process no longer holds is the callback branch
-				// that clears without completing a link.
-				consumeOAuthLinkIntent(sent.Value)
-				return handshakeCallback(h, "/auth/callback/google", sent)
-			},
+			// An intent this process no longer holds is the callback branch
+			// that clears without completing a link.
+			beforeClear: func(sent *http.Cookie) { consumeOAuthLinkIntent(sent.Value) },
 		},
 	}
 }
@@ -141,20 +73,18 @@ func handshakeCookieCases() []struct {
 // "__Host-" prefix to.
 func assertHandshakeCookie(t *testing.T, resp *http.Response, wantName string, secure bool) *http.Cookie {
 	t.Helper()
-	var raw string
+	var matches []string
 	for _, header := range resp.Header.Values("Set-Cookie") {
 		if strings.HasPrefix(header, wantName+"=") {
-			if raw != "" {
-				t.Fatalf("%s is written twice: %q and %q", wantName, raw, header)
-			}
-			raw = header
+			matches = append(matches, header)
 		}
 	}
-	if raw == "" {
-		t.Fatalf("no Set-Cookie for %s in %q", wantName, resp.Header.Values("Set-Cookie"))
+	if len(matches) != 1 {
+		t.Fatalf("want one Set-Cookie for %s, got %q", wantName, resp.Header.Values("Set-Cookie"))
 	}
+	raw := matches[0]
 	cookie := findCookie(resp, wantName)
-	if cookie.Path != "/" || cookie.Domain != "" || strings.Contains(strings.ToLower(raw), "domain=") {
+	if cookie.Path != "/" || cookie.Domain != "" {
 		t.Errorf("%s: want Path=/ and no Domain, got %q", wantName, raw)
 	}
 	if !cookie.HttpOnly {
@@ -177,28 +107,42 @@ func TestOAuthHandshakeCookies_SetAndClearCarryTheSameAttributes(t *testing.T) {
 
 	for _, secure := range []bool{false, true} {
 		for _, tc := range handshakeCookieCases() {
-			wantName := tc.name
+			wantName := tc.cookie.name
 			if secure {
-				wantName = oauthHostCookiePrefix + tc.name
+				wantName = oauthHostCookiePrefix + tc.cookie.name
 			}
 			t.Run(wantName, func(t *testing.T) {
 				h := handshakeCookieHandler(secure)
 
 				setResp := tc.set(t, h)
 				set := assertHandshakeCookie(t, setResp, wantName, secure)
-				if set.Value == "" || set.MaxAge != tc.maxAge {
-					t.Errorf("set: want a value and Max-Age %d, got value %q Max-Age %d", tc.maxAge, set.Value, set.MaxAge)
+				if wantMaxAge := int(tc.cookie.lifetime / time.Second); set.Value == "" || set.MaxAge != wantMaxAge {
+					t.Errorf("set: want a value and Max-Age %d, got value %q Max-Age %d", wantMaxAge, set.Value, set.MaxAge)
 				}
-				if secure && findCookie(setResp, tc.name) != nil {
-					t.Errorf("set: a Secure deployment also wrote the bare name %s", tc.name)
+				if secure && findCookie(setResp, tc.cookie.name) != nil {
+					t.Errorf("set: a Secure deployment also wrote the bare name %s", tc.cookie.name)
 				}
 
-				clearResp := tc.clear(h, &http.Cookie{Name: set.Name, Value: set.Value})
+				sent := &http.Cookie{Name: set.Name, Value: set.Value}
+				if tc.beforeClear != nil {
+					tc.beforeClear(sent)
+				}
+				clearResp, _ := runCallback(t, h, "/auth/callback/google", sent)
 				cleared := assertHandshakeCookie(t, clearResp, wantName, secure)
 				if cleared.Value != "" || cleared.MaxAge >= 0 {
 					t.Errorf("clear: want an empty value and an expired Max-Age, got value %q Max-Age %d", cleared.Value, cleared.MaxAge)
 				}
 			})
+		}
+	}
+}
+
+// The rollover read of the bare name lasts as long as oauthHandshakeCookieMaxLifetime,
+// so no handshake cookie may outlive it.
+func TestOAuthHandshakeCookies_LifetimesFitTheRolloverWindow(t *testing.T) {
+	for _, tc := range handshakeCookieCases() {
+		if tc.cookie.lifetime <= 0 || tc.cookie.lifetime > oauthHandshakeCookieMaxLifetime {
+			t.Errorf("%s lives %v, want (0, %v]", tc.cookie.name, tc.cookie.lifetime, oauthHandshakeCookieMaxLifetime)
 		}
 	}
 }
@@ -214,11 +158,11 @@ func TestOAuthHandshakeCookies_SecureCallbackReadsAndClearsTheBareName(t *testin
 			t.Fatal(err)
 		}
 		storeCLICallback(callbackID, "http://localhost:8888/cb")
-		h := handshakeCookieHandler(true)
 
-		resp := handshakeCallback(h, "/auth/callback/google", &http.Cookie{Name: cliCallbackIDCookieName, Value: callbackID})
+		resp, loc := runCallback(t, handshakeCookieHandler(true), "/auth/callback/google",
+			&http.Cookie{Name: cliCallbackIDCookieName, Value: callbackID})
 
-		if loc := resp.Header.Get("Location"); !strings.HasPrefix(loc, "http://localhost:8888/cb?") {
+		if !strings.HasPrefix(loc, "http://localhost:8888/cb?") {
 			t.Errorf("want the stored loopback destination, got %q", loc)
 		}
 		assertHandshakeCookie(t, resp, cliCallbackIDCookieName, true)
@@ -240,7 +184,7 @@ func TestOAuthHandshakeCookies_SecureCallbackReadsAndClearsTheBareName(t *testin
 			},
 		}
 
-		resp := handshakeCallback(h, "/auth/callback/google", &http.Cookie{Name: oauthSignupConsentCookieName, Value: encoded})
+		resp, _ := runCallback(t, h, "/auth/callback/google", &http.Cookie{Name: oauthSignupConsentCookieName, Value: encoded})
 
 		if received == nil || !received.TermsAccepted {
 			t.Errorf("want the consent the bare cookie carried, got %+v", received)
@@ -249,12 +193,11 @@ func TestOAuthHandshakeCookies_SecureCallbackReadsAndClearsTheBareName(t *testin
 	})
 
 	t.Run(oauthReturnToCookieName, func(t *testing.T) {
-		resp := handshakeCallback(handshakeCookieHandler(true), "/auth/callback/google",
+		resp, loc := runCallback(t, handshakeCookieHandler(true), "/auth/callback/google",
 			&http.Cookie{Name: oauthReturnToCookieName, Value: encodedReturnTo("/shows")})
 
-		loc, err := url.Parse(resp.Header.Get("Location"))
-		if err != nil || loc.Query().Get(oauthReturnToParam) != "/shows" {
-			t.Errorf("want the bare cookie's destination on the refusal, got %q", resp.Header.Get("Location"))
+		if parsed, err := url.Parse(loc); err != nil || parsed.Query().Get(oauthReturnToParam) != "/shows" {
+			t.Errorf("want the bare cookie's destination on the refusal, got %q", loc)
 		}
 		assertHandshakeCookie(t, resp, oauthReturnToCookieName, true)
 	})
@@ -277,20 +220,20 @@ func TestOAuthHandshakeCookies_SecureCallbackReadsAndClearsTheBareName(t *testin
 		}
 
 		consumeOAuthLinkIntent(set.Value)
-		assertHandshakeCookie(t, handshakeCallback(h, "/auth/callback/google", bare), oauthLinkIntentCookieName, true)
+		resp, _ := runCallback(t, h, "/auth/callback/google", bare)
+		assertHandshakeCookie(t, resp, oauthLinkIntentCookieName, true)
 	})
 }
 
 // A request carrying both names is read under the prefixed one, which a
 // sibling subdomain cannot plant, and loses both.
 func TestOAuthHandshakeCookies_PrefixedNameWinsAndBothAreCleared(t *testing.T) {
-	resp := handshakeCallback(handshakeCookieHandler(true), "/auth/callback/google",
+	resp, loc := runCallback(t, handshakeCookieHandler(true), "/auth/callback/google",
 		&http.Cookie{Name: oauthReturnToCookieName, Value: encodedReturnTo("/shows")},
 		&http.Cookie{Name: oauthHostCookiePrefix + oauthReturnToCookieName, Value: encodedReturnTo("/library")})
 
-	loc, err := url.Parse(resp.Header.Get("Location"))
-	if err != nil || loc.Query().Get(oauthReturnToParam) != "/library" {
-		t.Errorf("want the prefixed cookie's destination, got %q", resp.Header.Get("Location"))
+	if parsed, err := url.Parse(loc); err != nil || parsed.Query().Get(oauthReturnToParam) != "/library" {
+		t.Errorf("want the prefixed cookie's destination, got %q", loc)
 	}
 	assertHandshakeCookie(t, resp, oauthHostCookiePrefix+oauthReturnToCookieName, true)
 	assertHandshakeCookie(t, resp, oauthReturnToCookieName, true)
@@ -301,9 +244,9 @@ func TestOAuthHandshakeCookies_PrefixedNameWinsAndBothAreCleared(t *testing.T) {
 func TestOAuthHandshakeCookies_InsecureDeploymentIgnoresThePrefixedName(t *testing.T) {
 	prefixed := &http.Cookie{Name: oauthHostCookiePrefix + oauthReturnToCookieName, Value: encodedReturnTo("/library")}
 
-	resp := handshakeCallback(handshakeCookieHandler(false), "/auth/callback/google", prefixed)
+	resp, loc := runCallback(t, handshakeCookieHandler(false), "/auth/callback/google", prefixed)
 
-	if loc := resp.Header.Get("Location"); strings.Contains(loc, oauthReturnToParam+"=") {
+	if strings.Contains(loc, oauthReturnToParam+"=") {
 		t.Errorf("want no destination from the prefixed name, got %q", loc)
 	}
 	if findCookie(resp, prefixed.Name) != nil {

@@ -1,6 +1,9 @@
 package auth
 
-import "net/http"
+import (
+	"net/http"
+	"time"
+)
 
 // oauthHostCookiePrefix binds a cookie to the host that set it: a browser
 // stores a "__Host-" cookie only when it is Secure, has Path "/" and names no
@@ -9,57 +12,78 @@ import "net/http"
 // Secure, and local development over plain http keeps the bare name.
 const oauthHostCookiePrefix = "__Host-"
 
-// oauthHandshakeCookieNames are the names a request may carry the handshake
-// cookie name under, in the order they are read: the name this deployment
-// sets first.
+// oauthHandshakeCookieMaxLifetime bounds every oauthHandshakeCookie's
+// lifetime, and so how long a browser can hold one a previous deploy set.
+const oauthHandshakeCookieMaxLifetime = 10 * time.Minute
+
+// oauthHandshakeCookie is a cookie that carries state from an OAuth start to
+// its callback: host-only, script-inaccessible, sent on the provider's
+// redirect back, and gone after lifetime. Its methods are the only code that
+// writes or reads one, so every set and clear carries the same attributes.
+type oauthHandshakeCookie struct {
+	name     string
+	lifetime time.Duration
+}
+
+// setName is the name this deployment sets the cookie under.
+func (c oauthHandshakeCookie) setName(secure bool) string {
+	if secure {
+		return oauthHostCookiePrefix + c.name
+	}
+	return c.name
+}
+
+// readNames are the names a request may carry the cookie under, in the order
+// they are read.
 //
 // The bare name after the prefixed one is the rollover read: a browser that
 // started a handshake before the prefix was deployed still carries the bare
-// name for up to one cookie lifetime (600 s at most). Remove that entry on or
+// name for up to oauthHandshakeCookieMaxLifetime. Remove that entry on or
 // after 2026-10-24, once a production deploy that sets the prefixed names has
-// been live for longer than that lifetime.
-func oauthHandshakeCookieNames(name string, secure bool) []string {
+// been live for longer than that.
+func (c oauthHandshakeCookie) readNames(secure bool) []string {
 	if !secure {
-		return []string{name}
+		return []string{c.name}
 	}
-	return []string{oauthHostCookiePrefix + name, name}
+	return []string{c.setName(true), c.name}
 }
 
-// setOAuthHandshakeCookie writes a cookie that carries state from an OAuth
-// start to its callback, under the name this deployment sets.
-func setOAuthHandshakeCookie(w http.ResponseWriter, name, value string, maxAge int, secure bool) {
-	http.SetCookie(w, newOAuthHandshakeCookie(oauthHandshakeCookieNames(name, secure)[0], value, maxAge, secure))
+func (c oauthHandshakeCookie) set(w http.ResponseWriter, value string, secure bool) {
+	http.SetCookie(w, newOAuthHandshakeCookie(c.setName(secure), value, int(c.lifetime/time.Second), secure))
 }
 
-// readOAuthHandshakeCookie returns the handshake cookie name the request
-// carries, under the first of oauthHandshakeCookieNames it is found under.
-func readOAuthHandshakeCookie(r *http.Request, name string, secure bool) (*http.Cookie, bool) {
-	for _, candidate := range oauthHandshakeCookieNames(name, secure) {
-		if cookie, err := r.Cookie(candidate); err == nil {
+// read returns the cookie under the first of readNames the request carries.
+func (c oauthHandshakeCookie) read(r *http.Request, secure bool) (*http.Cookie, bool) {
+	for _, name := range c.readNames(secure) {
+		if cookie, err := r.Cookie(name); err == nil {
 			return cookie, true
 		}
 	}
 	return nil, false
 }
 
-// clearOAuthHandshakeCookie expires the handshake cookie name under every name
-// the request carries it under, so a value under a name the reader would fall
-// back to cannot outlive the one that was read.
-func clearOAuthHandshakeCookie(w http.ResponseWriter, r *http.Request, name string, secure bool) {
-	for _, candidate := range oauthHandshakeCookieNames(name, secure) {
-		if _, err := r.Cookie(candidate); err == nil {
-			http.SetCookie(w, newOAuthHandshakeCookie(candidate, "", -1, secure))
+// clear expires the cookie under every name the request carries it under, so
+// a value under a name read would fall back to cannot outlive the one read.
+func (c oauthHandshakeCookie) clear(w http.ResponseWriter, r *http.Request, secure bool) {
+	for _, name := range c.readNames(secure) {
+		if _, err := r.Cookie(name); err == nil {
+			http.SetCookie(w, newOAuthHandshakeCookie(name, "", -1, secure))
 		}
 	}
 }
 
-// newOAuthHandshakeCookie builds a handshake cookie under exactly setName:
-// host-only, script-inaccessible, and sent on the provider's redirect back.
-// Every set and every clear goes through it, so a clear matches the cookie it
-// expires in name, path and attributes.
-func newOAuthHandshakeCookie(setName, value string, maxAge int, secure bool) *http.Cookie {
+// take reads a single-use cookie and clears it.
+func (c oauthHandshakeCookie) take(w http.ResponseWriter, r *http.Request, secure bool) (*http.Cookie, bool) {
+	cookie, ok := c.read(r, secure)
+	if ok {
+		c.clear(w, r, secure)
+	}
+	return cookie, ok
+}
+
+func newOAuthHandshakeCookie(name, value string, maxAge int, secure bool) *http.Cookie {
 	return &http.Cookie{
-		Name:     setName,
+		Name:     name,
 		Value:    value,
 		Path:     "/",
 		MaxAge:   maxAge,

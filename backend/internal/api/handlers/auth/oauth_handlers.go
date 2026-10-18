@@ -29,14 +29,21 @@ import (
 // the callback, which records it on the account the callback creates.
 const oauthSignupConsentCookieName = "oauth_signup_consent"
 
-// oauthSignupConsentCookieMaxAge bounds the consent cookie to one OAuth round
-// trip, a consent screen and a second factor at the provider included.
-const oauthSignupConsentCookieMaxAge = 600
+// oauthSignupConsentCookieLifetime bounds the consent cookie to one OAuth
+// round trip, a consent screen and a second factor at the provider included.
+const oauthSignupConsentCookieLifetime = 10 * time.Minute
+
+var oauthSignupConsentCookie = oauthHandshakeCookie{
+	name:     oauthSignupConsentCookieName,
+	lifetime: oauthSignupConsentCookieLifetime,
+}
 
 // cliCallbackIDCookieName holds the id of the loopback destination a CLI
 // sign-in stored in cliCallbackStore; the destination itself never leaves the
-// server.
+// server. The cookie lives exactly as long as the stored destination.
 const cliCallbackIDCookieName = "cli_callback_id"
+
+var cliCallbackIDCookie = oauthHandshakeCookie{name: cliCallbackIDCookieName, lifetime: cliCallbackTTL}
 
 // gothOAuthProviders are the providers reachable through the chi goth
 // handshake: sign-in, link, and unlink all admit the same set.
@@ -224,7 +231,7 @@ func (h *OAuthHTTPHandler) OAuthLoginHTTPHandler(w http.ResponseWriter, r *http.
 			return
 		}
 
-		setOAuthHandshakeCookie(w, oauthSignupConsentCookieName, encodedConsent, oauthSignupConsentCookieMaxAge, secureCookie)
+		oauthSignupConsentCookie.set(w, encodedConsent, secureCookie)
 	}
 
 	// Check for CLI callback parameter
@@ -262,7 +269,7 @@ func (h *OAuthHTTPHandler) OAuthLoginHTTPHandler(w http.ResponseWriter, r *http.
 		}
 
 		// Store only the ID in a cookie (not the full URL)
-		setOAuthHandshakeCookie(w, cliCallbackIDCookieName, callbackID, int(cliCallbackTTL/time.Second), secureCookie)
+		cliCallbackIDCookie.set(w, callbackID, secureCookie)
 		// callbackID is the cli_callback_id cookie value: the correlation key
 		// that gates the token-bearing redirect, so it is never logged.
 		logger.AuthDebug(ctx, "oauth_cli_callback_stored", "callback", cliCallback)
@@ -335,7 +342,7 @@ func (h *OAuthHTTPHandler) OAuthCallbackHTTPHandler(w http.ResponseWriter, r *ht
 
 	// Check for CLI callback via cookie ID + memory store
 	var cliCallback string
-	if cookie, ok := readOAuthHandshakeCookie(r, cliCallbackIDCookieName, secureCookie); ok {
+	if cookie, ok := cliCallbackIDCookie.take(w, r, secureCookie); ok {
 		callbackID := cookie.Value
 		if callback, ok := takeCLICallback(callbackID); ok {
 			// Defense in depth: re-validate the stored callback before we
@@ -354,12 +361,12 @@ func (h *OAuthHTTPHandler) OAuthCallbackHTTPHandler(w http.ResponseWriter, r *ht
 				)
 			}
 		}
-		clearOAuthHandshakeCookie(w, r, cliCallbackIDCookieName, secureCookie)
 	}
 
 	// Read signup consent captured during OAuth initiation (if present).
 	var signupConsent *contracts.OAuthSignupConsent
-	if cookie, ok := readOAuthHandshakeCookie(r, oauthSignupConsentCookieName, secureCookie); ok {
+	// The consent cookie is single use: take clears it whatever it holds.
+	if cookie, ok := oauthSignupConsentCookie.take(w, r, secureCookie); ok {
 		consent, decodeErr := decodeOAuthSignupConsent(cookie.Value)
 		if decodeErr != nil {
 			logger.AuthWarn(ctx, "oauth_signup_consent_cookie_decode_failed",
@@ -369,9 +376,6 @@ func (h *OAuthHTTPHandler) OAuthCallbackHTTPHandler(w http.ResponseWriter, r *ht
 		} else {
 			signupConsent = consent
 		}
-
-		// Always clear the one-time consent cookie.
-		clearOAuthHandshakeCookie(w, r, oauthSignupConsentCookieName, secureCookie)
 	}
 
 	// Read from the cookie the start set, never from this request's query:
@@ -402,7 +406,7 @@ func (h *OAuthHTTPHandler) OAuthCallbackHTTPHandler(w http.ResponseWriter, r *ht
 	// normally still carries the cookie, and burning their intent to refuse a
 	// sign-in they did ask for would strand them on Settings with no session.
 	// An intent that does not match is simply not about this callback.
-	if cookie, ok := readOAuthHandshakeCookie(r, oauthLinkIntentCookieName, secureCookie); ok {
+	if cookie, ok := oauthLinkIntentCookie.read(r, secureCookie); ok {
 		intent, expired, found := peekOAuthLinkIntent(cookie.Value)
 		matchesThisHandshake := found && intent.isForHandshake(provider, r.URL.Query().Get("state"))
 
@@ -410,14 +414,14 @@ func (h *OAuthHTTPHandler) OAuthCallbackHTTPHandler(w http.ResponseWriter, r *ht
 		case matchesThisHandshake && expired:
 			// Their link, and they ran out of time. Say so.
 			consumeOAuthLinkIntent(cookie.Value)
-			clearOAuthHandshakeCookie(w, r, oauthLinkIntentCookieName, secureCookie)
+			oauthLinkIntentCookie.clear(w, r, secureCookie)
 			logger.AuthWarn(ctx, "oauth_link_intent_expired", "provider", provider)
 			redirectToLinkResult(w, r, frontendURL, autherrors.CodeOAuthLinkExpired)
 			return
 
 		case matchesThisHandshake:
 			consumeOAuthLinkIntent(cookie.Value)
-			clearOAuthHandshakeCookie(w, r, oauthLinkIntentCookieName, secureCookie)
+			oauthLinkIntentCookie.clear(w, r, secureCookie)
 			h.completeOAuthLink(w, r, provider, &intent, frontendURL)
 			return
 
@@ -427,7 +431,7 @@ func (h *OAuthHTTPHandler) OAuthCallbackHTTPHandler(w http.ResponseWriter, r *ht
 			// rather than a sign-in, and refusing would strand an ordinary
 			// sign-in on a page it did not ask for. Clear the cookie so it
 			// cannot confuse the next callback, and carry on.
-			clearOAuthHandshakeCookie(w, r, oauthLinkIntentCookieName, secureCookie)
+			oauthLinkIntentCookie.clear(w, r, secureCookie)
 			logger.AuthDebug(ctx, "oauth_callback_link_intent_unknown", "provider", provider)
 
 		default:
