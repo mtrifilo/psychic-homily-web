@@ -290,7 +290,7 @@ func (h *PasskeyHandler) FinishRegisterHandler(ctx context.Context, input *Finis
 
 	credential, err := h.webauthnService.FinishRegistration(contextUser, session, parsedResponse, passkeyName(input.Body.DisplayName))
 	if err != nil {
-		if refusal, ok := passkeyRefusal(err, autherrors.CodeValidationFailed); ok {
+		if refusal, ok := passkeyRefusal(err, autherrors.CodeValidationFailed, autherrors.CodeAccountInactive); ok {
 			logger.AuthWarn(ctx, "passkey_register_refused",
 				"user_id", contextUser.ID,
 				"error_code", refusal.Code,

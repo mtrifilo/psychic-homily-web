@@ -72,6 +72,8 @@ func TestPasskeyWire_RegisterFinishRegistrationErrors(t *testing.T) {
 		want wireOutcome
 	}{
 		{"registration refused", errRegistrationRefused, wireOutcome{http.StatusOK, autherrors.CodeValidationFailed, "Invalid credential response"}},
+		{"account may not sign in", autherrors.ErrAccountInactive(),
+			wireOutcome{http.StatusOK, autherrors.CodeAccountInactive, autherrors.ErrAccountInactive().UserMessage()}},
 		{"credential cannot be stored", errStepFailed, unavailable},
 		{"unrouted refusal code", errUnroutedRefusal, unavailable},
 	}
