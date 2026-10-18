@@ -824,7 +824,7 @@ type MockCollectionService struct {
 	GetUserCollectionsContainingEntityFn func(uint, string, uint) ([]contracts.ContainingCollectionItem, error)
 	GetEntityCollectionsFn               func(string, uint, uint, int) ([]*contracts.CollectionListResponse, error)
 	GetUserPublicCollectionsFn           func(uint, int, int) ([]*contracts.CollectionListResponse, int64, error)
-	GetUserPublicCollectionsByUsernameFn func(string, int, int) ([]*contracts.CollectionListResponse, int64, error)
+	GetUserPublicCollectionsByUsernameFn func(string, contracts.ShowViewer, int, int) ([]*contracts.CollectionListResponse, int64, error)
 	SetFeaturedFn                        func(string, bool, uint) (uint, error)
 	AddTagToCollectionFn                 func(string, uint, *contracts.AddCollectionTagRequest) (*contracts.AddCollectionTagResponse, uint, error)
 	RemoveTagFromCollectionFn            func(string, uint, uint) (uint, error)
@@ -969,9 +969,9 @@ func (m *MockCollectionService) GetUserPublicCollections(userID uint, limit int,
 	}
 	return nil, 0, nil
 }
-func (m *MockCollectionService) GetUserPublicCollectionsByUsername(username string, limit int, offset int) ([]*contracts.CollectionListResponse, int64, error) {
+func (m *MockCollectionService) GetUserPublicCollectionsByUsername(username string, viewer contracts.ShowViewer, limit int, offset int) ([]*contracts.CollectionListResponse, int64, error) {
 	if m.GetUserPublicCollectionsByUsernameFn != nil {
-		return m.GetUserPublicCollectionsByUsernameFn(username, limit, offset)
+		return m.GetUserPublicCollectionsByUsernameFn(username, viewer, limit, offset)
 	}
 	return nil, 0, nil
 }
