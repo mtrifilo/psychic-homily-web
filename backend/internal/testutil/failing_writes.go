@@ -82,6 +82,25 @@ func UnavailableDB(t *testing.T) *gorm.DB {
 // needs no running database.
 func UnansweringDB(t *testing.T) *gorm.DB {
 	t.Helper()
+	conn, err := sql.Open("pgx", UnansweringDSN(t))
+	if err != nil {
+		t.Fatalf("open unanswering database: %v", err)
+	}
+	t.Cleanup(func() { _ = conn.Close() })
+	db, err := gorm.Open(postgres.New(postgres.Config{Conn: conn}), &gorm.Config{DisableAutomaticPing: true})
+	if err != nil {
+		t.Fatalf("wrap unanswering database: %v", err)
+	}
+	return db
+}
+
+// UnansweringDSN returns a keyword/value Postgres DSN for a local listener
+// that accepts connections and never writes to them, as a database server
+// that stopped answering does. Every connection attempt waits until its
+// context or connect timeout ends. The listener and every connection it
+// accepted close when the test ends.
+func UnansweringDSN(t *testing.T) string {
+	t.Helper()
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatalf("listen for unanswering database: %v", err)
@@ -100,14 +119,7 @@ func UnansweringDB(t *testing.T) *gorm.DB {
 			mu.Unlock()
 		}
 	}()
-
-	port := strconv.Itoa(ln.Addr().(*net.TCPAddr).Port)
-	conn, err := sql.Open("pgx", "host=127.0.0.1 port="+port+" user=nobody dbname=nothing sslmode=disable")
-	if err != nil {
-		t.Fatalf("open unanswering database: %v", err)
-	}
 	t.Cleanup(func() {
-		_ = conn.Close()
 		_ = ln.Close()
 		mu.Lock()
 		defer mu.Unlock()
@@ -115,9 +127,7 @@ func UnansweringDB(t *testing.T) *gorm.DB {
 			_ = c.Close()
 		}
 	})
-	db, err := gorm.Open(postgres.New(postgres.Config{Conn: conn}), &gorm.Config{DisableAutomaticPing: true})
-	if err != nil {
-		t.Fatalf("wrap unanswering database: %v", err)
-	}
-	return db
+
+	port := strconv.Itoa(ln.Addr().(*net.TCPAddr).Port)
+	return "host=127.0.0.1 port=" + port + " user=nobody dbname=nothing sslmode=disable"
 }
