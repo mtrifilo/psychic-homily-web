@@ -204,6 +204,58 @@ describe('sign-up deadlines on /auth', () => {
     })
   })
 
+  describe('a registration that settles after a passkey sign-up completed', () => {
+    const PROMPT = { name: 'Add a backup sign-in method' }
+    const FINISH_OK = {
+      json: async () => ({
+        success: true,
+        user: { id: 200, email: 'passkey@example.com', email_verified: false },
+      }),
+    }
+
+    async function completePasskeyBehind(register: (url: string, init?: RequestInit) => unknown) {
+      routeFetch({
+        '/auth/register': register,
+        '/auth/passkey/signup/begin': () => Promise.resolve(BEGIN_OK),
+        '/auth/passkey/signup/finish': () => Promise.resolve(FINISH_OK),
+      })
+      mockStartRegistration.mockResolvedValue({ id: 'credential-id' })
+      const user = setupUser()
+      renderWithProviders(<AuthPage />)
+
+      await submitPasswordSignup(user)
+      await startPasskeySignup(user)
+      expect(await screen.findByRole('dialog', PROMPT)).toBeInTheDocument()
+      act(() => {
+        authStore.set('authenticated')
+      })
+    }
+
+    it('leaves the backup prompt when the registration then fails on its deadline', async () => {
+      await completePasskeyBehind(stalledRequest)
+
+      await advanceFakeTime(SIGNUP_REQUEST_TIMEOUT_MS * 2)
+
+      expect(signalOf('/auth/register').aborted).toBe(true)
+      expect(screen.getByRole('dialog', PROMPT)).toBeInTheDocument()
+      expect(mockPush).not.toHaveBeenCalled()
+    })
+
+    it('leaves the backup prompt when the registration then succeeds', async () => {
+      const register = deferred<Response>()
+      await completePasskeyBehind(() => register.promise)
+
+      await act(async () => {
+        register.resolve(jsonResponse(REGISTERED))
+      })
+      await advanceFakeTime(1_000)
+
+      expect(screen.getByRole('dialog', PROMPT)).toBeInTheDocument()
+      expect(screen.queryByRole('heading', { name: 'Check your inbox.' })).toBeNull()
+      expect(mockPush).not.toHaveBeenCalled()
+    })
+  })
+
   describe('a registration answered before its profile refetch lands', () => {
     // The register request answers 5 s after the submit; the profile refetch
     // `useRegister` awaits after it is still out a second past the 30 s mark.

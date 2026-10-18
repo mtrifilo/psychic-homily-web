@@ -1,6 +1,14 @@
 'use client'
 
-import { Suspense, useCallback, useEffect, useRef, useState } from 'react'
+import {
+  Suspense,
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type Dispatch,
+  type SetStateAction,
+} from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import { useForm } from '@tanstack/react-form'
@@ -349,9 +357,10 @@ interface SignupFormProps {
    * Reports the signup tab's claim on the page, for both the password form and
    * the passkey button. The page swaps in what follows the sign-up rather than
    * navigating, so the address never has to travel through the URL. `null`
-   * releases the claim.
+   * releases the claim. Takes an updater too, so a request can settle a claim
+   * against the one the page holds when it lands.
    */
-  onHandoffChange: (handoff: SignupHandoff | null) => void
+  onHandoffChange: Dispatch<SetStateAction<SignupHandoff | null>>
   /**
    * Bounds the register request and, apart from it, the profile refetch that
    * follows an accepted registration.
@@ -385,6 +394,18 @@ function SignupForm({
   consentReasonId,
 }: SignupFormProps) {
   const { setUser } = useAuthContext()
+  // The claim the password request in flight made. The submit button is
+  // disabled while it is in flight, so there is one per form instance.
+  const passwordClaimRef = useRef<SignupHandoff | null>(null)
+  // A password request settles the claim it made, or no claim once its
+  // deadline has released that one, and never a claim another request holds:
+  // the passkey path's, or one a remounted form made.
+  const settlePasswordClaim = (next: SignupHandoff | null) => {
+    const claim = passwordClaimRef.current
+    onHandoffChange(current =>
+      current === claim || current === null ? next : current
+    )
+  }
   // On the hook, not on `mutate`: the page stops rendering this form once the
   // profile reports the new session while the claim is pending.
   const registerMutation = useRegister({
@@ -392,19 +413,19 @@ function SignupForm({
       if (!data.user) {
         // No session to hand off to. Release the claim so the page behaves
         // exactly as it did before the attempt.
-        onHandoffChange(null)
+        settlePasswordClaim(null)
         return
       }
 
       setUser(data.user)
-      onHandoffChange({
+      settlePasswordClaim({
         status: 'complete',
         email: data.user.email || variables.email,
         method: 'password',
       })
     },
     onError: () => {
-      onHandoffChange(null)
+      settlePasswordClaim(null)
     },
     onSettled: passwordRequestDeadline.disarm,
   })
@@ -434,7 +455,9 @@ function SignupForm({
     onSubmit: async ({ value }) => {
       // Claimed before the request goes out, not after it lands. See the
       // SignupHandoff doc comment for the redirect race this closes.
-      onHandoffChange({ status: 'pending', email: value.email })
+      const claim: SignupHandoff = { status: 'pending', email: value.email }
+      passwordClaimRef.current = claim
+      onHandoffChange(claim)
 
       registerMutation.mutate({
         email: value.email,
