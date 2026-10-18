@@ -446,6 +446,65 @@ describe('useAuth hooks', () => {
       expect(result.current.error).toBeInstanceOf(TypeError)
       expect(result.current.error?.message).toBe('Failed to fetch')
     })
+
+    describe('the callbacks handed to the hook', () => {
+      function registerThenUnmount(answer: Promise<unknown>) {
+        mockApiRequest.mockReturnValueOnce(answer)
+        const queryClient = createTestQueryClient()
+        const refetchQueries = vi.spyOn(queryClient, 'refetchQueries')
+        const events: string[] = []
+        const callbacks = {
+          onSuccess: vi.fn(() => {
+            events.push(`onSuccess after ${refetchQueries.mock.calls.length} refetch`)
+          }),
+          onError: vi.fn<(error: Error) => void>(() => {
+            events.push('onError')
+          }),
+          onSettled: vi.fn(() => {
+            events.push('onSettled')
+          }),
+        }
+        const { result, unmount } = renderHook(() => useRegister(callbacks), {
+          wrapper: createWrapperWithClient(queryClient),
+        })
+        act(() => {
+          result.current.mutate(REGISTER_VARIABLES)
+        })
+        unmount()
+        return { callbacks, events }
+      }
+
+      it('still run on success once the caller has unmounted, after the profile refetch', async () => {
+        const registered = {
+          success: true,
+          message: 'Registration successful',
+          user: { id: '1', email: 'new@example.com' },
+        }
+        const { callbacks, events } = registerThenUnmount(Promise.resolve(registered))
+
+        await waitFor(() => expect(callbacks.onSettled).toHaveBeenCalledTimes(1))
+        expect(callbacks.onSuccess).toHaveBeenCalledWith(registered, REGISTER_VARIABLES)
+        expect(events).toEqual(['onSuccess after 1 refetch', 'onSettled'])
+      })
+
+      it('still run for a success that carries no user, without a profile refetch', async () => {
+        const answered = { success: true, message: 'Registration successful' }
+        const { callbacks, events } = registerThenUnmount(Promise.resolve(answered))
+
+        await waitFor(() => expect(callbacks.onSettled).toHaveBeenCalledTimes(1))
+        expect(callbacks.onSuccess).toHaveBeenCalledWith(answered, REGISTER_VARIABLES)
+        expect(events).toEqual(['onSuccess after 0 refetch', 'onSettled'])
+      })
+
+      it('still run on failure once the caller has unmounted', async () => {
+        const failure = new TypeError('Failed to fetch')
+        const { callbacks, events } = registerThenUnmount(Promise.reject(failure))
+
+        await waitFor(() => expect(callbacks.onSettled).toHaveBeenCalledTimes(1))
+        expect(callbacks.onError.mock.calls[0]?.[0]).toBe(failure)
+        expect(events).toEqual(['onError', 'onSettled'])
+      })
+    })
   })
 
   describe('useLogout', () => {

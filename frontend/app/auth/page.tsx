@@ -1,6 +1,14 @@
 'use client'
 
-import { Suspense, useCallback, useEffect, useRef, useState } from 'react'
+import {
+  Suspense,
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type Dispatch,
+  type SetStateAction,
+} from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import { useForm } from '@tanstack/react-form'
@@ -358,15 +366,28 @@ function LoginForm({ returnTo }: { returnTo: string }) {
   )
 }
 
+/** A password sign-up request in flight, as the form that sent it tracks it. */
+interface PasswordSignupRequest {
+  /** The claim it made on the page. */
+  claim: SignupHandoff
+  /** The signal that stands for it under the page's deadline. */
+  deadlineSignal: AbortSignal
+  /** What was submitted, for the one retry a consent refusal gets. */
+  value: SignupFormData
+  /** This request is that retry. */
+  consentRetried: boolean
+}
+
 interface SignupFormProps {
   returnTo: string
   /**
    * Reports the signup tab's claim on the page, for both the password form and
    * the passkey button. The page swaps in what follows the sign-up rather than
    * navigating, so the address never has to travel through the URL. `null`
-   * releases the claim.
+   * releases the claim. Takes an updater too, so a request can settle a claim
+   * against the one the page holds when it lands.
    */
-  onHandoffChange: (handoff: SignupHandoff | null) => void
+  onHandoffChange: Dispatch<SetStateAction<SignupHandoff | null>>
   /**
    * Bounds the register request and, apart from it, the profile refetch that
    * follows an accepted registration.
@@ -399,8 +420,62 @@ function SignupForm({
   consentRequested,
   consentReasonId,
 }: SignupFormProps) {
-  const registerMutation = useRegister()
   const { setUser } = useAuthContext()
+  // The password request in flight: the claim it made and the signal that
+  // stands for it under the page's deadline. The submit button is disabled
+  // while it is in flight, so there is one per form instance. It outlives the
+  // form, and it touches neither a claim nor a deadline another request holds:
+  // the passkey path's, or a remounted form's.
+  const passwordRequestRef = useRef<PasswordSignupRequest | null>(null)
+  // Settles the claim this request made, or no claim once its deadline has
+  // released that one.
+  const settlePasswordClaim = (next: SignupHandoff | null) => {
+    const claim = passwordRequestRef.current?.claim
+    onHandoffChange(current =>
+      current === claim || current === null ? next : current
+    )
+  }
+  // On the hook, not on `mutate`: the page stops rendering this form once the
+  // profile reports the new session while the claim is pending.
+  const registerMutation = useRegister({
+    onSuccess: (data, variables) => {
+      if (!data.user) {
+        // No session to hand off to. Release the claim so the page behaves
+        // exactly as it did before the attempt.
+        settlePasswordClaim(null)
+        return
+      }
+
+      setUser(data.user)
+      settlePasswordClaim({
+        status: 'complete',
+        email: data.user.email || variables.email,
+        method: 'password',
+      })
+    },
+    onError: error => {
+      settlePasswordClaim(null)
+      // Refused with versions the backend published: the read was older than
+      // the backend's answer. Retried once, and only from a form still shown;
+      // a second refusal is shown as it is.
+      const request = passwordRequestRef.current
+      if (
+        mountedRef.current &&
+        request &&
+        !request.consentRetried &&
+        isAuthError(error) &&
+        isConsentRefusal(error.code)
+      ) {
+        void retryAfterConsentRefusal(request.value)
+      }
+    },
+    onSettled: () => {
+      const request = passwordRequestRef.current
+      if (request) {
+        passwordRequestDeadline.disarm(request.deadlineSignal)
+      }
+    },
+  })
   // Read as the form shows, so a submit rarely waits on it, and so a backend
   // publishing versions other than the ones this page's legal links show
   // blocks every sign-up control before anyone fills the form in.
@@ -453,52 +528,30 @@ function SignupForm({
   ) => {
     // Claimed before the request goes out, not after it lands. See the
     // SignupHandoff doc comment for the redirect race this closes.
-    onHandoffChange({ status: 'pending', email: value.email })
+    const request: PasswordSignupRequest = {
+      claim: { status: 'pending', email: value.email },
+      deadlineSignal: passwordRequestDeadline.arm(),
+      value,
+      consentRetried,
+    }
+    passwordRequestRef.current = request
+    onHandoffChange(request.claim)
 
-    registerMutation.mutate(
-      {
-        email: value.email,
-        password: value.password,
-        terms_accepted: value.termsAccepted,
-        terms_version: versions.termsVersion,
-        privacy_version: versions.privacyVersion,
-        age_confirmed: value.ageConfirmed,
-        min_age_attested: MIN_SIGNUP_AGE,
-        signal: passwordRequestDeadline.arm(),
-        // The profile refetch that follows takes no signal: this deadline
-        // bounds only how long the claim waits on it.
-        onRegistered: () => {
-          passwordRequestDeadline.arm()
-        },
+    registerMutation.mutate({
+      email: value.email,
+      password: value.password,
+      terms_accepted: value.termsAccepted,
+      terms_version: versions.termsVersion,
+      privacy_version: versions.privacyVersion,
+      age_confirmed: value.ageConfirmed,
+      min_age_attested: MIN_SIGNUP_AGE,
+      signal: request.deadlineSignal,
+      // The profile refetch that follows takes no signal: this deadline
+      // bounds only how long the claim waits on it.
+      onRegistered: () => {
+        request.deadlineSignal = passwordRequestDeadline.rearm(request.deadlineSignal)
       },
-      {
-        onSuccess: data => {
-          if (!data.user) {
-            // No session to hand off to. Release the claim so the page
-            // behaves exactly as it did before the attempt.
-            onHandoffChange(null)
-            return
-          }
-
-          setUser(data.user)
-          onHandoffChange({
-            status: 'complete',
-            email: data.user.email || value.email,
-            method: 'password',
-          })
-        },
-        onError: error => {
-          onHandoffChange(null)
-          // Refused with versions the backend published: the read was older
-          // than the backend's answer. Retried once; a second refusal is
-          // shown as it is.
-          if (!consentRetried && isAuthError(error) && isConsentRefusal(error.code)) {
-            void retryAfterConsentRefusal(value)
-          }
-        },
-        onSettled: passwordRequestDeadline.disarm,
-      }
-    )
+    })
   }
 
   // The notice covers only the re-read: it ends before the retried request
@@ -845,11 +898,11 @@ function AuthPageContent() {
   const activeTab = showingArrivalTab ? arrivalTab : pickedTab.tab
   const setActiveTab = (tab: string) => setPickedTab({ arrival, tab })
   const [signupHandoff, setSignupHandoff] = useState<SignupHandoff | null>(null)
-  // A request past its deadline releases a claim still pending, which the
-  // control that sent it cannot do once the page has stopped rendering the
-  // form: an authenticated viewer with a pending claim gets neither the form
-  // nor the redirect. The two sign-up paths can each have a request in flight
-  // at once, so each has its own deadline.
+  // A request that never answers leaves its claim pending, and an
+  // authenticated viewer with a pending claim gets neither the form nor the
+  // redirect, so a request past its deadline releases the claim. The two
+  // sign-up paths can each have a request in flight at once, so each has its
+  // own deadline.
   const releasePendingSignup = useCallback(() => {
     setSignupHandoff(current => (current?.status === 'pending' ? null : current))
   }, [])

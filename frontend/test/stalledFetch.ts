@@ -20,14 +20,19 @@ export function stalledRequest(_url: string, init?: RequestInit): Promise<never>
   return untilAborted(init?.signal)
 }
 
-/** A fetch whose 200 headers arrive and whose JSON body never does. */
-export async function stalledResponseBody(_url: string, init?: RequestInit) {
+/** A 200 whose headers have arrived; reading its JSON body calls `body`. */
+export function headersThenBody(body: () => Promise<unknown>): Response {
   return {
     ok: true,
     status: 200,
     headers: new Headers({ 'Content-Type': 'application/json' }),
-    json: () => untilAborted(init?.signal),
-  }
+    json: body,
+  } as unknown as Response
+}
+
+/** A fetch whose 200 headers arrive and whose JSON body never does. */
+export async function stalledResponseBody(_url: string, init?: RequestInit) {
+  return headersThenBody(() => untilAborted(init?.signal))
 }
 
 /** The signal handed to the fetch mock's `call`th request. */
