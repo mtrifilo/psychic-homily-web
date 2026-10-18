@@ -233,7 +233,7 @@ type WebAuthnServiceInterface interface {
 	// client's copy. Any other error means the challenge could not be read, or
 	// the operation was WebAuthnRegistrationOperation, whose challenges only
 	// ConsumeRegistrationChallenge consumes.
-	ConsumeChallenge(challengeID string, operation string) (*webauthn.SessionData, uint, error)
+	ConsumeChallenge(challengeID string, operation string) (*webauthn.SessionData, error)
 	// ConsumeRegistrationChallenge spends a registration challenge only for the
 	// user it was issued to. It answers a refusal with an *errors.AuthError
 	// coded UNAUTHORIZED (an unexpired challenge issued to another user) or

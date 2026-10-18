@@ -175,7 +175,6 @@ func (suite *WebAuthnServiceIntegrationTestSuite) TestConsumeRegistrationChallen
 // state the account is in, so it learns nothing about that state.
 func (suite *WebAuthnServiceIntegrationTestSuite) TestSignInRefusesInvalidAssertionBeforeAccountState() {
 	target := suite.createUser("inactive-target@test.com")
-	suite.registeredDevice(target)
 	holder := suite.createUser("holder@test.com")
 	device := suite.registeredDevice(holder)
 	for _, inactive := range []*authm.User{target, holder} {
@@ -184,15 +183,9 @@ func (suite *WebAuthnServiceIntegrationTestSuite) TestSignInRefusesInvalidAssert
 
 	// The assertion names the target's user handle, which is not the handle
 	// of the credential's account.
-	options, session, err := suite.service.BeginDiscoverableLogin()
-	suite.Require().NoError(err)
-	body, err := device.Assert(options)
-	suite.Require().NoError(err)
-	parsed, err := protocol.ParseCredentialRequestResponseBytes(body)
-	suite.Require().NoError(err)
-	parsed.Response.UserHandle = target.WebAuthnID()
-
-	_, _, err = suite.service.FinishDiscoverableLogin(session, parsed)
+	_, err := suite.discoverableLoginAltered(device, func(_ *webauthn.SessionData, parsed *protocol.ParsedCredentialAssertionData) {
+		parsed.Response.UserHandle = target.WebAuthnID()
+	})
 	suite.requireRefusal(err, apperrors.CodeInvalidCredentials, "Invalid passkey")
 }
 
@@ -201,7 +194,7 @@ func (suite *WebAuthnServiceIntegrationTestSuite) TestSignInRefusesInvalidAssert
 func (suite *WebAuthnServiceIntegrationTestSuite) TestConsumeRefusesMalformedChallengeIDs() {
 	user := suite.createUser("malformed@test.com")
 	for _, challengeID := range []string{"", "not-a-uuid", "\x00"} {
-		_, _, err := suite.service.ConsumeChallenge(challengeID, "authentication")
+		_, err := suite.service.ConsumeChallenge(challengeID, "authentication")
 		suite.requireRefusal(err, apperrors.CodeValidationFailed, "Invalid or expired challenge")
 		_, err = suite.service.ConsumeRegistrationChallenge(challengeID, user.ID)
 		suite.requireRefusal(err, apperrors.CodeValidationFailed, "Invalid or expired challenge")
@@ -214,7 +207,7 @@ func (suite *WebAuthnServiceIntegrationTestSuite) TestGenericConsumesRefuseRegis
 	challengeID, err := suite.service.StoreChallenge(user.ID, &webauthn.SessionData{Challenge: "c"}, "registration")
 	suite.Require().NoError(err)
 
-	_, _, err = suite.service.ConsumeChallenge(challengeID, "registration")
+	_, err = suite.service.ConsumeChallenge(challengeID, "registration")
 	suite.Require().ErrorIs(err, errRegistrationOperation)
 	_, _, err = suite.service.ConsumeSignupChallenge(challengeID, "registration")
 	suite.Require().ErrorIs(err, errRegistrationOperation)

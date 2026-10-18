@@ -20,10 +20,10 @@ func (s *AuthHandlerIntegrationSuite) signedInUser(resp *httptest.ResponseRecord
 	return user
 }
 
-// passkeySignIn runs a passkey login with device, begun with beginBody, and
-// returns the user object the finish answers with.
-func (s *AuthHandlerIntegrationSuite) passkeySignIn(api humatest.TestAPI, device *softauthn.Authenticator, beginBody map[string]any) map[string]any {
-	challengeID, options := s.beginPasskeyLogin(api, beginBody)
+// passkeySignIn runs a passkey login with device and returns the user object
+// the finish answers with.
+func (s *AuthHandlerIntegrationSuite) passkeySignIn(api humatest.TestAPI, device *softauthn.Authenticator) map[string]any {
+	challengeID, options := s.beginDiscoverableLogin(api)
 	assertion, err := device.Assert(options)
 	s.Require().NoError(err)
 	return s.signedInUser(api.Post("/auth/passkey/login/finish", map[string]any{
@@ -53,7 +53,7 @@ func (s *AuthHandlerIntegrationSuite) TestSignInPathsReturnTheUserInOneShape() {
 	s.Require().Contains(reference, "oauth_accounts", "the password sign-in is the reference shape")
 	s.Require().Contains(reference, "preferences", "the password sign-in is the reference shape")
 
-	passkey := s.passkeySignIn(passkeyAPI, device, map[string]any{})
+	passkey := s.passkeySignIn(passkeyAPI, device)
 	s.Equal(slices.Sorted(maps.Keys(reference)), slices.Sorted(maps.Keys(passkey)), "user keys")
 	s.Equal(reference["id"], passkey["id"], "account")
 	s.Equal(reference["oauth_accounts"], passkey["oauth_accounts"], "OAuth accounts")

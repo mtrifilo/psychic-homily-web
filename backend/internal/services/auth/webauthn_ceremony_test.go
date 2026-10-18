@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/go-webauthn/webauthn/protocol"
+	"github.com/go-webauthn/webauthn/webauthn"
 	"github.com/google/uuid"
 
 	apperrors "psychic-homily-backend/internal/errors"
@@ -24,12 +25,21 @@ func (suite *WebAuthnServiceIntegrationTestSuite) parseCreation(body []byte) *pr
 }
 
 func (suite *WebAuthnServiceIntegrationTestSuite) discoverableLogin(device *softauthn.Authenticator) (*authm.User, error) {
+	return suite.discoverableLoginAltered(device, nil)
+}
+
+// discoverableLoginAltered runs a discoverable login with device, letting
+// alter change the session and the parsed assertion before the finish.
+func (suite *WebAuthnServiceIntegrationTestSuite) discoverableLoginAltered(device *softauthn.Authenticator, alter func(*webauthn.SessionData, *protocol.ParsedCredentialAssertionData)) (*authm.User, error) {
 	options, session, err := suite.service.BeginDiscoverableLogin()
 	suite.Require().NoError(err)
 	body, err := device.Assert(options)
 	suite.Require().NoError(err)
 	parsed, err := protocol.ParseCredentialRequestResponseBytes(body)
 	suite.Require().NoError(err)
+	if alter != nil {
+		alter(session, parsed)
+	}
 	user, _, err := suite.service.FinishDiscoverableLogin(session, parsed)
 	return user, err
 }
@@ -187,16 +197,26 @@ func (suite *WebAuthnServiceIntegrationTestSuite) TestDiscoverableLoginRefusesAn
 	other := suite.createUser("other@test.com")
 	device := suite.registeredDevice(owner)
 
-	options, session, err := suite.service.BeginDiscoverableLogin()
-	suite.Require().NoError(err)
-	body, err := device.Assert(options)
-	suite.Require().NoError(err)
-	parsed, err := protocol.ParseCredentialRequestResponseBytes(body)
-	suite.Require().NoError(err)
-	parsed.Response.UserHandle = other.WebAuthnID()
-
-	_, _, err = suite.service.FinishDiscoverableLogin(session, parsed)
+	_, err := suite.discoverableLoginAltered(device, func(_ *webauthn.SessionData, parsed *protocol.ParsedCredentialAssertionData) {
+		parsed.Response.UserHandle = other.WebAuthnID()
+	})
 	suite.requireRefusal(err, apperrors.CodeInvalidCredentials, "Invalid passkey")
+}
+
+// A session that names an account is not a discoverable login's, so a valid
+// assertion from that account's own credential is refused with it.
+func (suite *WebAuthnServiceIntegrationTestSuite) TestDiscoverableLoginRefusesSessionNamingAnAccount() {
+	owner := suite.createUser("named-session@test.com")
+	device := suite.registeredDevice(owner)
+
+	_, err := suite.discoverableLoginAltered(device, func(session *webauthn.SessionData, _ *protocol.ParsedCredentialAssertionData) {
+		session.UserID = owner.WebAuthnID()
+	})
+	suite.requireRefusal(err, apperrors.CodeInvalidCredentials, "Invalid passkey")
+
+	var stored authm.WebAuthnCredential
+	suite.Require().NoError(suite.db.Where("user_id = ?", owner.ID).First(&stored).Error)
+	suite.Nil(stored.LastUsedAt, "a refused sign-in records no use of the credential")
 }
 
 // A sign-in records the backup state the authenticator reports now, so a

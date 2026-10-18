@@ -396,9 +396,7 @@ func (h *PasskeyHandler) FinishLoginHandler(ctx context.Context, input *FinishLo
 
 	logger.AuthDebug(ctx, "passkey_login_finish")
 
-	// The challenge's user id is not read: login/begin stores every
-	// authentication challenge under no account.
-	session, _, err := h.webauthnService.ConsumeChallenge(input.Body.ChallengeID, "authentication")
+	session, err := h.webauthnService.ConsumeChallenge(input.Body.ChallengeID, "authentication")
 	if err != nil {
 		if refusal, ok := passkeyRefusal(err, autherrors.CodeValidationFailed); ok {
 			logger.AuthWarn(ctx, "passkey_challenge_refused",

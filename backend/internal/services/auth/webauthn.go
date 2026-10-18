@@ -430,24 +430,20 @@ func decodeChallengeSession(challenge *authm.WebAuthnChallenge) (*webauthn.Sessi
 	return &session, nil
 }
 
-// ConsumeChallenge removes a WebAuthn challenge and returns its session and
-// the user it was issued to. Every later call for the same id fails, whether
-// or not the ceremony the first caller runs with it succeeds.
+// ConsumeChallenge removes a WebAuthn challenge and returns its session. Every
+// later call for the same id fails, whether or not the ceremony the first
+// caller runs with it succeeds.
 //
 // A refusal is a CodeValidationFailed *apperrors.AuthError for a challenge
 // that does not exist or has expired. Any other error means the challenge
 // could not be read, or operation is contracts.WebAuthnRegistrationOperation,
 // whose challenges only ConsumeRegistrationChallenge consumes.
-func (s *WebAuthnService) ConsumeChallenge(challengeID string, operation string) (*webauthn.SessionData, uint, error) {
+func (s *WebAuthnService) ConsumeChallenge(challengeID string, operation string) (*webauthn.SessionData, error) {
 	challenge, err := s.consumeOperationChallenge(challengeID, operation)
 	if err != nil {
-		return nil, 0, err
+		return nil, err
 	}
-	session, err := decodeChallengeSession(challenge)
-	if err != nil {
-		return nil, 0, err
-	}
-	return session, challenge.UserID, nil
+	return decodeChallengeSession(challenge)
 }
 
 // ConsumeRegistrationChallenge removes the registration challenge stored

@@ -4654,7 +4654,7 @@ type MockWebAuthnService struct {
 	DeleteCredentialFn                  func(uint, uint) error
 	UpdateCredentialNameFn              func(uint, uint, string) error
 	StoreChallengeFn                    func(uint, *webauthn.SessionData, string) (string, error)
-	ConsumeChallengeFn                  func(string, string) (*webauthn.SessionData, uint, error)
+	ConsumeChallengeFn                  func(string, string) (*webauthn.SessionData, error)
 	ConsumeRegistrationChallengeFn      func(string, uint) (*webauthn.SessionData, error)
 	BeginRegistrationForEmailFn         func(string) (*protocol.CredentialCreation, *webauthn.SessionData, error)
 	StoreSignupChallengeFn              func(contracts.SignupChallenge, *webauthn.SessionData, string) (string, error)
@@ -4710,11 +4710,11 @@ func (m *MockWebAuthnService) StoreChallenge(userID uint, session *webauthn.Sess
 	}
 	return "challenge-id", nil
 }
-func (m *MockWebAuthnService) ConsumeChallenge(challengeID string, operation string) (*webauthn.SessionData, uint, error) {
+func (m *MockWebAuthnService) ConsumeChallenge(challengeID string, operation string) (*webauthn.SessionData, error) {
 	if m.ConsumeChallengeFn != nil {
 		return m.ConsumeChallengeFn(challengeID, operation)
 	}
-	return nil, 0, nil
+	return nil, nil
 }
 func (m *MockWebAuthnService) ConsumeRegistrationChallenge(challengeID string, userID uint) (*webauthn.SessionData, error) {
 	if m.ConsumeRegistrationChallengeFn != nil {

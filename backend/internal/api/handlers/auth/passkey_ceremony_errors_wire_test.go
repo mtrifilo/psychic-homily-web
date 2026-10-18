@@ -183,8 +183,8 @@ func TestPasskeyWire_LoginFinishAnswersTheDecidedAccount(t *testing.T) {
 	_, device := softRegistration(t)
 	email := "decided@example.com"
 	mockWA := &testhelpers.MockWebAuthnService{
-		ConsumeChallengeFn: func(string, string) (*webauthn.SessionData, uint, error) {
-			return &webauthn.SessionData{}, 0, nil
+		ConsumeChallengeFn: func(string, string) (*webauthn.SessionData, error) {
+			return &webauthn.SessionData{}, nil
 		},
 		FinishDiscoverableLoginFn: func(*webauthn.SessionData, *protocol.ParsedCredentialAssertionData) (*authm.User, *authm.WebAuthnCredential, error) {
 			return &authm.User{ID: 7, Email: &email, IsActive: true}, &authm.WebAuthnCredential{ID: 1}, nil
