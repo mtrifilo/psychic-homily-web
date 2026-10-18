@@ -8,7 +8,7 @@ import { safeDecodeQueryParam, sanitizeReturnTo } from './auth-redirect-utils'
 // The Go sanitizer's test reads the same file; its _comment states the contract.
 const corpus = loadBackendCorpus<{
   fallback: string
-  cases: { name: string; input: string; sanitizeReturnTo: string; rule: string }[]
+  cases: { name: string; input: string; want: string; rule: string }[]
 }>('internal/api/handlers/auth/testdata/return_to_corpus.json')
 
 describe('sanitizeReturnTo', () => {
@@ -21,7 +21,7 @@ describe('sanitizeReturnTo', () => {
     expect(FALLBACK_RETURN_TO).toBe(corpus.fallback)
   })
 
-  it.each(corpus.cases)('$name', ({ input, sanitizeReturnTo: want, rule }) => {
+  it.each(corpus.cases)('$name', ({ input, want, rule }) => {
     expect(sanitizeReturnTo(input), rule).toBe(want)
   })
 
