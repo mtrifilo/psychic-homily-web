@@ -457,7 +457,7 @@ describe('useAuth hooks', () => {
           onSuccess: vi.fn(() => {
             events.push(`onSuccess after ${refetchQueries.mock.calls.length} refetch`)
           }),
-          onError: vi.fn((_error: Error) => {
+          onError: vi.fn<(error: Error) => void>(() => {
             events.push('onError')
           }),
           onSettled: vi.fn(() => {
@@ -485,6 +485,15 @@ describe('useAuth hooks', () => {
         await waitFor(() => expect(callbacks.onSettled).toHaveBeenCalledTimes(1))
         expect(callbacks.onSuccess).toHaveBeenCalledWith(registered, REGISTER_VARIABLES)
         expect(events).toEqual(['onSuccess after 1 refetch', 'onSettled'])
+      })
+
+      it('still run for a success that carries no user, without a profile refetch', async () => {
+        const answered = { success: true, message: 'Registration successful' }
+        const { callbacks, events } = registerThenUnmount(Promise.resolve(answered))
+
+        await waitFor(() => expect(callbacks.onSettled).toHaveBeenCalledTimes(1))
+        expect(callbacks.onSuccess).toHaveBeenCalledWith(answered, REGISTER_VARIABLES)
+        expect(events).toEqual(['onSuccess after 0 refetch', 'onSettled'])
       })
 
       it('still run on failure once the caller has unmounted', async () => {
