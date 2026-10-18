@@ -221,10 +221,13 @@ func jwtFailureKind(err error) error {
 // Returns a typed *apperrors.AuthError with CodeOAuthLinkRefused whenever the
 // address already belongs to an account. There is no by-address link on any
 // path: a matching address says who owns the mailbox, never who owns the
-// account. Returns CodeAccountInactive when the Apple identity resolves to an
-// account that may not sign in (authm.User.CanSignIn), and the refusal of
-// shared.ValidateProviderEmailClaim before any query. Callers that render a
-// refusal differently from a fault must discriminate on the code.
+// account. That refusal is CodeAccountRecoverable instead when
+// shared.AddressMatchIsRecoverable holds for the account and Apple's
+// email_verified claim. Returns shared.ClosedAccountRefusal
+// (CodeAccountRecoverable or CodeAccountInactive) when the Apple identity
+// resolves to an account that may not sign in (authm.User.CanSignIn), and the
+// refusal of shared.ValidateProviderEmailClaim before any query. Callers that
+// render a refusal differently from a fault must discriminate on the code.
 //
 // A created account carries email_verified from the token's own claim, so an
 // address Apple will not vouch for produces an unverified account.
@@ -262,10 +265,12 @@ func (s *AppleAuthService) FindOrCreateAppleUser(claims *contracts.AppleIdentity
 			return nil, fmt.Errorf("failed to get user: %w", err)
 		}
 		if !user.CanSignIn() {
+			refusal := shared.ClosedAccountRefusal(&user)
 			logger.Default().Warn("oauth_signin_refused_account_inactive",
 				"provider", "apple",
-				"user_id", user.ID)
-			return nil, apperrors.ErrAccountInactive()
+				"user_id", user.ID,
+				"code", refusal.Code)
+			return nil, refusal
 		}
 		return &user, nil
 	}
@@ -285,7 +290,15 @@ func (s *AppleAuthService) FindOrCreateAppleUser(claims *contracts.AppleIdentity
 			// account. Apple's refusal is its own, because Apple has no link
 			// path to send anyone to: its callback is a native-token POST, not
 			// the goth handshake /auth/link/{provider} drives, so there is no
-			// Apple control in Settings to name.
+			// Apple control in Settings to name. A recoverable deleted account
+			// is the exception, for the reasons
+			// shared.AddressMatchIsRecoverable states.
+			if shared.AddressMatchIsRecoverable(&existingUser, claims.IsEmailVerified()) {
+				logger.Default().Warn("oauth_signin_refused_account_recoverable",
+					"provider", "apple",
+					"user_id", existingUser.ID)
+				return nil, apperrors.ErrAccountRecoverable()
+			}
 			logger.Default().Warn("oauth_signin_refused_address_belongs_to_account",
 				"provider", "apple",
 				"email_hash", logger.HashEmail(claims.Email))
