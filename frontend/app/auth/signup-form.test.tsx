@@ -5,6 +5,8 @@ import userEvent from '@testing-library/user-event'
 import { renderWithProviders } from '@/test/utils'
 import { deferred } from '@/test/inflightOrdering'
 import {
+  BUILD_VERSIONS_BODY,
+  NEWER_VERSIONS_BODY,
   publishLegalVersionsInTurn as publishInTurn,
   publishedVersions as versionsBody,
   versionsUnavailable as unavailable,
@@ -13,6 +15,7 @@ import { CURRENT_PRIVACY_VERSION, CURRENT_TERMS_VERSION, MIN_SIGNUP_AGE } from '
 import { AuthError, AuthErrorCode } from '@/lib/errors'
 import {
   CONSENT_RETRY_NOTICE,
+  CONSENT_VERSIONS_CHANGED,
   CONSENT_VERSIONS_UNAVAILABLE,
 } from './_components/consent-versions-notice'
 import AuthPage from './page'
@@ -79,13 +82,25 @@ vi.mock('@/app/auth/_components/passkey-login', () => ({
   PasskeyLoginButton: (): null => null,
 }))
 
+const passkeySignupProps = vi.fn()
 vi.mock('@/app/auth/_components/passkey-signup', () => ({
-  PasskeySignupButton: (): null => null,
+  PasskeySignupButton: (props: unknown): null => {
+    passkeySignupProps(props)
+    return null
+  },
 }))
 
+const googleOAuthProps = vi.fn()
 vi.mock('@/app/auth/_components/google-oauth-button', () => ({
-  GoogleOAuthButton: (): null => null,
+  GoogleOAuthButton: (props: unknown): null => {
+    googleOAuthProps(props)
+    return null
+  },
 }))
+
+function latestButtonProps(props: ReturnType<typeof vi.fn>) {
+  return props.mock.calls.at(-1)?.[0]
+}
 
 // --- Helpers ---
 
@@ -418,9 +433,7 @@ describe('SignupForm deferred validation', () => {
   // never the build constants, and a consent refusal of those versions is
   // retried once with versions read again past every cache.
   describe('consent versions', () => {
-    // Versions no build names, so a test can tell the route from the constants.
-    const PUBLISHED = { terms_version: '2031-03-01', privacy_version: '2031-03-02' }
-    const REPUBLISHED = { terms_version: '2031-04-01', privacy_version: '2031-04-02' }
+    const PUBLISHED = BUILD_VERSIONS_BODY
     const CONSENT_REFUSAL = new AuthError(
       'Please accept the Terms of Service and Privacy Policy before creating an account.',
       AuthErrorCode.TERMS_ACCEPTANCE_REQUIRED
@@ -444,16 +457,50 @@ describe('SignupForm deferred validation', () => {
       return { request, callbacks }
     }
 
-    it('sends the versions the route publishes, not the build constants', async () => {
-      publishInTurn(() => versionsBody(PUBLISHED))
+    it('registers once the route confirms this build\'s versions', async () => {
+      const versions = publishInTurn(() => versionsBody(PUBLISHED))
 
       await submitFilledForm()
 
       await waitFor(() => expect(mockRegisterMutate).toHaveBeenCalledTimes(1))
+      expect(versions.reads()).toBeGreaterThan(0)
       expect(registerCall(0).request).toMatchObject({
-        terms_version: '2031-03-01',
-        privacy_version: '2031-03-02',
+        terms_version: CURRENT_TERMS_VERSION,
+        privacy_version: CURRENT_PRIVACY_VERSION,
       })
+      expect(screen.queryByText(CONSENT_VERSIONS_CHANGED)).not.toBeInTheDocument()
+    })
+
+    it('asks for a reload, and blocks every sign-up control, when the route publishes other versions', async () => {
+      publishInTurn(() => versionsBody(NEWER_VERSIONS_BODY))
+      const { user } = await renderSignupForm()
+
+      expect(await screen.findByText(CONSENT_VERSIONS_CHANGED)).toBeInTheDocument()
+      await user.type(screen.getByLabelText('Email'), 'test@example.com')
+      await user.type(screen.getByLabelText('Password'), 'validPassword123!')
+      await user.click(screen.getByRole('checkbox', { name: TERMS_CHECKBOX }))
+      await user.click(screen.getByRole('checkbox', { name: AGE_CHECKBOX }))
+
+      expect(screen.getByRole('button', { name: 'Create account' })).toBeDisabled()
+      expect(latestButtonProps(googleOAuthProps)).toMatchObject({ disabled: true })
+      expect(latestButtonProps(passkeySignupProps)).toMatchObject({ versionsChanged: true })
+      expect(mockRegisterMutate).not.toHaveBeenCalled()
+    })
+
+    it('neither retries nor registers when the re-read after a refusal finds other versions', async () => {
+      publishInTurn(() => versionsBody(PUBLISHED), () => versionsBody(NEWER_VERSIONS_BODY))
+      await submitFilledForm()
+      await waitFor(() => expect(mockRegisterMutate).toHaveBeenCalledTimes(1))
+
+      act(() => {
+        registerCall(0).callbacks.onError(CONSENT_REFUSAL)
+      })
+
+      expect(await screen.findByText(CONSENT_VERSIONS_CHANGED)).toBeInTheDocument()
+      expect(screen.queryByText(CONSENT_RETRY_NOTICE)).not.toBeInTheDocument()
+      expect(screen.queryByText(CONSENT_VERSIONS_UNAVAILABLE)).not.toBeInTheDocument()
+      expect(screen.getByRole('button', { name: 'Create account' })).toBeDisabled()
+      expect(mockRegisterMutate).toHaveBeenCalledTimes(1)
     })
 
     it('does not register, and says why, when the versions cannot be read', async () => {
@@ -489,12 +536,12 @@ describe('SignupForm deferred validation', () => {
       expect(screen.getByRole('button', { name: /Creating account/ })).toBeDisabled()
       await waitFor(() => expect(versions.reads()).toBe(readsBeforeRefusal + 1))
 
-      republished.resolve(versionsBody(REPUBLISHED))
+      republished.resolve(versionsBody(PUBLISHED))
 
       await waitFor(() => expect(mockRegisterMutate).toHaveBeenCalledTimes(2))
       expect(registerCall(1).request).toMatchObject({
-        terms_version: '2031-04-01',
-        privacy_version: '2031-04-02',
+        terms_version: CURRENT_TERMS_VERSION,
+        privacy_version: CURRENT_PRIVACY_VERSION,
       })
       // The notice ends once the retried request is out.
       await waitFor(() => {
@@ -526,7 +573,7 @@ describe('SignupForm deferred validation', () => {
 
       rendered.rerender(page('hidden'))
       await act(async () => {
-        republished.resolve(versionsBody(REPUBLISHED))
+        republished.resolve(versionsBody(PUBLISHED))
       })
       rendered.rerender(page('visible'))
       // A shown page reopens on its arrival's tab.
@@ -551,7 +598,7 @@ describe('SignupForm deferred validation', () => {
     })
 
     it('shows a second refusal instead of retrying again', async () => {
-      publishInTurn(() => versionsBody(PUBLISHED), () => versionsBody(REPUBLISHED))
+      publishInTurn(() => versionsBody(PUBLISHED), () => versionsBody(PUBLISHED))
       const { rerender } = await submitFilledForm()
       await waitFor(() => expect(mockRegisterMutate).toHaveBeenCalledTimes(1))
       act(() => {

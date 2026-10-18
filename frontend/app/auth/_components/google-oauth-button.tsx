@@ -4,7 +4,10 @@ import { useEffect, useRef, useState } from 'react'
 import { Loader2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { FALLBACK_RETURN_TO } from '@/lib/auth-href'
-import { useConsentVersions } from '@/features/auth/hooks/useLegalVersions'
+import {
+  ConsentVersionsChangedError,
+  useConsentVersions,
+} from '@/features/auth/hooks/useLegalVersions'
 import {
   forgetGoogleSignupStart,
   googleStartUrl,
@@ -21,9 +24,11 @@ interface GoogleOAuthButtonProps {
   onMissingAgeConfirmation?: () => void
   /**
    * A sign-up start was not made because the published consent versions could
-   * not be read.
+   * not be read. Not called when they were read and differ from this build's;
+   * the form shows that from its own read.
    */
   onConsentVersionsUnavailable?: () => void
+  disabled?: boolean
   /**
    * Where the reader lands after signing in, already through
    * sanitizeReturnTo. See googleStartUrl for what the backend does with it.
@@ -39,6 +44,7 @@ export function GoogleOAuthButton({
   ageConfirmed = false,
   onMissingAgeConfirmation,
   onConsentVersionsUnavailable,
+  disabled = false,
   returnTo = FALLBACK_RETURN_TO,
 }: GoogleOAuthButtonProps) {
   const consentVersions = useConsentVersions()
@@ -74,9 +80,11 @@ export function GoogleOAuthButton({
     let versions
     try {
       versions = await consentVersions.read()
-    } catch {
+    } catch (error) {
       setIsReadingVersions(false)
-      if (mountedRef.current) onConsentVersionsUnavailable?.()
+      if (mountedRef.current && !(error instanceof ConsentVersionsChangedError)) {
+        onConsentVersionsUnavailable?.()
+      }
       return
     }
     if (!mountedRef.current) {
@@ -97,7 +105,7 @@ export function GoogleOAuthButton({
       type="button"
       variant="outline"
       onClick={handleGoogleLogin}
-      disabled={isReadingVersions}
+      disabled={disabled || isReadingVersions}
       className={className}
     >
       {isReadingVersions ? (

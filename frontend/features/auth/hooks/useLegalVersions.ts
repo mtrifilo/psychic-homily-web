@@ -8,6 +8,7 @@ import {
 } from '@tanstack/react-query'
 import { apiRequest, API_ENDPOINTS } from '@/lib/api'
 import { AuthErrorCode } from '@/lib/errors'
+import { CURRENT_PRIVACY_VERSION, CURRENT_TERMS_VERSION } from '@/lib/legal'
 import { queryKeys } from '@/lib/queryClient'
 import type { components } from '@/types/api'
 
@@ -41,13 +42,39 @@ export class ConsentVersionsUnavailableError extends Error {
 }
 
 /**
+ * The backend publishes versions other than the ones this build's /terms and
+ * /privacy pages show. A sign-up that meets it is not sent, so no account
+ * records a version whose text the reader was not shown; a reload brings the
+ * build that shows it.
+ */
+export class ConsentVersionsChangedError extends Error {
+  constructor() {
+    super('The published consent versions differ from this build')
+    this.name = 'ConsentVersionsChangedError'
+  }
+}
+
+/**
+ * Whether published versions are the ones this build's legal pages show
+ * (CURRENT_TERMS_VERSION and CURRENT_PRIVACY_VERSION in lib/legal.ts).
+ */
+export function matchesBuildVersions(versions: ConsentVersions): boolean {
+  return (
+    versions.termsVersion === CURRENT_TERMS_VERSION &&
+    versions.privacyVersion === CURRENT_PRIVACY_VERSION
+  )
+}
+
+/**
  * Reads the versions every sign-up path sends at the moment it submits.
  */
 export interface ConsentVersionsReader {
   /**
    * The versions to send now: the last answer while it is fresh, otherwise a
    * new read. Rejects with ConsentVersionsUnavailableError when no answer
-   * arrives within CONSENT_VERSIONS_WAIT_MS or the answer is unusable.
+   * arrives within CONSENT_VERSIONS_WAIT_MS or the answer is unusable, and
+   * with ConsentVersionsChangedError when the answer is not this build's
+   * versions (the answer is still cached, for the form to show why).
    */
   read: () => Promise<ConsentVersions>
   /**
@@ -94,22 +121,36 @@ export function isConsentRefusal(code: string | null | undefined): boolean {
 function consentVersionsReader(queryClient: QueryClient): ConsentVersionsReader {
   return {
     read: () =>
-      withinConsentWait(queryClient, queryClient.fetchQuery(legalVersionsQuery)),
-    refresh: () =>
-      withinConsentWait(
-        queryClient,
-        (async () => {
-          // A fetch already in flight may be answered from the HTTP cache, and
-          // fetchQuery would hand that fetch back instead of starting this one.
-          await queryClient.cancelQueries({ queryKey: queryKeys.legal.versions })
-          return queryClient.fetchQuery({
-            ...legalVersionsQuery,
-            queryFn: ({ signal }) => fetchConsentVersions(signal, 'no-cache'),
-            staleTime: 0,
-          })
-        })()
+      sendable(
+        withinConsentWait(queryClient, queryClient.fetchQuery(legalVersionsQuery))
       ),
+    refresh: () =>
+      sendable(withinConsentWait(queryClient, readPastCaches(queryClient))),
   }
+}
+
+async function readPastCaches(
+  queryClient: QueryClient
+): Promise<ConsentVersions> {
+  // A fetch already in flight may be answered from the HTTP cache, and
+  // fetchQuery would hand that fetch back instead of starting this one.
+  await queryClient.cancelQueries({ queryKey: queryKeys.legal.versions })
+  return queryClient.fetchQuery({
+    ...legalVersionsQuery,
+    queryFn: ({ signal }) => fetchConsentVersions(signal, 'no-cache'),
+    staleTime: 0,
+  })
+}
+
+// Only this build's versions are ever sent; see ConsentVersionsChangedError.
+async function sendable(
+  read: Promise<ConsentVersions>
+): Promise<ConsentVersions> {
+  const versions = await read
+  if (!matchesBuildVersions(versions)) {
+    throw new ConsentVersionsChangedError()
+  }
+  return versions
 }
 
 async function fetchConsentVersions(

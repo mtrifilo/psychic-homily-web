@@ -5,21 +5,30 @@ import {
   createWrapperWithClient,
 } from '@/test/utils'
 import { deferred } from '@/test/inflightOrdering'
-import { jsonResponse, publishedVersions } from '@/test/consentVersions'
+import {
+  BUILD_CONSENT_VERSIONS,
+  BUILD_VERSIONS_BODY,
+  NEWER_VERSIONS_BODY,
+  jsonResponse,
+  publishedVersions,
+} from '@/test/consentVersions'
 import { CURRENT_PRIVACY_VERSION, CURRENT_TERMS_VERSION } from '@/lib/legal'
 import { queryKeys } from '@/lib/queryClient'
 import {
   CONSENT_VERSIONS_WAIT_MS,
+  ConsentVersionsChangedError,
   ConsentVersionsUnavailableError,
   isConsentRefusal,
+  matchesBuildVersions,
   useConsentVersions,
   useLegalVersions,
 } from './useLegalVersions'
 
-// Versions no build names, so a test can tell the route's answer from the
-// constants in lib/legal.ts.
-const PUBLISHED = { terms_version: '2031-03-01', privacy_version: '2031-03-02' }
-const REPUBLISHED = { terms_version: '2031-04-01', privacy_version: '2031-04-02' }
+const PUBLISHED = BUILD_VERSIONS_BODY
+const NEWER = {
+  termsVersion: NEWER_VERSIONS_BODY.terms_version,
+  privacyVersion: NEWER_VERSIONS_BODY.privacy_version,
+}
 
 const fetchMock = vi.fn()
 
@@ -42,19 +51,34 @@ describe('useConsentVersions', () => {
     vi.useRealTimers()
   })
 
-  it('reads the versions the route publishes, not the build constants', async () => {
+  it('answers with the versions the route publishes when they are this build\'s', async () => {
     fetchMock.mockResolvedValue(publishedVersions(PUBLISHED))
     const { reader } = renderReader()
 
-    await expect(reader.read()).resolves.toEqual({
-      termsVersion: '2031-03-01',
-      privacyVersion: '2031-03-02',
-    })
-    expect(PUBLISHED.terms_version).not.toBe(CURRENT_TERMS_VERSION)
-    expect(PUBLISHED.privacy_version).not.toBe(CURRENT_PRIVACY_VERSION)
+    await expect(reader.read()).resolves.toEqual(BUILD_CONSENT_VERSIONS)
     const [url, init] = fetchMock.mock.calls[0]
     expect(new URL(url).pathname).toBe('/legal/versions')
     expect((init as RequestInit).method).toBe('GET')
+  })
+
+  it('refuses versions other than this build\'s, and keeps them for the form', async () => {
+    fetchMock.mockResolvedValue(publishedVersions(NEWER_VERSIONS_BODY))
+    const { reader, queryClient } = renderReader()
+
+    await expect(reader.read()).rejects.toBeInstanceOf(ConsentVersionsChangedError)
+    expect(queryClient.getQueryData(queryKeys.legal.versions)).toEqual(NEWER)
+  })
+
+  it.each([
+    ['this build\'s versions', BUILD_CONSENT_VERSIONS, true],
+    ['a newer terms version', { ...BUILD_CONSENT_VERSIONS, termsVersion: '2031-04-01' }, false],
+    ['a newer privacy version', { ...BUILD_CONSENT_VERSIONS, privacyVersion: '2031-04-02' }, false],
+  ])('matches %s against the build: %s', (_label, versions, matches) => {
+    expect(matchesBuildVersions(versions)).toBe(matches)
+    expect(BUILD_CONSENT_VERSIONS).toEqual({
+      termsVersion: CURRENT_TERMS_VERSION,
+      privacyVersion: CURRENT_PRIVACY_VERSION,
+    })
   })
 
   it('does not fetch on mount', () => {
@@ -80,8 +104,8 @@ describe('useConsentVersions', () => {
 
   it.each([
     ['an error status', () => jsonResponse({ detail: 'boom' }, 500)],
-    ['a body without the terms version', () => jsonResponse({ privacy_version: '2031-03-02' })],
-    ['an empty version', () => publishedVersions({ terms_version: '', privacy_version: '2031-03-02' })],
+    ['a body without the terms version', () => jsonResponse({ privacy_version: PUBLISHED.privacy_version })],
+    ['an empty version', () => publishedVersions({ ...PUBLISHED, terms_version: '' })],
   ])('refuses %s instead of answering with the constants', async (_label, response) => {
     fetchMock.mockImplementation(() => Promise.resolve(response()))
     const { reader } = renderReader()
@@ -119,42 +143,43 @@ describe('useConsentVersions', () => {
   })
 
   describe('refresh', () => {
-    it('reads past the browser cache and replaces a fresh answer', async () => {
+    it('reads past the browser cache, even with a fresh answer cached', async () => {
+      fetchMock.mockImplementation(() => Promise.resolve(publishedVersions(PUBLISHED)))
+      const { reader } = renderReader()
+      await reader.read()
+
+      await expect(reader.refresh()).resolves.toEqual(BUILD_CONSENT_VERSIONS)
+
+      expect(fetchMock).toHaveBeenCalledTimes(2)
+      expect((fetchMock.mock.calls[0][1] as RequestInit).cache).toBeUndefined()
+      expect((fetchMock.mock.calls[1][1] as RequestInit).cache).toBe('no-cache')
+    })
+
+    it('refuses, and caches, versions that changed since the last read', async () => {
       fetchMock
         .mockResolvedValueOnce(publishedVersions(PUBLISHED))
-        .mockResolvedValueOnce(publishedVersions(REPUBLISHED))
+        .mockResolvedValueOnce(publishedVersions(NEWER_VERSIONS_BODY))
       const { reader, queryClient } = renderReader()
       await reader.read()
 
-      await expect(reader.refresh()).resolves.toEqual({
-        termsVersion: '2031-04-01',
-        privacyVersion: '2031-04-02',
-      })
-
-      expect((fetchMock.mock.calls[0][1] as RequestInit).cache).toBeUndefined()
-      expect((fetchMock.mock.calls[1][1] as RequestInit).cache).toBe('no-cache')
-      expect(queryClient.getQueryData(queryKeys.legal.versions)).toEqual({
-        termsVersion: '2031-04-01',
-        privacyVersion: '2031-04-02',
-      })
+      await expect(reader.refresh()).rejects.toBeInstanceOf(ConsentVersionsChangedError)
+      expect(queryClient.getQueryData(queryKeys.legal.versions)).toEqual(NEWER)
     })
 
     it('starts its own read instead of joining one already in flight', async () => {
+      // The in-flight answer would be refused; the refresh's own is not.
       const inFlight = deferred<Response>()
       fetchMock
         .mockReturnValueOnce(inFlight.promise)
-        .mockResolvedValueOnce(publishedVersions(REPUBLISHED))
+        .mockResolvedValueOnce(publishedVersions(PUBLISHED))
       const { reader } = renderReader()
       const firstRead = reader.read().catch(() => undefined)
       await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1))
 
       const refreshed = reader.refresh()
-      inFlight.resolve(publishedVersions(PUBLISHED))
+      inFlight.resolve(publishedVersions(NEWER_VERSIONS_BODY))
 
-      await expect(refreshed).resolves.toEqual({
-        termsVersion: '2031-04-01',
-        privacyVersion: '2031-04-02',
-      })
+      await expect(refreshed).resolves.toEqual(BUILD_CONSENT_VERSIONS)
       expect(fetchMock).toHaveBeenCalledTimes(2)
       expect((fetchMock.mock.calls[0][1] as RequestInit).signal?.aborted).toBe(true)
       expect((fetchMock.mock.calls[1][1] as RequestInit).cache).toBe('no-cache')

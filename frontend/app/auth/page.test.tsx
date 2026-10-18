@@ -5,12 +5,16 @@ import userEvent from '@testing-library/user-event'
 import { renderWithProviders } from '@/test/utils'
 import { deferred } from '@/test/inflightOrdering'
 import {
+  BUILD_VERSIONS_BODY,
+  NEWER_VERSIONS_BODY,
   publishLegalVersionsInTurn as publish,
   publishedVersions,
   versionsUnavailable,
 } from '@/test/consentVersions'
+import { CURRENT_PRIVACY_VERSION, CURRENT_TERMS_VERSION } from '@/lib/legal'
 import {
   CONSENT_RETRY_NOTICE,
+  CONSENT_VERSIONS_CHANGED,
   CONSENT_VERSIONS_UNAVAILABLE,
 } from '@/app/auth/_components/consent-versions-notice'
 import {
@@ -822,7 +826,9 @@ describe('AuthPage', () => {
   describe('Google sign-up consent retry', () => {
     const TERMS_MESSAGE =
       'Please accept the Terms of Service and Privacy Policy before creating an account.'
-    const REPUBLISHED = { terms_version: '2031-04-01', privacy_version: '2031-04-02' }
+    // The re-read finds this build's versions: a backend that refused them was
+    // answering from before it accepted them (the case the retry is for).
+    const REPUBLISHED = BUILD_VERSIONS_BODY
     const navigatedTo = vi.fn<(href: string) => void>()
     const originalLocation = window.location
 
@@ -890,8 +896,8 @@ describe('AuthPage', () => {
       expect(Object.fromEntries(start.searchParams)).toEqual({
         signup_intent: '1',
         terms_accepted: 'true',
-        terms_version: '2031-04-01',
-        privacy_version: '2031-04-02',
+        terms_version: CURRENT_TERMS_VERSION,
+        privacy_version: CURRENT_PRIVACY_VERSION,
         age_confirmed: 'true',
         min_age_attested: '16',
         returnTo: '/shows',
@@ -911,6 +917,21 @@ describe('AuthPage', () => {
       expect(termsCheckbox()).toHaveFocus()
       // The form's own read, not a retry's: nothing navigates.
       await waitFor(() => expect(versions.reads()).toBe(1))
+      expect(navigatedTo).not.toHaveBeenCalled()
+    })
+
+    it('asks for a reload instead of retrying when the re-read finds other versions', async () => {
+      publish(() => publishedVersions(NEWER_VERSIONS_BODY))
+      recordStart()
+      consentArrival()
+
+      renderWithProviders(<AuthPage />)
+
+      expect(await screen.findByText(CONSENT_VERSIONS_CHANGED)).toBeInTheDocument()
+      expect(screen.queryByText(CONSENT_RETRY_NOTICE)).not.toBeInTheDocument()
+      expect(screen.queryByText(TERMS_MESSAGE)).not.toBeInTheDocument()
+      expect(termsCheckbox()).not.toHaveFocus()
+      expect(sessionStorage.getItem(GOOGLE_SIGNUP_START_KEY)).toBeNull()
       expect(navigatedTo).not.toHaveBeenCalled()
     })
 

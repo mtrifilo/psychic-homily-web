@@ -49,7 +49,9 @@ import { isAccountRecoverable, isAuthError } from '@/lib/errors'
 import { getUniqueErrors } from '@/lib/utils/formErrors'
 import { MIN_SIGNUP_AGE } from '@/lib/legal'
 import {
+  ConsentVersionsChangedError,
   isConsentRefusal,
+  matchesBuildVersions,
   useConsentVersions,
   useLegalVersions,
   type ConsentVersions,
@@ -57,6 +59,7 @@ import {
 import {
   CONSENT_VERSIONS_UNAVAILABLE,
   ConsentRetryNotice,
+  ConsentVersionsChangedNotice,
 } from '@/app/auth/_components/consent-versions-notice'
 import { useGoogleSignupRetry } from '@/app/auth/_components/google-signup-start'
 import { useHydrated } from '@/lib/hooks/common/useHydrated'
@@ -398,8 +401,12 @@ function SignupForm({
 }: SignupFormProps) {
   const registerMutation = useRegister()
   const { setUser } = useAuthContext()
-  // Read as the form shows, so a submit rarely waits on it.
-  useLegalVersions()
+  // Read as the form shows, so a submit rarely waits on it, and so a backend
+  // publishing versions other than the ones this page's legal links show
+  // blocks every sign-up control before anyone fills the form in.
+  const { data: publishedVersions } = useLegalVersions()
+  const versionsChanged =
+    publishedVersions !== undefined && !matchesBuildVersions(publishedVersions)
   const consentVersions = useConsentVersions()
   const [showPassword, setShowPassword] = useState(false)
   const [passwordValue, setPasswordValue] = useState('')
@@ -502,9 +509,13 @@ function SignupForm({
     let versions: ConsentVersions
     try {
       versions = await consentVersions.refresh()
-    } catch {
+    } catch (error) {
       setIsRetryingConsent(false)
-      showError(setConsentVersionsError, CONSENT_VERSIONS_UNAVAILABLE)
+      // Versions other than this build's are never sent; the form shows
+      // why from the read that found them.
+      if (!(error instanceof ConsentVersionsChangedError)) {
+        showError(setConsentVersionsError, CONSENT_VERSIONS_UNAVAILABLE)
+      }
       return
     }
     if (mountedRef.current) {
@@ -525,10 +536,12 @@ function SignupForm({
       let versions: ConsentVersions
       try {
         versions = await consentVersions.read()
-      } catch {
-        // Never sent with this build's versions: the backend's answer is the
-        // only source of the versions a sign-up carries.
-        showError(setConsentVersionsError, CONSENT_VERSIONS_UNAVAILABLE)
+      } catch (error) {
+        // Sent only once the backend confirms this build's versions; a read
+        // that found others leaves the form showing why.
+        if (!(error instanceof ConsentVersionsChangedError)) {
+          showError(setConsentVersionsError, CONSENT_VERSIONS_UNAVAILABLE)
+        }
         return
       }
       register(value, versions, false)
@@ -550,7 +563,9 @@ function SignupForm({
       }}
       className="space-y-4"
     >
-      {isRetryingConsent ? (
+      {versionsChanged ? (
+        <ConsentVersionsChangedNotice />
+      ) : isRetryingConsent ? (
         <ConsentRetryNotice />
       ) : (
         (consentVersionsError || registerMutation.error || passkeyError || oauthError) && (
@@ -572,6 +587,7 @@ function SignupForm({
               variant="signup"
               termsAccepted={termsAccepted}
               ageConfirmed={ageConfirmed}
+              disabled={versionsChanged}
               returnTo={returnTo}
               onMissingTermsAcceptance={() => {
                 showError(setOauthError, 'You must agree to the Terms of Service and Privacy Policy before continuing with Google')
@@ -591,6 +607,7 @@ function SignupForm({
           requestDeadline={passkeyRequestDeadline}
           className="w-full"
           minAge={MIN_SIGNUP_AGE}
+          versionsChanged={versionsChanged}
         />
         <div className="relative">
           <div className="absolute inset-0 flex items-center">
@@ -758,7 +775,7 @@ function SignupForm({
           <Button
             type="submit"
             className="w-full"
-            disabled={!canSubmit || isSubmitting || registerMutation.isPending || isRetryingConsent || (passwordValue.length > 0 && passwordValue.length < MIN_PASSWORD_LENGTH)}
+            disabled={!canSubmit || isSubmitting || registerMutation.isPending || isRetryingConsent || versionsChanged || (passwordValue.length > 0 && passwordValue.length < MIN_PASSWORD_LENGTH)}
           >
             {isSubmitting || registerMutation.isPending || isRetryingConsent ? (
               <>
@@ -930,9 +947,10 @@ function AuthPageContent() {
     return null
   }
 
-  // What the banner above the card says, most specific first.
+  // What the banner above the card says, most specific first. Versions that
+  // changed are explained by the sign-up form's own notice, not here.
   const urlBanner =
-    googleSignupRetry === 'unavailable' ? (
+    googleSignupRetry === 'changed' ? null : googleSignupRetry === 'unavailable' ? (
       CONSENT_VERSIONS_UNAVAILABLE
     ) : urlRefusalRecoverable ? (
       <AccountRecoverableMessage />
@@ -1021,7 +1039,8 @@ function AuthPageContent() {
                       hydrated &&
                       showingArrivalTab &&
                       isConsentArrival &&
-                      googleSignupRetry !== 'retrying'
+                      googleSignupRetry !== 'retrying' &&
+                      googleSignupRetry !== 'changed'
                     }
                     consentReasonId={
                       urlError || googleSignupRetry === 'unavailable'

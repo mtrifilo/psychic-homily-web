@@ -9,6 +9,7 @@ import { FALLBACK_RETURN_TO } from '@/lib/auth-href'
 import { useHydrated } from '@/lib/hooks/common/useHydrated'
 import { MIN_SIGNUP_AGE } from '@/lib/legal'
 import {
+  ConsentVersionsChangedError,
   useConsentVersions,
   type ConsentVersions,
 } from '@/features/auth/hooks/useLegalVersions'
@@ -84,8 +85,10 @@ function hasRetryableGoogleSignupStart(): boolean {
  * - `none`: no retry; the page shows the refusal it arrived with.
  * - `retrying`: the start is being sent again with freshly read versions.
  * - `unavailable`: the versions for the retry could not be read.
+ * - `changed`: the backend publishes versions other than this build's, so
+ *   nothing is retried and the sign-up form asks for a reload.
  */
-export type GoogleSignupRetry = 'none' | 'retrying' | 'unavailable'
+export type GoogleSignupRetry = 'none' | 'retrying' | 'unavailable' | 'changed'
 
 /**
  * Retries, once, a Google sign-up start refused for its consent versions.
@@ -117,10 +120,11 @@ export function useGoogleSignupRetry({
   const hydrated = useHydrated()
   const startRecorded =
     hydrated && consentArrival && hasRetryableGoogleSignupStart()
-  // The arrival whose retry could not read the versions.
-  const [unavailableArrival, setUnavailableArrival] = useState<string | null>(
-    null
-  )
+  // How the retry for an arrival ended without leaving the page.
+  const [ended, setEnded] = useState<{
+    arrival: string
+    retry: 'unavailable' | 'changed'
+  } | null>(null)
   const mountedRef = useRef(false)
   const retryInFlightRef = useRef(false)
 
@@ -168,9 +172,15 @@ export function useGoogleSignupRetry({
             window.location.href = googleStartUrl({ returnTo, signup: versions })
           }
         },
-        () => {
+        error => {
           forgetGoogleSignupStart()
-          setUnavailableArrival(arrival)
+          setEnded({
+            arrival,
+            retry:
+              error instanceof ConsentVersionsChangedError
+                ? 'changed'
+                : 'unavailable',
+          })
         }
       )
       .finally(() => {
@@ -178,8 +188,8 @@ export function useGoogleSignupRetry({
       })
   }, [arrival, consentArrival, consentVersions, returnTo])
 
-  if (unavailableArrival === arrival) {
-    return 'unavailable'
+  if (ended?.arrival === arrival) {
+    return ended.retry
   }
   return startRecorded ? 'retrying' : 'none'
 }

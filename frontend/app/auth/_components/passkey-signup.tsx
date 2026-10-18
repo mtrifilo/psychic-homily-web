@@ -25,6 +25,7 @@ import {
 } from '@/features/auth/hooks/useAuth'
 import { useWebAuthnSupport } from '@/features/auth/hooks/useWebAuthnSupport'
 import {
+  ConsentVersionsChangedError,
   ConsentVersionsUnavailableError,
   isConsentRefusal,
   useConsentVersions,
@@ -37,6 +38,7 @@ import { API_BASE_URL } from '@/lib/api-base'
 import {
   CONSENT_VERSIONS_UNAVAILABLE,
   ConsentRetryNotice,
+  ConsentVersionsChangedNotice,
 } from './consent-versions-notice'
 import type { SignupHandoff } from './signup-handoff'
 import type { SignupRequestDeadline } from './signup-request-deadline'
@@ -63,6 +65,11 @@ interface PasskeySignupButtonProps {
   requestDeadline: SignupRequestDeadline
   className?: string
   minAge?: number
+  /**
+   * The backend publishes consent versions other than this build's. The
+   * dialog then says so and sends nothing until a reload.
+   */
+  versionsChanged?: boolean
 }
 
 export function PasskeySignupButton({
@@ -71,6 +78,7 @@ export function PasskeySignupButton({
   requestDeadline,
   className,
   minAge = MIN_SIGNUP_AGE,
+  versionsChanged = false,
 }: PasskeySignupButtonProps) {
   const { setUser } = useAuthContext()
   const queryClient = useQueryClient()
@@ -242,6 +250,10 @@ export function PasskeySignupButton({
         onError?.(CONSENT_VERSIONS_UNAVAILABLE)
         return
       }
+      // Shown in the dialog from versionsChanged, once the page has the read.
+      if (error instanceof ConsentVersionsChangedError) {
+        return
+      }
 
       // Handle user cancellation gracefully
       if (error instanceof Error) {
@@ -272,6 +284,7 @@ export function PasskeySignupButton({
           type="button"
           variant="outline"
           className={className}
+          disabled={versionsChanged}
         >
           <Fingerprint className="h-4 w-4" />
           Sign up with passkey
@@ -371,11 +384,17 @@ export function PasskeySignupButton({
               <p role="alert" className="text-sm text-destructive">{ageError}</p>
             )}
           </div>
-          {isRetryingConsent && <ConsentRetryNotice />}
+          {versionsChanged ? (
+            <ConsentVersionsChangedNotice />
+          ) : (
+            isRetryingConsent && <ConsentRetryNotice />
+          )}
           <Button
             type="button"
             onClick={handlePasskeySignup}
-            disabled={isLoading || !email || !termsAccepted || !ageConfirmed}
+            disabled={
+              isLoading || versionsChanged || !email || !termsAccepted || !ageConfirmed
+            }
             className="w-full"
           >
             {isLoading ? (

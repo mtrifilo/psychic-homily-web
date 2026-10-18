@@ -9,9 +9,12 @@ import { GoogleOAuthButton } from './google-oauth-button'
 import { GOOGLE_SIGNUP_START_KEY } from './google-signup-start'
 import { deferred } from '@/test/inflightOrdering'
 import {
+  BUILD_VERSIONS_BODY,
+  NEWER_VERSIONS_BODY,
   publishLegalVersionsInTurn,
   publishedVersions,
 } from '@/test/consentVersions'
+import { CURRENT_PRIVACY_VERSION, CURRENT_TERMS_VERSION } from '@/lib/legal'
 
 vi.mock('@/lib/api-base', async importOriginal => ({
   ...(await importOriginal<typeof import('@/lib/api-base')>()),
@@ -96,7 +99,7 @@ describe('GoogleOAuthButton', () => {
   })
 
   describe('consent versions', () => {
-    const PUBLISHED = { terms_version: '2031-03-01', privacy_version: '2031-03-02' }
+    const PUBLISHED = BUILD_VERSIONS_BODY
 
     function renderSignup(onConsentVersionsUnavailable = vi.fn()) {
       renderWithProviders(
@@ -110,7 +113,7 @@ describe('GoogleOAuthButton', () => {
       return onConsentVersionsUnavailable
     }
 
-    it('starts the sign-up with the versions the route publishes and records the start', async () => {
+    it('starts the sign-up with this build\'s versions once the route confirms them, and records the start', async () => {
       server.use(
         http.get(`${TEST_API_BASE}/legal/versions`, () =>
           HttpResponse.json({ ...PUBLISHED, min_signup_age: 16, grace_until: null })
@@ -123,8 +126,8 @@ describe('GoogleOAuthButton', () => {
 
       await waitFor(() => expect(navigatedTo).toHaveBeenCalled())
       const params = startUrl().searchParams
-      expect(params.get('terms_version')).toBe('2031-03-01')
-      expect(params.get('privacy_version')).toBe('2031-03-02')
+      expect(params.get('terms_version')).toBe(CURRENT_TERMS_VERSION)
+      expect(params.get('privacy_version')).toBe(CURRENT_PRIVACY_VERSION)
       expect(sessionStorage.getItem(GOOGLE_SIGNUP_START_KEY)).not.toBeNull()
     })
 
@@ -180,6 +183,27 @@ describe('GoogleOAuthButton', () => {
       expect(navigatedTo).not.toHaveBeenCalled()
       expect(sessionStorage.getItem(GOOGLE_SIGNUP_START_KEY)).toBeNull()
       expect(onConsentVersionsUnavailable).not.toHaveBeenCalled()
+    })
+
+    it('neither starts nor reports a read failure when the route publishes other versions', async () => {
+      publishLegalVersionsInTurn(() => publishedVersions(NEWER_VERSIONS_BODY))
+      const user = userEvent.setup()
+      const onConsentVersionsUnavailable = renderSignup()
+
+      await user.click(screen.getByRole('button', { name: 'Sign up with Google' }))
+
+      await waitFor(() => {
+        expect(screen.getByRole('button', { name: 'Sign up with Google' })).toBeEnabled()
+      })
+      expect(navigatedTo).not.toHaveBeenCalled()
+      expect(onConsentVersionsUnavailable).not.toHaveBeenCalled()
+      expect(sessionStorage.getItem(GOOGLE_SIGNUP_START_KEY)).toBeNull()
+    })
+
+    it('is disabled when the form says so', () => {
+      renderWithProviders(<GoogleOAuthButton variant="signup" disabled />)
+
+      expect(screen.getByRole('button', { name: 'Sign up with Google' })).toBeDisabled()
     })
 
     it('drops a recorded sign-up start when a sign-in starts', async () => {

@@ -1,4 +1,4 @@
-import { Loader2 } from 'lucide-react'
+import { Loader2, RefreshCw } from 'lucide-react'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 
 /**
@@ -10,6 +10,31 @@ export const CONSENT_VERSIONS_UNAVAILABLE =
 
 export const CONSENT_RETRY_NOTICE =
   'Our Terms of Service or Privacy Policy may have just been updated. Trying again with the current versions.'
+
+/**
+ * Why sign-up is blocked: the backend publishes Terms of Service or Privacy
+ * Policy versions other than the ones this page's links show.
+ */
+export const CONSENT_VERSIONS_CHANGED =
+  'The Terms of Service or Privacy Policy were updated. Reload this page to continue.'
+
+/**
+ * Shown in place of every other sign-up message while the published versions
+ * differ from this build's; every sign-up control stays disabled until a
+ * reload.
+ */
+export function ConsentVersionsChangedNotice({
+  className,
+}: {
+  className?: string
+}) {
+  return (
+    <Alert className={className}>
+      <RefreshCw className="h-4 w-4" aria-hidden />
+      <AlertDescription>{CONSENT_VERSIONS_CHANGED}</AlertDescription>
+    </Alert>
+  )
+}
 
 /**
  * Shown while a sign-up the backend refused for its consent versions is sent

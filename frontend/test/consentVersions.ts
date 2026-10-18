@@ -12,6 +12,21 @@ export const BUILD_CONSENT_VERSIONS: ConsentVersions = {
   privacyVersion: CURRENT_PRIVACY_VERSION,
 }
 
+/** GET /legal/versions naming this build's versions. */
+export const BUILD_VERSIONS_BODY = {
+  terms_version: CURRENT_TERMS_VERSION,
+  privacy_version: CURRENT_PRIVACY_VERSION,
+}
+
+/**
+ * GET /legal/versions naming versions no build names: a backend that bumped
+ * them ahead of this frontend.
+ */
+export const NEWER_VERSIONS_BODY = {
+  terms_version: '2031-04-01',
+  privacy_version: '2031-04-02',
+}
+
 /**
  * A query client that already holds the published consent versions, so a
  * sign-up reads them without a request. For suites that stub `fetch` and
