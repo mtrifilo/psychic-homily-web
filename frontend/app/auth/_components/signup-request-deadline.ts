@@ -13,10 +13,21 @@ export const SIGNUP_REQUEST_TIMEOUT_MS = 30_000
  * then `onExpire` runs. Arming again replaces the previous deadline. The signal
  * covers the whole response, body included, so a response that stalls after
  * its headers is abandoned too.
+ *
+ * A request identifies itself by the signal it was armed with, so one that
+ * outlives the control that sent it cannot touch a newer request's deadline:
+ * `rearm` and a `disarm` given a signal act only while that signal is the one
+ * armed.
  */
 export interface SignupRequestDeadline {
   arm: () => AbortSignal
-  disarm: () => void
+  /**
+   * Restarts the deadline of the request armed with `signal` and returns the
+   * signal that now stands for it. Any other signal comes back unchanged and
+   * the deadline is left alone.
+   */
+  rearm: (signal: AbortSignal) => AbortSignal
+  disarm: (signal?: AbortSignal) => void
 }
 
 /**
@@ -50,10 +61,22 @@ export function useSignupRequestDeadline(
     return controller.signal
   }, [schedule])
 
-  const disarm = useCallback(() => {
-    controllerRef.current = null
-    cancel()
-  }, [cancel])
+  const rearm = useCallback(
+    (signal: AbortSignal) =>
+      controllerRef.current?.signal === signal ? arm() : signal,
+    [arm]
+  )
+
+  const disarm = useCallback(
+    (signal?: AbortSignal) => {
+      if (signal && controllerRef.current?.signal !== signal) {
+        return
+      }
+      controllerRef.current = null
+      cancel()
+    },
+    [cancel]
+  )
 
   useEffect(() => {
     if (controllerRef.current !== null) {
@@ -61,5 +84,5 @@ export function useSignupRequestDeadline(
     }
   }, [schedule])
 
-  return useMemo(() => ({ arm, disarm }), [arm, disarm])
+  return useMemo(() => ({ arm, rearm, disarm }), [arm, rearm, disarm])
 }
