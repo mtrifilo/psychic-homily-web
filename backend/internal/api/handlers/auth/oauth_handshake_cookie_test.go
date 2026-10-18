@@ -148,26 +148,9 @@ func TestOAuthHandshakeCookies_LifetimesFitTheRolloverWindow(t *testing.T) {
 }
 
 // A browser that started a handshake before the prefix was deployed sends the
-// bare name to a callback that sets the prefixed one.
-func TestOAuthHandshakeCookies_SecureCallbackReadsAndClearsTheBareName(t *testing.T) {
-	defer cleanCLICallbackStore()
-
-	t.Run(cliCallbackIDCookieName, func(t *testing.T) {
-		callbackID, err := randomHexID(16)
-		if err != nil {
-			t.Fatal(err)
-		}
-		storeCLICallback(callbackID, "http://localhost:8888/cb")
-
-		resp, loc := runCallback(t, handshakeCookieHandler(true), "/auth/callback/google",
-			&http.Cookie{Name: cliCallbackIDCookieName, Value: callbackID})
-
-		if !strings.HasPrefix(loc, "http://localhost:8888/cb?") {
-			t.Errorf("want the stored loopback destination, got %q", loc)
-		}
-		assertHandshakeCookie(t, resp, cliCallbackIDCookieName, true)
-	})
-
+// bare name to a callback that sets the prefixed one. Consent and return-to
+// hold their state in the cookie, so the callback still reads them.
+func TestOAuthHandshakeCookies_SecureCallbackReadsAndClearsABareStateCookie(t *testing.T) {
 	t.Run(oauthSignupConsentCookieName, func(t *testing.T) {
 		encoded, err := encodeOAuthSignupConsent(contracts.OAuthSignupConsent{TermsAccepted: true, AcceptedAt: time.Now()})
 		if err != nil {
@@ -201,6 +184,36 @@ func TestOAuthHandshakeCookies_SecureCallbackReadsAndClearsTheBareName(t *testin
 		}
 		assertHandshakeCookie(t, resp, oauthReturnToCookieName, true)
 	})
+}
+
+// cli_callback_id and the link intent hold ids into process-local stores, so a
+// bare name a previous deploy set can name nothing this process holds. When
+// Secure, the only bare id a callback can find is one a sibling subdomain
+// planted, and the callback must not act on it: a planted CLI id would send
+// the reader's session token to the planter's loopback.
+func TestOAuthHandshakeCookies_SecureCallbackIgnoresABareStoreID(t *testing.T) {
+	defer cleanCLICallbackStore()
+
+	t.Run(cliCallbackIDCookieName, func(t *testing.T) {
+		callbackID, err := randomHexID(16)
+		if err != nil {
+			t.Fatal(err)
+		}
+		storeCLICallback(callbackID, "http://localhost:8888/planted")
+
+		resp, loc := runCallback(t, handshakeCookieHandler(true), "/auth/callback/google",
+			&http.Cookie{Name: cliCallbackIDCookieName, Value: callbackID})
+
+		if !strings.HasPrefix(loc, testFrontendOrigin+oauthAuthPagePath+"?") {
+			t.Errorf("want the web flow's auth page, got %q", loc)
+		}
+		if _, still := getCLICallback(callbackID); !still {
+			t.Error("the bare id was consumed")
+		}
+		if findCookie(resp, cliCallbackIDCookieName) != nil {
+			t.Errorf("want no Set-Cookie for a bare id that was not read, got %q", resp.Header.Values("Set-Cookie"))
+		}
+	})
 
 	t.Run(oauthLinkIntentCookieName, func(t *testing.T) {
 		h := handshakeCookieHandler(true)
@@ -213,15 +226,35 @@ func TestOAuthHandshakeCookies_SecureCallbackReadsAndClearsTheBareName(t *testin
 		if !found {
 			t.Fatal("expected the armed intent in the store")
 		}
+		target := "/auth/callback/google?state=" + intent.state
 		bare := &http.Cookie{Name: oauthLinkIntentCookieName, Value: set.Value}
 
-		if !completesPendingLink(googleRequest("/auth/callback/google?state="+intent.state, bare), true) {
-			t.Error("the rate limiter does not see the pending link the bare name carries")
+		if completesPendingLink(googleRequest(target, bare), true) {
+			t.Error("the rate limiter treats a bare intent id as a pending link")
 		}
+		_, loc := runCallback(t, h, target, bare)
+		if !strings.HasPrefix(loc, testFrontendOrigin+oauthAuthPagePath+"?") {
+			t.Errorf("want the sign-in refusal, not a link result, got %q", loc)
+		}
+		if _, _, still := peekOAuthLinkIntent(set.Value); !still {
+			t.Error("the bare id consumed the intent")
+		}
+	})
 
-		consumeOAuthLinkIntent(set.Value)
-		resp, _ := runCallback(t, h, "/auth/callback/google", bare)
-		assertHandshakeCookie(t, resp, oauthLinkIntentCookieName, true)
+	t.Run("a bare id beside the prefixed one is cleared", func(t *testing.T) {
+		realID, plantedID := "real-callback-id", "planted-callback-id"
+		storeCLICallback(realID, "http://localhost:8888/real")
+		storeCLICallback(plantedID, "http://localhost:8888/planted")
+
+		resp, loc := runCallback(t, handshakeCookieHandler(true), "/auth/callback/google",
+			&http.Cookie{Name: cliCallbackIDCookieName, Value: plantedID},
+			&http.Cookie{Name: oauthHostCookiePrefix + cliCallbackIDCookieName, Value: realID})
+
+		if !strings.HasPrefix(loc, "http://localhost:8888/real?") {
+			t.Errorf("want the prefixed id's destination, got %q", loc)
+		}
+		assertHandshakeCookie(t, resp, oauthHostCookiePrefix+cliCallbackIDCookieName, true)
+		assertHandshakeCookie(t, resp, cliCallbackIDCookieName, true)
 	})
 }
 

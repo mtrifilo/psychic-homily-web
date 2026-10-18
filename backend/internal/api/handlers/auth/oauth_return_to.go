@@ -23,8 +23,9 @@ const oauthReturnToCookieName = "oauth_return_to"
 // oauthReturnToCookie lives as long as the signup consent cookie: long enough
 // for a consent screen and a second factor at the provider.
 var oauthReturnToCookie = oauthHandshakeCookie{
-	name:     oauthReturnToCookieName,
-	lifetime: oauthSignupConsentCookieLifetime,
+	name:                  oauthReturnToCookieName,
+	lifetime:              oauthSignupConsentCookieLifetime,
+	rolloverReadsBareName: true,
 }
 
 // oauthReturnToFallback is where a sign-in lands when it names no destination

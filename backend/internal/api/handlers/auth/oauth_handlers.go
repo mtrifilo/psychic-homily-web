@@ -34,8 +34,9 @@ const oauthSignupConsentCookieName = "oauth_signup_consent"
 const oauthSignupConsentCookieLifetime = 10 * time.Minute
 
 var oauthSignupConsentCookie = oauthHandshakeCookie{
-	name:     oauthSignupConsentCookieName,
-	lifetime: oauthSignupConsentCookieLifetime,
+	name:                  oauthSignupConsentCookieName,
+	lifetime:              oauthSignupConsentCookieLifetime,
+	rolloverReadsBareName: true,
 }
 
 // cliCallbackIDCookieName holds the id of the loopback destination a CLI

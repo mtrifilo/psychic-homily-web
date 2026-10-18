@@ -23,6 +23,13 @@ const oauthHandshakeCookieMaxLifetime = 10 * time.Minute
 type oauthHandshakeCookie struct {
 	name     string
 	lifetime time.Duration
+	// rolloverReadsBareName is set on a cookie whose value is the state
+	// itself, so one a previous deploy set under the bare name still
+	// completes its handshake. A cookie holding an id into a process-local
+	// store leaves it unset: no id a previous process minted resolves after
+	// the deploy restarts it, and reading the bare name would only admit one
+	// a sibling subdomain planted.
+	rolloverReadsBareName bool
 }
 
 // setName is the name this deployment sets the cookie under.
@@ -33,15 +40,23 @@ func (c oauthHandshakeCookie) setName(secure bool) string {
 	return c.name
 }
 
-// readNames are the names a request may carry the cookie under, in the order
-// they are read.
+// readNames are the names read finds the cookie under, in order.
 //
 // The bare name after the prefixed one is the rollover read: a browser that
 // started a handshake before the prefix was deployed still carries the bare
-// name for up to oauthHandshakeCookieMaxLifetime. Remove that entry on or
-// after 2026-10-24, once a production deploy that sets the prefixed names has
-// been live for longer than that.
+// name for up to oauthHandshakeCookieMaxLifetime. Remove rolloverReadsBareName
+// on or after 2026-10-24, once a production deploy that sets the prefixed
+// names has been live for longer than that.
 func (c oauthHandshakeCookie) readNames(secure bool) []string {
+	if secure && c.rolloverReadsBareName {
+		return c.clearNames(true)
+	}
+	return []string{c.setName(secure)}
+}
+
+// clearNames are the names clear expires the cookie under: when Secure, the
+// bare name a previous deploy set as well as the prefixed one.
+func (c oauthHandshakeCookie) clearNames(secure bool) []string {
 	if !secure {
 		return []string{c.name}
 	}
@@ -62,10 +77,11 @@ func (c oauthHandshakeCookie) read(r *http.Request, secure bool) (*http.Cookie, 
 	return nil, false
 }
 
-// clear expires the cookie under every name the request carries it under, so
-// a value under a name read would fall back to cannot outlive the one read.
+// clear expires the cookie under every one of clearNames the request carries
+// it under, so a value under a name read would fall back to cannot outlive
+// the one read.
 func (c oauthHandshakeCookie) clear(w http.ResponseWriter, r *http.Request, secure bool) {
-	for _, name := range c.readNames(secure) {
+	for _, name := range c.clearNames(secure) {
 		if _, err := r.Cookie(name); err == nil {
 			http.SetCookie(w, newOAuthHandshakeCookie(name, "", -1, secure))
 		}
