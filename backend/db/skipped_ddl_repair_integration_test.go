@@ -62,7 +62,11 @@ func repairedTablesCatalog(t *testing.T, sqlDB *sql.DB) []string {
 	return catalog
 }
 
-// The restored definitions, as a database migrated from scratch has them.
+// The restored definitions, as a database migrated from scratch has them, in
+// the text information_schema, pg_get_constraintdef and pg_indexes render for
+// the Postgres image testutil pins. A major-version bump can change that text
+// without any schema change; the from-scratch comparison in the test below
+// does not depend on it.
 var skippedDDLRepairDefinitions = []string{
 	"column notification_filters.source character varying(16) nullable=NO default='user'::character varying",
 	"constraint notification_filters.notification_filters_source_check " +
@@ -126,20 +130,35 @@ func TestSkippedDDLRepairMigration_integration(t *testing.T) {
 		assert.Equal(t, fromScratch, repairedTablesCatalog(t, sqlDB))
 	})
 
-	t.Run("down removes what it restores and up restores it again", func(t *testing.T) {
+	// The restored objects belong to the two source migrations, whose downs
+	// remove them; this migration's down leaves them, and their data, alone.
+	t.Run("down leaves the restored objects and their data in place", func(t *testing.T) {
+		var userID, sourceID, forkID, filterID int64
+		require.NoError(t, sqlDB.QueryRow(
+			`INSERT INTO users (email, is_active, email_verified)
+			 VALUES ('repair-down@test.local', TRUE, TRUE) RETURNING id`).Scan(&userID))
+		require.NoError(t, sqlDB.QueryRow(
+			`INSERT INTO collections (title, slug, creator_id)
+			 VALUES ('Source', 'repair-down-source', $1) RETURNING id`, userID).Scan(&sourceID))
+		require.NoError(t, sqlDB.QueryRow(
+			`INSERT INTO collections (title, slug, creator_id, forked_from_collection_id)
+			 VALUES ('Fork', 'repair-down-fork', $1, $2) RETURNING id`, userID, sourceID).Scan(&forkID))
+		require.NoError(t, sqlDB.QueryRow(
+			`INSERT INTO notification_filters (user_id, name, source)
+			 VALUES ($1, 'Quick', 'managed') RETURNING id`, userID).Scan(&filterID))
+
 		_, err := sqlDB.Exec(readSkippedDDLRepair(t, "down"))
 		require.NoError(t, err)
-		catalog := repairedTablesCatalog(t, sqlDB)
-		for _, definition := range skippedDDLRepairDefinitions {
-			require.NotContains(t, catalog, definition)
-		}
-		requireBothColumnsRefused()
-
-		_, err = sqlDB.Exec(readSkippedDDLRepair(t, "down"))
-		require.NoError(t, err, "down is a no-op where the objects are absent")
-
-		applyRepair()
 		assert.Equal(t, fromScratch, repairedTablesCatalog(t, sqlDB))
 		require.NoError(t, AssertRequiredSchema(td.DB))
+
+		var forkedFrom int64
+		require.NoError(t, sqlDB.QueryRow(
+			`SELECT forked_from_collection_id FROM collections WHERE id = $1`, forkID).Scan(&forkedFrom))
+		assert.Equal(t, sourceID, forkedFrom)
+		var source string
+		require.NoError(t, sqlDB.QueryRow(
+			`SELECT source FROM notification_filters WHERE id = $1`, filterID).Scan(&source))
+		assert.Equal(t, "managed", source)
 	})
 }
