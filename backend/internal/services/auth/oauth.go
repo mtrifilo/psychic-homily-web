@@ -28,9 +28,12 @@ func (r *RealOAuthCompleter) CompleteUserAuth(w http.ResponseWriter, req *http.R
 // AuthService handles authentication business logic
 type AuthService struct {
 	db             *gorm.DB
+	config         *config.Config
 	userService    contracts.UserServiceInterface
 	jwtService     *JWTService
 	oauthCompleter contracts.OAuthCompleter
+	// clock is what the pending sign-up store reads as now.
+	clock func() time.Time
 }
 
 // NewAuthService creates a new authentication service
@@ -40,10 +43,19 @@ func NewAuthService(database *gorm.DB, cfg *config.Config, userService contracts
 	}
 	return &AuthService{
 		db:             database,
+		config:         cfg,
 		userService:    userService,
 		jwtService:     NewJWTService(database, cfg, userService),
 		oauthCompleter: &RealOAuthCompleter{},
+		clock:          time.Now,
 	}
+}
+
+func (s *AuthService) now() time.Time {
+	if s.clock == nil {
+		return time.Now()
+	}
+	return s.clock()
 }
 
 // OAuthLogin initiates OAuth login flow
@@ -105,14 +117,15 @@ func (s *AuthService) CompleteOAuthLink(
 	return linked, nil
 }
 
-// OAuthCallbackWithConsent finishes the provider handshake, resolves or creates
-// the account through UserServiceInterface.FindOrCreateUserWithConsent, which
-// refuses to create one without consent, and issues a session for it.
-func (s *AuthService) OAuthCallbackWithConsent(
+// OAuthCallback finishes the provider handshake, resolves the account through
+// UserServiceInterface.FindOrCreateUserWithConsent with no consent, so an
+// identity that would need an account created is refused with
+// *contracts.OAuthSignupRequiredError, and issues a session for the account it
+// resolves to.
+func (s *AuthService) OAuthCallback(
 	w http.ResponseWriter,
 	r *http.Request,
 	provider string,
-	consent *contracts.OAuthSignupConsent,
 ) (*authm.User, string, error) {
 	// Check for nil request
 	if r == nil {
@@ -139,7 +152,7 @@ func (s *AuthService) OAuthCallbackWithConsent(
 		"provider_user_id", gothUser.UserID,
 	)
 
-	user, err := s.userService.FindOrCreateUserWithConsent(gothUser, provider, consent)
+	user, err := s.userService.FindOrCreateUserWithConsent(gothUser, provider, nil)
 	if err != nil {
 		return nil, "", fmt.Errorf("failed to find or create user: %w", err)
 	}

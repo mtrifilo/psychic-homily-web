@@ -6,6 +6,7 @@ import (
 	"net/url"
 	"slices"
 	"strings"
+	"time"
 )
 
 // oauthReturnToParam names the destination on both sides of the sign-in
@@ -21,11 +22,13 @@ const oauthReturnToParam = "returnTo"
 // the one channel the provider does not control.
 const oauthReturnToCookieName = "oauth_return_to"
 
-// oauthReturnToCookie lives as long as the signup consent cookie: long enough
-// for a consent screen and a second factor at the provider.
+// oauthReturnToCookieLifetime bounds the destination cookie to one OAuth round
+// trip, a consent screen and a second factor at the provider included.
+const oauthReturnToCookieLifetime = 10 * time.Minute
+
 var oauthReturnToCookie = oauthHandshakeCookie{
 	name:                  oauthReturnToCookieName,
-	lifetime:              oauthSignupConsentCookieLifetime,
+	lifetime:              oauthReturnToCookieLifetime,
 	rolloverReadsBareName: true,
 }
 

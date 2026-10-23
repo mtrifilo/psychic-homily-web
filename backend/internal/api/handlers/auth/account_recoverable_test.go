@@ -122,7 +122,6 @@ func (s *OAuthHandlerIntegrationSuite) TestGoogleCallback_AddressOfRecoverableAc
 				RawData:  map[string]any{"verified_email": tc.vouched},
 			}})
 			w, req := oauthCallbackRequest("google")
-			s.addSignupConsentCookie(req)
 			handler.OAuthCallbackHTTPHandler(w, req)
 
 			if tc.vouched && tc.accountVerified {

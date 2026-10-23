@@ -12,7 +12,6 @@ import (
 	"psychic-homily-backend/internal/api/handlers/shared/testhelpers"
 	"psychic-homily-backend/internal/config"
 	authm "psychic-homily-backend/internal/models/auth"
-	"psychic-homily-backend/internal/services/contracts"
 	"psychic-homily-backend/internal/testlog"
 )
 
@@ -37,7 +36,6 @@ func cliCallbackID(t *testing.T, w *httptest.ResponseRecorder) string {
 // the CLI callback ID gates a redirect that later carries a session JWT.
 func TestOAuthLoginNeverLogsCredentials(t *testing.T) {
 	const sentinelSessionJWT = "SENTINEL-SESSION-JWT-VALUE-7c3a55"
-	const sentinelConsentCookie = "SENTINEL-CONSENT-COOKIE-b0d419"
 	const loopbackCallback = "http://localhost:8765/cli-oauth-return"
 
 	handler := NewOAuthHTTPHandler(nil, nil, &config.Config{})
@@ -49,7 +47,6 @@ func TestOAuthLoginNeverLogsCredentials(t *testing.T) {
 	// Reach the cliCallback branch, which the bare helper request skips.
 	req.URL.RawQuery = "cli_callback=" + loopbackCallback
 	req.AddCookie(&http.Cookie{Name: config.AuthCookieName, Value: sentinelSessionJWT})
-	req.AddCookie(&http.Cookie{Name: oauthSignupConsentCookieName, Value: sentinelConsentCookie})
 
 	output := testlog.Capture(t, func() {
 		handler.OAuthLoginHTTPHandler(w, testlog.Request(t, req))
@@ -62,7 +59,6 @@ func TestOAuthLoginNeverLogsCredentials(t *testing.T) {
 		value string
 	}{
 		{"session JWT cookie value", sentinelSessionJWT},
-		{"signup consent cookie value", sentinelConsentCookie},
 		{"minted CLI callback ID", mintedCallbackID},
 	} {
 		if strings.Contains(output, secret.value) {
@@ -99,8 +95,8 @@ func TestOAuthCallbackHandlerNeverLogsTheMintedToken(t *testing.T) {
 	storeCLICallback(sentinelCallbackID, loopbackCallback)
 
 	authService := &testhelpers.MockAuthService{
-		OAuthCallbackWithConsentFn: func(
-			http.ResponseWriter, *http.Request, string, *contracts.OAuthSignupConsent,
+		OAuthCallbackFn: func(
+			http.ResponseWriter, *http.Request, string,
 		) (*authm.User, string, error) {
 			return &authm.User{ID: 9}, sentinelToken, nil
 		},
@@ -156,8 +152,8 @@ func TestOAuthCallbackHandlerRedactsTokenBearingErrorURL(t *testing.T) {
 	}
 
 	authService := &testhelpers.MockAuthService{
-		OAuthCallbackWithConsentFn: func(
-			http.ResponseWriter, *http.Request, string, *contracts.OAuthSignupConsent,
+		OAuthCallbackFn: func(
+			http.ResponseWriter, *http.Request, string,
 		) (*authm.User, string, error) {
 			return nil, "", fmt.Errorf("OAuth completion failed: %w", transportErr)
 		},
@@ -201,8 +197,8 @@ func TestOAuthCallbackHandlerScrubsNonURLProviderError(t *testing.T) {
 	)
 
 	authService := &testhelpers.MockAuthService{
-		OAuthCallbackWithConsentFn: func(
-			http.ResponseWriter, *http.Request, string, *contracts.OAuthSignupConsent,
+		OAuthCallbackFn: func(
+			http.ResponseWriter, *http.Request, string,
 		) (*authm.User, string, error) {
 			return nil, "", fmt.Errorf("OAuth completion failed: %w", providerErr)
 		},
@@ -268,8 +264,8 @@ func TestOAuthCLICallbackRejectionNeverLogsTheClientAddress(t *testing.T) {
 		storeCLICallback(storedID, attackerCallback)
 
 		authService := &testhelpers.MockAuthService{
-			OAuthCallbackWithConsentFn: func(
-				http.ResponseWriter, *http.Request, string, *contracts.OAuthSignupConsent,
+			OAuthCallbackFn: func(
+				http.ResponseWriter, *http.Request, string,
 			) (*authm.User, string, error) {
 				return &authm.User{ID: 9}, "unused-token", nil
 			},

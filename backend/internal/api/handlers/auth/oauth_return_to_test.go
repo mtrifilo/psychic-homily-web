@@ -17,7 +17,6 @@ import (
 	"psychic-homily-backend/internal/config"
 	autherrors "psychic-homily-backend/internal/errors"
 	authm "psychic-homily-backend/internal/models/auth"
-	"psychic-homily-backend/internal/services/contracts"
 	"psychic-homily-backend/internal/testcorpus"
 )
 
@@ -175,46 +174,6 @@ func TestOAuthLogin_ClearsAnEarlierStartsReturnTo(t *testing.T) {
 	assertReturnToCleared(t, startSignIn("", stale))
 }
 
-// The consent gate refuses before anything is recorded.
-func TestOAuthLogin_RefusedSignupRecordsNoReturnTo(t *testing.T) {
-	resp := startSignIn("signup_intent=1&returnTo=%2Fshows")
-
-	if resp.StatusCode != http.StatusBadRequest {
-		t.Fatalf("status = %d, want 400", resp.StatusCode)
-	}
-	if cookie := findCookie(resp, oauthReturnToCookieName); cookie != nil {
-		t.Errorf("expected no return-to cookie on a refused start, got %+v", cookie)
-	}
-}
-
-// A sign-up start naming stale consent versions goes back to the auth page
-// with the destination, records nothing, and never reaches the provider.
-func TestOAuthLogin_StaleConsentRefusalCarriesTheDestination(t *testing.T) {
-	resp := startSignIn("signup_intent=1&terms_accepted=true&terms_version=stale&privacy_version=stale" +
-		"&age_confirmed=true&min_age_attested=16&returnTo=" + url.QueryEscape("/profile?tab=settings"))
-
-	if resp.StatusCode != http.StatusTemporaryRedirect {
-		t.Fatalf("status = %d, want %d", resp.StatusCode, http.StatusTemporaryRedirect)
-	}
-	location, err := url.Parse(resp.Header.Get("Location"))
-	if err != nil {
-		t.Fatalf("unparseable Location: %v", err)
-	}
-	if location.Path != "/auth" {
-		t.Errorf("redirect path = %q, want /auth", location.Path)
-	}
-	query := location.Query()
-	if got := query.Get("error_code"); got != autherrors.CodeTermsAcceptanceRequired {
-		t.Errorf("error_code = %q, want %q", got, autherrors.CodeTermsAcceptanceRequired)
-	}
-	if got := query.Get("returnTo"); got != "/profile?tab=settings" {
-		t.Errorf("returnTo = %q, want /profile?tab=settings", got)
-	}
-	if cookie := findCookie(resp, oauthReturnToCookieName); cookie != nil {
-		t.Errorf("expected no return-to cookie on a refused start, got %+v", cookie)
-	}
-}
-
 // A link start records no destination of its own, so it clears one an
 // abandoned sign-in start left behind: a link callback that resolves as a
 // sign-in must not land on it.
@@ -235,8 +194,8 @@ func (s *OAuthHandlerIntegrationSuite) TestLink_ClearsAnAbandonedSignInsDestinat
 
 func signInCallbackHandler() *OAuthHTTPHandler {
 	authService := &testhelpers.MockAuthService{
-		OAuthCallbackWithConsentFn: func(
-			http.ResponseWriter, *http.Request, string, *contracts.OAuthSignupConsent,
+		OAuthCallbackFn: func(
+			http.ResponseWriter, *http.Request, string,
 		) (*authm.User, string, error) {
 			return &authm.User{ID: 42}, "session-token", nil
 		},
