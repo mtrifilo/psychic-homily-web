@@ -116,12 +116,17 @@ export function withoutOAuthLinkResult(search: string): string {
   const kept = search
     .replace(/^\?/, '')
     .split('&')
-    .filter(pair => {
-      if (pair === '') return false
-      const [name] = new URLSearchParams(pair).keys()
-      return !OAUTH_LINK_RESULT_PARAMS.includes(name)
-    })
+    .filter(pair => pair !== '' && !isOAuthLinkResultPair(pair))
   return kept.length === 0 ? '' : `?${kept.join('&')}`
+}
+
+/**
+ * Is this one `name=value` pair of a query string an OAuth link result? The
+ * name is compared decoded, as `withoutOAuthLinkResult` compares it.
+ */
+export function isOAuthLinkResultPair(pair: string): boolean {
+  const [name] = new URLSearchParams(pair).keys()
+  return name !== undefined && OAUTH_LINK_RESULT_PARAMS.includes(name)
 }
 
 /**
