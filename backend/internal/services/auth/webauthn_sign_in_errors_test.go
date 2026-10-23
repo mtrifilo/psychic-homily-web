@@ -13,6 +13,7 @@ import (
 
 	apperrors "psychic-homily-backend/internal/errors"
 	authm "psychic-homily-backend/internal/models/auth"
+	"psychic-homily-backend/internal/services/shared"
 	"psychic-homily-backend/internal/testutil"
 	"psychic-homily-backend/internal/testutil/softauthn"
 )
@@ -40,20 +41,29 @@ func (suite *WebAuthnServiceIntegrationTestSuite) requireRefusal(err error, code
 }
 
 // The account gate runs in the service after a valid assertion, and a
-// refused sign-in records no use of the credential.
+// refused sign-in records no use of the credential. A deleted account that
+// account recovery can restore is refused with ACCOUNT_RECOVERABLE; every
+// other account that may not sign in with ACCOUNT_INACTIVE.
 func (suite *WebAuthnServiceIntegrationTestSuite) TestSignInRefusesAccountsThatMayNotSignIn() {
-	states := map[string]map[string]any{
-		"deactivated":  {"is_active": false},
-		"soft-deleted": {"is_active": false, "deleted_at": time.Now()},
+	pastWindow := time.Now().Add(-shared.AccountRecoveryGracePeriod - 24*time.Hour)
+	states := []struct {
+		name    string
+		updates map[string]any
+		refusal *apperrors.AuthError
+	}{
+		{name: "deactivated", updates: map[string]any{"is_active": false}, refusal: apperrors.ErrAccountInactive()},
+		{name: "soft-deleted", updates: map[string]any{"is_active": false, "deleted_at": time.Now()}, refusal: apperrors.ErrAccountRecoverable()},
+		{name: "soft-deleted-past-window", updates: map[string]any{"is_active": false, "deleted_at": pastWindow}, refusal: apperrors.ErrAccountInactive()},
+		{name: "soft-deleted-no-email", updates: map[string]any{"is_active": false, "deleted_at": time.Now(), "email": nil}, refusal: apperrors.ErrAccountInactive()},
 	}
-	for stateName, updates := range states {
-		suite.Run(stateName, func() {
-			user := suite.createUser(stateName + "@test.com")
+	for _, state := range states {
+		suite.Run(state.name, func() {
+			user := suite.createUser(state.name + "@test.com")
 			device := suite.registeredDevice(user)
-			suite.Require().NoError(suite.db.Model(&authm.User{}).Where("id = ?", user.ID).Updates(updates).Error)
+			suite.Require().NoError(suite.db.Model(&authm.User{}).Where("id = ?", user.ID).Updates(state.updates).Error)
 
 			_, err := suite.discoverableLogin(device)
-			suite.requireRefusal(err, apperrors.CodeAccountInactive, apperrors.ErrAccountInactive().UserMessage())
+			suite.requireRefusal(err, state.refusal.Code, state.refusal.UserMessage())
 			suite.Contains(err.Error(), fmt.Sprintf("user %d may not sign in", user.ID), "the logged error names the account")
 
 			var stored authm.WebAuthnCredential

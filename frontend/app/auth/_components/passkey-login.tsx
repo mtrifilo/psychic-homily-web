@@ -16,9 +16,15 @@ import { useWebAuthnSupport } from '@/features/auth/hooks/useWebAuthnSupport'
 import { authenticationOptionsFrom } from '@/features/auth/passkeyOptions'
 import type { components } from '@/types/api'
 import { API_BASE_URL } from '@/lib/api-base'
+import { AuthError, AuthErrorCode } from '@/lib/errors'
 
 interface PasskeyLoginButtonProps {
-  onError?: (error: string) => void
+  /**
+   * Called when a sign-in does not complete, except when the viewer cancels
+   * the passkey prompt. A refusal the server answered carries its
+   * `error_code` as the error's code; anything else is coded UNKNOWN.
+   */
+  onError?: (error: AuthError) => void
   className?: string
   returnTo?: string
 }
@@ -37,7 +43,9 @@ export function PasskeyLoginButton({
 
   const handlePasskeyLogin = async () => {
     if (!supportsWebAuthn) {
-      onError?.('Your browser does not support passkeys')
+      onError?.(
+        new AuthError('Your browser does not support passkeys', AuthErrorCode.UNKNOWN)
+      )
       return
     }
 
@@ -81,7 +89,12 @@ export function PasskeyLoginButton({
       const finishData: AuthResponse = await finishResponse.json()
 
       if (!finishData.success) {
-        throw new Error(finishData.message || 'Failed to complete passkey login')
+        throw AuthError.fromResponse({
+          message: finishData.message || 'Failed to complete passkey login',
+          error_code: finishData.error_code,
+          request_id: finishData.request_id,
+          status: finishResponse.status,
+        })
       }
 
       // Success - update auth context and redirect
@@ -113,13 +126,13 @@ export function PasskeyLoginButton({
           level: 'error',
           tags: { service: 'passkey-auth', error_type: 'login_failed' },
         })
-        onError?.(error.message)
+        onError?.(AuthError.fromUnknown(error))
       } else {
         Sentry.captureException(error, {
           level: 'error',
           tags: { service: 'passkey-auth', error_type: 'login_failed' },
         })
-        onError?.('An unexpected error occurred')
+        onError?.(new AuthError('An unexpected error occurred', AuthErrorCode.UNKNOWN))
       }
     } finally {
       setIsLoading(false)

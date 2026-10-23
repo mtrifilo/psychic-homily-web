@@ -89,8 +89,10 @@ vi.mock('@/features/auth', () => ({
 const passkeyLoginProps = vi.fn()
 const passkeySignupProps = vi.fn()
 
+type PasskeyLoginProps = { returnTo?: string; onError?: (error: AuthError) => void }
+
 vi.mock('@/app/auth/_components/passkey-login', () => ({
-  PasskeyLoginButton: (props: { returnTo?: string }) => {
+  PasskeyLoginButton: (props: PasskeyLoginProps) => {
     passkeyLoginProps(props)
     return <div data-testid="passkey-login" data-return-to={props.returnTo} />
   },
@@ -581,9 +583,9 @@ describe('AuthPage', () => {
   })
 
   // A deleted account inside its recovery window is refused with
-  // ACCOUNT_RECOVERABLE on password sign-in and on the OAuth callback. Both
-  // surfaces answer in the page's own words with a link to account recovery,
-  // never in the text the refusal carried.
+  // ACCOUNT_RECOVERABLE on password and passkey sign-in and on the OAuth
+  // callback. Each surface answers in the page's own words with a link to
+  // account recovery, never in the text the refusal carried.
   describe('recoverable account refusal', () => {
     function expectRecoveryOffer() {
       const link = screen.getByRole('link', { name: ACCOUNT_RECOVERABLE_LINK_TEXT })
@@ -602,6 +604,44 @@ describe('AuthPage', () => {
       expectRecoveryOffer()
       expect(
         screen.queryByText('Server copy for the recoverable refusal')
+      ).not.toBeInTheDocument()
+    })
+
+    // The passkey button reports a refusal with the code the server answered.
+    function refusePasskeySignIn(error: AuthError) {
+      const props = passkeyLoginProps.mock.lastCall?.[0] as PasskeyLoginProps
+      act(() => props.onError?.(error))
+    }
+
+    it('offers recovery when passkey sign-in is refused with the code', () => {
+      renderWithProviders(<AuthPage />)
+      refusePasskeySignIn(
+        new AuthError(
+          'Server copy for the recoverable refusal',
+          AuthErrorCode.ACCOUNT_RECOVERABLE
+        )
+      )
+
+      expectRecoveryOffer()
+      expect(
+        screen.queryByText('Server copy for the recoverable refusal')
+      ).not.toBeInTheDocument()
+    })
+
+    it('keeps the message of a passkey refusal with any other code', () => {
+      renderWithProviders(<AuthPage />)
+      refusePasskeySignIn(
+        new AuthError(
+          'Account unavailable. Please contact support.',
+          AuthErrorCode.ACCOUNT_INACTIVE
+        )
+      )
+
+      expect(
+        screen.getByText('Account unavailable. Please contact support.')
+      ).toBeInTheDocument()
+      expect(
+        screen.queryByRole('link', { name: ACCOUNT_RECOVERABLE_LINK_TEXT })
       ).not.toBeInTheDocument()
     })
 

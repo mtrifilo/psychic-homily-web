@@ -183,6 +183,15 @@ func refuseInactiveAccount(userID uint) *apperrors.AuthError {
 	return inactive
 }
 
+// refuseClosedAccount is shared.ClosedAccountRefusal for account, which may
+// not sign in, carrying the account's id in its internal error, which callers
+// log and clients never see.
+func refuseClosedAccount(account *authm.User) *apperrors.AuthError {
+	refusal := shared.ClosedAccountRefusal(account)
+	refusal.Internal = fmt.Errorf("user %d may not sign in", account.ID)
+	return refusal
+}
+
 // signInLookupError is the error for a sign-in lookup of what that returned
 // err: a refusal when the row does not exist, a failure otherwise.
 func signInLookupError(what string, err error) error {
@@ -233,10 +242,10 @@ func (s *WebAuthnService) recordCredentialUse(stored *authm.WebAuthnCredential, 
 // CodeInvalidCredentials when the assertion does not prove a credential of an
 // existing account (it fails validation, carries another account's user
 // handle, comes from a session that is not a discoverable login's, or names a
-// credential or account that does not exist), and CodeAccountInactive when it
-// does but the account may not sign in (authm.User.CanSignIn). Any other
-// error means no decision was reached: a lookup or the credential update
-// failed.
+// credential or account that does not exist), and shared.ClosedAccountRefusal
+// (CodeAccountRecoverable or CodeAccountInactive) when it does but the account
+// may not sign in (authm.User.CanSignIn). Any other error means no decision
+// was reached: a lookup or the credential update failed.
 //
 // The account's state is checked only after the assertion validated, so only
 // the credential's holder learns it, and a refused sign-in writes nothing. A
@@ -265,7 +274,7 @@ func (s *WebAuthnService) FinishDiscoverableLogin(session *webauthn.SessionData,
 		return nil, nil, refusePasskey(fmt.Errorf("validate discoverable login: %w", err))
 	}
 	if !user.CanSignIn() {
-		return nil, nil, refuseInactiveAccount(user.ID)
+		return nil, nil, refuseClosedAccount(user)
 	}
 
 	if err := s.recordCredentialUse(&webauthnCred, credential); err != nil {

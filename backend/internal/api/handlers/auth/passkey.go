@@ -421,7 +421,7 @@ func (h *PasskeyHandler) FinishLoginHandler(ctx context.Context, input *FinishLo
 	// and may sign in, and returns the account it decided on.
 	user, _, err := h.webauthnService.FinishDiscoverableLogin(session, parsedResponse)
 	if err != nil {
-		if refusal, ok := passkeyRefusal(err, autherrors.CodeInvalidCredentials, autherrors.CodeAccountInactive); ok {
+		if refusal, ok := passkeyRefusal(err, autherrors.CodeInvalidCredentials, autherrors.CodeAccountInactive, autherrors.CodeAccountRecoverable); ok {
 			logger.AuthWarn(ctx, "passkey_login_refused",
 				"error_code", refusal.Code,
 				"error", err.Error(),
