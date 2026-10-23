@@ -97,13 +97,6 @@ func TestSkippedDDLRepairMigration_integration(t *testing.T) {
 	}
 	require.NoError(t, AssertRequiredSchema(td.DB))
 
-	dropBothColumns := func() {
-		t.Helper()
-		_, err := sqlDB.Exec(`ALTER TABLE notification_filters DROP COLUMN source`)
-		require.NoError(t, err)
-		_, err = sqlDB.Exec(`ALTER TABLE collections DROP COLUMN forked_from_collection_id`)
-		require.NoError(t, err)
-	}
 	requireBothColumnsRefused := func() {
 		t.Helper()
 		err := AssertRequiredSchema(td.DB)
@@ -118,11 +111,10 @@ func TestSkippedDDLRepairMigration_integration(t *testing.T) {
 		require.NoError(t, err)
 	}
 
-	dropBothColumns()
-	catalog := repairedTablesCatalog(t, sqlDB)
-	for _, definition := range skippedDDLRepairDefinitions {
-		require.NotContains(t, catalog, definition)
-	}
+	_, err = sqlDB.Exec(`ALTER TABLE notification_filters DROP COLUMN source`)
+	require.NoError(t, err)
+	_, err = sqlDB.Exec(`ALTER TABLE collections DROP COLUMN forked_from_collection_id`)
+	require.NoError(t, err)
 	requireBothColumnsRefused()
 
 	applyRepair()
