@@ -23,6 +23,17 @@ func allRequiredColumnKeys() []string {
 	return keys
 }
 
+// allRequiredColumnKeysWithout is allRequiredColumnKeys less the named key.
+func allRequiredColumnKeysWithout(omit string) []string {
+	var keys []string
+	for _, key := range allRequiredColumnKeys() {
+		if key != omit {
+			keys = append(keys, key)
+		}
+	}
+	return keys
+}
+
 func TestAbsentUntypedColumns(t *testing.T) {
 	t.Parallel()
 
@@ -58,6 +69,16 @@ func TestAbsentUntypedColumns(t *testing.T) {
 				"user_bookmarks.scene_digest_sent_at",
 			},
 			wantAbsent: []string{"user_preferences.notify_on_scene_digest"},
+		},
+		{
+			name:       "missing notification filter source column",
+			present:    allRequiredColumnKeysWithout("notification_filters.source"),
+			wantAbsent: []string{"notification_filters.source"},
+		},
+		{
+			name:       "missing collection fork column",
+			present:    allRequiredColumnKeysWithout("collections.forked_from_collection_id"),
+			wantAbsent: []string{"collections.forked_from_collection_id"},
 		},
 		{
 			name:       "missing all required columns",
