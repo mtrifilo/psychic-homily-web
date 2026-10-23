@@ -187,7 +187,9 @@ function MagicLinkContent() {
   }
 
   // Expired / invalid token (body-encoded INVALID_TOKEN, HTTP 200 + AuthError
-  // status 401). A new link is the correct remedy here.
+  // status 401). A new link is the correct remedy here. Every other refusal in
+  // that envelope (ACCOUNT_INACTIVE, UNAUTHORIZED) also lands on this card,
+  // with the server's message.
   return (
     <div className="flex min-h-[calc(100vh-64px)] items-center justify-center px-4 py-12">
       <Card className="w-full max-w-md border-border/50 bg-card/50 backdrop-blur-sm">

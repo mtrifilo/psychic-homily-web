@@ -159,7 +159,9 @@ describe('MagicLinkPage', () => {
     expect(mockPush).toHaveBeenCalledWith('/auth')
   })
 
-  it('keeps the "Link Expired" card, with the server message, for ACCOUNT_INACTIVE', async () => {
+  // The page has no card of its own for ACCOUNT_INACTIVE: it shares the
+  // token-refusal card, showing the server's message, and offers no recovery.
+  it('leaves ACCOUNT_INACTIVE on the token-refusal card, without recovery', async () => {
     verifyRefusedWith(
       new AuthError(
         'Account unavailable. Please contact support.',
