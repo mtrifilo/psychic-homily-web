@@ -268,6 +268,10 @@ func main() {
 
 	useRequestCorrelation(router)
 
+	// Every response from this host is marked noindex. Registered ahead of CORS
+	// and the rate limiters, so preflight answers and 429s carry it too.
+	router.Use(middleware.RobotsNoIndex)
+
 	// Setup CORS middleware
 	log.Printf("CORS Configuration: Origins=%v, Methods=%v, Headers=%v, ExposedHeaders=%v, Credentials=%v",
 		cfg.CORS.AllowedOrigins, cfg.CORS.AllowedMethods, cfg.CORS.AllowedHeaders, config.CORSExposedHeaders(), cfg.CORS.AllowCredentials)

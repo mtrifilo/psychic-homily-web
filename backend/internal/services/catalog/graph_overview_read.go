@@ -185,8 +185,7 @@ func (s *GraphOverviewService) GetGraphOverview() (*contracts.GraphOverview, str
 	//
 	// THE HASH IS NOT A DIGEST OF THE BYTES ON THE WIRE, and must not be described
 	// as one: the column is JSONB, so Postgres normalizes key order and whitespace
-	// on the way back out, and Huma's SchemaLinkTransformer adds a `$schema`
-	// member to the served body. It is a build-time identity stamp for the
+	// on the way back out. It is a build-time identity stamp for the
 	// snapshot, which is all a validator needs, since the map only ever changes by
 	// a new row appearing. Compression settled the question — one snapshot now
 	// legitimately goes out under two content-codings, which RFC 9110 §8.8.1

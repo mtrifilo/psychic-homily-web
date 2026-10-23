@@ -244,12 +244,11 @@ func TestCreateEntityRequest_Replaced_AuditsAsAReplacement(t *testing.T) {
 }
 
 // The response body embeds the request row, and huma's schema-link transformer
-// rebuilds every body struct with reflect.StructOf to prepend $schema — which
-// REFUSES an embedded type that has methods once it is no longer the first field.
-// Huma only warns on that failure, so embedding communitym.EntityRequest directly
-// silently drops $schema and the describedBy Link header from this one endpoint
-// while the generated types still declare them. This pins the shape that avoids
-// it; it fails if the embed is ever pointed back at a type with methods.
+// (installed by huma.DefaultConfig and humatest) rebuilds every body struct with
+// reflect.StructOf to prepend $schema, which REFUSES an embedded type that has
+// methods once it is no longer the first field. Huma only warns on that failure.
+// This pins the shape that survives the transformer; it fails if the embed is
+// ever pointed back at a type with methods.
 func TestCreateEntityRequestResponseBody_SurvivesTheSchemaLinkTransform(t *testing.T) {
 	bodyType := reflect.TypeOf(CreateEntityRequestResponseBody{})
 	fields := []reflect.StructField{{
@@ -264,7 +263,7 @@ func TestCreateEntityRequestResponseBody_SurvivesTheSchemaLinkTransform(t *testi
 	func() {
 		defer func() {
 			if r := recover(); r != nil {
-				t.Fatalf("the response body cannot carry $schema, so the endpoint ships without it: %v", r)
+				t.Fatalf("the response body cannot carry $schema under huma's schema-link transformer: %v", r)
 			}
 		}()
 		reflect.StructOf(fields)
