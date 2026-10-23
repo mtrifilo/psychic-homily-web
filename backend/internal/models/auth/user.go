@@ -73,6 +73,12 @@ type User struct {
 	DeletedAt           *time.Time       `json:"deleted_at,omitempty" gorm:"column:deleted_at"`
 	DeletionReason      *string          `json:"-" gorm:"column:deletion_reason"` // Hidden from JSON
 
+	// DateOfBirth is never serialized: the sign-up step that collects it
+	// promises it is never shown on a profile. AgeAttestedAt is when the age
+	// was computed from it.
+	DateOfBirth   *time.Time `json:"-" gorm:"column:date_of_birth;type:date"`
+	AgeAttestedAt *time.Time `json:"-" gorm:"column:age_attested_at"`
+
 	// Relationships
 	OAuthAccounts      []OAuthAccount       `json:"oauth_accounts,omitempty" gorm:"foreignKey:UserID"`
 	Preferences        *UserPreferences     `json:"preferences,omitempty" gorm:"foreignKey:UserID"`
