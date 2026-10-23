@@ -9,7 +9,11 @@
 -- request however many carry its cookie, and is refused after expires_at
 -- whether or not it was consumed. Inserting a row deletes every expired one.
 --
--- New, empty table with no foreign keys: nothing else is locked.
+-- New, empty table with no foreign keys: nothing else is locked, and the
+-- index locks only this table. lock_timeout is set all the same, so a manual
+-- run outside the bounded boot runner cannot wait without limit.
+SET LOCAL lock_timeout = '5s';
+
 CREATE TABLE oauth_pending_signups (
     token_hash CHAR(64) PRIMARY KEY,
     provider VARCHAR(50) NOT NULL,
