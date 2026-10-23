@@ -21,6 +21,7 @@ const mockPush = vi.fn()
 vi.mock('next/navigation', () => ({
   useRouter: () => ({ push: mockPush, replace: vi.fn() }),
   useSearchParams: () => new URLSearchParams({ returnTo: RETURN_TO }),
+  usePathname: () => '/auth',
 }))
 
 vi.mock('@/app/auth/_components/passkey-login', () => ({

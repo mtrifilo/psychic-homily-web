@@ -1,9 +1,11 @@
 'use client'
 
 import { useEffect, useMemo, useState } from 'react'
+import { usePathname } from 'next/navigation'
 import {
   AUTH_ERROR_CODE_PARAM,
   AUTH_ERROR_PARAM,
+  AUTH_PATH,
   AUTH_REASON_PARAM,
   isReauthReason,
 } from '@/lib/auth-href'
@@ -44,10 +46,16 @@ function bannerArrivalOf(query: string): BannerArrival | null {
  *
  * The banners are held here, in memory, for as long as the address bar shows
  * the URL this hook wrote, so the page renders exactly what it rendered on
- * arrival. A reload, or a return to that history entry, starts from the
- * written URL and shows no banner. Any other query string is a new arrival:
- * one with banner parameters is held in turn, one without drops what was
- * held, so a later return to the written URL does not bring a banner back.
+ * arrival. A reload starts from the written URL and shows no banner. Any
+ * other query string is a new arrival: one with banner parameters is held in
+ * turn, one without drops what was held, so a later return to the written
+ * URL does not bring a banner back.
+ *
+ * The App Router keeps a page it navigated away from mounted but hidden, and
+ * a hidden page re-renders under the current route's query string. So hiding
+ * the page drops the hold, and only a query string read on the auth page
+ * itself is held: a page shown again neither keeps its old banner nor adopts
+ * another route's parameters as one.
  *
  * `live` is `useSearchParams()`. The URL is rewritten with
  * `window.history.replaceState`, which the App Router patches to sync
@@ -59,7 +67,11 @@ export function useAuthArrivalParams(live: {
   toString(): string
 }): URLSearchParams {
   const liveQuery = live.toString()
-  const liveArrival = useMemo(() => bannerArrivalOf(liveQuery), [liveQuery])
+  const onAuthPage = usePathname() === AUTH_PATH
+  const liveArrival = useMemo(
+    () => (onAuthPage ? bannerArrivalOf(liveQuery) : null),
+    [onAuthPage, liveQuery]
+  )
   const [held, setHeld] = useState(liveArrival)
   const arrival =
     held !== null &&
@@ -69,6 +81,10 @@ export function useAuthArrivalParams(live: {
   if (arrival !== held) {
     setHeld(arrival)
   }
+
+  // A hidden page runs its effect cleanups, so this is the page's "hidden"
+  // signal.
+  useEffect(() => () => setHeld(null), [])
 
   const strippedQuery = arrival?.strippedQuery
   useEffect(() => {

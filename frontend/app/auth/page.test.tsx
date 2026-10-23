@@ -42,6 +42,7 @@ let mockSearchParams = new URLSearchParams()
 vi.mock('next/navigation', () => ({
   useRouter: () => ({ push: mockPush, replace: mockReplace }),
   useSearchParams: () => mockSearchParams,
+  usePathname: () => '/auth',
 }))
 
 // AuthContext is mocked with mutable state so individual tests can toggle the

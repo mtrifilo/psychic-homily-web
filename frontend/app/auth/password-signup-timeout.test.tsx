@@ -21,6 +21,7 @@ const mockPush = vi.fn()
 vi.mock('next/navigation', () => ({
   useRouter: () => ({ push: mockPush, replace: vi.fn() }),
   useSearchParams: () => new URLSearchParams({ returnTo: RETURN_TO }),
+  usePathname: () => '/auth',
 }))
 
 // A viewer store a test can flip to authenticated mid-request, as any profile

@@ -1,7 +1,15 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { renderHook } from '@testing-library/react'
+import { Activity } from 'react'
+import { render, renderHook } from '@testing-library/react'
 
 import { useAuthArrivalParams, withoutBannerParams } from './auth-arrival-params'
+
+// The route the hook is rendered under; a hidden page renders under another.
+let mockPathname = '/auth'
+
+vi.mock('next/navigation', () => ({
+  usePathname: () => mockPathname,
+}))
 
 // The App Router syncs useSearchParams with window.history.replaceState. These
 // tests stand in for it: `live` is what useSearchParams would return, and
@@ -48,6 +56,7 @@ describe('useAuthArrivalParams', () => {
 
   afterEach(() => {
     pushState.mockRestore()
+    mockPathname = '/auth'
     window.history.replaceState(null, '', '/')
   })
 
@@ -143,5 +152,50 @@ describe('useAuthArrivalParams', () => {
     view.navigate('returnTo=%2Fshows')
     expect(view.result.current.get('reason')).toBeNull()
     expect(view.result.current.get('returnTo')).toBe('/shows')
+  })
+
+  // The App Router keeps a page it left mounted inside a hidden <Activity>,
+  // and the hidden page re-renders under the current route's query string.
+  describe('a page kept mounted while hidden', () => {
+    let seen: URLSearchParams | null = null
+    const read = (params: URLSearchParams) => {
+      seen = params
+    }
+    function Probe({ live }: { live: URLSearchParams }) {
+      read(useAuthArrivalParams(live))
+      return null
+    }
+    function page(mode: 'visible' | 'hidden', query: string) {
+      return (
+        <Activity mode={mode}>
+          <Probe live={new URLSearchParams(query)} />
+        </Activity>
+      )
+    }
+
+    it('does not show its old banner when shown again', () => {
+      window.history.replaceState(null, '', '/auth?reason=ACCOUNT_INACTIVE')
+      const { rerender } = render(page('visible', 'reason=ACCOUNT_INACTIVE'))
+      rerender(page('visible', ''))
+      expect(seen!.get('reason')).toBe('ACCOUNT_INACTIVE')
+
+      mockPathname = '/'
+      rerender(page('hidden', ''))
+      mockPathname = '/auth'
+      rerender(page('visible', ''))
+
+      expect(seen!.get('reason')).toBeNull()
+    })
+
+    it("does not adopt another route's parameters as a banner", () => {
+      const { rerender } = render(page('visible', 'returnTo=%2Fshows'))
+
+      mockPathname = '/search'
+      rerender(page('hidden', 'error=x&returnTo=%2Fshows'))
+      mockPathname = '/auth'
+      rerender(page('visible', 'returnTo=%2Fshows'))
+
+      expect(seen!.get('error')).toBeNull()
+    })
   })
 })

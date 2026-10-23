@@ -19,6 +19,7 @@ const mockPush = vi.fn()
 vi.mock('next/navigation', () => ({
   useRouter: () => ({ push: mockPush, replace: vi.fn() }),
   useSearchParams: () => searchParams.current,
+  usePathname: () => '/auth',
 }))
 
 // A viewer store `setUser` writes to, as the real AuthProvider's override does:
