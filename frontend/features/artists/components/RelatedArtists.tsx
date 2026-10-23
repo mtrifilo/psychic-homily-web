@@ -1366,9 +1366,10 @@ function RelatedArtistRow({
   }
 
   const scoreDisplay = getScoreDisplay()
+  // The one badge list both row forms draw: links of a known type, in order.
   const reasonBadges = links.flatMap(link => {
     const badge = RELATIONSHIP_BADGES[link.type]
-    return badge ? [{ type: link.type, label: badge.label }] : []
+    return badge ? [{ type: link.type, ...badge }] : []
   })
 
   return (
@@ -1397,19 +1398,15 @@ function RelatedArtistRow({
           space to the floored name instead of collapsing it; no badge is hidden, the group just
           wraps to a second line when the row is tight. */}
       <div className="hidden sm:flex items-center justify-end gap-1 flex-wrap min-w-0 shrink">
-        {links.map(link => {
-          const badge = RELATIONSHIP_BADGES[link.type]
-          if (!badge) return null
-          return (
-            <Badge
-              key={link.type}
-              variant="outline"
-              className={`text-[10px] px-1.5 py-0 ${badge.className}`}
-            >
-              {badge.label}
-            </Badge>
-          )
-        })}
+        {reasonBadges.map(badge => (
+          <Badge
+            key={badge.type}
+            variant="outline"
+            className={`text-[10px] px-1.5 py-0 ${badge.className}`}
+          >
+            {badge.label}
+          </Badge>
+        ))}
       </div>
 
       {/* Score — also yields (min-w-0 truncate, no longer flex-shrink-0) so a long multi-type score

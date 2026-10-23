@@ -78,12 +78,10 @@ interface ArtistDetailProps {
 }
 
 /**
- * Tailwind's `sm` breakpoint as a media query. Below it the page is the phone
- * layout: Similar artists leaves the sidebar for the main column's Connections
- * slot, directly under the shows and above everything the stacked sidebar
- * holds. The server snapshot is the phone layout (see `useMediaQuery`).
+ * Tailwind's `sm` breakpoint as a media query; not matching it is the phone
+ * layout. `useMediaQuery`'s server snapshot is the phone layout.
  */
-const SM_UP_QUERY = '(min-width: 640px)'
+export const SM_UP_QUERY = '(min-width: 640px)'
 
 // --- Discography ---
 
@@ -1147,9 +1145,7 @@ export function ArtistDetail({ artistId }: ArtistDetailProps) {
 
   // Similar artists: a dense list plus the [Explore graph] affordance that
   // opens the page-level Dialog. It self-hides when there are no
-  // relationships AND the viewer can't contribute. Rendered in exactly one
-  // place: the sidebar at `sm` and up, the main column's Connections slot
-  // below it.
+  // relationships AND the viewer can't contribute.
   const similarArtists = (
     <ArtistSimilarSidebar
       artistId={artist.id}
@@ -1278,12 +1274,14 @@ export function ArtistDetail({ artistId }: ArtistDetailProps) {
 
           <DiscographyTab artistIdOrSlug={artistId} />
 
-          {/* The Connections slot. On the phone layout no canvas can render,
-              so the slot holds the Similar artists list instead of the
-              section; the action-row [Graph] and the list's [Explore graph]
-              still open the graph Dialog. Otherwise it holds the inline ego
-              map, which reuses the list's cached useArtistGraph payload and
-              whose [Expand] opens the same Dialog. */}
+          {/* The Connections slot, and the one place Similar artists is
+              placed. On the phone layout no canvas can render, so the slot
+              holds the Similar artists list (directly under the shows and
+              above the stacked sidebar) and the sidebar omits it; the
+              action-row [Graph] and the list's [Explore graph] still open the
+              graph Dialog. Otherwise the slot holds the inline ego map, which
+              reuses the list's cached useArtistGraph payload and whose
+              [Expand] opens the same Dialog, and the list is in the sidebar. */}
           {isPhoneLayout ? (
             similarArtists
           ) : (

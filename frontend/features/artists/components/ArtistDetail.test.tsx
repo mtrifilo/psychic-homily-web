@@ -325,11 +325,8 @@ vi.mock('@/components/shared', () => ({
   ),
 }))
 
-import { ArtistDetail } from './ArtistDetail'
+import { ArtistDetail, SM_UP_QUERY as SM_UP } from './ArtistDetail'
 import { ENTITY_LINK_CLASS } from '@/components/shared/entityLink'
-
-/** The query ArtistDetail asks to tell the phone layout from `sm` and up. */
-const SM_UP = '(min-width: 640px)'
 
 function makeArtist(overrides: Partial<Artist> = {}): Artist {
   return {
