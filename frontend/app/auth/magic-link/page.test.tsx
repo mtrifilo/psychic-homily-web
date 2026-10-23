@@ -1,8 +1,12 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { renderWithProviders, waitFor, screen } from '@/test/utils'
 import { act } from '@testing-library/react'
-import { AuthError } from '@/lib/errors'
+import { AuthError, AuthErrorCode } from '@/lib/errors'
 import type { ApiError } from '@/lib/api'
+import {
+  ACCOUNT_RECOVERABLE_LINK_TEXT,
+  ACCOUNT_RECOVERABLE_MESSAGE,
+} from '@/app/auth/_components/account-recoverable-message'
 import MagicLinkPage from './page'
 
 const mockPush = vi.fn()
@@ -116,6 +120,65 @@ describe('MagicLinkPage', () => {
       screen.getByRole('button', { name: /back to sign in/i })
     ).toBeInTheDocument()
     expect(screen.queryByText('Something went wrong')).not.toBeInTheDocument()
+  })
+
+  // Verify answers a refused account in the HTTP 200 envelope, which the hook
+  // throws as an AuthError carrying the response's error_code.
+  function verifyRefusedWith(error: AuthError) {
+    mockUseVerifyMagicLink.mockImplementation(() => ({
+      mutate: mockMutate,
+      reset: vi.fn(),
+      isPending: false,
+      isError: true,
+      isSuccess: false,
+      error,
+    }))
+  }
+
+  it('offers account recovery for ACCOUNT_RECOVERABLE, in its own words', async () => {
+    verifyRefusedWith(
+      new AuthError(
+        'Server copy for the recoverable refusal',
+        AuthErrorCode.ACCOUNT_RECOVERABLE,
+        { status: 401 }
+      )
+    )
+
+    renderWithProviders(<MagicLinkPage />)
+
+    const link = await screen.findByRole('link', { name: ACCOUNT_RECOVERABLE_LINK_TEXT })
+    expect(link).toHaveAttribute('href', '/auth/recover')
+    expect(screen.getByText(ACCOUNT_RECOVERABLE_MESSAGE, { exact: false })).toBeInTheDocument()
+    expect(
+      screen.queryByText('Server copy for the recoverable refusal')
+    ).not.toBeInTheDocument()
+    expect(screen.queryByText('Link Expired')).not.toBeInTheDocument()
+    expect(screen.queryByText('Something went wrong')).not.toBeInTheDocument()
+
+    screen.getByRole('button', { name: /back to sign in/i }).click()
+    expect(mockPush).toHaveBeenCalledWith('/auth')
+  })
+
+  it('keeps the "Link Expired" card, with the server message, for ACCOUNT_INACTIVE', async () => {
+    verifyRefusedWith(
+      new AuthError(
+        'Account unavailable. Please contact support.',
+        AuthErrorCode.ACCOUNT_INACTIVE,
+        { status: 401 }
+      )
+    )
+
+    renderWithProviders(<MagicLinkPage />)
+
+    await waitFor(() => {
+      expect(screen.getByText('Link Expired')).toBeInTheDocument()
+    })
+    expect(
+      screen.getByText('Account unavailable. Please contact support.')
+    ).toBeInTheDocument()
+    expect(
+      screen.queryByRole('link', { name: ACCOUNT_RECOVERABLE_LINK_TEXT })
+    ).not.toBeInTheDocument()
   })
 
   it('renders the retry pane (not "Link Expired") for a 5xx error', async () => {

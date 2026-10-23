@@ -857,43 +857,6 @@ func (s *AuthHandlerIntegrationSuite) TestVerifyMagicLink_EmailMismatch() {
 	s.Equal("INVALID_TOKEN", resp.Body.ErrorCode)
 }
 
-func (s *AuthHandlerIntegrationSuite) TestVerifyMagicLink_InactiveUser() {
-	h := s.newAuthHandler(false)
-	jwtSvc := auth.NewJWTService(s.deps.DB, s.cfg, s.deps.UserService)
-
-	states := []struct {
-		name  string
-		apply func(userID uint)
-	}{
-		{name: "deactivated", apply: s.deactivateUser},
-		{name: "soft-deleted", apply: s.softDeleteUser},
-	}
-
-	for _, state := range states {
-		s.Run(state.name, func() {
-			address := "ml-inactive-" + state.name + "@test.com"
-			user := s.createUserWithPassword(address, "strong-password-123!")
-			s.verifyEmail(user.ID)
-			state.apply(user.ID)
-
-			token, err := jwtSvc.CreateMagicLinkToken(user.ID, address)
-			s.Require().NoError(err)
-
-			input := &VerifyMagicLinkRequest{}
-			input.Body.Token = token
-
-			resp, err := h.VerifyMagicLinkHandler(context.Background(), input)
-			s.Require().NoError(err)
-			s.False(resp.Body.Success)
-			s.Equal(autherrors.CodeAccountInactive, resp.Body.ErrorCode)
-			s.Equal(autherrors.ErrAccountInactive().UserMessage(), resp.Body.Message)
-			s.Empty(resp.Body.Token)
-			s.Nil(resp.Body.User)
-			s.Empty(resp.SetCookie.Value)
-		})
-	}
-}
-
 // --- ChangePasswordHandler ---
 
 // TestChangePassword_Success also pins the breach check's "suffix absent"

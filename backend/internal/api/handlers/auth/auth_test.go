@@ -18,6 +18,7 @@ import (
 	authm "psychic-homily-backend/internal/models/auth"
 	"psychic-homily-backend/internal/services/auth"
 	"psychic-homily-backend/internal/services/contracts"
+	servicesshared "psychic-homily-backend/internal/services/shared"
 	usersvc "psychic-homily-backend/internal/services/user"
 )
 
@@ -2526,17 +2527,22 @@ func TestVerifyMagicLinkHandler_UserNotFound(t *testing.T) {
 	}
 }
 
+// A closed account is refused: ACCOUNT_RECOVERABLE for a deleted account
+// inside its recovery window, ACCOUNT_INACTIVE for every other.
 func TestVerifyMagicLinkHandler_InactiveUser(t *testing.T) {
 	email := "test@example.com"
 	deletedAt := time.Now()
+	pastWindow := time.Now().Add(-servicesshared.AccountRecoveryGracePeriod - 24*time.Hour)
 
 	cases := []struct {
 		name string
 		user authm.User
+		want *autherrors.AuthError
 	}{
-		{name: "deactivated", user: authm.User{ID: 1, Email: &email, IsActive: false}},
-		{name: "soft-deleted", user: authm.User{ID: 1, Email: &email, IsActive: false, DeletedAt: &deletedAt}},
-		{name: "deleted-at-only", user: authm.User{ID: 1, Email: &email, IsActive: true, DeletedAt: &deletedAt}},
+		{name: "deactivated", user: authm.User{ID: 1, Email: &email, IsActive: false}, want: autherrors.ErrAccountInactive()},
+		{name: "soft-deleted", user: authm.User{ID: 1, Email: &email, IsActive: false, DeletedAt: &deletedAt}, want: autherrors.ErrAccountRecoverable()},
+		{name: "soft-deleted-past-window", user: authm.User{ID: 1, Email: &email, IsActive: false, DeletedAt: &pastWindow}, want: autherrors.ErrAccountInactive()},
+		{name: "deleted-at-only", user: authm.User{ID: 1, Email: &email, IsActive: true, DeletedAt: &deletedAt}, want: autherrors.ErrAccountInactive()},
 	}
 
 	for _, tc := range cases {
@@ -2570,10 +2576,10 @@ func TestVerifyMagicLinkHandler_InactiveUser(t *testing.T) {
 			if resp.Body.Success {
 				t.Error("expected success=false")
 			}
-			if resp.Body.ErrorCode != autherrors.CodeAccountInactive {
-				t.Errorf("expected error_code=%s, got %s", autherrors.CodeAccountInactive, resp.Body.ErrorCode)
+			if resp.Body.ErrorCode != tc.want.Code {
+				t.Errorf("expected error_code=%s, got %s", tc.want.Code, resp.Body.ErrorCode)
 			}
-			if want := autherrors.ErrAccountInactive().UserMessage(); resp.Body.Message != want {
+			if want := tc.want.UserMessage(); resp.Body.Message != want {
 				t.Errorf("expected message=%q, got %q", want, resp.Body.Message)
 			}
 			if tokenMinted || resp.SetCookie.Value != "" || resp.Body.Token != "" {

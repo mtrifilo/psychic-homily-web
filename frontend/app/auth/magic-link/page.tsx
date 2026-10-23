@@ -4,7 +4,9 @@ import { Suspense, useEffect, useRef } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { Loader2, CheckCircle2, AlertCircle, Mail, ServerCrash } from 'lucide-react'
 import { useVerifyMagicLink } from '@/features/auth'
+import { AccountRecoverableMessage } from '@/app/auth/_components/account-recoverable-message'
 import { useAuthContext } from '@/lib/context/AuthContext'
+import { isAccountRecoverable } from '@/lib/errors'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 
@@ -122,6 +124,30 @@ function MagicLinkContent() {
               You&apos;ve been signed in successfully. Redirecting...
             </CardDescription>
           </CardHeader>
+        </Card>
+      </div>
+    )
+  }
+
+  // A deleted account that account recovery can still restore. The page's own
+  // copy and link answer the code; the text the refusal carried is not shown.
+  if (isAccountRecoverable(verifyMagicLink.error)) {
+    return (
+      <div className="flex min-h-[calc(100vh-64px)] items-center justify-center px-4 py-12">
+        <Card className="w-full max-w-md border-border/50 bg-card/50 backdrop-blur-sm">
+          <CardHeader className="text-center">
+            <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-destructive/10">
+              <AlertCircle className="h-6 w-6 text-destructive" />
+            </div>
+            <CardDescription>
+              <AccountRecoverableMessage />
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="flex justify-center">
+            <Button onClick={() => router.push('/auth')}>
+              Back to Sign In
+            </Button>
+          </CardContent>
         </Card>
       </div>
     )

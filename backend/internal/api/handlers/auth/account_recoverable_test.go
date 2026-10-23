@@ -7,29 +7,36 @@ import (
 
 	autherrors "psychic-homily-backend/internal/errors"
 	authm "psychic-homily-backend/internal/models/auth"
+	"psychic-homily-backend/internal/services/auth"
 )
 
 // A deleted account inside its recovery window is refused with
-// ACCOUNT_RECOVERABLE, which the auth page answers with a link to account
-// recovery, on password sign-in and on a Google sign-in. Outside that state the
-// refusals are the ones each path already had.
+// ACCOUNT_RECOVERABLE, which the auth pages answer with a link to account
+// recovery, on password sign-in, on magic-link verify and on a Google sign-in.
+// Outside that state the refusals are the ones each path already had.
+
+// closedAccountState puts an account into a state that may not sign in, and
+// names the refusal a sign-in that proved the account's credential gets.
+type closedAccountState struct {
+	name  string
+	apply func(userID uint)
+	want  *autherrors.AuthError
+}
+
+func (s *AuthHandlerIntegrationSuite) closedAccountStates() []closedAccountState {
+	return []closedAccountState{
+		{name: "deactivated", apply: s.deactivateUser, want: autherrors.ErrAccountInactive()},
+		{name: "soft-deleted", apply: s.softDeleteUser, want: autherrors.ErrAccountRecoverable()},
+		{name: "soft-deleted-past-window", apply: s.softDeleteUserExpired, want: autherrors.ErrAccountInactive()},
+	}
+}
 
 // Password sign-in names the account's state only after the password is
 // proved, and mints no session for a closed account.
 func (s *AuthHandlerIntegrationSuite) TestLogin_AccountState() {
 	const password = "strong-password-123!"
-	states := []struct {
-		name  string
-		apply func(userID uint)
-		want  *autherrors.AuthError
-	}{
-		{name: "deactivated", apply: s.deactivateUser, want: autherrors.ErrAccountInactive()},
-		{name: "soft-deleted", apply: s.softDeleteUser, want: autherrors.ErrAccountRecoverable()},
-		{name: "soft-deleted-past-window", apply: s.softDeleteUserExpired, want: autherrors.ErrAccountInactive()},
-	}
-
 	h := s.newAuthHandler(false)
-	for _, state := range states {
+	for _, state := range s.closedAccountStates() {
 		s.Run(state.name, func() {
 			address := "login-state-" + state.name + "@test.com"
 			user := s.createUserWithPassword(address, password)
@@ -52,6 +59,35 @@ func (s *AuthHandlerIntegrationSuite) TestLogin_AccountState() {
 			s.Require().NoError(err)
 			s.False(resp.Body.Success)
 			s.Equal(autherrors.CodeInvalidCredentials, resp.Body.ErrorCode, "a wrong password learns nothing of the account's state")
+		})
+	}
+}
+
+// Magic-link verify refuses a closed account in the HTTP 200 envelope the
+// handler's other refusals use, and mints no session for it.
+func (s *AuthHandlerIntegrationSuite) TestVerifyMagicLink_AccountState() {
+	h := s.newAuthHandler(false)
+	jwtSvc := auth.NewJWTService(s.deps.DB, s.cfg, s.deps.UserService)
+	for _, state := range s.closedAccountStates() {
+		s.Run(state.name, func() {
+			address := "ml-state-" + state.name + "@test.com"
+			user := s.createUserWithPassword(address, "strong-password-123!")
+			s.verifyEmail(user.ID)
+			state.apply(user.ID)
+
+			token, err := jwtSvc.CreateMagicLinkToken(user.ID, address)
+			s.Require().NoError(err)
+			input := &VerifyMagicLinkRequest{}
+			input.Body.Token = token
+
+			resp, err := h.VerifyMagicLinkHandler(context.Background(), input)
+			s.Require().NoError(err, "a refusal answers in the HTTP 200 envelope")
+			s.False(resp.Body.Success)
+			s.Equal(state.want.Code, resp.Body.ErrorCode)
+			s.Equal(state.want.UserMessage(), resp.Body.Message)
+			s.Empty(resp.Body.Token)
+			s.Nil(resp.Body.User)
+			s.Empty(resp.SetCookie.Value)
 		})
 	}
 }
