@@ -124,8 +124,9 @@ function LoginForm({ returnTo }: { returnTo: string }) {
   const [passkeyError, setPasskeyError] = useState<AuthError | null>(null)
   const [magicLinkSent, setMagicLinkSent] = useState(false)
   const [magicLinkError, setMagicLinkError] = useState<string | null>(null)
-  // The alert shows the latest sign-in attempt's error: each attempt clears
-  // the other method's, so at most one of the two is set.
+  // The alert shows the most recent refusal: a password submit clears the
+  // passkey error and a passkey refusal resets the password error, so at most
+  // one of the two is set.
   const signInError = loginMutation.error ?? passkeyError
 
   const reportPasskeyError = (error: AuthError) => {
