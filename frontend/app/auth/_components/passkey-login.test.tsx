@@ -204,6 +204,35 @@ describe('PasskeyLoginButton', () => {
     expect(fetchMock).toHaveBeenCalledTimes(1)
   })
 
+  it('reports a begin failure with its code and status, without starting the ceremony', async () => {
+    const user = userEvent.setup()
+    const onError = vi.fn()
+
+    fetchMock.mockResolvedValueOnce({
+      ok: false,
+      status: 503,
+      json: async () => ({
+        success: false,
+        message: 'Service temporarily unavailable',
+        error_code: 'SERVICE_UNAVAILABLE',
+      }),
+    })
+
+    renderWithProviders(<PasskeyLoginButton onError={onError} />)
+
+    await user.click(screen.getByRole('button', { name: /sign in with passkey/i }))
+
+    await waitFor(() => {
+      expect(onError).toHaveBeenCalledTimes(1)
+    })
+    expect(onError.mock.lastCall?.[0]).toMatchObject({
+      message: 'Service temporarily unavailable',
+      code: AuthErrorCode.SERVICE_UNAVAILABLE,
+      status: 503,
+    })
+    expect(mockStartAuthentication).not.toHaveBeenCalled()
+  })
+
   it('reports a begin response without options instead of starting the ceremony', async () => {
     const user = userEvent.setup()
     const onError = vi.fn()

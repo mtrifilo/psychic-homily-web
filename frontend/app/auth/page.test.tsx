@@ -67,7 +67,15 @@ const mockLoginMutate = vi.fn()
 let mockLoginError: Error | null = null
 
 vi.mock('@/features/auth', () => ({
-  useLogin: () => ({ mutate: mockLoginMutate, isPending: false, error: mockLoginError }),
+  useLogin: () => ({
+    mutate: mockLoginMutate,
+    // As the real mutation's reset does, clears the error it reports.
+    reset: () => {
+      mockLoginError = null
+    },
+    isPending: false,
+    error: mockLoginError,
+  }),
   useRegister: () => ({ mutate: vi.fn(), isPending: false, error: null as Error | null }),
   useSendMagicLink: () => ({ mutate: vi.fn(), isPending: false }),
   // Pulled in by the check-your-inbox interstitial (PSY-1900). Mocking the
@@ -640,6 +648,40 @@ describe('AuthPage', () => {
       expect(
         screen.getByText('Account unavailable. Please contact support.')
       ).toBeInTheDocument()
+      expect(
+        screen.queryByRole('link', { name: ACCOUNT_RECOVERABLE_LINK_TEXT })
+      ).not.toBeInTheDocument()
+    })
+
+    it('shows a passkey refusal that follows a password refusal', () => {
+      mockLoginError = new AuthError(
+        'Invalid email or password',
+        AuthErrorCode.INVALID_CREDENTIALS
+      )
+      renderWithProviders(<AuthPage />)
+      expect(screen.getByText('Invalid email or password')).toBeInTheDocument()
+
+      refusePasskeySignIn(
+        new AuthError('Server copy', AuthErrorCode.ACCOUNT_RECOVERABLE)
+      )
+
+      expectRecoveryOffer()
+      expect(screen.queryByText('Invalid email or password')).not.toBeInTheDocument()
+    })
+
+    it('drops a passkey refusal when the password form is submitted', async () => {
+      const user = userEvent.setup()
+      renderWithProviders(<AuthPage />)
+      refusePasskeySignIn(
+        new AuthError('Server copy', AuthErrorCode.ACCOUNT_RECOVERABLE)
+      )
+      expectRecoveryOffer()
+
+      await user.type(screen.getByLabelText('Email'), 'someone@example.com')
+      await user.type(screen.getByLabelText('Password'), 'a-password')
+      await user.click(screen.getByRole('button', { name: /^sign in$/i }))
+
+      await waitFor(() => expect(mockLoginMutate).toHaveBeenCalled())
       expect(
         screen.queryByRole('link', { name: ACCOUNT_RECOVERABLE_LINK_TEXT })
       ).not.toBeInTheDocument()

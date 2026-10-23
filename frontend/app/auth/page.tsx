@@ -124,8 +124,14 @@ function LoginForm({ returnTo }: { returnTo: string }) {
   const [passkeyError, setPasskeyError] = useState<AuthError | null>(null)
   const [magicLinkSent, setMagicLinkSent] = useState(false)
   const [magicLinkError, setMagicLinkError] = useState<string | null>(null)
-  // The alert shows one refusal: the password form's outranks the passkey button's.
+  // The alert shows the latest sign-in attempt's error: each attempt clears
+  // the other method's, so at most one of the two is set.
   const signInError = loginMutation.error ?? passkeyError
+
+  const reportPasskeyError = (error: AuthError) => {
+    loginMutation.reset()
+    setPasskeyError(error)
+  }
 
   const form = useForm({
     defaultValues: {
@@ -133,6 +139,7 @@ function LoginForm({ returnTo }: { returnTo: string }) {
       password: '',
     } as LoginFormData,
     onSubmit: async ({ value }) => {
+      setPasskeyError(null)
       loginMutation.mutate(value, {
         onSuccess: data => {
           if (data.user) {
@@ -208,7 +215,7 @@ function LoginForm({ returnTo }: { returnTo: string }) {
           returnTo={returnTo}
         />
         <PasskeyLoginButton
-          onError={setPasskeyError}
+          onError={reportPasskeyError}
           className="w-full"
           returnTo={returnTo}
         />

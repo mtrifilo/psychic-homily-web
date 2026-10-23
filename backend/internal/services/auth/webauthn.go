@@ -175,9 +175,9 @@ func refusePasskey(internal error) *apperrors.AuthError {
 	return apperrors.NewAuthError(apperrors.CodeInvalidCredentials, invalidPasskeyMessage, internal)
 }
 
-// withRefusedAccount returns refusal, the refusal of account userID because it
-// may not sign in, carrying that id in its internal error, which callers log
-// and clients never see.
+// withRefusedAccount sets refusal's internal error, which callers log and
+// clients never see, to name account userID as one that may not sign in, and
+// returns refusal. refusal must be a fresh value from a constructor.
 func withRefusedAccount(refusal *apperrors.AuthError, userID uint) *apperrors.AuthError {
 	refusal.Internal = fmt.Errorf("user %d may not sign in", userID)
 	return refusal

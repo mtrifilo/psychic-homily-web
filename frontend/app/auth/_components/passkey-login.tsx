@@ -21,8 +21,9 @@ import { AuthError, AuthErrorCode } from '@/lib/errors'
 interface PasskeyLoginButtonProps {
   /**
    * Called when a sign-in does not complete, except when the viewer cancels
-   * the passkey prompt. A refusal the server answered carries its
-   * `error_code` as the error's code; anything else is coded UNKNOWN.
+   * the passkey prompt. A begin or finish response with `success: false`
+   * carries its `error_code` and HTTP status on the error; anything else is
+   * coded UNKNOWN.
    */
   onError?: (error: AuthError) => void
   className?: string
@@ -65,7 +66,12 @@ export function PasskeyLoginButton({
 
       const startFailure = 'Failed to start passkey login'
       if (!beginData.success) {
-        throw new Error(beginData.message || startFailure)
+        throw AuthError.fromResponse({
+          message: beginData.message || startFailure,
+          error_code: beginData.error_code,
+          request_id: beginData.request_id,
+          status: beginResponse.status,
+        })
       }
       const optionsJSON = authenticationOptionsFrom(beginData.options)
       if (!optionsJSON) {
