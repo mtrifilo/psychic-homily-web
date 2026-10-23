@@ -175,21 +175,18 @@ func refusePasskey(internal error) *apperrors.AuthError {
 	return apperrors.NewAuthError(apperrors.CodeInvalidCredentials, invalidPasskeyMessage, internal)
 }
 
-// refuseInactiveAccount is apperrors.ErrAccountInactive carrying the refused
-// account's id in its internal error, which callers log and clients never see.
-func refuseInactiveAccount(userID uint) *apperrors.AuthError {
-	inactive := apperrors.ErrAccountInactive()
-	inactive.Internal = fmt.Errorf("user %d may not sign in", userID)
-	return inactive
+// withRefusedAccount returns refusal, the refusal of account userID because it
+// may not sign in, carrying that id in its internal error, which callers log
+// and clients never see.
+func withRefusedAccount(refusal *apperrors.AuthError, userID uint) *apperrors.AuthError {
+	refusal.Internal = fmt.Errorf("user %d may not sign in", userID)
+	return refusal
 }
 
-// refuseClosedAccount is shared.ClosedAccountRefusal for account, which may
-// not sign in, carrying the account's id in its internal error, which callers
-// log and clients never see.
-func refuseClosedAccount(account *authm.User) *apperrors.AuthError {
-	refusal := shared.ClosedAccountRefusal(account)
-	refusal.Internal = fmt.Errorf("user %d may not sign in", account.ID)
-	return refusal
+// refuseInactiveAccount is apperrors.ErrAccountInactive for account userID
+// (withRefusedAccount).
+func refuseInactiveAccount(userID uint) *apperrors.AuthError {
+	return withRefusedAccount(apperrors.ErrAccountInactive(), userID)
 }
 
 // signInLookupError is the error for a sign-in lookup of what that returned
@@ -274,7 +271,7 @@ func (s *WebAuthnService) FinishDiscoverableLogin(session *webauthn.SessionData,
 		return nil, nil, refusePasskey(fmt.Errorf("validate discoverable login: %w", err))
 	}
 	if !user.CanSignIn() {
-		return nil, nil, refuseClosedAccount(user)
+		return nil, nil, withRefusedAccount(shared.ClosedAccountRefusal(user), user.ID)
 	}
 
 	if err := s.recordCredentialUse(&webauthnCred, credential); err != nil {

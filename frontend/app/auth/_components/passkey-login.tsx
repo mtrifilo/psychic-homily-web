@@ -116,24 +116,19 @@ export function PasskeyLoginButton({
 
       router.push(returnTo)
     } catch (error) {
-      // Handle user cancellation gracefully
-      if (error instanceof Error) {
-        if (error.name === 'NotAllowedError') {
-          // User cancelled the operation
-          return
-        }
-        Sentry.captureException(error, {
-          level: 'error',
-          tags: { service: 'passkey-auth', error_type: 'login_failed' },
-        })
-        onError?.(AuthError.fromUnknown(error))
-      } else {
-        Sentry.captureException(error, {
-          level: 'error',
-          tags: { service: 'passkey-auth', error_type: 'login_failed' },
-        })
-        onError?.(new AuthError('An unexpected error occurred', AuthErrorCode.UNKNOWN))
+      // The viewer cancelled the passkey prompt: nothing to report.
+      if (error instanceof Error && error.name === 'NotAllowedError') {
+        return
       }
+      Sentry.captureException(error, {
+        level: 'error',
+        tags: { service: 'passkey-auth', error_type: 'login_failed' },
+      })
+      onError?.(
+        error instanceof Error
+          ? AuthError.fromUnknown(error)
+          : new AuthError('An unexpected error occurred', AuthErrorCode.UNKNOWN)
+      )
     } finally {
       setIsLoading(false)
     }
