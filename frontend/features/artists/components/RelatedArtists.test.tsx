@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { screen, fireEvent } from '@testing-library/react'
+import { screen, fireEvent, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { renderWithProviders } from '@/test/utils'
 import { installImmediateResizeObserver } from '@/test/mocks/resizeObserver'
@@ -163,11 +163,99 @@ describe('ArtistSimilarSidebar', () => {
     for (const token of ENTITY_LINK_CLASS.accent.split(' ')) {
       expect(link!.className.split(' ')).toContain(token)
     }
-    // The reason badges stay as they are: hidden below `sm`.
+    // The inline badge group beside the name is the `sm`-and-up form; below
+    // `sm` the reason renders on its own line (covered below).
     expect(link!.nextElementSibling?.className).toContain('hidden sm:flex')
     // `link` text is not AA on a muted surface, so the row takes no muted fill,
     // at rest or on hover.
     expect(link!.parentElement?.className).not.toMatch(/(^|\s)(hover:)?bg-muted/)
+  })
+
+  describe('narrow reason line', () => {
+    const reasonLineFor = (name: string) => {
+      const row = screen.getByText(name).closest('a')!.parentElement!
+      return within(row).getByTestId('similar-artist-reason')
+    }
+
+    it('renders the badges and score text of each row on a line of its own below sm', () => {
+      renderWithProviders(
+        <ArtistSimilarSidebar artistId={1} artistSlug="gatecreeper" onOpenGraph={() => {}} />
+      )
+      const similarLine = reasonLineFor('Frozen Soul')
+      expect(within(similarLine).getByText('Similar')).toBeInTheDocument()
+      expect(within(similarLine).getByText('85% similar')).toBeInTheDocument()
+
+      const billsLine = reasonLineFor('Creeping Death')
+      expect(within(billsLine).getByText('Shared Bills')).toBeInTheDocument()
+      expect(within(billsLine).getByText('4 shared shows')).toBeInTheDocument()
+
+      // Its own wrapped line: full width under the name, gone at sm and up,
+      // where the inline badges and score take over.
+      expect(similarLine.className).toContain('basis-full')
+      expect(similarLine.className).toContain('sm:hidden')
+      const row = similarLine.parentElement!
+      expect(row.className).toContain('flex-wrap')
+      expect(row.className).toContain('sm:flex-nowrap')
+    })
+
+    it('lists every badge before the joined score text, wrapping as one run', () => {
+      mockUseArtistGraph.mockReturnValue({
+        data: {
+          ...mockGraphData,
+          nodes: [mockGraphData.nodes[0]],
+          links: [
+            { source_id: 1, target_id: 2, type: 'shared_bills', score: 0.8, votes_up: 0, votes_down: 0, detail: { shared_count: 2 } },
+            { source_id: 1, target_id: 2, type: 'shared_label', score: 0.7, votes_up: 0, votes_down: 0 },
+            { source_id: 1, target_id: 2, type: 'radio_cooccurrence', score: 0.5, votes_up: 0, votes_down: 0, detail: { co_occurrence_count: 3, station_count: 1 } },
+          ],
+        },
+        isLoading: false,
+        error: null,
+      })
+      renderWithProviders(
+        <ArtistSimilarSidebar artistId={1} artistSlug="gatecreeper" onOpenGraph={() => {}} />
+      )
+      const line = reasonLineFor('Frozen Soul')
+      expect(Array.from(line.children).map(el => el.textContent)).toEqual([
+        'Shared Bills',
+        'Shared Label',
+        'Radio Co-occurrence',
+        '2 shared shows · 3x on radio',
+      ])
+      expect(line.className).toContain('flex-wrap')
+    })
+
+    it('draws the chips as untinted outline badges and the score in muted mono', () => {
+      renderWithProviders(
+        <ArtistSimilarSidebar artistId={1} artistSlug="gatecreeper" onOpenGraph={() => {}} />
+      )
+      const line = reasonLineFor('Creeping Death')
+      const chip = within(line).getByText('Shared Bills')
+      expect(chip.className).toContain('text-foreground')
+      expect(chip.className).not.toMatch(/(^|\s)(dark:)?(bg|text|border)-blue-/)
+      const score = within(line).getByText('4 shared shows')
+      expect(score.className).toContain('font-mono')
+      expect(score.className).toContain('text-muted-foreground')
+    })
+
+    it('renders no reason line for a row with neither a known badge nor a score', () => {
+      mockUseArtistGraph.mockReturnValue({
+        data: {
+          ...mockGraphData,
+          nodes: [mockGraphData.nodes[0]],
+          links: [
+            { source_id: 1, target_id: 2, type: 'not_a_known_type', score: 0.5, votes_up: 0, votes_down: 0 },
+          ],
+        },
+        isLoading: false,
+        error: null,
+      })
+      renderWithProviders(
+        <ArtistSimilarSidebar artistId={1} artistSlug="gatecreeper" onOpenGraph={() => {}} />
+      )
+      expect(screen.getByText('Frozen Soul')).toBeInTheDocument()
+      expect(screen.queryByTestId('similar-artist-reason')).not.toBeInTheDocument()
+    })
   })
 
   it('renders an [Explore graph] link when relationships exist', () => {

@@ -1365,10 +1365,17 @@ function RelatedArtistRow({
     return parts.join(' · ')
   }
 
+  const scoreDisplay = getScoreDisplay()
+  const reasonBadges = links.flatMap(link => {
+    const badge = RELATIONSHIP_BADGES[link.type]
+    return badge ? [{ type: link.type, label: badge.label }] : []
+  })
+
   return (
     // No hover fill: the name is an accent link, and `link` text is not AA on
-    // a muted surface.
-    <div className="flex items-center gap-3 py-2 px-3 rounded-md">
+    // a muted surface. Below `sm` the row wraps so the reason line takes a
+    // full-width second line; at `sm` and up it is one unwrapped line.
+    <div className="flex flex-wrap sm:flex-nowrap items-center gap-x-3 gap-y-1.5 py-2 sm:px-3 rounded-md">
       <Link
         href={`/artists/${node.slug}`}
         // PSY-1288: floor the name column at a readable min-width so the row's other items can't
@@ -1410,7 +1417,7 @@ function RelatedArtistRow({
           fixed 320px sidebar's right edge (PSY-1288). Only the small vote buttons below stay fixed,
           so the floored name + votes always fit and everything else degrades gracefully. */}
       <span className="text-xs text-muted-foreground min-w-0 shrink truncate hidden md:block">
-        {getScoreDisplay()}
+        {scoreDisplay}
       </span>
 
       {/* Vote buttons (only for "similar" type) */}
@@ -1430,6 +1437,31 @@ function RelatedArtistRow({
             onVote={() => handleVote(similarLink, false)}
             isPending={voteMutation.isPending}
           />
+        </div>
+      )}
+
+      {/* The narrow form of the badges and score above: its own full-width
+          line under the name, so it never contests the name's width. Untinted
+          outline chips, then the score text, wrapping as one run. */}
+      {(reasonBadges.length > 0 || scoreDisplay) && (
+        <div
+          className="basis-full sm:hidden flex flex-wrap items-center gap-1"
+          data-testid="similar-artist-reason"
+        >
+          {reasonBadges.map(badge => (
+            <Badge
+              key={badge.type}
+              variant="outline"
+              className="text-[10px] px-1.5 py-0.5"
+            >
+              {badge.label}
+            </Badge>
+          ))}
+          {scoreDisplay && (
+            <span className="font-mono text-xs text-muted-foreground">
+              {scoreDisplay}
+            </span>
+          )}
         </div>
       )}
     </div>

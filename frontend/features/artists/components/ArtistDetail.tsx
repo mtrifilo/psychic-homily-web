@@ -64,6 +64,7 @@ import { ArtistSimilarSidebar, ArtistGraphDialog } from './RelatedArtists'
 import { ArtistConnectionsSection } from './ArtistConnectionsSection'
 import { BillComposition } from './BillComposition'
 import { GRAPH_HASH, useUrlHash } from '@/lib/hooks/common/useUrlHash'
+import { useMediaQuery } from '@/lib/hooks/common/useMediaQuery'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
@@ -75,6 +76,14 @@ import type { ArtistLabel } from '@/features/labels/types'
 interface ArtistDetailProps {
   artistId: string | number
 }
+
+/**
+ * Tailwind's `sm` breakpoint as a media query. Below it the page is the phone
+ * layout: Similar artists leaves the sidebar for the main column's Connections
+ * slot, directly under the shows and above everything the stacked sidebar
+ * holds. The server snapshot is the phone layout (see `useMediaQuery`).
+ */
+const SM_UP_QUERY = '(min-width: 640px)'
 
 // --- Discography ---
 
@@ -265,17 +274,20 @@ function ArtistSidebar({
   labels,
   labelsLoading,
   isAuthenticated,
-  onOpenGraph,
+  similarArtists,
 }: {
   artist: Artist
   labels: ArtistLabel[]
   labelsLoading: boolean
   isAuthenticated: boolean
-  onOpenGraph: () => void
+  /** The Similar artists block, or null when the main column carries it. */
+  similarArtists: React.ReactNode
 }) {
   const { data: aliasesData } = useArtistAliases(artist.id)
   const aliases = aliasesData?.aliases ?? []
 
+  // Only non-zero rows render, so an artist with no non-zero stat has no
+  // Statistics block at all.
   const statsItems = artist.stats
     ? [
         { label: 'Releases', value: artist.stats.releases },
@@ -286,7 +298,7 @@ function ArtistSidebar({
           label: 'Festival appearances',
           value: artist.stats.festival_appearances,
         },
-      ]
+      ].filter(item => item.value > 0)
     : []
 
   const hasSocialLinks = hasRenderableSocialLink(artist.social)
@@ -362,14 +374,7 @@ function ArtistSidebar({
       {/* As heard on (radio) — self-hides when empty */}
       <AsHeardOn entityType="artist" entitySlug={artist.slug} />
 
-      {/* Similar artists — dense list + [Explore graph] affordance (opens
-          the page-level Dialog). Self-hides when there are no relationships
-          AND the viewer can't contribute. */}
-      <ArtistSimilarSidebar
-        artistId={artist.id}
-        artistSlug={artist.slug}
-        onOpenGraph={onOpenGraph}
-      />
+      {similarArtists}
 
       {/* Tags — EntityTagList renders its own header. PSY-654 hides the
           whole component when no tags exist; the [Add tag] linkbox entry
@@ -1075,6 +1080,7 @@ export function ArtistDetail({ artistId }: ArtistDetailProps) {
     }
   }
   const saveBanner = useEntitySaveSuccessBanner()
+  const isPhoneLayout = !useMediaQuery(SM_UP_QUERY)
 
   // Fetch labels for sidebar
   const { data: labelsData, isLoading: labelsLoading } = useArtistLabels({
@@ -1138,6 +1144,19 @@ export function ArtistDetail({ artistId }: ArtistDetailProps) {
   }
 
   const labels = labelsData?.labels ?? []
+
+  // Similar artists: a dense list plus the [Explore graph] affordance that
+  // opens the page-level Dialog. It self-hides when there are no
+  // relationships AND the viewer can't contribute. Rendered in exactly one
+  // place: the sidebar at `sm` and up, the main column's Connections slot
+  // below it.
+  const similarArtists = (
+    <ArtistSimilarSidebar
+      artistId={artist.id}
+      artistSlug={artist.slug}
+      onOpenGraph={openGraphDialog}
+    />
+  )
 
   // The subtitle under the name. With a scene the subtitle IS the link to
   // it, named for the scene it opens rather than for the artist's own city (a
@@ -1244,7 +1263,7 @@ export function ArtistDetail({ artistId }: ArtistDetailProps) {
             labels={labels}
             labelsLoading={labelsLoading}
             isAuthenticated={!!isAuthenticated}
-            onOpenGraph={openGraphDialog}
+            similarArtists={isPhoneLayout ? null : similarArtists}
           />
         }
       >
@@ -1259,15 +1278,22 @@ export function ArtistDetail({ artistId }: ArtistDetailProps) {
 
           <DiscographyTab artistIdOrSlug={artistId} />
 
-          {/* Inline Connections ego map — reuses the sidebar's cached
-              useArtistGraph payload; [Expand] opens the same Dialog as the
-              action-row [Graph] and sidebar [Explore graph] links. */}
-          <ArtistConnectionsSection
-            artistId={artist.id}
-            artistName={artist.name}
-            artistSlug={artist.slug}
-            onExpand={openGraphDialog}
-          />
+          {/* The Connections slot. On the phone layout no canvas can render,
+              so the slot holds the Similar artists list instead of the
+              section; the action-row [Graph] and the list's [Explore graph]
+              still open the graph Dialog. Otherwise it holds the inline ego
+              map, which reuses the list's cached useArtistGraph payload and
+              whose [Expand] opens the same Dialog. */}
+          {isPhoneLayout ? (
+            similarArtists
+          ) : (
+            <ArtistConnectionsSection
+              artistId={artist.id}
+              artistName={artist.name}
+              artistSlug={artist.slug}
+              onExpand={openGraphDialog}
+            />
+          )}
 
           <BillComposition artistId={artist.id} defaultCollapsed />
 
