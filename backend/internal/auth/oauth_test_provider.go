@@ -75,6 +75,19 @@ const (
 	TestProviderUserIDEnvVar = "OAUTH_TEST_PROVIDER_USER_ID"
 )
 
+// TestProviderUserIDParam and TestProviderEmailParam override the identity
+// for one handshake: the clone reads them off the callback's query, where a
+// real provider puts its authorization code, and they win over the
+// environment overrides above. They let one running backend present a new
+// identity, a returning one and a colliding one in turn, which an end-to-end
+// test and a manual run both need. Like the environment overrides they carry
+// no privilege of their own: only a provider SetupGoth registers behind the
+// double gate described at the top of this file reads them.
+const (
+	TestProviderUserIDParam = "faux_user_id"
+	TestProviderEmailParam  = "faux_email"
+)
+
 // EmailVerifiedRawDataKey is the RawData key the clone carries its
 // verification flag under. It must be one providerAssertsEmailVerified reads,
 // which is why it is exported: internal/services/user tests its own reader
@@ -91,10 +104,38 @@ type testProvider struct {
 }
 
 // newTestProvider builds the faux clone. The embedded faux.Provider supplies
-// BeginAuth (state nonce + http://example.com/auth AuthURL), UnmarshalSession,
-// RefreshToken, etc.
+// BeginAuth (state nonce + http://example.com/auth AuthURL), RefreshToken,
+// etc.
 func newTestProvider() *testProvider {
 	return &testProvider{Provider: &faux.Provider{}}
+}
+
+// testSession is faux's session plus the per-handshake identity override
+// Authorize reads off the callback's query. gothic unmarshals the session the
+// start stored, authorizes it with the callback's query, and fetches the user
+// from that same value, so the override needs no storage of its own.
+type testSession struct {
+	*faux.Session
+	userID string
+	email  string
+}
+
+// UnmarshalSession returns the session the start stored, wrapped so Authorize
+// can see the callback's query.
+func (p *testProvider) UnmarshalSession(data string) (goth.Session, error) {
+	sess, err := p.Provider.UnmarshalSession(data)
+	if err != nil {
+		return sess, err
+	}
+	return &testSession{Session: sess.(*faux.Session)}, nil
+}
+
+// Authorize records the identity override the callback's query carries, then
+// authorizes the way faux does.
+func (s *testSession) Authorize(provider goth.Provider, params goth.Params) (string, error) {
+	s.userID = params.Get(TestProviderUserIDParam)
+	s.email = params.Get(TestProviderEmailParam)
+	return s.Session.Authorize(provider, params)
 }
 
 // Name returns "google". goth.UseProviders keys the registry on Name(), and
@@ -112,13 +153,18 @@ func (p *testProvider) Name() string {
 // RawData; find-or-create reads the address from the first and the provider's
 // verification assertion from the second.
 func (p *testProvider) FetchUser(session goth.Session) (goth.User, error) {
+	var override testSession
+	if wrapped, ok := session.(*testSession); ok {
+		override = *wrapped
+		session = wrapped.Session
+	}
 	user, err := p.Provider.FetchUser(session)
 	if err != nil {
 		return user, err
 	}
 	user.Provider = TestProviderName
-	user.UserID = testProviderValue(os.Getenv, TestProviderUserIDEnvVar, TestProviderUserID)
-	user.Email = testProviderValue(os.Getenv, TestProviderEmailEnvVar, TestProviderEmail)
+	user.UserID = firstNonEmpty(override.userID, testProviderValue(os.Getenv, TestProviderUserIDEnvVar, TestProviderUserID))
+	user.Email = firstNonEmpty(override.email, testProviderValue(os.Getenv, TestProviderEmailEnvVar, TestProviderEmail))
 	user.Name = "E2E OAuth User"
 	user.RawData = map[string]any{
 		EmailVerifiedRawDataKey: !isOAuthTestProviderEmailUnverified(os.Getenv),
@@ -135,6 +181,15 @@ func testProviderValue(getenv func(string) string, name, fallback string) string
 		return value
 	}
 	return fallback
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if value != "" {
+			return value
+		}
+	}
+	return ""
 }
 
 // isOAuthTestProviderEmailUnverified reports whether the clone should present
