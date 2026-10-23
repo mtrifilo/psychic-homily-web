@@ -83,6 +83,9 @@ export function buildAuthHref(returnTo: string): string {
  * An OAuth link result is left out of the query. Settings reads it once, on
  * the redirect that delivers it; kept in returnTo it would replay after any
  * later sign-in through this link, however long after it stopped being true.
+ * `sanitizeReturnTo` and the backend's `sanitizeOAuthReturnTo` drop it again
+ * when they read returnTo, so a link built elsewhere cannot replay it either;
+ * leaving it out here keeps it out of the auth page's own URL.
  */
 export function currentLocationReturnTo(pathname: string): string {
   const search = typeof window === 'undefined' ? '' : window.location.search

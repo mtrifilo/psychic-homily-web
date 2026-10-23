@@ -59,12 +59,13 @@ export function useAuthArrivalParams(live: {
   toString(): string
 }): URLSearchParams {
   const liveQuery = live.toString()
-  const [held, setHeld] = useState(() => bannerArrivalOf(liveQuery))
+  const liveArrival = useMemo(() => bannerArrivalOf(liveQuery), [liveQuery])
+  const [held, setHeld] = useState(liveArrival)
   const arrival =
     held !== null &&
     (liveQuery === held.query || liveQuery === held.strippedQuery)
       ? held
-      : bannerArrivalOf(liveQuery)
+      : liveArrival
   if (arrival !== held) {
     setHeld(arrival)
   }

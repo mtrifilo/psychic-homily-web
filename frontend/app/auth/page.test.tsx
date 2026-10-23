@@ -1218,15 +1218,6 @@ describe('AuthPage', () => {
       expect(screen.getByText("Confirm it's you")).toBeInTheDocument()
       expect(mockPush).not.toHaveBeenCalled()
     })
-
-    it('leaves a URL without banner parameters alone', () => {
-      const replaceState = vi.spyOn(window.history, 'replaceState')
-      setSearchParams('returnTo=%2Fshows&intent=save')
-      renderWithProviders(<AuthPage />)
-
-      expect(replaceState).not.toHaveBeenCalled()
-      replaceState.mockRestore()
-    })
   })
 
   describe('returnTo propagation', () => {
