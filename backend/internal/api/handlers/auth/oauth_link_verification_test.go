@@ -82,7 +82,6 @@ func (s *OAuthHandlerIntegrationSuite) TestCallback_UnverifiedEmailMatch_Redirec
 	})
 
 	w, req := oauthCallbackRequest("google")
-	s.addSignupConsentCookie(req)
 	handler.OAuthCallbackHTTPHandler(w, req)
 
 	query := s.assertSignInRefusal(w, "callback-unverified@test.com")
@@ -118,7 +117,6 @@ func (s *OAuthHandlerIntegrationSuite) TestCallback_VerifiedEmailMatch_Redirects
 	})
 
 	w, req := oauthCallbackRequest("google")
-	s.addSignupConsentCookie(req)
 	handler.OAuthCallbackHTTPHandler(w, req)
 
 	s.assertSignInRefusal(w, "callback-verified@test.com")

@@ -572,11 +572,12 @@ type signupSessionData struct {
 }
 
 type storedSignupAcceptance struct {
-	TermsAcceptedAt time.Time `json:"terms_accepted_at"`
-	TermsVersion    string    `json:"terms_version"`
-	PrivacyVersion  string    `json:"privacy_version"`
-	AgeConfirmedAt  time.Time `json:"age_confirmed_at"`
-	MinAgeAttested  int       `json:"min_age_attested"`
+	TermsAcceptedAt time.Time  `json:"terms_accepted_at"`
+	TermsVersion    string     `json:"terms_version"`
+	PrivacyVersion  string     `json:"privacy_version"`
+	AgeConfirmedAt  time.Time  `json:"age_confirmed_at"`
+	MinAgeAttested  int        `json:"min_age_attested"`
+	DateOfBirth     *time.Time `json:"date_of_birth,omitempty"`
 }
 
 // BeginRegistrationForEmail starts passkey registration for a new account

@@ -490,13 +490,17 @@ func (m *MockAuthEmailOutbox) Enqueue(ctx context.Context, kind authm.AuthEmailK
 // ============================================================================
 
 type MockAuthService struct {
-	OAuthLoginFn               func(http.ResponseWriter, *http.Request, string) error
-	OAuthCallbackWithConsentFn func(http.ResponseWriter, *http.Request, string, *contracts.OAuthSignupConsent) (*authm.User, string, error)
-	CompleteOAuthLinkFn        func(http.ResponseWriter, *http.Request, string, uint) (*authm.User, error)
-	GetUserProfileFn           func(uint) (*authm.User, error)
-	RefreshUserTokenFn         func(*authm.User, time.Time) (string, error)
-	LogoutFn                   func(http.ResponseWriter, *http.Request) error
-	SetOAuthCompleterFn        func(contracts.OAuthCompleter)
+	OAuthLoginFn          func(http.ResponseWriter, *http.Request, string) error
+	OAuthCallbackFn       func(http.ResponseWriter, *http.Request, string) (*authm.User, string, error)
+	StartOAuthSignupFn    func(contracts.OAuthIdentity, string) (string, time.Time, error)
+	PeekOAuthSignupFn     func(string) (*contracts.OAuthPendingSignup, error)
+	ConsumeOAuthSignupFn  func(string) (*contracts.OAuthPendingSignup, error)
+	CompleteOAuthSignupFn func(*contracts.OAuthPendingSignup, *contracts.OAuthSignupConsent, *string) (*authm.User, string, error)
+	CompleteOAuthLinkFn   func(http.ResponseWriter, *http.Request, string, uint) (*authm.User, error)
+	GetUserProfileFn      func(uint) (*authm.User, error)
+	RefreshUserTokenFn    func(*authm.User, time.Time) (string, error)
+	LogoutFn              func(http.ResponseWriter, *http.Request) error
+	SetOAuthCompleterFn   func(contracts.OAuthCompleter)
 }
 
 func (m *MockAuthService) OAuthLogin(w http.ResponseWriter, r *http.Request, provider string) error {
@@ -505,9 +509,33 @@ func (m *MockAuthService) OAuthLogin(w http.ResponseWriter, r *http.Request, pro
 	}
 	return nil
 }
-func (m *MockAuthService) OAuthCallbackWithConsent(w http.ResponseWriter, r *http.Request, provider string, consent *contracts.OAuthSignupConsent) (*authm.User, string, error) {
-	if m.OAuthCallbackWithConsentFn != nil {
-		return m.OAuthCallbackWithConsentFn(w, r, provider, consent)
+func (m *MockAuthService) OAuthCallback(w http.ResponseWriter, r *http.Request, provider string) (*authm.User, string, error) {
+	if m.OAuthCallbackFn != nil {
+		return m.OAuthCallbackFn(w, r, provider)
+	}
+	return nil, "", nil
+}
+func (m *MockAuthService) StartOAuthSignup(identity contracts.OAuthIdentity, returnTo string) (string, time.Time, error) {
+	if m.StartOAuthSignupFn != nil {
+		return m.StartOAuthSignupFn(identity, returnTo)
+	}
+	return "", time.Time{}, nil
+}
+func (m *MockAuthService) PeekOAuthSignup(token string) (*contracts.OAuthPendingSignup, error) {
+	if m.PeekOAuthSignupFn != nil {
+		return m.PeekOAuthSignupFn(token)
+	}
+	return nil, nil
+}
+func (m *MockAuthService) ConsumeOAuthSignup(token string) (*contracts.OAuthPendingSignup, error) {
+	if m.ConsumeOAuthSignupFn != nil {
+		return m.ConsumeOAuthSignupFn(token)
+	}
+	return nil, nil
+}
+func (m *MockAuthService) CompleteOAuthSignup(signup *contracts.OAuthPendingSignup, consent *contracts.OAuthSignupConsent, displayName *string) (*authm.User, string, error) {
+	if m.CompleteOAuthSignupFn != nil {
+		return m.CompleteOAuthSignupFn(signup, consent, displayName)
 	}
 	return nil, "", nil
 }
@@ -4110,54 +4138,55 @@ func (m *MockTagService) PruneDownvotedTags() (int64, error) {
 // ============================================================================
 
 type MockUserService struct {
-	ListUsersFn                        func(int, int, contracts.AdminUserFilters) ([]*contracts.AdminUserResponse, int64, error)
-	FindOrCreateUserWithConsentFn      func(goth.User, string, *contracts.OAuthSignupConsent) (*authm.User, error)
-	LinkOAuthAccountToUserFn           func(uint, goth.User, string) (*authm.User, error)
-	AuthenticateUserWithPasswordFn     func(string, string) (*authm.User, error)
-	CreateUserWithPasswordWithLegalFn  func(string, string, string, string, contracts.LegalAcceptance) (*authm.User, error)
-	GetUserByIDFn                      func(uint) (*authm.User, error)
-	GetUserByEmailFn                   func(string) (*authm.User, error)
-	GetUserByUsernameFn                func(string) (*authm.User, error)
-	UpdateUserFn                       func(uint, map[string]any) (*authm.User, error)
-	HashPasswordFn                     func(string) (string, error)
-	VerifyPasswordFn                   func(string, string) error
-	IsAccountLockedFn                  func(*authm.User) bool
-	GetLockTimeRemainingFn             func(*authm.User) time.Duration
-	IncrementFailedAttemptsFn          func(uint) error
-	ResetFailedAttemptsFn              func(uint) error
-	UpdatePasswordFn                   func(uint, string, string) error
-	SetEmailVerifiedFn                 func(uint, bool) error
-	GetDeletionSummaryFn               func(uint) (*contracts.DeletionSummary, error)
-	SoftDeleteAccountFn                func(uint, *string) error
-	ExportUserDataFn                   func(uint) (*contracts.UserDataExport, error)
-	ExportUserDataJSONFn               func(uint) ([]byte, error)
-	GetOAuthAccountsFn                 func(uint) ([]authm.OAuthAccount, error)
-	GetUserByEmailIncludingDeletedFn   func(string) (*authm.User, error)
-	IsAccountRecoverableFn             func(*authm.User) bool
-	GetDaysUntilPermanentDeletionFn    func(*authm.User) int
-	RestoreAccountFn                   func(uint) error
-	GetExpiredDeletedAccountsFn        func() ([]authm.User, error)
-	PermanentlyDeleteUserFn            func(uint) error
-	CanUnlinkOAuthAccountFn            func(uint, string) (bool, string, error)
-	UnlinkOAuthAccountFn               func(uint, string) error
-	GetFavoriteCitiesFn                func(uint) ([]authm.FavoriteCity, error)
-	SetFavoriteCitiesFn                func(uint, []authm.FavoriteCity) error
-	SetChartDefaultsFn                 func(uint, *authm.ChartDefaults) error
-	SetHomeLayoutFn                    func(uint, *authm.HomeLayout) (*authm.HomeLayout, error)
-	ClearHomeLayoutFn                  func(uint) error
-	DismissFirstSaveHintFn             func(uint) (time.Time, error)
-	SetShowRemindersFn                 func(uint, bool) error
-	SetDefaultReplyPermissionFn        func(uint, string) error
-	SetNotifyOnCommentSubscriptionFn   func(uint, bool) error
-	SetNotifyOnMentionFn               func(uint, bool) error
-	SetNotifyOnCollectionDigestFn      func(uint, bool) error
-	SetNotifyOnSceneDigestFn           func(uint, bool) error
-	SetNotifyOnTierNotificationsFn     func(uint, bool) error
-	SetNotifyOnEditNotificationsFn     func(uint, bool) error
-	GetAlertPreferencesFn              func(uint) (*authm.AlertPreferences, error)
-	SetHomeMetroFn                     func(uint, *string) error
-	SetAccountAlertDefaultsFn          func(uint, authm.AccountAlertDefaultsUpdate) error
-	UnsubscribeArtistShowAlertEmailsFn func(uint) error
+	ListUsersFn                         func(int, int, contracts.AdminUserFilters) ([]*contracts.AdminUserResponse, int64, error)
+	FindOrCreateUserWithConsentFn       func(goth.User, string, *contracts.OAuthSignupConsent) (*authm.User, error)
+	FindOrCreateUserFromOAuthIdentityFn func(contracts.OAuthIdentity, *contracts.OAuthSignupConsent, *string) (*authm.User, error)
+	LinkOAuthAccountToUserFn            func(uint, goth.User, string) (*authm.User, error)
+	AuthenticateUserWithPasswordFn      func(string, string) (*authm.User, error)
+	CreateUserWithPasswordWithLegalFn   func(string, string, string, string, contracts.LegalAcceptance) (*authm.User, error)
+	GetUserByIDFn                       func(uint) (*authm.User, error)
+	GetUserByEmailFn                    func(string) (*authm.User, error)
+	GetUserByUsernameFn                 func(string) (*authm.User, error)
+	UpdateUserFn                        func(uint, map[string]any) (*authm.User, error)
+	HashPasswordFn                      func(string) (string, error)
+	VerifyPasswordFn                    func(string, string) error
+	IsAccountLockedFn                   func(*authm.User) bool
+	GetLockTimeRemainingFn              func(*authm.User) time.Duration
+	IncrementFailedAttemptsFn           func(uint) error
+	ResetFailedAttemptsFn               func(uint) error
+	UpdatePasswordFn                    func(uint, string, string) error
+	SetEmailVerifiedFn                  func(uint, bool) error
+	GetDeletionSummaryFn                func(uint) (*contracts.DeletionSummary, error)
+	SoftDeleteAccountFn                 func(uint, *string) error
+	ExportUserDataFn                    func(uint) (*contracts.UserDataExport, error)
+	ExportUserDataJSONFn                func(uint) ([]byte, error)
+	GetOAuthAccountsFn                  func(uint) ([]authm.OAuthAccount, error)
+	GetUserByEmailIncludingDeletedFn    func(string) (*authm.User, error)
+	IsAccountRecoverableFn              func(*authm.User) bool
+	GetDaysUntilPermanentDeletionFn     func(*authm.User) int
+	RestoreAccountFn                    func(uint) error
+	GetExpiredDeletedAccountsFn         func() ([]authm.User, error)
+	PermanentlyDeleteUserFn             func(uint) error
+	CanUnlinkOAuthAccountFn             func(uint, string) (bool, string, error)
+	UnlinkOAuthAccountFn                func(uint, string) error
+	GetFavoriteCitiesFn                 func(uint) ([]authm.FavoriteCity, error)
+	SetFavoriteCitiesFn                 func(uint, []authm.FavoriteCity) error
+	SetChartDefaultsFn                  func(uint, *authm.ChartDefaults) error
+	SetHomeLayoutFn                     func(uint, *authm.HomeLayout) (*authm.HomeLayout, error)
+	ClearHomeLayoutFn                   func(uint) error
+	DismissFirstSaveHintFn              func(uint) (time.Time, error)
+	SetShowRemindersFn                  func(uint, bool) error
+	SetDefaultReplyPermissionFn         func(uint, string) error
+	SetNotifyOnCommentSubscriptionFn    func(uint, bool) error
+	SetNotifyOnMentionFn                func(uint, bool) error
+	SetNotifyOnCollectionDigestFn       func(uint, bool) error
+	SetNotifyOnSceneDigestFn            func(uint, bool) error
+	SetNotifyOnTierNotificationsFn      func(uint, bool) error
+	SetNotifyOnEditNotificationsFn      func(uint, bool) error
+	GetAlertPreferencesFn               func(uint) (*authm.AlertPreferences, error)
+	SetHomeMetroFn                      func(uint, *string) error
+	SetAccountAlertDefaultsFn           func(uint, authm.AccountAlertDefaultsUpdate) error
+	UnsubscribeArtistShowAlertEmailsFn  func(uint) error
 }
 
 func (m *MockUserService) ListUsers(limit int, offset int, filters contracts.AdminUserFilters) ([]*contracts.AdminUserResponse, int64, error) {
@@ -4169,6 +4198,12 @@ func (m *MockUserService) ListUsers(limit int, offset int, filters contracts.Adm
 func (m *MockUserService) FindOrCreateUserWithConsent(gothUser goth.User, provider string, consent *contracts.OAuthSignupConsent) (*authm.User, error) {
 	if m.FindOrCreateUserWithConsentFn != nil {
 		return m.FindOrCreateUserWithConsentFn(gothUser, provider, consent)
+	}
+	return nil, nil
+}
+func (m *MockUserService) FindOrCreateUserFromOAuthIdentity(identity contracts.OAuthIdentity, consent *contracts.OAuthSignupConsent, displayName *string) (*authm.User, error) {
+	if m.FindOrCreateUserFromOAuthIdentityFn != nil {
+		return m.FindOrCreateUserFromOAuthIdentityFn(identity, consent, displayName)
 	}
 	return nil, nil
 }

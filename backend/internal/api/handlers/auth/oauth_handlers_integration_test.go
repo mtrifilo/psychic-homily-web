@@ -119,20 +119,20 @@ func oauthCallbackRequest(provider string) (*httptest.ResponseRecorder, *http.Re
 	return w, req
 }
 
-func (s *OAuthHandlerIntegrationSuite) addSignupConsentCookie(req *http.Request) {
-	encoded, err := encodeOAuthSignupConsent(contracts.OAuthSignupConsent{
+// signUp creates the account identity resolves to, with valid consent, so a
+// callback for identity is the returning sign-in rather than a new one.
+func (s *OAuthHandlerIntegrationSuite) signUp(identity goth.User) *authm.User {
+	s.T().Helper()
+	user, err := s.deps.UserService.FindOrCreateUserWithConsent(identity, identity.Provider, &contracts.OAuthSignupConsent{
 		TermsAccepted:  true,
-		TermsVersion:   "2026-01-31",
-		PrivacyVersion: "2026-02-15",
+		TermsVersion:   legal.CurrentTermsVersion,
+		PrivacyVersion: legal.CurrentPrivacyVersion,
 		AcceptedAt:     time.Now().UTC(),
 		AgeConfirmed:   true,
 		MinAgeAttested: MinSignupAge,
 	})
 	s.Require().NoError(err)
-	req.AddCookie(&http.Cookie{
-		Name:  oauthSignupConsentCookieName,
-		Value: encoded,
-	})
+	return user
 }
 
 // --- OAuthCallbackHTTPHandler: error paths ---
@@ -143,7 +143,6 @@ func (s *OAuthHandlerIntegrationSuite) TestCallback_Error_RedirectsToFrontend() 
 	})
 
 	w, req := oauthCallbackRequest("google")
-	s.addSignupConsentCookie(req)
 	handler.OAuthCallbackHTTPHandler(w, req)
 
 	s.Equal(http.StatusTemporaryRedirect, w.Code)
@@ -162,7 +161,6 @@ func (s *OAuthHandlerIntegrationSuite) TestCallback_Error_CLICallback_RedirectsT
 	storeCLICallback(callbackID, "http://localhost:8888/cli-cb")
 
 	w, req := oauthCallbackRequest("google")
-	s.addSignupConsentCookie(req)
 	req.AddCookie(&http.Cookie{
 		Name:  "cli_callback_id",
 		Value: callbackID,
@@ -257,7 +255,6 @@ func (s *OAuthHandlerIntegrationSuite) TestCallback_CustomFrontendURL() {
 	handler := NewOAuthHTTPHandler(authService, s.jwtService(), customCfg)
 
 	w, req := oauthCallbackRequest("google")
-	s.addSignupConsentCookie(req)
 	handler.OAuthCallbackHTTPHandler(w, req)
 
 	location := w.Header().Get("Location")
@@ -276,7 +273,6 @@ func (s *OAuthHandlerIntegrationSuite) TestCallback_EmptyFrontendURL_Fallback() 
 	handler := NewOAuthHTTPHandler(authService, s.jwtService(), emptyCfg)
 
 	w, req := oauthCallbackRequest("google")
-	s.addSignupConsentCookie(req)
 	handler.OAuthCallbackHTTPHandler(w, req)
 
 	location := w.Header().Get("Location")
@@ -284,76 +280,103 @@ func (s *OAuthHandlerIntegrationSuite) TestCallback_EmptyFrontendURL_Fallback() 
 		"expected fallback to localhost:3000, got %s", location)
 }
 
-// TestCallback_TermsNotAccepted_RedirectsWithTermsMessage: a new-user OAuth
-// callback that arrives without the signup-consent cookie surfaces a typed
-// CodeTermsAcceptanceRequired from the user service. PSY-792: the handler now
-// discriminates on the typed code (not a message substring) to pick the
-// terms-acceptance redirect message instead of the generic failure.
-func (s *OAuthHandlerIntegrationSuite) TestCallback_TermsNotAccepted_RedirectsWithTermsMessage() {
-	handler := s.newHandler(&mockOAuthCompleter{
-		user: goth.User{
-			Email:    "oauth-noterms@test.com",
-			Provider: "google",
-			UserID:   "google-noterms-789",
-			Name:     "No Terms User",
-		},
-	})
+// A new Google identity is held as a pending sign-up and sent to the step,
+// with no account and no session yet.
+func (s *OAuthHandlerIntegrationSuite) TestCallback_NewGoogleIdentity_StartsTheSignupStep() {
+	identity := goth.User{
+		Email:    "oauth-new-identity@test.com",
+		Provider: "google",
+		UserID:   "google-new-identity-789",
+		Name:     "New Identity",
+		RawData:  map[string]any{"verified_email": true},
+	}
+	handler := s.newHandler(&mockOAuthCompleter{user: identity})
 
-	// No consent cookie → shared.ValidateOAuthSignupConsent(nil) → terms error.
 	w, req := oauthCallbackRequest("google")
 	handler.OAuthCallbackHTTPHandler(w, req)
 
 	s.Equal(http.StatusTemporaryRedirect, w.Code)
-	location := w.Header().Get("Location")
-	s.True(strings.HasPrefix(location, "http://localhost:3000/auth?error="),
-		"expected redirect to frontend auth with error, got %s", location)
-	s.Contains(location, "Terms+of+Service",
-		"expected terms-acceptance message in redirect, got %s", location)
-	parsed, err := url.Parse(location)
-	s.Require().NoError(err)
-	s.Equal(autherrors.CodeTermsAcceptanceRequired, parsed.Query().Get("error_code"))
+	s.Equal("http://localhost:3000"+oauthSignupStepPath, w.Header().Get("Location"))
+	pending := findCookie(w.Result(), oauthPendingSignupCookie.name)
+	s.Require().NotNil(pending, "expected the pending sign-up cookie")
+	s.NotEmpty(pending.Value)
+	s.Equal(int(oauthPendingSignupCookie.lifetime/time.Second), pending.MaxAge)
+	s.Nil(findCookie(w.Result(), "auth_token"), "no session before the step is finished")
+
+	var users, rows int64
+	s.Require().NoError(s.deps.DB.Model(&authm.User{}).Where("email = ?", identity.Email).Count(&users).Error)
+	s.Require().NoError(s.deps.DB.Model(&authm.OAuthPendingSignup{}).Where("provider_user_id = ?", identity.UserID).Count(&rows).Error)
+	s.Zero(users, "the callback creates no account")
+	s.Equal(int64(1), rows, "the callback holds the identity as a pending sign-up")
 }
 
-// The start handler refuses a sign-up without the age confirmation, but the
-// consent cookie is caller-writable, so the callback refuses one too, in its
-// own words, and creates nothing.
-func (s *OAuthHandlerIntegrationSuite) TestCallback_ConsentCookieWithoutAge_RedirectsWithAgeRefusal() {
-	identity := goth.User{Email: "oauth-noage@test.com", Provider: "google", UserID: "google-noage-1"}
-	handler := s.newHandler(&mockOAuthCompleter{user: identity})
-	encoded, err := encodeOAuthSignupConsent(contracts.OAuthSignupConsent{
-		TermsAccepted:  true,
-		TermsVersion:   legal.CurrentTermsVersion,
-		PrivacyVersion: legal.CurrentPrivacyVersion,
-		AcceptedAt:     time.Now().UTC(),
-		AgeConfirmed:   false,
-		MinAgeAttested: MinSignupAge,
-	})
-	s.Require().NoError(err)
+// The step names the provider as Google, so a new GitHub identity keeps the
+// consent refusal.
+func (s *OAuthHandlerIntegrationSuite) TestCallback_NewGithubIdentity_RefusedForConsent() {
+	handler := s.newHandler(&mockOAuthCompleter{user: goth.User{
+		Email: "oauth-noterms@test.com", Provider: "github", UserID: "github-noterms-789",
+	}})
 
-	w, req := oauthCallbackRequest("google")
-	req.AddCookie(&http.Cookie{Name: oauthSignupConsentCookieName, Value: encoded})
+	w, req := oauthCallbackRequest("github")
 	handler.OAuthCallbackHTTPHandler(w, req)
 
-	s.assertAuthPageRefusal(w, autherrors.ErrAgeConfirmationRequired(""))
-	var users int64
-	s.Require().NoError(s.deps.DB.Model(&authm.User{}).Where("email = ?", identity.Email).Count(&users).Error)
-	s.Zero(users)
+	s.assertAuthPageRefusal(w, autherrors.ErrTermsAcceptanceRequired(""))
+	s.Nil(findCookie(w.Result(), oauthPendingSignupCookie.name))
+}
+
+// A CLI sign-in has no page to show the step on, so a new identity gets the
+// consent refusal on its loopback, and nothing is held.
+func (s *OAuthHandlerIntegrationSuite) TestCallback_NewIdentityFromTheCLI_RefusedForConsent() {
+	handler := s.newHandler(&mockOAuthCompleter{user: goth.User{
+		Email: "oauth-cli-new@test.com", Provider: "google", UserID: "google-cli-new-1",
+	}})
+	storeCLICallback("cli-new-identity", "http://localhost:8888/cli-new")
+
+	w, req := oauthCallbackRequest("google")
+	req.AddCookie(&http.Cookie{Name: "cli_callback_id", Value: "cli-new-identity"})
+	handler.OAuthCallbackHTTPHandler(w, req)
+
+	location, err := url.Parse(w.Header().Get("Location"))
+	s.Require().NoError(err)
+	s.Equal("localhost:8888", location.Host)
+	s.Equal(autherrors.ErrTermsAcceptanceRequired("").UserMessage(), location.Query().Get("error"))
+	s.Nil(findCookie(w.Result(), oauthPendingSignupCookie.name))
+	var rows int64
+	s.Require().NoError(s.deps.DB.Model(&authm.OAuthPendingSignup{}).Count(&rows).Error)
+	s.Zero(rows)
+}
+
+// A browser that was refused for its age gets no pending sign-up: the step
+// shows it the refusal again.
+func (s *OAuthHandlerIntegrationSuite) TestCallback_NewIdentityWithTheAgeMarker_HoldsNothing() {
+	handler := s.newHandler(&mockOAuthCompleter{user: goth.User{
+		Email: "oauth-marked@test.com", Provider: "google", UserID: "google-marked-1",
+	}})
+
+	w, req := oauthCallbackRequest("google")
+	req.AddCookie(&http.Cookie{Name: signupAgeRefusalCookieName, Value: "1"})
+	handler.OAuthCallbackHTTPHandler(w, req)
+
+	s.Equal("http://localhost:3000"+oauthSignupStepPath, w.Header().Get("Location"))
+	s.Nil(findCookie(w.Result(), oauthPendingSignupCookie.name))
+	var rows int64
+	s.Require().NoError(s.deps.DB.Model(&authm.OAuthPendingSignup{}).Count(&rows).Error)
+	s.Zero(rows)
 }
 
 // --- OAuthCallbackHTTPHandler: success paths ---
 
 func (s *OAuthHandlerIntegrationSuite) TestCallback_Success_SetsCookieAndRedirects() {
-	handler := s.newHandler(&mockOAuthCompleter{
-		user: goth.User{
-			Email:    "oauth-web@test.com",
-			Provider: "google",
-			UserID:   "google-web-123",
-			Name:     "Web User",
-		},
-	})
+	identity := goth.User{
+		Email:    "oauth-web@test.com",
+		Provider: "google",
+		UserID:   "google-web-123",
+		Name:     "Web User",
+	}
+	s.signUp(identity)
+	handler := s.newHandler(&mockOAuthCompleter{user: identity})
 
 	w, req := oauthCallbackRequest("google")
-	s.addSignupConsentCookie(req)
 	handler.OAuthCallbackHTTPHandler(w, req)
 
 	s.Equal(http.StatusTemporaryRedirect, w.Code)
@@ -377,21 +400,20 @@ func (s *OAuthHandlerIntegrationSuite) TestCallback_Success_SetsCookieAndRedirec
 }
 
 func (s *OAuthHandlerIntegrationSuite) TestCallback_Success_CLICallback_RedirectsWithToken() {
-	handler := s.newHandler(&mockOAuthCompleter{
-		user: goth.User{
-			Email:    "oauth-cli@test.com",
-			Provider: "google",
-			UserID:   "google-cli-456",
-			Name:     "CLI User",
-		},
-	})
+	identity := goth.User{
+		Email:    "oauth-cli@test.com",
+		Provider: "google",
+		UserID:   "google-cli-456",
+		Name:     "CLI User",
+	}
+	s.signUp(identity)
+	handler := s.newHandler(&mockOAuthCompleter{user: identity})
 
 	// Store CLI callback
 	callbackID := "cli-success-id"
 	storeCLICallback(callbackID, "http://localhost:8888/cli-success")
 
 	w, req := oauthCallbackRequest("google")
-	s.addSignupConsentCookie(req)
 	req.AddCookie(&http.Cookie{
 		Name:  "cli_callback_id",
 		Value: callbackID,
@@ -416,17 +438,16 @@ func (s *OAuthHandlerIntegrationSuite) TestCallback_Success_CLICallback_Redirect
 }
 
 func (s *OAuthHandlerIntegrationSuite) TestCallback_Success_GithubProvider() {
-	handler := s.newHandler(&mockOAuthCompleter{
-		user: goth.User{
-			Email:    "oauth-github@test.com",
-			Provider: "github",
-			UserID:   "github-789",
-			Name:     "GitHub User",
-		},
-	})
+	identity := goth.User{
+		Email:    "oauth-github@test.com",
+		Provider: "github",
+		UserID:   "github-789",
+		Name:     "GitHub User",
+	}
+	s.signUp(identity)
+	handler := s.newHandler(&mockOAuthCompleter{user: identity})
 
 	w, req := oauthCallbackRequest("github")
-	s.addSignupConsentCookie(req)
 	handler.OAuthCallbackHTTPHandler(w, req)
 
 	s.Equal(http.StatusTemporaryRedirect, w.Code)
@@ -436,17 +457,16 @@ func (s *OAuthHandlerIntegrationSuite) TestCallback_Success_GithubProvider() {
 
 func (s *OAuthHandlerIntegrationSuite) TestCallback_Success_ExistingUser_ReturnsToken() {
 	// Create user via first OAuth callback
-	handler := s.newHandler(&mockOAuthCompleter{
-		user: goth.User{
-			Email:    "existing-oauth@test.com",
-			Provider: "google",
-			UserID:   "google-existing-999",
-			Name:     "Existing User",
-		},
-	})
+	identity := goth.User{
+		Email:    "existing-oauth@test.com",
+		Provider: "google",
+		UserID:   "google-existing-999",
+		Name:     "Existing User",
+	}
+	s.signUp(identity)
+	handler := s.newHandler(&mockOAuthCompleter{user: identity})
 
 	w1, req1 := oauthCallbackRequest("google")
-	s.addSignupConsentCookie(req1)
 	handler.OAuthCallbackHTTPHandler(w1, req1)
 	s.Equal(http.StatusTemporaryRedirect, w1.Code)
 
@@ -460,20 +480,19 @@ func (s *OAuthHandlerIntegrationSuite) TestCallback_Success_ExistingUser_Returns
 }
 
 func (s *OAuthHandlerIntegrationSuite) TestCallback_ExpiredCLICallback_NotUsed() {
-	handler := s.newHandler(&mockOAuthCompleter{
-		user: goth.User{
-			Email:    "oauth-expired-cli@test.com",
-			Provider: "google",
-			UserID:   "google-expired-cli-123",
-			Name:     "Expired CLI User",
-		},
-	})
+	identity := goth.User{
+		Email:    "oauth-expired-cli@test.com",
+		Provider: "google",
+		UserID:   "google-expired-cli-123",
+		Name:     "Expired CLI User",
+	}
+	s.signUp(identity)
+	handler := s.newHandler(&mockOAuthCompleter{user: identity})
 
 	// Store an expired CLI callback
 	storeExpiredCLICallback("expired-cli-id", "http://localhost:8888/expired")
 
 	w, req := oauthCallbackRequest("google")
-	s.addSignupConsentCookie(req)
 	req.AddCookie(&http.Cookie{
 		Name:  "cli_callback_id",
 		Value: "expired-cli-id",

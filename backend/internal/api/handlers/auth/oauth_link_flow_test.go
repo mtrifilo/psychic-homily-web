@@ -427,16 +427,17 @@ func (s *OAuthHandlerIntegrationSuite) TestLinkCallback_IntentIsSingleUse() {
 // Refusing here instead would strand an ordinary sign-in on a page it never
 // asked for, every time a deploy rolled while anyone had a cookie in flight.
 func (s *OAuthHandlerIntegrationSuite) TestCallback_UnknownIntentFallsThroughToSignIn() {
-	handler := s.newHandler(&mockOAuthCompleter{user: goth.User{
+	identity := goth.User{
 		Provider: "google",
 		UserID:   "google-unknown-intent-subject",
 		Email:    "unknown.intent.newcomer@test.com",
 		RawData:  map[string]any{"verified_email": true},
-	}})
+	}
+	s.signUp(identity)
+	handler := s.newHandler(&mockOAuthCompleter{user: identity})
 
 	w, req := oauthCallbackRequest("google")
 	req.AddCookie(&http.Cookie{Name: oauthLinkIntentCookieName, Value: "an-id-nothing-armed"})
-	s.addSignupConsentCookie(req)
 	handler.OAuthCallbackHTTPHandler(w, req)
 
 	s.Equal("http://localhost:3000", w.Header().Get("Location"))
@@ -497,12 +498,14 @@ func (s *OAuthHandlerIntegrationSuite) TestLinkCallback_StaleIntentDoesNotDivert
 	abandoner := &authm.User{Email: strPtr("link-abandoner@test.com"), IsActive: true, EmailVerified: true}
 	s.Require().NoError(s.deps.DB.Create(abandoner).Error)
 
-	handler := s.newHandler(&mockOAuthCompleter{user: goth.User{
+	identity := goth.User{
 		Provider: "google",
 		UserID:   "google-next-person-subject",
 		Email:    "next.person@test.com",
 		RawData:  map[string]any{"verified_email": true},
-	}})
+	}
+	s.signUp(identity)
+	handler := s.newHandler(&mockOAuthCompleter{user: identity})
 
 	// Armed and abandoned: the cookie survives, its state was never used.
 	cookie, _ := s.armLinkIntent(abandoner.ID, "google")
@@ -511,7 +514,6 @@ func (s *OAuthHandlerIntegrationSuite) TestLinkCallback_StaleIntentDoesNotDivert
 	w, req := oauthCallbackRequest("google")
 	req.AddCookie(cookie)
 	setCallbackState(req, "a-different-handshakes-state")
-	s.addSignupConsentCookie(req)
 	handler.OAuthCallbackHTTPHandler(w, req)
 
 	// Not diverted: this is the sign-in it actually was.
@@ -534,13 +536,14 @@ func (s *OAuthHandlerIntegrationSuite) TestCallback_ProviderMismatchIsNotThisLin
 	user := &authm.User{Email: strPtr("link-mismatch@test.com"), IsActive: true, EmailVerified: true}
 	s.Require().NoError(s.deps.DB.Create(user).Error)
 
-	handler := s.newHandler(&mockOAuthCompleter{user: goth.User{
+	identity := goth.User{
 		Provider: "google", UserID: "google-mismatch-subject", Email: "mismatch.newcomer@test.com",
-	}})
+	}
+	s.signUp(identity)
+	handler := s.newHandler(&mockOAuthCompleter{user: identity})
 
 	w, req := oauthCallbackRequest("google")
 	s.armLinkIntentOn(req, user.ID, "github")
-	s.addSignupConsentCookie(req)
 	handler.OAuthCallbackHTTPHandler(w, req)
 
 	s.Equal("http://localhost:3000", w.Header().Get("Location"))
@@ -584,9 +587,9 @@ func (s *OAuthHandlerIntegrationSuite) TestLinkCallback_IdentityInUseCarriesItsO
 // belongs to an account is the same request refused, in
 // TestCallback_VerifiedEmailMatch_RedirectsWithRefusalAndNoSession.
 
-// An address no account holds is a signup, so the consent cookie is what lets
-// this one through rather than decoration.
-func (s *OAuthHandlerIntegrationSuite) TestCallback_WithoutIntent_SignsUpAnUnheldAddress() {
+// An address no account holds is a sign-up, which finishes on the step rather
+// than in the callback.
+func (s *OAuthHandlerIntegrationSuite) TestCallback_WithoutIntent_SendsAnUnheldAddressToTheStep() {
 	handler := s.newHandler(&mockOAuthCompleter{user: goth.User{
 		Provider: "google",
 		UserID:   "google-no-intent-subject",
@@ -595,10 +598,10 @@ func (s *OAuthHandlerIntegrationSuite) TestCallback_WithoutIntent_SignsUpAnUnhel
 	}})
 
 	w, req := oauthCallbackRequest("google")
-	s.addSignupConsentCookie(req)
 	handler.OAuthCallbackHTTPHandler(w, req)
 
-	s.assertSignedIn(w)
+	s.Equal("http://localhost:3000"+oauthSignupStepPath, w.Header().Get("Location"))
+	s.Nil(findCookie(w.Result(), "auth_token"))
 }
 
 // The returning user: the provider identity is already in oauth_accounts, so
