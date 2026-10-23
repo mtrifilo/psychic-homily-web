@@ -467,6 +467,36 @@
       "input": "/profile/../auth?oauth_link_error=X",
       "want": "/",
       "rule": "no \".\" or \"..\" path segment, percent-encoded or not"
+    },
+    {
+      "name": "a second question mark before an OAuth link name",
+      "input": "/p??oauth_link=x",
+      "want": "/p??oauth_link=x",
+      "rule": "a pair that begins with \"?\" is named with the \"?\", as a URL parser names it"
+    },
+    {
+      "name": "a question mark before an OAuth link name in a later pair",
+      "input": "/p?a=1&?oauth_link=x",
+      "want": "/p?a=1&?oauth_link=x",
+      "rule": "a pair that begins with \"?\" is named with the \"?\", as a URL parser names it"
+    },
+    {
+      "name": "a first pair that begins with a question mark, kept beside a dropped one",
+      "input": "/p??a=1&oauth_link=x",
+      "want": "/p??a=1",
+      "rule": "a pair that begins with \"?\" is named with the \"?\", as a URL parser names it"
+    },
+    {
+      "name": "a plus inside an OAuth link name",
+      "input": "/p?oauth+link=x",
+      "want": "/p?oauth+link=x",
+      "rule": "a query without an OAuth link result passes unchanged"
+    },
+    {
+      "name": "an undecodable name beside an OAuth link result",
+      "input": "/p?a%zz=1&oauth_link=x",
+      "want": "/p?a%zz=1",
+      "rule": "an OAuth link result is dropped from the query; every other parameter keeps its spelling and order"
     }
   ]
 }

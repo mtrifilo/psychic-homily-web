@@ -125,11 +125,20 @@ export function withoutOAuthLinkResult(search: string): string {
 
 /**
  * Is this one `name=value` pair of a query string an OAuth link result? The
- * name is compared decoded, as `withoutOAuthLinkResult` compares it.
+ * name is everything before the first `=`, decoded the way a URL parser
+ * decodes a query (`+` is a space), and a name that does not decode names
+ * neither parameter. A pair split out of a query string is never stripped of
+ * a leading `?`: in `??oauth_link=x` the name is `?oauth_link`.
  */
 export function isOAuthLinkResultPair(pair: string): boolean {
-  const [name] = new URLSearchParams(pair).keys()
-  return name !== undefined && OAUTH_LINK_RESULT_PARAMS.includes(name)
+  const [name] = pair.split('=', 1)
+  try {
+    return OAUTH_LINK_RESULT_PARAMS.includes(
+      decodeURIComponent(name.replace(/\+/g, ' '))
+    )
+  } catch {
+    return false
+  }
 }
 
 /**

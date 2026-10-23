@@ -95,13 +95,14 @@ function withoutOAuthLinkResultIn(returnTo: string): string {
     return returnTo
   }
   const queryEnd = fragmentStart === -1 ? returnTo.length : fragmentStart
-  const query = returnTo.slice(queryStart + 1, queryEnd)
-  if (!query.split('&').some(isOAuthLinkResultPair)) {
+  if (!returnTo.slice(queryStart + 1, queryEnd).split('&').some(isOAuthLinkResultPair)) {
     return returnTo
   }
+  // Handed over with its own "?", which withoutOAuthLinkResult removes, so a
+  // first pair that begins with "?" keeps it.
   return (
     returnTo.slice(0, queryStart) +
-    withoutOAuthLinkResult(query) +
+    withoutOAuthLinkResult(returnTo.slice(queryStart, queryEnd)) +
     returnTo.slice(queryEnd)
   )
 }
