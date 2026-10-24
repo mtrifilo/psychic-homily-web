@@ -60,6 +60,9 @@ func signupAgeRefusalCookieNameFor(secure bool) string {
 	return signupAgeRefusalCookieName
 }
 
+// signupAgeRefusalMarker reuses only the handshake cookies' attribute builder:
+// it outlives oauthHandshakeCookieMaxLifetime by design, so it is not an
+// oauthHandshakeCookie.
 func signupAgeRefusalMarker(secure bool) http.Cookie {
 	return *newOAuthHandshakeCookie(signupAgeRefusalCookieNameFor(secure), "1",
 		int(SignupAgeRefusalMarkerLifetime/time.Second), secure)
@@ -135,6 +138,7 @@ type PendingOAuthSignupResponse struct {
 		Email     string     `json:"email,omitempty" doc:"The provider's address, when status is pending"`
 		Name      string     `json:"name,omitempty" doc:"The provider's name for the person, when status is pending"`
 		ExpiresAt *time.Time `json:"expires_at,omitempty" doc:"When the pending sign-up stops being usable, when status is pending"`
+		ReturnTo  string     `json:"return_to,omitempty" doc:"Where the sign-in was headed, a path on the frontend, when status is pending"`
 	}
 }
 
@@ -166,6 +170,7 @@ func (h *OAuthSignupHandler) PendingSignupHandler(ctx context.Context, input *Pe
 	resp.Body.Name = signup.Identity.Name
 	expiresAt := signup.ExpiresAt
 	resp.Body.ExpiresAt = &expiresAt
+	resp.Body.ReturnTo = sanitizeOAuthReturnTo(signup.ReturnTo)
 	return resp, nil
 }
 
