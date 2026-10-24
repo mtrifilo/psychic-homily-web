@@ -8,9 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"psychic-homily-backend/internal/api/handlers/shared/testhelpers"
 	authm "psychic-homily-backend/internal/models/auth"
-	"psychic-homily-backend/internal/services/contracts"
 )
 
 const handshakeTestSecret = "handshake-test-secret-at-least-32-characters"
@@ -40,7 +38,7 @@ func startLinkFromSettings(t *testing.T, h *OAuthHTTPHandler) *http.Response {
 	return w.Result()
 }
 
-// handshakeCookieCase is one of the four handshake cookies, with the start
+// handshakeCookieCase is one of the three handshake cookies, with the start
 // that sets it. The callback clears every one of them; beforeClear arranges
 // the state that makes it do so.
 type handshakeCookieCase struct {
@@ -50,12 +48,10 @@ type handshakeCookieCase struct {
 }
 
 func handshakeCookieCases() []handshakeCookieCase {
-	signUp := "signup_intent=1&terms_accepted=true&age_confirmed=true&min_age_attested=16&" + currentConsentVersionsQuery
 	startSignInWith := func(query string) func(*testing.T, *OAuthHTTPHandler) *http.Response {
 		return func(_ *testing.T, h *OAuthHTTPHandler) *http.Response { return startSignInOn(h, query) }
 	}
 	return []handshakeCookieCase{
-		{cookie: oauthSignupConsentCookie, set: startSignInWith(signUp)},
 		{cookie: cliCallbackIDCookie, set: startSignInWith("cli_callback=" + url.QueryEscape("http://localhost:8888/cb"))},
 		{cookie: oauthReturnToCookie, set: startSignInWith("returnTo=" + url.QueryEscape("/shows"))},
 		{
@@ -148,33 +144,9 @@ func TestOAuthHandshakeCookies_LifetimesFitTheRolloverWindow(t *testing.T) {
 }
 
 // A browser that started a handshake before the prefix was deployed sends the
-// bare name to a callback that sets the prefixed one. Consent and return-to
-// hold their state in the cookie, so the callback still reads them.
+// bare name to a callback that sets the prefixed one. Return-to holds its
+// state in the cookie, so the callback still reads it.
 func TestOAuthHandshakeCookies_SecureCallbackReadsAndClearsABareStateCookie(t *testing.T) {
-	t.Run(oauthSignupConsentCookieName, func(t *testing.T) {
-		encoded, err := encodeOAuthSignupConsent(contracts.OAuthSignupConsent{TermsAccepted: true, AcceptedAt: time.Now()})
-		if err != nil {
-			t.Fatal(err)
-		}
-		var received *contracts.OAuthSignupConsent
-		h := handshakeCookieHandler(true)
-		h.authService = &testhelpers.MockAuthService{
-			OAuthCallbackWithConsentFn: func(
-				_ http.ResponseWriter, _ *http.Request, _ string, consent *contracts.OAuthSignupConsent,
-			) (*authm.User, string, error) {
-				received = consent
-				return nil, "", errors.New("provider refused")
-			},
-		}
-
-		resp, _ := runCallback(t, h, "/auth/callback/google", &http.Cookie{Name: oauthSignupConsentCookieName, Value: encoded})
-
-		if received == nil || !received.TermsAccepted {
-			t.Errorf("want the consent the bare cookie carried, got %+v", received)
-		}
-		assertHandshakeCookie(t, resp, oauthSignupConsentCookieName, true)
-	})
-
 	t.Run(oauthReturnToCookieName, func(t *testing.T) {
 		resp, loc := runCallback(t, handshakeCookieHandler(true), "/auth/callback/google",
 			&http.Cookie{Name: oauthReturnToCookieName, Value: encodedReturnTo("/shows")})
@@ -256,31 +228,6 @@ func TestOAuthHandshakeCookies_SecureCallbackIgnoresABareStoreID(t *testing.T) {
 		assertHandshakeCookie(t, resp, oauthHostCookiePrefix+cliCallbackIDCookieName, true)
 		assertHandshakeCookie(t, resp, cliCallbackIDCookieName, true)
 	})
-}
-
-// The consent cookie is single use whatever it holds: one that does not decode
-// carries no consent and is cleared all the same.
-func TestOAuthHandshakeCookies_UndecodableConsentIsStillCleared(t *testing.T) {
-	var received *contracts.OAuthSignupConsent
-	h := handshakeCookieHandler(true)
-	h.authService = &testhelpers.MockAuthService{
-		OAuthCallbackWithConsentFn: func(
-			_ http.ResponseWriter, _ *http.Request, _ string, consent *contracts.OAuthSignupConsent,
-		) (*authm.User, string, error) {
-			received = consent
-			return nil, "", errors.New("provider refused")
-		},
-	}
-	name := oauthHostCookiePrefix + oauthSignupConsentCookieName
-
-	resp, _ := runCallback(t, h, "/auth/callback/google", &http.Cookie{Name: name, Value: "not-a-consent"})
-
-	if received != nil {
-		t.Errorf("want no consent from an undecodable cookie, got %+v", received)
-	}
-	if cleared := assertHandshakeCookie(t, resp, name, true); cleared.MaxAge >= 0 {
-		t.Errorf("want the consent cookie expired, got Max-Age %d", cleared.MaxAge)
-	}
 }
 
 // A request carrying both names is read under the prefixed one, which a

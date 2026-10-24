@@ -23,7 +23,7 @@ const oauthLinkIntentCookieName = "oauth_link_intent"
 
 // oauthLinkIntentTTL bounds a pending link. Long enough for a consent screen
 // and a second factor at the provider, short enough that an abandoned attempt
-// does not stay armed on a shared machine. Matches the signup consent cookie.
+// does not stay armed on a shared machine.
 const oauthLinkIntentTTL = 10 * time.Minute
 
 var oauthLinkIntentCookie = oauthHandshakeCookie{name: oauthLinkIntentCookieName, lifetime: oauthLinkIntentTTL}
@@ -239,7 +239,7 @@ func (h *OAuthHTTPHandler) OAuthLinkHTTPHandler(w http.ResponseWriter, r *http.R
 	// state is already minted above and stored on the intent, so this cannot
 	// take the generating branch; the error is handled because the signature
 	// admits one, not because this call is expected to fail.
-	if err := beginOAuthHandshake(w, r, provider, state); err != nil {
+	if err := beginOAuthHandshake(w, r, provider, state, ""); err != nil {
 		logger.AuthError(ctx, "oauth_link_handshake_failed", err, "provider", provider)
 		redirectToLinkResult(w, r, frontendURL, oauthLinkErrorStartFailed)
 		return

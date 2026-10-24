@@ -195,20 +195,50 @@ func NewUserService(database *gorm.DB) *UserService {
 // consent refusals of shared.ValidateOAuthSignupConsent when an account would
 // be created. Callers that render a refusal differently from a fault must
 // discriminate on the code.
+//
+// With a nil consent, an identity that would need an account created is
+// refused with *contracts.OAuthSignupRequiredError carrying the identity.
 func (s *UserService) FindOrCreateUserWithConsent(gothUser goth.User, provider string, consent *contracts.OAuthSignupConsent) (*authm.User, error) {
+	return s.FindOrCreateUserFromOAuthIdentity(OAuthIdentityFromGoth(gothUser, provider), consent, nil)
+}
+
+// OAuthIdentityFromGoth is what gothUser asserts, as the provider named
+// provider: email_verified is set only when the provider's own claim says so.
+// The provider's tokens are left out; nothing reads them.
+func OAuthIdentityFromGoth(gothUser goth.User, provider string) contracts.OAuthIdentity {
+	return contracts.OAuthIdentity{
+		Provider:      provider,
+		Subject:       gothUser.UserID,
+		Email:         gothUser.Email,
+		EmailVerified: providerAssertsEmailVerified(gothUser),
+		Name:          gothUser.Name,
+		FirstName:     gothUser.FirstName,
+		LastName:      gothUser.LastName,
+		AvatarURL:     gothUser.AvatarURL,
+	}
+}
+
+// FindOrCreateUserFromOAuthIdentity returns the account identity is attached
+// to, or creates one from it, with the refusals FindOrCreateUserWithConsent
+// documents. An account it creates is named by the provider's first and last
+// names when displayName is nil, takes a non-blank displayName as its display
+// name, and has no name at all for a blank one. An account it finds is
+// returned unchanged.
+func (s *UserService) FindOrCreateUserFromOAuthIdentity(identity contracts.OAuthIdentity, consent *contracts.OAuthSignupConsent, displayName *string) (*authm.User, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
 	}
+	provider := identity.Provider
 
 	// provider_user_id is the identity this whole function resolves on, and the
 	// column permits the empty string. Without this, a provider returning no
 	// subject would match any row stored with an empty one and sign in as its
 	// owner, ahead of every check below.
-	if gothUser.UserID == "" {
+	if identity.Subject == "" {
 		return nil, fmt.Errorf("oauth provider %q returned no user id", provider)
 	}
 
-	if err := shared.ValidateProviderEmailClaim(provider, gothUser.Email); err != nil {
+	if err := shared.ValidateProviderEmailClaim(provider, identity.Email); err != nil {
 		return nil, err
 	}
 
@@ -216,7 +246,7 @@ func (s *UserService) FindOrCreateUserWithConsent(gothUser goth.User, provider s
 	var oauthAccount authm.OAuthAccount
 
 	result := s.db.
-		Where("provider = ? AND provider_user_id = ?", provider, gothUser.UserID).
+		Where("provider = ? AND provider_user_id = ?", provider, identity.Subject).
 		First(&oauthAccount)
 
 	if result.Error == nil {
@@ -242,8 +272,8 @@ func (s *UserService) FindOrCreateUserWithConsent(gothUser goth.User, provider s
 
 	// OAuth account doesn't exist, check if user exists by email
 	var existingUser authm.User
-	if gothUser.Email != "" {
-		result.Error = s.db.Where(authm.EmailIdentityWhere, gothUser.Email).First(&existingUser).Error
+	if identity.Email != "" {
+		result.Error = s.db.Where(authm.EmailIdentityWhere, identity.Email).First(&existingUser).Error
 		if result.Error == nil {
 			// A matching address is not evidence that this provider identity
 			// belongs to the account holding it, and no verification signal
@@ -260,7 +290,7 @@ func (s *UserService) FindOrCreateUserWithConsent(gothUser goth.User, provider s
 			//
 			// A recoverable deleted account is the exception, for the reasons
 			// shared.AddressMatchIsRecoverable states.
-			if shared.AddressMatchIsRecoverable(&existingUser, providerAssertsEmailVerified(gothUser)) {
+			if shared.AddressMatchIsRecoverable(&existingUser, identity.EmailVerified) {
 				logger.Default().Warn("oauth_signin_refused_account_recoverable",
 					"provider", provider,
 					"user_id", existingUser.ID)
@@ -268,16 +298,21 @@ func (s *UserService) FindOrCreateUserWithConsent(gothUser goth.User, provider s
 			}
 			logger.Default().Warn("oauth_signin_refused_address_belongs_to_account",
 				"provider", provider,
-				"email_hash", logger.HashEmail(gothUser.Email))
-			return nil, apperrors.ErrOAuthLinkRefused(gothUser.Email)
+				"email_hash", logger.HashEmail(identity.Email))
+			return nil, apperrors.ErrOAuthLinkRefused(identity.Email)
 		}
 		if !errors.Is(result.Error, gorm.ErrRecordNotFound) {
 			return nil, fmt.Errorf("database error: %w", result.Error)
 		}
 	}
 
-	// Create new user
-	return s.createNewUserOauthWithConsent(gothUser, provider, consent)
+	if consent == nil {
+		return nil, &contracts.OAuthSignupRequiredError{
+			Identity: identity,
+			Refusal:  apperrors.ErrTermsAcceptanceRequired("new oauth identity arrived without consent"),
+		}
+	}
+	return s.createNewUserOauthWithConsent(identity, consent, displayName)
 }
 
 // CreateUserWithPasswordWithLegal creates a new user and records legal acceptance metadata.
@@ -441,9 +476,9 @@ func (s *UserService) AuthenticateUserWithPassword(email, password string) (*aut
 }
 
 func (s *UserService) createNewUserOauthWithConsent(
-	gothUser goth.User,
-	provider string,
+	identity contracts.OAuthIdentity,
 	consent *contracts.OAuthSignupConsent,
+	displayName *string,
 ) (*authm.User, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
@@ -465,25 +500,32 @@ func (s *UserService) createNewUserOauthWithConsent(
 	// string is a real value that collides with every other addressless account
 	// under the users_lower_email_uniq index, while NULLs do not collide.
 	// GitHub returns no address for a user with none public.
+	firstName, lastName := identity.FirstName, identity.LastName
+	if displayName != nil && *displayName == "" {
+		firstName, lastName, displayName = "", "", nil
+	}
 	user := &authm.User{
-		FirstName: &gothUser.FirstName,
-		LastName:  &gothUser.LastName,
-		AvatarURL: &gothUser.AvatarURL,
+		FirstName: &firstName,
+		LastName:  &lastName,
+		AvatarURL: &identity.AvatarURL,
 		IsActive:  true,
 		// The column carries what the provider actually asserted. An account
 		// created from an address no provider vouched for stays unverified,
 		// which closes every capability gated on the flag until this system's
 		// own verification email opens them.
-		EmailVerified: providerAssertsEmailVerified(gothUser),
+		EmailVerified: identity.EmailVerified,
 	}
-	if gothUser.Email != "" {
-		user.Email = &gothUser.Email
+	if identity.Email != "" {
+		user.Email = &identity.Email
+	}
+	if displayName != nil {
+		user.DisplayName = displayName
 	}
 	shared.StampLegalAcceptance(user, acceptance)
 
 	if err := tx.Create(user).Error; err != nil {
 		tx.Rollback()
-		if dup := shared.UserExistsIfDuplicate(gothUser.Email, err); dup != nil {
+		if dup := shared.UserExistsIfDuplicate(identity.Email, err); dup != nil {
 			return nil, dup
 		}
 		return nil, fmt.Errorf("failed to create user: %w", err)
@@ -492,18 +534,11 @@ func (s *UserService) createNewUserOauthWithConsent(
 	// Create OAuth account
 	oauthAccount := &authm.OAuthAccount{
 		UserID:            user.ID,
-		Provider:          provider,
-		ProviderUserID:    gothUser.UserID,
-		ProviderEmail:     &gothUser.Email,
-		ProviderName:      &gothUser.Name,
-		ProviderAvatarURL: &gothUser.AvatarURL,
-		AccessToken:       &gothUser.AccessToken,
-		RefreshToken:      &gothUser.RefreshToken,
-	}
-
-	// Check if ExpiresAt is not zero time (which indicates it's set)
-	if !gothUser.ExpiresAt.IsZero() {
-		oauthAccount.ExpiresAt = &gothUser.ExpiresAt
+		Provider:          identity.Provider,
+		ProviderUserID:    identity.Subject,
+		ProviderEmail:     &identity.Email,
+		ProviderName:      &identity.Name,
+		ProviderAvatarURL: &identity.AvatarURL,
 	}
 
 	if err := tx.Create(oauthAccount).Error; err != nil {

@@ -82,6 +82,11 @@ const (
 	// CodeOAuthLinkExpired indicates a link attempt arrived at the callback
 	// without a live link intent, so the account to attach to is unknown.
 	CodeOAuthLinkExpired = "OAUTH_LINK_EXPIRED"
+	// CodeOAuthSignupExpired indicates the "Create your account" step named a
+	// pending sign-up that is gone: expired, already used, or never issued to
+	// this browser. One code for all three, so a caller learns nothing about
+	// which.
+	CodeOAuthSignupExpired = "OAUTH_SIGNUP_EXPIRED"
 	// CodeReauthRequired indicates that adding a credential to the account was
 	// refused because the request's session did not authenticate recently
 	// enough. Distinct from CodeUnauthorized: the caller IS the account owner
@@ -154,6 +159,7 @@ var authCodeHTTPStatus = map[string]int{
 	CodeOAuthIdentityInUse:         http.StatusConflict,
 	CodeOAuthProviderAlreadyLinked: http.StatusConflict,
 	CodeOAuthLinkExpired:           http.StatusBadRequest,
+	CodeOAuthSignupExpired:         http.StatusBadRequest,
 	CodeReauthRequired:             http.StatusForbidden,
 	CodeUnknownHomeMetro:           http.StatusUnprocessableEntity,
 }
@@ -277,6 +283,7 @@ const (
 	oauthIdentityInUseMessage         = "This provider account is already connected to another Psychic Homily account. Disconnect it there first."
 	oauthProviderAlreadyLinkedMessage = "Your account is already connected to a different account from this provider. Disconnect it first, then connect this one."
 	oauthLinkExpiredMessage           = "That connection request expired. Start it again from Settings."
+	oauthSignupExpiredMessage         = "This step stays open for 10 minutes and works once. Nothing was saved, so continue with Google to pick up where you left off."
 	// The refusal is about the age of the sign-in, not about permission, and
 	// the remedy is the one challenge every account shape holds. Names no
 	// particular operation: the same refusal answers a token mint, a feed-token
@@ -361,6 +368,13 @@ func ErrOAuthLinkExpired() *AuthError {
 		oauthLinkExpiredMessage,
 		nil,
 	)
+}
+
+// ErrOAuthSignupExpired is the refusal for a "Create your account" step whose
+// pending sign-up is expired, already used, or not this browser's. err is the
+// internal cause; the message names none of them.
+func ErrOAuthSignupExpired(err error) *AuthError {
+	return NewAuthError(CodeOAuthSignupExpired, oauthSignupExpiredMessage, err)
 }
 
 // ErrInvalidCredentialResponse is the refusal for a passkey ceremony response
@@ -506,6 +520,8 @@ func ToExternalMessage(code string) string {
 		return oauthProviderAlreadyLinkedMessage
 	case CodeOAuthLinkExpired:
 		return oauthLinkExpiredMessage
+	case CodeOAuthSignupExpired:
+		return oauthSignupExpiredMessage
 	case CodeReauthRequired:
 		return reauthRequiredMessage
 	case CodeValidationFailed:

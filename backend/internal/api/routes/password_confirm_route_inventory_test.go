@@ -86,6 +86,7 @@ var authRouteRateLimitScope = map[string]string{
 	"GET /auth/account/deletion-summary": scopeProtectedNoLimit,
 	"GET /auth/account/export":           scopeProtectedNoLimit,
 	"GET /auth/oauth/accounts":           scopeProtectedNoLimit,
+	"GET /auth/oauth/pending-signup":     scopePublicNoLimit,
 	"GET /auth/passkey/credentials":      scopeProtectedNoLimit,
 	"GET /auth/preferences/alerts":       scopeProtectedNoLimit,
 	"GET /auth/collections":              scopeProtectedNoLimit,
@@ -95,6 +96,7 @@ var authRouteRateLimitScope = map[string]string{
 
 	"POST /auth/login":                      scopePublicAuth,
 	"POST /auth/register":                   scopePublicAuth,
+	"POST /auth/oauth/finish-signup":        scopePublicAuth,
 	"POST /auth/magic-link/send":            scopePublicAuth,
 	"POST /auth/magic-link/verify":          scopePublicAuth,
 	"POST /auth/apple/callback":             scopeAppleSignIn,

@@ -16,10 +16,14 @@ const oauthHostCookiePrefix = "__Host-"
 // lifetime, and so how long a browser can hold one a previous deploy set.
 const oauthHandshakeCookieMaxLifetime = 10 * time.Minute
 
-// oauthHandshakeCookie is a cookie that carries state from an OAuth start to
-// its callback: host-only, script-inaccessible, sent on the provider's
-// redirect back, and gone after lifetime. Its methods are the only code that
-// writes or reads one, so every set and clear carries the same attributes.
+// oauthHandshakeCookie is a cookie that carries state across an OAuth sign-in:
+// from its start to its callback, or, for oauthPendingSignupCookie, from the
+// callback to the sign-up step. It is host-only, script-inaccessible, sent on
+// a top-level navigation back from the provider, and gone after lifetime.
+// Every set and clear goes through newOAuthHandshakeCookie, so each carries
+// the same attributes; the step's routes read the pending cookie through
+// huma cookie parameters rather than read, which is why it never sets
+// rolloverReadsBareName.
 type oauthHandshakeCookie struct {
 	name     string
 	lifetime time.Duration

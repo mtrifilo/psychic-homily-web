@@ -38,13 +38,16 @@ func ValidateOAuthSignupConsent(consent *contracts.OAuthSignupConsent) (contract
 		PrivacyVersion:  consent.PrivacyVersion,
 		AgeConfirmedAt:  consent.AcceptedAt,
 		MinAgeAttested:  consent.MinAgeAttested,
+		DateOfBirth:     consent.DateOfBirth,
 	}, nil
 }
 
 // StampLegalAcceptance writes acceptance onto a user that is about to be
 // created: the terms and privacy versions, when the terms were accepted, and,
-// when an age was attested (MinAgeAttested > 0), when and to what age. A zero
-// timestamp in acceptance is recorded as now, one instant for both.
+// when an age was attested (MinAgeAttested > 0), when and to what age, with
+// the date of birth and the same instant as its attestation time when the age
+// was computed from one. A zero timestamp in acceptance is recorded as now,
+// one instant for all of them.
 func StampLegalAcceptance(user *authm.User, acceptance contracts.LegalAcceptance) {
 	now := time.Now().UTC()
 
@@ -65,4 +68,9 @@ func StampLegalAcceptance(user *authm.User, acceptance contracts.LegalAcceptance
 	}
 	user.AgeConfirmedAt = &ageConfirmedAt
 	user.MinAgeAttested = &acceptance.MinAgeAttested
+	if acceptance.DateOfBirth != nil {
+		dateOfBirth := *acceptance.DateOfBirth
+		user.DateOfBirth = &dateOfBirth
+		user.AgeAttestedAt = &ageConfirmedAt
+	}
 }

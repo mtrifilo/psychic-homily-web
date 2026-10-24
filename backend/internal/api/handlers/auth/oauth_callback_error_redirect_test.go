@@ -12,7 +12,6 @@ import (
 	"psychic-homily-backend/internal/config"
 	autherrors "psychic-homily-backend/internal/errors"
 	authm "psychic-homily-backend/internal/models/auth"
-	"psychic-homily-backend/internal/services/contracts"
 )
 
 const errorRedirectFrontendURL = "https://frontend.example.com"
@@ -21,8 +20,8 @@ const errorRedirectFrontendURL = "https://frontend.example.com"
 // fails with err.
 func failingCallbackHandler(err error) *OAuthHTTPHandler {
 	authService := &testhelpers.MockAuthService{
-		OAuthCallbackWithConsentFn: func(
-			http.ResponseWriter, *http.Request, string, *contracts.OAuthSignupConsent,
+		OAuthCallbackFn: func(
+			http.ResponseWriter, *http.Request, string,
 		) (*authm.User, string, error) {
 			return nil, "", err
 		},

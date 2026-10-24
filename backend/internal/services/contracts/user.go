@@ -309,7 +309,17 @@ type UserServiceInterface interface {
 	// email claim Postgres rejects as text. It creates the account with
 	// email_verified set to what the provider asserted, so an unvouched
 	// address produces an unverified account.
+	//
+	// With a nil consent, an identity that would need an account created is
+	// refused with *OAuthSignupRequiredError, which unwraps to the
+	// CodeTermsAcceptanceRequired AuthError.
 	FindOrCreateUserWithConsent(gothUser goth.User, provider string, consent *OAuthSignupConsent) (*authm.User, error)
+	// FindOrCreateUserFromOAuthIdentity is FindOrCreateUserWithConsent for an
+	// identity already read from a provider, with the same refusals. An
+	// account it creates records consent, its date of birth included. A nil
+	// displayName names the account by the provider's first and last names;
+	// a non-blank one is its display name; a blank one gives it no name.
+	FindOrCreateUserFromOAuthIdentity(identity OAuthIdentity, consent *OAuthSignupConsent, displayName *string) (*authm.User, error)
 	// LinkOAuthAccountToUser attaches a provider identity to an already
 	// authenticated account, ignoring the provider's address. Refuses with a
 	// typed AuthError carrying CodeOAuthIdentityInUse or

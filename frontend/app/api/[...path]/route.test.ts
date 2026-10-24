@@ -94,6 +94,26 @@ describe('api/[...path] proxy route', () => {
       expect(headers['Cookie']).toBe('auth_token=abc123')
     })
 
+    it('forwards the sign-up step cookies beside the session, and no others', async () => {
+      const jar: Record<string, string> = {
+        auth_token: 'abc123',
+        oauth_pending_signup: 'pending-token',
+        oauth_signup_age_refused: '1',
+        unrelated: 'nope',
+      }
+      mockCookies.mockResolvedValue({
+        get: (name: string) => (name in jar ? { name, value: jar[name] } : undefined),
+      } as unknown as Awaited<ReturnType<typeof cookies>>)
+      fetchSpy.mockResolvedValue(new Response('ok', { status: 200 }))
+
+      await GET(new NextRequest('http://localhost:3000/api/auth/oauth/pending-signup'))
+
+      const headers = fetchSpy.mock.calls[0][1]?.headers as Record<string, string>
+      expect(headers['Cookie']).toBe(
+        'auth_token=abc123; oauth_pending_signup=pending-token; oauth_signup_age_refused=1'
+      )
+    })
+
     it('omits the Cookie header when no auth_token is present', async () => {
       fetchSpy.mockResolvedValue(new Response('ok', { status: 200 }))
 
