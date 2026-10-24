@@ -55,6 +55,13 @@ test.describe('Registration', () => {
       timeout: 5_000,
     })
 
+    const registerRequests: string[] = []
+    page.on('request', request => {
+      if (new URL(request.url()).pathname.endsWith('/auth/register')) {
+        registerRequests.push(request.url())
+      }
+    })
+
     // Every field valid but the password, so Password is the first invalid one
     await page.locator('#signup-email').fill('short-password@test.local')
     await page.locator('#signup-password').fill('short')
@@ -63,7 +70,7 @@ test.describe('Registration', () => {
 
     // Password strength meter should show unmet requirements
     await expect(
-      page.getByText('At least 12 characters')
+      page.getByText('At least 12 characters', { exact: true })
     ).toBeVisible({ timeout: 5_000 })
 
     // The submit button stays enabled; pressing it shows the field's error
@@ -79,11 +86,9 @@ test.describe('Registration', () => {
     await expect(page.locator('#signup-password')).toHaveAttribute('aria-invalid', 'true')
     await expect(submit).toBeEnabled()
 
-    // Still on /auth, and no account was created
+    // Still on /auth, and nothing was sent
     expect(page.url()).toContain('/auth')
-    await expect(
-      page.getByRole('heading', { name: 'Check your inbox.' })
-    ).toHaveCount(0)
+    expect(registerRequests).toHaveLength(0)
   })
 
   test('shows error for breached password', async ({ page }) => {
