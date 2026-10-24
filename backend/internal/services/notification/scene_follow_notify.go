@@ -35,9 +35,9 @@ type sceneFollower struct {
 }
 
 // notifySceneFollowers fans a newly approved show out to followers of its
-// scene(s). Every error is logged here and returned: the followers query error
-// ends the pass, and a failed check or insert for one user skips only that
-// user. MatchAndNotify runs after the approval write it announces, so an error
+// scene(s). Every error up to a user's log row is logged here and returned:
+// the followers query error ends the pass, and a failed check or insert for
+// one user skips only that user. The email sent after the row reports nothing. MatchAndNotify runs after the approval write it announces, so an error
 // here never fails that write; it makes the outbox retry, and a retry's dedup
 // skips every user this run already logged.
 func (s *NotificationFilterService) notifySceneFollowers(show *catalogm.Show, showArtistIDs pq.Int64Array) error {

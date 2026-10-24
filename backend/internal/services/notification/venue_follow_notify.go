@@ -967,8 +967,12 @@ func (s *NotificationFilterService) deliverVenueAlert(
 	if s.emailService == nil || !s.emailService.IsConfigured() {
 		return nil
 	}
-	if !s.withinDailyAlertEmailBudget(r.userID) {
-		log.Printf("rate limit: skipping venue-alert email for user %d", r.userID)
+	// A failed budget check skips the email like a refusal does; the check has
+	// already logged it.
+	if within, err := s.withinDailyAlertEmailBudget(r.userID); err != nil || !within {
+		if err == nil {
+			log.Printf("rate limit: skipping venue-alert email for user %d", r.userID)
+		}
 		return nil
 	}
 

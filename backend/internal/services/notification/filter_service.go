@@ -539,8 +539,9 @@ func (s *NotificationFilterService) MatchAndNotify(show *catalogm.Show) error {
 // notifyFilterSubscribers is the filter pass: it matches the show against every
 // active notification filter and delivers at most one notification per user.
 // It returns the matching query's error, or every user's processUserMatches
-// error joined. A retry matches only users with no notification for the show
-// yet, so it re-reaches exactly the users whose delivery failed.
+// error joined. A retry matches only users who still have no notification for
+// the show and no in-app venue alert listing it, so a user whose delivery
+// failed is retried unless another pass reached them first.
 func (s *NotificationFilterService) notifyFilterSubscribers(
 	show *catalogm.Show,
 	showArtistIDs, showVenueIDs, artistLabelIDs, artistTagIDs pq.Int64Array,
