@@ -5,12 +5,18 @@ import { extname, join, relative, sep } from 'node:path'
 /**
  * Which surfaces render MobileGraphTeaser as their sub-640px graph form.
  *
+ * What a graph section shows below the canvas gate is a design decision made
+ * per surface, so adding or dropping the teaser on one is a deliberate change
+ * that should come with its design: this inventory makes it show up in review
+ * instead of happening as a side effect of an edit to a shared parent. When
+ * such a change is intended, update the list.
+ *
  * A source scan rather than a render test, so it covers every file and not
  * only the surfaces a test happens to mount. The artist page's own placement
- * (its phone layout carries the Similar artists list in that slot and no
- * teaser) is pinned by ArtistDetail.test; ArtistConnectionsSection stays in
- * this list because at `sm` and up a column measuring under 640px still gets
- * the teaser.
+ * (its phone layout carries the Similar artists list in that slot and does not
+ * mount the section) is pinned by ArtistDetail.test; ArtistConnectionsSection
+ * stays in this list because at `sm` and up a column measuring under 640px
+ * still gets the teaser.
  */
 
 const FRONTEND_ROOT = join(import.meta.dirname, '..', '..')

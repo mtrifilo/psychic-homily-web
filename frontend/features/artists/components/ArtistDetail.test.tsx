@@ -33,11 +33,11 @@ vi.mock('../hooks/useArtists', () => ({
   }),
 }))
 
-// The real ArtistConnectionsSection reads this hook. Default: no graph, so the
-// section renders nothing; the layout tests below hand it a one-edge graph.
-const mockUseArtistGraph = vi.fn()
-vi.mock('../hooks/useArtistGraph', () => ({
-  useArtistGraph: (opts: unknown) => mockUseArtistGraph(opts),
+// A marker in place of the canvas section, so the placement tests can assert
+// whether the page mounts it; its own narrow and canvas forms are covered in
+// ArtistConnectionsSection.test.
+vi.mock('./ArtistConnectionsSection', () => ({
+  ArtistConnectionsSection: () => <div data-testid="connections-section" />,
 }))
 
 const mockUseIsAuthenticated = vi.fn()
@@ -174,6 +174,9 @@ vi.mock('./RelatedArtists', () => ({
   // Renders its own "Similar artists" SectionHeader in the real component;
   // the mock keeps it so sidebar section order stays assertable.
   ArtistSimilarSidebar: () => <h3>Similar artists</h3>,
+  SimilarListStateProvider: ({ children }: { children: React.ReactNode }) => (
+    <>{children}</>
+  ),
   ArtistGraphDialog: ({
     open,
     onOpenChange,
@@ -326,6 +329,7 @@ vi.mock('@/components/shared', () => ({
 }))
 
 import { ArtistDetail, SM_UP_QUERY as SM_UP } from './ArtistDetail'
+import { GRAPH_BREAKPOINT_PX } from '@/components/graph/useContainerWidth'
 import { ENTITY_LINK_CLASS } from '@/components/shared/entityLink'
 
 function makeArtist(overrides: Partial<Artist> = {}): Artist {
@@ -364,7 +368,6 @@ describe('ArtistDetail', () => {
       data: { labels: [] },
       isLoading: false,
     })
-    mockUseArtistGraph.mockReturnValue({ data: undefined, isLoading: false })
   })
 
   describe('loading state', () => {
@@ -855,14 +858,39 @@ describe('ArtistDetail', () => {
       expect(screen.queryByText('Statistics')).not.toBeInTheDocument()
     })
 
+    // Zero rows are hidden at every width, not only on the phone layout.
+    it('renders only the non-zero statistics rows at sm and up too', () => {
+      const mm = installMatchMedia({ [SM_UP]: true })
+      onTestFinished(() => mm.restore())
+      mockUseArtist.mockReturnValue({
+        data: makeArtist({
+          stats: {
+            releases: 2,
+            labels: 0,
+            shows_tracked: 0,
+            similar_artists: 0,
+            festival_appearances: 0,
+          },
+        }),
+        isLoading: false,
+        error: null,
+      })
+
+      renderWithProviders(<ArtistDetail artistId="test-artist" />)
+      const labels = Array.from(
+        screen.getByTestId('stats-list').querySelectorAll('dt')
+      ).map(dt => dt.textContent)
+      expect(labels).toEqual(['Releases'])
+    })
+
     describe('Similar artists placement', () => {
-      const oneEdgeGraph = {
-        center: { id: 42, name: 'Test Artist', slug: 'test-artist', upcoming_show_count: 0 },
-        nodes: [{ id: 7, name: 'Neighbor', slug: 'neighbor', upcoming_show_count: 0 }],
-        links: [
-          { source_id: 42, target_id: 7, type: 'similar', score: 0.7, votes_up: 0, votes_down: 0 },
-        ],
-      }
+      // The phone layout drops the canvas section, which is only sound if no
+      // viewport narrower than `sm` (40rem, 640px at the default root size)
+      // could hold a column wide enough for the canvas.
+      it('never drops a canvas the section could draw', () => {
+        expect(SM_UP).toBe('(min-width: 40rem)')
+        expect(GRAPH_BREAKPOINT_PX).toBeGreaterThanOrEqual(40 * 16)
+      })
 
       beforeEach(() => {
         mockUseArtist.mockReturnValue({
@@ -878,7 +906,6 @@ describe('ArtistDetail', () => {
           isLoading: false,
           error: null,
         })
-        mockUseArtistGraph.mockReturnValue({ data: oneEdgeGraph, isLoading: false })
       })
 
       const similarHeadings = () =>
@@ -893,7 +920,7 @@ describe('ArtistDetail', () => {
         expect(similarHeadings()).toHaveLength(1)
         expect(screen.getByTestId('content-slot')).toContainElement(similar)
         expect(screen.getByTestId('sidebar-slot')).not.toContainElement(similar)
-        // Directly after the action row, which sits under the shows.
+        // After the action row, which sits under the shows.
         expect(
           screen.getByTestId('artist-actions').compareDocumentPosition(similar) &
             Node.DOCUMENT_POSITION_FOLLOWING
@@ -904,16 +931,13 @@ describe('ArtistDetail', () => {
         ).toBeTruthy()
       })
 
-      // The list takes the slot the Connections section's sub-640 teaser held,
-      // so the phone layout carries no "on the music map" line. The same graph
-      // at `sm` and up still mounts the section, which in jsdom (no layout, so
-      // a 0px measurement) renders that teaser: the contrast proves the phone
-      // layout's absence is the placement and not missing data.
-      it('renders no Connections teaser on the phone layout', () => {
+      // The list takes the Connections slot, so the section (and with it the
+      // sub-640 map teaser) is not mounted on the phone layout.
+      it('does not mount the Connections section on the phone layout', () => {
         const mm = installMatchMedia({ [SM_UP]: false })
         onTestFinished(() => mm.restore())
         renderWithProviders(<ArtistDetail artistId="test-artist" />)
-        expect(screen.queryByText(/on the music map/)).not.toBeInTheDocument()
+        expect(screen.queryByTestId('connections-section')).not.toBeInTheDocument()
       })
 
       it('keeps the list in the sidebar and the Connections section in the main column at sm and up', () => {
@@ -924,8 +948,8 @@ describe('ArtistDetail', () => {
         const [similar] = similarHeadings()
         expect(similarHeadings()).toHaveLength(1)
         expect(screen.getByTestId('sidebar-slot')).toContainElement(similar)
-        expect(screen.getByTestId('content-slot')).toHaveTextContent(
-          'See who Test Artist plays with on the music map'
+        expect(screen.getByTestId('content-slot')).toContainElement(
+          screen.getByTestId('connections-section')
         )
       })
 

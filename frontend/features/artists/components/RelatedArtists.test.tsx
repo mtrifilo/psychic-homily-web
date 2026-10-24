@@ -52,6 +52,11 @@ vi.mock('../hooks/useArtistGraph', () => ({
   useCreateArtistRelationship: vi.fn(() => ({ mutate: vi.fn(), isPending: false })),
 }))
 
+// The suggest form's search; these tests type into it but never pick a result.
+vi.mock('../hooks/useArtistSearch', () => ({
+  useArtistSearch: () => ({ data: undefined }),
+}))
+
 type MockUseIsAuthenticatedValue = {
   user: { id: number; is_admin: boolean } | null
   isAuthenticated: boolean
@@ -78,7 +83,7 @@ vi.mock('./ArtistGraph', () => ({
   ArtistGraphVisualization: () => <div data-testid="artist-graph">Graph Visualization</div>,
 }))
 
-import { ArtistSimilarSidebar, ArtistGraphDialog } from './RelatedArtists'
+import { ArtistSimilarSidebar, ArtistGraphDialog, SimilarListStateProvider } from './RelatedArtists'
 // The REAL constant (not a literal) — a rename that missed one side would
 // otherwise still pass.
 import { SIMILAR_ARTISTS_ANCHOR } from './ArtistConnectionsSection'
@@ -190,7 +195,7 @@ describe('ArtistSimilarSidebar', () => {
       expect(within(billsLine).getByText('4 shared shows')).toBeInTheDocument()
 
       // Its own wrapped line: full width under the name, gone at sm and up,
-      // where the inline badges and score take over.
+      // where the inline badges take over (the inline score from md).
       expect(similarLine.className).toContain('basis-full')
       expect(similarLine.className).toContain('sm:hidden')
       const row = similarLine.parentElement!
@@ -255,6 +260,47 @@ describe('ArtistSimilarSidebar', () => {
       )
       expect(screen.getByText('Frozen Soul')).toBeInTheDocument()
       expect(screen.queryByTestId('similar-artist-reason')).not.toBeInTheDocument()
+    })
+  })
+
+  describe('viewer state under SimilarListStateProvider', () => {
+    // The page renders the list under one of two parents; this harness does
+    // the same, so flipping `inSidebar` unmounts and remounts the list.
+    function Harness({ inSidebar, artistId = 1 }: { inSidebar: boolean; artistId?: number }) {
+      const list = (
+        <ArtistSimilarSidebar artistId={artistId} artistSlug="gatecreeper" onOpenGraph={() => {}} />
+      )
+      return (
+        <SimilarListStateProvider artistId={artistId}>
+          {inSidebar ? <aside>{list}</aside> : <main>{list}</main>}
+        </SimilarListStateProvider>
+      )
+    }
+
+    it('keeps the sort and an open suggest draft when the list remounts elsewhere', async () => {
+      const user = userEvent.setup()
+      const { rerender } = renderWithProviders(<Harness inSidebar={false} />)
+      await user.selectOptions(screen.getByLabelText('Sort'), 'niche')
+      await user.click(screen.getByRole('button', { name: 'Suggest similar' }))
+      await user.type(screen.getByPlaceholderText('Search for a similar artist...'), 'Fro')
+
+      rerender(<Harness inSidebar />)
+
+      expect(document.querySelector('aside')).toContainElement(screen.getByLabelText('Sort'))
+      expect((screen.getByLabelText('Sort') as HTMLSelectElement).value).toBe('niche')
+      expect(screen.getByPlaceholderText('Search for a similar artist...')).toHaveValue('Fro')
+    })
+
+    it('hands a different artist the defaults', async () => {
+      const user = userEvent.setup()
+      const { rerender } = renderWithProviders(<Harness inSidebar={false} />)
+      await user.selectOptions(screen.getByLabelText('Sort'), 'niche')
+      await user.click(screen.getByRole('button', { name: 'Suggest similar' }))
+
+      rerender(<Harness inSidebar={false} artistId={9} />)
+
+      expect((screen.getByLabelText('Sort') as HTMLSelectElement).value).toBe('relevant')
+      expect(screen.getByRole('button', { name: 'Suggest similar' })).toBeInTheDocument()
     })
   })
 

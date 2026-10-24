@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useCallback, useRef, useEffect, useMemo } from 'react'
+import { createContext, useState, useCallback, useContext, useRef, useEffect, useMemo } from 'react'
 import Link from 'next/link'
 import { useRouter, useSearchParams, usePathname } from 'next/navigation'
 import {
@@ -163,6 +163,79 @@ const SORT_MODE_BIAS: Record<Exclude<SidebarSortMode, 'relevant'>, number> = {
 // empty expansion set. Module const → stable identity for the DOI useMemo dep.
 const NO_EXPANSIONS: ReadonlyMap<number, ArtistGraph> = new Map()
 
+/** What the viewer has chosen in the list: the sort, and an open suggest form with its draft. */
+interface SimilarListState {
+  sortMode: SidebarSortMode
+  showSuggest: boolean
+  suggestDraft: string
+}
+
+type UpdateSimilarListState = (patch: Partial<SimilarListState>) => void
+
+const DEFAULT_SIMILAR_LIST_STATE: SimilarListState = {
+  sortMode: 'relevant',
+  showSuggest: false,
+  suggestDraft: '',
+}
+
+const SimilarListStateContext = createContext<
+  [SimilarListState, UpdateSimilarListState] | null
+>(null)
+
+/**
+ * Holds the Similar artists list's viewer state above the list, so the list
+ * can unmount and remount under a different parent (the page moves it between
+ * layouts) without losing the sort or a half-typed suggestion.
+ *
+ * The state is tagged with the artist it was set for, so a provider that stays
+ * mounted across artist routes hands the next artist the defaults.
+ */
+export function SimilarListStateProvider({
+  artistId,
+  children,
+}: {
+  artistId: number
+  children: React.ReactNode
+}) {
+  const [entry, setEntry] = useState<{
+    artistId: number
+    state: SimilarListState
+  } | null>(null)
+  const state =
+    entry?.artistId === artistId ? entry.state : DEFAULT_SIMILAR_LIST_STATE
+  const update = useCallback<UpdateSimilarListState>(
+    patch =>
+      setEntry(prev => ({
+        artistId,
+        state: {
+          ...(prev?.artistId === artistId ? prev.state : DEFAULT_SIMILAR_LIST_STATE),
+          ...patch,
+        },
+      })),
+    [artistId]
+  )
+  const value = useMemo<[SimilarListState, UpdateSimilarListState]>(
+    () => [state, update],
+    [state, update]
+  )
+  return (
+    <SimilarListStateContext.Provider value={value}>
+      {children}
+    </SimilarListStateContext.Provider>
+  )
+}
+
+/** The provider's state when one is above the list, otherwise the list's own. */
+function useSimilarListState(): [SimilarListState, UpdateSimilarListState] {
+  const shared = useContext(SimilarListStateContext)
+  const [local, setLocal] = useState(DEFAULT_SIMILAR_LIST_STATE)
+  const updateLocal = useCallback<UpdateSimilarListState>(
+    patch => setLocal(prev => ({ ...prev, ...patch })),
+    []
+  )
+  return shared ?? [local, updateLocal]
+}
+
 export function ArtistSimilarSidebar({
   artistId,
   artistSlug,
@@ -173,10 +246,10 @@ export function ArtistSimilarSidebar({
     enabled: artistId > 0,
   })
   const { isAuthenticated } = useIsAuthenticated()
-  const [showSuggest, setShowSuggest] = useState(false)
   // PSY-1280: accessible DOI sort mode (default = the existing max-edge-score order) + an
   // aria-live announcement that's empty until the user changes it (so mount stays silent).
-  const [sortMode, setSortMode] = useState<SidebarSortMode>('relevant')
+  const [{ sortMode, showSuggest, suggestDraft }, updateListState] =
+    useSimilarListState()
   const [sortAnnouncement, setSortAnnouncement] = useState('')
 
   // DOI scores for the active Discovery mode, over the base ego graph — the SAME computeGraphDoi
@@ -273,7 +346,7 @@ export function ArtistSimilarSidebar({
             value={sortMode}
             onChange={e => {
               const mode = e.target.value as SidebarSortMode
-              setSortMode(mode)
+              updateListState({ sortMode: mode })
               setSortAnnouncement(
                 mode === 'relevant'
                   ? 'Similar artists sorted by most relevant.'
@@ -322,12 +395,16 @@ export function ArtistSimilarSidebar({
             <SuggestSimilarArtist
               centerArtistId={artistId}
               centerArtistSlug={artistSlug}
-              onClose={() => setShowSuggest(false)}
+              draft={suggestDraft}
+              onDraftChange={draft => updateListState({ suggestDraft: draft })}
+              onClose={() =>
+                updateListState({ showSuggest: false, suggestDraft: '' })
+              }
             />
           ) : (
             <BracketLink
               label="Suggest similar"
-              onClick={() => setShowSuggest(true)}
+              onClick={() => updateListState({ showSuggest: true })}
             />
           )}
         </div>
@@ -1509,6 +1586,9 @@ function VoteButton({ link, direction, userVotes, onVote, isPending }: VoteButto
 interface SuggestSimilarArtistProps {
   centerArtistId: number
   centerArtistSlug: string
+  /** The search text, owned by the list so it survives a remount. */
+  draft: string
+  onDraftChange: (draft: string) => void
   onClose: () => void
 }
 
@@ -1518,8 +1598,13 @@ const SUGGEST_BLUR_CLOSE_DELAY_MS = 150
 // How long the "suggested" confirmation shows before the panel closes itself.
 const SUGGEST_SUCCESS_DISMISS_MS = 2000
 
-function SuggestSimilarArtist({ centerArtistId, centerArtistSlug, onClose }: SuggestSimilarArtistProps) {
-  const [query, setQuery] = useState('')
+function SuggestSimilarArtist({
+  centerArtistId,
+  centerArtistSlug,
+  draft: query,
+  onDraftChange: setQuery,
+  onClose,
+}: SuggestSimilarArtistProps) {
   const [isOpen, setIsOpen] = useState(false)
   const [activeIndex, setActiveIndex] = useState(-1)
   const [error, setError] = useState<string | null>(null)
@@ -1569,7 +1654,7 @@ function SuggestSimilarArtist({ centerArtistId, centerArtistSlug, onClose }: Sug
         }
       )
     },
-    [centerArtistId, centerArtistSlug, createRelationship, scheduleSuccessClose]
+    [centerArtistId, centerArtistSlug, createRelationship, scheduleSuccessClose, setQuery]
   )
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {

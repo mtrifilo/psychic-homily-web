@@ -31,6 +31,10 @@
  * 640px canvas gate the whole section is one line of link into the knowledge
  * graph (MobileGraphTeaser); the action row's [Graph] is what still reaches
  * the ego dialog at that width.
+ *
+ * ArtistDetail mounts this section only at Tailwind `sm` and up (its phone
+ * layout puts the Similar artists list in this slot), so the teaser form is
+ * reached only where a column under 640px sits in a wider viewport.
  */
 
 import { useMemo, useState } from 'react'

@@ -60,7 +60,11 @@ import { FollowAlertsReveal } from '@/components/shared/FollowAlertsReveal'
 import { ENTITY_LINK_CLASS } from '@/components/shared/entityLink'
 import { entityHref } from '@/lib/entity-slug'
 import { ArtistShowsList } from './ArtistShowsList'
-import { ArtistSimilarSidebar, ArtistGraphDialog } from './RelatedArtists'
+import {
+  ArtistSimilarSidebar,
+  ArtistGraphDialog,
+  SimilarListStateProvider,
+} from './RelatedArtists'
 import { ArtistConnectionsSection } from './ArtistConnectionsSection'
 import { BillComposition } from './BillComposition'
 import { GRAPH_HASH, useUrlHash } from '@/lib/hooks/common/useUrlHash'
@@ -78,10 +82,23 @@ interface ArtistDetailProps {
 }
 
 /**
- * Tailwind's `sm` breakpoint as a media query; not matching it is the phone
- * layout. `useMediaQuery`'s server snapshot is the phone layout.
+ * Tailwind's `sm` breakpoint (`--breakpoint-sm: 40rem`) as a media query; not
+ * matching it is the phone layout. Written in rem so it switches together with
+ * the `sm:` classes the Similar artists rows key their two forms on, whatever
+ * the browser's default font size.
+ *
+ * The phone layout drops the Connections section, so this must never match
+ * below the section's own canvas gate (GRAPH_BREAKPOINT_PX, a container
+ * width): every phone-layout viewport is one where no canvas could render.
+ *
+ * `useMediaQuery`'s server snapshot is the phone layout. That causes no layout
+ * shift on a wider screen only because both things the slot can hold (the
+ * Similar artists list and the Connections section) render nothing until the
+ * client-side artist graph query resolves, which is after hydration has
+ * settled this query. Seeding that query on the server would make the server
+ * HTML carry the phone placement to every viewport.
  */
-export const SM_UP_QUERY = '(min-width: 640px)'
+export const SM_UP_QUERY = '(min-width: 40rem)'
 
 // --- Discography ---
 
@@ -1145,7 +1162,10 @@ export function ArtistDetail({ artistId }: ArtistDetailProps) {
 
   // Similar artists: a dense list plus the [Explore graph] affordance that
   // opens the page-level Dialog. It self-hides when there are no
-  // relationships AND the viewer can't contribute.
+  // relationships AND the viewer can't contribute. It is rendered in one of
+  // two places (see the Connections slot below), so it remounts when the
+  // viewport crosses `sm`; SimilarListStateProvider, wrapping the page,
+  // carries the viewer's sort and suggest draft across that remount.
   const similarArtists = (
     <ArtistSimilarSidebar
       artistId={artist.id}
@@ -1242,7 +1262,7 @@ export function ArtistDetail({ artistId }: ArtistDetailProps) {
   )
 
   return (
-    <>
+    <SimilarListStateProvider artistId={artist.id}>
       <EntityDetailLayout
         fallback={{ href: '/artists', label: 'Artists' }}
         entityName={artist.name}
@@ -1274,14 +1294,15 @@ export function ArtistDetail({ artistId }: ArtistDetailProps) {
 
           <DiscographyTab artistIdOrSlug={artistId} />
 
-          {/* The Connections slot, and the one place Similar artists is
-              placed. On the phone layout no canvas can render, so the slot
-              holds the Similar artists list (directly under the shows and
-              above the stacked sidebar) and the sidebar omits it; the
-              action-row [Graph] and the list's [Explore graph] still open the
-              graph Dialog. Otherwise the slot holds the inline ego map, which
-              reuses the list's cached useArtistGraph payload and whose
-              [Expand] opens the same Dialog, and the list is in the sidebar. */}
+          {/* The Connections slot. On the phone layout no canvas can render,
+              so the slot holds the Similar artists list (after the action
+              row and the discography, above the stacked sidebar) and the
+              sidebar's `similarArtists` is null; the action-row [Graph] and
+              the list's [Explore graph] still open the graph Dialog.
+              Otherwise the slot holds the inline ego map, which reuses the
+              list's cached useArtistGraph payload and whose [Expand] opens
+              the same Dialog, and the list is in the sidebar. Both branches
+              read `isPhoneLayout`, so the list renders exactly once. */}
           {isPhoneLayout ? (
             similarArtists
           ) : (
@@ -1408,6 +1429,6 @@ export function ArtistDetail({ artistId }: ArtistDetailProps) {
           onOpenChange={setAddTagDialogOpen}
         />
       )}
-    </>
+    </SimilarListStateProvider>
   )
 }
