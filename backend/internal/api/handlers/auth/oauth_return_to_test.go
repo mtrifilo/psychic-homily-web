@@ -278,6 +278,8 @@ func TestOAuthCallback_SuccessLandsOnTheRecordedDestination(t *testing.T) {
 		{"protocol-relative destination", encodedReturnTo("//evil.example"), errorRedirectFrontendURL},
 		{"auth page", encodedReturnTo("/auth"), errorRedirectFrontendURL},
 		{"undecodable value", "%%%not-base64", errorRedirectFrontendURL},
+		// A cookie still carrying an OAuth link result loses it at the callback.
+		{"stale link result", encodedReturnTo("/profile?tab=settings&oauth_link_error=OAUTH_LINK_EXPIRED"), errorRedirectFrontendURL + "/profile?tab=settings"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
