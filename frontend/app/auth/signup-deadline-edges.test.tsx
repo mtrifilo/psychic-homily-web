@@ -281,6 +281,26 @@ describe('sign-up deadlines on /auth', () => {
       expect(mockPush).not.toHaveBeenCalled()
     })
 
+    it('keeps the interstitial that follows the prompt when the registration then fails on its deadline', async () => {
+      await completePasskeyBehind(stalledRequest)
+      const user = setupUser()
+      await user.click(
+        within(screen.getByRole('dialog', PROMPT)).getByRole('button', {
+          name: "I'll do this later",
+        })
+      )
+      expect(
+        await screen.findByRole('heading', { name: 'Check your inbox.' })
+      ).toBeInTheDocument()
+
+      await advanceFakeTime(SIGNUP_REQUEST_TIMEOUT_MS * 2)
+
+      expect(signalOf('/auth/register').aborted).toBe(true)
+      expect(screen.getByRole('heading', { name: 'Check your inbox.' })).toBeInTheDocument()
+      expect(screen.getByText('passkey@example.com')).toBeInTheDocument()
+      expect(mockPush).not.toHaveBeenCalled()
+    })
+
     it('leaves the backup prompt when the registration then succeeds', async () => {
       const register = deferred<Response>()
       await completePasskeyBehind(() => register.promise)
