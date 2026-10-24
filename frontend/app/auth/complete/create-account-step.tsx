@@ -17,10 +17,12 @@ import {
 import {
   ConsentVersionsChangedError,
   useConsentVersions,
+  useLegalVersions,
 } from '@/features/auth/hooks/useLegalVersions'
 import { useAuthContext } from '@/lib/context/AuthContext'
 import { AuthErrorCode, isAuthError } from '@/lib/errors'
 import { FALLBACK_RETURN_TO } from '@/lib/auth-href'
+import { MIN_SIGNUP_AGE } from '@/lib/legal'
 import { cn } from '@/lib/utils'
 import {
   CONSENT_VERSIONS_UNAVAILABLE,
@@ -143,7 +145,7 @@ function StepHeading({
   )
 }
 
-const LEGAL_LINK_CLASS = 'font-medium underline underline-offset-4 hover:text-primary'
+const LINK_CLASS = 'font-medium underline underline-offset-4 hover:text-primary'
 
 function CreateAccountForm({
   pending,
@@ -154,6 +156,8 @@ function CreateAccountForm({
 }) {
   const router = useRouter()
   const { setUser } = useAuthContext()
+  // Read as the form shows, so the submit rarely waits on it.
+  useLegalVersions()
   const consentVersions = useConsentVersions()
   const ids = useId()
   const [name, setName] = useState(pending.name ?? '')
@@ -169,16 +173,9 @@ function CreateAccountForm({
   const termsError = attempted && !termsAccepted
   const dateError = attempted && dateOfBirth === null
   const busy = readingVersions || finish.isPending
-  // The refusals the step shows as their own states never reach the banner.
-  const finishMessage =
-    finish.error &&
-    !(
-      isAuthError(finish.error) &&
-      (finish.error.code === AuthErrorCode.AGE_CONFIRMATION_REQUIRED ||
-        finish.error.code === AuthErrorCode.OAUTH_SIGNUP_EXPIRED)
-    )
-      ? finish.error.message
-      : null
+  // The refusals the step shows as their own states replace this form, so
+  // whatever error is left belongs in its banner.
+  const finishMessage = finish.error?.message ?? null
 
   const submit = async () => {
     setAttempted(true)
@@ -262,7 +259,7 @@ function CreateAccountForm({
             Not you?{' '}
             <a
               href={googleStartUrl({ returnTo: FALLBACK_RETURN_TO, selectAccount: true })}
-              className="font-medium underline underline-offset-4 hover:text-primary"
+              className={LINK_CLASS}
             >
               Use a different account
             </a>
@@ -342,12 +339,12 @@ function CreateAccountForm({
               className="block cursor-pointer text-sm font-normal leading-5"
             >
               I agree to the{' '}
-              <Link href="/terms" target="_blank" className={LEGAL_LINK_CLASS}>
+              <Link href="/terms" target="_blank" className={LINK_CLASS}>
                 Terms of Service
               </Link>{' '}
               <span className="text-muted-foreground">
                 and I acknowledge the{' '}
-                <Link href="/privacy" target="_blank" className={LEGAL_LINK_CLASS}>
+                <Link href="/privacy" target="_blank" className={LINK_CLASS}>
                   Privacy Policy
                 </Link>
               </span>
@@ -373,11 +370,11 @@ function CreateAccountForm({
           </Button>
           <p className="text-xs leading-[18px] text-muted-foreground">
             By clicking Create account you agree to the{' '}
-            <Link href="/terms" target="_blank" className={LEGAL_LINK_CLASS}>
+            <Link href="/terms" target="_blank" className={LINK_CLASS}>
               Terms of Service
             </Link>{' '}
             and acknowledge the{' '}
-            <Link href="/privacy" target="_blank" className={LEGAL_LINK_CLASS}>
+            <Link href="/privacy" target="_blank" className={LINK_CLASS}>
               Privacy Policy
             </Link>
             .
@@ -441,7 +438,7 @@ function ExpiredCard() {
         <GoogleOAuthButton className="w-full" />
         <p className="text-center text-xs text-muted-foreground">
           Back to{' '}
-          <Link href="/auth" className="font-medium underline underline-offset-4 hover:text-primary">
+          <Link href="/auth" className={LINK_CLASS}>
             sign in
           </Link>
         </p>
@@ -455,9 +452,9 @@ function AgeRefusedCard() {
     <StepCard>
       <StepHeading eyebrow="Account not created" title="We can't create an account for you." />
       <p className="text-sm leading-[22px] text-foreground">
-        Psychic Homily accounts are for people 16 and over, so we haven&apos;t
-        created one. You can still browse shows, artists and venues without an
-        account.
+        Psychic Homily accounts are for people {MIN_SIGNUP_AGE} and over, so we
+        haven&apos;t created one. You can still browse shows, artists and venues
+        without an account.
       </p>
       <Button asChild className="w-full">
         <Link href="/shows">Browse upcoming shows</Link>

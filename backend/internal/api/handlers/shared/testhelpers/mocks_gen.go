@@ -492,7 +492,7 @@ func (m *MockAuthEmailOutbox) Enqueue(ctx context.Context, kind authm.AuthEmailK
 type MockAuthService struct {
 	OAuthLoginFn          func(http.ResponseWriter, *http.Request, string) error
 	OAuthCallbackFn       func(http.ResponseWriter, *http.Request, string) (*authm.User, string, error)
-	StartOAuthSignupFn    func(contracts.OAuthIdentity, string) (string, time.Time, error)
+	StartOAuthSignupFn    func(contracts.OAuthIdentity, string) (string, error)
 	PeekOAuthSignupFn     func(string) (*contracts.OAuthPendingSignup, error)
 	ConsumeOAuthSignupFn  func(string) (*contracts.OAuthPendingSignup, error)
 	CompleteOAuthSignupFn func(*contracts.OAuthPendingSignup, *contracts.OAuthSignupConsent, *string) (*authm.User, string, error)
@@ -515,11 +515,11 @@ func (m *MockAuthService) OAuthCallback(w http.ResponseWriter, r *http.Request, 
 	}
 	return nil, "", nil
 }
-func (m *MockAuthService) StartOAuthSignup(identity contracts.OAuthIdentity, returnTo string) (string, time.Time, error) {
+func (m *MockAuthService) StartOAuthSignup(identity contracts.OAuthIdentity, returnTo string) (string, error) {
 	if m.StartOAuthSignupFn != nil {
 		return m.StartOAuthSignupFn(identity, returnTo)
 	}
-	return "", time.Time{}, nil
+	return "", nil
 }
 func (m *MockAuthService) PeekOAuthSignup(token string) (*contracts.OAuthPendingSignup, error) {
 	if m.PeekOAuthSignupFn != nil {

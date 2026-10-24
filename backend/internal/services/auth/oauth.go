@@ -32,8 +32,6 @@ type AuthService struct {
 	userService    contracts.UserServiceInterface
 	jwtService     *JWTService
 	oauthCompleter contracts.OAuthCompleter
-	// clock is what the pending sign-up store reads as now.
-	clock func() time.Time
 }
 
 // NewAuthService creates a new authentication service
@@ -47,15 +45,7 @@ func NewAuthService(database *gorm.DB, cfg *config.Config, userService contracts
 		userService:    userService,
 		jwtService:     NewJWTService(database, cfg, userService),
 		oauthCompleter: &RealOAuthCompleter{},
-		clock:          time.Now,
 	}
-}
-
-func (s *AuthService) now() time.Time {
-	if s.clock == nil {
-		return time.Now()
-	}
-	return s.clock()
 }
 
 // OAuthLogin initiates OAuth login flow

@@ -20,16 +20,11 @@ export interface FinishOAuthSignupResponse extends AuthResponse {
   return_to?: components['schemas']['FinishOAuthSignupResponseBody']['return_to']
 }
 
-/** The step's submission, in the backend's field names. */
-export interface FinishOAuthSignupRequest {
-  terms_accepted: boolean
-  terms_version: string
-  privacy_version: string
-  /** YYYY-MM-DD. */
-  date_of_birth: string
-  /** The display name; blank stores no name. */
-  name: string
-}
+/** The step's submission. */
+export type FinishOAuthSignupRequest = Omit<
+  components['schemas']['FinishOAuthSignupRequestBody'],
+  '$schema'
+>
 
 const SIGNUP_FAILED = 'Your account could not be created. Please try again.'
 
@@ -47,7 +42,6 @@ export function usePendingOAuthSignup() {
       apiRequest<PendingOAuthSignup>(API_ENDPOINTS.AUTH.OAUTH_PENDING_SIGNUP, {
         method: 'GET',
         signal,
-        credentials: 'include',
       }),
     staleTime: Infinity,
     gcTime: 0,
@@ -74,7 +68,6 @@ export function useFinishOAuthSignup() {
         {
           method: 'POST',
           body: JSON.stringify(request),
-          credentials: 'include',
         }
       )
       if (!response.success) {

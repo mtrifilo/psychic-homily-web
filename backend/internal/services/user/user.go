@@ -220,8 +220,10 @@ func OAuthIdentityFromGoth(gothUser goth.User, provider string) contracts.OAuthI
 
 // FindOrCreateUserFromOAuthIdentity returns the account identity is attached
 // to, or creates one from it, with the refusals FindOrCreateUserWithConsent
-// documents. An account it creates takes displayName as its display name when
-// displayName is non-nil; an account it finds is returned unchanged.
+// documents. An account it creates is named by the provider's first and last
+// names when displayName is nil, takes a non-blank displayName as its display
+// name, and has no name at all for a blank one. An account it finds is
+// returned unchanged.
 func (s *UserService) FindOrCreateUserFromOAuthIdentity(identity contracts.OAuthIdentity, consent *contracts.OAuthSignupConsent, displayName *string) (*authm.User, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
@@ -498,9 +500,13 @@ func (s *UserService) createNewUserOauthWithConsent(
 	// string is a real value that collides with every other addressless account
 	// under the users_lower_email_uniq index, while NULLs do not collide.
 	// GitHub returns no address for a user with none public.
+	firstName, lastName := identity.FirstName, identity.LastName
+	if displayName != nil && *displayName == "" {
+		firstName, lastName, displayName = "", "", nil
+	}
 	user := &authm.User{
-		FirstName: &identity.FirstName,
-		LastName:  &identity.LastName,
+		FirstName: &firstName,
+		LastName:  &lastName,
 		AvatarURL: &identity.AvatarURL,
 		IsActive:  true,
 		// The column carries what the provider actually asserted. An account

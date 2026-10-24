@@ -15,6 +15,7 @@ import (
 	"gorm.io/gorm"
 
 	apperrors "psychic-homily-backend/internal/errors"
+	"psychic-homily-backend/internal/logger"
 	authm "psychic-homily-backend/internal/models/auth"
 	"psychic-homily-backend/internal/services/contracts"
 )
@@ -76,26 +77,28 @@ func verifyPendingSignupToken(secret, token string) (string, error) {
 
 // StartOAuthSignup stores identity and returnTo for
 // contracts.OAuthPendingSignupTTL and returns the token that names them. It
-// deletes every expired pending sign-up first, so the table holds at most the
-// sign-ups started within one TTL.
-func (s *AuthService) StartOAuthSignup(identity contracts.OAuthIdentity, returnTo string) (string, time.Time, error) {
+// deletes every expired pending sign-up first, so the table holds little more
+// than the sign-ups started within one TTL; a failed sweep is logged and the
+// sign-up goes ahead, since an expired row is refused whether or not it is
+// gone.
+func (s *AuthService) StartOAuthSignup(identity contracts.OAuthIdentity, returnTo string) (string, error) {
 	if s.db == nil {
-		return "", time.Time{}, fmt.Errorf("database not initialized")
+		return "", fmt.Errorf("database not initialized")
 	}
 	secret := s.pendingSignupSecret()
 	if secret == "" {
-		return "", time.Time{}, fmt.Errorf("pending sign-up signing key is not configured")
+		return "", fmt.Errorf("pending sign-up signing key is not configured")
 	}
 
 	buf := make([]byte, oauthPendingSignupIDBytes)
 	if _, err := rand.Read(buf); err != nil {
-		return "", time.Time{}, fmt.Errorf("failed to mint pending sign-up id: %w", err)
+		return "", fmt.Errorf("failed to mint pending sign-up id: %w", err)
 	}
 	id := hex.EncodeToString(buf)
 
-	now := s.now().UTC()
+	now := time.Now().UTC()
 	if err := s.db.Where("expires_at <= ?", now).Delete(&authm.OAuthPendingSignup{}).Error; err != nil {
-		return "", time.Time{}, fmt.Errorf("failed to sweep expired pending sign-ups: %w", err)
+		logger.Default().Error("oauth_pending_signup_sweep_failed", "error", err)
 	}
 
 	row := authm.OAuthPendingSignup{
@@ -112,9 +115,9 @@ func (s *AuthService) StartOAuthSignup(identity contracts.OAuthIdentity, returnT
 		ExpiresAt:      now.Add(contracts.OAuthPendingSignupTTL),
 	}
 	if err := s.db.Create(&row).Error; err != nil {
-		return "", time.Time{}, fmt.Errorf("failed to store pending sign-up: %w", err)
+		return "", fmt.Errorf("failed to store pending sign-up: %w", err)
 	}
-	return id + "." + signPendingSignupID(secret, id), row.ExpiresAt, nil
+	return id + "." + signPendingSignupID(secret, id), nil
 }
 
 // PeekOAuthSignup returns the pending sign-up token names, leaving it in place.
@@ -156,7 +159,7 @@ func (s *AuthService) readPendingSignup(
 	if result.RowsAffected == 0 {
 		return nil, apperrors.ErrOAuthSignupExpired(errPendingSignupNotFound)
 	}
-	if !s.now().Before(row.ExpiresAt) {
+	if !time.Now().Before(row.ExpiresAt) {
 		return nil, apperrors.ErrOAuthSignupExpired(errPendingSignupExpired)
 	}
 	return &contracts.OAuthPendingSignup{
