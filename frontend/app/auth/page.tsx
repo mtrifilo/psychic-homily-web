@@ -1108,7 +1108,7 @@ function AuthPageContent() {
 
               <TabsContent value="signup" className="mt-6">
                 {markedRefusedForAge ? (
-                  <AgeRefusedCard focusHeading={false} />
+                  <AgeRefusedCard focusHeading={false} headingLevel="h2" />
                 ) : (
                   <>
                     <SignupIntentPanel />

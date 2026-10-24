@@ -22,30 +22,34 @@ export function StepCard({ children }: { children: ReactNode }) {
  * A step card's eyebrow, heading and optional subline. With `focusOnMount`
  * the heading takes focus as it mounts, so a card that replaces a submitted
  * form is announced rather than left behind a focus that fell to the page.
+ * The heading is the page's h1 unless the card sits under another heading.
  */
 export function StepHeading({
   eyebrow,
   title,
   focusOnMount = false,
+  level = 'h1',
   children,
 }: {
   eyebrow: string
   title: string
   focusOnMount?: boolean
+  level?: 'h1' | 'h2'
   children?: ReactNode
 }) {
+  const Heading = level
   return (
     <div className="flex flex-col gap-2">
       <p className="font-mono text-[11px] uppercase tracking-[0.66px] text-muted-foreground">
         {eyebrow}
       </p>
-      <h1
+      <Heading
         ref={focusOnMount ? heading => heading?.focus() : undefined}
         tabIndex={focusOnMount ? -1 : undefined}
         className="text-2xl font-bold leading-[30px] text-foreground outline-none"
       >
         {title}
-      </h1>
+      </Heading>
       {children}
     </div>
   )

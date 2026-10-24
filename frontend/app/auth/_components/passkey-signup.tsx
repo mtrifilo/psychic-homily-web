@@ -79,8 +79,8 @@ interface PasskeySignupButtonProps {
    */
   onHandoffChange: (handoff: SignupHandoff | null) => void
   /**
-   * Called when begin refuses the sign-up for its age, after the dialog has
-   * closed. The page replaces itself with the refusal.
+   * Called when begin or finish refuses the sign-up for its age, after the
+   * dialog has closed and any claim has been released. The page replaces itself with the refusal.
    */
   onAgeRefused: () => void
   /**

@@ -888,7 +888,7 @@ describe('Under-age refusal', () => {
       )
     })
 
-    const heading = await screen.findByRole('heading', { name: AGE_REFUSAL_HEADING })
+    const heading = await screen.findByRole('heading', { name: AGE_REFUSAL_HEADING, level: 1 })
     expect(heading).toHaveFocus()
     expect(screen.getByRole('link', { name: 'Browse upcoming shows' })).toHaveAttribute('href', '/shows')
     expect(screen.queryByRole('tab')).not.toBeInTheDocument()
@@ -915,7 +915,8 @@ describe('Under-age refusal', () => {
     )
     const { user } = await renderSignupForm()
 
-    const heading = await screen.findByRole('heading', { name: AGE_REFUSAL_HEADING })
+    // Under the page's own h1, so an h2.
+    const heading = await screen.findByRole('heading', { name: AGE_REFUSAL_HEADING, level: 2 })
     // Not a reply to anything the viewer did on this page, so focus stays put.
     expect(heading).not.toHaveFocus()
     expect(screen.queryByLabelText('Email')).not.toBeInTheDocument()
