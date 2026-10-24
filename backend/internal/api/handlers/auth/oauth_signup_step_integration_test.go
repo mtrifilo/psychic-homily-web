@@ -2,6 +2,7 @@ package auth
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"reflect"
@@ -17,6 +18,7 @@ import (
 	"psychic-homily-backend/internal/legal"
 	authm "psychic-homily-backend/internal/models/auth"
 	"psychic-homily-backend/internal/services/auth"
+	"psychic-homily-backend/internal/services/contracts"
 )
 
 // These run the "Create your account" step over the real auth and user
@@ -129,6 +131,7 @@ func (s *OAuthHandlerIntegrationSuite) TestPendingSignup_ShowsTheHeldIdentity() 
 	s.Equal(identity.Email, body["email"])
 	s.Equal(identity.Name, body["name"])
 	s.NotEmpty(body["expires_at"])
+	s.Equal("/", body["return_to"])
 	s.Equal("no-store", resp.Header().Get("Cache-Control"))
 	s.Equal(int64(1), s.pendingRows(identity.UserID), "a read consumes nothing")
 
@@ -422,6 +425,39 @@ func (s *OAuthHandlerIntegrationSuite) TestCallback_ReturningIdentityAfterTheSte
 
 	s.assertSignedIn(w)
 	s.Nil(findCookie(w.Result(), oauthPendingSignupCookie.name))
+}
+
+// The read hands the step the destination the sign-in named, so "Use a
+// different account" can carry it into the next start.
+func (s *OAuthHandlerIntegrationSuite) TestPendingSignup_CarriesTheDestination() {
+	w, req := oauthCallbackRequest("google")
+	req.AddCookie(&http.Cookie{Name: oauthReturnToCookieName, Value: encodedReturnTo("/shows?city=phoenix")})
+	s.newHandler(&mockOAuthCompleter{user: s.stepIdentity("read-return-to")}).OAuthCallbackHTTPHandler(w, req)
+	token := findCookie(w.Result(), oauthPendingSignupCookie.name).Value
+
+	body := s.decode(s.stepAPI().Get(OAuthPendingSignupRoute, pendingCookieHeader(token)))
+	s.Equal("/shows?city=phoenix", body["return_to"])
+}
+
+// The pending cookie lives as long as the pending sign-up it names, inside the
+// handshake cookies' bound.
+func TestOAuthPendingSignupCookie_LivesAsLongAsThePendingSignup(t *testing.T) {
+	if oauthPendingSignupCookie.lifetime != contracts.OAuthPendingSignupTTL {
+		t.Errorf("cookie lives %v, pending sign-up %v", oauthPendingSignupCookie.lifetime, contracts.OAuthPendingSignupTTL)
+	}
+	if oauthPendingSignupCookie.lifetime <= 0 || oauthPendingSignupCookie.lifetime > oauthHandshakeCookieMaxLifetime {
+		t.Errorf("cookie lives %v, want (0, %v]", oauthPendingSignupCookie.lifetime, oauthHandshakeCookieMaxLifetime)
+	}
+}
+
+// The expired step's copy names the pending sign-up's lifetime, so changing
+// the lifetime fails here until the copy (this message and ExpiredCard in
+// frontend/app/auth/complete/create-account-step.tsx) changes with it.
+func TestOAuthSignupExpiredCopyNamesTheLifetime(t *testing.T) {
+	minutes := fmt.Sprintf("%d minutes", int(contracts.OAuthPendingSignupTTL/time.Minute))
+	if got := autherrors.ErrOAuthSignupExpired(nil).UserMessage(); !strings.Contains(got, minutes) {
+		t.Errorf("message %q does not say %q", got, minutes)
+	}
 }
 
 // huma binds no parameter declared on an embedded struct, so the step's two

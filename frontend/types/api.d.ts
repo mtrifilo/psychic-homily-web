@@ -12822,6 +12822,8 @@ export interface components {
             expires_at?: string;
             /** @description The provider's name for the person, when status is pending */
             name?: string;
+            /** @description Where the sign-in was headed, a path on the frontend, when status is pending */
+            return_to?: string;
             /**
              * @description pending: the step can be shown. expired: the pending sign-up is expired, already used, or not this browser's. age_refused: this browser was refused an account for its date of birth.
              * @enum {string}

@@ -23,7 +23,7 @@ const oauthLinkIntentCookieName = "oauth_link_intent"
 
 // oauthLinkIntentTTL bounds a pending link. Long enough for a consent screen
 // and a second factor at the provider, short enough that an abandoned attempt
-// does not stay armed on a shared machine. Matches the signup consent cookie.
+// does not stay armed on a shared machine.
 const oauthLinkIntentTTL = 10 * time.Minute
 
 var oauthLinkIntentCookie = oauthHandshakeCookie{name: oauthLinkIntentCookieName, lifetime: oauthLinkIntentTTL}

@@ -148,14 +148,15 @@ describe('CreateAccountStep', () => {
     )
   })
 
-  it('offers Google again with the account chooser for a different account', async () => {
-    answerPending(PENDING)
+  it('offers Google again with the account chooser for a different account, keeping the destination', async () => {
+    answerPending({ ...PENDING, return_to: '/shows?city=phoenix' })
     renderWithProviders(<CreateAccountStep />)
 
     const link = await screen.findByRole('link', { name: 'Use a different account' })
     const href = new URL(link.getAttribute('href')!)
     expect(href.origin + href.pathname).toBe('https://oauth-backend.test/auth/login/google')
     expect(href.searchParams.get('prompt')).toBe('select_account')
+    expect(href.searchParams.get('returnTo')).toBe('/shows?city=phoenix')
   })
 
   it('says to agree to the Terms, and sends nothing, when the box is unticked', async () => {
@@ -174,6 +175,7 @@ describe('CreateAccountStep', () => {
     expect(screen.getByText(TERMS_REQUIRED_MESSAGE)).toBeInTheDocument()
     expect(terms).toHaveAttribute('aria-invalid', 'true')
     expect(terms).toHaveAccessibleDescription(TERMS_REQUIRED_MESSAGE)
+    expect(terms).toHaveFocus()
     expect(bodies).toHaveLength(0)
 
     await user.click(terms)
@@ -194,6 +196,7 @@ describe('CreateAccountStep', () => {
     await user.click(screen.getByRole('button', { name: 'Create account' }))
 
     expect(screen.getByText(DATE_OF_BIRTH_INVALID_MESSAGE)).toBeInTheDocument()
+    expect(screen.getByLabelText('Month')).toHaveFocus()
     expect(bodies).toHaveLength(0)
   })
 

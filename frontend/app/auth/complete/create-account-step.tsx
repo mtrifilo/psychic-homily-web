@@ -1,6 +1,6 @@
 'use client'
 
-import { useId, useState, type ReactNode } from 'react'
+import { useId, useRef, useState, type ReactNode, type Ref } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { Loader2 } from 'lucide-react'
@@ -38,7 +38,10 @@ import { sanitizeReturnTo } from '@/app/auth/auth-redirect-utils'
 export const TERMS_REQUIRED_MESSAGE =
   'Agree to the Terms of Service to create your account.'
 
-/** The refusal the backend gives a date that is not a plausible date of birth. */
+/**
+ * The refusal the backend gives a date that is not a plausible date of birth
+ * (dateOfBirthInvalidMessage in backend/internal/api/handlers/auth/oauth_signup.go).
+ */
 export const DATE_OF_BIRTH_INVALID_MESSAGE = 'Enter a valid date of birth.'
 
 const LOAD_FAILED_MESSAGE =
@@ -168,6 +171,8 @@ function CreateAccountForm({
   const [attempted, setAttempted] = useState(false)
   const [versionsError, setVersionsError] = useState<'unavailable' | 'changed' | null>(null)
   const [readingVersions, setReadingVersions] = useState(false)
+  const monthRef = useRef<HTMLInputElement>(null)
+  const termsRef = useRef<HTMLButtonElement>(null)
 
   const dateOfBirth = dateOfBirthFromParts(month, day, year)
   const termsError = attempted && !termsAccepted
@@ -179,7 +184,13 @@ function CreateAccountForm({
 
   const submit = async () => {
     setAttempted(true)
-    if (!termsAccepted || dateOfBirth === null) {
+    // Focus goes to the first field the form refuses, in the order they show.
+    if (dateOfBirth === null) {
+      monthRef.current?.focus()
+      return
+    }
+    if (!termsAccepted) {
+      termsRef.current?.focus()
       return
     }
     setVersionsError(null)
@@ -258,7 +269,10 @@ function CreateAccountForm({
           <p className="text-xs text-muted-foreground">
             Not you?{' '}
             <a
-              href={googleStartUrl({ returnTo: FALLBACK_RETURN_TO, selectAccount: true })}
+              href={googleStartUrl({
+                returnTo: sanitizeReturnTo(pending.return_to ?? FALLBACK_RETURN_TO),
+                selectAccount: true,
+              })}
               className={LINK_CLASS}
             >
               Use a different account
@@ -284,6 +298,7 @@ function CreateAccountForm({
           </p>
           <div className="flex items-start gap-3">
             <DatePart
+              inputRef={monthRef}
               id={`${ids}-dob-month`}
               label="Month"
               placeholder="MM"
@@ -327,6 +342,7 @@ function CreateAccountForm({
         <div className="flex flex-col gap-1">
           <div className="flex items-start gap-3">
             <Checkbox
+              ref={termsRef}
               id={`${ids}-terms`}
               checked={termsAccepted}
               onCheckedChange={checked => setTermsAccepted(checked === true)}
@@ -386,6 +402,7 @@ function CreateAccountForm({
 }
 
 function DatePart({
+  inputRef,
   id,
   label,
   placeholder,
@@ -396,6 +413,7 @@ function DatePart({
   onChange,
   invalid,
 }: {
+  inputRef?: Ref<HTMLInputElement>
   id: string
   label: string
   placeholder: string
@@ -412,6 +430,7 @@ function DatePart({
         {label}
       </label>
       <Input
+        ref={inputRef}
         id={id}
         inputMode="numeric"
         autoComplete={autoComplete}
@@ -426,6 +445,8 @@ function DatePart({
   )
 }
 
+// The lifetime in this copy is contracts.OAuthPendingSignupTTL in the
+// backend; TestOAuthSignupExpiredCopyNamesTheLifetime fails when it changes.
 function ExpiredCard() {
   return (
     <StepCard>

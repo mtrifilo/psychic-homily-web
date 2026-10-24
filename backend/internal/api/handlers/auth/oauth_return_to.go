@@ -221,8 +221,7 @@ func oauthSignInDestination(frontendURL, returnTo string) string {
 
 // authPageRefusalURL is where a refused browser sign-in sends the reader: the
 // frontend auth page with the refusal's message and code, and the destination
-// when there is one, so that a retry from the auth page (the consent handoff
-// to Create account included) still lands on it.
+// when there is one, so that a retry from the auth page still lands on it.
 func authPageRefusalURL(frontendURL string, err error, message, returnTo string) string {
 	return authPageURLWithReturnTo(frontendURL, authPageErrorQuery(err, message), returnTo)
 }

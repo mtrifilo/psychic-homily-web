@@ -228,6 +228,11 @@ func TestOAuthLoginHTTPHandler_IgnoresSignupConsentQuery(t *testing.T) {
 		if location := w.Header().Get("Location"); strings.Contains(location, "error_code=") {
 			t.Errorf("%s: start redirected to a refusal %q", query, location)
 		}
+		// No provider is registered here, so the start ends in goth's own
+		// answer; what matters is that it got that far, past any consent check.
+		if body := w.Body.String(); strings.Contains(body, "required for account creation") {
+			t.Errorf("%s: start refused the sign-up: %q", query, body)
+		}
 		for _, c := range w.Result().Cookies() {
 			if strings.Contains(c.Name, "consent") {
 				t.Errorf("%s: start set cookie %q", query, c.Name)
