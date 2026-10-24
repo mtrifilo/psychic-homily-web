@@ -147,12 +147,41 @@ describe('AuthPage collision state', () => {
     expect(screen.getByText(/Not your account\?/)).toBeInTheDocument()
   })
 
-  it('reads the pending link only for the collision arrival', () => {
+  // A reload mid-collision arrives without OAUTH_LINK_PENDING, which leaves
+  // the URL after the first render; the cookie read alone puts it back.
+  it('shows the collision state on a reload, from the pending-link read alone', () => {
+    mockPendingRead = { isPending: false, data: { status: 'pending', email: ADDRESS } }
+    renderWithProviders(<AuthPage />)
+
+    expect(pendingReadEnabled).toHaveBeenCalledWith(true)
+    expect(screen.getByText('Sign in to connect Google')).toBeInTheDocument()
+    expect(screen.getByLabelText('Email')).toHaveValue(ADDRESS)
+    expect(screen.queryByTestId('google-oauth')).not.toBeInTheDocument()
+  })
+
+  it('shows the normal tab, with no line, when an ordinary arrival holds no pending link', () => {
+    mockPendingRead = { isPending: false, data: { status: 'expired' } }
+    renderWithProviders(<AuthPage />)
+
+    expect(screen.getByText('Sign in to your account')).toBeInTheDocument()
+    expect(screen.queryByText(PENDING_LINK_GONE_MESSAGE)).not.toBeInTheDocument()
+    expect(screen.getByTestId('google-oauth')).toBeInTheDocument()
+  })
+
+  it('shows the normal tab while an ordinary arrival waits on the read', () => {
+    mockPendingRead = { isPending: true }
+    renderWithProviders(<AuthPage />)
+
+    expect(screen.getByText('Sign in to your account')).toBeInTheDocument()
+    expect(screen.getByTestId('google-oauth')).toBeInTheDocument()
+  })
+
+  it('reads nothing on a re-authentication, which offers no new sign-in', () => {
+    mockSearchParams = new URLSearchParams('reason=OAUTH_LINK_REAUTH_REQUIRED')
     renderWithProviders(<AuthPage />)
 
     expect(pendingReadEnabled).toHaveBeenCalled()
     expect(pendingReadEnabled.mock.calls.every(([enabled]) => enabled === false)).toBe(true)
-    expect(screen.getByText('Sign in to your account')).toBeInTheDocument()
   })
 
   it('signs in with the prefilled address and lands on returnTo', async () => {

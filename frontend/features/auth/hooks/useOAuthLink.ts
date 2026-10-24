@@ -18,10 +18,10 @@ export const SEND_LINK_FAILED_MESSAGE = 'Failed to send magic link. Please try a
 
 /**
  * Reads this browser's pending Google link. The backend names it by an
- * HttpOnly cookie, so the address never travels in the URL. Read once per
- * arrival on the collision state and never refetched while it shows: the
- * proofs' own answers correct a stale read. `enabled` is false for every
- * other arrival, which never reads it.
+ * HttpOnly cookie, so the address never travels in the URL and only this read
+ * can tell whether one is live. Read once per visit to the auth page and never
+ * refetched while it shows: the proofs' own answers correct a stale read.
+ * `enabled` is false where no sign-in is offered, which never reads it.
  */
 export function usePendingOAuthLink(enabled: boolean) {
   return useQuery({

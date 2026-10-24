@@ -80,6 +80,14 @@ vi.mock('@/app/auth/_components/google-oauth-button', () => ({
   GoogleOAuthButton: (): null => null,
 }))
 
+// The Sign in tab's pending-link read is its own request; these tests count
+// the sign-up requests alone.
+vi.mock('@/features/auth/hooks/useOAuthLink', () => ({
+  SEND_LINK_FAILED_MESSAGE: 'Failed to send magic link. Please try again.',
+  usePendingOAuthLink: () => ({ isPending: false, data: { status: 'expired' } }),
+  useSendOAuthLinkEmail: () => ({ mutate: vi.fn(), isPending: false }),
+}))
+
 const mockStartRegistration = vi.fn()
 vi.mock('@simplewebauthn/browser', () => ({
   browserSupportsWebAuthn: vi.fn(() => true),

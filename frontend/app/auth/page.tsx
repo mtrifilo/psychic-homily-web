@@ -951,17 +951,22 @@ function AuthPageContent() {
   const passkeySignupDeadline = useSignupRequestDeadline(releasePendingSignup)
   const signInTabRef = useRef<HTMLButtonElement>(null)
 
-  // A Google sign-in whose verified address an account already holds arrives
-  // with OAUTH_LINK_PENDING, and the Sign in tab shows the collision state for
-  // as long as the pending link the backend holds for this browser is live.
-  // A proof that finds it gone marks it gone for this arrival only, so a new
-  // arrival reads it afresh.
+  // The Sign in tab shows the collision state for as long as this browser
+  // holds a live pending Google link, which only the backend can say: the
+  // cookie that names it is HttpOnly. So every sign-in arrival reads it, and a
+  // reload mid-collision, which arrives without the callback's
+  // OAUTH_LINK_PENDING (the banner parameters leave the URL after the first
+  // render), still lands on the state. The code is the first render's hint:
+  // with it, the tab waits for the read and says so when the pending link is
+  // gone; without it, the normal tab shows until the read answers. A proof
+  // that finds the pending link gone marks it gone for this arrival only, so
+  // a new arrival reads it afresh.
   const linkArrival =
     searchParams.get(AUTH_ERROR_CODE_PARAM) === AuthErrorCode.OAUTH_LINK_PENDING
-  const pendingLink = usePendingOAuthLink(linkArrival)
+  const pendingLink = usePendingOAuthLink(!isReauth)
   const [goneLinkArrival, setGoneLinkArrival] = useState<string | null>(null)
   const collisionEmail =
-    linkArrival && goneLinkArrival !== arrival && pendingLink.data?.status === 'pending'
+    !isReauth && goneLinkArrival !== arrival && pendingLink.data?.status === 'pending'
       ? (pendingLink.data.email ?? null)
       : null
   const readingPendingLink = linkArrival && pendingLink.isPending
