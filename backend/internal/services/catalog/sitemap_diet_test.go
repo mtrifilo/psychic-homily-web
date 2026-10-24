@@ -1,21 +1,32 @@
 package catalog
 
 import (
+	"log/slog"
 	"os"
 	"strconv"
+	"strings"
 	"testing"
+
+	"psychic-homily-backend/internal/testlog"
 )
 
-// TestSitemapDietFromEnvIsOffUnlessSetExactly pins the default-off contract
-// and which flag feeds which rule. How each value is parsed is
-// shared.EnvPositiveInt's and shared.EnvFlagEnabled's, tested there; this
+// sitemapDietEnvKeys is every diet flag, for tests that must start with all of
+// them unset.
+var sitemapDietEnvKeys = []string{
+	sitemapPastShowMaxAgeDaysEnv,
+	sitemapOmitUnlinkedReleasesEnv,
+	sitemapOmitIdleArtistsEnv,
+}
+
+// TestSitemapDietFromEnvIsOffUnlessSetExactly pins the default-off contract,
+// which flag feeds which rule, and which values warn. How each value is parsed
+// is shared.EnvPositiveInt's and shared.EnvFlagEnabled's, tested there; this
 // covers one malformed value per flag to prove the wiring, and the age limit,
 // which is this package's own.
 func TestSitemapDietFromEnvIsOffUnlessSetExactly(t *testing.T) {
-	keys := []string{sitemapPastShowMaxAgeDaysEnv, sitemapOmitUnlinkedReleasesEnv, sitemapOmitIdleArtistsEnv}
 	unsetAll := func(t *testing.T) {
 		t.Helper()
-		for _, key := range keys {
+		for _, key := range sitemapDietEnvKeys {
 			// Setenv first so the test framework restores the variable afterwards.
 			t.Setenv(key, "")
 			if err := os.Unsetenv(key); err != nil {
@@ -23,31 +34,25 @@ func TestSitemapDietFromEnvIsOffUnlessSetExactly(t *testing.T) {
 			}
 		}
 	}
+	age := func(v string) map[string]string { return map[string]string{sitemapPastShowMaxAgeDaysEnv: v} }
 	cases := []struct {
-		name string
-		env  map[string]string
-		want sitemapDiet
+		name     string
+		env      map[string]string
+		want     sitemapDiet
+		wantWarn bool
 	}{
-		{name: "unset is every rule off", want: sitemapDiet{}},
-		{name: "malformed age is off", env: map[string]string{sitemapPastShowMaxAgeDaysEnv: "abc"}},
-		{name: "zero age is off", env: map[string]string{sitemapPastShowMaxAgeDaysEnv: "0"}},
-		{
-			name: "age past the limit is off",
-			env:  map[string]string{sitemapPastShowMaxAgeDaysEnv: strconv.Itoa(sitemapPastShowMaxAgeDaysLimit + 1)},
-		},
-		{
-			name: "age 30 is only the past-show rule",
-			env:  map[string]string{sitemapPastShowMaxAgeDaysEnv: "30"},
-			want: sitemapDiet{pastShowMaxAgeDays: 30},
-		},
-		{
-			name: "age pasted with whitespace is on",
-			env:  map[string]string{sitemapPastShowMaxAgeDaysEnv: " 30\n"},
-			want: sitemapDiet{pastShowMaxAgeDays: 30},
-		},
+		{name: "unset is every rule off"},
+		{name: "zero age is off, silently", env: age("0")},
+		{name: "zero spelled 00 is off, silently", env: age("00")},
+		{name: "malformed age is off, with a warning", env: age("abc"), wantWarn: true},
+		{name: "negative age is off, with a warning", env: age("-5"), wantWarn: true},
+		{name: "age past the limit is off, with a warning", env: age(strconv.Itoa(sitemapPastShowMaxAgeDaysLimit + 1)), wantWarn: true},
+		{name: "age too large to parse is off, with a warning", env: age("99999999999999999999"), wantWarn: true},
+		{name: "age 30 is only the past-show rule", env: age("30"), want: sitemapDiet{pastShowMaxAgeDays: 30}},
+		{name: "age pasted with whitespace is on", env: age(" 30\n"), want: sitemapDiet{pastShowMaxAgeDays: 30}},
 		{
 			name: "age at the limit is on",
-			env:  map[string]string{sitemapPastShowMaxAgeDaysEnv: strconv.Itoa(sitemapPastShowMaxAgeDaysLimit)},
+			env:  age(strconv.Itoa(sitemapPastShowMaxAgeDaysLimit)),
 			want: sitemapDiet{pastShowMaxAgeDays: sitemapPastShowMaxAgeDaysLimit},
 		},
 		{
@@ -71,8 +76,17 @@ func TestSitemapDietFromEnvIsOffUnlessSetExactly(t *testing.T) {
 			for key, value := range tc.env {
 				t.Setenv(key, value)
 			}
+			capture, buf := testlog.NewJSONCapture(slog.LevelWarn)
+			previous := slog.Default()
+			slog.SetDefault(capture)
+			t.Cleanup(func() { slog.SetDefault(previous) })
+
 			if got := sitemapDietFromEnv(); got != tc.want {
 				t.Errorf("sitemapDietFromEnv() with %v = %+v, want %+v", tc.env, got, tc.want)
+			}
+			warned := strings.Contains(buf.String(), sitemapPastShowMaxAgeDaysEnv)
+			if warned != tc.wantWarn {
+				t.Errorf("sitemapDietFromEnv() with %v warned = %v, want %v (log: %q)", tc.env, warned, tc.wantWarn, buf.String())
 			}
 		})
 	}

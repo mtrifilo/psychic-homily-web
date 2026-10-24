@@ -357,23 +357,19 @@ type sitemapDiet struct {
 }
 
 // sitemapDietFromEnv warns on an age that is set but read as off, other than an
-// explicit "0", so a mistyped value is visible in the log rather than only as a
-// zero in the startup line.
+// explicit zero, so a mistyped value is visible in the log rather than only as
+// a zero in the startup line.
 func sitemapDietFromEnv() sitemapDiet {
 	raw := strings.TrimSpace(os.Getenv(sitemapPastShowMaxAgeDaysEnv))
 	days := shared.EnvPositiveInt(sitemapPastShowMaxAgeDaysEnv, 0)
-	switch {
-	case days > sitemapPastShowMaxAgeDaysLimit:
-		slog.Default().Warn("sitemap past-show max age is out of range; rule is off",
+	if days > sitemapPastShowMaxAgeDaysLimit {
+		days = 0
+	}
+	if n, err := strconv.Atoi(raw); days == 0 && raw != "" && (err != nil || n != 0) {
+		slog.Default().Warn("sitemap past-show max age is not a whole number from 1 to the limit; rule is off",
 			"key", sitemapPastShowMaxAgeDaysEnv,
 			"value", raw,
 			"limit", sitemapPastShowMaxAgeDaysLimit,
-		)
-		days = 0
-	case days == 0 && raw != "" && raw != "0":
-		slog.Default().Warn("sitemap past-show max age is not a positive whole number; rule is off",
-			"key", sitemapPastShowMaxAgeDaysEnv,
-			"value", raw,
 		)
 	}
 	return sitemapDiet{
