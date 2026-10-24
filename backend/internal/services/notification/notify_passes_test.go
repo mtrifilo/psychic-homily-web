@@ -4,6 +4,7 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/lib/pq"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -206,4 +207,128 @@ func (s *NotificationFilterSuite) TestMatchAndNotify_RetryAfterFilterFailureDoes
 
 	s.Equal(int64(1), s.inAppAlerts(userID, showID))
 	s.Equal(int64(0), s.filterLogRows(userID, showID), "the filter pass defers to the artist alert")
+}
+
+// subscribeToArtist gives the user an in-app filter matching any show with the
+// artist on the bill.
+func (s *NotificationFilterSuite) subscribeToArtist(userID, artistID uint) {
+	_, err := s.svc.CreateFilter(userID, contracts.CreateFilterInput{
+		Name:        "Artist filter",
+		ArtistIDs:   []int64{int64(artistID)},
+		NotifyInApp: true,
+	})
+	s.Require().NoError(err)
+}
+
+// The filter query fails, the venue batch flushes and tells the user about the
+// show, then the filter retry succeeds: the user is told once, by the venue
+// alert.
+func (s *NotificationFilterSuite) TestMatchAndNotify_FilterRetryAfterVenueFlushDoesNotRenotify() {
+	userID := s.createTestUser()
+	artistID := s.createTestArtist("Oneida")
+	venueID := s.createTestVenue("Valley Bar")
+	s.followVenueWithAlerts(userID, venueID, `{}`)
+	s.subscribeToArtist(userID, artistID)
+	day := venueLocalToday()
+	showID := s.createTestShow("Oneida at Valley Bar", []uint{artistID}, []uint{venueID})
+
+	restore := s.breakFilterQuery()
+	s.requireFilterPassError(s.svc.MatchAndNotify(s.loadShow(showID)))
+	s.Equal(1, s.flushNow())
+	s.Require().Equal(int64(1), s.venueInAppAlerts(userID, venueID, day))
+
+	restore()
+	s.Require().NoError(s.svc.MatchAndNotify(s.loadShow(showID)))
+
+	s.Equal(int64(1), s.venueInAppAlerts(userID, venueID, day))
+	s.Equal(int64(0), s.filterLogRows(userID, showID), "the venue alert already listed the show")
+}
+
+// The per-user re-check inside the filter pass applies the same venue-alert
+// rule as the matching query, for a match that query returned before the venue
+// alert existed.
+func (s *NotificationFilterSuite) TestProcessUserMatches_SkipsAUserTheVenueAlertAlreadyTold() {
+	userID := s.createTestUser()
+	artistID := s.createTestArtist("Oneida")
+	venueID := s.createTestVenue("Valley Bar")
+	s.followVenueWithAlerts(userID, venueID, `{}`)
+	s.subscribeToArtist(userID, artistID)
+	showID := s.createTestShow("Oneida at Valley Bar", []uint{artistID}, []uint{venueID})
+	show := s.loadShow(showID)
+
+	matches, err := s.svc.findMatchingFilters(showID, pq.Int64Array{int64(artistID)}, pq.Int64Array{int64(venueID)}, nil, nil, nil, nil)
+	s.Require().NoError(err)
+	s.Require().Len(matches, 1)
+
+	s.Require().NoError(s.svc.accrueVenueShowAlerts(show, pq.Int64Array{int64(venueID)}))
+	s.Require().Equal(1, s.flushNow())
+
+	s.svc.processUserMatches(userID, show, matches)
+	s.Equal(int64(0), s.filterLogRows(userID, showID))
+}
+
+// Only the in-app lane counts as the venue alert listing a show: an email-only
+// venue alert does not stop the filter retry.
+func (s *NotificationFilterSuite) TestMatchAndNotify_EmailOnlyVenueAlertDoesNotStopTheFilterRetry() {
+	s.withCapturedEmail()
+	userID := s.createTestUser()
+	artistID := s.createTestArtist("Oneida")
+	venueID := s.createTestVenue("Valley Bar")
+	s.followVenueWithAlerts(userID, venueID, `{"alerts":{"shows":{"in_app":false,"email":true}}}`)
+	s.subscribeToArtist(userID, artistID)
+	day := venueLocalToday()
+	showID := s.createTestShow("Oneida at Valley Bar", []uint{artistID}, []uint{venueID})
+
+	restore := s.breakFilterQuery()
+	s.requireFilterPassError(s.svc.MatchAndNotify(s.loadShow(showID)))
+	s.Equal(1, s.flushNow())
+	s.Require().Equal(int64(1), s.venueAlertRows(userID, venueID, day, notificationm.NotificationChannelEmail))
+
+	restore()
+	s.Require().NoError(s.svc.MatchAndNotify(s.loadShow(showID)))
+
+	s.Equal(int64(1), s.filterLogRows(userID, showID))
+}
+
+// breakArtistFollowerQuery makes the artist-follow pass's followers query fail
+// by renaming a column only it reads, and returns the function that restores
+// it. The restore also runs at test cleanup and is a no-op once it has run.
+func (s *NotificationFilterSuite) breakArtistFollowerQuery() (restore func()) {
+	s.Require().NoError(s.db.Exec(
+		`ALTER TABLE show_artists RENAME COLUMN position TO position_unavailable`).Error)
+	restored := false
+	restore = func() {
+		if restored {
+			return
+		}
+		restored = true
+		s.Require().NoError(s.db.Exec(
+			`ALTER TABLE show_artists RENAME COLUMN position_unavailable TO position`).Error)
+	}
+	s.T().Cleanup(restore)
+	return restore
+}
+
+// A follow pass's error is returned, so the outbox retries, and the retry
+// delivers the alert the failed run missed, once.
+func (s *NotificationFilterSuite) TestMatchAndNotify_ArtistFollowFailureIsReturnedAndRetryDeliversOnce() {
+	userID := s.createTestUser()
+	artistID := s.createTestArtist("Oneida")
+	s.followArtist(userID, artistID)
+	venueID := s.createTestVenue("Valley Bar")
+	showID := s.createTestShow("Oneida at Valley Bar", []uint{artistID}, []uint{venueID})
+
+	restore := s.breakArtistFollowerQuery()
+	err := s.svc.MatchAndNotify(s.loadShow(showID))
+	s.Require().Error(err)
+	s.Contains(err.Error(), notifyPassArtistFollow+" pass: artist followers query")
+	s.NotContains(err.Error(), notifyPassFilter+" pass")
+	s.Equal(int64(0), s.inAppAlerts(userID, showID))
+
+	restore()
+	s.Require().NoError(s.svc.MatchAndNotify(s.loadShow(showID)))
+	s.Equal(int64(1), s.inAppAlerts(userID, showID))
+
+	s.Require().NoError(s.svc.MatchAndNotify(s.loadShow(showID)))
+	s.Equal(int64(1), s.inAppAlerts(userID, showID))
 }

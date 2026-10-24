@@ -442,10 +442,9 @@ func effectiveShowPriceCents(show *catalogm.Show) *int {
 
 // MatchAndNotify announces a newly visible show through every notification
 // system: filter matches, artist follows, venue-follow accrual and scene
-// follows. Every pass runs even when another fails. The returned error is the
-// filter pass's (the follow passes log and swallow theirs), and the show-notify
-// outbox retries on it. A panic in a pass is re-raised after the remaining
-// passes have run.
+// follows. Every pass runs even when another fails. The returned error joins
+// every pass's error, and the show-notify outbox retries on it. A panic in a
+// pass is re-raised after the remaining passes have run.
 func (s *NotificationFilterService) MatchAndNotify(show *catalogm.Show) error {
 	if s.db == nil {
 		return fmt.Errorf("database not initialized")
@@ -505,23 +504,22 @@ func (s *NotificationFilterService) MatchAndNotify(show *catalogm.Show) error {
 	//
 	// Every pass runs even when an earlier one fails or panics. A failed pass
 	// gives up its precedence for this run: the later passes see only the rows
-	// that were written. Only the filter pass returns an error, and the outbox
+	// that were written. Every pass's error is returned joined, and the outbox
 	// retries the show on it.
 	//
-	// A sequential retry repeats no filter, artist or scene notification and
-	// accrues no show twice: those passes dedup against the log or claim
-	// through a UNIQUE. A venue alert is the exception. Its log row is keyed by
-	// venue, so the filter pass's dedup cannot see it, and a filter pass that
-	// first succeeds after the venue batch has flushed notifies a user that
-	// batch already told about this show. Concurrent runs are covered by
-	// neither guarantee; see ShowNotifyOutboxPoller.
+	// A sequential retry repeats no notification the log or a UNIQUE claim
+	// records for this show, and accrues no show twice. The filter pass also
+	// skips a user whose in-app venue alert already lists the show
+	// (listedByInAppVenueAlert). The artist and scene passes do not: a pass of
+	// theirs that first succeeds after the venue batch has flushed can tell a
+	// user that batch already told. Concurrent runs are covered by none of
+	// this; see ShowNotifyOutboxPoller.
 	return runNotifyPasses(show.ID, []notifyPass{
 		{name: notifyPassFilter, run: func() error {
 			return s.notifyFilterSubscribers(show, showArtistIDs, showVenueIDs, artistLabelIDs, artistTagIDs)
 		}},
 		{name: notifyPassArtistFollow, run: func() error {
-			s.notifyArtistFollowers(show, showArtistIDs)
-			return nil
+			return s.notifyArtistFollowers(show, showArtistIDs)
 		}},
 		// Venue follows ACCRUE rather than notify: venue alerts are coalesced to
 		// one per venue per venue-local day, so this records an observation and
@@ -529,12 +527,10 @@ func (s *NotificationFilterService) MatchAndNotify(show *catalogm.Show) error {
 		// the artist pass because the flush's cross-system dedup reads the rows
 		// the earlier passes wrote.
 		{name: notifyPassVenueFollow, run: func() error {
-			s.accrueVenueShowAlerts(show, showVenueIDs)
-			return nil
+			return s.accrueVenueShowAlerts(show, showVenueIDs)
 		}},
 		{name: notifyPassSceneFollow, run: func() error {
-			s.notifySceneFollowers(show, showArtistIDs)
-			return nil
+			return s.notifySceneFollowers(show, showArtistIDs)
 		}},
 	})
 }
@@ -677,7 +673,9 @@ func (s *NotificationFilterService) findMatchingFilters(
 	// The NOT EXISTS arm is the filter pass's half of the one-notification-per-
 	// (user, show) rule, and it consults the SHARED shape predicate: a user the
 	// artist-follow pass already reached must not also be matched here on a later
-	// run (an outbox re-process, or an edit followed by a re-approve).
+	// run (an outbox re-process, or an edit followed by a re-approve). The last
+	// arm does the same for a user whose in-app venue alert already lists the
+	// show.
 	query := fmt.Sprintf(`
 		SELECT nf.id as filter_id, nf.user_id, nf.name, nf.source, nf.notify_email, nf.notify_in_app
 		FROM notification_filters nf
@@ -695,8 +693,9 @@ func (s *NotificationFilterService) findMatchingFilters(
 		        AND nl.entity_id = ?
 		        AND %s
 		  )
+		  AND NOT %s
 		ORDER BY nf.id ASC
-	`, notifiedAboutShow("nl"))
+	`, notifiedAboutShow("nl"), listedByInAppVenueAlert("nf.user_id"))
 
 	// Handle nil arrays — PostgreSQL needs empty arrays, not NULL
 	if showArtistIDs == nil {
@@ -725,6 +724,7 @@ func (s *NotificationFilterService) findMatchingFilters(
 		priceCents,       // price_max_cents IS NULL OR ?
 		priceCents,       // ? <= nf.price_max_cents
 		showID,           // entity_id = ?
+		showID,           // venue alert batch show_id = ?
 	).Scan(&matches).Error
 
 	if err != nil {
@@ -765,6 +765,15 @@ func (s *NotificationFilterService) processUserMatches(userID uint, show *catalo
 		return
 	}
 	if existing > 0 {
+		return
+	}
+	var listedByVenueAlert bool
+	if err := s.db.Raw("SELECT "+listedByInAppVenueAlert("?"), userID, show.ID).
+		Scan(&listedByVenueAlert).Error; err != nil {
+		log.Printf("failed to dedup notification against venue alerts for user %d, show %d: %v", userID, show.ID, err)
+		return
+	}
+	if listedByVenueAlert {
 		return
 	}
 
@@ -1361,6 +1370,35 @@ func notifiedAboutShow(alias string) string {
 			"%s.entity_type = '%s'", alias, entityType))
 	}
 	return "(" + strings.Join(clauses, " OR ") + ")"
+}
+
+// listedByInAppVenueAlert is the SQL predicate for "this user's in-app venue
+// alert already lists this show". userExpr is the SQL expression for the user
+// id, and the predicate binds one parameter after any in userExpr: the show id.
+//
+// notifiedAboutShow cannot see venue alerts, because their entity_id is a venue
+// id. The inbox lists a venue alert's shows by reading the venue-day batch live,
+// joined to the reader's in-app row for that venue-day and to the show's current
+// venues, so this predicate is that same join narrowed to one show. Only the
+// in-app lane counts: an email lists the members its flush resolved, and which
+// members those were is not recorded.
+//
+// The filter pass is its only reader, and that pass runs before venue accrual
+// in MatchAndNotify, so it matches only a show accrued by an earlier run: a
+// retry or a re-approval.
+func listedByInAppVenueAlert(userExpr string) string {
+	return fmt.Sprintf(`EXISTS (
+		SELECT 1
+		FROM venue_show_alert_batch vab
+		JOIN show_venues vsv ON vsv.show_id = vab.show_id AND vsv.venue_id = vab.venue_id
+		JOIN notification_log val
+		  ON val.user_id = %s
+		 AND val.entity_type = '%s'
+		 AND val.entity_id = vab.venue_id
+		 AND val.alert_bucket = vab.alert_day
+		 AND val.channel = '%s'
+		WHERE vab.show_id = ?
+	)`, userExpr, notificationm.NotificationEntityVenueShowAlert, notificationm.NotificationChannelInApp)
 }
 
 // enrichArtistShowAlertNotifications populates the artist name, show title and
