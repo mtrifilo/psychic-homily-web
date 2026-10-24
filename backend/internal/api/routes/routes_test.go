@@ -142,7 +142,7 @@ func TestAdvancementRouteOpenAPI(t *testing.T) {
 	cfg := testConfig()
 	sc := testContainer(cfg)
 	router := chi.NewRouter()
-	api := humachi.New(router, huma.DefaultConfig("Advancement route", "1.0.0"))
+	api := humachi.New(router, humaConfig())
 	protected := huma.NewGroup(api, "")
 	// setupProtectedAuthRoutes also registers /auth/cli-token on rc.Admin
 	// (PSY-550); a nil Admin group panics inside huma.Post.
@@ -166,7 +166,7 @@ func TestSetupFollowRoutesOpenAPI(t *testing.T) {
 	cfg := testConfig()
 	sc := testContainer(cfg)
 	router := chi.NewRouter()
-	api := humachi.New(router, huma.DefaultConfig("Follow routes", "1.0.0"))
+	api := humachi.New(router, humaConfig())
 	protected := huma.NewGroup(api, "")
 
 	setupFollowRoutes(RouteContext{
@@ -218,15 +218,7 @@ func TestSetupFollowRoutesOpenAPI(t *testing.T) {
 	assertProperties := func(schema *huma.Schema, expected ...string) {
 		t.Helper()
 		schema = resolveSchema(schema)
-		propertyCount := 0
-		if schema != nil {
-			for name := range schema.Properties {
-				if name != "$schema" {
-					propertyCount++
-				}
-			}
-		}
-		if schema == nil || propertyCount != len(expected) {
+		if schema == nil || len(schema.Properties) != len(expected) {
 			t.Fatalf("expected response properties %v, got %+v", expected, schema)
 		}
 		for _, name := range expected {
@@ -305,7 +297,7 @@ func TestSetupAuthRoutes(t *testing.T) {
 	sc := testContainer(cfg)
 
 	router := chi.NewRouter()
-	api := humachi.New(router, huma.DefaultConfig("Test", "1.0.0"))
+	api := humachi.New(router, humaConfig())
 
 	setupAuthRoutes(RouteContext{Router: router, API: api, SC: sc, Cfg: cfg})
 
@@ -363,7 +355,7 @@ func TestSetupAuthRoutes(t *testing.T) {
 // TestSetupSystemRoutes tests system route setup
 func TestSetupSystemRoutes(t *testing.T) {
 	router := chi.NewRouter()
-	api := humachi.New(router, huma.DefaultConfig("Test", "1.0.0"))
+	api := humachi.New(router, humaConfig())
 
 	setupSystemRoutes(RouteContext{Router: router, API: api})
 
@@ -550,7 +542,7 @@ func TestRouteMiddleware(t *testing.T) {
 	sc := testContainer(cfg)
 
 	router := chi.NewRouter()
-	api := humachi.New(router, huma.DefaultConfig("Test", "1.0.0"))
+	api := humachi.New(router, humaConfig())
 
 	setupAuthRoutes(RouteContext{Router: router, API: api, SC: sc, Cfg: cfg})
 
@@ -574,7 +566,7 @@ func TestRouteErrorHandling(t *testing.T) {
 	sc := testContainer(cfg)
 
 	router := chi.NewRouter()
-	api := humachi.New(router, huma.DefaultConfig("Test", "1.0.0"))
+	api := humachi.New(router, humaConfig())
 
 	setupAuthRoutes(RouteContext{Router: router, API: api, SC: sc, Cfg: cfg})
 
@@ -603,7 +595,7 @@ func TestRouteParameterExtraction(t *testing.T) {
 	sc := testContainer(cfg)
 
 	router := chi.NewRouter()
-	api := humachi.New(router, huma.DefaultConfig("Test", "1.0.0"))
+	api := humachi.New(router, humaConfig())
 
 	setupAuthRoutes(RouteContext{Router: router, API: api, SC: sc, Cfg: cfg})
 
@@ -636,7 +628,7 @@ func TestRouteRegistration(t *testing.T) {
 	sc := testContainer(cfg)
 
 	router := chi.NewRouter()
-	api := humachi.New(router, huma.DefaultConfig("Test", "1.0.0"))
+	api := humachi.New(router, humaConfig())
 
 	setupAuthRoutes(RouteContext{Router: router, API: api, SC: sc, Cfg: cfg})
 

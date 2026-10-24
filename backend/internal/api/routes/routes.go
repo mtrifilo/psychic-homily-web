@@ -43,7 +43,7 @@ func SetupRoutes(router *chi.Mux, sc *services.ServiceContainer, cfg *config.Con
 	// humaerr.Install is process-wide, and in effect before any request is
 	// served.
 	humaerr.Install()
-	api := humachi.New(router, huma.DefaultConfig("Psychic Homily", "1.0.0"))
+	api := humachi.New(router, humaConfig())
 
 	// Add request ID middleware to all Huma routes
 	api.UseMiddleware(middleware.HumaRequestIDMiddleware)
@@ -133,4 +133,16 @@ func SetupRoutes(router *chi.Mux, sc *services.ServiceContainer, cfg *config.Con
 	setupTestFixtureRoutes(rc)
 
 	return api
+}
+
+// humaConfig is huma.DefaultConfig without its create hooks. The one default
+// hook installs the schema-link transformer, which writes a `$schema` URL into
+// every JSON response body, adds a describedBy Link header, and declares a
+// `$schema` property on every request and response schema. Without it, no
+// response or schema carries `$schema`; the JSON Schema documents themselves
+// stay served under SchemasPath.
+func humaConfig() huma.Config {
+	config := huma.DefaultConfig("Psychic Homily", "1.0.0")
+	config.CreateHooks = nil
+	return config
 }

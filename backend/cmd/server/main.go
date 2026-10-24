@@ -268,19 +268,10 @@ func main() {
 
 	useRequestCorrelation(router)
 
-	// Setup CORS middleware
 	log.Printf("CORS Configuration: Origins=%v, Methods=%v, Headers=%v, ExposedHeaders=%v, Credentials=%v",
 		cfg.CORS.AllowedOrigins, cfg.CORS.AllowedMethods, cfg.CORS.AllowedHeaders, config.CORSExposedHeaders(), cfg.CORS.AllowCredentials)
 
-	// CORS middleware with dynamic origin validation. Construction is
-	// extracted to newCORSMiddleware so the preflight contract — notably
-	// that non-prod echoes the Lighthouse x-vercel-protection-bypass header
-	// (PSY-929) — is unit-testable.
-	router.Use(newCORSMiddleware(cfg.CORS, isProduction).Handler)
-
-	// Add security headers middleware
-	// Adds headers like X-Content-Type-Options, X-Frame-Options, CSP, HSTS (in production)
-	router.Use(middleware.SecurityHeaders)
+	useResponseHeaderPolicy(router, cfg.CORS, isProduction)
 
 	// Create service container (all services instantiated once)
 	sc := services.NewServiceContainer(database, cfg)
@@ -834,6 +825,23 @@ func useRequestCorrelation(router chi.Router) {
 	router.Use(middleware.SentryRequestIDTag)
 
 	router.Use(logRequest)
+}
+
+// useResponseHeaderPolicy registers, outermost first, the middleware that sets
+// headers on every response: the noindex directive, CORS, and the security
+// headers. Call it right after useRequestCorrelation and before the rate
+// limiters, so CORS preflight answers and limiter refusals carry the noindex
+// directive too.
+func useResponseHeaderPolicy(router chi.Router, corsCfg config.CORSConfig, isProduction bool) {
+	router.Use(middleware.RobotsNoIndex)
+
+	// CORS with dynamic origin validation. newCORSMiddleware is separate so its
+	// preflight contract (notably that non-prod echoes the Lighthouse
+	// x-vercel-protection-bypass header) is unit-testable.
+	router.Use(newCORSMiddleware(corsCfg, isProduction).Handler)
+
+	// X-Content-Type-Options, X-Frame-Options, CSP, and HSTS in production.
+	router.Use(middleware.SecurityHeaders)
 }
 
 // logRequest writes one access log line per request, carrying the request id
