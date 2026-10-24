@@ -198,7 +198,11 @@ func NewUserService(database *gorm.DB) *UserService {
 // discriminate on the code.
 //
 // With a nil consent, an identity that would need an account created is
-// refused with *contracts.OAuthSignupRequiredError carrying the identity.
+// refused with *contracts.OAuthSignupRequiredError carrying the identity. The
+// CodeOAuthLinkRefused refusal arrives wrapped in
+// *contracts.OAuthLinkRequiredError when the provider verified the address
+// and the account holding it may sign in and holds no identity from the
+// provider.
 func (s *UserService) FindOrCreateUserWithConsent(gothUser goth.User, provider string, consent *contracts.OAuthSignupConsent) (*authm.User, error) {
 	return s.FindOrCreateUserFromOAuthIdentity(OAuthIdentityFromGoth(gothUser, provider), consent, nil)
 }
@@ -287,7 +291,9 @@ func (s *UserService) FindOrCreateUserFromOAuthIdentity(identity contracts.OAuth
 			//
 			// So there is no by-address link at all. An identity is attached
 			// only from a session that already holds the account, at
-			// /auth/link/{provider}, which the refusal names.
+			// /auth/link/{provider}, which the refusal names, or after the
+			// person proves the account by its password or its mailbox, which
+			// OAuthLinkRequiredError offers a caller.
 			//
 			// A recoverable deleted account is the exception, for the reasons
 			// shared.AddressMatchIsRecoverable states.
@@ -296,6 +302,28 @@ func (s *UserService) FindOrCreateUserFromOAuthIdentity(identity contracts.OAuth
 					"provider", provider,
 					"user_id", existingUser.ID)
 				return nil, apperrors.ErrAccountRecoverable()
+			}
+			// The proofs can join this identity to the account only when the
+			// provider vouches that the identity holds the mailbox: the
+			// mailbox proof is a link sent there, and an identity that does
+			// not hold it must not be joined by whoever does clicking it. An
+			// account that may not sign in, or that already holds an identity
+			// from this provider, keeps the plain refusal.
+			if existingUser.CanSignIn() && identity.EmailVerified {
+				holds, err := s.accountHoldsProviderIdentity(existingUser.ID, provider)
+				if err != nil {
+					return nil, err
+				}
+				if !holds {
+					logger.Default().Warn("oauth_signin_address_belongs_to_account_link_offered",
+						"provider", provider,
+						"user_id", existingUser.ID)
+					return nil, &contracts.OAuthLinkRequiredError{
+						Identity: identity,
+						UserID:   existingUser.ID,
+						Refusal:  apperrors.ErrOAuthLinkRefused(identity.Email),
+					}
+				}
 			}
 			logger.Default().Warn("oauth_signin_refused_address_belongs_to_account",
 				"provider", provider,
@@ -314,6 +342,18 @@ func (s *UserService) FindOrCreateUserFromOAuthIdentity(identity contracts.OAuth
 		}
 	}
 	return s.createNewUserOauthWithConsent(identity, consent, displayName)
+}
+
+// accountHoldsProviderIdentity reports whether userID already holds an
+// identity from provider.
+func (s *UserService) accountHoldsProviderIdentity(userID uint, provider string) (bool, error) {
+	var count int64
+	if err := s.db.Model(&authm.OAuthAccount{}).
+		Where("user_id = ? AND provider = ?", userID, provider).
+		Count(&count).Error; err != nil {
+		return false, fmt.Errorf("database error: %w", err)
+	}
+	return count > 0, nil
 }
 
 // CreateUserWithPasswordWithLegal creates a new user and records legal acceptance metadata.

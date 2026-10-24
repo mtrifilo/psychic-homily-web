@@ -52,7 +52,7 @@ func (s *AuthHandlerIntegrationSuite) TestLogin_AccountState() {
 			s.Equal(state.want.UserMessage(), resp.Body.Message)
 			s.Empty(resp.Body.Token)
 			s.Nil(resp.Body.User)
-			s.Empty(resp.SetCookie.Value)
+			s.Empty(resp.SetCookie)
 
 			input.Body.Password = "wrong-password-999!"
 			resp, err = h.LoginHandler(context.Background(), input)

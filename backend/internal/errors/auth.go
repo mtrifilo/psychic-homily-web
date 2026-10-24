@@ -88,6 +88,15 @@ const (
 	// this browser. One code for all three, so a caller learns nothing about
 	// which.
 	CodeOAuthSignupExpired = "OAUTH_SIGNUP_EXPIRED"
+	// CodeOAuthLinkPending is not a refusal: it is the code the sign-in
+	// callback hands the auth page when the provider's verified address
+	// belongs to an account, and the identity is held as a pending link until
+	// the person proves that account by its password or its mailbox.
+	CodeOAuthLinkPending = "OAUTH_LINK_PENDING"
+	// CodeOAuthLinkPendingExpired indicates a pending link that is gone:
+	// expired, already used by the other proof, or never issued to this
+	// browser. One code for all three, as with CodeOAuthSignupExpired.
+	CodeOAuthLinkPendingExpired = "OAUTH_LINK_PENDING_EXPIRED"
 	// CodeReauthRequired indicates that adding a credential to the account was
 	// refused because the request's session did not authenticate recently
 	// enough. Distinct from CodeUnauthorized: the caller IS the account owner
@@ -161,6 +170,7 @@ var authCodeHTTPStatus = map[string]int{
 	CodeOAuthProviderAlreadyLinked: http.StatusConflict,
 	CodeOAuthLinkExpired:           http.StatusBadRequest,
 	CodeOAuthSignupExpired:         http.StatusBadRequest,
+	CodeOAuthLinkPendingExpired:    http.StatusBadRequest,
 	CodeReauthRequired:             http.StatusForbidden,
 	CodeUnknownHomeMetro:           http.StatusUnprocessableEntity,
 }
@@ -378,6 +388,14 @@ func ErrOAuthSignupExpired(err error) *AuthError {
 	return NewAuthError(CodeOAuthSignupExpired, oauthSignupExpiredMessage, err)
 }
 
+// ErrOAuthLinkPendingExpired is the refusal for a proof whose pending link is
+// expired, already used, or not this browser's. err is the internal cause.
+// The message is the sign-in refusal's own: with no pending link left, the
+// way to connect the provider is the one that refusal names.
+func ErrOAuthLinkPendingExpired(err error) *AuthError {
+	return NewAuthError(CodeOAuthLinkPendingExpired, oauthLinkRefusedMessage, err)
+}
+
 // ErrInvalidCredentialResponse is the refusal for a passkey ceremony response
 // the relying party does not accept. Its callers state which responses those
 // are.
@@ -523,6 +541,8 @@ func ToExternalMessage(code string) string {
 		return oauthLinkExpiredMessage
 	case CodeOAuthSignupExpired:
 		return oauthSignupExpiredMessage
+	case CodeOAuthLinkPendingExpired:
+		return oauthLinkRefusedMessage
 	case CodeReauthRequired:
 		return reauthRequiredMessage
 	case CodeValidationFailed:

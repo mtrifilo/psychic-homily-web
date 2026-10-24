@@ -475,12 +475,19 @@ func (m *MockAuditLogService) GetAuditLogs(limit int, offset int, filters contra
 // ============================================================================
 
 type MockAuthEmailOutbox struct {
-	EnqueueFn func(context.Context, authm.AuthEmailKind, uint) error
+	EnqueueFn          func(context.Context, authm.AuthEmailKind, uint) error
+	EnqueueOAuthLinkFn func(context.Context, uint, string) error
 }
 
 func (m *MockAuthEmailOutbox) Enqueue(ctx context.Context, kind authm.AuthEmailKind, userID uint) error {
 	if m.EnqueueFn != nil {
 		return m.EnqueueFn(ctx, kind, userID)
+	}
+	return nil
+}
+func (m *MockAuthEmailOutbox) EnqueueOAuthLink(ctx context.Context, userID uint, ref string) error {
+	if m.EnqueueOAuthLinkFn != nil {
+		return m.EnqueueOAuthLinkFn(ctx, userID, ref)
 	}
 	return nil
 }
@@ -490,18 +497,22 @@ func (m *MockAuthEmailOutbox) Enqueue(ctx context.Context, kind authm.AuthEmailK
 // ============================================================================
 
 type MockAuthService struct {
-	OAuthLoginFn          func(http.ResponseWriter, *http.Request, string) error
-	OAuthCallbackFn       func(http.ResponseWriter, *http.Request, string) (*authm.User, string, error)
-	StartOAuthSignupFn    func(contracts.OAuthIdentity, string) (string, error)
-	PeekOAuthSignupFn     func(string) (*contracts.OAuthPendingSignup, error)
-	ConsumeOAuthSignupFn  func(string) (*contracts.OAuthPendingSignup, error)
-	CompleteOAuthSignupFn func(*contracts.OAuthPendingSignup, *contracts.OAuthSignupConsent, *string) (*authm.User, string, error)
-	CompleteOAuthLinkFn   func(http.ResponseWriter, *http.Request, string, uint) (*authm.User, error)
-	GetUserProfileFn      func(uint) (*authm.User, error)
-	GetSignInFactorsFn    func(*authm.User) (contracts.SignInFactors, error)
-	RefreshUserTokenFn    func(*authm.User, time.Time) (string, error)
-	LogoutFn              func(http.ResponseWriter, *http.Request) error
-	SetOAuthCompleterFn   func(contracts.OAuthCompleter)
+	OAuthLoginFn               func(http.ResponseWriter, *http.Request, string) error
+	OAuthCallbackFn            func(http.ResponseWriter, *http.Request, string) (*authm.User, string, error)
+	StartOAuthSignupFn         func(contracts.OAuthIdentity, string) (string, error)
+	PeekOAuthSignupFn          func(string) (*contracts.OAuthPendingSignup, error)
+	ConsumeOAuthSignupFn       func(string) (*contracts.OAuthPendingSignup, error)
+	StartOAuthLinkFn           func(contracts.OAuthIdentity, uint, string) (string, error)
+	PeekOAuthLinkFn            func(string) (*contracts.OAuthPendingLink, error)
+	LinkOAuthWithPasswordFn    func(string, *authm.User) (bool, error)
+	CompleteOAuthLinkByEmailFn func(*contracts.OAuthLinkTokenClaims) (*contracts.OAuthLinkCompletion, error)
+	CompleteOAuthSignupFn      func(*contracts.OAuthPendingSignup, *contracts.OAuthSignupConsent, *string) (*authm.User, string, error)
+	CompleteOAuthLinkFn        func(http.ResponseWriter, *http.Request, string, uint) (*authm.User, error)
+	GetUserProfileFn           func(uint) (*authm.User, error)
+	GetSignInFactorsFn         func(*authm.User) (contracts.SignInFactors, error)
+	RefreshUserTokenFn         func(*authm.User, time.Time) (string, error)
+	LogoutFn                   func(http.ResponseWriter, *http.Request) error
+	SetOAuthCompleterFn        func(contracts.OAuthCompleter)
 }
 
 func (m *MockAuthService) OAuthLogin(w http.ResponseWriter, r *http.Request, provider string) error {
@@ -531,6 +542,30 @@ func (m *MockAuthService) PeekOAuthSignup(token string) (*contracts.OAuthPending
 func (m *MockAuthService) ConsumeOAuthSignup(token string) (*contracts.OAuthPendingSignup, error) {
 	if m.ConsumeOAuthSignupFn != nil {
 		return m.ConsumeOAuthSignupFn(token)
+	}
+	return nil, nil
+}
+func (m *MockAuthService) StartOAuthLink(identity contracts.OAuthIdentity, userID uint, returnTo string) (string, error) {
+	if m.StartOAuthLinkFn != nil {
+		return m.StartOAuthLinkFn(identity, userID, returnTo)
+	}
+	return "", nil
+}
+func (m *MockAuthService) PeekOAuthLink(token string) (*contracts.OAuthPendingLink, error) {
+	if m.PeekOAuthLinkFn != nil {
+		return m.PeekOAuthLinkFn(token)
+	}
+	return nil, nil
+}
+func (m *MockAuthService) LinkOAuthWithPassword(token string, user *authm.User) (bool, error) {
+	if m.LinkOAuthWithPasswordFn != nil {
+		return m.LinkOAuthWithPasswordFn(token, user)
+	}
+	return false, nil
+}
+func (m *MockAuthService) CompleteOAuthLinkByEmail(claims *contracts.OAuthLinkTokenClaims) (*contracts.OAuthLinkCompletion, error) {
+	if m.CompleteOAuthLinkByEmailFn != nil {
+		return m.CompleteOAuthLinkByEmailFn(claims)
 	}
 	return nil, nil
 }
@@ -2229,6 +2264,7 @@ type MockJWTService struct {
 	ValidateVerificationTokenFn    func(string) (*contracts.VerificationTokenClaims, error)
 	CreateMagicLinkTokenFn         func(uint, string) (string, error)
 	ValidateMagicLinkTokenFn       func(string) (*contracts.MagicLinkTokenClaims, error)
+	ValidateOAuthLinkTokenFn       func(string) (*contracts.OAuthLinkTokenClaims, error)
 	CreateAccountRecoveryTokenFn   func(uint, string) (string, error)
 	ValidateAccountRecoveryTokenFn func(string) (*contracts.AccountRecoveryTokenClaims, error)
 }
@@ -2284,6 +2320,12 @@ func (m *MockJWTService) CreateMagicLinkToken(userID uint, email string) (string
 func (m *MockJWTService) ValidateMagicLinkToken(tokenString string) (*contracts.MagicLinkTokenClaims, error) {
 	if m.ValidateMagicLinkTokenFn != nil {
 		return m.ValidateMagicLinkTokenFn(tokenString)
+	}
+	return nil, nil
+}
+func (m *MockJWTService) ValidateOAuthLinkToken(tokenString string) (*contracts.OAuthLinkTokenClaims, error) {
+	if m.ValidateOAuthLinkTokenFn != nil {
+		return m.ValidateOAuthLinkTokenFn(tokenString)
 	}
 	return nil, nil
 }

@@ -102,8 +102,11 @@ const (
 	authEmailSkipExpired     = "request expired before delivery"
 	authEmailSkipAccountGone = "account no longer exists"
 	authEmailSkipIneligible  = "account no longer eligible"
-	authEmailFailUnknownKind = "unknown email kind"
-	authEmailFailStranded    = "stranded in processing after max attempts"
+	// The pending link an oauth_link email would prove the mailbox for is
+	// used, expired, or no longer the account's.
+	authEmailSkipPendingLinkGone = "pending link gone"
+	authEmailFailUnknownKind     = "unknown email kind"
+	authEmailFailStranded        = "stranded in processing after max attempts"
 )
 
 // ErrAuthEmailOutboxDisabled is Enqueue's error while
@@ -127,6 +130,7 @@ type (
 	}
 	authEmailTokens interface {
 		CreateMagicLinkToken(userID uint, email string) (string, error)
+		CreateOAuthLinkToken(userID uint, email, pendingLink string) (string, error)
 		CreateAccountRecoveryToken(userID uint, email string) (string, error)
 		CreateVerificationToken(userID uint, email string) (string, error)
 	}
@@ -236,6 +240,24 @@ func (o *AuthEmailOutbox) Enqueue(ctx context.Context, kind authm.AuthEmailKind,
 		Kind:   kind,
 		UserID: userID,
 		Status: authm.AuthEmailStatusPending,
+	}
+	return o.db.WithContext(ictx).Clauses(clause.OnConflict{DoNothing: true}).Create(&item).Error
+}
+
+// EnqueueOAuthLink queues the sign-in link that proves userID's mailbox for
+// the pending link ref names, on Enqueue's terms. While one is queued for the
+// account, a call for any pending link is a no-op.
+func (o *AuthEmailOutbox) EnqueueOAuthLink(ctx context.Context, userID uint, ref string) error {
+	if AuthEmailOutboxDisabled() {
+		return ErrAuthEmailOutboxDisabled
+	}
+	ictx, cancel := context.WithTimeout(context.WithoutCancel(ctx), authEmailEnqueueTimeout)
+	defer cancel()
+	item := authm.AuthEmailOutboxItem{
+		Kind:         authm.AuthEmailKindOAuthLink,
+		UserID:       userID,
+		OAuthLinkRef: &ref,
+		Status:       authm.AuthEmailStatusPending,
 	}
 	return o.db.WithContext(ictx).Clauses(clause.OnConflict{DoNothing: true}).Create(&item).Error
 }
@@ -460,6 +482,25 @@ func (o *AuthEmailOutbox) deliver(item authm.AuthEmailOutboxItem) (string, error
 		}
 		return "", o.sender.SendMagicLinkEmail(email, token)
 
+	case authm.AuthEmailKindOAuthLink:
+		// No verified-address rule: proving the mailbox is what this link is
+		// for, and following it verifies the address.
+		if !user.CanSignIn() || item.OAuthLinkRef == nil {
+			return authEmailSkipIneligible, nil
+		}
+		live, err := o.extendPendingLinkForEmail(item.UserID, *item.OAuthLinkRef)
+		if err != nil {
+			return "", err
+		}
+		if !live {
+			return authEmailSkipPendingLinkGone, nil
+		}
+		token, err := o.tokens.CreateOAuthLinkToken(user.ID, email, *item.OAuthLinkRef)
+		if err != nil {
+			return "", err
+		}
+		return "", o.sender.SendMagicLinkEmail(email, token)
+
 	case authm.AuthEmailKindVerification:
 		if user.EmailVerified {
 			return authEmailSkipIneligible, nil
@@ -482,6 +523,23 @@ func (o *AuthEmailOutbox) deliver(item authm.AuthEmailOutboxItem) (string, error
 		return "", o.sender.SendAccountRecoveryEmail(email, token, daysRemaining)
 	}
 	return "", errUnknownAuthEmailKind
+}
+
+// extendPendingLinkForEmail keeps the pending link ref names, for userID,
+// usable for as long as the link about to be sent is: until
+// contracts.MagicLinkTokenTTL from now, or longer if it already was. It
+// reports false, extending nothing, when the pending link is used, expired,
+// or not userID's, so no link is sent that could only be refused.
+func (o *AuthEmailOutbox) extendPendingLinkForEmail(userID uint, ref string) (bool, error) {
+	now := time.Now()
+	res := o.db.Model(&authm.OAuthPendingSignup{}).
+		Where("token_hash = ? AND purpose = ? AND user_id = ? AND expires_at > ?",
+			ref, authm.OAuthPendingPurposeLink, userID, now).
+		Update("expires_at", gorm.Expr("GREATEST(expires_at, ?)", now.Add(contracts.MagicLinkTokenTTL)))
+	if res.Error != nil {
+		return false, fmt.Errorf("failed to extend pending link: %w", res.Error)
+	}
+	return res.RowsAffected == 1, nil
 }
 
 // housekeep reclaims rows stranded in `processing`, retires expired pending

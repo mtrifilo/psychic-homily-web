@@ -1,5 +1,14 @@
 package auth
 
+import "time"
+
+// SessionIssuedBeforeRevocation reports whether a session issued at issuedAt
+// predates the account's SessionsValidAfter, and so may no longer be honored.
+// Nil SessionsValidAfter revokes nothing.
+func (u *User) SessionIssuedBeforeRevocation(issuedAt time.Time) bool {
+	return u != nil && u.SessionsValidAfter != nil && issuedAt.Before(*u.SessionsValidAfter)
+}
+
 // CanSignIn reports whether the account may hold a session. A deactivated
 // account (IsActive false) and a soft-deleted one (DeletedAt set) may not, and
 // either field alone is enough to refuse.

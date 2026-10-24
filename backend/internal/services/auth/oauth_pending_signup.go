@@ -20,20 +20,36 @@ import (
 	"psychic-homily-backend/internal/services/contracts"
 )
 
-// A pending sign-up token is "<id>.<mac>": id is 32 random bytes in hex, and
-// mac is an HMAC-SHA256 under the JWT secret over oauthPendingSignupDomain
-// and id. The row is keyed by the SHA-256 of id, so neither a read of the
-// table nor a guessed id yields a token, and a token whose MAC fails is
-// refused before any query.
+// A pending token is "<id>.<mac>": id is 32 random bytes in hex, and mac is
+// an HMAC-SHA256 under the JWT secret over the purpose's domain and id. The
+// row is keyed by the SHA-256 of id, so neither a read of the table nor a
+// guessed id yields a token, and a token whose MAC fails is refused before
+// any query. A pending sign-up and a pending link sign under different
+// domains, so neither's token verifies as the other's.
 const (
 	oauthPendingSignupIDBytes = 32
 	oauthPendingSignupDomain  = "oauthpendingsignup|"
+	oauthPendingLinkDomain    = "oauthpendinglink|"
 )
 
 var (
 	errPendingSignupMalformed = errors.New("pending sign-up token is malformed or its signature fails")
 	errPendingSignupNotFound  = errors.New("pending sign-up not found")
 	errPendingSignupExpired   = errors.New("pending sign-up expired")
+)
+
+// pendingPurpose is what tells the two kinds of oauth_pending_signups row
+// apart: the purpose column, the domain the token is signed under, and the
+// refusal for a token that names no live row of that purpose.
+type pendingPurpose struct {
+	purpose string
+	domain  string
+	expired func(error) *apperrors.AuthError
+}
+
+var (
+	pendingSignupPurpose = pendingPurpose{authm.OAuthPendingPurposeSignup, oauthPendingSignupDomain, apperrors.ErrOAuthSignupExpired}
+	pendingLinkPurpose   = pendingPurpose{authm.OAuthPendingPurposeLink, oauthPendingLinkDomain, apperrors.ErrOAuthLinkPendingExpired}
 )
 
 func (s *AuthService) pendingSignupSecret() string {
@@ -43,11 +59,15 @@ func (s *AuthService) pendingSignupSecret() string {
 	return s.config.JWT.SecretKey
 }
 
-func signPendingSignupID(secret, id string) string {
+func signPendingID(secret, domain, id string) string {
 	mac := hmac.New(sha256.New, []byte(secret))
-	mac.Write([]byte(oauthPendingSignupDomain))
+	mac.Write([]byte(domain))
 	mac.Write([]byte(id))
 	return base64.RawURLEncoding.EncodeToString(mac.Sum(nil))
+}
+
+func signPendingSignupID(secret, id string) string {
+	return signPendingID(secret, oauthPendingSignupDomain, id)
 }
 
 func pendingSignupTokenHash(id string) string {
@@ -55,9 +75,9 @@ func pendingSignupTokenHash(id string) string {
 	return hex.EncodeToString(sum[:])
 }
 
-// verifyPendingSignupToken returns the hash of the id token carries when its
-// MAC verifies under secret. An empty secret verifies nothing.
-func verifyPendingSignupToken(secret, token string) (string, error) {
+// verifyPendingToken returns the hash of the id token carries when its MAC
+// verifies under secret and domain. An empty secret verifies nothing.
+func verifyPendingToken(secret, domain, token string) (string, error) {
 	if secret == "" {
 		return "", errPendingSignupMalformed
 	}
@@ -69,19 +89,22 @@ func verifyPendingSignupToken(secret, token string) (string, error) {
 	if len(id) != 2*oauthPendingSignupIDBytes {
 		return "", errPendingSignupMalformed
 	}
-	if subtle.ConstantTimeCompare([]byte(mac), []byte(signPendingSignupID(secret, id))) != 1 {
+	if subtle.ConstantTimeCompare([]byte(mac), []byte(signPendingID(secret, domain, id))) != 1 {
 		return "", errPendingSignupMalformed
 	}
 	return pendingSignupTokenHash(id), nil
 }
 
-// StartOAuthSignup stores identity and returnTo for
-// contracts.OAuthPendingSignupTTL and returns the token that names them. It
-// deletes every expired pending sign-up first, so the table holds little more
-// than the sign-ups started within one TTL; a failed sweep is logged and the
-// sign-up goes ahead, since an expired row is refused whether or not it is
-// gone.
-func (s *AuthService) StartOAuthSignup(identity contracts.OAuthIdentity, returnTo string) (string, error) {
+func verifyPendingSignupToken(secret, token string) (string, error) {
+	return verifyPendingToken(secret, oauthPendingSignupDomain, token)
+}
+
+// storePending writes row under kind's purpose for ttl and returns the token
+// that names it. It deletes every expired pending row first, so the table
+// holds little more than the rows started within one lifetime; a failed sweep
+// is logged and the write goes ahead, since an expired row is refused whether
+// or not it is gone.
+func (s *AuthService) storePending(row *authm.OAuthPendingSignup, kind pendingPurpose, ttl time.Duration) (string, error) {
 	if s.db == nil {
 		return "", fmt.Errorf("database not initialized")
 	}
@@ -92,7 +115,7 @@ func (s *AuthService) StartOAuthSignup(identity contracts.OAuthIdentity, returnT
 
 	buf := make([]byte, oauthPendingSignupIDBytes)
 	if _, err := rand.Read(buf); err != nil {
-		return "", fmt.Errorf("failed to mint pending sign-up id: %w", err)
+		return "", fmt.Errorf("failed to mint pending %s id: %w", kind.purpose, err)
 	}
 	id := hex.EncodeToString(buf)
 
@@ -101,8 +124,19 @@ func (s *AuthService) StartOAuthSignup(identity contracts.OAuthIdentity, returnT
 		logger.Default().Error("oauth_pending_signup_sweep_failed", "error", err)
 	}
 
-	row := authm.OAuthPendingSignup{
-		TokenHash:      pendingSignupTokenHash(id),
+	row.TokenHash = pendingSignupTokenHash(id)
+	row.Purpose = kind.purpose
+	row.ExpiresAt = now.Add(ttl)
+	if err := s.db.Create(row).Error; err != nil {
+		return "", fmt.Errorf("failed to store pending %s: %w", kind.purpose, err)
+	}
+	return id + "." + signPendingID(secret, kind.domain, id), nil
+}
+
+// pendingRowFromIdentity is the row for identity and returnTo, before its
+// purpose, key and expiry are set.
+func pendingRowFromIdentity(identity contracts.OAuthIdentity, returnTo string) *authm.OAuthPendingSignup {
+	return &authm.OAuthPendingSignup{
 		Provider:       identity.Provider,
 		ProviderUserID: identity.Subject,
 		Email:          identity.Email,
@@ -112,19 +146,36 @@ func (s *AuthService) StartOAuthSignup(identity contracts.OAuthIdentity, returnT
 		LastName:       identity.LastName,
 		AvatarURL:      identity.AvatarURL,
 		ReturnTo:       returnTo,
-		ExpiresAt:      now.Add(contracts.OAuthPendingSignupTTL),
 	}
-	if err := s.db.Create(&row).Error; err != nil {
-		return "", fmt.Errorf("failed to store pending sign-up: %w", err)
+}
+
+// identityFromPendingRow is the provider identity row holds.
+func identityFromPendingRow(row *authm.OAuthPendingSignup) contracts.OAuthIdentity {
+	return contracts.OAuthIdentity{
+		Provider:      row.Provider,
+		Subject:       row.ProviderUserID,
+		Email:         row.Email,
+		EmailVerified: row.EmailVerified,
+		Name:          row.Name,
+		FirstName:     row.FirstName,
+		LastName:      row.LastName,
+		AvatarURL:     row.AvatarURL,
 	}
-	return id + "." + signPendingSignupID(secret, id), nil
+}
+
+// StartOAuthSignup stores identity and returnTo for
+// contracts.OAuthPendingSignupTTL and returns the token that names them.
+func (s *AuthService) StartOAuthSignup(identity contracts.OAuthIdentity, returnTo string) (string, error) {
+	return s.storePending(pendingRowFromIdentity(identity, returnTo), pendingSignupPurpose, contracts.OAuthPendingSignupTTL)
 }
 
 // PeekOAuthSignup returns the pending sign-up token names, leaving it in place.
 func (s *AuthService) PeekOAuthSignup(token string) (*contracts.OAuthPendingSignup, error) {
-	return s.readPendingSignup(token, func(hash string, row *authm.OAuthPendingSignup) *gorm.DB {
-		return s.db.Where("token_hash = ?", hash).Limit(1).Find(row)
-	})
+	row, _, err := s.readPending(s.db, pendingSignupPurpose, token, peekPendingRow)
+	if err != nil {
+		return nil, err
+	}
+	return pendingSignupFromRow(row), nil
 }
 
 // ConsumeOAuthSignup removes the pending sign-up token names and returns it.
@@ -132,50 +183,62 @@ func (s *AuthService) PeekOAuthSignup(token string) (*contracts.OAuthPendingSign
 // most one caller however many requests carry its token. An expired one is
 // deleted all the same and refused.
 func (s *AuthService) ConsumeOAuthSignup(token string) (*contracts.OAuthPendingSignup, error) {
-	return s.readPendingSignup(token, func(hash string, row *authm.OAuthPendingSignup) *gorm.DB {
-		return s.db.Raw("DELETE FROM oauth_pending_signups WHERE token_hash = ? RETURNING *", hash).Scan(row)
-	})
+	row, _, err := s.readPending(s.db, pendingSignupPurpose, token, consumePendingRow)
+	if err != nil {
+		return nil, err
+	}
+	return pendingSignupFromRow(row), nil
 }
 
-// readPendingSignup verifies token before any query, runs query for the row
-// it names, and classifies the outcome: a CodeOAuthSignupExpired refusal for a bad token, no
-// row, or an expired row, and any other error when the row could not be read.
-func (s *AuthService) readPendingSignup(
-	token string,
-	query func(hash string, row *authm.OAuthPendingSignup) *gorm.DB,
-) (*contracts.OAuthPendingSignup, error) {
-	hash, err := verifyPendingSignupToken(s.pendingSignupSecret(), token)
-	if err != nil {
-		return nil, apperrors.ErrOAuthSignupExpired(err)
+func pendingSignupFromRow(row *authm.OAuthPendingSignup) *contracts.OAuthPendingSignup {
+	return &contracts.OAuthPendingSignup{
+		Identity:  identityFromPendingRow(row),
+		ReturnTo:  row.ReturnTo,
+		ExpiresAt: row.ExpiresAt,
 	}
-	if s.db == nil {
+}
+
+// pendingRowQuery reads the row of purpose keyed by hash into row through db.
+type pendingRowQuery func(db *gorm.DB, purpose, hash string, row *authm.OAuthPendingSignup) *gorm.DB
+
+func peekPendingRow(db *gorm.DB, purpose, hash string, row *authm.OAuthPendingSignup) *gorm.DB {
+	return db.Where("token_hash = ? AND purpose = ?", hash, purpose).Limit(1).Find(row)
+}
+
+func consumePendingRow(db *gorm.DB, purpose, hash string, row *authm.OAuthPendingSignup) *gorm.DB {
+	return db.Raw("DELETE FROM oauth_pending_signups WHERE token_hash = ? AND purpose = ? RETURNING *", hash, purpose).Scan(row)
+}
+
+// readPending verifies token under kind before any query and reads the row
+// it names through db.
+func (s *AuthService) readPending(db *gorm.DB, kind pendingPurpose, token string, query pendingRowQuery) (*authm.OAuthPendingSignup, string, error) {
+	hash, err := verifyPendingToken(s.pendingSignupSecret(), kind.domain, token)
+	if err != nil {
+		return nil, "", kind.expired(err)
+	}
+	row, err := readPendingByHash(db, kind, hash, query)
+	return row, hash, err
+}
+
+// readPendingByHash runs query for the row of kind's purpose keyed by hash,
+// and classifies the outcome: kind's expired refusal for no row or an
+// expired row, and any other error when the row could not be read.
+func readPendingByHash(db *gorm.DB, kind pendingPurpose, hash string, query pendingRowQuery) (*authm.OAuthPendingSignup, error) {
+	if db == nil {
 		return nil, fmt.Errorf("database not initialized")
 	}
 	var row authm.OAuthPendingSignup
-	result := query(hash, &row)
+	result := query(db, kind.purpose, hash, &row)
 	if result.Error != nil {
-		return nil, fmt.Errorf("failed to read pending sign-up: %w", result.Error)
+		return nil, fmt.Errorf("failed to read pending %s: %w", kind.purpose, result.Error)
 	}
 	if result.RowsAffected == 0 {
-		return nil, apperrors.ErrOAuthSignupExpired(errPendingSignupNotFound)
+		return nil, kind.expired(errPendingSignupNotFound)
 	}
 	if !time.Now().Before(row.ExpiresAt) {
-		return nil, apperrors.ErrOAuthSignupExpired(errPendingSignupExpired)
+		return nil, kind.expired(errPendingSignupExpired)
 	}
-	return &contracts.OAuthPendingSignup{
-		Identity: contracts.OAuthIdentity{
-			Provider:      row.Provider,
-			Subject:       row.ProviderUserID,
-			Email:         row.Email,
-			EmailVerified: row.EmailVerified,
-			Name:          row.Name,
-			FirstName:     row.FirstName,
-			LastName:      row.LastName,
-			AvatarURL:     row.AvatarURL,
-		},
-		ReturnTo:  row.ReturnTo,
-		ExpiresAt: row.ExpiresAt,
-	}, nil
+	return &row, nil
 }
 
 // CompleteOAuthSignup resolves or creates the account for signup and issues a

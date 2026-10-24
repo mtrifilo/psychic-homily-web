@@ -36,6 +36,22 @@ type MagicLinkTokenClaims struct {
 	jwt.RegisteredClaims
 }
 
+// MagicLinkTokenTTL is how long an emailed sign-in link works after it is
+// sent, for a plain magic link and for one that proves the mailbox for a
+// pending provider link alike. The frontend's sent-state copy states it
+// (MAGIC_LINK_EXPIRY_MINUTES in frontend/lib/magic-link.ts).
+const MagicLinkTokenTTL = 15 * time.Minute
+
+// OAuthLinkTokenClaims contains JWT claims for the emailed sign-in link that
+// proves the mailbox for a pending provider link. PendingLink is that pending
+// link's reference (OAuthPendingLink.Ref).
+type OAuthLinkTokenClaims struct {
+	UserID      uint   `json:"user_id"`
+	Email       string `json:"email"`
+	PendingLink string `json:"pending_link"`
+	jwt.RegisteredClaims
+}
+
 // AccountRecoveryTokenClaims contains JWT claims for account recovery tokens.
 type AccountRecoveryTokenClaims struct {
 	UserID uint   `json:"user_id"`
@@ -168,9 +184,54 @@ func (e *OAuthSignupRequiredError) Unwrap() error {
 	return e.Refusal
 }
 
+// OAuthLinkRequiredError is the refusal for an identity attached to no
+// account whose provider-verified address belongs to an account UserID that
+// may sign in and holds no identity from that provider. Refusal is the
+// CodeOAuthLinkRefused AuthError, so a caller that offers no way to prove the
+// account answers with it unchanged; a caller that does holds Identity as a
+// pending link for that account.
+type OAuthLinkRequiredError struct {
+	Identity OAuthIdentity
+	UserID   uint
+	Refusal  error
+}
+
+func (e *OAuthLinkRequiredError) Error() string {
+	return "oauth identity's address belongs to an account it is not attached to"
+}
+
+func (e *OAuthLinkRequiredError) Unwrap() error {
+	return e.Refusal
+}
+
 // OAuthPendingSignupTTL is how long a pending sign-up stays usable, and so the
 // lifetime of the cookie that names it.
 const OAuthPendingSignupTTL = 10 * time.Minute
+
+// OAuthPendingLinkTTL is how long a pending link stays usable from the
+// browser that started it, and so the lifetime of the cookie that names it.
+// Emailing its sign-in link extends the pending link to that link's expiry.
+const OAuthPendingLinkTTL = OAuthPendingSignupTTL
+
+// OAuthPendingLink is a provider identity held until the person proves they
+// hold the account UserID names. Ref names it to the emailed sign-in link
+// without being able to read or consume it from a browser.
+type OAuthPendingLink struct {
+	Identity  OAuthIdentity
+	UserID    uint
+	ReturnTo  string
+	ExpiresAt time.Time
+	Ref       string
+}
+
+// OAuthLinkCompletion is a pending link finished by the mailbox proof: the
+// account the identity joined, the new session issued for it, and the
+// sanitised destination the sign-in named.
+type OAuthLinkCompletion struct {
+	User     *authm.User
+	Token    string
+	ReturnTo string
+}
 
 // OAuthPendingSignup is a provider identity held for the "Create your
 // account" step, with the sanitised destination its sign-in named.
@@ -214,6 +275,34 @@ type AuthServiceInterface interface {
 	// it; every later call for the same token is refused. Refusals are
 	// PeekOAuthSignup's.
 	ConsumeOAuthSignup(token string) (*OAuthPendingSignup, error)
+	// StartOAuthLink stores identity as a pending link to the account userID
+	// names, with returnTo, for OAuthPendingLinkTTL, and returns the signed
+	// token that names it. A pending sign-up's token never reads a pending
+	// link, nor the reverse.
+	StartOAuthLink(identity OAuthIdentity, userID uint, returnTo string) (token string, err error)
+	// PeekOAuthLink returns the pending link token names without consuming
+	// it. A token that fails its signature, names no pending link, or names an
+	// expired one is refused with a typed AuthError carrying
+	// CodeOAuthLinkPendingExpired; any other error means it could not be read.
+	PeekOAuthLink(token string) (*OAuthPendingLink, error)
+	// LinkOAuthWithPassword finishes the pending link token names for user,
+	// whose password the caller has just verified. It consumes the pending
+	// link whatever it names. When it names user, and user's address is still
+	// the identity's, the identity is attached to user in the transaction that
+	// consumes it and linked is true. A pending link for another account is
+	// discarded and linked is false. Refusals: PeekOAuthLink's, and
+	// CodeOAuthIdentityInUse or CodeOAuthProviderAlreadyLinked when the
+	// identity or the provider was attached since the pending link began.
+	LinkOAuthWithPassword(token string, user *authm.User) (linked bool, err error)
+	// CompleteOAuthLinkByEmail finishes the pending link an emailed sign-in
+	// link names. In one transaction it consumes the pending link, attaches
+	// the identity, clears the account's password, marks its address
+	// verified, and revokes every session the account holds; then it issues a
+	// new session, which the revocation does not reach. Refusals:
+	// CodeOAuthLinkPendingExpired when the pending link is used, expired, or
+	// not the claims' account, shared.ClosedAccountRefusal when the account
+	// may not sign in, and LinkOAuthWithPassword's link refusals.
+	CompleteOAuthLinkByEmail(claims *OAuthLinkTokenClaims) (*OAuthLinkCompletion, error)
 	// CompleteOAuthSignup resolves or creates the account for a consumed
 	// pending sign-up through
 	// UserServiceInterface.FindOrCreateUserFromOAuthIdentity, and issues a
@@ -256,6 +345,10 @@ type JWTServiceInterface interface {
 	ValidateVerificationToken(tokenString string) (*VerificationTokenClaims, error)
 	CreateMagicLinkToken(userID uint, email string) (string, error)
 	ValidateMagicLinkToken(tokenString string) (*MagicLinkTokenClaims, error)
+	// ValidateOAuthLinkToken accepts only the emailed sign-in link that
+	// proves the mailbox for a pending provider link; ValidateMagicLinkToken
+	// refuses that link and this refuses a plain one.
+	ValidateOAuthLinkToken(tokenString string) (*OAuthLinkTokenClaims, error)
 	CreateAccountRecoveryToken(userID uint, email string) (string, error)
 	ValidateAccountRecoveryToken(tokenString string) (*AccountRecoveryTokenClaims, error)
 }
@@ -368,4 +461,9 @@ type AuthEmailOutboxInterface interface {
 	// returns an error when the row could not be written or the outbox is
 	// switched off; in both cases no email is sent for this call.
 	Enqueue(ctx context.Context, kind authm.AuthEmailKind, userID uint) error
+	// EnqueueOAuthLink queues the sign-in link that proves userID's mailbox
+	// for the pending link ref names (OAuthPendingLink.Ref), on Enqueue's
+	// terms: one queued per account, and an error means no email for this
+	// call.
+	EnqueueOAuthLink(ctx context.Context, userID uint, ref string) error
 }
