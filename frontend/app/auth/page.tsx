@@ -75,6 +75,7 @@ import {
   safeDecodeQueryParam,
   sanitizeReturnTo,
 } from './auth-redirect-utils'
+import { useAuthArrivalParams } from '@/app/auth/_components/auth-arrival-params'
 
 // The id of the message banner an OAuth refusal puts above the auth card.
 const URL_ERROR_ID = 'auth-url-error'
@@ -856,7 +857,10 @@ function SignupForm({
 
 function AuthPageContent() {
   const router = useRouter()
-  const searchParams = useSearchParams()
+  // The query string as it arrived. The banner parameters leave the address
+  // bar after the first render and stay here, so a reload does not replay one.
+  const liveSearchParams = useSearchParams()
+  const searchParams = useAuthArrivalParams(liveSearchParams)
   const { authStatus, isLoading } = useAuthContext()
 
   // Get error from URL query params (e.g., OAuth errors)

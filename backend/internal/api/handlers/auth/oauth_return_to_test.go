@@ -135,6 +135,28 @@ func TestOAuthLogin_RecordsAnOnSiteReturnTo(t *testing.T) {
 	}
 }
 
+// TestSanitizeOAuthReturnTo owns the rewrite matrix; this pins that the start
+// records the rewritten destination, not the one it was handed.
+func TestOAuthLogin_RecordsTheDestinationWithoutAnOAuthLinkResult(t *testing.T) {
+	resp := startSignIn("returnTo=" + url.QueryEscape("/profile?tab=settings&oauth_link_error=OAUTH_LINK_EXPIRED"))
+
+	cookie := findCookie(resp, oauthReturnToCookieName)
+	if cookie == nil {
+		t.Fatal("expected the return-to cookie to be set")
+	}
+	if cookie.Value != encodedReturnTo("/profile?tab=settings") {
+		t.Errorf("cookie value = %q, want the encoded destination without the link result", cookie.Value)
+	}
+}
+
+// A destination that is only the fallback once its link result is gone
+// records nothing, as the fallback itself does.
+func TestOAuthLogin_RecordsNoDestinationThatWasOnlyALinkResult(t *testing.T) {
+	stale := &http.Cookie{Name: oauthReturnToCookieName, Value: encodedReturnTo("/shows")}
+
+	assertReturnToCleared(t, startSignIn("returnTo="+url.QueryEscape("/?oauth_link=connected"), stale))
+}
+
 // TestSanitizeOAuthReturnTo owns the refusal matrix; this pins only that the
 // start consults it.
 func TestOAuthLogin_RecordsNoRefusedReturnTo(t *testing.T) {
@@ -256,6 +278,8 @@ func TestOAuthCallback_SuccessLandsOnTheRecordedDestination(t *testing.T) {
 		{"protocol-relative destination", encodedReturnTo("//evil.example"), errorRedirectFrontendURL},
 		{"auth page", encodedReturnTo("/auth"), errorRedirectFrontendURL},
 		{"undecodable value", "%%%not-base64", errorRedirectFrontendURL},
+		// A cookie still carrying an OAuth link result loses it at the callback.
+		{"stale link result", encodedReturnTo("/profile?tab=settings&oauth_link_error=OAUTH_LINK_EXPIRED"), errorRedirectFrontendURL + "/profile?tab=settings"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

@@ -22,7 +22,9 @@
     "                   oauthReturnToMaxLength to it and requires a kept case of",
     "                   exactly this length and a refused case one past it.",
     "cases[].input    = the raw value each sanitizer is handed.",
-    "cases[].want     = both sanitizers' exact return value.",
+    "cases[].want     = both sanitizers' exact return value: the input, the",
+    "                   input less its OAuth link result parameters, or",
+    "                   fallback.",
     "cases[].rule     = the rule the case exercises."
   ],
   "fallback": "/",
@@ -369,6 +371,132 @@
       "input": "/auth#x",
       "want": "/",
       "rule": "not the sign-in page or anything under it, judged on the decoded path"
+    },
+    {
+      "name": "OAuth link error after another parameter",
+      "input": "/profile?tab=settings&oauth_link_error=OAUTH_LINK_EXPIRED",
+      "want": "/profile?tab=settings",
+      "rule": "an OAuth link result is dropped from the query; every other parameter keeps its spelling and order"
+    },
+    {
+      "name": "OAuth link result between parameters",
+      "input": "/profile?a=1&oauth_link=connected&tab=settings&b=2",
+      "want": "/profile?a=1&tab=settings&b=2",
+      "rule": "an OAuth link result is dropped from the query; every other parameter keeps its spelling and order"
+    },
+    {
+      "name": "both OAuth link parameters before a fragment",
+      "input": "/profile?oauth_link_error=X&tab=settings&oauth_link=connected#alerts",
+      "want": "/profile?tab=settings#alerts",
+      "rule": "an OAuth link result is dropped from the query; every other parameter keeps its spelling and order"
+    },
+    {
+      "name": "OAuth link result as the whole query",
+      "input": "/profile?oauth_link=connected",
+      "want": "/profile",
+      "rule": "an OAuth link result is dropped from the query; every other parameter keeps its spelling and order"
+    },
+    {
+      "name": "OAuth link result as the whole query of the root",
+      "input": "/?oauth_link_error=X",
+      "want": "/",
+      "rule": "an OAuth link result is dropped from the query; every other parameter keeps its spelling and order"
+    },
+    {
+      "name": "OAuth link result with no value",
+      "input": "/profile?oauth_link&tab=settings",
+      "want": "/profile?tab=settings",
+      "rule": "an OAuth link result is dropped from the query; every other parameter keeps its spelling and order"
+    },
+    {
+      "name": "encoded spelling of an OAuth link parameter",
+      "input": "/profile?oauth%5Flink_error=X&tab=settings",
+      "want": "/profile?tab=settings",
+      "rule": "an OAuth link result is dropped from the query; every other parameter keeps its spelling and order"
+    },
+    {
+      "name": "OAuth link result beside empty pairs",
+      "input": "/profile?&oauth_link=connected&&tab=settings&",
+      "want": "/profile?tab=settings",
+      "rule": "an OAuth link result is dropped from the query; every other parameter keeps its spelling and order"
+    },
+    {
+      "name": "OAuth link result beside separators kept as written",
+      "input": "/shows?a=1;b=2,3&oauth_link_error=X&q=a%20b",
+      "want": "/shows?a=1;b=2,3&q=a%20b",
+      "rule": "an OAuth link result is dropped from the query; every other parameter keeps its spelling and order"
+    },
+    {
+      "name": "a parameter that only starts with an OAuth link name",
+      "input": "/profile?oauth_link_errors=x&oauth_linked=1",
+      "want": "/profile?oauth_link_errors=x&oauth_linked=1",
+      "rule": "a query without an OAuth link result passes unchanged"
+    },
+    {
+      "name": "an OAuth link name as a value",
+      "input": "/search?q=oauth_link_error",
+      "want": "/search?q=oauth_link_error",
+      "rule": "a query without an OAuth link result passes unchanged"
+    },
+    {
+      "name": "an OAuth link name in the fragment",
+      "input": "/profile#oauth_link_error=X",
+      "want": "/profile#oauth_link_error=X",
+      "rule": "a query without an OAuth link result passes unchanged"
+    },
+    {
+      "name": "empty pairs without an OAuth link result",
+      "input": "/profile?&tab=settings&",
+      "want": "/profile?&tab=settings&",
+      "rule": "a query without an OAuth link result passes unchanged"
+    },
+    {
+      "name": "protocol-relative with an OAuth link result",
+      "input": "//evil.example/profile?oauth_link_error=X",
+      "want": "/",
+      "rule": "one leading slash: \"//host\" is protocol-relative"
+    },
+    {
+      "name": "auth page with an OAuth link result",
+      "input": "/auth?returnTo=%2Fshows&oauth_link=connected",
+      "want": "/",
+      "rule": "not the sign-in page or anything under it, judged on the decoded path"
+    },
+    {
+      "name": "dot-dot segment with an OAuth link result",
+      "input": "/profile/../auth?oauth_link_error=X",
+      "want": "/",
+      "rule": "no \".\" or \"..\" path segment, percent-encoded or not"
+    },
+    {
+      "name": "a second question mark before an OAuth link name",
+      "input": "/p??oauth_link=x",
+      "want": "/p??oauth_link=x",
+      "rule": "a pair that begins with \"?\" is named with the \"?\", as a URL parser names it"
+    },
+    {
+      "name": "a question mark before an OAuth link name in a later pair",
+      "input": "/p?a=1&?oauth_link=x",
+      "want": "/p?a=1&?oauth_link=x",
+      "rule": "a pair that begins with \"?\" is named with the \"?\", as a URL parser names it"
+    },
+    {
+      "name": "a first pair that begins with a question mark, kept beside a dropped one",
+      "input": "/p??a=1&oauth_link=x",
+      "want": "/p??a=1",
+      "rule": "a pair that begins with \"?\" is named with the \"?\", as a URL parser names it"
+    },
+    {
+      "name": "a plus inside an OAuth link name",
+      "input": "/p?oauth+link=x",
+      "want": "/p?oauth+link=x",
+      "rule": "a query without an OAuth link result passes unchanged"
+    },
+    {
+      "name": "an undecodable name beside an OAuth link result",
+      "input": "/p?a%zz=1&oauth_link=x",
+      "want": "/p?a%zz=1",
+      "rule": "an OAuth link result is dropped from the query; every other parameter keeps its spelling and order"
     }
   ]
 }

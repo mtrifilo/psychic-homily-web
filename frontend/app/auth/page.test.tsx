@@ -42,6 +42,7 @@ let mockSearchParams = new URLSearchParams()
 vi.mock('next/navigation', () => ({
   useRouter: () => ({ push: mockPush, replace: mockReplace }),
   useSearchParams: () => mockSearchParams,
+  usePathname: () => '/auth',
 }))
 
 // AuthContext is mocked with mutable state so individual tests can toggle the
@@ -136,6 +137,7 @@ describe('AuthPage', () => {
     passkeySignupProps.mockReset()
     googleOAuthProps.mockReset()
     mockSearchParams = new URLSearchParams()
+    window.history.replaceState(null, '', '/')
     mockAuthState = {
       setUser: vi.fn(),
       authStatus: 'anonymous',
@@ -1166,6 +1168,162 @@ describe('AuthPage', () => {
 
       expect(await screen.findByText(CONSENT_VERSIONS_UNAVAILABLE)).toBeInTheDocument()
       expect(screen.queryByText('Failed to start passkey signup')).not.toBeInTheDocument()
+    })
+  })
+
+  // The banners render from the query string, which leaves the address bar
+  // after the first render. The App Router syncs useSearchParams with
+  // window.history.replaceState; `followAddressBar` does that by hand.
+  describe('banner parameters leave the URL', () => {
+    const INACTIVE_MESSAGE =
+      'Your account is unavailable, so the provider was not connected; please contact support.'
+
+    function arriveAt(query: string) {
+      window.history.replaceState(null, '', `/auth?${query}`)
+      setSearchParams(query)
+      return renderWithProviders(<AuthPage />)
+    }
+
+    function addressBar() {
+      return `${window.location.pathname}${window.location.search}`
+    }
+
+    function followAddressBar(rerender: (ui: React.ReactElement) => void) {
+      setSearchParams(window.location.search)
+      rerender(<AuthPage />)
+    }
+
+    // A reload renders a fresh page from whatever the address bar holds.
+    function reload(unmount: () => void) {
+      unmount()
+      setSearchParams(window.location.search)
+      return renderWithProviders(<AuthPage />)
+    }
+
+    async function signInWithPassword() {
+      const user = userEvent.setup()
+      await user.type(screen.getByLabelText('Email'), 'reader@test.local')
+      await user.type(screen.getByLabelText('Password'), 'e2e-test-password-123')
+      await user.click(screen.getByRole('button', { name: 'Sign in' }))
+      await waitFor(() => expect(mockLoginMutate).toHaveBeenCalled())
+      const { onSuccess } = mockLoginMutate.mock.calls.at(-1)![1] as {
+        onSuccess: (data: unknown) => void
+      }
+      act(() => {
+        onSuccess({ success: true, user: { id: '1', email: 'reader@test.local' } })
+      })
+    }
+
+    it('shows the closed-account banner, then drops reason from the URL and keeps returnTo', () => {
+      const { rerender } = arriveAt('reason=ACCOUNT_INACTIVE&returnTo=%2Fshows')
+
+      expect(screen.getByRole('alert')).toHaveTextContent(INACTIVE_MESSAGE)
+      expect(addressBar()).toBe('/auth?returnTo=%2Fshows')
+
+      followAddressBar(rerender)
+
+      expect(screen.getByRole('alert')).toHaveTextContent(INACTIVE_MESSAGE)
+      expect(passkeyLoginProps).toHaveBeenLastCalledWith(
+        expect.objectContaining({ returnTo: '/shows' })
+      )
+    })
+
+    it('shows no banner after a reload, and signing in still lands on returnTo', async () => {
+      const { unmount } = arriveAt('reason=ACCOUNT_INACTIVE&returnTo=%2Fshows')
+
+      reload(unmount)
+
+      expect(screen.queryByText(INACTIVE_MESSAGE)).not.toBeInTheDocument()
+      await signInWithPassword()
+      expect(mockPush).toHaveBeenCalledWith('/shows')
+    })
+
+    it('does the same for an OAuth refusal message and code', () => {
+      const { rerender, unmount } = arriveAt(
+        'error_code=RATE_LIMITED&error=Too%20many%20attempts&returnTo=%2Fvenues'
+      )
+
+      expect(screen.getByText('Too many attempts')).toBeInTheDocument()
+      expect(addressBar()).toBe('/auth?returnTo=%2Fvenues')
+
+      followAddressBar(rerender)
+      expect(screen.getByText('Too many attempts')).toBeInTheDocument()
+
+      reload(unmount)
+      expect(screen.queryByText('Too many attempts')).not.toBeInTheDocument()
+      expect(passkeyLoginProps).toHaveBeenLastCalledWith(
+        expect.objectContaining({ returnTo: '/venues' })
+      )
+    })
+
+    // replaceState rewrites the entry the reader is on, so the entry Back
+    // returns to after they leave is the rewritten one.
+    it('leaves no history entry that still carries the banner', () => {
+      const pushState = vi.spyOn(window.history, 'pushState')
+      const entries = window.history.length
+      const { unmount } = arriveAt('reason=ACCOUNT_INACTIVE&returnTo=%2Fshows')
+
+      expect(pushState).not.toHaveBeenCalled()
+      expect(window.history.length).toBe(entries)
+
+      reload(unmount)
+      expect(screen.queryByText(INACTIVE_MESSAGE)).not.toBeInTheDocument()
+      pushState.mockRestore()
+    })
+
+    it('keeps a consent refusal on Create account once the code leaves the URL', () => {
+      const message = 'Please accept the Terms of Service and Privacy Policy before creating an account.'
+      const { rerender } = arriveAt(
+        new URLSearchParams({
+          error: message,
+          [AUTH_ERROR_CODE_PARAM]: 'TERMS_ACCEPTANCE_REQUIRED',
+          returnTo: '/shows',
+        }).toString()
+      )
+      expect(addressBar()).toBe('/auth?returnTo=%2Fshows')
+
+      followAddressBar(rerender)
+
+      expect(screen.getByRole('tab', { name: 'Create account' })).toHaveAttribute(
+        'aria-selected',
+        'true'
+      )
+      expect(screen.getByText(message)).toBeInTheDocument()
+    })
+
+    it('keeps the recovery offer once the code leaves the URL', () => {
+      const { rerender } = arriveAt(`${AUTH_ERROR_CODE_PARAM}=ACCOUNT_RECOVERABLE&error=x`)
+      expect(addressBar()).toBe('/auth')
+
+      followAddressBar(rerender)
+
+      expect(
+        screen.getByRole('link', { name: ACCOUNT_RECOVERABLE_LINK_TEXT })
+      ).toHaveAttribute('href', '/auth/recover')
+    })
+
+    it('keeps a gated arrival on Create account beside a banner', () => {
+      const { rerender } = arriveAt('error=x&returnTo=%2Fshows&intent=save')
+      expect(addressBar()).toBe('/auth?returnTo=%2Fshows&intent=save')
+
+      followAddressBar(rerender)
+
+      expect(screen.getByRole('tab', { name: 'Create account' })).toHaveAttribute(
+        'aria-selected',
+        'true'
+      )
+      expect(screen.getByText('x')).toBeInTheDocument()
+    })
+
+    it('keeps a re-authentication reason in the URL', async () => {
+      mockAuthState = { setUser: vi.fn(), authStatus: 'authenticated' }
+      const { rerender } = arriveAt('returnTo=%2Fprofile&reason=OAUTH_LINK_REAUTH_REQUIRED&error=x')
+
+      expect(addressBar()).toBe('/auth?returnTo=%2Fprofile&reason=OAUTH_LINK_REAUTH_REQUIRED')
+      followAddressBar(rerender)
+
+      expect(screen.getByText("Confirm it's you")).toBeInTheDocument()
+      expect(mockPush).not.toHaveBeenCalled()
     })
   })
 
