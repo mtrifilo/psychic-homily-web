@@ -16,8 +16,9 @@
  * page shows in place of the form. After a password: the check-your-inbox
  * interstitial. After a passkey: the backup sign-in prompt first (`step:
  * 'backup-prompt'`), and once the prompt closes, by any route, the same
- * interstitial (`step: 'check-inbox'`). A completed claim is held until the
- * page unmounts, so the interstitial's own links are the way on.
+ * interstitial (`step: 'check-inbox'`). The page's sign-up deadlines release
+ * only a pending claim, never a completed one, so the interstitial's own links
+ * are the way on.
  */
 export type SignupHandoff =
   | { status: 'pending'; email: string }

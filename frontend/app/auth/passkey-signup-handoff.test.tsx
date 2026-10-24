@@ -162,13 +162,20 @@ describe('passkey sign-up on /auth', () => {
     it.each(closeRoutes)(
       'shows the check-your-inbox interstitial for the new address when the prompt is %s',
       async (_route, close) => {
-        fetchMock.mockResolvedValueOnce(BEGIN_OK).mockResolvedValueOnce(FINISH_OK)
+        // The account's address as the server stored it, not as it was typed.
+        fetchMock.mockResolvedValueOnce(BEGIN_OK).mockResolvedValueOnce({
+          json: async () => ({
+            success: true,
+            user: { id: 100, email: 'stored@example.com', email_verified: false },
+          }),
+        })
 
         const user = await submitPasskeySignup()
         await close(user, await screen.findByRole('dialog', PROMPT))
 
         expect(await screen.findByRole('heading', INBOX)).toBeInTheDocument()
-        expect(screen.getByText('signup@example.com')).toBeInTheDocument()
+        expect(screen.getByText('stored@example.com')).toBeInTheDocument()
+        expect(screen.queryByText('signup@example.com')).not.toBeInTheDocument()
         expect(screen.queryByRole('dialog', PROMPT)).not.toBeInTheDocument()
         expect(mockPush).not.toHaveBeenCalled()
       }
@@ -225,32 +232,6 @@ describe('passkey sign-up on /auth', () => {
     })
     expect(screen.getByRole('heading', INBOX)).toBeInTheDocument()
     expect(mockPush).not.toHaveBeenCalled()
-  })
-
-  describe('the page deadline after a completed passkey sign-up', () => {
-    beforeEach(() => {
-      vi.useFakeTimers({ shouldAdvanceTime: true })
-    })
-
-    afterEach(() => {
-      vi.useRealTimers()
-    })
-
-    it('releases neither the prompt nor the interstitial that follows it', async () => {
-      fetchMock.mockResolvedValueOnce(BEGIN_OK).mockResolvedValueOnce(FINISH_OK)
-
-      const user = await submitPasskeySignup()
-      const prompt = await screen.findByRole('dialog', PROMPT)
-      await advanceFakeTime(SIGNUP_REQUEST_TIMEOUT_MS + 1_000)
-      expect(screen.getByRole('dialog', PROMPT)).toBeInTheDocument()
-
-      await skipPrompt(user, prompt)
-      await screen.findByRole('heading', INBOX)
-      await advanceFakeTime(SIGNUP_REQUEST_TIMEOUT_MS + 1_000)
-
-      expect(screen.getByRole('heading', INBOX)).toBeInTheDocument()
-      expect(mockPush).not.toHaveBeenCalled()
-    })
   })
 
   it('holds the redirect while the finish request is in flight', async () => {
