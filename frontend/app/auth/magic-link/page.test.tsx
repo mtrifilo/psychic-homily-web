@@ -148,6 +148,7 @@ describe('MagicLinkPage', () => {
 
     const link = await screen.findByRole('link', { name: ACCOUNT_RECOVERABLE_LINK_TEXT })
     expect(link).toHaveAttribute('href', '/auth/recover')
+    expect(screen.getByText('Account deleted')).toHaveAttribute('data-slot', 'card-title')
     expect(screen.getByText(ACCOUNT_RECOVERABLE_MESSAGE, { exact: false })).toBeInTheDocument()
     expect(
       screen.queryByText('Server copy for the recoverable refusal')
