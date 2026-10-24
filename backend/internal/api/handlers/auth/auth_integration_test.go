@@ -1053,6 +1053,43 @@ func (s *AuthHandlerIntegrationSuite) TestExportData_WithShows() {
 	s.Contains(string(resp.Body), "export-shows@test.com")
 }
 
+// The downloaded file names the date of birth and its attestation time in the
+// profile, as values when stored and as null when not.
+func (s *AuthHandlerIntegrationSuite) TestExportData_DateOfBirth() {
+	h := s.newAuthHandler(false)
+	attestedAt := time.Date(2026, time.October, 24, 9, 0, 0, 0, time.UTC)
+	withDOB := s.createUserWithPassword("export-dob@test.com", "strong-password-123!")
+	s.Require().NoError(s.deps.DB.Exec(
+		`UPDATE users SET date_of_birth = '2004-02-29', age_attested_at = ? WHERE id = ?`,
+		attestedAt, withDOB.ID).Error)
+	withoutDOB := s.createUserWithPassword("export-no-dob@test.com", "strong-password-123!")
+
+	profileOf := func(userID uint) map[string]any {
+		resp, err := h.ExportDataHandler(s.ctxWithUser(s.reloadUser(userID)), &struct{}{})
+		s.Require().NoError(err)
+		var exported struct {
+			Profile map[string]any `json:"profile"`
+		}
+		s.Require().NoError(json.Unmarshal(resp.Body, &exported))
+		return exported.Profile
+	}
+
+	profile := profileOf(withDOB.ID)
+	s.Equal("2004-02-29", profile["date_of_birth"])
+	attested, ok := profile["age_attested_at"].(string)
+	s.Require().True(ok, "age_attested_at = %#v, want an RFC 3339 string", profile["age_attested_at"])
+	parsedAt, err := time.Parse(time.RFC3339, attested)
+	s.Require().NoError(err)
+	s.True(parsedAt.Equal(attestedAt), "age_attested_at = %s, want %s", parsedAt, attestedAt)
+
+	profile = profileOf(withoutDOB.ID)
+	for _, key := range []string{"date_of_birth", "age_attested_at"} {
+		value, present := profile[key]
+		s.True(present, "%s is missing from the export", key)
+		s.Nil(value, "%s = %#v, want null", key, value)
+	}
+}
+
 // --- RecoverAccountHandler ---
 
 func (s *AuthHandlerIntegrationSuite) TestRecoverAccount_Success() {

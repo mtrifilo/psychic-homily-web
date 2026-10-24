@@ -30,7 +30,7 @@ type LegalVersionsResponse struct {
 
 	Body struct {
 		TermsVersion   string     `json:"terms_version" example:"2026-01-31" doc:"Current Terms of Service version; a sign-up sends it as terms_version"`
-		PrivacyVersion string     `json:"privacy_version" example:"2026-02-15" doc:"Current Privacy Policy version; a sign-up sends it as privacy_version"`
+		PrivacyVersion string     `json:"privacy_version" example:"2026-10-24" doc:"Current Privacy Policy version; a sign-up sends it as privacy_version"`
 		MinSignupAge   int        `json:"min_signup_age" example:"16" doc:"Minimum age a sign-up must attest as min_age_attested"`
 		GraceUntil     *time.Time `json:"grace_until" nullable:"true" doc:"While a grace window is open, the instant (UTC) the previous versions stop being accepted; null otherwise"`
 		// omitempty rather than nullable: huma refuses nullable on a struct

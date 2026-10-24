@@ -17,7 +17,7 @@ const MinSignupAge = 16
 // TestVersionsMatchFrontend fails when the two files differ.
 const (
 	CurrentTermsVersion   = "2026-01-31"
-	CurrentPrivacyVersion = "2026-02-15"
+	CurrentPrivacyVersion = "2026-10-24"
 )
 
 // The grace set. A version bump refuses every sign-up that still sends the
@@ -41,12 +41,12 @@ const (
 // to match. TestGraceSetIsCoherent and TestVersionsMatchFrontend pin each of
 // those.
 const (
-	PreviousTermsVersion   = ""
-	PreviousPrivacyVersion = ""
+	PreviousTermsVersion   = "2026-01-31"
+	PreviousPrivacyVersion = "2026-02-15"
 )
 
 // graceUntil is the instant the previous versions stop being accepted, in UTC.
-var graceUntil time.Time
+var graceUntil = time.Date(2026, time.November, 8, 0, 0, 0, 0, time.UTC)
 
 // Versions is one version of the Terms of Service and one of the Privacy
 // Policy.

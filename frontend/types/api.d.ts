@@ -11979,7 +11979,7 @@ export interface components {
             previous?: components["schemas"]["LegalVersionsPrevious"];
             /**
              * @description Current Privacy Policy version; a sign-up sends it as privacy_version
-             * @example 2026-02-15
+             * @example 2026-10-24
              */
             privacy_version: string;
             /**
