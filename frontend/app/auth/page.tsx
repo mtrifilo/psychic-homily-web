@@ -974,17 +974,26 @@ function AuthPageContent() {
     )
   }
 
-  // Every way of closing the prompt releases the claim, which hands the viewer
-  // back to the already-authenticated redirect effect above: an authenticated
-  // viewer goes to returnTo, so the page keeps a single navigation, and a
-  // viewer the profile does not report as signed in sees the form again.
-  if (signupHandoff?.status === 'complete' && signupHandoff.method === 'passkey') {
+  // Every way of closing the prompt moves this claim on to its check-inbox
+  // step, which the block below renders. The claim stays held, so the
+  // already-authenticated redirect effect above stays held back too.
+  if (
+    signupHandoff?.status === 'complete' &&
+    signupHandoff.method === 'passkey' &&
+    signupHandoff.step === 'backup-prompt'
+  ) {
     return (
       <div className="min-h-[calc(100vh-64px)]">
         <BackupAuthPrompt
           open
           onOpenChange={open => {
-            if (!open) setSignupHandoff(null)
+            if (!open) {
+              setSignupHandoff(current =>
+                current === signupHandoff
+                  ? { ...signupHandoff, step: 'check-inbox' }
+                  : current
+              )
+            }
           }}
         />
       </div>

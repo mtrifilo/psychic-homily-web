@@ -44,17 +44,23 @@ test.describe('Passkeys', () => {
     await page.goto('/auth?returnTo=%2Fcollections')
     await page.getByRole('tab', { name: 'Create account' }).click()
     await page.getByRole('button', { name: /sign up with passkey/i }).click()
-    await page.locator('#passkey-email').fill(uniqueEmail('e2e-passkey-signup'))
+    const email = uniqueEmail('e2e-passkey-signup')
+    await page.locator('#passkey-email').fill(email)
     await page.locator('#passkey-terms').check()
     await page.locator('#passkey-age-confirmation').check()
     await page.getByRole('button', { name: /continue with passkey/i }).click()
 
     // The new account is offered a backup sign-in method before it leaves
-    // /auth, and skipping it lands on the page the sign-up started from.
+    // /auth. Skipping it shows the check-your-inbox interstitial for the new
+    // address, whose continue link lands on the page the sign-up started from.
     const backupPrompt = page.getByRole('dialog', { name: 'Add a backup sign-in method' })
     await expect(backupPrompt).toBeVisible({ timeout: 15_000 })
     expect(new URL(page.url()).pathname).toBe('/auth')
     await backupPrompt.getByRole('button', { name: "I'll do this later" }).click()
+    await expect(page.getByRole('heading', { name: 'Check your inbox.' })).toBeVisible()
+    await expect(page.getByText(email, { exact: true })).toBeVisible()
+    expect(new URL(page.url()).pathname).toBe('/auth')
+    await page.getByRole('link', { name: 'Continue where you left off' }).click()
     await page.waitForURL((url) => url.pathname === '/collections', { timeout: 15_000 })
 
     // The account exists and the session is live.
