@@ -125,6 +125,23 @@ func TestSkippedDDLRepairMigration_integration(t *testing.T) {
 	assert.Equal(t, fromScratch, repairedTablesCatalog(t, sqlDB))
 	require.NoError(t, AssertRequiredSchema(td.DB))
 
+	// Each constraint and index has its own guard, so one that is missing
+	// while its column exists is restored on its own.
+	t.Run("restores a constraint or index missing beside an existing column", func(t *testing.T) {
+		for _, drop := range []string{
+			`ALTER TABLE notification_filters DROP CONSTRAINT notification_filters_source_check`,
+			`DROP INDEX idx_notification_filters_user_source`,
+			`ALTER TABLE collections DROP CONSTRAINT collections_forked_from_collection_id_fkey`,
+			`DROP INDEX idx_collections_forked_from`,
+		} {
+			_, err := sqlDB.Exec(drop)
+			require.NoError(t, err, drop)
+			require.NotEqual(t, fromScratch, repairedTablesCatalog(t, sqlDB), drop)
+			applyRepair()
+			assert.Equal(t, fromScratch, repairedTablesCatalog(t, sqlDB), drop)
+		}
+	})
+
 	t.Run("applying it again changes nothing", func(t *testing.T) {
 		applyRepair()
 		assert.Equal(t, fromScratch, repairedTablesCatalog(t, sqlDB))
