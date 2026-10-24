@@ -80,12 +80,12 @@ var requiredSchemaColumns = []requiredColumn{
 	// swallow a failed insert to keep the response enumeration-safe, so absent
 	// DDL would stop every sign-in and recovery email without a visible error.
 	{Table: "auth_email_outbox", Column: "next_attempt_at"},
-	// MatchAndNotify runs the filter query, which reads this column, before
-	// the artist, venue and scene follow passes, and returns on its error. The
-	// admin approve handlers log that error and move on; the show-notify
-	// outbox records it as the row's last_error and marks the row failed once
-	// its attempts run out. No request fails either way, so absent DDL stops
-	// every new-show alert without a visible error.
+	// MatchAndNotify's filter pass reads this column. Its failure does not
+	// stop the follow passes, and its error reaches no user: the admin approve
+	// handlers log it, and the show-notify outbox records it as the row's
+	// last_error and marks the row failed once its attempts run out. No
+	// request fails either way, so absent DDL stops every filter alert without
+	// a visible error.
 	{Table: "notification_filters", Column: "source"},
 	// GORM's Create enumerates every model column, so this one appears in
 	// every collection INSERT, and the per-user collection and fork caps count

@@ -1,6 +1,7 @@
 package notification
 
 import (
+	"errors"
 	"fmt"
 	"log"
 	"time"
@@ -34,16 +35,20 @@ type sceneFollower struct {
 }
 
 // notifySceneFollowers fans a newly approved show out to followers of its
-// scene(s). Best-effort like the rest of the pipeline: errors are logged, the
-// approval flow never fails on notification problems.
-func (s *NotificationFilterService) notifySceneFollowers(show *catalogm.Show, showArtistIDs pq.Int64Array) {
+// scene(s). Every error up to a user's log row is logged here and returned:
+// the followers query error ends the pass, and a failed check or insert for
+// one user skips only that user. The email sent after the row reports
+// nothing. MatchAndNotify runs after the approval write it announces, so an
+// error here never fails that write; it makes the outbox retry, and a retry's
+// dedup skips every user this run already logged.
+func (s *NotificationFilterService) notifySceneFollowers(show *catalogm.Show, showArtistIDs pq.Int64Array) error {
 	followers, err := s.sceneFollowersForShow(show.ID)
 	if err != nil {
-		log.Printf("scene-follow notify: %v", err)
-		return
+		log.Printf("scene-follow notify: show %d: %v", show.ID, err)
+		return fmt.Errorf("scene followers for show %d: %w", show.ID, err)
 	}
 	if len(followers) == 0 {
-		return
+		return nil
 	}
 
 	// Group per user: a show can map to multiple followed scene rows (multi-
@@ -90,6 +95,7 @@ func (s *NotificationFilterService) notifySceneFollowers(show *catalogm.Show, sh
 	}
 
 	now := time.Now().UTC()
+	var errs []error
 	for userID, agg := range byUser {
 		f := sceneFollower{UserID: userID, SceneCity: agg.city, SceneSt: agg.st}
 		if userID == submitter && submitter != 0 {
@@ -104,6 +110,7 @@ func (s *NotificationFilterService) notifySceneFollowers(show *catalogm.Show, sh
 			ok, err := s.userFollowsAnyArtist(f.UserID, showArtistIDs)
 			if err != nil {
 				log.Printf("scene-follow notify: artist intersection for user %d: %v", f.UserID, err)
+				errs = append(errs, fmt.Errorf("artist intersection for user %d, show %d: %w", f.UserID, show.ID, err))
 				continue
 			}
 			if !ok {
@@ -126,6 +133,7 @@ func (s *NotificationFilterService) notifySceneFollowers(show *catalogm.Show, sh
 			Where(notifiedAboutShow("notification_log")).
 			Count(&existing).Error; err != nil {
 			log.Printf("scene-follow notify: dedup check for user %d: %v", f.UserID, err)
+			errs = append(errs, fmt.Errorf("dedup check for user %d, show %d: %w", f.UserID, show.ID, err))
 			continue
 		}
 		if existing > 0 {
@@ -142,6 +150,7 @@ func (s *NotificationFilterService) notifySceneFollowers(show *catalogm.Show, sh
 		}
 		if err := s.db.Create(&logEntry).Error; err != nil {
 			log.Printf("scene-follow notify: log insert for user %d, show %d: %v", f.UserID, show.ID, err)
+			errs = append(errs, fmt.Errorf("log insert for user %d, show %d: %w", f.UserID, show.ID, err))
 			continue
 		}
 
@@ -154,6 +163,7 @@ func (s *NotificationFilterService) notifySceneFollowers(show *catalogm.Show, sh
 			s.sendSceneFollowEmail(f.UserID, sceneName, show)
 		}
 	}
+	return errors.Join(errs...)
 }
 
 // sceneFollowersForShow resolves the show's venue(s) to existing scene
