@@ -44,24 +44,29 @@ const ABSENT = EN_DASH
 
 /**
  * Memoized: a save toggles one entry of the batch map, and every other row's
- * `saveData` keeps its identity, so only the toggled row re-renders.
+ * `saveData` keeps its identity, so only the toggled row re-renders. `zone` is
+ * compared by identity too, so callers keep it stable.
  */
 const ShowRow = memo(function ShowRow({
   show,
   zone,
-  stacked,
+  withSaveColumn,
   saveData,
 }: {
   show: VenueShow
   zone: VenueShowZone
-  /** The row carries the Save cell and stacks below `sm`. */
-  stacked: boolean
+  /**
+   * The row ends with the Save cell. A phone row has no room for it as a
+   * column, so a row that carries it also stacks below `sm`.
+   */
+  withSaveColumn: boolean
   saveData?: BatchedSaveData
 }) {
   // A show's own state wins over the venue's for date/time formatting; the
   // venue's resolved timezone (when known) wins over the state map (PSY-986).
   const state = show.state ?? zone.venueState
   const time = formatShowTime(show.event_date, state, zone.venueTimezone)
+  const stacked = withSaveColumn
   const layout = stacked ? STACKED_LAYOUT : TABLE_LAYOUT
 
   return (
@@ -70,7 +75,10 @@ const ShowRow = memo(function ShowRow({
         {...layout.cell}
         className={cn(
           'whitespace-nowrap',
-          stacked && 'max-sm:col-start-1 max-sm:row-start-1'
+          // The date's track is the line's only shrinkable one: on the
+          // narrowest phones it wraps rather than running under the price.
+          stacked &&
+            'max-sm:col-start-1 max-sm:row-start-1 max-sm:whitespace-normal'
         )}
       >
         <Link
@@ -122,7 +130,7 @@ const ShowRow = memo(function ShowRow({
             venue's per row, so emptiness here is never uniform. */}
         {time}
       </td>
-      {stacked && (
+      {withSaveColumn && (
         <ShowSaveCell
           {...layout.cell}
           showId={show.id}
@@ -194,8 +202,8 @@ export function VenueShowsTable({
     [groupByMonthHeadings, shows, zone]
   )
 
-  const stacked = saveColumn !== undefined
-  const layout = stacked ? STACKED_LAYOUT : TABLE_LAYOUT
+  const withSaveColumn = saveColumn !== undefined
+  const layout = withSaveColumn ? STACKED_LAYOUT : TABLE_LAYOUT
 
   return (
     <DenseTable variant="alternating" aria-label={ariaLabel} {...layout.table}>
@@ -209,7 +217,7 @@ export function VenueShowsTable({
           <th {...layout.columnHeader} className="text-right">
             Time
           </th>
-          {stacked && <ShowSaveHeaderCell {...layout.columnHeader} />}
+          {withSaveColumn && <ShowSaveHeaderCell {...layout.columnHeader} />}
         </tr>
       </thead>
       <tbody {...layout.body}>
@@ -219,7 +227,7 @@ export function VenueShowsTable({
                 key={show.id}
                 show={show}
                 zone={zone}
-                stacked={stacked}
+                withSaveColumn={withSaveColumn}
                 saveData={
                   saveColumn ? batchedSaveFor(saveColumn.counts, show.id) : undefined
                 }
@@ -238,7 +246,7 @@ export function VenueShowsTable({
                     key={show.id}
                     show={show}
                     zone={zone}
-                    stacked={false}
+                    withSaveColumn={false}
                   />
                 ))}
               </Fragment>

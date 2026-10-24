@@ -117,15 +117,19 @@ function VenueContext({
  */
 const ShowRow = memo(function ShowRow({
   show,
-  stacked,
+  withSaveColumn,
   saveData,
 }: {
   show: ArtistShow
-  /** The row carries the Save cell and stacks below `sm`. */
-  stacked: boolean
+  /**
+   * The row ends with the Save cell. A phone row has no room for it as a
+   * column, so a row that carries it also stacks below `sm`.
+   */
+  withSaveColumn: boolean
   saveData?: BatchedSaveData
 }) {
   const zone = artistShowZone(show)
+  const stacked = withSaveColumn
   const layout = stacked ? STACKED_LAYOUT : TABLE_LAYOUT
 
   return (
@@ -180,7 +184,7 @@ const ShowRow = memo(function ShowRow({
             count. */}
         {formatShowTime(show.event_date, zone.state, zone.timezone)}
       </td>
-      {stacked && (
+      {withSaveColumn && (
         <ShowSaveCell
           {...layout.cell}
           showId={show.id}
@@ -263,8 +267,8 @@ export function ArtistShowsTable({
     [groupByMonthHeadings, shows]
   )
 
-  const stacked = saveColumn !== undefined
-  const layout = stacked ? STACKED_LAYOUT : TABLE_LAYOUT
+  const withSaveColumn = saveColumn !== undefined
+  const layout = withSaveColumn ? STACKED_LAYOUT : TABLE_LAYOUT
 
   return (
     <DenseTable variant="alternating" aria-label={ariaLabel} {...layout.table}>
@@ -281,7 +285,7 @@ export function ArtistShowsTable({
           <th {...layout.columnHeader} className="text-right">
             Time
           </th>
-          {stacked && <ShowSaveHeaderCell {...layout.columnHeader} />}
+          {withSaveColumn && <ShowSaveHeaderCell {...layout.columnHeader} />}
         </tr>
       </thead>
       <tbody {...layout.body}>
@@ -290,7 +294,7 @@ export function ArtistShowsTable({
               <ShowRow
                 key={show.id}
                 show={show}
-                stacked={stacked}
+                withSaveColumn={withSaveColumn}
                 saveData={
                   saveColumn ? batchedSaveFor(saveColumn.counts, show.id) : undefined
                 }
@@ -305,7 +309,7 @@ export function ArtistShowsTable({
                   colSpan={COLUMN_COUNT}
                 />
                 {group.rows.map(show => (
-                  <ShowRow key={show.id} show={show} stacked={false} />
+                  <ShowRow key={show.id} show={show} withSaveColumn={false} />
                 ))}
               </Fragment>
             ))}

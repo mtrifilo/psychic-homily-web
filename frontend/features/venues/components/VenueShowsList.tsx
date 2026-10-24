@@ -82,10 +82,9 @@ export function VenueShowsList({
   const upcomingShows = upcoming.data?.shows ?? []
   const upcomingTotal = upcoming.data?.total ?? upcomingShows.length
   const saveColumn = useShowSaveColumn(upcomingShows)
-  // Stable identity so `VenueShowsTable`'s memos key on it cleanly. This
-  // section does not group by month (that is the past archive's treatment), so
-  // nothing expensive hangs off it here — it is kept stable to match the past
-  // section, where it does matter, rather than to fix a cost on this path.
+  // Stable identity: `VenueShowsTable` memoizes its rows and compares `zone`
+  // by reference, so a fresh object here would re-render every row on every
+  // save toggle.
   const zone: VenueShowZone = useMemo(
     () => ({ venueState, venueTimezone }),
     [venueState, venueTimezone]

@@ -170,6 +170,8 @@ describe('VenueShowsTable with a Save column', () => {
     const row = screen.getAllByRole('row')[1]
     const [date, bill, price, time, save] = within(row).getAllByRole('cell')
     expect(stackedPlace(date)).toBe('line 1, column 1')
+    // The one shrinkable track: the date wraps instead of overflowing.
+    expect(date).toHaveClass('max-sm:whitespace-normal')
     expect(stackedPlace(price)).toBe('line 1, column 2')
     expect(stackedPlace(time)).toBe('line 1, column 3')
     expect(stackedPlace(save)).toBe('line 1, column 4')

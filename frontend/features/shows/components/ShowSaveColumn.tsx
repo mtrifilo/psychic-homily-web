@@ -40,13 +40,20 @@ export function useShowSaveColumn(
 }
 
 /**
- * The column's fixed width: the cell's 16px of padding plus the widest state
- * the control can take, "Saved" (87px measured: `px-3`, the 16px heart,
- * `gap-1.5` and the word), plus 3px of slack. Every row and the header share
- * it, so a saved state that arrives after hydration widens the control inside
- * its cell and moves no other column.
+ * The column's fixed width from `sm` up: the cell's 16px of padding plus the
+ * widest state the control can take, "Saved" (87px measured: `px-3`, the 16px
+ * heart, `gap-1.5` and the word), plus 3px of slack. Every row and the header
+ * share it, so a saved state that arrives after hydration widens the control
+ * inside its cell and moves no other column.
  */
 const SAVE_COLUMN_WIDTH = 'w-[106px]'
+
+/**
+ * Below `sm` the stacked row zeroes cell padding, so the cell reserves the
+ * control's width alone (87px plus the same slack), for the same reason: the
+ * price and time beside it on the first line do not move.
+ */
+const STACKED_SAVE_CELL_WIDTH = 'max-sm:w-[90px]'
 
 export function ShowSaveHeaderCell({ role }: { role?: AriaRole }) {
   return (
@@ -70,7 +77,10 @@ export function ShowSaveCell({
   className: string
 }) {
   return (
-    <td role={role} className={cn(SAVE_COLUMN_WIDTH, className)}>
+    <td
+      role={role}
+      className={cn(SAVE_COLUMN_WIDTH, STACKED_SAVE_CELL_WIDTH, className)}
+    >
       <div className="flex justify-end">
         <SaveButton
           showId={showId}

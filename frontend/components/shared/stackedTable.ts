@@ -1,16 +1,18 @@
 import type { AriaRole } from 'react'
 
 type ElementProps = { role?: AriaRole; className?: string }
+/** Cells and headers take only a role: each table owns their classes. */
+type CellProps = { role?: AriaRole }
 
 /** Spread onto each element of a `DenseTable` that stacks below `sm`. */
 export interface StackedTableLayout {
   table: ElementProps
   head: ElementProps
-  headRow: ElementProps
+  headRow: CellProps
   body: ElementProps
   row: ElementProps
-  columnHeader: ElementProps
-  cell: ElementProps
+  columnHeader: CellProps
+  cell: CellProps
 }
 
 /**
