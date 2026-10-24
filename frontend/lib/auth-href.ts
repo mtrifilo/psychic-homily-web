@@ -257,21 +257,6 @@ export const AUTH_ERROR_PARAM = 'error'
 export const AUTH_ERROR_CODE_PARAM = 'error_code'
 
 /**
- * Does this auth-page URL carry the OAuth callback's refusal to create an
- * account without recorded consent? The code is compared against one fixed
- * value and never rendered, so it needs no decoding. Only the Create account
- * tab can record that consent.
- */
-export function needsSignupConsent(searchParams: {
-  get: (name: string) => string | null
-}): boolean {
-  return (
-    searchParams.get(AUTH_ERROR_CODE_PARAM) ===
-    AuthErrorCode.TERMS_ACCEPTANCE_REQUIRED
-  )
-}
-
-/**
  * Does this auth-page URL carry the OAuth callback's refusal of a deleted
  * account still inside its recovery window? The code is compared against one
  * fixed value and never rendered, so it needs no decoding.
