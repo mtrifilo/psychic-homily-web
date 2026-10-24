@@ -185,7 +185,7 @@ type FinishOAuthSignupRequest struct {
 		TermsVersion   string  `json:"terms_version,omitempty" doc:"Accepted Terms of Service version: the current one, or the previous one while a grace window is open (both published at GET /legal/versions); anything else is refused with TERMS_ACCEPTANCE_REQUIRED"`
 		PrivacyVersion string  `json:"privacy_version,omitempty" doc:"Acknowledged Privacy Policy version, under the same rule as terms_version"`
 		Name           *string `json:"name,omitempty" required:"false" doc:"The name the account takes as its display name. Omitted: the provider's names. Blank: no name."`
-		DateOfBirth    string  `json:"date_of_birth,omitempty" doc:"Date of birth, YYYY-MM-DD. The age is computed from it in UTC at submission; under the minimum age the account is refused with AGE_CONFIRMATION_REQUIRED and the pending sign-up is used up."`
+		DateOfBirth    string  `json:"date_of_birth,omitempty" doc:"Date of birth, YYYY-MM-DD. The age is computed from it at submission on the latest calendar date anywhere (UTC+14), so a birthday counts from the first moment it is that day somewhere; under the minimum age the account is refused with AGE_CONFIRMATION_REQUIRED and the pending sign-up is used up."`
 	}
 }
 
@@ -277,6 +277,9 @@ func (h *OAuthSignupHandler) FinishSignupHandler(ctx context.Context, input *Fin
 	}
 
 	now := time.Now().UTC()
+	if input.Body.DateOfBirth == "" {
+		return refuseField(autherrors.ErrValidationFailed(dateOfBirthMissingMessage))
+	}
 	dateOfBirth, err := legal.ParseDateOfBirth(input.Body.DateOfBirth, now)
 	if err != nil {
 		return refuseField(autherrors.ErrValidationFailed(dateOfBirthInvalidMessage))
@@ -324,9 +327,14 @@ func (h *OAuthSignupHandler) FinishSignupHandler(ctx context.Context, input *Fin
 	return resp, nil
 }
 
-// dateOfBirthInvalidMessage is the refusal for a date of birth that is not a
-// plausible calendar date (legal.ParseDateOfBirth).
-const dateOfBirthInvalidMessage = "Enter a valid date of birth."
+// The refusals for a missing date of birth and for one that is not a
+// plausible calendar date (legal.ParseDateOfBirth). The step's form shows the
+// same two sentences (DATE_OF_BIRTH_MISSING_MESSAGE and
+// DATE_OF_BIRTH_INVALID_MESSAGE in frontend/app/auth/complete/create-account-step.tsx).
+const (
+	dateOfBirthMissingMessage = "Enter your date of birth."
+	dateOfBirthInvalidMessage = "Enter a real date of birth."
+)
 
 func (h *OAuthSignupHandler) unavailable(ctx context.Context, resp *FinishOAuthSignupResponse, operation string, err error) (*FinishOAuthSignupResponse, error) {
 	logger.AuthError(ctx, operation+"_failed", err)

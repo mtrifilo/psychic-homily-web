@@ -39,10 +39,12 @@ export const TERMS_REQUIRED_MESSAGE =
   'Agree to the Terms of Service to create your account.'
 
 /**
- * The refusal the backend gives a date that is not a plausible date of birth
- * (dateOfBirthInvalidMessage in backend/internal/api/handlers/auth/oauth_signup.go).
+ * The date-of-birth errors: a part left empty, and a date that does not exist
+ * or that the backend finds implausible (dateOfBirthMissingMessage and
+ * dateOfBirthInvalidMessage in backend/internal/api/handlers/auth/oauth_signup.go).
  */
-export const DATE_OF_BIRTH_INVALID_MESSAGE = 'Enter a valid date of birth.'
+export const DATE_OF_BIRTH_MISSING_MESSAGE = 'Enter your date of birth.'
+export const DATE_OF_BIRTH_INVALID_MESSAGE = 'Enter a real date of birth.'
 
 const LOAD_FAILED_MESSAGE =
   'Service temporarily unavailable. Please try again.'
@@ -192,6 +194,10 @@ function CreateAccountForm({
   const dateOfBirth = dateOfBirthFromParts(month, day, year)
   const termsError = attempted && !termsAccepted
   const dateError = attempted && dateOfBirth === null
+  const dateErrorMessage =
+    month === '' || day === '' || year === ''
+      ? DATE_OF_BIRTH_MISSING_MESSAGE
+      : DATE_OF_BIRTH_INVALID_MESSAGE
   // Still busy once the account exists: the page is on its way out.
   const busy = readingVersions || finish.isPending || finish.isSuccess
   // The refusals the step shows as their own states replace this form, so
@@ -357,7 +363,7 @@ function CreateAccountForm({
           </div>
           {dateError && (
             <p id={dateErrorId} role="alert" className="text-sm text-destructive">
-              {DATE_OF_BIRTH_INVALID_MESSAGE}
+              {dateErrorMessage}
             </p>
           )}
         </fieldset>

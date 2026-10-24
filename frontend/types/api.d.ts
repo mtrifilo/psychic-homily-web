@@ -10674,7 +10674,7 @@ export interface components {
             user?: components["schemas"]["User"];
         };
         FinishOAuthSignupRequestBody: {
-            /** @description Date of birth, YYYY-MM-DD. The age is computed from it in UTC at submission; under the minimum age the account is refused with AGE_CONFIRMATION_REQUIRED and the pending sign-up is used up. */
+            /** @description Date of birth, YYYY-MM-DD. The age is computed from it at submission on the latest calendar date anywhere (UTC+14), so a birthday counts from the first moment it is that day somewhere; under the minimum age the account is refused with AGE_CONFIRMATION_REQUIRED and the pending sign-up is used up. */
             date_of_birth?: string;
             /** @description The name the account takes as its display name. Omitted: the provider's names. Blank: no name. */
             name?: string;

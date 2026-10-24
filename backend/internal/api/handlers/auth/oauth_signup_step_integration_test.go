@@ -366,17 +366,24 @@ func (s *OAuthHandlerIntegrationSuite) TestFinishSignup_FieldRefusalsKeepTheStep
 	token := s.startStep(identity)
 	api := s.stepAPI()
 
-	for name, mutate := range map[string]func(map[string]any){
-		"date not a date":    func(b map[string]any) { b["date_of_birth"] = "1990-02-30" },
-		"date in the future": func(b map[string]any) { b["date_of_birth"] = "2999-01-01" },
-		"date missing":       func(b map[string]any) { delete(b, "date_of_birth") },
-		"name with control":  func(b map[string]any) { b["name"] = "Alice\x07" },
-		"name too long":      func(b map[string]any) { b["name"] = strings.Repeat("a", maxProfileFieldRunes+1) },
+	for name, tc := range map[string]struct {
+		mutate  func(map[string]any)
+		message string
+	}{
+		"date not a date":    {func(b map[string]any) { b["date_of_birth"] = "1990-02-30" }, dateOfBirthInvalidMessage},
+		"date in the future": {func(b map[string]any) { b["date_of_birth"] = "2999-01-01" }, dateOfBirthInvalidMessage},
+		"date too old":       {func(b map[string]any) { b["date_of_birth"] = "1800-01-01" }, dateOfBirthInvalidMessage},
+		"date missing":       {func(b map[string]any) { delete(b, "date_of_birth") }, dateOfBirthMissingMessage},
+		"name with control":  {func(b map[string]any) { b["name"] = "Alice\x07" }, ""},
+		"name too long":      {func(b map[string]any) { b["name"] = strings.Repeat("a", maxProfileFieldRunes+1) }, ""},
 	} {
 		s.Run(name, func() {
 			body := validStepBody("1990-01-01")
-			mutate(body)
-			s.requireRefusal(api.Post(OAuthFinishSignupRoute, pendingCookieHeader(token), body), autherrors.CodeValidationFailed)
+			tc.mutate(body)
+			refusal := s.requireRefusal(api.Post(OAuthFinishSignupRoute, pendingCookieHeader(token), body), autherrors.CodeValidationFailed)
+			if tc.message != "" {
+				s.Equal(tc.message, refusal["message"])
+			}
 		})
 	}
 	s.Equal(int64(1), s.pendingRows(identity.UserID))

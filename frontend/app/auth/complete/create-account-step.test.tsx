@@ -20,6 +20,7 @@ import {
 import {
   CreateAccountStep,
   DATE_OF_BIRTH_INVALID_MESSAGE,
+  DATE_OF_BIRTH_MISSING_MESSAGE,
   TERMS_REQUIRED_MESSAGE,
   dateOfBirthFromParts,
 } from './create-account-step'
@@ -185,6 +186,24 @@ describe('CreateAccountStep', () => {
 
     await user.click(terms)
     expect(screen.queryByText(TERMS_REQUIRED_MESSAGE)).not.toBeInTheDocument()
+  })
+
+  it('asks for the date of birth, and sends nothing, when a part is empty', async () => {
+    answerPending(PENDING)
+    const bodies = answerFinish(() => ({ success: true, message: 'ok', user: NEW_USER }))
+    const user = userEvent.setup()
+    renderWithProviders(<CreateAccountStep />)
+    await screen.findByLabelText('Name')
+
+    await user.type(screen.getByLabelText('Month'), '4')
+    await user.type(screen.getByLabelText('Year'), '1998')
+    await user.click(screen.getByRole('checkbox', { name: /I agree to the Terms of Service/ }))
+    await user.click(screen.getByRole('button', { name: 'Create account' }))
+
+    expect(screen.getByText(DATE_OF_BIRTH_MISSING_MESSAGE)).toBeInTheDocument()
+    expect(screen.queryByText(DATE_OF_BIRTH_INVALID_MESSAGE)).not.toBeInTheDocument()
+    expect(screen.getByLabelText('Month')).toHaveFocus()
+    expect(bodies).toHaveLength(0)
   })
 
   it('sends nothing for a date that is not a date', async () => {
