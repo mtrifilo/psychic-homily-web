@@ -268,6 +268,21 @@ export function ShowDetail({
             replaced is the gate and the chrome, not the facts stated. */}
         <ShowListenModule artists={artists} lifecycle={lifecycle} />
 
+        {/* SLOT: the rails row, "also tonight in this metro" beside "more at
+            this venue". It is the page's next click, so it sits as high as the
+            listen module allows: directly after it and before In Collections
+            and Field Notes, and the first of the page's modules when the listen
+            module hides itself. Renders nothing at all when neither rail has
+            rows, so a quiet night and a room with no other dates cost this page
+            no space. */}
+        <ShowDiscoveryRails
+          show={show}
+          lifecycle={lifecycle}
+          now={now}
+          initialAlsoTonight={initialAlsoTonight}
+          initialVenueShows={initialVenueShows}
+        />
+
         {/* In Collections */}
         <section className="mb-8">
           <EntityCollections entityType="show" entityId={show.id} />
@@ -288,18 +303,6 @@ export function ShowDetail({
             artists={artists.map(a => ({ id: a.id, name: a.name }))}
           />
         </section>
-
-        {/* The rails row (PSY-1689): "also tonight in this metro" beside "more
-            at this venue", below the embeds and above the footer. Renders
-            nothing at all when neither rail has rows, so a quiet night and a
-            room with no other dates cost this page no space. */}
-        <ShowDiscoveryRails
-          show={show}
-          lifecycle={lifecycle}
-          now={now}
-          initialAlsoTonight={initialAlsoTonight}
-          initialVenueShows={initialVenueShows}
-        />
 
         {/* Tags and provenance footer. Both were in the header slot, above the
             fold, competing with the bill for the first thing a reader sees.
