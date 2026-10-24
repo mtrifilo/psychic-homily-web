@@ -44,8 +44,8 @@ beforeEach(() => {
 
 describe('ShowDiscoveryRails', () => {
   it('renders nothing at all when neither rail has rows', () => {
-    // Not merely empty rails: the ROW must go, or its bottom margin opens a
-    // gap above the footer on every quiet page.
+    // Not merely empty rails: the ROW must go, or its bottom margin opens an
+    // empty gap on every quiet page.
     const { container } = render(<ShowDiscoveryRails now={RAILS_NOW} show={makeRailShow()} lifecycle="upcoming" />)
     expect(container).toBeEmptyDOMElement()
   })
