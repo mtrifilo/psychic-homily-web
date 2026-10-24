@@ -1,10 +1,12 @@
 'use client'
 
-import { useState } from 'react'
+import { useRef, useState } from 'react'
+import { flushSync } from 'react-dom'
 import Link from 'next/link'
 import { startRegistration } from '@simplewebauthn/browser'
-import { Fingerprint, Loader2, Mail } from 'lucide-react'
+import { AlertCircle, Fingerprint, Loader2, Mail } from 'lucide-react'
 import { z } from 'zod'
+import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -49,6 +51,10 @@ const FINISH_FAILURE = 'Failed to complete passkey signup'
 type BeginSignupResponse = components['schemas']['BeginSignupResponseBody']
 
 interface PasskeySignupButtonProps {
+  /**
+   * Receives an error raised while the dialog is closed. One raised while it
+   * is open shows inside the dialog instead and never reaches this.
+   */
   onError?: (error: string) => void
   /**
    * Reports this sign-up's claim on the page: `pending` before the request
@@ -86,6 +92,15 @@ export function PasskeySignupButton({
   const [isLoading, setIsLoading] = useState(false)
   const [isRetryingConsent, setIsRetryingConsent] = useState(false)
   const [isDialogOpen, setIsDialogOpen] = useState(false)
+  // Whether the dialog is open now, read by a request that settles after the
+  // render it started from.
+  const dialogOpenRef = useRef(false)
+  const setDialogOpen = (open: boolean) => {
+    dialogOpenRef.current = open
+    setIsDialogOpen(open)
+  }
+  const [dialogError, setDialogError] = useState<string | null>(null)
+  const emailInputRef = useRef<HTMLInputElement>(null)
   const [email, setEmail] = useState('')
   const [emailError, setEmailError] = useState<string | null>(null)
   const [termsAccepted, setTermsAccepted] = useState(false)
@@ -95,7 +110,25 @@ export function PasskeySignupButton({
 
   const supportsWebAuthn = useWebAuthnSupport()
 
+  // The page's alert sits behind the open dialog's overlay, so an error raised
+  // while the dialog is open shows in the dialog's own alert, with the
+  // controls enabled again and focus back on Email. The alert announces
+  // itself, so it does not take focus.
+  const reportError = (message: string) => {
+    if (!dialogOpenRef.current) {
+      onError?.(message)
+      return
+    }
+    flushSync(() => {
+      setDialogError(message)
+      setIsLoading(false)
+    })
+    emailInputRef.current?.focus()
+  }
+
   const handlePasskeySignup = async () => {
+    setDialogError(null)
+
     // Validate email
     const emailSchema = z.string().email('Please enter a valid email address')
     const result = emailSchema.safeParse(email)
@@ -120,7 +153,7 @@ export function PasskeySignupButton({
     setAgeError(null)
 
     if (!supportsWebAuthn) {
-      onError?.('Your browser does not support passkeys')
+      reportError('Your browser does not support passkeys')
       return
     }
 
@@ -215,7 +248,7 @@ export function PasskeySignupButton({
       }
 
       setUser(finishData.user)
-      setIsDialogOpen(false)
+      setDialogOpen(false)
       onHandoffChange({
         status: 'complete',
         email: finishData.user.email || email,
@@ -243,12 +276,12 @@ export function PasskeySignupButton({
       // this component maps a request that timed out to its step's message
       // itself.
       if (deadlineSignal?.aborted) {
-        onError?.(claimed ? FINISH_FAILURE : START_FAILURE)
+        reportError(claimed ? FINISH_FAILURE : START_FAILURE)
         return
       }
 
       if (error instanceof ConsentVersionsUnavailableError) {
-        onError?.(CONSENT_VERSIONS_UNAVAILABLE)
+        reportError(CONSENT_VERSIONS_UNAVAILABLE)
         return
       }
       // Shown in the dialog from versionsChanged, once the page has the read.
@@ -262,9 +295,9 @@ export function PasskeySignupButton({
           // User cancelled the operation
           return
         }
-        onError?.(error.message)
+        reportError(error.message)
       } else {
-        onError?.('An unexpected error occurred')
+        reportError('An unexpected error occurred')
       }
     } finally {
       requestDeadline.disarm()
@@ -279,7 +312,7 @@ export function PasskeySignupButton({
   }
 
   return (
-    <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
+    <Dialog open={isDialogOpen} onOpenChange={setDialogOpen}>
       <DialogTrigger asChild>
         <Button
           type="button"
@@ -299,11 +332,18 @@ export function PasskeySignupButton({
           </DialogDescription>
         </DialogHeader>
         <div className="space-y-4 py-4">
+          {dialogError && (
+            <Alert variant="destructive">
+              <AlertCircle className="h-4 w-4" />
+              <AlertDescription>{dialogError}</AlertDescription>
+            </Alert>
+          )}
           <div className="space-y-2">
             <Label htmlFor="passkey-email">Email</Label>
             <div className="relative">
               <Mail className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
               <Input
+                ref={emailInputRef}
                 id="passkey-email"
                 type="email"
                 placeholder="you@example.com"

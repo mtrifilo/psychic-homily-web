@@ -121,9 +121,10 @@
    * cannot be reproduced in any desktop or headless browser, which always
    * reports 0. Every viewport-sized surface must
    * subtract `var(--bottom-tab-bar-height) + env(safe-area-inset-bottom)` below
-   * `xl` — current subtractors: AppShell padding, Sidebar + AdminSidebar
-   * heights, AtlasGlobe height, CookieConsentBanner bottom offset, CityFilters
-   * popover max-height (on soft-keyboard viewports only). At every width
+   * `xl` — current subtractors: AppShell padding, the document's
+   * scroll-padding-bottom, Sidebar + AdminSidebar heights, AtlasGlobe height,
+   * CookieConsentBanner bottom offset, CityFilters popover max-height (on
+   * soft-keyboard viewports only). At every width
    * AtlasGlobe's height also subtracts --topbar-height (TopBar's own height
    * token): below `xl` it ends at the bar, and its route is listed in
    * components/layout/footerVisibility.ts so the site footer does not show
@@ -277,6 +278,16 @@
   }
   html {
     @apply bg-background text-foreground;
+  }
+  /* The fixed bottom bars cover the end of the viewport, so the area a focused
+   * control or a scroll-into-view target is brought into ends above them: the
+   * same reservation AppShell's bottom padding makes, the tab bar (below `xl`)
+   * plus the home-indicator inset plus the cookie banner, whose height var is
+   * absent, so 0px, while the banner is down. It sets no top padding, so the
+   * `scroll-mt-*` anchors, written against a top padding of zero, still land
+   * where they are written to. */
+  html {
+    @apply scroll-pb-[calc(calc(var(--bottom-tab-bar-height)+env(safe-area-inset-bottom))+var(--cookie-banner-height,0px))] xl:scroll-pb-[max(env(safe-area-inset-bottom),var(--cookie-banner-height,0px))];
   }
   html::before {
     content: '';

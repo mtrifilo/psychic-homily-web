@@ -316,6 +316,51 @@ describe('passkey sign-up on /auth', () => {
     })
   })
 
+  it('shows an account-exists refusal inside the open dialog, not in the page alert', async () => {
+    fetchMock.mockResolvedValueOnce({
+      json: async () => ({
+        success: false,
+        message: 'An account with this email already exists',
+      }),
+    })
+
+    await submitPasskeySignup()
+
+    const dialog = screen.getByRole('dialog', { name: 'Create account with passkey' })
+    expect(
+      await within(dialog).findByText('An account with this email already exists')
+    ).toBeInTheDocument()
+    // One copy, and it is the dialog's: the page behind the overlay has none.
+    expect(
+      screen.getAllByText('An account with this email already exists')
+    ).toHaveLength(1)
+    expect(mockPush).not.toHaveBeenCalled()
+  })
+
+  // A re-authentication link that outlived its session offers Create account,
+  // and an account made from it goes on to returnTo like any other.
+  it('redirects to returnTo once the prompt is skipped after a sign-up from a stale re-auth link', async () => {
+    searchParams.current = new URLSearchParams({
+      returnTo: RETURN_TO,
+      reason: 'REAUTH_REQUIRED',
+    })
+    fetchMock.mockResolvedValueOnce(BEGIN_OK).mockResolvedValueOnce(FINISH_OK)
+
+    const user = await submitPasskeySignup()
+    const prompt = await screen.findByRole('dialog', PROMPT)
+    expect(mockPush).not.toHaveBeenCalled()
+
+    await user.click(
+      within(prompt).getByRole('button', { name: "I'll do this later" })
+    )
+
+    await waitFor(() => {
+      expect(mockPush).toHaveBeenCalledWith(RETURN_TO)
+    })
+    expect(mockPush).toHaveBeenCalledTimes(1)
+    expect(screen.queryByText("Confirm it's you")).not.toBeInTheDocument()
+  })
+
   it('keeps the form and reports the error when the finish request is refused', async () => {
     fetchMock.mockResolvedValueOnce(BEGIN_OK).mockResolvedValueOnce({
       json: async () => ({ success: false, message: 'Email already registered' }),

@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import userEvent from '@testing-library/user-event'
-import { fireEvent, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { createTestQueryClient, renderWithProviders } from '@/test/utils'
 import {
   BUILD_CONSENT_VERSIONS,
@@ -100,6 +100,19 @@ describe('PasskeySignupButton', () => {
     )
   }
 
+  function signupDialog() {
+    return screen.getByRole('dialog', { name: 'Create account with passkey' })
+  }
+
+  // An error raised while the dialog is open shows inside it, and the page is
+  // never handed it.
+  async function expectDialogError(message: string) {
+    await waitFor(() => {
+      expect(within(signupDialog()).getByRole('alert')).toHaveTextContent(message)
+    })
+    expect(mockOnError).not.toHaveBeenCalled()
+  }
+
   const BEGIN_OK = {
     json: async () => ({
       success: true,
@@ -195,9 +208,7 @@ describe('PasskeySignupButton', () => {
     renderButton()
     await submitSignup()
 
-    await waitFor(() => {
-      expect(mockOnError).toHaveBeenCalledWith('Failed to complete passkey signup')
-    })
+    await expectDialogError('Failed to complete passkey signup')
     expect(mockOnHandoffChange.mock.calls).toEqual([
       [{ status: 'pending', email: 'signup@example.com' }],
       [null],
@@ -214,9 +225,7 @@ describe('PasskeySignupButton', () => {
     renderButton()
     await submitSignup()
 
-    await waitFor(() => {
-      expect(mockOnError).toHaveBeenCalledWith('Email already registered')
-    })
+    await expectDialogError('Email already registered')
     expect(mockOnHandoffChange.mock.calls).toEqual([
       [{ status: 'pending', email: 'signup@example.com' }],
       [null],
@@ -240,9 +249,7 @@ describe('PasskeySignupButton', () => {
     renderButton()
     await submitSignup()
 
-    await waitFor(() => {
-      expect(mockOnError).toHaveBeenCalledWith('Service temporarily unavailable')
-    })
+    await expectDialogError('Service temporarily unavailable')
     expect(mockOnHandoffChange.mock.calls).toEqual([
       [{ status: 'pending', email: 'signup@example.com' }],
       [null],
@@ -264,9 +271,7 @@ describe('PasskeySignupButton', () => {
     renderButton()
     await submitSignup()
 
-    await waitFor(() => {
-      expect(mockOnError).toHaveBeenCalledWith('Email already registered')
-    })
+    await expectDialogError('Email already registered')
     expect(mockStartRegistration).not.toHaveBeenCalled()
     expect(fetchMock).toHaveBeenCalledTimes(1)
     expect(mockOnHandoffChange).not.toHaveBeenCalled()
@@ -291,6 +296,80 @@ describe('PasskeySignupButton', () => {
     expect(fetchMock).toHaveBeenCalledTimes(1)
     expect(mockOnHandoffChange).not.toHaveBeenCalled()
     expect(mockOnError).not.toHaveBeenCalled()
+  })
+
+  it('shows an account-exists refusal in the open dialog and returns focus to Email', async () => {
+    fetchMock.mockResolvedValueOnce({
+      json: async () => ({
+        success: false,
+        message: 'An account with this email already exists',
+      }),
+    })
+
+    renderButton()
+    await submitSignup()
+
+    await expectDialogError('An account with this email already exists')
+    const dialog = signupDialog()
+    expect(within(dialog).getByLabelText('Email')).toHaveFocus()
+    expect(within(dialog).getByLabelText('Email')).toBeEnabled()
+    expect(within(dialog).getByLabelText('Email')).toHaveValue('signup@example.com')
+    expect(
+      within(dialog).getByRole('button', { name: /continue with passkey/i })
+    ).toBeEnabled()
+  })
+
+  it('drops the dialog error when the next attempt starts', async () => {
+    const retried = deferred<{ json: () => Promise<unknown> }>()
+    fetchMock
+      .mockResolvedValueOnce({
+        json: async () => ({ success: false, message: 'Email already registered' }),
+      })
+      .mockReturnValueOnce(retried.promise)
+
+    renderButton()
+    await submitSignup()
+    await expectDialogError('Email already registered')
+
+    fireEvent.click(
+      within(signupDialog()).getByRole('button', { name: /continue with passkey/i })
+    )
+
+    await waitFor(() => {
+      expect(within(signupDialog()).queryByRole('alert')).not.toBeInTheDocument()
+    })
+    await act(async () => {
+      retried.resolve(BEGIN_OK)
+    })
+  })
+
+  it('hands the page an error that arrives after the dialog was closed', async () => {
+    const finish = deferred<{ json: () => Promise<unknown> }>()
+    fetchMock.mockResolvedValueOnce(BEGIN_OK).mockReturnValueOnce(finish.promise)
+
+    renderButton()
+    await submitSignup()
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledTimes(2)
+    })
+
+    fireEvent.keyDown(signupDialog(), { key: 'Escape' })
+    await waitFor(() => {
+      expect(
+        screen.queryByRole('dialog', { name: 'Create account with passkey' })
+      ).not.toBeInTheDocument()
+    })
+
+    await act(async () => {
+      finish.resolve({
+        json: async () => ({ success: false, message: 'Email already registered' }),
+      })
+    })
+
+    await waitFor(() => {
+      expect(mockOnError).toHaveBeenCalledWith('Email already registered')
+    })
+    expect(mockOnError).toHaveBeenCalledTimes(1)
   })
 
   describe('under the request deadline', () => {
@@ -338,9 +417,7 @@ describe('PasskeySignupButton', () => {
         expect(mockOnError).not.toHaveBeenCalled()
 
         await advanceFakeTime(1_000)
-        await waitFor(() => {
-          expect(mockOnError).toHaveBeenCalledWith('Failed to complete passkey signup')
-        })
+        await expectDialogError('Failed to complete passkey signup')
         expect(requestSignal(fetchMock, 1).aborted).toBe(true)
         expect(mockOnDeadlineExpire).toHaveBeenCalledTimes(1)
         expect(mockOnHandoffChange.mock.calls).toEqual([
@@ -368,9 +445,7 @@ describe('PasskeySignupButton', () => {
       })
 
       await advanceFakeTime(SIGNUP_REQUEST_TIMEOUT_MS)
-      await waitFor(() => {
-        expect(mockOnError).toHaveBeenCalledWith('Failed to start passkey signup')
-      })
+      await expectDialogError('Failed to start passkey signup')
       expect(requestSignal(fetchMock, 0).aborted).toBe(true)
       expect(mockStartRegistration).not.toHaveBeenCalled()
       expect(mockOnHandoffChange).not.toHaveBeenCalled()
@@ -387,14 +462,13 @@ describe('PasskeySignupButton', () => {
 
       renderButton()
       submitWithFireEvent()
-      await waitFor(() => {
-        expect(mockOnError).toHaveBeenCalledWith('Email already registered')
-      })
+      await expectDialogError('Email already registered')
 
       await advanceFakeTime(SIGNUP_REQUEST_TIMEOUT_MS * 2)
       expect(requestSignal(fetchMock, 1).aborted).toBe(false)
       expect(mockOnDeadlineExpire).not.toHaveBeenCalled()
-      expect(mockOnError).toHaveBeenCalledTimes(1)
+      expect(within(signupDialog()).getAllByRole('alert')).toHaveLength(1)
+      expect(mockOnError).not.toHaveBeenCalled()
     })
 
     it('gives the passkey ceremony no deadline', async () => {
@@ -594,9 +668,7 @@ describe('PasskeySignupButton', () => {
       renderButton(createTestQueryClient())
       await submitSignup()
 
-      await waitFor(() => {
-        expect(mockOnError).toHaveBeenCalledWith(CONSENT_VERSIONS_UNAVAILABLE)
-      })
+      await expectDialogError(CONSENT_VERSIONS_UNAVAILABLE)
       expect(beginCalls()).toHaveLength(0)
       expect(mockOnHandoffChange).not.toHaveBeenCalled()
     })
@@ -644,11 +716,9 @@ describe('PasskeySignupButton', () => {
       renderButton(clientWithConsentVersions(BUILD_CONSENT_VERSIONS))
       await submitSignup()
 
-      await waitFor(() => {
-        expect(mockOnError).toHaveBeenCalledWith(
-          'Please accept the Terms of Service and Privacy Policy before creating an account.'
-        )
-      })
+      await expectDialogError(
+        'Please accept the Terms of Service and Privacy Policy before creating an account.'
+      )
       expect(beginCalls()).toHaveLength(2)
       expect(versionsCalls()).toHaveLength(1)
       expect(mockStartRegistration).not.toHaveBeenCalled()
@@ -664,9 +734,7 @@ describe('PasskeySignupButton', () => {
       renderButton(clientWithConsentVersions(BUILD_CONSENT_VERSIONS))
       await submitSignup()
 
-      await waitFor(() => {
-        expect(mockOnError).toHaveBeenCalledWith(CONSENT_VERSIONS_UNAVAILABLE)
-      })
+      await expectDialogError(CONSENT_VERSIONS_UNAVAILABLE)
       expect(beginCalls()).toHaveLength(1)
       expect(mockStartRegistration).not.toHaveBeenCalled()
     })

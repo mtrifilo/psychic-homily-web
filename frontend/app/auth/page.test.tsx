@@ -429,7 +429,7 @@ describe('AuthPage', () => {
       expect(mockPush).not.toHaveBeenCalled()
     })
 
-    it('opens a signed-out re-auth link with an intent on Sign in only', () => {
+    it('opens a signed-out re-auth link with an intent on Sign in, Create account offered', () => {
       setSearchParams(
         'returnTo=%2Fprofile&reason=OAUTH_LINK_REAUTH_REQUIRED&intent=save'
       )
@@ -440,8 +440,8 @@ describe('AuthPage', () => {
         'true'
       )
       expect(
-        screen.queryByRole('tab', { name: /create account/i })
-      ).not.toBeInTheDocument()
+        screen.getByRole('tab', { name: 'Create account' })
+      ).toHaveAttribute('aria-selected', 'false')
       expect(
         screen.queryByRole('heading', { name: 'Never miss a show.' })
       ).not.toBeInTheDocument()
@@ -1569,6 +1569,105 @@ describe('AuthPage', () => {
           returnTo: '/profile?tab=settings',
         })
       )
+    })
+
+    describe('from a link that outlived its session', () => {
+      const staleParams = new URLSearchParams({
+        returnTo: '/profile?tab=settings',
+        reason: 'REAUTH_REQUIRED',
+      })
+
+      it('offers both tabs to a signed-out reader, the heading still naming why', () => {
+        mockSearchParams = new URLSearchParams(staleParams)
+
+        renderWithProviders(<AuthPage />)
+
+        expect(screen.getByRole('tab', { name: 'Sign in' })).toHaveAttribute(
+          'aria-selected',
+          'true'
+        )
+        expect(screen.getByRole('tab', { name: 'Create account' })).toBeInTheDocument()
+        expect(screen.getByRole('tablist')).toHaveClass('grid-cols-2')
+        expect(
+          screen.getByRole('heading', { level: 1, name: "Confirm it's you" })
+        ).toBeInTheDocument()
+        expect(screen.queryByText('Welcome to Psychic Homily')).not.toBeInTheDocument()
+        expect(mockPush).not.toHaveBeenCalled()
+      })
+
+      // A profile fetch that failed without answering leaves the status
+      // 'pending' with nothing loading.
+      it('offers both tabs once the profile fetch has failed unanswered', () => {
+        mockAuthState = { setUser: vi.fn(), authStatus: 'pending', isLoading: false }
+        mockSearchParams = new URLSearchParams(staleParams)
+
+        renderWithProviders(<AuthPage />)
+
+        expect(screen.getByRole('tab', { name: 'Create account' })).toBeInTheDocument()
+      })
+
+      it('offers Sign in alone, with the re-auth heading, to a signed-in reader', async () => {
+        mockAuthState = { setUser: vi.fn(), authStatus: 'authenticated' }
+        mockSearchParams = new URLSearchParams(staleParams)
+
+        renderWithProviders(<AuthPage />)
+
+        expect(
+          await screen.findByRole('heading', { level: 1, name: "Confirm it's you" })
+        ).toBeInTheDocument()
+        expect(screen.getByRole('tablist')).toHaveClass('grid-cols-1')
+        expect(
+          screen.queryByRole('tab', { name: /create account/i })
+        ).not.toBeInTheDocument()
+        expect(mockPush).not.toHaveBeenCalled()
+      })
+
+      it('moves to Sign in once a session appears without a sign-up', async () => {
+        const user = userEvent.setup()
+        mockSearchParams = new URLSearchParams(staleParams)
+        const { rerender } = renderWithProviders(<AuthPage />)
+        await user.click(screen.getByRole('tab', { name: 'Create account' }))
+        expect(screen.getByTestId('passkey-signup')).toBeInTheDocument()
+
+        mockAuthState = { setUser: vi.fn(), authStatus: 'authenticated' }
+        rerender(<AuthPage />)
+
+        expect(screen.getByRole('tab', { name: 'Sign in' })).toHaveAttribute(
+          'aria-selected',
+          'true'
+        )
+        expect(
+          screen.queryByRole('tab', { name: /create account/i })
+        ).not.toBeInTheDocument()
+        expect(screen.queryByTestId('passkey-signup')).not.toBeInTheDocument()
+        expect(screen.getByTestId('passkey-login')).toBeInTheDocument()
+        expect(mockPush).not.toHaveBeenCalled()
+      })
+
+      // The session can exist before the sign-up that made it has settled, and
+      // the control waiting on that answer has to stay mounted.
+      it('keeps Create account while a sign-up begun there holds its claim', async () => {
+        const user = userEvent.setup()
+        mockSearchParams = new URLSearchParams(staleParams)
+        const { rerender } = renderWithProviders(<AuthPage />)
+        await user.click(screen.getByRole('tab', { name: 'Create account' }))
+        const { onHandoffChange } = passkeySignupProps.mock.calls.at(-1)![0] as {
+          onHandoffChange: (handoff: unknown) => void
+        }
+
+        act(() => {
+          onHandoffChange({ status: 'pending', email: 'new@example.com' })
+        })
+        mockAuthState = { setUser: vi.fn(), authStatus: 'authenticated' }
+        rerender(<AuthPage />)
+
+        expect(screen.getByRole('tab', { name: 'Create account' })).toHaveAttribute(
+          'aria-selected',
+          'true'
+        )
+        expect(screen.getByTestId('passkey-signup')).toBeInTheDocument()
+        expect(mockPush).not.toHaveBeenCalled()
+      })
     })
 
     it('still bounces an authenticated reader when no reason is given', async () => {

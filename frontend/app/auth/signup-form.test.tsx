@@ -127,6 +127,7 @@ async function renderSignupForm() {
 
 describe('SignupForm deferred validation', () => {
   beforeEach(() => {
+    vi.mocked(Element.prototype.scrollIntoView).mockClear()
     mockPush.mockReset()
     mockRegisterMutate.mockReset()
     mockRegisterError = null
@@ -189,33 +190,114 @@ describe('SignupForm deferred validation', () => {
     expect(mockRegisterMutate).not.toHaveBeenCalled()
   })
 
-  it('disables submit while password is shorter than minimum length', async () => {
-    const { user } = await renderSignupForm()
+  // Create account stays enabled whatever the fields hold; pressing it with
+  // invalid fields shows every field's error and focuses the first of them.
+  describe('invalid submit', () => {
+    it('focuses Email, the first field, when every field is empty', async () => {
+      const { user } = await renderSignupForm()
+      const submit = screen.getByRole('button', { name: 'Create account' })
+      expect(submit).toBeEnabled()
 
-    await user.type(screen.getByLabelText('Email'), 'test@example.com')
-    await user.type(screen.getByLabelText('Password'), 'short') // 5 chars
-    await user.click(screen.getByRole('checkbox', { name: TERMS_CHECKBOX }))
-    await user.click(screen.getByRole('checkbox', { name: AGE_CHECKBOX }))
+      await user.click(submit)
 
-    const submitButton = screen.getByRole('button', { name: 'Create account' })
-    expect(submitButton).toBeDisabled()
-    expect(mockRegisterMutate).not.toHaveBeenCalled()
+      await waitFor(() => {
+        expect(screen.getByLabelText('Email')).toHaveFocus()
+      })
+      expect(screen.getAllByRole('alert')).toHaveLength(4)
+      expect(screen.getByLabelText('Email')).toHaveAttribute('aria-invalid', 'true')
+      const scroll = vi.mocked(Element.prototype.scrollIntoView).mock
+      expect(scroll.contexts.at(-1)).toBe(screen.getByLabelText('Email'))
+      expect(scroll.calls.at(-1)).toEqual([{ block: 'center' }])
+      expect(screen.getByRole('button', { name: 'Create account' })).toBeEnabled()
+      expect(mockRegisterMutate).not.toHaveBeenCalled()
+    })
+
+    it('focuses Password when a short password is the only invalid field', async () => {
+      const { user } = await renderSignupForm()
+
+      await user.type(screen.getByLabelText('Email'), 'test@example.com')
+      await user.type(screen.getByLabelText('Password'), 'abc')
+      await user.click(screen.getByRole('checkbox', { name: TERMS_CHECKBOX }))
+      await user.click(screen.getByRole('checkbox', { name: AGE_CHECKBOX }))
+      const submit = screen.getByRole('button', { name: 'Create account' })
+      expect(submit).toBeEnabled()
+      await user.click(submit)
+
+      await waitFor(() => {
+        expect(screen.getByLabelText('Password')).toHaveFocus()
+      })
+      expect(screen.getByText(/Password must be at least 12 characters/)).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: 'Create account' })).toBeEnabled()
+      expect(mockRegisterMutate).not.toHaveBeenCalled()
+    })
+
+    it('focuses the age checkbox when it is the only field left', async () => {
+      const { user } = await renderSignupForm()
+
+      await user.type(screen.getByLabelText('Email'), 'test@example.com')
+      await user.type(screen.getByLabelText('Password'), 'validPassword123!')
+      await user.click(screen.getByRole('checkbox', { name: TERMS_CHECKBOX }))
+      await user.click(screen.getByRole('button', { name: 'Create account' }))
+
+      await waitFor(() => {
+        expect(screen.getByRole('checkbox', { name: AGE_CHECKBOX })).toHaveFocus()
+      })
+    })
+
+    // A second press while the errors from the first still show takes the
+    // form's early exit, which reports the same invalid submit.
+    it('focuses the first invalid field again on a second press', async () => {
+      const { user } = await renderSignupForm()
+      const submit = screen.getByRole('button', { name: 'Create account' })
+
+      await user.click(submit)
+      await waitFor(() => {
+        expect(screen.getByLabelText('Email')).toHaveFocus()
+      })
+
+      await user.click(submit)
+
+      await waitFor(() => {
+        expect(screen.getByLabelText('Email')).toHaveFocus()
+      })
+      expect(document.activeElement).not.toBe(document.body)
+      expect(mockRegisterMutate).not.toHaveBeenCalled()
+    })
+
+    it('submits a valid form once', async () => {
+      const { user } = await renderSignupForm()
+
+      await user.type(screen.getByLabelText('Email'), 'test@example.com')
+      await user.type(screen.getByLabelText('Password'), 'validPassword123!')
+      await user.click(screen.getByRole('checkbox', { name: TERMS_CHECKBOX }))
+      await user.click(screen.getByRole('checkbox', { name: AGE_CHECKBOX }))
+      await user.click(screen.getByRole('button', { name: 'Create account' }))
+
+      await waitFor(() => {
+        expect(mockRegisterMutate).toHaveBeenCalledTimes(1)
+      })
+    })
   })
 
-  it('enables submit once password reaches minimum length', async () => {
-    const { user } = await renderSignupForm()
+  // The alert announces itself, so focus stays on the control; the alert is
+  // scrolled to first and the focused control after it, so the control
+  // stays in view when both do not fit.
+  it('brings a refused sign-up\'s alert into view and leaves focus on the field', async () => {
+    const { user, rerender } = await renderSignupForm()
+    const email = screen.getByLabelText('Email')
+    await user.click(email)
 
-    await user.type(screen.getByLabelText('Email'), 'test@example.com')
-    await user.click(screen.getByRole('checkbox', { name: TERMS_CHECKBOX }))
-    await user.click(screen.getByRole('checkbox', { name: AGE_CHECKBOX }))
+    mockRegisterError = new Error('Email already registered')
+    rerender()
 
-    // 11 chars => still disabled
-    await user.type(screen.getByLabelText('Password'), '12345678901')
-    expect(screen.getByRole('button', { name: 'Create account' })).toBeDisabled()
-
-    // 12 chars => enabled
-    await user.type(screen.getByLabelText('Password'), '2')
-    expect(screen.getByRole('button', { name: 'Create account' })).toBeEnabled()
+    const alert = screen.getByText('Email already registered').closest('[role="alert"]')
+    expect(alert).not.toBeNull()
+    expect(vi.mocked(Element.prototype.scrollIntoView).mock.contexts).toEqual([alert, email])
+    expect(vi.mocked(Element.prototype.scrollIntoView).mock.calls).toEqual([
+      [{ block: 'nearest' }],
+      [{ block: 'nearest' }],
+    ])
+    expect(email).toHaveFocus()
   })
 
   it('shows terms error on submit without checking terms', async () => {
