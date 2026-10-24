@@ -85,6 +85,13 @@ export function CreateAccountStep() {
   const pending = usePendingOAuthSignup()
   const finish = useFinishOAuthSignup()
   const finishCode = isAuthError(finish.error) ? finish.error.code : null
+  // A card that replaces a submitted form takes focus, so the outcome is
+  // announced rather than left behind a focus that fell to the page.
+  const replacedForm = finish.isError
+  const returnTo =
+    pending.data?.status === 'pending'
+      ? sanitizeReturnTo(pending.data.return_to ?? FALLBACK_RETURN_TO)
+      : FALLBACK_RETURN_TO
 
   let content: ReactNode
   if (pending.isPending) {
@@ -103,12 +110,12 @@ export function CreateAccountStep() {
     pending.data.status === 'age_refused' ||
     finishCode === AuthErrorCode.AGE_CONFIRMATION_REQUIRED
   ) {
-    content = <AgeRefusedCard />
+    content = <AgeRefusedCard focusHeading={replacedForm} />
   } else if (
     pending.data.status === 'expired' ||
     finishCode === AuthErrorCode.OAUTH_SIGNUP_EXPIRED
   ) {
-    content = <ExpiredCard />
+    content = <ExpiredCard focusHeading={replacedForm} returnTo={returnTo} />
   } else {
     content = <CreateAccountForm pending={pending.data} finish={finish} />
   }
@@ -131,10 +138,12 @@ function StepCard({ children }: { children: ReactNode }) {
 function StepHeading({
   eyebrow,
   title,
+  focusOnMount = false,
   children,
 }: {
   eyebrow: string
   title: string
+  focusOnMount?: boolean
   children?: ReactNode
 }) {
   return (
@@ -142,7 +151,13 @@ function StepHeading({
       <p className="font-mono text-[11px] uppercase tracking-[0.66px] text-muted-foreground">
         {eyebrow}
       </p>
-      <h1 className="text-2xl font-bold leading-[30px] text-foreground">{title}</h1>
+      <h1
+        ref={focusOnMount ? heading => heading?.focus() : undefined}
+        tabIndex={focusOnMount ? -1 : undefined}
+        className="text-2xl font-bold leading-[30px] text-foreground outline-none"
+      >
+        {title}
+      </h1>
       {children}
     </div>
   )
@@ -177,12 +192,16 @@ function CreateAccountForm({
   const dateOfBirth = dateOfBirthFromParts(month, day, year)
   const termsError = attempted && !termsAccepted
   const dateError = attempted && dateOfBirth === null
-  const busy = readingVersions || finish.isPending
+  // Still busy once the account exists: the page is on its way out.
+  const busy = readingVersions || finish.isPending || finish.isSuccess
   // The refusals the step shows as their own states replace this form, so
   // whatever error is left belongs in its banner.
   const finishMessage = finish.error?.message ?? null
 
   const submit = async () => {
+    if (busy) {
+      return
+    }
     setAttempted(true)
     // Focus goes to the first field the form refuses, in the order they show.
     if (dateOfBirth === null) {
@@ -212,14 +231,18 @@ function CreateAccountForm({
         terms_version: versions.termsVersion,
         privacy_version: versions.privacyVersion,
         date_of_birth: dateOfBirth,
-        name,
+        // Sent only when changed: an untouched name keeps the provider's
+        // first and last names, and only a name the person typed (or
+        // cleared) becomes the account's display name.
+        ...(name.trim() !== (pending.name ?? '').trim() && { name }),
       },
       {
         onSuccess: data => {
           if (data.user) {
             setUser(data.user)
           }
-          router.push(sanitizeReturnTo(data.return_to ?? FALLBACK_RETURN_TO))
+          // Replace, not push: the step works once, so Back must not land on it.
+          router.replace(sanitizeReturnTo(data.return_to ?? FALLBACK_RETURN_TO))
         },
       }
     )
@@ -447,16 +470,20 @@ function DatePart({
 
 // The lifetime in this copy is contracts.OAuthPendingSignupTTL in the
 // backend; TestOAuthSignupExpiredCopyNamesTheLifetime fails when it changes.
-function ExpiredCard() {
+function ExpiredCard({ focusHeading, returnTo }: { focusHeading: boolean; returnTo: string }) {
   return (
     <StepCard>
-      <StepHeading eyebrow="Sign-in expired" title="That sign-in link expired. Start again." />
+      <StepHeading
+        eyebrow="Sign-in expired"
+        title="That sign-in link expired. Start again."
+        focusOnMount={focusHeading}
+      />
       <p className="text-sm leading-[22px] text-foreground">
         This step stays open for 10 minutes and works once. Nothing was saved, so
         continue with Google to pick up where you left off.
       </p>
       <div className="flex flex-col gap-3">
-        <GoogleOAuthButton className="w-full" />
+        <GoogleOAuthButton className="w-full" returnTo={returnTo} />
         <p className="text-center text-xs text-muted-foreground">
           Back to{' '}
           <Link href="/auth" className={LINK_CLASS}>
@@ -468,10 +495,14 @@ function ExpiredCard() {
   )
 }
 
-function AgeRefusedCard() {
+function AgeRefusedCard({ focusHeading }: { focusHeading: boolean }) {
   return (
     <StepCard>
-      <StepHeading eyebrow="Account not created" title="We can't create an account for you." />
+      <StepHeading
+        eyebrow="Account not created"
+        title="We can't create an account for you."
+        focusOnMount={focusHeading}
+      />
       <p className="text-sm leading-[22px] text-foreground">
         Psychic Homily accounts are for people {MIN_SIGNUP_AGE} and over, so we
         haven&apos;t created one. You can still browse shows, artists and venues

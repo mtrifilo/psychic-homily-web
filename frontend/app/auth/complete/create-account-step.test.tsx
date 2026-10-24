@@ -25,9 +25,10 @@ vi.mock('@/lib/api-base', async importOriginal => ({
   OAUTH_BACKEND_URL: 'https://oauth-backend.test',
 }))
 
-const mockPush = vi.fn()
+// The step leaves by replace, so its spent URL never stays in history.
+const mockReplace = vi.fn()
 vi.mock('next/navigation', () => ({
-  useRouter: () => ({ push: mockPush, replace: vi.fn() }),
+  useRouter: () => ({ push: vi.fn(), replace: mockReplace }),
   useSearchParams: () => new URLSearchParams(),
 }))
 
@@ -107,7 +108,7 @@ describe('dateOfBirthFromParts', () => {
 
 describe('CreateAccountStep', () => {
   beforeEach(() => {
-    mockPush.mockReset()
+    mockReplace.mockReset()
     mockSetUser.mockReset()
   })
 
@@ -217,7 +218,7 @@ describe('CreateAccountStep', () => {
     await fillValidForm(user)
     await user.click(screen.getByRole('button', { name: 'Create account' }))
 
-    await waitFor(() => expect(mockPush).toHaveBeenCalledWith('/shows?city=phoenix'))
+    await waitFor(() => expect(mockReplace).toHaveBeenCalledWith('/shows?city=phoenix'))
     expect(bodies).toEqual([
       {
         terms_accepted: true,
@@ -243,7 +244,7 @@ describe('CreateAccountStep', () => {
     await fillValidForm(user)
     await user.click(screen.getByRole('button', { name: 'Create account' }))
 
-    await waitFor(() => expect(mockPush).toHaveBeenCalledWith(want))
+    await waitFor(() => expect(mockReplace).toHaveBeenCalledWith(want))
   })
 
   it('shows the under-16 refusal in place of the form when the finish refuses the age', async () => {
@@ -260,10 +261,11 @@ describe('CreateAccountStep', () => {
     await fillValidForm(user)
     await user.click(screen.getByRole('button', { name: 'Create account' }))
 
-    expect(await screen.findByRole('heading', { name: "We can't create an account for you." })).toBeInTheDocument()
+    const heading = await screen.findByRole('heading', { name: "We can't create an account for you." })
     assertAgeRefusalCard()
+    expect(heading).toHaveFocus()
     expect(screen.queryByLabelText('Month')).not.toBeInTheDocument()
-    expect(mockPush).not.toHaveBeenCalled()
+    expect(mockReplace).not.toHaveBeenCalled()
   })
 
   function assertAgeRefusalCard() {
@@ -314,7 +316,7 @@ describe('CreateAccountStep', () => {
     await fillValidForm(user)
     await user.click(screen.getByRole('button', { name: 'Create account' }))
 
-    expect(await screen.findByRole('heading', { name: 'That sign-in link expired. Start again.' })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: 'That sign-in link expired. Start again.' })).toHaveFocus()
     assertExpiredCard()
   })
 
@@ -330,7 +332,7 @@ describe('CreateAccountStep', () => {
 
     expect(await screen.findByRole('alert')).toHaveTextContent('Name must be 100 characters or fewer')
     expect(screen.getByLabelText('Month')).toBeInTheDocument()
-    expect(mockPush).not.toHaveBeenCalled()
+    expect(mockReplace).not.toHaveBeenCalled()
   })
 
   it('asks for a reload, and sends nothing, when the published versions are not this build\'s', async () => {
@@ -347,6 +349,72 @@ describe('CreateAccountStep', () => {
     expect(await screen.findByText(CONSENT_VERSIONS_CHANGED)).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Create account' })).toBeDisabled()
     expect(bodies).toHaveLength(0)
+  })
+
+  it('keeps the provider names by sending no name when the prefill is untouched', async () => {
+    answerPending(PENDING)
+    const bodies = answerFinish(() => ({ success: true, message: 'ok', user: NEW_USER }))
+    const user = userEvent.setup()
+    renderWithProviders(<CreateAccountStep />)
+    await screen.findByLabelText('Name')
+
+    await fillValidForm(user)
+    await user.click(screen.getByRole('button', { name: 'Create account' }))
+
+    await waitFor(() => expect(bodies).toHaveLength(1))
+    expect(bodies[0]).not.toHaveProperty('name')
+  })
+
+  it('sends a cleared name, so the account gets no name', async () => {
+    answerPending(PENDING)
+    const bodies = answerFinish(() => ({ success: true, message: 'ok', user: NEW_USER }))
+    const user = userEvent.setup()
+    renderWithProviders(<CreateAccountStep />)
+    await screen.findByLabelText('Name')
+
+    await user.clear(screen.getByLabelText('Name'))
+    await fillValidForm(user)
+    await user.click(screen.getByRole('button', { name: 'Create account' }))
+
+    await waitFor(() => expect(bodies).toHaveLength(1))
+    expect(bodies[0].name).toBe('')
+  })
+
+  it('stays busy once the account exists, while the page leaves', async () => {
+    answerPending(PENDING)
+    const bodies = answerFinish(() => ({ success: true, message: 'ok', user: NEW_USER }))
+    const user = userEvent.setup()
+    renderWithProviders(<CreateAccountStep />)
+    await screen.findByLabelText('Name')
+
+    await fillValidForm(user)
+    await user.click(screen.getByRole('button', { name: 'Create account' }))
+
+    await waitFor(() => expect(mockReplace).toHaveBeenCalled())
+    const button = screen.getByRole('button', { name: /Creating account/ })
+    expect(button).toBeDisabled()
+    expect(bodies).toHaveLength(1)
+  })
+
+  it('carries the destination into Continue with Google on the expired step after a submit', async () => {
+    answerPending({ ...PENDING, return_to: '/shows?city=phoenix' })
+    answerFinish(() => ({ success: false, message: 'gone', error_code: 'OAUTH_SIGNUP_EXPIRED' }))
+    const navigatedTo = vi.fn<(href: string) => void>()
+    const originalLocation = window.location
+    Object.defineProperty(window, 'location', { value: { ...originalLocation }, writable: true, configurable: true })
+    Object.defineProperty(window.location, 'href', { set: navigatedTo, configurable: true })
+    try {
+      const user = userEvent.setup()
+      renderWithProviders(<CreateAccountStep />)
+      await screen.findByLabelText('Name')
+      await fillValidForm(user)
+      await user.click(screen.getByRole('button', { name: 'Create account' }))
+      await user.click(await screen.findByRole('button', { name: 'Continue with Google' }))
+
+      expect(new URL(navigatedTo.mock.calls[0][0]).searchParams.get('returnTo')).toBe('/shows?city=phoenix')
+    } finally {
+      Object.defineProperty(window, 'location', { value: originalLocation, writable: true, configurable: true })
+    }
   })
 
   it('says the step could not load when the read fails', async () => {

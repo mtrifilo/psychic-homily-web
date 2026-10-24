@@ -284,8 +284,8 @@ func TestOAuthCallback_IgnoresADestinationOnItsOwnQuery(t *testing.T) {
 }
 
 // A refused sign-in goes to the auth page with its refusal and the re-checked
-// destination, so a retry from there (the consent handoff to Create account
-// included) still lands where the reader started. The cookie is spent.
+// destination, so a retry from there still lands where the reader started.
+// The cookie is spent.
 func TestOAuthCallback_RefusalCarriesTheDestinationToTheAuthPage(t *testing.T) {
 	termsRefusal := autherrors.ErrTermsAcceptanceRequired("no consent")
 	cases := []struct {
