@@ -1,0 +1,12 @@
+-- No-op (intentional).
+--
+-- The columns, constraints and indexes the up migration restores belong to
+-- 20260718140000_notification_filter_source and
+-- 20260427173004_collections_forked_from, and those migrations' downs remove
+-- them. Once restored they are indistinguishable from the ones those
+-- migrations create, so a down here could only drop them by name, which on a
+-- database that never lost them deletes managed filter ownership and fork
+-- links and leaves both versions recorded with their DDL absent. The schema
+-- at the previous version includes both columns, so leaving them in place is
+-- that version's schema.
+SELECT 1;

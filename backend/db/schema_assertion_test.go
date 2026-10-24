@@ -87,6 +87,13 @@ func TestAbsentUntypedColumns(t *testing.T) {
 		})
 	}
 
+	for _, key := range []string{"notification_filters.source", "collections.forked_from_collection_id"} {
+		t.Run("missing "+key+" alone is reported alone", func(t *testing.T) {
+			t.Parallel()
+			assert.Equal(t, []string{key}, absentUntypedColumns(passingColumnTypesWithout(key)))
+		})
+	}
+
 	t.Run("a typed entry is not checked for existence", func(t *testing.T) {
 		t.Parallel()
 		assert.Empty(t, absentUntypedColumns(passingColumnTypesWithout("webauthn_credentials.sign_count")))
