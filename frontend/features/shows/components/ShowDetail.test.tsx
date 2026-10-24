@@ -1028,8 +1028,8 @@ describe('ShowDetail', () => {
   })
 
   // The rails row is the page's second click, so its slot is the claim: directly
-  // under the listen module, above In Collections and Field Notes, in both
-  // registers. The listen module hides itself on a bill with nothing to play,
+  // under the listen module, above In Collections and Field Notes, in every
+  // lifecycle. The listen module hides itself on a bill with nothing to play,
   // and the rails must then take its place rather than drift below the
   // modules that follow it.
   describe('module order', () => {
@@ -1042,7 +1042,7 @@ describe('ShowDetail', () => {
       }
     }
 
-    it.each(['upcoming', 'past'] as const)(
+    it.each(['upcoming', 'today', 'past'] as const)(
       'renders listen module, rails, In Collections, Field Notes in that order on a %s show',
       lifecycle => {
         mockUseShow.mockReturnValue({
@@ -1066,7 +1066,7 @@ describe('ShowDetail', () => {
       }
     )
 
-    it.each(['upcoming', 'past'] as const)(
+    it.each(['upcoming', 'today', 'past'] as const)(
       'renders the rails first in the content slot when the listen module hides itself on a %s show',
       lifecycle => {
         mockUseShow.mockReturnValue({
@@ -1079,7 +1079,7 @@ describe('ShowDetail', () => {
         expect(screen.queryByTestId('show-listen-module')).not.toBeInTheDocument()
         const rails = screen.getByTestId('show-discovery-rails')
         // First child holds while the save banner is hidden, which is every
-        // render but the moments after an owner's save.
+        // render but the moments after an admin's or owner's save.
         expect(screen.getByTestId('content-slot').firstElementChild).toBe(rails)
         expectInDocumentOrder([
           rails,

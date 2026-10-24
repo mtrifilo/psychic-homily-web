@@ -53,9 +53,10 @@ import type { ShowResponse } from '../types'
  * rails on the server and seeds them here, so the rows are in the served HTML
  * and nothing below is pushed down when they arrive. That matters beyond
  * tidiness: In Collections, Field Notes, the provenance byline,
- * `RevisionHistory` and `CommentThread` all sit under these rails, and `/shows/{slug}#comment-123` scrolls to a comment
- * once its own query resolves, so a rail inserting rows after that scroll would
- * take the targeted comment out from under the reader.
+ * `RevisionHistory` and `CommentThread` all sit under these rails, and
+ * `/shows/{slug}#comment-123` scrolls to a comment once its own query
+ * resolves, so a rail inserting rows after that scroll would take the targeted
+ * comment out from under the reader.
  *
  * A seed can still be absent (the server fetch failed, or was skipped), and
  * then these rails behave exactly as they did before it existed: nothing until

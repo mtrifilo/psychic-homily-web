@@ -301,10 +301,10 @@ export default async function ShowPage({ params }: ShowPageProps) {
   // of adding a round trip in front of the whole page. Their rows go into the
   // served HTML rather than arriving after hydration (PSY-1967): In
   // Collections, Field Notes, the provenance byline, RevisionHistory and
-  // CommentThread all sit under these rails, and
-  // `/shows/{slug}#comment-123` scrolls to its comment as soon as the comment
-  // query resolves, so rows inserted after that scroll take the targeted
-  // comment out from under the reader.
+  // CommentThread all sit under these rails, and `/shows/{slug}#comment-123`
+  // scrolls to its comment as soon as the comment query resolves, so rows
+  // inserted after that scroll take the targeted comment out from under the
+  // reader.
   //
   // Started UNGATED, because the gate needs a clock and this body must not read
   // one — `ShowDetailWithLifecycle` owns that, behind `connection()`. A past
