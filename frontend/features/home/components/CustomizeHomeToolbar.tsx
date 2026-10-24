@@ -11,7 +11,8 @@ import {
 import { cn } from '@/lib/utils'
 import { HomeSectionList, type HomeVisibilityChange } from './HomeSectionList'
 import { PRIMARY_LINK_CLASS, ResolvedHomeCityShowsLink } from './HomeCityShowsLink'
-import { DISCOVER_ROW_CLASS, HomeDiscoverLinks } from './HomeDiscoverLinks'
+import { HomeDiscoverLinks } from './HomeDiscoverLinks'
+import { useHomeCityLinkSlot, useHomeDiscoverLinksSlot } from './HomeLinkSlots'
 import {
   HOME_LAYOUT_SETTINGS_HREF,
   HOME_SECTIONS,
@@ -37,20 +38,16 @@ export function CustomizeHomeToolbar({
   onOpenChange,
   initialLayout,
   onBeforeChange,
-  withCityLink,
-  withDiscoverLinks,
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
   initialLayout?: HomeLayoutDocument | null
   onBeforeChange?: (change: HomeVisibilityChange) => void
-  /** Last stop for the "All upcoming shows in {city} →" link, taken when both
-   *  the nearby section and the saved-shows module are hidden. */
-  withCityLink: boolean
-  /** The Discover row's stop on the same layout, while at least one other
-   *  section still renders. */
-  withDiscoverLinks: boolean
 }) {
+  // The row is the last stop for the city link (nearby and saved shows both
+  // hidden) and, while any section still renders, for the Discover row too.
+  const withCityLink = useHomeCityLinkSlot() === 'toolbar'
+  const withDiscoverLinks = useHomeDiscoverLinksSlot() === 'toolbar'
   return (
     <div
       className={cn(
@@ -76,7 +73,7 @@ export function CustomizeHomeToolbar({
         </p>
         {withCityLink && <ResolvedHomeCityShowsLink />}
         {withDiscoverLinks && (
-          <HomeDiscoverLinks className={cn(DISCOVER_ROW_CLASS, 'basis-full pt-1')} />
+          <HomeDiscoverLinks className="basis-full pt-1" />
         )}
       </div>
 

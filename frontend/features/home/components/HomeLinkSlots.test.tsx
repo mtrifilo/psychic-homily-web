@@ -9,6 +9,7 @@ import {
   HOME_SECTIONS,
   resolveHomeLayout,
   setHomeSectionVisibility,
+  type HomeDiscoverLinksSlot,
   type HomeSectionId,
   type ResolvedHomeSection,
 } from '../sections'
@@ -107,14 +108,19 @@ const SECTIONS = {
   radio_shows: <div>radio_shows</div>,
 }
 
-type Slot = 'nearby' | 'saved' | 'toolbar' | 'empty'
+/** An animation that never finishes, holding every collapse in flight. */
+function holdCollapses() {
+  vi.mocked(animateSlotHeight).mockImplementation(
+    () => ({ cancel: vi.fn() }) as unknown as Animation
+  )
+}
 
 /**
  * The one Discover row on the page and the surface it sits in. Counted with
  * `hidden: true`: a section mid-collapse is aria-hidden, and a row left
  * inside one would still be painted.
  */
-function discoverRowSlot(): Slot | 'unknown' {
+function discoverRowSlot(): HomeDiscoverLinksSlot | 'unknown' {
   const rows = screen.queryAllByRole('navigation', {
     name: 'Discover',
     hidden: true,
@@ -152,7 +158,7 @@ function layoutShowing(visible: readonly HomeSectionId[]) {
   }))
 }
 
-function expectedSlot(visible: readonly HomeSectionId[]): Slot {
+function expectedSlot(visible: readonly HomeSectionId[]): HomeDiscoverLinksSlot {
   if (visible.includes('nearby_shows')) return 'nearby'
   if (visible.includes('saved_shows')) return 'saved'
   if (visible.length > 0) return 'toolbar'
@@ -183,7 +189,7 @@ describe('the relocating link rows across every layout', () => {
     )
     expect(discoverRowSlot()).toBe('nearby')
 
-    const steps: [HomeSectionId, Slot][] = [
+    const steps: [HomeSectionId, HomeDiscoverLinksSlot][] = [
       ['nearby_shows', 'saved'],
       ['saved_shows', 'toolbar'],
       ['community_stats', 'toolbar'],
@@ -206,9 +212,7 @@ describe('the relocating link rows across every layout', () => {
   // presence instead of the slot would be painted twice for the animation.
   it('hands the row to the footer the moment the nearby section starts collapsing', async () => {
     const user = userEvent.setup()
-    vi.mocked(animateSlotHeight).mockImplementation(
-      () => ({ cancel: vi.fn() }) as unknown as Animation
-    )
+    holdCollapses()
     render(<HomeLayoutRuntime initialLayout={null} sections={SECTIONS} />)
     expect(discoverRowSlot()).toBe('nearby')
 
@@ -229,10 +233,7 @@ describe('the relocating link rows across every layout', () => {
   it('keeps the row in the toolbar while the last section is still collapsing', async () => {
     const user = userEvent.setup()
     layout = layoutShowing(['radio_shows'])
-    // An animation that never finishes holds the collapse in flight.
-    vi.mocked(animateSlotHeight).mockImplementation(
-      () => ({ cancel: vi.fn() }) as unknown as Animation
-    )
+    holdCollapses()
     render(<HomeLayoutRuntime initialLayout={null} sections={SECTIONS} />)
     expect(discoverRowSlot()).toBe('toolbar')
 

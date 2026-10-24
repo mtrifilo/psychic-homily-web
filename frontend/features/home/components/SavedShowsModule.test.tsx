@@ -3,6 +3,7 @@ import { render, screen } from '@testing-library/react'
 import Link from 'next/link'
 import { SavedShowsModule } from './SavedShowsModule'
 import type { SavedShowResponse } from '@/features/shows/types'
+import type { HomeCityLinkSlot, HomeDiscoverLinksSlot } from '../sections'
 
 const mockUseSavedShows = vi.fn()
 type SaveCountBatchResult = {
@@ -46,12 +47,10 @@ vi.mock('./HomeLinkSlots', () => ({
   useHomeCityLinkSlot: () => mockCityLinkSlot(),
   useHomeDiscoverLinksSlot: () => mockDiscoverLinksSlot(),
 }))
-const mockCityLinkSlot = vi.fn<() => 'nearby' | 'saved' | 'toolbar'>(
+const mockCityLinkSlot = vi.fn<() => HomeCityLinkSlot>(() => 'nearby')
+const mockDiscoverLinksSlot = vi.fn<() => HomeDiscoverLinksSlot>(
   () => 'nearby'
 )
-const mockDiscoverLinksSlot = vi.fn<
-  () => 'nearby' | 'saved' | 'toolbar' | 'empty'
->(() => 'nearby')
 
 const mockAuthStatus = vi.fn<() => 'pending' | 'authenticated' | 'anonymous'>(
   () => 'authenticated'
@@ -399,20 +398,6 @@ describe('SavedShowsModule saved-state and viewer transitions', () => {
   })
 
   describe('the Discover links row', () => {
-    it('leaves it to the nearby section while that section is on the page', () => {
-      mockUseSavedShows.mockReturnValue({
-        data: { shows: [savedShow(1)], total: 1 },
-        isPending: false,
-        error: null,
-      })
-
-      render(<SavedShowsModule nearbySectionId="nearby" />)
-
-      expect(
-        screen.queryByRole('navigation', { name: 'Discover' })
-      ).not.toBeInTheDocument()
-    })
-
     it('takes it as the footer\'s last line when the nearby section is hidden', () => {
       mockCityLinkSlot.mockReturnValue('saved')
       mockDiscoverLinksSlot.mockReturnValue('saved')
@@ -457,7 +442,7 @@ describe('SavedShowsModule saved-state and viewer transitions', () => {
       ).toBeInTheDocument()
     })
 
-    it.each(['toolbar', 'empty'] as const)(
+    it.each(['nearby', 'toolbar', 'empty'] as const)(
       'renders nothing for the row when the %s slot owns it',
       slot => {
         mockDiscoverLinksSlot.mockReturnValue(slot)

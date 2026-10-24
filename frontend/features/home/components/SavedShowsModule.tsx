@@ -20,7 +20,7 @@ import {
 } from '@/features/shows/hooks/useSavedShows'
 import { useAuthContext } from '@/lib/context/AuthContext'
 import { ResolvedHomeCityShowsLink } from './HomeCityShowsLink'
-import { DISCOVER_ROW_CLASS, HomeDiscoverLinks } from './HomeDiscoverLinks'
+import { HomeDiscoverLinks } from './HomeDiscoverLinks'
 import { useHomeCityLinkSlot, useHomeDiscoverLinksSlot } from './HomeLinkSlots'
 
 /**
@@ -279,7 +279,7 @@ export function SavedShowsModule({
 
       {/* The footer's last line, in every module state, loading and error
           included: while this slot owns the row, no other surface renders it. */}
-      {ownsDiscoverLinks && <HomeDiscoverLinks className={DISCOVER_ROW_CLASS} />}
+      {ownsDiscoverLinks && <HomeDiscoverLinks />}
     </section>
   )
 }

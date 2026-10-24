@@ -23,7 +23,7 @@ import {
   type HomeSectionId,
 } from '../sections'
 import { CustomizeHomeToolbar } from './CustomizeHomeToolbar'
-import { DISCOVER_ROW_CLASS, HomeDiscoverLinks } from './HomeDiscoverLinks'
+import { HomeDiscoverLinks } from './HomeDiscoverLinks'
 import { HomeLinkSlotsProvider } from './HomeLinkSlots'
 import {
   SAVE_FAILED_MESSAGE,
@@ -153,8 +153,6 @@ export function HomeLayoutRuntime({
           onOpenChange={setPopoverOpen}
           initialLayout={initialLayout}
           onBeforeChange={handleBeforeChange}
-          withCityLink={cityLink === 'toolbar'}
-          withDiscoverLinks={discoverLinks === 'toolbar'}
         />
 
         {/* The failure line lives on the ALWAYS-present toolbar row, not only
@@ -179,9 +177,7 @@ export function HomeLayoutRuntime({
                 Customize home →
               </button>
             </p>
-            {discoverLinks === 'empty' && (
-              <HomeDiscoverLinks className={DISCOVER_ROW_CLASS} />
-            )}
+            {discoverLinks === 'empty' && <HomeDiscoverLinks />}
           </div>
         ) : (
           // The gap rides INSIDE each slot rather than on the container: on
