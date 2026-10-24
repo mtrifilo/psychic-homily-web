@@ -10674,12 +10674,6 @@ export interface components {
             user?: components["schemas"]["User"];
         };
         FinishOAuthSignupRequestBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/FinishOAuthSignupRequestBody.json
-             */
-            readonly $schema?: string;
             /** @description Date of birth, YYYY-MM-DD. The age is computed from it in UTC at submission; under the minimum age the account is refused with AGE_CONFIRMATION_REQUIRED and the pending sign-up is used up. */
             date_of_birth?: string;
             /** @description The name the account takes as its display name. Omitted: the provider's names. Blank: no name. */
@@ -10692,12 +10686,6 @@ export interface components {
             terms_version?: string;
         };
         FinishOAuthSignupResponseBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/FinishOAuthSignupResponseBody.json
-             */
-            readonly $schema?: string;
             /**
              * @description Error code for programmatic handling
              * @example OAUTH_SIGNUP_EXPIRED
@@ -12807,12 +12795,6 @@ export interface components {
             updated_at: string;
         };
         PendingOAuthSignupResponseBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/PendingOAuthSignupResponseBody.json
-             */
-            readonly $schema?: string;
             /** @description The provider's address, when status is pending */
             email?: string;
             /**
