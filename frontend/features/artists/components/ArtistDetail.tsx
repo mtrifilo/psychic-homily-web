@@ -94,10 +94,11 @@ interface ArtistDetailProps {
  * At the default 16px root both clauses are 640px.
  *
  * `useMediaQuery`'s server snapshot is the phone layout. That causes no layout
- * shift on a wider screen only because both things the slot can hold (the
- * Similar artists list and the Connections section) render nothing until the
- * client-side artist graph query resolves, which is after hydration has
- * settled this query. Seeding that query on the server would make the server
+ * shift on a wider screen only because both things that differ between the
+ * layouts (the main-column Similar artists list above the Discography, and
+ * the Connections section after it) render nothing until the client-side
+ * artist graph query resolves, which is after hydration has settled this
+ * query. Seeding that query on the server would make the server
  * HTML carry the phone placement to every viewport.
  */
 export const WIDE_LAYOUT_QUERY = `(min-width: 40rem), (min-width: ${GRAPH_BREAKPOINT_PX}px)`
