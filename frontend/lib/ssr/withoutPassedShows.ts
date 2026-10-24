@@ -20,10 +20,12 @@ interface UpcomingShowsPayload {
  * A server-side read is served from the Data Cache, which hands back a stale
  * entry however old it is while it refreshes in the background, so the first
  * render after a quiet spell can carry rows the endpoint would no longer
- * return. Those rows are dropped and `total` reduced by the same count. Any
- * other change since the read (a new show, a cancellation) still reaches the
- * served HTML late. A row whose date does not parse is kept: only a row that is
- * provably past is removed.
+ * return. Rows more than `PASSED_SHOW_GRACE_MS` past their start are dropped
+ * and `total` reduced by the same count. A row that passed more recently than
+ * that (last night's show) is kept, because a zone-independent bound cannot
+ * tell it from tonight's, and so is any other change since the read (a new
+ * show, a cancellation): those reach the served HTML late and are corrected by
+ * the browser's mount-time refresh. A row whose date does not parse is kept.
  *
  * Returns the payload itself when nothing is dropped. Reads the clock unless
  * handed `now`, so a caller must run where reading it is legitimate: a
