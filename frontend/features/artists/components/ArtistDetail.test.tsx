@@ -775,7 +775,7 @@ describe('ArtistDetail', () => {
     it('orders Links and As Heard On above the unbounded Similar artists list', () => {
       // Similar artists has no length cap, so short fixed-height blocks have
       // to sit above it or they scroll off-screen on well-connected artists.
-      // That is the sidebar order, which holds the list at `sm` and up.
+      // That is the sidebar order, which holds the list outside the phone layout.
       const mm = installMatchMedia({ [WIDE]: true })
       onTestFinished(() => mm.restore())
       mockUseArtist.mockReturnValue({
@@ -860,7 +860,7 @@ describe('ArtistDetail', () => {
     })
 
     // Zero rows are hidden at every width, not only on the phone layout.
-    it('renders only the non-zero statistics rows at sm and up too', () => {
+    it('renders only the non-zero statistics rows outside the phone layout too', () => {
       const mm = installMatchMedia({ [WIDE]: true })
       onTestFinished(() => mm.restore())
       mockUseArtist.mockReturnValue({
@@ -954,7 +954,7 @@ describe('ArtistDetail', () => {
         expect(screen.queryByTestId('connections-section')).not.toBeInTheDocument()
       })
 
-      it('keeps the list in the sidebar and the Connections section in the main column at sm and up', () => {
+      it('keeps the list in the sidebar and the Connections section in the main column outside the phone layout', () => {
         const mm = installMatchMedia({ [WIDE]: true })
         onTestFinished(() => mm.restore())
         renderWithProviders(<ArtistDetail artistId="test-artist" />)
@@ -967,7 +967,7 @@ describe('ArtistDetail', () => {
         )
       })
 
-      it('moves the list when the viewport crosses sm', () => {
+      it('moves the list when the viewport leaves the phone layout', () => {
         const mm = installMatchMedia({ [WIDE]: false })
         onTestFinished(() => mm.restore())
         renderWithProviders(<ArtistDetail artistId="test-artist" />)

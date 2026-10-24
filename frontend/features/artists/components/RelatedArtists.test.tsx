@@ -108,6 +108,8 @@ describe('ArtistSimilarSidebar', () => {
     ro.restore()
   })
 
+  // Load-bearing for ArtistDetail: it moves this list between columns at
+  // hydration, which causes no layout shift only while the list is empty.
   it('returns null while loading', () => {
     mockUseArtistGraph.mockReturnValue({ data: undefined, isLoading: true, error: null })
     const { container } = renderWithProviders(

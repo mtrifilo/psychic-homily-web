@@ -273,6 +273,10 @@ export function ArtistSimilarSidebar({
     return computeGraphDoi(merged, undefined, doiWeightsForBias(SORT_MODE_BIAS[sortMode])).doiByNodeId
   }, [graph, sortMode])
 
+  // Nothing until the graph resolves: ArtistDetail's server HTML places this
+  // list for the phone layout at every viewport and moves it at hydration,
+  // which is shift-free only while the list is still empty (see
+  // WIDE_LAYOUT_QUERY).
   if (isLoading) return null
 
   const hasRelationships =

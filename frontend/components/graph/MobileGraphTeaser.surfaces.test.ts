@@ -15,7 +15,7 @@ import { extname, join, relative, sep } from 'node:path'
  * only the surfaces a test happens to mount. The artist page's own placement
  * (its phone layout carries the Similar artists list in that slot and does not
  * mount the section) is pinned by ArtistDetail.test; ArtistConnectionsSection
- * stays in this list because at `sm` and up a column measuring under 640px
+ * stays in this list because outside the phone layout a column measuring under 640px
  * still gets the teaser.
  */
 
