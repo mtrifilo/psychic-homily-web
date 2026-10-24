@@ -33,8 +33,8 @@ func TestRobotsNoIndexMarksEveryResponse(t *testing.T) {
 			if rr.Code != c.status {
 				t.Fatalf("%s %s = %d, want %d", c.method, c.path, rr.Code, c.status)
 			}
-			if got := rr.Header().Get(RobotsTagHeader); got != RobotsTagNoIndex {
-				t.Errorf("%s = %q, want %q", RobotsTagHeader, got, RobotsTagNoIndex)
+			if got := rr.Header().Get(robotsTagHeader); got != robotsTagNoIndex {
+				t.Errorf("%s = %q, want %q", robotsTagHeader, got, robotsTagNoIndex)
 			}
 		})
 	}

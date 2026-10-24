@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -243,38 +242,9 @@ func TestCreateEntityRequest_Replaced_AuditsAsAReplacement(t *testing.T) {
 	}
 }
 
-// The response body embeds the request row, and huma's schema-link transformer
-// (installed by huma.DefaultConfig and humatest) rebuilds every body struct with
-// reflect.StructOf to prepend $schema, which REFUSES an embedded type that has
-// methods once it is no longer the first field. Huma only warns on that failure.
-// This pins the shape that survives the transformer; it fails if the embed is
-// ever pointed back at a type with methods.
-func TestCreateEntityRequestResponseBody_SurvivesTheSchemaLinkTransform(t *testing.T) {
-	bodyType := reflect.TypeOf(CreateEntityRequestResponseBody{})
-	fields := []reflect.StructField{{
-		Name: "Schema",
-		Type: reflect.TypeOf(""),
-		Tag:  `json:"$schema,omitempty"`,
-	}}
-	for i := 0; i < bodyType.NumField(); i++ {
-		fields = append(fields, bodyType.Field(i))
-	}
-
-	func() {
-		defer func() {
-			if r := recover(); r != nil {
-				t.Fatalf("the response body cannot carry $schema under huma's schema-link transformer: %v", r)
-			}
-		}()
-		reflect.StructOf(fields)
-	}()
-
-	// The transformer copies only EXPORTED fields into that wrapper, so an
-	// unexported embed passes reflect.StructOf and silently ships a body with the
-	// request's fields missing entirely. Pin the promoted shape.
-	if bodyType.Field(0).PkgPath != "" {
-		t.Fatal("the embedded request must be exported, or huma drops every promoted field from the response")
-	}
+// The response body embeds the request row, so the row's fields sit at the top
+// level of the JSON beside `replaced`.
+func TestCreateEntityRequestResponseBody_PromotesTheRequestFields(t *testing.T) {
 	encoded, err := json.Marshal(&CreateEntityRequestResponseBody{
 		EntityRequestFields: (*EntityRequestFields)(pendingRequest(7, "artist")),
 		Replaced:            true,

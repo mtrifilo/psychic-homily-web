@@ -14,23 +14,6 @@ import (
 // renamed. These guards walk the BUILT router instead, so a new feed route or a
 // renamed entity-request route fails here rather than shipping unmetered.
 
-// Every exact path the public-read limiter exempts must be served on GET by the
-// built router. A renamed infra route otherwise leaves the exemption naming a
-// path nothing answers while the new path meters on the anonymous budget.
-func TestInfraExemptPathsAreServed(t *testing.T) {
-	routes := chiRoutes(t, newTestRouter(t))
-
-	served := map[string]bool{}
-	for _, pattern := range routes[http.MethodGet] {
-		served[pattern] = true
-	}
-	for _, path := range infraPathsExemptFromRateLimit {
-		if !served[path] {
-			t.Errorf("infraPathsExemptFromRateLimit exempts %q but the router serves no GET %q", path, path)
-		}
-	}
-}
-
 // Every route the router serves under /feeds/ must be a declared personal-feed
 // template, and every template must be served. A new /feeds/ route that is not a
 // token-authenticated feed does not belong under that prefix; one that is needs

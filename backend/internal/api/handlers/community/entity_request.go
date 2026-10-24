@@ -79,12 +79,9 @@ type CreateEntityRequestResponse struct {
 }
 
 // EntityRequestFields is communitym.EntityRequest with its methods stripped, so
-// it can be EMBEDDED in a response body that Huma's schema-link transformer
-// (installed by huma.DefaultConfig) can rebuild. That transformer prepends
-// $schema with reflect.StructOf, and reflect.StructOf refuses an embedded type
-// that HAS METHODS unless it is the first field, which it no longer is once
-// $schema goes in front. EntityRequest has TableName(); a defined type does not
-// inherit it. Same fields, same json tags, same schema.
+// embedding it in a response body promotes the model's fields and none of its
+// methods (TableName today, or a marshaler that would take over the whole
+// body's encoding). Same fields, same json tags, same schema.
 type EntityRequestFields communitym.EntityRequest
 
 // CreateEntityRequestResponseBody is the queue-create response body: the request
