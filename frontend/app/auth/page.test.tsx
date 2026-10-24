@@ -1209,6 +1209,30 @@ describe('AuthPage', () => {
       expect(screen.getByText(message)).toBeInTheDocument()
     })
 
+    it('keeps the recovery offer once the code leaves the URL', () => {
+      const { rerender } = arriveAt(`${AUTH_ERROR_CODE_PARAM}=ACCOUNT_RECOVERABLE&error=x`)
+      expect(addressBar()).toBe('/auth')
+
+      followAddressBar(rerender)
+
+      expect(
+        screen.getByRole('link', { name: ACCOUNT_RECOVERABLE_LINK_TEXT })
+      ).toHaveAttribute('href', '/auth/recover')
+    })
+
+    it('keeps a gated arrival on Create account beside a banner', () => {
+      const { rerender } = arriveAt('error=x&returnTo=%2Fshows&intent=save')
+      expect(addressBar()).toBe('/auth?returnTo=%2Fshows&intent=save')
+
+      followAddressBar(rerender)
+
+      expect(screen.getByRole('tab', { name: 'Create account' })).toHaveAttribute(
+        'aria-selected',
+        'true'
+      )
+      expect(screen.getByText('x')).toBeInTheDocument()
+    })
+
     it('keeps a re-authentication reason in the URL', async () => {
       mockAuthState = { setUser: vi.fn(), authStatus: 'authenticated' }
       const { rerender } = arriveAt('returnTo=%2Fprofile&reason=OAUTH_LINK_REAUTH_REQUIRED&error=x')
