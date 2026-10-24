@@ -1,13 +1,13 @@
 import { describe, it, expect } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import { CURRENT_PRIVACY_VERSION } from '@/lib/legal'
+import { formatInTimezone } from '@/lib/utils/timeUtils'
 import PrivacyPolicyPage from './page'
 
 // The version every sign-up records stands for the text this page shows, so
 // the page's effective date is the pinned privacy version.
 function longDate(isoDate: string): string {
-  return new Date(`${isoDate}T00:00:00Z`).toLocaleDateString('en-US', {
-    timeZone: 'UTC',
+  return formatInTimezone(`${isoDate}T00:00:00Z`, 'UTC', {
     month: 'long',
     day: 'numeric',
     year: 'numeric',

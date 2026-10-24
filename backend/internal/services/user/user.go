@@ -1245,14 +1245,13 @@ func (s *UserService) ExportUserData(userID uint) (*contracts.UserDataExport, er
 	return export, nil
 }
 
-// exportedDateOfBirth renders a stored date of birth as its calendar date, nil
-// when none is stored. The date is read in the location the driver scanned it
-// in: a date column holds no instant, so converting zones could move the day.
+// exportedDateOfBirth is the stored date of birth as its calendar date, nil
+// when none is stored.
 func exportedDateOfBirth(dateOfBirth *time.Time) *string {
 	if dateOfBirth == nil {
 		return nil
 	}
-	formatted := dateOfBirth.Format(legal.DateOfBirthLayout)
+	formatted := legal.FormatDateOfBirth(*dateOfBirth)
 	return &formatted
 }
 
