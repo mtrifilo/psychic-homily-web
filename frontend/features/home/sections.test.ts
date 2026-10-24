@@ -224,6 +224,8 @@ describe('resolveHomeLinkSlots', () => {
       sections
     )
   const allHidden = hide(...DEFAULT_ORDER)
+  const visibleIn = (layout: typeof sections) =>
+    layout.filter(section => section.visible).map(section => section.id)
 
   it.each([
     ['nothing hidden', sections, 'nearby'],
@@ -234,8 +236,7 @@ describe('resolveHomeLinkSlots', () => {
   ] as const)(
     'puts the Discover row where the city link goes: %s',
     (_name, layout, slot) => {
-      const slots = resolveHomeLinkSlots(layout, { isEmptyStateShown: false })
-      expect(slots).toEqual({
+      expect(resolveHomeLinkSlots(layout, visibleIn(layout))).toEqual({
         cityLink: resolveCityLinkSlot(layout),
         discoverLinks: slot,
       })
@@ -243,16 +244,26 @@ describe('resolveHomeLinkSlots', () => {
   )
 
   it('sends the Discover row to the empty state, and only the Discover row', () => {
-    expect(
-      resolveHomeLinkSlots(allHidden, { isEmptyStateShown: true })
-    ).toEqual({ cityLink: 'toolbar', discoverLinks: 'empty' })
+    expect(resolveHomeLinkSlots(allHidden, [])).toEqual({
+      cityLink: 'toolbar',
+      discoverLinks: 'empty',
+    })
   })
 
   // Every section hidden in the layout while the last one is still collapsing
-  // on screen: the empty state has not rendered, so the row has to stay put.
-  it('keeps the Discover row in the toolbar until the empty state renders', () => {
-    expect(
-      resolveHomeLinkSlots(allHidden, { isEmptyStateShown: false })
-    ).toEqual({ cityLink: 'toolbar', discoverLinks: 'toolbar' })
-  })
+  // on screen: the empty state has not rendered, so the row stays with what is
+  // still painted instead of stopping in the toolbar on its way there.
+  it.each([
+    ['nearby_shows', 'nearby'],
+    ['saved_shows', 'saved'],
+    ['radio_shows', 'toolbar'],
+  ] as const)(
+    'keeps the Discover row with the sections on screen while %s collapses last',
+    (id, slot) => {
+      expect(resolveHomeLinkSlots(allHidden, [id])).toEqual({
+        cityLink: 'toolbar',
+        discoverLinks: slot,
+      })
+    }
+  )
 })

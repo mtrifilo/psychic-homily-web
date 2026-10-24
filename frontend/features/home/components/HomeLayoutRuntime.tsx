@@ -99,9 +99,8 @@ export function HomeLayoutRuntime({
   const rendered = layout.filter(
     section => section.visible || transitions.has(section.id)
   )
-  const { register, capture } = useFlipReorder(
-    rendered.map(section => section.id)
-  )
+  const renderedIds = rendered.map(section => section.id)
+  const { register, capture } = useFlipReorder(renderedIds)
 
   const handleBeforeChange = useCallback(
     (change: HomeVisibilityChange) => {
@@ -125,9 +124,7 @@ export function HomeLayoutRuntime({
   // screen, and calling the page empty while it animates would unmount it
   // before it finished and strand it in the transition map forever.
   const allHidden = rendered.length === 0
-  const { cityLink, discoverLinks } = resolveHomeLinkSlots(layout, {
-    isEmptyStateShown: allHidden,
-  })
+  const { cityLink, discoverLinks } = resolveHomeLinkSlots(layout, renderedIds)
   // Memoized on the two slots so a render that moves neither (the popover
   // opening, a transition settling) does not re-render every section that
   // reads them.

@@ -241,18 +241,32 @@ export interface HomeLinkSlots {
 }
 
 /**
- * `isEmptyStateShown` is the page's own answer rather than one derived from
- * `sections`: a section still collapsing is on screen and the empty state is
- * not, so the Discover row stays in the toolbar until the collapse finishes
- * instead of belonging to a line that has not rendered yet.
+ * `layout` is the viewer's sections with their visibility; `onScreen` names
+ * the sections still painted, which includes one mid-collapse.
+ *
+ * The empty state renders only once nothing is on screen, so between the last
+ * hide and the end of its collapse the layout says every section is hidden
+ * while one is still painted. For that window the Discover row stays with the
+ * sections still on screen (inside the nearby or saved-shows section that is
+ * collapsing away, else the toolbar) rather than stopping in the toolbar for
+ * the length of the animation on its way to the empty-state line.
  */
 export function resolveHomeLinkSlots(
-  sections: readonly ResolvedHomeSection[],
-  { isEmptyStateShown }: { isEmptyStateShown: boolean }
+  layout: readonly ResolvedHomeSection[],
+  onScreen: readonly HomeSectionId[]
 ): HomeLinkSlots {
-  const cityLink = resolveCityLinkSlot(sections)
+  const cityLink = resolveCityLinkSlot(layout)
+  if (onScreen.length === 0) return { cityLink, discoverLinks: 'empty' }
+  const isEmptying = !layout.some(section => section.visible)
   return {
     cityLink,
-    discoverLinks: isEmptyStateShown ? 'empty' : cityLink,
+    discoverLinks: isEmptying
+      ? resolveCityLinkSlot(
+          layout.map(section => ({
+            ...section,
+            visible: onScreen.includes(section.id),
+          }))
+        )
+      : cityLink,
   }
 }

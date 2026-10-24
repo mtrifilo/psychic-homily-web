@@ -15,9 +15,9 @@ const DISCOVER_LINKS: ReadonlyArray<{ href: string; label: string }> = [
  * signed-in home (PSY-2103) so the same five entry points survive the hero's
  * replacement — one list, not two that drift.
  *
- * `className` positions the row for its surface (spacing, alignment); the
- * row's own wrapping layout, typography and separators are fixed, so it wraps
- * the same way on every surface it relocates to.
+ * The row carries its own wrapping layout, typography and separators, so it
+ * wraps the same way on every surface it relocates to. `className` is merged
+ * last and can override any of it; callers pass spacing and alignment only.
  */
 export function HomeDiscoverLinks({ className }: { className?: string }) {
   return (

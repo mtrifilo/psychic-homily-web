@@ -32,7 +32,7 @@ vi.mock('@/components/shared/SaveButton', () => ({
 }))
 
 // PSY-2104: the relocated city link resolves its own city selection. Stubbed
-// so this suite stays about the module, and so the slots can be driven directly.
+// so this suite stays about the module.
 vi.mock('./HomeCityShowsLink', async importOriginal => ({
   ...(await importOriginal<object>()),
   // next/link is mocked globally in this suite's setup, so the stand-in uses
@@ -43,6 +43,7 @@ vi.mock('./HomeCityShowsLink', async importOriginal => ({
     </Link>
   ),
 }))
+// Stubbed so each test drives the slots directly.
 vi.mock('./HomeLinkSlots', () => ({
   useHomeCityLinkSlot: () => mockCityLinkSlot(),
   useHomeDiscoverLinksSlot: () => mockDiscoverLinksSlot(),

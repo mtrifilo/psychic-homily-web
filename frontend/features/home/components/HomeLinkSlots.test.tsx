@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { act, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { HomeLayoutRuntime } from './HomeLayoutRuntime'
 import { NearbyShowsSection } from './NearbyShowsSection'
@@ -16,7 +16,8 @@ import {
 
 // The real runtime, toolbar, saved-shows module and nearby section, so every
 // surface that can carry a link row reads the one slot value the runtime
-// provides. Only data reads and the two sections that carry no row are stubbed.
+// provides. Stubbed: the data hooks, the router, the slot animation, the
+// nearby list and save button, and the three sections that carry no row.
 
 let layout: ResolvedHomeSection[] = resolveHomeLayout(null)
 
@@ -108,11 +109,19 @@ const SECTIONS = {
   radio_shows: <div>radio_shows</div>,
 }
 
-/** An animation that never finishes, holding every collapse in flight. */
+/**
+ * Holds every collapse in flight with an animation that does not finish on its
+ * own. Returns a function that finishes the held ones, as the browser would.
+ */
 function holdCollapses() {
+  const finishers: Array<() => void> = []
   vi.mocked(animateSlotHeight).mockImplementation(
-    () => ({ cancel: vi.fn() }) as unknown as Animation
+    (_node, _direction, _reducedMotion, onFinish) => {
+      finishers.push(onFinish)
+      return { cancel: vi.fn() } as unknown as Animation
+    }
   )
+  return () => act(() => finishers.splice(0).forEach(finish => finish()))
 }
 
 /**
@@ -227,26 +236,40 @@ describe('the relocating link rows across every layout', () => {
     expect(cityLinkCount()).toBe(1)
   })
 
-  // The empty state waits for the last section's collapse to finish, so the
-  // row has to stay in the toolbar for the length of it rather than belong to
-  // a line that is not on the page yet.
-  it('keeps the row in the toolbar while the last section is still collapsing', async () => {
-    const user = userEvent.setup()
-    layout = layoutShowing(['radio_shows'])
-    holdCollapses()
-    render(<HomeLayoutRuntime initialLayout={null} sections={SECTIONS} />)
-    expect(discoverRowSlot()).toBe('toolbar')
+  // The empty state waits for the last section's collapse to finish. Until it
+  // renders, the row stays where it already was (it never stops in the toolbar
+  // on its way from a section to the empty-state line), and it moves there
+  // once the collapse settles.
+  it.each([
+    ['radio_shows', 'Latest radio shows', 'toolbar'],
+    ['nearby_shows', 'Shows near you this week', 'nearby'],
+    ['saved_shows', 'Your upcoming shows', 'saved'],
+  ] as const)(
+    'keeps the row in place while %s collapses last, then moves it to the empty state',
+    async (id, title, slot) => {
+      const user = userEvent.setup()
+      layout = layoutShowing([id])
+      const finishCollapses = holdCollapses()
+      render(<HomeLayoutRuntime initialLayout={null} sections={SECTIONS} />)
+      expect(discoverRowSlot()).toBe(slot)
 
-    await user.click(screen.getByRole('button', { name: /^Customize home$/ }))
-    layout = layoutShowing([])
-    await user.click(
-      screen.getByRole('checkbox', { name: 'Latest radio shows' })
-    )
+      await user.click(screen.getByRole('button', { name: /^Customize home$/ }))
+      layout = layoutShowing([])
+      await user.click(screen.getByRole('checkbox', { name: title }))
 
-    expect(screen.getByText('radio_shows')).toBeInTheDocument()
-    expect(
-      screen.queryByText(/You have hidden every section\./)
-    ).not.toBeInTheDocument()
-    expect(discoverRowSlot()).toBe('toolbar')
-  })
+      expect(
+        screen.queryByText(/You have hidden every section\./)
+      ).not.toBeInTheDocument()
+      expect(discoverRowSlot()).toBe(slot)
+      expect(cityLinkCount()).toBe(1)
+
+      finishCollapses()
+
+      expect(
+        screen.getByText(/You have hidden every section\./)
+      ).toBeInTheDocument()
+      expect(discoverRowSlot()).toBe('empty')
+      expect(cityLinkCount()).toBe(1)
+    }
+  )
 })
