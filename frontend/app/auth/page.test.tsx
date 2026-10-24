@@ -1,26 +1,8 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { Activity } from 'react'
-import { act, screen, waitFor } from '@testing-library/react'
+import { act, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { renderWithProviders } from '@/test/utils'
-import { deferred } from '@/test/inflightOrdering'
-import {
-  BUILD_VERSIONS_BODY,
-  NEWER_VERSIONS_BODY,
-  publishLegalVersionsInTurn as publish,
-  publishedVersions,
-  versionsUnavailable,
-} from '@/test/consentVersions'
-import { CURRENT_PRIVACY_VERSION, CURRENT_TERMS_VERSION } from '@/lib/legal'
-import {
-  CONSENT_RETRY_NOTICE,
-  CONSENT_VERSIONS_CHANGED,
-  CONSENT_VERSIONS_UNAVAILABLE,
-} from '@/app/auth/_components/consent-versions-notice'
-import {
-  GOOGLE_SIGNUP_START_KEY,
-  GOOGLE_SIGNUP_START_TTL_MS,
-} from '@/app/auth/_components/google-signup-start'
 import { AUTH_ERROR_CODE_PARAM } from '@/lib/auth-href'
 import { AuthError, AuthErrorCode } from '@/lib/errors'
 import {
@@ -117,9 +99,9 @@ vi.mock('@/app/auth/_components/passkey-signup', () => ({
 const googleOAuthProps = vi.fn()
 
 vi.mock('@/app/auth/_components/google-oauth-button', () => ({
-  GoogleOAuthButton: (props: { variant?: string; returnTo?: string }) => {
+  GoogleOAuthButton: (props: { returnTo?: string }) => {
     googleOAuthProps(props)
-    return <div data-testid="google-oauth" data-variant={props.variant} />
+    return <div data-testid="google-oauth" />
   },
 }))
 
@@ -744,430 +726,87 @@ describe('AuthPage', () => {
     })
   })
 
-  // The OAuth callback refuses to create an account from a sign-in that
-  // carried no consent, and names the refusal in ?error_code beside the
-  // message in ?error.
-  describe('OAuth refusal that needs signup consent', () => {
+  // One "Continue with Google" for both tabs: a new identity is asked for its
+  // consent on the step after Google, so neither tab gathers any for it.
+  describe('one Continue with Google entry', () => {
     const TERMS_MESSAGE =
       'Please accept the Terms of Service and Privacy Policy before creating an account.'
-    const TERMS_REFUSAL_QUERY = new URLSearchParams({
-      error: TERMS_MESSAGE,
-      [AUTH_ERROR_CODE_PARAM]: 'TERMS_ACCEPTANCE_REQUIRED',
-    }).toString()
-    const termsCheckbox = () =>
-      screen.getByRole('checkbox', {
-        name: /I agree to the Terms of Service and Privacy Policy/,
-      })
 
-    it('opens on Create account with the message above the consent controls and Google sign-up', () => {
-      setSearchParams(TERMS_REFUSAL_QUERY)
+    it('gives both tabs the same Google button with the same props', async () => {
+      const user = userEvent.setup()
+      setSearchParams('returnTo=%2Fshows')
+      renderWithProviders(<AuthPage />)
+      const onSignIn = googleOAuthProps.mock.calls.at(-1)?.[0]
+
+      await user.click(screen.getByRole('tab', { name: 'Create account' }))
+
+      expect(googleOAuthProps.mock.calls.at(-1)?.[0]).toEqual(onSignIn)
+      expect(onSignIn).toEqual({ className: 'w-full', returnTo: '/shows' })
+    })
+
+    it('puts the Google button ahead of every consent control on Create account', async () => {
+      const user = userEvent.setup()
       renderWithProviders(<AuthPage />)
 
-      expect(screen.getByRole('tab', { name: 'Create account' })).toHaveAttribute(
-        'aria-selected',
-        'true'
-      )
-      const message = screen.getByText(TERMS_MESSAGE)
-      const terms = termsCheckbox()
-      const age = screen.getByRole('checkbox', { name: /years old/ })
-      const google = screen.getByTestId('google-oauth')
+      await user.click(screen.getByRole('tab', { name: 'Create account' }))
 
-      expect(google).toHaveAttribute('data-variant', 'signup')
-      for (const control of [terms, age, google]) {
+      const google = screen.getByTestId('google-oauth')
+      for (const control of [
+        screen.getByRole('checkbox', { name: /Terms of Service/ }),
+        screen.getByRole('checkbox', { name: /years old/ }),
+      ]) {
         expect(
-          message.compareDocumentPosition(control) &
-            Node.DOCUMENT_POSITION_FOLLOWING
+          google.compareDocumentPosition(control) & Node.DOCUMENT_POSITION_FOLLOWING
         ).toBeTruthy()
       }
-      expect(screen.queryByText('Sign in to your account')).not.toBeInTheDocument()
     })
 
-    // The refused callback carries the destination the sign-in started with, so
-    // signing up from here still lands on it.
-    it('hands the sign-up Google button the destination the refusal carries', () => {
-      const query = new URLSearchParams(TERMS_REFUSAL_QUERY)
-      query.set('returnTo', '/shows')
-      setSearchParams(query.toString())
-      renderWithProviders(<AuthPage />)
-
-      expect(googleOAuthProps).toHaveBeenCalledWith(
-        expect.objectContaining({ variant: 'signup', returnTo: '/shows' })
-      )
-    })
-
-    it('centres the terms checkbox and focuses it', () => {
-      setSearchParams(TERMS_REFUSAL_QUERY)
-      renderWithProviders(<AuthPage />)
-
-      const terms = termsCheckbox()
-      expect(terms).toHaveFocus()
-      expect(terms).toHaveAccessibleDescription(TERMS_MESSAGE)
-      const scrollIntoView = vi.mocked(Element.prototype.scrollIntoView)
-      expect(scrollIntoView).toHaveBeenCalledTimes(1)
-      expect(scrollIntoView).toHaveBeenCalledWith({ block: 'center' })
-      expect(scrollIntoView.mock.contexts[0]).toBe(terms)
-    })
-
-    it('does not pull focus back when the viewer returns to Create account by hand', async () => {
-      const user = userEvent.setup()
-      setSearchParams(TERMS_REFUSAL_QUERY)
-      renderWithProviders(<AuthPage />)
-
-      await user.click(screen.getByRole('tab', { name: 'Sign in' }))
-      await user.click(screen.getByRole('tab', { name: 'Create account' }))
-
-      expect(termsCheckbox()).not.toHaveFocus()
-      expect(termsCheckbox()).not.toHaveAttribute('aria-describedby')
-      expect(Element.prototype.scrollIntoView).toHaveBeenCalledTimes(1)
-    })
-
-    it('brings the terms checkbox back into view and focus after the page was hidden', () => {
-      setSearchParams(TERMS_REFUSAL_QUERY)
-      const { rerender } = renderWithProviders(
-        <Activity mode="visible">
-          <AuthPage />
-        </Activity>
-      )
-      rerender(
-        <Activity mode="hidden">
-          <AuthPage />
-        </Activity>
-      )
-      rerender(
-        <Activity mode="visible">
-          <AuthPage />
-        </Activity>
-      )
-
-      expect(termsCheckbox()).toHaveFocus()
-      expect(Element.prototype.scrollIntoView).toHaveBeenCalledTimes(2)
-    })
-
-    it('neither scrolls nor moves focus on a gated arrival', () => {
-      setSearchParams('returnTo=%2Fshows%2Fexample&intent=save')
-      renderWithProviders(<AuthPage />)
-
-      expect(screen.getByRole('tab', { name: 'Create account' })).toHaveAttribute(
-        'aria-selected',
-        'true'
-      )
-      expect(termsCheckbox()).not.toHaveFocus()
-      expect(termsCheckbox()).not.toHaveAttribute('aria-describedby')
-      expect(Element.prototype.scrollIntoView).not.toHaveBeenCalled()
-    })
-
-    it('names no description for a code that arrives without a message', () => {
-      setSearchParams(`${AUTH_ERROR_CODE_PARAM}=TERMS_ACCEPTANCE_REQUIRED`)
-      renderWithProviders(<AuthPage />)
-
-      expect(termsCheckbox()).toHaveFocus()
-      expect(termsCheckbox()).not.toHaveAttribute('aria-describedby')
-    })
-
-    it('neither scrolls nor moves focus when Create account is picked by hand', async () => {
-      const user = userEvent.setup()
-      renderWithProviders(<AuthPage />)
-
-      await user.click(screen.getByRole('tab', { name: 'Create account' }))
-
-      expect(termsCheckbox()).not.toHaveFocus()
-      expect(Element.prototype.scrollIntoView).not.toHaveBeenCalled()
-    })
-
-    it('opens on Sign in for a refusal code that consent does not answer', () => {
-      setSearchParams(
-        'error=An+account+with+this+email+already+exists&error_code=USER_EXISTS'
-      )
-      renderWithProviders(<AuthPage />)
-
-      expect(screen.getByRole('tab', { name: 'Sign in' })).toHaveAttribute(
-        'aria-selected',
-        'true'
-      )
-      expect(Element.prototype.scrollIntoView).not.toHaveBeenCalled()
-    })
-
-    it('opens on Sign in only for a re-authentication carrying the code', async () => {
-      mockAuthState = { setUser: vi.fn(), authStatus: 'authenticated' }
-      setSearchParams(
-        `returnTo=%2Fprofile&reason=OAUTH_LINK_REAUTH_REQUIRED&${TERMS_REFUSAL_QUERY}`
-      )
-      renderWithProviders(<AuthPage />)
-
-      await screen.findByText("Confirm it's you")
-      expect(screen.getByRole('tab', { name: 'Sign in' })).toHaveAttribute(
-        'aria-selected',
-        'true'
-      )
-      expect(
-        screen.queryByRole('tab', { name: /create account/i })
-      ).not.toBeInTheDocument()
-    })
-  })
-
-  // A consent refusal answering a Google sign-up start this tab recorded is
-  // retried once, with versions read again past every cache.
-  describe('Google sign-up consent retry', () => {
-    const TERMS_MESSAGE =
-      'Please accept the Terms of Service and Privacy Policy before creating an account.'
-    // The re-read finds this build's versions: a backend that refused them was
-    // answering from before it accepted them (the case the retry is for).
-    const REPUBLISHED = BUILD_VERSIONS_BODY
-    const navigatedTo = vi.fn<(href: string) => void>()
-    const originalLocation = window.location
-
-    function consentArrival(returnTo?: string) {
+    // A consent refusal can still arrive (another provider, or a backend from
+    // before the step), and it is shown like any other refusal, on Sign in.
+    it('shows a consent refusal on Sign in, without moving focus', () => {
       setSearchParams(
         new URLSearchParams({
           error: TERMS_MESSAGE,
           [AUTH_ERROR_CODE_PARAM]: 'TERMS_ACCEPTANCE_REQUIRED',
-          ...(returnTo && { returnTo }),
         }).toString()
       )
-    }
-
-    function recordStart(ageMs = 0) {
-      sessionStorage.setItem(GOOGLE_SIGNUP_START_KEY, String(Date.now() - ageMs))
-    }
-
-    const termsCheckbox = () =>
-      screen.getByRole('checkbox', {
-        name: /I agree to the Terms of Service and Privacy Policy/,
-      })
-
-    beforeEach(() => {
-      navigatedTo.mockReset()
-      sessionStorage.clear()
-      Object.defineProperty(window, 'location', {
-        value: { ...originalLocation },
-        writable: true,
-        configurable: true,
-      })
-      Object.defineProperty(window.location, 'href', {
-        set: navigatedTo,
-        configurable: true,
-      })
-    })
-
-    afterEach(() => {
-      Object.defineProperty(window, 'location', {
-        value: originalLocation,
-        writable: true,
-        configurable: true,
-      })
-    })
-
-    it('shows a notice and starts the sign-up again with re-read versions', async () => {
-      const republished = deferred<Response>()
-      // The open form reads too, so each read gets its own copy.
-      const versions = publish(() => republished.promise.then(r => r.clone()))
-      recordStart()
-      consentArrival('/shows')
-
       renderWithProviders(<AuthPage />)
 
-      expect(screen.getByText(CONSENT_RETRY_NOTICE)).toBeInTheDocument()
-      expect(screen.queryByText(TERMS_MESSAGE)).not.toBeInTheDocument()
-      expect(termsCheckbox()).not.toHaveFocus()
-      // The form's read and the retry's own, which does not wait on it.
-      await waitFor(() => expect(versions.reads()).toBe(2))
-
-      republished.resolve(publishedVersions(REPUBLISHED))
-
-      await waitFor(() => expect(navigatedTo).toHaveBeenCalledTimes(1))
-      const start = new URL(navigatedTo.mock.calls[0][0])
-      expect(start.pathname).toBe('/auth/login/google')
-      expect(Object.fromEntries(start.searchParams)).toEqual({
-        signup_intent: '1',
-        terms_accepted: 'true',
-        terms_version: CURRENT_TERMS_VERSION,
-        privacy_version: CURRENT_PRIVACY_VERSION,
-        age_confirmed: 'true',
-        min_age_attested: '16',
-        returnTo: '/shows',
-      })
-      // Gone before the retry leaves, so the retry's own refusal is shown.
-      expect(sessionStorage.getItem(GOOGLE_SIGNUP_START_KEY)).toBeNull()
-    })
-
-    it('shows the refusal, with the consent controls focused, when no start was recorded', async () => {
-      const versions = publish(() => publishedVersions(REPUBLISHED))
-      consentArrival()
-
-      renderWithProviders(<AuthPage />)
-
-      expect(screen.getByText(TERMS_MESSAGE)).toBeInTheDocument()
-      expect(screen.queryByText(CONSENT_RETRY_NOTICE)).not.toBeInTheDocument()
-      expect(termsCheckbox()).toHaveFocus()
-      // The form's own read, not a retry's: nothing navigates.
-      await waitFor(() => expect(versions.reads()).toBe(1))
-      expect(navigatedTo).not.toHaveBeenCalled()
-    })
-
-    it('asks for a reload instead of retrying when the re-read finds other versions', async () => {
-      publish(() => publishedVersions(NEWER_VERSIONS_BODY))
-      recordStart()
-      consentArrival()
-
-      renderWithProviders(<AuthPage />)
-
-      expect(await screen.findByText(CONSENT_VERSIONS_CHANGED)).toBeInTheDocument()
-      expect(screen.queryByText(CONSENT_RETRY_NOTICE)).not.toBeInTheDocument()
-      expect(screen.queryByText(TERMS_MESSAGE)).not.toBeInTheDocument()
-      expect(termsCheckbox()).not.toHaveFocus()
-      expect(sessionStorage.getItem(GOOGLE_SIGNUP_START_KEY)).toBeNull()
-      expect(navigatedTo).not.toHaveBeenCalled()
-    })
-
-    it('keeps a start retryable for the lifetime of the backend consent cookie', () => {
-      // oauth_handlers.go sets the signup consent cookie for 600 s.
-      expect(GOOGLE_SIGNUP_START_TTL_MS).toBe(600_000)
-    })
-
-    it('retries a start just inside that lifetime', async () => {
-      publish(() => publishedVersions(REPUBLISHED))
-      recordStart(GOOGLE_SIGNUP_START_TTL_MS - 1000)
-      consentArrival()
-
-      renderWithProviders(<AuthPage />)
-
-      expect(screen.getByText(CONSENT_RETRY_NOTICE)).toBeInTheDocument()
-      await waitFor(() => expect(navigatedTo).toHaveBeenCalledTimes(1))
-    })
-
-    it.each([
-      ['older than its lifetime', GOOGLE_SIGNUP_START_TTL_MS],
-      ['stamped in the future', -60_000],
-    ])('does not retry a start %s', async (_label, ageMs) => {
-      const versions = publish(() => publishedVersions(REPUBLISHED))
-      recordStart(ageMs)
-      consentArrival()
-
-      renderWithProviders(<AuthPage />)
-
-      expect(screen.getByText(TERMS_MESSAGE)).toBeInTheDocument()
-      expect(screen.queryByText(CONSENT_RETRY_NOTICE)).not.toBeInTheDocument()
-      expect(sessionStorage.getItem(GOOGLE_SIGNUP_START_KEY)).toBeNull()
-      // Only the form's own read goes out, and nothing navigates after it.
-      await waitFor(() => expect(versions.reads()).toBe(1))
-      await new Promise(resolve => setTimeout(resolve, 0))
-      expect(versions.reads()).toBe(1)
-      expect(navigatedTo).not.toHaveBeenCalled()
-    })
-
-    it('does not retry for a signed-in viewer, and drops the start', async () => {
-      mockAuthState = { setUser: vi.fn(), authStatus: 'authenticated' }
-      recordStart()
-      consentArrival()
-
-      renderWithProviders(<AuthPage />)
-
-      await waitFor(() => {
-        expect(sessionStorage.getItem(GOOGLE_SIGNUP_START_KEY)).toBeNull()
-      })
-      expect(navigatedTo).not.toHaveBeenCalled()
-    })
-
-    it('drops a start when the page comes back from the back-forward cache', () => {
-      renderWithProviders(<AuthPage />)
-      recordStart()
-
-      window.dispatchEvent(new PageTransitionEvent('pageshow', { persisted: true }))
-
-      expect(sessionStorage.getItem(GOOGLE_SIGNUP_START_KEY)).toBeNull()
-    })
-
-    it('shows the refusal, without navigating, when the page is hidden during the retry', async () => {
-      const republished = deferred<Response>()
-      publish(() => republished.promise.then(r => r.clone()))
-      recordStart()
-      consentArrival()
-      const page = (mode: 'visible' | 'hidden') => (
-        <Activity mode={mode}>
-          <AuthPage />
-        </Activity>
+      expect(screen.getByRole('tab', { name: 'Sign in' })).toHaveAttribute(
+        'aria-selected',
+        'true'
       )
-      const rendered = renderWithProviders(page('visible'))
-      expect(screen.getByText(CONSENT_RETRY_NOTICE)).toBeInTheDocument()
-
-      rendered.rerender(page('hidden'))
-      await act(async () => {
-        republished.resolve(publishedVersions(REPUBLISHED))
-      })
-      rendered.rerender(page('visible'))
-
-      expect(await screen.findByText(TERMS_MESSAGE)).toBeInTheDocument()
-      expect(screen.queryByText(CONSENT_RETRY_NOTICE)).not.toBeInTheDocument()
-      expect(navigatedTo).not.toHaveBeenCalled()
+      expect(screen.getByText(TERMS_MESSAGE)).toBeInTheDocument()
+      expect(Element.prototype.scrollIntoView).not.toHaveBeenCalled()
     })
 
-    it('says why, and does not start again, when the versions cannot be read', async () => {
-      publish(versionsUnavailable)
-      recordStart()
-      consentArrival()
-
+    it('words the footer notice the way the Google button is pressed', () => {
       renderWithProviders(<AuthPage />)
 
-      expect(await screen.findByText(CONSENT_VERSIONS_UNAVAILABLE)).toBeInTheDocument()
-      expect(screen.queryByText(CONSENT_RETRY_NOTICE)).not.toBeInTheDocument()
-      expect(sessionStorage.getItem(GOOGLE_SIGNUP_START_KEY)).toBeNull()
-      expect(navigatedTo).not.toHaveBeenCalled()
-    })
-
-    it('drops a recorded start on any other arrival', () => {
-      recordStart()
-      setSearchParams('returnTo=%2Fshows')
-
-      renderWithProviders(<AuthPage />)
-
-      expect(sessionStorage.getItem(GOOGLE_SIGNUP_START_KEY)).toBeNull()
-      expect(screen.queryByText(CONSENT_RETRY_NOTICE)).not.toBeInTheDocument()
-      expect(navigatedTo).not.toHaveBeenCalled()
+      const notice = screen.getByText(/^By continuing, you agree to the/)
+      expect(notice).toHaveTextContent(
+        'By continuing, you agree to the Terms of Service and acknowledge the Privacy Policy.'
+      )
+      expect(within(notice).getByRole('link', { name: 'Terms of Service' })).toHaveAttribute('href', '/terms')
+      expect(within(notice).getByRole('link', { name: 'Privacy Policy' })).toHaveAttribute('href', '/privacy')
     })
   })
 
-  // The sign-up form's banner for its Google and passkey buttons.
+  // The sign-up form's banner for its passkey button.
   describe('sign-up form errors', () => {
-    type ButtonCallbacks = {
-      variant?: string
-      onConsentVersionsUnavailable?: () => void
-      onMissingTermsAcceptance?: () => void
-      onError?: (message: string) => void
-    }
-    const latest = (props: ReturnType<typeof vi.fn>) =>
-      props.mock.calls.at(-1)?.[0] as ButtonCallbacks
-
-    async function openSignup() {
+    it("shows the passkey button's error", async () => {
       const user = userEvent.setup()
       renderWithProviders(<AuthPage />)
       await user.click(screen.getByRole('tab', { name: 'Create account' }))
-    }
-
-    it('says why when the Google sign-up could not read the versions', async () => {
-      await openSignup()
-      const google = latest(googleOAuthProps)
-      expect(google.variant).toBe('signup')
 
       act(() => {
-        google.onConsentVersionsUnavailable?.()
+        const props = passkeySignupProps.mock.calls.at(-1)?.[0] as {
+          onError?: (message: string) => void
+        }
+        props.onError?.('Failed to start passkey signup')
       })
 
-      expect(await screen.findByText(CONSENT_VERSIONS_UNAVAILABLE)).toBeInTheDocument()
-    })
-
-    it('shows only the latest error', async () => {
-      await openSignup()
-      act(() => {
-        latest(passkeySignupProps).onError?.('Failed to start passkey signup')
-      })
       expect(await screen.findByText('Failed to start passkey signup')).toBeInTheDocument()
-
-      act(() => {
-        latest(googleOAuthProps).onConsentVersionsUnavailable?.()
-      })
-
-      expect(await screen.findByText(CONSENT_VERSIONS_UNAVAILABLE)).toBeInTheDocument()
-      expect(screen.queryByText('Failed to start passkey signup')).not.toBeInTheDocument()
     })
   })
 
@@ -1271,7 +910,9 @@ describe('AuthPage', () => {
       pushState.mockRestore()
     })
 
-    it('keeps a consent refusal on Create account once the code leaves the URL', () => {
+    // A consent refusal opens on Sign in like any other refusal: Google's
+    // consent is asked on the step after Google, not on Create account.
+    it('keeps a consent refusal once the code leaves the URL', () => {
       const message = 'Please accept the Terms of Service and Privacy Policy before creating an account.'
       const { rerender } = arriveAt(
         new URLSearchParams({
@@ -1284,7 +925,7 @@ describe('AuthPage', () => {
 
       followAddressBar(rerender)
 
-      expect(screen.getByRole('tab', { name: 'Create account' })).toHaveAttribute(
+      expect(screen.getByRole('tab', { name: 'Sign in' })).toHaveAttribute(
         'aria-selected',
         'true'
       )
@@ -1357,7 +998,7 @@ describe('AuthPage', () => {
       renderWithProviders(<AuthPage />)
 
       expect(googleOAuthProps).toHaveBeenCalledWith(
-        expect.objectContaining({ variant: 'login', returnTo: '/shows' })
+        expect.objectContaining({ returnTo: '/shows' })
       )
     })
 
@@ -1369,7 +1010,7 @@ describe('AuthPage', () => {
       await user.click(screen.getByRole('tab', { name: 'Create account' }))
 
       expect(googleOAuthProps).toHaveBeenCalledWith(
-        expect.objectContaining({ variant: 'signup', returnTo: '/collections' })
+        expect.objectContaining({ returnTo: '/collections' })
       )
     })
 
@@ -1384,7 +1025,7 @@ describe('AuthPage', () => {
         expect.objectContaining({ returnTo: '/' })
       )
       expect(googleOAuthProps).toHaveBeenCalledWith(
-        expect.objectContaining({ variant: 'login', returnTo: '/' })
+        expect.objectContaining({ returnTo: '/' })
       )
     })
   })
@@ -1564,10 +1205,7 @@ describe('AuthPage', () => {
 
       await screen.findByText("Confirm it's you")
       expect(googleOAuthProps).toHaveBeenCalledWith(
-        expect.objectContaining({
-          variant: 'login',
-          returnTo: '/profile?tab=settings',
-        })
+        expect.objectContaining({ returnTo: '/profile?tab=settings' })
       )
     })
 

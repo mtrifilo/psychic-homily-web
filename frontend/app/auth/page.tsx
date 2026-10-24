@@ -51,7 +51,6 @@ import {
   hasGatedIntent,
   isAccountRecoverableRefusal,
   isReauthReason,
-  needsSignupConsent,
 } from '@/lib/auth-href'
 import { isAccountRecoverable, isAuthError, type AuthError } from '@/lib/errors'
 import { getUniqueErrors } from '@/lib/utils/formErrors'
@@ -69,16 +68,11 @@ import {
   ConsentRetryNotice,
   ConsentVersionsChangedNotice,
 } from '@/app/auth/_components/consent-versions-notice'
-import { useGoogleSignupRetry } from '@/app/auth/_components/google-signup-start'
-import { useHydrated } from '@/lib/hooks/common/useHydrated'
 import {
   safeDecodeQueryParam,
   sanitizeReturnTo,
 } from './auth-redirect-utils'
 import { useAuthArrivalParams } from '@/app/auth/_components/auth-arrival-params'
-
-// The id of the message banner an OAuth refusal puts above the auth card.
-const URL_ERROR_ID = 'auth-url-error'
 
 // Shown for ACCOUNT_INACTIVE_REASON: fixed copy keyed by the code, never text
 // from the URL, saying no more about the account than "unavailable".
@@ -211,11 +205,7 @@ function LoginForm({ returnTo }: { returnTo: string }) {
 
       {/* OAuth and Passkey login options */}
       <div className="space-y-3">
-        <GoogleOAuthButton
-          className="w-full"
-          variant="login"
-          returnTo={returnTo}
-        />
+        <GoogleOAuthButton className="w-full" returnTo={returnTo} />
         <PasskeyLoginButton
           onError={reportPasskeyError}
           className="w-full"
@@ -405,21 +395,6 @@ interface SignupFormProps {
   passwordRequestDeadline: SignupRequestDeadline
   /** Bounds the passkey sign-up button's requests. */
   passkeyRequestDeadline: SignupRequestDeadline
-  /**
-   * The form is showing as the arrival's own tab, and the arrival is an OAuth
-   * sign-in refused for want of the consent this form records. The form then
-   * centres the terms checkbox in the viewport and focuses it, each time the
-   * page presents that arrival, a re-show after the page was hidden included.
-   * Centring is what puts "Sign up with Google" above the checkbox and the age
-   * confirmation below it on a phone screen, and only while no taller content
-   * sits between them.
-   */
-  consentRequested: boolean
-  /**
-   * The id of the element stating why consent was asked for, which the terms
-   * checkbox names as its description while consentRequested holds.
-   */
-  consentReasonId?: string
 }
 
 function SignupForm({
@@ -427,8 +402,6 @@ function SignupForm({
   onHandoffChange,
   passwordRequestDeadline,
   passkeyRequestDeadline,
-  consentRequested,
-  consentReasonId,
 }: SignupFormProps) {
   const { setUser } = useAuthContext()
   // The password request in flight: the claim it made and the signal that
@@ -496,7 +469,6 @@ function SignupForm({
   const [showPassword, setShowPassword] = useState(false)
   const [passwordValue, setPasswordValue] = useState('')
   const [passkeyError, setPasskeyError] = useState<string | null>(null)
-  const [oauthError, setOauthError] = useState<string | null>(null)
   const [consentVersionsError, setConsentVersionsError] = useState<string | null>(null)
   const [isRetryingConsent, setIsRetryingConsent] = useState(false)
   // The form's banner shows one message: the latest one set through here.
@@ -506,11 +478,9 @@ function SignupForm({
   ) => {
     setConsentVersionsError(null)
     setPasskeyError(null)
-    setOauthError(null)
     set(message)
   }
   const [hasAttemptedSubmit, setHasAttemptedSubmit] = useState(false)
-  const termsCheckboxRef = useRef<HTMLButtonElement>(null)
   // A retry still waiting on its versions when the form goes away is dropped,
   // so no registration goes out from a form nobody can see.
   const mountedRef = useRef(false)
@@ -521,15 +491,6 @@ function SignupForm({
       mountedRef.current = false
     }
   }, [])
-
-  useEffect(() => {
-    const termsCheckbox = termsCheckboxRef.current
-    if (!consentRequested || !termsCheckbox) {
-      return
-    }
-    termsCheckbox.scrollIntoView({ block: 'center' })
-    termsCheckbox.focus({ preventScroll: true })
-  }, [consentRequested])
 
   const register = (
     value: SignupFormData,
@@ -631,39 +592,21 @@ function SignupForm({
       ) : isRetryingConsent ? (
         <ConsentRetryNotice />
       ) : (
-        (consentVersionsError || registerMutation.error || passkeyError || oauthError) && (
+        (consentVersionsError || registerMutation.error || passkeyError) && (
           <Alert variant="destructive">
             <AlertCircle className="h-4 w-4" />
             <AlertDescription>
-              {consentVersionsError || registerMutation.error?.message || passkeyError || oauthError}
+              {consentVersionsError || registerMutation.error?.message || passkeyError}
             </AlertDescription>
           </Alert>
         )
       )}
 
-      {/* OAuth and Passkey signup options */}
+      {/* OAuth and Passkey signup options. Google is the same button as on
+          Sign in: a new identity finishes on the "Create your account" step,
+          so it reads none of this form's consent controls. */}
       <div className="space-y-3">
-        <form.Subscribe selector={state => [state.values.termsAccepted, state.values.ageConfirmed]}>
-          {([termsAccepted, ageConfirmed]) => (
-            <GoogleOAuthButton
-              className="w-full"
-              variant="signup"
-              termsAccepted={termsAccepted}
-              ageConfirmed={ageConfirmed}
-              disabled={versionsChanged}
-              returnTo={returnTo}
-              onMissingTermsAcceptance={() => {
-                showError(setOauthError, 'You must agree to the Terms of Service and Privacy Policy before continuing with Google')
-              }}
-              onMissingAgeConfirmation={() => {
-                showError(setOauthError, `You must confirm that you are at least ${MIN_SIGNUP_AGE} years old before continuing with Google`)
-              }}
-              onConsentVersionsUnavailable={() => {
-                showError(setOauthError, CONSENT_VERSIONS_UNAVAILABLE)
-              }}
-            />
-          )}
-        </form.Subscribe>
+        <GoogleOAuthButton className="w-full" returnTo={returnTo} />
         <PasskeySignupButton
           onError={message => showError(setPasskeyError, message)}
           onHandoffChange={onHandoffChange}
@@ -755,17 +698,9 @@ function SignupForm({
           <div className="space-y-2">
             <div className="flex items-start space-x-3">
               <Checkbox
-                ref={termsCheckboxRef}
                 id="terms"
-                aria-describedby={consentRequested ? consentReasonId : undefined}
                 checked={field.state.value}
-                onCheckedChange={(checked) => {
-                  const accepted = checked === true
-                  field.handleChange(accepted)
-                  if (accepted) {
-                    setOauthError(null)
-                  }
-                }}
+                onCheckedChange={checked => field.handleChange(checked === true)}
                 aria-invalid={field.state.meta.errors.length > 0}
                 className="mt-0.5"
               />
@@ -807,13 +742,7 @@ function SignupForm({
               <Checkbox
                 id="age-confirmation"
                 checked={field.state.value}
-                onCheckedChange={(checked) => {
-                  const confirmed = checked === true
-                  field.handleChange(confirmed)
-                  if (confirmed) {
-                    setOauthError(null)
-                  }
-                }}
+                onCheckedChange={checked => field.handleChange(checked === true)}
                 aria-invalid={field.state.meta.errors.length > 0}
                 className="mt-0.5"
               />
@@ -881,11 +810,9 @@ function AuthPageContent() {
   const isReauth = isReauthReason(reason)
   const isAccountInactive = reason === ACCOUNT_INACTIVE_REASON
 
-  // Two arrivals open on Create account: a gated control naming the action it
-  // refused an anonymous viewer, and an OAuth sign-in refused for want of the
-  // consent only that tab records, whose message the banner above the card
-  // shows. Every other route in opens on Sign in. Re-auth always opens on Sign
-  // in, the only tab it renders.
+  // One arrival opens on Create account: a gated control naming the action it
+  // refused an anonymous viewer. Every other route in opens on Sign in.
+  // Re-auth always opens on Sign in, the only tab it renders.
   //
   // The default belongs to the arrival, not to the mount. Neither a
   // navigation that only changes the query string nor leaving and coming back
@@ -895,11 +822,7 @@ function AuthPageContent() {
   // page has not been hidden since (the effect below drops it on hide). Tab
   // changes are never written back to the URL.
   const arrival = searchParams.toString()
-  const isConsentArrival = needsSignupConsent(searchParams) && !isReauth
-  const arrivalTab =
-    (hasGatedIntent(searchParams) && !isReauth) || isConsentArrival
-      ? 'signup'
-      : 'login'
+  const arrivalTab = hasGatedIntent(searchParams) && !isReauth ? 'signup' : 'login'
   const [pickedTab, setPickedTab] = useState<{
     arrival: string
     tab: string
@@ -922,16 +845,6 @@ function AuthPageContent() {
   const passwordSignupDeadline = useSignupRequestDeadline(releasePendingSignup)
   const passkeySignupDeadline = useSignupRequestDeadline(releasePendingSignup)
   const signInTabRef = useRef<HTMLButtonElement>(null)
-  // A consent arrival answering a Google sign-up start from this tab is
-  // retried once instead of asking for consent the reader already gave.
-  // The hydration render cannot see whether a retry is due, so the consent
-  // controls are focused only from the render after it.
-  const hydrated = useHydrated()
-  const googleSignupRetry = useGoogleSignupRetry({
-    arrival,
-    consentArrival: isConsentArrival && authStatus !== 'authenticated',
-    returnTo,
-  })
 
   // A hidden page runs its effect cleanups, and a shown one reruns the
   // effects, so this cleanup is the page's "hidden" signal.
@@ -1016,16 +929,8 @@ function AuthPageContent() {
     return null
   }
 
-  // What the banner above the card says, most specific first. Versions that
-  // changed are explained by the sign-up form's own notice, not here.
-  const urlBanner =
-    googleSignupRetry === 'changed' ? null : googleSignupRetry === 'unavailable' ? (
-      CONSENT_VERSIONS_UNAVAILABLE
-    ) : urlRefusalRecoverable ? (
-      <AccountRecoverableMessage />
-    ) : (
-      urlError
-    )
+  // What the banner above the card says, most specific first.
+  const urlBanner = urlRefusalRecoverable ? <AccountRecoverableMessage /> : urlError
 
   return (
     <div className="flex min-h-[calc(100vh-64px)] items-center justify-center px-4 py-12">
@@ -1046,15 +951,11 @@ function AuthPageContent() {
         </div>
 
         {/* OAuth/URL Error Display */}
-        {googleSignupRetry === 'retrying' ? (
-          <ConsentRetryNotice className="mb-6" />
-        ) : (
-          urlBanner && (
-            <Alert variant="destructive" className="mb-6">
-              <AlertCircle className="h-4 w-4" />
-              <AlertDescription id={URL_ERROR_ID}>{urlBanner}</AlertDescription>
-            </Alert>
-          )
+        {urlBanner && (
+          <Alert variant="destructive" className="mb-6">
+            <AlertCircle className="h-4 w-4" />
+            <AlertDescription>{urlBanner}</AlertDescription>
+          </Alert>
         )}
 
         {isAccountInactive && (
@@ -1104,18 +1005,6 @@ function AuthPageContent() {
                     onHandoffChange={setSignupHandoff}
                     passwordRequestDeadline={passwordSignupDeadline}
                     passkeyRequestDeadline={passkeySignupDeadline}
-                    consentRequested={
-                      hydrated &&
-                      showingArrivalTab &&
-                      isConsentArrival &&
-                      googleSignupRetry !== 'retrying' &&
-                      googleSignupRetry !== 'changed'
-                    }
-                    consentReasonId={
-                      urlError || googleSignupRetry === 'unavailable'
-                        ? URL_ERROR_ID
-                        : undefined
-                    }
                   />
                 </div>
                 <div className="mt-4">
@@ -1137,11 +1026,11 @@ function AuthPageContent() {
 
         {/* Footer */}
         <p className="mt-6 text-center text-xs text-muted-foreground">
-          By signing in, you agree to our{' '}
+          By continuing, you agree to the{' '}
           <Link href="/terms" className="underline underline-offset-4 hover:text-primary">
             Terms of Service
           </Link>{' '}
-          and{' '}
+          and acknowledge the{' '}
           <Link href="/privacy" className="underline underline-offset-4 hover:text-primary">
             Privacy Policy
           </Link>

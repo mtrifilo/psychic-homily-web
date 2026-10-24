@@ -111,7 +111,7 @@ func TestOAuthCallbackNeverLogsCredentials(t *testing.T) {
 
 	callbackURL := "/auth/callback/google?code=" + sentinelAuthzCode + "&state=" + sentinelState
 
-	// OAuthCallbackWithConsent is the entry point the HTTP handler calls.
+	// OAuthCallback is the entry point the HTTP handler calls.
 	t.Run("completed_login", func(t *testing.T) {
 		userService := &oauthUserServiceStub{user: &authm.User{ID: 42}}
 		authService := NewAuthService(nil, cfg, userService)
@@ -124,11 +124,10 @@ func TestOAuthCallbackNeverLogsCredentials(t *testing.T) {
 		var token string
 		var err error
 		output := testlog.Capture(t, func() {
-			_, token, err = authService.OAuthCallbackWithConsent(
+			_, token, err = authService.OAuthCallback(
 				httptest.NewRecorder(),
 				testlog.Request(t, httptest.NewRequest("GET", callbackURL, nil)),
 				"google",
-				nil,
 			)
 		})
 
@@ -160,11 +159,10 @@ func TestOAuthCallbackNeverLogsCredentials(t *testing.T) {
 
 		var err error
 		output := testlog.Capture(t, func() {
-			_, _, err = authService.OAuthCallbackWithConsent(
+			_, _, err = authService.OAuthCallback(
 				httptest.NewRecorder(),
 				testlog.Request(t, httptest.NewRequest("GET", callbackURL, nil)),
 				"google",
-				nil,
 			)
 		})
 

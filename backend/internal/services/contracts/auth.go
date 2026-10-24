@@ -106,6 +106,9 @@ type LegalAcceptance struct {
 	// means the caller did not record an age confirmation.
 	AgeConfirmedAt time.Time
 	MinAgeAttested int
+	// DateOfBirth is the date the age was computed from, nil on a path that
+	// asks for an attestation rather than a date.
+	DateOfBirth *time.Time
 }
 
 // SignupChallenge is what a passkey signup's begin step hands its finish step
@@ -127,6 +130,53 @@ type OAuthSignupConsent struct {
 	// OAuth signups (PSY-1023), mirroring TermsAccepted.
 	AgeConfirmed   bool
 	MinAgeAttested int
+	// DateOfBirth is the date MinAgeAttested was computed from, nil when the
+	// age was attested rather than computed.
+	DateOfBirth *time.Time
+}
+
+// OAuthIdentity is what a provider asserted about the person who completed a
+// handshake: the subject the identity resolves on, the address and whether
+// the provider vouched for it, and the names and avatar it reported.
+type OAuthIdentity struct {
+	Provider      string
+	Subject       string
+	Email         string
+	EmailVerified bool
+	Name          string
+	FirstName     string
+	LastName      string
+	AvatarURL     string
+}
+
+// OAuthSignupRequiredError is the refusal for an identity attached to no
+// account, whose address no account holds, that arrived with no consent. It
+// carries the identity, so a caller that can collect the consent itself can
+// hold on to it, and it unwraps to Refusal, the typed consent refusal a caller
+// that cannot collect consent reports as it is.
+type OAuthSignupRequiredError struct {
+	Identity OAuthIdentity
+	Refusal  error
+}
+
+func (e *OAuthSignupRequiredError) Error() string {
+	return "new oauth identity needs consent before an account is created"
+}
+
+func (e *OAuthSignupRequiredError) Unwrap() error {
+	return e.Refusal
+}
+
+// OAuthPendingSignupTTL is how long a pending sign-up stays usable, and so the
+// lifetime of the cookie that names it.
+const OAuthPendingSignupTTL = 10 * time.Minute
+
+// OAuthPendingSignup is a provider identity held for the "Create your
+// account" step, with the sanitised destination its sign-in named.
+type OAuthPendingSignup struct {
+	Identity  OAuthIdentity
+	ReturnTo  string
+	ExpiresAt time.Time
 }
 
 // ──────────────────────────────────────────────
@@ -136,7 +186,30 @@ type OAuthSignupConsent struct {
 // AuthServiceInterface defines the contract for authentication operations.
 type AuthServiceInterface interface {
 	OAuthLogin(w http.ResponseWriter, r *http.Request, provider string) error
-	OAuthCallbackWithConsent(w http.ResponseWriter, r *http.Request, provider string, consent *OAuthSignupConsent) (*authm.User, string, error)
+	// OAuthCallback finishes the provider handshake and signs in the account
+	// the identity resolves to. An identity that would need an account created
+	// is refused with an error wrapping *OAuthSignupRequiredError, whose
+	// Refusal is the CodeTermsAcceptanceRequired AuthError; the other
+	// refusals are UserServiceInterface.FindOrCreateUserWithConsent's.
+	OAuthCallback(w http.ResponseWriter, r *http.Request, provider string) (*authm.User, string, error)
+	// StartOAuthSignup stores identity and returnTo as a pending sign-up for
+	// OAuthPendingSignupTTL and returns the signed token that names it, the
+	// only value that can read or consume it.
+	StartOAuthSignup(identity OAuthIdentity, returnTo string) (token string, err error)
+	// PeekOAuthSignup returns the pending sign-up token names without
+	// consuming it. A token that fails its signature, names no row, or names
+	// an expired one is refused with a typed AuthError carrying
+	// CodeOAuthSignupExpired; any other error means it could not be read.
+	PeekOAuthSignup(token string) (*OAuthPendingSignup, error)
+	// ConsumeOAuthSignup removes the pending sign-up token names and returns
+	// it; every later call for the same token is refused. Refusals are
+	// PeekOAuthSignup's.
+	ConsumeOAuthSignup(token string) (*OAuthPendingSignup, error)
+	// CompleteOAuthSignup resolves or creates the account for a consumed
+	// pending sign-up through
+	// UserServiceInterface.FindOrCreateUserFromOAuthIdentity, and issues a
+	// session for it. Refusals are that method's.
+	CompleteOAuthSignup(signup *OAuthPendingSignup, consent *OAuthSignupConsent, displayName *string) (*authm.User, string, error)
 	// CompleteOAuthLink attaches the handshake's identity to an already
 	// authenticated userID and issues no session. Refuses with a typed
 	// AuthError carrying CodeAccountInactive when the account may not sign in

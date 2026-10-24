@@ -9,6 +9,20 @@ import { isDevApiProxyEnabled } from '@/lib/dev-api-proxy'
 
 const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:8080'
 
+/**
+ * The browser cookies the proxy hands the backend: the session, and the
+ * "Create your account" step's pending sign-up and under-age refusal marker
+ * (backend/internal/api/handlers/auth/oauth_signup.go), under the bare name
+ * and the "__Host-" name a Secure deployment sets.
+ */
+const FORWARDED_COOKIES = [
+  'auth_token',
+  'oauth_pending_signup',
+  '__Host-oauth_pending_signup',
+  'oauth_signup_age_refused',
+  '__Host-oauth_signup_age_refused',
+] as const
+
 /** Browser-set headers that say where a request came from. */
 const PROVENANCE_HEADERS = ['Origin', 'Referer'] as const
 
@@ -41,12 +55,13 @@ async function proxyRequest(request: NextRequest) {
       headers['Content-Type'] = contentType
     }
 
-    // Forward auth cookie from browser
+    // Forward the cookies the backend reads on these routes, and no others
     const cookieStore = await cookies()
-    const authToken = cookieStore.get('auth_token')
-    const cookieHeader = authToken
-      ? `auth_token=${authToken.value}`
-      : undefined
+    const cookieHeader =
+      FORWARDED_COOKIES.flatMap(name => {
+        const cookie = cookieStore.get(name)
+        return cookie ? [`${name}=${cookie.value}`] : []
+      }).join('; ') || undefined
     if (cookieHeader) {
       headers['Cookie'] = cookieHeader
     }

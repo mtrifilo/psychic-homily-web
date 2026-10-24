@@ -3,15 +3,12 @@ package auth
 import (
 	"context"
 	"crypto/rand"
-	"encoding/base64"
 	"encoding/hex"
-	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/url"
 	"slices"
-	"strconv"
-	"time"
 
 	"psychic-homily-backend/internal/config"
 	autherrors "psychic-homily-backend/internal/errors"
@@ -25,19 +22,14 @@ import (
 	"github.com/markbates/goth/gothic"
 )
 
-// oauthSignupConsentCookieName carries a sign-up's consent from the start to
-// the callback, which records it on the account the callback creates.
-const oauthSignupConsentCookieName = "oauth_signup_consent"
-
-// oauthSignupConsentCookieLifetime bounds the consent cookie to one OAuth
-// round trip, a consent screen and a second factor at the provider included.
-const oauthSignupConsentCookieLifetime = 10 * time.Minute
-
-var oauthSignupConsentCookie = oauthHandshakeCookie{
-	name:                  oauthSignupConsentCookieName,
-	lifetime:              oauthSignupConsentCookieLifetime,
-	rolloverReadsBareName: true,
-}
+// oauthPromptParam names the one provider prompt a sign-in start may ask for,
+// and oauthPromptSelectAccount is that prompt: Google's account chooser, for
+// "Not you? Use a different account" on the sign-up step. Any other value is
+// ignored.
+const (
+	oauthPromptParam         = "prompt"
+	oauthPromptSelectAccount = "select_account"
+)
 
 // cliCallbackIDCookieName holds the id of the loopback destination a CLI
 // sign-in stored in cliCallbackStore; the destination itself never leaves the
@@ -183,58 +175,6 @@ func (h *OAuthHTTPHandler) OAuthLoginHTTPHandler(w http.ResponseWriter, r *http.
 		return
 	}
 
-	// Capture explicit signup consent for later enforcement in callback.
-	signupIntent := r.URL.Query().Get("signup_intent") == "1"
-	if signupIntent {
-		termsAccepted := r.URL.Query().Get("terms_accepted") == "true"
-		termsVersion := r.URL.Query().Get("terms_version")
-		privacyVersion := r.URL.Query().Get("privacy_version")
-		if !termsAccepted {
-			http.Error(w, "Terms acceptance is required for account creation", http.StatusBadRequest)
-			return
-		}
-		// A version legal.AcceptedVersions refuses goes back to the auth page
-		// with the refusal the callback gives a sign-up without consent, so the
-		// reader lands on a freshly loaded form, which sends the versions the
-		// deployed frontend names. The other refusals here stay plain 400s:
-		// the form never starts a sign-up without terms_accepted and the age
-		// fields.
-		if refusal := refuseStaleConsentVersions(termsVersion, privacyVersion); refusal != nil {
-			logger.AuthWarn(ctx, "oauth_signup_consent_refused",
-				"provider", provider,
-				"error_code", refusal.Code,
-			)
-			returnTo := sanitizeOAuthReturnTo(r.URL.Query().Get(oauthReturnToParam))
-			http.Redirect(w, r, authPageRefusalURL(h.frontendURL(), refusal, refusal.UserMessage(), returnTo), http.StatusTemporaryRedirect)
-			return
-		}
-
-		// Require the minimum-age confirmation (PSY-1023), mirroring the terms
-		// gate. min_age_attested is re-checked server-side against MinSignupAge so
-		// a tampered/absent query param can never bypass the gate.
-		ageConfirmed := r.URL.Query().Get("age_confirmed") == "true"
-		minAgeAttested, _ := strconv.Atoi(r.URL.Query().Get("min_age_attested"))
-		if !ageConfirmed || minAgeAttested < MinSignupAge {
-			http.Error(w, "Age confirmation is required for account creation", http.StatusBadRequest)
-			return
-		}
-
-		encodedConsent, err := encodeOAuthSignupConsent(contracts.OAuthSignupConsent{
-			TermsAccepted:  true,
-			TermsVersion:   termsVersion,
-			PrivacyVersion: privacyVersion,
-			AcceptedAt:     time.Now().UTC(),
-			AgeConfirmed:   true,
-			MinAgeAttested: minAgeAttested,
-		})
-		if err != nil {
-			http.Error(w, "Failed to process signup consent", http.StatusInternalServerError)
-			return
-		}
-
-		oauthSignupConsentCookie.set(w, encodedConsent, secureCookie)
-	}
-
 	// Check for CLI callback parameter
 	cliCallback := r.URL.Query().Get("cli_callback")
 	if cliCallback != "" {
@@ -287,7 +227,7 @@ func (h *OAuthHTTPHandler) OAuthLoginHTTPHandler(w http.ResponseWriter, r *http.
 	// The provider query parameter goth resolves on is set inside
 	// beginOAuthHandshake, which both this handler and the link share. No
 	// state of our own: it mints a fresh one for a sign-in.
-	if err := beginOAuthHandshake(w, r, provider, ""); err != nil {
+	if err := beginOAuthHandshake(w, r, provider, "", signInPrompt(r, provider)); err != nil {
 		logger.AuthError(ctx, "oauth_login_state_failed", err, "provider", provider)
 		http.Error(w, "Failed to start authentication", http.StatusInternalServerError)
 		return
@@ -310,7 +250,10 @@ func (h *OAuthHTTPHandler) OAuthLoginHTTPHandler(w http.ResponseWriter, r *http.
 // state is always ours. A link supplies one it will recognize at the callback;
 // sign-in gets a fresh nonce here rather than leaving gothic to generate one,
 // so that neither flow can have its state chosen by the caller.
-func beginOAuthHandshake(w http.ResponseWriter, r *http.Request, provider, state string) error {
+//
+// A non-empty prompt is added to the provider's authorization URL as its
+// prompt parameter; the caller decides which prompts a start may carry.
+func beginOAuthHandshake(w http.ResponseWriter, r *http.Request, provider, state, prompt string) error {
 	if state == "" {
 		generated, err := randomHexID(oauthLinkStateBytes)
 		if err != nil {
@@ -324,8 +267,35 @@ func beginOAuthHandshake(w http.ResponseWriter, r *http.Request, provider, state
 	q.Set("state", state)
 	r.URL.RawQuery = q.Encode()
 
-	gothic.BeginAuthHandler(w, r)
+	// What gothic.BeginAuthHandler does, with the prompt added to the URL in
+	// between: goth sets a provider's prompt for every handshake or none.
+	authURL, err := gothic.GetAuthURL(w, r)
+	if err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = fmt.Fprintln(w, err)
+		return nil
+	}
+	if prompt != "" {
+		parsed, err := url.Parse(authURL)
+		if err != nil {
+			return err
+		}
+		providerQuery := parsed.Query()
+		providerQuery.Set(oauthPromptParam, prompt)
+		parsed.RawQuery = providerQuery.Encode()
+		authURL = parsed.String()
+	}
+	http.Redirect(w, r, authURL, http.StatusTemporaryRedirect)
 	return nil
+}
+
+// signInPrompt is the provider prompt a sign-in start asks for: Google's
+// account chooser when the start asks for it, and none otherwise.
+func signInPrompt(r *http.Request, provider string) string {
+	if provider == "google" && r.URL.Query().Get(oauthPromptParam) == oauthPromptSelectAccount {
+		return oauthPromptSelectAccount
+	}
+	return ""
 }
 
 // OAuthCallbackHTTPHandler handles OAuth callback via HTTP
@@ -361,21 +331,6 @@ func (h *OAuthHTTPHandler) OAuthCallbackHTTPHandler(w http.ResponseWriter, r *ht
 					"error", verr.Error(),
 				)
 			}
-		}
-	}
-
-	// Read signup consent captured during OAuth initiation (if present).
-	var signupConsent *contracts.OAuthSignupConsent
-	// The consent cookie is single use: take clears it whatever it holds.
-	if cookie, ok := oauthSignupConsentCookie.take(w, r, secureCookie); ok {
-		consent, decodeErr := decodeOAuthSignupConsent(cookie.Value)
-		if decodeErr != nil {
-			logger.AuthWarn(ctx, "oauth_signup_consent_cookie_decode_failed",
-				"provider", provider,
-				"error", decodeErr.Error(),
-			)
-		} else {
-			signupConsent = consent
 		}
 	}
 
@@ -445,9 +400,15 @@ func (h *OAuthHTTPHandler) OAuthCallbackHTTPHandler(w http.ResponseWriter, r *ht
 		}
 	}
 
-	// Use AuthService to handle the complete OAuth flow. New users require consent.
-	user, token, err := h.authService.OAuthCallbackWithConsent(w, r, provider, signupConsent)
+	// A new identity finishes on the "Create your account" step, where the
+	// consent an account needs is asked for. A CLI sign-in has no such page, so
+	// it gets the consent refusal instead.
+	user, token, err := h.authService.OAuthCallback(w, r, provider)
 	if err != nil {
+		if identity, ok := signupStepIdentity(provider, err); ok && cliCallback == "" {
+			h.startSignupStep(w, r, identity, returnTo, frontendURL)
+			return
+		}
 		logCallbackError(ctx, provider, err)
 		errorMessage := refusalMessage(err, "authentication failed")
 
@@ -474,7 +435,7 @@ func (h *OAuthHTTPHandler) OAuthCallbackHTTPHandler(w http.ResponseWriter, r *ht
 	}
 
 	// Standard web flow - set HTTP-only auth cookie
-	cookie := h.config.Session.NewAuthCookie(token, 7*24*time.Hour)
+	cookie := h.config.Session.NewAuthCookie(token, oauthSessionLifetime)
 	http.SetCookie(w, &cookie)
 
 	http.Redirect(w, r, oauthSignInDestination(frontendURL, returnTo), http.StatusTemporaryRedirect)
@@ -543,24 +504,4 @@ func authRefusalCarriesItsOwnCopy(code string) bool {
 	default:
 		return false
 	}
-}
-
-func encodeOAuthSignupConsent(consent contracts.OAuthSignupConsent) (string, error) {
-	data, err := json.Marshal(consent)
-	if err != nil {
-		return "", err
-	}
-	return base64.RawURLEncoding.EncodeToString(data), nil
-}
-
-func decodeOAuthSignupConsent(value string) (*contracts.OAuthSignupConsent, error) {
-	data, err := base64.RawURLEncoding.DecodeString(value)
-	if err != nil {
-		return nil, err
-	}
-	var consent contracts.OAuthSignupConsent
-	if err := json.Unmarshal(data, &consent); err != nil {
-		return nil, err
-	}
-	return &consent, nil
 }

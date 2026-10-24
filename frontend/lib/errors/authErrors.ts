@@ -32,6 +32,16 @@ export const AuthErrorCode = {
    * A missing age confirmation is a separate backend code.
    */
   TERMS_ACCEPTANCE_REQUIRED: 'TERMS_ACCEPTANCE_REQUIRED',
+  /**
+   * An account creation refused for its age: on the sign-up step, a date of
+   * birth under the minimum age, or a browser already refused for one.
+   */
+  AGE_CONFIRMATION_REQUIRED: 'AGE_CONFIRMATION_REQUIRED',
+  /**
+   * The sign-up step's pending sign-up is expired, already used, or not this
+   * browser's. The step says the same thing for all three.
+   */
+  OAUTH_SIGNUP_EXPIRED: 'OAUTH_SIGNUP_EXPIRED',
   /** The account exists but may no longer sign in (deactivated or deleted). */
   ACCOUNT_INACTIVE: 'ACCOUNT_INACTIVE',
   /**

@@ -2594,6 +2594,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/auth/oauth/finish-signup": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Post auth oauth finish signup */
+        post: operations["post-auth-oauth-finish-signup"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/auth/oauth/link-token": {
         parameters: {
             query?: never;
@@ -2605,6 +2622,23 @@ export interface paths {
         put?: never;
         /** Post auth oauth link token */
         post: operations["post-auth-oauth-link-token"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/auth/oauth/pending-signup": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get auth oauth pending signup */
+        get: operations["get-auth-oauth-pending-signup"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -10639,6 +10673,37 @@ export interface components {
             /** @description Authenticated user */
             user?: components["schemas"]["User"];
         };
+        FinishOAuthSignupRequestBody: {
+            /** @description Date of birth, YYYY-MM-DD. The age is computed from it in UTC at submission; under the minimum age the account is refused with AGE_CONFIRMATION_REQUIRED and the pending sign-up is used up. */
+            date_of_birth?: string;
+            /** @description The name the account takes as its display name. Omitted: the provider's names. Blank: no name. */
+            name?: string;
+            /** @description Acknowledged Privacy Policy version, under the same rule as terms_version */
+            privacy_version?: string;
+            /** @description Whether the person ticked the Terms of Service box */
+            terms_accepted: boolean;
+            /** @description Accepted Terms of Service version: the current one, or the previous one while a grace window is open (both published at GET /legal/versions); anything else is refused with TERMS_ACCEPTANCE_REQUIRED */
+            terms_version?: string;
+        };
+        FinishOAuthSignupResponseBody: {
+            /**
+             * @description Error code for programmatic handling
+             * @example OAUTH_SIGNUP_EXPIRED
+             */
+            error_code?: string;
+            /** @description Response message */
+            message: string;
+            /** @description Request ID for debugging */
+            request_id?: string;
+            /** @description Where the person was headed when they started signing in, a path on the frontend */
+            return_to?: string;
+            /** @description Success status */
+            success: boolean;
+            /** @description JWT token for non-cookie clients */
+            token?: string;
+            /** @description User information */
+            user?: components["schemas"]["User"];
+        };
         FinishRegisterRequestBody: {
             /** @description Challenge ID from begin registration */
             challenge_id: string;
@@ -12728,6 +12793,24 @@ export interface components {
             summary_html?: string;
             /** Format: date-time */
             updated_at: string;
+        };
+        PendingOAuthSignupResponseBody: {
+            /** @description The provider's address, when status is pending */
+            email?: string;
+            /**
+             * Format: date-time
+             * @description When the pending sign-up stops being usable, when status is pending
+             */
+            expires_at?: string;
+            /** @description The provider's name for the person, when status is pending */
+            name?: string;
+            /** @description Where the sign-in was headed, a path on the frontend, when status is pending */
+            return_to?: string;
+            /**
+             * @description pending: the step can be shown. expired: the pending sign-up is expired, already used, or not this browser's. age_refused: this browser was refused an account for its date of birth.
+             * @enum {string}
+             */
+            status: "pending" | "expired" | "age_refused";
         };
         PercentileRanking: {
             dimension: string;
@@ -22232,6 +22315,63 @@ export interface operations {
             };
         };
     };
+    "post-auth-oauth-finish-signup": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: {
+                /** @description Pending sign-up, on a deployment without Secure cookies */
+                oauth_pending_signup?: string;
+                /** @description Pending sign-up, on a deployment with Secure cookies */
+                "__Host-oauth_pending_signup"?: string;
+                /** @description Under-age refusal marker, on a deployment without Secure cookies */
+                oauth_signup_age_refused?: string;
+                /** @description Under-age refusal marker, on a deployment with Secure cookies */
+                "__Host-oauth_signup_age_refused"?: string;
+            };
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["FinishOAuthSignupRequestBody"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    Domain?: string;
+                    Expires?: string;
+                    HttpOnly?: boolean;
+                    MaxAge?: number;
+                    Name?: string;
+                    Partitioned?: boolean;
+                    Path?: string;
+                    Quoted?: boolean;
+                    Raw?: string;
+                    RawExpires?: string;
+                    SameSite?: number;
+                    Secure?: boolean;
+                    "Set-Cookie"?: string;
+                    Unparsed?: string;
+                    Value?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FinishOAuthSignupResponseBody"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
     "post-auth-oauth-link-token": {
         parameters: {
             query?: never;
@@ -22251,6 +22391,45 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["StartOAuthLinkResponseBody"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "get-auth-oauth-pending-signup": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: {
+                /** @description Pending sign-up, on a deployment without Secure cookies */
+                oauth_pending_signup?: string;
+                /** @description Pending sign-up, on a deployment with Secure cookies */
+                "__Host-oauth_pending_signup"?: string;
+                /** @description Under-age refusal marker, on a deployment without Secure cookies */
+                oauth_signup_age_refused?: string;
+                /** @description Under-age refusal marker, on a deployment with Secure cookies */
+                "__Host-oauth_signup_age_refused"?: string;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    "Cache-Control"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PendingOAuthSignupResponseBody"];
                 };
             };
             /** @description Error */

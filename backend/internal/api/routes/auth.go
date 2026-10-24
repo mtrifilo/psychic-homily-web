@@ -71,6 +71,14 @@ func setupAuthRoutes(rc RouteContext) {
 	huma.Post(rateLimitedAuthGroup, "/auth/magic-link/send", authHandler.SendMagicLinkHandler)
 	huma.Post(rateLimitedAuthGroup, "/auth/magic-link/verify", authHandler.VerifyMagicLinkHandler)
 
+	// The "Create your account" step a new Google identity finishes on. The
+	// finish creates an account, so it draws on the public auth budget with
+	// registration. The read only answers the caller's own pending sign-up,
+	// named by a cookie, and is metered by the public-read limiter alone.
+	oauthSignupHandler := authh.NewOAuthSignupHandler(rc.SC.Auth, rc.Cfg)
+	huma.Get(rc.API, authh.OAuthPendingSignupRoute, oauthSignupHandler.PendingSignupHandler)
+	huma.Post(rateLimitedAuthGroup, authh.OAuthFinishSignupRoute, oauthSignupHandler.FinishSignupHandler)
+
 	// Sign in with Apple. The caller is a native client posting the identity
 	// token as JSON, not a browser, so a refusal stays the JSON 429 with its
 	// Retry-After. It meters on a per-IP budget of its own: password attempts
