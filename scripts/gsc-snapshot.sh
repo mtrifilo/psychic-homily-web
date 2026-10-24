@@ -999,10 +999,16 @@ Source: Google Search Console Search Analytics API, captured by
    no bulk API; read it in the GSC UI and fill in the Page indexing slot
    under Interpretation (format precedent: \`gsc-baseline-2026-08.md\`).
 7. **Breadth counts distinct pages with at least one impression.** A family's
-   page count is bounded by how many URLs of that family the site advertises,
-   so a small family cannot match a large one's count however well it ranks.
-   When comparing families, quote each page count beside the family's
-   advertised URL count.
+   page count is bounded by how many URLs of that family the site advertises
+   (its shards in the sitemap index), so a small family cannot match a large
+   one's count however well it ranks. When comparing families, quote each
+   page count beside the family's advertised URL count. \`show: numeric id\`
+   and \`other:\` rows are not advertised and have no such count.
+8. **Breadth totals are not the daily totals.** Rows grouped by page are
+   aggregated per page, so a search result showing two of the site's URLs
+   counts once for each. A week's impressions in the breadth tables can run
+   above the daily series for the same days; quote the daily series and the
+   headline totals for site-level impressions and position.
 
 ${TRUNCATION_NOTE}
 ---
@@ -1060,8 +1066,9 @@ One page query per complete week inside the window, paged with startRow past
 the API's ${PAGE_FETCH_LIMIT}-row request cap, so every page with an impression
 that week is counted; a partial week at either end of the window is left out.
 Pages is the number of distinct page URLs with at least one impression (read
-trap 7 before comparing families), Position is the impression-weighted average
-over the family's pages, and rows run by impressions. A show whose slug starts
+traps 7 and 8 before comparing families or quoting a week's total), Position
+is the impression-weighted average over the family's pages, and rows run by
+impressions. A show whose slug starts
 with a date is placed against the table's week by that date: in these labels
 "window" means the week. \`/shows/<number>\` and the \`/shows/YYYY/MM(/DD)\`
 calendar are their own rows, and any other path is grouped under
