@@ -1,7 +1,6 @@
 package catalog
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"log/slog"
@@ -15,6 +14,7 @@ import (
 	"psychic-homily-backend/internal/logger"
 	catalogm "psychic-homily-backend/internal/models/catalog"
 	"psychic-homily-backend/internal/services/contracts"
+	"psychic-homily-backend/internal/testlog"
 	"psychic-homily-backend/internal/testutil"
 )
 
@@ -29,12 +29,13 @@ type dietLogLine struct {
 	Advertised int    `json:"advertised"`
 }
 
-// capturingDietLog returns a context whose request logger writes JSON into a
-// buffer, and a reader for the diet lines it collected.
+// capturingDietLog returns a context whose request logger writes production's
+// JSON shape into a buffer, and a reader for the diet lines it collected since
+// the last read.
 func capturingDietLog(t *testing.T) (context.Context, func() []dietLogLine) {
 	t.Helper()
-	var buf bytes.Buffer
-	ctx := logger.NewContext(context.Background(), slog.New(slog.NewJSONHandler(&buf, nil)))
+	log, buf := testlog.NewJSONCapture(slog.LevelInfo)
+	ctx := logger.NewContext(context.Background(), log)
 	return ctx, func() []dietLogLine {
 		var lines []dietLogLine
 		for _, raw := range strings.Split(strings.TrimSpace(buf.String()), "\n") {
@@ -58,6 +59,26 @@ func dietService(db *gorm.DB, diet sitemapDiet) *SitemapService {
 	svc := NewSitemapService(db)
 	svc.diet = diet
 	return svc
+}
+
+// fetchOffAndOn reads one family with every rule off and then with diet,
+// failing if the off read logs a diet line, and returns both reads with the
+// diet lines the on read logged.
+func fetchOffAndOn(t *testing.T, db *gorm.DB, family string, diet sitemapDiet) (off, on *contracts.SitemapEntries, onLines []dietLogLine) {
+	t.Helper()
+	ctx, dietLines := capturingDietLog(t)
+	off, err := dietService(db, sitemapDiet{}).Entries(ctx, family)
+	if err != nil {
+		t.Fatalf("Entries(%s) rule off: %v", family, err)
+	}
+	if lines := dietLines(); len(lines) != 0 {
+		t.Errorf("Entries(%s) rule off logged %+v, want no diet line", family, lines)
+	}
+	on, err = dietService(db, diet).Entries(ctx, family)
+	if err != nil {
+		t.Fatalf("Entries(%s) rule on: %v", family, err)
+	}
+	return off, on, dietLines()
 }
 
 // assertOmitsExactly checks that `on` is `off` minus the slugs in `omitted`,
@@ -168,32 +189,21 @@ func TestSitemapDietPastShowsOmitByVenueLocalAge(t *testing.T) {
 	}
 	wantOmitted := []string{"diet-phx-d31-0030", "diet-phx-d31-2330", "diet-phx-old"}
 
-	ctx, dietLines := capturingDietLog(t)
-
-	off, err := dietService(td.DB, sitemapDiet{}).Entries(ctx, "shows")
-	if err != nil {
-		t.Fatalf("Entries(shows) rule off: %v", err)
-	}
-	if lines := dietLines(); len(lines) != 0 {
-		t.Errorf("rule off logged %+v, want no diet line", lines)
-	}
-
-	svc := dietService(td.DB, sitemapDiet{pastShowMaxAgeDays: maxAge})
-	on, err := svc.Entries(ctx, "shows")
-	if err != nil {
-		t.Fatalf("Entries(shows) rule on: %v", err)
-	}
+	diet := sitemapDiet{pastShowMaxAgeDays: maxAge}
+	off, on, onLines := fetchOffAndOn(t, td.DB, "shows", diet)
 	if localDate(phoenix) != phoenixToday || localDate(berlin) != berlinToday {
 		t.Skip("a venue-local date rolled over while the test ran; the seeded ages moved under it")
 	}
 	assertOmitsExactly(t, "shows", off.Shows, on.Shows, wantOmitted)
-	assertOneDietLine(t, dietLines(), dietLogLine{
+	assertOneDietLine(t, onLines, dietLogLine{
 		Rule: sitemapPastShowMaxAgeDaysEnv, Family: "shows", Shard: "",
 		Omitted: len(wantOmitted), Advertised: len(on.Shows),
 	})
 
 	// The buckets partition the rule the way they partition the family: their
 	// union is the whole-family answer, and their logged counts sum to its count.
+	ctx, dietLines := capturingDietLog(t)
+	svc := dietService(td.DB, diet)
 	var union []string
 	omittedSum := 0
 	for _, shard := range sitemapShardsByFamily["shows"] {
@@ -252,20 +262,9 @@ func TestSitemapDietUnlinkedReleasesAreOmitted(t *testing.T) {
 		}
 	}
 
-	ctx, dietLines := capturingDietLog(t)
-	off, err := dietService(td.DB, sitemapDiet{}).Entries(ctx, "releases")
-	if err != nil {
-		t.Fatalf("Entries(releases) rule off: %v", err)
-	}
-	if lines := dietLines(); len(lines) != 0 {
-		t.Errorf("rule off logged %+v, want no diet line", lines)
-	}
-	on, err := dietService(td.DB, sitemapDiet{omitUnlinkedReleases: true}).Entries(ctx, "releases")
-	if err != nil {
-		t.Fatalf("Entries(releases) rule on: %v", err)
-	}
+	off, on, onLines := fetchOffAndOn(t, td.DB, "releases", sitemapDiet{omitUnlinkedReleases: true})
 	assertOmitsExactly(t, "releases", off.Releases, on.Releases, []string{"diet-rel-unlinked"})
-	assertOneDietLine(t, dietLines(), dietLogLine{
+	assertOneDietLine(t, onLines, dietLogLine{
 		Rule: sitemapOmitUnlinkedReleasesEnv, Family: "releases", Shard: "",
 		Omitted: 1, Advertised: 2,
 	})
@@ -309,20 +308,9 @@ func TestSitemapDietIdleArtistsAreOmitted(t *testing.T) {
 		t.Fatalf("seed artist_release: %v", err)
 	}
 
-	ctx, dietLines := capturingDietLog(t)
-	off, err := dietService(td.DB, sitemapDiet{}).Entries(ctx, "artists")
-	if err != nil {
-		t.Fatalf("Entries(artists) rule off: %v", err)
-	}
-	if lines := dietLines(); len(lines) != 0 {
-		t.Errorf("rule off logged %+v, want no diet line", lines)
-	}
-	on, err := dietService(td.DB, sitemapDiet{omitIdleArtists: true}).Entries(ctx, "artists")
-	if err != nil {
-		t.Fatalf("Entries(artists) rule on: %v", err)
-	}
+	off, on, onLines := fetchOffAndOn(t, td.DB, "artists", sitemapDiet{omitIdleArtists: true})
 	assertOmitsExactly(t, "artists", off.Artists, on.Artists, []string{"diet-art-idle"})
-	assertOneDietLine(t, dietLines(), dietLogLine{
+	assertOneDietLine(t, onLines, dietLogLine{
 		Rule: sitemapOmitIdleArtistsEnv, Family: "artists", Shard: "",
 		Omitted: 1, Advertised: 3,
 	})

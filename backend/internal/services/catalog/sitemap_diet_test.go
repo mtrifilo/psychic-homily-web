@@ -6,9 +6,11 @@ import (
 	"testing"
 )
 
-// TestSitemapDietFromEnvIsOffUnlessSetExactly pins the default-off contract:
-// an unset, zero, negative, malformed or out-of-range value leaves a rule off,
-// and only the documented spellings switch one on.
+// TestSitemapDietFromEnvIsOffUnlessSetExactly pins the default-off contract
+// and which flag feeds which rule. How each value is parsed is
+// shared.EnvPositiveInt's and shared.EnvFlagEnabled's, tested there; this
+// covers one malformed value per flag to prove the wiring, and the age limit,
+// which is this package's own.
 func TestSitemapDietFromEnvIsOffUnlessSetExactly(t *testing.T) {
 	keys := []string{sitemapPastShowMaxAgeDaysEnv, sitemapOmitUnlinkedReleasesEnv, sitemapOmitIdleArtistsEnv}
 	unsetAll := func(t *testing.T) {
@@ -21,75 +23,68 @@ func TestSitemapDietFromEnvIsOffUnlessSetExactly(t *testing.T) {
 			}
 		}
 	}
-
-	t.Run("unset is every rule off", func(t *testing.T) {
-		unsetAll(t)
-		if got := sitemapDietFromEnv(); got != (sitemapDiet{}) {
-			t.Errorf("sitemapDietFromEnv() with nothing set = %+v, want every rule off", got)
-		}
-	})
-
-	for _, value := range []string{
-		"", "0", "-30", "abc", "30.5", "30 days", " 30",
-		strconv.Itoa(sitemapPastShowMaxAgeDaysLimit + 1), "99999999999999999999",
-	} {
-		t.Run("past-show age "+strconv.Quote(value)+" is off", func(t *testing.T) {
+	cases := []struct {
+		name string
+		env  map[string]string
+		want sitemapDiet
+	}{
+		{name: "unset is every rule off", want: sitemapDiet{}},
+		{name: "malformed age is off", env: map[string]string{sitemapPastShowMaxAgeDaysEnv: "abc"}},
+		{name: "zero age is off", env: map[string]string{sitemapPastShowMaxAgeDaysEnv: "0"}},
+		{
+			name: "age past the limit is off",
+			env:  map[string]string{sitemapPastShowMaxAgeDaysEnv: strconv.Itoa(sitemapPastShowMaxAgeDaysLimit + 1)},
+		},
+		{
+			name: "age 30 is only the past-show rule",
+			env:  map[string]string{sitemapPastShowMaxAgeDaysEnv: "30"},
+			want: sitemapDiet{pastShowMaxAgeDays: 30},
+		},
+		{
+			name: "age at the limit is on",
+			env:  map[string]string{sitemapPastShowMaxAgeDaysEnv: strconv.Itoa(sitemapPastShowMaxAgeDaysLimit)},
+			want: sitemapDiet{pastShowMaxAgeDays: sitemapPastShowMaxAgeDaysLimit},
+		},
+		{
+			name: "true is not a boolean flag's on",
+			env:  map[string]string{sitemapOmitUnlinkedReleasesEnv: "true", sitemapOmitIdleArtistsEnv: "true"},
+		},
+		{
+			name: "unlinked releases 1 is only that rule",
+			env:  map[string]string{sitemapOmitUnlinkedReleasesEnv: "1"},
+			want: sitemapDiet{omitUnlinkedReleases: true},
+		},
+		{
+			name: "idle artists 1 is only that rule",
+			env:  map[string]string{sitemapOmitIdleArtistsEnv: "1"},
+			want: sitemapDiet{omitIdleArtists: true},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
 			unsetAll(t)
-			t.Setenv(sitemapPastShowMaxAgeDaysEnv, value)
-			if got := sitemapDietFromEnv().pastShowMaxAgeDays; got != 0 {
-				t.Errorf("%s=%q read as %d days, want 0 (off)", sitemapPastShowMaxAgeDaysEnv, value, got)
+			for key, value := range tc.env {
+				t.Setenv(key, value)
+			}
+			if got := sitemapDietFromEnv(); got != tc.want {
+				t.Errorf("sitemapDietFromEnv() with %v = %+v, want %+v", tc.env, got, tc.want)
 			}
 		})
 	}
-
-	t.Run("past-show age 30 is on", func(t *testing.T) {
-		unsetAll(t)
-		t.Setenv(sitemapPastShowMaxAgeDaysEnv, "30")
-		if got := sitemapDietFromEnv(); got != (sitemapDiet{pastShowMaxAgeDays: 30}) {
-			t.Errorf("sitemapDietFromEnv() = %+v, want only the past-show rule on at 30 days", got)
-		}
-	})
-
-	for _, value := range []string{"", "0", "true", "yes", "on", "2"} {
-		t.Run("boolean flags "+strconv.Quote(value)+" are off", func(t *testing.T) {
-			unsetAll(t)
-			t.Setenv(sitemapOmitUnlinkedReleasesEnv, value)
-			t.Setenv(sitemapOmitIdleArtistsEnv, value)
-			if got := sitemapDietFromEnv(); got != (sitemapDiet{}) {
-				t.Errorf("flags set to %q read as %+v, want every rule off", value, got)
-			}
-		})
-	}
-
-	t.Run("boolean flags 1 are on, independently", func(t *testing.T) {
-		unsetAll(t)
-		t.Setenv(sitemapOmitUnlinkedReleasesEnv, "1")
-		if got := sitemapDietFromEnv(); got != (sitemapDiet{omitUnlinkedReleases: true}) {
-			t.Errorf("only %s=1 read as %+v", sitemapOmitUnlinkedReleasesEnv, got)
-		}
-		unsetAll(t)
-		t.Setenv(sitemapOmitIdleArtistsEnv, "1")
-		if got := sitemapDietFromEnv(); got != (sitemapDiet{omitIdleArtists: true}) {
-			t.Errorf("only %s=1 read as %+v", sitemapOmitIdleArtistsEnv, got)
-		}
-	})
 }
 
-// TestSitemapDietRulesOffRenderNoCondition holds the "off is today's
+// TestSitemapDietRulesOffAreTheZeroOmission holds the "off is today's
 // statement" property at its source: a rule that is off hands entriesOmitting
-// an empty condition, which is the branch that delegates to entriesFor.
-func TestSitemapDietRulesOffRenderNoCondition(t *testing.T) {
+// the zero omission, whose empty condition delegates to entriesFor.
+func TestSitemapDietRulesOffAreTheZeroOmission(t *testing.T) {
 	off := sitemapDiet{}
 	for name, o := range map[string]sitemapOmission{
 		"pastShows":        off.pastShows(),
 		"unlinkedReleases": off.unlinkedReleases(),
 		"idleArtists":      off.idleArtists(),
 	} {
-		if o.condition != "" {
-			t.Errorf("%s with the rule off renders %q, want no condition", name, o.condition)
-		}
-		if o.rule == "" {
-			t.Errorf("%s names no rule", name)
+		if o != (sitemapOmission{}) {
+			t.Errorf("%s with the rule off = %+v, want the zero omission", name, o)
 		}
 	}
 }

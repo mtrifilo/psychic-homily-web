@@ -1,9 +1,6 @@
 package shared
 
-import (
-	"os"
-	"testing"
-)
+import "testing"
 
 func TestEnvFlagEnabledIsOnOnlyForOne(t *testing.T) {
 	const key = "PSY_TEST_ENV_FLAG_ENABLED"
@@ -28,18 +25,6 @@ func TestEnvFlagEnabledIsOnOnlyForOne(t *testing.T) {
 		if got := EnvServiceDisabled(key); got != tc.want {
 			t.Errorf("EnvServiceDisabled(%q) = %v, want %v: the two must share one parse", tc.value, got, tc.want)
 		}
-	}
-}
-
-func TestEnvFlagEnabledIsOffWhenUnset(t *testing.T) {
-	const key = "PSY_TEST_ENV_FLAG_ENABLED_UNSET"
-	// Setenv first so the test framework restores the variable afterwards.
-	t.Setenv(key, "1")
-	if err := os.Unsetenv(key); err != nil {
-		t.Fatalf("unset %s: %v", key, err)
-	}
-	if EnvFlagEnabled(key) {
-		t.Errorf("EnvFlagEnabled(%s) = true with the variable unset, want false", key)
 	}
 }
 
