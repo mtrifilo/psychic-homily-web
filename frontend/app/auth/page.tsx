@@ -973,8 +973,10 @@ function AuthPageContent() {
       ? (pendingLink.data.email ?? null)
       : null
   const readingPendingLink = linkArrival && pendingLink.isPending
+  // Only a read that answered says the pending link is gone; a read that
+  // failed says nothing about it, so it shows the normal tab without the line.
   const pendingLinkGone =
-    goneThisArrival || (linkArrival && !readingPendingLink && collisionEmail === null)
+    goneThisArrival || (linkArrival && pendingLink.isSuccess && collisionEmail === null)
   const pendingLinkGoneMessage =
     (goneThisArrival ? goneLink.message : undefined) ?? PENDING_LINK_GONE_MESSAGE
 

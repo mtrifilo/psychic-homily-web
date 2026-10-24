@@ -71,7 +71,8 @@ vi.mock('@/features/auth/hooks/useOAuthLink', () => ({
   SEND_LINK_FAILED_MESSAGE: 'Failed to send magic link. Please try again.',
   usePendingOAuthLink: (enabled: boolean) => {
     pendingReadEnabled(enabled)
-    return enabled ? mockPendingRead : { isPending: true }
+    const read = enabled ? mockPendingRead : { isPending: true }
+    return { ...read, isSuccess: !read.isPending && 'data' in read && read.data !== undefined }
   },
   useSendOAuthLinkEmail: () => ({ mutate: mockSendMutate, ...mockSendState }),
 }))
@@ -307,10 +308,12 @@ describe('AuthPage collision state', () => {
     expect(screen.queryByText('Sign in to connect Google')).not.toBeInTheDocument()
   })
 
-  it('falls back the same way when the read fails', () => {
+  // A failed read says nothing about the pending link, so it does not claim
+  // the link is gone.
+  it('shows the normal tab without the line when the read fails', () => {
     arriveOnCollision({ isPending: false, isError: true })
 
-    expect(screen.getByRole('status')).toHaveTextContent(PENDING_LINK_GONE_MESSAGE)
+    expect(screen.queryByText(PENDING_LINK_GONE_MESSAGE)).not.toBeInTheDocument()
     expect(screen.getByTestId('google-oauth')).toBeInTheDocument()
   })
 

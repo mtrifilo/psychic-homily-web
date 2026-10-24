@@ -34,7 +34,10 @@ export function usePendingOAuthLink(enabled: boolean) {
     enabled,
     staleTime: Infinity,
     gcTime: 0,
-    retry: false,
+    // A failed read hides a live collision state, whose emailed link is the
+    // only way in for a mailbox owner who does not know the password, so a
+    // transient failure is retried.
+    retry: 2,
     refetchOnWindowFocus: false,
     refetchOnReconnect: false,
   })
