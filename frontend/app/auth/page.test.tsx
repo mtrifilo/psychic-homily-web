@@ -910,7 +910,9 @@ describe('AuthPage', () => {
       pushState.mockRestore()
     })
 
-    it('keeps a consent refusal on Create account once the code leaves the URL', () => {
+    // A consent refusal opens on Sign in like any other refusal: Google's
+    // consent is asked on the step after Google, not on Create account.
+    it('keeps a consent refusal once the code leaves the URL', () => {
       const message = 'Please accept the Terms of Service and Privacy Policy before creating an account.'
       const { rerender } = arriveAt(
         new URLSearchParams({
@@ -923,7 +925,7 @@ describe('AuthPage', () => {
 
       followAddressBar(rerender)
 
-      expect(screen.getByRole('tab', { name: 'Create account' })).toHaveAttribute(
+      expect(screen.getByRole('tab', { name: 'Sign in' })).toHaveAttribute(
         'aria-selected',
         'true'
       )
