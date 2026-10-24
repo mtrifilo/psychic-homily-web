@@ -5,7 +5,7 @@ import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { ArrowLeft, BadgeCheck, Pencil, Tag, Trash2, Loader2, ExternalLink, Flag } from 'lucide-react'
 import { useVenue, useVenueGenres } from '../hooks/useVenues'
-import type { VenueShowsResponse, VenueShowYearsResponse } from '../types'
+import type { VenueShowYearsResponse } from '../types'
 import { useVenueUpdate } from '../hooks/useVenueEdit'
 import type { ApiError } from '@/lib/api'
 import { useAuthContext } from '@/lib/context/AuthContext'
@@ -47,8 +47,6 @@ interface VenueDetailProps {
    * index; it would not be for the rows themselves.
    */
   initialPastYears?: VenueShowYearsResponse
-  /** The upcoming rows the route fetched; see `VenueShowsList`. */
-  initialUpcomingShows?: VenueShowsResponse
 }
 
 /**
@@ -85,11 +83,7 @@ function VenueGenreProfile({ venueId }: { venueId: number }) {
   )
 }
 
-export function VenueDetail({
-  venueId,
-  initialPastYears,
-  initialUpcomingShows,
-}: VenueDetailProps) {
+export function VenueDetail({ venueId, initialPastYears }: VenueDetailProps) {
   const [isEditingVenue, setIsEditingVenue] = useState(false)
   const [isDeleteVenueOpen, setIsDeleteVenueOpen] = useState(false)
   const [isReportOpen, setIsReportOpen] = useState(false)
@@ -379,7 +373,6 @@ export function VenueDetail({
               venueAddress={venue.address}
               venueVerified={venue.verified}
               initialPastYears={initialPastYears}
-              initialUpcomingShows={initialUpcomingShows}
               onShowAdded={handleShowAdded}
             />
           </div>

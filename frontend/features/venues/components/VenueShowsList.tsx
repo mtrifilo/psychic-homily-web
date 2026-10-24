@@ -10,11 +10,7 @@ import { useVenueShows } from '../hooks/useVenues'
 import { VENUE_UPCOMING_SHOWS_REQUEST } from '../api'
 import { VenuePastShows } from './VenuePastShows'
 import { VenueShowsTable } from './VenueShowsTable'
-import type {
-  VenueShowsResponse,
-  VenueShowYearsResponse,
-  VenueShowZone,
-} from '../types'
+import type { VenueShowYearsResponse, VenueShowZone } from '../types'
 
 interface VenueShowsListProps {
   venueId: number
@@ -31,12 +27,6 @@ interface VenueShowsListProps {
    * client fetch (PSY-1756). Passed straight through to `VenuePastShows`.
    */
   initialPastYears?: VenueShowYearsResponse
-  /**
-   * The rows the ROUTE fetched for `VENUE_UPCOMING_SHOWS_REQUEST`, handed to
-   * the hook as `initialData` so they are in the served HTML; the loader shows
-   * only without them.
-   */
-  initialUpcomingShows?: VenueShowsResponse
   className?: string
   onShowAdded?: () => void
 }
@@ -67,17 +57,17 @@ export function VenueShowsList({
   venueAddress,
   venueVerified,
   initialPastYears,
-  initialUpcomingShows,
   className,
   onShowAdded,
 }: VenueShowsListProps) {
   const [isAddingShow, setIsAddingShow] = useState(false)
   const { isAuthenticated } = useAuthContext()
 
+  // The venue route seeds this exact request's cache entry server-side, so
+  // the rows are in the served HTML and the loader shows only without a seed.
   const upcoming = useVenueShows({
     venueId,
     ...VENUE_UPCOMING_SHOWS_REQUEST,
-    initialData: initialUpcomingShows,
   })
 
   // No `dedupVenueShows` here, and none in the past archive either (PSY-1753).
@@ -116,7 +106,9 @@ export function VenueShowsList({
         />
         {upcoming.isPending ? (
           <ShowsLoader />
-        ) : upcoming.error ? (
+        ) : upcoming.error && !upcoming.data ? (
+          // Gated on `!data`: a failed refresh of rows already on screen
+          // (seeded server-side, then revalidated on mount) keeps the rows.
           <p className="py-3 text-sm text-destructive">Failed to load shows</p>
         ) : upcomingShows.length === 0 ? (
           // See ArtistShowsList: the [Notify me] bracket that sat here

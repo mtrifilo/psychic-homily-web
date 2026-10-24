@@ -7,10 +7,13 @@ import { VenueDetail } from '@/features/venues'
 import { JsonLd } from '@/components/seo/JsonLd'
 import { generateMusicVenueSchema, generateBreadcrumbSchema } from '@/lib/seo/jsonld'
 import { queryKeys } from '@/lib/queryClient'
-import { prefetchEntity } from '@/lib/query-hydration'
+import { prefetchEntity, seedFirstScreen } from '@/lib/query-hydration'
 import { archiveData, getArchiveYears, getVenue } from '@/features/venues/archiveApi'
 import type { Venue, VenueShowsResponse } from '@/features/venues/types'
-import { venueUpcomingShowsUrl } from '@/features/venues/api'
+import {
+  VENUE_UPCOMING_SHOWS_REQUEST,
+  venueUpcomingShowsUrl,
+} from '@/features/venues/api'
 // The policy module, not the shows barrel: `showRails.ts` renders nothing.
 import { venueRailShowsUrl } from '@/features/shows/showRails'
 import { CURRENT_PERIOD_REVALIDATE } from '@/features/scenes/scenePeriodApi'
@@ -121,8 +124,9 @@ export default async function VenuePage({ params }: VenuePageProps) {
     // year-archive route DOES seed it, because there the pager is in the HTML.
     //
     // The upcoming rows, so the calendar is in the served HTML. Null on a
-    // failed read, which leaves the list to its client fetch. The short cache
-    // window is the one the `Next` clause above reads the same rows under.
+    // failed read, which leaves the list to its client fetch. Cached for
+    // `CURRENT_PERIOD_REVALIDATE` because each row carries cancelled and
+    // sold-out state and leaves the upcoming window as its night passes.
     fetchListPayload<VenueShowsResponse>({
       url: venueUpcomingShowsUrl(slug),
       collection: 'shows',
@@ -147,6 +151,30 @@ export default async function VenuePage({ params }: VenuePageProps) {
     venueData,
   )
 
+  // Keyed on the NUMERIC id, which is what `VenueDetail` hands
+  // `VenueShowsList` and so what `useVenueShows` registers;
+  // `VENUE_UPCOMING_SHOWS_REQUEST` is the one spelling of the rest of the key.
+  //
+  // Stamped stale (`seedFirstScreen`), unlike the detail above: the rows paint
+  // from the server and the browser then re-asks the live endpoint on mount,
+  // so a Data Cache entry older than a show mutation is corrected after paint,
+  // and a stale stamp never overwrites a fresher entry the client already holds.
+  // No seed when the read failed or answered for another venue; the list then
+  // fetches for itself behind its loader.
+  const upcomingShowsState = await seedFirstScreen(
+    upcomingShows?.venue_id === venueData.id
+      ? [
+          {
+            queryKey: queryKeys.venues.showsPage(
+              venueData.id,
+              VENUE_UPCOMING_SHOWS_REQUEST,
+            ),
+            data: upcomingShows,
+          },
+        ]
+      : [],
+  )
+
   return (
     <>
       <JsonLd data={generateMusicVenueSchema({
@@ -162,16 +190,11 @@ export default async function VenuePage({ params }: VenuePageProps) {
         { name: venueData.name, url: `https://psychichomily.com/venues/${venueData.slug || slug}` },
       ])} />
       <HydrationBoundary state={dehydratedState}>
-        <Suspense fallback={<VenueLoadingFallback />}>
-          <VenueDetail
-            venueId={slug}
-            initialPastYears={pastYears ?? undefined}
-            // Never rows that answer for another venue.
-            initialUpcomingShows={
-              upcomingShows?.venue_id === venueData.id ? upcomingShows : undefined
-            }
-          />
-        </Suspense>
+        <HydrationBoundary state={upcomingShowsState}>
+          <Suspense fallback={<VenueLoadingFallback />}>
+            <VenueDetail venueId={slug} initialPastYears={pastYears ?? undefined} />
+          </Suspense>
+        </HydrationBoundary>
       </HydrationBoundary>
     </>
   )

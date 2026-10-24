@@ -7,6 +7,7 @@
  */
 
 import { API_BASE_URL } from '@/lib/api-base'
+import { unpadNumericId } from '@/lib/utils/unpadNumericId'
 
 // ============================================================================
 // Endpoints
@@ -89,12 +90,12 @@ export const VENUE_UPCOMING_SHOWS_LIMIT = 200
 /**
  * The venue page's upcoming-shows request, as the ONE place that spells it.
  *
- * The venue route fetches these rows on the server and `VenueShowsList` hands
- * them to `useVenueShows` as `initialData`, which react-query attaches to
- * whatever key the hook's arguments build. Both sides reading this object is
- * what keeps the seeded rows the answer to the question the hook is asking: a
- * window or limit restated on one side would seed a different page under the
- * hook's key and hold it for a full staleTime.
+ * Two readers must ask the same question: `VenueShowsList` hands it to
+ * `useVenueShows`, and the venue route reads it to fetch the same rows on the
+ * server and seed them under `venueQueryKeys.showsPage(venue.id, this)`. That
+ * key is the one the hook registers for these arguments (it records `limit` as
+ * sent and leaves `year` and `offset` unsent), so the seeded entry is the entry
+ * the component reads.
  */
 export const VENUE_UPCOMING_SHOWS_REQUEST = {
   timeFilter: 'upcoming',
@@ -104,13 +105,14 @@ export const VENUE_UPCOMING_SHOWS_REQUEST = {
 /**
  * The server-side URL for {@link VENUE_UPCOMING_SHOWS_REQUEST}, by route slug.
  * Encodes the slug: route params arrive decoded, and a bare `%2F` or `%3F`
- * would re-point this server-side fetch at another backend path.
+ * would re-point this server-side fetch at another backend path. A padded
+ * numeric id is unpadded first (`unpadNumericId`).
  */
 export function venueUpcomingShowsUrl(venueSlug: string): string {
   const params = new URLSearchParams()
   params.set('limit', String(VENUE_UPCOMING_SHOWS_REQUEST.limit))
   params.set('time_filter', VENUE_UPCOMING_SHOWS_REQUEST.timeFilter)
-  return `${venueEndpoints.SHOWS(encodeURIComponent(venueSlug))}?${params.toString()}`
+  return `${venueEndpoints.SHOWS(encodeURIComponent(unpadNumericId(venueSlug)))}?${params.toString()}`
 }
 
 // ============================================================================
@@ -142,12 +144,12 @@ export const venueQueryKeys = {
    * user happened to navigate in.
    *
    * NOTHING here is per-viewer, so a key a server computes is the key the
-   * browser then looks under, and server-prefetching this list is now possible.
-   * No route does it today: `archiveApi.ts` hands its rows over as
-   * `initialData`, which never depended on the key. A viewer timezone used to
-   * sit in this list, back when the endpoint read one; it does not any more
-   * (the upcoming/past split is made in each show's own venue-local day), so do
-   * not put a browser-only value back in.
+   * browser then looks under. The venue route relies on that: it seeds the
+   * upcoming entry (`VENUE_UPCOMING_SHOWS_REQUEST`) server-side. `archiveApi.ts`
+   * hands its rows over as `initialData` instead, which never depends on the
+   * key. The endpoint reads no viewer timezone (the upcoming/past split is made
+   * in each show's own venue-local day), so do not put a browser-only value in
+   * this list.
    *
    * ONE PRECONDITION SURVIVES for anyone taking that up: the identity segment
    * is `String(venueIdOrSlug)`, and the two forms hash differently. Callers are

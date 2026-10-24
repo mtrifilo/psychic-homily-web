@@ -17,7 +17,7 @@ import { generateMusicGroupSchema, generateBreadcrumbSchema } from '@/lib/seo/js
 import { artistSnippet } from '@/lib/seo/entitySnippets'
 import { API_BASE_URL } from '@/lib/api-base'
 import { queryKeys } from '@/lib/queryClient'
-import { prefetchEntities } from '@/lib/query-hydration'
+import { prefetchEntity, seedFirstScreen } from '@/lib/query-hydration'
 
 // Dynamic-imported from the component FILE (never the `@/features/artists` barrel)
 // to evict ArtistDetail.tsx (~40 KB raw) from Turbopack's global shared client
@@ -43,7 +43,7 @@ interface ArtistPageProps {
 /**
  * Wrapped with `React.cache()` so `generateMetadata` and the page body
  * share ONE backend fetch per request instead of two. The result also
- * seeds the TanStack Query cache via `prefetchEntities` below, eliminating
+ * seeds the TanStack Query cache via `prefetchEntity` below, eliminating
  * the client-side refetch on first paint.
  */
 const getArtist = cache(async (slug: string): Promise<Artist | null> => {
@@ -119,9 +119,9 @@ export default async function ArtistPage({ params }: ArtistPageProps) {
 
   // Started before the artist is awaited so the two reads overlap. It resolves
   // to null rather than rejecting, so leaving it in flight through `notFound()`
-  // cannot raise an unhandled rejection. The short cache window is the venue
-  // rail's for the same rows: each carries cancelled and sold-out state, and a
-  // show leaves the upcoming window as its night passes.
+  // cannot raise an unhandled rejection. Cached for `CURRENT_PERIOD_REVALIDATE`
+  // because each row carries cancelled and sold-out state and leaves the
+  // upcoming window as its night passes.
   const upcomingShowsPromise = fetchListPayload<ArtistShowsResponse>({
     url: artistUpcomingShowsUrl(slug),
     collection: 'shows',
@@ -136,21 +136,35 @@ export default async function ArtistPage({ params }: ArtistPageProps) {
 
   const upcomingShows = await upcomingShowsPromise
 
-  // One client for both keys, since a `HydrationBoundary` carries one state.
-  // The shows key is the NUMERIC id `ArtistShowsList` passes to its hook; the
-  // detail key is the slug `ArtistDetail` passes. A null seed is skipped and
-  // the list fetches for itself. Rows that answer for another artist are never
-  // seeded.
-  const dehydratedState = await prefetchEntities([
-    { queryKey: queryKeys.artists.detail(slug), data: artistData },
-    {
-      queryKey: queryKeys.artists.showsPage(
-        artistData.id,
-        ARTIST_UPCOMING_SHOWS_REQUEST,
-      ),
-      data: upcomingShows?.artist_id === artistData.id ? upcomingShows : null,
-    },
-  ])
+  const dehydratedState = await prefetchEntity(
+    queryKeys.artists.detail(slug),
+    artistData,
+  )
+
+  // The upcoming rows travel by cache KEY because `ArtistDetail` renders
+  // `ArtistShowsList` with no rows prop: the key is the NUMERIC id that list
+  // passes to `useArtistShows`, and `ARTIST_UPCOMING_SHOWS_REQUEST` is the one
+  // spelling of the rest of it.
+  //
+  // Stamped stale (`seedFirstScreen`), unlike the detail above: the rows paint
+  // from the server and the browser then re-asks the live endpoint on mount,
+  // so a Data Cache entry older than a show mutation is corrected after paint,
+  // and a stale stamp never overwrites a fresher entry the client already holds.
+  // No seed when the read failed or answered for another artist; the list then
+  // fetches for itself behind its loader.
+  const upcomingShowsState = await seedFirstScreen(
+    upcomingShows?.artist_id === artistData.id
+      ? [
+          {
+            queryKey: queryKeys.artists.showsPage(
+              artistData.id,
+              ARTIST_UPCOMING_SHOWS_REQUEST,
+            ),
+            data: upcomingShows,
+          },
+        ]
+      : [],
+  )
 
   return (
     <>
@@ -170,9 +184,11 @@ export default async function ArtistPage({ params }: ArtistPageProps) {
         { name: artistData.name, url: `https://psychichomily.com/artists/${artistData.slug || slug}` },
       ])} />
       <HydrationBoundary state={dehydratedState}>
-        <Suspense fallback={<ArtistLoadingFallback />}>
-          <ArtistDetail artistId={slug} />
-        </Suspense>
+        <HydrationBoundary state={upcomingShowsState}>
+          <Suspense fallback={<ArtistLoadingFallback />}>
+            <ArtistDetail artistId={slug} />
+          </Suspense>
+        </HydrationBoundary>
       </HydrationBoundary>
     </>
   )

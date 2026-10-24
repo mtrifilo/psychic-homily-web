@@ -1,10 +1,15 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import type { ReactElement } from 'react'
 import { renderToString } from 'react-dom/server'
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { render, waitFor } from '@testing-library/react'
+import {
+  HydrationBoundary,
+  QueryClient,
+  QueryClientProvider,
+  type DehydratedState,
+} from '@tanstack/react-query'
 import { okResponse, errorResponse, jsonBodyResponse } from '@/lib/seo/test-helpers'
-import { findElement } from '@/test/elementTree'
-import type { VenueShowsResponse } from '@/features/venues/types'
+import { findElement, findElements } from '@/test/elementTree'
 
 // `notFound()` in Next.js throws to halt rendering; mirrored so a test can tell
 // that execution stopped.
@@ -14,6 +19,21 @@ vi.mock('next/navigation', () => ({
     throw new Error(NOT_FOUND_SENTINEL)
   }),
 }))
+
+// `seedFirstScreen` awaits `connection()`, which marks a request-time render and
+// has nothing to do outside Next.
+vi.mock('next/server', () => ({
+  connection: async () => {},
+}))
+
+// On the server `getQueryClient()` mints a fresh client per call, so each seed
+// helper dehydrates only its own keys. Under jsdom it would hand back the
+// BROWSER singleton instead, so the server behaviour is restored here.
+vi.mock('@/lib/queryClient', async importOriginal => {
+  const actual = await importOriginal<typeof import('@/lib/queryClient')>()
+  const { QueryClient } = await import('@tanstack/react-query')
+  return { ...actual, getQueryClient: () => new QueryClient() }
+})
 
 
 // Stub the heavy venues feature module so invoking generateMetadata doesn't
@@ -231,40 +251,61 @@ function stubVenueReads(venue: () => Response = () => okResponse(buildVenue())) 
   )
 }
 
-async function venueDetailPropsFrom(
-  slug = 'the-rebel-lounge',
-): Promise<Record<string, unknown>> {
-  const page = (await VenuePage({ params: Promise.resolve({ slug }) })) as ReactElement
-  return findElement(page, node => node.type === VenueDetail).props as Record<
-    string,
-    unknown
-  >
+async function renderPage(slug = 'the-rebel-lounge') {
+  return (await VenuePage({ params: Promise.resolve({ slug }) })) as ReactElement
 }
 
-/**
- * Server-render the REAL upcoming list with the rows the route handed down,
- * the way the route's HTML is produced: no client fetch can run inside
- * `renderToString`, so whatever this prints came from the seed.
- */
-function serverRenderUpcoming(initialUpcomingShows: VenueShowsResponse | undefined): string {
-  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
-  return renderToString(
-    <QueryClientProvider client={client}>
-      <VenueShowsList
-        venueId={VENUE_ID}
-        venueSlug="the-rebel-lounge"
-        venueName="The Rebel Lounge"
-        venueCity="Phoenix"
-        venueState="AZ"
-        venueTimezone="America/Phoenix"
-        initialUpcomingShows={initialUpcomingShows}
-      />
-    </QueryClientProvider>,
+/** Every dehydrated state the page hands a `HydrationBoundary`, outermost first. */
+function boundaryStatesOf(page: ReactElement): DehydratedState[] {
+  return findElements(page, node => node.type === HydrationBoundary).map(
+    node => (node.props as { state: DehydratedState }).state,
   )
 }
 
-const seededRows = (props: Record<string, unknown>) =>
-  props.initialUpcomingShows as VenueShowsResponse | undefined
+function seededShowsQuery(page: ReactElement) {
+  return boundaryStatesOf(page)
+    .flatMap(state => state.queries)
+    .find(q => q.queryKey[0] === 'venues' && q.queryKey[1] === 'shows')
+}
+
+/** The real upcoming list under the page's own boundaries, nested as the page nests them. */
+function upcomingListUnder(states: DehydratedState[], client: QueryClient) {
+  const list = (
+    <VenueShowsList
+      venueId={VENUE_ID}
+      venueSlug="the-rebel-lounge"
+      venueName="The Rebel Lounge"
+      venueCity="Phoenix"
+      venueState="AZ"
+      venueTimezone="America/Phoenix"
+    />
+  )
+  return (
+    <QueryClientProvider client={client}>
+      {states.reduceRight<ReactElement>(
+        (children, state) => <HydrationBoundary state={state}>{children}</HydrationBoundary>,
+        list,
+      )}
+    </QueryClientProvider>
+  )
+}
+
+const testClient = () =>
+  new QueryClient({ defaultOptions: { queries: { retry: false } } })
+
+/**
+ * Server-render the list the way the route's HTML is produced: no client fetch
+ * can run inside `renderToString`, so whatever this prints came from the seed.
+ */
+function serverRenderUpcoming(page: ReactElement): string {
+  return renderToString(upcomingListUnder(boundaryStatesOf(page), testClient()))
+}
+
+/** The page body's upcoming read, as distinct from the metadata's smaller one. */
+const pageUpcomingCalls = () =>
+  upcomingFetchMock.mock.calls
+    .map(([url]) => new URL(String(url)))
+    .filter(url => url.searchParams.get('limit') === '200')
 
 const LOADER = 'animate-spin'
 
@@ -274,7 +315,7 @@ describe('VenuePage upcoming shows', () => {
   })
 
   it('asks for the upcoming request by encoded slug', async () => {
-    await venueDetailPropsFrom('weird/slug?x')
+    await renderPage('weird/slug?x')
 
     expect(upcomingFetchMock).toHaveBeenCalledTimes(1)
     const url = new URL(String(upcomingFetchMock.mock.calls[0][0]))
@@ -283,20 +324,63 @@ describe('VenuePage upcoming shows', () => {
     expect(url.searchParams.get('time_filter')).toBe('upcoming')
   })
 
-  it('hands the rows to the venue tree and they reach the server render', async () => {
+  it('asks for a zero-padded numeric id by its unpadded form', async () => {
+    await renderPage('0077')
+
+    expect(pageUpcomingCalls().map(url => url.pathname)).toEqual([
+      expect.stringMatching(/\/venues\/77\/shows$/),
+    ])
+  })
+
+  // Pins the SEED's key spelling as a literal, so it cannot agree with a
+  // shared helper while both drift. That the list hook reads this entry is
+  // proven by the server-render test below, which runs the real hook.
+  it('seeds the rows under the key the list hook registers, stamped stale', async () => {
     upcomingFetchMock.mockImplementation(async () => upcomingResponse([upcomingShow()]))
 
-    const props = await venueDetailPropsFrom()
-    expect(seededRows(props)?.shows).toEqual([upcomingShow()])
+    const seeded = seededShowsQuery(await renderPage())
 
-    const html = serverRenderUpcoming(seededRows(props))
+    expect(seeded?.queryKey).toEqual([
+      'venues',
+      'shows',
+      String(VENUE_ID),
+      'upcoming',
+      200,
+      null,
+      null,
+    ])
+    expect(seeded?.state.data).toMatchObject({ shows: [upcomingShow()], venue_id: VENUE_ID })
+    expect(seeded?.state.dataUpdatedAt).toBe(0)
+  })
+
+  it('puts the upcoming rows in the server render, with no loader', async () => {
+    upcomingFetchMock.mockImplementation(async () => upcomingResponse([upcomingShow()]))
+
+    const html = serverRenderUpcoming(await renderPage())
+
     expect(html).toContain('href="/shows/next-show"')
     expect(html).toContain('Top Billing')
     expect(html).not.toContain(LOADER)
   })
 
+  it('replaces the seeded rows with the live read once mounted', async () => {
+    upcomingFetchMock.mockImplementation(async () => upcomingResponse([upcomingShow()]))
+    const states = boundaryStatesOf(await renderPage())
+    // The browser's own read answers with a show the seed did not have.
+    upcomingFetchMock.mockImplementation(async () =>
+      upcomingResponse([upcomingShow({ id: 902, slug: 'late-addition' })]),
+    )
+
+    const { container } = render(upcomingListUnder(states, testClient()))
+
+    expect(container.innerHTML).toContain('href="/shows/next-show"')
+    await waitFor(() =>
+      expect(container.innerHTML).toContain('href="/shows/late-addition"'),
+    )
+  })
+
   it('server-renders the empty state for a venue with no upcoming shows', async () => {
-    const html = serverRenderUpcoming(seededRows(await venueDetailPropsFrom()))
+    const html = serverRenderUpcoming(await renderPage())
 
     expect(html).toContain('No upcoming shows yet.')
     expect(html).not.toContain(LOADER)
@@ -305,11 +389,13 @@ describe('VenuePage upcoming shows', () => {
   it('still renders the venue, with the loader, when the upcoming read fails', async () => {
     upcomingFetchMock.mockImplementation(async () => errorResponse(500))
 
-    const props = await venueDetailPropsFrom()
-    expect(props.venueId).toBe('the-rebel-lounge')
-    expect(seededRows(props)).toBeUndefined()
+    const page = await renderPage()
 
-    const html = serverRenderUpcoming(seededRows(props))
+    expect(findElement(page, node => node.type === VenueDetail).props).toMatchObject({
+      venueId: 'the-rebel-lounge',
+    })
+    expect(seededShowsQuery(page)).toBeUndefined()
+    const html = serverRenderUpcoming(page)
     expect(html).toContain(LOADER)
     expect(html).not.toContain('No upcoming shows yet.')
   })
@@ -319,12 +405,12 @@ describe('VenuePage upcoming shows', () => {
       upcomingResponse([upcomingShow()], VENUE_ID + 1),
     )
 
-    expect(seededRows(await venueDetailPropsFrom())).toBeUndefined()
+    expect(seededShowsQuery(await renderPage())).toBeUndefined()
   })
 
   it('404s an unknown venue', async () => {
     stubVenueReads(() => errorResponse(404))
 
-    await expect(venueDetailPropsFrom('missing')).rejects.toThrow(NOT_FOUND_SENTINEL)
+    await expect(renderPage('missing')).rejects.toThrow(NOT_FOUND_SENTINEL)
   })
 })

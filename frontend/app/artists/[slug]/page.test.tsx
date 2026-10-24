@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import type { ReactElement } from 'react'
 import { renderToString } from 'react-dom/server'
+import { render, waitFor } from '@testing-library/react'
 import {
   HydrationBoundary,
   QueryClient,
@@ -8,8 +9,7 @@ import {
   type DehydratedState,
 } from '@tanstack/react-query'
 import { okResponse, errorResponse, jsonBodyResponse } from '@/lib/seo/test-helpers'
-import { findElement } from '@/test/elementTree'
-import { getQueryClient } from '@/lib/queryClient'
+import { findElements } from '@/test/elementTree'
 
 // `notFound()` in Next.js throws to halt rendering; mirrored so a test can tell
 // that execution stopped.
@@ -19,6 +19,21 @@ vi.mock('next/navigation', () => ({
     throw new Error(NOT_FOUND_SENTINEL)
   }),
 }))
+
+// `seedFirstScreen` awaits `connection()`, which marks a request-time render and
+// has nothing to do outside Next.
+vi.mock('next/server', () => ({
+  connection: async () => {},
+}))
+
+// On the server `getQueryClient()` mints a fresh client per call, so each seed
+// helper dehydrates only its own keys. Under jsdom it would hand back the
+// BROWSER singleton instead, so the server behaviour is restored here.
+vi.mock('@/lib/queryClient', async importOriginal => {
+  const actual = await importOriginal<typeof import('@/lib/queryClient')>()
+  const { QueryClient } = await import('@tanstack/react-query')
+  return { ...actual, getQueryClient: () => new QueryClient() }
+})
 
 
 // Stub the heavy artists feature module so invoking generateMetadata doesn't
@@ -187,41 +202,52 @@ async function renderPage(slug = 'headliner-band') {
   return (await ArtistPage({ params: Promise.resolve({ slug }) })) as ReactElement
 }
 
-function dehydratedStateOf(page: ReactElement): DehydratedState {
-  const boundary = findElement(page, node => node.type === HydrationBoundary)
-  return (boundary.props as { state: DehydratedState }).state
+/** Every dehydrated state the page hands a `HydrationBoundary`, outermost first. */
+function boundaryStatesOf(page: ReactElement): DehydratedState[] {
+  return findElements(page, node => node.type === HydrationBoundary).map(
+    node => (node.props as { state: DehydratedState }).state,
+  )
 }
 
-/**
- * Server-render the REAL upcoming list under the page's own dehydrated state,
- * the way the route's HTML is produced: no client fetch can run inside
- * `renderToString`, so whatever this prints came from the seed.
- */
-function serverRenderUpcoming(state: DehydratedState): string {
-  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
-  return renderToString(
-    <QueryClientProvider client={client}>
-      <HydrationBoundary state={state}>
-        <ArtistShowsList
-          artistId={ARTIST_ID}
-          artistSlug="headliner-band"
-          artistName="Headliner Band"
-        />
-      </HydrationBoundary>
-    </QueryClientProvider>,
+function seededShowsQuery(page: ReactElement) {
+  return boundaryStatesOf(page)
+    .flatMap(state => state.queries)
+    .find(q => q.queryKey[0] === 'artists' && q.queryKey[1] === 'shows')
+}
+
+/** The real upcoming list under the page's own boundaries, nested as the page nests them. */
+function upcomingListUnder(states: DehydratedState[], client: QueryClient) {
+  const list = (
+    <ArtistShowsList
+      artistId={ARTIST_ID}
+      artistSlug="headliner-band"
+      artistName="Headliner Band"
+    />
   )
+  return (
+    <QueryClientProvider client={client}>
+      {states.reduceRight<ReactElement>(
+        (children, state) => <HydrationBoundary state={state}>{children}</HydrationBoundary>,
+        list,
+      )}
+    </QueryClientProvider>
+  )
+}
+
+const testClient = () =>
+  new QueryClient({ defaultOptions: { queries: { retry: false } } })
+
+/**
+ * Server-render the list the way the route's HTML is produced: no client fetch
+ * can run inside `renderToString`, so whatever this prints came from the seed.
+ */
+function serverRenderUpcoming(page: ReactElement): string {
+  return renderToString(upcomingListUnder(boundaryStatesOf(page), testClient()))
 }
 
 const LOADER = 'animate-spin'
 
 describe('ArtistPage upcoming shows', () => {
-  // Under jsdom `getQueryClient()` hands back the BROWSER singleton rather than
-  // a fresh server client per call, so each page render would otherwise
-  // dehydrate every earlier test's seeds along with its own.
-  beforeEach(() => {
-    getQueryClient().clear()
-  })
-
   it('asks for the upcoming request by encoded slug, alongside the artist', async () => {
     const calls = stubBackend(showsReply(upcomingBody([artistShow()])))
 
@@ -236,18 +262,23 @@ describe('ArtistPage upcoming shows', () => {
     expect(calls).toHaveLength(2)
   })
 
-  // Pinned as a LITERAL, not rebuilt from the same helpers the page uses: the
-  // key `useArtistShows` registers for the list's arguments is what the seed
-  // must hit, and a helper both sides share would agree with itself while the
-  // hook drifted.
-  it('seeds the rows under the exact key the list hook reads', async () => {
+  it('asks for a zero-padded numeric id by its unpadded form', async () => {
+    const calls = stubBackend(showsReply(upcomingBody([artistShow()])))
+
+    await renderPage('0042')
+
+    const url = new URL(calls.find(u => u.includes('/shows?'))!)
+    expect(url.pathname).toMatch(/\/artists\/42\/shows$/)
+  })
+
+  // Pins the SEED's key spelling as a literal, so it cannot agree with a
+  // shared helper while both drift. That the list hook reads this entry is
+  // proven by the server-render test below, which runs the real hook.
+  it('seeds the rows under the key the list hook registers', async () => {
     const body = upcomingBody([artistShow()])
     stubBackend(showsReply(body))
 
-    const state = dehydratedStateOf(await renderPage())
-    const seeded = state.queries.find(
-      q => q.queryKey[0] === 'artists' && q.queryKey[1] === 'shows',
-    )
+    const seeded = seededShowsQuery(await renderPage())
 
     expect(seeded?.queryKey).toEqual([
       'artists',
@@ -261,20 +292,51 @@ describe('ArtistPage upcoming shows', () => {
     expect(seeded?.state.data).toEqual(body)
   })
 
+  it('stamps the seeded rows stale, so the browser revalidates them on mount', async () => {
+    stubBackend(showsReply(upcomingBody([artistShow()])))
+
+    const page = await renderPage()
+
+    expect(seededShowsQuery(page)?.state.dataUpdatedAt).toBe(0)
+    // The detail keeps its fresh stamp: only the list is re-asked.
+    const detail = boundaryStatesOf(page)
+      .flatMap(state => state.queries)
+      .find(q => q.queryKey[1] === 'detail')
+    expect(detail?.state.dataUpdatedAt).toBeGreaterThan(0)
+  })
+
   it('puts the upcoming rows in the server render, with no loader', async () => {
     stubBackend(showsReply(upcomingBody([artistShow()])))
 
-    const html = serverRenderUpcoming(dehydratedStateOf(await renderPage()))
+    const html = serverRenderUpcoming(await renderPage())
 
     expect(html).toContain('href="/shows/2026-11-13-seeded-show"')
     expect(html).toContain('Support Act')
     expect(html).not.toContain(LOADER)
   })
 
+  it('replaces the seeded rows with the live read once mounted', async () => {
+    stubBackend(showsReply(upcomingBody([artistShow()])))
+    const states = boundaryStatesOf(await renderPage())
+    // The browser's own read answers with a show the seed did not have.
+    stubBackend(
+      showsReply(
+        upcomingBody([artistShow({ id: 21, slug: 'late-addition' })]),
+      ),
+    )
+
+    const { container } = render(upcomingListUnder(states, testClient()))
+
+    expect(container.innerHTML).toContain('href="/shows/2026-11-13-seeded-show"')
+    await waitFor(() =>
+      expect(container.innerHTML).toContain('href="/shows/late-addition"'),
+    )
+  })
+
   it('server-renders the empty state for an artist with no upcoming shows', async () => {
     stubBackend(showsReply(upcomingBody([])))
 
-    const html = serverRenderUpcoming(dehydratedStateOf(await renderPage()))
+    const html = serverRenderUpcoming(await renderPage())
 
     expect(html).toContain('No upcoming shows yet.')
     expect(html).not.toContain(LOADER)
@@ -284,13 +346,13 @@ describe('ArtistPage upcoming shows', () => {
     stubBackend(showsReply({}, 500))
 
     const page = await renderPage()
-    const state = dehydratedStateOf(page)
 
-    // The artist itself is still seeded and the page still renders its detail.
     expect(
-      state.queries.map(q => q.queryKey.slice(0, 2).join('/')),
+      boundaryStatesOf(page)
+        .flatMap(state => state.queries)
+        .map(q => q.queryKey.slice(0, 2).join('/')),
     ).toEqual(['artists/detail'])
-    const html = serverRenderUpcoming(state)
+    const html = serverRenderUpcoming(page)
     expect(html).toContain(LOADER)
     expect(html).not.toContain('No upcoming shows yet.')
   })
@@ -298,11 +360,7 @@ describe('ArtistPage upcoming shows', () => {
   it('withholds rows that answer for a different artist', async () => {
     stubBackend(showsReply(upcomingBody([artistShow()], ARTIST_ID + 1)))
 
-    const state = dehydratedStateOf(await renderPage())
-
-    expect(
-      state.queries.some(q => q.queryKey[1] === 'shows'),
-    ).toBe(false)
+    expect(seededShowsQuery(await renderPage())).toBeUndefined()
   })
 
   it('404s an unknown artist', async () => {

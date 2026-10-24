@@ -96,7 +96,9 @@ export function ArtistShowsList({
         />
         {upcoming.isPending ? (
           <ShowsLoader />
-        ) : upcoming.error ? (
+        ) : upcoming.error && !upcoming.data ? (
+          // Gated on `!data`: a failed refresh of rows already on screen
+          // (seeded server-side, then revalidated on mount) keeps the rows.
           <p className="py-3 text-sm text-destructive">Failed to load shows</p>
         ) : upcomingShows.length === 0 ? (
           // The nudge that used to sit here was a second [Notify me] bracket

@@ -7,6 +7,7 @@
  */
 
 import { API_BASE_URL } from '@/lib/api-base'
+import { unpadNumericId } from '@/lib/utils/unpadNumericId'
 
 // ============================================================================
 // Endpoints
@@ -113,13 +114,14 @@ export const ARTIST_UPCOMING_SHOWS_REQUEST = {
 /**
  * The server-side URL for {@link ARTIST_UPCOMING_SHOWS_REQUEST}, by route slug.
  * Encodes the slug: route params arrive decoded, and a bare `%2F` or `%3F`
- * would re-point this server-side fetch at another backend path.
+ * would re-point this server-side fetch at another backend path. A padded
+ * numeric id is unpadded first (`unpadNumericId`).
  */
 export function artistUpcomingShowsUrl(artistSlug: string): string {
   const params = new URLSearchParams()
   params.set('limit', String(ARTIST_UPCOMING_SHOWS_REQUEST.limit))
   params.set('time_filter', ARTIST_UPCOMING_SHOWS_REQUEST.timeFilter)
-  return `${artistEndpoints.SHOWS(encodeURIComponent(artistSlug))}?${params.toString()}`
+  return `${artistEndpoints.SHOWS(encodeURIComponent(unpadNumericId(artistSlug)))}?${params.toString()}`
 }
 
 // ============================================================================
