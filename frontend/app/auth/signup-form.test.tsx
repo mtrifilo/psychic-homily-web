@@ -928,6 +928,40 @@ describe('Under-age refusal', () => {
     expect(screen.queryByRole('heading', { name: AGE_REFUSAL_HEADING })).not.toBeInTheDocument()
   })
 
+  it('shows the forms when the marker read fails', async () => {
+    let reads = 0
+    server.use(
+      http.get(`${TEST_API_BASE}/auth/oauth/pending-signup`, () => {
+        reads++
+        return HttpResponse.json({ message: 'unavailable' }, { status: 503 })
+      })
+    )
+    await renderSignupForm()
+
+    await waitFor(() => expect(reads).toBe(1))
+    expect(screen.getByRole('group', { name: 'Date of birth' })).toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: AGE_REFUSAL_HEADING })).not.toBeInTheDocument()
+  })
+
+  it('reads the marker only once Create account is shown', async () => {
+    let reads = 0
+    server.use(
+      http.get(`${TEST_API_BASE}/auth/oauth/pending-signup`, () => {
+        reads++
+        return HttpResponse.json({ status: 'expired' })
+      })
+    )
+    const user = userEvent.setup()
+    renderWithProviders(<AuthPage />)
+    await screen.findByLabelText('Email')
+    // A pending read would have been sent by now; Sign in sends none.
+    await new Promise(resolve => setTimeout(resolve, 50))
+    expect(reads).toBe(0)
+
+    await user.click(screen.getByRole('tab', { name: 'Create account' }))
+    await waitFor(() => expect(reads).toBe(1))
+  })
+
   it('shows the forms when the browser carries no marker', async () => {
     let reads = 0
     server.use(
