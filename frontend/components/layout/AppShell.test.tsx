@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import { AppShell } from './AppShell'
@@ -120,6 +122,20 @@ describe('AppShell', () => {
     expect(container.firstChild).toHaveClass(
       `pb-[calc(${BOTTOM_TAB_BAR_BOX}+${COOKIE_BANNER_HEIGHT})]`,
       `xl:pb-[max(env(safe-area-inset-bottom),${COOKIE_BANNER_HEIGHT})]`
+    )
+  })
+
+  // The document's scroll padding keeps focused controls and scroll targets
+  // out from under the same fixed bars, so it reserves exactly what the shell
+  // pads. jsdom loads no stylesheet, so this reads globals.css as text.
+  it('reserves the same bottom band as the document scroll padding', () => {
+    const css = readFileSync(resolve(__dirname, '../../app/globals.css'), 'utf8')
+
+    expect(css).toContain(
+      `scroll-pb-[calc(${BOTTOM_TAB_BAR_BOX}+${COOKIE_BANNER_HEIGHT})]`
+    )
+    expect(css).toContain(
+      `xl:scroll-pb-[max(env(safe-area-inset-bottom),${COOKIE_BANNER_HEIGHT})]`
     )
   })
 

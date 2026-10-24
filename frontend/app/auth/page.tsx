@@ -76,6 +76,10 @@ import {
   sanitizeReturnTo,
 } from './auth-redirect-utils'
 import { useAuthArrivalParams } from '@/app/auth/_components/auth-arrival-params'
+import {
+  focusFirstInvalidField,
+  revealFormAlert,
+} from '@/app/auth/_components/form-error-focus'
 
 // The id of the message banner an OAuth refusal puts above the auth card.
 const URL_ERROR_ID = 'auth-url-error'
@@ -116,6 +120,25 @@ const signupSchema = z.object({
 type LoginFormData = z.infer<typeof loginSchema>
 type SignupFormData = z.infer<typeof signupSchema>
 
+// Each form's fields paired with the id of the control that takes their
+// focus, in the order the form renders them. Each id matches the `id` on that
+// field's control in the form below.
+const LOGIN_FIELD_IDS = [
+  ['email', 'email'],
+  ['password', 'password'],
+] as const satisfies readonly (readonly [keyof LoginFormData, string])[]
+const SIGNUP_FIELD_IDS = [
+  ['email', 'signup-email'],
+  ['password', 'signup-password'],
+  ['termsAccepted', 'terms'],
+  ['ageConfirmed', 'age-confirmation'],
+] as const satisfies readonly (readonly [keyof SignupFormData, string])[]
+
+// Clears the sticky top bar when an alert is scrolled to the top of the view.
+// The form alerts are keyed by their message, so a new message mounts a new
+// alert and revealFormAlert brings it into view again.
+const FORM_ALERT_CLASS = 'scroll-mt-[var(--topbar-height)]'
+
 function LoginForm({ returnTo }: { returnTo: string }) {
   const router = useRouter()
   const loginMutation = useLogin()
@@ -150,6 +173,9 @@ function LoginForm({ returnTo }: { returnTo: string }) {
           router.push(returnTo)
         },
       })
+    },
+    onSubmitInvalid: ({ formApi }) => {
+      focusFirstInvalidField(formApi, LOGIN_FIELD_IDS)
     },
     validators: {
       onSubmit: loginSchema,
@@ -197,7 +223,12 @@ function LoginForm({ returnTo }: { returnTo: string }) {
       className="space-y-4"
     >
       {signInError && (
-        <Alert variant="destructive">
+        <Alert
+          key={signInError.message}
+          ref={revealFormAlert}
+          variant="destructive"
+          className={FORM_ALERT_CLASS}
+        >
           <AlertCircle className="h-4 w-4" />
           <AlertDescription>
             {isAccountRecoverable(signInError) ? (
@@ -309,12 +340,12 @@ function LoginForm({ returnTo }: { returnTo: string }) {
         )}
       </form.Field>
 
-      <form.Subscribe selector={state => [state.canSubmit, state.isSubmitting]}>
-        {([canSubmit, isSubmitting]) => (
+      <form.Subscribe selector={state => state.isSubmitting}>
+        {isSubmitting => (
           <Button
             type="submit"
             className="w-full"
-            disabled={!canSubmit || isSubmitting || loginMutation.isPending}
+            disabled={isSubmitting || loginMutation.isPending}
           >
             {isSubmitting || loginMutation.isPending ? (
               <>
@@ -595,7 +626,8 @@ function SignupForm({
       ageConfirmed: false,
     } as SignupFormData,
     onSubmit: async ({ value }) => {
-      setConsentVersionsError(null)
+      // A submit starts with no message up: what follows is its own answer.
+      showError(setConsentVersionsError, null)
       let versions: ConsentVersions
       try {
         versions = await consentVersions.read()
@@ -608,6 +640,9 @@ function SignupForm({
         return
       }
       register(value, versions, false)
+    },
+    onSubmitInvalid: ({ formApi }) => {
+      focusFirstInvalidField(formApi, SIGNUP_FIELD_IDS)
     },
     validators: {
       ...(hasAttemptedSubmit && { onChange: signupSchema }),
@@ -632,7 +667,12 @@ function SignupForm({
         <ConsentRetryNotice />
       ) : (
         (consentVersionsError || registerMutation.error || passkeyError || oauthError) && (
-          <Alert variant="destructive">
+          <Alert
+            key={consentVersionsError || registerMutation.error?.message || passkeyError || oauthError}
+            ref={revealFormAlert}
+            variant="destructive"
+            className={FORM_ALERT_CLASS}
+          >
             <AlertCircle className="h-4 w-4" />
             <AlertDescription>
               {consentVersionsError || registerMutation.error?.message || passkeyError || oauthError}
@@ -833,12 +873,12 @@ function SignupForm({
         )}
       </form.Field>
 
-      <form.Subscribe selector={state => [state.canSubmit, state.isSubmitting]}>
-        {([canSubmit, isSubmitting]) => (
+      <form.Subscribe selector={state => state.isSubmitting}>
+        {isSubmitting => (
           <Button
             type="submit"
             className="w-full"
-            disabled={!canSubmit || isSubmitting || registerMutation.isPending || isRetryingConsent || versionsChanged || (passwordValue.length > 0 && passwordValue.length < MIN_PASSWORD_LENGTH)}
+            disabled={isSubmitting || registerMutation.isPending || isRetryingConsent || versionsChanged}
           >
             {isSubmitting || registerMutation.isPending || isRetryingConsent ? (
               <>
@@ -884,8 +924,7 @@ function AuthPageContent() {
   // Two arrivals open on Create account: a gated control naming the action it
   // refused an anonymous viewer, and an OAuth sign-in refused for want of the
   // consent only that tab records, whose message the banner above the card
-  // shows. Every other route in opens on Sign in. Re-auth always opens on Sign
-  // in, the only tab it renders.
+  // shows. Every other route in opens on Sign in, re-auth included.
   //
   // The default belongs to the arrival, not to the mount. Neither a
   // navigation that only changes the query string nor leaving and coming back
@@ -911,6 +950,21 @@ function AuthPageContent() {
   const activeTab = showingArrivalTab ? arrivalTab : pickedTab.tab
   const setActiveTab = (tab: string) => setPickedTab({ arrival, tab })
   const [signupHandoff, setSignupHandoff] = useState<SignupHandoff | null>(null)
+  // Creating an account is not a way to prove you hold one, so an
+  // authenticated viewer proving theirs is offered Sign in alone. A
+  // re-authentication link can outlive the session it was sent for, so a
+  // viewer with no session is offered Create account too.
+  const offersSignup = !isReauth || authStatus !== 'authenticated'
+  // The arrival a sign-up on this page took a claim under. A session that
+  // appears after that is the new account's, with no earlier session for a
+  // re-authentication to prove, so that arrival stops holding the redirect
+  // once the claim is released. The hide cleanup below drops it, so a later
+  // re-authentication under the same URL holds again.
+  const [signupArrival, setSignupArrival] = useState<string | null>(null)
+  if (signupHandoff !== null && signupArrival !== arrival) {
+    setSignupArrival(arrival)
+  }
+  const holdsReauth = isReauth && signupArrival !== arrival
   // A request that never answers leaves its claim pending, and an
   // authenticated viewer with a pending claim gets neither the form nor the
   // redirect, so a request past its deadline releases the claim. The two
@@ -935,7 +989,13 @@ function AuthPageContent() {
 
   // A hidden page runs its effect cleanups, and a shown one reruns the
   // effects, so this cleanup is the page's "hidden" signal.
-  useEffect(() => () => setPickedTab(null), [])
+  useEffect(
+    () => () => {
+      setPickedTab(null)
+      setSignupArrival(null)
+    },
+    []
+  )
 
   // Redirect if already authenticated.
   //
@@ -945,10 +1005,10 @@ function AuthPageContent() {
   // email is waiting. The claim is in-memory only: on a reload it is gone and
   // the redirect resumes, so it cannot strand anyone.
   useEffect(() => {
-    if (authStatus === 'authenticated' && !signupHandoff && !isReauth) {
+    if (authStatus === 'authenticated' && !signupHandoff && !holdsReauth) {
       router.push(returnTo)
     }
-  }, [authStatus, router, returnTo, signupHandoff, isReauth])
+  }, [authStatus, router, returnTo, signupHandoff, holdsReauth])
 
   // `isLoading`, NOT `authStatus === 'pending'`, and this is the one page
   // where that is the right way round.
@@ -1009,10 +1069,11 @@ function AuthPageContent() {
 
   // Don't render the form if authenticated (will redirect).
   //
-  // Except on a re-authentication, where the whole point is to show the form
-  // to someone who IS signed in. Completing any factor mints a fresh session,
-  // which is what the caller that sent them here was waiting for.
-  if (authStatus === 'authenticated' && !isReauth) {
+  // Except while a re-authentication holds (holdsReauth), where the whole
+  // point is to show the form to someone who IS signed in. Completing any
+  // factor mints a fresh session, which is what the caller that sent them here
+  // was waiting for.
+  if (authStatus === 'authenticated' && !holdsReauth) {
     return null
   }
 
@@ -1067,15 +1128,18 @@ function AuthPageContent() {
         {/* Auth Card with Tabs */}
         <Card className="border-border/50 bg-card/50 backdrop-blur-sm">
           <CardHeader className="pb-4">
-            <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
+            <Tabs
+              value={offersSignup ? activeTab : 'login'}
+              onValueChange={setActiveTab}
+              className="w-full"
+            >
               <TabsList
                 className={
-                  isReauth ? 'grid w-full grid-cols-1' : 'grid w-full grid-cols-2'
+                  offersSignup ? 'grid w-full grid-cols-2' : 'grid w-full grid-cols-1'
                 }
               >
                 <TabsTrigger ref={signInTabRef} value="login">Sign in</TabsTrigger>
-                {/* Creating an account is not a way to prove you hold one. */}
-                {!isReauth && (
+                {offersSignup && (
                   <TabsTrigger value="signup">Create account</TabsTrigger>
                 )}
               </TabsList>
