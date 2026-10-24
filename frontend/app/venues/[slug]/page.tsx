@@ -18,6 +18,7 @@ import {
 import { venueRailShowsUrl } from '@/features/shows/showRails'
 import { CURRENT_PERIOD_REVALIDATE } from '@/features/scenes/scenePeriodApi'
 import { fetchListPayload } from '@/lib/ssr/fetchListPayload'
+import { withoutPassedShows } from '@/lib/ssr/withoutPassedShows'
 import { venueNextShowFrom, venueSnippet } from '@/lib/seo/entitySnippets'
 
 interface VenuePageProps {
@@ -124,9 +125,10 @@ export default async function VenuePage({ params }: VenuePageProps) {
     // year-archive route DOES seed it, because there the pager is in the HTML.
     //
     // The upcoming rows, so the calendar is in the served HTML. Null on a
-    // failed read, which leaves the list to its client fetch. Cached for
+    // failed read, which leaves the list to its client fetch. Revalidated every
     // `CURRENT_PERIOD_REVALIDATE` because each row carries cancelled and
-    // sold-out state and leaves the upcoming window as its night passes.
+    // sold-out state; that window does not bound the age of what a render
+    // receives (see `withoutPassedShows` below).
     fetchListPayload<VenueShowsResponse>({
       url: venueUpcomingShowsUrl(slug),
       collection: 'shows',
@@ -159,8 +161,9 @@ export default async function VenuePage({ params }: VenuePageProps) {
   // from the server and the browser then re-asks the live endpoint on mount,
   // so a Data Cache entry older than a show mutation is corrected after paint,
   // and a stale stamp never overwrites a fresher entry the client already holds.
-  // No seed when the read failed or answered for another venue; the list then
-  // fetches for itself behind its loader.
+  // Rows that have provably left the upcoming window since the read are dropped
+  // (`withoutPassedShows`). No seed when the read failed or answered for another
+  // venue; the list then fetches for itself behind its loader.
   const upcomingShowsState = await seedFirstScreen(
     upcomingShows?.venue_id === venueData.id
       ? [
@@ -169,7 +172,7 @@ export default async function VenuePage({ params }: VenuePageProps) {
               venueData.id,
               VENUE_UPCOMING_SHOWS_REQUEST,
             ),
-            data: upcomingShows,
+            data: withoutPassedShows(upcomingShows),
           },
         ]
       : [],

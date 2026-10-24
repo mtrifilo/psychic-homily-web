@@ -241,6 +241,14 @@ describe('venues/[slug] generateMetadata', () => {
 const VENUE_ID = 77
 
 /**
+ * A show that is still upcoming whenever this suite runs. The page drops rows
+ * whose night has provably passed, and `upcomingShow`'s own date (used by the
+ * metadata tests above) is fixed in 2026.
+ */
+const futureShow = (overrides: Record<string, unknown> = {}) =>
+  upcomingShow({ event_date: '2099-09-12T03:00:00Z', ...overrides })
+
+/**
  * The page body's non-list reads: the venue, and the past-year histogram,
  * which answers "unavailable" because it is not what these tests are about.
  * The upcoming read goes to `upcomingFetchMock` through the file's router.
@@ -309,6 +317,10 @@ const pageUpcomingCalls = () =>
 
 const LOADER = 'animate-spin'
 
+/** A request's query parameters, order-independent. */
+const paramsOf = (url: string) =>
+  [...new URL(url).searchParams.entries()].sort(([a], [b]) => a.localeCompare(b))
+
 describe('VenuePage upcoming shows', () => {
   beforeEach(() => {
     stubVenueReads()
@@ -336,7 +348,7 @@ describe('VenuePage upcoming shows', () => {
   // shared helper while both drift. That the list hook reads this entry is
   // proven by the server-render test below, which runs the real hook.
   it('seeds the rows under the key the list hook registers, stamped stale', async () => {
-    upcomingFetchMock.mockImplementation(async () => upcomingResponse([upcomingShow()]))
+    upcomingFetchMock.mockImplementation(async () => upcomingResponse([futureShow()]))
 
     const seeded = seededShowsQuery(await renderPage())
 
@@ -349,12 +361,12 @@ describe('VenuePage upcoming shows', () => {
       null,
       null,
     ])
-    expect(seeded?.state.data).toMatchObject({ shows: [upcomingShow()], venue_id: VENUE_ID })
+    expect(seeded?.state.data).toMatchObject({ shows: [futureShow()], venue_id: VENUE_ID })
     expect(seeded?.state.dataUpdatedAt).toBe(0)
   })
 
   it('puts the upcoming rows in the server render, with no loader', async () => {
-    upcomingFetchMock.mockImplementation(async () => upcomingResponse([upcomingShow()]))
+    upcomingFetchMock.mockImplementation(async () => upcomingResponse([futureShow()]))
 
     const html = serverRenderUpcoming(await renderPage())
 
@@ -364,11 +376,11 @@ describe('VenuePage upcoming shows', () => {
   })
 
   it('replaces the seeded rows with the live read once mounted', async () => {
-    upcomingFetchMock.mockImplementation(async () => upcomingResponse([upcomingShow()]))
+    upcomingFetchMock.mockImplementation(async () => upcomingResponse([futureShow()]))
     const states = boundaryStatesOf(await renderPage())
     // The browser's own read answers with a show the seed did not have.
     upcomingFetchMock.mockImplementation(async () =>
-      upcomingResponse([upcomingShow({ id: 902, slug: 'late-addition' })]),
+      upcomingResponse([futureShow({ id: 902, slug: 'late-addition' })]),
     )
 
     const { container } = render(upcomingListUnder(states, testClient()))
@@ -377,6 +389,27 @@ describe('VenuePage upcoming shows', () => {
     await waitFor(() =>
       expect(container.innerHTML).toContain('href="/shows/late-addition"'),
     )
+    // The server asked the question the hook asks.
+    const [serverUrl, browserUrl] = upcomingFetchMock.mock.calls.map(([url]) => String(url))
+    expect(paramsOf(browserUrl)).toEqual(paramsOf(serverUrl))
+  })
+
+  it('drops rows that have left the upcoming window since the read', async () => {
+    const future = futureShow()
+    upcomingFetchMock.mockImplementation(async () =>
+      jsonBodyResponse({
+        shows: [futureShow({ id: 900, slug: 'long-gone', event_date: '2020-01-01T03:00:00Z' }), future],
+        venue_id: VENUE_ID,
+        total: 5,
+        limit: 200,
+        offset: 0,
+        year: 0,
+      }),
+    )
+
+    const seeded = seededShowsQuery(await renderPage())
+
+    expect(seeded?.state.data).toMatchObject({ shows: [future], total: 4 })
   })
 
   it('server-renders the empty state for a venue with no upcoming shows', async () => {
@@ -402,7 +435,7 @@ describe('VenuePage upcoming shows', () => {
 
   it('withholds rows that answer for a different venue', async () => {
     upcomingFetchMock.mockImplementation(async () =>
-      upcomingResponse([upcomingShow()], VENUE_ID + 1),
+      upcomingResponse([futureShow()], VENUE_ID + 1),
     )
 
     expect(seededShowsQuery(await renderPage())).toBeUndefined()

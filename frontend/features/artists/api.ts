@@ -95,16 +95,15 @@ export const ARTIST_PAST_SHOWS_PAGE_LIMIT = 50
 export const ARTIST_UPCOMING_SHOWS_LIMIT = 200
 
 /**
- * The artist page's upcoming-shows request, as the ONE place that spells it.
+ * The artist page's upcoming-shows request: the ONE spelling of its cache key.
  *
  * Two readers must ask the same question: `ArtistShowsList` hands it to
  * `useArtistShows`, and the artist route reads it to fetch the same rows on
  * the server and seed them under `artistQueryKeys.showsPage(artist.id, this)`.
  * That key is the one the hook registers for these arguments (it records
  * `limit` as sent and leaves `year` and `offset` unsent), so the seeded entry
- * is the entry the component reads. Restating either half on one side would
- * seed an entry nothing reads, and the rows would silently drop out of the
- * served HTML.
+ * is the entry the component reads. A key restated on one side would seed an
+ * entry nothing reads, and the rows would silently drop out of the served HTML.
  */
 export const ARTIST_UPCOMING_SHOWS_REQUEST = {
   timeFilter: 'upcoming',
@@ -113,6 +112,8 @@ export const ARTIST_UPCOMING_SHOWS_REQUEST = {
 
 /**
  * The server-side URL for {@link ARTIST_UPCOMING_SHOWS_REQUEST}, by route slug.
+ * It must send the parameters `useArtistShows` sends for that request; the page
+ * tests compare the two.
  * Encodes the slug: route params arrive decoded, and a bare `%2F` or `%3F`
  * would re-point this server-side fetch at another backend path. A padded
  * numeric id is unpadded first (`unpadNumericId`).

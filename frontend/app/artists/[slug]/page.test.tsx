@@ -247,6 +247,10 @@ function serverRenderUpcoming(page: ReactElement): string {
 
 const LOADER = 'animate-spin'
 
+/** A request's query parameters, order-independent. */
+const paramsOf = (url: string) =>
+  [...new URL(url).searchParams.entries()].sort(([a], [b]) => a.localeCompare(b))
+
 describe('ArtistPage upcoming shows', () => {
   it('asks for the upcoming request by encoded slug, alongside the artist', async () => {
     const calls = stubBackend(showsReply(upcomingBody([artistShow()])))
@@ -316,10 +320,10 @@ describe('ArtistPage upcoming shows', () => {
   })
 
   it('replaces the seeded rows with the live read once mounted', async () => {
-    stubBackend(showsReply(upcomingBody([artistShow()])))
+    const serverCalls = stubBackend(showsReply(upcomingBody([artistShow()])))
     const states = boundaryStatesOf(await renderPage())
     // The browser's own read answers with a show the seed did not have.
-    stubBackend(
+    const browserCalls = stubBackend(
       showsReply(
         upcomingBody([artistShow({ id: 21, slug: 'late-addition' })]),
       ),
@@ -331,6 +335,27 @@ describe('ArtistPage upcoming shows', () => {
     await waitFor(() =>
       expect(container.innerHTML).toContain('href="/shows/late-addition"'),
     )
+    // The server asked the question the hook asks.
+    expect(paramsOf(browserCalls[0])).toEqual(
+      paramsOf(serverCalls.find(u => u.includes('/shows?'))!),
+    )
+  })
+
+  it('drops rows that have left the upcoming window since the read', async () => {
+    const future = artistShow()
+    stubBackend(
+      showsReply({
+        ...upcomingBody([
+          artistShow({ id: 19, slug: 'long-gone', event_date: '2020-01-01T03:00:00Z' }),
+          future,
+        ]),
+        total: 5,
+      }),
+    )
+
+    const seeded = seededShowsQuery(await renderPage())
+
+    expect(seeded?.state.data).toMatchObject({ shows: [future], total: 4 })
   })
 
   it('server-renders the empty state for an artist with no upcoming shows', async () => {

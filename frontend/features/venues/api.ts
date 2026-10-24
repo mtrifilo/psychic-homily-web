@@ -88,7 +88,7 @@ export const VENUE_PAST_SHOWS_PAGE_LIMIT = 50
 export const VENUE_UPCOMING_SHOWS_LIMIT = 200
 
 /**
- * The venue page's upcoming-shows request, as the ONE place that spells it.
+ * The venue page's upcoming-shows request: the ONE spelling of its cache key.
  *
  * Two readers must ask the same question: `VenueShowsList` hands it to
  * `useVenueShows`, and the venue route reads it to fetch the same rows on the
@@ -104,6 +104,8 @@ export const VENUE_UPCOMING_SHOWS_REQUEST = {
 
 /**
  * The server-side URL for {@link VENUE_UPCOMING_SHOWS_REQUEST}, by route slug.
+ * It must send the parameters `useVenueShows` sends for that request; the page
+ * tests compare the two.
  * Encodes the slug: route params arrive decoded, and a bare `%2F` or `%3F`
  * would re-point this server-side fetch at another backend path. A padded
  * numeric id is unpadded first (`unpadNumericId`).
@@ -151,13 +153,13 @@ export const venueQueryKeys = {
    * in each show's own venue-local day), so do not put a browser-only value in
    * this list.
    *
-   * ONE PRECONDITION SURVIVES for anyone taking that up: the identity segment
-   * is `String(venueIdOrSlug)`, and the two forms hash differently. Callers are
-   * already split — the venue page, the Atlas panel and `VenueCard` pass the
-   * NUMERIC id resolved from a fetched venue, while the collection entity panel
-   * passes a slug — so a server seed has to key on whatever identity ITS
-   * consumer passes, not on whichever one the route happens to have. Get that
-   * wrong and it misses in exactly the silent way described above.
+   * The identity segment is `String(venueIdOrSlug)`, and the two forms hash
+   * differently. Callers are split: the venue page, the Atlas panel and
+   * `VenueCard` pass the NUMERIC id resolved from a fetched venue, while the
+   * collection entity panel passes a slug. A server seed must key on whatever
+   * identity its consumer passes (the numeric id, for the venue route); one
+   * keyed on the other form misses silently, and the page just stops being
+   * server-rendered, with no error.
    *
    * Extends `shows()` rather than replacing it so the coarse `['venues']`
    * invalidation in `createInvalidateQueries` keeps prefix-matching every page.
