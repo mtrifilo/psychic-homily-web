@@ -309,6 +309,18 @@ describe('ArtistSimilarSidebar', () => {
       expect(restored).not.toHaveFocus()
     })
 
+    // The provider outlives the form, so closing has to clear the draft itself.
+    it('reopens an Escape-closed suggest form empty', async () => {
+      const user = userEvent.setup()
+      renderWithProviders(<Harness inSidebar={false} />)
+      await user.click(screen.getByRole('button', { name: 'Suggest similar' }))
+      await user.type(screen.getByPlaceholderText('Search for a similar artist...'), 'Fro{Escape}')
+      expect(screen.queryByPlaceholderText('Search for a similar artist...')).not.toBeInTheDocument()
+
+      await user.click(screen.getByRole('button', { name: 'Suggest similar' }))
+      expect(screen.getByPlaceholderText('Search for a similar artist...')).toHaveValue('')
+    })
+
     it('hands a different artist the defaults', async () => {
       const user = userEvent.setup()
       const { rerender } = renderWithProviders(<Harness inSidebar={false} />)
