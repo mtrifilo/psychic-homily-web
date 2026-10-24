@@ -109,7 +109,7 @@ func TestSkippedDDLRepairMigration_integration(t *testing.T) {
 		assert.Contains(t, err.Error(), "collections.forked_from_collection_id")
 		assert.Contains(t, err.Error(), "refusing to boot")
 	}
-	applyRepair := func() {
+	applyRepair := func(t *testing.T) {
 		t.Helper()
 		_, err := sqlDB.Exec(readSkippedDDLRepair(t, "up"))
 		require.NoError(t, err)
@@ -121,7 +121,7 @@ func TestSkippedDDLRepairMigration_integration(t *testing.T) {
 	require.NoError(t, err)
 	requireBothColumnsRefused()
 
-	applyRepair()
+	applyRepair(t)
 	assert.Equal(t, fromScratch, repairedTablesCatalog(t, sqlDB))
 	require.NoError(t, AssertRequiredSchema(td.DB))
 
@@ -137,13 +137,13 @@ func TestSkippedDDLRepairMigration_integration(t *testing.T) {
 			_, err := sqlDB.Exec(drop)
 			require.NoError(t, err, drop)
 			require.NotEqual(t, fromScratch, repairedTablesCatalog(t, sqlDB), drop)
-			applyRepair()
-			assert.Equal(t, fromScratch, repairedTablesCatalog(t, sqlDB), drop)
+			applyRepair(t)
+			require.Equal(t, fromScratch, repairedTablesCatalog(t, sqlDB), drop)
 		}
 	})
 
 	t.Run("applying it again changes nothing", func(t *testing.T) {
-		applyRepair()
+		applyRepair(t)
 		assert.Equal(t, fromScratch, repairedTablesCatalog(t, sqlDB))
 	})
 
