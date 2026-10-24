@@ -359,24 +359,29 @@ type sitemapOmission struct {
 	// rule is the flag that switches the rule on, and the name its build log
 	// line carries.
 	rule string
-	// condition is a boolean SQL expression over the family's own table, true
-	// for a row the rule stops advertising. Empty means the rule is off. It
-	// carries no bind parameters and references no other relation in the outer
-	// FROM, so the family scan stays the single-table projection entriesFor
-	// requires.
+	// condition is a boolean SQL expression over the family's own table and
+	// join, true for a row the rule stops advertising. Empty means the rule is
+	// off. It carries no bind parameters.
 	condition string
+	// join is a relation condition reads, joined to the family scan only while
+	// the rule is on. Empty for a condition over the family's table alone.
+	join string
 }
 
 // pastShows is the shows family's rule: an approved show is omitted once its
 // venue-local date is more than pastShowMaxAgeDays before the venue-local today,
 // so with 30 a show dated 30 days back stays and one dated 31 days back goes.
 //
-// The date and the today are the venue-local clock venueYearEntries partitions
-// on (shared.VenueLocalDateCondition and the expressions it is built from), so
-// a show leaves this family on the same calendar its venue's archive files it
-// under. The subquery is uncorrelated: Postgres evaluates it once as a hashed
-// set, and only past shows reach the venue-zone lateral, through the sargable
-// bound VenueLocalDateCondition("past") carries.
+// The date and the today are shared.VenueLocalDateSQL and
+// shared.VenueLocalTodaySQL, the expressions VenueLocalDateCondition("past")
+// compares, so a show leaves this family on the same calendar venueYearEntries
+// files it under in its venue's archive.
+//
+// The zone comes from shared.VenueTZJoin joined to the family scan itself,
+// rather than from a subquery over all shows, so a sub-shard request resolves
+// zones for its own bucket's rows only. The lateral projects only
+// venue_tz_-prefixed columns, so slug, updated_at, id and status in the
+// family scan still bind to shows unqualified.
 func (d sitemapDiet) pastShows() sitemapOmission {
 	if d.pastShowMaxAgeDays <= 0 {
 		return sitemapOmission{rule: sitemapPastShowMaxAgeDaysEnv}
@@ -385,10 +390,9 @@ func (d sitemapDiet) pastShows() sitemapOmission {
 		rule: sitemapPastShowMaxAgeDaysEnv,
 		// The age is a package-validated int rendered by strconv.Itoa, which
 		// emits only digits, so the interpolation is safe.
-		condition: "shows.id IN (SELECT shows.id FROM shows " + shared.VenueTZJoin +
-			" WHERE " + shared.VenueLocalDateCondition("past") +
-			" AND " + shared.VenueLocalDateSQL + " < " + shared.VenueLocalTodaySQL +
-			" - " + strconv.Itoa(d.pastShowMaxAgeDays) + ")",
+		condition: shared.VenueLocalDateSQL + " < " + shared.VenueLocalTodaySQL +
+			" - " + strconv.Itoa(d.pastShowMaxAgeDays),
+		join: shared.VenueTZJoin,
 	}
 }
 
@@ -656,7 +660,8 @@ func advertisableRows(ctx context.Context, scope *gorm.DB) *gorm.DB {
 }
 
 // entriesOmitting is entriesFor with one diet rule applied, and the scope
-// carries the same single-table constraint.
+// carries the same single-table constraint. The rule's own join is the one
+// relation added, and only while the rule is on; see sitemapOmission.join.
 //
 // With the rule off it IS entriesFor: the same statement, so the same rows in
 // the same order. With it on, the rule's condition is projected as a column of
@@ -684,6 +689,9 @@ func (s *SitemapService) entriesOmitting(
 		Slug      string    `gorm:"column:slug"`
 		UpdatedAt time.Time `gorm:"column:updated_at"`
 		Omitted   bool      `gorm:"column:sitemap_omitted"`
+	}
+	if omission.join != "" {
+		scope = scope.Joins(omission.join)
 	}
 	var rows []row
 	err := advertisableRows(ctx, scope).
