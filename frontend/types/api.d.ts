@@ -7322,12 +7322,6 @@ export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
         APITokenCreateResponse: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/APITokenCreateResponse.json
-             */
-            readonly $schema?: string;
             /** Format: date-time */
             created_at: string;
             description: string | null;
@@ -7386,30 +7380,12 @@ export interface components {
             timestamp: string;
         };
         ActivityFeedResponse: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/ActivityFeedResponse.json
-             */
-            readonly $schema?: string;
             events: components["schemas"]["ActivityEvent"][] | null;
         };
         ActivityHeatmapResponse: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/ActivityHeatmapResponse.json
-             */
-            readonly $schema?: string;
             days: components["schemas"]["ActivityDay"][] | null;
         };
         AddArtistAliasRequestBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/AddArtistAliasRequestBody.json
-             */
-            readonly $schema?: string;
             /**
              * @description Alias name
              * @example The Artist Formerly Known As
@@ -7418,12 +7394,6 @@ export interface components {
         };
         AddArtistToLabelRequestBody: {
             /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/AddArtistToLabelRequestBody.json
-             */
-            readonly $schema?: string;
-            /**
              * Format: int64
              * @description Artist ID to link
              * @example 42
@@ -7431,22 +7401,10 @@ export interface components {
             artist_id: number;
         };
         AddArtistToLabelResponseBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/AddArtistToLabelResponseBody.json
-             */
-            readonly $schema?: string;
             /** @description Whether the link was created */
             success: boolean;
         };
         AddCollectionTagHandlerRequestBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/AddCollectionTagHandlerRequestBody.json
-             */
-            readonly $schema?: string;
             /** @description Tag category for inline creation (genre, locale, other, crew; default: other). Creating a crew tag requires admin; applying an existing crew tag does not. */
             category?: string;
             /**
@@ -7458,21 +7416,9 @@ export interface components {
             tag_name?: string;
         };
         AddCollectionTagResponse: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/AddCollectionTagResponse.json
-             */
-            readonly $schema?: string;
             tags: components["schemas"]["EntityTagResponse"][] | null;
         };
         AddExternalLinkRequestBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/AddExternalLinkRequestBody.json
-             */
-            readonly $schema?: string;
             /**
              * @description Platform key. One of: amazon_music, apple_music, bandcamp, deezer, discogs, soundcloud, spotify, tidal, youtube, youtube_music
              * @example bandcamp
@@ -7482,12 +7428,6 @@ export interface components {
             url: string;
         };
         AddFestivalArtistHandlerRequestBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/AddFestivalArtistHandlerRequestBody.json
-             */
-            readonly $schema?: string;
             /**
              * Format: int64
              * @description Artist ID
@@ -7526,12 +7466,6 @@ export interface components {
             venue_id?: number;
         };
         AddFestivalVenueHandlerRequestBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/AddFestivalVenueHandlerRequestBody.json
-             */
-            readonly $schema?: string;
             /** @description Whether this is the primary venue */
             is_primary?: boolean;
             /**
@@ -7541,12 +7475,6 @@ export interface components {
             venue_id: number;
         };
         AddItemHandlerRequestBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/AddItemHandlerRequestBody.json
-             */
-            readonly $schema?: string;
             /**
              * Format: int64
              * @description Entity ID
@@ -7562,12 +7490,6 @@ export interface components {
             notes?: string;
         };
         AddReleaseToLabelRequestBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/AddReleaseToLabelRequestBody.json
-             */
-            readonly $schema?: string;
             /** @description Catalog number for this release on this label */
             catalog_number?: string;
             /** @description When true, overwrite an existing link's catalog_number with the supplied value (default: write-once, existing number is preserved) */
@@ -7580,22 +7502,10 @@ export interface components {
             release_id: number;
         };
         AddReleaseToLabelResponseBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/AddReleaseToLabelResponseBody.json
-             */
-            readonly $schema?: string;
             /** @description Whether the link was created */
             success: boolean;
         };
         AddTagToEntityRequestBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/AddTagToEntityRequestBody.json
-             */
-            readonly $schema?: string;
             /** @description Tag category for new tags (genre, locale, other, crew; default: other). Creating a crew tag requires admin; applying or removing one requires the trusted contributor tier. */
             category?: string;
             /**
@@ -7607,12 +7517,6 @@ export interface components {
             tag_name?: string;
         };
         AdminBulkLinkPlaysRequestBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/AdminBulkLinkPlaysRequestBody.json
-             */
-            readonly $schema?: string;
             /**
              * Format: int64
              * @description Artist ID to link to
@@ -7626,21 +7530,9 @@ export interface components {
             artist_name: string;
         };
         AdminCancelSyncRunResponseBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/AdminCancelSyncRunResponseBody.json
-             */
-            readonly $schema?: string;
             success: boolean;
         };
         AdminCreateArtistRequestBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/AdminCreateArtistRequestBody.json
-             */
-            readonly $schema?: string;
             /** @description Bandcamp URL */
             bandcamp?: string | null;
             /** @description Artist city */
@@ -7669,12 +7561,6 @@ export interface components {
             youtube?: string | null;
         };
         AdminCreateRadioShowRequestBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/AdminCreateRadioShowRequestBody.json
-             */
-            readonly $schema?: string;
             /** @description Archive URL */
             archive_url?: string;
             /** @description Show description */
@@ -7706,12 +7592,6 @@ export interface components {
             slug?: string;
         };
         AdminCreateRadioStationRequestBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/AdminCreateRadioStationRequestBody.json
-             */
-            readonly $schema?: string;
             /**
              * @description Broadcast type (terrestrial, internet, both)
              * @example both
@@ -7772,12 +7652,6 @@ export interface components {
             website?: string;
         };
         AdminCreateVenueRequestBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/AdminCreateVenueRequestBody.json
-             */
-            readonly $schema?: string;
             /** @description Street address */
             address?: string | null;
             /** @description House-default age policy, e.g. all ages, 17+, 21+ */
@@ -7817,12 +7691,6 @@ export interface components {
             zipcode?: string | null;
         };
         AdminDashboardStats: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/AdminDashboardStats.json
-             */
-            readonly $schema?: string;
             /** Format: int64 */
             pending_artist_reports: number;
             /** Format: int64 */
@@ -7855,12 +7723,6 @@ export interface components {
             users_registered_last_7_days: number;
         };
         AdminDecideEntityRequestRequestBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/AdminDecideEntityRequestRequestBody.json
-             */
-            readonly $schema?: string;
             /** @description Decision: approved or rejected */
             decision: string;
             /**
@@ -7878,24 +7740,12 @@ export interface components {
             use_payload_artists?: boolean;
         };
         AdminDecideEntityRequestResponseBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/AdminDecideEntityRequestResponseBody.json
-             */
-            readonly $schema?: string;
             /** Format: int64 */
             created_entity_id?: number;
             created_entity_type?: string;
             request: components["schemas"]["EntityRequest"];
         };
         AdminDismissEntityReportRequestBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/AdminDismissEntityReportRequestBody.json
-             */
-            readonly $schema?: string;
             /** @description Optional admin notes about the dismissal */
             notes?: string;
         };
@@ -7930,12 +7780,6 @@ export interface components {
             updated_at: string;
         };
         AdminFulfillEntityRequestRequestBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/AdminFulfillEntityRequestRequestBody.json
-             */
-            readonly $schema?: string;
             /** @description Rescue action: fulfill (default) or void */
             action?: string;
             /** @description Optional note (recorded as the decision note when voiding) */
@@ -7948,33 +7792,15 @@ export interface components {
             use_payload_artists?: boolean;
         };
         AdminFulfillEntityRequestResponseBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/AdminFulfillEntityRequestResponseBody.json
-             */
-            readonly $schema?: string;
             /** Format: int64 */
             created_entity_id?: number;
             created_entity_type?: string;
             request: components["schemas"]["EntityRequest"];
         };
         AdminGetEntityPendingEditsResponseBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/AdminGetEntityPendingEditsResponseBody.json
-             */
-            readonly $schema?: string;
             edits: components["schemas"]["PendingEditResponse"][] | null;
         };
         AdminGetUnmatchedPlaysResponseBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/AdminGetUnmatchedPlaysResponseBody.json
-             */
-            readonly $schema?: string;
             /** @description Unmatched play groups */
             groups: components["schemas"]["UnmatchedPlayGroup"][] | null;
             /**
@@ -7985,24 +7811,12 @@ export interface components {
         };
         AdminHideCommentRequestBody: {
             /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/AdminHideCommentRequestBody.json
-             */
-            readonly $schema?: string;
-            /**
              * @description Reason for hiding the comment
              * @example Violates community guidelines
              */
             reason: string;
         };
         AdminLinkPlayRequestBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/AdminLinkPlayRequestBody.json
-             */
-            readonly $schema?: string;
             /**
              * Format: int64
              * @description Artist ID to link
@@ -8020,43 +7834,19 @@ export interface components {
             release_id?: number;
         };
         AdminLinkPlayResponseBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/AdminLinkPlayResponseBody.json
-             */
-            readonly $schema?: string;
             success: boolean;
         };
         AdminListEntityReportsResponseBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/AdminListEntityReportsResponseBody.json
-             */
-            readonly $schema?: string;
             reports: components["schemas"]["EntityReportResponse"][] | null;
             /** Format: int64 */
             total: number;
         };
         AdminListEntityRequestsResponseBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/AdminListEntityRequestsResponseBody.json
-             */
-            readonly $schema?: string;
             requests: components["schemas"]["AdminEntityRequestView"][] | null;
             /** Format: int64 */
             total: number;
         };
         AdminListPendingCommentsResponseBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/AdminListPendingCommentsResponseBody.json
-             */
-            readonly $schema?: string;
             /** @description Pending comments awaiting review */
             comments: components["schemas"]["CommentResponse"][] | null;
             /**
@@ -8066,23 +7856,11 @@ export interface components {
             total: number;
         };
         AdminListPendingEditsResponseBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/AdminListPendingEditsResponseBody.json
-             */
-            readonly $schema?: string;
             edits: components["schemas"]["PendingEditResponse"][] | null;
             /** Format: int64 */
             total: number;
         };
         AdminListStationHealthResponseBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/AdminListStationHealthResponseBody.json
-             */
-            readonly $schema?: string;
             /**
              * Format: int64
              * @description Number of stations
@@ -8092,12 +7870,6 @@ export interface components {
             stations: components["schemas"]["RadioStationHealthResponse"][] | null;
         };
         AdminReMatchPlaysRequestBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/AdminReMatchPlaysRequestBody.json
-             */
-            readonly $schema?: string;
             /**
              * @description Optional: rematch only this artist_name
              * @example Boy Harsher
@@ -8123,44 +7895,20 @@ export interface components {
         };
         AdminRejectCommentRequestBody: {
             /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/AdminRejectCommentRequestBody.json
-             */
-            readonly $schema?: string;
-            /**
              * @description Reason for rejecting the comment
              * @example Spam content
              */
             reason: string;
         };
         AdminRejectPendingEditRequestBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/AdminRejectPendingEditRequestBody.json
-             */
-            readonly $schema?: string;
             /** @description Specific rejection reason (educational — explain the standard) */
             reason: string;
         };
         AdminResolveEntityReportRequestBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/AdminResolveEntityReportRequestBody.json
-             */
-            readonly $schema?: string;
             /** @description Optional admin notes about the resolution */
             notes?: string;
         };
         AdminSyncRunListResponseBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/AdminSyncRunListResponseBody.json
-             */
-            readonly $schema?: string;
             /**
              * Format: int64
              * @description Number of runs in this page
@@ -8176,12 +7924,6 @@ export interface components {
         };
         AdminTriggerShowBackfillRequestBody: {
             /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/AdminTriggerShowBackfillRequestBody.json
-             */
-            readonly $schema?: string;
-            /**
              * @description Start date (YYYY-MM-DD)
              * @example 2025-01-01
              */
@@ -8194,12 +7936,6 @@ export interface components {
         };
         AdminTriggerStationSyncRequestBody: {
             /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/AdminTriggerStationSyncRequestBody.json
-             */
-            readonly $schema?: string;
-            /**
              * @description Sync mode: 'discover' (find new shows) or 'fetch' (pull new episodes)
              * @example fetch
              * @enum {string}
@@ -8207,12 +7943,6 @@ export interface components {
             mode: "discover" | "fetch";
         };
         AdminUpdateArtistRequestBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/AdminUpdateArtistRequestBody.json
-             */
-            readonly $schema?: string;
             /** @description Bandcamp URL */
             bandcamp?: string;
             /** @description City */
@@ -8243,12 +7973,6 @@ export interface components {
             youtube?: string;
         };
         AdminUpdateRadioShowRequestBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/AdminUpdateRadioShowRequestBody.json
-             */
-            readonly $schema?: string;
             /** @description Archive URL */
             archive_url?: string;
             /** @description Show description */
@@ -8276,12 +8000,6 @@ export interface components {
             schedule_locked?: boolean;
         };
         AdminUpdateRadioStationRequestBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/AdminUpdateRadioStationRequestBody.json
-             */
-            readonly $schema?: string;
             /** @description Broadcast type */
             broadcast_type?: string;
             /** @description City */
@@ -8342,12 +8060,6 @@ export interface components {
             username: string | null;
         };
         AdvancementProgress: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/AdvancementProgress.json
-             */
-            readonly $schema?: string;
             current_tier: string;
             next_tier?: string;
             requirements: components["schemas"]["AdvancementRequirement"][] | null;
@@ -8379,12 +8091,6 @@ export interface components {
             in_app?: boolean;
         };
         AlertPreferencesResponseBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/AlertPreferencesResponseBody.json
-             */
-            readonly $schema?: string;
             /** @description Resolved account-level alert defaults, per alert type and channel */
             alert_defaults: components["schemas"]["AccountAlertDefaults"];
             /** @description Home metro CBSA code, or null when no home area is set */
@@ -8392,12 +8098,6 @@ export interface components {
             success: boolean;
         };
         AppleCallbackRequestBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/AppleCallbackRequestBody.json
-             */
-            readonly $schema?: string;
             /** @description Whether the user confirmed they meet the minimum age. Required to create an account; without it the callback is refused with AGE_CONFIRMATION_REQUIRED. */
             age_confirmed?: boolean;
             /** @description User's first name (only provided on first sign-in) */
@@ -8419,12 +8119,6 @@ export interface components {
             terms_version?: string;
         };
         AppleCallbackResponseBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/AppleCallbackResponseBody.json
-             */
-            readonly $schema?: string;
             /** @description Error code for programmatic handling */
             error_code?: string;
             /**
@@ -8445,12 +8139,6 @@ export interface components {
             user?: components["schemas"]["User"];
         };
         ApproveShowRequestBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/ApproveShowRequestBody.json
-             */
-            readonly $schema?: string;
             /** @description Whether to also verify unverified venues associated with this show */
             verify_venues: boolean;
         };
@@ -8468,12 +8156,6 @@ export interface components {
             set_type?: "headliner" | "direct_support" | "opener" | "special_guest" | "dj" | "performer";
         };
         ArtistAliasResponse: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/ArtistAliasResponse.json
-             */
-            readonly $schema?: string;
             alias: string;
             /** Format: int64 */
             artist_id: number;
@@ -8482,12 +8164,6 @@ export interface components {
             id: number;
         };
         ArtistBillComposition: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/ArtistBillComposition.json
-             */
-            readonly $schema?: string;
             artist: components["schemas"]["ArtistGraphNode"];
             below_threshold: boolean;
             closes_with: components["schemas"]["BillCoArtist"][] | null;
@@ -8504,12 +8180,6 @@ export interface components {
             state: string;
         };
         ArtistDetailResponse: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/ArtistDetailResponse.json
-             */
-            readonly $schema?: string;
             bandcamp_embed_url: string | null;
             city: string | null;
             country?: string;
@@ -8555,12 +8225,6 @@ export interface components {
             venue_count: number;
         };
         ArtistGraph: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/ArtistGraph.json
-             */
-            readonly $schema?: string;
             center: components["schemas"]["ArtistGraphNode"];
             links: components["schemas"]["ArtistGraphLink"][] | null;
             nodes: components["schemas"]["ArtistGraphNode"][] | null;
@@ -8569,12 +8233,6 @@ export interface components {
             };
         };
         ArtistGraphCard: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/ArtistGraphCard.json
-             */
-            readonly $schema?: string;
             bandcamp_embed_url: string | null;
             city: string | null;
             connections: components["schemas"]["ArtistGraphCardConnections"];
@@ -8781,12 +8439,6 @@ export interface components {
             slug: string;
         };
         ArtistTrajectory: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/ArtistTrajectory.json
-             */
-            readonly $schema?: string;
             appearances: components["schemas"]["TrajectoryEntry"][] | null;
             artist: components["schemas"]["ArtistSummary"];
             best_tier: string;
@@ -8888,12 +8540,6 @@ export interface components {
             visibility: string;
         };
         AutoPromotionResult: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/AutoPromotionResult.json
-             */
-            readonly $schema?: string;
             demoted: components["schemas"]["UserTierChange"][] | null;
             /** Format: int64 */
             errors: number;
@@ -8902,22 +8548,10 @@ export interface components {
             unchanged: number;
         };
         BatchApproveShowsRequestBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/BatchApproveShowsRequestBody.json
-             */
-            readonly $schema?: string;
             /** @description List of show IDs to approve */
             show_ids: number[] | null;
         };
         BatchApproveShowsResponseBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/BatchApproveShowsResponseBody.json
-             */
-            readonly $schema?: string;
             /** Format: int64 */
             approved: number;
             errors: components["schemas"]["BatchShowError"][] | null;
@@ -8928,35 +8562,17 @@ export interface components {
             is_following: boolean;
         };
         BatchFollowRequestBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/BatchFollowRequestBody.json
-             */
-            readonly $schema?: string;
             /** @description List of entity IDs (max 100) */
             entity_ids: number[] | null;
             /** @description Entity type (artist, venue, label, festival, tag, radio_show); plural URL forms also accepted */
             entity_type: string;
         };
         BatchFollowResponseBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/BatchFollowResponseBody.json
-             */
-            readonly $schema?: string;
             follows: {
                 [key: string]: components["schemas"]["BatchFollowEntry"];
             };
         };
         BatchRejectShowsRequestBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/BatchRejectShowsRequestBody.json
-             */
-            readonly $schema?: string;
             /**
              * @description Rejection category
              * @enum {string}
@@ -8968,12 +8584,6 @@ export interface components {
             show_ids: number[] | null;
         };
         BatchRejectShowsResponseBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/BatchRejectShowsResponseBody.json
-             */
-            readonly $schema?: string;
             errors: components["schemas"]["BatchShowError"][] | null;
             /** Format: int64 */
             rejected: number;
@@ -8984,22 +8594,10 @@ export interface components {
             save_count: number;
         };
         BatchReleaseSaveCountsRequestBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/BatchReleaseSaveCountsRequestBody.json
-             */
-            readonly $schema?: string;
             /** @description List of release IDs (max 200) */
             release_ids: number[] | null;
         };
         BatchReleaseSaveCountsResponseBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/BatchReleaseSaveCountsResponseBody.json
-             */
-            readonly $schema?: string;
             saves: {
                 [key: string]: components["schemas"]["BatchReleaseSaveCountsEntry"];
             };
@@ -9010,22 +8608,10 @@ export interface components {
             save_count: number;
         };
         BatchSaveCountsRequestBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/BatchSaveCountsRequestBody.json
-             */
-            readonly $schema?: string;
             /** @description List of show IDs (max 200) */
             show_ids: number[] | null;
         };
         BatchSaveCountsResponseBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/BatchSaveCountsResponseBody.json
-             */
-            readonly $schema?: string;
             saves: {
                 [key: string]: components["schemas"]["BatchSaveCountsEntry"];
             };
@@ -9035,21 +8621,8 @@ export interface components {
             /** Format: int64 */
             show_id: number;
         };
-        BeginLoginRequestBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/BeginLoginRequestBody.json
-             */
-            readonly $schema?: string;
-        };
+        BeginLoginRequestBody: Record<string, never>;
         BeginLoginResponseBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/BeginLoginResponseBody.json
-             */
-            readonly $schema?: string;
             /** @description Challenge ID for finishing login */
             challenge_id?: string;
             /** @description Error code */
@@ -9065,24 +8638,12 @@ export interface components {
         };
         BeginRegisterRequestBody: {
             /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/BeginRegisterRequestBody.json
-             */
-            readonly $schema?: string;
-            /**
              * @description Name for this passkey; refused when longer than 100 characters or containing control characters
              * @example My MacBook
              */
             display_name?: string;
         };
         BeginRegisterResponseBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/BeginRegisterResponseBody.json
-             */
-            readonly $schema?: string;
             /** @description Challenge ID for finishing registration */
             challenge_id?: string;
             /** @description Error code */
@@ -9097,12 +8658,6 @@ export interface components {
             success: boolean;
         };
         BeginSignupRequestBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/BeginSignupRequestBody.json
-             */
-            readonly $schema?: string;
             /** @description Whether user confirmed they meet the minimum age */
             age_confirmed: boolean;
             /**
@@ -9123,12 +8678,6 @@ export interface components {
             terms_version?: string;
         };
         BeginSignupResponseBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/BeginSignupResponseBody.json
-             */
-            readonly $schema?: string;
             /** @description Challenge ID for finishing registration */
             challenge_id?: string;
             /** @description Error code */
@@ -9163,12 +8712,6 @@ export interface components {
             row_index: number;
         };
         BulkAddCollectionItemsResponse: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/BulkAddCollectionItemsResponse.json
-             */
-            readonly $schema?: string;
             added: components["schemas"]["CollectionItemResponse"][] | null;
             errors: components["schemas"]["BulkAddCollectionItemError"][] | null;
         };
@@ -9188,12 +8731,6 @@ export interface components {
             notes?: string;
         };
         BulkAddItemsHandlerRequestBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/BulkAddItemsHandlerRequestBody.json
-             */
-            readonly $schema?: string;
             /** @description Items to add. Capped at MaxBulkAddCollectionItems. */
             items: components["schemas"]["BulkAddItemRow"][] | null;
         };
@@ -9202,12 +8739,6 @@ export interface components {
             canonical: string;
         };
         BulkAliasImportResult: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/BulkAliasImportResult.json
-             */
-            readonly $schema?: string;
             /** Format: int64 */
             imported: number;
             skipped: components["schemas"]["BulkAliasImportSkipped"][] | null;
@@ -9220,52 +8751,22 @@ export interface components {
             row: number;
         };
         BulkExportShowsRequestBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/BulkExportShowsRequestBody.json
-             */
-            readonly $schema?: string;
             /** @description IDs of shows to export */
             show_ids: number[] | null;
         };
         BulkExportShowsResponseBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/BulkExportShowsResponseBody.json
-             */
-            readonly $schema?: string;
             /** @description Base64-encoded markdown exports */
             exports: string[] | null;
         };
         BulkImportAliasesRequestBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/BulkImportAliasesRequestBody.json
-             */
-            readonly $schema?: string;
             /** @description List of alias,canonical pairs to import */
             items: components["schemas"]["BulkAliasImportItem"][] | null;
         };
         BulkImportConfirmRequestBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/BulkImportConfirmRequestBody.json
-             */
-            readonly $schema?: string;
             /** @description Base64-encoded markdown content for each show */
             shows: string[] | null;
         };
         BulkImportConfirmResponseBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/BulkImportConfirmResponseBody.json
-             */
-            readonly $schema?: string;
             /** Format: int64 */
             error_count: number;
             results: components["schemas"]["BulkImportResult"][] | null;
@@ -9273,22 +8774,10 @@ export interface components {
             success_count: number;
         };
         BulkImportPreviewRequestBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/BulkImportPreviewRequestBody.json
-             */
-            readonly $schema?: string;
             /** @description Base64-encoded markdown content for each show */
             shows: string[] | null;
         };
         BulkImportPreviewResponseBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/BulkImportPreviewResponseBody.json
-             */
-            readonly $schema?: string;
             previews: components["schemas"]["ImportPreviewResponse"][] | null;
             summary: components["schemas"]["BulkImportPreviewSummary"];
         };
@@ -9313,22 +8802,10 @@ export interface components {
             success: boolean;
         };
         BulkLinkResult: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/BulkLinkResult.json
-             */
-            readonly $schema?: string;
             /** Format: int64 */
             updated: number;
         };
         BulkLowQualityTagActionResult: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/BulkLowQualityTagActionResult.json
-             */
-            readonly $schema?: string;
             action: string;
             /** Format: int64 */
             affected: number;
@@ -9338,12 +8815,6 @@ export interface components {
             requested: number;
         };
         BulkLowQualityTagsRequestBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/BulkLowQualityTagsRequestBody.json
-             */
-            readonly $schema?: string;
             /**
              * @description Bulk action verb: snooze, delete, mark_official
              * @example snooze
@@ -9372,12 +8843,6 @@ export interface components {
             venue_id: number;
         };
         CalendarTokenCreateResponse: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/CalendarTokenCreateResponse.json
-             */
-            readonly $schema?: string;
             /** Format: date-time */
             created_at: string;
             feed_url: string;
@@ -9385,44 +8850,20 @@ export interface components {
             token: string;
         };
         CalendarTokenStatusResponse: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/CalendarTokenStatusResponse.json
-             */
-            readonly $schema?: string;
             /** Format: date-time */
             created_at?: string;
             has_token: boolean;
         };
         CancelMyPendingEntityEditResponseBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/CancelMyPendingEntityEditResponseBody.json
-             */
-            readonly $schema?: string;
             success: boolean;
         };
         ChangePasswordRequestBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/ChangePasswordRequestBody.json
-             */
-            readonly $schema?: string;
             /** @description Current password */
             current_password: string;
             /** @description New password */
             new_password: string;
         };
         ChangePasswordResponseBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/ChangePasswordResponseBody.json
-             */
-            readonly $schema?: string;
             /**
              * @description Error code for programmatic handling
              * @example INVALID_CREDENTIALS
@@ -9486,32 +8927,14 @@ export interface components {
             status?: string;
         };
         CheckEventsResult: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/CheckEventsResult.json
-             */
-            readonly $schema?: string;
             events: {
                 [key: string]: components["schemas"]["CheckEventStatus"];
             };
         };
         CheckSavedResponseBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/CheckSavedResponseBody.json
-             */
-            readonly $schema?: string;
             is_saved: boolean;
         };
         CheckThrottleResponseBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/CheckThrottleResponseBody.json
-             */
-            readonly $schema?: string;
             allowed: boolean;
             /** Format: int64 */
             limit: number;
@@ -9521,12 +8944,6 @@ export interface components {
             window_seconds: number;
         };
         CollectionDetailResponse: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/CollectionDetailResponse.json
-             */
-            readonly $schema?: string;
             collaborative: boolean;
             /** Format: int64 */
             contributor_count: number;
@@ -9601,23 +9018,11 @@ export interface components {
             upcoming_show_count: number;
         };
         CollectionGraphResponse: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/CollectionGraphResponse.json
-             */
-            readonly $schema?: string;
             collection: components["schemas"]["CollectionGraphInfo"];
             links: components["schemas"]["CollectionGraphLink"][] | null;
             nodes: components["schemas"]["CollectionGraphNode"][] | null;
         };
         CollectionItemResponse: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/CollectionItemResponse.json
-             */
-            readonly $schema?: string;
             added_by_name: string;
             /** Format: int64 */
             added_by_user_id: number;
@@ -9637,12 +9042,6 @@ export interface components {
             position: number;
         };
         CollectionLikeResponse: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/CollectionLikeResponse.json
-             */
-            readonly $schema?: string;
             /** Format: int64 */
             like_count: number;
             user_likes_this: boolean;
@@ -9692,12 +9091,6 @@ export interface components {
             user_likes_this: boolean;
         };
         CollectionStatsResponse: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/CollectionStatsResponse.json
-             */
-            readonly $schema?: string;
             /** Format: int64 */
             contributor_count: number;
             entity_type_counts: {
@@ -9722,36 +9115,18 @@ export interface components {
             old_body: string;
         };
         CommentEditHistoryResponse: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/CommentEditHistoryResponse.json
-             */
-            readonly $schema?: string;
             /** Format: int64 */
             comment_id: number;
             current_body: string;
             edits: components["schemas"]["CommentEditHistoryEntry"][] | null;
         };
         CommentListResponse: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/CommentListResponse.json
-             */
-            readonly $schema?: string;
             comments: components["schemas"]["CommentResponse"][] | null;
             has_more: boolean;
             /** Format: int64 */
             total: number;
         };
         CommentResponse: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/CommentResponse.json
-             */
-            readonly $schema?: string;
             author_name: string;
             author_username: string | null;
             body: string;
@@ -9792,12 +9167,6 @@ export interface components {
             visibility: string;
         };
         CommentVoteResponse: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/CommentVoteResponse.json
-             */
-            readonly $schema?: string;
             /** Format: int64 */
             downs: number;
             /** Format: double */
@@ -9825,22 +9194,10 @@ export interface components {
             status: string;
         };
         ConfirmAccountRecoveryRequestBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/ConfirmAccountRecoveryRequestBody.json
-             */
-            readonly $schema?: string;
             /** @description Recovery token from email */
             token: string;
         };
         ConfirmAccountRecoveryResponseBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/ConfirmAccountRecoveryResponseBody.json
-             */
-            readonly $schema?: string;
             /**
              * @description Error code for programmatic handling
              * @example INVALID_TOKEN
@@ -9866,24 +9223,12 @@ export interface components {
         };
         ConfirmVerificationRequestBody: {
             /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/ConfirmVerificationRequestBody.json
-             */
-            readonly $schema?: string;
-            /**
              * @description Verification token from email link
              * @example eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
              */
             token: string;
         };
         ConfirmVerificationResponseBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/ConfirmVerificationResponseBody.json
-             */
-            readonly $schema?: string;
             /**
              * @description Error code for programmatic handling
              * @example INVALID_TOKEN
@@ -9971,12 +9316,6 @@ export interface components {
             venues_submitted: number;
         };
         CreateAPITokenRequestBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/CreateAPITokenRequestBody.json
-             */
-            readonly $schema?: string;
             /** @description Optional description for the token (e.g., 'Mike laptop discovery') */
             description: string;
             /**
@@ -9987,24 +9326,12 @@ export interface components {
         };
         CreateAliasRequestBody: {
             /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/CreateAliasRequestBody.json
-             */
-            readonly $schema?: string;
-            /**
              * @description Alias name
              * @example post punk
              */
             alias: string;
         };
         CreateCollectionHandlerRequestBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/CreateCollectionHandlerRequestBody.json
-             */
-            readonly $schema?: string;
             /** @description Whether other users can add items */
             collaborative?: boolean;
             /** @description Cover image URL */
@@ -10026,12 +9353,6 @@ export interface components {
         };
         CreateCommentRequestBody: {
             /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/CreateCommentRequestBody.json
-             */
-            readonly $schema?: string;
-            /**
              * @description Comment body (Markdown)
              * @example Great show last night!
              */
@@ -10043,32 +9364,14 @@ export interface components {
             reply_permission?: string;
         };
         CreateEntityRequestBatchRequestBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/CreateEntityRequestBatchRequestBody.json
-             */
-            readonly $schema?: string;
             /** @description The submissions to file, at most 200. Each is validated, deduped and stored on its own: a refused item never withholds its siblings, and every item has exactly one result at its own index. */
             items: components["schemas"]["EntityRequestSubmission"][] | null;
         };
         CreateEntityRequestBatchResponseBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/CreateEntityRequestBatchResponseBody.json
-             */
-            readonly $schema?: string;
             /** @description One result per submitted item, in the order the items were sent. */
             results: components["schemas"]["EntityRequestBatchResult"][] | null;
         };
         CreateEntityRequestResponseBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/CreateEntityRequestResponseBody.json
-             */
-            readonly $schema?: string;
             /** Format: date-time */
             created_at: string;
             /** Format: int64 */
@@ -10095,12 +9398,6 @@ export interface components {
             updated_at: string;
         };
         CreateFestivalRequestBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/CreateFestivalRequestBody.json
-             */
-            readonly $schema?: string;
             /**
              * @description City
              * @example Phoenix
@@ -10163,12 +9460,6 @@ export interface components {
         };
         CreateFieldNoteRequestBody: {
             /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/CreateFieldNoteRequestBody.json
-             */
-            readonly $schema?: string;
-            /**
              * @description Field note body (Markdown)
              * @example The sound was incredible tonight.
              */
@@ -10209,12 +9500,6 @@ export interface components {
             sound_quality?: number;
         };
         CreateFilterRequestBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/CreateFilterRequestBody.json
-             */
-            readonly $schema?: string;
             /** @description Artist IDs to match */
             artist_ids?: number[] | null;
             /** @description Cities to match [{city, state}] */
@@ -10240,12 +9525,6 @@ export interface components {
             venue_ids?: number[] | null;
         };
         CreateLabelRequestBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/CreateLabelRequestBody.json
-             */
-            readonly $schema?: string;
             /** @description Bandcamp URL */
             bandcamp?: string;
             /**
@@ -10298,12 +9577,6 @@ export interface components {
         };
         CreateRelationshipRequestBody: {
             /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/CreateRelationshipRequestBody.json
-             */
-            readonly $schema?: string;
-            /**
              * Format: int64
              * @description Source artist ID
              * @example 1
@@ -10322,12 +9595,6 @@ export interface components {
             type: string;
         };
         CreateRelationshipResponseBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/CreateRelationshipResponseBody.json
-             */
-            readonly $schema?: string;
             success: boolean;
         };
         CreateReleaseArtistInput: {
@@ -10352,12 +9619,6 @@ export interface components {
             url: string;
         };
         CreateReleaseRequestBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/CreateReleaseRequestBody.json
-             */
-            readonly $schema?: string;
             /** @description Artists with roles */
             artists?: components["schemas"]["CreateReleaseArtistInput"][] | null;
             /** @description Cover art URL */
@@ -10390,12 +9651,6 @@ export interface components {
         };
         CreateReplyRequestBody: {
             /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/CreateReplyRequestBody.json
-             */
-            readonly $schema?: string;
-            /**
              * @description Reply body (Markdown)
              * @example I agree, the opener was amazing!
              */
@@ -10407,12 +9662,6 @@ export interface components {
             reply_permission?: string;
         };
         CreateRequestHandlerRequestBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/CreateRequestHandlerRequestBody.json
-             */
-            readonly $schema?: string;
             /**
              * @description Detailed description of the request
              * @example They play at The Rebel Lounge frequently
@@ -10435,12 +9684,6 @@ export interface components {
             title: string;
         };
         CreateSectionRequestBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/CreateSectionRequestBody.json
-             */
-            readonly $schema?: string;
             /** @description Section content (markdown, max 10000 chars) */
             content: string;
             /**
@@ -10452,12 +9695,6 @@ export interface components {
             title: string;
         };
         CreateShowRequestBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/CreateShowRequestBody.json
-             */
-            readonly $schema?: string;
             /** @description Age requirement (e.g., '21+', 'All Ages') */
             age_requirement?: string;
             /** @description List of artists in the show */
@@ -10503,12 +9740,6 @@ export interface components {
             venues: components["schemas"]["Venue"][] | null;
         };
         CreateTagRequestBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/CreateTagRequestBody.json
-             */
-            readonly $schema?: string;
             /** @description Bandcamp URL */
             bandcamp?: string | null;
             /**
@@ -10565,24 +9796,12 @@ export interface components {
             next_cursor: string | null;
         };
         DataImportRequest: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/DataImportRequest.json
-             */
-            readonly $schema?: string;
             artists?: components["schemas"]["ExportedArtist"][] | null;
             dryRun: boolean;
             shows?: components["schemas"]["ExportedShow"][] | null;
             venues?: components["schemas"]["ExportedVenue"][] | null;
         };
         DataImportResult: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/DataImportResult.json
-             */
-            readonly $schema?: string;
             artists: components["schemas"]["DataImportResultArtistsStruct"];
             shows: components["schemas"]["DataImportResultShowsStruct"];
             venues: components["schemas"]["DataImportResultVenuesStruct"];
@@ -10643,24 +9862,12 @@ export interface components {
             slug: string;
         };
         DeleteAccountRequestBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/DeleteAccountRequestBody.json
-             */
-            readonly $schema?: string;
             /** @description Current password for re-authentication */
             password: string;
             /** @description Optional reason for leaving */
             reason?: string;
         };
         DeleteAccountResponseBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/DeleteAccountResponseBody.json
-             */
-            readonly $schema?: string;
             /**
              * @description Date when account will be permanently deleted
              * @example 2024-02-15T00:00:00Z
@@ -10694,22 +9901,10 @@ export interface components {
             success: boolean;
         };
         DeleteCalendarTokenResponseBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/DeleteCalendarTokenResponseBody.json
-             */
-            readonly $schema?: string;
             message: string;
             success: boolean;
         };
         DeleteCredentialResponseBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/DeleteCredentialResponseBody.json
-             */
-            readonly $schema?: string;
             /** @description Error code */
             error_code?: string;
             /** @description Response message */
@@ -10720,42 +9915,18 @@ export interface components {
             success: boolean;
         };
         DeleteFilterResponseBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/DeleteFilterResponseBody.json
-             */
-            readonly $schema?: string;
             message: string;
             success: boolean;
         };
         DeleteSectionResponseBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/DeleteSectionResponseBody.json
-             */
-            readonly $schema?: string;
             message: string;
             success: boolean;
         };
         DeleteVenueResponseBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/DeleteVenueResponseBody.json
-             */
-            readonly $schema?: string;
             /** @description Success message */
             message: string;
         };
         DeletionSummaryResponseBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/DeletionSummaryResponseBody.json
-             */
-            readonly $schema?: string;
             /**
              * @description Error code for programmatic handling
              * @example UNAUTHORIZED
@@ -10807,12 +9978,6 @@ export interface components {
             success: boolean;
         };
         DeriveRelationshipsResponseBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/DeriveRelationshipsResponseBody.json
-             */
-            readonly $schema?: string;
             mb_artist_rels_started: boolean;
             /** Format: int64 */
             shared_bills_upserted: number;
@@ -10821,12 +9986,6 @@ export interface components {
             success: boolean;
         };
         DiscoverMusicResult: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/DiscoverMusicResult.json
-             */
-            readonly $schema?: string;
             /**
              * Format: int64
              * @description The artist the candidates were discovered for
@@ -10844,12 +10003,6 @@ export interface components {
             venueSlug: string;
         };
         DiscoveryCheckRequestBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/DiscoveryCheckRequestBody.json
-             */
-            readonly $schema?: string;
             /** @description Array of events to check */
             events: components["schemas"]["DiscoveryCheckEventInput"][] | null;
         };
@@ -10886,12 +10039,6 @@ export interface components {
             venueSlug: string;
         };
         DiscoveryImportRequestBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/DiscoveryImportRequestBody.json
-             */
-            readonly $schema?: string;
             /** @description If true, update existing shows with new data */
             allowUpdates: boolean;
             /** @description If true, preview import without persisting */
@@ -10907,12 +10054,6 @@ export interface components {
         };
         DismissFirstSaveHintResponseBody: {
             /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/DismissFirstSaveHintResponseBody.json
-             */
-            readonly $schema?: string;
-            /**
              * Format: date-time
              * @description When the first-save hint was first shown
              */
@@ -10920,12 +10061,6 @@ export interface components {
             success: boolean;
         };
         DismissReportRequestBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/DismissReportRequestBody.json
-             */
-            readonly $schema?: string;
             /** @description Optional admin notes about the dismissal */
             notes: string | null;
         };
@@ -10947,12 +10082,6 @@ export interface components {
             month: string;
         };
         EnrichmentQueueStats: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/EnrichmentQueueStats.json
-             */
-            readonly $schema?: string;
             /** Format: int64 */
             completed_today: number;
             /** Format: int64 */
@@ -10963,12 +10092,6 @@ export interface components {
             processing: number;
         };
         EntityReportResponse: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/EntityReportResponse.json
-             */
-            readonly $schema?: string;
             admin_notes?: string;
             /** Format: date-time */
             created_at: string;
@@ -11055,12 +10178,6 @@ export interface components {
             url?: string;
         };
         EntityRequestSubmission: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/EntityRequestSubmission.json
-             */
-            readonly $schema?: string;
             /** @description FE-side confirm step (only relevant to trusted_contributor tier) */
             confirmed?: boolean;
             /** @description Entity type to request (artist, venue, label, release, show, festival) */
@@ -11102,12 +10219,6 @@ export interface components {
             value?: unknown;
         };
         ErrorModel: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/ErrorModel.json
-             */
-            readonly $schema?: string;
             /**
              * @description A human-readable explanation specific to this occurrence of the problem.
              * @example Property foo is required but is missing.
@@ -11151,12 +10262,6 @@ export interface components {
             Value: unknown;
         };
         ExploreShuffleTargetResponse: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/ExploreShuffleTargetResponse.json
-             */
-            readonly $schema?: string;
             /** Format: int64 */
             artist_id: number | null;
             artist_name: string | null;
@@ -11177,12 +10282,6 @@ export interface components {
             venue_state: string;
         };
         ExploreUpcomingShowsResponse: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/ExploreUpcomingShowsResponse.json
-             */
-            readonly $schema?: string;
             /** Format: int64 */
             limit: number;
             /** Format: int64 */
@@ -11192,12 +10291,6 @@ export interface components {
             total: number;
         };
         ExportArtistsResult: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/ExportArtistsResult.json
-             */
-            readonly $schema?: string;
             artists: components["schemas"]["ExportedArtist"][] | null;
             /** Format: int64 */
             total: number;
@@ -11215,23 +10308,11 @@ export interface components {
             title: string;
         };
         ExportShowsResult: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/ExportShowsResult.json
-             */
-            readonly $schema?: string;
             shows: components["schemas"]["ExportedShow"][] | null;
             /** Format: int64 */
             total: number;
         };
         ExportVenuesResult: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/ExportVenuesResult.json
-             */
-            readonly $schema?: string;
             /** Format: int64 */
             total: number;
             venues: components["schemas"]["ExportedVenue"][] | null;
@@ -11292,24 +10373,12 @@ export interface components {
             zipcode?: string;
         };
         ExtractShowRequest: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/ExtractShowRequest.json
-             */
-            readonly $schema?: string;
             image_data: string;
             media_type: string;
             text: string;
             type: string;
         };
         ExtractShowResponse: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/ExtractShowResponse.json
-             */
-            readonly $schema?: string;
             data?: components["schemas"]["ExtractedShowData"];
             error?: string;
             success: boolean;
@@ -11350,12 +10419,6 @@ export interface components {
         };
         FailSourceRequestBody: {
             /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/FailSourceRequestBody.json
-             */
-            readonly $schema?: string;
-            /**
              * Format: int64
              * @description ID of the venue or label
              */
@@ -11394,12 +10457,6 @@ export interface components {
             unfeatured_at: string | null;
         };
         FestivalArtistResponse: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/FestivalArtistResponse.json
-             */
-            readonly $schema?: string;
             /** Format: int64 */
             artist_id: number;
             artist_name: string;
@@ -11416,12 +10473,6 @@ export interface components {
             venue_id: number | null;
         };
         FestivalDetailResponse: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/FestivalDetailResponse.json
-             */
-            readonly $schema?: string;
             /** Format: int64 */
             artist_count: number;
             city: string | null;
@@ -11494,12 +10545,6 @@ export interface components {
             upcoming_show_count: number;
         };
         FestivalGraphResponse: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/FestivalGraphResponse.json
-             */
-            readonly $schema?: string;
             clusters: components["schemas"]["FestivalGraphCluster"][] | null;
             festival: components["schemas"]["FestivalGraphInfo"];
             links: components["schemas"]["FestivalGraphLink"][] | null;
@@ -11524,12 +10569,6 @@ export interface components {
             venue_count: number;
         };
         FestivalOverlap: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/FestivalOverlap.json
-             */
-            readonly $schema?: string;
             /** Format: int64 */
             a_only_count: number;
             /** Format: int64 */
@@ -11554,12 +10593,6 @@ export interface components {
             state: string | null;
         };
         FestivalVenueResponse: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/FestivalVenueResponse.json
-             */
-            readonly $schema?: string;
             city: string;
             /** Format: int64 */
             id: number;
@@ -11589,24 +10622,12 @@ export interface components {
             sound_quality?: number;
         };
         FinishLoginRequestBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/FinishLoginRequestBody.json
-             */
-            readonly $schema?: string;
             /** @description Challenge ID from begin login */
             challenge_id: string;
             /** @description The PublicKeyCredential from navigator.credentials.get(), serialized as AuthenticationResponseJSON */
             response: unknown;
         };
         FinishLoginResponseBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/FinishLoginResponseBody.json
-             */
-            readonly $schema?: string;
             /** @description Error code */
             error_code?: string;
             /** @description Response message */
@@ -11619,12 +10640,6 @@ export interface components {
             user?: components["schemas"]["User"];
         };
         FinishRegisterRequestBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/FinishRegisterRequestBody.json
-             */
-            readonly $schema?: string;
             /** @description Challenge ID from begin registration */
             challenge_id: string;
             /**
@@ -11636,12 +10651,6 @@ export interface components {
             response: unknown;
         };
         FinishRegisterResponseBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/FinishRegisterResponseBody.json
-             */
-            readonly $schema?: string;
             /** @description Registered credential */
             credential?: components["schemas"]["WebAuthnCredential"];
             /** @description Error code */
@@ -11654,12 +10663,6 @@ export interface components {
             success: boolean;
         };
         FinishSignupRequestBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/FinishSignupRequestBody.json
-             */
-            readonly $schema?: string;
             /** @description Ignored; the consent recorded is the one signup/begin accepted */
             age_confirmed: boolean;
             /** @description Challenge ID from begin signup */
@@ -11684,12 +10687,6 @@ export interface components {
             terms_version?: string;
         };
         FinishSignupResponseBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/FinishSignupResponseBody.json
-             */
-            readonly $schema?: string;
             /** @description Error code */
             error_code?: string;
             /** @description Response message */
@@ -11721,12 +10718,6 @@ export interface components {
             scope?: "near_me" | "everywhere";
         };
         FollowAlertSettings: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/FollowAlertSettings.json
-             */
-            readonly $schema?: string;
             /** Format: int64 */
             entity_id: number;
             entity_type: string;
@@ -11734,12 +10725,6 @@ export interface components {
             shows: components["schemas"]["FollowAlertPreference"];
         };
         FollowResponseBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/FollowResponseBody.json
-             */
-            readonly $schema?: string;
             message: string;
             success: boolean;
         };
@@ -11786,24 +10771,12 @@ export interface components {
         };
         FulfillRequestHandlerRequestBody: {
             /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/FulfillRequestHandlerRequestBody.json
-             */
-            readonly $schema?: string;
-            /**
              * Format: int64
              * @description Optional ID of the entity that fulfills this request
              */
             fulfilled_entity_id?: number;
         };
         GenerateCLITokenResponseBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/GenerateCLITokenResponseBody.json
-             */
-            readonly $schema?: string;
             /**
              * @description Error code for programmatic handling
              * @example UNAUTHORIZED
@@ -11850,43 +10823,19 @@ export interface components {
             usage_count: number;
         };
         GetActiveVenuesResponseBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/GetActiveVenuesResponseBody.json
-             */
-            readonly $schema?: string;
             venues: components["schemas"]["ActiveVenueResponse"][] | null;
         };
         GetAdminShowsResponseBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/GetAdminShowsResponseBody.json
-             */
-            readonly $schema?: string;
             shows: components["schemas"]["ShowResponse"][] | null;
             /** Format: int64 */
             total: number;
         };
         GetAdminUsersResponseBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/GetAdminUsersResponseBody.json
-             */
-            readonly $schema?: string;
             /** Format: int64 */
             total: number;
             users: components["schemas"]["AdminUserResponse"][] | null;
         };
         GetArtistAliasesResponseBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/GetArtistAliasesResponseBody.json
-             */
-            readonly $schema?: string;
             /** @description List of aliases */
             aliases: components["schemas"]["ArtistAliasResponse"][] | null;
             /**
@@ -11896,22 +10845,10 @@ export interface components {
             count: number;
         };
         GetArtistCitiesResponseBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/GetArtistCitiesResponseBody.json
-             */
-            readonly $schema?: string;
             /** @description List of cities with artist counts */
             cities: components["schemas"]["ArtistCityResponse"][] | null;
         };
         GetArtistFestivalsResponseBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/GetArtistFestivalsResponseBody.json
-             */
-            readonly $schema?: string;
             /**
              * Format: int64
              * @description Number of festivals
@@ -11922,12 +10859,6 @@ export interface components {
         };
         GetArtistLabelsResponseBody: {
             /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/GetArtistLabelsResponseBody.json
-             */
-            readonly $schema?: string;
-            /**
              * Format: int64
              * @description Number of labels
              */
@@ -11936,12 +10867,6 @@ export interface components {
             labels: components["schemas"]["ArtistLabelResponse"][] | null;
         };
         GetArtistRadioPlaysResponseBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/GetArtistRadioPlaysResponseBody.json
-             */
-            readonly $schema?: string;
             /**
              * Format: int64
              * @description Number of results
@@ -11952,12 +10877,6 @@ export interface components {
         };
         GetArtistReleasesResponseBody: {
             /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/GetArtistReleasesResponseBody.json
-             */
-            readonly $schema?: string;
-            /**
              * Format: int64
              * @description Number of releases
              */
@@ -11966,12 +10885,6 @@ export interface components {
             releases: components["schemas"]["ArtistReleaseListResponse"][] | null;
         };
         GetArtistShowMonthsResponseBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/GetArtistShowMonthsResponseBody.json
-             */
-            readonly $schema?: string;
             /**
              * Format: int64
              * @description Artist ID (resolved from slug if provided)
@@ -11984,12 +10897,6 @@ export interface components {
         };
         GetArtistShowYearsResponseBody: {
             /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/GetArtistShowYearsResponseBody.json
-             */
-            readonly $schema?: string;
-            /**
              * Format: int64
              * @description Artist ID (resolved from slug if provided)
              */
@@ -12000,12 +10907,6 @@ export interface components {
             years: components["schemas"]["ArtistShowYearCount"][] | null;
         };
         GetArtistShowsResponseBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/GetArtistShowsResponseBody.json
-             */
-            readonly $schema?: string;
             /**
              * Format: int64
              * @description Artist ID (resolved from slug if provided)
@@ -12035,23 +10936,11 @@ export interface components {
             year: number;
         };
         GetAuditLogsResponseBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/GetAuditLogsResponseBody.json
-             */
-            readonly $schema?: string;
             logs: components["schemas"]["AuditLogResponse"][] | null;
             /** Format: int64 */
             total: number;
         };
         GetBusiestVenuesResponseBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/GetBusiestVenuesResponseBody.json
-             */
-            readonly $schema?: string;
             /** @description Echo of the scene scope ('' = all scenes) */
             scene: string;
             /**
@@ -12063,12 +10952,6 @@ export interface components {
             window: string;
         };
         GetChartEntityRankResponseBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/GetChartEntityRankResponseBody.json
-             */
-            readonly $schema?: string;
             /** Format: int64 */
             entity_id: number;
             /** @enum {string} */
@@ -12080,34 +10963,16 @@ export interface components {
             window: string;
         };
         GetChartScenesResponseBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/GetChartScenesResponseBody.json
-             */
-            readonly $schema?: string;
             scenes: components["schemas"]["ChartSceneResponse"][] | null;
             window: string;
         };
         GetChartsOverviewResponseBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/GetChartsOverviewResponseBody.json
-             */
-            readonly $schema?: string;
             active_venues: components["schemas"]["ActiveVenueResponse"][] | null;
             hot_releases: components["schemas"]["HotReleaseResponse"][] | null;
             popular_artists: components["schemas"]["PopularArtistResponse"][] | null;
             trending_shows: components["schemas"]["TrendingShowResponse"][] | null;
         };
         GetChartsSummaryResponseBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/GetChartsSummaryResponseBody.json
-             */
-            readonly $schema?: string;
             /** Format: int64 */
             active_scenes: number;
             /** Format: int64 */
@@ -12123,12 +10988,6 @@ export interface components {
             window: string;
         };
         GetCommunityHealthResponseBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/GetCommunityHealthResponseBody.json
-             */
-            readonly $schema?: string;
             /** Format: int64 */
             active_contributors_30d: number;
             contributions_per_week: components["schemas"]["WeeklyContributionsResponse"][] | null;
@@ -12139,24 +10998,12 @@ export interface components {
             top_contributors: components["schemas"]["TopContributorResponse"][] | null;
         };
         GetCommunityPulseResponseBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/GetCommunityPulseResponseBody.json
-             */
-            readonly $schema?: string;
             /** Format: int64 */
             entities_in_graph: number;
             /** Format: int64 */
             shows_this_week: number;
         };
         GetContributionHistoryResponseBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/GetContributionHistoryResponseBody.json
-             */
-            readonly $schema?: string;
             contributions: components["schemas"]["ContributionEntry"][] | null;
             /** Format: int64 */
             limit: number;
@@ -12166,34 +11013,16 @@ export interface components {
             total: number;
         };
         GetDataQualityCategoryResponseBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/GetDataQualityCategoryResponseBody.json
-             */
-            readonly $schema?: string;
             items: components["schemas"]["DataQualityItemResponse"][] | null;
             /** Format: int64 */
             total: number;
         };
         GetDataQualitySummaryResponseBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/GetDataQualitySummaryResponseBody.json
-             */
-            readonly $schema?: string;
             categories: components["schemas"]["DataQualityCategoryResponse"][] | null;
             /** Format: int64 */
             total_items: number;
         };
         GetDataQualityTrendsResponseBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/GetDataQualityTrendsResponseBody.json
-             */
-            readonly $schema?: string;
             /** Format: int64 */
             artists_without_releases: number;
             /** Format: int64 */
@@ -12204,12 +11033,6 @@ export interface components {
             shows_rejected: components["schemas"]["MonthlyCountResponse"][] | null;
         };
         GetEngagementMetricsResponseBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/GetEngagementMetricsResponseBody.json
-             */
-            readonly $schema?: string;
             bookmarks: components["schemas"]["EngagementMetricResponse"][] | null;
             crate_items: components["schemas"]["EngagementMetricResponse"][] | null;
             follows: components["schemas"]["EngagementMetricResponse"][] | null;
@@ -12221,33 +11044,15 @@ export interface components {
             tags_added: components["schemas"]["EngagementMetricResponse"][] | null;
         };
         GetEntityCollectionsHandlerResponseBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/GetEntityCollectionsHandlerResponseBody.json
-             */
-            readonly $schema?: string;
             /** @description List of collections containing this entity */
             collections: components["schemas"]["CollectionListResponse"][] | null;
         };
         GetEntityHistoryResponseBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/GetEntityHistoryResponseBody.json
-             */
-            readonly $schema?: string;
             revisions: components["schemas"]["RevisionResponseItem"][] | null;
             /** Format: int64 */
             total: number;
         };
         GetFeaturedCollectionHistoryResponseBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/GetFeaturedCollectionHistoryResponseBody.json
-             */
-            readonly $schema?: string;
             runs: components["schemas"]["FeaturedCollectionRunResponse"][] | null;
             /**
              * Format: int64
@@ -12256,22 +11061,10 @@ export interface components {
             total: number;
         };
         GetFeaturedCollectionResponseBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/GetFeaturedCollectionResponseBody.json
-             */
-            readonly $schema?: string;
             /** @description The current featured-collection pick, or null when nothing is featured */
             featured: components["schemas"]["FeaturedCollectionRunResponse"];
         };
         GetFestivalArtistsResponseBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/GetFestivalArtistsResponseBody.json
-             */
-            readonly $schema?: string;
             /** @description List of artists in lineup */
             artists: components["schemas"]["FestivalArtistResponse"][] | null;
             /**
@@ -12282,12 +11075,6 @@ export interface components {
         };
         GetFestivalVenuesResponseBody: {
             /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/GetFestivalVenuesResponseBody.json
-             */
-            readonly $schema?: string;
-            /**
              * Format: int64
              * @description Number of venues
              */
@@ -12296,12 +11083,6 @@ export interface components {
             venues: components["schemas"]["FestivalVenueResponse"][] | null;
         };
         GetFollowersListResponseBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/GetFollowersListResponseBody.json
-             */
-            readonly $schema?: string;
             followers: components["schemas"]["FollowerResponse"][] | null;
             /** Format: int64 */
             limit: number;
@@ -12311,12 +11092,6 @@ export interface components {
             total: number;
         };
         GetFollowersResponseBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/GetFollowersResponseBody.json
-             */
-            readonly $schema?: string;
             /** Format: int64 */
             entity_id: number;
             entity_type: string;
@@ -12325,32 +11100,14 @@ export interface components {
             is_following: boolean;
         };
         GetFreshlyAddedResponseBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/GetFreshlyAddedResponseBody.json
-             */
-            readonly $schema?: string;
             items: components["schemas"]["FreshlyAddedItemResponse"][] | null;
             /** @description Echo of the scene scope ('' = all scenes) */
             scene: string;
         };
         GetGenreHierarchyResponseBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/GetGenreHierarchyResponseBody.json
-             */
-            readonly $schema?: string;
             tags: components["schemas"]["GenreHierarchyTag"][] | null;
         };
         GetGrowthMetricsResponseBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/GetGrowthMetricsResponseBody.json
-             */
-            readonly $schema?: string;
             artists: components["schemas"]["MonthlyCountResponse"][] | null;
             labels: components["schemas"]["MonthlyCountResponse"][] | null;
             releases: components["schemas"]["MonthlyCountResponse"][] | null;
@@ -12359,21 +11116,9 @@ export interface components {
             venues: components["schemas"]["MonthlyCountResponse"][] | null;
         };
         GetHotReleasesResponseBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/GetHotReleasesResponseBody.json
-             */
-            readonly $schema?: string;
             releases: components["schemas"]["HotReleaseResponse"][] | null;
         };
         GetLabelCatalogResponseBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/GetLabelCatalogResponseBody.json
-             */
-            readonly $schema?: string;
             /**
              * Format: int64
              * @description Number of releases
@@ -12383,12 +11128,6 @@ export interface components {
             releases: components["schemas"]["LabelReleaseResponse"][] | null;
         };
         GetLabelRosterResponseBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/GetLabelRosterResponseBody.json
-             */
-            readonly $schema?: string;
             /** @description List of artists */
             artists: components["schemas"]["LabelArtistResponse"][] | null;
             /**
@@ -12398,12 +11137,6 @@ export interface components {
             count: number;
         };
         GetLeaderboardResponseBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/GetLeaderboardResponseBody.json
-             */
-            readonly $schema?: string;
             dimension: string;
             entries: components["schemas"]["LeaderboardEntryResponse"][] | null;
             period: string;
@@ -12411,24 +11144,12 @@ export interface components {
             user_rank?: number;
         };
         GetLibraryFollowingResponseBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/GetLibraryFollowingResponseBody.json
-             */
-            readonly $schema?: string;
             following: components["schemas"]["LibraryFollowingEntityResponse"][] | null;
             /** Format: int64 */
             limit: number;
             next_cursor?: string;
         };
         GetMostActiveArtistsResponseBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/GetMostActiveArtistsResponseBody.json
-             */
-            readonly $schema?: string;
             artists: components["schemas"]["MostActiveArtistResponse"][] | null;
             /** @description Echo of the scene scope ('' = all scenes) */
             scene: string;
@@ -12440,12 +11161,6 @@ export interface components {
             window: string;
         };
         GetMostAnticipatedShowsResponseBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/GetMostAnticipatedShowsResponseBody.json
-             */
-            readonly $schema?: string;
             /**
              * @description ranked = save-floor chart with counts and ranks; soonest_upcoming = date-ordered fallback with counts/ranks omitted; both modes are paginated
              * @enum {string}
@@ -12462,21 +11177,9 @@ export interface components {
             window: string;
         };
         GetMyEntityReportResponseBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/GetMyEntityReportResponseBody.json
-             */
-            readonly $schema?: string;
             report: components["schemas"]["EntityReportResponse"];
         };
         GetMyFollowingResponseBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/GetMyFollowingResponseBody.json
-             */
-            readonly $schema?: string;
             following: components["schemas"]["FollowingEntityResponse"][] | null;
             /** Format: int64 */
             limit: number;
@@ -12486,32 +11189,14 @@ export interface components {
             total: number;
         };
         GetMyPendingEditsResponseBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/GetMyPendingEditsResponseBody.json
-             */
-            readonly $schema?: string;
             edits: components["schemas"]["PendingEditResponse"][] | null;
             /** Format: int64 */
             total: number;
         };
         GetMyReportResponseBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/GetMyReportResponseBody.json
-             */
-            readonly $schema?: string;
             report: components["schemas"]["ShowReportResponse"];
         };
         GetMySubmissionsResponseBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/GetMySubmissionsResponseBody.json
-             */
-            readonly $schema?: string;
             /** @description List of user's submitted shows */
             shows: components["schemas"]["ShowResponse"][] | null;
             /**
@@ -12521,12 +11206,6 @@ export interface components {
             total: number;
         };
         GetNewReleasesResponseBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/GetNewReleasesResponseBody.json
-             */
-            readonly $schema?: string;
             releases: components["schemas"]["NewReleaseResponse"][] | null;
             /** @description Echo of the scene scope ('' = all scenes) */
             scene: string;
@@ -12538,33 +11217,15 @@ export interface components {
             window: string;
         };
         GetNotificationsResponseBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/GetNotificationsResponseBody.json
-             */
-            readonly $schema?: string;
             notifications: components["schemas"]["NotificationLogEntry"][] | null;
             /** Format: int64 */
             unread_count: number;
         };
         GetOAuthAccountsResponseBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/GetOAuthAccountsResponseBody.json
-             */
-            readonly $schema?: string;
             accounts: components["schemas"]["OAuthAccountResponse"][] | null;
             success: boolean;
         };
         GetOnTheRadioArtistsResponseBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/GetOnTheRadioArtistsResponseBody.json
-             */
-            readonly $schema?: string;
             artists: components["schemas"]["OnTheRadioArtistResponse"][] | null;
             /** @description Echo of the scene scope ('' = all scenes) */
             scene: string;
@@ -12576,12 +11237,6 @@ export interface components {
             window: string;
         };
         GetOpenersToWatchResponseBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/GetOpenersToWatchResponseBody.json
-             */
-            readonly $schema?: string;
             artists: components["schemas"]["OpenerToWatchResponse"][] | null;
             /** @description Echo of the scene scope ('' = all scenes) */
             scene: string;
@@ -12593,34 +11248,16 @@ export interface components {
             window: string;
         };
         GetOpportunitiesResponseBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/GetOpportunitiesResponseBody.json
-             */
-            readonly $schema?: string;
             categories: components["schemas"]["DataQualityCategoryResponse"][] | null;
             /** Format: int64 */
             total_items: number;
         };
         GetOpportunityCategoryResponseBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/GetOpportunityCategoryResponseBody.json
-             */
-            readonly $schema?: string;
             items: components["schemas"]["DataQualityItemResponse"][] | null;
             /** Format: int64 */
             total: number;
         };
         GetOwnContributionsResponseBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/GetOwnContributionsResponseBody.json
-             */
-            readonly $schema?: string;
             contributions: components["schemas"]["ContributionEntry"][] | null;
             /** Format: int64 */
             limit: number;
@@ -12630,43 +11267,19 @@ export interface components {
             total: number;
         };
         GetOwnSectionsResponseBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/GetOwnSectionsResponseBody.json
-             */
-            readonly $schema?: string;
             sections: components["schemas"]["ProfileSectionResponse"][] | null;
         };
         GetPendingReportsResponseBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/GetPendingReportsResponseBody.json
-             */
-            readonly $schema?: string;
             reports: components["schemas"]["ShowReportResponse"][] | null;
             /** Format: int64 */
             total: number;
         };
         GetPendingShowsResponseBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/GetPendingShowsResponseBody.json
-             */
-            readonly $schema?: string;
             shows: components["schemas"]["ShowResponse"][] | null;
             /** Format: int64 */
             total: number;
         };
         GetPersonalChartsStatsResponseBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/GetPersonalChartsStatsResponseBody.json
-             */
-            readonly $schema?: string;
             /** Format: int64 */
             artists_followed: number;
             /** Format: int64 */
@@ -12687,21 +11300,9 @@ export interface components {
             venues_followed: number;
         };
         GetPopularArtistsResponseBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/GetPopularArtistsResponseBody.json
-             */
-            readonly $schema?: string;
             artists: components["schemas"]["PopularArtistResponse"][] | null;
         };
         GetRadioNewReleaseRadarResponseBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/GetRadioNewReleaseRadarResponseBody.json
-             */
-            readonly $schema?: string;
             /**
              * Format: int64
              * @description Number of results
@@ -12711,12 +11312,6 @@ export interface components {
             releases: components["schemas"]["RadioNewReleaseRadarEntry"][] | null;
         };
         GetRadioShowEpisodesResponseBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/GetRadioShowEpisodesResponseBody.json
-             */
-            readonly $schema?: string;
             /** @description List of episodes */
             episodes: components["schemas"]["RadioEpisodeResponse"][] | null;
             /**
@@ -12726,12 +11321,6 @@ export interface components {
             total: number;
         };
         GetRadioShowTopArtistsResponseBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/GetRadioShowTopArtistsResponseBody.json
-             */
-            readonly $schema?: string;
             /** @description Top artists */
             artists: components["schemas"]["RadioTopArtistResponse"][] | null;
             /**
@@ -12742,12 +11331,6 @@ export interface components {
         };
         GetRadioShowTopLabelsResponseBody: {
             /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/GetRadioShowTopLabelsResponseBody.json
-             */
-            readonly $schema?: string;
-            /**
              * Format: int64
              * @description Number of results
              */
@@ -12756,12 +11339,6 @@ export interface components {
             labels: components["schemas"]["RadioTopLabelResponse"][] | null;
         };
         GetRadioStationEpisodesResponseBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/GetRadioStationEpisodesResponseBody.json
-             */
-            readonly $schema?: string;
             /** @description Latest episodes across the station's shows, newest first */
             episodes: components["schemas"]["RadioStationEpisodeRow"][] | null;
             /**
@@ -12771,12 +11348,6 @@ export interface components {
             total: number;
         };
         GetRadioStationTopArtistsResponseBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/GetRadioStationTopArtistsResponseBody.json
-             */
-            readonly $schema?: string;
             /** @description Top artists across the station's shows */
             artists: components["schemas"]["RadioTopArtistResponse"][] | null;
             /**
@@ -12787,12 +11358,6 @@ export interface components {
         };
         GetRadioStationTopLabelsResponseBody: {
             /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/GetRadioStationTopLabelsResponseBody.json
-             */
-            readonly $schema?: string;
-            /**
              * Format: int64
              * @description Number of results
              */
@@ -12801,12 +11366,6 @@ export interface components {
             labels: components["schemas"]["RadioTopLabelResponse"][] | null;
         };
         GetRecentRadioEpisodesResponseBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/GetRecentRadioEpisodesResponseBody.json
-             */
-            readonly $schema?: string;
             /** @description Latest episodes across all active stations, newest first */
             episodes: components["schemas"]["RadioStationEpisodeRow"][] | null;
             /**
@@ -12816,32 +11375,14 @@ export interface components {
             total: number;
         };
         GetRejectedShowsResponseBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/GetRejectedShowsResponseBody.json
-             */
-            readonly $schema?: string;
             shows: components["schemas"]["ShowResponse"][] | null;
             /** Format: int64 */
             total: number;
         };
         GetRelatedArtistsResponseBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/GetRelatedArtistsResponseBody.json
-             */
-            readonly $schema?: string;
             related: components["schemas"]["RelatedArtistResponse"][] | null;
         };
         GetReleaseRadioPlaysResponseBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/GetReleaseRadioPlaysResponseBody.json
-             */
-            readonly $schema?: string;
             /**
              * Format: int64
              * @description Number of results
@@ -12851,12 +11392,6 @@ export interface components {
             stations: components["schemas"]["RadioAsHeardOnResponse"][] | null;
         };
         GetReleaseSaveCountResponseBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/GetReleaseSaveCountResponseBody.json
-             */
-            readonly $schema?: string;
             is_saved: boolean;
             /** Format: int64 */
             release_id: number;
@@ -12864,12 +11399,6 @@ export interface components {
             save_count: number;
         };
         GetSaveCountResponseBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/GetSaveCountResponseBody.json
-             */
-            readonly $schema?: string;
             is_saved: boolean;
             /** Format: int64 */
             save_count: number;
@@ -12877,12 +11406,6 @@ export interface components {
             show_id: number;
         };
         GetSavedReleasesResponseBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/GetSavedReleasesResponseBody.json
-             */
-            readonly $schema?: string;
             /** Format: int64 */
             limit: number;
             /** Format: int64 */
@@ -12892,12 +11415,6 @@ export interface components {
             total: number;
         };
         GetSavedShowsResponseBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/GetSavedShowsResponseBody.json
-             */
-            readonly $schema?: string;
             /** Format: int64 */
             limit: number;
             /** Format: int64 */
@@ -12907,12 +11424,6 @@ export interface components {
             total: number;
         };
         GetSceneActiveArtistsResponseBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/GetSceneActiveArtistsResponseBody.json
-             */
-            readonly $schema?: string;
             /** @description The scene's roster — bands based in the metro, active ones (is_active) first */
             artists: components["schemas"]["SceneArtistResponse"][] | null;
             /** @description The single band whose Bandcamp embed represents the scene — computed over the full metro roster, so it's independent of the returned page. Populated on the first page only (offset 0); null on later pages, and null when no band based here has an embed. */
@@ -12924,61 +11435,25 @@ export interface components {
             total: number;
         };
         GetSceneCollectionsResponseBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/GetSceneCollectionsResponseBody.json
-             */
-            readonly $schema?: string;
             /** @description Public collections relevant to this scene, most scene-local members first */
             collections: components["schemas"]["SceneCollectionSummary"][] | null;
         };
         GetSceneCrewsResponseBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/GetSceneCrewsResponseBody.json
-             */
-            readonly $schema?: string;
             /** @description Crew tags booking in this scene, most scene shows first */
             crews: components["schemas"]["SceneCrewSummary"][] | null;
         };
         GetSceneNewArtistsResponseBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/GetSceneNewArtistsResponseBody.json
-             */
-            readonly $schema?: string;
             /** @description Bands based in the scene, most recently listed first */
             artists: components["schemas"]["SceneNewArtistRow"][] | null;
         };
         GetSceneShowsResponseBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/GetSceneShowsResponseBody.json
-             */
-            readonly $schema?: string;
             /** @description The scene's next approved shows in the window, soonest first — metro-scoped (member-city shows included) */
             shows: components["schemas"]["SceneShowSummary"][] | null;
         };
         GetShowCitiesResponseBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/GetShowCitiesResponseBody.json
-             */
-            readonly $schema?: string;
             cities: components["schemas"]["ShowCityResponse"][] | null;
         };
         GetShowMonthsResponseBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/GetShowMonthsResponseBody.json
-             */
-            readonly $schema?: string;
             /** @description Venue-local calendar months that have at least one upcoming show, soonest first */
             months: components["schemas"]["ShowMonthCount"][] | null;
             /**
@@ -12988,12 +11463,6 @@ export interface components {
             total: number;
         };
         GetShowsCalendarResponseBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/GetShowsCalendarResponseBody.json
-             */
-            readonly $schema?: string;
             /**
              * Format: int64
              * @description Venue-local day the window was taken on, 0 when the window is a whole month or unwindowed
@@ -13034,12 +11503,6 @@ export interface components {
         };
         GetShowsResponseBody: {
             /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/GetShowsResponseBody.json
-             */
-            readonly $schema?: string;
-            /**
              * Format: int64
              * @description Limit used in query
              */
@@ -13058,32 +11521,14 @@ export interface components {
             total: number;
         };
         GetSimilarFestivalsResponseBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/GetSimilarFestivalsResponseBody.json
-             */
-            readonly $schema?: string;
             /** @description List of similar festivals ranked by overlap */
             similar: components["schemas"]["SimilarFestival"][] | null;
         };
         GetThreadResponseBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/GetThreadResponseBody.json
-             */
-            readonly $schema?: string;
             /** @description All comments in the thread, ordered by created_at */
             comments: components["schemas"]["CommentResponse"][] | null;
         };
         GetTopTagsResponseBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/GetTopTagsResponseBody.json
-             */
-            readonly $schema?: string;
             /** @description Echo of the scene scope ('' = all scenes) */
             scene: string;
             tags: components["schemas"]["TopTagResponse"][] | null;
@@ -13095,32 +11540,14 @@ export interface components {
             window: string;
         };
         GetTrendingShowsResponseBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/GetTrendingShowsResponseBody.json
-             */
-            readonly $schema?: string;
             shows: components["schemas"]["TrendingShowResponse"][] | null;
         };
         GetUnverifiedVenuesResponseBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/GetUnverifiedVenuesResponseBody.json
-             */
-            readonly $schema?: string;
             /** Format: int64 */
             total: number;
             venues: components["schemas"]["UnverifiedVenueResponse"][] | null;
         };
         GetUpcomingShowsResponseBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/GetUpcomingShowsResponseBody.json
-             */
-            readonly $schema?: string;
             pagination: components["schemas"]["CursorPaginationMeta"];
             shows: components["schemas"]["ShowResponse"][] | null;
             /** @description Deprecated. Echoes the request's timezone parameter, which no longer affects which shows are returned. Kept so existing clients keep parsing the response. */
@@ -13132,22 +11559,10 @@ export interface components {
             total: number;
         };
         GetUserCollectionsContainingHandlerResponseBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/GetUserCollectionsContainingHandlerResponseBody.json
-             */
-            readonly $schema?: string;
             /** @description The user's collections that already contain the entity, each with the collection_item id */
             items: components["schemas"]["ContainingCollectionItem"][] | null;
         };
         GetUserCollectionsHandlerResponseBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/GetUserCollectionsHandlerResponseBody.json
-             */
-            readonly $schema?: string;
             /** @description List of user's collections */
             collections: components["schemas"]["CollectionListResponse"][] | null;
             /**
@@ -13157,12 +11572,6 @@ export interface components {
             total: number;
         };
         GetUserFieldNotesResponseBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/GetUserFieldNotesResponseBody.json
-             */
-            readonly $schema?: string;
             field_notes: components["schemas"]["AuthoredFieldNote"][] | null;
             /** Format: int64 */
             limit: number;
@@ -13172,12 +11581,6 @@ export interface components {
             total: number;
         };
         GetUserFollowingResponseBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/GetUserFollowingResponseBody.json
-             */
-            readonly $schema?: string;
             following: components["schemas"]["FollowingEntityResponse"][] | null;
             /** Format: int64 */
             limit: number;
@@ -13187,12 +11590,6 @@ export interface components {
             total: number;
         };
         GetUserPublicCollectionsHandlerResponseBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/GetUserPublicCollectionsHandlerResponseBody.json
-             */
-            readonly $schema?: string;
             /** @description List of user's public collections */
             collections: components["schemas"]["CollectionListResponse"][] | null;
             /**
@@ -13202,42 +11599,18 @@ export interface components {
             total: number;
         };
         GetUserRevisionsResponseBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/GetUserRevisionsResponseBody.json
-             */
-            readonly $schema?: string;
             revisions: components["schemas"]["RevisionResponseItem"][] | null;
             /** Format: int64 */
             total: number;
         };
         GetUserSectionsResponseBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/GetUserSectionsResponseBody.json
-             */
-            readonly $schema?: string;
             sections: components["schemas"]["ProfileSectionResponse"][] | null;
         };
         GetVenueCitiesResponseBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/GetVenueCitiesResponseBody.json
-             */
-            readonly $schema?: string;
             /** @description List of cities with venue counts */
             cities: components["schemas"]["VenueCityResponse"][] | null;
         };
         GetVenueShowMonthsResponseBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/GetVenueShowMonthsResponseBody.json
-             */
-            readonly $schema?: string;
             /** @description Venue-local calendar months that have at least one show, newest first */
             months: components["schemas"]["VenueShowMonthCount"][] | null;
             /** @description Time filter the counts were taken under */
@@ -13249,12 +11622,6 @@ export interface components {
             venue_id: number;
         };
         GetVenueShowYearsResponseBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/GetVenueShowYearsResponseBody.json
-             */
-            readonly $schema?: string;
             /** @description Time filter the counts were taken under */
             time_filter: string;
             /**
@@ -13266,12 +11633,6 @@ export interface components {
             years: components["schemas"]["VenueShowYearCount"][] | null;
         };
         GetVenueShowsResponseBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/GetVenueShowsResponseBody.json
-             */
-            readonly $schema?: string;
             /**
              * Format: int64
              * @description Limit used in query
@@ -13301,12 +11662,6 @@ export interface components {
             year: number;
         };
         GraphOverview: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/GraphOverview.json
-             */
-            readonly $schema?: string;
             /** Format: int64 */
             edge_count: number;
             edges: components["schemas"]["GraphOverviewEdges"];
@@ -13370,22 +11725,10 @@ export interface components {
             artist_slug: string;
         };
         GraphStartingPointsResponse: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/GraphStartingPointsResponse.json
-             */
-            readonly $schema?: string;
             /** @description Well-connected artists to suggest as a starting point, most connected first. Empty before the first nightly build. */
             artists: components["schemas"]["GraphStartingPoint"][] | null;
         };
         HealthResponseBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/HealthResponseBody.json
-             */
-            readonly $schema?: string;
             /** @description Health status of individual components */
             components: {
                 [key: string]: components["schemas"]["ComponentHealth"];
@@ -13402,12 +11745,6 @@ export interface components {
             timestamp: string;
         };
         HomeLayout: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/HomeLayout.json
-             */
-            readonly $schema?: string;
             /** @description Sections in render order; a hidden section keeps its slot */
             sections: components["schemas"]["HomeLayoutSection"][] | null;
             /**
@@ -13417,12 +11754,6 @@ export interface components {
             version: number;
         };
         HomeLayoutResponseBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/HomeLayoutResponseBody.json
-             */
-            readonly $schema?: string;
             home_layout?: components["schemas"]["HomeLayout"];
             message: string;
             success: boolean;
@@ -13448,12 +11779,6 @@ export interface components {
             title: string;
         };
         ImportPreviewResponse: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/ImportPreviewResponse.json
-             */
-            readonly $schema?: string;
             artists: components["schemas"]["ArtistMatchResult"][] | null;
             can_import: boolean;
             show: components["schemas"]["ExportShowData"];
@@ -13461,12 +11786,6 @@ export interface components {
             warnings: string[] | null;
         };
         ImportResult: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/ImportResult.json
-             */
-            readonly $schema?: string;
             /** Format: int64 */
             duplicates: number;
             /** Format: int64 */
@@ -13484,22 +11803,10 @@ export interface components {
             updated: number;
         };
         ImportShowConfirmRequestBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/ImportShowConfirmRequestBody.json
-             */
-            readonly $schema?: string;
             /** @description Base64-encoded markdown file content */
             content: string;
         };
         ImportShowPreviewRequestBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/ImportShowPreviewRequestBody.json
-             */
-            readonly $schema?: string;
             /** @description Base64-encoded markdown file content */
             content: string;
         };
@@ -13510,12 +11817,6 @@ export interface components {
             slug: string;
         };
         LabelDetailResponse: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/LabelDetailResponse.json
-             */
-            readonly $schema?: string;
             /** Format: int64 */
             artist_count: number;
             city: string | null;
@@ -13599,12 +11900,6 @@ export interface components {
         };
         LegalVersionsResponseBody: {
             /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/LegalVersionsResponseBody.json
-             */
-            readonly $schema?: string;
-            /**
              * Format: date-time
              * @description While a grace window is open, the instant (UTC) the previous versions stop being accepted; null otherwise
              */
@@ -13629,12 +11924,6 @@ export interface components {
             terms_version: string;
         };
         LibraryFollowingCounts: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/LibraryFollowingCounts.json
-             */
-            readonly $schema?: string;
             /** Format: int64 */
             artists: number;
             /** Format: int64 */
@@ -13714,12 +12003,6 @@ export interface components {
             url: string;
         };
         LinkSuggestionListResult: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/LinkSuggestionListResult.json
-             */
-            readonly $schema?: string;
             /** @description Pending suggestions, high-confidence first */
             suggestions: components["schemas"]["LinkSuggestionEntry"][] | null;
             /**
@@ -13729,12 +12012,6 @@ export interface components {
             total: number;
         };
         LinkSuggestionReviewResult: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/LinkSuggestionReviewResult.json
-             */
-            readonly $schema?: string;
             /**
              * Format: int64
              * @description The artist the suggestion was for
@@ -13759,41 +12036,17 @@ export interface components {
             status: string;
         };
         ListAPITokensResponseBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/ListAPITokensResponseBody.json
-             */
-            readonly $schema?: string;
             tokens: components["schemas"]["APITokenResponse"][] | null;
         };
         ListAliasesResponseBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/ListAliasesResponseBody.json
-             */
-            readonly $schema?: string;
             aliases: components["schemas"]["TagAliasResponse"][] | null;
         };
         ListAllAliasesResponseBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/ListAllAliasesResponseBody.json
-             */
-            readonly $schema?: string;
             aliases: components["schemas"]["TagAliasListing"][] | null;
             /** Format: int64 */
             total: number;
         };
         ListArtistListingResponseBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/ListArtistListingResponseBody.json
-             */
-            readonly $schema?: string;
             /** @description Artists reduced to slug and name */
             artists: components["schemas"]["ArtistListingEntry"][] | null;
             /**
@@ -13803,12 +12056,6 @@ export interface components {
             count: number;
         };
         ListArtistsResponseBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/ListArtistsResponseBody.json
-             */
-            readonly $schema?: string;
             /** @description List of artists with upcoming show counts */
             artists: components["schemas"]["ArtistWithShowCountResponse"][] | null;
             /**
@@ -13828,12 +12075,6 @@ export interface components {
             total: number;
         };
         ListCollectionsHandlerResponseBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/ListCollectionsHandlerResponseBody.json
-             */
-            readonly $schema?: string;
             /** @description List of collections */
             collections: components["schemas"]["CollectionListResponse"][] | null;
             /**
@@ -13843,12 +12084,6 @@ export interface components {
             total: number;
         };
         ListCredentialsResponseBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/ListCredentialsResponseBody.json
-             */
-            readonly $schema?: string;
             /** @description User's passkey credentials */
             credentials: components["schemas"]["WebAuthnCredential"][] | null;
             /** @description Error code */
@@ -13861,21 +12096,9 @@ export interface components {
             success: boolean;
         };
         ListEntityTagsResponseBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/ListEntityTagsResponseBody.json
-             */
-            readonly $schema?: string;
             tags: components["schemas"]["EntityTagResponse"][] | null;
         };
         ListFestivalsResponseBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/ListFestivalsResponseBody.json
-             */
-            readonly $schema?: string;
             /**
              * Format: int64
              * @description Number of festivals
@@ -13885,21 +12108,9 @@ export interface components {
             festivals: components["schemas"]["FestivalListResponse"][] | null;
         };
         ListFiltersResponseBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/ListFiltersResponseBody.json
-             */
-            readonly $schema?: string;
             filters: components["schemas"]["NotificationFilterResponse"][] | null;
         };
         ListLabelsResponseBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/ListLabelsResponseBody.json
-             */
-            readonly $schema?: string;
             /**
              * Format: int64
              * @description Number of labels
@@ -13910,12 +12121,6 @@ export interface components {
         };
         ListRadioShowsResponseBody: {
             /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/ListRadioShowsResponseBody.json
-             */
-            readonly $schema?: string;
-            /**
              * Format: int64
              * @description Number of shows
              */
@@ -13925,12 +12130,6 @@ export interface components {
         };
         ListRadioStationsResponseBody: {
             /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/ListRadioStationsResponseBody.json
-             */
-            readonly $schema?: string;
-            /**
              * Format: int64
              * @description Number of stations
              */
@@ -13939,12 +12138,6 @@ export interface components {
             stations: components["schemas"]["RadioStationListResponse"][] | null;
         };
         ListReleasesResponseBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/ListReleasesResponseBody.json
-             */
-            readonly $schema?: string;
             /**
              * Format: int64
              * @description Limit used in query
@@ -13964,12 +12157,6 @@ export interface components {
             total: number;
         };
         ListRequestsHandlerResponseBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/ListRequestsHandlerResponseBody.json
-             */
-            readonly $schema?: string;
             /** @description List of requests */
             requests: components["schemas"]["RequestResponse"][] | null;
             /**
@@ -13980,12 +12167,6 @@ export interface components {
         };
         ListScenesResponseBody: {
             /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/ListScenesResponseBody.json
-             */
-            readonly $schema?: string;
-            /**
              * Format: int64
              * @description Number of scenes
              */
@@ -13994,45 +12175,21 @@ export interface components {
             scenes: components["schemas"]["SceneListResponse"][] | null;
         };
         ListStaleSourcesResponseBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/ListStaleSourcesResponseBody.json
-             */
-            readonly $schema?: string;
             /** Format: int64 */
             count: number;
             sources: components["schemas"]["SourceConfigInfo"][] | null;
         };
         ListTagEntitiesResponseBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/ListTagEntitiesResponseBody.json
-             */
-            readonly $schema?: string;
             entities: components["schemas"]["TaggedEntityItem"][] | null;
             /** Format: int64 */
             total: number;
         };
         ListTagsResponseBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/ListTagsResponseBody.json
-             */
-            readonly $schema?: string;
             tags: components["schemas"]["TagListItem"][] | null;
             /** Format: int64 */
             total: number;
         };
         ListVenueListingResponseBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/ListVenueListingResponseBody.json
-             */
-            readonly $schema?: string;
             /**
              * Format: int64
              * @description Number of venues in this response
@@ -14047,12 +12204,6 @@ export interface components {
             venues: components["schemas"]["VenueListingEntry"][] | null;
         };
         ListVenuesResponseBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/ListVenuesResponseBody.json
-             */
-            readonly $schema?: string;
             /**
              * Format: int64
              * @description Limit used in query
@@ -14078,12 +12229,6 @@ export interface components {
         };
         LoginRequestBody: {
             /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/LoginRequestBody.json
-             */
-            readonly $schema?: string;
-            /**
              * @description User email
              * @example test@example.com
              */
@@ -14095,12 +12240,6 @@ export interface components {
             password: string;
         };
         LoginResponseBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/LoginResponseBody.json
-             */
-            readonly $schema?: string;
             /**
              * @description Error code for programmatic handling
              * @example INVALID_CREDENTIALS
@@ -14131,12 +12270,6 @@ export interface components {
         };
         LogoutResponseBody: {
             /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/LogoutResponseBody.json
-             */
-            readonly $schema?: string;
-            /**
              * @description Response message
              * @example Logout successful
              */
@@ -14166,55 +12299,25 @@ export interface components {
             usage_count: number;
         };
         LowQualityTagQueueResponse: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/LowQualityTagQueueResponse.json
-             */
-            readonly $schema?: string;
             tags: components["schemas"]["LowQualityTagQueueItem"][] | null;
             /** Format: int64 */
             total: number;
         };
         MarkNotificationsReadRequestBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/MarkNotificationsReadRequestBody.json
-             */
-            readonly $schema?: string;
             /** @description Notification IDs to mark read. Empty array = mark all unread. */
             ids?: number[] | null;
         };
         MarkNotificationsReadResponseBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/MarkNotificationsReadResponseBody.json
-             */
-            readonly $schema?: string;
             /** Format: int64 */
             unread_count: number;
             /** Format: int64 */
             updated_count: number;
         };
         MarkReadResponseBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/MarkReadResponseBody.json
-             */
-            readonly $schema?: string;
             /** @description Whether the mark-read operation succeeded */
             success: boolean;
         };
         MatchResult: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/MatchResult.json
-             */
-            readonly $schema?: string;
             /** Format: int64 */
             matched: number;
             /** Format: int64 */
@@ -14245,12 +12348,6 @@ export interface components {
             Schema: components["schemas"]["Schema"];
         };
         MergeArtistResult: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/MergeArtistResult.json
-             */
-            readonly $schema?: string;
             alias_created: boolean;
             /** Format: int64 */
             bookmarks_moved: number;
@@ -14276,12 +12373,6 @@ export interface components {
         };
         MergeArtistsRequestBody: {
             /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/MergeArtistsRequestBody.json
-             */
-            readonly $schema?: string;
-            /**
              * Format: int64
              * @description ID of the artist to keep
              */
@@ -14298,12 +12389,6 @@ export interface components {
             target_value: string;
         };
         MergeTagsPreview: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/MergeTagsPreview.json
-             */
-            readonly $schema?: string;
             discarded_links: components["schemas"]["MergeTagsDiscardedLink"][] | null;
             /** Format: int64 */
             moved_downvotes: number;
@@ -14324,24 +12409,12 @@ export interface components {
         };
         MergeTagsRequestBody: {
             /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/MergeTagsRequestBody.json
-             */
-            readonly $schema?: string;
-            /**
              * Format: int64
              * @description Target tag ID (survives the merge)
              */
             target_id: number;
         };
         MergeTagsResult: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/MergeTagsResult.json
-             */
-            readonly $schema?: string;
             alias_created: boolean;
             /** Format: int64 */
             moved_aliases: number;
@@ -14355,12 +12428,6 @@ export interface components {
             skipped_votes: number;
         };
         MergeVenueResult: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/MergeVenueResult.json
-             */
-            readonly $schema?: string;
             /** Format: int64 */
             canonical_venue_id: number;
             canonical_venue_name: string;
@@ -14387,12 +12454,6 @@ export interface components {
             support_acts_rescued: number;
         };
         MergeVenuesBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/MergeVenuesBody.json
-             */
-            readonly $schema?: string;
             /**
              * Format: int64
              * @description Venue that survives the merge
@@ -14480,12 +12541,6 @@ export interface components {
             title: string;
         };
         NotificationFilterResponse: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/NotificationFilterResponse.json
-             */
-            readonly $schema?: string;
             artist_ids?: number[] | null;
             cities?: unknown;
             /** Format: date-time */
@@ -14646,12 +12701,6 @@ export interface components {
             Style: string;
         };
         PendingEditResponse: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/PendingEditResponse.json
-             */
-            readonly $schema?: string;
             /** Format: date-time */
             created_at: string;
             /** Format: int64 */
@@ -14689,12 +12738,6 @@ export interface components {
             value: number;
         };
         PercentileRankings: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/PercentileRankings.json
-             */
-            readonly $schema?: string;
             /** Format: int64 */
             overall_score: number;
             rankings: components["schemas"]["PercentileRanking"][] | null;
@@ -14746,12 +12789,6 @@ export interface components {
             upcoming_show_count: number;
         };
         PrivacySettings: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/PrivacySettings.json
-             */
-            readonly $schema?: string;
             collections: string;
             contributions: string;
             following: string;
@@ -14760,12 +12797,6 @@ export interface components {
             saved_shows: string;
         };
         ProfileSectionResponse: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/ProfileSectionResponse.json
-             */
-            readonly $schema?: string;
             content: string;
             content_html?: string;
             /** Format: date-time */
@@ -14808,12 +12839,6 @@ export interface components {
             userVerification?: string;
         };
         PublicProfileResponse: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/PublicProfileResponse.json
-             */
-            readonly $schema?: string;
             avatar_url?: string;
             bio?: string;
             bio_html?: string;
@@ -14834,12 +12859,6 @@ export interface components {
             username: string;
         };
         QuickCreateFilterRequestBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/QuickCreateFilterRequestBody.json
-             */
-            readonly $schema?: string;
             /**
              * Format: int64
              * @description Entity ID
@@ -14915,12 +12934,6 @@ export interface components {
             top_tracks: components["schemas"]["RadioCandidateTrack"][] | null;
         };
         RadioArtistCandidateListing: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/RadioArtistCandidateListing.json
-             */
-            readonly $schema?: string;
             /** @description The UTC date the window ends on (YYYY-MM-DD) */
             as_of: string;
             /**
@@ -15007,12 +13020,6 @@ export interface components {
             track_id: number;
         };
         RadioEpisodeDetailResponse: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/RadioEpisodeDetailResponse.json
-             */
-            readonly $schema?: string;
             air_date: string;
             air_time: string | null;
             archive_url: string | null;
@@ -15073,12 +13080,6 @@ export interface components {
             title: string | null;
         };
         RadioGuideResponse: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/RadioGuideResponse.json
-             */
-            readonly $schema?: string;
             /** Format: date-time */
             generated_at: string;
             on_now: components["schemas"]["RadioGuideRow"][] | null;
@@ -15196,12 +13197,6 @@ export interface components {
             play_count: number;
         };
         RadioLabelCandidateListing: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/RadioLabelCandidateListing.json
-             */
-            readonly $schema?: string;
             /** @description The UTC date the windows end on (YYYY-MM-DD) */
             as_of: string;
             /**
@@ -15275,12 +13270,6 @@ export interface components {
             station_count: number;
         };
         RadioNowPlayingResponse: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/RadioNowPlayingResponse.json
-             */
-            readonly $schema?: string;
             current_track: components["schemas"]["RadioNowPlayingTrack"];
             episode_air_date: string | null;
             /** Format: date-time */
@@ -15359,12 +13348,6 @@ export interface components {
             track_title: string | null;
         };
         RadioShowDetailResponse: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/RadioShowDetailResponse.json
-             */
-            readonly $schema?: string;
             archive_url: string | null;
             /** Format: date-time */
             created_at: string;
@@ -15424,12 +13407,6 @@ export interface components {
             slug: string;
         };
         RadioStationDetailResponse: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/RadioStationDetailResponse.json
-             */
-            readonly $schema?: string;
             broadcast_type: string;
             city: string | null;
             country: string | null;
@@ -15533,24 +13510,12 @@ export interface components {
             upcoming_show_count: number;
         };
         RadioStationGraphResponse: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/RadioStationGraphResponse.json
-             */
-            readonly $schema?: string;
             clusters: components["schemas"]["RadioStationGraphCluster"][] | null;
             links: components["schemas"]["RadioStationGraphLink"][] | null;
             nodes: components["schemas"]["RadioStationGraphNode"][] | null;
             station: components["schemas"]["RadioStationGraphInfo"];
         };
         RadioStationHealthResponse: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/RadioStationHealthResponse.json
-             */
-            readonly $schema?: string;
             breaker_state: string;
             /** Format: date-time */
             breaker_tripped_at?: string;
@@ -15595,12 +13560,6 @@ export interface components {
             state: string | null;
         };
         RadioStatsResponse: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/RadioStatsResponse.json
-             */
-            readonly $schema?: string;
             /** Format: int64 */
             matched_plays: number;
             /** Format: int64 */
@@ -15620,12 +13579,6 @@ export interface components {
             episode_ref?: string;
         };
         RadioSyncRunResponse: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/RadioSyncRunResponse.json
-             */
-            readonly $schema?: string;
             breaker_skipped: boolean;
             /** Format: date-time */
             created_at: string;
@@ -15749,12 +13702,6 @@ export interface components {
             variant_release_id: boolean;
         };
         RadioTrackCandidateListing: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/RadioTrackCandidateListing.json
-             */
-            readonly $schema?: string;
             /** @description The UTC date the window ends on (YYYY-MM-DD) */
             as_of: string;
             /**
@@ -15800,12 +13747,6 @@ export interface components {
             window_start: string;
         };
         RadioTrackListing: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/RadioTrackListing.json
-             */
-            readonly $schema?: string;
             /**
              * Format: date-time
              * @description When the rebuild loop last completed successfully
@@ -15872,24 +13813,12 @@ export interface components {
             title_key: string;
         };
         RecoverAccountRequestBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/RecoverAccountRequestBody.json
-             */
-            readonly $schema?: string;
             /** @description Email address of the account to recover */
             email: string;
             /** @description Password for re-authentication */
             password: string;
         };
         RecoverAccountResponseBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/RecoverAccountResponseBody.json
-             */
-            readonly $schema?: string;
             /**
              * @description Error code for programmatic handling
              * @example ACCOUNT_NOT_RECOVERABLE
@@ -15914,12 +13843,6 @@ export interface components {
             user?: components["schemas"]["User"];
         };
         RefreshSourceRequestBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/RefreshSourceRequestBody.json
-             */
-            readonly $schema?: string;
             /** @description Optional content hash for change detection */
             content_hash?: string;
             /**
@@ -15934,12 +13857,6 @@ export interface components {
             entity_type: "venue" | "label";
         };
         RefreshTokenResponseBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/RefreshTokenResponseBody.json
-             */
-            readonly $schema?: string;
             /**
              * @description Error code for programmatic handling
              * @example TOKEN_EXPIRED
@@ -15958,12 +13875,6 @@ export interface components {
             token: string;
         };
         RegisterRequestBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/RegisterRequestBody.json
-             */
-            readonly $schema?: string;
             /** @description Whether user confirmed they meet the minimum age */
             age_confirmed: boolean;
             /**
@@ -16000,12 +13911,6 @@ export interface components {
         };
         RegisterResponseBody: {
             /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/RegisterResponseBody.json
-             */
-            readonly $schema?: string;
-            /**
              * @description Error code for programmatic handling
              * @example USER_EXISTS
              */
@@ -16035,12 +13940,6 @@ export interface components {
         };
         RegisterSourceRequestBody: {
             /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/RegisterSourceRequestBody.json
-             */
-            readonly $schema?: string;
-            /**
              * Format: int64
              * @description ID of the venue or label
              */
@@ -16054,12 +13953,6 @@ export interface components {
             source_url?: string;
         };
         RejectShowRequestBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/RejectShowRequestBody.json
-             */
-            readonly $schema?: string;
             /** @description Reason for rejecting the show */
             reason: string;
         };
@@ -16082,12 +13975,6 @@ export interface components {
             wilson_score: number;
         };
         RelationshipProvenance: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/RelationshipProvenance.json
-             */
-            readonly $schema?: string;
             connections: components["schemas"]["RelationshipProvenanceConnection"][] | null;
         };
         RelationshipProvenanceConnection: {
@@ -16115,12 +14002,6 @@ export interface components {
             slug: string;
         };
         ReleaseDetailResponse: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/ReleaseDetailResponse.json
-             */
-            readonly $schema?: string;
             artists: components["schemas"]["ReleaseArtistResponse"][] | null;
             cover_art_source: string | null;
             cover_art_source_url: string | null;
@@ -16142,12 +14023,6 @@ export interface components {
             updated_at: string;
         };
         ReleaseExternalLinkResponse: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/ReleaseExternalLinkResponse.json
-             */
-            readonly $schema?: string;
             /** Format: int64 */
             id: number;
             platform: string;
@@ -16192,56 +14067,26 @@ export interface components {
             position: number;
         };
         ReorderItemsHandlerRequestBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/ReorderItemsHandlerRequestBody.json
-             */
-            readonly $schema?: string;
             /** @description Items with new positions */
             items: components["schemas"]["ReorderItem"][] | null;
         };
         ReportEntityRequestBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/ReportEntityRequestBody.json
-             */
-            readonly $schema?: string;
             /** @description Optional details about the issue */
             details?: string | null;
             /** @description Type of report */
             report_type: string;
         };
         ReportShowRequestBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/ReportShowRequestBody.json
-             */
-            readonly $schema?: string;
             /** @description Optional details about the issue (primarily for inaccurate reports) */
             details: string | null;
             /** @description Type of report: cancelled, sold_out, or inaccurate */
             report_type: string;
         };
         RequestAccountRecoveryRequestBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/RequestAccountRecoveryRequestBody.json
-             */
-            readonly $schema?: string;
             /** @description Email address of the account to recover */
             email: string;
         };
         RequestAccountRecoveryResponseBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/RequestAccountRecoveryResponseBody.json
-             */
-            readonly $schema?: string;
             /**
              * @description Error code for programmatic handling (only set for pre-lookup validation/config errors, never for account state)
              * @example SERVICE_UNAVAILABLE
@@ -16264,12 +14109,6 @@ export interface components {
             success: boolean;
         };
         RequestResponse: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/RequestResponse.json
-             */
-            readonly $schema?: string;
             /** Format: date-time */
             created_at: string;
             description?: string;
@@ -16322,32 +14161,14 @@ export interface components {
             slug: string;
         };
         ResolveCollectionItemsHandlerRequestBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/ResolveCollectionItemsHandlerRequestBody.json
-             */
-            readonly $schema?: string;
             /** @description Pairs to resolve. Capped at MaxBulkAddCollectionItems. */
             entries: components["schemas"]["ResolveCollectionItemEntryRow"][] | null;
         };
         ResolveCollectionItemsResponse: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/ResolveCollectionItemsResponse.json
-             */
-            readonly $schema?: string;
             resolved: components["schemas"]["ResolvedCollectionItem"][] | null;
             unresolved: components["schemas"]["ResolveCollectionItemEntry"][] | null;
         };
         ResolveReportRequestBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/ResolveReportRequestBody.json
-             */
-            readonly $schema?: string;
             /** @description Optional admin notes about the resolution */
             notes: string | null;
             /** @description For cancelled/sold_out reports, set the corresponding show flag (default: false) */
@@ -16370,12 +14191,6 @@ export interface components {
             years: number[] | null;
         };
         RevisionResponseItem: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/RevisionResponseItem.json
-             */
-            readonly $schema?: string;
             changes: components["schemas"]["FieldChange"][] | null;
             created_at: string;
             /** Format: int64 */
@@ -16390,21 +14205,9 @@ export interface components {
             user_username: string | null;
         };
         RevokeAPITokenResponseBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/RevokeAPITokenResponseBody.json
-             */
-            readonly $schema?: string;
             message: string;
         };
         RollbackRevisionResponseBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/RollbackRevisionResponseBody.json
-             */
-            readonly $schema?: string;
             /** @description Fields restored to their previous values */
             applied_fields: string[] | null;
             /** @description Fields left unchanged, with the reason for each */
@@ -16418,22 +14221,10 @@ export interface components {
             reason: string;
         };
         SaveReleaseResponseBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/SaveReleaseResponseBody.json
-             */
-            readonly $schema?: string;
             message: string;
             success: boolean;
         };
         SaveShowResponseBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/SaveShowResponseBody.json
-             */
-            readonly $schema?: string;
             message: string;
             success: boolean;
         };
@@ -16546,12 +14337,6 @@ export interface components {
             slug: string;
         };
         SceneDayResponse: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/SceneDayResponse.json
-             */
-            readonly $schema?: string;
             city: string;
             date: string;
             is_past_day: boolean;
@@ -16570,12 +14355,6 @@ export interface components {
             tracked_venues: components["schemas"]["SceneTrackedVenue"][] | null;
         };
         SceneDetailResponse: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/SceneDetailResponse.json
-             */
-            readonly $schema?: string;
             city: string;
             description: string | null;
             pulse: components["schemas"]["ScenePulse"];
@@ -16587,24 +14366,12 @@ export interface components {
         };
         SceneFollowBody: {
             /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/SceneFollowBody.json
-             */
-            readonly $schema?: string;
-            /**
              * @description New-show notification mode (default all)
              * @enum {string}
              */
             notify_mode?: "all" | "followed_bands_only" | "off";
         };
         SceneFollowersResponseBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/SceneFollowersResponseBody.json
-             */
-            readonly $schema?: string;
             /** Format: int64 */
             follower_count: number;
             is_following: boolean;
@@ -16612,12 +14379,6 @@ export interface components {
             slug: string;
         };
         SceneGapsResponse: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/SceneGapsResponse.json
-             */
-            readonly $schema?: string;
             /** Format: int64 */
             artists_missing_listen_link: number;
             /** Format: int64 */
@@ -16627,12 +14388,6 @@ export interface components {
             state: string;
         };
         SceneGenreResponse: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/SceneGenreResponse.json
-             */
-            readonly $schema?: string;
             /** Format: double */
             diversity_index: number;
             diversity_label: string;
@@ -16688,12 +14443,6 @@ export interface components {
             upcoming_show_count: number;
         };
         SceneGraphResponse: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/SceneGraphResponse.json
-             */
-            readonly $schema?: string;
             clusters: components["schemas"]["SceneGraphCluster"][] | null;
             links: components["schemas"]["SceneGraphLink"][] | null;
             nodes: components["schemas"]["SceneGraphNode"][] | null;
@@ -16827,12 +14576,6 @@ export interface components {
             shows: components["schemas"]["SceneShowSummary"][] | null;
         };
         SceneWeekResponse: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/SceneWeekResponse.json
-             */
-            readonly $schema?: string;
             city: string;
             days: components["schemas"]["SceneWeekDay"][] | null;
             end_date: string;
@@ -16908,12 +14651,6 @@ export interface components {
             WriteOnly: boolean;
         };
         SearchArtistsResponseBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/SearchArtistsResponseBody.json
-             */
-            readonly $schema?: string;
             /** @description Matching artists */
             artists: components["schemas"]["ArtistDetailResponse"][] | null;
             /**
@@ -16924,12 +14661,6 @@ export interface components {
         };
         SearchFestivalsResponseBody: {
             /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/SearchFestivalsResponseBody.json
-             */
-            readonly $schema?: string;
-            /**
              * Format: int64
              * @description Number of results
              */
@@ -16938,12 +14669,6 @@ export interface components {
             festivals: components["schemas"]["FestivalListResponse"][] | null;
         };
         SearchLabelsResponseBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/SearchLabelsResponseBody.json
-             */
-            readonly $schema?: string;
             /**
              * Format: int64
              * @description Number of results
@@ -16954,12 +14679,6 @@ export interface components {
         };
         SearchReleasesResponseBody: {
             /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/SearchReleasesResponseBody.json
-             */
-            readonly $schema?: string;
-            /**
              * Format: int64
              * @description Number of results
              */
@@ -16969,12 +14688,6 @@ export interface components {
         };
         SearchShowsResponseBody: {
             /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/SearchShowsResponseBody.json
-             */
-            readonly $schema?: string;
-            /**
              * Format: int64
              * @description Number of results
              */
@@ -16983,21 +14696,9 @@ export interface components {
             shows: components["schemas"]["ShowSearchResult"][] | null;
         };
         SearchTagsResponseBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/SearchTagsResponseBody.json
-             */
-            readonly $schema?: string;
             tags: components["schemas"]["TagListItem"][] | null;
         };
         SearchVenuesResponseBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/SearchVenuesResponseBody.json
-             */
-            readonly $schema?: string;
             /**
              * Format: int64
              * @description Number of results
@@ -17008,24 +14709,12 @@ export interface components {
         };
         SendMagicLinkRequestBody: {
             /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/SendMagicLinkRequestBody.json
-             */
-            readonly $schema?: string;
-            /**
              * @description Email address to send magic link to
              * @example user@example.com
              */
             email: string;
         };
         SendMagicLinkResponseBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/SendMagicLinkResponseBody.json
-             */
-            readonly $schema?: string;
             /**
              * @description Error code for programmatic handling (only set for pre-lookup validation/config errors, never for account state)
              * @example SERVICE_UNAVAILABLE
@@ -17049,12 +14738,6 @@ export interface components {
         };
         SendVerificationEmailResponseBody: {
             /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/SendVerificationEmailResponseBody.json
-             */
-            readonly $schema?: string;
-            /**
              * @description Error code for programmatic handling
              * @example EMAIL_SERVICE_UNAVAILABLE
              */
@@ -17076,12 +14759,6 @@ export interface components {
             success: boolean;
         };
         SeriesComparison: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/SeriesComparison.json
-             */
-            readonly $schema?: string;
             editions: components["schemas"]["SeriesEdition"][] | null;
             /** Format: double */
             lineup_growth: number;
@@ -17124,88 +14801,40 @@ export interface components {
             };
         };
         SetAlertDefaultsRequestBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/SetAlertDefaultsRequestBody.json
-             */
-            readonly $schema?: string;
             /** @description Default channels for new-release alerts */
             releases?: components["schemas"]["AlertChannelDefaultsInput"];
             /** @description Default channels for new-show alerts */
             shows?: components["schemas"]["AlertChannelDefaultsInput"];
         };
         SetChartDefaultsRequestBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/SetChartDefaultsRequestBody.json
-             */
-            readonly $schema?: string;
             /** @description Chart defaults to save; null clears saved defaults */
             defaults?: components["schemas"]["ChartDefaults"];
         };
         SetChartDefaultsResponseBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/SetChartDefaultsResponseBody.json
-             */
-            readonly $schema?: string;
             defaults: components["schemas"]["ChartDefaults"];
             message: string;
             success: boolean;
         };
         SetCollectionDigestRequestBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/SetCollectionDigestRequestBody.json
-             */
-            readonly $schema?: string;
             /** @description Enable or disable the weekly collection-subscription digest email */
             enabled: boolean;
         };
         SetCollectionDigestResponseBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/SetCollectionDigestResponseBody.json
-             */
-            readonly $schema?: string;
             notify_on_collection_digest: boolean;
             success: boolean;
         };
         SetCommentNotificationsRequestBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/SetCommentNotificationsRequestBody.json
-             */
-            readonly $schema?: string;
             /** @description Receive emails when new comments appear on entities you're subscribed to */
             notify_on_comment_subscription?: boolean;
             /** @description Receive emails when someone @mentions you in a comment */
             notify_on_mention?: boolean;
         };
         SetCommentNotificationsResponseBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/SetCommentNotificationsResponseBody.json
-             */
-            readonly $schema?: string;
             notify_on_comment_subscription: boolean;
             notify_on_mention: boolean;
             success: boolean;
         };
         SetDefaultReplyPermissionRequestBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/SetDefaultReplyPermissionRequestBody.json
-             */
-            readonly $schema?: string;
             /**
              * @description Default reply permission: anyone, followers, or author_only
              * @example anyone
@@ -17213,53 +14842,23 @@ export interface components {
             permission: string;
         };
         SetDefaultReplyPermissionResponseBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/SetDefaultReplyPermissionResponseBody.json
-             */
-            readonly $schema?: string;
             default_reply_permission: string;
             success: boolean;
         };
         SetFavoriteCitiesRequestBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/SetFavoriteCitiesRequestBody.json
-             */
-            readonly $schema?: string;
             /** @description List of favorite cities (max 20) */
             cities: components["schemas"]["FavoriteCity"][] | null;
         };
         SetFavoriteCitiesResponseBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/SetFavoriteCitiesResponseBody.json
-             */
-            readonly $schema?: string;
             cities: components["schemas"]["FavoriteCity"][] | null;
             message: string;
             success: boolean;
         };
         SetFeaturedHandlerRequestBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/SetFeaturedHandlerRequestBody.json
-             */
-            readonly $schema?: string;
             /** @description Whether the collection should be featured */
             featured: boolean;
         };
         SetHomeMetroRequestBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/SetHomeMetroRequestBody.json
-             */
-            readonly $schema?: string;
             /**
              * @description Metro CBSA code (e.g. 38060); null or empty clears the home area
              * @example 38060
@@ -17267,72 +14866,30 @@ export interface components {
             metro?: string | null;
         };
         SetSceneDigestRequestBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/SetSceneDigestRequestBody.json
-             */
-            readonly $schema?: string;
             /** @description Enable or disable the weekly followed-scenes digest email */
             enabled: boolean;
         };
         SetSceneDigestResponseBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/SetSceneDigestResponseBody.json
-             */
-            readonly $schema?: string;
             notify_on_scene_digest: boolean;
             success: boolean;
         };
         SetShowCancelledRequestBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/SetShowCancelledRequestBody.json
-             */
-            readonly $schema?: string;
             /** @description true to mark as cancelled, false to clear */
             value: boolean;
         };
         SetShowRemindersRequestBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/SetShowRemindersRequestBody.json
-             */
-            readonly $schema?: string;
             /** @description Enable or disable show reminders */
             enabled: boolean;
         };
         SetShowRemindersResponseBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/SetShowRemindersResponseBody.json
-             */
-            readonly $schema?: string;
             show_reminders: boolean;
             success: boolean;
         };
         SetShowSoldOutRequestBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/SetShowSoldOutRequestBody.json
-             */
-            readonly $schema?: string;
             /** @description true to mark as sold out, false to clear */
             value: boolean;
         };
         SetTagParentRequestBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/SetTagParentRequestBody.json
-             */
-            readonly $schema?: string;
             /**
              * Format: int64
              * @description New parent tag ID, or null to clear parent
@@ -17340,24 +14897,12 @@ export interface components {
             parent_id?: number | null;
         };
         SetTierEditNotificationsRequestBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/SetTierEditNotificationsRequestBody.json
-             */
-            readonly $schema?: string;
             /** @description Receive emails when your submitted edits are approved or rejected */
             notify_on_edit_notifications?: boolean;
             /** @description Receive emails when your contributor tier changes */
             notify_on_tier_notifications?: boolean;
         };
         SetTierEditNotificationsResponseBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/SetTierEditNotificationsResponseBody.json
-             */
-            readonly $schema?: string;
             notify_on_edit_notifications: boolean;
             notify_on_tier_notifications: boolean;
             success: boolean;
@@ -17371,12 +14916,6 @@ export interface components {
             tier_at_target: string;
         };
         ShowAlsoTonightResponse: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/ShowAlsoTonightResponse.json
-             */
-            readonly $schema?: string;
             city?: string;
             date: string;
             has_more: boolean;
@@ -17434,12 +14973,6 @@ export interface components {
             year: number;
         };
         ShowCalendarRange: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/ShowCalendarRange.json
-             */
-            readonly $schema?: string;
             /** @description Earliest addressable venue-local month. A bound on which URLs exist, wide enough to hold the current month in every timezone */
             first_month: components["schemas"]["ShowCalendarMonth"];
             /** @description Latest addressable venue-local month, never earlier than first_month */
@@ -17485,12 +15018,6 @@ export interface components {
             year: number;
         };
         ShowReportResponse: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/ShowReportResponse.json
-             */
-            readonly $schema?: string;
             admin_notes?: string;
             /** Format: date-time */
             created_at: string;
@@ -17519,12 +15046,6 @@ export interface components {
             title: string;
         };
         ShowResponse: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/ShowResponse.json
-             */
-            readonly $schema?: string;
             age_requirement: string | null;
             artists: components["schemas"]["ArtistResponse"][] | null;
             city: string | null;
@@ -17598,12 +15119,6 @@ export interface components {
             last_played: components["schemas"]["ShowTimelineEntry"];
         };
         ShowTimelineResponse: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/ShowTimelineResponse.json
-             */
-            readonly $schema?: string;
             /** Format: int64 */
             headliner_artist_id: number;
             next: components["schemas"]["ShowTimelineEntry"];
@@ -17631,12 +15146,6 @@ export interface components {
             weighted_score: number;
         };
         SitemapEntries: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/SitemapEntries.json
-             */
-            readonly $schema?: string;
             artists: components["schemas"]["SitemapEntry"][] | null;
             festivals: components["schemas"]["SitemapEntry"][] | null;
             labels: components["schemas"]["SitemapEntry"][] | null;
@@ -17666,12 +15175,6 @@ export interface components {
             youtube: string | null;
         };
         SourceConfigInfo: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/SourceConfigInfo.json
-             */
-            readonly $schema?: string;
             /** Format: int64 */
             consecutive_failures: number;
             /** Format: date-time */
@@ -17689,23 +15192,11 @@ export interface components {
             updated_at: string;
         };
         StartOAuthLinkResponseBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/StartOAuthLinkResponseBody.json
-             */
-            readonly $schema?: string;
             success: boolean;
             /** @description One-time token for the /auth/link/{provider} start URL */
             token: string;
         };
         StreamingDiscoveryArtistResponse: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/StreamingDiscoveryArtistResponse.json
-             */
-            readonly $schema?: string;
             /** Format: int64 */
             id: number;
             name: string;
@@ -17729,56 +15220,26 @@ export interface components {
             venue_name?: string;
         };
         StreamingWorklistResult: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/StreamingWorklistResult.json
-             */
-            readonly $schema?: string;
             entries: components["schemas"]["StreamingWorklistEntry"][] | null;
             /** Format: int64 */
             total: number;
         };
         SubscribeResponseBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/SubscribeResponseBody.json
-             */
-            readonly $schema?: string;
             /** @description Whether the subscription was created */
             success: boolean;
         };
         SubscriptionStatusResponse: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/SubscriptionStatusResponse.json
-             */
-            readonly $schema?: string;
             subscribed: boolean;
             /** Format: int64 */
             unread_count: number;
         };
         SuggestEntityEditRequestBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/SuggestEntityEditRequestBody.json
-             */
-            readonly $schema?: string;
             /** @description Field changes to propose */
             changes: components["schemas"]["FieldChange"][] | null;
             /** @description Why you are making this change */
             summary: string;
         };
         SuggestEntityEditResponseBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/SuggestEntityEditResponseBody.json
-             */
-            readonly $schema?: string;
             applied: boolean;
             message: string;
             pending_edit?: components["schemas"]["PendingEditResponse"];
@@ -17803,12 +15264,6 @@ export interface components {
             tag_slug: string;
         };
         TagAliasResponse: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/TagAliasResponse.json
-             */
-            readonly $schema?: string;
             alias: string;
             /** Format: date-time */
             created_at: string;
@@ -17821,12 +15276,6 @@ export interface components {
             user: components["schemas"]["TagUserRef"];
         };
         TagDetailResponse: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/TagDetailResponse.json
-             */
-            readonly $schema?: string;
             aliases?: string[] | null;
             category: string;
             /** Format: int64 */
@@ -17867,12 +15316,6 @@ export interface components {
             preview: components["schemas"]["TaggedEntityItem"][] | null;
         };
         TagIntersectionResponse: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/TagIntersectionResponse.json
-             */
-            readonly $schema?: string;
             groups: components["schemas"]["TagIntersectionGroup"][] | null;
             tag_match: string;
             tags: components["schemas"]["TagSummary"][] | null;
@@ -17891,12 +15334,6 @@ export interface components {
             usage_count: number;
         };
         TagResponse: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/TagResponse.json
-             */
-            readonly $schema?: string;
             aliases?: string[] | null;
             category: string;
             /** Format: int64 */
@@ -18016,32 +15453,14 @@ export interface components {
             venue_slug: string;
         };
         TriggerEnrichmentResponseBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/TriggerEnrichmentResponseBody.json
-             */
-            readonly $schema?: string;
             message: string;
             success: boolean;
         };
         UnfollowResponseBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/UnfollowResponseBody.json
-             */
-            readonly $schema?: string;
             message: string;
             success: boolean;
         };
         UnlinkOAuthAccountResponseBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/UnlinkOAuthAccountResponseBody.json
-             */
-            readonly $schema?: string;
             message: string;
             success: boolean;
         };
@@ -18053,22 +15472,10 @@ export interface components {
             suggested_matches: components["schemas"]["SuggestedMatch"][] | null;
         };
         UnsaveShowResponseBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/UnsaveShowResponseBody.json
-             */
-            readonly $schema?: string;
             message: string;
             success: boolean;
         };
         UnsubscribeCommentSubscriptionRequestBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/UnsubscribeCommentSubscriptionRequestBody.json
-             */
-            readonly $schema?: string;
             /**
              * Format: int64
              * @description Entity ID the user was subscribed to
@@ -18085,42 +15492,18 @@ export interface components {
             uid: number;
         };
         UnsubscribeCommentSubscriptionResponseBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/UnsubscribeCommentSubscriptionResponseBody.json
-             */
-            readonly $schema?: string;
             message: string;
             success: boolean;
         };
         UnsubscribeFilterRequestBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/UnsubscribeFilterRequestBody.json
-             */
-            readonly $schema?: string;
             /** @description HMAC signature */
             sig: string;
         };
         UnsubscribeFilterResponseBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/UnsubscribeFilterResponseBody.json
-             */
-            readonly $schema?: string;
             message: string;
             success: boolean;
         };
         UnsubscribeMentionRequestBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/UnsubscribeMentionRequestBody.json
-             */
-            readonly $schema?: string;
             /** @description HMAC signature */
             sig: string;
             /**
@@ -18130,22 +15513,10 @@ export interface components {
             uid: number;
         };
         UnsubscribeMentionResponseBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/UnsubscribeMentionResponseBody.json
-             */
-            readonly $schema?: string;
             message: string;
             success: boolean;
         };
         UnsubscribeShowRemindersRequestBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/UnsubscribeShowRemindersRequestBody.json
-             */
-            readonly $schema?: string;
             /** @description HMAC signature */
             sig: string;
             /**
@@ -18155,12 +15526,6 @@ export interface components {
             uid: number;
         };
         UnsubscribeShowRemindersResponseBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/UnsubscribeShowRemindersResponseBody.json
-             */
-            readonly $schema?: string;
             message: string;
             success: boolean;
         };
@@ -18181,32 +15546,14 @@ export interface components {
             zipcode: string | null;
         };
         UpdateArtistBandcampRequestBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/UpdateArtistBandcampRequestBody.json
-             */
-            readonly $schema?: string;
             /** @description Bandcamp album or track URL for embedding. Set to null or empty string to clear. */
             bandcamp_embed_url: string | null;
         };
         UpdateArtistSpotifyRequestBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/UpdateArtistSpotifyRequestBody.json
-             */
-            readonly $schema?: string;
             /** @description Spotify artist page URL. Set to null or empty string to clear. */
             spotify_url: string | null;
         };
         UpdateCollectionHandlerRequestBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/UpdateCollectionHandlerRequestBody.json
-             */
-            readonly $schema?: string;
             /** @description Whether other users can add items */
             collaborative?: boolean;
             /** @description Cover image URL */
@@ -18225,12 +15572,6 @@ export interface components {
         };
         UpdateCommentRequestBody: {
             /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/UpdateCommentRequestBody.json
-             */
-            readonly $schema?: string;
-            /**
              * @description Updated comment body (Markdown)
              * @example Updated: Great show last night!
              */
@@ -18239,12 +15580,6 @@ export interface components {
             structured_data?: components["schemas"]["FieldNoteStructuredData"];
         };
         UpdateFestivalArtistHandlerRequestBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/UpdateFestivalArtistHandlerRequestBody.json
-             */
-            readonly $schema?: string;
             /** @description Billing tier */
             billing_tier?: string;
             /** @description Day date (YYYY-MM-DD) */
@@ -18265,12 +15600,6 @@ export interface components {
             venue_id?: number;
         };
         UpdateFestivalRequestBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/UpdateFestivalRequestBody.json
-             */
-            readonly $schema?: string;
             /** @description City */
             city?: string;
             /** @description Country */
@@ -18306,12 +15635,6 @@ export interface components {
             website?: string;
         };
         UpdateFilterRequestBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/UpdateFilterRequestBody.json
-             */
-            readonly $schema?: string;
             /** @description Artist IDs to match */
             artist_ids?: number[];
             /** @description Cities to match [{city, state}] */
@@ -18339,34 +15662,16 @@ export interface components {
             venue_ids?: number[];
         };
         UpdateFollowAlertsRequestBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/UpdateFollowAlertsRequestBody.json
-             */
-            readonly $schema?: string;
             /** @description New-release alerts (artist follows only) */
             releases?: components["schemas"]["FollowAlertPreferenceBody"];
             /** @description New-show alerts for this follow */
             shows?: components["schemas"]["FollowAlertPreferenceBody"];
         };
         UpdateItemHandlerRequestBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/UpdateItemHandlerRequestBody.json
-             */
-            readonly $schema?: string;
             /** @description Notes about this item */
             notes?: string | null;
         };
         UpdateLabelRequestBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/UpdateLabelRequestBody.json
-             */
-            readonly $schema?: string;
             /** @description Bandcamp URL */
             bandcamp?: string;
             /** @description City */
@@ -18406,22 +15711,10 @@ export interface components {
             youtube?: string;
         };
         UpdatePrivacySettingsResponseBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/UpdatePrivacySettingsResponseBody.json
-             */
-            readonly $schema?: string;
             privacy_settings: components["schemas"]["PrivacySettings"];
             success: boolean;
         };
         UpdateProfileRequestBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/UpdateProfileRequestBody.json
-             */
-            readonly $schema?: string;
             /** @description Short bio (max 500 chars) */
             bio?: string;
             /** @description Display name shown on the public profile and attributions (max 100 chars) */
@@ -18441,12 +15734,6 @@ export interface components {
             username?: string;
         };
         UpdateProfileResponseBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/UpdateProfileResponseBody.json
-             */
-            readonly $schema?: string;
             error_code?: string;
             message: string;
             request_id?: string;
@@ -18454,32 +15741,14 @@ export interface components {
             user?: components["schemas"]["User"];
         };
         UpdateProfileVisibilityRequestBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/UpdateProfileVisibilityRequestBody.json
-             */
-            readonly $schema?: string;
             /** @description Profile visibility: public or private */
             visibility: string;
         };
         UpdateProfileVisibilityResponseBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/UpdateProfileVisibilityResponseBody.json
-             */
-            readonly $schema?: string;
             success: boolean;
             visibility: string;
         };
         UpdateReleaseRequestBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/UpdateReleaseRequestBody.json
-             */
-            readonly $schema?: string;
             /** @description Cover art URL */
             cover_art_url?: string;
             /** @description Description */
@@ -18500,56 +15769,26 @@ export interface components {
         };
         UpdateReplyPermissionRequestBody: {
             /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/UpdateReplyPermissionRequestBody.json
-             */
-            readonly $schema?: string;
-            /**
              * @description Reply permission: anyone, followers, or author_only
              * @example followers
              */
             permission: string;
         };
         UpdateRequestHandlerRequestBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/UpdateRequestHandlerRequestBody.json
-             */
-            readonly $schema?: string;
             /** @description Request description */
             description?: string;
             /** @description Request title */
             title?: string;
         };
         UpdateSceneTaglineRequestBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/UpdateSceneTaglineRequestBody.json
-             */
-            readonly $schema?: string;
             /** @description Authored tagline shown under the scene heading, max 80 characters. Send null or an empty string to clear it. */
             tagline: string | null;
         };
         UpdateSceneTaglineResponseBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/UpdateSceneTaglineResponseBody.json
-             */
-            readonly $schema?: string;
             slug: string;
             tagline: string | null;
         };
         UpdateSectionRequestBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/UpdateSectionRequestBody.json
-             */
-            readonly $schema?: string;
             /** @description Section content (markdown) */
             content?: string;
             /** @description Whether section is publicly visible */
@@ -18563,12 +15802,6 @@ export interface components {
             title?: string;
         };
         UpdateShowRequestBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/UpdateShowRequestBody.json
-             */
-            readonly $schema?: string;
             /** @description Age requirement */
             age_requirement?: string;
             /** @description List of artists for the show */
@@ -18616,12 +15849,6 @@ export interface components {
             venues?: components["schemas"]["Venue"][] | null;
         };
         UpdateShowResponseBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/UpdateShowResponseBody.json
-             */
-            readonly $schema?: string;
             age_requirement: string | null;
             artists: components["schemas"]["ArtistResponse"][] | null;
             city: string | null;
@@ -18669,24 +15896,12 @@ export interface components {
             venues: components["schemas"]["VenueResponse"][] | null;
         };
         UpdateStreamingStatusRequestBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/UpdateStreamingStatusRequestBody.json
-             */
-            readonly $schema?: string;
             /** @description Optional admin note. Persisted for no_links_found / skipped. Cleared on re-open. */
             reason?: string;
             /** @description Target status: 'unreviewed', 'linked', 'no_links_found', or 'skipped'. 'candidates_pending' is engine-set and rejected here. */
             status: string;
         };
         UpdateTagRequestBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/UpdateTagRequestBody.json
-             */
-            readonly $schema?: string;
             /** @description Bandcamp URL */
             bandcamp?: string | null;
             /** @description Tag category */
@@ -18708,12 +15923,6 @@ export interface components {
             website?: string | null;
         };
         UpdateVenueRequestBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/UpdateVenueRequestBody.json
-             */
-            readonly $schema?: string;
             /** @description Venue address */
             address?: string;
             /** @description House-default age policy, e.g. all ages, 17+, 21+ (max 100) */
@@ -18790,12 +15999,6 @@ export interface components {
             name: string;
         };
         UserEvaluationResult: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/UserEvaluationResult.json
-             */
-            readonly $schema?: string;
             /** Format: int64 */
             account_age: number;
             /** Format: double */
@@ -18819,12 +16022,6 @@ export interface components {
             user_id: number;
         };
         UserFollowersResponseBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/UserFollowersResponseBody.json
-             */
-            readonly $schema?: string;
             /** Format: int64 */
             follower_count: number;
             is_following: boolean;
@@ -18856,12 +16053,6 @@ export interface components {
             user_id: number;
         };
         UserProfileResponseBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/UserProfileResponseBody.json
-             */
-            readonly $schema?: string;
             /**
              * @description Error code for programmatic handling
              * @example UNAUTHORIZED
@@ -18965,12 +16156,6 @@ export interface components {
             upcoming_show_count: number;
         };
         VenueBillNetworkResponse: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/VenueBillNetworkResponse.json
-             */
-            readonly $schema?: string;
             clusters: components["schemas"]["VenueBillNetworkCluster"][] | null;
             links: components["schemas"]["VenueBillNetworkLink"][] | null;
             nodes: components["schemas"]["VenueBillNetworkNode"][] | null;
@@ -18983,12 +16168,6 @@ export interface components {
             venue_count: number;
         };
         VenueConfirmationResponse: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/VenueConfirmationResponse.json
-             */
-            readonly $schema?: string;
             /** Format: int64 */
             confirmation_count: number;
             /** Format: date-time */
@@ -18996,12 +16175,6 @@ export interface components {
             viewer_has_confirmed: boolean;
         };
         VenueDetailResponse: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/VenueDetailResponse.json
-             */
-            readonly $schema?: string;
             address: string | null;
             age_policy: string | null;
             /** Format: int64 */
@@ -19090,12 +16263,6 @@ export interface components {
             visibility: string;
         };
         VenueFieldNoteListResponse: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/VenueFieldNoteListResponse.json
-             */
-            readonly $schema?: string;
             /** @description Whether more notes exist beyond this page */
             has_more: boolean;
             /** @description Notes ordered best-first (Wilson score DESC), then newest */
@@ -19107,12 +16274,6 @@ export interface components {
             total: number;
         };
         VenueGenreResponse: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/VenueGenreResponse.json
-             */
-            readonly $schema?: string;
             genres: components["schemas"]["GenreCount"][] | null;
         };
         VenueListShowRef: {
@@ -19277,22 +16438,10 @@ export interface components {
             zipcode: string | null;
         };
         VerifyMagicLinkRequestBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/VerifyMagicLinkRequestBody.json
-             */
-            readonly $schema?: string;
             /** @description Magic link token from email */
             token: string;
         };
         VerifyMagicLinkResponseBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/VerifyMagicLinkResponseBody.json
-             */
-            readonly $schema?: string;
             /**
              * @description Error code for programmatic handling
              * @example INVALID_TOKEN
@@ -19323,12 +16472,6 @@ export interface components {
         };
         VoteCommentRequestBody: {
             /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/VoteCommentRequestBody.json
-             */
-            readonly $schema?: string;
-            /**
              * Format: int64
              * @description Vote direction: 1 for upvote, -1 for downvote
              * @example 1
@@ -19336,12 +16479,6 @@ export interface components {
             direction: number;
         };
         VoteRelationshipRequestBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/VoteRelationshipRequestBody.json
-             */
-            readonly $schema?: string;
             /** @description True for upvote, false for downvote */
             is_upvote: boolean;
             /**
@@ -19351,22 +16488,10 @@ export interface components {
             type: string;
         };
         VoteRequestHandlerRequestBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/VoteRequestHandlerRequestBody.json
-             */
-            readonly $schema?: string;
             /** @description True for upvote, false for downvote */
             is_upvote: boolean;
         };
         VoteTagRequestBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/VoteTagRequestBody.json
-             */
-            readonly $schema?: string;
             /** @description True for upvote, false for downvote */
             is_upvote: boolean;
         };
@@ -19408,12 +16533,6 @@ export interface components {
             unread_count: number;
         };
         WatchingListResponse: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/WatchingListResponse.json
-             */
-            readonly $schema?: string;
             /** @description Watch-list rows ordered by last comment activity, newest first */
             items: components["schemas"]["WatchingItem"][] | null;
             /**
@@ -19460,12 +16579,6 @@ export interface components {
             week: string;
         };
         WithdrawEntityRequestResponseBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/WithdrawEntityRequestResponseBody.json
-             */
-            readonly $schema?: string;
             request: components["schemas"]["EntityRequest"];
         };
     };

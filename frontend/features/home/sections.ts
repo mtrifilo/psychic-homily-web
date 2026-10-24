@@ -85,12 +85,8 @@ const SECTIONS_BY_ID = new Map<HomeSectionId, HomeSectionDefinition>(
 
 export type HomeLayoutSectionEntry = components['schemas']['HomeLayoutSection']
 
-/** The stored document, exactly as `user_preferences.home_layout` holds it.
- *  `$schema` is a response-only field the client never sends. */
-export type HomeLayoutDocument = Omit<
-  components['schemas']['HomeLayout'],
-  '$schema'
->
+/** The stored document, exactly as `user_preferences.home_layout` holds it. */
+export type HomeLayoutDocument = components['schemas']['HomeLayout']
 
 /** A registry entry with this viewer's visibility applied, in render order. */
 export interface ResolvedHomeSection extends HomeSectionDefinition {
