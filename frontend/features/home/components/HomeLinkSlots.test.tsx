@@ -111,7 +111,8 @@ const SECTIONS = {
 
 /**
  * Holds every collapse in flight with an animation that does not finish on its
- * own. Returns a function that finishes the held ones, as the browser would.
+ * own. Returns a function that finishes the oldest `count` held ones (all by
+ * default), in the order they started, as the browser would.
  */
 function holdCollapses() {
   const finishers: Array<() => void> = []
@@ -121,7 +122,8 @@ function holdCollapses() {
       return { cancel: vi.fn() } as unknown as Animation
     }
   )
-  return () => act(() => finishers.splice(0).forEach(finish => finish()))
+  return (count = finishers.length) =>
+    act(() => finishers.splice(0, count).forEach(finish => finish()))
 }
 
 /**
@@ -236,10 +238,40 @@ describe('the relocating link rows across every layout', () => {
     expect(cityLinkCount()).toBe(1)
   })
 
+  // Two hides inside one collapse window: the row moves once per hide that
+  // moves it, and never back into the section hidden first while that section
+  // is still collapsing.
+  it('keeps the row put when two sections are hidden inside one collapse', async () => {
+    const user = userEvent.setup()
+    layout = layoutShowing(['nearby_shows', 'radio_shows'])
+    const finishCollapses = holdCollapses()
+    render(<HomeLayoutRuntime initialLayout={null} sections={SECTIONS} />)
+    expect(discoverRowSlot()).toBe('nearby')
+
+    await user.click(screen.getByRole('button', { name: /^Customize home$/ }))
+    layout = layoutShowing(['radio_shows'])
+    await user.click(
+      screen.getByRole('checkbox', { name: 'Shows near you this week' })
+    )
+    expect(discoverRowSlot()).toBe('toolbar')
+
+    layout = layoutShowing([])
+    await user.click(screen.getByRole('checkbox', { name: 'Latest radio shows' }))
+    expect(discoverRowSlot()).toBe('toolbar')
+
+    // The nearby collapse settles first; the radio one is still in flight.
+    finishCollapses(1)
+    expect(discoverRowSlot()).toBe('toolbar')
+
+    finishCollapses()
+    expect(discoverRowSlot()).toBe('empty')
+    expect(cityLinkCount()).toBe(1)
+  })
+
   // The empty state waits for the last section's collapse to finish. Until it
-  // renders, the row stays where it already was (it never stops in the toolbar
-  // on its way from a section to the empty-state line), and it moves there
-  // once the collapse settles.
+  // renders, the row stays where it was before that hide (it never stops in
+  // the toolbar on its way from a section to the empty-state line), and it
+  // moves there once the collapse settles.
   it.each([
     ['radio_shows', 'Latest radio shows', 'toolbar'],
     ['nearby_shows', 'Shows near you this week', 'nearby'],

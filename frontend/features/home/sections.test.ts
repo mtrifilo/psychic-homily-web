@@ -236,7 +236,7 @@ describe('resolveHomeLinkSlots', () => {
   ] as const)(
     'puts the Discover row where the city link goes: %s',
     (_name, layout, slot) => {
-      expect(resolveHomeLinkSlots(layout, visibleIn(layout))).toEqual({
+      expect(resolveHomeLinkSlots(layout, visibleIn(layout), null)).toEqual({
         cityLink: resolveCityLinkSlot(layout),
         discoverLinks: slot,
       })
@@ -244,26 +244,41 @@ describe('resolveHomeLinkSlots', () => {
   )
 
   it('sends the Discover row to the empty state, and only the Discover row', () => {
-    expect(resolveHomeLinkSlots(allHidden, [])).toEqual({
+    expect(resolveHomeLinkSlots(allHidden, [], null)).toEqual({
       cityLink: 'toolbar',
       discoverLinks: 'empty',
     })
   })
 
   // Every section hidden in the layout while the last one is still collapsing
-  // on screen: the empty state has not rendered, so the row stays with what is
-  // still painted instead of stopping in the toolbar on its way there.
+  // on screen: the empty state has not rendered, so the row stays where it was
+  // before that hide instead of stopping in the toolbar on its way there.
   it.each([
     ['nearby_shows', 'nearby'],
     ['saved_shows', 'saved'],
     ['radio_shows', 'toolbar'],
   ] as const)(
-    'keeps the Discover row with the sections on screen while %s collapses last',
+    'keeps the Discover row where it was while %s collapses last',
     (id, slot) => {
-      expect(resolveHomeLinkSlots(allHidden, [id])).toEqual({
+      expect(resolveHomeLinkSlots(allHidden, [id], id)).toEqual({
         cityLink: 'toolbar',
         discoverLinks: slot,
       })
+    }
+  )
+
+  // Two sections collapsing together: the one hidden last decides, so the row
+  // does not hop back into a section hidden earlier that is still collapsing.
+  it.each([
+    [['nearby_shows', 'radio_shows'], 'radio_shows', 'toolbar'],
+    [['radio_shows', 'nearby_shows'], 'nearby_shows', 'nearby'],
+    [['saved_shows', 'nearby_shows'], 'nearby_shows', 'nearby'],
+  ] as const)(
+    'with %j collapsing, follows the last hide (%s)',
+    (onScreen, lastStaged, slot) => {
+      expect(
+        resolveHomeLinkSlots(allHidden, onScreen, lastStaged).discoverLinks
+      ).toBe(slot)
     }
   )
 })

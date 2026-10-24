@@ -113,6 +113,9 @@ export function HomeLayoutRuntime({
       }
       setTransitions(current => {
         const next = new Map(current)
+        // Deleted first so the map's insertion order stays staging order: its
+        // last key is the most recently staged section (see `lastStaged`).
+        next.delete(change.id)
         next.set(change.id, change.visible ? 'expand' : 'collapse')
         return next
       })
@@ -124,7 +127,12 @@ export function HomeLayoutRuntime({
   // screen, and calling the page empty while it animates would unmount it
   // before it finished and strand it in the transition map forever.
   const allHidden = rendered.length === 0
-  const { cityLink, discoverLinks } = resolveHomeLinkSlots(layout, renderedIds)
+  const lastStaged = [...transitions.keys()].at(-1) ?? null
+  const { cityLink, discoverLinks } = resolveHomeLinkSlots(
+    layout,
+    renderedIds,
+    lastStaged
+  )
   // Memoized on the two slots so a render that moves neither (the popover
   // opening, a transition settling) does not re-render every section that
   // reads them.

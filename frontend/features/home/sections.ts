@@ -241,32 +241,32 @@ export interface HomeLinkSlots {
 }
 
 /**
- * `layout` is the viewer's sections with their visibility; `onScreen` names
- * the sections still painted, which includes one mid-collapse.
+ * `layout` is the viewer's sections with their visibility. `onScreen` names
+ * the sections still painted, including any mid-transition, and `lastStaged`
+ * is the section whose show or hide was staged most recently and is still in
+ * flight (null when none is).
  *
- * The empty state renders only once nothing is on screen, so between the last
- * hide and the end of its collapse the layout says every section is hidden
- * while one is still painted. For that window the Discover row stays with the
- * sections still on screen (inside the nearby or saved-shows section that is
- * collapsing away, else the toolbar) rather than stopping in the toolbar for
- * the length of the animation on its way to the empty-state line.
+ * The empty state renders only once nothing is on screen, so between the hide
+ * that empties the layout and the end of its collapse, the layout says every
+ * section is hidden while some are still painted. For that window the Discover
+ * row stays exactly where it was just before that hide: the slot the layout
+ * gives when `lastStaged`, the only section visible before it, is counted as
+ * visible. It neither stops in the toolbar on its way to the empty-state line
+ * nor moves between sections that are collapsing together.
  */
 export function resolveHomeLinkSlots(
   layout: readonly ResolvedHomeSection[],
-  onScreen: readonly HomeSectionId[]
+  onScreen: readonly HomeSectionId[],
+  lastStaged: HomeSectionId | null
 ): HomeLinkSlots {
   const cityLink = resolveCityLinkSlot(layout)
   if (onScreen.length === 0) return { cityLink, discoverLinks: 'empty' }
   const isEmptying = !layout.some(section => section.visible)
+  if (!isEmptying || !lastStaged) return { cityLink, discoverLinks: cityLink }
   return {
     cityLink,
-    discoverLinks: isEmptying
-      ? resolveCityLinkSlot(
-          layout.map(section => ({
-            ...section,
-            visible: onScreen.includes(section.id),
-          }))
-        )
-      : cityLink,
+    discoverLinks: resolveCityLinkSlot(
+      setHomeSectionVisibility(layout, lastStaged, true)
+    ),
   }
 }
