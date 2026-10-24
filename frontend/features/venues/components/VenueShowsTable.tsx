@@ -14,10 +14,12 @@ import {
 } from '@/lib/utils/formatters'
 import { EN_DASH, type MonthGroup } from '@/features/shows/showArchive'
 import {
+  STACKED_TABLE,
   ShowSaveCell,
   ShowSaveHeaderCell,
   type ShowSaveColumnData,
 } from '@/features/shows/components/ShowSaveColumn'
+import { cn } from '@/lib/utils'
 import { groupByMonth } from '../showArchive'
 import type { VenueShow, VenueShowZone } from '../types'
 
@@ -42,10 +44,31 @@ function ShowRow({
   // A show's own state wins over the venue's for date/time formatting; the
   // venue's resolved timezone (when known) wins over the state map (PSY-986).
   const state = show.state ?? zone.venueState
+  const time = formatShowTime(show.event_date, state, zone.venueTimezone)
+  const stacked = saveColumn !== undefined
+  const cell = stacked ? 'cell' : undefined
 
+  // Stacked below `sm` (see STACKED_TABLE): the date, then price and time and
+  // the Save control at the end of the line; the bill.
   return (
-    <tr>
-      <td className="whitespace-nowrap">
+    <tr
+      role={stacked ? 'row' : undefined}
+      className={
+        stacked
+          ? cn(
+              STACKED_TABLE.row,
+              'max-sm:grid-cols-[minmax(0,1fr)_auto_auto_auto]'
+            )
+          : undefined
+      }
+    >
+      <td
+        role={cell}
+        className={cn(
+          'whitespace-nowrap',
+          stacked && 'max-sm:col-start-1 max-sm:row-start-1'
+        )}
+      >
         <Link
           href={`/shows/${show.slug || show.id}`}
           className="hover:text-primary hover:underline underline-offset-2"
@@ -53,25 +76,55 @@ function ShowRow({
           {formatShowDate(show.event_date, state, false, zone.venueTimezone)}
         </Link>
       </td>
-      <td>
+      <td
+        role={cell}
+        className={
+          stacked ? 'max-sm:col-span-full max-sm:row-start-2' : undefined
+        }
+      >
         <ShowBill
           artists={show.artists}
           isCancelled={show.is_cancelled}
           isSoldOut={show.is_sold_out}
         />
       </td>
-      <td className="whitespace-nowrap text-right font-mono text-xs text-muted-foreground">
+      <td
+        role={cell}
+        className={cn(
+          'whitespace-nowrap text-right font-mono text-xs text-muted-foreground',
+          stacked && 'max-sm:col-start-2 max-sm:row-start-1'
+        )}
+      >
         <ShowPrice show={show} fallback={ABSENT} />
       </td>
-      <td className="whitespace-nowrap text-right text-muted-foreground">
+      <td
+        role={cell}
+        className={cn(
+          'whitespace-nowrap text-right text-muted-foreground',
+          stacked && 'max-sm:col-start-3 max-sm:row-start-1'
+        )}
+      >
+        {/* The header names the column at table widths; stacked, the price
+            and the time share a line and the dot separates them. */}
+        {stacked && time && (
+          <span aria-hidden="true" className="sm:hidden">
+            {'· '}
+          </span>
+        )}
         {/* Empty, not `ABSENT`, on a guessed zone. The en dash next door says
             "nobody recorded a price"; a withheld clock is a time the row HAS and
             declines to name on a zone it cannot trust. The cell stays for the
             column count, and the column stays because `show.state` overrides the
             venue's per row, so emptiness here is never uniform. */}
-        {formatShowTime(show.event_date, state, zone.venueTimezone)}
+        {time}
       </td>
-      {saveColumn && <ShowSaveCell showId={show.id} column={saveColumn} />}
+      {saveColumn && (
+        <ShowSaveCell
+          showId={show.id}
+          column={saveColumn}
+          className="max-sm:col-start-4 max-sm:row-start-1"
+        />
+      )}
     </tr>
   )
 }
@@ -123,18 +176,36 @@ export function VenueShowsTable({
     [groupByMonthHeadings, shows, zone]
   )
 
+  const stacked = saveColumn !== undefined
+  const header = stacked ? 'columnheader' : undefined
+
   return (
-    <DenseTable variant="alternating" aria-label={ariaLabel}>
-      <thead>
-        <tr>
-          <th>Date</th>
-          <th>Bill</th>
-          <th className="text-right">Price</th>
-          <th className="text-right">Time</th>
+    <DenseTable
+      variant="alternating"
+      aria-label={ariaLabel}
+      role={stacked ? 'table' : undefined}
+      className={stacked ? STACKED_TABLE.table : undefined}
+    >
+      <thead
+        role={stacked ? 'rowgroup' : undefined}
+        className={stacked ? STACKED_TABLE.head : undefined}
+      >
+        <tr role={stacked ? 'row' : undefined}>
+          <th role={header}>Date</th>
+          <th role={header}>Bill</th>
+          <th role={header} className="text-right">
+            Price
+          </th>
+          <th role={header} className="text-right">
+            Time
+          </th>
           {saveColumn && <ShowSaveHeaderCell />}
         </tr>
       </thead>
-      <tbody>
+      <tbody
+        role={stacked ? 'rowgroup' : undefined}
+        className={stacked ? STACKED_TABLE.body : undefined}
+      >
         {groups === null
           ? shows.map(show => (
               <ShowRow

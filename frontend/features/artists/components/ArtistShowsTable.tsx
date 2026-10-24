@@ -14,10 +14,12 @@ import {
   type MonthGroup,
 } from '@/features/shows/showArchive'
 import {
+  STACKED_TABLE,
   ShowSaveCell,
   ShowSaveHeaderCell,
   type ShowSaveColumnData,
 } from '@/features/shows/components/ShowSaveColumn'
+import { cn } from '@/lib/utils'
 import { formatLocation, LOCATION_UNKNOWN } from '@/lib/formatLocation'
 import {
   formatShowDate,
@@ -42,9 +44,31 @@ const ABSENT = EN_DASH
  * list is already scoped to one place, an artist's is not, so the place is the
  * second most important thing in the row after who played.
  */
-function VenueContext({ venue }: { venue: ArtistShow['venue'] }) {
+function VenueContext({
+  venue,
+  stacked,
+}: {
+  venue: ArtistShow['venue']
+  stacked: boolean
+}) {
+  // Stacked, the place is the row's last line rather than a run-on of the
+  // bill: a full-width flex item after the status badges, with no separator.
+  const className = cn(
+    'text-muted-foreground',
+    stacked && 'max-sm:order-last max-sm:basis-full'
+  )
+  const separator = stacked ? (
+    <span className="max-sm:hidden">{'· '}</span>
+  ) : (
+    '· '
+  )
   if (!venue) {
-    return <span className="text-muted-foreground">· Venue TBA</span>
+    return (
+      <span className={className}>
+        {separator}
+        Venue TBA
+      </span>
+    )
   }
   // The locked PSY-558/780 rule, not a hand-rolled `${city}, ${state}` — which
   // is the exact drift PSY-780 consolidated away. It matters most here: an
@@ -54,8 +78,8 @@ function VenueContext({ venue }: { venue: ArtistShow['venue'] }) {
   // the constant for precisely this composition case).
   const location = formatLocation({ city: venue.city, state: venue.state })
   return (
-    <span className="text-muted-foreground">
-      {'· '}
+    <span className={className}>
+      {separator}
       {/* Unlinked without a slug: the backend leaves it empty for venues that
           predate the backfill, and `/venues/` is a 404, not a venue page. */}
       {venue.slug ? (
@@ -81,10 +105,28 @@ function ShowRow({
   saveColumn?: ShowSaveColumnData
 }) {
   const zone = artistShowZone(show)
+  const stacked = saveColumn !== undefined
+  const cell = stacked ? 'cell' : undefined
 
+  // Stacked below `sm` (see STACKED_TABLE): the date and time, then the Save
+  // control at the end of the line; the bill; the place. The price has no line
+  // there and stays in the row for assistive tech.
   return (
-    <tr>
-      <td className="whitespace-nowrap">
+    <tr
+      role={stacked ? 'row' : undefined}
+      className={
+        stacked
+          ? cn(STACKED_TABLE.row, 'max-sm:grid-cols-[auto_minmax(0,1fr)_auto]')
+          : undefined
+      }
+    >
+      <td
+        role={cell}
+        className={cn(
+          'whitespace-nowrap',
+          stacked && 'max-sm:col-start-1 max-sm:row-start-1'
+        )}
+      >
         <Link
           href={`/shows/${show.slug || show.id}`}
           className="hover:text-primary hover:underline underline-offset-2"
@@ -92,26 +134,49 @@ function ShowRow({
           {formatShowDate(show.event_date, zone.state, false, zone.timezone)}
         </Link>
       </td>
-      <td>
+      <td
+        role={cell}
+        className={
+          stacked ? 'max-sm:col-span-full max-sm:row-start-2' : undefined
+        }
+      >
         <ShowBill
           artists={show.artists}
           isCancelled={show.is_cancelled}
           isSoldOut={show.is_sold_out}
-          afterBill={<VenueContext venue={show.venue} />}
+          afterBill={<VenueContext venue={show.venue} stacked={stacked} />}
           linkTreatment="restrained"
         />
       </td>
-      <td className="whitespace-nowrap text-right font-mono text-xs text-muted-foreground">
+      <td
+        role={cell}
+        className={cn(
+          'whitespace-nowrap text-right font-mono text-xs text-muted-foreground',
+          stacked && STACKED_TABLE.offLine
+        )}
+      >
         <ShowPrice show={show} fallback={ABSENT} />
       </td>
-      <td className="whitespace-nowrap text-right text-muted-foreground">
+      <td
+        role={cell}
+        className={cn(
+          'whitespace-nowrap text-right text-muted-foreground',
+          stacked && 'max-sm:col-start-2 max-sm:row-start-1 max-sm:text-left'
+        )}
+      >
         {/* Empty, not `ABSENT`, on a guessed zone. The en dash says "nobody
             recorded this"; a withheld clock is a time the row HAS and declines
             to name on a zone it cannot trust. The cell stays for the column
             count. */}
         {formatShowTime(show.event_date, zone.state, zone.timezone)}
       </td>
-      {saveColumn && <ShowSaveCell showId={show.id} column={saveColumn} />}
+      {saveColumn && (
+        <ShowSaveCell
+          showId={show.id}
+          column={saveColumn}
+          className="max-sm:col-start-3 max-sm:row-start-1"
+        />
+      )}
     </tr>
   )
 }
@@ -174,21 +239,39 @@ export function ArtistShowsTable({
     [groupByMonthHeadings, shows]
   )
 
+  const stacked = saveColumn !== undefined
+  const header = stacked ? 'columnheader' : undefined
+
   return (
-    <DenseTable variant="alternating" aria-label={ariaLabel}>
-      <thead>
-        <tr>
-          <th>Date</th>
+    <DenseTable
+      variant="alternating"
+      aria-label={ariaLabel}
+      role={stacked ? 'table' : undefined}
+      className={stacked ? STACKED_TABLE.table : undefined}
+    >
+      <thead
+        role={stacked ? 'rowgroup' : undefined}
+        className={stacked ? STACKED_TABLE.head : undefined}
+      >
+        <tr role={stacked ? 'row' : undefined}>
+          <th role={header}>Date</th>
           {/* Not just "Bill", which the venue twin can say: this cell also
               carries the venue and city, and a screen reader announces the
               column header with every cell in it. */}
-          <th>Bill · Venue</th>
-          <th className="text-right">Price</th>
-          <th className="text-right">Time</th>
+          <th role={header}>Bill · Venue</th>
+          <th role={header} className="text-right">
+            Price
+          </th>
+          <th role={header} className="text-right">
+            Time
+          </th>
           {saveColumn && <ShowSaveHeaderCell />}
         </tr>
       </thead>
-      <tbody>
+      <tbody
+        role={stacked ? 'rowgroup' : undefined}
+        className={stacked ? STACKED_TABLE.body : undefined}
+      >
         {groups === null
           ? shows.map(show => (
               <ShowRow key={show.id} show={show} saveColumn={saveColumn} />
