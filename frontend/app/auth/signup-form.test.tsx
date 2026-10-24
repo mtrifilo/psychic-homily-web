@@ -626,7 +626,9 @@ describe('SignupForm deferred validation', () => {
       expect(screen.queryByText(CONSENT_VERSIONS_CHANGED)).not.toBeInTheDocument()
     })
 
-    it('asks for a reload, and blocks every sign-up control, when the route publishes other versions', async () => {
+    // Google is the same entry as on Sign in and gathers no consent here, so
+    // it stays usable: the step after Google reads the versions itself.
+    it('asks for a reload, and blocks every control that records consent, when the route publishes other versions', async () => {
       publishInTurn(() => versionsBody(NEWER_VERSIONS_BODY))
       const { user } = await renderSignupForm()
 
@@ -637,7 +639,7 @@ describe('SignupForm deferred validation', () => {
       await user.click(screen.getByRole('checkbox', { name: AGE_CHECKBOX }))
 
       expect(screen.getByRole('button', { name: 'Create account' })).toBeDisabled()
-      expect(latestButtonProps(googleOAuthProps)).toMatchObject({ disabled: true })
+      expect(latestButtonProps(googleOAuthProps)).not.toHaveProperty('disabled')
       expect(latestButtonProps(passkeySignupProps)).toMatchObject({ versionsChanged: true })
       expect(mockRegisterMutate).not.toHaveBeenCalled()
     })
