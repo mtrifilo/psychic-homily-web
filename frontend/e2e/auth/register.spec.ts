@@ -67,7 +67,7 @@ test.describe('Registration', () => {
     await page.locator('#signup-email').fill('short-password@test.local')
     await page.locator('#signup-password').fill('short')
     await page.locator('#terms').check()
-    await page.locator('#age-confirmation').check()
+    await fillDateOfBirth(page, 'signup-dob')
 
     // Password strength meter should show unmet requirements
     await expect(
