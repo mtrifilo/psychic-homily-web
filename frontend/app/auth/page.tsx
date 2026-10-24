@@ -53,7 +53,7 @@ import {
   isReauthReason,
   needsSignupConsent,
 } from '@/lib/auth-href'
-import { isAccountRecoverable, isAuthError } from '@/lib/errors'
+import { isAccountRecoverable, isAuthError, type AuthError } from '@/lib/errors'
 import { getUniqueErrors } from '@/lib/utils/formErrors'
 import { MIN_SIGNUP_AGE } from '@/lib/legal'
 import {
@@ -122,10 +122,18 @@ function LoginForm({ returnTo }: { returnTo: string }) {
   const sendMagicLink = useSendMagicLink()
   const { setUser } = useAuthContext()
   const [showPassword, setShowPassword] = useState(false)
-  const [passkeyError, setPasskeyError] = useState<string | null>(null)
+  const [passkeyError, setPasskeyError] = useState<AuthError | null>(null)
   const [magicLinkSent, setMagicLinkSent] = useState(false)
   const [magicLinkError, setMagicLinkError] = useState<string | null>(null)
-  const loginRefusedRecoverable = isAccountRecoverable(loginMutation.error)
+  // The alert shows the most recent refusal: a password submit clears the
+  // passkey error and a passkey refusal resets the password error, so at most
+  // one of the two is set.
+  const signInError = loginMutation.error ?? passkeyError
+
+  const reportPasskeyError = (error: AuthError) => {
+    loginMutation.reset()
+    setPasskeyError(error)
+  }
 
   const form = useForm({
     defaultValues: {
@@ -133,6 +141,7 @@ function LoginForm({ returnTo }: { returnTo: string }) {
       password: '',
     } as LoginFormData,
     onSubmit: async ({ value }) => {
+      setPasskeyError(null)
       loginMutation.mutate(value, {
         onSuccess: data => {
           if (data.user) {
@@ -187,14 +196,14 @@ function LoginForm({ returnTo }: { returnTo: string }) {
       }}
       className="space-y-4"
     >
-      {(loginMutation.error || passkeyError) && (
+      {signInError && (
         <Alert variant="destructive">
           <AlertCircle className="h-4 w-4" />
           <AlertDescription>
-            {loginRefusedRecoverable ? (
+            {isAccountRecoverable(signInError) ? (
               <AccountRecoverableMessage />
             ) : (
-              loginMutation.error?.message || passkeyError
+              signInError.message
             )}
           </AlertDescription>
         </Alert>
@@ -208,7 +217,7 @@ function LoginForm({ returnTo }: { returnTo: string }) {
           returnTo={returnTo}
         />
         <PasskeyLoginButton
-          onError={setPasskeyError}
+          onError={reportPasskeyError}
           className="w-full"
           returnTo={returnTo}
         />

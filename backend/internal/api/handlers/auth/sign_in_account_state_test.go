@@ -20,7 +20,7 @@ import (
 
 // An account that may not sign in (deactivated, or soft-deleted) is refused on
 // the Google, Apple and passkey sign-in paths, and no session is minted. An
-// active account on the same path signs in. Google and Apple refuse a deleted
+// active account on the same path signs in. Each path refuses a deleted
 // account inside its recovery window with ACCOUNT_RECOVERABLE; every other
 // refusal here is ACCOUNT_INACTIVE.
 
@@ -34,9 +34,10 @@ type accountState struct {
 	recoverable bool
 }
 
-// providerRefusal is the refusal the Google and Apple callbacks give an
-// identity attached to an account in this state that may not sign in.
-func (state accountState) providerRefusal() *autherrors.AuthError {
+// closedAccountRefusal is the refusal a sign-in that proved the account's own
+// credential or identity (a passkey, or a Google or Apple identity attached to
+// it) gets for an account in this state that may not sign in.
+func (state accountState) closedAccountRefusal() *autherrors.AuthError {
 	if state.recoverable {
 		return autherrors.ErrAccountRecoverable()
 	}
@@ -101,7 +102,7 @@ func (s *OAuthHandlerIntegrationSuite) TestGoogleCallback_AccountState_WebRedire
 				return
 			}
 
-			s.assertAuthPageRefusal(w, state.providerRefusal())
+			s.assertAuthPageRefusal(w, state.closedAccountRefusal())
 		})
 	}
 }
@@ -136,7 +137,7 @@ func (s *OAuthHandlerIntegrationSuite) TestGoogleCallback_AccountState_CLIRedire
 
 			// The loopback redirect carries the message alone, as every CLI
 			// error redirect does, and never a token.
-			s.Equal(url.Values{"error": {state.providerRefusal().UserMessage()}}, location.Query())
+			s.Equal(url.Values{"error": {state.closedAccountRefusal().UserMessage()}}, location.Query())
 			s.assertNoSessionCookie(w)
 		})
 	}
@@ -183,7 +184,7 @@ func (s *OAuthHandlerIntegrationSuite) TestAppleCallback_AccountState() {
 				return
 			}
 
-			refusal := state.providerRefusal()
+			refusal := state.closedAccountRefusal()
 			s.False(resp.Body.Success)
 			s.Equal(refusal.Code, resp.Body.ErrorCode)
 			s.Equal(refusal.UserMessage(), resp.Body.Message)
@@ -199,7 +200,6 @@ func (s *OAuthHandlerIntegrationSuite) TestAppleCallback_AccountState() {
 // verifies it and decides on the account, and the real JWT service mints any
 // session.
 func (s *OAuthHandlerIntegrationSuite) TestPasskeyFinishLogin_AccountState() {
-	inactive := autherrors.ErrAccountInactive()
 	webauthnService := newTestWebAuthnService(s.T(), s.deps.DB)
 	h := NewPasskeyHandler(webauthnService, s.jwtService(), s.deps.UserService, &testhelpers.MockEmailService{}, s.cfg)
 
@@ -237,9 +237,10 @@ func (s *OAuthHandlerIntegrationSuite) TestPasskeyFinishLogin_AccountState() {
 				return
 			}
 
+			refusal := state.closedAccountRefusal()
 			s.False(resp.Body.Success)
-			s.Equal(autherrors.CodeAccountInactive, resp.Body.ErrorCode)
-			s.Equal(inactive.UserMessage(), resp.Body.Message)
+			s.Equal(refusal.Code, resp.Body.ErrorCode)
+			s.Equal(refusal.UserMessage(), resp.Body.Message)
 			s.Empty(resp.SetCookie.Value)
 			s.Nil(resp.Body.User)
 			s.Nil(stored.LastUsedAt, "a refused sign-in records no use of the credential")

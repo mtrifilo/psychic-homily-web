@@ -20,6 +20,7 @@ import (
 	"psychic-homily-backend/internal/logger"
 	authm "psychic-homily-backend/internal/models/auth"
 	"psychic-homily-backend/internal/services/contracts"
+	servicesshared "psychic-homily-backend/internal/services/shared"
 )
 
 // MinSignupAge is legal.MinSignupAge, the minimum age a sign-up must confirm.
@@ -1301,13 +1302,16 @@ func (h *AuthHandler) VerifyMagicLinkHandler(ctx context.Context, input *VerifyM
 	}
 
 	// An account that may not sign in (deactivated or soft-deleted) is refused
-	// with ACCOUNT_INACTIVE, in the HTTP 200 envelope this handler's other
-	// refusals use.
+	// in the HTTP 200 envelope this handler's other refusals use: with
+	// ACCOUNT_RECOVERABLE when account recovery can restore it, since the link
+	// already proved the mailbox recovery mails, and ACCOUNT_INACTIVE
+	// otherwise (shared.ClosedAccountRefusal).
 	if !user.CanSignIn() {
+		refusal := servicesshared.ClosedAccountRefusal(user)
 		logger.AuthWarn(ctx, "magic_link_user_inactive",
 			"user_id", user.ID,
+			"code", refusal.Code,
 		)
-		refusal := autherrors.ErrAccountInactive()
 		resp.Body.Success = false
 		resp.Body.Message = refusal.UserMessage()
 		resp.Body.ErrorCode = refusal.Code

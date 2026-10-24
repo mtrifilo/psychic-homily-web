@@ -68,7 +68,15 @@ const mockLoginMutate = vi.fn()
 let mockLoginError: Error | null = null
 
 vi.mock('@/features/auth', () => ({
-  useLogin: () => ({ mutate: mockLoginMutate, isPending: false, error: mockLoginError }),
+  useLogin: () => ({
+    mutate: mockLoginMutate,
+    // As the real mutation's reset does, clears the error it reports.
+    reset: () => {
+      mockLoginError = null
+    },
+    isPending: false,
+    error: mockLoginError,
+  }),
   useRegister: () => ({ mutate: vi.fn(), isPending: false, error: null as Error | null }),
   useSendMagicLink: () => ({ mutate: vi.fn(), isPending: false }),
   // Pulled in by the check-your-inbox interstitial (PSY-1900). Mocking the
@@ -90,8 +98,10 @@ vi.mock('@/features/auth', () => ({
 const passkeyLoginProps = vi.fn()
 const passkeySignupProps = vi.fn()
 
+type PasskeyLoginProps = { returnTo?: string; onError?: (error: AuthError) => void }
+
 vi.mock('@/app/auth/_components/passkey-login', () => ({
-  PasskeyLoginButton: (props: { returnTo?: string }) => {
+  PasskeyLoginButton: (props: PasskeyLoginProps) => {
     passkeyLoginProps(props)
     return <div data-testid="passkey-login" data-return-to={props.returnTo} />
   },
@@ -583,9 +593,9 @@ describe('AuthPage', () => {
   })
 
   // A deleted account inside its recovery window is refused with
-  // ACCOUNT_RECOVERABLE on password sign-in and on the OAuth callback. Both
-  // surfaces answer in the page's own words with a link to account recovery,
-  // never in the text the refusal carried.
+  // ACCOUNT_RECOVERABLE on password and passkey sign-in and on the OAuth
+  // callback. Each surface answers in the page's own words with a link to
+  // account recovery, never in the text the refusal carried.
   describe('recoverable account refusal', () => {
     function expectRecoveryOffer() {
       const link = screen.getByRole('link', { name: ACCOUNT_RECOVERABLE_LINK_TEXT })
@@ -604,6 +614,78 @@ describe('AuthPage', () => {
       expectRecoveryOffer()
       expect(
         screen.queryByText('Server copy for the recoverable refusal')
+      ).not.toBeInTheDocument()
+    })
+
+    // The passkey button reports a refusal with the code the server answered.
+    function refusePasskeySignIn(error: AuthError) {
+      const props = passkeyLoginProps.mock.lastCall?.[0] as PasskeyLoginProps
+      act(() => props.onError?.(error))
+    }
+
+    it('offers recovery when passkey sign-in is refused with the code', () => {
+      renderWithProviders(<AuthPage />)
+      refusePasskeySignIn(
+        new AuthError(
+          'Server copy for the recoverable refusal',
+          AuthErrorCode.ACCOUNT_RECOVERABLE
+        )
+      )
+
+      expectRecoveryOffer()
+      expect(
+        screen.queryByText('Server copy for the recoverable refusal')
+      ).not.toBeInTheDocument()
+    })
+
+    it('keeps the message of a passkey refusal with any other code', () => {
+      renderWithProviders(<AuthPage />)
+      refusePasskeySignIn(
+        new AuthError(
+          'Account unavailable. Please contact support.',
+          AuthErrorCode.ACCOUNT_INACTIVE
+        )
+      )
+
+      expect(
+        screen.getByText('Account unavailable. Please contact support.')
+      ).toBeInTheDocument()
+      expect(
+        screen.queryByRole('link', { name: ACCOUNT_RECOVERABLE_LINK_TEXT })
+      ).not.toBeInTheDocument()
+    })
+
+    it('shows a passkey refusal that follows a password refusal', () => {
+      mockLoginError = new AuthError(
+        'Invalid email or password',
+        AuthErrorCode.INVALID_CREDENTIALS
+      )
+      renderWithProviders(<AuthPage />)
+      expect(screen.getByText('Invalid email or password')).toBeInTheDocument()
+
+      refusePasskeySignIn(
+        new AuthError('Server copy', AuthErrorCode.ACCOUNT_RECOVERABLE)
+      )
+
+      expectRecoveryOffer()
+      expect(screen.queryByText('Invalid email or password')).not.toBeInTheDocument()
+    })
+
+    it('drops a passkey refusal when the password form is submitted', async () => {
+      const user = userEvent.setup()
+      renderWithProviders(<AuthPage />)
+      refusePasskeySignIn(
+        new AuthError('Server copy', AuthErrorCode.ACCOUNT_RECOVERABLE)
+      )
+      expectRecoveryOffer()
+
+      await user.type(screen.getByLabelText('Email'), 'someone@example.com')
+      await user.type(screen.getByLabelText('Password'), 'a-password')
+      await user.click(screen.getByRole('button', { name: /^sign in$/i }))
+
+      await waitFor(() => expect(mockLoginMutate).toHaveBeenCalled())
+      expect(
+        screen.queryByRole('link', { name: ACCOUNT_RECOVERABLE_LINK_TEXT })
       ).not.toBeInTheDocument()
     })
 

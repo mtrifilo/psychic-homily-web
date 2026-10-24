@@ -5,9 +5,9 @@ export const ACCOUNT_RECOVERABLE_MESSAGE =
 export const ACCOUNT_RECOVERABLE_LINK_TEXT = 'Recover your account'
 
 /**
- * What the auth page shows for ACCOUNT_RECOVERABLE, wherever a sign-in is
- * refused with it: the password form's alert and the OAuth refusal banner.
- * Fixed copy: the server's message for the code is not rendered here.
+ * What the auth pages show for ACCOUNT_RECOVERABLE, wherever a sign-in is
+ * refused with it. Fixed copy: the server's message for the code is not
+ * rendered here.
  */
 export function AccountRecoverableMessage() {
   return (

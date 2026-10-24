@@ -2,9 +2,11 @@
 
 import { Suspense, useEffect, useRef } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
-import { Loader2, CheckCircle2, AlertCircle, Mail, ServerCrash } from 'lucide-react'
+import { Loader2, CheckCircle2, AlertCircle, Mail, RotateCcw, ServerCrash } from 'lucide-react'
 import { useVerifyMagicLink } from '@/features/auth'
+import { AccountRecoverableMessage } from '@/app/auth/_components/account-recoverable-message'
 import { useAuthContext } from '@/lib/context/AuthContext'
+import { isAccountRecoverable } from '@/lib/errors'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 
@@ -127,6 +129,32 @@ function MagicLinkContent() {
     )
   }
 
+  // A deleted account that account recovery can still restore. The page's own
+  // copy and link answer the code; the text the refusal carried is not shown.
+  if (isAccountRecoverable(verifyMagicLink.error)) {
+    return (
+      <div className="flex min-h-[calc(100vh-64px)] items-center justify-center px-4 py-12">
+        <Card className="w-full max-w-md border-border/50 bg-card/50 backdrop-blur-sm">
+          <CardHeader className="text-center">
+            <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-primary/10">
+              <RotateCcw className="h-6 w-6 text-primary" />
+            </div>
+            <CardTitle>Account deleted</CardTitle>
+            <CardDescription>
+              <AccountRecoverableMessage />
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="flex justify-center">
+            {/* Outline, so the recovery link in the description leads. */}
+            <Button variant="outline" onClick={() => router.push('/auth')}>
+              Back to Sign In
+            </Button>
+          </CardContent>
+        </Card>
+      </div>
+    )
+  }
+
   // Server-side / transport failure (5xx mint failure post-PSY-875, or a
   // network outage). Requesting a new link won't help, so offer a retry of the
   // same token instead of the "Link Expired" request-new-link CTA.
@@ -161,7 +189,9 @@ function MagicLinkContent() {
   }
 
   // Expired / invalid token (body-encoded INVALID_TOKEN, HTTP 200 + AuthError
-  // status 401). A new link is the correct remedy here.
+  // status 401). A new link is the correct remedy here. Every other refusal in
+  // that envelope (ACCOUNT_INACTIVE, UNAUTHORIZED) also lands on this card,
+  // with the server's message.
   return (
     <div className="flex min-h-[calc(100vh-64px)] items-center justify-center px-4 py-12">
       <Card className="w-full max-w-md border-border/50 bg-card/50 backdrop-blur-sm">

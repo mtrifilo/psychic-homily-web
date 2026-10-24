@@ -287,9 +287,10 @@ const (
 	// edit here changes only what a CLI or a curl reader sees. Keep the two
 	// saying the same thing.
 	reauthRequiredMessage = "For security, sign in again before making this change."
-	// The browser auth page renders its own copy for ACCOUNT_RECOVERABLE with
-	// a link to account recovery (frontend/app/auth/page.tsx), so this string
-	// is what a CLI, a native client or a curl reader sees.
+	// The browser auth pages render their own copy for ACCOUNT_RECOVERABLE
+	// with a link to account recovery
+	// (frontend/app/auth/_components/account-recoverable-message.tsx), so this
+	// string is what a CLI, a native client or a curl reader sees.
 	accountRecoverableMessage = "This account was deleted recently and can still be recovered. Request a recovery email from account recovery on the website."
 )
 

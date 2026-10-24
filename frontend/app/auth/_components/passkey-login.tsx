@@ -16,9 +16,16 @@ import { useWebAuthnSupport } from '@/features/auth/hooks/useWebAuthnSupport'
 import { authenticationOptionsFrom } from '@/features/auth/passkeyOptions'
 import type { components } from '@/types/api'
 import { API_BASE_URL } from '@/lib/api-base'
+import { AuthError, AuthErrorCode } from '@/lib/errors'
 
 interface PasskeyLoginButtonProps {
-  onError?: (error: string) => void
+  /**
+   * Called when a sign-in does not complete, except when the viewer cancels
+   * the passkey prompt. A begin or finish response with `success: false`
+   * carries its `error_code` and HTTP status on the error; anything else is
+   * coded UNKNOWN.
+   */
+  onError?: (error: AuthError) => void
   className?: string
   returnTo?: string
 }
@@ -37,7 +44,9 @@ export function PasskeyLoginButton({
 
   const handlePasskeyLogin = async () => {
     if (!supportsWebAuthn) {
-      onError?.('Your browser does not support passkeys')
+      onError?.(
+        new AuthError('Your browser does not support passkeys', AuthErrorCode.UNKNOWN)
+      )
       return
     }
 
@@ -57,7 +66,12 @@ export function PasskeyLoginButton({
 
       const startFailure = 'Failed to start passkey login'
       if (!beginData.success) {
-        throw new Error(beginData.message || startFailure)
+        throw AuthError.fromResponse({
+          message: beginData.message || startFailure,
+          error_code: beginData.error_code,
+          request_id: beginData.request_id,
+          status: beginResponse.status,
+        })
       }
       const optionsJSON = authenticationOptionsFrom(beginData.options)
       if (!optionsJSON) {
@@ -81,7 +95,12 @@ export function PasskeyLoginButton({
       const finishData: AuthResponse = await finishResponse.json()
 
       if (!finishData.success) {
-        throw new Error(finishData.message || 'Failed to complete passkey login')
+        throw AuthError.fromResponse({
+          message: finishData.message || 'Failed to complete passkey login',
+          error_code: finishData.error_code,
+          request_id: finishData.request_id,
+          status: finishResponse.status,
+        })
       }
 
       // Success - update auth context and redirect
@@ -103,24 +122,19 @@ export function PasskeyLoginButton({
 
       router.push(returnTo)
     } catch (error) {
-      // Handle user cancellation gracefully
-      if (error instanceof Error) {
-        if (error.name === 'NotAllowedError') {
-          // User cancelled the operation
-          return
-        }
-        Sentry.captureException(error, {
-          level: 'error',
-          tags: { service: 'passkey-auth', error_type: 'login_failed' },
-        })
-        onError?.(error.message)
-      } else {
-        Sentry.captureException(error, {
-          level: 'error',
-          tags: { service: 'passkey-auth', error_type: 'login_failed' },
-        })
-        onError?.('An unexpected error occurred')
+      // The viewer cancelled the passkey prompt: nothing to report.
+      if (error instanceof Error && error.name === 'NotAllowedError') {
+        return
       }
+      Sentry.captureException(error, {
+        level: 'error',
+        tags: { service: 'passkey-auth', error_type: 'login_failed' },
+      })
+      onError?.(
+        error instanceof Error
+          ? AuthError.fromUnknown(error)
+          : new AuthError('An unexpected error occurred', AuthErrorCode.UNKNOWN)
+      )
     } finally {
       setIsLoading(false)
     }

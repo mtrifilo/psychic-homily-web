@@ -285,6 +285,7 @@ func TestPasskeyWire_RegisterFinishWithoutDisplayName(t *testing.T) {
 // with a 5xx that carries none of the cause.
 func TestPasskeyWire_LoginFinishErrorClasses(t *testing.T) {
 	inactive := autherrors.ErrAccountInactive()
+	recoverable := autherrors.ErrAccountRecoverable()
 
 	outcomes := []struct {
 		name string
@@ -300,6 +301,13 @@ func TestPasskeyWire_LoginFinishErrorClasses(t *testing.T) {
 			name: "account may not sign in",
 			err:  inactive,
 			want: wireOutcome{http.StatusOK, autherrors.CodeAccountInactive, inactive.UserMessage()},
+		},
+		{
+			// A refusal, not a failure, although the code's status in the
+			// map is 403.
+			name: "account recoverable",
+			err:  recoverable,
+			want: wireOutcome{http.StatusOK, autherrors.CodeAccountRecoverable, recoverable.UserMessage()},
 		},
 		{
 			name: "service failure",

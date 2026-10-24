@@ -175,12 +175,18 @@ func refusePasskey(internal error) *apperrors.AuthError {
 	return apperrors.NewAuthError(apperrors.CodeInvalidCredentials, invalidPasskeyMessage, internal)
 }
 
-// refuseInactiveAccount is apperrors.ErrAccountInactive carrying the refused
-// account's id in its internal error, which callers log and clients never see.
+// withRefusedAccount sets refusal's internal error, which callers log and
+// clients never see, to name account userID as one that may not sign in, and
+// returns refusal. refusal must be a fresh value from a constructor.
+func withRefusedAccount(refusal *apperrors.AuthError, userID uint) *apperrors.AuthError {
+	refusal.Internal = fmt.Errorf("user %d may not sign in", userID)
+	return refusal
+}
+
+// refuseInactiveAccount is apperrors.ErrAccountInactive for account userID
+// (withRefusedAccount).
 func refuseInactiveAccount(userID uint) *apperrors.AuthError {
-	inactive := apperrors.ErrAccountInactive()
-	inactive.Internal = fmt.Errorf("user %d may not sign in", userID)
-	return inactive
+	return withRefusedAccount(apperrors.ErrAccountInactive(), userID)
 }
 
 // signInLookupError is the error for a sign-in lookup of what that returned
@@ -233,10 +239,10 @@ func (s *WebAuthnService) recordCredentialUse(stored *authm.WebAuthnCredential, 
 // CodeInvalidCredentials when the assertion does not prove a credential of an
 // existing account (it fails validation, carries another account's user
 // handle, comes from a session that is not a discoverable login's, or names a
-// credential or account that does not exist), and CodeAccountInactive when it
-// does but the account may not sign in (authm.User.CanSignIn). Any other
-// error means no decision was reached: a lookup or the credential update
-// failed.
+// credential or account that does not exist), and shared.ClosedAccountRefusal
+// (CodeAccountRecoverable or CodeAccountInactive) when it does but the account
+// may not sign in (authm.User.CanSignIn). Any other error means no decision
+// was reached: a lookup or the credential update failed.
 //
 // The account's state is checked only after the assertion validated, so only
 // the credential's holder learns it, and a refused sign-in writes nothing. A
@@ -265,7 +271,7 @@ func (s *WebAuthnService) FinishDiscoverableLogin(session *webauthn.SessionData,
 		return nil, nil, refusePasskey(fmt.Errorf("validate discoverable login: %w", err))
 	}
 	if !user.CanSignIn() {
-		return nil, nil, refuseInactiveAccount(user.ID)
+		return nil, nil, withRefusedAccount(shared.ClosedAccountRefusal(user), user.ID)
 	}
 
 	if err := s.recordCredentialUse(&webauthnCred, credential); err != nil {

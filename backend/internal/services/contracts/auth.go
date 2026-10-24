@@ -224,9 +224,11 @@ type WebAuthnServiceInterface interface {
 	FinishRegistration(user *authm.User, session *webauthn.SessionData, response *protocol.ParsedCredentialCreationData, displayName string) (*authm.WebAuthnCredential, error)
 	BeginDiscoverableLogin() (*protocol.CredentialAssertion, *webauthn.SessionData, error)
 	// FinishDiscoverableLogin answers a refused sign-in with an
-	// *errors.AuthError coded INVALID_CREDENTIALS or ACCOUNT_INACTIVE, whose
-	// message is the client's copy. Any other error means no decision was
-	// reached. On success it returns the account the sign-in was decided on.
+	// *errors.AuthError coded INVALID_CREDENTIALS, or with
+	// shared.ClosedAccountRefusal (ACCOUNT_RECOVERABLE or ACCOUNT_INACTIVE)
+	// when the assertion proves a credential of an account that may not sign
+	// in; each message is the client's copy. Any other error means no decision
+	// was reached. On success it returns the account the sign-in was decided on.
 	FinishDiscoverableLogin(session *webauthn.SessionData, response *protocol.ParsedCredentialAssertionData) (*authm.User, *authm.WebAuthnCredential, error)
 	GetUserCredentials(userID uint) ([]authm.WebAuthnCredential, error)
 	DeleteCredential(userID uint, credentialID uint) error

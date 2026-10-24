@@ -1144,6 +1144,29 @@ describe('useAuth hooks', () => {
       await waitFor(() => expect(result.current.isError).toBe(true))
       expect((result.current.error as Error).name).toBe('AuthError')
     })
+
+    // The magic-link page decides its card from the refusal's code.
+    it('carries the refusal code on the AuthError it throws', async () => {
+      mockApiRequest.mockResolvedValueOnce({
+        success: false,
+        message: 'Server copy for the recoverable refusal',
+        error_code: 'ACCOUNT_RECOVERABLE',
+      })
+
+      const { result } = renderHook(() => useVerifyMagicLink(), {
+        wrapper: createWrapper(),
+      })
+
+      await act(async () => {
+        result.current.mutate('token-for-a-deleted-account')
+      })
+
+      await waitFor(() => expect(result.current.isError).toBe(true))
+      expect(result.current.error).toMatchObject({
+        code: 'ACCOUNT_RECOVERABLE',
+        status: 401,
+      })
+    })
   })
 
   describe('useDeleteAccount', () => {
