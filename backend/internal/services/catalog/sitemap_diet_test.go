@@ -90,7 +90,7 @@ func TestSitemapDietFromEnvIsOffUnlessSetExactly(t *testing.T) {
 	}
 }
 
-// TestSitemapDietRulesOffAreTheZeroOmission holds the "off is today's
+// TestSitemapDietRulesOffAreTheZeroOmission holds the "off is entriesFor's own
 // statement" property at its source: a rule that is off hands entriesOmitting
 // the zero omission, whose empty condition delegates to entriesFor.
 func TestSitemapDietRulesOffAreTheZeroOmission(t *testing.T) {
