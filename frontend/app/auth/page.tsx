@@ -39,6 +39,11 @@ import {
 import { CheckInboxInterstitial } from '@/app/auth/_components/check-inbox-interstitial'
 import { BackupAuthPrompt } from '@/app/auth/_components/backup-auth-prompt'
 import { AccountRecoverableMessage } from '@/app/auth/_components/account-recoverable-message'
+import {
+  GoogleCollisionSignIn,
+  PENDING_LINK_GONE_MESSAGE,
+} from '@/app/auth/_components/google-collision-sign-in'
+import { usePendingOAuthLink } from '@/features/auth/hooks/useOAuthLink'
 import type { SignupHandoff } from '@/app/auth/_components/signup-handoff'
 import {
   useSignupRequestDeadline,
@@ -46,6 +51,7 @@ import {
 } from '@/app/auth/_components/signup-request-deadline'
 import {
   ACCOUNT_INACTIVE_REASON,
+  AUTH_ERROR_CODE_PARAM,
   AUTH_ERROR_PARAM,
   AUTH_REASON_PARAM,
   hasGatedIntent,
@@ -939,6 +945,22 @@ function AuthPageContent() {
   const passkeySignupDeadline = useSignupRequestDeadline(releasePendingSignup)
   const signInTabRef = useRef<HTMLButtonElement>(null)
 
+  // A Google sign-in whose verified address an account already holds arrives
+  // with OAUTH_LINK_PENDING, and the Sign in tab shows the collision state for
+  // as long as the pending link the backend holds for this browser is live.
+  // A proof that finds it gone marks it gone for this arrival only, so a new
+  // arrival reads it afresh.
+  const linkArrival =
+    searchParams.get(AUTH_ERROR_CODE_PARAM) === AuthErrorCode.OAUTH_LINK_PENDING
+  const pendingLink = usePendingOAuthLink(linkArrival)
+  const [goneLinkArrival, setGoneLinkArrival] = useState<string | null>(null)
+  const collisionEmail =
+    linkArrival && goneLinkArrival !== arrival && pendingLink.data?.status === 'pending'
+      ? (pendingLink.data.email ?? null)
+      : null
+  const readingPendingLink = linkArrival && pendingLink.isPending
+  const pendingLinkGone = linkArrival && !readingPendingLink && collisionEmail === null
+
   // A hidden page runs its effect cleanups, and a shown one reruns the
   // effects, so this cleanup is the page's "hidden" signal.
   useEffect(
@@ -1096,15 +1118,38 @@ function AuthPageContent() {
                 <CardTitle className="text-lg">
                   {isReauth
                     ? 'Confirm it\'s you to connect a provider'
-                    : 'Sign in to your account'}
+                    : collisionEmail !== null
+                      ? 'Sign in to connect Google'
+                      : 'Sign in to your account'}
                 </CardTitle>
-                <CardDescription className="mt-1">
-                  {isReauth
-                    ? 'Use whichever method this account already has.'
-                    : 'Enter your email and password to continue'}
-                </CardDescription>
+                {collisionEmail === null && (
+                  <CardDescription className="mt-1">
+                    {isReauth
+                      ? 'Use whichever method this account already has.'
+                      : 'Enter your email and password to continue'}
+                  </CardDescription>
+                )}
                 <div className="mt-4">
-                  <LoginForm returnTo={returnTo} />
+                  {collisionEmail !== null ? (
+                    <GoogleCollisionSignIn
+                      email={collisionEmail}
+                      returnTo={returnTo}
+                      onPendingLinkGone={() => setGoneLinkArrival(arrival)}
+                    />
+                  ) : readingPendingLink ? (
+                    <div className="flex justify-center py-8">
+                      <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+                    </div>
+                  ) : (
+                    <>
+                      {pendingLinkGone && (
+                        <p role="status" className="mb-4 text-sm text-muted-foreground">
+                          {PENDING_LINK_GONE_MESSAGE}
+                        </p>
+                      )}
+                      <LoginForm returnTo={returnTo} />
+                    </>
+                  )}
                 </div>
               </TabsContent>
 

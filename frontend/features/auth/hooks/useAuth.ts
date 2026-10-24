@@ -596,6 +596,11 @@ interface VerifyMagicLinkResponse {
   error_code?: string
   request_id?: string
   user?: AuthApiUser
+  /**
+   * For a link that connected Google, where the sign-in that started it was
+   * headed, a path on the frontend.
+   */
+  return_to?: string
 }
 
 // Send verification email mutation
