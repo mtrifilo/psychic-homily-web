@@ -225,3 +225,48 @@ export function resolveCityLinkSlot(
   if (isVisible('saved_shows')) return 'saved'
   return 'toolbar'
 }
+
+/**
+ * Where the Discover links row renders. It takes the city link's slot, with
+ * one stop further: when no section renders at all, it sits under the
+ * empty-state line rather than in the toolbar row.
+ */
+export type HomeDiscoverLinksSlot = HomeCityLinkSlot | 'empty'
+
+/** Every link row that relocates when the section carrying it is hidden,
+ *  resolved together so the rows cannot answer from different layouts. */
+export interface HomeLinkSlots {
+  cityLink: HomeCityLinkSlot
+  discoverLinks: HomeDiscoverLinksSlot
+}
+
+/**
+ * `layout` is the viewer's sections with their visibility. `onScreen` names
+ * the sections still painted, including any mid-transition, and `lastStaged`
+ * is the section whose show or hide was staged most recently and is still in
+ * flight (null when none is).
+ *
+ * The empty state renders only once nothing is on screen, so between the hide
+ * that empties the layout and the end of its collapse, the layout says every
+ * section is hidden while some are still painted. For that window the Discover
+ * row stays exactly where it was just before that hide: the slot the layout
+ * gives when `lastStaged`, the only section visible before it, is counted as
+ * visible. It neither stops in the toolbar on its way to the empty-state line
+ * nor moves between sections that are collapsing together.
+ */
+export function resolveHomeLinkSlots(
+  layout: readonly ResolvedHomeSection[],
+  onScreen: readonly HomeSectionId[],
+  lastStaged: HomeSectionId | null
+): HomeLinkSlots {
+  const cityLink = resolveCityLinkSlot(layout)
+  if (onScreen.length === 0) return { cityLink, discoverLinks: 'empty' }
+  const isEmptying = !layout.some(section => section.visible)
+  if (!isEmptying || !lastStaged) return { cityLink, discoverLinks: cityLink }
+  return {
+    cityLink,
+    discoverLinks: resolveCityLinkSlot(
+      setHomeSectionVisibility(layout, lastStaged, true)
+    ),
+  }
+}

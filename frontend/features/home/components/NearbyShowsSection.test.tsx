@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import { NearbyShowsSection } from './NearbyShowsSection'
+import { HomeLinkSlotsProvider } from './HomeLinkSlots'
 import type { CityState } from '@/components/filters'
 import type { HomeShowCitySource } from '@/features/shows/hooks/useHomeShowCitySelection'
 
@@ -145,5 +146,25 @@ describe('NearbyShowsSection', () => {
     expect(
       screen.getByRole('navigation', { name: 'Discover' })
     ).toBeInTheDocument()
+  })
+
+  // The section stays mounted while it collapses, after ownership has moved,
+  // so the row has to follow the slot rather than the section's presence.
+  it('drops both link rows once another slot owns them', () => {
+    selection.effectiveCities = [phoenix]
+    selection.source = 'geo'
+
+    render(
+      <HomeLinkSlotsProvider value={{ cityLink: 'saved', discoverLinks: 'saved' }}>
+        <NearbyShowsSection id="nearby" />
+      </HomeLinkSlotsProvider>
+    )
+
+    expect(
+      screen.queryByRole('navigation', { name: 'Discover' })
+    ).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole('link', { name: /All upcoming shows/ })
+    ).not.toBeInTheDocument()
   })
 })

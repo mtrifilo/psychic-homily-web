@@ -4,6 +4,7 @@ import {
   moveHomeSection,
   resolveCityLinkSlot,
   resolveHomeLayout,
+  resolveHomeLinkSlots,
   setHomeSectionVisibility,
   toHomeLayoutDocument,
   type HomeLayoutSectionEntry,
@@ -213,4 +214,71 @@ describe('resolveCityLinkSlot', () => {
 
     expect(resolveCityLinkSlot(both)).toBe('toolbar')
   })
+})
+
+describe('resolveHomeLinkSlots', () => {
+  const sections = resolveHomeLayout(null)
+  const hide = (...ids: Parameters<typeof setHomeSectionVisibility>[1][]) =>
+    ids.reduce(
+      (layout, id) => setHomeSectionVisibility(layout, id, false),
+      sections
+    )
+  const allHidden = hide(...DEFAULT_ORDER)
+  const visibleIn = (layout: typeof sections) =>
+    layout.filter(section => section.visible).map(section => section.id)
+
+  it.each([
+    ['nothing hidden', sections, 'nearby'],
+    ['nearby hidden', hide('nearby_shows'), 'saved'],
+    ['nearby and saved hidden', hide('nearby_shows', 'saved_shows'), 'toolbar'],
+    // Saved hidden alone moves nothing: the nearby section still carries both.
+    ['saved hidden', hide('saved_shows'), 'nearby'],
+  ] as const)(
+    'puts the Discover row where the city link goes: %s',
+    (_name, layout, slot) => {
+      expect(resolveHomeLinkSlots(layout, visibleIn(layout), null)).toEqual({
+        cityLink: resolveCityLinkSlot(layout),
+        discoverLinks: slot,
+      })
+    }
+  )
+
+  it('sends the Discover row to the empty state, and only the Discover row', () => {
+    expect(resolveHomeLinkSlots(allHidden, [], null)).toEqual({
+      cityLink: 'toolbar',
+      discoverLinks: 'empty',
+    })
+  })
+
+  // Every section hidden in the layout while the last one is still collapsing
+  // on screen: the empty state has not rendered, so the row stays where it was
+  // before that hide instead of stopping in the toolbar on its way there.
+  it.each([
+    ['nearby_shows', 'nearby'],
+    ['saved_shows', 'saved'],
+    ['radio_shows', 'toolbar'],
+  ] as const)(
+    'keeps the Discover row where it was while %s collapses last',
+    (id, slot) => {
+      expect(resolveHomeLinkSlots(allHidden, [id], id)).toEqual({
+        cityLink: 'toolbar',
+        discoverLinks: slot,
+      })
+    }
+  )
+
+  // Two sections collapsing together: the one hidden last decides, so the row
+  // does not hop back into a section hidden earlier that is still collapsing.
+  it.each([
+    [['nearby_shows', 'radio_shows'], 'radio_shows', 'toolbar'],
+    [['radio_shows', 'nearby_shows'], 'nearby_shows', 'nearby'],
+    [['saved_shows', 'nearby_shows'], 'nearby_shows', 'nearby'],
+  ] as const)(
+    'with %j collapsing, follows the last hide (%s)',
+    (onScreen, lastStaged, slot) => {
+      expect(
+        resolveHomeLinkSlots(allHidden, onScreen, lastStaged).discoverLinks
+      ).toBe(slot)
+    }
+  )
 })

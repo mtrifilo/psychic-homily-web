@@ -19,10 +19,9 @@ import {
   useShowSaveCountBatch,
 } from '@/features/shows/hooks/useSavedShows'
 import { useAuthContext } from '@/lib/context/AuthContext'
-import {
-  ResolvedHomeCityShowsLink,
-  useHomeCityLinkSlot,
-} from './HomeCityShowsLink'
+import { ResolvedHomeCityShowsLink } from './HomeCityShowsLink'
+import { HomeDiscoverLinks } from './HomeDiscoverLinks'
+import { useHomeCityLinkSlot, useHomeDiscoverLinksSlot } from './HomeLinkSlots'
 
 /**
  * What the module paints this render.
@@ -67,11 +66,12 @@ export function SavedShowsModule({
 }) {
   const { user, authStatus } = useAuthContext()
   const isAuthenticated = authStatus === 'authenticated'
-  // Takes the city link only when the nearby section that normally carries it
-  // is hidden. The footer is where it goes, next to the other two lines that
-  // point off this module.
+  // Takes the city link and the Discover row only when the nearby section that
+  // normally carries them is hidden. The footer is where they go, next to the
+  // other lines that point off this module.
   const cityLinkSlot = useHomeCityLinkSlot()
   const ownsCityLink = cityLinkSlot === 'saved'
+  const ownsDiscoverLinks = useHomeDiscoverLinksSlot() === 'saved'
   // The zero state's "Pick from this week ↓" scrolls to the nearby section. It
   // only still owns the city link while it is on the page, so that is also the
   // test for whether the anchor exists to scroll to.
@@ -276,6 +276,10 @@ export function SavedShowsModule({
           </div>
         </div>
       )}
+
+      {/* The footer's last line, in every module state, loading and error
+          included: while this slot owns the row, no other surface renders it. */}
+      {ownsDiscoverLinks && <HomeDiscoverLinks />}
     </section>
   )
 }

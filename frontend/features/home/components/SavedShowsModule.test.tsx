@@ -3,6 +3,7 @@ import { render, screen } from '@testing-library/react'
 import Link from 'next/link'
 import { SavedShowsModule } from './SavedShowsModule'
 import type { SavedShowResponse } from '@/features/shows/types'
+import type { HomeCityLinkSlot, HomeDiscoverLinksSlot } from '../sections'
 
 const mockUseSavedShows = vi.fn()
 type SaveCountBatchResult = {
@@ -31,10 +32,9 @@ vi.mock('@/components/shared/SaveButton', () => ({
 }))
 
 // PSY-2104: the relocated city link resolves its own city selection. Stubbed
-// so this suite stays about the module, and so the slot can be driven directly.
+// so this suite stays about the module.
 vi.mock('./HomeCityShowsLink', async importOriginal => ({
   ...(await importOriginal<object>()),
-  useHomeCityLinkSlot: () => mockCityLinkSlot(),
   // next/link is mocked globally in this suite's setup, so the stand-in uses
   // it rather than a bare <a> (which the Next lint rule rejects for a route).
   ResolvedHomeCityShowsLink: () => (
@@ -43,7 +43,13 @@ vi.mock('./HomeCityShowsLink', async importOriginal => ({
     </Link>
   ),
 }))
-const mockCityLinkSlot = vi.fn<() => 'nearby' | 'saved' | 'toolbar'>(
+// Stubbed so each test drives the slots directly.
+vi.mock('./HomeLinkSlots', () => ({
+  useHomeCityLinkSlot: () => mockCityLinkSlot(),
+  useHomeDiscoverLinksSlot: () => mockDiscoverLinksSlot(),
+}))
+const mockCityLinkSlot = vi.fn<() => HomeCityLinkSlot>(() => 'nearby')
+const mockDiscoverLinksSlot = vi.fn<() => HomeDiscoverLinksSlot>(
   () => 'nearby'
 )
 
@@ -82,6 +88,7 @@ beforeEach(() => {
   mockAuthStatus.mockReturnValue('authenticated')
   mockUseShowSaveCountBatch.mockReturnValue({ data: undefined })
   mockCityLinkSlot.mockReturnValue('nearby')
+  mockDiscoverLinksSlot.mockReturnValue('nearby')
   saveButtonProps.mockClear()
 })
 
@@ -389,5 +396,69 @@ describe('SavedShowsModule saved-state and viewer transitions', () => {
         screen.getByRole('link', { name: 'Find one to save →' })
       ).toHaveAttribute('href', '/shows')
     })
+  })
+
+  describe('the Discover links row', () => {
+    it('takes it as the footer\'s last line when the nearby section is hidden', () => {
+      mockCityLinkSlot.mockReturnValue('saved')
+      mockDiscoverLinksSlot.mockReturnValue('saved')
+      mockUseSavedShows.mockReturnValue({
+        data: { shows: [savedShow(1)], total: 1 },
+        isPending: false,
+        error: null,
+      })
+
+      const { container } = render(
+        <SavedShowsModule nearbySectionId="nearby" />
+      )
+
+      const row = screen.getByRole('navigation', { name: 'Discover' })
+      expect(row).toHaveTextContent(
+        'Discover:Shows in any city·Artists·Freeform Radio·Record Labels·Graph Observatory'
+      )
+      // Below the city link, as the module's last child.
+      expect(container.querySelector('section')?.lastElementChild).toBe(row)
+      const cityLink = screen.getByRole('link', {
+        name: 'All upcoming shows in Phoenix, AZ →',
+      })
+      expect(
+        cityLink.compareDocumentPosition(row) & Node.DOCUMENT_POSITION_FOLLOWING
+      ).toBeTruthy()
+    })
+
+    // The row is the page's only way to the discovery surfaces on this layout,
+    // so a list that is still loading or failed to load must not take it away.
+    it.each([
+      ['loading', { data: undefined, isPending: true, error: null }],
+      ['error', { data: undefined, isPending: false, error: new Error('nope') }],
+      ['empty', { data: { shows: [], total: 0 }, isPending: false, error: null }],
+    ])('keeps it in the %s state', (_state, result) => {
+      mockDiscoverLinksSlot.mockReturnValue('saved')
+      mockUseSavedShows.mockReturnValue(result)
+
+      render(<SavedShowsModule nearbySectionId="nearby" />)
+
+      expect(
+        screen.getByRole('navigation', { name: 'Discover' })
+      ).toBeInTheDocument()
+    })
+
+    it.each(['nearby', 'toolbar', 'empty'] as const)(
+      'renders nothing for the row when the %s slot owns it',
+      slot => {
+        mockDiscoverLinksSlot.mockReturnValue(slot)
+        mockUseSavedShows.mockReturnValue({
+          data: { shows: [savedShow(1)], total: 1 },
+          isPending: false,
+          error: null,
+        })
+
+        render(<SavedShowsModule nearbySectionId="nearby" />)
+
+        expect(
+          screen.queryByRole('navigation', { name: 'Discover' })
+        ).not.toBeInTheDocument()
+      }
+    )
   })
 })

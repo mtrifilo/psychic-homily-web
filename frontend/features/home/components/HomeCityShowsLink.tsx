@@ -1,29 +1,10 @@
 'use client'
 
-import { createContext, useContext } from 'react'
 import Link from 'next/link'
 import { buildCitiesParam, cityLabel } from '@/components/filters/cityParams'
 import { cn } from '@/lib/utils'
 import type { CityState } from '@/components/filters'
 import { useHomeShowCitySelection } from '@/features/shows/hooks/useHomeShowCitySelection'
-import type { HomeCityLinkSlot } from '../sections'
-
-/**
- * Which surface owns the "All upcoming shows in {city} →" link this render.
- *
- * The link belongs to the nearby section's header. Hiding that section would
- * otherwise take the home page's only route to the full show list with it, so
- * ownership falls back to the saved-shows footer and then to the toolbar row.
- * Defaults to 'nearby', which is where it lives on an untouched layout and on
- * any surface that mounts these sections without the layout runtime.
- */
-const HomeCityLinkSlotContext = createContext<HomeCityLinkSlot>('nearby')
-
-export const HomeCityLinkSlotProvider = HomeCityLinkSlotContext.Provider
-
-export function useHomeCityLinkSlot(): HomeCityLinkSlot {
-  return useContext(HomeCityLinkSlotContext)
-}
 
 /**
  * One city is the common case and the only one the approved copy names; a

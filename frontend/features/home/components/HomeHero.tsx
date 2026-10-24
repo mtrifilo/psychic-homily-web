@@ -77,7 +77,7 @@ export function HomeHero() {
       </div>
 
       {/* Discover quick-links row */}
-      <HomeDiscoverLinks className="flex flex-wrap items-center justify-center gap-x-1.5 gap-y-1 pt-0.5 text-sm" />
+      <HomeDiscoverLinks className="justify-center pt-0.5" />
 
       {/* Quiet sign-up nudge */}
       <p className="pt-1 text-sm text-muted-foreground">

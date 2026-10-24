@@ -1,4 +1,5 @@
 import Link from 'next/link'
+import { cn } from '@/lib/utils'
 
 /** Discover quick-links — acclimation row helping a newcomer find an entry. */
 const DISCOVER_LINKS: ReadonlyArray<{ href: string; label: string }> = [
@@ -14,12 +15,19 @@ const DISCOVER_LINKS: ReadonlyArray<{ href: string; label: string }> = [
  * signed-in home (PSY-2103) so the same five entry points survive the hero's
  * replacement — one list, not two that drift.
  *
- * `className` positions the row for its surface; the row's own typography and
- * separators are fixed.
+ * The row carries its own wrapping layout, typography and separators, so it
+ * wraps the same way on every surface it relocates to. `className` is merged
+ * last and can override any of it; callers pass spacing and alignment only.
  */
 export function HomeDiscoverLinks({ className }: { className?: string }) {
   return (
-    <nav aria-label="Discover" className={className}>
+    <nav
+      aria-label="Discover"
+      className={cn(
+        'flex flex-wrap items-center gap-x-1.5 gap-y-1 text-sm',
+        className
+      )}
+    >
       <span className="font-medium text-muted-foreground">Discover:</span>
       {DISCOVER_LINKS.map((link, i) => (
         <span key={link.href} className="inline-flex items-center">

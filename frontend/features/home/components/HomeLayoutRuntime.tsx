@@ -4,6 +4,7 @@ import {
   useCallback,
   useEffect,
   useLayoutEffect,
+  useMemo,
   useRef,
   useState,
   type ReactNode,
@@ -17,12 +18,13 @@ import { useReducedMotion } from '@/lib/hooks/common/useReducedMotion'
 import { animateSlotHeight, useFlipReorder } from '../homeLayoutMotion'
 import { useHomeLayout, useHomeLayoutWriteFailed } from '../hooks/useHomeLayout'
 import {
-  resolveCityLinkSlot,
+  resolveHomeLinkSlots,
   type HomeLayoutDocument,
   type HomeSectionId,
 } from '../sections'
 import { CustomizeHomeToolbar } from './CustomizeHomeToolbar'
-import { HomeCityLinkSlotProvider } from './HomeCityShowsLink'
+import { HomeDiscoverLinks } from './HomeDiscoverLinks'
+import { HomeLinkSlotsProvider } from './HomeLinkSlots'
 import {
   SAVE_FAILED_MESSAGE,
   type HomeVisibilityChange,
@@ -97,9 +99,8 @@ export function HomeLayoutRuntime({
   const rendered = layout.filter(
     section => section.visible || transitions.has(section.id)
   )
-  const { register, capture } = useFlipReorder(
-    rendered.map(section => section.id)
-  )
+  const renderedIds = rendered.map(section => section.id)
+  const { register, capture } = useFlipReorder(renderedIds)
 
   const handleBeforeChange = useCallback(
     (change: HomeVisibilityChange) => {
@@ -112,6 +113,9 @@ export function HomeLayoutRuntime({
       }
       setTransitions(current => {
         const next = new Map(current)
+        // Deleted first so the map's insertion order stays staging order: its
+        // last key is the most recently staged section (see `lastStaged`).
+        next.delete(change.id)
         next.set(change.id, change.visible ? 'expand' : 'collapse')
         return next
       })
@@ -123,14 +127,26 @@ export function HomeLayoutRuntime({
   // screen, and calling the page empty while it animates would unmount it
   // before it finished and strand it in the transition map forever.
   const allHidden = rendered.length === 0
-  const cityLinkSlot = resolveCityLinkSlot(layout)
+  const lastStaged = [...transitions.keys()].at(-1) ?? null
+  const { cityLink, discoverLinks } = resolveHomeLinkSlots(
+    layout,
+    renderedIds,
+    lastStaged
+  )
+  // Memoized on the two slots so a render that moves neither (the popover
+  // opening, a transition settling) does not re-render every section that
+  // reads them.
+  const linkSlots = useMemo(
+    () => ({ cityLink, discoverLinks }),
+    [cityLink, discoverLinks]
+  )
 
   // Say nothing rather than address a viewer who is no longer there. The
   // effect above has already asked the server for the anonymous page.
   if (authStatus === 'anonymous') return null
 
   return (
-    <HomeCityLinkSlotProvider value={cityLinkSlot}>
+    <HomeLinkSlotsProvider value={linkSlots}>
       <div className="flex w-full flex-col">
         {/* The page's only h1, deliberately outside the sections: every one of
             them is hideable, so a heading that lived in one would take the
@@ -142,7 +158,6 @@ export function HomeLayoutRuntime({
           onOpenChange={setPopoverOpen}
           initialLayout={initialLayout}
           onBeforeChange={handleBeforeChange}
-          withCityLink={cityLinkSlot === 'toolbar'}
         />
 
         {/* The failure line lives on the ALWAYS-present toolbar row, not only
@@ -156,16 +171,19 @@ export function HomeLayoutRuntime({
         )}
 
         {allHidden ? (
-          <p className="mt-6 text-sm text-muted-foreground">
-            You have hidden every section.{' '}
-            <button
-              type="button"
-              onClick={() => setPopoverOpen(true)}
-              className="font-medium text-primary transition-colors hover:underline underline-offset-4"
-            >
-              Customize home →
-            </button>
-          </p>
+          <div className="mt-6 flex flex-col gap-2">
+            <p className="text-sm text-muted-foreground">
+              You have hidden every section.{' '}
+              <button
+                type="button"
+                onClick={() => setPopoverOpen(true)}
+                className="font-medium text-primary transition-colors hover:underline underline-offset-4"
+              >
+                Customize home →
+              </button>
+            </p>
+            {discoverLinks === 'empty' && <HomeDiscoverLinks />}
+          </div>
         ) : (
           // The gap rides INSIDE each slot rather than on the container: on
           // the container it survives the height animation and vanishes at
@@ -189,7 +207,7 @@ export function HomeLayoutRuntime({
           </div>
         )}
       </div>
-    </HomeCityLinkSlotProvider>
+    </HomeLinkSlotsProvider>
   )
 }
 
