@@ -39,7 +39,7 @@ type sceneFollower struct {
 func (s *NotificationFilterService) notifySceneFollowers(show *catalogm.Show, showArtistIDs pq.Int64Array) {
 	followers, err := s.sceneFollowersForShow(show.ID)
 	if err != nil {
-		log.Printf("scene-follow notify: %v", err)
+		log.Printf("scene-follow notify: show %d: %v", show.ID, err)
 		return
 	}
 	if len(followers) == 0 {

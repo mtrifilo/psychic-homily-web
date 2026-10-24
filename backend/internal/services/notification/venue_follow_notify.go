@@ -810,9 +810,10 @@ func (s *NotificationFilterService) alertPrefsForUserIDs(userIDs []uint) (map[ui
 // id and the predicate compares entity_id against show ids. That is also why
 // NotificationEntityVenueShowAlert must never join showAlertEntityTypes.
 //
-// The ordering that makes the one direction the useful one is not accidental:
-// the filter, artist and scene passes all run inside MatchAndNotify, BEFORE this
-// batch's accrual, so by flush time their rows are already there to be seen.
+// The one direction is the useful one because the flush runs in its own
+// poller, after the quiet window or the max hold, so it sees every row the
+// MatchAndNotify passes for these shows have written by then. A pass that
+// failed wrote none, and nothing here can see what it would have sent.
 func (s *NotificationFilterService) showsAlreadyNotified(
 	userIDs, showIDs []uint,
 ) (map[uint]map[uint]struct{}, error) {

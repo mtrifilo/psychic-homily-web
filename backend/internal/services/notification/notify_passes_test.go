@@ -7,6 +7,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	notificationm "psychic-homily-backend/internal/models/notification"
 	"psychic-homily-backend/internal/services/contracts"
 )
 
@@ -20,6 +21,14 @@ func recordingPass(name string, ran *[]string, err error) notifyPass {
 		*ran = append(*ran, name)
 		return err
 	}}
+}
+
+// panicInsideNotifyPass is a named frame, so a test can tell the stack captured
+// inside the panicking pass from one captured at the re-raise.
+//
+//go:noinline
+func panicInsideNotifyPass(v any) {
+	panic(v)
 }
 
 func TestRunNotifyPasses_AllSucceed(t *testing.T) {
@@ -60,7 +69,8 @@ func TestRunNotifyPasses_PanicRunsRemainingPassesThenReraises(t *testing.T) {
 		recordingPass("before", &ran, nil),
 		{name: "boom", run: func() error {
 			ran = append(ran, "boom")
-			panic(cause)
+			panicInsideNotifyPass(cause)
+			return nil
 		}},
 		recordingPass("after", &ran, laterErr),
 		{name: "second-boom", run: func() error {
@@ -85,7 +95,7 @@ func TestRunNotifyPasses_PanicRunsRemainingPassesThenReraises(t *testing.T) {
 	assert.ErrorIs(t, p, cause)
 	assert.Contains(t, p.Error(), "boom pass panicked for show 7: nil map")
 	// The stack is the one captured where the pass panicked, not the re-raise site.
-	assert.Contains(t, string(p.stack), "TestRunNotifyPasses_PanicRunsRemainingPassesThenReraises.func")
+	assert.Contains(t, string(p.stack), "panicInsideNotifyPass")
 }
 
 func TestNotifyPassPanic_UnwrapIsNilForANonErrorValue(t *testing.T) {
@@ -115,6 +125,16 @@ func (s *NotificationFilterSuite) breakFilterQuery() (restore func()) {
 	}
 	s.T().Cleanup(restore)
 	return restore
+}
+
+// filterLogRows counts the filter pass's notification rows for a user and show.
+func (s *NotificationFilterSuite) filterLogRows(userID, showID uint) int64 {
+	var n int64
+	s.Require().NoError(s.db.Model(&notificationm.NotificationLog{}).
+		Where("user_id = ? AND entity_type = ? AND entity_id = ? AND filter_id IS NOT NULL",
+			userID, notificationm.NotificationEntityShow, showID).
+		Count(&n).Error)
+	return n
 }
 
 // requireFilterPassError asserts MatchAndNotify reported the filter pass failing.
@@ -185,5 +205,5 @@ func (s *NotificationFilterSuite) TestMatchAndNotify_RetryAfterFilterFailureDoes
 	s.Require().NoError(s.svc.MatchAndNotify(s.loadShow(showID)))
 
 	s.Equal(int64(1), s.inAppAlerts(userID, showID))
-	s.Equal(int64(0), s.sceneLogCount(userID, showID), "the filter pass defers to the artist alert")
+	s.Equal(int64(0), s.filterLogRows(userID, showID), "the filter pass defers to the artist alert")
 }

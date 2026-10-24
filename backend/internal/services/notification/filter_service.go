@@ -440,8 +440,12 @@ func effectiveShowPriceCents(show *catalogm.Show) *int {
 	return &cents
 }
 
-// MatchAndNotify finds all active filters that match the given show and sends notifications.
-// This is designed to be called fire-and-forget from the show approval handler.
+// MatchAndNotify announces a newly visible show through every notification
+// system: filter matches, artist follows, venue-follow accrual and scene
+// follows. Every pass runs even when another fails. The returned error is the
+// filter pass's (the follow passes log and swallow theirs), and the show-notify
+// outbox retries on it. A panic in a pass is re-raised after the remaining
+// passes have run.
 func (s *NotificationFilterService) MatchAndNotify(show *catalogm.Show) error {
 	if s.db == nil {
 		return fmt.Errorf("database not initialized")
@@ -501,10 +505,16 @@ func (s *NotificationFilterService) MatchAndNotify(show *catalogm.Show) error {
 	//
 	// Every pass runs even when an earlier one fails or panics. A failed pass
 	// gives up its precedence for this run: the later passes see only the rows
-	// that were written. Only the filter pass returns an error (the follow
-	// passes log and swallow theirs), and that error is returned so the outbox
-	// retries the show. A retry cannot double-notify: every pass dedups against
-	// the log or claims through a UNIQUE before it delivers.
+	// that were written. Only the filter pass returns an error, and the outbox
+	// retries the show on it.
+	//
+	// A sequential retry repeats no filter, artist or scene notification and
+	// accrues no show twice: those passes dedup against the log or claim
+	// through a UNIQUE. A venue alert is the exception. Its log row is keyed by
+	// venue, so the filter pass's dedup cannot see it, and a filter pass that
+	// first succeeds after the venue batch has flushed notifies a user that
+	// batch already told about this show. Concurrent runs are covered by
+	// neither guarantee; see ShowNotifyOutboxPoller.
 	return runNotifyPasses(show.ID, []notifyPass{
 		{name: notifyPassFilter, run: func() error {
 			return s.notifyFilterSubscribers(show, showArtistIDs, showVenueIDs, artistLabelIDs, artistTagIDs)

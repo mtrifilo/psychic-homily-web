@@ -404,6 +404,39 @@ func (s *ShowNotifyOutboxSuite) TestMatchFailureGivesUpAfterMaxAttempts() {
 	s.Contains(*job.LastError, "transient match failure")
 }
 
+// TestFilterFailureStillDeliversFollowAlertsAndRecordsTheError runs the real
+// matcher with its filter query broken. The artist follower is still alerted,
+// and the job keeps the filter pass's error and stays retryable.
+func (s *ShowNotifyOutboxSuite) TestFilterFailureStillDeliversFollowAlertsAndRecordsTheError() {
+	userID := s.createUser()
+	showID, artistID := s.ingestShow("Filter query broken")
+	s.Require().NoError(s.db.Exec(`
+		INSERT INTO user_bookmarks (user_id, entity_type, entity_id, action, created_at)
+		VALUES (?, 'artist', ?, 'follow', now())`, userID, artistID).Error)
+
+	s.Require().NoError(s.db.Exec(
+		`ALTER TABLE notification_filters RENAME COLUMN source TO source_unavailable`).Error)
+	s.T().Cleanup(func() {
+		s.Require().NoError(s.db.Exec(
+			`ALTER TABLE notification_filters RENAME COLUMN source_unavailable TO source`).Error)
+	})
+
+	s.poller.RunNow(context.Background())
+
+	job := s.jobFor(showID)
+	s.Equal(catalogm.ShowNotifyStatusPending, job.Status, "attempts remain, so the job is retried")
+	s.Equal(1, job.Attempts)
+	s.Require().NotNil(job.LastError)
+	s.Contains(*job.LastError, "filter pass: failed to find matching filters")
+
+	var alerts int64
+	s.Require().NoError(s.db.Model(&notificationm.NotificationLog{}).
+		Where("user_id = ? AND entity_type = ? AND entity_id = ? AND channel = ?",
+			userID, notificationm.NotificationEntityArtistShowAlert, showID, notificationm.NotificationChannelInApp).
+		Count(&alerts).Error)
+	s.Equal(int64(1), alerts)
+}
+
 // TestCancelledBetweenEnqueueAndDeliveryIsSkipped: the delivery-time re-check has
 // to cover cancellation, not just visibility. A venue calling a show off in the
 // minute between ingest and the poll is ordinary, and "New show" for a cancelled
