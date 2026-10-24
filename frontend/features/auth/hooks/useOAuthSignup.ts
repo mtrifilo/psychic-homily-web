@@ -21,10 +21,8 @@ export interface FinishOAuthSignupResponse extends AuthResponse {
 }
 
 /** The step's submission. */
-export type FinishOAuthSignupRequest = Omit<
-  components['schemas']['FinishOAuthSignupRequestBody'],
-  '$schema'
->
+export type FinishOAuthSignupRequest =
+  components['schemas']['FinishOAuthSignupRequestBody']
 
 const SIGNUP_FAILED = 'Your account could not be created. Please try again.'
 
