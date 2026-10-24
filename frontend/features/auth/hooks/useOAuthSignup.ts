@@ -50,6 +50,32 @@ export function usePendingOAuthSignup() {
 }
 
 /**
+ * Whether this browser carries the under-age refusal marker, which refuses
+ * every sign-up from it for a day. The backend keeps the marker in an HttpOnly
+ * cookie and reports it as the pending-signup read's `age_refused` status.
+ * Read once per visit while `enabled`; false while unread or when the read
+ * fails, since the backend refuses a marked browser's sign-up either way.
+ */
+export function useSignupAgeRefused(enabled: boolean): boolean {
+  const { data } = useQuery({
+    queryKey: queryKeys.auth.signupAgeRefusal,
+    queryFn: ({ signal }) =>
+      apiRequest<PendingOAuthSignup>(API_ENDPOINTS.AUTH.OAUTH_PENDING_SIGNUP, {
+        method: 'GET',
+        signal,
+      }),
+    select: signup => signup.status === 'age_refused',
+    enabled,
+    staleTime: Infinity,
+    gcTime: 0,
+    retry: false,
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
+  })
+  return data === true
+}
+
+/**
  * Finishes the pending Google sign-up. A refusal the backend answers with
  * success false is thrown as an AuthError carrying its code; on success the
  * new session's caches are refreshed before the caller's onSuccess runs.

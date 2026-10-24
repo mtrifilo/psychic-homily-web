@@ -753,7 +753,7 @@ describe('AuthPage', () => {
       const google = screen.getByTestId('google-oauth')
       for (const control of [
         screen.getByRole('checkbox', { name: /Terms of Service/ }),
-        screen.getByRole('checkbox', { name: /years old/ }),
+        screen.getByLabelText('Month'),
       ]) {
         expect(
           google.compareDocumentPosition(control) & Node.DOCUMENT_POSITION_FOLLOWING

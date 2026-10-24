@@ -28,11 +28,17 @@ import {
   SIGNUP_REQUEST_TIMEOUT_MS,
   useSignupRequestDeadline,
 } from './signup-request-deadline'
+import { ADULT_DATE_OF_BIRTH, fillDateOfBirth } from '@/test/dateOfBirth'
+import {
+  DATE_OF_BIRTH_INVALID_MESSAGE,
+  DATE_OF_BIRTH_MISSING_MESSAGE,
+} from './date-of-birth-field'
 
 const mockSetUser = vi.fn()
 const mockOnHandoffChange = vi.fn()
 const mockOnDeadlineExpire = vi.fn()
 const mockOnError = vi.fn()
+const mockOnAgeRefused = vi.fn()
 const mockStartRegistration = vi.fn()
 const fetchMock = vi.fn()
 
@@ -59,6 +65,7 @@ describe('PasskeySignupButton', () => {
     mockOnHandoffChange.mockReset()
     mockOnDeadlineExpire.mockReset()
     mockOnError.mockReset()
+    mockOnAgeRefused.mockReset()
     mockStartRegistration.mockReset()
     fetchMock.mockReset()
 
@@ -77,6 +84,7 @@ describe('PasskeySignupButton', () => {
       <PasskeySignupButton
         onHandoffChange={mockOnHandoffChange}
         onError={mockOnError}
+        onAgeRefused={mockOnAgeRefused}
         requestDeadline={requestDeadline}
         versionsChanged={versionsChanged}
       />
@@ -92,9 +100,8 @@ describe('PasskeySignupButton', () => {
     const user = userEvent.setup()
     await user.click(screen.getByRole('button', { name: /sign up with passkey/i }))
     await user.type(screen.getByLabelText('Email'), 'signup@example.com')
-    // Two required checkboxes: terms + age confirmation.
     await user.click(screen.getByRole('checkbox', { name: /Terms of Service/ }))
-    await user.click(screen.getByRole('checkbox', { name: /at least 16 years old/ }))
+    await fillDateOfBirth(user)
     await user.click(
       screen.getByRole('button', { name: /continue with passkey/i })
     )
@@ -151,9 +158,10 @@ describe('PasskeySignupButton', () => {
       terms_accepted: true,
       terms_version: CURRENT_TERMS_VERSION,
       privacy_version: CURRENT_PRIVACY_VERSION,
-      age_confirmed: true,
-      min_age_attested: 16,
+      date_of_birth: ADULT_DATE_OF_BIRTH.sent,
     })
+    expect(beginSignupPayload).not.toHaveProperty('age_confirmed')
+    expect(beginSignupPayload).not.toHaveProperty('min_age_attested')
 
     expect(mockStartRegistration).toHaveBeenCalledWith({
       optionsJSON: { challenge: 'begin-signup-challenge' },
@@ -166,10 +174,9 @@ describe('PasskeySignupButton', () => {
     const finishSignupPayload = JSON.parse(
       (fetchMock.mock.calls[1]?.[1] as { body: string }).body
     )
-    expect(finishSignupPayload).toMatchObject({
-      age_confirmed: true,
-      min_age_attested: 16,
-    })
+    expect(finishSignupPayload).toMatchObject({ challenge_id: 'challenge-id', terms_accepted: true })
+    expect(finishSignupPayload).not.toHaveProperty('date_of_birth')
+    expect(finishSignupPayload).not.toHaveProperty('age_confirmed')
 
     await waitFor(() => {
       expect(mockOnHandoffChange).toHaveBeenCalledTimes(2)
@@ -402,7 +409,9 @@ describe('PasskeySignupButton', () => {
         target: { value: 'signup@example.com' },
       })
       fireEvent.click(screen.getByRole('checkbox', { name: /Terms of Service/ }))
-      fireEvent.click(screen.getByRole('checkbox', { name: /at least 16 years old/ }))
+      fireEvent.change(screen.getByLabelText('Month'), { target: { value: ADULT_DATE_OF_BIRTH.month } })
+      fireEvent.change(screen.getByLabelText('Day'), { target: { value: ADULT_DATE_OF_BIRTH.day } })
+      fireEvent.change(screen.getByLabelText('Year'), { target: { value: ADULT_DATE_OF_BIRTH.year } })
       fireEvent.click(screen.getByRole('button', { name: /continue with passkey/i }))
     }
 
@@ -544,22 +553,89 @@ describe('PasskeySignupButton', () => {
     })
   })
 
-  // PSY-1023: the Continue button is disabled and no signup request fires until
-  // the age confirmation is checked, even with email + terms provided.
-  it('blocks passkey signup until age is confirmed', async () => {
+  it('opens with the date of birth in place of an age checkbox, and the Terms label as drawn', async () => {
     const user = userEvent.setup()
+    renderButton()
 
+    await user.click(screen.getByRole('button', { name: /sign up with passkey/i }))
+
+    const dialog = signupDialog()
+    expect(within(dialog).getByRole('checkbox', { name: /Terms of Service/ })).toHaveAccessibleName(
+      'I agree to the Terms of Service and I acknowledge the Privacy Policy'
+    )
+    expect(within(dialog).getByRole('group', { name: 'Date of birth' })).toBeInTheDocument()
+    expect(within(dialog).queryByRole('checkbox', { name: /years old/ })).not.toBeInTheDocument()
+    expect(within(dialog).getByRole('button', { name: /continue with passkey/i })).toBeEnabled()
+  })
+
+  // Continue stays enabled; pressing it with fields missing shows every
+  // field's error, focuses the first, and sends nothing.
+  it('shows every field error on Continue with nothing filled, and focuses Email', async () => {
+    const user = userEvent.setup()
+    renderButton()
+
+    await user.click(screen.getByRole('button', { name: /sign up with passkey/i }))
+    await user.click(screen.getByRole('button', { name: /continue with passkey/i }))
+
+    const dialog = signupDialog()
+    expect(within(dialog).getByText('Please enter a valid email address')).toBeInTheDocument()
+    expect(
+      within(dialog).getByText('You must agree to the Terms of Service and Privacy Policy')
+    ).toBeInTheDocument()
+    expect(within(dialog).getByText(DATE_OF_BIRTH_MISSING_MESSAGE)).toBeInTheDocument()
+    expect(within(dialog).getByLabelText('Email')).toHaveFocus()
+    expect(within(dialog).getByLabelText('Email')).toHaveAttribute('aria-invalid', 'true')
+    expect(within(dialog).getByRole('button', { name: /continue with passkey/i })).toBeEnabled()
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
+
+  it('focuses the date of birth, and sends nothing, when it is the only field left', async () => {
+    const user = userEvent.setup()
     renderButton()
 
     await user.click(screen.getByRole('button', { name: /sign up with passkey/i }))
     await user.type(screen.getByLabelText('Email'), 'signup@example.com')
     await user.click(screen.getByRole('checkbox', { name: /Terms of Service/ }))
+    await user.click(screen.getByRole('button', { name: /continue with passkey/i }))
 
-    // Age unchecked → Continue button stays disabled and no fetch fires.
-    expect(
-      screen.getByRole('button', { name: /continue with passkey/i })
-    ).toBeDisabled()
+    const dialog = signupDialog()
+    expect(within(dialog).getByText(DATE_OF_BIRTH_MISSING_MESSAGE)).toBeInTheDocument()
+    expect(within(dialog).getByLabelText('Month')).toHaveFocus()
+    for (const label of ['Month', 'Day', 'Year']) {
+      expect(within(dialog).getByLabelText(label)).toHaveAttribute('aria-invalid', 'true')
+    }
     expect(fetchMock).not.toHaveBeenCalled()
+
+    // The error follows the field as it changes.
+    await user.type(within(dialog).getByLabelText('Month'), '2')
+    await user.type(within(dialog).getByLabelText('Day'), '30')
+    await user.type(within(dialog).getByLabelText('Year'), '2004')
+    expect(within(dialog).getByText(DATE_OF_BIRTH_INVALID_MESSAGE)).toBeInTheDocument()
+    expect(within(dialog).getByLabelText('Month')).toHaveAttribute('aria-invalid', 'false')
+    expect(within(dialog).getByLabelText('Day')).toHaveAttribute('aria-invalid', 'true')
+  })
+
+  it('closes the dialog and hands the page the refusal when begin refuses the age', async () => {
+    fetchMock.mockResolvedValueOnce({
+      json: async () => ({
+        success: false,
+        error_code: 'AGE_CONFIRMATION_REQUIRED',
+        message: 'You must confirm that you are at least 16 years old to create an account.',
+      }),
+    })
+    renderButton()
+    await submitSignup()
+
+    await waitFor(() => {
+      expect(mockOnAgeRefused).toHaveBeenCalledTimes(1)
+    })
+    expect(
+      screen.queryByRole('dialog', { name: 'Create account with passkey' })
+    ).not.toBeInTheDocument()
+    expect(mockStartRegistration).not.toHaveBeenCalled()
+    expect(mockOnError).not.toHaveBeenCalled()
+    expect(mockOnHandoffChange).not.toHaveBeenCalled()
+    expect(fetchMock).toHaveBeenCalledTimes(1)
   })
 
   // Begin sends the versions GET /legal/versions publishes, never the build
@@ -664,7 +740,7 @@ describe('PasskeySignupButton', () => {
       await user.click(screen.getByRole('button', { name: /sign up with passkey/i }))
       await user.type(screen.getByLabelText('Email'), 'signup@example.com')
       await user.click(screen.getByRole('checkbox', { name: /Terms of Service/ }))
-      await user.click(screen.getByRole('checkbox', { name: /at least 16 years old/ }))
+      await fillDateOfBirth(user)
 
       rerender(<PasskeySignup versionsChanged />)
 

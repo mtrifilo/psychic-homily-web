@@ -1,6 +1,6 @@
 'use client'
 
-import { useId, useRef, useState, type ReactNode, type Ref } from 'react'
+import { useId, useRef, useState, type ReactNode } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { Loader2 } from 'lucide-react'
@@ -22,7 +22,6 @@ import {
 import { useAuthContext } from '@/lib/context/AuthContext'
 import { AuthErrorCode, isAuthError } from '@/lib/errors'
 import { FALLBACK_RETURN_TO } from '@/lib/auth-href'
-import { MIN_SIGNUP_AGE } from '@/lib/legal'
 import { cn } from '@/lib/utils'
 import {
   CONSENT_VERSIONS_UNAVAILABLE,
@@ -33,49 +32,21 @@ import {
   GoogleOAuthButton,
 } from '@/app/auth/_components/google-oauth-button'
 import { googleStartUrl } from '@/app/auth/_components/google-start-url'
+import { AgeRefusedCard } from '@/app/auth/_components/age-refused-card'
+import {
+  DateOfBirthField,
+  EMPTY_DATE_OF_BIRTH,
+  dateOfBirthFromParts,
+  firstInvalidDateOfBirthPartId,
+} from '@/app/auth/_components/date-of-birth-field'
+import { StepCard, StepHeading } from '@/app/auth/_components/step-card'
 import { sanitizeReturnTo } from '@/app/auth/auth-redirect-utils'
 
 export const TERMS_REQUIRED_MESSAGE =
   'Agree to the Terms of Service to create your account.'
 
-/**
- * The date-of-birth errors: a part left empty, and a date that does not exist
- * or that the backend finds implausible (dateOfBirthMissingMessage and
- * dateOfBirthInvalidMessage in backend/internal/api/handlers/auth/oauth_signup.go).
- */
-export const DATE_OF_BIRTH_MISSING_MESSAGE = 'Enter your date of birth.'
-export const DATE_OF_BIRTH_INVALID_MESSAGE = 'Enter a real date of birth.'
-
 const LOAD_FAILED_MESSAGE =
   'Service temporarily unavailable. Please try again.'
-
-/**
- * The month, day and year as typed, as the YYYY-MM-DD date the backend reads,
- * or null when they do not name a real calendar date. The backend judges the
- * age and the plausible range; this only keeps an impossible date from
- * leaving the page.
- */
-export function dateOfBirthFromParts(
-  month: string,
-  day: string,
-  year: string
-): string | null {
-  if (!/^\d{1,2}$/.test(month) || !/^\d{1,2}$/.test(day) || !/^\d{4}$/.test(year)) {
-    return null
-  }
-  const m = Number(month)
-  const d = Number(day)
-  const y = Number(year)
-  const date = new Date(Date.UTC(y, m - 1, d))
-  if (
-    date.getUTCFullYear() !== y ||
-    date.getUTCMonth() !== m - 1 ||
-    date.getUTCDate() !== d
-  ) {
-    return null
-  }
-  return `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`
-}
 
 /**
  * The "Create your account" step a new Google identity finishes on. What it
@@ -129,42 +100,6 @@ export function CreateAccountStep() {
   )
 }
 
-function StepCard({ children }: { children: ReactNode }) {
-  return (
-    <div className="flex flex-col gap-5 rounded-lg border bg-card p-5 text-card-foreground sm:p-8">
-      {children}
-    </div>
-  )
-}
-
-function StepHeading({
-  eyebrow,
-  title,
-  focusOnMount = false,
-  children,
-}: {
-  eyebrow: string
-  title: string
-  focusOnMount?: boolean
-  children?: ReactNode
-}) {
-  return (
-    <div className="flex flex-col gap-2">
-      <p className="font-mono text-[11px] uppercase tracking-[0.66px] text-muted-foreground">
-        {eyebrow}
-      </p>
-      <h1
-        ref={focusOnMount ? heading => heading?.focus() : undefined}
-        tabIndex={focusOnMount ? -1 : undefined}
-        className="text-2xl font-bold leading-[30px] text-foreground outline-none"
-      >
-        {title}
-      </h1>
-      {children}
-    </div>
-  )
-}
-
 const LINK_CLASS = 'font-medium underline underline-offset-4 hover:text-primary'
 
 function CreateAccountForm({
@@ -181,23 +116,16 @@ function CreateAccountForm({
   const consentVersions = useConsentVersions()
   const ids = useId()
   const [name, setName] = useState(pending.name ?? '')
-  const [month, setMonth] = useState('')
-  const [day, setDay] = useState('')
-  const [year, setYear] = useState('')
+  const [dateOfBirthParts, setDateOfBirthParts] = useState(EMPTY_DATE_OF_BIRTH)
   const [termsAccepted, setTermsAccepted] = useState(false)
   const [attempted, setAttempted] = useState(false)
   const [versionsError, setVersionsError] = useState<'unavailable' | 'changed' | null>(null)
   const [readingVersions, setReadingVersions] = useState(false)
-  const monthRef = useRef<HTMLInputElement>(null)
   const termsRef = useRef<HTMLButtonElement>(null)
+  const dateOfBirthIdPrefix = `${ids}-dob`
 
-  const dateOfBirth = dateOfBirthFromParts(month, day, year)
+  const dateOfBirth = dateOfBirthFromParts(dateOfBirthParts)
   const termsError = attempted && !termsAccepted
-  const dateError = attempted && dateOfBirth === null
-  const dateErrorMessage =
-    month === '' || day === '' || year === ''
-      ? DATE_OF_BIRTH_MISSING_MESSAGE
-      : DATE_OF_BIRTH_INVALID_MESSAGE
   // Still busy once the account exists: the page is on its way out.
   const busy = readingVersions || finish.isPending || finish.isSuccess
   // The refusals the step shows as their own states replace this form, so
@@ -211,7 +139,9 @@ function CreateAccountForm({
     setAttempted(true)
     // Focus goes to the first field the form refuses, in the order they show.
     if (dateOfBirth === null) {
-      monthRef.current?.focus()
+      document
+        .getElementById(firstInvalidDateOfBirthPartId(dateOfBirthIdPrefix, dateOfBirthParts))
+        ?.focus()
       return
     }
     if (!termsAccepted) {
@@ -254,8 +184,6 @@ function CreateAccountForm({
     )
   }
 
-  const hintId = `${ids}-dob-hint`
-  const dateErrorId = `${ids}-dob-error`
   const termsErrorId = `${ids}-terms-error`
 
   return (
@@ -320,53 +248,12 @@ function CreateAccountForm({
           />
         </div>
 
-        <fieldset className="flex flex-col gap-2" aria-describedby={dateError ? `${hintId} ${dateErrorId}` : hintId}>
-          <legend className="mb-2 text-sm font-medium text-foreground">Date of birth</legend>
-          <p id={hintId} className="text-xs text-muted-foreground">
-            Never shown on your profile.
-          </p>
-          <div className="flex items-start gap-3">
-            <DatePart
-              inputRef={monthRef}
-              id={`${ids}-dob-month`}
-              label="Month"
-              placeholder="MM"
-              autoComplete="bday-month"
-              maxLength={2}
-              className="w-16"
-              value={month}
-              onChange={setMonth}
-              invalid={dateError}
-            />
-            <DatePart
-              id={`${ids}-dob-day`}
-              label="Day"
-              placeholder="DD"
-              autoComplete="bday-day"
-              maxLength={2}
-              className="w-16"
-              value={day}
-              onChange={setDay}
-              invalid={dateError}
-            />
-            <DatePart
-              id={`${ids}-dob-year`}
-              label="Year"
-              placeholder="YYYY"
-              autoComplete="bday-year"
-              maxLength={4}
-              className="w-[88px]"
-              value={year}
-              onChange={setYear}
-              invalid={dateError}
-            />
-          </div>
-          {dateError && (
-            <p id={dateErrorId} role="alert" className="text-sm text-destructive">
-              {dateErrorMessage}
-            </p>
-          )}
-        </fieldset>
+        <DateOfBirthField
+          idPrefix={dateOfBirthIdPrefix}
+          value={dateOfBirthParts}
+          onChange={setDateOfBirthParts}
+          showError={attempted}
+        />
 
         <div className="flex flex-col gap-1">
           <div className="flex items-start gap-3">
@@ -430,50 +317,6 @@ function CreateAccountForm({
   )
 }
 
-function DatePart({
-  inputRef,
-  id,
-  label,
-  placeholder,
-  autoComplete,
-  maxLength,
-  className,
-  value,
-  onChange,
-  invalid,
-}: {
-  inputRef?: Ref<HTMLInputElement>
-  id: string
-  label: string
-  placeholder: string
-  autoComplete: string
-  maxLength: number
-  className: string
-  value: string
-  onChange: (value: string) => void
-  invalid: boolean
-}) {
-  return (
-    <div className="flex flex-col gap-1.5">
-      <label htmlFor={id} className="text-xs text-muted-foreground">
-        {label}
-      </label>
-      <Input
-        ref={inputRef}
-        id={id}
-        inputMode="numeric"
-        autoComplete={autoComplete}
-        placeholder={placeholder}
-        maxLength={maxLength}
-        className={className}
-        value={value}
-        aria-invalid={invalid}
-        onChange={event => onChange(event.target.value.replace(/\D/g, ''))}
-      />
-    </div>
-  )
-}
-
 // The lifetime in this copy is contracts.OAuthPendingSignupTTL in the
 // backend; TestOAuthSignupExpiredCopyNamesTheLifetime fails when it changes.
 function ExpiredCard({ focusHeading, returnTo }: { focusHeading: boolean; returnTo: string }) {
@@ -497,26 +340,6 @@ function ExpiredCard({ focusHeading, returnTo }: { focusHeading: boolean; return
           </Link>
         </p>
       </div>
-    </StepCard>
-  )
-}
-
-function AgeRefusedCard({ focusHeading }: { focusHeading: boolean }) {
-  return (
-    <StepCard>
-      <StepHeading
-        eyebrow="Account not created"
-        title="We can't create an account for you."
-        focusOnMount={focusHeading}
-      />
-      <p className="text-sm leading-[22px] text-foreground">
-        Psychic Homily accounts are for people {MIN_SIGNUP_AGE} and over, so we
-        haven&apos;t created one. You can still browse shows, artists and venues
-        without an account.
-      </p>
-      <Button asChild className="w-full">
-        <Link href="/shows">Browse upcoming shows</Link>
-      </Button>
     </StepCard>
   )
 }

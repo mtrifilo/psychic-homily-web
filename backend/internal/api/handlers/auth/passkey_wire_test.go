@@ -21,6 +21,7 @@ import (
 	"psychic-homily-backend/internal/legal"
 	authm "psychic-homily-backend/internal/models/auth"
 	"psychic-homily-backend/internal/services/contracts"
+	"psychic-homily-backend/internal/testutil/signupconsent"
 )
 
 // The browser sends what @simplewebauthn/browser v13 serializes, and huma
@@ -138,12 +139,11 @@ func TestPasskeyWire_SignupBeginEncodesUserHandleAsBase64URL(t *testing.T) {
 	api := newPasskeyWireAPI(t, testPasskeyHandlerWithMocks(mockWA, &testhelpers.MockJWTService{}, users))
 
 	publicKey := wirePublicKey(t, api.Post("/auth/passkey/signup/begin", map[string]any{
-		"email":            "new@example.com",
-		"terms_accepted":   true,
-		"terms_version":    legal.CurrentTermsVersion,
-		"privacy_version":  legal.CurrentPrivacyVersion,
-		"age_confirmed":    true,
-		"min_age_attested": 16,
+		"email":           "new@example.com",
+		"terms_accepted":  true,
+		"terms_version":   legal.CurrentTermsVersion,
+		"privacy_version": legal.CurrentPrivacyVersion,
+		"date_of_birth":   signupconsent.AdultDateOfBirth,
 	}))
 	user, _ := publicKey["user"].(map[string]any)
 	encoded, _ := user["id"].(string)

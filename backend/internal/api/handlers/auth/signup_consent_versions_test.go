@@ -93,11 +93,10 @@ func newRegisterWireAPI(t *testing.T, users *testhelpers.MockUserService) humate
 }
 
 var registerConsentBody = map[string]any{
-	"email":            "new@example.com",
-	"password":         "a-valid-password-123",
-	"terms_accepted":   true,
-	"age_confirmed":    true,
-	"min_age_attested": MinSignupAge,
+	"email":          "new@example.com",
+	"password":       "a-valid-password-123",
+	"terms_accepted": true,
+	"date_of_birth":  signupconsent.AdultDateOfBirth,
 }
 
 func TestRegisterWire_RefusesConsentVersionsThatAreNotCurrent(t *testing.T) {
@@ -154,10 +153,9 @@ func TestRegisterWire_RecordsAcceptedConsentVersionsAsSent(t *testing.T) {
 // --- POST /auth/passkey/signup/begin ---
 
 var passkeySignupBeginBody = map[string]any{
-	"email":            "new@example.com",
-	"terms_accepted":   true,
-	"age_confirmed":    true,
-	"min_age_attested": MinSignupAge,
+	"email":          "new@example.com",
+	"terms_accepted": true,
+	"date_of_birth":  signupconsent.AdultDateOfBirth,
 }
 
 func TestPasskeySignupBeginWire_RefusesConsentVersionsThatAreNotCurrent(t *testing.T) {
@@ -205,8 +203,9 @@ func TestPasskeySignupBeginWire_StoresValidatedConsentOnChallenge(t *testing.T) 
 				t.Errorf("stored email %q", stored.Email)
 			}
 			got := stored.Acceptance
-			if got.TermsVersion != *pair[0] || got.PrivacyVersion != *pair[1] || got.MinAgeAttested != MinSignupAge {
-				t.Errorf("stored acceptance %+v, want the versions sent (%q/%q) and age %d", got, *pair[0], *pair[1], MinSignupAge)
+			_, wantAge := signupconsent.AdultDateOfBirthAt(time.Now())
+			if got.TermsVersion != *pair[0] || got.PrivacyVersion != *pair[1] || got.MinAgeAttested != wantAge || got.DateOfBirth == nil {
+				t.Errorf("stored acceptance %+v, want the versions sent (%q/%q), the date of birth and age %d", got, *pair[0], *pair[1], wantAge)
 			}
 			if got.TermsAcceptedAt.IsZero() || got.AgeConfirmedAt.IsZero() {
 				t.Errorf("stored acceptance %+v carries no acceptance times", got)
@@ -271,11 +270,9 @@ func TestPasskeySignupFinishWire_AcceptsEveryAcceptedVersionPair(t *testing.T) {
 			api := passkeySignupFinishAPI(t, signup, &recorded)
 
 			requireWireSuccess(t, api.Post("/auth/passkey/signup/finish", map[string]any{
-				"challenge_id":     "c-1",
-				"response":         registration,
-				"terms_accepted":   true,
-				"age_confirmed":    true,
-				"min_age_attested": MinSignupAge,
+				"challenge_id":   "c-1",
+				"response":       registration,
+				"terms_accepted": true,
 			}))
 			if recorded != signup.Acceptance {
 				t.Errorf("recorded %+v, want the challenge's %+v", recorded, signup.Acceptance)
@@ -290,14 +287,19 @@ func TestPasskeySignupFinishWire_RefusesAChallengeWhoseConsentIsNotCurrent(t *te
 	noAge := currentSignupChallenge("new@example.com")
 	noAge.Acceptance.AgeConfirmedAt = time.Time{}
 	noAge.Acceptance.MinAgeAttested = 0
+	noAge.Acceptance.DateOfBirth = nil
+	attestedOnly := currentSignupChallenge("new@example.com")
+	attestedOnly.Acceptance.MinAgeAttested = legal.MinSignupAge
+	attestedOnly.Acceptance.DateOfBirth = nil
 
 	for name, tc := range map[string]struct {
 		signup   contracts.SignupChallenge
 		wantCode string
 	}{
-		"no consent":       {contracts.SignupChallenge{Email: "new@example.com"}, autherrors.CodeTermsAcceptanceRequired},
-		"stale versions":   {stale, autherrors.CodeTermsAcceptanceRequired},
-		"no age confirmed": {noAge, autherrors.CodeAgeConfirmationRequired},
+		"no consent":                           {contracts.SignupChallenge{Email: "new@example.com"}, autherrors.CodeTermsAcceptanceRequired},
+		"stale versions":                       {stale, autherrors.CodeTermsAcceptanceRequired},
+		"no age confirmed":                     {noAge, autherrors.CodeAgeConfirmationRequired},
+		"age attested without a date of birth": {attestedOnly, autherrors.CodeAgeConfirmationRequired},
 	} {
 		t.Run(name, func(t *testing.T) {
 			var recorded contracts.LegalAcceptance
@@ -306,13 +308,11 @@ func TestPasskeySignupFinishWire_RefusesAChallengeWhoseConsentIsNotCurrent(t *te
 			// The refusal comes before the credential is parsed, so the
 			// response needs no ceremony behind it.
 			resp := api.Post("/auth/passkey/signup/finish", map[string]any{
-				"challenge_id":     "c-1",
-				"response":         json.RawMessage(`{}`),
-				"terms_accepted":   true,
-				"terms_version":    legal.CurrentTermsVersion,
-				"privacy_version":  legal.CurrentPrivacyVersion,
-				"age_confirmed":    true,
-				"min_age_attested": MinSignupAge,
+				"challenge_id":    "c-1",
+				"response":        json.RawMessage(`{}`),
+				"terms_accepted":  true,
+				"terms_version":   legal.CurrentTermsVersion,
+				"privacy_version": legal.CurrentPrivacyVersion,
 			})
 			body := decodeWireBody(t, resp.Body.Bytes())
 			if success, _ := body["success"].(bool); success {

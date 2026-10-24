@@ -9,6 +9,8 @@ import { deferred } from '@/test/inflightOrdering'
 import { queryKeys } from '@/lib/queryClient'
 import AuthPage from './page'
 import { SIGNUP_REQUEST_TIMEOUT_MS } from './_components/signup-request-deadline'
+import { fillDateOfBirth } from '@/test/dateOfBirth'
+import { answeringNoAgeRefusalMarker } from '@/test/signupAgeRefusal'
 
 // The page with the real `useRegister` mutation and the real passkey sign-up
 // button behind one stubbed fetch, so these tests drive both sign-up paths and
@@ -118,7 +120,7 @@ async function submitPasswordSignup(user: ReturnType<typeof setupUser>) {
   await user.type(screen.getByLabelText('Email'), 'signup@example.com')
   await user.type(screen.getByLabelText('Password'), 'validPassword123!')
   await user.click(screen.getByRole('checkbox', { name: /Terms of Service/ }))
-  await user.click(screen.getByRole('checkbox', { name: /at least 16 years old/ }))
+  await fillDateOfBirth(user)
   await user.click(screen.getByRole('button', { name: 'Create account' }))
   await waitFor(() => {
     expect(callsTo('/auth/register')).toHaveLength(1)
@@ -130,7 +132,7 @@ async function startPasskeySignup(user: ReturnType<typeof setupUser>) {
   const dialog = screen.getByRole('dialog', { name: 'Create account with passkey' })
   await user.type(within(dialog).getByLabelText('Email'), 'passkey@example.com')
   await user.click(within(dialog).getByRole('checkbox', { name: /Terms of Service/ }))
-  await user.click(within(dialog).getByRole('checkbox', { name: /at least 16 years old/ }))
+  await fillDateOfBirth(user, within(dialog))
   await user.click(within(dialog).getByRole('button', { name: /continue with passkey/i }))
   await waitFor(() => {
     expect(callsTo('/auth/passkey/signup/begin')).toHaveLength(1)
@@ -144,7 +146,7 @@ describe('sign-up deadlines on /auth', () => {
     mockPush.mockReset()
     mockStartRegistration.mockReset()
     fetchMock.mockReset()
-    vi.stubGlobal('fetch', fetchMock)
+    vi.stubGlobal('fetch', answeringNoAgeRefusalMarker(fetchMock))
     authStore.set('anonymous')
   })
 
@@ -227,7 +229,7 @@ describe('sign-up deadlines on /auth', () => {
       await user.type(screen.getByLabelText('Email'), 'signup@example.com')
       await user.type(screen.getByLabelText('Password'), 'validPassword123!')
       await user.click(screen.getByRole('checkbox', { name: /Terms of Service/ }))
-      await user.click(screen.getByRole('checkbox', { name: /at least 16 years old/ }))
+      await fillDateOfBirth(user)
       await user.click(screen.getByRole('button', { name: 'Create account' }))
       await waitFor(() => {
         expect(callsTo('/auth/register')).toHaveLength(2)

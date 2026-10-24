@@ -18,12 +18,10 @@ import {
   CONSENT_VERSIONS_UNAVAILABLE,
 } from '@/app/auth/_components/consent-versions-notice'
 import {
-  CreateAccountStep,
   DATE_OF_BIRTH_INVALID_MESSAGE,
   DATE_OF_BIRTH_MISSING_MESSAGE,
-  TERMS_REQUIRED_MESSAGE,
-  dateOfBirthFromParts,
-} from './create-account-step'
+} from '@/app/auth/_components/date-of-birth-field'
+import { CreateAccountStep, TERMS_REQUIRED_MESSAGE } from './create-account-step'
 
 vi.mock('@/lib/api-base', async importOriginal => ({
   ...(await importOriginal<typeof import('@/lib/api-base')>()),
@@ -86,30 +84,6 @@ async function fillValidForm(user: ReturnType<typeof userEvent.setup>) {
   await user.type(screen.getByLabelText('Year'), '1998')
   await user.click(screen.getByRole('checkbox', { name: /I agree to the Terms of Service/ }))
 }
-
-describe('dateOfBirthFromParts', () => {
-  it.each([
-    ['4', '27', '1998', '1998-04-27'],
-    ['04', '07', '2000', '2000-04-07'],
-    ['2', '29', '2000', '2000-02-29'],
-  ])('reads %s/%s/%s as %s', (m, d, y, want) => {
-    expect(dateOfBirthFromParts(m, d, y)).toBe(want)
-  })
-
-  it.each([
-    ['2', '29', '1999'],
-    ['2', '30', '2000'],
-    ['13', '1', '2000'],
-    ['0', '1', '2000'],
-    ['1', '0', '2000'],
-    ['1', '1', '98'],
-    ['', '1', '2000'],
-    ['1', '', '2000'],
-    ['1', '1', ''],
-  ])('refuses %s/%s/%s', (m, d, y) => {
-    expect(dateOfBirthFromParts(m, d, y)).toBeNull()
-  })
-})
 
 describe('CreateAccountStep', () => {
   beforeEach(() => {
@@ -202,7 +176,10 @@ describe('CreateAccountStep', () => {
 
     expect(screen.getByText(DATE_OF_BIRTH_MISSING_MESSAGE)).toBeInTheDocument()
     expect(screen.queryByText(DATE_OF_BIRTH_INVALID_MESSAGE)).not.toBeInTheDocument()
-    expect(screen.getByLabelText('Month')).toHaveFocus()
+    // Only the empty part takes the error state, and focus.
+    expect(screen.getByLabelText('Day')).toHaveFocus()
+    expect(screen.getByLabelText('Day')).toHaveAttribute('aria-invalid', 'true')
+    expect(screen.getByLabelText('Month')).toHaveAttribute('aria-invalid', 'false')
     expect(bodies).toHaveLength(0)
   })
 
@@ -220,7 +197,7 @@ describe('CreateAccountStep', () => {
     await user.click(screen.getByRole('button', { name: 'Create account' }))
 
     expect(screen.getByText(DATE_OF_BIRTH_INVALID_MESSAGE)).toBeInTheDocument()
-    expect(screen.getByLabelText('Month')).toHaveFocus()
+    expect(screen.getByLabelText('Day')).toHaveFocus()
     expect(bodies).toHaveLength(0)
   })
 

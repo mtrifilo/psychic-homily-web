@@ -23,27 +23,6 @@ import (
 	servicesshared "psychic-homily-backend/internal/services/shared"
 )
 
-// MinSignupAge is legal.MinSignupAge, the minimum age a sign-up must confirm.
-const MinSignupAge = legal.MinSignupAge
-
-// validateSignupAgeConfirmation enforces the required minimum-age confirmation
-// shared by every account-creation handler (PSY-1023). It mirrors the terms
-// guard: the confirmation flag must be set, and the attested minimum age must be
-// at least MinSignupAge. The frontend always sends MinSignupAge, but the server
-// re-checks so a tampered/absent value can never bypass the gate. Returns the
-// error code + user-facing message and ok=false on failure.
-func validateSignupAgeConfirmation(ageConfirmed bool, minAgeAttested int) (code, message string, ok bool) {
-	if !ageConfirmed {
-		err := autherrors.ErrAgeConfirmationRequired("age confirmation not provided")
-		return autherrors.CodeAgeConfirmationRequired, err.Message, false
-	}
-	if minAgeAttested < MinSignupAge {
-		err := autherrors.ErrAgeConfirmationRequired("attested age below minimum")
-		return autherrors.CodeAgeConfirmationRequired, err.Message, false
-	}
-	return "", "", true
-}
-
 // refuseStaleConsentVersions returns the refusal for an account creation
 // whose terms or privacy version legal.AcceptedVersions does not accept now, or
 // nil when it does. An empty, stale or unknown version is an acceptance of some
@@ -680,13 +659,16 @@ type RegisterRequest struct {
 		TermsAccepted  bool    `json:"terms_accepted" doc:"Whether user accepted Terms of Service"`
 		TermsVersion   string  `json:"terms_version,omitempty" doc:"Accepted Terms of Service version: the current one, or the previous one while a grace window is open (both published at GET /legal/versions); anything else is refused with TERMS_ACCEPTANCE_REQUIRED"`
 		PrivacyVersion string  `json:"privacy_version,omitempty" doc:"Accepted Privacy Policy version: the current one, or the previous one while a grace window is open (both published at GET /legal/versions); anything else is refused with TERMS_ACCEPTANCE_REQUIRED"`
-		AgeConfirmed   bool    `json:"age_confirmed" doc:"Whether user confirmed they meet the minimum age"`
-		MinAgeAttested int     `json:"min_age_attested,omitempty" doc:"Minimum age the user attested to"`
+		DateOfBirth    string  `json:"date_of_birth,omitempty" example:"1990-01-31" doc:"Date of birth, YYYY-MM-DD. Required: without it the sign-up is refused with AGE_CONFIRMATION_REQUIRED. The age is computed from it at submission on the latest calendar date anywhere (UTC+14); under the minimum age (GET /legal/versions) the sign-up is refused with AGE_CONFIRMATION_REQUIRED and this browser is refused every sign-up for a day. A date that does not exist, is in the future, or is more than 150 years back is refused with VALIDATION_FAILED."`
+		AgeConfirmed   bool    `json:"age_confirmed,omitempty" doc:"Ignored. It no longer counts as an age attestation: send date_of_birth."`
+		MinAgeAttested int     `json:"min_age_attested,omitempty" doc:"Ignored. It no longer counts as an age attestation: send date_of_birth."`
 	}
+	AgeRefused     string `cookie:"oauth_signup_age_refused" doc:"Under-age refusal marker, on a deployment without Secure cookies"`
+	AgeRefusedHost string `cookie:"__Host-oauth_signup_age_refused" doc:"Under-age refusal marker, on a deployment with Secure cookies"`
 }
 
 type RegisterResponse struct {
-	SetCookie http.Cookie `header:"Set-Cookie" doc:"Authentication cookie"`
+	SetCookie http.Cookie `header:"Set-Cookie" doc:"Authentication cookie, or the under-age refusal marker"`
 	Body      struct {
 		Success   bool        `json:"success" example:"true" doc:"Success status"`
 		Message   string      `json:"message" example:"Registration successful" doc:"Response message"`
@@ -706,6 +688,22 @@ func (h *AuthHandler) RegisterHandler(ctx context.Context, input *RegisterReques
 	logger.AuthDebug(ctx, "register_attempt",
 		"email_hash", logger.HashEmail(input.Body.Email),
 	)
+
+	secure := secureSessionCookies(h.config)
+	refuseUnderAge := func(detail string) (*RegisterResponse, error) {
+		refusal := autherrors.ErrAgeConfirmationRequired(detail)
+		logger.AuthWarn(ctx, "register_validation_failed",
+			"error", refusal.Error(),
+		)
+		resp.SetCookie = signupAgeRefusalMarker(secure)
+		resp.Body.Success = false
+		resp.Body.Message = refusal.UserMessage()
+		resp.Body.ErrorCode = refusal.Code
+		return resp, nil
+	}
+	if (signupAgeRefusalCookies{input.AgeRefused, input.AgeRefusedHost}).present(secure) {
+		return refuseUnderAge("browser carries the under-age refusal marker")
+	}
 
 	// Validate email and password presence
 	if input.Body.Email == "" || input.Body.Password == "" {
@@ -776,14 +774,27 @@ func (h *AuthHandler) RegisterHandler(ctx context.Context, input *RegisterReques
 		resp.Body.ErrorCode = refusal.Code
 		return resp, nil
 	}
-	if errCode, errMsg, ok := validateSignupAgeConfirmation(input.Body.AgeConfirmed, input.Body.MinAgeAttested); !ok {
+	age, outcome := checkSignupAge(input.Body.DateOfBirth, time.Now())
+	switch outcome {
+	case signupAgeMissing:
+		refusal := autherrors.ErrAgeConfirmationRequired("no date of birth")
 		logger.AuthWarn(ctx, "register_validation_failed",
-			"error", errMsg,
+			"error", refusal.Error(),
 		)
 		resp.Body.Success = false
-		resp.Body.Message = errMsg
-		resp.Body.ErrorCode = errCode
+		resp.Body.Message = refusal.UserMessage()
+		resp.Body.ErrorCode = refusal.Code
 		return resp, nil
+	case signupAgeImplausible:
+		logger.AuthWarn(ctx, "register_validation_failed",
+			"error", dateOfBirthInvalidMessage,
+		)
+		resp.Body.Success = false
+		resp.Body.Message = dateOfBirthInvalidMessage
+		resp.Body.ErrorCode = autherrors.CodeValidationFailed
+		return resp, nil
+	case signupAgeUnderMinimum:
+		return refuseUnderAge("date of birth below the minimum age")
 	}
 
 	// Validate password using the password validator (min 12, max 128, breach check, common password check)
@@ -825,13 +836,7 @@ func (h *AuthHandler) RegisterHandler(ctx context.Context, input *RegisterReques
 		input.Body.Password,
 		firstName,
 		lastName,
-		contracts.LegalAcceptance{
-			TermsAcceptedAt: time.Now().UTC(),
-			TermsVersion:    input.Body.TermsVersion,
-			PrivacyVersion:  input.Body.PrivacyVersion,
-			AgeConfirmedAt:  time.Now().UTC(),
-			MinAgeAttested:  input.Body.MinAgeAttested,
-		},
+		age.legalAcceptance(input.Body.TermsVersion, input.Body.PrivacyVersion),
 	)
 	if err != nil {
 		// "Account already exists" is an INTENTIONAL HTTP-200 UX response, not a
@@ -850,6 +855,20 @@ func (h *AuthHandler) RegisterHandler(ctx context.Context, input *RegisterReques
 			resp.Body.Success = false
 			resp.Body.Message = authErr.UserMessage()
 			resp.Body.ErrorCode = autherrors.CodeUserExists
+			return resp, nil
+		}
+		// The service refuses an acceptance that records no consent. The checks
+		// above stop every such request first, so reaching this arm means they
+		// and the service disagree; it is still the client's refusal, not a
+		// fault.
+		if errors.As(err, &authErr) && authErr.Code == autherrors.CodeTermsAcceptanceRequired {
+			logger.AuthWarn(ctx, "register_failed",
+				"email_hash", logger.HashEmail(input.Body.Email),
+				"error_code", autherrors.CodeTermsAcceptanceRequired,
+			)
+			resp.Body.Success = false
+			resp.Body.Message = authErr.UserMessage()
+			resp.Body.ErrorCode = autherrors.CodeTermsAcceptanceRequired
 			return resp, nil
 		}
 

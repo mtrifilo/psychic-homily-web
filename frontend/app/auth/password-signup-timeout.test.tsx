@@ -11,6 +11,8 @@ import {
 } from '@/test/stalledFetch'
 import AuthPage from './page'
 import { SIGNUP_REQUEST_TIMEOUT_MS } from './_components/signup-request-deadline'
+import { fillDateOfBirth } from '@/test/dateOfBirth'
+import { answeringNoAgeRefusalMarker } from '@/test/signupAgeRefusal'
 
 // The page with the real `useRegister` mutation and a stubbed fetch, so these
 // tests drive the register request itself rather than a mocked mutation.
@@ -76,7 +78,7 @@ async function submitPasswordSignup() {
   await user.type(screen.getByLabelText('Email'), 'signup@example.com')
   await user.type(screen.getByLabelText('Password'), 'validPassword123!')
   await user.click(screen.getByRole('checkbox', { name: /Terms of Service/ }))
-  await user.click(screen.getByRole('checkbox', { name: /at least 16 years old/ }))
+  await fillDateOfBirth(user)
   await user.click(screen.getByRole('button', { name: 'Create account' }))
 
   await waitFor(() => {
@@ -90,7 +92,7 @@ describe('password sign-up under the request deadline', () => {
     mockPush.mockReset()
     fetchMock.mockReset()
     fetchMock.mockImplementation(stalledRequest)
-    vi.stubGlobal('fetch', fetchMock)
+    vi.stubGlobal('fetch', answeringNoAgeRefusalMarker(fetchMock))
     authStore.set('anonymous')
   })
 

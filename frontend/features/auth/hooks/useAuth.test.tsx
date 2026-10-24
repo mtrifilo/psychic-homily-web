@@ -256,8 +256,7 @@ describe('useAuth hooks', () => {
       terms_accepted: true,
       terms_version: '2026-01-31',
       privacy_version: '2026-02-15',
-      age_confirmed: true,
-      min_age_attested: 16,
+      date_of_birth: '1990-06-15',
     }
 
     it('calls register endpoint with credentials', async () => {
@@ -280,8 +279,7 @@ describe('useAuth hooks', () => {
           terms_accepted: true,
           terms_version: '2026-01-31',
           privacy_version: '2026-02-15',
-          age_confirmed: true,
-          min_age_attested: 16,
+          date_of_birth: '1990-06-15',
         })
       })
 
@@ -299,8 +297,7 @@ describe('useAuth hooks', () => {
             terms_accepted: true,
             terms_version: '2026-01-31',
             privacy_version: '2026-02-15',
-            age_confirmed: true,
-            min_age_attested: 16,
+            date_of_birth: '1990-06-15',
           }),
         })
       )
@@ -373,8 +370,7 @@ describe('useAuth hooks', () => {
           terms_accepted: true,
           terms_version: '2026-01-31',
           privacy_version: '2026-02-15',
-          age_confirmed: true,
-          min_age_attested: 16,
+          date_of_birth: '1990-06-15',
         })
       })
 

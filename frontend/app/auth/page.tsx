@@ -52,9 +52,14 @@ import {
   isAccountRecoverableRefusal,
   isReauthReason,
 } from '@/lib/auth-href'
-import { isAccountRecoverable, isAuthError, type AuthError } from '@/lib/errors'
+import {
+  AuthErrorCode,
+  isAccountRecoverable,
+  isAuthError,
+  type AuthError,
+} from '@/lib/errors'
 import { getUniqueErrors } from '@/lib/utils/formErrors'
-import { MIN_SIGNUP_AGE } from '@/lib/legal'
+import { useSignupAgeRefused } from '@/features/auth/hooks/useOAuthSignup'
 import {
   ConsentVersionsChangedError,
   isConsentRefusal,
@@ -77,6 +82,15 @@ import {
   focusFirstInvalidField,
   revealFormAlert,
 } from '@/app/auth/_components/form-error-focus'
+import {
+  DateOfBirthField,
+  EMPTY_DATE_OF_BIRTH,
+  dateOfBirthFromParts,
+  dateOfBirthProblem,
+  firstInvalidDateOfBirthPartId,
+  type DateOfBirthParts,
+} from '@/app/auth/_components/date-of-birth-field'
+import { AgeRefusedCard } from '@/app/auth/_components/age-refused-card'
 
 // Shown for ACCOUNT_INACTIVE_REASON: fixed copy keyed by the code, never text
 // from the URL, saying no more about the account than "unavailable".
@@ -104,10 +118,13 @@ const signupSchema = z.object({
     .refine((val) => val === true, {
       message: 'You must agree to the Terms of Service and Privacy Policy',
     }),
-  ageConfirmed: z
-    .boolean()
-    .refine((val) => val === true, {
-      message: `You must confirm that you are at least ${MIN_SIGNUP_AGE} years old`,
+  dateOfBirth: z
+    .object({ month: z.string(), day: z.string(), year: z.string() })
+    .superRefine((parts, ctx) => {
+      const problem = dateOfBirthProblem(parts)
+      if (problem) {
+        ctx.addIssue({ code: 'custom', message: problem.message })
+      }
     }),
 })
 
@@ -121,12 +138,15 @@ const LOGIN_FIELD_IDS = [
   ['email', 'email'],
   ['password', 'password'],
 ] as const satisfies readonly (readonly [keyof LoginFormData, string])[]
-const SIGNUP_FIELD_IDS = [
-  ['email', 'signup-email'],
-  ['password', 'signup-password'],
-  ['termsAccepted', 'terms'],
-  ['ageConfirmed', 'age-confirmation'],
-] as const satisfies readonly (readonly [keyof SignupFormData, string])[]
+// The date of birth's focus goes to its first part in the error state.
+const SIGNUP_DATE_OF_BIRTH_ID_PREFIX = 'signup-dob'
+const signupFieldIds = (dateOfBirth: DateOfBirthParts) =>
+  [
+    ['email', 'signup-email'],
+    ['password', 'signup-password'],
+    ['termsAccepted', 'terms'],
+    ['dateOfBirth', firstInvalidDateOfBirthPartId(SIGNUP_DATE_OF_BIRTH_ID_PREFIX, dateOfBirth)],
+  ] as const satisfies readonly (readonly [keyof SignupFormData, string])[]
 
 // Clears the sticky top bar when an alert is scrolled to the top of the view.
 // The form alerts are keyed by their message, so a new message mounts a new
@@ -426,6 +446,11 @@ interface SignupFormProps {
   passwordRequestDeadline: SignupRequestDeadline
   /** Bounds the passkey sign-up button's requests. */
   passkeyRequestDeadline: SignupRequestDeadline
+  /**
+   * Called when a sign-up is refused for its age: the page replaces itself
+   * with the refusal.
+   */
+  onAgeRefused: () => void
 }
 
 function SignupForm({
@@ -433,6 +458,7 @@ function SignupForm({
   onHandoffChange,
   passwordRequestDeadline,
   passkeyRequestDeadline,
+  onAgeRefused,
 }: SignupFormProps) {
   const { setUser } = useAuthContext()
   // The password request in flight: the claim it made and the signal that
@@ -469,6 +495,10 @@ function SignupForm({
     },
     onError: error => {
       settlePasswordClaim(null)
+      if (isAuthError(error) && error.code === AuthErrorCode.AGE_CONFIRMATION_REQUIRED) {
+        onAgeRefused()
+        return
+      }
       // Refused with versions the backend published: the read was older than
       // the backend's answer. Retried once, and only from a form still shown;
       // a second refusal is shown as it is.
@@ -545,8 +575,7 @@ function SignupForm({
       terms_accepted: value.termsAccepted,
       terms_version: versions.termsVersion,
       privacy_version: versions.privacyVersion,
-      age_confirmed: value.ageConfirmed,
-      min_age_attested: MIN_SIGNUP_AGE,
+      date_of_birth: dateOfBirthFromParts(value.dateOfBirth) ?? '',
       signal: request.deadlineSignal,
       // The profile refetch that follows takes no signal: this deadline
       // bounds only how long the claim waits on it.
@@ -584,7 +613,7 @@ function SignupForm({
       email: '',
       password: '',
       termsAccepted: false,
-      ageConfirmed: false,
+      dateOfBirth: EMPTY_DATE_OF_BIRTH,
     } as SignupFormData,
     onSubmit: async ({ value }) => {
       // A submit starts with no message up: what follows is its own answer.
@@ -603,7 +632,7 @@ function SignupForm({
       register(value, versions, false)
     },
     onSubmitInvalid: ({ formApi }) => {
-      focusFirstInvalidField(formApi, SIGNUP_FIELD_IDS)
+      focusFirstInvalidField(formApi, signupFieldIds(formApi.getFieldValue('dateOfBirth')))
     },
     validators: {
       ...(hasAttemptedSubmit && { onChange: signupSchema }),
@@ -650,9 +679,9 @@ function SignupForm({
         <PasskeySignupButton
           onError={message => showError(setPasskeyError, message)}
           onHandoffChange={onHandoffChange}
+          onAgeRefused={onAgeRefused}
           requestDeadline={passkeyRequestDeadline}
           className="w-full"
-          minAge={MIN_SIGNUP_AGE}
           versionsChanged={versionsChanged}
         />
         <div className="relative">
@@ -746,7 +775,7 @@ function SignupForm({
               />
               <Label
                 htmlFor="terms"
-                className="text-sm font-normal leading-relaxed cursor-pointer"
+                className="block cursor-pointer text-sm font-normal leading-relaxed"
               >
                 I agree to the{' '}
                 <Link
@@ -756,14 +785,16 @@ function SignupForm({
                 >
                   Terms of Service
                 </Link>{' '}
-                and{' '}
-                <Link
-                  href="/privacy"
-                  target="_blank"
-                  className="font-medium underline underline-offset-4 hover:text-primary"
-                >
-                  Privacy Policy
-                </Link>
+                <span className="text-muted-foreground">
+                  and I acknowledge the{' '}
+                  <Link
+                    href="/privacy"
+                    target="_blank"
+                    className="font-medium underline underline-offset-4 hover:text-primary"
+                  >
+                    Privacy Policy
+                  </Link>
+                </span>
               </Label>
             </div>
             {field.state.meta.errors.length > 0 && (
@@ -775,30 +806,15 @@ function SignupForm({
         )}
       </form.Field>
 
-      <form.Field name="ageConfirmed">
+      <form.Field name="dateOfBirth">
         {field => (
-          <div className="space-y-2">
-            <div className="flex items-start space-x-3">
-              <Checkbox
-                id="age-confirmation"
-                checked={field.state.value}
-                onCheckedChange={checked => field.handleChange(checked === true)}
-                aria-invalid={field.state.meta.errors.length > 0}
-                className="mt-0.5"
-              />
-              <Label
-                htmlFor="age-confirmation"
-                className="text-sm font-normal leading-relaxed cursor-pointer"
-              >
-                I confirm that I am at least {MIN_SIGNUP_AGE} years old
-              </Label>
-            </div>
-            {field.state.meta.errors.length > 0 && (
-              <p role="alert" className="text-sm text-destructive">
-                {getUniqueErrors(field.state.meta.errors)}
-              </p>
-            )}
-          </div>
+          <DateOfBirthField
+            idPrefix={SIGNUP_DATE_OF_BIRTH_ID_PREFIX}
+            value={field.state.value}
+            onChange={field.handleChange}
+            onBlur={field.handleBlur}
+            showError={field.state.meta.errors.length > 0}
+          />
         )}
       </form.Field>
 
@@ -874,11 +890,17 @@ function AuthPageContent() {
   const activeTab = showingArrivalTab ? arrivalTab : pickedTab.tab
   const setActiveTab = (tab: string) => setPickedTab({ arrival, tab })
   const [signupHandoff, setSignupHandoff] = useState<SignupHandoff | null>(null)
+  // A sign-up on this page refused for its age. The refusal replaces the page,
+  // so nothing invites a second date.
+  const [refusedForAge, setRefusedForAge] = useState(false)
   // Creating an account is not a way to prove you hold one, so an
   // authenticated viewer proving theirs is offered Sign in alone. A
   // re-authentication link can outlive the session it was sent for, so a
   // viewer with no session is offered Create account too.
   const offersSignup = !isReauth || authStatus !== 'authenticated'
+  // A browser refused for its age within the marker's lifetime sees the
+  // refusal on Create account instead of the forms. Sign in is unaffected.
+  const markedRefusedForAge = useSignupAgeRefused(offersSignup && activeTab === 'signup')
   // The arrival a sign-up on this page took a claim under. A session that
   // appears after that is the new account's, with no earlier session for a
   // re-authentication to prove, so that arrival stops holding the redirect
@@ -991,6 +1013,16 @@ function AuthPageContent() {
     return null
   }
 
+  if (refusedForAge) {
+    return (
+      <div className="flex min-h-[calc(100vh-64px)] justify-center px-4 pb-16 pt-12">
+        <div className="w-full max-w-md">
+          <AgeRefusedCard focusHeading />
+        </div>
+      </div>
+    )
+  }
+
   // What the banner above the card says, most specific first.
   const urlBanner = urlRefusalRecoverable ? <AccountRecoverableMessage /> : urlError
 
@@ -1063,27 +1095,34 @@ function AuthPageContent() {
               </TabsContent>
 
               <TabsContent value="signup" className="mt-6">
-                <SignupIntentPanel />
-                <div className="mt-6">
-                  <SignupForm
-                    returnTo={returnTo}
-                    onHandoffChange={setSignupHandoff}
-                    passwordRequestDeadline={passwordSignupDeadline}
-                    passkeyRequestDeadline={passkeySignupDeadline}
-                  />
-                </div>
-                <div className="mt-4">
-                  <SignupIntentFooter
-                    onSignInClick={() => {
-                      // Radix unmounts this panel on the tab change, taking the
-                      // focused button with it. The tab list itself never
-                      // unmounts, so hand focus over first and land the user
-                      // where clicking the tab directly would have.
-                      signInTabRef.current?.focus()
-                      setActiveTab('login')
-                    }}
-                  />
-                </div>
+                {markedRefusedForAge ? (
+                  <AgeRefusedCard focusHeading={false} />
+                ) : (
+                  <>
+                    <SignupIntentPanel />
+                    <div className="mt-6">
+                      <SignupForm
+                        returnTo={returnTo}
+                        onHandoffChange={setSignupHandoff}
+                        passwordRequestDeadline={passwordSignupDeadline}
+                        passkeyRequestDeadline={passkeySignupDeadline}
+                        onAgeRefused={() => setRefusedForAge(true)}
+                      />
+                    </div>
+                    <div className="mt-4">
+                      <SignupIntentFooter
+                        onSignInClick={() => {
+                          // Radix unmounts this panel on the tab change, taking the
+                          // focused button with it. The tab list itself never
+                          // unmounts, so hand focus over first and land the user
+                          // where clicking the tab directly would have.
+                          signInTabRef.current?.focus()
+                          setActiveTab('login')
+                        }}
+                      />
+                    </div>
+                  </>
+                )}
               </TabsContent>
             </Tabs>
           </CardHeader>

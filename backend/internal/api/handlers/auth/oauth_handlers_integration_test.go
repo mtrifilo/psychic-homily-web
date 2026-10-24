@@ -129,7 +129,7 @@ func (s *OAuthHandlerIntegrationSuite) signUp(identity goth.User) *authm.User {
 		PrivacyVersion: legal.CurrentPrivacyVersion,
 		AcceptedAt:     time.Now().UTC(),
 		AgeConfirmed:   true,
-		MinAgeAttested: MinSignupAge,
+		MinAgeAttested: legal.MinSignupAge,
 	})
 	s.Require().NoError(err)
 	return user

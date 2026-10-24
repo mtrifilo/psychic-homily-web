@@ -1,9 +1,21 @@
 import { test } from '../fixtures/error-detection'
-import { expect } from '@playwright/test'
+import { expect, type Page } from '@playwright/test'
 
 const REGISTER_USER = {
   email: 'e2e-register@test.local',
   password: 'Xq9!mzPh2wLk_e2e',
+}
+
+const ADULT_DATE_OF_BIRTH = { month: '6', day: '15', year: '1990' }
+
+async function fillDateOfBirth(
+  page: Page,
+  idPrefix: string,
+  date: { month: string; day: string; year: string }
+) {
+  await page.locator(`#${idPrefix}-month`).fill(date.month)
+  await page.locator(`#${idPrefix}-day`).fill(date.day)
+  await page.locator(`#${idPrefix}-year`).fill(date.year)
 }
 
 test.describe('Registration', () => {
@@ -20,8 +32,7 @@ test.describe('Registration', () => {
     await page.locator('#signup-email').fill(REGISTER_USER.email)
     await page.locator('#signup-password').fill(REGISTER_USER.password)
     await page.locator('#terms').check()
-    // PSY-1023: signup now requires a 16+ age confirmation alongside terms.
-    await page.locator('#age-confirmation').check()
+    await fillDateOfBirth(page, 'signup-dob', ADULT_DATE_OF_BIRTH)
 
     // Submit
     await page.getByRole('button', { name: 'Create account' }).click()
@@ -100,8 +111,7 @@ test.describe('Registration', () => {
     await page.locator('#signup-email').fill('breach-test@test.local')
     await page.locator('#signup-password').fill('TestPassword123!')
     await page.locator('#terms').check()
-    // PSY-1023: signup now requires a 16+ age confirmation alongside terms.
-    await page.locator('#age-confirmation').check()
+    await fillDateOfBirth(page, 'signup-dob', ADULT_DATE_OF_BIRTH)
 
     // Submit — server will reject the breached password
     await page.getByRole('button', { name: 'Create account' }).click()
@@ -117,6 +127,55 @@ test.describe('Registration', () => {
 
     // Still on /auth
     expect(page.url()).toContain('/auth')
+  })
+})
+
+test.describe('Date of birth', () => {
+  test('refuses an impossible date on the form, with the field focused and the button enabled', async ({ page }) => {
+    await page.goto('/auth')
+    await page.getByRole('tab', { name: 'Create account' }).click()
+    await expect(page.locator('#signup-email')).toBeVisible({ timeout: 5_000 })
+
+    await page.locator('#signup-email').fill('e2e-dob-impossible@test.local')
+    await page.locator('#signup-password').fill(REGISTER_USER.password)
+    await page.locator('#terms').check()
+    await fillDateOfBirth(page, 'signup-dob', { month: '2', day: '30', year: '2004' })
+    const submit = page.getByRole('button', { name: 'Create account' })
+    await submit.click()
+
+    await expect(page.getByText('Enter a real date of birth.')).toBeVisible()
+    await expect(page.locator('#signup-dob-day')).toBeFocused()
+    await expect(submit).toBeEnabled()
+  })
+
+  test('an under-16 date ends on the refusal, which Create account keeps showing after a reload', async ({ page }) => {
+    await page.goto('/auth')
+    await page.getByRole('tab', { name: 'Create account' }).click()
+    await expect(page.locator('#signup-email')).toBeVisible({ timeout: 5_000 })
+
+    const now = new Date()
+    await page.locator('#signup-email').fill('e2e-dob-under-age@test.local')
+    await page.locator('#signup-password').fill(REGISTER_USER.password)
+    await page.locator('#terms').check()
+    await fillDateOfBirth(page, 'signup-dob', {
+      month: String(now.getUTCMonth() + 1),
+      day: '1',
+      year: String(now.getUTCFullYear() - 10),
+    })
+    await page.getByRole('button', { name: 'Create account' }).click()
+
+    const heading = page.getByRole('heading', { name: "We can't create an account for you." })
+    await expect(heading).toBeVisible({ timeout: 10_000 })
+    await expect(heading).toBeFocused()
+    await expect(page.getByRole('tab', { name: 'Sign in' })).toHaveCount(0)
+
+    await page.reload()
+    await page.getByRole('tab', { name: 'Create account' }).click()
+    await expect(heading).toBeVisible({ timeout: 10_000 })
+    await expect(page.locator('#signup-email')).toHaveCount(0)
+
+    await page.getByRole('tab', { name: 'Sign in' }).click()
+    await expect(page.locator('#email')).toBeVisible()
   })
 })
 

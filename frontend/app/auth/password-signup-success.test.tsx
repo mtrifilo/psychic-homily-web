@@ -9,6 +9,8 @@ import { AuthProvider } from '@/lib/context/AuthContext'
 import { queryKeys } from '@/lib/queryClient'
 import AuthPage from './page'
 import { SIGNUP_REQUEST_TIMEOUT_MS } from './_components/signup-request-deadline'
+import { fillDateOfBirth } from '@/test/dateOfBirth'
+import { answeringNoAgeRefusalMarker } from '@/test/signupAgeRefusal'
 
 // The page under the real AuthProvider, so the profile query is what reports
 // the new session, with the real `useRegister` behind one stubbed fetch. Once
@@ -108,7 +110,7 @@ async function submitPasswordSignup(user: ReturnType<typeof userEvent.setup>) {
   await user.type(screen.getByLabelText('Email'), 'signup@example.com')
   await user.type(screen.getByLabelText('Password'), 'validPassword123!')
   await user.click(screen.getByRole('checkbox', { name: /Terms of Service/ }))
-  await user.click(screen.getByRole('checkbox', { name: /at least 16 years old/ }))
+  await fillDateOfBirth(user)
   await user.click(screen.getByRole('button', { name: 'Create account' }))
 }
 
@@ -116,7 +118,7 @@ describe('password sign-up success with the real profile query', () => {
   beforeEach(() => {
     mockPush.mockReset()
     fetchMock.mockReset()
-    vi.stubGlobal('fetch', fetchMock)
+    vi.stubGlobal('fetch', answeringNoAgeRefusalMarker(fetchMock))
     searchParams.current = new URLSearchParams({ returnTo: RETURN_TO })
   })
 

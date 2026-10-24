@@ -48,7 +48,7 @@ func withCurrentConsent(input *AppleCallbackRequest) {
 	input.Body.TermsVersion = legal.CurrentTermsVersion
 	input.Body.PrivacyVersion = legal.CurrentPrivacyVersion
 	input.Body.AgeConfirmed = true
-	input.Body.MinAgeAttested = MinSignupAge
+	input.Body.MinAgeAttested = legal.MinSignupAge
 }
 
 func (s *OAuthHandlerIntegrationSuite) TestAppleCallback_NewIdentityWithoutConsent_Refused() {
@@ -75,7 +75,10 @@ func (s *OAuthHandlerIntegrationSuite) TestAppleCallback_NewIdentityWithoutConse
 			autherrors.ErrAgeConfirmationRequired(""),
 		},
 		"attested age below the minimum": {
-			func(in *AppleCallbackRequest) { withCurrentConsent(in); in.Body.MinAgeAttested = MinSignupAge - 1 },
+			func(in *AppleCallbackRequest) {
+				withCurrentConsent(in)
+				in.Body.MinAgeAttested = legal.MinSignupAge - 1
+			},
 			autherrors.ErrAgeConfirmationRequired(""),
 		},
 	} {
@@ -126,7 +129,7 @@ func (s *OAuthHandlerIntegrationSuite) TestAppleCallback_NewIdentityWithConsent_
 	s.Equal(legal.CurrentPrivacyVersion, *stored.PrivacyVersion)
 	s.WithinDuration(time.Now(), *stored.TermsAcceptedAt, time.Minute)
 	s.True(stored.AgeConfirmedAt.Equal(*stored.TermsAcceptedAt))
-	s.Equal(MinSignupAge, *stored.MinAgeAttested)
+	s.Equal(legal.MinSignupAge, *stored.MinAgeAttested)
 }
 
 func (s *OAuthHandlerIntegrationSuite) TestAppleCallback_ReturningIdentityWithoutConsent_SignsIn() {
@@ -194,7 +197,7 @@ func (s *OAuthHandlerIntegrationSuite) TestAppleCallback_Wire() {
 			"terms_version":    legal.CurrentTermsVersion,
 			"privacy_version":  legal.CurrentPrivacyVersion,
 			"age_confirmed":    true,
-			"min_age_attested": MinSignupAge,
+			"min_age_attested": legal.MinSignupAge,
 		})
 		requireWireSuccess(s.T(), resp)
 
@@ -205,6 +208,6 @@ func (s *OAuthHandlerIntegrationSuite) TestAppleCallback_Wire() {
 		s.Require().NotNil(stored.MinAgeAttested)
 		s.Equal(legal.CurrentTermsVersion, *stored.TermsVersion)
 		s.Equal(legal.CurrentPrivacyVersion, *stored.PrivacyVersion)
-		s.Equal(MinSignupAge, *stored.MinAgeAttested)
+		s.Equal(legal.MinSignupAge, *stored.MinAgeAttested)
 	})
 }
