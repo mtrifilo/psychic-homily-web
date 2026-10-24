@@ -28,6 +28,10 @@ export const PENDING_LINK_GONE_MESSAGE =
 
 const PASSWORD_REQUIRED_MESSAGE = 'Password is required'
 
+function isPendingLinkGone(error: unknown): boolean {
+  return isAuthError(error) && error.code === AuthErrorCode.OAUTH_LINK_PENDING_EXPIRED
+}
+
 const LINK_CLASS = 'font-medium underline underline-offset-4 hover:text-primary'
 
 interface GoogleCollisionSignInProps {
@@ -77,16 +81,12 @@ export function GoogleCollisionSignIn({
   const onSendLink = () => {
     sendLink.mutate(undefined, {
       onError: error => {
-        if (isAuthError(error) && error.code === AuthErrorCode.OAUTH_LINK_PENDING_EXPIRED) {
-          onPendingLinkGone()
-        }
+        if (isPendingLinkGone(error)) onPendingLinkGone()
       },
     })
   }
 
-  const sendError =
-    sendLink.isError &&
-    !(isAuthError(sendLink.error) && sendLink.error.code === AuthErrorCode.OAUTH_LINK_PENDING_EXPIRED)
+  const sendError = sendLink.isError && !isPendingLinkGone(sendLink.error)
 
   return (
     <div className="space-y-4">

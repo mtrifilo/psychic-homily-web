@@ -43,7 +43,11 @@ import {
   GoogleCollisionSignIn,
   PENDING_LINK_GONE_MESSAGE,
 } from '@/app/auth/_components/google-collision-sign-in'
-import { usePendingOAuthLink } from '@/features/auth/hooks/useOAuthLink'
+import {
+  SEND_LINK_FAILED_MESSAGE,
+  usePendingOAuthLink,
+} from '@/features/auth/hooks/useOAuthLink'
+import { MAGIC_LINK_EXPIRY_MINUTES } from '@/lib/magic-link'
 import type { SignupHandoff } from '@/app/auth/_components/signup-handoff'
 import {
   useSignupRequestDeadline,
@@ -229,7 +233,7 @@ function LoginForm({ returnTo }: { returnTo: string }) {
           }
         },
         onError: () => {
-          setMagicLinkError('Failed to send magic link. Please try again.')
+          setMagicLinkError(SEND_LINK_FAILED_MESSAGE)
         },
       }
     )
@@ -391,7 +395,9 @@ function LoginForm({ returnTo }: { returnTo: string }) {
       {magicLinkSent ? (
         <div className="flex items-center gap-2 rounded-md bg-emerald-500/10 p-3 text-sm text-emerald-600 dark:text-emerald-400">
           <CheckCircle2 className="h-4 w-4 shrink-0" />
-          <span>Check your email for a sign-in link. It expires in 15 minutes.</span>
+          <span>
+            Check your email for a sign-in link. It expires in {MAGIC_LINK_EXPIRY_MINUTES} minutes.
+          </span>
         </div>
       ) : (
         <>

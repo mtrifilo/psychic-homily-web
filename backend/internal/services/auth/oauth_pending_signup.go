@@ -33,9 +33,9 @@ const (
 )
 
 var (
-	errPendingSignupMalformed = errors.New("pending sign-up token is malformed or its signature fails")
-	errPendingSignupNotFound  = errors.New("pending sign-up not found")
-	errPendingSignupExpired   = errors.New("pending sign-up expired")
+	errPendingMalformed = errors.New("pending token is malformed or its signature fails")
+	errPendingNotFound  = errors.New("pending row not found")
+	errPendingExpired   = errors.New("pending row expired")
 )
 
 // pendingPurpose is what tells the two kinds of oauth_pending_signups row
@@ -52,7 +52,7 @@ var (
 	pendingLinkPurpose   = pendingPurpose{authm.OAuthPendingPurposeLink, oauthPendingLinkDomain, apperrors.ErrOAuthLinkPendingExpired}
 )
 
-func (s *AuthService) pendingSignupSecret() string {
+func (s *AuthService) pendingSecret() string {
 	if s.config == nil {
 		return ""
 	}
@@ -66,11 +66,7 @@ func signPendingID(secret, domain, id string) string {
 	return base64.RawURLEncoding.EncodeToString(mac.Sum(nil))
 }
 
-func signPendingSignupID(secret, id string) string {
-	return signPendingID(secret, oauthPendingSignupDomain, id)
-}
-
-func pendingSignupTokenHash(id string) string {
+func pendingTokenHash(id string) string {
 	sum := sha256.Sum256([]byte(id))
 	return hex.EncodeToString(sum[:])
 }
@@ -79,24 +75,20 @@ func pendingSignupTokenHash(id string) string {
 // verifies under secret and domain. An empty secret verifies nothing.
 func verifyPendingToken(secret, domain, token string) (string, error) {
 	if secret == "" {
-		return "", errPendingSignupMalformed
+		return "", errPendingMalformed
 	}
 	dot := strings.IndexByte(token, '.')
 	if dot <= 0 || dot == len(token)-1 {
-		return "", errPendingSignupMalformed
+		return "", errPendingMalformed
 	}
 	id, mac := token[:dot], token[dot+1:]
 	if len(id) != 2*oauthPendingSignupIDBytes {
-		return "", errPendingSignupMalformed
+		return "", errPendingMalformed
 	}
 	if subtle.ConstantTimeCompare([]byte(mac), []byte(signPendingID(secret, domain, id))) != 1 {
-		return "", errPendingSignupMalformed
+		return "", errPendingMalformed
 	}
-	return pendingSignupTokenHash(id), nil
-}
-
-func verifyPendingSignupToken(secret, token string) (string, error) {
-	return verifyPendingToken(secret, oauthPendingSignupDomain, token)
+	return pendingTokenHash(id), nil
 }
 
 // storePending writes row under kind's purpose for ttl and returns the token
@@ -108,7 +100,7 @@ func (s *AuthService) storePending(row *authm.OAuthPendingSignup, kind pendingPu
 	if s.db == nil {
 		return "", fmt.Errorf("database not initialized")
 	}
-	secret := s.pendingSignupSecret()
+	secret := s.pendingSecret()
 	if secret == "" {
 		return "", fmt.Errorf("pending sign-up signing key is not configured")
 	}
@@ -124,7 +116,7 @@ func (s *AuthService) storePending(row *authm.OAuthPendingSignup, kind pendingPu
 		logger.Default().Error("oauth_pending_signup_sweep_failed", "error", err)
 	}
 
-	row.TokenHash = pendingSignupTokenHash(id)
+	row.TokenHash = pendingTokenHash(id)
 	row.Purpose = kind.purpose
 	row.ExpiresAt = now.Add(ttl)
 	if err := s.db.Create(row).Error; err != nil {
@@ -212,7 +204,7 @@ func consumePendingRow(db *gorm.DB, purpose, hash string, row *authm.OAuthPendin
 // readPending verifies token under kind before any query and reads the row
 // it names through db.
 func (s *AuthService) readPending(db *gorm.DB, kind pendingPurpose, token string, query pendingRowQuery) (*authm.OAuthPendingSignup, string, error) {
-	hash, err := verifyPendingToken(s.pendingSignupSecret(), kind.domain, token)
+	hash, err := verifyPendingToken(s.pendingSecret(), kind.domain, token)
 	if err != nil {
 		return nil, "", kind.expired(err)
 	}
@@ -233,10 +225,10 @@ func readPendingByHash(db *gorm.DB, kind pendingPurpose, hash string, query pend
 		return nil, fmt.Errorf("failed to read pending %s: %w", kind.purpose, result.Error)
 	}
 	if result.RowsAffected == 0 {
-		return nil, kind.expired(errPendingSignupNotFound)
+		return nil, kind.expired(errPendingNotFound)
 	}
 	if !time.Now().Before(row.ExpiresAt) {
-		return nil, kind.expired(errPendingSignupExpired)
+		return nil, kind.expired(errPendingExpired)
 	}
 	return &row, nil
 }

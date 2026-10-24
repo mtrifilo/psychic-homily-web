@@ -76,7 +76,9 @@ func (s *JWTIntegrationSuite) TestRevokeAllSessions_RefusesEarlierSessionsAndHon
 
 	reloaded, err := usersvc.NewUserService(s.db).GetUserByID(user.ID)
 	s.Require().NoError(err)
-	after, err := s.svc.createTokenAfterRevocation(reloaded)
+	// Minted in the revocation's own second, for the account as it stands
+	// after it: the stamp is floored at the revocation instant.
+	after, err := s.svc.CreateToken(reloaded)
 	s.Require().NoError(err)
 	got, _, err := s.svc.ValidateSession(after)
 	s.Require().NoError(err)

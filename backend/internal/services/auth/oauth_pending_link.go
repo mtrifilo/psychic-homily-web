@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/markbates/goth"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 
@@ -13,6 +14,7 @@ import (
 	authm "psychic-homily-backend/internal/models/auth"
 	"psychic-homily-backend/internal/services/contracts"
 	"psychic-homily-backend/internal/services/shared"
+	usersvc "psychic-homily-backend/internal/services/user"
 )
 
 // A pending link holds a provider identity whose verified address belongs to
@@ -41,7 +43,6 @@ func (s *AuthService) PeekOAuthLink(token string) (*contracts.OAuthPendingLink, 
 	}
 	link := &contracts.OAuthPendingLink{
 		Identity:  identityFromPendingRow(row),
-		ReturnTo:  row.ReturnTo,
 		ExpiresAt: row.ExpiresAt,
 		Ref:       hash,
 	}
@@ -57,22 +58,18 @@ func (s *AuthService) LinkOAuthWithPassword(token string, user *authm.User) (boo
 	if user == nil {
 		return false, fmt.Errorf("user cannot be nil")
 	}
-	hash, err := verifyPendingToken(s.pendingSignupSecret(), oauthPendingLinkDomain, token)
-	if err != nil {
-		return false, apperrors.ErrOAuthLinkPendingExpired(err)
-	}
 	if s.db == nil {
 		return false, fmt.Errorf("database not initialized")
 	}
 
 	linked := false
 	var refusal *apperrors.AuthError
-	err = s.db.Transaction(func(tx *gorm.DB) error {
-		row, err := readPendingByHash(tx, pendingLinkPurpose, hash, consumePendingRow)
+	err := s.db.Transaction(func(tx *gorm.DB) error {
+		row, _, err := s.readPending(tx, pendingLinkPurpose, token, consumePendingRow)
 		if err != nil {
 			return err
 		}
-		account, err := lockPendingLinkAccount(tx, row, user.ID, "")
+		account, err := takePendingLink(tx, row, user.ID, "")
 		if errors.Is(err, errPendingLinkAccountMismatch) {
 			// Another account's pending link, or one whose address has moved:
 			// this sign-in proves nothing about it, so it is discarded and
@@ -82,23 +79,14 @@ func (s *AuthService) LinkOAuthWithPassword(token string, user *authm.User) (boo
 				"user_id", user.ID)
 			return nil
 		}
-		if err != nil {
-			return err
+		if refusal = asRefusal(err); refusal != nil || err != nil {
+			return ignoreRefusal(err)
 		}
-		if !account.CanSignIn() {
-			refusal = shared.ClosedAccountRefusal(account)
-			return nil
-		}
-		// A refusal to attach undoes only the savepoint; the consumed pending
-		// link commits.
 		refusal, err = attachInSavepoint(tx, func(sp *gorm.DB) error {
-			return attachPendingIdentity(sp, account.ID, identityFromPendingRow(row))
+			return attachPendingIdentity(sp, account.ID, row)
 		})
-		if err != nil {
-			return err
-		}
-		linked = refusal == nil
-		return nil
+		linked = err == nil && refusal == nil
+		return err
 	})
 	if err != nil {
 		return false, err
@@ -130,24 +118,20 @@ func (s *AuthService) CompleteOAuthLinkByEmail(claims *contracts.OAuthLinkTokenC
 		if err != nil {
 			return err
 		}
-		account, err := lockPendingLinkAccount(tx, row, claims.UserID, claims.Email)
+		account, err := takePendingLink(tx, row, claims.UserID, claims.Email)
 		if errors.Is(err, errPendingLinkAccountMismatch) {
 			refusal = apperrors.ErrOAuthLinkPendingExpired(err)
 			return nil
 		}
-		if err != nil {
-			return err
-		}
-		if !account.CanSignIn() {
-			refusal = shared.ClosedAccountRefusal(account)
-			return nil
+		if refusal = asRefusal(err); refusal != nil || err != nil {
+			return ignoreRefusal(err)
 		}
 
 		// Everything the proof changes on the account, or none of it: a
 		// refusal to attach undoes the savepoint, so the password and the
 		// sessions stay as they were, and the consumed pending link commits.
 		refusal, err = attachInSavepoint(tx, func(sp *gorm.DB) error {
-			if err := attachPendingIdentity(sp, account.ID, identityFromPendingRow(row)); err != nil {
+			if err := attachPendingIdentity(sp, account.ID, row); err != nil {
 				return err
 			}
 			// The mailbox proves the address and says nothing about whoever
@@ -163,12 +147,9 @@ func (s *AuthService) CompleteOAuthLinkByEmail(claims *contracts.OAuthLinkTokenC
 			}
 			return RevokeAllSessions(sp, account, time.Now())
 		})
-		if err != nil {
-			return err
-		}
 		accountID = account.ID
 		returnTo = row.ReturnTo
-		return nil
+		return err
 	})
 	if err != nil {
 		return nil, err
@@ -181,7 +162,7 @@ func (s *AuthService) CompleteOAuthLinkByEmail(claims *contracts.OAuthLinkTokenC
 	if err != nil {
 		return nil, fmt.Errorf("failed to load linked account: %w", err)
 	}
-	token, err := s.jwtService.createTokenAfterRevocation(user)
+	token, err := s.jwtService.CreateToken(user)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create token: %w", err)
 	}
@@ -189,25 +170,13 @@ func (s *AuthService) CompleteOAuthLinkByEmail(claims *contracts.OAuthLinkTokenC
 	return &contracts.OAuthLinkCompletion{User: user, Token: token, ReturnTo: returnTo}, nil
 }
 
-// attachInSavepoint runs attach in a savepoint of tx. A refusal attach
-// returns is handed back with a nil error, after the savepoint has undone
-// whatever attach wrote, so the caller's transaction can still commit; any
-// other error is returned as the error.
-func attachInSavepoint(tx *gorm.DB, attach func(sp *gorm.DB) error) (*apperrors.AuthError, error) {
-	err := tx.Transaction(attach)
-	var refusal *apperrors.AuthError
-	if errors.As(err, &refusal) {
-		return refusal, nil
-	}
-	return nil, err
-}
-
-// lockPendingLinkAccount locks and returns the account row names, FOR UPDATE,
-// so a deactivation, deletion or address change waits for the proof's
-// transaction. It refuses with errPendingLinkAccountMismatch when row names
-// an account other than userID, or when that account's address is no longer
-// the identity's (or, when tokenEmail is set, the emailed link's).
-func lockPendingLinkAccount(tx *gorm.DB, row *authm.OAuthPendingSignup, userID uint, tokenEmail string) (*authm.User, error) {
+// takePendingLink locks and returns the account a consumed pending link
+// names, FOR UPDATE, so a deactivation, deletion or address change waits for
+// the proof's transaction. It refuses with errPendingLinkAccountMismatch when
+// row names an account other than userID, or one whose address is no longer
+// the identity's (or, when tokenEmail is set, the emailed link's), and with
+// shared.ClosedAccountRefusal when the account may not sign in.
+func takePendingLink(tx *gorm.DB, row *authm.OAuthPendingSignup, userID uint, tokenEmail string) (*authm.User, error) {
 	if row.UserID == nil || *row.UserID != userID {
 		return nil, errPendingLinkAccountMismatch
 	}
@@ -216,77 +185,55 @@ func lockPendingLinkAccount(tx *gorm.DB, row *authm.OAuthPendingSignup, userID u
 	if found.Error != nil {
 		return nil, fmt.Errorf("failed to lock account: %w", found.Error)
 	}
-	if found.RowsAffected == 0 {
+	if found.RowsAffected == 0 || account.Email == nil ||
+		!authm.SameEmailIdentity(*account.Email, row.Email) ||
+		(tokenEmail != "" && !authm.SameEmailIdentity(*account.Email, tokenEmail)) {
 		return nil, errPendingLinkAccountMismatch
 	}
-	if account.Email == nil || !authm.SameEmailIdentity(*account.Email, row.Email) {
-		return nil, errPendingLinkAccountMismatch
-	}
-	if tokenEmail != "" && !authm.SameEmailIdentity(*account.Email, tokenEmail) {
-		return nil, errPendingLinkAccountMismatch
+	if !account.CanSignIn() {
+		return nil, shared.ClosedAccountRefusal(&account)
 	}
 	return &account, nil
 }
 
-// attachPendingIdentity attaches identity to userID through tx, refusing with
-// CodeOAuthIdentityInUse when another account holds the identity and with
-// CodeOAuthProviderAlreadyLinked when userID holds a different identity from
-// the provider. An identity userID already holds is left as it is. The
-// unique indexes on oauth_accounts decide a concurrent attach; the loser gets
-// the refusal for whichever now holds.
-func attachPendingIdentity(tx *gorm.DB, userID uint, identity contracts.OAuthIdentity) error {
-	if identity.Subject == "" {
-		return fmt.Errorf("oauth provider %q returned no user id", identity.Provider)
+// attachPendingIdentity attaches the identity row holds to userID through
+// tx, on the terms every attach to an existing account follows
+// (usersvc.AttachOAuthIdentityTx).
+func attachPendingIdentity(tx *gorm.DB, userID uint, row *authm.OAuthPendingSignup) error {
+	if row.ProviderUserID == "" {
+		return fmt.Errorf("oauth provider %q returned no user id", row.Provider)
 	}
-	held, err := checkPendingIdentityAttach(tx, userID, identity)
-	if err != nil || held {
-		return err
-	}
+	return usersvc.AttachOAuthIdentityTx(tx, userID, row.Provider, goth.User{
+		UserID:    row.ProviderUserID,
+		Email:     row.Email,
+		Name:      row.Name,
+		AvatarURL: row.AvatarURL,
+	})
+}
 
-	account := &authm.OAuthAccount{
-		UserID:            userID,
-		Provider:          identity.Provider,
-		ProviderUserID:    identity.Subject,
-		ProviderEmail:     &identity.Email,
-		ProviderName:      &identity.Name,
-		ProviderAvatarURL: &identity.AvatarURL,
-	}
-	if err := tx.Transaction(func(sp *gorm.DB) error { return sp.Create(account).Error }); err != nil {
-		if !errors.Is(err, gorm.ErrDuplicatedKey) {
-			return fmt.Errorf("failed to create OAuth account: %w", err)
-		}
-		if _, recheck := checkPendingIdentityAttach(tx, userID, identity); recheck != nil {
-			return recheck
-		}
-		return apperrors.ErrOAuthProviderAlreadyLinked(identity.Provider)
+// attachInSavepoint runs attach in a savepoint of tx. A refusal attach
+// returns is handed back with a nil error, after the savepoint has undone
+// whatever attach wrote, so the caller's transaction can still commit; any
+// other error is returned as the error.
+func attachInSavepoint(tx *gorm.DB, attach func(sp *gorm.DB) error) (*apperrors.AuthError, error) {
+	err := tx.Transaction(attach)
+	return asRefusal(err), ignoreRefusal(err)
+}
+
+// asRefusal is the *apperrors.AuthError err is, or nil.
+func asRefusal(err error) *apperrors.AuthError {
+	var refusal *apperrors.AuthError
+	if errors.As(err, &refusal) {
+		return refusal
 	}
 	return nil
 }
 
-// checkPendingIdentityAttach reports whether userID already holds identity,
-// or the refusal attaching it meets now as the error. The identity's row,
-// when there is one, is locked FOR UPDATE, so an unlink of it waits.
-func checkPendingIdentityAttach(tx *gorm.DB, userID uint, identity contracts.OAuthIdentity) (bool, error) {
-	var bySubject authm.OAuthAccount
-	found := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
-		Where("provider = ? AND provider_user_id = ?", identity.Provider, identity.Subject).
-		Limit(1).Find(&bySubject)
-	if found.Error != nil {
-		return false, fmt.Errorf("database error: %w", found.Error)
+// ignoreRefusal is err unless it is a refusal, which a proof's transaction
+// commits past.
+func ignoreRefusal(err error) error {
+	if asRefusal(err) != nil {
+		return nil
 	}
-	if found.RowsAffected > 0 {
-		if bySubject.UserID != userID {
-			return false, apperrors.ErrOAuthIdentityInUse(identity.Provider)
-		}
-		return true, nil
-	}
-	var byProvider authm.OAuthAccount
-	found = tx.Where("user_id = ? AND provider = ?", userID, identity.Provider).Limit(1).Find(&byProvider)
-	if found.Error != nil {
-		return false, fmt.Errorf("database error: %w", found.Error)
-	}
-	if found.RowsAffected > 0 {
-		return false, apperrors.ErrOAuthProviderAlreadyLinked(identity.Provider)
-	}
-	return false, nil
+	return err
 }

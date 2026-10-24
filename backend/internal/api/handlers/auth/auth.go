@@ -1417,11 +1417,7 @@ func (h *AuthHandler) verifyOAuthLink(ctx context.Context, resp *VerifyMagicLink
 			resp.Body.ErrorCode = "INVALID_TOKEN"
 			return resp, nil
 		}
-		var refusal *autherrors.AuthError
-		if errors.As(err, &refusal) && (refusal.Code == autherrors.CodeAccountInactive ||
-			refusal.Code == autherrors.CodeAccountRecoverable ||
-			refusal.Code == autherrors.CodeOAuthIdentityInUse ||
-			refusal.Code == autherrors.CodeOAuthProviderAlreadyLinked) {
+		if refusal, ok := refusalWithOwnCopy(err); ok {
 			logger.AuthWarn(ctx, "magic_link_oauth_link_refused", "user_id", claims.UserID, "code", refusal.Code)
 			resp.Body.Success = false
 			resp.Body.Message = refusal.UserMessage()

@@ -77,25 +77,16 @@ func (s *JWTService) CreateToken(user *authm.User) (string, error) {
 
 // RenewSessionToken mints a session JWT carrying authAt as its auth_at claim.
 // A zero authAt writes no claim at all.
+//
+// The token's issued-at is no earlier than user's SessionsValidAfter, so a
+// session minted for an account loaded after a revocation, in the revocation
+// instant's second, is not refused by it. SessionsValidAfter is at most a
+// second ahead of the clock that wrote it (sessionsValidAfterFor).
 func (s *JWTService) RenewSessionToken(user *authm.User, authAt time.Time) (string, error) {
-	return s.mintSession(user, authAt, time.Now())
-}
-
-// createTokenAfterRevocation is CreateToken for the session a flow issues
-// right after it revoked the account's sessions: the token's issued-at is no
-// earlier than the account's SessionsValidAfter, so the revocation that flow
-// just wrote does not refuse it. SessionsValidAfter is at most a second ahead
-// of the clock that wrote it (sessionsValidAfterFor).
-func (s *JWTService) createTokenAfterRevocation(user *authm.User) (string, error) {
-	now := time.Now()
-	issuedAt := now
-	if user.SessionsValidAfter != nil && user.SessionsValidAfter.After(now) {
+	issuedAt := time.Now()
+	if user.SessionsValidAfter != nil && user.SessionsValidAfter.After(issuedAt) {
 		issuedAt = *user.SessionsValidAfter
 	}
-	return s.mintSession(user, now, issuedAt)
-}
-
-func (s *JWTService) mintSession(user *authm.User, authAt, issuedAt time.Time) (string, error) {
 	claims := jwt.MapClaims{
 		"user_id": user.ID,
 		"email":   user.Email,

@@ -219,7 +219,6 @@ const OAuthPendingLinkTTL = OAuthPendingSignupTTL
 type OAuthPendingLink struct {
 	Identity  OAuthIdentity
 	UserID    uint
-	ReturnTo  string
 	ExpiresAt time.Time
 	Ref       string
 }

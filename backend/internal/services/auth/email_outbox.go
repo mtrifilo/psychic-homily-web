@@ -231,34 +231,23 @@ func capped[T int | time.Duration](key string, v, limit T) T {
 // bounded by authEmailEnqueueTimeout: a client that disconnects after asking
 // still gets its email, and a stalled database cannot hold the request open.
 func (o *AuthEmailOutbox) Enqueue(ctx context.Context, kind authm.AuthEmailKind, userID uint) error {
-	if AuthEmailOutboxDisabled() {
-		return ErrAuthEmailOutboxDisabled
-	}
-	ictx, cancel := context.WithTimeout(context.WithoutCancel(ctx), authEmailEnqueueTimeout)
-	defer cancel()
-	item := authm.AuthEmailOutboxItem{
-		Kind:   kind,
-		UserID: userID,
-		Status: authm.AuthEmailStatusPending,
-	}
-	return o.db.WithContext(ictx).Clauses(clause.OnConflict{DoNothing: true}).Create(&item).Error
+	return o.enqueue(ctx, authm.AuthEmailOutboxItem{Kind: kind, UserID: userID})
 }
 
 // EnqueueOAuthLink queues the sign-in link that proves userID's mailbox for
 // the pending link ref names, on Enqueue's terms. While one is queued for the
 // account, a call for any pending link is a no-op.
 func (o *AuthEmailOutbox) EnqueueOAuthLink(ctx context.Context, userID uint, ref string) error {
+	return o.enqueue(ctx, authm.AuthEmailOutboxItem{Kind: authm.AuthEmailKindOAuthLink, UserID: userID, OAuthLinkRef: &ref})
+}
+
+func (o *AuthEmailOutbox) enqueue(ctx context.Context, item authm.AuthEmailOutboxItem) error {
 	if AuthEmailOutboxDisabled() {
 		return ErrAuthEmailOutboxDisabled
 	}
 	ictx, cancel := context.WithTimeout(context.WithoutCancel(ctx), authEmailEnqueueTimeout)
 	defer cancel()
-	item := authm.AuthEmailOutboxItem{
-		Kind:         authm.AuthEmailKindOAuthLink,
-		UserID:       userID,
-		OAuthLinkRef: &ref,
-		Status:       authm.AuthEmailStatusPending,
-	}
+	item.Status = authm.AuthEmailStatusPending
 	return o.db.WithContext(ictx).Clauses(clause.OnConflict{DoNothing: true}).Create(&item).Error
 }
 

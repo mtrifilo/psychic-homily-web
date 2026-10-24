@@ -13,8 +13,9 @@ import (
 // before now: it writes users.sessions_valid_after through db (a transaction,
 // when the revocation is one step of several) and sets the same value on
 // user. Session validation (JWTService.userFromSessionClaims) refuses a token
-// issued before it. A session issued after it, through
-// JWTService.createTokenAfterRevocation, is honored.
+// issued before it. A session minted for the account as it stands afterwards
+// is honored: JWTService.RenewSessionToken stamps it no earlier than the
+// revocation instant.
 //
 // It revokes session JWTs only, which is every credential minted from a
 // sign-in: browser sessions, OAuth sign-ins and CLI tokens. API tokens and
