@@ -18,15 +18,15 @@ import (
 	"psychic-homily-backend/internal/testutil"
 )
 
-// dietLogLine is the shape of one sitemap_diet_omitted line, as the weekly
-// revert check reads it.
+// dietLogLine is the fields of one sitemap_diet_omitted line.
 type dietLogLine struct {
-	Msg        string `json:"msg"`
-	Rule       string `json:"rule"`
-	Family     string `json:"family"`
-	Shard      string `json:"shard"`
-	Omitted    int    `json:"omitted"`
-	Advertised int    `json:"advertised"`
+	Msg          string `json:"msg"`
+	Rule         string `json:"rule"`
+	Family       string `json:"family"`
+	Shard        string `json:"shard"`
+	FamilyShards int    `json:"family_shards"`
+	Omitted      int    `json:"omitted"`
+	Advertised   int    `json:"advertised"`
 }
 
 // capturingDietLog returns a context whose request logger writes production's
@@ -196,7 +196,7 @@ func TestSitemapDietPastShowsOmitByVenueLocalAge(t *testing.T) {
 	}
 	assertOmitsExactly(t, "shows", off.Shows, on.Shows, wantOmitted)
 	assertOneDietLine(t, onLines, dietLogLine{
-		Rule: sitemapPastShowMaxAgeDaysEnv, Family: "shows", Shard: "",
+		Rule: sitemapPastShowMaxAgeDaysEnv, Family: "shows", Shard: "", FamilyShards: 1,
 		Omitted: len(wantOmitted), Advertised: len(on.Shows),
 	})
 
@@ -213,8 +213,8 @@ func TestSitemapDietPastShowsOmitByVenueLocalAge(t *testing.T) {
 		}
 		union = append(union, sitemapSlugsOf(got.Shows)...)
 		lines := dietLines()
-		if len(lines) != 1 || lines[0].Shard != shard.id || lines[0].Advertised != len(got.Shows) {
-			t.Fatalf("Entries(%s) logged %+v, want one line naming the shard and its advertised count %d", shard.id, lines, len(got.Shows))
+		if len(lines) != 1 || lines[0].Shard != shard.id || lines[0].FamilyShards != shard.buckets || lines[0].Advertised != len(got.Shows) {
+			t.Fatalf("Entries(%s) logged %+v, want one line naming the shard, its family's %d shards and its advertised count %d", shard.id, lines, shard.buckets, len(got.Shows))
 		}
 		omittedSum += lines[0].Omitted
 	}
@@ -265,7 +265,7 @@ func TestSitemapDietUnlinkedReleasesAreOmitted(t *testing.T) {
 	off, on, onLines := fetchOffAndOn(t, td.DB, "releases", sitemapDiet{omitUnlinkedReleases: true})
 	assertOmitsExactly(t, "releases", off.Releases, on.Releases, []string{"diet-rel-unlinked"})
 	assertOneDietLine(t, onLines, dietLogLine{
-		Rule: sitemapOmitUnlinkedReleasesEnv, Family: "releases", Shard: "",
+		Rule: sitemapOmitUnlinkedReleasesEnv, Family: "releases", Shard: "", FamilyShards: 1,
 		Omitted: 1, Advertised: 2,
 	})
 }
@@ -311,7 +311,7 @@ func TestSitemapDietIdleArtistsAreOmitted(t *testing.T) {
 	off, on, onLines := fetchOffAndOn(t, td.DB, "artists", sitemapDiet{omitIdleArtists: true})
 	assertOmitsExactly(t, "artists", off.Artists, on.Artists, []string{"diet-art-idle"})
 	assertOneDietLine(t, onLines, dietLogLine{
-		Rule: sitemapOmitIdleArtistsEnv, Family: "artists", Shard: "",
+		Rule: sitemapOmitIdleArtistsEnv, Family: "artists", Shard: "", FamilyShards: 1,
 		Omitted: 1, Advertised: 3,
 	})
 }

@@ -439,10 +439,10 @@ func VenueLocalDateCondition(timeFilter string) string {
 // expressions VenueLocalDateCondition("past") does, so it never holds for an
 // upcoming show while days >= 0.
 //
-// It is the exact comparison alone, with no coarse bound, because its caller
-// projects it as a column rather than filtering on it; a WHERE caller should
-// add pastCoarseBound's sargable half itself. Like VenueLocalDateCondition it
-// needs VenueTZJoin in the query.
+// It is the exact comparison alone and carries no sargable bound, so as a
+// WHERE filter it reaches the index on shows.event_date only beside a bound
+// on that column. Like VenueLocalDateCondition it needs VenueTZJoin in the
+// query.
 //
 // days is rendered by strconv.Itoa, which emits only digits and a sign, so the
 // interpolation is safe for any int. A days large enough to move today before

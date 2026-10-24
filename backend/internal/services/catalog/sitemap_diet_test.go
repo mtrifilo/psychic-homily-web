@@ -41,6 +41,11 @@ func TestSitemapDietFromEnvIsOffUnlessSetExactly(t *testing.T) {
 			want: sitemapDiet{pastShowMaxAgeDays: 30},
 		},
 		{
+			name: "age pasted with whitespace is on",
+			env:  map[string]string{sitemapPastShowMaxAgeDaysEnv: " 30\n"},
+			want: sitemapDiet{pastShowMaxAgeDays: 30},
+		},
+		{
 			name: "age at the limit is on",
 			env:  map[string]string{sitemapPastShowMaxAgeDaysEnv: strconv.Itoa(sitemapPastShowMaxAgeDaysLimit)},
 			want: sitemapDiet{pastShowMaxAgeDays: sitemapPastShowMaxAgeDaysLimit},

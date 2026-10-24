@@ -40,6 +40,8 @@ func TestEnvPositiveIntFallsBackForZeroNegativeAndMalformed(t *testing.T) {
 		{value: "abc", want: 7},
 		{value: "30.5", want: 7},
 		{value: "30", want: 30},
+		{value: " 30\n", want: 30},
+		{value: "30 days", want: 7},
 	}
 	for _, tc := range cases {
 		t.Setenv(key, tc.value)

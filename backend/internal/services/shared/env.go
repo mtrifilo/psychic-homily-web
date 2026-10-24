@@ -41,11 +41,12 @@ func EnvFlagEnabled(key string) bool {
 	return strings.TrimSpace(os.Getenv(key)) == "1"
 }
 
-// EnvPositiveInt returns os.Getenv(key) parsed as a positive integer, or def when the
-// variable is unset or not a positive integer. Used by background services for their
-// batch-size / count tuning knobs.
+// EnvPositiveInt returns os.Getenv(key), trimmed, parsed as a positive integer, or def
+// when the variable is unset or not a positive integer. Trimmed as EnvFlagEnabled is,
+// so a value pasted with a trailing newline reads as the number it spells. Used by
+// background services for their batch-size / count tuning knobs.
 func EnvPositiveInt(key string, def int) int {
-	if v := os.Getenv(key); v != "" {
+	if v := strings.TrimSpace(os.Getenv(key)); v != "" {
 		if n, err := strconv.Atoi(v); err == nil && n > 0 {
 			return n
 		}

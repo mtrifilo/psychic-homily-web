@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"os"
 	"slices"
 	"sort"
 	"strconv"
@@ -283,6 +284,15 @@ func (shard *sitemapShard) wireID() string {
 	return shard.id
 }
 
+// familyShards is how many requests together serve this shard's family: its
+// bucket count, or 1 for a nil shard, which serves the whole family at once.
+func (shard *sitemapShard) familyShards() int {
+	if shard == nil {
+		return 1
+	}
+	return shard.buckets
+}
+
 // SitemapService answers the sitemap generator's one question: which slugs are
 // indexable, and when did each last change.
 //
@@ -346,15 +356,25 @@ type sitemapDiet struct {
 	omitIdleArtists bool
 }
 
+// sitemapDietFromEnv warns on an age that is set but read as off, other than an
+// explicit "0", so a mistyped value is visible in the log rather than only as a
+// zero in the startup line.
 func sitemapDietFromEnv() sitemapDiet {
+	raw := strings.TrimSpace(os.Getenv(sitemapPastShowMaxAgeDaysEnv))
 	days := shared.EnvPositiveInt(sitemapPastShowMaxAgeDaysEnv, 0)
-	if days > sitemapPastShowMaxAgeDaysLimit {
+	switch {
+	case days > sitemapPastShowMaxAgeDaysLimit:
 		slog.Default().Warn("sitemap past-show max age is out of range; rule is off",
 			"key", sitemapPastShowMaxAgeDaysEnv,
-			"value", days,
+			"value", raw,
 			"limit", sitemapPastShowMaxAgeDaysLimit,
 		)
 		days = 0
+	case days == 0 && raw != "" && raw != "0":
+		slog.Default().Warn("sitemap past-show max age is not a positive whole number; rule is off",
+			"key", sitemapPastShowMaxAgeDaysEnv,
+			"value", raw,
+		)
 	}
 	return sitemapDiet{
 		pastShowMaxAgeDays:   days,
@@ -378,6 +398,12 @@ type sitemapOmission struct {
 	condition string
 	// join is a relation condition reads, joined to the family scan only while
 	// the rule is on. Empty for a condition over the family's table alone.
+	//
+	// The family scan names id, slug, updated_at and status unqualified, so a
+	// join must project no column by any of those names, or the sub-shard and
+	// slug predicates turn ambiguous. It must also yield at most one row per
+	// family row, or URLs repeat and the omitted count inflates. shared.VenueTZJoin
+	// is both: a LIMIT 1 lateral whose columns are all venue_tz_-prefixed.
 	join string
 }
 
@@ -388,9 +414,14 @@ type sitemapOmission struct {
 //
 // The zone comes from shared.VenueTZJoin joined to the family scan itself,
 // rather than from a subquery over all shows, so a sub-shard request resolves
-// zones for its own bucket's rows only. The lateral projects only
-// venue_tz_-prefixed columns, so slug, updated_at, id and status in the
-// family scan still bind to shows unqualified.
+// zones for its own bucket's rows only.
+//
+// COST. With the rule on, the shows family resolves a zone for every approved
+// show in the request, upcoming and past: one show_venues index hop per row,
+// with the zone-snapshot SubPlan at loops=1. Measured on Postgres 18 over
+// 13,172 synthetic shows: about 3 ms for one sub-shard and about 37 ms for the
+// whole family, against about 1 ms and 2.5 ms with the rule off. Like
+// venue_years, its input grows with the show archive.
 func (d sitemapDiet) pastShows() sitemapOmission {
 	if d.pastShowMaxAgeDays <= 0 {
 		return sitemapOmission{}
@@ -645,7 +676,9 @@ func (s *SitemapService) Entries(ctx context.Context, family string) (*contracts
 // CONSTRAINT: the scope must resolve to a SINGLE table. slug and updated_at are
 // referenced unqualified here, so a joined scope will either error with
 // "column reference is ambiguous" or silently bind the wrong table's
-// updated_at. A family needing a join wants its own projection, not this.
+// updated_at. A family needing a join wants its own projection, not this. The
+// one exception is a diet rule's join, which entriesOmitting adds only while
+// the rule is on and only under the contract on sitemapOmission.join.
 func (s *SitemapService) entriesFor(ctx context.Context, scope *gorm.DB) ([]contracts.SitemapEntry, error) {
 	// Deterministic order, so two fetches of an unchanged catalogue diff
 	// cleanly. Ordered by slug rather than recency because the partial unique
@@ -683,8 +716,13 @@ func advertisableRows(ctx context.Context, scope *gorm.DB) *gorm.DB {
 // response. The count covers only rows that would otherwise be advertised,
 // because the slug predicate is applied before the projection.
 //
-// A rule that is on logs one line per call. A sub-sharded family is one call
-// per bucket, so the family's total is the sum over its shards.
+// A rule that is on logs one sitemap_diet_omitted line per call, and every
+// request writes one, whoever sent it: the generator, the freshness monitor or
+// any other caller of the public endpoint. So a line is a snapshot of one
+// request, and lines are not additive over time. A family's current total is
+// the sum, over the family_shards distinct shard ids, of each shard's latest
+// line. A line with an empty shard answered a whole-family request, is a
+// total on its own, and carries family_shards 1.
 func (s *SitemapService) entriesOmitting(
 	ctx context.Context,
 	scope *gorm.DB,
@@ -724,6 +762,7 @@ func (s *SitemapService) entriesOmitting(
 		"rule", omission.rule,
 		"family", omission.family,
 		"shard", shard.wireID(),
+		"family_shards", shard.familyShards(),
 		"omitted", omitted,
 		"advertised", len(entries),
 	)
@@ -752,12 +791,14 @@ func (s *SitemapService) entriesOmitting(
 // year the histogram does not carry); both sides fall out of this one query
 // shape rather than needing to be kept in sync by hand.
 //
-// COST, recorded rather than discovered later. This family is the most
-// expensive one in Entries and the only one whose input set grows without
+// COST, recorded rather than discovered later. This family is one of two in
+// Entries that run a venue-zone lateral over an input that grows without
 // bound: it scans every approved PAST show (the coarse `event_date < now()`
 // bound prunes nothing on an archive) with one lateral execution per row, and
-// past shows never age out. The other families are either single-table scans
-// (entriesFor) or windowed (sceneWeekEntries, 8 weeks per scene). Two thresholds
+// past shows never age out. The other is the shows family while its past-show
+// diet rule is on; see sitemapDiet.pastShows for its measured cost. The
+// remaining families are either single-table scans (entriesFor) or windowed
+// (sceneWeekEntries, 8 weeks per scene). Two thresholds
 // to watch as the catalogue grows, neither of which is close today: the ~1.50 MiB
 // Next Data Cache budget per shard (app/sitemap.ts weighs it and fails the
 // build), and the 50,000-URL sitemap limit — this family is venues x years, so
