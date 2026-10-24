@@ -52,6 +52,34 @@ func (s *AuthService) PeekOAuthLink(token string) (*contracts.OAuthPendingLink, 
 	return link, nil
 }
 
+// oauthLinkEmailedLifetime is how long a pending link lives once its emailed
+// link is asked for: the longest the outbox may hold the email before it is
+// dropped unsent (authEmailMaxAge) plus the emailed link's own lifetime, so a
+// link sent at any moment the outbox may send it works for its whole life.
+const oauthLinkEmailedLifetime = authEmailMaxAge + contracts.MagicLinkTokenTTL
+
+// HoldOAuthLinkForEmail returns the pending link token names and keeps it for
+// oauthLinkEmailedLifetime from now, or longer if it already was
+// (contracts.AuthServiceInterface).
+func (s *AuthService) HoldOAuthLinkForEmail(token string) (*contracts.OAuthPendingLink, error) {
+	link, err := s.PeekOAuthLink(token)
+	if err != nil {
+		return nil, err
+	}
+	now := time.Now()
+	res := s.db.Model(&authm.OAuthPendingSignup{}).
+		Where("token_hash = ? AND purpose = ? AND expires_at > ?", link.Ref, authm.OAuthPendingPurposeLink, now).
+		Update("expires_at", gorm.Expr("GREATEST(expires_at, ?)", now.Add(oauthLinkEmailedLifetime)))
+	if res.Error != nil {
+		return nil, fmt.Errorf("failed to hold pending link: %w", res.Error)
+	}
+	if res.RowsAffected == 0 {
+		// Used or expired between the read and the write.
+		return nil, apperrors.ErrOAuthLinkPendingExpired(errPendingExpired)
+	}
+	return link, nil
+}
+
 // LinkOAuthWithPassword finishes the pending link token names for user, whose
 // password the caller has just verified (contracts.AuthServiceInterface).
 func (s *AuthService) LinkOAuthWithPassword(token string, user *authm.User) (bool, error) {

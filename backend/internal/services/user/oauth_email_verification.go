@@ -1,6 +1,9 @@
 package user
 
 import (
+	"slices"
+	"strings"
+
 	"github.com/markbates/goth"
 
 	"psychic-homily-backend/internal/services/contracts"
@@ -32,4 +35,32 @@ func providerAssertsEmailVerified(gothUser goth.User) bool {
 		}
 	}
 	return false
+}
+
+// googleHostedConsumerDomains are the address domains Google hosts for its
+// own consumer accounts.
+var googleHostedConsumerDomains = []string{"gmail.com", "googlemail.com"}
+
+// providerIsAuthoritativeForEmail reports whether the provider is the
+// authority for gothUser.Email's mailbox, not merely a witness that it was
+// verified once. Google's email_verified for an address it does not host
+// says the address was verified when the Google account was created, and the
+// mailbox may belong to someone else since (a recycled work or ISP address).
+// Google is authoritative for its own consumer domains, and for a Workspace
+// address whose hosted-domain claim (hd) names the address's own domain.
+// Every other provider is not.
+func providerIsAuthoritativeForEmail(provider string, gothUser goth.User) bool {
+	if provider != "google" || !providerAssertsEmailVerified(gothUser) {
+		return false
+	}
+	at := strings.LastIndexByte(gothUser.Email, '@')
+	if at < 0 {
+		return false
+	}
+	domain := strings.ToLower(gothUser.Email[at+1:])
+	if slices.Contains(googleHostedConsumerDomains, domain) {
+		return true
+	}
+	hostedDomain, _ := gothUser.RawData["hd"].(string)
+	return hostedDomain != "" && strings.EqualFold(hostedDomain, domain)
 }

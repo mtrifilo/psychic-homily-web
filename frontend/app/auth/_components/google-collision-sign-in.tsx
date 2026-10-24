@@ -32,6 +32,16 @@ function isPendingLinkGone(error: unknown): boolean {
   return isAuthError(error) && error.code === AuthErrorCode.OAUTH_LINK_PENDING_EXPIRED
 }
 
+/**
+ * The password proof's refusals to attach the Google identity: the identity
+ * or the provider was attached elsewhere since the collision began. The
+ * backend spends the pending link on them.
+ */
+const LINK_REFUSAL_CODES: ReadonlySet<string> = new Set([
+  AuthErrorCode.OAUTH_IDENTITY_IN_USE,
+  AuthErrorCode.OAUTH_PROVIDER_ALREADY_LINKED,
+])
+
 const LINK_CLASS = 'font-medium underline underline-offset-4 hover:text-primary'
 
 interface GoogleCollisionSignInProps {
@@ -39,8 +49,11 @@ interface GoogleCollisionSignInProps {
   email: string
   /** Where the reader lands after signing in, already through sanitizeReturnTo. */
   returnTo: string
-  /** The pending link turned out to be gone; the page falls back to the normal tab. */
-  onPendingLinkGone: () => void
+  /**
+   * The pending link turned out to be gone; the page falls back to the
+   * normal tab, saying `message` or, without one, PENDING_LINK_GONE_MESSAGE.
+   */
+  onPendingLinkGone: (message?: string) => void
 }
 
 /**
@@ -68,11 +81,21 @@ export function GoogleCollisionSignIn({
       return
     }
     login.mutate(
-      { email, password },
+      { email, password, connect_pending_link: true },
       {
         onSuccess: data => {
           if (data.user) setUser(data.user)
           router.push(returnTo)
+        },
+        onError: error => {
+          // The pending link is spent or gone: the person signs in from the
+          // normal tab, told why. A refusal to attach spends it too, and
+          // carries its own words.
+          if (isPendingLinkGone(error)) {
+            onPendingLinkGone()
+          } else if (isAuthError(error) && LINK_REFUSAL_CODES.has(error.code)) {
+            onPendingLinkGone(error.message)
+          }
         },
       }
     )

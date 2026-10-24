@@ -504,6 +504,7 @@ type MockAuthService struct {
 	ConsumeOAuthSignupFn       func(string) (*contracts.OAuthPendingSignup, error)
 	StartOAuthLinkFn           func(contracts.OAuthIdentity, uint, string) (string, error)
 	PeekOAuthLinkFn            func(string) (*contracts.OAuthPendingLink, error)
+	HoldOAuthLinkForEmailFn    func(string) (*contracts.OAuthPendingLink, error)
 	LinkOAuthWithPasswordFn    func(string, *authm.User) (bool, error)
 	CompleteOAuthLinkByEmailFn func(*contracts.OAuthLinkTokenClaims) (*contracts.OAuthLinkCompletion, error)
 	CompleteOAuthSignupFn      func(*contracts.OAuthPendingSignup, *contracts.OAuthSignupConsent, *string) (*authm.User, string, error)
@@ -554,6 +555,12 @@ func (m *MockAuthService) StartOAuthLink(identity contracts.OAuthIdentity, userI
 func (m *MockAuthService) PeekOAuthLink(token string) (*contracts.OAuthPendingLink, error) {
 	if m.PeekOAuthLinkFn != nil {
 		return m.PeekOAuthLinkFn(token)
+	}
+	return nil, nil
+}
+func (m *MockAuthService) HoldOAuthLinkForEmail(token string) (*contracts.OAuthPendingLink, error) {
+	if m.HoldOAuthLinkForEmailFn != nil {
+		return m.HoldOAuthLinkForEmailFn(token)
 	}
 	return nil, nil
 }

@@ -95,11 +95,12 @@ func (s *OAuthHandlerIntegrationSuite) TestCallback_UnverifiedEmailMatch_Redirec
 	s.Equal(int64(0), oauthRows)
 }
 
-// The same request with the provider vouching for the address. A vouched
-// address is still only evidence about the mailbox, so nothing is attached
-// and no session issued; the identity waits as a pending link for a proof of
-// the account (oauth_link_step_integration_test.go).
-func (s *OAuthHandlerIntegrationSuite) TestCallback_VerifiedEmailMatch_PendsTheLinkWithNoSession() {
+// The same request with the provider vouching for an address it does not
+// host. A vouched address is only evidence that the mailbox was verified
+// once, so the callback refuses it on the same terms and by the same route.
+// An address the provider is the authority for waits as a pending link
+// instead (oauth_link_step_integration_test.go).
+func (s *OAuthHandlerIntegrationSuite) TestCallback_VerifiedEmailMatch_RedirectsWithRefusalAndNoSession() {
 	existing := &authm.User{
 		Email:         strPtr("callback-verified@test.com"),
 		IsActive:      true,
@@ -120,9 +121,7 @@ func (s *OAuthHandlerIntegrationSuite) TestCallback_VerifiedEmailMatch_PendsTheL
 	w, req := oauthCallbackRequest("google")
 	handler.OAuthCallbackHTTPHandler(w, req)
 
-	s.Equal(http.StatusTemporaryRedirect, w.Code)
-	s.Equal("http://localhost:3000/auth?error_code="+autherrors.CodeOAuthLinkPending, w.Header().Get("Location"))
-	s.assertNoSessionCookie(w)
+	s.assertSignInRefusal(w, "callback-verified@test.com")
 
 	var oauthRows int64
 	s.Require().NoError(s.deps.DB.Model(&authm.OAuthAccount{}).

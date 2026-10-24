@@ -82,6 +82,8 @@ func (s *OAuthHandlerIntegrationSuite) passwordAccount(address string, verified 
 	return user
 }
 
+// collisionIdentity is a Google identity for address that Google is the
+// authority for: a Workspace account whose hosted domain is the address's.
 func collisionIdentity(address, subject string) goth.User {
 	return goth.User{
 		Provider:  "google",
@@ -89,7 +91,7 @@ func collisionIdentity(address, subject string) goth.User {
 		Email:     address,
 		Name:      "Alice Moreno",
 		AvatarURL: "https://example.com/alice.png",
-		RawData:   map[string]any{"verified_email": true},
+		RawData:   map[string]any{"verified_email": true, "hd": address[strings.LastIndexByte(address, '@')+1:]},
 	}
 }
 
@@ -119,6 +121,14 @@ func linkCookieHeader(token string) string {
 
 func (s *OAuthHandlerIntegrationSuite) login(env *linkStepEnv, address, password string, headers ...any) *httptest.ResponseRecorder {
 	return env.api.Post("/auth/login", append(headers, map[string]any{"email": address, "password": password})...)
+}
+
+// loginToConnect is the collision state's password proof, which says it is
+// one (connect_pending_link).
+func (s *OAuthHandlerIntegrationSuite) loginToConnect(env *linkStepEnv, address, password string, headers ...any) *httptest.ResponseRecorder {
+	return env.api.Post("/auth/login", append(headers, map[string]any{
+		"email": address, "password": password, "connect_pending_link": true,
+	})...)
 }
 
 func (s *OAuthHandlerIntegrationSuite) verifyLink(env *linkStepEnv, token string) *httptest.ResponseRecorder {
@@ -205,6 +215,19 @@ func (s *OAuthHandlerIntegrationSuite) TestLinkStep_CallbackKeepsTheRefusalOutsi
 		s.assertSignInRefusal(w, "inactive@test.com")
 		s.Zero(s.linkRows(account.ID))
 	})
+	// Google verified the address once but does not host it: whoever reads
+	// that mailbox now may not be whoever holds the Google account, so the
+	// emailed link must not be offered to join them.
+	s.Run("provider vouches for an address it does not host", func() {
+		defer s.TearDownTest()
+		account := s.passwordAccount("isp-address@test.com", true)
+		identity := collisionIdentity("isp-address@test.com", "google-isp")
+		delete(identity.RawData, "hd")
+		w, req := oauthCallbackRequest("google")
+		s.newHandler(&mockOAuthCompleter{user: identity}).OAuthCallbackHTTPHandler(w, req)
+		s.assertSignInRefusal(w, "isp-address@test.com")
+		s.Zero(s.linkRows(account.ID))
+	})
 	s.Run("provider does not vouch for the address", func() {
 		defer s.TearDownTest()
 		account := s.passwordAccount("unvouched@test.com", true)
@@ -278,7 +301,7 @@ func (s *OAuthHandlerIntegrationSuite) TestLinkStep_PasswordProofLinksAndSignsIn
 	token := s.startLink(collisionIdentity("pw-proof@test.com", "google-pw-proof"))
 	env := s.linkEnv()
 
-	resp := s.login(env, "pw-proof@test.com", collisionPassword, linkCookieHeader(token))
+	resp := s.loginToConnect(env, "pw-proof@test.com", collisionPassword, linkCookieHeader(token))
 
 	body := s.decode(resp)
 	s.Equal(true, body["success"], body)
@@ -293,10 +316,59 @@ func (s *OAuthHandlerIntegrationSuite) TestLinkStep_PasswordProofLinksAndSignsIn
 	s.Zero(s.linkRows(account.ID), "the proof consumes the pending link")
 	s.NotNil(s.reload(account.ID).PasswordHash, "the password proof keeps the password")
 
-	// Replay: the same cookie again is just a sign-in.
-	again := s.decode(s.login(env, "pw-proof@test.com", collisionPassword, linkCookieHeader(token)))
-	s.Equal(true, again["success"])
+	// Replay: the spent cookie connects nothing. A sign-in that asks to
+	// connect is refused; an ordinary one carrying it stands on its own.
+	again := s.decode(s.loginToConnect(env, "pw-proof@test.com", collisionPassword, linkCookieHeader(token)))
+	s.Equal(false, again["success"])
+	s.Equal(autherrors.CodeOAuthLinkPendingExpired, again["error_code"])
+	plain := s.decode(s.login(env, "pw-proof@test.com", collisionPassword, linkCookieHeader(token)))
+	s.Equal(true, plain["success"])
 	s.Len(s.googleIdentitiesOf(account.ID), 1)
+}
+
+// "Sign in and connect Google" never signs in without connecting: when the
+// pending link is gone, or its cookie has lapsed, a correct password is
+// refused with OAUTH_LINK_PENDING_EXPIRED and no session.
+func (s *OAuthHandlerIntegrationSuite) TestLinkStep_ConnectingSignInRefusedWhenThePendingLinkIsGone() {
+	account := s.passwordAccount("pw-gone@test.com", true)
+	token := s.startLink(collisionIdentity("pw-gone@test.com", "google-pw-gone"))
+	s.Require().NoError(s.deps.DB.Exec(
+		"UPDATE oauth_pending_signups SET expires_at = NOW() - INTERVAL '1 second' WHERE user_id = ?", account.ID).Error)
+	env := s.linkEnv()
+
+	for name, headers := range map[string][]any{
+		"expired pending link": {linkCookieHeader(token)},
+		"cookie lapsed":        nil,
+	} {
+		s.Run(name, func() {
+			resp := s.loginToConnect(env, "pw-gone@test.com", collisionPassword, headers...)
+			body := s.decode(resp)
+			s.Equal(false, body["success"])
+			s.Equal(autherrors.CodeOAuthLinkPendingExpired, body["error_code"])
+			s.Nil(setCookies(resp)["auth_token"])
+		})
+	}
+	s.Empty(s.googleIdentitiesOf(account.ID))
+
+	// A wrong password is refused as one, saying nothing about the link.
+	wrong := s.decode(s.loginToConnect(env, "pw-gone@test.com", "not-the-password"))
+	s.Equal(autherrors.CodeInvalidCredentials, wrong["error_code"])
+}
+
+// "Use a different Google account" comes back through the callback with
+// another identity; the browser stops holding the first one's pending link.
+func (s *OAuthHandlerIntegrationSuite) TestLinkStep_AnotherGoogleSignInDropsThePendingLinkCookie() {
+	s.passwordAccount("pw-switch@test.com", true)
+	token := s.startLink(collisionIdentity("pw-switch@test.com", "google-pw-switch"))
+
+	w, req := oauthCallbackRequest("google")
+	req.AddCookie(&http.Cookie{Name: oauthPendingLinkCookie.name, Value: token})
+	s.newHandler(&mockOAuthCompleter{user: s.stepIdentity("switch-new")}).OAuthCallbackHTTPHandler(w, req)
+
+	s.Equal("http://localhost:3000"+oauthSignupStepPath, w.Header().Get("Location"))
+	cleared := findCookie(w.Result(), oauthPendingLinkCookie.name)
+	s.Require().NotNil(cleared, "the earlier pending link's cookie is cleared")
+	s.Equal(-1, cleared.MaxAge)
 }
 
 func (s *OAuthHandlerIntegrationSuite) TestLinkStep_WrongPasswordLeavesThePendingLink() {
@@ -490,6 +562,18 @@ func (s *OAuthHandlerIntegrationSuite) TestLinkStep_PreHijackedAccountIsReclaime
 	token := s.startLink(collisionIdentity("victim@test.com", "google-victim"))
 	s.Equal("victim@test.com", s.decode(victim.api.Get(OAuthPendingLinkRoute, linkCookieHeader(token)))["email"])
 	linkToken := s.requestLink(victim, token)
+
+	// While the victim's link is pending, the attacker signs in with the
+	// password from their own browser: that sign-in holds no pending link,
+	// so it neither completes nor spends the victim's.
+	midSession := s.sessionFrom(s.login(attacker, "victim@test.com", collisionPassword))
+	s.Empty(s.googleIdentitiesOf(squatted.ID))
+	s.Equal(int64(1), s.linkRows(squatted.ID))
+	// Nor can the attacker turn it into the password proof without the
+	// victim's cookie.
+	s.Equal(autherrors.CodeOAuthLinkPendingExpired,
+		s.decode(s.loginToConnect(attacker, "victim@test.com", collisionPassword))["error_code"])
+
 	s.Equal(true, s.decode(s.verifyLink(victim, linkToken))["success"])
 
 	identities := s.googleIdentitiesOf(squatted.ID)
@@ -501,6 +585,8 @@ func (s *OAuthHandlerIntegrationSuite) TestLinkStep_PreHijackedAccountIsReclaime
 	s.Equal(autherrors.CodeInvalidCredentials, refused["error_code"])
 	_, _, err := s.jwtService().ValidateSession(attackerSession)
 	s.Error(err, "the attacker's session is signed out")
+	_, _, err = s.jwtService().ValidateSession(midSession)
+	s.Error(err, "so is the one minted while the link was pending")
 
 	// The victim signs in with Google from now on.
 	w, req := oauthCallbackRequest("google")

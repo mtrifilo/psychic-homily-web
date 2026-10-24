@@ -12,41 +12,25 @@ import (
 	usersvc "psychic-homily-backend/internal/services/user"
 )
 
-func TestSessionsValidAfterFor_IsTheNextWholeSecond(t *testing.T) {
-	cases := map[string]time.Time{
-		"mid-second":      time.Date(2026, 10, 24, 12, 0, 5, 400_000_000, time.UTC),
-		"on the second":   time.Date(2026, 10, 24, 12, 0, 5, 0, time.UTC),
-		"just before one": time.Date(2026, 10, 24, 12, 0, 5, 999_999_999, time.UTC),
-	}
-	for name, now := range cases {
-		got := sessionsValidAfterFor(now)
-		want := time.Date(2026, 10, 24, 12, 0, 6, 0, time.UTC)
-		if !got.Equal(want) {
-			t.Errorf("%s: got %v, want %v", name, got, want)
-		}
-		// A token issued in now's second reads as issued at its start, and
-		// must be refused.
-		if !(&authm.User{SessionsValidAfter: &got}).SessionIssuedBeforeRevocation(now.Truncate(time.Second)) {
-			t.Errorf("%s: a session issued in the revocation's own second is honored", name)
-		}
-	}
-}
+func TestSessionMintedBeforeRevocation(t *testing.T) {
+	revokedAt := time.Date(2026, 10, 24, 12, 0, 6, 0, time.UTC)
+	revoked := &authm.User{SessionsValidAfter: &revokedAt}
 
-func TestSessionIssuedBeforeRevocation(t *testing.T) {
-	validAfter := time.Date(2026, 10, 24, 12, 0, 6, 0, time.UTC)
-	revoked := &authm.User{SessionsValidAfter: &validAfter}
-
-	if !revoked.SessionIssuedBeforeRevocation(validAfter.Add(-time.Second)) {
-		t.Error("a session issued before the revocation is honored")
+	cases := map[string]struct {
+		claims jwt.MapClaims
+		user   *authm.User
+		want   bool
+	}{
+		"never revoked, no claim":        {jwt.MapClaims{}, &authm.User{}, false},
+		"revoked, no claim":              {jwt.MapClaims{}, revoked, true},
+		"revoked, earlier instant":       {jwt.MapClaims{jwtSessionsValidAfterClaim: float64(revokedAt.Unix() - 1)}, revoked, true},
+		"revoked, current instant":       {jwt.MapClaims{jwtSessionsValidAfterClaim: float64(revokedAt.Unix())}, revoked, false},
+		"revoked, claim of another type": {jwt.MapClaims{jwtSessionsValidAfterClaim: "1792843206"}, revoked, true},
 	}
-	if revoked.SessionIssuedBeforeRevocation(validAfter) {
-		t.Error("a session issued at the revocation instant is refused")
-	}
-	if revoked.SessionIssuedBeforeRevocation(validAfter.Add(time.Hour)) {
-		t.Error("a session issued after the revocation is refused")
-	}
-	if (&authm.User{}).SessionIssuedBeforeRevocation(time.Unix(0, 0)) {
-		t.Error("an account with no revocation refuses a session")
+	for name, c := range cases {
+		if got := sessionMintedBeforeRevocation(c.claims, c.user); got != c.want {
+			t.Errorf("%s: got %v, want %v", name, got, c.want)
+		}
 	}
 }
 
@@ -59,6 +43,13 @@ func (s *JWTIntegrationSuite) requireRevoked(err error) {
 	s.Require().True(errors.As(err, &authErr), "got %v", err)
 	s.Equal(apperrors.CodeTokenInvalid, authErr.Code)
 	s.ErrorIs(err, errSessionRevoked)
+}
+
+func (s *JWTIntegrationSuite) reloadUser(id uint) *authm.User {
+	s.T().Helper()
+	user, err := usersvc.NewUserService(s.db).GetUserByID(id)
+	s.Require().NoError(err)
+	return user
 }
 
 func (s *JWTIntegrationSuite) TestRevokeAllSessions_RefusesEarlierSessionsAndHonorsLaterOnes() {
@@ -74,23 +65,52 @@ func (s *JWTIntegrationSuite) TestRevokeAllSessions_RefusesEarlierSessionsAndHon
 	_, _, err = s.svc.ValidateSessionLenient(before, refreshGracePeriod)
 	s.requireRevoked(err)
 
-	reloaded, err := usersvc.NewUserService(s.db).GetUserByID(user.ID)
-	s.Require().NoError(err)
 	// Minted in the revocation's own second, for the account as it stands
-	// after it: the stamp is floored at the revocation instant.
-	after, err := s.svc.CreateToken(reloaded)
+	// after it.
+	after, err := s.svc.CreateToken(s.reloadUser(user.ID))
 	s.Require().NoError(err)
 	got, _, err := s.svc.ValidateSession(after)
 	s.Require().NoError(err)
 	s.Equal(user.ID, got.ID)
 
-	// A session issued once the revocation instant has passed, by the
-	// ordinary mint, is honored too.
-	time.Sleep(time.Until(*user.SessionsValidAfter) + 10*time.Millisecond)
-	later, err := s.svc.CreateToken(reloaded)
+	// A renewal of the honored session is honored too.
+	renewed, err := s.svc.RenewSessionToken(got, time.Time{})
 	s.Require().NoError(err)
-	_, _, err = s.svc.ValidateSession(later)
+	_, _, err = s.svc.ValidateSession(renewed)
 	s.NoError(err)
+}
+
+// A sign-in that read the account before the revocation committed and mints
+// after it, the race a password login in flight during the mailbox proof
+// runs, is refused however late the mint is.
+func (s *JWTIntegrationSuite) TestRevokeAllSessions_RefusesAMintFromARowReadBeforeIt() {
+	user := s.createActiveUser("stale-read@test.com")
+	readBeforeRevocation := s.reloadUser(user.ID)
+
+	s.Require().NoError(RevokeAllSessions(s.db, user, time.Now()))
+	time.Sleep(1100 * time.Millisecond)
+
+	late, err := s.svc.CreateToken(readBeforeRevocation)
+	s.Require().NoError(err)
+	_, _, err = s.svc.ValidateSession(late)
+	s.requireRevoked(err)
+}
+
+// Two revocations in one second still refuse a session minted between them.
+func (s *JWTIntegrationSuite) TestRevokeAllSessions_EachRevocationMovesTheInstant() {
+	user := s.createActiveUser("twice@test.com")
+	now := time.Now()
+	s.Require().NoError(RevokeAllSessions(s.db, user, now))
+	first := *user.SessionsValidAfter
+	between, err := s.svc.CreateToken(s.reloadUser(user.ID))
+	s.Require().NoError(err)
+
+	s.Require().NoError(RevokeAllSessions(s.db, user, now))
+	s.True(user.SessionsValidAfter.After(first), "the second revocation writes a later instant")
+	s.Equal(time.Duration(0), user.SessionsValidAfter.Sub(user.SessionsValidAfter.Truncate(time.Second)))
+
+	_, _, err = s.svc.ValidateSession(between)
+	s.requireRevoked(err)
 }
 
 func (s *JWTIntegrationSuite) TestRevokeAllSessions_AnAccountWithoutOneIsUntouched() {
@@ -104,26 +124,6 @@ func (s *JWTIntegrationSuite) TestRevokeAllSessions_AnAccountWithoutOneIsUntouch
 	got, _, err := s.svc.ValidateSession(token)
 	s.Require().NoError(err)
 	s.Nil(got.SessionsValidAfter)
-}
-
-// A token carrying no issued-at cannot be shown to postdate a revocation.
-func (s *JWTIntegrationSuite) TestRevokeAllSessions_RefusesASessionWithNoIssuedAt() {
-	user := s.createActiveUser("no-iat@test.com")
-	claims := jwt.MapClaims{
-		"user_id": user.ID,
-		"exp":     time.Now().Add(time.Hour).Unix(),
-		"iss":     jwtIssuer,
-		"aud":     jwtAudience,
-		"sub":     jwtSessionSubject,
-	}
-	token, err := jwt.NewWithClaims(jwt.SigningMethodHS256, claims).SignedString([]byte(s.cfg.JWT.SecretKey))
-	s.Require().NoError(err)
-	_, _, err = s.svc.ValidateSession(token)
-	s.Require().NoError(err, "with no revocation the claim is not needed")
-
-	s.Require().NoError(RevokeAllSessions(s.db, user, time.Now()))
-	_, _, err = s.svc.ValidateSession(token)
-	s.requireRevoked(err)
 }
 
 func (s *JWTIntegrationSuite) TestRevokeAllSessions_UnknownAccountFails() {

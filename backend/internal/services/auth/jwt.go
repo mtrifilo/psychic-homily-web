@@ -78,23 +78,21 @@ func (s *JWTService) CreateToken(user *authm.User) (string, error) {
 // RenewSessionToken mints a session JWT carrying authAt as its auth_at claim.
 // A zero authAt writes no claim at all.
 //
-// The token's issued-at is no earlier than user's SessionsValidAfter, so a
-// session minted for an account loaded after a revocation, in the revocation
-// instant's second, is not refused by it. SessionsValidAfter is at most a
-// second ahead of the clock that wrote it (sessionsValidAfterFor).
+// The token also carries the revocation instant user was loaded with
+// (jwtSessionsValidAfterClaim), so a mint from a row read before a revocation
+// committed is refused by it however late the mint runs.
 func (s *JWTService) RenewSessionToken(user *authm.User, authAt time.Time) (string, error) {
-	issuedAt := time.Now()
-	if user.SessionsValidAfter != nil && user.SessionsValidAfter.After(issuedAt) {
-		issuedAt = *user.SessionsValidAfter
-	}
 	claims := jwt.MapClaims{
 		"user_id": user.ID,
 		"email":   user.Email,
 		"exp":     time.Now().Add(time.Duration(s.config.JWT.Expiry) * time.Hour).Unix(),
-		"iat":     issuedAt.Unix(),
+		"iat":     time.Now().Unix(),
 		"iss":     jwtIssuer,
 		"aud":     jwtAudience,
 		"sub":     jwtSessionSubject,
+	}
+	if user.SessionsValidAfter != nil {
+		claims[jwtSessionsValidAfterClaim] = user.SessionsValidAfter.Unix()
 	}
 	if !authAt.IsZero() {
 		claims[jwtAuthTimeClaim] = authAt.Unix()
@@ -215,19 +213,35 @@ func (s *JWTService) userFromSessionClaims(claims jwt.MapClaims) (*authm.User, e
 		return nil, apperrors.ErrTokenInvalid(&SessionAccountClosedError{UserID: user.ID})
 	}
 
-	// A token with no issued-at cannot be shown to postdate a revocation, so
-	// it is refused once the account has one.
-	issuedAt, ok := claims["iat"].(float64)
-	if user.SessionsValidAfter != nil && (!ok || user.SessionIssuedBeforeRevocation(time.Unix(int64(issuedAt), 0))) {
+	if sessionMintedBeforeRevocation(claims, user) {
 		return nil, apperrors.ErrTokenInvalid(errSessionRevoked)
 	}
 
 	return user, nil
 }
 
+// jwtSessionsValidAfterClaim carries, in Unix seconds, the account's
+// sessions_valid_after as the mint read it; absent when it was NULL.
+const jwtSessionsValidAfterClaim = "sva"
+
 // errSessionRevoked is the cause inside the TOKEN_INVALID refusal for a
-// session issued before its account's SessionsValidAfter.
-var errSessionRevoked = errors.New("session issued before the account's sessions were revoked")
+// session minted before its account's latest revocation.
+var errSessionRevoked = errors.New("session minted before the account's sessions were revoked")
+
+// sessionMintedBeforeRevocation reports whether claims were minted against a
+// revocation state other than user's current one. Every revocation writes a
+// whole-second instant later than any before it (RevokeAllSessions), so a
+// token is honored only when it names exactly the current instant: one minted
+// before the latest revocation, or from a row read before it committed,
+// names an earlier instant or none. An account never revoked honors every
+// token.
+func sessionMintedBeforeRevocation(claims jwt.MapClaims, user *authm.User) bool {
+	if user.SessionsValidAfter == nil {
+		return false
+	}
+	mintedAgainst, ok := claims[jwtSessionsValidAfterClaim].(float64)
+	return !ok || int64(mintedAgainst) != user.SessionsValidAfter.Unix()
+}
 
 // ValidateSession validates a session JWT and returns both facts a caller can
 // establish from it in one parse: the principal, and when an authentication

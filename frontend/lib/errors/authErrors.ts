@@ -57,6 +57,10 @@ export const AuthErrorCode = {
    * collision state says the same thing for all three.
    */
   OAUTH_LINK_PENDING_EXPIRED: 'OAUTH_LINK_PENDING_EXPIRED',
+  /** The provider identity is already attached to another account. */
+  OAUTH_IDENTITY_IN_USE: 'OAUTH_IDENTITY_IN_USE',
+  /** The account already holds a different identity from the provider. */
+  OAUTH_PROVIDER_ALREADY_LINKED: 'OAUTH_PROVIDER_ALREADY_LINKED',
   /** The account exists but may no longer sign in (deactivated or deleted). */
   ACCOUNT_INACTIVE: 'ACCOUNT_INACTIVE',
   /**

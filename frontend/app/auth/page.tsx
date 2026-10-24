@@ -964,13 +964,19 @@ function AuthPageContent() {
   const linkArrival =
     searchParams.get(AUTH_ERROR_CODE_PARAM) === AuthErrorCode.OAUTH_LINK_PENDING
   const pendingLink = usePendingOAuthLink(!isReauth)
-  const [goneLinkArrival, setGoneLinkArrival] = useState<string | null>(null)
+  // Keyed by the arrival it was found under, so it self-invalidates on the
+  // next one; message is the proof's own refusal when it had one.
+  const [goneLink, setGoneLink] = useState<{ arrival: string; message?: string } | null>(null)
+  const goneThisArrival = goneLink !== null && goneLink.arrival === arrival
   const collisionEmail =
-    !isReauth && goneLinkArrival !== arrival && pendingLink.data?.status === 'pending'
+    !isReauth && !goneThisArrival && pendingLink.data?.status === 'pending'
       ? (pendingLink.data.email ?? null)
       : null
   const readingPendingLink = linkArrival && pendingLink.isPending
-  const pendingLinkGone = linkArrival && !readingPendingLink && collisionEmail === null
+  const pendingLinkGone =
+    goneThisArrival || (linkArrival && !readingPendingLink && collisionEmail === null)
+  const pendingLinkGoneMessage =
+    (goneThisArrival ? goneLink.message : undefined) ?? PENDING_LINK_GONE_MESSAGE
 
   // A hidden page runs its effect cleanups, and a shown one reruns the
   // effects, so this cleanup is the page's "hidden" signal.
@@ -1145,7 +1151,7 @@ function AuthPageContent() {
                     <GoogleCollisionSignIn
                       email={collisionEmail}
                       returnTo={returnTo}
-                      onPendingLinkGone={() => setGoneLinkArrival(arrival)}
+                      onPendingLinkGone={message => setGoneLink({ arrival, message })}
                     />
                   ) : readingPendingLink ? (
                     <div className="flex justify-center py-8">
@@ -1155,7 +1161,7 @@ function AuthPageContent() {
                     <>
                       {pendingLinkGone && (
                         <p role="status" className="mb-4 text-sm text-muted-foreground">
-                          {PENDING_LINK_GONE_MESSAGE}
+                          {pendingLinkGoneMessage}
                         </p>
                       )}
                       <LoginForm returnTo={returnTo} />

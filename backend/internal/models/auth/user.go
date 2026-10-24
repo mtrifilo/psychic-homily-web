@@ -79,9 +79,10 @@ type User struct {
 	DateOfBirth   *time.Time `json:"-" gorm:"column:date_of_birth;type:date"`
 	AgeAttestedAt *time.Time `json:"-" gorm:"column:age_attested_at"`
 
-	// SessionsValidAfter is the instant before which no session this account
-	// was issued is honored (SessionIssuedBeforeRevocation). Nil revokes
-	// nothing. It is never serialized.
+	// SessionsValidAfter is the account's latest session revocation, a whole
+	// second; only a session minted against this exact value is honored
+	// (services/auth RevokeAllSessions). Nil revokes nothing. It is never
+	// serialized.
 	SessionsValidAfter *time.Time `json:"-" gorm:"column:sessions_valid_after"`
 
 	// Relationships

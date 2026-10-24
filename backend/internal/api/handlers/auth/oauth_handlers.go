@@ -405,6 +405,13 @@ func (h *OAuthHTTPHandler) OAuthCallbackHTTPHandler(w http.ResponseWriter, r *ht
 	// address belongs to an account lands on the Sign in tab's collision
 	// state, where the person proves that account. A CLI sign-in has neither
 	// page, so it gets the refusal instead.
+	//
+	// A pending link from an earlier sign-in is about another provider
+	// identity than this one ("Use a different Google account" lands here),
+	// so this browser stops holding it whatever this callback resolves to.
+	// startLinkStep sets a new one after the clear, and the later Set-Cookie
+	// wins.
+	oauthPendingLinkCookie.clear(w, r, secureCookie)
 	user, token, err := h.authService.OAuthCallback(w, r, provider)
 	if err != nil {
 		if identity, ok := signupStepIdentity(provider, err); ok && cliCallback == "" {

@@ -12332,6 +12332,8 @@ export interface components {
             venues: components["schemas"]["VenueWithShowCountResponse"][] | null;
         };
         LoginRequestBody: {
+            /** @description The sign-in is the password proof for this browser's pending provider link. When the pending link is gone (expired, used, or not this browser's), a correct password is refused with OAUTH_LINK_PENDING_EXPIRED rather than signing in without connecting the provider. */
+            connect_pending_link?: boolean;
             /**
              * @description User email
              * @example test@example.com
@@ -12851,7 +12853,7 @@ export interface components {
             email?: string;
             /**
              * Format: date-time
-             * @description When the pending link stops being usable from this browser, when status is pending
+             * @description When the pending link expires, when status is pending. The browser's cookie that names it lapses at most 10 minutes after the Google sign-in that started it, which can be sooner once its emailed link has been asked for.
              */
             expires_at?: string;
             /**

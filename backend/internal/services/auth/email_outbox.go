@@ -102,11 +102,8 @@ const (
 	authEmailSkipExpired     = "request expired before delivery"
 	authEmailSkipAccountGone = "account no longer exists"
 	authEmailSkipIneligible  = "account no longer eligible"
-	// The pending link an oauth_link email would prove the mailbox for is
-	// used, expired, or no longer the account's.
-	authEmailSkipPendingLinkGone = "pending link gone"
-	authEmailFailUnknownKind     = "unknown email kind"
-	authEmailFailStranded        = "stranded in processing after max attempts"
+	authEmailFailUnknownKind = "unknown email kind"
+	authEmailFailStranded    = "stranded in processing after max attempts"
 )
 
 // ErrAuthEmailOutboxDisabled is Enqueue's error while
@@ -142,8 +139,8 @@ type (
 	}
 )
 
-// AuthEmailOutbox queues and sends magic-link, account-recovery and
-// verification emails.
+// AuthEmailOutbox queues and sends magic-link, account-recovery, verification
+// and pending-link emails.
 //
 // The enumeration-safe request handlers call Enqueue for a known account and
 // answer at once; the poller sends. A handler's response time therefore does
@@ -443,7 +440,7 @@ var errUnknownAuthEmailKind = errors.New(authEmailFailUnknownKind)
 // The eligibility rules are the request handlers': a magic link needs a
 // verified address; a verification email needs an address not yet verified;
 // a recovery email needs a soft-deleted account still inside its recovery
-// window.
+// window; a pending-link email needs an account that may sign in.
 func (o *AuthEmailOutbox) deliver(item authm.AuthEmailOutboxItem) (string, error) {
 	user, err := o.users.GetUserByID(item.UserID)
 	if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -473,16 +470,12 @@ func (o *AuthEmailOutbox) deliver(item authm.AuthEmailOutboxItem) (string, error
 
 	case authm.AuthEmailKindOAuthLink:
 		// No verified-address rule: proving the mailbox is what this link is
-		// for, and following it verifies the address.
+		// for, and following it verifies the address. Whether the pending
+		// link is still there is decided when the link is followed
+		// (AuthService.CompleteOAuthLinkByEmail); the request kept it alive
+		// for as long as this send may happen (HoldOAuthLinkForEmail).
 		if !user.CanSignIn() || item.OAuthLinkRef == nil {
 			return authEmailSkipIneligible, nil
-		}
-		live, err := o.extendPendingLinkForEmail(item.UserID, *item.OAuthLinkRef)
-		if err != nil {
-			return "", err
-		}
-		if !live {
-			return authEmailSkipPendingLinkGone, nil
 		}
 		token, err := o.tokens.CreateOAuthLinkToken(user.ID, email, *item.OAuthLinkRef)
 		if err != nil {
@@ -512,23 +505,6 @@ func (o *AuthEmailOutbox) deliver(item authm.AuthEmailOutboxItem) (string, error
 		return "", o.sender.SendAccountRecoveryEmail(email, token, daysRemaining)
 	}
 	return "", errUnknownAuthEmailKind
-}
-
-// extendPendingLinkForEmail keeps the pending link ref names, for userID,
-// usable for as long as the link about to be sent is: until
-// contracts.MagicLinkTokenTTL from now, or longer if it already was. It
-// reports false, extending nothing, when the pending link is used, expired,
-// or not userID's, so no link is sent that could only be refused.
-func (o *AuthEmailOutbox) extendPendingLinkForEmail(userID uint, ref string) (bool, error) {
-	now := time.Now()
-	res := o.db.Model(&authm.OAuthPendingSignup{}).
-		Where("token_hash = ? AND purpose = ? AND user_id = ? AND expires_at > ?",
-			ref, authm.OAuthPendingPurposeLink, userID, now).
-		Update("expires_at", gorm.Expr("GREATEST(expires_at, ?)", now.Add(contracts.MagicLinkTokenTTL)))
-	if res.Error != nil {
-		return false, fmt.Errorf("failed to extend pending link: %w", res.Error)
-	}
-	return res.RowsAffected == 1, nil
 }
 
 // housekeep reclaims rows stranded in `processing`, retires expired pending

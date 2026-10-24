@@ -193,10 +193,59 @@ describe('AuthPage collision state', () => {
 
     expect(mockLoginMutate).toHaveBeenCalledTimes(1)
     const [credentials, options] = mockLoginMutate.mock.calls[0]
-    expect(credentials).toEqual({ email: ADDRESS, password: 'hunter2-hunter2' })
+    expect(credentials).toEqual({
+      email: ADDRESS,
+      password: 'hunter2-hunter2',
+      connect_pending_link: true,
+    })
     options.onSuccess({ success: true, user: { id: 9 } })
     expect(mockSetUser).toHaveBeenCalledWith({ id: 9 })
     expect(mockPush).toHaveBeenCalledWith('/shows')
+  })
+
+  // The backend refuses a correct password when the pending link is gone,
+  // rather than signing in without connecting Google.
+  it('falls back to the normal tab with the plain line when the password proof finds the link gone', async () => {
+    const user = userEvent.setup()
+    const { rerender } = arriveOnCollision()
+
+    await user.type(screen.getByLabelText('Password'), 'hunter2-hunter2')
+    await user.click(screen.getByRole('button', { name: 'Sign in and connect Google' }))
+    const [, options] = mockLoginMutate.mock.calls[0]
+    options.onError(new AuthError(PENDING_LINK_GONE_MESSAGE, AuthErrorCode.OAUTH_LINK_PENDING_EXPIRED))
+    rerender(<AuthPage />)
+
+    expect(await screen.findByText('Sign in to your account')).toBeInTheDocument()
+    expect(screen.getByRole('status')).toHaveTextContent(PENDING_LINK_GONE_MESSAGE)
+    expect(mockPush).not.toHaveBeenCalled()
+  })
+
+  it('falls back with the refusal in its own words when Google was attached elsewhere meanwhile', async () => {
+    const user = userEvent.setup()
+    const { rerender } = arriveOnCollision()
+    const refusal = 'This provider account is already connected to another Psychic Homily account. Disconnect it there first.'
+
+    await user.type(screen.getByLabelText('Password'), 'hunter2-hunter2')
+    await user.click(screen.getByRole('button', { name: 'Sign in and connect Google' }))
+    const [, options] = mockLoginMutate.mock.calls[0]
+    options.onError(new AuthError(refusal, AuthErrorCode.OAUTH_IDENTITY_IN_USE))
+    rerender(<AuthPage />)
+
+    expect(await screen.findByText('Sign in to your account')).toBeInTheDocument()
+    expect(screen.getByRole('status')).toHaveTextContent(refusal)
+  })
+
+  it('keeps the state for a wrong password', async () => {
+    const user = userEvent.setup()
+    const { rerender } = arriveOnCollision()
+
+    await user.type(screen.getByLabelText('Password'), 'nope')
+    await user.click(screen.getByRole('button', { name: 'Sign in and connect Google' }))
+    const [, options] = mockLoginMutate.mock.calls[0]
+    options.onError(new AuthError('Invalid email or password', AuthErrorCode.INVALID_CREDENTIALS))
+    rerender(<AuthPage />)
+
+    expect(screen.getByText('Sign in to connect Google')).toBeInTheDocument()
   })
 
   it('asks for the password before signing in', async () => {

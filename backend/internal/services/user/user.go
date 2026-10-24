@@ -201,6 +201,7 @@ func NewUserService(database *gorm.DB) *UserService {
 // refused with *contracts.OAuthSignupRequiredError carrying the identity. The
 // CodeOAuthLinkRefused refusal arrives wrapped in
 // *contracts.OAuthLinkRequiredError when the provider verified the address
+// and is the authority for it (contracts.OAuthIdentity.EmailAuthoritative),
 // and the account holding it may sign in and holds no identity from the
 // provider.
 func (s *UserService) FindOrCreateUserWithConsent(gothUser goth.User, provider string, consent *contracts.OAuthSignupConsent) (*authm.User, error) {
@@ -216,10 +217,13 @@ func OAuthIdentityFromGoth(gothUser goth.User, provider string) contracts.OAuthI
 		Subject:       gothUser.UserID,
 		Email:         gothUser.Email,
 		EmailVerified: providerAssertsEmailVerified(gothUser),
-		Name:          gothUser.Name,
-		FirstName:     gothUser.FirstName,
-		LastName:      gothUser.LastName,
-		AvatarURL:     gothUser.AvatarURL,
+		// Read here, while RawData is at hand; the pending tables do not
+		// keep it.
+		EmailAuthoritative: providerIsAuthoritativeForEmail(provider, gothUser),
+		Name:               gothUser.Name,
+		FirstName:          gothUser.FirstName,
+		LastName:           gothUser.LastName,
+		AvatarURL:          gothUser.AvatarURL,
 	}
 }
 
@@ -304,20 +308,25 @@ func (s *UserService) FindOrCreateUserFromOAuthIdentity(identity contracts.OAuth
 				return nil, apperrors.ErrAccountRecoverable()
 			}
 			// The proofs can join this identity to the account only when the
-			// provider vouches that the identity holds the mailbox: the
-			// mailbox proof is a link sent there, and an identity that does
-			// not hold it must not be joined by whoever does clicking it. An
-			// account that may not sign in, or that already holds an identity
-			// from this provider, keeps the plain refusal.
-			if existingUser.CanSignIn() && identity.EmailVerified {
+			// provider is the authority for the mailbox, not only a witness
+			// that it was verified once: the mailbox proof is a link sent
+			// there, and an identity that does not hold the mailbox now must
+			// not be joined by whoever does clicking it. An account that may
+			// not sign in, or that already holds an identity from this
+			// provider, keeps the plain refusal.
+			if existingUser.CanSignIn() && identity.EmailVerified && identity.EmailAuthoritative {
 				holds, err := s.accountHoldsProviderIdentity(existingUser.ID, provider)
 				if err != nil {
 					return nil, err
 				}
 				if !holds {
-					logger.Default().Warn("oauth_signin_address_belongs_to_account_link_offered",
+					// Whether a pending link is actually offered is the
+					// caller's decision (a CLI sign-in has nowhere to show
+					// one), so this names the possibility, not the outcome.
+					logger.Default().Warn("oauth_signin_address_belongs_to_account_link_possible",
 						"provider", provider,
-						"user_id", existingUser.ID)
+						"user_id", existingUser.ID,
+						"email_hash", logger.HashEmail(identity.Email))
 					return nil, &contracts.OAuthLinkRequiredError{
 						Identity: identity,
 						UserID:   existingUser.ID,
@@ -1038,9 +1047,12 @@ func (s *UserService) UpdatePassword(userID uint, currentPassword, newPassword s
 		return fmt.Errorf("failed to hash password: %w", err)
 	}
 
-	// Update the password in the database
+	// Only over the hash just verified: a password cleared or changed while
+	// this request ran (the mailbox proof of a pending provider link clears
+	// it to evict whoever set it) is not put back by a request that proved
+	// the old one.
 	result := s.db.Model(&authm.User{}).
-		Where("id = ?", userID).
+		Where("id = ? AND password_hash = ?", userID, *user.PasswordHash).
 		Update("password_hash", hashedPassword)
 
 	if result.Error != nil {
@@ -1048,7 +1060,7 @@ func (s *UserService) UpdatePassword(userID uint, currentPassword, newPassword s
 	}
 
 	if result.RowsAffected == 0 {
-		return fmt.Errorf("user not found")
+		return apperrors.ErrInvalidCredentials(nil)
 	}
 
 	return nil

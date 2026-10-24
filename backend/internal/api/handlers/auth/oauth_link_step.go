@@ -129,7 +129,7 @@ type PendingOAuthLinkResponse struct {
 	Body         struct {
 		Status    string     `json:"status" enum:"pending,expired" doc:"pending: the collision state can be shown. expired: the pending link is expired, already used, or not this browser's."`
 		Email     string     `json:"email,omitempty" doc:"The address the account and the provider share, when status is pending"`
-		ExpiresAt *time.Time `json:"expires_at,omitempty" doc:"When the pending link stops being usable from this browser, when status is pending"`
+		ExpiresAt *time.Time `json:"expires_at,omitempty" doc:"When the pending link expires, when status is pending. The browser's cookie that names it lapses at most 10 minutes after the Google sign-in that started it, which can be sooner once its emailed link has been asked for."`
 	}
 }
 
@@ -184,7 +184,10 @@ func (h *OAuthLinkStepHandler) LinkByEmailHandler(ctx context.Context, input *OA
 	resp.Body.RequestID = logger.GetRequestID(ctx)
 	secure := h.secureCookies()
 
-	link, err := h.authService.PeekOAuthLink(pendingLinkToken(input.Pending, input.PendingHost, secure))
+	if !h.emailService.IsConfigured() {
+		return h.unavailable(ctx, resp, "oauth_link_by_email_not_configured", errors.New("email service is not configured"))
+	}
+	link, err := h.authService.HoldOAuthLinkForEmail(pendingLinkToken(input.Pending, input.PendingHost, secure))
 	if err != nil {
 		if isLinkPendingExpired(err) {
 			resp.SetCookie = append(resp.SetCookie, clearedPendingLinkCookie(secure))
@@ -197,9 +200,6 @@ func (h *OAuthLinkStepHandler) LinkByEmailHandler(ctx context.Context, input *OA
 		return h.unavailable(ctx, resp, "oauth_link_by_email_read", err)
 	}
 
-	if !h.emailService.IsConfigured() {
-		return h.unavailable(ctx, resp, "oauth_link_by_email_not_configured", errors.New("email service is not configured"))
-	}
 	if err := h.emailOutbox.EnqueueOAuthLink(ctx, link.UserID, link.Ref); err != nil {
 		return h.unavailable(ctx, resp, "oauth_link_by_email_enqueue", err)
 	}

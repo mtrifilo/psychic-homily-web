@@ -160,10 +160,15 @@ type OAuthIdentity struct {
 	Subject       string
 	Email         string
 	EmailVerified bool
-	Name          string
-	FirstName     string
-	LastName      string
-	AvatarURL     string
+	// EmailAuthoritative is set when the provider is the authority for the
+	// mailbox (it hosts the address), not only a witness that it verified it
+	// once. Only such an identity is offered a pending link to the account
+	// that holds its address. It is read at the callback and not stored.
+	EmailAuthoritative bool
+	Name               string
+	FirstName          string
+	LastName           string
+	AvatarURL          string
 }
 
 // OAuthSignupRequiredError is the refusal for an identity attached to no
@@ -185,7 +190,8 @@ func (e *OAuthSignupRequiredError) Unwrap() error {
 }
 
 // OAuthLinkRequiredError is the refusal for an identity attached to no
-// account whose provider-verified address belongs to an account UserID that
+// account whose address, which the provider verified and is the authority
+// for (OAuthIdentity.EmailAuthoritative), belongs to an account UserID that
 // may sign in and holds no identity from that provider. Refusal is the
 // CodeOAuthLinkRefused AuthError, so a caller that offers no way to prove the
 // account answers with it unchanged; a caller that does holds Identity as a
@@ -210,7 +216,9 @@ const OAuthPendingSignupTTL = 10 * time.Minute
 
 // OAuthPendingLinkTTL is how long a pending link stays usable from the
 // browser that started it, and so the lifetime of the cookie that names it.
-// Emailing its sign-in link extends the pending link to that link's expiry.
+// Asking for its emailed link keeps the pending link alive for as long as
+// that link can be delivered and followed (HoldOAuthLinkForEmail); the
+// browser's cookie still lapses at OAuthPendingLinkTTL.
 const OAuthPendingLinkTTL = OAuthPendingSignupTTL
 
 // OAuthPendingLink is a provider identity held until the person proves they
@@ -284,6 +292,11 @@ type AuthServiceInterface interface {
 	// expired one is refused with a typed AuthError carrying
 	// CodeOAuthLinkPendingExpired; any other error means it could not be read.
 	PeekOAuthLink(token string) (*OAuthPendingLink, error)
+	// HoldOAuthLinkForEmail is PeekOAuthLink for the mailbox proof's send: it
+	// also keeps the pending link alive for as long as the emailed link it is
+	// about to be named by can be delivered and followed. Refusals are
+	// PeekOAuthLink's.
+	HoldOAuthLinkForEmail(token string) (*OAuthPendingLink, error)
 	// LinkOAuthWithPassword finishes the pending link token names for user,
 	// whose password the caller has just verified. It consumes the pending
 	// link whatever it names. When it names user, and user's address is still
