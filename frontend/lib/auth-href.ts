@@ -83,6 +83,9 @@ export function buildAuthHref(returnTo: string): string {
  * An OAuth link result is left out of the query. Settings reads it once, on
  * the redirect that delivers it; kept in returnTo it would replay after any
  * later sign-in through this link, however long after it stopped being true.
+ * `sanitizeReturnTo` and the backend's `sanitizeOAuthReturnTo` drop it again
+ * when they read returnTo, so a link built elsewhere cannot replay it either;
+ * leaving it out here keeps it out of the auth page's own URL.
  */
 export function currentLocationReturnTo(pathname: string): string {
   const search = typeof window === 'undefined' ? '' : window.location.search
@@ -116,12 +119,26 @@ export function withoutOAuthLinkResult(search: string): string {
   const kept = search
     .replace(/^\?/, '')
     .split('&')
-    .filter(pair => {
-      if (pair === '') return false
-      const [name] = new URLSearchParams(pair).keys()
-      return !OAUTH_LINK_RESULT_PARAMS.includes(name)
-    })
+    .filter(pair => pair !== '' && !isOAuthLinkResultPair(pair))
   return kept.length === 0 ? '' : `?${kept.join('&')}`
+}
+
+/**
+ * Is this one `name=value` pair of a query string an OAuth link result? The
+ * name is everything before the first `=`, decoded the way a URL parser
+ * decodes a query (`+` is a space), and a name that does not decode names
+ * neither parameter. A pair split out of a query string is never stripped of
+ * a leading `?`: in `??oauth_link=x` the name is `?oauth_link`.
+ */
+export function isOAuthLinkResultPair(pair: string): boolean {
+  const [name] = pair.split('=', 1)
+  try {
+    return OAUTH_LINK_RESULT_PARAMS.includes(
+      decodeURIComponent(name.replace(/\+/g, ' '))
+    )
+  } catch {
+    return false
+  }
 }
 
 /**

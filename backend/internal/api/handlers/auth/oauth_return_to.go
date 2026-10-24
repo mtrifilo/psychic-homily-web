@@ -4,6 +4,7 @@ import (
 	"encoding/base64"
 	"net/http"
 	"net/url"
+	"slices"
 	"strings"
 )
 
@@ -44,9 +45,9 @@ const oauthReturnToMaxLength = 2048
 const oauthAuthPagePath = "/auth"
 
 // sanitizeOAuthReturnTo returns raw when it is a path on the frontend's own
-// origin that a signed-in reader may be sent to, and oauthReturnToFallback
-// for anything else. It checks a value that has not been through a browser
-// URL parser:
+// origin that a signed-in reader may be sent to, less any OAuth link result
+// in its query string, and oauthReturnToFallback for anything else. It checks
+// a value that has not been through a browser URL parser:
 //
 //   - at most oauthReturnToMaxLength bytes
 //   - one leading slash: "//host" is protocol-relative
@@ -61,6 +62,12 @@ const oauthAuthPagePath = "/auth"
 //     "/shows#50%"), which Go's URL parser refuses
 //   - not the sign-in page or anything under it, judged on the decoded path,
 //     so "/%61uth" is the sign-in page too
+//
+// A destination that passes them all loses its oauthLinkResultParams pairs:
+// Settings reads them once, on the redirect that delivers them, and a
+// destination still carrying one would replay that result after this sign-in.
+// Every other parameter, and the fragment, keep the spelling and order they
+// arrived with (see withoutOAuthLinkResult).
 //
 // These rules are the source of truth for the frontend's sanitizeReturnTo
 // (frontend/app/auth/auth-redirect-utils.ts), which applies them in the same
@@ -104,7 +111,59 @@ func sanitizeOAuthReturnTo(raw string) string {
 	if parsed.Path == oauthAuthPagePath || strings.HasPrefix(parsed.Path, oauthAuthPagePath+"/") {
 		return oauthReturnToFallback
 	}
-	return raw
+	return withoutOAuthLinkResult(raw)
+}
+
+// oauthLinkResultParams are the query keys the OAuth link redirect delivers
+// its result under, which no destination keeps.
+var oauthLinkResultParams = []string{oauthLinkResultParam, oauthLinkErrorParam}
+
+// withoutOAuthLinkResult is returnTo without the oauthLinkResultParams pairs
+// of its query string, or returnTo itself, byte for byte, when its query
+// carries none. A name is compared query-unescaped, the way Settings reads
+// it, so an encoded spelling of a link parameter is dropped too. When a pair
+// is dropped, empty pairs go with it, and a query left empty loses its "?".
+// The frontend's sanitizeReturnTo applies the same rewrite, so both
+// sanitizers return the same string.
+func withoutOAuthLinkResult(returnTo string) string {
+	queryStart := strings.IndexByte(returnTo, '?')
+	fragmentStart := strings.IndexByte(returnTo, '#')
+	if queryStart < 0 || (fragmentStart >= 0 && fragmentStart < queryStart) {
+		return returnTo
+	}
+	queryEnd := len(returnTo)
+	if fragmentStart >= 0 {
+		queryEnd = fragmentStart
+	}
+
+	pairs := strings.Split(returnTo[queryStart+1:queryEnd], "&")
+	kept := make([]string, 0, len(pairs))
+	dropped := false
+	for _, pair := range pairs {
+		if isOAuthLinkResultPair(pair) {
+			dropped = true
+		} else if pair != "" {
+			kept = append(kept, pair)
+		}
+	}
+	if !dropped {
+		return returnTo
+	}
+
+	query := ""
+	if len(kept) > 0 {
+		query = "?" + strings.Join(kept, "&")
+	}
+	return returnTo[:queryStart] + query + returnTo[queryEnd:]
+}
+
+// isOAuthLinkResultPair reports whether one name=value pair of a query
+// string names an oauthLinkResultParams key. A name that does not unescape
+// keeps a literal "%" in the browser's reading too, so it names neither key.
+func isOAuthLinkResultPair(pair string) bool {
+	name, _, _ := strings.Cut(pair, "=")
+	decoded, err := url.QueryUnescape(name)
+	return err == nil && slices.Contains(oauthLinkResultParams, decoded)
 }
 
 // setOAuthReturnToCookie records the sign-in start's destination for its

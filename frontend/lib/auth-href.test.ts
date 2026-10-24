@@ -112,6 +112,14 @@ describe('currentLocationReturnTo', () => {
     expect(currentLocationReturnTo('/profile')).toBe('/profile?tab=settings')
   })
 
+  // A URL parser names the pair "?oauth_link", which Settings does not read.
+  it('keeps a pair whose name begins with a question mark', () => {
+    window.history.replaceState({}, '', '/profile??oauth_link=connected&tab=settings')
+    expect(currentLocationReturnTo('/profile')).toBe(
+      '/profile??oauth_link=connected&tab=settings'
+    )
+  })
+
   it('leaves every other parameter exactly as the location spells it', () => {
     window.history.replaceState(
       {},
