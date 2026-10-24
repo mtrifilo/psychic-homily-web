@@ -263,7 +263,7 @@ func (s *NotificationFilterSuite) TestProcessUserMatches_SkipsAUserTheVenueAlert
 	s.Require().NoError(s.svc.accrueVenueShowAlerts(show, pq.Int64Array{int64(venueID)}))
 	s.Require().Equal(1, s.flushNow())
 
-	s.svc.processUserMatches(userID, show, matches)
+	s.Require().NoError(s.svc.processUserMatches(userID, show, matches))
 	s.Equal(int64(0), s.filterLogRows(userID, showID))
 }
 
@@ -331,4 +331,71 @@ func (s *NotificationFilterSuite) TestMatchAndNotify_ArtistFollowFailureIsReturn
 
 	s.Require().NoError(s.svc.MatchAndNotify(s.loadShow(showID)))
 	s.Equal(int64(1), s.inAppAlerts(userID, showID))
+}
+
+// A show that joins a venue-day batch after the user's alert for that day was
+// delivered is not one that alert announced, so a filter retry still tells the
+// user, and the venue re-flush adds no second notification.
+func (s *NotificationFilterSuite) TestMatchAndNotify_ShowJoiningADeliveredVenueAlertStillGetsTheFilterRetry() {
+	userID := s.createTestUser()
+	artistID := s.createTestArtist("Oneida")
+	otherArtistID := s.createTestArtist("Someone Else")
+	venueID := s.createTestVenue("Valley Bar")
+	s.followVenueWithAlerts(userID, venueID, `{}`)
+	s.subscribeToArtist(userID, artistID)
+	day := venueLocalToday()
+
+	earlierShowID := s.createTestShow("Earlier show at Valley Bar", []uint{otherArtistID}, []uint{venueID})
+	s.announce(earlierShowID)
+	s.Require().Equal(1, s.flushNow())
+	s.Require().Equal(int64(1), s.venueInAppAlerts(userID, venueID, day))
+
+	showID := s.createTestShow("Oneida at Valley Bar", []uint{artistID}, []uint{venueID})
+	restore := s.breakFilterQuery()
+	s.requireFilterPassError(s.svc.MatchAndNotify(s.loadShow(showID)))
+	s.Require().Equal(int64(2), s.batchMembers(venueID, day))
+
+	restore()
+	s.Require().NoError(s.svc.MatchAndNotify(s.loadShow(showID)))
+	s.Equal(int64(1), s.filterLogRows(userID, showID))
+
+	s.flushNow()
+	s.Equal(int64(1), s.venueInAppAlerts(userID, venueID, day))
+	s.Equal(int64(1), s.filterLogRows(userID, showID))
+}
+
+// A failed log insert in the filter pass is returned, so the outbox retries,
+// and the retry delivers the missing filter notification once.
+func (s *NotificationFilterSuite) TestMatchAndNotify_FilterLogInsertFailureIsReturnedAndRetryDeliversOnce() {
+	userID := s.createTestUser()
+	artistID := s.createTestArtist("Oneida")
+	s.subscribeToArtist(userID, artistID)
+	venueID := s.createTestVenue("Valley Bar")
+	showID := s.createTestShow("Oneida at Valley Bar", []uint{artistID}, []uint{venueID})
+
+	// Rejects only filter rows; every other writer stores a NULL filter_id.
+	s.Require().NoError(s.db.Exec(
+		`ALTER TABLE notification_log ADD CONSTRAINT ck_test_no_filter_rows CHECK (filter_id IS NULL) NOT VALID`).Error)
+	dropped := false
+	drop := func() {
+		if dropped {
+			return
+		}
+		dropped = true
+		s.Require().NoError(s.db.Exec(
+			`ALTER TABLE notification_log DROP CONSTRAINT ck_test_no_filter_rows`).Error)
+	}
+	s.T().Cleanup(drop)
+
+	err := s.svc.MatchAndNotify(s.loadShow(showID))
+	s.Require().Error(err)
+	s.Contains(err.Error(), notifyPassFilter+" pass: log insert for user")
+	s.Equal(int64(0), s.filterLogRows(userID, showID))
+
+	drop()
+	s.Require().NoError(s.svc.MatchAndNotify(s.loadShow(showID)))
+	s.Equal(int64(1), s.filterLogRows(userID, showID))
+
+	s.Require().NoError(s.svc.MatchAndNotify(s.loadShow(showID)))
+	s.Equal(int64(1), s.filterLogRows(userID, showID))
 }

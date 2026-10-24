@@ -132,7 +132,9 @@ type recipientAlertPrefs struct {
 // ends the pass, and a failed claim for one recipient skips only that
 // recipient. MatchAndNotify runs after the approval or ingest write it
 // announces, so an error here never fails that write; it makes the outbox
-// retry, and a retry re-claims only what this run did not write.
+// retry. The retry delivers only to recipients with no artist alert row for the
+// show in either lane, so a lane whose claim failed beside a claimed lane stays
+// unclaimed.
 func (s *NotificationFilterService) notifyArtistFollowers(show *catalogm.Show, showArtistIDs pq.Int64Array) error {
 	if show == nil || len(showArtistIDs) == 0 {
 		return nil
@@ -480,8 +482,9 @@ func (s *NotificationFilterService) usersAlreadyNotifiedAboutShow(
 // user with in-app off still gets the email they asked for.
 //
 // The returned error is a failed claim, in either lane: that lane's row was not
-// written, so a later run can still claim it. A budget refusal and the send
-// itself return nil.
+// written. A later run reaches this recipient again only when neither lane has
+// a row, because notifyArtistFollowers skips anyone with an artist alert row
+// for the show. A budget refusal and the send itself return nil.
 func (s *NotificationFilterService) deliverArtistAlert(
 	r artistAlertRecipient,
 	show *catalogm.Show,

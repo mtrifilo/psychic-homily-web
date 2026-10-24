@@ -512,8 +512,9 @@ func (s *NotificationFilterService) MatchAndNotify(show *catalogm.Show) error {
 	// skips a user whose in-app venue alert already lists the show
 	// (listedByInAppVenueAlert). The artist and scene passes do not: a pass of
 	// theirs that first succeeds after the venue batch has flushed can tell a
-	// user that batch already told. Concurrent runs are covered by none of
-	// this; see ShowNotifyOutboxPoller.
+	// user that batch already told. Concurrent runs keep only the UNIQUE claims
+	// and accrual's ON CONFLICT; the filter and scene log-count dedups race. See
+	// ShowNotifyOutboxPoller.
 	return runNotifyPasses(show.ID, []notifyPass{
 		{name: notifyPassFilter, run: func() error {
 			return s.notifyFilterSubscribers(show, showArtistIDs, showVenueIDs, artistLabelIDs, artistTagIDs)
@@ -537,8 +538,9 @@ func (s *NotificationFilterService) MatchAndNotify(show *catalogm.Show) error {
 
 // notifyFilterSubscribers is the filter pass: it matches the show against every
 // active notification filter and delivers at most one notification per user.
-// The returned error is the matching query's; per-user delivery problems are
-// logged and swallowed inside processUserMatches.
+// It returns the matching query's error, or every user's processUserMatches
+// error joined. A retry matches only users with no notification for the show
+// yet, so it re-reaches exactly the users whose delivery failed.
 func (s *NotificationFilterService) notifyFilterSubscribers(
 	show *catalogm.Show,
 	showArtistIDs, showVenueIDs, artistLabelIDs, artistTagIDs pq.Int64Array,
@@ -563,10 +565,13 @@ func (s *NotificationFilterService) notifyFilterSubscribers(
 		userMatches[m.UserID] = append(userMatches[m.UserID], m)
 	}
 
+	var errs []error
 	for userID, userFilterMatches := range userMatches {
-		s.processUserMatches(userID, show, userFilterMatches)
+		if err := s.processUserMatches(userID, show, userFilterMatches); err != nil {
+			errs = append(errs, err)
+		}
 	}
-	return nil
+	return errors.Join(errs...)
 }
 
 // MatchAndNotifyBatch matches multiple shows against all active filters.
@@ -739,9 +744,14 @@ func (s *NotificationFilterService) findMatchingFilters(
 // notification for the show (PSY-1467 — managed + advanced overlap must not
 // spam). Delivery prefers a managed match when present so the log attributes
 // to the quick subscription; otherwise the first match wins.
-func (s *NotificationFilterService) processUserMatches(userID uint, show *catalogm.Show, matches []filterMatch) {
+//
+// It returns an error when a dedup check or the log insert fails, so nothing
+// was delivered. A duplicate-key insert is not an error: another run logged
+// this user's notification first. The match metadata update and the email send
+// report nothing.
+func (s *NotificationFilterService) processUserMatches(userID uint, show *catalogm.Show, matches []filterMatch) error {
 	if len(matches) == 0 {
-		return
+		return nil
 	}
 	now := time.Now().UTC()
 
@@ -762,19 +772,19 @@ func (s *NotificationFilterService) processUserMatches(userID uint, show *catalo
 		Where(notifiedAboutShow("notification_log")).
 		Count(&existing).Error; err != nil {
 		log.Printf("failed to dedup notification for user %d, show %d: %v", userID, show.ID, err)
-		return
+		return fmt.Errorf("dedup for user %d, show %d: %w", userID, show.ID, err)
 	}
 	if existing > 0 {
-		return
+		return nil
 	}
 	var listedByVenueAlert bool
 	if err := s.db.Raw("SELECT "+listedByInAppVenueAlert("?"), userID, show.ID).
 		Scan(&listedByVenueAlert).Error; err != nil {
 		log.Printf("failed to dedup notification against venue alerts for user %d, show %d: %v", userID, show.ID, err)
-		return
+		return fmt.Errorf("venue alert dedup for user %d, show %d: %w", userID, show.ID, err)
 	}
 	if listedByVenueAlert {
-		return
+		return nil
 	}
 
 	delivery := pickDeliveryMatch(matches)
@@ -789,12 +799,16 @@ func (s *NotificationFilterService) processUserMatches(userID uint, show *catalo
 	if err := s.db.Create(&logEntry).Error; err != nil {
 		log.Printf("failed to insert notification log for user %d, filter %d, show %d: %v",
 			userID, delivery.FilterID, show.ID, err)
-		return
+		if errors.Is(err, gorm.ErrDuplicatedKey) {
+			return nil
+		}
+		return fmt.Errorf("log insert for user %d, filter %d, show %d: %w", userID, delivery.FilterID, show.ID, err)
 	}
 
 	if delivery.NotifyEmail && s.emailService != nil && s.emailService.IsConfigured() {
 		s.sendFilterEmail(userID, delivery.FilterID, delivery.FilterName, show)
 	}
+	return nil
 }
 
 // pickDeliveryMatch chooses which matched filter owns the single user-visible
@@ -1383,6 +1397,15 @@ func notifiedAboutShow(alias string) string {
 // in-app lane counts: an email lists the members its flush resolved, and which
 // members those were is not recorded.
 //
+// The show must also have joined the batch no later than the row's sent_at,
+// which the flush takes after reading the batch: the delivered alert could list
+// it. A show that joins a batch after its row was delivered only extends that
+// inbox row without a new notification, so it does not count. Two cases still
+// count a show the delivered alert did not announce: one whose accrual
+// committed after the flush read the batch although its created_at precedes
+// sent_at, and one the flush dropped as unannounceable and that was approved
+// again later.
+//
 // The filter pass is its only reader, and that pass runs before venue accrual
 // in MatchAndNotify, so it matches only a show accrued by an earlier run: a
 // retry or a re-approval.
@@ -1398,6 +1421,7 @@ func listedByInAppVenueAlert(userExpr string) string {
 		 AND val.alert_bucket = vab.alert_day
 		 AND val.channel = '%s'
 		WHERE vab.show_id = ?
+		  AND vab.created_at <= val.sent_at
 	)`, userExpr, notificationm.NotificationEntityVenueShowAlert, notificationm.NotificationChannelInApp)
 }
 

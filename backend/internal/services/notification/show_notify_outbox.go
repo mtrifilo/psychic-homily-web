@@ -543,6 +543,9 @@ func (p *ShowNotifyOutboxPoller) markSkipped(ctx context.Context, item catalogm.
 // NOTHING against the whole-table UNIQUE, and this queue is never pruned. So a
 // show whose three attempts all landed during, say, a database restart is one
 // whose followers are never told — silently, unless somebody queries the table.
+// MatchAndNotify runs every pass on every attempt, so a row `failed` on one
+// pass's error has delivered whatever the other passes could: last_error names
+// the failing passes, and the passes it does not name ran without error.
 //
 // That is the deliberate trade (failing closed on notifications beats
 // re-notifying), but an operator who wants to retry such a show MUST reuse the

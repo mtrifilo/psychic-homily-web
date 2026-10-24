@@ -816,8 +816,9 @@ func (s *NotificationFilterService) alertPrefsForUserIDs(userIDs []uint) (map[ui
 //
 // The one direction is the useful one because the flush runs in its own
 // poller, after the quiet window or the max hold, so it sees every row the
-// MatchAndNotify passes for these shows have written by then. A pass that
-// failed wrote none, and nothing here can see what it would have sent.
+// MatchAndNotify passes for these shows have written by then, and nothing
+// else. A pass that failed before reaching a user wrote no row for that user,
+// so this cannot see what that pass would have sent.
 func (s *NotificationFilterService) showsAlreadyNotified(
 	userIDs, showIDs []uint,
 ) (map[uint]map[uint]struct{}, error) {
