@@ -1,7 +1,8 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach, onTestFinished } from 'vitest'
 import { screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { renderWithProviders } from '@/test/utils'
+import { installMatchMedia } from '@/test/mocks/matchMedia'
 import { stubStaleValueConflict } from '@/test/staleValueConflictFixture'
 import type { Artist, ArtistShow, ArtistAlias } from '../types'
 
@@ -32,6 +33,13 @@ vi.mock('../hooks/useArtists', () => ({
   }),
 }))
 
+// A marker in place of the canvas section, so the placement tests can assert
+// whether the page mounts it; its own narrow and canvas forms are covered in
+// ArtistConnectionsSection.test.
+vi.mock('./ArtistConnectionsSection', () => ({
+  ArtistConnectionsSection: () => <div data-testid="connections-section" />,
+}))
+
 const mockUseIsAuthenticated = vi.fn()
 vi.mock('@/features/auth', () => ({
   useIsAuthenticated: () => mockUseIsAuthenticated(),
@@ -43,12 +51,11 @@ vi.mock('@/features/labels/hooks/useLabels', () => ({
   useLabelRoster: () => ({ data: null as unknown }),
 }))
 
+// Default (set in the top-level beforeEach): no releases, so the Discography
+// self-hides. The phone-order test hands it one album.
+const mockUseArtistReleases = vi.fn()
 vi.mock('@/features/releases/hooks/useReleases', () => ({
-  useArtistReleases: () => ({
-    data: null as unknown,
-    isLoading: false,
-    error: null as Error | null,
-  }),
+  useArtistReleases: (opts: unknown) => mockUseArtistReleases(opts),
 }))
 
 // PSY-1110: the discover + save mutations are exposed as stable module-level
@@ -166,6 +173,10 @@ vi.mock('./RelatedArtists', () => ({
   // Renders its own "Similar artists" SectionHeader in the real component;
   // the mock keeps it so sidebar section order stays assertable.
   ArtistSimilarSidebar: () => <h3>Similar artists</h3>,
+  // A marker element, so a test can check the provider wraps both placements.
+  SimilarListStateProvider: ({ children }: { children: React.ReactNode }) => (
+    <div data-testid="similar-state-provider">{children}</div>
+  ),
   ArtistGraphDialog: ({
     open,
     onOpenChange,
@@ -228,8 +239,9 @@ vi.mock('@/components/shared', () => ({
       <a href={fallback.href}>{fallback.label}</a>
       <span data-testid="entity-name">{entityName}</span>
       <div data-testid="header-slot">{header}</div>
-      <div data-testid="sidebar-slot">{sidebar}</div>
+      {/* Main column before the sidebar, as the real layout stacks them. */}
       <div data-testid="content-slot">{children}</div>
+      <div data-testid="sidebar-slot">{sidebar}</div>
     </div>
   ),
   EntityHeader: ({
@@ -304,6 +316,12 @@ vi.mock('@/components/shared', () => ({
       </button>
     ),
   SectionHeader: ({ title }: { title: string }) => <h3>{title}</h3>,
+  DenseTable: ({ children }: { children: React.ReactNode }) => <table>{children}</table>,
+  DenseTableGroupHeader: ({ title }: { title: string }) => (
+    <tr>
+      <th>{title}</th>
+    </tr>
+  ),
   StatsList: ({ items }: { items: { label: string; value: React.ReactNode }[] }) => (
     <dl data-testid="stats-list">
       {items.map(i => (
@@ -316,7 +334,8 @@ vi.mock('@/components/shared', () => ({
   ),
 }))
 
-import { ArtistDetail } from './ArtistDetail'
+import { ArtistDetail, WIDE_LAYOUT_QUERY as WIDE } from './ArtistDetail'
+import { GRAPH_BREAKPOINT_PX } from '@/components/graph/useContainerWidth'
 import { ENTITY_LINK_CLASS } from '@/components/shared/entityLink'
 
 function makeArtist(overrides: Partial<Artist> = {}): Artist {
@@ -354,6 +373,11 @@ describe('ArtistDetail', () => {
     mockUseArtistLabels.mockReturnValue({
       data: { labels: [] },
       isLoading: false,
+    })
+    mockUseArtistReleases.mockReturnValue({
+      data: null,
+      isLoading: false,
+      error: null,
     })
   })
 
@@ -761,6 +785,9 @@ describe('ArtistDetail', () => {
     it('orders Links and As Heard On above the unbounded Similar artists list', () => {
       // Similar artists has no length cap, so short fixed-height blocks have
       // to sit above it or they scroll off-screen on well-connected artists.
+      // That is the sidebar order, which holds the list outside the phone layout.
+      const mm = installMatchMedia({ [WIDE]: true })
+      onTestFinished(() => mm.restore())
       mockUseArtist.mockReturnValue({
         data: makeArtist({
           stats: {
@@ -798,6 +825,204 @@ describe('ArtistDetail', () => {
       ]
 
       expect(headings.filter(h => h && expected.includes(h))).toEqual(expected)
+    })
+
+    it('renders only the non-zero statistics rows', () => {
+      mockUseArtist.mockReturnValue({
+        data: makeArtist({
+          stats: {
+            releases: 0,
+            labels: 0,
+            shows_tracked: 1,
+            similar_artists: 3,
+            festival_appearances: 0,
+          },
+        }),
+        isLoading: false,
+        error: null,
+      })
+
+      renderWithProviders(<ArtistDetail artistId="test-artist" />)
+      const labels = Array.from(
+        screen.getByTestId('stats-list').querySelectorAll('dt')
+      ).map(dt => dt.textContent)
+      expect(labels).toEqual(['Shows tracked', 'Similar artists'])
+    })
+
+    it('drops the statistics block when every stat is zero', () => {
+      mockUseArtist.mockReturnValue({
+        data: makeArtist({
+          stats: {
+            releases: 0,
+            labels: 0,
+            shows_tracked: 0,
+            similar_artists: 0,
+            festival_appearances: 0,
+          },
+        }),
+        isLoading: false,
+        error: null,
+      })
+
+      renderWithProviders(<ArtistDetail artistId="test-artist" />)
+      expect(screen.queryByTestId('stats-list')).not.toBeInTheDocument()
+      expect(screen.queryByText('Statistics')).not.toBeInTheDocument()
+    })
+
+    // Zero rows are hidden at every width, not only on the phone layout.
+    it('renders only the non-zero statistics rows outside the phone layout too', () => {
+      const mm = installMatchMedia({ [WIDE]: true })
+      onTestFinished(() => mm.restore())
+      mockUseArtist.mockReturnValue({
+        data: makeArtist({
+          stats: {
+            releases: 2,
+            labels: 0,
+            shows_tracked: 0,
+            similar_artists: 0,
+            festival_appearances: 0,
+          },
+        }),
+        isLoading: false,
+        error: null,
+      })
+
+      renderWithProviders(<ArtistDetail artistId="test-artist" />)
+      const labels = Array.from(
+        screen.getByTestId('stats-list').querySelectorAll('dt')
+      ).map(dt => dt.textContent)
+      expect(labels).toEqual(['Releases'])
+    })
+
+    describe('Similar artists placement', () => {
+      // The phone layout is "neither clause matches": below Tailwind `sm`, so
+      // the rows are in their stacked form, AND below the canvas gate, so
+      // dropping the Connections section never drops a canvas it would draw.
+      it('is the phone layout only below both sm and the canvas gate', () => {
+        expect(WIDE.split(', ')).toEqual([
+          '(min-width: 40rem)',
+          `(min-width: ${GRAPH_BREAKPOINT_PX}px)`,
+        ])
+      })
+
+      // The list's viewer state survives the move between placements only
+      // while the provider sits above both of them.
+      it('wraps both placements in the list state provider', () => {
+        const mm = installMatchMedia({ [WIDE]: false })
+        onTestFinished(() => mm.restore())
+        renderWithProviders(<ArtistDetail artistId="test-artist" />)
+        const provider = screen.getByTestId('similar-state-provider')
+        expect(provider).toContainElement(screen.getByTestId('content-slot'))
+        expect(provider).toContainElement(screen.getByTestId('sidebar-slot'))
+      })
+
+      beforeEach(() => {
+        mockUseArtist.mockReturnValue({
+          data: makeArtist({
+            stats: {
+              releases: 0,
+              labels: 0,
+              shows_tracked: 1,
+              similar_artists: 1,
+              festival_appearances: 0,
+            },
+          }),
+          isLoading: false,
+          error: null,
+        })
+      })
+
+      const similarHeadings = () =>
+        screen.getAllByRole('heading', { name: 'Similar artists' })
+
+      it('orders shows, actions, Similar artists, Discography, Statistics on the phone layout', () => {
+        const mm = installMatchMedia({ [WIDE]: false })
+        onTestFinished(() => mm.restore())
+        mockUseArtistReleases.mockReturnValue({
+          data: {
+            releases: [
+              { id: 1, title: 'Futures', slug: 'futures', release_type: 'lp', release_year: 2004, role: 'main' },
+            ],
+            count: 1,
+          },
+          isLoading: false,
+          error: null,
+        })
+        renderWithProviders(<ArtistDetail artistId="test-artist" />)
+
+        const [similar] = similarHeadings()
+        expect(similarHeadings()).toHaveLength(1)
+        expect(screen.getByTestId('content-slot')).toContainElement(similar)
+        expect(screen.getByTestId('sidebar-slot')).not.toContainElement(similar)
+
+        const sequence = [
+          screen.getByTestId('artist-shows-list'),
+          screen.getByTestId('artist-actions'),
+          similar,
+          screen.getByRole('heading', { name: 'Discography' }),
+          screen.getByRole('heading', { name: 'Statistics' }),
+        ]
+        for (let i = 1; i < sequence.length; i++) {
+          expect(
+            sequence[i - 1].compareDocumentPosition(sequence[i]) &
+              Node.DOCUMENT_POSITION_FOLLOWING
+          ).toBeTruthy()
+        }
+      })
+
+      it('keeps the Discography above the Connections section outside the phone layout', () => {
+        const mm = installMatchMedia({ [WIDE]: true })
+        onTestFinished(() => mm.restore())
+        mockUseArtistReleases.mockReturnValue({
+          data: {
+            releases: [
+              { id: 1, title: 'Futures', slug: 'futures', release_type: 'lp', release_year: 2004, role: 'main' },
+            ],
+            count: 1,
+          },
+          isLoading: false,
+          error: null,
+        })
+        renderWithProviders(<ArtistDetail artistId="test-artist" />)
+        expect(
+          screen.getByRole('heading', { name: 'Discography' }).compareDocumentPosition(
+            screen.getByTestId('connections-section')
+          ) & Node.DOCUMENT_POSITION_FOLLOWING
+        ).toBeTruthy()
+      })
+
+      // No canvas can render on the phone layout, so the section (and with it
+      // the sub-640 map teaser) is not mounted there.
+      it('does not mount the Connections section on the phone layout', () => {
+        const mm = installMatchMedia({ [WIDE]: false })
+        onTestFinished(() => mm.restore())
+        renderWithProviders(<ArtistDetail artistId="test-artist" />)
+        expect(screen.queryByTestId('connections-section')).not.toBeInTheDocument()
+      })
+
+      it('keeps the list in the sidebar and the Connections section in the main column outside the phone layout', () => {
+        const mm = installMatchMedia({ [WIDE]: true })
+        onTestFinished(() => mm.restore())
+        renderWithProviders(<ArtistDetail artistId="test-artist" />)
+
+        const [similar] = similarHeadings()
+        expect(similarHeadings()).toHaveLength(1)
+        expect(screen.getByTestId('sidebar-slot')).toContainElement(similar)
+        expect(screen.getByTestId('content-slot')).toContainElement(
+          screen.getByTestId('connections-section')
+        )
+      })
+
+      it('moves the list when the viewport leaves the phone layout', () => {
+        const mm = installMatchMedia({ [WIDE]: false })
+        onTestFinished(() => mm.restore())
+        renderWithProviders(<ArtistDetail artistId="test-artist" />)
+        expect(screen.getByTestId('content-slot')).toContainElement(similarHeadings()[0])
+
+        mm.set(WIDE, true)
+        expect(similarHeadings()).toHaveLength(1)
+        expect(screen.getByTestId('sidebar-slot')).toContainElement(similarHeadings()[0])
+      })
     })
 
     it('hides the links section when the artist has no social links', () => {

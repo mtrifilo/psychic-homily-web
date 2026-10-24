@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { screen, fireEvent } from '@testing-library/react'
+import { screen, fireEvent, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { renderWithProviders } from '@/test/utils'
 import { installImmediateResizeObserver } from '@/test/mocks/resizeObserver'
@@ -52,6 +52,11 @@ vi.mock('../hooks/useArtistGraph', () => ({
   useCreateArtistRelationship: vi.fn(() => ({ mutate: vi.fn(), isPending: false })),
 }))
 
+// The suggest form's search; these tests type into it but never pick a result.
+vi.mock('../hooks/useArtistSearch', () => ({
+  useArtistSearch: () => ({ data: undefined }),
+}))
+
 type MockUseIsAuthenticatedValue = {
   user: { id: number; is_admin: boolean } | null
   isAuthenticated: boolean
@@ -78,7 +83,7 @@ vi.mock('./ArtistGraph', () => ({
   ArtistGraphVisualization: () => <div data-testid="artist-graph">Graph Visualization</div>,
 }))
 
-import { ArtistSimilarSidebar, ArtistGraphDialog } from './RelatedArtists'
+import { ArtistSimilarSidebar, ArtistGraphDialog, SimilarListStateProvider } from './RelatedArtists'
 // The REAL constant (not a literal) — a rename that missed one side would
 // otherwise still pass.
 import { SIMILAR_ARTISTS_ANCHOR } from './ArtistConnectionsSection'
@@ -103,6 +108,8 @@ describe('ArtistSimilarSidebar', () => {
     ro.restore()
   })
 
+  // Load-bearing for ArtistDetail: it moves this list between columns at
+  // hydration, which causes no layout shift only while the list is empty.
   it('returns null while loading', () => {
     mockUseArtistGraph.mockReturnValue({ data: undefined, isLoading: true, error: null })
     const { container } = renderWithProviders(
@@ -163,11 +170,168 @@ describe('ArtistSimilarSidebar', () => {
     for (const token of ENTITY_LINK_CLASS.accent.split(' ')) {
       expect(link!.className.split(' ')).toContain(token)
     }
-    // The reason badges stay as they are: hidden below `sm`.
+    // The inline badge group beside the name is the `sm`-and-up form; below
+    // `sm` the reason renders on its own line (covered below).
     expect(link!.nextElementSibling?.className).toContain('hidden sm:flex')
     // `link` text is not AA on a muted surface, so the row takes no muted fill,
     // at rest or on hover.
     expect(link!.parentElement?.className).not.toMatch(/(^|\s)(hover:)?bg-muted/)
+  })
+
+  describe('narrow reason line', () => {
+    const reasonLineFor = (name: string) => {
+      const row = screen.getByText(name).closest('a')!.parentElement!
+      return within(row).getByTestId('similar-artist-reason')
+    }
+
+    it('renders the badges and score text of each row on a line of its own below sm', () => {
+      renderWithProviders(
+        <ArtistSimilarSidebar artistId={1} artistSlug="gatecreeper" onOpenGraph={() => {}} />
+      )
+      const similarLine = reasonLineFor('Frozen Soul')
+      expect(within(similarLine).getByText('Similar')).toBeInTheDocument()
+      expect(within(similarLine).getByText('85% similar')).toBeInTheDocument()
+
+      const billsLine = reasonLineFor('Creeping Death')
+      expect(within(billsLine).getByText('Shared Bills')).toBeInTheDocument()
+      expect(within(billsLine).getByText('4 shared shows')).toBeInTheDocument()
+
+      // Its own wrapped line: full width under the name, gone at sm and up,
+      // where the inline badges take over (the inline score from md).
+      expect(similarLine.className).toContain('basis-full')
+      expect(similarLine.className).toContain('sm:hidden')
+      const row = similarLine.parentElement!
+      expect(row.className).toContain('flex-wrap')
+      expect(row.className).toContain('sm:flex-nowrap')
+    })
+
+    it('lists every badge before the joined score text, wrapping as one run', () => {
+      mockUseArtistGraph.mockReturnValue({
+        data: {
+          ...mockGraphData,
+          nodes: [mockGraphData.nodes[0]],
+          links: [
+            { source_id: 1, target_id: 2, type: 'shared_bills', score: 0.8, votes_up: 0, votes_down: 0, detail: { shared_count: 2 } },
+            { source_id: 1, target_id: 2, type: 'shared_label', score: 0.7, votes_up: 0, votes_down: 0 },
+            { source_id: 1, target_id: 2, type: 'radio_cooccurrence', score: 0.5, votes_up: 0, votes_down: 0, detail: { co_occurrence_count: 3, station_count: 1 } },
+          ],
+        },
+        isLoading: false,
+        error: null,
+      })
+      renderWithProviders(
+        <ArtistSimilarSidebar artistId={1} artistSlug="gatecreeper" onOpenGraph={() => {}} />
+      )
+      const line = reasonLineFor('Frozen Soul')
+      expect(Array.from(line.children).map(el => el.textContent)).toEqual([
+        'Shared Bills',
+        'Shared Label',
+        'Radio Co-occurrence',
+        '2 shared shows · 3x on radio',
+      ])
+      expect(line.className).toContain('flex-wrap')
+    })
+
+    it('draws the chips as untinted outline badges and the score in muted mono', () => {
+      renderWithProviders(
+        <ArtistSimilarSidebar artistId={1} artistSlug="gatecreeper" onOpenGraph={() => {}} />
+      )
+      const line = reasonLineFor('Creeping Death')
+      const chip = within(line).getByText('Shared Bills')
+      expect(chip.className).toContain('text-foreground')
+      expect(chip.className).not.toMatch(/(^|\s)(dark:)?(bg|text|border)-blue-/)
+      const score = within(line).getByText('4 shared shows')
+      expect(score.className).toContain('font-mono')
+      expect(score.className).toContain('text-muted-foreground')
+    })
+
+    it('renders no reason line for a row with neither a known badge nor a score', () => {
+      mockUseArtistGraph.mockReturnValue({
+        data: {
+          ...mockGraphData,
+          nodes: [mockGraphData.nodes[0]],
+          links: [
+            { source_id: 1, target_id: 2, type: 'not_a_known_type', score: 0.5, votes_up: 0, votes_down: 0 },
+          ],
+        },
+        isLoading: false,
+        error: null,
+      })
+      renderWithProviders(
+        <ArtistSimilarSidebar artistId={1} artistSlug="gatecreeper" onOpenGraph={() => {}} />
+      )
+      expect(screen.getByText('Frozen Soul')).toBeInTheDocument()
+      expect(screen.queryByTestId('similar-artist-reason')).not.toBeInTheDocument()
+    })
+  })
+
+  describe('viewer state under SimilarListStateProvider', () => {
+    // The page renders the list under one of two parents; this harness does
+    // the same, so flipping `inSidebar` unmounts and remounts the list.
+    function Harness({ inSidebar, artistId = 1 }: { inSidebar: boolean; artistId?: number }) {
+      const list = (
+        <ArtistSimilarSidebar artistId={artistId} artistSlug="gatecreeper" onOpenGraph={() => {}} />
+      )
+      return (
+        <SimilarListStateProvider artistId={artistId}>
+          {inSidebar ? <aside>{list}</aside> : <main>{list}</main>}
+        </SimilarListStateProvider>
+      )
+    }
+
+    it('keeps the sort and an open suggest draft when the list remounts elsewhere', async () => {
+      const user = userEvent.setup()
+      const { rerender } = renderWithProviders(<Harness inSidebar={false} />)
+      await user.selectOptions(screen.getByLabelText('Sort'), 'niche')
+      await user.click(screen.getByRole('button', { name: 'Suggest similar' }))
+      await user.type(screen.getByPlaceholderText('Search for a similar artist...'), 'Fro')
+
+      rerender(<Harness inSidebar />)
+
+      expect(document.querySelector('aside')).toContainElement(screen.getByLabelText('Sort'))
+      expect((screen.getByLabelText('Sort') as HTMLSelectElement).value).toBe('niche')
+      expect(screen.getByPlaceholderText('Search for a similar artist...')).toHaveValue('Fro')
+    })
+
+    // Focus belongs to a form the viewer just opened, not to one a remount
+    // restored: the restored one must not pull focus (and the page) to itself.
+    it('focuses the search when opened, but not when a remount restores it', async () => {
+      const user = userEvent.setup()
+      const { rerender } = renderWithProviders(<Harness inSidebar={false} />)
+      await user.click(screen.getByRole('button', { name: 'Suggest similar' }))
+      expect(screen.getByPlaceholderText('Search for a similar artist...')).toHaveFocus()
+
+      await user.click(document.body)
+      rerender(<Harness inSidebar />)
+
+      const restored = screen.getByPlaceholderText('Search for a similar artist...')
+      expect(document.querySelector('aside')).toContainElement(restored)
+      expect(restored).not.toHaveFocus()
+    })
+
+    // The provider outlives the form, so closing has to clear the draft itself.
+    it('reopens an Escape-closed suggest form empty', async () => {
+      const user = userEvent.setup()
+      renderWithProviders(<Harness inSidebar={false} />)
+      await user.click(screen.getByRole('button', { name: 'Suggest similar' }))
+      await user.type(screen.getByPlaceholderText('Search for a similar artist...'), 'Fro{Escape}')
+      expect(screen.queryByPlaceholderText('Search for a similar artist...')).not.toBeInTheDocument()
+
+      await user.click(screen.getByRole('button', { name: 'Suggest similar' }))
+      expect(screen.getByPlaceholderText('Search for a similar artist...')).toHaveValue('')
+    })
+
+    it('hands a different artist the defaults', async () => {
+      const user = userEvent.setup()
+      const { rerender } = renderWithProviders(<Harness inSidebar={false} />)
+      await user.selectOptions(screen.getByLabelText('Sort'), 'niche')
+      await user.click(screen.getByRole('button', { name: 'Suggest similar' }))
+
+      rerender(<Harness inSidebar={false} artistId={9} />)
+
+      expect((screen.getByLabelText('Sort') as HTMLSelectElement).value).toBe('relevant')
+      expect(screen.getByRole('button', { name: 'Suggest similar' })).toBeInTheDocument()
+    })
   })
 
   it('renders an [Explore graph] link when relationships exist', () => {
