@@ -271,10 +271,10 @@ export function ShowDetail({
         {/* SLOT: the rails row, "also tonight in this metro" beside "more at
             this venue". It is the page's next click, so it sits as high as the
             listen module allows: directly after it and before In Collections
-            and Field Notes, and first under the header when the listen module
-            hides itself. Renders nothing at all when neither rail has rows, so
-            a quiet night and a room with no other dates cost this page no
-            space. */}
+            and Field Notes, and the first of the page's modules when the listen
+            module hides itself. Renders nothing at all when neither rail has
+            rows, so a quiet night and a room with no other dates cost this page
+            no space. */}
         <ShowDiscoveryRails
           show={show}
           lifecycle={lifecycle}

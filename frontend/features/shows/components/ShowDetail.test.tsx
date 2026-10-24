@@ -577,8 +577,9 @@ describe('ShowDetail', () => {
     )
 
     // The rails row sits BETWEEN the embeds and the byline. Position is the
-    // claim, so containment alone is not enough: a rails row rendered after the provenance footer would still
-    // "be on the page" and would still be wrong. Both halves of the claim are
+    // claim, so containment alone is not enough: a rails row rendered after
+    // the provenance footer would still "be on the page" and would still be
+    // wrong. Both halves of the claim are
     // pinned — a row that drifted above the embeds would otherwise ship green.
     it('renders the rails row below the embeds and above the provenance footer', () => {
       // A show WITH music, so the embeds half of the claim has something to
@@ -1077,6 +1078,8 @@ describe('ShowDetail', () => {
 
         expect(screen.queryByTestId('show-listen-module')).not.toBeInTheDocument()
         const rails = screen.getByTestId('show-discovery-rails')
+        // First child holds while the save banner is hidden, which is every
+        // render but the moments after an owner's save.
         expect(screen.getByTestId('content-slot').firstElementChild).toBe(rails)
         expectInDocumentOrder([
           rails,

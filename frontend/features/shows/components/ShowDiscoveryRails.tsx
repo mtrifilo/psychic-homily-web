@@ -52,8 +52,8 @@ import type { ShowResponse } from '../types'
  * The PENDING case is not reached on a first paint: the route fetches both
  * rails on the server and seeds them here, so the rows are in the served HTML
  * and nothing below is pushed down when they arrive. That matters beyond
- * tidiness — the provenance byline, `RevisionHistory` and `CommentThread` all
- * sit under these rails, and `/shows/{slug}#comment-123` scrolls to a comment
+ * tidiness: In Collections, Field Notes, the provenance byline,
+ * `RevisionHistory` and `CommentThread` all sit under these rails, and `/shows/{slug}#comment-123` scrolls to a comment
  * once its own query resolves, so a rail inserting rows after that scroll would
  * take the targeted comment out from under the reader.
  *
