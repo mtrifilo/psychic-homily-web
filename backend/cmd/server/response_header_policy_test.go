@@ -13,8 +13,10 @@ import (
 	"psychic-homily-backend/internal/services"
 )
 
-// The router is built in main()'s order: the response-header policy, a rate
-// limiter, then routes.SetupRoutes. Every kind of answer it gives carries the
+// The router stacks the response-header policy, an anonymous public-read
+// limiter, then routes.SetupRoutes, in the relative order main() mounts them;
+// it leaves out the middleware that never answers on its own (request
+// correlation, compression). Every kind of answer it gives carries the
 // noindex directive: a CORS preflight the CORS middleware answers itself, a
 // Huma JSON document, a Huma error, the OpenAPI document, the router's own 404,
 // and a limiter refusal.
