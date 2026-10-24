@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 
+	"psychic-homily-backend/internal/legal"
 	"psychic-homily-backend/internal/logger"
 )
 
@@ -61,8 +62,8 @@ const (
 	// may be created with: none at all, or one naming a version
 	// legal.AcceptedVersions refuses.
 	CodeTermsAcceptanceRequired = "TERMS_ACCEPTANCE_REQUIRED"
-	// CodeAgeConfirmationRequired indicates a signup arrived without the required
-	// minimum-age confirmation (PSY-1023).
+	// CodeAgeConfirmationRequired indicates a sign-up gave no date of birth, or
+	// one under legal.MinSignupAge, or came from a browser refused for its age.
 	CodeAgeConfirmationRequired = "AGE_CONFIRMATION_REQUIRED"
 	// CodeInvalidReplyPermission indicates an unrecognized default-reply-permission value.
 	CodeInvalidReplyPermission = "INVALID_REPLY_PERMISSION"
@@ -452,15 +453,15 @@ func ErrTermsAcceptanceRequired(detail string) *AuthError {
 	return NewAuthError(CodeTermsAcceptanceRequired, "Please accept the Terms of Service and Privacy Policy before creating an account.", fmt.Errorf("%s", detail))
 }
 
-// ErrAgeConfirmationRequired creates a signup age-confirmation-missing error.
-// The detail distinguishes "not confirmed" from "attested age below minimum"
-// so logs keep the cause without the handler string-matching the message.
-// NOTE: the "16" in the user-facing copy is kept in sync by hand with
-// legal.MinSignupAge; if the minimum changes, update this string too (the
-// threshold is enforced by that constant, not parsed from this message).
+// ErrAgeConfirmationRequired creates the refusal for a sign-up that gives no
+// age, or one under legal.MinSignupAge. The detail names which, so logs keep
+// the cause without the handler string-matching the message.
 func ErrAgeConfirmationRequired(detail string) *AuthError {
-	return NewAuthError(CodeAgeConfirmationRequired, "You must confirm that you are at least 16 years old to create an account.", fmt.Errorf("%s", detail))
+	return NewAuthError(CodeAgeConfirmationRequired, ageConfirmationRequiredMessage, fmt.Errorf("%s", detail))
 }
+
+var ageConfirmationRequiredMessage = fmt.Sprintf(
+	"You must confirm that you are at least %d years old to create an account.", legal.MinSignupAge)
 
 // ErrInvalidReplyPermission creates an invalid default-reply-permission error.
 func ErrInvalidReplyPermission(permission string) *AuthError {

@@ -8692,8 +8692,13 @@ export interface components {
             success: boolean;
         };
         BeginSignupRequestBody: {
-            /** @description Whether user confirmed they meet the minimum age */
-            age_confirmed: boolean;
+            /** @description Ignored. It no longer counts as an age attestation: send date_of_birth. */
+            age_confirmed?: boolean;
+            /**
+             * @description Date of birth, YYYY-MM-DD. Required: without it the sign-up is refused with AGE_CONFIRMATION_REQUIRED. The age is computed from it at submission on the latest calendar date anywhere (UTC+14); under the minimum age (GET /legal/versions) the sign-up is refused with AGE_CONFIRMATION_REQUIRED and this browser is refused every sign-up for a day. A date that does not exist, is in the future, or gives an age over 150 is refused with VALIDATION_FAILED. The account records the date given here; signup/finish takes none.
+             * @example 1990-01-31
+             */
+            date_of_birth?: string;
             /**
              * @description Email for the new account
              * @example user@example.com
@@ -8701,7 +8706,7 @@ export interface components {
             email: string;
             /**
              * Format: int64
-             * @description Minimum age the user attested to
+             * @description Ignored. It no longer counts as an age attestation: send date_of_birth.
              */
             min_age_attested?: number;
             /** @description Accepted Privacy Policy version: the current one, or the previous one while a grace window is open (both published at GET /legal/versions); anything else is refused with TERMS_ACCEPTANCE_REQUIRED */
@@ -10729,7 +10734,7 @@ export interface components {
         };
         FinishSignupRequestBody: {
             /** @description Ignored; the consent recorded is the one signup/begin accepted */
-            age_confirmed: boolean;
+            age_confirmed?: boolean;
             /** @description Challenge ID from begin signup */
             challenge_id: string;
             /**
@@ -11971,7 +11976,7 @@ export interface components {
             grace_until: string | null;
             /**
              * Format: int64
-             * @description Minimum age a sign-up must attest as min_age_attested
+             * @description Minimum age, in years, the date of birth a sign-up gives must reach
              * @example 16
              */
             min_signup_age: number;
@@ -13958,8 +13963,13 @@ export interface components {
             token: string;
         };
         RegisterRequestBody: {
-            /** @description Whether user confirmed they meet the minimum age */
-            age_confirmed: boolean;
+            /** @description Ignored. It no longer counts as an age attestation: send date_of_birth. */
+            age_confirmed?: boolean;
+            /**
+             * @description Date of birth, YYYY-MM-DD. Required: without it the sign-up is refused with AGE_CONFIRMATION_REQUIRED. The age is computed from it at submission on the latest calendar date anywhere (UTC+14); under the minimum age (GET /legal/versions) the sign-up is refused with AGE_CONFIRMATION_REQUIRED and this browser is refused every sign-up for a day. A date that does not exist, is in the future, or gives an age over 150 is refused with VALIDATION_FAILED.
+             * @example 1990-01-31
+             */
+            date_of_birth?: string;
             /**
              * @description User email
              * @example test@example.com
@@ -13977,7 +13987,7 @@ export interface components {
             last_name?: string;
             /**
              * Format: int64
-             * @description Minimum age the user attested to
+             * @description Ignored. It no longer counts as an age attestation: send date_of_birth.
              */
             min_age_attested?: number;
             /**
@@ -22642,7 +22652,12 @@ export interface operations {
             query?: never;
             header?: never;
             path?: never;
-            cookie?: never;
+            cookie?: {
+                /** @description Under-age refusal marker, on a deployment without Secure cookies */
+                oauth_signup_age_refused?: string;
+                /** @description Under-age refusal marker, on a deployment with Secure cookies */
+                "__Host-oauth_signup_age_refused"?: string;
+            };
         };
         requestBody: {
             content: {
@@ -22653,6 +22668,7 @@ export interface operations {
             /** @description OK */
             200: {
                 headers: {
+                    "Set-Cookie"?: string;
                     [name: string]: unknown;
                 };
                 content: {
@@ -22675,7 +22691,12 @@ export interface operations {
             query?: never;
             header?: never;
             path?: never;
-            cookie?: never;
+            cookie?: {
+                /** @description Under-age refusal marker, on a deployment without Secure cookies; present, the sign-up is refused with AGE_CONFIRMATION_REQUIRED */
+                oauth_signup_age_refused?: string;
+                /** @description Under-age refusal marker, on a deployment with Secure cookies; present, the sign-up is refused with AGE_CONFIRMATION_REQUIRED */
+                "__Host-oauth_signup_age_refused"?: string;
+            };
         };
         requestBody: {
             content: {
@@ -23641,7 +23662,12 @@ export interface operations {
             query?: never;
             header?: never;
             path?: never;
-            cookie?: never;
+            cookie?: {
+                /** @description Under-age refusal marker, on a deployment without Secure cookies */
+                oauth_signup_age_refused?: string;
+                /** @description Under-age refusal marker, on a deployment with Secure cookies */
+                "__Host-oauth_signup_age_refused"?: string;
+            };
         };
         requestBody: {
             content: {

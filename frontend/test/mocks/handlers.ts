@@ -359,12 +359,23 @@ export const legalHandlers = [
   }),
 ]
 
+/**
+ * The read the Create account tab makes for the under-age refusal marker.
+ * Default: no marker and no pending Google sign-up.
+ */
+export const signupAgeRefusalHandlers = [
+  http.get(`${TEST_API_BASE}/auth/oauth/pending-signup`, () => {
+    return HttpResponse.json({ status: 'expired' })
+  }),
+]
+
 // ============================================================================
 // All Handlers (combined for default server setup)
 // ============================================================================
 
 export const handlers = [
   ...legalHandlers,
+  ...signupAgeRefusalHandlers,
   ...adminHandlers,
   ...sceneHandlers,
   ...venueHandlers,

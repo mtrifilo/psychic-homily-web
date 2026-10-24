@@ -9,7 +9,6 @@ import (
 
 	"psychic-homily-backend/internal/config"
 	autherrors "psychic-homily-backend/internal/errors"
-	"psychic-homily-backend/internal/legal"
 	"psychic-homily-backend/internal/logger"
 	authm "psychic-homily-backend/internal/models/auth"
 	"psychic-homily-backend/internal/services/contracts"
@@ -42,32 +41,6 @@ var oauthPendingSignupCookie = oauthHandshakeCookie{
 	lifetime: contracts.OAuthPendingSignupTTL,
 }
 
-// signupAgeRefusalCookieName marks a browser that was refused an account for
-// a date of birth under legal.MinSignupAge. While it lives, a new identity
-// from that browser lands on the refusal again rather than on the form, so a
-// different date cannot be tried straight away.
-const signupAgeRefusalCookieName = "oauth_signup_age_refused"
-
-// SignupAgeRefusalMarkerLifetime is how long the under-age refusal marker
-// lives in the browser that was refused. It is a speed bump, not an identity
-// check: clearing cookies removes it.
-const SignupAgeRefusalMarkerLifetime = 24 * time.Hour
-
-func signupAgeRefusalCookieNameFor(secure bool) string {
-	if secure {
-		return oauthHostCookiePrefix + signupAgeRefusalCookieName
-	}
-	return signupAgeRefusalCookieName
-}
-
-// signupAgeRefusalMarker reuses only the handshake cookies' attribute builder:
-// it outlives oauthHandshakeCookieMaxLifetime by design, so it is not an
-// oauthHandshakeCookie.
-func signupAgeRefusalMarker(secure bool) http.Cookie {
-	return *newOAuthHandshakeCookie(signupAgeRefusalCookieNameFor(secure), "1",
-		int(SignupAgeRefusalMarkerLifetime/time.Second), secure)
-}
-
 func clearedPendingSignupCookie(secure bool) http.Cookie {
 	return *newOAuthHandshakeCookie(oauthPendingSignupCookie.setName(secure), "", -1, secure)
 }
@@ -79,7 +52,8 @@ func clearedPendingSignupCookie(secure bool) http.Cookie {
 // embedded struct; TestSignupStepRequestsDeclareTheirCookies holds the two
 // copies together.
 type signupStepCookies struct {
-	pending, pendingHost, ageRefused, ageRefusedHost string
+	pending, pendingHost string
+	ageRefused           signupAgeRefusalCookies
 }
 
 func (c signupStepCookies) pendingToken(secure bool) string {
@@ -90,10 +64,7 @@ func (c signupStepCookies) pendingToken(secure bool) string {
 }
 
 func (c signupStepCookies) refusedForAge(secure bool) bool {
-	if secure {
-		return c.ageRefusedHost != ""
-	}
-	return c.ageRefused != ""
+	return c.ageRefused.present(secure)
 }
 
 // OAuthSignupHandler serves the "Create your account" step.
@@ -108,7 +79,7 @@ func NewOAuthSignupHandler(authService contracts.AuthServiceInterface, cfg *conf
 }
 
 func (h *OAuthSignupHandler) secureCookies() bool {
-	return h != nil && h.config != nil && h.config.Session.Secure
+	return h != nil && secureSessionCookies(h.config)
 }
 
 // The states GET OAuthPendingSignupRoute answers with.
@@ -127,7 +98,7 @@ type PendingOAuthSignupRequest struct {
 }
 
 func (r *PendingOAuthSignupRequest) cookies() signupStepCookies {
-	return signupStepCookies{r.Pending, r.PendingHost, r.AgeRefused, r.AgeRefusedHost}
+	return signupStepCookies{r.Pending, r.PendingHost, signupAgeRefusalCookies{r.AgeRefused, r.AgeRefusedHost}}
 }
 
 // PendingOAuthSignupResponse is what the step renders from.
@@ -144,7 +115,10 @@ type PendingOAuthSignupResponse struct {
 
 // PendingSignupHandler answers which state the step is in, and for a live
 // pending sign-up, the address and name to show. It reads only this browser's
-// cookie, so the address never travels in a URL.
+// cookies, so the address never travels in a URL. The under-age marker
+// answers age_refused whether or not a pending sign-up exists: the /auth
+// page's Create account tab reads it, with no pending sign-up, to show the
+// refusal in place of the forms.
 func (h *OAuthSignupHandler) PendingSignupHandler(ctx context.Context, input *PendingOAuthSignupRequest) (*PendingOAuthSignupResponse, error) {
 	resp := &PendingOAuthSignupResponse{CacheControl: "no-store"}
 	secure := h.secureCookies()
@@ -190,7 +164,7 @@ type FinishOAuthSignupRequest struct {
 }
 
 func (r *FinishOAuthSignupRequest) cookies() signupStepCookies {
-	return signupStepCookies{r.Pending, r.PendingHost, r.AgeRefused, r.AgeRefusedHost}
+	return signupStepCookies{r.Pending, r.PendingHost, signupAgeRefusalCookies{r.AgeRefused, r.AgeRefusedHost}}
 }
 
 // FinishOAuthSignupResponse is RegisterResponse's shape plus the destination
@@ -276,16 +250,13 @@ func (h *OAuthSignupHandler) FinishSignupHandler(ctx context.Context, input *Fin
 		return refuseField(refusal)
 	}
 
-	now := time.Now().UTC()
-	if input.Body.DateOfBirth == "" {
+	age, outcome := checkSignupAge(input.Body.DateOfBirth, time.Now())
+	switch outcome {
+	case signupAgeMissing:
 		return refuseField(autherrors.ErrValidationFailed(dateOfBirthMissingMessage))
-	}
-	dateOfBirth, err := legal.ParseDateOfBirth(input.Body.DateOfBirth, now)
-	if err != nil {
-		return refuseField(autherrors.ErrValidationFailed(dateOfBirthInvalidMessage))
-	}
-	age := legal.AgeOn(dateOfBirth, now)
-	if age < legal.MinSignupAge {
+	case signupAgeImplausible:
+		return refuseField(errDateOfBirthImplausible())
+	case signupAgeUnderMinimum:
 		return refuseUnderAge("date of birth below the minimum age")
 	}
 
@@ -299,15 +270,8 @@ func (h *OAuthSignupHandler) FinishSignupHandler(ctx context.Context, input *Fin
 	resp.SetCookie = append(resp.SetCookie, clearedPendingSignupCookie(secure))
 	identity := signup.Identity
 
-	user, sessionToken, err := h.authService.CompleteOAuthSignup(signup, &contracts.OAuthSignupConsent{
-		TermsAccepted:  true,
-		TermsVersion:   input.Body.TermsVersion,
-		PrivacyVersion: input.Body.PrivacyVersion,
-		AcceptedAt:     now,
-		AgeConfirmed:   true,
-		MinAgeAttested: age,
-		DateOfBirth:    &dateOfBirth,
-	}, displayName)
+	user, sessionToken, err := h.authService.CompleteOAuthSignup(signup,
+		age.oauthSignupConsent(input.Body.TermsVersion, input.Body.PrivacyVersion), displayName)
 	if err != nil {
 		if refusal, ok := refusalWithOwnCopy(err); ok {
 			logger.AuthWarn(ctx, "oauth_finish_signup_refused", "provider", identity.Provider, "error_code", refusal.Code)
@@ -326,15 +290,6 @@ func (h *OAuthSignupHandler) FinishSignupHandler(ctx context.Context, input *Fin
 	resp.Body.ReturnTo = sanitizeOAuthReturnTo(signup.ReturnTo)
 	return resp, nil
 }
-
-// The refusals for a missing date of birth and for one that is not a
-// plausible calendar date (legal.ParseDateOfBirth). The step's form shows the
-// same two sentences (DATE_OF_BIRTH_MISSING_MESSAGE and
-// DATE_OF_BIRTH_INVALID_MESSAGE in frontend/app/auth/complete/create-account-step.tsx).
-const (
-	dateOfBirthMissingMessage = "Enter your date of birth."
-	dateOfBirthInvalidMessage = "Enter a real date of birth."
-)
 
 func (h *OAuthSignupHandler) unavailable(ctx context.Context, resp *FinishOAuthSignupResponse, operation string, err error) (*FinishOAuthSignupResponse, error) {
 	logger.AuthError(ctx, operation+"_failed", err)

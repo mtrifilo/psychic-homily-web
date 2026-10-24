@@ -46,12 +46,21 @@ func TestVersionsMatchFrontend(t *testing.T) {
 		}
 	}
 
-	age := regexp.MustCompile(`(?m)^export const MIN_SIGNUP_AGE\s*=\s*(\d+)\s*$`).FindSubmatch(source)
-	if age == nil {
-		t.Fatalf("no MIN_SIGNUP_AGE number constant found in %s", frontendLegalPath)
-	}
-	if frontend, _ := strconv.Atoi(string(age[1])); frontend != MinSignupAge {
-		t.Errorf("MIN_SIGNUP_AGE differs: frontend has %d, backend has %d", frontend, MinSignupAge)
+	for _, pin := range []struct {
+		frontendName string
+		backend      int
+	}{
+		{"MIN_SIGNUP_AGE", MinSignupAge},
+		{"MAX_PLAUSIBLE_AGE", MaxPlausibleAge},
+	} {
+		match := regexp.MustCompile(`(?m)^export const ` + pin.frontendName + `\s*=\s*(\d+)\s*$`).FindSubmatch(source)
+		if match == nil {
+			t.Errorf("no %s number constant found in %s", pin.frontendName, frontendLegalPath)
+			continue
+		}
+		if frontend, _ := strconv.Atoi(string(match[1])); frontend != pin.backend {
+			t.Errorf("%s differs: frontend has %d, backend has %d", pin.frontendName, frontend, pin.backend)
+		}
 	}
 }
 

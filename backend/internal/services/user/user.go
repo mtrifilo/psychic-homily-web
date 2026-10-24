@@ -481,9 +481,6 @@ func (s *UserService) createNewUserOauthWithConsent(
 	consent *contracts.OAuthSignupConsent,
 	displayName *string,
 ) (*authm.User, error) {
-	if s.db == nil {
-		return nil, fmt.Errorf("database not initialized")
-	}
 	acceptance, err := shared.ValidateOAuthSignupConsent(consent)
 	if err != nil {
 		return nil, err

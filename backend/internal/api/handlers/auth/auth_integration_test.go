@@ -358,8 +358,7 @@ func (s *AuthHandlerIntegrationSuite) TestRegister_Success() {
 	input.Body.TermsAccepted = true
 	input.Body.TermsVersion = legal.CurrentTermsVersion
 	input.Body.PrivacyVersion = legal.CurrentPrivacyVersion
-	input.Body.AgeConfirmed = true
-	input.Body.MinAgeAttested = MinSignupAge
+	input.Body.DateOfBirth = signupconsent.AdultDateOfBirth
 
 	resp, err := h.RegisterHandler(context.Background(), input)
 	s.Require().NoError(err)
@@ -370,11 +369,17 @@ func (s *AuthHandlerIntegrationSuite) TestRegister_Success() {
 	s.NotEmpty(resp.SetCookie.Name)
 	s.Equal(int32(1), pwned.calls.Load(), "registration must check the password's range once")
 
-	// PSY-1023: the age confirmation is persisted on the new user.
+	// The date of birth, the age computed from it and when it was given are
+	// recorded on the new user.
 	created := s.reloadUser(resp.Body.User.ID)
+	wantDate, wantAge := signupconsent.AdultDateOfBirthAt(time.Now())
+	s.Require().NotNil(created.DateOfBirth, "expected date_of_birth recorded on new user")
+	s.True(created.DateOfBirth.Equal(wantDate), "date_of_birth %v, want %v", created.DateOfBirth, wantDate)
+	s.Require().NotNil(created.AgeAttestedAt, "expected age_attested_at recorded on new user")
 	s.Require().NotNil(created.AgeConfirmedAt, "expected age_confirmed_at recorded on new user")
+	s.True(created.AgeAttestedAt.Equal(*created.AgeConfirmedAt))
 	s.Require().NotNil(created.MinAgeAttested, "expected min_age_attested recorded on new user")
-	s.Equal(MinSignupAge, *created.MinAgeAttested)
+	s.Equal(wantAge, *created.MinAgeAttested)
 	s.Require().NotNil(created.TermsVersion)
 	s.Require().NotNil(created.PrivacyVersion)
 	s.Require().NotNil(created.TermsAcceptedAt)
@@ -383,9 +388,9 @@ func (s *AuthHandlerIntegrationSuite) TestRegister_Success() {
 	s.WithinDuration(time.Now(), *created.TermsAcceptedAt, time.Minute)
 }
 
-// TestRegister_MissingAgeConfirmation asserts the integration-level register
-// path blocks signup when the age confirmation is absent (PSY-1023).
-func (s *AuthHandlerIntegrationSuite) TestRegister_MissingAgeConfirmation() {
+// TestRegister_RefusedWithoutDateOfBirth asserts the register path creates no
+// account for a request that attests an age the old way and gives no date.
+func (s *AuthHandlerIntegrationSuite) TestRegister_RefusedWithoutDateOfBirth() {
 	h := s.newAuthHandler(false)
 
 	input := &RegisterRequest{}
@@ -394,12 +399,16 @@ func (s *AuthHandlerIntegrationSuite) TestRegister_MissingAgeConfirmation() {
 	input.Body.TermsAccepted = true
 	input.Body.TermsVersion = legal.CurrentTermsVersion
 	input.Body.PrivacyVersion = legal.CurrentPrivacyVersion
-	input.Body.AgeConfirmed = false
+	input.Body.AgeConfirmed = true
+	input.Body.MinAgeAttested = legal.MinSignupAge
 
 	resp, err := h.RegisterHandler(context.Background(), input)
 	s.Require().NoError(err)
 	s.False(resp.Body.Success)
 	s.Equal(autherrors.CodeAgeConfirmationRequired, resp.Body.ErrorCode)
+	var count int64
+	s.Require().NoError(s.deps.DB.Model(&authm.User{}).Where("email = ?", "no-age@test.com").Count(&count).Error)
+	s.Zero(count)
 }
 
 func (s *AuthHandlerIntegrationSuite) TestRegister_DuplicateEmail() {
@@ -412,8 +421,7 @@ func (s *AuthHandlerIntegrationSuite) TestRegister_DuplicateEmail() {
 	input.Body.TermsAccepted = true
 	input.Body.TermsVersion = legal.CurrentTermsVersion
 	input.Body.PrivacyVersion = legal.CurrentPrivacyVersion
-	input.Body.AgeConfirmed = true
-	input.Body.MinAgeAttested = MinSignupAge
+	input.Body.DateOfBirth = signupconsent.AdultDateOfBirth
 
 	resp, err := h.RegisterHandler(context.Background(), input)
 	s.Require().NoError(err)
@@ -430,8 +438,7 @@ func (s *AuthHandlerIntegrationSuite) TestRegister_WeakPassword() {
 	input.Body.TermsAccepted = true
 	input.Body.TermsVersion = legal.CurrentTermsVersion
 	input.Body.PrivacyVersion = legal.CurrentPrivacyVersion
-	input.Body.AgeConfirmed = true
-	input.Body.MinAgeAttested = MinSignupAge
+	input.Body.DateOfBirth = signupconsent.AdultDateOfBirth
 
 	resp, err := h.RegisterHandler(context.Background(), input)
 	s.Require().NoError(err)
@@ -614,8 +621,7 @@ func (s *AuthHandlerIntegrationSuite) TestRegisterThenVerify_RoundTrip() {
 	input.Body.TermsAccepted = true
 	input.Body.TermsVersion = legal.CurrentTermsVersion
 	input.Body.PrivacyVersion = legal.CurrentPrivacyVersion
-	input.Body.AgeConfirmed = true
-	input.Body.MinAgeAttested = MinSignupAge
+	input.Body.DateOfBirth = signupconsent.AdultDateOfBirth
 
 	regResp, err := h.RegisterHandler(context.Background(), input)
 	s.Require().NoError(err)

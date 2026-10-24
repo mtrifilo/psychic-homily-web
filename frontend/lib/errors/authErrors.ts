@@ -33,8 +33,11 @@ export const AuthErrorCode = {
    */
   TERMS_ACCEPTANCE_REQUIRED: 'TERMS_ACCEPTANCE_REQUIRED',
   /**
-   * An account creation refused for its age: on the sign-up step, a date of
-   * birth under the minimum age, or a browser already refused for one.
+   * An account creation refused for its age: a date of birth under the
+   * minimum age, or a browser already refused for one (a day-long marker),
+   * on any sign-up path. Password registration and passkey signup/begin also
+   * answer it for a request with no date of birth, which only a client that
+   * predates the date-of-birth field sends.
    */
   AGE_CONFIRMATION_REQUIRED: 'AGE_CONFIRMATION_REQUIRED',
   /**

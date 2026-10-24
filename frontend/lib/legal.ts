@@ -12,7 +12,10 @@ export const CURRENT_PRIVACY_VERSION = '2026-10-24'
 export const PREVIOUS_TERMS_VERSION = '2026-01-31'
 export const PREVIOUS_PRIVACY_VERSION = '2026-02-15'
 
-// Minimum age (years) a user must confirm at signup. Locked at 16 (PSY-1023) to
-// match the /terms and /privacy minimum-age clauses. The backend re-checks this
-// value, so the frontend confirmation is a UX gate, not the authoritative one.
+// The minimum age, in years, an account may be created at, and the oldest age
+// a date of birth may give before it counts as a typing slip. Pinned to
+// backend/internal/legal (MinSignupAge, MaxPlausibleAge) by
+// TestVersionsMatchFrontend. The backend computes the age and is the
+// authoritative gate; these only shape what the forms say and send.
 export const MIN_SIGNUP_AGE = 16
+export const MAX_PLAUSIBLE_AGE = 150

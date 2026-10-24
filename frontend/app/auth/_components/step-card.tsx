@@ -1,0 +1,56 @@
+import type { ReactNode } from 'react'
+
+/** The column a sign-up step or its terminal state fills, below the top bar. */
+export function StepPage({ children }: { children: ReactNode }) {
+  return (
+    <div className="flex min-h-[calc(100vh-64px)] justify-center px-4 pb-16 pt-12">
+      <div className="w-full max-w-md">{children}</div>
+    </div>
+  )
+}
+
+/** The bordered card the sign-up steps and their terminal states sit in. */
+export function StepCard({ children }: { children: ReactNode }) {
+  return (
+    <div className="flex flex-col gap-5 rounded-lg border bg-card p-5 text-card-foreground sm:p-8">
+      {children}
+    </div>
+  )
+}
+
+/**
+ * A step card's eyebrow, heading and optional subline. With `focusOnMount`
+ * the heading takes focus as it mounts, so a card that replaces a submitted
+ * form is announced rather than left behind a focus that fell to the page.
+ * The heading is the page's h1 unless the card sits under another heading.
+ */
+export function StepHeading({
+  eyebrow,
+  title,
+  focusOnMount = false,
+  level = 'h1',
+  children,
+}: {
+  eyebrow: string
+  title: string
+  focusOnMount?: boolean
+  level?: 'h1' | 'h2'
+  children?: ReactNode
+}) {
+  const Heading = level
+  return (
+    <div className="flex flex-col gap-2">
+      <p className="font-mono text-[11px] uppercase tracking-[0.66px] text-muted-foreground">
+        {eyebrow}
+      </p>
+      <Heading
+        ref={focusOnMount ? heading => heading?.focus() : undefined}
+        tabIndex={focusOnMount ? -1 : undefined}
+        className="text-2xl font-bold leading-[30px] text-foreground outline-none"
+      >
+        {title}
+      </Heading>
+      {children}
+    </div>
+  )
+}

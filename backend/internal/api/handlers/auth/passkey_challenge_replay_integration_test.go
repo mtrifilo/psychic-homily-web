@@ -39,7 +39,6 @@ func signupFinishBody(challengeID string, response json.RawMessage) map[string]a
 		"challenge_id":   challengeID,
 		"response":       response,
 		"terms_accepted": true,
-		"age_confirmed":  true,
 	}
 }
 
@@ -210,6 +209,12 @@ func (s *AuthHandlerIntegrationSuite) TestPasskeySignupConsentRefusalSpendsChall
 				a.AgeConfirmedAt = time.Time{}
 				a.MinAgeAttested = 0
 			},
+			wantCode: autherrors.CodeAgeConfirmationRequired,
+		},
+		{
+			name:     "age attested without a date of birth",
+			email:    "signup-no-date@example.com",
+			alter:    func(a *contracts.LegalAcceptance) { a.DateOfBirth = nil },
 			wantCode: autherrors.CodeAgeConfirmationRequired,
 		},
 	}

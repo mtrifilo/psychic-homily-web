@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/http"
 	"reflect"
 	"strings"
 	"testing"
@@ -20,6 +21,7 @@ import (
 	"psychic-homily-backend/internal/services/contracts"
 	servicesshared "psychic-homily-backend/internal/services/shared"
 	usersvc "psychic-homily-backend/internal/services/user"
+	"psychic-homily-backend/internal/testutil/signupconsent"
 )
 
 // --- helpers ---
@@ -336,61 +338,166 @@ func TestRegisterHandler_MissingTermsAcceptance(t *testing.T) {
 	}
 }
 
-// TestRegisterHandler_MissingAgeConfirmation mirrors the terms-rejection test
-// (PSY-1023): a signup with terms accepted but no age confirmation must be
-// rejected with the AGE_CONFIRMATION_REQUIRED code.
-func TestRegisterHandler_MissingAgeConfirmation(t *testing.T) {
-	h := testAuthHandler()
-	input := &RegisterRequest{}
-	input.Body.Email = "user@example.com"
-	input.Body.Password = "a-valid-password-123"
-	input.Body.TermsAccepted = true
-	input.Body.TermsVersion = legal.CurrentTermsVersion
-	input.Body.PrivacyVersion = legal.CurrentPrivacyVersion
-	input.Body.AgeConfirmed = false
+// refusalMarkerSet reports whether cookie is the under-age refusal marker,
+// set for a day, under the name a deployment without Secure cookies uses.
+func refusalMarkerSet(cookie http.Cookie) bool {
+	return cookie.Name == signupAgeRefusalCookieName && cookie.Value != "" &&
+		cookie.MaxAge == int(SignupAgeRefusalMarkerLifetime/time.Second)
+}
+
+// A register request without a date of birth is refused for its age, whatever
+// legacy attestation fields it carries, and leaves no refusal marker: it gave
+// no age, so it is not an under-age refusal.
+func TestRegisterHandler_RefusesWithoutDateOfBirth(t *testing.T) {
+	cases := map[string]func(*RegisterRequest){
+		"no age at all": func(in *RegisterRequest) { in.Body.DateOfBirth = "" },
+		"legacy attestation fields only": func(in *RegisterRequest) {
+			in.Body.DateOfBirth = ""
+			in.Body.AgeConfirmed = true
+			in.Body.MinAgeAttested = legal.MinSignupAge
+		},
+	}
+	for name, mutate := range cases {
+		t.Run(name, func(t *testing.T) {
+			created := false
+			h := authHandler(func(ah *AuthHandler) {
+				ah.userService = &testhelpers.MockUserService{
+					CreateUserWithPasswordWithLegalFn: func(string, string, string, string, contracts.LegalAcceptance) (*authm.User, error) {
+						created = true
+						return nil, errors.New("must not be called")
+					},
+				}
+			})
+			input := validRegisterInput("user@example.com")
+			mutate(input)
+
+			resp, err := h.RegisterHandler(context.Background(), input)
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if resp.Body.Success || resp.Body.ErrorCode != autherrors.CodeAgeConfirmationRequired {
+				t.Fatalf("got success=%v code=%q, want a refusal coded %s", resp.Body.Success, resp.Body.ErrorCode, autherrors.CodeAgeConfirmationRequired)
+			}
+			if resp.SetCookie.Name != "" {
+				t.Errorf("set cookie %q; a request that gave no age leaves no marker", resp.SetCookie.Name)
+			}
+			if created {
+				t.Error("an account was created")
+			}
+		})
+	}
+}
+
+// A date of birth under the minimum age is refused for its age and sets the
+// refusal marker, so the same browser cannot try another date straight away.
+func TestRegisterHandler_UnderAgeSetsRefusalMarker(t *testing.T) {
+	h := authHandler()
+	input := validRegisterInput("user@example.com")
+	input.Body.DateOfBirth = signupconsent.UnderAgeDateOfBirth(time.Now())
 
 	resp, err := h.RegisterHandler(context.Background(), input)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if resp.Body.Success {
-		t.Error("expected success=false")
+	if resp.Body.Success || resp.Body.ErrorCode != autherrors.CodeAgeConfirmationRequired {
+		t.Fatalf("got success=%v code=%q, want a refusal coded %s", resp.Body.Success, resp.Body.ErrorCode, autherrors.CodeAgeConfirmationRequired)
 	}
-	if resp.Body.ErrorCode != autherrors.CodeAgeConfirmationRequired {
-		t.Errorf("expected error_code=%s, got %s", autherrors.CodeAgeConfirmationRequired, resp.Body.ErrorCode)
+	if !refusalMarkerSet(resp.SetCookie) {
+		t.Errorf("Set-Cookie = %+v, want the refusal marker for %s", resp.SetCookie, SignupAgeRefusalMarkerLifetime)
 	}
 }
 
-// TestRegisterHandler_AgeBelowMinimum guards the server-side age floor: a client
-// that attests an age below MinSignupAge (e.g. tampered request) must be
-// rejected even though the age_confirmed flag is set.
-func TestRegisterHandler_AgeBelowMinimum(t *testing.T) {
-	h := testAuthHandler()
-	input := &RegisterRequest{}
-	input.Body.Email = "user@example.com"
-	input.Body.Password = "a-valid-password-123"
-	input.Body.TermsAccepted = true
-	input.Body.TermsVersion = legal.CurrentTermsVersion
-	input.Body.PrivacyVersion = legal.CurrentPrivacyVersion
-	input.Body.AgeConfirmed = true
-	input.Body.MinAgeAttested = MinSignupAge - 1
+// A browser carrying the refusal marker is refused for its age even with an
+// adult date of birth, under the name its deployment's Secure setting uses.
+func TestRegisterHandler_RefusesBrowserCarryingMarker(t *testing.T) {
+	for _, secure := range []bool{false, true} {
+		t.Run(fmt.Sprintf("secure=%v", secure), func(t *testing.T) {
+			created := false
+			h := authHandler(func(ah *AuthHandler) {
+				ah.config.Session.Secure = secure
+				ah.userService = &testhelpers.MockUserService{
+					CreateUserWithPasswordWithLegalFn: func(string, string, string, string, contracts.LegalAcceptance) (*authm.User, error) {
+						created = true
+						return nil, errors.New("must not be called")
+					},
+				}
+			})
+			input := validRegisterInput("user@example.com")
+			if secure {
+				input.AgeRefusedHost = "1"
+			} else {
+				input.AgeRefused = "1"
+			}
+
+			resp, err := h.RegisterHandler(context.Background(), input)
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if resp.Body.ErrorCode != autherrors.CodeAgeConfirmationRequired {
+				t.Fatalf("code = %q, want %s", resp.Body.ErrorCode, autherrors.CodeAgeConfirmationRequired)
+			}
+			if resp.SetCookie.Name != signupAgeRefusalCookieNameFor(secure) {
+				t.Errorf("Set-Cookie name = %q, want the marker renewed as %q", resp.SetCookie.Name, signupAgeRefusalCookieNameFor(secure))
+			}
+			if created {
+				t.Error("an account was created")
+			}
+		})
+	}
+}
+
+// The marker under the name the deployment does not use is not this
+// deployment's marker, so it does not refuse.
+func TestRegisterHandler_IgnoresMarkerUnderOtherName(t *testing.T) {
+	h := authHandler(func(ah *AuthHandler) {
+		ah.userService = &testhelpers.MockUserService{
+			CreateUserWithPasswordWithLegalFn: func(email, _, _, _ string, _ contracts.LegalAcceptance) (*authm.User, error) {
+				return &authm.User{ID: 11, Email: strPtr(email)}, nil
+			},
+		}
+		ah.jwtService = &testhelpers.MockJWTService{
+			CreateTokenFn: func(*authm.User) (string, error) { return "tok", nil },
+		}
+		ah.discordService = &testhelpers.MockDiscordService{NotifyNewUserFn: func(*authm.User) {}}
+	})
+	input := validRegisterInput("user@example.com")
+	input.AgeRefusedHost = "1"
 
 	resp, err := h.RegisterHandler(context.Background(), input)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if resp.Body.Success {
-		t.Error("expected success=false")
-	}
-	if resp.Body.ErrorCode != autherrors.CodeAgeConfirmationRequired {
-		t.Errorf("expected error_code=%s, got %s", autherrors.CodeAgeConfirmationRequired, resp.Body.ErrorCode)
+	if !resp.Body.Success {
+		t.Fatalf("refused with %q; a Secure-name marker on a non-Secure deployment does not count", resp.Body.ErrorCode)
 	}
 }
 
-// TestRegisterHandler_RecordsAgeConfirmation asserts the handler forwards the
-// age confirmation into the LegalAcceptance passed to the user service, so the
-// evidence is persisted on the new user.
-func TestRegisterHandler_RecordsAgeConfirmation(t *testing.T) {
+// A date of birth that is not a plausible calendar date is a field the person
+// can fix: refused with the form's sentence and no marker.
+func TestRegisterHandler_RefusesImplausibleDateOfBirth(t *testing.T) {
+	for _, value := range []string{"2001-02-30", "31/01/1990", time.Now().UTC().AddDate(0, 0, 3).Format(legal.DateOfBirthLayout), "1800-01-01"} {
+		t.Run(value, func(t *testing.T) {
+			h := authHandler()
+			input := validRegisterInput("user@example.com")
+			input.Body.DateOfBirth = value
+
+			resp, err := h.RegisterHandler(context.Background(), input)
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if resp.Body.ErrorCode != autherrors.CodeValidationFailed || resp.Body.Message != dateOfBirthInvalidMessage {
+				t.Errorf("got code=%q message=%q, want %s %q", resp.Body.ErrorCode, resp.Body.Message, autherrors.CodeValidationFailed, dateOfBirthInvalidMessage)
+			}
+			if resp.SetCookie.Name != "" {
+				t.Errorf("set cookie %q on a field refusal", resp.SetCookie.Name)
+			}
+		})
+	}
+}
+
+// TestRegisterHandler_RecordsDateOfBirth asserts the handler hands the user
+// service the date of birth, the age computed from it, and when it was given.
+func TestRegisterHandler_RecordsDateOfBirth(t *testing.T) {
 	var captured contracts.LegalAcceptance
 	h := authHandler(func(ah *AuthHandler) {
 		ah.userService = &testhelpers.MockUserService{
@@ -407,14 +514,8 @@ func TestRegisterHandler_RecordsAgeConfirmation(t *testing.T) {
 		}
 	})
 
-	input := &RegisterRequest{}
-	input.Body.Email = "new@example.com"
-	input.Body.Password = "a-valid-password-123"
-	input.Body.TermsAccepted = true
-	input.Body.TermsVersion = legal.CurrentTermsVersion
-	input.Body.PrivacyVersion = legal.CurrentPrivacyVersion
-	input.Body.AgeConfirmed = true
-	input.Body.MinAgeAttested = MinSignupAge
+	input := validRegisterInput("new@example.com")
+	input.Body.DateOfBirth = signupconsent.AdultDateOfBirth
 
 	resp, err := h.RegisterHandler(context.Background(), input)
 	if err != nil {
@@ -423,11 +524,36 @@ func TestRegisterHandler_RecordsAgeConfirmation(t *testing.T) {
 	if !resp.Body.Success {
 		t.Fatalf("expected success=true, got message=%q", resp.Body.Message)
 	}
-	if captured.MinAgeAttested != MinSignupAge {
-		t.Errorf("expected MinAgeAttested=%d on LegalAcceptance, got %d", MinSignupAge, captured.MinAgeAttested)
+	wantDate, wantAge := signupconsent.AdultDateOfBirthAt(time.Now())
+	if captured.DateOfBirth == nil || !captured.DateOfBirth.Equal(wantDate) {
+		t.Errorf("DateOfBirth = %v, want %v", captured.DateOfBirth, wantDate)
 	}
-	if captured.AgeConfirmedAt.IsZero() {
-		t.Error("expected AgeConfirmedAt to be set on LegalAcceptance")
+	if captured.MinAgeAttested != wantAge {
+		t.Errorf("MinAgeAttested = %d, want the computed age %d", captured.MinAgeAttested, wantAge)
+	}
+	if captured.AgeConfirmedAt.IsZero() || !captured.AgeConfirmedAt.Equal(captured.TermsAcceptedAt) {
+		t.Errorf("AgeConfirmedAt = %v, want the acceptance instant %v", captured.AgeConfirmedAt, captured.TermsAcceptedAt)
+	}
+}
+
+// The service's own consent refusal is the client's refusal, coded as such,
+// never a fault.
+func TestRegisterHandler_ServiceTermsRefusalIsReported(t *testing.T) {
+	h := authHandler(func(ah *AuthHandler) {
+		ah.userService = &testhelpers.MockUserService{
+			CreateUserWithPasswordWithLegalFn: func(string, string, string, string, contracts.LegalAcceptance) (*authm.User, error) {
+				return nil, autherrors.ErrTermsAcceptanceRequired("injected")
+			},
+		}
+	})
+	input := validRegisterInput("user@example.com")
+
+	resp, err := h.RegisterHandler(context.Background(), input)
+	if err != nil {
+		t.Fatalf("unexpected error %v; the refusal answers 200", err)
+	}
+	if resp.Body.Success || resp.Body.ErrorCode != autherrors.CodeTermsAcceptanceRequired {
+		t.Errorf("got success=%v code=%q, want %s", resp.Body.Success, resp.Body.ErrorCode, autherrors.CodeTermsAcceptanceRequired)
 	}
 }
 
@@ -440,8 +566,7 @@ func TestRegisterHandler_NilUserService(t *testing.T) {
 	input.Body.TermsAccepted = true
 	input.Body.TermsVersion = legal.CurrentTermsVersion
 	input.Body.PrivacyVersion = legal.CurrentPrivacyVersion
-	input.Body.AgeConfirmed = true
-	input.Body.MinAgeAttested = MinSignupAge
+	input.Body.DateOfBirth = signupconsent.AdultDateOfBirth
 
 	resp, err := h.RegisterHandler(context.Background(), input)
 	if err != nil {
@@ -466,8 +591,7 @@ func TestRegisterHandler_WeakPassword(t *testing.T) {
 	input.Body.TermsAccepted = true
 	input.Body.TermsVersion = legal.CurrentTermsVersion
 	input.Body.PrivacyVersion = legal.CurrentPrivacyVersion
-	input.Body.AgeConfirmed = true
-	input.Body.MinAgeAttested = MinSignupAge
+	input.Body.DateOfBirth = signupconsent.AdultDateOfBirth
 
 	resp, err := h.RegisterHandler(context.Background(), input)
 	if err != nil {
@@ -1221,8 +1345,7 @@ func TestRegisterHandler_Success(t *testing.T) {
 	input.Body.TermsAccepted = true
 	input.Body.TermsVersion = legal.CurrentTermsVersion
 	input.Body.PrivacyVersion = legal.CurrentPrivacyVersion
-	input.Body.AgeConfirmed = true
-	input.Body.MinAgeAttested = MinSignupAge
+	input.Body.DateOfBirth = signupconsent.AdultDateOfBirth
 
 	resp, err := h.RegisterHandler(context.Background(), input)
 	if err != nil {
@@ -1264,8 +1387,7 @@ func TestRegisterHandler_UserExists(t *testing.T) {
 	input.Body.TermsAccepted = true
 	input.Body.TermsVersion = legal.CurrentTermsVersion
 	input.Body.PrivacyVersion = legal.CurrentPrivacyVersion
-	input.Body.AgeConfirmed = true
-	input.Body.MinAgeAttested = MinSignupAge
+	input.Body.DateOfBirth = signupconsent.AdultDateOfBirth
 
 	resp, err := h.RegisterHandler(context.Background(), input)
 	// Option A: HTTP 200, so the handler returns a nil error. A non-nil error
@@ -1309,8 +1431,7 @@ func TestRegisterHandler_UnknownServiceErrorFailsClosed(t *testing.T) {
 	input.Body.TermsAccepted = true
 	input.Body.TermsVersion = legal.CurrentTermsVersion
 	input.Body.PrivacyVersion = legal.CurrentPrivacyVersion
-	input.Body.AgeConfirmed = true
-	input.Body.MinAgeAttested = MinSignupAge
+	input.Body.DateOfBirth = signupconsent.AdultDateOfBirth
 
 	resp, err := h.RegisterHandler(context.Background(), input)
 
@@ -1361,8 +1482,7 @@ func TestRegisterHandler_WeakPasswordMock(t *testing.T) {
 	input.Body.TermsAccepted = true
 	input.Body.TermsVersion = legal.CurrentTermsVersion
 	input.Body.PrivacyVersion = legal.CurrentPrivacyVersion
-	input.Body.AgeConfirmed = true
-	input.Body.MinAgeAttested = MinSignupAge
+	input.Body.DateOfBirth = signupconsent.AdultDateOfBirth
 
 	resp, err := h.RegisterHandler(context.Background(), input)
 	if err != nil {
@@ -1399,8 +1519,7 @@ func TestRegisterHandler_TokenFails(t *testing.T) {
 	input.Body.TermsAccepted = true
 	input.Body.TermsVersion = legal.CurrentTermsVersion
 	input.Body.PrivacyVersion = legal.CurrentPrivacyVersion
-	input.Body.AgeConfirmed = true
-	input.Body.MinAgeAttested = MinSignupAge
+	input.Body.DateOfBirth = signupconsent.AdultDateOfBirth
 
 	resp, err := h.RegisterHandler(context.Background(), input)
 	if err != nil {
@@ -1438,8 +1557,7 @@ func validRegisterInput(email string) *RegisterRequest {
 	input.Body.TermsAccepted = true
 	input.Body.TermsVersion = legal.CurrentTermsVersion
 	input.Body.PrivacyVersion = legal.CurrentPrivacyVersion
-	input.Body.AgeConfirmed = true
-	input.Body.MinAgeAttested = MinSignupAge
+	input.Body.DateOfBirth = signupconsent.AdultDateOfBirth
 	return input
 }
 
@@ -4215,8 +4333,7 @@ func TestRegisterHandler_RejectsMalformedEmail(t *testing.T) {
 			input.Body.TermsAccepted = true
 			input.Body.TermsVersion = legal.CurrentTermsVersion
 			input.Body.PrivacyVersion = legal.CurrentPrivacyVersion
-			input.Body.AgeConfirmed = true
-			input.Body.MinAgeAttested = MinSignupAge
+			input.Body.DateOfBirth = signupconsent.AdultDateOfBirth
 
 			resp, err := h.RegisterHandler(context.Background(), input)
 			if err != nil {
@@ -4255,8 +4372,7 @@ func TestRegisterHandler_AcceptsDotlessDomain(t *testing.T) {
 	input.Body.TermsAccepted = true
 	input.Body.TermsVersion = legal.CurrentTermsVersion
 	input.Body.PrivacyVersion = legal.CurrentPrivacyVersion
-	input.Body.AgeConfirmed = true
-	input.Body.MinAgeAttested = MinSignupAge
+	input.Body.DateOfBirth = signupconsent.AdultDateOfBirth
 
 	resp, err := h.RegisterHandler(context.Background(), input)
 	if err != nil {
@@ -4302,8 +4418,7 @@ func TestRegisterHandler_StoresAddressUnchanged(t *testing.T) {
 		input.Body.TermsAccepted = true
 		input.Body.TermsVersion = legal.CurrentTermsVersion
 		input.Body.PrivacyVersion = legal.CurrentPrivacyVersion
-		input.Body.AgeConfirmed = true
-		input.Body.MinAgeAttested = MinSignupAge
+		input.Body.DateOfBirth = signupconsent.AdultDateOfBirth
 
 		resp, err := h.RegisterHandler(context.Background(), input)
 		if err != nil {
@@ -4334,8 +4449,7 @@ func TestRegisterHandler_StoresAddressUnchanged(t *testing.T) {
 		input.Body.TermsAccepted = true
 		input.Body.TermsVersion = legal.CurrentTermsVersion
 		input.Body.PrivacyVersion = legal.CurrentPrivacyVersion
-		input.Body.AgeConfirmed = true
-		input.Body.MinAgeAttested = MinSignupAge
+		input.Body.DateOfBirth = signupconsent.AdultDateOfBirth
 
 		resp, err := h.RegisterHandler(context.Background(), input)
 		if err != nil {
@@ -4370,8 +4484,7 @@ func TestRegisterHandler_RejectsOverlongEmail(t *testing.T) {
 	input.Body.TermsAccepted = true
 	input.Body.TermsVersion = legal.CurrentTermsVersion
 	input.Body.PrivacyVersion = legal.CurrentPrivacyVersion
-	input.Body.AgeConfirmed = true
-	input.Body.MinAgeAttested = MinSignupAge
+	input.Body.DateOfBirth = signupconsent.AdultDateOfBirth
 
 	resp, err := h.RegisterHandler(context.Background(), input)
 	if err != nil {
@@ -4417,8 +4530,7 @@ func TestRegisterHandler_RejectsMalformedNames(t *testing.T) {
 			input.Body.TermsAccepted = true
 			input.Body.TermsVersion = legal.CurrentTermsVersion
 			input.Body.PrivacyVersion = legal.CurrentPrivacyVersion
-			input.Body.AgeConfirmed = true
-			input.Body.MinAgeAttested = MinSignupAge
+			input.Body.DateOfBirth = signupconsent.AdultDateOfBirth
 			input.Body.FirstName = tc.firstName
 			input.Body.LastName = tc.lastName
 
@@ -4458,8 +4570,7 @@ func TestRegisterHandler_TrimsNames(t *testing.T) {
 	input.Body.TermsAccepted = true
 	input.Body.TermsVersion = legal.CurrentTermsVersion
 	input.Body.PrivacyVersion = legal.CurrentPrivacyVersion
-	input.Body.AgeConfirmed = true
-	input.Body.MinAgeAttested = MinSignupAge
+	input.Body.DateOfBirth = signupconsent.AdultDateOfBirth
 	input.Body.FirstName = strPtr("  Ada  ")
 	input.Body.LastName = strPtr("  Lovelace  ")
 

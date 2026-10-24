@@ -1325,8 +1325,12 @@ func (suite *UserServiceIntegrationTestSuite) TestExportUserDataJSON_DateOfBirth
 		`UPDATE users SET date_of_birth = '1990-12-31', age_attested_at = ? WHERE id = ?`,
 		attestedAt, withDOB.ID).Error)
 
+	// An acceptance that records an age but no date, as an account created
+	// before the sign-up paths asked for one does.
+	attestedOnly := signupconsent.CurrentLegalAcceptance()
+	attestedOnly.DateOfBirth = nil
 	withoutDOB, err := suite.userService.CreateUserWithPasswordWithLegal(
-		"export-no-dob@example.com", "ExportPass1!", "NoDob", "Export", signupconsent.CurrentLegalAcceptance(),
+		"export-no-dob@example.com", "ExportPass1!", "NoDob", "Export", attestedOnly,
 	)
 	suite.Require().NoError(err)
 

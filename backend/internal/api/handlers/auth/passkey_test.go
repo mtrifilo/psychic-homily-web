@@ -16,6 +16,7 @@ import (
 	"psychic-homily-backend/internal/legal"
 	authm "psychic-homily-backend/internal/models/auth"
 	"psychic-homily-backend/internal/services/contracts"
+	"psychic-homily-backend/internal/testutil/signupconsent"
 )
 
 // ============================================================================
@@ -597,51 +598,147 @@ func TestBeginSignupHandler_MissingTermsVersion(t *testing.T) {
 	}
 }
 
-// TestBeginSignupHandler_MissingAgeConfirmation mirrors the terms-rejection
-// tests (PSY-1023): passkey signup must be blocked when the age confirmation is
-// absent, even with terms accepted.
-func TestBeginSignupHandler_MissingAgeConfirmation(t *testing.T) {
-	h := testPasskeyHandler()
+// beginSignupRequestWithConsent is a passkey signup/begin request that passes
+// every check before the age one.
+func beginSignupRequestWithConsent() *BeginSignupRequest {
 	input := &BeginSignupRequest{}
 	input.Body.Email = "test@example.com"
 	input.Body.TermsAccepted = true
 	input.Body.TermsVersion = legal.CurrentTermsVersion
 	input.Body.PrivacyVersion = legal.CurrentPrivacyVersion
-	input.Body.AgeConfirmed = false
+	return input
+}
 
-	resp, err := h.BeginSignupHandler(context.Background(), input)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+// A signup/begin without a date of birth is refused for its age, whatever
+// legacy attestation fields it carries, and sets no refusal marker.
+func TestBeginSignupHandler_RefusesWithoutDateOfBirth(t *testing.T) {
+	cases := map[string]func(*BeginSignupRequest){
+		"no age at all": func(*BeginSignupRequest) {},
+		"legacy attestation fields only": func(in *BeginSignupRequest) {
+			in.Body.AgeConfirmed = true
+			in.Body.MinAgeAttested = legal.MinSignupAge
+		},
 	}
-	if resp.Body.Success {
-		t.Error("expected success=false")
-	}
-	if resp.Body.ErrorCode != autherrors.CodeAgeConfirmationRequired {
-		t.Errorf("expected error_code=%s, got %s", autherrors.CodeAgeConfirmationRequired, resp.Body.ErrorCode)
+	for name, mutate := range cases {
+		t.Run(name, func(t *testing.T) {
+			h := testPasskeyHandler()
+			input := beginSignupRequestWithConsent()
+			mutate(input)
+
+			resp, err := h.BeginSignupHandler(context.Background(), input)
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if resp.Body.Success || resp.Body.ErrorCode != autherrors.CodeAgeConfirmationRequired {
+				t.Fatalf("got success=%v code=%q, want %s", resp.Body.Success, resp.Body.ErrorCode, autherrors.CodeAgeConfirmationRequired)
+			}
+			if resp.SetCookie.Name != "" {
+				t.Errorf("set cookies %+v; a request that gave no age leaves no marker", resp.SetCookie)
+			}
+		})
 	}
 }
 
-// TestBeginSignupHandler_AgeBelowMinimum guards the server-side age floor for
-// the passkey path.
-func TestBeginSignupHandler_AgeBelowMinimum(t *testing.T) {
+// A date of birth under the minimum age is refused before any challenge is
+// issued, and sets the refusal marker.
+func TestBeginSignupHandler_UnderAgeSetsRefusalMarker(t *testing.T) {
 	h := testPasskeyHandler()
-	input := &BeginSignupRequest{}
-	input.Body.Email = "test@example.com"
-	input.Body.TermsAccepted = true
-	input.Body.TermsVersion = legal.CurrentTermsVersion
-	input.Body.PrivacyVersion = legal.CurrentPrivacyVersion
-	input.Body.AgeConfirmed = true
-	input.Body.MinAgeAttested = MinSignupAge - 1
+	input := beginSignupRequestWithConsent()
+	input.Body.DateOfBirth = signupconsent.UnderAgeDateOfBirth(time.Now())
 
 	resp, err := h.BeginSignupHandler(context.Background(), input)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if resp.Body.Success {
-		t.Error("expected success=false")
+	if resp.Body.Success || resp.Body.ErrorCode != autherrors.CodeAgeConfirmationRequired {
+		t.Fatalf("got success=%v code=%q, want %s", resp.Body.Success, resp.Body.ErrorCode, autherrors.CodeAgeConfirmationRequired)
 	}
-	if resp.Body.ErrorCode != autherrors.CodeAgeConfirmationRequired {
-		t.Errorf("expected error_code=%s, got %s", autherrors.CodeAgeConfirmationRequired, resp.Body.ErrorCode)
+	if resp.Body.ChallengeID != "" || resp.Body.Options != nil {
+		t.Error("a challenge was issued for a refused sign-up")
+	}
+	if !refusalMarkerSet(resp.SetCookie) {
+		t.Errorf("Set-Cookie = %+v, want the refusal marker alone", resp.SetCookie)
+	}
+}
+
+// A browser carrying the refusal marker is refused for its age even with an
+// adult date of birth.
+func TestBeginSignupHandler_RefusesBrowserCarryingMarker(t *testing.T) {
+	for _, secure := range []bool{false, true} {
+		t.Run(fmt.Sprintf("secure=%v", secure), func(t *testing.T) {
+			cfg := testConfig()
+			cfg.Session.Secure = secure
+			h := NewPasskeyHandler(nil, nil, nil, nil, cfg)
+			input := beginSignupRequestWithConsent()
+			input.Body.DateOfBirth = signupconsent.AdultDateOfBirth
+			if secure {
+				input.AgeRefusedHost = "1"
+			} else {
+				input.AgeRefused = "1"
+			}
+
+			resp, err := h.BeginSignupHandler(context.Background(), input)
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if resp.Body.ErrorCode != autherrors.CodeAgeConfirmationRequired {
+				t.Fatalf("code = %q, want %s", resp.Body.ErrorCode, autherrors.CodeAgeConfirmationRequired)
+			}
+			if resp.SetCookie.Name != signupAgeRefusalCookieNameFor(secure) {
+				t.Errorf("Set-Cookie = %+v, want the marker renewed as %q", resp.SetCookie, signupAgeRefusalCookieNameFor(secure))
+			}
+		})
+	}
+}
+
+// A date of birth that is not a plausible calendar date is refused with the
+// form's sentence and no marker.
+func TestBeginSignupHandler_RefusesImplausibleDateOfBirth(t *testing.T) {
+	h := testPasskeyHandler()
+	input := beginSignupRequestWithConsent()
+	input.Body.DateOfBirth = "2001-02-30"
+
+	resp, err := h.BeginSignupHandler(context.Background(), input)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if resp.Body.ErrorCode != autherrors.CodeValidationFailed || resp.Body.Message != dateOfBirthInvalidMessage {
+		t.Errorf("got code=%q message=%q, want %s %q", resp.Body.ErrorCode, resp.Body.Message, autherrors.CodeValidationFailed, dateOfBirthInvalidMessage)
+	}
+	if resp.SetCookie.Name != "" {
+		t.Errorf("set cookies %+v on a field refusal", resp.SetCookie)
+	}
+}
+
+// The challenge signup/begin stores carries the date of birth and the age
+// computed from it, so finish records them.
+func TestBeginSignupHandler_StoresDateOfBirthInChallenge(t *testing.T) {
+	var stored contracts.SignupChallenge
+	mockWA := &testhelpers.MockWebAuthnService{
+		BeginRegistrationForEmailFn: func(string) (*protocol.CredentialCreation, *webauthn.SessionData, error) {
+			return &protocol.CredentialCreation{}, &webauthn.SessionData{}, nil
+		},
+		StoreSignupChallengeFn: func(signup contracts.SignupChallenge, _ *webauthn.SessionData, _ string) (string, error) {
+			stored = signup
+			return "signup-challenge-id", nil
+		},
+	}
+	mockUS := &testhelpers.MockUserService{GetUserByEmailFn: func(string) (*authm.User, error) { return nil, nil }}
+	h := testPasskeyHandlerWithMocks(mockWA, &testhelpers.MockJWTService{}, mockUS)
+	input := beginSignupRequestWithConsent()
+	input.Body.DateOfBirth = signupconsent.AdultDateOfBirth
+
+	resp, err := h.BeginSignupHandler(context.Background(), input)
+	if err != nil || !resp.Body.Success {
+		t.Fatalf("begin refused: err=%v code=%q", err, resp.Body.ErrorCode)
+	}
+	wantDate, wantAge := signupconsent.AdultDateOfBirthAt(time.Now())
+	acceptance := stored.Acceptance
+	if acceptance.DateOfBirth == nil || !acceptance.DateOfBirth.Equal(wantDate) {
+		t.Errorf("stored DateOfBirth = %v, want %v", acceptance.DateOfBirth, wantDate)
+	}
+	if acceptance.MinAgeAttested != wantAge || acceptance.AgeConfirmedAt.IsZero() {
+		t.Errorf("stored age %d at %v, want %d at the acceptance instant", acceptance.MinAgeAttested, acceptance.AgeConfirmedAt, wantAge)
 	}
 }
 
@@ -658,8 +755,7 @@ func TestBeginSignupHandler_EmailCheckFails(t *testing.T) {
 	input.Body.TermsAccepted = true
 	input.Body.TermsVersion = legal.CurrentTermsVersion
 	input.Body.PrivacyVersion = legal.CurrentPrivacyVersion
-	input.Body.AgeConfirmed = true
-	input.Body.MinAgeAttested = MinSignupAge
+	input.Body.DateOfBirth = signupconsent.AdultDateOfBirth
 
 	_, err := h.BeginSignupHandler(context.Background(), input)
 	requireServiceUnavailableError(t, err)
@@ -679,8 +775,7 @@ func TestBeginSignupHandler_EmailAlreadyExists(t *testing.T) {
 	input.Body.TermsAccepted = true
 	input.Body.TermsVersion = legal.CurrentTermsVersion
 	input.Body.PrivacyVersion = legal.CurrentPrivacyVersion
-	input.Body.AgeConfirmed = true
-	input.Body.MinAgeAttested = MinSignupAge
+	input.Body.DateOfBirth = signupconsent.AdultDateOfBirth
 
 	resp, err := h.BeginSignupHandler(context.Background(), input)
 	if err != nil {
@@ -715,8 +810,7 @@ func TestBeginSignupHandler_BeginRegistrationForEmailFails(t *testing.T) {
 	input.Body.TermsAccepted = true
 	input.Body.TermsVersion = legal.CurrentTermsVersion
 	input.Body.PrivacyVersion = legal.CurrentPrivacyVersion
-	input.Body.AgeConfirmed = true
-	input.Body.MinAgeAttested = MinSignupAge
+	input.Body.DateOfBirth = signupconsent.AdultDateOfBirth
 
 	_, err := h.BeginSignupHandler(context.Background(), input)
 	requireServiceUnavailableError(t, err)
@@ -743,8 +837,7 @@ func TestBeginSignupHandler_StoreSignupChallengeFails(t *testing.T) {
 	input.Body.TermsAccepted = true
 	input.Body.TermsVersion = legal.CurrentTermsVersion
 	input.Body.PrivacyVersion = legal.CurrentPrivacyVersion
-	input.Body.AgeConfirmed = true
-	input.Body.MinAgeAttested = MinSignupAge
+	input.Body.DateOfBirth = signupconsent.AdultDateOfBirth
 
 	_, err := h.BeginSignupHandler(context.Background(), input)
 	requireServiceUnavailableError(t, err)
@@ -776,8 +869,7 @@ func TestBeginSignupHandler_Success(t *testing.T) {
 	input.Body.TermsAccepted = true
 	input.Body.TermsVersion = legal.CurrentTermsVersion
 	input.Body.PrivacyVersion = legal.CurrentPrivacyVersion
-	input.Body.AgeConfirmed = true
-	input.Body.MinAgeAttested = MinSignupAge
+	input.Body.DateOfBirth = signupconsent.AdultDateOfBirth
 
 	resp, err := h.BeginSignupHandler(context.Background(), input)
 	if err != nil {
@@ -892,6 +984,62 @@ func TestFinishSignupHandler_MalformedCredentialResponse(t *testing.T) {
 	}
 }
 
+// A browser refused for its age after a ceremony began cannot finish it: the
+// marker refuses finish before the challenge is spent.
+func TestFinishSignupHandler_RefusesBrowserCarryingMarker(t *testing.T) {
+	consumed := false
+	mockWA := &testhelpers.MockWebAuthnService{
+		ConsumeSignupChallengeFn: func(string, string) (*webauthn.SessionData, contracts.SignupChallenge, error) {
+			consumed = true
+			return &webauthn.SessionData{}, currentSignupChallenge("new@example.com"), nil
+		},
+	}
+	h := testPasskeyHandlerWithMocks(mockWA, &testhelpers.MockJWTService{}, &testhelpers.MockUserService{})
+
+	input := &FinishSignupRequest{}
+	input.Body.ChallengeID = "valid-challenge"
+	input.AgeRefused = "1"
+
+	resp, err := h.FinishSignupHandler(context.Background(), input)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if resp.Body.Success || resp.Body.ErrorCode != autherrors.CodeAgeConfirmationRequired {
+		t.Errorf("got success=%v code=%q, want %s", resp.Body.Success, resp.Body.ErrorCode, autherrors.CodeAgeConfirmationRequired)
+	}
+	if consumed {
+		t.Error("the challenge was spent for a refused browser")
+	}
+}
+
+// The service's own consent refusal is the client's refusal, coded as such,
+// never a fault.
+func TestFinishSignupHandler_ServiceTermsRefusalIsReported(t *testing.T) {
+	body, _ := softRegistration(t)
+	mockWA := &testhelpers.MockWebAuthnService{
+		ConsumeSignupChallengeFn: func(string, string) (*webauthn.SessionData, contracts.SignupChallenge, error) {
+			return &webauthn.SessionData{}, currentSignupChallenge("new@example.com"), nil
+		},
+		FinishSignupRegistrationWithLegalFn: func(string, *webauthn.SessionData, *protocol.ParsedCredentialCreationData, string, contracts.LegalAcceptance) (*authm.User, error) {
+			return nil, autherrors.ErrTermsAcceptanceRequired("injected")
+		},
+	}
+	mockUS := &testhelpers.MockUserService{GetUserByEmailFn: func(string) (*authm.User, error) { return nil, nil }}
+	h := testPasskeyHandlerWithMocks(mockWA, &testhelpers.MockJWTService{}, mockUS)
+
+	input := &FinishSignupRequest{}
+	input.Body.ChallengeID = "valid-challenge"
+	input.Body.Response = body
+
+	resp, err := h.FinishSignupHandler(context.Background(), input)
+	if err != nil {
+		t.Fatalf("unexpected error %v; the refusal answers 200", err)
+	}
+	if resp.Body.Success || resp.Body.ErrorCode != autherrors.CodeTermsAcceptanceRequired {
+		t.Errorf("got success=%v code=%q, want %s", resp.Body.Success, resp.Body.ErrorCode, autherrors.CodeTermsAcceptanceRequired)
+	}
+}
+
 // A challenge that carries no consent is refused however the finish body
 // fills its consent fields, before any account is created.
 func TestFinishSignupHandler_ChallengeWithoutConsent(t *testing.T) {
@@ -918,8 +1066,6 @@ func TestFinishSignupHandler_ChallengeWithoutConsent(t *testing.T) {
 	input.Body.TermsAccepted = true
 	input.Body.TermsVersion = legal.CurrentTermsVersion
 	input.Body.PrivacyVersion = legal.CurrentPrivacyVersion
-	input.Body.AgeConfirmed = true
-	input.Body.MinAgeAttested = MinSignupAge
 	input.Body.Response = body
 
 	resp, err := h.FinishSignupHandler(context.Background(), input)
@@ -1023,8 +1169,7 @@ func TestBeginSignupHandler_RejectsMalformedEmail(t *testing.T) {
 			input.Body.TermsAccepted = true
 			input.Body.TermsVersion = legal.CurrentTermsVersion
 			input.Body.PrivacyVersion = legal.CurrentPrivacyVersion
-			input.Body.AgeConfirmed = true
-			input.Body.MinAgeAttested = MinSignupAge
+			input.Body.DateOfBirth = signupconsent.AdultDateOfBirth
 
 			resp, err := h.BeginSignupHandler(context.Background(), input)
 			if err != nil {

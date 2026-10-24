@@ -35,18 +35,32 @@ import {
 } from '@/features/auth/hooks/useLegalVersions'
 import { registrationOptionsFrom } from '@/features/auth/passkeyOptions'
 import type { components } from '@/types/api'
-import { MIN_SIGNUP_AGE } from '@/lib/legal'
 import { API_BASE_URL } from '@/lib/api-base'
+import { AuthErrorCode } from '@/lib/errors'
 import {
   CONSENT_VERSIONS_UNAVAILABLE,
   ConsentRetryNotice,
   ConsentVersionsChangedNotice,
 } from './consent-versions-notice'
 import type { SignupHandoff } from './signup-handoff'
+import {
+  DateOfBirthField,
+  EMPTY_DATE_OF_BIRTH,
+  dateOfBirthFromParts,
+  firstInvalidDateOfBirthPartId,
+} from './date-of-birth-field'
+import { focusControl } from './form-error-focus'
 import type { SignupRequestDeadline } from './signup-request-deadline'
 
 const START_FAILURE = 'Failed to start passkey signup'
 const FINISH_FAILURE = 'Failed to complete passkey signup'
+const EMAIL_SCHEMA = z.string().email()
+const EMAIL_INVALID = 'Please enter a valid email address'
+const TERMS_REQUIRED = 'You must agree to the Terms of Service and Privacy Policy'
+const DATE_OF_BIRTH_ID_PREFIX = 'passkey-dob'
+
+/** Begin or finish refused the sign-up for its age; the page shows the refusal. */
+class AgeRefusedError extends Error {}
 
 type BeginSignupResponse = components['schemas']['BeginSignupResponseBody']
 
@@ -65,12 +79,16 @@ interface PasskeySignupButtonProps {
    */
   onHandoffChange: (handoff: SignupHandoff | null) => void
   /**
+   * Called when begin or finish refuses the sign-up for its age, after the
+   * dialog has closed and any claim has been released. The page replaces itself with the refusal.
+   */
+  onAgeRefused: () => void
+  /**
    * Bounds the begin and finish requests. A request that times out fails with
    * the generic message for its step. Owned by the page that owns the handoff.
    */
   requestDeadline: SignupRequestDeadline
   className?: string
-  minAge?: number
   /**
    * The form's latest read found consent versions other than this build's.
    * While it holds, the dialog says so and sends nothing.
@@ -81,9 +99,9 @@ interface PasskeySignupButtonProps {
 export function PasskeySignupButton({
   onError,
   onHandoffChange,
+  onAgeRefused,
   requestDeadline,
   className,
-  minAge = MIN_SIGNUP_AGE,
   versionsChanged = false,
 }: PasskeySignupButtonProps) {
   const { setUser } = useAuthContext()
@@ -105,11 +123,15 @@ export function PasskeySignupButton({
   }
   const emailInputRef = useRef<HTMLInputElement>(null)
   const [email, setEmail] = useState('')
-  const [emailError, setEmailError] = useState<string | null>(null)
   const [termsAccepted, setTermsAccepted] = useState(false)
-  const [termsError, setTermsError] = useState<string | null>(null)
-  const [ageConfirmed, setAgeConfirmed] = useState(false)
-  const [ageError, setAgeError] = useState<string | null>(null)
+  const [dateOfBirthParts, setDateOfBirthParts] = useState(EMPTY_DATE_OF_BIRTH)
+  // Set by the first press of Continue: from then on every field shows its
+  // error, recomputed as it changes.
+  const [attempted, setAttempted] = useState(false)
+  const emailValid = EMAIL_SCHEMA.safeParse(email).success
+  const dateOfBirth = dateOfBirthFromParts(dateOfBirthParts)
+  const emailError = attempted && !emailValid ? EMAIL_INVALID : null
+  const termsError = attempted && !termsAccepted ? TERMS_REQUIRED : null
 
   const supportsWebAuthn = useWebAuthnSupport()
 
@@ -130,30 +152,24 @@ export function PasskeySignupButton({
   }
 
   const handlePasskeySignup = async () => {
+    if (isLoading) return
     setDialogError(null)
+    setAttempted(true)
 
-    // Validate email
-    const emailSchema = z.string().email('Please enter a valid email address')
-    const result = emailSchema.safeParse(email)
-    if (!result.success) {
-      setEmailError(result.error.issues[0].message)
+    // Every field is checked at once, and focus goes to the first refused one
+    // in the order the dialog shows them.
+    if (!emailValid) {
+      focusControl('passkey-email')
       return
     }
-    setEmailError(null)
-
-    // Validate terms acceptance
     if (!termsAccepted) {
-      setTermsError('You must agree to the Terms of Service and Privacy Policy')
+      focusControl('passkey-terms')
       return
     }
-    setTermsError(null)
-
-    // Validate age confirmation (PSY-1023)
-    if (!ageConfirmed) {
-      setAgeError(`You must confirm that you are at least ${minAge} years old`)
+    if (dateOfBirth === null) {
+      focusControl(firstInvalidDateOfBirthPartId(DATE_OF_BIRTH_ID_PREFIX, dateOfBirthParts))
       return
     }
-    setAgeError(null)
 
     if (!supportsWebAuthn) {
       reportError('Your browser does not support passkeys')
@@ -182,8 +198,7 @@ export function PasskeySignupButton({
           terms_accepted: true,
           terms_version: versions.termsVersion,
           privacy_version: versions.privacyVersion,
-          age_confirmed: true,
-          min_age_attested: minAge,
+          date_of_birth: dateOfBirth,
         }),
       })
       const beginData: BeginSignupResponse = await beginResponse.json()
@@ -207,6 +222,9 @@ export function PasskeySignupButton({
         setIsRetryingConsent(false)
       }
 
+      if (!beginData.success && beginData.error_code === AuthErrorCode.AGE_CONFIRMATION_REQUIRED) {
+        throw new AgeRefusedError(beginData.message)
+      }
       if (!beginData.success) {
         throw new Error(beginData.message || START_FAILURE)
       }
@@ -234,12 +252,15 @@ export function PasskeySignupButton({
           terms_accepted: true,
           terms_version: versions.termsVersion,
           privacy_version: versions.privacyVersion,
-          age_confirmed: true,
-          min_age_attested: minAge,
         }),
       })
 
       const finishData: AuthResponse = await finishResponse.json()
+
+      // A browser refused for its age after the ceremony began.
+      if (!finishData.success && finishData.error_code === AuthErrorCode.AGE_CONFIRMATION_REQUIRED) {
+        throw new AgeRefusedError(finishData.message)
+      }
 
       if (!finishData.success) {
         throw new Error(finishData.message || FINISH_FAILURE)
@@ -280,6 +301,12 @@ export function PasskeySignupButton({
       // itself.
       if (deadlineSignal?.aborted) {
         reportError(claimed ? FINISH_FAILURE : START_FAILURE)
+        return
+      }
+
+      if (error instanceof AgeRefusedError) {
+        setDialogOpen(false)
+        onAgeRefused()
         return
       }
 
@@ -351,10 +378,7 @@ export function PasskeySignupButton({
                 type="email"
                 placeholder="you@example.com"
                 value={email}
-                onChange={(e) => {
-                  setEmail(e.target.value)
-                  setEmailError(null)
-                }}
+                onChange={(e) => setEmail(e.target.value)}
                 onKeyDown={(e) => {
                   if (e.key === 'Enter') {
                     e.preventDefault()
@@ -363,6 +387,7 @@ export function PasskeySignupButton({
                 }}
                 className="pl-10"
                 disabled={isLoading}
+                aria-invalid={emailError !== null}
               />
             </div>
             {emailError && (
@@ -374,15 +399,13 @@ export function PasskeySignupButton({
               <Checkbox
                 id="passkey-terms"
                 checked={termsAccepted}
-                onCheckedChange={(checked) => {
-                  setTermsAccepted(checked === true)
-                  setTermsError(null)
-                }}
+                onCheckedChange={(checked) => setTermsAccepted(checked === true)}
+                aria-invalid={termsError !== null}
                 className="mt-0.5"
               />
               <Label
                 htmlFor="passkey-terms"
-                className="text-sm font-normal leading-relaxed cursor-pointer"
+                className="block cursor-pointer text-sm font-normal leading-relaxed"
               >
                 I agree to the{' '}
                 <Link
@@ -392,42 +415,29 @@ export function PasskeySignupButton({
                 >
                   Terms of Service
                 </Link>{' '}
-                and{' '}
-                <Link
-                  href="/privacy"
-                  target="_blank"
-                  className="font-medium underline underline-offset-4 hover:text-primary"
-                >
-                  Privacy Policy
-                </Link>
+                <span className="text-muted-foreground">
+                  and I acknowledge the{' '}
+                  <Link
+                    href="/privacy"
+                    target="_blank"
+                    className="font-medium underline underline-offset-4 hover:text-primary"
+                  >
+                    Privacy Policy
+                  </Link>
+                </span>
               </Label>
             </div>
             {termsError && (
               <p role="alert" className="text-sm text-destructive">{termsError}</p>
             )}
           </div>
-          <div className="space-y-2">
-            <div className="flex items-start space-x-3">
-              <Checkbox
-                id="passkey-age-confirmation"
-                checked={ageConfirmed}
-                onCheckedChange={(checked) => {
-                  setAgeConfirmed(checked === true)
-                  setAgeError(null)
-                }}
-                className="mt-0.5"
-              />
-              <Label
-                htmlFor="passkey-age-confirmation"
-                className="text-sm font-normal leading-relaxed cursor-pointer"
-              >
-                I confirm that I am at least {minAge} years old
-              </Label>
-            </div>
-            {ageError && (
-              <p role="alert" className="text-sm text-destructive">{ageError}</p>
-            )}
-          </div>
+          <DateOfBirthField
+            idPrefix={DATE_OF_BIRTH_ID_PREFIX}
+            value={dateOfBirthParts}
+            onChange={setDateOfBirthParts}
+            showError={attempted}
+            disabled={isLoading}
+          />
           {versionsChanged ? (
             <ConsentVersionsChangedNotice />
           ) : (
@@ -436,9 +446,7 @@ export function PasskeySignupButton({
           <Button
             type="button"
             onClick={handlePasskeySignup}
-            disabled={
-              isLoading || versionsChanged || !email || !termsAccepted || !ageConfirmed
-            }
+            disabled={isLoading || versionsChanged}
             className="w-full"
           >
             {isLoading ? (

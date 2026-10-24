@@ -101,9 +101,10 @@ type LegalAcceptance struct {
 	TermsAcceptedAt time.Time
 	TermsVersion    string
 	PrivacyVersion  string
-	// AgeConfirmedAt / MinAgeAttested mirror the terms fields for the required
-	// "I am at least N years old" confirmation (PSY-1023). A zero MinAgeAttested
-	// means the caller did not record an age confirmation.
+	// AgeConfirmedAt is when the age was given and MinAgeAttested the age in
+	// years: computed from DateOfBirth on the password, passkey and "Create
+	// your account" paths, attested on Apple's. A zero MinAgeAttested means no
+	// age was recorded.
 	AgeConfirmedAt time.Time
 	MinAgeAttested int
 	// DateOfBirth is the date the age was computed from, nil on a path that
@@ -126,8 +127,8 @@ type OAuthSignupConsent struct {
 	TermsVersion   string
 	PrivacyVersion string
 	AcceptedAt     time.Time
-	// AgeConfirmed / MinAgeAttested capture the required age confirmation for
-	// OAuth signups (PSY-1023), mirroring TermsAccepted.
+	// AgeConfirmed / MinAgeAttested capture the age an OAuth sign-up gave, in
+	// years, mirroring TermsAccepted.
 	AgeConfirmed   bool
 	MinAgeAttested int
 	// DateOfBirth is the date MinAgeAttested was computed from, nil when the
@@ -328,8 +329,7 @@ type WebAuthnServiceInterface interface {
 	// names no terms version), VALIDATION_FAILED (a registration response that
 	// fails verification, or whose credential id an account already holds) or
 	// USER_EXISTS (an address an account already holds), whose message is the
-	// client's copy. Any other error means the account was not created, or was
-	// created and could not be read back.
+	// client's copy. Any other error means the account was not created.
 	FinishSignupRegistrationWithLegal(email string, session *webauthn.SessionData, response *protocol.ParsedCredentialCreationData, displayName string, acceptance LegalAcceptance) (*authm.User, error)
 }
 

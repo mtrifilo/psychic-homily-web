@@ -3,6 +3,7 @@ package auth
 import (
 	"encoding/base64"
 	"encoding/json"
+	"time"
 
 	"github.com/danielgtaylor/huma/v2/humatest"
 	"github.com/go-webauthn/webauthn/protocol"
@@ -11,6 +12,7 @@ import (
 	"psychic-homily-backend/internal/legal"
 	authm "psychic-homily-backend/internal/models/auth"
 	authsvc "psychic-homily-backend/internal/services/auth"
+	"psychic-homily-backend/internal/testutil/signupconsent"
 	"psychic-homily-backend/internal/testutil/softauthn"
 )
 
@@ -47,12 +49,11 @@ func (s *AuthHandlerIntegrationSuite) creationOptions(raw []byte) *protocol.Cred
 // documents.
 func signupBeginBody(email string) map[string]any {
 	return map[string]any{
-		"email":            email,
-		"terms_accepted":   true,
-		"terms_version":    legal.CurrentTermsVersion,
-		"privacy_version":  legal.CurrentPrivacyVersion,
-		"age_confirmed":    true,
-		"min_age_attested": MinSignupAge,
+		"email":           email,
+		"terms_accepted":  true,
+		"terms_version":   legal.CurrentTermsVersion,
+		"privacy_version": legal.CurrentPrivacyVersion,
+		"date_of_birth":   signupconsent.AdultDateOfBirth,
 	}
 }
 
@@ -97,7 +98,12 @@ func (s *AuthHandlerIntegrationSuite) TestPasskeySignupRecordsTheConsentBeginVal
 	s.Require().NotNil(stored.MinAgeAttested)
 	s.Equal(legal.CurrentTermsVersion, *stored.TermsVersion)
 	s.Equal(legal.CurrentPrivacyVersion, *stored.PrivacyVersion)
-	s.Equal(MinSignupAge, *stored.MinAgeAttested)
+	wantDate, wantAge := signupconsent.AdultDateOfBirthAt(time.Now())
+	s.Equal(wantAge, *stored.MinAgeAttested)
+	s.Require().NotNil(stored.DateOfBirth)
+	s.True(stored.DateOfBirth.Equal(wantDate), "date_of_birth %v, want %v", stored.DateOfBirth, wantDate)
 	s.NotNil(stored.TermsAcceptedAt)
-	s.NotNil(stored.AgeConfirmedAt)
+	s.Require().NotNil(stored.AgeConfirmedAt)
+	s.Require().NotNil(stored.AgeAttestedAt)
+	s.True(stored.AgeAttestedAt.Equal(*stored.AgeConfirmedAt))
 }

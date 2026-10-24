@@ -14,6 +14,7 @@ import (
 	"psychic-homily-backend/internal/legal"
 	authm "psychic-homily-backend/internal/models/auth"
 	"psychic-homily-backend/internal/services/contracts"
+	"psychic-homily-backend/internal/testutil/signupconsent"
 )
 
 // Attaching a passkey gives the holder a permanent, independent way to sign in
@@ -120,8 +121,7 @@ func TestPasskeySignup_NotGated(t *testing.T) {
 	input.Body.TermsAccepted = true
 	input.Body.TermsVersion = legal.CurrentTermsVersion
 	input.Body.PrivacyVersion = legal.CurrentPrivacyVersion
-	input.Body.AgeConfirmed = true
-	input.Body.MinAgeAttested = MinSignupAge
+	input.Body.DateOfBirth = signupconsent.AdultDateOfBirth
 	if _, err := h.BeginSignupHandler(t.Context(), input); err != nil {
 		t.Fatalf("passkey signup must not require a prior session: %v", err)
 	}

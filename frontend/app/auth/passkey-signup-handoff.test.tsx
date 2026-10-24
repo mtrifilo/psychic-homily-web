@@ -7,6 +7,8 @@ import { clientWithConsentVersions } from '@/test/consentVersions'
 import { advanceFakeTime, stalledRequest } from '@/test/stalledFetch'
 import AuthPage from './page'
 import { SIGNUP_REQUEST_TIMEOUT_MS } from './_components/signup-request-deadline'
+import { fillDateOfBirth } from '@/test/dateOfBirth'
+import { answeringNoAgeRefusalMarker } from '@/test/signupAgeRefusal'
 
 // The page with the real passkey sign-up button and the real backup prompt, so
 // these tests cover the hand-off between them rather than either one alone.
@@ -114,7 +116,7 @@ async function submitPasskeySignup() {
   const dialog = screen.getByRole('dialog', { name: 'Create account with passkey' })
   await user.type(within(dialog).getByLabelText('Email'), 'signup@example.com')
   await user.click(within(dialog).getByRole('checkbox', { name: /Terms of Service/ }))
-  await user.click(within(dialog).getByRole('checkbox', { name: /at least 16 years old/ }))
+  await fillDateOfBirth(user, within(dialog))
   await user.click(within(dialog).getByRole('button', { name: /continue with passkey/i }))
   return user
 }
@@ -130,7 +132,7 @@ describe('passkey sign-up on /auth', () => {
     mockStartRegistration.mockReset()
     mockStartRegistration.mockResolvedValue({ id: 'credential-id' })
     fetchMock.mockReset()
-    vi.stubGlobal('fetch', fetchMock)
+    vi.stubGlobal('fetch', answeringNoAgeRefusalMarker(fetchMock))
     authStore.set('anonymous')
     searchParams.current = new URLSearchParams({ returnTo: RETURN_TO })
   })
@@ -338,7 +340,7 @@ describe('passkey sign-up on /auth', () => {
       const dialog = screen.getByRole('dialog', { name: 'Create account with passkey' })
       await user.type(within(dialog).getByLabelText('Email'), 'signup@example.com')
       await user.click(within(dialog).getByRole('checkbox', { name: /Terms of Service/ }))
-      await user.click(within(dialog).getByRole('checkbox', { name: /at least 16 years old/ }))
+      await fillDateOfBirth(user, within(dialog))
       await user.click(within(dialog).getByRole('button', { name: /continue with passkey/i }))
       await waitFor(() => {
         expect(fetchMock).toHaveBeenCalledTimes(2)

@@ -190,6 +190,17 @@ func (s *OAuthHandlerIntegrationSuite) TestPendingSignup_AgeMarkerWins() {
 	s.Equal("age_refused", body["status"])
 }
 
+// The /auth page's Create account tab reads the marker with no pending
+// sign-up behind it: a browser refused on the password or passkey path holds
+// only the marker.
+func (s *OAuthHandlerIntegrationSuite) TestPendingSignup_MarkerAloneAnswersAgeRefused() {
+	body := s.decode(s.stepAPI().Get(OAuthPendingSignupRoute, "Cookie: "+signupAgeRefusalCookieName+"=1"))
+	s.Equal("age_refused", body["status"])
+
+	body = s.decode(s.stepAPI().Get(OAuthPendingSignupRoute))
+	s.Equal("expired", body["status"])
+}
+
 // --- POST /auth/oauth/finish-signup ---
 
 func (s *OAuthHandlerIntegrationSuite) TestFinishSignup_CreatesTheAccountAndSignsIn() {
@@ -459,17 +470,14 @@ func TestOAuthPendingSignupCookie_LivesAsLongAsThePendingSignup(t *testing.T) {
 	}
 }
 
-// The expired step's copy names the pending sign-up's lifetime, so changing
-// the lifetime fails here until the copy (this message and ExpiredCard in
-// frontend/app/auth/complete/create-account-step.tsx) changes with it.
-// The step's form shows the same date-of-birth sentences the finish refuses
-// with, so an implausible date the form lets through reads the same in the
-// banner as an empty or impossible one does under the fields.
-func TestDateOfBirthMessagesMatchTheStep(t *testing.T) {
-	const stepPath = "../../../../../frontend/app/auth/complete/create-account-step.tsx"
+// The sign-up forms' date-of-birth field shows the same sentences the
+// sign-up endpoints refuse with, so a date the field lets through and an
+// endpoint refuses reads the same in the banner as under the fields.
+func TestDateOfBirthMessagesMatchTheField(t *testing.T) {
+	const stepPath = "../../../../../frontend/app/auth/_components/date-of-birth-field.tsx"
 	source, err := os.ReadFile(stepPath)
 	if err != nil {
-		t.Fatalf("cannot read %s: %v; repoint this test if the step moved", stepPath, err)
+		t.Fatalf("cannot read %s: %v; repoint this test if the field moved", stepPath, err)
 	}
 	for name, backend := range map[string]string{
 		"DATE_OF_BIRTH_MISSING_MESSAGE": dateOfBirthMissingMessage,
@@ -486,6 +494,9 @@ func TestDateOfBirthMessagesMatchTheStep(t *testing.T) {
 	}
 }
 
+// The expired step's copy names the pending sign-up's lifetime, so changing
+// the lifetime fails here until the copy (this message and ExpiredCard in
+// frontend/app/auth/complete/create-account-step.tsx) changes with it.
 func TestOAuthSignupExpiredCopyNamesTheLifetime(t *testing.T) {
 	minutes := fmt.Sprintf("%d minutes", int(contracts.OAuthPendingSignupTTL/time.Minute))
 	if got := autherrors.ErrOAuthSignupExpired(nil).UserMessage(); !strings.Contains(got, minutes) {
@@ -524,7 +535,7 @@ func TestSignupStepRequestsDeclareTheirCookies(t *testing.T) {
 // With Secure cookies, only the "__Host-" names count: a bare one could have
 // been planted by a sibling subdomain.
 func TestSignupStepCookies_SecureReadsOnlyThePrefixedNames(t *testing.T) {
-	c := signupStepCookies{pending: "bare", pendingHost: "host", ageRefused: "1"}
+	c := signupStepCookies{pending: "bare", pendingHost: "host", ageRefused: signupAgeRefusalCookies{plain: "1"}}
 	if got := c.pendingToken(true); got != "host" {
 		t.Errorf("secure pending token = %q, want the prefixed one", got)
 	}

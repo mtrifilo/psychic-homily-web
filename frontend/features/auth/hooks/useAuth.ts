@@ -47,9 +47,8 @@ interface RegisterCredentials {
   terms_accepted: boolean
   terms_version: string
   privacy_version: string
-  // PSY-1023: required minimum-age confirmation, mirroring terms_accepted.
-  age_confirmed: boolean
-  min_age_attested: number
+  /** YYYY-MM-DD; the backend computes the age from it. */
+  date_of_birth: string
 }
 
 interface RegisterRequest extends RegisterCredentials {

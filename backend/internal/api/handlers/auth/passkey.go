@@ -73,9 +73,11 @@ func passkeyRefusal(err error, codes ...string) (*autherrors.AuthError, bool) {
 	return nil, false
 }
 
-// passkeyResponse is a passkey endpoint's response. setRefusal writes a
-// refused step into its body: success false, with the code and message given.
-type passkeyResponse interface {
+// refusableResponse is the response of an endpoint that answers a refusal in
+// its body (the passkey endpoints and password registration). setRefusal
+// writes a refused step into it: success false, with the code and message
+// given.
+type refusableResponse interface {
 	setRefusal(code, message string)
 }
 
@@ -83,7 +85,7 @@ type passkeyResponse interface {
 // which the API layer writes as a 200. A failure is never answered this way:
 // it returns autherrors.ErrServiceUnavailable, which the API layer writes as
 // a 503.
-func refusePasskey[R passkeyResponse](resp R, code, message string) (R, error) {
+func refusePasskey[R refusableResponse](resp R, code, message string) (R, error) {
 	resp.setRefusal(code, message)
 	return resp, nil
 }
@@ -121,7 +123,7 @@ func (r *FinishSignupResponse) setRefusal(code, message string) {
 }
 
 // refuseWith answers a refused step with refusal's code and user message.
-func refuseWith[R passkeyResponse](resp R, refusal *autherrors.AuthError) (R, error) {
+func refuseWith[R refusableResponse](resp R, refusal *autherrors.AuthError) (R, error) {
 	return refusePasskey(resp, refusal.Code, refusal.UserMessage())
 }
 
@@ -555,14 +557,18 @@ type BeginSignupRequest struct {
 		TermsAccepted  bool   `json:"terms_accepted" doc:"Whether user accepted Terms of Service"`
 		TermsVersion   string `json:"terms_version,omitempty" doc:"Accepted Terms of Service version: the current one, or the previous one while a grace window is open (both published at GET /legal/versions); anything else is refused with TERMS_ACCEPTANCE_REQUIRED"`
 		PrivacyVersion string `json:"privacy_version,omitempty" doc:"Accepted Privacy Policy version: the current one, or the previous one while a grace window is open (both published at GET /legal/versions); anything else is refused with TERMS_ACCEPTANCE_REQUIRED"`
-		AgeConfirmed   bool   `json:"age_confirmed" doc:"Whether user confirmed they meet the minimum age"`
-		MinAgeAttested int    `json:"min_age_attested,omitempty" doc:"Minimum age the user attested to"`
+		DateOfBirth    string `json:"date_of_birth,omitempty" example:"1990-01-31" doc:"Date of birth, YYYY-MM-DD. Required: without it the sign-up is refused with AGE_CONFIRMATION_REQUIRED. The age is computed from it at submission on the latest calendar date anywhere (UTC+14); under the minimum age (GET /legal/versions) the sign-up is refused with AGE_CONFIRMATION_REQUIRED and this browser is refused every sign-up for a day. A date that does not exist, is in the future, or gives an age over 150 is refused with VALIDATION_FAILED. The account records the date given here; signup/finish takes none."`
+		AgeConfirmed   bool   `json:"age_confirmed,omitempty" doc:"Ignored. It no longer counts as an age attestation: send date_of_birth."`
+		MinAgeAttested int    `json:"min_age_attested,omitempty" doc:"Ignored. It no longer counts as an age attestation: send date_of_birth."`
 	}
+	AgeRefused     string `cookie:"oauth_signup_age_refused" doc:"Under-age refusal marker, on a deployment without Secure cookies"`
+	AgeRefusedHost string `cookie:"__Host-oauth_signup_age_refused" doc:"Under-age refusal marker, on a deployment with Secure cookies"`
 }
 
 // BeginSignupResponse represents the response with WebAuthn registration options
 type BeginSignupResponse struct {
-	Body struct {
+	SetCookie http.Cookie `header:"Set-Cookie" doc:"The under-age refusal marker, when the sign-up is refused for its age"`
+	Body      struct {
 		Success     bool                         `json:"success" doc:"Success status"`
 		Message     string                       `json:"message" doc:"Response message"`
 		Options     *protocol.CredentialCreation `json:"options,omitempty" doc:"WebAuthn registration options"`
@@ -598,17 +604,20 @@ func (h *PasskeyHandler) BeginSignupHandler(ctx context.Context, input *BeginSig
 		)
 		return refuseWith(resp, refusal)
 	}
-	if errCode, errMsg, ok := validateSignupAgeConfirmation(input.Body.AgeConfirmed, input.Body.MinAgeAttested); !ok {
-		return refusePasskey(resp, errCode, errMsg)
+	secure := secureSessionCookies(h.config)
+	age, refusal, setMarker := signupAgeGate(input.ageRefusalCookies().present(secure), input.Body.DateOfBirth, time.Now())
+	if refusal != nil {
+		logger.AuthWarn(ctx, "passkey_signup_begin_consent_refused",
+			"email_hash", logger.HashEmail(email),
+			"error_code", refusal.Code,
+			"error", refusal.Error(),
+		)
+		if setMarker {
+			resp.SetCookie = signupAgeRefusalMarker(secure)
+		}
+		return refuseWith(resp, refusal)
 	}
-	acceptedAt := time.Now().UTC()
-	acceptance := contracts.LegalAcceptance{
-		TermsAcceptedAt: acceptedAt,
-		TermsVersion:    input.Body.TermsVersion,
-		PrivacyVersion:  input.Body.PrivacyVersion,
-		AgeConfirmedAt:  acceptedAt,
-		MinAgeAttested:  input.Body.MinAgeAttested,
-	}
+	acceptance := age.legalAcceptance(input.Body.TermsVersion, input.Body.PrivacyVersion)
 
 	logger.AuthDebug(ctx, "passkey_signup_begin",
 		"email_hash", logger.HashEmail(email),
@@ -668,9 +677,11 @@ type FinishSignupRequest struct {
 		TermsAccepted  bool   `json:"terms_accepted" doc:"Ignored; the consent recorded is the one signup/begin accepted"`
 		TermsVersion   string `json:"terms_version,omitempty" doc:"Ignored; the consent recorded is the one signup/begin accepted"`
 		PrivacyVersion string `json:"privacy_version,omitempty" doc:"Ignored; the consent recorded is the one signup/begin accepted"`
-		AgeConfirmed   bool   `json:"age_confirmed" doc:"Ignored; the consent recorded is the one signup/begin accepted"`
+		AgeConfirmed   bool   `json:"age_confirmed,omitempty" doc:"Ignored; the consent recorded is the one signup/begin accepted"`
 		MinAgeAttested int    `json:"min_age_attested,omitempty" doc:"Ignored; the consent recorded is the one signup/begin accepted"`
 	}
+	AgeRefused     string `cookie:"oauth_signup_age_refused" doc:"Under-age refusal marker, on a deployment without Secure cookies; present, the sign-up is refused with AGE_CONFIRMATION_REQUIRED"`
+	AgeRefusedHost string `cookie:"__Host-oauth_signup_age_refused" doc:"Under-age refusal marker, on a deployment with Secure cookies; present, the sign-up is refused with AGE_CONFIRMATION_REQUIRED"`
 }
 
 // FinishSignupResponse represents the response after completing signup
@@ -693,6 +704,17 @@ func (h *PasskeyHandler) FinishSignupHandler(ctx context.Context, input *FinishS
 	resp.Body.RequestID = requestID
 
 	logger.AuthDebug(ctx, "passkey_signup_finish")
+
+	// A browser refused for its age after this ceremony began is refused here
+	// too, before the challenge is spent.
+	if input.ageRefusalCookies().present(secureSessionCookies(h.config)) {
+		refusal := autherrors.ErrAgeConfirmationRequired("browser carries the under-age refusal marker")
+		logger.AuthWarn(ctx, "passkey_signup_finish_consent_refused",
+			"error_code", refusal.Code,
+			"error", refusal.Error(),
+		)
+		return refuseWith(resp, refusal)
+	}
 
 	session, signup, err := h.webauthnService.ConsumeSignupChallenge(input.Body.ChallengeID, "signup")
 	if err != nil {
@@ -717,12 +739,13 @@ func (h *PasskeyHandler) FinishSignupHandler(ctx context.Context, input *FinishS
 		)
 		return refuseWith(resp, refusal)
 	}
-	if errCode, errMsg, ok := validateSignupAgeConfirmation(!signup.Acceptance.AgeConfirmedAt.IsZero(), signup.Acceptance.MinAgeAttested); !ok {
+	if !acceptanceAttestsAge(signup.Acceptance) {
+		refusal := autherrors.ErrAgeConfirmationRequired("challenge carries no date of birth giving the minimum age")
 		logger.AuthWarn(ctx, "passkey_signup_finish_consent_refused",
 			"email_hash", logger.HashEmail(email),
-			"error_code", errCode,
+			"error_code", refusal.Code,
 		)
-		return refusePasskey(resp, errCode, errMsg)
+		return refuseWith(resp, refusal)
 	}
 
 	// Double-check email isn't already taken (race condition protection)
@@ -759,7 +782,7 @@ func (h *PasskeyHandler) FinishSignupHandler(ctx context.Context, input *FinishS
 		// reports as USER_EXISTS, reached by losing a race instead of by
 		// failing the check. It gets the same answer, so the response does not
 		// depend on which of the two saw it.
-		if refusal, ok := passkeyRefusal(err, autherrors.CodeUserExists, autherrors.CodeValidationFailed); ok {
+		if refusal, ok := passkeyRefusal(err, autherrors.CodeUserExists, autherrors.CodeValidationFailed, autherrors.CodeTermsAcceptanceRequired); ok {
 			logger.AuthWarn(ctx, "passkey_signup_finish_refused",
 				"email_hash", logger.HashEmail(email),
 				"error_code", refusal.Code,

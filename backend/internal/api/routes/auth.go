@@ -73,8 +73,10 @@ func setupAuthRoutes(rc RouteContext) {
 
 	// The "Create your account" step a new Google identity finishes on. The
 	// finish creates an account, so it draws on the public auth budget with
-	// registration. The read only answers the caller's own pending sign-up,
-	// named by a cookie, and is metered by the public-read limiter alone.
+	// registration. The read only answers the caller's own pending sign-up and
+	// under-age refusal marker, named by cookies, and is metered by the
+	// public-read limiter alone. The /auth page's Create account tab reads it
+	// too, for the marker.
 	oauthSignupHandler := authh.NewOAuthSignupHandler(rc.SC.Auth, rc.Cfg)
 	huma.Get(rc.API, authh.OAuthPendingSignupRoute, oauthSignupHandler.PendingSignupHandler)
 	huma.Post(rateLimitedAuthGroup, authh.OAuthFinishSignupRoute, oauthSignupHandler.FinishSignupHandler)
