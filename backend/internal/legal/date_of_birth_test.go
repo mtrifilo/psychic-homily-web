@@ -105,12 +105,12 @@ func TestAgeOnLeapDayBirthday(t *testing.T) {
 	}
 }
 
-func TestMeetsMinimumAgeOnTheSixteenthBirthday(t *testing.T) {
+func TestAgeOnReachesTheMinimumOnTheSixteenthBirthday(t *testing.T) {
 	now := time.Date(2026, time.October, 23, 0, 0, 0, 0, time.UTC)
-	if !MeetsMinimumAge(mustDate(t, "2010-10-23"), now) {
+	if AgeOn(mustDate(t, "2010-10-23"), now) < MinSignupAge {
 		t.Error("16 exactly on the birthday must meet the minimum")
 	}
-	if MeetsMinimumAge(mustDate(t, "2010-10-24"), now) {
+	if AgeOn(mustDate(t, "2010-10-24"), now) >= MinSignupAge {
 		t.Error("one day short of 16 must not meet the minimum")
 	}
 }

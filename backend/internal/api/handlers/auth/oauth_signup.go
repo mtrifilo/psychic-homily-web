@@ -289,14 +289,7 @@ func (h *OAuthSignupHandler) FinishSignupHandler(ctx context.Context, input *Fin
 		return h.unavailable(ctx, resp, "oauth_finish_signup_consume", err)
 	}
 	resp.SetCookie = append(resp.SetCookie, clearedPendingSignupCookie(secure))
-
 	identity := signup.Identity
-	if displayName != nil && *displayName == "" {
-		// A cleared name stores no name at all, not the provider's.
-		identity.FirstName, identity.LastName = "", ""
-		displayName = nil
-	}
-	signup.Identity = identity
 
 	user, sessionToken, err := h.authService.CompleteOAuthSignup(signup, &contracts.OAuthSignupConsent{
 		TermsAccepted:  true,
@@ -363,7 +356,7 @@ func (h *OAuthHTTPHandler) startSignupStep(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	token, _, err := h.authService.StartOAuthSignup(identity, returnTo)
+	token, err := h.authService.StartOAuthSignup(identity, returnTo)
 	if err != nil {
 		logger.AuthError(ctx, "oauth_signup_step_start_failed", err, "provider", identity.Provider)
 		http.Redirect(w, r, authPageRefusalURL(frontendURL, err, "authentication failed", returnTo), http.StatusTemporaryRedirect)

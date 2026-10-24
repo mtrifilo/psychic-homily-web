@@ -195,7 +195,7 @@ type AuthServiceInterface interface {
 	// StartOAuthSignup stores identity and returnTo as a pending sign-up for
 	// OAuthPendingSignupTTL and returns the signed token that names it, the
 	// only value that can read or consume it.
-	StartOAuthSignup(identity OAuthIdentity, returnTo string) (token string, expiresAt time.Time, err error)
+	StartOAuthSignup(identity OAuthIdentity, returnTo string) (token string, err error)
 	// PeekOAuthSignup returns the pending sign-up token names without
 	// consuming it. A token that fails its signature, names no row, or names
 	// an expired one is refused with a typed AuthError carrying

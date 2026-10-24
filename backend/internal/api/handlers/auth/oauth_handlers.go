@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/url"
 	"slices"
@@ -266,27 +267,25 @@ func beginOAuthHandshake(w http.ResponseWriter, r *http.Request, provider, state
 	q.Set("state", state)
 	r.URL.RawQuery = q.Encode()
 
-	if prompt == "" {
-		gothic.BeginAuthHandler(w, r)
-		return nil
-	}
-
-	// gothic.BeginAuthHandler is GetAuthURL and a redirect; the prompt goes on
-	// the URL in between, because goth sets a provider's prompt for every
-	// handshake or none.
+	// What gothic.BeginAuthHandler does, with the prompt added to the URL in
+	// between: goth sets a provider's prompt for every handshake or none.
 	authURL, err := gothic.GetAuthURL(w, r)
 	if err != nil {
 		w.WriteHeader(http.StatusBadRequest)
+		fmt.Fprintln(w, err)
 		return nil
 	}
-	parsed, err := url.Parse(authURL)
-	if err != nil {
-		return err
+	if prompt != "" {
+		parsed, err := url.Parse(authURL)
+		if err != nil {
+			return err
+		}
+		providerQuery := parsed.Query()
+		providerQuery.Set(oauthPromptParam, prompt)
+		parsed.RawQuery = providerQuery.Encode()
+		authURL = parsed.String()
 	}
-	providerQuery := parsed.Query()
-	providerQuery.Set(oauthPromptParam, prompt)
-	parsed.RawQuery = providerQuery.Encode()
-	http.Redirect(w, r, parsed.String(), http.StatusTemporaryRedirect)
+	http.Redirect(w, r, authURL, http.StatusTemporaryRedirect)
 	return nil
 }
 

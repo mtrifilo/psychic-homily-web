@@ -51,12 +51,6 @@ func AgeOn(dob, now time.Time) int {
 	return age
 }
 
-// MeetsMinimumAge reports whether someone born on dob is at least MinSignupAge
-// on the UTC calendar date of now.
-func MeetsMinimumAge(dob, now time.Time) bool {
-	return AgeOn(dob, now) >= MinSignupAge
-}
-
 func utcDate(t time.Time) time.Time {
 	u := t.UTC()
 	return time.Date(u.Year(), u.Month(), u.Day(), 0, 0, 0, 0, time.UTC)
