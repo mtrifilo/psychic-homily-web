@@ -626,7 +626,8 @@ function SignupForm({
       ageConfirmed: false,
     } as SignupFormData,
     onSubmit: async ({ value }) => {
-      setConsentVersionsError(null)
+      // A submit starts with no message up: what follows is its own answer.
+      showError(setConsentVersionsError, null)
       let versions: ConsentVersions
       try {
         versions = await consentVersions.read()

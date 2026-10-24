@@ -292,6 +292,25 @@ describe('SignupForm deferred validation', () => {
     })
   })
 
+  it('takes down an earlier message when the form is submitted', async () => {
+    const { user } = await renderSignupForm()
+    act(() => {
+      latestButtonProps(passkeySignupProps).onError('Failed to start passkey signup')
+    })
+    expect(screen.getByText('Failed to start passkey signup')).toBeInTheDocument()
+
+    await user.type(screen.getByLabelText('Email'), 'test@example.com')
+    await user.type(screen.getByLabelText('Password'), 'validPassword123!')
+    await user.click(screen.getByRole('checkbox', { name: TERMS_CHECKBOX }))
+    await user.click(screen.getByRole('checkbox', { name: AGE_CHECKBOX }))
+    await user.click(screen.getByRole('button', { name: 'Create account' }))
+
+    await waitFor(() => {
+      expect(mockRegisterMutate).toHaveBeenCalledTimes(1)
+    })
+    expect(screen.queryByText('Failed to start passkey signup')).not.toBeInTheDocument()
+  })
+
   // The alert is already up with another message when the sign-up is refused.
   it('brings the alert into view again when a refusal replaces its message', async () => {
     const { user, rerender } = await renderSignupForm()

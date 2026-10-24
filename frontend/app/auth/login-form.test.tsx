@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { Activity } from 'react'
 import { screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { renderWithProviders } from '@/test/utils'
@@ -134,6 +135,32 @@ describe('LoginForm submit', () => {
       .closest('[role="alert"]')
     expect(alert).not.toBe(first)
     expect(vi.mocked(Element.prototype.scrollIntoView).mock.contexts[0]).toBe(alert)
+  })
+
+  // The App Router keeps a page it navigated away from mounted but hidden;
+  // showing it again is not a new refusal.
+  it('does not scroll back to the alert when the hidden page is shown again', () => {
+    mockLoginError = new Error('Invalid email or password')
+    const { rerender } = renderWithProviders(
+      <Activity mode="visible">
+        <AuthPage />
+      </Activity>
+    )
+    vi.mocked(Element.prototype.scrollIntoView).mockClear()
+
+    rerender(
+      <Activity mode="hidden">
+        <AuthPage />
+      </Activity>
+    )
+    rerender(
+      <Activity mode="visible">
+        <AuthPage />
+      </Activity>
+    )
+
+    expect(screen.getByText('Invalid email or password')).toBeInTheDocument()
+    expect(Element.prototype.scrollIntoView).not.toHaveBeenCalled()
   })
 
   // The alert announces itself, so focus stays on the password field; the

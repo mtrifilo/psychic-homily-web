@@ -6,6 +6,9 @@
  * targets above the tab bar and the cookie banner.
  */
 
+/** The alert elements revealFormAlert has already brought into view. */
+const revealedAlerts = new WeakSet<HTMLElement>()
+
 /** What a form exposes about one field's validation result. */
 interface FieldMetaReader<Name extends string> {
   getFieldMeta(name: Name): { errors: readonly unknown[] } | undefined
@@ -46,10 +49,13 @@ export function focusFirstInvalidField<Name extends string>(
  * once, and moving focus onto it would announce it a second time.
  *
  * A module-level function, so its identity is stable and React calls it only
- * when the alert mounts and unmounts, never on a re-render.
+ * when the alert mounts and unmounts, never on a re-render. React also calls
+ * it again with the same element when a hidden page is shown again, which is
+ * not a new message, so each element is revealed once.
  */
 export function revealFormAlert(alert: HTMLElement | null): void {
-  if (!alert) return
+  if (!alert || revealedAlerts.has(alert)) return
+  revealedAlerts.add(alert)
   const focused = document.activeElement
   alert.scrollIntoView({ block: 'nearest' })
   if (focused instanceof HTMLElement && alert.closest('form')?.contains(focused)) {
