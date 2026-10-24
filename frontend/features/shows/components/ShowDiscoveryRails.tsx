@@ -21,7 +21,7 @@ import type { ShowResponse } from '../types'
 
 /**
  * The show page's discovery rails: `ALSO / TONIGHT · CHICAGO` beside
- * `MORE AT / SALT SHED`, the locked mock's two-column row above the footer.
+ * `MORE AT / SALT SHED`, the two-column row under the show page's listen module.
  *
  * Both rails are GRAPH-DERIVED and say so in their headings — "what else is on
  * in this metro that night" and "what else this room has booked" are questions

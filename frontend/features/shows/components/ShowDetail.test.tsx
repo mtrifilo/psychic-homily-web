@@ -263,6 +263,21 @@ function makeArtist(overrides: Partial<ArtistResponse> = {}): ArtistResponse {
   }
 }
 
+/**
+ * A one-artist bill the listen module renders a card for. The URL is one
+ * `parseSpotifyEmbed` accepts; a bare `spotify.com/band` fails its
+ * host-anchored parse and the module hides itself.
+ */
+function makePlayableBill(): ArtistResponse[] {
+  return [
+    makeArtist({
+      id: 1,
+      name: 'Band',
+      socials: { spotify: 'https://open.spotify.com/artist/1a2b3c4d5e6f7g8h9i0jkl' },
+    }),
+  ]
+}
+
 function makeShow(overrides: Partial<ShowResponse> = {}): ShowResponse {
   return {
     id: 1,
@@ -562,8 +577,7 @@ describe('ShowDetail', () => {
     )
 
     // The rails row sits BETWEEN the embeds and the byline. Position is the
-    // claim, so containment alone is
-    // not enough: a rails row rendered after the provenance footer would still
+    // claim, so containment alone is not enough: a rails row rendered after the provenance footer would still
     // "be on the page" and would still be wrong. Both halves of the claim are
     // pinned — a row that drifted above the embeds would otherwise ship green.
     it('renders the rails row below the embeds and above the provenance footer', () => {
@@ -1018,14 +1032,6 @@ describe('ShowDetail', () => {
   // and the rails must then take its place rather than drift below the
   // modules that follow it.
   describe('module order', () => {
-    const playableBill = [
-      makeArtist({
-        id: 1,
-        name: 'Band',
-        socials: { spotify: 'https://open.spotify.com/artist/1a2b3c4d5e6f7g8h9i0jkl' },
-      }),
-    ]
-
     function expectInDocumentOrder(elements: HTMLElement[]) {
       for (let i = 1; i < elements.length; i++) {
         expect(
@@ -1039,7 +1045,7 @@ describe('ShowDetail', () => {
       'renders listen module, rails, In Collections, Field Notes in that order on a %s show',
       lifecycle => {
         mockUseShow.mockReturnValue({
-          data: makeShow({ artists: playableBill }),
+          data: makeShow({ artists: makePlayableBill() }),
           isLoading: false,
           error: null,
         })
