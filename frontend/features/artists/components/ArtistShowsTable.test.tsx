@@ -253,6 +253,38 @@ describe('ArtistShowsTable with a Save column', () => {
     expect(place.firstElementChild).toHaveClass('max-sm:hidden')
     expect(place.firstElementChild).toHaveTextContent('·')
   })
+  it('puts "Venue TBA" on its own last line too', () => {
+    render(
+      <ArtistShowsTable
+        shows={[{ ...makeShow(1, null), artists: show.artists }]}
+        ariaLabel="Upcoming shows"
+        saveColumn={{ counts: undefined }}
+      />
+    )
+    const place = screen.getByText(/Venue TBA/)
+    expect(place).toHaveClass('max-sm:order-last', 'max-sm:basis-full')
+    expect(place.firstElementChild).toHaveClass('max-sm:hidden')
+  })
+
+  it('moves the place after a status badge in the same flex row', () => {
+    render(
+      <ArtistShowsTable
+        shows={[{ ...show, is_cancelled: true }]}
+        ariaLabel="Upcoming shows"
+        saveColumn={{ counts: undefined }}
+      />
+    )
+    const place = screen
+      .getByRole('link', { name: 'The Rebel Lounge' })
+      .closest('.text-muted-foreground')!
+    const badge = screen.getByText('CANCELLED')
+    // Same flex row, so `order-last` puts the place after the badge.
+    expect(place.parentElement).toBe(badge.parentElement)
+    expect(place).toHaveClass('max-sm:order-last')
+    expect([...badge.classList].some(name => /(^|:)order-/.test(name))).toBe(
+      false
+    )
+  })
 })
 
 describe('ArtistShowsTable without a Save column', () => {
