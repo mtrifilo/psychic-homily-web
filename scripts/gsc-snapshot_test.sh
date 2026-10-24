@@ -4,10 +4,11 @@
 # Self-test for scripts/gsc-snapshot.sh. Puts a stub `gcloud` (mints a fake
 # token) and a stub `curl` (answers Search Analytics requests from fixture
 # files and logs each request body) first on PATH, runs the real script, and
-# asserts on the generated doc: the complete-week list, the page-family
-# classifier including the slug-date split, startRow pagination past the
-# 25000-row request cap, the short-week flag, trap 7 and the Page indexing
-# slot.
+# asserts on the generated doc and the logged requests: the complete-week
+# list, the page-family classifier including the slug-date split and the
+# label tie-break, startRow pagination past the 25000-row request cap, the
+# short-week flag, traps 6 to 8, the Page indexing slot, and the request
+# bodies of the window-wide fetches.
 #
 # Runs locally:
 #   bash scripts/gsc-snapshot_test.sh
@@ -102,8 +103,9 @@ chmod +x "$STUB_BIN/gcloud" "$STUB_BIN/curl"
 export PATH="$STUB_BIN:$PATH"
 export STUB_FIXTURES STUB_LOG
 
-# Week of 2026-09-28: one URL per classifier rule. Every family's impressions
-# differ, so the table order (impressions descending) is fixed.
+# Week of 2026-09-28: one URL per classifier rule. Families differ in
+# impressions except /collections/ and /labels/ (14 each), which the label
+# breaks.
 cat >"$STUB_FIXTURES/pages_2026-09-28_2026-10-04_0.json" <<'JSON'
 {"rows": [
   {"keys": ["https://psychichomily.com/shows/2026-09-27-day-before"], "clicks": 0, "impressions": 2, "ctr": 0, "position": 3},
@@ -123,7 +125,7 @@ cat >"$STUB_FIXTURES/pages_2026-09-28_2026-10-04_0.json" <<'JSON'
   {"keys": ["https://psychichomily.com/releases/r"], "clicks": 0, "impressions": 13, "ctr": 0, "position": 1},
   {"keys": ["https://psychichomily.com/labels/l"], "clicks": 0, "impressions": 14, "ctr": 0, "position": 1},
   {"keys": ["https://psychichomily.com/scenes/s"], "clicks": 0, "impressions": 15, "ctr": 0, "position": 1},
-  {"keys": ["https://psychichomily.com/collections/c"], "clicks": 0, "impressions": 16, "ctr": 0, "position": 1},
+  {"keys": ["https://psychichomily.com/collections/c"], "clicks": 0, "impressions": 14, "ctr": 0, "position": 1},
   {"keys": ["https://psychichomily.com/festivals/f"], "clicks": 0, "impressions": 17, "ctr": 0, "position": 1},
   {"keys": ["https://psychichomily.com/radio"], "clicks": 0, "impressions": 9, "ctr": 0, "position": 1},
   {"keys": ["https://psychichomily.com/radio/kexp"], "clicks": 0, "impressions": 9, "ctr": 0, "position": 3},
@@ -189,7 +191,7 @@ expect_line "### Week of 2026-10-12 (Monday 2026-10-12 to Sunday 2026-10-18)"
 expect_no_text "### Week of 2026-09-21"
 expect_no_text "### Week of 2026-10-19"
 # The zero-impression row is not a page with an impression, so 24 of 25 count.
-expect_line "24 pages with impressions · 5 clicks · 299 impressions · impression-weighted position 2.1"
+expect_line "24 pages with impressions · 5 clicks · 297 impressions · impression-weighted position 2.2"
 # Every family row of the week, in order (impressions descending).
 expected_rows="$(cat <<'ROWS'
 | `show: dated AFTER window` | 1 | 2 | 50 | 2 |
@@ -200,8 +202,8 @@ expected_rows="$(cat <<'ROWS'
 | `/` | 1 | 0 | 19 | 1 |
 | `/radio` | 2 | 0 | 18 | 2 |
 | `/festivals/` | 1 | 0 | 17 | 1 |
-| `/collections/` | 1 | 0 | 16 | 1 |
 | `/scenes/` | 1 | 0 | 15 | 1 |
+| `/collections/` | 1 | 0 | 14 | 1 |
 | `/labels/` | 1 | 0 | 14 | 1 |
 | `/releases/` | 1 | 0 | 13 | 1 |
 | `/venues/` | 1 | 0 | 12 | 1 |
@@ -223,14 +225,18 @@ expect_requests 0 '"startRow":50000'
 expect_requests 1 '"startDate":"2026-09-28","endDate":"2026-10-04","rowLimit":25000,"dimensions":["page"]}'
 # The week of 2026-10-12 has no page rows and only 5 served days.
 expect_line "| _no pages with impressions in this week_ | | | | |"
+expect_line "0 pages with impressions · 0 clicks · 0 impressions"
 expect_line "**Only 5 of the 7 days in this week were served (see the Coverage line); do not compare it with a full week.**"
 [ "$(grep -c '^\*\*Only ' "$DOC" 2>/dev/null)" = "1" ] || fail "expected exactly one short-week flag"
+expect_line "6. **Page indexing is not machine-captured.** The Page indexing report has"
 expect_line "7. **Breadth counts distinct pages with at least one impression.** A family's"
+expect_line "8. **Breadth totals are not the daily totals.** Rows grouped by page are"
 expect_line "### Page indexing (manual read)"
 expect_line "| Indexed | |"
 expect_line "| Discovered - currently not indexed | |"
 expect_line "| Crawled - currently not indexed | |"
 expect_line "Report last update:"
+expect_line "_Read these in the Search Console UI under Indexing > Pages (<https://search.google.com/search-console/index?resource_id=sc-domain%3Apsychichomily.com>) and copy the report's own \"Last update\" date, not the day of the read._"
 
 CASE="window that is exactly two weeks, Monday to Sunday"
 run 2026-09-28 2026-10-11
@@ -244,8 +250,15 @@ run 2026-10-01 2026-10-05
 expect_status 0
 expect_line "_No complete Monday-to-Sunday week lies inside this window, so there is no breadth table._"
 expect_no_text "### Week of"
-# Only the full-window page fetch runs.
+# Only the window-wide fetches run, with the request bodies the doc's other
+# tables are built from.
 expect_requests 1 '"dimensions":["page"]'
+expect_requests 0 '"startRow"'
+expect_requests 1 '{"startDate":"2026-10-01","endDate":"2026-10-05","rowLimit":1}'
+expect_requests 1 '{"startDate":"2026-10-01","endDate":"2026-10-05","rowLimit":5,"dimensions":["date"]}'
+expect_requests 1 '{"startDate":"2026-10-01","endDate":"2026-10-05","rowLimit":25000,"dimensions":["query"]}'
+expect_requests 1 '{"startDate":"2026-10-01","endDate":"2026-10-05","rowLimit":25000,"dimensions":["query","page"]}'
+expect_requests 1 '{"startDate":"2026-10-01","endDate":"2026-10-05","rowLimit":25000,"dimensions":["page"]}'
 
 # ---------------------------------------------------------------- result
 
