@@ -632,7 +632,7 @@ func TestBeginSignupHandler_RefusesWithoutDateOfBirth(t *testing.T) {
 			if resp.Body.Success || resp.Body.ErrorCode != autherrors.CodeAgeConfirmationRequired {
 				t.Fatalf("got success=%v code=%q, want %s", resp.Body.Success, resp.Body.ErrorCode, autherrors.CodeAgeConfirmationRequired)
 			}
-			if len(resp.SetCookie) != 0 {
+			if resp.SetCookie.Name != "" {
 				t.Errorf("set cookies %+v; a request that gave no age leaves no marker", resp.SetCookie)
 			}
 		})
@@ -656,7 +656,7 @@ func TestBeginSignupHandler_UnderAgeSetsRefusalMarker(t *testing.T) {
 	if resp.Body.ChallengeID != "" || resp.Body.Options != nil {
 		t.Error("a challenge was issued for a refused sign-up")
 	}
-	if len(resp.SetCookie) != 1 || !refusalMarkerSet(resp.SetCookie[0]) {
+	if !refusalMarkerSet(resp.SetCookie) {
 		t.Errorf("Set-Cookie = %+v, want the refusal marker alone", resp.SetCookie)
 	}
 }
@@ -684,7 +684,7 @@ func TestBeginSignupHandler_RefusesBrowserCarryingMarker(t *testing.T) {
 			if resp.Body.ErrorCode != autherrors.CodeAgeConfirmationRequired {
 				t.Fatalf("code = %q, want %s", resp.Body.ErrorCode, autherrors.CodeAgeConfirmationRequired)
 			}
-			if len(resp.SetCookie) != 1 || resp.SetCookie[0].Name != signupAgeRefusalCookieNameFor(secure) {
+			if resp.SetCookie.Name != signupAgeRefusalCookieNameFor(secure) {
 				t.Errorf("Set-Cookie = %+v, want the marker renewed as %q", resp.SetCookie, signupAgeRefusalCookieNameFor(secure))
 			}
 		})
@@ -705,7 +705,7 @@ func TestBeginSignupHandler_RefusesImplausibleDateOfBirth(t *testing.T) {
 	if resp.Body.ErrorCode != autherrors.CodeValidationFailed || resp.Body.Message != dateOfBirthInvalidMessage {
 		t.Errorf("got code=%q message=%q, want %s %q", resp.Body.ErrorCode, resp.Body.Message, autherrors.CodeValidationFailed, dateOfBirthInvalidMessage)
 	}
-	if len(resp.SetCookie) != 0 {
+	if resp.SetCookie.Name != "" {
 		t.Errorf("set cookies %+v on a field refusal", resp.SetCookie)
 	}
 }
@@ -986,6 +986,34 @@ func TestFinishSignupHandler_MalformedCredentialResponse(t *testing.T) {
 
 // A challenge that carries no consent is refused however the finish body
 // fills its consent fields, before any account is created.
+// A browser refused for its age after a ceremony began cannot finish it: the
+// marker refuses finish before the challenge is spent.
+func TestFinishSignupHandler_RefusesBrowserCarryingMarker(t *testing.T) {
+	consumed := false
+	mockWA := &testhelpers.MockWebAuthnService{
+		ConsumeSignupChallengeFn: func(string, string) (*webauthn.SessionData, contracts.SignupChallenge, error) {
+			consumed = true
+			return &webauthn.SessionData{}, currentSignupChallenge("new@example.com"), nil
+		},
+	}
+	h := testPasskeyHandlerWithMocks(mockWA, &testhelpers.MockJWTService{}, &testhelpers.MockUserService{})
+
+	input := &FinishSignupRequest{}
+	input.Body.ChallengeID = "valid-challenge"
+	input.AgeRefused = "1"
+
+	resp, err := h.FinishSignupHandler(context.Background(), input)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if resp.Body.Success || resp.Body.ErrorCode != autherrors.CodeAgeConfirmationRequired {
+		t.Errorf("got success=%v code=%q, want %s", resp.Body.Success, resp.Body.ErrorCode, autherrors.CodeAgeConfirmationRequired)
+	}
+	if consumed {
+		t.Error("the challenge was spent for a refused browser")
+	}
+}
+
 // The service's own consent refusal is the client's refusal, coded as such,
 // never a fault.
 func TestFinishSignupHandler_ServiceTermsRefusalIsReported(t *testing.T) {

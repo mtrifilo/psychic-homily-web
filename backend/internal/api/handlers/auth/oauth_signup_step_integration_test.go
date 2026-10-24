@@ -190,6 +190,17 @@ func (s *OAuthHandlerIntegrationSuite) TestPendingSignup_AgeMarkerWins() {
 	s.Equal("age_refused", body["status"])
 }
 
+// The /auth page's Create account tab reads the marker with no pending
+// sign-up behind it: a browser refused on the password or passkey path holds
+// only the marker.
+func (s *OAuthHandlerIntegrationSuite) TestPendingSignup_MarkerAloneAnswersAgeRefused() {
+	body := s.decode(s.stepAPI().Get(OAuthPendingSignupRoute, "Cookie: "+signupAgeRefusalCookieName+"=1"))
+	s.Equal("age_refused", body["status"])
+
+	body = s.decode(s.stepAPI().Get(OAuthPendingSignupRoute))
+	s.Equal("expired", body["status"])
+}
+
 // --- POST /auth/oauth/finish-signup ---
 
 func (s *OAuthHandlerIntegrationSuite) TestFinishSignup_CreatesTheAccountAndSignsIn() {

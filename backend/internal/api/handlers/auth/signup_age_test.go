@@ -23,8 +23,12 @@ import (
 
 func TestCheckSignupAge(t *testing.T) {
 	now := time.Date(2026, 10, 24, 12, 0, 0, 0, time.UTC)
+	// At 12:00 UTC it is already the next day at UTC+14, the latest date
+	// anywhere, so a 16th birthday that is tomorrow in UTC counts today, and
+	// only one two days ahead is still under the minimum.
 	sixteenToday := now.AddDate(-legal.MinSignupAge, 0, 0).Format(legal.DateOfBirthLayout)
-	sixteenTomorrow := now.AddDate(-legal.MinSignupAge, 0, 2).Format(legal.DateOfBirthLayout)
+	sixteenTomorrowInUTC := now.AddDate(-legal.MinSignupAge, 0, 1).Format(legal.DateOfBirthLayout)
+	sixteenAfterLatestDate := now.AddDate(-legal.MinSignupAge, 0, 2).Format(legal.DateOfBirthLayout)
 
 	cases := []struct {
 		value   string
@@ -37,7 +41,8 @@ func TestCheckSignupAge(t *testing.T) {
 		{"1990/01/31", signupAgeImplausible, 0},
 		{"2026-10-30", signupAgeImplausible, 0},
 		{"1870-01-01", signupAgeImplausible, 0},
-		{sixteenTomorrow, signupAgeUnderMinimum, 0},
+		{sixteenAfterLatestDate, signupAgeUnderMinimum, 0},
+		{sixteenTomorrowInUTC, signupAgeAccepted, legal.MinSignupAge},
 		{sixteenToday, signupAgeAccepted, legal.MinSignupAge},
 		{"1990-06-15", signupAgeAccepted, 36},
 	}
@@ -207,8 +212,9 @@ func TestSignupAgeWire_UnderAgeMarkerRefusesTheNextAttempt(t *testing.T) {
 func TestSignupRequestsDeclareTheMarkerCookie(t *testing.T) {
 	want := []string{signupAgeRefusalCookieNameFor(false), signupAgeRefusalCookieNameFor(true)}
 	for name, request := range map[string]any{
-		"RegisterRequest":    RegisterRequest{},
-		"BeginSignupRequest": BeginSignupRequest{},
+		"RegisterRequest":     RegisterRequest{},
+		"BeginSignupRequest":  BeginSignupRequest{},
+		"FinishSignupRequest": FinishSignupRequest{},
 	} {
 		var tags []string
 		typ := reflect.TypeOf(request)

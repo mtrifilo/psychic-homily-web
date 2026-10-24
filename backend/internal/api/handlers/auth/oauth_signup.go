@@ -115,7 +115,10 @@ type PendingOAuthSignupResponse struct {
 
 // PendingSignupHandler answers which state the step is in, and for a live
 // pending sign-up, the address and name to show. It reads only this browser's
-// cookie, so the address never travels in a URL.
+// cookies, so the address never travels in a URL. The under-age marker
+// answers age_refused whether or not a pending sign-up exists: the /auth
+// page's Create account tab reads it, with no pending sign-up, to show the
+// refusal in place of the forms.
 func (h *OAuthSignupHandler) PendingSignupHandler(ctx context.Context, input *PendingOAuthSignupRequest) (*PendingOAuthSignupResponse, error) {
 	resp := &PendingOAuthSignupResponse{CacheControl: "no-store"}
 	secure := h.secureCookies()

@@ -7,10 +7,10 @@ package legal
 import "time"
 
 // MinSignupAge is the minimum age, in years, an account may be created at,
-// matching the /terms and /privacy minimum-age clauses. It is the only copy
-// of the number: the backend is the authoritative gate on every
-// account-creation path, and TestVersionsMatchFrontend pins MIN_SIGNUP_AGE in
-// frontend/lib/legal.ts to it.
+// matching the /terms and /privacy minimum-age clauses. The backend is the
+// authoritative gate on every account-creation path; MIN_SIGNUP_AGE in
+// frontend/lib/legal.ts mirrors it for the forms' copy, and
+// TestVersionsMatchFrontend fails when the two differ.
 const MinSignupAge = 16
 
 // The versions the frontend's sign-up forms send (CURRENT_TERMS_VERSION and

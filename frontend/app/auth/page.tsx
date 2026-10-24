@@ -79,6 +79,7 @@ import {
 } from './auth-redirect-utils'
 import { useAuthArrivalParams } from '@/app/auth/_components/auth-arrival-params'
 import {
+  focusControl,
   focusFirstInvalidField,
   revealFormAlert,
 } from '@/app/auth/_components/form-error-focus'
@@ -418,6 +419,11 @@ function LoginForm({ returnTo }: { returnTo: string }) {
   )
 }
 
+/** A valid password sign-up form, with the date of birth as the backend reads it. */
+type PasswordSignupSubmission = Omit<SignupFormData, 'dateOfBirth'> & {
+  dateOfBirth: string
+}
+
 /** A password sign-up request in flight, as the form that sent it tracks it. */
 interface PasswordSignupRequest {
   /** The claim it made on the page. */
@@ -425,7 +431,7 @@ interface PasswordSignupRequest {
   /** The signal that stands for it under the page's deadline. */
   deadlineSignal: AbortSignal
   /** What was submitted, for the one retry a consent refusal gets. */
-  value: SignupFormData
+  value: PasswordSignupSubmission
   /** This request is that retry. */
   consentRetried: boolean
 }
@@ -555,7 +561,7 @@ function SignupForm({
   }, [])
 
   const register = (
-    value: SignupFormData,
+    value: PasswordSignupSubmission,
     versions: ConsentVersions,
     consentRetried: boolean
   ) => {
@@ -576,7 +582,7 @@ function SignupForm({
       terms_accepted: value.termsAccepted,
       terms_version: versions.termsVersion,
       privacy_version: versions.privacyVersion,
-      date_of_birth: dateOfBirthFromParts(value.dateOfBirth) ?? '',
+      date_of_birth: value.dateOfBirth,
       signal: request.deadlineSignal,
       // The profile refetch that follows takes no signal: this deadline
       // bounds only how long the claim waits on it.
@@ -589,7 +595,7 @@ function SignupForm({
   // The notice covers only the re-read: it ends before the retried request
   // goes out, whose own pending state and answer the form shows as usual, so
   // nothing that skips a mutation callback can leave it up.
-  const retryAfterConsentRefusal = async (value: SignupFormData) => {
+  const retryAfterConsentRefusal = async (value: PasswordSignupSubmission) => {
     setIsRetryingConsent(true)
     let versions: ConsentVersions
     try {
@@ -619,6 +625,13 @@ function SignupForm({
     onSubmit: async ({ value }) => {
       // A submit starts with no message up: what follows is its own answer.
       showError(setConsentVersionsError, null)
+      // The schema passed, so the date reads; a date it judged against an
+      // earlier instant than this one is still never sent empty.
+      const dateOfBirth = dateOfBirthFromParts(value.dateOfBirth)
+      if (dateOfBirth === null) {
+        focusControl(firstInvalidDateOfBirthPartId(SIGNUP_DATE_OF_BIRTH_ID_PREFIX, value.dateOfBirth))
+        return
+      }
       let versions: ConsentVersions
       try {
         versions = await consentVersions.read()
@@ -630,7 +643,7 @@ function SignupForm({
         }
         return
       }
-      register(value, versions, false)
+      register({ ...value, dateOfBirth }, versions, false)
     },
     onSubmitInvalid: ({ formApi }) => {
       focusFirstInvalidField(formApi, signupFieldIds(formApi.getFieldValue('dateOfBirth')))

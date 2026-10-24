@@ -14,7 +14,11 @@ import (
 // a date of birth under legal.MinSignupAge, on any sign-up path. While it
 // lives, every sign-up from that browser is refused for its age whatever date
 // it sends, and a new provider identity lands on the refusal rather than on
-// the step's form, so a different date cannot be tried straight away.
+// the step's form, so a different date cannot be tried straight away. GET
+// OAuthPendingSignupRoute reports it as the age_refused status, which both the
+// "Create your account" step and the /auth page's Create account tab read.
+// The name keeps its oauth_ prefix because it is published in the API and
+// renaming it would drop the markers browsers already carry.
 const signupAgeRefusalCookieName = "oauth_signup_age_refused"
 
 // SignupAgeRefusalMarkerLifetime is how long the under-age refusal marker
@@ -57,6 +61,10 @@ func (r *RegisterRequest) ageRefusalCookies() signupAgeRefusalCookies {
 }
 
 func (r *BeginSignupRequest) ageRefusalCookies() signupAgeRefusalCookies {
+	return signupAgeRefusalCookies{r.AgeRefused, r.AgeRefusedHost}
+}
+
+func (r *FinishSignupRequest) ageRefusalCookies() signupAgeRefusalCookies {
 	return signupAgeRefusalCookies{r.AgeRefused, r.AgeRefusedHost}
 }
 

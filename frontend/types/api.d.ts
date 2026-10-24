@@ -8695,7 +8695,7 @@ export interface components {
             /** @description Ignored. It no longer counts as an age attestation: send date_of_birth. */
             age_confirmed?: boolean;
             /**
-             * @description Date of birth, YYYY-MM-DD. Required: without it the sign-up is refused with AGE_CONFIRMATION_REQUIRED. The age is computed from it at submission on the latest calendar date anywhere (UTC+14); under the minimum age (GET /legal/versions) the sign-up is refused with AGE_CONFIRMATION_REQUIRED and this browser is refused every sign-up for a day. A date that does not exist, is in the future, or is more than 150 years back is refused with VALIDATION_FAILED. The account records the date given here; signup/finish takes none.
+             * @description Date of birth, YYYY-MM-DD. Required: without it the sign-up is refused with AGE_CONFIRMATION_REQUIRED. The age is computed from it at submission on the latest calendar date anywhere (UTC+14); under the minimum age (GET /legal/versions) the sign-up is refused with AGE_CONFIRMATION_REQUIRED and this browser is refused every sign-up for a day. A date that does not exist, is in the future, or gives an age over 150 is refused with VALIDATION_FAILED. The account records the date given here; signup/finish takes none.
              * @example 1990-01-31
              */
             date_of_birth?: string;
@@ -13966,7 +13966,7 @@ export interface components {
             /** @description Ignored. It no longer counts as an age attestation: send date_of_birth. */
             age_confirmed?: boolean;
             /**
-             * @description Date of birth, YYYY-MM-DD. Required: without it the sign-up is refused with AGE_CONFIRMATION_REQUIRED. The age is computed from it at submission on the latest calendar date anywhere (UTC+14); under the minimum age (GET /legal/versions) the sign-up is refused with AGE_CONFIRMATION_REQUIRED and this browser is refused every sign-up for a day. A date that does not exist, is in the future, or is more than 150 years back is refused with VALIDATION_FAILED.
+             * @description Date of birth, YYYY-MM-DD. Required: without it the sign-up is refused with AGE_CONFIRMATION_REQUIRED. The age is computed from it at submission on the latest calendar date anywhere (UTC+14); under the minimum age (GET /legal/versions) the sign-up is refused with AGE_CONFIRMATION_REQUIRED and this browser is refused every sign-up for a day. A date that does not exist, is in the future, or gives an age over 150 is refused with VALIDATION_FAILED.
              * @example 1990-01-31
              */
             date_of_birth?: string;
@@ -22668,21 +22668,7 @@ export interface operations {
             /** @description OK */
             200: {
                 headers: {
-                    Domain?: string;
-                    Expires?: string;
-                    HttpOnly?: boolean;
-                    MaxAge?: number;
-                    Name?: string;
-                    Partitioned?: boolean;
-                    Path?: string;
-                    Quoted?: boolean;
-                    Raw?: string;
-                    RawExpires?: string;
-                    SameSite?: number;
-                    Secure?: boolean;
                     "Set-Cookie"?: string;
-                    Unparsed?: string;
-                    Value?: string;
                     [name: string]: unknown;
                 };
                 content: {
@@ -22705,7 +22691,12 @@ export interface operations {
             query?: never;
             header?: never;
             path?: never;
-            cookie?: never;
+            cookie?: {
+                /** @description Under-age refusal marker, on a deployment without Secure cookies; present, the sign-up is refused with AGE_CONFIRMATION_REQUIRED */
+                oauth_signup_age_refused?: string;
+                /** @description Under-age refusal marker, on a deployment with Secure cookies; present, the sign-up is refused with AGE_CONFIRMATION_REQUIRED */
+                "__Host-oauth_signup_age_refused"?: string;
+            };
         };
         requestBody: {
             content: {
