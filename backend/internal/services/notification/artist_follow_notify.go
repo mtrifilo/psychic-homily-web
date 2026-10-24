@@ -130,11 +130,11 @@ type recipientAlertPrefs struct {
 // notifyArtistFollowers fans a newly visible show out to the followers of the
 // artists on its bill. Every error short of the email send is logged here and
 // returned: a query error ends the pass, and a failed claim or budget check for
-// one recipient skips only that recipient. MatchAndNotify runs after the approval or ingest write it
-// announces, so an error here never fails that write; it makes the outbox
-// retry. The retry delivers only to recipients with no artist alert row for the
-// show in either lane, so a lane whose claim failed beside a claimed lane stays
-// unclaimed.
+// one recipient skips only that recipient. MatchAndNotify runs after the
+// approval or ingest write it announces, so an error here never fails that
+// write; it makes the outbox retry. The retry delivers only to recipients with
+// no artist alert row for the show in either lane, so a lane whose claim failed
+// beside a claimed lane stays unclaimed.
 func (s *NotificationFilterService) notifyArtistFollowers(show *catalogm.Show, showArtistIDs pq.Int64Array) error {
 	if show == nil || len(showArtistIDs) == 0 {
 		return nil
