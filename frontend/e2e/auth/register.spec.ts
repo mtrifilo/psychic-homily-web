@@ -55,21 +55,40 @@ test.describe('Registration', () => {
       timeout: 5_000,
     })
 
-    // Type a short password to trigger the strength meter
+    const registerRequests: string[] = []
+    page.on('request', request => {
+      if (new URL(request.url()).pathname.endsWith('/auth/register')) {
+        registerRequests.push(request.url())
+      }
+    })
+
+    // Every field valid but the password, so Password is the first invalid one
+    await page.locator('#signup-email').fill('short-password@test.local')
     await page.locator('#signup-password').fill('short')
+    await page.locator('#terms').check()
+    await page.locator('#age-confirmation').check()
 
     // Password strength meter should show unmet requirements
     await expect(
-      page.getByText('At least 12 characters')
+      page.getByText('At least 12 characters', { exact: true })
     ).toBeVisible({ timeout: 5_000 })
 
-    // Submit button should be disabled with invalid password
-    await expect(
-      page.getByRole('button', { name: 'Create account' })
-    ).toBeDisabled()
+    // The submit button stays enabled; pressing it shows the field's error
+    // and moves focus to the first invalid field instead of submitting.
+    const submit = page.getByRole('button', { name: 'Create account' })
+    await expect(submit).toBeEnabled()
+    await submit.click()
 
-    // Still on /auth
+    await expect(
+      page.getByText('Password must be at least 12 characters')
+    ).toBeVisible({ timeout: 5_000 })
+    await expect(page.locator('#signup-password')).toBeFocused()
+    await expect(page.locator('#signup-password')).toHaveAttribute('aria-invalid', 'true')
+    await expect(submit).toBeEnabled()
+
+    // Still on /auth, and nothing was sent
     expect(page.url()).toContain('/auth')
+    expect(registerRequests).toHaveLength(0)
   })
 
   test('shows error for breached password', async ({ page }) => {
