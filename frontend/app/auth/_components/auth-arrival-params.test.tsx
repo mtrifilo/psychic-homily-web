@@ -1,6 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { Activity } from 'react'
-import { render, renderHook } from '@testing-library/react'
+import {
+  Activity,
+  StrictMode,
+  startTransition,
+  useLayoutEffect,
+  useState,
+} from 'react'
+import { act, render, renderHook } from '@testing-library/react'
 
 import { useAuthArrivalParams, withoutBannerParams } from './auth-arrival-params'
 
@@ -196,6 +202,56 @@ describe('useAuthArrivalParams', () => {
       rerender(page('visible', 'returnTo=%2Fshows'))
 
       expect(seen!.get('error')).toBeNull()
+    })
+  })
+
+  // StrictMode runs every effect cleanup once right after the first mount.
+  // The App Router syncs useSearchParams from inside replaceState; whether it
+  // does so in a transition or not, the first view keeps its banner.
+  describe('under StrictMode', () => {
+    const router: { sync: ((query: string) => void) | null } = { sync: null }
+    let seen: URLSearchParams | null = null
+    const read = (params: URLSearchParams) => {
+      seen = params
+    }
+    function Page({ initial }: { initial: string }) {
+      const [live, setLive] = useState(() => new URLSearchParams(initial))
+      // A layout effect runs before the hook's passive effects call
+      // replaceState.
+      useLayoutEffect(() => {
+        router.sync = query => setLive(new URLSearchParams(query))
+      }, [])
+      read(useAuthArrivalParams(live))
+      return null
+    }
+
+    afterEach(() => {
+      router.sync = null
+      vi.restoreAllMocks()
+    })
+
+    it.each([
+      ['synchronously', (update: () => void) => update()],
+      ['in a transition', (update: () => void) => startTransition(update)],
+    ])('keeps the banner when the router syncs %s', (_, schedule) => {
+      const replaceState = window.history.replaceState.bind(window.history)
+      vi.spyOn(window.history, 'replaceState').mockImplementation((data, unused, url) => {
+        replaceState(data, unused, url)
+        const query = window.location.search.slice(1)
+        schedule(() => router.sync?.(query))
+      })
+      window.history.replaceState(null, '', '/auth?error=x&returnTo=%2Fshows')
+
+      act(() => {
+        render(
+          <StrictMode>
+            <Page initial="error=x&returnTo=%2Fshows" />
+          </StrictMode>
+        )
+      })
+
+      expect(window.location.search).toBe('?returnTo=%2Fshows')
+      expect(seen!.get('error')).toBe('x')
     })
   })
 })

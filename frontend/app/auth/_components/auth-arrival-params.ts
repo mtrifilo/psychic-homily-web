@@ -53,9 +53,9 @@ function bannerArrivalOf(query: string): BannerArrival | null {
  *
  * The App Router keeps a page it navigated away from mounted but hidden, and
  * a hidden page re-renders under the current route's query string. So hiding
- * the page drops the hold, and only a query string read on the auth page
- * itself is held: a page shown again neither keeps its old banner nor adopts
- * another route's parameters as one.
+ * the page after the rewrite drops the hold, and only a query string read on
+ * the auth page itself is held: a page shown again neither keeps its old
+ * banner nor adopts another route's parameters as one.
  *
  * `live` is `useSearchParams()`. The URL is rewritten with
  * `window.history.replaceState`, which the App Router patches to sync
@@ -83,8 +83,18 @@ export function useAuthArrivalParams(live: {
   }
 
   // A hidden page runs its effect cleanups, so this is the page's "hidden"
-  // signal.
-  useEffect(() => () => setHeld(null), [])
+  // signal. The cleanup also runs on every change of these values, and
+  // StrictMode runs it right after the first mount while the address bar
+  // still shows the arrival, so it drops only the hold it was created with,
+  // and only once the address bar has left the arrival's own query string.
+  const heldQuery = held?.query
+  useEffect(
+    () => () => {
+      if (liveQuery === heldQuery) return
+      setHeld(current => (current?.query === heldQuery ? null : current))
+    },
+    [liveQuery, heldQuery]
+  )
 
   const strippedQuery = arrival?.strippedQuery
   useEffect(() => {
