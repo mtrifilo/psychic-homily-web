@@ -433,6 +433,25 @@ func VenueLocalDateCondition(timeFilter string) string {
 	}
 }
 
+// VenueLocalDateOlderThanDaysSQL is true for a show whose venue-local date is
+// more than days before the venue-local today: with 30, a show dated 30 days
+// back is false and one dated 31 days back is true. It compares the same two
+// expressions VenueLocalDateCondition("past") does, so it never holds for an
+// upcoming show while days >= 0.
+//
+// It is the exact comparison alone and carries no sargable bound, so as a
+// WHERE filter it reaches the index on shows.event_date only beside a bound
+// on that column. Like VenueLocalDateCondition it needs VenueTZJoin in the
+// query.
+//
+// days is rendered by strconv.Itoa, which emits only digits and a sign, so the
+// interpolation is safe for any int. A days large enough to move today before
+// the earliest date Postgres represents raises "date out of range", so callers
+// bound it.
+func VenueLocalDateOlderThanDaysSQL(days int) string {
+	return VenueLocalDateSQL + " < " + VenueLocalTodaySQL + " - " + strconv.Itoa(days)
+}
+
 // NightStartHour is the local hour at which a new night begins.
 //
 // Before it, the night in progress is still the PREVIOUS calendar date: a night
