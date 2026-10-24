@@ -28,7 +28,10 @@ let mockLoginError: Error | null = null
 vi.mock('@/features/auth', () => ({
   useLogin: () => ({
     mutate: mockLoginMutate,
-    reset: vi.fn(),
+    // As the real mutation's reset does, clears the error it reports.
+    reset: () => {
+      mockLoginError = null
+    },
     isPending: false,
     error: mockLoginError,
   }),
