@@ -143,7 +143,7 @@ interface UserPreferencesData {
   notify_on_edit_notifications?: boolean
 }
 
-interface UserProfile {
+export interface UserProfile {
   success: boolean
   message: string
   error_code?: AuthErrorCodeType
@@ -156,7 +156,15 @@ interface UserProfile {
     created_at: string
     updated_at: string
     preferences?: UserPreferencesData
+    /** The providers the account signs in with. Only `provider` is read. */
+    oauth_accounts?: { provider: string }[]
   }
+  /**
+   * The account's other sign-in factors. Absent when the backend could not
+   * read them, which is not the same as false and 0.
+   */
+  has_password?: boolean
+  passkey_count?: number
 }
 
 interface RefreshTokenResponse {

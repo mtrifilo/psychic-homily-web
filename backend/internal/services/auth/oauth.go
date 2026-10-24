@@ -176,6 +176,22 @@ func (s *AuthService) GetUserProfile(userID uint) (*authm.User, error) {
 	return user, nil
 }
 
+// GetSignInFactors reports whether user has a password and how many passkeys
+// it holds. The password comes from the row the caller already loaded; the
+// passkeys are counted, so no credential is read.
+func (s *AuthService) GetSignInFactors(user *authm.User) (contracts.SignInFactors, error) {
+	var passkeyCount int64
+	if err := s.db.Model(&authm.WebAuthnCredential{}).
+		Where("user_id = ?", user.ID).
+		Count(&passkeyCount).Error; err != nil {
+		return contracts.SignInFactors{}, fmt.Errorf("failed to count passkeys: %w", err)
+	}
+	return contracts.SignInFactors{
+		HasPassword:  user.PasswordHash != nil && *user.PasswordHash != "",
+		PasskeyCount: int(passkeyCount),
+	}, nil
+}
+
 // RefreshUserToken generates a new JWT token for the user, carrying authAt (the
 // presented session's authentication time) through unchanged.
 func (s *AuthService) RefreshUserToken(user *authm.User, authAt time.Time) (string, error) {

@@ -18,6 +18,7 @@ import {
   useSavedShows,
   useShowSaveCountBatch,
 } from '@/features/shows/hooks/useSavedShows'
+import { useAccountCreatedThisSession } from '@/features/auth/accountCreatedMarker'
 import { useAuthContext } from '@/lib/context/AuthContext'
 import { ResolvedHomeCityShowsLink } from './HomeCityShowsLink'
 import { HomeDiscoverLinks } from './HomeDiscoverLinks'
@@ -66,6 +67,7 @@ export function SavedShowsModule({
 }) {
   const { user, authStatus } = useAuthContext()
   const isAuthenticated = authStatus === 'authenticated'
+  const isNewAccount = useAccountCreatedThisSession(user?.id)
   // Takes the city link and the Discover row only when the nearby section that
   // normally carries them is hidden. The footer is where they go, next to the
   // other lines that point off this module.
@@ -129,7 +131,7 @@ export function SavedShowsModule({
       <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
         <div className="min-w-0">
           <p className="font-mono text-[11px] uppercase tracking-wider text-muted-foreground">
-            Welcome back
+            {isNewAccount ? 'Welcome' : 'Welcome back'}
           </p>
           {/* h2, not h1: this section is hideable, and the page's h1 lives on
               the layout shell so the document outline survives hiding it. */}

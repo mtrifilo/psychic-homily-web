@@ -12,6 +12,7 @@ import { BACKEND_BASE_URL } from '../backend-url'
 // seed holds without restarting the backend.
 
 const BACKEND_ORIGIN = BACKEND_BASE_URL
+const PASSKEY_OFFER_TITLE = 'Add a passkey for faster sign-in'
 
 async function continueWithGoogleAs(page: Page, subject: string, email: string) {
   const fauxRedirect = page.waitForRequest(
@@ -31,7 +32,7 @@ async function continueWithGoogleAs(page: Page, subject: string, email: string) 
 }
 
 test.describe('Google sign-up for a new identity', () => {
-  test('finishes on the Create your account step and signs in', async ({ page }) => {
+  test('finishes on the Create your account step, signs in, and is welcomed with a passkey offer', async ({ page }) => {
     const unique = `${Date.now()}-${Math.floor(Math.random() * 1e6)}`
     const email = `e2e-new-google-${unique}@test.local`
 
@@ -54,5 +55,31 @@ test.describe('Google sign-up for a new identity', () => {
     await expect(page.getByRole('button', { name: 'User menu' })).toBeVisible({
       timeout: 10_000,
     })
+
+    // The first signed-in home greets a new account and offers a passkey.
+    expect(new URL(page.url()).pathname).toBe('/')
+    await expect(page.getByText('Welcome', { exact: true })).toBeVisible()
+    const offer = page.getByRole('region', { name: PASSKEY_OFFER_TITLE })
+    await expect(offer).toBeVisible()
+
+    await offer.getByRole('button', { name: 'Not now' }).click()
+    await expect(offer).toHaveCount(0)
+
+    // The dismissal is final for this browser. The card would mount one commit
+    // after hydration, so its absence is read only once the home has
+    // hydrated: the Customize home popover opening proves the shell that
+    // renders the card is live. A click that lands before hydration does
+    // nothing, so the click repeats only while the popover is still closed.
+    await page.reload()
+    await expect(page.getByText('Welcome back', { exact: true })).toBeVisible()
+    const customize = page.getByRole('button', { name: 'Customize home' })
+    const sectionList = page.getByRole('list', { name: 'Home sections' })
+    await expect(async () => {
+      if (!(await sectionList.isVisible())) await customize.click()
+      await expect(sectionList).toBeVisible({ timeout: 2_000 })
+    }).toPass({ timeout: 15_000 })
+    await page.keyboard.press('Escape')
+    await expect(sectionList).toHaveCount(0)
+    await expect(page.getByRole('region', { name: PASSKEY_OFFER_TITLE })).toHaveCount(0)
   })
 })

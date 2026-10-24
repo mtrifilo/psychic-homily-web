@@ -25,6 +25,7 @@ import {
 import { CustomizeHomeToolbar } from './CustomizeHomeToolbar'
 import { HomeDiscoverLinks } from './HomeDiscoverLinks'
 import { HomeLinkSlotsProvider } from './HomeLinkSlots'
+import { PasskeyOfferCard } from './PasskeyOfferCard'
 import {
   SAVE_FAILED_MESSAGE,
   type HomeVisibilityChange,
@@ -169,6 +170,10 @@ export function HomeLayoutRuntime({
             <InlineErrorBanner>{SAVE_FAILED_MESSAGE}</InlineErrorBanner>
           </div>
         )}
+
+        {/* Above every section, not inside one: the sections are hideable and
+            reorderable, and the offer must not move or vanish with them. */}
+        <PasskeyOfferCard />
 
         {allHidden ? (
           <div className="mt-6 flex flex-col gap-2">

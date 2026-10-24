@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, type ComponentProps } from 'react'
 import * as Sentry from '@sentry/nextjs'
 import { startRegistration } from '@simplewebauthn/browser'
 import { Fingerprint, Loader2 } from 'lucide-react'
@@ -34,6 +34,8 @@ interface PasskeyRegisterButtonProps {
    */
   onError?: (error: unknown) => void
   className?: string
+  /** The trigger's button variant. The dialog it opens is the same for all. */
+  variant?: ComponentProps<typeof Button>['variant']
 }
 
 /**
@@ -72,7 +74,12 @@ async function readRegistrationResponse<
   }
 }
 
-export function PasskeyRegisterButton({ onSuccess, onError, className }: PasskeyRegisterButtonProps) {
+export function PasskeyRegisterButton({
+  onSuccess,
+  onError,
+  className,
+  variant = 'outline',
+}: PasskeyRegisterButtonProps) {
   const [isOpen, setIsOpen] = useState(false)
   const [isLoading, setIsLoading] = useState(false)
   const [displayName, setDisplayName] = useState('')
@@ -162,7 +169,7 @@ export function PasskeyRegisterButton({ onSuccess, onError, className }: Passkey
   return (
     <Dialog open={isOpen} onOpenChange={setIsOpen}>
       <DialogTrigger asChild>
-        <Button variant="outline" size="sm" className={className}>
+        <Button variant={variant} size="sm" className={className}>
           Add passkey
         </Button>
       </DialogTrigger>

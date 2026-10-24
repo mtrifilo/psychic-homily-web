@@ -430,11 +430,15 @@ func (h *AuthHandler) LogoutHandler(ctx context.Context, input *struct{}) (*Logo
 // UserProfileResponse represents user profile response
 type UserProfileResponse struct {
 	Body struct {
-		Success   bool        `json:"success" example:"true" doc:"Success status"`
-		User      *authm.User `json:"user,omitempty" doc:"User information"`
-		Message   string      `json:"message" example:"Profile retrieved" doc:"Response message"`
-		ErrorCode string      `json:"error_code,omitempty" example:"UNAUTHORIZED" doc:"Error code for programmatic handling"`
-		RequestID string      `json:"request_id,omitempty" example:"550e8400-e29b-41d4-a716-446655440000" doc:"Request ID for debugging"`
+		Success bool        `json:"success" example:"true" doc:"Success status"`
+		User    *authm.User `json:"user,omitempty" doc:"User information"`
+		// Pointers so an answer that could not read them omits them rather
+		// than claiming no password and no passkeys.
+		HasPassword  *bool  `json:"has_password,omitempty" doc:"Whether the account has a password set. Omitted when the profile could not read it."`
+		PasskeyCount *int   `json:"passkey_count,omitempty" doc:"How many passkeys the account holds. Omitted when the profile could not read it."`
+		Message      string `json:"message" example:"Profile retrieved" doc:"Response message"`
+		ErrorCode    string `json:"error_code,omitempty" example:"UNAUTHORIZED" doc:"Error code for programmatic handling"`
+		RequestID    string `json:"request_id,omitempty" example:"550e8400-e29b-41d4-a716-446655440000" doc:"Request ID for debugging"`
 	}
 }
 
@@ -640,6 +644,19 @@ func (h *AuthHandler) GetProfileHandler(ctx context.Context, input *struct{}) (*
 	logger.AuthDebug(ctx, "get_profile_success",
 		"user_id", user.ID,
 	)
+
+	// A failed read omits the factors rather than failing the profile: every
+	// page reads the profile, and the factors only decide whether to offer a
+	// passkey.
+	factors, err := h.authService.GetSignInFactors(user)
+	if err != nil {
+		logger.AuthError(ctx, "get_profile_sign_in_factors_failed", err,
+			"user_id", user.ID,
+		)
+	} else {
+		resp.Body.HasPassword = &factors.HasPassword
+		resp.Body.PasskeyCount = &factors.PasskeyCount
+	}
 
 	resp.Body.Success = true
 	resp.Body.User = user

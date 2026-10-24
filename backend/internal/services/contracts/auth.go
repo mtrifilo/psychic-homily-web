@@ -184,6 +184,14 @@ type OAuthPendingSignup struct {
 // Auth Service Interface
 // ──────────────────────────────────────────────
 
+// SignInFactors is what an account can sign in with besides its linked
+// providers. It carries no secret: a password's presence, never its hash, and
+// a passkey count, never the credentials.
+type SignInFactors struct {
+	HasPassword  bool
+	PasskeyCount int
+}
+
 // AuthServiceInterface defines the contract for authentication operations.
 type AuthServiceInterface interface {
 	OAuthLogin(w http.ResponseWriter, r *http.Request, provider string) error
@@ -218,6 +226,9 @@ type AuthServiceInterface interface {
 	// UserServiceInterface.LinkOAuthAccountToUser documents.
 	CompleteOAuthLink(w http.ResponseWriter, r *http.Request, provider string, userID uint) (*authm.User, error)
 	GetUserProfile(userID uint) (*authm.User, error)
+	// GetSignInFactors reports the sign-in factors user holds besides its
+	// linked providers. Passkeys are counted with a query, never loaded.
+	GetSignInFactors(user *authm.User) (SignInFactors, error)
 	// RefreshUserToken renews a session, carrying authAt through unchanged.
 	RefreshUserToken(user *authm.User, authAt time.Time) (string, error)
 	Logout(w http.ResponseWriter, r *http.Request) error

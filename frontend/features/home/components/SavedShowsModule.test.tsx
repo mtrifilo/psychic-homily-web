@@ -2,6 +2,10 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import Link from 'next/link'
 import { SavedShowsModule } from './SavedShowsModule'
+import {
+  markAccountCreatedThisSession,
+  resetAccountCreatedMarkerForTests,
+} from '@/features/auth/accountCreatedMarker'
 import type { SavedShowResponse } from '@/features/shows/types'
 import type { HomeCityLinkSlot, HomeDiscoverLinksSlot } from '../sections'
 
@@ -85,6 +89,8 @@ function savedShow(
 }
 
 beforeEach(() => {
+  window.sessionStorage.clear()
+  resetAccountCreatedMarkerForTests()
   mockAuthStatus.mockReturnValue('authenticated')
   mockUseShowSaveCountBatch.mockReturnValue({ data: undefined })
   mockCityLinkSlot.mockReturnValue('nearby')
@@ -460,5 +466,54 @@ describe('SavedShowsModule saved-state and viewer transitions', () => {
         ).not.toBeInTheDocument()
       }
     )
+  })
+
+  describe('the eyebrow', () => {
+    beforeEach(() => {
+      mockUseSavedShows.mockReturnValue({
+        data: { shows: [], total: 0 },
+        isPending: false,
+        error: null,
+      })
+    })
+
+    it('welcomes back an account that was not created in this tab', () => {
+      render(<SavedShowsModule nearbySectionId="nearby" />)
+
+      expect(screen.getByText('Welcome back')).toBeInTheDocument()
+      expect(screen.queryByText('Welcome')).not.toBeInTheDocument()
+    })
+
+    it('welcomes an account a sign-up in this tab just created, for the rest of the page', () => {
+      markAccountCreatedThisSession(42)
+      const { unmount } = render(<SavedShowsModule nearbySectionId="nearby" />)
+
+      expect(screen.getByText('Welcome')).toBeInTheDocument()
+      expect(screen.queryByText('Welcome back')).not.toBeInTheDocument()
+      // Read once: storage is cleared, and the answer holds for this page.
+      expect(window.sessionStorage.length).toBe(0)
+      unmount()
+      render(<SavedShowsModule nearbySectionId="nearby" />)
+      expect(screen.getByText('Welcome')).toBeInTheDocument()
+    })
+
+    it('welcomes back a different account than the one the sign-up created', () => {
+      markAccountCreatedThisSession(7)
+      render(<SavedShowsModule nearbySectionId="nearby" />)
+
+      expect(screen.getByText('Welcome back')).toBeInTheDocument()
+    })
+
+    it('welcomes back after a reload, once the marker has been read', () => {
+      markAccountCreatedThisSession(42)
+      const { unmount } = render(<SavedShowsModule nearbySectionId="nearby" />)
+      expect(screen.getByText('Welcome')).toBeInTheDocument()
+      unmount()
+
+      // A reload starts the module over; storage no longer holds the marker.
+      resetAccountCreatedMarkerForTests()
+      render(<SavedShowsModule nearbySectionId="nearby" />)
+      expect(screen.getByText('Welcome back')).toBeInTheDocument()
+    })
   })
 })

@@ -40,6 +40,11 @@ vi.mock('@/lib/context/AuthContext', () => ({
   useAuthContext: () => ({ setUser: mockSetUser }),
 }))
 
+const mockMarkAccountCreated = vi.fn()
+vi.mock('@/features/auth/accountCreatedMarker', () => ({
+  markAccountCreatedThisSession: (...args: unknown[]) => mockMarkAccountCreated(...args),
+}))
+
 const PENDING = {
   status: 'pending',
   email: 'alice@example.com',
@@ -89,6 +94,7 @@ describe('CreateAccountStep', () => {
   beforeEach(() => {
     mockReplace.mockReset()
     mockSetUser.mockReset()
+    mockMarkAccountCreated.mockReset()
   })
 
   it('spins while it reads the pending sign-up', () => {
@@ -229,6 +235,11 @@ describe('CreateAccountStep', () => {
       },
     ])
     expect(mockSetUser).toHaveBeenCalledWith(NEW_USER)
+    // Marked before the page leaves, so the home it lands on greets a new account.
+    expect(mockMarkAccountCreated).toHaveBeenCalledWith(NEW_USER.id)
+    expect(mockMarkAccountCreated.mock.invocationCallOrder[0]).toBeLessThan(
+      mockReplace.mock.invocationCallOrder[0]
+    )
   })
 
   it.each([
@@ -454,6 +465,7 @@ describe('CreateAccountStep', () => {
     expect(screen.getByLabelText('Month')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Create account' })).toBeEnabled()
     expect(mockReplace).not.toHaveBeenCalled()
+    expect(mockMarkAccountCreated).not.toHaveBeenCalled()
   })
 
   it('says the step could not load when the read fails', async () => {

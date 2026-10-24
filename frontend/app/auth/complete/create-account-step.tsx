@@ -9,6 +9,7 @@ import { Checkbox } from '@/components/ui/checkbox'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { InlineErrorBanner } from '@/components/shared/InlineErrorBanner'
+import { markAccountCreatedThisSession } from '@/features/auth/accountCreatedMarker'
 import {
   useFinishOAuthSignup,
   usePendingOAuthSignup,
@@ -171,6 +172,7 @@ function CreateAccountForm({
         onSuccess: data => {
           if (data.user) {
             setUser(data.user)
+            markAccountCreatedThisSession(data.user.id)
           }
           // Replace, not push: the step works once, so Back must not land on it.
           router.replace(sanitizeReturnTo(data.return_to ?? FALLBACK_RETURN_TO))

@@ -159,6 +159,17 @@ describe('SignupForm deferred validation', () => {
     expect(screen.getByRole('button', { name: 'Create account' })).toBeEnabled()
   })
 
+  // The Label primitive is a flex row, which makes each text run and link of
+  // a multi-part label its own column at 390px. A block label wraps as one
+  // run of text.
+  it('lays the terms label out as one run of text, not flex columns', async () => {
+    await renderSignupForm()
+
+    const label = document.querySelector('label[for="terms"]')
+    expect(label).toHaveClass('block')
+    expect(label).not.toHaveClass('flex')
+  })
+
   it('does not show errors while typing invalid input before submit', async () => {
     const { user } = await renderSignupForm()
 

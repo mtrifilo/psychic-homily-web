@@ -39,6 +39,11 @@ vi.mock('@/app/auth/_components/google-oauth-button', () => ({
   GoogleOAuthButton: (): null => null,
 }))
 
+const mockMarkAccountCreated = vi.fn()
+vi.mock('@/features/auth/accountCreatedMarker', () => ({
+  markAccountCreatedThisSession: (...args: unknown[]) => mockMarkAccountCreated(...args),
+}))
+
 const fetchMock = vi.fn()
 
 function jsonResponse(body: unknown) {
@@ -117,6 +122,7 @@ async function submitPasswordSignup(user: ReturnType<typeof userEvent.setup>) {
 describe('password sign-up success with the real profile query', () => {
   beforeEach(() => {
     mockPush.mockReset()
+    mockMarkAccountCreated.mockReset()
     fetchMock.mockReset()
     vi.stubGlobal('fetch', answeringNoAgeRefusalMarker(fetchMock))
     searchParams.current = new URLSearchParams({ returnTo: RETURN_TO })
@@ -166,6 +172,7 @@ describe('password sign-up success with the real profile query', () => {
     ).toBeNull()
     expect(page.blankSeen()).toBe(false)
     expect(mockPush).not.toHaveBeenCalled()
+    expect(mockMarkAccountCreated).toHaveBeenCalledWith(USER.id)
   })
 
   // A re-authentication link that outlived its session offers Create account,
@@ -245,6 +252,7 @@ describe('password sign-up success with the real profile query', () => {
       await waitFor(() => expect(mockPush).toHaveBeenCalledWith(RETURN_TO))
       expect(registerSignal().aborted).toBe(false)
       expect(screen.queryByRole('heading', { name: 'Check your inbox.' })).toBeNull()
+      expect(mockMarkAccountCreated).not.toHaveBeenCalled()
     })
   })
 })
