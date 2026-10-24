@@ -404,6 +404,84 @@ func (s *ShowNotifyOutboxSuite) TestMatchFailureGivesUpAfterMaxAttempts() {
 	s.Contains(*job.LastError, "transient match failure")
 }
 
+// TestFilterFailureStillDeliversFollowAlertsAndRecordsTheError runs the real
+// matcher with its filter query broken. The artist follower is still alerted,
+// and the job keeps the filter pass's error and stays retryable.
+func (s *ShowNotifyOutboxSuite) TestFilterFailureStillDeliversFollowAlertsAndRecordsTheError() {
+	userID := s.createUser()
+	showID, artistID := s.ingestShow("Filter query broken")
+	s.Require().NoError(s.db.Exec(`
+		INSERT INTO user_bookmarks (user_id, entity_type, entity_id, action, created_at)
+		VALUES (?, 'artist', ?, 'follow', now())`, userID, artistID).Error)
+
+	s.Require().NoError(s.db.Exec(
+		`ALTER TABLE notification_filters RENAME COLUMN source TO source_unavailable`).Error)
+	s.T().Cleanup(func() {
+		s.Require().NoError(s.db.Exec(
+			`ALTER TABLE notification_filters RENAME COLUMN source_unavailable TO source`).Error)
+	})
+
+	s.poller.RunNow(context.Background())
+
+	job := s.jobFor(showID)
+	s.Equal(catalogm.ShowNotifyStatusPending, job.Status, "attempts remain, so the job is retried")
+	s.Equal(1, job.Attempts)
+	s.Require().NotNil(job.LastError)
+	s.Contains(*job.LastError, "filter pass: failed to find matching filters")
+
+	var alerts int64
+	s.Require().NoError(s.db.Model(&notificationm.NotificationLog{}).
+		Where("user_id = ? AND entity_type = ? AND entity_id = ? AND channel = ?",
+			userID, notificationm.NotificationEntityArtistShowAlert, showID, notificationm.NotificationChannelInApp).
+		Count(&alerts).Error)
+	s.Equal(int64(1), alerts)
+}
+
+// TestFollowPassFailureLeavesTheJobRetryable: an artist-follow pass failure
+// keeps the job pending with the pass named in last_error, and the next tick
+// delivers the missing alert once and finishes the job.
+func (s *ShowNotifyOutboxSuite) TestFollowPassFailureLeavesTheJobRetryable() {
+	userID := s.createUser()
+	showID, artistID := s.ingestShow("Artist pass broken")
+	s.Require().NoError(s.db.Exec(`
+		INSERT INTO user_bookmarks (user_id, entity_type, entity_id, action, created_at)
+		VALUES (?, 'artist', ?, 'follow', now())`, userID, artistID).Error)
+
+	s.Require().NoError(s.db.Exec(
+		`ALTER TABLE show_artists RENAME COLUMN position TO position_unavailable`).Error)
+	restored := false
+	restore := func() {
+		if restored {
+			return
+		}
+		restored = true
+		s.Require().NoError(s.db.Exec(
+			`ALTER TABLE show_artists RENAME COLUMN position_unavailable TO position`).Error)
+	}
+	s.T().Cleanup(restore)
+
+	alerts := func() int64 {
+		var n int64
+		s.Require().NoError(s.db.Model(&notificationm.NotificationLog{}).
+			Where("user_id = ? AND entity_type = ? AND entity_id = ? AND channel = ?",
+				userID, notificationm.NotificationEntityArtistShowAlert, showID, notificationm.NotificationChannelInApp).
+			Count(&n).Error)
+		return n
+	}
+
+	s.poller.RunNow(context.Background())
+	job := s.jobFor(showID)
+	s.Equal(catalogm.ShowNotifyStatusPending, job.Status)
+	s.Require().NotNil(job.LastError)
+	s.Contains(*job.LastError, "artist-follow pass")
+	s.Equal(int64(0), alerts())
+
+	restore()
+	s.poller.RunNow(context.Background())
+	s.Equal(catalogm.ShowNotifyStatusDone, s.jobFor(showID).Status)
+	s.Equal(int64(1), alerts())
+}
+
 // TestCancelledBetweenEnqueueAndDeliveryIsSkipped: the delivery-time re-check has
 // to cover cancellation, not just visibility. A venue calling a show off in the
 // minute between ingest and the poll is ordinary, and "New show" for a cancelled

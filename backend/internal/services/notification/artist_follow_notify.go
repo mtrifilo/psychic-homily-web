@@ -128,12 +128,16 @@ type recipientAlertPrefs struct {
 }
 
 // notifyArtistFollowers fans a newly visible show out to the followers of the
-// artists on its bill. Best-effort like the rest of MatchAndNotify: every error
-// is logged and swallowed, because a notification problem must never fail the
-// approval or ingest write that triggered it.
-func (s *NotificationFilterService) notifyArtistFollowers(show *catalogm.Show, showArtistIDs pq.Int64Array) {
+// artists on its bill. Every error short of the email send is logged here and
+// returned: a query error ends the pass, and a failed claim or budget check for
+// one recipient skips only that recipient. MatchAndNotify runs after the
+// approval or ingest write it announces, so an error here never fails that
+// write; it makes the outbox retry. The retry delivers only to recipients with
+// no artist alert row for the show in either lane, so a lane whose claim failed
+// beside a claimed lane stays unclaimed.
+func (s *NotificationFilterService) notifyArtistFollowers(show *catalogm.Show, showArtistIDs pq.Int64Array) error {
 	if show == nil || len(showArtistIDs) == 0 {
-		return
+		return nil
 	}
 
 	// show is the CANONICAL row: MatchAndNotify re-reads it and fences the whole
@@ -144,22 +148,22 @@ func (s *NotificationFilterService) notifyArtistFollowers(show *catalogm.Show, s
 	followers, err := s.artistFollowersForShow(show.ID, showArtistIDs)
 	if err != nil {
 		log.Printf("artist-follow notify: %v", err)
-		return
+		return err
 	}
 	if len(followers) == 0 {
-		return
+		return nil
 	}
 
 	prefs, err := s.alertPrefsForUsers(followers)
 	if err != nil {
 		log.Printf("artist-follow notify: %v", err)
-		return
+		return err
 	}
 
 	area, err := s.resolveShowArea(show.ID)
 	if err != nil {
 		log.Printf("artist-follow notify: %v", err)
-		return
+		return err
 	}
 
 	// Self-exclusion, matching the scene-follow pass: whoever entered the show
@@ -171,22 +175,26 @@ func (s *NotificationFilterService) notifyArtistFollowers(show *catalogm.Show, s
 
 	recipients := resolveArtistAlertRecipients(followers, prefs, area, submitter)
 	if len(recipients) == 0 {
-		return
+		return nil
 	}
 
 	alreadyNotified, err := s.usersAlreadyNotifiedAboutShow(show.ID, recipients)
 	if err != nil {
 		log.Printf("artist-follow notify: %v", err)
-		return
+		return err
 	}
 
 	now := time.Now().UTC()
+	var errs []error
 	for _, r := range recipients {
 		if _, done := alreadyNotified[r.userID]; done {
 			continue
 		}
-		s.deliverArtistAlert(r, show, now)
+		if err := s.deliverArtistAlert(r, show, now); err != nil {
+			errs = append(errs, err)
+		}
 	}
+	return errors.Join(errs...)
 }
 
 // loadShowForAlert reads the show back by id. A missing row is (nil, nil): a
@@ -472,24 +480,32 @@ func (s *NotificationFilterService) usersAlreadyNotifiedAboutShow(
 //
 // The in-app row is written FIRST and its result does not gate the email, so a
 // user with in-app off still gets the email they asked for.
+//
+// The returned error is a failed claim in either lane, or a failed budget check
+// for the email lane: that lane's row was not written. A later run reaches this
+// recipient again only when neither lane has a row, because
+// notifyArtistFollowers skips anyone with an artist alert row for the show. A
+// budget refusal and the send itself return nil.
 func (s *NotificationFilterService) deliverArtistAlert(
 	r artistAlertRecipient,
 	show *catalogm.Show,
 	now time.Time,
-) {
+) error {
+	var inAppErr error
 	if r.inApp != nil {
 		if _, err := s.claimArtistAlertRow(
 			r.userID, *r.inApp, show.ID, notificationm.NotificationChannelInApp, now,
 		); err != nil {
 			log.Printf("artist-follow notify: in-app row for user %d, show %d: %v", r.userID, show.ID, err)
+			inAppErr = fmt.Errorf("in-app row for user %d, show %d: %w", r.userID, show.ID, err)
 		}
 	}
 
 	if r.email == nil {
-		return
+		return inAppErr
 	}
 	if s.emailService == nil || !s.emailService.IsConfigured() {
-		return
+		return inAppErr
 	}
 
 	// The daily budget is checked BEFORE the lane is claimed. Claiming first
@@ -501,9 +517,13 @@ func (s *NotificationFilterService) deliverArtistAlert(
 	// Checking first costs the opposite risk, that the count is stale by the time
 	// the send happens. That is the same window every other sender here already
 	// accepts, and it errs toward delivering an email the user asked for.
-	if !s.withinDailyAlertEmailBudget(r.userID) {
+	within, err := s.withinDailyAlertEmailBudget(r.userID)
+	if err != nil {
+		return errors.Join(inAppErr, fmt.Errorf("email budget for user %d, show %d: %w", r.userID, show.ID, err))
+	}
+	if !within {
 		log.Printf("rate limit: skipping artist-alert email for user %d", r.userID)
-		return
+		return inAppErr
 	}
 
 	// The lane is claimed BEFORE the send, not after. A crash between the two
@@ -514,12 +534,13 @@ func (s *NotificationFilterService) deliverArtistAlert(
 		r.userID, *r.email, show.ID, notificationm.NotificationChannelEmail, now)
 	if err != nil {
 		log.Printf("artist-follow notify: email row for user %d, show %d: %v", r.userID, show.ID, err)
-		return
+		return errors.Join(inAppErr, fmt.Errorf("email row for user %d, show %d: %w", r.userID, show.ID, err))
 	}
 	if !claimed {
-		return
+		return inAppErr
 	}
 	s.sendArtistShowAlertEmail(r.userID, *r.email, show)
+	return inAppErr
 }
 
 // withinDailyAlertEmailBudget reports whether the user has room in the daily
@@ -542,7 +563,7 @@ func (s *NotificationFilterService) deliverArtistAlert(
 // Counting this feature's own sent-email rows keeps the cap meaning what it
 // says. maxFilterEmailsPerDay is reused as the threshold so there is one number
 // to tune rather than two.
-func (s *NotificationFilterService) withinDailyAlertEmailBudget(userID uint) bool {
+func (s *NotificationFilterService) withinDailyAlertEmailBudget(userID uint) (bool, error) {
 	var emailCount int64
 	dayAgo := time.Now().UTC().Add(-24 * time.Hour)
 	if err := s.db.Model(&notificationm.NotificationLog{}).
@@ -553,9 +574,9 @@ func (s *NotificationFilterService) withinDailyAlertEmailBudget(userID uint) boo
 		// exists to bound outbound mail, and an unbounded burst is the failure it
 		// was put there to prevent.
 		log.Printf("artist-follow notify: daily email budget check for user %d: %v", userID, err)
-		return false
+		return false, err
 	}
-	return emailCount < int64(maxFilterEmailsPerDay)
+	return emailCount < int64(maxFilterEmailsPerDay), nil
 }
 
 // claimArtistAlertRow inserts one lane's row, reporting whether THIS call

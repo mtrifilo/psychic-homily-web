@@ -128,10 +128,11 @@ type accruableVenue struct {
 // accrueVenueShowAlerts records this show's membership in each of its venues'
 // batches for today.
 //
-// Best-effort like the rest of MatchAndNotify: every error is logged and
-// swallowed, because a notification problem must never fail the approval or
-// ingest write that triggered it. A dropped accrual costs one show its place in
-// one day's alert, which is strictly better than failing the write.
+// Every error is logged here and returned: the followed-venues query error ends
+// the pass, and a failed insert for one venue skips only that venue.
+// MatchAndNotify runs after the approval or ingest write it announces, so an
+// error here never fails that write; it makes the outbox retry, and the insert
+// below accrues a (venue, show) pair at most once however often it runs.
 //
 // Only venues that ALREADY HAVE A FOLLOWER accrue. That is the write-side bound
 // on a table which is deliberately never pruned (the inbox row reads its members
@@ -152,12 +153,12 @@ type accruableVenue struct {
 //     drop finished before they subscribed, they get nothing for it. That is the
 //     price of bounding a table nobody prunes, and it is the case the paragraph
 //     above does NOT cover.
-func (s *NotificationFilterService) accrueVenueShowAlerts(show *catalogm.Show, showVenueIDs pq.Int64Array) {
+func (s *NotificationFilterService) accrueVenueShowAlerts(show *catalogm.Show, showVenueIDs pq.Int64Array) error {
 	if show == nil || len(showVenueIDs) == 0 {
-		return
+		return nil
 	}
 	if !VenueShowAlertsEnabled() {
-		return
+		return nil
 	}
 
 	// show is the CANONICAL row: MatchAndNotify re-reads it and fences the whole
@@ -177,10 +178,11 @@ func (s *NotificationFilterService) accrueVenueShowAlerts(show *catalogm.Show, s
 	`, showVenueIDs, venueFollowEntityType, string(engagementm.BookmarkActionFollow)).Scan(&venues).Error
 	if err != nil {
 		log.Printf("venue-alert accrual: followed venues for show %d: %v", show.ID, err)
-		return
+		return fmt.Errorf("followed venues for show %d: %w", show.ID, err)
 	}
 
 	now := time.Now()
+	var errs []error
 	for _, v := range venues {
 		// The day is resolved PER VENUE, because a show can list venues in
 		// different zones and each venue's followers experience the drop on that
@@ -210,8 +212,10 @@ func (s *NotificationFilterService) accrueVenueShowAlerts(show *catalogm.Show, s
 			ON CONFLICT DO NOTHING
 		`, v.ID, day, show.ID, now, v.ID, show.ID).Error; err != nil {
 			log.Printf("venue-alert accrual: venue %d, show %d, day %s: %v", v.ID, show.ID, day, err)
+			errs = append(errs, fmt.Errorf("accrue venue %d, show %d, day %s: %w", v.ID, show.ID, day, err))
 		}
 	}
+	return errors.Join(errs...)
 }
 
 // ──────────────────────────────────────────────
@@ -810,9 +814,11 @@ func (s *NotificationFilterService) alertPrefsForUserIDs(userIDs []uint) (map[ui
 // id and the predicate compares entity_id against show ids. That is also why
 // NotificationEntityVenueShowAlert must never join showAlertEntityTypes.
 //
-// The ordering that makes the one direction the useful one is not accidental:
-// the filter, artist and scene passes all run inside MatchAndNotify, BEFORE this
-// batch's accrual, so by flush time their rows are already there to be seen.
+// The one direction is the useful one because the flush runs in its own
+// poller, after the quiet window or the max hold, so it sees every row the
+// MatchAndNotify passes for these shows have written by then, and nothing
+// else. A pass that failed before reaching a user wrote no row for that user,
+// so this cannot see what that pass would have sent.
 func (s *NotificationFilterService) showsAlreadyNotified(
 	userIDs, showIDs []uint,
 ) (map[uint]map[uint]struct{}, error) {
@@ -961,8 +967,12 @@ func (s *NotificationFilterService) deliverVenueAlert(
 	if s.emailService == nil || !s.emailService.IsConfigured() {
 		return nil
 	}
-	if !s.withinDailyAlertEmailBudget(r.userID) {
-		log.Printf("rate limit: skipping venue-alert email for user %d", r.userID)
+	// A failed budget check skips the email like a refusal does; the check has
+	// already logged it.
+	if within, err := s.withinDailyAlertEmailBudget(r.userID); err != nil || !within {
+		if err == nil {
+			log.Printf("rate limit: skipping venue-alert email for user %d", r.userID)
+		}
 		return nil
 	}
 
