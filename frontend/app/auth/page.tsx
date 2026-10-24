@@ -949,21 +949,11 @@ function AuthPageContent() {
   const activeTab = showingArrivalTab ? arrivalTab : pickedTab.tab
   const setActiveTab = (tab: string) => setPickedTab({ arrival, tab })
   const [signupHandoff, setSignupHandoff] = useState<SignupHandoff | null>(null)
-  // A re-authentication link can outlive the session it was sent for, so a
-  // viewer with no session gets Create account too. A sign-up completed under
-  // that arrival ends its re-authentication: the new account has no earlier
-  // session to prove, so the page treats the viewer as any other new account
-  // and the redirect below sends them on to returnTo. The release lasts while
-  // the page stays shown: the hide cleanup below drops it, so a later
-  // re-authentication under the same URL holds again.
-  const [signedUpArrival, setSignedUpArrival] = useState<string | null>(null)
-  if (signupHandoff?.status === 'complete' && signedUpArrival !== arrival) {
-    setSignedUpArrival(arrival)
-  }
-  const holdsReauth = isReauth && signedUpArrival !== arrival
   // Creating an account is not a way to prove you hold one, so an
   // authenticated viewer proving theirs is offered Sign in alone, unless a
-  // sign-up begun on this page still holds its claim.
+  // sign-up begun on this page still holds its claim. A re-authentication link
+  // can outlive the session it was sent for, so a viewer with no session is
+  // offered Create account too.
   const offersSignup =
     !isReauth || authStatus !== 'authenticated' || signupHandoff !== null
   // A request that never answers leaves its claim pending, and an
@@ -990,13 +980,7 @@ function AuthPageContent() {
 
   // A hidden page runs its effect cleanups, and a shown one reruns the
   // effects, so this cleanup is the page's "hidden" signal.
-  useEffect(
-    () => () => {
-      setPickedTab(null)
-      setSignedUpArrival(null)
-    },
-    []
-  )
+  useEffect(() => () => setPickedTab(null), [])
 
   // Redirect if already authenticated.
   //
@@ -1006,10 +990,10 @@ function AuthPageContent() {
   // email is waiting. The claim is in-memory only: on a reload it is gone and
   // the redirect resumes, so it cannot strand anyone.
   useEffect(() => {
-    if (authStatus === 'authenticated' && !signupHandoff && !holdsReauth) {
+    if (authStatus === 'authenticated' && !signupHandoff && !isReauth) {
       router.push(returnTo)
     }
-  }, [authStatus, router, returnTo, signupHandoff, holdsReauth])
+  }, [authStatus, router, returnTo, signupHandoff, isReauth])
 
   // `isLoading`, NOT `authStatus === 'pending'`, and this is the one page
   // where that is the right way round.
@@ -1070,11 +1054,10 @@ function AuthPageContent() {
 
   // Don't render the form if authenticated (will redirect).
   //
-  // Except while a re-authentication holds (holdsReauth), where the whole
-  // point is to show the form to someone who IS signed in. Completing any
-  // factor mints a fresh session, which is what the caller that sent them here
-  // was waiting for.
-  if (authStatus === 'authenticated' && !holdsReauth) {
+  // Except on a re-authentication, where the whole point is to show the form
+  // to someone who IS signed in. Completing any factor mints a fresh session,
+  // which is what the caller that sent them here was waiting for.
+  if (authStatus === 'authenticated' && !isReauth) {
     return null
   }
 
