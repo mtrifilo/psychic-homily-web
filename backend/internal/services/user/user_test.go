@@ -1312,6 +1312,50 @@ func (suite *UserServiceIntegrationTestSuite) TestExportUserDataJSON() {
 	}
 }
 
+// The export carries the stored date of birth as its calendar date and the
+// age attestation instant, and names both as null for an account that has
+// neither.
+func (suite *UserServiceIntegrationTestSuite) TestExportUserDataJSON_DateOfBirth() {
+	withDOB, err := suite.userService.CreateUserWithPasswordWithLegal(
+		"export-dob@example.com", "ExportPass1!", "Dob", "Export", signupconsent.CurrentLegalAcceptance(),
+	)
+	suite.Require().NoError(err)
+	attestedAt := time.Date(2026, time.October, 24, 18, 30, 15, 0, time.UTC)
+	suite.Require().NoError(suite.db.Exec(
+		`UPDATE users SET date_of_birth = '1990-12-31', age_attested_at = ? WHERE id = ?`,
+		attestedAt, withDOB.ID).Error)
+
+	withoutDOB, err := suite.userService.CreateUserWithPasswordWithLegal(
+		"export-no-dob@example.com", "ExportPass1!", "NoDob", "Export", signupconsent.CurrentLegalAcceptance(),
+	)
+	suite.Require().NoError(err)
+
+	profileOf := func(userID uint) map[string]any {
+		jsonBytes, err := suite.userService.ExportUserDataJSON(userID)
+		suite.Require().NoError(err)
+		var parsed struct {
+			Profile map[string]any `json:"profile"`
+		}
+		suite.Require().NoError(json.Unmarshal(jsonBytes, &parsed))
+		return parsed.Profile
+	}
+
+	profile := profileOf(withDOB.ID)
+	suite.Equal("1990-12-31", profile["date_of_birth"])
+	attested, ok := profile["age_attested_at"].(string)
+	suite.Require().True(ok, "age_attested_at = %#v, want an RFC 3339 string", profile["age_attested_at"])
+	parsedAt, err := time.Parse(time.RFC3339, attested)
+	suite.Require().NoError(err)
+	suite.True(parsedAt.Equal(attestedAt), "age_attested_at = %s, want %s", parsedAt, attestedAt)
+
+	profile = profileOf(withoutDOB.ID)
+	for _, key := range []string{"date_of_birth", "age_attested_at"} {
+		value, present := profile[key]
+		suite.True(present, "%s is missing from the export", key)
+		suite.Nil(value, "%s = %#v, want null", key, value)
+	}
+}
+
 // =============================================================================
 // NEW INTEGRATION TESTS: OAuth Management
 // =============================================================================

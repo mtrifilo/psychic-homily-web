@@ -10,8 +10,8 @@ export const metadata: Metadata = {
 }
 
 export default function PrivacyPolicyPage() {
-  const lastUpdated = 'August 18, 2026'
-  const effectiveDate = 'February 15, 2026'
+  const lastUpdated = 'October 24, 2026'
+  const effectiveDate = 'October 24, 2026'
 
   return (
     <div className="flex min-h-screen items-start justify-center">
@@ -43,6 +43,7 @@ export default function PrivacyPolicyPage() {
             <h3 className="text-lg font-medium mt-4 mb-2">2.1 Information You Provide Directly</h3>
             <ul className="list-disc pl-6 space-y-2 text-foreground/90">
               <li><strong>Account Information:</strong> Email address, username, password (stored securely as a hash), first name, last name, profile photo/avatar URL, and bio.</li>
+              <li><strong>Date of Birth:</strong> Asked for when you create an account and used only to confirm you are at least 16. It is stored with your account, never shown on your profile or to other users, and included when you export your data.</li>
               <li><strong>User-Generated Content:</strong> Shows you save to your collection, show submissions, and any other content you create on the platform.</li>
               <li><strong>Uploaded Content:</strong> Images you upload (such as show flyers) for AI-assisted show creation. These images are processed to extract event details and are not stored permanently.</li>
               <li><strong>Preferences:</strong> Theme settings, timezone, language preference, and notification preferences.</li>

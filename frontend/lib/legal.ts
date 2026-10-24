@@ -3,14 +3,14 @@
 // so a bump changes both. The sign-up forms do not send these: they send the
 // versions GET /legal/versions publishes at submit time.
 export const CURRENT_TERMS_VERSION = '2026-01-31'
-export const CURRENT_PRIVACY_VERSION = '2026-02-15'
+export const CURRENT_PRIVACY_VERSION = '2026-10-24'
 
 // The pair the sign-up forms sent before the most recent bump, which the backend
 // also accepts until its grace window closes (GET /legal/versions publishes the
-// window). Empty while no window is open; pinned to the backend's
+// window). Empty when no bump has opened a window; pinned to the backend's
 // PreviousTermsVersion and PreviousPrivacyVersion by the same test.
-export const PREVIOUS_TERMS_VERSION = ''
-export const PREVIOUS_PRIVACY_VERSION = ''
+export const PREVIOUS_TERMS_VERSION = '2026-01-31'
+export const PREVIOUS_PRIVACY_VERSION = '2026-02-15'
 
 // Minimum age (years) a user must confirm at signup. Locked at 16 (PSY-1023) to
 // match the /terms and /privacy minimum-age clauses. The backend re-checks this

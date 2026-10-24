@@ -135,3 +135,20 @@ func TestAgeOnReachesTheMinimumOnTheSixteenthBirthday(t *testing.T) {
 		t.Error("a birthday that has not arrived anywhere must not meet the minimum")
 	}
 }
+
+// A date of birth renders as the calendar day it carries, whatever zone it was
+// scanned in, and round-trips through ParseDateOfBirth.
+func TestFormatDateOfBirth(t *testing.T) {
+	dob, err := ParseDateOfBirth("2004-02-29", at(t, "2026-10-24T12:00:00Z"))
+	if err != nil {
+		t.Fatalf("ParseDateOfBirth: %v", err)
+	}
+	if got := FormatDateOfBirth(dob); got != "2004-02-29" {
+		t.Errorf("FormatDateOfBirth(%v) = %q, want 2004-02-29", dob, got)
+	}
+
+	midnightAhead := time.Date(1990, time.December, 31, 0, 0, 0, 0, time.FixedZone("UTC+10", 10*60*60))
+	if got := FormatDateOfBirth(midnightAhead); got != "1990-12-31" {
+		t.Errorf("FormatDateOfBirth(%v) = %q, want 1990-12-31", midnightAhead, got)
+	}
+}

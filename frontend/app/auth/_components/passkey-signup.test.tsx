@@ -149,8 +149,8 @@ describe('PasskeySignupButton', () => {
     expect(beginSignupPayload).toMatchObject({
       email: 'signup@example.com',
       terms_accepted: true,
-      terms_version: '2026-01-31',
-      privacy_version: '2026-02-15',
+      terms_version: CURRENT_TERMS_VERSION,
+      privacy_version: CURRENT_PRIVACY_VERSION,
       age_confirmed: true,
       min_age_attested: 16,
     })

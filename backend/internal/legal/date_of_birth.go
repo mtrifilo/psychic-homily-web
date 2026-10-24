@@ -43,6 +43,13 @@ func ParseDateOfBirth(value string, now time.Time) (time.Time, error) {
 	return dob, nil
 }
 
+// FormatDateOfBirth renders a stored date of birth in DateOfBirthLayout. The
+// date is read in the location it carries: a date of birth names a calendar
+// day, not an instant, so converting it to another zone could move the day.
+func FormatDateOfBirth(dob time.Time) string {
+	return dob.Format(DateOfBirthLayout)
+}
+
 // AgeOn is the number of whole years between dob and the latest calendar date
 // anywhere on Earth at now (the date at UTC+14): someone is a year older from
 // the first moment it is their birthday somewhere, so nobody who has reached

@@ -17,7 +17,7 @@ const MinSignupAge = 16
 // TestVersionsMatchFrontend fails when the two files differ.
 const (
 	CurrentTermsVersion   = "2026-01-31"
-	CurrentPrivacyVersion = "2026-02-15"
+	CurrentPrivacyVersion = "2026-10-24"
 )
 
 // The grace set. A version bump refuses every sign-up that still sends the
@@ -32,21 +32,24 @@ const (
 // sign-up from a frontend that deploys a bump before this backend does. GET
 // /legal/versions publishes the versions this build accepts.
 //
-// They are empty, and graceUntil is the zero time, while no window is open. A
-// bump sets both previous versions to the pair the frontend sent before it
-// (the outgoing Current values, a document whose version did not change
+// They are empty, and graceUntil is the zero time, when no bump has opened a
+// window. Once graceUntil passes they match nothing (GraceWindow reports the
+// window closed and publishes no previous versions) until a change clears them
+// and graceUntil together, as TestGraceSetIsCoherent requires. A bump sets
+// both previous versions to the pair the frontend sent before it (the
+// outgoing Current values, a document whose version did not change
 // included), sets graceUntil to a UTC instant later than the slower of the two
 // deploys plus the max-age GET /legal/versions is cached for, and changes
 // PREVIOUS_TERMS_VERSION and PREVIOUS_PRIVACY_VERSION in frontend/lib/legal.ts
 // to match. TestGraceSetIsCoherent and TestVersionsMatchFrontend pin each of
 // those.
 const (
-	PreviousTermsVersion   = ""
-	PreviousPrivacyVersion = ""
+	PreviousTermsVersion   = "2026-01-31"
+	PreviousPrivacyVersion = "2026-02-15"
 )
 
 // graceUntil is the instant the previous versions stop being accepted, in UTC.
-var graceUntil time.Time
+var graceUntil = time.Date(2026, time.November, 8, 0, 0, 0, 0, time.UTC)
 
 // Versions is one version of the Terms of Service and one of the Privacy
 // Policy.

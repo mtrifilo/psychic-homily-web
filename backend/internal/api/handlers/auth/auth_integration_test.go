@@ -1053,6 +1053,24 @@ func (s *AuthHandlerIntegrationSuite) TestExportData_WithShows() {
 	s.Contains(string(resp.Body), "export-shows@test.com")
 }
 
+// The downloaded file carries the profile's date of birth fields; their
+// values and null forms are covered at the service.
+func (s *AuthHandlerIntegrationSuite) TestExportData_DateOfBirth() {
+	h := s.newAuthHandler(false)
+	user := s.createUserWithPassword("export-dob@test.com", "strong-password-123!")
+	s.Require().NoError(s.deps.DB.Exec(
+		`UPDATE users SET date_of_birth = '2004-02-29', age_attested_at = NOW() WHERE id = ?`, user.ID).Error)
+
+	resp, err := h.ExportDataHandler(s.ctxWithUser(s.reloadUser(user.ID)), &struct{}{})
+	s.Require().NoError(err)
+	var exported struct {
+		Profile map[string]any `json:"profile"`
+	}
+	s.Require().NoError(json.Unmarshal(resp.Body, &exported))
+	s.Equal("2004-02-29", exported.Profile["date_of_birth"])
+	s.NotNil(exported.Profile["age_attested_at"])
+}
+
 // --- RecoverAccountHandler ---
 
 func (s *AuthHandlerIntegrationSuite) TestRecoverAccount_Success() {

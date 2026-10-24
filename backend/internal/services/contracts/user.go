@@ -65,16 +65,21 @@ type UserDataExport struct {
 
 // UserProfileExport contains user profile data for export
 type UserProfileExport struct {
-	ID            uint      `json:"id"`
-	Email         *string   `json:"email"`
-	Username      *string   `json:"username,omitempty"`
-	FirstName     *string   `json:"first_name,omitempty"`
-	LastName      *string   `json:"last_name,omitempty"`
-	AvatarURL     *string   `json:"avatar_url,omitempty"`
-	Bio           *string   `json:"bio,omitempty"`
-	EmailVerified bool      `json:"email_verified"`
-	CreatedAt     time.Time `json:"account_created_at"`
-	UpdatedAt     time.Time `json:"last_updated_at"`
+	ID            uint    `json:"id"`
+	Email         *string `json:"email"`
+	Username      *string `json:"username,omitempty"`
+	FirstName     *string `json:"first_name,omitempty"`
+	LastName      *string `json:"last_name,omitempty"`
+	AvatarURL     *string `json:"avatar_url,omitempty"`
+	Bio           *string `json:"bio,omitempty"`
+	EmailVerified bool    `json:"email_verified"`
+	// DateOfBirth is the calendar date given at sign-up, "YYYY-MM-DD", and
+	// AgeAttestedAt is when the age computed from it was attested; both are
+	// null for an account created without one.
+	DateOfBirth   *string    `json:"date_of_birth"`
+	AgeAttestedAt *time.Time `json:"age_attested_at"`
+	CreatedAt     time.Time  `json:"account_created_at"`
+	UpdatedAt     time.Time  `json:"last_updated_at"`
 }
 
 // OAuthAccountExport contains OAuth account data for export (no tokens)

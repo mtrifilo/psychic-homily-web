@@ -15,6 +15,7 @@ import (
 
 	"psychic-homily-backend/db"
 	apperrors "psychic-homily-backend/internal/errors"
+	"psychic-homily-backend/internal/legal"
 	"psychic-homily-backend/internal/logger"
 	authm "psychic-homily-backend/internal/models/auth"
 	catalogm "psychic-homily-backend/internal/models/catalog"
@@ -1138,6 +1139,8 @@ func (s *UserService) ExportUserData(userID uint) (*contracts.UserDataExport, er
 			AvatarURL:     user.AvatarURL,
 			Bio:           user.Bio,
 			EmailVerified: user.EmailVerified,
+			DateOfBirth:   exportedDateOfBirth(user.DateOfBirth),
+			AgeAttestedAt: user.AgeAttestedAt,
 			CreatedAt:     user.CreatedAt,
 			UpdatedAt:     user.UpdatedAt,
 		},
@@ -1240,6 +1243,16 @@ func (s *UserService) ExportUserData(userID uint) (*contracts.UserDataExport, er
 	}
 
 	return export, nil
+}
+
+// exportedDateOfBirth is the stored date of birth as its calendar date, nil
+// when none is stored.
+func exportedDateOfBirth(dateOfBirth *time.Time) *string {
+	if dateOfBirth == nil {
+		return nil
+	}
+	formatted := legal.FormatDateOfBirth(*dateOfBirth)
+	return &formatted
 }
 
 // ExportUserDataJSON exports user data as a JSON byte slice
