@@ -52,6 +52,10 @@ export const API_ENDPOINTS = {
     OAUTH_CALLBACK: (provider: string) =>
       `${API_BASE_URL}/auth/callback/${provider}`,
     OAUTH_ACCOUNTS: `${API_BASE_URL}/auth/oauth/accounts`,
+    // The "Create your account" step a new Google identity finishes on.
+    // Both read the pending sign-up from an HttpOnly cookie, never the URL.
+    OAUTH_PENDING_SIGNUP: `${API_BASE_URL}/auth/oauth/pending-signup`,
+    OAUTH_FINISH_SIGNUP: `${API_BASE_URL}/auth/oauth/finish-signup`,
     // Mints the one-time token the /auth/link/{provider} start URL
     // requires. Same-origin and authenticated, which is the property
     // that route cannot establish for itself.

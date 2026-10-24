@@ -147,6 +147,7 @@ func CleanupTables(db *gorm.DB) {
 	_, _ = sqlDB.Exec("DELETE FROM api_tokens")
 	_, _ = sqlDB.Exec("DELETE FROM webauthn_credentials")
 	_, _ = sqlDB.Exec("DELETE FROM webauthn_challenges")
+	_, _ = sqlDB.Exec("DELETE FROM oauth_pending_signups")
 	_, _ = sqlDB.Exec("DELETE FROM oauth_accounts")
 	_, _ = sqlDB.Exec("DELETE FROM user_preferences")
 	// PSY-354: clear the polymorphic tag corpus too — tags / tag_aliases

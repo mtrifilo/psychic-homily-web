@@ -91,6 +91,14 @@ var requiredSchemaColumns = []requiredColumn{
 	// every collection INSERT, and the per-user collection and fork caps count
 	// on it. Absent DDL fails those at request time instead of at boot.
 	{Table: "collections", Column: "forked_from_collection_id"},
+	// GORM's Create enumerates every model column, so these appear in every
+	// users INSERT: absent DDL fails every sign-up on every path at request
+	// time.
+	{Table: "users", Column: "date_of_birth"},
+	{Table: "users", Column: "age_attested_at"},
+	// A new Google identity is held here between the callback and the sign-up
+	// step; absent DDL fails every new Google sign-up at the callback.
+	{Table: "oauth_pending_signups", Column: "expires_at"},
 	// Typed entries: exactly the columns whose type a timestamp-named
 	// migration changed. golang-migrate skips a timestamp-named migration
 	// whose version is below the recorded pointer, which happens when branches

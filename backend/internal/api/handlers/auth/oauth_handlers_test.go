@@ -206,86 +206,56 @@ func TestOAuthLoginHTTPHandler_ValidProvider_GoogleQueryParam(t *testing.T) {
 	// The key test is that the handler didn't panic.
 }
 
-// TestOAuthLoginHTTPHandler_SignupIntent_MissingAgeConfirmation locks the
-// server-side OAuth age gate (PSY-1023): a signup-intent OAuth init with terms
-// accepted but no age confirmation must be rejected with a 400 before any OAuth
-// redirect, and no consent cookie may be set.
-func TestOAuthLoginHTTPHandler_SignupIntent_MissingAgeConfirmation(t *testing.T) {
-	handler := NewOAuthHTTPHandler(nil, nil, nil)
-
-	req := httptest.NewRequest("GET", "/auth/login/google?signup_intent=1&terms_accepted=true&"+currentConsentVersionsQuery, nil)
-	w := httptest.NewRecorder()
-	rctx := chi.NewRouteContext()
-	rctx.URLParams.Add("provider", "google")
-	req = req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, rctx))
-
-	handler.OAuthLoginHTTPHandler(w, req)
-
-	if w.Code != http.StatusBadRequest {
-		t.Errorf("expected 400 for signup without age confirmation, got %d", w.Code)
-	}
-	for _, c := range w.Result().Cookies() {
-		if c.Name == oauthSignupConsentCookieName {
-			t.Error("expected no signup-consent cookie when age confirmation is missing")
+// TestOAuthLoginHTTPHandler_IgnoresSignupConsentQuery pins that a sign-in
+// start reads no consent: the query a sign-up start once carried is neither
+// refused nor recorded, whatever it says, because a new identity is asked for
+// its consent on the "Create your account" step instead.
+// The start asks a provider for a prompt only for Google's account chooser,
+// and only when the start names exactly that prompt.
+func TestSignInPrompt(t *testing.T) {
+	for _, tc := range []struct {
+		provider, query, want string
+	}{
+		{"google", "prompt=select_account", oauthPromptSelectAccount},
+		{"google", "prompt=consent", ""},
+		{"google", "prompt=select_account%20consent", ""},
+		{"google", "", ""},
+		{"github", "prompt=select_account", ""},
+	} {
+		req := httptest.NewRequest("GET", "/auth/login/"+tc.provider+"?"+tc.query, nil)
+		if got := signInPrompt(req, tc.provider); got != tc.want {
+			t.Errorf("%s ?%s: prompt %q, want %q", tc.provider, tc.query, got, tc.want)
 		}
 	}
 }
 
-// TestOAuthLoginHTTPHandler_SignupIntent_AgeBelowMinimum guards the server-side
-// age floor for the OAuth init path against a tampered min_age_attested.
-func TestOAuthLoginHTTPHandler_SignupIntent_AgeBelowMinimum(t *testing.T) {
-	handler := NewOAuthHTTPHandler(nil, nil, nil)
+func TestOAuthLoginHTTPHandler_IgnoresSignupConsentQuery(t *testing.T) {
+	for _, query := range []string{
+		"signup_intent=1&terms_accepted=true&" + currentConsentVersionsQuery,
+		"signup_intent=1&terms_accepted=true&" + currentConsentVersionsQuery + "&age_confirmed=true&min_age_attested=10",
+		"signup_intent=1&terms_accepted=true&terms_version=stale&privacy_version=stale&age_confirmed=true&min_age_attested=16",
+	} {
+		handler := NewOAuthHTTPHandler(nil, nil, nil)
+		req := httptest.NewRequest("GET", "/auth/login/google?"+query, nil)
+		w := httptest.NewRecorder()
+		rctx := chi.NewRouteContext()
+		rctx.URLParams.Add("provider", "google")
+		req = req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, rctx))
 
-	req := httptest.NewRequest("GET", "/auth/login/google?signup_intent=1&terms_accepted=true&"+currentConsentVersionsQuery+"&age_confirmed=true&min_age_attested=10", nil)
-	w := httptest.NewRecorder()
-	rctx := chi.NewRouteContext()
-	rctx.URLParams.Add("provider", "google")
-	req = req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, rctx))
+		handler.OAuthLoginHTTPHandler(w, req)
 
-	handler.OAuthLoginHTTPHandler(w, req)
-
-	if w.Code != http.StatusBadRequest {
-		t.Errorf("expected 400 for attested age below minimum, got %d", w.Code)
-	}
-	for _, c := range w.Result().Cookies() {
-		if c.Name == oauthSignupConsentCookieName {
-			t.Error("expected no signup-consent cookie when attested age is below minimum")
+		if location := w.Header().Get("Location"); strings.Contains(location, "error_code=") {
+			t.Errorf("%s: start redirected to a refusal %q", query, location)
 		}
-	}
-}
-
-// TestOAuthLoginHTTPHandler_SignupIntent_RecordsAgeConsent confirms a valid
-// signup-intent init (terms + age confirmed) sets a consent cookie carrying the
-// age confirmation, so the callback path can persist it.
-func TestOAuthLoginHTTPHandler_SignupIntent_RecordsAgeConsent(t *testing.T) {
-	handler := NewOAuthHTTPHandler(nil, nil, nil)
-
-	req := httptest.NewRequest("GET", "/auth/login/google?signup_intent=1&terms_accepted=true&"+currentConsentVersionsQuery+"&age_confirmed=true&min_age_attested=16", nil)
-	w := httptest.NewRecorder()
-	rctx := chi.NewRouteContext()
-	rctx.URLParams.Add("provider", "google")
-	req = req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, rctx))
-
-	handler.OAuthLoginHTTPHandler(w, req)
-
-	var consentCookie *http.Cookie
-	for _, c := range w.Result().Cookies() {
-		if c.Name == oauthSignupConsentCookieName {
-			consentCookie = c
-			break
+		// No provider is registered here, so the start ends in goth's own
+		// answer; what matters is that it got that far, past any consent check.
+		if body := w.Body.String(); strings.Contains(body, "required for account creation") {
+			t.Errorf("%s: start refused the sign-up: %q", query, body)
 		}
-	}
-	if consentCookie == nil {
-		t.Fatal("expected signup-consent cookie to be set for valid signup intent")
-	}
-	consent, err := decodeOAuthSignupConsent(consentCookie.Value)
-	if err != nil {
-		t.Fatalf("failed to decode consent cookie: %v", err)
-	}
-	if !consent.AgeConfirmed {
-		t.Error("expected AgeConfirmed=true in consent cookie")
-	}
-	if consent.MinAgeAttested != MinSignupAge {
-		t.Errorf("expected MinAgeAttested=%d in consent cookie, got %d", MinSignupAge, consent.MinAgeAttested)
+		for _, c := range w.Result().Cookies() {
+			if strings.Contains(c.Name, "consent") {
+				t.Errorf("%s: start set cookie %q", query, c.Name)
+			}
+		}
 	}
 }

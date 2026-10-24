@@ -30,7 +30,7 @@ import (
 //
 // What it does NOT do is follow calls: it sees the site that names the method,
 // not every path that can reach that site. A new caller of an already-listed
-// wrapper (AppleAuthService.GenerateToken, AuthService.OAuthCallbackWithConsent) is not
+// wrapper (AppleAuthService.GenerateToken, AuthService.OAuthCallback) is not
 // reported here and is on the author.
 //
 // If you add a site, choose one:
@@ -41,16 +41,17 @@ import (
 //     the caller's own credential established, never time.Now()
 var sessionMintAllowlist = map[string]string{
 	// Session mints behind a real factor.
-	"internal/api/handlers/auth/auth.go:AuthHandler.LoginHandler:CreateToken":                  "password",
-	"internal/api/handlers/auth/auth.go:AuthHandler.RegisterHandler:CreateToken":               "registration sets the password",
-	"internal/api/handlers/auth/auth.go:AuthHandler.VerifyMagicLinkHandler:CreateToken":        "emailed magic link",
-	"internal/api/handlers/auth/auth.go:AuthHandler.RecoverAccountHandler:CreateToken":         "email plus password",
-	"internal/api/handlers/auth/auth.go:AuthHandler.ChangePasswordHandler:CreateToken":         "current password verified in this request",
-	"internal/api/handlers/auth/auth.go:AuthHandler.ConfirmAccountRecoveryHandler:CreateToken": "emailed recovery token",
-	"internal/api/handlers/auth/passkey.go:PasskeyHandler.FinishLoginHandler:CreateToken":      "webauthn assertion",
-	"internal/api/handlers/auth/passkey.go:PasskeyHandler.FinishSignupHandler:CreateToken":     "webauthn registration at signup",
-	"internal/services/auth/apple.go:AppleAuthService.GenerateToken:CreateToken":               "apple identity token, verified by AppleCallbackHandler before this runs",
-	"internal/services/auth/oauth.go:AuthService.OAuthCallbackWithConsent:CreateToken":         "provider handshake",
+	"internal/api/handlers/auth/auth.go:AuthHandler.LoginHandler:CreateToken":                    "password",
+	"internal/api/handlers/auth/auth.go:AuthHandler.RegisterHandler:CreateToken":                 "registration sets the password",
+	"internal/api/handlers/auth/auth.go:AuthHandler.VerifyMagicLinkHandler:CreateToken":          "emailed magic link",
+	"internal/api/handlers/auth/auth.go:AuthHandler.RecoverAccountHandler:CreateToken":           "email plus password",
+	"internal/api/handlers/auth/auth.go:AuthHandler.ChangePasswordHandler:CreateToken":           "current password verified in this request",
+	"internal/api/handlers/auth/auth.go:AuthHandler.ConfirmAccountRecoveryHandler:CreateToken":   "emailed recovery token",
+	"internal/api/handlers/auth/passkey.go:PasskeyHandler.FinishLoginHandler:CreateToken":        "webauthn assertion",
+	"internal/api/handlers/auth/passkey.go:PasskeyHandler.FinishSignupHandler:CreateToken":       "webauthn registration at signup",
+	"internal/services/auth/apple.go:AppleAuthService.GenerateToken:CreateToken":                 "apple identity token, verified by AppleCallbackHandler before this runs",
+	"internal/services/auth/oauth.go:AuthService.OAuthCallback:CreateToken":                      "provider handshake",
+	"internal/services/auth/oauth_pending_signup.go:AuthService.CompleteOAuthSignup:CreateToken": "provider handshake, finished on the sign-up step",
 
 	// Session renewals: the authentication time comes from the caller's own
 	// credential, so these mint no freshness.

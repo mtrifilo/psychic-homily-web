@@ -1,33 +1,11 @@
 'use client'
 
-import { useEffect, useRef, useState } from 'react'
-import { Loader2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { FALLBACK_RETURN_TO } from '@/lib/auth-href'
-import {
-  ConsentVersionsChangedError,
-  useConsentVersions,
-} from '@/features/auth/hooks/useLegalVersions'
-import {
-  forgetGoogleSignupStart,
-  googleStartUrl,
-  rememberGoogleSignupStart,
-} from './google-signup-start'
+import { googleStartUrl } from './google-start-url'
 
 interface GoogleOAuthButtonProps {
   className?: string
-  variant?: 'login' | 'signup'
-  termsAccepted?: boolean
-  onMissingTermsAcceptance?: () => void
-  // PSY-1023: required minimum-age confirmation, mirroring terms acceptance.
-  ageConfirmed?: boolean
-  onMissingAgeConfirmation?: () => void
-  /**
-   * A sign-up start was not made because the published consent versions could
-   * not be read. Not called when they were read and differ from this build's;
-   * the form shows that from its own read.
-   */
-  onConsentVersionsUnavailable?: () => void
   disabled?: boolean
   /**
    * Where the reader lands after signing in, already through
@@ -36,95 +14,40 @@ interface GoogleOAuthButtonProps {
   returnTo?: string
 }
 
+/**
+ * "Continue with Google": one button and one behaviour wherever it shows. A
+ * returning identity is signed in; a new one finishes on the "Create your
+ * account" step, which asks for the consent an account needs.
+ */
 export function GoogleOAuthButton({
   className,
-  variant = 'login',
-  termsAccepted = false,
-  onMissingTermsAcceptance,
-  ageConfirmed = false,
-  onMissingAgeConfirmation,
-  onConsentVersionsUnavailable,
   disabled = false,
   returnTo = FALLBACK_RETURN_TO,
 }: GoogleOAuthButtonProps) {
-  const consentVersions = useConsentVersions()
-  const [isReadingVersions, setIsReadingVersions] = useState(false)
-  // A start whose versions arrive after the button is gone is dropped, so it
-  // cannot replace whatever the reader did next.
-  const mountedRef = useRef(false)
-
-  useEffect(() => {
-    mountedRef.current = true
-    return () => {
-      mountedRef.current = false
-    }
-  }, [])
-
-  const handleGoogleLogin = async () => {
-    if (variant === 'login') {
-      // A sign-in is never retried as a sign-up, whatever it is refused with.
-      forgetGoogleSignupStart()
-      window.location.href = googleStartUrl({ returnTo })
-      return
-    }
-    if (!termsAccepted) {
-      onMissingTermsAcceptance?.()
-      return
-    }
-    if (!ageConfirmed) {
-      onMissingAgeConfirmation?.()
-      return
-    }
-
-    setIsReadingVersions(true)
-    let versions
-    try {
-      versions = await consentVersions.read()
-    } catch (error) {
-      setIsReadingVersions(false)
-      if (mountedRef.current && !(error instanceof ConsentVersionsChangedError)) {
-        onConsentVersionsUnavailable?.()
-      }
-      return
-    }
-    if (!mountedRef.current) {
-      setIsReadingVersions(false)
-      return
-    }
-    // The backend redirects to Google, then back to its callback, then to the
-    // frontend; a consent refusal on the way lands on the auth page, which
-    // retries a start recorded here once.
-    rememberGoogleSignupStart()
-    window.location.href = googleStartUrl({ returnTo, signup: versions })
-    // A page restored from the back-forward cache keeps this state.
-    setIsReadingVersions(false)
-  }
-
   return (
     <Button
       type="button"
       variant="outline"
-      onClick={handleGoogleLogin}
-      disabled={disabled || isReadingVersions}
+      onClick={() => {
+        window.location.href = googleStartUrl({ returnTo })
+      }}
+      disabled={disabled}
       className={className}
     >
-      {isReadingVersions ? (
-        <Loader2 className="h-4 w-4 animate-spin" />
-      ) : (
-        <GoogleIcon className="h-4 w-4" />
-      )}
-      {variant === 'signup' ? 'Sign up with Google' : 'Continue with Google'}
+      <GoogleIcon className="h-4 w-4" />
+      Continue with Google
     </Button>
   )
 }
 
-// Google "G" logo SVG component
-function GoogleIcon({ className }: { className?: string }) {
+/** Google's "G" mark, in its fixed brand colours. */
+export function GoogleIcon({ className }: { className?: string }) {
   return (
     <svg
       className={className}
       viewBox="0 0 24 24"
       xmlns="http://www.w3.org/2000/svg"
+      aria-hidden="true"
     >
       <path
         d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
