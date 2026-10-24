@@ -292,9 +292,6 @@ describe('SignupForm deferred validation', () => {
     })
   })
 
-  // The alert announces itself, so focus stays on the control; the alert is
-  // scrolled to first and the focused control after it, so the control
-  // stays in view when both do not fit.
   // The alert is already up with another message when the sign-up is refused.
   it('brings the alert into view again when a refusal replaces its message', async () => {
     const { user, rerender } = await renderSignupForm()
@@ -315,6 +312,9 @@ describe('SignupForm deferred validation', () => {
     expect(vi.mocked(Element.prototype.scrollIntoView).mock.contexts[0]).toBe(alert)
   })
 
+  // The alert announces itself, so focus stays on the control; the alert is
+  // scrolled to first and the focused control after it, so the control
+  // stays in view when both do not fit.
   it('brings a refused sign-up\'s alert into view and leaves focus on the field', async () => {
     const { user, rerender } = await renderSignupForm()
     const email = screen.getByLabelText('Email')
