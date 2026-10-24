@@ -88,8 +88,7 @@ type EntityRequestFields communitym.EntityRequest
 // row, plus the one fact the row itself cannot carry — whether this submission
 // opened a new request or corrected a queued one.
 //
-// Named rather than anonymous so the embed below survives; the ...ResponseBody
-// suffix is the one Huma would have generated.
+// The ...ResponseBody suffix is the one Huma would have generated.
 //
 // The request is EMBEDDED so its fields stay at the top level of the JSON, which
 // is the shape clients already read (PSY-1008's created_entity_id / PSY-1858's

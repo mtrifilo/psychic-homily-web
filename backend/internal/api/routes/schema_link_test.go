@@ -6,7 +6,21 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"github.com/danielgtaylor/huma/v2"
 )
+
+// humaConfig drops every create hook huma.DefaultConfig ships, on the premise
+// that the schema-link transformer's hook is the only one. A Huma version that
+// adds another fails here, so dropping it is decided rather than inherited.
+func TestHumaDefaultConfigHasOnlyTheSchemaLinkHook(t *testing.T) {
+	if n := len(huma.DefaultConfig("probe", "0").CreateHooks); n != 1 {
+		t.Fatalf("huma.DefaultConfig ships %d create hooks, want 1; humaConfig drops all of them, so decide whether the new ones belong", n)
+	}
+	if n := len(humaConfig().CreateHooks); n != 0 {
+		t.Fatalf("humaConfig keeps %d create hooks, want 0", n)
+	}
+}
 
 // No response body and no schema in the served OpenAPI document carries a
 // `$schema` member, and no response links its schema with a describedBy header.
