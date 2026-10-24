@@ -7,7 +7,7 @@ import { Button } from '@/components/ui/button'
 import { useAuthContext } from '@/lib/context/AuthContext'
 import { ShowForm } from '@/features/shows'
 import { useVenueShows } from '../hooks/useVenues'
-import { VENUE_UPCOMING_SHOWS_LIMIT } from '../api'
+import { VENUE_UPCOMING_SHOWS_REQUEST } from '../api'
 import { VenuePastShows } from './VenuePastShows'
 import { VenueShowsTable } from './VenueShowsTable'
 import type { VenueShowYearsResponse, VenueShowZone } from '../types'
@@ -63,10 +63,11 @@ export function VenueShowsList({
   const [isAddingShow, setIsAddingShow] = useState(false)
   const { isAuthenticated } = useAuthContext()
 
+  // The venue route seeds this exact request's cache entry server-side, so
+  // the rows are in the served HTML and the loader shows only without a seed.
   const upcoming = useVenueShows({
     venueId,
-    timeFilter: 'upcoming',
-    limit: VENUE_UPCOMING_SHOWS_LIMIT,
+    ...VENUE_UPCOMING_SHOWS_REQUEST,
   })
 
   // No `dedupVenueShows` here, and none in the past archive either (PSY-1753).
@@ -105,7 +106,9 @@ export function VenueShowsList({
         />
         {upcoming.isPending ? (
           <ShowsLoader />
-        ) : upcoming.error ? (
+        ) : upcoming.error && !upcoming.data ? (
+          // Gated on `!data`: a failed refresh of rows already on screen
+          // (seeded server-side, then revalidated on mount) keeps the rows.
           <p className="py-3 text-sm text-destructive">Failed to load shows</p>
         ) : upcomingShows.length === 0 ? (
           // See ArtistShowsList: the [Notify me] bracket that sat here

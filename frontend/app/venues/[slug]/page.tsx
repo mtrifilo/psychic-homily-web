@@ -7,13 +7,18 @@ import { VenueDetail } from '@/features/venues'
 import { JsonLd } from '@/components/seo/JsonLd'
 import { generateMusicVenueSchema, generateBreadcrumbSchema } from '@/lib/seo/jsonld'
 import { queryKeys } from '@/lib/queryClient'
-import { prefetchEntity } from '@/lib/query-hydration'
+import { prefetchEntity, seedFirstScreen } from '@/lib/query-hydration'
 import { archiveData, getArchiveYears, getVenue } from '@/features/venues/archiveApi'
 import type { Venue, VenueShowsResponse } from '@/features/venues/types'
+import {
+  VENUE_UPCOMING_SHOWS_REQUEST,
+  venueUpcomingShowsUrl,
+} from '@/features/venues/api'
 // The policy module, not the shows barrel: `showRails.ts` renders nothing.
 import { venueRailShowsUrl } from '@/features/shows/showRails'
 import { CURRENT_PERIOD_REVALIDATE } from '@/features/scenes/scenePeriodApi'
 import { fetchListPayload } from '@/lib/ssr/fetchListPayload'
+import { withoutPassedShows } from '@/lib/ssr/withoutPassedShows'
 import { venueNextShowFrom, venueSnippet } from '@/lib/seo/entitySnippets'
 
 interface VenuePageProps {
@@ -93,10 +98,11 @@ export default async function VenuePage({ params }: VenuePageProps) {
     notFound()
   }
 
-  // Both reads take the slug from `params`, so neither waits on the other. The
-  // histogram is thrown away for a venue that turns out not to exist, which the
-  // proxy's existence check already filters before this route renders.
-  const [venueRead, pastYearsRead] = await Promise.all([
+  // Every read takes the slug from `params`, so none waits on another. The
+  // histogram and the upcoming rows are thrown away for a venue that turns out
+  // not to exist, which the proxy's existence check already filters before this
+  // route renders.
+  const [venueRead, pastYearsRead, upcomingShows] = await Promise.all([
     getVenue(slug),
     // The past-shows year strip, server-side (PSY-1756).
     //
@@ -117,6 +123,18 @@ export default async function VenuePage({ params }: VenuePageProps) {
     // including the majority whose archive fits on one page and shows no pager
     // at all. The client fetches it, gated on there being a pager to label. The
     // year-archive route DOES seed it, because there the pager is in the HTML.
+    //
+    // The upcoming rows, so the calendar is in the served HTML. Null on a
+    // failed read, which leaves the list to its client fetch. Revalidated every
+    // `CURRENT_PERIOD_REVALIDATE` because each row carries cancelled and
+    // sold-out state; that window does not bound the age of what a render
+    // receives (see `withoutPassedShows` below).
+    fetchListPayload<VenueShowsResponse>({
+      url: venueUpcomingShowsUrl(slug),
+      collection: 'shows',
+      service: 'venue-page-upcoming-shows',
+      revalidateSeconds: CURRENT_PERIOD_REVALIDATE,
+    }),
   ])
 
   // Unchanged from before this ticket: ANY failed venue read is a not-found
@@ -135,6 +153,31 @@ export default async function VenuePage({ params }: VenuePageProps) {
     venueData,
   )
 
+  // Keyed on the NUMERIC id, which is what `VenueDetail` hands
+  // `VenueShowsList` and so what `useVenueShows` registers;
+  // `VENUE_UPCOMING_SHOWS_REQUEST` is the one spelling of the rest of the key.
+  //
+  // Stamped stale (`seedFirstScreen`), unlike the detail above: the rows paint
+  // from the server and the browser then re-asks the live endpoint on mount,
+  // so a Data Cache entry older than a show mutation is corrected after paint,
+  // and a stale stamp never overwrites a fresher entry the client already holds.
+  // Rows that have provably left the upcoming window since the read are dropped
+  // (`withoutPassedShows`). No seed when the read failed or answered for another
+  // venue; the list then fetches for itself behind its loader.
+  const upcomingShowsState = await seedFirstScreen(
+    upcomingShows?.venue_id === venueData.id
+      ? [
+          {
+            queryKey: queryKeys.venues.showsPage(
+              venueData.id,
+              VENUE_UPCOMING_SHOWS_REQUEST,
+            ),
+            data: withoutPassedShows(upcomingShows),
+          },
+        ]
+      : [],
+  )
+
   return (
     <>
       <JsonLd data={generateMusicVenueSchema({
@@ -150,9 +193,11 @@ export default async function VenuePage({ params }: VenuePageProps) {
         { name: venueData.name, url: `https://psychichomily.com/venues/${venueData.slug || slug}` },
       ])} />
       <HydrationBoundary state={dehydratedState}>
-        <Suspense fallback={<VenueLoadingFallback />}>
-          <VenueDetail venueId={slug} initialPastYears={pastYears ?? undefined} />
-        </Suspense>
+        <HydrationBoundary state={upcomingShowsState}>
+          <Suspense fallback={<VenueLoadingFallback />}>
+            <VenueDetail venueId={slug} initialPastYears={pastYears ?? undefined} />
+          </Suspense>
+        </HydrationBoundary>
       </HydrationBoundary>
     </>
   )
