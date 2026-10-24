@@ -5,7 +5,9 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"reflect"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -460,6 +462,30 @@ func TestOAuthPendingSignupCookie_LivesAsLongAsThePendingSignup(t *testing.T) {
 // The expired step's copy names the pending sign-up's lifetime, so changing
 // the lifetime fails here until the copy (this message and ExpiredCard in
 // frontend/app/auth/complete/create-account-step.tsx) changes with it.
+// The step's form shows the same date-of-birth sentences the finish refuses
+// with, so an implausible date the form lets through reads the same in the
+// banner as an empty or impossible one does under the fields.
+func TestDateOfBirthMessagesMatchTheStep(t *testing.T) {
+	const stepPath = "../../../../../frontend/app/auth/complete/create-account-step.tsx"
+	source, err := os.ReadFile(stepPath)
+	if err != nil {
+		t.Fatalf("cannot read %s: %v; repoint this test if the step moved", stepPath, err)
+	}
+	for name, backend := range map[string]string{
+		"DATE_OF_BIRTH_MISSING_MESSAGE": dateOfBirthMissingMessage,
+		"DATE_OF_BIRTH_INVALID_MESSAGE": dateOfBirthInvalidMessage,
+	} {
+		match := regexp.MustCompile(`(?m)^export const ` + name + `\s*=\s*'([^']*)'`).FindSubmatch(source)
+		if match == nil {
+			t.Errorf("no %s string constant in %s", name, stepPath)
+			continue
+		}
+		if frontend := string(match[1]); frontend != backend {
+			t.Errorf("%s differs: frontend %q, backend %q", name, frontend, backend)
+		}
+	}
+}
+
 func TestOAuthSignupExpiredCopyNamesTheLifetime(t *testing.T) {
 	minutes := fmt.Sprintf("%d minutes", int(contracts.OAuthPendingSignupTTL/time.Minute))
 	if got := autherrors.ErrOAuthSignupExpired(nil).UserMessage(); !strings.Contains(got, minutes) {
