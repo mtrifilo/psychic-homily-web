@@ -1,7 +1,6 @@
 package catalog
 
 import (
-	"log/slog"
 	"os"
 	"strconv"
 	"strings"
@@ -76,17 +75,16 @@ func TestSitemapDietFromEnvIsOffUnlessSetExactly(t *testing.T) {
 			for key, value := range tc.env {
 				t.Setenv(key, value)
 			}
-			capture, buf := testlog.NewJSONCapture(slog.LevelWarn)
-			previous := slog.Default()
-			slog.SetDefault(capture)
-			t.Cleanup(func() { slog.SetDefault(previous) })
-
-			if got := sitemapDietFromEnv(); got != tc.want {
+			var got sitemapDiet
+			// The warning cases are the positive marker that Capture reaches
+			// sitemapDietFromEnv's logger, which the silent cases rely on.
+			out := testlog.Capture(t, func() { got = sitemapDietFromEnv() })
+			if got != tc.want {
 				t.Errorf("sitemapDietFromEnv() with %v = %+v, want %+v", tc.env, got, tc.want)
 			}
-			warned := strings.Contains(buf.String(), sitemapPastShowMaxAgeDaysEnv)
+			warned := strings.Contains(out, "level=WARN") && strings.Contains(out, sitemapPastShowMaxAgeDaysEnv)
 			if warned != tc.wantWarn {
-				t.Errorf("sitemapDietFromEnv() with %v warned = %v, want %v (log: %q)", tc.env, warned, tc.wantWarn, buf.String())
+				t.Errorf("sitemapDietFromEnv() with %v warned = %v, want %v (log: %q)", tc.env, warned, tc.wantWarn, out)
 			}
 		})
 	}
