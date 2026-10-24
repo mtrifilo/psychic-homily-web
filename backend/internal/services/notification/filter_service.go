@@ -486,13 +486,56 @@ func (s *NotificationFilterService) MatchAndNotify(show *catalogm.Show) error {
 	}
 	show = canonical
 
-	// Gather the show's related IDs for matching
+	// Gather the show's related IDs for matching. Every pass reads them, so a
+	// failure here fails the whole call.
 	showArtistIDs, showVenueIDs, artistLabelIDs, artistTagIDs, err := s.gatherShowRelations(show.ID)
 	if err != nil {
 		return fmt.Errorf("failed to gather show relations: %w", err)
 	}
 
-	// Build city JSON for matching
+	// The passes run most specific first: filters, then the band you follow,
+	// then the room you follow, then your city. Each later pass's cross-system
+	// dedup reads the notification_log rows the earlier passes wrote, so one
+	// user gets one notification per show and the most specific sentence wins
+	// that slot.
+	//
+	// Every pass runs even when an earlier one fails or panics. A failed pass
+	// gives up its precedence for this run (the later passes see only the rows
+	// that were written) and its error is returned, so the outbox retries the
+	// show. A retry cannot double-notify: every pass dedups against the log or
+	// claims through a UNIQUE before it delivers.
+	return runNotifyPasses(show.ID, []notifyPass{
+		{name: notifyPassFilter, run: func() error {
+			return s.notifyFilterSubscribers(show, showArtistIDs, showVenueIDs, artistLabelIDs, artistTagIDs)
+		}},
+		{name: notifyPassArtistFollow, run: func() error {
+			s.notifyArtistFollowers(show, showArtistIDs)
+			return nil
+		}},
+		// Venue follows ACCRUE rather than notify: venue alerts are coalesced to
+		// one per venue per venue-local day, so this records an observation and
+		// the flush poller decides who hears about the day's set. It sits after
+		// the artist pass because the flush's cross-system dedup reads the rows
+		// the earlier passes wrote.
+		{name: notifyPassVenueFollow, run: func() error {
+			s.accrueVenueShowAlerts(show, showVenueIDs)
+			return nil
+		}},
+		{name: notifyPassSceneFollow, run: func() error {
+			s.notifySceneFollowers(show, showArtistIDs)
+			return nil
+		}},
+	})
+}
+
+// notifyFilterSubscribers is the filter pass: it matches the show against every
+// active notification filter and delivers at most one notification per user.
+// The returned error is the matching query's; per-user delivery problems are
+// logged and swallowed inside processUserMatches.
+func (s *NotificationFilterService) notifyFilterSubscribers(
+	show *catalogm.Show,
+	showArtistIDs, showVenueIDs, artistLabelIDs, artistTagIDs pq.Int64Array,
+) error {
 	var cityJSON []byte
 	if show.City != nil && show.State != nil {
 		cityJSON, _ = json.Marshal([]map[string]string{
@@ -502,7 +545,6 @@ func (s *NotificationFilterService) MatchAndNotify(show *catalogm.Show) error {
 
 	priceCents := effectiveShowPriceCents(show)
 
-	// Run the matching query
 	matches, err := s.findMatchingFilters(show.ID, showArtistIDs, showVenueIDs, artistLabelIDs, artistTagIDs, cityJSON, priceCents)
 	if err != nil {
 		return fmt.Errorf("failed to find matching filters: %w", err)
@@ -514,35 +556,9 @@ func (s *NotificationFilterService) MatchAndNotify(show *catalogm.Show) error {
 		userMatches[m.UserID] = append(userMatches[m.UserID], m)
 	}
 
-	// Process each user's matches
 	for userID, userFilterMatches := range userMatches {
 		s.processUserMatches(userID, show, userFilterMatches)
 	}
-
-	// Follow-driven fanouts run AFTER the filter pass — even when no filter
-	// matched — so their cross-system dedup can defer to filter notifications
-	// already logged for this show.
-	//
-	// Artist follows before scene follows, most specific first: one user gets one
-	// notification per show, and "a band you follow announced a show" is a better
-	// use of that single slot than "something is on in your city" (PSY-1896).
-	s.notifyArtistFollowers(show, showArtistIDs)
-
-	// Venue follows ACCRUE here rather than notifying (PSY-1895). Venue alerts
-	// are coalesced to one per venue per venue-local day, so this call records an
-	// observation and the flush poller decides who hears about the day's set.
-	//
-	// Between the artist pass and the scene pass, which is where the per-show
-	// fanout would have sat, so the specific-to-general ordering is unchanged:
-	// filters, then the band you follow, then the room you follow, then your
-	// city. Sitting AFTER the artist pass also matters for a reason accrual
-	// itself does not care about — the flush's cross-system dedup reads the rows
-	// the earlier passes wrote, so running before them would leave it looking at
-	// an empty log and repeating what a more specific alert had just said.
-	s.accrueVenueShowAlerts(show, showVenueIDs)
-
-	s.notifySceneFollowers(show, showArtistIDs)
-
 	return nil
 }
 
