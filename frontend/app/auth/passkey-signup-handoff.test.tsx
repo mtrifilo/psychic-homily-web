@@ -118,6 +118,10 @@ async function submitPasskeySignup() {
   return user
 }
 
+function skipPrompt(user: UserEvent, prompt: HTMLElement) {
+  return user.click(within(prompt).getByRole('button', { name: "I'll do this later" }))
+}
+
 describe('passkey sign-up on /auth', () => {
   beforeEach(() => {
     mockPush.mockReset()
@@ -149,8 +153,7 @@ describe('passkey sign-up on /auth', () => {
 
   describe('closing the backup prompt', () => {
     const closeRoutes: Array<[string, (user: UserEvent, prompt: HTMLElement) => Promise<void>]> = [
-      ['skipped', (user, prompt) =>
-        user.click(within(prompt).getByRole('button', { name: "I'll do this later" }))],
+      ['skipped', skipPrompt],
       ['closed with Escape', user => user.keyboard('{Escape}')],
       ['closed with its close button', (user, prompt) =>
         user.click(within(prompt).getByRole('button', { name: 'Close' }))],
@@ -177,9 +180,7 @@ describe('passkey sign-up on /auth', () => {
 
     const user = await submitPasskeySignup()
     const prompt = await screen.findByRole('dialog', PROMPT)
-    await user.click(
-      within(prompt).getByRole('button', { name: "I'll do this later" })
-    )
+    await skipPrompt(user, prompt)
     await screen.findByRole('heading', INBOX)
 
     expect(
@@ -195,9 +196,7 @@ describe('passkey sign-up on /auth', () => {
 
     const user = await submitPasskeySignup()
     const prompt = await screen.findByRole('dialog', PROMPT)
-    await user.click(
-      within(prompt).getByRole('button', { name: "I'll do this later" })
-    )
+    await skipPrompt(user, prompt)
 
     expect(
       await screen.findByRole('link', { name: 'Browse upcoming shows' })
@@ -216,9 +215,7 @@ describe('passkey sign-up on /auth', () => {
 
     const user = await submitPasskeySignup()
     const prompt = await screen.findByRole('dialog', PROMPT)
-    await user.click(
-      within(prompt).getByRole('button', { name: "I'll do this later" })
-    )
+    await skipPrompt(user, prompt)
 
     expect(await screen.findByRole('heading', INBOX)).toBeInTheDocument()
     expect(screen.queryByRole('tab', { name: 'Sign in' })).not.toBeInTheDocument()
@@ -244,14 +241,12 @@ describe('passkey sign-up on /auth', () => {
 
       const user = await submitPasskeySignup()
       const prompt = await screen.findByRole('dialog', PROMPT)
-      await advanceFakeTime(SIGNUP_REQUEST_TIMEOUT_MS * 2)
+      await advanceFakeTime(SIGNUP_REQUEST_TIMEOUT_MS + 1_000)
       expect(screen.getByRole('dialog', PROMPT)).toBeInTheDocument()
 
-      await user.click(
-        within(prompt).getByRole('button', { name: "I'll do this later" })
-      )
+      await skipPrompt(user, prompt)
       await screen.findByRole('heading', INBOX)
-      await advanceFakeTime(SIGNUP_REQUEST_TIMEOUT_MS * 2)
+      await advanceFakeTime(SIGNUP_REQUEST_TIMEOUT_MS + 1_000)
 
       expect(screen.getByRole('heading', INBOX)).toBeInTheDocument()
       expect(mockPush).not.toHaveBeenCalled()

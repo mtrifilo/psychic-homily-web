@@ -974,9 +974,9 @@ function AuthPageContent() {
     )
   }
 
-  // Every way of closing the prompt moves this claim on to its check-inbox
-  // step, which the block below renders. The claim stays held, so the
-  // already-authenticated redirect effect above stays held back too.
+  // Every way of closing the prompt moves the claim on to its check-inbox
+  // step, which the block below renders. The claim stays held, and so does
+  // the redirect.
   if (
     signupHandoff?.status === 'complete' &&
     signupHandoff.method === 'passkey' &&
@@ -987,13 +987,7 @@ function AuthPageContent() {
         <BackupAuthPrompt
           open
           onOpenChange={open => {
-            if (!open) {
-              setSignupHandoff(current =>
-                current === signupHandoff
-                  ? { ...signupHandoff, step: 'check-inbox' }
-                  : current
-              )
-            }
+            if (!open) setSignupHandoff({ ...signupHandoff, step: 'check-inbox' })
           }}
         />
       </div>
