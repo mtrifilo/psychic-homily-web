@@ -27,6 +27,17 @@ import (
 // hand-rolled parses eventually disagree, and then one half is writing work the
 // other never drains.
 func EnvServiceDisabled(key string) bool {
+	return EnvFlagEnabled(key)
+}
+
+// EnvFlagEnabled reports whether a default-OFF feature has been switched on
+// through its flag: on IFF the value, trimmed, is the string "1". Unset, empty,
+// "0", "true", "yes" and every other spelling leave the feature off.
+//
+// EnvServiceDisabled delegates here, so a flag reads the same way whichever
+// direction it points. Only "1" counts so that no spelling an operator might
+// type by mistake switches a default-off feature on.
+func EnvFlagEnabled(key string) bool {
 	return strings.TrimSpace(os.Getenv(key)) == "1"
 }
 
