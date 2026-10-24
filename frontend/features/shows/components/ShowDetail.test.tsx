@@ -561,8 +561,8 @@ describe('ShowDetail', () => {
       }
     )
 
-    // The slot the mock reserves for the rails row is BETWEEN the page's own
-    // modules and the byline. Position is the claim, so containment alone is
+    // The rails row sits BETWEEN the embeds and the byline. Position is the
+    // claim, so containment alone is
     // not enough: a rails row rendered after the provenance footer would still
     // "be on the page" and would still be wrong. Both halves of the claim are
     // pinned — a row that drifted above the embeds would otherwise ship green.
@@ -1010,5 +1010,75 @@ describe('ShowDetail', () => {
       expect(screen.queryByTestId('show-listen-module')).not.toBeInTheDocument()
       expect(screen.queryByText('Listen / Before you go')).not.toBeInTheDocument()
     })
+  })
+
+  // The rails row is the page's second click, so its slot is the claim: directly
+  // under the listen module, above In Collections and Field Notes, in both
+  // registers. The listen module hides itself on a bill with nothing to play,
+  // and the rails must then take its place rather than drift below the
+  // modules that follow it.
+  describe('module order', () => {
+    const playableBill = [
+      makeArtist({
+        id: 1,
+        name: 'Band',
+        socials: { spotify: 'https://open.spotify.com/artist/1a2b3c4d5e6f7g8h9i0jkl' },
+      }),
+    ]
+
+    function expectInDocumentOrder(elements: HTMLElement[]) {
+      for (let i = 1; i < elements.length; i++) {
+        expect(
+          elements[i - 1].compareDocumentPosition(elements[i]) &
+            Node.DOCUMENT_POSITION_FOLLOWING
+        ).toBeTruthy()
+      }
+    }
+
+    it.each(['upcoming', 'past'] as const)(
+      'renders listen module, rails, In Collections, Field Notes in that order on a %s show',
+      lifecycle => {
+        mockUseShow.mockReturnValue({
+          data: makeShow({ artists: playableBill }),
+          isLoading: false,
+          error: null,
+        })
+        render(<ShowDetail showId="1" lifecycle={lifecycle} renderedAt={DETAIL_RENDERED_AT} />)
+
+        const listen = screen.getByTestId('show-listen-module')
+        const rails = screen.getByTestId('show-discovery-rails')
+        expectInDocumentOrder([
+          listen,
+          rails,
+          screen.getByTestId('entity-collections'),
+          screen.getByTestId('field-notes-section'),
+          screen.getByTestId('show-provenance-footer'),
+        ])
+        // Adjacent, not merely after: nothing may slide in between.
+        expect(rails.previousElementSibling).toBe(listen)
+      }
+    )
+
+    it.each(['upcoming', 'past'] as const)(
+      'renders the rails first in the content slot when the listen module hides itself on a %s show',
+      lifecycle => {
+        mockUseShow.mockReturnValue({
+          data: makeShow({ artists: [makeArtist({ id: 1, name: 'Band', socials: {} })] }),
+          isLoading: false,
+          error: null,
+        })
+        render(<ShowDetail showId="1" lifecycle={lifecycle} renderedAt={DETAIL_RENDERED_AT} />)
+
+        expect(screen.queryByTestId('show-listen-module')).not.toBeInTheDocument()
+        const rails = screen.getByTestId('show-discovery-rails')
+        expect(screen.getByTestId('content-slot').firstElementChild).toBe(rails)
+        expectInDocumentOrder([
+          rails,
+          screen.getByTestId('entity-collections'),
+          screen.getByTestId('field-notes-section'),
+          screen.getByTestId('show-provenance-footer'),
+        ])
+      }
+    )
   })
 })
