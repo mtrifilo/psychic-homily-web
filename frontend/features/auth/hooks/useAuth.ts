@@ -31,8 +31,10 @@ import {
   type AuthErrorCodeType,
 } from '@/lib/errors'
 import type { NavMode } from '@/lib/nav-mode'
+import { forgetAccountCreatedThisSession } from '../accountCreatedMarker'
 import type { AuthApiUser } from '../authUser'
 import type { APIToken } from '../types'
+import type { components } from '@/types/api'
 
 // Types
 interface LoginCredentials {
@@ -158,14 +160,14 @@ export interface UserProfile {
     updated_at: string
     preferences?: UserPreferencesData
     /** The providers the account signs in with. Only `provider` is read. */
-    oauth_accounts?: { provider: string }[]
+    oauth_accounts?: Pick<components['schemas']['OAuthAccount'], 'provider'>[] | null
   }
   /**
    * The account's other sign-in factors. Absent when the backend could not
    * read them, which is not the same as false and 0.
    */
-  has_password?: boolean
-  passkey_count?: number
+  has_password?: components['schemas']['UserProfileResponseBody']['has_password']
+  passkey_count?: components['schemas']['UserProfileResponseBody']['passkey_count']
 }
 
 interface RefreshTokenResponse {
@@ -207,6 +209,7 @@ export async function refreshCachesForNewSession(queryClient: QueryClient) {
  * panel painting the payload the signed-in viewer could see.
  */
 function dropSignedInCaches(queryClient: QueryClient) {
+  forgetAccountCreatedThisSession()
   void resetViewerTierQueries(queryClient)
   // HTTP-only cookie is cleared by the server; drop everything else the
   // signed-in viewer could see.

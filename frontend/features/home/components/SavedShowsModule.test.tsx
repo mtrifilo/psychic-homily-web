@@ -4,7 +4,7 @@ import Link from 'next/link'
 import { SavedShowsModule } from './SavedShowsModule'
 import {
   markAccountCreatedThisSession,
-  resetAccountCreatedMarkerForTests,
+  forgetAccountCreatedThisSession,
 } from '@/features/auth/accountCreatedMarker'
 import type { SavedShowResponse } from '@/features/shows/types'
 import type { HomeCityLinkSlot, HomeDiscoverLinksSlot } from '../sections'
@@ -90,7 +90,7 @@ function savedShow(
 
 beforeEach(() => {
   window.sessionStorage.clear()
-  resetAccountCreatedMarkerForTests()
+  forgetAccountCreatedThisSession()
   mockAuthStatus.mockReturnValue('authenticated')
   mockUseShowSaveCountBatch.mockReturnValue({ data: undefined })
   mockCityLinkSlot.mockReturnValue('nearby')

@@ -3,7 +3,7 @@ import { render, screen } from '@testing-library/react'
 import { renderToString } from 'react-dom/server'
 import {
   markAccountCreatedThisSession,
-  resetAccountCreatedMarkerForTests,
+  forgetAccountCreatedThisSession,
   useAccountCreatedThisSession,
 } from './accountCreatedMarker'
 
@@ -13,7 +13,7 @@ function Probe({ userId }: { userId: string }) {
 
 beforeEach(() => {
   window.sessionStorage.clear()
-  resetAccountCreatedMarkerForTests()
+  forgetAccountCreatedThisSession()
 })
 
 afterEach(() => {
@@ -25,6 +25,18 @@ describe('the account-created marker', () => {
     markAccountCreatedThisSession(42)
 
     expect(renderToString(<Probe userId="42" />)).toContain('returning')
+  })
+
+  it('corrects to true one commit after hydrating server HTML that said false', async () => {
+    markAccountCreatedThisSession(42)
+    const container = document.createElement('div')
+    container.innerHTML = renderToString(<Probe userId="42" />)
+    document.body.appendChild(container)
+
+    render(<Probe userId="42" />, { container, hydrate: true })
+
+    expect(await screen.findByText('new')).toBeInTheDocument()
+    container.remove()
   })
 
   it('names the account a later sign-up in the same page created', () => {
@@ -53,7 +65,16 @@ describe('the account-created marker', () => {
     unmount()
 
     // A reload starts the module over with storage already cleared.
-    resetAccountCreatedMarkerForTests()
+    forgetAccountCreatedThisSession()
+    render(<Probe userId="42" />)
+    expect(screen.getByText('returning')).toBeInTheDocument()
+  })
+
+  it('is forgotten when the session ends, read or not', () => {
+    markAccountCreatedThisSession(42)
+    forgetAccountCreatedThisSession()
+
+    expect(window.sessionStorage.length).toBe(0)
     render(<Probe userId="42" />)
     expect(screen.getByText('returning')).toBeInTheDocument()
   })

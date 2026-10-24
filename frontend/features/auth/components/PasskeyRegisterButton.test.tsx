@@ -4,7 +4,6 @@ import userEvent from '@testing-library/user-event'
 import { renderWithProviders } from '@/test/utils'
 import { PasskeyRegisterButton } from './PasskeyRegisterButton'
 import { AuthError, AuthErrorCode } from '@/lib/errors'
-import { queryKeys } from '@/lib/queryClient'
 import { startRegistration } from '@simplewebauthn/browser'
 
 // This button is the one gated surface that does not go through apiRequest: it
@@ -24,6 +23,12 @@ vi.mock('@simplewebauthn/browser', () => ({
 }))
 
 vi.mock('@sentry/nextjs', () => ({ captureException: vi.fn() }))
+
+const mockRefetchSignedInProfile = vi.fn()
+vi.mock('@/lib/queryClient', async importOriginal => ({
+  ...(await importOriginal<typeof import('@/lib/queryClient')>()),
+  refetchSignedInProfile: (...args: unknown[]) => mockRefetchSignedInProfile(...args),
+}))
 
 // The components must resolve the backend through lib/api-base like every
 // other data request, never from NEXT_PUBLIC_API_URL on their own: unset, that
@@ -89,13 +94,12 @@ describe('PasskeyRegisterButton', () => {
       ) as unknown as typeof fetch
     const onSuccess = vi.fn()
 
-    const { queryClient } = renderWithProviders(<PasskeyRegisterButton onSuccess={onSuccess} />)
-    const invalidate = vi.spyOn(queryClient, 'invalidateQueries')
+    renderWithProviders(<PasskeyRegisterButton onSuccess={onSuccess} />)
     await openAndSubmit()
 
     await waitFor(() => expect(onSuccess).toHaveBeenCalled())
     // The profile carries the passkey count, so a new passkey refreshes it.
-    expect(invalidate).toHaveBeenCalledWith({ queryKey: queryKeys.auth.profile })
+    expect(mockRefetchSignedInProfile).toHaveBeenCalledTimes(1)
     expect(vi.mocked(startRegistration)).toHaveBeenCalledWith({ optionsJSON: publicKey })
     expect(vi.mocked(global.fetch).mock.calls.map((call) => call[0])).toEqual([
       'https://api-base.test/auth/passkey/register/begin',
@@ -116,6 +120,8 @@ describe('PasskeyRegisterButton', () => {
     const reported = onError.mock.calls[0][0]
     expect(reported).toBeInstanceOf(AuthError)
     expect((reported as AuthError).code).toBe(AuthErrorCode.REAUTH_REQUIRED)
+    // The caller's sign-in-again link must not sit under the open dialog.
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
   })
 
   it('carries the refusal code out of the finish step', async () => {

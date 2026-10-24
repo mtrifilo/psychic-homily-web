@@ -67,8 +67,10 @@ function googleOnlyProfile(overrides: Partial<UserProfile> = {}): UserProfile {
 
 const TITLE = 'Add a passkey for faster sign-in'
 
+const onLeave = vi.fn()
+
 function renderCard() {
-  return render(<PasskeyOfferCard />)
+  return render(<PasskeyOfferCard onLeave={onLeave} />)
 }
 
 beforeEach(() => {
@@ -76,6 +78,7 @@ beforeEach(() => {
   userId = '42'
   supportsWebAuthn = true
   registerOutcome = { ok: true }
+  onLeave.mockReset()
   window.localStorage.clear()
 })
 
@@ -110,6 +113,7 @@ describe('PasskeyOfferCard', () => {
 
     await user.click(screen.getByRole('button', { name: 'Not now' }))
     expect(screen.queryByRole('heading', { name: TITLE })).not.toBeInTheDocument()
+    expect(onLeave).toHaveBeenCalledTimes(1)
 
     unmount()
     renderCard()
@@ -123,6 +127,7 @@ describe('PasskeyOfferCard', () => {
     unmount()
 
     userId = '43'
+    profile = googleOnlyProfile({ user: { ...googleOnlyProfile().user!, id: 43 } })
     renderCard()
     expect(screen.getByRole('heading', { name: TITLE })).toBeInTheDocument()
   })
@@ -153,6 +158,23 @@ describe('PasskeyOfferCard', () => {
     renderCard()
 
     expect(screen.queryByRole('heading', { name: TITLE })).not.toBeInTheDocument()
+  })
+
+  it('is hidden while the profile still describes another account', () => {
+    userId = '43'
+    renderCard()
+
+    expect(screen.queryByRole('heading', { name: TITLE })).not.toBeInTheDocument()
+  })
+
+  it('retires at once when a passkey is added, before any profile refetch lands', async () => {
+    const user = userEvent.setup()
+    renderCard()
+
+    await user.click(screen.getByRole('button', { name: 'Add passkey' }))
+
+    expect(screen.queryByRole('heading', { name: TITLE })).not.toBeInTheDocument()
+    expect(onLeave).toHaveBeenCalledTimes(1)
   })
 
   it('is hidden when the browser cannot make a passkey', () => {
@@ -194,27 +216,40 @@ describe('PasskeyOfferCard', () => {
 })
 
 describe('profileOffersPasskey', () => {
-  it('offers only on an explicit false and 0 for a provider-created account', () => {
-    expect(profileOffersPasskey(googleOnlyProfile())).toBe(true)
+  it('offers only on an explicit false and 0 for this Google account', () => {
+    expect(profileOffersPasskey(googleOnlyProfile(), '42')).toBe(true)
     // An account with a passkey, or with a password (provider linked or not).
-    expect(profileOffersPasskey(googleOnlyProfile({ passkey_count: 1 }))).toBe(false)
-    expect(profileOffersPasskey(googleOnlyProfile({ has_password: true }))).toBe(false)
+    expect(profileOffersPasskey(googleOnlyProfile({ passkey_count: 1 }), '42')).toBe(false)
+    expect(profileOffersPasskey(googleOnlyProfile({ has_password: true }), '42')).toBe(false)
     expect(
       profileOffersPasskey(
         googleOnlyProfile({
           has_password: true,
           user: { ...googleOnlyProfile().user!, oauth_accounts: [] },
-        })
+        }),
+        '42'
       )
     ).toBe(false)
-    expect(profileOffersPasskey(googleOnlyProfile({ has_password: undefined }))).toBe(false)
-    expect(profileOffersPasskey(googleOnlyProfile({ passkey_count: undefined }))).toBe(false)
+    // The copy names Google, so another provider does not qualify.
     expect(
       profileOffersPasskey(
-        googleOnlyProfile({ user: { ...googleOnlyProfile().user!, oauth_accounts: undefined } })
+        googleOnlyProfile({
+          user: { ...googleOnlyProfile().user!, oauth_accounts: [{ provider: 'github' }] },
+        }),
+        '42'
       )
     ).toBe(false)
-    expect(profileOffersPasskey(googleOnlyProfile({ success: false }))).toBe(false)
-    expect(profileOffersPasskey(undefined)).toBe(false)
+    // A profile still describing another account.
+    expect(profileOffersPasskey(googleOnlyProfile(), '43')).toBe(false)
+    expect(profileOffersPasskey(googleOnlyProfile({ has_password: undefined }), '42')).toBe(false)
+    expect(profileOffersPasskey(googleOnlyProfile({ passkey_count: undefined }), '42')).toBe(false)
+    expect(
+      profileOffersPasskey(
+        googleOnlyProfile({ user: { ...googleOnlyProfile().user!, oauth_accounts: undefined } }),
+        '42'
+      )
+    ).toBe(false)
+    expect(profileOffersPasskey(googleOnlyProfile({ success: false }), '42')).toBe(false)
+    expect(profileOffersPasskey(undefined, '42')).toBe(false)
   })
 })

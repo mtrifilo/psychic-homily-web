@@ -19,7 +19,7 @@ import {
 } from '@/components/ui/dialog'
 import { useWebAuthnSupport } from '@/features/auth/hooks/useWebAuthnSupport'
 import { registrationOptionsFrom } from '@/features/auth/passkeyOptions'
-import { AuthError, type AuthErrorCodeType } from '@/lib/errors'
+import { AuthError, isReauthRequired, type AuthErrorCodeType } from '@/lib/errors'
 import type { components } from '@/types/api'
 import { API_BASE_URL } from '@/lib/api-base'
 import { refetchSignedInProfile } from '@/lib/queryClient'
@@ -154,6 +154,9 @@ export function PasskeyRegisterButton({
           level: 'error',
           tags: { service: 'passkey-auth', error_type: 'registration_failed' },
         })
+        // The remedy for this refusal is a link the caller renders on its own
+        // surface, which the open dialog would cover.
+        if (isReauthRequired(error)) setIsOpen(false)
         onError?.(error)
       } else {
         Sentry.captureException(error, {

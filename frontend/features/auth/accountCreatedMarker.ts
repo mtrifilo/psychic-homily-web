@@ -4,9 +4,10 @@ import { useHydrated } from '@/lib/hooks/common/useHydrated'
 import { isSameUserId, type UserIdLike } from './authUser'
 
 /**
- * Names the account a sign-up in this tab just created, so the first signed-in
- * home it reaches can greet it as new. Written by every sign-up path at the
- * moment it completes its claim; read once by the home.
+ * Names the account a sign-up in this tab created, so the signed-in home can
+ * greet it as new for the rest of the page load. Written by every sign-up path
+ * at the moment it completes its claim; read once, by the home's saved-shows
+ * module, and forgotten when the session ends.
  *
  * sessionStorage, not a backend field: "created in this session" is a fact
  * about this tab, and the sign-up responses do not carry it. The stored value
@@ -55,7 +56,8 @@ function readCreatedIdOnce(): string | null {
 }
 
 /**
- * Whether `userId` is the account a sign-up in this tab just created.
+ * Whether `userId` is the account a sign-up in this tab created, for the rest
+ * of this page load.
  *
  * The server cannot see sessionStorage, so its render and the hydration render
  * answer false and a full page load corrects to true one commit later. A
@@ -66,10 +68,14 @@ export function useAccountCreatedThisSession(userId: UserIdLike): boolean {
 }
 
 /**
- * Forgets what the first read took, so a test starts from an unread marker.
- * Not for application code: the cache is what keeps the answer stable after
- * the read cleared storage.
+ * Forgets the marker, stored or already read, so a later sign-in on this page
+ * is greeted as returning. Called when a session ends.
  */
-export function resetAccountCreatedMarkerForTests(): void {
+export function forgetAccountCreatedThisSession(): void {
   consumedId = undefined
+  try {
+    window.sessionStorage.removeItem(STORAGE_KEY)
+  } catch {
+    // Storage unavailable: nothing stored to remove.
+  }
 }

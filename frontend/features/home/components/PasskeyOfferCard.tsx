@@ -10,6 +10,7 @@ import { CredentialErrorMessage } from '@/components/shared/CredentialErrorMessa
 import { PasskeyRegisterButton } from '@/features/auth/components/PasskeyRegisterButton'
 import { useProfile, type UserProfile } from '@/features/auth/hooks/useAuth'
 import { useWebAuthnSupport } from '@/features/auth/hooks/useWebAuthnSupport'
+import { isSameUserId } from '@/features/auth/authUser'
 import { useAuthContext } from '@/lib/context/AuthContext'
 import { useHydrated } from '@/lib/hooks/common/useHydrated'
 import { useLocalStorageEnum } from '@/lib/hooks/common/useLocalStorageEnum'
@@ -19,16 +20,24 @@ const REGISTER_FAILED = 'Your passkey was not added. Please try again.'
 const OFFER_STATES = ['offered', 'dismissed'] as const
 
 /**
- * Whether the profile describes an account created through a provider that
- * holds neither a password nor a passkey: the only account the offer is for.
+ * Whether the profile describes `userId`'s account, signed in with Google and
+ * holding neither a password nor a passkey: the only account the offer is for.
+ * The copy names Google, so another provider does not qualify.
  *
- * Requires an explicit `false` and `0`. The profile omits both when it could
- * not read them, and an unknown answer is no reason to offer.
+ * The profile must name the same account as the session: they can disagree
+ * for a moment after an account switch, and an offer drawn from the previous
+ * account's profile would be the wrong one. It also requires an explicit
+ * `false` and `0`; the profile omits both when it could not read them, and an
+ * unknown answer is no reason to offer.
  */
-export function profileOffersPasskey(profile: UserProfile | undefined): boolean {
+export function profileOffersPasskey(
+  profile: UserProfile | undefined,
+  userId: string
+): boolean {
   return (
     !!profile?.success &&
-    (profile.user?.oauth_accounts?.length ?? 0) > 0 &&
+    isSameUserId(profile.user?.id, userId) &&
+    (profile.user?.oauth_accounts ?? []).some(account => account.provider === 'google') &&
     profile.has_password === false &&
     profile.passkey_count === 0
   )
@@ -40,24 +49,35 @@ export function profileOffersPasskey(profile: UserProfile | undefined): boolean 
  * on the way to their home.
  *
  * It shows on every home visit while the account qualifies, until "Not now"
- * dismisses it for this browser for good or the account gains a password or a
- * passkey. Adding a passkey refetches the profile, whose passkey count then
- * retires the card.
+ * dismisses it for good for this account on this browser, or the account
+ * gains a password or a passkey.
  */
-export function PasskeyOfferCard() {
+export function PasskeyOfferCard({
+  onLeave,
+}: {
+  /** Called as the card leaves on a viewer's action, with focus still inside
+   *  it, so the caller can move focus somewhere that stays on the page. */
+  onLeave?: () => void
+}) {
   const { user } = useAuthContext()
   const { data: profile } = useProfile()
   const supportsWebAuthn = useWebAuthnSupport()
 
-  if (!user?.id || !supportsWebAuthn || !profileOffersPasskey(profile)) {
+  if (!user?.id || !supportsWebAuthn || !profileOffersPasskey(profile, user.id)) {
     return null
   }
   // Keyed by account, so a second account on this browser is still offered,
   // and remounted with it, so no state carries from one account to the next.
-  return <PasskeyOffer key={user.id} userId={user.id} />
+  return <PasskeyOffer key={user.id} userId={user.id} onLeave={onLeave} />
 }
 
-function PasskeyOffer({ userId }: { userId: string }) {
+function PasskeyOffer({
+  userId,
+  onLeave,
+}: {
+  userId: string
+  onLeave?: () => void
+}) {
   // The server and the hydration render cannot read localStorage, so the card
   // joins the page one commit after hydration rather than flashing in the
   // server HTML and collapsing on every visit after a dismissal.
@@ -73,8 +93,11 @@ function PasskeyOffer({ userId }: { userId: string }) {
   // The error itself, not its sentence: only the error carries the code that
   // tells a refusal for want of a recent sign-in from an ordinary failure.
   const [registerError, setRegisterError] = useState<unknown>(null)
+  // A passkey added here retires the card at once, whether or not the profile
+  // refetch that carries the new count succeeds, so it cannot be added twice.
+  const [added, setAdded] = useState(false)
 
-  if (!hydrated || offerState === 'dismissed') return null
+  if (!hydrated || added || offerState === 'dismissed') return null
 
   return (
     <section
@@ -106,14 +129,20 @@ function PasskeyOffer({ userId }: { userId: string }) {
           <PasskeyRegisterButton
             variant="default"
             className="w-full sm:w-auto"
-            onSuccess={() => setRegisterError(null)}
+            onSuccess={() => {
+              onLeave?.()
+              setAdded(true)
+            }}
             onError={error => setRegisterError(error)}
           />
           <Button
             variant="ghost"
             size="sm"
             className="w-full sm:w-auto"
-            onClick={() => setOfferState('dismissed')}
+            onClick={() => {
+              onLeave?.()
+              setOfferState('dismissed')
+            }}
           >
             Not now
           </Button>

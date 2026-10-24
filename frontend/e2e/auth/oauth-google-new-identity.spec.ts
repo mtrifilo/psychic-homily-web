@@ -65,13 +65,12 @@ test.describe('Google sign-up for a new identity', () => {
     await offer.getByRole('button', { name: 'Not now' }).click()
     await expect(offer).toHaveCount(0)
 
-    // The dismissal is final for this browser. The card would mount one commit
-    // after hydration, so its absence is read only once the home has
-    // hydrated: the Customize home popover opening proves the shell that
+    // The dismissal is final for this browser. The card and the eyebrow both
+    // settle one commit after hydration, so they are read only once the home
+    // has hydrated: the Customize home popover opening proves the shell that
     // renders the card is live. A click that lands before hydration does
     // nothing, so the click repeats only while the popover is still closed.
     await page.reload()
-    await expect(page.getByText('Welcome back', { exact: true })).toBeVisible()
     const customize = page.getByRole('button', { name: 'Customize home' })
     const sectionList = page.getByRole('list', { name: 'Home sections' })
     await expect(async () => {
@@ -81,5 +80,7 @@ test.describe('Google sign-up for a new identity', () => {
     await page.keyboard.press('Escape')
     await expect(sectionList).toHaveCount(0)
     await expect(page.getByRole('region', { name: PASSKEY_OFFER_TITLE })).toHaveCount(0)
+    // The marker was read once, so the hydrated home greets a returning account.
+    await expect(page.getByText('Welcome back', { exact: true })).toBeVisible()
   })
 })

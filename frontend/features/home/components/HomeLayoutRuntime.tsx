@@ -59,6 +59,7 @@ export function HomeLayoutRuntime({
   const { sections: layout } = useHomeLayout(initialLayout)
   const hasWriteFailed = useHomeLayoutWriteFailed()
   const [isPopoverOpen, setPopoverOpen] = useState(false)
+  const headingRef = useRef<HTMLHeadingElement>(null)
 
   // The server picked this variant from the viewer's cookie; signing out
   // without navigating leaves it mounted. This guard lives HERE, on the shell
@@ -152,7 +153,9 @@ export function HomeLayoutRuntime({
         {/* The page's only h1, deliberately outside the sections: every one of
             them is hideable, so a heading that lived in one would take the
             document's top-level heading with it. */}
-        <h1 className="sr-only">Home</h1>
+        <h1 ref={headingRef} tabIndex={-1} className="sr-only">
+          Home
+        </h1>
 
         <CustomizeHomeToolbar
           open={isPopoverOpen}
@@ -173,7 +176,9 @@ export function HomeLayoutRuntime({
 
         {/* Above every section, not inside one: the sections are hideable and
             reorderable, and the offer must not move or vanish with them. */}
-        <PasskeyOfferCard />
+        {/* Focus goes to the page heading when the card leaves, so a keyboard
+            viewer continues from the top of the home, not from the document. */}
+        <PasskeyOfferCard onLeave={() => headingRef.current?.focus()} />
 
         {allHidden ? (
           <div className="mt-6 flex flex-col gap-2">
