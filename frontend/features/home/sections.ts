@@ -225,3 +225,34 @@ export function resolveCityLinkSlot(
   if (isVisible('saved_shows')) return 'saved'
   return 'toolbar'
 }
+
+/**
+ * Where the Discover links row renders. It takes the city link's slot, with
+ * one stop further: when no section renders at all, it sits under the
+ * empty-state line rather than in the toolbar row.
+ */
+export type HomeDiscoverLinksSlot = HomeCityLinkSlot | 'empty'
+
+/** Every link row that relocates when the section carrying it is hidden,
+ *  resolved together so the rows cannot answer from different layouts. */
+export interface HomeLinkSlots {
+  cityLink: HomeCityLinkSlot
+  discoverLinks: HomeDiscoverLinksSlot
+}
+
+/**
+ * `isEmptyStateShown` is the page's own answer rather than one derived from
+ * `sections`: a section still collapsing is on screen and the empty state is
+ * not, so the Discover row stays in the toolbar until the collapse finishes
+ * instead of belonging to a line that has not rendered yet.
+ */
+export function resolveHomeLinkSlots(
+  sections: readonly ResolvedHomeSection[],
+  { isEmptyStateShown }: { isEmptyStateShown: boolean }
+): HomeLinkSlots {
+  const cityLink = resolveCityLinkSlot(sections)
+  return {
+    cityLink,
+    discoverLinks: isEmptyStateShown ? 'empty' : cityLink,
+  }
+}

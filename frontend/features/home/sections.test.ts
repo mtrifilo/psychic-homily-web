@@ -4,6 +4,7 @@ import {
   moveHomeSection,
   resolveCityLinkSlot,
   resolveHomeLayout,
+  resolveHomeLinkSlots,
   setHomeSectionVisibility,
   toHomeLayoutDocument,
   type HomeLayoutSectionEntry,
@@ -212,5 +213,46 @@ describe('resolveCityLinkSlot', () => {
     )
 
     expect(resolveCityLinkSlot(both)).toBe('toolbar')
+  })
+})
+
+describe('resolveHomeLinkSlots', () => {
+  const sections = resolveHomeLayout(null)
+  const hide = (...ids: Parameters<typeof setHomeSectionVisibility>[1][]) =>
+    ids.reduce(
+      (layout, id) => setHomeSectionVisibility(layout, id, false),
+      sections
+    )
+  const allHidden = hide(...DEFAULT_ORDER)
+
+  it.each([
+    ['nothing hidden', sections, 'nearby'],
+    ['nearby hidden', hide('nearby_shows'), 'saved'],
+    ['nearby and saved hidden', hide('nearby_shows', 'saved_shows'), 'toolbar'],
+    // Saved hidden alone moves nothing: the nearby section still carries both.
+    ['saved hidden', hide('saved_shows'), 'nearby'],
+  ] as const)(
+    'puts the Discover row where the city link goes: %s',
+    (_name, layout, slot) => {
+      const slots = resolveHomeLinkSlots(layout, { isEmptyStateShown: false })
+      expect(slots).toEqual({
+        cityLink: resolveCityLinkSlot(layout),
+        discoverLinks: slot,
+      })
+    }
+  )
+
+  it('sends the Discover row to the empty state, and only the Discover row', () => {
+    expect(
+      resolveHomeLinkSlots(allHidden, { isEmptyStateShown: true })
+    ).toEqual({ cityLink: 'toolbar', discoverLinks: 'empty' })
+  })
+
+  // Every section hidden in the layout while the last one is still collapsing
+  // on screen: the empty state has not rendered, so the row has to stay put.
+  it('keeps the Discover row in the toolbar until the empty state renders', () => {
+    expect(
+      resolveHomeLinkSlots(allHidden, { isEmptyStateShown: false })
+    ).toEqual({ cityLink: 'toolbar', discoverLinks: 'toolbar' })
   })
 })

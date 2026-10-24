@@ -9,6 +9,11 @@ const DISCOVER_LINKS: ReadonlyArray<{ href: string; label: string }> = [
   { href: '/graph', label: 'Graph Observatory' },
 ]
 
+/** The left-aligned, wrapping layout every signed-in slot gives the row, so it
+ *  wraps the same way wherever it relocates to. */
+export const DISCOVER_ROW_CLASS =
+  'flex flex-wrap items-center gap-x-1.5 gap-y-1 text-sm'
+
 /**
  * The quiet "Discover:" row. Shared verbatim by the logged-out hero and the
  * signed-in home (PSY-2103) so the same five entry points survive the hero's

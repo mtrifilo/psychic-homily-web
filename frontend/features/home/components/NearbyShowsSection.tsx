@@ -7,8 +7,10 @@ import { useHomeShowCitySelection } from '@/features/shows/hooks/useHomeShowCity
 import { NEXT_7_DAYS } from '@/features/shows/quickWindows'
 import { useAuthContext } from '@/lib/context/AuthContext'
 import { cityLabel } from '@/components/filters/cityParams'
-import { HomeCityShowsLink, useHomeCityLinkSlot } from './HomeCityShowsLink'
-import { HomeDiscoverLinks } from './HomeDiscoverLinks'
+import { cn } from '@/lib/utils'
+import { HomeCityShowsLink } from './HomeCityShowsLink'
+import { DISCOVER_ROW_CLASS, HomeDiscoverLinks } from './HomeDiscoverLinks'
+import { useHomeCityLinkSlot, useHomeDiscoverLinksSlot } from './HomeLinkSlots'
 
 /** Rows the section paints, the count on the approved board. */
 const NEARBY_ROWS = 4
@@ -41,11 +43,10 @@ const NEARBY_ROWS = 4
 export function NearbyShowsSection({ id }: { id: string }) {
   const { authStatus } = useAuthContext()
   const isAuthenticated = authStatus === 'authenticated'
-  // Every surface that can carry the city link reads the same predicate, so
-  // "exactly one renders it" is enforced rather than coordinated. This section
-  // owns it whenever it is visible, but it stays mounted while it collapses,
-  // and by then ownership has already moved on.
+  // This section owns both link rows whenever it is visible, but it stays
+  // mounted while it collapses, and by then ownership has already moved on.
   const ownsCityLink = useHomeCityLinkSlot() === 'nearby'
+  const ownsDiscoverLinks = useHomeDiscoverLinksSlot() === 'nearby'
   const selection = useHomeShowCitySelection({ resolveCityForCopy: true })
   const { effectiveCities, source, isResolving } = selection
   // Geo is still deciding and nothing else claimed the city. The LIST does not
@@ -98,9 +99,9 @@ export function NearbyShowsSection({ id }: { id: string }) {
         excludedLabel={cityCount > 0 ? cityNames : undefined}
       />
 
-      {/* The quiet acclimation row travels with this section so the five
-          reorderable sections stay a contiguous run for PSY-2104. */}
-      <HomeDiscoverLinks className="flex flex-wrap items-center gap-x-1.5 gap-y-1 pt-2 text-sm" />
+      {ownsDiscoverLinks && (
+        <HomeDiscoverLinks className={cn(DISCOVER_ROW_CLASS, 'pt-2')} />
+      )}
     </section>
   )
 }

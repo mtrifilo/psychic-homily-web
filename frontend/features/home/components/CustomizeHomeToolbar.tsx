@@ -8,8 +8,10 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from '@/components/ui/popover'
+import { cn } from '@/lib/utils'
 import { HomeSectionList, type HomeVisibilityChange } from './HomeSectionList'
 import { PRIMARY_LINK_CLASS, ResolvedHomeCityShowsLink } from './HomeCityShowsLink'
+import { DISCOVER_ROW_CLASS, HomeDiscoverLinks } from './HomeDiscoverLinks'
 import {
   HOME_LAYOUT_SETTINGS_HREF,
   HOME_SECTIONS,
@@ -36,6 +38,7 @@ export function CustomizeHomeToolbar({
   initialLayout,
   onBeforeChange,
   withCityLink,
+  withDiscoverLinks,
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
@@ -44,14 +47,37 @@ export function CustomizeHomeToolbar({
   /** Last stop for the "All upcoming shows in {city} →" link, taken when both
    *  the nearby section and the saved-shows module are hidden. */
   withCityLink: boolean
+  /** The Discover row's stop on the same layout, while at least one other
+   *  section still renders. */
+  withDiscoverLinks: boolean
 }) {
   return (
-    <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 pt-2">
-      <div className="flex min-w-0 flex-wrap items-center gap-x-4 gap-y-1">
+    <div
+      className={cn(
+        'flex flex-wrap justify-between gap-x-4 gap-y-2 pt-2',
+        // A two-line cluster tops out level with the button rather than
+        // centring on it.
+        withDiscoverLinks ? 'items-start' : 'items-center'
+      )}
+    >
+      <div
+        className={cn(
+          'flex min-w-0 flex-wrap items-center gap-x-4 gap-y-1',
+          // A content-sized cluster carrying the Discover row would claim the
+          // row's full one-line width and push the button below it at every
+          // width. A 20rem basis keeps the button beside the cluster wherever
+          // both fit (the row wraps inside the cluster instead) and lets it
+          // drop to its own line on a phone.
+          withDiscoverLinks && 'grow basis-80'
+        )}
+      >
         <p className="font-mono text-[11px] uppercase tracking-[1.4px] text-muted-foreground">
           Home · {HOME_SECTIONS.length} sections · Your layout
         </p>
         {withCityLink && <ResolvedHomeCityShowsLink />}
+        {withDiscoverLinks && (
+          <HomeDiscoverLinks className={cn(DISCOVER_ROW_CLASS, 'basis-full pt-1')} />
+        )}
       </div>
 
       <Popover open={open} onOpenChange={onOpenChange}>

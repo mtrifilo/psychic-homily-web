@@ -421,4 +421,46 @@ test.describe('Homepage (signed in)', () => {
       page.getByRole('heading', { name: /Shows (near you )?this week/ })
     ).toBeVisible()
   })
+
+  // The Discover row belongs to the nearby section; hiding that section moves
+  // it to the saved-shows footer instead of taking it off the page. Scoped to
+  // the two regions because the site footer carries a Discover nav of its own.
+  // The afterEach DELETE restores the shipped layout.
+  test('moves the Discover row to the saved-shows footer when the nearby section is hidden', async ({
+    authenticatedPage: page,
+    cleanBetweenRetries: _cleanup,
+  }) => {
+    await page.goto('/')
+
+    const nearby = page.getByRole('region', {
+      name: /Shows (near you )?this week/,
+    })
+    const savedModule = page.getByRole('region', {
+      name: 'Your upcoming shows',
+    })
+    const discoverIn = (region: typeof nearby) =>
+      region.getByRole('navigation', { name: 'Discover' })
+
+    await expect(discoverIn(nearby)).toBeVisible()
+    await expect(discoverIn(savedModule)).toHaveCount(0)
+
+    const hideWritten = page.waitForResponse(
+      response =>
+        response.url().includes('/auth/preferences/home-layout') &&
+        response.request().method() === 'PUT' &&
+        response.ok()
+    )
+    await page.getByRole('button', { name: 'Customize home' }).click()
+    await page
+      .getByRole('checkbox', { name: 'Shows near you this week' })
+      .uncheck()
+    await expect(nearby).toHaveCount(0)
+    await expect(discoverIn(savedModule)).toBeVisible()
+    await hideWritten
+    await page.keyboard.press('Escape')
+
+    // The relocated row is the same five working links.
+    await discoverIn(savedModule).getByRole('link', { name: 'Artists' }).click()
+    await expect(page).toHaveURL(/\/artists$/)
+  })
 })

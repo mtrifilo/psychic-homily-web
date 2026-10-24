@@ -33,8 +33,9 @@ const NEARBY_SECTION_ID = 'home-shows-near-you'
  * showing one has to paint without a round-trip. A section the runtime does
  * not render mounts nothing and issues no request; its client reference is
  * still serialized into the RSC payload, so hiding a section trims the page,
- * not the payload. The Discover links row rides inside the nearby section so
- * the run stays contiguous when the sections move.
+ * not the payload. The Discover links row is no section of its own: it rides
+ * inside the nearby section and relocates with the city link when that section
+ * is hidden (see `resolveHomeLinkSlots`).
  */
 export function SignedInHome({
   layout,
