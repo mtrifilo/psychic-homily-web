@@ -35,8 +35,9 @@ const (
 // They are empty, and graceUntil is the zero time, when no bump has opened a
 // window. Once graceUntil passes they match nothing (GraceWindow reports the
 // window closed and publishes no previous versions) until a change clears them
-// and graceUntil together, as TestGraceSetIsCoherent requires. A bump sets both previous versions to the pair the frontend sent before it
-// (the outgoing Current values, a document whose version did not change
+// and graceUntil together, as TestGraceSetIsCoherent requires. A bump sets
+// both previous versions to the pair the frontend sent before it (the
+// outgoing Current values, a document whose version did not change
 // included), sets graceUntil to a UTC instant later than the slower of the two
 // deploys plus the max-age GET /legal/versions is cached for, and changes
 // PREVIOUS_TERMS_VERSION and PREVIOUS_PRIVACY_VERSION in frontend/lib/legal.ts
