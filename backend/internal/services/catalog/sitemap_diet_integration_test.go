@@ -134,7 +134,9 @@ func TestSitemapDietPastShowsOmitByVenueLocalAge(t *testing.T) {
 	}
 	phoenixRoom := &catalogm.Venue{Name: "Diet Phoenix Room", Slug: strPtr("diet-phoenix-room"), City: "Phoenix", State: "AZ", Timezone: strPtr("America/Phoenix")}
 	berlinRoom := &catalogm.Venue{Name: "Diet Berlin Room", Slug: strPtr("diet-berlin-room"), City: "Berlin", Country: strPtr("Germany"), Timezone: strPtr("Europe/Berlin")}
-	for _, v := range []*catalogm.Venue{phoenixRoom, berlinRoom} {
+	// No stored zone, so its shows resolve through the AZ state map.
+	zonelessRoom := &catalogm.Venue{Name: "Diet Zoneless Room", Slug: strPtr("diet-zoneless-room"), City: "Tucson", State: "AZ"}
+	for _, v := range []*catalogm.Venue{phoenixRoom, berlinRoom, zonelessRoom} {
 		if err := td.DB.Create(v).Error; err != nil {
 			t.Fatalf("seed venue %s: %v", v.Name, err)
 		}
@@ -152,24 +154,32 @@ func TestSitemapDietPastShowsOmitByVenueLocalAge(t *testing.T) {
 	seed := []struct {
 		slug   string
 		when   time.Time
-		venue  *catalogm.Venue
+		venues []*catalogm.Venue
 		status catalogm.ShowStatus
 		noSlug bool
 	}{
 		// The venue-local day boundary: day N-30 stays to its last minute, day
 		// N-31 goes from its first.
-		{slug: "diet-phx-d30-2330", when: at(phoenix, maxAge, 23, 30), venue: phoenixRoom},
-		{slug: "diet-phx-d31-0030", when: at(phoenix, maxAge+1, 0, 30), venue: phoenixRoom},
+		{slug: "diet-phx-d30-2330", when: at(phoenix, maxAge, 23, 30), venues: []*catalogm.Venue{phoenixRoom}},
+		{slug: "diet-phx-d31-0030", when: at(phoenix, maxAge+1, 0, 30), venues: []*catalogm.Venue{phoenixRoom}},
 		// 06:30 UTC on day N-30: a UTC-date rule would keep it.
-		{slug: "diet-phx-d31-2330", when: at(phoenix, maxAge+1, 23, 30), venue: phoenixRoom},
+		{slug: "diet-phx-d31-2330", when: at(phoenix, maxAge+1, 23, 30), venues: []*catalogm.Venue{phoenixRoom}},
 		// The evening before day N-30 in UTC: a UTC-date rule would drop it.
-		{slug: "diet-ber-d30-0030", when: at(berlin, maxAge, 0, 30), venue: berlinRoom},
-		{slug: "diet-phx-old", when: at(phoenix, 400, 20, 0), venue: phoenixRoom},
-		{slug: "diet-phx-recent", when: at(phoenix, 3, 20, 0), venue: phoenixRoom},
-		{slug: "diet-phx-upcoming", when: at(phoenix, -10, 20, 0), venue: phoenixRoom},
+		{slug: "diet-ber-d30-0030", when: at(berlin, maxAge, 0, 30), venues: []*catalogm.Venue{berlinRoom}},
+		{slug: "diet-phx-old", when: at(phoenix, 400, 20, 0), venues: []*catalogm.Venue{phoenixRoom}},
+		{slug: "diet-phx-recent", when: at(phoenix, 3, 20, 0), venues: []*catalogm.Venue{phoenixRoom}},
+		{slug: "diet-phx-upcoming", when: at(phoenix, -10, 20, 0), venues: []*catalogm.Venue{phoenixRoom}},
 		// Old, but never advertised, so never counted as omitted.
-		{slug: "diet-phx-old-pending", when: at(phoenix, 400, 20, 0), venue: phoenixRoom, status: catalogm.ShowStatusPending},
-		{slug: "diet-phx-old-unslugged", when: at(phoenix, 400, 20, 0), venue: phoenixRoom, noSlug: true},
+		{slug: "diet-phx-old-pending", when: at(phoenix, 400, 20, 0), venues: []*catalogm.Venue{phoenixRoom}, status: catalogm.ShowStatusPending},
+		{slug: "diet-phx-old-unslugged", when: at(phoenix, 400, 20, 0), venues: []*catalogm.Venue{phoenixRoom}, noSlug: true},
+		// Billed at two venues: the zone lateral yields one row per show, so it
+		// is omitted once and counted once.
+		{slug: "diet-ber-and-phx-old", when: at(phoenix, 400, 20, 0), venues: []*catalogm.Venue{phoenixRoom, berlinRoom}},
+		// The zone fallbacks: no venue at all, and a venue with no stored zone.
+		{slug: "diet-no-venue-old", when: at(phoenix, 400, 20, 0)},
+		{slug: "diet-no-venue-recent", when: at(phoenix, 3, 20, 0)},
+		{slug: "diet-zoneless-old", when: at(phoenix, 400, 20, 0), venues: []*catalogm.Venue{zonelessRoom}},
+		{slug: "diet-zoneless-recent", when: at(phoenix, 3, 20, 0), venues: []*catalogm.Venue{zonelessRoom}},
 	}
 	for _, s := range seed {
 		status := s.status
@@ -183,11 +193,16 @@ func TestSitemapDietPastShowsOmitByVenueLocalAge(t *testing.T) {
 		if err := td.DB.Create(show).Error; err != nil {
 			t.Fatalf("seed show %s: %v", s.slug, err)
 		}
-		if err := td.DB.Create(&catalogm.ShowVenue{ShowID: show.ID, VenueID: s.venue.ID}).Error; err != nil {
-			t.Fatalf("seed show_venue %s: %v", s.slug, err)
+		for _, v := range s.venues {
+			if err := td.DB.Create(&catalogm.ShowVenue{ShowID: show.ID, VenueID: v.ID}).Error; err != nil {
+				t.Fatalf("seed show_venue %s: %v", s.slug, err)
+			}
 		}
 	}
-	wantOmitted := []string{"diet-phx-d31-0030", "diet-phx-d31-2330", "diet-phx-old"}
+	wantOmitted := []string{
+		"diet-ber-and-phx-old", "diet-no-venue-old", "diet-phx-d31-0030", "diet-phx-d31-2330",
+		"diet-phx-old", "diet-zoneless-old",
+	}
 
 	diet := sitemapDiet{pastShowMaxAgeDays: maxAge}
 	off, on, onLines := fetchOffAndOn(t, td.DB, "shows", diet)
