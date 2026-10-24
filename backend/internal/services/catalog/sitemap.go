@@ -3,6 +3,8 @@ package catalog
 import (
 	"context"
 	"fmt"
+	"log/slog"
+	"os"
 	"slices"
 	"sort"
 	"strconv"
@@ -12,6 +14,7 @@ import (
 	"gorm.io/gorm"
 
 	"psychic-homily-backend/db"
+	"psychic-homily-backend/internal/logger"
 	catalogm "psychic-homily-backend/internal/models/catalog"
 	"psychic-homily-backend/internal/services/contracts"
 	"psychic-homily-backend/internal/services/geo"
@@ -272,6 +275,24 @@ func (shard *sitemapShard) narrow(scope *gorm.DB) *gorm.DB {
 	return scope.Where("id % ? = ?", shard.buckets, shard.bucket)
 }
 
+// wireID is the id a caller requested this shard by, or "" for a nil shard,
+// which is the whole family.
+func (shard *sitemapShard) wireID() string {
+	if shard == nil {
+		return ""
+	}
+	return shard.id
+}
+
+// familyShards is how many requests together serve this shard's family: its
+// bucket count, or 1 for a nil shard, which serves the whole family at once.
+func (shard *sitemapShard) familyShards() int {
+	if shard == nil {
+		return 1
+	}
+	return shard.buckets
+}
+
 // SitemapService answers the sitemap generator's one question: which slugs are
 // indexable, and when did each last change.
 //
@@ -283,13 +304,160 @@ func (shard *sitemapShard) narrow(scope *gorm.DB) *gorm.DB {
 type SitemapService struct {
 	db       *gorm.DB
 	geocoder geo.Geocoder
+	diet     sitemapDiet
 }
 
+// NewSitemapService reads the diet flags once, here, so a change to one takes
+// effect at the next process start.
 func NewSitemapService(database *gorm.DB) *SitemapService {
 	if database == nil {
 		database = db.GetDB()
 	}
-	return &SitemapService{db: database, geocoder: geo.Default()}
+	diet := sitemapDietFromEnv()
+	slog.Default().Info("sitemap diet rules",
+		sitemapPastShowMaxAgeDaysEnv, diet.pastShowMaxAgeDays,
+		sitemapOmitUnlinkedReleasesEnv, diet.omitUnlinkedReleases,
+		sitemapOmitIdleArtistsEnv, diet.omitIdleArtists,
+	)
+	return &SitemapService{db: database, geocoder: geo.Default(), diet: diet}
+}
+
+// The diet flags. Each switches on one rule that stops advertising a set of
+// rows in one family. The pages those rows address are untouched: they stay
+// served, indexable and linked, and every other family keeps announcing what it
+// announces with the rule off.
+const (
+	// sitemapPastShowMaxAgeDaysEnv holds a whole number of days; unset, zero,
+	// negative or malformed is off.
+	sitemapPastShowMaxAgeDaysEnv = "SITEMAP_PAST_SHOW_MAX_AGE_DAYS"
+	// sitemapOmitUnlinkedReleasesEnv and sitemapOmitIdleArtistsEnv are on only
+	// for "1", per shared.EnvFlagEnabled.
+	sitemapOmitUnlinkedReleasesEnv = "SITEMAP_OMIT_UNLINKED_RELEASES"
+	sitemapOmitIdleArtistsEnv      = "SITEMAP_OMIT_IDLE_ARTISTS"
+)
+
+// sitemapPastShowMaxAgeDaysLimit is the largest age the past-show rule accepts.
+// Postgres raises "date out of range" when today minus the age falls before
+// 4713 BC, which would fail the whole shows family, so a larger value is read
+// as off. A million days reaches back to the eighth century, which no show
+// predates.
+const sitemapPastShowMaxAgeDaysLimit = 1_000_000
+
+// sitemapDiet is which diet rules are on. The zero value is every rule off, and
+// with every rule off each family issues the same statement it issues without
+// this type.
+type sitemapDiet struct {
+	// pastShowMaxAgeDays omits approved shows whose venue-local date is more
+	// than this many days before the venue-local today. 0 is off.
+	pastShowMaxAgeDays int
+	// omitUnlinkedReleases omits releases with no external link.
+	omitUnlinkedReleases bool
+	// omitIdleArtists omits artists on no show bill and no release.
+	omitIdleArtists bool
+}
+
+// sitemapDietFromEnv warns on an age that is set but read as off, other than an
+// explicit zero, so a mistyped value is visible in the log rather than only as
+// a zero in the startup line.
+func sitemapDietFromEnv() sitemapDiet {
+	raw := strings.TrimSpace(os.Getenv(sitemapPastShowMaxAgeDaysEnv))
+	days := shared.EnvPositiveInt(sitemapPastShowMaxAgeDaysEnv, 0)
+	if days > sitemapPastShowMaxAgeDaysLimit {
+		days = 0
+	}
+	if n, err := strconv.Atoi(raw); days == 0 && raw != "" && (err != nil || n != 0) {
+		slog.Default().Warn("sitemap past-show max age is not a whole number from 1 to the limit; rule is off",
+			"key", sitemapPastShowMaxAgeDaysEnv,
+			"value", raw,
+			"limit", sitemapPastShowMaxAgeDaysLimit,
+		)
+	}
+	return sitemapDiet{
+		pastShowMaxAgeDays:   days,
+		omitUnlinkedReleases: shared.EnvFlagEnabled(sitemapOmitUnlinkedReleasesEnv),
+		omitIdleArtists:      shared.EnvFlagEnabled(sitemapOmitIdleArtistsEnv),
+	}
+}
+
+// sitemapOmission is one diet rule as it applies to its family's scan. The
+// zero value is a rule that is off.
+type sitemapOmission struct {
+	// rule is the flag that switches the rule on, and the name its build log
+	// line carries.
+	rule string
+	// family is the sitemap family the rule removes rows from, as its log line
+	// names it.
+	family string
+	// condition is a boolean SQL expression over the family's own table and
+	// join, true for a row the rule stops advertising. Empty means the rule is
+	// off. It carries no bind parameters.
+	condition string
+	// join is a relation condition reads, joined to the family scan only while
+	// the rule is on. Empty for a condition over the family's table alone.
+	//
+	// The family scan names id, slug, updated_at and status unqualified, so a
+	// join must project no column by any of those names, or the sub-shard and
+	// slug predicates turn ambiguous. It must also yield at most one row per
+	// family row, or URLs repeat and the omitted count inflates. shared.VenueTZJoin
+	// is both: a LIMIT 1 lateral whose columns are all venue_tz_-prefixed.
+	join string
+}
+
+// pastShows is the shows family's rule: an approved show is omitted once its
+// venue-local date is more than pastShowMaxAgeDays before the venue-local today,
+// on the clock shared.VenueLocalDateOlderThanDaysSQL owns, which is the one
+// venueYearEntries files the show under in its venue's archive.
+//
+// The zone comes from shared.VenueTZJoin joined to the family scan itself,
+// rather than from a subquery over all shows, so a sub-shard request resolves
+// zones for its own bucket's rows only.
+//
+// COST. With the rule on, the shows family resolves a zone for every approved
+// show in the request, upcoming and past: one show_venues index hop per row,
+// with the zone-snapshot SubPlan at loops=1. Measured on Postgres 18 over
+// 13,172 synthetic shows: about 3 ms for one sub-shard and about 37 ms for the
+// whole family, against about 1 ms and 2.5 ms with the rule off. Like
+// venue_years, its input grows with the show archive.
+func (d sitemapDiet) pastShows() sitemapOmission {
+	if d.pastShowMaxAgeDays <= 0 {
+		return sitemapOmission{}
+	}
+	return sitemapOmission{
+		rule:      sitemapPastShowMaxAgeDaysEnv,
+		family:    "shows",
+		condition: shared.VenueLocalDateOlderThanDaysSQL(d.pastShowMaxAgeDays),
+		join:      shared.VenueTZJoin,
+	}
+}
+
+// unlinkedReleases is the releases family's rule: a release with no row in
+// release_external_links is omitted. Any row counts, whatever its platform:
+// every linked release in production carries a Bandcamp or Spotify row
+// (measured 2026-10-24), so a platform filter would select the same set.
+func (d sitemapDiet) unlinkedReleases() sitemapOmission {
+	if !d.omitUnlinkedReleases {
+		return sitemapOmission{}
+	}
+	return sitemapOmission{
+		rule:      sitemapOmitUnlinkedReleasesEnv,
+		family:    "releases",
+		condition: "NOT EXISTS (SELECT 1 FROM release_external_links rel WHERE rel.release_id = releases.id)",
+	}
+}
+
+// idleArtists is the artists family's rule: an artist with no show_artists row
+// and no artist_releases row is omitted. A show_artists row of any show status
+// counts, so an artist billed only on a pending show stays advertised.
+func (d sitemapDiet) idleArtists() sitemapOmission {
+	if !d.omitIdleArtists {
+		return sitemapOmission{}
+	}
+	return sitemapOmission{
+		rule:   sitemapOmitIdleArtistsEnv,
+		family: "artists",
+		condition: "NOT EXISTS (SELECT 1 FROM show_artists sa WHERE sa.artist_id = artists.id)" +
+			" AND NOT EXISTS (SELECT 1 FROM artist_releases ar WHERE ar.artist_id = artists.id)",
+	}
 }
 
 // Entries returns the indexable slug set for every URL family the sitemap
@@ -365,13 +533,14 @@ func (s *SitemapService) Entries(ctx context.Context, family string) (*contracts
 		// site — the reachability rule is enforced in many places and can drift.
 		//
 		// A nil shard is the whole family; the bucket predicate lives on the
-		// shard so the scope here stays the plain single-table projection
-		// entriesFor requires.
-		shows, err := s.entriesFor(
+		// shard so the scope here stays the single-table projection
+		// entriesOmitting requires. A diet rule adds its own join, if any.
+		shows, err := s.entriesOmitting(
 			ctx,
 			shard.narrow(
 				s.db.Model(&catalogm.Show{}).Where("status = ?", catalogm.ShowStatusApproved),
 			),
+			shard, s.diet.pastShows(),
 		)
 		if err != nil {
 			return nil, fmt.Errorf("failed to collect show sitemap entries: %w", err)
@@ -381,9 +550,12 @@ func (s *SitemapService) Entries(ctx context.Context, family string) (*contracts
 
 	if want("artists") {
 		// A nil shard is the whole family; the bucket predicate lives on the
-		// shard so the scope here stays the plain single-table projection
-		// entriesFor requires.
-		artists, err := s.entriesFor(ctx, shard.narrow(s.db.Model(&catalogm.Artist{})))
+		// shard so the scope here stays the single-table projection
+		// entriesOmitting requires. A diet rule adds its own join, if any.
+		artists, err := s.entriesOmitting(
+			ctx, shard.narrow(s.db.Model(&catalogm.Artist{})),
+			shard, s.diet.idleArtists(),
+		)
 		if err != nil {
 			return nil, fmt.Errorf("failed to collect artist sitemap entries: %w", err)
 		}
@@ -455,9 +627,12 @@ func (s *SitemapService) Entries(ctx context.Context, family string) (*contracts
 
 	if want("releases") {
 		// A nil shard is the whole family; the bucket predicate lives on the
-		// shard so the scope here stays the plain single-table projection
-		// entriesFor requires.
-		releases, err := s.entriesFor(ctx, shard.narrow(s.db.Model(&catalogm.Release{})))
+		// shard so the scope here stays the single-table projection
+		// entriesOmitting requires. A diet rule adds its own join, if any.
+		releases, err := s.entriesOmitting(
+			ctx, shard.narrow(s.db.Model(&catalogm.Release{})),
+			shard, s.diet.unlinkedReleases(),
+		)
 		if err != nil {
 			return nil, fmt.Errorf("failed to collect release sitemap entries: %w", err)
 		}
@@ -497,7 +672,9 @@ func (s *SitemapService) Entries(ctx context.Context, family string) (*contracts
 // CONSTRAINT: the scope must resolve to a SINGLE table. slug and updated_at are
 // referenced unqualified here, so a joined scope will either error with
 // "column reference is ambiguous" or silently bind the wrong table's
-// updated_at. A family needing a join wants its own projection, not this.
+// updated_at. A family needing a join wants its own projection, not this. The
+// one exception is a diet rule's join, which entriesOmitting adds only while
+// the rule is on and only under the contract on sitemapOmission.join.
 func (s *SitemapService) entriesFor(ctx context.Context, scope *gorm.DB) ([]contracts.SitemapEntry, error) {
 	// Deterministic order, so two fetches of an unchanged catalogue diff
 	// cleanly. Ordered by slug rather than recency because the partial unique
@@ -505,15 +682,86 @@ func (s *SitemapService) entriesFor(ctx context.Context, scope *gorm.DB) ([]cont
 	// updated_at exists for any of these tables — sorting on it would buy a
 	// guaranteed sort node for an ordering no consumer reads.
 	entries := []contracts.SitemapEntry{}
-	err := scope.
-		WithContext(ctx).
-		Where("slug IS NOT NULL AND slug <> ''").
-		Order("slug ASC").
+	err := advertisableRows(ctx, scope).
 		Select("slug", "updated_at").
 		Scan(&entries).Error
 	if err != nil {
 		return nil, err
 	}
+	return entries, nil
+}
+
+// advertisableRows narrows a family scope to the rows entriesFor advertises, in
+// the order it lists them. It is the one statement of both, so entriesOmitting
+// cannot drift from entriesFor on either.
+func advertisableRows(ctx context.Context, scope *gorm.DB) *gorm.DB {
+	return scope.
+		WithContext(ctx).
+		Where("slug IS NOT NULL AND slug <> ''").
+		Order("slug ASC")
+}
+
+// entriesOmitting is entriesFor with one diet rule applied, and the scope
+// carries the same single-table constraint. The rule's own join is the one
+// relation added, and only while the rule is on; see sitemapOmission.join.
+//
+// With the rule off it IS entriesFor: the same statement, so the same rows in
+// the same order. With it on, the rule's condition is projected as a column of
+// that one scan and the rows it marks are dropped here, which keeps a family at
+// one statement and makes the logged count exactly the set left out of the
+// response. The count covers only rows that would otherwise be advertised,
+// because the slug predicate is applied before the projection.
+//
+// A rule that is on logs one sitemap_diet_omitted line per call, and every
+// request writes one, whoever sent it: the generator, the freshness monitor or
+// any other caller of the public endpoint. So a line is a snapshot of one
+// request, and lines are not additive over time. A family's current total is
+// the sum, over the family_shards distinct shard ids, of each shard's latest
+// line. A line with an empty shard answered a whole-family request, is a
+// total on its own, and carries family_shards 1.
+func (s *SitemapService) entriesOmitting(
+	ctx context.Context,
+	scope *gorm.DB,
+	shard *sitemapShard,
+	omission sitemapOmission,
+) ([]contracts.SitemapEntry, error) {
+	if omission.condition == "" {
+		return s.entriesFor(ctx, scope)
+	}
+
+	type row struct {
+		contracts.SitemapEntry
+		Omitted bool `gorm:"column:sitemap_omitted"`
+	}
+	if omission.join != "" {
+		scope = scope.Joins(omission.join)
+	}
+	var rows []row
+	err := advertisableRows(ctx, scope).
+		Select("slug, updated_at, (" + omission.condition + ") AS sitemap_omitted").
+		Scan(&rows).Error
+	if err != nil {
+		return nil, err
+	}
+
+	entries := make([]contracts.SitemapEntry, 0, len(rows))
+	omitted := 0
+	for _, r := range rows {
+		if r.Omitted {
+			omitted++
+			continue
+		}
+		entries = append(entries, r.SitemapEntry)
+	}
+
+	logger.FromContext(ctx).Info("sitemap_diet_omitted",
+		"rule", omission.rule,
+		"family", omission.family,
+		"shard", shard.wireID(),
+		"family_shards", shard.familyShards(),
+		"omitted", omitted,
+		"advertised", len(entries),
+	)
 	return entries, nil
 }
 
@@ -539,12 +787,14 @@ func (s *SitemapService) entriesFor(ctx context.Context, scope *gorm.DB) ([]cont
 // year the histogram does not carry); both sides fall out of this one query
 // shape rather than needing to be kept in sync by hand.
 //
-// COST, recorded rather than discovered later. This family is the most
-// expensive one in Entries and the only one whose input set grows without
+// COST, recorded rather than discovered later. This family is one of two in
+// Entries that run a venue-zone lateral over an input that grows without
 // bound: it scans every approved PAST show (the coarse `event_date < now()`
 // bound prunes nothing on an archive) with one lateral execution per row, and
-// past shows never age out. The other families are either single-table scans
-// (entriesFor) or windowed (sceneWeekEntries, 8 weeks per scene). Two thresholds
+// past shows never age out. The other is the shows family while its past-show
+// diet rule is on; see sitemapDiet.pastShows for its measured cost. The
+// remaining families are either single-table scans (entriesFor) or windowed
+// (sceneWeekEntries, 8 weeks per scene). Two thresholds
 // to watch as the catalogue grows, neither of which is close today: the ~1.50 MiB
 // Next Data Cache budget per shard (app/sitemap.ts weighs it and fails the
 // build), and the 50,000-URL sitemap limit — this family is venues x years, so

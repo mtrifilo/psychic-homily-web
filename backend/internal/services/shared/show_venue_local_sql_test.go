@@ -160,6 +160,17 @@ func TestVenueLocalDateCondition(t *testing.T) {
 	}
 }
 
+func TestVenueLocalDateOlderThanDaysSQL_ComparesThePastConditionsExpressions(t *testing.T) {
+	got := VenueLocalDateOlderThanDaysSQL(30)
+	if want := VenueLocalDateSQL + " < " + VenueLocalTodaySQL + " - 30"; got != want {
+		t.Errorf("VenueLocalDateOlderThanDaysSQL(30) = %q, want %q", got, want)
+	}
+	// Strictly before, as VenueLocalDateCondition("past") is: day N itself is kept.
+	if !strings.Contains(VenueLocalDateCondition("past"), VenueLocalDateSQL+" < "+VenueLocalTodaySQL) {
+		t.Error(`VenueLocalDateCondition("past") no longer compares the expressions this helper offsets`)
+	}
+}
+
 // The year filter's two halves, and the one case where widening it would be a
 // silent data leak rather than an empty page.
 func TestVenueLocalYearCondition(t *testing.T) {
