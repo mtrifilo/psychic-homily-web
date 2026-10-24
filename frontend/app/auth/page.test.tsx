@@ -1644,9 +1644,10 @@ describe('AuthPage', () => {
         expect(mockPush).not.toHaveBeenCalled()
       })
 
-      // The session can exist before the sign-up that made it has settled, and
-      // the control waiting on that answer has to stay mounted.
-      it('keeps Create account while a sign-up begun there holds its claim', async () => {
+      // The session can exist before the sign-up that made it has settled. It
+      // is the new account's, so the page holds back as it does for any
+      // arrival with a claim pending: no form and no redirect yet.
+      it('renders nothing, and does not redirect, while a sign-up begun there holds its claim', async () => {
         const user = userEvent.setup()
         mockSearchParams = new URLSearchParams(staleParams)
         const { rerender } = renderWithProviders(<AuthPage />)
@@ -1661,11 +1662,8 @@ describe('AuthPage', () => {
         mockAuthState = { setUser: vi.fn(), authStatus: 'authenticated' }
         rerender(<AuthPage />)
 
-        expect(screen.getByRole('tab', { name: 'Create account' })).toHaveAttribute(
-          'aria-selected',
-          'true'
-        )
-        expect(screen.getByTestId('passkey-signup')).toBeInTheDocument()
+        expect(screen.queryByText("Confirm it's you")).not.toBeInTheDocument()
+        expect(screen.queryByRole('tab')).not.toBeInTheDocument()
         expect(mockPush).not.toHaveBeenCalled()
       })
     })
