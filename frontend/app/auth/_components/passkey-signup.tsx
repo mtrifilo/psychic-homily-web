@@ -59,7 +59,7 @@ const EMAIL_INVALID = 'Please enter a valid email address'
 const TERMS_REQUIRED = 'You must agree to the Terms of Service and Privacy Policy'
 const DATE_OF_BIRTH_ID_PREFIX = 'passkey-dob'
 
-/** Begin refused the sign-up for its age; the page shows the refusal. */
+/** Begin or finish refused the sign-up for its age; the page shows the refusal. */
 class AgeRefusedError extends Error {}
 
 type BeginSignupResponse = components['schemas']['BeginSignupResponseBody']
@@ -256,6 +256,11 @@ export function PasskeySignupButton({
       })
 
       const finishData: AuthResponse = await finishResponse.json()
+
+      // A browser refused for its age after the ceremony began.
+      if (!finishData.success && finishData.error_code === AuthErrorCode.AGE_CONFIRMATION_REQUIRED) {
+        throw new AgeRefusedError(finishData.message)
+      }
 
       if (!finishData.success) {
         throw new Error(finishData.message || FINISH_FAILURE)

@@ -10,10 +10,12 @@ import { isDevApiProxyEnabled } from '@/lib/dev-api-proxy'
 const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:8080'
 
 /**
- * The browser cookies the proxy hands the backend: the session, and the
- * "Create your account" step's pending sign-up and under-age refusal marker
- * (backend/internal/api/handlers/auth/oauth_signup.go), under the bare name
- * and the "__Host-" name a Secure deployment sets.
+ * The browser cookies the proxy hands the backend: the session, the
+ * "Create your account" step's pending sign-up
+ * (backend/internal/api/handlers/auth/oauth_signup.go), and the under-age
+ * refusal marker every sign-up path reads
+ * (backend/internal/api/handlers/auth/signup_age.go), under the bare name and
+ * the "__Host-" name a Secure deployment sets.
  */
 const FORWARDED_COOKIES = [
   'auth_token',

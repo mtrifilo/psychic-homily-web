@@ -21,7 +21,7 @@ const latestUTCOffset = 14 * time.Hour
 
 // ErrDateOfBirthInvalid is the refusal for a value that is not a calendar date
 // in DateOfBirthLayout, a date after the latest calendar date anywhere at
-// submission, or a date more than MaxPlausibleAge years before it.
+// submission, or a date that gives an age over MaxPlausibleAge then.
 var ErrDateOfBirthInvalid = errors.New("date of birth is not a plausible calendar date")
 
 // ParseDateOfBirth reads value as a date of birth submitted at now. The result

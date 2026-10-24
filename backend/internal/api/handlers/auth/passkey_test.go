@@ -984,8 +984,6 @@ func TestFinishSignupHandler_MalformedCredentialResponse(t *testing.T) {
 	}
 }
 
-// A challenge that carries no consent is refused however the finish body
-// fills its consent fields, before any account is created.
 // A browser refused for its age after a ceremony began cannot finish it: the
 // marker refuses finish before the challenge is spent.
 func TestFinishSignupHandler_RefusesBrowserCarryingMarker(t *testing.T) {
@@ -1042,6 +1040,8 @@ func TestFinishSignupHandler_ServiceTermsRefusalIsReported(t *testing.T) {
 	}
 }
 
+// A challenge that carries no consent is refused however the finish body
+// fills its consent fields, before any account is created.
 func TestFinishSignupHandler_ChallengeWithoutConsent(t *testing.T) {
 	body, _ := softRegistration(t)
 	var finished bool

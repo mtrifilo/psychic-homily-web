@@ -68,9 +68,9 @@ function ageOn(birth: CalendarDate, today: CalendarDate): number {
 /**
  * Why the parts do not name a plausible date of birth, or null when they do.
  * Plausible mirrors the backend: a calendar date that exists, no later than
- * the latest date anywhere at `now`, and no more than MAX_PLAUSIBLE_AGE years
- * before it. The backend stays the authority; this keeps a date it would
- * refuse from leaving the page.
+ * the latest date anywhere at `now`, and giving an age of at most
+ * MAX_PLAUSIBLE_AGE then. The backend stays the authority; this keeps a date
+ * it would refuse from leaving the page.
  */
 export function dateOfBirthProblem(
   parts: DateOfBirthParts,

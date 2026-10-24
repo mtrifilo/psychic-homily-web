@@ -615,6 +615,32 @@ describe('PasskeySignupButton', () => {
     expect(within(dialog).getByLabelText('Day')).toHaveAttribute('aria-invalid', 'true')
   })
 
+  it('closes the dialog and hands the page the refusal when finish refuses a browser marked meanwhile', async () => {
+    fetchMock.mockResolvedValueOnce(BEGIN_OK)
+    fetchMock.mockResolvedValueOnce({
+      json: async () => ({
+        success: false,
+        error_code: 'AGE_CONFIRMATION_REQUIRED',
+        message: 'You must confirm that you are at least 16 years old to create an account.',
+      }),
+    })
+    renderButton()
+    await submitSignup()
+
+    await waitFor(() => {
+      expect(mockOnAgeRefused).toHaveBeenCalledTimes(1)
+    })
+    expect(
+      screen.queryByRole('dialog', { name: 'Create account with passkey' })
+    ).not.toBeInTheDocument()
+    expect(mockOnError).not.toHaveBeenCalled()
+    // The claim taken before finish is released.
+    expect(mockOnHandoffChange.mock.calls).toEqual([
+      [{ status: 'pending', email: 'signup@example.com' }],
+      [null],
+    ])
+  })
+
   it('closes the dialog and hands the page the refusal when begin refuses the age', async () => {
     fetchMock.mockResolvedValueOnce({
       json: async () => ({

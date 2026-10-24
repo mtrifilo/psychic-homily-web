@@ -421,7 +421,9 @@ describe('SignupForm deferred validation', () => {
     await user.click(screen.getByRole('checkbox', { name: TERMS_CHECKBOX }))
     await user.type(screen.getByLabelText('Month'), '1')
     await user.type(screen.getByLabelText('Day'), '1')
-    await user.type(screen.getByLabelText('Year'), String(new Date().getUTCFullYear() + 1))
+    // Two years ahead: next year's January 1 is already today somewhere from
+    // December 31 at 10:00 UTC.
+    await user.type(screen.getByLabelText('Year'), String(new Date().getUTCFullYear() + 2))
     await user.click(screen.getByRole('button', { name: 'Create account' }))
 
     await waitFor(() => {
