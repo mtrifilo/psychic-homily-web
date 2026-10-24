@@ -308,6 +308,16 @@ describe('VenueShowsList — upcoming section', () => {
     expect(screen.getByText(/Failed to load shows/i)).toBeInTheDocument()
   })
 
+  // The route seeds these rows server-side and the browser revalidates them on
+  // mount; a failed revalidation sets `error` while `data` is still the seed.
+  it('keeps rows on screen when a refresh of them fails', () => {
+    setUpcoming({ shows: [makeShow()] }, { error: new Error('boom') })
+    renderList()
+    const table = screen.getByRole('table', { name: 'Upcoming shows' })
+    expect(within(table).getByText('Main Artist')).toBeInTheDocument()
+    expect(screen.queryByText(/Failed to load shows/i)).not.toBeInTheDocument()
+  })
+
   // PSY-1905: see the ArtistShowsList twin. The [Notify me] bracket that sat
   // beside this sentence duplicated the header's Follow control.
   it('states the empty case without a second subscribe control', () => {

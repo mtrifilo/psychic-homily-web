@@ -7,6 +7,7 @@
  */
 
 import { API_BASE_URL } from '@/lib/api-base'
+import { unpadNumericId } from '@/lib/utils/unpadNumericId'
 
 // ============================================================================
 // Endpoints
@@ -86,6 +87,36 @@ export const VENUE_PAST_SHOWS_PAGE_LIMIT = 50
  */
 export const VENUE_UPCOMING_SHOWS_LIMIT = 200
 
+/**
+ * The venue page's upcoming-shows request: the ONE spelling of its cache key.
+ *
+ * Two readers must ask the same question: `VenueShowsList` hands it to
+ * `useVenueShows`, and the venue route reads it to fetch the same rows on the
+ * server and seed them under `venueQueryKeys.showsPage(venue.id, this)`. That
+ * key is the one the hook registers for these arguments (it records `limit` as
+ * sent and leaves `year` and `offset` unsent), so the seeded entry is the entry
+ * the component reads.
+ */
+export const VENUE_UPCOMING_SHOWS_REQUEST = {
+  timeFilter: 'upcoming',
+  limit: VENUE_UPCOMING_SHOWS_LIMIT,
+} as const satisfies { timeFilter: VenueShowsTimeFilter; limit: number }
+
+/**
+ * The server-side URL for {@link VENUE_UPCOMING_SHOWS_REQUEST}, by route slug.
+ * It must send the parameters `useVenueShows` sends for that request; the page
+ * tests compare the two.
+ * Encodes the slug: route params arrive decoded, and a bare `%2F` or `%3F`
+ * would re-point this server-side fetch at another backend path. A padded
+ * numeric id is unpadded first (`unpadNumericId`).
+ */
+export function venueUpcomingShowsUrl(venueSlug: string): string {
+  const params = new URLSearchParams()
+  params.set('limit', String(VENUE_UPCOMING_SHOWS_REQUEST.limit))
+  params.set('time_filter', VENUE_UPCOMING_SHOWS_REQUEST.timeFilter)
+  return `${venueEndpoints.SHOWS(encodeURIComponent(unpadNumericId(venueSlug)))}?${params.toString()}`
+}
+
 // ============================================================================
 // Query Keys
 // ============================================================================
@@ -115,20 +146,20 @@ export const venueQueryKeys = {
    * user happened to navigate in.
    *
    * NOTHING here is per-viewer, so a key a server computes is the key the
-   * browser then looks under, and server-prefetching this list is now possible.
-   * No route does it today: `archiveApi.ts` hands its rows over as
-   * `initialData`, which never depended on the key. A viewer timezone used to
-   * sit in this list, back when the endpoint read one; it does not any more
-   * (the upcoming/past split is made in each show's own venue-local day), so do
-   * not put a browser-only value back in.
+   * browser then looks under. The venue route relies on that: it seeds the
+   * upcoming entry (`VENUE_UPCOMING_SHOWS_REQUEST`) server-side. `archiveApi.ts`
+   * hands its rows over as `initialData` instead, which never depends on the
+   * key. The endpoint reads no viewer timezone (the upcoming/past split is made
+   * in each show's own venue-local day), so do not put a browser-only value in
+   * this list.
    *
-   * ONE PRECONDITION SURVIVES for anyone taking that up: the identity segment
-   * is `String(venueIdOrSlug)`, and the two forms hash differently. Callers are
-   * already split — the venue page, the Atlas panel and `VenueCard` pass the
-   * NUMERIC id resolved from a fetched venue, while the collection entity panel
-   * passes a slug — so a server seed has to key on whatever identity ITS
-   * consumer passes, not on whichever one the route happens to have. Get that
-   * wrong and it misses in exactly the silent way described above.
+   * The identity segment is `String(venueIdOrSlug)`, and the two forms hash
+   * differently. Callers are split: the venue page, the Atlas panel and
+   * `VenueCard` pass the NUMERIC id resolved from a fetched venue, while the
+   * collection entity panel passes a slug. A server seed must key on whatever
+   * identity its consumer passes (the numeric id, for the venue route); one
+   * keyed on the other form misses silently, and the page just stops being
+   * server-rendered, with no error.
    *
    * Extends `shows()` rather than replacing it so the coarse `['venues']`
    * invalidation in `createInvalidateQueries` keeps prefix-matching every page.

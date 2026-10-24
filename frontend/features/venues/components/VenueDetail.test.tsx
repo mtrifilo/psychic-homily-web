@@ -373,6 +373,13 @@ describe('VenueDetail', () => {
       expect(link).toHaveAttribute('href', '/venues')
     })
 
+    // The venue route seeds the upcoming rows under the NUMERIC id, so the list
+    // must be handed that id even when the page was addressed by slug.
+    it('hands the shows list the numeric venue id, not the route slug', () => {
+      render(<VenueDetail venueId="the-rebel-lounge" />)
+      expect(screen.getByText('Shows for venue 1')).toBeInTheDocument()
+    })
+
     it('renders venue shows list under the #venue-shows anchor', () => {
       const { container } = render(<VenueDetail venueId="1" />)
       expect(screen.getByTestId('venue-shows-list')).toBeInTheDocument()
