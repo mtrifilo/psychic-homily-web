@@ -1,22 +1,12 @@
 import { test } from '../fixtures/error-detection'
-import { expect, type Page } from '@playwright/test'
+import { expect } from '@playwright/test'
+import { fillDateOfBirth } from '../helpers/date-of-birth'
 
 const REGISTER_USER = {
   email: 'e2e-register@test.local',
   password: 'Xq9!mzPh2wLk_e2e',
 }
 
-const ADULT_DATE_OF_BIRTH = { month: '6', day: '15', year: '1990' }
-
-async function fillDateOfBirth(
-  page: Page,
-  idPrefix: string,
-  date: { month: string; day: string; year: string }
-) {
-  await page.locator(`#${idPrefix}-month`).fill(date.month)
-  await page.locator(`#${idPrefix}-day`).fill(date.day)
-  await page.locator(`#${idPrefix}-year`).fill(date.year)
-}
 
 test.describe('Registration', () => {
   test('registers a new account and lands on the check-your-inbox interstitial', { tag: '@smoke' }, async ({ page }) => {
@@ -32,7 +22,7 @@ test.describe('Registration', () => {
     await page.locator('#signup-email').fill(REGISTER_USER.email)
     await page.locator('#signup-password').fill(REGISTER_USER.password)
     await page.locator('#terms').check()
-    await fillDateOfBirth(page, 'signup-dob', ADULT_DATE_OF_BIRTH)
+    await fillDateOfBirth(page, 'signup-dob')
 
     // Submit
     await page.getByRole('button', { name: 'Create account' }).click()
@@ -111,7 +101,7 @@ test.describe('Registration', () => {
     await page.locator('#signup-email').fill('breach-test@test.local')
     await page.locator('#signup-password').fill('TestPassword123!')
     await page.locator('#terms').check()
-    await fillDateOfBirth(page, 'signup-dob', ADULT_DATE_OF_BIRTH)
+    await fillDateOfBirth(page, 'signup-dob')
 
     // Submit — server will reject the breached password
     await page.getByRole('button', { name: 'Create account' }).click()

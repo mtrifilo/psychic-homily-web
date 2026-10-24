@@ -582,19 +582,6 @@ func (h *PasskeyHandler) BeginSignupHandler(ctx context.Context, input *BeginSig
 	requestID := logger.GetRequestID(ctx)
 	resp.Body.RequestID = requestID
 
-	secure := secureSessionCookies(h.config)
-	refuseUnderAge := func(detail string) (*BeginSignupResponse, error) {
-		logger.AuthWarn(ctx, "passkey_signup_begin_consent_refused",
-			"error_code", autherrors.CodeAgeConfirmationRequired,
-			"detail", detail,
-		)
-		resp.SetCookie = append(resp.SetCookie, signupAgeRefusalMarker(secure))
-		return refuseWith(resp, autherrors.ErrAgeConfirmationRequired(detail))
-	}
-	if (signupAgeRefusalCookies{input.AgeRefused, input.AgeRefusedHost}).present(secure) {
-		return refuseUnderAge("browser carries the under-age refusal marker")
-	}
-
 	email := input.Body.Email
 	if email == "" {
 		return refusePasskey(resp, autherrors.CodeValidationFailed, "Email is required")
@@ -615,14 +602,18 @@ func (h *PasskeyHandler) BeginSignupHandler(ctx context.Context, input *BeginSig
 		)
 		return refuseWith(resp, refusal)
 	}
-	age, outcome := checkSignupAge(input.Body.DateOfBirth, time.Now())
-	switch outcome {
-	case signupAgeMissing:
-		return refuseWith(resp, autherrors.ErrAgeConfirmationRequired("no date of birth"))
-	case signupAgeImplausible:
-		return refusePasskey(resp, autherrors.CodeValidationFailed, dateOfBirthInvalidMessage)
-	case signupAgeUnderMinimum:
-		return refuseUnderAge("date of birth below the minimum age")
+	secure := secureSessionCookies(h.config)
+	age, refusal, setMarker := signupAgeGate(input.ageRefusalCookies().present(secure), input.Body.DateOfBirth, time.Now())
+	if refusal != nil {
+		logger.AuthWarn(ctx, "passkey_signup_begin_consent_refused",
+			"email_hash", logger.HashEmail(email),
+			"error_code", refusal.Code,
+			"error", refusal.Error(),
+		)
+		if setMarker {
+			resp.SetCookie = append(resp.SetCookie, signupAgeRefusalMarker(secure))
+		}
+		return refuseWith(resp, refusal)
 	}
 	acceptance := age.legalAcceptance(input.Body.TermsVersion, input.Body.PrivacyVersion)
 

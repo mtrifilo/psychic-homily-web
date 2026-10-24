@@ -145,7 +145,7 @@ type OAuthHTTPHandler struct {
 // secureCookies reports whether this deployment marks cookies Secure, which
 // is also whether the handshake cookies carry oauthHostCookiePrefix.
 func (h *OAuthHTTPHandler) secureCookies() bool {
-	return h != nil && h.config != nil && h.config.Session.Secure
+	return h != nil && secureSessionCookies(h.config)
 }
 
 // NewOAuthHTTPHandler creates a new OAuth HTTP handler

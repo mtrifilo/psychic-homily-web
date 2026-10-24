@@ -1,5 +1,14 @@
 import type { ReactNode } from 'react'
 
+/** The column a sign-up step or its terminal state fills, below the top bar. */
+export function StepPage({ children }: { children: ReactNode }) {
+  return (
+    <div className="flex min-h-[calc(100vh-64px)] justify-center px-4 pb-16 pt-12">
+      <div className="w-full max-w-md">{children}</div>
+    </div>
+  )
+}
+
 /** The bordered card the sign-up steps and their terminal states sit in. */
 export function StepCard({ children }: { children: ReactNode }) {
   return (

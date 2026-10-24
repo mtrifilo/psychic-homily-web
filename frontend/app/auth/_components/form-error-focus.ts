@@ -33,7 +33,15 @@ export function focusFirstInvalidField<Name extends string>(
   const invalid = fieldIds.find(
     ([name]) => (form.getFieldMeta(name)?.errors.length ?? 0) > 0
   )
-  const control = invalid && document.getElementById(invalid[1])
+  if (invalid) focusControl(invalid[1])
+}
+
+/**
+ * Focuses the control with this id, if there is one, and centres it in the
+ * visible area so the error line rendered under it shows too.
+ */
+export function focusControl(id: string): void {
+  const control = document.getElementById(id)
   if (!control) return
   control.focus({ preventScroll: true })
   control.scrollIntoView({ block: 'center' })

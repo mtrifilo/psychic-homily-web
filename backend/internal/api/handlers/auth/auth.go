@@ -679,6 +679,10 @@ type RegisterResponse struct {
 	}
 }
 
+func (r *RegisterResponse) setRefusal(code, message string) {
+	r.Body.Success, r.Body.Message, r.Body.ErrorCode = false, message, code
+}
+
 // RegisterHandler handles user registration
 func (h *AuthHandler) RegisterHandler(ctx context.Context, input *RegisterRequest) (*RegisterResponse, error) {
 	resp := &RegisterResponse{}
@@ -688,22 +692,6 @@ func (h *AuthHandler) RegisterHandler(ctx context.Context, input *RegisterReques
 	logger.AuthDebug(ctx, "register_attempt",
 		"email_hash", logger.HashEmail(input.Body.Email),
 	)
-
-	secure := secureSessionCookies(h.config)
-	refuseUnderAge := func(detail string) (*RegisterResponse, error) {
-		refusal := autherrors.ErrAgeConfirmationRequired(detail)
-		logger.AuthWarn(ctx, "register_validation_failed",
-			"error", refusal.Error(),
-		)
-		resp.SetCookie = signupAgeRefusalMarker(secure)
-		resp.Body.Success = false
-		resp.Body.Message = refusal.UserMessage()
-		resp.Body.ErrorCode = refusal.Code
-		return resp, nil
-	}
-	if (signupAgeRefusalCookies{input.AgeRefused, input.AgeRefusedHost}).present(secure) {
-		return refuseUnderAge("browser carries the under-age refusal marker")
-	}
 
 	// Validate email and password presence
 	if input.Body.Email == "" || input.Body.Password == "" {
@@ -774,27 +762,16 @@ func (h *AuthHandler) RegisterHandler(ctx context.Context, input *RegisterReques
 		resp.Body.ErrorCode = refusal.Code
 		return resp, nil
 	}
-	age, outcome := checkSignupAge(input.Body.DateOfBirth, time.Now())
-	switch outcome {
-	case signupAgeMissing:
-		refusal := autherrors.ErrAgeConfirmationRequired("no date of birth")
+	secure := secureSessionCookies(h.config)
+	age, refusal, setMarker := signupAgeGate(input.ageRefusalCookies().present(secure), input.Body.DateOfBirth, time.Now())
+	if refusal != nil {
 		logger.AuthWarn(ctx, "register_validation_failed",
 			"error", refusal.Error(),
 		)
-		resp.Body.Success = false
-		resp.Body.Message = refusal.UserMessage()
-		resp.Body.ErrorCode = refusal.Code
-		return resp, nil
-	case signupAgeImplausible:
-		logger.AuthWarn(ctx, "register_validation_failed",
-			"error", dateOfBirthInvalidMessage,
-		)
-		resp.Body.Success = false
-		resp.Body.Message = dateOfBirthInvalidMessage
-		resp.Body.ErrorCode = autherrors.CodeValidationFailed
-		return resp, nil
-	case signupAgeUnderMinimum:
-		return refuseUnderAge("date of birth below the minimum age")
+		if setMarker {
+			resp.SetCookie = signupAgeRefusalMarker(secure)
+		}
+		return refuseWith(resp, refusal)
 	}
 
 	// Validate password using the password validator (min 12, max 128, breach check, common password check)
@@ -864,12 +841,9 @@ func (h *AuthHandler) RegisterHandler(ctx context.Context, input *RegisterReques
 		if errors.As(err, &authErr) && authErr.Code == autherrors.CodeTermsAcceptanceRequired {
 			logger.AuthWarn(ctx, "register_failed",
 				"email_hash", logger.HashEmail(input.Body.Email),
-				"error_code", autherrors.CodeTermsAcceptanceRequired,
+				"error_code", authErr.Code,
 			)
-			resp.Body.Success = false
-			resp.Body.Message = authErr.UserMessage()
-			resp.Body.ErrorCode = autherrors.CodeTermsAcceptanceRequired
-			return resp, nil
+			return refuseWith(resp, authErr)
 		}
 
 		// Any other failure is an unexpected backend/service error, not a UX

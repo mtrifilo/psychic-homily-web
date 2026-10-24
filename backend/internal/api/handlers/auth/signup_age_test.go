@@ -4,6 +4,7 @@ import (
 	"maps"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -197,5 +198,27 @@ func TestSignupAgeWire_UnderAgeMarkerRefusesTheNextAttempt(t *testing.T) {
 				t.Error("the retry with an adult date went ahead")
 			}
 		})
+	}
+}
+
+// The marker is read from each sign-up request's own cookie fields (huma binds
+// none declared on an embedded struct), under both names a deployment may set
+// it under; this holds those copies to the names the marker is set under.
+func TestSignupRequestsDeclareTheMarkerCookie(t *testing.T) {
+	want := []string{signupAgeRefusalCookieNameFor(false), signupAgeRefusalCookieNameFor(true)}
+	for name, request := range map[string]any{
+		"RegisterRequest":    RegisterRequest{},
+		"BeginSignupRequest": BeginSignupRequest{},
+	} {
+		var tags []string
+		typ := reflect.TypeOf(request)
+		for i := 0; i < typ.NumField(); i++ {
+			if tag := typ.Field(i).Tag.Get("cookie"); tag != "" {
+				tags = append(tags, tag)
+			}
+		}
+		if !reflect.DeepEqual(tags, want) {
+			t.Errorf("%s cookies = %v, want %v", name, tags, want)
+		}
 	}
 }

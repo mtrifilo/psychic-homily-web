@@ -17,7 +17,14 @@ export async function fillDateOfBirth(
   user: ReturnType<typeof userEvent.setup>,
   scope: Pick<typeof screen, 'getByLabelText'> = screen
 ): Promise<void> {
-  await user.type(scope.getByLabelText('Month'), ADULT_DATE_OF_BIRTH.month)
-  await user.type(scope.getByLabelText('Day'), ADULT_DATE_OF_BIRTH.day)
-  await user.type(scope.getByLabelText('Year'), ADULT_DATE_OF_BIRTH.year)
+  // A click and a paste per part: the fewest events that still go through
+  // the inputs' change handlers.
+  for (const [label, value] of [
+    ['Month', ADULT_DATE_OF_BIRTH.month],
+    ['Day', ADULT_DATE_OF_BIRTH.day],
+    ['Year', ADULT_DATE_OF_BIRTH.year],
+  ] as const) {
+    await user.click(scope.getByLabelText(label))
+    await user.paste(value)
+  }
 }

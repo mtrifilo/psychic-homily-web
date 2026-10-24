@@ -52,7 +52,8 @@ func clearedPendingSignupCookie(secure bool) http.Cookie {
 // embedded struct; TestSignupStepRequestsDeclareTheirCookies holds the two
 // copies together.
 type signupStepCookies struct {
-	pending, pendingHost, ageRefused, ageRefusedHost string
+	pending, pendingHost string
+	ageRefused           signupAgeRefusalCookies
 }
 
 func (c signupStepCookies) pendingToken(secure bool) string {
@@ -63,7 +64,7 @@ func (c signupStepCookies) pendingToken(secure bool) string {
 }
 
 func (c signupStepCookies) refusedForAge(secure bool) bool {
-	return signupAgeRefusalCookies{c.ageRefused, c.ageRefusedHost}.present(secure)
+	return c.ageRefused.present(secure)
 }
 
 // OAuthSignupHandler serves the "Create your account" step.
@@ -78,7 +79,7 @@ func NewOAuthSignupHandler(authService contracts.AuthServiceInterface, cfg *conf
 }
 
 func (h *OAuthSignupHandler) secureCookies() bool {
-	return h != nil && h.config != nil && h.config.Session.Secure
+	return h != nil && secureSessionCookies(h.config)
 }
 
 // The states GET OAuthPendingSignupRoute answers with.
@@ -97,7 +98,7 @@ type PendingOAuthSignupRequest struct {
 }
 
 func (r *PendingOAuthSignupRequest) cookies() signupStepCookies {
-	return signupStepCookies{r.Pending, r.PendingHost, r.AgeRefused, r.AgeRefusedHost}
+	return signupStepCookies{r.Pending, r.PendingHost, signupAgeRefusalCookies{r.AgeRefused, r.AgeRefusedHost}}
 }
 
 // PendingOAuthSignupResponse is what the step renders from.
@@ -160,7 +161,7 @@ type FinishOAuthSignupRequest struct {
 }
 
 func (r *FinishOAuthSignupRequest) cookies() signupStepCookies {
-	return signupStepCookies{r.Pending, r.PendingHost, r.AgeRefused, r.AgeRefusedHost}
+	return signupStepCookies{r.Pending, r.PendingHost, signupAgeRefusalCookies{r.AgeRefused, r.AgeRefusedHost}}
 }
 
 // FinishOAuthSignupResponse is RegisterResponse's shape plus the destination
@@ -251,7 +252,7 @@ func (h *OAuthSignupHandler) FinishSignupHandler(ctx context.Context, input *Fin
 	case signupAgeMissing:
 		return refuseField(autherrors.ErrValidationFailed(dateOfBirthMissingMessage))
 	case signupAgeImplausible:
-		return refuseField(autherrors.ErrValidationFailed(dateOfBirthInvalidMessage))
+		return refuseField(errDateOfBirthImplausible())
 	case signupAgeUnderMinimum:
 		return refuseUnderAge("date of birth below the minimum age")
 	}

@@ -1,5 +1,6 @@
 import { test } from '../fixtures/error-detection'
 import { expect, type Page } from '@playwright/test'
+import { fillDateOfBirth } from '../helpers/date-of-birth'
 
 // Every passkey ceremony runs against Chromium's virtual authenticator, a
 // platform (internal) authenticator with resident keys and user verification
@@ -47,9 +48,7 @@ test.describe('Passkeys', () => {
     const email = uniqueEmail('e2e-passkey-signup')
     await page.locator('#passkey-email').fill(email)
     await page.locator('#passkey-terms').check()
-    await page.locator('#passkey-dob-month').fill('6')
-    await page.locator('#passkey-dob-day').fill('15')
-    await page.locator('#passkey-dob-year').fill('1990')
+    await fillDateOfBirth(page, 'passkey-dob')
     await page.getByRole('button', { name: /continue with passkey/i }).click()
 
     // The new account is offered a backup sign-in method before it leaves
@@ -81,9 +80,7 @@ test.describe('Passkeys', () => {
     await page.locator('#signup-email').fill(uniqueEmail('e2e-passkey-settings'))
     await page.locator('#signup-password').fill('Xq9!mzPh2wLk_e2e')
     await page.locator('#terms').check()
-    await page.locator('#signup-dob-month').fill('6')
-    await page.locator('#signup-dob-day').fill('15')
-    await page.locator('#signup-dob-year').fill('1990')
+    await fillDateOfBirth(page, 'signup-dob')
     await page.getByRole('button', { name: 'Create account' }).click()
     await expect(page.getByRole('button', { name: 'User menu' })).toBeVisible({ timeout: 15_000 })
 

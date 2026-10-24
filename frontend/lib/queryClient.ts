@@ -362,12 +362,9 @@ export const queryKeys = {
   // Authentication queries
   auth: {
     profile: ['auth', 'profile'] as const,
-    // This browser's pending Google sign-up, named by a cookie, so the key
-    // has no viewer or token dimension.
+    // This browser's pending Google sign-up and under-age refusal marker,
+    // named by cookies, so the key has no viewer or token dimension.
     pendingOAuthSignup: ['auth', 'pending-oauth-signup'] as const,
-    // Whether this browser carries the under-age refusal marker, also named
-    // by a cookie.
-    signupAgeRefusal: ['auth', 'signup-age-refusal'] as const,
     user: (id: string) => ['auth', 'user', id] as const,
     // Home area + the resolved account alert matrix (PSY-1907). Keyed by
     // viewer for the same reason every follow key is: a logout must not leave

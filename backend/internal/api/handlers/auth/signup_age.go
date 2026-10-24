@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"psychic-homily-backend/internal/config"
+	autherrors "psychic-homily-backend/internal/errors"
 	"psychic-homily-backend/internal/legal"
 	"psychic-homily-backend/internal/services/contracts"
 )
@@ -51,6 +52,14 @@ type signupAgeRefusalCookies struct {
 	plain, host string
 }
 
+func (r *RegisterRequest) ageRefusalCookies() signupAgeRefusalCookies {
+	return signupAgeRefusalCookies{r.AgeRefused, r.AgeRefusedHost}
+}
+
+func (r *BeginSignupRequest) ageRefusalCookies() signupAgeRefusalCookies {
+	return signupAgeRefusalCookies{r.AgeRefused, r.AgeRefusedHost}
+}
+
 func (c signupAgeRefusalCookies) present(secure bool) bool {
 	if secure {
 		return c.host != ""
@@ -67,6 +76,12 @@ const (
 	dateOfBirthMissingMessage = "Enter your date of birth."
 	dateOfBirthInvalidMessage = "Enter a real date of birth."
 )
+
+// errDateOfBirthImplausible is the refusal for a date of birth that is not a
+// plausible calendar date: a field the person can fix.
+func errDateOfBirthImplausible() *autherrors.AuthError {
+	return autherrors.ErrValidationFailed(dateOfBirthInvalidMessage)
+}
 
 // signupAgeOutcome is what checkSignupAge found in a sign-up's date of birth.
 type signupAgeOutcome int
@@ -108,6 +123,30 @@ func checkSignupAge(dateOfBirth string, now time.Time) (signupAge, signupAgeOutc
 		return signupAge{}, signupAgeUnderMinimum
 	}
 	return signupAge{dateOfBirth: dob, age: age, attestedAt: now.UTC()}, signupAgeAccepted
+}
+
+// signupAgeGate is the age check of a sign-up that sends its date of birth in
+// the request (password registration, passkey signup/begin), at now. A browser
+// carrying the refusal marker is refused whatever date it sends. Otherwise the
+// date goes through checkSignupAge: none at all is refused for its age (an
+// older client attests no date), an implausible one with
+// errDateOfBirthImplausible, and one under the minimum for its age. setMarker
+// reports a refusal that sets the marker again, for this browser's next day.
+// The signupAge is set only when refusal is nil.
+func signupAgeGate(marked bool, dateOfBirth string, now time.Time) (age signupAge, refusal *autherrors.AuthError, setMarker bool) {
+	if marked {
+		return signupAge{}, autherrors.ErrAgeConfirmationRequired("browser carries the under-age refusal marker"), true
+	}
+	age, outcome := checkSignupAge(dateOfBirth, now)
+	switch outcome {
+	case signupAgeMissing:
+		return signupAge{}, autherrors.ErrAgeConfirmationRequired("no date of birth"), false
+	case signupAgeImplausible:
+		return signupAge{}, errDateOfBirthImplausible(), false
+	case signupAgeUnderMinimum:
+		return signupAge{}, autherrors.ErrAgeConfirmationRequired("date of birth below the minimum age"), true
+	}
+	return age, nil, false
 }
 
 // legalAcceptance is the acceptance a password or passkey sign-up records:

@@ -524,7 +524,7 @@ func TestSignupStepRequestsDeclareTheirCookies(t *testing.T) {
 // With Secure cookies, only the "__Host-" names count: a bare one could have
 // been planted by a sibling subdomain.
 func TestSignupStepCookies_SecureReadsOnlyThePrefixedNames(t *testing.T) {
-	c := signupStepCookies{pending: "bare", pendingHost: "host", ageRefused: "1"}
+	c := signupStepCookies{pending: "bare", pendingHost: "host", ageRefused: signupAgeRefusalCookies{plain: "1"}}
 	if got := c.pendingToken(true); got != "host" {
 		t.Errorf("secure pending token = %q, want the prefixed one", got)
 	}

@@ -338,18 +338,6 @@ func TestRegisterHandler_MissingTermsAcceptance(t *testing.T) {
 	}
 }
 
-// registerRequestWithConsent is a register request that passes every check
-// before the age one: address, password and the current versions accepted.
-func registerRequestWithConsent() *RegisterRequest {
-	input := &RegisterRequest{}
-	input.Body.Email = "user@example.com"
-	input.Body.Password = "a-valid-password-123"
-	input.Body.TermsAccepted = true
-	input.Body.TermsVersion = legal.CurrentTermsVersion
-	input.Body.PrivacyVersion = legal.CurrentPrivacyVersion
-	return input
-}
-
 // refusalMarkerSet reports whether cookie is the under-age refusal marker,
 // set for a day, under the name a deployment without Secure cookies uses.
 func refusalMarkerSet(cookie http.Cookie) bool {
@@ -362,8 +350,9 @@ func refusalMarkerSet(cookie http.Cookie) bool {
 // no age, so it is not an under-age refusal.
 func TestRegisterHandler_RefusesWithoutDateOfBirth(t *testing.T) {
 	cases := map[string]func(*RegisterRequest){
-		"no age at all": func(*RegisterRequest) {},
+		"no age at all": func(in *RegisterRequest) { in.Body.DateOfBirth = "" },
 		"legacy attestation fields only": func(in *RegisterRequest) {
+			in.Body.DateOfBirth = ""
 			in.Body.AgeConfirmed = true
 			in.Body.MinAgeAttested = legal.MinSignupAge
 		},
@@ -379,7 +368,7 @@ func TestRegisterHandler_RefusesWithoutDateOfBirth(t *testing.T) {
 					},
 				}
 			})
-			input := registerRequestWithConsent()
+			input := validRegisterInput("user@example.com")
 			mutate(input)
 
 			resp, err := h.RegisterHandler(context.Background(), input)
@@ -403,7 +392,7 @@ func TestRegisterHandler_RefusesWithoutDateOfBirth(t *testing.T) {
 // refusal marker, so the same browser cannot try another date straight away.
 func TestRegisterHandler_UnderAgeSetsRefusalMarker(t *testing.T) {
 	h := authHandler()
-	input := registerRequestWithConsent()
+	input := validRegisterInput("user@example.com")
 	input.Body.DateOfBirth = signupconsent.UnderAgeDateOfBirth(time.Now())
 
 	resp, err := h.RegisterHandler(context.Background(), input)
@@ -433,8 +422,7 @@ func TestRegisterHandler_RefusesBrowserCarryingMarker(t *testing.T) {
 					},
 				}
 			})
-			input := registerRequestWithConsent()
-			input.Body.DateOfBirth = signupconsent.AdultDateOfBirth
+			input := validRegisterInput("user@example.com")
 			if secure {
 				input.AgeRefusedHost = "1"
 			} else {
@@ -472,8 +460,7 @@ func TestRegisterHandler_IgnoresMarkerUnderOtherName(t *testing.T) {
 		}
 		ah.discordService = &testhelpers.MockDiscordService{NotifyNewUserFn: func(*authm.User) {}}
 	})
-	input := registerRequestWithConsent()
-	input.Body.DateOfBirth = signupconsent.AdultDateOfBirth
+	input := validRegisterInput("user@example.com")
 	input.AgeRefusedHost = "1"
 
 	resp, err := h.RegisterHandler(context.Background(), input)
@@ -491,7 +478,7 @@ func TestRegisterHandler_RefusesImplausibleDateOfBirth(t *testing.T) {
 	for _, value := range []string{"2001-02-30", "31/01/1990", time.Now().UTC().AddDate(0, 0, 3).Format(legal.DateOfBirthLayout), "1800-01-01"} {
 		t.Run(value, func(t *testing.T) {
 			h := authHandler()
-			input := registerRequestWithConsent()
+			input := validRegisterInput("user@example.com")
 			input.Body.DateOfBirth = value
 
 			resp, err := h.RegisterHandler(context.Background(), input)
@@ -527,8 +514,7 @@ func TestRegisterHandler_RecordsDateOfBirth(t *testing.T) {
 		}
 	})
 
-	input := registerRequestWithConsent()
-	input.Body.Email = "new@example.com"
+	input := validRegisterInput("new@example.com")
 	input.Body.DateOfBirth = signupconsent.AdultDateOfBirth
 
 	resp, err := h.RegisterHandler(context.Background(), input)
@@ -560,8 +546,7 @@ func TestRegisterHandler_ServiceTermsRefusalIsReported(t *testing.T) {
 			},
 		}
 	})
-	input := registerRequestWithConsent()
-	input.Body.DateOfBirth = signupconsent.AdultDateOfBirth
+	input := validRegisterInput("user@example.com")
 
 	resp, err := h.RegisterHandler(context.Background(), input)
 	if err != nil {

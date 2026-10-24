@@ -91,6 +91,7 @@ import {
   type DateOfBirthParts,
 } from '@/app/auth/_components/date-of-birth-field'
 import { AgeRefusedCard } from '@/app/auth/_components/age-refused-card'
+import { StepPage } from '@/app/auth/_components/step-card'
 
 // Shown for ACCOUNT_INACTIVE_REASON: fixed copy keyed by the code, never text
 // from the URL, saying no more about the account than "unavailable".
@@ -1015,11 +1016,9 @@ function AuthPageContent() {
 
   if (refusedForAge) {
     return (
-      <div className="flex min-h-[calc(100vh-64px)] justify-center px-4 pb-16 pt-12">
-        <div className="w-full max-w-md">
-          <AgeRefusedCard focusHeading />
-        </div>
-      </div>
+      <StepPage>
+        <AgeRefusedCard focusHeading />
+      </StepPage>
     )
   }
 

@@ -39,7 +39,8 @@ import {
   dateOfBirthFromParts,
   firstInvalidDateOfBirthPartId,
 } from '@/app/auth/_components/date-of-birth-field'
-import { StepCard, StepHeading } from '@/app/auth/_components/step-card'
+import { StepCard, StepHeading, StepPage } from '@/app/auth/_components/step-card'
+import { focusControl } from '@/app/auth/_components/form-error-focus'
 import { sanitizeReturnTo } from '@/app/auth/auth-redirect-utils'
 
 export const TERMS_REQUIRED_MESSAGE =
@@ -93,11 +94,7 @@ export function CreateAccountStep() {
     content = <CreateAccountForm pending={pending.data} finish={finish} />
   }
 
-  return (
-    <div className="flex min-h-[calc(100vh-64px)] justify-center px-4 pb-16 pt-12">
-      <div className="w-full max-w-md">{content}</div>
-    </div>
-  )
+  return <StepPage>{content}</StepPage>
 }
 
 const LINK_CLASS = 'font-medium underline underline-offset-4 hover:text-primary'
@@ -139,9 +136,7 @@ function CreateAccountForm({
     setAttempted(true)
     // Focus goes to the first field the form refuses, in the order they show.
     if (dateOfBirth === null) {
-      document
-        .getElementById(firstInvalidDateOfBirthPartId(dateOfBirthIdPrefix, dateOfBirthParts))
-        ?.focus()
+      focusControl(firstInvalidDateOfBirthPartId(dateOfBirthIdPrefix, dateOfBirthParts))
       return
     }
     if (!termsAccepted) {

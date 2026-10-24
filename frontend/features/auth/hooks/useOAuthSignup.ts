@@ -27,50 +27,43 @@ export type FinishOAuthSignupRequest =
 const SIGNUP_FAILED = 'Your account could not be created. Please try again.'
 
 /**
- * Reads this browser's pending Google sign-up. The backend names it by an
- * HttpOnly cookie, so nothing about it travels in the URL. Read once per visit
- * to the step: never refetched while it shows, since a stale read is corrected
- * by the finish's own answer, and dropped as soon as the step is left, since
- * the cookie may have changed by the next visit.
+ * The read of this browser's pending Google sign-up, and of the under-age
+ * refusal marker the same read reports. The backend names both by HttpOnly
+ * cookies, so nothing about them travels in the URL. Read once per visit: never
+ * refetched while the page shows, since a stale read is corrected by the
+ * sign-up's own answer, and dropped as soon as the page is left, since the
+ * cookies may have changed by the next visit.
  */
+const pendingOAuthSignupQuery = {
+  queryKey: queryKeys.auth.pendingOAuthSignup,
+  queryFn: ({ signal }: { signal: AbortSignal }) =>
+    apiRequest<PendingOAuthSignup>(API_ENDPOINTS.AUTH.OAUTH_PENDING_SIGNUP, {
+      method: 'GET',
+      signal,
+    }),
+  staleTime: Infinity,
+  gcTime: 0,
+  retry: false,
+  refetchOnWindowFocus: false,
+  refetchOnReconnect: false,
+} as const
+
+/** Reads this browser's pending Google sign-up, for the step that finishes it. */
 export function usePendingOAuthSignup() {
-  return useQuery({
-    queryKey: queryKeys.auth.pendingOAuthSignup,
-    queryFn: ({ signal }) =>
-      apiRequest<PendingOAuthSignup>(API_ENDPOINTS.AUTH.OAUTH_PENDING_SIGNUP, {
-        method: 'GET',
-        signal,
-      }),
-    staleTime: Infinity,
-    gcTime: 0,
-    retry: false,
-    refetchOnWindowFocus: false,
-    refetchOnReconnect: false,
-  })
+  return useQuery(pendingOAuthSignupQuery)
 }
 
 /**
  * Whether this browser carries the under-age refusal marker, which refuses
- * every sign-up from it for a day. The backend keeps the marker in an HttpOnly
- * cookie and reports it as the pending-signup read's `age_refused` status.
- * Read once per visit while `enabled`; false while unread or when the read
- * fails, since the backend refuses a marked browser's sign-up either way.
+ * every sign-up from it for a day: the pending-signup read's `age_refused`
+ * status. Read while `enabled`; false while unread or when the read fails,
+ * since the backend refuses a marked browser's sign-up either way.
  */
 export function useSignupAgeRefused(enabled: boolean): boolean {
   const { data } = useQuery({
-    queryKey: queryKeys.auth.signupAgeRefusal,
-    queryFn: ({ signal }) =>
-      apiRequest<PendingOAuthSignup>(API_ENDPOINTS.AUTH.OAUTH_PENDING_SIGNUP, {
-        method: 'GET',
-        signal,
-      }),
+    ...pendingOAuthSignupQuery,
     select: signup => signup.status === 'age_refused',
     enabled,
-    staleTime: Infinity,
-    gcTime: 0,
-    retry: false,
-    refetchOnWindowFocus: false,
-    refetchOnReconnect: false,
   })
   return data === true
 }

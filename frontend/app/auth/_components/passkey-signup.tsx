@@ -49,11 +49,12 @@ import {
   dateOfBirthFromParts,
   firstInvalidDateOfBirthPartId,
 } from './date-of-birth-field'
-import { focusFirstInvalidField } from './form-error-focus'
+import { focusControl } from './form-error-focus'
 import type { SignupRequestDeadline } from './signup-request-deadline'
 
 const START_FAILURE = 'Failed to start passkey signup'
 const FINISH_FAILURE = 'Failed to complete passkey signup'
+const EMAIL_SCHEMA = z.string().email()
 const EMAIL_INVALID = 'Please enter a valid email address'
 const TERMS_REQUIRED = 'You must agree to the Terms of Service and Privacy Policy'
 const DATE_OF_BIRTH_ID_PREFIX = 'passkey-dob'
@@ -127,8 +128,9 @@ export function PasskeySignupButton({
   // Set by the first press of Continue: from then on every field shows its
   // error, recomputed as it changes.
   const [attempted, setAttempted] = useState(false)
-  const emailError =
-    attempted && !z.string().email().safeParse(email).success ? EMAIL_INVALID : null
+  const emailValid = EMAIL_SCHEMA.safeParse(email).success
+  const dateOfBirth = dateOfBirthFromParts(dateOfBirthParts)
+  const emailError = attempted && !emailValid ? EMAIL_INVALID : null
   const termsError = attempted && !termsAccepted ? TERMS_REQUIRED : null
 
   const supportsWebAuthn = useWebAuthnSupport()
@@ -156,21 +158,16 @@ export function PasskeySignupButton({
 
     // Every field is checked at once, and focus goes to the first refused one
     // in the order the dialog shows them.
-    const dateOfBirth = dateOfBirthFromParts(dateOfBirthParts)
-    const fieldErrors = {
-      email: z.string().email().safeParse(email).success ? null : EMAIL_INVALID,
-      terms: termsAccepted ? null : TERMS_REQUIRED,
-      dateOfBirth: dateOfBirth === null ? 'invalid' : null,
+    if (!emailValid) {
+      focusControl('passkey-email')
+      return
     }
-    if (fieldErrors.email || fieldErrors.terms || fieldErrors.dateOfBirth) {
-      focusFirstInvalidField(
-        { getFieldMeta: name => ({ errors: fieldErrors[name] ? [fieldErrors[name]] : [] }) },
-        [
-          ['email', 'passkey-email'],
-          ['terms', 'passkey-terms'],
-          ['dateOfBirth', firstInvalidDateOfBirthPartId(DATE_OF_BIRTH_ID_PREFIX, dateOfBirthParts)],
-        ] as const
-      )
+    if (!termsAccepted) {
+      focusControl('passkey-terms')
+      return
+    }
+    if (dateOfBirth === null) {
+      focusControl(firstInvalidDateOfBirthPartId(DATE_OF_BIRTH_ID_PREFIX, dateOfBirthParts))
       return
     }
 
