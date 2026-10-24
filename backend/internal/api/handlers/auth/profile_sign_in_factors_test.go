@@ -45,18 +45,11 @@ func TestGetProfileHandler_CarriesTheSignInFactors(t *testing.T) {
 		t.Errorf("passkey_count = %v, want 2", resp.Body.PasskeyCount)
 	}
 
-	wire, err := json.Marshal(resp.Body)
-	if err != nil {
-		t.Fatalf("marshal: %v", err)
-	}
-	var body map[string]any
-	if err := json.Unmarshal(wire, &body); err != nil {
-		t.Fatalf("unmarshal: %v", err)
-	}
+	wire, body := wireBody(t, resp)
 	if body["has_password"] != true || body["passkey_count"] != float64(2) {
 		t.Errorf("wire factors = %v / %v, want true / 2", body["has_password"], body["passkey_count"])
 	}
-	if leaked := leakedTerm(string(wire), hash, "password_hash", "passkey_credentials"); leaked != "" {
+	if leaked := leakedTerm(wire, hash, "password_hash", "passkey_credentials"); leaked != "" {
 		t.Errorf("the profile body carries %q: %s", leaked, wire)
 	}
 }
@@ -73,9 +66,7 @@ func TestGetProfileHandler_ProviderOnlyAccountAnswersFalseAndZero(t *testing.T) 
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	wire, _ := json.Marshal(resp.Body)
-	var body map[string]any
-	_ = json.Unmarshal(wire, &body)
+	_, body := wireBody(t, resp)
 	if v, ok := body["has_password"]; !ok || v != false {
 		t.Errorf("has_password = %v (present %v), want an explicit false", v, ok)
 	}
@@ -97,9 +88,7 @@ func TestGetProfileHandler_FactorsFailureOmitsThemAndKeepsTheProfile(t *testing.
 	if !resp.Body.Success || resp.Body.User == nil || resp.Body.User.ID != 9 {
 		t.Fatalf("expected the profile to answer as usual, got success=%v user=%v", resp.Body.Success, resp.Body.User)
 	}
-	wire, _ := json.Marshal(resp.Body)
-	var body map[string]any
-	_ = json.Unmarshal(wire, &body)
+	_, body := wireBody(t, resp)
 	if _, ok := body["has_password"]; ok {
 		t.Error("has_password must be omitted when it could not be read")
 	}
@@ -126,6 +115,20 @@ func TestGetProfileHandler_ProfileFailureNeverReadsFactors(t *testing.T) {
 	if called {
 		t.Error("the factors must not be read for a profile that failed")
 	}
+}
+
+// wireBody is the profile body as it goes on the wire, raw and decoded.
+func wireBody(t *testing.T, resp *UserProfileResponse) (string, map[string]any) {
+	t.Helper()
+	wire, err := json.Marshal(resp.Body)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	var body map[string]any
+	if err := json.Unmarshal(wire, &body); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	return string(wire), body
 }
 
 // leakedTerm returns the first of terms that body contains, or "".

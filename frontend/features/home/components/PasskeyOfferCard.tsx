@@ -1,7 +1,6 @@
 'use client'
 
 import { useState } from 'react'
-import { useQueryClient } from '@tanstack/react-query'
 import { KeyRound } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 // Concrete module paths, not the barrels: this component is reachable from the
@@ -12,10 +11,12 @@ import { PasskeyRegisterButton } from '@/features/auth/components/PasskeyRegiste
 import { useProfile, type UserProfile } from '@/features/auth/hooks/useAuth'
 import { useWebAuthnSupport } from '@/features/auth/hooks/useWebAuthnSupport'
 import { useAuthContext } from '@/lib/context/AuthContext'
-import { refetchSignedInProfile } from '@/lib/queryClient'
-import { usePasskeyOfferDismissal } from '../hooks/usePasskeyOfferDismissal'
+import { useHydrated } from '@/lib/hooks/common/useHydrated'
+import { useLocalStorageEnum } from '@/lib/hooks/common/useLocalStorageEnum'
 
 const REGISTER_FAILED = 'Your passkey was not added. Please try again.'
+
+const OFFER_STATES = ['offered', 'dismissed'] as const
 
 /**
  * Whether the profile describes an account created through a provider that
@@ -40,22 +41,40 @@ export function profileOffersPasskey(profile: UserProfile | undefined): boolean 
  *
  * It shows on every home visit while the account qualifies, until "Not now"
  * dismisses it for this browser for good or the account gains a password or a
- * passkey. A successful registration refetches the profile, whose passkey
- * count then retires the card.
+ * passkey. Adding a passkey refetches the profile, whose passkey count then
+ * retires the card.
  */
 export function PasskeyOfferCard() {
   const { user } = useAuthContext()
   const { data: profile } = useProfile()
   const supportsWebAuthn = useWebAuthnSupport()
-  const { dismissed, dismiss } = usePasskeyOfferDismissal(user?.id ?? '')
-  const queryClient = useQueryClient()
+
+  if (!user?.id || !supportsWebAuthn || !profileOffersPasskey(profile)) {
+    return null
+  }
+  // Keyed by account, so a second account on this browser is still offered,
+  // and remounted with it, so no state carries from one account to the next.
+  return <PasskeyOffer key={user.id} userId={user.id} />
+}
+
+function PasskeyOffer({ userId }: { userId: string }) {
+  // The server and the hydration render cannot read localStorage, so the card
+  // joins the page one commit after hydration rather than flashing in the
+  // server HTML and collapsing on every visit after a dismissal.
+  const hydrated = useHydrated()
+  // Final: nothing writes 'offered' back. Unavailable storage reads as
+  // 'offered', so the card can return on a later visit in a private window;
+  // the cost is one more offer, never a lost passkey.
+  const [offerState, setOfferState] = useLocalStorageEnum(
+    `ph-passkey-offer:${userId}`,
+    'offered',
+    OFFER_STATES
+  )
   // The error itself, not its sentence: only the error carries the code that
   // tells a refusal for want of a recent sign-in from an ordinary failure.
   const [registerError, setRegisterError] = useState<unknown>(null)
 
-  if (!user?.id || dismissed || !supportsWebAuthn || !profileOffersPasskey(profile)) {
-    return null
-  }
+  if (!hydrated || offerState === 'dismissed') return null
 
   return (
     <section
@@ -87,17 +106,14 @@ export function PasskeyOfferCard() {
           <PasskeyRegisterButton
             variant="default"
             className="w-full sm:w-auto"
-            onSuccess={() => {
-              setRegisterError(null)
-              void refetchSignedInProfile(queryClient)
-            }}
+            onSuccess={() => setRegisterError(null)}
             onError={error => setRegisterError(error)}
           />
           <Button
             variant="ghost"
             size="sm"
             className="w-full sm:w-auto"
-            onClick={dismiss}
+            onClick={() => setOfferState('dismissed')}
           >
             Not now
           </Button>

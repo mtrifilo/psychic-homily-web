@@ -187,7 +187,7 @@ func (s *AuthService) GetSignInFactors(user *authm.User) (contracts.SignInFactor
 		return contracts.SignInFactors{}, fmt.Errorf("failed to count passkeys: %w", err)
 	}
 	return contracts.SignInFactors{
-		HasPassword:  user.PasswordHash != nil && *user.PasswordHash != "",
+		HasPassword:  user.HasPassword(),
 		PasskeyCount: int(passkeyCount),
 	}, nil
 }

@@ -496,24 +496,5 @@ describe('SavedShowsModule saved-state and viewer transitions', () => {
       render(<SavedShowsModule nearbySectionId="nearby" />)
       expect(screen.getByText('Welcome')).toBeInTheDocument()
     })
-
-    it('welcomes back a different account than the one the sign-up created', () => {
-      markAccountCreatedThisSession(7)
-      render(<SavedShowsModule nearbySectionId="nearby" />)
-
-      expect(screen.getByText('Welcome back')).toBeInTheDocument()
-    })
-
-    it('welcomes back after a reload, once the marker has been read', () => {
-      markAccountCreatedThisSession(42)
-      const { unmount } = render(<SavedShowsModule nearbySectionId="nearby" />)
-      expect(screen.getByText('Welcome')).toBeInTheDocument()
-      unmount()
-
-      // A reload starts the module over; storage no longer holds the marker.
-      resetAccountCreatedMarkerForTests()
-      render(<SavedShowsModule nearbySectionId="nearby" />)
-      expect(screen.getByText('Welcome back')).toBeInTheDocument()
-    })
   })
 })

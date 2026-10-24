@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, type ComponentProps } from 'react'
+import { useQueryClient } from '@tanstack/react-query'
 import * as Sentry from '@sentry/nextjs'
 import { startRegistration } from '@simplewebauthn/browser'
 import { Fingerprint, Loader2 } from 'lucide-react'
@@ -21,6 +22,7 @@ import { registrationOptionsFrom } from '@/features/auth/passkeyOptions'
 import { AuthError, type AuthErrorCodeType } from '@/lib/errors'
 import type { components } from '@/types/api'
 import { API_BASE_URL } from '@/lib/api-base'
+import { refetchSignedInProfile } from '@/lib/queryClient'
 
 type BeginRegisterResponse = components['schemas']['BeginRegisterResponseBody']
 type FinishRegisterResponse = components['schemas']['FinishRegisterResponseBody']
@@ -85,6 +87,7 @@ export function PasskeyRegisterButton({
   const [displayName, setDisplayName] = useState('')
 
   const supportsWebAuthn = useWebAuthnSupport()
+  const queryClient = useQueryClient()
 
   const handleRegister = async () => {
     if (!supportsWebAuthn) {
@@ -135,9 +138,11 @@ export function PasskeyRegisterButton({
       )
       if (!finish.ok) throw finish.error
 
-      // Success
+      // Success. The profile carries the account's passkey count, so every
+      // surface that reads it sees the new passkey.
       setIsOpen(false)
       setDisplayName('')
+      void refetchSignedInProfile(queryClient)
       onSuccess?.()
     } catch (error) {
       if (error instanceof Error) {

@@ -18,6 +18,7 @@ import {
   queryKeys,
   createInvalidateQueries,
   refreshViewerTierQueries,
+  refetchSignedInProfile,
   releaseExpiredSessionLatch,
   resetViewerTierQueries,
 } from '@/lib/queryClient'
@@ -1258,7 +1259,9 @@ export const useDeletePasskey = () => {
     },
     onSettled: () => {
       // Reconcile with server truth after the mutation resolves either way.
+      // The profile carries the passkey count, so it is refetched too.
       void refetchAfterMutation(queryClient, queryKeys.passkeys.credentials)
+      void refetchSignedInProfile(queryClient)
     },
   })
 }

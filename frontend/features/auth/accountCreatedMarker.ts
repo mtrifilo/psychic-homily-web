@@ -1,6 +1,6 @@
 'use client'
 
-import { useSyncExternalStore } from 'react'
+import { useHydrated } from '@/lib/hooks/common/useHydrated'
 import { isSameUserId, type UserIdLike } from './authUser'
 
 /**
@@ -54,11 +54,6 @@ function readCreatedIdOnce(): string | null {
   return consumedId
 }
 
-// The marker changes only through a sign-up, which navigates; nothing on the
-// reading page can change it, so there is nothing to subscribe to.
-const subscribe = () => () => {}
-const getServerSnapshot = () => null
-
 /**
  * Whether `userId` is the account a sign-up in this tab just created.
  *
@@ -67,12 +62,7 @@ const getServerSnapshot = () => null
  * client-side navigation from the sign-up answers true on its first render.
  */
 export function useAccountCreatedThisSession(userId: UserIdLike): boolean {
-  const createdId = useSyncExternalStore(
-    subscribe,
-    readCreatedIdOnce,
-    getServerSnapshot
-  )
-  return isSameUserId(createdId, userId)
+  return useHydrated() && isSameUserId(readCreatedIdOnce(), userId)
 }
 
 /**

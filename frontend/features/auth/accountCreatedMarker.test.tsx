@@ -38,6 +38,26 @@ describe('the account-created marker', () => {
     expect(screen.getByText('new')).toBeInTheDocument()
   })
 
+  it('does not name a different account than the one the sign-up created', () => {
+    markAccountCreatedThisSession(7)
+    render(<Probe userId="42" />)
+
+    expect(screen.getByText('returning')).toBeInTheDocument()
+  })
+
+  it('is read once: cleared from storage, and gone after a reload', () => {
+    markAccountCreatedThisSession(42)
+    const { unmount } = render(<Probe userId="42" />)
+    expect(screen.getByText('new')).toBeInTheDocument()
+    expect(window.sessionStorage.length).toBe(0)
+    unmount()
+
+    // A reload starts the module over with storage already cleared.
+    resetAccountCreatedMarkerForTests()
+    render(<Probe userId="42" />)
+    expect(screen.getByText('returning')).toBeInTheDocument()
+  })
+
   it('records nothing for an absent id', () => {
     markAccountCreatedThisSession('')
 

@@ -2,8 +2,6 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import { renderToString } from 'react-dom/server'
 import userEvent from '@testing-library/user-event'
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import type { ReactNode } from 'react'
 import { AuthError, AuthErrorCode, REAUTH_REQUIRED_MESSAGE } from '@/lib/errors'
 import { buildReauthHref } from '@/lib/auth-href'
 import type { UserProfile } from '@/features/auth/hooks/useAuth'
@@ -22,11 +20,6 @@ vi.mock('@/lib/context/AuthContext', () => ({
 let supportsWebAuthn = true
 vi.mock('@/features/auth/hooks/useWebAuthnSupport', () => ({
   useWebAuthnSupport: () => supportsWebAuthn,
-}))
-
-const mockRefetchProfile = vi.fn()
-vi.mock('@/lib/queryClient', () => ({
-  refetchSignedInProfile: (...args: unknown[]) => mockRefetchProfile(...args),
 }))
 
 vi.mock('next/navigation', () => ({
@@ -72,16 +65,10 @@ function googleOnlyProfile(overrides: Partial<UserProfile> = {}): UserProfile {
   }
 }
 
-function wrapper({ children }: { children: ReactNode }) {
-  return (
-    <QueryClientProvider client={new QueryClient()}>{children}</QueryClientProvider>
-  )
-}
-
 const TITLE = 'Add a passkey for faster sign-in'
 
 function renderCard() {
-  return render(<PasskeyOfferCard />, { wrapper })
+  return render(<PasskeyOfferCard />)
 }
 
 beforeEach(() => {
@@ -89,7 +76,6 @@ beforeEach(() => {
   userId = '42'
   supportsWebAuthn = true
   registerOutcome = { ok: true }
-  mockRefetchProfile.mockClear()
   window.localStorage.clear()
 })
 
@@ -157,29 +143,15 @@ describe('PasskeyOfferCard', () => {
   })
 
   it('is absent from the server HTML, so a dismissed card never flashes', () => {
-    const html = renderToString(wrapper({ children: <PasskeyOfferCard /> }))
+    const html = renderToString(<PasskeyOfferCard />)
 
     expect(html).not.toContain(TITLE)
   })
 
-  it('is hidden once the account has a passkey', () => {
-    profile = googleOnlyProfile({ passkey_count: 1 })
-    renderCard()
-
-    expect(screen.queryByRole('heading', { name: TITLE })).not.toBeInTheDocument()
-  })
-
-  it('is hidden for a password account, with or without a linked provider', () => {
+  it('is hidden for an account the profile does not qualify', () => {
     profile = googleOnlyProfile({ has_password: true })
-    const { unmount } = renderCard()
-    expect(screen.queryByRole('heading', { name: TITLE })).not.toBeInTheDocument()
-    unmount()
-
-    profile = googleOnlyProfile({
-      has_password: true,
-      user: { ...googleOnlyProfile().user!, oauth_accounts: [] },
-    })
     renderCard()
+
     expect(screen.queryByRole('heading', { name: TITLE })).not.toBeInTheDocument()
   })
 
@@ -188,15 +160,6 @@ describe('PasskeyOfferCard', () => {
     renderCard()
 
     expect(screen.queryByRole('heading', { name: TITLE })).not.toBeInTheDocument()
-  })
-
-  it('refetches the profile after a passkey is added, which is what retires the card', async () => {
-    const user = userEvent.setup()
-    renderCard()
-
-    await user.click(screen.getByRole('button', { name: 'Add passkey' }))
-
-    expect(mockRefetchProfile).toHaveBeenCalledTimes(1)
   })
 
   it('sends a viewer whose sign-in is too old to sign in again, as Settings does', async () => {
@@ -233,6 +196,17 @@ describe('PasskeyOfferCard', () => {
 describe('profileOffersPasskey', () => {
   it('offers only on an explicit false and 0 for a provider-created account', () => {
     expect(profileOffersPasskey(googleOnlyProfile())).toBe(true)
+    // An account with a passkey, or with a password (provider linked or not).
+    expect(profileOffersPasskey(googleOnlyProfile({ passkey_count: 1 }))).toBe(false)
+    expect(profileOffersPasskey(googleOnlyProfile({ has_password: true }))).toBe(false)
+    expect(
+      profileOffersPasskey(
+        googleOnlyProfile({
+          has_password: true,
+          user: { ...googleOnlyProfile().user!, oauth_accounts: [] },
+        })
+      )
+    ).toBe(false)
     expect(profileOffersPasskey(googleOnlyProfile({ has_password: undefined }))).toBe(false)
     expect(profileOffersPasskey(googleOnlyProfile({ passkey_count: undefined }))).toBe(false)
     expect(
