@@ -272,7 +272,7 @@ func beginOAuthHandshake(w http.ResponseWriter, r *http.Request, provider, state
 	authURL, err := gothic.GetAuthURL(w, r)
 	if err != nil {
 		w.WriteHeader(http.StatusBadRequest)
-		fmt.Fprintln(w, err)
+		_, _ = fmt.Fprintln(w, err)
 		return nil
 	}
 	if prompt != "" {
