@@ -47,12 +47,7 @@ interface VenueDetailProps {
    * index; it would not be for the rows themselves.
    */
   initialPastYears?: VenueShowYearsResponse
-  /**
-   * The venue's upcoming rows, already fetched by the route so they reach the
-   * served HTML. Threaded to `VenueShowsList`, which hands them to its hook as
-   * `initialData`, so the key is built in the browser from the hook's own
-   * arguments and no seed can land on an entry nothing reads.
-   */
+  /** The upcoming rows the route fetched; see `VenueShowsList`. */
   initialUpcomingShows?: VenueShowsResponse
 }
 

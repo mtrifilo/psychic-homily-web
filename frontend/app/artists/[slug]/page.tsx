@@ -117,16 +117,11 @@ export default async function ArtistPage({ params }: ArtistPageProps) {
     notFound()
   }
 
-  // Started BEFORE the artist is awaited, so the two backend reads overlap on a
-  // Data Cache miss. It resolves to null rather than rejecting, so leaving it
-  // in flight through the `notFound()` below cannot raise an unhandled
-  // rejection.
-  //
-  // Through `fetchListPayload`: a request budget, so a slow backend cannot
-  // hold the page open, and a shape guard, so a 200 without a `shows` array is
-  // never seeded as an empty calendar. The short cache window is the one the
-  // venue rail uses for the same kind of rows: each carries cancelled and
-  // sold-out state, and a show leaves the upcoming window as its night passes.
+  // Started before the artist is awaited so the two reads overlap. It resolves
+  // to null rather than rejecting, so leaving it in flight through `notFound()`
+  // cannot raise an unhandled rejection. The short cache window is the venue
+  // rail's for the same rows: each carries cancelled and sold-out state, and a
+  // show leaves the upcoming window as its night passes.
   const upcomingShowsPromise = fetchListPayload<ArtistShowsResponse>({
     url: artistUpcomingShowsUrl(slug),
     collection: 'shows',
@@ -141,16 +136,11 @@ export default async function ArtistPage({ params }: ArtistPageProps) {
 
   const upcomingShows = await upcomingShowsPromise
 
-  // Both keys through ONE client, because a `HydrationBoundary` carries one
-  // dehydrated state. The shows key is the NUMERIC id, which is what
-  // `ArtistShowsList` passes to its hook; the detail key is the slug the route
-  // was addressed by, which is what `ArtistDetail` passes. A null seed is
-  // skipped, and the list then fetches for itself behind its loader.
-  //
-  // The rows are seeded only when they belong to the artist this page loaded.
-  // Both reads resolve the same slug, so a mismatch means one of them answered
-  // for a different artist, and seeding it would paint that artist's calendar
-  // here for a whole staleTime.
+  // One client for both keys, since a `HydrationBoundary` carries one state.
+  // The shows key is the NUMERIC id `ArtistShowsList` passes to its hook; the
+  // detail key is the slug `ArtistDetail` passes. A null seed is skipped and
+  // the list fetches for itself. Rows that answer for another artist are never
+  // seeded.
   const dehydratedState = await prefetchEntities([
     { queryKey: queryKeys.artists.detail(slug), data: artistData },
     {

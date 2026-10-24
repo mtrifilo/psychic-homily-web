@@ -102,12 +102,9 @@ export const VENUE_UPCOMING_SHOWS_REQUEST = {
 } as const satisfies { timeFilter: VenueShowsTimeFilter; limit: number }
 
 /**
- * The server-side URL for {@link VENUE_UPCOMING_SHOWS_REQUEST}, addressed by
- * the slug the route was requested at.
- *
- * The slug is `encodeURIComponent`d because Next hands route params through
- * DECODED: an unencoded `%2F` or `%3F` would re-point this server-side fetch at
- * another backend path.
+ * The server-side URL for {@link VENUE_UPCOMING_SHOWS_REQUEST}, by route slug.
+ * Encodes the slug: route params arrive decoded, and a bare `%2F` or `%3F`
+ * would re-point this server-side fetch at another backend path.
  */
 export function venueUpcomingShowsUrl(venueSlug: string): string {
   const params = new URLSearchParams()

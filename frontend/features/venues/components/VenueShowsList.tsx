@@ -32,10 +32,9 @@ interface VenueShowsListProps {
    */
   initialPastYears?: VenueShowYearsResponse
   /**
-   * The upcoming rows the ROUTE already fetched for
-   * `VENUE_UPCOMING_SHOWS_REQUEST`, so they are in the served HTML and the
-   * loader shows only when the route had none to give. Handed to the hook as
-   * `initialData`, treated as fresh for its staleTime.
+   * The rows the ROUTE fetched for `VENUE_UPCOMING_SHOWS_REQUEST`, handed to
+   * the hook as `initialData` so they are in the served HTML; the loader shows
+   * only without them.
    */
   initialUpcomingShows?: VenueShowsResponse
   className?: string

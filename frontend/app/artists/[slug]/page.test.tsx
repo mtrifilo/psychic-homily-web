@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { Children, isValidElement, type ReactElement, type ReactNode } from 'react'
+import type { ReactElement } from 'react'
 import { renderToString } from 'react-dom/server'
 import {
   HydrationBoundary,
@@ -7,7 +7,8 @@ import {
   QueryClientProvider,
   type DehydratedState,
 } from '@tanstack/react-query'
-import { okResponse, errorResponse } from '@/lib/seo/test-helpers'
+import { okResponse, errorResponse, jsonBodyResponse } from '@/lib/seo/test-helpers'
+import { findElement } from '@/test/elementTree'
 import { getQueryClient } from '@/lib/queryClient'
 
 // `notFound()` in Next.js throws to halt rendering; mirrored so a test can tell
@@ -166,42 +167,21 @@ function upcomingBody(shows: unknown[], artistId = ARTIST_ID) {
   return { shows, artist_id: artistId, total: shows.length, limit: 200, offset: 0, year: 0 }
 }
 
-/**
- * Route the page's two reads by URL. The shows read goes through
- * `fetchListPayload`, which reads the body as text, so it gets a real
- * `Response`; a fresh one per call, since a body can be read once.
- */
-function stubBackend(shows: () => Response) {
+/** Route the page's two reads by URL; returns every URL requested. */
+function stubBackend(
+  shows: () => Response,
+  artist: () => Response = () => okResponse(buildArtist({ id: ARTIST_ID })),
+) {
   const calls: string[] = []
   fetchMock.mockImplementation(async (url: string) => {
     calls.push(String(url))
-    if (String(url).includes('/shows?')) return shows()
-    return okResponse(buildArtist({ id: ARTIST_ID }))
+    return String(url).includes('/shows?') ? shows() : artist()
   })
   return calls
 }
 
-const jsonResponse = (body: unknown, status = 200) => () =>
-  new Response(JSON.stringify(body), {
-    status,
-    headers: { 'Content-Type': 'application/json' },
-  })
-
-function findElement(
-  root: ReactElement,
-  match: (node: ReactElement) => boolean,
-): ReactElement {
-  const queue: unknown[] = [root]
-  while (queue.length > 0) {
-    const node = queue.shift()
-    if (!isValidElement(node)) continue
-    if (match(node)) return node
-    queue.push(
-      ...Children.toArray((node.props as { children?: ReactNode }).children),
-    )
-  }
-  throw new Error('element not found in the page tree')
-}
+const showsReply = (body: unknown, status = 200) => () =>
+  jsonBodyResponse(body, status)
 
 async function renderPage(slug = 'headliner-band') {
   return (await ArtistPage({ params: Promise.resolve({ slug }) })) as ReactElement
@@ -243,7 +223,7 @@ describe('ArtistPage upcoming shows', () => {
   })
 
   it('asks for the upcoming request by encoded slug, alongside the artist', async () => {
-    const calls = stubBackend(jsonResponse(upcomingBody([artistShow()])))
+    const calls = stubBackend(showsReply(upcomingBody([artistShow()])))
 
     await renderPage('weird/slug?x')
 
@@ -262,7 +242,7 @@ describe('ArtistPage upcoming shows', () => {
   // hook drifted.
   it('seeds the rows under the exact key the list hook reads', async () => {
     const body = upcomingBody([artistShow()])
-    stubBackend(jsonResponse(body))
+    stubBackend(showsReply(body))
 
     const state = dehydratedStateOf(await renderPage())
     const seeded = state.queries.find(
@@ -282,7 +262,7 @@ describe('ArtistPage upcoming shows', () => {
   })
 
   it('puts the upcoming rows in the server render, with no loader', async () => {
-    stubBackend(jsonResponse(upcomingBody([artistShow()])))
+    stubBackend(showsReply(upcomingBody([artistShow()])))
 
     const html = serverRenderUpcoming(dehydratedStateOf(await renderPage()))
 
@@ -292,7 +272,7 @@ describe('ArtistPage upcoming shows', () => {
   })
 
   it('server-renders the empty state for an artist with no upcoming shows', async () => {
-    stubBackend(jsonResponse(upcomingBody([])))
+    stubBackend(showsReply(upcomingBody([])))
 
     const html = serverRenderUpcoming(dehydratedStateOf(await renderPage()))
 
@@ -301,7 +281,7 @@ describe('ArtistPage upcoming shows', () => {
   })
 
   it('still renders the page, with the loader, when the shows read fails', async () => {
-    stubBackend(jsonResponse({}, 500))
+    stubBackend(showsReply({}, 500))
 
     const page = await renderPage()
     const state = dehydratedStateOf(page)
@@ -316,7 +296,7 @@ describe('ArtistPage upcoming shows', () => {
   })
 
   it('withholds rows that answer for a different artist', async () => {
-    stubBackend(jsonResponse(upcomingBody([artistShow()], ARTIST_ID + 1)))
+    stubBackend(showsReply(upcomingBody([artistShow()], ARTIST_ID + 1)))
 
     const state = dehydratedStateOf(await renderPage())
 
@@ -325,12 +305,8 @@ describe('ArtistPage upcoming shows', () => {
     ).toBe(false)
   })
 
-  it('404s an unknown artist without waiting on a seed it will not use', async () => {
-    fetchMock.mockImplementation(async (url: string) =>
-      String(url).includes('/shows?')
-        ? jsonResponse({}, 404)()
-        : errorResponse(404),
-    )
+  it('404s an unknown artist', async () => {
+    stubBackend(showsReply({}, 404), () => errorResponse(404))
 
     await expect(renderPage('missing')).rejects.toThrow(NOT_FOUND_SENTINEL)
   })

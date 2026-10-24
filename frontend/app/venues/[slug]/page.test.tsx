@@ -1,8 +1,9 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { Children, isValidElement, type ReactElement, type ReactNode } from 'react'
+import type { ReactElement } from 'react'
 import { renderToString } from 'react-dom/server'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { okResponse, errorResponse } from '@/lib/seo/test-helpers'
+import { okResponse, errorResponse, jsonBodyResponse } from '@/lib/seo/test-helpers'
+import { findElement } from '@/test/elementTree'
 import type { VenueShowsResponse } from '@/features/venues/types'
 
 // `notFound()` in Next.js throws to halt rendering; mirrored so a test can tell
@@ -58,12 +59,19 @@ function buildVenue(overrides: Record<string, unknown> = {}) {
 const fetchMock = vi.fn()
 const upcomingFetchMock = vi.fn()
 
-/** The venue shows list the metadata reads its `Next` clause from. */
-function upcomingResponse(shows: unknown[]): Response {
-  return new Response(
-    JSON.stringify({ shows, venue_id: 77, total: shows.length, limit: 7, offset: 0, year: 0 }),
-    { status: 200, headers: { 'content-type': 'application/json' } }
-  )
+/**
+ * A venue upcoming-shows response: the list the metadata reads its `Next`
+ * clause from, and the rows the page body seeds.
+ */
+function upcomingResponse(shows: unknown[], venueId = 77): Response {
+  return jsonBodyResponse({
+    shows,
+    venue_id: venueId,
+    total: shows.length,
+    limit: 7,
+    offset: 0,
+    year: 0,
+  })
 }
 
 // 8:00 PM on Friday, September 11, 2026 in Phoenix.
@@ -212,46 +220,25 @@ describe('venues/[slug] generateMetadata', () => {
 
 const VENUE_ID = 77
 
-function upcomingBody(shows: unknown[], venueId = VENUE_ID) {
-  return { shows, venue_id: venueId, total: shows.length, limit: 200, offset: 0, year: 0 }
-}
-
 /**
- * Route the page's three reads by URL. `/shows?` is the upcoming read; the
- * year histogram is `/shows/years?`, which answers "unavailable" here because
- * it is not what these tests are about.
+ * The page body's non-list reads: the venue, and the past-year histogram,
+ * which answers "unavailable" because it is not what these tests are about.
+ * The upcoming read goes to `upcomingFetchMock` through the file's router.
  */
-function stubPageBackend(upcoming: () => Response) {
-  const calls: string[] = []
-  vi.stubGlobal('fetch', async (url: string) => {
-    calls.push(String(url))
-    if (String(url).includes('/shows/years')) return errorResponse(500)
-    if (String(url).includes('/shows?')) return upcoming()
-    return okResponse(buildVenue())
-  })
-  return calls
+function stubVenueReads(venue: () => Response = () => okResponse(buildVenue())) {
+  fetchMock.mockImplementation(async (url: string) =>
+    String(url).includes('/shows/years') ? errorResponse(500) : venue(),
+  )
 }
-
-const jsonResponse = (body: unknown, status = 200) => () =>
-  new Response(JSON.stringify(body), {
-    status,
-    headers: { 'Content-Type': 'application/json' },
-  })
 
 async function venueDetailPropsFrom(
   slug = 'the-rebel-lounge',
 ): Promise<Record<string, unknown>> {
   const page = (await VenuePage({ params: Promise.resolve({ slug }) })) as ReactElement
-  const queue: unknown[] = [page]
-  while (queue.length > 0) {
-    const node = queue.shift()
-    if (!isValidElement(node)) continue
-    if (node.type === VenueDetail) return node.props as Record<string, unknown>
-    queue.push(
-      ...Children.toArray((node.props as { children?: ReactNode }).children),
-    )
-  }
-  throw new Error('VenueDetail was not found in the page tree')
+  return findElement(page, node => node.type === VenueDetail).props as Record<
+    string,
+    unknown
+  >
 }
 
 /**
@@ -259,7 +246,7 @@ async function venueDetailPropsFrom(
  * the way the route's HTML is produced: no client fetch can run inside
  * `renderToString`, so whatever this prints came from the seed.
  */
-function serverRenderUpcoming(initialUpcomingShows: unknown): string {
+function serverRenderUpcoming(initialUpcomingShows: VenueShowsResponse | undefined): string {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   return renderToString(
     <QueryClientProvider client={client}>
@@ -270,75 +257,73 @@ function serverRenderUpcoming(initialUpcomingShows: unknown): string {
         venueCity="Phoenix"
         venueState="AZ"
         venueTimezone="America/Phoenix"
-        initialUpcomingShows={initialUpcomingShows as VenueShowsResponse | undefined}
+        initialUpcomingShows={initialUpcomingShows}
       />
     </QueryClientProvider>,
   )
 }
 
+const seededRows = (props: Record<string, unknown>) =>
+  props.initialUpcomingShows as VenueShowsResponse | undefined
+
 const LOADER = 'animate-spin'
 
 describe('VenuePage upcoming shows', () => {
-  it('asks for the upcoming request by encoded slug', async () => {
-    const calls = stubPageBackend(jsonResponse(upcomingBody([upcomingShow()])))
+  beforeEach(() => {
+    stubVenueReads()
+  })
 
+  it('asks for the upcoming request by encoded slug', async () => {
     await venueDetailPropsFrom('weird/slug?x')
 
-    const upcoming = calls.filter(u => u.includes('/shows?'))
-    expect(upcoming).toHaveLength(1)
-    const url = new URL(upcoming[0])
+    expect(upcomingFetchMock).toHaveBeenCalledTimes(1)
+    const url = new URL(String(upcomingFetchMock.mock.calls[0][0]))
     expect(url.pathname).toMatch(/\/venues\/weird%2Fslug%3Fx\/shows$/)
     expect(url.searchParams.get('limit')).toBe('200')
     expect(url.searchParams.get('time_filter')).toBe('upcoming')
   })
 
   it('hands the rows to the venue tree and they reach the server render', async () => {
-    const body = upcomingBody([upcomingShow()])
-    stubPageBackend(jsonResponse(body))
+    upcomingFetchMock.mockImplementation(async () => upcomingResponse([upcomingShow()]))
 
     const props = await venueDetailPropsFrom()
-    expect(props.initialUpcomingShows).toEqual(body)
+    expect(seededRows(props)?.shows).toEqual([upcomingShow()])
 
-    const html = serverRenderUpcoming(props.initialUpcomingShows)
+    const html = serverRenderUpcoming(seededRows(props))
     expect(html).toContain('href="/shows/next-show"')
     expect(html).toContain('Top Billing')
     expect(html).not.toContain(LOADER)
   })
 
   it('server-renders the empty state for a venue with no upcoming shows', async () => {
-    stubPageBackend(jsonResponse(upcomingBody([])))
-
-    const props = await venueDetailPropsFrom()
-    const html = serverRenderUpcoming(props.initialUpcomingShows)
+    const html = serverRenderUpcoming(seededRows(await venueDetailPropsFrom()))
 
     expect(html).toContain('No upcoming shows yet.')
     expect(html).not.toContain(LOADER)
   })
 
   it('still renders the venue, with the loader, when the upcoming read fails', async () => {
-    stubPageBackend(jsonResponse({}, 500))
+    upcomingFetchMock.mockImplementation(async () => errorResponse(500))
 
     const props = await venueDetailPropsFrom()
     expect(props.venueId).toBe('the-rebel-lounge')
-    expect(props.initialUpcomingShows).toBeUndefined()
+    expect(seededRows(props)).toBeUndefined()
 
-    const html = serverRenderUpcoming(props.initialUpcomingShows)
+    const html = serverRenderUpcoming(seededRows(props))
     expect(html).toContain(LOADER)
     expect(html).not.toContain('No upcoming shows yet.')
   })
 
   it('withholds rows that answer for a different venue', async () => {
-    stubPageBackend(jsonResponse(upcomingBody([upcomingShow()], VENUE_ID + 1)))
+    upcomingFetchMock.mockImplementation(async () =>
+      upcomingResponse([upcomingShow()], VENUE_ID + 1),
+    )
 
-    const props = await venueDetailPropsFrom()
-
-    expect(props.initialUpcomingShows).toBeUndefined()
+    expect(seededRows(await venueDetailPropsFrom())).toBeUndefined()
   })
 
   it('404s an unknown venue', async () => {
-    vi.stubGlobal('fetch', async (url: string) =>
-      String(url).includes('/shows?') ? jsonResponse({}, 404)() : errorResponse(404),
-    )
+    stubVenueReads(() => errorResponse(404))
 
     await expect(venueDetailPropsFrom('missing')).rejects.toThrow(NOT_FOUND_SENTINEL)
   })

@@ -120,12 +120,9 @@ export default async function VenuePage({ params }: VenuePageProps) {
     // at all. The client fetches it, gated on there being a pager to label. The
     // year-archive route DOES seed it, because there the pager is in the HTML.
     //
-    // The upcoming rows, so the venue's calendar is in the served HTML rather
-    // than behind a loader until the client fetch lands. Null on a failed or
-    // shape-drifted read (`fetchListPayload`), which leaves the list to that
-    // client fetch. The short cache window is the one the venue rail and the
-    // `Next` clause above read the same rows under: each carries cancelled and
-    // sold-out state, and a show leaves the window as its night passes.
+    // The upcoming rows, so the calendar is in the served HTML. Null on a
+    // failed read, which leaves the list to its client fetch. The short cache
+    // window is the one the `Next` clause above reads the same rows under.
     fetchListPayload<VenueShowsResponse>({
       url: venueUpcomingShowsUrl(slug),
       collection: 'shows',
@@ -169,10 +166,7 @@ export default async function VenuePage({ params }: VenuePageProps) {
           <VenueDetail
             venueId={slug}
             initialPastYears={pastYears ?? undefined}
-            // Only rows that belong to the venue this page loaded. Both reads
-            // resolve the same slug, so a mismatch means one answered for a
-            // different venue, and `initialData` would paint that calendar
-            // here for a whole staleTime.
+            // Never rows that answer for another venue.
             initialUpcomingShows={
               upcomingShows?.venue_id === venueData.id ? upcomingShows : undefined
             }
