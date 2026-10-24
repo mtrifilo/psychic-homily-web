@@ -42,8 +42,10 @@ const NEARBY_ROWS = 4
 export function NearbyShowsSection({ id }: { id: string }) {
   const { authStatus } = useAuthContext()
   const isAuthenticated = authStatus === 'authenticated'
-  // This section owns both link rows whenever it is visible, but it stays
-  // mounted while it collapses, and by then ownership has already moved on.
+  // This section owns both link rows whenever it is visible, and it stays
+  // mounted while it collapses. The city link moves on as soon as it is
+  // hidden; the Discover row stays until the collapse settles only when this
+  // was the last visible section (see `resolveHomeLinkSlots`).
   const ownsCityLink = useHomeCityLinkSlot() === 'nearby'
   const ownsDiscoverLinks = useHomeDiscoverLinksSlot() === 'nearby'
   const selection = useHomeShowCitySelection({ resolveCityForCopy: true })
