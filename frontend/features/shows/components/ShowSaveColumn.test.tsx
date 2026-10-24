@@ -118,11 +118,15 @@ describe('ShowSaveCell', () => {
     const header = container.querySelector('th')!
     const cell = container.querySelector('td')!
     const pendingWidths = widthClasses(cell)
-    expect(pendingWidths.length).toBeGreaterThan(0)
-    // The header sizes the column from `sm` up, where the header row shows.
-    expect(widthClasses(header)).toEqual(
-      pendingWidths.filter(name => !name.startsWith('max-sm:'))
+    // The header sizes the column from `sm` up, where the header row shows,
+    // so it carries one fixed width of its own, and the cell carries the same.
+    const headerWidths = widthClasses(header)
+    expect(headerWidths).toHaveLength(1)
+    expect(pendingWidths.filter(name => !name.startsWith('max-sm:'))).toEqual(
+      headerWidths
     )
+    // Below `sm` the stacked cell reserves its own fixed width.
+    expect(pendingWidths.some(name => name.startsWith('max-sm:w-['))).toBe(true)
 
     rerender(<Column saveData={{ save_count: 3, is_saved: true }} />)
 
