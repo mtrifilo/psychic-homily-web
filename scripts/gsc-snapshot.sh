@@ -175,11 +175,12 @@ complete_weeks() {
 import datetime, sys
 start = datetime.date.fromisoformat(sys.argv[1])
 end = datetime.date.fromisoformat(sys.argv[2])
-week = datetime.timedelta(days=7)
 monday = start + datetime.timedelta(days=(7 - start.weekday()) % 7)
-while monday + week - datetime.timedelta(days=1) <= end:
-    print(f"{monday}\t{monday + week - datetime.timedelta(days=1)}")
-    monday += week
+sunday = monday + datetime.timedelta(days=6)
+while sunday <= end:
+    print(f"{monday}\t{sunday}")
+    monday += datetime.timedelta(days=7)
+    sunday += datetime.timedelta(days=7)
 ' "$1" "$2"
 }
 
@@ -431,24 +432,30 @@ api_call() {
   fi
 }
 
-# search_query <outfile> <dimensions-json-or-empty> <row-limit> [<start-date> <end-date> [<start-row>]]
+# search_query_range <outfile> <dimensions-json-or-empty> <row-limit> <start-date> <end-date> <start-row>
 #
-# The date range defaults to the snapshot window. startRow is sent only when
-# it is above zero.
-search_query() {
+# startRow is sent only when it is above zero.
+search_query_range() {
   local out_file dims limit start end start_row body
   out_file="$1"
   dims="$2"
   limit="$3"
-  start="${4:-$SINCE}"
-  end="${5:-$UNTIL}"
-  start_row="${6:-0}"
+  start="$4"
+  end="$5"
+  start_row="$6"
   body="$(jq -cn --arg s "$start" --arg u "$end" --argjson limit "$limit" \
     --argjson dims "${dims:-null}" --argjson start_row "$start_row" \
     '{startDate: $s, endDate: $u, rowLimit: $limit}
      + (if $dims then {dimensions: $dims} else {} end)
      + (if $start_row > 0 then {startRow: $start_row} else {} end)')"
   api_call "$out_file" POST "sites/${SITE_ENC}/searchAnalytics/query" "$body"
+}
+
+# search_query <outfile> <dimensions-json-or-empty> <row-limit>
+#
+# The first rows of the snapshot window.
+search_query() {
+  search_query_range "$1" "$2" "$3" "$SINCE" "$UNTIL" 0
 }
 
 # Upper bound only: endDate is inclusive, so the series has at most
@@ -480,7 +487,7 @@ fetch_page_rows() {
   offset=0
   while :; do
     part="${out_file%.json}.from-${offset}.json"
-    search_query "$part" '["page"]' "$PAGE_FETCH_LIMIT" "$start" "$end" "$offset"
+    search_query_range "$part" '["page"]' "$PAGE_FETCH_LIMIT" "$start" "$end" "$offset"
     parts+=("$part")
     if [ "$(row_count "$part")" -lt "$PAGE_FETCH_LIMIT" ]; then
       break
@@ -578,9 +585,11 @@ PAGE_SHOWN="$(min "$PAGE_TABLE_LIMIT" "$PAGE_ROW_COUNT")"
 # read from its path alone (any host). A /shows/YYYY-MM-DD-... slug carrying a
 # real calendar date is placed before, in, or after the week by that date; a
 # slug whose date is not a real day falls through to the path rules. The
-# family labels say "window" for the week. breadth_by_family groups a page
-# response by page_family, counting only rows with at least one impression,
-# and orders the families by impressions, then label.
+# family labels say "window" for the week; family_prefixes lists the route
+# families matched by path prefix. breadth_by_family groups a page response by
+# page_family, counting only rows with at least one impression, and orders the
+# families by impressions, then label. weighted_position_cell is the Position
+# cell of one family or of a week's total.
 JQ_DEFS='
   def esc: tostring
     | gsub("[[:cntrl:]\u200b-\u200f\u2028\u2029\u202a-\u202e\u2066-\u2069\ufeff]"; " ")
@@ -615,6 +624,7 @@ JQ_DEFS='
   def valid_iso_date: . as $d
     | (try (strptime("%Y-%m-%d") | mktime | strftime("%Y-%m-%d")) catch null)
     | select(. == $d);
+  def family_prefixes: "/artists/", "/venues/", "/releases/", "/labels/", "/scenes/", "/collections/", "/festivals/", "/radio";
   def page_family($week_start; $week_end):
     page_path as $path
     | ([$path | capture("^/shows/(?<date>[0-9]{4}-[0-9]{2}-[0-9]{2})-").date | valid_iso_date] | first) as $date
@@ -626,8 +636,7 @@ JQ_DEFS='
       elif ($path | test("^/shows/[0-9]+$")) then "show: numeric id"
       elif ($path | test("^/shows/[0-9]{4}/[0-9]{2}(/[0-9]{2})?$")) then "shows calendar YYYY/MM(/DD)"
       else
-        ([("/artists/", "/venues/", "/releases/", "/labels/", "/scenes/", "/collections/", "/festivals/", "/radio")
-          | select(. as $prefix | $path | startswith($prefix))] | first)
+        ([family_prefixes | select(. as $prefix | $path | startswith($prefix))] | first)
         // (if $path == "/" then "/"
             elif ($path[1:] | contains("/")) then "other: " + ($path | split("/")[1])
             else "other: " + $path
@@ -642,7 +651,8 @@ JQ_DEFS='
            impressions: (map(.impressions) | add),
            weighted_position: (map(.position * .impressions) | add)})
     | sort_by([-.impressions, .family]);
-  def breadth_row: "| \(.family | code) | \(.pages) | \(.clicks) | \(.impressions) | \(.weighted_position / .impressions | pos1) |";
+  def weighted_position_cell: .weighted_position / .impressions | pos1;
+  def breadth_row: "| \(.family | code) | \(.pages) | \(.clicks) | \(.impressions) | \(weighted_position_cell) |";
 '
 
 render_metric_table() {
@@ -666,21 +676,23 @@ render_metric_table() {
   ' "$1"
 }
 
-# render_breadth_week <file> <monday> <sunday>
+# render_breadth_week <file> <daily-file> <monday> <sunday>
 #
 # One week's breadth subsection: a totals line and the family table. A week
 # with fewer than seven days in the daily series is flagged, because the API
 # omits unserved days and a short week reads as a fall in breadth.
 render_breadth_week() {
-  jq -r --arg ws "$2" --arg we "$3" --slurpfile daily "$WORK_DIR/daily.json" "$JQ_DEFS"'
+  jq -r --slurpfile daily "$2" --arg ws "$3" --arg we "$4" "$JQ_DEFS"'
     breadth_by_family($ws; $we) as $families
     | ([($daily[0].rows // [])[] | select(.keys[0] >= $ws and .keys[0] <= $we)] | length) as $served
-    | ($families | map(.impressions) | add // 0) as $impressions
+    | ($families | reduce .[] as $f ({pages: 0, clicks: 0, impressions: 0, weighted_position: 0};
+        .pages += $f.pages | .clicks += $f.clicks | .impressions += $f.impressions
+        | .weighted_position += $f.weighted_position)) as $total
     | "### Week of \($ws) (Monday \($ws) to Sunday \($we))",
       "",
       (if $served < 7 then "**Only \($served) of the 7 days in this week were served (see the Coverage line); do not compare it with a full week.**", "" else empty end),
-      "\($families | map(.pages) | add // 0) pages with impressions · \($families | map(.clicks) | add // 0) clicks · \($impressions) impressions"
-        + (if $impressions > 0 then " · impression-weighted position \(($families | map(.weighted_position) | add) / $impressions | pos1)" else "" end),
+      "\($total.pages) pages with impressions · \($total.clicks) clicks · \($total.impressions) impressions"
+        + (if $total.impressions > 0 then " · impression-weighted position \($total | weighted_position_cell)" else "" end),
       "",
       "| Family | Pages | Clicks | Impressions | Position |",
       "| --- | ---: | ---: | ---: | ---: |",
@@ -934,19 +946,16 @@ TBL_SITEMAPS="$(jq -r "$JQ_DEFS"'
   end
 ' "$WORK_DIR/sitemaps.json")" || die "failed to render the sitemap table"
 
-BREADTH_SECTIONS=""
-while IFS=$'\t' read -r week_start week_end <&3; do
-  section="$(render_breadth_week "$WORK_DIR/breadth-${week_start}.json" "$week_start" "$week_end")" \
-    || die "failed to render the breadth table for the week of ${week_start}"
-  BREADTH_SECTIONS="${BREADTH_SECTIONS}${section}
-
-"
-done 3<"$WORK_DIR/weeks.tsv"
+BREADTH_SECTIONS="$(
+  while IFS=$'\t' read -r week_start week_end <&3; do
+    render_breadth_week "$WORK_DIR/breadth-${week_start}.json" "$WORK_DIR/daily.json" "$week_start" "$week_end" \
+      || exit 1
+    printf '\n'
+  done 3<"$WORK_DIR/weeks.tsv"
+)" || die "failed to render the breadth tables"
 if [ -z "$BREADTH_SECTIONS" ]; then
   BREADTH_SECTIONS="_No complete Monday-to-Sunday week lies inside this window, so there is no breadth table._"
 fi
-# Command substitution drops the separator after the last week.
-BREADTH_SECTIONS="$(printf '%s' "$BREADTH_SECTIONS")"
 
 DOC_PATH="$WORK_DIR/$DOC_NAME"
 
@@ -1056,7 +1065,8 @@ over the family's pages, and rows run by impressions. A show whose slug starts
 with a date is placed against the table's week by that date: in these labels
 "window" means the week. \`/shows/<number>\` and the \`/shows/YYYY/MM(/DD)\`
 calendar are their own rows, and any other path is grouped under
-\`other:\` by its first path segment.
+\`other:\` by its first path segment (\`other: tags\`), or by the whole path
+when it has one segment (\`other: /about\`).
 
 ${BREADTH_SECTIONS}
 

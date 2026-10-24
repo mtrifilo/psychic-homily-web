@@ -190,31 +190,31 @@ expect_no_text "### Week of 2026-09-21"
 expect_no_text "### Week of 2026-10-19"
 # The zero-impression row is not a page with an impression, so 24 of 25 count.
 expect_line "24 pages with impressions · 5 clicks · 299 impressions · impression-weighted position 2.1"
-expect_line "| \`show: dated AFTER window\` | 1 | 2 | 50 | 2 |"
-expect_line "| \`show: dated IN window\` | 2 | 2 | 40 | 4.5 |"
-expect_line "| \`other: /x\\|y\` | 1 | 0 | 22 | 1 |"
-expect_line "| \`other: blog\` | 1 | 0 | 21 | 1 |"
-expect_line "| \`other: /about\` | 1 | 0 | 20 | 1 |"
-expect_line "| \`/\` | 1 | 0 | 19 | 1 |"
-expect_line "| \`/radio\` | 2 | 0 | 18 | 2 |"
-expect_line "| \`/festivals/\` | 1 | 0 | 17 | 1 |"
-expect_line "| \`/collections/\` | 1 | 0 | 16 | 1 |"
-expect_line "| \`/scenes/\` | 1 | 0 | 15 | 1 |"
-expect_line "| \`/labels/\` | 1 | 0 | 14 | 1 |"
-expect_line "| \`/releases/\` | 1 | 0 | 13 | 1 |"
-expect_line "| \`/venues/\` | 1 | 0 | 12 | 1 |"
-expect_line "| \`show: numeric id\` | 1 | 0 | 7 | 8 |"
-expect_line "| \`shows calendar YYYY/MM(/DD)\` | 2 | 0 | 6 | 6 |"
-expect_line "| \`/artists/\` | 2 | 1 | 4 | 8 |"
-expect_line "| \`other: shows\` | 3 | 0 | 3 | 9 |"
-expect_line "| \`show: dated BEFORE window\` | 1 | 0 | 2 | 3 |"
-# Order is impressions descending: AFTER (50) heads the table, BEFORE (2) ends it.
+# Every family row of the week, in order (impressions descending).
+expected_rows="$(cat <<'ROWS'
+| `show: dated AFTER window` | 1 | 2 | 50 | 2 |
+| `show: dated IN window` | 2 | 2 | 40 | 4.5 |
+| `other: /x\|y` | 1 | 0 | 22 | 1 |
+| `other: blog` | 1 | 0 | 21 | 1 |
+| `other: /about` | 1 | 0 | 20 | 1 |
+| `/` | 1 | 0 | 19 | 1 |
+| `/radio` | 2 | 0 | 18 | 2 |
+| `/festivals/` | 1 | 0 | 17 | 1 |
+| `/collections/` | 1 | 0 | 16 | 1 |
+| `/scenes/` | 1 | 0 | 15 | 1 |
+| `/labels/` | 1 | 0 | 14 | 1 |
+| `/releases/` | 1 | 0 | 13 | 1 |
+| `/venues/` | 1 | 0 | 12 | 1 |
+| `show: numeric id` | 1 | 0 | 7 | 8 |
+| `shows calendar YYYY/MM(/DD)` | 2 | 0 | 6 | 6 |
+| `/artists/` | 2 | 1 | 4 | 8 |
+| `other: shows` | 3 | 0 | 3 | 9 |
+| `show: dated BEFORE window` | 1 | 0 | 2 | 3 |
+ROWS
+)"
 week_rows="$(awk '/^### Week of 2026-09-28/{on=1; next} /^### /{on=0} on && /^\| `/' "$DOC")"
-[ "$(printf '%s\n' "$week_rows" | head -1)" = "| \`show: dated AFTER window\` | 1 | 2 | 50 | 2 |" ] \
-  || fail "expected the AFTER row first in the week of 2026-09-28"
-[ "$(printf '%s\n' "$week_rows" | tail -1)" = "| \`show: dated BEFORE window\` | 1 | 0 | 2 | 3 |" ] \
-  || fail "expected the BEFORE row last in the week of 2026-09-28"
-[ "$(printf '%s\n' "$week_rows" | grep -c .)" -eq 18 ] || fail "expected 18 family rows in the week of 2026-09-28"
+[ "$week_rows" = "$expected_rows" ] \
+  || fail "family rows for the week of 2026-09-28 differ:$(diff <(printf '%s\n' "$expected_rows") <(printf '%s\n' "$week_rows"))"
 # Pagination: 25000 generated rows plus the short second response.
 expect_line "| \`/artists/\` | 25001 | 0 | 25001 | 5 |"
 expect_line "| \`/releases/\` | 1 | 0 | 1 | 5 |"
