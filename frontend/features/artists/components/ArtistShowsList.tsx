@@ -6,6 +6,7 @@ import { useArtistShows } from '../hooks/useArtists'
 import { ARTIST_UPCOMING_SHOWS_REQUEST } from '../api'
 import { ArtistPastShows } from './ArtistPastShows'
 import { ArtistShowsTable } from './ArtistShowsTable'
+import { useShowSaveColumn } from '@/features/shows/components/ShowSaveColumn'
 
 interface ArtistShowsListProps {
   artistId: number
@@ -78,6 +79,7 @@ export function ArtistShowsList({
   // or the ingest path.
   const upcomingShows = upcoming.data?.shows ?? []
   const upcomingTotal = upcoming.data?.total ?? upcomingShows.length
+  const saveColumn = useShowSaveColumn(upcomingShows)
 
   return (
     <div className={className}>
@@ -113,6 +115,7 @@ export function ArtistShowsList({
             <ArtistShowsTable
               shows={upcomingShows}
               ariaLabel="Upcoming shows"
+              saveColumn={saveColumn}
             />
             {/* Only when the backend cap actually bit. An artist booked further
                 out than `ARTIST_UPCOMING_SHOWS_LIMIT` is hypothetical today,

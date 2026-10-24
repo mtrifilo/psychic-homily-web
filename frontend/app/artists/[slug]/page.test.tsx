@@ -1,7 +1,8 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import type { ReactElement } from 'react'
 import { renderToString } from 'react-dom/server'
-import { render, waitFor } from '@testing-library/react'
+import type { Root } from 'react-dom/client'
+import { act, render, waitFor } from '@testing-library/react'
 import {
   HydrationBoundary,
   QueryClient,
@@ -10,6 +11,12 @@ import {
 } from '@tanstack/react-query'
 import { okResponse, errorResponse, jsonBodyResponse } from '@/lib/seo/test-helpers'
 import { findElements } from '@/test/elementTree'
+import {
+  ANONYMOUS_VIEWER,
+  SAVE_CONTROL_VIEWERS,
+  hydrateCollectingErrors,
+  type ViewerState,
+} from '@/test/saveControlHydration'
 
 // `notFound()` in Next.js throws to halt rendering; mirrored so a test can tell
 // that execution stopped.
@@ -18,6 +25,26 @@ vi.mock('next/navigation', () => ({
   notFound: vi.fn(() => {
     throw new Error(NOT_FOUND_SENTINEL)
   }),
+  // Read by every upcoming row's Save control (its sign-in gate).
+  useRouter: () => ({ push: vi.fn() }),
+  usePathname: () => '/artists/headliner-band',
+}))
+
+// The viewer the list renders for. Each state is one the route's HTML can be
+// served under, and the hydration render below reads the same one.
+let viewer: ViewerState = ANONYMOUS_VIEWER
+vi.mock('@/lib/context/AuthContext', async () => {
+  const { deriveMockAuthSignals } = await import('@/test/authFixture')
+  return { useAuthContext: () => deriveMockAuthSignals(viewer) }
+})
+
+// The save-count batch answers in the browser after hydration, so the route's
+// HTML and the first client render both see it pending.
+vi.mock('@/features/shows/hooks/useSavedShows', async importOriginal => ({
+  ...(await importOriginal<
+    typeof import('@/features/shows/hooks/useSavedShows')
+  >()),
+  useShowSaveCountBatch: () => ({ data: undefined }),
 }))
 
 // `seedFirstScreen` awaits `connection()`, which marks a request-time render and
@@ -393,4 +420,44 @@ describe('ArtistPage upcoming shows', () => {
 
     await expect(renderPage('missing')).rejects.toThrow(NOT_FOUND_SENTINEL)
   })
+})
+
+describe('ArtistPage upcoming Save column', () => {
+  let root: Root | null = null
+  let container: HTMLElement | null = null
+
+  afterEach(() => {
+    act(() => root?.unmount())
+    container?.remove()
+    root = null
+    container = null
+    viewer = ANONYMOUS_VIEWER
+  })
+
+  it.each(SAVE_CONTROL_VIEWERS)(
+    'serves the control in the HTML and hydrates it unchanged (%s viewer)',
+    async (_name, state, accessibleName, disabled) => {
+      viewer = state
+      stubBackend(showsReply(upcomingBody([artistShow()])))
+      const states = boundaryStatesOf(await renderPage())
+
+      const html = renderToString(upcomingListUnder(states, testClient()))
+      container = document.createElement('div')
+      container.innerHTML = html
+      document.body.appendChild(container)
+      const control = container.querySelector(
+        'table[aria-label="Upcoming shows"] tbody tr td:last-child button'
+      )
+      expect(control?.getAttribute('aria-label')).toBe(accessibleName)
+      expect(control?.textContent).toBe('Save')
+      expect(control?.hasAttribute('disabled')).toBe(disabled)
+
+      const hydrated = await hydrateCollectingErrors(
+        container,
+        upcomingListUnder(states, testClient())
+      )
+      root = hydrated.root
+      expect(hydrated.errors).toEqual([])
+    }
+  )
 })

@@ -54,9 +54,11 @@ export interface ShowBillProps {
   isCancelled: boolean
   isSoldOut: boolean
   /**
-   * Rendered between the bill and the status badges, muted. The artist archive
-   * puts the venue and city here, because its rows span venues; the venue
-   * archive has nothing to add and omits it.
+   * Rendered between the bill and the status badges, as an item of the bill's
+   * `flex flex-wrap` row, so a caller may move it with flex `order` and
+   * `basis` (the artist table puts it on its own last line below `sm`). The
+   * artist archive puts the venue and city here, because its rows span venues;
+   * the venue archive has nothing to add and omits it.
    */
   afterBill?: ReactNode
   /**

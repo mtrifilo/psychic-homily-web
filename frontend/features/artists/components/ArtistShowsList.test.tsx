@@ -96,6 +96,50 @@ vi.mock('nuqs', async importOriginal => ({
 // `@/components/shared` is deliberately NOT mocked: Pagination, YearStrip and
 // DenseTable are the behaviour under test here, not incidental chrome.
 
+// The Save control's own states are SaveButton's suite and the column's markup
+// is ShowSaveColumn's. Here the question is which rows carry a control and
+// which batch entry each one reads, so the control is a probe of its props.
+const saveBatch = {
+  data: undefined as
+    | Record<string, { save_count: number; is_saved: boolean }>
+    | undefined,
+}
+const saveBatchRequests: number[][] = []
+vi.mock('@/features/shows/hooks/useSavedShows', async importOriginal => ({
+  ...(await importOriginal<
+    typeof import('@/features/shows/hooks/useSavedShows')
+  >()),
+  useShowSaveCountBatch: (showIds: number[]) => {
+    saveBatchRequests.push(showIds)
+    return saveBatch
+  },
+}))
+vi.mock('@/components/shared/SaveButton', () => ({
+  SaveButton: ({
+    showId,
+    saveData,
+  }: {
+    showId: number
+    saveData?: unknown
+  }) => (
+    <button
+      type="button"
+      data-testid="save-control"
+      data-show-id={showId}
+      data-save={JSON.stringify(saveData)}
+    >
+      Save
+    </button>
+  ),
+}))
+vi.mock('@/lib/context/AuthContext', async () => {
+  const { deriveMockAuthSignals } = await import('@/test/authFixture')
+  return {
+    useAuthContext: () =>
+      deriveMockAuthSignals({ user: null, authStatus: 'anonymous' as const }),
+  }
+})
+
 import { ArtistShowsList } from './ArtistShowsList'
 
 // ── Fixtures ───────────────────────────────────────────────────────────────
@@ -192,6 +236,8 @@ beforeEach(() => {
   setPast(null, { isPending: true })
   setYears(null)
   pastRequests.length = 0
+  saveBatch.data = undefined
+  saveBatchRequests.length = 0
   queryYear = null
   queryPage = 1
   otherParams = ''
@@ -272,6 +318,54 @@ describe('ArtistShowsList — upcoming section', () => {
     expect(
       screen.getByText(/Showing the next 1 of 240 announced shows/)
     ).toBeInTheDocument()
+  })
+})
+
+describe('ArtistShowsList: Save on upcoming rows', () => {
+  it('ends every upcoming row with a Save control fed by one batch', () => {
+    setUpcoming({ shows: [makeShow({ id: 7 }), makeShow({ id: 8 })] })
+    saveBatch.data = {
+      '7': { save_count: 3, is_saved: true },
+      '8': { save_count: 0, is_saved: false },
+    }
+    renderList()
+
+    const table = screen.getByRole('table', { name: 'Upcoming shows' })
+    const [header, ...rows] = within(table).getAllByRole('row')
+    expect(within(header).getAllByRole('columnheader').at(-1)).toHaveTextContent(
+      'Save'
+    )
+    expect(
+      rows.map(row => {
+        const cells = within(row).getAllByRole('cell')
+        const control = within(cells.at(-1)!).getByTestId('save-control')
+        return [control.dataset.showId, JSON.parse(control.dataset.save!)]
+      })
+    ).toEqual([
+      ['7', { save_count: 3, is_saved: true }],
+      ['8', { save_count: 0, is_saved: false }],
+    ])
+    expect(saveBatchRequests.at(-1)).toEqual([7, 8])
+  })
+
+  it('hands every control "pending" while the batch has not answered', () => {
+    setUpcoming({ shows: [makeShow({ id: 7 })] })
+    renderList()
+
+    expect(screen.getByTestId('save-control').dataset.save).toBe(
+      JSON.stringify('pending')
+    )
+  })
+
+  it('renders no Save control on past rows', () => {
+    setUpcoming({ shows: [] })
+    setPast({ shows: [makeShow({ id: 5 })], total: 1 })
+    setYears([{ year: 2025, count: 1 }])
+    renderList()
+
+    const table = screen.getByRole('table', { name: 'Past shows' })
+    expect(within(table).queryByTestId('save-control')).not.toBeInTheDocument()
+    expect(within(table).getAllByRole('columnheader')).toHaveLength(4)
   })
 })
 

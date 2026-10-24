@@ -1,5 +1,21 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { render, screen, within } from '@testing-library/react'
+import { stackedPlace } from '@/test/stackedTable'
+
+// The control's own states are SaveButton's suite; here it only has to occupy
+// its cell.
+const saveButtonRenders: number[] = []
+vi.mock('@/components/shared/SaveButton', () => ({
+  SaveButton: ({ showId }: { showId: number }) => {
+    saveButtonRenders.push(showId)
+    return (
+      <button type="button" data-show-id={showId}>
+        Save
+      </button>
+    )
+  },
+}))
+
 import { VenueShowsTable } from './VenueShowsTable'
 import type { VenueShow, VenueShowZone } from '../types'
 
@@ -81,5 +97,120 @@ describe('VenueShowsTable time column', () => {
       makeShow({ state: 'NY' })
     )
     expect(timeCell()).toHaveTextContent('11:00 PM')
+  })
+})
+
+describe('VenueShowsTable with a Save column', () => {
+  const zone: VenueShowZone = { venueState: 'NY', venueTimezone: null }
+  const renderUpcoming = (show = makeShow({ price: 28 })) =>
+    render(
+      <VenueShowsTable
+        shows={[show]}
+        zone={zone}
+        ariaLabel="Upcoming shows"
+        saveColumn={{ counts: undefined }}
+      />
+    )
+
+  it('declares its table roles, since its display changes below sm', () => {
+    renderUpcoming()
+    const table = screen.getByRole('table', { name: 'Upcoming shows' })
+    expect(table).toHaveAttribute('role', 'table')
+    expect(table).toHaveClass('max-sm:block')
+    const head = table.querySelector('thead')!
+    const body = table.querySelector('tbody')!
+    expect(head).toHaveAttribute('role', 'rowgroup')
+    expect(head).toHaveClass('max-sm:sr-only')
+    expect(body).toHaveAttribute('role', 'rowgroup')
+    expect(body).toHaveClass('max-sm:block')
+    for (const row of table.querySelectorAll('tr')) {
+      expect(row).toHaveAttribute('role', 'row')
+    }
+    for (const th of table.querySelectorAll('th')) {
+      expect(th).toHaveAttribute('role', 'columnheader')
+    }
+    for (const td of table.querySelectorAll('td')) {
+      expect(td).toHaveAttribute('role', 'cell')
+    }
+  })
+
+  it('re-renders only the row whose save entry changed', () => {
+    const shows = [makeShow({ id: 7 }), makeShow({ id: 8, slug: 'show-8' })]
+    const zone: VenueShowZone = { venueState: 'NY', venueTimezone: null }
+    const before = {
+      '7': { save_count: 0, is_saved: false },
+      '8': { save_count: 2, is_saved: false },
+    }
+    let counts: Record<string, { save_count: number; is_saved: boolean }> =
+      before
+    const { rerender } = render(
+      <VenueShowsTable shows={shows} zone={zone} ariaLabel="Upcoming shows" saveColumn={{ counts }} />
+    )
+    saveButtonRenders.length = 0
+
+    // A toggle copies the map and keeps every other show's entry object.
+    counts = { ...before, '7': { save_count: 1, is_saved: true } }
+    rerender(
+      <VenueShowsTable shows={shows} zone={zone} ariaLabel="Upcoming shows" saveColumn={{ counts }} />
+    )
+
+    expect(saveButtonRenders).toEqual([7])
+  })
+
+  it('is a table row from sm up and a grid only below it', () => {
+    renderUpcoming()
+    const row = screen.getAllByRole('row')[1]
+    const classes = [...row.classList]
+    expect(classes).toContain('max-sm:grid')
+    expect(classes.every(name => name.startsWith('max-sm:'))).toBe(true)
+  })
+
+  it('stacks the date, price, time and Save, then the bill', () => {
+    renderUpcoming()
+    const row = screen.getAllByRole('row')[1]
+    const [date, bill, price, time, save] = within(row).getAllByRole('cell')
+    expect(stackedPlace(date)).toBe('line 1, column 1')
+    // The one shrinkable track: the date wraps instead of overflowing.
+    expect(date).toHaveClass('max-sm:whitespace-normal')
+    expect(stackedPlace(price)).toBe('line 1, column 2')
+    expect(stackedPlace(time)).toBe('line 1, column 3')
+    expect(stackedPlace(save)).toBe('line 1, column 4')
+    expect(within(save).getByRole('button')).toHaveTextContent('Save')
+    expect(stackedPlace(bill)).toBe('line 2, full width')
+    // Price and time share the line; the dot between them is visual only.
+    const dot = time.firstElementChild!
+    expect(dot).toHaveTextContent('·')
+    expect(dot).toHaveAttribute('aria-hidden', 'true')
+    expect(dot).toHaveClass('sm:hidden')
+    expect(time).toHaveTextContent('11:00 PM')
+  })
+
+  it('prints no dot before a time it withholds', () => {
+    render(
+      <VenueShowsTable
+        shows={[makeShow()]}
+        zone={{ venueState: 'England', venueTimezone: null }}
+        ariaLabel="Upcoming shows"
+        saveColumn={{ counts: undefined }}
+      />
+    )
+    expect(timeCell()).toBeEmptyDOMElement()
+  })
+})
+
+describe('VenueShowsTable without a Save column', () => {
+  it('renders the plain table at every width', () => {
+    render(
+      <VenueShowsTable
+        shows={[makeShow(), makeShow({ id: 2, slug: 'show-2' })]}
+        zone={{ venueState: 'NY', venueTimezone: null }}
+        ariaLabel="Past shows"
+        groupByMonthHeadings
+      />
+    )
+    const table = screen.getByRole('table', { name: 'Past shows' })
+    expect(table.outerHTML).not.toMatch(/max-sm:|role=|class=""/)
+    expect(within(table).getAllByRole('columnheader')).toHaveLength(4)
+    expect(within(table).queryByRole('button')).not.toBeInTheDocument()
   })
 })
