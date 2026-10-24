@@ -244,6 +244,19 @@ describe('SignupForm deferred validation', () => {
       })
     })
 
+    it('focuses the terms checkbox when it is the first invalid field', async () => {
+      const { user } = await renderSignupForm()
+
+      await user.type(screen.getByLabelText('Email'), 'test@example.com')
+      await user.type(screen.getByLabelText('Password'), 'validPassword123!')
+      await user.click(screen.getByRole('checkbox', { name: AGE_CHECKBOX }))
+      await user.click(screen.getByRole('button', { name: 'Create account' }))
+
+      await waitFor(() => {
+        expect(screen.getByRole('checkbox', { name: TERMS_CHECKBOX })).toHaveFocus()
+      })
+    })
+
     // A second press while the errors from the first still show takes the
     // form's early exit, which reports the same invalid submit.
     it('focuses the first invalid field again on a second press', async () => {
@@ -282,6 +295,26 @@ describe('SignupForm deferred validation', () => {
   // The alert announces itself, so focus stays on the control; the alert is
   // scrolled to first and the focused control after it, so the control
   // stays in view when both do not fit.
+  // The alert is already up with another message when the sign-up is refused.
+  it('brings the alert into view again when a refusal replaces its message', async () => {
+    const { user, rerender } = await renderSignupForm()
+    act(() => {
+      latestButtonProps(googleOAuthProps).onMissingTermsAcceptance()
+    })
+    const first = screen
+      .getByText(/before continuing with Google/)
+      .closest('[role="alert"]')
+    await user.click(screen.getByLabelText('Email'))
+    vi.mocked(Element.prototype.scrollIntoView).mockClear()
+
+    mockRegisterError = new Error('Email already registered')
+    rerender()
+
+    const alert = screen.getByText('Email already registered').closest('[role="alert"]')
+    expect(alert).not.toBe(first)
+    expect(vi.mocked(Element.prototype.scrollIntoView).mock.contexts[0]).toBe(alert)
+  })
+
   it('brings a refused sign-up\'s alert into view and leaves focus on the field', async () => {
     const { user, rerender } = await renderSignupForm()
     const email = screen.getByLabelText('Email')

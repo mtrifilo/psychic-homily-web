@@ -95,11 +95,14 @@ export function PasskeySignupButton({
   // Whether the dialog is open now, read by a request that settles after the
   // render it started from.
   const dialogOpenRef = useRef(false)
+  const [dialogError, setDialogError] = useState<string | null>(null)
+  // The dialog opens without an error: one shown before it was closed belongs
+  // to an attempt that is over.
   const setDialogOpen = (open: boolean) => {
     dialogOpenRef.current = open
     setIsDialogOpen(open)
+    if (open) setDialogError(null)
   }
-  const [dialogError, setDialogError] = useState<string | null>(null)
   const emailInputRef = useRef<HTMLInputElement>(null)
   const [email, setEmail] = useState('')
   const [emailError, setEmailError] = useState<string | null>(null)

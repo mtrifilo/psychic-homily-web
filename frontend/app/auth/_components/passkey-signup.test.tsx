@@ -343,6 +343,27 @@ describe('PasskeySignupButton', () => {
     })
   })
 
+  it('reopens without the error an earlier attempt showed', async () => {
+    fetchMock.mockResolvedValueOnce({
+      json: async () => ({ success: false, message: 'Email already registered' }),
+    })
+
+    renderButton()
+    await submitSignup()
+    await expectDialogError('Email already registered')
+
+    fireEvent.keyDown(signupDialog(), { key: 'Escape' })
+    await waitFor(() => {
+      expect(
+        screen.queryByRole('dialog', { name: 'Create account with passkey' })
+      ).not.toBeInTheDocument()
+    })
+    fireEvent.click(screen.getByRole('button', { name: /sign up with passkey/i }))
+
+    expect(within(signupDialog()).queryByRole('alert')).not.toBeInTheDocument()
+    expect(within(signupDialog()).getByLabelText('Email')).toHaveValue('signup@example.com')
+  })
+
   it('hands the page an error that arrives after the dialog was closed', async () => {
     const finish = deferred<{ json: () => Promise<unknown> }>()
     fetchMock.mockResolvedValueOnce(BEGIN_OK).mockReturnValueOnce(finish.promise)
@@ -467,7 +488,9 @@ describe('PasskeySignupButton', () => {
       await advanceFakeTime(SIGNUP_REQUEST_TIMEOUT_MS * 2)
       expect(requestSignal(fetchMock, 1).aborted).toBe(false)
       expect(mockOnDeadlineExpire).not.toHaveBeenCalled()
-      expect(within(signupDialog()).getAllByRole('alert')).toHaveLength(1)
+      expect(within(signupDialog()).getByRole('alert')).toHaveTextContent(
+        'Email already registered'
+      )
       expect(mockOnError).not.toHaveBeenCalled()
     })
 

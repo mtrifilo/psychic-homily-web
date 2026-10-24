@@ -120,6 +120,22 @@ describe('LoginForm submit', () => {
     })
   })
 
+  it('brings the alert into view again when a new refusal replaces its message', () => {
+    mockLoginError = new Error('Invalid email or password')
+    const { rerender } = renderWithProviders(<AuthPage />)
+    const first = screen.getByText('Invalid email or password').closest('[role="alert"]')
+    vi.mocked(Element.prototype.scrollIntoView).mockClear()
+
+    mockLoginError = new Error('Too many attempts. Please try again later.')
+    rerender(<AuthPage />)
+
+    const alert = screen
+      .getByText('Too many attempts. Please try again later.')
+      .closest('[role="alert"]')
+    expect(alert).not.toBe(first)
+    expect(vi.mocked(Element.prototype.scrollIntoView).mock.contexts[0]).toBe(alert)
+  })
+
   // The alert announces itself, so focus stays on the password field; the
   // alert is scrolled to first and the field after it, so the field stays in
   // view when both do not fit.

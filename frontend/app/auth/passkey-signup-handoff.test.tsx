@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { Activity } from 'react'
 import { act, screen, waitFor, within } from '@testing-library/react'
 import userEvent, { type UserEvent } from '@testing-library/user-event'
 import { renderWithProviders } from '@/test/utils'
@@ -359,6 +360,53 @@ describe('passkey sign-up on /auth', () => {
     })
     expect(mockPush).toHaveBeenCalledTimes(1)
     expect(screen.queryByText("Confirm it's you")).not.toBeInTheDocument()
+  })
+
+  // The App Router keeps a page it navigated away from mounted but hidden. A
+  // later refusal sends the same viewer back under the same URL, signed in,
+  // and that visit is a re-authentication again.
+  it('holds a later re-authentication under the same URL after the page was hidden', async () => {
+    searchParams.current = new URLSearchParams({
+      returnTo: RETURN_TO,
+      reason: 'REAUTH_REQUIRED',
+    })
+    fetchMock.mockResolvedValueOnce(BEGIN_OK).mockResolvedValueOnce(FINISH_OK)
+    const user = userEvent.setup()
+    const { rerender } = renderWithProviders(
+      <Activity mode="visible">
+        <AuthPage />
+      </Activity>,
+      { queryClient: clientWithConsentVersions() }
+    )
+    await user.click(screen.getByRole('tab', { name: 'Create account' }))
+    await user.click(screen.getByRole('button', { name: /sign up with passkey/i }))
+    const dialog = screen.getByRole('dialog', { name: 'Create account with passkey' })
+    await user.type(within(dialog).getByLabelText('Email'), 'signup@example.com')
+    await user.click(within(dialog).getByRole('checkbox', { name: /Terms of Service/ }))
+    await user.click(within(dialog).getByRole('checkbox', { name: /at least 16 years old/ }))
+    await user.click(within(dialog).getByRole('button', { name: /continue with passkey/i }))
+    const prompt = await screen.findByRole('dialog', PROMPT)
+    await user.click(within(prompt).getByRole('button', { name: "I'll do this later" }))
+    await waitFor(() => {
+      expect(mockPush).toHaveBeenCalledTimes(1)
+    })
+
+    rerender(
+      <Activity mode="hidden">
+        <AuthPage />
+      </Activity>
+    )
+    rerender(
+      <Activity mode="visible">
+        <AuthPage />
+      </Activity>
+    )
+
+    expect(
+      await screen.findByRole('heading', { level: 1, name: "Confirm it's you" })
+    ).toBeInTheDocument()
+    expect(screen.queryByRole('tab', { name: /create account/i })).not.toBeInTheDocument()
+    expect(mockPush).toHaveBeenCalledTimes(1)
   })
 
   it('keeps the form and reports the error when the finish request is refused', async () => {

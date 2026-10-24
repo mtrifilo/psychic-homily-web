@@ -121,7 +121,8 @@ type LoginFormData = z.infer<typeof loginSchema>
 type SignupFormData = z.infer<typeof signupSchema>
 
 // Each form's fields paired with the id of the control that takes their
-// focus, in the order the form renders them.
+// focus, in the order the form renders them. Each id matches the `id` on that
+// field's control in the form below.
 const LOGIN_FIELD_IDS = [
   ['email', 'email'],
   ['password', 'password'],
@@ -134,6 +135,8 @@ const SIGNUP_FIELD_IDS = [
 ] as const satisfies readonly (readonly [keyof SignupFormData, string])[]
 
 // Clears the sticky top bar when an alert is scrolled to the top of the view.
+// The form alerts are keyed by their message, so a new message mounts a new
+// alert and revealFormAlert brings it into view again.
 const FORM_ALERT_CLASS = 'scroll-mt-[var(--topbar-height)]'
 
 function LoginForm({ returnTo }: { returnTo: string }) {
@@ -220,7 +223,12 @@ function LoginForm({ returnTo }: { returnTo: string }) {
       className="space-y-4"
     >
       {signInError && (
-        <Alert ref={revealFormAlert} variant="destructive" className={FORM_ALERT_CLASS}>
+        <Alert
+          key={signInError.message}
+          ref={revealFormAlert}
+          variant="destructive"
+          className={FORM_ALERT_CLASS}
+        >
           <AlertCircle className="h-4 w-4" />
           <AlertDescription>
             {isAccountRecoverable(signInError) ? (
@@ -658,7 +666,12 @@ function SignupForm({
         <ConsentRetryNotice />
       ) : (
         (consentVersionsError || registerMutation.error || passkeyError || oauthError) && (
-          <Alert ref={revealFormAlert} variant="destructive" className={FORM_ALERT_CLASS}>
+          <Alert
+            key={consentVersionsError || registerMutation.error?.message || passkeyError || oauthError}
+            ref={revealFormAlert}
+            variant="destructive"
+            className={FORM_ALERT_CLASS}
+          >
             <AlertCircle className="h-4 w-4" />
             <AlertDescription>
               {consentVersionsError || registerMutation.error?.message || passkeyError || oauthError}
@@ -940,7 +953,9 @@ function AuthPageContent() {
   // viewer with no session gets Create account too. A sign-up completed under
   // that arrival ends its re-authentication: the new account has no earlier
   // session to prove, so the page treats the viewer as any other new account
-  // and the redirect below sends them on to returnTo.
+  // and the redirect below sends them on to returnTo. The release lasts while
+  // the page stays shown: the hide cleanup below drops it, so a later
+  // re-authentication under the same URL holds again.
   const [signedUpArrival, setSignedUpArrival] = useState<string | null>(null)
   if (signupHandoff?.status === 'complete' && signedUpArrival !== arrival) {
     setSignedUpArrival(arrival)
@@ -975,7 +990,13 @@ function AuthPageContent() {
 
   // A hidden page runs its effect cleanups, and a shown one reruns the
   // effects, so this cleanup is the page's "hidden" signal.
-  useEffect(() => () => setPickedTab(null), [])
+  useEffect(
+    () => () => {
+      setPickedTab(null)
+      setSignedUpArrival(null)
+    },
+    []
+  )
 
   // Redirect if already authenticated.
   //
@@ -1049,9 +1070,10 @@ function AuthPageContent() {
 
   // Don't render the form if authenticated (will redirect).
   //
-  // Except on a re-authentication, where the whole point is to show the form
-  // to someone who IS signed in. Completing any factor mints a fresh session,
-  // which is what the caller that sent them here was waiting for.
+  // Except while a re-authentication holds (holdsReauth), where the whole
+  // point is to show the form to someone who IS signed in. Completing any
+  // factor mints a fresh session, which is what the caller that sent them here
+  // was waiting for.
   if (authStatus === 'authenticated' && !holdsReauth) {
     return null
   }
