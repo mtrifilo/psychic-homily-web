@@ -10,9 +10,13 @@ import {
   NEWER_VERSIONS_BODY,
   publishLegalVersionsInTurn,
   publishedVersions,
+  versionsUnavailable,
 } from '@/test/consentVersions'
 import { CURRENT_PRIVACY_VERSION, CURRENT_TERMS_VERSION } from '@/lib/legal'
-import { CONSENT_VERSIONS_CHANGED } from '@/app/auth/_components/consent-versions-notice'
+import {
+  CONSENT_VERSIONS_CHANGED,
+  CONSENT_VERSIONS_UNAVAILABLE,
+} from '@/app/auth/_components/consent-versions-notice'
 import {
   CreateAccountStep,
   DATE_OF_BIRTH_INVALID_MESSAGE,
@@ -415,6 +419,45 @@ describe('CreateAccountStep', () => {
     } finally {
       Object.defineProperty(window, 'location', { value: originalLocation, writable: true, configurable: true })
     }
+  })
+
+  it('says why, and sends nothing, when the consent versions cannot be read', async () => {
+    answerPending(PENDING)
+    publishLegalVersionsInTurn(versionsUnavailable)
+    const bodies = answerFinish(() => ({ success: true, message: 'ok', user: NEW_USER }))
+    const user = userEvent.setup()
+    renderWithProviders(<CreateAccountStep />)
+    await screen.findByLabelText('Name')
+
+    await fillValidForm(user)
+    await user.click(screen.getByRole('button', { name: 'Create account' }))
+
+    expect(await screen.findByText(CONSENT_VERSIONS_UNAVAILABLE)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Create account' })).toBeEnabled()
+    expect(bodies).toHaveLength(0)
+  })
+
+  it('keeps the form, with the error above it, when the finish fails outright', async () => {
+    answerPending(PENDING)
+    server.use(
+      http.post(`${TEST_API_BASE}/auth/oauth/finish-signup`, () =>
+        HttpResponse.json(
+          { success: false, message: 'Service temporarily unavailable. Please try again.', error_code: 'SERVICE_UNAVAILABLE' },
+          { status: 503 }
+        )
+      )
+    )
+    const user = userEvent.setup()
+    renderWithProviders(<CreateAccountStep />)
+    await screen.findByLabelText('Name')
+
+    await fillValidForm(user)
+    await user.click(screen.getByRole('button', { name: 'Create account' }))
+
+    expect(await screen.findByRole('alert')).toBeInTheDocument()
+    expect(screen.getByLabelText('Month')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Create account' })).toBeEnabled()
+    expect(mockReplace).not.toHaveBeenCalled()
   })
 
   it('says the step could not load when the read fails', async () => {

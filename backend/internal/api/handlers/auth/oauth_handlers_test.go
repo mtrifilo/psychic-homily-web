@@ -210,6 +210,25 @@ func TestOAuthLoginHTTPHandler_ValidProvider_GoogleQueryParam(t *testing.T) {
 // start reads no consent: the query a sign-up start once carried is neither
 // refused nor recorded, whatever it says, because a new identity is asked for
 // its consent on the "Create your account" step instead.
+// The start asks a provider for a prompt only for Google's account chooser,
+// and only when the start names exactly that prompt.
+func TestSignInPrompt(t *testing.T) {
+	for _, tc := range []struct {
+		provider, query, want string
+	}{
+		{"google", "prompt=select_account", oauthPromptSelectAccount},
+		{"google", "prompt=consent", ""},
+		{"google", "prompt=select_account%20consent", ""},
+		{"google", "", ""},
+		{"github", "prompt=select_account", ""},
+	} {
+		req := httptest.NewRequest("GET", "/auth/login/"+tc.provider+"?"+tc.query, nil)
+		if got := signInPrompt(req, tc.provider); got != tc.want {
+			t.Errorf("%s ?%s: prompt %q, want %q", tc.provider, tc.query, got, tc.want)
+		}
+	}
+}
+
 func TestOAuthLoginHTTPHandler_IgnoresSignupConsentQuery(t *testing.T) {
 	for _, query := range []string{
 		"signup_intent=1&terms_accepted=true&" + currentConsentVersionsQuery,
