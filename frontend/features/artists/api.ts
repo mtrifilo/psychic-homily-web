@@ -7,6 +7,7 @@
  */
 
 import { API_BASE_URL } from '@/lib/api-base'
+import { unpadNumericId } from '@/lib/utils/unpadNumericId'
 
 // ============================================================================
 // Endpoints
@@ -93,6 +94,37 @@ export const ARTIST_PAST_SHOWS_PAGE_LIMIT = 50
  */
 export const ARTIST_UPCOMING_SHOWS_LIMIT = 200
 
+/**
+ * The artist page's upcoming-shows request: the ONE spelling of its cache key.
+ *
+ * Two readers must ask the same question: `ArtistShowsList` hands it to
+ * `useArtistShows`, and the artist route reads it to fetch the same rows on
+ * the server and seed them under `artistQueryKeys.showsPage(artist.id, this)`.
+ * That key is the one the hook registers for these arguments (it records
+ * `limit` as sent and leaves `year` and `offset` unsent), so the seeded entry
+ * is the entry the component reads. A key restated on one side would seed an
+ * entry nothing reads, and the rows would silently drop out of the served HTML.
+ */
+export const ARTIST_UPCOMING_SHOWS_REQUEST = {
+  timeFilter: 'upcoming',
+  limit: ARTIST_UPCOMING_SHOWS_LIMIT,
+} as const satisfies { timeFilter: ArtistShowsTimeFilter; limit: number }
+
+/**
+ * The server-side URL for {@link ARTIST_UPCOMING_SHOWS_REQUEST}, by route slug.
+ * It must send the parameters `useArtistShows` sends for that request; the page
+ * tests compare the two.
+ * Encodes the slug: route params arrive decoded, and a bare `%2F` or `%3F`
+ * would re-point this server-side fetch at another backend path. A padded
+ * numeric id is unpadded first (`unpadNumericId`).
+ */
+export function artistUpcomingShowsUrl(artistSlug: string): string {
+  const params = new URLSearchParams()
+  params.set('limit', String(ARTIST_UPCOMING_SHOWS_REQUEST.limit))
+  params.set('time_filter', ARTIST_UPCOMING_SHOWS_REQUEST.timeFilter)
+  return `${artistEndpoints.SHOWS(encodeURIComponent(unpadNumericId(artistSlug)))}?${params.toString()}`
+}
+
 // ============================================================================
 // Query Keys
 // ============================================================================
@@ -123,18 +155,16 @@ export const artistQueryKeys = {
    * artist side never got the fix.
    *
    * NOTHING here is per-viewer, so a key a server computes is the key the
-   * browser then looks under. No route server-prefetches artist shows today,
-   * but the option is open: it was closed while a viewer timezone sat in this
-   * list, back when the endpoint read one. It does not any more — the
-   * upcoming/past split is made in each show's own venue-local day — so do not
-   * put a browser-only value back in.
+   * browser then looks under. The artist route relies on that: it seeds the
+   * upcoming entry (`ARTIST_UPCOMING_SHOWS_REQUEST`) server-side. The endpoint
+   * reads no viewer timezone (the upcoming/past split is made in each show's
+   * own venue-local day), so do not put a browser-only value in this list.
    *
-   * ONE PRECONDITION SURVIVES for anyone taking that up, and it is the same one
-   * `venueQueryKeys.showsPage` carries: the identity segment is
-   * `String(artistIdOrSlug)`, and the two forms hash differently. A route at
-   * `/artists/[slug]` has the slug while the surfaces on it pass the numeric id
-   * resolved from the fetched artist, so a seed keyed on the wrong form misses
-   * silently — the page just stops being server-rendered, with no error.
+   * The identity segment is `String(artistIdOrSlug)`, and the two forms hash
+   * differently. A route at `/artists/[slug]` has the slug while the surfaces
+   * on it pass the numeric id resolved from the fetched artist, so a seed must
+   * key on the numeric id; one keyed on the slug misses silently, and the page
+   * just stops being server-rendered, with no error.
    *
    * Extends `shows()` rather than replacing it so the coarse `['artists']`
    * invalidation in `createInvalidateQueries` keeps prefix-matching every page.
