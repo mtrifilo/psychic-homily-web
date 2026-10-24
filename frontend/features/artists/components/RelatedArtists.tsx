@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useCallback, useRef, useEffect, useMemo } from 'react'
+import { createContext, useState, useCallback, useContext, useRef, useEffect, useMemo } from 'react'
 import Link from 'next/link'
 import { useRouter, useSearchParams, usePathname } from 'next/navigation'
 import {
@@ -128,11 +128,13 @@ const MAX_SUGGESTED_DIRECTIONS = 5
 // the control ("top N connections") so "2 hops" doesn't overpromise a full 2-hop view.
 const DEPTH_2_TOP_K = 8
 
-// Two top-level exports: `ArtistSimilarSidebar` is the sidebar dense list;
-// `ArtistGraphDialog` is the on-demand modal hosting `RecenteringGraph`.
-// The parent (ArtistDetail) owns the Dialog open state so the header
-// [Graph] link, the sidebar [Explore graph] link, and the `#graph` URL
-// hash auto-open all drive the same Dialog.
+// Top-level exports: `ArtistSimilarSidebar` is the Similar artists dense list
+// (the page places it in the sidebar or, on its phone layout, the main
+// column); `SimilarListStateProvider` keeps that list's viewer state across
+// the move; `ArtistGraphDialog` is the on-demand modal hosting
+// `RecenteringGraph`. The parent (ArtistDetail) owns the Dialog open state so
+// the action-row [Graph] link, the list's [Explore graph] link, and the
+// `#graph` URL hash auto-open all drive the same Dialog.
 
 interface ArtistSimilarSidebarProps {
   artistId: number
@@ -163,6 +165,79 @@ const SORT_MODE_BIAS: Record<Exclude<SidebarSortMode, 'relevant'>, number> = {
 // empty expansion set. Module const → stable identity for the DOI useMemo dep.
 const NO_EXPANSIONS: ReadonlyMap<number, ArtistGraph> = new Map()
 
+/** What the viewer has chosen in the list: the sort, and an open suggest form with its draft. */
+interface SimilarListState {
+  sortMode: SidebarSortMode
+  showSuggest: boolean
+  suggestDraft: string
+}
+
+type UpdateSimilarListState = (patch: Partial<SimilarListState>) => void
+
+const DEFAULT_SIMILAR_LIST_STATE: SimilarListState = {
+  sortMode: 'relevant',
+  showSuggest: false,
+  suggestDraft: '',
+}
+
+const SimilarListStateContext = createContext<
+  [SimilarListState, UpdateSimilarListState] | null
+>(null)
+
+/**
+ * Holds the Similar artists list's viewer state above the list, so the list
+ * can unmount and remount under a different parent (the page moves it between
+ * layouts) without losing the sort or a half-typed suggestion.
+ *
+ * The state is tagged with the artist it was set for, so a provider that stays
+ * mounted across artist routes hands the next artist the defaults.
+ */
+export function SimilarListStateProvider({
+  artistId,
+  children,
+}: {
+  artistId: number
+  children: React.ReactNode
+}) {
+  const [entry, setEntry] = useState<{
+    artistId: number
+    state: SimilarListState
+  } | null>(null)
+  const state =
+    entry?.artistId === artistId ? entry.state : DEFAULT_SIMILAR_LIST_STATE
+  const update = useCallback<UpdateSimilarListState>(
+    patch =>
+      setEntry(prev => ({
+        artistId,
+        state: {
+          ...(prev?.artistId === artistId ? prev.state : DEFAULT_SIMILAR_LIST_STATE),
+          ...patch,
+        },
+      })),
+    [artistId]
+  )
+  const value = useMemo<[SimilarListState, UpdateSimilarListState]>(
+    () => [state, update],
+    [state, update]
+  )
+  return (
+    <SimilarListStateContext.Provider value={value}>
+      {children}
+    </SimilarListStateContext.Provider>
+  )
+}
+
+/** The provider's state when one is above the list, otherwise the list's own. */
+function useSimilarListState(): [SimilarListState, UpdateSimilarListState] {
+  const shared = useContext(SimilarListStateContext)
+  const [local, setLocal] = useState(DEFAULT_SIMILAR_LIST_STATE)
+  const updateLocal = useCallback<UpdateSimilarListState>(
+    patch => setLocal(prev => ({ ...prev, ...patch })),
+    []
+  )
+  return shared ?? [local, updateLocal]
+}
+
 export function ArtistSimilarSidebar({
   artistId,
   artistSlug,
@@ -173,11 +248,15 @@ export function ArtistSimilarSidebar({
     enabled: artistId > 0,
   })
   const { isAuthenticated } = useIsAuthenticated()
-  const [showSuggest, setShowSuggest] = useState(false)
   // PSY-1280: accessible DOI sort mode (default = the existing max-edge-score order) + an
   // aria-live announcement that's empty until the user changes it (so mount stays silent).
-  const [sortMode, setSortMode] = useState<SidebarSortMode>('relevant')
+  const [{ sortMode, showSuggest, suggestDraft }, updateListState] =
+    useSimilarListState()
   const [sortAnnouncement, setSortAnnouncement] = useState('')
+  // Local, so it is false on every mount: a suggest form restored by a remount
+  // (the provider kept it open) must not take focus and scroll the page; only
+  // the one opened from [Suggest similar] in this mount does.
+  const [suggestOpenedHere, setSuggestOpenedHere] = useState(false)
 
   // DOI scores for the active Discovery mode, over the base ego graph — the SAME computeGraphDoi
   // the canvas uses (incl. the per-node edge cap), so the sidebar order matches the canvas's.
@@ -194,6 +273,10 @@ export function ArtistSimilarSidebar({
     return computeGraphDoi(merged, undefined, doiWeightsForBias(SORT_MODE_BIAS[sortMode])).doiByNodeId
   }, [graph, sortMode])
 
+  // Nothing until the graph resolves: ArtistDetail's server HTML places this
+  // list for the phone layout at every viewport and moves it at hydration,
+  // which is shift-free only while the list is still empty (see
+  // WIDE_LAYOUT_QUERY).
   if (isLoading) return null
 
   const hasRelationships =
@@ -273,7 +356,7 @@ export function ArtistSimilarSidebar({
             value={sortMode}
             onChange={e => {
               const mode = e.target.value as SidebarSortMode
-              setSortMode(mode)
+              updateListState({ sortMode: mode })
               setSortAnnouncement(
                 mode === 'relevant'
                   ? 'Similar artists sorted by most relevant.'
@@ -322,12 +405,20 @@ export function ArtistSimilarSidebar({
             <SuggestSimilarArtist
               centerArtistId={artistId}
               centerArtistSlug={artistSlug}
-              onClose={() => setShowSuggest(false)}
+              draft={suggestDraft}
+              onDraftChange={draft => updateListState({ suggestDraft: draft })}
+              autoFocus={suggestOpenedHere}
+              onClose={() =>
+                updateListState({ showSuggest: false, suggestDraft: '' })
+              }
             />
           ) : (
             <BracketLink
               label="Suggest similar"
-              onClick={() => setShowSuggest(true)}
+              onClick={() => {
+                setSuggestOpenedHere(true)
+                updateListState({ showSuggest: true })
+              }}
             />
           )}
         </div>
@@ -1365,10 +1456,18 @@ function RelatedArtistRow({
     return parts.join(' · ')
   }
 
+  const scoreDisplay = getScoreDisplay()
+  // The one badge list both row forms draw: links of a known type, in order.
+  const reasonBadges = links.flatMap(link => {
+    const badge = RELATIONSHIP_BADGES[link.type]
+    return badge ? [{ type: link.type, ...badge }] : []
+  })
+
   return (
     // No hover fill: the name is an accent link, and `link` text is not AA on
-    // a muted surface.
-    <div className="flex items-center gap-3 py-2 px-3 rounded-md">
+    // a muted surface. Below `sm` the row wraps so the reason line takes a
+    // full-width second line; at `sm` and up it is one unwrapped line.
+    <div className="flex flex-wrap sm:flex-nowrap items-center gap-x-3 gap-y-1.5 py-2 sm:px-3 rounded-md">
       <Link
         href={`/artists/${node.slug}`}
         // PSY-1288: floor the name column at a readable min-width so the row's other items can't
@@ -1390,19 +1489,15 @@ function RelatedArtistRow({
           space to the floored name instead of collapsing it; no badge is hidden, the group just
           wraps to a second line when the row is tight. */}
       <div className="hidden sm:flex items-center justify-end gap-1 flex-wrap min-w-0 shrink">
-        {links.map(link => {
-          const badge = RELATIONSHIP_BADGES[link.type]
-          if (!badge) return null
-          return (
-            <Badge
-              key={link.type}
-              variant="outline"
-              className={`text-[10px] px-1.5 py-0 ${badge.className}`}
-            >
-              {badge.label}
-            </Badge>
-          )
-        })}
+        {reasonBadges.map(badge => (
+          <Badge
+            key={badge.type}
+            variant="outline"
+            className={`text-[10px] px-1.5 py-0 ${badge.className}`}
+          >
+            {badge.label}
+          </Badge>
+        ))}
       </div>
 
       {/* Score — also yields (min-w-0 truncate, no longer flex-shrink-0) so a long multi-type score
@@ -1410,7 +1505,7 @@ function RelatedArtistRow({
           fixed 320px sidebar's right edge (PSY-1288). Only the small vote buttons below stay fixed,
           so the floored name + votes always fit and everything else degrades gracefully. */}
       <span className="text-xs text-muted-foreground min-w-0 shrink truncate hidden md:block">
-        {getScoreDisplay()}
+        {scoreDisplay}
       </span>
 
       {/* Vote buttons (only for "similar" type) */}
@@ -1430,6 +1525,31 @@ function RelatedArtistRow({
             onVote={() => handleVote(similarLink, false)}
             isPending={voteMutation.isPending}
           />
+        </div>
+      )}
+
+      {/* The narrow form of the badges and score above: its own full-width
+          line under the name, so it never contests the name's width. Untinted
+          outline chips, then the score text, wrapping as one run. */}
+      {(reasonBadges.length > 0 || scoreDisplay) && (
+        <div
+          className="basis-full sm:hidden flex flex-wrap items-center gap-1"
+          data-testid="similar-artist-reason"
+        >
+          {reasonBadges.map(badge => (
+            <Badge
+              key={badge.type}
+              variant="outline"
+              className="text-[10px] px-1.5 py-0.5"
+            >
+              {badge.label}
+            </Badge>
+          ))}
+          {scoreDisplay && (
+            <span className="font-mono text-xs text-muted-foreground">
+              {scoreDisplay}
+            </span>
+          )}
         </div>
       )}
     </div>
@@ -1480,6 +1600,11 @@ function VoteButton({ link, direction, userVotes, onVote, isPending }: VoteButto
 interface SuggestSimilarArtistProps {
   centerArtistId: number
   centerArtistSlug: string
+  /** The search text, owned by the list so it survives a remount. */
+  draft: string
+  onDraftChange: (draft: string) => void
+  /** Focus the search on mount: true only when the viewer just opened the form. */
+  autoFocus: boolean
   onClose: () => void
 }
 
@@ -1489,8 +1614,14 @@ const SUGGEST_BLUR_CLOSE_DELAY_MS = 150
 // How long the "suggested" confirmation shows before the panel closes itself.
 const SUGGEST_SUCCESS_DISMISS_MS = 2000
 
-function SuggestSimilarArtist({ centerArtistId, centerArtistSlug, onClose }: SuggestSimilarArtistProps) {
-  const [query, setQuery] = useState('')
+function SuggestSimilarArtist({
+  centerArtistId,
+  centerArtistSlug,
+  draft: query,
+  onDraftChange: setQuery,
+  autoFocus,
+  onClose,
+}: SuggestSimilarArtistProps) {
   const [isOpen, setIsOpen] = useState(false)
   const [activeIndex, setActiveIndex] = useState(-1)
   const [error, setError] = useState<string | null>(null)
@@ -1540,7 +1671,7 @@ function SuggestSimilarArtist({ centerArtistId, centerArtistSlug, onClose }: Sug
         }
       )
     },
-    [centerArtistId, centerArtistSlug, createRelationship, scheduleSuccessClose]
+    [centerArtistId, centerArtistSlug, createRelationship, scheduleSuccessClose, setQuery]
   )
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -1592,7 +1723,7 @@ function SuggestSimilarArtist({ centerArtistId, centerArtistSlug, onClose }: Sug
             onKeyDown={handleKeyDown}
             onBlur={scheduleBlurClose}
             placeholder="Search for a similar artist..."
-            autoFocus
+            autoFocus={autoFocus}
             autoComplete="off"
             className="w-full text-sm px-3 py-1.5 rounded-md border bg-background text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
           />

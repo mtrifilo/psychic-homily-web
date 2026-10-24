@@ -60,10 +60,16 @@ import { FollowAlertsReveal } from '@/components/shared/FollowAlertsReveal'
 import { ENTITY_LINK_CLASS } from '@/components/shared/entityLink'
 import { entityHref } from '@/lib/entity-slug'
 import { ArtistShowsList } from './ArtistShowsList'
-import { ArtistSimilarSidebar, ArtistGraphDialog } from './RelatedArtists'
+import {
+  ArtistSimilarSidebar,
+  ArtistGraphDialog,
+  SimilarListStateProvider,
+} from './RelatedArtists'
 import { ArtistConnectionsSection } from './ArtistConnectionsSection'
 import { BillComposition } from './BillComposition'
 import { GRAPH_HASH, useUrlHash } from '@/lib/hooks/common/useUrlHash'
+import { useMediaQuery } from '@/lib/hooks/common/useMediaQuery'
+import { GRAPH_BREAKPOINT_PX } from '@/components/graph/useContainerWidth'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
@@ -75,6 +81,27 @@ import type { ArtistLabel } from '@/features/labels/types'
 interface ArtistDetailProps {
   artistId: string | number
 }
+
+/**
+ * The query whose NOT matching is the phone layout: a viewport narrower than
+ * both Tailwind's `sm` (`--breakpoint-sm: 40rem`) and the Connections canvas
+ * gate (GRAPH_BREAKPOINT_PX, a container width, which no narrower viewport
+ * can contain). The comma is an OR, so at any browser default font size:
+ * - every phone-layout viewport is below `sm`, so the Similar artists rows
+ *   there are in their stacked, `sm:hidden` form;
+ * - every phone-layout viewport is too narrow for a canvas, so dropping the
+ *   Connections section never drops a canvas it would have drawn.
+ * At the default 16px root both clauses are 640px.
+ *
+ * `useMediaQuery`'s server snapshot is the phone layout. That causes no layout
+ * shift on a wider screen only because both things that differ between the
+ * layouts (the main-column Similar artists list above the Discography, and
+ * the Connections section after it) render nothing until the client-side
+ * artist graph query resolves, which is after hydration has settled this
+ * query. Seeding that query on the server would make the server
+ * HTML carry the phone placement to every viewport.
+ */
+export const WIDE_LAYOUT_QUERY = `(min-width: 40rem), (min-width: ${GRAPH_BREAKPOINT_PX}px)`
 
 // --- Discography ---
 
@@ -265,17 +292,20 @@ function ArtistSidebar({
   labels,
   labelsLoading,
   isAuthenticated,
-  onOpenGraph,
+  similarArtists,
 }: {
   artist: Artist
   labels: ArtistLabel[]
   labelsLoading: boolean
   isAuthenticated: boolean
-  onOpenGraph: () => void
+  /** The Similar artists block, or null when the main column carries it. */
+  similarArtists: React.ReactNode
 }) {
   const { data: aliasesData } = useArtistAliases(artist.id)
   const aliases = aliasesData?.aliases ?? []
 
+  // Only non-zero rows render, so an artist with no non-zero stat has no
+  // Statistics block at all.
   const statsItems = artist.stats
     ? [
         { label: 'Releases', value: artist.stats.releases },
@@ -286,7 +316,7 @@ function ArtistSidebar({
           label: 'Festival appearances',
           value: artist.stats.festival_appearances,
         },
-      ]
+      ].filter(item => item.value > 0)
     : []
 
   const hasSocialLinks = hasRenderableSocialLink(artist.social)
@@ -362,14 +392,7 @@ function ArtistSidebar({
       {/* As heard on (radio) — self-hides when empty */}
       <AsHeardOn entityType="artist" entitySlug={artist.slug} />
 
-      {/* Similar artists — dense list + [Explore graph] affordance (opens
-          the page-level Dialog). Self-hides when there are no relationships
-          AND the viewer can't contribute. */}
-      <ArtistSimilarSidebar
-        artistId={artist.id}
-        artistSlug={artist.slug}
-        onOpenGraph={onOpenGraph}
-      />
+      {similarArtists}
 
       {/* Tags — EntityTagList renders its own header. PSY-654 hides the
           whole component when no tags exist; the [Add tag] linkbox entry
@@ -1075,6 +1098,7 @@ export function ArtistDetail({ artistId }: ArtistDetailProps) {
     }
   }
   const saveBanner = useEntitySaveSuccessBanner()
+  const isPhoneLayout = !useMediaQuery(WIDE_LAYOUT_QUERY)
 
   // Fetch labels for sidebar
   const { data: labelsData, isLoading: labelsLoading } = useArtistLabels({
@@ -1138,6 +1162,21 @@ export function ArtistDetail({ artistId }: ArtistDetailProps) {
   }
 
   const labels = labelsData?.labels ?? []
+
+  // Similar artists: a dense list plus the [Explore graph] affordance that
+  // opens the page-level Dialog. It self-hides when there are no
+  // relationships AND the viewer can't contribute. It is rendered in one of
+  // two places (see the main column below), so it remounts when the
+  // viewport enters or leaves the phone layout; SimilarListStateProvider,
+  // wrapping the page, carries the viewer's sort and suggest draft across
+  // that remount.
+  const similarArtists = (
+    <ArtistSimilarSidebar
+      artistId={artist.id}
+      artistSlug={artist.slug}
+      onOpenGraph={openGraphDialog}
+    />
+  )
 
   // The subtitle under the name. With a scene the subtitle IS the link to
   // it, named for the scene it opens rather than for the artist's own city (a
@@ -1227,7 +1266,7 @@ export function ArtistDetail({ artistId }: ArtistDetailProps) {
   )
 
   return (
-    <>
+    <SimilarListStateProvider artistId={artist.id}>
       <EntityDetailLayout
         fallback={{ href: '/artists', label: 'Artists' }}
         entityName={artist.name}
@@ -1244,7 +1283,7 @@ export function ArtistDetail({ artistId }: ArtistDetailProps) {
             labels={labels}
             labelsLoading={labelsLoading}
             isAuthenticated={!!isAuthenticated}
-            onOpenGraph={openGraphDialog}
+            similarArtists={isPhoneLayout ? null : similarArtists}
           />
         }
       >
@@ -1257,17 +1296,28 @@ export function ArtistDetail({ artistId }: ArtistDetailProps) {
 
           {artistActions}
 
+          {/* On the phone layout the Similar artists list sits here, under
+              the shows and their action row and above the Discography, and
+              the sidebar's `similarArtists` is null. No canvas can render at
+              that width, so the Connections section below is not mounted;
+              the action-row [Graph] and the list's [Explore graph] still open
+              the graph Dialog. Every placement reads `isPhoneLayout`, so the
+              list renders exactly once. */}
+          {isPhoneLayout && similarArtists}
+
           <DiscographyTab artistIdOrSlug={artistId} />
 
-          {/* Inline Connections ego map — reuses the sidebar's cached
-              useArtistGraph payload; [Expand] opens the same Dialog as the
-              action-row [Graph] and sidebar [Explore graph] links. */}
-          <ArtistConnectionsSection
-            artistId={artist.id}
-            artistName={artist.name}
-            artistSlug={artist.slug}
-            onExpand={openGraphDialog}
-          />
+          {/* Outside the phone layout: the inline ego map, which reuses the
+              list's cached useArtistGraph payload and whose [Expand] opens the
+              same Dialog; the list is in the sidebar. */}
+          {!isPhoneLayout && (
+            <ArtistConnectionsSection
+              artistId={artist.id}
+              artistName={artist.name}
+              artistSlug={artist.slug}
+              onExpand={openGraphDialog}
+            />
+          )}
 
           <BillComposition artistId={artist.id} defaultCollapsed />
 
@@ -1384,6 +1434,6 @@ export function ArtistDetail({ artistId }: ArtistDetailProps) {
           onOpenChange={setAddTagDialogOpen}
         />
       )}
-    </>
+    </SimilarListStateProvider>
   )
 }
