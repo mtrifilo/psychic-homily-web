@@ -174,8 +174,9 @@ vi.mock('./RelatedArtists', () => ({
   // Renders its own "Similar artists" SectionHeader in the real component;
   // the mock keeps it so sidebar section order stays assertable.
   ArtistSimilarSidebar: () => <h3>Similar artists</h3>,
+  // A marker element, so a test can check the provider wraps both placements.
   SimilarListStateProvider: ({ children }: { children: React.ReactNode }) => (
-    <>{children}</>
+    <div data-testid="similar-state-provider">{children}</div>
   ),
   ArtistGraphDialog: ({
     open,
@@ -328,7 +329,7 @@ vi.mock('@/components/shared', () => ({
   ),
 }))
 
-import { ArtistDetail, SM_UP_QUERY as SM_UP } from './ArtistDetail'
+import { ArtistDetail, WIDE_LAYOUT_QUERY as WIDE } from './ArtistDetail'
 import { GRAPH_BREAKPOINT_PX } from '@/components/graph/useContainerWidth'
 import { ENTITY_LINK_CLASS } from '@/components/shared/entityLink'
 
@@ -775,7 +776,7 @@ describe('ArtistDetail', () => {
       // Similar artists has no length cap, so short fixed-height blocks have
       // to sit above it or they scroll off-screen on well-connected artists.
       // That is the sidebar order, which holds the list at `sm` and up.
-      const mm = installMatchMedia({ [SM_UP]: true })
+      const mm = installMatchMedia({ [WIDE]: true })
       onTestFinished(() => mm.restore())
       mockUseArtist.mockReturnValue({
         data: makeArtist({
@@ -860,7 +861,7 @@ describe('ArtistDetail', () => {
 
     // Zero rows are hidden at every width, not only on the phone layout.
     it('renders only the non-zero statistics rows at sm and up too', () => {
-      const mm = installMatchMedia({ [SM_UP]: true })
+      const mm = installMatchMedia({ [WIDE]: true })
       onTestFinished(() => mm.restore())
       mockUseArtist.mockReturnValue({
         data: makeArtist({
@@ -884,12 +885,25 @@ describe('ArtistDetail', () => {
     })
 
     describe('Similar artists placement', () => {
-      // The phone layout drops the canvas section, which is only sound if no
-      // viewport narrower than `sm` (40rem, 640px at the default root size)
-      // could hold a column wide enough for the canvas.
-      it('never drops a canvas the section could draw', () => {
-        expect(SM_UP).toBe('(min-width: 40rem)')
-        expect(GRAPH_BREAKPOINT_PX).toBeGreaterThanOrEqual(40 * 16)
+      // The phone layout is "neither clause matches": below Tailwind `sm`, so
+      // the rows are in their stacked form, AND below the canvas gate, so
+      // dropping the Connections section never drops a canvas it would draw.
+      it('is the phone layout only below both sm and the canvas gate', () => {
+        expect(WIDE.split(', ')).toEqual([
+          '(min-width: 40rem)',
+          `(min-width: ${GRAPH_BREAKPOINT_PX}px)`,
+        ])
+      })
+
+      // The list's viewer state survives the move between placements only
+      // while the provider sits above both of them.
+      it('wraps both placements in the list state provider', () => {
+        const mm = installMatchMedia({ [WIDE]: false })
+        onTestFinished(() => mm.restore())
+        renderWithProviders(<ArtistDetail artistId="test-artist" />)
+        const provider = screen.getByTestId('similar-state-provider')
+        expect(provider).toContainElement(screen.getByTestId('content-slot'))
+        expect(provider).toContainElement(screen.getByTestId('sidebar-slot'))
       })
 
       beforeEach(() => {
@@ -912,7 +926,7 @@ describe('ArtistDetail', () => {
         screen.getAllByRole('heading', { name: 'Similar artists' })
 
       it('puts the list in the main column, above Statistics, on the phone layout', () => {
-        const mm = installMatchMedia({ [SM_UP]: false })
+        const mm = installMatchMedia({ [WIDE]: false })
         onTestFinished(() => mm.restore())
         renderWithProviders(<ArtistDetail artistId="test-artist" />)
 
@@ -934,14 +948,14 @@ describe('ArtistDetail', () => {
       // The list takes the Connections slot, so the section (and with it the
       // sub-640 map teaser) is not mounted on the phone layout.
       it('does not mount the Connections section on the phone layout', () => {
-        const mm = installMatchMedia({ [SM_UP]: false })
+        const mm = installMatchMedia({ [WIDE]: false })
         onTestFinished(() => mm.restore())
         renderWithProviders(<ArtistDetail artistId="test-artist" />)
         expect(screen.queryByTestId('connections-section')).not.toBeInTheDocument()
       })
 
       it('keeps the list in the sidebar and the Connections section in the main column at sm and up', () => {
-        const mm = installMatchMedia({ [SM_UP]: true })
+        const mm = installMatchMedia({ [WIDE]: true })
         onTestFinished(() => mm.restore())
         renderWithProviders(<ArtistDetail artistId="test-artist" />)
 
@@ -954,12 +968,12 @@ describe('ArtistDetail', () => {
       })
 
       it('moves the list when the viewport crosses sm', () => {
-        const mm = installMatchMedia({ [SM_UP]: false })
+        const mm = installMatchMedia({ [WIDE]: false })
         onTestFinished(() => mm.restore())
         renderWithProviders(<ArtistDetail artistId="test-artist" />)
         expect(screen.getByTestId('content-slot')).toContainElement(similarHeadings()[0])
 
-        mm.set(SM_UP, true)
+        mm.set(WIDE, true)
         expect(similarHeadings()).toHaveLength(1)
         expect(screen.getByTestId('sidebar-slot')).toContainElement(similarHeadings()[0])
       })

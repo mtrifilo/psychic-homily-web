@@ -69,6 +69,7 @@ import { ArtistConnectionsSection } from './ArtistConnectionsSection'
 import { BillComposition } from './BillComposition'
 import { GRAPH_HASH, useUrlHash } from '@/lib/hooks/common/useUrlHash'
 import { useMediaQuery } from '@/lib/hooks/common/useMediaQuery'
+import { GRAPH_BREAKPOINT_PX } from '@/components/graph/useContainerWidth'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
@@ -82,14 +83,15 @@ interface ArtistDetailProps {
 }
 
 /**
- * Tailwind's `sm` breakpoint (`--breakpoint-sm: 40rem`) as a media query; not
- * matching it is the phone layout. Written in rem so it switches together with
- * the `sm:` classes the Similar artists rows key their two forms on, whatever
- * the browser's default font size.
- *
- * The phone layout drops the Connections section, so this must never match
- * below the section's own canvas gate (GRAPH_BREAKPOINT_PX, a container
- * width): every phone-layout viewport is one where no canvas could render.
+ * The query whose NOT matching is the phone layout: a viewport narrower than
+ * both Tailwind's `sm` (`--breakpoint-sm: 40rem`) and the Connections canvas
+ * gate (GRAPH_BREAKPOINT_PX, a container width, which no narrower viewport
+ * can contain). The comma is an OR, so at any browser default font size:
+ * - every phone-layout viewport is below `sm`, so the Similar artists rows
+ *   there are in their stacked, `sm:hidden` form;
+ * - every phone-layout viewport is too narrow for a canvas, so dropping the
+ *   Connections section never drops a canvas it would have drawn.
+ * At the default 16px root both clauses are 640px.
  *
  * `useMediaQuery`'s server snapshot is the phone layout. That causes no layout
  * shift on a wider screen only because both things the slot can hold (the
@@ -98,7 +100,7 @@ interface ArtistDetailProps {
  * settled this query. Seeding that query on the server would make the server
  * HTML carry the phone placement to every viewport.
  */
-export const SM_UP_QUERY = '(min-width: 40rem)'
+export const WIDE_LAYOUT_QUERY = `(min-width: 40rem), (min-width: ${GRAPH_BREAKPOINT_PX}px)`
 
 // --- Discography ---
 
@@ -1095,7 +1097,7 @@ export function ArtistDetail({ artistId }: ArtistDetailProps) {
     }
   }
   const saveBanner = useEntitySaveSuccessBanner()
-  const isPhoneLayout = !useMediaQuery(SM_UP_QUERY)
+  const isPhoneLayout = !useMediaQuery(WIDE_LAYOUT_QUERY)
 
   // Fetch labels for sidebar
   const { data: labelsData, isLoading: labelsLoading } = useArtistLabels({
@@ -1164,8 +1166,9 @@ export function ArtistDetail({ artistId }: ArtistDetailProps) {
   // opens the page-level Dialog. It self-hides when there are no
   // relationships AND the viewer can't contribute. It is rendered in one of
   // two places (see the Connections slot below), so it remounts when the
-  // viewport crosses `sm`; SimilarListStateProvider, wrapping the page,
-  // carries the viewer's sort and suggest draft across that remount.
+  // viewport enters or leaves the phone layout; SimilarListStateProvider,
+  // wrapping the page, carries the viewer's sort and suggest draft across
+  // that remount.
   const similarArtists = (
     <ArtistSimilarSidebar
       artistId={artist.id}

@@ -128,11 +128,13 @@ const MAX_SUGGESTED_DIRECTIONS = 5
 // the control ("top N connections") so "2 hops" doesn't overpromise a full 2-hop view.
 const DEPTH_2_TOP_K = 8
 
-// Two top-level exports: `ArtistSimilarSidebar` is the sidebar dense list;
-// `ArtistGraphDialog` is the on-demand modal hosting `RecenteringGraph`.
-// The parent (ArtistDetail) owns the Dialog open state so the header
-// [Graph] link, the sidebar [Explore graph] link, and the `#graph` URL
-// hash auto-open all drive the same Dialog.
+// Top-level exports: `ArtistSimilarSidebar` is the Similar artists dense list
+// (the page places it in the sidebar or, on its phone layout, the main
+// column); `SimilarListStateProvider` keeps that list's viewer state across
+// the move; `ArtistGraphDialog` is the on-demand modal hosting
+// `RecenteringGraph`. The parent (ArtistDetail) owns the Dialog open state so
+// the action-row [Graph] link, the list's [Explore graph] link, and the
+// `#graph` URL hash auto-open all drive the same Dialog.
 
 interface ArtistSimilarSidebarProps {
   artistId: number
@@ -251,6 +253,10 @@ export function ArtistSimilarSidebar({
   const [{ sortMode, showSuggest, suggestDraft }, updateListState] =
     useSimilarListState()
   const [sortAnnouncement, setSortAnnouncement] = useState('')
+  // Local, so it is false on every mount: a suggest form restored by a remount
+  // (the provider kept it open) must not take focus and scroll the page; only
+  // the one opened from [Suggest similar] in this mount does.
+  const [suggestOpenedHere, setSuggestOpenedHere] = useState(false)
 
   // DOI scores for the active Discovery mode, over the base ego graph — the SAME computeGraphDoi
   // the canvas uses (incl. the per-node edge cap), so the sidebar order matches the canvas's.
@@ -397,6 +403,7 @@ export function ArtistSimilarSidebar({
               centerArtistSlug={artistSlug}
               draft={suggestDraft}
               onDraftChange={draft => updateListState({ suggestDraft: draft })}
+              autoFocus={suggestOpenedHere}
               onClose={() =>
                 updateListState({ showSuggest: false, suggestDraft: '' })
               }
@@ -404,7 +411,10 @@ export function ArtistSimilarSidebar({
           ) : (
             <BracketLink
               label="Suggest similar"
-              onClick={() => updateListState({ showSuggest: true })}
+              onClick={() => {
+                setSuggestOpenedHere(true)
+                updateListState({ showSuggest: true })
+              }}
             />
           )}
         </div>
@@ -1589,6 +1599,8 @@ interface SuggestSimilarArtistProps {
   /** The search text, owned by the list so it survives a remount. */
   draft: string
   onDraftChange: (draft: string) => void
+  /** Focus the search on mount: true only when the viewer just opened the form. */
+  autoFocus: boolean
   onClose: () => void
 }
 
@@ -1603,6 +1615,7 @@ function SuggestSimilarArtist({
   centerArtistSlug,
   draft: query,
   onDraftChange: setQuery,
+  autoFocus,
   onClose,
 }: SuggestSimilarArtistProps) {
   const [isOpen, setIsOpen] = useState(false)
@@ -1706,7 +1719,7 @@ function SuggestSimilarArtist({
             onKeyDown={handleKeyDown}
             onBlur={scheduleBlurClose}
             placeholder="Search for a similar artist..."
-            autoFocus
+            autoFocus={autoFocus}
             autoComplete="off"
             className="w-full text-sm px-3 py-1.5 rounded-md border bg-background text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
           />

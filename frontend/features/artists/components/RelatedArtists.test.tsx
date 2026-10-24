@@ -291,6 +291,22 @@ describe('ArtistSimilarSidebar', () => {
       expect(screen.getByPlaceholderText('Search for a similar artist...')).toHaveValue('Fro')
     })
 
+    // Focus belongs to a form the viewer just opened, not to one a remount
+    // restored: the restored one must not pull focus (and the page) to itself.
+    it('focuses the search when opened, but not when a remount restores it', async () => {
+      const user = userEvent.setup()
+      const { rerender } = renderWithProviders(<Harness inSidebar={false} />)
+      await user.click(screen.getByRole('button', { name: 'Suggest similar' }))
+      expect(screen.getByPlaceholderText('Search for a similar artist...')).toHaveFocus()
+
+      await user.click(document.body)
+      rerender(<Harness inSidebar />)
+
+      const restored = screen.getByPlaceholderText('Search for a similar artist...')
+      expect(document.querySelector('aside')).toContainElement(restored)
+      expect(restored).not.toHaveFocus()
+    })
+
     it('hands a different artist the defaults', async () => {
       const user = userEvent.setup()
       const { rerender } = renderWithProviders(<Harness inSidebar={false} />)
