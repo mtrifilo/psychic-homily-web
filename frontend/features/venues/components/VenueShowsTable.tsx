@@ -13,11 +13,19 @@ import {
   formatShowTime,
 } from '@/lib/utils/formatters'
 import { EN_DASH, type MonthGroup } from '@/features/shows/showArchive'
+import {
+  ShowSaveCell,
+  ShowSaveHeaderCell,
+  type ShowSaveColumnData,
+} from '@/features/shows/components/ShowSaveColumn'
 import { groupByMonth } from '../showArchive'
 import type { VenueShow, VenueShowZone } from '../types'
 
-/** Date, Bill, Price, Time. Group headings must span all of them. */
-const COLUMN_COUNT = 4
+/**
+ * Date, Bill, Price, Time, and Save when the table has a save column. Group
+ * headings must span all of them.
+ */
+const BASE_COLUMN_COUNT = 4
 
 /** Stands in for a price nobody has recorded. */
 const ABSENT = EN_DASH
@@ -25,9 +33,11 @@ const ABSENT = EN_DASH
 function ShowRow({
   show,
   zone,
+  saveColumn,
 }: {
   show: VenueShow
   zone: VenueShowZone
+  saveColumn?: ShowSaveColumnData
 }) {
   // A show's own state wins over the venue's for date/time formatting; the
   // venue's resolved timezone (when known) wins over the state map (PSY-986).
@@ -61,6 +71,7 @@ function ShowRow({
             venue's per row, so emptiness here is never uniform. */}
         {formatShowTime(show.event_date, state, zone.venueTimezone)}
       </td>
+      {saveColumn && <ShowSaveCell showId={show.id} column={saveColumn} />}
     </tr>
   )
 }
@@ -80,6 +91,12 @@ export interface VenueShowsTableProps {
    * of silently reordered rows.
    */
   groupByMonthHeadings?: boolean
+  /**
+   * Adds the trailing Save column, from one batched save-count read
+   * (`useShowSaveColumn`). Upcoming rows only: past rows are a record, not a
+   * plan, so the past archive renders without it.
+   */
+  saveColumn?: ShowSaveColumnData
 }
 
 /**
@@ -95,6 +112,7 @@ export function VenueShowsTable({
   zone,
   ariaLabel,
   groupByMonthHeadings = false,
+  saveColumn,
 }: VenueShowsTableProps) {
   // `null` is "one ungrouped run", the single representation of not grouping —
   // and the memo matters: grouping resolves a timezone and formats a month per
@@ -113,12 +131,18 @@ export function VenueShowsTable({
           <th>Bill</th>
           <th className="text-right">Price</th>
           <th className="text-right">Time</th>
+          {saveColumn && <ShowSaveHeaderCell />}
         </tr>
       </thead>
       <tbody>
         {groups === null
           ? shows.map(show => (
-              <ShowRow key={show.id} show={show} zone={zone} />
+              <ShowRow
+                key={show.id}
+                show={show}
+                zone={zone}
+                saveColumn={saveColumn}
+              />
             ))
           : groups.map((group, index) => (
               // Indexed because a month label is only unique while the rows are
@@ -126,10 +150,15 @@ export function VenueShowsTable({
               <Fragment key={index}>
                 <DenseTableGroupHeader
                   title={group.label}
-                  colSpan={COLUMN_COUNT}
+                  colSpan={BASE_COLUMN_COUNT + (saveColumn ? 1 : 0)}
                 />
                 {group.rows.map(show => (
-                  <ShowRow key={show.id} show={show} zone={zone} />
+                  <ShowRow
+                    key={show.id}
+                    show={show}
+                    zone={zone}
+                    saveColumn={saveColumn}
+                  />
                 ))}
               </Fragment>
             ))}

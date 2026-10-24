@@ -1,7 +1,8 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import type { ReactElement } from 'react'
 import { renderToString } from 'react-dom/server'
-import { render, waitFor } from '@testing-library/react'
+import { hydrateRoot, type Root } from 'react-dom/client'
+import { act, render, waitFor } from '@testing-library/react'
 import {
   HydrationBoundary,
   QueryClient,
@@ -18,6 +19,9 @@ vi.mock('next/navigation', () => ({
   notFound: vi.fn(() => {
     throw new Error(NOT_FOUND_SENTINEL)
   }),
+  // Read by every upcoming row's Save control (its sign-in gate).
+  useRouter: () => ({ push: vi.fn() }),
+  usePathname: () => '/venues/the-rebel-lounge',
 }))
 
 // `seedFirstScreen` awaits `connection()`, which marks a request-time render and
@@ -45,14 +49,35 @@ vi.mock('@/features/venues', () => ({
   },
 }))
 
-// What the server render of the real upcoming list needs around it: a
-// signed-out reader, no show form, and no past archive (which owns its own
-// requests and loader).
+// What the server render of the real upcoming list needs around it: a viewer
+// (signed out unless a test says otherwise), no show form, and no past archive
+// (which owns its own requests and loader). Each viewer state is one the
+// route's HTML can be served under, and the hydration render reads the same.
+type ViewerState = {
+  isAuthenticated: boolean
+  user: { id: string } | null
+  authStatus: 'pending' | 'anonymous' | 'authenticated'
+}
+const ANONYMOUS: ViewerState = {
+  isAuthenticated: false,
+  user: null,
+  authStatus: 'anonymous',
+}
+let viewer: ViewerState = ANONYMOUS
 vi.mock('@/lib/context/AuthContext', () => ({
-  useAuthContext: () => ({ isAuthenticated: false }),
+  useAuthContext: () => viewer,
 }))
-vi.mock('@/features/shows', () => ({
+vi.mock('@/features/shows', async importOriginal => ({
+  ...(await importOriginal<typeof import('@/features/shows')>()),
   ShowForm: (): null => null,
+}))
+// The save-count batch answers in the browser after hydration, so the route's
+// HTML and the first client render both see it pending.
+vi.mock('@/features/shows/hooks/useSavedShows', async importOriginal => ({
+  ...(await importOriginal<
+    typeof import('@/features/shows/hooks/useSavedShows')
+  >()),
+  useShowSaveCountBatch: () => ({ data: undefined }),
 }))
 vi.mock('@/features/venues/components/VenuePastShows', () => ({
   VenuePastShows: (): null => null,
@@ -446,4 +471,74 @@ describe('VenuePage upcoming shows', () => {
 
     await expect(renderPage('missing')).rejects.toThrow(NOT_FOUND_SENTINEL)
   })
+})
+
+describe('VenuePage upcoming Save column', () => {
+  let root: Root | null = null
+  let container: HTMLElement | null = null
+
+  beforeEach(() => {
+    stubVenueReads()
+  })
+
+  afterEach(() => {
+    act(() => root?.unmount())
+    container?.remove()
+    root = null
+    container = null
+    viewer = ANONYMOUS
+  })
+
+  it.each<[string, ViewerState, string, boolean]>([
+    ['anonymous', ANONYMOUS, 'Sign in to save', false],
+    [
+      'unsettled',
+      { isAuthenticated: false, user: null, authStatus: 'pending' },
+      'Save show',
+      true,
+    ],
+    [
+      'signed in',
+      { isAuthenticated: true, user: { id: '1' }, authStatus: 'authenticated' },
+      'Save show',
+      false,
+    ],
+  ])(
+    'serves the control in the HTML and hydrates it unchanged (%s viewer)',
+    async (_name, state, accessibleName, disabled) => {
+      viewer = state
+      upcomingFetchMock.mockImplementation(async () =>
+        upcomingResponse([futureShow()])
+      )
+      const states = boundaryStatesOf(await renderPage())
+
+      const html = renderToString(upcomingListUnder(states, testClient()))
+      container = document.createElement('div')
+      container.innerHTML = html
+      document.body.appendChild(container)
+      const control = container.querySelector(
+        'table[aria-label="Upcoming shows"] tbody tr td:last-child button'
+      )
+      expect(control?.getAttribute('aria-label')).toBe(accessibleName)
+      expect(control?.textContent).toBe('Save')
+      expect(control?.hasAttribute('disabled')).toBe(disabled)
+
+      const hydrationErrors: unknown[] = []
+      const consoleError = vi
+        .spyOn(console, 'error')
+        .mockImplementation((...args) => hydrationErrors.push(args))
+      try {
+        await act(async () => {
+          root = hydrateRoot(
+            container!,
+            upcomingListUnder(states, testClient()),
+            { onRecoverableError: error => hydrationErrors.push(error) }
+          )
+        })
+      } finally {
+        consoleError.mockRestore()
+      }
+      expect(hydrationErrors).toEqual([])
+    }
+  )
 })

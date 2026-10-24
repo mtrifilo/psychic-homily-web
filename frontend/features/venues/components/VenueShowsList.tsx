@@ -10,6 +10,7 @@ import { useVenueShows } from '../hooks/useVenues'
 import { VENUE_UPCOMING_SHOWS_REQUEST } from '../api'
 import { VenuePastShows } from './VenuePastShows'
 import { VenueShowsTable } from './VenueShowsTable'
+import { useShowSaveColumn } from '@/features/shows/components/ShowSaveColumn'
 import type { VenueShowYearsResponse, VenueShowZone } from '../types'
 
 interface VenueShowsListProps {
@@ -78,8 +79,12 @@ export function VenueShowsList({
   // than the pager's own "Showing 51-100 of 161" claims, and `total` and the
   // year histogram would still count what the page dropped. The Atlas venue
   // panel still dedups because it fetches one unpaged page.
-  const upcomingShows = upcoming.data?.shows ?? []
+  const upcomingShows = useMemo(
+    () => upcoming.data?.shows ?? [],
+    [upcoming.data?.shows]
+  )
   const upcomingTotal = upcoming.data?.total ?? upcomingShows.length
+  const saveColumn = useShowSaveColumn(upcomingShows)
   // Stable identity so `VenueShowsTable`'s memos key on it cleanly. This
   // section does not group by month (that is the past archive's treatment), so
   // nothing expensive hangs off it here — it is kept stable to match the past
@@ -123,6 +128,7 @@ export function VenueShowsList({
               shows={upcomingShows}
               zone={zone}
               ariaLabel="Upcoming shows"
+              saveColumn={saveColumn}
             />
             {/* Only when the backend cap actually bit. A venue booked further
                 out than `VENUE_UPCOMING_SHOWS_LIMIT` is hypothetical today, but

@@ -13,6 +13,11 @@ import {
   groupByMonth,
   type MonthGroup,
 } from '@/features/shows/showArchive'
+import {
+  ShowSaveCell,
+  ShowSaveHeaderCell,
+  type ShowSaveColumnData,
+} from '@/features/shows/components/ShowSaveColumn'
 import { formatLocation, LOCATION_UNKNOWN } from '@/lib/formatLocation'
 import {
   formatShowDate,
@@ -21,8 +26,11 @@ import {
 import { artistShowZone } from '../showArchive'
 import type { ArtistShow } from '../types'
 
-/** Date, Bill, Price, Time. Group headings must span all of them. */
-const COLUMN_COUNT = 4
+/**
+ * Date, Bill, Price, Time, and Save when the table has a save column. Group
+ * headings must span all of them.
+ */
+const BASE_COLUMN_COUNT = 4
 
 /** Stands in for a value nobody has recorded. */
 const ABSENT = EN_DASH
@@ -65,7 +73,13 @@ function VenueContext({ venue }: { venue: ArtistShow['venue'] }) {
   )
 }
 
-function ShowRow({ show }: { show: ArtistShow }) {
+function ShowRow({
+  show,
+  saveColumn,
+}: {
+  show: ArtistShow
+  saveColumn?: ShowSaveColumnData
+}) {
   const zone = artistShowZone(show)
 
   return (
@@ -97,6 +111,7 @@ function ShowRow({ show }: { show: ArtistShow }) {
             count. */}
         {formatShowTime(show.event_date, zone.state, zone.timezone)}
       </td>
+      {saveColumn && <ShowSaveCell showId={show.id} column={saveColumn} />}
     </tr>
   )
 }
@@ -122,6 +137,12 @@ export interface ArtistShowsTableProps {
    * test — it is not a sorting bug to go fix.
    */
   groupByMonthHeadings?: boolean
+  /**
+   * Adds the trailing Save column, from one batched save-count read
+   * (`useShowSaveColumn`). Upcoming rows only: past rows are a record, not a
+   * plan, so the past archive renders without it.
+   */
+  saveColumn?: ShowSaveColumnData
 }
 
 /**
@@ -142,6 +163,7 @@ export function ArtistShowsTable({
   shows,
   ariaLabel,
   groupByMonthHeadings = false,
+  saveColumn,
 }: ArtistShowsTableProps) {
   // `null` is "one ungrouped run", the single representation of not grouping —
   // and the memo matters: grouping resolves a timezone and formats a month per
@@ -163,21 +185,24 @@ export function ArtistShowsTable({
           <th>Bill · Venue</th>
           <th className="text-right">Price</th>
           <th className="text-right">Time</th>
+          {saveColumn && <ShowSaveHeaderCell />}
         </tr>
       </thead>
       <tbody>
         {groups === null
-          ? shows.map(show => <ShowRow key={show.id} show={show} />)
+          ? shows.map(show => (
+              <ShowRow key={show.id} show={show} saveColumn={saveColumn} />
+            ))
           : groups.map((group, index) => (
               // Indexed because a month label is only unique while the rows are
               // in date order, which this component does not get to assume.
               <Fragment key={index}>
                 <DenseTableGroupHeader
                   title={group.label}
-                  colSpan={COLUMN_COUNT}
+                  colSpan={BASE_COLUMN_COUNT + (saveColumn ? 1 : 0)}
                 />
                 {group.rows.map(show => (
-                  <ShowRow key={show.id} show={show} />
+                  <ShowRow key={show.id} show={show} saveColumn={saveColumn} />
                 ))}
               </Fragment>
             ))}
