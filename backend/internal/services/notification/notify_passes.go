@@ -51,17 +51,22 @@ func (p *notifyPassPanic) Unwrap() error {
 // Panics stay fatal to the call: each one is recovered and logged so the
 // remaining passes still run, and the first is re-raised as a *notifyPassPanic
 // once they have. The caller's own recover (GoSafe, the scheduled loop) then
-// handles it as it handles any other panic.
+// handles it as it handles any other panic; a later panic in the same call
+// reaches only the log.
 func runNotifyPasses(showID uint, passes []notifyPass) error {
 	var errs []error
 	var firstPanic *notifyPassPanic
 	for _, p := range passes {
 		panicked, err := runNotifyPass(showID, p)
 		if panicked != nil {
-			log.Printf("notification match: %s pass panicked for show %d: %v\n%s",
-				p.name, showID, panicked.value, panicked.stack)
+			// The re-raised panic carries its own stack, so only the others log one.
 			if firstPanic == nil {
 				firstPanic = panicked
+				log.Printf("notification match: %s pass panicked for show %d: %v (re-raised after the remaining passes)",
+					p.name, showID, panicked.value)
+			} else {
+				log.Printf("notification match: %s pass panicked for show %d: %v\n%s",
+					p.name, showID, panicked.value, panicked.stack)
 			}
 			continue
 		}

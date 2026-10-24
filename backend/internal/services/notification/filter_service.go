@@ -500,10 +500,11 @@ func (s *NotificationFilterService) MatchAndNotify(show *catalogm.Show) error {
 	// that slot.
 	//
 	// Every pass runs even when an earlier one fails or panics. A failed pass
-	// gives up its precedence for this run (the later passes see only the rows
-	// that were written) and its error is returned, so the outbox retries the
-	// show. A retry cannot double-notify: every pass dedups against the log or
-	// claims through a UNIQUE before it delivers.
+	// gives up its precedence for this run: the later passes see only the rows
+	// that were written. Only the filter pass returns an error (the follow
+	// passes log and swallow theirs), and that error is returned so the outbox
+	// retries the show. A retry cannot double-notify: every pass dedups against
+	// the log or claims through a UNIQUE before it delivers.
 	return runNotifyPasses(show.ID, []notifyPass{
 		{name: notifyPassFilter, run: func() error {
 			return s.notifyFilterSubscribers(show, showArtistIDs, showVenueIDs, artistLabelIDs, artistTagIDs)

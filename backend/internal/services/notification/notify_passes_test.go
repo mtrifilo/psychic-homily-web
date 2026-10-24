@@ -97,37 +97,30 @@ func TestNotifyPassPanic_UnwrapIsNilForANonErrorValue(t *testing.T) {
 // INTEGRATION TESTS (NotificationFilterSuite, real Postgres)
 // =============================================================================
 
-// breakFilterQuery makes the filter pass's matching query fail for the rest of
-// the test by renaming a column it selects, then renames it back. A rename
-// keeps the column's constraints and indexes, so the restore is exact.
-func (s *NotificationFilterSuite) breakFilterQuery() {
+// breakFilterQuery makes the filter pass's matching query fail by renaming a
+// column it selects, and returns the function that renames it back. A rename
+// keeps the column's constraints and indexes, so the restore is exact. The
+// restore also runs at test cleanup and is a no-op once it has run.
+func (s *NotificationFilterSuite) breakFilterQuery() (restore func()) {
 	s.Require().NoError(s.db.Exec(
 		`ALTER TABLE notification_filters RENAME COLUMN source TO source_unavailable`).Error)
-	s.T().Cleanup(s.restoreFilterQuery)
-}
-
-// restoreFilterQuery undoes breakFilterQuery. Safe to call more than once.
-func (s *NotificationFilterSuite) restoreFilterQuery() {
-	var renamed int64
-	s.Require().NoError(s.db.Raw(`
-		SELECT count(*) FROM information_schema.columns
-		WHERE table_name = 'notification_filters' AND column_name = 'source_unavailable'`).
-		Scan(&renamed).Error)
-	if renamed == 0 {
-		return
+	restored := false
+	restore = func() {
+		if restored {
+			return
+		}
+		restored = true
+		s.Require().NoError(s.db.Exec(
+			`ALTER TABLE notification_filters RENAME COLUMN source_unavailable TO source`).Error)
 	}
-	s.Require().NoError(s.db.Exec(
-		`ALTER TABLE notification_filters RENAME COLUMN source_unavailable TO source`).Error)
+	s.T().Cleanup(restore)
+	return restore
 }
 
-// requireFilterPassError asserts MatchAndNotify reported the filter pass, and
-// only the filter pass, as failing.
+// requireFilterPassError asserts MatchAndNotify reported the filter pass failing.
 func (s *NotificationFilterSuite) requireFilterPassError(err error) {
 	s.Require().Error(err)
 	s.Contains(err.Error(), notifyPassFilter+" pass: failed to find matching filters")
-	for _, other := range []string{notifyPassArtistFollow, notifyPassVenueFollow, notifyPassSceneFollow} {
-		s.NotContains(err.Error(), other+" pass")
-	}
 }
 
 func (s *NotificationFilterSuite) TestMatchAndNotify_FilterFailureStillAlertsArtistFollowers() {
@@ -184,11 +177,11 @@ func (s *NotificationFilterSuite) TestMatchAndNotify_RetryAfterFilterFailureDoes
 	venueID := s.createTestVenue("Valley Bar")
 	showID := s.createTestShow("Oneida at Valley Bar", []uint{artistID}, []uint{venueID})
 
-	s.breakFilterQuery()
+	restore := s.breakFilterQuery()
 	s.requireFilterPassError(s.svc.MatchAndNotify(s.loadShow(showID)))
 	s.Equal(int64(1), s.inAppAlerts(userID, showID))
 
-	s.restoreFilterQuery()
+	restore()
 	s.Require().NoError(s.svc.MatchAndNotify(s.loadShow(showID)))
 
 	s.Equal(int64(1), s.inAppAlerts(userID, showID))
