@@ -114,6 +114,24 @@ describe('api/[...path] proxy route', () => {
       )
     })
 
+    // The Sign in tab's collision state reads the pending link, and the
+    // password proof posts it to /auth/login, both through this proxy.
+    it.each(['oauth_pending_link', '__Host-oauth_pending_link'])(
+      'forwards the pending Google link cookie %s',
+      async name => {
+        const jar: Record<string, string> = { [name]: 'link-token', unrelated: 'nope' }
+        mockCookies.mockResolvedValue({
+          get: (cookie: string) => (cookie in jar ? { name: cookie, value: jar[cookie] } : undefined),
+        } as unknown as Awaited<ReturnType<typeof cookies>>)
+        fetchSpy.mockResolvedValue(new Response('ok', { status: 200 }))
+
+        await GET(new NextRequest('http://localhost:3000/api/auth/oauth/pending-link'))
+
+        const headers = fetchSpy.mock.calls[0][1]?.headers as Record<string, string>
+        expect(headers['Cookie']).toBe(`${name}=link-token`)
+      }
+    )
+
     it('omits the Cookie header when no auth_token is present', async () => {
       fetchSpy.mockResolvedValue(new Response('ok', { status: 200 }))
 
