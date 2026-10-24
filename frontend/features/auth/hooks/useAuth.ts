@@ -18,6 +18,7 @@ import {
   queryKeys,
   createInvalidateQueries,
   refreshViewerTierQueries,
+  refetchSignedInProfile,
   releaseExpiredSessionLatch,
   resetViewerTierQueries,
 } from '@/lib/queryClient'
@@ -30,8 +31,10 @@ import {
   type AuthErrorCodeType,
 } from '@/lib/errors'
 import type { NavMode } from '@/lib/nav-mode'
+import { forgetAccountCreatedThisSession } from '../accountCreatedMarker'
 import type { AuthApiUser } from '../authUser'
 import type { APIToken } from '../types'
+import type { components } from '@/types/api'
 
 // Types
 interface LoginCredentials {
@@ -143,7 +146,7 @@ interface UserPreferencesData {
   notify_on_edit_notifications?: boolean
 }
 
-interface UserProfile {
+export interface UserProfile {
   success: boolean
   message: string
   error_code?: AuthErrorCodeType
@@ -156,7 +159,15 @@ interface UserProfile {
     created_at: string
     updated_at: string
     preferences?: UserPreferencesData
+    /** The providers the account signs in with. Only `provider` is read. */
+    oauth_accounts?: Pick<components['schemas']['OAuthAccount'], 'provider'>[] | null
   }
+  /**
+   * The account's other sign-in factors. Absent when the backend could not
+   * read them, which is not the same as false and 0.
+   */
+  has_password?: components['schemas']['UserProfileResponseBody']['has_password']
+  passkey_count?: components['schemas']['UserProfileResponseBody']['passkey_count']
 }
 
 interface RefreshTokenResponse {
@@ -198,6 +209,7 @@ export async function refreshCachesForNewSession(queryClient: QueryClient) {
  * panel painting the payload the signed-in viewer could see.
  */
 function dropSignedInCaches(queryClient: QueryClient) {
+  forgetAccountCreatedThisSession()
   void resetViewerTierQueries(queryClient)
   // HTTP-only cookie is cleared by the server; drop everything else the
   // signed-in viewer could see.
@@ -1250,7 +1262,9 @@ export const useDeletePasskey = () => {
     },
     onSettled: () => {
       // Reconcile with server truth after the mutation resolves either way.
+      // The profile carries the passkey count, so it is refetched too.
       void refetchAfterMutation(queryClient, queryKeys.passkeys.credentials)
+      void refetchSignedInProfile(queryClient)
     },
   })
 }

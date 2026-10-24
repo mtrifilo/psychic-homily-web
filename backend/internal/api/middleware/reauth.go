@@ -100,7 +100,7 @@ func ReauthFactorFor(hasPassword, hasPasskey bool, sessionAuthenticatedAt, now t
 
 // AccountHasPassword reports whether user can be challenged for a password.
 func AccountHasPassword(user *authm.User) bool {
-	return user != nil && user.PasswordHash != nil && *user.PasswordHash != ""
+	return user.HasPassword()
 }
 
 // ReauthRequiredError is the refusal a credential mint answers with when the

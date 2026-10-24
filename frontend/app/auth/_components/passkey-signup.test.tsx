@@ -35,6 +35,10 @@ import {
 } from './date-of-birth-field'
 
 const mockSetUser = vi.fn()
+const mockMarkAccountCreated = vi.fn()
+vi.mock('@/features/auth/accountCreatedMarker', () => ({
+  markAccountCreatedThisSession: (...args: unknown[]) => mockMarkAccountCreated(...args),
+}))
 const mockOnHandoffChange = vi.fn()
 const mockOnDeadlineExpire = vi.fn()
 const mockOnError = vi.fn()
@@ -62,6 +66,7 @@ vi.mock('@/lib/api-base', async (importOriginal) => ({
 describe('PasskeySignupButton', () => {
   beforeEach(() => {
     mockSetUser.mockReset()
+    mockMarkAccountCreated.mockReset()
     mockOnHandoffChange.mockReset()
     mockOnDeadlineExpire.mockReset()
     mockOnError.mockReset()
@@ -195,6 +200,7 @@ describe('PasskeySignupButton', () => {
     expect(mockSetUser).toHaveBeenCalledWith(
       expect.objectContaining({ id: 100, email: 'signup@example.com' })
     )
+    expect(mockMarkAccountCreated).toHaveBeenCalledWith(100)
     await waitFor(() => {
       expect(
         screen.queryByRole('dialog', { name: 'Create account with passkey' })
@@ -221,6 +227,7 @@ describe('PasskeySignupButton', () => {
       [null],
     ])
     expect(mockSetUser).not.toHaveBeenCalled()
+    expect(mockMarkAccountCreated).not.toHaveBeenCalled()
   })
 
   it('releases its claim and reports the error when finish is refused', async () => {

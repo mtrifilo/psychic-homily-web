@@ -1,0 +1,104 @@
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
+import { render, screen } from '@testing-library/react'
+import { renderToString } from 'react-dom/server'
+import {
+  markAccountCreatedThisSession,
+  forgetAccountCreatedThisSession,
+  useAccountCreatedThisSession,
+} from './accountCreatedMarker'
+
+function Probe({ userId }: { userId: string }) {
+  return <p>{useAccountCreatedThisSession(userId) ? 'new' : 'returning'}</p>
+}
+
+beforeEach(() => {
+  window.sessionStorage.clear()
+  forgetAccountCreatedThisSession()
+})
+
+afterEach(() => {
+  vi.restoreAllMocks()
+})
+
+describe('the account-created marker', () => {
+  it('answers false on the server, which cannot read the tab', () => {
+    markAccountCreatedThisSession(42)
+
+    expect(renderToString(<Probe userId="42" />)).toContain('returning')
+  })
+
+  it('corrects to true one commit after hydrating server HTML that said false', async () => {
+    markAccountCreatedThisSession(42)
+    const container = document.createElement('div')
+    container.innerHTML = renderToString(<Probe userId="42" />)
+    document.body.appendChild(container)
+
+    render(<Probe userId="42" />, { container, hydrate: true })
+
+    expect(await screen.findByText('new')).toBeInTheDocument()
+    container.remove()
+  })
+
+  it('names the account a later sign-up in the same page created', () => {
+    const { unmount } = render(<Probe userId="42" />)
+    expect(screen.getByText('returning')).toBeInTheDocument()
+    unmount()
+
+    // A viewer who signs out and creates an account without a reload.
+    markAccountCreatedThisSession(43)
+    render(<Probe userId="43" />)
+    expect(screen.getByText('new')).toBeInTheDocument()
+  })
+
+  it('does not name a different account than the one the sign-up created', () => {
+    markAccountCreatedThisSession(7)
+    render(<Probe userId="42" />)
+
+    expect(screen.getByText('returning')).toBeInTheDocument()
+  })
+
+  it('is read once: cleared from storage, and gone after a reload', () => {
+    markAccountCreatedThisSession(42)
+    const { unmount } = render(<Probe userId="42" />)
+    expect(screen.getByText('new')).toBeInTheDocument()
+    expect(window.sessionStorage.length).toBe(0)
+    unmount()
+
+    // A reload starts the module over with storage already cleared.
+    forgetAccountCreatedThisSession()
+    render(<Probe userId="42" />)
+    expect(screen.getByText('returning')).toBeInTheDocument()
+  })
+
+  it('is forgotten when the session ends, read or not', () => {
+    markAccountCreatedThisSession(42)
+    forgetAccountCreatedThisSession()
+
+    expect(window.sessionStorage.length).toBe(0)
+    render(<Probe userId="42" />)
+    expect(screen.getByText('returning')).toBeInTheDocument()
+  })
+
+  it('records nothing for an absent id', () => {
+    markAccountCreatedThisSession('')
+
+    expect(window.sessionStorage.length).toBe(0)
+  })
+
+  it('reads unavailable storage as no marker', () => {
+    vi.spyOn(Storage.prototype, 'getItem').mockImplementation(() => {
+      throw new Error('SecurityError')
+    })
+    render(<Probe userId="42" />)
+
+    expect(screen.getByText('returning')).toBeInTheDocument()
+  })
+
+  it('survives storage that refuses the write', () => {
+    vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+      throw new Error('QuotaExceededError')
+    })
+
+    expect(() => markAccountCreatedThisSession(42)).not.toThrow()
+  })
+})

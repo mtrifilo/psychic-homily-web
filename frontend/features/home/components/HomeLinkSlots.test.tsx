@@ -69,6 +69,9 @@ vi.mock('@/features/shows/hooks/useHomeShowCitySelection', () => ({
   }),
 }))
 
+// The passkey offer reads the profile query and owns no link slot.
+vi.mock('./PasskeyOfferCard', () => ({ PasskeyOfferCard: () => null }))
+
 vi.mock('@/features/shows/components/HomeShowListView', () => ({
   HomeShowListView: () => <div data-testid="home-show-list" />,
 }))

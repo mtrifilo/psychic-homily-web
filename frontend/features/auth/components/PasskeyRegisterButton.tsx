@@ -1,6 +1,7 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, type ComponentProps } from 'react'
+import { useQueryClient } from '@tanstack/react-query'
 import * as Sentry from '@sentry/nextjs'
 import { startRegistration } from '@simplewebauthn/browser'
 import { Fingerprint, Loader2 } from 'lucide-react'
@@ -18,9 +19,10 @@ import {
 } from '@/components/ui/dialog'
 import { useWebAuthnSupport } from '@/features/auth/hooks/useWebAuthnSupport'
 import { registrationOptionsFrom } from '@/features/auth/passkeyOptions'
-import { AuthError, type AuthErrorCodeType } from '@/lib/errors'
+import { AuthError, isReauthRequired, type AuthErrorCodeType } from '@/lib/errors'
 import type { components } from '@/types/api'
 import { API_BASE_URL } from '@/lib/api-base'
+import { refetchSignedInProfile } from '@/lib/queryClient'
 
 type BeginRegisterResponse = components['schemas']['BeginRegisterResponseBody']
 type FinishRegisterResponse = components['schemas']['FinishRegisterResponseBody']
@@ -34,6 +36,8 @@ interface PasskeyRegisterButtonProps {
    */
   onError?: (error: unknown) => void
   className?: string
+  /** The trigger's button variant. The dialog it opens is the same for all. */
+  variant?: ComponentProps<typeof Button>['variant']
 }
 
 /**
@@ -72,12 +76,18 @@ async function readRegistrationResponse<
   }
 }
 
-export function PasskeyRegisterButton({ onSuccess, onError, className }: PasskeyRegisterButtonProps) {
+export function PasskeyRegisterButton({
+  onSuccess,
+  onError,
+  className,
+  variant = 'outline',
+}: PasskeyRegisterButtonProps) {
   const [isOpen, setIsOpen] = useState(false)
   const [isLoading, setIsLoading] = useState(false)
   const [displayName, setDisplayName] = useState('')
 
   const supportsWebAuthn = useWebAuthnSupport()
+  const queryClient = useQueryClient()
 
   const handleRegister = async () => {
     if (!supportsWebAuthn) {
@@ -128,9 +138,11 @@ export function PasskeyRegisterButton({ onSuccess, onError, className }: Passkey
       )
       if (!finish.ok) throw finish.error
 
-      // Success
+      // Success. The profile carries the account's passkey count, so every
+      // surface that reads it sees the new passkey.
       setIsOpen(false)
       setDisplayName('')
+      void refetchSignedInProfile(queryClient)
       onSuccess?.()
     } catch (error) {
       if (error instanceof Error) {
@@ -142,6 +154,9 @@ export function PasskeyRegisterButton({ onSuccess, onError, className }: Passkey
           level: 'error',
           tags: { service: 'passkey-auth', error_type: 'registration_failed' },
         })
+        // The remedy for this refusal is a link the caller renders on its own
+        // surface, which the open dialog would cover.
+        if (isReauthRequired(error)) setIsOpen(false)
         onError?.(error)
       } else {
         Sentry.captureException(error, {
@@ -162,7 +177,7 @@ export function PasskeyRegisterButton({ onSuccess, onError, className }: Passkey
   return (
     <Dialog open={isOpen} onOpenChange={setIsOpen}>
       <DialogTrigger asChild>
-        <Button variant="outline" size="sm" className={className}>
+        <Button variant={variant} size="sm" className={className}>
           Add passkey
         </Button>
       </DialogTrigger>

@@ -16151,11 +16151,18 @@ export interface components {
              * @example UNAUTHORIZED
              */
             error_code?: string;
+            /** @description Whether the account has a password set. Omitted when the profile could not read it. */
+            has_password?: boolean;
             /**
              * @description Response message
              * @example Profile retrieved
              */
             message: string;
+            /**
+             * Format: int64
+             * @description How many passkeys the account holds. Omitted when the profile could not read it.
+             */
+            passkey_count?: number;
             /**
              * @description Request ID for debugging
              * @example 550e8400-e29b-41d4-a716-446655440000

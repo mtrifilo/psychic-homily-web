@@ -52,6 +52,7 @@ import {
   isAccountRecoverableRefusal,
   isReauthReason,
 } from '@/lib/auth-href'
+import { markAccountCreatedThisSession } from '@/features/auth/accountCreatedMarker'
 import {
   AuthErrorCode,
   isAccountRecoverable,
@@ -494,6 +495,7 @@ function SignupForm({
       }
 
       setUser(data.user)
+      markAccountCreatedThisSession(data.user.id)
       settlePasswordClaim({
         status: 'complete',
         email: data.user.email || variables.email,

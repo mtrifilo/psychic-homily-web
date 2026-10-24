@@ -35,6 +35,7 @@ vi.mock('@/lib/api', () => ({
       RECOVER_ACCOUNT_REQUEST: '/auth/recover-account/request',
       RECOVER_ACCOUNT_CONFIRM: '/auth/recover-account/confirm',
       CLI_TOKEN: '/auth/cli-token',
+      PASSKEY_CREDENTIAL: (id: number) => `/auth/passkey/credentials/${id}`,
     },
     ADMIN: {
       TOKENS: {
@@ -64,6 +65,7 @@ vi.mock('@/lib/utils/authLogger', () => ({
 }))
 
 const mockReleaseExpiredSessionLatch = vi.fn()
+const mockRefetchSignedInProfile = vi.fn()
 
 // Mock queryClient module
 vi.mock('@/lib/queryClient', () => ({
@@ -71,7 +73,12 @@ vi.mock('@/lib/queryClient', () => ({
     auth: {
       profile: ['auth', 'profile'],
     },
+    passkeys: {
+      credentials: ['passkeys', 'credentials'],
+    },
   },
+  refetchSignedInProfile: (...args: unknown[]) =>
+    mockRefetchSignedInProfile(...args),
   createInvalidateQueries: () => ({
     auth: mockInvalidateAuth,
   }),
@@ -110,6 +117,7 @@ import {
   useRecoverAccount,
   useRequestAccountRecovery,
   useConfirmAccountRecovery,
+  useDeletePasskey,
 } from './useAuth'
 
 
@@ -1439,6 +1447,25 @@ describe('useAuth hooks', () => {
 
       await waitFor(() => expect(result.current.isError).toBe(true))
       expect(result.current.data).toBeUndefined()
+    })
+  })
+
+  describe('useDeletePasskey', () => {
+    it.each([
+      ['succeeds', { success: true, message: 'Deleted' }],
+      ['is refused', { success: false, message: 'Failed to delete passkey' }],
+    ])('refetches the profile, which carries the passkey count, when the delete %s', async (_label, answer) => {
+      mockApiRequest.mockResolvedValueOnce(answer)
+
+      const { result } = renderHook(() => useDeletePasskey(), {
+        wrapper: createWrapper(),
+      })
+
+      await act(async () => {
+        await result.current.mutateAsync(5).catch(() => {})
+      })
+
+      await waitFor(() => expect(mockRefetchSignedInProfile).toHaveBeenCalledTimes(1))
     })
   })
 

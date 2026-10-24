@@ -2,6 +2,10 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import Link from 'next/link'
 import { SavedShowsModule } from './SavedShowsModule'
+import {
+  markAccountCreatedThisSession,
+  forgetAccountCreatedThisSession,
+} from '@/features/auth/accountCreatedMarker'
 import type { SavedShowResponse } from '@/features/shows/types'
 import type { HomeCityLinkSlot, HomeDiscoverLinksSlot } from '../sections'
 
@@ -85,6 +89,8 @@ function savedShow(
 }
 
 beforeEach(() => {
+  window.sessionStorage.clear()
+  forgetAccountCreatedThisSession()
   mockAuthStatus.mockReturnValue('authenticated')
   mockUseShowSaveCountBatch.mockReturnValue({ data: undefined })
   mockCityLinkSlot.mockReturnValue('nearby')
@@ -460,5 +466,35 @@ describe('SavedShowsModule saved-state and viewer transitions', () => {
         ).not.toBeInTheDocument()
       }
     )
+  })
+
+  describe('the eyebrow', () => {
+    beforeEach(() => {
+      mockUseSavedShows.mockReturnValue({
+        data: { shows: [], total: 0 },
+        isPending: false,
+        error: null,
+      })
+    })
+
+    it('welcomes back an account that was not created in this tab', () => {
+      render(<SavedShowsModule nearbySectionId="nearby" />)
+
+      expect(screen.getByText('Welcome back')).toBeInTheDocument()
+      expect(screen.queryByText('Welcome')).not.toBeInTheDocument()
+    })
+
+    it('welcomes an account a sign-up in this tab just created, for the rest of the page', () => {
+      markAccountCreatedThisSession(42)
+      const { unmount } = render(<SavedShowsModule nearbySectionId="nearby" />)
+
+      expect(screen.getByText('Welcome')).toBeInTheDocument()
+      expect(screen.queryByText('Welcome back')).not.toBeInTheDocument()
+      // Read once: storage is cleared, and the answer holds for this page.
+      expect(window.sessionStorage.length).toBe(0)
+      unmount()
+      render(<SavedShowsModule nearbySectionId="nearby" />)
+      expect(screen.getByText('Welcome')).toBeInTheDocument()
+    })
   })
 })

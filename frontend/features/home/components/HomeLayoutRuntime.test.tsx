@@ -49,6 +49,16 @@ vi.mock('./HomeCityShowsLink', async importOriginal => ({
   ),
 }))
 
+// The card's own eligibility is PasskeyOfferCard.test.tsx's; here it stands
+// in so the test can place it.
+vi.mock('./PasskeyOfferCard', () => ({
+  PasskeyOfferCard: ({ onLeave }: { onLeave?: () => void }) => (
+    <button type="button" data-testid="passkey-offer" onClick={onLeave}>
+      Not now
+    </button>
+  ),
+}))
+
 const SECTIONS = {
   saved_shows: <div data-testid="section">saved_shows</div>,
   nearby_shows: <div data-testid="section">nearby_shows</div>,
@@ -69,6 +79,31 @@ beforeEach(() => {
 })
 
 describe('HomeLayoutRuntime', () => {
+  it('hands focus to the page heading when the passkey offer leaves', async () => {
+    const user = userEvent.setup()
+    render(<HomeLayoutRuntime initialLayout={null} sections={SECTIONS} />)
+
+    await user.click(screen.getByTestId('passkey-offer'))
+
+    expect(screen.getByRole('heading', { level: 1, name: 'Home' })).toHaveFocus()
+  })
+
+  it('places the passkey offer under the toolbar and above the first section, even with saved shows hidden', () => {
+    layout = setHomeSectionVisibility(resolveHomeLayout(null), 'saved_shows', false)
+    render(<HomeLayoutRuntime initialLayout={null} sections={SECTIONS} />)
+
+    const toolbarButton = screen.getByRole('button', { name: /customize home/i })
+    const offer = screen.getByTestId('passkey-offer')
+    const firstSection = screen.getAllByTestId('section')[0]
+    expect(firstSection).toHaveTextContent('nearby_shows')
+    expect(
+      toolbarButton.compareDocumentPosition(offer) & Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy()
+    expect(
+      offer.compareDocumentPosition(firstSection) & Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy()
+  })
+
   it('renders the toolbar and the shipped order', () => {
     render(<HomeLayoutRuntime initialLayout={null} sections={SECTIONS} />)
 

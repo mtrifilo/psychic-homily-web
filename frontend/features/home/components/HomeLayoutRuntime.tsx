@@ -25,6 +25,7 @@ import {
 import { CustomizeHomeToolbar } from './CustomizeHomeToolbar'
 import { HomeDiscoverLinks } from './HomeDiscoverLinks'
 import { HomeLinkSlotsProvider } from './HomeLinkSlots'
+import { PasskeyOfferCard } from './PasskeyOfferCard'
 import {
   SAVE_FAILED_MESSAGE,
   type HomeVisibilityChange,
@@ -58,6 +59,14 @@ export function HomeLayoutRuntime({
   const { sections: layout } = useHomeLayout(initialLayout)
   const hasWriteFailed = useHomeLayoutWriteFailed()
   const [isPopoverOpen, setPopoverOpen] = useState(false)
+  const headingRef = useRef<HTMLHeadingElement>(null)
+  // Counts the passkey offer's exits. Focus moves in an effect, after the
+  // commit that removed the card: a modal the card opened still traps focus
+  // until that commit, and would pull a focus moved any earlier back inside.
+  const [offerExits, setOfferExits] = useState(0)
+  useEffect(() => {
+    if (offerExits > 0) headingRef.current?.focus()
+  }, [offerExits])
 
   // The server picked this variant from the viewer's cookie; signing out
   // without navigating leaves it mounted. This guard lives HERE, on the shell
@@ -151,7 +160,9 @@ export function HomeLayoutRuntime({
         {/* The page's only h1, deliberately outside the sections: every one of
             them is hideable, so a heading that lived in one would take the
             document's top-level heading with it. */}
-        <h1 className="sr-only">Home</h1>
+        <h1 ref={headingRef} tabIndex={-1} className="sr-only">
+          Home
+        </h1>
 
         <CustomizeHomeToolbar
           open={isPopoverOpen}
@@ -169,6 +180,12 @@ export function HomeLayoutRuntime({
             <InlineErrorBanner>{SAVE_FAILED_MESSAGE}</InlineErrorBanner>
           </div>
         )}
+
+        {/* Above every section, not inside one: the sections are hideable and
+            reorderable, and the offer must not move or vanish with them. */}
+        {/* Focus goes to the page heading when the card leaves, so a keyboard
+            viewer continues from the top of the home, not from the document. */}
+        <PasskeyOfferCard onLeave={() => setOfferExits(count => count + 1)} />
 
         {allHidden ? (
           <div className="mt-6 flex flex-col gap-2">

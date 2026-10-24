@@ -25,6 +25,7 @@ import {
   refreshCachesForNewSession,
   type AuthResponse,
 } from '@/features/auth/hooks/useAuth'
+import { markAccountCreatedThisSession } from '@/features/auth/accountCreatedMarker'
 import { useWebAuthnSupport } from '@/features/auth/hooks/useWebAuthnSupport'
 import {
   ConsentVersionsChangedError,
@@ -272,6 +273,7 @@ export function PasskeySignupButton({
       }
 
       setUser(finishData.user)
+      markAccountCreatedThisSession(finishData.user.id)
       setDialogOpen(false)
       onHandoffChange({
         status: 'complete',
