@@ -214,7 +214,9 @@ export function buildReauthHref(returnTo: string): string {
  * parameter spelled out anywhere else. The auth page opens on Create account when it
  * carries a listed value, unless the arrival is a re-authentication. Every
  * other route into the page (the header link, the mobile Account sheet, a route
- * guard, `SignInPrompt`, a re-auth link) names no intent and opens on Sign in.
+ * guard, `SignInPrompt`, a re-auth link) names no intent and opens on Sign in,
+ * except the home hero's sign-up nudge, which asks for Create account through
+ * `AUTH_TAB_PARAM` instead.
  *
  * The value names a kind of action, never its target, so it is enough to
  * choose a tab and not enough to repeat the action.
@@ -244,6 +246,38 @@ export function hasGatedIntent(searchParams: {
 }): boolean {
   const raw = searchParams.get(AUTH_INTENT_PARAM)
   return raw !== null && (AUTH_INTENTS as readonly string[]).includes(raw)
+}
+
+/**
+ * The query parameter that asks the auth page to open on Create account for a
+ * reader who followed a link labelled as signing up, and the one value it
+ * accepts.
+ *
+ * Unexported: `buildSignupTabAuthHref` writes it and `hasSignupTab` reads it,
+ * and `authGateOwnership.test.ts` pins the home hero's sign-up nudge as the
+ * only module outside this one that builds it. Like `intent`, it chooses a
+ * tab and nothing else, and a re-authentication still opens on Sign in.
+ */
+const AUTH_TAB_PARAM = 'tab'
+const SIGNUP_TAB = 'signup'
+
+/**
+ * The auth-page href for the home hero's sign-up nudge: Create account, with
+ * no `returnTo`, because the hero renders only on `/` and `sanitizeReturnTo`
+ * discards a returnTo naming the site root.
+ */
+export function buildSignupTabAuthHref(): string {
+  return appendAuthParam(AUTH_PATH, AUTH_TAB_PARAM, SIGNUP_TAB)
+}
+
+/**
+ * Does this auth-page URL ask for the Create account tab? Only the exact
+ * value `signup` does; any other value, or none, is ignored.
+ */
+export function hasSignupTab(searchParams: {
+  get: (name: string) => string | null
+}): boolean {
+  return searchParams.get(AUTH_TAB_PARAM) === SIGNUP_TAB
 }
 
 /**

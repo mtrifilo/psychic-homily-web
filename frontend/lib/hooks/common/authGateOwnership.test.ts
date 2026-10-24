@@ -34,6 +34,15 @@ import { join, relative, sep } from 'node:path'
  * `intent` parameter of its own is added to it deliberately. A helper added
  * inside `lib/auth-href.ts` that wraps `buildGatedAuthHref` is not caught.
  *
+ * The `tab=signup` parameter, the other arrival that opens Create account,
+ * belongs to the home hero's sign-up nudge alone:
+ *   - `buildSignupTabAuthHref`: `lib/auth-href.ts` and `HomeHero.tsx`
+ *   - `AUTH_TAB_PARAM`: `lib/auth-href.ts` (it is also unexported)
+ *   - the value spelled out, as `?tab=signup` / `&tab=signup` or as a quoted
+ *     `'tab', 'signup'` pair: nowhere, since `lib/auth-href.ts` builds it from
+ *     its constants. Other routes' own `?tab=` values are not caught, and
+ *     neither is a pair split across two statements.
+ *
  * The pending half of the rule cannot be caught by grep (a component may read
  * `authStatus === 'pending'` for perfectly good rendering reasons), so it is
  * pinned by `useAuthGatedAction.test.tsx` and `useAuthRouteGuard.test.tsx`
@@ -141,6 +150,13 @@ const GATED_INTENT_SETTERS = [
   'lib/hooks/common/useAuthGatedAction.ts',
 ].map(p => p.split('/').join(sep))
 
+// The only files that may name the sign-up-tab builder: its definition and
+// the home hero's sign-up nudge.
+const SIGNUP_TAB_SETTERS = [
+  'features/home/components/HomeHero.tsx',
+  'lib/auth-href.ts',
+].map(p => p.split('/').join(sep))
+
 describe('auth gate ownership', () => {
   it('has exactly one builder for the /auth?returnTo= href', () => {
     // Compose the href through `buildAuthHref`, and get the destination from
@@ -175,6 +191,24 @@ describe('auth gate ownership', () => {
     expect(filesMatching(/\bAUTH_INTENT_PARAM\b/)).toEqual([
       ['lib', 'auth-href.ts'].join(sep),
     ])
+  })
+
+  it('builds the sign-up-tab href in the home hero and nowhere else', () => {
+    expect(filesMatching(/\bbuildSignupTabAuthHref\b/)).toEqual(
+      SIGNUP_TAB_SETTERS
+    )
+  })
+
+  it('keeps the tab parameter name inside the module that owns it', () => {
+    expect(filesMatching(/\bAUTH_TAB_PARAM\b/)).toEqual([
+      ['lib', 'auth-href.ts'].join(sep),
+    ])
+  })
+
+  it('spells the sign-up tab value nowhere', () => {
+    expect(
+      filesMatching(/[?&]tab=signup\b|['"`]tab['"`]\s*,\s*['"`]signup['"`]/)
+    ).toEqual([])
   })
 
   it('spells the intent parameter nowhere but the module that owns it', () => {

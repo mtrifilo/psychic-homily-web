@@ -59,6 +59,7 @@ import {
   AUTH_ERROR_PARAM,
   AUTH_REASON_PARAM,
   hasGatedIntent,
+  hasSignupTab,
   isAccountRecoverableRefusal,
   isReauthReason,
 } from '@/lib/auth-href'
@@ -894,9 +895,10 @@ function AuthPageContent() {
   const isReauth = isReauthReason(reason)
   const isAccountInactive = reason === ACCOUNT_INACTIVE_REASON
 
-  // One arrival opens on Create account: a gated control naming the action it
-  // refused an anonymous viewer. Every other route in opens on Sign in,
-  // re-auth included.
+  // Two arrivals open on Create account: a gated control naming the action it
+  // refused an anonymous viewer, and the home hero's sign-up nudge asking for
+  // that tab. Every other route in opens on Sign in, and a re-auth opens on
+  // Sign in whatever else it carries.
   //
   // The default belongs to the arrival, not to the mount. Neither a
   // navigation that only changes the query string nor leaving and coming back
@@ -906,7 +908,8 @@ function AuthPageContent() {
   // page has not been hidden since (the effect below drops it on hide). Tab
   // changes are never written back to the URL.
   const arrival = searchParams.toString()
-  const arrivalTab = hasGatedIntent(searchParams) && !isReauth ? 'signup' : 'login'
+  const asksForSignup = hasGatedIntent(searchParams) || hasSignupTab(searchParams)
+  const arrivalTab = asksForSignup && !isReauth ? 'signup' : 'login'
   const [pickedTab, setPickedTab] = useState<{
     arrival: string
     tab: string

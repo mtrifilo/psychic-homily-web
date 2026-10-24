@@ -174,19 +174,6 @@ describe('AuthPage', () => {
       expect(mockPush).not.toHaveBeenCalled()
       expect(mockReplace).not.toHaveBeenCalled()
     })
-
-    it('does not honor ?tab=signup as an initial-tab hint (param is inert)', () => {
-      // The page never reads ?tab, so ?tab=signup has no effect; the only
-      // arrival that opens Create account is a gated control's intent.
-      setSearchParams('tab=signup')
-      renderWithProviders(<AuthPage />)
-
-      expect(screen.getByRole('tab', { name: 'Sign in' })).toHaveAttribute(
-        'aria-selected',
-        'true'
-      )
-      expect(screen.getByText('Sign in to your account')).toBeInTheDocument()
-    })
   })
 
   // A gated control names the action it refused. That arrival, and only that
@@ -427,6 +414,92 @@ describe('AuthPage', () => {
       expect(
         screen.queryByRole('heading', { name: 'Never miss a show.' })
       ).not.toBeInTheDocument()
+    })
+
+    describe('the home hero sign-up nudge', () => {
+      it('opens on Create account, with its account ledger, for a visitor with no session', () => {
+        setSearchParams('tab=signup')
+        renderWithProviders(<AuthPage />)
+
+        expectSelected('Create account')
+        expect(
+          screen.getByRole('heading', { name: 'Never miss a show.' })
+        ).toBeInTheDocument()
+        expect(screen.getByTestId('passkey-signup')).toBeInTheDocument()
+        expect(screen.queryByTestId('passkey-login')).not.toBeInTheDocument()
+      })
+
+      it('opens on Create account alongside a returnTo', () => {
+        setSearchParams('returnTo=%2Fshows&tab=signup')
+        renderWithProviders(<AuthPage />)
+
+        expectSelected('Create account')
+      })
+
+      // The value edge cases are pinned on `hasSignupTab` itself; these prove
+      // the page goes through it.
+      it.each(['tab=bogus', 'tab=SIGNUP', 'tab=login', 'returnTo=%2Fshows&tab=settings'])(
+        'ignores %s and opens on Sign in, as a bare arrival does',
+        query => {
+          setSearchParams(query)
+          renderWithProviders(<AuthPage />)
+
+          expectSelected('Sign in')
+          expect(screen.getByText('Sign in to your account')).toBeInTheDocument()
+        }
+      )
+
+      it('keeps Sign in one click away, without navigating', async () => {
+        const user = userEvent.setup()
+        setSearchParams('tab=signup')
+        renderWithProviders(<AuthPage />)
+
+        await user.click(screen.getByRole('tab', { name: 'Sign in' }))
+
+        expectSelected('Sign in')
+        expect(mockPush).not.toHaveBeenCalled()
+        expect(mockReplace).not.toHaveBeenCalled()
+      })
+
+      it('sends a signed-in visitor on, as any other arrival does', async () => {
+        mockAuthState = { setUser: vi.fn(), authStatus: 'authenticated' }
+        setSearchParams('tab=signup')
+        renderWithProviders(<AuthPage />)
+
+        await waitFor(() => expect(mockPush).toHaveBeenCalledWith('/'))
+        expect(screen.queryByRole('tab', { name: 'Create account' })).toBeNull()
+        expect(screen.queryByTestId('passkey-signup')).not.toBeInTheDocument()
+      })
+
+      it('opens a signed-out re-auth link on Sign in, Create account offered', () => {
+        setSearchParams(
+          'returnTo=%2Fprofile&reason=OAUTH_LINK_REAUTH_REQUIRED&tab=signup'
+        )
+        renderWithProviders(<AuthPage />)
+
+        expectSelected('Sign in')
+        expect(
+          screen.queryByRole('heading', { name: 'Never miss a show.' })
+        ).not.toBeInTheDocument()
+      })
+
+      it('opens a signed-in re-auth on Sign in alone', async () => {
+        mockAuthState = { setUser: vi.fn(), authStatus: 'authenticated' }
+        setSearchParams(
+          'returnTo=%2Fprofile&reason=OAUTH_LINK_REAUTH_REQUIRED&tab=signup'
+        )
+        renderWithProviders(<AuthPage />)
+
+        await screen.findByText("Confirm it's you")
+        expect(screen.getByRole('tab', { name: 'Sign in' })).toHaveAttribute(
+          'aria-selected',
+          'true'
+        )
+        expect(
+          screen.queryByRole('tab', { name: /create account/i })
+        ).not.toBeInTheDocument()
+        expect(mockPush).not.toHaveBeenCalled()
+      })
     })
 
     it('opens on Sign in for a re-authentication even when an intent is present', async () => {
