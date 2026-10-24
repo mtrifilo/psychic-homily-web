@@ -52,10 +52,10 @@ interface PasskeySignupButtonProps {
   onError?: (error: string) => void
   /**
    * Reports this sign-up's claim on the page: `pending` before the request
-   * that creates the session goes out, `complete` once the session is set
-   * (this button's dialog closes at the same time), and `null` when the
-   * attempt fails after claiming. What follows a completed sign-up, and the
-   * navigation after it, belong to the page.
+   * that creates the session goes out, `complete` at its first step once the
+   * session is set (this button's dialog closes at the same time), and `null`
+   * when the attempt fails after claiming. The steps after the first, and the
+   * navigation after them, belong to the page.
    */
   onHandoffChange: (handoff: SignupHandoff | null) => void
   /**
@@ -220,6 +220,7 @@ export function PasskeySignupButton({
         status: 'complete',
         email: finishData.user.email || email,
         method: 'passkey',
+        step: 'backup-prompt',
       })
 
       // This path establishes a session with a raw fetch rather than the

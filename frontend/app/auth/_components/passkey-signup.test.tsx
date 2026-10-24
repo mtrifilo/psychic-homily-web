@@ -163,7 +163,14 @@ describe('PasskeySignupButton', () => {
     })
     expect(mockOnHandoffChange.mock.calls).toEqual([
       [{ status: 'pending', email: 'signup@example.com' }],
-      [{ status: 'complete', email: 'signup@example.com', method: 'passkey' }],
+      [
+        {
+          status: 'complete',
+          email: 'signup@example.com',
+          method: 'passkey',
+          step: 'backup-prompt',
+        },
+      ],
     ])
     expect(mockSetUser).toHaveBeenCalledWith(
       expect.objectContaining({ id: 100, email: 'signup@example.com' })
@@ -426,7 +433,14 @@ describe('PasskeySignupButton', () => {
       expect(requestSignal(fetchMock, 1).aborted).toBe(false)
       expect(mockOnHandoffChange.mock.calls).toEqual([
         [{ status: 'pending', email: 'signup@example.com' }],
-        [{ status: 'complete', email: 'signup@example.com', method: 'passkey' }],
+        [
+          {
+            status: 'complete',
+            email: 'signup@example.com',
+            method: 'passkey',
+            step: 'backup-prompt',
+          },
+        ],
       ])
       expect(mockOnError).not.toHaveBeenCalled()
       expect(mockOnDeadlineExpire).not.toHaveBeenCalled()
@@ -604,6 +618,7 @@ describe('PasskeySignupButton', () => {
           status: 'complete',
           email: 'signup@example.com',
           method: 'passkey',
+          step: 'backup-prompt',
         })
       })
       const [refused, retried] = beginCalls()

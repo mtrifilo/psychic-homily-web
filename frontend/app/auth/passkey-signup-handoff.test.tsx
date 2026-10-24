@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { act, screen, waitFor, within } from '@testing-library/react'
-import userEvent from '@testing-library/user-event'
+import userEvent, { type UserEvent } from '@testing-library/user-event'
 import { renderWithProviders } from '@/test/utils'
 import { clientWithConsentVersions } from '@/test/consentVersions'
 import { advanceFakeTime, stalledRequest } from '@/test/stalledFetch'
@@ -11,6 +11,7 @@ import { SIGNUP_REQUEST_TIMEOUT_MS } from './_components/signup-request-deadline
 // these tests cover the hand-off between them rather than either one alone.
 
 const PROMPT = { name: 'Add a backup sign-in method' }
+const INBOX = { name: 'Check your inbox.' }
 
 const RETURN_TO = '/collections'
 const searchParams = vi.hoisted(() => ({ current: new URLSearchParams() }))
@@ -117,6 +118,10 @@ async function submitPasskeySignup() {
   return user
 }
 
+function skipPrompt(user: UserEvent, prompt: HTMLElement) {
+  return user.click(within(prompt).getByRole('button', { name: "I'll do this later" }))
+}
+
 describe('passkey sign-up on /auth', () => {
   beforeEach(() => {
     mockPush.mockReset()
@@ -146,90 +151,87 @@ describe('passkey sign-up on /auth', () => {
     expect(mockPush).not.toHaveBeenCalled()
   })
 
-  it('redirects to returnTo once the prompt is skipped, and only then', async () => {
-    fetchMock.mockResolvedValueOnce(BEGIN_OK).mockResolvedValueOnce(FINISH_OK)
+  describe('closing the backup prompt', () => {
+    const closeRoutes: Array<[string, (user: UserEvent, prompt: HTMLElement) => Promise<void>]> = [
+      ['skipped', skipPrompt],
+      ['closed with Escape', user => user.keyboard('{Escape}')],
+      ['closed with its close button', (user, prompt) =>
+        user.click(within(prompt).getByRole('button', { name: 'Close' }))],
+    ]
 
-    const user = await submitPasskeySignup()
-    const prompt = await screen.findByRole('dialog', PROMPT)
-    expect(mockPush).not.toHaveBeenCalled()
+    it.each(closeRoutes)(
+      'shows the check-your-inbox interstitial for the new address when the prompt is %s',
+      async (_route, close) => {
+        // The account's address as the server stored it, not as it was typed.
+        fetchMock.mockResolvedValueOnce(BEGIN_OK).mockResolvedValueOnce({
+          json: async () => ({
+            success: true,
+            user: { id: 100, email: 'stored@example.com', email_verified: false },
+          }),
+        })
 
-    await user.click(
-      within(prompt).getByRole('button', { name: "I'll do this later" })
+        const user = await submitPasskeySignup()
+        await close(user, await screen.findByRole('dialog', PROMPT))
+
+        expect(await screen.findByRole('heading', INBOX)).toBeInTheDocument()
+        expect(screen.getByText('stored@example.com')).toBeInTheDocument()
+        expect(screen.queryByText('signup@example.com')).not.toBeInTheDocument()
+        expect(screen.queryByRole('dialog', PROMPT)).not.toBeInTheDocument()
+        expect(mockPush).not.toHaveBeenCalled()
+      }
     )
-
-    await waitFor(() => {
-      expect(mockPush).toHaveBeenCalledWith(RETURN_TO)
-    })
-    expect(mockPush).toHaveBeenCalledTimes(1)
   })
 
-  it('redirects to returnTo when the prompt is closed with Escape', async () => {
-    fetchMock.mockResolvedValueOnce(BEGIN_OK).mockResolvedValueOnce(FINISH_OK)
-
-    const user = await submitPasskeySignup()
-    await screen.findByRole('dialog', PROMPT)
-
-    await user.keyboard('{Escape}')
-
-    await waitFor(() => {
-      expect(mockPush).toHaveBeenCalledWith(RETURN_TO)
-    })
-    expect(mockPush).toHaveBeenCalledTimes(1)
-  })
-
-  it('redirects to returnTo when the prompt is closed with its close button', async () => {
+  it('continues from the interstitial to returnTo, the only way on', async () => {
     fetchMock.mockResolvedValueOnce(BEGIN_OK).mockResolvedValueOnce(FINISH_OK)
 
     const user = await submitPasskeySignup()
     const prompt = await screen.findByRole('dialog', PROMPT)
+    await skipPrompt(user, prompt)
+    await screen.findByRole('heading', INBOX)
 
-    await user.click(within(prompt).getByRole('button', { name: 'Close' }))
-
-    await waitFor(() => {
-      expect(mockPush).toHaveBeenCalledWith(RETURN_TO)
-    })
-    expect(mockPush).toHaveBeenCalledTimes(1)
+    expect(
+      screen.getByRole('link', { name: 'Continue where you left off' })
+    ).toHaveAttribute('href', RETURN_TO)
+    // The redirect effect stays held back, so the link is the one navigation.
+    expect(mockPush).not.toHaveBeenCalled()
   })
 
-  it('sends a hostile returnTo to "/" after the prompt, not off site', async () => {
+  it('offers the shows listing, not a hostile returnTo, from the interstitial', async () => {
     searchParams.current = new URLSearchParams({ returnTo: 'https://evil.com/phish' })
     fetchMock.mockResolvedValueOnce(BEGIN_OK).mockResolvedValueOnce(FINISH_OK)
 
     const user = await submitPasskeySignup()
     const prompt = await screen.findByRole('dialog', PROMPT)
-    await user.click(
-      within(prompt).getByRole('button', { name: "I'll do this later" })
-    )
+    await skipPrompt(user, prompt)
 
-    await waitFor(() => {
-      expect(mockPush).toHaveBeenCalledWith('/')
-    })
-    expect(mockPush).toHaveBeenCalledTimes(1)
+    expect(
+      await screen.findByRole('link', { name: 'Browse upcoming shows' })
+    ).toHaveAttribute('href', '/shows')
+    expect(document.querySelector('a[href*="evil.com"]')).toBeNull()
+    expect(mockPush).not.toHaveBeenCalled()
   })
 
   // A definitive profile failure outranks `setUser` in the real provider until
   // the next profile fetch succeeds, so the viewer can still read as anonymous
-  // when the prompt closes. The page then shows the form and redirects as soon
-  // as the profile reports the session.
-  it('shows the form, not a redirect, while the profile has not reported the session', async () => {
+  // when the prompt closes. The interstitial shows either way, as it does
+  // after a password sign-up.
+  it('shows the interstitial, not the form, while the profile has not reported the session', async () => {
     mockSetUser.mockImplementationOnce(() => {})
     fetchMock.mockResolvedValueOnce(BEGIN_OK).mockResolvedValueOnce(FINISH_OK)
 
     const user = await submitPasskeySignup()
     const prompt = await screen.findByRole('dialog', PROMPT)
-    await user.click(
-      within(prompt).getByRole('button', { name: "I'll do this later" })
-    )
+    await skipPrompt(user, prompt)
 
-    expect(await screen.findByRole('tab', { name: 'Sign in' })).toBeInTheDocument()
-    expect(mockPush).not.toHaveBeenCalled()
+    expect(await screen.findByRole('heading', INBOX)).toBeInTheDocument()
+    expect(screen.queryByRole('tab', { name: 'Sign in' })).not.toBeInTheDocument()
 
     act(() => {
       authStore.set('authenticated')
     })
-    await waitFor(() => {
-      expect(mockPush).toHaveBeenCalledWith(RETURN_TO)
-    })
+    expect(screen.getByRole('heading', INBOX)).toBeInTheDocument()
+    expect(mockPush).not.toHaveBeenCalled()
   })
 
   it('holds the redirect while the finish request is in flight', async () => {

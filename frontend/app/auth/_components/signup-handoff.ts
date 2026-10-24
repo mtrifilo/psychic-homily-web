@@ -13,9 +13,19 @@
  * session goes out, which closes that window entirely.
  *
  * `method` is the factor the account was created with, and it decides what the
- * page shows in place of the form: the check-your-inbox interstitial after a
- * password, the backup sign-in prompt after a passkey.
+ * page shows in place of the form. After a password: the check-your-inbox
+ * interstitial. After a passkey: the backup sign-in prompt first (`step:
+ * 'backup-prompt'`), and once the prompt closes, by any route, the same
+ * interstitial (`step: 'check-inbox'`). The page's sign-up deadlines release
+ * only a pending claim, never a completed one, so the interstitial's own links
+ * are the way on.
  */
 export type SignupHandoff =
   | { status: 'pending'; email: string }
-  | { status: 'complete'; email: string; method: 'password' | 'passkey' }
+  | { status: 'complete'; email: string; method: 'password' }
+  | {
+      status: 'complete'
+      email: string
+      method: 'passkey'
+      step: 'backup-prompt' | 'check-inbox'
+    }

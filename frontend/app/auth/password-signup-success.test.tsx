@@ -156,6 +156,10 @@ describe('password sign-up success with the real profile query', () => {
     expect(
       await screen.findByRole('heading', { name: 'Check your inbox.' })
     ).toBeInTheDocument()
+    // The backup prompt belongs to a passkey sign-up only.
+    expect(
+      screen.queryByRole('dialog', { name: 'Add a backup sign-in method' })
+    ).toBeNull()
     expect(page.blankSeen()).toBe(false)
     expect(mockPush).not.toHaveBeenCalled()
   })
