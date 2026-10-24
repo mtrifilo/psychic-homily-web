@@ -132,13 +132,13 @@ vi.mock('@/components/shared/SaveButton', () => ({
     </button>
   ),
 }))
-vi.mock('@/lib/context/AuthContext', () => ({
-  useAuthContext: () => ({
-    isAuthenticated: false,
-    user: null,
-    authStatus: 'anonymous',
-  }),
-}))
+vi.mock('@/lib/context/AuthContext', async () => {
+  const { deriveMockAuthSignals } = await import('@/test/authFixture')
+  return {
+    useAuthContext: () =>
+      deriveMockAuthSignals({ user: null, authStatus: 'anonymous' as const }),
+  }
+})
 
 import { ArtistShowsList } from './ArtistShowsList'
 
@@ -321,7 +321,7 @@ describe('ArtistShowsList — upcoming section', () => {
   })
 })
 
-describe('ArtistShowsList — Save on upcoming rows', () => {
+describe('ArtistShowsList: Save on upcoming rows', () => {
   it('ends every upcoming row with a Save control fed by one batch', () => {
     setUpcoming({ shows: [makeShow({ id: 7 }), makeShow({ id: 8 })] })
     saveBatch.data = {

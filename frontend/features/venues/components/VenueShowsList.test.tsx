@@ -401,7 +401,7 @@ describe('VenueShowsList — upcoming section', () => {
   })
 })
 
-describe('VenueShowsList — Save on upcoming rows', () => {
+describe('VenueShowsList: Save on upcoming rows', () => {
   it('ends every upcoming row with a Save control fed by one batch', () => {
     setUpcoming({ shows: [makeShow({ id: 7 }), makeShow({ id: 8 })] })
     saveBatch.data = {

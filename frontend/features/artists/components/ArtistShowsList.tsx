@@ -1,6 +1,5 @@
 'use client'
 
-import { useMemo } from 'react'
 import { Loader2 } from 'lucide-react'
 import { formatCount, SectionHeader } from '@/components/shared'
 import { useArtistShows } from '../hooks/useArtists'
@@ -78,10 +77,7 @@ export function ArtistShowsList({
   // the year histogram still count what the page dropped. A client-side filter
   // cannot be the answer here; closing the residual class belongs in the index
   // or the ingest path.
-  const upcomingShows = useMemo(
-    () => upcoming.data?.shows ?? [],
-    [upcoming.data?.shows]
-  )
+  const upcomingShows = upcoming.data?.shows ?? []
   const upcomingTotal = upcoming.data?.total ?? upcomingShows.length
   const saveColumn = useShowSaveColumn(upcomingShows)
 

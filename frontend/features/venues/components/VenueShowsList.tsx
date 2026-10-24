@@ -79,10 +79,7 @@ export function VenueShowsList({
   // than the pager's own "Showing 51-100 of 161" claims, and `total` and the
   // year histogram would still count what the page dropped. The Atlas venue
   // panel still dedups because it fetches one unpaged page.
-  const upcomingShows = useMemo(
-    () => upcoming.data?.shows ?? [],
-    [upcoming.data?.shows]
-  )
+  const upcomingShows = upcoming.data?.shows ?? []
   const upcomingTotal = upcoming.data?.total ?? upcomingShows.length
   const saveColumn = useShowSaveColumn(upcomingShows)
   // Stable identity so `VenueShowsTable`'s memos key on it cleanly. This

@@ -1,14 +1,19 @@
 import { describe, expect, it, vi } from 'vitest'
 import { render, screen, within } from '@testing-library/react'
+import { stackedPlace } from '@/test/stackedTable'
 
 // The control's own states are SaveButton's suite; here it only has to occupy
 // its cell.
+const saveButtonRenders: number[] = []
 vi.mock('@/components/shared/SaveButton', () => ({
-  SaveButton: ({ showId }: { showId: number }) => (
-    <button type="button" data-show-id={showId}>
-      Save
-    </button>
-  ),
+  SaveButton: ({ showId }: { showId: number }) => {
+    saveButtonRenders.push(showId)
+    return (
+      <button type="button" data-show-id={showId}>
+        Save
+      </button>
+    )
+  },
 }))
 
 import { ArtistShowsTable } from './ArtistShowsTable'
@@ -161,17 +166,6 @@ describe('ArtistShowsTable bill links', () => {
   })
 })
 
-/** A cell's place in the stacked row below `sm`, read off its grid classes. */
-function stackedPlace(cell: HTMLElement): string {
-  if (cell.classList.contains('max-sm:sr-only')) return 'no line'
-  if (cell.classList.contains('max-sm:col-span-full')) {
-    return `line ${cell.className.match(/max-sm:row-start-(\d)/)?.[1]}, full width`
-  }
-  const line = cell.className.match(/max-sm:row-start-(\d)/)?.[1]
-  const column = cell.className.match(/max-sm:col-start-(\d)/)?.[1]
-  return `line ${line}, column ${column}`
-}
-
 describe('ArtistShowsTable with a Save column', () => {
   const show = {
     ...makeShow(1, makeVenue({ timezone: 'America/Phoenix' })),
@@ -207,6 +201,28 @@ describe('ArtistShowsTable with a Save column', () => {
     for (const td of table.querySelectorAll('td')) {
       expect(td).toHaveAttribute('role', 'cell')
     }
+  })
+
+  it('re-renders only the row whose save entry changed', () => {
+    const shows = [makeShow(7, makeVenue()), makeShow(8, makeVenue())]
+    const before = {
+      '7': { save_count: 0, is_saved: false },
+      '8': { save_count: 2, is_saved: false },
+    }
+    let counts: Record<string, { save_count: number; is_saved: boolean }> =
+      before
+    const { rerender } = render(
+      <ArtistShowsTable shows={shows} ariaLabel="Upcoming shows" saveColumn={{ counts }} />
+    )
+    saveButtonRenders.length = 0
+
+    // A toggle copies the map and keeps every other show's entry object.
+    counts = { ...before, '7': { save_count: 1, is_saved: true } }
+    rerender(
+      <ArtistShowsTable shows={shows} ariaLabel="Upcoming shows" saveColumn={{ counts }} />
+    )
+
+    expect(saveButtonRenders).toEqual([7])
   })
 
   it('is a table row from sm up and a grid only below it', () => {

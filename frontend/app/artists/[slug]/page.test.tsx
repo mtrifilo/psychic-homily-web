@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import type { ReactElement } from 'react'
 import { renderToString } from 'react-dom/server'
-import { hydrateRoot, type Root } from 'react-dom/client'
+import type { Root } from 'react-dom/client'
 import { act, render, waitFor } from '@testing-library/react'
 import {
   HydrationBoundary,
@@ -11,6 +11,12 @@ import {
 } from '@tanstack/react-query'
 import { okResponse, errorResponse, jsonBodyResponse } from '@/lib/seo/test-helpers'
 import { findElements } from '@/test/elementTree'
+import {
+  ANONYMOUS_VIEWER,
+  SAVE_CONTROL_VIEWERS,
+  hydrateCollectingErrors,
+  type ViewerState,
+} from '@/test/saveControlHydration'
 
 // `notFound()` in Next.js throws to halt rendering; mirrored so a test can tell
 // that execution stopped.
@@ -26,20 +32,11 @@ vi.mock('next/navigation', () => ({
 
 // The viewer the list renders for. Each state is one the route's HTML can be
 // served under, and the hydration render below reads the same one.
-type ViewerState = {
-  isAuthenticated: boolean
-  user: { id: string } | null
-  authStatus: 'pending' | 'anonymous' | 'authenticated'
-}
-const ANONYMOUS: ViewerState = {
-  isAuthenticated: false,
-  user: null,
-  authStatus: 'anonymous',
-}
-let viewer: ViewerState = ANONYMOUS
-vi.mock('@/lib/context/AuthContext', () => ({
-  useAuthContext: () => viewer,
-}))
+let viewer: ViewerState = ANONYMOUS_VIEWER
+vi.mock('@/lib/context/AuthContext', async () => {
+  const { deriveMockAuthSignals } = await import('@/test/authFixture')
+  return { useAuthContext: () => deriveMockAuthSignals(viewer) }
+})
 
 // The save-count batch answers in the browser after hydration, so the route's
 // HTML and the first client render both see it pending.
@@ -434,24 +431,10 @@ describe('ArtistPage upcoming Save column', () => {
     container?.remove()
     root = null
     container = null
-    viewer = ANONYMOUS
+    viewer = ANONYMOUS_VIEWER
   })
 
-  it.each<[string, ViewerState, string, boolean]>([
-    ['anonymous', ANONYMOUS, 'Sign in to save', false],
-    [
-      'unsettled',
-      { isAuthenticated: false, user: null, authStatus: 'pending' },
-      'Save show',
-      true,
-    ],
-    [
-      'signed in',
-      { isAuthenticated: true, user: { id: '1' }, authStatus: 'authenticated' },
-      'Save show',
-      false,
-    ],
-  ])(
+  it.each(SAVE_CONTROL_VIEWERS)(
     'serves the control in the HTML and hydrates it unchanged (%s viewer)',
     async (_name, state, accessibleName, disabled) => {
       viewer = state
@@ -469,22 +452,12 @@ describe('ArtistPage upcoming Save column', () => {
       expect(control?.textContent).toBe('Save')
       expect(control?.hasAttribute('disabled')).toBe(disabled)
 
-      const hydrationErrors: unknown[] = []
-      const consoleError = vi
-        .spyOn(console, 'error')
-        .mockImplementation((...args) => hydrationErrors.push(args))
-      try {
-        await act(async () => {
-          root = hydrateRoot(
-            container!,
-            upcomingListUnder(states, testClient()),
-            { onRecoverableError: error => hydrationErrors.push(error) }
-          )
-        })
-      } finally {
-        consoleError.mockRestore()
-      }
-      expect(hydrationErrors).toEqual([])
+      const hydrated = await hydrateCollectingErrors(
+        container,
+        upcomingListUnder(states, testClient())
+      )
+      root = hydrated.root
+      expect(hydrated.errors).toEqual([])
     }
   )
 })

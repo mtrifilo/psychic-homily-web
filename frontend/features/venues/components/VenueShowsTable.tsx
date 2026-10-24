@@ -1,8 +1,13 @@
 'use client'
 
-import { Fragment, useMemo } from 'react'
+import { Fragment, memo, useMemo } from 'react'
 import Link from 'next/link'
 import { DenseTable, DenseTableGroupHeader, ShowPrice } from '@/components/shared'
+import {
+  batchedSaveFor,
+  type BatchedSaveData,
+} from '@/components/shared/batchedSaveData'
+import { stackedTableLayout } from '@/components/shared/stackedTable'
 // Deep import, not the barrel: `@/features/shows`'s barrel edge drags in
 // ShowForm and the whole mutation graph for one component, and pulls a
 // venues -> shows -> venues value cycle in behind it (the same reason ShowForm
@@ -14,7 +19,6 @@ import {
 } from '@/lib/utils/formatters'
 import { EN_DASH, type MonthGroup } from '@/features/shows/showArchive'
 import {
-  STACKED_TABLE,
   ShowSaveCell,
   ShowSaveHeaderCell,
   type ShowSaveColumnData,
@@ -23,47 +27,47 @@ import { cn } from '@/lib/utils'
 import { groupByMonth } from '../showArchive'
 import type { VenueShow, VenueShowZone } from '../types'
 
+/** Date, Bill, Price, Time. Group headings must span all of them. */
+const COLUMN_COUNT = 4
+
 /**
- * Date, Bill, Price, Time, and Save when the table has a save column. Group
- * headings must span all of them.
+ * A table with a Save column stacks below `sm`: the date, then price and time
+ * and the Save control at the end of the line; the bill.
  */
-const BASE_COLUMN_COUNT = 4
+const STACKED_LAYOUT = stackedTableLayout(
+  'max-sm:grid-cols-[minmax(0,1fr)_auto_auto_auto]'
+)
+const TABLE_LAYOUT = stackedTableLayout()
 
 /** Stands in for a price nobody has recorded. */
 const ABSENT = EN_DASH
 
-function ShowRow({
+/**
+ * Memoized: a save toggles one entry of the batch map, and every other row's
+ * `saveData` keeps its identity, so only the toggled row re-renders.
+ */
+const ShowRow = memo(function ShowRow({
   show,
   zone,
-  saveColumn,
+  stacked,
+  saveData,
 }: {
   show: VenueShow
   zone: VenueShowZone
-  saveColumn?: ShowSaveColumnData
+  /** The row carries the Save cell and stacks below `sm`. */
+  stacked: boolean
+  saveData?: BatchedSaveData
 }) {
   // A show's own state wins over the venue's for date/time formatting; the
   // venue's resolved timezone (when known) wins over the state map (PSY-986).
   const state = show.state ?? zone.venueState
   const time = formatShowTime(show.event_date, state, zone.venueTimezone)
-  const stacked = saveColumn !== undefined
-  const cell = stacked ? 'cell' : undefined
+  const layout = stacked ? STACKED_LAYOUT : TABLE_LAYOUT
 
-  // Stacked below `sm` (see STACKED_TABLE): the date, then price and time and
-  // the Save control at the end of the line; the bill.
   return (
-    <tr
-      role={stacked ? 'row' : undefined}
-      className={
-        stacked
-          ? cn(
-              STACKED_TABLE.row,
-              'max-sm:grid-cols-[minmax(0,1fr)_auto_auto_auto]'
-            )
-          : undefined
-      }
-    >
+    <tr {...layout.row}>
       <td
-        role={cell}
+        {...layout.cell}
         className={cn(
           'whitespace-nowrap',
           stacked && 'max-sm:col-start-1 max-sm:row-start-1'
@@ -77,7 +81,7 @@ function ShowRow({
         </Link>
       </td>
       <td
-        role={cell}
+        {...layout.cell}
         className={
           stacked ? 'max-sm:col-span-full max-sm:row-start-2' : undefined
         }
@@ -89,7 +93,7 @@ function ShowRow({
         />
       </td>
       <td
-        role={cell}
+        {...layout.cell}
         className={cn(
           'whitespace-nowrap text-right font-mono text-xs text-muted-foreground',
           stacked && 'max-sm:col-start-2 max-sm:row-start-1'
@@ -98,7 +102,7 @@ function ShowRow({
         <ShowPrice show={show} fallback={ABSENT} />
       </td>
       <td
-        role={cell}
+        {...layout.cell}
         className={cn(
           'whitespace-nowrap text-right text-muted-foreground',
           stacked && 'max-sm:col-start-3 max-sm:row-start-1'
@@ -118,22 +122,26 @@ function ShowRow({
             venue's per row, so emptiness here is never uniform. */}
         {time}
       </td>
-      {saveColumn && (
+      {stacked && (
         <ShowSaveCell
+          {...layout.cell}
           showId={show.id}
-          column={saveColumn}
+          saveData={saveData}
           className="max-sm:col-start-4 max-sm:row-start-1"
         />
       )}
     </tr>
   )
-}
+})
 
-export interface VenueShowsTableProps {
+interface VenueShowsTableBaseProps {
   shows: VenueShow[]
   zone: VenueShowZone
   /** Accessible name for the table. Unique per page. */
   ariaLabel: string
+}
+
+interface GroupedVenueShowsTableProps extends VenueShowsTableBaseProps {
   /**
    * Break the rows into `SEP 2025` group headings. On for the past archive,
    * where a page can span half a year; off for the upcoming list, which is
@@ -143,14 +151,24 @@ export interface VenueShowsTableProps {
    * rather than collecting, so an unsorted list gets repeated headings instead
    * of silently reordered rows.
    */
-  groupByMonthHeadings?: boolean
+  groupByMonthHeadings: true
+  /** Grouped rows never carry Save: the group headings do not stack. */
+  saveColumn?: never
+}
+
+interface RunVenueShowsTableProps extends VenueShowsTableBaseProps {
+  groupByMonthHeadings?: false
   /**
    * Adds the trailing Save column, from one batched save-count read
-   * (`useShowSaveColumn`). Upcoming rows only: past rows are a record, not a
-   * plan, so the past archive renders without it.
+   * (`useShowSaveColumn`), and stacks the rows below `sm`. Upcoming rows only:
+   * past rows are a record, not a plan, so the past archive renders without it.
    */
   saveColumn?: ShowSaveColumnData
 }
+
+export type VenueShowsTableProps =
+  | GroupedVenueShowsTableProps
+  | RunVenueShowsTableProps
 
 /**
  * The venue page's show table, shared by the upcoming and past sections
@@ -177,42 +195,34 @@ export function VenueShowsTable({
   )
 
   const stacked = saveColumn !== undefined
-  const header = stacked ? 'columnheader' : undefined
+  const layout = stacked ? STACKED_LAYOUT : TABLE_LAYOUT
 
   return (
-    <DenseTable
-      variant="alternating"
-      aria-label={ariaLabel}
-      role={stacked ? 'table' : undefined}
-      className={stacked ? STACKED_TABLE.table : undefined}
-    >
-      <thead
-        role={stacked ? 'rowgroup' : undefined}
-        className={stacked ? STACKED_TABLE.head : undefined}
-      >
-        <tr role={stacked ? 'row' : undefined}>
-          <th role={header}>Date</th>
-          <th role={header}>Bill</th>
-          <th role={header} className="text-right">
+    <DenseTable variant="alternating" aria-label={ariaLabel} {...layout.table}>
+      <thead {...layout.head}>
+        <tr {...layout.headRow}>
+          <th {...layout.columnHeader}>Date</th>
+          <th {...layout.columnHeader}>Bill</th>
+          <th {...layout.columnHeader} className="text-right">
             Price
           </th>
-          <th role={header} className="text-right">
+          <th {...layout.columnHeader} className="text-right">
             Time
           </th>
-          {saveColumn && <ShowSaveHeaderCell />}
+          {stacked && <ShowSaveHeaderCell {...layout.columnHeader} />}
         </tr>
       </thead>
-      <tbody
-        role={stacked ? 'rowgroup' : undefined}
-        className={stacked ? STACKED_TABLE.body : undefined}
-      >
+      <tbody {...layout.body}>
         {groups === null
           ? shows.map(show => (
               <ShowRow
                 key={show.id}
                 show={show}
                 zone={zone}
-                saveColumn={saveColumn}
+                stacked={stacked}
+                saveData={
+                  saveColumn ? batchedSaveFor(saveColumn.counts, show.id) : undefined
+                }
               />
             ))
           : groups.map((group, index) => (
@@ -221,14 +231,14 @@ export function VenueShowsTable({
               <Fragment key={index}>
                 <DenseTableGroupHeader
                   title={group.label}
-                  colSpan={BASE_COLUMN_COUNT + (saveColumn ? 1 : 0)}
+                  colSpan={COLUMN_COUNT}
                 />
                 {group.rows.map(show => (
                   <ShowRow
                     key={show.id}
                     show={show}
                     zone={zone}
-                    saveColumn={saveColumn}
+                    stacked={false}
                   />
                 ))}
               </Fragment>
