@@ -315,10 +315,10 @@ describe('SignupForm deferred validation', () => {
   it('brings the alert into view again when a refusal replaces its message', async () => {
     const { user, rerender } = await renderSignupForm()
     act(() => {
-      latestButtonProps(googleOAuthProps).onMissingTermsAcceptance()
+      latestButtonProps(passkeySignupProps).onError('Failed to start passkey signup')
     })
     const first = screen
-      .getByText(/before continuing with Google/)
+      .getByText('Failed to start passkey signup')
       .closest('[role="alert"]')
     await user.click(screen.getByLabelText('Email'))
     vi.mocked(Element.prototype.scrollIntoView).mockClear()
