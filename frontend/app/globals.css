@@ -121,7 +121,7 @@
    * cannot be reproduced in any desktop or headless browser, which always
    * reports 0. Every viewport-sized surface must
    * subtract `var(--bottom-tab-bar-height) + env(safe-area-inset-bottom)` below
-   * `xl` — current subtractors: AppShell padding, the document's
+   * `xl`. Current subtractors: AppShell padding, the document's
    * scroll-padding-bottom, Sidebar + AdminSidebar heights, AtlasGlobe height,
    * CookieConsentBanner bottom offset, CityFilters popover max-height (on
    * soft-keyboard viewports only). At every width
