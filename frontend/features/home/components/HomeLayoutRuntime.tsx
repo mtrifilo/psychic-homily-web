@@ -60,6 +60,13 @@ export function HomeLayoutRuntime({
   const hasWriteFailed = useHomeLayoutWriteFailed()
   const [isPopoverOpen, setPopoverOpen] = useState(false)
   const headingRef = useRef<HTMLHeadingElement>(null)
+  // Counts the passkey offer's exits. Focus moves in an effect, after the
+  // commit that removed the card: a modal the card opened still traps focus
+  // until that commit, and would pull a focus moved any earlier back inside.
+  const [offerExits, setOfferExits] = useState(0)
+  useEffect(() => {
+    if (offerExits > 0) headingRef.current?.focus()
+  }, [offerExits])
 
   // The server picked this variant from the viewer's cookie; signing out
   // without navigating leaves it mounted. This guard lives HERE, on the shell
@@ -178,7 +185,7 @@ export function HomeLayoutRuntime({
             reorderable, and the offer must not move or vanish with them. */}
         {/* Focus goes to the page heading when the card leaves, so a keyboard
             viewer continues from the top of the home, not from the document. */}
-        <PasskeyOfferCard onLeave={() => headingRef.current?.focus()} />
+        <PasskeyOfferCard onLeave={() => setOfferExits(count => count + 1)} />
 
         {allHidden ? (
           <div className="mt-6 flex flex-col gap-2">

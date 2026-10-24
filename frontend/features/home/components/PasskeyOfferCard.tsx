@@ -55,8 +55,8 @@ export function profileOffersPasskey(
 export function PasskeyOfferCard({
   onLeave,
 }: {
-  /** Called as the card leaves on a viewer's action, with focus still inside
-   *  it, so the caller can move focus somewhere that stays on the page. */
+  /** Called as the card leaves on a viewer's action, so the caller can move
+   *  focus somewhere that stays on the page once the card is gone. */
   onLeave?: () => void
 }) {
   const { user } = useAuthContext()
