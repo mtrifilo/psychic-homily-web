@@ -93,6 +93,38 @@ export const ARTIST_PAST_SHOWS_PAGE_LIMIT = 50
  */
 export const ARTIST_UPCOMING_SHOWS_LIMIT = 200
 
+/**
+ * The artist page's upcoming-shows request, as the ONE place that spells it.
+ *
+ * Two readers must ask the same question: `ArtistShowsList` hands it to
+ * `useArtistShows`, and the artist route reads it to fetch the same rows on
+ * the server and seed them under `artistQueryKeys.showsPage(artist.id, this)`.
+ * That key is the one the hook registers for these arguments (it records
+ * `limit` as sent and leaves `year` and `offset` unsent), so the seeded entry
+ * is the entry the component reads. Restating either half on one side would
+ * seed an entry nothing reads, and the rows would silently drop out of the
+ * served HTML.
+ */
+export const ARTIST_UPCOMING_SHOWS_REQUEST = {
+  timeFilter: 'upcoming',
+  limit: ARTIST_UPCOMING_SHOWS_LIMIT,
+} as const satisfies { timeFilter: ArtistShowsTimeFilter; limit: number }
+
+/**
+ * The server-side URL for {@link ARTIST_UPCOMING_SHOWS_REQUEST}, addressed by
+ * the slug the route was requested at.
+ *
+ * The slug is `encodeURIComponent`d because Next hands route params through
+ * DECODED: an unencoded `%2F` or `%3F` would re-point this server-side fetch at
+ * another backend path.
+ */
+export function artistUpcomingShowsUrl(artistSlug: string): string {
+  const params = new URLSearchParams()
+  params.set('limit', String(ARTIST_UPCOMING_SHOWS_REQUEST.limit))
+  params.set('time_filter', ARTIST_UPCOMING_SHOWS_REQUEST.timeFilter)
+  return `${artistEndpoints.SHOWS(encodeURIComponent(artistSlug))}?${params.toString()}`
+}
+
 // ============================================================================
 // Query Keys
 // ============================================================================
@@ -123,18 +155,16 @@ export const artistQueryKeys = {
    * artist side never got the fix.
    *
    * NOTHING here is per-viewer, so a key a server computes is the key the
-   * browser then looks under. No route server-prefetches artist shows today,
-   * but the option is open: it was closed while a viewer timezone sat in this
-   * list, back when the endpoint read one. It does not any more — the
-   * upcoming/past split is made in each show's own venue-local day — so do not
-   * put a browser-only value back in.
+   * browser then looks under. The artist route relies on that: it seeds the
+   * upcoming entry (`ARTIST_UPCOMING_SHOWS_REQUEST`) server-side. The endpoint
+   * reads no viewer timezone (the upcoming/past split is made in each show's
+   * own venue-local day), so do not put a browser-only value in this list.
    *
-   * ONE PRECONDITION SURVIVES for anyone taking that up, and it is the same one
-   * `venueQueryKeys.showsPage` carries: the identity segment is
-   * `String(artistIdOrSlug)`, and the two forms hash differently. A route at
-   * `/artists/[slug]` has the slug while the surfaces on it pass the numeric id
-   * resolved from the fetched artist, so a seed keyed on the wrong form misses
-   * silently — the page just stops being server-rendered, with no error.
+   * The identity segment is `String(artistIdOrSlug)`, and the two forms hash
+   * differently. A route at `/artists/[slug]` has the slug while the surfaces
+   * on it pass the numeric id resolved from the fetched artist, so a seed must
+   * key on the numeric id; one keyed on the slug misses silently, and the page
+   * just stops being server-rendered, with no error.
    *
    * Extends `shows()` rather than replacing it so the coarse `['artists']`
    * invalidation in `createInvalidateQueries` keeps prefix-matching every page.

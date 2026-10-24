@@ -7,10 +7,14 @@ import { Button } from '@/components/ui/button'
 import { useAuthContext } from '@/lib/context/AuthContext'
 import { ShowForm } from '@/features/shows'
 import { useVenueShows } from '../hooks/useVenues'
-import { VENUE_UPCOMING_SHOWS_LIMIT } from '../api'
+import { VENUE_UPCOMING_SHOWS_REQUEST } from '../api'
 import { VenuePastShows } from './VenuePastShows'
 import { VenueShowsTable } from './VenueShowsTable'
-import type { VenueShowYearsResponse, VenueShowZone } from '../types'
+import type {
+  VenueShowsResponse,
+  VenueShowYearsResponse,
+  VenueShowZone,
+} from '../types'
 
 interface VenueShowsListProps {
   venueId: number
@@ -27,6 +31,13 @@ interface VenueShowsListProps {
    * client fetch (PSY-1756). Passed straight through to `VenuePastShows`.
    */
   initialPastYears?: VenueShowYearsResponse
+  /**
+   * The upcoming rows the ROUTE already fetched for
+   * `VENUE_UPCOMING_SHOWS_REQUEST`, so they are in the served HTML and the
+   * loader shows only when the route had none to give. Handed to the hook as
+   * `initialData`, treated as fresh for its staleTime.
+   */
+  initialUpcomingShows?: VenueShowsResponse
   className?: string
   onShowAdded?: () => void
 }
@@ -57,6 +68,7 @@ export function VenueShowsList({
   venueAddress,
   venueVerified,
   initialPastYears,
+  initialUpcomingShows,
   className,
   onShowAdded,
 }: VenueShowsListProps) {
@@ -65,8 +77,8 @@ export function VenueShowsList({
 
   const upcoming = useVenueShows({
     venueId,
-    timeFilter: 'upcoming',
-    limit: VENUE_UPCOMING_SHOWS_LIMIT,
+    ...VENUE_UPCOMING_SHOWS_REQUEST,
+    initialData: initialUpcomingShows,
   })
 
   // No `dedupVenueShows` here, and none in the past archive either (PSY-1753).

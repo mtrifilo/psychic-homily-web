@@ -86,6 +86,36 @@ export const VENUE_PAST_SHOWS_PAGE_LIMIT = 50
  */
 export const VENUE_UPCOMING_SHOWS_LIMIT = 200
 
+/**
+ * The venue page's upcoming-shows request, as the ONE place that spells it.
+ *
+ * The venue route fetches these rows on the server and `VenueShowsList` hands
+ * them to `useVenueShows` as `initialData`, which react-query attaches to
+ * whatever key the hook's arguments build. Both sides reading this object is
+ * what keeps the seeded rows the answer to the question the hook is asking: a
+ * window or limit restated on one side would seed a different page under the
+ * hook's key and hold it for a full staleTime.
+ */
+export const VENUE_UPCOMING_SHOWS_REQUEST = {
+  timeFilter: 'upcoming',
+  limit: VENUE_UPCOMING_SHOWS_LIMIT,
+} as const satisfies { timeFilter: VenueShowsTimeFilter; limit: number }
+
+/**
+ * The server-side URL for {@link VENUE_UPCOMING_SHOWS_REQUEST}, addressed by
+ * the slug the route was requested at.
+ *
+ * The slug is `encodeURIComponent`d because Next hands route params through
+ * DECODED: an unencoded `%2F` or `%3F` would re-point this server-side fetch at
+ * another backend path.
+ */
+export function venueUpcomingShowsUrl(venueSlug: string): string {
+  const params = new URLSearchParams()
+  params.set('limit', String(VENUE_UPCOMING_SHOWS_REQUEST.limit))
+  params.set('time_filter', VENUE_UPCOMING_SHOWS_REQUEST.timeFilter)
+  return `${venueEndpoints.SHOWS(encodeURIComponent(venueSlug))}?${params.toString()}`
+}
+
 // ============================================================================
 // Query Keys
 // ============================================================================

@@ -5,7 +5,7 @@ import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { ArrowLeft, BadgeCheck, Pencil, Tag, Trash2, Loader2, ExternalLink, Flag } from 'lucide-react'
 import { useVenue, useVenueGenres } from '../hooks/useVenues'
-import type { VenueShowYearsResponse } from '../types'
+import type { VenueShowsResponse, VenueShowYearsResponse } from '../types'
 import { useVenueUpdate } from '../hooks/useVenueEdit'
 import type { ApiError } from '@/lib/api'
 import { useAuthContext } from '@/lib/context/AuthContext'
@@ -47,6 +47,13 @@ interface VenueDetailProps {
    * index; it would not be for the rows themselves.
    */
   initialPastYears?: VenueShowYearsResponse
+  /**
+   * The venue's upcoming rows, already fetched by the route so they reach the
+   * served HTML. Threaded to `VenueShowsList`, which hands them to its hook as
+   * `initialData`, so the key is built in the browser from the hook's own
+   * arguments and no seed can land on an entry nothing reads.
+   */
+  initialUpcomingShows?: VenueShowsResponse
 }
 
 /**
@@ -83,7 +90,11 @@ function VenueGenreProfile({ venueId }: { venueId: number }) {
   )
 }
 
-export function VenueDetail({ venueId, initialPastYears }: VenueDetailProps) {
+export function VenueDetail({
+  venueId,
+  initialPastYears,
+  initialUpcomingShows,
+}: VenueDetailProps) {
   const [isEditingVenue, setIsEditingVenue] = useState(false)
   const [isDeleteVenueOpen, setIsDeleteVenueOpen] = useState(false)
   const [isReportOpen, setIsReportOpen] = useState(false)
@@ -373,6 +384,7 @@ export function VenueDetail({ venueId, initialPastYears }: VenueDetailProps) {
               venueAddress={venue.address}
               venueVerified={venue.verified}
               initialPastYears={initialPastYears}
+              initialUpcomingShows={initialUpcomingShows}
               onShowAdded={handleShowAdded}
             />
           </div>

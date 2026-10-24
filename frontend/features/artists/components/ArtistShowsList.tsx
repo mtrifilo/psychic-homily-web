@@ -3,7 +3,7 @@
 import { Loader2 } from 'lucide-react'
 import { formatCount, SectionHeader } from '@/components/shared'
 import { useArtistShows } from '../hooks/useArtists'
-import { ARTIST_UPCOMING_SHOWS_LIMIT } from '../api'
+import { ARTIST_UPCOMING_SHOWS_REQUEST } from '../api'
 import { ArtistPastShows } from './ArtistPastShows'
 import { ArtistShowsTable } from './ArtistShowsTable'
 
@@ -53,10 +53,11 @@ export function ArtistShowsList({
   artistName,
   className,
 }: ArtistShowsListProps) {
+  // The artist route seeds this exact request's cache entry server-side, so
+  // the rows are in the served HTML and the loader shows only without a seed.
   const upcoming = useArtistShows({
     artistId,
-    timeFilter: 'upcoming',
-    limit: ARTIST_UPCOMING_SHOWS_LIMIT,
+    ...ARTIST_UPCOMING_SHOWS_REQUEST,
   })
 
   // No `dedupArtistShows` here, and none in the past archive either.

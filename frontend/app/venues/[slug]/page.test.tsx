@@ -1,18 +1,45 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { Children, isValidElement, type ReactElement, type ReactNode } from 'react'
+import { renderToString } from 'react-dom/server'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { okResponse, errorResponse } from '@/lib/seo/test-helpers'
+import type { VenueShowsResponse } from '@/features/venues/types'
 
+// `notFound()` in Next.js throws to halt rendering; mirrored so a test can tell
+// that execution stopped.
+const NOT_FOUND_SENTINEL = 'NEXT_NOT_FOUND'
 vi.mock('next/navigation', () => ({
-  notFound: vi.fn(),
+  notFound: vi.fn(() => {
+    throw new Error(NOT_FOUND_SENTINEL)
+  }),
 }))
 
 
 // Stub the heavy venues feature module so invoking generateMetadata doesn't
-// pull in the real VenueDetail render path.
+// pull in the real VenueDetail render path. A NAMED function so the page body
+// tests can find the element the route hands its props to.
 vi.mock('@/features/venues', () => ({
-  VenueDetail: (): null => null,
+  VenueDetail: function VenueDetail(): null {
+    return null
+  },
 }))
 
-import { generateMetadata } from './page'
+// What the server render of the real upcoming list needs around it: a
+// signed-out reader, no show form, and no past archive (which owns its own
+// requests and loader).
+vi.mock('@/lib/context/AuthContext', () => ({
+  useAuthContext: () => ({ isAuthenticated: false }),
+}))
+vi.mock('@/features/shows', () => ({
+  ShowForm: (): null => null,
+}))
+vi.mock('@/features/venues/components/VenuePastShows', () => ({
+  VenuePastShows: (): null => null,
+}))
+
+import VenuePage, { generateMetadata } from './page'
+import { VenueDetail } from '@/features/venues'
+import { VenueShowsList } from '@/features/venues/components/VenueShowsList'
 
 function buildVenue(overrides: Record<string, unknown> = {}) {
   return {
@@ -178,5 +205,141 @@ describe('venues/[slug] generateMetadata', () => {
     // No canonical alternate on the fallback shape.
     expect(meta.alternates).toBeUndefined()
     expect(meta.openGraph).toBeUndefined()
+  })
+})
+
+// ── Page body: the upcoming-shows seed ────────────────────────────────────
+
+const VENUE_ID = 77
+
+function upcomingBody(shows: unknown[], venueId = VENUE_ID) {
+  return { shows, venue_id: venueId, total: shows.length, limit: 200, offset: 0, year: 0 }
+}
+
+/**
+ * Route the page's three reads by URL. `/shows?` is the upcoming read; the
+ * year histogram is `/shows/years?`, which answers "unavailable" here because
+ * it is not what these tests are about.
+ */
+function stubPageBackend(upcoming: () => Response) {
+  const calls: string[] = []
+  vi.stubGlobal('fetch', async (url: string) => {
+    calls.push(String(url))
+    if (String(url).includes('/shows/years')) return errorResponse(500)
+    if (String(url).includes('/shows?')) return upcoming()
+    return okResponse(buildVenue())
+  })
+  return calls
+}
+
+const jsonResponse = (body: unknown, status = 200) => () =>
+  new Response(JSON.stringify(body), {
+    status,
+    headers: { 'Content-Type': 'application/json' },
+  })
+
+async function venueDetailPropsFrom(
+  slug = 'the-rebel-lounge',
+): Promise<Record<string, unknown>> {
+  const page = (await VenuePage({ params: Promise.resolve({ slug }) })) as ReactElement
+  const queue: unknown[] = [page]
+  while (queue.length > 0) {
+    const node = queue.shift()
+    if (!isValidElement(node)) continue
+    if (node.type === VenueDetail) return node.props as Record<string, unknown>
+    queue.push(
+      ...Children.toArray((node.props as { children?: ReactNode }).children),
+    )
+  }
+  throw new Error('VenueDetail was not found in the page tree')
+}
+
+/**
+ * Server-render the REAL upcoming list with the rows the route handed down,
+ * the way the route's HTML is produced: no client fetch can run inside
+ * `renderToString`, so whatever this prints came from the seed.
+ */
+function serverRenderUpcoming(initialUpcomingShows: unknown): string {
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  return renderToString(
+    <QueryClientProvider client={client}>
+      <VenueShowsList
+        venueId={VENUE_ID}
+        venueSlug="the-rebel-lounge"
+        venueName="The Rebel Lounge"
+        venueCity="Phoenix"
+        venueState="AZ"
+        venueTimezone="America/Phoenix"
+        initialUpcomingShows={initialUpcomingShows as VenueShowsResponse | undefined}
+      />
+    </QueryClientProvider>,
+  )
+}
+
+const LOADER = 'animate-spin'
+
+describe('VenuePage upcoming shows', () => {
+  it('asks for the upcoming request by encoded slug', async () => {
+    const calls = stubPageBackend(jsonResponse(upcomingBody([upcomingShow()])))
+
+    await venueDetailPropsFrom('weird/slug?x')
+
+    const upcoming = calls.filter(u => u.includes('/shows?'))
+    expect(upcoming).toHaveLength(1)
+    const url = new URL(upcoming[0])
+    expect(url.pathname).toMatch(/\/venues\/weird%2Fslug%3Fx\/shows$/)
+    expect(url.searchParams.get('limit')).toBe('200')
+    expect(url.searchParams.get('time_filter')).toBe('upcoming')
+  })
+
+  it('hands the rows to the venue tree and they reach the server render', async () => {
+    const body = upcomingBody([upcomingShow()])
+    stubPageBackend(jsonResponse(body))
+
+    const props = await venueDetailPropsFrom()
+    expect(props.initialUpcomingShows).toEqual(body)
+
+    const html = serverRenderUpcoming(props.initialUpcomingShows)
+    expect(html).toContain('href="/shows/next-show"')
+    expect(html).toContain('Top Billing')
+    expect(html).not.toContain(LOADER)
+  })
+
+  it('server-renders the empty state for a venue with no upcoming shows', async () => {
+    stubPageBackend(jsonResponse(upcomingBody([])))
+
+    const props = await venueDetailPropsFrom()
+    const html = serverRenderUpcoming(props.initialUpcomingShows)
+
+    expect(html).toContain('No upcoming shows yet.')
+    expect(html).not.toContain(LOADER)
+  })
+
+  it('still renders the venue, with the loader, when the upcoming read fails', async () => {
+    stubPageBackend(jsonResponse({}, 500))
+
+    const props = await venueDetailPropsFrom()
+    expect(props.venueId).toBe('the-rebel-lounge')
+    expect(props.initialUpcomingShows).toBeUndefined()
+
+    const html = serverRenderUpcoming(props.initialUpcomingShows)
+    expect(html).toContain(LOADER)
+    expect(html).not.toContain('No upcoming shows yet.')
+  })
+
+  it('withholds rows that answer for a different venue', async () => {
+    stubPageBackend(jsonResponse(upcomingBody([upcomingShow()], VENUE_ID + 1)))
+
+    const props = await venueDetailPropsFrom()
+
+    expect(props.initialUpcomingShows).toBeUndefined()
+  })
+
+  it('404s an unknown venue', async () => {
+    vi.stubGlobal('fetch', async (url: string) =>
+      String(url).includes('/shows?') ? jsonResponse({}, 404)() : errorResponse(404),
+    )
+
+    await expect(venueDetailPropsFrom('missing')).rejects.toThrow(NOT_FOUND_SENTINEL)
   })
 })

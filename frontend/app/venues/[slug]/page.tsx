@@ -10,6 +10,7 @@ import { queryKeys } from '@/lib/queryClient'
 import { prefetchEntity } from '@/lib/query-hydration'
 import { archiveData, getArchiveYears, getVenue } from '@/features/venues/archiveApi'
 import type { Venue, VenueShowsResponse } from '@/features/venues/types'
+import { venueUpcomingShowsUrl } from '@/features/venues/api'
 // The policy module, not the shows barrel: `showRails.ts` renders nothing.
 import { venueRailShowsUrl } from '@/features/shows/showRails'
 import { CURRENT_PERIOD_REVALIDATE } from '@/features/scenes/scenePeriodApi'
@@ -93,10 +94,11 @@ export default async function VenuePage({ params }: VenuePageProps) {
     notFound()
   }
 
-  // Both reads take the slug from `params`, so neither waits on the other. The
-  // histogram is thrown away for a venue that turns out not to exist, which the
-  // proxy's existence check already filters before this route renders.
-  const [venueRead, pastYearsRead] = await Promise.all([
+  // Every read takes the slug from `params`, so none waits on another. The
+  // histogram and the upcoming rows are thrown away for a venue that turns out
+  // not to exist, which the proxy's existence check already filters before this
+  // route renders.
+  const [venueRead, pastYearsRead, upcomingShows] = await Promise.all([
     getVenue(slug),
     // The past-shows year strip, server-side (PSY-1756).
     //
@@ -117,6 +119,19 @@ export default async function VenuePage({ params }: VenuePageProps) {
     // including the majority whose archive fits on one page and shows no pager
     // at all. The client fetches it, gated on there being a pager to label. The
     // year-archive route DOES seed it, because there the pager is in the HTML.
+    //
+    // The upcoming rows, so the venue's calendar is in the served HTML rather
+    // than behind a loader until the client fetch lands. Null on a failed or
+    // shape-drifted read (`fetchListPayload`), which leaves the list to that
+    // client fetch. The short cache window is the one the venue rail and the
+    // `Next` clause above read the same rows under: each carries cancelled and
+    // sold-out state, and a show leaves the window as its night passes.
+    fetchListPayload<VenueShowsResponse>({
+      url: venueUpcomingShowsUrl(slug),
+      collection: 'shows',
+      service: 'venue-page-upcoming-shows',
+      revalidateSeconds: CURRENT_PERIOD_REVALIDATE,
+    }),
   ])
 
   // Unchanged from before this ticket: ANY failed venue read is a not-found
@@ -151,7 +166,17 @@ export default async function VenuePage({ params }: VenuePageProps) {
       ])} />
       <HydrationBoundary state={dehydratedState}>
         <Suspense fallback={<VenueLoadingFallback />}>
-          <VenueDetail venueId={slug} initialPastYears={pastYears ?? undefined} />
+          <VenueDetail
+            venueId={slug}
+            initialPastYears={pastYears ?? undefined}
+            // Only rows that belong to the venue this page loaded. Both reads
+            // resolve the same slug, so a mismatch means one answered for a
+            // different venue, and `initialData` would paint that calendar
+            // here for a whole staleTime.
+            initialUpcomingShows={
+              upcomingShows?.venue_id === venueData.id ? upcomingShows : undefined
+            }
+          />
         </Suspense>
       </HydrationBoundary>
     </>

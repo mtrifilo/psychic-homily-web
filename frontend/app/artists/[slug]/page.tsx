@@ -5,13 +5,19 @@ import { notFound } from 'next/navigation'
 import * as Sentry from '@sentry/nextjs'
 import { Loader2 } from 'lucide-react'
 import { HydrationBoundary } from '@tanstack/react-query'
-import type { Artist } from '@/features/artists/types'
+import type { Artist, ArtistShowsResponse } from '@/features/artists/types'
+import {
+  ARTIST_UPCOMING_SHOWS_REQUEST,
+  artistUpcomingShowsUrl,
+} from '@/features/artists/api'
+import { CURRENT_PERIOD_REVALIDATE } from '@/features/scenes/scenePeriodApi'
+import { fetchListPayload } from '@/lib/ssr/fetchListPayload'
 import { JsonLd } from '@/components/seo/JsonLd'
 import { generateMusicGroupSchema, generateBreadcrumbSchema } from '@/lib/seo/jsonld'
 import { artistSnippet } from '@/lib/seo/entitySnippets'
 import { API_BASE_URL } from '@/lib/api-base'
 import { queryKeys } from '@/lib/queryClient'
-import { prefetchEntity } from '@/lib/query-hydration'
+import { prefetchEntities } from '@/lib/query-hydration'
 
 // Dynamic-imported from the component FILE (never the `@/features/artists` barrel)
 // to evict ArtistDetail.tsx (~40 KB raw) from Turbopack's global shared client
@@ -37,7 +43,7 @@ interface ArtistPageProps {
 /**
  * Wrapped with `React.cache()` so `generateMetadata` and the page body
  * share ONE backend fetch per request instead of two. The result also
- * seeds the TanStack Query cache via `prefetchEntity` below, eliminating
+ * seeds the TanStack Query cache via `prefetchEntities` below, eliminating
  * the client-side refetch on first paint.
  */
 const getArtist = cache(async (slug: string): Promise<Artist | null> => {
@@ -111,16 +117,50 @@ export default async function ArtistPage({ params }: ArtistPageProps) {
     notFound()
   }
 
+  // Started BEFORE the artist is awaited, so the two backend reads overlap on a
+  // Data Cache miss. It resolves to null rather than rejecting, so leaving it
+  // in flight through the `notFound()` below cannot raise an unhandled
+  // rejection.
+  //
+  // Through `fetchListPayload`: a request budget, so a slow backend cannot
+  // hold the page open, and a shape guard, so a 200 without a `shows` array is
+  // never seeded as an empty calendar. The short cache window is the one the
+  // venue rail uses for the same kind of rows: each carries cancelled and
+  // sold-out state, and a show leaves the upcoming window as its night passes.
+  const upcomingShowsPromise = fetchListPayload<ArtistShowsResponse>({
+    url: artistUpcomingShowsUrl(slug),
+    collection: 'shows',
+    service: 'artist-page-upcoming-shows',
+    revalidateSeconds: CURRENT_PERIOD_REVALIDATE,
+  })
   const artistData = await getArtist(slug)
 
   if (!artistData) {
     notFound()
   }
 
-  const dehydratedState = await prefetchEntity(
-    queryKeys.artists.detail(slug),
-    artistData,
-  )
+  const upcomingShows = await upcomingShowsPromise
+
+  // Both keys through ONE client, because a `HydrationBoundary` carries one
+  // dehydrated state. The shows key is the NUMERIC id, which is what
+  // `ArtistShowsList` passes to its hook; the detail key is the slug the route
+  // was addressed by, which is what `ArtistDetail` passes. A null seed is
+  // skipped, and the list then fetches for itself behind its loader.
+  //
+  // The rows are seeded only when they belong to the artist this page loaded.
+  // Both reads resolve the same slug, so a mismatch means one of them answered
+  // for a different artist, and seeding it would paint that artist's calendar
+  // here for a whole staleTime.
+  const dehydratedState = await prefetchEntities([
+    { queryKey: queryKeys.artists.detail(slug), data: artistData },
+    {
+      queryKey: queryKeys.artists.showsPage(
+        artistData.id,
+        ARTIST_UPCOMING_SHOWS_REQUEST,
+      ),
+      data: upcomingShows?.artist_id === artistData.id ? upcomingShows : null,
+    },
+  ])
 
   return (
     <>
