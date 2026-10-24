@@ -51,12 +51,11 @@ vi.mock('@/features/labels/hooks/useLabels', () => ({
   useLabelRoster: () => ({ data: null as unknown }),
 }))
 
+// Default (set in the top-level beforeEach): no releases, so the Discography
+// self-hides. The phone-order test hands it one album.
+const mockUseArtistReleases = vi.fn()
 vi.mock('@/features/releases/hooks/useReleases', () => ({
-  useArtistReleases: () => ({
-    data: null as unknown,
-    isLoading: false,
-    error: null as Error | null,
-  }),
+  useArtistReleases: (opts: unknown) => mockUseArtistReleases(opts),
 }))
 
 // PSY-1110: the discover + save mutations are exposed as stable module-level
@@ -317,6 +316,12 @@ vi.mock('@/components/shared', () => ({
       </button>
     ),
   SectionHeader: ({ title }: { title: string }) => <h3>{title}</h3>,
+  DenseTable: ({ children }: { children: React.ReactNode }) => <table>{children}</table>,
+  DenseTableGroupHeader: ({ title }: { title: string }) => (
+    <tr>
+      <th>{title}</th>
+    </tr>
+  ),
   StatsList: ({ items }: { items: { label: string; value: React.ReactNode }[] }) => (
     <dl data-testid="stats-list">
       {items.map(i => (
@@ -368,6 +373,11 @@ describe('ArtistDetail', () => {
     mockUseArtistLabels.mockReturnValue({
       data: { labels: [] },
       isLoading: false,
+    })
+    mockUseArtistReleases.mockReturnValue({
+      data: null,
+      isLoading: false,
+      error: null,
     })
   })
 
@@ -925,28 +935,64 @@ describe('ArtistDetail', () => {
       const similarHeadings = () =>
         screen.getAllByRole('heading', { name: 'Similar artists' })
 
-      it('puts the list in the main column, above Statistics, on the phone layout', () => {
+      it('orders shows, actions, Similar artists, Discography, Statistics on the phone layout', () => {
         const mm = installMatchMedia({ [WIDE]: false })
         onTestFinished(() => mm.restore())
+        mockUseArtistReleases.mockReturnValue({
+          data: {
+            releases: [
+              { id: 1, title: 'Futures', slug: 'futures', release_type: 'lp', release_year: 2004, role: 'main' },
+            ],
+            count: 1,
+          },
+          isLoading: false,
+          error: null,
+        })
         renderWithProviders(<ArtistDetail artistId="test-artist" />)
 
         const [similar] = similarHeadings()
         expect(similarHeadings()).toHaveLength(1)
         expect(screen.getByTestId('content-slot')).toContainElement(similar)
         expect(screen.getByTestId('sidebar-slot')).not.toContainElement(similar)
-        // After the action row, which sits under the shows.
+
+        const sequence = [
+          screen.getByTestId('artist-shows-list'),
+          screen.getByTestId('artist-actions'),
+          similar,
+          screen.getByRole('heading', { name: 'Discography' }),
+          screen.getByRole('heading', { name: 'Statistics' }),
+        ]
+        for (let i = 1; i < sequence.length; i++) {
+          expect(
+            sequence[i - 1].compareDocumentPosition(sequence[i]) &
+              Node.DOCUMENT_POSITION_FOLLOWING
+          ).toBeTruthy()
+        }
+      })
+
+      it('keeps the Discography above the Connections section outside the phone layout', () => {
+        const mm = installMatchMedia({ [WIDE]: true })
+        onTestFinished(() => mm.restore())
+        mockUseArtistReleases.mockReturnValue({
+          data: {
+            releases: [
+              { id: 1, title: 'Futures', slug: 'futures', release_type: 'lp', release_year: 2004, role: 'main' },
+            ],
+            count: 1,
+          },
+          isLoading: false,
+          error: null,
+        })
+        renderWithProviders(<ArtistDetail artistId="test-artist" />)
         expect(
-          screen.getByTestId('artist-actions').compareDocumentPosition(similar) &
-            Node.DOCUMENT_POSITION_FOLLOWING
-        ).toBeTruthy()
-        expect(
-          similar.compareDocumentPosition(screen.getByText('Statistics')) &
-            Node.DOCUMENT_POSITION_FOLLOWING
+          screen.getByRole('heading', { name: 'Discography' }).compareDocumentPosition(
+            screen.getByTestId('connections-section')
+          ) & Node.DOCUMENT_POSITION_FOLLOWING
         ).toBeTruthy()
       })
 
-      // The list takes the Connections slot, so the section (and with it the
-      // sub-640 map teaser) is not mounted on the phone layout.
+      // No canvas can render on the phone layout, so the section (and with it
+      // the sub-640 map teaser) is not mounted there.
       it('does not mount the Connections section on the phone layout', () => {
         const mm = installMatchMedia({ [WIDE]: false })
         onTestFinished(() => mm.restore())

@@ -1165,7 +1165,7 @@ export function ArtistDetail({ artistId }: ArtistDetailProps) {
   // Similar artists: a dense list plus the [Explore graph] affordance that
   // opens the page-level Dialog. It self-hides when there are no
   // relationships AND the viewer can't contribute. It is rendered in one of
-  // two places (see the Connections slot below), so it remounts when the
+  // two places (see the main column below), so it remounts when the
   // viewport enters or leaves the phone layout; SimilarListStateProvider,
   // wrapping the page, carries the viewer's sort and suggest draft across
   // that remount.
@@ -1295,20 +1295,21 @@ export function ArtistDetail({ artistId }: ArtistDetailProps) {
 
           {artistActions}
 
+          {/* On the phone layout the Similar artists list sits here, under
+              the shows and their action row and above the Discography, and
+              the sidebar's `similarArtists` is null. No canvas can render at
+              that width, so the Connections section below is not mounted;
+              the action-row [Graph] and the list's [Explore graph] still open
+              the graph Dialog. Every placement reads `isPhoneLayout`, so the
+              list renders exactly once. */}
+          {isPhoneLayout && similarArtists}
+
           <DiscographyTab artistIdOrSlug={artistId} />
 
-          {/* The Connections slot. On the phone layout no canvas can render,
-              so the slot holds the Similar artists list (after the action
-              row and the discography, above the stacked sidebar) and the
-              sidebar's `similarArtists` is null; the action-row [Graph] and
-              the list's [Explore graph] still open the graph Dialog.
-              Otherwise the slot holds the inline ego map, which reuses the
-              list's cached useArtistGraph payload and whose [Expand] opens
-              the same Dialog, and the list is in the sidebar. Both branches
-              read `isPhoneLayout`, so the list renders exactly once. */}
-          {isPhoneLayout ? (
-            similarArtists
-          ) : (
+          {/* Outside the phone layout: the inline ego map, which reuses the
+              list's cached useArtistGraph payload and whose [Expand] opens the
+              same Dialog; the list is in the sidebar. */}
+          {!isPhoneLayout && (
             <ArtistConnectionsSection
               artistId={artist.id}
               artistName={artist.name}
