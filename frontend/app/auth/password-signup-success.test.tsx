@@ -16,11 +16,12 @@ import { SIGNUP_REQUEST_TIMEOUT_MS } from './_components/signup-request-deadline
 // stops rendering the form.
 
 const RETURN_TO = '/collections'
+const searchParams = vi.hoisted(() => ({ current: new URLSearchParams() }))
 
 const mockPush = vi.fn()
 vi.mock('next/navigation', () => ({
   useRouter: () => ({ push: mockPush, replace: vi.fn() }),
-  useSearchParams: () => new URLSearchParams({ returnTo: RETURN_TO }),
+  useSearchParams: () => searchParams.current,
   usePathname: () => '/auth',
 }))
 
@@ -116,6 +117,7 @@ describe('password sign-up success with the real profile query', () => {
     mockPush.mockReset()
     fetchMock.mockReset()
     vi.stubGlobal('fetch', fetchMock)
+    searchParams.current = new URLSearchParams({ returnTo: RETURN_TO })
   })
 
   afterEach(() => {
@@ -161,6 +163,31 @@ describe('password sign-up success with the real profile query', () => {
       screen.queryByRole('dialog', { name: 'Add a backup sign-in method' })
     ).toBeNull()
     expect(page.blankSeen()).toBe(false)
+    expect(mockPush).not.toHaveBeenCalled()
+  })
+
+  // A re-authentication link that outlived its session offers Create account,
+  // and an account made from it goes on like any other new account.
+  it('shows the interstitial, not the re-authentication form, after a sign-up from a stale re-auth link', async () => {
+    searchParams.current = new URLSearchParams({
+      returnTo: RETURN_TO,
+      reason: 'REAUTH_REQUIRED',
+    })
+    routeFetch({
+      profile: n =>
+        Promise.resolve(jsonResponse(n === 1 ? ANONYMOUS_PROFILE : SIGNED_IN_PROFILE)),
+      register: () => Promise.resolve(jsonResponse(REGISTERED)),
+    })
+    const user = userEvent.setup()
+    renderPage()
+
+    await submitPasswordSignup(user)
+
+    expect(
+      await screen.findByRole('heading', { name: 'Check your inbox.' })
+    ).toBeInTheDocument()
+    expect(screen.queryByText("Confirm it's you")).not.toBeInTheDocument()
+    expect(screen.queryByRole('tab', { name: 'Sign in' })).not.toBeInTheDocument()
     expect(mockPush).not.toHaveBeenCalled()
   })
 
