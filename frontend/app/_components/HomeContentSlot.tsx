@@ -89,9 +89,8 @@ export async function HomeContentSlot() {
  * its loader, as it does unseeded; no cities means no chips until the browser
  * has them.
  *
- * Stamped stale (`seedFirstScreen`): the payloads come from the Data Cache,
- * which can hand back an entry older than the latest show change, so the
- * browser re-asks both on mount and corrects anything that changed since.
+ * Stamped stale, so the browser re-asks both on mount; see
+ * {@link seedFirstScreen}.
  */
 async function seedAnonymousHomeShows() {
   const [shows, cities] = await Promise.all([
@@ -106,8 +105,9 @@ async function seedAnonymousHomeShows() {
       service: 'home-show-cities-first-screen',
     }),
   ])
-  const seeds: QuerySeed[] = []
-  if (shows) seeds.push({ queryKey: HOME_UPCOMING_FIRST_SCREEN_KEY, data: shows })
-  if (cities) seeds.push({ queryKey: SHOW_CITIES_FIRST_SCREEN_KEY, data: cities })
+  const seeds: QuerySeed[] = [
+    { queryKey: HOME_UPCOMING_FIRST_SCREEN_KEY, data: shows },
+    { queryKey: SHOW_CITIES_FIRST_SCREEN_KEY, data: cities },
+  ].filter(seed => seed.data !== null)
   return seeds.length > 0 ? seedFirstScreen(seeds) : undefined
 }

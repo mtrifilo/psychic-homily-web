@@ -88,14 +88,20 @@ export function HomeShowListView({
 
   const limit = excludeSaved ? rows + HOME_SHOW_EXCLUSION_HEADROOM : rows
 
-  // The anonymous home seeds this query's first-render entry server-side
-  // (`HOME_UPCOMING_FIRST_SCREEN_KEY`), stamped stale, so the rows paint from
-  // the server and the browser re-asks on mount.
-  const { data, isLoading, isFetching, isPlaceholderData, error } =
-    useUpcomingShows({
-      limit,
-      cities: effectiveCities.length > 0 ? effectiveCities : undefined,
-    })
+  const {
+    data,
+    isLoading,
+    isFetching,
+    // True while `keepPreviousData` holds another key's rows on screen. A
+    // same-key revalidation (a server-seeded entry refreshes on its first
+    // commit) leaves it false, so those rows neither dim nor give way to an
+    // error.
+    isPlaceholderData: rowsAreFromPreviousKey,
+    error,
+  } = useUpcomingShows({
+    limit,
+    cities: effectiveCities.length > 0 ? effectiveCities : undefined,
+  })
 
   // Prefetch /shows and /venues data during idle time
   usePrefetchRoutes()
@@ -154,11 +160,7 @@ export function HomeShowListView({
     )
   }
 
-  // Only when nothing on screen answers the CURRENT query. A failed refresh of
-  // rows this key already holds (a seeded entry revalidating on mount) keeps
-  // them; rows held over from a previous key (`keepPreviousData`) do not answer
-  // this one, so a failed city change still reports.
-  if (error && (!data || isPlaceholderData)) {
+  if (error && (!data || rowsAreFromPreviousKey)) {
     return (
       <div className="text-center py-8 text-muted-foreground">
         <p>Unable to load shows.</p>
@@ -224,10 +226,7 @@ export function HomeShowListView({
         </div>
       )}
 
-      {/* Dimmed only while the rows belong to a previous key and the current
-          one is in flight. A same-key revalidation, which a seeded entry
-          starts on its first commit, leaves them at full strength. */}
-      <div className={isFetching && isPlaceholderData ? 'opacity-60 transition-opacity duration-75' : 'transition-opacity duration-75'}>
+      <div className={isFetching && rowsAreFromPreviousKey ? 'opacity-60 transition-opacity duration-75' : 'transition-opacity duration-75'}>
         {emptyMessage ? (
           <div className="text-center py-8 text-muted-foreground">
             <p>{emptyMessage}</p>

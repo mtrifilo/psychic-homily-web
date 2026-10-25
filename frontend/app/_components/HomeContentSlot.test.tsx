@@ -81,6 +81,10 @@ import { AnonymousHome } from '@/features/home/components/AnonymousHome'
 import { SignedInHome } from '@/features/home/components/SignedInHome'
 import { HomeVariantSwitch } from '@/features/home/components/HomeVariantSwitch'
 import { HomeShowList } from '@/features/shows/components/HomeShowList'
+import {
+  HOME_UPCOMING_FIRST_SCREEN_KEY,
+  SHOW_CITIES_FIRST_SCREEN_KEY,
+} from '@/features/shows/api'
 
 function show(id: number, slug: string, headliner: string) {
   return {
@@ -184,8 +188,10 @@ function serverRenderList(tree: ReactElement): string {
 }
 
 const LOADER = 'animate-spin'
-const UPCOMING_KEY_HASH = '["shows","list",{"limit":5}]'
-const CITIES_KEY_HASH = '["shows","cities"]'
+// The literal spelling is pinned in useShowsFirstScreen.test.tsx, beside the
+// hook that registers it.
+const UPCOMING_KEY_HASH = hashKey(HOME_UPCOMING_FIRST_SCREEN_KEY)
+const CITIES_KEY_HASH = hashKey(SHOW_CITIES_FIRST_SCREEN_KEY)
 
 describe('HomeContentSlot, anonymous viewer', () => {
   it('renders the anonymous page inside the seeded boundary', async () => {
@@ -205,8 +211,6 @@ describe('HomeContentSlot, anonymous viewer', () => {
     expect(new URL(String(citiesFetch.mock.calls[0][0])).search).toBe('')
   })
 
-  // Pinned as literals, so the seed cannot agree with a shared constant while
-  // both drift; the hook's side is pinned in useShowsFirstScreen.test.tsx.
   it('seeds the rows and the facet under the hooks keys, stamped stale', async () => {
     const tree = await renderSlot()
     const queries = boundaryStatesOf(tree).flatMap(state => state.queries)
@@ -215,7 +219,6 @@ describe('HomeContentSlot, anonymous viewer', () => {
       [UPCOMING_KEY_HASH, CITIES_KEY_HASH].sort(),
     )
     const rows = queries.find(q => q.queryHash === UPCOMING_KEY_HASH)
-    expect(hashKey(rows!.queryKey)).toBe(UPCOMING_KEY_HASH)
     expect(rows?.state.data).toMatchObject({ shows: SEEDED_SHOWS })
     expect(rows?.state.dataUpdatedAt).toBe(0)
   })
