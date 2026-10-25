@@ -36,6 +36,7 @@ import { dehydrate, type DehydratedState } from '@tanstack/react-query'
 import * as Sentry from '@sentry/nextjs'
 import { getQueryClient, queryKeys } from '@/lib/queryClient'
 import { API_BASE_URL } from '@/lib/api-base'
+import { reportServerFetchFailure } from '@/lib/ssr/reportServerFetchFailure'
 import { serverReadHeaders } from '@/lib/ssr/serverReadHeaders'
 import { SAVED_SHOWS_COLLAPSED_COUNT } from '@/features/shows/savedShowsConstants'
 // `features/home/sections` is isomorphic (no 'use client'), so this server
@@ -239,13 +240,13 @@ export const prefetchHomeSavedShows = cache(async () => {
       signal: AbortSignal.timeout(HOME_SAVED_SHOWS_PREFETCH_TIMEOUT_MS),
     })
     if (!response.ok) {
-      if (response.status >= 500) {
-        Sentry.captureMessage(`SSR saved-shows prefetch failed: ${response.status}`, {
-          level: 'warning',
-          tags: { service: 'shows', error_type: 'ssr_prefetch_failure' },
-          extra: { status: response.status },
-        })
-      }
+      reportServerFetchFailure({
+        response,
+        service: 'ssr-saved-shows-prefetch',
+        pathFamily: '/saved-shows',
+        notFoundIsAnswer: false,
+        level: 'warning',
+      })
       return dehydrate(queryClient)
     }
     const body: unknown = await response.json()
@@ -363,16 +364,15 @@ const fetchAuthProfile = cache(async (): Promise<AuthProfileResolution> => {
         return { kind: 'resolved', profile: UNAUTHENTICATED_PROFILE }
       }
 
-      // Anything else (5xx, and any other unexpected status) is the backend
+      // Anything else (5xx, a 429, any other unexpected status) is the backend
       // failing to answer, NOT answering "nobody". Report it as indeterminate
       // rather than fabricating a logged-out viewer out of an outage.
-      if (response.status >= 500) {
-        Sentry.captureMessage(`SSR auth profile fetch failed: ${response.status}`, {
-          level: 'error',
-          tags: { service: 'auth', error_type: 'ssr_prefetch_failure' },
-          extra: { status: response.status },
-        })
-      }
+      reportServerFetchFailure({
+        response,
+        service: 'ssr-auth-profile',
+        pathFamily: '/auth/profile',
+        notFoundIsAnswer: false,
+      })
       return { kind: 'indeterminate' }
     }
 

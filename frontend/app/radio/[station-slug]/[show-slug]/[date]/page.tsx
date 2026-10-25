@@ -33,12 +33,33 @@ function formatShortDate(dateStr: string): string {
   })
 }
 
+/**
+ * Whether `segment` is a real `YYYY-MM-DD` date. The backend answers 400 for
+ * anything else, and a 400 is reported, so a URL that cannot name an episode
+ * is settled here without asking it.
+ */
+function isRealCalendarDate(segment: string): boolean {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(segment)
+  if (!match) return false
+  const [year, month, day] = match.slice(1).map(Number)
+  const parsed = new Date(Date.UTC(year, month - 1, day))
+  return (
+    parsed.getUTCFullYear() === year &&
+    parsed.getUTCMonth() === month - 1 &&
+    parsed.getUTCDate() === day
+  )
+}
+
 async function getEpisode(showSlug: string, date: string): Promise<EpisodeData | null> {
+  if (!isRealCalendarDate(date)) return null
   try {
-    const res = await fetch(`${API_BASE_URL}/radio-shows/${showSlug}/episodes/${date}`, {
-      headers: serverReadHeaders(),
-      next: { revalidate: 3600 },
-    })
+    const res = await fetch(
+      `${API_BASE_URL}/radio-shows/${encodeURIComponent(showSlug)}/episodes/${encodeURIComponent(date)}`,
+      {
+        headers: serverReadHeaders(),
+        next: { revalidate: 3600 },
+      }
+    )
     if (res.ok) {
       return res.json()
     }

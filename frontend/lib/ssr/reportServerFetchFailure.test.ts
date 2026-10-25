@@ -5,7 +5,11 @@ vi.mock('@sentry/nextjs', () => ({
 }))
 
 import * as Sentry from '@sentry/nextjs'
-import { listPathFamily, reportServerFetchFailure } from './reportServerFetchFailure'
+import {
+  listPathFamily,
+  listQueryParamNames,
+  reportServerFetchFailure,
+} from './reportServerFetchFailure'
 
 function response(status: number, headers: Record<string, string> = {}): Response {
   return new Response(null, { status, headers })
@@ -119,5 +123,17 @@ describe('listPathFamily', () => {
 
   it('accepts a relative URL', () => {
     expect(listPathFamily('/api/venues/cities?x=1')).toBe('/api/venues/cities')
+  })
+})
+
+describe('listQueryParamNames', () => {
+  it('names the parameters without their values', () => {
+    expect(listQueryParamNames('https://api.example.com/venues?limit=200&cursor=abc')).toBe(
+      'limit,cursor'
+    )
+  })
+
+  it('is empty for a URL with no query', () => {
+    expect(listQueryParamNames('https://api.example.com/venues')).toBe('')
   })
 })

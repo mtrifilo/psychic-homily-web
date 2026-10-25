@@ -6,15 +6,16 @@ interface ServerFetchFailure {
   /** Sentry `service` tag, and the prefix of the reported message. */
   service: string
   /**
-   * The backend route the request addressed, as a template with no query
-   * string, e.g. `/artists/{slug}`. A query string never belongs here: it can
-   * carry values nobody reviewed for a third-party error tracker.
+   * The backend route the request addressed, with no query string: a template
+   * such as `/artists/{slug}`, or for a list read its pathname
+   * (`listPathFamily`). A query string never belongs here: it can carry values
+   * nobody reviewed for a third-party error tracker.
    */
   pathFamily: string
   /**
-   * Whether a 404 is an ANSWER rather than a defect. True for a read of one
-   * entity, where a 404 says the slug does not exist and is expected; false for
-   * a list endpoint, where a 404 means our own request is wrong.
+   * Whether a 404 from this route is an ANSWER ("that does not exist", expected
+   * whenever the URL a visitor asked for names nothing) rather than a sign that
+   * our own request is wrong.
    */
   notFoundIsAnswer: boolean
   level?: 'error' | 'warning'
@@ -32,6 +33,14 @@ interface ServerFetchFailure {
  */
 export function listPathFamily(url: string): string {
   return new URL(url, 'http://relative.invalid').pathname
+}
+
+/**
+ * The query parameter NAMES of a list read, comma-joined, so a report can say
+ * which parameters the failing request carried without carrying their values.
+ */
+export function listQueryParamNames(url: string): string {
+  return [...new URL(url, 'http://relative.invalid').searchParams.keys()].join(',')
 }
 
 /**

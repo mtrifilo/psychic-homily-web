@@ -8,6 +8,7 @@ import {
 } from '@/lib/data-cache-budget/assert'
 import {
   listPathFamily,
+  listQueryParamNames,
   reportServerFetchFailure,
 } from '@/lib/ssr/reportServerFetchFailure'
 import { serverReadHeaders } from '@/lib/ssr/serverReadHeaders'
@@ -135,6 +136,7 @@ export async function fetchListPayload<T>({
         service,
         pathFamily: listPathFamily(url),
         notFoundIsAnswer: false,
+        context: { queryParams: listQueryParamNames(url) },
       })
       return null
     }

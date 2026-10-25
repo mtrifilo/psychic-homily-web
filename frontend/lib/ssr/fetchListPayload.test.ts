@@ -86,7 +86,7 @@ describe('fetchListPayload', () => {
     expect(captureMessage).toHaveBeenCalledWith('venues-first-screen: API returned 429', {
       level: 'error',
       tags: { service: 'venues-first-screen', path_family: '/venues', status: '429' },
-      extra: { pathFamily: '/venues', status: 429, retryAfter: '60' },
+      extra: { queryParams: 'limit', pathFamily: '/venues', status: 429, retryAfter: '60' },
     })
     expect(JSON.stringify(captureMessage.mock.calls)).not.toContain('limit=50')
   })

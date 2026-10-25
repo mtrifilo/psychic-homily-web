@@ -108,11 +108,30 @@ describe('prefetchAuthProfile', () => {
   // `AuthProvider` mounts once in the root layout.
   it('seeds NOTHING on a 5xx, so the client query mounts pending and asks again', async () => {
     mockGet.mockReturnValue({ value: 'good-token' })
-    vi.stubGlobal('fetch', vi.fn(async () => ({ ok: false, status: 503 })))
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(null, { status: 503 })))
 
     const state = await prefetchAuthProfile()
 
     expect(seededProfileEntry(state as never)).toBeUndefined()
+  })
+
+  it('seeds NOTHING on a 429 and reports it, a refusal rather than an answer', async () => {
+    mockGet.mockReturnValue({ value: 'good-token' })
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => new Response(null, { status: 429, headers: { 'Retry-After': '60' } }))
+    )
+    const Sentry = await import('@sentry/nextjs')
+
+    const state = await prefetchAuthProfile()
+
+    expect(seededProfileEntry(state as never)).toBeUndefined()
+    expect(Sentry.captureMessage).toHaveBeenCalledWith(
+      'ssr-auth-profile: API returned 429',
+      expect.objectContaining({
+        extra: { pathFamily: '/auth/profile', status: 429, retryAfter: '60' },
+      })
+    )
   })
 
   it('seeds NOTHING when the backend is unreachable', async () => {
@@ -157,7 +176,7 @@ describe('getAuthenticatedNavMode', () => {
   // the caller's default is the right fallback when there is no answer.
   it('returns undefined when the profile read is indeterminate', async () => {
     mockGet.mockReturnValue({ value: 'token' })
-    vi.stubGlobal('fetch', vi.fn(async () => ({ ok: false, status: 500 })))
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(null, { status: 500 })))
 
     await expect(getAuthenticatedNavMode()).resolves.toBeUndefined()
   })
@@ -211,7 +230,7 @@ describe('isAuthenticatedViewer', () => {
 
   it('fails closed when the read is indeterminate', async () => {
     mockGet.mockReturnValue({ value: 'token' })
-    vi.stubGlobal('fetch', vi.fn(async () => ({ ok: false, status: 500 })))
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(null, { status: 500 })))
 
     await expect(isAuthenticatedViewer()).resolves.toBe(false)
   })
@@ -276,7 +295,7 @@ describe('resolveHomeViewer', () => {
 
   it('is indeterminate when the backend could not answer', async () => {
     mockGet.mockReturnValue({ value: 'token' })
-    vi.stubGlobal('fetch', vi.fn(async () => ({ ok: false, status: 500 })))
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(null, { status: 500 })))
 
     await expect(resolveHomeViewer()).resolves.toBe('indeterminate')
   })
@@ -335,7 +354,7 @@ describe('prefetchHomeSavedShows', () => {
               status: 200,
               json: async () => ({ success: true, user: { id: 'u1' } }),
             }
-          : { ok: false, status: 503 }
+          : new Response(null, { status: 503 })
       )
     )
 
