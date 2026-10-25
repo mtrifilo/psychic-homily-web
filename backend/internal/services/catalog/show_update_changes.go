@@ -33,7 +33,9 @@ func changedShowColumns(show *catalogm.Show, updates map[string]interface{}) map
 
 // showColumnHolds reports whether writing value to column would leave the
 // stored row as it is. The value types are the ones showUpdatesToMap puts in
-// the map; a value of any other type reports false.
+// the map; a value of any other type reports false. A typed nil pointer is a
+// clear and holds only over NULL. A price with more precision than the
+// DECIMAL(10,2) column keeps reports false and writes; the column rounds it.
 func showColumnHolds(show *catalogm.Show, column string, value interface{}) bool {
 	switch column {
 	case "title":
@@ -57,11 +59,14 @@ func showColumnHolds(show *catalogm.Show, column string, value interface{}) bool
 	case "ticket_url":
 		return stringHolds(value, show.TicketURL)
 	case "price":
-		return floatPtrHolds(value, show.Price)
+		v, ok := value.(*float64)
+		return ok && floatPtrEq(v, show.Price)
 	case "door_price":
-		return floatPtrHolds(value, show.DoorPrice)
+		v, ok := value.(*float64)
+		return ok && floatPtrEq(v, show.DoorPrice)
 	case "image_url":
-		return stringPtrHolds(value, show.ImageURL)
+		v, ok := value.(*string)
+		return ok && strPtrEq(v, show.ImageURL)
 	}
 	return false
 }
@@ -94,33 +99,6 @@ func timePtrHolds(value interface{}, stored *time.Time) bool {
 func stringHolds(value interface{}, stored *string) bool {
 	v, ok := value.(string)
 	return ok && stored != nil && *stored == v
-}
-
-// stringPtrHolds compares a nullable string entry (a typed nil means NULL) with
-// the stored nullable column.
-func stringPtrHolds(value interface{}, stored *string) bool {
-	v, ok := value.(*string)
-	if !ok {
-		return false
-	}
-	if v == nil || stored == nil {
-		return v == nil && stored == nil
-	}
-	return *v == *stored
-}
-
-// floatPtrHolds compares a nullable price entry (a typed nil means clear) with
-// the stored DECIMAL(10,2) column. An incoming value with more precision than
-// the column keeps reports false and writes; the column rounds it.
-func floatPtrHolds(value interface{}, stored *float64) bool {
-	v, ok := value.(*float64)
-	if !ok {
-		return false
-	}
-	if v == nil || stored == nil {
-		return v == nil && stored == nil
-	}
-	return *v == *stored
 }
 
 // showRelations is the part of a show's bill and venue rows its page renders:
@@ -168,9 +146,8 @@ func (r showRelations) equal(other showRelations) bool {
 	return slices.Equal(r.bill, other.bill) && slices.Equal(r.venueIDs, other.venueIDs)
 }
 
-// stampShowUpdatedAt moves the show's updated_at to now. A bill or venue
-// replacement writes only join rows, which carry no timestamp, so this stamp is
-// the one record that the show's rendered page changed.
+// stampShowUpdatedAt moves the show's updated_at to now. Bill and venue rows
+// carry no timestamp, so this stamp is the only record that they changed.
 func stampShowUpdatedAt(tx *gorm.DB, show *catalogm.Show) error {
 	now := time.Now()
 	if err := tx.Model(&catalogm.Show{}).Where("id = ?", show.ID).Update("updated_at", now).Error; err != nil {

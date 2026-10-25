@@ -1082,12 +1082,10 @@ func (s *ShowService) UpdateShowWithRelations(
 }
 
 // updateShowFields verifies the show exists, applies the scalar-field updates
-// that change the row, and returns the (reloaded) show row. Updates the row
-// already holds are dropped first (changedShowColumns), so a save that changes
-// nothing writes nothing and updated_at does not move. An associations-only
-// edit reaches it with an empty map; UpdateShowWithRelations stamps updated_at
-// itself when the bill or venue rows change. The show is always loaded so the
-// caller can build the response. Returns ErrShowNotFound when the row is missing so
+// that change the row (changedShowColumns), and returns the (reloaded) show
+// row. An associations-only edit reaches it with an empty map;
+// UpdateShowWithRelations stamps updated_at itself when the bill or venue rows
+// change. The show is always loaded so the caller can build the response. Returns ErrShowNotFound when the row is missing so
 // callers map it to a 404/422.
 func (s *ShowService) updateShowFields(tx *gorm.DB, showID uint, updates map[string]interface{}) (*catalogm.Show, error) {
 	var show catalogm.Show

@@ -563,7 +563,7 @@ func (s *SitemapService) Entries(ctx context.Context, family string) (*contracts
 	}
 
 	if want("venues") {
-		venues, err := s.entriesFor(ctx, s.db.Model(&catalogm.Venue{}))
+		venues, err := s.entriesFor(ctx, s.db.Model(&catalogm.Venue{}), rowLastmodSQL)
 		if err != nil {
 			return nil, fmt.Errorf("failed to collect venue sitemap entries: %w", err)
 		}
@@ -618,7 +618,7 @@ func (s *SitemapService) Entries(ctx context.Context, family string) (*contracts
 	}
 
 	if want("labels") {
-		labels, err := s.entriesFor(ctx, s.db.Model(&catalogm.Label{}))
+		labels, err := s.entriesFor(ctx, s.db.Model(&catalogm.Label{}), rowLastmodSQL)
 		if err != nil {
 			return nil, fmt.Errorf("failed to collect label sitemap entries: %w", err)
 		}
@@ -643,7 +643,7 @@ func (s *SitemapService) Entries(ctx context.Context, family string) (*contracts
 		// Festival.Slug is a non-null string column (not *string), so the
 		// entriesFor empty-slug predicate still applies for the empty-string
 		// case GenerateSlug can produce.
-		festivals, err := s.entriesFor(ctx, s.db.Model(&catalogm.Festival{}))
+		festivals, err := s.entriesFor(ctx, s.db.Model(&catalogm.Festival{}), rowLastmodSQL)
 		if err != nil {
 			return nil, fmt.Errorf("failed to collect festival sitemap entries: %w", err)
 		}
@@ -651,7 +651,7 @@ func (s *SitemapService) Entries(ctx context.Context, family string) (*contracts
 	}
 
 	if want("tags") {
-		tags, err := s.entriesFor(ctx, s.db.Model(&catalogm.Tag{}))
+		tags, err := s.entriesFor(ctx, s.db.Model(&catalogm.Tag{}), rowLastmodSQL)
 		if err != nil {
 			return nil, fmt.Errorf("failed to collect tag sitemap entries: %w", err)
 		}
@@ -659,24 +659,6 @@ func (s *SitemapService) Entries(ctx context.Context, family string) (*contracts
 	}
 
 	return out, nil
-}
-
-// entriesFor projects slug + updated_at from an already-scoped query, skipping
-// rows with no slug: slug is nullable on several models, and a row without
-// one has no canonical URL to index. (GenerateSlug returns "" for an all-
-// non-ASCII name, hence the empty-string check as well as the NULL one.)
-//
-// Taking a scope keeps each family's visibility predicate at the call site
-// where it can be read next to the model it applies to.
-//
-// CONSTRAINT: the scope must resolve to a SINGLE table. slug and updated_at are
-// referenced unqualified here, so a joined scope will either error with
-// "column reference is ambiguous" or silently bind the wrong table's
-// updated_at. A family needing a join wants its own projection, not this. The
-// one exception is a diet rule's join, which entriesOmitting adds only while
-// the rule is on and only under the contract on sitemapOmission.join.
-func (s *SitemapService) entriesFor(ctx context.Context, scope *gorm.DB) ([]contracts.SitemapEntry, error) {
-	return s.entriesWithLastmod(ctx, scope, rowLastmodSQL)
 }
 
 // rowLastmodSQL is the lastmod of a family whose page renders its own row and
@@ -703,9 +685,23 @@ const rowLastmodSQL = "updated_at"
 // against about 3 ms and 9 ms for the row's updated_at alone.
 const releaseLastmodSQL = "GREATEST(releases.updated_at, (SELECT MAX(rel_lastmod.created_at) FROM release_external_links rel_lastmod WHERE rel_lastmod.release_id = releases.id))"
 
-// entriesWithLastmod is entriesFor with lastmod taken from lastmodSQL, an SQL
-// expression over the scope's single table that carries no bind parameters.
-func (s *SitemapService) entriesWithLastmod(ctx context.Context, scope *gorm.DB, lastmodSQL string) ([]contracts.SitemapEntry, error) {
+// entriesFor projects slug + lastmod from an already-scoped query, skipping
+// rows with no slug: slug is nullable on several models, and a row without
+// one has no canonical URL to index. (GenerateSlug returns "" for an all-
+// non-ASCII name, hence the empty-string check as well as the NULL one.)
+//
+// Taking a scope keeps each family's visibility predicate at the call site
+// where it can be read next to the model it applies to. lastmodSQL is the
+// family's lastmod as an SQL expression over that one table, carrying no bind
+// parameters: rowLastmodSQL, or a family's own such as releaseLastmodSQL.
+//
+// CONSTRAINT: the scope must resolve to a SINGLE table. slug and updated_at are
+// referenced unqualified here, so a joined scope will either error with
+// "column reference is ambiguous" or silently bind the wrong table's
+// updated_at. A family needing a join wants its own projection, not this. The
+// one exception is a diet rule's join, which entriesOmitting adds only while
+// the rule is on and only under the contract on sitemapOmission.join.
+func (s *SitemapService) entriesFor(ctx context.Context, scope *gorm.DB, lastmodSQL string) ([]contracts.SitemapEntry, error) {
 	// Deterministic order, so two fetches of an unchanged catalogue diff
 	// cleanly. Ordered by slug rather than recency because the partial unique
 	// index on slug (migration 000013) can supply that order, while no index on
@@ -731,7 +727,7 @@ func advertisableRows(ctx context.Context, scope *gorm.DB) *gorm.DB {
 		Order("slug ASC")
 }
 
-// entriesOmitting is entriesWithLastmod with one diet rule applied, and the
+// entriesOmitting is entriesFor with one diet rule applied, and the
 // scope carries the same single-table constraint. The rule's own join is the one
 // relation added, and only while the rule is on; see sitemapOmission.join.
 //
@@ -757,7 +753,7 @@ func (s *SitemapService) entriesOmitting(
 	lastmodSQL string,
 ) ([]contracts.SitemapEntry, error) {
 	if omission.condition == "" {
-		return s.entriesWithLastmod(ctx, scope, lastmodSQL)
+		return s.entriesFor(ctx, scope, lastmodSQL)
 	}
 
 	type row struct {
