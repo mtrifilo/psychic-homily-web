@@ -318,3 +318,55 @@ describe('HomeShowListView save-as-default', () => {
     }
   )
 })
+
+describe('HomeShowListView refresh states', () => {
+  const rowsWrapper = () =>
+    screen.getAllByTestId('show-card')[0].parentElement?.parentElement
+
+  function upcoming(state: {
+    isFetching: boolean
+    isPlaceholderData: boolean
+    error?: Error | null
+  }) {
+    mockUseUpcomingShows.mockReturnValue({
+      data: { shows },
+      isLoading: false,
+      error: null,
+      ...state,
+    })
+  }
+
+  it('keeps the rows at full strength while the same key revalidates', () => {
+    upcoming({ isFetching: true, isPlaceholderData: false })
+
+    render(<HomeShowListView selection={selection} />)
+
+    expect(rowsWrapper()).not.toHaveClass('opacity-60')
+  })
+
+  it('dims rows held over from a previous key while the new one loads', () => {
+    upcoming({ isFetching: true, isPlaceholderData: true })
+
+    render(<HomeShowListView selection={selection} />)
+
+    expect(rowsWrapper()).toHaveClass('opacity-60')
+  })
+
+  it('keeps rows this key already holds when their refresh fails', () => {
+    upcoming({ isFetching: false, isPlaceholderData: false, error: new Error('down') })
+
+    render(<HomeShowListView selection={selection} />)
+
+    expect(screen.getAllByTestId('show-card')).toHaveLength(2)
+    expect(screen.queryByText('Unable to load shows.')).not.toBeInTheDocument()
+  })
+
+  it('reports a failed key change rather than showing the previous rows as its answer', () => {
+    upcoming({ isFetching: false, isPlaceholderData: true, error: new Error('down') })
+
+    render(<HomeShowListView selection={selection} />)
+
+    expect(screen.getByText('Unable to load shows.')).toBeInTheDocument()
+    expect(screen.queryByTestId('show-card')).not.toBeInTheDocument()
+  })
+})

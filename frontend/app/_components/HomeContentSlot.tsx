@@ -7,10 +7,22 @@ import { HomeVariantSwitch } from '@/features/home/components/HomeVariantSwitch'
 import { SignedInHome } from '@/features/home/components/SignedInHome'
 import { resolveHomeLayout } from '@/features/home/sections'
 import {
+  HOME_UPCOMING_FIRST_SCREEN_KEY,
+  HOME_UPCOMING_FIRST_SCREEN_URL,
+  SHOW_CITIES_FIRST_SCREEN_KEY,
+  SHOW_CITIES_FIRST_SCREEN_URL,
+} from '@/features/shows/api'
+import type {
+  ShowCitiesResponse,
+  UpcomingShowsResponse,
+} from '@/features/shows/types'
+import {
   getAuthenticatedHomeLayout,
   prefetchHomeSavedShows,
   resolveHomeViewer,
 } from '@/lib/auth-hydration'
+import { seedFirstScreen, type QuerySeed } from '@/lib/query-hydration'
+import { fetchListPayload } from '@/lib/ssr/fetchListPayload'
 
 /**
  * Picks the homepage's viewer variant on the SERVER (PSY-2103), so a signed-in
@@ -32,10 +44,11 @@ import {
  * first server HTML rather than reflowing after hydration.
  *
  * Three answers, three renders: a named viewer gets their page; an answered
- * "nobody" gets the anonymous page; a read the backend could not answer gets
- * the anonymous page with a client-side switch, so the viewer whose cookie is
- * valid still reaches their page once their own profile query settles. See
- * {@link resolveHomeViewer}.
+ * "nobody" gets the anonymous page, with its upcoming-shows first screen
+ * seeded (see {@link seedAnonymousHomeShows}); a read the backend could not
+ * answer gets the anonymous page with a client-side switch, so the viewer
+ * whose cookie is valid still reaches their page once their own profile query
+ * settles. See {@link resolveHomeViewer}.
  */
 export async function HomeContentSlot() {
   const viewer = await resolveHomeViewer()
@@ -58,5 +71,43 @@ export async function HomeContentSlot() {
     )
   }
   if (viewer === 'indeterminate') return <HomeVariantSwitch />
-  return <AnonymousHome />
+  return (
+    <HydrationBoundary state={await seedAnonymousHomeShows()}>
+      <AnonymousHome />
+    </HydrationBoundary>
+  )
+}
+
+/**
+ * The anonymous home's upcoming-shows first screen: the unfiltered first page
+ * of rows and the city facet the filter chips above them read, seeded under the
+ * keys `HomeShowList` asks for on its first render, so both are in the served
+ * HTML.
+ *
+ * Each read seeds independently. A `null` (failed, slow or malformed read)
+ * leaves that query to its own client fetch: no rows means the list renders
+ * its loader, as it does unseeded; no cities means no chips until the browser
+ * has them.
+ *
+ * Stamped stale (`seedFirstScreen`): the payloads come from the Data Cache,
+ * which can hand back an entry older than the latest show change, so the
+ * browser re-asks both on mount and corrects anything that changed since.
+ */
+async function seedAnonymousHomeShows() {
+  const [shows, cities] = await Promise.all([
+    fetchListPayload<UpcomingShowsResponse>({
+      url: HOME_UPCOMING_FIRST_SCREEN_URL,
+      collection: 'shows',
+      service: 'home-upcoming-first-screen',
+    }),
+    fetchListPayload<ShowCitiesResponse>({
+      url: SHOW_CITIES_FIRST_SCREEN_URL,
+      collection: 'cities',
+      service: 'home-show-cities-first-screen',
+    }),
+  ])
+  const seeds: QuerySeed[] = []
+  if (shows) seeds.push({ queryKey: HOME_UPCOMING_FIRST_SCREEN_KEY, data: shows })
+  if (cities) seeds.push({ queryKey: SHOW_CITIES_FIRST_SCREEN_KEY, data: cities })
+  return seeds.length > 0 ? seedFirstScreen(seeds) : undefined
 }

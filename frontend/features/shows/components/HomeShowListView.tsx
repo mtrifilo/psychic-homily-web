@@ -1,6 +1,7 @@
 'use client'
 
 import { useMemo, useState } from 'react'
+import { HOME_SHOW_LIMIT } from '../api'
 import { useUpcomingShows } from '../hooks/useShows'
 import { batchedSaveFor } from '@/components/shared/batchedSaveData'
 import { useShowSaveCountBatch } from '../hooks/useSavedShows'
@@ -11,9 +12,6 @@ import { ShowCard } from './ShowCard'
 import { CityFilters } from '@/components/filters'
 import { GeoDefaultAffordance } from '@/components/filters/GeoDefaultAffordance'
 import { SaveDefaultsButton } from '@/components/filters/SaveDefaultsButton'
-
-/** Rows the anonymous home list shows for the selected city. */
-export const HOME_SHOW_LIMIT = 5
 
 /**
  * Extra rows asked for when the caller drops the viewer's saved shows, so the
@@ -90,10 +88,14 @@ export function HomeShowListView({
 
   const limit = excludeSaved ? rows + HOME_SHOW_EXCLUSION_HEADROOM : rows
 
-  const { data, isLoading, isFetching, error } = useUpcomingShows({
-    limit,
-    cities: effectiveCities.length > 0 ? effectiveCities : undefined,
-  })
+  // The anonymous home seeds this query's first-render entry server-side
+  // (`HOME_UPCOMING_FIRST_SCREEN_KEY`), stamped stale, so the rows paint from
+  // the server and the browser re-asks on mount.
+  const { data, isLoading, isFetching, isPlaceholderData, error } =
+    useUpcomingShows({
+      limit,
+      cities: effectiveCities.length > 0 ? effectiveCities : undefined,
+    })
 
   // Prefetch /shows and /venues data during idle time
   usePrefetchRoutes()
@@ -152,7 +154,11 @@ export function HomeShowListView({
     )
   }
 
-  if (error) {
+  // Only when nothing on screen answers the CURRENT query. A failed refresh of
+  // rows this key already holds (a seeded entry revalidating on mount) keeps
+  // them; rows held over from a previous key (`keepPreviousData`) do not answer
+  // this one, so a failed city change still reports.
+  if (error && (!data || isPlaceholderData)) {
     return (
       <div className="text-center py-8 text-muted-foreground">
         <p>Unable to load shows.</p>
@@ -218,7 +224,10 @@ export function HomeShowListView({
         </div>
       )}
 
-      <div className={isFetching ? 'opacity-60 transition-opacity duration-75' : 'transition-opacity duration-75'}>
+      {/* Dimmed only while the rows belong to a previous key and the current
+          one is in flight. A same-key revalidation, which a seeded entry
+          starts on its first commit, leaves them at full strength. */}
+      <div className={isFetching && isPlaceholderData ? 'opacity-60 transition-opacity duration-75' : 'transition-opacity duration-75'}>
         {emptyMessage ? (
           <div className="text-center py-8 text-muted-foreground">
             <p>{emptyMessage}</p>
