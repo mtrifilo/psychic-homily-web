@@ -540,7 +540,7 @@ func (s *SitemapService) Entries(ctx context.Context, family string) (*contracts
 			shard.narrow(
 				s.db.Model(&catalogm.Show{}).Where("status = ?", catalogm.ShowStatusApproved),
 			),
-			shard, s.diet.pastShows(),
+			shard, s.diet.pastShows(), rowLastmodSQL,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("failed to collect show sitemap entries: %w", err)
@@ -554,7 +554,7 @@ func (s *SitemapService) Entries(ctx context.Context, family string) (*contracts
 		// entriesOmitting requires. A diet rule adds its own join, if any.
 		artists, err := s.entriesOmitting(
 			ctx, shard.narrow(s.db.Model(&catalogm.Artist{})),
-			shard, s.diet.idleArtists(),
+			shard, s.diet.idleArtists(), rowLastmodSQL,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("failed to collect artist sitemap entries: %w", err)
@@ -631,7 +631,7 @@ func (s *SitemapService) Entries(ctx context.Context, family string) (*contracts
 		// entriesOmitting requires. A diet rule adds its own join, if any.
 		releases, err := s.entriesOmitting(
 			ctx, shard.narrow(s.db.Model(&catalogm.Release{})),
-			shard, s.diet.unlinkedReleases(),
+			shard, s.diet.unlinkedReleases(), releaseLastmodSQL,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("failed to collect release sitemap entries: %w", err)
@@ -676,6 +676,31 @@ func (s *SitemapService) Entries(ctx context.Context, family string) (*contracts
 // one exception is a diet rule's join, which entriesOmitting adds only while
 // the rule is on and only under the contract on sitemapOmission.join.
 func (s *SitemapService) entriesFor(ctx context.Context, scope *gorm.DB) ([]contracts.SitemapEntry, error) {
+	return s.entriesWithLastmod(ctx, scope, rowLastmodSQL)
+}
+
+// rowLastmodSQL is the lastmod of a family whose page renders its own row and
+// nothing whose changes that row misses: the row's updated_at.
+const rowLastmodSQL = "updated_at"
+
+// releaseLastmodSQL is the releases family's lastmod: the later of the
+// release row's updated_at and the newest release_external_links.created_at
+// for it. A link renders on the release page (a listen embed or an outbound
+// link) and adding one does not touch releases.updated_at, so the row alone
+// misses it. GREATEST skips the NULL a linkless release's subquery yields.
+//
+// It reads link CREATION only. A deleted link leaves no row to date it by, so
+// removing a link does not move lastmod; neither does any link column changing
+// in place, since the table has no updated_at.
+//
+// It is a correlated scalar subquery, not a join, so the family stays one
+// single-table scan yielding one row per release, with one probe of
+// idx_release_external_links_release_id per row.
+const releaseLastmodSQL = "GREATEST(releases.updated_at, (SELECT MAX(rel_lastmod.created_at) FROM release_external_links rel_lastmod WHERE rel_lastmod.release_id = releases.id))"
+
+// entriesWithLastmod is entriesFor with lastmod taken from lastmodSQL, an SQL
+// expression over the scope's single table that carries no bind parameters.
+func (s *SitemapService) entriesWithLastmod(ctx context.Context, scope *gorm.DB, lastmodSQL string) ([]contracts.SitemapEntry, error) {
 	// Deterministic order, so two fetches of an unchanged catalogue diff
 	// cleanly. Ordered by slug rather than recency because the partial unique
 	// index on slug (migration 000013) can supply that order, while no index on
@@ -683,7 +708,7 @@ func (s *SitemapService) entriesFor(ctx context.Context, scope *gorm.DB) ([]cont
 	// guaranteed sort node for an ordering no consumer reads.
 	entries := []contracts.SitemapEntry{}
 	err := advertisableRows(ctx, scope).
-		Select("slug", "updated_at").
+		Select("slug, " + lastmodSQL + " AS updated_at").
 		Scan(&entries).Error
 	if err != nil {
 		return nil, err
@@ -701,8 +726,8 @@ func advertisableRows(ctx context.Context, scope *gorm.DB) *gorm.DB {
 		Order("slug ASC")
 }
 
-// entriesOmitting is entriesFor with one diet rule applied, and the scope
-// carries the same single-table constraint. The rule's own join is the one
+// entriesOmitting is entriesWithLastmod with one diet rule applied, and the
+// scope carries the same single-table constraint. The rule's own join is the one
 // relation added, and only while the rule is on; see sitemapOmission.join.
 //
 // With the rule off it IS entriesFor: the same statement, so the same rows in
@@ -724,9 +749,10 @@ func (s *SitemapService) entriesOmitting(
 	scope *gorm.DB,
 	shard *sitemapShard,
 	omission sitemapOmission,
+	lastmodSQL string,
 ) ([]contracts.SitemapEntry, error) {
 	if omission.condition == "" {
-		return s.entriesFor(ctx, scope)
+		return s.entriesWithLastmod(ctx, scope, lastmodSQL)
 	}
 
 	type row struct {
@@ -738,7 +764,7 @@ func (s *SitemapService) entriesOmitting(
 	}
 	var rows []row
 	err := advertisableRows(ctx, scope).
-		Select("slug, updated_at, (" + omission.condition + ") AS sitemap_omitted").
+		Select("slug, " + lastmodSQL + " AS updated_at, (" + omission.condition + ") AS sitemap_omitted").
 		Scan(&rows).Error
 	if err != nil {
 		return nil, err
