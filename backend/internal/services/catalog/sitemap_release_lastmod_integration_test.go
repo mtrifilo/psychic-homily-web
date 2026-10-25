@@ -28,7 +28,7 @@ func TestSitemapReleaseLastmodFollowsItsNewestLink(t *testing.T) {
 
 	seedRelease := func(slug string, updatedAt time.Time, linkTimes ...time.Time) {
 		t.Helper()
-		release := &catalogm.Release{Title: slug, Slug: strPtr(slug)}
+		release := &catalogm.Release{Title: slug, Slug: stringPtr(slug)}
 		if err := td.DB.Create(release).Error; err != nil {
 			t.Fatalf("seed release %s: %v", slug, err)
 		}

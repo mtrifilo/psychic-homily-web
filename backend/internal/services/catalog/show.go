@@ -968,7 +968,7 @@ func (s *ShowService) UpdateShow(showID uint, req *contracts.UpdateShowRequest) 
 
 	updates := showUpdatesToMap(req)
 
-	_, eventDateChanged := updates["event_date"]
+	_, eventDateSent := updates["event_date"]
 	err := s.db.Transaction(func(tx *gorm.DB) error {
 		if _, err := s.updateShowFields(tx, showID, updates); err != nil {
 			return err
@@ -976,7 +976,7 @@ func (s *ShowService) UpdateShow(showID uint, req *contracts.UpdateShowRequest) 
 		// If the event_date moved, cascade onto the denormalized
 		// show_artists.event_date so the partial unique index stays in
 		// sync (PSY-576).
-		if eventDateChanged {
+		if eventDateSent {
 			if err := syncShowArtistDedupColumns(tx, showID); err != nil {
 				return fmt.Errorf("failed to sync show_artists dedup columns: %w", err)
 			}
@@ -1023,7 +1023,7 @@ func (s *ShowService) UpdateShowWithRelations(
 	artists = suppressPositionInferenceWhenHeadlinerNamed(artists)
 
 	updates := showUpdatesToMap(req)
-	_, eventDateChanged := updates["event_date"]
+	_, eventDateSent := updates["event_date"]
 
 	var response *contracts.ShowResponse
 	var orphanedArtists []contracts.OrphanedArtist
@@ -1064,7 +1064,7 @@ func (s *ShowService) UpdateShowWithRelations(
 		// have changed. Idempotent — safe to call when nothing changed.
 		// Keeps the partial unique index `shows_artist_venue_eventdate_uniq`
 		// in sync with the parent rows (PSY-576).
-		if venues != nil || artists != nil || eventDateChanged {
+		if venues != nil || artists != nil || eventDateSent {
 			if err := syncShowArtistDedupColumns(tx, showID); err != nil {
 				return fmt.Errorf("failed to sync show_artists dedup columns: %w", err)
 			}
@@ -1085,11 +1085,19 @@ func (s *ShowService) UpdateShowWithRelations(
 // that change the row (changedShowColumns), and returns the (reloaded) show
 // row. An associations-only edit reaches it with an empty map;
 // UpdateShowWithRelations stamps updated_at itself when the bill or venue rows
-// change. The show is always loaded so the caller can build the response. Returns ErrShowNotFound when the row is missing so
-// callers map it to a 404/422.
+// change. The show is always loaded so the caller can build the response.
+// Returns ErrShowNotFound when the row is missing so callers map it to a
+// 404/422.
+//
+// The row is read FOR UPDATE. changedShowColumns drops the updates that match
+// this read, so a concurrent save committing between the read and the write
+// would otherwise turn a real change into a dropped one; the lock makes a
+// second save on the same show wait and then compare against the committed
+// row. It also serializes the bill and venue snapshots UpdateShowWithRelations
+// takes after calling this.
 func (s *ShowService) updateShowFields(tx *gorm.DB, showID uint, updates map[string]interface{}) (*catalogm.Show, error) {
 	var show catalogm.Show
-	if err := tx.First(&show, showID).Error; err != nil {
+	if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(&show, showID).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, apperrors.ErrShowNotFound(showID)
 		}

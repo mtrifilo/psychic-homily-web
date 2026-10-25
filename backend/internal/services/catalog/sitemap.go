@@ -661,8 +661,8 @@ func (s *SitemapService) Entries(ctx context.Context, family string) (*contracts
 	return out, nil
 }
 
-// rowLastmodSQL is the lastmod of a family whose page renders its own row and
-// nothing whose changes that row misses: the row's updated_at.
+// rowLastmodSQL is the row's own updated_at, the lastmod of every family that
+// has no expression of its own.
 const rowLastmodSQL = "updated_at"
 
 // releaseLastmodSQL is the releases family's lastmod: the later of the
@@ -679,10 +679,6 @@ const rowLastmodSQL = "updated_at"
 // single-table scan yielding one row per release, with one probe of
 // idx_release_external_links_release_id per row. Its cost therefore scales
 // with the rows a request returns, so a sub-shard pays for its own bucket only.
-//
-// COST. Measured on Postgres 18 over 37,688 synthetic releases and 10,132
-// links: about 5.5 ms for one sub-shard and about 60 ms for the whole family,
-// against about 3 ms and 9 ms for the row's updated_at alone.
 const releaseLastmodSQL = "GREATEST(releases.updated_at, (SELECT MAX(rel_lastmod.created_at) FROM release_external_links rel_lastmod WHERE rel_lastmod.release_id = releases.id))"
 
 // entriesFor projects slug + lastmod from an already-scoped query, skipping
@@ -695,10 +691,11 @@ const releaseLastmodSQL = "GREATEST(releases.updated_at, (SELECT MAX(rel_lastmod
 // family's lastmod as an SQL expression over that one table, carrying no bind
 // parameters: rowLastmodSQL, or a family's own such as releaseLastmodSQL.
 //
-// CONSTRAINT: the scope must resolve to a SINGLE table. slug and updated_at are
-// referenced unqualified here, so a joined scope will either error with
-// "column reference is ambiguous" or silently bind the wrong table's
-// updated_at. A family needing a join wants its own projection, not this. The
+// CONSTRAINT: the scope must resolve to a SINGLE table. slug, and the
+// updated_at in rowLastmodSQL, are referenced unqualified here, so a joined
+// scope will either error with "column reference is ambiguous" or silently
+// bind the wrong table's updated_at. A lastmodSQL may reach other tables only
+// through correlated subqueries under aliases of their own. A family needing a join wants its own projection, not this. The
 // one exception is a diet rule's join, which entriesOmitting adds only while
 // the rule is on and only under the contract on sitemapOmission.join.
 func (s *SitemapService) entriesFor(ctx context.Context, scope *gorm.DB, lastmodSQL string) ([]contracts.SitemapEntry, error) {
@@ -727,8 +724,8 @@ func advertisableRows(ctx context.Context, scope *gorm.DB) *gorm.DB {
 		Order("slug ASC")
 }
 
-// entriesOmitting is entriesFor with one diet rule applied, and the
-// scope carries the same single-table constraint. The rule's own join is the one
+// entriesOmitting is entriesFor with one diet rule applied, and the scope
+// carries the same single-table constraint. The rule's own join is the one
 // relation added, and only while the rule is on; see sitemapOmission.join.
 //
 // With the rule off it IS entriesFor: the same statement, so the same rows in

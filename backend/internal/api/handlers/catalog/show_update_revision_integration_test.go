@@ -34,9 +34,12 @@ func (s *ShowHandlerIntegrationSuite) showRevisionFields(showID uint) []string {
 	return fields
 }
 
-// Two identical saves write no revision and leave updated_at alone; a save that
-// changes music_at writes one revision naming it and moves updated_at.
-func (s *ShowHandlerIntegrationSuite) TestUpdateShow_UnchangedSaveWritesNoRevisionAndKeepsUpdatedAt() {
+// Two identical saves leave updated_at alone; a save that changes music_at
+// moves it and writes one revision naming music_at. The revision assertion
+// confirms the changed path end to end; that an identical save writes no
+// revision follows from revisiondiff.Compare finding no difference, which this
+// test cannot order against the off-request revision writes.
+func (s *ShowHandlerIntegrationSuite) TestUpdateShow_UnchangedSaveKeepsUpdatedAt() {
 	handler := s.handlerWithRevisions()
 	user := testhelpers.CreateTestUser(s.deps.DB)
 	show := testhelpers.CreateApprovedShow(s.deps.DB, user.ID, "Restated Show")
@@ -67,10 +70,7 @@ func (s *ShowHandlerIntegrationSuite) TestUpdateShow_UnchangedSaveWritesNoRevisi
 	s.Require().NoError(err)
 	s.True(storedUpdatedAt().After(pinned), "a save that changes music_at must move updated_at")
 
-	// The revision is written off the request goroutine. Every save above
-	// captured its before and after snapshots synchronously, so once the
-	// music_at revision has landed, the identical saves have had their chance
-	// to write and the field list is final.
+	// The revision is written off the request goroutine.
 	s.Eventually(func() bool { return len(s.showRevisionFields(show.ID)) > 0 }, 5*time.Second, 20*time.Millisecond)
-	s.Equal([]string{"music_at"}, s.showRevisionFields(show.ID), "only the music_at save writes a revision")
+	s.Equal([]string{"music_at"}, s.showRevisionFields(show.ID), "the music_at save writes one revision naming music_at")
 }

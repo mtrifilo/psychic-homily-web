@@ -1,6 +1,7 @@
 package catalog
 
 import (
+	"reflect"
 	"testing"
 	"time"
 
@@ -70,6 +71,47 @@ func TestChangedShowColumns_KeepsOnlyChanges(t *testing.T) {
 	})
 	if len(changed) != 1 || changed["city"] != "Tucson" {
 		t.Fatalf("changedShowColumns = %v, want only city", changed)
+	}
+}
+
+// Every column showUpdatesToMap can write must be one showColumnHolds can
+// match, or a save restating that column moves updated_at. The request below
+// sets every field of UpdateShowRequest, which the reflection check enforces,
+// so a field added to the request without a case here fails this test.
+func TestChangedShowColumns_CoversEveryColumnShowUpdatesToMapWrites(t *testing.T) {
+	at := time.Date(2026, 6, 15, 20, 0, 0, 0, time.UTC)
+	doors := at.Add(-time.Hour)
+	price, doorPrice := 15.0, 18.0
+	req := &contracts.UpdateShowRequest{
+		Title:          stringPtr("Stored"),
+		EventDate:      &at,
+		DoorsAt:        contracts.NullableSet(doors),
+		MusicAt:        contracts.NullableSet(at),
+		City:           stringPtr("Phoenix"),
+		State:          stringPtr("AZ"),
+		Price:          contracts.NullableSet(price),
+		DoorPrice:      contracts.NullableSet(doorPrice),
+		AgeRequirement: stringPtr("21+"),
+		Description:    stringPtr("Night one"),
+		TicketURL:      stringPtr("https://tickets.example.com/1"),
+		ImageURL:       stringPtr("https://example.com/flyer.jpg"),
+	}
+	rv := reflect.ValueOf(req).Elem()
+	for i := 0; i < rv.NumField(); i++ {
+		if rv.Field(i).IsZero() {
+			t.Fatalf("UpdateShowRequest.%s is unset; set it here and give showColumnHolds a case for its column", rv.Type().Field(i).Name)
+		}
+	}
+	show := &catalogm.Show{
+		Title: "Stored", EventDate: at, DoorsAt: &doors, MusicAt: &at,
+		City: stringPtr("Phoenix"), State: stringPtr("AZ"),
+		Price: &price, DoorPrice: &doorPrice,
+		AgeRequirement: stringPtr("21+"), Description: stringPtr("Night one"),
+		TicketURL: stringPtr("https://tickets.example.com/1"), ImageURL: stringPtr("https://example.com/flyer.jpg"),
+	}
+	updates := showUpdatesToMap(req)
+	if changed := changedShowColumns(show, updates); len(changed) != 0 {
+		t.Fatalf("restating every column still writes %v", changed)
 	}
 }
 
@@ -174,6 +216,17 @@ func (suite *ShowServiceIntegrationTestSuite) TestUpdateShowWithRelations_BillCh
 	stamped := suite.storedShowUpdatedAt(created.ID)
 	suite.True(stamped.After(pinned), "a bill change must move updated_at")
 	suite.WithinDuration(stamped, resp.UpdatedAt, time.Millisecond, "the response carries the stamped updated_at")
+
+	// Same artists, the opener now headlining: a role and order change.
+	openerID := resp.Artists[1].ID
+	pinned = suite.pinShowUpdatedAt(created.ID)
+	swapped := []contracts.CreateShowArtist{
+		{ID: &openerID, IsHeadliner: boolPtr(true)},
+		{ID: &headlinerID, IsHeadliner: boolPtr(false)},
+	}
+	_, _, err = suite.showService.UpdateShowWithRelations(created.ID, nil, nil, swapped, true)
+	suite.Require().NoError(err)
+	suite.True(suite.storedShowUpdatedAt(created.ID).After(pinned), "a role or order change on the same artists must move updated_at")
 }
 
 func (suite *ShowServiceIntegrationTestSuite) TestUpdateShowWithRelations_VenueChangeMovesUpdatedAt() {

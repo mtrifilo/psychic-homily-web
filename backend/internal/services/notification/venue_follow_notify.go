@@ -626,12 +626,14 @@ func (s *NotificationFilterService) loadVenueAlertBatch(key venueAlertGroupKey) 
 			// so a typo fix would silently cancel the alert outright.
 			//
 			// Partial by construction, and deliberately so. shows.updated_at moves
-			// for ANY write to that row, so this over-triggers (an enrichment pass
-			// costs a show its place in one email); and it does not cover the
-			// venue name or the bill, which live in other tables. Fencing those
-			// too would drop digests every time a geocode or timezone sweep
-			// touched a venue row, which trades a narrow risk for a broad silent
-			// loss. See the PR for the residual.
+			// for any write that changes a column of that row, so this
+			// over-triggers (an enrichment pass costs a show its place in one
+			// email). A show edit through ShowService.UpdateShowWithRelations also
+			// moves it when the bill or venue set changes, and moves nothing when
+			// the edit restates what is stored. It does not cover the venue's own
+			// name, which lives on the venue row. Fencing that too would drop
+			// digests every time a geocode or timezone sweep touched a venue row,
+			// which trades a narrow risk for a broad silent loss.
 			EditedAfterAccrual: shows[i].UpdatedAt.After(accruedAt[shows[i].ID]),
 		})
 		ids = append(ids, shows[i].ID)
