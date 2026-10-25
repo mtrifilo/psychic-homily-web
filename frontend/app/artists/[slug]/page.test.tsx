@@ -477,13 +477,13 @@ describe('artists/[slug] server read', () => {
   })
 
   it('sends the server-read secret when one is configured', async () => {
-    vi.stubEnv('SERVER_READ_SECRET', 'artist-page-secret')
+    vi.stubEnv('SERVER_READ_SECRET', 'artist-page-secret-0123456789abcdef0123')
     fetchMock.mockResolvedValueOnce(okResponse(buildArtist()))
 
     await generateMetadata({ params: Promise.resolve({ slug: 'headliner-band' }) })
 
     const init = fetchMock.mock.calls[0][1] as RequestInit
-    expect(init.headers).toEqual({ 'X-Server-Read-Secret': 'artist-page-secret' })
+    expect(init.headers).toEqual({ 'X-Server-Read-Secret': 'artist-page-secret-0123456789abcdef0123' })
   })
 
   it('sends no secret header when none is configured', async () => {

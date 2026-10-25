@@ -8,8 +8,8 @@ describe('serverReadHeaders', () => {
   })
 
   it('carries the configured secret in the server-read header', () => {
-    vi.stubEnv('SERVER_READ_SECRET', 'a-secret-value')
-    expect(serverReadHeaders()).toEqual({ 'X-Server-Read-Secret': 'a-secret-value' })
+    vi.stubEnv('SERVER_READ_SECRET', 'a-secret-value-0123456789abcdef01234567')
+    expect(serverReadHeaders()).toEqual({ 'X-Server-Read-Secret': 'a-secret-value-0123456789abcdef01234567' })
     expect(SERVER_READ_SECRET_HEADER).toBe('X-Server-Read-Secret')
   })
 
@@ -21,12 +21,19 @@ describe('serverReadHeaders', () => {
   })
 
   it('trims surrounding whitespace, the way the backend does', () => {
-    vi.stubEnv('SERVER_READ_SECRET', '  a-secret-value\n')
-    expect(serverReadHeaders()).toEqual({ 'X-Server-Read-Secret': 'a-secret-value' })
+    vi.stubEnv('SERVER_READ_SECRET', '  a-secret-value-0123456789abcdef01234567\n')
+    expect(serverReadHeaders()).toEqual({ 'X-Server-Read-Secret': 'a-secret-value-0123456789abcdef01234567' })
   })
 
   // The backend refuses such a secret at start, so sending it could never match.
-  it.each(['has space', 'tab\there', 'née', 'line\nbreak', 'new,old'])(
+  it.each([
+    'has space inside a value long enough',
+    'tab\there-inside-a-value-long-enough-to-pass',
+    'née-inside-a-value-long-enough-to-pass-it',
+    'line\nbreak-inside-a-value-long-enough-to-pass',
+    'new-secret-0123456789abcdef,old-secret-0123456789',
+    'short-secret',
+  ])(
     'drops a value the backend refuses: %j',
     value => {
       vi.spyOn(console, 'error').mockImplementation(() => {})
@@ -47,7 +54,7 @@ describe('serverReadHeaders', () => {
   })
 
   it('produces headers fetch accepts', () => {
-    vi.stubEnv('SERVER_READ_SECRET', 'a-secret-value')
+    vi.stubEnv('SERVER_READ_SECRET', 'a-secret-value-0123456789abcdef01234567')
     expect(() => new Headers(serverReadHeaders())).not.toThrow()
   })
 })

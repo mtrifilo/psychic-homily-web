@@ -36,7 +36,7 @@ describe('proxy entity existence checks', () => {
   })
 
   it('sends the server-read secret on the probe when one is configured', async () => {
-    vi.stubEnv('SERVER_READ_SECRET', 'proxy-secret')
+    vi.stubEnv('SERVER_READ_SECRET', 'proxy-secret-0123456789abcdef0123456789')
     const fetchMock = vi
       .spyOn(globalThis, 'fetch')
       .mockImplementation(async () => new Response(null, { status: 200 }))
@@ -47,7 +47,7 @@ describe('proxy entity existence checks', () => {
       'http://localhost:8080/entities/artists/secret-artist/exists',
       expect.objectContaining({
         method: 'HEAD',
-        headers: { 'X-Server-Read-Secret': 'proxy-secret' },
+        headers: { 'X-Server-Read-Secret': 'proxy-secret-0123456789abcdef0123456789' },
       })
     )
   })

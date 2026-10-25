@@ -143,14 +143,14 @@ describe('fetchListPayload', () => {
     })
 
     it('sends it when one is configured', async () => {
-      vi.stubEnv('SERVER_READ_SECRET', 'list-secret')
+      vi.stubEnv('SERVER_READ_SECRET', 'list-secret-0123456789abcdef0123456789')
       const fetchImpl = vi.fn().mockResolvedValue(jsonResponse({ venues: [], total: 0 }))
 
       await call(fetchImpl)
 
       expect(fetchImpl).toHaveBeenCalledWith(
         'https://api.example.test/venues?limit=50',
-        expect.objectContaining({ headers: { 'X-Server-Read-Secret': 'list-secret' } }),
+        expect.objectContaining({ headers: { 'X-Server-Read-Secret': 'list-secret-0123456789abcdef0123456789' } }),
       )
     })
 
