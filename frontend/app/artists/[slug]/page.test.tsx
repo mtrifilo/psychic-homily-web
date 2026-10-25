@@ -461,3 +461,29 @@ describe('ArtistPage upcoming Save column', () => {
     }
   )
 })
+
+describe('artists/[slug] server read', () => {
+  afterEach(() => {
+    vi.unstubAllEnvs()
+  })
+
+  it('sends the server-read secret when one is configured', async () => {
+    vi.stubEnv('SERVER_READ_SECRET', 'artist-page-secret')
+    fetchMock.mockResolvedValueOnce(okResponse(buildArtist()))
+
+    await generateMetadata({ params: Promise.resolve({ slug: 'headliner-band' }) })
+
+    const init = fetchMock.mock.calls[0][1] as RequestInit
+    expect(init.headers).toEqual({ 'X-Server-Read-Secret': 'artist-page-secret' })
+  })
+
+  it('sends no secret header when none is configured', async () => {
+    vi.stubEnv('SERVER_READ_SECRET', '')
+    fetchMock.mockResolvedValueOnce(okResponse(buildArtist()))
+
+    await generateMetadata({ params: Promise.resolve({ slug: 'headliner-band' }) })
+
+    const init = fetchMock.mock.calls[0][1] as RequestInit
+    expect(init.headers).toEqual({})
+  })
+})

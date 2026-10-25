@@ -32,6 +32,7 @@ import { showCanonicalPath } from '@/lib/seo/showCanonical'
 import { SITE_URL } from '@/lib/seo/siteMetadata'
 import { getShowLifecycleState, hasShowStarted } from '@/lib/utils/showTiming'
 import { API_BASE_URL } from '@/lib/api-base'
+import { serverReadHeaders } from '@/lib/ssr/serverReadHeaders'
 import { queryKeys } from '@/lib/queryClient'
 import { prefetchEntities } from '@/lib/query-hydration'
 
@@ -60,6 +61,7 @@ interface ShowPageProps {
 const getShow = cache(async (slug: string): Promise<ShowResponse | null> => {
   try {
     const res = await fetch(`${API_BASE_URL}/shows/${encodeURIComponent(slug)}`, {
+      headers: serverReadHeaders(),
       next: { revalidate: 3600 },
     })
     if (res.ok) {
@@ -112,7 +114,7 @@ async function getShowTimeline(
   try {
     const res = await fetch(
       `${API_BASE_URL}/shows/${encodeURIComponent(slug)}/timeline`,
-      { next: { revalidate: 3600 } },
+      { headers: serverReadHeaders(), next: { revalidate: 3600 } },
     )
     // `return await`, not a bare `return`: a bare one hands the caller the
     // parse promise WITHOUT routing its rejection through the catch below, and

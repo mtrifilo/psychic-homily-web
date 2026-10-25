@@ -7,6 +7,7 @@ import { HydrationBoundary } from '@tanstack/react-query'
 import { LabelDetail } from '@/features/labels/components'
 import type { LabelDetail as LabelDetailData } from '@/features/labels/types'
 import { API_BASE_URL } from '@/lib/api-base'
+import { serverReadHeaders } from '@/lib/ssr/serverReadHeaders'
 import { queryKeys } from '@/lib/queryClient'
 import { prefetchEntity } from '@/lib/query-hydration'
 
@@ -23,6 +24,7 @@ interface LabelPageProps {
 const getLabel = cache(async (slug: string): Promise<LabelDetailData | null> => {
   try {
     const res = await fetch(`${API_BASE_URL}/labels/${slug}`, {
+      headers: serverReadHeaders(),
       next: { revalidate: 3600 },
     })
     if (res.ok) {

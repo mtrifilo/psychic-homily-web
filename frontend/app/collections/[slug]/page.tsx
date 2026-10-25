@@ -13,6 +13,7 @@ import { CollectionDetail } from '@/features/collections/components/CollectionDe
 import type { CollectionDetail as CollectionDetailData } from '@/features/collections/types'
 import { getQueryClient, queryKeys } from '@/lib/queryClient'
 import { API_BASE_URL } from '@/lib/api-base'
+import { serverReadHeaders } from '@/lib/ssr/serverReadHeaders'
 
 interface CollectionPageProps {
   params: Promise<{ slug: string }>
@@ -44,10 +45,13 @@ const getCollection = cache(
 
     const fetchInit: RequestInit = authToken
       ? {
-          headers: { Cookie: `auth_token=${authToken.value}` },
+          headers: {
+            ...serverReadHeaders(),
+            Cookie: `auth_token=${authToken.value}`,
+          },
           cache: 'no-store',
         }
-      : { next: { revalidate: 3600 } }
+      : { headers: serverReadHeaders(), next: { revalidate: 3600 } }
 
     try {
       const res = await fetch(`${API_BASE_URL}/collections/${slug}`, fetchInit)

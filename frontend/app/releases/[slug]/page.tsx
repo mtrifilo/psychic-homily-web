@@ -7,6 +7,7 @@ import { Loader2 } from 'lucide-react'
 import { HydrationBoundary } from '@tanstack/react-query'
 import type { ReleaseDetail as ReleaseDetailData } from '@/features/releases/types'
 import { API_BASE_URL } from '@/lib/api-base'
+import { serverReadHeaders } from '@/lib/ssr/serverReadHeaders'
 import { queryKeys } from '@/lib/queryClient'
 import { prefetchEntity } from '@/lib/query-hydration'
 
@@ -35,6 +36,7 @@ interface ReleasePageProps {
 const getRelease = cache(async (slug: string): Promise<ReleaseDetailData | null> => {
   try {
     const res = await fetch(`${API_BASE_URL}/releases/${slug}`, {
+      headers: serverReadHeaders(),
       next: { revalidate: 3600 },
     })
     if (res.ok) {

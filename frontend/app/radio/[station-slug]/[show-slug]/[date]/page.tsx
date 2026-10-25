@@ -2,6 +2,7 @@ import { Metadata } from 'next'
 import * as Sentry from '@sentry/nextjs'
 import EpisodeDateDetail from './_components/EpisodeDateDetail'
 import { API_BASE_URL } from '@/lib/api-base'
+import { serverReadHeaders } from '@/lib/ssr/serverReadHeaders'
 
 interface EpisodeDatePageProps {
   params: Promise<{
@@ -34,6 +35,7 @@ function formatShortDate(dateStr: string): string {
 async function getEpisode(showSlug: string, date: string): Promise<EpisodeData | null> {
   try {
     const res = await fetch(`${API_BASE_URL}/radio-shows/${showSlug}/episodes/${date}`, {
+      headers: serverReadHeaders(),
       next: { revalidate: 3600 },
     })
     if (res.ok) {

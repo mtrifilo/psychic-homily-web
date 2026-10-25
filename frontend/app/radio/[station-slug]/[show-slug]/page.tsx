@@ -2,6 +2,7 @@ import { Metadata } from 'next'
 import * as Sentry from '@sentry/nextjs'
 import RadioShowDetail from './_components/RadioShowDetail'
 import { API_BASE_URL } from '@/lib/api-base'
+import { serverReadHeaders } from '@/lib/ssr/serverReadHeaders'
 
 interface ShowPageProps {
   params: Promise<{ 'station-slug': string; 'show-slug': string }>
@@ -19,6 +20,7 @@ interface RadioShowData {
 async function getRadioShow(slug: string): Promise<RadioShowData | null> {
   try {
     const res = await fetch(`${API_BASE_URL}/radio-shows/${slug}`, {
+      headers: serverReadHeaders(),
       next: { revalidate: 3600 },
     })
     if (res.ok) {

@@ -1,6 +1,7 @@
 package routes
 
 import (
+	"log/slog"
 	"net/http"
 	"strings"
 
@@ -168,7 +169,10 @@ func validatedFeedToken(validate func(string) bool, path string) bool {
 // so one IP running many scripted accounts is bounded in aggregate. A request
 // whose bearer passes validateAPIToken (APITokenService.ValidateToken — not the
 // phk_ prefix alone) is exempt so ingest search does not starve visitors on the
-// same IP (PSY-1814). Infra paths are exempt, and so is a personal-feed request
+// same IP (PSY-1814). An anonymous GET or HEAD carrying the server-read secret
+// named by middleware.ServerReadSecretEnvVar skips the anonymous limiter
+// (middleware.ServerReadExemption); with that variable unset nothing does.
+// Infra paths are exempt, and so is a personal-feed request
 // whose URL token validates (PSY-2017), not the path shape alone, and so is a
 // GET to an OAuth sign-in start, callback or link start
 // (isOAuthRedirectRequest). Returns a pass-through noop unless the opt-in flag
@@ -177,9 +181,14 @@ func PublicReadRateLimiter(jwtService *auth.JWTService, validateAPIToken, valida
 	if !IsPublicReadRateLimitEnabled(getenv) {
 		return noopRateLimiter()
 	}
+	// Read once, here, at process start. The line records only whether the
+	// exemption is on, never the secret.
+	serverRead := middleware.NewServerReadExemption(getenv(middleware.ServerReadSecretEnvVar))
+	slog.Default().Info("public_read_server_read_exemption", "enabled", serverRead.Enabled())
 	limiter := middleware.RateLimitPublicReadsByAuthState(
 		jwtService,
 		validateAPIToken,
+		serverRead, // GET/HEAD carrying the server-read secret → skips the anonymous limiter
 		middleware.RateLimitPublicReadAnonymousEndpoints(),     // anonymous → per-IP
 		middleware.RateLimitPublicReadUserEndpoints(),          // authenticated → per-user
 		middleware.RateLimitPublicReadAuthenticatedIPCeiling(), // authenticated → coarse per-IP ceiling (PSY-1378)

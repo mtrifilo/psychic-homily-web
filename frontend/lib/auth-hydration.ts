@@ -36,6 +36,7 @@ import { dehydrate, type DehydratedState } from '@tanstack/react-query'
 import * as Sentry from '@sentry/nextjs'
 import { getQueryClient, queryKeys } from '@/lib/queryClient'
 import { API_BASE_URL } from '@/lib/api-base'
+import { serverReadHeaders } from '@/lib/ssr/serverReadHeaders'
 import { SAVED_SHOWS_COLLAPSED_COUNT } from '@/features/shows/savedShowsConstants'
 // `features/home/sections` is isomorphic (no 'use client'), so this server
 // helper reads real values from it rather than client references.
@@ -233,7 +234,7 @@ export const prefetchHomeSavedShows = cache(async () => {
       time_filter: 'upcoming',
     })
     const response = await fetch(`${API_BASE_URL}/saved-shows?${params}`, {
-      headers: { Cookie: `auth_token=${authToken}` },
+      headers: { ...serverReadHeaders(), Cookie: `auth_token=${authToken}` },
       cache: 'no-store',
       signal: AbortSignal.timeout(HOME_SAVED_SHOWS_PREFETCH_TIMEOUT_MS),
     })
@@ -349,7 +350,7 @@ const fetchAuthProfile = cache(async (): Promise<AuthProfileResolution> => {
 
   try {
     const response = await fetch(`${API_BASE_URL}/auth/profile`, {
-      headers: { Cookie: `auth_token=${authToken.value}` },
+      headers: { ...serverReadHeaders(), Cookie: `auth_token=${authToken.value}` },
       cache: 'no-store',
     })
 

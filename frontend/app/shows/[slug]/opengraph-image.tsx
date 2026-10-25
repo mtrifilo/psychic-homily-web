@@ -1,6 +1,7 @@
 import { ImageResponse } from 'next/og'
 import * as Sentry from '@sentry/nextjs'
 import { API_BASE_URL } from '@/lib/api-base'
+import { serverReadHeaders } from '@/lib/ssr/serverReadHeaders'
 import { showPageDateLong } from '@/features/shows/showPageDate'
 import {
   OG_COLORS,
@@ -525,6 +526,7 @@ const SHOW_REVALIDATE = LIVE_REVALIDATE
 async function fetchShow(slug: string): Promise<ShowData | null> {
   try {
     const res = await fetch(`${API_BASE_URL}/shows/${encodeURIComponent(slug)}`, {
+      headers: serverReadHeaders(),
       next: { revalidate: SHOW_REVALIDATE },
     })
     // `await` inside the try is load-bearing: `return res.json()` would adopt

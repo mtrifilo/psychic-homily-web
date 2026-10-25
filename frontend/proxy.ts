@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import type { NextRequest } from 'next/server'
 import { API_BASE_URL } from '@/lib/api-base'
+import { serverReadHeaders } from '@/lib/ssr/serverReadHeaders'
 import {
   isNumericShowSegment,
   showSlugRedirectPath,
@@ -709,6 +710,7 @@ async function existenceCheck(
   try {
     const res = await fetch(url, {
       method: 'HEAD',
+      headers: serverReadHeaders(),
       // `next: { revalidate }` has NO effect inside proxy (per Next docs), so
       // we don't set it. `redirect: 'manual'` keeps the check cheap and avoids
       // following any backend redirect chain. A 2xx means the slug resolves;
@@ -765,6 +767,7 @@ async function numericShowRedirect(
 ): Promise<NextResponse> {
   try {
     const res = await fetch(`${API_BASE_URL}/shows/${encodeURIComponent(id)}`, {
+      headers: serverReadHeaders(),
       redirect: 'manual',
       signal: AbortSignal.timeout(EXISTENCE_CHECK_TIMEOUT_MS),
     })
@@ -981,6 +984,7 @@ function parseShowsCalendarRange(body: unknown): ShowsCalendarRange | null {
 async function fetchShowsCalendarRange(): Promise<ShowsCalendarRange | null> {
   try {
     const res = await fetch(SHOWS_CALENDAR_RANGE_URL, {
+      headers: serverReadHeaders(),
       redirect: 'manual',
       // Without this a slow-but-alive backend pins one proxy invocation per
       // request; the abort lands in the catch below, which is the fail-open

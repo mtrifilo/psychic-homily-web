@@ -61,6 +61,12 @@ const (
 	LimiterAIProcess                     LimiterName = "ai_process"
 )
 
+// serverReadExemptAttr is the attribute on every ratelimit_allowed_sample line
+// that records whether the request skipped the anonymous limiter as a
+// server-side read (ServerReadExemption). Log queries split server-side from
+// metered traffic on it, so renaming it breaks every query built on it.
+const serverReadExemptAttr = "server_read_exempt"
+
 // Values of the `auth_state` attribute on sampled lines.
 const (
 	authStateAnonymous     = "anonymous"
@@ -156,6 +162,18 @@ func (s limiterSpec) logAllowed(w http.ResponseWriter, r *http.Request, authStat
 	logger.FromContext(r.Context()).Info("rate limit sample", append(s.logAttrs(rateLimitAllowedSampleEvent, r),
 		"auth_state", authState,
 		"remaining", remaining,
+		serverReadExemptAttr, false,
+	)...)
+}
+
+// logServerReadExempt writes one ratelimit_allowed_sample line for an anonymous
+// request that skipped this limiter as a server-side read. It carries no
+// remaining budget, because the request was never metered and the bucket was
+// not consulted.
+func (s limiterSpec) logServerReadExempt(r *http.Request) {
+	logger.FromContext(r.Context()).Info("rate limit sample", append(s.logAttrs(rateLimitAllowedSampleEvent, r),
+		"auth_state", authStateAnonymous,
+		serverReadExemptAttr, true,
 	)...)
 }
 

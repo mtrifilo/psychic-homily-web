@@ -6,6 +6,7 @@ import {
   DataCacheBudgetError,
   readJsonWithinDataCacheBudget,
 } from '@/lib/data-cache-budget/assert'
+import { serverReadHeaders } from '@/lib/ssr/serverReadHeaders'
 
 /**
  * How long a first-screen payload stays warm in Next's Data Cache.
@@ -114,6 +115,7 @@ export async function fetchListPayload<T>({
 }: FetchListPayloadOptions): Promise<T | null> {
   try {
     const res = await fetchImpl(url, {
+      headers: serverReadHeaders(),
       next: { revalidate: revalidateSeconds },
       signal: createBuildTimeApiSignal(timeoutMs),
     })

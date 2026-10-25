@@ -4,6 +4,7 @@ import { notFound, redirect } from 'next/navigation'
 import * as Sentry from '@sentry/nextjs'
 import StationDetail from './_components/StationDetail'
 import { API_BASE_URL } from '@/lib/api-base'
+import { serverReadHeaders } from '@/lib/ssr/serverReadHeaders'
 import { getStationDetailUrl } from '@/features/radio/types'
 
 interface StationPageProps {
@@ -31,6 +32,7 @@ interface StationData {
 const getStation = cache(async (slug: string): Promise<StationData | null> => {
   try {
     const res = await fetch(`${API_BASE_URL}/radio-stations/${slug}`, {
+      headers: serverReadHeaders(),
       next: { revalidate: 3600 },
     })
     if (res.ok) {

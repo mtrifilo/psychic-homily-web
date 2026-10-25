@@ -10,6 +10,7 @@ import { cache } from 'react'
 import * as Sentry from '@sentry/nextjs'
 import { createBuildTimeApiSignal } from '@/lib/build-time-api'
 import { FIRST_SCREEN_FETCH_TIMEOUT_MS } from '@/lib/ssr/fetchListPayload'
+import { serverReadHeaders } from '@/lib/ssr/serverReadHeaders'
 import { venueEndpoints, VENUE_PAST_SHOWS_PAGE_LIMIT } from './api'
 import type {
   Venue,
@@ -76,6 +77,7 @@ async function readArchiveJson<T>(
 ): Promise<ArchiveRead<T>> {
   try {
     const res = await fetch(url, {
+      headers: serverReadHeaders(),
       next: { revalidate: ARCHIVE_REVALIDATE_SECONDS },
       ...(timeoutMs === undefined
         ? {}

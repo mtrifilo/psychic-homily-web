@@ -2,8 +2,8 @@
  * Reading one PERIOD of a scene's calendar from the API — a week, a night —
  * and nothing else.
  *
- * A leaf module by design, importing nothing but the API base: the weekly share
- * card renders on the edge runtime, and reaching this through a page module
+ * A leaf module by design, importing only leaf helpers: the weekly share card
+ * renders on the edge runtime, and reaching this through a page module
  * would drag the page view and its JSON-LD helpers into that bundle for no
  * reason.
  *
@@ -14,6 +14,7 @@
  * time only one of them was fixed.
  */
 import * as Sentry from '@sentry/nextjs'
+import { serverReadHeaders } from '@/lib/ssr/serverReadHeaders'
 
 /**
  * How long a fetched period stays fresh.
@@ -178,7 +179,7 @@ async function fetchPayload<T>(
 ): Promise<T | null> {
   const url = spec.buildUrl(key)
   try {
-    const res = await fetch(url, { next: { revalidate } })
+    const res = await fetch(url, { headers: serverReadHeaders(), next: { revalidate } })
     // `await` is load-bearing, not noise: `return res.json()` inside a try block
     // adopts the promise AFTER the block exits, so a malformed body would reject
     // past this catch and 500 the route instead of reaching the caller's

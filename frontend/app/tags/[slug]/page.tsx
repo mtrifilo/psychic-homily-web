@@ -8,6 +8,7 @@ import { HydrationBoundary, dehydrate } from '@tanstack/react-query'
 import type { TagEnrichedDetailResponse } from '@/features/tags/types'
 import { getQueryClient, queryKeys } from '@/lib/queryClient'
 import { API_BASE_URL } from '@/lib/api-base'
+import { serverReadHeaders } from '@/lib/ssr/serverReadHeaders'
 
 // Imported from the component FILE, never a `@/features/tags` barrel — see the
 // note in features/tags/components/index.ts for why the barrel would undo this.
@@ -40,6 +41,7 @@ const getTagDetail = cache(
   async (slug: string): Promise<TagEnrichedDetailResponse | null> => {
     try {
       const res = await fetch(`${API_BASE_URL}/tags/${slug}/detail`, {
+        headers: serverReadHeaders(),
         next: { revalidate: 3600 },
       })
       if (res.ok) {

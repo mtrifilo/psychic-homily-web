@@ -9,6 +9,7 @@ import type { SceneDetail } from '@/features/scenes'
 import type { SceneCrewsResponse } from '@/features/scenes/types'
 import { JsonLd } from '@/components/seo/JsonLd'
 import { API_BASE_URL } from '@/lib/api-base'
+import { serverReadHeaders } from '@/lib/ssr/serverReadHeaders'
 import { queryKeys } from '@/lib/queryClient'
 import { prefetchEntities } from '@/lib/query-hydration'
 import { hasText } from '@/features/scenes/scenePeriodApi'
@@ -118,7 +119,7 @@ const getScene = cache(async (slug: string): Promise<SceneDetail | null> => {
     // fetches encode for the same reason.
     const res = await fetch(
       `${API_BASE_URL}/scenes/${encodeURIComponent(slug)}`,
-      { next: { revalidate: 3600 } }
+      { headers: serverReadHeaders(), next: { revalidate: 3600 } }
     )
     if (res.ok) {
       return asScene(await res.json(), slug)
@@ -202,7 +203,7 @@ const getSceneCrews = cache(
       // extra segment onto the URL and send this request somewhere else.
       const res = await fetch(
         `${API_BASE_URL}/scenes/${encodeURIComponent(slug)}/crews`,
-        { next: { revalidate: 600 } }
+        { headers: serverReadHeaders(), next: { revalidate: 600 } }
       )
       // `await` is load-bearing: `return res.json()` adopts the promise after
       // the try block exits, so a malformed body would reject past this catch

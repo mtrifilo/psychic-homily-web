@@ -14,6 +14,7 @@
  */
 
 import * as Sentry from '@sentry/nextjs'
+import { serverReadHeaders } from '@/lib/ssr/serverReadHeaders'
 
 import { GRAPH_OVERVIEW_NOT_BUILT_STATUS, graphEndpoints } from './api'
 import { buildSceneMap, type GraphOverview, type SceneMap } from './sceneMap'
@@ -46,6 +47,7 @@ export async function fetchGraphOverview(
 ): Promise<GraphOverview | null> {
   try {
     const res = await fetch(graphEndpoints.OVERVIEW, {
+      headers: serverReadHeaders(),
       next: { revalidate: GRAPH_OVERVIEW_REVALIDATE },
     })
     // `await` inside the try is load-bearing: `return res.json()` would adopt

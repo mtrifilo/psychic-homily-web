@@ -77,6 +77,36 @@ describe('fetchListPayload', () => {
     )
   })
 
+  describe('server-read secret', () => {
+    afterEach(() => {
+      vi.unstubAllEnvs()
+    })
+
+    it('sends it when one is configured', async () => {
+      vi.stubEnv('SERVER_READ_SECRET', 'list-secret')
+      const fetchImpl = vi.fn().mockResolvedValue(jsonResponse({ venues: [], total: 0 }))
+
+      await call(fetchImpl)
+
+      expect(fetchImpl).toHaveBeenCalledWith(
+        'https://api.example.test/venues?limit=50',
+        expect.objectContaining({ headers: { 'X-Server-Read-Secret': 'list-secret' } }),
+      )
+    })
+
+    it('sends none when none is configured', async () => {
+      vi.stubEnv('SERVER_READ_SECRET', '')
+      const fetchImpl = vi.fn().mockResolvedValue(jsonResponse({ venues: [], total: 0 }))
+
+      await call(fetchImpl)
+
+      expect(fetchImpl).toHaveBeenCalledWith(
+        'https://api.example.test/venues?limit=50',
+        expect.objectContaining({ headers: {} }),
+      )
+    })
+  })
+
   it('returns null and reports when the request throws', async () => {
     const fetchImpl = vi.fn().mockRejectedValue(new Error('ECONNREFUSED'))
 

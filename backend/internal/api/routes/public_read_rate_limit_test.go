@@ -561,3 +561,81 @@ func TestPersonalFeedTokenFromPath(t *testing.T) {
 		}
 	}
 }
+
+func serverReadEnv(secret string) func(string) string {
+	return func(k string) string {
+		switch k {
+		case EnablePublicReadRateLimitsEnvVar:
+			return "1"
+		case middleware.ServerReadSecretEnvVar:
+			return secret
+		}
+		return ""
+	}
+}
+
+// A GET carrying the configured server-read secret skips the anonymous cap, and
+// the read-via-POST batch endpoints the limiter also meters stay metered with
+// it: the exemption is for GET and HEAD only.
+func TestPublicReadRateLimiter_ServerReadSecretExemptsReadsOnly(t *testing.T) {
+	const secret = "routes-server-read-secret"
+	mw := PublicReadRateLimiter(nil, nil, nil, serverReadEnv(secret))
+	handler := mw(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	const sharedIP = "7.7.7.60:100"
+	for i := 0; i < middleware.APIRequestsPerMinute+1; i++ {
+		req := httptest.NewRequest(http.MethodGet, "/artists/some-artist", nil)
+		req.Header.Set(middleware.ServerReadSecretHeader, secret)
+		req.RemoteAddr = sharedIP
+		rr := httptest.NewRecorder()
+		handler.ServeHTTP(rr, req)
+		if rr.Code != http.StatusOK {
+			t.Fatalf("server read %d: status = %d, want 200 (must not 429 at anon cap+1)", i, rr.Code)
+		}
+	}
+
+	for i := 0; i < middleware.APIRequestsPerMinute; i++ {
+		req := httptest.NewRequest(http.MethodPost, SaveCountsBatchPath, nil)
+		req.Header.Set(middleware.ServerReadSecretHeader, secret)
+		req.RemoteAddr = sharedIP
+		rr := httptest.NewRecorder()
+		handler.ServeHTTP(rr, req)
+		if rr.Code != http.StatusOK {
+			t.Fatalf("batch read %d within limit: status = %d, want 200", i, rr.Code)
+		}
+	}
+	req := httptest.NewRequest(http.MethodPost, SaveCountsBatchPath, nil)
+	req.Header.Set(middleware.ServerReadSecretHeader, secret)
+	req.RemoteAddr = sharedIP
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, req)
+	if rr.Code != http.StatusTooManyRequests {
+		t.Errorf("batch read past limit with the secret: status = %d, want 429 (POST is never exempt)", rr.Code)
+	}
+}
+
+// With the secret unset the header exempts nothing, whatever it carries.
+func TestPublicReadRateLimiter_ServerReadSecretUnsetIsMetered(t *testing.T) {
+	mw := PublicReadRateLimiter(nil, nil, nil, serverReadEnv(""))
+	handler := mw(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	const sharedIP = "7.7.7.61:100"
+	for i := 0; i <= middleware.APIRequestsPerMinute; i++ {
+		req := httptest.NewRequest(http.MethodGet, "/artists/some-artist", nil)
+		req.Header.Set(middleware.ServerReadSecretHeader, "")
+		req.RemoteAddr = sharedIP
+		rr := httptest.NewRecorder()
+		handler.ServeHTTP(rr, req)
+		want := http.StatusOK
+		if i == middleware.APIRequestsPerMinute {
+			want = http.StatusTooManyRequests
+		}
+		if rr.Code != want {
+			t.Fatalf("read %d with the secret unset: status = %d, want %d", i, rr.Code, want)
+		}
+	}
+}

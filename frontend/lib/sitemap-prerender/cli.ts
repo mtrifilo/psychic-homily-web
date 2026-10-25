@@ -26,6 +26,7 @@ import { readFileSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 import { ALL_SHARD_IDS } from '@/app/sitemap-shards'
 import { API_BASE_URL } from '@/lib/api-base'
+import { serverReadHeaders } from '@/lib/ssr/serverReadHeaders'
 import {
   findShardsWithoutFallback,
   formatPendingShards,
@@ -85,6 +86,7 @@ async function probeFamily(shardId: string): Promise<FamilyVerdict> {
   const url = `${API_BASE_URL}/sitemap/entries?family=${encodeURIComponent(shardId)}`
   try {
     const res = await fetch(url, {
+      headers: serverReadHeaders(),
       signal: AbortSignal.timeout(PROBE_TIMEOUT_MS),
     })
     // Read the status BEFORE releasing the body. Only the status decides the

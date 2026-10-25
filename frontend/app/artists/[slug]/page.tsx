@@ -17,6 +17,7 @@ import { JsonLd } from '@/components/seo/JsonLd'
 import { generateMusicGroupSchema, generateBreadcrumbSchema } from '@/lib/seo/jsonld'
 import { artistSnippet } from '@/lib/seo/entitySnippets'
 import { API_BASE_URL } from '@/lib/api-base'
+import { serverReadHeaders } from '@/lib/ssr/serverReadHeaders'
 import { queryKeys } from '@/lib/queryClient'
 import { prefetchEntity, seedFirstScreen } from '@/lib/query-hydration'
 
@@ -50,6 +51,7 @@ interface ArtistPageProps {
 const getArtist = cache(async (slug: string): Promise<Artist | null> => {
   try {
     const res = await fetch(`${API_BASE_URL}/artists/${slug}`, {
+      headers: serverReadHeaders(),
       next: { revalidate: 3600 },
     })
     if (res.ok) {

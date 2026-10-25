@@ -121,13 +121,18 @@ func RateLimitPublicReadAnonymousEndpoints() func(http.Handler) http.Handler {
 	return publicReadAnonymousLimiter(sampleAt(allowedReadSampleRate))
 }
 
+// publicReadAnonymousSpec is the anonymous public-read limiter. A server-side
+// read that skips it (ServerReadExemption) logs its sample line under this
+// spec's name, so both kinds of line group under one limiter.
+var publicReadAnonymousSpec = limiterSpec{
+	name:   LimiterPublicReadAnonymous,
+	limit:  APIRequestsPerMinute,
+	window: time.Minute,
+	key:    KeyByClientIP,
+}
+
 func publicReadAnonymousLimiter(sample func() bool) func(http.Handler) http.Handler {
-	return limiterSpec{
-		name:   LimiterPublicReadAnonymous,
-		limit:  APIRequestsPerMinute,
-		window: time.Minute,
-		key:    KeyByClientIP,
-	}.sampledHandler(authStateAnonymous, sample)
+	return publicReadAnonymousSpec.sampledHandler(authStateAnonymous, sample)
 }
 
 // SkipRateLimitForAdmin wraps a rate-limit middleware with two hatches: a
@@ -338,6 +343,12 @@ func publicReadIPCeilingLimiter(sample func() bool) func(http.Handler) http.Hand
 // database here. Admin session JWTs still route to the per-user 300/min bucket,
 // not this bypass.
 //
+// A server-side read (serverRead.Exempts: a GET or HEAD carrying the configured
+// server-read secret) that is neither of the above skips anonLimiter and
+// reaches next still anonymous. It is checked AFTER the session and API-token
+// cases, so a server render that forwards a viewer's session is metered on that
+// viewer's own bucket. A nil serverRead exempts nothing.
+//
 // A FOURTH state is layered OUTSIDE this function, in
 // routes.PublicReadRateLimiter: a request whose path carries a validated
 // phcal_ personal-feed token skips the limiter entirely (PSY-2017). Path
@@ -370,7 +381,7 @@ func publicReadIPCeilingLimiter(sample func() bool) func(http.Handler) http.Hand
 // avoid. With this order the ceiling counts only requests that cleared the per-user
 // cap (real delivered throughput), while the multi-account aggregate bound still
 // holds (e.g. 4 accounts × 300/min = 1200 > 1000 trips the ceiling).
-func RateLimitPublicReadsByAuthState(jwtService *auth.JWTService, validateAPIToken func(string) bool, anonLimiter, userLimiter, ipCeilingLimiter func(http.Handler) http.Handler) func(http.Handler) http.Handler {
+func RateLimitPublicReadsByAuthState(jwtService *auth.JWTService, validateAPIToken func(string) bool, serverRead *ServerReadExemption, anonLimiter, userLimiter, ipCeilingLimiter func(http.Handler) http.Handler) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		anon := anonLimiter(next)
 		// Authenticated path: per-user cap OUTER, per-IP ceiling INNER (see the
@@ -384,6 +395,11 @@ func RateLimitPublicReadsByAuthState(jwtService *auth.JWTService, validateAPITok
 				return
 			}
 			if validatedAPIToken(validateAPIToken, r) {
+				next.ServeHTTP(w, r)
+				return
+			}
+			if serverRead.Exempts(r) {
+				serverRead.logSample(r)
 				next.ServeHTTP(w, r)
 				return
 			}

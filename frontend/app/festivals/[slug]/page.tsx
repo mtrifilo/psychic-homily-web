@@ -7,6 +7,7 @@ import { HydrationBoundary } from '@tanstack/react-query'
 import { FestivalDetail } from '@/features/festivals/components'
 import type { FestivalDetail as FestivalDetailData } from '@/features/festivals/types'
 import { API_BASE_URL } from '@/lib/api-base'
+import { serverReadHeaders } from '@/lib/ssr/serverReadHeaders'
 import { queryKeys } from '@/lib/queryClient'
 import { prefetchEntity } from '@/lib/query-hydration'
 
@@ -23,6 +24,7 @@ interface FestivalPageProps {
 const getFestival = cache(async (slug: string): Promise<FestivalDetailData | null> => {
   try {
     const res = await fetch(`${API_BASE_URL}/festivals/${slug}`, {
+      headers: serverReadHeaders(),
       next: { revalidate: 3600 },
     })
     if (res.ok) {
