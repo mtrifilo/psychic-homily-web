@@ -970,8 +970,8 @@ func (s *ShowService) UpdateShow(showID uint, req *contracts.UpdateShowRequest) 
 
 	_, eventDateChanged := updates["event_date"]
 	err := s.db.Transaction(func(tx *gorm.DB) error {
-		if err := tx.Model(&catalogm.Show{}).Where("id = ?", showID).Updates(updates).Error; err != nil {
-			return fmt.Errorf("failed to update show: %w", err)
+		if _, err := s.updateShowFields(tx, showID, updates); err != nil {
+			return err
 		}
 		// If the event_date moved, cascade onto the denormalized
 		// show_artists.event_date so the partial unique index stays in
@@ -1066,11 +1066,13 @@ func (s *ShowService) UpdateShowWithRelations(
 	return response, orphanedArtists, nil
 }
 
-// updateShowFields verifies the show exists, applies any scalar-field updates,
-// and returns the (reloaded) show row. An empty updates map is a no-op write
-// (associations-only edits take this path); the show is still loaded so the
-// caller can build the response. Returns ErrShowNotFound when the row is
-// missing so callers map it to a 404/422.
+// updateShowFields verifies the show exists, applies the scalar-field updates
+// that change the row, and returns the (reloaded) show row. Updates the row
+// already holds are dropped first (changedShowColumns), so a save that changes
+// nothing writes nothing and updated_at does not move; associations-only edits
+// take the same no-write path. The show is always loaded so the caller can
+// build the response. Returns ErrShowNotFound when the row is missing so
+// callers map it to a 404/422.
 func (s *ShowService) updateShowFields(tx *gorm.DB, showID uint, updates map[string]interface{}) (*catalogm.Show, error) {
 	var show catalogm.Show
 	if err := tx.First(&show, showID).Error; err != nil {
@@ -1080,6 +1082,7 @@ func (s *ShowService) updateShowFields(tx *gorm.DB, showID uint, updates map[str
 		return nil, fmt.Errorf("failed to find show: %w", err)
 	}
 
+	updates = changedShowColumns(&show, updates)
 	if len(updates) > 0 {
 		if err := tx.Model(&show).Updates(updates).Error; err != nil {
 			return nil, fmt.Errorf("failed to update show: %w", err)
