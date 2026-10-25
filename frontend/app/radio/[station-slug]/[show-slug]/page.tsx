@@ -20,7 +20,7 @@ interface RadioShowData {
 
 async function getRadioShow(slug: string): Promise<RadioShowData | null> {
   try {
-    const res = await fetch(`${API_BASE_URL}/radio-shows/${slug}`, {
+    const res = await fetch(`${API_BASE_URL}/radio-shows/${encodeURIComponent(slug)}`, {
       headers: serverReadHeaders(),
       next: { revalidate: 3600 },
     })

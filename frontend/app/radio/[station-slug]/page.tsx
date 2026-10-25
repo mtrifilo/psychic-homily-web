@@ -32,7 +32,7 @@ interface StationData {
 // entity-page pattern in `app/artists/[slug]/page.tsx`.
 const getStation = cache(async (slug: string): Promise<StationData | null> => {
   try {
-    const res = await fetch(`${API_BASE_URL}/radio-stations/${slug}`, {
+    const res = await fetch(`${API_BASE_URL}/radio-stations/${encodeURIComponent(slug)}`, {
       headers: serverReadHeaders(),
       next: { revalidate: 3600 },
     })

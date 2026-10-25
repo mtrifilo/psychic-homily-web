@@ -55,7 +55,7 @@ const getCollection = cache(
       : { headers: serverReadHeaders(), next: { revalidate: 3600 } }
 
     try {
-      const res = await fetch(`${API_BASE_URL}/collections/${slug}`, fetchInit)
+      const res = await fetch(`${API_BASE_URL}/collections/${encodeURIComponent(slug)}`, fetchInit)
       if (res.ok) {
         return res.json()
       }

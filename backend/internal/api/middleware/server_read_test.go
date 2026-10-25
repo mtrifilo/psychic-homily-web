@@ -1,6 +1,7 @@
 package middleware
 
 import (
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -39,10 +40,20 @@ func serverReadReq(method, remoteAddr string, header *string) *http.Request {
 
 func strRef(s string) *string { return &s }
 
+// mustServerRead builds an exemption from a configuration the test knows is
+// usable.
+func mustServerRead(configured string, sample func() bool) *ServerReadExemption {
+	e, err := newServerReadExemption(configured, sample)
+	if err != nil {
+		panic(err)
+	}
+	return e
+}
+
 func TestServerReadExemption_RightSecretSkipsAnonymousLimiterOnGetAndHead(t *testing.T) {
 	for _, method := range []string{http.MethodGet, http.MethodHead} {
 		t.Run(method, func(t *testing.T) {
-			handler := serverReadMW(newServerReadExemption(testServerReadSecret, never))(okHandler())
+			handler := serverReadMW(mustServerRead(testServerReadSecret, never))(okHandler())
 			const addr = "10.20.30.40:1000"
 			for i := 0; i < 5; i++ {
 				if rr := serve(handler, serverReadReq(method, addr, strRef(testServerReadSecret))); rr.Code != http.StatusOK {
@@ -71,7 +82,7 @@ func TestServerReadExemption_WrongEmptyOrAbsentSecretIsMetered(t *testing.T) {
 		"case mismatch": strRef(strings.ToUpper(testServerReadSecret)),
 	} {
 		t.Run(name, func(t *testing.T) {
-			handler := serverReadMW(newServerReadExemption(testServerReadSecret, never))(okHandler())
+			handler := serverReadMW(mustServerRead(testServerReadSecret, never))(okHandler())
 			const addr = "10.20.30.41:1000"
 			if rr := serve(handler, serverReadReq(http.MethodGet, addr, header)); rr.Code != http.StatusOK {
 				t.Fatalf("first read: status = %d, want 200", rr.Code)
@@ -86,7 +97,7 @@ func TestServerReadExemption_WrongEmptyOrAbsentSecretIsMetered(t *testing.T) {
 // The exemption is for reads only. A POST that reaches this limiter (the
 // read-via-POST batch endpoints do) is metered even with the right secret.
 func TestServerReadExemption_PostWithRightSecretIsMetered(t *testing.T) {
-	handler := serverReadMW(newServerReadExemption(testServerReadSecret, never))(okHandler())
+	handler := serverReadMW(mustServerRead(testServerReadSecret, never))(okHandler())
 	const addr = "10.20.30.42:1000"
 	if rr := serve(handler, serverReadReq(http.MethodPost, addr, strRef(testServerReadSecret))); rr.Code != http.StatusOK {
 		t.Fatalf("first POST: status = %d, want 200", rr.Code)
@@ -99,9 +110,9 @@ func TestServerReadExemption_PostWithRightSecretIsMetered(t *testing.T) {
 func TestServerReadExemption_EmptySecretDisablesIt(t *testing.T) {
 	for name, secret := range map[string]string{"empty": "", "whitespace": " \t\n"} {
 		t.Run(name, func(t *testing.T) {
-			exemption := NewServerReadExemption(secret)
-			if exemption != nil || exemption.Enabled() {
-				t.Fatalf("NewServerReadExemption(%q) = %v, want a disabled (nil) exemption", secret, exemption)
+			exemption, err := NewServerReadExemption(secret)
+			if err != nil || exemption != nil || exemption.Enabled() {
+				t.Fatalf("NewServerReadExemption(%q) = %v, %v; want a disabled (nil) exemption and no error", secret, exemption, err)
 			}
 			handler := serverReadMW(exemption)(okHandler())
 			const addr = "10.20.30.43:1000"
@@ -126,7 +137,7 @@ func TestServerReadExemption_EmptySecretDisablesIt(t *testing.T) {
 // A configured secret with surrounding whitespace matches the trimmed value,
 // which is what the frontend sends.
 func TestServerReadExemption_TrimsConfiguredSecret(t *testing.T) {
-	exemption := newServerReadExemption("  "+testServerReadSecret+"\n", never)
+	exemption := mustServerRead("  "+testServerReadSecret+"\n", never)
 	if !exemption.Exempts(serverReadReq(http.MethodGet, "10.20.30.44:1", strRef(testServerReadSecret))) {
 		t.Error("trimmed secret does not match the configured value with surrounding whitespace")
 	}
@@ -136,7 +147,7 @@ func TestServerReadExemption_TrimsConfiguredSecret(t *testing.T) {
 // context an anonymous request gets, with no per-user key.
 func TestServerReadExemption_GrantsNoIdentity(t *testing.T) {
 	var sawUser bool
-	handler := serverReadMW(newServerReadExemption(testServerReadSecret, never))(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	handler := serverReadMW(mustServerRead(testServerReadSecret, never))(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_, sawUser = r.Context().Value(rateLimitUserIDKey{}).(uint)
 		w.WriteHeader(http.StatusOK)
 	}))
@@ -164,7 +175,7 @@ func TestServerReadExemption_SessionStillMeteredPerUser(t *testing.T) {
 		httprate.WithLimitHandler(testRejection))
 	ipCeiling := httprate.Limit(1000, time.Minute, httprate.WithKeyFuncs(httprate.KeyByIP),
 		httprate.WithLimitHandler(testRejection))
-	handler := RateLimitPublicReadsByAuthState(jwtService, nil, newServerReadExemption(testServerReadSecret, never),
+	handler := RateLimitPublicReadsByAuthState(jwtService, nil, mustServerRead(testServerReadSecret, never),
 		anon, perUser, ipCeiling)(okHandler())
 
 	req := func() *http.Request {
@@ -187,7 +198,7 @@ func TestServerReadExemption_SampleLinesNameTheExemption(t *testing.T) {
 	anon := publicReadAnonymousLimiter(always)
 	perUser := httprate.Limit(1000, time.Minute, httprate.WithKeyFuncs(rateLimitUserKeyFunc))
 	ipCeiling := httprate.Limit(1000, time.Minute, httprate.WithKeyFuncs(httprate.KeyByIP))
-	handler := RateLimitPublicReadsByAuthState(nil, nil, newServerReadExemption(testServerReadSecret, always),
+	handler := RateLimitPublicReadsByAuthState(nil, nil, mustServerRead(testServerReadSecret, always),
 		anon, perUser, ipCeiling)(okHandler())
 
 	exempt := serverReadReq(http.MethodGet, "10.20.30.47:1", strRef(testServerReadSecret))
@@ -227,7 +238,7 @@ func TestServerReadExemption_SampleLinesNameTheExemption(t *testing.T) {
 // The sampler decides whether an exempt request writes a line.
 func TestServerReadExemption_SamplerGatesItsLine(t *testing.T) {
 	logs := newLogCapture(t)
-	handler := serverReadMW(newServerReadExemption(testServerReadSecret, never))(okHandler())
+	handler := serverReadMW(mustServerRead(testServerReadSecret, never))(okHandler())
 	serve(handler, logs.attach(serverReadReq(http.MethodGet, "10.20.30.48:1", strRef(testServerReadSecret))))
 	if got := len(logs.events(rateLimitAllowedSampleEvent)); got != 0 {
 		t.Errorf("got %d sample lines with a sampler that selects nothing, want 0", got)
@@ -255,5 +266,43 @@ func TestServerReadLogValuesAreStable(t *testing.T) {
 		if got != want {
 			t.Errorf("value %q, want %q", got, want)
 		}
+	}
+}
+
+// A rotation configures the new and the retiring secret together; both are
+// accepted until the retiring one is removed.
+func TestServerReadExemption_AcceptsARotationPair(t *testing.T) {
+	const next = "server-read-secret-next-9876543210"
+	exemption := mustServerRead(next+", "+testServerReadSecret, never)
+	for _, presented := range []string{next, testServerReadSecret} {
+		if !exemption.Exempts(serverReadReq(http.MethodGet, "10.20.30.49:1", strRef(presented))) {
+			t.Errorf("rotation pair does not accept %q", presented)
+		}
+	}
+	if exemption.Exempts(serverReadReq(http.MethodGet, "10.20.30.49:1", strRef(next+","+testServerReadSecret))) {
+		t.Error("the configured value as a whole was accepted as a secret")
+	}
+}
+
+// A configuration the frontend could never match is refused at start, with an
+// error to log, rather than running as an exemption nothing can use.
+func TestServerReadExemption_RefusesAnUnusableSecret(t *testing.T) {
+	for name, configured := range map[string]string{
+		"inner space":   "has space",
+		"non-ascii":     "n\u00e9e-secret",
+		"control char":  "tab\there",
+		"empty part":    testServerReadSecret + ", ",
+		"three secrets": "a-secret,b-secret,c-secret",
+		"leading comma": "," + testServerReadSecret,
+	} {
+		t.Run(name, func(t *testing.T) {
+			exemption, err := NewServerReadExemption(configured)
+			if !errors.Is(err, ErrUnusableServerReadSecret) {
+				t.Errorf("err = %v, want ErrUnusableServerReadSecret", err)
+			}
+			if exemption != nil {
+				t.Errorf("exemption = %v, want nil (exempts nothing)", exemption)
+			}
+		})
 	}
 }

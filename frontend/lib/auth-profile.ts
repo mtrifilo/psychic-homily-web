@@ -3,6 +3,8 @@
 // routes for an auth-only check). Single source of truth for the
 // /auth/profile contract so a change to it is made once (PSY-1111).
 
+import { serverReadHeaders } from '@/lib/ssr/serverReadHeaders'
+
 const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:8080'
 
 export interface UserProfile {
@@ -21,7 +23,7 @@ export async function getAuthenticatedUser(
 ): Promise<UserProfile | null> {
   try {
     const response = await fetch(`${BACKEND_URL}/auth/profile`, {
-      headers: { Cookie: `auth_token=${authToken}` },
+      headers: { ...serverReadHeaders(), Cookie: `auth_token=${authToken}` },
     })
     if (!response.ok) return null
     return await response.json()

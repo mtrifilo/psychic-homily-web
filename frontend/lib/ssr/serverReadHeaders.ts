@@ -15,10 +15,12 @@
  * `/api` relay in `app/api/[...path]/route.ts`): that would hand the exemption
  * to whoever sends the request.
  *
- * Unset, blank, or a value that is not a valid header value sends nothing, and
- * the request is metered as anonymous. An invalid value is dropped rather than
- * sent because `fetch` throws on one, which would fail the read itself instead
- * of only losing the exemption.
+ * Unset or blank sends nothing, and the request is metered as anonymous. So
+ * does a value with any character outside visible ASCII or with a comma: the
+ * backend refuses such a secret at start (a comma separates the two secrets of
+ * a rotation there), so sending one could never match. That case also logs one
+ * error per process, because each side would otherwise look configured while
+ * no read is exempt.
  *
  * The header joins the Data Cache key (Next keys an entry on URL, method,
  * headers and body), so setting or rotating the secret starts every cached
@@ -28,13 +30,24 @@
 /** Must match `ServerReadSecretHeader` in the backend. */
 export const SERVER_READ_SECRET_HEADER = 'X-Server-Read-Secret'
 
-/** Visible ASCII only: what a header value may carry without `fetch` throwing. */
-const HEADER_VALUE_SAFE = /^[\x21-\x7e]+$/
+/** Visible ASCII except the comma: what the backend accepts as one secret. */
+const USABLE_SECRET = /^[\x21-\x2b\x2d-\x7e]+$/
+
+let reportedUnusableSecret = false
 
 export function serverReadHeaders(): Record<string, string> {
   // Must match `ServerReadSecretEnvVar` in the backend. Read by its literal
   // name: a computed `process.env` lookup is not inlined on every runtime.
   const secret = process.env.SERVER_READ_SECRET?.trim()
-  if (!secret || !HEADER_VALUE_SAFE.test(secret)) return {}
+  if (!secret) return {}
+  if (!USABLE_SECRET.test(secret)) {
+    if (!reportedUnusableSecret) {
+      reportedUnusableSecret = true
+      console.error(
+        'SERVER_READ_SECRET holds a character the backend refuses (outside visible ASCII, or a comma); server reads are sent without it'
+      )
+    }
+    return {}
+  }
   return { [SERVER_READ_SECRET_HEADER]: secret }
 }

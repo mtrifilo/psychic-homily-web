@@ -24,7 +24,7 @@ interface FestivalPageProps {
  */
 const getFestival = cache(async (slug: string): Promise<FestivalDetailData | null> => {
   try {
-    const res = await fetch(`${API_BASE_URL}/festivals/${slug}`, {
+    const res = await fetch(`${API_BASE_URL}/festivals/${encodeURIComponent(slug)}`, {
       headers: serverReadHeaders(),
       next: { revalidate: 3600 },
     })

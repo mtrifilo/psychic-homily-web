@@ -51,6 +51,11 @@ import (
 // once per process reporting what it actually observed.
 const EnablePublicReadRateLimitsEnvVar = "ENABLE_PUBLIC_READ_RATE_LIMITS"
 
+// ServerReadExemptionStartupEvent is the message of the one line the public-read
+// limiter writes at process start saying whether the server-read exemption is
+// on. A deploy check queries it, so renaming it breaks that query.
+const ServerReadExemptionStartupEvent = "public_read_server_read_exemption"
+
 // IsPublicReadRateLimitEnabled reports whether the public-read limiter is active.
 // Reuses the "==1" flag convention (testenv.IsFlagEnabled) but NOT the
 // environment gate — this is a rollout switch, honored in every environment.
@@ -181,10 +186,14 @@ func PublicReadRateLimiter(jwtService *auth.JWTService, validateAPIToken, valida
 	if !IsPublicReadRateLimitEnabled(getenv) {
 		return noopRateLimiter()
 	}
-	// Read once, here, at process start. The line records only whether the
-	// exemption is on, never the secret.
-	serverRead := middleware.NewServerReadExemption(getenv(middleware.ServerReadSecretEnvVar))
-	slog.Default().Info("public_read_server_read_exemption", "enabled", serverRead.Enabled())
+	// Read once, here, at process start. The lines record only whether the
+	// exemption is on and why not, never the secret.
+	serverRead, err := middleware.NewServerReadExemption(getenv(middleware.ServerReadSecretEnvVar))
+	if err != nil {
+		slog.Default().Error(ServerReadExemptionStartupEvent, "enabled", false, "error", err.Error())
+	} else {
+		slog.Default().Info(ServerReadExemptionStartupEvent, "enabled", serverRead.Enabled())
+	}
 	limiter := middleware.RateLimitPublicReadsByAuthState(
 		jwtService,
 		validateAPIToken,

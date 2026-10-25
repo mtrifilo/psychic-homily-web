@@ -24,7 +24,7 @@ interface LabelPageProps {
  */
 const getLabel = cache(async (slug: string): Promise<LabelDetailData | null> => {
   try {
-    const res = await fetch(`${API_BASE_URL}/labels/${slug}`, {
+    const res = await fetch(`${API_BASE_URL}/labels/${encodeURIComponent(slug)}`, {
       headers: serverReadHeaders(),
       next: { revalidate: 3600 },
     })

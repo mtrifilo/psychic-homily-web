@@ -51,7 +51,7 @@ interface ArtistPageProps {
  */
 const getArtist = cache(async (slug: string): Promise<Artist | null> => {
   try {
-    const res = await fetch(`${API_BASE_URL}/artists/${slug}`, {
+    const res = await fetch(`${API_BASE_URL}/artists/${encodeURIComponent(slug)}`, {
       headers: serverReadHeaders(),
       next: { revalidate: 3600 },
     })

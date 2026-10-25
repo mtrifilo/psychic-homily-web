@@ -4,6 +4,7 @@ import { SERVER_READ_SECRET_HEADER, serverReadHeaders } from './serverReadHeader
 describe('serverReadHeaders', () => {
   afterEach(() => {
     vi.unstubAllEnvs()
+    vi.restoreAllMocks()
   })
 
   it('carries the configured secret in the server-read header', () => {
@@ -24,15 +25,24 @@ describe('serverReadHeaders', () => {
     expect(serverReadHeaders()).toEqual({ 'X-Server-Read-Secret': 'a-secret-value' })
   })
 
-  // `fetch` throws on a header value it cannot send, which would fail the read
-  // instead of only losing the exemption.
-  it.each(['has space', 'tab\there', 'née', 'line\nbreak'])(
-    'drops a value fetch cannot send: %j',
+  // The backend refuses such a secret at start, so sending it could never match.
+  it.each(['has space', 'tab\there', 'née', 'line\nbreak', 'new,old'])(
+    'drops a value the backend refuses: %j',
     value => {
+      vi.spyOn(console, 'error').mockImplementation(() => {})
       vi.stubEnv('SERVER_READ_SECRET', value)
       expect(serverReadHeaders()).toEqual({})
     }
   )
+
+  it('logs the dropped value at most once per process, without the value', () => {
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {})
+    vi.stubEnv('SERVER_READ_SECRET', 'has space')
+    serverReadHeaders()
+    serverReadHeaders()
+    expect(error.mock.calls.length).toBeLessThanOrEqual(1)
+    expect(JSON.stringify(error.mock.calls)).not.toContain('has space')
+  })
 
   it('produces headers fetch accepts', () => {
     vi.stubEnv('SERVER_READ_SECRET', 'a-secret-value')

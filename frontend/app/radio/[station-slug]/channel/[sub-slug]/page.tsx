@@ -35,7 +35,7 @@ function reconstructStationSlug(networkSlug: string, subSlug: string): string {
 // share ONE backend fetch per request.
 const getStation = cache(async (slug: string): Promise<StationData | null> => {
   try {
-    const res = await fetch(`${API_BASE_URL}/radio-stations/${slug}`, {
+    const res = await fetch(`${API_BASE_URL}/radio-stations/${encodeURIComponent(slug)}`, {
       headers: serverReadHeaders(),
       next: { revalidate: 3600 },
     })

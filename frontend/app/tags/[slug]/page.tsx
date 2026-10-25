@@ -41,7 +41,7 @@ interface TagPageProps {
 const getTagDetail = cache(
   async (slug: string): Promise<TagEnrichedDetailResponse | null> => {
     try {
-      const res = await fetch(`${API_BASE_URL}/tags/${slug}/detail`, {
+      const res = await fetch(`${API_BASE_URL}/tags/${encodeURIComponent(slug)}/detail`, {
         headers: serverReadHeaders(),
         next: { revalidate: 3600 },
       })

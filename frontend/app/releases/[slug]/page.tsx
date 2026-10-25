@@ -36,7 +36,7 @@ interface ReleasePageProps {
  */
 const getRelease = cache(async (slug: string): Promise<ReleaseDetailData | null> => {
   try {
-    const res = await fetch(`${API_BASE_URL}/releases/${slug}`, {
+    const res = await fetch(`${API_BASE_URL}/releases/${encodeURIComponent(slug)}`, {
       headers: serverReadHeaders(),
       next: { revalidate: 3600 },
     })
