@@ -29,8 +29,9 @@ const day = (over: Partial<SceneDayResponse> = {}): SceneDayResponse =>
  * The `<head>` decisions that live nowhere else: the query-language title and
  * description, the self-canonical on both routes, the card's week key coming
  * from the payload rather than a clock, the empty-payload fallbacks, og:url
- * held apart from the rolling canonical, and the route-conditional noindex. Nothing else in the suite touches any of them, so
- * without this file each one can be reworded silently.
+ * held apart from the rolling canonical, and the route-conditional noindex.
+ * Nothing else in the suite touches any of them, so without this file each one
+ * can be reworded silently.
  */
 describe('buildSceneDayMetadata', () => {
   beforeEach(() => {

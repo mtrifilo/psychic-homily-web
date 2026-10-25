@@ -4,7 +4,7 @@ import { JsonLd } from '@/components/seo/JsonLd'
 import { SITE_URL } from '@/lib/seo/siteMetadata'
 import { SceneWindowView } from './components/SceneWindowView'
 import { resolveShowTimezone } from '@/lib/utils/formatters'
-import { calendarDateInZone, sceneTonightDate } from './sceneCalendar'
+import { calendarDateInZone, plural, sceneTonightDate } from './sceneCalendar'
 import { fetchSceneWeekChain } from './sceneWindowApi'
 import { buildSceneWindowJsonLd } from './sceneWindowJsonLd'
 import {
@@ -164,10 +164,7 @@ export async function buildSceneWindowMetadata(
   // clock, so a title or snippet carrying it would describe a span the next
   // reader does not get.
   const title = sceneWindowTitle(window, data.city)
-  const shows =
-    data.rendered > 0
-      ? `${data.rendered} ${data.rendered === 1 ? 'show' : 'shows'}`
-      : 'no shows'
+  const shows = data.rendered > 0 ? plural(data.rendered, 'show') : 'no shows'
   const description = `${title}: ${shows} at the ${data.city} rooms we track.`
 
   // Each window is its own canonical: the scene's standing answer to its own

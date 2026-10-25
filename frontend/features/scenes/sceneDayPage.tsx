@@ -4,6 +4,7 @@ import { JsonLd } from '@/components/seo/JsonLd'
 import { OG_CONTENT_TYPE, OG_SIZE } from '@/lib/og/brand'
 import { SITE_URL } from '@/lib/seo/siteMetadata'
 import { SceneDayView } from './components/SceneDayView'
+import { plural } from './sceneCalendar'
 import { fetchSceneDay } from './sceneDayApi'
 import { dayShows, formatDayFull, type SceneDayResponse } from './sceneDay'
 import { looksLikeISOWeek } from './sceneWeek'
@@ -29,20 +30,16 @@ export const getSceneDay = cache(
 function dayDescription(day: SceneDayResponse, title: string, isRollingRoute: boolean): string {
   const total = dayShows(day).length
   const date = formatDayFull(day.date)
-  if (isRollingRoute) {
-    if (total === 0) {
-      // Never "no shows in {city}": we know our own calendar, not the city's,
-      // and "listed" is what keeps the difference visible in a snippet read
-      // out of context.
-      return `${title}: 0 shows listed for the ${day.city} rooms we track, ${date}. A room may have a show we haven't listed.`
-    }
-    return `${title}: ${total} ${total === 1 ? 'show' : 'shows'} at the ${day.city} rooms we track, ${date}.`
-  }
-  const when = day.is_tonight ? `tonight, ${date}` : date
+  // The rolling title already says "tonight", so its tail names the date only.
+  const lead = isRollingRoute ? `${title}: ` : ''
+  const when = isRollingRoute ? `, ${date}` : day.is_tonight ? ` tonight, ${date}` : ` ${date}`
   if (total === 0) {
-    return `0 shows listed for the ${day.city} rooms we track ${when}. A room may have a show we haven't listed.`
+    // Never "no shows in {city}": we know our own calendar, not the city's,
+    // and "listed" is what keeps the difference visible in a snippet read out
+    // of context.
+    return `${lead}0 shows listed for the ${day.city} rooms we track${when}. A room may have a show we haven't listed.`
   }
-  return `${total} ${total === 1 ? 'show' : 'shows'} at the ${day.city} rooms we track ${when}.`
+  return `${lead}${plural(total, 'show')} at the ${day.city} rooms we track${when}.`
 }
 
 export async function buildSceneDayMetadata(slug: string, date?: string): Promise<Metadata> {

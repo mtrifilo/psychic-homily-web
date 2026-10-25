@@ -566,25 +566,11 @@ func TestSitemapEntriesSceneWeeksWindowIsOnePastAndFourAhead(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Entries: %v", err)
 	}
-	got := sitemapSlugsOf(entries.SceneWeeks)
-
-	want := []string{keyAt(-1), keyAt(0), keyAt(1), keyAt(4)}
-	if len(got) != len(want) {
-		t.Fatalf("scene_weeks = %v, want exactly %v", got, want)
-	}
-	gotSet := make(map[string]bool, len(got))
-	for _, slug := range got {
-		gotSet[slug] = true
-	}
-	for _, slug := range want {
-		if !gotSet[slug] {
-			t.Errorf("scene_weeks = %v, want it to include %q", got, slug)
-		}
-	}
-	for _, weeks := range []int{-3, -2, 2, 3, 5, 6} {
-		if gotSet[keyAt(weeks)] {
-			t.Errorf("scene_weeks announced %q (%+d weeks), which the window or the show gate excludes", keyAt(weeks), weeks)
-		}
+	// Entries are slug-sorted, and these keys sort in week order.
+	got := strings.Join(sitemapSlugsOf(entries.SceneWeeks), ",")
+	want := strings.Join([]string{keyAt(-1), keyAt(0), keyAt(1), keyAt(4)}, ",")
+	if got != want {
+		t.Errorf("scene_weeks = %s, want exactly %s", got, want)
 	}
 }
 

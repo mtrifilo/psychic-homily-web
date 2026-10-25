@@ -109,7 +109,12 @@ function datedTitle(date: string, city: string): string {
   return `${date} in ${city}`
 }
 
-/** The words each rolling window's title ends on, after the city. */
+/**
+ * The words each rolling window's title ends on, after the city. A table of
+ * its own rather than the lowercased chip label: the two are different copy
+ * (`Next 4 weeks` on a chip, `in the next 4 weeks` after a city), and either
+ * may change without the other.
+ */
 const WINDOW_TITLE_PHRASE: Record<SceneWindowKey, string> = {
   tonight: 'tonight',
   'this-weekend': 'this weekend',

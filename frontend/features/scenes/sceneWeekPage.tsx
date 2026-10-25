@@ -6,6 +6,7 @@ import { SITE_URL } from '@/lib/seo/siteMetadata'
 import { SceneWeekView } from './components/SceneWeekView'
 import { fetchSceneWeek } from './sceneWeekApi'
 import { countShows, formatWeekRange, type SceneWeekResponse } from './sceneWeek'
+import { plural } from './sceneCalendar'
 import { sceneWeekTitle, sceneWindowHref } from './sceneWindow'
 import { buildSceneWeekJsonLd } from './sceneWeekJsonLd'
 
@@ -42,12 +43,9 @@ export async function buildSceneWeekMetadata(
   const title = sceneWeekTitle(data.start_date, data.city, isRollingRoute)
   // The count and the range, opened on the rolling route by the title phrase
   // (`Live shows in Chicago this week: ...`), the words the reader searched for.
-  const countAndRange = (shows: string) =>
-    `${shows} at the ${data.city} rooms we track, ${range}.`
-  const shows = total > 0 ? `${total} ${total === 1 ? 'show' : 'shows'}` : null
-  const description = isRollingRoute
-    ? `${title}: ${countAndRange(shows ?? 'no shows')}`
-    : countAndRange(shows ?? 'No shows')
+  const count = total > 0 ? plural(total, 'show') : isRollingRoute ? 'no shows' : 'No shows'
+  const lead = isRollingRoute ? `${title}: ` : ''
+  const description = `${lead}${count} at the ${data.city} rooms we track, ${range}.`
 
   // The dated permalink of the week this payload describes. The archived route
   // is it; the rolling route points its share identity and its card at it.
