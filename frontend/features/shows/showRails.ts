@@ -6,6 +6,7 @@ import {
   orderNightShows,
 } from '@/features/scenes/sceneDay'
 import { isCalendarDate, parseCalendarDate } from '@/features/scenes/sceneWeek'
+import { sceneWindowHref } from '@/features/scenes/sceneWindow'
 import type { SceneShowSummary } from '@/features/scenes/types'
 import { showPriceLabel } from '@/lib/utils/showPrice'
 import { venueEndpoints } from '@/features/venues/api'
@@ -465,7 +466,13 @@ export function alsoTonightRailTitle(
 
 /**
  * Where the also-tonight rail's "see all" goes: the scene's own page for that
- * night, `/scenes/{slug}/{YYYY-MM-DD}`.
+ * night. On the live night that is the rolling `/scenes/{slug}/tonight`, the
+ * page that answers "what is on tonight" and the one search results send that
+ * question to; on any other night it is the dated `/scenes/{slug}/{YYYY-MM-DD}`.
+ *
+ * The live night is the payload's `is_tonight`, the scene clock's answer with
+ * the 6am night boundary applied: the same rule `/tonight` resolves its night
+ * by, so the link and the page it opens agree about which night that is.
  *
  * Null unless BOTH halves are honest. `scene_slug` is withheld by the backend
  * whenever following it would land somewhere that does not list the show it
@@ -479,6 +486,7 @@ export function alsoTonightSeeAllHref(
   rail: ShowAlsoTonightResponse
 ): string | null {
   if (!rail.scene_slug || !looksLikeCalendarDate(rail.date)) return null
+  if (rail.is_tonight) return sceneWindowHref(rail.scene_slug, 'tonight')
   return `/scenes/${rail.scene_slug}/${rail.date}`
 }
 

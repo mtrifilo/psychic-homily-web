@@ -32,8 +32,8 @@ import PeriodPage from './[period]/page'
  * about now: the title, the active window chip, the prev/next wording, the
  * quiet copy and the share control all key on it. Being a required prop forces
  * every route to pass A value, not the RIGHT one, and a flipped literal here
- * publishes "Tonight in Phoenix" or "This week in Chicago" at a permalink that
- * means one fixed night or week. Nothing else in the suite reads these four
+ * publishes "Live shows in Phoenix tonight" or "Live shows in Chicago this
+ * week" at a permalink that means one fixed night or week. Nothing else in the suite reads these four
  * call sites.
  */
 describe('the window routes name themselves rolling or dated', () => {

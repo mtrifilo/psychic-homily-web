@@ -383,40 +383,24 @@ test.describe('Not-found pages — HTTP 404 status', () => {
       })
     })
 
-    test('the permalink /tonight declares canonical returns HTTP 200', async ({ page }) => {
-      // A canonical that 404s is worse than no canonical at all. Read the
-      // target OFF the page rather than hardcoding this week's key: a fixed key
-      // would keep passing while quietly testing nothing, since any valid week
-      // 200s. This way the assertion follows the real declared relationship.
+    test('/tonight declares itself as its canonical', async ({ page }) => {
+      // /tonight is the URL the scene's tonight searches should rank and the
+      // one the sitemap announces, so it names itself: never a week permalink,
+      // which rotates every Monday, and never a dated day.
       await page.goto('/scenes/phoenix-az/tonight')
       const href = await page.locator('link[rel="canonical"]').getAttribute('href')
 
       expect(href, '/tonight must declare a canonical').toBeTruthy()
-      // The WEEK permalink, not the dated day permalink: day permalinks are
-      // announced in no sitemap, so canonicalizing to one aimed crawlers at a
-      // URL the site never tells them about.
-      expect(
-        href,
-        'the canonical must be the WEEK permalink, never the rolling URL or a dated day'
-      ).toMatch(/\/scenes\/phoenix-az\/\d{4}-W\d{2}$/)
-
-      // The PATH, against the server under test. The canonical is absolute and
-      // points at the production origin, so navigating to it verbatim would
-      // leave the branch entirely and assert a fact about the live site.
-      const { pathname } = new URL(href!)
-      const response = await page.goto(pathname)
-      expect(
-        response?.status(),
-        `${pathname} must return 200 — it is what /tonight points every crawler at`
-      ).toBe(200)
+      expect(href, 'the canonical must be /tonight itself').toBe(
+        'https://psychichomily.com/scenes/phoenix-az/tonight'
+      )
     })
 
     /**
      * A real DATED day permalink still resolves.
      *
-     * Kept as its own test now that the canonical probe above follows the week
-     * key. A dated permalink is no longer any rolling page's canonical, but it
-     * is still linked from every day page's prev/next chips, and this is the
+     * A dated permalink is no rolling page's canonical, but it is still linked
+     * from every day page's prev/next chips, and this is the
      * only place the assembled path (proxy.ts's date branch, then `[period]`'s
      * `looksLikeCalendarDate` dispatch to the DAY view) is exercised against a
      * date the server agrees exists. Without it, a change that 404s or

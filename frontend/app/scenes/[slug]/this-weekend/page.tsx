@@ -17,8 +17,7 @@ interface PageProps {
  * scene's own timezone.
  *
  * A rolling URL, like `/week` and `/tonight`: the one that gets posted on a
- * Thursday, always fresh. Unlike `/week` it has no dated permalink to
- * canonicalise to, so it is its own canonical — see `buildSceneWindowMetadata`.
+ * Thursday, always fresh, and its own canonical (see `buildSceneWindowMetadata`).
  *
  * Next.js resolves static segments before dynamic siblings, so this route wins
  * over `[period]` for the literal path. The proxy has to know the segment too:

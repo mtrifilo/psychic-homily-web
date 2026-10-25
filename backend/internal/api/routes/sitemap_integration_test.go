@@ -58,16 +58,17 @@ func TestSitemapEntriesEndToEnd(t *testing.T) {
 			Slug      string    `json:"slug"`
 			UpdatedAt time.Time `json:"updated_at"`
 		} `json:"shows"`
-		Artists     []json.RawMessage `json:"artists"`
-		Venues      []json.RawMessage `json:"venues"`
-		VenueYears  []json.RawMessage `json:"venue_years"`
-		ShowsMonths []json.RawMessage `json:"shows_months"`
-		Scenes      []json.RawMessage `json:"scenes"`
-		SceneWeeks  []json.RawMessage `json:"scene_weeks"`
-		Labels      []json.RawMessage `json:"labels"`
-		Releases    []json.RawMessage `json:"releases"`
-		Festivals   []json.RawMessage `json:"festivals"`
-		Tags        []json.RawMessage `json:"tags"`
+		Artists      []json.RawMessage `json:"artists"`
+		Venues       []json.RawMessage `json:"venues"`
+		VenueYears   []json.RawMessage `json:"venue_years"`
+		ShowsMonths  []json.RawMessage `json:"shows_months"`
+		Scenes       []json.RawMessage `json:"scenes"`
+		SceneWeeks   []json.RawMessage `json:"scene_weeks"`
+		ScenePeriods []json.RawMessage `json:"scene_periods"`
+		Labels       []json.RawMessage `json:"labels"`
+		Releases     []json.RawMessage `json:"releases"`
+		Festivals    []json.RawMessage `json:"festivals"`
+		Tags         []json.RawMessage `json:"tags"`
 	}
 	if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
 		t.Fatalf("parse response: %v; body: %s", err, w.Body.String())
@@ -87,7 +88,8 @@ func TestSitemapEntriesEndToEnd(t *testing.T) {
 		"artists": body.Artists, "venues": body.Venues, "venue_years": body.VenueYears,
 		"shows_months": body.ShowsMonths,
 		"scenes":       body.Scenes,
-		"scene_weeks":  body.SceneWeeks, "labels": body.Labels, "releases": body.Releases,
+		"scene_weeks":  body.SceneWeeks, "scene_periods": body.ScenePeriods,
+		"labels": body.Labels, "releases": body.Releases,
 		"festivals": body.Festivals, "tags": body.Tags,
 	} {
 		if raw == nil {

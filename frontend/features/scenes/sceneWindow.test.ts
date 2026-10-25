@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
-  SCENE_WINDOW_LABEL,
   SCENE_WINDOW_ORDER,
+  SCENE_WINDOW_SEGMENTS,
   allUpcomingHref,
   capWindowRows,
   countWindowShows,
@@ -231,24 +231,51 @@ describe('sceneCityListHref', () => {
 })
 
 /**
- * The one title rule, as a table across every state that has to obey it.
+ * The two title rules, as a table across every state that has to obey them.
  *
  * The faults it guards are the ones that read as confident and are wrong: a
  * permalink calling itself "tonight" or "this week" long after the night or the
- * week has ended, and a date parsed as a UTC instant naming the day before.
+ * week has ended, a rolling page titled in words nobody searches for, and a
+ * date parsed as a UTC instant naming the day before.
  */
+// The segment list is what the sitemap monitor classifies window URLs by, and
+// the backend announces the same four, so it is pinned literally and against
+// the hrefs the pages actually link.
+describe('SCENE_WINDOW_SEGMENTS', () => {
+  it('lists every window route segment the scene pages serve', () => {
+    expect(SCENE_WINDOW_SEGMENTS).toEqual(['tonight', 'this-weekend', 'week', 'next-4-weeks'])
+    expect(SCENE_WINDOW_ORDER.map(key => sceneWindowHref('x', key).split('/')[3])).toEqual([
+      ...SCENE_WINDOW_SEGMENTS,
+    ])
+  })
+})
+
 describe('the window title rule', () => {
-  it.each(SCENE_WINDOW_ORDER)('titles the %s window by its label', key => {
-    expect(sceneWindowTitle(key, 'Chicago')).toBe(`${SCENE_WINDOW_LABEL[key]} in Chicago`)
+  // The strings are spelled out rather than built from the chip labels: the
+  // title phrase and the chip copy are different strings, and a table built
+  // from one would pass whatever the other said.
+  it.each([
+    ['tonight', 'Live shows in Chicago tonight'],
+    ['this-weekend', 'Live shows in Chicago this weekend'],
+    ['this-week', 'Live shows in Chicago this week'],
+    ['next-4-weeks', 'Live shows in Chicago in the next 4 weeks'],
+  ] as const)('titles the %s window with the search phrase', (key, title) => {
+    expect(sceneWindowTitle(key, 'Chicago')).toBe(title)
+  })
+
+  it('covers every window in the family', () => {
+    for (const key of SCENE_WINDOW_ORDER) {
+      expect(sceneWindowTitle(key, 'Chicago')).toMatch(/^Live shows in Chicago /)
+    }
   })
 
   it('titles the rolling night as the window, and a dated one as its date', () => {
-    expect(sceneDayTitle('2026-09-14', 'Chicago', true)).toBe('Tonight in Chicago')
+    expect(sceneDayTitle('2026-09-14', 'Chicago', true)).toBe('Live shows in Chicago tonight')
     expect(sceneDayTitle('2026-09-14', 'Chicago', false)).toBe('Sep 14 in Chicago')
   })
 
   it('titles the current week as the window, and an archived one by its Monday', () => {
-    expect(sceneWeekTitle('2026-09-14', 'Chicago', true)).toBe('This week in Chicago')
+    expect(sceneWeekTitle('2026-09-14', 'Chicago', true)).toBe('Live shows in Chicago this week')
     expect(sceneWeekTitle('2026-09-07', 'Chicago', false)).toBe(
       'Week of Sep 7 in Chicago'
     )

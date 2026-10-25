@@ -131,7 +131,7 @@ describe('SceneDayView — a night with shows', () => {
 
     cleanup()
     render(<SceneDayView day={day()} isRollingRoute />)
-    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('Tonight in Phoenix')
+    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('Live shows in Phoenix tonight')
   })
 
   // The WHOLE line, exactly. Three separate substring assertions all resolve to
@@ -166,7 +166,7 @@ describe('SceneDayView — a night with shows', () => {
   it('drops the tonight prefix from the count line on the rolling route', () => {
     render(<SceneDayView day={day()} isRollingRoute />)
     expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent(
-      'Tonight in Phoenix'
+      'Live shows in Phoenix tonight'
     )
     expect(screen.queryByText(/Tonight — /)).not.toBeInTheDocument()
 

@@ -6,7 +6,7 @@ import { SITE_URL } from '@/lib/seo/siteMetadata'
 import { SceneWeekView } from './components/SceneWeekView'
 import { fetchSceneWeek } from './sceneWeekApi'
 import { countShows, formatWeekRange, type SceneWeekResponse } from './sceneWeek'
-import { sceneWeekTitle } from './sceneWindow'
+import { sceneWeekTitle, sceneWindowHref } from './sceneWindow'
 import { buildSceneWeekJsonLd } from './sceneWeekJsonLd'
 
 /**
@@ -37,18 +37,30 @@ export async function buildSceneWeekMetadata(
   const isRollingRoute = week === undefined
   const total = countShows(data)
   const range = formatWeekRange(data.start_date, data.end_date)
-  // The family's one title rule, so the tab and the H1 read alike. A dated
+  // The family's title rule, so the tab and the H1 read alike. A dated
   // permalink names its own Monday rather than saying "this week".
   const title = sceneWeekTitle(data.start_date, data.city, isRollingRoute)
-  const description =
-    total > 0
-      ? `${total} ${total === 1 ? 'show' : 'shows'} at the ${data.city} rooms we track, ${range}.`
-      : `No shows at the ${data.city} rooms we track, ${range}.`
+  // The count and the range, opened on the rolling route by the title phrase
+  // (`Live shows in Chicago this week: ...`), the words the reader searched for.
+  const countAndRange = (shows: string) =>
+    `${shows} at the ${data.city} rooms we track, ${range}.`
+  const shows = total > 0 ? `${total} ${total === 1 ? 'show' : 'shows'}` : null
+  const description = isRollingRoute
+    ? `${title}: ${countAndRange(shows ?? 'no shows')}`
+    : countAndRange(shows ?? 'No shows')
 
-  // The archived week is the canonical URL even when reached via the rolling
-  // /week route: the rolling URL's content changes weekly, so pointing search
-  // engines at it would make every indexed snippet go stale.
-  const canonical = `${SITE_URL}/scenes/${data.slug}/${data.iso_week}`
+  // The dated permalink of the week this payload describes. The archived route
+  // is it; the rolling route points its share identity and its card at it.
+  const weekPermalink = `${SITE_URL}/scenes/${data.slug}/${data.iso_week}`
+
+  // Every week route is its own canonical. /week is the scene's standing answer
+  // to "what is on this week", the URL search results send that query to, and
+  // the scene_periods sitemap family announces it with a daily lastmod so its
+  // snippet is refreshed as the week changes. A dated permalink names one week
+  // forever.
+  const canonical = isRollingRoute
+    ? `${SITE_URL}${sceneWindowHref(data.slug, 'this-week')}`
+    : weekPermalink
 
   // Both routes advertise the ARCHIVED card, and that is deliberate.
   //
@@ -62,7 +74,7 @@ export async function buildSceneWeekMetadata(
   //
   // Setting `images` explicitly suppresses the file convention, so the
   // dimensions and alt that convention would have supplied are given here.
-  const ogImage = `${canonical}/opengraph-image`
+  const ogImage = `${weekPermalink}/opengraph-image`
 
   // The page description already names the city, the count and the week, which
   // is exactly what the card shows — and it beats the route-level `alt`, which
@@ -75,23 +87,18 @@ export async function buildSceneWeekMetadata(
   // neighbouring weeks. Same rule and same shape as the empty night the day
   // builder suppresses.
   //
-  // THREE conditions, and each one is load-bearing:
+  // TWO conditions, and each one is load-bearing:
   //
-  //  - the DATED route, because the rolling `/week` declares this dated
-  //    permalink as its canonical, and a noindex beside a canonical naming a
-  //    different URL is a contradiction search engines resolve by consolidating
-  //    the suppression onto the target;
+  //  - the DATED route. `/week` stays indexable whatever its count: it is the
+  //    URL the scene's this-week searches land on, the sitemap announces it
+  //    every day, and a quiet week's noindex would drop it from the index
+  //    until a crawler next saw a busy one;
   //  - zero shows, not `is_past_week`: `scene_weeks` in the sitemap announces
-  //    the last eight weeks per scene and excludes only the weeks with no
-  //    approved show, so noindexing every past week would mark submitted URLs
-  //    noindex. The pages suppressed here are the ones it never names;
-  //  - NOT the current week, which is the URL both rolling routes canonicalise
-  //    to: `/week` here and `/tonight` in the day builder. Suppressing it
-  //    would consolidate onto those two, which are a quiet scene's whole
-  //    discovery surface. A thin current week therefore stays indexable, and
-  //    turns into an archived one that does not the following Monday.
+  //    a window of weeks per scene and excludes only the weeks with no approved
+  //    show, so noindexing every past week would mark submitted URLs noindex.
+  //    The pages suppressed here are the ones it never names.
   const robots =
-    !isRollingRoute && total === 0 && !data.is_current_week
+    !isRollingRoute && total === 0
       ? { index: false, follow: true }
       : undefined
 
@@ -103,7 +110,12 @@ export async function buildSceneWeekMetadata(
     openGraph: {
       title,
       description,
-      url: canonical,
+      // The dated permalink on both routes, so on /week deliberately NOT the
+      // canonical. og:url is a share object's identity: unfurlers cache one
+      // object per og:url, so /week's own URL would make every week's card one
+      // cached object. The permalink is also the URL the share control hands
+      // out.
+      url: weekPermalink,
       type: 'website',
       images: [
         {

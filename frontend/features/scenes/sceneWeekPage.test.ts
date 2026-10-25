@@ -27,10 +27,10 @@ const week = (over: Partial<SceneWeekResponse> = {}): SceneWeekResponse =>
   }) as unknown as SceneWeekResponse
 
 /**
- * The `<head>` decisions for the week routes: the title rule, and the
- * route-conditional noindex the day builder has always had and this one did
- * not. Nothing else in the suite reads either, so without this file both can be
- * reworded silently.
+ * The `<head>` decisions for the week routes: the title and description rule,
+ * the self-canonical on both routes with the share identity and card held on
+ * the dated permalink, and the route-conditional noindex. Nothing else in the
+ * suite reads them, so without this file each can be reworded silently.
  */
 describe('buildSceneWeekMetadata', () => {
   beforeEach(() => {
@@ -42,7 +42,7 @@ describe('buildSceneWeekMetadata', () => {
 
     const meta = await buildSceneWeekMetadata('chicago-il')
 
-    expect(meta.title).toBe('This week in Chicago')
+    expect(meta.title).toBe('Live shows in Chicago this week')
   })
 
   // A permalink is permanent: a dated week calling itself "this week" is false
@@ -56,10 +56,9 @@ describe('buildSceneWeekMetadata', () => {
   })
 
   // `is_current_week` is TRUE for the dated permalink of the week in progress,
-  // so a title keyed on the flag rather than on the route would publish "This
-  // week in Chicago" at a URL that means one fixed week, and keep saying it,
-  // since that URL is what both rolling routes canonicalise to and what the
-  // unfurl caches key on.
+  // so a title keyed on the flag rather than on the route would publish "this
+  // week" at a URL that means one fixed week, and keep saying it, since that
+  // URL is what the unfurl caches key on.
   it('names the dated permalink of the CURRENT week by its Monday too', async () => {
     fetchSceneWeek.mockResolvedValue(week())
 
@@ -89,31 +88,64 @@ describe('buildSceneWeekMetadata', () => {
     expect(meta.robots).toBeUndefined()
   })
 
-  // The other half of the same contradiction, from the target's end: both
-  // rolling routes canonicalise to the CURRENT week's dated permalink, so
-  // noindexing it when the week is quiet would consolidate the suppression onto
-  // /week and /tonight, a quiet scene's whole discovery surface.
-  it('leaves a quiet CURRENT week indexable at its dated permalink', async () => {
+  // The current week's dated permalink follows the same rule as every other
+  // dated week: no rolling route names it as a canonical, and the sitemap never
+  // announces a week with no show.
+  it('noindexes a quiet CURRENT week at its dated permalink', async () => {
     fetchSceneWeek.mockResolvedValue(week({ show_count: 0, days: [] }))
 
     const meta = await buildSceneWeekMetadata('chicago-il', '2026-W37')
 
-    expect(meta.robots).toBeUndefined()
+    expect(meta.robots).toEqual({ index: false, follow: true })
+    expect(meta.alternates?.canonical).toBe(
+      'https://psychichomily.com/scenes/chicago-il/2026-W37'
+    )
   })
 
-  // The rolling route declares the DATED permalink as its canonical. A noindex
-  // beside a canonical naming a different URL is a contradiction search engines
-  // resolve by consolidating the suppression onto the target, which would
-  // suppress the archived week along with it.
-  it('sets no robots on the rolling route, even when the week is quiet', async () => {
+  // /week is announced in the sitemap every day; a quiet week's noindex would
+  // drop the URL from the index until a crawler next saw a busy one.
+  it('keeps a quiet /week indexable and self-canonical', async () => {
     fetchSceneWeek.mockResolvedValue(week({ show_count: 0, days: [] }))
 
     const meta = await buildSceneWeekMetadata('chicago-il')
 
     expect(meta.robots).toBeUndefined()
+    expect(meta.alternates?.canonical).toBe('https://psychichomily.com/scenes/chicago-il/week')
+  })
+
+  it('makes the rolling /week route its own canonical', async () => {
+    fetchSceneWeek.mockResolvedValue(week())
+
+    const meta = await buildSceneWeekMetadata('chicago-il')
+
+    expect(meta.alternates?.canonical).toBe('https://psychichomily.com/scenes/chicago-il/week')
+  })
+
+  it('keeps the dated permalink its own canonical', async () => {
+    fetchSceneWeek.mockResolvedValue(week())
+
+    const meta = await buildSceneWeekMetadata('chicago-il', '2026-W37')
+
     expect(meta.alternates?.canonical).toBe(
       'https://psychichomily.com/scenes/chicago-il/2026-W37'
     )
+  })
+
+  // og:url and the card stay on the dated permalink on BOTH routes. The rolling
+  // URL's own image would be a constant URL, pinned in unfurl caches to
+  // whichever week a scraper saw first, and its own og:url would make every
+  // week one cached share object.
+  it('keeps og:url and the card on the dated permalink from the rolling route', async () => {
+    fetchSceneWeek.mockResolvedValue(week())
+
+    const meta = await buildSceneWeekMetadata('chicago-il')
+    const images = meta.openGraph?.images
+    const image = Array.isArray(images) ? images[0] : images
+
+    expect(meta.openGraph?.url).toBe('https://psychichomily.com/scenes/chicago-il/2026-W37')
+    expect(image).toMatchObject({
+      url: 'https://psychichomily.com/scenes/chicago-il/2026-W37/opengraph-image',
+    })
   })
 
   it('noindexes a week that does not resolve', async () => {
@@ -124,12 +156,32 @@ describe('buildSceneWeekMetadata', () => {
     expect(meta.robots).toEqual({ index: false, follow: false })
   })
 
-  // The description still carries the range and the count the title no longer
-  // spells, which is what keeps a snippet readable out of context.
-  it('keeps the count and the range in the description', async () => {
+  // The snippet opens with the title phrase and still carries the range and
+  // the count the title does not spell, which keeps it readable out of context.
+  it('opens the rolling description with the title phrase, then the count and the range', async () => {
     fetchSceneWeek.mockResolvedValue(week())
 
     const meta = await buildSceneWeekMetadata('chicago-il')
+
+    expect(meta.description).toBe(
+      'Live shows in Chicago this week: 4 shows at the Chicago rooms we track, Mon, Sep 7 – Sun, Sep 13, 2026.'
+    )
+  })
+
+  it('states a quiet rolling week without speaking for the city', async () => {
+    fetchSceneWeek.mockResolvedValue(week({ show_count: 0, days: [] }))
+
+    const meta = await buildSceneWeekMetadata('chicago-il')
+
+    expect(meta.description).toBe(
+      'Live shows in Chicago this week: no shows at the Chicago rooms we track, Mon, Sep 7 – Sun, Sep 13, 2026.'
+    )
+  })
+
+  it('keeps the dated description to the count and the range', async () => {
+    fetchSceneWeek.mockResolvedValue(week())
+
+    const meta = await buildSceneWeekMetadata('chicago-il', '2026-W37')
 
     expect(meta.description).toBe(
       '4 shows at the Chicago rooms we track, Mon, Sep 7 – Sun, Sep 13, 2026.'

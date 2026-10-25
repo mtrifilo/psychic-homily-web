@@ -13,10 +13,11 @@ interface PageProps {
 /**
  * `/scenes/{slug}/week` — the scene's CURRENT week.
  *
- * This is the rolling URL: the one that gets posted, always fresh. Its
- * canonical tag points at the archived `{iso-week}` permalink (see
- * buildSceneWeekMetadata), because this URL's content changes every week and
- * indexing it would leave permanently stale snippets.
+ * This is the rolling URL: the one that gets posted, always fresh, and its own
+ * canonical (see buildSceneWeekMetadata). It is the page that answers "live
+ * shows in {city} this week" every week, so it is the URL that query should
+ * rank, and the sitemap announces it with a daily lastmod. The archived
+ * `{iso-week}` permalink stays the share target and the card.
  *
  * Next.js resolves static segments before dynamic siblings, so this route wins
  * over `[period]` for the literal path `/scenes/{slug}/week`.

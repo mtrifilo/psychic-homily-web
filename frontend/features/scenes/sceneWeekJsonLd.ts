@@ -44,9 +44,10 @@ export function buildSceneWeekJsonLd(
   const range = formatWeekRange(week.start_date, week.end_date)
   const shows = (week.days ?? []).flatMap(d => d.shows ?? [])
 
-  // The archived permalink is the canonical URL for BOTH routes (see
-  // buildSceneWeekMetadata), so the breadcrumb's leaf must point there too —
-  // pointing it at the rolling URL would contradict the canonical tag.
+  // The leaf names the ARCHIVED permalink from both week routes. It is the only
+  // URL that identifies this week: /week names a different week next Monday.
+  // A breadcrumb trail is a location, not a canonical claim, the same rule the
+  // day builder states.
   const breadcrumb = generateBreadcrumbSchema([
     { name: 'Home', url: SITE_URL },
     { name: 'Scenes', url: `${SITE_URL}/scenes` },

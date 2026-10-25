@@ -7,7 +7,7 @@ import { SceneDayView } from './components/SceneDayView'
 import { fetchSceneDay } from './sceneDayApi'
 import { dayShows, formatDayFull, type SceneDayResponse } from './sceneDay'
 import { looksLikeISOWeek } from './sceneWeek'
-import { sceneDayTitle } from './sceneWindow'
+import { sceneDayTitle, sceneWindowHref } from './sceneWindow'
 import { buildSceneDayJsonLd } from './sceneDayJsonLd'
 
 /**
@@ -20,14 +20,26 @@ export const getSceneDay = cache(
   (slug: string, date?: string): Promise<SceneDayResponse | null> => fetchSceneDay(slug, date)
 )
 
-function dayDescription(day: SceneDayResponse): string {
+/**
+ * The meta description. On the rolling route it opens with the page's title
+ * phrase (`Live shows in Chicago tonight: ...`), the words the reader searched
+ * for, and the count and the date follow it. A dated permalink states the count
+ * and the date alone.
+ */
+function dayDescription(day: SceneDayResponse, title: string, isRollingRoute: boolean): string {
   const total = dayShows(day).length
   const date = formatDayFull(day.date)
+  if (isRollingRoute) {
+    if (total === 0) {
+      // Never "no shows in {city}": we know our own calendar, not the city's,
+      // and "listed" is what keeps the difference visible in a snippet read
+      // out of context.
+      return `${title}: 0 shows listed for the ${day.city} rooms we track, ${date}. A room may have a show we haven't listed.`
+    }
+    return `${title}: ${total} ${total === 1 ? 'show' : 'shows'} at the ${day.city} rooms we track, ${date}.`
+  }
   const when = day.is_tonight ? `tonight, ${date}` : date
   if (total === 0) {
-    // Names the count and the city, like the populated form — but never "no
-    // shows in {city}". We know our own calendar, not the city's, and "listed"
-    // is what keeps the difference visible in a snippet read out of context.
     return `0 shows listed for the ${day.city} rooms we track ${when}. A room may have a show we haven't listed.`
   }
   return `${total} ${total === 1 ? 'show' : 'shows'} at the ${day.city} rooms we track ${when}.`
@@ -39,15 +51,16 @@ export async function buildSceneDayMetadata(slug: string, date?: string): Promis
     return { title: 'Day not found', robots: { index: false, follow: false } }
   }
 
-  // The ABSENT `date` argument is what names the rolling route. See the
-  // canonical note below for why this, rather than `is_tonight`, is the
-  // discriminator everything on this page keys off.
+  // The ABSENT `date` argument is what names the rolling route, and it is the
+  // discriminator everything on this page keys off. Not `day.is_tonight`: that
+  // flag is also true for a dated permalink naming today, and that permalink
+  // is a different URL with its own canonical, title and robots rule.
   const isRollingRoute = date === undefined
   // The same rule the H1 renders, from the same function, so the tab and the
   // top of the page cannot drift. The full date, and the year the `{MON D}`
   // form drops, stay in the description.
   const title = sceneDayTitle(day.date, day.city, isRollingRoute)
-  const description = dayDescription(day)
+  const description = dayDescription(day, title, isRollingRoute)
 
   // A day that cannot name its own page. With either field blank the URLs below
   // collapse to `/scenes//` shapes and are offered to crawlers as this page's
@@ -59,75 +72,51 @@ export async function buildSceneDayMetadata(slug: string, date?: string): Promis
 
   const dayPermalink = `${SITE_URL}/scenes/${day.slug}/${day.date}`
 
-  // The rolling /tonight URL canonicalizes to the scene's WEEK permalink; a
-  // DATED permalink stays its own canonical.
+  // Every day route is its own canonical. /tonight is the scene's standing
+  // answer to "what is on tonight", the URL search results send that query to,
+  // and the scene_periods sitemap family announces it with a daily lastmod so
+  // its snippet is refreshed as the night changes. A dated permalink names one
+  // night forever.
   //
-  // /tonight cannot be its own canonical, because its content changes every
-  // night and an indexed snippet would describe a night that has passed. It
-  // names the week rather than the dated permalink because of what the sitemap
-  // carries: SITEMAP_FAMILIES in app/sitemap-shards.ts has scene_weeks and no
-  // scene_days. Neither URL space is infinite — days are bounded by
-  // `dateIsServable` (2015..next year, ~4.7k per scene) and week keys are not
-  // bounded at all by the week route — but the scene_weeks family announces a
-  // rolling 8-week window, and there is no day family at any size. The week is
-  // simply the only one of the two the site tells crawlers about.
-  //
-  // Day permalinks stay reachable regardless: the prev/next chips on every day
-  // page are real anchors. The JSON-LD breadcrumb also names the day, but that
-  // is structured data, not a crawl edge, and the VISIBLE breadcrumb stops at
-  // the scene. If those chips ever become non-anchors, day permalinks are
-  // orphaned and this decision needs revisiting.
-  //
-  // `day.iso_week` comes from the PAYLOAD and is never derived here. "Tonight"
-  // is resolved by the backend in the scene's timezone against a 6am night
-  // boundary, so at 01:30 on a Monday tonight is still Sunday, the last day of
-  // the PREVIOUS ISO week. A week computed from a clock on this side would skip
-  // the scene forward a week on exactly that boundary.
-  //
-  // The discriminator is the ABSENT `date` argument, not `day.is_tonight`: that
-  // flag is also true for a dated permalink naming today, and that permalink
-  // must keep pointing at itself rather than be folded into the week.
-  // (SceneDayView's quiet-night "full week" link deliberately still keys off
-  // `is_tonight`. It is answering "which week link helps a reader here", not
-  // "which URL is this page", so the two are allowed to differ.)
-  const canonical =
-    isRollingRoute && day.iso_week
-      ? `${SITE_URL}/scenes/${day.slug}/${day.iso_week}`
-      : dayPermalink
+  // Day permalinks are announced in no sitemap (see SITEMAP_FAMILIES in
+  // app/sitemap-shards.ts) and stay reachable through the prev/next chips on
+  // every day page, which are real anchors. The JSON-LD breadcrumb also names
+  // the day, but that is structured data, not a crawl edge, and the VISIBLE
+  // breadcrumb stops at the scene.
+  const canonical = isRollingRoute
+    ? `${SITE_URL}${sceneWindowHref(day.slug, 'tonight')}`
+    : dayPermalink
 
-  // A night with nothing on it is thin content: real, worth serving, worth
-  // linking out of, not worth an index entry. `follow` stays on precisely
+  // A dated night with nothing on it is thin content: real, worth serving,
+  // worth linking out of, not worth an index entry. `follow` stays on precisely
   // because the page's job in that state is to point at the week and the rooms.
   //
-  // Only on the DATED route, which is its own canonical. A noindex emitted
-  // beside a canonical naming a DIFFERENT URL is a contradiction search engines
-  // are documented to resolve by consolidating the suppression onto the target.
-  // /tonight needs no noindex anyway: declaring another URL as its canonical is
-  // already what keeps it from being indexed as itself.
-  //
-  // KNOWN GAP, accepted here rather than papered over. The sitemap emits a week
-  // only when that week has at least one approved show, so on a scene whose
-  // whole current week is quiet, /tonight consolidates onto a week page that is
-  // thin and announced nowhere. `buildSceneWeekMetadata` deliberately leaves
-  // that page indexable rather than noindexing a canonical target, so the gap
-  // is a thin page in the index, not a suppressed one. Closing it means either
-  // a per-week show count on the day payload or dropping the zero-show
-  // exclusion for the current week, both of them backend changes.
+  // /tonight stays indexable whatever its count. It is the URL the scene's
+  // tonight searches land on, the sitemap announces it every day, and a quiet
+  // night's noindex would drop it from the index until a crawler next saw a
+  // busy one.
   const robots =
     !isRollingRoute && dayShows(day).length === 0
       ? { index: false, follow: true }
       : undefined
 
-  // The rolling /tonight URL is a constant (hash of the route source), so
-  // pointing scrapers at `tonight/opengraph-image` would pin whichever week
-  // they first saw. The family has one renderer, and the dated permalink's
-  // file-convention image 404s a date key, so the URL that actually varies
-  // AND serves a card is the archived week image, keyed by the night's
-  // `iso_week` from the payload — the same week this page canonicalizes to,
-  // including Monday before 6am. Setting `images` explicitly also suppresses
-  // the `[period]` convention on the dated permalink, which would otherwise
-  // advertise that 404. The site-wide jpg stays on dated nights and on a
-  // payload that cannot name its week.
+  // The rolling /tonight URL's file-convention image is a constant (hash of the
+  // route source), so pointing scrapers at `tonight/opengraph-image` would pin
+  // whichever week they first saw. The family has one renderer, and the dated
+  // permalink's file-convention image 404s a date key, so the URL that actually
+  // varies AND serves a card is the archived week image, keyed by the night's
+  // `iso_week`.
+  //
+  // `day.iso_week` comes from the PAYLOAD and is never derived here. "Tonight"
+  // is resolved by the backend in the scene's timezone against a 6am night
+  // boundary, so at 01:30 on a Monday tonight is still Sunday, the last day of
+  // the PREVIOUS ISO week. A week computed from a clock on this side would put
+  // the card a week ahead on exactly that boundary.
+  //
+  // Setting `images` explicitly also suppresses the `[period]` convention on
+  // the dated permalink, which would otherwise advertise that 404. The
+  // site-wide jpg stays on dated nights and on a payload that cannot name its
+  // week.
   const ogImage =
     isRollingRoute && looksLikeISOWeek(day.iso_week)
       ? {
@@ -147,13 +136,14 @@ export async function buildSceneDayMetadata(slug: string, date?: string): Promis
     openGraph: {
       title,
       description,
-      // The DAY permalink, deliberately NOT the canonical. og:url is a share
-      // object's identity, not a duplicate-consolidation hint: Facebook and
-      // Discord cache one unfurled object per og:url. Pointing /tonight's at
-      // the week permalink would make this night's title, description and card
-      // collide with the week page's, which declares that same og:url with its
-      // own generated card, and whichever a scraper saw first would win for
-      // both. The dated permalink names exactly the night these tags describe.
+      // The DAY permalink on both routes, so on /tonight deliberately NOT the
+      // canonical. og:url is a share object's identity, not a
+      // duplicate-consolidation hint: Facebook and Discord cache one unfurled
+      // object per og:url. /tonight's own URL would make every night's title,
+      // description and card one cached object, and whichever night a scraper
+      // saw first would win for all of them. The dated permalink names exactly
+      // the night these tags describe, and it is the URL the share control
+      // hands out.
       url: dayPermalink,
       type: 'website',
       images: [ogImage],
