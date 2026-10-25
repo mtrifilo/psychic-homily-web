@@ -605,7 +605,7 @@ const EXISTENCE_CHECK_TIMEOUT_MS = 2_500
 
 /**
  * How long a POSITIVE existence verdict is reused before the backend is asked
- * again: five minutes, the owner's call on how stale "exists" may be.
+ * again: five minutes, which is how stale an "exists" answer may be.
  *
  * The cost of the window is one-sided. An entity removed inside it passes the
  * proxy until the entry expires, and its page's own fetch then renders the
