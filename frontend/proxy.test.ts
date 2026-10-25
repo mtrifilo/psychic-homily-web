@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { NextRequest } from 'next/server'
-import { proxy } from './proxy'
+import { clearExistenceVerdictsForTests, proxy } from './proxy'
 
 function requestFor(pathname: string): NextRequest {
   return {
@@ -13,6 +13,7 @@ describe('proxy entity existence checks', () => {
   afterEach(() => {
     vi.restoreAllMocks()
     vi.unstubAllEnvs()
+    clearExistenceVerdictsForTests()
   })
 
   it('uses the lightweight HEAD exists probe instead of the full detail GET', async () => {
@@ -89,6 +90,7 @@ describe('proxy entity existence checks', () => {
 describe('proxy numeric show ids', () => {
   afterEach(() => {
     vi.restoreAllMocks()
+    clearExistenceVerdictsForTests()
   })
 
   function showBody(slug: unknown): Response {
