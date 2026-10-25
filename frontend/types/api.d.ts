@@ -2611,6 +2611,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/auth/oauth/link-by-email": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Post auth oauth link by email */
+        post: operations["post-auth-oauth-link-by-email"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/auth/oauth/link-token": {
         parameters: {
             query?: never;
@@ -2622,6 +2639,23 @@ export interface paths {
         put?: never;
         /** Post auth oauth link token */
         post: operations["post-auth-oauth-link-token"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/auth/oauth/pending-link": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get auth oauth pending link */
+        get: operations["get-auth-oauth-pending-link"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -12298,6 +12332,8 @@ export interface components {
             venues: components["schemas"]["VenueWithShowCountResponse"][] | null;
         };
         LoginRequestBody: {
+            /** @description The sign-in is the password proof for this browser's pending provider link. When the pending link is gone (expired, used, or not this browser's), a correct password is refused with OAUTH_LINK_PENDING_EXPIRED rather than signing in without connecting the provider. */
+            connect_pending_link?: boolean;
             /**
              * @description User email
              * @example test@example.com
@@ -12717,6 +12753,19 @@ export interface components {
              */
             provider: string;
         };
+        OAuthLinkByEmailResponseBody: {
+            /**
+             * @description Error code for programmatic handling
+             * @example OAUTH_LINK_PENDING_EXPIRED
+             */
+            error_code?: string;
+            /** @description Response message */
+            message: string;
+            /** @description Request ID for debugging */
+            request_id?: string;
+            /** @description Whether the link was queued for the account's address */
+            success: boolean;
+        };
         OnTheRadioArtistResponse: {
             /** Format: int64 */
             artist_id: number;
@@ -12798,6 +12847,20 @@ export interface components {
             summary_html?: string;
             /** Format: date-time */
             updated_at: string;
+        };
+        PendingOAuthLinkResponseBody: {
+            /** @description The address the account and the provider share, when status is pending */
+            email?: string;
+            /**
+             * Format: date-time
+             * @description When the pending link expires, when status is pending. The browser's cookie that names it lapses at most 10 minutes after the Google sign-in that started it, which can be sooner once its emailed link has been asked for.
+             */
+            expires_at?: string;
+            /**
+             * @description pending: the collision state can be shown. expired: the pending link is expired, already used, or not this browser's.
+             * @enum {string}
+             */
+            status: "pending" | "expired";
         };
         PendingOAuthSignupResponseBody: {
             /** @description The provider's address, when status is pending */
@@ -16557,6 +16620,8 @@ export interface components {
              * @example 550e8400-e29b-41d4-a716-446655440000
              */
             request_id?: string;
+            /** @description For a link that connected a provider, where the sign-in that started it was headed, a path on the frontend */
+            return_to?: string;
             /**
              * @description Success status
              * @example true
@@ -22145,7 +22210,12 @@ export interface operations {
             query?: never;
             header?: never;
             path?: never;
-            cookie?: never;
+            cookie?: {
+                /** @description Pending provider link this sign-in proves the account for, on a deployment without Secure cookies */
+                oauth_pending_link?: string;
+                /** @description Pending provider link this sign-in proves the account for, on a deployment with Secure cookies */
+                "__Host-oauth_pending_link"?: string;
+            };
         };
         requestBody: {
             content: {
@@ -22156,7 +22226,21 @@ export interface operations {
             /** @description OK */
             200: {
                 headers: {
+                    Domain?: string;
+                    Expires?: string;
+                    HttpOnly?: boolean;
+                    MaxAge?: number;
+                    Name?: string;
+                    Partitioned?: boolean;
+                    Path?: string;
+                    Quoted?: boolean;
+                    Raw?: string;
+                    RawExpires?: string;
+                    SameSite?: number;
+                    Secure?: boolean;
                     "Set-Cookie"?: string;
+                    Unparsed?: string;
+                    Value?: string;
                     [name: string]: unknown;
                 };
                 content: {
@@ -22389,6 +22473,55 @@ export interface operations {
             };
         };
     };
+    "post-auth-oauth-link-by-email": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: {
+                /** @description Pending link, on a deployment without Secure cookies */
+                oauth_pending_link?: string;
+                /** @description Pending link, on a deployment with Secure cookies */
+                "__Host-oauth_pending_link"?: string;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    Domain?: string;
+                    Expires?: string;
+                    HttpOnly?: boolean;
+                    MaxAge?: number;
+                    Name?: string;
+                    Partitioned?: boolean;
+                    Path?: string;
+                    Quoted?: boolean;
+                    Raw?: string;
+                    RawExpires?: string;
+                    SameSite?: number;
+                    Secure?: boolean;
+                    "Set-Cookie"?: string;
+                    Unparsed?: string;
+                    Value?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OAuthLinkByEmailResponseBody"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
     "post-auth-oauth-link-token": {
         parameters: {
             query?: never;
@@ -22408,6 +22541,41 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["StartOAuthLinkResponseBody"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "get-auth-oauth-pending-link": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: {
+                /** @description Pending link, on a deployment without Secure cookies */
+                oauth_pending_link?: string;
+                /** @description Pending link, on a deployment with Secure cookies */
+                "__Host-oauth_pending_link"?: string;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    "Cache-Control"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PendingOAuthLinkResponseBody"];
                 };
             };
             /** @description Error */

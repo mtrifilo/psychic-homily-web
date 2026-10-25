@@ -12,18 +12,18 @@ import (
 const pendingTestSecret = "pending-signup-test-secret-at-least-32"
 
 func signedPendingToken(secret, id string) string {
-	return id + "." + signPendingSignupID(secret, id)
+	return id + "." + signPendingID(secret, oauthPendingSignupDomain, id)
 }
 
 func TestVerifyPendingSignupToken(t *testing.T) {
 	id := strings.Repeat("0a", oauthPendingSignupIDBytes)
 	valid := signedPendingToken(pendingTestSecret, id)
 
-	hash, err := verifyPendingSignupToken(pendingTestSecret, valid)
+	hash, err := verifyPendingToken(pendingTestSecret, oauthPendingSignupDomain, valid)
 	if err != nil {
 		t.Fatalf("a token this secret signed was refused: %v", err)
 	}
-	if hash != pendingSignupTokenHash(id) || hash == id {
+	if hash != pendingTokenHash(id) || hash == id {
 		t.Errorf("hash = %q, want the SHA-256 of the id", hash)
 	}
 
@@ -31,19 +31,19 @@ func TestVerifyPendingSignupToken(t *testing.T) {
 		"empty":               "",
 		"no dot":              id,
 		"no signature":        id + ".",
-		"no id":               "." + signPendingSignupID(pendingTestSecret, id),
+		"no id":               "." + signPendingID(pendingTestSecret, oauthPendingSignupDomain, id),
 		"short id":            signedPendingToken(pendingTestSecret, "0a0a"),
 		"signature flipped":   valid[:len(valid)-1] + "A",
 		"another secret":      signedPendingToken("another-secret-at-least-32-characters", id),
-		"another id":          strings.Repeat("0b", oauthPendingSignupIDBytes) + "." + signPendingSignupID(pendingTestSecret, id),
+		"another id":          strings.Repeat("0b", oauthPendingSignupIDBytes) + "." + signPendingID(pendingTestSecret, oauthPendingSignupDomain, id),
 		"trailing separators": valid + ".",
 	} {
-		if _, err := verifyPendingSignupToken(pendingTestSecret, token); !errors.Is(err, errPendingSignupMalformed) {
-			t.Errorf("%s: got %v, want errPendingSignupMalformed", name, err)
+		if _, err := verifyPendingToken(pendingTestSecret, oauthPendingSignupDomain, token); !errors.Is(err, errPendingMalformed) {
+			t.Errorf("%s: got %v, want errPendingMalformed", name, err)
 		}
 	}
 
-	if _, err := verifyPendingSignupToken("", valid); !errors.Is(err, errPendingSignupMalformed) {
+	if _, err := verifyPendingToken("", oauthPendingSignupDomain, valid); !errors.Is(err, errPendingMalformed) {
 		t.Errorf("an empty secret verified a token: %v", err)
 	}
 }

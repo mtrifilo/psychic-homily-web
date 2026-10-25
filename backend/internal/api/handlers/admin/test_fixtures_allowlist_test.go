@@ -54,7 +54,9 @@ var testFixturesAllowlistContractSkips = map[string]string{
 	"webauthn_credentials": "owned by passkey flow; not mutated by E2E scenarios",
 	"webauthn_challenges":  "transient, short TTL; backend expires them itself",
 	"auth_email_outbox":    "never written in E2E: the harness has no email provider and sets DISABLE_AUTH_EMAIL_OUTBOX; rows cascade on user delete and the poller prunes them",
-	"user_preferences":     "upsert-on-login; resetting would hide regressions",
+	// oauth_pending_signups.user_id is set only on a pending provider link.
+	"oauth_pending_signups": "transient, 10 minute TTL, single use; every insert sweeps expired rows and rows cascade on user delete",
+	"user_preferences":      "upsert-on-login; resetting would hide regressions",
 
 	// Cross-user behavior + audit — reset would destroy cross-test signal.
 	"audit_logs":             "audit trail is intentionally preserved across runs",
@@ -85,7 +87,7 @@ var testFixturesAllowlistContractSkips = map[string]string{
 	"show_reminders":          "sent by background job; read-only from E2E",
 	"enrichment_runs":         "background service writes these; not user-mutated",
 	"artist_link_suggestions": "discovery-candidate review queue (PSY-1199); populated by the sweep cmd + admin-reviewed (reviewed_by_user_id), has its own service/handler tests with explicit cleanup; not part of E2E mutating flows",
-	"collection_feature_runs":      "collection-featuring journal (PSY-1500); featured_by/unfeatured_by FKs are to the ADMIN who featured, not to test fixture users; admin-only flow with its own service/migration tests and explicit cleanup; not part of E2E mutating flows",
+	"collection_feature_runs": "collection-featuring journal (PSY-1500); featured_by/unfeatured_by FKs are to the ADMIN who featured, not to test fixture users; admin-only flow with its own service/migration tests and explicit cleanup; not part of E2E mutating flows",
 	"ai_extraction_throttle":  "per-user AI-extraction rate-limit counter (PSY-855); backend-owned upsert/counter plumbing in services/ratelimit, admin-bypassed in E2E so not exercised — revisit (move to allowlist for reset) if an E2E flow ever drives it",
 	"revisions":               "version history; tests don't assert on the count",
 	"auto_promotion_runs":     "background service output; not user-mutated",

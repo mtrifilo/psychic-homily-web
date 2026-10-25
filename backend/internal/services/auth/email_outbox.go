@@ -127,6 +127,7 @@ type (
 	}
 	authEmailTokens interface {
 		CreateMagicLinkToken(userID uint, email string) (string, error)
+		CreateOAuthLinkToken(userID uint, email, pendingLink string) (string, error)
 		CreateAccountRecoveryToken(userID uint, email string) (string, error)
 		CreateVerificationToken(userID uint, email string) (string, error)
 	}
@@ -138,8 +139,8 @@ type (
 	}
 )
 
-// AuthEmailOutbox queues and sends magic-link, account-recovery and
-// verification emails.
+// AuthEmailOutbox queues and sends magic-link, account-recovery, verification
+// and pending-link emails.
 //
 // The enumeration-safe request handlers call Enqueue for a known account and
 // answer at once; the poller sends. A handler's response time therefore does
@@ -227,16 +228,23 @@ func capped[T int | time.Duration](key string, v, limit T) T {
 // bounded by authEmailEnqueueTimeout: a client that disconnects after asking
 // still gets its email, and a stalled database cannot hold the request open.
 func (o *AuthEmailOutbox) Enqueue(ctx context.Context, kind authm.AuthEmailKind, userID uint) error {
+	return o.enqueue(ctx, authm.AuthEmailOutboxItem{Kind: kind, UserID: userID})
+}
+
+// EnqueueOAuthLink queues the sign-in link that proves userID's mailbox for
+// the pending link ref names, on Enqueue's terms. While one is queued for the
+// account, a call for any pending link is a no-op.
+func (o *AuthEmailOutbox) EnqueueOAuthLink(ctx context.Context, userID uint, ref string) error {
+	return o.enqueue(ctx, authm.AuthEmailOutboxItem{Kind: authm.AuthEmailKindOAuthLink, UserID: userID, OAuthLinkRef: &ref})
+}
+
+func (o *AuthEmailOutbox) enqueue(ctx context.Context, item authm.AuthEmailOutboxItem) error {
 	if AuthEmailOutboxDisabled() {
 		return ErrAuthEmailOutboxDisabled
 	}
 	ictx, cancel := context.WithTimeout(context.WithoutCancel(ctx), authEmailEnqueueTimeout)
 	defer cancel()
-	item := authm.AuthEmailOutboxItem{
-		Kind:   kind,
-		UserID: userID,
-		Status: authm.AuthEmailStatusPending,
-	}
+	item.Status = authm.AuthEmailStatusPending
 	return o.db.WithContext(ictx).Clauses(clause.OnConflict{DoNothing: true}).Create(&item).Error
 }
 
@@ -432,7 +440,7 @@ var errUnknownAuthEmailKind = errors.New(authEmailFailUnknownKind)
 // The eligibility rules are the request handlers': a magic link needs a
 // verified address; a verification email needs an address not yet verified;
 // a recovery email needs a soft-deleted account still inside its recovery
-// window.
+// window; a pending-link email needs an account that may sign in.
 func (o *AuthEmailOutbox) deliver(item authm.AuthEmailOutboxItem) (string, error) {
 	user, err := o.users.GetUserByID(item.UserID)
 	if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -455,6 +463,21 @@ func (o *AuthEmailOutbox) deliver(item authm.AuthEmailOutboxItem) (string, error
 			return authEmailSkipIneligible, nil
 		}
 		token, err := o.tokens.CreateMagicLinkToken(user.ID, email)
+		if err != nil {
+			return "", err
+		}
+		return "", o.sender.SendMagicLinkEmail(email, token)
+
+	case authm.AuthEmailKindOAuthLink:
+		// No verified-address rule: proving the mailbox is what this link is
+		// for, and following it verifies the address. Whether the pending
+		// link is still there is decided when the link is followed
+		// (AuthService.CompleteOAuthLinkByEmail); the request kept it alive
+		// for as long as this send may happen (HoldOAuthLinkForEmail).
+		if !user.CanSignIn() || item.OAuthLinkRef == nil {
+			return authEmailSkipIneligible, nil
+		}
+		token, err := o.tokens.CreateOAuthLinkToken(user.ID, email, *item.OAuthLinkRef)
 		if err != nil {
 			return "", err
 		}

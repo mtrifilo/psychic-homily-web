@@ -401,12 +401,25 @@ func (h *OAuthHTTPHandler) OAuthCallbackHTTPHandler(w http.ResponseWriter, r *ht
 	}
 
 	// A new identity finishes on the "Create your account" step, where the
-	// consent an account needs is asked for. A CLI sign-in has no such page, so
-	// it gets the consent refusal instead.
+	// consent an account needs is asked for. An identity whose verified
+	// address belongs to an account lands on the Sign in tab's collision
+	// state, where the person proves that account. A CLI sign-in has neither
+	// page, so it gets the refusal instead.
+	//
+	// A pending link from an earlier sign-in is about another provider
+	// identity than this one ("Use a different Google account" lands here),
+	// so this browser stops holding it whatever this callback resolves to.
+	// startLinkStep sets a new one after the clear, and the later Set-Cookie
+	// wins.
+	oauthPendingLinkCookie.clear(w, r, secureCookie)
 	user, token, err := h.authService.OAuthCallback(w, r, provider)
 	if err != nil {
 		if identity, ok := signupStepIdentity(provider, err); ok && cliCallback == "" {
 			h.startSignupStep(w, r, identity, returnTo, frontendURL)
+			return
+		}
+		if required, ok := linkStepRequired(provider, err); ok && cliCallback == "" {
+			h.startLinkStep(w, r, required, returnTo, frontendURL)
 			return
 		}
 		logCallbackError(ctx, provider, err)

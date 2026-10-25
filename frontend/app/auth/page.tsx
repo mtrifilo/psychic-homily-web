@@ -39,6 +39,15 @@ import {
 import { CheckInboxInterstitial } from '@/app/auth/_components/check-inbox-interstitial'
 import { BackupAuthPrompt } from '@/app/auth/_components/backup-auth-prompt'
 import { AccountRecoverableMessage } from '@/app/auth/_components/account-recoverable-message'
+import {
+  GoogleCollisionSignIn,
+  PENDING_LINK_GONE_MESSAGE,
+} from '@/app/auth/_components/google-collision-sign-in'
+import {
+  SEND_LINK_FAILED_MESSAGE,
+  usePendingOAuthLink,
+} from '@/features/auth/hooks/useOAuthLink'
+import { MAGIC_LINK_EXPIRY_MINUTES } from '@/lib/magic-link'
 import type { SignupHandoff } from '@/app/auth/_components/signup-handoff'
 import {
   useSignupRequestDeadline,
@@ -46,6 +55,7 @@ import {
 } from '@/app/auth/_components/signup-request-deadline'
 import {
   ACCOUNT_INACTIVE_REASON,
+  AUTH_ERROR_CODE_PARAM,
   AUTH_ERROR_PARAM,
   AUTH_REASON_PARAM,
   hasGatedIntent,
@@ -223,7 +233,7 @@ function LoginForm({ returnTo }: { returnTo: string }) {
           }
         },
         onError: () => {
-          setMagicLinkError('Failed to send magic link. Please try again.')
+          setMagicLinkError(SEND_LINK_FAILED_MESSAGE)
         },
       }
     )
@@ -385,7 +395,9 @@ function LoginForm({ returnTo }: { returnTo: string }) {
       {magicLinkSent ? (
         <div className="flex items-center gap-2 rounded-md bg-emerald-500/10 p-3 text-sm text-emerald-600 dark:text-emerald-400">
           <CheckCircle2 className="h-4 w-4 shrink-0" />
-          <span>Check your email for a sign-in link. It expires in 15 minutes.</span>
+          <span>
+            Check your email for a sign-in link. It expires in {MAGIC_LINK_EXPIRY_MINUTES} minutes.
+          </span>
         </div>
       ) : (
         <>
@@ -939,6 +951,35 @@ function AuthPageContent() {
   const passkeySignupDeadline = useSignupRequestDeadline(releasePendingSignup)
   const signInTabRef = useRef<HTMLButtonElement>(null)
 
+  // The Sign in tab shows the collision state for as long as this browser
+  // holds a live pending Google link, which only the backend can say: the
+  // cookie that names it is HttpOnly. So every sign-in arrival reads it, and a
+  // reload mid-collision, which arrives without the callback's
+  // OAUTH_LINK_PENDING (the banner parameters leave the URL after the first
+  // render), still lands on the state. The code is the first render's hint:
+  // with it, the tab waits for the read and says so when the pending link is
+  // gone; without it, the normal tab shows until the read answers. A proof
+  // that finds the pending link gone marks it gone for this arrival only, so
+  // a new arrival reads it afresh.
+  const linkArrival =
+    searchParams.get(AUTH_ERROR_CODE_PARAM) === AuthErrorCode.OAUTH_LINK_PENDING
+  const pendingLink = usePendingOAuthLink(!isReauth)
+  // Keyed by the arrival it was found under, so it self-invalidates on the
+  // next one; message is the proof's own refusal when it had one.
+  const [goneLink, setGoneLink] = useState<{ arrival: string; message?: string } | null>(null)
+  const goneThisArrival = goneLink !== null && goneLink.arrival === arrival
+  const collisionEmail =
+    !isReauth && !goneThisArrival && pendingLink.data?.status === 'pending'
+      ? (pendingLink.data.email ?? null)
+      : null
+  const readingPendingLink = linkArrival && pendingLink.isPending
+  // Only a read that answered says the pending link is gone; a read that
+  // failed says nothing about it, so it shows the normal tab without the line.
+  const pendingLinkGone =
+    goneThisArrival || (linkArrival && pendingLink.isSuccess && collisionEmail === null)
+  const pendingLinkGoneMessage =
+    (goneThisArrival ? goneLink.message : undefined) ?? PENDING_LINK_GONE_MESSAGE
+
   // A hidden page runs its effect cleanups, and a shown one reruns the
   // effects, so this cleanup is the page's "hidden" signal.
   useEffect(
@@ -1096,15 +1137,38 @@ function AuthPageContent() {
                 <CardTitle className="text-lg">
                   {isReauth
                     ? 'Confirm it\'s you to connect a provider'
-                    : 'Sign in to your account'}
+                    : collisionEmail !== null
+                      ? 'Sign in to connect Google'
+                      : 'Sign in to your account'}
                 </CardTitle>
-                <CardDescription className="mt-1">
-                  {isReauth
-                    ? 'Use whichever method this account already has.'
-                    : 'Enter your email and password to continue'}
-                </CardDescription>
+                {collisionEmail === null && (
+                  <CardDescription className="mt-1">
+                    {isReauth
+                      ? 'Use whichever method this account already has.'
+                      : 'Enter your email and password to continue'}
+                  </CardDescription>
+                )}
                 <div className="mt-4">
-                  <LoginForm returnTo={returnTo} />
+                  {collisionEmail !== null ? (
+                    <GoogleCollisionSignIn
+                      email={collisionEmail}
+                      returnTo={returnTo}
+                      onPendingLinkGone={message => setGoneLink({ arrival, message })}
+                    />
+                  ) : readingPendingLink ? (
+                    <div className="flex justify-center py-8">
+                      <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+                    </div>
+                  ) : (
+                    <>
+                      {pendingLinkGone && (
+                        <p role="status" className="mb-4 text-sm text-muted-foreground">
+                          {pendingLinkGoneMessage}
+                        </p>
+                      )}
+                      <LoginForm returnTo={returnTo} />
+                    </>
+                  )}
                 </div>
               </TabsContent>
 

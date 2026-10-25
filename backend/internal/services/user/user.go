@@ -198,7 +198,12 @@ func NewUserService(database *gorm.DB) *UserService {
 // discriminate on the code.
 //
 // With a nil consent, an identity that would need an account created is
-// refused with *contracts.OAuthSignupRequiredError carrying the identity.
+// refused with *contracts.OAuthSignupRequiredError carrying the identity. The
+// CodeOAuthLinkRefused refusal arrives wrapped in
+// *contracts.OAuthLinkRequiredError when the provider verified the address
+// and is the authority for it (contracts.OAuthIdentity.EmailAuthoritative),
+// and the account holding it may sign in and holds no identity from the
+// provider.
 func (s *UserService) FindOrCreateUserWithConsent(gothUser goth.User, provider string, consent *contracts.OAuthSignupConsent) (*authm.User, error) {
 	return s.FindOrCreateUserFromOAuthIdentity(OAuthIdentityFromGoth(gothUser, provider), consent, nil)
 }
@@ -212,10 +217,13 @@ func OAuthIdentityFromGoth(gothUser goth.User, provider string) contracts.OAuthI
 		Subject:       gothUser.UserID,
 		Email:         gothUser.Email,
 		EmailVerified: providerAssertsEmailVerified(gothUser),
-		Name:          gothUser.Name,
-		FirstName:     gothUser.FirstName,
-		LastName:      gothUser.LastName,
-		AvatarURL:     gothUser.AvatarURL,
+		// Read here, while RawData is at hand; the pending tables do not
+		// keep it.
+		EmailAuthoritative: providerIsAuthoritativeForEmail(provider, gothUser),
+		Name:               gothUser.Name,
+		FirstName:          gothUser.FirstName,
+		LastName:           gothUser.LastName,
+		AvatarURL:          gothUser.AvatarURL,
 	}
 }
 
@@ -287,7 +295,9 @@ func (s *UserService) FindOrCreateUserFromOAuthIdentity(identity contracts.OAuth
 			//
 			// So there is no by-address link at all. An identity is attached
 			// only from a session that already holds the account, at
-			// /auth/link/{provider}, which the refusal names.
+			// /auth/link/{provider}, which the refusal names, or after the
+			// person proves the account by its password or its mailbox, which
+			// OAuthLinkRequiredError offers a caller.
 			//
 			// A recoverable deleted account is the exception, for the reasons
 			// shared.AddressMatchIsRecoverable states.
@@ -296,6 +306,33 @@ func (s *UserService) FindOrCreateUserFromOAuthIdentity(identity contracts.OAuth
 					"provider", provider,
 					"user_id", existingUser.ID)
 				return nil, apperrors.ErrAccountRecoverable()
+			}
+			// The proofs can join this identity to the account only when the
+			// provider is the authority for the mailbox, not only a witness
+			// that it was verified once: the mailbox proof is a link sent
+			// there, and an identity that does not hold the mailbox now must
+			// not be joined by whoever does clicking it. An account that may
+			// not sign in, or that already holds an identity from this
+			// provider, keeps the plain refusal.
+			if existingUser.CanSignIn() && identity.EmailVerified && identity.EmailAuthoritative {
+				holds, err := s.accountHoldsProviderIdentity(existingUser.ID, provider)
+				if err != nil {
+					return nil, err
+				}
+				if !holds {
+					// Whether a pending link is actually offered is the
+					// caller's decision (a CLI sign-in has nowhere to show
+					// one), so this names the possibility, not the outcome.
+					logger.Default().Warn("oauth_signin_address_belongs_to_account_link_possible",
+						"provider", provider,
+						"user_id", existingUser.ID,
+						"email_hash", logger.HashEmail(identity.Email))
+					return nil, &contracts.OAuthLinkRequiredError{
+						Identity: identity,
+						UserID:   existingUser.ID,
+						Refusal:  apperrors.ErrOAuthLinkRefused(identity.Email),
+					}
+				}
 			}
 			logger.Default().Warn("oauth_signin_refused_address_belongs_to_account",
 				"provider", provider,
@@ -314,6 +351,18 @@ func (s *UserService) FindOrCreateUserFromOAuthIdentity(identity contracts.OAuth
 		}
 	}
 	return s.createNewUserOauthWithConsent(identity, consent, displayName)
+}
+
+// accountHoldsProviderIdentity reports whether userID already holds an
+// identity from provider.
+func (s *UserService) accountHoldsProviderIdentity(userID uint, provider string) (bool, error) {
+	var count int64
+	if err := s.db.Model(&authm.OAuthAccount{}).
+		Where("user_id = ? AND provider = ?", userID, provider).
+		Count(&count).Error; err != nil {
+		return false, fmt.Errorf("database error: %w", err)
+	}
+	return count > 0, nil
 }
 
 // CreateUserWithPasswordWithLegal creates a new user and records legal acceptance metadata.
@@ -592,20 +641,8 @@ func (s *UserService) LinkOAuthAccountToUser(userID uint, gothUser goth.User, pr
 		return nil, fmt.Errorf("oauth provider %q returned no user id", provider)
 	}
 
-	// Everything from the existence check to the write runs in ONE transaction.
-	//
-	// The transaction alone does not serialize check-then-write under READ
-	// COMMITTED: two concurrent callbacks can both read "unclaimed" and both
-	// insert. Two unique indexes are what actually decide the races, one per
-	// check below:
-	//
-	//   oauth_accounts (provider, provider_user_id)  one account per identity
-	//   oauth_accounts_user_provider_uniq            one identity per provider
-	//                                                per account
-	//
-	// Postgres reports either as the same duplicate-key error once GORM's
-	// TranslateError has collapsed it, so the loser's situation is established
-	// by asking which of the two now holds rather than by reading the error.
+	// Everything from the account check to the write runs in ONE transaction;
+	// AttachOAuthIdentityTx states how its races are decided.
 	tx := s.db.Begin()
 	if tx.Error != nil {
 		return nil, fmt.Errorf("failed to begin transaction: %w", tx.Error)
@@ -639,78 +676,10 @@ func (s *UserService) LinkOAuthAccountToUser(userID uint, gothUser goth.User, pr
 		return nil, apperrors.ErrAccountInactive()
 	}
 
-	// FOR UPDATE: a concurrent connect or unlink of this row waits for this
-	// transaction, so the row cannot change between this read and the write
-	// below.
-	var bySubject authm.OAuthAccount
-	err := tx.
-		Clauses(clause.Locking{Strength: "UPDATE"}).
-		Where("provider = ? AND provider_user_id = ?", provider, gothUser.UserID).
-		First(&bySubject).Error
-	switch {
-	case err == nil:
-		if bySubject.UserID != userID {
-			tx.Rollback()
-			logger.Default().Warn("oauth_link_refused_identity_in_use",
-				"provider", provider,
-				"user_id", userID)
-			return nil, apperrors.ErrOAuthIdentityInUse(provider)
-		}
-		// Already this user's identity. Refresh the stored profile and tokens
-		// so a repeat connect is idempotent rather than an error. The write
-		// names the columns applyGothUserToOAuthAccount set (GORM adds
-		// updated_at) rather than using Save: Save writes back every column
-		// it read, and turns an update that matches no row into an insert.
-		refreshed := applyGothUserToOAuthAccount(&bySubject, gothUser)
-		if err := tx.Model(&bySubject).Select(refreshed).Updates(&bySubject).Error; err != nil {
-			tx.Rollback()
-			return nil, fmt.Errorf("failed to update OAuth account: %w", err)
-		}
-		if err := tx.Commit().Error; err != nil {
-			return nil, fmt.Errorf("failed to commit: %w", err)
-		}
-		return s.reloadUserWithRelations(userID)
-	case !errors.Is(err, gorm.ErrRecordNotFound):
-		// A failed lookup is not proof that the identity is unclaimed, so it
-		// must not fall through to attaching it.
+	if err := AttachOAuthIdentityTx(tx, userID, provider, gothUser); err != nil {
 		tx.Rollback()
-		return nil, fmt.Errorf("database error: %w", err)
+		return nil, err
 	}
-
-	var byProvider authm.OAuthAccount
-	err = tx.Where("user_id = ? AND provider = ?", userID, provider).First(&byProvider).Error
-	switch {
-	case err == nil:
-		tx.Rollback()
-		logger.Default().Warn("oauth_link_refused_provider_already_linked",
-			"provider", provider,
-			"user_id", userID)
-		return nil, apperrors.ErrOAuthProviderAlreadyLinked(provider)
-	case !errors.Is(err, gorm.ErrRecordNotFound):
-		tx.Rollback()
-		return nil, fmt.Errorf("database error: %w", err)
-	}
-
-	// The account has no identity from this provider, established by the
-	// lookup just above, so this attaches rather than updates.
-	oauthAccount := &authm.OAuthAccount{
-		UserID:         userID,
-		Provider:       provider,
-		ProviderUserID: gothUser.UserID,
-	}
-	applyGothUserToOAuthAccount(oauthAccount, gothUser)
-	if err := tx.Create(oauthAccount).Error; err != nil {
-		tx.Rollback()
-		// The loser of a concurrent link. The index says this account already
-		// holds an identity for this provider, which is the same situation the
-		// check above reports, so it gets the same answer rather than a
-		// driver message.
-		if errors.Is(err, gorm.ErrDuplicatedKey) {
-			return s.resolveLinkRace(userID, gothUser.UserID, provider)
-		}
-		return nil, fmt.Errorf("failed to create OAuth account: %w", err)
-	}
-
 	if err := tx.Commit().Error; err != nil {
 		return nil, fmt.Errorf("failed to commit: %w", err)
 	}
@@ -725,39 +694,115 @@ func (s *UserService) LinkOAuthAccountToUser(userID uint, gothUser goth.User, pr
 	return linked, nil
 }
 
-// resolveLinkRace decides what the losing write of a concurrent link should
-// answer, by reading back what is there now. Three outcomes, because the
-// duplicate-key error itself cannot tell them apart:
+// AttachOAuthIdentityTx attaches gothUser's identity, from provider, to
+// userID through tx, which the caller commits. Every path that joins an
+// identity to an existing account goes through it, so they refuse the same
+// shapes:
 //
-//   - this user already holds this very identity: the winner did exactly what
-//     this call was asking for, so it succeeds. Two Connect clicks on one
-//     account are not an error, and the non-racing path already treats a
-//     repeat as idempotent.
-//   - the identity belongs to SOMEONE ELSE: the account-squat signal, and it
-//     must not be described as this account already holding one.
-//   - otherwise this account holds a different identity for the provider.
-func (s *UserService) resolveLinkRace(userID uint, subject, provider string) (*authm.User, error) {
-	var bySubject authm.OAuthAccount
-	err := s.db.
-		Where("provider = ? AND provider_user_id = ?", provider, subject).
-		First(&bySubject).Error
-	if err == nil {
-		if bySubject.UserID == userID {
-			logger.Default().Info("oauth_link_race_resolved_idempotent",
-				"provider", provider,
-				"user_id", userID)
-			return s.reloadUserWithRelations(userID)
+//   - the identity is attached to a different account (CodeOAuthIdentityInUse)
+//   - userID already holds another identity from the provider
+//     (CodeOAuthProviderAlreadyLinked)
+//
+// An identity userID already holds is refreshed, so a repeat attach is
+// idempotent rather than an error. The caller has already checked that the
+// account may sign in, and gothUser carries a subject.
+//
+// The checks alone do not serialize under READ COMMITTED: two concurrent
+// attaches can both read "unclaimed". Two unique indexes decide those races:
+//
+//	oauth_accounts (provider, provider_user_id)  one account per identity
+//	oauth_accounts_user_provider_uniq            one identity per provider
+//	                                             per account
+//
+// Postgres reports either as the same duplicate-key error once GORM's
+// TranslateError has collapsed it, so the insert runs in a savepoint and the
+// loser's situation is established by reading back which of the two now
+// holds.
+func AttachOAuthIdentityTx(tx *gorm.DB, userID uint, provider string, gothUser goth.User) error {
+	held, err := checkOAuthIdentityAttach(tx, userID, provider, gothUser.UserID)
+	if err != nil {
+		return err
+	}
+	if held != nil {
+		// The write names the columns applyGothUserToOAuthAccount set (GORM
+		// adds updated_at) rather than using Save: Save writes back every
+		// column it read, and turns an update that matches no row into an
+		// insert.
+		refreshed := applyGothUserToOAuthAccount(held, gothUser)
+		if err := tx.Model(held).Select(refreshed).Updates(held).Error; err != nil {
+			return fmt.Errorf("failed to update OAuth account: %w", err)
 		}
-		logger.Default().Warn("oauth_link_refused_identity_in_use_race",
-			"provider", provider,
-			"user_id", userID)
-		return nil, apperrors.ErrOAuthIdentityInUse(provider)
+		return nil
 	}
 
+	oauthAccount := &authm.OAuthAccount{
+		UserID:         userID,
+		Provider:       provider,
+		ProviderUserID: gothUser.UserID,
+	}
+	applyGothUserToOAuthAccount(oauthAccount, gothUser)
+	err = tx.Transaction(func(sp *gorm.DB) error { return sp.Create(oauthAccount).Error })
+	if err == nil || !errors.Is(err, gorm.ErrDuplicatedKey) {
+		if err != nil {
+			return fmt.Errorf("failed to create OAuth account: %w", err)
+		}
+		return nil
+	}
+
+	// The loser of a concurrent attach. When the winner attached this very
+	// identity to this account, the loser asked for exactly that and
+	// succeeds; otherwise it gets the refusal for whichever index now holds.
+	held, err = checkOAuthIdentityAttach(tx, userID, provider, gothUser.UserID)
+	if err != nil {
+		return err
+	}
+	if held != nil {
+		logger.Default().Info("oauth_link_race_resolved_idempotent",
+			"provider", provider,
+			"user_id", userID)
+		return nil
+	}
 	logger.Default().Warn("oauth_link_refused_provider_already_linked_race",
 		"provider", provider,
 		"user_id", userID)
-	return nil, apperrors.ErrOAuthProviderAlreadyLinked(provider)
+	return apperrors.ErrOAuthProviderAlreadyLinked(provider)
+}
+
+// checkOAuthIdentityAttach returns the row when userID already holds the
+// identity, nil when the identity may be attached, and the refusal attaching
+// it meets as the error. The identity's row, when there is one, is locked FOR
+// UPDATE, so a concurrent connect or unlink of it waits for tx. A failed
+// lookup is an error, never proof that the identity is unclaimed.
+func checkOAuthIdentityAttach(tx *gorm.DB, userID uint, provider, subject string) (*authm.OAuthAccount, error) {
+	var bySubject authm.OAuthAccount
+	found := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
+		Where("provider = ? AND provider_user_id = ?", provider, subject).
+		Limit(1).Find(&bySubject)
+	if found.Error != nil {
+		return nil, fmt.Errorf("database error: %w", found.Error)
+	}
+	if found.RowsAffected > 0 {
+		if bySubject.UserID != userID {
+			logger.Default().Warn("oauth_link_refused_identity_in_use",
+				"provider", provider,
+				"user_id", userID)
+			return nil, apperrors.ErrOAuthIdentityInUse(provider)
+		}
+		return &bySubject, nil
+	}
+
+	var byProvider authm.OAuthAccount
+	found = tx.Where("user_id = ? AND provider = ?", userID, provider).Limit(1).Find(&byProvider)
+	if found.Error != nil {
+		return nil, fmt.Errorf("database error: %w", found.Error)
+	}
+	if found.RowsAffected > 0 {
+		logger.Default().Warn("oauth_link_refused_provider_already_linked",
+			"provider", provider,
+			"user_id", userID)
+		return nil, apperrors.ErrOAuthProviderAlreadyLinked(provider)
+	}
+	return nil, nil
 }
 
 // applyGothUserToOAuthAccount copies the provider's profile and tokens onto an
@@ -1002,9 +1047,12 @@ func (s *UserService) UpdatePassword(userID uint, currentPassword, newPassword s
 		return fmt.Errorf("failed to hash password: %w", err)
 	}
 
-	// Update the password in the database
+	// Only over the hash just verified: a password cleared or changed while
+	// this request ran (the mailbox proof of a pending provider link clears
+	// it to evict whoever set it) is not put back by a request that proved
+	// the old one.
 	result := s.db.Model(&authm.User{}).
-		Where("id = ?", userID).
+		Where("id = ? AND password_hash = ?", userID, *user.PasswordHash).
 		Update("password_hash", hashedPassword)
 
 	if result.Error != nil {
@@ -1012,7 +1060,7 @@ func (s *UserService) UpdatePassword(userID uint, currentPassword, newPassword s
 	}
 
 	if result.RowsAffected == 0 {
-		return fmt.Errorf("user not found")
+		return apperrors.ErrInvalidCredentials(nil)
 	}
 
 	return nil
@@ -1791,7 +1839,15 @@ func (s *UserService) CanUnlinkOAuthAccount(userID uint, provider string) (bool,
 
 // UnlinkOAuthAccount removes an OAuth account from a user
 func (s *UserService) UnlinkOAuthAccount(userID uint, provider string) error {
-	result := s.db.Where("user_id = ? AND provider = ?", userID, provider).Delete(&authm.OAuthAccount{})
+	return UnlinkOAuthAccountTx(s.db, userID, provider)
+}
+
+// UnlinkOAuthAccountTx removes userID's identity from provider through tx,
+// which the caller commits. It refuses when the account holds none. Whether
+// the account keeps a way to sign in is the caller's check
+// (CanUnlinkOAuthAccount); this removes the identity either way.
+func UnlinkOAuthAccountTx(tx *gorm.DB, userID uint, provider string) error {
+	result := tx.Where("user_id = ? AND provider = ?", userID, provider).Delete(&authm.OAuthAccount{})
 	if result.Error != nil {
 		return fmt.Errorf("failed to unlink OAuth account: %w", result.Error)
 	}

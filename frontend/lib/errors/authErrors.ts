@@ -45,6 +45,22 @@ export const AuthErrorCode = {
    * browser's. The step says the same thing for all three.
    */
   OAUTH_SIGNUP_EXPIRED: 'OAUTH_SIGNUP_EXPIRED',
+  /**
+   * Not a refusal: the Google sign-in's verified address belongs to an
+   * account, and the identity waits as a pending link until the person proves
+   * that account by its password or its mailbox. The auth page opens the Sign
+   * in tab's collision state for it.
+   */
+  OAUTH_LINK_PENDING: 'OAUTH_LINK_PENDING',
+  /**
+   * The pending link is expired, already used, or not this browser's. The
+   * collision state says the same thing for all three.
+   */
+  OAUTH_LINK_PENDING_EXPIRED: 'OAUTH_LINK_PENDING_EXPIRED',
+  /** The provider identity is already attached to another account. */
+  OAUTH_IDENTITY_IN_USE: 'OAUTH_IDENTITY_IN_USE',
+  /** The account already holds a different identity from the provider. */
+  OAUTH_PROVIDER_ALREADY_LINKED: 'OAUTH_PROVIDER_ALREADY_LINKED',
   /** The account exists but may no longer sign in (deactivated or deleted). */
   ACCOUNT_INACTIVE: 'ACCOUNT_INACTIVE',
   /**

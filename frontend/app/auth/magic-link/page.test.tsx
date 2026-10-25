@@ -92,6 +92,29 @@ describe('MagicLinkPage', () => {
     expect(mockPush).toHaveBeenCalledWith('/')
   })
 
+  // A link that connected Google signs in and lands where the Google sign-in
+  // that started it was headed; a destination that fails the sanitizer lands
+  // on the root.
+  it.each([
+    ['/shows?city=phoenix', '/shows?city=phoenix'],
+    ['//evil.example.com', '/'],
+  ])('lands a Google-connecting link on its return_to (%s)', async (returnTo, expected) => {
+    vi.useFakeTimers()
+    mockMutate.mockImplementation(
+      (_token: string, options?: { onSuccess?: (data: unknown) => void }) => {
+        options?.onSuccess?.({ success: true, user: { id: 1 }, return_to: returnTo })
+      }
+    )
+
+    renderWithProviders(<MagicLinkPage />)
+    await act(async () => {})
+    await act(async () => {
+      vi.advanceTimersByTime(1500)
+    })
+
+    expect(mockPush).toHaveBeenCalledWith(expected)
+  })
+
   it('renders "Link Expired" for a body-encoded INVALID_TOKEN error', async () => {
     // PSY-875/PSY-881: the invalid/expired-token path returns HTTP 200 +
     // { success: false, error_code: 'INVALID_TOKEN' }, which the hook

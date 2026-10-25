@@ -193,15 +193,18 @@ func NewAuthHandler(
 
 // LoginRequest represents login request
 type LoginRequest struct {
-	Body struct {
-		Email    string `json:"email" example:"test@example.com" doc:"User email"`
-		Password string `json:"password" example:"password" doc:"User password"`
+	PendingLink     string `cookie:"oauth_pending_link" doc:"Pending provider link this sign-in proves the account for, on a deployment without Secure cookies"`
+	PendingLinkHost string `cookie:"__Host-oauth_pending_link" doc:"Pending provider link this sign-in proves the account for, on a deployment with Secure cookies"`
+	Body            struct {
+		Email              string `json:"email" example:"test@example.com" doc:"User email"`
+		Password           string `json:"password" example:"password" doc:"User password"`
+		ConnectPendingLink bool   `json:"connect_pending_link,omitempty" required:"false" doc:"The sign-in is the password proof for this browser's pending provider link. When the pending link is gone (expired, used, or not this browser's), a correct password is refused with OAUTH_LINK_PENDING_EXPIRED rather than signing in without connecting the provider."`
 	}
 }
 
 // LoginResponse represents login response
 type LoginResponse struct {
-	SetCookie http.Cookie `header:"Set-Cookie" doc:"Authentication cookie"`
+	SetCookie []http.Cookie `header:"Set-Cookie" doc:"Authentication cookie, and the cleared pending-link cookie when the request carried one"`
 	Body      struct {
 		Success   bool        `json:"success" example:"true" doc:"Success status"`
 		Message   string      `json:"message" example:"Login successful" doc:"Response message"`
@@ -323,6 +326,56 @@ func (h *AuthHandler) LoginHandler(ctx context.Context, input *LoginRequest) (*L
 		return resp, autherrors.ErrServiceUnavailable("login", err)
 	}
 
+	// The password just proved the account, which is one of the two proofs a
+	// pending provider link waits on. The cookie is cleared whatever the
+	// pending link turns out to be.
+	//
+	// A sign-in that asked to connect (ConnectPendingLink) and could not is
+	// refused, so the person who pressed "Sign in and connect" is never
+	// signed in believing the provider is connected. An ordinary sign-in
+	// that happens to carry a pending link stands on its own when the link
+	// is gone or names another account. A refusal to attach refuses both,
+	// with that refusal's own words.
+	secure := h.config != nil && h.config.Session.Secure
+	pendingLink := pendingLinkToken(input.PendingLink, input.PendingLinkHost, secure)
+	if pendingLink != "" || input.Body.ConnectPendingLink {
+		linked := false
+		var linkErr error
+		if pendingLink != "" {
+			resp.SetCookie = append(resp.SetCookie, clearedPendingLinkCookie(secure))
+			linked, linkErr = h.authService.LinkOAuthWithPassword(pendingLink, user)
+		}
+		refusal, refused := refusalWithOwnCopy(linkErr)
+		switch {
+		case linked:
+			// The response's user carries the account's identities.
+			if reloaded, rerr := h.userService.GetUserByID(user.ID); rerr == nil {
+				user = reloaded
+			}
+			logger.AuthInfo(ctx, "login_completed_pending_link", "user_id", user.ID)
+		case linkErr == nil || isLinkPendingExpired(linkErr):
+			if input.Body.ConnectPendingLink {
+				logger.AuthWarn(ctx, "login_pending_link_refused", "user_id", user.ID, "error_code", autherrors.CodeOAuthLinkPendingExpired)
+				resp.Body.Success = false
+				resp.Body.Message = autherrors.ToExternalMessage(autherrors.CodeOAuthLinkPendingExpired)
+				resp.Body.ErrorCode = autherrors.CodeOAuthLinkPendingExpired
+				return resp, nil
+			}
+		case refused:
+			logger.AuthWarn(ctx, "login_pending_link_refused", "user_id", user.ID, "error_code", refusal.Code)
+			resp.Body.Success = false
+			resp.Body.Message = refusal.UserMessage()
+			resp.Body.ErrorCode = refusal.Code
+			return resp, nil
+		default:
+			logger.AuthError(ctx, "login_pending_link_failed", linkErr, "user_id", user.ID)
+			resp.Body.Success = false
+			resp.Body.Message = autherrors.ToExternalMessage(autherrors.CodeServiceUnavailable)
+			resp.Body.ErrorCode = autherrors.CodeServiceUnavailable
+			return resp, autherrors.ErrServiceUnavailable("login_pending_link", linkErr)
+		}
+	}
+
 	// Generate JWT token
 	token, err := h.jwtService.CreateToken(user)
 	if err != nil {
@@ -337,7 +390,7 @@ func (h *AuthHandler) LoginHandler(ctx context.Context, input *LoginRequest) (*L
 	}
 
 	// Set HTTP-only cookie using Huma's built-in support
-	resp.SetCookie = h.config.Session.NewAuthCookie(token, 24*time.Hour)
+	resp.SetCookie = append(resp.SetCookie, h.config.Session.NewAuthCookie(token, 24*time.Hour))
 
 	logger.AuthInfo(ctx, "login_success",
 		"user_id", user.ID,
@@ -1255,6 +1308,7 @@ type VerifyMagicLinkResponse struct {
 		User      *authm.User `json:"user,omitempty" doc:"User information"`
 		ErrorCode string      `json:"error_code,omitempty" example:"INVALID_TOKEN" doc:"Error code for programmatic handling"`
 		RequestID string      `json:"request_id,omitempty" example:"550e8400-e29b-41d4-a716-446655440000" doc:"Request ID for debugging"`
+		ReturnTo  string      `json:"return_to,omitempty" doc:"For a link that connected a provider, where the sign-in that started it was headed, a path on the frontend"`
 	}
 }
 
@@ -1273,9 +1327,14 @@ func (h *AuthHandler) VerifyMagicLinkHandler(ctx context.Context, input *VerifyM
 		return resp, nil
 	}
 
-	// Validate the magic link token
+	// Validate the magic link token. A link that proves the mailbox for a
+	// pending provider link is a different token, which only
+	// ValidateOAuthLinkToken accepts.
 	claims, err := h.jwtService.ValidateMagicLinkToken(input.Body.Token)
 	if err != nil {
+		if linkClaims, linkErr := h.jwtService.ValidateOAuthLinkToken(input.Body.Token); linkErr == nil {
+			return h.verifyOAuthLink(ctx, resp, linkClaims)
+		}
 		logger.AuthWarn(ctx, "magic_link_invalid_token",
 			"error", err.Error(),
 		)
@@ -1358,6 +1417,45 @@ func (h *AuthHandler) VerifyMagicLinkHandler(ctx context.Context, input *VerifyM
 	resp.Body.Message = "Login successful"
 	resp.Body.Token = token
 	resp.Body.User = user
+	return resp, nil
+}
+
+// verifyOAuthLink finishes the pending provider link an emailed link proves
+// the mailbox for: the provider is connected, the account's password is
+// turned off, its other sessions are signed out, and this browser gets a new
+// session (AuthServiceInterface.CompleteOAuthLinkByEmail). Refusals answer in
+// this handler's HTTP 200 envelope.
+func (h *AuthHandler) verifyOAuthLink(ctx context.Context, resp *VerifyMagicLinkResponse, claims *contracts.OAuthLinkTokenClaims) (*VerifyMagicLinkResponse, error) {
+	completion, err := h.authService.CompleteOAuthLinkByEmail(claims)
+	if err != nil {
+		if isLinkPendingExpired(err) {
+			logger.AuthWarn(ctx, "magic_link_oauth_link_gone", "user_id", claims.UserID)
+			resp.Body.Success = false
+			resp.Body.Message = "Invalid or expired magic link. Please request a new one."
+			resp.Body.ErrorCode = "INVALID_TOKEN"
+			return resp, nil
+		}
+		if refusal, ok := refusalWithOwnCopy(err); ok {
+			logger.AuthWarn(ctx, "magic_link_oauth_link_refused", "user_id", claims.UserID, "code", refusal.Code)
+			resp.Body.Success = false
+			resp.Body.Message = refusal.UserMessage()
+			resp.Body.ErrorCode = refusal.Code
+			return resp, nil
+		}
+		logger.AuthError(ctx, "magic_link_oauth_link_failed", err, "user_id", claims.UserID)
+		resp.Body.Success = false
+		resp.Body.Message = autherrors.ToExternalMessage(autherrors.CodeServiceUnavailable)
+		resp.Body.ErrorCode = autherrors.CodeServiceUnavailable
+		return resp, autherrors.ErrServiceUnavailable("verify_magic_link_oauth_link", err)
+	}
+
+	resp.SetCookie = h.config.Session.NewAuthCookie(completion.Token, 24*time.Hour)
+	logger.AuthInfo(ctx, "magic_link_oauth_link_success", "user_id", completion.User.ID)
+	resp.Body.Success = true
+	resp.Body.Message = "Login successful"
+	resp.Body.Token = completion.Token
+	resp.Body.User = completion.User
+	resp.Body.ReturnTo = sanitizeOAuthReturnTo(completion.ReturnTo)
 	return resp, nil
 }
 

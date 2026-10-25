@@ -81,6 +81,15 @@ func setupAuthRoutes(rc RouteContext) {
 	huma.Get(rc.API, authh.OAuthPendingSignupRoute, oauthSignupHandler.PendingSignupHandler)
 	huma.Post(rateLimitedAuthGroup, authh.OAuthFinishSignupRoute, oauthSignupHandler.FinishSignupHandler)
 
+	// The Sign in tab's collision state. The send emails a sign-in link, so
+	// it draws on the public auth budget with /auth/magic-link/send; the
+	// password proof is /auth/login on the same budget. The read only answers
+	// the caller's own pending link, named by a cookie, and is metered by the
+	// public-read limiter alone.
+	oauthLinkStepHandler := authh.NewOAuthLinkStepHandler(rc.SC.Auth, rc.SC.Email, rc.SC.AuthEmailOutbox, rc.Cfg)
+	huma.Get(rc.API, authh.OAuthPendingLinkRoute, oauthLinkStepHandler.PendingLinkHandler)
+	huma.Post(rateLimitedAuthGroup, authh.OAuthLinkByEmailRoute, oauthLinkStepHandler.LinkByEmailHandler)
+
 	// Sign in with Apple. The caller is a native client posting the identity
 	// token as JSON, not a browser, so a refusal stays the JSON 429 with its
 	// Retry-After. It meters on a per-IP budget of its own: password attempts

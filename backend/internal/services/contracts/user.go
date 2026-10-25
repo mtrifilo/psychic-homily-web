@@ -317,7 +317,11 @@ type UserServiceInterface interface {
 	//
 	// With a nil consent, an identity that would need an account created is
 	// refused with *OAuthSignupRequiredError, which unwraps to the
-	// CodeTermsAcceptanceRequired AuthError.
+	// CodeTermsAcceptanceRequired AuthError. The CodeOAuthLinkRefused refusal
+	// arrives as *OAuthLinkRequiredError, which unwraps to it, when the
+	// provider verified the address and is the authority for it
+	// (OAuthIdentity.EmailAuthoritative), and the account holding it may sign
+	// in and holds no identity from the provider.
 	FindOrCreateUserWithConsent(gothUser goth.User, provider string, consent *OAuthSignupConsent) (*authm.User, error)
 	// FindOrCreateUserFromOAuthIdentity is FindOrCreateUserWithConsent for an
 	// identity already read from a provider, with the same refusals. An

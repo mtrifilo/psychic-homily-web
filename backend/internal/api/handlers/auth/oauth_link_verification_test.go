@@ -95,9 +95,11 @@ func (s *OAuthHandlerIntegrationSuite) TestCallback_UnverifiedEmailMatch_Redirec
 	s.Equal(int64(0), oauthRows)
 }
 
-// The same request with the provider vouching for the address. A vouched
-// address is still only evidence about the mailbox, so the callback refuses it
-// on the same terms and by the same route.
+// The same request with the provider vouching for an address it does not
+// host. A vouched address is only evidence that the mailbox was verified
+// once, so the callback refuses it on the same terms and by the same route.
+// An address the provider is the authority for waits as a pending link
+// instead (oauth_link_step_integration_test.go).
 func (s *OAuthHandlerIntegrationSuite) TestCallback_VerifiedEmailMatch_RedirectsWithRefusalAndNoSession() {
 	existing := &authm.User{
 		Email:         strPtr("callback-verified@test.com"),

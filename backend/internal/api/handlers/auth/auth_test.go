@@ -1028,8 +1028,8 @@ func TestLoginHandler_Success(t *testing.T) {
 	if resp.Body.User == nil || resp.Body.User.ID != 1 {
 		t.Error("expected user in response")
 	}
-	if resp.SetCookie.Name != config.AuthCookieName {
-		t.Errorf("expected cookie name=%s, got %s", config.AuthCookieName, resp.SetCookie.Name)
+	if len(resp.SetCookie) != 1 || resp.SetCookie[0].Name != config.AuthCookieName {
+		t.Errorf("expected one cookie named %s, got %+v", config.AuthCookieName, resp.SetCookie)
 	}
 }
 

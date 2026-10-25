@@ -924,6 +924,33 @@ func (suite *UserServiceIntegrationTestSuite) TestUpdatePassword_WrongCurrent() 
 	suite.Equal(apperrors.CodeInvalidCredentials, authErr.Code)
 }
 
+// A password cleared between the check and the write, as the mailbox proof
+// of a pending provider link clears it, is not put back by a change that
+// proved the old one.
+func (suite *UserServiceIntegrationTestSuite) TestUpdatePassword_DoesNotRestoreAPasswordClearedMidRequest() {
+	user, err := suite.userService.CreateUserWithPasswordWithLegal(
+		"updatepwcleared@example.com", "CorrectOld1!", "Cleared", "Mid", signupconsent.CurrentLegalAcceptance(),
+	)
+	suite.Require().NoError(err)
+
+	const hook = "test:clear_password_mid_update"
+	suite.Require().NoError(suite.db.Callback().Update().Before("gorm:update").Register(hook, func(tx *gorm.DB) {
+		if tx.Statement.Table == "users" {
+			suite.Require().NoError(suite.db.Exec("UPDATE users SET password_hash = NULL WHERE id = ?", user.ID).Error)
+		}
+	}))
+	defer func() { suite.Require().NoError(suite.db.Callback().Update().Remove(hook)) }()
+
+	err = suite.userService.UpdatePassword(user.ID, "CorrectOld1!", "NewPassword2!")
+	var authErr *apperrors.AuthError
+	suite.Require().True(errors.As(err, &authErr), "got %v", err)
+	suite.Equal(apperrors.CodeInvalidCredentials, authErr.Code)
+
+	var dbUser authm.User
+	suite.Require().NoError(suite.db.First(&dbUser, user.ID).Error)
+	suite.Nil(dbUser.PasswordHash, "the cleared password stays cleared")
+}
+
 func (suite *UserServiceIntegrationTestSuite) TestSetEmailVerified_Success() {
 	user := &authm.User{
 		Email:         stringPtr("verifyemail@example.com"),

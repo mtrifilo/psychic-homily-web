@@ -40,6 +40,12 @@ import type { components } from '@/types/api'
 interface LoginCredentials {
   email: string
   password: string
+  /**
+   * The sign-in is the password proof for this browser's pending Google
+   * link: when the link is gone, a correct password is refused with
+   * OAUTH_LINK_PENDING_EXPIRED rather than signing in without connecting.
+   */
+  connect_pending_link?: boolean
 }
 
 interface RegisterCredentials {
@@ -596,6 +602,11 @@ interface VerifyMagicLinkResponse {
   error_code?: string
   request_id?: string
   user?: AuthApiUser
+  /**
+   * For a link that connected Google, where the sign-in that started it was
+   * headed, a path on the frontend.
+   */
+  return_to?: string
 }
 
 // Send verification email mutation

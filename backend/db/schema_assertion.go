@@ -96,9 +96,20 @@ var requiredSchemaColumns = []requiredColumn{
 	// time.
 	{Table: "users", Column: "date_of_birth"},
 	{Table: "users", Column: "age_attested_at"},
+	// Same reason, and session validation reads it on every request: absent
+	// DDL fails every sign-up and every signed-in request.
+	{Table: "users", Column: "sessions_valid_after"},
 	// A new Google identity is held here between the callback and the sign-up
 	// step; absent DDL fails every new Google sign-up at the callback.
 	{Table: "oauth_pending_signups", Column: "expires_at"},
+	// GORM's Create enumerates every model column, so these appear in every
+	// pending sign-up and pending link INSERT, and every read filters on
+	// purpose: absent DDL fails every new Google sign-up at the callback.
+	{Table: "oauth_pending_signups", Column: "purpose"},
+	{Table: "oauth_pending_signups", Column: "user_id"},
+	// Same reason for every auth email INSERT, which the request handlers
+	// swallow: absent DDL stops every sign-in and recovery email silently.
+	{Table: "auth_email_outbox", Column: "oauth_link_ref"},
 	// Typed entries: exactly the columns whose type a timestamp-named
 	// migration changed. golang-migrate skips a timestamp-named migration
 	// whose version is below the recorded pointer, which happens when branches

@@ -77,6 +77,10 @@ func (s *JWTService) CreateToken(user *authm.User) (string, error) {
 
 // RenewSessionToken mints a session JWT carrying authAt as its auth_at claim.
 // A zero authAt writes no claim at all.
+//
+// The token also carries the revocation instant user was loaded with
+// (jwtSessionsValidAfterClaim), so a mint from a row read before a revocation
+// committed is refused by it however late the mint runs.
 func (s *JWTService) RenewSessionToken(user *authm.User, authAt time.Time) (string, error) {
 	claims := jwt.MapClaims{
 		"user_id": user.ID,
@@ -86,6 +90,9 @@ func (s *JWTService) RenewSessionToken(user *authm.User, authAt time.Time) (stri
 		"iss":     jwtIssuer,
 		"aud":     jwtAudience,
 		"sub":     jwtSessionSubject,
+	}
+	if user.SessionsValidAfter != nil {
+		claims[jwtSessionsValidAfterClaim] = user.SessionsValidAfter.Unix()
 	}
 	if !authAt.IsZero() {
 		claims[jwtAuthTimeClaim] = authAt.Unix()
@@ -206,7 +213,34 @@ func (s *JWTService) userFromSessionClaims(claims jwt.MapClaims) (*authm.User, e
 		return nil, apperrors.ErrTokenInvalid(&SessionAccountClosedError{UserID: user.ID})
 	}
 
+	if sessionMintedBeforeRevocation(claims, user) {
+		return nil, apperrors.ErrTokenInvalid(errSessionRevoked)
+	}
+
 	return user, nil
+}
+
+// jwtSessionsValidAfterClaim carries, in Unix seconds, the account's
+// sessions_valid_after as the mint read it; absent when it was NULL.
+const jwtSessionsValidAfterClaim = "sva"
+
+// errSessionRevoked is the cause inside the TOKEN_INVALID refusal for a
+// session minted before its account's latest revocation.
+var errSessionRevoked = errors.New("session minted before the account's sessions were revoked")
+
+// sessionMintedBeforeRevocation reports whether claims were minted against a
+// revocation state other than user's current one. Every revocation writes a
+// whole-second instant later than any before it (RevokeAllSessions), so a
+// token is honored only when it names exactly the current instant: one minted
+// before the latest revocation, or from a row read before it committed,
+// names an earlier instant or none. An account never revoked honors every
+// token.
+func sessionMintedBeforeRevocation(claims jwt.MapClaims, user *authm.User) bool {
+	if user.SessionsValidAfter == nil {
+		return false
+	}
+	mintedAgainst, ok := claims[jwtSessionsValidAfterClaim].(float64)
+	return !ok || int64(mintedAgainst) != user.SessionsValidAfter.Unix()
 }
 
 // ValidateSession validates a session JWT and returns both facts a caller can
@@ -347,14 +381,14 @@ func (s *JWTService) ValidateVerificationToken(tokenString string) (*contracts.V
 	return claims, nil
 }
 
-// CreateMagicLinkToken generates a JWT token for magic link login
-// Token expires in 15 minutes for security
+// CreateMagicLinkToken generates a JWT token for magic link login, expiring
+// after contracts.MagicLinkTokenTTL.
 func (s *JWTService) CreateMagicLinkToken(userID uint, email string) (string, error) {
 	claims := contracts.MagicLinkTokenClaims{
 		UserID: userID,
 		Email:  email,
 		RegisteredClaims: jwt.RegisteredClaims{
-			ExpiresAt: jwt.NewNumericDate(time.Now().Add(15 * time.Minute)),
+			ExpiresAt: jwt.NewNumericDate(time.Now().Add(contracts.MagicLinkTokenTTL)),
 			IssuedAt:  jwt.NewNumericDate(time.Now()),
 			Issuer:    "psychic-homily-backend",
 			Subject:   "magic-link",
@@ -388,6 +422,53 @@ func (s *JWTService) ValidateMagicLinkToken(tokenString string) (*contracts.Magi
 		return nil, fmt.Errorf("invalid token type")
 	}
 
+	return claims, nil
+}
+
+// oauthLinkTokenSubject is the subject of the emailed sign-in link that
+// proves the mailbox for a pending provider link. It differs from the plain
+// magic link's so that neither validator accepts the other's token: a plain
+// sign-in must never complete a link, and a link token must never be honored
+// as a sign-in that skips the link.
+const oauthLinkTokenSubject = "oauth-link"
+
+// CreateOAuthLinkToken mints the emailed sign-in link that proves userID's
+// mailbox, email, for the pending link pendingLink references. It expires
+// after contracts.MagicLinkTokenTTL.
+func (s *JWTService) CreateOAuthLinkToken(userID uint, email, pendingLink string) (string, error) {
+	claims := contracts.OAuthLinkTokenClaims{
+		UserID:      userID,
+		Email:       email,
+		PendingLink: pendingLink,
+		RegisteredClaims: jwt.RegisteredClaims{
+			ExpiresAt: jwt.NewNumericDate(time.Now().Add(contracts.MagicLinkTokenTTL)),
+			IssuedAt:  jwt.NewNumericDate(time.Now()),
+			Issuer:    jwtIssuer,
+			Subject:   oauthLinkTokenSubject,
+		},
+	}
+
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+	return token.SignedString([]byte(s.config.JWT.SecretKey))
+}
+
+// ValidateOAuthLinkToken validates a token CreateOAuthLinkToken minted and
+// returns its claims.
+func (s *JWTService) ValidateOAuthLinkToken(tokenString string) (*contracts.OAuthLinkTokenClaims, error) {
+	token, err := jwt.ParseWithClaims(tokenString, &contracts.OAuthLinkTokenClaims{}, func(token *jwt.Token) (interface{}, error) {
+		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
+			return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
+		}
+		return []byte(s.config.JWT.SecretKey), nil
+	}, jwt.WithIssuer(jwtIssuer), jwt.WithSubject(oauthLinkTokenSubject), jwt.WithExpirationRequired())
+	if err != nil {
+		return nil, fmt.Errorf("invalid oauth link token: %w", err)
+	}
+
+	claims, ok := token.Claims.(*contracts.OAuthLinkTokenClaims)
+	if !ok || !token.Valid || claims.PendingLink == "" || claims.UserID == 0 {
+		return nil, fmt.Errorf("invalid oauth link token claims")
+	}
 	return claims, nil
 }
 

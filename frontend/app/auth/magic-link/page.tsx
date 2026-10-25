@@ -7,6 +7,7 @@ import { useVerifyMagicLink } from '@/features/auth'
 import { AccountRecoverableMessage } from '@/app/auth/_components/account-recoverable-message'
 import { useAuthContext } from '@/lib/context/AuthContext'
 import { isAccountRecoverable } from '@/lib/errors'
+import { sanitizeReturnTo } from '@/app/auth/auth-redirect-utils'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 
@@ -51,9 +52,11 @@ function MagicLinkContent() {
         if (data.user) {
           setUser(data.user)
         }
-        // Redirect after short delay to show success message.
+        // Redirect after short delay to show success message. A link that
+        // connected Google lands where the sign-in that started it was headed.
+        const destination = sanitizeReturnTo(data.return_to)
         redirectTimerRef.current = setTimeout(() => {
-          router.push('/')
+          router.push(destination)
         }, 1500)
       },
     })

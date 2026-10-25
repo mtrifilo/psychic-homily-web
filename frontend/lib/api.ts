@@ -56,6 +56,10 @@ export const API_ENDPOINTS = {
     // Both read the pending sign-up from an HttpOnly cookie, never the URL.
     OAUTH_PENDING_SIGNUP: `${API_BASE_URL}/auth/oauth/pending-signup`,
     OAUTH_FINISH_SIGNUP: `${API_BASE_URL}/auth/oauth/finish-signup`,
+    // The Sign in tab's collision state: a Google address an account already
+    // holds. Both read the pending link from an HttpOnly cookie, never the URL.
+    OAUTH_PENDING_LINK: `${API_BASE_URL}/auth/oauth/pending-link`,
+    OAUTH_LINK_BY_EMAIL: `${API_BASE_URL}/auth/oauth/link-by-email`,
     // Mints the one-time token the /auth/link/{provider} start URL
     // requires. Same-origin and authenticated, which is the property
     // that route cannot establish for itself.

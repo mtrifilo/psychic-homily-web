@@ -12,10 +12,11 @@ const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:8080'
 /**
  * The browser cookies the proxy hands the backend: the session, the
  * "Create your account" step's pending sign-up
- * (backend/internal/api/handlers/auth/oauth_signup.go), and the under-age
+ * (backend/internal/api/handlers/auth/oauth_signup.go), the under-age
  * refusal marker every sign-up path reads
- * (backend/internal/api/handlers/auth/signup_age.go), under the bare name and
- * the "__Host-" name a Secure deployment sets.
+ * (backend/internal/api/handlers/auth/signup_age.go), and the Sign in tab's
+ * pending Google link (oauth_link_step.go), each under the bare name and the
+ * "__Host-" name a Secure deployment sets.
  */
 const FORWARDED_COOKIES = [
   'auth_token',
@@ -23,6 +24,8 @@ const FORWARDED_COOKIES = [
   '__Host-oauth_pending_signup',
   'oauth_signup_age_refused',
   '__Host-oauth_signup_age_refused',
+  'oauth_pending_link',
+  '__Host-oauth_pending_link',
 ] as const
 
 /** Browser-set headers that say where a request came from. */
