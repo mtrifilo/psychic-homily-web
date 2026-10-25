@@ -14,9 +14,9 @@ import { generateMetadata } from './page'
 
 const fetchMock = vi.fn()
 
-function paramsFor(date: string) {
+function paramsFor(date: string, showSlug = 'the-morning-show') {
   return {
-    params: Promise.resolve({ 'station-slug': 'kexp', 'show-slug': 'the-morning-show', date }),
+    params: Promise.resolve({ 'station-slug': 'kexp', 'show-slug': showSlug, date }),
   }
 }
 
@@ -46,10 +46,10 @@ describe('radio episode metadata read', () => {
   it('asks for a real date, with the show slug encoded', async () => {
     fetchMock.mockResolvedValueOnce(new Response(null, { status: 404 }))
 
-    await generateMetadata(paramsFor('2026-02-28'))
+    await generateMetadata(paramsFor('2026-02-28', 'the-show/../x?y'))
 
     expect(fetchMock).toHaveBeenCalledWith(
-      'http://localhost:8080/radio-shows/the-morning-show/episodes/2026-02-28',
+      'http://localhost:8080/radio-shows/the-show%2F..%2Fx%3Fy/episodes/2026-02-28',
       expect.anything()
     )
     expect(Sentry.captureMessage).not.toHaveBeenCalled()

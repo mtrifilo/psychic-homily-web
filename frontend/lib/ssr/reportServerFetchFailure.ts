@@ -52,8 +52,9 @@ export function listQueryParamNames(url: string): string {
  * into a fallback (an entity page into its not-found render at HTTP 200, a list
  * into its client fetch), so without this a refused read leaves no trace.
  *
- * The event carries the path family, the status, `Retry-After` when the
- * backend sent one, and the caller's `context`. It never carries the URL.
+ * The fields this sets are the path family, the status, `Retry-After` when
+ * the backend sent one, and the caller's `context`; none of them is the URL.
+ * The SDK's own fetch breadcrumbs on the same scope are outside this helper.
  */
 export function reportServerFetchFailure({
   response,
