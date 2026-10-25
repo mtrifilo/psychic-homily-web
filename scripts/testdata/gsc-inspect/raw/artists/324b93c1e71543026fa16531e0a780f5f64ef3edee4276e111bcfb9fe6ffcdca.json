@@ -1,0 +1,16 @@
+{
+  "inspectionResult": {
+    "inspectionResultLink": "https://search.google.com/search-console/inspect?resource_id=sc-domain:psychichomily.com&id=fixture",
+    "indexStatusResult": {
+      "verdict": "PASS",
+      "coverageState": "Submitted and indexed",
+      "robotsTxtState": "ALLOWED",
+      "indexingState": "INDEXING_ALLOWED",
+      "lastCrawlTime": "2026-10-05T12:00:00Z",
+      "pageFetchState": "SUCCESSFUL",
+      "googleCanonical": "https://psychichomily.com/artists/fixture-artist-two",
+      "userCanonical": "https://psychichomily.com/artists/fixture-artist-two",
+      "crawledAs": "MOBILE"
+    }
+  }
+}
