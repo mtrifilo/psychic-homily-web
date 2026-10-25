@@ -1,4 +1,5 @@
 import { Suspense } from 'react'
+import { connection } from 'next/server'
 import { HydrationBoundary } from '@tanstack/react-query'
 // Deep imports, not the `@/features/home` barrel: this file pulls in BOTH
 // variants, and a `'use client'` barrel is not tree-shaken per export here.
@@ -119,6 +120,9 @@ async function SeededHomeShowList() {
  * on mount instead of trusting them for a full `staleTime`.
  */
 async function seedAnonymousHomeShows() {
+  // Request-time only: `withoutPassedShows` reads the clock, which a
+  // prerenderable scope may not.
+  await connection()
   const [shows, cities] = await Promise.all([
     fetchListPayload<UpcomingShowsResponse>({
       url: HOME_UPCOMING_FIRST_SCREEN_URL,
