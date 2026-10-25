@@ -3,23 +3,22 @@ import { join, relative } from 'node:path'
 import { describe, expect, it } from 'vitest'
 
 /**
- * Every server-side module that reads the backend sends the server-read secret,
- * or is named below with the reason it must not.
+ * Every server-side module that reads the backend sends the server-read secret
+ * on each of its fetches, or is named below with the reason it must not.
  *
  * A module counts as a server-side backend reader when it is not a client
  * module (`'use client'`), calls `fetch` (or an injected `fetchImpl`), and
- * addresses the backend (`API_BASE_URL`, `BACKEND_URL`, an endpoint table, or a
- * spec's `buildUrl`). A new one that forgets `serverReadHeaders()` is metered on
- * the anonymous per-IP bucket its host shares with every other visitor, which
- * fails silently; this test is what makes it loud.
+ * addresses the backend (`API_BASE_URL`, `BACKEND_URL`, an endpoint table, a
+ * spec's `buildUrl`, or a URL handed to a `fetchImpl` helper). It must call
+ * `serverReadHeaders()` at least as often as it calls fetch. That is a textual
+ * check: it catches a forgotten module or a new fetch in a known one, not a
+ * header built and then dropped, which the per-caller tests cover.
  */
 const EXEMPT: Record<string, string> = {
   'app/api/[...path]/route.ts':
     'the dev /api relay forwards a VISITOR request; adding the secret would hand the exemption to the visitor',
   'lib/proxy-revalidation.ts':
     'runs only inside the dev /api relay, after a visitor mutation it is relaying',
-  'app/api/ai/extract-collection/route.ts': 'POST, which the exemption never covers',
-  'app/api/ai/extract-show/route.ts': 'POST, which the exemption never covers',
   'lib/admin-artist-route.ts': 'PATCH, which the exemption never covers',
   'lib/ai-extraction-throttle.ts': 'POST, which the exemption never covers',
   'lib/api.ts': 'the browser request helper (credentials: include); server reads do not use it',
@@ -40,7 +39,11 @@ function isServerBackendReader(source: string): boolean {
   const head = source.split('\n').slice(0, 5).join('\n')
   if (/['"]use client['"]/.test(head)) return false
   if (!/\bfetch(Impl)?\(/.test(source)) return false
-  return /API_BASE_URL|BACKEND_URL|Endpoints\b|buildUrl/.test(source)
+  return /API_BASE_URL|BACKEND_URL|Endpoints\b|buildUrl|fetchImpl/.test(source)
+}
+
+function count(source: string, pattern: RegExp): number {
+  return source.match(pattern)?.length ?? 0
 }
 
 const readers = SCANNED.flatMap(entry => sourceFiles(join(ROOT, entry)))
@@ -51,7 +54,14 @@ const readers = SCANNED.flatMap(entry => sourceFiles(join(ROOT, entry)))
 describe('server-read secret inventory', () => {
   it('finds the server-side backend readers it guards', () => {
     expect(readers.map(r => r.file)).toEqual(
-      expect.arrayContaining(['proxy.ts', 'app/artists/[slug]/page.tsx', 'app/sitemap.ts'])
+      expect.arrayContaining([
+        'proxy.ts',
+        'app/artists/[slug]/page.tsx',
+        'app/sitemap.ts',
+        'lib/ssr/fetchListPayload.ts',
+        'lib/seo/fetchSeoList.ts',
+        'features/scenes/scenePeriodApi.ts',
+      ])
     )
   })
 
@@ -62,7 +72,8 @@ describe('server-read secret inventory', () => {
         expect(source).not.toContain('serverReadHeaders(')
         return
       }
-      expect(source).toContain('serverReadHeaders(')
+      const fetches = count(source, /\bfetch(Impl)?\(/g)
+      expect(count(source, /serverReadHeaders\(/g)).toBeGreaterThanOrEqual(fetches)
     }
   )
 

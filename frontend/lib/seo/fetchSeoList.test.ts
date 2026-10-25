@@ -270,3 +270,23 @@ describe('fetchSeoList and the Data Cache budget gate', () => {
     )
   })
 })
+
+describe('fetchSeoList server-read secret', () => {
+  afterEach(() => {
+    vi.unstubAllEnvs()
+  })
+
+  it('sends it when one is configured', async () => {
+    vi.stubEnv('SERVER_READ_SECRET', 'seo-list-secret-0123456789abcdef')
+    const fetchImpl = vi.fn().mockResolvedValue(jsonResponse({ venues: [] }))
+
+    await call(fetchImpl)
+
+    expect(fetchImpl).toHaveBeenCalledWith(
+      'https://api.example.test/venues?limit=100',
+      expect.objectContaining({
+        headers: { 'X-Server-Read-Secret': 'seo-list-secret-0123456789abcdef' },
+      })
+    )
+  })
+})

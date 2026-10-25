@@ -63,8 +63,9 @@ const (
 
 // serverReadExemptAttr is the attribute on every ratelimit_allowed_sample line
 // that records whether the request skipped the anonymous limiter as a
-// server-side read (ServerReadExemption). Log queries split server-side from
-// metered traffic on it, so renaming it breaks every query built on it.
+// server-side read (ServerReadExemption). It is what separates exempt from
+// metered traffic in the sample lines, so TestServerReadLogValuesAreStable pins
+// it.
 const serverReadExemptAttr = "server_read_exempt"
 
 // Values of the `auth_state` attribute on sampled lines.

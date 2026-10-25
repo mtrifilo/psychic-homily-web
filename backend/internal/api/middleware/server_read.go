@@ -30,12 +30,15 @@ const ServerReadSecretEnvVar = "SERVER_READ_SECRET"
 // may hold: the current one and the one a rotation is retiring.
 const maxServerReadSecrets = 2
 
+// minServerReadSecretLength is the shortest secret the exemption accepts, so a
+// guessable value cannot turn the exemption into a way around the limiter.
+const minServerReadSecretLength = 32
+
 // ErrUnusableServerReadSecret reports a configured secret the exemption refuses
-// to run with. The frontend sends only visible ASCII, so a secret with any
-// other character could never match and would leave the exemption silently
-// dead.
+// to run with: too short to resist guessing, or holding a character outside
+// visible ASCII, which the frontend never sends and so could never match.
 var ErrUnusableServerReadSecret = errors.New(
-	"server-read secret must be one or two comma-separated values of visible ASCII")
+	"server-read secret must be one or two comma-separated values, each at least 32 characters of visible ASCII")
 
 // ServerReadExemption recognizes a server-side read: a GET or HEAD whose
 // ServerReadSecretHeader matches a configured secret. Recognition answers one
@@ -79,7 +82,7 @@ func newServerReadExemption(configured string, sample func() bool) (*ServerReadE
 	e := &ServerReadExemption{sample: sample}
 	for _, part := range parts {
 		secret := strings.TrimSpace(part)
-		if !isVisibleASCII(secret) {
+		if len(secret) < minServerReadSecretLength || !isVisibleASCII(secret) {
 			return nil, ErrUnusableServerReadSecret
 		}
 		e.secretDigests = append(e.secretDigests, sha256.Sum256([]byte(secret)))

@@ -578,7 +578,7 @@ func serverReadEnv(secret string) func(string) string {
 // the read-via-POST batch endpoints the limiter also meters stay metered with
 // it: the exemption is for GET and HEAD only.
 func TestPublicReadRateLimiter_ServerReadSecretExemptsReadsOnly(t *testing.T) {
-	const secret = "routes-server-read-secret"
+	const secret = "routes-server-read-secret-0123456789"
 	mw := PublicReadRateLimiter(nil, nil, nil, serverReadEnv(secret))
 	handler := mw(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)

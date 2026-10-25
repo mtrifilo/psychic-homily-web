@@ -799,9 +799,9 @@ func sentryClientOptions(dsn, environment string, isProduction bool) sentry.Clie
 		TracesSampleRate: 0.1, // Sample 10% of transactions for performance monitoring
 		EnableTracing:    true,
 		// Explicit (it already defaults false): never attach cookies/headers/
-		// body as PII. PSY-1145.
+		// body as PII.
 		SendDefaultPII: false,
-		// PSY-1145: best-effort secondary net that caps oversized values +
+		// Best-effort secondary net that caps oversized values +
 		// strips common secret shapes (token-bearing URL userinfo/query,
 		// Bearer, key=value / JSON secrets, request body, auth cookie/headers)
 		// from every captured event. NOT a complete guarantee: path-segment

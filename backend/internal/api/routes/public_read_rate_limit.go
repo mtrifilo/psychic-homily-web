@@ -53,7 +53,8 @@ const EnablePublicReadRateLimitsEnvVar = "ENABLE_PUBLIC_READ_RATE_LIMITS"
 
 // ServerReadExemptionStartupEvent is the message of the one line the public-read
 // limiter writes at process start saying whether the server-read exemption is
-// on. A deploy check queries it, so renaming it breaks that query.
+// on. It is how a deploy is checked for a working exemption, so it is pinned by
+// TestServerReadExemptionStartupEventIsStable.
 const ServerReadExemptionStartupEvent = "public_read_server_read_exemption"
 
 // IsPublicReadRateLimitEnabled reports whether the public-read limiter is active.

@@ -288,11 +288,12 @@ func TestServerReadExemption_AcceptsARotationPair(t *testing.T) {
 // error to log, rather than running as an exemption nothing can use.
 func TestServerReadExemption_RefusesAnUnusableSecret(t *testing.T) {
 	for name, configured := range map[string]string{
-		"inner space":   "has space",
-		"non-ascii":     "n\u00e9e-secret",
-		"control char":  "tab\there",
+		"inner space":   "has space inside a secret long enough to pass",
+		"non-ascii":     "n\u00e9e-secret-padded-to-thirty-two-characters",
+		"control char":  "tab\there-padded-to-thirty-two-characters",
 		"empty part":    testServerReadSecret + ", ",
 		"three secrets": "a-secret,b-secret,c-secret",
+		"too short":     "only-thirty-one-characters-long",
 		"leading comma": "," + testServerReadSecret,
 	} {
 		t.Run(name, func(t *testing.T) {

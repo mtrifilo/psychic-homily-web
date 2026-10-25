@@ -35,12 +35,14 @@ describe('serverReadHeaders', () => {
     }
   )
 
-  it('logs the dropped value at most once per process, without the value', () => {
+  it('logs a dropped value exactly once per process, without the value', async () => {
+    vi.resetModules()
+    const fresh = await import('./serverReadHeaders')
     const error = vi.spyOn(console, 'error').mockImplementation(() => {})
     vi.stubEnv('SERVER_READ_SECRET', 'has space')
-    serverReadHeaders()
-    serverReadHeaders()
-    expect(error.mock.calls.length).toBeLessThanOrEqual(1)
+    fresh.serverReadHeaders()
+    fresh.serverReadHeaders()
+    expect(error).toHaveBeenCalledTimes(1)
     expect(JSON.stringify(error.mock.calls)).not.toContain('has space')
   })
 
