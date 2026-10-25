@@ -1,7 +1,11 @@
 package catalog
 
 import (
+	"fmt"
+	"slices"
 	"time"
+
+	"gorm.io/gorm"
 
 	catalogm "psychic-homily-backend/internal/models/catalog"
 )
@@ -117,4 +121,61 @@ func floatPtrHolds(value interface{}, stored *float64) bool {
 		return v == nil && stored == nil
 	}
 	return *v == *stored
+}
+
+// showRelations is the part of a show's bill and venue rows its page renders:
+// which artists play, in what order, in what role, and at which venues. A side
+// the caller did not ask to read stays nil on both snapshots and so compares
+// equal.
+type showRelations struct {
+	bill     []showBillRow
+	venueIDs []uint
+}
+
+type showBillRow struct {
+	ArtistID uint
+	Position int
+	SetType  string
+}
+
+// loadShowRelations reads the bill and/or venue rows of a show in a canonical
+// order, so two reads of the same rows compare equal.
+func loadShowRelations(tx *gorm.DB, showID uint, readVenues, readBill bool) (showRelations, error) {
+	var rel showRelations
+	if readBill {
+		rel.bill = []showBillRow{}
+		if err := tx.Model(&catalogm.ShowArtist{}).
+			Select("artist_id", "position", "COALESCE(set_type, '') AS set_type").
+			Where("show_id = ?", showID).
+			Order("position, artist_id").
+			Scan(&rel.bill).Error; err != nil {
+			return rel, fmt.Errorf("failed to read show bill: %w", err)
+		}
+	}
+	if readVenues {
+		rel.venueIDs = []uint{}
+		if err := tx.Model(&catalogm.ShowVenue{}).
+			Where("show_id = ?", showID).
+			Order("venue_id").
+			Pluck("venue_id", &rel.venueIDs).Error; err != nil {
+			return rel, fmt.Errorf("failed to read show venues: %w", err)
+		}
+	}
+	return rel, nil
+}
+
+func (r showRelations) equal(other showRelations) bool {
+	return slices.Equal(r.bill, other.bill) && slices.Equal(r.venueIDs, other.venueIDs)
+}
+
+// stampShowUpdatedAt moves the show's updated_at to now. A bill or venue
+// replacement writes only join rows, which carry no timestamp, so this stamp is
+// the one record that the show's rendered page changed.
+func stampShowUpdatedAt(tx *gorm.DB, show *catalogm.Show) error {
+	now := time.Now()
+	if err := tx.Model(&catalogm.Show{}).Where("id = ?", show.ID).Update("updated_at", now).Error; err != nil {
+		return fmt.Errorf("failed to stamp show updated_at: %w", err)
+	}
+	show.UpdatedAt = now
+	return nil
 }

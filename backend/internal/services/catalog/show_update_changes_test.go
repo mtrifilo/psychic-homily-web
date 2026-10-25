@@ -149,3 +149,46 @@ func (suite *ShowServiceIntegrationTestSuite) TestUpdateShowWithRelations_Change
 	suite.Equal(music.Unix(), resp.MusicAt.Unix())
 	suite.True(suite.storedShowUpdatedAt(created.ID).After(pinned), "a save that changes a column must move updated_at")
 }
+
+// A bill PUT that restates the stored bill leaves updated_at alone; one that
+// adds an opener moves it. The bill renders on the show page and its rows
+// carry no timestamp of their own.
+func (suite *ShowServiceIntegrationTestSuite) TestUpdateShowWithRelations_BillChangeMovesUpdatedAt() {
+	created := suite.createTestShow()
+	suite.Require().Len(created.Artists, 1)
+	headlinerID := created.Artists[0].ID
+	pinned := suite.pinShowUpdatedAt(created.ID)
+
+	sameBill := []contracts.CreateShowArtist{{ID: &headlinerID, IsHeadliner: boolPtr(true)}}
+	_, _, err := suite.showService.UpdateShowWithRelations(created.ID, nil, nil, sameBill, true)
+	suite.Require().NoError(err)
+	suite.True(pinned.Equal(suite.storedShowUpdatedAt(created.ID)), "restating the stored bill must not move updated_at")
+
+	withOpener := []contracts.CreateShowArtist{
+		{ID: &headlinerID, IsHeadliner: boolPtr(true)},
+		{Name: "New Opener", IsHeadliner: boolPtr(false)},
+	}
+	resp, _, err := suite.showService.UpdateShowWithRelations(created.ID, nil, nil, withOpener, true)
+	suite.Require().NoError(err)
+	suite.Len(resp.Artists, 2)
+	stamped := suite.storedShowUpdatedAt(created.ID)
+	suite.True(stamped.After(pinned), "a bill change must move updated_at")
+	suite.WithinDuration(stamped, resp.UpdatedAt, time.Millisecond, "the response carries the stamped updated_at")
+}
+
+func (suite *ShowServiceIntegrationTestSuite) TestUpdateShowWithRelations_VenueChangeMovesUpdatedAt() {
+	created := suite.createTestShow()
+	suite.Require().Len(created.Venues, 1)
+	venueID := created.Venues[0].ID
+	pinned := suite.pinShowUpdatedAt(created.ID)
+
+	sameVenue := []contracts.CreateShowVenue{{ID: &venueID}}
+	_, _, err := suite.showService.UpdateShowWithRelations(created.ID, nil, sameVenue, nil, true)
+	suite.Require().NoError(err)
+	suite.True(pinned.Equal(suite.storedShowUpdatedAt(created.ID)), "restating the stored venue must not move updated_at")
+
+	other := suite.createTestVenue("Other Room", "Phoenix", "AZ", true)
+	_, _, err = suite.showService.UpdateShowWithRelations(created.ID, nil, []contracts.CreateShowVenue{{ID: &other.ID}}, nil, true)
+	suite.Require().NoError(err)
+	suite.True(suite.storedShowUpdatedAt(created.ID).After(pinned), "a venue change must move updated_at")
+}

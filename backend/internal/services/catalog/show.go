@@ -1033,6 +1033,11 @@ func (s *ShowService) UpdateShowWithRelations(
 			return err
 		}
 
+		before, err := loadShowRelations(tx, showID, venues != nil, artists != nil)
+		if err != nil {
+			return err
+		}
+
 		venueResponses, err := s.replaceShowVenues(tx, showID, venues, isAdmin)
 		if err != nil {
 			return err
@@ -1043,6 +1048,16 @@ func (s *ShowService) UpdateShowWithRelations(
 			return err
 		}
 		orphanedArtists = orphaned
+
+		after, err := loadShowRelations(tx, showID, venues != nil, artists != nil)
+		if err != nil {
+			return err
+		}
+		if !before.equal(after) {
+			if err := stampShowUpdatedAt(tx, show); err != nil {
+				return err
+			}
+		}
 
 		// Re-stamp denormalized (event_date, venue_id) on show_artists
 		// whenever the show's event_date, venue set, or artist set may
@@ -1069,9 +1084,10 @@ func (s *ShowService) UpdateShowWithRelations(
 // updateShowFields verifies the show exists, applies the scalar-field updates
 // that change the row, and returns the (reloaded) show row. Updates the row
 // already holds are dropped first (changedShowColumns), so a save that changes
-// nothing writes nothing and updated_at does not move; associations-only edits
-// take the same no-write path. The show is always loaded so the caller can
-// build the response. Returns ErrShowNotFound when the row is missing so
+// nothing writes nothing and updated_at does not move. An associations-only
+// edit reaches it with an empty map; UpdateShowWithRelations stamps updated_at
+// itself when the bill or venue rows change. The show is always loaded so the
+// caller can build the response. Returns ErrShowNotFound when the row is missing so
 // callers map it to a 404/422.
 func (s *ShowService) updateShowFields(tx *gorm.DB, showID uint, updates map[string]interface{}) (*catalogm.Show, error) {
 	var show catalogm.Show
