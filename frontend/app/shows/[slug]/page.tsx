@@ -68,7 +68,6 @@ const getShow = cache(async (slug: string): Promise<ShowResponse | null> => {
     if (res.ok) {
       return await res.json()
     }
-    // Don't report 404s - they're expected for invalid slugs
     reportServerFetchFailure({
       response: res,
       service: 'show-page',

@@ -28,17 +28,12 @@
 /** Must match `ServerReadSecretHeader` in the backend. */
 export const SERVER_READ_SECRET_HEADER = 'X-Server-Read-Secret'
 
-/**
- * Must match `ServerReadSecretEnvVar` in the backend. Read by its literal name
- * below, because a computed `process.env` lookup is not inlined on every
- * runtime.
- */
-export const SERVER_READ_SECRET_ENV_VAR = 'SERVER_READ_SECRET'
-
 /** Visible ASCII only: what a header value may carry without `fetch` throwing. */
 const HEADER_VALUE_SAFE = /^[\x21-\x7e]+$/
 
 export function serverReadHeaders(): Record<string, string> {
+  // Must match `ServerReadSecretEnvVar` in the backend. Read by its literal
+  // name: a computed `process.env` lookup is not inlined on every runtime.
   const secret = process.env.SERVER_READ_SECRET?.trim()
   if (!secret || !HEADER_VALUE_SAFE.test(secret)) return {}
   return { [SERVER_READ_SECRET_HEADER]: secret }

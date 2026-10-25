@@ -125,8 +125,7 @@ const getScene = cache(async (slug: string): Promise<SceneDetail | null> => {
     if (res.ok) {
       return asScene(await res.json(), slug)
     }
-    // Don't report 404s — they're the expected response for invalid /
-    // below-threshold slugs (the whole point of this check).
+    // A 404 is the expected answer for an invalid or below-threshold slug.
     reportServerFetchFailure({
       response: res,
       service: 'scene-page',

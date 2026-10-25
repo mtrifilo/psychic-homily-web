@@ -159,11 +159,7 @@ func (s limiterSpec) logAllowed(w http.ResponseWriter, r *http.Request, authStat
 	if err != nil {
 		return
 	}
-	logger.FromContext(r.Context()).Info("rate limit sample", append(s.logAttrs(rateLimitAllowedSampleEvent, r),
-		"auth_state", authState,
-		"remaining", remaining,
-		serverReadExemptAttr, false,
-	)...)
+	s.logSample(r, authState, false, "remaining", remaining)
 }
 
 // logServerReadExempt writes one ratelimit_allowed_sample line for an anonymous
@@ -171,10 +167,17 @@ func (s limiterSpec) logAllowed(w http.ResponseWriter, r *http.Request, authStat
 // remaining budget, because the request was never metered and the bucket was
 // not consulted.
 func (s limiterSpec) logServerReadExempt(r *http.Request) {
-	logger.FromContext(r.Context()).Info("rate limit sample", append(s.logAttrs(rateLimitAllowedSampleEvent, r),
-		"auth_state", authStateAnonymous,
-		serverReadExemptAttr, true,
-	)...)
+	s.logSample(r, authStateAnonymous, true)
+}
+
+// logSample writes one ratelimit_allowed_sample line: the shared attributes,
+// the auth state, whether the request was a server-read exemption, then extra.
+func (s limiterSpec) logSample(r *http.Request, authState string, serverReadExempt bool, extra ...any) {
+	attrs := append(s.logAttrs(rateLimitAllowedSampleEvent, r),
+		"auth_state", authState,
+		serverReadExemptAttr, serverReadExempt,
+	)
+	logger.FromContext(r.Context()).Info("rate limit sample", append(attrs, extra...)...)
 }
 
 // sampleAt returns a sampler that selects each call independently with

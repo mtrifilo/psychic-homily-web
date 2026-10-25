@@ -89,8 +89,7 @@ async function readArchiveJson<T>(
         : { signal: createBuildTimeApiSignal(timeoutMs) }),
     })
     if (res.ok) return { status: 'ok', data: (await res.json()) as T }
-    // 404s are expected for a slug that does not exist; only a real fault is
-    // worth a Sentry event.
+    // A 404 means the slug does not exist; any other non-OK status is reported.
     if (res.status === 404) return { status: 'missing' }
     reportServerFetchFailure({
       response: res,
