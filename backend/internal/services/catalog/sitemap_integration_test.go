@@ -576,11 +576,13 @@ func TestSitemapEntriesSceneWeeksWindowIsOnePastAndFourAhead(t *testing.T) {
 
 // TestSitemapEntriesScenePeriodsAnnounceEveryWindowPerScene pins the rolling
 // window family: four entries per qualifying scene, each a page the scene
-// serves, each stamped with the start of that scene's own calendar date.
+// serves, each stamped with the instant that scene's current night began
+// (nightStartHour on the date tonightDate names, in the scene's zone).
 //
-// The two scenes sit in different zones and the pinned instant is one where
-// they are on the same date but Phoenix and UTC are not, so a lastmod read on
-// the process clock or on UTC fails here.
+// The two scenes sit in different zones. The pinned instants put the scenes on
+// a different calendar date from UTC and straddle both midnight and the night
+// boundary, so a lastmod read on the process clock, on UTC, or on calendar
+// midnight fails here.
 func TestSitemapEntriesScenePeriodsAnnounceEveryWindowPerScene(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping integration test in short mode")
@@ -602,12 +604,32 @@ func TestSitemapEntriesScenePeriodsAnnounceEveryWindowPerScene(t *testing.T) {
 	seedSceneWeekGroup(t, td.DB, "phx", "Phoenix", "AZ", seedMetro("Phoenix", "AZ"), "America/Phoenix", weekStart)
 	seedSceneWeekGroup(t, td.DB, "chi", "Chicago", "IL", seedMetro("Chicago", "IL"), "America/Chicago", weekStart)
 
-	// 03:30 UTC on Oct 25 is 20:30 on Oct 24 in Phoenix and 22:30 on Oct 24 in
-	// Chicago.
-	now := time.Date(2026, 10, 25, 3, 30, 0, 0, time.UTC)
-	wantLastmod := map[string]time.Time{
-		"phoenix-az": time.Date(2026, 10, 24, 0, 0, 0, 0, phoenix),
-		"chicago-il": time.Date(2026, 10, 24, 0, 0, 0, 0, chicago),
+	nightOf := func(loc *time.Location, day int) time.Time {
+		return time.Date(2026, 10, day, nightStartHour, 0, 0, 0, loc)
+	}
+	cases := []struct {
+		name string
+		now  time.Time
+		want map[string]time.Time
+	}{
+		// 20:30 on Oct 24 in Phoenix, 22:30 in Chicago; UTC is already Oct 25.
+		{"evening", time.Date(2026, 10, 25, 3, 30, 0, 0, time.UTC), map[string]time.Time{
+			"phoenix-az": nightOf(phoenix, 24), "chicago-il": nightOf(chicago, 24),
+		}},
+		// 02:00 on Oct 25 in Phoenix, 04:00 in Chicago: past midnight, before the
+		// night boundary, so the night that began on Oct 24 is still the current
+		// one in both.
+		{"after midnight", time.Date(2026, 10, 25, 9, 0, 0, 0, time.UTC), map[string]time.Time{
+			"phoenix-az": nightOf(phoenix, 24), "chicago-il": nightOf(chicago, 24),
+		}},
+		// 05:59 in Phoenix: one minute short of the boundary.
+		{"just before the boundary", time.Date(2026, 10, 25, 12, 59, 0, 0, time.UTC), map[string]time.Time{
+			"phoenix-az": nightOf(phoenix, 24), "chicago-il": nightOf(chicago, 25),
+		}},
+		// 06:00 in Phoenix (08:00 in Chicago): the new night has begun in both.
+		{"at the boundary", time.Date(2026, 10, 25, 13, 0, 0, 0, time.UTC), map[string]time.Time{
+			"phoenix-az": nightOf(phoenix, 25), "chicago-il": nightOf(chicago, 25),
+		}},
 	}
 
 	svc := NewSitemapService(td.DB)
@@ -615,7 +637,7 @@ func TestSitemapEntriesScenePeriodsAnnounceEveryWindowPerScene(t *testing.T) {
 	if err != nil {
 		t.Fatalf("listQualifyingScenes: %v", err)
 	}
-	entries := svc.scenePeriodEntries(groups, now)
+	entries := svc.scenePeriodEntries(context.Background(), groups, cases[0].now)
 
 	var want []string
 	for _, scene := range []string{"chicago-il", "phoenix-az"} {
@@ -627,10 +649,13 @@ func TestSitemapEntriesScenePeriodsAnnounceEveryWindowPerScene(t *testing.T) {
 	if strings.Join(got, ",") != strings.Join(want, ",") {
 		t.Fatalf("scene_periods = %v, want %v (four windows per scene, slug order)", got, want)
 	}
-	for _, e := range entries {
-		scene, _, _ := strings.Cut(e.Slug, "/")
-		if !e.UpdatedAt.Equal(wantLastmod[scene]) {
-			t.Errorf("%s lastmod = %s, want %s, the start of %s's own calendar date", e.Slug, e.UpdatedAt.UTC(), wantLastmod[scene].UTC(), scene)
+	for _, tc := range cases {
+		for _, e := range svc.scenePeriodEntries(context.Background(), groups, tc.now) {
+			scene, _, _ := strings.Cut(e.Slug, "/")
+			if !e.UpdatedAt.Equal(tc.want[scene]) {
+				t.Errorf("%s: %s lastmod = %s, want %s, when %s's current night began",
+					tc.name, e.Slug, e.UpdatedAt.UTC(), tc.want[scene].UTC(), scene)
+			}
 		}
 	}
 

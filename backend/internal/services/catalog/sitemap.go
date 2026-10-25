@@ -42,7 +42,9 @@ const sceneWeekSitemapWindowWeeks = sceneWeekSitemapPastWeeks + 1 + sceneWeekSit
 // scenePeriodSegments are the rolling window routes under /scenes/{slug}/, as
 // the path segments the frontend serves them at. Each is announced once per
 // qualifying scene by scenePeriodEntries. Keep in sync with WINDOW_SEGMENT in
-// frontend/features/scenes/sceneWindow.ts.
+// frontend/features/scenes/sceneWindow.ts, which also pins each segment to its
+// route directory under frontend/app/scenes/[slug]/; frontend/proxy.ts must
+// pass each segment through for the URL to serve.
 var scenePeriodSegments = []string{"tonight", "this-weekend", "week", "next-4-weeks"}
 
 // sitemapFamilies is every entity family Entries can populate.
@@ -635,7 +637,7 @@ func (s *SitemapService) Entries(ctx context.Context, family string) (*contracts
 			out.SceneWeeks = weeks
 		}
 		if want("scene_periods") {
-			out.ScenePeriods = s.scenePeriodEntries(groups, time.Now())
+			out.ScenePeriods = s.scenePeriodEntries(ctx, groups, time.Now())
 		}
 	}
 
@@ -1157,7 +1159,7 @@ func (s *SitemapService) sceneWeekEntries(ctx context.Context, groups []sceneVen
 		// the page that slug serves is scoped to.
 		scope := sceneScopeForGroup(grp)
 		slug := sceneGroupSlug(grp)
-		loc := s.sceneLocation(scope, scope.state)
+		loc := s.sceneLocation(ctx, scope, scope.state)
 
 		nowLocal := time.Now().In(loc)
 		y, w := nowLocal.ISOWeek()
@@ -1238,11 +1240,15 @@ func (s *SitemapService) sceneWeekEntries(ctx context.Context, groups []sceneVen
 // are the scene's standing answers to "what is on tonight" and its siblings,
 // and a quiet night is still an answer.
 //
-// lastmod is the instant the scene's venue-local calendar date began, read on
-// now. The pages list a different stretch of nights every day, so the date is
-// the change signal that describes them; no row's updated_at does. now is a
-// parameter so a test can pin the date the entries carry.
-func (s *SitemapService) scenePeriodEntries(groups []sceneVenueGroup, now time.Time) []contracts.SitemapEntry {
+// lastmod is the instant the scene's current night began: nightStartHour on
+// the venue-local date tonightDate names, read on now. /tonight, /this-weekend
+// and /next-4-weeks roll over to a new night at that boundary, not at
+// midnight, so it is the moment their content changes; a midnight stamp would
+// announce a change six hours before it happens and then hide the real one
+// until the next day. /week rolls at Monday midnight and its lastmod catches up
+// at the boundary six hours later. No row's updated_at describes these pages.
+// now is a parameter so a test can pin the instant the entries carry.
+func (s *SitemapService) scenePeriodEntries(ctx context.Context, groups []sceneVenueGroup, now time.Time) []contracts.SitemapEntry {
 	// The survivor's identity names the scene, and its key builds the room set
 	// the zone is read from, the same scope sceneWeekEntries reads it from.
 	unique := collapseSceneGroupsToCanonicalSlug(groups, s.geocoder, "sitemap-scene-periods")
@@ -1251,12 +1257,13 @@ func (s *SitemapService) scenePeriodEntries(groups []sceneVenueGroup, now time.T
 	for _, grp := range unique {
 		scope := sceneScopeForGroup(grp)
 		slug := sceneGroupSlug(grp)
-		loc := s.sceneLocation(scope, scope.state)
-		today := dateOf(now.In(loc)).start(loc)
+		loc := s.sceneLocation(ctx, scope, scope.state)
+		night := tonightDate(now.In(loc))
+		nightBegan := time.Date(night.year, night.month, night.day, nightStartHour, 0, 0, 0, loc)
 		for _, segment := range scenePeriodSegments {
 			entries = append(entries, contracts.SitemapEntry{
 				Slug:      slug + "/" + segment,
-				UpdatedAt: today,
+				UpdatedAt: nightBegan,
 			})
 		}
 	}
@@ -1272,13 +1279,13 @@ func (s *SitemapService) scenePeriodEntries(groups []sceneVenueGroup, now time.T
 // It returns no publishable zone name, because a sitemap names no zone: its
 // dates are lastmod stamps read on the best clock available, and a surrendered
 // fallback is still the best clock for that.
-func (s *SitemapService) sceneLocation(scope sceneScope, state string) *time.Location {
+func (s *SitemapService) sceneLocation(ctx context.Context, scope sceneScope, state string) *time.Location {
 	if s.db == nil {
 		return utils.EventLocation(nil, state)
 	}
 	vp, vargs := trackedVenuePredicate(scope, "v")
 	var tz string
-	err := s.db.Raw(`
+	err := s.db.WithContext(ctx).Raw(`
 		SELECT v.timezone
 		FROM venues v
 		WHERE `+vp+`

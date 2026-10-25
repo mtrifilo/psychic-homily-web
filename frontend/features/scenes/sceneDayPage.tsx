@@ -25,7 +25,8 @@ export const getSceneDay = cache(
  * The meta description. On the rolling route it opens with the page's title
  * phrase (`Live shows in Chicago tonight: ...`), the words the reader searched
  * for, and the count and the date follow it. A dated permalink states the count
- * and the date alone.
+ * and the date, prefixed with "tonight" when the payload says that date is the
+ * live night.
  */
 function dayDescription(day: SceneDayResponse, title: string, isRollingRoute: boolean): string {
   const total = dayShows(day).length

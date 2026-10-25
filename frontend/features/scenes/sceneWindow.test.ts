@@ -1,3 +1,5 @@
+import { existsSync } from 'node:fs'
+import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 import {
   SCENE_WINDOW_ORDER,
@@ -230,6 +232,24 @@ describe('sceneCityListHref', () => {
   })
 })
 
+// The segment list is what the sitemap monitor classifies window URLs by, and
+// the backend's scenePeriodSegments announces the same four. Pinned literally,
+// so a rename here fails beside the Go list it has to match, and against the
+// route directories, so the sitemap cannot announce a segment no route serves.
+describe('SCENE_WINDOW_SEGMENTS', () => {
+  it('lists the four window segments, in family order', () => {
+    expect(SCENE_WINDOW_SEGMENTS).toEqual(['tonight', 'this-weekend', 'week', 'next-4-weeks'])
+  })
+
+  it.each(['tonight', 'this-weekend', 'week', 'next-4-weeks'])(
+    'serves /%s from its own route directory',
+    segment => {
+      const page = path.join(process.cwd(), 'app', 'scenes', '[slug]', segment, 'page.tsx')
+      expect(existsSync(page), page).toBe(true)
+    }
+  )
+})
+
 /**
  * The two title rules, as a table across every state that has to obey them.
  *
@@ -238,18 +258,6 @@ describe('sceneCityListHref', () => {
  * week has ended, a rolling page titled in words nobody searches for, and a
  * date parsed as a UTC instant naming the day before.
  */
-// The segment list is what the sitemap monitor classifies window URLs by, and
-// the backend announces the same four, so it is pinned literally and against
-// the hrefs the pages actually link.
-describe('SCENE_WINDOW_SEGMENTS', () => {
-  it('lists every window route segment the scene pages serve', () => {
-    expect(SCENE_WINDOW_SEGMENTS).toEqual(['tonight', 'this-weekend', 'week', 'next-4-weeks'])
-    expect(SCENE_WINDOW_ORDER.map(key => sceneWindowHref('x', key).split('/')[3])).toEqual([
-      ...SCENE_WINDOW_SEGMENTS,
-    ])
-  })
-})
-
 describe('the window title rule', () => {
   // The strings are spelled out rather than built from the chip labels: the
   // title phrase and the chip copy are different strings, and a table built

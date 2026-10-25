@@ -470,9 +470,11 @@ export function alsoTonightRailTitle(
  * page that answers "what is on tonight" and the one search results send that
  * question to; on any other night it is the dated `/scenes/{slug}/{YYYY-MM-DD}`.
  *
- * The live night is the payload's `is_tonight`, the scene clock's answer with
- * the 6am night boundary applied: the same rule `/tonight` resolves its night
- * by, so the link and the page it opens agree about which night that is.
+ * The live night is the payload's `is_tonight`: the 6am night boundary applied
+ * on the ROOM's clock, or the scene's when the room has no zone of its own.
+ * `/tonight` applies the same boundary on the scene's clock, so the two agree
+ * except in a metro whose rooms span two zones, where between the two
+ * boundaries the link can open the previous night.
  *
  * Null unless BOTH halves are honest. `scene_slug` is withheld by the backend
  * whenever following it would land somewhere that does not list the show it

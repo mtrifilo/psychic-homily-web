@@ -66,9 +66,9 @@ import "time"
 //   - scene_periods: "{scene-slug}/{window}" (e.g. "phoenix-az/tonight"), one
 //     entry per rolling window route per scene: tonight, this-weekend, week and
 //     next-4-weeks. These pages list a different stretch of nights every day,
-//     so UpdatedAt is the instant the scene's venue-local calendar date began,
-//     read at the moment the entries are built, rather than any row's
-//     updated_at.
+//     so UpdatedAt is the instant the scene's current night began (the
+//     venue-local night boundary on the date "tonight" names, read at the
+//     moment the entries are built) rather than any row's updated_at.
 //   - venue_years: "{venue-slug}/shows/{year}" (e.g. "the-van-buren/shows/2025").
 //     UpdatedAt is MAX(show.updated_at) among that venue's approved past shows
 //     in that venue-local year.

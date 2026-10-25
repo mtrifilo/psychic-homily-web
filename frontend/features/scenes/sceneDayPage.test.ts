@@ -76,6 +76,16 @@ describe('buildSceneDayMetadata', () => {
     )
   })
 
+  it('says tonight in the dated description only on the live night', async () => {
+    fetchSceneDay.mockResolvedValue(day({ is_tonight: true }))
+
+    const meta = await buildSceneDayMetadata('phoenix-az', '2026-07-31')
+
+    expect(meta.description).toBe(
+      '4 shows at the Phoenix rooms we track tonight, Friday, July 31, 2026.'
+    )
+  })
+
   it('keeps the dated description free of the rolling phrase', async () => {
     fetchSceneDay.mockResolvedValue(day({ is_tonight: false }))
 
@@ -97,8 +107,8 @@ describe('buildSceneDayMetadata', () => {
   })
 
   // `is_tonight` is TRUE for the dated permalink naming today, so a title keyed
-  // on the flag rather than on the route would publish "Tonight in Phoenix" at
-  // a URL that means one fixed night.
+  // on the flag rather than on the route would publish "Live shows in Phoenix
+  // tonight" at a URL that means one fixed night.
   it('names the dated permalink for TODAY by its date too', async () => {
     fetchSceneDay.mockResolvedValue(day({ is_tonight: true }))
 
