@@ -695,9 +695,10 @@ const releaseLastmodSQL = "GREATEST(releases.updated_at, (SELECT MAX(rel_lastmod
 // updated_at in rowLastmodSQL, are referenced unqualified here, so a joined
 // scope will either error with "column reference is ambiguous" or silently
 // bind the wrong table's updated_at. A lastmodSQL may reach other tables only
-// through correlated subqueries under aliases of their own. A family needing a join wants its own projection, not this. The
-// one exception is a diet rule's join, which entriesOmitting adds only while
-// the rule is on and only under the contract on sitemapOmission.join.
+// through correlated subqueries under aliases of their own. A family needing a
+// join wants its own projection, not this. The one exception is a diet rule's
+// join, which entriesOmitting adds only while the rule is on and only under
+// the contract on sitemapOmission.join.
 func (s *SitemapService) entriesFor(ctx context.Context, scope *gorm.DB, lastmodSQL string) ([]contracts.SitemapEntry, error) {
 	// Deterministic order, so two fetches of an unchanged catalogue diff
 	// cleanly. Ordered by slug rather than recency because the partial unique
