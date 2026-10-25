@@ -3,6 +3,7 @@
 // routes for an auth-only check). Single source of truth for the
 // /auth/profile contract so a change to it is made once (PSY-1111).
 
+import { reportServerFetchFailure } from '@/lib/ssr/reportServerFetchFailure'
 import { serverReadHeaders } from '@/lib/ssr/serverReadHeaders'
 
 const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:8080'
@@ -18,6 +19,8 @@ export interface UserProfile {
 
 // Fetches the backend auth profile for a session token. Returns null on any
 // failure (network error or non-2xx) so callers treat it as unauthenticated.
+// A 401 is the backend answering that the token names no session; any other
+// non-2xx is reported, because the caller cannot tell it from a 401.
 export async function getAuthenticatedUser(
   authToken: string
 ): Promise<UserProfile | null> {
@@ -25,7 +28,17 @@ export async function getAuthenticatedUser(
     const response = await fetch(`${BACKEND_URL}/auth/profile`, {
       headers: { ...serverReadHeaders(), Cookie: `auth_token=${authToken}` },
     })
-    if (!response.ok) return null
+    if (!response.ok) {
+      if (response.status !== 401) {
+        reportServerFetchFailure({
+          response,
+          service: 'bff-auth-profile',
+          pathFamily: '/auth/profile',
+          notFoundIsAnswer: false,
+        })
+      }
+      return null
+    }
     return await response.json()
   } catch {
     return null

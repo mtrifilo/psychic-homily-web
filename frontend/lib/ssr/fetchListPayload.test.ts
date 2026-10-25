@@ -101,6 +101,42 @@ describe('fetchListPayload', () => {
     )
   })
 
+  it('stays silent on a 404 when the caller says a 404 answers', async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(new Response(null, { status: 404 }))
+
+    await expect(
+      fetchListPayload({
+        url: 'https://api.example.test/artists/some-artist/shows?limit=5',
+        collection: 'shows',
+        service: 'artist-page-upcoming-shows',
+        pathFamily: '/artists/{slug}/shows',
+        notFoundIsAnswer: true,
+        fetchImpl,
+      }),
+    ).resolves.toBeNull()
+    expect(captureMessage).not.toHaveBeenCalled()
+  })
+
+  it('reports under the caller\'s templated path family', async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(new Response(null, { status: 429 }))
+
+    await fetchListPayload({
+      url: 'https://api.example.test/artists/some-artist/shows?limit=5',
+      collection: 'shows',
+      service: 'artist-page-upcoming-shows',
+      pathFamily: '/artists/{slug}/shows',
+      notFoundIsAnswer: true,
+      fetchImpl,
+    })
+    expect(captureMessage).toHaveBeenCalledWith(
+      'artist-page-upcoming-shows: API returned 429',
+      expect.objectContaining({
+        tags: expect.objectContaining({ path_family: '/artists/{slug}/shows' }),
+      }),
+    )
+    expect(JSON.stringify(captureMessage.mock.calls)).not.toContain('some-artist')
+  })
+
   describe('server-read secret', () => {
     afterEach(() => {
       vi.unstubAllEnvs()

@@ -131,6 +131,8 @@ export default async function ArtistPage({ params }: ArtistPageProps) {
     url: artistUpcomingShowsUrl(slug),
     collection: 'shows',
     service: 'artist-page-upcoming-shows',
+    pathFamily: '/artists/{slug}/shows',
+    notFoundIsAnswer: true,
     revalidateSeconds: CURRENT_PERIOD_REVALIDATE,
   })
   const artistData = await getArtist(slug)

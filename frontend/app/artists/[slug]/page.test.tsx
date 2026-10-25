@@ -536,11 +536,8 @@ describe('artists/[slug] server read', () => {
       ArtistPage({ params: Promise.resolve({ slug: 'missing' }) })
     ).rejects.toThrow(NOT_FOUND_SENTINEL)
 
-    // The upcoming-shows LIST read is reported on a 404 (a list path that 404s
-    // is our own defect); the artist read itself is not.
-    const services = vi
-      .mocked(Sentry.captureMessage)
-      .mock.calls.map(([, hint]) => (hint as { tags?: { service?: string } }).tags?.service)
-    expect(services).not.toContain('artist-page')
+    // Neither the artist read nor its upcoming-shows read, which is scoped to
+    // the same slug, reports a 404.
+    expect(Sentry.captureMessage).not.toHaveBeenCalled()
   })
 })

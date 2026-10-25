@@ -338,6 +338,8 @@ export default async function ShowPage({ params }: ShowPageProps) {
       url: showEndpoints.ALSO_TONIGHT(encodeURIComponent(slug)),
       collection: 'shows',
       service: 'show-also-tonight',
+      pathFamily: '/shows/{slug}/also-tonight',
+      notFoundIsAnswer: true,
       revalidateSeconds: CURRENT_PERIOD_REVALIDATE,
     }),
     // `venues[0].id` is the id the show page itself addresses this venue by.
@@ -348,6 +350,7 @@ export default async function ShowPage({ params }: ShowPageProps) {
           url: venueRailShowsUrl(showData.venues[0].id),
           collection: 'shows',
           service: 'show-venue-rail',
+          pathFamily: '/venues/{id}/shows',
           revalidateSeconds: CURRENT_PERIOD_REVALIDATE,
         })
       : null,
