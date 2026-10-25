@@ -322,15 +322,28 @@ func (s *CalendarService) DeleteToken(userID uint) error {
 		return fmt.Errorf("database not initialized")
 	}
 
-	result := s.db.Where("user_id = ?", userID).Delete(&engagementm.CalendarToken{})
-	if result.Error != nil {
-		return fmt.Errorf("failed to delete token: %w", result.Error)
+	deleted, err := DeleteCalendarTokensTx(s.db, userID)
+	if err != nil {
+		return err
 	}
-	if result.RowsAffected == 0 {
+	if deleted == 0 {
 		return fmt.Errorf("no calendar token found")
 	}
 	s.invalidateFeedCache(userID)
 	return nil
+}
+
+// DeleteCalendarTokensTx revokes userID's calendar-feed token through tx,
+// which the caller commits, and reports how many it deleted. A revoked token
+// is refused by ValidateCalendarToken before any feed is served, so a feed
+// cached in some process's CalendarService cannot reach its holder; the next
+// token CreateToken mints clears that cache.
+func DeleteCalendarTokensTx(tx *gorm.DB, userID uint) (int64, error) {
+	result := tx.Where("user_id = ?", userID).Delete(&engagementm.CalendarToken{})
+	if result.Error != nil {
+		return 0, fmt.Errorf("failed to delete token: %w", result.Error)
+	}
+	return result.RowsAffected, nil
 }
 
 // ValidateCalendarToken validates a plaintext calendar token and returns the associated user.

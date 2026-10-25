@@ -13,6 +13,7 @@ import (
 	"psychic-homily-backend/internal/logger"
 	authm "psychic-homily-backend/internal/models/auth"
 	"psychic-homily-backend/internal/services/contracts"
+	engagementsvc "psychic-homily-backend/internal/services/engagement"
 	"psychic-homily-backend/internal/services/shared"
 	usersvc "psychic-homily-backend/internal/services/user"
 )
@@ -173,7 +174,10 @@ func (s *AuthService) CompleteOAuthLinkByEmail(claims *contracts.OAuthLinkTokenC
 			}).Error; err != nil {
 				return fmt.Errorf("failed to clear password: %w", err)
 			}
-			return RevokeAllSessions(sp, account, time.Now())
+			if err := RevokeAllSessions(sp, account, time.Now()); err != nil {
+				return err
+			}
+			return evictOtherCredentials(sp, account.ID, row.Provider)
 		})
 		accountID = account.ID
 		returnTo = row.ReturnTo
@@ -196,6 +200,30 @@ func (s *AuthService) CompleteOAuthLinkByEmail(claims *contracts.OAuthLinkTokenC
 	}
 	logger.Default().Info("oauth_pending_link_completed", "proof", "mailbox", "user_id", user.ID)
 	return &contracts.OAuthLinkCompletion{User: user, Token: token, ReturnTo: returnTo}, nil
+}
+
+// evictOtherCredentials removes, through tx, the credentials besides the
+// password and sessions that whoever set the password could have attached:
+// the calendar-feed token, and every provider identity other than
+// keepProvider's, through the paths Settings revokes and disconnects them by.
+// The mailbox proof leaves the account with the mailbox owner's identity
+// from keepProvider, its passkeys (which are not evicted) and no password.
+func evictOtherCredentials(tx *gorm.DB, userID uint, keepProvider string) error {
+	if _, err := engagementsvc.DeleteCalendarTokensTx(tx, userID); err != nil {
+		return err
+	}
+	var providers []string
+	if err := tx.Model(&authm.OAuthAccount{}).
+		Where("user_id = ? AND provider <> ?", userID, keepProvider).
+		Distinct().Pluck("provider", &providers).Error; err != nil {
+		return fmt.Errorf("failed to list provider identities: %w", err)
+	}
+	for _, provider := range providers {
+		if err := usersvc.UnlinkOAuthAccountTx(tx, userID, provider); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // takePendingLink locks and returns the account a consumed pending link

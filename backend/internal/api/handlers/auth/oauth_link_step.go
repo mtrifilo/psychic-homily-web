@@ -25,6 +25,12 @@ const (
 	OAuthLinkByEmailRoute = "/auth/oauth/link-by-email"
 )
 
+// authPageCodeOAuthLinkPending is the code the sign-in callback hands the auth
+// page (authPageErrorCodeParam) when it holds the identity as a pending link.
+// It is not a refusal and no AuthError carries it; the frontend reads it as
+// AuthErrorCode.OAUTH_LINK_PENDING (frontend/lib/errors/authErrors.ts).
+const authPageCodeOAuthLinkPending = "OAUTH_LINK_PENDING"
+
 // linkStepProviders are the providers whose collisions land on the collision
 // state. The state names the provider as Google, so any other provider keeps
 // the refusal it had.
@@ -67,7 +73,8 @@ func linkStepRequired(provider string, err error) (*contracts.OAuthLinkRequiredE
 
 // startLinkStep answers a sign-in callback whose identity's verified address
 // belongs to an account: it holds the identity as a pending link to that
-// account and sends the browser to the auth page with CodeOAuthLinkPending.
+// account and sends the browser to the auth page with
+// authPageCodeOAuthLinkPending.
 // The address stays out of the URL; the page reads it from
 // OAuthPendingLinkRoute. When the pending link cannot be stored the browser
 // gets the plain refusal instead.
@@ -84,7 +91,7 @@ func (h *OAuthHTTPHandler) startLinkStep(w http.ResponseWriter, r *http.Request,
 	}
 	oauthPendingLinkCookie.set(w, token, secure)
 	logger.AuthInfo(ctx, "oauth_link_step_started", "provider", required.Identity.Provider, "user_id", required.UserID)
-	query := url.Values{authPageErrorCodeParam: {autherrors.CodeOAuthLinkPending}}
+	query := url.Values{authPageErrorCodeParam: {authPageCodeOAuthLinkPending}}
 	http.Redirect(w, r, authPageURLWithReturnTo(frontendURL, query, returnTo), http.StatusTemporaryRedirect)
 }
 

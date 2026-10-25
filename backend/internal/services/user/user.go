@@ -1839,7 +1839,15 @@ func (s *UserService) CanUnlinkOAuthAccount(userID uint, provider string) (bool,
 
 // UnlinkOAuthAccount removes an OAuth account from a user
 func (s *UserService) UnlinkOAuthAccount(userID uint, provider string) error {
-	result := s.db.Where("user_id = ? AND provider = ?", userID, provider).Delete(&authm.OAuthAccount{})
+	return UnlinkOAuthAccountTx(s.db, userID, provider)
+}
+
+// UnlinkOAuthAccountTx removes userID's identity from provider through tx,
+// which the caller commits. It refuses when the account holds none. Whether
+// the account keeps a way to sign in is the caller's check
+// (CanUnlinkOAuthAccount); this removes the identity either way.
+func UnlinkOAuthAccountTx(tx *gorm.DB, userID uint, provider string) error {
+	result := tx.Where("user_id = ? AND provider = ?", userID, provider).Delete(&authm.OAuthAccount{})
 	if result.Error != nil {
 		return fmt.Errorf("failed to unlink OAuth account: %w", result.Error)
 	}

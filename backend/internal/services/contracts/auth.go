@@ -309,8 +309,9 @@ type AuthServiceInterface interface {
 	// CompleteOAuthLinkByEmail finishes the pending link an emailed sign-in
 	// link names. In one transaction it consumes the pending link, attaches
 	// the identity, clears the account's password, marks its address
-	// verified, and revokes every session the account holds; then it issues a
-	// new session, which the revocation does not reach. Refusals:
+	// verified, revokes every session and the calendar-feed token, and
+	// removes every identity from another provider; passkeys stay. Then it
+	// issues a new session, which the revocation does not reach. Refusals:
 	// CodeOAuthLinkPendingExpired when the pending link is used, expired, or
 	// not the claims' account, shared.ClosedAccountRefusal when the account
 	// may not sign in, and LinkOAuthWithPassword's link refusals.

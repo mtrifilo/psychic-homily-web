@@ -88,11 +88,6 @@ const (
 	// this browser. One code for all three, so a caller learns nothing about
 	// which.
 	CodeOAuthSignupExpired = "OAUTH_SIGNUP_EXPIRED"
-	// CodeOAuthLinkPending is not a refusal: it is the code the sign-in
-	// callback hands the auth page when the provider's verified address
-	// belongs to an account, and the identity is held as a pending link until
-	// the person proves that account by its password or its mailbox.
-	CodeOAuthLinkPending = "OAUTH_LINK_PENDING"
 	// CodeOAuthLinkPendingExpired indicates a pending link that is gone:
 	// expired, already used by the other proof, or never issued to this
 	// browser. One code for all three, as with CodeOAuthSignupExpired.

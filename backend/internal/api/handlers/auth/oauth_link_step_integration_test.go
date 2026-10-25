@@ -17,6 +17,7 @@ import (
 	autherrors "psychic-homily-backend/internal/errors"
 	authm "psychic-homily-backend/internal/models/auth"
 	"psychic-homily-backend/internal/services/auth"
+	engagementsvc "psychic-homily-backend/internal/services/engagement"
 )
 
 // These run the Sign in tab's collision state over the real auth and user
@@ -107,7 +108,7 @@ func (s *OAuthHandlerIntegrationSuite) startLink(identity goth.User, cookies ...
 	location, err := url.Parse(w.Header().Get("Location"))
 	s.Require().NoError(err)
 	s.Require().Equal("/auth", location.Path, w.Header().Get("Location"))
-	s.Require().Equal(autherrors.CodeOAuthLinkPending, location.Query().Get("error_code"))
+	s.Require().Equal(authPageCodeOAuthLinkPending, location.Query().Get("error_code"))
 	pending := findCookie(w.Result(), oauthPendingLinkCookie.name)
 	s.Require().NotNil(pending, "expected the pending link cookie")
 	s.Equal(int(oauthPendingLinkCookie.lifetime/time.Second), pending.MaxAge)
@@ -186,7 +187,7 @@ func (s *OAuthHandlerIntegrationSuite) TestLinkStep_CallbackHoldsTheIdentityAndK
 	location, err := url.Parse(w.Header().Get("Location"))
 	s.Require().NoError(err)
 	s.Equal(url.Values{
-		"error_code": {autherrors.CodeOAuthLinkPending},
+		"error_code": {authPageCodeOAuthLinkPending},
 		"returnTo":   {"/shows?city=phoenix"},
 	}, location.Query())
 	s.NotContains(w.Header().Get("Location"), "collide")
@@ -298,10 +299,21 @@ func (s *OAuthHandlerIntegrationSuite) TestLinkStep_PendingReadIsExpiredForAnyth
 
 func (s *OAuthHandlerIntegrationSuite) TestLinkStep_PasswordProofLinksAndSignsIn() {
 	account := s.passwordAccount("pw-proof@test.com", true)
+	// The password proves the account itself, so the account's other
+	// credentials are its owner's and stay.
+	s.Require().NoError(s.deps.DB.Create(&authm.OAuthAccount{UserID: account.ID, Provider: "github", ProviderUserID: "github-owner"}).Error)
+	calendar := engagementsvc.NewCalendarService(s.deps.DB, nil)
+	feed, err := calendar.CreateToken(account.ID, "http://localhost:8080")
+	s.Require().NoError(err)
 	token := s.startLink(collisionIdentity("pw-proof@test.com", "google-pw-proof"))
 	env := s.linkEnv()
 
 	resp := s.loginToConnect(env, "pw-proof@test.com", collisionPassword, linkCookieHeader(token))
+	_, err = calendar.ValidateCalendarToken(feed.Token)
+	s.NoError(err, "the password proof leaves the feed token")
+	var github int64
+	s.Require().NoError(s.deps.DB.Model(&authm.OAuthAccount{}).Where("user_id = ? AND provider = ?", account.ID, "github").Count(&github).Error)
+	s.Equal(int64(1), github, "the password proof leaves other provider identities")
 
 	body := s.decode(resp)
 	s.Equal(true, body["success"], body)
@@ -558,6 +570,24 @@ func (s *OAuthHandlerIntegrationSuite) TestLinkStep_PreHijackedAccountIsReclaime
 	attacker := s.linkEnv()
 	attackerSession := s.sessionFrom(s.login(attacker, "victim@test.com", collisionPassword))
 
+	// Footholds the attacker leaves on the account while holding it: a
+	// calendar-feed token, and identities from other providers. A passkey on
+	// the account is not evicted by the proof (owner's call) and must survive.
+	calendar := engagementsvc.NewCalendarService(s.deps.DB, nil)
+	feed, err := calendar.CreateToken(squatted.ID, "http://localhost:8080")
+	s.Require().NoError(err)
+	for provider, subject := range map[string]string{"github": "github-attacker", "apple": "apple-attacker"} {
+		s.Require().NoError(s.deps.DB.Create(&authm.OAuthAccount{UserID: squatted.ID, Provider: provider, ProviderUserID: subject}).Error)
+	}
+	s.Require().NoError(s.deps.DB.Create(&authm.WebAuthnCredential{
+		UserID:       squatted.ID,
+		CredentialID: []byte("credential-victim-account"),
+		PublicKey:    []byte("public-key"),
+		DisplayName:  "Phone",
+	}).Error)
+	_, err = calendar.ValidateCalendarToken(feed.Token)
+	s.Require().NoError(err, "the attacker's feed works before the proof")
+
 	victim := s.linkEnv()
 	token := s.startLink(collisionIdentity("victim@test.com", "google-victim"))
 	s.Equal("victim@test.com", s.decode(victim.api.Get(OAuthPendingLinkRoute, linkCookieHeader(token)))["email"])
@@ -583,10 +613,21 @@ func (s *OAuthHandlerIntegrationSuite) TestLinkStep_PreHijackedAccountIsReclaime
 	refused := s.decode(s.login(attacker, "victim@test.com", collisionPassword))
 	s.Equal(false, refused["success"])
 	s.Equal(autherrors.CodeInvalidCredentials, refused["error_code"])
-	_, _, err := s.jwtService().ValidateSession(attackerSession)
+	_, _, err = s.jwtService().ValidateSession(attackerSession)
 	s.Error(err, "the attacker's session is signed out")
 	_, _, err = s.jwtService().ValidateSession(midSession)
 	s.Error(err, "so is the one minted while the link was pending")
+
+	// The footholds are gone: the feed token is refused and only the
+	// victim's Google identity is left; the passkey stays.
+	_, err = calendar.ValidateCalendarToken(feed.Token)
+	s.Error(err, "the attacker's calendar feed is revoked")
+	var providers []string
+	s.Require().NoError(s.deps.DB.Model(&authm.OAuthAccount{}).Where("user_id = ?", squatted.ID).Pluck("provider", &providers).Error)
+	s.Equal([]string{"google"}, providers, "every other provider identity is removed")
+	var passkeys int64
+	s.Require().NoError(s.deps.DB.Model(&authm.WebAuthnCredential{}).Where("user_id = ?", squatted.ID).Count(&passkeys).Error)
+	s.Equal(int64(1), passkeys, "passkeys are not evicted")
 
 	// The victim signs in with Google from now on.
 	w, req := oauthCallbackRequest("google")
