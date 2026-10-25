@@ -109,7 +109,9 @@ async function SeededHomeShowList() {
  * leaves that query to its own client fetch: no rows means the list renders
  * its loader, as it does unseeded; no cities means no chips until the browser
  * has them. Rows that have provably left the upcoming window since the cached
- * read are dropped (`withoutPassedShows`).
+ * read are dropped (`withoutPassedShows`); a page that dropping empties is not
+ * seeded, because an empty seed would paint "no upcoming shows" over a
+ * catalogue the payload says is not empty.
  *
  * `seedFirstScreen`, not `prefetchEntities`, although only an anonymous viewer
  * reaches this: the payloads come out of the Data Cache and can be older than
@@ -129,10 +131,13 @@ async function seedAnonymousHomeShows() {
       service: 'home-show-cities-first-screen',
     }),
   ])
+  const currentShows = shows && withoutPassedShows(shows)
+  const emptiedByAge =
+    shows !== null && shows.shows.length > 0 && currentShows?.shows.length === 0
   const seeds: QuerySeed[] = [
     {
       queryKey: HOME_UPCOMING_FIRST_SCREEN_KEY,
-      data: shows && withoutPassedShows(shows),
+      data: emptiedByAge ? null : currentShows,
     },
     { queryKey: SHOW_CITIES_FIRST_SCREEN_KEY, data: cities },
   ].filter(seed => seed.data !== null)

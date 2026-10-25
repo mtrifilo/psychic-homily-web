@@ -351,6 +351,27 @@ describe('HomeContentSlot, anonymous viewer', () => {
     expect(rows?.state.data).toMatchObject({ shows: SEEDED_SHOWS, total: 2 })
   })
 
+  it('does not seed a page that dropping passed rows empties, so the list fetches for itself', async () => {
+    upcomingFetch.mockImplementation(async () =>
+      jsonBodyResponse({
+        shows: [
+          { ...show(9, 'long-gone', 'Old Act'), event_date: '2020-01-01T03:00:00Z' },
+          { ...show(10, 'also-gone', 'Older Act'), event_date: '2020-01-02T03:00:00Z' },
+        ],
+        timezone: 'UTC',
+        total: 140,
+        pagination: { next_cursor: 'x', has_more: true, limit: 5 },
+      }),
+    )
+
+    const tree = await renderSeededList()
+
+    expect(seededQueryHashes(tree)).toEqual([CITIES_KEY_HASH])
+    const html = serverRenderList(tree)
+    expect(html).toContain(LOADER)
+    expect(html).not.toContain('No upcoming shows')
+  })
+
   it('swaps the seeded rows for the geo city once it resolves, holding them dimmed meanwhile', async () => {
     const states = boundaryStatesOf(await renderSeededList())
     geoFetch.mockImplementation(async () =>
