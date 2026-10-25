@@ -295,8 +295,9 @@ export const HOME_SHOW_LIMIT = 5
  * Filterless for the reason the `/shows` pair above gives: the home's city
  * selection (favorites, the IP-geo default, the viewer's own pick) resolves in
  * the browser, so on a first render it is empty and the list asks for the
- * unfiltered page. A selection that resolves later re-keys the query and
- * misses this entry, which leaves that list to its own client fetch.
+ * unfiltered page. A selection that resolves later (the IP-geo city, whenever
+ * geo names one) re-keys the query: `keepPreviousData` holds the seeded rows,
+ * dimmed, until that city's page arrives.
  *
  * The URL and the key must stay a matched pair, which the type system cannot
  * enforce: `useShowsFirstScreen.test.tsx` asserts that `useUpcomingShows`,

@@ -1,3 +1,4 @@
+import { Suspense } from 'react'
 import { HydrationBoundary } from '@tanstack/react-query'
 // Deep imports, not the `@/features/home` barrel: this file pulls in BOTH
 // variants, and a `'use client'` barrel is not tree-shaken per export here.
@@ -12,6 +13,7 @@ import {
   SHOW_CITIES_FIRST_SCREEN_KEY,
   SHOW_CITIES_FIRST_SCREEN_URL,
 } from '@/features/shows/api'
+import { HomeShowList } from '@/features/shows/components/HomeShowList'
 import type {
   ShowCitiesResponse,
   UpcomingShowsResponse,
@@ -23,6 +25,7 @@ import {
 } from '@/lib/auth-hydration'
 import { seedFirstScreen, type QuerySeed } from '@/lib/query-hydration'
 import { fetchListPayload } from '@/lib/ssr/fetchListPayload'
+import { withoutPassedShows } from '@/lib/ssr/withoutPassedShows'
 
 /**
  * Picks the homepage's viewer variant on the SERVER (PSY-2103), so a signed-in
@@ -71,9 +74,24 @@ export async function HomeContentSlot() {
     )
   }
   if (viewer === 'indeterminate') return <HomeVariantSwitch />
+  // Only the list waits on its seed. The fallback is the unseeded list, which
+  // is exactly what the region renders when no seed arrives.
+  return (
+    <AnonymousHome
+      upcomingShows={
+        <Suspense fallback={<HomeShowList />}>
+          <SeededHomeShowList />
+        </Suspense>
+      }
+    />
+  )
+}
+
+/** The anonymous home's upcoming-shows list, under its server seed. */
+async function SeededHomeShowList() {
   return (
     <HydrationBoundary state={await seedAnonymousHomeShows()}>
-      <AnonymousHome />
+      <HomeShowList />
     </HydrationBoundary>
   )
 }
@@ -87,10 +105,13 @@ export async function HomeContentSlot() {
  * Each read seeds independently. A `null` (failed, slow or malformed read)
  * leaves that query to its own client fetch: no rows means the list renders
  * its loader, as it does unseeded; no cities means no chips until the browser
- * has them.
+ * has them. Rows that have provably left the upcoming window since the cached
+ * read are dropped (`withoutPassedShows`).
  *
- * Stamped stale, so the browser re-asks both on mount; see
- * {@link seedFirstScreen}.
+ * `seedFirstScreen`, not `prefetchEntities`, although only an anonymous viewer
+ * reaches this: the payloads come out of the Data Cache and can be older than
+ * the latest show change, and the stale stamp is what makes the browser re-ask
+ * on mount instead of trusting them for a full `staleTime`.
  */
 async function seedAnonymousHomeShows() {
   const [shows, cities] = await Promise.all([
@@ -106,7 +127,10 @@ async function seedAnonymousHomeShows() {
     }),
   ])
   const seeds: QuerySeed[] = [
-    { queryKey: HOME_UPCOMING_FIRST_SCREEN_KEY, data: shows },
+    {
+      queryKey: HOME_UPCOMING_FIRST_SCREEN_KEY,
+      data: shows && withoutPassedShows(shows),
+    },
     { queryKey: SHOW_CITIES_FIRST_SCREEN_KEY, data: cities },
   ].filter(seed => seed.data !== null)
   return seeds.length > 0 ? seedFirstScreen(seeds) : undefined

@@ -106,6 +106,7 @@ describe('show rules', () => {
   const expectedShowPages = [
     '/shows/bright-eyes-at-the-rebel-lounge-2026-07-01',
     '/shows',
+    '/',
     '/shows/2026/07',
     '/shows/2026/07/01',
     '/artists',
@@ -167,6 +168,7 @@ describe('show rules', () => {
     const expectedBatchPages = [
       '/shows/[slug]',
       '/shows',
+      '/',
       // Counts, not slugs, so the month and day pages cannot be named either.
       '/shows/[slug]/[month]',
       '/shows/[slug]/[month]/[day]',
@@ -198,6 +200,7 @@ describe('show rules', () => {
     await run({ method: 'DELETE', path: '/shows/7' })
     expect(revalidated()).toEqual([
       '/shows',
+      '/',
       // An empty response body names no month, so the patterns stand in for
       // the one month and day that actually changed.
       '/shows/[slug]/[month]',
@@ -296,6 +299,7 @@ describe('show rules', () => {
     await run({ method: 'POST', path: '/shows', responseText: 'created' })
     expect(revalidated()).toEqual([
       '/shows',
+      '/',
       '/artists',
       '/venues',
       '/scenes',
@@ -328,6 +332,7 @@ describe('suggest-edit rules', () => {
       '/artists/bright-eyes',
       '/artists',
       '/shows',
+      '/',
       '/shows/[slug]',
       '/releases/[slug]',
       '/collections/[slug]',
@@ -352,6 +357,7 @@ describe('suggest-edit rules', () => {
     expect(revalidated()).toEqual([
       '/artists',
       '/shows',
+      '/',
       '/shows/[slug]',
       '/releases/[slug]',
       '/collections/[slug]',
@@ -368,6 +374,7 @@ describe('suggest-edit rules', () => {
       '/venues/the-rebel-lounge',
       '/venues',
       '/shows',
+      '/',
       '/shows/[slug]',
       '/collections/[slug]',
     ])
@@ -401,6 +408,7 @@ describe('pending-edit moderation rules', () => {
       '/artists/bright-eyes',
       '/artists',
       '/shows',
+      '/',
       '/shows/[slug]',
       '/releases/[slug]',
       '/collections/[slug]',
@@ -468,6 +476,7 @@ describe('artist rules', () => {
   // the detail pages.
   const artistCascade = [
     '/shows',
+    '/',
     '/shows/[slug]',
     '/releases/[slug]',
     '/collections/[slug]',
@@ -541,7 +550,7 @@ describe('venue rules', () => {
 
   // Venue renames/deletes change the venue name embedded in show and
   // collection ISR payloads (releases don't credit venues).
-  const venueCascade = ['/shows', '/shows/[slug]', '/collections/[slug]']
+  const venueCascade = ['/shows', '/', '/shows/[slug]', '/collections/[slug]']
 
   it('update revalidates the venue + list + rename cascade', async () => {
     await run({
@@ -982,9 +991,9 @@ describe('resilience', () => {
     await expect(
       run({ method: 'DELETE', path: '/shows/7' })
     ).resolves.toBeUndefined()
-    // show-delete touches 3 list pages + the two date-page patterns + scenes +
-    // the collection cascade; each failure is captured separately.
-    expect(mockCaptureException).toHaveBeenCalledTimes(8)
+    // show-delete touches 3 list pages + the home + the two date-page patterns +
+    // scenes + the collection cascade; each failure is captured separately.
+    expect(mockCaptureException).toHaveBeenCalledTimes(9)
   })
 
   it('never throws when the lookup fetch rejects — skips the page and reports', async () => {

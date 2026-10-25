@@ -193,29 +193,16 @@ describe('HomeShowList', () => {
       expect(screen.getByTestId('show-card-3')).toBeInTheDocument()
     })
 
-    it('applies dimming while fetching a new key over the previous rows', () => {
+    it('applies dimming when fetching', () => {
       mockUseUpcomingShows.mockReturnValue({
         data: { shows: [makeShow()] },
         isLoading: false,
         isFetching: true,
-        isPlaceholderData: true,
         error: null,
       })
       const { container } = render(<HomeShowList />)
       const dimContainer = container.querySelector('.opacity-60')
       expect(dimContainer).toBeInTheDocument()
-    })
-
-    it('does not apply dimming while the same key revalidates', () => {
-      mockUseUpcomingShows.mockReturnValue({
-        data: { shows: [makeShow()] },
-        isLoading: false,
-        isFetching: true,
-        isPlaceholderData: false,
-        error: null,
-      })
-      const { container } = render(<HomeShowList />)
-      expect(container.querySelector('.opacity-60')).toBeNull()
     })
 
     it('does not apply dimming when not fetching', () => {

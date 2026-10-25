@@ -323,37 +323,36 @@ describe('HomeShowListView refresh states', () => {
   const rowsWrapper = () =>
     screen.getAllByTestId('show-card')[0].parentElement?.parentElement
 
+  // `dataUpdatedAt: 0` is how a server seed arrives (`seedFirstScreen`); a
+  // browser read stamps the time it landed.
+  const SEEDED = 0
+  const FETCHED = 1_700_000_000_000
+
   function upcoming(state: {
+    dataUpdatedAt: number
     isFetching: boolean
-    isPlaceholderData: boolean
+    isPlaceholderData?: boolean
     error?: Error | null
   }) {
     mockUseUpcomingShows.mockReturnValue({
       data: { shows },
       isLoading: false,
+      isPlaceholderData: false,
       error: null,
       ...state,
     })
   }
 
-  it('keeps the rows at full strength while the same key revalidates', () => {
-    upcoming({ isFetching: true, isPlaceholderData: false })
+  it('keeps server-seeded rows at full strength while they revalidate', () => {
+    upcoming({ dataUpdatedAt: SEEDED, isFetching: true })
 
     render(<HomeShowListView selection={selection} />)
 
     expect(rowsWrapper()).not.toHaveClass('opacity-60')
   })
 
-  it('dims rows held over from a previous key while the new one loads', () => {
-    upcoming({ isFetching: true, isPlaceholderData: true })
-
-    render(<HomeShowListView selection={selection} />)
-
-    expect(rowsWrapper()).toHaveClass('opacity-60')
-  })
-
-  it('keeps rows this key already holds when their refresh fails', () => {
-    upcoming({ isFetching: false, isPlaceholderData: false, error: new Error('down') })
+  it('keeps server-seeded rows when their refresh fails', () => {
+    upcoming({ dataUpdatedAt: SEEDED, isFetching: false, error: new Error('down') })
 
     render(<HomeShowListView selection={selection} />)
 
@@ -361,12 +360,27 @@ describe('HomeShowListView refresh states', () => {
     expect(screen.queryByText('Unable to load shows.')).not.toBeInTheDocument()
   })
 
-  it('reports a failed key change rather than showing the previous rows as its answer', () => {
-    upcoming({ isFetching: false, isPlaceholderData: true, error: new Error('down') })
+  it('dims browser-fetched rows while they revalidate', () => {
+    upcoming({ dataUpdatedAt: FETCHED, isFetching: true })
+
+    render(<HomeShowListView selection={selection} />)
+
+    expect(rowsWrapper()).toHaveClass('opacity-60')
+  })
+
+  it('reports a failed refresh of browser-fetched rows', () => {
+    upcoming({ dataUpdatedAt: FETCHED, isFetching: false, error: new Error('down') })
 
     render(<HomeShowListView selection={selection} />)
 
     expect(screen.getByText('Unable to load shows.')).toBeInTheDocument()
-    expect(screen.queryByTestId('show-card')).not.toBeInTheDocument()
+  })
+
+  it('dims rows held over from a previous key, even when those were seeded', () => {
+    upcoming({ dataUpdatedAt: SEEDED, isFetching: true, isPlaceholderData: true })
+
+    render(<HomeShowListView selection={selection} />)
+
+    expect(rowsWrapper()).toHaveClass('opacity-60')
   })
 })

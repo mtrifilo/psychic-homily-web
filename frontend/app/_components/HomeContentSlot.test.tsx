@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import type { ReactElement } from 'react'
+import { Suspense, type ReactElement } from 'react'
 import { renderToString } from 'react-dom/server'
 import { render, waitFor } from '@testing-library/react'
 import {
@@ -129,19 +129,22 @@ const citiesResponse = () =>
 
 const upcomingFetch = vi.fn()
 const citiesFetch = vi.fn()
-const otherFetch = vi.fn()
+const geoFetch = vi.fn()
 
 beforeEach(() => {
   vi.clearAllMocks()
   mockResolveHomeViewer.mockResolvedValue('anonymous')
   upcomingFetch.mockImplementation(async () => upcomingResponse(SEEDED_SHOWS))
   citiesFetch.mockImplementation(async () => citiesResponse())
-  otherFetch.mockImplementation(async () => jsonBodyResponse({}))
+  geoFetch.mockImplementation(async () => jsonBodyResponse({ geo: null }))
+  window.sessionStorage.clear()
   vi.stubGlobal('fetch', (url: string, init?: RequestInit) => {
     const path = new URL(String(url), 'http://test.local').pathname
     if (path.endsWith('/shows/upcoming')) return upcomingFetch(url, init)
     if (path.endsWith('/shows/cities')) return citiesFetch(url, init)
-    return otherFetch(url, init)
+    if (path.endsWith('/shows/saves/batch')) return jsonBodyResponse({ saves: {} })
+    if (path === '/api/geo') return geoFetch(url, init)
+    throw new Error(`unexpected fetch in this suite: ${String(url)}`)
   })
 })
 
@@ -151,6 +154,24 @@ afterEach(() => {
 
 async function renderSlot() {
   return (await HomeContentSlot()) as ReactElement
+}
+
+/** The Suspense boundary the slot hands `AnonymousHome` for its list. */
+function listBoundaryOf(tree: ReactElement): ReactElement {
+  expect(tree.type).toBe(AnonymousHome)
+  const boundary = (tree.props as { upcomingShows: ReactElement }).upcomingShows
+  expect(boundary.type).toBe(Suspense)
+  return boundary
+}
+
+/**
+ * Render the slot, then the seeded list inside its Suspense boundary, as the
+ * server does once the seed resolves.
+ */
+async function renderSeededList(): Promise<ReactElement> {
+  const boundary = listBoundaryOf(await renderSlot())
+  const seeded = (boundary.props as { children: ReactElement }).children
+  return (seeded.type as () => Promise<ReactElement>)()
 }
 
 /** Every dehydrated state the slot hands a `HydrationBoundary`, outermost first. */
@@ -194,15 +215,25 @@ const UPCOMING_KEY_HASH = hashKey(HOME_UPCOMING_FIRST_SCREEN_KEY)
 const CITIES_KEY_HASH = hashKey(SHOW_CITIES_FIRST_SCREEN_KEY)
 
 describe('HomeContentSlot, anonymous viewer', () => {
-  it('renders the anonymous page inside the seeded boundary', async () => {
-    const tree = await renderSlot()
+  it('renders the page without waiting for the seed, with the unseeded list as the fallback', async () => {
+    upcomingFetch.mockImplementation(() => new Promise<Response>(() => {}))
 
-    expect(findElements(tree, node => node.type === AnonymousHome)).toHaveLength(1)
-    expect(boundaryStatesOf(tree)).toHaveLength(1)
+    const boundary = listBoundaryOf(await renderSlot())
+
+    expect(upcomingFetch).not.toHaveBeenCalled()
+    expect((boundary.props as { fallback: ReactElement }).fallback.type).toBe(HomeShowList)
+  })
+
+  it('seeds the list inside one boundary', async () => {
+    const list = await renderSeededList()
+
+    expect(list.type).toBe(HydrationBoundary)
+    expect(findElements(list, node => node.type === HomeShowList)).toHaveLength(1)
+    expect(boundaryStatesOf(list)).toHaveLength(1)
   })
 
   it('asks for the first page the home list asks for, and the city facet', async () => {
-    await renderSlot()
+    await renderSeededList()
 
     expect(upcomingFetch).toHaveBeenCalledTimes(1)
     const url = new URL(String(upcomingFetch.mock.calls[0][0]))
@@ -212,7 +243,7 @@ describe('HomeContentSlot, anonymous viewer', () => {
   })
 
   it('seeds the rows and the facet under the hooks keys, stamped stale', async () => {
-    const tree = await renderSlot()
+    const tree = await renderSeededList()
     const queries = boundaryStatesOf(tree).flatMap(state => state.queries)
 
     expect(queries.map(q => q.queryHash).sort()).toEqual(
@@ -224,7 +255,7 @@ describe('HomeContentSlot, anonymous viewer', () => {
   })
 
   it('puts the first page of rows and the city chips in the server render, with no loader', async () => {
-    const html = serverRenderList(await renderSlot())
+    const html = serverRenderList(await renderSeededList())
 
     expect(html).toContain('href="/shows/first-show"')
     expect(html).toContain('href="/shows/second-show"')
@@ -240,7 +271,7 @@ describe('HomeContentSlot, anonymous viewer', () => {
   it('server-renders the empty sentence for an empty catalogue, not the loader', async () => {
     upcomingFetch.mockImplementation(async () => upcomingResponse([]))
 
-    const html = serverRenderList(await renderSlot())
+    const html = serverRenderList(await renderSeededList())
 
     expect(html).toContain('No upcoming shows at this time.')
     expect(html).not.toContain(LOADER)
@@ -249,9 +280,8 @@ describe('HomeContentSlot, anonymous viewer', () => {
   it('still renders the page, with the loader, when the rows read fails', async () => {
     upcomingFetch.mockImplementation(async () => errorResponse(500))
 
-    const tree = await renderSlot()
+    const tree = await renderSeededList()
 
-    expect(findElements(tree, node => node.type === AnonymousHome)).toHaveLength(1)
     expect(seededQueryHashes(tree)).toEqual([CITIES_KEY_HASH])
     const html = serverRenderList(tree)
     expect(html).toContain(LOADER)
@@ -261,7 +291,7 @@ describe('HomeContentSlot, anonymous viewer', () => {
   it('still seeds the rows when only the facet read fails', async () => {
     citiesFetch.mockImplementation(async () => errorResponse(503))
 
-    const tree = await renderSlot()
+    const tree = await renderSeededList()
 
     expect(seededQueryHashes(tree)).toEqual([UPCOMING_KEY_HASH])
     const html = serverRenderList(tree)
@@ -275,15 +305,14 @@ describe('HomeContentSlot, anonymous viewer', () => {
     })
     citiesFetch.mockImplementation(async () => errorResponse(500))
 
-    const tree = await renderSlot()
+    const tree = await renderSeededList()
 
-    expect(findElements(tree, node => node.type === AnonymousHome)).toHaveLength(1)
     expect(boundaryStatesOf(tree)).toEqual([])
     expect(serverRenderList(tree)).toContain(LOADER)
   })
 
   it('replaces the seeded rows with the live read once mounted, at full strength meanwhile', async () => {
-    const states = boundaryStatesOf(await renderSlot())
+    const states = boundaryStatesOf(await renderSeededList())
     upcomingFetch.mockImplementation(async () =>
       upcomingResponse([show(3, 'late-addition', 'Late Act')]),
     )
@@ -300,8 +329,51 @@ describe('HomeContentSlot, anonymous viewer', () => {
     expect(new URL(browserUrl).search).toBe(new URL(serverUrl).search)
   })
 
+  it('drops rows that have provably left the upcoming window since the cached read', async () => {
+    upcomingFetch.mockImplementation(async () =>
+      jsonBodyResponse({
+        shows: [
+          { ...show(9, 'long-gone', 'Old Act'), event_date: '2020-01-01T03:00:00Z' },
+          ...SEEDED_SHOWS,
+        ],
+        timezone: 'UTC',
+        total: 3,
+        pagination: { next_cursor: null, has_more: false, limit: 5 },
+      }),
+    )
+
+    const rows = boundaryStatesOf(await renderSeededList())
+      .flatMap(state => state.queries)
+      .find(q => q.queryHash === UPCOMING_KEY_HASH)
+
+    expect(rows?.state.data).toMatchObject({ shows: SEEDED_SHOWS, total: 2 })
+  })
+
+  it('swaps the seeded rows for the geo city once it resolves, holding them dimmed meanwhile', async () => {
+    const states = boundaryStatesOf(await renderSeededList())
+    geoFetch.mockImplementation(async () =>
+      jsonBodyResponse({ geo: { city: 'Mesa', state: 'AZ' } }),
+    )
+    let releaseMesa: () => void = () => {}
+    upcomingFetch.mockImplementation(async (url: string) => {
+      if (!new URL(url).searchParams.has('cities')) return upcomingResponse(SEEDED_SHOWS)
+      await new Promise<void>(resolve => {
+        releaseMesa = resolve
+      })
+      return upcomingResponse([show(4, 'mesa-show', 'Mesa Act')])
+    })
+
+    const { container } = render(listUnder(states, testClient()))
+
+    await waitFor(() => expect(container.innerHTML).toContain('opacity-60'))
+    expect(container.innerHTML).toContain('href="/shows/first-show"')
+    releaseMesa()
+    await waitFor(() => expect(container.innerHTML).toContain('href="/shows/mesa-show"'))
+    expect(container.innerHTML).not.toContain('href="/shows/first-show"')
+  })
+
   it('keeps the seeded rows when the mount-time refresh fails', async () => {
-    const states = boundaryStatesOf(await renderSlot())
+    const states = boundaryStatesOf(await renderSeededList())
     upcomingFetch.mockImplementation(async () => errorResponse(500))
 
     const { container } = render(listUnder(states, testClient()))

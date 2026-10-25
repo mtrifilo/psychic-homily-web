@@ -88,20 +88,19 @@ export function HomeShowListView({
 
   const limit = excludeSaved ? rows + HOME_SHOW_EXCLUSION_HEADROOM : rows
 
-  const {
-    data,
-    isLoading,
-    isFetching,
-    // True while `keepPreviousData` holds another key's rows on screen. A
-    // same-key revalidation (a server-seeded entry refreshes on its first
-    // commit) leaves it false, so those rows neither dim nor give way to an
-    // error.
-    isPlaceholderData: rowsAreFromPreviousKey,
-    error,
-  } = useUpcomingShows({
-    limit,
-    cities: effectiveCities.length > 0 ? effectiveCities : undefined,
-  })
+  const { data, dataUpdatedAt, isLoading, isFetching, isPlaceholderData, error } =
+    useUpcomingShows({
+      limit,
+      cities: effectiveCities.length > 0 ? effectiveCities : undefined,
+    })
+  // Rows served from a server seed that no browser read has replaced yet:
+  // `seedFirstScreen` stamps a seed `dataUpdatedAt: 0`, and any successful fetch
+  // restamps it. Such an entry revalidates on its first commit, and neither
+  // that refresh nor its failure should dim or replace rows the server already
+  // painted. Rows held over from a previous key are excluded: they do not
+  // answer this one.
+  const rowsAreUnrefreshedSeed =
+    data !== undefined && dataUpdatedAt === 0 && !isPlaceholderData
 
   // Prefetch /shows and /venues data during idle time
   usePrefetchRoutes()
@@ -160,7 +159,7 @@ export function HomeShowListView({
     )
   }
 
-  if (error && (!data || rowsAreFromPreviousKey)) {
+  if (error && !rowsAreUnrefreshedSeed) {
     return (
       <div className="text-center py-8 text-muted-foreground">
         <p>Unable to load shows.</p>
@@ -226,7 +225,7 @@ export function HomeShowListView({
         </div>
       )}
 
-      <div className={isFetching && rowsAreFromPreviousKey ? 'opacity-60 transition-opacity duration-75' : 'transition-opacity duration-75'}>
+      <div className={isFetching && !rowsAreUnrefreshedSeed ? 'opacity-60 transition-opacity duration-75' : 'transition-opacity duration-75'}>
         {emptyMessage ? (
           <div className="text-center py-8 text-muted-foreground">
             <p>{emptyMessage}</p>
