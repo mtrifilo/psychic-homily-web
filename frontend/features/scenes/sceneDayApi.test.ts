@@ -162,9 +162,12 @@ describe('fetchSceneDay', () => {
 
     await expect(fetchSceneDay('phoenix-az')).resolves.toBeNull()
     expect(captureMessage).toHaveBeenCalledWith(
-      'Scene day: API returned 503',
+      'scene-day: API returned 503',
       expect.objectContaining({
-        tags: { service: 'scene-day' },
+        tags: expect.objectContaining({
+          service: 'scene-day',
+          path_family: '/scenes/{slug}/day',
+        }),
         extra: expect.objectContaining({ slug: 'phoenix-az', status: 503 }),
       })
     )

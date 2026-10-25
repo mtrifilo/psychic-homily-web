@@ -7,6 +7,7 @@ import { HydrationBoundary } from '@tanstack/react-query'
 import { LabelDetail } from '@/features/labels/components'
 import type { LabelDetail as LabelDetailData } from '@/features/labels/types'
 import { API_BASE_URL } from '@/lib/api-base'
+import { reportServerFetchFailure } from '@/lib/ssr/reportServerFetchFailure'
 import { serverReadHeaders } from '@/lib/ssr/serverReadHeaders'
 import { queryKeys } from '@/lib/queryClient'
 import { prefetchEntity } from '@/lib/query-hydration'
@@ -30,13 +31,13 @@ const getLabel = cache(async (slug: string): Promise<LabelDetailData | null> => 
     if (res.ok) {
       return res.json()
     }
-    if (res.status >= 500) {
-      Sentry.captureMessage(`Label page fetch error: ${res.status}`, {
-        level: 'error',
-        tags: { service: 'label-page' },
-        extra: { slug, status: res.status },
-      })
-    }
+    reportServerFetchFailure({
+      response: res,
+      service: 'label-page',
+      pathFamily: '/labels/{slug}',
+      notFoundIsAnswer: true,
+      context: { slug },
+    })
   } catch (error) {
     Sentry.captureException(error, {
       level: 'error',

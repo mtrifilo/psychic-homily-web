@@ -7,6 +7,7 @@ import { HydrationBoundary } from '@tanstack/react-query'
 import { FestivalDetail } from '@/features/festivals/components'
 import type { FestivalDetail as FestivalDetailData } from '@/features/festivals/types'
 import { API_BASE_URL } from '@/lib/api-base'
+import { reportServerFetchFailure } from '@/lib/ssr/reportServerFetchFailure'
 import { serverReadHeaders } from '@/lib/ssr/serverReadHeaders'
 import { queryKeys } from '@/lib/queryClient'
 import { prefetchEntity } from '@/lib/query-hydration'
@@ -30,13 +31,13 @@ const getFestival = cache(async (slug: string): Promise<FestivalDetailData | nul
     if (res.ok) {
       return res.json()
     }
-    if (res.status >= 500) {
-      Sentry.captureMessage(`Festival page fetch error: ${res.status}`, {
-        level: 'error',
-        tags: { service: 'festival-page' },
-        extra: { slug, status: res.status },
-      })
-    }
+    reportServerFetchFailure({
+      response: res,
+      service: 'festival-page',
+      pathFamily: '/festivals/{slug}',
+      notFoundIsAnswer: true,
+      context: { slug },
+    })
   } catch (error) {
     Sentry.captureException(error, {
       level: 'error',

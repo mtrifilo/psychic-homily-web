@@ -9,6 +9,7 @@ import type { SceneDetail } from '@/features/scenes'
 import type { SceneCrewsResponse } from '@/features/scenes/types'
 import { JsonLd } from '@/components/seo/JsonLd'
 import { API_BASE_URL } from '@/lib/api-base'
+import { reportServerFetchFailure } from '@/lib/ssr/reportServerFetchFailure'
 import { serverReadHeaders } from '@/lib/ssr/serverReadHeaders'
 import { queryKeys } from '@/lib/queryClient'
 import { prefetchEntities } from '@/lib/query-hydration'
@@ -126,13 +127,13 @@ const getScene = cache(async (slug: string): Promise<SceneDetail | null> => {
     }
     // Don't report 404s — they're the expected response for invalid /
     // below-threshold slugs (the whole point of this check).
-    if (res.status >= 500) {
-      Sentry.captureMessage(`Scene page: API returned ${res.status}`, {
-        level: 'error',
-        tags: { service: 'scene-page' },
-        extra: { slug, status: res.status },
-      })
-    }
+    reportServerFetchFailure({
+      response: res,
+      service: 'scene-page',
+      pathFamily: '/scenes/{slug}',
+      notFoundIsAnswer: true,
+      context: { slug },
+    })
   } catch (error) {
     Sentry.captureException(error, {
       level: 'error',
@@ -211,13 +212,13 @@ const getSceneCrews = cache(
       if (res.ok) {
         return await res.json()
       }
-      if (res.status >= 500) {
-        Sentry.captureMessage(`Scene crews: API returned ${res.status}`, {
-          level: 'error',
-          tags: { service: 'scene-page' },
-          extra: { slug, status: res.status },
-        })
-      }
+      reportServerFetchFailure({
+        response: res,
+        service: 'scene-page',
+        pathFamily: '/scenes/{slug}/crews',
+        notFoundIsAnswer: true,
+        context: { slug },
+      })
     } catch (error) {
       Sentry.captureException(error, {
         level: 'error',

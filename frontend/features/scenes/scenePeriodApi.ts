@@ -14,6 +14,7 @@
  * time only one of them was fixed.
  */
 import * as Sentry from '@sentry/nextjs'
+import { reportServerFetchFailure } from '@/lib/ssr/reportServerFetchFailure'
 import { serverReadHeaders } from '@/lib/ssr/serverReadHeaders'
 
 /**
@@ -48,6 +49,8 @@ interface ScenePeriodSpec<T> {
   slug: string
   /** The API URL for this period key, or for the CURRENT period when omitted. */
   buildUrl: (key: string | undefined) => string
+  /** `buildUrl`'s route as a template with no values, for failure reports. */
+  pathFamily: (key: string | undefined) => string
   /**
    * Fields that NAME the period, each paired with the shape its value must
    * have.
@@ -188,13 +191,13 @@ async function fetchPayload<T>(
     // 404 is the expected answer for an unknown slug, a below-threshold scene,
     // or a key that does not exist (2025-W53, 2026-02-30) — not an error worth
     // reporting.
-    if (res.status >= 500) {
-      Sentry.captureMessage(`${spec.label}: API returned ${res.status}`, {
-        level: 'error',
-        tags: { service: spec.service },
-        extra: { slug: spec.slug, key, status: res.status },
-      })
-    }
+    reportServerFetchFailure({
+      response: res,
+      service: spec.service,
+      pathFamily: spec.pathFamily(key),
+      notFoundIsAnswer: true,
+      context: { slug: spec.slug, key },
+    })
   } catch (error) {
     Sentry.captureException(error, {
       level: 'error',

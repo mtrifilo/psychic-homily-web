@@ -13,6 +13,7 @@ import { CollectionDetail } from '@/features/collections/components/CollectionDe
 import type { CollectionDetail as CollectionDetailData } from '@/features/collections/types'
 import { getQueryClient, queryKeys } from '@/lib/queryClient'
 import { API_BASE_URL } from '@/lib/api-base'
+import { reportServerFetchFailure } from '@/lib/ssr/reportServerFetchFailure'
 import { serverReadHeaders } from '@/lib/ssr/serverReadHeaders'
 
 interface CollectionPageProps {
@@ -58,13 +59,13 @@ const getCollection = cache(
       if (res.ok) {
         return res.json()
       }
-      if (res.status >= 500) {
-        Sentry.captureMessage(`Collection page fetch error: ${res.status}`, {
-          level: 'error',
-          tags: { service: 'collection-page' },
-          extra: { slug, status: res.status },
-        })
-      }
+      reportServerFetchFailure({
+        response: res,
+        service: 'collection-page',
+        pathFamily: '/collections/{slug}',
+        notFoundIsAnswer: true,
+        context: { slug },
+      })
     } catch (error) {
       Sentry.captureException(error, {
         level: 'error',

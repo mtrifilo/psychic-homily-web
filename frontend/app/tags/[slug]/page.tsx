@@ -8,6 +8,7 @@ import { HydrationBoundary, dehydrate } from '@tanstack/react-query'
 import type { TagEnrichedDetailResponse } from '@/features/tags/types'
 import { getQueryClient, queryKeys } from '@/lib/queryClient'
 import { API_BASE_URL } from '@/lib/api-base'
+import { reportServerFetchFailure } from '@/lib/ssr/reportServerFetchFailure'
 import { serverReadHeaders } from '@/lib/ssr/serverReadHeaders'
 
 // Imported from the component FILE, never a `@/features/tags` barrel — see the
@@ -47,13 +48,13 @@ const getTagDetail = cache(
       if (res.ok) {
         return res.json()
       }
-      if (res.status >= 500) {
-        Sentry.captureMessage(`Tag page fetch error: ${res.status}`, {
-          level: 'error',
-          tags: { service: 'tag-page' },
-          extra: { slug, status: res.status },
-        })
-      }
+      reportServerFetchFailure({
+        response: res,
+        service: 'tag-page',
+        pathFamily: '/tags/{slug}/detail',
+        notFoundIsAnswer: true,
+        context: { slug },
+      })
     } catch (error) {
       Sentry.captureException(error, {
         level: 'error',

@@ -6,6 +6,10 @@ import {
   DataCacheBudgetError,
   readJsonWithinDataCacheBudget,
 } from '@/lib/data-cache-budget/assert'
+import {
+  listPathFamily,
+  reportServerFetchFailure,
+} from '@/lib/ssr/reportServerFetchFailure'
 import { serverReadHeaders } from '@/lib/ssr/serverReadHeaders'
 
 /**
@@ -126,10 +130,11 @@ export async function fetchListPayload<T>({
       // `/venues?limit=200` 422 that silently suppressed an `ItemList` in
       // production for months is the cautionary case (see
       // `app/venues/venuesMetadata.ts`).
-      Sentry.captureMessage(`${service}: API returned ${res.status}`, {
-        level: 'error',
-        tags: { service },
-        extra: { url, status: res.status },
+      reportServerFetchFailure({
+        response: res,
+        service,
+        pathFamily: listPathFamily(url),
+        notFoundIsAnswer: false,
       })
       return null
     }

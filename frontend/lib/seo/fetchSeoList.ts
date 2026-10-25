@@ -7,6 +7,10 @@ import {
   DataCacheBudgetError,
   readJsonWithinDataCacheBudget,
 } from '@/lib/data-cache-budget/assert'
+import {
+  listPathFamily,
+  reportServerFetchFailure,
+} from '@/lib/ssr/reportServerFetchFailure'
 import { serverReadHeaders } from '@/lib/ssr/serverReadHeaders'
 
 /**
@@ -148,10 +152,11 @@ export async function fetchSeoList<T>({
         extra: { url },
       })
     } else {
-      Sentry.captureMessage(`${service}: API returned ${res.status}`, {
-        level: 'error',
-        tags: { service },
-        extra: { url, status: res.status },
+      reportServerFetchFailure({
+        response: res,
+        service,
+        pathFamily: listPathFamily(url),
+        notFoundIsAnswer: false,
       })
     }
   } catch (error) {

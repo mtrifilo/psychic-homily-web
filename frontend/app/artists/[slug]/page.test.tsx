@@ -75,6 +75,15 @@ vi.mock('@/features/artists/components/ArtistPastShows', () => ({
   ArtistPastShows: (): null => null,
 }))
 
+// Spied rather than replaced, so the page's server-fetch failure reports can be
+// read back.
+vi.mock('@sentry/nextjs', async importOriginal => ({
+  ...(await importOriginal<typeof import('@sentry/nextjs')>()),
+  captureMessage: vi.fn(),
+  captureException: vi.fn(),
+}))
+
+import * as Sentry from '@sentry/nextjs'
 import ArtistPage, { generateMetadata } from './page'
 import { ArtistShowsList } from '@/features/artists/components/ArtistShowsList'
 
@@ -485,5 +494,53 @@ describe('artists/[slug] server read', () => {
 
     const init = fetchMock.mock.calls[0][1] as RequestInit
     expect(init.headers).toEqual({})
+  })
+
+  it('reports a 429 and still renders the not-found page', async () => {
+    fetchMock.mockImplementation(async () => errorResponse(429, { 'Retry-After': '60' }))
+
+    await expect(
+      ArtistPage({ params: Promise.resolve({ slug: 'rate-limited' }) })
+    ).rejects.toThrow(NOT_FOUND_SENTINEL)
+
+    expect(Sentry.captureMessage).toHaveBeenCalledWith(
+      'artist-page: API returned 429',
+      expect.objectContaining({
+        level: 'error',
+        tags: { service: 'artist-page', path_family: '/artists/{slug}', status: '429' },
+        extra: {
+          slug: 'rate-limited',
+          pathFamily: '/artists/{slug}',
+          status: 429,
+          retryAfter: '60',
+        },
+      })
+    )
+  })
+
+  it('reports a 5xx', async () => {
+    fetchMock.mockImplementation(async () => errorResponse(500))
+
+    await generateMetadata({ params: Promise.resolve({ slug: 'boom' }) })
+
+    expect(Sentry.captureMessage).toHaveBeenCalledWith(
+      'artist-page: API returned 500',
+      expect.objectContaining({ extra: expect.objectContaining({ status: 500 }) })
+    )
+  })
+
+  it('stays silent on a 404', async () => {
+    fetchMock.mockImplementation(async () => errorResponse(404))
+
+    await expect(
+      ArtistPage({ params: Promise.resolve({ slug: 'missing' }) })
+    ).rejects.toThrow(NOT_FOUND_SENTINEL)
+
+    // The upcoming-shows LIST read is reported on a 404 (a list path that 404s
+    // is our own defect); the artist read itself is not.
+    const services = vi
+      .mocked(Sentry.captureMessage)
+      .mock.calls.map(([, hint]) => (hint as { tags?: { service?: string } }).tags?.service)
+    expect(services).not.toContain('artist-page')
   })
 })

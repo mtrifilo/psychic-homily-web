@@ -17,6 +17,7 @@ import { JsonLd } from '@/components/seo/JsonLd'
 import { generateMusicGroupSchema, generateBreadcrumbSchema } from '@/lib/seo/jsonld'
 import { artistSnippet } from '@/lib/seo/entitySnippets'
 import { API_BASE_URL } from '@/lib/api-base'
+import { reportServerFetchFailure } from '@/lib/ssr/reportServerFetchFailure'
 import { serverReadHeaders } from '@/lib/ssr/serverReadHeaders'
 import { queryKeys } from '@/lib/queryClient'
 import { prefetchEntity, seedFirstScreen } from '@/lib/query-hydration'
@@ -57,13 +58,13 @@ const getArtist = cache(async (slug: string): Promise<Artist | null> => {
     if (res.ok) {
       return res.json()
     }
-    if (res.status >= 500) {
-      Sentry.captureMessage(`Artist page fetch error: ${res.status}`, {
-        level: 'error',
-        tags: { service: 'artist-page' },
-        extra: { slug, status: res.status },
-      })
-    }
+    reportServerFetchFailure({
+      response: res,
+      service: 'artist-page',
+      pathFamily: '/artists/{slug}',
+      notFoundIsAnswer: true,
+      context: { slug },
+    })
   } catch (error) {
     Sentry.captureException(error, {
       level: 'error',

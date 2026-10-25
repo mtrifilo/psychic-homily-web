@@ -77,6 +77,30 @@ describe('fetchListPayload', () => {
     )
   })
 
+  it('reports a 429 by path, never with the query string', async () => {
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValue(new Response(null, { status: 429, headers: { 'Retry-After': '60' } }))
+
+    await expect(call(fetchImpl)).resolves.toBeNull()
+    expect(captureMessage).toHaveBeenCalledWith('venues-first-screen: API returned 429', {
+      level: 'error',
+      tags: { service: 'venues-first-screen', path_family: '/venues', status: '429' },
+      extra: { pathFamily: '/venues', status: 429, retryAfter: '60' },
+    })
+    expect(JSON.stringify(captureMessage.mock.calls)).not.toContain('limit=50')
+  })
+
+  it('reports a 404, because a list path that 404s is our own defect', async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(new Response(null, { status: 404 }))
+
+    await expect(call(fetchImpl)).resolves.toBeNull()
+    expect(captureMessage).toHaveBeenCalledWith(
+      'venues-first-screen: API returned 404',
+      expect.objectContaining({ level: 'error' }),
+    )
+  })
+
   describe('server-read secret', () => {
     afterEach(() => {
       vi.unstubAllEnvs()

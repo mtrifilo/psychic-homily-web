@@ -21,6 +21,8 @@ function daySpec(slug: string) {
       date
         ? `${API_BASE_URL}/scenes/${encodeURIComponent(slug)}/day/${encodeURIComponent(date)}`
         : `${API_BASE_URL}/scenes/${encodeURIComponent(slug)}/day`,
+    pathFamily: (date: string | undefined) =>
+      date ? '/scenes/{slug}/day/{date}' : '/scenes/{slug}/day',
     // Fields a consumer reads WITHOUT a null guard, each with the shape it has
     // to have. `date` goes straight into `parseCalendarDate`, which splits the
     // string and answers with a year-1900 Date for anything else, and into the

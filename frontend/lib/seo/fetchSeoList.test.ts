@@ -64,7 +64,7 @@ describe('fetchSeoList', () => {
       'venues-listing: API returned 422',
       expect.objectContaining({
         level: 'error',
-        tags: { service: 'venues-listing' },
+        tags: expect.objectContaining({ service: 'venues-listing' }),
       })
     )
   })
@@ -75,7 +75,7 @@ describe('fetchSeoList', () => {
     await expect(call(fetchImpl)).resolves.toEqual([])
     expect(captureMessage).toHaveBeenCalledWith(
       'venues-listing: API returned 503',
-      expect.objectContaining({ tags: { service: 'venues-listing' } })
+      expect.objectContaining({ tags: expect.objectContaining({ service: 'venues-listing' }) })
     )
   })
 
