@@ -178,6 +178,9 @@ describe('sitemap', () => {
     expect(await urlsOf('scene_periods')).toContain(
       'https://psychichomily.com/scenes/phoenix-az/tonight'
     )
+    // The window pages change daily, unlike the weekly scene roots beside them.
+    const [period] = await sitemap({ id: Promise.resolve('scene_periods') })
+    expect(period).toMatchObject({ changeFrequency: 'daily', priority: 0.7 })
     expect(await urlsOf('labels')).toContain(
       'https://psychichomily.com/labels/a-labels'
     )

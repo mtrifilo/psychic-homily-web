@@ -130,9 +130,8 @@ const PAGE_PREFIXES = new Set(['blog', 'dj-sets'])
  * Most prefixes have exactly one claimant. `/scenes` and `/venues` have three
  * each and `/shows` two, which is why this is a list: the collision is
  * DETECTED here rather than assumed, so a future family sharing an existing
- * prefix surfaces
- * in `SHARED_CLAIMANTS` (and fails the guard test in parse.test.ts) instead of
- * being silently misbucketed.
+ * prefix surfaces in `SHARED_CLAIMANTS` (and fails the guard test in
+ * parse.test.ts) instead of being silently misbucketed.
  */
 const FAMILIES_BY_PREFIX = new Map<string, Family[]>()
 for (const family of SITEMAP_FAMILIES) {

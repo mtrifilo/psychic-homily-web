@@ -86,6 +86,16 @@ describe('buildSceneDayMetadata', () => {
     )
   })
 
+  it('keeps the dated zero-show description in its own form', async () => {
+    fetchSceneDay.mockResolvedValue(day({ is_tonight: false, shows: [], show_count: 0 }))
+
+    const meta = await buildSceneDayMetadata('phoenix-az', '2026-07-31')
+
+    expect(meta.description).toBe(
+      "0 shows listed for the Phoenix rooms we track Friday, July 31, 2026. A room may have a show we haven't listed."
+    )
+  })
+
   it('keeps the dated description free of the rolling phrase', async () => {
     fetchSceneDay.mockResolvedValue(day({ is_tonight: false }))
 

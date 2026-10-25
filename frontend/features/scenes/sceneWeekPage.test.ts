@@ -178,6 +178,18 @@ describe('buildSceneWeekMetadata', () => {
     )
   })
 
+  it('keeps the dated zero-show description in its own form', async () => {
+    fetchSceneWeek.mockResolvedValue(
+      week({ show_count: 0, days: [], is_current_week: false, is_past_week: true })
+    )
+
+    const meta = await buildSceneWeekMetadata('chicago-il', '2026-W37')
+
+    expect(meta.description).toBe(
+      'No shows at the Chicago rooms we track, Mon, Sep 7 – Sun, Sep 13, 2026.'
+    )
+  })
+
   it('keeps the dated description to the count and the range', async () => {
     fetchSceneWeek.mockResolvedValue(week())
 
