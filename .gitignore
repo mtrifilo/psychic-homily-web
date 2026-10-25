@@ -140,12 +140,7 @@ postgres-data/
 # one only guards the tree when the fixture is tracked. The blanket `*.json`
 # rule above silently strands them, so testdata JSON is tracked everywhere
 # (radio provider snapshots PSY-1022; shared show-price vectors PSY-1962).
-!**/testdata/*.json
-
-# The gsc-inspect-sample fixture mirrors a run directory, so its hand-written
-# API responses sit at raw/<family>/<hash>.json, deeper than the rule above
-# reaches. Test inputs, not credentials.
-!scripts/testdata/gsc-inspect/raw/**/*.json
+!**/testdata/**/*.json
 
 # Shared bandcamp URL corpus (PSY-1966): the ONE fixture the Go write gate and
 # the TypeScript read gate both assert, so the store-subset-of-render contract is

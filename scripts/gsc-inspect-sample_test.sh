@@ -93,7 +93,6 @@ write_urlset "$SITEMAP/catalog.xml" \
   /releases/release-a /releases/release-b /labels/label-a /
 write_index "$SITEMAP/index.xml" "file://$SITEMAP/events.xml" "file://$SITEMAP/catalog.xml"
 export GSC_INSPECT_SITEMAP_INDEX="file://$SITEMAP/index.xml"
-export GSC_INSPECT_TEST_NO_SLEEP=1
 
 # run [args...]: runs the script; sets STATUS, STDOUT, STDERR.
 run() {
@@ -125,6 +124,16 @@ family_urls() {
   awk -F '\t' -v f="$2" 'NR > 2 && $1 == f { print $2 }' "$1"
 }
 
+# expect_family <tsv> <family> <url>...: the family's sampled URLs, sorted,
+# are exactly the given URLs (given in sorted order).
+expect_family() {
+  local tsv="$1" family="$2" got want
+  shift 2
+  got="$(family_urls "$tsv" "$family" | sort | tr '\n' ' ')"
+  want="$(printf '%s ' "$@")"
+  [ "$got" = "$want" ] || fail "$family membership: got '$got', wanted '$want'"
+}
+
 # oracle_top <seed> <n> <url>...: the first n URLs by sha256(seed + url),
 # computed with the system sha256 tool rather than the script's Python.
 oracle_top() {
@@ -149,18 +158,15 @@ expect_status 0
 printf '%s\n' "$STDOUT" >"$TMP/all.tsv"
 [ "$(sed -n 2p "$TMP/all.tsv")" = "$(printf 'family\turl\thash')" ] || fail "second line is not the column header"
 expect_line "$TMP/all.tsv" "# gsc-inspect-sample v1 seed=gsc-inspect-v1 per_family=100 today_utc=${TODAY} sitemap=file://$SITEMAP/index.xml population=upcoming-shows:4,past-shows:3,artists:5,releases:2,venues:2,scene-weeks:2"
-[ "$(family_urls "$TMP/all.tsv" upcoming-shows | sort | tr '\n' ' ')" = "https://psychichomily.com/shows/${TODAY}-today-show https://psychichomily.com/shows/2099-01-01-future-a https://psychichomily.com/shows/2099-02-02-future-b https://psychichomily.com/shows/2099-03-03-future-c " ] \
-  || fail "upcoming-shows membership: $(family_urls "$TMP/all.tsv" upcoming-shows | tr '\n' ' ')"
-[ "$(family_urls "$TMP/all.tsv" past-shows | sort | tr '\n' ' ')" = "https://psychichomily.com/shows/2020-01-01-past-a https://psychichomily.com/shows/2020-02-02-past-b https://psychichomily.com/shows/2020-03-03-past-c " ] \
-  || fail "past-shows membership: $(family_urls "$TMP/all.tsv" past-shows | tr '\n' ' ')"
-[ "$(family_urls "$TMP/all.tsv" venues | sort | tr '\n' ' ')" = "https://psychichomily.com/venues/venue-a https://psychichomily.com/venues/venue-b " ] \
-  || fail "venues membership: $(family_urls "$TMP/all.tsv" venues | tr '\n' ' ')"
-[ "$(family_urls "$TMP/all.tsv" scene-weeks | sort | tr '\n' ' ')" = "https://psychichomily.com/scenes/akron-oh/2026-W41 https://psychichomily.com/scenes/akron-oh/2026-W43 " ] \
-  || fail "scene-weeks membership: $(family_urls "$TMP/all.tsv" scene-weeks | tr '\n' ' ')"
-[ "$(family_urls "$TMP/all.tsv" releases | sort | tr '\n' ' ')" = "https://psychichomily.com/releases/release-a https://psychichomily.com/releases/release-b " ] \
-  || fail "releases membership: $(family_urls "$TMP/all.tsv" releases | tr '\n' ' ')"
-[ "$(family_urls "$TMP/all.tsv" artists | sort | tr '\n' ' ')" = "${ARTISTS[*]} " ] \
-  || fail "artists membership (duplicate listed once, query/fragment/subpath excluded): $(family_urls "$TMP/all.tsv" artists | tr '\n' ' ')"
+expect_family "$TMP/all.tsv" upcoming-shows "https://psychichomily.com/shows/${TODAY}-today-show" \
+  https://psychichomily.com/shows/2099-01-01-future-a https://psychichomily.com/shows/2099-02-02-future-b https://psychichomily.com/shows/2099-03-03-future-c
+expect_family "$TMP/all.tsv" past-shows \
+  https://psychichomily.com/shows/2020-01-01-past-a https://psychichomily.com/shows/2020-02-02-past-b https://psychichomily.com/shows/2020-03-03-past-c
+expect_family "$TMP/all.tsv" venues https://psychichomily.com/venues/venue-a https://psychichomily.com/venues/venue-b
+expect_family "$TMP/all.tsv" scene-weeks https://psychichomily.com/scenes/akron-oh/2026-W41 https://psychichomily.com/scenes/akron-oh/2026-W43
+expect_family "$TMP/all.tsv" releases https://psychichomily.com/releases/release-a https://psychichomily.com/releases/release-b
+# The duplicate artist-a is listed once; its query, fragment and subpath forms are excluded.
+expect_family "$TMP/all.tsv" artists "${ARTISTS[@]}"
 for excluded in not-a-real-day legacy-show /shows/2026/10 /shows/123 /venues/venue-a/shows/2026 'cities=' /scenes/akron-oh$'\t' /labels/ '?ref=' '#top' /artist-a/extra; do
   expect_no_text "$TMP/all.tsv" "$excluded"
 done
@@ -316,7 +322,7 @@ STUB
 
 # The stub curl hands every non-API URL (the file:// sitemap) to the real
 # curl. An API request is logged (argv, stdin config, body) and answered with
-# the next status from STUB_PLAN, one per line; past the end of the plan it
+# the next status from STUB_LOG_DIR/plan, one per line; past the end of the plan it
 # answers 200. "transport" exits 7 without a body, like a refused connection.
 cat >"$STUB_BIN/curl" <<'STUB'
 #!/usr/bin/env python3
@@ -342,7 +348,7 @@ counter = os.path.join(log_dir, "count")
 n = int(open(counter).read()) if os.path.exists(counter) else 0
 with open(counter, "w") as handle:
     handle.write(str(n + 1))
-plan = open(os.environ["STUB_PLAN"]).read().split()
+plan = open(os.path.join(log_dir, "plan")).read().split()
 status = plan[n] if n < len(plan) else "200"
 if status == "transport":
     sys.stderr.write("curl: (7) stub transport failure\n")
@@ -359,7 +365,9 @@ with open(out_file, "w") as handle:
     json.dump(response, handle)
 sys.stdout.write(status)
 STUB
-chmod +x "$STUB_BIN/gcloud" "$STUB_BIN/curl"
+# Pacing and backoff sleeps return at once, so the retry cases run in seconds.
+printf '#!/bin/sh\nexit 0\n' >"$STUB_BIN/sleep"
+chmod +x "$STUB_BIN/gcloud" "$STUB_BIN/curl" "$STUB_BIN/sleep"
 export REAL_CURL
 
 # live <plan...> -- [args...]: a stubbed live run over venues and scene-weeks,
@@ -374,7 +382,6 @@ live() {
   LIVE_DOC="$LIVE_OUT/gsc-inspect-${TODAY}.md"
   LIVE_RUN="$LIVE_OUT/gsc-inspect-${TODAY}"
   export STUB_LOG_DIR
-  export STUB_PLAN="$STUB_LOG_DIR/plan"
   PATH="$STUB_BIN:$PATH" run --families venues,scene-weeks --per-family 2 --out "$LIVE_OUT" "$@"
 }
 

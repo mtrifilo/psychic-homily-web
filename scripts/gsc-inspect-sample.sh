@@ -95,8 +95,6 @@
 #   GSC_INSPECT_SITEMAP_INDEX  Sitemap index URL, https:// or file://. Default:
 #                              https://psychichomily.com/sitemap-index. Shards
 #                              must share the index's scheme and host.
-#   GSC_INSPECT_TEST_NO_SLEEP  Set to 1 to skip pacing and backoff sleeps
-#                              (self-test only).
 #
 # Requires: bash, curl, jq, python3; for a live run, the gcloud CLI holding an
 # Application Default Credential that includes the webmasters.readonly scope
@@ -179,12 +177,6 @@ require_value() {
   case "${2:-}" in
     ''|--*) die "$1 requires a value" ;;
   esac
-}
-
-pause() {
-  if [ "${GSC_INSPECT_TEST_NO_SLEEP:-0}" != "1" ]; then
-    sleep "$1"
-  fi
 }
 
 # --- Argument parsing -------------------------------------------------------
@@ -296,7 +288,6 @@ families = families.split(",")
 SHOW = re.compile(r"/shows/([0-9]{4}-[0-9]{2}-[0-9]{2})-[^/]+")
 SINGLE = re.compile(r"/(artists|releases|venues)/[^/]+")
 SCENE_WEEK = re.compile(r"/scenes/[^/]+/[0-9]{4}-W[0-9]{2}")
-ENTITY_FAMILY = {"artists": "artists", "releases": "releases", "venues": "venues"}
 
 def family_of(url):
     parts = urllib.parse.urlsplit(url)
@@ -312,7 +303,7 @@ def family_of(url):
         return "upcoming-shows" if match.group(1) >= today else "past-shows"
     match = SINGLE.fullmatch(path)
     if match:
-        return ENTITY_FAMILY[match.group(1)]
+        return match.group(1)
     if SCENE_WEEK.fullmatch(path):
         return "scene-weeks"
     return None
@@ -346,11 +337,11 @@ PY
 # failures.tsv). Exits 3 on a malformed sample.tsv or an unparseable raw file.
 IFS= read -r -d '' PY_RENDER <<'PY' || true
 import collections, json, os, re, sys
-run_dir, doc_date, site, quota_project, mode, fixture_dir, stop_reason = sys.argv[1:8]
-FAMILIES = ["upcoming-shows", "past-shows", "artists", "releases", "venues", "scene-weeks"]
+run_dir, doc_date, site, quota_project, mode, fixture_dir, stop_reason, all_families = sys.argv[1:9]
+FAMILIES = all_families.split()
 VERDICTS = ["PASS", "PARTIAL", "FAIL", "NEUTRAL"]
 FIELDS = ["verdict", "coverageState", "indexingState", "pageFetchState", "robotsTxtState"]
-INVISIBLE = re.compile("[\x00-\x1f\x7f\u200b-\u200f\u2028\u2029\u202a-\u202e\u2066-\u2069\ufeff]")
+INVISIBLE = re.compile("[\x00-\x1f\x7f-\x9f\u200b-\u200f\u2028\u2029\u202a-\u202e\u2066-\u2069\ufeff]")
 
 def fail(message):
     sys.stderr.write(message + "\n")
@@ -483,31 +474,31 @@ emit("## Roll-up")
 emit("")
 emit("| Family | Advertised | Sampled | Inspected | Failed | Not inspected | PASS | PARTIAL | FAIL | NEUTRAL | Other verdict | Canonical differs |")
 emit("| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |")
-totals = collections.Counter()
-known_population = all(name in population for name in families)
+def rollup_row(label, advertised_cell, counts):
+    # counts: sampled, inspected, failed, missing, the VERDICTS, other,
+    # canonical differs, canonical both set.
+    cells = [label, advertised_cell] + [str(c) for c in counts[:-2]] + [f"{counts[-2]} of {counts[-1]}"]
+    return "| " + " | ".join(cells) + " |"
+
+family_counts = []
 for name in families:
     s = stats[name]
     verdicts = s["fields"]["verdict"]
+    s["failed_count"] = len(s["failed"])
+    s["missing"] = s["sampled"] - s["inspected"] - s["failed_count"]
     other = s["inspected"] - sum(verdicts[v] for v in VERDICTS)
-    failed = len(s["failed"])
-    missing = s["sampled"] - s["inspected"] - failed
-    row = [name, advertised(name), s["sampled"], s["inspected"], failed, missing] + [verdicts[v] for v in VERDICTS] + [other, f"{s['canonical_differs']} of {s['both_canonical']}"]
-    emit("| " + " | ".join(str(cell) for cell in row) + " |")
-    for key, value in (("sampled", s["sampled"]), ("inspected", s["inspected"]), ("failed", failed), ("missing", missing),
-                       ("other", other), ("differs", s["canonical_differs"]), ("both", s["both_canonical"])):
-        totals[key] += value
-    for v in VERDICTS:
-        totals[v] += verdicts[v]
-    totals["population"] += population.get(name, 0)
-row = ["**All families**", str(totals["population"]) if known_population else "unknown", totals["sampled"], totals["inspected"], totals["failed"], totals["missing"]] + [totals[v] for v in VERDICTS] + [totals["other"], f"{totals['differs']} of {totals['both']}"]
-emit("| " + " | ".join(str(cell) for cell in row) + " |")
+    counts = ([s["sampled"], s["inspected"], s["failed_count"], s["missing"]] + [verdicts[v] for v in VERDICTS]
+              + [other, s["canonical_differs"], s["both_canonical"]])
+    family_counts.append(counts)
+    emit(rollup_row(name, advertised(name), counts))
+total_population = str(sum(population[n] for n in families)) if all(n in population for n in families) else "unknown"
+emit(rollup_row("**All families**", total_population, [sum(column) for column in zip(*family_counts)] or [0] * (len(VERDICTS) + 7)))
 for name in families:
     s = stats[name]
-    failed = len(s["failed"])
     emit("")
     emit(f"## {name}")
     emit("")
-    emit(f"Sampled {s['sampled']} of {advertised(name)} advertised (requested {esc(meta.get('per_family', 'unknown'))}): {s['inspected']} inspected, {failed} failed, {s['sampled'] - s['inspected'] - failed} not inspected.")
+    emit(f"Sampled {s['sampled']} of {advertised(name)} advertised (requested {esc(meta.get('per_family', 'unknown'))}): {s['inspected']} inspected, {s['failed_count']} failed, {s['missing']} not inspected.")
     emit("")
     emit("| Field | Value | URLs |")
     emit("| --- | --- | ---: |")
@@ -688,38 +679,39 @@ else
   }
 
   # inspect_url <family> <url> <hash>: one inspection with at most one retry.
-  # A JSON response body for the final attempt is kept at raw/<family>/
+  # A JSON object returned by the final attempt is kept at raw/<family>/
   # <hash>.json whatever its status. Counts a result in SUCCEEDED; sets
   # STOP_REASON when the run must stop.
   inspect_url() {
-    local family url digest body raw part status attempt=1
+    local family url digest body raw part status shape delay attempt=1
     family="$1"
     url="$2"
     digest="$3"
     raw="$RUN_STAGE/raw/$family/$digest.json"
     part="$WORK_DIR/response.json"
     body="$(jq -cn --arg u "$url" --arg s "$SITE" '{inspectionUrl: $u, siteUrl: $s, languageCode: "en-US"}')"
-    mkdir -p "$RUN_STAGE/raw/$family"
     while :; do
-      rm -f "$part"
+      rm -f "$part" "$raw"
       status="$(post_inspection "$part" "$body")" || status="transport"
-      pause "$REQUEST_INTERVAL_SECONDS"
-      if [ -s "$part" ] && jq -e 'type == "object"' "$part" >/dev/null 2>&1; then
-        cp "$part" "$raw"
-      else
-        rm -f "$raw"
+      sleep "$REQUEST_INTERVAL_SECONDS"
+      # result: an object carrying inspectionResult; object: any other JSON
+      # object; none: no body, or not a JSON object.
+      shape="$(jq -r 'if type != "object" then "none" elif (.inspectionResult | type) == "object" then "result" else "object" end' \
+        "$part" 2>/dev/null || echo none)"
+      if [ "$shape" != "none" ]; then
+        mv "$part" "$raw"
       fi
       case "$status" in
         200)
-          if jq -e '.inspectionResult | type == "object"' "$part" >/dev/null 2>&1; then
+          if [ "$shape" = "result" ]; then
             SUCCEEDED=$((SUCCEEDED + 1))
-            return 0
+          else
+            record_failure "$family" "$url" "$digest" "200 without inspectionResult" "$raw"
           fi
-          record_failure "$family" "$url" "$digest" "200 without inspectionResult" "$part"
           return 0
           ;;
         401|403)
-          record_failure "$family" "$url" "$digest" "$status" "$part"
+          record_failure "$family" "$url" "$digest" "$status" "$raw"
           STOP_REASON="HTTP $status from the API: the credential was refused"
           print_auth_help
           return 0
@@ -727,28 +719,29 @@ else
         429|5[0-9][0-9]|transport)
           if [ "$attempt" -eq 1 ]; then
             attempt=2
-            if [ "$status" = "429" ]; then
-              echo "gsc-inspect-sample: 429 on ${url}; retrying once in ${BACKOFF_429_SECONDS}s" >&2
-              pause "$BACKOFF_429_SECONDS"
-            else
-              echo "gsc-inspect-sample: ${status} on ${url}; retrying once in ${BACKOFF_RETRY_SECONDS}s" >&2
-              pause "$BACKOFF_RETRY_SECONDS"
-            fi
+            delay="$BACKOFF_RETRY_SECONDS"
+            if [ "$status" = "429" ]; then delay="$BACKOFF_429_SECONDS"; fi
+            echo "gsc-inspect-sample: ${status} on ${url}; retrying once in ${delay}s" >&2
+            sleep "$delay"
             continue
           fi
-          record_failure "$family" "$url" "$digest" "$status" "$part"
+          record_failure "$family" "$url" "$digest" "$status" "$raw"
           if [ "$status" = "429" ]; then
             STOP_REASON="a second 429 from the API: the quota is exhausted"
           fi
           return 0
           ;;
         *)
-          record_failure "$family" "$url" "$digest" "$status" "$part"
+          record_failure "$family" "$url" "$digest" "$status" "$raw"
           return 0
           ;;
       esac
     done
   }
+
+  for family in $FAMILIES; do
+    mkdir -p "$RUN_STAGE/raw/$family"
+  done
 
   DONE=0
   SUCCEEDED=0
@@ -773,7 +766,7 @@ fi
 # --- Render and publish ----------------------------------------------------------
 
 DOC_PATH="$WORK_DIR/$DOC_NAME"
-python3 -I -c "$PY_RENDER" "$RUN_STAGE" "$TODAY_UTC" "$SITE" "$QUOTA_PROJECT" "$MODE" "$FIXTURE_DIR" "$STOP_REASON" \
+python3 -I -c "$PY_RENDER" "$RUN_STAGE" "$TODAY_UTC" "$SITE" "$QUOTA_PROJECT" "$MODE" "$FIXTURE_DIR" "$STOP_REASON" "$ALL_FAMILIES" \
   >"$DOC_PATH" || die "failed to render the summary"
 
 mkdir -p "$OUT_DIR" || die "could not create output directory: $OUT_DIR"
