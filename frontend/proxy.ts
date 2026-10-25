@@ -617,9 +617,10 @@ const EXISTENCE_VERDICT_TTL_MS = 300_000
 
 /**
  * Upper bound on remembered verdicts per instance, which caps the map at a few
- * megabytes. Only positives are stored, so every key is a real entity rather
- * than anything a crawler can mint; past the cap the entry nearest expiry makes
- * room, and the cost of that is one later probe, never a wrong answer.
+ * megabytes. Only probes the backend answered 2xx are stored, so a crawler
+ * cannot fill it with slugs that do not exist; past the cap the entry nearest
+ * expiry makes room, and the cost of that is one later probe, never a wrong
+ * answer.
  */
 const EXISTENCE_VERDICT_MAX_ENTRIES = 20_000
 
@@ -715,8 +716,8 @@ function failedProbeResponse(
   }
 
   // Any other non-ok (5xx, 403, 429, opaqueredirect, …): fail OPEN, and let
-  // the page render and apply its own handling (each page's server fetch
-  // reports 5xx to Sentry, renders its own not-found on null, etc.).
+  // the page render and apply its own handling (its server fetch reports the
+  // failure, renders its own not-found on null, etc.).
   if (!res.ok) {
     return NextResponse.next()
   }
