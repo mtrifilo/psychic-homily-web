@@ -74,12 +74,15 @@ export async function HomeContentSlot() {
     )
   }
   if (viewer === 'indeterminate') return <HomeVariantSwitch />
-  // Only the list waits on its seed. The fallback is the unseeded list, which
-  // is exactly what the region renders when no seed arrives.
+  // Only the list waits on its seed. The fallback must not be the list itself:
+  // rendering it registers the query in the request's client first, and the
+  // seed's HydrationBoundary then defers that entry to an effect, which never
+  // runs on the server, so the resolved list would render its loader. `null`
+  // also keeps loader markup out of the served HTML.
   return (
     <AnonymousHome
       upcomingShows={
-        <Suspense fallback={<HomeShowList />}>
+        <Suspense fallback={null}>
           <SeededHomeShowList />
         </Suspense>
       }

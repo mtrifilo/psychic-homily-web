@@ -215,13 +215,15 @@ const UPCOMING_KEY_HASH = hashKey(HOME_UPCOMING_FIRST_SCREEN_KEY)
 const CITIES_KEY_HASH = hashKey(SHOW_CITIES_FIRST_SCREEN_KEY)
 
 describe('HomeContentSlot, anonymous viewer', () => {
-  it('renders the page without waiting for the seed, with the unseeded list as the fallback', async () => {
+  it('renders the page without waiting for the seed, behind an empty fallback', async () => {
     upcomingFetch.mockImplementation(() => new Promise<Response>(() => {}))
 
     const boundary = listBoundaryOf(await renderSlot())
 
     expect(upcomingFetch).not.toHaveBeenCalled()
-    expect((boundary.props as { fallback: ReactElement }).fallback.type).toBe(HomeShowList)
+    // Anything that mounted the list here would register its query before the
+    // seed arrives, and the seed would then not hydrate on the server.
+    expect((boundary.props as { fallback: unknown }).fallback).toBeNull()
   })
 
   it('seeds the list inside one boundary', async () => {
