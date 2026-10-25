@@ -44,15 +44,13 @@ const getCollection = cache(
     const cookieStore = await cookies()
     const authToken = cookieStore.get('auth_token')
 
+    const readHeaders = serverReadHeaders()
     const fetchInit: RequestInit = authToken
       ? {
-          headers: {
-            ...serverReadHeaders(),
-            Cookie: `auth_token=${authToken.value}`,
-          },
+          headers: { ...readHeaders, Cookie: `auth_token=${authToken.value}` },
           cache: 'no-store',
         }
-      : { headers: serverReadHeaders(), next: { revalidate: 3600 } }
+      : { headers: readHeaders, next: { revalidate: 3600 } }
 
     try {
       const res = await fetch(`${API_BASE_URL}/collections/${encodeURIComponent(slug)}`, fetchInit)
