@@ -212,10 +212,14 @@ func evictOtherCredentials(tx *gorm.DB, userID uint, keepProvider string) error 
 	if _, err := engagementsvc.DeleteCalendarTokensTx(tx, userID); err != nil {
 		return err
 	}
+	// FOR UPDATE: a concurrent disconnect of one of these rows waits for the
+	// proof, so each unlink below finds the row it was listed for. One row
+	// per provider per account (oauth_accounts_user_provider_uniq).
 	var providers []string
 	if err := tx.Model(&authm.OAuthAccount{}).
+		Clauses(clause.Locking{Strength: "UPDATE"}).
 		Where("user_id = ? AND provider <> ?", userID, keepProvider).
-		Distinct().Pluck("provider", &providers).Error; err != nil {
+		Pluck("provider", &providers).Error; err != nil {
 		return fmt.Errorf("failed to list provider identities: %w", err)
 	}
 	for _, provider := range providers {
