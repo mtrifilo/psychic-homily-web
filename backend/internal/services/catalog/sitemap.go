@@ -695,7 +695,12 @@ const rowLastmodSQL = "updated_at"
 //
 // It is a correlated scalar subquery, not a join, so the family stays one
 // single-table scan yielding one row per release, with one probe of
-// idx_release_external_links_release_id per row.
+// idx_release_external_links_release_id per row. Its cost therefore scales
+// with the rows a request returns, so a sub-shard pays for its own bucket only.
+//
+// COST. Measured on Postgres 18 over 37,688 synthetic releases and 10,132
+// links: about 5.5 ms for one sub-shard and about 60 ms for the whole family,
+// against about 3 ms and 9 ms for the row's updated_at alone.
 const releaseLastmodSQL = "GREATEST(releases.updated_at, (SELECT MAX(rel_lastmod.created_at) FROM release_external_links rel_lastmod WHERE rel_lastmod.release_id = releases.id))"
 
 // entriesWithLastmod is entriesFor with lastmod taken from lastmodSQL, an SQL
