@@ -1,0 +1,574 @@
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { Suspense, use, type ReactElement } from 'react'
+import { renderToString } from 'react-dom/server'
+import { act, render, screen, waitFor } from '@testing-library/react'
+import {
+  HydrationBoundary,
+  QueryClient,
+  QueryClientProvider,
+  hashKey,
+  type DehydratedState,
+} from '@tanstack/react-query'
+import { errorResponse, jsonBodyResponse } from '@/lib/seo/test-helpers'
+import { findElements } from '@/test/elementTree'
+
+// `seedFirstScreen` awaits `connection()`, which marks a request-time render and
+// has nothing to do outside Next.
+vi.mock('next/server', () => ({
+  connection: async () => {},
+}))
+
+// On the server `getQueryClient()` mints a fresh client per call; under jsdom
+// it would hand back the browser singleton instead.
+vi.mock('@/lib/queryClient', async importOriginal => {
+  const actual = await importOriginal<typeof import('@/lib/queryClient')>()
+  const { QueryClient } = await import('@tanstack/react-query')
+  return { ...actual, getQueryClient: () => new QueryClient() }
+})
+
+// The shared server-fetch reporter, observed rather than replaced: the seed
+// must reach it through fetchListPayload and have no reporting path of its own.
+const mockReportServerFetchFailure = vi.fn()
+vi.mock('@/lib/ssr/reportServerFetchFailure', async importOriginal => {
+  const actual = await importOriginal<typeof import('@/lib/ssr/reportServerFetchFailure')>()
+  return {
+    ...actual,
+    reportServerFetchFailure: (...args: Parameters<typeof actual.reportServerFetchFailure>) =>
+      mockReportServerFetchFailure(...args),
+  }
+})
+
+const mockResolveHomeViewer = vi.fn()
+const mockGetAuthenticatedHomeLayout = vi.fn()
+const mockPrefetchHomeSavedShows = vi.fn()
+vi.mock('@/lib/auth-hydration', () => ({
+  resolveHomeViewer: () => mockResolveHomeViewer(),
+  getAuthenticatedHomeLayout: () => mockGetAuthenticatedHomeLayout(),
+  prefetchHomeSavedShows: () => mockPrefetchHomeSavedShows(),
+}))
+
+// The variants are stood in by NAMED functions, so a test can find the element
+// the slot renders. The list itself is rendered for real below, under the
+// boundaries the slot hands back.
+vi.mock('@/features/home/components/AnonymousHome', () => ({
+  AnonymousHome: function AnonymousHome(): null {
+    return null
+  },
+}))
+vi.mock('@/features/home/components/SignedInHome', () => ({
+  SignedInHome: function SignedInHome(): null {
+    return null
+  },
+}))
+vi.mock('@/features/home/components/HomeVariantSwitch', () => ({
+  HomeVariantSwitch: function HomeVariantSwitch(): null {
+    return null
+  },
+}))
+
+// What the real list needs around it: a signed-out reader with no profile, and
+// no idle route prefetching.
+vi.mock('@/lib/context/AuthContext', async () => {
+  const { deriveMockAuthSignals } = await import('@/test/authFixture')
+  return {
+    useAuthContext: () =>
+      deriveMockAuthSignals({ authStatus: 'anonymous' as const, user: null }),
+  }
+})
+vi.mock('@/features/auth', () => ({
+  useProfile: () => ({ data: undefined }),
+  useSetFavoriteCities: () => ({ mutate: vi.fn() }),
+}))
+vi.mock('@/lib/hooks/common/usePrefetchRoutes', () => ({
+  usePrefetchRoutes: vi.fn(),
+}))
+vi.mock('next/navigation', () => ({
+  useRouter: () => ({ push: vi.fn(), replace: vi.fn(), prefetch: vi.fn() }),
+  usePathname: () => '/',
+  useSearchParams: () => new URLSearchParams(),
+}))
+
+import { HomeContentSlot } from './HomeContentSlot'
+import { AnonymousHome } from '@/features/home/components/AnonymousHome'
+import { SignedInHome } from '@/features/home/components/SignedInHome'
+import { HomeVariantSwitch } from '@/features/home/components/HomeVariantSwitch'
+import { HomeShowList } from '@/features/shows/components/HomeShowList'
+import {
+  HOME_UPCOMING_FIRST_SCREEN_KEY,
+  SHOW_CITIES_FIRST_SCREEN_KEY,
+} from '@/features/shows/api'
+
+function show(id: number, slug: string, headliner: string) {
+  return {
+    id,
+    slug,
+    title: '',
+    event_date: '2099-09-12T03:00:00Z',
+    city: 'Phoenix',
+    state: 'AZ',
+    status: 'approved',
+    is_cancelled: false,
+    is_sold_out: false,
+    venues: [
+      { id: 7, slug: 'the-rebel-lounge', name: 'The Rebel Lounge', city: 'Phoenix', state: 'AZ' },
+    ],
+    artists: [{ id: id + 100, slug: `${slug}-act`, name: headliner, is_headliner: true }],
+  }
+}
+
+const SEEDED_SHOWS = [
+  show(1, 'first-show', 'First Act'),
+  show(2, 'second-show', 'Second Act'),
+]
+
+function upcomingResponse(shows: unknown[]) {
+  return jsonBodyResponse({
+    shows,
+    timezone: 'UTC',
+    total: shows.length,
+    pagination: { next_cursor: null, has_more: false, limit: 5 },
+  })
+}
+
+const citiesResponse = () =>
+  jsonBodyResponse({
+    cities: [
+      { city: 'Phoenix', state: 'AZ', show_count: 31 },
+      { city: 'Mesa', state: 'AZ', show_count: 18 },
+      { city: 'Tucson', state: 'AZ', show_count: 18 },
+    ],
+  })
+
+const upcomingFetch = vi.fn()
+const citiesFetch = vi.fn()
+const geoFetch = vi.fn()
+
+beforeEach(() => {
+  vi.clearAllMocks()
+  mockResolveHomeViewer.mockResolvedValue('anonymous')
+  upcomingFetch.mockImplementation(async () => upcomingResponse(SEEDED_SHOWS))
+  citiesFetch.mockImplementation(async () => citiesResponse())
+  geoFetch.mockImplementation(async () => jsonBodyResponse({ geo: null }))
+  window.sessionStorage.clear()
+  vi.stubGlobal('fetch', (url: string, init?: RequestInit) => {
+    const path = new URL(String(url), 'http://test.local').pathname
+    if (path.endsWith('/shows/upcoming')) return upcomingFetch(url, init)
+    if (path.endsWith('/shows/cities')) return citiesFetch(url, init)
+    if (path.endsWith('/shows/saves/batch')) return jsonBodyResponse({ saves: {} })
+    if (path === '/api/geo') return geoFetch(url, init)
+    throw new Error(`unexpected fetch in this suite: ${String(url)}`)
+  })
+})
+
+afterEach(() => {
+  vi.unstubAllGlobals()
+})
+
+async function renderSlot() {
+  return (await HomeContentSlot()) as ReactElement
+}
+
+/** The Suspense boundary the slot hands `AnonymousHome` for its list. */
+function listBoundaryOf(tree: ReactElement): ReactElement {
+  expect(tree.type).toBe(AnonymousHome)
+  const boundary = (tree.props as { upcomingShows: ReactElement }).upcomingShows
+  expect(boundary.type).toBe(Suspense)
+  return boundary
+}
+
+/**
+ * Render the slot, then the seeded list inside its Suspense boundary, as the
+ * server does once the seed resolves.
+ */
+async function renderSeededList(): Promise<ReactElement> {
+  const boundary = listBoundaryOf(await renderSlot())
+  const seeded = (boundary.props as { children: ReactElement }).children
+  return (seeded.type as () => Promise<ReactElement>)()
+}
+
+/** Every dehydrated state the slot hands a `HydrationBoundary`, outermost first. */
+function boundaryStatesOf(tree: ReactElement): DehydratedState[] {
+  return findElements(tree, node => node.type === HydrationBoundary)
+    .map(node => (node.props as { state?: DehydratedState }).state)
+    .filter((state): state is DehydratedState => state !== undefined)
+}
+
+function seededQueryHashes(tree: ReactElement): string[] {
+  return boundaryStatesOf(tree).flatMap(state => state.queries.map(q => q.queryHash))
+}
+
+const testClient = () =>
+  new QueryClient({ defaultOptions: { queries: { retry: false } } })
+
+/** The real home list under the slot's own boundaries, nested as the slot nests them. */
+function listUnder(states: DehydratedState[], client: QueryClient) {
+  return (
+    <QueryClientProvider client={client}>
+      {states.reduceRight<ReactElement>(
+        (children, state) => <HydrationBoundary state={state}>{children}</HydrationBoundary>,
+        <HomeShowList />,
+      )}
+    </QueryClientProvider>
+  )
+}
+
+/**
+ * Server-render the list the way the route's HTML is produced: no client fetch
+ * runs inside `renderToString`, so whatever this prints came from the seed.
+ */
+function serverRenderList(tree: ReactElement): string {
+  return renderToString(listUnder(boundaryStatesOf(tree), testClient()))
+}
+
+const LOADER = 'animate-spin'
+// The literal spelling is pinned in useShowsFirstScreen.test.tsx, beside the
+// hook that registers it.
+const UPCOMING_KEY_HASH = hashKey(HOME_UPCOMING_FIRST_SCREEN_KEY)
+const CITIES_KEY_HASH = hashKey(SHOW_CITIES_FIRST_SCREEN_KEY)
+
+describe('HomeContentSlot, anonymous viewer', () => {
+  it('renders the page without waiting for the seed', async () => {
+    upcomingFetch.mockImplementation(() => new Promise<Response>(() => {}))
+
+    listBoundaryOf(await renderSlot())
+
+    expect(upcomingFetch).not.toHaveBeenCalled()
+  })
+
+  it('holds the list region with a blank chips band and five placeholder rows that register no query', async () => {
+    const boundary = listBoundaryOf(await renderSlot())
+    const client = testClient()
+
+    const html = renderToString(
+      <QueryClientProvider client={client}>
+        {(boundary.props as { fallback: ReactElement }).fallback}
+      </QueryClientProvider>,
+    )
+
+    expect(html.match(/data-testid="home-show-list-skeleton-row"/g)).toHaveLength(5)
+    // The chips band comes first and carries no content: it only reserves the
+    // filter chips' box.
+    const band = html.match(
+      /<div class="mb-6" data-testid="home-show-list-skeleton-chips">(.*?)<\/div><\/div><\/div>/,
+    )
+    expect(band).not.toBeNull()
+    expect(html.indexOf('home-show-list-skeleton-chips')).toBeLessThan(
+      html.indexOf('home-show-list-skeleton-row'),
+    )
+    expect(band?.[1].replace(/<[^>]*>/g, '')).toBe('')
+    expect(html).not.toContain(LOADER)
+    // A fallback that registered the list's query would make the seed's
+    // HydrationBoundary defer it, and the streamed list would render its loader.
+    expect(client.getQueryCache().getAll()).toEqual([])
+  })
+
+  // The band copies the chips block's box classes rather than sharing them, so
+  // this pins the copies to the real block: a change to the trigger's padding,
+  // the column gap, the row's text size or the wrapper margin fails here.
+  it('builds the chips band from the same box classes as the real chips block', async () => {
+    const boundary = listBoundaryOf(await renderSlot())
+    const parse = (html: string) => {
+      const host = document.createElement('div')
+      host.innerHTML = html
+      return host
+    }
+    const classes = (el: Element | null | undefined) =>
+      new Set((el?.getAttribute('class') ?? '').split(/\s+/).filter(Boolean))
+    const real = parse(serverRenderList(await renderSeededList()))
+    const band = parse(
+      renderToString((boundary.props as { fallback: ReactElement }).fallback),
+    ).querySelector('[data-testid="home-show-list-skeleton-chips"]')
+
+    const popular = real.querySelector('[data-testid="popular-cities"]')
+    const realBlock = popular?.closest('.mb-6')
+    const realColumn = realBlock?.firstElementChild
+    const trigger = real.querySelector('[data-testid="city-filter-combobox"]')
+    const bandColumn = band?.firstElementChild
+    const [bandTrigger, bandPopular] = [...(bandColumn?.children ?? [])]
+
+    expect(classes(band)).toContain('mb-6')
+    expect(classes(realBlock)).toContain('mb-6')
+    for (const c of ['flex', 'flex-col', 'gap-2']) {
+      expect(classes(realColumn)).toContain(c)
+      expect(classes(bandColumn)).toContain(c)
+    }
+    for (const c of ['py-1.5', 'text-sm', 'border']) {
+      expect(classes(trigger)).toContain(c)
+      expect(classes(bandTrigger)).toContain(c)
+    }
+    expect(classes(popular)).toContain('text-xs')
+    expect(classes(popular)).toContain('gap-1')
+    expect(classes(bandPopular)).toContain('text-xs')
+  })
+
+  it('replaces the placeholder rows with the seeded list once it resolves', async () => {
+    let releaseRows: () => void = () => {}
+    upcomingFetch.mockImplementationOnce(
+      () =>
+        new Promise<Response>(resolve => {
+          releaseRows = () => resolve(upcomingResponse(SEEDED_SHOWS))
+        }),
+    )
+    const boundary = listBoundaryOf(await renderSlot())
+    const seededList = renderSeededList()
+    function ResolvedList() {
+      return use(seededList)
+    }
+
+    await act(async () => {
+      render(
+        <QueryClientProvider client={testClient()}>
+          <Suspense fallback={(boundary.props as { fallback: ReactElement }).fallback}>
+            <ResolvedList />
+          </Suspense>
+        </QueryClientProvider>,
+      )
+    })
+
+    // The seed is still pending: the placeholder rows hold the region.
+    expect(screen.getAllByTestId('home-show-list-skeleton-row')).toHaveLength(5)
+    expect(document.body.innerHTML).not.toContain('href="/shows/first-show"')
+
+    await waitFor(() => expect(upcomingFetch).toHaveBeenCalled())
+    await act(async () => {
+      releaseRows()
+      await seededList
+    })
+
+    expect(document.body.innerHTML).toContain('href="/shows/first-show"')
+    expect(screen.queryByTestId('home-show-list-skeleton')).not.toBeInTheDocument()
+  })
+
+  it('seeds the list inside one boundary', async () => {
+    const list = await renderSeededList()
+
+    expect(list.type).toBe(HydrationBoundary)
+    expect(findElements(list, node => node.type === HomeShowList)).toHaveLength(1)
+    expect(boundaryStatesOf(list)).toHaveLength(1)
+  })
+
+  it('asks for the first page the home list asks for, and the city facet', async () => {
+    await renderSeededList()
+
+    expect(upcomingFetch).toHaveBeenCalledTimes(1)
+    const url = new URL(String(upcomingFetch.mock.calls[0][0]))
+    expect([...url.searchParams.entries()]).toEqual([['limit', '5']])
+    expect(citiesFetch).toHaveBeenCalledTimes(1)
+    expect(new URL(String(citiesFetch.mock.calls[0][0])).search).toBe('')
+  })
+
+  it('sends both seed reads with the server-read header', async () => {
+    vi.stubEnv('SERVER_READ_SECRET', 'a'.repeat(40))
+
+    await renderSeededList()
+
+    for (const call of [upcomingFetch.mock.calls[0], citiesFetch.mock.calls[0]]) {
+      const headers = new Headers((call[1] as RequestInit | undefined)?.headers)
+      expect(headers.get('X-Server-Read-Secret')).toBe('a'.repeat(40))
+    }
+    vi.unstubAllEnvs()
+  })
+
+  it('reports a rate-limited seed read through the shared reporter and skips that seed', async () => {
+    upcomingFetch.mockImplementation(async () => errorResponse(429))
+
+    const tree = await renderSeededList()
+
+    expect(mockReportServerFetchFailure).toHaveBeenCalledTimes(1)
+    expect(mockReportServerFetchFailure.mock.calls[0][0]).toMatchObject({
+      service: 'home-upcoming-first-screen',
+      pathFamily: '/shows/upcoming',
+      notFoundIsAnswer: false,
+    })
+    expect(mockReportServerFetchFailure.mock.calls[0][0].response.status).toBe(429)
+    expect(seededQueryHashes(tree)).toEqual([CITIES_KEY_HASH])
+    expect(serverRenderList(tree)).toContain(LOADER)
+  })
+
+  it('seeds the rows and the facet under the hooks keys, stamped stale', async () => {
+    const tree = await renderSeededList()
+    const queries = boundaryStatesOf(tree).flatMap(state => state.queries)
+
+    expect(queries.map(q => q.queryHash).sort()).toEqual(
+      [UPCOMING_KEY_HASH, CITIES_KEY_HASH].sort(),
+    )
+    const rows = queries.find(q => q.queryHash === UPCOMING_KEY_HASH)
+    expect(rows?.state.data).toMatchObject({ shows: SEEDED_SHOWS })
+    expect(rows?.state.dataUpdatedAt).toBe(0)
+  })
+
+  it('puts the first page of rows and the city chips in the server render, with no loader', async () => {
+    const html = serverRenderList(await renderSeededList())
+
+    expect(html).toContain('href="/shows/first-show"')
+    expect(html).toContain('href="/shows/second-show"')
+    expect(html).toContain('First Act')
+    // React's server renderer separates adjacent text nodes with comments.
+    expect(html.replaceAll('<!-- -->', '')).toContain('Popular:')
+    expect(html.replaceAll('<!-- -->', '')).toContain('Phoenix, AZ (31)')
+    expect(html).not.toContain(LOADER)
+    // A seeded entry revalidates on its first commit; that must not dim it.
+    expect(html).not.toContain('opacity-60')
+  })
+
+  it('server-renders the empty sentence for an empty catalogue, not the loader', async () => {
+    upcomingFetch.mockImplementation(async () => upcomingResponse([]))
+
+    const html = serverRenderList(await renderSeededList())
+
+    expect(html).toContain('No upcoming shows at this time.')
+    expect(html).not.toContain(LOADER)
+  })
+
+  it('still renders the page, with the loader, when the rows read fails', async () => {
+    upcomingFetch.mockImplementation(async () => errorResponse(500))
+
+    const tree = await renderSeededList()
+
+    expect(seededQueryHashes(tree)).toEqual([CITIES_KEY_HASH])
+    const html = serverRenderList(tree)
+    expect(html).toContain(LOADER)
+    expect(html).not.toContain('No upcoming shows')
+  })
+
+  it('still seeds the rows when only the facet read fails', async () => {
+    citiesFetch.mockImplementation(async () => errorResponse(503))
+
+    const tree = await renderSeededList()
+
+    expect(seededQueryHashes(tree)).toEqual([UPCOMING_KEY_HASH])
+    const html = serverRenderList(tree)
+    expect(html).toContain('href="/shows/first-show"')
+    expect(html).not.toContain(LOADER)
+  })
+
+  it('renders the page unseeded, with the loader, when both reads fail', async () => {
+    upcomingFetch.mockImplementation(async () => {
+      throw new TypeError('fetch failed')
+    })
+    citiesFetch.mockImplementation(async () => errorResponse(500))
+
+    const tree = await renderSeededList()
+
+    expect(boundaryStatesOf(tree)).toEqual([])
+    expect(serverRenderList(tree)).toContain(LOADER)
+  })
+
+  it('replaces the seeded rows with the live read once mounted, at full strength meanwhile', async () => {
+    const states = boundaryStatesOf(await renderSeededList())
+    upcomingFetch.mockImplementation(async () =>
+      upcomingResponse([show(3, 'late-addition', 'Late Act')]),
+    )
+
+    const { container } = render(listUnder(states, testClient()))
+
+    expect(container.innerHTML).toContain('href="/shows/first-show"')
+    expect(container.innerHTML).not.toContain('opacity-60')
+    await waitFor(() =>
+      expect(container.innerHTML).toContain('href="/shows/late-addition"'),
+    )
+    // The browser asked the question the server asked.
+    const [serverUrl, browserUrl] = upcomingFetch.mock.calls.map(([url]) => String(url))
+    expect(new URL(browserUrl).search).toBe(new URL(serverUrl).search)
+  })
+
+  it('drops rows that have provably left the upcoming window since the cached read', async () => {
+    upcomingFetch.mockImplementation(async () =>
+      jsonBodyResponse({
+        shows: [
+          { ...show(9, 'long-gone', 'Old Act'), event_date: '2020-01-01T03:00:00Z' },
+          ...SEEDED_SHOWS,
+        ],
+        timezone: 'UTC',
+        total: 3,
+        pagination: { next_cursor: null, has_more: false, limit: 5 },
+      }),
+    )
+
+    const rows = boundaryStatesOf(await renderSeededList())
+      .flatMap(state => state.queries)
+      .find(q => q.queryHash === UPCOMING_KEY_HASH)
+
+    expect(rows?.state.data).toMatchObject({ shows: SEEDED_SHOWS, total: 2 })
+  })
+
+  it('does not seed a page that dropping passed rows empties, so the list fetches for itself', async () => {
+    upcomingFetch.mockImplementation(async () =>
+      jsonBodyResponse({
+        shows: [
+          { ...show(9, 'long-gone', 'Old Act'), event_date: '2020-01-01T03:00:00Z' },
+          { ...show(10, 'also-gone', 'Older Act'), event_date: '2020-01-02T03:00:00Z' },
+        ],
+        timezone: 'UTC',
+        total: 140,
+        pagination: { next_cursor: 'x', has_more: true, limit: 5 },
+      }),
+    )
+
+    const tree = await renderSeededList()
+
+    expect(seededQueryHashes(tree)).toEqual([CITIES_KEY_HASH])
+    const html = serverRenderList(tree)
+    expect(html).toContain(LOADER)
+    expect(html).not.toContain('No upcoming shows')
+  })
+
+  it('swaps the seeded rows for the geo city once it resolves, holding them dimmed meanwhile', async () => {
+    const states = boundaryStatesOf(await renderSeededList())
+    geoFetch.mockImplementation(async () =>
+      jsonBodyResponse({ geo: { city: 'Mesa', state: 'AZ' } }),
+    )
+    let releaseMesa: () => void = () => {}
+    upcomingFetch.mockImplementation(async (url: string) => {
+      if (!new URL(url).searchParams.has('cities')) return upcomingResponse(SEEDED_SHOWS)
+      await new Promise<void>(resolve => {
+        releaseMesa = resolve
+      })
+      return upcomingResponse([show(4, 'mesa-show', 'Mesa Act')])
+    })
+
+    const { container } = render(listUnder(states, testClient()))
+
+    await waitFor(() => expect(container.innerHTML).toContain('opacity-60'))
+    expect(container.innerHTML).toContain('href="/shows/first-show"')
+    releaseMesa()
+    await waitFor(() => expect(container.innerHTML).toContain('href="/shows/mesa-show"'))
+    expect(container.innerHTML).not.toContain('href="/shows/first-show"')
+  })
+
+  it('keeps the seeded rows when the mount-time refresh fails', async () => {
+    const states = boundaryStatesOf(await renderSeededList())
+    upcomingFetch.mockImplementation(async () => errorResponse(500))
+
+    const { container } = render(listUnder(states, testClient()))
+
+    await waitFor(() => expect(upcomingFetch).toHaveBeenCalledTimes(2))
+    await waitFor(() => expect(container.innerHTML).not.toContain('opacity-60'))
+    expect(container.innerHTML).toContain('href="/shows/first-show"')
+    expect(container.innerHTML).not.toContain('Unable to load shows.')
+  })
+})
+
+describe('HomeContentSlot, other viewers', () => {
+  it('makes no upcoming-shows read for a signed-in viewer', async () => {
+    mockResolveHomeViewer.mockResolvedValue('authenticated')
+    mockGetAuthenticatedHomeLayout.mockResolvedValue(null)
+    mockPrefetchHomeSavedShows.mockResolvedValue({ mutations: [], queries: [] })
+
+    const tree = await renderSlot()
+
+    expect(findElements(tree, node => node.type === SignedInHome)).toHaveLength(1)
+    expect(upcomingFetch).not.toHaveBeenCalled()
+    expect(citiesFetch).not.toHaveBeenCalled()
+  })
+
+  it('makes no upcoming-shows read when the viewer could not be resolved', async () => {
+    mockResolveHomeViewer.mockResolvedValue('indeterminate')
+
+    const tree = await renderSlot()
+
+    expect(tree.type).toBe(HomeVariantSwitch)
+    expect(upcomingFetch).not.toHaveBeenCalled()
+    expect(citiesFetch).not.toHaveBeenCalled()
+  })
+})

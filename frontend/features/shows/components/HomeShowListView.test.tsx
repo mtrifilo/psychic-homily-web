@@ -318,3 +318,69 @@ describe('HomeShowListView save-as-default', () => {
     }
   )
 })
+
+describe('HomeShowListView refresh states', () => {
+  const rowsWrapper = () =>
+    screen.getAllByTestId('show-card')[0].parentElement?.parentElement
+
+  // `dataUpdatedAt: 0` is how a server seed arrives (`seedFirstScreen`); a
+  // browser read stamps the time it landed.
+  const SEEDED = 0
+  const FETCHED = 1_700_000_000_000
+
+  function upcoming(state: {
+    dataUpdatedAt: number
+    isFetching: boolean
+    isPlaceholderData?: boolean
+    error?: Error | null
+  }) {
+    mockUseUpcomingShows.mockReturnValue({
+      data: { shows },
+      isLoading: false,
+      isPlaceholderData: false,
+      error: null,
+      ...state,
+    })
+  }
+
+  it('keeps server-seeded rows at full strength while they revalidate', () => {
+    upcoming({ dataUpdatedAt: SEEDED, isFetching: true })
+
+    render(<HomeShowListView selection={selection} />)
+
+    expect(rowsWrapper()).not.toHaveClass('opacity-60')
+  })
+
+  it('keeps server-seeded rows when their refresh fails', () => {
+    upcoming({ dataUpdatedAt: SEEDED, isFetching: false, error: new Error('down') })
+
+    render(<HomeShowListView selection={selection} />)
+
+    expect(screen.getAllByTestId('show-card')).toHaveLength(2)
+    expect(screen.queryByText('Unable to load shows.')).not.toBeInTheDocument()
+  })
+
+  it('dims browser-fetched rows while they revalidate', () => {
+    upcoming({ dataUpdatedAt: FETCHED, isFetching: true })
+
+    render(<HomeShowListView selection={selection} />)
+
+    expect(rowsWrapper()).toHaveClass('opacity-60')
+  })
+
+  it('reports a failed refresh of browser-fetched rows', () => {
+    upcoming({ dataUpdatedAt: FETCHED, isFetching: false, error: new Error('down') })
+
+    render(<HomeShowListView selection={selection} />)
+
+    expect(screen.getByText('Unable to load shows.')).toBeInTheDocument()
+  })
+
+  it('dims rows held over from a previous key, even when those were seeded', () => {
+    upcoming({ dataUpdatedAt: SEEDED, isFetching: true, isPlaceholderData: true })
+
+    render(<HomeShowListView selection={selection} />)
+
+    expect(rowsWrapper()).toHaveClass('opacity-60')
+  })
+})

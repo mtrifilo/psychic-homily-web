@@ -282,3 +282,35 @@ export const SHOWS_MONTHS_FIRST_SCREEN_KEY = showQueryKeys.months({
   tags: undefined,
   tagMatch: undefined,
 })
+
+/** Rows the anonymous home's upcoming-shows list paints. */
+export const HOME_SHOW_LIMIT = 5
+
+/**
+ * The request the anonymous home's upcoming-shows list makes on its FIRST
+ * render, and the cache key that request lands on. `HomeContentSlot` fetches
+ * this URL server-side for an anonymous viewer and seeds this key, so the rows
+ * are in the served HTML.
+ *
+ * Filterless for the reason the `/shows` pair above gives: the home's city
+ * selection (favorites, the IP-geo default, the viewer's own pick) resolves in
+ * the browser, so on a first render it is empty and the list asks for the
+ * unfiltered page. A selection that resolves later (the IP-geo city, whenever
+ * geo names one) re-keys the query: `keepPreviousData` holds the seeded rows,
+ * dimmed, until that city's page arrives.
+ *
+ * The URL and the key must stay a matched pair, which the type system cannot
+ * enforce: `useShowsFirstScreen.test.tsx` asserts that `useUpcomingShows`,
+ * called as the home list calls it, requests this URL and registers this key.
+ */
+export const HOME_UPCOMING_FIRST_SCREEN_URL = `${showEndpoints.UPCOMING}?limit=${HOME_SHOW_LIMIT}`
+
+export const HOME_UPCOMING_FIRST_SCREEN_KEY = showQueryKeys.list({
+  cursor: undefined,
+  limit: HOME_SHOW_LIMIT,
+  city: undefined,
+  state: undefined,
+  cities: undefined,
+  tags: undefined,
+  tagMatch: undefined,
+})
