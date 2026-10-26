@@ -187,6 +187,19 @@ func TestConfigFromEnv(t *testing.T) {
 	}
 }
 
+func TestNewIsOffWithoutAKey(t *testing.T) {
+	t.Setenv(KeyEnvVar, "")
+	p, reason := New(nil, &fixedSource{}, "https://psychichomily.com")
+	if p != nil || reason != KeyEnvVar+" is not set" {
+		t.Fatalf("New = %v, %q; want nil and the unset-key reason", p, reason)
+	}
+	t.Setenv(KeyEnvVar, testKey)
+	t.Setenv(EndpointOverrideEnvVar, "")
+	if p, reason := New(nil, &fixedSource{}, "https://psychichomily.com"); p == nil {
+		t.Fatalf("New with a key = nil (%s)", reason)
+	}
+}
+
 func TestKeyLocationIsTheSiteRoot(t *testing.T) {
 	cfg, _, _ := ConfigFromEnv("https://www.psychichomily.com", func(key string) string {
 		if key == KeyEnvVar {

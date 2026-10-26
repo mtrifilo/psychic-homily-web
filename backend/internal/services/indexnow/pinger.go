@@ -4,17 +4,20 @@ import (
 	"context"
 	"log/slog"
 	"net/url"
+	"os"
 	"sync"
 	"time"
+
+	"gorm.io/gorm"
 
 	"psychic-homily-backend/internal/services/contracts"
 	"psychic-homily-backend/internal/services/shared"
 )
 
 // runLease is how long a run's claim stays valid before another instance may
-// treat the run as abandoned. A run is one selection plus, per batch, at most
-// two POSTs of requestTimeout and one retry backoff, about a minute, so the
-// lease covers a backlog of over twenty batches.
+// treat the run as abandoned, and how long runCycle lets a run last. A run is
+// one selection plus, per batch, at most two POSTs of requestTimeout and one
+// retry backoff, about a minute, so it covers a backlog of over twenty batches.
 const runLease = 30 * time.Minute
 
 // ChangeSource selects the entries whose sitemap lastmod is later than since.
@@ -23,12 +26,12 @@ type ChangeSource interface {
 	EntriesChangedSince(ctx context.Context, since time.Time) (*contracts.SitemapEntries, error)
 }
 
-// markStore persists the high-water mark: the database time at which the last
-// successful run began.
+// markStore persists the high-water mark: an instant no later than the start
+// of the last successful run.
 type markStore interface {
-	// Begin returns the database time now, which becomes the mark if this run
-	// succeeds, and the current mark; hasMark is false when no run has
-	// succeeded yet.
+	// Begin returns the database time now, which a store may record as the
+	// mark if this run succeeds, and the current mark; hasMark is false when
+	// no run has succeeded yet.
 	Begin(ctx context.Context) (start, mark time.Time, hasMark bool, err error)
 	// Advance stores start as the mark.
 	Advance(ctx context.Context, start time.Time) error
@@ -68,6 +71,17 @@ type Pinger struct {
 	stopCh chan struct{}
 	wg     sync.WaitGroup
 	logger *slog.Logger
+}
+
+// New returns the pinger over database and source, configured from the
+// environment and frontendURL, or nil and the reason it is off; see
+// ConfigFromEnv.
+func New(database *gorm.DB, source ChangeSource, frontendURL string) (*Pinger, string) {
+	cfg, enabled, reason := ConfigFromEnv(frontendURL, os.Getenv)
+	if !enabled {
+		return nil, reason
+	}
+	return newPinger(cfg, source, runRowMarks{db: database, name: LoopName}, slog.Default()), ""
 }
 
 func newPinger(cfg Config, source ChangeSource, marks markStore, logger *slog.Logger) *Pinger {
@@ -111,9 +125,12 @@ func (p *Pinger) Stop() {
 	p.logger.Info("indexnow pinger stopped")
 }
 
-// runCycle runs once and writes one log line and the run row's count.
+// runCycle runs once, for at most runLease, and writes one log line and the
+// run row's count.
 func (p *Pinger) runCycle(ctx context.Context) {
-	stats, err := p.run(ctx)
+	runCtx, cancel := context.WithTimeout(ctx, runLease)
+	defer cancel()
+	stats, err := p.run(runCtx)
 	attrs := []any{
 		"selected", stats.selected,
 		"submitted", stats.submitted,
@@ -121,9 +138,12 @@ func (p *Pinger) runCycle(ctx context.Context) {
 		"status", stats.status,
 		"first_run", stats.firstRun,
 	}
-	if err != nil {
+	switch {
+	case err != nil:
 		shared.LogCycleFailure(p.logger, "indexnow: run failed; mark not advanced", err, attrs...)
-	} else {
+	case stats.firstRun:
+		p.logger.Info("indexnow: first run recorded a mark and submitted nothing; pages changed before it reach search engines through the sitemap", attrs...)
+	default:
 		p.logger.Info("indexnow: run complete", attrs...)
 	}
 	shared.ReportCycle(ctx, stats.submitted, err)
