@@ -335,6 +335,7 @@ describe('suggest-edit rules', () => {
       '/',
       '/shows/[slug]',
       '/releases/[slug]',
+      '/labels/[slug]',
       '/collections/[slug]',
     ])
   })
@@ -360,6 +361,7 @@ describe('suggest-edit rules', () => {
       '/',
       '/shows/[slug]',
       '/releases/[slug]',
+      '/labels/[slug]',
       '/collections/[slug]',
     ])
   })
@@ -388,6 +390,7 @@ describe('suggest-edit rules', () => {
     })
     expect(revalidated()).toEqual([
       '/releases/fevers-and-mirrors',
+      '/labels/[slug]',
       '/collections/[slug]',
     ])
   })
@@ -411,6 +414,7 @@ describe('pending-edit moderation rules', () => {
       '/',
       '/shows/[slug]',
       '/releases/[slug]',
+      '/labels/[slug]',
       '/collections/[slug]',
     ])
   })
@@ -470,7 +474,7 @@ describe('artist rules', () => {
   })
 
   // Renames/merges/deletes change the artist name embedded in show, release,
-  // and collection ISR payloads → the artist cascade.
+  // label and collection ISR payloads → the artist cascade.
   // '/shows' leads the cascade because the browse page server-renders artist
   // and venue names since PSY-1624 — a rename has to reach the list, not only
   // the detail pages.
@@ -479,6 +483,7 @@ describe('artist rules', () => {
     '/',
     '/shows/[slug]',
     '/releases/[slug]',
+    '/labels/[slug]',
     '/collections/[slug]',
   ]
 
@@ -613,13 +618,14 @@ describe('release rules', () => {
     expect(revalidated()).toEqual([
       '/releases/fevers-and-mirrors',
       '/artists/bright-eyes',
+      '/labels/[slug]',
       '/collections/[slug]',
     ])
   })
 
   it('delete revalidates the collection cascade (no ISR list page for releases)', async () => {
     await run({ method: 'DELETE', path: '/releases/9' })
-    expect(revalidated()).toEqual(['/collections/[slug]'])
+    expect(revalidated()).toEqual(['/labels/[slug]', '/collections/[slug]'])
   })
 
   it('link add resolves the release slug from the path ID', async () => {

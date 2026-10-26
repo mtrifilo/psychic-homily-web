@@ -174,6 +174,7 @@ describe('revalidateEntities', () => {
     )
     expect(paths).not.toContain('/shows/[slug]')
     expect(paths).not.toContain('/releases/[slug]')
+    expect(paths).not.toContain('/labels/[slug]')
     expect(paths).not.toContain('/collections/[slug]')
   })
 
@@ -189,6 +190,21 @@ describe('revalidateEntities', () => {
         '/shows',
         '/shows/[slug]',
         '/releases/[slug]',
+        '/labels/[slug]',
+        '/collections/[slug]',
+      ])
+    )
+  })
+
+  it('adds the label pages to a release rename cascade', () => {
+    revalidateEntities([
+      { type: 'release', slug: 'fevers-and-mirrors', renamed: true },
+    ])
+
+    expect(revalidated()).toEqual(
+      expect.arrayContaining([
+        '/releases/fevers-and-mirrors',
+        '/labels/[slug]',
         '/collections/[slug]',
       ])
     )

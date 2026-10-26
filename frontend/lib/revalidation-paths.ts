@@ -62,6 +62,7 @@ export const SINGULAR_TO_SEGMENT: Readonly<Record<string, string>> = {
 export const ALL_SHOW_PAGES = '/shows/[slug]'
 const ALL_RELEASE_PAGES = '/releases/[slug]'
 const ALL_COLLECTION_PAGES = '/collections/[slug]'
+const ALL_LABEL_PAGES = '/labels/[slug]'
 export const ALL_SCENE_PAGES = '/scenes/[slug]'
 
 // The scene BROWSE page. A plain path, not a route pattern — it started
@@ -93,6 +94,8 @@ export const ALL_SHOW_DAY_PAGES = '/shows/[slug]/[month]/[day]'
  *
  *   - Show pages embed artist + venue names (ShowResponse.artists/venues)
  *   - Release pages embed artist + label names (ReleaseDetailResponse)
+ *   - Label pages embed roster artist names and slugs and catalog release
+ *     titles, slugs, types and years (LabelArtistResponse, LabelReleaseResponse)
  *   - Collection pages embed item entity names of every entity type
  *     (CollectionItemResponse.entity_name)
  *   - Scene + tag pages embed only counts → no rename cascade
@@ -114,11 +117,12 @@ const RENAME_CASCADES: Readonly<Record<string, readonly string[]>> = {
     HOME_PAGE,
     ALL_SHOW_PAGES,
     ALL_RELEASE_PAGES,
+    ALL_LABEL_PAGES,
     ALL_COLLECTION_PAGES,
   ],
   venues: [SHOW_LIST_PAGE, HOME_PAGE, ALL_SHOW_PAGES, ALL_COLLECTION_PAGES],
   shows: [ALL_COLLECTION_PAGES],
-  releases: [ALL_COLLECTION_PAGES],
+  releases: [ALL_LABEL_PAGES, ALL_COLLECTION_PAGES],
   labels: [ALL_RELEASE_PAGES, ALL_COLLECTION_PAGES],
   festivals: [ALL_COLLECTION_PAGES],
 }
