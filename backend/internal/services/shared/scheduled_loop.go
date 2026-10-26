@@ -571,6 +571,9 @@ func (r *loopRunner) runCycle(ctx context.Context, force bool) bool {
 	}
 
 	rec := &cycleRecorder{}
+	// Duration spans the whole work call. The IndexNow pinger reads it back
+	// from the run row to place its high-water mark before the run's own
+	// queries, so it must start no later than the work does.
 	start := time.Now()
 	panicked := r.runWork(withCycleRecorder(ctx, rec))
 	rows, cycleErr := rec.snapshot()

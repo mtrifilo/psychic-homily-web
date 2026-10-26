@@ -22,8 +22,12 @@ const clockSkewMargin = time.Minute
 // is that success (last_completed_at equals last_success_at), last_duration_ms
 // is its duration and the overlap is that duration plus clockSkewMargin. A
 // later failed or panicked run overwrites last_duration_ms with its own, and a
-// row may carry no duration at all; then the overlap is runLease, which bounds
-// every run because runCycle cuts a run off at runLease.
+// row may carry no duration at all; then the overlap is runLease plus
+// clockSkewMargin, because runCycle cuts a run off at runLease.
+//
+// The duration is the shared loop's measure of the whole work call, which
+// starts before this run's selection query, so last_success_at minus it is no
+// later than that query on the database clock, give or take the margin.
 //
 // The cost: a URL changed within the overlap before the last success is
 // submitted again by the next run, so with the duration-sized overlap a
@@ -64,7 +68,7 @@ func (m runRowMarks) Begin(ctx context.Context) (time.Time, time.Time, bool, err
 // markOverlap is how far before lastSuccess the mark sits; see runRowMarks.
 func markOverlap(lastSuccess time.Time, lastCompleted *time.Time, lastDurationMs *int64) time.Duration {
 	if lastDurationMs == nil || *lastDurationMs < 0 || lastCompleted == nil || !lastCompleted.Equal(lastSuccess) {
-		return runLease
+		return runLease + clockSkewMargin
 	}
 	return time.Duration(*lastDurationMs)*time.Millisecond + clockSkewMargin
 }

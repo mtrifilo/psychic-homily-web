@@ -7,6 +7,8 @@ import (
 	"testing"
 	"time"
 
+	"gorm.io/gorm"
+
 	"psychic-homily-backend/internal/services/contracts"
 	"psychic-homily-backend/internal/services/shared"
 	"psychic-homily-backend/internal/testutil"
@@ -15,9 +17,9 @@ import (
 // The mark is read from the row the loop's own run store writes: absent until
 // a run succeeds; last_success_at minus that run's duration and the skew
 // margin while the success is the row's latest completion, so a long run
-// widens the overlap; and last_success_at minus the lease once a later failure
-// has overwritten the duration, or when the row has none. A failure never
-// moves the mark later.
+// widens the overlap; and last_success_at minus the lease and the margin once
+// a later failure has overwritten the duration, or when the row has none. A
+// failure never moves the mark later.
 func TestRunRowMarksFollowTheLoopsLastSuccess(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping integration test in short mode")
@@ -92,7 +94,7 @@ func TestRunRowMarksFollowTheLoopsLastSuccess(t *testing.T) {
 
 	cycle(errors.New("indexnow rejected the submission: HTTP 403"), time.Second)
 	afterFailure, _ := begin("after a later failure")
-	if want := succeededAt.Add(-runLease); !afterFailure.Equal(want) {
+	if want := succeededAt.Add(-(runLease + clockSkewMargin)); !afterFailure.Equal(want) {
 		t.Fatalf("mark = %v, want %v: the failure's duration is not the success's, so the lease applies", afterFailure, want)
 	}
 	if afterFailure.After(mark) {
@@ -104,8 +106,8 @@ func TestRunRowMarksFollowTheLoopsLastSuccess(t *testing.T) {
 		t.Fatalf("clear duration: %v", err)
 	}
 	succeededAt = lastSuccess()
-	if noDuration, _ := begin("success with no recorded duration"); !noDuration.Equal(succeededAt.Add(-runLease)) {
-		t.Fatalf("mark = %v, want last_success_at %v minus the lease", noDuration, succeededAt)
+	if noDuration, _ := begin("success with no recorded duration"); !noDuration.Equal(succeededAt.Add(-(runLease + clockSkewMargin))) {
+		t.Fatalf("mark = %v, want last_success_at %v minus the lease and the margin", noDuration, succeededAt)
 	}
 }
 
@@ -123,7 +125,7 @@ func TestPingerCyclesMoveTheMarkOnlyOnSuccess(t *testing.T) {
 	t.Cleanup(func() { shared.SetDefaultRunStore(nil) })
 
 	s := newStub(t, http.StatusOK)
-	source := &fixedSource{entries: &contracts.SitemapEntries{Shows: entriesOf("a-show")}}
+	source := &timedSource{db: td.DB, entries: &contracts.SitemapEntries{Shows: entriesOf("a-show")}}
 	p := testPinger(t, s.server.URL, source, runRowMarks{db: td.DB})
 
 	type runRow struct {
@@ -197,8 +199,45 @@ func TestPingerCyclesMoveTheMarkOnlyOnSuccess(t *testing.T) {
 		t.Fatalf("last_error = %v, want %q", rejected.LastError, wantError)
 	}
 
+	// The accepted run selects, then takes a measurable time to finish. The
+	// duration the loop records must cover the span from that selection to
+	// last_success_at, or the next mark would land after the selection.
+	source.delay = 1500 * time.Millisecond
 	accepted := oneCycle(http.StatusAccepted)
 	if len(s.received()) != 1 || !accepted.LastSuccessAt.After(*first.LastSuccessAt) {
 		t.Fatalf("accepted run: %d posts, last_success_at %v (was %v)", len(s.received()), accepted.LastSuccessAt, first.LastSuccessAt)
 	}
+	var durationMs int64
+	if err := td.DB.Raw("SELECT last_duration_ms FROM background_service_runs WHERE name = ?", LoopName).
+		Scan(&durationMs).Error; err != nil {
+		t.Fatalf("read last_duration_ms: %v", err)
+	}
+	span := accepted.LastSuccessAt.Sub(source.selectedAt)
+	if recorded := time.Duration(durationMs) * time.Millisecond; recorded < span-500*time.Millisecond {
+		t.Fatalf("recorded duration %v is shorter than selection-to-success %v", recorded, span)
+	}
+	_, mark, _, err := runRowMarks{db: td.DB}.Begin(context.Background())
+	if err != nil {
+		t.Fatalf("Begin: %v", err)
+	}
+	if mark.After(source.selectedAt) {
+		t.Fatalf("next mark %v is after the accepted run's selection at %v", mark, source.selectedAt)
+	}
+}
+
+// timedSource returns fixed entries, records the database time each selection
+// ran at, and then waits delay before returning.
+type timedSource struct {
+	db         *gorm.DB
+	entries    *contracts.SitemapEntries
+	delay      time.Duration
+	selectedAt time.Time
+}
+
+func (s *timedSource) EntriesChangedSince(ctx context.Context, _ time.Time) (*contracts.SitemapEntries, error) {
+	if err := s.db.WithContext(ctx).Raw("SELECT NOW()").Scan(&s.selectedAt).Error; err != nil {
+		return nil, err
+	}
+	time.Sleep(s.delay)
+	return s.entries, nil
 }
