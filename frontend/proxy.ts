@@ -1,6 +1,8 @@
 import { NextResponse } from 'next/server'
 import type { NextRequest } from 'next/server'
 import { API_BASE_URL } from '@/lib/api-base'
+import { createPositiveVerdictCache } from '@/lib/positive-verdict-cache'
+import { serverReadHeaders } from '@/lib/ssr/serverReadHeaders'
 import {
   isNumericShowSegment,
   showSlugRedirectPath,
@@ -602,6 +604,45 @@ export async function proxy(request: NextRequest): Promise<NextResponse> {
 const EXISTENCE_CHECK_TIMEOUT_MS = 2_500
 
 /**
+ * How long a POSITIVE existence verdict is reused before the backend is asked
+ * again: five minutes, which is how stale an "exists" answer may be.
+ *
+ * The cost of the window is one-sided. An entity removed inside it passes the
+ * proxy until the entry expires, and its page's own fetch then renders the
+ * not-found body at HTTP 200 for at most this long. A new entity is unaffected,
+ * because a negative verdict is never stored: every 404 is asked again, so an
+ * entity appears the moment the backend has it.
+ */
+const EXISTENCE_VERDICT_TTL_MS = 300_000
+
+/**
+ * Upper bound on remembered verdicts per instance, which caps the map at a few
+ * megabytes. Only probes the backend answered 2xx are stored, so a crawler
+ * cannot fill it with slugs that do not exist; past the cap the entry nearest
+ * expiry makes room, and the cost of that is one later probe, never a wrong
+ * answer.
+ */
+const EXISTENCE_VERDICT_MAX_ENTRIES = 20_000
+
+/**
+ * Positive verdicts, keyed by the probe URL.
+ *
+ * An in-memory map in this module, per instance, rather than the Next Data
+ * Cache: `next: { revalidate }` has no effect on a fetch inside proxy, so the
+ * Data Cache cannot hold these. The trade is that each instance warms its own
+ * map, so the saving per instance grows with the traffic that instance serves.
+ */
+const positiveExistenceVerdicts = createPositiveVerdictCache({
+  ttlMs: EXISTENCE_VERDICT_TTL_MS,
+  maxEntries: EXISTENCE_VERDICT_MAX_ENTRIES,
+})
+
+/** Forget every remembered verdict, so one test's probes cannot answer another's. */
+export function clearExistenceVerdictsForTests(): void {
+  positiveExistenceVerdicts.clear()
+}
+
+/**
  * The content type the API stamps on every error it MEANS.
  *
  * It is how a 404 that answers the question ("no such venue", "no shows that
@@ -675,8 +716,8 @@ function failedProbeResponse(
   }
 
   // Any other non-ok (5xx, 403, 429, opaqueredirect, …): fail OPEN, and let
-  // the page render and apply its own handling (each page's server fetch
-  // reports 5xx to Sentry, renders its own not-found on null, etc.).
+  // the page render and apply its own handling (its server fetch reports the
+  // failure, renders its own not-found on null, etc.).
   if (!res.ok) {
     return NextResponse.next()
   }
@@ -706,13 +747,18 @@ async function existenceCheck(
   url: string,
   options: { requireApiAuthoredNotFound: boolean }
 ): Promise<NextResponse> {
+  if (positiveExistenceVerdicts.has(url)) {
+    return NextResponse.next()
+  }
   try {
     const res = await fetch(url, {
       method: 'HEAD',
+      headers: serverReadHeaders(),
       // `next: { revalidate }` has NO effect inside proxy (per Next docs), so
-      // we don't set it. `redirect: 'manual'` keeps the check cheap and avoids
-      // following any backend redirect chain. A 2xx means the slug resolves;
-      // only a backend 404 is treated as "missing".
+      // the only caching is `positiveExistenceVerdicts`. `redirect: 'manual'`
+      // keeps the check cheap and avoids following any backend redirect chain.
+      // A 2xx means the slug resolves; only a backend 404 is treated as
+      // "missing".
       redirect: 'manual',
       // Without this a slow-but-alive backend pins one middleware invocation
       // per request until the platform's own timeout — across EVERY proxied
@@ -721,8 +767,12 @@ async function existenceCheck(
       signal: AbortSignal.timeout(EXISTENCE_CHECK_TIMEOUT_MS),
     })
 
-    // Backend reachable and the slug resolves when nothing failed.
-    return failedProbeResponse(request, res, options) ?? NextResponse.next()
+    const failed = failedProbeResponse(request, res, options)
+    if (failed) return failed
+    // Backend reachable and the slug resolves. Only this 2xx answer is
+    // remembered; every other outcome is asked again on the next request.
+    positiveExistenceVerdicts.remember(url)
+    return NextResponse.next()
   } catch {
     // Network error reaching the backend: fail OPEN. The proxy must never take
     // a route down when the check itself fails.
@@ -765,6 +815,7 @@ async function numericShowRedirect(
 ): Promise<NextResponse> {
   try {
     const res = await fetch(`${API_BASE_URL}/shows/${encodeURIComponent(id)}`, {
+      headers: serverReadHeaders(),
       redirect: 'manual',
       signal: AbortSignal.timeout(EXISTENCE_CHECK_TIMEOUT_MS),
     })
@@ -981,6 +1032,7 @@ function parseShowsCalendarRange(body: unknown): ShowsCalendarRange | null {
 async function fetchShowsCalendarRange(): Promise<ShowsCalendarRange | null> {
   try {
     const res = await fetch(SHOWS_CALENDAR_RANGE_URL, {
+      headers: serverReadHeaders(),
       redirect: 'manual',
       // Without this a slow-but-alive backend pins one proxy invocation per
       // request; the abort lands in the catch below, which is the fail-open

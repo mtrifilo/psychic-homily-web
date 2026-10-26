@@ -27,6 +27,8 @@ function weekSpec(slug: string, service: SceneWeekService) {
       week
         ? `${API_BASE_URL}/scenes/${encodeURIComponent(slug)}/week/${encodeURIComponent(week)}`
         : `${API_BASE_URL}/scenes/${encodeURIComponent(slug)}/week`,
+    pathFamily: (week: string | undefined) =>
+      week ? '/scenes/{slug}/week/{week}' : '/scenes/{slug}/week',
     // Every field here is one a consumer reads WITHOUT a null guard, each with
     // the shape it has to have: the range dates go straight into date maths,
     // `city` into string measurement, and `slug`/`iso_week` RAW into the

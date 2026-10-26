@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { NextRequest } from 'next/server'
-import { proxy } from './proxy'
+import { clearExistenceVerdictsForTests, proxy } from './proxy'
 
 function requestFor(pathname: string): NextRequest {
   return {
@@ -12,6 +12,8 @@ function requestFor(pathname: string): NextRequest {
 describe('proxy entity existence checks', () => {
   afterEach(() => {
     vi.restoreAllMocks()
+    vi.unstubAllEnvs()
+    clearExistenceVerdictsForTests()
   })
 
   it('uses the lightweight HEAD exists probe instead of the full detail GET', async () => {
@@ -30,6 +32,37 @@ describe('proxy entity existence checks', () => {
         method: 'HEAD',
         redirect: 'manual',
       })
+    )
+  })
+
+  it('sends the server-read secret on the probe when one is configured', async () => {
+    vi.stubEnv('SERVER_READ_SECRET', 'proxy-secret-0123456789abcdef0123456789')
+    const fetchMock = vi
+      .spyOn(globalThis, 'fetch')
+      .mockImplementation(async () => new Response(null, { status: 200 }))
+
+    await proxy(requestFor('/artists/secret-artist'))
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      'http://localhost:8080/entities/artists/secret-artist/exists',
+      expect.objectContaining({
+        method: 'HEAD',
+        headers: { 'X-Server-Read-Secret': 'proxy-secret-0123456789abcdef0123456789' },
+      })
+    )
+  })
+
+  it('sends no server-read header when no secret is configured', async () => {
+    vi.stubEnv('SERVER_READ_SECRET', '')
+    const fetchMock = vi
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValue(new Response(null, { status: 200 }))
+
+    await proxy(requestFor('/artists/no-secret-artist'))
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      'http://localhost:8080/entities/artists/no-secret-artist/exists',
+      expect.objectContaining({ headers: {} })
     )
   })
 
@@ -57,6 +90,7 @@ describe('proxy entity existence checks', () => {
 describe('proxy numeric show ids', () => {
   afterEach(() => {
     vi.restoreAllMocks()
+    clearExistenceVerdictsForTests()
   })
 
   function showBody(slug: unknown): Response {

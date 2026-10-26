@@ -13,6 +13,8 @@ import { CollectionDetail } from '@/features/collections/components/CollectionDe
 import type { CollectionDetail as CollectionDetailData } from '@/features/collections/types'
 import { getQueryClient, queryKeys } from '@/lib/queryClient'
 import { API_BASE_URL } from '@/lib/api-base'
+import { reportServerFetchFailure } from '@/lib/ssr/reportServerFetchFailure'
+import { serverReadHeaders } from '@/lib/ssr/serverReadHeaders'
 
 interface CollectionPageProps {
   params: Promise<{ slug: string }>
@@ -42,25 +44,26 @@ const getCollection = cache(
     const cookieStore = await cookies()
     const authToken = cookieStore.get('auth_token')
 
+    const readHeaders = serverReadHeaders()
     const fetchInit: RequestInit = authToken
       ? {
-          headers: { Cookie: `auth_token=${authToken.value}` },
+          headers: { ...readHeaders, Cookie: `auth_token=${authToken.value}` },
           cache: 'no-store',
         }
-      : { next: { revalidate: 3600 } }
+      : { headers: readHeaders, next: { revalidate: 3600 } }
 
     try {
-      const res = await fetch(`${API_BASE_URL}/collections/${slug}`, fetchInit)
+      const res = await fetch(`${API_BASE_URL}/collections/${encodeURIComponent(slug)}`, fetchInit)
       if (res.ok) {
         return res.json()
       }
-      if (res.status >= 500) {
-        Sentry.captureMessage(`Collection page fetch error: ${res.status}`, {
-          level: 'error',
-          tags: { service: 'collection-page' },
-          extra: { slug, status: res.status },
-        })
-      }
+      reportServerFetchFailure({
+        response: res,
+        service: 'collection-page',
+        pathFamily: '/collections/{slug}',
+        notFoundIsAnswer: true,
+        context: { slug },
+      })
     } catch (error) {
       Sentry.captureException(error, {
         level: 'error',

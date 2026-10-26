@@ -148,6 +148,7 @@ import { getBlogSlugs, getBlogPost, getMixSlugs, getMix } from '@/features/blog'
 import * as Sentry from '@sentry/nextjs'
 import { API_BASE_URL } from '@/lib/api-base'
 import { readJsonWithinDataCacheBudget } from '@/lib/data-cache-budget/assert'
+import { serverReadHeaders } from '@/lib/ssr/serverReadHeaders'
 import type { components } from '@/types/api'
 import {
   ALL_SHARD_IDS,
@@ -326,6 +327,7 @@ async function fetchShard(shardId: string, family: Family): Promise<SitemapEntry
   const url = `${API_BASE_URL}/sitemap/entries?family=${encodeURIComponent(shardId)}`
   try {
     const res = await fetch(url, {
+      headers: serverReadHeaders(),
       next: { revalidate: ENTRY_REVALIDATE_SECONDS },
       signal: AbortSignal.timeout(ENTRY_FETCH_TIMEOUT_MS),
     })

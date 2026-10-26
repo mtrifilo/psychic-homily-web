@@ -4,6 +4,8 @@ import { notFound, redirect } from 'next/navigation'
 import * as Sentry from '@sentry/nextjs'
 import StationDetail from './_components/StationDetail'
 import { API_BASE_URL } from '@/lib/api-base'
+import { reportServerFetchFailure } from '@/lib/ssr/reportServerFetchFailure'
+import { serverReadHeaders } from '@/lib/ssr/serverReadHeaders'
 import { getStationDetailUrl } from '@/features/radio/types'
 
 interface StationPageProps {
@@ -30,19 +32,20 @@ interface StationData {
 // entity-page pattern in `app/artists/[slug]/page.tsx`.
 const getStation = cache(async (slug: string): Promise<StationData | null> => {
   try {
-    const res = await fetch(`${API_BASE_URL}/radio-stations/${slug}`, {
+    const res = await fetch(`${API_BASE_URL}/radio-stations/${encodeURIComponent(slug)}`, {
+      headers: serverReadHeaders(),
       next: { revalidate: 3600 },
     })
     if (res.ok) {
       return res.json()
     }
-    if (res.status >= 500) {
-      Sentry.captureMessage(`Radio station page fetch error: ${res.status}`, {
-        level: 'error',
-        tags: { service: 'radio-station-page' },
-        extra: { slug, status: res.status },
-      })
-    }
+    reportServerFetchFailure({
+      response: res,
+      service: 'radio-station-page',
+      pathFamily: '/radio-stations/{slug}',
+      notFoundIsAnswer: true,
+      context: { slug },
+    })
   } catch (error) {
     Sentry.captureException(error, {
       level: 'error',

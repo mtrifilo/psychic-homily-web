@@ -136,9 +136,12 @@ describe('fetchSceneWeek', () => {
     // cannot say. It lives inside the URL builder's closure, so it has to be
     // carried explicitly or it silently vanishes from every report.
     expect(captureMessage).toHaveBeenCalledWith(
-      'Scene week: API returned 503',
+      'scene-week: API returned 503',
       expect.objectContaining({
-        tags: { service: 'scene-week' },
+        tags: expect.objectContaining({
+          service: 'scene-week',
+          path_family: '/scenes/{slug}/week/{week}',
+        }),
         extra: expect.objectContaining({ slug: 'chicago-il', status: 503 }),
       })
     )

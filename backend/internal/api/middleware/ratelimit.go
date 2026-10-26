@@ -112,6 +112,16 @@ const (
 	// authenticated and anonymous traffic from one IP never share a counter. Tune
 	// upward if legitimate campus/office NAT is observed hitting it on stage.
 	PublicReadAuthenticatedIPCeilingPerMinute = 1000
+
+	// PublicReadServerReadIPCeilingPerMinute is the per-IP ceiling on reads that
+	// pass the server-read exemption (ServerReadExemption). Those reads skip the
+	// anonymous limiter, and this bounds what anyone holding the secret can draw
+	// from one KeyByClientIP bucket (an IPv4 address, or an IPv6 /64). It is
+	// sized well above what the frontend's own server reads are expected to
+	// draw from one egress address; the sample lines' remaining budget is what
+	// shows how close they come. It has its own counter, so it never spends the
+	// anonymous bucket of the same address.
+	PublicReadServerReadIPCeilingPerMinute = 2000
 )
 
 // RateLimitPublicReadAnonymousEndpoints is the per-IP limiter for anonymous
@@ -338,6 +348,13 @@ func publicReadIPCeilingLimiter(sample func() bool) func(http.Handler) http.Hand
 // database here. Admin session JWTs still route to the per-user 300/min bucket,
 // not this bypass.
 //
+// A server-side read (serverRead.Exempts: a GET or HEAD carrying the configured
+// server-read secret) that is neither of the above skips anonLimiter and passes
+// only serverRead's own per-IP ceiling (PublicReadServerReadIPCeilingPerMinute)
+// before reaching next, still anonymous. It is checked AFTER the session and
+// API-token cases, so a server render that forwards a viewer's session is
+// metered on that viewer's own bucket. A nil serverRead exempts nothing.
+//
 // A FOURTH state is layered OUTSIDE this function, in
 // routes.PublicReadRateLimiter: a request whose path carries a validated
 // phcal_ personal-feed token skips the limiter entirely (PSY-2017). Path
@@ -370,13 +387,14 @@ func publicReadIPCeilingLimiter(sample func() bool) func(http.Handler) http.Hand
 // avoid. With this order the ceiling counts only requests that cleared the per-user
 // cap (real delivered throughput), while the multi-account aggregate bound still
 // holds (e.g. 4 accounts × 300/min = 1200 > 1000 trips the ceiling).
-func RateLimitPublicReadsByAuthState(jwtService *auth.JWTService, validateAPIToken func(string) bool, anonLimiter, userLimiter, ipCeilingLimiter func(http.Handler) http.Handler) func(http.Handler) http.Handler {
+func RateLimitPublicReadsByAuthState(jwtService *auth.JWTService, validateAPIToken func(string) bool, serverRead *ServerReadExemption, anonLimiter, userLimiter, ipCeilingLimiter func(http.Handler) http.Handler) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		anon := anonLimiter(next)
 		// Authenticated path: per-user cap OUTER, per-IP ceiling INNER (see the
 		// ORDER note above). Request must clear both; a single account's own-cap
 		// rejections stop at the per-user limiter and never touch the ceiling.
 		user := userLimiter(ipCeilingLimiter(next))
+		serverReadCeiling := serverRead.ceiling(next)
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			if uid, ok := sessionUserID(jwtService, r); ok {
 				ctx := context.WithValue(r.Context(), rateLimitUserIDKey{}, uid)
@@ -385,6 +403,10 @@ func RateLimitPublicReadsByAuthState(jwtService *auth.JWTService, validateAPITok
 			}
 			if validatedAPIToken(validateAPIToken, r) {
 				next.ServeHTTP(w, r)
+				return
+			}
+			if serverRead.Exempts(r) {
+				serverReadCeiling.ServeHTTP(w, r)
 				return
 			}
 			anon.ServeHTTP(w, r)

@@ -6,7 +6,7 @@ vi.mock('@/lib/api-base', () => ({
   API_BASE_URL: 'http://backend.test',
 }))
 
-import { proxy } from './proxy'
+import { clearExistenceVerdictsForTests, proxy } from './proxy'
 
 function chartsRequest(pathname: string) {
   return new NextRequest(new URL(pathname, 'http://localhost:3000'))
@@ -15,6 +15,7 @@ function chartsRequest(pathname: string) {
 describe('proxy charts module allowlist', () => {
   beforeEach(() => {
     vi.restoreAllMocks()
+    clearExistenceVerdictsForTests()
   })
 
   it('stays in lockstep with CHART_MODULE_SLUGS', async () => {

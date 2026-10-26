@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { NextRequest } from 'next/server'
 import {
+  clearExistenceVerdictsForTests,
   proxy,
   VENUE_ARCHIVE_MAX_YEAR,
   VENUE_ARCHIVE_MIN_YEAR,
@@ -57,6 +58,7 @@ const ARCHIVE = '/venues/the-van-buren/shows'
 describe('proxy — venue year archives', () => {
   afterEach(() => {
     vi.restoreAllMocks()
+    clearExistenceVerdictsForTests()
   })
 
   it('lets a year the venue has past shows in through', async () => {

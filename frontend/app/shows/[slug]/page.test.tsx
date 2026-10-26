@@ -46,6 +46,12 @@ import {
   VENUE_RAIL_FETCH_LIMIT,
   VENUE_RAIL_TIME_FILTER,
 } from '@/features/shows/showRails'
+import { resetServerFetchReportThrottleForTests } from '@/lib/ssr/reportServerFetchFailure'
+
+// Each test starts with every route's report window open.
+beforeEach(() => {
+  resetServerFetchReportThrottleForTests()
+})
 
 /**
  * The props the route hands the client tree.
@@ -744,11 +750,16 @@ describe('getShow error reporting (via the page body)', () => {
 
     expect(Sentry.captureMessage).toHaveBeenCalledTimes(1)
     expect(Sentry.captureMessage).toHaveBeenCalledWith(
-      'Show page: API returned 503',
+      'show-page: API returned 503',
       expect.objectContaining({
         level: 'error',
-        tags: { service: 'show-page' },
-        extra: { slug: 'boom', status: 503 },
+        tags: { service: 'show-page', path_family: '/shows/{slug}', status: '503' },
+        extra: {
+          slug: 'boom',
+          pathFamily: '/shows/{slug}',
+          status: 503,
+          suppressedSinceLastReport: 0,
+        },
       })
     )
     // 5xx is reported, not swallowed as an exception.
@@ -794,8 +805,15 @@ describe('getShow error reporting (via the page body)', () => {
     // generateMetadata swallows the null and returns the fallback shape.
     expect(meta.title).toBe('Show')
     expect(Sentry.captureMessage).toHaveBeenCalledWith(
-      'Show page: API returned 500',
-      expect.objectContaining({ extra: { slug: 'boom', status: 500 } })
+      'show-page: API returned 500',
+      expect.objectContaining({
+        extra: {
+          slug: 'boom',
+          pathFamily: '/shows/{slug}',
+          status: 500,
+          suppressedSinceLastReport: 0,
+        },
+      })
     )
   })
 })

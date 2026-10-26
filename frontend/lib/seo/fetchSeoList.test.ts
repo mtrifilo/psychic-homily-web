@@ -12,6 +12,12 @@ vi.mock('@sentry/nextjs', () => ({
 
 import { BUILD_TIME_API_FETCH_TIMEOUT_MS } from '@/lib/build-time-api'
 import { SEO_LIST_REVALIDATE_SECONDS, fetchSeoList } from './fetchSeoList'
+import { resetServerFetchReportThrottleForTests } from '@/lib/ssr/reportServerFetchFailure'
+
+// Each test starts with every route's report window open.
+beforeEach(() => {
+  resetServerFetchReportThrottleForTests()
+})
 
 const jsonResponse = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), {
@@ -64,7 +70,7 @@ describe('fetchSeoList', () => {
       'venues-listing: API returned 422',
       expect.objectContaining({
         level: 'error',
-        tags: { service: 'venues-listing' },
+        tags: expect.objectContaining({ service: 'venues-listing' }),
       })
     )
   })
@@ -75,7 +81,7 @@ describe('fetchSeoList', () => {
     await expect(call(fetchImpl)).resolves.toEqual([])
     expect(captureMessage).toHaveBeenCalledWith(
       'venues-listing: API returned 503',
-      expect.objectContaining({ tags: { service: 'venues-listing' } })
+      expect.objectContaining({ tags: expect.objectContaining({ service: 'venues-listing' }) })
     )
   })
 
@@ -267,6 +273,26 @@ describe('fetchSeoList and the Data Cache budget gate', () => {
     expect(captureMessage).toHaveBeenCalledWith(
       expect.stringContaining('data-cache-budget'),
       expect.objectContaining({ level: 'error' })
+    )
+  })
+})
+
+describe('fetchSeoList server-read secret', () => {
+  afterEach(() => {
+    vi.unstubAllEnvs()
+  })
+
+  it('sends it when one is configured', async () => {
+    vi.stubEnv('SERVER_READ_SECRET', 'seo-list-secret-0123456789abcdef')
+    const fetchImpl = vi.fn().mockResolvedValue(jsonResponse({ venues: [] }))
+
+    await call(fetchImpl)
+
+    expect(fetchImpl).toHaveBeenCalledWith(
+      'https://api.example.test/venues?limit=100',
+      expect.objectContaining({
+        headers: { 'X-Server-Read-Secret': 'seo-list-secret-0123456789abcdef' },
+      })
     )
   })
 })

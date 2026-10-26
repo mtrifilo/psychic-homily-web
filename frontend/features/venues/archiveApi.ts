@@ -10,6 +10,8 @@ import { cache } from 'react'
 import * as Sentry from '@sentry/nextjs'
 import { createBuildTimeApiSignal } from '@/lib/build-time-api'
 import { FIRST_SCREEN_FETCH_TIMEOUT_MS } from '@/lib/ssr/fetchListPayload'
+import { reportServerFetchFailure } from '@/lib/ssr/reportServerFetchFailure'
+import { serverReadHeaders } from '@/lib/ssr/serverReadHeaders'
 import { venueEndpoints, VENUE_PAST_SHOWS_PAGE_LIMIT } from './api'
 import type {
   Venue,
@@ -51,7 +53,10 @@ export type ArchiveRead<T> =
   | { status: 'ok'; data: T }
   /** The backend answered 404: this thing genuinely is not there. */
   | { status: 'missing' }
-  /** 5xx, a timeout, a network error, an unparseable body: we cannot tell. */
+  /**
+   * Any other failure (a 5xx, a 429, a timeout, a network error, an
+   * unparseable body): we cannot tell.
+   */
   | { status: 'unavailable' }
 
 /** Narrowing helper for the common "did we get it" question. */
@@ -71,27 +76,28 @@ export function archiveData<T>(read: ArchiveRead<T>): T | null {
 async function readArchiveJson<T>(
   url: string,
   service: string,
-  context: Record<string, unknown>,
+  pathFamily: string,
+  context: Record<string, string | number>,
   timeoutMs?: number
 ): Promise<ArchiveRead<T>> {
   try {
     const res = await fetch(url, {
+      headers: serverReadHeaders(),
       next: { revalidate: ARCHIVE_REVALIDATE_SECONDS },
       ...(timeoutMs === undefined
         ? {}
         : { signal: createBuildTimeApiSignal(timeoutMs) }),
     })
     if (res.ok) return { status: 'ok', data: (await res.json()) as T }
-    // 404s are expected for a slug that does not exist; only a real fault is
-    // worth a Sentry event.
+    // A 404 means the slug does not exist; any other non-OK status is reported.
     if (res.status === 404) return { status: 'missing' }
-    if (res.status >= 500) {
-      Sentry.captureMessage(`Venue show archive: API returned ${res.status}`, {
-        level: 'error',
-        tags: { service },
-        extra: { ...context, status: res.status },
-      })
-    }
+    reportServerFetchFailure({
+      response: res,
+      service,
+      pathFamily,
+      notFoundIsAnswer: true,
+      context,
+    })
   } catch (error) {
     Sentry.captureException(error, {
       level: 'error',
@@ -120,10 +126,12 @@ async function readArchiveJson<T>(
  */
 export const getVenue = cache(
   (idOrSlug: string, surface: 'venue-page' | 'venue-year-archive' = 'venue-page') =>
-    readArchiveJson<Venue>(venueEndpoints.GET(encodeURIComponent(idOrSlug)), surface, {
-      idOrSlug,
+    readArchiveJson<Venue>(
+      venueEndpoints.GET(encodeURIComponent(idOrSlug)),
       surface,
-    })
+      '/venues/{slug}',
+      { idOrSlug, surface }
+    )
 )
 
 /**
@@ -142,6 +150,7 @@ export const getArchiveYears = cache((slug: string) =>
   readArchiveJson<VenueShowYearsResponse>(
     `${venueEndpoints.SHOW_YEARS(encodeURIComponent(slug))}?time_filter=past`,
     'venue-year-archive-years',
+    '/venues/{slug}/shows/years',
     { slug },
     FIRST_SCREEN_FETCH_TIMEOUT_MS
   )
@@ -171,6 +180,7 @@ export const getArchiveMonths = cache((slug: string) =>
   readArchiveJson<VenueShowMonthsResponse>(
     `${venueEndpoints.SHOW_MONTHS(encodeURIComponent(slug))}?time_filter=past`,
     'venue-year-archive-months',
+    '/venues/{slug}/shows/months',
     { slug },
     FIRST_SCREEN_FETCH_TIMEOUT_MS
   )
@@ -199,6 +209,7 @@ export const getArchiveFirstPage = cache((slug: string, year: number) =>
     `${venueEndpoints.SHOWS(encodeURIComponent(slug))}` +
       `?time_filter=past&year=${year}&limit=${VENUE_PAST_SHOWS_PAGE_LIMIT}`,
     'venue-year-archive-page',
+    '/venues/{slug}/shows',
     { slug, year },
     FIRST_SCREEN_FETCH_TIMEOUT_MS
   )

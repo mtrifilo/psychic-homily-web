@@ -30,6 +30,7 @@ import type {
 } from '@/lib/types/extraction'
 import { getAuthenticatedUser } from '@/lib/auth-profile'
 import { enforceThrottle } from '@/lib/ai-extraction-throttle'
+import { serverReadHeaders } from '@/lib/ssr/serverReadHeaders'
 
 const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:8080'
 
@@ -98,7 +99,8 @@ interface ArtistSearchResult {
 async function searchArtist(name: string): Promise<ArtistSearchResult | null> {
   try {
     const response = await fetch(
-      `${BACKEND_URL}/artists/search?q=${encodeURIComponent(name)}`
+      `${BACKEND_URL}/artists/search?q=${encodeURIComponent(name)}`,
+      { headers: serverReadHeaders() }
     )
     if (!response.ok) return null
     return await response.json()

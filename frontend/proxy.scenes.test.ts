@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { NextRequest } from 'next/server'
-import { proxy } from './proxy'
+import { clearExistenceVerdictsForTests, proxy } from './proxy'
 import { looksLikeISOWeek } from '@/features/scenes/sceneWeek'
 import { looksLikeCalendarDate } from '@/features/scenes/sceneDay'
 
@@ -33,6 +33,7 @@ const LAST_SERVABLE_YEAR = new Date().getUTCFullYear() + 1
 describe('proxy — scene period routes', () => {
   afterEach(() => {
     vi.restoreAllMocks()
+    clearExistenceVerdictsForTests()
   })
 
   // Both DAY routes probe the cheap scene-existence endpoint: `/tonight` has no

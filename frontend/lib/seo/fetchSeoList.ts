@@ -7,6 +7,12 @@ import {
   DataCacheBudgetError,
   readJsonWithinDataCacheBudget,
 } from '@/lib/data-cache-budget/assert'
+import {
+  listPathFamily,
+  listQueryParamNames,
+  reportServerFetchFailure,
+} from '@/lib/ssr/reportServerFetchFailure'
+import { serverReadHeaders } from '@/lib/ssr/serverReadHeaders'
 
 /**
  * How long a fetched SEO list stays warm in Next's Data Cache. These lists feed
@@ -115,6 +121,7 @@ export async function fetchSeoList<T>({
 }: SeoListOptions): Promise<T[]> {
   try {
     const res = await fetchImpl(url, {
+      headers: serverReadHeaders(),
       next: { revalidate: SEO_LIST_REVALIDATE_SECONDS },
       signal: createBuildTimeApiSignal(timeoutMs),
     })
@@ -146,10 +153,12 @@ export async function fetchSeoList<T>({
         extra: { url },
       })
     } else {
-      Sentry.captureMessage(`${service}: API returned ${res.status}`, {
-        level: 'error',
-        tags: { service },
-        extra: { url, status: res.status },
+      reportServerFetchFailure({
+        response: res,
+        service,
+        pathFamily: listPathFamily(url),
+        notFoundIsAnswer: false,
+        context: { queryParams: listQueryParamNames(url) },
       })
     }
   } catch (error) {

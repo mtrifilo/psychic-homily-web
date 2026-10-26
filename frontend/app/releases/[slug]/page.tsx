@@ -7,6 +7,8 @@ import { Loader2 } from 'lucide-react'
 import { HydrationBoundary } from '@tanstack/react-query'
 import type { ReleaseDetail as ReleaseDetailData } from '@/features/releases/types'
 import { API_BASE_URL } from '@/lib/api-base'
+import { reportServerFetchFailure } from '@/lib/ssr/reportServerFetchFailure'
+import { serverReadHeaders } from '@/lib/ssr/serverReadHeaders'
 import { queryKeys } from '@/lib/queryClient'
 import { prefetchEntity } from '@/lib/query-hydration'
 
@@ -34,19 +36,20 @@ interface ReleasePageProps {
  */
 const getRelease = cache(async (slug: string): Promise<ReleaseDetailData | null> => {
   try {
-    const res = await fetch(`${API_BASE_URL}/releases/${slug}`, {
+    const res = await fetch(`${API_BASE_URL}/releases/${encodeURIComponent(slug)}`, {
+      headers: serverReadHeaders(),
       next: { revalidate: 3600 },
     })
     if (res.ok) {
       return res.json()
     }
-    if (res.status >= 500) {
-      Sentry.captureMessage(`Release page fetch error: ${res.status}`, {
-        level: 'error',
-        tags: { service: 'release-page' },
-        extra: { slug, status: res.status },
-      })
-    }
+    reportServerFetchFailure({
+      response: res,
+      service: 'release-page',
+      pathFamily: '/releases/{slug}',
+      notFoundIsAnswer: true,
+      context: { slug },
+    })
   } catch (error) {
     Sentry.captureException(error, {
       level: 'error',
