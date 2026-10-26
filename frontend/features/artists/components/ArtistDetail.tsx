@@ -358,7 +358,7 @@ function ArtistSidebar({
       className={ARTIST_LAYOUT_CLASSES.sidebar}
     >
       <div className={ARTIST_LAYOUT_CLASSES.sidebarLead}>
-        {/* Top tracks — FIRST in the column (PSY-1065): listening is the
+        {/* Top tracks lead the column (PSY-1065). Listening is the
             fastest way to decide whether you like an unfamiliar band, so the
             embed leads. Rendered only when a music link exists. */}
         {hasMusicLink && (
@@ -403,7 +403,7 @@ function ArtistSidebar({
           </section>
         )}
 
-        {/* Chart rank — self-hides when unranked (PSY-1420 / Figma 996:16) */}
+        {/* Chart rank: self-hides when unranked (PSY-1420 / Figma 996:16) */}
         <EntityChartRankBadge entityType="artist" entityId={artist.id} />
 
         {/* Links and As heard on sit ABOVE Similar artists in the sidebar's
@@ -418,7 +418,7 @@ function ArtistSidebar({
           </section>
         )}
 
-        {/* As heard on (radio) — self-hides when empty */}
+        {/* As heard on (radio): self-hides when empty */}
         <AsHeardOn entityType="artist" entitySlug={artist.slug} />
       </div>
 
@@ -434,7 +434,7 @@ function ArtistSidebar({
       </div>
 
       <div className={ARTIST_LAYOUT_CLASSES.sidebarRest}>
-        {/* Tags — EntityTagList renders its own header. PSY-654 hides the
+        {/* Tags: EntityTagList renders its own header. PSY-654 hides the
             whole component when no tags exist; the [Add tag] linkbox entry
             below owns the affordance for tagless artists. */}
         <EntityTagList
@@ -480,7 +480,7 @@ function ArtistSidebar({
           <AlsoOnThisLabel labels={labels} currentArtistId={artist.id} />
         )}
 
-        {/* In collections — self-hides when empty */}
+        {/* In collections: self-hides when empty */}
         <EntityCollections entityType="artist" entityId={artist.id} />
       </div>
     </aside>
