@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { Suspense, type ReactElement } from 'react'
+import { Suspense, use, type ReactElement } from 'react'
 import { renderToString } from 'react-dom/server'
-import { render, waitFor } from '@testing-library/react'
+import { act, render, screen, waitFor } from '@testing-library/react'
 import {
   HydrationBoundary,
   QueryClient,
@@ -215,15 +215,67 @@ const UPCOMING_KEY_HASH = hashKey(HOME_UPCOMING_FIRST_SCREEN_KEY)
 const CITIES_KEY_HASH = hashKey(SHOW_CITIES_FIRST_SCREEN_KEY)
 
 describe('HomeContentSlot, anonymous viewer', () => {
-  it('renders the page without waiting for the seed, behind an empty fallback', async () => {
+  it('renders the page without waiting for the seed', async () => {
     upcomingFetch.mockImplementation(() => new Promise<Response>(() => {}))
 
-    const boundary = listBoundaryOf(await renderSlot())
+    listBoundaryOf(await renderSlot())
 
     expect(upcomingFetch).not.toHaveBeenCalled()
-    // Anything that mounted the list here would register its query before the
-    // seed arrives, and the seed would then not hydrate on the server.
-    expect((boundary.props as { fallback: unknown }).fallback).toBeNull()
+  })
+
+  it('holds the list region with five placeholder rows that register no query', async () => {
+    const boundary = listBoundaryOf(await renderSlot())
+    const client = testClient()
+
+    const html = renderToString(
+      <QueryClientProvider client={client}>
+        {(boundary.props as { fallback: ReactElement }).fallback}
+      </QueryClientProvider>,
+    )
+
+    expect(html.match(/data-testid="home-show-list-skeleton-row"/g)).toHaveLength(5)
+    expect(html).not.toContain(LOADER)
+    // A fallback that registered the list's query would make the seed's
+    // HydrationBoundary defer it, and the streamed list would render its loader.
+    expect(client.getQueryCache().getAll()).toEqual([])
+  })
+
+  it('replaces the placeholder rows with the seeded list once it resolves', async () => {
+    let releaseRows: () => void = () => {}
+    upcomingFetch.mockImplementationOnce(
+      () =>
+        new Promise<Response>(resolve => {
+          releaseRows = () => resolve(upcomingResponse(SEEDED_SHOWS))
+        }),
+    )
+    const boundary = listBoundaryOf(await renderSlot())
+    const seededList = renderSeededList()
+    function ResolvedList() {
+      return use(seededList)
+    }
+
+    await act(async () => {
+      render(
+        <QueryClientProvider client={testClient()}>
+          <Suspense fallback={(boundary.props as { fallback: ReactElement }).fallback}>
+            <ResolvedList />
+          </Suspense>
+        </QueryClientProvider>,
+      )
+    })
+
+    // The seed is still pending: the placeholder rows hold the region.
+    expect(screen.getAllByTestId('home-show-list-skeleton-row')).toHaveLength(5)
+    expect(document.body.innerHTML).not.toContain('href="/shows/first-show"')
+
+    await waitFor(() => expect(upcomingFetch).toHaveBeenCalled())
+    await act(async () => {
+      releaseRows()
+      await seededList
+    })
+
+    expect(document.body.innerHTML).toContain('href="/shows/first-show"')
+    expect(screen.queryByTestId('home-show-list-skeleton')).not.toBeInTheDocument()
   })
 
   it('seeds the list inside one boundary', async () => {

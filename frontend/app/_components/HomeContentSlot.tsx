@@ -15,6 +15,7 @@ import {
   SHOW_CITIES_FIRST_SCREEN_URL,
 } from '@/features/shows/api'
 import { HomeShowList } from '@/features/shows/components/HomeShowList'
+import { HomeShowListSkeleton } from '@/features/shows/components/HomeShowListSkeleton'
 import type {
   ShowCitiesResponse,
   UpcomingShowsResponse,
@@ -75,15 +76,15 @@ export async function HomeContentSlot() {
     )
   }
   if (viewer === 'indeterminate') return <HomeVariantSwitch />
-  // Only the list waits on its seed. The fallback must not be the list itself:
-  // rendering it registers the query in the request's client first, and the
-  // seed's HydrationBoundary then defers that entry to an effect, which never
-  // runs on the server, so the resolved list would render its loader. `null`
-  // also keeps loader markup out of the served HTML.
+  // Only the list waits on its seed; placeholder rows hold its space until the
+  // seeded rows stream in. The fallback must not be the list itself: rendering
+  // it registers the query in the request's client first, and the seed's
+  // HydrationBoundary then defers that entry to an effect, which never runs on
+  // the server, so the resolved list would render its loader.
   return (
     <AnonymousHome
       upcomingShows={
-        <Suspense fallback={null}>
+        <Suspense fallback={<HomeShowListSkeleton />}>
           <SeededHomeShowList />
         </Suspense>
       }
