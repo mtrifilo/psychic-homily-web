@@ -73,6 +73,7 @@ Set these in **Project Settings → Environment Variables**:
 | `NEXT_PUBLIC_OAUTH_BACKEND_URL` | Optional. `https://api.psychichomily.com` |
 | `ANTHROPIC_API_KEY` | Your API key |
 | `INTERNAL_API_SECRET` | Generate a secure secret (>=32 chars) |
+| `SERVER_READ_SECRET` | The Railway backend's current secret as ONE value (>=32 chars, `openssl rand -hex 32`); while the backend holds `new,old`, this holds `new` only. Server-only, never `NEXT_PUBLIC_`. Redeploy after changing it. |
 
 `NEXT_PUBLIC_OAUTH_BACKEND_URL` is the origin the Google sign-in button
 redirects to. It defaults to `NEXT_PUBLIC_API_URL`, so leaving it unset is
@@ -92,6 +93,24 @@ across all three is simply the easiest way to keep them in step). If it is
 unset the endpoint answers 401 to every caller and ingested changes stay cached
 until their revalidate window expires.
 
+`SERVER_READ_SECRET` is sent as `X-Server-Read-Secret` on the server-side
+reads the frontend makes to the Go backend from page renders, the `proxy.ts`
+existence checks, the share-card route and the sitemap (the dev `/api` relay
+deliberately sends none, and a read that forwards a viewer's session is
+metered on that viewer's own bucket). A matching value lets those reads skip
+the anonymous per-IP public-read limiter that they otherwise share with every
+scraper behind the same Vercel egress address; a missing or wrong value falls
+back to the anonymous limits (fail closed), so a render can still be refused
+with a 429 and serve a real page as not-found. This side holds ONE value: a
+comma makes it send no header at all. The backend may hold `new,old` while
+rotating; set `new` here and redeploy (Vercel env changes apply to the next
+deployment), then let the backend drop `old`. After a deploy, confirm the
+backend's startup event `public_read_server_read_exemption` shows
+`enabled=true` (written only when its `ENABLE_PUBLIC_READ_RATE_LIMITS=1` is
+set; production logs may be JSON, so search for the event name) and, once
+there is traffic, that `server_read_exempt=true` appears on its 10%-sampled
+rate-limit lines.
+
 #### Preview Environment (for staging via `main` branch)
 
 | Variable | Value |
@@ -101,6 +120,7 @@ until their revalidate window expires.
 | `NEXT_PUBLIC_OAUTH_BACKEND_URL` | Optional, as above. Same value as `NEXT_PUBLIC_API_URL` |
 | `ANTHROPIC_API_KEY` | Your API key |
 | `INTERNAL_API_SECRET` | Same or different secret, but it must be SET, and `ph` must export the matching value when targeting this deployment |
+| `SERVER_READ_SECRET` | The stage backend's current secret as ONE value (never the `new,old` pair); without it the exemption is off and server renders share the anonymous public-read buckets. Redeploy after changing it. |
 
 ### 4. Custom Domains (Vercel Dashboard)
 

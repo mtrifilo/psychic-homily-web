@@ -697,6 +697,36 @@ NODE_ENV=production docker compose up
 | `POSTGRES_PORT`        | `5432`                      | Database port                            |
 | `CORS_ALLOWED_ORIGINS` | `https://psychichomily.com` | Comma-separated CORS origins             |
 | `LOG_LEVEL`            | `debug`                     | Logging level (debug, info, warn, error) |
+| `SERVER_READ_SECRET`   | unset (exemption off)       | Shared secret the frontend's server-side reads send as `X-Server-Read-Secret`. A matching GET or HEAD skips the anonymous per-IP public-read limiter and passes a separate 2,000 a minute per-IP ceiling instead; it grants no identity. One value, or exactly two as `new,old` while rotating (every comma is a separator; a secret cannot contain one). A value under 32 characters or outside visible ASCII is rejected: the server still boots, logs `public_read_server_read_exemption` at ERROR with `enabled=false` and an `error` field, and runs with the exemption off. Read once at process start. |
+| `ENABLE_PUBLIC_READ_RATE_LIMITS` | unset (off)     | `1` turns on the public-read limiters (anonymous per-IP, authenticated, and the server-read ceiling). Production and stage set it. When it is off, no public-read limiting happens and the `public_read_server_read_exemption` startup line is not written. |
+| `SITEMAP_PAST_SHOW_MAX_AGE_DAYS` | unset (off)       | N in 1..1,000,000: the shows sitemap omits approved shows whose venue-local date is more than N days before the venue-local today. Unset, 0, negative or malformed = off (a set-but-invalid value logs a warning). |
+| `SITEMAP_OMIT_UNLINKED_RELEASES` | unset (off)       | `1` only: the releases sitemap omits releases with no `release_external_links` row. |
+| `SITEMAP_OMIT_IDLE_ARTISTS`      | unset (off)       | `1` only: the artists sitemap omits artists with no `show_artists` row and no `artist_releases` row. |
+
+`SERVER_READ_SECRET` pairs this service with the frontend's server-side
+environment (Vercel, never a `NEXT_PUBLIC_` variable), generated with
+`openssl rand -hex 32`. The frontend holds ONE value at all times: it refuses a
+value containing a comma and then sends no header. Each side reads the secret
+only at process start, so every step below takes effect on a fresh deployment
+(a Railway variable set redeploys this service; a Vercel env change applies to
+the next deployment, so redeploy the frontend after changing it). Rotation:
+set `new,old` here and let it redeploy; set `new` on Vercel and redeploy the
+frontend; then set `new` alone here. Rotate off-peak, because every cached
+server fetch starts cold once. Verify with the startup event
+`public_read_server_read_exemption` (`enabled=true`; an unset secret logs
+`enabled=false` at INFO with no reason, a rejected one at ERROR with the
+reason), which is written only when `ENABLE_PUBLIC_READ_RATE_LIMITS=1`.
+Production logs may be JSON, so search for the event name rather than the
+`key=value` spelling. Rate-limit sample lines carry `server_read_exempt=true`
+for exempt reads, but allowed requests are sampled at 10%, so give a quiet
+deploy some traffic before reading them. The secret itself is never logged.
+
+The three `SITEMAP_*` flags are read once at process start and are enabled
+only in their own promote so the effect can be attributed. The startup line
+`sitemap diet rules` carries all three values. The public sitemap is
+prerendered at build and served through Next's Data Cache with its own
+revalidate window, so the published file lags a flag change until that
+window passes.
 
 ### Background Service Env Flags
 
