@@ -116,10 +116,10 @@ const (
 	// PublicReadServerReadIPCeilingPerMinute is the per-IP ceiling on reads that
 	// pass the server-read exemption (ServerReadExemption). Those reads skip the
 	// anonymous limiter, and this bounds what anyone holding the secret can draw
-	// from one address. A server's own renders come from a handful of egress
-	// addresses and fetch through the Data Cache, so they stay far below it;
-	// reaching it means the secret is being used by something other than the
-	// frontend's server. It has its own counter, so it never spends the
+	// from one KeyByClientIP bucket (an IPv4 address, or an IPv6 /64). It is
+	// sized well above what the frontend's own server reads are expected to
+	// draw from one egress address; the sample lines' remaining budget is what
+	// shows how close they come. It has its own counter, so it never spends the
 	// anonymous bucket of the same address.
 	PublicReadServerReadIPCeilingPerMinute = 2000
 )
