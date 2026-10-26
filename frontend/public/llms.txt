@@ -19,4 +19,4 @@
 
 ## API
 
-The JSON API these pages read from is not for crawlers; its robots.txt disallows every agent. Read the pages above instead.
+The API these pages read from is not for crawlers. Read the pages above instead.

@@ -9,7 +9,7 @@ import robots from './robots'
 
 // public/llms.txt is a static file served at /llms.txt. It names only what the
 // site's robots.txt already lets crawlers fetch: the public page families and
-// the sitemap index. The API host disallows every agent, so it is never named.
+// the sitemap index. The API host is not for crawlers, so it is never named.
 const llmsTxt = readFileSync(resolve(process.cwd(), 'public/llms.txt'), 'utf8')
 
 const urls = [...llmsTxt.matchAll(/https?:\/\/[^\s)]+/g)].map((m) => m[0])
