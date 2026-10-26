@@ -11,11 +11,13 @@ import (
 	"net/http/httptest"
 	"os"
 	"slices"
+	"strings"
 	"sync"
 	"testing"
 	"time"
 
 	"psychic-homily-backend/internal/services/contracts"
+	"psychic-homily-backend/internal/testlog"
 	"psychic-homily-backend/internal/testutil/netguard"
 )
 
@@ -433,5 +435,65 @@ func TestAMarkReadFailureSubmitsNothing(t *testing.T) {
 	}
 	if len(s.received()) != 0 || len(source.asked) != 0 {
 		t.Errorf("selected %d times, posted %d batches", len(source.asked), len(s.received()))
+	}
+}
+
+// failingSource fails every selection.
+type failingSource struct{}
+
+func (failingSource) EntriesChangedSince(context.Context, time.Time) (*contracts.SitemapEntries, error) {
+	return nil, errors.New("sitemap query failed")
+}
+
+func TestASelectionFailureSubmitsNothingAndLeavesTheMark(t *testing.T) {
+	s := newStub(t, http.StatusOK)
+	marks := &memoryMarks{now: startAt, mark: markAt, hasMark: true}
+	stats, err := testPinger(t, s.server.URL, failingSource{}, marks).run(context.Background())
+	if err == nil {
+		t.Fatal("run succeeded with a failed selection")
+	}
+	if len(s.received()) != 0 || stats != (runStats{}) || marks.advances != 0 {
+		t.Errorf("posted %d batches, stats %+v, advances %d", len(s.received()), stats, marks.advances)
+	}
+}
+
+func TestARejectionLogsItsBodyCappedAt1KiB(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusUnprocessableEntity)
+		_, _ = io.WriteString(w, strings.Repeat("x", 3*maxLoggedBodyBytes))
+	}))
+	t.Cleanup(server.Close)
+	marks := &memoryMarks{now: startAt, mark: markAt, hasMark: true}
+	source := &fixedSource{entries: &contracts.SitemapEntries{Shows: entriesOf("a-show")}}
+	p := testPinger(t, server.URL, source, marks)
+	logger, buf := testlog.NewJSONCapture(slog.LevelInfo)
+	p.submitter.logger = logger
+
+	if _, err := p.run(context.Background()); err == nil {
+		t.Fatal("run succeeded against a 422")
+	}
+	type logLine struct {
+		Msg    string `json:"msg"`
+		Status int    `json:"status"`
+		URLs   int    `json:"urls"`
+		Body   string `json:"body"`
+	}
+	var rejected []logLine
+	for _, raw := range strings.Split(strings.TrimSpace(buf.String()), "\n") {
+		var line logLine
+		if err := json.Unmarshal([]byte(raw), &line); err != nil {
+			t.Fatalf("parse log line %q: %v", raw, err)
+		}
+		if line.Msg == "indexnow: submission rejected" {
+			rejected = append(rejected, line)
+		}
+	}
+	if len(rejected) != 1 {
+		t.Fatalf("logged %d rejection lines, want 1:\n%s", len(rejected), buf.String())
+	}
+	if got := rejected[0]; got.Status != http.StatusUnprocessableEntity || got.URLs != 1 ||
+		got.Body != strings.Repeat("x", maxLoggedBodyBytes) {
+		t.Errorf("rejection line status %d urls %d body length %d; want 422, 1, %d",
+			got.Status, got.URLs, len(got.Body), maxLoggedBodyBytes)
 	}
 }
