@@ -32,7 +32,8 @@ const (
 	// the IndexNow endpoint. It is honoured only in a test, ci or development
 	// ENVIRONMENT and only for a loopback host; any other value disables the
 	// pinger, so no setting can send a submission anywhere but submitEndpoint
-	// or this machine, and production always posts to submitEndpoint.
+	// or this machine. Production never honours it: setting it there turns the
+	// pinger off.
 	EndpointOverrideEnvVar = "INDEXNOW_ENDPOINT_OVERRIDE"
 
 	// environmentEnvVar names the deployment; see testenv.AllowedEnvironments.
