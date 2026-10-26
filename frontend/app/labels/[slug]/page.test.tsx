@@ -408,6 +408,27 @@ describe('labels/[slug] page body', () => {
     expect(html.match(/animate-spin/g)).toHaveLength(2)
   })
 
+  it('starts both list reads without waiting for the label read', async () => {
+    let releaseLabel: () => void = () => {}
+    labelFetch.mockImplementation(
+      () =>
+        new Promise<Response>(resolve => {
+          releaseLabel = () => resolve(jsonBodyResponse(buildLabel()))
+        }),
+    )
+
+    const page = renderPage()
+    await waitFor(() => {
+      expect(rosterFetch).toHaveBeenCalledTimes(1)
+      expect(catalogFetch).toHaveBeenCalledTimes(1)
+    })
+    releaseLabel()
+
+    expect(seededQueryHashes(await page)).toEqual(
+      expect.arrayContaining([DETAIL_KEY_HASH, ROSTER_KEY_HASH, CATALOG_KEY_HASH]),
+    )
+  })
+
   it('renders not-found for a label that does not exist, whatever the lists answered', async () => {
     labelFetch.mockImplementation(async () => errorResponse(404))
 
