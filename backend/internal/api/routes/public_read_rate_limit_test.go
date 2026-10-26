@@ -249,12 +249,14 @@ func TestPublicReadRateLimiter_WritesNotLimited(t *testing.T) {
 // Both health endpoints are exempt — a load-balancer/uptime probe hammering one
 // anonymously from a single IP must never be 429'd (that would flap the service
 // unhealthy). /health/ready is the one alerting watches, so throttling it pages
-// a human about a service that is fine. The exemption is exact-match, so each
+// a human about a service that is fine. /robots.txt is exempt so a crawler on a
+// shared egress IP always gets the file. The exemption is exact-match, so each
 // path needs its own entry and its own assertion here.
-func TestPublicReadRateLimiter_HealthPathsExempt(t *testing.T) {
+func TestPublicReadRateLimiter_InfraPathsExempt(t *testing.T) {
 	probes := map[string]string{
 		"/health":       "7.7.7.9:100",
 		"/health/ready": "7.7.7.11:100",
+		"/robots.txt":   "7.7.7.12:100",
 	}
 
 	for path, remoteAddr := range probes {
@@ -270,7 +272,7 @@ func TestPublicReadRateLimiter_HealthPathsExempt(t *testing.T) {
 				rr := httptest.NewRecorder()
 				handler.ServeHTTP(rr, req)
 				if rr.Code != http.StatusOK {
-					t.Fatalf("health probe %d: status = %d, want 200 (%s must be exempt)", i, rr.Code, path)
+					t.Fatalf("probe %d: status = %d, want 200 (%s must be exempt)", i, rr.Code, path)
 				}
 			}
 		})

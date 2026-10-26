@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"strings"
 
+	systemh "psychic-homily-backend/internal/api/handlers/system"
 	"psychic-homily-backend/internal/api/middleware"
 	"psychic-homily-backend/internal/services/auth"
 	"psychic-homily-backend/internal/services/engagement"
@@ -72,9 +73,14 @@ func IsPublicReadRateLimitEnabled(getenv func(string) string) bool {
 // it is the endpoint alerting watches, so a 429 pages a human about a service
 // that is fine.
 //
-// Matching is EXACT, not by prefix — adding a health endpoint requires adding it
+// /robots.txt is the third: crawlers fetch it anonymously from shared egress
+// IPs, and a 429 withholds the file from the crawler that asked for it.
+//
+// Matching is EXACT, not by prefix — adding an infra endpoint requires adding it
 // here too, or it silently lands on the anonymous per-IP budget.
-var infraPathsExemptFromRateLimit = []string{"/health", "/health/ready"}
+// TestInfraExemptPathsAreServed fails when an entry names a path the router
+// does not serve.
+var infraPathsExemptFromRateLimit = []string{"/health", "/health/ready", systemh.RobotsTxtRoute}
 
 // personalFeedRouteTemplates are the token-in-URL feed routes whose holder is
 // exempt from the public-read limiter (PSY-1430 iCal + PSY-1505 Atom). Google
