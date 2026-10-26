@@ -356,14 +356,16 @@ describe('ArtistConnectionsSection', () => {
     })
     renderSection()
     const section = document.querySelector('section')!
-    const containerGate = `@min-[${GRAPH_BREAKPOINT_PX}px]:block`
-    expect(section.className.split(' ')).toContain('@container')
-    for (const el of [
-      screen.getByRole('heading', { name: 'Connections' }).closest('[class*="hidden"]'),
-      countLine(),
-      document.querySelector('.animate-pulse'),
-    ]) {
-      expect(el!.className.split(' ')).toEqual(expect.arrayContaining(['hidden', containerGate]))
+    const gate = (display: string) => `@min-[${GRAPH_BREAKPOINT_PX}px]:${display}`
+    const classesOf = (el: Element | null) => el!.className.split(' ')
+    expect(classesOf(section)).toContain('@container')
+    // The header settles as a flex row, the count line and skeleton as blocks.
+    const header = screen.getByRole('heading', { name: 'Connections' }).closest('[class*="hidden"]')
+    expect(classesOf(header)).toEqual(expect.arrayContaining(['hidden', gate('flex')]))
+    for (const el of [countLine(), document.querySelector('.animate-pulse')]) {
+      expect(classesOf(el)).toEqual(expect.arrayContaining(['hidden', gate('block')]))
+    }
+    for (const el of [header, countLine(), document.querySelector('.animate-pulse')]) {
       expect(el!.className).not.toMatch(/(^|\s)sm:/)
     }
   })

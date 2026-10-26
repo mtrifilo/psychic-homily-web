@@ -34,9 +34,8 @@
  *
  * Before the first measurement (the server render, and the hydration render)
  * the section's chrome and skeleton are gated on the section's OWN width by a
- * container query, the same 640px the measurement gates on, so the server
- * HTML paints the form the measurement settles on: a column under 640px gets
- * nothing to collapse, at any viewport width.
+ * container query, the same 640px the measurement gates on, so a column under
+ * 640px gets no header or reserved box to collapse, at any viewport width.
  */
 
 import { useMemo, useState } from 'react'
@@ -94,6 +93,8 @@ const CONNECTIONS_CANVAS_HEIGHT = 360
  * measurement keeps that chrome. The section is the query container.
  */
 const UNMEASURED_CHROME_CLASS = 'hidden @min-[640px]:block'
+/** UNMEASURED_CHROME_CLASS for the header, whose settled display is flex. */
+const UNMEASURED_HEADER_CLASS = 'hidden @min-[640px]:flex'
 
 /**
  * Height reserved for the pre-measurement skeleton, and the container gate
@@ -279,7 +280,7 @@ export function ArtistConnectionsSection({
             as="h2"
             size="md"
             action={<BracketLink label="Expand" onClick={onExpand} />}
-            className={!isMeasured ? UNMEASURED_CHROME_CLASS : undefined}
+            className={!isMeasured ? UNMEASURED_HEADER_CLASS : undefined}
           />
           {/* The count discloses scale at every width the section keeps its
               header; the interaction clause is narrower still, and is dropped
