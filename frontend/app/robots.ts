@@ -33,16 +33,16 @@
 import { MetadataRoute } from 'next'
 
 /**
- * The robots.txt disallow set — paths not worth crawling.
+ * Non-public path prefixes not worth crawling. One part of PUBLIC_DISALLOW,
+ * the full disallow list below.
  *
  * This is NOT the complete private-route registry. Per-route
  * `robots: { index: false }` metadata is a separate, non-overlapping control,
  * and the two lists have drifted; reconciling them is its own change.
  *
  * Note these are prefix matches WITH a trailing slash, so `/admin/` covers
- * `/admin/users` but not the bare `/admin`. Kept verbatim from the previous
- * single-rule config so this change stays behaviour-preserving; widening them
- * is a separate, deliberate change.
+ * `/admin/users` but not the bare `/admin`. Widening them is a separate,
+ * deliberate change.
  */
 const NON_PUBLIC_PATHS = [
   '/admin/',
@@ -67,6 +67,7 @@ const NON_PUBLIC_PATHS = [
  */
 const RSC_PAYLOAD_PATTERNS = ['/*?_rsc=', '/*&_rsc=']
 
+/** The complete disallow list for every group that is allowed to crawl. */
 const PUBLIC_DISALLOW = [...NON_PUBLIC_PATHS, ...RSC_PAYLOAD_PATTERNS]
 
 /**

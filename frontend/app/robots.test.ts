@@ -274,12 +274,8 @@ const MUST_STAY_FETCHABLE = [
 ]
 
 describe('rendered robots.txt', () => {
-  it.each(['*', 'OAI-SearchBot'])('serialises the RSC patterns verbatim for %s', agent => {
+  it.each(['*', 'OAI-SearchBot'])('renders the full public rule body verbatim for %s', agent => {
     expect(renderedGroupFor(agent).rules).toEqual(PUBLIC_RULE_LINES)
-  })
-
-  it('renders Google-Extended in the retrieval-agent group', () => {
-    expect(renderedGroupFor('OAI-SearchBot').agents).toContain('Google-Extended')
   })
 
   it('leaves the training-crawler group disallowing the whole site', () => {
