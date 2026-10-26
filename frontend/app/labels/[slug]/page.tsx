@@ -25,7 +25,7 @@ interface LabelPageProps {
 /**
  * Wrapped with `React.cache()` so `generateMetadata` and the page body
  * share ONE backend fetch per request instead of two. The result also
- * seeds the TanStack Query cache via `prefetchEntity` below, eliminating
+ * seeds the TanStack Query cache via `prefetchEntities` below, eliminating
  * the client-side refetch on first paint.
  */
 const getLabel = cache(async (slug: string): Promise<LabelDetailData | null> => {
@@ -53,39 +53,6 @@ const getLabel = cache(async (slug: string): Promise<LabelDetailData | null> => 
   }
   return null
 })
-
-/**
- * The label's roster, requested the way `useLabelRoster` requests it: the whole
- * list in one read, with no query parameters.
- *
- * The slug is encoded because route params arrive decoded, and a bare `%2F` or
- * `%3F` would re-point this server-side fetch at another backend path. Null on
- * a failed read. A 404 is an answer (the label no longer exists), not a defect.
- */
-function getLabelRoster(slug: string): Promise<LabelArtistsResponse | null> {
-  return fetchListPayload<LabelArtistsResponse>({
-    url: labelEndpoints.ARTISTS(encodeURIComponent(slug)),
-    collection: 'artists',
-    service: 'label-page-roster',
-    pathFamily: '/labels/{slug}/artists',
-    notFoundIsAnswer: true,
-  })
-}
-
-/**
- * The label's whole catalog, requested the way `useLabelCatalog` requests it:
- * one unpaginated read with no query parameters. Encoding and failure handling
- * as in `getLabelRoster`.
- */
-function getLabelCatalog(slug: string): Promise<LabelReleasesResponse | null> {
-  return fetchListPayload<LabelReleasesResponse>({
-    url: labelEndpoints.RELEASES(encodeURIComponent(slug)),
-    collection: 'releases',
-    service: 'label-page-catalog',
-    pathFamily: '/labels/{slug}/releases',
-    notFoundIsAnswer: true,
-  })
-}
 
 export async function generateMetadata({
   params,
@@ -138,11 +105,28 @@ export default async function LabelPage({ params }: LabelPageProps) {
     notFound()
   }
 
-  // Read only once the label is known to exist, so a slug that names nothing
-  // costs one backend read rather than three.
+  // The endpoints `useLabelRoster` and `useLabelCatalog` read, each one
+  // unpaginated request with no query parameters. Read only once the label is
+  // known to exist, so a slug that names nothing costs one backend read rather
+  // than three. The slug is encoded because route params arrive decoded, and a
+  // bare `%2F` or `%3F` would re-point a server-side fetch at another backend
+  // path. Null on a failed read; a 404 says the label no longer exists, which
+  // is an answer rather than a defect.
   const [roster, catalog] = await Promise.all([
-    getLabelRoster(slug),
-    getLabelCatalog(slug),
+    fetchListPayload<LabelArtistsResponse>({
+      url: labelEndpoints.ARTISTS(encodeURIComponent(slug)),
+      collection: 'artists',
+      service: 'label-page-roster',
+      pathFamily: '/labels/{slug}/artists',
+      notFoundIsAnswer: true,
+    }),
+    fetchListPayload<LabelReleasesResponse>({
+      url: labelEndpoints.RELEASES(encodeURIComponent(slug)),
+      collection: 'releases',
+      service: 'label-page-catalog',
+      pathFamily: '/labels/{slug}/releases',
+      notFoundIsAnswer: true,
+    }),
   ])
 
   // Keyed on the route slug, which is what `LabelDetail` hands all three hooks.

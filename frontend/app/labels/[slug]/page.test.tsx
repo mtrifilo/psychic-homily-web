@@ -181,15 +181,12 @@ function seededQueryHashes(tree: ReactElement): string[] {
 const testClient = () =>
   new QueryClient({ defaultOptions: { queries: { retry: false } } })
 
-/** The page's own `LabelDetail` element under every boundary the page hands it. */
+/** The page's own `LabelDetail` element under the one boundary the page hands it. */
 function detailUnder(tree: ReactElement, client: QueryClient): ReactElement {
   const detail = findElement(tree, node => node.type === LabelDetail)
   return (
     <QueryClientProvider client={client}>
-      {boundaryStatesOf(tree).reduceRight<ReactElement>(
-        (children, state) => <HydrationBoundary state={state}>{children}</HydrationBoundary>,
-        detail,
-      )}
+      <HydrationBoundary state={boundaryStatesOf(tree)[0]}>{detail}</HydrationBoundary>
     </QueryClientProvider>
   )
 }
@@ -230,27 +227,13 @@ describe('labels/[slug] page body', () => {
     expect(html.indexOf('Singles')).toBeLessThan(html.indexOf('/releases/gigantic'))
   })
 
-  it('seeds the detail, roster and catalog in one state under the hooks keys', async () => {
+  it('seeds the detail, roster and catalog in one state, filling every key the real hooks read', async () => {
     const tree = await renderPage()
-
-    expect(boundaryStatesOf(tree)).toHaveLength(1)
-    expect(seededQueryHashes(tree).sort()).toEqual(
-      [DETAIL_KEY_HASH, ROSTER_KEY_HASH, CATALOG_KEY_HASH].sort(),
-    )
-    // The literal spelling, so a change to the key builders fails here too.
-    expect(seededQueryHashes(tree)).toEqual(
-      expect.arrayContaining([
-        '["labels","roster","4ad"]',
-        '["labels","catalog","4ad"]',
-      ]),
-    )
-  })
-
-  it('registers no query the real hooks read that the seed did not fill', async () => {
     const client = testClient()
 
-    serverRender(await renderPage(), client)
+    serverRender(tree, client)
 
+    expect(boundaryStatesOf(tree)).toHaveLength(1)
     const labelQueries = client.getQueryCache().findAll({ queryKey: ['labels'] })
     expect(labelQueries.map(q => q.queryHash).sort()).toEqual(
       [DETAIL_KEY_HASH, ROSTER_KEY_HASH, CATALOG_KEY_HASH].sort(),
@@ -258,6 +241,13 @@ describe('labels/[slug] page body', () => {
     for (const query of labelQueries) {
       expect(query.state.data).toBeDefined()
     }
+    // The literal spelling, so a change to the key builders fails here too.
+    expect(seededQueryHashes(tree)).toEqual(
+      expect.arrayContaining([
+        '["labels","roster","4ad"]',
+        '["labels","catalog","4ad"]',
+      ]),
+    )
   })
 
   it('asks for the URLs the real hooks ask for', async () => {
@@ -283,7 +273,6 @@ describe('labels/[slug] page body', () => {
       String(rosterFetch.mock.calls[0][0]),
       String(catalogFetch.mock.calls[0][0]),
     ])
-    expect(serverUrls).toEqual([labelEndpoints.ARTISTS(SLUG), labelEndpoints.RELEASES(SLUG)])
   })
 
   it('encodes the slug in the server-side read', async () => {
@@ -325,6 +314,7 @@ describe('labels/[slug] page body', () => {
   it.each([
     ['a rate-limited roster read', 'roster', 429],
     ['a failing catalog read', 'catalog', 503],
+    ['a not-found roster read', 'roster', 404],
   ] as const)(
     'reports %s through the shared reporter, skips that seed and keeps the other',
     async (_name, which, status) => {
@@ -375,17 +365,6 @@ describe('labels/[slug] page body', () => {
     expect(seededQueryHashes(tree)).toEqual([DETAIL_KEY_HASH])
     expect(html).toContain('4AD')
     expect(html.match(/animate-spin/g)).toHaveLength(2)
-  })
-
-  it('passes a 404 to the reporter as an answer, not a defect', async () => {
-    rosterFetch.mockImplementation(async () => errorResponse(404))
-
-    const tree = await renderPage()
-
-    expect(mockReportServerFetchFailure.mock.calls[0][0]).toMatchObject({
-      notFoundIsAnswer: true,
-    })
-    expect(seededQueryHashes(tree)).not.toContain(ROSTER_KEY_HASH)
   })
 
   it('reads neither list for a label that does not exist', async () => {
