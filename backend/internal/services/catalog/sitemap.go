@@ -548,21 +548,7 @@ func (s *SitemapService) Entries(ctx context.Context, family string) (*contracts
 	}
 
 	if want("shows") {
-		// Only approved shows are publicly reachable: GetShowHandler rejects
-		// every other status, so advertising them would fill the index with
-		// dead URLs. Grep ShowStatusApproved rather than trusting any single
-		// site — the reachability rule is enforced in many places and can drift.
-		//
-		// A nil shard is the whole family; the bucket predicate lives on the
-		// shard so the scope here stays the single-table projection
-		// entriesOmitting requires. A diet rule adds its own join, if any.
-		shows, err := s.entriesOmitting(
-			ctx,
-			shard.narrow(
-				s.db.Model(&catalogm.Show{}).Where("status = ?", catalogm.ShowStatusApproved),
-			),
-			shard, s.diet.pastShows(), rowLastmodSQL,
-		)
+		shows, err := s.showEntries(ctx, shard, nil)
 		if err != nil {
 			return nil, fmt.Errorf("failed to collect show sitemap entries: %w", err)
 		}
@@ -570,13 +556,7 @@ func (s *SitemapService) Entries(ctx context.Context, family string) (*contracts
 	}
 
 	if want("artists") {
-		// A nil shard is the whole family; the bucket predicate lives on the
-		// shard so the scope here stays the single-table projection
-		// entriesOmitting requires. A diet rule adds its own join, if any.
-		artists, err := s.entriesOmitting(
-			ctx, shard.narrow(s.db.Model(&catalogm.Artist{})),
-			shard, s.diet.idleArtists(), rowLastmodSQL,
-		)
+		artists, err := s.artistEntries(ctx, shard, nil)
 		if err != nil {
 			return nil, fmt.Errorf("failed to collect artist sitemap entries: %w", err)
 		}
@@ -584,7 +564,7 @@ func (s *SitemapService) Entries(ctx context.Context, family string) (*contracts
 	}
 
 	if want("venues") {
-		venues, err := s.entriesFor(ctx, s.db.Model(&catalogm.Venue{}), rowLastmodSQL)
+		venues, err := s.venueEntries(ctx, nil)
 		if err != nil {
 			return nil, fmt.Errorf("failed to collect venue sitemap entries: %w", err)
 		}
@@ -650,13 +630,7 @@ func (s *SitemapService) Entries(ctx context.Context, family string) (*contracts
 	}
 
 	if want("releases") {
-		// A nil shard is the whole family; the bucket predicate lives on the
-		// shard so the scope here stays the single-table projection
-		// entriesOmitting requires. A diet rule adds its own join, if any.
-		releases, err := s.entriesOmitting(
-			ctx, shard.narrow(s.db.Model(&catalogm.Release{})),
-			shard, s.diet.unlinkedReleases(), releaseLastmodSQL,
-		)
+		releases, err := s.releaseEntries(ctx, shard, nil)
 		if err != nil {
 			return nil, fmt.Errorf("failed to collect release sitemap entries: %w", err)
 		}
@@ -683,6 +657,90 @@ func (s *SitemapService) Entries(ctx context.Context, family string) (*contracts
 	}
 
 	return out, nil
+}
+
+// EntriesChangedSince returns the shows, artists, venues and releases entries
+// that Entries advertises and whose lastmod is later than since. Every other
+// family of the result is an empty slice.
+//
+// Each family is the same scope, diet rule and lastmod expression Entries uses
+// for it, with one predicate added: lastmod > since. So a URL is returned
+// exactly when the sitemap would announce it with a lastmod after since.
+func (s *SitemapService) EntriesChangedSince(ctx context.Context, since time.Time) (*contracts.SitemapEntries, error) {
+	if s.db == nil {
+		return nil, fmt.Errorf("database not initialized")
+	}
+	out := &contracts.SitemapEntries{
+		Shows:        []contracts.SitemapEntry{},
+		Artists:      []contracts.SitemapEntry{},
+		Venues:       []contracts.SitemapEntry{},
+		VenueYears:   []contracts.SitemapEntry{},
+		ShowsMonths:  []contracts.SitemapEntry{},
+		VenueCities:  []contracts.SitemapEntry{},
+		Scenes:       []contracts.SitemapEntry{},
+		SceneWeeks:   []contracts.SitemapEntry{},
+		ScenePeriods: []contracts.SitemapEntry{},
+		Labels:       []contracts.SitemapEntry{},
+		Releases:     []contracts.SitemapEntry{},
+		Festivals:    []contracts.SitemapEntry{},
+		Tags:         []contracts.SitemapEntry{},
+	}
+	var err error
+	if out.Shows, err = s.showEntries(ctx, nil, &since); err != nil {
+		return nil, fmt.Errorf("failed to collect changed show entries: %w", err)
+	}
+	if out.Artists, err = s.artistEntries(ctx, nil, &since); err != nil {
+		return nil, fmt.Errorf("failed to collect changed artist entries: %w", err)
+	}
+	if out.Venues, err = s.venueEntries(ctx, &since); err != nil {
+		return nil, fmt.Errorf("failed to collect changed venue entries: %w", err)
+	}
+	if out.Releases, err = s.releaseEntries(ctx, nil, &since); err != nil {
+		return nil, fmt.Errorf("failed to collect changed release entries: %w", err)
+	}
+	return out, nil
+}
+
+// showEntries is the shows family. Only approved shows are publicly
+// reachable: GetShowHandler rejects every other status, so advertising them
+// would fill the index with dead URLs. Grep ShowStatusApproved rather than
+// trusting any single site; the reachability rule is enforced in many places
+// and can drift.
+//
+// In each family helper a nil shard is the whole family, and the bucket
+// predicate lives on the shard so the scope stays the single-table projection
+// entriesOmitting requires; a diet rule adds its own join, if any. A nil since
+// is every advertised row; otherwise only rows whose lastmod is later.
+func (s *SitemapService) showEntries(ctx context.Context, shard *sitemapShard, since *time.Time) ([]contracts.SitemapEntry, error) {
+	return s.entriesOmitting(
+		ctx,
+		shard.narrow(
+			s.db.Model(&catalogm.Show{}).Where("status = ?", catalogm.ShowStatusApproved),
+		),
+		shard, s.diet.pastShows(), rowLastmodSQL, since,
+	)
+}
+
+// artistEntries is the artists family; see showEntries for shard and since.
+func (s *SitemapService) artistEntries(ctx context.Context, shard *sitemapShard, since *time.Time) ([]contracts.SitemapEntry, error) {
+	return s.entriesOmitting(
+		ctx, shard.narrow(s.db.Model(&catalogm.Artist{})),
+		shard, s.diet.idleArtists(), rowLastmodSQL, since,
+	)
+}
+
+// venueEntries is the venues family, which is not sub-sharded and has no diet
+// rule; see showEntries for since.
+func (s *SitemapService) venueEntries(ctx context.Context, since *time.Time) ([]contracts.SitemapEntry, error) {
+	return s.entriesOmitting(ctx, s.db.Model(&catalogm.Venue{}), nil, sitemapOmission{}, rowLastmodSQL, since)
+}
+
+// releaseEntries is the releases family; see showEntries for shard and since.
+func (s *SitemapService) releaseEntries(ctx context.Context, shard *sitemapShard, since *time.Time) ([]contracts.SitemapEntry, error) {
+	return s.entriesOmitting(
+		ctx, shard.narrow(s.db.Model(&catalogm.Release{})),
+		shard, s.diet.unlinkedReleases(), releaseLastmodSQL, since,
+	)
 }
 
 // rowLastmodSQL is the row's own updated_at, the lastmod of every family that
@@ -767,13 +825,21 @@ func advertisableRows(ctx context.Context, scope *gorm.DB) *gorm.DB {
 // the sum, over the family_shards distinct shard ids, of each shard's latest
 // line. A line with an empty shard answered a whole-family request, is a
 // total on its own, and carries family_shards 1.
+//
+// A non-nil since keeps only rows whose lastmod is later than it, and such a
+// call logs no sitemap_diet_omitted line: its counts cover a subset of the
+// family, so a line from it would read as a family total it is not.
 func (s *SitemapService) entriesOmitting(
 	ctx context.Context,
 	scope *gorm.DB,
 	shard *sitemapShard,
 	omission sitemapOmission,
 	lastmodSQL string,
+	since *time.Time,
 ) ([]contracts.SitemapEntry, error) {
+	if since != nil {
+		scope = scope.Where("("+lastmodSQL+") > ?", *since)
+	}
 	if omission.condition == "" {
 		return s.entriesFor(ctx, scope, lastmodSQL)
 	}
@@ -803,6 +869,9 @@ func (s *SitemapService) entriesOmitting(
 		entries = append(entries, r.SitemapEntry)
 	}
 
+	if since != nil {
+		return entries, nil
+	}
 	logger.FromContext(ctx).Info("sitemap_diet_omitted",
 		"rule", omission.rule,
 		"family", omission.family,
