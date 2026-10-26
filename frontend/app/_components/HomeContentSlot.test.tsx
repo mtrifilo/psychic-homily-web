@@ -250,6 +250,45 @@ describe('HomeContentSlot, anonymous viewer', () => {
     expect(client.getQueryCache().getAll()).toEqual([])
   })
 
+  // The band copies the chips block's box classes rather than sharing them, so
+  // this pins the copies to the real block: a change to the trigger's padding,
+  // the column gap, the row's text size or the wrapper margin fails here.
+  it('builds the chips band from the same box classes as the real chips block', async () => {
+    const boundary = listBoundaryOf(await renderSlot())
+    const parse = (html: string) => {
+      const host = document.createElement('div')
+      host.innerHTML = html
+      return host
+    }
+    const classes = (el: Element | null | undefined) =>
+      new Set((el?.getAttribute('class') ?? '').split(/\s+/).filter(Boolean))
+    const real = parse(serverRenderList(await renderSeededList()))
+    const band = parse(
+      renderToString((boundary.props as { fallback: ReactElement }).fallback),
+    ).querySelector('[data-testid="home-show-list-skeleton-chips"]')
+
+    const popular = real.querySelector('[data-testid="popular-cities"]')
+    const realBlock = popular?.closest('.mb-6')
+    const realColumn = realBlock?.firstElementChild
+    const trigger = real.querySelector('[data-testid="city-filter-combobox"]')
+    const bandColumn = band?.firstElementChild
+    const [bandTrigger, bandPopular] = [...(bandColumn?.children ?? [])]
+
+    expect(classes(band)).toContain('mb-6')
+    expect(classes(realBlock)).toContain('mb-6')
+    for (const c of ['flex', 'flex-col', 'gap-2']) {
+      expect(classes(realColumn)).toContain(c)
+      expect(classes(bandColumn)).toContain(c)
+    }
+    for (const c of ['py-1.5', 'text-sm', 'border']) {
+      expect(classes(trigger)).toContain(c)
+      expect(classes(bandTrigger)).toContain(c)
+    }
+    expect(classes(popular)).toContain('text-xs')
+    expect(classes(popular)).toContain('gap-1')
+    expect(classes(bandPopular)).toContain('text-xs')
+  })
+
   it('replaces the placeholder rows with the seeded list once it resolves', async () => {
     let releaseRows: () => void = () => {}
     upcomingFetch.mockImplementationOnce(

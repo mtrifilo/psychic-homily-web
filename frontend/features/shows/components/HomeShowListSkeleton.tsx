@@ -13,9 +13,10 @@ import { HOME_SHOW_LIMIT } from '../api'
  *
  * The band mirrors the chips block's box rather than its content: the same
  * `mb-6` and `flex flex-col gap-2`, one line box sized like the filter trigger
- * (`text-sm`, `py-1.5`, a 1px border) and one `text-xs` line for "Popular:".
- * It is one popular line tall; where that line wraps (narrow viewports, long
- * city names) the real block is taller by a line per wrap.
+ * (`text-sm`, `py-1.5`, a 1px border), and a slot for the "Popular:" row, whose
+ * five city labels wrap: three `text-xs` lines (with the row's 4px gaps) below
+ * `sm`, two from `sm`, one from `md`. The line counts follow the five most
+ * populous cities' labels; other labels wrap at other widths.
  *
  * `h-[90px]` is the height of a `ShowCard` with one title line and no price or
  * support line: from `sm` with a one-line venue, below `sm` with a venue line
@@ -33,7 +34,7 @@ export function HomeShowListSkeleton() {
       <div className="mb-6" data-testid="home-show-list-skeleton-chips">
         <div className="flex flex-col gap-2">
           <div className="box-content h-lh border border-transparent py-1.5 text-sm" />
-          <div className="h-lh text-xs" />
+          <div className="h-[calc(3lh+0.5rem)] text-xs sm:h-[calc(2lh+0.25rem)] md:h-lh" />
         </div>
       </div>
       <div className="flex flex-col gap-3">
