@@ -47,6 +47,7 @@ describe('withoutBannerParams', () => {
     ['reason=OAUTH_LINK_REAUTH_REQUIRED', 'reason=OAUTH_LINK_REAUTH_REQUIRED'],
     ['reason=something_else', ''],
     ['returnTo=%2Fshows', 'returnTo=%2Fshows'],
+    ['tab=signup&error=x', 'tab=signup'],
     ['', ''],
   ])('%s -> %s', (query, want) => {
     expect(withoutBannerParams(query)).toBe(want)

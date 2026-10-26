@@ -12,6 +12,9 @@ import {
   currentLocationReturnTo,
   isReauthReason,
   hasGatedIntent,
+  hasSignupTab,
+  buildSignupTabAuthHref,
+  asksForCreateAccount,
   isAccountRecoverableRefusal,
   REAUTH_REASON_CREDENTIAL_MINT,
   REAUTH_REASON_OAUTH_LINK,
@@ -192,6 +195,67 @@ describe('buildGatedAuthHref', () => {
 
   it('carries the intent alone when there is no destination worth keeping', () => {
     expect(buildGatedAuthHref('/', 'follow')).toBe('/auth?intent=follow')
+  })
+})
+
+// The home hero's sign-up nudge. The page reads the tab back with
+// hasSignupTab, so the href built here has to carry the one value it accepts.
+describe('buildSignupTabAuthHref', () => {
+  it('asks for the Create account tab and carries no returnTo', () => {
+    expect(buildSignupTabAuthHref()).toBe('/auth?tab=signup')
+    const params = new URL(buildSignupTabAuthHref(), 'https://x').searchParams
+    expect(hasSignupTab(params)).toBe(true)
+  })
+})
+
+describe('asksForCreateAccount', () => {
+  it('accepts a listed intent or the signup tab', () => {
+    expect(asksForCreateAccount(new URLSearchParams('intent=save'))).toBe(true)
+    expect(asksForCreateAccount(new URLSearchParams('tab=signup'))).toBe(true)
+    expect(
+      asksForCreateAccount(new URLSearchParams('intent=bogus&tab=signup'))
+    ).toBe(true)
+    expect(
+      asksForCreateAccount(new URLSearchParams('intent=save&tab=bogus'))
+    ).toBe(true)
+  })
+
+  it('rejects any other arrival', () => {
+    for (const query of ['', 'returnTo=%2Fshows', 'intent=bogus', 'tab=bogus']) {
+      expect(asksForCreateAccount(new URLSearchParams(query))).toBe(false)
+    }
+  })
+})
+
+describe('hasSignupTab', () => {
+  it('accepts the signup tab alongside other parameters', () => {
+    expect(hasSignupTab(new URLSearchParams('tab=signup'))).toBe(true)
+    expect(
+      hasSignupTab(new URLSearchParams('returnTo=%2Fshows&tab=signup'))
+    ).toBe(true)
+  })
+
+  it('rejects an absent, unknown, or near-miss value', () => {
+    for (const query of [
+      '',
+      'returnTo=%2Fshows',
+      'tab=',
+      'tab=bogus',
+      'tab=login',
+      'tab=settings',
+      'tab=SIGNUP',
+      'tab=%20signup',
+      'tab=signup%20',
+      'tab=signup,login',
+      'tab=%3Cscript%3E',
+      'tab=constructor',
+      'intent=signup',
+      'Tab=signup',
+      // The first value is the one the page reads.
+      'tab=bogus&tab=signup',
+    ]) {
+      expect(hasSignupTab(new URLSearchParams(query))).toBe(false)
+    }
   })
 })
 
