@@ -697,6 +697,21 @@ NODE_ENV=production docker compose up
 | `POSTGRES_PORT`        | `5432`                      | Database port                            |
 | `CORS_ALLOWED_ORIGINS` | `https://psychichomily.com` | Comma-separated CORS origins             |
 | `LOG_LEVEL`            | `debug`                     | Logging level (debug, info, warn, error) |
+| `SERVER_READ_SECRET`   | unset (exemption off)       | Shared secret the frontend's server-side reads send as `X-Server-Read-Secret`. A matching GET or HEAD skips the anonymous per-IP public-read limiter and passes a coarse 2,000 a minute per-IP ceiling instead; it grants no identity. Accepts `new,old` during rotation. Values under 32 visible-ASCII characters, or containing a comma inside a value, are refused at startup. |
+| `SITEMAP_PAST_SHOW_MAX_AGE_DAYS` | unset (off)       | N in 1..1,000,000: the shows sitemap omits approved shows whose venue-local date is more than N days before the venue-local today. Unset, 0, negative or malformed = off (a set-but-invalid value logs a warning). |
+| `SITEMAP_OMIT_UNLINKED_RELEASES` | unset (off)       | `1` only: the releases sitemap omits releases with no `release_external_links` row. |
+| `SITEMAP_OMIT_IDLE_ARTISTS`      | unset (off)       | `1` only: the artists sitemap omits artists with no `show_artists` row and no `artist_releases` row. |
+
+`SERVER_READ_SECRET` must hold the same value on this service and on the
+frontend's server-side environment (Vercel, never a `NEXT_PUBLIC_` variable),
+generated with `openssl rand -hex 32`. Set it on the backend first as
+`new,old` when rotating, switch the frontend to `new`, then set `new` alone;
+rotate off-peak because every cached server fetch starts cold once. On boot
+the server logs `public_read_server_read_exemption enabled=true` (or
+`enabled=false` with the reason), and rate-limit sample lines carry
+`server_read_exempt=true` for exempt reads. The secret itself is never
+logged. The three `SITEMAP_*` flags are read once at process start and are
+enabled only in their own promote so the effect can be attributed.
 
 ### Background Service Env Flags
 

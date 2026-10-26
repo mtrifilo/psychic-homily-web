@@ -73,6 +73,7 @@ Set these in **Project Settings → Environment Variables**:
 | `NEXT_PUBLIC_OAUTH_BACKEND_URL` | Optional. `https://api.psychichomily.com` |
 | `ANTHROPIC_API_KEY` | Your API key |
 | `INTERNAL_API_SECRET` | Generate a secure secret (>=32 chars) |
+| `SERVER_READ_SECRET` | Same value as the Railway backend's `SERVER_READ_SECRET` (>=32 chars, `openssl rand -hex 32`); server-only, never `NEXT_PUBLIC_` |
 
 `NEXT_PUBLIC_OAUTH_BACKEND_URL` is the origin the Google sign-in button
 redirects to. It defaults to `NEXT_PUBLIC_API_URL`, so leaving it unset is
@@ -92,6 +93,17 @@ across all three is simply the easiest way to keep them in step). If it is
 unset the endpoint answers 401 to every caller and ingested changes stay cached
 until their revalidate window expires.
 
+`SERVER_READ_SECRET` is sent as `X-Server-Read-Secret` on every server-side
+read the frontend makes to the Go backend (page renders, `proxy.ts` existence
+checks, the share-card route, sitemap shards). A matching value lets those
+reads skip the anonymous per-IP public-read limiter that they otherwise share
+with every scraper behind the same Vercel egress address; a missing or wrong
+value falls back to the anonymous limits (fail closed), so a render can still
+be refused with a 429 and serve a real page as not-found. It must equal the
+backend's value; the backend accepts `new,old` while rotating. After a deploy,
+confirm the backend logs `public_read_server_read_exemption enabled=true` and
+that `server_read_exempt=true` appears on its rate-limit sample lines.
+
 #### Preview Environment (for staging via `main` branch)
 
 | Variable | Value |
@@ -101,6 +113,7 @@ until their revalidate window expires.
 | `NEXT_PUBLIC_OAUTH_BACKEND_URL` | Optional, as above. Same value as `NEXT_PUBLIC_API_URL` |
 | `ANTHROPIC_API_KEY` | Your API key |
 | `INTERNAL_API_SECRET` | Same or different secret, but it must be SET, and `ph` must export the matching value when targeting this deployment |
+| `SERVER_READ_SECRET` | Same value as the stage backend's `SERVER_READ_SECRET`; without it the exemption is off and server renders share the anonymous public-read buckets |
 
 ### 4. Custom Domains (Vercel Dashboard)
 
