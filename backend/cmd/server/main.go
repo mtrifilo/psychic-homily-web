@@ -633,8 +633,10 @@ func main() {
 	// PSY-1606's seven silently-dead sweeps in days instead of weeks, so it should
 	// require a deliberate act to switch off, never an omission.
 	//
-	// It watches every loop started above that has an interval of an hour or more
-	// (shorter loops keep no run state, so they are outside its coverage).
+	// It watches every loop started above that keeps run state: those with an
+	// interval of an hour or more, and the IndexNow pinger, which opts in with an
+	// explicit store. Other shorter loops keep no run state, so they are outside
+	// its coverage.
 	//
 	// Switching a sweep off with its DISABLE_*/ENABLE_* flag does NOT silence it
 	// immediately if it has run in this environment before: the row survives with

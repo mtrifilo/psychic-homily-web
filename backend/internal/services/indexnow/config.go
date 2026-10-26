@@ -11,6 +11,8 @@ import (
 	"regexp"
 	"strings"
 	"time"
+
+	"psychic-homily-backend/internal/testenv"
 )
 
 const (
@@ -27,10 +29,14 @@ const (
 	DisableEnvVar = "DISABLE_INDEXNOW_PINGS"
 
 	// EndpointOverrideEnvVar points the pinger at a loopback stub instead of
-	// the IndexNow endpoint. A value whose host is not loopback disables the
+	// the IndexNow endpoint. It is honoured only in a test, ci or development
+	// ENVIRONMENT and only for a loopback host; any other value disables the
 	// pinger, so no setting can send a submission anywhere but submitEndpoint
-	// or this machine.
+	// or this machine, and production always posts to submitEndpoint.
 	EndpointOverrideEnvVar = "INDEXNOW_ENDPOINT_OVERRIDE"
+
+	// environmentEnvVar names the deployment; see testenv.AllowedEnvironments.
+	environmentEnvVar = "ENVIRONMENT"
 
 	// submitEndpoint is the shared IndexNow endpoint, which forwards every
 	// submission to all participating search engines. It is a constant: the
@@ -70,7 +76,8 @@ func (c Config) KeyLocation() string {
 
 // ConfigFromEnv reads the pinger's configuration. It reports enabled false,
 // with the reason, when the key is unset or malformed, when frontendURL does
-// not name an http(s) origin, or when the endpoint override is not loopback.
+// not name an http(s) origin, or when the endpoint override is set outside a
+// test environment or to a host that is not loopback.
 func ConfigFromEnv(frontendURL string, getenv func(string) string) (cfg Config, enabled bool, reason string) {
 	key := strings.TrimSpace(getenv(KeyEnvVar))
 	if key == "" {
@@ -87,6 +94,9 @@ func ConfigFromEnv(frontendURL string, getenv func(string) string) (cfg Config, 
 
 	endpoint := submitEndpoint
 	if override := strings.TrimSpace(getenv(EndpointOverrideEnvVar)); override != "" {
+		if !testenv.IsAllowedEnvironment(getenv(environmentEnvVar)) {
+			return Config{}, false, EndpointOverrideEnvVar + " is set outside a test, ci or development ENVIRONMENT"
+		}
 		if !isLoopbackURL(override) {
 			return Config{}, false, EndpointOverrideEnvVar + " is set to a host that is not loopback"
 		}

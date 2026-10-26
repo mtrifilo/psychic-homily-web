@@ -15,8 +15,12 @@ import (
 // no successful run lasted longer: its start is at most runLease before its
 // completion, and every row changed during it has a lastmod later than the
 // mark. The same overlap absorbs app-to-database clock skew, since lastmod is
-// stamped on the app clock and last_success_at on the database clock. The cost is that a URL changed in the overlap is submitted again by
-// the next run; IndexNow accepts a resubmission.
+// stamped on the app clock and last_success_at on the database clock.
+//
+// The cost: successful runs complete about one interval apart, so a URL stays
+// later than the mark for about the next runLease / interval + 1 runs; with a
+// 30-minute lease and a 10-minute interval each changed URL is submitted three
+// or four times over about 40 minutes. IndexNow accepts a resubmission.
 //
 // Advance writes nothing: RunScheduledLoop stamps last_success_at when a cycle
 // reports no error, and only then.

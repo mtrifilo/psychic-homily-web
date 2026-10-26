@@ -3,9 +3,11 @@ package indexnow
 import (
 	"context"
 	"errors"
+	"net/http"
 	"testing"
 	"time"
 
+	"psychic-homily-backend/internal/services/contracts"
 	"psychic-homily-backend/internal/services/shared"
 	"psychic-homily-backend/internal/testutil"
 )
@@ -81,5 +83,99 @@ func TestRunRowMarksFollowTheLoopsLastSuccess(t *testing.T) {
 	cycle(errors.New("indexnow rejected the submission: HTTP 403"))
 	if again, _ := begin("after a later failure"); !again.Equal(mark) {
 		t.Fatalf("a failed run moved the mark from %v to %v", mark, again)
+	}
+}
+
+// The pinger's own cycles, run by the shared loop against the real run store,
+// move the mark: a first run records one without posting, a rejected
+// submission leaves it and puts the counts in last_error, and an accepted one
+// moves it.
+func TestPingerCyclesMoveTheMarkOnlyOnSuccess(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test in short mode")
+	}
+	td := testutil.SetupTestPostgres(t)
+	defer td.Cleanup()
+	shared.SetDefaultRunStore(shared.NewGormRunStore(td.DB))
+	t.Cleanup(func() { shared.SetDefaultRunStore(nil) })
+
+	s := newStub(t, http.StatusOK)
+	source := &fixedSource{entries: &contracts.SitemapEntries{Shows: entriesOf("a-show")}}
+	p := testPinger(t, s.server.URL, source, runRowMarks{db: td.DB})
+
+	type runRow struct {
+		RunCount      int64
+		LastOutcome   *string
+		LastSuccessAt *time.Time
+		LastError     *string
+	}
+	readRow := func() runRow {
+		t.Helper()
+		var row runRow
+		if err := td.DB.Raw(
+			"SELECT run_count, last_outcome, last_success_at, last_error FROM background_service_runs WHERE name = ?",
+			LoopName,
+		).Scan(&row).Error; err != nil {
+			t.Fatalf("read run row: %v", err)
+		}
+		return row
+	}
+	// oneCycle runs the loop until it completes one boot cycle, then stops it.
+	oneCycle := func(status int) runRow {
+		t.Helper()
+		s.mu.Lock()
+		s.statuses = []int{status}
+		s.bodies = nil
+		s.mu.Unlock()
+		before := readRow().RunCount
+		cfg := p.loopConfig()
+		if cfg.Store == nil {
+			t.Fatal("the loop config carries no run store, so the mark could never move")
+		}
+		cfg.RunAtBoot = true
+		cfg.StopCh = nil
+		ctx, cancel := context.WithCancel(context.Background())
+		done := make(chan struct{})
+		go func() {
+			defer close(done)
+			shared.RunScheduledLoop(ctx, cfg, p.runCycle)
+		}()
+		deadline := time.Now().Add(10 * time.Second)
+		for readRow().RunCount == before {
+			if time.Now().After(deadline) {
+				cancel()
+				<-done
+				t.Fatal("the cycle did not complete")
+			}
+			time.Sleep(20 * time.Millisecond)
+		}
+		cancel()
+		<-done
+		return readRow()
+	}
+
+	first := oneCycle(http.StatusOK)
+	if first.LastSuccessAt == nil || len(s.received()) != 0 {
+		t.Fatalf("first run: last_success_at %v, %d posts; want a mark and no post", first.LastSuccessAt, len(s.received()))
+	}
+
+	rejected := oneCycle(http.StatusForbidden)
+	if len(s.received()) != 1 {
+		t.Fatalf("rejected run posted %d times, want 1", len(s.received()))
+	}
+	if rejected.LastOutcome == nil || *rejected.LastOutcome != shared.RunOutcomeError {
+		t.Fatalf("rejected run outcome = %v, want error", rejected.LastOutcome)
+	}
+	if !rejected.LastSuccessAt.Equal(*first.LastSuccessAt) {
+		t.Fatalf("a rejected run moved last_success_at from %v to %v", first.LastSuccessAt, rejected.LastSuccessAt)
+	}
+	wantError := "indexnow rejected the submission: HTTP 403 (selected 1, submitted 0, batches 1, last status 403)"
+	if rejected.LastError == nil || *rejected.LastError != wantError {
+		t.Fatalf("last_error = %v, want %q", rejected.LastError, wantError)
+	}
+
+	accepted := oneCycle(http.StatusAccepted)
+	if len(s.received()) != 1 || !accepted.LastSuccessAt.After(*first.LastSuccessAt) {
+		t.Fatalf("accepted run: %d posts, last_success_at %v (was %v)", len(s.received()), accepted.LastSuccessAt, first.LastSuccessAt)
 	}
 }

@@ -110,6 +110,8 @@ func testPinger(t *testing.T, endpoint string, source ChangeSource, marks markSt
 			return testKey
 		case EndpointOverrideEnvVar:
 			return endpoint
+		case environmentEnvVar:
+			return "test"
 		}
 		return ""
 	})
@@ -145,11 +147,11 @@ func TestConfigFromEnv(t *testing.T) {
 		{name: "frontend URL without a scheme", frontendURL: "psychichomily.com", vars: map[string]string{KeyEnvVar: testKey}},
 		{
 			name: "override on a public host", frontendURL: "https://psychichomily.com",
-			vars: map[string]string{KeyEnvVar: testKey, EndpointOverrideEnvVar: "https://evil.test/indexnow"},
+			vars: map[string]string{KeyEnvVar: testKey, environmentEnvVar: "test", EndpointOverrideEnvVar: "https://evil.test/indexnow"},
 		},
 		{
 			name: "override on a host that only starts like loopback", frontendURL: "https://psychichomily.com",
-			vars: map[string]string{KeyEnvVar: testKey, EndpointOverrideEnvVar: "http://localhost.evil.test/indexnow"},
+			vars: map[string]string{KeyEnvVar: testKey, environmentEnvVar: "test", EndpointOverrideEnvVar: "http://localhost.evil.test/indexnow"},
 		},
 		{
 			name: "apex", frontendURL: "https://psychichomily.com", vars: map[string]string{KeyEnvVar: testKey},
@@ -165,8 +167,16 @@ func TestConfigFromEnv(t *testing.T) {
 		},
 		{
 			name: "loopback override", frontendURL: "http://localhost:3000",
-			vars:    map[string]string{KeyEnvVar: testKey, EndpointOverrideEnvVar: "http://127.0.0.1:9999/indexnow"},
+			vars:    map[string]string{KeyEnvVar: testKey, environmentEnvVar: "test", EndpointOverrideEnvVar: "http://127.0.0.1:9999/indexnow"},
 			enabled: true, host: "localhost:3000", endpoint: "http://127.0.0.1:9999/indexnow",
+		},
+		{
+			name: "loopback override in production", frontendURL: "https://www.psychichomily.com",
+			vars: map[string]string{KeyEnvVar: testKey, environmentEnvVar: "production", EndpointOverrideEnvVar: "http://127.0.0.1:9999/indexnow"},
+		},
+		{
+			name: "loopback override with ENVIRONMENT unset", frontendURL: "https://psychichomily.com",
+			vars: map[string]string{KeyEnvVar: testKey, EndpointOverrideEnvVar: "http://127.0.0.1:9999/indexnow"},
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -365,17 +375,29 @@ func TestA5xxThatRecoversOnRetrySucceeds(t *testing.T) {
 	}
 }
 
+// failingTransport fails every request without a response and counts them.
+type failingTransport struct{ attempts int }
+
+func (f *failingTransport) RoundTrip(*http.Request) (*http.Response, error) {
+	f.attempts++
+	return nil, errors.New("connection reset by peer")
+}
+
 func TestANetworkFailureIsRetriedOnceAndLeavesTheMark(t *testing.T) {
 	s := newStub(t, http.StatusOK)
-	endpoint := s.server.URL
-	s.server.Close()
 	marks := &memoryMarks{now: startAt, mark: markAt, hasMark: true}
 	source := &fixedSource{entries: &contracts.SitemapEntries{Shows: entriesOf("a-show")}}
-	stats, err := testPinger(t, endpoint, source, marks).run(context.Background())
+	p := testPinger(t, s.server.URL, source, marks)
+	transport := &failingTransport{}
+	p.submitter.client.Transport = transport
+	stats, err := p.run(context.Background())
 	if err == nil {
-		t.Fatal("run succeeded against a closed server")
+		t.Fatal("run succeeded with every request failing")
 	}
-	if stats.status != 0 || marks.advances != 0 {
+	if transport.attempts != 2 {
+		t.Errorf("attempts = %d, want the request and one retry", transport.attempts)
+	}
+	if stats.status != 0 || stats.submitted != 0 || marks.advances != 0 {
 		t.Errorf("stats %+v, advances %d", stats, marks.advances)
 	}
 }
