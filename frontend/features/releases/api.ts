@@ -7,6 +7,7 @@
  */
 
 import { API_BASE_URL } from '@/lib/api-base'
+import { unpadNumericId } from '@/lib/utils/unpadNumericId'
 
 // ============================================================================
 // Endpoints
@@ -36,6 +37,20 @@ export const releaseEndpoints = {
     `${API_BASE_URL}/releases/${releaseId}/saves`,
   SAVE_COUNTS_BATCH: `${API_BASE_URL}/releases/saves/batch`,
 } as const
+
+/**
+ * The server-side URL of an artist's discography, by route slug: the endpoint
+ * `useArtistReleases` reads for that slug, which it calls with no query
+ * parameters. The artist page tests compare the two.
+ * Encodes the slug: route params arrive decoded, and a bare `%2F` or `%3F`
+ * would re-point this server-side fetch at another backend path. A padded
+ * numeric id is unpadded first (`unpadNumericId`).
+ */
+export function artistReleasesUrl(artistSlug: string): string {
+  return releaseEndpoints.ARTIST_RELEASES(
+    encodeURIComponent(unpadNumericId(artistSlug))
+  )
+}
 
 // ============================================================================
 // Query Keys

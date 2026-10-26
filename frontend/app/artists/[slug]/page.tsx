@@ -6,10 +6,12 @@ import * as Sentry from '@sentry/nextjs'
 import { Loader2 } from 'lucide-react'
 import { HydrationBoundary } from '@tanstack/react-query'
 import type { Artist, ArtistShowsResponse } from '@/features/artists/types'
+import type { ArtistReleasesResponse } from '@/features/releases/types'
 import {
   ARTIST_UPCOMING_SHOWS_REQUEST,
   artistUpcomingShowsUrl,
 } from '@/features/artists/api'
+import { artistReleasesUrl } from '@/features/releases/api'
 import { CURRENT_PERIOD_REVALIDATE } from '@/features/scenes/scenePeriodApi'
 import { fetchListPayload } from '@/lib/ssr/fetchListPayload'
 import { withoutPassedShows } from '@/lib/ssr/withoutPassedShows'
@@ -20,7 +22,11 @@ import { API_BASE_URL } from '@/lib/api-base'
 import { reportServerFetchFailure } from '@/lib/ssr/reportServerFetchFailure'
 import { serverReadHeaders } from '@/lib/ssr/serverReadHeaders'
 import { queryKeys } from '@/lib/queryClient'
-import { prefetchEntity, seedFirstScreen } from '@/lib/query-hydration'
+import {
+  prefetchEntity,
+  seedFirstScreen,
+  type QuerySeed,
+} from '@/lib/query-hydration'
 
 // Dynamic-imported from the component FILE (never the `@/features/artists` barrel)
 // to evict ArtistDetail.tsx (~40 KB raw) from Turbopack's global shared client
@@ -121,12 +127,12 @@ export default async function ArtistPage({ params }: ArtistPageProps) {
     notFound()
   }
 
-  // Started before the artist is awaited so the two reads overlap. It resolves
-  // to null rather than rejecting, so leaving it in flight through `notFound()`
-  // cannot raise an unhandled rejection. Revalidated every
-  // `CURRENT_PERIOD_REVALIDATE` because each row carries cancelled and sold-out
-  // state; that window does not bound the age of what a render receives (see
-  // `withoutPassedShows` below).
+  // Both list reads start before the artist is awaited so the three reads
+  // overlap. Each resolves to null rather than rejecting, so leaving them in
+  // flight through `notFound()` cannot raise an unhandled rejection. The shows
+  // read is revalidated every `CURRENT_PERIOD_REVALIDATE` because each row
+  // carries cancelled and sold-out state; that window does not bound the age of
+  // what a render receives (see `withoutPassedShows` below).
   const upcomingShowsPromise = fetchListPayload<ArtistShowsResponse>({
     url: artistUpcomingShowsUrl(slug),
     collection: 'shows',
@@ -135,44 +141,61 @@ export default async function ArtistPage({ params }: ArtistPageProps) {
     notFoundIsAnswer: true,
     revalidateSeconds: CURRENT_PERIOD_REVALIDATE,
   })
+  const releasesPromise = fetchListPayload<ArtistReleasesResponse>({
+    url: artistReleasesUrl(slug),
+    collection: 'releases',
+    service: 'artist-page-releases',
+    pathFamily: '/artists/{slug}/releases',
+    notFoundIsAnswer: true,
+  })
   const artistData = await getArtist(slug)
 
   if (!artistData) {
     notFound()
   }
 
-  const upcomingShows = await upcomingShowsPromise
+  const [upcomingShows, releases] = await Promise.all([
+    upcomingShowsPromise,
+    releasesPromise,
+  ])
 
   const dehydratedState = await prefetchEntity(
     queryKeys.artists.detail(slug),
     artistData,
   )
 
-  // The upcoming rows travel by cache KEY because `ArtistDetail` renders
-  // `ArtistShowsList` with no rows prop: the key is the NUMERIC id that list
-  // passes to `useArtistShows`, and `ARTIST_UPCOMING_SHOWS_REQUEST` is the one
-  // spelling of the rest of it.
+  // Both lists travel by cache KEY because `ArtistDetail` renders them with no
+  // rows prop. The upcoming key is the NUMERIC id `ArtistShowsList` passes to
+  // `useArtistShows`, and `ARTIST_UPCOMING_SHOWS_REQUEST` is the one spelling of
+  // the rest of it. The discography key is the route slug, which `ArtistDetail`
+  // passes unchanged to `useArtistReleases`; that hook sends no parameters, so
+  // its one response is the whole discography.
   //
   // Stamped stale (`seedFirstScreen`), unlike the detail above: the rows paint
   // from the server and the browser then re-asks the live endpoint on mount,
-  // so a Data Cache entry older than a show mutation is corrected after paint,
-  // and a stale stamp never overwrites a fresher entry the client already holds.
-  // Rows that have provably left the upcoming window since the read are dropped
-  // (`withoutPassedShows`). No seed when the read failed or answered for another
-  // artist; the list then fetches for itself behind its loader.
-  const upcomingShowsState = await seedFirstScreen(
-    upcomingShows?.artist_id === artistData.id
-      ? [
-          {
-            queryKey: queryKeys.artists.showsPage(
-              artistData.id,
-              ARTIST_UPCOMING_SHOWS_REQUEST,
-            ),
-            data: withoutPassedShows(upcomingShows),
-          },
-        ]
-      : [],
-  )
+  // so a Data Cache entry older than a mutation is corrected after paint, and
+  // a stale stamp never overwrites a fresher entry the client already holds.
+  // Upcoming rows that have provably left the upcoming window since the read
+  // are dropped (`withoutPassedShows`). A list gets no seed when its read
+  // failed, and the upcoming list none when it answered for another artist;
+  // that list then fetches for itself behind its loader.
+  const listSeeds: QuerySeed[] = []
+  if (upcomingShows?.artist_id === artistData.id) {
+    listSeeds.push({
+      queryKey: queryKeys.artists.showsPage(
+        artistData.id,
+        ARTIST_UPCOMING_SHOWS_REQUEST,
+      ),
+      data: withoutPassedShows(upcomingShows),
+    })
+  }
+  if (releases) {
+    listSeeds.push({
+      queryKey: queryKeys.releases.artistReleases(slug),
+      data: releases,
+    })
+  }
+  const listSeedState = await seedFirstScreen(listSeeds)
 
   return (
     <>
@@ -192,7 +215,7 @@ export default async function ArtistPage({ params }: ArtistPageProps) {
         { name: artistData.name, url: `https://psychichomily.com/artists/${artistData.slug || slug}` },
       ])} />
       <HydrationBoundary state={dehydratedState}>
-        <HydrationBoundary state={upcomingShowsState}>
+        <HydrationBoundary state={listSeedState}>
           <Suspense fallback={<ArtistLoadingFallback />}>
             <ArtistDetail artistId={slug} />
           </Suspense>

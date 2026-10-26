@@ -66,7 +66,14 @@ interface FetchListPayloadOptions {
    * per-collection required-key list is a reasonable next step; do not assume
    * from reading this that it already happened.
    */
-  collection: 'shows' | 'venues' | 'scenes' | 'cities' | 'artists' | 'months'
+  collection:
+    | 'shows'
+    | 'venues'
+    | 'scenes'
+    | 'cities'
+    | 'artists'
+    | 'months'
+    | 'releases'
   /** Sentry `service` tag, and the prefix of the reported message. */
   service: string
   /** Override only with the reason written down at the call site. */
