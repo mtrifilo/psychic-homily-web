@@ -86,6 +86,9 @@ vi.mock('@sentry/nextjs', async importOriginal => ({
 import * as Sentry from '@sentry/nextjs'
 import ArtistPage, { generateMetadata } from './page'
 import { ArtistShowsList } from '@/features/artists/components/ArtistShowsList'
+import { ArtistDetail } from '@/features/artists/components/ArtistDetail'
+import { CreateCollectionDrawerProvider } from '@/features/collections/components/CreateCollectionDrawer'
+import { useArtistReleases } from '@/features/releases/hooks/useReleases'
 import { resetServerFetchReportThrottleForTests } from '@/lib/ssr/reportServerFetchFailure'
 
 // Each test starts with every route's report window open.
@@ -224,20 +227,46 @@ function upcomingBody(shows: unknown[], artistId = ARTIST_ID) {
   return { shows, artist_id: artistId, total: shows.length, limit: 200, offset: 0, year: 0 }
 }
 
-/** Route the page's two reads by URL; returns every URL requested. */
+function artistRelease(overrides: Record<string, unknown> = {}) {
+  return {
+    id: 300,
+    title: 'Seeded LP',
+    slug: 'seeded-lp',
+    release_type: 'lp',
+    release_year: 2024,
+    cover_art_url: null,
+    artist_count: 1,
+    artists: [{ id: ARTIST_ID, slug: 'headliner-band', name: 'Headliner Band' }],
+    label_name: 'Seeded Label',
+    label_slug: 'seeded-label',
+    role: 'main',
+    ...overrides,
+  }
+}
+
+function releasesBody(releases: unknown[]) {
+  return { releases, count: releases.length }
+}
+
+const isReleasesRead = (url: string) => /\/artists\/[^/]+\/releases(\?|$)/.test(url)
+const isShowsRead = (url: string) => url.includes('/shows?')
+
+/** Route the page's three reads by URL; returns every URL requested. */
 function stubBackend(
   shows: () => Response,
   artist: () => Response = () => okResponse(buildArtist({ id: ARTIST_ID })),
+  releases: () => Response = () => jsonBodyResponse(releasesBody([])),
 ) {
   const calls: string[] = []
   fetchMock.mockImplementation(async (url: string) => {
     calls.push(String(url))
-    return String(url).includes('/shows?') ? shows() : artist()
+    if (isReleasesRead(String(url))) return releases()
+    return isShowsRead(String(url)) ? shows() : artist()
   })
   return calls
 }
 
-const showsReply = (body: unknown, status = 200) => () =>
+const reply = (body: unknown, status = 200) => () =>
   jsonBodyResponse(body, status)
 
 async function renderPage(slug = 'headliner-band') {
@@ -251,28 +280,43 @@ function boundaryStatesOf(page: ReactElement): DehydratedState[] {
   )
 }
 
-function seededShowsQuery(page: ReactElement) {
-  return boundaryStatesOf(page)
-    .flatMap(state => state.queries)
-    .find(q => q.queryKey[0] === 'artists' && q.queryKey[1] === 'shows')
+/** Every query the page seeds, across all of its boundaries. */
+function seededQueries(page: ReactElement) {
+  return boundaryStatesOf(page).flatMap(state => state.queries)
 }
 
-/** The real upcoming list under the page's own boundaries, nested as the page nests them. */
-function upcomingListUnder(states: DehydratedState[], client: QueryClient) {
-  const list = (
-    <ArtistShowsList
-      artistId={ARTIST_ID}
-      artistSlug="headliner-band"
-      artistName="Headliner Band"
-    />
+function seededShowsQuery(page: ReactElement) {
+  return seededQueries(page).find(
+    q => q.queryKey[0] === 'artists' && q.queryKey[1] === 'shows',
   )
+}
+
+/** `child` under the page's own boundaries, nested as the page nests them. */
+function underPageBoundaries(
+  states: DehydratedState[],
+  client: QueryClient,
+  child: ReactElement,
+) {
   return (
     <QueryClientProvider client={client}>
       {states.reduceRight<ReactElement>(
         (children, state) => <HydrationBoundary state={state}>{children}</HydrationBoundary>,
-        list,
+        child,
       )}
     </QueryClientProvider>
+  )
+}
+
+/** The real upcoming list under the page's own boundaries. */
+function upcomingListUnder(states: DehydratedState[], client: QueryClient) {
+  return underPageBoundaries(
+    states,
+    client,
+    <ArtistShowsList
+      artistId={ARTIST_ID}
+      artistSlug="headliner-band"
+      artistName="Headliner Band"
+    />,
   )
 }
 
@@ -295,25 +339,25 @@ const paramsOf = (url: string) =>
 
 describe('ArtistPage upcoming shows', () => {
   it('asks for the upcoming request by encoded slug, alongside the artist', async () => {
-    const calls = stubBackend(showsReply(upcomingBody([artistShow()])))
+    const calls = stubBackend(reply(upcomingBody([artistShow()])))
 
     await renderPage('weird/slug?x')
 
-    const showsUrl = calls.find(u => u.includes('/shows?'))
+    const showsUrl = calls.find(isShowsRead)
     expect(showsUrl).toBeDefined()
     const url = new URL(showsUrl!)
     expect(url.pathname).toMatch(/\/artists\/weird%2Fslug%3Fx\/shows$/)
     expect(url.searchParams.get('limit')).toBe('200')
     expect(url.searchParams.get('time_filter')).toBe('upcoming')
-    expect(calls).toHaveLength(2)
+    expect(calls).toHaveLength(3)
   })
 
   it('asks for a zero-padded numeric id by its unpadded form', async () => {
-    const calls = stubBackend(showsReply(upcomingBody([artistShow()])))
+    const calls = stubBackend(reply(upcomingBody([artistShow()])))
 
     await renderPage('0042')
 
-    const url = new URL(calls.find(u => u.includes('/shows?'))!)
+    const url = new URL(calls.find(isShowsRead)!)
     expect(url.pathname).toMatch(/\/artists\/42\/shows$/)
   })
 
@@ -322,7 +366,7 @@ describe('ArtistPage upcoming shows', () => {
   // proven by the server-render test below, which runs the real hook.
   it('seeds the rows under the key the list hook registers', async () => {
     const body = upcomingBody([artistShow()])
-    stubBackend(showsReply(body))
+    stubBackend(reply(body))
 
     const seeded = seededShowsQuery(await renderPage())
 
@@ -339,20 +383,18 @@ describe('ArtistPage upcoming shows', () => {
   })
 
   it('stamps the seeded rows stale, so the browser revalidates them on mount', async () => {
-    stubBackend(showsReply(upcomingBody([artistShow()])))
+    stubBackend(reply(upcomingBody([artistShow()])))
 
     const page = await renderPage()
 
     expect(seededShowsQuery(page)?.state.dataUpdatedAt).toBe(0)
     // The detail keeps its fresh stamp: only the list is re-asked.
-    const detail = boundaryStatesOf(page)
-      .flatMap(state => state.queries)
-      .find(q => q.queryKey[1] === 'detail')
+    const detail = seededQueries(page).find(q => q.queryKey[1] === 'detail')
     expect(detail?.state.dataUpdatedAt).toBeGreaterThan(0)
   })
 
   it('puts the upcoming rows in the server render, with no loader', async () => {
-    stubBackend(showsReply(upcomingBody([artistShow()])))
+    stubBackend(reply(upcomingBody([artistShow()])))
 
     const html = serverRenderUpcoming(await renderPage())
 
@@ -362,11 +404,11 @@ describe('ArtistPage upcoming shows', () => {
   })
 
   it('replaces the seeded rows with the live read once mounted', async () => {
-    const serverCalls = stubBackend(showsReply(upcomingBody([artistShow()])))
+    const serverCalls = stubBackend(reply(upcomingBody([artistShow()])))
     const states = boundaryStatesOf(await renderPage())
     // The browser's own read answers with a show the seed did not have.
     const browserCalls = stubBackend(
-      showsReply(
+      reply(
         upcomingBody([artistShow({ id: 21, slug: 'late-addition' })]),
       ),
     )
@@ -379,14 +421,14 @@ describe('ArtistPage upcoming shows', () => {
     )
     // The server asked the question the hook asks.
     expect(paramsOf(browserCalls[0])).toEqual(
-      paramsOf(serverCalls.find(u => u.includes('/shows?'))!),
+      paramsOf(serverCalls.find(isShowsRead)!),
     )
   })
 
   it('drops rows that have left the upcoming window since the read', async () => {
     const future = artistShow()
     stubBackend(
-      showsReply({
+      reply({
         ...upcomingBody([
           artistShow({ id: 19, slug: 'long-gone', event_date: '2020-01-01T03:00:00Z' }),
           future,
@@ -401,7 +443,7 @@ describe('ArtistPage upcoming shows', () => {
   })
 
   it('server-renders the empty state for an artist with no upcoming shows', async () => {
-    stubBackend(showsReply(upcomingBody([])))
+    stubBackend(reply(upcomingBody([])))
 
     const html = serverRenderUpcoming(await renderPage())
 
@@ -410,30 +452,230 @@ describe('ArtistPage upcoming shows', () => {
   })
 
   it('still renders the page, with the loader, when the shows read fails', async () => {
-    stubBackend(showsReply({}, 500))
+    stubBackend(reply({}, 500))
 
     const page = await renderPage()
 
-    expect(
-      boundaryStatesOf(page)
-        .flatMap(state => state.queries)
-        .map(q => q.queryKey.slice(0, 2).join('/')),
-    ).toEqual(['artists/detail'])
+    expect(seededQueries(page).map(q => q.queryKey.slice(0, 2).join('/'))).toEqual([
+      'artists/detail',
+      'releases/artist',
+    ])
     const html = serverRenderUpcoming(page)
     expect(html).toContain(LOADER)
     expect(html).not.toContain('No upcoming shows yet.')
   })
 
   it('withholds rows that answer for a different artist', async () => {
-    stubBackend(showsReply(upcomingBody([artistShow()], ARTIST_ID + 1)))
+    stubBackend(reply(upcomingBody([artistShow()], ARTIST_ID + 1)))
 
     expect(seededShowsQuery(await renderPage())).toBeUndefined()
   })
 
   it('404s an unknown artist', async () => {
-    stubBackend(showsReply({}, 404), () => errorResponse(404))
+    stubBackend(reply({}, 404), () => errorResponse(404))
 
     await expect(renderPage('missing')).rejects.toThrow(NOT_FOUND_SENTINEL)
+  })
+})
+
+// ── Page body: the discography seed ───────────────────────────────────────
+
+/** Stub the page's reads with no upcoming shows and the given discography answer. */
+const stubReleases = (releases: () => Response) =>
+  stubBackend(reply(upcomingBody([])), undefined, releases)
+
+/** Every URL the page asked the releases endpoint for. */
+const releasesCalls = (calls: string[]) => calls.filter(isReleasesRead)
+
+function seededReleasesQuery(page: ReactElement) {
+  return seededQueries(page).find(q => q.queryKey[0] === 'releases')
+}
+
+/**
+ * Server-render the real `ArtistDetail` under the page's own boundaries, the
+ * way the route's HTML is produced: no client fetch can run inside
+ * `renderToString`, so any discography row it prints came from the seed.
+ */
+function serverRenderArtistDetail(page: ReactElement): string {
+  return renderToString(
+    underPageBoundaries(
+      boundaryStatesOf(page),
+      testClient(),
+      <CreateCollectionDrawerProvider>
+        <ArtistDetail artistId="headliner-band" />
+      </CreateCollectionDrawerProvider>,
+    ),
+  )
+}
+
+// The discography's loader markup. Another `ArtistDetail` section rendering a
+// spinner with the same classes would fail the "no loader" assertions below;
+// the failed-read test shows this string is what the discography renders.
+const DISCOGRAPHY_LOADER = 'h-6 w-6 animate-spin'
+const DISCOGRAPHY_TABLE = 'aria-label="Discography"'
+
+/** Renders the real hook's rows as links, so a test can watch its data change. */
+function DiscographyProbe({ slug }: { slug: string }) {
+  const { data } = useArtistReleases({ artistIdOrSlug: slug })
+  return (
+    <ul>
+      {data?.releases.map(r => (
+        <li key={r.id}>
+          <a href={`/releases/${r.slug}`}>{r.title}</a>
+        </li>
+      ))}
+    </ul>
+  )
+}
+
+describe('ArtistPage discography', () => {
+  afterEach(() => {
+    vi.unstubAllEnvs()
+  })
+
+  it('asks for the discography by encoded slug with no parameters, alongside the artist', async () => {
+    const calls = stubBackend(reply(upcomingBody([])))
+
+    await renderPage('weird/slug?x')
+
+    expect(releasesCalls(calls)).toHaveLength(1)
+    const url = new URL(releasesCalls(calls)[0])
+    expect(url.pathname).toMatch(/\/artists\/weird%2Fslug%3Fx\/releases$/)
+    expect(url.search).toBe('')
+  })
+
+  it('asks for a zero-padded numeric id by its unpadded form', async () => {
+    const calls = stubBackend(reply(upcomingBody([])))
+
+    await renderPage('0042')
+
+    expect(new URL(releasesCalls(calls)[0]).pathname).toMatch(/\/artists\/42\/releases$/)
+  })
+
+  it('sends the server-read secret on the discography read', async () => {
+    vi.stubEnv('SERVER_READ_SECRET', 'artist-page-secret-0123456789abcdef0123')
+    stubBackend(reply(upcomingBody([])))
+
+    await renderPage()
+
+    const call = fetchMock.mock.calls.find(([url]) => isReleasesRead(String(url)))
+    expect((call?.[1] as RequestInit).headers).toEqual({
+      'X-Server-Read-Secret': 'artist-page-secret-0123456789abcdef0123',
+    })
+  })
+
+  // Pins the SEED's key spelling as a literal, so it cannot agree with a
+  // shared helper while both drift. That `ArtistDetail`'s discography reads
+  // this entry is proven by the server-render test below, which runs the real
+  // component and hook.
+  it('seeds the discography under the key the hook registers for the route slug', async () => {
+    const body = releasesBody([artistRelease()])
+    stubReleases(reply(body))
+
+    const seeded = seededReleasesQuery(await renderPage())
+
+    expect(seeded?.queryKey).toEqual(['releases', 'artist', 'headliner-band'])
+    expect(seeded?.state.data).toEqual(body)
+  })
+
+  it('stamps the seeded discography stale, so the browser revalidates it on mount', async () => {
+    stubReleases(reply(releasesBody([artistRelease()])))
+
+    expect(seededReleasesQuery(await renderPage())?.state.dataUpdatedAt).toBe(0)
+  })
+
+  it('puts the discography rows and their release links in the server render, with no loader', async () => {
+    stubReleases(
+      reply(
+        releasesBody([
+          artistRelease(),
+          artistRelease({ id: 301, slug: 'guest-spot', title: 'Guest Spot', role: 'featured' }),
+        ]),
+      ),
+    )
+
+    const html = serverRenderArtistDetail(await renderPage())
+
+    expect(html).toContain(DISCOGRAPHY_TABLE)
+    expect(html).toContain('href="/releases/seeded-lp"')
+    expect(html).toContain('href="/releases/guest-spot"')
+    expect(html).toContain('href="/labels/seeded-label"')
+    expect(html).toContain('Guest Appearances')
+    expect(html).not.toContain(DISCOGRAPHY_LOADER)
+  })
+
+  it('server-renders no discography section and no loader for an artist with no releases', async () => {
+    stubReleases(reply(releasesBody([])))
+
+    const page = await renderPage()
+    const html = serverRenderArtistDetail(page)
+
+    expect(seededReleasesQuery(page)?.state.data).toEqual(releasesBody([]))
+    expect(html).not.toContain(DISCOGRAPHY_TABLE)
+    expect(html).not.toContain(DISCOGRAPHY_LOADER)
+  })
+
+  it('still renders the page, with the discography loader, when the read fails', async () => {
+    stubReleases(reply({}, 500))
+
+    const page = await renderPage()
+    const html = serverRenderArtistDetail(page)
+
+    expect(seededReleasesQuery(page)).toBeUndefined()
+    // The upcoming seed does not depend on the discography read.
+    expect(seededShowsQuery(page)).toBeDefined()
+    expect(html).toContain(DISCOGRAPHY_LOADER)
+    expect(html).not.toContain(DISCOGRAPHY_TABLE)
+    expect(Sentry.captureMessage).toHaveBeenCalledWith(
+      'artist-page-releases: API returned 500',
+      expect.objectContaining({
+        tags: {
+          service: 'artist-page-releases',
+          path_family: '/artists/{slug}/releases',
+          status: '500',
+        },
+      }),
+    )
+  })
+
+  it('seeds nothing for a payload with no releases array', async () => {
+    stubReleases(reply({ count: 0 }))
+
+    expect(seededReleasesQuery(await renderPage())).toBeUndefined()
+  })
+
+  it('treats a 404 from the discography read as no releases, and does not report it', async () => {
+    stubReleases(reply({}, 404))
+
+    const page = await renderPage()
+    const html = serverRenderArtistDetail(page)
+
+    expect(seededReleasesQuery(page)?.state.data).toEqual(releasesBody([]))
+    expect(html).not.toContain(DISCOGRAPHY_TABLE)
+    expect(html).not.toContain(DISCOGRAPHY_LOADER)
+    expect(Sentry.captureMessage).not.toHaveBeenCalled()
+  })
+
+  it('replaces the seeded discography with the live read once mounted', async () => {
+    const serverCalls = stubReleases(reply(releasesBody([artistRelease()])))
+    const states = boundaryStatesOf(await renderPage())
+    // The browser's own read answers with a release the seed did not have.
+    const browserCalls = stubReleases(
+      reply(
+        releasesBody([artistRelease({ id: 302, slug: 'late-addition', title: 'Late Addition' })]),
+      ),
+    )
+
+    const { container } = render(
+      underPageBoundaries(states, testClient(), <DiscographyProbe slug="headliner-band" />),
+    )
+
+    expect(container.innerHTML).toContain('href="/releases/seeded-lp"')
+    await waitFor(() =>
+      expect(container.innerHTML).toContain('href="/releases/late-addition"'),
+    )
+    // The server asked the question the hook asks.
+    expect(releasesCalls(browserCalls)[0]).toBe(releasesCalls(serverCalls)[0])
   })
 })
 
@@ -453,7 +695,7 @@ describe('ArtistPage upcoming Save column', () => {
     'serves the control in the HTML and hydrates it unchanged (%s viewer)',
     async (_name, state, accessibleName, disabled) => {
       viewer = state
-      stubBackend(showsReply(upcomingBody([artistShow()])))
+      stubBackend(reply(upcomingBody([artistShow()])))
       const states = boundaryStatesOf(await renderPage())
 
       const html = renderToString(upcomingListUnder(states, testClient()))

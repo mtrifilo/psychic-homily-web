@@ -128,6 +128,9 @@ const DISCOGRAPHY_BUCKETS: ReadonlyArray<{
   { key: 'composition', label: 'Composition', match: r => r.role === 'composer' },
 ]
 
+// `artistIdOrSlug` is the route's own `artistId`: the artist route seeds this
+// list under `queryKeys.releases.artistReleases(slug)`, so a numeric id here
+// would read a different, unseeded entry.
 function DiscographyTab({ artistIdOrSlug }: { artistIdOrSlug: string | number }) {
   const { data, isLoading, error } = useArtistReleases({ artistIdOrSlug })
 
@@ -139,7 +142,9 @@ function DiscographyTab({ artistIdOrSlug }: { artistIdOrSlug: string | number })
     )
   }
 
-  if (error) {
+  // Gated on `!data`: a failed refresh of rows already on screen (the server
+  // seed, which the browser re-asks on mount) keeps those rows.
+  if (error && !data) {
     return (
       <div className="py-8 text-center text-sm text-destructive">
         Failed to load discography
