@@ -282,17 +282,19 @@ describe('rendered robots.txt', () => {
     expect(renderedGroupFor('GPTBot').rules).toEqual(['Disallow: /'])
   })
 
-  // Both allowing groups render PUBLIC_RULE_LINES (pinned above), so matching
-  // URLs against one of them covers the other.
+  // Both allowing groups render the same body (pinned above), so matching URLs
+  // against the rendered wildcard group covers the retrieval group too.
   it('blocks every RSC payload URL', () => {
+    const { rules } = renderedGroupFor('*')
     for (const url of RSC_PAYLOAD_URLS) {
-      expect(groupAllows(PUBLIC_RULE_LINES, url), `${url} must be disallowed`).toBe(false)
+      expect(groupAllows(rules, url), `${url} must be disallowed`).toBe(false)
     }
   })
 
   it('keeps pages and assets fetchable', () => {
+    const { rules } = renderedGroupFor('*')
     for (const url of MUST_STAY_FETCHABLE) {
-      expect(groupAllows(PUBLIC_RULE_LINES, url), `${url} must stay allowed`).toBe(true)
+      expect(groupAllows(rules, url), `${url} must stay allowed`).toBe(true)
     }
   })
 
