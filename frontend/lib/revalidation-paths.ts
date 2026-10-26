@@ -73,6 +73,11 @@ export const SCENE_LIST_PAGE = '/scenes'
 // its cached payload, so the rename cascade has to reach it.
 const SHOW_LIST_PAGE = '/shows'
 
+// The anonymous home, whose upcoming-shows list server-renders the soonest
+// rows (with their artist and venue names) from a cached payload. A plain path:
+// `revalidatePath('/')` with no type invalidates the root page only.
+export const HOME_PAGE = '/'
+
 // The date-addressed show lists (PSY-2061). Route patterns rather than paths,
 // for the mutations that cannot name the month they moved a show out of: a
 // delete carries no body, and an update carries only the show's NEW date. Both
@@ -104,8 +109,14 @@ const RENAME_CASCADES: Readonly<Record<string, readonly string[]>> = {
   // leaves the old one in cached HTML until the 1h window turns over. It was
   // previously safe to omit because those names reached /shows only through a
   // JSON-LD block.
-  artists: [SHOW_LIST_PAGE, ALL_SHOW_PAGES, ALL_RELEASE_PAGES, ALL_COLLECTION_PAGES],
-  venues: [SHOW_LIST_PAGE, ALL_SHOW_PAGES, ALL_COLLECTION_PAGES],
+  artists: [
+    SHOW_LIST_PAGE,
+    HOME_PAGE,
+    ALL_SHOW_PAGES,
+    ALL_RELEASE_PAGES,
+    ALL_COLLECTION_PAGES,
+  ],
+  venues: [SHOW_LIST_PAGE, HOME_PAGE, ALL_SHOW_PAGES, ALL_COLLECTION_PAGES],
   shows: [ALL_COLLECTION_PAGES],
   releases: [ALL_COLLECTION_PAGES],
   labels: [ALL_RELEASE_PAGES, ALL_COLLECTION_PAGES],
@@ -127,7 +138,7 @@ export function entityPages(
 
 /**
  * Pages affected by a show mutation: the show itself, the upcoming-show
- * surface (/shows), the date-addressed lists the show falls in, the
+ * surfaces (/shows and the home), the date-addressed lists the show falls in, the
  * /artists and /venues lists (both embed upcoming-show data), the /scenes list
  * and every scene page (per-city show counts in SceneStats), and each billed
  * artist's detail page (artist pages ISR-cache stats.shows_tracked).
@@ -148,6 +159,7 @@ export function showPages(
   return [
     slug ? `/shows/${slug}` : undefined,
     '/shows',
+    HOME_PAGE,
     ...datePages,
     '/artists',
     '/venues',

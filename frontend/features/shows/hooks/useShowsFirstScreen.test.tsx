@@ -14,6 +14,9 @@ vi.mock('@/lib/api', () => ({
 // sibling useShows.test.tsx mocks that module to test request-building in
 // isolation, which is exactly why it cannot catch the drift below.
 import {
+  HOME_SHOW_LIMIT,
+  HOME_UPCOMING_FIRST_SCREEN_KEY,
+  HOME_UPCOMING_FIRST_SCREEN_URL,
   SHOW_CITIES_FIRST_SCREEN_KEY,
   SHOW_CITIES_FIRST_SCREEN_URL,
   SHOWS_CALENDAR_FIRST_SCREEN_KEY,
@@ -25,7 +28,12 @@ import {
   showsCalendarWindowFirstScreenKey,
   showsCalendarWindowFirstScreenUrl,
 } from '@/features/shows/api'
-import { useShowCities, useShowMonths, useShowsCalendar } from './useShows'
+import {
+  useShowCities,
+  useShowMonths,
+  useShowsCalendar,
+  useUpcomingShows,
+} from './useShows'
 
 /**
  * `app/shows/page.tsx` server-renders the first screen by fetching
@@ -359,6 +367,67 @@ describe('shows window first-screen prefetch contract', () => {
     )
     expect(hashKey(showCitiesWindowFirstScreenKey(undefined))).toBe(
       hashKey(SHOW_CITIES_FIRST_SCREEN_KEY)
+    )
+  })
+})
+
+/**
+ * The anonymous home's half of the contract. `HomeContentSlot` seeds
+ * `HOME_UPCOMING_FIRST_SCREEN_KEY` from `HOME_UPCOMING_FIRST_SCREEN_URL`, and
+ * the pair has to describe what `HomeShowListView` asks for on its first render
+ * (`limit` = its default rows, and no cities because the selection is still
+ * empty), or the home silently stops being server-rendered.
+ */
+describe('home upcoming first-screen prefetch contract', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockApiRequest.mockReset()
+  })
+
+  it('useUpcomingShows, called as the home list first calls it, requests the URL and keys on the key', async () => {
+    mockApiRequest.mockResolvedValueOnce({ shows: [], pagination: {}, total: 0 })
+    const queryClient = createTestQueryClient()
+
+    const { result } = renderHook(
+      () => useUpcomingShows({ limit: HOME_SHOW_LIMIT, cities: undefined }),
+      { wrapper: createWrapperWithClient(queryClient) },
+    )
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true))
+
+    expect(mockApiRequest).toHaveBeenCalledWith(HOME_UPCOMING_FIRST_SCREEN_URL, {
+      method: 'GET',
+    })
+    const cached = queryClient.getQueryCache().getAll()
+    expect(cached).toHaveLength(1)
+    expect(cached[0].queryHash).toBe(hashKey(HOME_UPCOMING_FIRST_SCREEN_KEY))
+  })
+
+  // Literals, so the pair cannot agree with each other while both drift.
+  it('pins the URL and the key hash character for character', () => {
+    expect(HOME_UPCOMING_FIRST_SCREEN_URL).toMatch(/\/shows\/upcoming\?limit=5$/)
+    expect(hashKey(HOME_UPCOMING_FIRST_SCREEN_KEY)).toBe(
+      '["shows","list",{"limit":5}]',
+    )
+  })
+
+  it('a resolved city moves the request off the seeded entry', async () => {
+    mockApiRequest.mockResolvedValue({ shows: [], pagination: {}, total: 0 })
+    const queryClient = createTestQueryClient()
+
+    const { result } = renderHook(
+      () =>
+        useUpcomingShows({
+          limit: HOME_SHOW_LIMIT,
+          cities: [{ city: 'Phoenix', state: 'AZ' }],
+        }),
+      { wrapper: createWrapperWithClient(queryClient) },
+    )
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true))
+
+    expect(queryClient.getQueryCache().getAll()[0].queryHash).not.toBe(
+      hashKey(HOME_UPCOMING_FIRST_SCREEN_KEY),
     )
   })
 })
