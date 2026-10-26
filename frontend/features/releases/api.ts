@@ -41,7 +41,7 @@ export const releaseEndpoints = {
 /**
  * The server-side URL of an artist's discography, by route slug: the endpoint
  * `useArtistReleases` reads for that slug, which it calls with no query
- * parameters. The artist page tests compare the two.
+ * parameters.
  * Encodes the slug: route params arrive decoded, and a bare `%2F` or `%3F`
  * would re-point this server-side fetch at another backend path. A padded
  * numeric id is unpadded first (`unpadNumericId`).

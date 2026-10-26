@@ -54,6 +54,14 @@ vi.mock('@/features/labels/hooks/useLabels', () => ({
 // Default (set in the top-level beforeEach): no releases, so the Discography
 // self-hides. The phone-order test hands it one album.
 const mockUseArtistReleases = vi.fn()
+const FUTURES_RELEASE = {
+  id: 1,
+  title: 'Futures',
+  slug: 'futures',
+  release_type: 'lp',
+  release_year: 2004,
+  role: 'main',
+}
 vi.mock('@/features/releases/hooks/useReleases', () => ({
   useArtistReleases: (opts: unknown) => mockUseArtistReleases(opts),
 }))
@@ -940,9 +948,7 @@ describe('ArtistDetail', () => {
         onTestFinished(() => mm.restore())
         mockUseArtistReleases.mockReturnValue({
           data: {
-            releases: [
-              { id: 1, title: 'Futures', slug: 'futures', release_type: 'lp', release_year: 2004, role: 'main' },
-            ],
+            releases: [FUTURES_RELEASE],
             count: 1,
           },
           isLoading: false,
@@ -975,9 +981,7 @@ describe('ArtistDetail', () => {
         onTestFinished(() => mm.restore())
         mockUseArtistReleases.mockReturnValue({
           data: {
-            releases: [
-              { id: 1, title: 'Futures', slug: 'futures', release_type: 'lp', release_year: 2004, role: 'main' },
-            ],
+            releases: [FUTURES_RELEASE],
             count: 1,
           },
           isLoading: false,
@@ -1185,15 +1189,6 @@ describe('ArtistDetail', () => {
   })
 
   describe('discography', () => {
-    const futures = {
-      id: 1,
-      title: 'Futures',
-      slug: 'futures',
-      release_type: 'lp',
-      release_year: 2004,
-      role: 'main',
-    }
-
     beforeEach(() => {
       mockUseArtist.mockReturnValue({
         data: makeArtist(),
@@ -1206,7 +1201,7 @@ describe('ArtistDetail', () => {
     // re-ask sets `error` while `data` is still the seed.
     it('keeps the rows on screen when a refresh fails', () => {
       mockUseArtistReleases.mockReturnValue({
-        data: { releases: [futures], count: 1 },
+        data: { releases: [FUTURES_RELEASE], count: 1 },
         isLoading: false,
         error: new Error('boom'),
       })
