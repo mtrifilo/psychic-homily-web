@@ -1,3 +1,4 @@
+import { resolveRouteData } from 'next/dist/build/webpack/loaders/metadata/resolve-route-data'
 import { describe, expect, it } from 'vitest'
 
 import robots from './robots'
@@ -15,6 +16,10 @@ const NON_PUBLIC_PATHS = [
   '/library/',
   '/verify-email/',
 ]
+
+const RSC_PAYLOAD_PATTERNS = ['/*?_rsc=', '/*&_rsc=']
+
+const PUBLIC_DISALLOW = [...NON_PUBLIC_PATHS, ...RSC_PAYLOAD_PATTERNS]
 
 // Every one of these answers with a citation and a link back. Moving any of
 // them into the disallow list is the most likely wrong edit to this file: they
@@ -75,14 +80,14 @@ function isGovernedByWildcard(agent: string) {
 }
 
 describe('robots.txt rules', () => {
-  it('keeps exactly one wildcard group, allowing everything but the non-public paths', () => {
+  it('keeps exactly one wildcard group, allowing everything but the non-public paths and RSC payloads', () => {
     const wildcards = rulesOf().filter(rule => agentsOf(rule).includes('*'))
 
     // Two '*' groups would silently merge under RFC 9309 and change the
     // effective policy, so the count matters as much as the contents.
     expect(wildcards).toHaveLength(1)
     expect(wildcards[0].allow).toBe('/')
-    expect(wildcards[0].disallow).toEqual(NON_PUBLIC_PATHS)
+    expect(wildcards[0].disallow).toEqual(PUBLIC_DISALLOW)
   })
 
   // A crawler obeys only the most specific group naming it and ignores
@@ -98,7 +103,7 @@ describe('robots.txt rules', () => {
     for (const body of bodies) {
       expect(body).toEqual(bodies[0])
     }
-    expect(bodies[0]).toEqual({ allow: '/', disallow: NON_PUBLIC_PATHS })
+    expect(bodies[0]).toEqual({ allow: '/', disallow: PUBLIC_DISALLOW })
   })
 
   it('disallows the whole site for training crawlers', () => {
@@ -153,5 +158,163 @@ describe('robots.txt rules', () => {
   // assertion fails, check whether the sitemap shape changed before editing it.
   it('points at the sitemap index', () => {
     expect(robots().sitemap).toBe('https://psychichomily.com/sitemap-index')
+  })
+})
+
+// The served /robots.txt is the output of this same Next function applied to
+// robots(), so these assertions read the bytes a crawler receives.
+function renderedRobotsTxt() {
+  return resolveRouteData(robots(), 'robots')
+}
+
+interface RenderedGroup {
+  agents: string[]
+  rules: string[]
+}
+
+function renderedGroups(): RenderedGroup[] {
+  return renderedRobotsTxt()
+    .split('\n\n')
+    .map(block => block.split('\n').filter(Boolean))
+    .filter(lines => lines.some(line => line.startsWith('User-Agent: ')))
+    .map(lines => ({
+      agents: lines
+        .filter(line => line.startsWith('User-Agent: '))
+        .map(line => line.slice('User-Agent: '.length)),
+      rules: lines.filter(line => !line.startsWith('User-Agent: ')),
+    }))
+}
+
+function renderedGroupFor(agent: string): RenderedGroup {
+  const group = renderedGroups().find(candidate => candidate.agents.includes(agent))
+  if (!group) throw new Error(`no rendered group names ${agent}`)
+  return group
+}
+
+/**
+ * A robots.txt path pattern as Google and RFC 9309 read it: anchored at the
+ * start of the path-plus-query, `*` matches any run of characters, a trailing
+ * `$` anchors the end, and every other character is literal.
+ */
+function patternMatches(pattern: string, pathAndQuery: string) {
+  const anchored = pattern.endsWith('$')
+  const body = anchored ? pattern.slice(0, -1) : pattern
+  const source = body
+    .split('*')
+    .map(part => part.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
+    .join('.*')
+  return new RegExp(`^${source}${anchored ? '$' : ''}`).test(pathAndQuery)
+}
+
+/**
+ * Whether a group lets a crawler fetch a URL: the longest matching pattern
+ * decides, and on a tie the Allow wins (the least restrictive rule).
+ */
+function groupAllows(group: RenderedGroup, pathAndQuery: string) {
+  let best: { length: number; allow: boolean } | null = null
+  for (const line of group.rules) {
+    const match = /^(Allow|Disallow): (.+)$/.exec(line)
+    if (!match || !patternMatches(match[2], pathAndQuery)) continue
+    const candidate = { length: match[2].length, allow: match[1] === 'Allow' }
+    if (
+      !best ||
+      candidate.length > best.length ||
+      (candidate.length === best.length && candidate.allow)
+    ) {
+      best = candidate
+    }
+  }
+  return best ? best.allow : true
+}
+
+const PUBLIC_RULE_LINES = [
+  'Allow: /',
+  ...PUBLIC_DISALLOW.map(path => `Disallow: ${path}`),
+]
+
+// Real RSC payload URLs: the first four are the shapes Search Console
+// reported, the rest are the same parameter after another query parameter
+// and on the site root.
+const RSC_PAYLOAD_URLS = [
+  '/venues/troubadour-west-hollywood-ca?_rsc=113fy',
+  '/artists/the-stellar-bandits?_rsc=cqffb',
+  '/shows?_rsc=1qv81',
+  '/auth?_rsc=1qv81',
+  '/shows?city=phoenix-az&_rsc=1qv81',
+  '/search?q=slift&page=2&_rsc=abc12',
+  '/?_rsc=abc12',
+]
+
+// URLs a crawler needs or indexes. None carries the RSC parameter, so none may
+// be newly disallowed, including near misses that contain the letters `_rsc`.
+const MUST_STAY_FETCHABLE = [
+  '/',
+  '/artists/slift',
+  '/artists/slift?tab=releases',
+  '/shows',
+  '/shows?city=phoenix-az',
+  '/shows/slift-at-the-rebel-lounge-2026-11-01/opengraph-image',
+  '/shows/slift-at-the-rebel-lounge-2026-11-01/opengraph-image?a1b2c3d4',
+  '/_next/static/chunks/app/layout-0123abcd.js',
+  '/_next/static/css/app-0123abcd.css',
+  '/_next/static/media/font-0123abcd.woff2',
+  '/_next/image?url=%2Fimages%2Flogo.png&w=640&q=75',
+  '/favicon.ico',
+  '/sitemap-index',
+  '/search?q=_rsc',
+  '/search?q=a_rsc=b',
+  '/artists/_rsc=band',
+]
+
+describe('rendered robots.txt', () => {
+  it('serialises the RSC patterns verbatim in the wildcard group', () => {
+    expect(renderedGroupFor('*').rules).toEqual(PUBLIC_RULE_LINES)
+  })
+
+  it('serialises the RSC patterns verbatim in the retrieval-agent group', () => {
+    const group = renderedGroupFor('OAI-SearchBot')
+
+    expect(group.agents).toContain('Google-Extended')
+    expect(group.rules).toEqual(PUBLIC_RULE_LINES)
+  })
+
+  it('leaves the training-crawler group disallowing the whole site', () => {
+    expect(renderedGroupFor('GPTBot').rules).toEqual(['Disallow: /'])
+  })
+
+  it.each(['*', 'OAI-SearchBot'])('blocks every RSC payload URL for %s', agent => {
+    const group = renderedGroupFor(agent)
+
+    for (const url of RSC_PAYLOAD_URLS) {
+      expect(groupAllows(group, url), `${url} must be disallowed`).toBe(false)
+    }
+  })
+
+  it.each(['*', 'OAI-SearchBot'])('keeps pages and assets fetchable for %s', agent => {
+    const group = renderedGroupFor(agent)
+
+    for (const url of MUST_STAY_FETCHABLE) {
+      expect(groupAllows(group, url), `${url} must stay allowed`).toBe(true)
+    }
+  })
+
+  it('matches no fetchable URL with either RSC pattern on its own', () => {
+    for (const pattern of RSC_PAYLOAD_PATTERNS) {
+      for (const url of MUST_STAY_FETCHABLE) {
+        expect(patternMatches(pattern, url), `${pattern} must not match ${url}`).toBe(false)
+      }
+    }
+  })
+
+  // Guards the matcher itself, so a broken helper cannot pass the checks above
+  // by matching nothing or everything.
+  it('reads robots.txt patterns the way Google documents them', () => {
+    expect(patternMatches('/fish', '/fish.php?id=anything')).toBe(true)
+    expect(patternMatches('/fish', '/Fish.asp')).toBe(false)
+    expect(patternMatches('/*.php$', '/folder/filename.php')).toBe(true)
+    expect(patternMatches('/*.php$', '/filename.php?parameters')).toBe(false)
+    expect(patternMatches('/admin/', '/admin/users')).toBe(true)
+    expect(groupAllows(renderedGroupFor('*'), '/admin/users')).toBe(false)
+    expect(groupAllows(renderedGroupFor('*'), '/admin')).toBe(true)
   })
 })

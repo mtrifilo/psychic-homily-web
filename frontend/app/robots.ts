@@ -55,6 +55,21 @@ const NON_PUBLIC_PATHS = [
 ]
 
 /**
+ * Next.js React Server Component payload URLs. The App Router fetches these
+ * with an `_rsc=` query parameter for client navigations and `<Link>`
+ * prefetches. They are router payloads, not pages: they render nothing a
+ * crawler indexes, and every fetch counts against the host's crawl capacity.
+ *
+ * In a robots.txt path `*` matches any run of characters, `?` and `&` are
+ * literal, and the path is compared together with its query string. So the
+ * two patterns match `_rsc=` as the first query parameter or as a later one,
+ * and a page, script, style or image URL without it stays allowed.
+ */
+const RSC_PAYLOAD_PATTERNS = ['/*?_rsc=', '/*&_rsc=']
+
+const PUBLIC_DISALLOW = [...NON_PUBLIC_PATHS, ...RSC_PAYLOAD_PATTERNS]
+
+/**
  * The access every allowed group gets.
  *
  * Shared as one object because a crawler obeys only the most specific group
@@ -63,7 +78,7 @@ const NON_PUBLIC_PATHS = [
  * every field, not just `disallow`; hand-copying them would mean the next
  * tightening of the wildcard silently skipped the agents we bothered to name.
  */
-const PUBLIC_ACCESS = { allow: '/', disallow: NON_PUBLIC_PATHS } as const
+const PUBLIC_ACCESS = { allow: '/', disallow: PUBLIC_DISALLOW } as const
 
 /**
  * Agents that answer with a citation and a link back to us.
