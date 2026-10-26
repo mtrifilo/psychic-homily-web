@@ -26,6 +26,18 @@ vi.mock('@/lib/queryClient', async importOriginal => {
   return { ...actual, getQueryClient: () => new QueryClient() }
 })
 
+// The shared server-fetch reporter, observed rather than replaced: the seed
+// must reach it through fetchListPayload and have no reporting path of its own.
+const mockReportServerFetchFailure = vi.fn()
+vi.mock('@/lib/ssr/reportServerFetchFailure', async importOriginal => {
+  const actual = await importOriginal<typeof import('@/lib/ssr/reportServerFetchFailure')>()
+  return {
+    ...actual,
+    reportServerFetchFailure: (...args: Parameters<typeof actual.reportServerFetchFailure>) =>
+      mockReportServerFetchFailure(...args),
+  }
+})
+
 const mockResolveHomeViewer = vi.fn()
 const mockGetAuthenticatedHomeLayout = vi.fn()
 const mockPrefetchHomeSavedShows = vi.fn()
@@ -343,6 +355,34 @@ describe('HomeContentSlot, anonymous viewer', () => {
     expect([...url.searchParams.entries()]).toEqual([['limit', '5']])
     expect(citiesFetch).toHaveBeenCalledTimes(1)
     expect(new URL(String(citiesFetch.mock.calls[0][0])).search).toBe('')
+  })
+
+  it('sends both seed reads with the server-read header', async () => {
+    vi.stubEnv('SERVER_READ_SECRET', 'a'.repeat(40))
+
+    await renderSeededList()
+
+    for (const call of [upcomingFetch.mock.calls[0], citiesFetch.mock.calls[0]]) {
+      const headers = new Headers((call[1] as RequestInit | undefined)?.headers)
+      expect(headers.get('X-Server-Read-Secret')).toBe('a'.repeat(40))
+    }
+    vi.unstubAllEnvs()
+  })
+
+  it('reports a rate-limited seed read through the shared reporter and skips that seed', async () => {
+    upcomingFetch.mockImplementation(async () => errorResponse(429))
+
+    const tree = await renderSeededList()
+
+    expect(mockReportServerFetchFailure).toHaveBeenCalledTimes(1)
+    expect(mockReportServerFetchFailure.mock.calls[0][0]).toMatchObject({
+      service: 'home-upcoming-first-screen',
+      pathFamily: '/shows/upcoming',
+      notFoundIsAnswer: false,
+    })
+    expect(mockReportServerFetchFailure.mock.calls[0][0].response.status).toBe(429)
+    expect(seededQueryHashes(tree)).toEqual([CITIES_KEY_HASH])
+    expect(serverRenderList(tree)).toContain(LOADER)
   })
 
   it('seeds the rows and the facet under the hooks keys, stamped stale', async () => {
