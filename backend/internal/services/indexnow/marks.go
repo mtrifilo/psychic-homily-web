@@ -8,19 +8,28 @@ import (
 	"gorm.io/gorm"
 )
 
+// clockSkewMargin is added to the last successful run's duration to form the
+// overlap. It covers the gap between the run row's database clock and the app
+// clock lastmod is stamped on, the claim and close-out statements that the
+// recorded duration leaves out, and a commit that lands after its stamp.
+const clockSkewMargin = time.Minute
+
 // runRowMarks reads the mark from the loop's background_service_runs row: the
-// last successful run's completion, last_success_at, minus runLease.
+// last successful run's completion, last_success_at, minus an overlap.
 //
-// The overlap equals the lease because runCycle cuts a run off at runLease, so
-// no successful run lasted longer: its start is at most runLease before its
-// completion, and every row changed during it has a lastmod later than the
-// mark. The same overlap absorbs app-to-database clock skew, since lastmod is
-// stamped on the app clock and last_success_at on the database clock.
+// The overlap must reach back to that run's start, so every row changed while
+// it ran has a lastmod later than the mark. When the row's latest completion
+// is that success (last_completed_at equals last_success_at), last_duration_ms
+// is its duration and the overlap is that duration plus clockSkewMargin. A
+// later failed or panicked run overwrites last_duration_ms with its own, and a
+// row may carry no duration at all; then the overlap is runLease, which bounds
+// every run because runCycle cuts a run off at runLease.
 //
-// The cost: successful runs complete about one interval apart, so a URL stays
-// later than the mark for about the next runLease / interval + 1 runs; with a
-// 30-minute lease and a 10-minute interval each changed URL is submitted three
-// or four times over about 40 minutes. IndexNow accepts a resubmission.
+// The cost: a URL changed within the overlap before the last success is
+// submitted again by the next run, so with the duration-sized overlap a
+// changed URL is submitted at most twice; after a failure, the lease-sized
+// overlap holds it for about runLease / interval + 1 runs. IndexNow accepts a
+// resubmission.
 //
 // Advance writes nothing: RunScheduledLoop stamps last_success_at when a cycle
 // reports no error, and only then.
@@ -32,12 +41,15 @@ type runRowMarks struct {
 // mark.
 func (m runRowMarks) Begin(ctx context.Context) (time.Time, time.Time, bool, error) {
 	var row struct {
-		Now           time.Time
-		LastSuccessAt *time.Time
+		Now             time.Time
+		LastSuccessAt   *time.Time
+		LastCompletedAt *time.Time
+		LastDurationMs  *int64
 	}
 	err := m.db.WithContext(ctx).Raw(
-		`SELECT NOW() AS now,
-		        (SELECT last_success_at FROM background_service_runs WHERE name = ?) AS last_success_at`,
+		`SELECT NOW() AS now, r.last_success_at, r.last_completed_at, r.last_duration_ms
+		   FROM (SELECT 1) AS one
+		   LEFT JOIN background_service_runs r ON r.name = ?`,
 		LoopName,
 	).Scan(&row).Error
 	if err != nil {
@@ -46,7 +58,15 @@ func (m runRowMarks) Begin(ctx context.Context) (time.Time, time.Time, bool, err
 	if row.LastSuccessAt == nil {
 		return row.Now, time.Time{}, false, nil
 	}
-	return row.Now, row.LastSuccessAt.Add(-runLease), true, nil
+	return row.Now, row.LastSuccessAt.Add(-markOverlap(*row.LastSuccessAt, row.LastCompletedAt, row.LastDurationMs)), true, nil
+}
+
+// markOverlap is how far before lastSuccess the mark sits; see runRowMarks.
+func markOverlap(lastSuccess time.Time, lastCompleted *time.Time, lastDurationMs *int64) time.Duration {
+	if lastDurationMs == nil || *lastDurationMs < 0 || lastCompleted == nil || !lastCompleted.Equal(lastSuccess) {
+		return runLease
+	}
+	return time.Duration(*lastDurationMs)*time.Millisecond + clockSkewMargin
 }
 
 // Advance implements markStore.

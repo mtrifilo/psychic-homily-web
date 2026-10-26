@@ -12,9 +12,12 @@ import (
 	"psychic-homily-backend/internal/testutil"
 )
 
-// The mark is last_success_at minus runLease, read from the row the loop's
-// own run store writes: absent until a run succeeds, moved by a successful
-// run, and left where it was by a failed one.
+// The mark is read from the row the loop's own run store writes: absent until
+// a run succeeds; last_success_at minus that run's duration and the skew
+// margin while the success is the row's latest completion, so a long run
+// widens the overlap; and last_success_at minus the lease once a later failure
+// has overwritten the duration, or when the row has none. A failure never
+// moves the mark later.
 func TestRunRowMarksFollowTheLoopsLastSuccess(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping integration test in short mode")
@@ -48,13 +51,13 @@ func TestRunRowMarksFollowTheLoopsLastSuccess(t *testing.T) {
 		}
 		return mark, ok
 	}
-	cycle := func(err error) {
+	cycle := func(err error, duration time.Duration) {
 		t.Helper()
 		token, claimed, claimErr := runs.Claim(ctx, LoopName, defaultInterval, runLease, true)
 		if claimErr != nil || !claimed {
 			t.Fatalf("claim: %v (claimed %v)", claimErr, claimed)
 		}
-		if err := runs.Complete(ctx, LoopName, token, shared.CycleOutcome{Err: err, Duration: time.Second}); err != nil {
+		if err := runs.Complete(ctx, LoopName, token, shared.CycleOutcome{Err: err, Duration: duration}); err != nil {
 			t.Fatalf("complete: %v", err)
 		}
 	}
@@ -68,21 +71,41 @@ func TestRunRowMarksFollowTheLoopsLastSuccess(t *testing.T) {
 	if _, ok := begin("registered, never run"); ok {
 		t.Fatal("a mark before any successful run")
 	}
-	cycle(errors.New("indexnow answered HTTP 500"))
+	cycle(errors.New("indexnow answered HTTP 500"), time.Second)
 	if _, ok := begin("only a failed run"); ok {
 		t.Fatal("a mark after only a failed run")
 	}
 
-	cycle(nil)
+	cycle(nil, 2*time.Second)
 	succeededAt := lastSuccess()
-	mark, ok := begin("after a success")
-	if !ok || !mark.Equal(succeededAt.Add(-runLease)) {
-		t.Fatalf("mark = %v (ok %v), want last_success_at %v minus the lease", mark, ok, succeededAt)
+	mark, ok := begin("after a short success")
+	if want := succeededAt.Add(-(2*time.Second + clockSkewMargin)); !ok || !mark.Equal(want) {
+		t.Fatalf("mark = %v (ok %v), want %v: last_success_at minus 2s and the skew margin", mark, ok, want)
 	}
 
-	cycle(errors.New("indexnow rejected the submission: HTTP 403"))
-	if again, _ := begin("after a later failure"); !again.Equal(mark) {
-		t.Fatalf("a failed run moved the mark from %v to %v", mark, again)
+	cycle(nil, 10*time.Minute)
+	succeededAt = lastSuccess()
+	mark, _ = begin("after a long success")
+	if want := succeededAt.Add(-(10*time.Minute + clockSkewMargin)); !mark.Equal(want) {
+		t.Fatalf("mark = %v, want %v: a 10-minute run widens the overlap to 11 minutes", mark, want)
+	}
+
+	cycle(errors.New("indexnow rejected the submission: HTTP 403"), time.Second)
+	afterFailure, _ := begin("after a later failure")
+	if want := succeededAt.Add(-runLease); !afterFailure.Equal(want) {
+		t.Fatalf("mark = %v, want %v: the failure's duration is not the success's, so the lease applies", afterFailure, want)
+	}
+	if afterFailure.After(mark) {
+		t.Fatalf("a failed run moved the mark later, from %v to %v", mark, afterFailure)
+	}
+
+	cycle(nil, time.Second)
+	if err := td.DB.Exec("UPDATE background_service_runs SET last_duration_ms = NULL WHERE name = ?", LoopName).Error; err != nil {
+		t.Fatalf("clear duration: %v", err)
+	}
+	succeededAt = lastSuccess()
+	if noDuration, _ := begin("success with no recorded duration"); !noDuration.Equal(succeededAt.Add(-runLease)) {
+		t.Fatalf("mark = %v, want last_success_at %v minus the lease", noDuration, succeededAt)
 	}
 }
 
