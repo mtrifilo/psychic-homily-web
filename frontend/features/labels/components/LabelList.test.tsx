@@ -163,7 +163,7 @@ describe('LabelList', () => {
 
   it('shows an error state with a retry button', () => {
     mockUseLabels.mockReturnValue({
-      data: { labels: [], count: 0 },
+      data: undefined,
       isLoading: false,
       isFetching: false,
       error: new Error('boom'),
@@ -181,7 +181,7 @@ describe('LabelList', () => {
     const user = userEvent.setup()
     const refetch = vi.fn()
     mockUseLabels.mockReturnValue({
-      data: { labels: [], count: 0 },
+      data: undefined,
       isLoading: false,
       isFetching: false,
       error: new Error('boom'),
@@ -229,5 +229,86 @@ describe('LabelList', () => {
     expect(mockPush).toHaveBeenCalledWith('/labels?status=active', {
       scroll: false,
     })
+  })
+})
+
+/**
+ * A server-seeded first screen arrives stale, so the hook revalidates it on the
+ * first client commit. Rows that answer the current query stay at full
+ * opacity while that happens, and stay on screen if it fails.
+ */
+describe('LabelList over rows that answer the current query', () => {
+  const rows = {
+    labels: [makeLabel({ id: 1, name: 'Sub Pop', slug: 'sub-pop' })],
+    count: 1,
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockGet.mockReturnValue(null)
+    mockUseDensity.mockReturnValue({ density: 'comfortable', setDensity: vi.fn() })
+  })
+
+  const listWrapper = () => screen.getByTestId('label-count').parentElement!
+
+  it('does not dim during a same-key revalidation', () => {
+    mockUseLabels.mockReturnValue({
+      data: rows,
+      isLoading: false,
+      isFetching: true,
+      isPlaceholderData: false,
+      error: null,
+      refetch: vi.fn(),
+    })
+    renderWithProviders(<LabelList />)
+
+    expect(listWrapper()).not.toHaveClass('opacity-60')
+  })
+
+  it('dims while the previous filter’s rows stand in for the next', () => {
+    mockUseLabels.mockReturnValue({
+      data: rows,
+      isLoading: false,
+      isFetching: true,
+      isPlaceholderData: true,
+      error: null,
+      refetch: vi.fn(),
+    })
+    renderWithProviders(<LabelList />)
+
+    expect(listWrapper()).toHaveClass('opacity-60')
+  })
+
+  it('keeps the rows when their revalidation fails', () => {
+    mockUseLabels.mockReturnValue({
+      data: rows,
+      isLoading: false,
+      isFetching: false,
+      isPlaceholderData: false,
+      error: new Error('Network error'),
+      refetch: vi.fn(),
+    })
+    renderWithProviders(<LabelList />)
+
+    expect(screen.getByText('Sub Pop')).toBeInTheDocument()
+    expect(
+      screen.queryByText('Failed to load labels. Please try again later.')
+    ).not.toBeInTheDocument()
+  })
+
+  it('shows the error when only placeholder rows are on screen', () => {
+    mockUseLabels.mockReturnValue({
+      data: rows,
+      isLoading: false,
+      isFetching: false,
+      isPlaceholderData: true,
+      error: new Error('Network error'),
+      refetch: vi.fn(),
+    })
+    renderWithProviders(<LabelList />)
+
+    expect(
+      screen.getByText('Failed to load labels. Please try again later.')
+    ).toBeInTheDocument()
   })
 })

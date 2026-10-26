@@ -484,3 +484,89 @@ describe('ReleaseList', () => {
     }
   })
 })
+
+/**
+ * A server-seeded first screen arrives stale, so the hook revalidates it on the
+ * first client commit. Rows that answer the current query stay at full
+ * opacity while that happens, and stay on screen if it fails.
+ */
+describe('ReleaseList over rows that answer the current query', () => {
+  const rows = {
+    releases: [makeRelease()],
+    total: 1,
+    limit: 50,
+    offset: 0,
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockGet.mockReturnValue(null)
+    mockUseDensity.mockReturnValue({ density: 'comfortable', setDensity: vi.fn() })
+    mockUseLabels.mockReturnValue({ data: { labels: [] } })
+    mockUseReleaseSaveCountBatch.mockReturnValue({ data: {}, isLoading: false })
+  })
+
+  const listWrapper = () =>
+    screen.getByTestId('release-card').closest('.min-w-0')!
+
+  it('does not dim during a same-key revalidation', () => {
+    mockUseReleases.mockReturnValue({
+      data: rows,
+      isLoading: false,
+      isFetching: true,
+      isPlaceholderData: false,
+      error: null,
+      refetch: vi.fn(),
+    })
+    renderWithProviders(<ReleaseList />)
+
+    expect(listWrapper()).not.toHaveClass('opacity-60')
+  })
+
+  it('dims while the previous filter’s rows stand in for the next', () => {
+    mockUseReleases.mockReturnValue({
+      data: rows,
+      isLoading: false,
+      isFetching: true,
+      isPlaceholderData: true,
+      error: null,
+      refetch: vi.fn(),
+    })
+    renderWithProviders(<ReleaseList />)
+
+    expect(listWrapper()).toHaveClass('opacity-60')
+  })
+
+  it('keeps the rows when their revalidation fails', () => {
+    mockUseReleases.mockReturnValue({
+      data: rows,
+      isLoading: false,
+      isFetching: false,
+      isPlaceholderData: false,
+      error: new Error('Network error'),
+      refetch: vi.fn(),
+    })
+    renderWithProviders(<ReleaseList />)
+
+    expect(screen.getByTestId('release-card')).toHaveTextContent('In Rainbows')
+    expect(
+      screen.queryByText('Failed to load releases. Please try again later.')
+    ).not.toBeInTheDocument()
+  })
+
+  it('shows the error when only placeholder rows are on screen', () => {
+    mockUseReleases.mockReturnValue({
+      data: rows,
+      isLoading: false,
+      isFetching: false,
+      isPlaceholderData: true,
+      error: new Error('Network error'),
+      refetch: vi.fn(),
+    })
+    renderWithProviders(<ReleaseList />)
+
+    expect(
+      screen.getByText('Failed to load releases. Please try again later.')
+    ).toBeInTheDocument()
+  })
+})

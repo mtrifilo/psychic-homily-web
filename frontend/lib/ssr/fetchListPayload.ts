@@ -74,6 +74,8 @@ interface FetchListPayloadOptions<T> {
     | 'artists'
     | 'months'
     | 'releases'
+    | 'labels'
+    | 'tags'
   /** Sentry `service` tag, and the prefix of the reported message. */
   service: string
   /** Override only with the reason written down at the call site. */
