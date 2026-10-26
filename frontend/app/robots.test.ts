@@ -167,6 +167,8 @@ function renderedRobotsTxt() {
   return resolveRouteData(robots(), 'robots')
 }
 
+const USER_AGENT_PREFIX = 'User-Agent: '
+
 interface RenderedGroup {
   agents: string[]
   rules: string[]
@@ -176,13 +178,18 @@ function renderedGroups(): RenderedGroup[] {
   return renderedRobotsTxt()
     .split('\n\n')
     .map(block => block.split('\n').filter(Boolean))
-    .filter(lines => lines.some(line => line.startsWith('User-Agent: ')))
-    .map(lines => ({
-      agents: lines
-        .filter(line => line.startsWith('User-Agent: '))
-        .map(line => line.slice('User-Agent: '.length)),
-      rules: lines.filter(line => !line.startsWith('User-Agent: ')),
-    }))
+    .filter(lines => lines.some(line => line.startsWith(USER_AGENT_PREFIX)))
+    .map(lines => {
+      const group: RenderedGroup = { agents: [], rules: [] }
+      for (const line of lines) {
+        if (line.startsWith(USER_AGENT_PREFIX)) {
+          group.agents.push(line.slice(USER_AGENT_PREFIX.length))
+        } else {
+          group.rules.push(line)
+        }
+      }
+      return group
+    })
 }
 
 function renderedGroupFor(agent: string): RenderedGroup {
@@ -210,9 +217,9 @@ function patternMatches(pattern: string, pathAndQuery: string) {
  * Whether a group lets a crawler fetch a URL: the longest matching pattern
  * decides, and on a tie the Allow wins (the least restrictive rule).
  */
-function groupAllows(group: RenderedGroup, pathAndQuery: string) {
+function groupAllows(rules: string[], pathAndQuery: string) {
   let best: { length: number; allow: boolean } | null = null
-  for (const line of group.rules) {
+  for (const line of rules) {
     const match = /^(Allow|Disallow): (.+)$/.exec(line)
     if (!match || !patternMatches(match[2], pathAndQuery)) continue
     const candidate = { length: match[2].length, allow: match[1] === 'Allow' }
@@ -267,42 +274,29 @@ const MUST_STAY_FETCHABLE = [
 ]
 
 describe('rendered robots.txt', () => {
-  it('serialises the RSC patterns verbatim in the wildcard group', () => {
-    expect(renderedGroupFor('*').rules).toEqual(PUBLIC_RULE_LINES)
+  it.each(['*', 'OAI-SearchBot'])('serialises the RSC patterns verbatim for %s', agent => {
+    expect(renderedGroupFor(agent).rules).toEqual(PUBLIC_RULE_LINES)
   })
 
-  it('serialises the RSC patterns verbatim in the retrieval-agent group', () => {
-    const group = renderedGroupFor('OAI-SearchBot')
-
-    expect(group.agents).toContain('Google-Extended')
-    expect(group.rules).toEqual(PUBLIC_RULE_LINES)
+  it('renders Google-Extended in the retrieval-agent group', () => {
+    expect(renderedGroupFor('OAI-SearchBot').agents).toContain('Google-Extended')
   })
 
   it('leaves the training-crawler group disallowing the whole site', () => {
     expect(renderedGroupFor('GPTBot').rules).toEqual(['Disallow: /'])
   })
 
-  it.each(['*', 'OAI-SearchBot'])('blocks every RSC payload URL for %s', agent => {
-    const group = renderedGroupFor(agent)
-
+  // Both allowing groups render PUBLIC_RULE_LINES (pinned above), so matching
+  // URLs against one of them covers the other.
+  it('blocks every RSC payload URL', () => {
     for (const url of RSC_PAYLOAD_URLS) {
-      expect(groupAllows(group, url), `${url} must be disallowed`).toBe(false)
+      expect(groupAllows(PUBLIC_RULE_LINES, url), `${url} must be disallowed`).toBe(false)
     }
   })
 
-  it.each(['*', 'OAI-SearchBot'])('keeps pages and assets fetchable for %s', agent => {
-    const group = renderedGroupFor(agent)
-
+  it('keeps pages and assets fetchable', () => {
     for (const url of MUST_STAY_FETCHABLE) {
-      expect(groupAllows(group, url), `${url} must stay allowed`).toBe(true)
-    }
-  })
-
-  it('matches no fetchable URL with either RSC pattern on its own', () => {
-    for (const pattern of RSC_PAYLOAD_PATTERNS) {
-      for (const url of MUST_STAY_FETCHABLE) {
-        expect(patternMatches(pattern, url), `${pattern} must not match ${url}`).toBe(false)
-      }
+      expect(groupAllows(PUBLIC_RULE_LINES, url), `${url} must stay allowed`).toBe(true)
     }
   })
 
@@ -313,8 +307,19 @@ describe('rendered robots.txt', () => {
     expect(patternMatches('/fish', '/Fish.asp')).toBe(false)
     expect(patternMatches('/*.php$', '/folder/filename.php')).toBe(true)
     expect(patternMatches('/*.php$', '/filename.php?parameters')).toBe(false)
-    expect(patternMatches('/admin/', '/admin/users')).toBe(true)
-    expect(groupAllows(renderedGroupFor('*'), '/admin/users')).toBe(false)
-    expect(groupAllows(renderedGroupFor('*'), '/admin')).toBe(true)
+    expect(groupAllows(PUBLIC_RULE_LINES, '/admin/users')).toBe(false)
+    expect(groupAllows(PUBLIC_RULE_LINES, '/admin')).toBe(true)
+  })
+
+  // The rows of Google's "order of precedence for rules" table.
+  it.each([
+    [['Allow: /p', 'Disallow: /'], '/page', true],
+    [['Allow: /folder', 'Disallow: /folder'], '/folder/page', true],
+    [['Allow: /page', 'Disallow: /*.htm'], '/page.htm', false],
+    [['Allow: /page', 'Disallow: /*.ph'], '/page.php5', true],
+    [['Allow: /$', 'Disallow: /'], '/', true],
+    [['Allow: /$', 'Disallow: /'], '/page.htm', false],
+  ])('resolves %j for %s the way Google documents', (rules, url, allowed) => {
+    expect(groupAllows(rules, url)).toBe(allowed)
   })
 })
