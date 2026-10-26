@@ -4,6 +4,7 @@ import { HydrationBoundary, hashKey } from '@tanstack/react-query'
 import {
   LOADER,
   boundaryStateOf as stateOf,
+  RecordingSearchParams,
   registeredQueryHashes,
   serverRenderFirstScreen as serverRender,
 } from '@/test/firstScreenRender'
@@ -31,9 +32,11 @@ vi.mock('@/lib/queryClient', async importOriginal => {
   return { ...actual, getQueryClient: () => new QueryClient() }
 })
 
+// The URL a mounted list reads. Reset per test; a test may swap in params.
+const nav = vi.hoisted(() => ({ params: new URLSearchParams() }))
 vi.mock('next/navigation', () => ({
   useRouter: () => ({ push: vi.fn(), replace: vi.fn() }),
-  useSearchParams: () => new URLSearchParams(),
+  useSearchParams: () => nav.params,
   usePathname: () => '/releases',
 }))
 
@@ -48,6 +51,7 @@ vi.mock('@/lib/context/AuthContext', async () => {
 import ReleasesPage, { HydratedReleaseList, metadata } from './page'
 import { ReleaseList } from '@/features/releases/components/ReleaseList'
 import {
+  RELEASE_LIST_FIRST_SCREEN_DEFEATING_PARAMS,
   RELEASE_LIST_FIRST_SCREEN_KEY,
   RELEASE_LIST_FIRST_SCREEN_URL,
 } from '@/features/releases/listFirstScreen'
@@ -178,6 +182,7 @@ describe('/releases first-screen request pairing', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     apiRequest.mockReturnValue(new Promise(() => {}))
+    nav.params = new URLSearchParams()
   })
 
   it('ReleaseList requests the first-screen URL and keys on the first-screen key', () => {
@@ -188,4 +193,30 @@ describe('/releases first-screen request pairing', () => {
       RELEASE_LIST_FIRST_SCREEN_URL
     )
   })
+
+  // A URL param the list reads but the seed gate does not skip on would seed a
+  // key the list never asks for on that URL.
+  it('ReleaseList reads no URL param its seed gate does not skip on', () => {
+    const params = new RecordingSearchParams()
+    nav.params = params
+
+    registeredQueryHashes(<ReleaseList />)
+
+    expect(params.read.size).toBeGreaterThan(0)
+    expect([...params.read].filter(
+      name => !(RELEASE_LIST_FIRST_SCREEN_DEFEATING_PARAMS as readonly string[]).includes(name)
+    )).toEqual([])
+  })
+
+  // The seed gate reads an empty value as absent, so the list has to as well.
+  it.each([['type'], ['sort']])(
+    'ReleaseList keys an empty ?%s= on the first-screen key',
+    key => {
+      nav.params = new URLSearchParams({ [key]: '' })
+
+      expect(registeredQueryHashes(<ReleaseList />)).toContain(
+        hashKey(RELEASE_LIST_FIRST_SCREEN_KEY)
+      )
+    }
+  )
 })

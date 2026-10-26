@@ -64,5 +64,10 @@ export const TAG_BROWSE_FIRST_SCREEN_READS: readonly TagBrowseFirstScreenRead[] 
 /**
  * Search params that move `TagBrowse` off the first-screen keys. Category,
  * search and page are component state and always start at their defaults.
+ *
+ * Not self-maintaining: a URL param the list starts reading has to be added
+ * here too, or the server keeps seeding a key the list no longer asks for.
+ * The page test records every param the mounted list reads and fails on one
+ * missing from this list.
  */
 export const TAG_BROWSE_FIRST_SCREEN_DEFEATING_PARAMS = ['sort'] as const

@@ -23,6 +23,11 @@ export const LABEL_LIST_FIRST_SCREEN_KEY = labelQueryKeys.list(undefined)
 /**
  * Search params that move `LabelList` off the first-screen key. Any of them
  * carrying a value skips the seed (see `isFirstScreenRequest`).
+ *
+ * Not self-maintaining: a URL param the list starts reading has to be added
+ * here too, or the server keeps seeding a key the list no longer asks for.
+ * The page test records every param the mounted list reads and fails on one
+ * missing from this list.
  */
 export const LABEL_LIST_FIRST_SCREEN_DEFEATING_PARAMS = [
   'status',

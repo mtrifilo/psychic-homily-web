@@ -1,9 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { renderToString } from 'react-dom/server'
+import { within } from '@testing-library/react'
 import { HydrationBoundary, hashKey } from '@tanstack/react-query'
 import {
   LOADER,
   boundaryStateOf as stateOf,
+  RecordingSearchParams,
   registeredQueryHashes,
   serverRenderFirstScreen as serverRender,
 } from '@/test/firstScreenRender'
@@ -31,15 +33,20 @@ vi.mock('@/lib/queryClient', async importOriginal => {
   return { ...actual, getQueryClient: () => new QueryClient() }
 })
 
+// The URL a mounted list reads. Reset per test; a test may swap in params.
+const nav = vi.hoisted(() => ({ params: new URLSearchParams() }))
 vi.mock('next/navigation', () => ({
   useRouter: () => ({ push: vi.fn(), replace: vi.fn() }),
-  useSearchParams: () => new URLSearchParams(),
+  useSearchParams: () => nav.params,
   usePathname: () => '/tags',
 }))
 
 import TagsPage, { HydratedTagBrowse } from './page'
 import { TagBrowse } from '@/features/tags/components/TagBrowse'
-import { TAG_BROWSE_FIRST_SCREEN_READS } from '@/features/tags/browseFirstScreen'
+import {
+  TAG_BROWSE_FIRST_SCREEN_DEFEATING_PARAMS,
+  TAG_BROWSE_FIRST_SCREEN_READS,
+} from '@/features/tags/browseFirstScreen'
 import { TAG_CATEGORIES } from '@/features/tags/types'
 
 
@@ -74,12 +81,11 @@ const renderBoundary = (
   params: Record<string, string | string[] | undefined> = {}
 ) => HydratedTagBrowse({ searchParams: Promise.resolve(params) })
 
-/** The count a facet chip prints, by its test id. */
-function chipCount(html: string, label: string): string | undefined {
+/** A facet chip in server-rendered HTML, by its test id. */
+function facetChip(html: string, label: string): HTMLElement {
   const container = document.createElement('div')
   container.innerHTML = html
-  const chip = container.querySelector(`[data-testid="facet-${label}"]`)
-  return chip?.querySelectorAll('span')[1]?.textContent ?? undefined
+  return within(container).getByTestId(`facet-${label}`)
 }
 
 describe('/tags server-seeded first screen', () => {
@@ -117,9 +123,9 @@ describe('/tags server-seeded first screen', () => {
     expect(html).toContain('href="/tags/shoegaze"')
     expect(html).toContain('href="/tags/phoenix"')
     expect(html).not.toContain(LOADER)
-    expect(chipCount(html, 'genre')).toBe('115')
-    expect(chipCount(html, 'crew')).toBe('7')
-    expect(chipCount(html, 'all')).toBe('173')
+    expect(within(facetChip(html, 'genre')).getByText('115')).toBeTruthy()
+    expect(within(facetChip(html, 'crew')).getByText('7')).toBeTruthy()
+    expect(within(facetChip(html, 'all')).getByText('173')).toBeTruthy()
   })
 
   it('seeds nothing when any read fails, so the directory renders its loader', async () => {
@@ -159,6 +165,7 @@ describe('/tags first-screen request pairing', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     apiRequest.mockReturnValue(new Promise(() => {}))
+    nav.params = new URLSearchParams()
   })
 
   it('TagBrowse requests exactly the first-screen URLs and keys', () => {
@@ -170,5 +177,19 @@ describe('/tags first-screen request pairing', () => {
     expect(apiRequest.mock.calls.map(([url]) => url).sort()).toEqual(
       TAG_BROWSE_FIRST_SCREEN_READS.map(read => read.url).sort()
     )
+  })
+
+  // A URL param the list reads but the seed gate does not skip on would seed a
+  // key the list never asks for on that URL.
+  it('TagBrowse reads no URL param its seed gate does not skip on', () => {
+    const params = new RecordingSearchParams()
+    nav.params = params
+
+    registeredQueryHashes(<TagBrowse />)
+
+    expect(params.read.size).toBeGreaterThan(0)
+    expect([...params.read].filter(
+      name => !(TAG_BROWSE_FIRST_SCREEN_DEFEATING_PARAMS as readonly string[]).includes(name)
+    )).toEqual([])
   })
 })

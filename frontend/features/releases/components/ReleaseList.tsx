@@ -45,11 +45,14 @@ export function ReleaseList() {
   const { density, setDensity } = useDensity('releases')
   const { isAuthenticated, user } = useAuthContext()
 
-  // Parse filters from URL
-  const typeParam = searchParams.get('type') as ReleaseType | null
+  // Parse filters from URL. An empty value reads as absent, the way
+  // `app/releases/page.tsx` reads it when deciding whether to seed this list.
+  // See RELEASE_LIST_FIRST_SCREEN_DEFEATING_PARAMS before adding a param here.
+  const typeParam = (searchParams.get('type') || null) as ReleaseType | null
   const yearParam = searchParams.get('year')
   const searchParam = searchParams.get('search') ?? ''
-  const sortParam = (searchParams.get('sort') as ReleaseSortOption) ?? RELEASE_LIST_DEFAULT_SORT
+  const sortParam = (searchParams.get('sort') ||
+    RELEASE_LIST_DEFAULT_SORT) as ReleaseSortOption
   const labelIdParam = searchParams.get('label_id')
   const pageParam = searchParams.get('page')
 

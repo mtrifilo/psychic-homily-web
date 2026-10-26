@@ -68,6 +68,7 @@ export function TagBrowse() {
   const searchParams = useSearchParams()
   const [isPending, startTransition] = useTransition()
 
+  // See TAG_BROWSE_FIRST_SCREEN_DEFEATING_PARAMS before reading another param.
   const sort = toSort(searchParams.get('sort'))
 
   const [category, setCategory] = useState('')

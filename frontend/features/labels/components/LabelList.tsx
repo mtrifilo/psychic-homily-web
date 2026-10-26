@@ -23,7 +23,8 @@ export function LabelList() {
   const [isPending, startTransition] = useTransition()
   const { density, setDensity } = useDensity('labels')
 
-  // Parse filters from URL
+  // Parse filters from URL. See LABEL_LIST_FIRST_SCREEN_DEFEATING_PARAMS
+  // before adding a param here.
   const statusParam = searchParams.get('status') as LabelStatus | null
   const tagsParam = searchParams.get('tags')
   const tagMatchParam = searchParams.get('tag_match')

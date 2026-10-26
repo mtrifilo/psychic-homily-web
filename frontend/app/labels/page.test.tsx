@@ -4,6 +4,7 @@ import { HydrationBoundary, hashKey } from '@tanstack/react-query'
 import {
   LOADER,
   boundaryStateOf as stateOf,
+  RecordingSearchParams,
   registeredQueryHashes,
   serverRenderFirstScreen as serverRender,
 } from '@/test/firstScreenRender'
@@ -31,15 +32,18 @@ vi.mock('@/lib/queryClient', async importOriginal => {
   return { ...actual, getQueryClient: () => new QueryClient() }
 })
 
+// The URL a mounted list reads. Reset per test; a test may swap in params.
+const nav = vi.hoisted(() => ({ params: new URLSearchParams() }))
 vi.mock('next/navigation', () => ({
   useRouter: () => ({ push: vi.fn(), replace: vi.fn() }),
-  useSearchParams: () => new URLSearchParams(),
+  useSearchParams: () => nav.params,
   usePathname: () => '/labels',
 }))
 
 import LabelsPage, { HydratedLabelList } from './page'
 import { LabelList } from '@/features/labels/components/LabelList'
 import {
+  LABEL_LIST_FIRST_SCREEN_DEFEATING_PARAMS,
   LABEL_LIST_FIRST_SCREEN_KEY,
   LABEL_LIST_FIRST_SCREEN_URL,
 } from '@/features/labels/listFirstScreen'
@@ -152,6 +156,7 @@ describe('/labels first-screen request pairing', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     apiRequest.mockReturnValue(new Promise(() => {}))
+    nav.params = new URLSearchParams()
   })
 
   it('LabelList requests the first-screen URL and keys on the first-screen key', () => {
@@ -161,5 +166,19 @@ describe('/labels first-screen request pairing', () => {
     expect(apiRequest.mock.calls.map(([url]) => url)).toContain(
       LABEL_LIST_FIRST_SCREEN_URL
     )
+  })
+
+  // A URL param the list reads but the seed gate does not skip on would seed a
+  // key the list never asks for on that URL.
+  it('LabelList reads no URL param its seed gate does not skip on', () => {
+    const params = new RecordingSearchParams()
+    nav.params = params
+
+    registeredQueryHashes(<LabelList />)
+
+    expect(params.read.size).toBeGreaterThan(0)
+    expect([...params.read].filter(
+      name => !(LABEL_LIST_FIRST_SCREEN_DEFEATING_PARAMS as readonly string[]).includes(name)
+    )).toEqual([])
   })
 })
