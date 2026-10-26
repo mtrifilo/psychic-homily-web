@@ -1,5 +1,9 @@
 import type { DehydratedState } from '@tanstack/react-query'
 import { seedFirstScreen } from '@/lib/query-hydration'
+import {
+  fetchListPayload,
+  type ListPayloadCollection,
+} from '@/lib/ssr/fetchListPayload'
 
 /** A route's `searchParams`, as Next hands them to a page. */
 export type RouteSearchParams = Record<string, string | string[] | undefined>
@@ -35,12 +39,16 @@ export function isFirstScreenRequest(
   })
 }
 
-/** One cache entry a list blocks its first paint on, and how to read it. */
+/** One cache entry a list blocks its first paint on, and the read that fills it. */
 export interface FirstScreenRead {
-  /** The key the client hook registers for the default view. */
+  /** Absolute API URL of the request the client hook issues. */
+  url: string
+  /** The key the client hook registers for that request. */
   queryKey: readonly unknown[]
-  /** The server read; `null` when it did not produce a usable payload. */
-  read: () => Promise<unknown>
+  /** The response key holding the row array (see `fetchListPayload`). */
+  collection: ListPayloadCollection
+  /** Sentry `service` tag for a failed read. */
+  service: string
 }
 
 /**
@@ -64,12 +72,16 @@ export async function dehydrateListFirstScreen(
     return EMPTY_DEHYDRATED_STATE
   }
 
-  const payloads = await Promise.all(reads.map(entry => entry.read()))
+  const payloads = await Promise.all(
+    reads.map(({ url, collection, service }) =>
+      fetchListPayload<unknown>({ url, collection, service }),
+    ),
+  )
   if (payloads.some(payload => payload == null)) {
     return EMPTY_DEHYDRATED_STATE
   }
 
   return seedFirstScreen(
-    reads.map((entry, i) => ({ queryKey: entry.queryKey, data: payloads[i] })),
+    reads.map((read, i) => ({ queryKey: read.queryKey, data: payloads[i] })),
   )
 }

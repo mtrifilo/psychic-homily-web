@@ -1,7 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-const { seedFirstScreen } = vi.hoisted(() => ({ seedFirstScreen: vi.fn() }))
+const { seedFirstScreen, fetchListPayload } = vi.hoisted(() => ({
+  seedFirstScreen: vi.fn(),
+  fetchListPayload: vi.fn(),
+}))
 vi.mock('@/lib/query-hydration', () => ({ seedFirstScreen }))
+vi.mock('@/lib/ssr/fetchListPayload', () => ({ fetchListPayload }))
 
 import {
   EMPTY_DEHYDRATED_STATE,
@@ -43,44 +47,51 @@ describe('isFirstScreenRequest', () => {
 
 describe('dehydrateListFirstScreen', () => {
   const seeded = { mutations: [], queries: [{ queryHash: 'seeded' }] }
+  const read = (name: string) => ({
+    url: `https://api.test/${name}`,
+    queryKey: [name],
+    collection: 'tags' as const,
+    service: `${name}-first-screen`,
+  })
 
   beforeEach(() => {
     vi.clearAllMocks()
     seedFirstScreen.mockResolvedValue(seeded)
   })
 
-  it('seeds every key with its own payload, in order', async () => {
-    const state = await dehydrateListFirstScreen({}, DEFEATING, [
-      { queryKey: ['a'], read: async () => ({ rows: [1] }) },
-      { queryKey: ['b'], read: async () => ({ rows: [2] }) },
-    ])
+  it('reads every URL and seeds each key with its own payload, in order', async () => {
+    fetchListPayload.mockImplementation(async ({ url }: { url: string }) => ({ url }))
+
+    const state = await dehydrateListFirstScreen({}, DEFEATING, [read('a'), read('b')])
 
     expect(state).toBe(seeded)
+    expect(fetchListPayload).toHaveBeenCalledWith({
+      url: 'https://api.test/a',
+      collection: 'tags',
+      service: 'a-first-screen',
+    })
     expect(seedFirstScreen).toHaveBeenCalledWith([
-      { queryKey: ['a'], data: { rows: [1] } },
-      { queryKey: ['b'], data: { rows: [2] } },
+      { queryKey: ['a'], data: { url: 'https://api.test/a' } },
+      { queryKey: ['b'], data: { url: 'https://api.test/b' } },
     ])
   })
 
   it('seeds nothing when any read returns null', async () => {
-    const state = await dehydrateListFirstScreen({}, DEFEATING, [
-      { queryKey: ['a'], read: async () => ({ rows: [1] }) },
-      { queryKey: ['b'], read: async () => null },
-    ])
+    fetchListPayload.mockImplementation(async ({ url }: { url: string }) =>
+      url.endsWith('/b') ? null : { url }
+    )
+
+    const state = await dehydrateListFirstScreen({}, DEFEATING, [read('a'), read('b')])
 
     expect(state).toEqual(EMPTY_DEHYDRATED_STATE)
     expect(seedFirstScreen).not.toHaveBeenCalled()
   })
 
   it('neither reads nor seeds off the first screen', async () => {
-    const read = vi.fn()
-
-    const state = await dehydrateListFirstScreen({ page: '3' }, DEFEATING, [
-      { queryKey: ['a'], read },
-    ])
+    const state = await dehydrateListFirstScreen({ page: '3' }, DEFEATING, [read('a')])
 
     expect(state).toEqual(EMPTY_DEHYDRATED_STATE)
-    expect(read).not.toHaveBeenCalled()
+    expect(fetchListPayload).not.toHaveBeenCalled()
     expect(seedFirstScreen).not.toHaveBeenCalled()
   })
 })

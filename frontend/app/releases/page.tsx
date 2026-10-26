@@ -6,14 +6,12 @@ import {
   RELEASE_LIST_FIRST_SCREEN_KEY,
   RELEASE_LIST_FIRST_SCREEN_URL,
 } from '@/features/releases/listFirstScreen'
-import type { ReleasesListResponse } from '@/features/releases/types'
 import { LoadingSpinner } from '@/components/shared'
 import { listRootCanonical } from '@/lib/seo/siteMetadata'
 import {
   dehydrateListFirstScreen,
   type RouteSearchParams,
 } from '@/lib/ssr/firstScreenSeed'
-import { fetchListPayload } from '@/lib/ssr/fetchListPayload'
 
 /**
  * The canonical is fixed at `/releases` for every query variant of this page.
@@ -57,13 +55,10 @@ export async function HydratedReleaseList({
     RELEASE_LIST_FIRST_SCREEN_DEFEATING_PARAMS,
     [
       {
+        url: RELEASE_LIST_FIRST_SCREEN_URL,
         queryKey: RELEASE_LIST_FIRST_SCREEN_KEY,
-        read: () =>
-          fetchListPayload<ReleasesListResponse>({
-            url: RELEASE_LIST_FIRST_SCREEN_URL,
-            collection: 'releases',
-            service: 'releases-first-screen',
-          }),
+        collection: 'releases',
+        service: 'releases-first-screen',
       },
     ],
   )

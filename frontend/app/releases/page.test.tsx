@@ -1,15 +1,23 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import type { ReactElement } from 'react'
 import { renderToString } from 'react-dom/server'
+import { HydrationBoundary, hashKey } from '@tanstack/react-query'
 import {
-  HydrationBoundary,
-  QueryClient,
-  QueryClientProvider,
-  type DehydratedState,
-} from '@tanstack/react-query'
+  LOADER,
+  boundaryStateOf as stateOf,
+  registeredQueryHashes,
+  serverRenderFirstScreen as serverRender,
+} from '@/test/firstScreenRender'
 
 const { fetchListPayload } = vi.hoisted(() => ({ fetchListPayload: vi.fn() }))
 vi.mock('@/lib/ssr/fetchListPayload', () => ({ fetchListPayload }))
+
+// The browser request a mounted list issues on a cold cache. It never
+// answers, so the list stays on its first request.
+const { apiRequest } = vi.hoisted(() => ({ apiRequest: vi.fn() }))
+vi.mock('@/lib/api', async importOriginal => ({
+  ...(await importOriginal<typeof import('@/lib/api')>()),
+  apiRequest,
+}))
 
 // `seedFirstScreen` awaits `connection()`, which marks a request-time render and
 // has nothing to do outside Next.
@@ -38,12 +46,12 @@ vi.mock('@/lib/context/AuthContext', async () => {
 })
 
 import ReleasesPage, { HydratedReleaseList, metadata } from './page'
+import { ReleaseList } from '@/features/releases/components/ReleaseList'
 import {
   RELEASE_LIST_FIRST_SCREEN_KEY,
   RELEASE_LIST_FIRST_SCREEN_URL,
 } from '@/features/releases/listFirstScreen'
 
-const LOADER = 'animate-spin'
 
 const release = (id: number, title: string, slug: string) => ({
   id,
@@ -71,20 +79,6 @@ const releasesPayload = {
 const renderBoundary = (
   params: Record<string, string | string[] | undefined> = {}
 ) => HydratedReleaseList({ searchParams: Promise.resolve(params) })
-
-/**
- * The route's HTML for the list: no client fetch runs inside `renderToString`,
- * so whatever this prints came from the seed.
- */
-function serverRender(boundary: ReactElement): string {
-  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
-  return renderToString(
-    <QueryClientProvider client={client}>{boundary}</QueryClientProvider>
-  )
-}
-
-const stateOf = (boundary: ReactElement) =>
-  (boundary.props as { state: DehydratedState }).state
 
 /**
  * A regression guard on a decision, not on a string. PSY-1767 settled that
@@ -172,5 +166,26 @@ describe('/releases server-seeded first screen', () => {
 
     expect(html).toContain('>Releases</h1>')
     expect(html).toContain(LOADER)
+  })
+})
+
+/**
+ * The client half of the pair: mounted on a cold cache, the real list requests
+ * the URL the server reads and registers the key the server seeds. A drift in
+ * either leaves the seed unread or seeds the wrong payload.
+ */
+describe('/releases first-screen request pairing', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    apiRequest.mockReturnValue(new Promise(() => {}))
+  })
+
+  it('ReleaseList requests the first-screen URL and keys on the first-screen key', () => {
+    const hashes = registeredQueryHashes(<ReleaseList />)
+
+    expect(hashes).toContain(hashKey(RELEASE_LIST_FIRST_SCREEN_KEY))
+    expect(apiRequest.mock.calls.map(([url]) => url)).toContain(
+      RELEASE_LIST_FIRST_SCREEN_URL
+    )
   })
 })

@@ -5,13 +5,11 @@ import {
   TAG_BROWSE_FIRST_SCREEN_DEFEATING_PARAMS,
   TAG_BROWSE_FIRST_SCREEN_READS,
 } from '@/features/tags/browseFirstScreen'
-import type { TagListResponse } from '@/features/tags/types'
 import { LoadingSpinner } from '@/components/shared'
 import {
   dehydrateListFirstScreen,
   type RouteSearchParams,
 } from '@/lib/ssr/firstScreenSeed'
-import { fetchListPayload } from '@/lib/ssr/fetchListPayload'
 
 export const metadata = {
   title: 'Tags',
@@ -46,13 +44,10 @@ export async function HydratedTagBrowse({
     await searchParams,
     TAG_BROWSE_FIRST_SCREEN_DEFEATING_PARAMS,
     TAG_BROWSE_FIRST_SCREEN_READS.map(({ url, queryKey }) => ({
+      url,
       queryKey,
-      read: () =>
-        fetchListPayload<TagListResponse>({
-          url,
-          collection: 'tags',
-          service: 'tags-first-screen',
-        }),
+      collection: 'tags',
+      service: 'tags-first-screen',
     })),
   )
 

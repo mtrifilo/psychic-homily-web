@@ -6,13 +6,11 @@ import {
   LABEL_LIST_FIRST_SCREEN_KEY,
   LABEL_LIST_FIRST_SCREEN_URL,
 } from '@/features/labels/listFirstScreen'
-import type { LabelsListResponse } from '@/features/labels/types'
 import { LoadingSpinner } from '@/components/shared'
 import {
   dehydrateListFirstScreen,
   type RouteSearchParams,
 } from '@/lib/ssr/firstScreenSeed'
-import { fetchListPayload } from '@/lib/ssr/fetchListPayload'
 
 export const metadata = {
   title: 'Labels',
@@ -50,13 +48,10 @@ export async function HydratedLabelList({
     LABEL_LIST_FIRST_SCREEN_DEFEATING_PARAMS,
     [
       {
+        url: LABEL_LIST_FIRST_SCREEN_URL,
         queryKey: LABEL_LIST_FIRST_SCREEN_KEY,
-        read: () =>
-          fetchListPayload<LabelsListResponse>({
-            url: LABEL_LIST_FIRST_SCREEN_URL,
-            collection: 'labels',
-            service: 'labels-first-screen',
-          }),
+        collection: 'labels',
+        service: 'labels-first-screen',
       },
     ],
   )

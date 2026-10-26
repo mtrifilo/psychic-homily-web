@@ -1,6 +1,7 @@
-import { API_BASE_URL } from '@/lib/api-base'
+import { API_ENDPOINTS } from '@/lib/api'
 import { queryKeys } from '@/lib/queryClient'
 import { DEFAULT_TAG_SORT, TAG_CATEGORIES, TAG_SORT_OPTIONS } from './types'
+import type { TagSortOption } from './types'
 
 /** The page size `TagBrowse` requests, and pages through with `offset`. */
 export const TAG_BROWSE_PAGE_SIZE = 50
@@ -9,7 +10,7 @@ export const TAG_BROWSE_PAGE_SIZE = 50
 export const TAG_CATEGORY_COUNT_LIMIT = 1
 
 /** The backend `sort` value for a `TagBrowse` sort option. */
-export function tagSortToBackend(sort: string): string {
+export function tagSortToBackend(sort: TagSortOption): string {
   return TAG_SORT_OPTIONS.find(o => o.value === sort)?.backend ?? 'usage'
 }
 
@@ -41,7 +42,7 @@ export interface TagBrowseFirstScreenRead {
  */
 export const TAG_BROWSE_FIRST_SCREEN_READS: readonly TagBrowseFirstScreenRead[] = [
   {
-    url: `${API_BASE_URL}/tags?sort=${DEFAULT_BACKEND_SORT}&limit=${TAG_BROWSE_PAGE_SIZE}`,
+    url: `${API_ENDPOINTS.TAGS.LIST}?sort=${DEFAULT_BACKEND_SORT}&limit=${TAG_BROWSE_PAGE_SIZE}`,
     queryKey: queryKeys.tags.list({
       category: undefined,
       search: undefined,
@@ -51,7 +52,7 @@ export const TAG_BROWSE_FIRST_SCREEN_READS: readonly TagBrowseFirstScreenRead[] 
     }),
   },
   ...TAG_CATEGORIES.map(category => ({
-    url: `${API_BASE_URL}/tags?category=${category}&limit=${TAG_CATEGORY_COUNT_LIMIT}`,
+    url: `${API_ENDPOINTS.TAGS.LIST}?category=${category}&limit=${TAG_CATEGORY_COUNT_LIMIT}`,
     queryKey: queryKeys.tags.list({
       category,
       search: undefined,

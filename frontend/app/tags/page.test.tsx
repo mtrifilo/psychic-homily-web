@@ -1,15 +1,23 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import type { ReactElement } from 'react'
 import { renderToString } from 'react-dom/server'
+import { HydrationBoundary, hashKey } from '@tanstack/react-query'
 import {
-  HydrationBoundary,
-  QueryClient,
-  QueryClientProvider,
-  type DehydratedState,
-} from '@tanstack/react-query'
+  LOADER,
+  boundaryStateOf as stateOf,
+  registeredQueryHashes,
+  serverRenderFirstScreen as serverRender,
+} from '@/test/firstScreenRender'
 
 const { fetchListPayload } = vi.hoisted(() => ({ fetchListPayload: vi.fn() }))
 vi.mock('@/lib/ssr/fetchListPayload', () => ({ fetchListPayload }))
+
+// The browser request a mounted list issues on a cold cache. It never
+// answers, so the list stays on its first request.
+const { apiRequest } = vi.hoisted(() => ({ apiRequest: vi.fn() }))
+vi.mock('@/lib/api', async importOriginal => ({
+  ...(await importOriginal<typeof import('@/lib/api')>()),
+  apiRequest,
+}))
 
 // `seedFirstScreen` awaits `connection()`, which marks a request-time render and
 // has nothing to do outside Next.
@@ -30,10 +38,10 @@ vi.mock('next/navigation', () => ({
 }))
 
 import TagsPage, { HydratedTagBrowse } from './page'
+import { TagBrowse } from '@/features/tags/components/TagBrowse'
 import { TAG_BROWSE_FIRST_SCREEN_READS } from '@/features/tags/browseFirstScreen'
 import { TAG_CATEGORIES } from '@/features/tags/types'
 
-const LOADER = 'animate-spin'
 
 const tag = (id: number, name: string, category: string) => ({
   id,
@@ -65,20 +73,6 @@ function answerReads(url: string) {
 const renderBoundary = (
   params: Record<string, string | string[] | undefined> = {}
 ) => HydratedTagBrowse({ searchParams: Promise.resolve(params) })
-
-/**
- * The route's HTML for the directory: no client fetch runs inside
- * `renderToString`, so whatever this prints came from the seed.
- */
-function serverRender(boundary: ReactElement): string {
-  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
-  return renderToString(
-    <QueryClientProvider client={client}>{boundary}</QueryClientProvider>
-  )
-}
-
-const stateOf = (boundary: ReactElement) =>
-  (boundary.props as { state: DehydratedState }).state
 
 /** The count a facet chip prints, by its test id. */
 function chipCount(html: string, label: string): string | undefined {
@@ -153,5 +147,28 @@ describe('/tags server-seeded first screen', () => {
 
     expect(html).toContain('>Tags</h1>')
     expect(html).toContain(LOADER)
+  })
+})
+
+/**
+ * The client half of the pair: mounted on a cold cache, the real list requests
+ * the URL the server reads and registers the key the server seeds. A drift in
+ * either leaves the seed unread or seeds the wrong payload.
+ */
+describe('/tags first-screen request pairing', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    apiRequest.mockReturnValue(new Promise(() => {}))
+  })
+
+  it('TagBrowse requests exactly the first-screen URLs and keys', () => {
+    const hashes = registeredQueryHashes(<TagBrowse />)
+
+    expect([...hashes].sort()).toEqual(
+      TAG_BROWSE_FIRST_SCREEN_READS.map(read => hashKey(read.queryKey)).sort()
+    )
+    expect(apiRequest.mock.calls.map(([url]) => url).sort()).toEqual(
+      TAG_BROWSE_FIRST_SCREEN_READS.map(read => read.url).sort()
+    )
   })
 })
