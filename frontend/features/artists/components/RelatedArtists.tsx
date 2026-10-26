@@ -28,6 +28,7 @@ import { useArtistGraph, useFetchArtistGraph, useArtistRelationshipVote, useCrea
 import { useArtistSearch } from '../hooks/useArtistSearch'
 import { useArtist } from '../hooks/useArtists'
 import { useReducedMotion } from '@/lib/hooks/common/useReducedMotion'
+import { replayOnHydrate } from '@/lib/hydration/clickReplay'
 import { ArtistGraphVisualization } from './ArtistGraph'
 import { SIMILAR_ARTISTS_ANCHOR } from './ArtistConnectionsSection'
 import {
@@ -1482,8 +1483,11 @@ function VoteButton({ link, direction, userVotes, onVote, isPending }: VoteButto
   const count = direction === 'up' ? link.votes_up : link.votes_down
   const Icon = direction === 'up' ? ThumbsUp : ThumbsDown
 
+  // Server-rendered for a signed-in viewer, so a tap that lands before
+  // hydration is replayed rather than dropped.
   return (
     <button
+      {...replayOnHydrate}
       onClick={onVote}
       disabled={isPending}
       className={`inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-xs transition-colors ${

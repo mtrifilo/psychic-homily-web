@@ -84,6 +84,7 @@ vi.mock('./ArtistGraph', () => ({
 }))
 
 import { ArtistSimilarSidebar, ArtistGraphDialog } from './RelatedArtists'
+import { REPLAY_ATTR } from '@/lib/hydration/clickReplay'
 // The REAL constant (not a literal) — a rename that missed one side would
 // otherwise still pass.
 import { SIMILAR_ARTISTS_ANCHOR } from './ArtistConnectionsSection'
@@ -276,6 +277,20 @@ describe('ArtistSimilarSidebar', () => {
 
     await user.click(screen.getByRole('button', { name: 'Suggest similar' }))
     expect(screen.getByPlaceholderText('Search for a similar artist...')).toHaveValue('')
+  })
+
+  // The list is in server HTML, so its vote buttons are clickable before
+  // hydration; the replay marker is what keeps such a tap from being dropped.
+  it('marks every vote button for click replay', () => {
+    renderWithProviders(
+      <ArtistSimilarSidebar artistId={1} artistSlug="gatecreeper" onOpenGraph={() => {}} />
+    )
+    const votes = [
+      ...screen.getAllByTitle('Upvote similarity'),
+      ...screen.getAllByTitle('Downvote similarity'),
+    ]
+    expect(votes.length).toBeGreaterThan(0)
+    for (const vote of votes) expect(vote).toHaveAttribute(REPLAY_ATTR)
   })
 
   it('renders an [Explore graph] link when relationships exist', () => {

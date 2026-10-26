@@ -108,6 +108,7 @@ export const ARTIST_LAYOUT_CLASSES = {
   mainColumn:
     'flex-1 min-w-0 space-y-8 artist-phone:contents artist-phone:space-y-0',
   showsGroup: 'space-y-8 artist-phone:order-first',
+  mainRest: 'space-y-8',
   connections: 'empty:hidden artist-phone:hidden',
   sidebar:
     'w-full lg:w-80 shrink-0 flex flex-col gap-6 artist-phone:contents',
@@ -405,9 +406,11 @@ function ArtistSidebar({
         {/* Chart rank — self-hides when unranked (PSY-1420 / Figma 996:16) */}
         <EntityChartRankBadge entityType="artist" entityId={artist.id} />
 
-        {/* Links and As heard on sit ABOVE Similar artists: both are short,
+        {/* Links and As heard on sit ABOVE Similar artists in the sidebar's
+            DOM order, the order wide viewports paint: both are short,
             fixed-height blocks, while Similar artists is unbounded and pushes
-            them off-screen on well-connected artists. */}
+            them off-screen on well-connected artists. The phone layout lifts
+            the list above them (ARTIST_LAYOUT_CLASSES). */}
         {hasSocialLinks && (
           <section>
             <SectionHeader title="Links" />
@@ -1315,7 +1318,7 @@ export function ArtistDetail({ artistId }: ArtistDetailProps) {
               {artistActions}
             </div>
 
-            <div className="space-y-8">
+            <div className={ARTIST_LAYOUT_CLASSES.mainRest}>
               <DiscographyTab artistIdOrSlug={artistId} />
 
               {/* The inline ego map, which reuses the list's cached

@@ -217,10 +217,16 @@ export default async function ArtistPage({ params }: ArtistPageProps) {
       data: releases,
     })
   }
-  if (
-    similarArtists?.center?.id === artistData.id &&
-    Array.isArray(similarArtists.links)
-  ) {
+  // `fetchListPayload` checked `nodes`. The Similar artists list also reads
+  // `links` unguarded, so a body without it is a contract break, reported like
+  // a missing `nodes`; one centred on another artist is withheld like the
+  // upcoming rows.
+  if (similarArtists && !Array.isArray(similarArtists.links)) {
+    Sentry.captureMessage(
+      'artist-page-similar-artists: response has no "links" array',
+      { level: 'error', tags: { service: 'artist-page-similar-artists' } },
+    )
+  } else if (similarArtists?.center?.id === artistData.id) {
     listSeeds.push({
       queryKey: queryKeys.artists.graph(artistData.id),
       data: similarArtists,

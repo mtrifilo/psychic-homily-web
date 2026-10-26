@@ -31,6 +31,12 @@
  * 640px canvas gate the whole section is one line of link into the knowledge
  * graph (MobileGraphTeaser); the action row's [Graph] is what still reaches
  * the ego dialog at that width.
+ *
+ * Before the first measurement (the server render, and the hydration render)
+ * the section's chrome and skeleton are gated on the section's OWN width by a
+ * container query, the same 640px the measurement gates on, so the server
+ * HTML paints the form the measurement settles on: a column under 640px gets
+ * nothing to collapse, at any viewport width.
  */
 
 import { useMemo, useState } from 'react'
@@ -52,7 +58,6 @@ import { useArtistPanelSelection } from '@/components/graph/useArtistPanelSelect
 import {
   useContainerWidth,
   GRAPH_BREAKPOINT_PX,
-  GRAPH_CHROME_UNMEASURED_CLASS,
 } from '@/components/graph/useContainerWidth'
 import {
   compareByCenterEdgeScore,
@@ -84,21 +89,29 @@ export const CONNECTIONS_NEIGHBOR_CAP = 14
 const CONNECTIONS_CANVAS_HEIGHT = 360
 
 /**
- * Height reserved for the pre-measurement skeleton, and the viewport gate that
- * keeps it from painting where nothing that tall can land: below 640px the
- * settled section is one line of link, so a reserved canvas box there would be
- * a phantom the settle then collapses.
+ * The pre-measurement chrome (header and count line): shown only where the
+ * section itself is at least GRAPH_BREAKPOINT_PX wide, the width at which the
+ * measurement keeps that chrome. The section is the query container.
+ */
+const UNMEASURED_CHROME_CLASS = 'hidden @min-[640px]:block'
+
+/**
+ * Height reserved for the pre-measurement skeleton, and the container gate
+ * that keeps it from painting where nothing that tall can land: below 640px
+ * the settled section is one line of link, so a reserved canvas box there
+ * would be a phantom the settle then collapses.
  *
  * The height tracks CONNECTIONS_CANVAS_HEIGHT by hand (Tailwind arbitrary
  * values can't read the const) and approximates the settled box from BELOW.
  * The rendered surface is ~30px taller, because ArtistGraphVisualization stacks
  * the EgoTypeLegend under the canvas inside its bordered container.
  * Reserving the canvas height rather than the exact total is the same accepted
- * trade-off GRAPH_BOX_HEIGHT_CLASS documents, and the residual is invisible in
- * practice: useContainerWidth measures via a callback ref during commit, so
- * this skeleton is typically replaced before the browser paints it.
+ * trade-off GRAPH_BOX_HEIGHT_CLASS documents. A client-side mount replaces this
+ * skeleton before paint (useContainerWidth measures via a callback ref during
+ * commit); server HTML paints it until hydration, so there the residual is a
+ * shift of the legend's height.
  */
-const PLACEHOLDER_BOX_CLASS = 'hidden sm:block h-[360px]'
+const PLACEHOLDER_BOX_CLASS = 'hidden @min-[640px]:block h-[360px]'
 
 export interface CappedEgoGraph {
   graph: ArtistGraph
@@ -231,9 +244,8 @@ export function ArtistConnectionsSection({
   // line's interaction clause, the mobile teaser, and the canvas) through the
   // two derivations the width hook owns, so the clause can't promise names to
   // click in a layout that rendered no canvas. Don't add a *gating* breakpoint
-  // source of your own; the `sm:` prefixes in this file are viewport-keyed and
-  // govern only what an UNMEASURED render paints, which is the band where a
-  // column under 640 sits inside a viewport over it.
+  // source of your own; the container-query classes in this file govern only
+  // what an UNMEASURED render paints, and gate on the same 640px.
   //
   // A chunk-load failure is the gate's SECOND input, not an exception to it:
   // the boundary below still self-hides (no `fallback`), but it reports the
@@ -249,7 +261,7 @@ export function ArtistConnectionsSection({
   const graphAvailable = isMeasured && containerWidth >= GRAPH_BREAKPOINT_PX
 
   return (
-    <section ref={refCallback} className="min-w-0">
+    <section ref={refCallback} className="@container min-w-0">
       {isBelowGraphBreakpoint ? (
         /* The section's sub-640px form: the header, the count line and
            [Expand] all go with the canvas. The action row's [Graph] is the
@@ -259,21 +271,22 @@ export function ArtistConnectionsSection({
         >{`See who ${artistName} plays with on the music map`}</MobileGraphTeaser>
       ) : (
         <>
-          {/* Unmeasured, this branch is what a phone's server HTML carries,
-              and the measurement is about to replace it with one line. */}
+          {/* Unmeasured, this branch is what server HTML carries; under
+              640px of section width it paints nothing, and the measurement
+              replaces it with one line. */}
           <SectionHeader
             title="Connections"
             as="h2"
             size="md"
             action={<BracketLink label="Expand" onClick={onExpand} />}
-            className={!isMeasured ? GRAPH_CHROME_UNMEASURED_CLASS : undefined}
+            className={!isMeasured ? UNMEASURED_CHROME_CLASS : undefined}
           />
           {/* The count discloses scale at every width the section keeps its
               header; the interaction clause is narrower still, and is dropped
               whenever no canvas rendered. */}
           <p
             className={`text-sm text-muted-foreground mb-2 ${
-              !isMeasured ? GRAPH_CHROME_UNMEASURED_CLASS : ''
+              !isMeasured ? UNMEASURED_CHROME_CLASS : ''
             }`}
           >
             {sentenceCase(phrase)}

@@ -12,11 +12,9 @@ import { extname, join, relative, sep } from 'node:path'
  * such a change is intended, update the list.
  *
  * A source scan rather than a render test, so it covers every file and not
- * only the surfaces a test happens to mount. The artist page's own placement
- * (its phone layout shows the Similar artists list under the shows and does
- * not mount the section) is pinned by ArtistDetail.test; ArtistConnectionsSection
- * stays in this list because outside the phone layout a column measuring under 640px
- * still gets the teaser.
+ * only the surfaces a test happens to mount. ArtistConnectionsSection is in
+ * this list because a column measuring under 640px gets the teaser wherever
+ * the section is visible.
  */
 
 const FRONTEND_ROOT = join(import.meta.dirname, '..', '..')

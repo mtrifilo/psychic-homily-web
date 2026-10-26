@@ -14,24 +14,28 @@ vi.mock('@/lib/api', () => ({
 }))
 
 // `artistGraphUrl` stays real, so these tests pin the URL it builds.
-vi.mock('@/features/artists/api', async importOriginal => ({
-  ...(await importOriginal<typeof import('@/features/artists/api')>()),
-  artistEndpoints: {
-    RELATIONSHIPS: {
-      CREATE: '/artists/relationships',
-      VOTE: (sourceId: number, targetId: number) =>
-        `/artists/relationships/${sourceId}/${targetId}/vote`,
+vi.mock('@/features/artists/api', async importOriginal => {
+  const actual = await importOriginal<typeof import('@/features/artists/api')>()
+  return {
+    ...actual,
+    artistEndpoints: {
+      ...actual.artistEndpoints,
+      RELATIONSHIPS: {
+        CREATE: '/artists/relationships',
+        VOTE: (sourceId: number, targetId: number) =>
+          `/artists/relationships/${sourceId}/${targetId}/vote`,
+      },
     },
-  },
-  artistQueryKeys: {
-    graph: (id: string | number, types?: string[]) => [
-      'artists',
-      'graph',
-      String(id),
-      types,
-    ],
-  },
-}))
+    artistQueryKeys: {
+      graph: (id: string | number, types?: string[]) => [
+        'artists',
+        'graph',
+        String(id),
+        types,
+      ],
+    },
+  }
+})
 
 // Import hooks after mocks are set up
 import {

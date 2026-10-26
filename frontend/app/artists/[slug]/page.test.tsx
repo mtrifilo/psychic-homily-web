@@ -746,6 +746,10 @@ function asideOf(html: string): string {
 const occurrences = (html: string, text: string) => html.split(text).length - 1
 
 describe('ArtistPage similar artists', () => {
+  afterEach(() => {
+    vi.unstubAllEnvs()
+  })
+
   it('asks for the graph by the numeric id, with no parameters, once the artist resolves', async () => {
     const calls = stubGraph(reply(richGraphBody()))
 
@@ -824,12 +828,40 @@ describe('ArtistPage similar artists', () => {
     expect(seededGraphQuery(await renderPage())).toBeUndefined()
   })
 
-  it('withholds a graph with no links array', async () => {
+  it('withholds and reports a graph with no links array', async () => {
     const noLinks: Record<string, unknown> = richGraphBody()
     delete noLinks.links
     stubGraph(reply(noLinks))
 
     expect(seededGraphQuery(await renderPage())).toBeUndefined()
+    expect(Sentry.captureMessage).toHaveBeenCalledWith(
+      'artist-page-similar-artists: response has no "links" array',
+      expect.objectContaining({ tags: { service: 'artist-page-similar-artists' } }),
+    )
+  })
+
+  // An artist with no relationships seeds its empty graph, and the anonymous
+  // server HTML carries no Similar artists section at all.
+  it('server-renders no Similar artists section for an artist with no relationships', async () => {
+    stubGraph(reply(graphBody()))
+
+    const page = await renderPage()
+    const html = serverRenderArtistDetail(page)
+
+    expect(seededGraphQuery(page)?.state.data).toEqual(graphBody())
+    expect(html).not.toContain('Similar artists')
+  })
+
+  it('sends the server-read secret on the graph read', async () => {
+    vi.stubEnv('SERVER_READ_SECRET', 'artist-page-secret-0123456789abcdef0123')
+    stubGraph(reply(richGraphBody()))
+
+    await renderPage()
+
+    const call = fetchMock.mock.calls.find(([url]) => isGraphRead(String(url)))
+    expect((call?.[1] as RequestInit).headers).toEqual({
+      'X-Server-Read-Secret': 'artist-page-secret-0123456789abcdef0123',
+    })
   })
 
   it('replaces the seeded list with the live read once mounted', async () => {

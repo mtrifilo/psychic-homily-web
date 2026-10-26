@@ -155,7 +155,8 @@ vi.mock('@/features/festivals/components/ArtistTrajectoryChart', () => ({
 }))
 
 vi.mock('@/features/tags', () => ({
-  EntityTagList: (): null => null,
+  // A heading, so the sidebar order around the Similar artists list is assertable.
+  EntityTagList: () => <h3>Tags</h3>,
   AddTagDialog: (): null => null,
 }))
 
@@ -823,6 +824,7 @@ describe('ArtistDetail', () => {
         'Links',
         'As Heard On',
         'Similar artists',
+        'Tags',
       ]
 
       expect(headings.filter(h => h && expected.includes(h))).toEqual(expected)
@@ -952,12 +954,45 @@ describe('ArtistDetail', () => {
           columns: 'flex flex-col gap-8 lg:flex-row',
           mainColumn: `flex-1 min-w-0 space-y-8 ${PHONE}:contents ${PHONE}:space-y-0`,
           showsGroup: `space-y-8 ${PHONE}:order-first`,
+          mainRest: 'space-y-8',
           connections: `empty:hidden ${PHONE}:hidden`,
           sidebar: `w-full lg:w-80 shrink-0 flex flex-col gap-6 ${PHONE}:contents`,
           sidebarLead: 'peer space-y-6 empty:hidden',
           similarArtists: `empty:hidden ${PHONE}:order-first`,
           sidebarRest: `space-y-6 empty:hidden ${PHONE}:peer-[:not(:empty)]:-mt-2`,
         })
+      })
+
+      // The page draws EntityDetailLayout's two-column body itself, so the
+      // shared layout's column classes must stay a subset of these: a change
+      // there fails here instead of leaving this page alone on the old values.
+      it('keeps the shared layout column classes', async () => {
+        const { EntityDetailLayout: RealLayout } = await vi.importActual<
+          typeof import('@/components/shared/EntityDetailLayout')
+        >('@/components/shared/EntityDetailLayout')
+        const { container } = renderWithProviders(
+          <RealLayout
+            fallback={{ href: '/artists', label: 'Artists' }}
+            entityName="Shared"
+            header={null}
+            sidebar={<p>sidebar</p>}
+          >
+            <p>main</p>
+          </RealLayout>
+        )
+        const aside = container.querySelector('aside')!
+        const body = aside.parentElement!
+        const main = body.firstElementChild!
+        const tokens = (value: string) => value.split(' ').filter(Boolean)
+        expect(tokens(ARTIST_LAYOUT_CLASSES.columns)).toEqual(
+          expect.arrayContaining(tokens(body.className))
+        )
+        expect(tokens(ARTIST_LAYOUT_CLASSES.mainColumn)).toEqual(
+          expect.arrayContaining(tokens(main.className))
+        )
+        expect(tokens(ARTIST_LAYOUT_CLASSES.sidebar)).toEqual(
+          expect.arrayContaining(tokens(aside.className))
+        )
       })
 
       // The phone layout is below Tailwind `sm` (so the rows are in their
@@ -981,6 +1016,10 @@ describe('ArtistDetail', () => {
         expect(screen.getByTestId('artist-shows-list').parentElement!.className).toBe(
           ARTIST_LAYOUT_CLASSES.showsGroup
         )
+        expect(Array.from(main.children).map(child => child.className)).toEqual([
+          ARTIST_LAYOUT_CLASSES.showsGroup,
+          ARTIST_LAYOUT_CLASSES.mainRest,
+        ])
         expect(screen.getByTestId('connections-section').parentElement!.className).toBe(
           ARTIST_LAYOUT_CLASSES.connections
         )

@@ -344,6 +344,30 @@ describe('ArtistConnectionsSection', () => {
     expect(screen.queryByRole('link')).not.toBeInTheDocument()
   })
 
+  // Server HTML paints this branch until hydration, so it must be gated on
+  // the section's own width (a container query on the section), not the
+  // viewport: a column under the canvas gate inside a wider viewport would
+  // otherwise paint a header and a 360px box that the measurement collapses.
+  it('gates the pre-measurement chrome and skeleton on the section width', () => {
+    vi.mocked(useContainerWidth).mockReturnValueOnce({
+      refCallback: () => {},
+      containerWidth: null,
+      isBelowGraphBreakpoint: false,
+    })
+    renderSection()
+    const section = document.querySelector('section')!
+    const containerGate = `@min-[${GRAPH_BREAKPOINT_PX}px]:block`
+    expect(section.className.split(' ')).toContain('@container')
+    for (const el of [
+      screen.getByRole('heading', { name: 'Connections' }).closest('[class*="hidden"]'),
+      countLine(),
+      document.querySelector('.animate-pulse'),
+    ]) {
+      expect(el!.className.split(' ')).toEqual(expect.arrayContaining(['hidden', containerGate]))
+      expect(el!.className).not.toMatch(/(^|\s)sm:/)
+    }
+  })
+
   it('selects a node into the context panel, pins focus, and deselects on second click', () => {
     renderSection()
     fireEvent.click(screen.getByRole('button', { name: 'select-1' }))
