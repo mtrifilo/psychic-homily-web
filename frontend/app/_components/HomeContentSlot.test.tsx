@@ -223,7 +223,7 @@ describe('HomeContentSlot, anonymous viewer', () => {
     expect(upcomingFetch).not.toHaveBeenCalled()
   })
 
-  it('holds the list region with five placeholder rows that register no query', async () => {
+  it('holds the list region with a blank chips band and five placeholder rows that register no query', async () => {
     const boundary = listBoundaryOf(await renderSlot())
     const client = testClient()
 
@@ -234,6 +234,16 @@ describe('HomeContentSlot, anonymous viewer', () => {
     )
 
     expect(html.match(/data-testid="home-show-list-skeleton-row"/g)).toHaveLength(5)
+    // The chips band comes first and carries no content: it only reserves the
+    // filter chips' box.
+    const band = html.match(
+      /<div class="mb-6" data-testid="home-show-list-skeleton-chips">(.*?)<\/div><\/div><\/div>/,
+    )
+    expect(band).not.toBeNull()
+    expect(html.indexOf('home-show-list-skeleton-chips')).toBeLessThan(
+      html.indexOf('home-show-list-skeleton-row'),
+    )
+    expect(band?.[1].replace(/<[^>]*>/g, '')).toBe('')
     expect(html).not.toContain(LOADER)
     // A fallback that registered the list's query would make the seed's
     // HydrationBoundary defer it, and the streamed list would render its loader.
