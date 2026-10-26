@@ -62,7 +62,9 @@ STUB_BIN="$TMP/bin"
 mkdir -p "$DATE_BIN" "$STUB_BIN"
 cat >"$DATE_BIN/date" <<'STUB'
 #!/usr/bin/env bash
-if [ "$*" = "-u +%Y-%m-%d" ]; then echo "$STUB_TODAY"; else exec "$REAL_DATE" "$@"; fi
+if [ "$*" = "-u +%Y-%m-%d" ]; then echo "$STUB_TODAY"; exit 0; fi
+if [ -n "${STUB_NOW_FIXED:-}" ] && [ "$*" = "-u +%Y%m%dT%H%M%SZ" ]; then echo 20261025T120000Z; exit 0; fi
+exec "$REAL_DATE" "$@"
 STUB
 
 # gcloud logs each call and mints stub-token-<n>.
@@ -437,6 +439,16 @@ expect_status 0
   || fail "--force should move the replaced run directory aside, not delete it"
 [ "$(find "$OUT" -maxdepth 1 -name "gsc-inspect-${TODAY}.md.replaced-*" | wc -l | tr -d ' ')" = "1" ] \
   || fail "--force should move the replaced summary aside"
+
+CASE="a second --force in the same second does not reuse the replaced name"
+STUB_NOW_FIXED=1 run --fixture "$SHIPPED_FIXTURE" --out "$OUT" --force
+expect_status 0
+STUB_NOW_FIXED=1 run --fixture "$SHIPPED_FIXTURE" --out "$OUT" --force
+expect_status 0
+[ "$(find "$OUT" -maxdepth 1 -name "gsc-inspect-${TODAY}.md.replaced-*" | wc -l | tr -d ' ')" = "3" ] \
+  || fail "each replaced summary should be kept under its own name"
+[ "$(find "$OUT" -mindepth 2 -maxdepth 2 -name "gsc-inspect-${TODAY}*" | wc -l | tr -d ' ')" = "0" ] \
+  || fail "a replaced run directory should never be moved inside another"
 expect_line "$DOC" "| **All families** | 350 | 13 | 11 | 1 | 1 | 4 | 1 | 2 | 3 | 1 | 2 of 6 |"
 
 CASE="a malformed fixture sample.tsv is refused"
@@ -662,6 +674,13 @@ sed 's/$/\r/' "$REUSE" >"$TMP/crlf.tsv"
 live -- --sample "$TMP/crlf.tsv"
 expect_status 1
 expect_stderr "has CR line endings"
+[ "$(requests)" = "0" ] || fail "expected no API request, got $(requests)"
+
+CASE="a --sample row with an empty URL is refused before the credential is used"
+{ head -n 2 "$REUSE"; printf 'artists\t\t%s\n' "$(printf '%s' x | sha256_hex)"; } >"$TMP/empty-url.tsv"
+live -- --sample "$TMP/empty-url.tsv"
+expect_status 1
+expect_stderr "an http(s) URL without whitespace"
 [ "$(requests)" = "0" ] || fail "expected no API request, got $(requests)"
 
 CASE="10 failed URLs in a row stop the run"

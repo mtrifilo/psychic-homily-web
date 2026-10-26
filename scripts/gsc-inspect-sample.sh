@@ -277,8 +277,9 @@ def load_sample(path):
     for number, line in enumerate(lines[2:], start=3):
         cells = line.split("\t")
         if (len(cells) != 3 or cells[0] not in FAMILY_ORDER or UNSAFE.search(cells[1])
+                or not re.fullmatch(r"https?://[^/]+/.*", cells[1])
                 or not re.fullmatch("[0-9a-f]{64}", cells[2])):
-            fail(f"line {number} is not a known family, a URL without whitespace, and a sha256 hash")
+            fail(f"line {number} is not a known family, an http(s) URL without whitespace, and a sha256 hash")
         rows.append(cells)
     if len({row[2] for row in rows}) != len(rows):
         fail("lists a hash twice")
@@ -991,14 +992,26 @@ grep '^gsc-inspect-sample: ' "$WORK_DIR/render-err" >&2 || true
 # appeared mid-run, which refuses the overwrite the early check only narrows.
 # --force moves a replaced run and its doc aside rather than deleting them, so
 # a stopped run never destroys a complete one.
+# The suffix is unique for this pair, and both renames finish before any
+# message is printed, so a closed stderr cannot stop the script between them.
 if [ "$FORCE" -eq 1 ]; then
-  REPLACED_SUFFIX="replaced-$(date -u +%Y%m%dT%H%M%SZ)"
+  REPLACED_BASE="replaced-$(date -u +%Y%m%dT%H%M%SZ)"
+  REPLACED_SUFFIX="$REPLACED_BASE"
+  copy=1
+  while [ -e "$OUT_DIR/$RUN_NAME.$REPLACED_SUFFIX" ] || [ -e "$OUT_DIR/$DOC_NAME.$REPLACED_SUFFIX" ]; do
+    copy=$((copy + 1))
+    REPLACED_SUFFIX="$REPLACED_BASE-$copy"
+  done
+  MOVED_ASIDE=""
   for name in "$RUN_NAME" "$DOC_NAME"; do
     if [ -e "$OUT_DIR/$name" ]; then
       mv "$OUT_DIR/$name" "$OUT_DIR/$name.$REPLACED_SUFFIX" \
         || die "could not move the existing $OUT_DIR/$name aside"
-      echo "gsc-inspect-sample: moved the existing $name aside to $name.$REPLACED_SUFFIX" >&2
+      MOVED_ASIDE="$MOVED_ASIDE $name"
     fi
+  done
+  for name in $MOVED_ASIDE; do
+    echo "gsc-inspect-sample: moved the existing $name aside to $name.$REPLACED_SUFFIX" >&2 || true
   done
 fi
 mkdir "$OUT_DIR/$RUN_NAME" 2>/dev/null \
