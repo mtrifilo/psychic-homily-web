@@ -12,14 +12,15 @@
 # curl and sleep: request shape, credential kept off argv, the backoff chosen
 # per status, retry once on 429, 5xx and transport errors, a fresh token on
 # 401 (also after a backoff), no retry on other errors, the stops (429 twice,
-# 401 twice, 403, consecutive failures, SIGTERM and SIGHUP, including during a
-# backoff), runs in which nothing succeeded, staged results kept when publishing
-# fails, --force moving the replaced run aside, and the exit codes.
+# 401 twice, 403, consecutive failures, SIGINT, SIGTERM and SIGHUP, including
+# during a backoff), a token that cannot be minted, runs in which nothing
+# succeeded, staged results kept when publishing fails, the default output
+# directory, --force moving the replaced run aside, and the exit codes.
 #
 # Runs in CI (Migration Lint) and locally:
 #   bash scripts/gsc-inspect-sample_test.sh
 #
-# Needs bash, curl, jq, python3 and shasum or sha256sum. It touches nothing
+# Needs bash, curl, git, jq, python3 and shasum or sha256sum. It touches nothing
 # outside its own mktemp -d and needs no network and no Google credential.
 
 set -uo pipefail
@@ -67,13 +68,16 @@ if [ -n "${STUB_NOW_FIXED:-}" ] && [ "$*" = "-u +%Y%m%dT%H%M%SZ" ]; then echo 20
 exec "$REAL_DATE" "$@"
 STUB
 
-# gcloud logs each call and mints stub-token-<n>.
+# gcloud logs each call and mints stub-token-<n>; its STUB_GCLOUD_FAIL_AT-th
+# call fails the way an expired login does.
 cat >"$STUB_BIN/gcloud" <<'STUB'
 #!/usr/bin/env bash
 case "$*" in
   "auth application-default print-access-token")
     echo call >>"$STUB_LOG_DIR/gcloud.log"
-    echo "stub-token-$(wc -l <"$STUB_LOG_DIR/gcloud.log" | tr -d ' ')"
+    n="$(wc -l <"$STUB_LOG_DIR/gcloud.log" | tr -d ' ')"
+    if [ "$n" = "${STUB_GCLOUD_FAIL_AT:-}" ]; then echo "stub: reauth required" >&2; exit 1; fi
+    echo "stub-token-$n"
     ;;
   *) echo "stub gcloud: unexpected call: $*" >&2; exit 9 ;;
 esac
@@ -363,6 +367,11 @@ run --sample "$SHIPPED_FIXTURE/sample.tsv" --per-family 3 --out "$TMP/never"
 expect_status 1
 expect_stderr "use an existing sample and take no sampling flags"
 
+CASE="--fixture and --sample together are refused"
+run --fixture "$SHIPPED_FIXTURE" --sample "$SHIPPED_FIXTURE/sample.tsv" --out "$TMP/never"
+expect_status 1
+expect_stderr "--fixture and --sample cannot be combined"
+
 CASE="--fixture requires --out"
 run --fixture "$SHIPPED_FIXTURE"
 expect_status 1
@@ -557,6 +566,19 @@ expect_status 0
 [ "$(wc -l <"$STUB_LOG_DIR/gcloud.log" | tr -d ' ')" = "2" ] || fail "expected a second token mint after the 401"
 expect_line "$LIVE_DOC" "| **All families** | 4 | 4 | 4 | 0 | 0 | 4 | 0 | 0 | 0 | 0 | 0 of 4 |"
 
+CASE="a token that cannot be minted at the start stops before any request"
+STUB_GCLOUD_FAIL_AT=1 live 200 --
+expect_status 1
+expect_stderr "could not mint an access token from the Application Default Credential"
+expect_stderr "stub: reauth required"
+expect_stderr "gcloud auth application-default login --scopes=https://www.googleapis.com/auth/webmasters.readonly"
+[ "$(requests)" = "0" ] || fail "expected no API request, got $(requests)"
+
+CASE="a 401 whose fresh token cannot be minted stops the run and says why"
+STUB_GCLOUD_FAIL_AT=2 live 200 401 --
+expect_status 2
+expect_stderr "STOPPED EARLY: HTTP 401 from the API, and a fresh access token could not be minted: stub: reauth required"
+
 CASE="a 401 to a fresh token stops the run with the auth help"
 live 200 401 401 --
 expect_status 2
@@ -602,6 +624,12 @@ expect_status 2
 expect_stderr "STOPPED EARLY: interrupted by a signal"
 expect_line "$LIVE_DOC" "| **All families** | 4 | 4 | 2 | 0 | 2 | 2 | 0 | 0 | 0 | 0 | 0 of 2 |"
 
+CASE="SIGINT stops the run the same way"
+STUB_SIGNAL_AT=2 STUB_SIGNAL=INT live 200 200 200 200 --
+expect_status 2
+expect_stderr "STOPPED EARLY: interrupted by a signal"
+expect_line "$LIVE_DOC" "| **All families** | 4 | 4 | 2 | 0 | 2 | 2 | 0 | 0 | 0 | 0 | 0 of 2 |"
+
 CASE="SIGHUP stops the run the same way"
 STUB_SIGNAL_AT=2 STUB_SIGNAL=HUP live 200 200 200 200 --
 expect_status 2
@@ -631,6 +659,22 @@ expect_stderr "the run did not publish; its staged results are kept in $TMP/tmp/
 kept="$(printf '%s\n' "$STDERR" | sed -n 's/.*its staged results are kept in //p')"
 [ "$(find "$kept/raw" -name '*.json' 2>/dev/null | wc -l | tr -d ' ')" = "2" ] || fail "expected the 2 raw responses in the kept stage $kept"
 [ -f "$kept/sample.tsv" ] || fail "expected sample.tsv in the kept stage"
+
+CASE="without --out the run writes to docs/research at the repository root"
+REPO_FIXTURE="$TMP/a-repo"
+mkdir -p "$REPO_FIXTURE/sub/dir"
+git -C "$REPO_FIXTURE" init -q
+STUB_LOG_DIR="$(mktemp -d "$TMP/log.XXXXXX")"
+printf '200\n200\n' >"$STUB_LOG_DIR/plan"
+: >"$STUB_LOG_DIR/sleeps"
+export STUB_LOG_DIR
+(cd "$REPO_FIXTURE/sub/dir" && PATH="$STUB_BIN:$PATH" run --families venues --per-family 2)
+[ "$(cat "$TMP/stdout")" = "$(cd "$REPO_FIXTURE" && pwd -P)/docs/research/gsc-inspect-${TODAY}.md" ] \
+  || [ "$(cat "$TMP/stdout")" = "$REPO_FIXTURE/docs/research/gsc-inspect-${TODAY}.md" ] \
+  || fail "stdout should name the summary under <repo>/docs/research, got: $(cat "$TMP/stdout")"
+[ -f "$REPO_FIXTURE/docs/research/gsc-inspect-${TODAY}.md" ] \
+  || fail "expected the summary at <repo>/docs/research; stderr: $(cat "$TMP/stderr")"
+[ -d "$REPO_FIXTURE/docs/research/gsc-inspect-${TODAY}/raw/venues" ] || fail "expected the run directory at <repo>/docs/research"
 
 # --- Re-inspecting an earlier sample -------------------------------------------------
 
