@@ -3,6 +3,8 @@ import { resolve } from 'node:path'
 
 import { describe, expect, it } from 'vitest'
 
+import { SITE_URL } from '@/lib/seo/siteMetadata'
+
 import robots from './robots'
 
 // public/llms.txt is a static file served at /llms.txt. It names only what the
@@ -14,9 +16,11 @@ const urls = [...llmsTxt.matchAll(/https?:\/\/[^\s)]+/g)].map((m) => m[0])
 
 describe('public/llms.txt', () => {
   it('never references the API host', () => {
+    // The hostname loop below sees only URLs with a scheme; this catches the
+    // host written bare.
     expect(llmsTxt).not.toMatch(/api\.psychichomily\.com/i)
     for (const url of urls) {
-      expect(new URL(url).hostname).toBe('psychichomily.com')
+      expect(new URL(url).hostname).toBe(new URL(SITE_URL).hostname)
     }
   })
 

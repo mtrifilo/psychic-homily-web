@@ -1,8 +1,9 @@
 package system
 
 import (
-	"io"
 	"net/http"
+
+	"psychic-homily-backend/internal/respond"
 )
 
 // RobotsTxtRoute is the path RobotsTxtHandler is registered on.
@@ -22,8 +23,8 @@ const robotsTxtCacheControl = "public, max-age=86400"
 
 // RobotsTxtHandler serves robotsTxtBody. The answer is the same for every
 // caller, whatever its user agent or credentials.
-func RobotsTxtHandler(w http.ResponseWriter, _ *http.Request) {
+func RobotsTxtHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	w.Header().Set("Cache-Control", robotsTxtCacheControl)
-	_, _ = io.WriteString(w, robotsTxtBody)
+	respond.SafeWrite(r.Context(), w, []byte(robotsTxtBody))
 }

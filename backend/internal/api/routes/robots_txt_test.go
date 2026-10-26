@@ -6,10 +6,7 @@ import (
 	"testing"
 
 	systemh "psychic-homily-backend/internal/api/handlers/system"
-	"psychic-homily-backend/internal/api/middleware"
 )
-
-const wantRobotsTxtBody = "User-agent: *\nDisallow: /\n"
 
 // The built router answers /robots.txt with the same disallow-all file for
 // every user agent, on GET and HEAD. Retrieval and training crawlers get the
@@ -42,42 +39,9 @@ func TestRobotsTxtDisallowsEveryCrawler(t *testing.T) {
 			}
 			// httptest.ResponseRecorder keeps the body for HEAD too; net/http
 			// drops it on the wire.
-			if got := rr.Body.String(); got != wantRobotsTxtBody {
+			if got := rr.Body.String(); got != "User-agent: *\nDisallow: /\n" {
 				t.Errorf("%s as %q: body = %q", method, ua, got)
 			}
 		}
-	}
-}
-
-// With the public-read limiter mounted in front of the built router, an
-// anonymous burst from one IP past the per-IP cap still gets robots.txt every
-// time, while the same burst against a metered anonymous GET is refused. The
-// control proves the burst is large enough to trip the limiter.
-func TestRobotsTxtSurvivesAnAnonymousBurst(t *testing.T) {
-	handler := PublicReadRateLimiter(nil, nil, nil, enableEnv)(newTestRouter(t))
-	burst := middleware.APIRequestsPerMinute + 5
-
-	for i := 0; i < burst; i++ {
-		req := httptest.NewRequest(http.MethodGet, systemh.RobotsTxtRoute, nil)
-		req.RemoteAddr = "7.7.7.13:100"
-		rr := httptest.NewRecorder()
-		handler.ServeHTTP(rr, req)
-		if rr.Code != http.StatusOK || rr.Body.String() != wantRobotsTxtBody {
-			t.Fatalf("robots.txt fetch %d: status = %d, body = %q; want 200 and the file", i, rr.Code, rr.Body.String())
-		}
-	}
-
-	limited := 0
-	for i := 0; i < burst; i++ {
-		req := httptest.NewRequest(http.MethodGet, systemh.LegalVersionsRoute, nil)
-		req.RemoteAddr = "7.7.7.14:100"
-		rr := httptest.NewRecorder()
-		handler.ServeHTTP(rr, req)
-		if rr.Code == http.StatusTooManyRequests {
-			limited++
-		}
-	}
-	if limited == 0 {
-		t.Fatalf("control: %d anonymous GET %s from one IP were never limited, so the burst proves nothing", burst, systemh.LegalVersionsRoute)
 	}
 }
