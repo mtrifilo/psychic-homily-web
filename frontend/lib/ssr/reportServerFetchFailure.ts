@@ -47,8 +47,13 @@ export function listQueryParamNames(url: string): string {
  * How often one route template may report, per server instance: at most one
  * event per window. The first failure always reports; later ones inside the
  * window are counted, and the count rides on the next event the route emits.
- * A storm of 429s or 5xx is therefore bounded per route the same way, and its
- * size is still visible.
+ * A storm of 429s or 5xx is therefore bounded per route the same way. A count
+ * still held when a route's failures stop, or when the instance ends, is never
+ * sent: the event that opened the window is the only record of that burst.
+ *
+ * The key is the route template alone, whatever the service, status or level,
+ * so a 4xx that opens a route's window holds back a 5xx on the same route
+ * until the window closes.
  */
 export const REPORT_WINDOW_MS = 60_000
 
