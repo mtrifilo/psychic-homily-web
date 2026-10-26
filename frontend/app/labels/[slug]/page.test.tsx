@@ -24,6 +24,12 @@ vi.mock('next/navigation', () => ({
   useSearchParams: () => new URLSearchParams(),
 }))
 
+// `seedFirstScreen` awaits `connection()`, which marks a request-time render and
+// has nothing to do outside Next.
+vi.mock('next/server', () => ({
+  connection: async () => {},
+}))
+
 // On the server `getQueryClient()` mints a fresh client per call. Under jsdom
 // it would hand back the browser singleton instead.
 vi.mock('@/lib/queryClient', async importOriginal => {
@@ -181,12 +187,15 @@ function seededQueryHashes(tree: ReactElement): string[] {
 const testClient = () =>
   new QueryClient({ defaultOptions: { queries: { retry: false } } })
 
-/** The page's own `LabelDetail` element under the one boundary the page hands it. */
+/** The page's own `LabelDetail` element under its boundaries, nested as the page nests them. */
 function detailUnder(tree: ReactElement, client: QueryClient): ReactElement {
   const detail = findElement(tree, node => node.type === LabelDetail)
   return (
     <QueryClientProvider client={client}>
-      <HydrationBoundary state={boundaryStatesOf(tree)[0]}>{detail}</HydrationBoundary>
+      {boundaryStatesOf(tree).reduceRight<ReactElement>(
+        (children, state) => <HydrationBoundary state={state}>{children}</HydrationBoundary>,
+        detail,
+      )}
     </QueryClientProvider>
   )
 }
@@ -227,13 +236,12 @@ describe('labels/[slug] page body', () => {
     expect(html.indexOf('Singles')).toBeLessThan(html.indexOf('/releases/gigantic'))
   })
 
-  it('seeds the detail, roster and catalog in one state, filling every key the real hooks read', async () => {
+  it('fills every key the real hooks read, the lists under their own stale-stamped state', async () => {
     const tree = await renderPage()
     const client = testClient()
 
     serverRender(tree, client)
 
-    expect(boundaryStatesOf(tree)).toHaveLength(1)
     const labelQueries = client.getQueryCache().findAll({ queryKey: ['labels'] })
     expect(labelQueries.map(q => q.queryHash).sort()).toEqual(
       [DETAIL_KEY_HASH, ROSTER_KEY_HASH, CATALOG_KEY_HASH].sort(),
@@ -241,13 +249,33 @@ describe('labels/[slug] page body', () => {
     for (const query of labelQueries) {
       expect(query.state.data).toBeDefined()
     }
-    // The literal spelling, so a change to the key builders fails here too.
-    expect(seededQueryHashes(tree)).toEqual(
-      expect.arrayContaining([
-        '["labels","roster","4ad"]',
-        '["labels","catalog","4ad"]',
-      ]),
-    )
+    // The detail keeps its own boundary; the lists are stamped stale, so the
+    // browser re-asks for them on mount.
+    const [detailState, listsState] = boundaryStatesOf(tree)
+    expect(detailState.queries.map(q => q.queryHash)).toEqual([DETAIL_KEY_HASH])
+    expect(listsState.queries.map(q => q.queryHash)).toEqual([
+      '["labels","roster","4ad"]',
+      '["labels","catalog","4ad"]',
+    ])
+    for (const query of listsState.queries) {
+      expect(query.state.dataUpdatedAt).toBe(0)
+    }
+  })
+
+  it('keeps the server rows on screen while the browser re-asks for both lists on mount', async () => {
+    const tree = await renderPage()
+    rosterFetch.mockClear()
+    catalogFetch.mockClear()
+
+    render(detailUnder(tree, testClient()))
+
+    expect(document.body.innerHTML).toContain('href="/artists/alvvays"')
+    expect(document.body.innerHTML).toContain('href="/releases/blue-rev"')
+    expect(document.body.innerHTML).not.toContain(LOADER)
+    await waitFor(() => {
+      expect(rosterFetch).toHaveBeenCalledTimes(1)
+      expect(catalogFetch).toHaveBeenCalledTimes(1)
+    })
   })
 
   it('asks for the URLs the real hooks ask for', async () => {
@@ -282,6 +310,19 @@ describe('labels/[slug] page body', () => {
 
     expect(String(rosterFetch.mock.calls[0][0])).toBe(labelEndpoints.ARTISTS('a%2Fb'))
     expect(String(catalogFetch.mock.calls[0][0])).toBe(labelEndpoints.RELEASES('a%2Fb'))
+  })
+
+  it('unpads a padded numeric id in the list reads and keys the seeds on the route slug', async () => {
+    const tree = await renderPage('0012')
+
+    expect(String(rosterFetch.mock.calls[0][0])).toBe(labelEndpoints.ARTISTS('12'))
+    expect(String(catalogFetch.mock.calls[0][0])).toBe(labelEndpoints.RELEASES('12'))
+    expect(seededQueryHashes(tree)).toEqual(
+      expect.arrayContaining([
+        hashKey(queryKeys.labels.roster('0012')),
+        hashKey(queryKeys.labels.catalog('0012')),
+      ]),
+    )
   })
 
   it('sends both seed reads with the server-read header', async () => {
@@ -367,12 +408,9 @@ describe('labels/[slug] page body', () => {
     expect(html.match(/animate-spin/g)).toHaveLength(2)
   })
 
-  it('reads neither list for a label that does not exist', async () => {
+  it('renders not-found for a label that does not exist, whatever the lists answered', async () => {
     labelFetch.mockImplementation(async () => errorResponse(404))
 
     await expect(renderPage('no-such-label')).rejects.toThrow(NOT_FOUND_SENTINEL)
-
-    expect(rosterFetch).not.toHaveBeenCalled()
-    expect(catalogFetch).not.toHaveBeenCalled()
   })
 })
