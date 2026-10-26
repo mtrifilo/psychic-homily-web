@@ -508,9 +508,9 @@ function serverRenderArtistDetail(page: ReactElement): string {
   )
 }
 
-// The discography's own loader. `ArtistDetail`'s other loaders in these
-// renders are smaller spinners, which the positive control in the failed-read
-// test below keeps honest.
+// The discography's loader markup. Another `ArtistDetail` section rendering a
+// spinner with the same classes would fail the "no loader" assertions below;
+// the failed-read test shows this string is what the discography renders.
 const DISCOGRAPHY_LOADER = 'h-6 w-6 animate-spin'
 const DISCOGRAPHY_TABLE = 'aria-label="Discography"'
 
@@ -644,12 +644,15 @@ describe('ArtistPage discography', () => {
     expect(seededReleasesQuery(await renderPage())).toBeUndefined()
   })
 
-  it('treats a 404 from the discography read as an answer: no report, no seed', async () => {
+  it('treats a 404 from the discography read as no releases, and does not report it', async () => {
     stubReleases(reply({}, 404))
 
     const page = await renderPage()
+    const html = serverRenderArtistDetail(page)
 
-    expect(seededReleasesQuery(page)).toBeUndefined()
+    expect(seededReleasesQuery(page)?.state.data).toEqual(releasesBody([]))
+    expect(html).not.toContain(DISCOGRAPHY_TABLE)
+    expect(html).not.toContain(DISCOGRAPHY_LOADER)
     expect(Sentry.captureMessage).not.toHaveBeenCalled()
   })
 

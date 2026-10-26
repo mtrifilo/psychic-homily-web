@@ -141,12 +141,15 @@ export default async function ArtistPage({ params }: ArtistPageProps) {
     notFoundIsAnswer: true,
     revalidateSeconds: CURRENT_PERIOD_REVALIDATE,
   })
+  // A 404 here arrives only for an artist the read below found, so it means
+  // that artist has no discography to show: it seeds the empty list, and the
+  // section renders as it does for an artist with no releases.
   const releasesPromise = fetchListPayload<ArtistReleasesResponse>({
     url: artistReleasesUrl(slug),
     collection: 'releases',
     service: 'artist-page-releases',
     pathFamily: '/artists/{slug}/releases',
-    notFoundIsAnswer: true,
+    notFoundPayload: { releases: [], count: 0 },
   })
   const artistData = await getArtist(slug)
 
