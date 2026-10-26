@@ -1215,6 +1215,21 @@ describe('ArtistDetail', () => {
       expect(screen.queryByText('Failed to load discography')).not.toBeInTheDocument()
     })
 
+    // The page seeds an empty discography when the releases read 404s; the
+    // browser's own re-ask then 404s too.
+    it('stays hidden when a refresh of an empty discography fails', () => {
+      mockUseArtistReleases.mockReturnValue({
+        data: { releases: [], count: 0 },
+        isLoading: false,
+        error: new Error('Artist not found'),
+      })
+
+      renderWithProviders(<ArtistDetail artistId="test-artist" />)
+
+      expect(screen.queryByText('Failed to load discography')).not.toBeInTheDocument()
+      expect(screen.queryByRole('heading', { name: 'Discography' })).not.toBeInTheDocument()
+    })
+
     it('shows the error when the read fails with nothing to show', () => {
       mockUseArtistReleases.mockReturnValue({
         data: undefined,
