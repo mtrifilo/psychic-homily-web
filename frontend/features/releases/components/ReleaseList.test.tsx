@@ -570,3 +570,35 @@ describe('ReleaseList over rows that answer the current query', () => {
     ).toBeInTheDocument()
   })
 })
+
+/**
+ * An empty `?type=` or `?sort=` is the bare list: the default sort is selected,
+ * every type is shown, and there is no filter to clear.
+ */
+describe('ReleaseList with empty filter params', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockUseDensity.mockReturnValue({ density: 'comfortable', setDensity: vi.fn() })
+    mockUseLabels.mockReturnValue({ data: { labels: [] } })
+    mockUseReleaseSaveCountBatch.mockReturnValue({ data: {}, isLoading: false })
+    mockUseReleases.mockReturnValue({
+      data: { releases: [makeRelease()], total: 1, limit: 50, offset: 0 },
+      isLoading: false,
+      isFetching: false,
+      error: null,
+      refetch: vi.fn(),
+    })
+  })
+
+  it.each([['type'], ['sort']])('reads an empty ?%s= as absent', key => {
+    mockGet.mockImplementation((name: string) => (name === key ? '' : null))
+
+    renderWithProviders(<ReleaseList />)
+
+    expect(mockUseReleases).toHaveBeenCalledWith(
+      expect.objectContaining({ releaseType: undefined, sort: 'newest' })
+    )
+    expect(screen.getByDisplayValue('Newest First')).toBeInTheDocument()
+    expect(screen.queryByText('Clear filters')).not.toBeInTheDocument()
+  })
+})
