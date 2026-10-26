@@ -2,14 +2,17 @@
 # scripts/gsc-inspect-sample_test.sh
 #
 # Self-test for scripts/gsc-inspect-sample.sh. Serves a fixture sitemap from
-# file:// URLs through GSC_INSPECT_SITEMAP_INDEX and asserts: the six-family
-# classifier (including the past/upcoming split on today's UTC date and the
-# shapes that belong to no family), deterministic and seed-sensitive sampling
-# pinned against hashes computed independently with shasum, argument
-# validation, the fixture-mode tables over scripts/testdata/gsc-inspect/, and
-# the inspection loop against a stub gcloud and a stub curl: request shape,
-# credential kept off argv, retry once on 5xx and transport errors, no retry
-# on other errors, the stop on a second 429 or a 403, and the exit codes.
+# file:// URLs through GSC_INSPECT_SITEMAP_INDEX, pins "today" with a stub
+# date, and asserts: the six-family classifier (including the past/upcoming
+# split on today's UTC date, the shapes that belong to no family, and URLs
+# with control characters), deterministic and seed-sensitive sampling pinned
+# against hashes computed independently with shasum, argument validation, the
+# fixture-mode tables over scripts/testdata/gsc-inspect/, re-inspection of an
+# earlier sample with --sample, and the inspection loop against a stub gcloud,
+# curl and sleep: request shape, credential kept off argv, the backoff chosen
+# per status, retry once on 429, 5xx and transport errors, a fresh token on
+# 401, no retry on other errors, the stops (429 twice, 401 twice, 403,
+# consecutive failures), runs in which nothing succeeded, and the exit codes.
 #
 # Runs in CI (Migration Lint) and locally:
 #   bash scripts/gsc-inspect-sample_test.sh
@@ -26,11 +29,13 @@ UNDER_TEST="$SCRIPT_DIR/gsc-inspect-sample.sh"
 SHIPPED_FIXTURE="$SCRIPT_DIR/testdata/gsc-inspect"
 
 TMP="$(mktemp -d)" || exit 1
-[ -d "$TMP" ] || exit 1
 trap 'rm -rf "$TMP"' EXIT
 
 REAL_CURL="$(command -v curl)" || { echo "curl is required"; exit 1; }
-TODAY="$(date -u +%Y-%m-%d)"
+REAL_DATE="$(command -v date)" || { echo "date is required"; exit 1; }
+# The script's "today" is pinned by a stub date (below), so a run that
+# crosses midnight UTC cannot split the expectations.
+TODAY="2026-10-25"
 FAILURES=0
 CASE=""
 
@@ -46,6 +51,91 @@ sha256_hex() {
     shasum -a 256 | cut -c1-64
   fi
 }
+
+# --- Stubs on PATH ---------------------------------------------------------------
+
+# DATE_BIN is on PATH for every run; STUB_BIN joins it for inspecting runs.
+DATE_BIN="$TMP/date-bin"
+STUB_BIN="$TMP/bin"
+mkdir -p "$DATE_BIN" "$STUB_BIN"
+cat >"$DATE_BIN/date" <<'STUB'
+#!/usr/bin/env bash
+if [ "$*" = "-u +%Y-%m-%d" ]; then echo "$STUB_TODAY"; else exec "$REAL_DATE" "$@"; fi
+STUB
+
+# gcloud logs each call and mints stub-token-<n>.
+cat >"$STUB_BIN/gcloud" <<'STUB'
+#!/usr/bin/env bash
+case "$*" in
+  "auth application-default print-access-token")
+    echo call >>"$STUB_LOG_DIR/gcloud.log"
+    echo "stub-token-$(wc -l <"$STUB_LOG_DIR/gcloud.log" | tr -d ' ')"
+    ;;
+  *) echo "stub gcloud: unexpected call: $*" >&2; exit 9 ;;
+esac
+STUB
+
+# sleep logs its argument and returns at once.
+cat >"$STUB_BIN/sleep" <<'STUB'
+#!/bin/sh
+echo "$1" >>"$STUB_LOG_DIR/sleeps"
+STUB
+
+# curl hands every non-API URL (the file:// sitemap) to the real curl. An API
+# request is logged (argv, stdin config, body) and answered with the next
+# entry of STUB_LOG_DIR/plan, one per line; past the end of the plan it answers
+# 200. Entries: 200 (an indexed result), 200-empty ({} with status 200),
+# transport (exit 7, no body), <code> (a JSON error body), <code>html (an HTML
+# body).
+cat >"$STUB_BIN/curl" <<'STUB'
+#!/usr/bin/env python3
+import json, os, sys
+args = sys.argv[1:]
+if not args[-1].startswith("https://searchconsole.googleapis.com/"):
+    real = os.environ["REAL_CURL"]
+    os.execv(real, [real] + args)
+out_file = body = None
+for flag, value in zip(args, args[1:]):
+    if flag == "-o":
+        out_file = value
+    elif flag == "--data":
+        body = value
+log_dir = os.environ["STUB_LOG_DIR"]
+with open(os.path.join(log_dir, "argv.log"), "a") as log:
+    log.write(" ".join(args) + "\n")
+with open(os.path.join(log_dir, "stdin.log"), "a") as log:
+    log.write(sys.stdin.read())
+with open(os.path.join(log_dir, "body.log"), "a") as log:
+    log.write(body + "\n")
+counter = os.path.join(log_dir, "count")
+n = int(open(counter).read()) if os.path.exists(counter) else 0
+with open(counter, "w") as handle:
+    handle.write(str(n + 1))
+plan = open(os.path.join(log_dir, "plan")).read().split()
+entry = plan[n] if n < len(plan) else "200"
+if entry == "transport":
+    sys.stderr.write("curl: (7) stub transport failure\n")
+    sys.exit(7)
+url = json.loads(body)["inspectionUrl"]
+status = entry[:3]
+if entry == "200":
+    text = json.dumps({"inspectionResult": {"indexStatusResult": {
+        "verdict": "PASS", "coverageState": "Submitted and indexed", "indexingState": "INDEXING_ALLOWED",
+        "pageFetchState": "SUCCESSFUL", "robotsTxtState": "ALLOWED", "lastCrawlTime": "2026-10-01T00:00:00Z",
+        "googleCanonical": url, "userCanonical": url}}})
+elif entry == "200-empty":
+    text = "{}"
+elif entry.endswith("html"):
+    text = "<html><body>stub " + status + "</body></html>"
+else:
+    text = json.dumps({"error": {"code": int(status), "message": "stub " + status, "status": "STUB"}})
+with open(out_file, "w") as handle:
+    handle.write(text)
+sys.stdout.write(status)
+STUB
+chmod +x "$DATE_BIN/date" "$STUB_BIN/gcloud" "$STUB_BIN/sleep" "$STUB_BIN/curl"
+export REAL_CURL REAL_DATE
+export STUB_TODAY="$TODAY"
 
 # --- Fixture sitemap -----------------------------------------------------------
 
@@ -87,16 +177,18 @@ write_urlset "$SITEMAP/events.xml" \
   /shows/2026-02-30-not-a-real-day /shows/legacy-show-2026-03-14 /shows/2026/10 /shows/123 \
   /venues/venue-a /venues/venue-b /venues/venue-a/shows/2026 '/venues?cities=Akron%2COH' \
   /scenes/akron-oh /scenes/akron-oh/2026-W41 /scenes/akron-oh/2026-W43
+# &#10; and &#9; decode to a newline and a tab inside an otherwise valid path.
 write_urlset "$SITEMAP/catalog.xml" \
   /artists/artist-a /artists/artist-b /artists/artist-c /artists/artist-d /artists/artist-e \
   /artists/artist-a '/artists/artist-a?ref=x' /artists/artist-a/extra '/artists/artist-b#top' \
+  '/artists/split&#10;line' '/artists/tab&#9;bed' \
   /releases/release-a /releases/release-b /labels/label-a /
 write_index "$SITEMAP/index.xml" "file://$SITEMAP/events.xml" "file://$SITEMAP/catalog.xml"
 export GSC_INSPECT_SITEMAP_INDEX="file://$SITEMAP/index.xml"
 
-# run [args...]: runs the script; sets STATUS, STDOUT, STDERR.
+# run [args...]: runs the script with the stub date; sets STATUS, STDOUT, STDERR.
 run() {
-  bash "$UNDER_TEST" "$@" >"$TMP/stdout" 2>"$TMP/stderr"
+  PATH="$DATE_BIN:$PATH" bash "$UNDER_TEST" "$@" >"$TMP/stdout" 2>"$TMP/stderr"
   STATUS=$?
   STDOUT="$(cat "$TMP/stdout")"
   STDERR="$(cat "$TMP/stderr")"
@@ -165,12 +257,15 @@ expect_family "$TMP/all.tsv" past-shows \
 expect_family "$TMP/all.tsv" venues https://psychichomily.com/venues/venue-a https://psychichomily.com/venues/venue-b
 expect_family "$TMP/all.tsv" scene-weeks https://psychichomily.com/scenes/akron-oh/2026-W41 https://psychichomily.com/scenes/akron-oh/2026-W43
 expect_family "$TMP/all.tsv" releases https://psychichomily.com/releases/release-a https://psychichomily.com/releases/release-b
-# The duplicate artist-a is listed once; its query, fragment and subpath forms are excluded.
+# The duplicate artist-a is listed once; its query, fragment and subpath forms
+# and the URLs holding a newline or a tab are excluded.
 expect_family "$TMP/all.tsv" artists "${ARTISTS[@]}"
-for excluded in not-a-real-day legacy-show /shows/2026/10 /shows/123 /venues/venue-a/shows/2026 'cities=' /scenes/akron-oh$'\t' /labels/ '?ref=' '#top' /artist-a/extra; do
+for excluded in not-a-real-day legacy-show /shows/2026/10 /shows/123 /venues/venue-a/shows/2026 'cities=' /scenes/akron-oh$'\t' /labels/ '?ref=' '#top' /artist-a/extra split tab; do
   expect_no_text "$TMP/all.tsv" "$excluded"
 done
 [ "$(awk -F '\t' 'NR > 2' "$TMP/all.tsv" | wc -l | tr -d ' ')" = "18" ] || fail "expected 18 sampled rows in total"
+[ "$(awk -F '\t' 'NR > 2 && NF != 3' "$TMP/all.tsv" | wc -l | tr -d ' ')" = "0" ] || fail "every row should have exactly three cells"
+expect_stderr "skipped 2 sitemap URL(s) holding whitespace or a control character"
 
 CASE="sampling is deterministic: same seed twice is identical, and matches the shasum oracle"
 run --sample-only --per-family 2 --seed alpha
@@ -205,7 +300,15 @@ expect_status 0
 [ "$(printf '%s\n' "$STDOUT" | awk -F '\t' 'NR > 2 { print $1 }' | tr '\n' ' ')" = "artists venues " ] \
   || fail "expected one artists row then one venues row, got: $STDOUT"
 
-# --- Argument validation ----------------------------------------------------------
+CASE="a family that matches no sitemap URL stops the run"
+write_urlset "$SITEMAP/no-venues.xml" /artists/artist-a '/venues/venue-a/'
+write_index "$SITEMAP/no-venues-index.xml" "file://$SITEMAP/no-venues.xml"
+GSC_INSPECT_SITEMAP_INDEX="file://$SITEMAP/no-venues-index.xml" run --sample-only --families artists,venues
+expect_status 1
+expect_stderr "no sitemap URL matched these families, so the URL shapes may have moved"
+expect_stderr "venues"
+
+# --- Argument and sitemap validation -----------------------------------------------
 
 CASE="unknown family is refused"
 run --sample-only --families artists,labels
@@ -222,6 +325,14 @@ run --sample-only --per-family 0
 expect_status 1
 expect_stderr "--per-family must be greater than zero"
 
+CASE="per-family above the daily quota is refused, including a value that would overflow"
+run --sample-only --per-family 2001
+expect_status 1
+expect_stderr "--per-family must be at most 2000"
+run --sample-only --per-family 99999999999999999999
+expect_status 1
+expect_stderr "--per-family must be at most 2000"
+
 CASE="seed with a space is refused"
 run --sample-only --seed 'a b'
 expect_status 1
@@ -233,16 +344,31 @@ expect_status 1
 expect_stderr "plans 2400 inspections, above the API's 2000-a-day quota"
 [ ! -e "$TMP/never" ] || fail "a refused plan created the output directory"
 
-CASE="--fixture with a sampling flag is refused"
+CASE="--fixture or --sample with a sampling flag is refused"
 run --fixture "$SHIPPED_FIXTURE" --seed alpha --out "$TMP/never"
 expect_status 1
-expect_stderr "--fixture renders an existing sample and takes no sampling flags"
+expect_stderr "use an existing sample and take no sampling flags"
+run --sample "$SHIPPED_FIXTURE/sample.tsv" --per-family 3 --out "$TMP/never"
+expect_status 1
+expect_stderr "use an existing sample and take no sampling flags"
+
+CASE="--fixture requires --out"
+run --fixture "$SHIPPED_FIXTURE"
+expect_status 1
+expect_stderr "--fixture requires --out"
 
 CASE="a shard on another host is refused"
 write_index "$SITEMAP/foreign-index.xml" "file://$SITEMAP/events.xml" "https://example.com/sitemap.xml"
 GSC_INSPECT_SITEMAP_INDEX="file://$SITEMAP/foreign-index.xml" run --sample-only
 expect_status 1
-expect_stderr "lists a shard on another scheme or host: https://example.com/sitemap.xml"
+expect_stderr "lists a shard on another scheme or host"
+expect_stderr "https://example.com/sitemap.xml"
+
+CASE="a shard whose decoded URL holds a newline is refused, not split into two fetches"
+write_index "$SITEMAP/newline-index.xml" "file://$SITEMAP/events.xml&#10;https://example.com/x.xml"
+GSC_INSPECT_SITEMAP_INDEX="file://$SITEMAP/newline-index.xml" run --sample-only
+expect_status 1
+expect_stderr "with whitespace or a control character"
 
 CASE="a plain-http sitemap index is refused"
 GSC_INSPECT_SITEMAP_INDEX="http://psychichomily.com/sitemap-index" run --sample-only
@@ -310,92 +436,40 @@ expect_stderr "metadata line"
 
 # --- Inspection loop against stubs -----------------------------------------------------
 
-STUB_BIN="$TMP/bin"
-mkdir -p "$STUB_BIN"
-cat >"$STUB_BIN/gcloud" <<'STUB'
-#!/usr/bin/env bash
-case "$*" in
-  "auth application-default print-access-token") echo stub-token ;;
-  *) echo "stub gcloud: unexpected call: $*" >&2; exit 9 ;;
-esac
-STUB
-
-# The stub curl hands every non-API URL (the file:// sitemap) to the real
-# curl. An API request is logged (argv, stdin config, body) and answered with
-# the next status from STUB_LOG_DIR/plan, one per line; past the end of the plan it
-# answers 200. "transport" exits 7 without a body, like a refused connection.
-cat >"$STUB_BIN/curl" <<'STUB'
-#!/usr/bin/env python3
-import json, os, sys
-args = sys.argv[1:]
-if not args[-1].startswith("https://searchconsole.googleapis.com/"):
-    real = os.environ["REAL_CURL"]
-    os.execv(real, [real] + args)
-out_file = body = None
-for flag, value in zip(args, args[1:]):
-    if flag == "-o":
-        out_file = value
-    elif flag == "--data":
-        body = value
-log_dir = os.environ["STUB_LOG_DIR"]
-with open(os.path.join(log_dir, "argv.log"), "a") as log:
-    log.write(" ".join(args) + "\n")
-with open(os.path.join(log_dir, "stdin.log"), "a") as log:
-    log.write(sys.stdin.read())
-with open(os.path.join(log_dir, "body.log"), "a") as log:
-    log.write(body + "\n")
-counter = os.path.join(log_dir, "count")
-n = int(open(counter).read()) if os.path.exists(counter) else 0
-with open(counter, "w") as handle:
-    handle.write(str(n + 1))
-plan = open(os.path.join(log_dir, "plan")).read().split()
-status = plan[n] if n < len(plan) else "200"
-if status == "transport":
-    sys.stderr.write("curl: (7) stub transport failure\n")
-    sys.exit(7)
-url = json.loads(body)["inspectionUrl"]
-if status == "200":
-    response = {"inspectionResult": {"indexStatusResult": {
-        "verdict": "PASS", "coverageState": "Submitted and indexed", "indexingState": "INDEXING_ALLOWED",
-        "pageFetchState": "SUCCESSFUL", "robotsTxtState": "ALLOWED", "lastCrawlTime": "2026-10-01T00:00:00Z",
-        "googleCanonical": url, "userCanonical": url}}}
-else:
-    response = {"error": {"code": int(status), "message": "stub " + status, "status": "STUB"}}
-with open(out_file, "w") as handle:
-    json.dump(response, handle)
-sys.stdout.write(status)
-STUB
-# Pacing and backoff sleeps return at once, so the retry cases run in seconds.
-printf '#!/bin/sh\nexit 0\n' >"$STUB_BIN/sleep"
-chmod +x "$STUB_BIN/gcloud" "$STUB_BIN/curl" "$STUB_BIN/sleep"
-export REAL_CURL
-
-# live <plan...> -- [args...]: a stubbed live run over venues and scene-weeks,
-# two URLs each (4 inspections), into a fresh output directory.
+# live <plan...> -- [args...]: a stubbed inspecting run into a fresh output
+# directory. Without --sample in args it samples venues and scene-weeks, two
+# URLs each (4 inspections).
 live() {
-  local plan=()
+  local plan=() sampling=(--families "venues,scene-weeks" --per-family 2)
   while [ "$1" != "--" ]; do plan+=("$1"); shift; done
   shift
+  case " $* " in *" --sample "*) sampling=() ;; esac
   STUB_LOG_DIR="$(mktemp -d "$TMP/log.XXXXXX")"
-  printf '%s\n' "${plan[@]}" >"$STUB_LOG_DIR/plan"
+  printf '%s\n' ${plan[@]+"${plan[@]}"} >"$STUB_LOG_DIR/plan"
+  : >"$STUB_LOG_DIR/sleeps"
   LIVE_OUT="$(mktemp -d "$TMP/live.XXXXXX")/out"
   LIVE_DOC="$LIVE_OUT/gsc-inspect-${TODAY}.md"
   LIVE_RUN="$LIVE_OUT/gsc-inspect-${TODAY}"
   export STUB_LOG_DIR
-  PATH="$STUB_BIN:$PATH" run --families venues,scene-weeks --per-family 2 --out "$LIVE_OUT" "$@"
+  PATH="$STUB_BIN:$PATH" run ${sampling[@]+"${sampling[@]}"} --out "$LIVE_OUT" "$@"
 }
 
 requests() { cat "$STUB_LOG_DIR/count" 2>/dev/null || echo 0; }
+# backoffs: the sleeps longer than the request pacing, in order.
+backoffs() { grep -vx '0.11' "$STUB_LOG_DIR/sleeps" | tr '\n' ' '; }
+failure_statuses() { awk -F '\t' 'NR > 1 { print $4 }' "$LIVE_RUN/failures.tsv" | tr '\n' ' '; }
 
-CASE="a complete run: request shape, credential off argv, retry once on 5xx"
+CASE="a complete run: request shape, credential off argv, retry once on 5xx after 5s"
 live 200 500 200 200 200 --
 expect_status 0
 [ "$(requests)" = "5" ] || fail "expected 5 API requests (one retry), got $(requests)"
 expect_line "$STUB_LOG_DIR/body.log" '{"inspectionUrl":"https://psychichomily.com/venues/venue-a","siteUrl":"sc-domain:psychichomily.com","languageCode":"en-US"}'
-expect_line "$STUB_LOG_DIR/stdin.log" 'header = "Authorization: Bearer stub-token"'
+expect_line "$STUB_LOG_DIR/stdin.log" 'header = "Authorization: Bearer stub-token-1"'
 expect_no_text "$STUB_LOG_DIR/argv.log" "stub-token"
 [ "$(grep -c -- '-H x-goog-user-project: psychic-homily' "$STUB_LOG_DIR/argv.log")" = "5" ] || fail "every request should carry the quota-project header"
 [ "$(grep -c -- '--proto =https' "$STUB_LOG_DIR/argv.log")" = "5" ] || fail "every request should pin the protocol to https"
+[ "$(grep -cx '0.11' "$STUB_LOG_DIR/sleeps")" = "5" ] || fail "every request should be followed by the pacing pause"
+[ "$(backoffs)" = "5 " ] || fail "a 5xx should back off 5s, got: $(backoffs)"
 expect_line "$LIVE_DOC" "| venues | 2 | 2 | 2 | 0 | 0 | 2 | 0 | 0 | 0 | 0 | 0 of 2 |"
 expect_line "$LIVE_DOC" "| scene-weeks | 2 | 2 | 2 | 0 | 0 | 2 | 0 | 0 | 0 | 0 | 0 of 2 |"
 expect_line "$LIVE_DOC" "| **All families** | 4 | 4 | 4 | 0 | 0 | 4 | 0 | 0 | 0 | 0 | 0 of 4 |"
@@ -404,27 +478,59 @@ expect_line "$LIVE_DOC" "| **All families** | 4 | 4 | 4 | 0 | 0 | 4 | 0 | 0 | 0 
 expect_no_text "$LIVE_DOC" "INCOMPLETE"
 expect_stderr "500 on https://psychichomily.com/venues/venue-"
 
+CASE="a 429 backs off 61s and a successful retry carries on"
+live 429 200 200 200 200 --
+expect_status 0
+[ "$(requests)" = "5" ] || fail "expected 5 API requests, got $(requests)"
+[ "$(backoffs)" = "61 " ] || fail "a 429 should back off 61s, got: $(backoffs)"
+expect_line "$LIVE_DOC" "| **All families** | 4 | 4 | 4 | 0 | 0 | 4 | 0 | 0 | 0 | 0 | 0 of 4 |"
+
 CASE="other errors are not retried; a transport error is retried once then recorded"
 live 200 404 transport transport 200 --
 expect_status 0
 [ "$(requests)" = "5" ] || fail "expected 5 API requests, got $(requests)"
 expect_line "$LIVE_DOC" "| venues | 2 | 2 | 1 | 1 | 0 | 1 | 0 | 0 | 0 | 0 | 0 of 1 |"
 expect_line "$LIVE_DOC" "| scene-weeks | 2 | 2 | 1 | 1 | 0 | 1 | 0 | 0 | 0 | 0 | 0 of 1 |"
-[ "$(awk -F '\t' 'NR > 1 { print $4 }' "$LIVE_RUN/failures.tsv" | tr '\n' ' ')" = "404 transport " ] \
-  || fail "failures.tsv statuses: $(awk -F '\t' 'NR > 1 { print $4 }' "$LIVE_RUN/failures.tsv" | tr '\n' ' ')"
+[ "$(failure_statuses)" = "404 transport " ] || fail "failures.tsv statuses: $(failure_statuses)"
 grep -Fq "| \`404\` | stub 404 |" "$LIVE_DOC" || fail "the 404 failure row is missing its message"
 
-CASE="a second 429 stops the run, writes what it has, and exits 2"
+CASE="a 200 without inspectionResult and a non-JSON body are failures with their bodies kept"
+live 200-empty 502html 502html 200 200 --
+expect_status 0
+[ "$(failure_statuses)" = "200 without inspectionResult 502 " ] || fail "failures.tsv statuses: $(failure_statuses)"
+[ "$(find "$LIVE_RUN/raw" -name '*.body' | wc -l | tr -d ' ')" = "1" ] || fail "the HTML body should be kept as a .body file"
+grep -Fq "non-JSON response body, kept as raw/venues/" "$LIVE_RUN/failures.tsv" || fail "the 502 failure should point at its kept body"
+
+CASE="a 429 on both attempts for one URL stops the run, writes what it has, and exits 2"
 live 200 500 200 429 429 --
 expect_status 2
 [ "$(requests)" = "5" ] || fail "expected 5 API requests before the stop, got $(requests)"
-expect_stderr "STOPPED EARLY: a second 429 from the API: the quota is exhausted"
+expect_stderr "STOPPED EARLY: 429 on both attempts for one URL, a minute apart: the daily quota is exhausted"
 expect_stderr "429 on https://psychichomily.com/scenes/akron-oh/"
 [ "$STDOUT" = "$LIVE_DOC" ] || fail "stdout should be the summary path, got: $STDOUT"
-expect_line "$LIVE_DOC" "> **INCOMPLETE: the run stopped early (a second 429 from the API: the quota is exhausted).** 2 of 4 sampled URLs were inspected; the rest count under Failed or Not inspected. Do not compare these counts with a complete run."
+expect_line "$LIVE_DOC" "> **INCOMPLETE: the run stopped early (429 on both attempts for one URL, a minute apart: the daily quota is exhausted).** 2 of 4 sampled URLs were inspected; the rest count under Failed or Not inspected. Do not compare these counts with a complete run."
 expect_line "$LIVE_DOC" "| venues | 2 | 2 | 2 | 0 | 0 | 2 | 0 | 0 | 0 | 0 | 0 of 2 |"
 expect_line "$LIVE_DOC" "| scene-weeks | 2 | 2 | 0 | 1 | 1 | 0 | 0 | 0 | 0 | 0 | 0 of 0 |"
-[ "$(awk -F '\t' 'NR > 1 { print $4 }' "$LIVE_RUN/failures.tsv")" = "429" ] || fail "failures.tsv should hold the one 429"
+[ "$(failure_statuses)" = "429 " ] || fail "failures.tsv should hold the one 429"
+
+CASE="a 429 after a 5xx is recorded without stopping the run"
+live 200 500 429 200 200 --
+expect_status 0
+[ "$(failure_statuses)" = "429 " ] || fail "failures.tsv statuses: $(failure_statuses)"
+expect_no_text "$LIVE_DOC" "INCOMPLETE"
+
+CASE="a 401 mints a fresh token and retries once"
+live 200 401 200 200 200 --
+expect_status 0
+[ "$(wc -l <"$STUB_LOG_DIR/gcloud.log" | tr -d ' ')" = "2" ] || fail "expected a second token mint after the 401"
+expect_line "$STUB_LOG_DIR/stdin.log" 'header = "Authorization: Bearer stub-token-2"'
+expect_line "$LIVE_DOC" "| **All families** | 4 | 4 | 4 | 0 | 0 | 4 | 0 | 0 | 0 | 0 | 0 of 4 |"
+
+CASE="a 401 to a fresh token stops the run with the auth help"
+live 200 401 401 --
+expect_status 2
+expect_stderr "STOPPED EARLY: HTTP 401 from the API with a freshly minted token: the credential was refused"
+expect_stderr "gcloud auth application-default login --scopes=https://www.googleapis.com/auth/webmasters.readonly"
 
 CASE="a 403 stops the run with the auth help"
 live 200 403 --
@@ -437,8 +543,64 @@ CASE="a stop before any success writes nothing and exits 1"
 live 429 429 --
 expect_status 1
 [ "$(requests)" = "2" ] || fail "expected 2 API requests before the stop, got $(requests)"
-expect_stderr "stopped before any inspection succeeded: a second 429 from the API: the quota is exhausted. Nothing was written."
+expect_stderr "no inspection succeeded (stopped: 429 on both attempts for one URL, a minute apart: the daily quota is exhausted). Nothing was written."
 [ ! -e "$LIVE_DOC" ] && [ ! -e "$LIVE_RUN" ] || fail "a stop before any success still wrote output"
+
+CASE="a run in which every URL fails writes nothing and exits 1"
+live 404 404 404 404 --
+expect_status 1
+[ "$(requests)" = "4" ] || fail "expected 4 API requests, got $(requests)"
+expect_stderr "no inspection succeeded. Nothing was written."
+expect_stderr "stub 404"
+[ ! -e "$LIVE_DOC" ] && [ ! -e "$LIVE_RUN" ] || fail "an all-failed run still wrote output"
+
+CASE="an unwritable output directory is refused before any request"
+STUB_LOG_DIR="$(mktemp -d "$TMP/log.XXXXXX")"
+printf '200\n' >"$STUB_LOG_DIR/plan"
+export STUB_LOG_DIR
+echo file >"$TMP/a-file"
+PATH="$STUB_BIN:$PATH" run --families venues --per-family 1 --out "$TMP/a-file/sub"
+expect_status 1
+expect_stderr "cannot write to the output directory"
+[ "$(requests)" = "0" ] || fail "expected no API request, got $(requests)"
+
+# --- Re-inspecting an earlier sample -------------------------------------------------
+
+# 12 artists in hash order, so the consecutive-failure case has room to trip.
+REUSE="$TMP/reuse-sample.tsv"
+{
+  echo "# gsc-inspect-sample v1 seed=earlier per_family=12 today_utc=2026-09-01 sitemap=https://psychichomily.com/sitemap-index population=artists:500"
+  printf 'family\turl\thash\n'
+  for i in 01 02 03 04 05 06 07 08 09 10 11 12; do
+    url="https://psychichomily.com/artists/earlier-$i"
+    printf 'artists\t%s\t%s\n' "$url" "$(printf '%s' "earlier$url" | sha256_hex)"
+  done
+} >"$REUSE"
+
+CASE="--sample re-inspects exactly the earlier URLs, labelled as a re-inspection"
+live -- --sample "$REUSE"
+expect_status 0
+[ "$(requests)" = "12" ] || fail "expected 12 API requests, got $(requests)"
+[ "$(jq -r '.inspectionUrl' "$STUB_LOG_DIR/body.log" | tr '\n' ' ')" = "$(awk -F '\t' 'NR > 2 { print $2 }' "$REUSE" | tr '\n' ' ')" ] \
+  || fail "the inspected URLs should be the reused sample's, in its order"
+cmp -s "$REUSE" "$LIVE_RUN/sample.tsv" || fail "the run should keep the reused sample.tsv unchanged"
+expect_line "$LIVE_DOC" "> **Re-inspected sample.** The URLs and family labels are those of \`$REUSE\`, drawn on 2026-09-01, not a fresh draw from today's sitemap; Advertised is that draw's count."
+expect_line "$LIVE_DOC" "| artists | 500 | 12 | 12 | 0 | 0 | 12 | 0 | 0 | 0 | 0 | 0 of 12 |"
+
+CASE="a malformed --sample is refused before the credential is used"
+printf '# gsc-inspect-sample v1 seed=x\nfamily\turl\thash\nartists\thttps://psychichomily.com/artists/a\tnot-a-hash\n' >"$TMP/bad-sample.tsv"
+live -- --sample "$TMP/bad-sample.tsv"
+expect_status 1
+expect_stderr "invalid sample"
+[ "$(requests)" = "0" ] || fail "expected no API request, got $(requests)"
+[ ! -e "$STUB_LOG_DIR/gcloud.log" ] || fail "the token should not be minted for a malformed sample"
+
+CASE="10 failed URLs in a row stop the run"
+live 200 404 404 404 404 404 404 404 404 404 404 -- --sample "$REUSE"
+expect_status 2
+[ "$(requests)" = "11" ] || fail "expected 11 API requests before the stop, got $(requests)"
+expect_stderr "STOPPED EARLY: 10 URLs in a row failed"
+expect_line "$LIVE_DOC" "| artists | 500 | 12 | 1 | 10 | 1 | 1 | 0 | 0 | 0 | 0 | 0 of 1 |"
 
 # --- Result -----------------------------------------------------------------------------
 
