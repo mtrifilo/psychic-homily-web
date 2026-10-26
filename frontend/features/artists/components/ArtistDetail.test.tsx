@@ -1184,6 +1184,55 @@ describe('ArtistDetail', () => {
     })
   })
 
+  describe('discography', () => {
+    const futures = {
+      id: 1,
+      title: 'Futures',
+      slug: 'futures',
+      release_type: 'lp',
+      release_year: 2004,
+      role: 'main',
+    }
+
+    beforeEach(() => {
+      mockUseArtist.mockReturnValue({
+        data: makeArtist(),
+        isLoading: false,
+        error: null,
+      })
+    })
+
+    // The page seeds the rows stale and the browser re-asks on mount; a failed
+    // re-ask sets `error` while `data` is still the seed.
+    it('keeps the rows on screen when a refresh fails', () => {
+      mockUseArtistReleases.mockReturnValue({
+        data: { releases: [futures], count: 1 },
+        isLoading: false,
+        error: new Error('boom'),
+      })
+
+      renderWithProviders(<ArtistDetail artistId="test-artist" />)
+
+      expect(screen.getByRole('link', { name: 'Futures' })).toHaveAttribute(
+        'href',
+        '/releases/futures'
+      )
+      expect(screen.queryByText('Failed to load discography')).not.toBeInTheDocument()
+    })
+
+    it('shows the error when the read fails with nothing to show', () => {
+      mockUseArtistReleases.mockReturnValue({
+        data: undefined,
+        isLoading: false,
+        error: new Error('boom'),
+      })
+
+      renderWithProviders(<ArtistDetail artistId="test-artist" />)
+
+      expect(screen.getByText('Failed to load discography')).toBeInTheDocument()
+    })
+  })
+
   describe('admin features', () => {
     beforeEach(() => {
       mockUseArtist.mockReturnValue({

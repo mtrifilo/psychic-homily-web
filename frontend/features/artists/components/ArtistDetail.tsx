@@ -139,7 +139,9 @@ function DiscographyTab({ artistIdOrSlug }: { artistIdOrSlug: string | number })
     )
   }
 
-  if (error) {
+  // Gated on `!data`: a failed refresh of rows already on screen (the server
+  // seed, which the browser re-asks on mount) keeps those rows.
+  if (error && !data) {
     return (
       <div className="py-8 text-center text-sm text-destructive">
         Failed to load discography
