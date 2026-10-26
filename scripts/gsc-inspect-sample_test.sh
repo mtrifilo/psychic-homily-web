@@ -11,8 +11,10 @@
 # earlier sample with --sample, and the inspection loop against a stub gcloud,
 # curl and sleep: request shape, credential kept off argv, the backoff chosen
 # per status, retry once on 429, 5xx and transport errors, a fresh token on
-# 401, no retry on other errors, the stops (429 twice, 401 twice, 403,
-# consecutive failures), runs in which nothing succeeded, and the exit codes.
+# 401 (also after a backoff), no retry on other errors, the stops (429 twice,
+# 401 twice, 403, consecutive failures, SIGTERM and SIGHUP, including during a
+# backoff), runs in which nothing succeeded, staged results kept when publishing
+# fails, --force moving the replaced run aside, and the exit codes.
 #
 # Runs in CI (Migration Lint) and locally:
 #   bash scripts/gsc-inspect-sample_test.sh
@@ -75,10 +77,15 @@ case "$*" in
 esac
 STUB
 
-# sleep logs its argument and returns at once.
+# sleep logs its argument and returns at once. At its STUB_SIGNAL_AT-th call it
+# sends STUB_SIGNAL to the script, and at its STUB_MKDIR_AT-th call it creates
+# the directory STUB_MKDIR_PATH.
 cat >"$STUB_BIN/sleep" <<'STUB'
 #!/bin/sh
 echo "$1" >>"$STUB_LOG_DIR/sleeps"
+n="$(wc -l <"$STUB_LOG_DIR/sleeps" | tr -d ' ')"
+if [ "$n" = "${STUB_SIGNAL_AT:-}" ]; then kill -"$STUB_SIGNAL" "$PPID"; fi
+if [ "$n" = "${STUB_MKDIR_AT:-}" ]; then mkdir -p "$STUB_MKDIR_PATH"; fi
 STUB
 
 # curl hands every non-API URL (the file:// sitemap) to the real curl. An API
@@ -136,6 +143,8 @@ STUB
 chmod +x "$DATE_BIN/date" "$STUB_BIN/gcloud" "$STUB_BIN/sleep" "$STUB_BIN/curl"
 export REAL_CURL REAL_DATE
 export STUB_TODAY="$TODAY"
+mkdir -p "$TMP/tmp"
+export TMPDIR="$TMP/tmp"
 
 # --- Fixture sitemap -----------------------------------------------------------
 
@@ -424,6 +433,10 @@ echo stale >"$OUT/gsc-inspect-${TODAY}/stale-file"
 run --fixture "$SHIPPED_FIXTURE" --out "$OUT" --force
 expect_status 0
 [ ! -e "$OUT/gsc-inspect-${TODAY}/stale-file" ] || fail "--force kept a stale file in the run directory"
+[ "$(find "$OUT" -maxdepth 2 -path "*/gsc-inspect-${TODAY}.replaced-*/stale-file" | wc -l | tr -d ' ')" = "1" ] \
+  || fail "--force should move the replaced run directory aside, not delete it"
+[ "$(find "$OUT" -maxdepth 1 -name "gsc-inspect-${TODAY}.md.replaced-*" | wc -l | tr -d ' ')" = "1" ] \
+  || fail "--force should move the replaced summary aside"
 expect_line "$DOC" "| **All families** | 350 | 13 | 11 | 1 | 1 | 4 | 1 | 2 | 3 | 1 | 2 of 6 |"
 
 CASE="a malformed fixture sample.tsv is refused"
@@ -526,6 +539,12 @@ expect_status 0
 expect_line "$STUB_LOG_DIR/stdin.log" 'header = "Authorization: Bearer stub-token-2"'
 expect_line "$LIVE_DOC" "| **All families** | 4 | 4 | 4 | 0 | 0 | 4 | 0 | 0 | 0 | 0 | 0 of 4 |"
 
+CASE="a 401 on the retry after a backoff still mints a fresh token"
+live 200 503 401 200 200 200 --
+expect_status 0
+[ "$(wc -l <"$STUB_LOG_DIR/gcloud.log" | tr -d ' ')" = "2" ] || fail "expected a second token mint after the 401"
+expect_line "$LIVE_DOC" "| **All families** | 4 | 4 | 4 | 0 | 0 | 4 | 0 | 0 | 0 | 0 | 0 of 4 |"
+
 CASE="a 401 to a fresh token stops the run with the auth help"
 live 200 401 401 --
 expect_status 2
@@ -564,6 +583,43 @@ expect_status 1
 expect_stderr "cannot write to the output directory"
 [ "$(requests)" = "0" ] || fail "expected no API request, got $(requests)"
 
+CASE="SIGTERM during the pacing pause keeps that result, stops, and publishes the rest as not inspected"
+STUB_SIGNAL_AT=2 STUB_SIGNAL=TERM live 200 200 200 200 --
+expect_status 2
+[ "$(requests)" = "2" ] || fail "expected 2 API requests before the stop, got $(requests)"
+expect_stderr "STOPPED EARLY: interrupted by a signal"
+expect_line "$LIVE_DOC" "| **All families** | 4 | 4 | 2 | 0 | 2 | 2 | 0 | 0 | 0 | 0 | 0 of 2 |"
+
+CASE="SIGHUP stops the run the same way"
+STUB_SIGNAL_AT=2 STUB_SIGNAL=HUP live 200 200 200 200 --
+expect_status 2
+expect_stderr "STOPPED EARLY: interrupted by a signal"
+expect_line "$LIVE_DOC" "| **All families** | 4 | 4 | 2 | 0 | 2 | 2 | 0 | 0 | 0 | 0 | 0 of 2 |"
+
+CASE="a signal during a retry backoff leaves that URL not inspected, not failed"
+STUB_SIGNAL_AT=3 STUB_SIGNAL=TERM live 200 500 --
+expect_status 2
+[ "$(backoffs)" = "5 " ] || fail "the signal should arrive during the 5s backoff, got: $(backoffs)"
+expect_line "$LIVE_DOC" "| venues | 2 | 2 | 1 | 0 | 1 | 1 | 0 | 0 | 0 | 0 | 0 of 1 |"
+[ "$(wc -l <"$LIVE_RUN/failures.tsv" | tr -d ' ')" = "1" ] || fail "an interrupted URL should not be recorded as a failure"
+[ "$(find "$LIVE_RUN/raw" -type f | wc -l | tr -d ' ')" = "1" ] || fail "only the one inspected URL should have a raw file"
+
+CASE="a publish failure after a success keeps the staged results"
+STUB_LOG_DIR="$(mktemp -d "$TMP/log.XXXXXX")"
+printf '200\n200\n' >"$STUB_LOG_DIR/plan"
+: >"$STUB_LOG_DIR/sleeps"
+export STUB_LOG_DIR
+LOCKED_OUT="$TMP/locked-out"
+# The run directory appearing mid-run makes the publish step refuse.
+STUB_MKDIR_AT=1 STUB_MKDIR_PATH="$LOCKED_OUT/gsc-inspect-${TODAY}" PATH="$STUB_BIN:$PATH" \
+  run --families venues --per-family 2 --out "$LOCKED_OUT"
+expect_status 1
+expect_stderr "could not create $LOCKED_OUT/gsc-inspect-${TODAY}: it appeared during the run"
+expect_stderr "the run did not publish; its staged results are kept in $TMP/tmp/"
+kept="$(printf '%s\n' "$STDERR" | sed -n 's/.*its staged results are kept in //p')"
+[ "$(find "$kept/raw" -name '*.json' 2>/dev/null | wc -l | tr -d ' ')" = "2" ] || fail "expected the 2 raw responses in the kept stage $kept"
+[ -f "$kept/sample.tsv" ] || fail "expected sample.tsv in the kept stage"
+
 # --- Re-inspecting an earlier sample -------------------------------------------------
 
 # 12 artists in hash order, so the consecutive-failure case has room to trip.
@@ -594,6 +650,19 @@ expect_status 1
 expect_stderr "invalid sample"
 [ "$(requests)" = "0" ] || fail "expected no API request, got $(requests)"
 [ ! -e "$STUB_LOG_DIR/gcloud.log" ] || fail "the token should not be minted for a malformed sample"
+
+CASE="a --sample with no final newline is inspected in full"
+printf '%s' "$(cat "$REUSE")" >"$TMP/no-newline.tsv"
+live -- --sample "$TMP/no-newline.tsv"
+expect_status 0
+[ "$(requests)" = "12" ] || fail "expected 12 API requests, got $(requests)"
+
+CASE="a --sample with CR line endings is refused before the credential is used"
+sed 's/$/\r/' "$REUSE" >"$TMP/crlf.tsv"
+live -- --sample "$TMP/crlf.tsv"
+expect_status 1
+expect_stderr "has CR line endings"
+[ "$(requests)" = "0" ] || fail "expected no API request, got $(requests)"
 
 CASE="10 failed URLs in a row stop the run"
 live 200 404 404 404 404 404 404 404 404 404 404 -- --sample "$REUSE"

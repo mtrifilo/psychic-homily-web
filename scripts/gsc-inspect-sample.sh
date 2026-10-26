@@ -51,8 +51,8 @@
 # transport error is retried once after a backoff, and a 401 once after the
 # access token is minted again. The run stops on a 429 to both attempts for
 # one URL, a 401 to a fresh token, a 403, CONSECUTIVE_FAILURE_LIMIT failed URLs
-# in a row, or SIGINT/SIGTERM. A stopped run writes what it has and is marked
-# incomplete. A run in which no inspection succeeded writes nothing. If the
+# in a row, or SIGINT, SIGTERM or SIGHUP. A stopped run writes what it has and
+# is marked incomplete. A run in which no inspection succeeded writes nothing. If the
 # script dies after an inspection succeeded but before publishing, the staged
 # results are kept and their directory is printed.
 #
@@ -97,7 +97,8 @@
 #                     sampling flags. scripts/testdata/gsc-inspect/ is a
 #                     hand-written example.
 #   --force           Replace an existing summary and run directory for this
-#                     date (refused by default).
+#                     date (refused by default). The replaced pair is moved
+#                     aside with a .replaced-<UTC time> suffix, not deleted.
 #
 # Exit status: 0 on a complete run, 2 when the run stopped early and partial
 # results were written, 1 on any other error (including a run in which no
@@ -177,7 +178,8 @@ Usage:
   --sample-only     Print a fresh sample TSV on stdout; no credential, no API
                     call.
   --fixture DIR     Render offline from DIR/sample.tsv and DIR/raw/.
-  --force           Replace an existing summary and run directory for today.
+  --force           Replace today's summary and run directory; the old pair is
+                    moved aside with a .replaced-<UTC time> suffix.
 
 Exit status: 0 complete, 2 stopped early with partial results written,
 1 any other error. The script header documents the families, membership,
@@ -218,7 +220,7 @@ require_value() {
 IFS= read -r -d '' PY_LIB <<'PY' || true
 import datetime, hashlib, html, re, sys, urllib.parse
 FAMILY_ORDER = ["upcoming-shows", "past-shows", "artists", "releases", "venues", "scene-weeks"]
-UNSAFE = re.compile(r"[\x00-\x20\x7f]")
+UNSAFE = re.compile("[\x00-\x20\x7f-\x9f\u2028\u2029]")
 LOC = re.compile(r"<loc>([^<]*)</loc>")
 SHOW = re.compile(r"/shows/([0-9]{4}-[0-9]{2}-[0-9]{2})-[^/]+")
 ENTITY = re.compile(r"/(artists|releases|venues)/[^/]+")
@@ -254,10 +256,15 @@ def load_sample(path):
         sys.stderr.write(f"{path}: {reason}\n")
         sys.exit(3)
     try:
-        with open(path, encoding="utf-8") as handle:
-            lines = handle.read().splitlines()
+        with open(path, encoding="utf-8", newline="") as handle:
+            text = handle.read()
     except (OSError, UnicodeDecodeError) as error:
         fail(f"cannot be read ({error})")
+    if "\r" in text:
+        fail("has CR line endings; convert it to LF")
+    lines = text.split("\n")
+    if lines and lines[-1] == "":
+        lines.pop()
     if len(lines) < 2 or not lines[0].startswith(SAMPLE_META) or lines[1] != SAMPLE_HEADER:
         fail("must start with the gsc-inspect-sample v1 metadata line and the family/url/hash header")
     meta = dict(f.split("=", 1) for f in lines[0][len(SAMPLE_META):].split(" ") if "=" in f)
@@ -347,9 +354,14 @@ for name in families:
         print(f"{name}\t{url}\t{digest}")
 PY
 
-# Validates a sample.tsv and prints its row count.
+# Validates a sample.tsv, writes its rows as LF-terminated family, url, hash
+# lines to the second argument, and prints the row count.
 IFS= read -r -d '' PY_CHECK_SAMPLE <<'PY' || true
-print(len(load_sample(sys.argv[1])[2]))
+rows = load_sample(sys.argv[1])[2]
+with open(sys.argv[2], "w", encoding="utf-8") as out:
+    for row in rows:
+        out.write("\t".join(row) + "\n")
+print(len(rows))
 PY
 
 # Renders the summary markdown from a run directory (sample.tsv, raw/,
@@ -691,10 +703,10 @@ draw_sample() {
   esac
 }
 
-# check_sample <file>: prints the row count of a valid sample.tsv, or dies
-# with the reason.
+# check_sample <file> <rows-out>: prints the row count of a valid sample.tsv
+# and writes its rows to <rows-out>, or dies with the reason.
 check_sample() {
-  python3 -I -c "$PY_LIB$PY_CHECK_SAMPLE" "$1" 2>"$WORK_DIR/check-err" \
+  python3 -I -c "$PY_LIB$PY_CHECK_SAMPLE" "$1" "$2" 2>"$WORK_DIR/check-err" \
     || die "invalid sample: $(tail -n 1 "$WORK_DIR/check-err")"
 }
 
@@ -771,7 +783,8 @@ else
   fi
   # Every row is validated before the first request, so a malformed sample
   # never spends quota.
-  SAMPLED="$(check_sample "$RUN_STAGE/sample.tsv")"
+  ROWS_PATH="$WORK_DIR/rows.tsv"
+  SAMPLED="$(check_sample "$RUN_STAGE/sample.tsv" "$ROWS_PATH")"
   [ "$SAMPLED" -le "$DAILY_QUOTA" ] \
     || die "the sample holds ${SAMPLED} URLs, above the API's ${DAILY_QUOTA}-a-day quota per property"
   echo "gsc-inspect-sample: ${SAMPLED} URL(s) to inspect ($([ "$MODE" = reuse ] && echo "reused from $SAMPLE_FILE" || echo "seed $SEED, families $FAMILIES_CSV"))" >&2
@@ -816,14 +829,16 @@ else
     printf '%s\t%s\t%s\t%s\t%s\n' "$1" "$2" "$3" "$4" "$message" >>"$FAILURES_PATH"
   }
 
-  # inspect_url <family> <url> <hash>: one inspection with at most one retry.
-  # The final attempt's body is kept at raw/<family>/<hash>.json when it is a
-  # JSON object and at raw/<family>/<hash>.body otherwise. Counts a result in
-  # SUCCEEDED and returns 0; returns 1 for a failure. Sets STOP_REASON when the
-  # run must stop. An interrupt returns at once and records nothing, so the
-  # URL counts as not inspected.
+  # inspect_url <family> <url> <hash>: one inspection with at most one retry
+  # after a 429, 5xx or transport error and at most one fresh token after a
+  # 401. The final attempt's body is kept at raw/<family>/<hash>.json when it
+  # is a JSON object and at raw/<family>/<hash>.body otherwise. Counts a result
+  # in SUCCEEDED and returns 0; returns 1 for a failure. Sets STOP_REASON when
+  # the run must stop. An interrupt keeps a result already received; otherwise
+  # it returns 1 with no raw file and nothing recorded, so the URL counts as
+  # not inspected.
   inspect_url() {
-    local family url digest body raw part status shape delay first="" attempt=1
+    local family url digest body raw part status shape delay first="" attempt=1 reminted=0
     family="$1"
     url="$2"
     digest="$3"
@@ -833,16 +848,23 @@ else
     while :; do
       rm -f "$part" "$raw.json" "$raw.body"
       status="$(post_inspection "$part" "$body")" || status="transport"
-      [ "$INTERRUPTED" -eq 0 ] || return 1
       sleep "$REQUEST_INTERVAL_SECONDS"
       # result: an object carrying inspectionResult; object: any other JSON
       # object; none: anything else, including no body.
       shape="$(jq -r 'if type != "object" then "none" elif (.inspectionResult | type) == "object" then "result" else "object" end' \
         "$part" 2>/dev/null || echo none)"
-      if [ "$shape" != "none" ]; then
-        mv "$part" "$raw.json"
+      if [ "$INTERRUPTED" -ne 0 ]; then
+        # A result already received is kept; anything else is dropped.
+        if [ "$status" = "200" ] && [ "$shape" = "result" ] && mv "$part" "$raw.json"; then
+          SUCCEEDED=$((SUCCEEDED + 1))
+          return 0
+        fi
+        return 1
+      fi
+      if [ "$shape" = "result" ] || [ "$shape" = "object" ]; then
+        mv "$part" "$raw.json" || shape="unsaved"
       elif [ -s "$part" ]; then
-        mv "$part" "$raw.body"
+        mv "$part" "$raw.body" || true
       fi
       case "$status" in
         200)
@@ -850,17 +872,27 @@ else
             SUCCEEDED=$((SUCCEEDED + 1))
             return 0
           fi
-          record_failure "$family" "$url" "$digest" "200 without inspectionResult"
+          if [ "$shape" = "unsaved" ]; then
+            record_failure "$family" "$url" "$digest" "200 but the body could not be saved"
+          else
+            record_failure "$family" "$url" "$digest" "200 without inspectionResult"
+          fi
           return 1
           ;;
         401)
           # An access token outlives about an hour at most; a long run can
-          # outlast it, so one 401 earns a fresh token and a retry.
-          if [ "$attempt" -eq 1 ] && mint_token; then
-            attempt=2
-            first="$status"
-            echo "gsc-inspect-sample: 401 on ${url}; minted a fresh access token and retrying once" >&2
-            continue
+          # outlast it, so the first 401 for a URL earns a fresh token and a
+          # retry.
+          if [ "$reminted" -eq 0 ]; then
+            reminted=1
+            if mint_token; then
+              echo "gsc-inspect-sample: 401 on ${url}; minted a fresh access token and retrying" >&2
+              continue
+            fi
+            record_failure "$family" "$url" "$digest" "$status"
+            STOP_REASON="HTTP 401 from the API, and a fresh access token could not be minted: $(tr '\n' ' ' <"$WORK_DIR/token-err")"
+            print_auth_help
+            return 1
           fi
           record_failure "$family" "$url" "$digest" "$status"
           STOP_REASON="HTTP 401 from the API with a freshly minted token: the credential was refused"
@@ -881,7 +913,10 @@ else
             if [ "$status" = "429" ]; then delay="$BACKOFF_429_SECONDS"; fi
             echo "gsc-inspect-sample: ${status} on ${url}; retrying once in ${delay}s" >&2
             sleep "$delay"
-            [ "$INTERRUPTED" -eq 0 ] || return 1
+            if [ "$INTERRUPTED" -ne 0 ]; then
+              rm -f "$raw.json" "$raw.body"
+              return 1
+            fi
             continue
           fi
           record_failure "$family" "$url" "$digest" "$status"
@@ -902,10 +937,10 @@ else
     mkdir -p "$RUN_STAGE/raw/$family"
   done
 
-  # SIGINT or SIGTERM ends the loop after the URL in flight; the run then
-  # publishes what it has.
+  # SIGINT, SIGTERM or SIGHUP ends the loop after the URL in flight; the run
+  # then publishes what it has.
   INTERRUPTED=0
-  trap 'INTERRUPTED=1' INT TERM
+  trap 'INTERRUPTED=1' INT TERM HUP
   DONE=0
   SUCCEEDED=0
   FAILED_IN_A_ROW=0
@@ -929,8 +964,11 @@ else
     if [ $((DONE % 25)) -eq 0 ]; then
       echo "gsc-inspect-sample: ${DONE}/${SAMPLED} attempted, ${SUCCEEDED} inspected" >&2
     fi
-  done 3< <(tail -n +3 "$RUN_STAGE/sample.tsv")
-  trap - INT TERM
+  done 3<"$ROWS_PATH"
+  trap - INT TERM HUP
+  if [ -z "$STOP_REASON" ] && [ "$DONE" -ne "$SAMPLED" ]; then
+    STOP_REASON="the loop read ${DONE} of ${SAMPLED} sample rows"
+  fi
 
   # A run with no result has nothing worth publishing, and a published empty
   # run would make the next attempt today need --force.
@@ -951,8 +989,17 @@ grep '^gsc-inspect-sample: ' "$WORK_DIR/render-err" >&2 || true
 # The run directory is published before the doc, so a published doc never
 # names a missing run directory. mkdir without -p fails when the directory
 # appeared mid-run, which refuses the overwrite the early check only narrows.
+# --force moves a replaced run and its doc aside rather than deleting them, so
+# a stopped run never destroys a complete one.
 if [ "$FORCE" -eq 1 ]; then
-  rm -rf "${OUT_DIR:?}/${RUN_NAME:?}"
+  REPLACED_SUFFIX="replaced-$(date -u +%Y%m%dT%H%M%SZ)"
+  for name in "$RUN_NAME" "$DOC_NAME"; do
+    if [ -e "$OUT_DIR/$name" ]; then
+      mv "$OUT_DIR/$name" "$OUT_DIR/$name.$REPLACED_SUFFIX" \
+        || die "could not move the existing $OUT_DIR/$name aside"
+      echo "gsc-inspect-sample: moved the existing $name aside to $name.$REPLACED_SUFFIX" >&2
+    fi
+  done
 fi
 mkdir "$OUT_DIR/$RUN_NAME" 2>/dev/null \
   || die "could not create $OUT_DIR/$RUN_NAME: it appeared during the run, or $OUT_DIR stopped being writable"
@@ -961,12 +1008,8 @@ for entry in sample.tsv failures.tsv raw; do
     mv "$RUN_STAGE/$entry" "$OUT_DIR/$RUN_NAME/$entry" || die "could not write $entry to $OUT_DIR/$RUN_NAME"
   fi
 done
-if [ "$FORCE" -eq 1 ]; then
-  mv "$DOC_PATH" "$OUT_DIR/$DOC_NAME" || die "could not write the summary to $OUT_DIR"
-else
-  mv -n "$DOC_PATH" "$OUT_DIR/$DOC_NAME" || die "could not write the summary to $OUT_DIR"
-  [ -e "$DOC_PATH" ] && die "$OUT_DIR/$DOC_NAME appeared during the run; refusing to overwrite it"
-fi
+mv -n "$DOC_PATH" "$OUT_DIR/$DOC_NAME" || die "could not write the summary to $OUT_DIR"
+[ -e "$DOC_PATH" ] && die "$OUT_DIR/$DOC_NAME appeared during the run; refusing to overwrite it"
 PRESERVE_STAGE=0
 
 echo "gsc-inspect-sample: wrote ${OUT_DIR}/${RUN_NAME}/ and ${OUT_DIR}/${DOC_NAME}" >&2
