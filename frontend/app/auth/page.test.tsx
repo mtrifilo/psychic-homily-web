@@ -477,6 +477,7 @@ describe('AuthPage', () => {
         )
         renderWithProviders(<AuthPage />)
 
+        // expectSelected fails unless the Create account tab is rendered.
         expectSelected('Sign in')
         expect(
           screen.queryByRole('heading', { name: 'Never miss a show.' })

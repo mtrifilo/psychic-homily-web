@@ -38,10 +38,12 @@ import { join, relative, sep } from 'node:path'
  * belongs to the home hero's sign-up nudge alone:
  *   - `buildSignupTabAuthHref`: `lib/auth-href.ts` and `HomeHero.tsx`
  *   - `AUTH_TAB_PARAM`: `lib/auth-href.ts` (it is also unexported)
- *   - the value spelled out, as `?tab=signup` / `&tab=signup` or as a quoted
- *     `'tab', 'signup'` pair: nowhere, since `lib/auth-href.ts` builds it from
- *     its constants. Other routes' own `?tab=` values are not caught, and
- *     neither is a pair split across two statements.
+ *   - the value spelled out, as `tab=signup` after `?`, `&` or a quote, as a
+ *     quoted `'tab', 'signup'` pair, or as a `tab: 'signup'` object entry (a
+ *     URLSearchParams init or a Link `query`): nowhere, since
+ *     `lib/auth-href.ts` builds it from its constants. Other routes' own
+ *     `?tab=` values are not caught, and neither is a value split across two
+ *     statements or assembled from a variable.
  *
  * The pending half of the rule cannot be caught by grep (a component may read
  * `authStatus === 'pending'` for perfectly good rendering reasons), so it is
@@ -207,7 +209,9 @@ describe('auth gate ownership', () => {
 
   it('spells the sign-up tab value nowhere', () => {
     expect(
-      filesMatching(/[?&]tab=signup\b|['"`]tab['"`]\s*,\s*['"`]signup['"`]/)
+      filesMatching(
+        /[?&'"`]tab=signup\b|['"`]tab['"`]\s*,\s*['"`]signup['"`]|\btab['"`]?\s*:\s*['"`]signup['"`]/
+      )
     ).toEqual([])
   })
 
