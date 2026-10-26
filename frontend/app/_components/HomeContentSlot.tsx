@@ -76,11 +76,11 @@ export async function HomeContentSlot() {
     )
   }
   if (viewer === 'indeterminate') return <HomeVariantSwitch />
-  // Only the list waits on its seed; placeholder rows hold its space until the
-  // seeded rows stream in. The fallback must not be the list itself: rendering
-  // it registers the query in the request's client first, and the seed's
-  // HydrationBoundary then defers that entry to an effect, which never runs on
-  // the server, so the resolved list would render its loader.
+  // Only the list waits on its seed; placeholder rows stand in for its rows
+  // until the seeded list streams in. The fallback must not be the list
+  // itself: rendering it registers the query in the request's client first,
+  // and the seed's HydrationBoundary then defers that entry to an effect, which
+  // never runs on the server, so the resolved list would render its loader.
   return (
     <AnonymousHome
       upcomingShows={

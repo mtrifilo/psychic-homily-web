@@ -10,10 +10,13 @@ import { HOME_SHOW_LIMIT } from '../api'
  * make the seed's `HydrationBoundary` defer that key and the streamed list
  * would render its loader instead of rows.
  *
- * `h-[90px]` is a real row's rendered height (a `ShowCard` with one title line
- * and one venue line) at every breakpoint, so the rows that replace these land
- * in the same space. The surfaces are the list row's own: `bg-card`, a
- * `border-border/50` border, `rounded-lg`, and the `bg-muted/50` date badge.
+ * `h-[90px]` is the height of a `ShowCard` with one title line and no price or
+ * support line: from `sm` with a one-line venue, below `sm` with a venue line
+ * that wraps once. A row with a price or support line, or a longer wrap, is
+ * taller, and the list that replaces these also renders its filter chips above
+ * its rows, so the content below moves down by that block when it arrives.
+ * The surfaces are the list row's own: `bg-card`, a `border-border/50` border,
+ * `rounded-lg`, and the `bg-muted/50` date badge.
  */
 export function HomeShowListSkeleton() {
   return (
