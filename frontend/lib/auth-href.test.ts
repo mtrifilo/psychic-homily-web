@@ -14,6 +14,7 @@ import {
   hasGatedIntent,
   hasSignupTab,
   buildSignupTabAuthHref,
+  asksForCreateAccount,
   isAccountRecoverableRefusal,
   REAUTH_REASON_CREDENTIAL_MINT,
   REAUTH_REASON_OAUTH_LINK,
@@ -204,8 +205,19 @@ describe('buildSignupTabAuthHref', () => {
     expect(buildSignupTabAuthHref()).toBe('/auth?tab=signup')
     const params = new URL(buildSignupTabAuthHref(), 'https://x').searchParams
     expect(hasSignupTab(params)).toBe(true)
-    expect(params.get('returnTo')).toBeNull()
-    expect(hasGatedIntent(params)).toBe(false)
+  })
+})
+
+describe('asksForCreateAccount', () => {
+  it('accepts a listed intent or the signup tab', () => {
+    expect(asksForCreateAccount(new URLSearchParams('intent=save'))).toBe(true)
+    expect(asksForCreateAccount(new URLSearchParams('tab=signup'))).toBe(true)
+  })
+
+  it('rejects any other arrival', () => {
+    for (const query of ['', 'returnTo=%2Fshows', 'intent=bogus', 'tab=bogus']) {
+      expect(asksForCreateAccount(new URLSearchParams(query))).toBe(false)
+    }
   })
 })
 

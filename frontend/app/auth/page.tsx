@@ -58,8 +58,7 @@ import {
   AUTH_ERROR_CODE_PARAM,
   AUTH_ERROR_PARAM,
   AUTH_REASON_PARAM,
-  hasGatedIntent,
-  hasSignupTab,
+  asksForCreateAccount,
   isAccountRecoverableRefusal,
   isReauthReason,
 } from '@/lib/auth-href'
@@ -908,8 +907,7 @@ function AuthPageContent() {
   // page has not been hidden since (the effect below drops it on hide). Tab
   // changes are never written back to the URL.
   const arrival = searchParams.toString()
-  const asksForSignup = hasGatedIntent(searchParams) || hasSignupTab(searchParams)
-  const arrivalTab = asksForSignup && !isReauth ? 'signup' : 'login'
+  const arrivalTab = asksForCreateAccount(searchParams) && !isReauth ? 'signup' : 'login'
   const [pickedTab, setPickedTab] = useState<{
     arrival: string
     tab: string

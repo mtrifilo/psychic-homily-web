@@ -438,7 +438,7 @@ describe('AuthPage', () => {
 
       // The value edge cases are pinned on `hasSignupTab` itself; these prove
       // the page goes through it.
-      it.each(['tab=bogus', 'tab=SIGNUP', 'tab=login', 'returnTo=%2Fshows&tab=settings'])(
+      it.each(['tab=bogus', 'returnTo=%2Fshows&tab=SIGNUP'])(
         'ignores %s and opens on Sign in, as a bare arrival does',
         query => {
           setSearchParams(query)

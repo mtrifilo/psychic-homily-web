@@ -1,7 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { AUTH_PATH, hasSignupTab } from '@/lib/auth-href'
 import { HomeHero } from './HomeHero'
 
 const mockOpenCommandPalette = vi.fn()
@@ -69,11 +68,10 @@ describe('HomeHero', () => {
 
   it('renders a value-forward Sign up nudge that opens the Create account tab', () => {
     render(<HomeHero />)
-    const href = screen.getByRole('link', { name: 'Sign up' }).getAttribute('href')
-    expect(href).toBe('/auth?tab=signup')
-    const url = new URL(href ?? '', 'https://x')
-    expect(url.pathname).toBe(AUTH_PATH)
-    expect(hasSignupTab(url.searchParams)).toBe(true)
+    expect(screen.getByRole('link', { name: 'Sign up' })).toHaveAttribute(
+      'href',
+      '/auth?tab=signup'
+    )
     expect(
       screen.getByText(
         /to save shows, follow artists and venues, and never miss a show\./

@@ -281,6 +281,17 @@ export function hasSignupTab(searchParams: {
 }
 
 /**
+ * Does this auth-page URL ask for the Create account tab? Two arrivals do: a
+ * gated control naming the action it refused, and the home hero's sign-up
+ * nudge. The page still opens on Sign in for a re-authentication.
+ */
+export function asksForCreateAccount(searchParams: {
+  get: (name: string) => string | null
+}): boolean {
+  return hasGatedIntent(searchParams) || hasSignupTab(searchParams)
+}
+
+/**
  * The auth-page query parameters a failed OAuth sign-in callback writes: the
  * message the page shows, and the code of a refusal the reader can act on.
  * The backend writes them as `authPageErrorParam` and `authPageErrorCodeParam`
