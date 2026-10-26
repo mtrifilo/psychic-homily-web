@@ -16,8 +16,8 @@ import {
  * that is not a re-authentication (`ACCOUNT_INACTIVE` is the one the backend
  * writes). A re-authentication reason stays, because it decides what the page
  * is (one tab, and no redirect for a signed-in reader) rather than what it
- * says, so a reload has to keep it. `returnTo`, `intent` and every parameter
- * the page does not read stay too.
+ * says, so a reload has to keep it. `returnTo`, `intent`, `tab` and every
+ * parameter the page does not read stay too.
  *
  * Takes and returns a query string without its leading `?`, serialized by
  * URLSearchParams, as `useSearchParams().toString()` is.

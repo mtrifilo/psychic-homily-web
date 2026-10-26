@@ -66,11 +66,11 @@ describe('HomeHero', () => {
     }
   })
 
-  it('renders a value-forward Sign up nudge linking to /auth', () => {
+  it('renders a value-forward Sign up nudge that opens the Create account tab', () => {
     render(<HomeHero />)
     expect(screen.getByRole('link', { name: 'Sign up' })).toHaveAttribute(
       'href',
-      '/auth'
+      '/auth?tab=signup'
     )
     expect(
       screen.getByText(
