@@ -1,6 +1,7 @@
 'use client'
 
 import { useMemo, useState } from 'react'
+import { HOME_SHOW_LIMIT } from '../api'
 import { useUpcomingShows } from '../hooks/useShows'
 import { batchedSaveFor } from '@/components/shared/batchedSaveData'
 import { useShowSaveCountBatch } from '../hooks/useSavedShows'
@@ -11,9 +12,6 @@ import { ShowCard } from './ShowCard'
 import { CityFilters } from '@/components/filters'
 import { GeoDefaultAffordance } from '@/components/filters/GeoDefaultAffordance'
 import { SaveDefaultsButton } from '@/components/filters/SaveDefaultsButton'
-
-/** Rows the anonymous home list shows for the selected city. */
-export const HOME_SHOW_LIMIT = 5
 
 /**
  * Extra rows asked for when the caller drops the viewer's saved shows, so the
@@ -90,10 +88,19 @@ export function HomeShowListView({
 
   const limit = excludeSaved ? rows + HOME_SHOW_EXCLUSION_HEADROOM : rows
 
-  const { data, isLoading, isFetching, error } = useUpcomingShows({
-    limit,
-    cities: effectiveCities.length > 0 ? effectiveCities : undefined,
-  })
+  const { data, dataUpdatedAt, isLoading, isFetching, isPlaceholderData, error } =
+    useUpcomingShows({
+      limit,
+      cities: effectiveCities.length > 0 ? effectiveCities : undefined,
+    })
+  // Rows served from a server seed that no browser read has replaced yet:
+  // `seedFirstScreen` stamps a seed `dataUpdatedAt: 0`, and any successful fetch
+  // restamps it. Such an entry revalidates on its first commit, and neither
+  // that refresh nor its failure should dim or replace rows the server already
+  // painted. Rows held over from a previous key are excluded: they do not
+  // answer this one.
+  const rowsAreUnrefreshedSeed =
+    data !== undefined && dataUpdatedAt === 0 && !isPlaceholderData
 
   // Prefetch /shows and /venues data during idle time
   usePrefetchRoutes()
@@ -152,7 +159,7 @@ export function HomeShowListView({
     )
   }
 
-  if (error) {
+  if (error && !rowsAreUnrefreshedSeed) {
     return (
       <div className="text-center py-8 text-muted-foreground">
         <p>Unable to load shows.</p>
@@ -218,7 +225,7 @@ export function HomeShowListView({
         </div>
       )}
 
-      <div className={isFetching ? 'opacity-60 transition-opacity duration-75' : 'transition-opacity duration-75'}>
+      <div className={isFetching && !rowsAreUnrefreshedSeed ? 'opacity-60 transition-opacity duration-75' : 'transition-opacity duration-75'}>
         {emptyMessage ? (
           <div className="text-center py-8 text-muted-foreground">
             <p>{emptyMessage}</p>

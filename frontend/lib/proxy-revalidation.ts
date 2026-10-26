@@ -5,6 +5,7 @@ import {
   ALL_SHOW_DAY_PAGES,
   ALL_SHOW_MONTH_PAGES,
   ALL_SHOW_PAGES,
+  HOME_PAGE,
   SCENE_LIST_PAGE,
   SINGULAR_TO_SEGMENT,
   cascadePages,
@@ -270,6 +271,7 @@ const RULES: readonly RevalidationRule[] = [
     // patterns stand in for the one month and day that actually changed.
     paths: () => [
       '/shows',
+      HOME_PAGE,
       ALL_SHOW_MONTH_PAGES,
       ALL_SHOW_DAY_PAGES,
       '/artists',
@@ -301,6 +303,7 @@ const RULES: readonly RevalidationRule[] = [
     paths: () => [
       ALL_SHOW_PAGES,
       '/shows',
+      HOME_PAGE,
       ALL_SHOW_MONTH_PAGES,
       ALL_SHOW_DAY_PAGES,
       '/artists',

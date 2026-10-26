@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react'
 import Link from 'next/link'
 import { HomeShowList } from '@/features/shows/components/HomeShowList'
 import { Button } from '@/components/ui/button'
@@ -10,8 +11,16 @@ import { LatestRadioShows } from './LatestRadioShows'
  * The logged-out discovery landing (PSY-389), lifted out of `app/page.tsx`
  * unchanged when the signed-in variant landed (PSY-2103). Its output is the
  * anonymous homepage's contract: change it only to change that page.
+ *
+ * `upcomingShows` is the list under the "Upcoming shows" heading, defaulting
+ * to the client list. A caller that seeds the list server-side passes it here
+ * inside its own Suspense boundary, so only this region waits on the seed.
  */
-export function AnonymousHome() {
+export function AnonymousHome({
+  upcomingShows = <HomeShowList />,
+}: {
+  upcomingShows?: ReactNode
+} = {}) {
   return (
     <>
       <div className="flex w-full flex-col gap-6">
@@ -42,7 +51,7 @@ export function AnonymousHome() {
           </Link>
         </div>
 
-        <HomeShowList />
+        {upcomingShows}
 
         <div className="flex justify-center pt-1.5">
           <Button asChild size="lg">
