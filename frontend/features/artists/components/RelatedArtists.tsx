@@ -1,6 +1,6 @@
 'use client'
 
-import { createContext, useState, useCallback, useContext, useRef, useEffect, useMemo } from 'react'
+import { useState, useCallback, useRef, useEffect, useMemo } from 'react'
 import Link from 'next/link'
 import { useRouter, useSearchParams, usePathname } from 'next/navigation'
 import {
@@ -128,13 +128,11 @@ const MAX_SUGGESTED_DIRECTIONS = 5
 // the control ("top N connections") so "2 hops" doesn't overpromise a full 2-hop view.
 const DEPTH_2_TOP_K = 8
 
-// Top-level exports: `ArtistSimilarSidebar` is the Similar artists dense list
-// (the page places it in the sidebar or, on its phone layout, the main
-// column); `SimilarListStateProvider` keeps that list's viewer state across
-// the move; `ArtistGraphDialog` is the on-demand modal hosting
-// `RecenteringGraph`. The parent (ArtistDetail) owns the Dialog open state so
-// the action-row [Graph] link, the list's [Explore graph] link, and the
-// `#graph` URL hash auto-open all drive the same Dialog.
+// Two top-level exports: `ArtistSimilarSidebar` is the Similar artists dense
+// list; `ArtistGraphDialog` is the on-demand modal hosting `RecenteringGraph`.
+// The parent (ArtistDetail) owns the Dialog open state so the action-row
+// [Graph] link, the list's [Explore graph] link, and the `#graph` URL hash
+// auto-open all drive the same Dialog.
 
 interface ArtistSimilarSidebarProps {
   artistId: number
@@ -165,79 +163,6 @@ const SORT_MODE_BIAS: Record<Exclude<SidebarSortMode, 'relevant'>, number> = {
 // empty expansion set. Module const → stable identity for the DOI useMemo dep.
 const NO_EXPANSIONS: ReadonlyMap<number, ArtistGraph> = new Map()
 
-/** What the viewer has chosen in the list: the sort, and an open suggest form with its draft. */
-interface SimilarListState {
-  sortMode: SidebarSortMode
-  showSuggest: boolean
-  suggestDraft: string
-}
-
-type UpdateSimilarListState = (patch: Partial<SimilarListState>) => void
-
-const DEFAULT_SIMILAR_LIST_STATE: SimilarListState = {
-  sortMode: 'relevant',
-  showSuggest: false,
-  suggestDraft: '',
-}
-
-const SimilarListStateContext = createContext<
-  [SimilarListState, UpdateSimilarListState] | null
->(null)
-
-/**
- * Holds the Similar artists list's viewer state above the list, so the list
- * can unmount and remount under a different parent (the page moves it between
- * layouts) without losing the sort or a half-typed suggestion.
- *
- * The state is tagged with the artist it was set for, so a provider that stays
- * mounted across artist routes hands the next artist the defaults.
- */
-export function SimilarListStateProvider({
-  artistId,
-  children,
-}: {
-  artistId: number
-  children: React.ReactNode
-}) {
-  const [entry, setEntry] = useState<{
-    artistId: number
-    state: SimilarListState
-  } | null>(null)
-  const state =
-    entry?.artistId === artistId ? entry.state : DEFAULT_SIMILAR_LIST_STATE
-  const update = useCallback<UpdateSimilarListState>(
-    patch =>
-      setEntry(prev => ({
-        artistId,
-        state: {
-          ...(prev?.artistId === artistId ? prev.state : DEFAULT_SIMILAR_LIST_STATE),
-          ...patch,
-        },
-      })),
-    [artistId]
-  )
-  const value = useMemo<[SimilarListState, UpdateSimilarListState]>(
-    () => [state, update],
-    [state, update]
-  )
-  return (
-    <SimilarListStateContext.Provider value={value}>
-      {children}
-    </SimilarListStateContext.Provider>
-  )
-}
-
-/** The provider's state when one is above the list, otherwise the list's own. */
-function useSimilarListState(): [SimilarListState, UpdateSimilarListState] {
-  const shared = useContext(SimilarListStateContext)
-  const [local, setLocal] = useState(DEFAULT_SIMILAR_LIST_STATE)
-  const updateLocal = useCallback<UpdateSimilarListState>(
-    patch => setLocal(prev => ({ ...prev, ...patch })),
-    []
-  )
-  return shared ?? [local, updateLocal]
-}
-
 export function ArtistSimilarSidebar({
   artistId,
   artistSlug,
@@ -248,15 +173,11 @@ export function ArtistSimilarSidebar({
     enabled: artistId > 0,
   })
   const { isAuthenticated } = useIsAuthenticated()
+  const [showSuggest, setShowSuggest] = useState(false)
   // PSY-1280: accessible DOI sort mode (default = the existing max-edge-score order) + an
   // aria-live announcement that's empty until the user changes it (so mount stays silent).
-  const [{ sortMode, showSuggest, suggestDraft }, updateListState] =
-    useSimilarListState()
+  const [sortMode, setSortMode] = useState<SidebarSortMode>('relevant')
   const [sortAnnouncement, setSortAnnouncement] = useState('')
-  // Local, so it is false on every mount: a suggest form restored by a remount
-  // (the provider kept it open) must not take focus and scroll the page; only
-  // the one opened from [Suggest similar] in this mount does.
-  const [suggestOpenedHere, setSuggestOpenedHere] = useState(false)
 
   // DOI scores for the active Discovery mode, over the base ego graph — the SAME computeGraphDoi
   // the canvas uses (incl. the per-node edge cap), so the sidebar order matches the canvas's.
@@ -273,10 +194,6 @@ export function ArtistSimilarSidebar({
     return computeGraphDoi(merged, undefined, doiWeightsForBias(SORT_MODE_BIAS[sortMode])).doiByNodeId
   }, [graph, sortMode])
 
-  // Nothing until the graph resolves: ArtistDetail's server HTML places this
-  // list for the phone layout at every viewport and moves it at hydration,
-  // which is shift-free only while the list is still empty (see
-  // WIDE_LAYOUT_QUERY).
   if (isLoading) return null
 
   const hasRelationships =
@@ -356,7 +273,7 @@ export function ArtistSimilarSidebar({
             value={sortMode}
             onChange={e => {
               const mode = e.target.value as SidebarSortMode
-              updateListState({ sortMode: mode })
+              setSortMode(mode)
               setSortAnnouncement(
                 mode === 'relevant'
                   ? 'Similar artists sorted by most relevant.'
@@ -405,20 +322,12 @@ export function ArtistSimilarSidebar({
             <SuggestSimilarArtist
               centerArtistId={artistId}
               centerArtistSlug={artistSlug}
-              draft={suggestDraft}
-              onDraftChange={draft => updateListState({ suggestDraft: draft })}
-              autoFocus={suggestOpenedHere}
-              onClose={() =>
-                updateListState({ showSuggest: false, suggestDraft: '' })
-              }
+              onClose={() => setShowSuggest(false)}
             />
           ) : (
             <BracketLink
               label="Suggest similar"
-              onClick={() => {
-                setSuggestOpenedHere(true)
-                updateListState({ showSuggest: true })
-              }}
+              onClick={() => setShowSuggest(true)}
             />
           )}
         </div>
@@ -1600,11 +1509,6 @@ function VoteButton({ link, direction, userVotes, onVote, isPending }: VoteButto
 interface SuggestSimilarArtistProps {
   centerArtistId: number
   centerArtistSlug: string
-  /** The search text, owned by the list so it survives a remount. */
-  draft: string
-  onDraftChange: (draft: string) => void
-  /** Focus the search on mount: true only when the viewer just opened the form. */
-  autoFocus: boolean
   onClose: () => void
 }
 
@@ -1614,14 +1518,8 @@ const SUGGEST_BLUR_CLOSE_DELAY_MS = 150
 // How long the "suggested" confirmation shows before the panel closes itself.
 const SUGGEST_SUCCESS_DISMISS_MS = 2000
 
-function SuggestSimilarArtist({
-  centerArtistId,
-  centerArtistSlug,
-  draft: query,
-  onDraftChange: setQuery,
-  autoFocus,
-  onClose,
-}: SuggestSimilarArtistProps) {
+function SuggestSimilarArtist({ centerArtistId, centerArtistSlug, onClose }: SuggestSimilarArtistProps) {
+  const [query, setQuery] = useState('')
   const [isOpen, setIsOpen] = useState(false)
   const [activeIndex, setActiveIndex] = useState(-1)
   const [error, setError] = useState<string | null>(null)
@@ -1671,7 +1569,7 @@ function SuggestSimilarArtist({
         }
       )
     },
-    [centerArtistId, centerArtistSlug, createRelationship, scheduleSuccessClose, setQuery]
+    [centerArtistId, centerArtistSlug, createRelationship, scheduleSuccessClose]
   )
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -1723,7 +1621,7 @@ function SuggestSimilarArtist({
             onKeyDown={handleKeyDown}
             onBlur={scheduleBlurClose}
             placeholder="Search for a similar artist..."
-            autoFocus={autoFocus}
+            autoFocus
             autoComplete="off"
             className="w-full text-sm px-3 py-1.5 rounded-md border bg-background text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
           />

@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { renderHook, waitFor, act } from '@testing-library/react'
 import { QueryClient } from '@tanstack/react-query'
 import { createWrapper, createWrapperWithClient } from '@/test/utils'
+import { API_BASE_URL } from '@/lib/api-base'
 
 // Create mocks
 const mockApiRequest = vi.fn()
@@ -12,10 +13,10 @@ vi.mock('@/lib/api', () => ({
   API_BASE_URL: 'http://localhost:8080',
 }))
 
-// Mock the feature api module
-vi.mock('@/features/artists/api', () => ({
+// `artistGraphUrl` stays real, so these tests pin the URL it builds.
+vi.mock('@/features/artists/api', async importOriginal => ({
+  ...(await importOriginal<typeof import('@/features/artists/api')>()),
   artistEndpoints: {
-    GRAPH: (artistId: string | number) => `/artists/${artistId}/graph`,
     RELATIONSHIPS: {
       CREATE: '/artists/relationships',
       VOTE: (sourceId: number, targetId: number) =>
@@ -76,7 +77,7 @@ describe('useArtistGraph', () => {
 
     await waitFor(() => expect(result.current.isSuccess).toBe(true))
 
-    expect(mockApiRequest).toHaveBeenCalledWith('/artists/1/graph', {
+    expect(mockApiRequest).toHaveBeenCalledWith(`${API_BASE_URL}/artists/1/graph`, {
       method: 'GET',
     })
     expect(result.current.data).toEqual(mockGraph)
@@ -93,7 +94,7 @@ describe('useArtistGraph', () => {
     await waitFor(() => expect(result.current.isSuccess).toBe(true))
 
     expect(mockApiRequest.mock.calls[0][0]).toBe(
-      '/artists/1/graph?types=shared_bills%2Csame_label'
+      `${API_BASE_URL}/artists/1/graph?types=shared_bills%2Csame_label`
     )
   })
 

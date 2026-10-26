@@ -125,6 +125,24 @@ export function artistUpcomingShowsUrl(artistSlug: string): string {
   return `${artistEndpoints.SHOWS(encodeURIComponent(unpadNumericId(artistSlug)))}?${params.toString()}`
 }
 
+/**
+ * The URL of one artist's ego graph, optionally narrowed to relationship
+ * `types`. `useArtistGraph` fetches it and the artist route reads it to seed
+ * the Similar artists list, so both sides ask the backend the same question
+ * for `artistQueryKeys.graph(artistId, types)`. The endpoint takes the numeric
+ * id only.
+ */
+export function artistGraphUrl(artistId: number, types?: readonly string[]): string {
+  const params = new URLSearchParams()
+  if (types && types.length > 0) {
+    params.set('types', types.join(','))
+  }
+  const queryString = params.toString()
+  return queryString
+    ? `${artistEndpoints.GRAPH(artistId)}?${queryString}`
+    : artistEndpoints.GRAPH(artistId)
+}
+
 // ============================================================================
 // Query Keys
 // ============================================================================

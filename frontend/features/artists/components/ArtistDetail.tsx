@@ -60,16 +60,10 @@ import { FollowAlertsReveal } from '@/components/shared/FollowAlertsReveal'
 import { ENTITY_LINK_CLASS } from '@/components/shared/entityLink'
 import { entityHref } from '@/lib/entity-slug'
 import { ArtistShowsList } from './ArtistShowsList'
-import {
-  ArtistSimilarSidebar,
-  ArtistGraphDialog,
-  SimilarListStateProvider,
-} from './RelatedArtists'
+import { ArtistSimilarSidebar, ArtistGraphDialog } from './RelatedArtists'
 import { ArtistConnectionsSection } from './ArtistConnectionsSection'
 import { BillComposition } from './BillComposition'
 import { GRAPH_HASH, useUrlHash } from '@/lib/hooks/common/useUrlHash'
-import { useMediaQuery } from '@/lib/hooks/common/useMediaQuery'
-import { GRAPH_BREAKPOINT_PX } from '@/components/graph/useContainerWidth'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
@@ -83,25 +77,52 @@ interface ArtistDetailProps {
 }
 
 /**
- * The query whose NOT matching is the phone layout: a viewport narrower than
- * both Tailwind's `sm` (`--breakpoint-sm: 40rem`) and the Connections canvas
- * gate (GRAPH_BREAKPOINT_PX, a container width, which no narrower viewport
- * can contain). The comma is an OR, so at any browser default font size:
+ * The page's two layouts, placed by CSS alone so the server HTML is already
+ * the settled layout at every viewport and no JavaScript decides a column.
+ *
+ * The phone layout is the media condition `(not (min-width: 40rem)) and
+ * (not (min-width: 640px))`: below both Tailwind's `sm` (`--breakpoint-sm:
+ * 40rem`) and the Connections canvas gate (GRAPH_BREAKPOINT_PX, a container
+ * width that no narrower viewport can contain). It is written in that form,
+ * not as two `width <` ranges, because the dev CSS pipeline lowers a pair of
+ * ranges to `not (...) and not (...)`, which browsers reject as invalid. At
+ * any browser default font size:
  * - every phone-layout viewport is below `sm`, so the Similar artists rows
  *   there are in their stacked, `sm:hidden` form;
- * - every phone-layout viewport is too narrow for a canvas, so dropping the
- *   Connections section never drops a canvas it would have drawn.
- * At the default 16px root both clauses are 640px.
+ * - every phone-layout viewport is too narrow for a canvas, so hiding the
+ *   Connections section there never hides a canvas it would have drawn.
+ * At the default 16px root both clauses are 640px. Tailwind reads class
+ * names as literal text, so the condition is spelled out in each class.
  *
- * `useMediaQuery`'s server snapshot is the phone layout. That causes no layout
- * shift on a wider screen only because both things that differ between the
- * layouts (the main-column Similar artists list above the Discography, and
- * the Connections section after it) render nothing until the client-side
- * artist graph query resolves, which is after hydration has settled this
- * query. Seeding that query on the server would make the server
- * HTML carry the phone placement to every viewport.
+ * The Similar artists list is ONE node, in the sidebar's DOM between As heard
+ * on and the tags. Outside the phone layout the sidebar is an ordinary column
+ * (beside the main column from `lg`, under it below). On the phone layout the
+ * main column and the sidebar are `display: contents`, so their groups become
+ * items of one flex column, and `order-first` lifts the shows group and then
+ * the list above everything else: shows and the action row, Similar artists,
+ * the rest of the main column, then the sidebar. The DOM order, which screen
+ * readers and the tab sequence follow, stays the sidebar order there.
+ *
+ * The outer wrapper reproduces EntityDetailLayout's two-column body
+ * (`gap-8`, a `w-80` sidebar from `lg`), which this page does not use through
+ * its `sidebar` prop because a slot cannot hand one node to the main column.
  */
-export const WIDE_LAYOUT_QUERY = `(min-width: 40rem), (min-width: ${GRAPH_BREAKPOINT_PX}px)`
+export const ARTIST_LAYOUT_CLASSES = {
+  columns: 'flex flex-col gap-8 lg:flex-row',
+  mainColumn:
+    'flex-1 min-w-0 space-y-8 [@media(not_(min-width:40rem))_and_(not_(min-width:640px))]:contents [@media(not_(min-width:40rem))_and_(not_(min-width:640px))]:space-y-0',
+  showsGroup: 'space-y-8 [@media(not_(min-width:40rem))_and_(not_(min-width:640px))]:order-first',
+  connections: 'empty:hidden [@media(not_(min-width:40rem))_and_(not_(min-width:640px))]:hidden',
+  sidebar:
+    'w-full lg:w-80 shrink-0 flex flex-col gap-6 [@media(not_(min-width:40rem))_and_(not_(min-width:640px))]:contents',
+  sidebarLead: 'peer space-y-6 empty:hidden',
+  similarArtists: 'empty:hidden [@media(not_(min-width:40rem))_and_(not_(min-width:640px))]:order-first',
+  // On the phone layout the flex column's gap-8 separates the lead from this
+  // group; -mt-2 brings that back to the sidebar's own gap-6 whenever the
+  // lead is present.
+  sidebarRest:
+    'space-y-6 empty:hidden [@media(not_(min-width:40rem))_and_(not_(min-width:640px))]:peer-[:not(:empty)]:-mt-2',
+} as const
 
 // --- Discography ---
 
@@ -303,7 +324,7 @@ function ArtistSidebar({
   labels: ArtistLabel[]
   labelsLoading: boolean
   isAuthenticated: boolean
-  /** The Similar artists block, or null when the main column carries it. */
+  /** The Similar artists block. */
   similarArtists: React.ReactNode
 }) {
   const { data: aliasesData } = useArtistAliases(artist.id)
@@ -335,119 +356,128 @@ function ArtistSidebar({
   })
 
   return (
-    <div className="space-y-6">
-      {/* Top tracks — FIRST in the column (PSY-1065): listening is the
-          fastest way to decide whether you like an unfamiliar band, so the
-          embed leads. Rendered only when a music link exists. */}
-      {hasMusicLink && (
-        <section>
-          <SectionHeader title="Top tracks" />
-          <MusicEmbed
-            bandcampAlbumUrl={artist.bandcamp_embed_url}
-            bandcampProfileUrl={artist.social?.bandcamp}
-            spotifyUrl={artist.social?.spotify}
-            artistName={artist.name}
-            compact
-          />
-        </section>
-      )}
+    <aside
+      data-testid="artist-sidebar"
+      className={ARTIST_LAYOUT_CLASSES.sidebar}
+    >
+      <div className={ARTIST_LAYOUT_CLASSES.sidebarLead}>
+        {/* Top tracks — FIRST in the column (PSY-1065): listening is the
+            fastest way to decide whether you like an unfamiliar band, so the
+            embed leads. Rendered only when a music link exists. */}
+        {hasMusicLink && (
+          <section>
+            <SectionHeader title="Top tracks" />
+            <MusicEmbed
+              bandcampAlbumUrl={artist.bandcamp_embed_url}
+              bandcampProfileUrl={artist.social?.bandcamp}
+              spotifyUrl={artist.social?.spotify}
+              artistName={artist.name}
+              compact
+            />
+          </section>
+        )}
 
-      {/* Photo */}
-      {artist.image_url && (
-        <div>
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            src={artist.image_url}
-            alt={artist.name}
-            loading="lazy"
-            className="w-full rounded-md border border-border/50"
-          />
-          <ImageAttribution
-            source={artist.image_source}
-            sourceUrl={artist.image_source_url}
-            author={artist.image_author}
-            license={artist.image_license}
-            kind="photo"
-            className="mt-1.5 px-0.5"
-          />
-        </div>
-      )}
-
-      {/* Statistics */}
-      {statsItems.length > 0 && (
-        <section>
-          <SectionHeader title="Statistics" />
-          <StatsList items={statsItems} />
-        </section>
-      )}
-
-      {/* Chart rank — self-hides when unranked (PSY-1420 / Figma 996:16) */}
-      <EntityChartRankBadge entityType="artist" entityId={artist.id} />
-
-      {/* Links and As heard on sit ABOVE Similar artists: both are short,
-          fixed-height blocks, while Similar artists is unbounded and pushes
-          them off-screen on well-connected artists. */}
-      {hasSocialLinks && (
-        <section>
-          <SectionHeader title="Links" />
-          <SocialLinks social={artist.social} />
-        </section>
-      )}
-
-      {/* As heard on (radio) — self-hides when empty */}
-      <AsHeardOn entityType="artist" entitySlug={artist.slug} />
-
-      {similarArtists}
-
-      {/* Tags — EntityTagList renders its own header. PSY-654 hides the
-          whole component when no tags exist; the [Add tag] linkbox entry
-          below owns the affordance for tagless artists. */}
-      <EntityTagList
-        entityType="artist"
-        entityId={artist.id}
-        isAuthenticated={isAuthenticated}
-      />
-
-      {/* Aliases */}
-      {aliases.length > 0 && (
-        <section>
-          <SectionHeader title="Also known as" />
-          <div className="space-y-1">
-            {aliases.map(alias => (
-              <p key={alias.id} className="text-sm text-muted-foreground">
-                {alias.alias}
-              </p>
-            ))}
+        {/* Photo */}
+        {artist.image_url && (
+          <div>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={artist.image_url}
+              alt={artist.name}
+              loading="lazy"
+              className="w-full rounded-md border border-border/50"
+            />
+            <ImageAttribution
+              source={artist.image_source}
+              sourceUrl={artist.image_source_url}
+              author={artist.image_author}
+              license={artist.image_license}
+              kind="photo"
+              className="mt-1.5 px-0.5"
+            />
           </div>
-        </section>
-      )}
+        )}
 
-      {/* Labels (inline list) */}
-      {!labelsLoading && labels.length > 0 && (
-        <section>
-          <SectionHeader title="Labels" />
-          <div className="space-y-1">
-            {labels.map(label => (
-              <Link
-                key={label.id}
-                href={`/labels/${label.slug}`}
-                className="block text-sm text-muted-foreground hover:text-foreground transition-colors py-0.5"
-              >
-                {label.name}
-              </Link>
-            ))}
-          </div>
-        </section>
-      )}
+        {/* Statistics */}
+        {statsItems.length > 0 && (
+          <section>
+            <SectionHeader title="Statistics" />
+            <StatsList items={statsItems} />
+          </section>
+        )}
 
-      {/* Also on this label */}
-      {!labelsLoading && labels.length > 0 && (
-        <AlsoOnThisLabel labels={labels} currentArtistId={artist.id} />
-      )}
+        {/* Chart rank — self-hides when unranked (PSY-1420 / Figma 996:16) */}
+        <EntityChartRankBadge entityType="artist" entityId={artist.id} />
 
-      {/* In collections — self-hides when empty */}
-      <EntityCollections entityType="artist" entityId={artist.id} />
-    </div>
+        {/* Links and As heard on sit ABOVE Similar artists: both are short,
+            fixed-height blocks, while Similar artists is unbounded and pushes
+            them off-screen on well-connected artists. */}
+        {hasSocialLinks && (
+          <section>
+            <SectionHeader title="Links" />
+            <SocialLinks social={artist.social} />
+          </section>
+        )}
+
+        {/* As heard on (radio) — self-hides when empty */}
+        <AsHeardOn entityType="artist" entitySlug={artist.slug} />
+      </div>
+
+      <div className={ARTIST_LAYOUT_CLASSES.similarArtists}>
+        {similarArtists}
+      </div>
+
+      <div className={ARTIST_LAYOUT_CLASSES.sidebarRest}>
+        {/* Tags — EntityTagList renders its own header. PSY-654 hides the
+            whole component when no tags exist; the [Add tag] linkbox entry
+            below owns the affordance for tagless artists. */}
+        <EntityTagList
+          entityType="artist"
+          entityId={artist.id}
+          isAuthenticated={isAuthenticated}
+        />
+
+        {/* Aliases */}
+        {aliases.length > 0 && (
+          <section>
+            <SectionHeader title="Also known as" />
+            <div className="space-y-1">
+              {aliases.map(alias => (
+                <p key={alias.id} className="text-sm text-muted-foreground">
+                  {alias.alias}
+                </p>
+              ))}
+            </div>
+          </section>
+        )}
+
+        {/* Labels (inline list) */}
+        {!labelsLoading && labels.length > 0 && (
+          <section>
+            <SectionHeader title="Labels" />
+            <div className="space-y-1">
+              {labels.map(label => (
+                <Link
+                  key={label.id}
+                  href={`/labels/${label.slug}`}
+                  className="block text-sm text-muted-foreground hover:text-foreground transition-colors py-0.5"
+                >
+                  {label.name}
+                </Link>
+              ))}
+            </div>
+          </section>
+        )}
+
+        {/* Also on this label */}
+        {!labelsLoading && labels.length > 0 && (
+          <AlsoOnThisLabel labels={labels} currentArtistId={artist.id} />
+        )}
+
+        {/* In collections — self-hides when empty */}
+        <EntityCollections entityType="artist" entityId={artist.id} />
+      </div>
+    </aside>
   )
 }
 
@@ -1103,7 +1133,6 @@ export function ArtistDetail({ artistId }: ArtistDetailProps) {
     }
   }
   const saveBanner = useEntitySaveSuccessBanner()
-  const isPhoneLayout = !useMediaQuery(WIDE_LAYOUT_QUERY)
 
   // Fetch labels for sidebar
   const { data: labelsData, isLoading: labelsLoading } = useArtistLabels({
@@ -1170,11 +1199,8 @@ export function ArtistDetail({ artistId }: ArtistDetailProps) {
 
   // Similar artists: a dense list plus the [Explore graph] affordance that
   // opens the page-level Dialog. It self-hides when there are no
-  // relationships AND the viewer can't contribute. It is rendered in one of
-  // two places (see the main column below), so it remounts when the
-  // viewport enters or leaves the phone layout; SimilarListStateProvider,
-  // wrapping the page, carries the viewer's sort and suggest draft across
-  // that remount.
+  // relationships AND the viewer can't contribute. CSS places it for both
+  // layouts (ARTIST_LAYOUT_CLASSES), so it never remounts on a resize.
   const similarArtists = (
     <ArtistSimilarSidebar
       artistId={artist.id}
@@ -1271,7 +1297,7 @@ export function ArtistDetail({ artistId }: ArtistDetailProps) {
   )
 
   return (
-    <SimilarListStateProvider artistId={artist.id}>
+    <>
       <EntityDetailLayout
         fallback={{ href: '/artists', label: 'Artists' }}
         entityName={artist.name}
@@ -1282,112 +1308,113 @@ export function ArtistDetail({ artistId }: ArtistDetailProps) {
             <AttributionLine entityType="artist" entityId={artist.id} />
           </>
         }
-        sidebar={
+      >
+        <div className={ARTIST_LAYOUT_CLASSES.columns}>
+          <div
+            data-testid="artist-main-column"
+            className={ARTIST_LAYOUT_CLASSES.mainColumn}
+          >
+            <div className={ARTIST_LAYOUT_CLASSES.showsGroup}>
+              <ArtistShowsList
+                artistId={artist.id}
+                artistSlug={artist.slug}
+                artistName={artist.name}
+              />
+
+              {artistActions}
+            </div>
+
+            <div className="space-y-8">
+              <DiscographyTab artistIdOrSlug={artistId} />
+
+              {/* The inline ego map, which reuses the list's cached
+                  useArtistGraph payload and whose [Expand] opens the same Dialog.
+                  Hidden on the phone layout, where no canvas can render; the
+                  action-row [Graph] and the list's [Explore graph] still open the
+                  graph Dialog there. */}
+              <div className={ARTIST_LAYOUT_CLASSES.connections}>
+                <ArtistConnectionsSection
+                  artistId={artist.id}
+                  artistName={artist.name}
+                  artistSlug={artist.slug}
+                  onExpand={openGraphDialog}
+                />
+              </div>
+
+              <BillComposition artistId={artist.id} defaultCollapsed />
+
+              <ArtistTrajectoryChart artistIdOrSlug={artist.id} defaultCollapsed />
+
+              <EntityDescription
+                description={artist.description}
+                canEdit={!!canEditDirectly}
+                currentValueFromRejection={(err) => staleFieldCurrentValue(err, 'description')}
+                onSave={async (description, previousDescription) => {
+                  await new Promise<void>((resolve, reject) => {
+                    if (isAdmin) {
+                      updateArtist.mutate(
+                        { artistId: artist.id, data: { description } },
+                        {
+                          onSuccess: () => {
+                            void refetchAfterMutation(
+                              queryClient,
+                              queryKeys.artists.detail(artistId)
+                            )
+                            resolve()
+                          },
+                          onError: reject,
+                        }
+                      )
+                      return
+                    }
+                    // PSY-642: trusted_contributor + local_ambassador route through
+                    // suggest-edit, which auto-applies for them via canEditDirectly
+                    // (backend pending_edit.go). useSuggestEdit's own onSuccess
+                    // invalidates ['artists'], which prefix-matches the detail key.
+                    suggestArtistEdit.mutate(
+                      {
+                        entityType: 'artist',
+                        entityId: artist.id,
+                        changes: [
+                          {
+                            field: 'description',
+                            // The editor's own baseline, not the cached entity: a
+                            // conflict re-seeds the box, and the claim has to
+                            // describe what the user is looking at rather than
+                            // whatever the detail query holds at this moment.
+                            old_value: previousDescription,
+                            new_value: description,
+                          },
+                        ],
+                        summary: 'Updated description via inline editor',
+                      },
+                      {
+                        onSuccess: () => resolve(),
+                        onError: reject,
+                      }
+                    )
+                  })
+                }}
+              />
+
+              {isAdmin && (
+                <AdminMusicControls artist={artist} />
+              )}
+
+              <RevisionHistory
+                entityType="artist"
+                entityId={artist.id}
+                isAdmin={!!isAdmin}
+              />
+            </div>
+          </div>
+
           <ArtistSidebar
             artist={artist}
             labels={labels}
             labelsLoading={labelsLoading}
             isAuthenticated={!!isAuthenticated}
-            similarArtists={isPhoneLayout ? null : similarArtists}
-          />
-        }
-      >
-        <div className="space-y-8">
-          <ArtistShowsList
-            artistId={artist.id}
-            artistSlug={artist.slug}
-            artistName={artist.name}
-          />
-
-          {artistActions}
-
-          {/* On the phone layout the Similar artists list sits here, under
-              the shows and their action row and above the Discography, and
-              the sidebar's `similarArtists` is null. No canvas can render at
-              that width, so the Connections section below is not mounted;
-              the action-row [Graph] and the list's [Explore graph] still open
-              the graph Dialog. Every placement reads `isPhoneLayout`, so the
-              list renders exactly once. */}
-          {isPhoneLayout && similarArtists}
-
-          <DiscographyTab artistIdOrSlug={artistId} />
-
-          {/* Outside the phone layout: the inline ego map, which reuses the
-              list's cached useArtistGraph payload and whose [Expand] opens the
-              same Dialog; the list is in the sidebar. */}
-          {!isPhoneLayout && (
-            <ArtistConnectionsSection
-              artistId={artist.id}
-              artistName={artist.name}
-              artistSlug={artist.slug}
-              onExpand={openGraphDialog}
-            />
-          )}
-
-          <BillComposition artistId={artist.id} defaultCollapsed />
-
-          <ArtistTrajectoryChart artistIdOrSlug={artist.id} defaultCollapsed />
-
-          <EntityDescription
-            description={artist.description}
-            canEdit={!!canEditDirectly}
-            currentValueFromRejection={(err) => staleFieldCurrentValue(err, 'description')}
-            onSave={async (description, previousDescription) => {
-              await new Promise<void>((resolve, reject) => {
-                if (isAdmin) {
-                  updateArtist.mutate(
-                    { artistId: artist.id, data: { description } },
-                    {
-                      onSuccess: () => {
-                        void refetchAfterMutation(
-                          queryClient,
-                          queryKeys.artists.detail(artistId)
-                        )
-                        resolve()
-                      },
-                      onError: reject,
-                    }
-                  )
-                  return
-                }
-                // PSY-642: trusted_contributor + local_ambassador route through
-                // suggest-edit, which auto-applies for them via canEditDirectly
-                // (backend pending_edit.go). useSuggestEdit's own onSuccess
-                // invalidates ['artists'], which prefix-matches the detail key.
-                suggestArtistEdit.mutate(
-                  {
-                    entityType: 'artist',
-                    entityId: artist.id,
-                    changes: [
-                      {
-                        field: 'description',
-                        // The editor's own baseline, not the cached entity: a
-                        // conflict re-seeds the box, and the claim has to
-                        // describe what the user is looking at rather than
-                        // whatever the detail query holds at this moment.
-                        old_value: previousDescription,
-                        new_value: description,
-                      },
-                    ],
-                    summary: 'Updated description via inline editor',
-                  },
-                  {
-                    onSuccess: () => resolve(),
-                    onError: reject,
-                  }
-                )
-              })
-            }}
-          />
-
-          {isAdmin && (
-            <AdminMusicControls artist={artist} />
-          )}
-
-          <RevisionHistory
-            entityType="artist"
-            entityId={artist.id}
-            isAdmin={!!isAdmin}
+            similarArtists={similarArtists}
           />
         </div>
       </EntityDetailLayout>
@@ -1439,6 +1466,6 @@ export function ArtistDetail({ artistId }: ArtistDetailProps) {
           onOpenChange={setAddTagDialogOpen}
         />
       )}
-    </SimilarListStateProvider>
+    </>
   )
 }

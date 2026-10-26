@@ -56,6 +56,7 @@ export type ListPayloadCollection =
   | 'releases'
   | 'labels'
   | 'tags'
+  | 'nodes'
 
 interface FetchListPayloadOptions<T> {
   /** Absolute API URL, already carrying any query parameters. */
