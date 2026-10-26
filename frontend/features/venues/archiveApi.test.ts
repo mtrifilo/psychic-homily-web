@@ -7,6 +7,12 @@ vi.mock('@sentry/nextjs', () => ({
 
 import * as Sentry from '@sentry/nextjs'
 import { getVenue } from './archiveApi'
+import { resetServerFetchReportThrottleForTests } from '@/lib/ssr/reportServerFetchFailure'
+
+// Each test starts with every route's report window open.
+beforeEach(() => {
+  resetServerFetchReportThrottleForTests()
+})
 
 const fetchMock = vi.fn()
 

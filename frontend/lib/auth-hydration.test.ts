@@ -42,6 +42,12 @@ import {
   resolveHomeViewer,
 } from './auth-hydration'
 import { queryKeys } from './queryClient'
+import { resetServerFetchReportThrottleForTests } from '@/lib/ssr/reportServerFetchFailure'
+
+// Each test starts with every route's report window open.
+beforeEach(() => {
+  resetServerFetchReportThrottleForTests()
+})
 
 const PROFILE_KEY = JSON.stringify(queryKeys.auth.profile)
 
@@ -129,7 +135,12 @@ describe('prefetchAuthProfile', () => {
     expect(Sentry.captureMessage).toHaveBeenCalledWith(
       'ssr-auth-profile: API returned 429',
       expect.objectContaining({
-        extra: { pathFamily: '/auth/profile', status: 429, retryAfter: '60' },
+        extra: {
+          pathFamily: '/auth/profile',
+          status: 429,
+          retryAfter: '60',
+          suppressedSinceLastReport: 0,
+        },
       })
     )
   })

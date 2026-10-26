@@ -12,6 +12,12 @@ vi.mock('@sentry/nextjs', () => ({
 
 import { BUILD_TIME_API_FETCH_TIMEOUT_MS } from '@/lib/build-time-api'
 import { SEO_LIST_REVALIDATE_SECONDS, fetchSeoList } from './fetchSeoList'
+import { resetServerFetchReportThrottleForTests } from '@/lib/ssr/reportServerFetchFailure'
+
+// Each test starts with every route's report window open.
+beforeEach(() => {
+  resetServerFetchReportThrottleForTests()
+})
 
 const jsonResponse = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), {

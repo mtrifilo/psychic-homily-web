@@ -44,6 +44,31 @@ export function listQueryParamNames(url: string): string {
 }
 
 /**
+ * How often one route template may report, per server instance: at most one
+ * event per window. The first failure always reports; later ones inside the
+ * window are counted, and the count rides on the next event the route emits.
+ * A storm of 429s or 5xx is therefore bounded per route the same way, and its
+ * size is still visible.
+ */
+export const REPORT_WINDOW_MS = 60_000
+
+/**
+ * Upper bound on the routes tracked at once. Keys are route templates, so the
+ * real set is small; past the bound the entry that reported longest ago is
+ * dropped, which costs that route one extra event and the count it was
+ * holding.
+ */
+const MAX_TRACKED_ROUTES = 500
+
+/** Per route template: when it last reported, and failures held back since. */
+const routeReports = new Map<string, { reportedAt: number; suppressed: number }>()
+
+/** Forget every route's window, so one test's reports cannot hold back another's. */
+export function resetServerFetchReportThrottleForTests(): void {
+  routeReports.clear()
+}
+
+/**
  * Report a server-side backend read that did not answer 2xx, or stay silent
  * when its status is an expected answer.
  *
@@ -52,9 +77,14 @@ export function listQueryParamNames(url: string): string {
  * into a fallback (an entity page into its not-found render at HTTP 200, a list
  * into its client fetch), so without this a refused read leaves no trace.
  *
+ * Throttled per `pathFamily` (see REPORT_WINDOW_MS). An event carries
+ * `suppressedSinceLastReport`: how many failures of the same route the
+ * window held back before it.
+ *
  * The fields this sets are the path family, the status, `Retry-After` when
- * the backend sent one, and the caller's `context`; none of them is the URL.
- * The SDK's own fetch breadcrumbs on the same scope are outside this helper.
+ * the backend sent one, the suppressed count, and the caller's `context`; none
+ * of them is the URL. The SDK's own fetch breadcrumbs on the same scope are
+ * outside this helper.
  */
 export function reportServerFetchFailure({
   response,
@@ -67,6 +97,20 @@ export function reportServerFetchFailure({
   const { status } = response
   if (status === 404 && notFoundIsAnswer) return
 
+  const now = Date.now()
+  const previous = routeReports.get(pathFamily)
+  if (previous && now - previous.reportedAt < REPORT_WINDOW_MS) {
+    previous.suppressed += 1
+    return
+  }
+  const suppressed = previous?.suppressed ?? 0
+  routeReports.delete(pathFamily)
+  if (routeReports.size >= MAX_TRACKED_ROUTES) {
+    const oldest = routeReports.keys().next()
+    if (!oldest.done) routeReports.delete(oldest.value)
+  }
+  routeReports.set(pathFamily, { reportedAt: now, suppressed: 0 })
+
   const retryAfter = response.headers.get('retry-after')
   Sentry.captureMessage(`${service}: API returned ${status}`, {
     level,
@@ -76,6 +120,7 @@ export function reportServerFetchFailure({
       pathFamily,
       status,
       ...(retryAfter === null ? {} : { retryAfter }),
+      suppressedSinceLastReport: suppressed,
     },
   })
 }

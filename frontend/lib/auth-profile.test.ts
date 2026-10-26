@@ -6,6 +6,12 @@ vi.mock('@sentry/nextjs', () => ({
 
 import * as Sentry from '@sentry/nextjs'
 import { getAuthenticatedUser } from './auth-profile'
+import { resetServerFetchReportThrottleForTests } from '@/lib/ssr/reportServerFetchFailure'
+
+// Each test starts with every route's report window open.
+beforeEach(() => {
+  resetServerFetchReportThrottleForTests()
+})
 
 const fetchMock = vi.fn()
 
@@ -51,7 +57,7 @@ describe('getAuthenticatedUser', () => {
     await expect(getAuthenticatedUser('tok')).resolves.toBeNull()
     expect(Sentry.captureMessage).toHaveBeenCalledWith(
       `bff-auth-profile: API returned ${status}`,
-      expect.objectContaining({ extra: { pathFamily: '/auth/profile', status } })
+      expect.objectContaining({ extra: { pathFamily: '/auth/profile', status, suppressedSinceLastReport: 0 } })
     )
   })
 })

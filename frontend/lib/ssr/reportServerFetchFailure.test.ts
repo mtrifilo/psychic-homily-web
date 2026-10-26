@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 vi.mock('@sentry/nextjs', () => ({
   captureMessage: vi.fn(),
@@ -8,8 +8,15 @@ import * as Sentry from '@sentry/nextjs'
 import {
   listPathFamily,
   listQueryParamNames,
+  REPORT_WINDOW_MS,
   reportServerFetchFailure,
+  resetServerFetchReportThrottleForTests,
 } from './reportServerFetchFailure'
+
+// Each test starts with every route's report window open.
+beforeEach(() => {
+  resetServerFetchReportThrottleForTests()
+})
 
 function response(status: number, headers: Record<string, string> = {}): Response {
   return new Response(null, { status, headers })
@@ -37,6 +44,7 @@ describe('reportServerFetchFailure', () => {
         pathFamily: '/artists/{slug}',
         status: 429,
         retryAfter: '60',
+        suppressedSinceLastReport: 0,
       },
     })
   })
@@ -52,7 +60,7 @@ describe('reportServerFetchFailure', () => {
     expect(Sentry.captureMessage).toHaveBeenCalledWith('show-page: API returned 503', {
       level: 'error',
       tags: { service: 'show-page', path_family: '/shows/{slug}', status: '503' },
-      extra: { pathFamily: '/shows/{slug}', status: 503 },
+      extra: { pathFamily: '/shows/{slug}', status: 503, suppressedSinceLastReport: 0 },
     })
   })
 
@@ -95,7 +103,7 @@ describe('reportServerFetchFailure', () => {
     })
     expect(Sentry.captureMessage).toHaveBeenCalledWith(
       'shows-list: API returned 404',
-      expect.objectContaining({ extra: { pathFamily: '/shows/upcoming', status: 404 } })
+      expect.objectContaining({ extra: { pathFamily: '/shows/upcoming', status: 404, suppressedSinceLastReport: 0 } })
     )
   })
 
@@ -135,5 +143,82 @@ describe('listQueryParamNames', () => {
 
   it('is empty for a URL with no query', () => {
     expect(listQueryParamNames('https://api.example.com/venues')).toBe('')
+  })
+})
+
+describe('reportServerFetchFailure throttle', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-10-26T12:00:00Z'))
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  function fail(status: number, pathFamily = '/artists/{slug}') {
+    reportServerFetchFailure({
+      response: response(status),
+      service: 'artist-page',
+      pathFamily,
+      notFoundIsAnswer: true,
+    })
+  }
+
+  function suppressedCounts(): unknown[] {
+    return vi
+      .mocked(Sentry.captureMessage)
+      .mock.calls.map(([, hint]) => (hint as { extra: Record<string, unknown> }).extra.suppressedSinceLastReport)
+  }
+
+  it('reports the first refusal of a route, with nothing held back', () => {
+    fail(429)
+
+    expect(Sentry.captureMessage).toHaveBeenCalledTimes(1)
+    expect(suppressedCounts()).toEqual([0])
+  })
+
+  it('holds back repeats inside the window and counts them on the next event', () => {
+    fail(429)
+    fail(429)
+    fail(503)
+    fail(429)
+    expect(Sentry.captureMessage).toHaveBeenCalledTimes(1)
+
+    vi.advanceTimersByTime(REPORT_WINDOW_MS)
+    fail(429)
+
+    expect(Sentry.captureMessage).toHaveBeenCalledTimes(2)
+    expect(suppressedCounts()).toEqual([0, 3])
+  })
+
+  it('throttles 5xx on the same window as 429', () => {
+    fail(500)
+    fail(502)
+    fail(429)
+
+    expect(Sentry.captureMessage).toHaveBeenCalledTimes(1)
+    expect(Sentry.captureMessage).toHaveBeenCalledWith(
+      'artist-page: API returned 500',
+      expect.anything()
+    )
+  })
+
+  it('keeps a separate window per route template', () => {
+    fail(429, '/artists/{slug}')
+    fail(429, '/shows/{slug}')
+    fail(429, '/artists/{slug}')
+
+    expect(Sentry.captureMessage).toHaveBeenCalledTimes(2)
+  })
+
+  it('does not count an answering 404 as a held-back failure', () => {
+    fail(429)
+    fail(404)
+    vi.advanceTimersByTime(REPORT_WINDOW_MS)
+    fail(429)
+
+    expect(suppressedCounts()).toEqual([0, 0])
   })
 })

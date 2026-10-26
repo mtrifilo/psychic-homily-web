@@ -86,6 +86,12 @@ vi.mock('@sentry/nextjs', async importOriginal => ({
 import * as Sentry from '@sentry/nextjs'
 import ArtistPage, { generateMetadata } from './page'
 import { ArtistShowsList } from '@/features/artists/components/ArtistShowsList'
+import { resetServerFetchReportThrottleForTests } from '@/lib/ssr/reportServerFetchFailure'
+
+// Each test starts with every route's report window open.
+beforeEach(() => {
+  resetServerFetchReportThrottleForTests()
+})
 
 function buildArtist(overrides: Record<string, unknown> = {}) {
   return {
@@ -513,6 +519,7 @@ describe('artists/[slug] server read', () => {
           pathFamily: '/artists/{slug}',
           status: 429,
           retryAfter: '60',
+          suppressedSinceLastReport: 0,
         },
       })
     )

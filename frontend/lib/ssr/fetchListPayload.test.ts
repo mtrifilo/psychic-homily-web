@@ -11,6 +11,12 @@ vi.mock('@sentry/nextjs', () => ({
 }))
 
 import { FIRST_SCREEN_REVALIDATE_SECONDS, fetchListPayload } from './fetchListPayload'
+import { resetServerFetchReportThrottleForTests } from '@/lib/ssr/reportServerFetchFailure'
+
+// Each test starts with every route's report window open.
+beforeEach(() => {
+  resetServerFetchReportThrottleForTests()
+})
 
 const jsonResponse = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), {
@@ -86,7 +92,13 @@ describe('fetchListPayload', () => {
     expect(captureMessage).toHaveBeenCalledWith('venues-first-screen: API returned 429', {
       level: 'error',
       tags: { service: 'venues-first-screen', path_family: '/venues', status: '429' },
-      extra: { queryParams: 'limit', pathFamily: '/venues', status: 429, retryAfter: '60' },
+      extra: {
+        queryParams: 'limit',
+        pathFamily: '/venues',
+        status: 429,
+        retryAfter: '60',
+        suppressedSinceLastReport: 0,
+      },
     })
     expect(JSON.stringify(captureMessage.mock.calls)).not.toContain('limit=50')
   })

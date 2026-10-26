@@ -11,6 +11,12 @@ vi.mock('./_components/EpisodeDateDetail', () => ({
 
 import * as Sentry from '@sentry/nextjs'
 import { generateMetadata } from './page'
+import { resetServerFetchReportThrottleForTests } from '@/lib/ssr/reportServerFetchFailure'
+
+// Each test starts with every route's report window open.
+beforeEach(() => {
+  resetServerFetchReportThrottleForTests()
+})
 
 const fetchMock = vi.fn()
 
