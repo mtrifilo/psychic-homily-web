@@ -45,7 +45,7 @@ export const FIRST_SCREEN_REVALIDATE_SECONDS = 3600
  */
 export const FIRST_SCREEN_FETCH_TIMEOUT_MS = 2_500
 
-interface FetchListPayloadOptions {
+interface FetchListPayloadOptions<T> {
   /** Absolute API URL, already carrying any query parameters. */
   url: string
   /**
@@ -66,7 +66,14 @@ interface FetchListPayloadOptions {
    * per-collection required-key list is a reasonable next step; do not assume
    * from reading this that it already happened.
    */
-  collection: 'shows' | 'venues' | 'scenes' | 'cities' | 'artists' | 'months'
+  collection:
+    | 'shows'
+    | 'venues'
+    | 'scenes'
+    | 'cities'
+    | 'artists'
+    | 'months'
+    | 'releases'
   /** Sentry `service` tag, and the prefix of the reported message. */
   service: string
   /** Override only with the reason written down at the call site. */
@@ -93,6 +100,14 @@ interface FetchListPayloadOptions {
    * is a defect in our own request.
    */
   notFoundIsAnswer?: boolean
+  /**
+   * The payload a 404 stands for, for a list scoped to an entity the caller has
+   * already found: there the 404 can only mean the entity has since gone, and
+   * the list it owned is empty. When set, a 404 returns this and reports
+   * nothing, whatever `notFoundIsAnswer` says. Unset, a 404 is a failure like
+   * any other and returns `null`.
+   */
+  notFoundPayload?: T
   /** Injection seam for tests; production always uses the global `fetch`. */
   fetchImpl?: typeof fetch
 }
@@ -130,14 +145,19 @@ export async function fetchListPayload<T>({
   revalidateSeconds = FIRST_SCREEN_REVALIDATE_SECONDS,
   pathFamily = listPathFamily(url),
   notFoundIsAnswer = false,
+  notFoundPayload,
   fetchImpl = fetch,
-}: FetchListPayloadOptions): Promise<T | null> {
+}: FetchListPayloadOptions<T>): Promise<T | null> {
   try {
     const res = await fetchImpl(url, {
       headers: serverReadHeaders(),
       next: { revalidate: revalidateSeconds },
       signal: createBuildTimeApiSignal(timeoutMs),
     })
+
+    if (res.status === 404 && notFoundPayload !== undefined) {
+      return notFoundPayload
+    }
 
     if (!res.ok) {
       // Every non-OK status is reported, not just 5xx: both ends are ours, so

@@ -54,6 +54,14 @@ vi.mock('@/features/labels/hooks/useLabels', () => ({
 // Default (set in the top-level beforeEach): no releases, so the Discography
 // self-hides. The phone-order test hands it one album.
 const mockUseArtistReleases = vi.fn()
+const FUTURES_RELEASE = {
+  id: 1,
+  title: 'Futures',
+  slug: 'futures',
+  release_type: 'lp',
+  release_year: 2004,
+  role: 'main',
+}
 vi.mock('@/features/releases/hooks/useReleases', () => ({
   useArtistReleases: (opts: unknown) => mockUseArtistReleases(opts),
 }))
@@ -940,9 +948,7 @@ describe('ArtistDetail', () => {
         onTestFinished(() => mm.restore())
         mockUseArtistReleases.mockReturnValue({
           data: {
-            releases: [
-              { id: 1, title: 'Futures', slug: 'futures', release_type: 'lp', release_year: 2004, role: 'main' },
-            ],
+            releases: [FUTURES_RELEASE],
             count: 1,
           },
           isLoading: false,
@@ -975,9 +981,7 @@ describe('ArtistDetail', () => {
         onTestFinished(() => mm.restore())
         mockUseArtistReleases.mockReturnValue({
           data: {
-            releases: [
-              { id: 1, title: 'Futures', slug: 'futures', release_type: 'lp', release_year: 2004, role: 'main' },
-            ],
+            releases: [FUTURES_RELEASE],
             count: 1,
           },
           isLoading: false,
@@ -1181,6 +1185,61 @@ describe('ArtistDetail', () => {
         h => h.textContent === 'Labels'
       )
       expect(labelsHeading).toBeUndefined()
+    })
+  })
+
+  describe('discography', () => {
+    beforeEach(() => {
+      mockUseArtist.mockReturnValue({
+        data: makeArtist(),
+        isLoading: false,
+        error: null,
+      })
+    })
+
+    // The page seeds the rows stale and the browser re-asks on mount; a failed
+    // re-ask sets `error` while `data` is still the seed.
+    it('keeps the rows on screen when a refresh fails', () => {
+      mockUseArtistReleases.mockReturnValue({
+        data: { releases: [FUTURES_RELEASE], count: 1 },
+        isLoading: false,
+        error: new Error('boom'),
+      })
+
+      renderWithProviders(<ArtistDetail artistId="test-artist" />)
+
+      expect(screen.getByRole('link', { name: 'Futures' })).toHaveAttribute(
+        'href',
+        '/releases/futures'
+      )
+      expect(screen.queryByText('Failed to load discography')).not.toBeInTheDocument()
+    })
+
+    // The page seeds an empty discography when the releases read 404s; the
+    // browser's own re-ask then 404s too.
+    it('stays hidden when a refresh of an empty discography fails', () => {
+      mockUseArtistReleases.mockReturnValue({
+        data: { releases: [], count: 0 },
+        isLoading: false,
+        error: new Error('Artist not found'),
+      })
+
+      renderWithProviders(<ArtistDetail artistId="test-artist" />)
+
+      expect(screen.queryByText('Failed to load discography')).not.toBeInTheDocument()
+      expect(screen.queryByRole('heading', { name: 'Discography' })).not.toBeInTheDocument()
+    })
+
+    it('shows the error when the read fails with nothing to show', () => {
+      mockUseArtistReleases.mockReturnValue({
+        data: undefined,
+        isLoading: false,
+        error: new Error('boom'),
+      })
+
+      renderWithProviders(<ArtistDetail artistId="test-artist" />)
+
+      expect(screen.getByText('Failed to load discography')).toBeInTheDocument()
     })
   })
 

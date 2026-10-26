@@ -129,6 +129,59 @@ describe('fetchListPayload', () => {
     expect(captureMessage).not.toHaveBeenCalled()
   })
 
+  it('returns the caller\'s not-found payload for a 404, and reports nothing', async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(new Response(null, { status: 404 }))
+    const empty = { releases: [], count: 0 }
+
+    await expect(
+      fetchListPayload({
+        url: 'https://api.example.test/artists/some-artist/releases',
+        collection: 'releases',
+        service: 'artist-page-releases',
+        pathFamily: '/artists/{slug}/releases',
+        notFoundPayload: empty,
+        fetchImpl,
+      }),
+    ).resolves.toBe(empty)
+    expect(captureMessage).not.toHaveBeenCalled()
+  })
+
+  it('returns the not-found payload even when the caller says a 404 does not answer', async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(new Response(null, { status: 404 }))
+    const empty = { releases: [], count: 0 }
+
+    await expect(
+      fetchListPayload({
+        url: 'https://api.example.test/artists/some-artist/releases',
+        collection: 'releases',
+        service: 'artist-page-releases',
+        notFoundIsAnswer: false,
+        notFoundPayload: empty,
+        fetchImpl,
+      }),
+    ).resolves.toBe(empty)
+    expect(captureMessage).not.toHaveBeenCalled()
+  })
+
+  it('still fails other statuses when a not-found payload is set', async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(new Response(null, { status: 500 }))
+
+    await expect(
+      fetchListPayload({
+        url: 'https://api.example.test/artists/some-artist/releases',
+        collection: 'releases',
+        service: 'artist-page-releases',
+        pathFamily: '/artists/{slug}/releases',
+        notFoundPayload: { releases: [], count: 0 },
+        fetchImpl,
+      }),
+    ).resolves.toBeNull()
+    expect(captureMessage).toHaveBeenCalledWith(
+      'artist-page-releases: API returned 500',
+      expect.objectContaining({ level: 'error' }),
+    )
+  })
+
   it('reports under the caller\'s templated path family', async () => {
     const fetchImpl = vi.fn().mockResolvedValue(new Response(null, { status: 429 }))
 
