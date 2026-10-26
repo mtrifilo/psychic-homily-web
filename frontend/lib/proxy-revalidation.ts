@@ -42,7 +42,7 @@ import { venueLocalDateKey } from '@/lib/utils/showTiming'
  * their tags; only the /tags/{slug} page ISR-caches usage counts).
  *
  * Cascades (PSY-941): mutations that change or remove an entity's NAME also
- * invalidate every page that embeds that name (show/release/collection
+ * invalidate every page that embeds that name (show/release/label/collection
  * pages), via dynamic route patterns — see RENAME_CASCADES in
  * lib/revalidation-paths.ts, which owns the page-path table this module and
  * the out-of-band revalidate endpoint (PSY-1691) both resolve against.
@@ -362,8 +362,8 @@ const RULES: readonly RevalidationRule[] = [
     name: 'artist-delete',
     methods: ['DELETE'],
     pattern: /^\/artists\/\d+$/,
-    // The deleted artist disappears from show bills, release credits, and
-    // collection items → cascade to every embedding page.
+    // The deleted artist disappears from show bills, release credits, label
+    // rosters and collection items → cascade to every embedding page.
     paths: () => ['/artists', ...cascadePages('artists')],
   },
   {
@@ -371,8 +371,8 @@ const RULES: readonly RevalidationRule[] = [
     methods: ['POST'],
     pattern: /^\/admin\/artists\/merge$/,
     // MergeArtistResult carries IDs only; resolve the canonical artist's slug.
-    // Shows/releases/collections that credited the merged artist now show the
-    // canonical one → cascade.
+    // Shows/releases/label rosters/collections that credited the merged artist
+    // now show the canonical one → cascade.
     paths: async ({ body, lookupSlug }) => {
       const canonicalId = asRecord(body)?.canonical_artist_id
       const slug =
@@ -424,14 +424,14 @@ const RULES: readonly RevalidationRule[] = [
     name: 'release-update',
     methods: ['PUT'],
     pattern: /^\/releases\/\d+$/,
-    // A title edit also stales collection pages embedding the release's name.
+    // A title edit also stales the label and collection pages embedding it.
     paths: ({ body }) => [...releasePages(body), ...cascadePages('releases')],
   },
   {
     name: 'release-delete',
     methods: ['DELETE'],
     pattern: /^\/releases\/\d+$/,
-    // No ISR list page for releases; collection pages listing it go stale.
+    // No ISR list page for releases; label and collection pages listing it go stale.
     paths: () => cascadePages('releases'),
   },
   {
