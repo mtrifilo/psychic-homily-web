@@ -80,19 +80,15 @@ interface ArtistDetailProps {
  * The page's two layouts, placed by CSS alone so the server HTML is already
  * the settled layout at every viewport and no JavaScript decides a column.
  *
- * The phone layout is the media condition `(not (min-width: 40rem)) and
- * (not (min-width: 640px))`: below both Tailwind's `sm` (`--breakpoint-sm:
- * 40rem`) and the Connections canvas gate (GRAPH_BREAKPOINT_PX, a container
- * width that no narrower viewport can contain). It is written in that form,
- * not as two `width <` ranges, because the dev CSS pipeline lowers a pair of
- * ranges to `not (...) and not (...)`, which browsers reject as invalid. At
- * any browser default font size:
+ * The phone layout is the `artist-phone` variant (app/globals.css): below
+ * both Tailwind's `sm` (`--breakpoint-sm: 40rem`) and the Connections canvas
+ * gate (GRAPH_BREAKPOINT_PX, a container width that no narrower viewport can
+ * contain). At any browser default font size:
  * - every phone-layout viewport is below `sm`, so the Similar artists rows
  *   there are in their stacked, `sm:hidden` form;
  * - every phone-layout viewport is too narrow for a canvas, so hiding the
  *   Connections section there never hides a canvas it would have drawn.
- * At the default 16px root both clauses are 640px. Tailwind reads class
- * names as literal text, so the condition is spelled out in each class.
+ * At the default 16px root both clauses are 640px.
  *
  * The Similar artists list is ONE node, in the sidebar's DOM between As heard
  * on and the tags. Outside the phone layout the sidebar is an ordinary column
@@ -110,18 +106,18 @@ interface ArtistDetailProps {
 export const ARTIST_LAYOUT_CLASSES = {
   columns: 'flex flex-col gap-8 lg:flex-row',
   mainColumn:
-    'flex-1 min-w-0 space-y-8 [@media(not_(min-width:40rem))_and_(not_(min-width:640px))]:contents [@media(not_(min-width:40rem))_and_(not_(min-width:640px))]:space-y-0',
-  showsGroup: 'space-y-8 [@media(not_(min-width:40rem))_and_(not_(min-width:640px))]:order-first',
-  connections: 'empty:hidden [@media(not_(min-width:40rem))_and_(not_(min-width:640px))]:hidden',
+    'flex-1 min-w-0 space-y-8 artist-phone:contents artist-phone:space-y-0',
+  showsGroup: 'space-y-8 artist-phone:order-first',
+  connections: 'empty:hidden artist-phone:hidden',
   sidebar:
-    'w-full lg:w-80 shrink-0 flex flex-col gap-6 [@media(not_(min-width:40rem))_and_(not_(min-width:640px))]:contents',
+    'w-full lg:w-80 shrink-0 flex flex-col gap-6 artist-phone:contents',
   sidebarLead: 'peer space-y-6 empty:hidden',
-  similarArtists: 'empty:hidden [@media(not_(min-width:40rem))_and_(not_(min-width:640px))]:order-first',
+  similarArtists: 'empty:hidden artist-phone:order-first',
   // On the phone layout the flex column's gap-8 separates the lead from this
   // group; -mt-2 brings that back to the sidebar's own gap-6 whenever the
   // lead is present.
   sidebarRest:
-    'space-y-6 empty:hidden [@media(not_(min-width:40rem))_and_(not_(min-width:640px))]:peer-[:not(:empty)]:-mt-2',
+    'space-y-6 empty:hidden artist-phone:peer-[:not(:empty)]:-mt-2',
 } as const
 
 // --- Discography ---
@@ -318,14 +314,14 @@ function ArtistSidebar({
   labels,
   labelsLoading,
   isAuthenticated,
-  similarArtists,
+  onOpenGraph,
 }: {
   artist: Artist
   labels: ArtistLabel[]
   labelsLoading: boolean
   isAuthenticated: boolean
-  /** The Similar artists block. */
-  similarArtists: React.ReactNode
+  /** Opens the page's graph Dialog from the Similar artists list. */
+  onOpenGraph: () => void
 }) {
   const { data: aliasesData } = useArtistAliases(artist.id)
   const aliases = aliasesData?.aliases ?? []
@@ -423,8 +419,15 @@ function ArtistSidebar({
         <AsHeardOn entityType="artist" entitySlug={artist.slug} />
       </div>
 
+      {/* Similar artists: a dense list plus the [Explore graph] affordance
+          that opens the page-level Dialog. It self-hides when there are no
+          relationships AND the viewer can't contribute. */}
       <div className={ARTIST_LAYOUT_CLASSES.similarArtists}>
-        {similarArtists}
+        <ArtistSimilarSidebar
+          artistId={artist.id}
+          artistSlug={artist.slug}
+          onOpenGraph={onOpenGraph}
+        />
       </div>
 
       <div className={ARTIST_LAYOUT_CLASSES.sidebarRest}>
@@ -1197,18 +1200,6 @@ export function ArtistDetail({ artistId }: ArtistDetailProps) {
 
   const labels = labelsData?.labels ?? []
 
-  // Similar artists: a dense list plus the [Explore graph] affordance that
-  // opens the page-level Dialog. It self-hides when there are no
-  // relationships AND the viewer can't contribute. CSS places it for both
-  // layouts (ARTIST_LAYOUT_CLASSES), so it never remounts on a resize.
-  const similarArtists = (
-    <ArtistSimilarSidebar
-      artistId={artist.id}
-      artistSlug={artist.slug}
-      onOpenGraph={openGraphDialog}
-    />
-  )
-
   // The subtitle under the name. With a scene the subtitle IS the link to
   // it, named for the scene it opens rather than for the artist's own city (a
   // metro suburb links to its principal city's scene). Without one it is the
@@ -1414,7 +1405,7 @@ export function ArtistDetail({ artistId }: ArtistDetailProps) {
             labels={labels}
             labelsLoading={labelsLoading}
             isAuthenticated={!!isAuthenticated}
-            similarArtists={similarArtists}
+            onOpenGraph={openGraphDialog}
           />
         </div>
       </EntityDetailLayout>

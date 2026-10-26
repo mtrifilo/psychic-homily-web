@@ -1,7 +1,10 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
 import { screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { renderWithProviders } from '@/test/utils'
+import { installMatchMedia } from '@/test/mocks/matchMedia'
 import { stubStaleValueConflict } from '@/test/staleValueConflictFixture'
 import type { Artist, ArtistShow, ArtistAlias } from '../types'
 
@@ -892,7 +895,7 @@ describe('ArtistDetail', () => {
         })
       })
 
-      const PHONE = '[@media(not_(min-width:40rem))_and_(not_(min-width:640px))]'
+      const PHONE = 'artist-phone'
 
       const similarHeadings = () =>
         screen.getAllByRole('heading', { name: 'Similar artists' })
@@ -909,30 +912,12 @@ describe('ArtistDetail', () => {
         return path
       }
 
-      /** Answers every media query with `matches`, as a viewport on one side of every breakpoint would. */
-      function answerEveryMediaQuery(matches: boolean): () => void {
-        const original = window.matchMedia
-        window.matchMedia = ((media: string) => ({
-          matches,
-          media,
-          onchange: null,
-          addEventListener: () => {},
-          removeEventListener: () => {},
-          addListener: () => {},
-          removeListener: () => {},
-          dispatchEvent: () => false,
-        })) as unknown as typeof window.matchMedia
-        return () => {
-          window.matchMedia = original
-        }
-      }
-
       // The server HTML is the settled layout at every viewport only while no
       // script picks the list's column: the same render under opposite media
       // answers must put it in the same place.
       it('renders the list once, in the sidebar, whatever the media queries answer', () => {
         const paths = [false, true].map(matches => {
-          const restore = answerEveryMediaQuery(matches)
+          const mm = installMatchMedia({}, { fallback: matches })
           try {
             const { container, unmount } = renderWithProviders(
               <ArtistDetail artistId="test-artist" />
@@ -944,7 +929,7 @@ describe('ArtistDetail', () => {
             unmount()
             return path
           } finally {
-            restore()
+            mm.restore()
           }
         })
         expect(paths[1]).toEqual(paths[0])
@@ -979,8 +964,9 @@ describe('ArtistDetail', () => {
       // stacked form) AND below the canvas gate (so hiding the Connections
       // section never hides a canvas it would draw).
       it('is the phone layout only below both sm and the canvas gate', () => {
-        expect(PHONE).toBe(
-          `[@media(not_(min-width:40rem))_and_(not_(min-width:${GRAPH_BREAKPOINT_PX}px))]`
+        const css = readFileSync(resolve(__dirname, '../../../app/globals.css'), 'utf8')
+        expect(css).toContain(
+          `@custom-variant artist-phone (@media (not (min-width: 40rem)) and (not (min-width: ${GRAPH_BREAKPOINT_PX}px)));`
         )
       })
 

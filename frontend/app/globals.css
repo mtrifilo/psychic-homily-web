@@ -18,6 +18,14 @@
  */
 @custom-variant touch-only (@media (hover: none) and (pointer: coarse));
 
+/* The artist page's phone layout: below both `sm` (40rem) and the graph
+ * canvas gate (GRAPH_BREAKPOINT_PX, 640px), so it holds at any browser
+ * default font size. ArtistDetail's ARTIST_LAYOUT_CLASSES documents what it
+ * places. Written with `not (min-width)` rather than `width <` ranges: the dev
+ * CSS pipeline lowers a pair of ranges to `not (...) and not (...)`, which
+ * browsers reject as invalid. */
+@custom-variant artist-phone (@media (not (min-width: 40rem)) and (not (min-width: 640px)));
+
 /* PSY-646 design system tokens — sourced from Figma file isfHz0oyFK1ALX19IRGg51
  * Light mode = "newsprint" (warm paper background, ink text, burnt-orange primary)
  * Dark mode = "vinyl record shop" (warm darks, faded-poster accents)
