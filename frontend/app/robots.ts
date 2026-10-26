@@ -33,16 +33,16 @@
 import { MetadataRoute } from 'next'
 
 /**
- * The robots.txt disallow set — paths not worth crawling.
+ * Non-public path prefixes not worth crawling. One part of PUBLIC_DISALLOW,
+ * the full disallow list below.
  *
  * This is NOT the complete private-route registry. Per-route
  * `robots: { index: false }` metadata is a separate, non-overlapping control,
  * and the two lists have drifted; reconciling them is its own change.
  *
  * Note these are prefix matches WITH a trailing slash, so `/admin/` covers
- * `/admin/users` but not the bare `/admin`. Kept verbatim from the previous
- * single-rule config so this change stays behaviour-preserving; widening them
- * is a separate, deliberate change.
+ * `/admin/users` but not the bare `/admin`. Widening them is a separate,
+ * deliberate change.
  */
 const NON_PUBLIC_PATHS = [
   '/admin/',
@@ -55,6 +55,22 @@ const NON_PUBLIC_PATHS = [
 ]
 
 /**
+ * Next.js React Server Component payload URLs. The App Router fetches these
+ * with an `_rsc=` query parameter for client navigations and `<Link>`
+ * prefetches. They are router payloads, not pages: they render nothing a
+ * crawler indexes, and every fetch counts against the host's crawl capacity.
+ *
+ * In a robots.txt path `*` matches any run of characters, `?` and `&` are
+ * literal, and the path is compared together with its query string. So the
+ * two patterns match `_rsc=` as the first query parameter or as a later one,
+ * and a page, script, style or image URL without it stays allowed.
+ */
+const RSC_PAYLOAD_PATTERNS = ['/*?_rsc=', '/*&_rsc=']
+
+/** The complete disallow list for every group that is allowed to crawl. */
+const PUBLIC_DISALLOW = [...NON_PUBLIC_PATHS, ...RSC_PAYLOAD_PATTERNS]
+
+/**
  * The access every allowed group gets.
  *
  * Shared as one object because a crawler obeys only the most specific group
@@ -63,7 +79,7 @@ const NON_PUBLIC_PATHS = [
  * every field, not just `disallow`; hand-copying them would mean the next
  * tightening of the wildcard silently skipped the agents we bothered to name.
  */
-const PUBLIC_ACCESS = { allow: '/', disallow: NON_PUBLIC_PATHS } as const
+const PUBLIC_ACCESS = { allow: '/', disallow: PUBLIC_DISALLOW } as const
 
 /**
  * Agents that answer with a citation and a link back to us.
