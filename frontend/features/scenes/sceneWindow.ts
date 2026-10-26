@@ -63,6 +63,15 @@ export const SCENE_WINDOW_ORDER: SceneWindowKey[] = [
   'next-4-weeks',
 ]
 
+/**
+ * Every window's path segment, for code that reads a URL back into the family
+ * (the sitemap monitor's classifier). The backend announces the same four in
+ * `scenePeriodSegments` (backend/internal/services/catalog/sitemap.go).
+ */
+export const SCENE_WINDOW_SEGMENTS: readonly string[] = SCENE_WINDOW_ORDER.map(
+  key => WINDOW_SEGMENT[key]
+)
+
 /** `/scenes/phoenix-az/this-weekend`. Slug encoded — it reaches here from a route param. */
 export function sceneWindowHref(slug: string, key: SceneWindowKey): string {
   return `/scenes/${encodeURIComponent(slug)}/${WINDOW_SEGMENT[key]}`
@@ -82,25 +91,45 @@ export function formatMonthDay(iso: string): string {
 }
 
 /**
- * `This week in Chicago`, the family's one title rule, `{WINDOW} in {CITY}`.
+ * The family's two title rules, one per kind of URL.
+ *
+ * A ROLLING window is titled with the words a reader searches for,
+ * `Live shows in {CITY} {WINDOW}`, because it is the page that answers that
+ * search every day. A DATED permalink names its own date, `{DATE} in {CITY}`,
+ * because it describes that date forever.
  *
  * Every route in the family builds its H1 and its `<title>` through one of the
- * three functions below, so the phrase a reader saw in a tab is the phrase at
- * the top of the page. They are the only public spelling of the rule: composing
- * it at a call site is how the tab and the heading drift apart.
+ * three exported functions below, and the rolling routes open their meta
+ * description with the same string, so the phrase a reader saw in a search
+ * result is the phrase at the top of the page. They are the only public
+ * spelling of the rules: composing one at a call site is how the result, the
+ * tab and the heading drift apart.
  */
-function windowTitle(phrase: string, city: string): string {
-  return `${phrase} in ${city}`
-}
-
-/** `This weekend in Phoenix`, one of the four rolling windows. */
-export function sceneWindowTitle(key: SceneWindowKey, city: string): string {
-  return windowTitle(SCENE_WINDOW_LABEL[key], city)
+function datedTitle(date: string, city: string): string {
+  return `${date} in ${city}`
 }
 
 /**
- * `Tonight in Phoenix` on the rolling route, `Sep 14 in Phoenix` on a dated
- * permalink.
+ * The words each rolling window's title ends on, after the city. A table of
+ * its own rather than the lowercased chip label: the two are different copy
+ * (`Next 4 weeks` on a chip, `in the next 4 weeks` after a city), and either
+ * may change without the other.
+ */
+const WINDOW_TITLE_PHRASE: Record<SceneWindowKey, string> = {
+  tonight: 'tonight',
+  'this-weekend': 'this weekend',
+  'this-week': 'this week',
+  'next-4-weeks': 'in the next 4 weeks',
+}
+
+/** `Live shows in Phoenix this weekend`, one of the four rolling windows. */
+export function sceneWindowTitle(key: SceneWindowKey, city: string): string {
+  return `Live shows in ${city} ${WINDOW_TITLE_PHRASE[key]}`
+}
+
+/**
+ * `Live shows in Phoenix tonight` on the rolling route, `Sep 14 in Phoenix` on
+ * a dated permalink.
  *
  * The discriminator is the ROUTE, not the payload's `is_tonight`: that flag is
  * also true for the dated permalink naming today, and a permanent URL that
@@ -109,12 +138,12 @@ export function sceneWindowTitle(key: SceneWindowKey, city: string): string {
 export function sceneDayTitle(date: string, city: string, isRollingRoute: boolean): string {
   return isRollingRoute
     ? sceneWindowTitle('tonight', city)
-    : windowTitle(formatMonthDay(date), city)
+    : datedTitle(formatMonthDay(date), city)
 }
 
 /**
- * `This week in Chicago` on the rolling route, `Week of Sep 7 in Chicago` on a
- * dated permalink.
+ * `Live shows in Chicago this week` on the rolling route, `Week of Sep 7 in
+ * Chicago` on a dated permalink.
  *
  * The discriminator is the ROUTE, not the payload's `is_current_week`, and it is the
  * same rule, for the same reason, as the day above. That flag is true for the
@@ -130,7 +159,7 @@ export function sceneWeekTitle(
 ): string {
   return isRollingRoute
     ? sceneWindowTitle('this-week', city)
-    : windowTitle(sceneWeekName(startDate), city)
+    : datedTitle(sceneWeekName(startDate), city)
 }
 
 /** `Week of Sep 7`, a week named by its own Monday. */

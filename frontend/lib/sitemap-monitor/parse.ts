@@ -15,6 +15,7 @@
  */
 
 import { parseMonthSegments } from '@/features/shows/showsCalendarRoute'
+import { SCENE_WINDOW_SEGMENTS } from '@/features/scenes/sceneWindow'
 import {
   SITEMAP_FAMILIES,
   FAMILY_QUERY_PARAMS,
@@ -126,11 +127,11 @@ const PAGE_PREFIXES = new Set(['blog', 'dj-sets'])
  * First path segment → the families claiming it, derived from the shared
  * FAMILY_URL_PREFIXES table rather than restated.
  *
- * Most prefixes have exactly one claimant. `/scenes`, `/venues` and `/shows`
- * have two each, which is why this is a list: the collision is DETECTED here
- * rather than assumed, so a future family sharing an existing prefix surfaces
- * in `SHARED_CLAIMANTS` (and fails the guard test in parse.test.ts) instead of
- * being silently misbucketed.
+ * Most prefixes have exactly one claimant. `/scenes` and `/venues` have three
+ * each and `/shows` two, which is why this is a list: the collision is
+ * DETECTED here rather than assumed, so a future family sharing an existing
+ * prefix surfaces in `SHARED_CLAIMANTS` (and fails the guard test in
+ * parse.test.ts) instead of being silently misbucketed.
  */
 const FAMILIES_BY_PREFIX = new Map<string, Family[]>()
 for (const family of SITEMAP_FAMILIES) {
@@ -235,9 +236,16 @@ export function classifyLoc(loc: string): LocBucket {
   // so renaming a prefix moves the generator and this rule together — which is
   // the whole point of FAMILY_URL_PREFIXES having one owner.
 
-  // `/scenes/{city}` is a scene, `/scenes/{city}/{week}` a scene week.
+  // `/scenes/{city}` is a scene, `/scenes/{city}/{window}` one of its rolling
+  // window pages, and any other deeper path a scene week. The window and the
+  // week are the same depth, so the segment's VALUE separates them, read off
+  // the window family's own segment list.
   if (prefix === bareScenesPrefix) {
-    return segments.length === 2 ? 'scenes' : 'scene_weeks'
+    if (segments.length === 2) return 'scenes'
+    if (segments.length === 3 && SCENE_WINDOW_SEGMENTS.includes(segments[2])) {
+      return 'scene_periods'
+    }
+    return 'scene_weeks'
   }
 
   // `/venues/{slug}` is a venue, `/venues/{slug}/shows/{year}` a year archive

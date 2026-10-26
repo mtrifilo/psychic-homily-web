@@ -130,7 +130,7 @@ describe('SceneWeekView', () => {
   it('titles the current week by the window and an archived one by its date', () => {
     render(<SceneWeekView isRollingRoute week={week()} />)
     expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent(
-      'This week in Chicago'
+      'Live shows in Chicago this week'
     )
 
     cleanup()

@@ -196,6 +196,13 @@ func TestSitemapEntriesFamilyFilterIsolatesOneFamily(t *testing.T) {
 	if len(empty.SceneWeeks) != 0 {
 		t.Errorf("scene_weeks on an empty catalogue = %v, want empty", sitemapSlugsOf(empty.SceneWeeks))
 	}
+	emptyPeriods, err := NewSitemapService(td.DB).Entries(context.Background(), "scene_periods")
+	if err != nil {
+		t.Fatalf("Entries(scene_periods): %v", err)
+	}
+	if emptyPeriods.ScenePeriods == nil || len(emptyPeriods.ScenePeriods) != 0 {
+		t.Errorf("scene_periods on an empty catalogue = %v, want an empty non-nil slice", emptyPeriods.ScenePeriods)
+	}
 }
 
 // subShardedFamily is how the test below seeds one row of a family with an
@@ -457,8 +464,8 @@ func TestSitemapEntriesIssuesOneQueryPerSimpleFamily(t *testing.T) {
 	}
 }
 
-// TestSitemapEntriesSceneWeeksExcludesZeroShowWeeks pins the PSY-1622 decision:
-// last 8 weeks per scene, no thin empty weeks.
+// TestSitemapEntriesSceneWeeksExcludesZeroShowWeeks pins the current week's
+// entry and its lastmod, and the scene root beside it.
 func TestSitemapEntriesSceneWeeksExcludesZeroShowWeeks(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping integration test in short mode")
@@ -501,6 +508,182 @@ func TestSitemapEntriesSceneWeeksExcludesZeroShowWeeks(t *testing.T) {
 	}
 	if got := sitemapSlugsOf(scenes.Scenes); len(got) != 1 || got[0] != "phoenix-az" {
 		t.Errorf("scenes = %v, want [phoenix-az]", got)
+	}
+}
+
+// seedShowAtRoom adds one approved show at an existing room, found by its slug.
+func seedShowAtRoom(t *testing.T, db *gorm.DB, roomSlug, showSlug string, at time.Time) {
+	t.Helper()
+	var room catalogm.Venue
+	if err := db.Where("slug = ?", roomSlug).First(&room).Error; err != nil {
+		t.Fatalf("find room %q: %v", roomSlug, err)
+	}
+	show := &catalogm.Show{
+		Title:     "Show " + showSlug,
+		Slug:      strPtr(showSlug),
+		EventDate: at.UTC(),
+		Status:    catalogm.ShowStatusApproved,
+	}
+	if err := db.Create(show).Error; err != nil {
+		t.Fatalf("seed show %q: %v", showSlug, err)
+	}
+	if err := db.Create(&catalogm.ShowVenue{ShowID: show.ID, VenueID: room.ID}).Error; err != nil {
+		t.Fatalf("seed show_venue %q: %v", showSlug, err)
+	}
+}
+
+// TestSitemapEntriesSceneWeeksWindowIsOnePastAndFourAhead pins the window's
+// edges on both sides and the show gate inside it. Every week from three back
+// to six ahead is seeded except two weeks inside the window, so each week key
+// is either announced or omitted for exactly one reason:
+//
+//   - two weeks back and five ahead carry shows and sit outside the window;
+//   - two and three weeks ahead sit inside it with no show;
+//   - last week, this week, next week and four weeks ahead are announced.
+func TestSitemapEntriesSceneWeeksWindowIsOnePastAndFourAhead(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test in short mode")
+	}
+	td := testutil.SetupTestPostgres(t)
+	defer td.Cleanup()
+
+	loc, err := time.LoadLocation("America/Phoenix")
+	if err != nil {
+		t.Fatalf("load loc: %v", err)
+	}
+	y, w := time.Now().In(loc).ISOWeek()
+	weekStart := ISOWeekStart(y, w, loc)
+	keyAt := func(weeks int) string { return "phoenix-az/" + ISOWeekKey(weekStart.AddDate(0, 0, 7*weeks)) }
+
+	seedSceneWeekGroup(t, td.DB, "phx", "Phoenix", "AZ", seedMetro("Phoenix", "AZ"), "America/Phoenix", weekStart)
+	for _, weeks := range []int{-3, -2, -1, 1, 4, 5, 6} {
+		// Midweek, so no week boundary is near the show in any zone.
+		at := weekStart.AddDate(0, 0, 7*weeks).Add(48 * time.Hour)
+		seedShowAtRoom(t, td.DB, "phx-room-0", fmt.Sprintf("phx-week-%d", weeks), at)
+	}
+
+	entries, err := NewSitemapService(td.DB).Entries(context.Background(), "scene_weeks")
+	if err != nil {
+		t.Fatalf("Entries: %v", err)
+	}
+	// Entries are slug-sorted, and these keys sort in week order.
+	got := strings.Join(sitemapSlugsOf(entries.SceneWeeks), ",")
+	want := strings.Join([]string{keyAt(-1), keyAt(0), keyAt(1), keyAt(4)}, ",")
+	if got != want {
+		t.Errorf("scene_weeks = %s, want exactly %s", got, want)
+	}
+}
+
+// TestSitemapEntriesScenePeriodsAnnounceEveryWindowPerScene pins the rolling
+// window family: four entries per qualifying scene, each a page the scene
+// serves, each stamped with the instant that scene's current night began
+// (nightStartHour on the date tonightDate names, in the scene's zone).
+//
+// The two scenes sit in different zones. The pinned instants put the scenes on
+// a different calendar date from UTC and straddle both midnight and the night
+// boundary, so a lastmod read on the process clock, on UTC, or on calendar
+// midnight fails here.
+func TestSitemapEntriesScenePeriodsAnnounceEveryWindowPerScene(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test in short mode")
+	}
+	td := testutil.SetupTestPostgres(t)
+	defer td.Cleanup()
+
+	phoenix, err := time.LoadLocation("America/Phoenix")
+	if err != nil {
+		t.Fatalf("load loc: %v", err)
+	}
+	chicago, err := time.LoadLocation("America/Chicago")
+	if err != nil {
+		t.Fatalf("load loc: %v", err)
+	}
+	y, w := time.Now().In(phoenix).ISOWeek()
+	weekStart := ISOWeekStart(y, w, phoenix)
+
+	seedSceneWeekGroup(t, td.DB, "phx", "Phoenix", "AZ", seedMetro("Phoenix", "AZ"), "America/Phoenix", weekStart)
+	seedSceneWeekGroup(t, td.DB, "chi", "Chicago", "IL", seedMetro("Chicago", "IL"), "America/Chicago", weekStart)
+
+	nightOf := func(loc *time.Location, day int) time.Time {
+		return time.Date(2026, 10, day, nightStartHour, 0, 0, 0, loc)
+	}
+	cases := []struct {
+		name string
+		now  time.Time
+		want map[string]time.Time
+	}{
+		// 20:30 on Oct 24 in Phoenix, 22:30 in Chicago; UTC is already Oct 25.
+		{"evening", time.Date(2026, 10, 25, 3, 30, 0, 0, time.UTC), map[string]time.Time{
+			"phoenix-az": nightOf(phoenix, 24), "chicago-il": nightOf(chicago, 24),
+		}},
+		// 02:00 on Oct 25 in Phoenix, 04:00 in Chicago: past midnight, before the
+		// night boundary, so the night that began on Oct 24 is still the current
+		// one in both.
+		{"after midnight", time.Date(2026, 10, 25, 9, 0, 0, 0, time.UTC), map[string]time.Time{
+			"phoenix-az": nightOf(phoenix, 24), "chicago-il": nightOf(chicago, 24),
+		}},
+		// 05:59 in Phoenix: one minute short of the boundary.
+		{"just before the boundary", time.Date(2026, 10, 25, 12, 59, 0, 0, time.UTC), map[string]time.Time{
+			"phoenix-az": nightOf(phoenix, 24), "chicago-il": nightOf(chicago, 25),
+		}},
+		// 06:00 in Phoenix (08:00 in Chicago): the new night has begun in both.
+		{"at the boundary", time.Date(2026, 10, 25, 13, 0, 0, 0, time.UTC), map[string]time.Time{
+			"phoenix-az": nightOf(phoenix, 25), "chicago-il": nightOf(chicago, 25),
+		}},
+	}
+
+	svc := NewSitemapService(td.DB)
+	groups, err := svc.listQualifyingScenes(context.Background())
+	if err != nil {
+		t.Fatalf("listQualifyingScenes: %v", err)
+	}
+	entries := svc.scenePeriodEntries(context.Background(), groups, cases[0].now)
+
+	var want []string
+	for _, scene := range []string{"chicago-il", "phoenix-az"} {
+		for _, segment := range []string{"next-4-weeks", "this-weekend", "tonight", "week"} {
+			want = append(want, scene+"/"+segment)
+		}
+	}
+	got := sitemapSlugsOf(entries)
+	if strings.Join(got, ",") != strings.Join(want, ",") {
+		t.Fatalf("scene_periods = %v, want %v (four windows per scene, slug order)", got, want)
+	}
+	for _, tc := range cases {
+		for _, e := range svc.scenePeriodEntries(context.Background(), groups, tc.now) {
+			scene, _, _ := strings.Cut(e.Slug, "/")
+			if !e.UpdatedAt.Equal(tc.want[scene]) {
+				t.Errorf("%s: %s lastmod = %s, want %s, when %s's current night began",
+					tc.name, e.Slug, e.UpdatedAt.UTC(), tc.want[scene].UTC(), scene)
+			}
+		}
+	}
+
+	// Through Entries: the family is wired, populates only its own field, and
+	// names only scenes the scenes family announces.
+	wired, err := svc.Entries(context.Background(), "scene_periods")
+	if err != nil {
+		t.Fatalf("Entries(scene_periods): %v", err)
+	}
+	if len(wired.ScenePeriods) != len(want) {
+		t.Errorf("Entries(scene_periods) = %v, want %d entries", sitemapSlugsOf(wired.ScenePeriods), len(want))
+	}
+	if len(wired.Scenes) != 0 || len(wired.SceneWeeks) != 0 {
+		t.Errorf("Entries(scene_periods) also populated scenes %v and scene_weeks %v", sitemapSlugsOf(wired.Scenes), sitemapSlugsOf(wired.SceneWeeks))
+	}
+	roots, err := svc.Entries(context.Background(), "scenes")
+	if err != nil {
+		t.Fatalf("Entries(scenes): %v", err)
+	}
+	hasRoot := map[string]bool{}
+	for _, slug := range sitemapSlugsOf(roots.Scenes) {
+		hasRoot[slug] = true
+	}
+	for _, e := range wired.ScenePeriods {
+		scene, _, _ := strings.Cut(e.Slug, "/")
+		if !hasRoot[scene] {
+			t.Errorf("scene_periods announces %q but scenes has no %q entry", e.Slug, scene)
+		}
 	}
 }
 

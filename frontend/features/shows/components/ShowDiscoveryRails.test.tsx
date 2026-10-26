@@ -182,7 +182,7 @@ describe('ShowDiscoveryRails', () => {
     render(<ShowDiscoveryRails now={RAILS_NOW} show={makeRailShow()} lifecycle="upcoming" />)
     expect(
       screen.getByRole('link', { name: 'See every show Tonight, Chicago' })
-    ).toHaveAttribute('href', '/scenes/chicago-il/2026-08-12')
+    ).toHaveAttribute('href', '/scenes/chicago-il/tonight')
   })
 
   it('renders no bracket when the rail withheld its see-all', () => {

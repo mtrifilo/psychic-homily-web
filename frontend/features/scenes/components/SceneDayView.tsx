@@ -270,8 +270,7 @@ export function SceneDayView({
           {/* Always the DATED permalink, even when this renders at the rolling
               `/scenes/{slug}/tonight` URL. Sharing the rolling URL would hand a
               friend a page whose contents change out from under the message
-              tomorrow — the same divergence the weekly page's control makes,
-              between the canonical and what the address bar shows. */}
+              tomorrow, the same rule the weekly page's control follows. */}
           <ShareButton
             path={`/scenes/${day.slug}/${day.date}`}
             // Names the night it shares. "This night" on a permalink to last

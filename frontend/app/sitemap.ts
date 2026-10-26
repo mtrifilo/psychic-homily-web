@@ -213,6 +213,11 @@ const FAMILY_ROUTES: Record<
   venue_cities: { changeFrequency: 'weekly', priority: 0.6 },
   scenes: { changeFrequency: 'weekly', priority: 0.7 },
   scene_weeks: { changeFrequency: 'weekly', priority: 0.6 },
+  // The rolling window pages list a different stretch of nights every day, and
+  // their lastmod moves daily to say so. Priority sits level with the scene
+  // root: for a reader searching for what is on tonight in a city they are the
+  // entry point, as the root is for a reader searching for the city's scene.
+  scene_periods: { changeFrequency: 'daily', priority: 0.7 },
   labels: { changeFrequency: 'monthly', priority: 0.5 },
   releases: { changeFrequency: 'monthly', priority: 0.5 },
   festivals: { changeFrequency: 'monthly', priority: 0.6 },

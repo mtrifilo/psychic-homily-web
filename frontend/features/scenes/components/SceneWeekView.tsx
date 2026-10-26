@@ -167,8 +167,7 @@ export function SceneWeekView({
           {/* Always the DATED permalink, even when this renders at the rolling
               `/scenes/{slug}/week` URL. Sharing the rolling URL would hand a
               friend a page whose contents change out from under the message
-              next Monday — the one divergence on this page between the
-              canonical and what the address bar shows. */}
+              next Monday. */}
           <ShareButton
             path={`/scenes/${week.slug}/${week.iso_week}`}
             ariaLabel={`Share ${clause}`}

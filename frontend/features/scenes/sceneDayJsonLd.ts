@@ -44,10 +44,9 @@ export function buildSceneDayJsonLd(
   const dateLabel = formatDayFull(day.date)
 
   // The leaf names the DATED permalink from both day routes. It is the only URL
-  // that identifies this night: /tonight would go stale tomorrow, and the week
-  // permalink the rolling route declares as its canonical (see
-  // buildSceneDayMetadata) names seven nights rather than this one. A
-  // breadcrumb trail is a location, not a canonical claim.
+  // that identifies this night: /tonight names a different night tomorrow, and
+  // the week permalink names seven nights rather than this one. A breadcrumb
+  // trail is a location, not a canonical claim.
   const breadcrumb = generateBreadcrumbSchema([
     { name: 'Home', url: SITE_URL },
     { name: 'Scenes', url: `${SITE_URL}/scenes` },

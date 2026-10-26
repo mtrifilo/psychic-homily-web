@@ -127,7 +127,7 @@ describe('buildAlsoTonightRail', () => {
       makeAlsoTonightPayload({ has_more: true }),
       99
     )
-    expect(rail?.seeAllHref).toBe('/scenes/chicago-il/2026-08-12')
+    expect(rail?.seeAllHref).toBe('/scenes/chicago-il/tonight')
   })
 
   it('offers see-all when the rail’s own cap hid a row the payload carried', () => {
@@ -137,7 +137,7 @@ describe('buildAlsoTonightRail', () => {
       }),
       99
     )
-    expect(rail?.seeAllHref).toBe('/scenes/chicago-il/2026-08-12')
+    expect(rail?.seeAllHref).toBe('/scenes/chicago-il/tonight')
   })
 
   it('withholds see-all when every listable row is on screen', () => {
@@ -649,8 +649,17 @@ describe('alsoTonightRailTitle', () => {
 })
 
 describe('alsoTonightSeeAllHref', () => {
-  it('points at the scene’s own page for that night', () => {
-    expect(alsoTonightSeeAllHref(makeAlsoTonightPayload())).toBe(
+  it('points at the rolling tonight page on the live night', () => {
+    // The page search results send "what is on tonight" to, and the one that
+    // resolves the same night by the same scene-clock rule as `is_tonight`.
+    expect(alsoTonightSeeAllHref(makeAlsoTonightPayload({ is_tonight: true }))).toBe(
+      '/scenes/chicago-il/tonight'
+    )
+  })
+
+  it('points at the dated day page on any other night', () => {
+    // A past or future night: `/tonight` would list a different night.
+    expect(alsoTonightSeeAllHref(makeAlsoTonightPayload({ is_tonight: false }))).toBe(
       '/scenes/chicago-il/2026-08-12'
     )
   })
@@ -671,6 +680,11 @@ describe('alsoTonightSeeAllHref', () => {
       alsoTonightSeeAllHref(makeAlsoTonightPayload({ date: 'tonight' }))
     ).toBeNull()
     expect(alsoTonightSeeAllHref(makeAlsoTonightPayload({ date: '' }))).toBeNull()
+    // Including on the live night: a payload whose date is unreadable is not
+    // trusted to name the night either.
+    expect(
+      alsoTonightSeeAllHref(makeAlsoTonightPayload({ date: '', is_tonight: true }))
+    ).toBeNull()
   })
 })
 

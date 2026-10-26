@@ -324,8 +324,8 @@ func collapseSceneGroupsToCanonicalSlug(groups []sceneVenueGroup, g geo.Geocoder
 	// the data is fixed; that is deliberate, because a once-per-process log goes
 	// quiet after a deploy while the fault is still live. The charts caller adds
 	// a slower stream on top (one line per masthead cache miss, ~1/min per key),
-	// and the sitemap two more (one line per scenes fetch, one per scene_weeks
-	// fetch).
+	// and the sitemap three more (one line per scenes, scene_weeks and
+	// scene_periods fetch).
 	//
 	// `surface` is not decoration, because the callers do NOT see one collision
 	// set. The directory's is all-time and gated on sceneMinVenues and

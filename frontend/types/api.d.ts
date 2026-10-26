@@ -15306,6 +15306,7 @@ export interface components {
             festivals: components["schemas"]["SitemapEntry"][] | null;
             labels: components["schemas"]["SitemapEntry"][] | null;
             releases: components["schemas"]["SitemapEntry"][] | null;
+            scene_periods: components["schemas"]["SitemapEntry"][] | null;
             scene_weeks: components["schemas"]["SitemapEntry"][] | null;
             scenes: components["schemas"]["SitemapEntry"][] | null;
             shows: components["schemas"]["SitemapEntry"][] | null;
@@ -33087,7 +33088,7 @@ export interface operations {
         parameters: {
             query?: {
                 /** @description When set, only this family is populated; others are empty arrays. */
-                family?: "shows" | "artists" | "venues" | "venue_years" | "shows_months" | "venue_cities" | "scenes" | "scene_weeks" | "labels" | "releases" | "festivals" | "tags" | "shows-b0" | "shows-b1" | "shows-b2" | "shows-b3" | "shows-b4" | "shows-b5" | "shows-b6" | "shows-b7" | "artists-b0" | "artists-b1" | "artists-b2" | "artists-b3" | "artists-b4" | "artists-b5" | "artists-b6" | "artists-b7" | "releases-b0" | "releases-b1" | "releases-b2" | "releases-b3" | "releases-b4" | "releases-b5" | "releases-b6" | "releases-b7";
+                family?: "shows" | "artists" | "venues" | "venue_years" | "shows_months" | "venue_cities" | "scenes" | "scene_weeks" | "scene_periods" | "labels" | "releases" | "festivals" | "tags" | "shows-b0" | "shows-b1" | "shows-b2" | "shows-b3" | "shows-b4" | "shows-b5" | "shows-b6" | "shows-b7" | "artists-b0" | "artists-b1" | "artists-b2" | "artists-b3" | "artists-b4" | "artists-b5" | "artists-b6" | "artists-b7" | "releases-b0" | "releases-b1" | "releases-b2" | "releases-b3" | "releases-b4" | "releases-b5" | "releases-b6" | "releases-b7";
             };
             header?: never;
             path?: never;

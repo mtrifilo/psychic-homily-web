@@ -56,6 +56,7 @@ function emptyFamilies(
     venue_cities: [],
     scenes: [],
     scene_weeks: [],
+    scene_periods: [],
     labels: [],
     releases: [],
     festivals: [],
@@ -126,6 +127,9 @@ describe('sitemap', () => {
       if (family === 'scene_weeks') {
         body.scene_weeks = [{ slug: 'phoenix-az/2026-W31', updated_at: ISO }]
       }
+      if (family === 'scene_periods') {
+        body.scene_periods = [{ slug: 'phoenix-az/tonight', updated_at: ISO }]
+      }
       if (family === 'venue_years') {
         body.venue_years = [
           { slug: 'the-van-buren/shows/2025', updated_at: ISO },
@@ -171,6 +175,12 @@ describe('sitemap', () => {
     expect(await urlsOf('scene_weeks')).toContain(
       'https://psychichomily.com/scenes/phoenix-az/2026-W31'
     )
+    expect(await urlsOf('scene_periods')).toContain(
+      'https://psychichomily.com/scenes/phoenix-az/tonight'
+    )
+    // The window pages change daily, unlike the weekly scene roots beside them.
+    const [period] = await sitemap({ id: Promise.resolve('scene_periods') })
+    expect(period).toMatchObject({ changeFrequency: 'daily', priority: 0.7 })
     expect(await urlsOf('labels')).toContain(
       'https://psychichomily.com/labels/a-labels'
     )

@@ -206,7 +206,30 @@ describe('buildSceneWindowMetadata', () => {
       'this-weekend',
       phoenixEvening('2026-08-19')
     )
-    expect(meta.alternates?.canonical).toContain('/scenes/phoenix-az/this-weekend')
+    expect(meta.alternates?.canonical).toBe(
+      'https://psychichomily.com/scenes/phoenix-az/this-weekend'
+    )
+
+    const fourWeeks = await buildSceneWindowMetadata(
+      'phoenix-az',
+      'next-4-weeks',
+      phoenixEvening('2026-08-19')
+    )
+    expect(fourWeeks.alternates?.canonical).toBe(
+      'https://psychichomily.com/scenes/phoenix-az/next-4-weeks'
+    )
+  })
+
+  it('leaves both windows indexable', async () => {
+    fetchSceneWeekChain.mockResolvedValue([week('2026-08-17')])
+    for (const window of ['this-weekend', 'next-4-weeks'] as const) {
+      const meta = await buildSceneWindowMetadata(
+        'phoenix-az',
+        window,
+        phoenixEvening('2026-08-19')
+      )
+      expect(meta.robots).toBeUndefined()
+    }
   })
 
   it('states an honest zero rather than claiming the city is quiet', async () => {
@@ -217,7 +240,31 @@ describe('buildSceneWindowMetadata', () => {
       phoenixEvening('2026-08-19')
     )
     expect(meta.description).toBe(
-      'No shows at the Phoenix rooms we track this weekend.'
+      'Live shows in Phoenix this weekend: no shows at the Phoenix rooms we track.'
+    )
+  })
+
+  // The snippet opens with the title phrase, the words the reader searched
+  // for, and the count follows it.
+  it('opens the description with the title phrase, then the count', async () => {
+    fetchSceneWeekChain.mockResolvedValue([week('2026-08-17', { '2026-08-21': 1, '2026-08-22': 2 })])
+
+    const weekend = await buildSceneWindowMetadata(
+      'phoenix-az',
+      'this-weekend',
+      phoenixEvening('2026-08-19')
+    )
+    expect(weekend.description).toBe(
+      'Live shows in Phoenix this weekend: 3 shows at the Phoenix rooms we track.'
+    )
+
+    const fourWeeks = await buildSceneWindowMetadata(
+      'phoenix-az',
+      'next-4-weeks',
+      phoenixEvening('2026-08-19')
+    )
+    expect(fourWeeks.description).toBe(
+      'Live shows in Phoenix in the next 4 weeks: 3 shows at the Phoenix rooms we track.'
     )
   })
 
@@ -233,14 +280,14 @@ describe('buildSceneWindowMetadata', () => {
       'this-weekend',
       phoenixEvening('2026-08-19')
     )
-    expect(weekend.title).toBe('This weekend in Phoenix')
+    expect(weekend.title).toBe('Live shows in Phoenix this weekend')
 
     const fourWeeks = await buildSceneWindowMetadata(
       'phoenix-az',
       'next-4-weeks',
       phoenixEvening('2026-08-19')
     )
-    expect(fourWeeks.title).toBe('Next 4 weeks in Phoenix')
+    expect(fourWeeks.title).toBe('Live shows in Phoenix in the next 4 weeks')
   })
 
   it('noindexes a scene that does not resolve', async () => {

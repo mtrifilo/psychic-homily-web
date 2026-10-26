@@ -24,8 +24,8 @@ function daySpec(slug: string) {
     // Fields a consumer reads WITHOUT a null guard, each with the shape it has
     // to have. `date` goes straight into `parseCalendarDate`, which splits the
     // string and answers with a year-1900 Date for anything else, and into the
-    // day permalink; `slug` and `iso_week` are interpolated RAW into the
-    // canonical and the share-image URL, so each has to be one path segment
+    // day permalink; `slug` is interpolated RAW into the canonical and
+    // `iso_week` into the share-image URL, so each has to be one path segment
     // already; `city` is printed, and any name it carries is its own.
     //
     // Both period fields take the UNBOUNDED rule, never the route's own. The

@@ -13,7 +13,7 @@ interface ImageProps {
 
 /**
  * Share card for `/scenes/{slug}/{iso-week}` — the archived weekly permalink,
- * and the canonical URL for both weekly routes.
+ * and the card both weekly routes and `/tonight` advertise.
  *
  * This segment is dynamic, so it also catches any unmatched child path under a
  * scene; the week key is validated inside `renderSceneWeekOgCard`, which 404s

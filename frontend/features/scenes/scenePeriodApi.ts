@@ -27,8 +27,8 @@ import * as Sentry from '@sentry/nextjs'
  * LIVE period as often as an ended one, because the same key names the current
  * week or night while it is still running. `fetchScenePeriod` picks between
  * these two from the payload itself, never from the URL. (Do not re-derive this
- * from canonical tags: /tonight canonicalizes to the week permalink and a dated
- * day permalink to itself, and neither fact says anything about freshness.)
+ * from canonical tags: every route in the family is its own canonical, which
+ * says nothing about freshness.)
  */
 export const CURRENT_PERIOD_REVALIDATE = 900
 export const ARCHIVED_PERIOD_REVALIDATE = 86400

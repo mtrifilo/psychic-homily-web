@@ -22,10 +22,30 @@ import (
 	"psychic-homily-backend/internal/utils"
 )
 
-// sceneWeekSitemapWindow is how many recent ISO weeks (including the current
-// one) are eligible for the sitemap, per scene. Decided PSY-1622: 8 weeks,
-// not 52 or unbounded — recent weeks are the citable ones.
-const sceneWeekSitemapWindow = 8
+// The scene-week window the sitemap announces, per scene, around the scene's
+// current ISO week: this many weeks before it and this many after it, plus the
+// current week itself. A week inside the window is still announced only when it
+// has at least one approved show (see sceneWeekEntries).
+//
+// The window leans forward because a future week is a page about shows that can
+// still be attended, while a week that has ended only describes what happened.
+// The one past week keeps the week that just ended announced while crawlers
+// pick up the week that replaced it.
+const (
+	sceneWeekSitemapPastWeeks   = 1
+	sceneWeekSitemapFutureWeeks = 4
+)
+
+// sceneWeekSitemapWindowWeeks is how many week keys the window spans.
+const sceneWeekSitemapWindowWeeks = sceneWeekSitemapPastWeeks + 1 + sceneWeekSitemapFutureWeeks
+
+// scenePeriodSegments are the rolling window routes under /scenes/{slug}/, as
+// the path segments the frontend serves them at. Each is announced once per
+// qualifying scene by scenePeriodEntries. Keep in sync with WINDOW_SEGMENT in
+// frontend/features/scenes/sceneWindow.ts, which also pins each segment to its
+// route directory under frontend/app/scenes/[slug]/; frontend/proxy.ts must
+// pass each segment through for the URL to serve.
+var scenePeriodSegments = []string{"tonight", "this-weekend", "week", "next-4-weeks"}
 
 // sitemapFamilies is every entity family Entries can populate.
 //
@@ -37,7 +57,7 @@ const sceneWeekSitemapWindow = 8
 // contracts.SitemapEntries.
 var sitemapFamilies = []string{
 	"shows", "artists", "venues", "venue_years", "shows_months", "venue_cities",
-	"scenes", "scene_weeks", "labels", "releases", "festivals", "tags",
+	"scenes", "scene_weeks", "scene_periods", "labels", "releases", "festivals", "tags",
 }
 
 // sitemapShard is one bucket of an entity family, addressable on the wire as if
@@ -489,18 +509,19 @@ func (s *SitemapService) Entries(ctx context.Context, family string) (*contracts
 
 	family = strings.TrimSpace(family)
 	out := &contracts.SitemapEntries{
-		Shows:       []contracts.SitemapEntry{},
-		Artists:     []contracts.SitemapEntry{},
-		Venues:      []contracts.SitemapEntry{},
-		VenueYears:  []contracts.SitemapEntry{},
-		ShowsMonths: []contracts.SitemapEntry{},
-		VenueCities: []contracts.SitemapEntry{},
-		Scenes:      []contracts.SitemapEntry{},
-		SceneWeeks:  []contracts.SitemapEntry{},
-		Labels:      []contracts.SitemapEntry{},
-		Releases:    []contracts.SitemapEntry{},
-		Festivals:   []contracts.SitemapEntry{},
-		Tags:        []contracts.SitemapEntry{},
+		Shows:        []contracts.SitemapEntry{},
+		Artists:      []contracts.SitemapEntry{},
+		Venues:       []contracts.SitemapEntry{},
+		VenueYears:   []contracts.SitemapEntry{},
+		ShowsMonths:  []contracts.SitemapEntry{},
+		VenueCities:  []contracts.SitemapEntry{},
+		Scenes:       []contracts.SitemapEntry{},
+		SceneWeeks:   []contracts.SitemapEntry{},
+		ScenePeriods: []contracts.SitemapEntry{},
+		Labels:       []contracts.SitemapEntry{},
+		Releases:     []contracts.SitemapEntry{},
+		Festivals:    []contracts.SitemapEntry{},
+		Tags:         []contracts.SitemapEntry{},
 	}
 
 	// A sub-shard id resolves to the family it buckets plus the residue to
@@ -594,13 +615,13 @@ func (s *SitemapService) Entries(ctx context.Context, family string) (*contracts
 		out.VenueCities = venueCities
 	}
 
-	// scenes and scene_weeks are two projections of ONE group set: the same
-	// eligibility decides a scene's root URL and its week permalinks, so the two
-	// families cannot apply different floors. They are still two documents
-	// fetched as two requests, so a scene approved between them can appear in one
-	// and not the other until the next build; what this rules out is a rule
-	// difference, not a timing skew.
-	if want("scenes") || want("scene_weeks") {
+	// scenes, scene_weeks and scene_periods are three projections of ONE group
+	// set: the same eligibility decides a scene's root URL, its week permalinks
+	// and its rolling window pages, so the families cannot apply different
+	// floors. They are still separate documents fetched as separate requests, so
+	// a scene approved between them can appear in one and not another until the
+	// next build; what this rules out is a rule difference, not a timing skew.
+	if want("scenes") || want("scene_weeks") || want("scene_periods") {
 		groups, err := s.listQualifyingScenes(ctx)
 		if err != nil {
 			return nil, fmt.Errorf("failed to list qualifying scenes: %w", err)
@@ -614,6 +635,9 @@ func (s *SitemapService) Entries(ctx context.Context, family string) (*contracts
 				return nil, fmt.Errorf("failed to collect scene-week sitemap entries: %w", err)
 			}
 			out.SceneWeeks = weeks
+		}
+		if want("scene_periods") {
+			out.ScenePeriods = s.scenePeriodEntries(ctx, groups, time.Now())
 		}
 	}
 
@@ -818,8 +842,9 @@ func (s *SitemapService) entriesOmitting(
 // bound prunes nothing on an archive) with one lateral execution per row, and
 // past shows never age out. The other is the shows family while its past-show
 // diet rule is on; see sitemapDiet.pastShows for its measured cost. The
-// remaining families are either single-table scans (entriesFor) or windowed
-// (sceneWeekEntries, 8 weeks per scene). Two thresholds
+// remaining families are either single-table scans (entriesFor), windowed
+// (sceneWeekEntries, sceneWeekSitemapWindowWeeks per scene), or bounded by the
+// scene count alone (sceneEntries, scenePeriodEntries). Two thresholds
 // to watch as the catalogue grows, neither of which is close today: the ~1.50 MiB
 // Next Data Cache budget per shard (app/sitemap.ts weighs it and fails the
 // build), and the 50,000-URL sitemap limit — this family is venues x years, so
@@ -1104,9 +1129,10 @@ func (s *SitemapService) sceneEntries(groups []sceneVenueGroup) []contracts.Site
 	return entries
 }
 
-// sceneWeekEntries projects archived week permalinks for the last
-// sceneWeekSitemapWindow weeks per qualifying scene, excluding weeks with zero
-// approved shows. Slug is the composite "{scene-slug}/{iso-week}" matching the
+// sceneWeekEntries projects week permalinks for the window around each
+// qualifying scene's current week (sceneWeekSitemapPastWeeks before it,
+// sceneWeekSitemapFutureWeeks after it), excluding weeks with zero approved
+// shows. Slug is the composite "{scene-slug}/{iso-week}" matching the
 // canonical URL sceneWeekPage.tsx already declares.
 //
 // Week boundaries are resolved in each scene's own timezone — the same rule
@@ -1126,20 +1152,21 @@ func (s *SitemapService) sceneWeekEntries(ctx context.Context, groups []sceneVen
 	// collapseSceneGroupsToCanonicalSlug carries the rule and the reasoning.
 	unique := collapseSceneGroupsToCanonicalSlug(groups, s.geocoder, "sitemap-scene-weeks")
 
-	entries := make([]contracts.SitemapEntry, 0, len(unique)*sceneWeekSitemapWindow)
+	entries := make([]contracts.SitemapEntry, 0, len(unique)*sceneWeekSitemapWindowWeeks)
 	for _, grp := range unique {
 		// The winner's own key builds the scope, so the weeks published under a
 		// slug are the weeks of the rooms that group holds, which are the rooms
 		// the page that slug serves is scoped to.
 		scope := sceneScopeForGroup(grp)
 		slug := sceneGroupSlug(grp)
-		loc := s.sceneLocation(scope, scope.state)
+		loc := s.sceneLocation(ctx, scope, scope.state)
 
 		nowLocal := time.Now().In(loc)
 		y, w := nowLocal.ISOWeek()
 		currentStart := ISOWeekStart(y, w, loc)
-		windowStart := currentStart.AddDate(0, 0, -7*(sceneWeekSitemapWindow-1))
-		windowEnd := currentStart.AddDate(0, 0, 7) // half-open end of current week
+		windowStart := currentStart.AddDate(0, 0, -7*sceneWeekSitemapPastWeeks)
+		// Half-open: the instant the week after the last announced one begins.
+		windowEnd := currentStart.AddDate(0, 0, 7*(sceneWeekSitemapFutureWeeks+1))
 
 		// trackedVenuePredicate, the room set GetSceneWeek draws its rows over:
 		// a week whose only shows sit at unverified rooms renders empty, so
@@ -1186,7 +1213,7 @@ func (s *SitemapService) sceneWeekEntries(ctx context.Context, groups []sceneVen
 		// the window keys rather than the map so a quiet week stays omitted
 		// (the zero-show exclusion) and order stays deterministic after the
 		// final sort.
-		for i := 0; i < sceneWeekSitemapWindow; i++ {
+		for i := 0; i < sceneWeekSitemapWindowWeeks; i++ {
 			start := windowStart.AddDate(0, 0, 7*i)
 			key := ISOWeekKey(start)
 			agg := byWeek[key]
@@ -1204,6 +1231,47 @@ func (s *SitemapService) sceneWeekEntries(ctx context.Context, groups []sceneVen
 	return entries, nil
 }
 
+// scenePeriodEntries projects the rolling window pages, one entry per
+// scenePeriodSegments value per qualifying scene. Slug is the composite
+// "{scene-slug}/{segment}", the URL each of those pages declares as its own
+// canonical.
+//
+// Every qualifying scene gets all of them, whatever its calendar holds: these
+// are the scene's standing answers to "what is on tonight" and its siblings,
+// and a quiet night is still an answer.
+//
+// lastmod is the instant the scene's current night began: nightStartHour on
+// the venue-local date tonightDate names, read on now. /tonight, /this-weekend
+// and /next-4-weeks roll over to a new night at that boundary, not at
+// midnight, so it is the moment their content changes; a midnight stamp would
+// announce a change six hours before it happens and then hide the real one
+// until the next day. /week rolls at Monday midnight and its lastmod catches up
+// at the boundary six hours later. No row's updated_at describes these pages.
+// now is a parameter so a test can pin the instant the entries carry.
+func (s *SitemapService) scenePeriodEntries(ctx context.Context, groups []sceneVenueGroup, now time.Time) []contracts.SitemapEntry {
+	// The survivor's identity names the scene, and its key builds the room set
+	// the zone is read from, the same scope sceneWeekEntries reads it from.
+	unique := collapseSceneGroupsToCanonicalSlug(groups, s.geocoder, "sitemap-scene-periods")
+
+	entries := make([]contracts.SitemapEntry, 0, len(unique)*len(scenePeriodSegments))
+	for _, grp := range unique {
+		scope := sceneScopeForGroup(grp)
+		slug := sceneGroupSlug(grp)
+		loc := s.sceneLocation(ctx, scope, scope.state)
+		night := tonightDate(now.In(loc))
+		nightBegan := time.Date(night.year, night.month, night.day, nightStartHour, 0, 0, 0, loc)
+		for _, segment := range scenePeriodSegments {
+			entries = append(entries, contracts.SitemapEntry{
+				Slug:      slug + "/" + segment,
+				UpdatedAt: nightBegan,
+			})
+		}
+	}
+
+	sort.Slice(entries, func(i, j int) bool { return entries[i].Slug < entries[j].Slug })
+	return entries
+}
+
 // sceneLocation mirrors the LOCATION half of SceneService.sceneLocation: modal
 // verified-venue timezone, falling back to the state map. Duplicated rather than
 // shared so SitemapService does not grow a SceneService dependency for one query.
@@ -1211,13 +1279,13 @@ func (s *SitemapService) sceneWeekEntries(ctx context.Context, groups []sceneVen
 // It returns no publishable zone name, because a sitemap names no zone: its
 // dates are lastmod stamps read on the best clock available, and a surrendered
 // fallback is still the best clock for that.
-func (s *SitemapService) sceneLocation(scope sceneScope, state string) *time.Location {
+func (s *SitemapService) sceneLocation(ctx context.Context, scope sceneScope, state string) *time.Location {
 	if s.db == nil {
 		return utils.EventLocation(nil, state)
 	}
 	vp, vargs := trackedVenuePredicate(scope, "v")
 	var tz string
-	err := s.db.Raw(`
+	err := s.db.WithContext(ctx).Raw(`
 		SELECT v.timezone
 		FROM venues v
 		WHERE `+vp+`

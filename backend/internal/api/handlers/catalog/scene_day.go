@@ -13,8 +13,8 @@ import (
 // Get Scene Day
 // ============================================================================
 
-// GetSceneDayRequest addresses a SPECIFIC calendar date — the stable permalink,
-// and the canonical URL for both day routes.
+// GetSceneDayRequest addresses a SPECIFIC calendar date: the stable permalink,
+// which is its own canonical URL.
 //
 // The current-night route needs its own request type (below) rather than
 // reusing this one with an empty Date: huma treats every declared path param as

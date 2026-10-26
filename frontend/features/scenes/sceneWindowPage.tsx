@@ -4,7 +4,7 @@ import { JsonLd } from '@/components/seo/JsonLd'
 import { SITE_URL } from '@/lib/seo/siteMetadata'
 import { SceneWindowView } from './components/SceneWindowView'
 import { resolveShowTimezone } from '@/lib/utils/formatters'
-import { calendarDateInZone, sceneTonightDate } from './sceneCalendar'
+import { calendarDateInZone, plural, sceneTonightDate } from './sceneCalendar'
 import { fetchSceneWeekChain } from './sceneWindowApi'
 import { buildSceneWindowJsonLd } from './sceneWindowJsonLd'
 import {
@@ -158,21 +158,20 @@ export async function buildSceneWindowMetadata(
     return { title: `${label} not found`, robots: { index: false, follow: false } }
   }
 
-  // The family's one title rule, so the tab and the H1 read alike. The date
-  // range the title used to carry is on the page, in the header line: a
-  // rolling window's range moves with the clock, so a title carrying it would
-  // describe a span the next reader does not get.
+  // The family's title rule, so the tab and the H1 read alike, and the
+  // description opens with it. The window's date range is on the page, in the
+  // header line, and in neither: a rolling window's range moves with the
+  // clock, so a title or snippet carrying it would describe a span the next
+  // reader does not get.
   const title = sceneWindowTitle(window, data.city)
-  const description =
-    data.rendered > 0
-      ? `${data.rendered} ${data.rendered === 1 ? 'show' : 'shows'} at the ${data.city} rooms we track, ${label.toLowerCase()}.`
-      : `No shows at the ${data.city} rooms we track ${label.toLowerCase()}.`
+  const shows = data.rendered > 0 ? plural(data.rendered, 'show') : 'no shows'
+  const description = `${title}: ${shows} at the ${data.city} rooms we track.`
 
-  // These windows are ROLLING and, unlike `/week`, have no dated permalink to
-  // defer to — so each is its own canonical. Deliberately NOT canonicalised to
-  // the week: they bound different stretches of time, and pointing two distinct
-  // windows at one URL is what made "this weekend" and "this week" the same
-  // page in the first place (PSY-1849).
+  // Each window is its own canonical: the scene's standing answer to its own
+  // question ("this weekend", "the next four weeks"), announced in the
+  // scene_periods sitemap family. Never another window's or a week's URL:
+  // they bound different stretches of time, so pointing one at another would
+  // fold two different lists into one indexed page.
   const canonical = `${SITE_URL}${sceneWindowHref(data.slug, window)}`
 
   return {

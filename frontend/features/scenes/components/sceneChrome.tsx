@@ -156,12 +156,13 @@ export function SceneBreadcrumb({ slug, sceneName }: { slug: string; sceneName: 
 }
 
 /**
- * The window family's H1: `This week in Chicago`, one line.
+ * The window family's H1: `Live shows in Chicago this week` on a rolling
+ * route, `Week of Sep 7 in Chicago` on a dated permalink.
  *
  * Set in the locked frame's register (`1665:2`): mono, bold, micro-caps at
- * 14px with 4% tracking, rather than at display scale. The title rule puts a
- * window phrase in front of the city, which at display scale wraps to three
- * lines at 390px and spends the top of a calendar page on its own name.
+ * 14px with 4% tracking, rather than at display scale. The titles carry a
+ * phrase as well as the city, which at display scale wraps to several lines at
+ * 390px and spends the top of a calendar page on its own name.
  *
  * The state is NOT here. It rides in the breadcrumb above, which names the
  * scene in full, so a cold arrival from a shared link can still tell Portland

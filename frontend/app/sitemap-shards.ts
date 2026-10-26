@@ -33,11 +33,10 @@ export const PAGES_SHARD_ID = 'pages'
  *
  * There is deliberately no `scene_days` family. Day permalinks stay reachable
  * through the prev/next chips on each day page; they are simply not announced
- * here, and there is one for every date the day service will answer.
- * `buildSceneDayMetadata` leans on that absence to canonicalize the rolling
- * /tonight page at the week permalink instead of a day, so adding a day family
- * here obliges revisiting that canonical. This is the normative statement of
- * that decision; the other sites referring to it point back at this note.
+ * here, and there is one for every date the day service will answer. The night
+ * a reader is searching for is announced as `/scenes/{slug}/tonight`, in
+ * `scene_periods`. This is the normative statement of that decision; the other
+ * sites referring to it point back at this note.
  */
 export const SITEMAP_FAMILIES = [
   'shows',
@@ -48,6 +47,7 @@ export const SITEMAP_FAMILIES = [
   'venue_cities',
   'scenes',
   'scene_weeks',
+  'scene_periods',
   'labels',
   'releases',
   'festivals',
@@ -170,7 +170,7 @@ void _assertEveryWireValueServed
  * Families served by more than one document, and the ids those documents use.
  *
  * A family absent from this table is served by a single shard whose id IS the
- * family name, which is the case for nine of the twelve.
+ * family name, which is the case for ten of the thirteen.
  *
  * Typed `readonly WireFamily[]`, not `readonly string[]`: an id written here
  * that the backend does not accept would be fetched, 422'd, and degraded to an
@@ -271,8 +271,11 @@ export function shardRoutePath(id: string): string {
  * a SLICE of an entity, or a WINDOW of a list, lives under that surface's
  * prefix:
  *
- *   - `scenes` / `scene_weeks` share `/scenes`: `/scenes/{city}` vs
- *     `/scenes/{city}/{iso-week}`.
+ *   - `scenes` / `scene_weeks` / `scene_periods` share `/scenes`:
+ *     `/scenes/{city}` vs `/scenes/{city}/{iso-week}` vs
+ *     `/scenes/{city}/{window}` (`tonight`, `this-weekend`, `week`,
+ *     `next-4-weeks`). The last two are the same depth, so the window segment
+ *     itself is what tells them apart.
  *   - `venues` / `venue_years` share `/venues`: `/venues/{slug}` vs
  *     `/venues/{slug}/shows/{year}` (PSY-1756).
  *   - `shows` / `shows_months` share `/shows`: `/shows/{slug}` vs
@@ -298,6 +301,7 @@ export const FAMILY_URL_PREFIXES = {
   venue_cities: '/venues',
   scenes: '/scenes',
   scene_weeks: '/scenes',
+  scene_periods: '/scenes',
   labels: '/labels',
   releases: '/releases',
   festivals: '/festivals',

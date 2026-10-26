@@ -105,12 +105,18 @@ describe('classifyLoc', () => {
     expect(classifyLoc(loc)).toBe(expected)
   })
 
-  // The two /scenes families are split by segment count, not prefix.
-  it('separates a scene from a scene week', () => {
+  // The /scenes families: a scene by segment count, and a window page from a
+  // week by the window segment's value, since the two are the same depth.
+  it('separates a scene, its window pages and its weeks', () => {
     expect(classifyLoc('https://psychichomily.com/scenes/austin-tx')).toBe('scenes')
     expect(classifyLoc('https://psychichomily.com/scenes/austin-tx/2026-W28')).toBe(
       'scene_weeks'
     )
+    for (const segment of ['tonight', 'this-weekend', 'week', 'next-4-weeks']) {
+      expect(classifyLoc(`https://psychichomily.com/scenes/austin-tx/${segment}`)).toBe(
+        'scene_periods'
+      )
+    }
   })
 
   // The two /venues families split the same way (PSY-1756), but the archive
@@ -168,6 +174,7 @@ describe('classifyLoc', () => {
     // query family, whose slug is a filter value.
     const compositeSlugs: Partial<Record<(typeof SITEMAP_FAMILIES)[number], string>> = {
       scene_weeks: 'austin-tx/2026-W28',
+      scene_periods: 'austin-tx/tonight',
       venue_years: 'the-van-buren/shows/2025',
       shows_months: '2026/11',
       venue_cities: 'Phoenix,AZ',
@@ -189,7 +196,7 @@ describe('classifyLoc', () => {
   it('has a disambiguation rule for every family under a shared prefix', () => {
     expect(SHARED_CLAIMANTS).toEqual({
       venues: ['venue_cities', 'venue_years', 'venues'],
-      scenes: ['scene_weeks', 'scenes'],
+      scenes: ['scene_periods', 'scene_weeks', 'scenes'],
       shows: ['shows', 'shows_months'],
     })
   })
