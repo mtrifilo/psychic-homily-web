@@ -616,6 +616,32 @@ func TestPublicReadRateLimiter_ServerReadSecretExemptsReadsOnly(t *testing.T) {
 	}
 }
 
+// Exempt reads are bounded by their own per-IP ceiling, wired at the production
+// value.
+func TestPublicReadRateLimiter_ServerReadCeiling(t *testing.T) {
+	const secret = "routes-server-read-secret-0123456789"
+	mw := PublicReadRateLimiter(nil, nil, nil, serverReadEnv(secret))
+	handler := mw(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	const sharedIP = "7.7.7.63:100"
+	for i := 0; i <= middleware.PublicReadServerReadIPCeilingPerMinute; i++ {
+		req := httptest.NewRequest(http.MethodGet, "/artists/some-artist", nil)
+		req.Header.Set(middleware.ServerReadSecretHeader, secret)
+		req.RemoteAddr = sharedIP
+		rr := httptest.NewRecorder()
+		handler.ServeHTTP(rr, req)
+		want := http.StatusOK
+		if i == middleware.PublicReadServerReadIPCeilingPerMinute {
+			want = http.StatusTooManyRequests
+		}
+		if rr.Code != want {
+			t.Fatalf("exempt read %d: status = %d, want %d", i, rr.Code, want)
+		}
+	}
+}
+
 // A secret the exemption refuses at start leaves every request metered, header
 // or not.
 func TestPublicReadRateLimiter_UnusableServerReadSecretIsMetered(t *testing.T) {

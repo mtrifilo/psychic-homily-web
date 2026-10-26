@@ -501,6 +501,7 @@ func TestRateLimitLogValuesAreStable(t *testing.T) {
 		"LimiterPublicReadAnonymous":           "public_read_anonymous",
 		"LimiterPublicReadUser":                "public_read_user",
 		"LimiterPublicReadIPCeiling":           "public_read_ip_ceiling",
+		"LimiterPublicReadServerReadCeiling":   "public_read_server_read_ceiling",
 		"LimiterEngagementMutationBurst":       "engagement_mutation_burst",
 		"LimiterEngagementMutationSustained":   "engagement_mutation_sustained",
 		"LimiterEntityRequestBatchBurst":       "entity_request_batch_burst",

@@ -43,7 +43,11 @@ func strRef(s string) *string { return &s }
 // mustServerRead builds an exemption from a configuration the test knows is
 // usable.
 func mustServerRead(configured string, sample func() bool) *ServerReadExemption {
-	e, err := newServerReadExemption(configured, sample)
+	return mustServerReadWithCeiling(configured, sample, PublicReadServerReadIPCeilingPerMinute)
+}
+
+func mustServerReadWithCeiling(configured string, sample func() bool, ceiling int) *ServerReadExemption {
+	e, err := newServerReadExemption(configured, sample, ceiling)
 	if err != nil {
 		panic(err)
 	}
@@ -215,7 +219,9 @@ func TestServerReadExemption_SampleLinesNameTheExemption(t *testing.T) {
 	}
 	exemptLine, meteredLine := samples[0], samples[1]
 	for field, want := range map[string]any{
-		"limiter":            string(LimiterPublicReadAnonymous),
+		"limiter":            string(LimiterPublicReadServerReadCeiling),
+		"limit":              float64(PublicReadServerReadIPCeilingPerMinute),
+		"remaining":          float64(PublicReadServerReadIPCeilingPerMinute - 1),
 		"auth_state":         authStateAnonymous,
 		"path_family":        pathFamilyArtist,
 		serverReadExemptAttr: true,
@@ -224,8 +230,8 @@ func TestServerReadExemption_SampleLinesNameTheExemption(t *testing.T) {
 			t.Errorf("exempt line: %s = %v, want %v", field, exemptLine[field], want)
 		}
 	}
-	if _, ok := exemptLine["remaining"]; ok {
-		t.Errorf("exempt line carries remaining=%v, want none (the bucket was not consulted)", exemptLine["remaining"])
+	if meteredLine["limiter"] != string(LimiterPublicReadAnonymous) {
+		t.Errorf("metered line: limiter = %v, want %s", meteredLine["limiter"], LimiterPublicReadAnonymous)
 	}
 	if meteredLine[serverReadExemptAttr] != false {
 		t.Errorf("metered line: %s = %v, want false", serverReadExemptAttr, meteredLine[serverReadExemptAttr])
@@ -305,5 +311,70 @@ func TestServerReadExemption_RefusesAnUnusableSecret(t *testing.T) {
 				t.Errorf("exemption = %v, want nil (exempts nothing)", exemption)
 			}
 		})
+	}
+}
+
+// Exempt reads pass their own per-IP ceiling. Under it they leave the
+// anonymous bucket untouched; over it they are refused, and the refusal is
+// logged as a server-read line without the secret.
+func TestServerReadExemption_CeilingBoundsExemptReads(t *testing.T) {
+	logs := newLogCapture(t)
+	anon := httprate.Limit(1, time.Minute, httprate.WithKeyFuncs(httprate.KeyByIP),
+		httprate.WithLimitHandler(testRejection))
+	perUser := httprate.Limit(1, time.Minute, httprate.WithKeyFuncs(rateLimitUserKeyFunc),
+		httprate.WithLimitHandler(testRejection))
+	ipCeiling := httprate.Limit(1000, time.Minute, httprate.WithKeyFuncs(httprate.KeyByIP),
+		httprate.WithLimitHandler(testRejection))
+	const ceiling = 3
+	handler := RateLimitPublicReadsByAuthState(newTestJWTService(), nil,
+		mustServerReadWithCeiling(testServerReadSecret, never, ceiling),
+		anon, perUser, ipCeiling)(okHandler())
+
+	const addr = "10.20.30.50:1"
+	for i := 0; i < ceiling; i++ {
+		if rr := serve(handler, logs.attach(serverReadReq(http.MethodGet, addr, strRef(testServerReadSecret)))); rr.Code != http.StatusOK {
+			t.Fatalf("exempt read %d under the ceiling: status = %d, want 200", i, rr.Code)
+		}
+	}
+	rr := serve(handler, logs.attach(serverReadReq(http.MethodGet, addr, strRef(testServerReadSecret))))
+	if rr.Code != http.StatusTooManyRequests {
+		t.Fatalf("exempt read over the ceiling: status = %d, want 429", rr.Code)
+	}
+	if rr.Header().Get("Retry-After") != "60" {
+		t.Errorf("Retry-After = %q, want 60", rr.Header().Get("Retry-After"))
+	}
+
+	// The anonymous bucket of the same address was never spent.
+	if rr := serve(handler, serverReadReq(http.MethodGet, addr, nil)); rr.Code != http.StatusOK {
+		t.Errorf("first anonymous read after exempt reads: status = %d, want 200", rr.Code)
+	}
+
+	rejected := logs.events(rateLimitRejectedEvent)
+	if len(rejected) != 1 {
+		t.Fatalf("got %d rejection lines, want 1:\n%s", len(rejected), logs.buf.String())
+	}
+	for field, want := range map[string]any{
+		"limiter":            string(LimiterPublicReadServerReadCeiling),
+		"limit":              float64(ceiling),
+		"path_family":        pathFamilyArtist,
+		"origin_present":     false,
+		"method":             http.MethodGet,
+		serverReadExemptAttr: true,
+	} {
+		if rejected[0][field] != want {
+			t.Errorf("rejection line: %s = %v, want %v", field, rejected[0][field], want)
+		}
+	}
+	if _, ok := rejected[0]["key_fingerprint"]; !ok {
+		t.Error("rejection line carries no key_fingerprint")
+	}
+	if strings.Contains(logs.buf.String(), testServerReadSecret) {
+		t.Errorf("a log line carries the server-read secret:\n%s", logs.buf.String())
+	}
+}
+
+func TestPublicReadServerReadIPCeilingPerMinute(t *testing.T) {
+	if PublicReadServerReadIPCeilingPerMinute != 2000 {
+		t.Errorf("PublicReadServerReadIPCeilingPerMinute = %d, want 2000", PublicReadServerReadIPCeilingPerMinute)
 	}
 }

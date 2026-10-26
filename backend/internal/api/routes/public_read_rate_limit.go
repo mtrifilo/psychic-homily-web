@@ -176,8 +176,10 @@ func validatedFeedToken(validate func(string) bool, path string) bool {
 // whose bearer passes validateAPIToken (APITokenService.ValidateToken — not the
 // phk_ prefix alone) is exempt so ingest search does not starve visitors on the
 // same IP (PSY-1814). An anonymous GET or HEAD carrying the server-read secret
-// named by middleware.ServerReadSecretEnvVar skips the anonymous limiter
-// (middleware.ServerReadExemption); with that variable unset nothing does.
+// named by middleware.ServerReadSecretEnvVar skips the anonymous limiter and
+// passes a separate per-IP ceiling instead
+// (middleware.PublicReadServerReadIPCeilingPerMinute, ServerReadExemption);
+// with that variable unset nothing is exempt.
 // Infra paths are exempt, and so is a personal-feed request
 // whose URL token validates (PSY-2017), not the path shape alone, and so is a
 // GET to an OAuth sign-in start, callback or link start
@@ -198,7 +200,7 @@ func PublicReadRateLimiter(jwtService *auth.JWTService, validateAPIToken, valida
 	limiter := middleware.RateLimitPublicReadsByAuthState(
 		jwtService,
 		validateAPIToken,
-		serverRead, // GET/HEAD carrying the server-read secret → skips the anonymous limiter
+		serverRead, // GET/HEAD carrying the server-read secret → its own per-IP ceiling, not the anonymous limiter
 		middleware.RateLimitPublicReadAnonymousEndpoints(),     // anonymous → per-IP
 		middleware.RateLimitPublicReadUserEndpoints(),          // authenticated → per-user
 		middleware.RateLimitPublicReadAuthenticatedIPCeiling(), // authenticated → coarse per-IP ceiling (PSY-1378)

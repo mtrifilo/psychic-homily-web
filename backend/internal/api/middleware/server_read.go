@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net/http"
 	"strings"
+	"time"
 )
 
 // ServerReadSecretHeader is the request header a server-side caller of the API
@@ -46,6 +47,10 @@ var ErrUnusableServerReadSecret = errors.New(
 // grants nothing else. The request still reaches its handler with no identity,
 // no other limiter consults this type, and writes are never exempt.
 //
+// A recognized read is not unmetered: it passes this exemption's own per-IP
+// ceiling (PublicReadServerReadIPCeilingPerMinute), so a leaked secret buys a
+// bounded rate, not an unlimited one.
+//
 // Every failure fails closed: a nil exemption, another method, an absent header
 // or a wrong value all leave the request on the anonymous per-IP bucket.
 //
@@ -57,8 +62,9 @@ type ServerReadExemption struct {
 	// two inputs of equal length, so the comparison time says nothing about a
 	// secret's length or its prefix.
 	secretDigests [][sha256.Size]byte
-	// sample selects which exempt requests write a sample line.
-	sample func() bool
+	// limit is the per-IP ceiling on recognized reads, with its own counter.
+	// Every line it writes carries server_read_exempt=true.
+	limit func(http.Handler) http.Handler
 }
 
 // NewServerReadExemption builds the exemption from the configured value, read
@@ -68,10 +74,10 @@ type ServerReadExemption struct {
 // dashboard with a trailing newline still matches what the frontend sends,
 // which trims the same way.
 func NewServerReadExemption(configured string) (*ServerReadExemption, error) {
-	return newServerReadExemption(configured, sampleAt(allowedReadSampleRate))
+	return newServerReadExemption(configured, sampleAt(allowedReadSampleRate), PublicReadServerReadIPCeilingPerMinute)
 }
 
-func newServerReadExemption(configured string, sample func() bool) (*ServerReadExemption, error) {
+func newServerReadExemption(configured string, sample func() bool, ceilingPerMinute int) (*ServerReadExemption, error) {
 	if strings.TrimSpace(configured) == "" {
 		return nil, nil
 	}
@@ -79,7 +85,13 @@ func newServerReadExemption(configured string, sample func() bool) (*ServerReadE
 	if len(parts) > maxServerReadSecrets {
 		return nil, ErrUnusableServerReadSecret
 	}
-	e := &ServerReadExemption{sample: sample}
+	e := &ServerReadExemption{limit: limiterSpec{
+		name:             LimiterPublicReadServerReadCeiling,
+		limit:            ceilingPerMinute,
+		window:           time.Minute,
+		key:              KeyByClientIP,
+		serverReadExempt: true,
+	}.sampledHandler(authStateAnonymous, sample)}
 	for _, part := range parts {
 		secret := strings.TrimSpace(part)
 		if len(secret) < minServerReadSecretLength || !isVisibleASCII(secret) {
@@ -130,11 +142,12 @@ func (e *ServerReadExemption) Exempts(r *http.Request) bool {
 	return matched == 1
 }
 
-// logSample writes the exempt request's sample line when the sampler selects
-// it. The line names the limiter the request skipped and carries
-// server_read_exempt=true; it never carries the header or its value.
-func (e *ServerReadExemption) logSample(r *http.Request) {
-	if e.sample() {
-		publicReadAnonymousSpec.logServerReadExempt(r)
+// ceiling wraps next in this exemption's per-IP ceiling. A nil exemption
+// returns nil; callers reach it only after Exempts, which a nil exemption
+// never answers true.
+func (e *ServerReadExemption) ceiling(next http.Handler) http.Handler {
+	if e == nil {
+		return nil
 	}
+	return e.limit(next)
 }

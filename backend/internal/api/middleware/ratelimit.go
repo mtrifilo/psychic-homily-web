@@ -112,6 +112,16 @@ const (
 	// authenticated and anonymous traffic from one IP never share a counter. Tune
 	// upward if legitimate campus/office NAT is observed hitting it on stage.
 	PublicReadAuthenticatedIPCeilingPerMinute = 1000
+
+	// PublicReadServerReadIPCeilingPerMinute is the per-IP ceiling on reads that
+	// pass the server-read exemption (ServerReadExemption). Those reads skip the
+	// anonymous limiter, and this bounds what anyone holding the secret can draw
+	// from one address. A server's own renders come from a handful of egress
+	// addresses and fetch through the Data Cache, so they stay far below it;
+	// reaching it means the secret is being used by something other than the
+	// frontend's server. It has its own counter, so it never spends the
+	// anonymous bucket of the same address.
+	PublicReadServerReadIPCeilingPerMinute = 2000
 )
 
 // RateLimitPublicReadAnonymousEndpoints is the per-IP limiter for anonymous
@@ -121,18 +131,13 @@ func RateLimitPublicReadAnonymousEndpoints() func(http.Handler) http.Handler {
 	return publicReadAnonymousLimiter(sampleAt(allowedReadSampleRate))
 }
 
-// publicReadAnonymousSpec is the anonymous public-read limiter. A server-side
-// read that skips it (ServerReadExemption) logs its sample line under this
-// spec's name, so both kinds of line group under one limiter.
-var publicReadAnonymousSpec = limiterSpec{
-	name:   LimiterPublicReadAnonymous,
-	limit:  APIRequestsPerMinute,
-	window: time.Minute,
-	key:    KeyByClientIP,
-}
-
 func publicReadAnonymousLimiter(sample func() bool) func(http.Handler) http.Handler {
-	return publicReadAnonymousSpec.sampledHandler(authStateAnonymous, sample)
+	return limiterSpec{
+		name:   LimiterPublicReadAnonymous,
+		limit:  APIRequestsPerMinute,
+		window: time.Minute,
+		key:    KeyByClientIP,
+	}.sampledHandler(authStateAnonymous, sample)
 }
 
 // SkipRateLimitForAdmin wraps a rate-limit middleware with two hatches: a
@@ -344,10 +349,11 @@ func publicReadIPCeilingLimiter(sample func() bool) func(http.Handler) http.Hand
 // not this bypass.
 //
 // A server-side read (serverRead.Exempts: a GET or HEAD carrying the configured
-// server-read secret) that is neither of the above skips anonLimiter and
-// reaches next still anonymous. It is checked AFTER the session and API-token
-// cases, so a server render that forwards a viewer's session is metered on that
-// viewer's own bucket. A nil serverRead exempts nothing.
+// server-read secret) that is neither of the above skips anonLimiter and passes
+// only serverRead's own per-IP ceiling (PublicReadServerReadIPCeilingPerMinute)
+// before reaching next, still anonymous. It is checked AFTER the session and
+// API-token cases, so a server render that forwards a viewer's session is
+// metered on that viewer's own bucket. A nil serverRead exempts nothing.
 //
 // A FOURTH state is layered OUTSIDE this function, in
 // routes.PublicReadRateLimiter: a request whose path carries a validated
@@ -388,6 +394,7 @@ func RateLimitPublicReadsByAuthState(jwtService *auth.JWTService, validateAPITok
 		// ORDER note above). Request must clear both; a single account's own-cap
 		// rejections stop at the per-user limiter and never touch the ceiling.
 		user := userLimiter(ipCeilingLimiter(next))
+		serverReadCeiling := serverRead.ceiling(next)
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			if uid, ok := sessionUserID(jwtService, r); ok {
 				ctx := context.WithValue(r.Context(), rateLimitUserIDKey{}, uid)
@@ -399,8 +406,7 @@ func RateLimitPublicReadsByAuthState(jwtService *auth.JWTService, validateAPITok
 				return
 			}
 			if serverRead.Exempts(r) {
-				serverRead.logSample(r)
-				next.ServeHTTP(w, r)
+				serverReadCeiling.ServeHTTP(w, r)
 				return
 			}
 			anon.ServeHTTP(w, r)

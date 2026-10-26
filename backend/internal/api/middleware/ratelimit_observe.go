@@ -39,6 +39,7 @@ const (
 	LimiterPublicReadAnonymous           LimiterName = "public_read_anonymous"
 	LimiterPublicReadUser                LimiterName = "public_read_user"
 	LimiterPublicReadIPCeiling           LimiterName = "public_read_ip_ceiling"
+	LimiterPublicReadServerReadCeiling   LimiterName = "public_read_server_read_ceiling"
 	LimiterEngagementMutationBurst       LimiterName = "engagement_mutation_burst"
 	LimiterEngagementMutationSustained   LimiterName = "engagement_mutation_sustained"
 	LimiterEntityRequestBatchBurst       LimiterName = "entity_request_batch_burst"
@@ -92,6 +93,11 @@ type limiterSpec struct {
 	limit  int
 	window time.Duration
 	key    httprate.KeyFunc
+	// serverReadExempt marks the limiter that meters server-side reads
+	// (ServerReadExemption): every line it writes, allowed or rejected,
+	// carries server_read_exempt=true. Every other limiter's sample lines carry
+	// false.
+	serverReadExempt bool
 }
 
 // handler is the limiter as middleware. A rejected request gets rejection's
@@ -141,8 +147,11 @@ func (s limiterSpec) logAttrs(event string, r *http.Request) []any {
 
 // logRejected writes one ratelimit_rejected line.
 func (s limiterSpec) logRejected(r *http.Request) {
-	logger.FromContext(r.Context()).Warn("rate limit exceeded",
-		append(s.logAttrs(rateLimitRejectedEvent, r), "method", r.Method)...)
+	attrs := append(s.logAttrs(rateLimitRejectedEvent, r), "method", r.Method)
+	if s.serverReadExempt {
+		attrs = append(attrs, serverReadExemptAttr, true)
+	}
+	logger.FromContext(r.Context()).Warn("rate limit exceeded", attrs...)
 }
 
 // LogClientIPRateLimitRejection writes the ratelimit_rejected line for a
@@ -160,15 +169,7 @@ func (s limiterSpec) logAllowed(w http.ResponseWriter, r *http.Request, authStat
 	if err != nil {
 		return
 	}
-	s.writeSampleLine(r, authState, false, "remaining", remaining)
-}
-
-// logServerReadExempt writes one ratelimit_allowed_sample line for an anonymous
-// request that skipped this limiter as a server-side read. It carries no
-// remaining budget, because the request was never metered and the bucket was
-// not consulted.
-func (s limiterSpec) logServerReadExempt(r *http.Request) {
-	s.writeSampleLine(r, authStateAnonymous, true)
+	s.writeSampleLine(r, authState, s.serverReadExempt, "remaining", remaining)
 }
 
 // writeSampleLine writes one ratelimit_allowed_sample line, unconditionally:
