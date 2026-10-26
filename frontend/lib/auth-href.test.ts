@@ -212,6 +212,12 @@ describe('asksForCreateAccount', () => {
   it('accepts a listed intent or the signup tab', () => {
     expect(asksForCreateAccount(new URLSearchParams('intent=save'))).toBe(true)
     expect(asksForCreateAccount(new URLSearchParams('tab=signup'))).toBe(true)
+    expect(
+      asksForCreateAccount(new URLSearchParams('intent=bogus&tab=signup'))
+    ).toBe(true)
+    expect(
+      asksForCreateAccount(new URLSearchParams('intent=save&tab=bogus'))
+    ).toBe(true)
   })
 
   it('rejects any other arrival', () => {

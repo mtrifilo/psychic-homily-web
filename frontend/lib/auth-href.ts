@@ -271,7 +271,7 @@ export function buildSignupTabAuthHref(): string {
 }
 
 /**
- * Does this auth-page URL ask for the Create account tab? Only the exact
+ * Does this auth-page URL carry the home hero's sign-up tab? Only the exact
  * value `signup` does; any other value, or none, is ignored.
  */
 export function hasSignupTab(searchParams: {

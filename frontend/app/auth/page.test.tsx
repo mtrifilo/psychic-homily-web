@@ -1030,6 +1030,19 @@ describe('AuthPage', () => {
       expect(screen.getByText('x')).toBeInTheDocument()
     })
 
+    it('keeps the home hero sign-up arrival on Create account beside a banner', () => {
+      const { rerender } = arriveAt('error=x&tab=signup')
+      expect(addressBar()).toBe('/auth?tab=signup')
+
+      followAddressBar(rerender)
+
+      expect(screen.getByRole('tab', { name: 'Create account' })).toHaveAttribute(
+        'aria-selected',
+        'true'
+      )
+      expect(screen.getByText('x')).toBeInTheDocument()
+    })
+
     it('keeps a re-authentication reason in the URL', async () => {
       mockAuthState = { setUser: vi.fn(), authStatus: 'authenticated' }
       const { rerender } = arriveAt('returnTo=%2Fprofile&reason=OAUTH_LINK_REAUTH_REQUIRED&error=x')
