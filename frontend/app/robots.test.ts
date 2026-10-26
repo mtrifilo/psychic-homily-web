@@ -239,9 +239,8 @@ const PUBLIC_RULE_LINES = [
   ...PUBLIC_DISALLOW.map(path => `Disallow: ${path}`),
 ]
 
-// Real RSC payload URLs: the first four are the shapes Search Console
-// reported, the rest are the same parameter after another query parameter
-// and on the site root.
+// RSC payload URLs with `_rsc` as the only query parameter, after another
+// query parameter, and on the site root.
 const RSC_PAYLOAD_URLS = [
   '/venues/troubadour-west-hollywood-ca?_rsc=113fy',
   '/artists/the-stellar-bandits?_rsc=cqffb',
