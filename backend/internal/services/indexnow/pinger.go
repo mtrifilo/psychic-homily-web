@@ -81,7 +81,7 @@ func New(database *gorm.DB, source ChangeSource, frontendURL string) (*Pinger, s
 	if !enabled {
 		return nil, reason
 	}
-	return newPinger(cfg, source, runRowMarks{db: database, name: LoopName}, slog.Default()), ""
+	return newPinger(cfg, source, runRowMarks{db: database}, slog.Default()), ""
 }
 
 func newPinger(cfg Config, source ChangeSource, marks markStore, logger *slog.Logger) *Pinger {

@@ -21,8 +21,7 @@ import (
 // Advance writes nothing: RunScheduledLoop stamps last_success_at when a cycle
 // reports no error, and only then.
 type runRowMarks struct {
-	db   *gorm.DB
-	name string
+	db *gorm.DB
 }
 
 // Begin implements markStore. A row with no last_success_at, or no row, is no
@@ -35,7 +34,7 @@ func (m runRowMarks) Begin(ctx context.Context) (time.Time, time.Time, bool, err
 	err := m.db.WithContext(ctx).Raw(
 		`SELECT NOW() AS now,
 		        (SELECT last_success_at FROM background_service_runs WHERE name = ?) AS last_success_at`,
-		m.name,
+		LoopName,
 	).Scan(&row).Error
 	if err != nil {
 		return time.Time{}, time.Time{}, false, fmt.Errorf("read indexnow mark: %w", err)

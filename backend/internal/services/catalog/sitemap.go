@@ -508,21 +508,7 @@ func (s *SitemapService) Entries(ctx context.Context, family string) (*contracts
 	}
 
 	family = strings.TrimSpace(family)
-	out := &contracts.SitemapEntries{
-		Shows:        []contracts.SitemapEntry{},
-		Artists:      []contracts.SitemapEntry{},
-		Venues:       []contracts.SitemapEntry{},
-		VenueYears:   []contracts.SitemapEntry{},
-		ShowsMonths:  []contracts.SitemapEntry{},
-		VenueCities:  []contracts.SitemapEntry{},
-		Scenes:       []contracts.SitemapEntry{},
-		SceneWeeks:   []contracts.SitemapEntry{},
-		ScenePeriods: []contracts.SitemapEntry{},
-		Labels:       []contracts.SitemapEntry{},
-		Releases:     []contracts.SitemapEntry{},
-		Festivals:    []contracts.SitemapEntry{},
-		Tags:         []contracts.SitemapEntry{},
-	}
+	out := emptySitemapEntries()
 
 	// A sub-shard id resolves to the family it buckets plus the residue to
 	// select, so everything downstream reasons in families only.
@@ -670,21 +656,7 @@ func (s *SitemapService) EntriesChangedSince(ctx context.Context, since time.Tim
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
 	}
-	out := &contracts.SitemapEntries{
-		Shows:        []contracts.SitemapEntry{},
-		Artists:      []contracts.SitemapEntry{},
-		Venues:       []contracts.SitemapEntry{},
-		VenueYears:   []contracts.SitemapEntry{},
-		ShowsMonths:  []contracts.SitemapEntry{},
-		VenueCities:  []contracts.SitemapEntry{},
-		Scenes:       []contracts.SitemapEntry{},
-		SceneWeeks:   []contracts.SitemapEntry{},
-		ScenePeriods: []contracts.SitemapEntry{},
-		Labels:       []contracts.SitemapEntry{},
-		Releases:     []contracts.SitemapEntry{},
-		Festivals:    []contracts.SitemapEntry{},
-		Tags:         []contracts.SitemapEntry{},
-	}
+	out := emptySitemapEntries()
 	var err error
 	if out.Shows, err = s.showEntries(ctx, nil, &since); err != nil {
 		return nil, fmt.Errorf("failed to collect changed show entries: %w", err)
@@ -741,6 +713,26 @@ func (s *SitemapService) releaseEntries(ctx context.Context, shard *sitemapShard
 		ctx, shard.narrow(s.db.Model(&catalogm.Release{})),
 		shard, s.diet.unlinkedReleases(), releaseLastmodSQL, since,
 	)
+}
+
+// emptySitemapEntries is a result with every family an empty slice, never
+// nil, so a family a call does not populate still serialises as [].
+func emptySitemapEntries() *contracts.SitemapEntries {
+	return &contracts.SitemapEntries{
+		Shows:        []contracts.SitemapEntry{},
+		Artists:      []contracts.SitemapEntry{},
+		Venues:       []contracts.SitemapEntry{},
+		VenueYears:   []contracts.SitemapEntry{},
+		ShowsMonths:  []contracts.SitemapEntry{},
+		VenueCities:  []contracts.SitemapEntry{},
+		Scenes:       []contracts.SitemapEntry{},
+		SceneWeeks:   []contracts.SitemapEntry{},
+		ScenePeriods: []contracts.SitemapEntry{},
+		Labels:       []contracts.SitemapEntry{},
+		Releases:     []contracts.SitemapEntry{},
+		Festivals:    []contracts.SitemapEntry{},
+		Tags:         []contracts.SitemapEntry{},
+	}
 }
 
 // rowLastmodSQL is the row's own updated_at, the lastmod of every family that

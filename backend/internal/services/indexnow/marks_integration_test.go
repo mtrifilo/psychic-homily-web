@@ -20,7 +20,7 @@ func TestRunRowMarksFollowTheLoopsLastSuccess(t *testing.T) {
 	td := testutil.SetupTestPostgres(t)
 	defer td.Cleanup()
 	ctx := context.Background()
-	marks := runRowMarks{db: td.DB, name: LoopName}
+	marks := runRowMarks{db: td.DB}
 	runs := shared.NewGormRunStore(td.DB)
 
 	lastSuccess := func() time.Time {
