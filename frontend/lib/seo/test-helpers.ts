@@ -12,8 +12,18 @@ export function okResponse(body: unknown): Response {
   return { ok: true, status: 200, json: async () => body } as unknown as Response
 }
 
-export function errorResponse(status: number): Response {
-  return { ok: false, status, json: async () => ({}) } as unknown as Response
+/**
+ * A real `Response`, so failure reporting can read its headers (`Retry-After`)
+ * the way it does in production. Pass `headers` to add one.
+ */
+export function errorResponse(
+  status: number,
+  headers: Record<string, string> = {}
+): Response {
+  return new Response('{}', {
+    status,
+    headers: { 'Content-Type': 'application/json', ...headers },
+  })
 }
 
 /**

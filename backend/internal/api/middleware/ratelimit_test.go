@@ -363,7 +363,7 @@ func authStateMWValidate(jwtService *auth.JWTService, validateAPIToken func(stri
 		httprate.WithLimitHandler(testRejection))
 	ipCeiling := httprate.Limit(1000, time.Minute, httprate.WithKeyFuncs(httprate.KeyByIP),
 		httprate.WithLimitHandler(testRejection))
-	return RateLimitPublicReadsByAuthState(jwtService, validateAPIToken, anon, perUser, ipCeiling)
+	return RateLimitPublicReadsByAuthState(jwtService, validateAPIToken, nil, anon, perUser, ipCeiling)
 }
 
 // authStateMWWithCeiling saturates the per-IP authenticated ceiling directly for
@@ -377,7 +377,7 @@ func authStateMWWithCeiling(jwtService *auth.JWTService, ceiling int) func(http.
 		httprate.WithLimitHandler(testRejection))
 	ipCeiling := httprate.Limit(ceiling, time.Minute, httprate.WithKeyFuncs(httprate.KeyByIP),
 		httprate.WithLimitHandler(testRejection))
-	return RateLimitPublicReadsByAuthState(jwtService, nil, anon, perUser, ipCeiling)
+	return RateLimitPublicReadsByAuthState(jwtService, nil, nil, anon, perUser, ipCeiling)
 }
 
 func readReq(remoteAddr, bearer string) *http.Request {
@@ -650,7 +650,7 @@ func TestRateLimitPublicReadsByAuthState_OwnCapRejectionsDoNotDrainSharedCeiling
 		httprate.WithLimitHandler(testRejection))
 	ipCeiling := httprate.Limit(2, time.Minute, httprate.WithKeyFuncs(httprate.KeyByIP),
 		httprate.WithLimitHandler(testRejection))
-	handler := RateLimitPublicReadsByAuthState(jwtService, nil, anon, perUser, ipCeiling)(okHandler())
+	handler := RateLimitPublicReadsByAuthState(jwtService, nil, nil, anon, perUser, ipCeiling)(okHandler())
 
 	const sharedIP = "3.3.3.3:400"
 	tokenA, tokenB := mkToken(1), mkToken(2)

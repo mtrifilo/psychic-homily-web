@@ -6,6 +6,12 @@ import {
   DataCacheBudgetError,
   readJsonWithinDataCacheBudget,
 } from '@/lib/data-cache-budget/assert'
+import {
+  listPathFamily,
+  listQueryParamNames,
+  reportServerFetchFailure,
+} from '@/lib/ssr/reportServerFetchFailure'
+import { serverReadHeaders } from '@/lib/ssr/serverReadHeaders'
 
 /**
  * How long a first-screen payload stays warm in Next's Data Cache.
@@ -75,6 +81,18 @@ interface FetchListPayloadOptions {
    * shortens this to bound that window.
    */
   revalidateSeconds?: number
+  /**
+   * The route as a template (`/artists/{slug}/shows`) for a URL whose path
+   * carries an entity key. Defaults to the URL's pathname, which suits a path
+   * that carries none.
+   */
+  pathFamily?: string
+  /**
+   * True for a read scoped to an entity named by the visitor's URL, where a 404
+   * says that entity does not exist. Defaults to false: a list path that 404s
+   * is a defect in our own request.
+   */
+  notFoundIsAnswer?: boolean
   /** Injection seam for tests; production always uses the global `fetch`. */
   fetchImpl?: typeof fetch
 }
@@ -110,10 +128,13 @@ export async function fetchListPayload<T>({
   service,
   timeoutMs = FIRST_SCREEN_FETCH_TIMEOUT_MS,
   revalidateSeconds = FIRST_SCREEN_REVALIDATE_SECONDS,
+  pathFamily = listPathFamily(url),
+  notFoundIsAnswer = false,
   fetchImpl = fetch,
 }: FetchListPayloadOptions): Promise<T | null> {
   try {
     const res = await fetchImpl(url, {
+      headers: serverReadHeaders(),
       next: { revalidate: revalidateSeconds },
       signal: createBuildTimeApiSignal(timeoutMs),
     })
@@ -124,10 +145,12 @@ export async function fetchListPayload<T>({
       // `/venues?limit=200` 422 that silently suppressed an `ItemList` in
       // production for months is the cautionary case (see
       // `app/venues/venuesMetadata.ts`).
-      Sentry.captureMessage(`${service}: API returned ${res.status}`, {
-        level: 'error',
-        tags: { service },
-        extra: { url, status: res.status },
+      reportServerFetchFailure({
+        response: res,
+        service,
+        pathFamily,
+        notFoundIsAnswer,
+        context: { queryParams: listQueryParamNames(url) },
       })
       return null
     }

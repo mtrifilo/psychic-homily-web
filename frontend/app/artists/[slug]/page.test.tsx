@@ -75,8 +75,23 @@ vi.mock('@/features/artists/components/ArtistPastShows', () => ({
   ArtistPastShows: (): null => null,
 }))
 
+// Spied rather than replaced, so the page's server-fetch failure reports can be
+// read back.
+vi.mock('@sentry/nextjs', async importOriginal => ({
+  ...(await importOriginal<typeof import('@sentry/nextjs')>()),
+  captureMessage: vi.fn(),
+  captureException: vi.fn(),
+}))
+
+import * as Sentry from '@sentry/nextjs'
 import ArtistPage, { generateMetadata } from './page'
 import { ArtistShowsList } from '@/features/artists/components/ArtistShowsList'
+import { resetServerFetchReportThrottleForTests } from '@/lib/ssr/reportServerFetchFailure'
+
+// Each test starts with every route's report window open.
+beforeEach(() => {
+  resetServerFetchReportThrottleForTests()
+})
 
 function buildArtist(overrides: Record<string, unknown> = {}) {
   return {
@@ -460,4 +475,76 @@ describe('ArtistPage upcoming Save column', () => {
       expect(hydrated.errors).toEqual([])
     }
   )
+})
+
+describe('artists/[slug] server read', () => {
+  afterEach(() => {
+    vi.unstubAllEnvs()
+  })
+
+  it('sends the server-read secret when one is configured', async () => {
+    vi.stubEnv('SERVER_READ_SECRET', 'artist-page-secret-0123456789abcdef0123')
+    fetchMock.mockResolvedValueOnce(okResponse(buildArtist()))
+
+    await generateMetadata({ params: Promise.resolve({ slug: 'headliner-band' }) })
+
+    const init = fetchMock.mock.calls[0][1] as RequestInit
+    expect(init.headers).toEqual({ 'X-Server-Read-Secret': 'artist-page-secret-0123456789abcdef0123' })
+  })
+
+  it('sends no secret header when none is configured', async () => {
+    vi.stubEnv('SERVER_READ_SECRET', '')
+    fetchMock.mockResolvedValueOnce(okResponse(buildArtist()))
+
+    await generateMetadata({ params: Promise.resolve({ slug: 'headliner-band' }) })
+
+    const init = fetchMock.mock.calls[0][1] as RequestInit
+    expect(init.headers).toEqual({})
+  })
+
+  it('reports a 429 and still renders the not-found page', async () => {
+    fetchMock.mockImplementation(async () => errorResponse(429, { 'Retry-After': '60' }))
+
+    await expect(
+      ArtistPage({ params: Promise.resolve({ slug: 'rate-limited' }) })
+    ).rejects.toThrow(NOT_FOUND_SENTINEL)
+
+    expect(Sentry.captureMessage).toHaveBeenCalledWith(
+      'artist-page: API returned 429',
+      expect.objectContaining({
+        level: 'error',
+        tags: { service: 'artist-page', path_family: '/artists/{slug}', status: '429' },
+        extra: {
+          slug: 'rate-limited',
+          pathFamily: '/artists/{slug}',
+          status: 429,
+          retryAfter: '60',
+          suppressedSinceLastReport: 0,
+        },
+      })
+    )
+  })
+
+  it('reports a 5xx', async () => {
+    fetchMock.mockImplementation(async () => errorResponse(500))
+
+    await generateMetadata({ params: Promise.resolve({ slug: 'boom' }) })
+
+    expect(Sentry.captureMessage).toHaveBeenCalledWith(
+      'artist-page: API returned 500',
+      expect.objectContaining({ extra: expect.objectContaining({ status: 500 }) })
+    )
+  })
+
+  it('stays silent on a 404', async () => {
+    fetchMock.mockImplementation(async () => errorResponse(404))
+
+    await expect(
+      ArtistPage({ params: Promise.resolve({ slug: 'missing' }) })
+    ).rejects.toThrow(NOT_FOUND_SENTINEL)
+
+    // Neither the artist read nor its upcoming-shows read, which is scoped to
+    // the same slug, reports a 404.
+    expect(Sentry.captureMessage).not.toHaveBeenCalled()
+  })
 })

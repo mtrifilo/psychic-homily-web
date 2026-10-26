@@ -14,6 +14,8 @@
  */
 
 import * as Sentry from '@sentry/nextjs'
+import { reportServerFetchFailure } from '@/lib/ssr/reportServerFetchFailure'
+import { serverReadHeaders } from '@/lib/ssr/serverReadHeaders'
 
 import { GRAPH_OVERVIEW_NOT_BUILT_STATUS, graphEndpoints } from './api'
 import { buildSceneMap, type GraphOverview, type SceneMap } from './sceneMap'
@@ -46,6 +48,7 @@ export async function fetchGraphOverview(
 ): Promise<GraphOverview | null> {
   try {
     const res = await fetch(graphEndpoints.OVERVIEW, {
+      headers: serverReadHeaders(),
       next: { revalidate: GRAPH_OVERVIEW_REVALIDATE },
     })
     // `await` inside the try is load-bearing: `return res.json()` would adopt
@@ -54,11 +57,13 @@ export async function fetchGraphOverview(
     if (res.ok) return asOverview(await res.json())
     // Everything except "not built yet" and a 404 is worth knowing about. A
     // nightly job that has never run is a fact about the install; a 500 is not.
-    if (res.status !== GRAPH_OVERVIEW_NOT_BUILT_STATUS && res.status !== 404) {
-      Sentry.captureMessage(`Graph overview: API returned ${res.status}`, {
+    if (res.status !== GRAPH_OVERVIEW_NOT_BUILT_STATUS) {
+      reportServerFetchFailure({
+        response: res,
+        service,
+        pathFamily: '/graph/overview',
+        notFoundIsAnswer: true,
         level: res.status >= 500 ? 'error' : 'warning',
-        tags: { service },
-        extra: { status: res.status },
       })
     }
   } catch (error) {

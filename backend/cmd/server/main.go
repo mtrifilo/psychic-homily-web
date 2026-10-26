@@ -93,23 +93,7 @@ func main() {
 
 	// Initialize Sentry for error tracking
 	if sentryDSN := os.Getenv("SENTRY_DSN"); sentryDSN != "" {
-		if err := sentry.Init(sentry.ClientOptions{
-			Dsn:              sentryDSN,
-			Environment:      environment,
-			Debug:            !isProduction,
-			TracesSampleRate: 0.1, // Sample 10% of transactions for performance monitoring
-			EnableTracing:    true,
-			// Explicit (it already defaults false): never attach cookies/headers/
-			// body as PII. PSY-1145.
-			SendDefaultPII: false,
-			// PSY-1145: best-effort secondary net that caps oversized values +
-			// strips common secret shapes (token-bearing URL userinfo/query,
-			// Bearer, key=value / JSON secrets, request body, auth cookie/headers)
-			// from every captured event. NOT a complete guarantee — path-segment
-			// secrets (e.g. the Discord webhook token) must still be redacted at
-			// the call site (utils.RedactErrorURL). See ScrubSentryEvent's doc.
-			BeforeSend: observability.ScrubSentryEvent,
-		}); err != nil {
+		if err := sentry.Init(sentryClientOptions(sentryDSN, environment, isProduction)); err != nil {
 			log.Printf("Sentry initialization failed: %v", err)
 		} else {
 			log.Printf("Sentry initialized for environment: %s", environment)
@@ -798,6 +782,34 @@ func main() {
 	}
 
 	log.Println("Server gracefully stopped.")
+}
+
+// sentryClientOptions is the Sentry client configuration.
+//
+// ScrubSentryEvent runs on transactions as well as on error events. sentry-go
+// passes only non-transaction events to BeforeSend, and a sampled transaction
+// carries the request's headers, so without BeforeSendTransaction a header the
+// SDK does not list as sensitive (X-Internal-Secret, X-Server-Read-Secret)
+// would ship verbatim on every sampled request.
+func sentryClientOptions(dsn, environment string, isProduction bool) sentry.ClientOptions {
+	return sentry.ClientOptions{
+		Dsn:              dsn,
+		Environment:      environment,
+		Debug:            !isProduction,
+		TracesSampleRate: 0.1, // Sample 10% of transactions for performance monitoring
+		EnableTracing:    true,
+		// Explicit (it already defaults false): never attach cookies/headers/
+		// body as PII.
+		SendDefaultPII: false,
+		// Best-effort secondary net that caps oversized values +
+		// strips common secret shapes (token-bearing URL userinfo/query,
+		// Bearer, key=value / JSON secrets, request body, auth cookie/headers)
+		// from every captured event. NOT a complete guarantee: path-segment
+		// secrets (e.g. the Discord webhook token) must still be redacted at
+		// the call site (utils.RedactErrorURL). See ScrubSentryEvent's doc.
+		BeforeSend:            observability.ScrubSentryEvent,
+		BeforeSendTransaction: observability.ScrubSentryEvent,
+	}
 }
 
 // useRequestCorrelation registers, outermost first, the middleware that gives

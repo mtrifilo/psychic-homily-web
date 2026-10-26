@@ -2,6 +2,8 @@ import { Metadata } from 'next'
 import * as Sentry from '@sentry/nextjs'
 import RadioShowDetail from './_components/RadioShowDetail'
 import { API_BASE_URL } from '@/lib/api-base'
+import { reportServerFetchFailure } from '@/lib/ssr/reportServerFetchFailure'
+import { serverReadHeaders } from '@/lib/ssr/serverReadHeaders'
 
 interface ShowPageProps {
   params: Promise<{ 'station-slug': string; 'show-slug': string }>
@@ -18,19 +20,20 @@ interface RadioShowData {
 
 async function getRadioShow(slug: string): Promise<RadioShowData | null> {
   try {
-    const res = await fetch(`${API_BASE_URL}/radio-shows/${slug}`, {
+    const res = await fetch(`${API_BASE_URL}/radio-shows/${encodeURIComponent(slug)}`, {
+      headers: serverReadHeaders(),
       next: { revalidate: 3600 },
     })
     if (res.ok) {
       return res.json()
     }
-    if (res.status >= 500) {
-      Sentry.captureMessage(`Radio show page fetch error: ${res.status}`, {
-        level: 'error',
-        tags: { service: 'radio-show-page' },
-        extra: { slug, status: res.status },
-      })
-    }
+    reportServerFetchFailure({
+      response: res,
+      service: 'radio-show-page',
+      pathFamily: '/radio-shows/{slug}',
+      notFoundIsAnswer: true,
+      context: { slug },
+    })
   } catch (error) {
     Sentry.captureException(error, {
       level: 'error',

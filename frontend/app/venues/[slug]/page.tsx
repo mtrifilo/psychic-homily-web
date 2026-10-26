@@ -41,6 +41,7 @@ function getVenueUpcomingShows(venue: Venue): Promise<VenueShowsResponse | null>
     url: venueRailShowsUrl(venue.id),
     collection: 'shows',
     service: 'venue-page-next-show',
+    pathFamily: '/venues/{id}/shows',
     revalidateSeconds: CURRENT_PERIOD_REVALIDATE,
   })
 }
@@ -133,6 +134,8 @@ export default async function VenuePage({ params }: VenuePageProps) {
       url: venueUpcomingShowsUrl(slug),
       collection: 'shows',
       service: 'venue-page-upcoming-shows',
+      pathFamily: '/venues/{slug}/shows',
+      notFoundIsAnswer: true,
       revalidateSeconds: CURRENT_PERIOD_REVALIDATE,
     }),
   ])

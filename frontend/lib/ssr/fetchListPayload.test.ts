@@ -11,6 +11,12 @@ vi.mock('@sentry/nextjs', () => ({
 }))
 
 import { FIRST_SCREEN_REVALIDATE_SECONDS, fetchListPayload } from './fetchListPayload'
+import { resetServerFetchReportThrottleForTests } from '@/lib/ssr/reportServerFetchFailure'
+
+// Each test starts with every route's report window open.
+beforeEach(() => {
+  resetServerFetchReportThrottleForTests()
+})
 
 const jsonResponse = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), {
@@ -75,6 +81,102 @@ describe('fetchListPayload', () => {
       'venues-first-screen: API returned 422',
       expect.objectContaining({ level: 'error' }),
     )
+  })
+
+  it('reports a 429 by path, never with the query string', async () => {
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValue(new Response(null, { status: 429, headers: { 'Retry-After': '60' } }))
+
+    await expect(call(fetchImpl)).resolves.toBeNull()
+    expect(captureMessage).toHaveBeenCalledWith('venues-first-screen: API returned 429', {
+      level: 'error',
+      tags: { service: 'venues-first-screen', path_family: '/venues', status: '429' },
+      extra: {
+        queryParams: 'limit',
+        pathFamily: '/venues',
+        status: 429,
+        retryAfter: '60',
+        suppressedSinceLastReport: 0,
+      },
+    })
+    expect(JSON.stringify(captureMessage.mock.calls)).not.toContain('limit=50')
+  })
+
+  it('reports a 404, because a list path that 404s is our own defect', async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(new Response(null, { status: 404 }))
+
+    await expect(call(fetchImpl)).resolves.toBeNull()
+    expect(captureMessage).toHaveBeenCalledWith(
+      'venues-first-screen: API returned 404',
+      expect.objectContaining({ level: 'error' }),
+    )
+  })
+
+  it('stays silent on a 404 when the caller says a 404 answers', async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(new Response(null, { status: 404 }))
+
+    await expect(
+      fetchListPayload({
+        url: 'https://api.example.test/artists/some-artist/shows?limit=5',
+        collection: 'shows',
+        service: 'artist-page-upcoming-shows',
+        pathFamily: '/artists/{slug}/shows',
+        notFoundIsAnswer: true,
+        fetchImpl,
+      }),
+    ).resolves.toBeNull()
+    expect(captureMessage).not.toHaveBeenCalled()
+  })
+
+  it('reports under the caller\'s templated path family', async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(new Response(null, { status: 429 }))
+
+    await fetchListPayload({
+      url: 'https://api.example.test/artists/some-artist/shows?limit=5',
+      collection: 'shows',
+      service: 'artist-page-upcoming-shows',
+      pathFamily: '/artists/{slug}/shows',
+      notFoundIsAnswer: true,
+      fetchImpl,
+    })
+    expect(captureMessage).toHaveBeenCalledWith(
+      'artist-page-upcoming-shows: API returned 429',
+      expect.objectContaining({
+        tags: expect.objectContaining({ path_family: '/artists/{slug}/shows' }),
+      }),
+    )
+    expect(JSON.stringify(captureMessage.mock.calls)).not.toContain('some-artist')
+  })
+
+  describe('server-read secret', () => {
+    afterEach(() => {
+      vi.unstubAllEnvs()
+    })
+
+    it('sends it when one is configured', async () => {
+      vi.stubEnv('SERVER_READ_SECRET', 'list-secret-0123456789abcdef0123456789')
+      const fetchImpl = vi.fn().mockResolvedValue(jsonResponse({ venues: [], total: 0 }))
+
+      await call(fetchImpl)
+
+      expect(fetchImpl).toHaveBeenCalledWith(
+        'https://api.example.test/venues?limit=50',
+        expect.objectContaining({ headers: { 'X-Server-Read-Secret': 'list-secret-0123456789abcdef0123456789' } }),
+      )
+    })
+
+    it('sends none when none is configured', async () => {
+      vi.stubEnv('SERVER_READ_SECRET', '')
+      const fetchImpl = vi.fn().mockResolvedValue(jsonResponse({ venues: [], total: 0 }))
+
+      await call(fetchImpl)
+
+      expect(fetchImpl).toHaveBeenCalledWith(
+        'https://api.example.test/venues?limit=50',
+        expect.objectContaining({ headers: {} }),
+      )
+    })
   })
 
   it('returns null and reports when the request throws', async () => {

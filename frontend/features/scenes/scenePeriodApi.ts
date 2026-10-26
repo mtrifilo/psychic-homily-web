@@ -2,8 +2,8 @@
  * Reading one PERIOD of a scene's calendar from the API — a week, a night —
  * and nothing else.
  *
- * A leaf module by design, importing nothing but the API base: the weekly share
- * card renders on the edge runtime, and reaching this through a page module
+ * A leaf module by design, importing only leaf helpers: the weekly share card
+ * renders on the edge runtime, and reaching this through a page module
  * would drag the page view and its JSON-LD helpers into that bundle for no
  * reason.
  *
@@ -14,6 +14,8 @@
  * time only one of them was fixed.
  */
 import * as Sentry from '@sentry/nextjs'
+import { reportServerFetchFailure } from '@/lib/ssr/reportServerFetchFailure'
+import { serverReadHeaders } from '@/lib/ssr/serverReadHeaders'
 
 /**
  * How long a fetched period stays fresh.
@@ -47,6 +49,8 @@ interface ScenePeriodSpec<T> {
   slug: string
   /** The API URL for this period key, or for the CURRENT period when omitted. */
   buildUrl: (key: string | undefined) => string
+  /** `buildUrl`'s route as a template with no values, for failure reports. */
+  pathFamily: (key: string | undefined) => string
   /**
    * Fields that NAME the period, each paired with the shape its value must
    * have.
@@ -178,7 +182,7 @@ async function fetchPayload<T>(
 ): Promise<T | null> {
   const url = spec.buildUrl(key)
   try {
-    const res = await fetch(url, { next: { revalidate } })
+    const res = await fetch(url, { headers: serverReadHeaders(), next: { revalidate } })
     // `await` is load-bearing, not noise: `return res.json()` inside a try block
     // adopts the promise AFTER the block exits, so a malformed body would reject
     // past this catch and 500 the route instead of reaching the caller's
@@ -187,13 +191,13 @@ async function fetchPayload<T>(
     // 404 is the expected answer for an unknown slug, a below-threshold scene,
     // or a key that does not exist (2025-W53, 2026-02-30) — not an error worth
     // reporting.
-    if (res.status >= 500) {
-      Sentry.captureMessage(`${spec.label}: API returned ${res.status}`, {
-        level: 'error',
-        tags: { service: spec.service },
-        extra: { slug: spec.slug, key, status: res.status },
-      })
-    }
+    reportServerFetchFailure({
+      response: res,
+      service: spec.service,
+      pathFamily: spec.pathFamily(key),
+      notFoundIsAnswer: true,
+      context: { slug: spec.slug, key },
+    })
   } catch (error) {
     Sentry.captureException(error, {
       level: 'error',

@@ -1,6 +1,8 @@
 import { ImageResponse } from 'next/og'
 import * as Sentry from '@sentry/nextjs'
 import { API_BASE_URL } from '@/lib/api-base'
+import { reportServerFetchFailure } from '@/lib/ssr/reportServerFetchFailure'
+import { serverReadHeaders } from '@/lib/ssr/serverReadHeaders'
 import { showPageDateLong } from '@/features/shows/showPageDate'
 import {
   OG_COLORS,
@@ -525,19 +527,20 @@ const SHOW_REVALIDATE = LIVE_REVALIDATE
 async function fetchShow(slug: string): Promise<ShowData | null> {
   try {
     const res = await fetch(`${API_BASE_URL}/shows/${encodeURIComponent(slug)}`, {
+      headers: serverReadHeaders(),
       next: { revalidate: SHOW_REVALIDATE },
     })
     // `await` inside the try is load-bearing: `return res.json()` would adopt
     // the promise after the block exits, so a malformed body would reject past
     // this catch and 500 the route instead of reaching the fallback card.
     if (res.ok) return asShow(await res.json())
-    if (res.status >= 500) {
-      Sentry.captureMessage(`Show OG: API returned ${res.status}`, {
-        level: 'error',
-        tags: { service: 'og-image' },
-        extra: { slug, status: res.status },
-      })
-    }
+    reportServerFetchFailure({
+      response: res,
+      service: 'og-image',
+      pathFamily: '/shows/{slug}',
+      notFoundIsAnswer: true,
+      context: { slug },
+    })
   } catch (error) {
     Sentry.captureException(error, {
       tags: { service: 'og-image' },

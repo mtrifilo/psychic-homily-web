@@ -2,6 +2,8 @@ import { Metadata } from 'next'
 import * as Sentry from '@sentry/nextjs'
 import EpisodeDateDetail from './_components/EpisodeDateDetail'
 import { API_BASE_URL } from '@/lib/api-base'
+import { reportServerFetchFailure } from '@/lib/ssr/reportServerFetchFailure'
+import { serverReadHeaders } from '@/lib/ssr/serverReadHeaders'
 
 interface EpisodeDatePageProps {
   params: Promise<{
@@ -31,21 +33,43 @@ function formatShortDate(dateStr: string): string {
   })
 }
 
+/**
+ * Whether `segment` is a real `YYYY-MM-DD` date. The backend answers 400 for
+ * anything else, and a 400 is reported, so a URL that cannot name an episode
+ * is settled here without asking it.
+ */
+function isRealCalendarDate(segment: string): boolean {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(segment)
+  if (!match) return false
+  const [year, month, day] = match.slice(1).map(Number)
+  const parsed = new Date(Date.UTC(year, month - 1, day))
+  return (
+    parsed.getUTCFullYear() === year &&
+    parsed.getUTCMonth() === month - 1 &&
+    parsed.getUTCDate() === day
+  )
+}
+
 async function getEpisode(showSlug: string, date: string): Promise<EpisodeData | null> {
+  if (!isRealCalendarDate(date)) return null
   try {
-    const res = await fetch(`${API_BASE_URL}/radio-shows/${showSlug}/episodes/${date}`, {
-      next: { revalidate: 3600 },
-    })
+    const res = await fetch(
+      `${API_BASE_URL}/radio-shows/${encodeURIComponent(showSlug)}/episodes/${encodeURIComponent(date)}`,
+      {
+        headers: serverReadHeaders(),
+        next: { revalidate: 3600 },
+      }
+    )
     if (res.ok) {
       return res.json()
     }
-    if (res.status >= 500) {
-      Sentry.captureMessage(`Radio episode page fetch error: ${res.status}`, {
-        level: 'error',
-        tags: { service: 'radio-episode-page' },
-        extra: { showSlug, date, status: res.status },
-      })
-    }
+    reportServerFetchFailure({
+      response: res,
+      service: 'radio-episode-page',
+      pathFamily: '/radio-shows/{slug}/episodes/{date}',
+      notFoundIsAnswer: true,
+      context: { showSlug, date },
+    })
   } catch (error) {
     Sentry.captureException(error, {
       level: 'error',

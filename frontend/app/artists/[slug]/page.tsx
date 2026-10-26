@@ -17,6 +17,8 @@ import { JsonLd } from '@/components/seo/JsonLd'
 import { generateMusicGroupSchema, generateBreadcrumbSchema } from '@/lib/seo/jsonld'
 import { artistSnippet } from '@/lib/seo/entitySnippets'
 import { API_BASE_URL } from '@/lib/api-base'
+import { reportServerFetchFailure } from '@/lib/ssr/reportServerFetchFailure'
+import { serverReadHeaders } from '@/lib/ssr/serverReadHeaders'
 import { queryKeys } from '@/lib/queryClient'
 import { prefetchEntity, seedFirstScreen } from '@/lib/query-hydration'
 
@@ -49,19 +51,20 @@ interface ArtistPageProps {
  */
 const getArtist = cache(async (slug: string): Promise<Artist | null> => {
   try {
-    const res = await fetch(`${API_BASE_URL}/artists/${slug}`, {
+    const res = await fetch(`${API_BASE_URL}/artists/${encodeURIComponent(slug)}`, {
+      headers: serverReadHeaders(),
       next: { revalidate: 3600 },
     })
     if (res.ok) {
       return res.json()
     }
-    if (res.status >= 500) {
-      Sentry.captureMessage(`Artist page fetch error: ${res.status}`, {
-        level: 'error',
-        tags: { service: 'artist-page' },
-        extra: { slug, status: res.status },
-      })
-    }
+    reportServerFetchFailure({
+      response: res,
+      service: 'artist-page',
+      pathFamily: '/artists/{slug}',
+      notFoundIsAnswer: true,
+      context: { slug },
+    })
   } catch (error) {
     Sentry.captureException(error, {
       level: 'error',
@@ -128,6 +131,8 @@ export default async function ArtistPage({ params }: ArtistPageProps) {
     url: artistUpcomingShowsUrl(slug),
     collection: 'shows',
     service: 'artist-page-upcoming-shows',
+    pathFamily: '/artists/{slug}/shows',
+    notFoundIsAnswer: true,
     revalidateSeconds: CURRENT_PERIOD_REVALIDATE,
   })
   const artistData = await getArtist(slug)

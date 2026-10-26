@@ -9,6 +9,8 @@ import type { SceneDetail } from '@/features/scenes'
 import type { SceneCrewsResponse } from '@/features/scenes/types'
 import { JsonLd } from '@/components/seo/JsonLd'
 import { API_BASE_URL } from '@/lib/api-base'
+import { reportServerFetchFailure } from '@/lib/ssr/reportServerFetchFailure'
+import { serverReadHeaders } from '@/lib/ssr/serverReadHeaders'
 import { queryKeys } from '@/lib/queryClient'
 import { prefetchEntities } from '@/lib/query-hydration'
 import { hasText } from '@/features/scenes/scenePeriodApi'
@@ -118,20 +120,19 @@ const getScene = cache(async (slug: string): Promise<SceneDetail | null> => {
     // fetches encode for the same reason.
     const res = await fetch(
       `${API_BASE_URL}/scenes/${encodeURIComponent(slug)}`,
-      { next: { revalidate: 3600 } }
+      { headers: serverReadHeaders(), next: { revalidate: 3600 } }
     )
     if (res.ok) {
       return asScene(await res.json(), slug)
     }
-    // Don't report 404s — they're the expected response for invalid /
-    // below-threshold slugs (the whole point of this check).
-    if (res.status >= 500) {
-      Sentry.captureMessage(`Scene page: API returned ${res.status}`, {
-        level: 'error',
-        tags: { service: 'scene-page' },
-        extra: { slug, status: res.status },
-      })
-    }
+    // A 404 is the expected answer for an invalid or below-threshold slug.
+    reportServerFetchFailure({
+      response: res,
+      service: 'scene-page',
+      pathFamily: '/scenes/{slug}',
+      notFoundIsAnswer: true,
+      context: { slug },
+    })
   } catch (error) {
     Sentry.captureException(error, {
       level: 'error',
@@ -202,7 +203,7 @@ const getSceneCrews = cache(
       // extra segment onto the URL and send this request somewhere else.
       const res = await fetch(
         `${API_BASE_URL}/scenes/${encodeURIComponent(slug)}/crews`,
-        { next: { revalidate: 600 } }
+        { headers: serverReadHeaders(), next: { revalidate: 600 } }
       )
       // `await` is load-bearing: `return res.json()` adopts the promise after
       // the try block exits, so a malformed body would reject past this catch
@@ -210,13 +211,13 @@ const getSceneCrews = cache(
       if (res.ok) {
         return await res.json()
       }
-      if (res.status >= 500) {
-        Sentry.captureMessage(`Scene crews: API returned ${res.status}`, {
-          level: 'error',
-          tags: { service: 'scene-page' },
-          extra: { slug, status: res.status },
-        })
-      }
+      reportServerFetchFailure({
+        response: res,
+        service: 'scene-page',
+        pathFamily: '/scenes/{slug}/crews',
+        notFoundIsAnswer: true,
+        context: { slug },
+      })
     } catch (error) {
       Sentry.captureException(error, {
         level: 'error',

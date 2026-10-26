@@ -1,6 +1,7 @@
 package routes
 
 import (
+	"log/slog"
 	"net/http"
 	"strings"
 
@@ -49,6 +50,12 @@ import (
 // many proxies front this service, and the limiter logs `ratelimit_proxy_trust`
 // once per process reporting what it actually observed.
 const EnablePublicReadRateLimitsEnvVar = "ENABLE_PUBLIC_READ_RATE_LIMITS"
+
+// ServerReadExemptionStartupEvent is the message of the one line the public-read
+// limiter writes at process start saying whether the server-read exemption is
+// on. It is how a deploy is checked for a working exemption, so it is pinned by
+// TestServerReadExemptionStartupEventIsStable.
+const ServerReadExemptionStartupEvent = "public_read_server_read_exemption"
 
 // IsPublicReadRateLimitEnabled reports whether the public-read limiter is active.
 // Reuses the "==1" flag convention (testenv.IsFlagEnabled) but NOT the
@@ -168,7 +175,12 @@ func validatedFeedToken(validate func(string) bool, path string) bool {
 // so one IP running many scripted accounts is bounded in aggregate. A request
 // whose bearer passes validateAPIToken (APITokenService.ValidateToken — not the
 // phk_ prefix alone) is exempt so ingest search does not starve visitors on the
-// same IP (PSY-1814). Infra paths are exempt, and so is a personal-feed request
+// same IP (PSY-1814). An anonymous GET or HEAD carrying the server-read secret
+// named by middleware.ServerReadSecretEnvVar skips the anonymous limiter and
+// passes a separate per-IP ceiling instead
+// (middleware.PublicReadServerReadIPCeilingPerMinute, ServerReadExemption);
+// with that variable unset nothing is exempt.
+// Infra paths are exempt, and so is a personal-feed request
 // whose URL token validates (PSY-2017), not the path shape alone, and so is a
 // GET to an OAuth sign-in start, callback or link start
 // (isOAuthRedirectRequest). Returns a pass-through noop unless the opt-in flag
@@ -177,9 +189,18 @@ func PublicReadRateLimiter(jwtService *auth.JWTService, validateAPIToken, valida
 	if !IsPublicReadRateLimitEnabled(getenv) {
 		return noopRateLimiter()
 	}
+	// Read once, here, at process start. The lines record only whether the
+	// exemption is on and why not, never the secret.
+	serverRead, err := middleware.NewServerReadExemption(getenv(middleware.ServerReadSecretEnvVar))
+	if err != nil {
+		slog.Default().Error(ServerReadExemptionStartupEvent, "enabled", false, "error", err.Error())
+	} else {
+		slog.Default().Info(ServerReadExemptionStartupEvent, "enabled", serverRead.Enabled())
+	}
 	limiter := middleware.RateLimitPublicReadsByAuthState(
 		jwtService,
 		validateAPIToken,
+		serverRead, // GET/HEAD carrying the server-read secret → its own per-IP ceiling, not the anonymous limiter
 		middleware.RateLimitPublicReadAnonymousEndpoints(),     // anonymous → per-IP
 		middleware.RateLimitPublicReadUserEndpoints(),          // authenticated → per-user
 		middleware.RateLimitPublicReadAuthenticatedIPCeiling(), // authenticated → coarse per-IP ceiling (PSY-1378)

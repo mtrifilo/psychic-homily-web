@@ -32,6 +32,8 @@ import { showCanonicalPath } from '@/lib/seo/showCanonical'
 import { SITE_URL } from '@/lib/seo/siteMetadata'
 import { getShowLifecycleState, hasShowStarted } from '@/lib/utils/showTiming'
 import { API_BASE_URL } from '@/lib/api-base'
+import { reportServerFetchFailure } from '@/lib/ssr/reportServerFetchFailure'
+import { serverReadHeaders } from '@/lib/ssr/serverReadHeaders'
 import { queryKeys } from '@/lib/queryClient'
 import { prefetchEntities } from '@/lib/query-hydration'
 
@@ -60,19 +62,19 @@ interface ShowPageProps {
 const getShow = cache(async (slug: string): Promise<ShowResponse | null> => {
   try {
     const res = await fetch(`${API_BASE_URL}/shows/${encodeURIComponent(slug)}`, {
+      headers: serverReadHeaders(),
       next: { revalidate: 3600 },
     })
     if (res.ok) {
       return await res.json()
     }
-    // Don't report 404s - they're expected for invalid slugs
-    if (res.status >= 500) {
-      Sentry.captureMessage(`Show page: API returned ${res.status}`, {
-        level: 'error',
-        tags: { service: 'show-page' },
-        extra: { slug, status: res.status },
-      })
-    }
+    reportServerFetchFailure({
+      response: res,
+      service: 'show-page',
+      pathFamily: '/shows/{slug}',
+      notFoundIsAnswer: true,
+      context: { slug },
+    })
   } catch (error) {
     Sentry.captureException(error, {
       level: 'error',
@@ -112,7 +114,7 @@ async function getShowTimeline(
   try {
     const res = await fetch(
       `${API_BASE_URL}/shows/${encodeURIComponent(slug)}/timeline`,
-      { next: { revalidate: 3600 } },
+      { headers: serverReadHeaders(), next: { revalidate: 3600 } },
     )
     // `return await`, not a bare `return`: a bare one hands the caller the
     // parse promise WITHOUT routing its rejection through the catch below, and
@@ -121,13 +123,14 @@ async function getShowTimeline(
     if (res.ok) {
       return await res.json()
     }
-    if (res.status >= 500) {
-      Sentry.captureMessage(`Show timeline: API returned ${res.status}`, {
-        level: 'warning',
-        tags: { service: 'show-page' },
-        extra: { slug, status: res.status },
-      })
-    }
+    reportServerFetchFailure({
+      response: res,
+      service: 'show-page',
+      pathFamily: '/shows/{slug}/timeline',
+      notFoundIsAnswer: true,
+      context: { slug },
+      level: 'warning',
+    })
   } catch (error) {
     Sentry.captureException(error, {
       level: 'warning',
@@ -335,6 +338,8 @@ export default async function ShowPage({ params }: ShowPageProps) {
       url: showEndpoints.ALSO_TONIGHT(encodeURIComponent(slug)),
       collection: 'shows',
       service: 'show-also-tonight',
+      pathFamily: '/shows/{slug}/also-tonight',
+      notFoundIsAnswer: true,
       revalidateSeconds: CURRENT_PERIOD_REVALIDATE,
     }),
     // `venues[0].id` is the id the show page itself addresses this venue by.
@@ -345,6 +350,7 @@ export default async function ShowPage({ params }: ShowPageProps) {
           url: venueRailShowsUrl(showData.venues[0].id),
           collection: 'shows',
           service: 'show-venue-rail',
+          pathFamily: '/venues/{id}/shows',
           revalidateSeconds: CURRENT_PERIOD_REVALIDATE,
         })
       : null,
