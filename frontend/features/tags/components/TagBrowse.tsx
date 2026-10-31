@@ -22,17 +22,17 @@ import {
 } from '../types'
 import type { TagListItem, TagSortOption } from '../types'
 import { TagOfficialIndicator } from './TagOfficialIndicator'
+import {
+  TAG_BROWSE_PAGE_SIZE,
+  TAG_CATEGORY_COUNT_LIMIT,
+  tagSortToBackend,
+} from '../browseFirstScreen'
 
-const PAGE_SIZE = 50
 const SEARCH_DEBOUNCE_MS = 300
 
 function toSort(value: string | null): TagSortOption {
   const match = TAG_SORT_OPTIONS.find(o => o.value === value)
   return match?.value ?? DEFAULT_TAG_SORT
-}
-
-function sortToBackend(sort: TagSortOption): string {
-  return TAG_SORT_OPTIONS.find(o => o.value === sort)?.backend ?? 'usage'
 }
 
 /**
@@ -51,10 +51,10 @@ function useCategoryCounts(search: string | undefined): {
   all: number
 } {
   const results = {
-    genre: useTags({ category: 'genre', search, limit: 1 }),
-    locale: useTags({ category: 'locale', search, limit: 1 }),
-    other: useTags({ category: 'other', search, limit: 1 }),
-    crew: useTags({ category: 'crew', search, limit: 1 }),
+    genre: useTags({ category: 'genre', search, limit: TAG_CATEGORY_COUNT_LIMIT }),
+    locale: useTags({ category: 'locale', search, limit: TAG_CATEGORY_COUNT_LIMIT }),
+    other: useTags({ category: 'other', search, limit: TAG_CATEGORY_COUNT_LIMIT }),
+    crew: useTags({ category: 'crew', search, limit: TAG_CATEGORY_COUNT_LIMIT }),
   }
 
   const counts: Record<string, number> = Object.fromEntries(
@@ -68,6 +68,7 @@ export function TagBrowse() {
   const searchParams = useSearchParams()
   const [isPending, startTransition] = useTransition()
 
+  // See TAG_BROWSE_FIRST_SCREEN_DEFEATING_PARAMS before reading another param.
   const sort = toSort(searchParams.get('sort'))
 
   const [category, setCategory] = useState('')
@@ -82,21 +83,21 @@ export function TagBrowse() {
     searchRef.current?.focus()
   }, [])
 
-  const { data, isLoading, error, refetch } = useTags({
+  const { data, isLoading, isPlaceholderData, error, refetch } = useTags({
     category: category || undefined,
     search: debouncedSearch || undefined,
-    limit: PAGE_SIZE,
+    limit: TAG_BROWSE_PAGE_SIZE,
     offset,
-    sort: sortToBackend(sort),
+    sort: tagSortToBackend(sort),
   })
 
   const { counts, all: allCount } = useCategoryCounts(debouncedSearch || undefined)
 
   const tags = data?.tags ?? []
   const total = data?.total ?? 0
-  const hasMore = offset + PAGE_SIZE < total
+  const hasMore = offset + TAG_BROWSE_PAGE_SIZE < total
   const pageStart = total === 0 ? 0 : offset + 1
-  const pageEnd = Math.min(offset + PAGE_SIZE, total)
+  const pageEnd = Math.min(offset + TAG_BROWSE_PAGE_SIZE, total)
 
   const updateSort = (nextSort: TagSortOption) => {
     const next = new URLSearchParams(searchParams.toString())
@@ -114,7 +115,9 @@ export function TagBrowse() {
     setOffset(0)
   }
 
-  if (error) {
+  // An error replaces the list only when nothing on screen answers the current
+  // query: a failed revalidation of rows already shown keeps them.
+  if (error && (!data || isPlaceholderData)) {
     return (
       <div className="text-center py-12 text-destructive">
         <p>Failed to load tags. Please try again later.</p>
@@ -241,19 +244,19 @@ export function TagBrowse() {
               variant="outline"
               size="sm"
               disabled={offset === 0}
-              onClick={() => setOffset(Math.max(0, offset - PAGE_SIZE))}
+              onClick={() => setOffset(Math.max(0, offset - TAG_BROWSE_PAGE_SIZE))}
             >
               Previous
             </Button>
             <span className="text-sm text-muted-foreground">
-              Page {Math.floor(offset / PAGE_SIZE) + 1} of{' '}
-              {Math.ceil(total / PAGE_SIZE)}
+              Page {Math.floor(offset / TAG_BROWSE_PAGE_SIZE) + 1} of{' '}
+              {Math.ceil(total / TAG_BROWSE_PAGE_SIZE)}
             </span>
             <Button
               variant="outline"
               size="sm"
               disabled={!hasMore}
-              onClick={() => setOffset(offset + PAGE_SIZE)}
+              onClick={() => setOffset(offset + TAG_BROWSE_PAGE_SIZE)}
             >
               Next
             </Button>

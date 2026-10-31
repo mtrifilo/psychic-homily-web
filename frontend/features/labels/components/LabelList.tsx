@@ -23,14 +23,15 @@ export function LabelList() {
   const [isPending, startTransition] = useTransition()
   const { density, setDensity } = useDensity('labels')
 
-  // Parse filters from URL
+  // Parse filters from URL. See LABEL_LIST_FIRST_SCREEN_DEFEATING_PARAMS
+  // before adding a param here.
   const statusParam = searchParams.get('status') as LabelStatus | null
   const tagsParam = searchParams.get('tags')
   const tagMatchParam = searchParams.get('tag_match')
   const selectedTags = useMemo(() => parseTagsParam(tagsParam), [tagsParam])
   const tagMatch: 'all' | 'any' = tagMatchParam === 'any' ? 'any' : 'all'
 
-  const { data, isLoading, isFetching, error, refetch } = useLabels({
+  const { data, isLoading, isFetching, isPlaceholderData, error, refetch } = useLabels({
     status: statusParam ?? undefined,
     tags: selectedTags.length > 0 ? selectedTags : undefined,
     tagMatch,
@@ -86,9 +87,15 @@ export function LabelList() {
     )
   }
 
-  const isUpdating = isFetching || isPending
+  // Dim only while the rows on screen answer a DIFFERENT query than the one
+  // being awaited (`keepPreviousData` holding the previous filter's rows).
+  // A server-seeded first screen is stale by construction, so raw `isFetching`
+  // is true on the first client commit and would dim rows that are current.
+  const isUpdating = (isFetching && isPlaceholderData) || isPending
 
-  if (error) {
+  // An error replaces the list only when nothing on screen answers the current
+  // query: a failed revalidation of rows already shown keeps them.
+  if (error && (!data || isPlaceholderData)) {
     return (
       <div className="text-center py-12 text-destructive">
         <p>Failed to load labels. Please try again later.</p>
