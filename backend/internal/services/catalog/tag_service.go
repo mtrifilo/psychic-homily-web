@@ -1370,19 +1370,13 @@ func (s *TagService) GetTagEntities(tagID uint, entityType string, limit, offset
 	// them, which is the withheld count published as arithmetic and is exactly
 	// what a gate on this listing exists to prevent.
 	//
-	// PUBLIC tier for both arms: this route is anonymous, and a tag's membership
-	// is a shared listing whose contents must not vary by credential. A tagged
-	// collection is listed on the public-tier listing rule
-	// (shared.PublicListedCollectionSQL), which is the rule enrichCollections
-	// applies below.
-	visibleShows, visibleShowsArgs := shared.VisibleShowExistsSQL(
-		"entity_tags.entity_id", contracts.ShowViewer{})
-	query = query.Where(
-		"(entity_tags.entity_type <> ? OR "+visibleShows+")",
-		append([]interface{}{catalogm.TagEntityShow}, visibleShowsArgs...)...)
-	query = query.Where(
-		"(entity_tags.entity_type <> ? OR "+shared.PublicListedCollectionExistsSQL("entity_tags.entity_id")+")",
-		catalogm.TagEntityCollection)
+	// PUBLIC tier: this route is anonymous, and a tag's membership is a shared
+	// listing whose contents must not vary by credential. The condition is the
+	// one every count on the tag's pages takes (shared.ListedEntityTagsSQL), so
+	// the listing and the counts beside it cannot disagree; a tagged collection
+	// is listed on the public-tier listing rule, which enrichCollections applies
+	// below as well.
+	query = query.Where(shared.ListedEntityTagsSQL("entity_tags"))
 
 	var total int64
 	if err := query.Count(&total).Error; err != nil {
@@ -2019,13 +2013,12 @@ func (s *TagService) GetTagDetail(tagID uint) (*contracts.TagDetailResponse, err
 	// One predicate, from the registry, rather than an arm per gated type written
 	// out here: the same condition decides the usage count on every other tag
 	// surface, so a type that gains a rule reaches this query in the same edit.
-	breakdownVisible, breakdownVisibleArgs := shared.VisibleEntityTagsSQL(
-		"entity_tags", contracts.ShowViewer{})
+	breakdownVisible := shared.ListedEntityTagsSQL("entity_tags")
 	var rows []breakdownRow
 	if err := s.db.Model(&catalogm.EntityTag{}).
 		Select("entity_type, COUNT(*) AS count").
 		Where("tag_id = ?", tagID).
-		Where(breakdownVisible, breakdownVisibleArgs...).
+		Where(breakdownVisible).
 		Group("entity_type").
 		Scan(&rows).Error; err != nil {
 		return nil, fmt.Errorf("failed to compute usage breakdown: %w", err)

@@ -265,28 +265,49 @@ func commentEntityArmFor(entityType, entityTypeExpr, entityIDExpr string, viewer
 // Both expressions are SQL the CALLER controls and must be literals in the
 // calling code.
 func PublicEntityTypeArmsSQL(entityTypeExpr, entityIDExpr string) string {
+	return publicEntityTypeArmsSQL(entityTypeExpr, entityIDExpr, false)
+}
+
+// PublicListedEntityTypeArmsSQL is PublicEntityTypeArmsSQL for a row a public
+// LISTING counts: a collection-typed row passes only where a public-tier
+// listing may carry the collection (PublicListedCollectionSQL), which also
+// requires a public creator profile. Every other type's arm is the same. It
+// binds nothing.
+//
+// Both expressions are SQL the CALLER controls and must be literals in the
+// calling code.
+func PublicListedEntityTypeArmsSQL(entityTypeExpr, entityIDExpr string) string {
+	return publicEntityTypeArmsSQL(entityTypeExpr, entityIDExpr, true)
+}
+
+func publicEntityTypeArmsSQL(entityTypeExpr, entityIDExpr string, listed bool) string {
 	if registeredEntityTypeList == "" {
 		return "1 = 0"
 	}
 	conds := []string{entityTypeExpr + " IN (" + registeredEntityTypeList + ")"}
 	for _, entityType := range gatedEntityTypes() {
-		conds = append(conds, publicEntityArmFor(entityType, entityTypeExpr, entityIDExpr))
+		conds = append(conds, publicEntityArmFor(entityType, entityTypeExpr, entityIDExpr, listed))
 	}
 	return "(" + strings.Join(conds, " AND ") + ")"
 }
 
 // publicEntityArmFor returns the ANONYMOUS-reader arm that judges ONE gated
-// entity type, binding nothing.
+// entity type, binding nothing. listed selects the listing tier for the
+// collection arm.
 //
 // commentEntityArmFor's public twin, and it fails closed on the same terms: a
 // gated rule with no arm here EXCLUDES every row of its type rather than
 // passing it, so a half-added rule withholds.
-func publicEntityArmFor(entityType, entityTypeExpr, entityIDExpr string) string {
+func publicEntityArmFor(entityType, entityTypeExpr, entityIDExpr string, listed bool) string {
 	switch entityVisibilityRules[entityType] {
 	case ruleShow:
 		return commentEntityArmSQL(entityTypeExpr, CommentEntityTypeShow,
 			showExistsSQL(entityIDExpr, PublicShowPredicateSQL(visibleShowsAlias)))
 	case ruleCollection:
+		if listed {
+			return commentEntityArmSQL(entityTypeExpr, CommentEntityTypeCollection,
+				PublicListedCollectionExistsSQL(entityIDExpr))
+		}
 		// The anonymous served predicate binds nothing already: with no viewer
 		// id there is no creator branch, so it collapses to `is_public = TRUE`
 		// and a live creator. Read from the same function the bound form uses

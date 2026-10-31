@@ -515,16 +515,16 @@ func (s *ContributorProfileService) GetContributionStats(userID uint, viewer con
 	// GET /auth/collections lists. A whole number differenced against a filtered
 	// one is a count of private collections published as arithmetic, which is the
 	// disclosure the timeline's gate exists to prevent.
-	collectionsVisible, collectionsVisibleArgs := shared.ServedCollectionPredicateSQL("collections", viewer)
+	collectionsServed, collectionsServedArgs := shared.ServedCollectionPredicateSQL("collections", viewer)
 	s.db.Model(&communitym.CollectionItem{}).
 		Joins("JOIN collections ON collections.id = collection_items.collection_id").
 		Where("collection_items.added_by_user_id = ?", userID).
-		Where(collectionsVisible, collectionsVisibleArgs...).
+		Where(collectionsServed, collectionsServedArgs...).
 		Count(&stats.CollectionItemsAdded)
 	s.db.Model(&communitym.CollectionSubscriber{}).
 		Joins("JOIN collections ON collections.id = collection_subscribers.collection_id").
 		Where("collection_subscribers.user_id = ?", userID).
-		Where(collectionsVisible, collectionsVisibleArgs...).
+		Where(collectionsServed, collectionsServedArgs...).
 		Count(&stats.CollectionSubscriptions)
 
 	// Reports filed (entity_reports + show_reports + artist_reports)
@@ -1105,10 +1105,10 @@ func contributionVisibilitySQL(alias string, viewer contracts.ShowViewer) (strin
 		contributionEntityRequestMetadataID + "', ''), '0'), " + entityIDExpr + "::text)"
 
 	visibleShows, visibleShowsArgs := shared.VisibleShowExistsSQL(entityIDExpr, viewer)
-	visibleItemParents, visibleItemParentArgs := shared.ServedCollectionItemExistsSQL(entityIDExpr, viewer)
-	visibleByParentID, visibleByParentIDArgs := shared.ServedCollectionTextIDExistsSQL(parentIDExpr, viewer)
-	visibleByLegacySlug, visibleByLegacySlugArgs := shared.ServedCollectionSlugExistsSQL(legacySlugExpr, viewer)
-	visibleCollections, visibleCollectionArgs := shared.ServedCollectionExistsSQL(entityIDExpr, viewer)
+	servedItemParents, servedItemParentArgs := shared.ServedCollectionItemExistsSQL(entityIDExpr, viewer)
+	servedByParentID, servedByParentIDArgs := shared.ServedCollectionTextIDExistsSQL(parentIDExpr, viewer)
+	servedByLegacySlug, servedByLegacySlugArgs := shared.ServedCollectionSlugExistsSQL(legacySlugExpr, viewer)
+	servedCollections, servedCollectionArgs := shared.ServedCollectionExistsSQL(entityIDExpr, viewer)
 	visibleRequests, visibleRequestArgs := shared.VisibleEntityRequestTextIDExistsSQL(requestIDExpr, viewer)
 
 	// THE SENTINEL COUNTS AS ABSENT on the slug arm's key test. A stored
@@ -1130,9 +1130,9 @@ func contributionVisibilitySQL(alias string, viewer contracts.ShowViewer) (strin
 		alias, visibleRequests,
 		alias, visibleShows,
 		alias,
-		alias, visibleItemParents, visibleByParentID,
-		parentIDAbsent, visibleByLegacySlug,
-		alias, visibleCollections)
+		alias, servedItemParents, servedByParentID,
+		parentIDAbsent, servedByLegacySlug,
+		alias, servedCollections)
 
 	var args []interface{}
 	args = append(args, contributionEntityRequestActionNames)
@@ -1141,11 +1141,11 @@ func contributionVisibilitySQL(alias string, viewer contracts.ShowViewer) (strin
 	args = append(args, visibleShowsArgs...)
 	args = append(args, contributionCollectionEntityType)
 	args = append(args, contributionCollectionActionsOfKind(collectionIDIsItem))
-	args = append(args, visibleItemParentArgs...)
-	args = append(args, visibleByParentIDArgs...)
-	args = append(args, visibleByLegacySlugArgs...)
+	args = append(args, servedItemParentArgs...)
+	args = append(args, servedByParentIDArgs...)
+	args = append(args, servedByLegacySlugArgs...)
 	args = append(args, contributionCollectionActionsOfKind(collectionIDIsCollection))
-	args = append(args, visibleCollectionArgs...)
+	args = append(args, servedCollectionArgs...)
 	return cond, args
 }
 
@@ -1882,7 +1882,7 @@ func (s *ContributorProfileService) enrichEntityNames(entries []*contracts.Contr
 	// withhold, and these are the only places in this file that read one. A row
 	// that slipped past the union keeps its id here but gains no name.
 	showsVisible, showsVisibleArgs := shared.VisibleShowPredicateSQL("shows", viewer)
-	collectionsVisible, collectionsVisibleArgs := shared.ServedCollectionPredicateSQL("collections", viewer)
+	collectionsServed, collectionsServedArgs := shared.ServedCollectionPredicateSQL("collections", viewer)
 
 	idsByType := make(map[string][]uint)
 	for _, e := range entries {
@@ -1981,7 +1981,7 @@ func (s *ContributorProfileService) enrichEntityNames(entries []*contracts.Contr
 			s.db.Table("collections").
 				Select("id, title").
 				Where("id IN ?", ids).
-				Where(collectionsVisible, collectionsVisibleArgs...).
+				Where(collectionsServed, collectionsServedArgs...).
 				Scan(&results)
 			for _, r := range results {
 				names[r.ID] = r.Title

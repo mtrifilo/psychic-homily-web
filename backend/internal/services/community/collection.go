@@ -476,29 +476,22 @@ func (s *CollectionService) GetByID(id uint, viewerID uint) (*contracts.Collecti
 // nothing. The caller still applies the is_public rule.
 //
 // Every slug-addressed route a viewer reaches loads through here, reads and
-// writes alike. The routes that do not are named at their definitions, each
-// with its reason: Unsubscribe and MarkVisited, which touch only the caller's
-// own row; Unlike's removal of the caller's own like; and the admin remedies
-// UpdateCollection, DeleteCollection and SetFeatured's un-feature.
+// writes alike. A route that loads without it says so at its definition.
 func (s *CollectionService) loadLiveCreatorCollectionBySlug(slug string) (*communitym.Collection, error) {
-	var collection communitym.Collection
-	err := s.db.Where("slug = ?", slug).Where(shared.CollectionCreatorIsLiveSQL("collections")).
-		First(&collection).Error
-	if err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return nil, apperrors.ErrCollectionNotFound(slug)
-		}
-		return nil, fmt.Errorf("failed to get collection: %w", err)
-	}
-	return &collection, nil
+	return s.loadCollectionBySlug(s.db.Where(shared.CollectionCreatorIsLiveSQL("collections")), slug)
 }
 
 // loadAnyCollectionBySlug loads the collection a slug names whatever its
-// creator's state. Only the admin remedies named at
-// loadLiveCreatorCollectionBySlug use it.
+// creator's state. Only the admin remedies use it.
 func (s *CollectionService) loadAnyCollectionBySlug(slug string) (*communitym.Collection, error) {
+	return s.loadCollectionBySlug(s.db, slug)
+}
+
+// loadCollectionBySlug loads the collection slug names within q, answering a
+// slug q does not reach with the not-found error an unused slug gets.
+func (s *CollectionService) loadCollectionBySlug(q *gorm.DB, slug string) (*communitym.Collection, error) {
 	var collection communitym.Collection
-	if err := s.db.Where("slug = ?", slug).First(&collection).Error; err != nil {
+	if err := q.Where("slug = ?", slug).First(&collection).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, apperrors.ErrCollectionNotFound(slug)
 		}
@@ -681,12 +674,11 @@ func (s *CollectionService) resolveForkedFromInfo(forkedFromID *uint, viewerID u
 	if forkedFromID == nil || *forkedFromID == 0 {
 		return nil
 	}
-	visible, visibleArgs := shared.VisibleCollectionPredicateSQL("collections", contracts.ShowViewer{UserID: viewerID})
+	served, servedArgs := shared.ServedCollectionPredicateSQL("collections", contracts.ShowViewer{UserID: viewerID})
 	var source communitym.Collection
 	err := s.db.Select("id, title, slug, creator_id").
 		Where("id = ?", *forkedFromID).
-		Where(visible, visibleArgs...).
-		Where(shared.CollectionCreatorIsLiveSQL("collections")).
+		Where(served, servedArgs...).
 		First(&source).Error
 	if err != nil {
 		// Source missing, gated, or its creator closed: one answer for all.
@@ -1138,8 +1130,7 @@ func (s *CollectionService) UpdateCollection(slug string, userID uint, isAdmin b
 	// is a real failure and is returned.
 	detail, err := s.GetBySlug(retrieveSlug, userID)
 	if err != nil {
-		var collErr *apperrors.CollectionError
-		if wrote && errors.As(err, &collErr) && collErr.Code == apperrors.CodeCollectionNotFound {
+		if wrote && apperrors.IsCollectionNotFound(err) {
 			return nil, collection.ID, nil
 		}
 		return nil, collection.ID, err
@@ -1968,8 +1959,7 @@ func (s *CollectionService) Unlike(slug string, userID uint) (*contracts.Collect
 
 	collection, err := s.loadLiveCreatorCollectionBySlug(slug)
 	if err != nil {
-		var collErr *apperrors.CollectionError
-		if errors.As(err, &collErr) && collErr.Code == apperrors.CodeCollectionNotFound {
+		if apperrors.IsCollectionNotFound(err) {
 			if delErr := s.db.Where(
 				"user_id = ? AND collection_id IN (SELECT id FROM collections WHERE slug = ?)",
 				userID, slug,
@@ -2125,11 +2115,10 @@ func (s *CollectionService) GetUserCollections(userID uint, search string, limit
 	//
 	// The same holds for a subscribed collection whose creator is closed: the
 	// detail route refuses it, so the library does not carry it.
-	visible, visibleArgs := shared.VisibleCollectionPredicateSQL("collections", contracts.ShowViewer{UserID: userID})
+	served, servedArgs := shared.ServedCollectionPredicateSQL("collections", contracts.ShowViewer{UserID: userID})
 	query := s.db.Model(&communitym.Collection{}).
 		Where("creator_id = ? OR id IN (?)", userID, subQuery).
-		Where(visible, visibleArgs...).
-		Where(shared.CollectionCreatorIsLiveSQL("collections"))
+		Where(served, servedArgs...)
 
 	// PSY-580: Yours tab now honours the search box. Reuse the public-browse
 	// field expansion (title / description / item notes / tag name+aliases —
@@ -2290,15 +2279,14 @@ func (s *CollectionService) GetUserCollectionsContainingEntity(userID uint, enti
 		Select("collection_id").
 		Where("user_id = ?", userID)
 
-	visible, visibleArgs := shared.VisibleCollectionPredicateSQL("collections", contracts.ShowViewer{UserID: userID})
+	served, servedArgs := shared.ServedCollectionPredicateSQL("collections", contracts.ShowViewer{UserID: userID})
 	items := []contracts.ContainingCollectionItem{}
 	err := s.db.Model(&communitym.CollectionItem{}).
 		Select("collection_items.collection_id AS collection_id, collection_items.id AS item_id").
 		Joins("JOIN collections ON collections.id = collection_items.collection_id").
 		Where("collection_items.entity_type = ? AND collection_items.entity_id = ?", entityType, entityID).
 		Where("collections.creator_id = ? OR collections.id IN (?)", userID, subQuery).
-		Where(visible, visibleArgs...).
-		Where(shared.CollectionCreatorIsLiveSQL("collections")).
+		Where(served, servedArgs...).
 		Scan(&items).Error
 	if err != nil {
 		return nil, fmt.Errorf("failed to look up containing collections: %w", err)
@@ -3182,12 +3170,11 @@ func (s *CollectionService) batchVisibleForkSources(collections []communitym.Col
 		return publishable
 	}
 
-	visibility, visibilityArgs := shared.VisibleCollectionPredicateSQL("collections", viewer)
+	served, servedArgs := shared.ServedCollectionPredicateSQL("collections", viewer)
 	var visibleIDs []uint
 	err := s.db.Model(&communitym.Collection{}).
 		Where("id IN ?", sourceIDs).
-		Where(visibility, visibilityArgs...).
-		Where(shared.CollectionCreatorIsLiveSQL("collections")).
+		Where(served, servedArgs...).
 		Pluck("id", &visibleIDs).Error
 	if err != nil {
 		log.Printf("warning: failed to fence collection fork sources: %v", err)

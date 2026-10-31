@@ -172,10 +172,10 @@ func (s *SceneService) GetSceneCollections(city, state string, limit int) ([]con
 		totals AS (
 			SELECT ci.collection_id,
 			       COUNT(*) AS item_count,
-			       COUNT(DISTINCT ci.added_by_user_id) FILTER (
-			           WHERE ` + authm.LiveAccountExistsSQL("ci.added_by_user_id") + `
-			       ) AS contributor_count
+			       COUNT(DISTINCT live_adder.id) AS contributor_count
 			FROM collection_items ci
+			LEFT JOIN users live_adder ON live_adder.id = ci.added_by_user_id
+			     AND ` + authm.LiveAccountSQL("live_adder") + `
 			WHERE ci.collection_id IN (SELECT collection_id FROM local_counts)
 			GROUP BY ci.collection_id
 		)

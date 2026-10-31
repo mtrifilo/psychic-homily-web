@@ -331,7 +331,7 @@ func TestSetTagParent_ServiceError(t *testing.T) {
 // the refusal happens BEFORE the write.
 func TestTagWriteRoutes_RefuseAnEntityTheCallerCannotSee(t *testing.T) {
 	deniesEverything := &testhelpers.MockShowVisibility{
-		ShowVisibleToFn:       func(uint, contracts.ShowViewer) bool { return false },
+		ShowVisibleToFn:      func(uint, contracts.ShowViewer) bool { return false },
 		CollectionServedToFn: func(uint, contracts.ShowViewer) bool { return false },
 	}
 	reached := func(t *testing.T) func() {

@@ -133,7 +133,9 @@ var collectionAddressableRoutes = map[string]collectionRouteDisposition{
 
 	// The slug-addressed tag writes. canEditCollectionTags refuses a collection
 	// the caller cannot see before it considers `collaborative`, so these answer
-	// the same rule as their polymorphic twins above.
+	// the same rule as their polymorphic twins above. Unlike on a closed
+	// creator's collection still removes the caller's own like, and answers the
+	// unused slug's not-found.
 	"POST /collections/{slug}/tags":                     collectionGated,
 	"POST /crates/{slug}/tags":                          collectionGated,
 	"DELETE /collections/{slug}/tags/{tag_id}":          collectionGated,
@@ -183,11 +185,12 @@ var collectionAddressableRoutes = map[string]collectionRouteDisposition{
 
 	// Admin, and it reaches a PRIVATE collection: SetFeatured applies no
 	// visibility test. It publishes nothing (empty response, and the chart
-	// surfaces filter is_public), so what it leaves is a 200-vs-404 slug oracle
-	// bounded to the admin group. Named in
+	// surfaces list only public, listable collections), so what it leaves is a
+	// 200-vs-404 slug oracle bounded to the admin group. Named in
 	// services/shared/collection_visibility.go rather than closed, because
 	// whether an admin may pre-feature an unpublished collection is a product
-	// question.
+	// question. Featuring a closed creator's collection answers not found;
+	// un-featuring one still succeeds.
 	"PUT /collections/{slug}/feature": collectionAdminOnly,
 	"PUT /crates/{slug}/feature":      collectionAdminOnly,
 

@@ -45,11 +45,6 @@ import (
 // listing whose contents varied by credential would report the difference.
 // Passing a viewer would also make the number vary between two callers looking
 // at the same page, which is a second way to say the same thing.
-//
-// A TAG ROW ON A COLLECTION COUNTS WHERE THE COLLECTION IS LISTED. The tag's
-// pages list collections on the listing rule (collection_creator_state.go), so a
-// private-profile creator's public collection is served at its slug but absent
-// from the tag page, and its tag rows leave the counts beside that page with it.
 
 // VisibleEntityTagsSQL returns a condition, true for the entity_tags rows whose
 // TAGGED ENTITY viewer may see, plus its bind arguments.
@@ -58,32 +53,12 @@ import (
 // VisibleCommentEntitySQL rather than writing its own arms, so entity_tags rows
 // and comment rows are decided by one registry: a tag row naming an entity type
 // nobody dispositioned does not pass, exactly as a comment row naming one does
-// not. A row naming a collection must also be one a listing may carry for
-// viewer (listedCollectionTagRowsSQL).
+// not.
 //
 // alias is the table alias the enclosing query binds entity_tags to and is a
 // literal in the calling code.
 func VisibleEntityTagsSQL(alias string, viewer contracts.ShowViewer) (string, []interface{}) {
-	visible, visibleArgs := VisibleCommentEntitySQL(alias+".entity_type", alias+".entity_id", viewer)
-	listed, listedArgs := listedCollectionTagRowsSQL(alias, viewer)
-	// Placeholders bind by POSITION: the visible condition is written first.
-	args := append(append([]interface{}{}, visibleArgs...), listedArgs...)
-	return "(" + visible + " AND " + listed + ")", args
-}
-
-// listedTagCollectionAlias is the alias listedCollectionTagRowsSQL binds the
-// collections table to. Distinct from every other collection alias in this
-// package, for the reason visibleCollectionsAlias gives.
-const listedTagCollectionAlias = "listed_tag_collection"
-
-// listedCollectionTagRowsSQL returns the arm, true for the entity_tags rows
-// under alias that name no collection, or name one a listing may carry for
-// viewer (CollectionCreatorIsListedSQL), plus its bind arguments. The anonymous
-// form binds nothing.
-func listedCollectionTagRowsSQL(alias string, viewer contracts.ShowViewer) (string, []interface{}) {
-	listed, args := CollectionCreatorIsListedSQL(listedTagCollectionAlias, viewer)
-	return commentEntityArmSQL(alias+".entity_type", CommentEntityTypeCollection,
-		entityExistsSQL("collections", listedTagCollectionAlias, alias+".entity_id", listed)), args
+	return VisibleCommentEntitySQL(alias+".entity_type", alias+".entity_id", viewer)
 }
 
 // PublicEntityTagsSQL is VisibleEntityTagsSQL's public tier, inlined so it binds
@@ -98,8 +73,21 @@ func listedCollectionTagRowsSQL(alias string, viewer contracts.ShowViewer) (stri
 // alias is the table alias the enclosing query binds entity_tags to and is a
 // literal in the calling code.
 func PublicEntityTagsSQL(alias string) string {
-	listed, _ := listedCollectionTagRowsSQL(alias, contracts.ShowViewer{})
-	return "(" + PublicEntityTypeArmsSQL(alias+".entity_type", alias+".entity_id") + " AND " + listed + ")"
+	return PublicEntityTypeArmsSQL(alias+".entity_type", alias+".entity_id")
+}
+
+// ListedEntityTagsSQL is PublicEntityTagsSQL for the counts a tag's own pages
+// render beside its listing: the usage count, the per-type breakdown and the
+// facet counts. A tag row on a collection counts only where the tag page lists
+// the collection (PublicEntityTypeArmsSQL's listing tier), so a private-profile
+// creator's public collection, served at its slug and absent from the tag page,
+// leaves those counts with it and no count differs from its listing. It binds
+// nothing.
+//
+// alias is the table alias the enclosing query binds entity_tags to and is a
+// literal in the calling code.
+func ListedEntityTagsSQL(alias string) string {
+	return PublicListedEntityTypeArmsSQL(alias+".entity_type", alias+".entity_id")
 }
 
 // VisibleTagUsageCounts returns, per tag id, the number of entity_tags rows
@@ -159,8 +147,7 @@ func VisibleTagUsageCounts(db *gorm.DB, tagIDs []uint) (map[uint]int, error) {
 // UNRESTRICTED BY TAG, because the ordering has to be computed before the page
 // is chosen; callers wanting a subset filter the result.
 func VisibleTagUsageCountSQL() (string, []interface{}) {
-	visible, visibleArgs := VisibleEntityTagsSQL("entity_tags", contracts.ShowViewer{})
 	return "SELECT entity_tags.tag_id AS tag_id, COUNT(*) AS count" +
-		" FROM entity_tags WHERE " + visible +
-		" GROUP BY entity_tags.tag_id", visibleArgs
+		" FROM entity_tags WHERE " + ListedEntityTagsSQL("entity_tags") +
+		" GROUP BY entity_tags.tag_id", nil
 }

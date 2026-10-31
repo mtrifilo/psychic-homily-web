@@ -18,13 +18,7 @@ import (
 	engagementm "psychic-homily-backend/internal/models/engagement"
 	"psychic-homily-backend/internal/services/shared"
 	"psychic-homily-backend/internal/testutil"
-
-	"gorm.io/gorm"
 )
-
-func setProfileVisibility(db *gorm.DB, userID uint, visibility string) error {
-	return db.Model(&authm.User{}).Where("id = ?", userID).Update("profile_visibility", visibility).Error
-}
 
 func (suite *ChartsServiceIntegrationTestSuite) TestFeaturedReads_ListOnlyLiveCreatorsWithPublicProfiles() {
 	live := suite.createUser("feat-live@test.com")
@@ -40,18 +34,21 @@ func (suite *ChartsServiceIntegrationTestSuite) TestFeaturedReads_ListOnlyLiveCr
 	suite.subscribe(control.ID, liveSub.ID)
 	suite.subscribe(control.ID, closedSub.ID)
 	// Each hidden creator's run is NEWER than the control's, so only the
-	// listing rule can keep it off the live pick.
-	hidden := map[uint]*communitym.Collection{}
+	// listing rule can keep it off the live pick. The deactivated creator's is
+	// the newest.
+	var deactivatedPick *communitym.Collection
 	for i, u := range []*authm.User{deactivated, deleted, private} {
 		c := suite.createCollection(u.ID, fmt.Sprintf("Hidden Creator Pick %d", i), fmt.Sprintf("hidden-creator-pick-%d", i))
 		suite.insertRun(c.ID, now.Add(-time.Duration(i+1)*time.Hour), nil, false)
-		hidden[u.ID] = c
+		if u.ID == deactivated.ID {
+			deactivatedPick = c
+		}
 	}
 
 	testutil.DeactivateAccount(suite.T(), suite.db, deactivated.ID)
 	testutil.SoftDeleteAccount(suite.T(), suite.db, deleted.ID)
 	testutil.DeactivateAccount(suite.T(), suite.db, closedSub.ID)
-	suite.Require().NoError(setProfileVisibility(suite.db, private.ID, "private"))
+	testutil.SetProfileVisibility(suite.T(), suite.db, private.ID, "private")
 
 	pick, err := suite.chartsService.GetFeaturedCollection()
 	suite.Require().NoError(err)
@@ -70,7 +67,7 @@ func (suite *ChartsServiceIntegrationTestSuite) TestFeaturedReads_ListOnlyLiveCr
 	pick, err = suite.chartsService.GetFeaturedCollection()
 	suite.Require().NoError(err)
 	suite.Require().NotNil(pick)
-	suite.Equal(hidden[deactivated.ID].ID, pick.CollectionID)
+	suite.Equal(deactivatedPick.ID, pick.CollectionID)
 	_, total, err = suite.chartsService.GetFeaturedCollectionHistory(20, 0)
 	suite.Require().NoError(err)
 	suite.Equal(2, total)
@@ -137,7 +134,7 @@ func (suite *SceneServiceIntegrationTestSuite) TestGetSceneCollections_ListsOnly
 	testutil.DeactivateAccount(suite.T(), suite.db, deactivated.ID)
 	testutil.SoftDeleteAccount(suite.T(), suite.db, deleted.ID)
 	testutil.DeactivateAccount(suite.T(), suite.db, closedHelper.ID)
-	suite.Require().NoError(setProfileVisibility(suite.db, private.ID, "private"))
+	testutil.SetProfileVisibility(suite.T(), suite.db, private.ID, "private")
 
 	got, err := suite.sceneService.GetSceneCollections("Phoenix", "AZ", 10)
 	suite.Require().NoError(err)
@@ -147,7 +144,7 @@ func (suite *SceneServiceIntegrationTestSuite) TestGetSceneCollections_ListsOnly
 	suite.Equal(6, got[0].ItemCount, "every item still counts")
 
 	testutil.ReopenAccount(suite.T(), suite.db, deactivated.ID)
-	suite.Require().NoError(setProfileVisibility(suite.db, private.ID, "public"))
+	testutil.SetProfileVisibility(suite.T(), suite.db, private.ID, "public")
 	got, err = suite.sceneService.GetSceneCollections("Phoenix", "AZ", 10)
 	suite.Require().NoError(err)
 	suite.ElementsMatch([]string{"Live Creator Phoenix", byCreator[deactivated.ID], byCreator[private.ID]},
@@ -162,12 +159,11 @@ func (suite *TagServiceIntegrationTestSuite) TestGetTagEntities_Collections_List
 	tag := suite.createTag("listing-rule", "other")
 
 	control := suite.createCollection(live.ID, "Listed Picks", true)
+	_, err := suite.tagService.AddTagToEntity(tag.ID, "", catalogm.TagEntityCollection, control.ID, live.ID, "")
+	suite.Require().NoError(err)
 	ids := map[uint]uint{}
-	for _, u := range []*authm.User{live, deactivated, deleted, private} {
-		c := control
-		if u.ID != live.ID {
-			c = suite.createCollection(u.ID, "Hidden Picks "+fmt.Sprint(u.ID), true)
-		}
+	for _, u := range []*authm.User{deactivated, deleted, private} {
+		c := suite.createCollection(u.ID, "Hidden Picks "+fmt.Sprint(u.ID), true)
 		_, err := suite.tagService.AddTagToEntity(tag.ID, "", catalogm.TagEntityCollection, c.ID, u.ID, "")
 		suite.Require().NoError(err)
 		ids[u.ID] = c.ID
@@ -175,7 +171,7 @@ func (suite *TagServiceIntegrationTestSuite) TestGetTagEntities_Collections_List
 
 	testutil.DeactivateAccount(suite.T(), suite.db, deactivated.ID)
 	testutil.SoftDeleteAccount(suite.T(), suite.db, deleted.ID)
-	suite.Require().NoError(setProfileVisibility(suite.db, private.ID, "private"))
+	testutil.SetProfileVisibility(suite.T(), suite.db, private.ID, "private")
 
 	assertListed := func(want []uint, msg string) {
 		rows, total, err := suite.tagService.GetTagEntities(tag.ID, catalogm.TagEntityCollection, 50, 0)
@@ -200,7 +196,7 @@ func (suite *TagServiceIntegrationTestSuite) TestGetTagEntities_Collections_List
 	assertListed([]uint{control.ID}, "closed and private-profile creators hidden")
 
 	testutil.ReopenAccount(suite.T(), suite.db, deleted.ID)
-	suite.Require().NoError(setProfileVisibility(suite.db, private.ID, "public"))
+	testutil.SetProfileVisibility(suite.T(), suite.db, private.ID, "public")
 	assertListed([]uint{control.ID, ids[deleted.ID], ids[private.ID]}, "reopened and profile published")
 }
 
@@ -231,7 +227,7 @@ func (s *TagIntersectionIntegrationTestSuite) TestIntersection_CollectionListsOn
 		s.tag("collection", id, "electronic")
 	}
 	testutil.DeactivateAccount(s.T(), s.db, deactivated.ID)
-	s.Require().NoError(setProfileVisibility(s.db, private.ID, "private"))
+	testutil.SetProfileVisibility(s.T(), s.db, private.ID, "private")
 
 	collectionGroup := func() (int64, []string) {
 		resp, err := s.tagService.IntersectEntitiesByTags([]string{"shoegaze", "electronic"}, false, 4)

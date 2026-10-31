@@ -22,18 +22,15 @@ import (
 //     The is_public rule alone: CollectionVisibleTo, VisibleCollectionPredicateSQL
 //     and VisibleCollectionRecipientPredicateSQL.
 //   - SERVED: visible, and the creator is a live account (authm.LiveAccountSQL).
-//     What every surface that answers a viewer about a collection decides on:
-//     the slug and id routes in services/community, every polymorphic gate
-//     (comments, comment subscriptions, tags, votes, reports), the inbox, the
-//     watching list, the comment fan-out, and the counts and names derived from
-//     them. CollectionServedTo, ServedCollectionPredicateSQL and the Served*
-//     spellings in collection_visibility.go.
+//     What every surface that answers a viewer about a collection decides on,
+//     including the polymorphic registry's collection arm (entity_visibility.go)
+//     and the mailing surfaces. CollectionServedTo, ServedCollectionPredicateSQL,
+//     ServedCollectionRecipientPredicateSQL and the Served* spellings in
+//     collection_visibility.go.
 //   - LISTED: served, and the creator's profile is public or the viewer is the
-//     creator. What a LISTING of many collections decides on: browse, the
-//     entity's collections list, the featured collection, the scene rail, tag
-//     pages and the tag intersection. CollectionCreatorIsListedSQL beside the
-//     visible predicate, and PublicListedCollectionSQL for the public-tier
-//     listings.
+//     creator. What a LISTING of many collections, and a count rendered beside
+//     one, decides on. CollectionCreatorIsListedSQL beside the visible
+//     predicate, and PublicListedCollectionSQL for the public-tier listings.
 //
 // No viewer-facing surface decides on VISIBLE alone. VISIBLE is the building
 // block the other two are made of. A route that must still reach a closed
@@ -76,14 +73,15 @@ func CollectionCreatorIsLiveSQL(alias string) string {
 //
 // alias is SQL the CALLER controls and must be a literal in the calling code.
 func CollectionCreatorIsListedSQL(alias string, viewer contracts.ShowViewer) (string, []interface{}) {
-	live := CollectionCreatorIsLiveSQL(alias)
-	publicProfile := "EXISTS (SELECT 1 FROM users " + collectionCreatorAlias +
+	// One probe of the creator's users row decides both terms.
+	creatorRow := "EXISTS (SELECT 1 FROM users " + collectionCreatorAlias +
 		" WHERE " + collectionCreatorAlias + ".id = " + alias + ".creator_id" +
-		" AND " + collectionCreatorAlias + ".profile_visibility <> 'private')"
+		" AND " + authm.LiveAccountSQL(collectionCreatorAlias)
+	publicProfile := collectionCreatorAlias + ".profile_visibility <> 'private'"
 	if viewer.UserID == 0 {
-		return "(" + live + " AND " + publicProfile + ")", nil
+		return creatorRow + " AND " + publicProfile + ")", nil
 	}
-	return "(" + live + " AND (" + alias + ".creator_id = ? OR " + publicProfile + "))",
+	return creatorRow + " AND (" + publicProfile + " OR " + alias + ".creator_id = ?))",
 		[]interface{}{viewer.UserID}
 }
 
@@ -107,9 +105,13 @@ func ServedCollectionPredicateSQL(alias string, viewer contracts.ShowViewer) (st
 // alias is SQL the CALLER controls and must be a literal in the calling code.
 func PublicListedCollectionSQL(alias string) string {
 	// The anonymous forms of both conditions bind nothing: with no viewer id
-	// neither has a creator branch.
-	visible, _ := VisibleCollectionPredicateSQL(alias, contracts.ShowViewer{})
-	listed, _ := CollectionCreatorIsListedSQL(alias, contracts.ShowViewer{})
+	// neither has a creator branch. A form that ever bound an argument here
+	// would leave a placeholder unfilled, so it lists nothing instead.
+	visible, visibleArgs := VisibleCollectionPredicateSQL(alias, contracts.ShowViewer{})
+	listed, listedArgs := CollectionCreatorIsListedSQL(alias, contracts.ShowViewer{})
+	if len(visibleArgs) != 0 || len(listedArgs) != 0 {
+		return "FALSE"
+	}
 	return "(" + visible + " AND " + listed + ")"
 }
 
@@ -122,6 +124,20 @@ func PublicListedCollectionSQL(alias string) string {
 // calling code, never qualified with visibleCollectionsAlias.
 func PublicListedCollectionExistsSQL(collectionIDExpr string) string {
 	return collectionExistsSQL(collectionIDExpr, PublicListedCollectionSQL(visibleCollectionsAlias))
+}
+
+// ServedCollectionRecipientPredicateSQL returns a condition, true when the
+// collection at alias may be served to the user named by recipientIDExpr: the
+// visible recipient predicate (VisibleCollectionRecipientPredicateSQL) with a
+// live creator. The rule with both sides as columns, shared by the comment
+// fan-out (ServedCollectionRecipientsSQL) and the digest cycle so the two
+// mailing surfaces decide a collection on one rule. It binds nothing.
+//
+// alias and recipientIDExpr are SQL the CALLER controls and must be literals in
+// the calling code.
+func ServedCollectionRecipientPredicateSQL(alias, recipientIDExpr string) string {
+	return "(" + VisibleCollectionRecipientPredicateSQL(alias, recipientIDExpr) +
+		" AND " + CollectionCreatorIsLiveSQL(alias) + ")"
 }
 
 // CollectionServedTo reports whether viewer may be served collection

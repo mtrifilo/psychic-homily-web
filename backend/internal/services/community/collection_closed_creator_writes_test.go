@@ -27,10 +27,9 @@ type collectionWriteSnapshot struct {
 func (suite *CollectionServiceIntegrationTestSuite) snapshotCollectionWrites(collectionID uint) collectionWriteSnapshot {
 	var snap collectionWriteSnapshot
 	suite.Require().NoError(suite.db.Model(&communitym.Collection{}).Count(&snap.Collections).Error)
-	suite.Require().NoError(suite.db.Model(&communitym.CollectionItem{}).
-		Where("collection_id = ?", collectionID).Count(&snap.Items).Error)
 	var items []communitym.CollectionItem
 	suite.Require().NoError(suite.db.Where("collection_id = ?", collectionID).Order("id").Find(&items).Error)
+	snap.Items = int64(len(items))
 	for _, it := range items {
 		notes := ""
 		if it.Notes != nil {

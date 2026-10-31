@@ -395,8 +395,7 @@ func ServedCollectionCommentEntitySQL(entityTypeExpr, entityIDExpr string, viewe
 // recipientIDExpr is SQL the CALLER controls and must be a literal in the
 // calling code; collectionID is bound.
 func ServedCollectionRecipientsSQL(collectionID uint, recipientIDExpr string) (string, []interface{}) {
-	cond := "(" + VisibleCollectionRecipientPredicateSQL(visibleCollectionsAlias, recipientIDExpr) +
-		" AND " + CollectionCreatorIsLiveSQL(visibleCollectionsAlias) + ")"
+	cond := ServedCollectionRecipientPredicateSQL(visibleCollectionsAlias, recipientIDExpr)
 	// collectionID is the only bind, and it binds first because
 	// collectionExistsSQL puts the id comparison first and placeholders are
 	// positional.
@@ -411,12 +410,9 @@ func ServedCollectionRecipientsSQL(collectionID uint, recipientIDExpr string) (s
 // digest cycle choosing who to mail. It binds nothing, because both operands are
 // columns of the enclosing query.
 //
-// It is the visible half of what ServedCollectionRecipientsSQL wraps in its
-// EXISTS, shared rather than copied so a mailing surface cannot decide a
-// collection on terms the fan-out does not use; a caller splicing it applies the
-// creator's state beside it, as the digest cycle does.
-// TestCollectionVisibilitySpellingsAgree checks it against the same truth table
-// as every other spelling.
+// The visible half of ServedCollectionRecipientPredicateSQL, which is what a
+// mailing surface splices. TestCollectionVisibilitySpellingsAgree checks it
+// against the same truth table as every other spelling.
 //
 // alias and recipientIDExpr are SQL the CALLER controls and must be literals in
 // the calling code.

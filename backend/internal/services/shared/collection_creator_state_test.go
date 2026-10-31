@@ -7,7 +7,6 @@ import (
 	"gorm.io/gorm"
 
 	"psychic-homily-backend/internal/api/handlers/shared/testhelpers"
-	authm "psychic-homily-backend/internal/models/auth"
 	"psychic-homily-backend/internal/services/contracts"
 	"psychic-homily-backend/internal/services/shared"
 	"psychic-homily-backend/internal/testutil"
@@ -15,25 +14,21 @@ import (
 
 // creatorState is one state of a collection creator's account.
 type creatorState struct {
-	name   string
-	live   bool
-	apply  func(t *testing.T, db *gorm.DB, userID uint)
-	public bool // profile_visibility is public rather than private
+	name          string
+	live          bool
+	publicProfile bool
+	apply         func(t *testing.T, db *gorm.DB, userID uint)
 }
 
 var creatorStates = []creatorState{
-	{"live, public profile", true, func(*testing.T, *gorm.DB, uint) {}, true},
-	{"live, private profile", true, setProfilePrivate, false},
-	{"deactivated", false, testutil.DeactivateAccount, true},
-	{"soft-deleted", false, testutil.SoftDeleteAccount, true},
-}
-
-func setProfilePrivate(t *testing.T, db *gorm.DB, userID uint) {
-	t.Helper()
-	if err := db.Model(&authm.User{}).Where("id = ?", userID).
-		Update("profile_visibility", "private").Error; err != nil {
-		t.Fatalf("set profile private: %v", err)
-	}
+	{name: "live, public profile", live: true, publicProfile: true,
+		apply: func(*testing.T, *gorm.DB, uint) {}},
+	{name: "live, private profile", live: true, publicProfile: false,
+		apply: func(t *testing.T, db *gorm.DB, userID uint) {
+			testutil.SetProfileVisibility(t, db, userID, "private")
+		}},
+	{name: "deactivated", live: false, publicProfile: true, apply: testutil.DeactivateAccount},
+	{name: "soft-deleted", live: false, publicProfile: true, apply: testutil.SoftDeleteAccount},
 }
 
 // Every SERVED spelling answers the VISIBLE truth table AND a live creator, so a
@@ -56,7 +51,6 @@ func TestCollectionServedSpellingsRefuseAClosedCreator(t *testing.T) {
 	for _, state := range creatorStates {
 		for _, isPublic := range []bool{true, false} {
 			n++
-			state, isPublic, n := state, isPublic, n
 			t.Run(fmt.Sprintf("%s, public=%v", state.name, isPublic), func(t *testing.T) {
 				creatorID := testhelpers.CreateTestUser(td.DB).ID
 				collection := testhelpers.CreateCollection(t, td.DB, creatorID,
@@ -142,7 +136,7 @@ func TestCollectionServedSpellingsRefuseAClosedCreator(t *testing.T) {
 
 				// The public-tier listing rule: served to the public AND a public
 				// profile.
-				wantListed := isPublic && state.live && state.public
+				wantListed := isPublic && state.live && state.publicProfile
 				if got := countCollectionsMatching(t, td.DB, collection.ID, shared.PublicListedCollectionSQL("collections"), nil) > 0; got != wantListed {
 					t.Errorf("PublicListedCollectionSQL = %v, want %v", got, wantListed)
 				}
@@ -169,14 +163,14 @@ func TestCollectionServedToFailsClosed(t *testing.T) {
 	if shared.CollectionServedTo(nil, 1, contracts.ShowViewer{UserID: 5}) {
 		t.Error("a nil database answered served")
 	}
-	if shared.CollectionServedTo(nil, 0, contracts.ShowViewer{UserID: 5}) {
-		t.Error("collection id 0 answered served")
-	}
 	if testing.Short() {
 		return
 	}
 	td := testutil.SetupTestPostgres(t)
 	defer td.Cleanup()
+	if shared.CollectionServedTo(td.DB, 0, contracts.ShowViewer{UserID: 5}) {
+		t.Error("collection id 0 answered served")
+	}
 	if shared.CollectionServedTo(td.DB, 99999999, contracts.ShowViewer{}) {
 		t.Error("a collection that does not exist answered served")
 	}
