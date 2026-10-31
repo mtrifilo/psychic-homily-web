@@ -337,13 +337,12 @@ func (s *CollectionService) CloneCollection(srcSlug string, callerID uint) (*con
 		return nil, apperrors.ErrCollectionForbidden(srcSlug)
 	}
 
-	// Load source.
-	var src communitym.Collection
-	if err := s.db.Where("slug = ?", srcSlug).First(&src).Error; err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return nil, apperrors.ErrCollectionNotFound(srcSlug)
-		}
-		return nil, fmt.Errorf("failed to load source collection: %w", err)
+	// Load source. A closed creator's collection answers as an unused slug and
+	// is never copied: the copy would carry its title, description and item
+	// notes into a live account.
+	src, err := s.loadLiveCreatorCollectionBySlug(srcSlug)
+	if err != nil {
+		return nil, err
 	}
 
 	// Visibility: match GetBySlug — public OR owned by caller, and invisible
@@ -382,7 +381,7 @@ func (s *CollectionService) CloneCollection(srcSlug string, callerID uint) (*con
 
 	now := time.Now()
 
-	err := s.db.Transaction(func(tx *gorm.DB) error {
+	err = s.db.Transaction(func(tx *gorm.DB) error {
 		if err := tx.Create(clone).Error; err != nil {
 			return fmt.Errorf("failed to create clone: %w", err)
 		}
@@ -470,14 +469,18 @@ func (s *CollectionService) GetByID(id uint, viewerID uint) (*contracts.Collecti
 	return s.GetBySlug(collection.Slug, viewerID)
 }
 
-// loadReadableBySlug loads the collection a READ addressed by slug may serve:
-// one whose creator is a live account (shared.CollectionCreatorIsLiveSQL). A
-// closed creator's collection answers the not-found error a slug nobody has
-// used gets. The caller still applies the is_public rule.
+// loadLiveCreatorCollectionBySlug loads the collection a route addressed by
+// slug may act on: one whose creator is a live account
+// (shared.CollectionCreatorIsLiveSQL). A closed creator's collection answers
+// the not-found error a slug nobody has used gets, and the route writes
+// nothing. The caller still applies the is_public rule.
 //
-// Every slug-addressed read (detail, stats, graph) loads through here. Writes
-// addressed by slug load the row themselves and do not apply this rule.
-func (s *CollectionService) loadReadableBySlug(slug string) (*communitym.Collection, error) {
+// Every slug-addressed route a viewer reaches loads through here, reads and
+// writes alike. The routes that do not are named at their definitions, each
+// with its reason: Unsubscribe and MarkVisited, which touch only the caller's
+// own row; Unlike's removal of the caller's own like; and the admin remedies
+// UpdateCollection, DeleteCollection and SetFeatured's un-feature.
+func (s *CollectionService) loadLiveCreatorCollectionBySlug(slug string) (*communitym.Collection, error) {
 	var collection communitym.Collection
 	err := s.db.Where("slug = ?", slug).Where(shared.CollectionCreatorIsLiveSQL("collections")).
 		First(&collection).Error
@@ -490,17 +493,32 @@ func (s *CollectionService) loadReadableBySlug(slug string) (*communitym.Collect
 	return &collection, nil
 }
 
+// loadAnyCollectionBySlug loads the collection a slug names whatever its
+// creator's state. Only the admin remedies named at
+// loadLiveCreatorCollectionBySlug use it.
+func (s *CollectionService) loadAnyCollectionBySlug(slug string) (*communitym.Collection, error) {
+	var collection communitym.Collection
+	if err := s.db.Where("slug = ?", slug).First(&collection).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, apperrors.ErrCollectionNotFound(slug)
+		}
+		return nil, fmt.Errorf("failed to get collection: %w", err)
+	}
+	return &collection, nil
+}
+
 // GetBySlug retrieves a collection by slug with full detail.
 //
 // A collection whose creator is closed answers as a slug nobody has used
-// (loadReadableBySlug). Its people counts (subscribers, contributors, likes)
-// count live accounts only; its item count counts every item.
+// (loadLiveCreatorCollectionBySlug). Its people counts (subscribers,
+// contributors, likes) count live accounts only; its item count counts every
+// item.
 func (s *CollectionService) GetBySlug(slug string, viewerID uint) (*contracts.CollectionDetailResponse, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
 	}
 
-	collection, err := s.loadReadableBySlug(slug)
+	collection, err := s.loadLiveCreatorCollectionBySlug(slug)
 	if err != nil {
 		return nil, err
 	}
@@ -537,9 +555,11 @@ func (s *CollectionService) GetBySlug(slug string, viewerID uint) (*contracts.Co
 	//
 	// PUBLIC TIER, and no viewer term. A fork is a collection of its own, so a
 	// count that included private ones would report how many people cloned this
-	// collection and hid the result. It is a public signal and it counts public
-	// forks; batchCountForks answers the same way for the listings.
-	forkVisibility, forkVisibilityArgs := shared.VisibleCollectionPredicateSQL(
+	// collection and hid the result. It is a public signal and it counts the
+	// forks the public is served (public, with a live creator), so a closed
+	// cloner's fork leaves it as a deleted one does; batchCountForks answers the
+	// same way for the listings.
+	forkVisibility, forkVisibilityArgs := shared.ServedCollectionPredicateSQL(
 		"collections", contracts.ShowViewer{})
 	var forksCount int64
 	s.db.Model(&communitym.Collection{}).
@@ -1006,18 +1026,20 @@ func applySearchRelevanceOrder(query *gorm.DB, pattern string) *gorm.DB {
 // collection, and the entity-report queue serves an admin reports naming private
 // collections, so an admin refused this route could see the report and do
 // nothing about it. Every other collection write refuses them.
+//
+// IT LOADS WITHOUT THE CREATOR'S STATE, so an admin's remedy also reaches a
+// closed creator's collection. Nobody else can: only the creator or an admin
+// passes the ownership test, and a closed creator cannot sign in. The read-back
+// below refuses such a collection to everyone, so the update is reported as
+// committed with nothing to show and publishes nothing.
 func (s *CollectionService) UpdateCollection(slug string, userID uint, isAdmin bool, req *contracts.UpdateCollectionRequest) (*contracts.CollectionDetailResponse, uint, error) {
 	if s.db == nil {
 		return nil, 0, fmt.Errorf("database not initialized")
 	}
 
-	var collection communitym.Collection
-	err := s.db.Where("slug = ?", slug).First(&collection).Error
+	collection, err := s.loadAnyCollectionBySlug(slug)
 	if err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return nil, 0, apperrors.ErrCollectionNotFound(slug)
-		}
-		return nil, 0, fmt.Errorf("failed to get collection: %w", err)
+		return nil, 0, err
 	}
 
 	// Invisible answers as missing, BEFORE ownership, so a caller who may not
@@ -1131,18 +1153,17 @@ func (s *CollectionService) UpdateCollection(slug string, userID uint, isAdmin b
 // is the other moderation remedy for a reported collection, and a queue that
 // shows an admin the report while every remedy refuses them is a queue they
 // cannot act on. It publishes nothing — the response is empty either way.
+//
+// It loads without the creator's state, on UpdateCollection's reason: removing
+// a closed creator's collection is an admin remedy and publishes nothing.
 func (s *CollectionService) DeleteCollection(slug string, userID uint, isAdmin bool) (uint, error) {
 	if s.db == nil {
 		return 0, fmt.Errorf("database not initialized")
 	}
 
-	var collection communitym.Collection
-	err := s.db.Where("slug = ?", slug).First(&collection).Error
+	collection, err := s.loadAnyCollectionBySlug(slug)
 	if err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return 0, apperrors.ErrCollectionNotFound(slug)
-		}
-		return 0, fmt.Errorf("failed to get collection: %w", err)
+		return 0, err
 	}
 
 	// Invisible answers as missing, BEFORE ownership.
@@ -1156,7 +1177,7 @@ func (s *CollectionService) DeleteCollection(slug string, userID uint, isAdmin b
 	}
 
 	// Delete collection (FK cascades handle items and subscribers)
-	if err := s.db.Delete(&collection).Error; err != nil {
+	if err := s.db.Delete(collection).Error; err != nil {
 		return 0, fmt.Errorf("failed to delete collection: %w", err)
 	}
 
@@ -1171,13 +1192,9 @@ func (s *CollectionService) AddItem(slug string, userID uint, req *contracts.Add
 		return nil, 0, fmt.Errorf("database not initialized")
 	}
 
-	var collection communitym.Collection
-	err := s.db.Where("slug = ?", slug).First(&collection).Error
+	collection, err := s.loadLiveCreatorCollectionBySlug(slug)
 	if err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return nil, 0, apperrors.ErrCollectionNotFound(slug)
-		}
-		return nil, 0, fmt.Errorf("failed to get collection: %w", err)
+		return nil, 0, err
 	}
 
 	// Check permission: creator or (collaborative and authenticated)
@@ -1288,12 +1305,9 @@ func (s *CollectionService) BulkAddItems(slug string, userID uint, req *contract
 		)
 	}
 
-	var collection communitym.Collection
-	if err := s.db.Where("slug = ?", slug).First(&collection).Error; err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return nil, 0, apperrors.ErrCollectionNotFound(slug)
-		}
-		return nil, 0, fmt.Errorf("failed to get collection: %w", err)
+	collection, err := s.loadLiveCreatorCollectionBySlug(slug)
+	if err != nil {
+		return nil, 0, err
 	}
 	// A COLLECTION THE CALLER CANNOT READ IS NOT ONE THEY MAY WRITE TO, whatever
 	// `collaborative` says, and `collaborative` is the model default. Without
@@ -1707,13 +1721,9 @@ func (s *CollectionService) UpdateItem(slug string, itemID uint, userID uint, is
 		return nil, 0, fmt.Errorf("database not initialized")
 	}
 
-	var collection communitym.Collection
-	err := s.db.Where("slug = ?", slug).First(&collection).Error
+	collection, err := s.loadLiveCreatorCollectionBySlug(slug)
 	if err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return nil, 0, apperrors.ErrCollectionNotFound(slug)
-		}
-		return nil, 0, fmt.Errorf("failed to get collection: %w", err)
+		return nil, 0, err
 	}
 
 	if !collection.IsPublic && collection.CreatorID != userID {
@@ -1775,13 +1785,9 @@ func (s *CollectionService) RemoveItem(slug string, itemID uint, userID uint, is
 		return 0, fmt.Errorf("database not initialized")
 	}
 
-	var collection communitym.Collection
-	err := s.db.Where("slug = ?", slug).First(&collection).Error
+	collection, err := s.loadLiveCreatorCollectionBySlug(slug)
 	if err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return 0, apperrors.ErrCollectionNotFound(slug)
-		}
-		return 0, fmt.Errorf("failed to get collection: %w", err)
+		return 0, err
 	}
 
 	if !collection.IsPublic && collection.CreatorID != userID {
@@ -1815,13 +1821,9 @@ func (s *CollectionService) ReorderItems(slug string, userID uint, req *contract
 		return fmt.Errorf("database not initialized")
 	}
 
-	var collection communitym.Collection
-	err := s.db.Where("slug = ?", slug).First(&collection).Error
+	collection, err := s.loadLiveCreatorCollectionBySlug(slug)
 	if err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return apperrors.ErrCollectionNotFound(slug)
-		}
-		return fmt.Errorf("failed to get collection: %w", err)
+		return err
 	}
 
 	// Invisible answers as missing, before the creator test.
@@ -1854,13 +1856,9 @@ func (s *CollectionService) Subscribe(slug string, userID uint) error {
 		return fmt.Errorf("database not initialized")
 	}
 
-	var collection communitym.Collection
-	err := s.db.Where("slug = ?", slug).First(&collection).Error
+	collection, err := s.loadLiveCreatorCollectionBySlug(slug)
 	if err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return apperrors.ErrCollectionNotFound(slug)
-		}
-		return fmt.Errorf("failed to get collection: %w", err)
+		return err
 	}
 
 	// Invisible answers as missing, on the terms GetBySlug states.
@@ -1898,7 +1896,9 @@ func (s *CollectionService) Subscribe(slug string, userID uint) error {
 // entity either, and the two must answer alike.
 //
 // Quitting is always allowed, so there is nothing a caller learns from the
-// success itself: it is the same answer whether a row was there or not.
+// success itself: it is the same answer whether a row was there or not. That
+// holds for a closed creator's collection too: the caller leaves it, and the
+// answer is the one every slug gets.
 func (s *CollectionService) Unsubscribe(slug string, userID uint) error {
 	if s.db == nil {
 		return fmt.Errorf("database not initialized")
@@ -1928,13 +1928,9 @@ func (s *CollectionService) Like(slug string, userID uint) (*contracts.Collectio
 		return nil, fmt.Errorf("database not initialized")
 	}
 
-	var collection communitym.Collection
-	err := s.db.Where("slug = ?", slug).First(&collection).Error
+	collection, err := s.loadLiveCreatorCollectionBySlug(slug)
 	if err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return nil, apperrors.ErrCollectionNotFound(slug)
-		}
-		return nil, fmt.Errorf("failed to get collection: %w", err)
+		return nil, err
 	}
 
 	if !collection.IsPublic && collection.CreatorID != userID {
@@ -1957,19 +1953,31 @@ func (s *CollectionService) Like(slug string, userID uint) (*contracts.Collectio
 
 // Unlike removes a user's like on the collection. Idempotent — DELETE on
 // a row that doesn't exist is a no-op. Returns the post-mutation aggregate.
-// PSY-352.
+//
+// ON A CLOSED CREATOR'S COLLECTION the caller's own like is still removed, and
+// the answer is the not-found error an unused slug gets. Taking back one's own
+// like is always allowed, as leaving a subscription is (Unsubscribe). The answer
+// is the unused slug's because the like count is a read of the collection, and
+// a success beside an unused slug's 404 would report that the slug is taken.
+// The removal is keyed by a slug subquery, as Unsubscribe's is, so for an
+// unused slug it removes nothing and the two answers are identical.
 func (s *CollectionService) Unlike(slug string, userID uint) (*contracts.CollectionLikeResponse, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
 	}
 
-	var collection communitym.Collection
-	err := s.db.Where("slug = ?", slug).First(&collection).Error
+	collection, err := s.loadLiveCreatorCollectionBySlug(slug)
 	if err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return nil, apperrors.ErrCollectionNotFound(slug)
+		var collErr *apperrors.CollectionError
+		if errors.As(err, &collErr) && collErr.Code == apperrors.CodeCollectionNotFound {
+			if delErr := s.db.Where(
+				"user_id = ? AND collection_id IN (SELECT id FROM collections WHERE slug = ?)",
+				userID, slug,
+			).Delete(&communitym.CollectionLike{}).Error; delErr != nil {
+				return nil, fmt.Errorf("failed to unlike collection: %w", delErr)
+			}
 		}
-		return nil, fmt.Errorf("failed to get collection: %w", err)
+		return nil, err
 	}
 
 	if !collection.IsPublic && collection.CreatorID != userID {
@@ -2017,7 +2025,8 @@ func (s *CollectionService) buildLikeResponse(collectionID uint, userID uint) (*
 // IT ANSWERS THE SAME WHATEVER THE SLUG NAMES, on Unsubscribe's reasoning and by
 // the same subquery: it writes only to the caller's OWN subscription row, so
 // resolving the slug first would buy nothing and would report whether a
-// guessable slug is taken.
+// guessable slug is taken. A closed creator's collection is no exception: the
+// write reaches only the caller's own row and the answer is every slug's.
 func (s *CollectionService) MarkVisited(slug string, userID uint) error {
 	if s.db == nil {
 		return fmt.Errorf("database not initialized")
@@ -2046,7 +2055,7 @@ func (s *CollectionService) GetStats(slug string, viewerID uint) (*contracts.Col
 		return nil, fmt.Errorf("database not initialized")
 	}
 
-	collection, err := s.loadReadableBySlug(slug)
+	collection, err := s.loadLiveCreatorCollectionBySlug(slug)
 	if err != nil {
 		return nil, err
 	}
@@ -2562,13 +2571,19 @@ func (s *CollectionService) SetFeatured(slug string, featured bool, actorID uint
 		return 0, fmt.Errorf("database not initialized")
 	}
 
-	var collection communitym.Collection
-	err := s.db.Where("slug = ?", slug).First(&collection).Error
+	// FEATURING takes the live-creator load, so a closed creator's collection
+	// answers as an unused slug and no run is opened. UN-FEATURING loads without
+	// it, so an admin can still close the open run of a collection whose
+	// creator closed after it was featured; it publishes nothing.
+	var collection *communitym.Collection
+	var err error
+	if featured {
+		collection, err = s.loadLiveCreatorCollectionBySlug(slug)
+	} else {
+		collection, err = s.loadAnyCollectionBySlug(slug)
+	}
 	if err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return 0, apperrors.ErrCollectionNotFound(slug)
-		}
-		return 0, fmt.Errorf("failed to get collection: %w", err)
+		return 0, err
 	}
 
 	// NO VISIBILITY TEST, and this is the third admin write that reaches a private
@@ -2588,7 +2603,7 @@ func (s *CollectionService) SetFeatured(slug string, featured bool, actorID uint
 	if err := s.db.Transaction(func(tx *gorm.DB) error {
 		// Explicit single-column update — GORM's skip-zero-value-on-Create
 		// bool gotcha does not apply to a named Update, so `false` persists.
-		if err := tx.Model(&collection).Update("is_featured", featured).Error; err != nil {
+		if err := tx.Model(collection).Update("is_featured", featured).Error; err != nil {
 			return fmt.Errorf("failed to update featured status: %w", err)
 		}
 
@@ -2991,7 +3006,9 @@ func (s *CollectionService) batchEntityTypeCounts(collectionIDs []uint) map[uint
 // (batchCountSubscribers), contributors (batchCountContributors) and likes
 // (batchCountLikes, buildLikeResponse). The detail and stats readers call the
 // batch helpers with one id rather than keeping copies. Counts of THINGS
-// (items, the per-type breakdown, new-since-visit, forks) count every row.
+// (items, the per-type breakdown, new-since-visit) count every row. Forks are
+// collections, so the fork count counts the forks the public is served
+// (batchCountForks).
 
 // batchCountSubscribers returns live-account subscriber counts per collection ID
 func (s *CollectionService) batchCountSubscribers(collectionIDs []uint) map[uint]int {
@@ -3094,16 +3111,17 @@ func (s *CollectionService) batchCountContributors(collectionIDs []uint) map[uin
 // source collection ID. Live COUNT mirrors the existing collection counter
 // pattern. PSY-351.
 //
-// PUBLIC TIER, on the reason GetBySlug's single-collection count gives: a
-// private fork is a private collection, and counting it reports that somebody
-// cloned this one and hid the result.
+// PUBLIC TIER and served, on the reason GetBySlug's single-collection count
+// gives: a private fork is a private collection, and counting it reports that
+// somebody cloned this one and hid the result; a closed cloner's fork is served
+// to nobody.
 func (s *CollectionService) batchCountForks(collectionIDs []uint) map[uint]int {
 	counts := make(map[uint]int)
 	if len(collectionIDs) == 0 {
 		return counts
 	}
 
-	visibility, visibilityArgs := shared.VisibleCollectionPredicateSQL(
+	visibility, visibilityArgs := shared.ServedCollectionPredicateSQL(
 		"collections", contracts.ShowViewer{})
 
 	type Row struct {
@@ -3289,15 +3307,12 @@ func (s *CollectionService) AddTagToCollection(slug string, userID uint, req *co
 		return nil, 0, apperrors.ErrCollectionInvalidRequest("tag_id or tag_name is required")
 	}
 
-	var collection communitym.Collection
-	if err := s.db.Where("slug = ?", slug).First(&collection).Error; err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return nil, 0, apperrors.ErrCollectionNotFound(slug)
-		}
-		return nil, 0, fmt.Errorf("failed to get collection: %w", err)
+	collection, err := s.loadLiveCreatorCollectionBySlug(slug)
+	if err != nil {
+		return nil, 0, err
 	}
 
-	if !s.canEditCollectionTags(&collection, userID) {
+	if !s.canEditCollectionTags(collection, userID) {
 		if !collection.IsPublic && collection.CreatorID != userID {
 			// Invisible answers as missing, on the terms GetBySlug states; the
 			// forbidden case below is a PUBLIC collection the caller may see and
@@ -3350,15 +3365,12 @@ func (s *CollectionService) RemoveTagFromCollection(slug string, tagID uint, use
 		return 0, apperrors.ErrCollectionInvalidRequest("tag_id is required")
 	}
 
-	var collection communitym.Collection
-	if err := s.db.Where("slug = ?", slug).First(&collection).Error; err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return 0, apperrors.ErrCollectionNotFound(slug)
-		}
-		return 0, fmt.Errorf("failed to get collection: %w", err)
+	collection, err := s.loadLiveCreatorCollectionBySlug(slug)
+	if err != nil {
+		return 0, err
 	}
 
-	if !s.canEditCollectionTags(&collection, userID) {
+	if !s.canEditCollectionTags(collection, userID) {
 		if !collection.IsPublic && collection.CreatorID != userID {
 			// Invisible answers as missing; see the add path.
 			return 0, apperrors.ErrCollectionNotFound(slug)
@@ -3719,7 +3731,7 @@ func (s *CollectionService) GetCollectionGraph(slug string, viewerID uint, types
 		return nil, fmt.Errorf("database not initialized")
 	}
 
-	collection, err := s.loadReadableBySlug(slug)
+	collection, err := s.loadLiveCreatorCollectionBySlug(slug)
 	if err != nil {
 		return nil, err
 	}

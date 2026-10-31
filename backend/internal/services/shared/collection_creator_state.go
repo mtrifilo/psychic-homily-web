@@ -1,7 +1,11 @@
 package shared
 
 import (
+	"gorm.io/gorm"
+
+	"psychic-homily-backend/internal/logger"
 	authm "psychic-homily-backend/internal/models/auth"
+	communitym "psychic-homily-backend/internal/models/community"
 	"psychic-homily-backend/internal/services/contracts"
 )
 
@@ -10,22 +14,42 @@ import (
 // =============================================================================
 //
 // A collection is published under its creator, and two states of the creator's
-// ACCOUNT withdraw it from readers. Both sit beside the is_public rule in
-// collection_visibility.go rather than inside it: that rule is shared with
-// comments, tags, the inbox and the fan-outs, and these two apply only to the
-// surfaces named here.
+// ACCOUNT withdraw it from readers. They compose with the is_public rule in
+// collection_visibility.go into three tiers, each the one before it plus one
+// term:
 //
-//  1. A CLOSED CREATOR (deactivated or soft-deleted, authm.LiveAccountSQL) takes
-//     their collections with them: the slug and id readers answer the not-found
-//     error a never-used identifier gets, and no listing carries them. The
-//     creator cannot sign in, so there is no owner to exempt. Nothing is
-//     scrubbed, so reopening the account serves every collection again.
+//   - VISIBLE (collection_visibility.go): public, or the viewer is the creator.
+//     The is_public rule alone: CollectionVisibleTo, VisibleCollectionPredicateSQL
+//     and VisibleCollectionRecipientPredicateSQL.
+//   - SERVED: visible, and the creator is a live account (authm.LiveAccountSQL).
+//     What every surface that answers a viewer about a collection decides on:
+//     the slug and id routes in services/community, every polymorphic gate
+//     (comments, comment subscriptions, tags, votes, reports), the inbox, the
+//     watching list, the comment fan-out, and the counts and names derived from
+//     them. CollectionServedTo, ServedCollectionPredicateSQL and the Served*
+//     spellings in collection_visibility.go.
+//   - LISTED: served, and the creator's profile is public or the viewer is the
+//     creator. What a LISTING of many collections decides on: browse, the
+//     entity's collections list, the featured collection, the scene rail, tag
+//     pages and the tag intersection. CollectionCreatorIsListedSQL beside the
+//     visible predicate.
 //
-//  2. A PRIVATE PROFILE keeps the creator's collections off the browse list and
-//     the entity's collections list for every viewer but the creator. Each
-//     public collection stays readable at its own slug, which is the private
-//     profile's answer everywhere: the per-user list is hidden, the content is
-//     not.
+// No viewer-facing surface decides on VISIBLE alone. VISIBLE is the building
+// block the other two are made of. A route that must still reach a closed
+// creator's collection (an admin's moderation remedy) loads the row without
+// the creator-state rules and says so at its definition.
+//
+// A CLOSED CREATOR (deactivated or soft-deleted) takes their collections with
+// them: the routes answer the not-found error a never-used identifier gets, no
+// listing carries them and no count includes them. The creator cannot sign in,
+// so there is no owner to exempt, and no tier changes what a creator sees of
+// their own collections. Nothing is scrubbed, so reopening the account serves
+// every collection again.
+//
+// A PRIVATE PROFILE keeps the creator's collections off the listings for every
+// viewer but the creator. Each public collection stays served at its own slug,
+// which is the private profile's answer everywhere: the per-user list is
+// hidden, the content is not.
 
 // collectionCreatorAlias is the alias the profile condition binds the users
 // table to. Distinct from every alias a calling query uses, so the correlation
@@ -46,6 +70,9 @@ func CollectionCreatorIsLiveSQL(alias string) string {
 // live account (CollectionCreatorIsLiveSQL), and their profile is public or
 // viewer is the creator. Its only bind argument is the viewer's own id.
 //
+// It does not test is_public: the listing applies the visible predicate beside
+// it.
+//
 // alias is SQL the CALLER controls and must be a literal in the calling code.
 func CollectionCreatorIsListedSQL(alias string, viewer contracts.ShowViewer) (string, []interface{}) {
 	live := CollectionCreatorIsLiveSQL(alias)
@@ -57,4 +84,45 @@ func CollectionCreatorIsListedSQL(alias string, viewer contracts.ShowViewer) (st
 	}
 	return "(" + live + " AND (" + alias + ".creator_id = ? OR " + publicProfile + "))",
 		[]interface{}{viewer.UserID}
+}
+
+// ServedCollectionPredicateSQL returns a condition, true for the rows of the
+// collections table alias that viewer may be served: visible
+// (VisibleCollectionPredicateSQL) with a live creator
+// (CollectionCreatorIsLiveSQL). Its bind arguments are the visible predicate's.
+//
+// alias is SQL the CALLER controls and must be a literal in the calling code.
+func ServedCollectionPredicateSQL(alias string, viewer contracts.ShowViewer) (string, []interface{}) {
+	visible, args := VisibleCollectionPredicateSQL(alias, viewer)
+	return "(" + visible + " AND " + CollectionCreatorIsLiveSQL(alias) + ")", args
+}
+
+// CollectionServedTo reports whether viewer may be served collection
+// collectionID: it is visible to them (CollectionVisibleTo's rule) and its
+// creator is a live account.
+//
+// It fails closed on the terms CollectionVisibleTo states: a missing row, a nil
+// db, a zero id and a failed lookup all answer false, so a closed creator's
+// collection, a private one and a deleted one are one answer.
+//
+// viewer.IsAdmin is not read, for the reason collection_visibility.go's header
+// gives.
+func CollectionServedTo(db *gorm.DB, collectionID uint, viewer contracts.ShowViewer) bool {
+	if db == nil || collectionID == 0 {
+		return false
+	}
+
+	served, servedArgs := ServedCollectionPredicateSQL("collections", viewer)
+	var count int64
+	if err := db.Model(&communitym.Collection{}).
+		Where("collections.id = ?", collectionID).
+		Where(served, servedArgs...).
+		Count(&count).Error; err != nil {
+		logger.Default().Error("collection_served_lookup_failed",
+			"collection_id", collectionID,
+			"error", err.Error(),
+		)
+		return false
+	}
+	return count > 0
 }

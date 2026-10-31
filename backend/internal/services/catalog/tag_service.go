@@ -1372,14 +1372,14 @@ func (s *TagService) GetTagEntities(tagID uint, entityType string, limit, offset
 	//
 	// PUBLIC tier for both arms: this route is anonymous, and a tag's membership
 	// is a shared listing whose contents must not vary by credential. The
-	// anonymous ShowViewer is what makes VisibleCollectionExistsSQL collapse to
-	// `is_public = TRUE`, which is the rule enrichCollections applies below.
+	// anonymous ShowViewer is what makes ServedCollectionExistsSQL collapse to
+	// `is_public = TRUE` with a live creator.
 	visibleShows, visibleShowsArgs := shared.VisibleShowExistsSQL(
 		"entity_tags.entity_id", contracts.ShowViewer{})
 	query = query.Where(
 		"(entity_tags.entity_type <> ? OR "+visibleShows+")",
 		append([]interface{}{catalogm.TagEntityShow}, visibleShowsArgs...)...)
-	visibleCollections, visibleCollectionsArgs := shared.VisibleCollectionExistsSQL(
+	visibleCollections, visibleCollectionsArgs := shared.ServedCollectionExistsSQL(
 		"entity_tags.entity_id", contracts.ShowViewer{})
 	query = query.Where(
 		"(entity_tags.entity_type <> ? OR "+visibleCollections+")",

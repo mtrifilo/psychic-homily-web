@@ -3918,8 +3918,8 @@ func (m *MockShowStateService) SetShowCancelled(showID uint, isCancelled bool) (
 // ============================================================================
 
 type MockShowVisibility struct {
-	ShowVisibleToFn       func(uint, contracts.ShowViewer) bool
-	CollectionVisibleToFn func(uint, contracts.ShowViewer) bool
+	ShowVisibleToFn      func(uint, contracts.ShowViewer) bool
+	CollectionServedToFn func(uint, contracts.ShowViewer) bool
 }
 
 func (m *MockShowVisibility) ShowVisibleTo(showID uint, viewer contracts.ShowViewer) bool {
@@ -3928,9 +3928,9 @@ func (m *MockShowVisibility) ShowVisibleTo(showID uint, viewer contracts.ShowVie
 	}
 	return false
 }
-func (m *MockShowVisibility) CollectionVisibleTo(collectionID uint, viewer contracts.ShowViewer) bool {
-	if m.CollectionVisibleToFn != nil {
-		return m.CollectionVisibleToFn(collectionID, viewer)
+func (m *MockShowVisibility) CollectionServedTo(collectionID uint, viewer contracts.ShowViewer) bool {
+	if m.CollectionServedToFn != nil {
+		return m.CollectionServedToFn(collectionID, viewer)
 	}
 	return false
 }

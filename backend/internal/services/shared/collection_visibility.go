@@ -21,18 +21,24 @@ import (
 // aliases, parenthesisation, caller-controlled SQL and the no-enumeration-oracle
 // obligation all apply here unchanged.
 //
-// WHAT IT IS NOT THE SINGLE DEFINITION OF: the PUBLIC-TIER sites, which decide a
-// collection the same way for everybody and spell `is_public = true` by hand.
-// catalog/tag_service.go's enrichCollections, catalog/scene_collections.go,
-// catalog/tag_intersection.go and catalog/charts_featured_collection.go each
-// carry their own literal, and so do community/collection.go's ListCollections
-// (under its PublicOnly filter) and GetUserPublicCollections, whose whole
-// contract is the public tier. The `!IsPublic && CreatorID != userID` tests
-// inside services/community/collection.go are the Go spelling of the same rule
-// at the route boundary, where there is no query to splice a predicate into.
-// Migrating the literals onto the spellings here is a separate change: it is a
-// refactor of routes this file does not otherwise touch, and doing it under a
-// privacy fix would put untested churn beside the gates.
+// THE IS_PUBLIC RULE IS ONE TERM OF THREE. collection_creator_state.go composes
+// it with the creator's account state into the SERVED and LISTED tiers, and
+// every viewer-facing surface decides on one of those. CollectionVisibleTo,
+// VisibleCollectionPredicateSQL and VisibleCollectionRecipientPredicateSQL are
+// the VISIBLE tier alone, the building blocks. Every spelling below that holds a
+// collection reference in another table (the EXISTS forms, the polymorphic arm,
+// the fan-out) is SERVED: it decides the is_public rule and the creator's state
+// together, so a closed creator's collection answers there exactly as a deleted
+// one does.
+//
+// WHAT IT IS NOT THE SINGLE DEFINITION OF: the PUBLIC-TIER sites in
+// community/collection.go, which decide a collection the same way for everybody
+// and spell `is_public = true` by hand: ListCollections (under its PublicOnly
+// filter) and GetUserPublicCollections, whose whole contract is the public
+// tier. The catalog listings spell it by hand too. The
+// `!IsPublic && CreatorID != userID` tests inside services/community/collection.go
+// are the Go spelling of the same rule at the route boundary, where there is no
+// query to splice a predicate into.
 //
 // TWO WAYS THIS RULE DIFFERS FROM THE SHOW RULE, and both are load-bearing:
 //
@@ -67,10 +73,11 @@ import (
 //     PUT /collections/{slug}/feature reaches one too, and it is listed here
 //     because the code does not test visibility rather than because it needs to:
 //     it publishes nothing (empty response, and both featured-collection chart
-//     surfaces filter `is_public = true`), so what it leaves is a 200-vs-404 slug
-//     oracle bounded to the admin group. Whether an admin may pre-feature an
-//     unpublished collection is a product question, and the suite encodes today
-//     that they may.
+//     surfaces filter `is_public = true`), so what it leaves is a 200-vs-404
+//     slug oracle bounded to the admin group. Whether an admin may pre-feature
+//     an unpublished collection is a product question, and the suite encodes
+//     today that they may. Featuring a closed creator's collection answers as
+//     an unused slug; un-featuring one still succeeds.
 //     The rule this file states is about the tiers a NON-admin surface answers
 //     for, and adding an admin tier here would extend those powers to the
 //     watching list, the inbox, the item writes and the comment fan-out, which is
@@ -110,10 +117,11 @@ import (
 //
 // Nothing here scrubs anything. Flipping is_public back to true restores every
 // gated sub-resource to everyone, because the gate is evaluated at read time
-// against the collection's current flag. The single exception is the fan-out,
-// for the reason VisibleCollectionRecipientsSQL gives.
+// against the collection's current flag, and reopening a closed creator's
+// account restores the served spellings the same way. The single exception is
+// the fan-out, for the reason ServedCollectionRecipientsSQL gives.
 
-// visibleCollectionsAlias is the alias VisibleCollectionExistsSQL binds the
+// visibleCollectionsAlias is the alias the EXISTS spellings here bind the
 // collections table to.
 //
 // Deliberately not `c` or `collections`, for the reason visibleShowsAlias gives
@@ -136,9 +144,11 @@ const CommentEntityTypeCollection = string(engagementm.CommentEntityCollection)
 // CollectionVisibleTo reports whether viewer may see collection collectionID at
 // all.
 //
-// The Go spelling of the detail route's predicate. Returns false when the
-// collection does not exist, which is the answer GetBySlug gives by returning a
-// not-found error, and false on any lookup failure.
+// The Go spelling of the detail route's is_public rule: the VISIBLE tier alone.
+// A viewer-facing gate asks CollectionServedTo, which adds the creator's account
+// state. Returns false when the collection does not exist, which is the answer
+// GetBySlug gives by returning a not-found error, and false on any lookup
+// failure.
 //
 // viewer.IsAdmin is not read. See this file's header.
 func CollectionVisibleTo(db *gorm.DB, collectionID uint, viewer contracts.ShowViewer) bool {
@@ -195,34 +205,34 @@ func VisibleCollectionPredicateSQL(alias string, viewer contracts.ShowViewer) (s
 	return cond, args
 }
 
-// VisibleCollectionExistsSQL returns a correlated EXISTS condition, true when
-// the collection named by collectionIDExpr is one viewer may see, plus its bind
-// arguments.
+// ServedCollectionExistsSQL returns a correlated EXISTS condition, true when
+// the collection named by collectionIDExpr is one viewer may be served
+// (ServedCollectionPredicateSQL), plus its bind arguments.
 //
 // For a query that holds a collection id in some other table's column — a
 // comment's entity_id, a subscription's entity_id. One index probe on the
 // collections primary key per row considered, not a join that multiplies rows.
 //
-// A row whose collectionIDExpr matches no collection is NOT visible, which is
+// A row whose collectionIDExpr matches no collection is NOT served, which is
 // what makes this usable as the gate: it answers the same for a private
-// collection and a deleted one. Collections are hard-deleted, so that pair is
-// reachable in practice.
+// collection, a closed creator's and a deleted one. Collections are
+// hard-deleted, so that triple is reachable in practice.
 //
 // collectionIDExpr is SQL the CALLER controls and must be a literal in the
 // calling code. Nothing derived from a request may reach it.
-func VisibleCollectionExistsSQL(collectionIDExpr string, viewer contracts.ShowViewer) (string, []interface{}) {
-	inner, args := VisibleCollectionPredicateSQL(visibleCollectionsAlias, viewer)
+func ServedCollectionExistsSQL(collectionIDExpr string, viewer contracts.ShowViewer) (string, []interface{}) {
+	inner, args := ServedCollectionPredicateSQL(visibleCollectionsAlias, viewer)
 	return collectionExistsSQL(collectionIDExpr, inner), args
 }
 
-// visibleCollectionItemsAlias is the alias VisibleCollectionItemExistsSQL binds
+// visibleCollectionItemsAlias is the alias ServedCollectionItemExistsSQL binds
 // the collection_items table to. Distinct from every alias an enclosing query is
 // likely to use, for the reason visibleCollectionsAlias gives.
 const visibleCollectionItemsAlias = "visible_collection_item"
 
-// VisibleCollectionItemExistsSQL returns a correlated EXISTS condition, true
+// ServedCollectionItemExistsSQL returns a correlated EXISTS condition, true
 // when the collection ITEM named by itemIDExpr belongs to a collection viewer
-// may see, plus its bind arguments.
+// may be served, plus its bind arguments.
 //
 // For a query holding a collection_items id rather than a collections id. The
 // audit writers store both under entity_type "collection", so a caller deciding
@@ -236,8 +246,8 @@ const visibleCollectionItemsAlias = "visible_collection_item"
 //
 // itemIDExpr is SQL the CALLER controls and must be a literal in the calling
 // code.
-func VisibleCollectionItemExistsSQL(itemIDExpr string, viewer contracts.ShowViewer) (string, []interface{}) {
-	inner, args := VisibleCollectionPredicateSQL(visibleCollectionsAlias, viewer)
+func ServedCollectionItemExistsSQL(itemIDExpr string, viewer contracts.ShowViewer) (string, []interface{}) {
+	inner, args := ServedCollectionPredicateSQL(visibleCollectionsAlias, viewer)
 	return "EXISTS (SELECT 1 FROM collection_items " + visibleCollectionItemsAlias +
 		" JOIN collections " + visibleCollectionsAlias +
 		" ON " + visibleCollectionsAlias + ".id = " + visibleCollectionItemsAlias + ".collection_id" +
@@ -245,14 +255,14 @@ func VisibleCollectionItemExistsSQL(itemIDExpr string, viewer contracts.ShowView
 		" AND " + inner + ")", args
 }
 
-// visibleCollectionTextIDAlias is the alias VisibleCollectionTextIDExistsSQL
+// visibleCollectionTextIDAlias is the alias ServedCollectionTextIDExistsSQL
 // binds the collections table to. Distinct from every other alias here, for the
 // reason visibleCollectionsAlias gives.
 const visibleCollectionTextIDAlias = "visible_collection_text_id"
 
-// VisibleCollectionTextIDExistsSQL returns a correlated EXISTS condition, true
+// ServedCollectionTextIDExistsSQL returns a correlated EXISTS condition, true
 // when the collection whose id is written as TEXT in idExpr is one viewer may
-// see, plus its bind arguments.
+// be served, plus its bind arguments.
 //
 // For a caller holding a collection id inside a JSON document rather than in a
 // typed column: an audit row's metadata records the parent a polymorphic
@@ -273,12 +283,12 @@ const visibleCollectionTextIDAlias = "visible_collection_text_id"
 // match would republish the original's rows. Ids come from a sequence and are
 // never reissued.
 //
-// A row whose idExpr matches no collection is NOT visible, so a deleted parent
-// answers the same as a private one.
+// A row whose idExpr matches no collection is NOT served, so a deleted parent
+// answers the same as a private one and a closed creator's.
 //
 // idExpr is SQL the CALLER controls and must be a literal in the calling code.
-func VisibleCollectionTextIDExistsSQL(idExpr string, viewer contracts.ShowViewer) (string, []interface{}) {
-	inner, args := VisibleCollectionPredicateSQL(visibleCollectionTextIDAlias, viewer)
+func ServedCollectionTextIDExistsSQL(idExpr string, viewer contracts.ShowViewer) (string, []interface{}) {
+	inner, args := ServedCollectionPredicateSQL(visibleCollectionTextIDAlias, viewer)
 	return "EXISTS (SELECT 1 FROM collections " + visibleCollectionTextIDAlias +
 		" WHERE " + visibleCollectionTextIDAlias + ".id = " + textIDAsBigintSQL(idExpr) +
 		" AND " + inner + ")", args
@@ -295,14 +305,14 @@ func textIDAsBigintSQL(idExpr string) string {
 	return "(CASE WHEN " + idExpr + " ~ '^[0-9]{1,18}$' THEN (" + idExpr + ")::bigint END)"
 }
 
-// visibleCollectionSlugAlias is the alias VisibleCollectionSlugExistsSQL binds
+// visibleCollectionSlugAlias is the alias ServedCollectionSlugExistsSQL binds
 // the collections table to. Distinct from every other alias here, for the reason
 // visibleCollectionsAlias gives.
 const visibleCollectionSlugAlias = "visible_collection_slug"
 
-// VisibleCollectionSlugExistsSQL returns a correlated EXISTS condition, true
-// when the collection NAMED BY SLUG in slugExpr is one viewer may see, plus its
-// bind arguments.
+// ServedCollectionSlugExistsSQL returns a correlated EXISTS condition, true
+// when the collection NAMED BY SLUG in slugExpr is one viewer may be served,
+// plus its bind arguments.
 //
 // FOR FROZEN ROWS THAT RECORD NOTHING ELSE, and for nothing else. A slug is a
 // weaker reference than an id: renaming a collection regenerates its slug and
@@ -323,12 +333,12 @@ const visibleCollectionSlugAlias = "visible_collection_slug"
 // successful write cannot omit the key or stamp a zero. What this condition
 // decides is the rows that already exist, and it gains no new ones.
 //
-// A row whose slugExpr matches no collection is NOT visible, which is the same
+// A row whose slugExpr matches no collection is NOT served, which is the same
 // fail-closed answer every spelling here gives.
 //
 // slugExpr is SQL the CALLER controls and must be a literal in the calling code.
-func VisibleCollectionSlugExistsSQL(slugExpr string, viewer contracts.ShowViewer) (string, []interface{}) {
-	inner, args := VisibleCollectionPredicateSQL(visibleCollectionSlugAlias, viewer)
+func ServedCollectionSlugExistsSQL(slugExpr string, viewer contracts.ShowViewer) (string, []interface{}) {
+	inner, args := ServedCollectionPredicateSQL(visibleCollectionSlugAlias, viewer)
 	return "EXISTS (SELECT 1 FROM collections " + visibleCollectionSlugAlias +
 		" WHERE " + visibleCollectionSlugAlias + ".slug = " + slugExpr +
 		" AND " + inner + ")", args
@@ -343,9 +353,9 @@ func collectionExistsSQL(collectionIDExpr, collectionCond string) string {
 	return entityExistsSQL("collections", visibleCollectionsAlias, collectionIDExpr, collectionCond)
 }
 
-// VisibleCollectionCommentEntitySQL returns a condition, true for the rows of a
+// ServedCollectionCommentEntitySQL returns a condition, true for the rows of a
 // POLYMORPHIC (entity_type, entity_id) table whose COLLECTION reference viewer
-// may see, plus its bind arguments.
+// may be served, plus its bind arguments.
 //
 // The collection arm of VisibleCommentEntitySQL, and the exact counterpart of
 // VisibleShowCommentEntitySQL: a row naming any other entity type passes this
@@ -356,14 +366,14 @@ func collectionExistsSQL(collectionIDExpr, collectionCond string) string {
 //
 // Both expressions are SQL the CALLER controls and must be literals in the
 // calling code.
-func VisibleCollectionCommentEntitySQL(entityTypeExpr, entityIDExpr string, viewer contracts.ShowViewer) (string, []interface{}) {
-	visible, args := VisibleCollectionExistsSQL(entityIDExpr, viewer)
-	return commentEntityArmSQL(entityTypeExpr, CommentEntityTypeCollection, visible), args
+func ServedCollectionCommentEntitySQL(entityTypeExpr, entityIDExpr string, viewer contracts.ShowViewer) (string, []interface{}) {
+	served, args := ServedCollectionExistsSQL(entityIDExpr, viewer)
+	return commentEntityArmSQL(entityTypeExpr, CommentEntityTypeCollection, served), args
 }
 
-// VisibleCollectionRecipientsSQL returns a condition, true for the rows whose
-// recipientIDExpr names a user who may see collection collectionID, plus its
-// bind arguments.
+// ServedCollectionRecipientsSQL returns a condition, true for the rows whose
+// recipientIDExpr names a user who may be served collection collectionID, plus
+// its bind arguments.
 //
 // The rule INVERTED, for a fan-out choosing who to notify: every other spelling
 // fixes the viewer and asks about many collections, this one fixes the
@@ -377,10 +387,16 @@ func VisibleCollectionCommentEntitySQL(entityTypeExpr, entityIDExpr string, view
 // branch would contradict them in the other direction: it would mail a private
 // collection's comment to somebody the detail route refuses.
 //
+// A closed creator's collection has no recipients: its detail route refuses
+// everyone, so a notification about it would link to a page nobody may open.
+// Activity during the closure is not minted, and reopening has nothing to
+// restore for it.
+//
 // recipientIDExpr is SQL the CALLER controls and must be a literal in the
 // calling code; collectionID is bound.
-func VisibleCollectionRecipientsSQL(collectionID uint, recipientIDExpr string) (string, []interface{}) {
-	cond := VisibleCollectionRecipientPredicateSQL(visibleCollectionsAlias, recipientIDExpr)
+func ServedCollectionRecipientsSQL(collectionID uint, recipientIDExpr string) (string, []interface{}) {
+	cond := "(" + VisibleCollectionRecipientPredicateSQL(visibleCollectionsAlias, recipientIDExpr) +
+		" AND " + CollectionCreatorIsLiveSQL(visibleCollectionsAlias) + ")"
 	// collectionID is the only bind, and it binds first because
 	// collectionExistsSQL puts the id comparison first and placeholders are
 	// positional.
@@ -395,10 +411,12 @@ func VisibleCollectionRecipientsSQL(collectionID uint, recipientIDExpr string) (
 // digest cycle choosing who to mail. It binds nothing, because both operands are
 // columns of the enclosing query.
 //
-// It is the predicate VisibleCollectionRecipientsSQL wraps in its EXISTS, shared
-// rather than copied so a mailing surface cannot decide a collection on terms the
-// fan-out does not use. TestCollectionVisibilitySpellingsAgree checks it against
-// the same truth table as every other spelling.
+// It is the visible half of what ServedCollectionRecipientsSQL wraps in its
+// EXISTS, shared rather than copied so a mailing surface cannot decide a
+// collection on terms the fan-out does not use; a caller splicing it applies the
+// creator's state beside it, as the digest cycle does.
+// TestCollectionVisibilitySpellingsAgree checks it against the same truth table
+// as every other spelling.
 //
 // alias and recipientIDExpr are SQL the CALLER controls and must be literals in
 // the calling code.
@@ -406,18 +424,18 @@ func VisibleCollectionRecipientPredicateSQL(alias, recipientIDExpr string) strin
 	return "(" + alias + ".is_public = TRUE OR " + alias + ".creator_id = " + recipientIDExpr + ")"
 }
 
-// CollectionVisibleTo reports whether viewer may see collection collectionID at
-// all.
+// CollectionServedTo reports whether viewer may be served collection
+// collectionID (the package function of the same name).
 //
 // The injectable form, on the same service as ShowVisibleTo: the two gates share
 // one database handle, one handler field and one construction, so splitting them
 // across two services would only mean two ways for a handler to be wired with
 // half a gate.
-func (s *ShowVisibilityService) CollectionVisibleTo(collectionID uint, viewer contracts.ShowViewer) bool {
+func (s *ShowVisibilityService) CollectionServedTo(collectionID uint, viewer contracts.ShowViewer) bool {
 	if s == nil {
 		// A handler wired without a gate refuses rather than serves, for the
 		// reason the show twin gives.
 		return false
 	}
-	return CollectionVisibleTo(s.db, collectionID, viewer)
+	return CollectionServedTo(s.db, collectionID, viewer)
 }

@@ -68,7 +68,8 @@ func (s *EntityReportService) CreateEntityReport(req *contracts.CreateEntityRepo
 	// The existence probe alone is an oracle over a dense id space, and the
 	// response this call returns carries the entity's resolved name and slug
 	// (toResponse), so a bare probe hands a private collection's identity to
-	// whoever guesses its id. A collection the reporter may not see answers
+	// whoever guesses its id. A collection the reporter may not be served
+	// (private, or its creator closed: shared.CollectionServedTo) answers
 	// exactly as one that does not exist.
 	//
 	// A COLLECTION is the only reportable type gated HERE. Shows have a read-time
@@ -86,7 +87,7 @@ func (s *EntityReportService) CreateEntityReport(req *contracts.CreateEntityRepo
 	viewer := contracts.ShowViewer{UserID: req.UserID}
 	switch req.EntityType {
 	case communitym.EntityReportEntityCollection:
-		if !shared.CollectionVisibleTo(s.db, req.EntityID, viewer) {
+		if !shared.CollectionServedTo(s.db, req.EntityID, viewer) {
 			return nil, apperrors.ErrEntityReportEntityNotFound(req.EntityType, req.EntityID)
 		}
 	case communitym.EntityReportEntityComment:

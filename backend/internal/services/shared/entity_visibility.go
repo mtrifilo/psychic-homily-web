@@ -62,7 +62,7 @@ const (
 	ruleAlwaysVisible
 	// ruleShow: decided by services/shared/show_visibility.go.
 	ruleShow
-	// ruleCollection: decided by services/shared/collection_visibility.go.
+	// ruleCollection: decided by the SERVED tier (collection_creator_state.go).
 	ruleCollection
 )
 
@@ -155,7 +155,7 @@ func EntityVisibleTo(checker contracts.ShowVisibilityInterface, entityType strin
 	case ruleShow:
 		return checker != nil && checker.ShowVisibleTo(entityID, viewer)
 	case ruleCollection:
-		return checker != nil && checker.CollectionVisibleTo(entityID, viewer)
+		return checker != nil && checker.CollectionServedTo(entityID, viewer)
 	}
 	// Unreachable while the switch covers the closed set above. Spelled out
 	// anyway so that ADDING a member without extending the switch refuses rather
@@ -239,7 +239,7 @@ func commentEntityArmFor(entityType, entityTypeExpr, entityIDExpr string, viewer
 	case ruleShow:
 		return VisibleShowCommentEntitySQL(entityTypeExpr, entityIDExpr, viewer)
 	case ruleCollection:
-		return VisibleCollectionCommentEntitySQL(entityTypeExpr, entityIDExpr, viewer)
+		return ServedCollectionCommentEntitySQL(entityTypeExpr, entityIDExpr, viewer)
 	}
 	return "(" + entityTypeExpr + " <> '" + entityType + "')", nil
 }
@@ -287,11 +287,11 @@ func publicEntityArmFor(entityType, entityTypeExpr, entityIDExpr string) string 
 		return commentEntityArmSQL(entityTypeExpr, CommentEntityTypeShow,
 			showExistsSQL(entityIDExpr, PublicShowPredicateSQL(visibleShowsAlias)))
 	case ruleCollection:
-		// The anonymous collection predicate binds nothing already: with no
-		// viewer id there is no creator branch, so it collapses to
-		// `is_public = TRUE`. Read from the same function the bound form uses
+		// The anonymous served predicate binds nothing already: with no viewer
+		// id there is no creator branch, so it collapses to `is_public = TRUE`
+		// and a live creator. Read from the same function the bound form uses
 		// rather than written out, so the two cannot drift.
-		inner, args := VisibleCollectionPredicateSQL(visibleCollectionsAlias, contracts.ShowViewer{})
+		inner, args := ServedCollectionPredicateSQL(visibleCollectionsAlias, contracts.ShowViewer{})
 		if len(args) != 0 {
 			// Unreachable while the anonymous branch stays bind-free. Spelled
 			// out because the failure it prevents is a statement whose
@@ -351,7 +351,7 @@ func CommentEntityRecipientsSQL(entityType string, entityID uint, recipientIDExp
 	case ruleShow:
 		return VisibleShowRecipientsSQL(entityID, recipientIDExpr, recipientIsAdminExpr)
 	case ruleCollection:
-		return VisibleCollectionRecipientsSQL(entityID, recipientIDExpr)
+		return ServedCollectionRecipientsSQL(entityID, recipientIDExpr)
 	}
 	return "1 = 0", nil
 }
@@ -386,7 +386,7 @@ func EntityIdentityFenceSQL(entityType, alias string, viewer contracts.ShowViewe
 	case ruleShow:
 		return VisibleShowPredicateSQL(alias, viewer)
 	case ruleCollection:
-		return VisibleCollectionPredicateSQL(alias, viewer)
+		return ServedCollectionPredicateSQL(alias, viewer)
 	}
 	return "FALSE", nil
 }
@@ -420,7 +420,7 @@ func VisibleEntityExistsSQL(entityType, entityIDExpr string, viewer contracts.Sh
 	case ruleShow:
 		return VisibleShowExistsSQL(entityIDExpr, viewer)
 	case ruleCollection:
-		return VisibleCollectionExistsSQL(entityIDExpr, viewer)
+		return ServedCollectionExistsSQL(entityIDExpr, viewer)
 	}
 	return "FALSE", nil
 }
