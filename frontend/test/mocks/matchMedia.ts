@@ -4,7 +4,7 @@ import { act } from '@testing-library/react'
  * Controllable `window.matchMedia` test shim: each query answers from a
  * table a test can flip mid-render, and a flip notifies that query's
  * `change` listeners inside `act`, the way a real viewport crossing does.
- * Queries missing from the table answer false.
+ * Queries missing from the table answer `fallback` (false unless given).
  *
  * Usage:
  *   const mm = installMatchMedia({ [QUERY]: true })   // before render
@@ -22,6 +22,7 @@ interface MatchMediaControls {
 
 export function installMatchMedia(
   initial: Record<string, boolean> = {},
+  { fallback = false }: { fallback?: boolean } = {},
 ): MatchMediaControls {
   const original = window.matchMedia
   const answers = { ...initial }
@@ -36,7 +37,7 @@ export function installMatchMedia(
     }
     return {
       get matches() {
-        return answers[query] ?? false
+        return answers[query] ?? fallback
       },
       media: query,
       onchange: null,

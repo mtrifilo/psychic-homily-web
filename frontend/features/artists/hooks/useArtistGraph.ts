@@ -10,21 +10,10 @@ import { useCallback } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { apiRequest } from '@/lib/api'
 import { refetchAfterMutation } from '@/lib/refetchAfterMutation'
-import { artistEndpoints, artistQueryKeys } from '@/features/artists/api'
+import { artistEndpoints, artistGraphUrl, artistQueryKeys } from '@/features/artists/api'
 import type { ArtistGraph } from '../types'
 
 const GRAPH_STALE_TIME = 5 * 60 * 1000 // 5 minutes
-
-function graphEndpoint(artistId: number, types?: string[]): string {
-  const params = new URLSearchParams()
-  if (types && types.length > 0) {
-    params.set('types', types.join(','))
-  }
-  const queryString = params.toString()
-  return queryString
-    ? `${artistEndpoints.GRAPH(artistId)}?${queryString}`
-    : artistEndpoints.GRAPH(artistId)
-}
 
 // Single owner of the graph cache contract — key + queryFn + staleTime in one place — so the
 // reactive hook (useQuery) and the imperative expand fetcher (fetchQuery) can't drift on the
@@ -33,7 +22,7 @@ function graphQueryOptions(artistId: number, types?: string[]) {
   return {
     queryKey: artistQueryKeys.graph(artistId, types),
     queryFn: (): Promise<ArtistGraph> =>
-      apiRequest<ArtistGraph>(graphEndpoint(artistId, types), { method: 'GET' }),
+      apiRequest<ArtistGraph>(artistGraphUrl(artistId, types), { method: 'GET' }),
     staleTime: GRAPH_STALE_TIME,
   }
 }

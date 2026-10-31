@@ -1,4 +1,6 @@
-import { describe, it, expect, vi, beforeEach, afterEach, onTestFinished } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
 import { screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { renderWithProviders } from '@/test/utils'
@@ -153,7 +155,8 @@ vi.mock('@/features/festivals/components/ArtistTrajectoryChart', () => ({
 }))
 
 vi.mock('@/features/tags', () => ({
-  EntityTagList: (): null => null,
+  // A heading, so the sidebar order around the Similar artists list is assertable.
+  EntityTagList: () => <h3>Tags</h3>,
   AddTagDialog: (): null => null,
 }))
 
@@ -181,10 +184,6 @@ vi.mock('./RelatedArtists', () => ({
   // Renders its own "Similar artists" SectionHeader in the real component;
   // the mock keeps it so sidebar section order stays assertable.
   ArtistSimilarSidebar: () => <h3>Similar artists</h3>,
-  // A marker element, so a test can check the provider wraps both placements.
-  SimilarListStateProvider: ({ children }: { children: React.ReactNode }) => (
-    <div data-testid="similar-state-provider">{children}</div>
-  ),
   ArtistGraphDialog: ({
     open,
     onOpenChange,
@@ -204,8 +203,9 @@ vi.mock('./RelatedArtists', () => ({
     ) : null,
 }))
 
-// PSY-641: ArtistDetail is now a flat two-column layout — no page-level tabs.
-// The mock renders header / sidebar / children slots directly. The new
+// PSY-641: ArtistDetail is a flat two-column layout with no page-level tabs.
+// The mock renders the header and children slots directly; the page draws
+// its own sidebar inside the children, so the layout takes no `sidebar`. The new
 // density primitives (BracketLink, SectionHeader, StatsList) get lightweight
 // mocks so their props are inspectable.
 // The rejection the mocked editor hands the reader this page passes down, so a
@@ -232,13 +232,11 @@ vi.mock('@/components/shared', () => ({
   ),
   EntityDetailLayout: ({
     children,
-    sidebar,
     header,
     fallback,
     entityName,
   }: {
     children: React.ReactNode
-    sidebar: React.ReactNode
     header: React.ReactNode
     fallback: { href: string; label: string }
     entityName: string
@@ -247,9 +245,7 @@ vi.mock('@/components/shared', () => ({
       <a href={fallback.href}>{fallback.label}</a>
       <span data-testid="entity-name">{entityName}</span>
       <div data-testid="header-slot">{header}</div>
-      {/* Main column before the sidebar, as the real layout stacks them. */}
       <div data-testid="content-slot">{children}</div>
-      <div data-testid="sidebar-slot">{sidebar}</div>
     </div>
   ),
   EntityHeader: ({
@@ -342,7 +338,7 @@ vi.mock('@/components/shared', () => ({
   ),
 }))
 
-import { ArtistDetail, WIDE_LAYOUT_QUERY as WIDE } from './ArtistDetail'
+import { ArtistDetail, ARTIST_LAYOUT_CLASSES } from './ArtistDetail'
 import { GRAPH_BREAKPOINT_PX } from '@/components/graph/useContainerWidth'
 import { ENTITY_LINK_CLASS } from '@/components/shared/entityLink'
 
@@ -730,7 +726,7 @@ describe('ArtistDetail', () => {
       })
 
       renderWithProviders(<ArtistDetail artistId="test-artist" />)
-      const sidebarSlot = screen.getByTestId('sidebar-slot')
+      const sidebarSlot = screen.getByTestId('artist-sidebar')
       expect(sidebarSlot).toHaveTextContent('Statistics')
       expect(sidebarSlot).toHaveTextContent('Releases')
       expect(sidebarSlot).toHaveTextContent('13')
@@ -793,9 +789,7 @@ describe('ArtistDetail', () => {
     it('orders Links and As Heard On above the unbounded Similar artists list', () => {
       // Similar artists has no length cap, so short fixed-height blocks have
       // to sit above it or they scroll off-screen on well-connected artists.
-      // That is the sidebar order, which holds the list outside the phone layout.
-      const mm = installMatchMedia({ [WIDE]: true })
-      onTestFinished(() => mm.restore())
+      // That is the sidebar's DOM order, the one wide viewports show.
       mockUseArtist.mockReturnValue({
         data: makeArtist({
           stats: {
@@ -821,7 +815,7 @@ describe('ArtistDetail', () => {
       })
 
       renderWithProviders(<ArtistDetail artistId="test-artist" />)
-      const sidebarSlot = screen.getByTestId('sidebar-slot')
+      const sidebarSlot = screen.getByTestId('artist-sidebar')
       const headings = Array.from(sidebarSlot.querySelectorAll('h3')).map(
         h => h.textContent
       )
@@ -830,6 +824,7 @@ describe('ArtistDetail', () => {
         'Links',
         'As Heard On',
         'Similar artists',
+        'Tags',
       ]
 
       expect(headings.filter(h => h && expected.includes(h))).toEqual(expected)
@@ -877,53 +872,7 @@ describe('ArtistDetail', () => {
       expect(screen.queryByText('Statistics')).not.toBeInTheDocument()
     })
 
-    // Zero rows are hidden at every width, not only on the phone layout.
-    it('renders only the non-zero statistics rows outside the phone layout too', () => {
-      const mm = installMatchMedia({ [WIDE]: true })
-      onTestFinished(() => mm.restore())
-      mockUseArtist.mockReturnValue({
-        data: makeArtist({
-          stats: {
-            releases: 2,
-            labels: 0,
-            shows_tracked: 0,
-            similar_artists: 0,
-            festival_appearances: 0,
-          },
-        }),
-        isLoading: false,
-        error: null,
-      })
-
-      renderWithProviders(<ArtistDetail artistId="test-artist" />)
-      const labels = Array.from(
-        screen.getByTestId('stats-list').querySelectorAll('dt')
-      ).map(dt => dt.textContent)
-      expect(labels).toEqual(['Releases'])
-    })
-
     describe('Similar artists placement', () => {
-      // The phone layout is "neither clause matches": below Tailwind `sm`, so
-      // the rows are in their stacked form, AND below the canvas gate, so
-      // dropping the Connections section never drops a canvas it would draw.
-      it('is the phone layout only below both sm and the canvas gate', () => {
-        expect(WIDE.split(', ')).toEqual([
-          '(min-width: 40rem)',
-          `(min-width: ${GRAPH_BREAKPOINT_PX}px)`,
-        ])
-      })
-
-      // The list's viewer state survives the move between placements only
-      // while the provider sits above both of them.
-      it('wraps both placements in the list state provider', () => {
-        const mm = installMatchMedia({ [WIDE]: false })
-        onTestFinished(() => mm.restore())
-        renderWithProviders(<ArtistDetail artistId="test-artist" />)
-        const provider = screen.getByTestId('similar-state-provider')
-        expect(provider).toContainElement(screen.getByTestId('content-slot'))
-        expect(provider).toContainElement(screen.getByTestId('sidebar-slot'))
-      })
-
       beforeEach(() => {
         mockUseArtist.mockReturnValue({
           data: makeArtist({
@@ -938,94 +887,176 @@ describe('ArtistDetail', () => {
           isLoading: false,
           error: null,
         })
+        mockUseArtistReleases.mockReturnValue({
+          data: {
+            releases: [FUTURES_RELEASE],
+            count: 1,
+          },
+          isLoading: false,
+          error: null,
+        })
       })
+
+      const PHONE = 'artist-phone'
 
       const similarHeadings = () =>
         screen.getAllByRole('heading', { name: 'Similar artists' })
 
-      it('orders shows, actions, Similar artists, Discography, Statistics on the phone layout', () => {
-        const mm = installMatchMedia({ [WIDE]: false })
-        onTestFinished(() => mm.restore())
-        mockUseArtistReleases.mockReturnValue({
-          data: {
-            releases: [FUTURES_RELEASE],
-            count: 1,
-          },
-          isLoading: false,
-          error: null,
-        })
-        renderWithProviders(<ArtistDetail artistId="test-artist" />)
-
-        const [similar] = similarHeadings()
-        expect(similarHeadings()).toHaveLength(1)
-        expect(screen.getByTestId('content-slot')).toContainElement(similar)
-        expect(screen.getByTestId('sidebar-slot')).not.toContainElement(similar)
-
-        const sequence = [
-          screen.getByTestId('artist-shows-list'),
-          screen.getByTestId('artist-actions'),
-          similar,
-          screen.getByRole('heading', { name: 'Discography' }),
-          screen.getByRole('heading', { name: 'Statistics' }),
-        ]
-        for (let i = 1; i < sequence.length; i++) {
-          expect(
-            sequence[i - 1].compareDocumentPosition(sequence[i]) &
-              Node.DOCUMENT_POSITION_FOLLOWING
-          ).toBeTruthy()
+      /** Where an element sits under `root`: its ancestors' tags, test ids and sibling indexes. */
+      function domPath(el: Element, root: Element): string[] {
+        const path: string[] = []
+        for (let node: Element | null = el; node && node !== root; node = node.parentElement) {
+          const index = node.parentElement
+            ? Array.from(node.parentElement.children).indexOf(node)
+            : 0
+          path.unshift(`${node.tagName}#${node.getAttribute('data-testid') ?? ''}@${index}`)
         }
+        return path
+      }
+
+      // The server HTML is the settled layout at every viewport only while no
+      // script picks the list's column: the same render under opposite media
+      // answers must put it in the same place.
+      it('renders the list once, in the sidebar, whatever the media queries answer', () => {
+        const paths = [false, true].map(matches => {
+          const mm = installMatchMedia({}, { fallback: matches })
+          try {
+            const { container, unmount } = renderWithProviders(
+              <ArtistDetail artistId="test-artist" />
+            )
+            expect(similarHeadings()).toHaveLength(1)
+            const [similar] = similarHeadings()
+            expect(screen.getByTestId('artist-sidebar')).toContainElement(similar)
+            const path = domPath(similar, container)
+            unmount()
+            return path
+          } finally {
+            mm.restore()
+          }
+        })
+        expect(paths[1]).toEqual(paths[0])
       })
 
-      it('keeps the Discography above the Connections section outside the phone layout', () => {
-        const mm = installMatchMedia({ [WIDE]: true })
-        onTestFinished(() => mm.restore())
-        mockUseArtistReleases.mockReturnValue({
-          data: {
-            releases: [FUTURES_RELEASE],
-            count: 1,
-          },
-          isLoading: false,
-          error: null,
-        })
+      it('mounts the Connections section in the main column, under the Discography', () => {
         renderWithProviders(<ArtistDetail artistId="test-artist" />)
+        const connections = screen.getByTestId('connections-section')
+        expect(screen.getByTestId('artist-main-column')).toContainElement(connections)
         expect(
-          screen.getByRole('heading', { name: 'Discography' }).compareDocumentPosition(
-            screen.getByTestId('connections-section')
-          ) & Node.DOCUMENT_POSITION_FOLLOWING
+          screen.getByRole('heading', { name: 'Discography' }).compareDocumentPosition(connections) &
+            Node.DOCUMENT_POSITION_FOLLOWING
         ).toBeTruthy()
       })
 
-      // No canvas can render on the phone layout, so the section (and with it
-      // the sub-640 map teaser) is not mounted there.
-      it('does not mount the Connections section on the phone layout', () => {
-        const mm = installMatchMedia({ [WIDE]: false })
-        onTestFinished(() => mm.restore())
-        renderWithProviders(<ArtistDetail artistId="test-artist" />)
-        expect(screen.queryByTestId('connections-section')).not.toBeInTheDocument()
+      // A literal pin: the phone layout is these classes and nothing else, so
+      // an edit to any of them has to be made here too, on purpose.
+      it('places the groups with these classes', () => {
+        expect(ARTIST_LAYOUT_CLASSES).toEqual({
+          columns: 'flex flex-col gap-8 lg:flex-row',
+          mainColumn: `flex-1 min-w-0 space-y-8 ${PHONE}:contents ${PHONE}:space-y-0`,
+          showsGroup: `space-y-8 ${PHONE}:order-first`,
+          mainRest: 'space-y-8',
+          connections: `empty:hidden ${PHONE}:hidden`,
+          sidebar: `w-full lg:w-80 shrink-0 flex flex-col gap-6 ${PHONE}:contents`,
+          sidebarLead: 'peer space-y-6 empty:hidden',
+          similarArtists: `empty:hidden ${PHONE}:order-first`,
+          sidebarRest: `space-y-6 empty:hidden ${PHONE}:peer-[:not(:empty)]:-mt-2`,
+        })
       })
 
-      it('keeps the list in the sidebar and the Connections section in the main column outside the phone layout', () => {
-        const mm = installMatchMedia({ [WIDE]: true })
-        onTestFinished(() => mm.restore())
-        renderWithProviders(<ArtistDetail artistId="test-artist" />)
-
-        const [similar] = similarHeadings()
-        expect(similarHeadings()).toHaveLength(1)
-        expect(screen.getByTestId('sidebar-slot')).toContainElement(similar)
-        expect(screen.getByTestId('content-slot')).toContainElement(
-          screen.getByTestId('connections-section')
+      // The page draws EntityDetailLayout's two-column body itself, so the
+      // shared layout's column classes must stay a subset of these: a change
+      // there fails here instead of leaving this page alone on the old values.
+      it('keeps the shared layout column classes', async () => {
+        const { EntityDetailLayout: RealLayout } = await vi.importActual<
+          typeof import('@/components/shared/EntityDetailLayout')
+        >('@/components/shared/EntityDetailLayout')
+        const { container } = renderWithProviders(
+          <RealLayout
+            fallback={{ href: '/artists', label: 'Artists' }}
+            entityName="Shared"
+            header={null}
+            sidebar={<p>sidebar</p>}
+          >
+            <p>main</p>
+          </RealLayout>
+        )
+        const aside = container.querySelector('aside')!
+        const body = aside.parentElement!
+        const main = body.firstElementChild!
+        const tokens = (value: string) => value.split(' ').filter(Boolean)
+        expect(tokens(ARTIST_LAYOUT_CLASSES.columns)).toEqual(
+          expect.arrayContaining(tokens(body.className))
+        )
+        expect(tokens(ARTIST_LAYOUT_CLASSES.mainColumn)).toEqual(
+          expect.arrayContaining(tokens(main.className))
+        )
+        expect(tokens(ARTIST_LAYOUT_CLASSES.sidebar)).toEqual(
+          expect.arrayContaining(tokens(aside.className))
         )
       })
 
-      it('moves the list when the viewport leaves the phone layout', () => {
-        const mm = installMatchMedia({ [WIDE]: false })
-        onTestFinished(() => mm.restore())
-        renderWithProviders(<ArtistDetail artistId="test-artist" />)
-        expect(screen.getByTestId('content-slot')).toContainElement(similarHeadings()[0])
+      // The phone layout is below Tailwind `sm` (so the rows are in their
+      // stacked form) AND below the canvas gate (so hiding the Connections
+      // section never hides a canvas it would draw).
+      it('is the phone layout only below both sm and the canvas gate', () => {
+        const css = readFileSync(resolve(__dirname, '../../../app/globals.css'), 'utf8')
+        expect(css).toContain(
+          `@custom-variant artist-phone (@media (not (min-width: 40rem)) and (not (min-width: ${GRAPH_BREAKPOINT_PX}px)));`
+        )
+      })
 
-        mm.set(WIDE, true)
-        expect(similarHeadings()).toHaveLength(1)
-        expect(screen.getByTestId('sidebar-slot')).toContainElement(similarHeadings()[0])
+      it('puts each class on its group', () => {
+        renderWithProviders(<ArtistDetail artistId="test-artist" />)
+        const sidebar = screen.getByTestId('artist-sidebar')
+        const main = screen.getByTestId('artist-main-column')
+
+        expect(main.parentElement!.className).toBe(ARTIST_LAYOUT_CLASSES.columns)
+        expect(sidebar.parentElement).toBe(main.parentElement)
+        expect(main.className).toBe(ARTIST_LAYOUT_CLASSES.mainColumn)
+        expect(screen.getByTestId('artist-shows-list').parentElement!.className).toBe(
+          ARTIST_LAYOUT_CLASSES.showsGroup
+        )
+        expect(Array.from(main.children).map(child => child.className)).toEqual([
+          ARTIST_LAYOUT_CLASSES.showsGroup,
+          ARTIST_LAYOUT_CLASSES.mainRest,
+        ])
+        expect(screen.getByTestId('connections-section').parentElement!.className).toBe(
+          ARTIST_LAYOUT_CLASSES.connections
+        )
+        expect(sidebar.tagName).toBe('ASIDE')
+        expect(sidebar.className).toBe(ARTIST_LAYOUT_CLASSES.sidebar)
+        expect(Array.from(sidebar.children).map(child => child.className)).toEqual([
+          ARTIST_LAYOUT_CLASSES.sidebarLead,
+          ARTIST_LAYOUT_CLASSES.similarArtists,
+          ARTIST_LAYOUT_CLASSES.sidebarRest,
+        ])
+        expect(similarHeadings()[0].parentElement!.className).toBe(
+          ARTIST_LAYOUT_CLASSES.similarArtists
+        )
+      })
+
+      // What the phone layout paints, derived from the classes: the two
+      // `contents` columns dissolve into their groups, and `order-first`
+      // lifts some groups, in DOM order, above the rest.
+      it('orders shows and actions, Similar artists, the main column, then the sidebar on the phone layout', () => {
+        renderWithProviders(<ArtistDetail artistId="test-artist" />)
+        const columns = screen.getByTestId('artist-main-column').parentElement!
+        const dissolves = (el: Element) => el.className.split(' ').includes(`${PHONE}:contents`)
+        const items = Array.from(columns.children).flatMap(child =>
+          dissolves(child) ? Array.from(child.children) : [child]
+        )
+        const lifted = (el: Element) => el.className.split(' ').includes(`${PHONE}:order-first`)
+        const painted = [...items.filter(lifted), ...items.filter(el => !lifted(el))]
+
+        const holding = (target: Element) => painted.findIndex(item => item.contains(target))
+        const sequence = [
+          holding(screen.getByTestId('artist-shows-list')),
+          holding(similarHeadings()[0]),
+          holding(screen.getByRole('heading', { name: 'Discography' })),
+          holding(screen.getByRole('heading', { name: 'Statistics' })),
+        ]
+        expect(holding(screen.getByTestId('artist-actions'))).toBe(sequence[0])
+        expect(sequence).toEqual([0, 1, 2, 3])
       })
     })
 
@@ -1168,7 +1199,7 @@ describe('ArtistDetail', () => {
       })
 
       renderWithProviders(<ArtistDetail artistId="test-artist" />)
-      const sidebarSlot = screen.getByTestId('sidebar-slot')
+      const sidebarSlot = screen.getByTestId('artist-sidebar')
       expect(sidebarSlot).toHaveTextContent('Sub Pop')
     })
 
@@ -1179,7 +1210,7 @@ describe('ArtistDetail', () => {
       })
 
       renderWithProviders(<ArtistDetail artistId="test-artist" />)
-      const sidebarSlot = screen.getByTestId('sidebar-slot')
+      const sidebarSlot = screen.getByTestId('artist-sidebar')
       const sidebarHeadings = sidebarSlot.querySelectorAll('h3')
       const labelsHeading = Array.from(sidebarHeadings).find(
         h => h.textContent === 'Labels'

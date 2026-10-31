@@ -5,10 +5,15 @@ import { notFound } from 'next/navigation'
 import * as Sentry from '@sentry/nextjs'
 import { Loader2 } from 'lucide-react'
 import { HydrationBoundary } from '@tanstack/react-query'
-import type { Artist, ArtistShowsResponse } from '@/features/artists/types'
+import type {
+  Artist,
+  ArtistGraph,
+  ArtistShowsResponse,
+} from '@/features/artists/types'
 import type { ArtistReleasesResponse } from '@/features/releases/types'
 import {
   ARTIST_UPCOMING_SHOWS_REQUEST,
+  artistGraphUrl,
   artistUpcomingShowsUrl,
 } from '@/features/artists/api'
 import { artistReleasesUrl } from '@/features/releases/api'
@@ -157,9 +162,19 @@ export default async function ArtistPage({ params }: ArtistPageProps) {
     notFound()
   }
 
-  const [upcomingShows, releases] = await Promise.all([
+  // The graph endpoint takes the numeric id only, so this read waits for the
+  // artist. Like the list reads above it resolves to null rather than
+  // rejecting.
+  const similarArtistsPromise = fetchListPayload<ArtistGraph>({
+    url: artistGraphUrl(artistData.id),
+    collection: 'nodes',
+    service: 'artist-page-similar-artists',
+    pathFamily: '/artists/{id}/graph',
+  })
+  const [upcomingShows, releases, similarArtists] = await Promise.all([
     upcomingShowsPromise,
     releasesPromise,
+    similarArtistsPromise,
   ])
 
   const dehydratedState = await prefetchEntity(
@@ -167,21 +182,25 @@ export default async function ArtistPage({ params }: ArtistPageProps) {
     artistData,
   )
 
-  // Both lists travel by cache KEY because `ArtistDetail` renders them with no
-  // rows prop. The upcoming key is the NUMERIC id `ArtistShowsList` passes to
-  // `useArtistShows`, and `ARTIST_UPCOMING_SHOWS_REQUEST` is the one spelling of
-  // the rest of it. The discography key is the route slug, which `ArtistDetail`
-  // passes unchanged to `useArtistReleases`; that hook sends no parameters, so
-  // its one response is the whole discography.
+  // The three lists travel by cache KEY because `ArtistDetail` renders them
+  // with no rows prop. The upcoming key is the NUMERIC id `ArtistShowsList`
+  // passes to `useArtistShows`, and `ARTIST_UPCOMING_SHOWS_REQUEST` is the one
+  // spelling of the rest of it. The discography key is the route slug, which
+  // `ArtistDetail` passes unchanged to `useArtistReleases`; that hook sends no
+  // parameters, so its one response is the whole discography. The Similar
+  // artists key is the NUMERIC id with no `types`, as `ArtistSimilarSidebar`
+  // passes it to `useArtistGraph`.
   //
   // Stamped stale (`seedFirstScreen`), unlike the detail above: the rows paint
   // from the server and the browser then re-asks the live endpoint on mount,
-  // so a Data Cache entry older than a mutation is corrected after paint, and
-  // a stale stamp never overwrites a fresher entry the client already holds.
-  // Upcoming rows that have provably left the upcoming window since the read
-  // are dropped (`withoutPassedShows`). A list gets no seed when its read
-  // failed, and the upcoming list none when it answered for another artist;
-  // that list then fetches for itself behind its loader.
+  // so a Data Cache entry older than a mutation is corrected after paint, the
+  // signed-in viewer's own relationship votes (absent from the anonymous graph
+  // read) arrive with that refetch, and a stale stamp never overwrites a
+  // fresher entry the client already holds. Upcoming rows that have provably
+  // left the upcoming window since the read are dropped (`withoutPassedShows`).
+  // A list gets no seed when its read failed, and the upcoming and Similar
+  // artists lists none when their read answered for another artist; that list
+  // then fetches for itself.
   const listSeeds: QuerySeed[] = []
   if (upcomingShows?.artist_id === artistData.id) {
     listSeeds.push({
@@ -196,6 +215,21 @@ export default async function ArtistPage({ params }: ArtistPageProps) {
     listSeeds.push({
       queryKey: queryKeys.releases.artistReleases(slug),
       data: releases,
+    })
+  }
+  // `fetchListPayload` checked `nodes`. The Similar artists list also reads
+  // `links` unguarded, so a body without it is a contract break, reported like
+  // a missing `nodes`; one centred on another artist is withheld like the
+  // upcoming rows.
+  if (similarArtists && !Array.isArray(similarArtists.links)) {
+    Sentry.captureMessage(
+      'artist-page-similar-artists: response has no "links" array',
+      { level: 'error', tags: { service: 'artist-page-similar-artists' } },
+    )
+  } else if (similarArtists?.center?.id === artistData.id) {
+    listSeeds.push({
+      queryKey: queryKeys.artists.graph(artistData.id),
+      data: similarArtists,
     })
   }
   const listSeedState = await seedFirstScreen(listSeeds)

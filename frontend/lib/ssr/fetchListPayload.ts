@@ -56,6 +56,7 @@ export type ListPayloadCollection =
   | 'releases'
   | 'labels'
   | 'tags'
+  | 'nodes'
 
 interface FetchListPayloadOptions<T> {
   /** Absolute API URL, already carrying any query parameters. */
@@ -72,11 +73,10 @@ interface FetchListPayloadOptions<T> {
    * Only the collection array is checked. Sibling fields are NOT validated, so
    * a `shows` payload that kept its rows but lost `total` still gets seeded,
    * and `/shows` then reads `total` as 0 and renders no pager over rows it is
-   * showing. Every consumer read of a sibling is optional-chained or
-   * coalesced, so nothing dereferences one unguarded. That is a property
-   * of the consumers, not a guarantee from here. Widening this into a
-   * per-collection required-key list is a reasonable next step; do not assume
-   * from reading this that it already happened.
+   * showing. A caller whose consumers read a sibling unguarded must check
+   * that sibling itself before seeding; nothing here does it for them.
+   * Widening this into a per-collection required-key list is a reasonable
+   * next step; do not assume from reading this that it already happened.
    */
   collection: ListPayloadCollection
   /** Sentry `service` tag, and the prefix of the reported message. */

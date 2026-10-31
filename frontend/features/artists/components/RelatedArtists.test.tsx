@@ -83,7 +83,8 @@ vi.mock('./ArtistGraph', () => ({
   ArtistGraphVisualization: () => <div data-testid="artist-graph">Graph Visualization</div>,
 }))
 
-import { ArtistSimilarSidebar, ArtistGraphDialog, SimilarListStateProvider } from './RelatedArtists'
+import { ArtistSimilarSidebar, ArtistGraphDialog } from './RelatedArtists'
+import { REPLAY_ATTR } from '@/lib/hydration/clickReplay'
 // The REAL constant (not a literal) — a rename that missed one side would
 // otherwise still pass.
 import { SIMILAR_ARTISTS_ANCHOR } from './ArtistConnectionsSection'
@@ -108,8 +109,6 @@ describe('ArtistSimilarSidebar', () => {
     ro.restore()
   })
 
-  // Load-bearing for ArtistDetail: it moves this list between columns at
-  // hydration, which causes no layout shift only while the list is empty.
   it('returns null while loading', () => {
     mockUseArtistGraph.mockReturnValue({ data: undefined, isLoading: true, error: null })
     const { container } = renderWithProviders(
@@ -265,73 +264,33 @@ describe('ArtistSimilarSidebar', () => {
     })
   })
 
-  describe('viewer state under SimilarListStateProvider', () => {
-    // The page renders the list under one of two parents; this harness does
-    // the same, so flipping `inSidebar` unmounts and remounts the list.
-    function Harness({ inSidebar, artistId = 1 }: { inSidebar: boolean; artistId?: number }) {
-      const list = (
-        <ArtistSimilarSidebar artistId={artistId} artistSlug="gatecreeper" onOpenGraph={() => {}} />
-      )
-      return (
-        <SimilarListStateProvider artistId={artistId}>
-          {inSidebar ? <aside>{list}</aside> : <main>{list}</main>}
-        </SimilarListStateProvider>
-      )
-    }
+  it('reopens an Escape-closed suggest form empty', async () => {
+    const user = userEvent.setup()
+    renderWithProviders(
+      <ArtistSimilarSidebar artistId={1} artistSlug="gatecreeper" onOpenGraph={() => {}} />
+    )
+    await user.click(screen.getByRole('button', { name: 'Suggest similar' }))
+    const search = screen.getByPlaceholderText('Search for a similar artist...')
+    expect(search).toHaveFocus()
+    await user.type(search, 'Fro{Escape}')
+    expect(screen.queryByPlaceholderText('Search for a similar artist...')).not.toBeInTheDocument()
 
-    it('keeps the sort and an open suggest draft when the list remounts elsewhere', async () => {
-      const user = userEvent.setup()
-      const { rerender } = renderWithProviders(<Harness inSidebar={false} />)
-      await user.selectOptions(screen.getByLabelText('Sort'), 'niche')
-      await user.click(screen.getByRole('button', { name: 'Suggest similar' }))
-      await user.type(screen.getByPlaceholderText('Search for a similar artist...'), 'Fro')
+    await user.click(screen.getByRole('button', { name: 'Suggest similar' }))
+    expect(screen.getByPlaceholderText('Search for a similar artist...')).toHaveValue('')
+  })
 
-      rerender(<Harness inSidebar />)
-
-      expect(document.querySelector('aside')).toContainElement(screen.getByLabelText('Sort'))
-      expect((screen.getByLabelText('Sort') as HTMLSelectElement).value).toBe('niche')
-      expect(screen.getByPlaceholderText('Search for a similar artist...')).toHaveValue('Fro')
-    })
-
-    // Focus belongs to a form the viewer just opened, not to one a remount
-    // restored: the restored one must not pull focus (and the page) to itself.
-    it('focuses the search when opened, but not when a remount restores it', async () => {
-      const user = userEvent.setup()
-      const { rerender } = renderWithProviders(<Harness inSidebar={false} />)
-      await user.click(screen.getByRole('button', { name: 'Suggest similar' }))
-      expect(screen.getByPlaceholderText('Search for a similar artist...')).toHaveFocus()
-
-      await user.click(document.body)
-      rerender(<Harness inSidebar />)
-
-      const restored = screen.getByPlaceholderText('Search for a similar artist...')
-      expect(document.querySelector('aside')).toContainElement(restored)
-      expect(restored).not.toHaveFocus()
-    })
-
-    // The provider outlives the form, so closing has to clear the draft itself.
-    it('reopens an Escape-closed suggest form empty', async () => {
-      const user = userEvent.setup()
-      renderWithProviders(<Harness inSidebar={false} />)
-      await user.click(screen.getByRole('button', { name: 'Suggest similar' }))
-      await user.type(screen.getByPlaceholderText('Search for a similar artist...'), 'Fro{Escape}')
-      expect(screen.queryByPlaceholderText('Search for a similar artist...')).not.toBeInTheDocument()
-
-      await user.click(screen.getByRole('button', { name: 'Suggest similar' }))
-      expect(screen.getByPlaceholderText('Search for a similar artist...')).toHaveValue('')
-    })
-
-    it('hands a different artist the defaults', async () => {
-      const user = userEvent.setup()
-      const { rerender } = renderWithProviders(<Harness inSidebar={false} />)
-      await user.selectOptions(screen.getByLabelText('Sort'), 'niche')
-      await user.click(screen.getByRole('button', { name: 'Suggest similar' }))
-
-      rerender(<Harness inSidebar={false} artistId={9} />)
-
-      expect((screen.getByLabelText('Sort') as HTMLSelectElement).value).toBe('relevant')
-      expect(screen.getByRole('button', { name: 'Suggest similar' })).toBeInTheDocument()
-    })
+  // The list is in server HTML, so its vote buttons are clickable before
+  // hydration; the replay marker is what keeps such a tap from being dropped.
+  it('marks every vote button for click replay', () => {
+    renderWithProviders(
+      <ArtistSimilarSidebar artistId={1} artistSlug="gatecreeper" onOpenGraph={() => {}} />
+    )
+    const votes = [
+      ...screen.getAllByTitle('Upvote similarity'),
+      ...screen.getAllByTitle('Downvote similarity'),
+    ]
+    expect(votes.length).toBeGreaterThan(0)
+    for (const vote of votes) expect(vote).toHaveAttribute(REPLAY_ATTR)
   })
 
   it('renders an [Explore graph] link when relationships exist', () => {
