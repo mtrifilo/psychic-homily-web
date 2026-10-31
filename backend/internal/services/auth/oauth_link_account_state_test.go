@@ -125,7 +125,8 @@ func TestCompleteOAuthLink_HandsTheAccountAndStampToTheLinkWrite(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, uint(7), linked.ID)
 	assert.Equal(t, uint(7), userSvc.linkUserID)
-	assert.Same(t, &stamp, userSvc.linkStamp)
+	require.NotNil(t, userSvc.linkStamp)
+	assert.True(t, stamp.Equal(*userSvc.linkStamp), "the stamp reaches the link write unchanged")
 	assert.Equal(t, "github", userSvc.linkProvider)
 }
 
