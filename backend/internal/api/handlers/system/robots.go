@@ -17,24 +17,28 @@ const RobotsTxtRoute = "/robots.txt"
 // only: calendar and feed services fetch a subscription as a crawler, and one
 // that honours robots.txt must still reach it.
 //
-// One Allow line per feed route the router serves:
+// One Allow line per feed route family the router serves:
 //
-//	/feeds/*/saved-shows.ics  personal saved-shows iCal feed
-//	/feeds/*/follows.atom     personal follows Atom feed
-//	/calendar/phcal_          legacy personal iCal alias; every feed token
-//	                          carries the phcal_ prefix, which keeps the
-//	                          session-authenticated /calendar/token JSON out
-//	/shows/*/calendar.ics     public show feed
-//	/venues/*/calendar.ics    public venue feed
-//	/scenes/*/calendar.ics    public scene feed
+//	/feeds/phcal_            personal saved-shows iCal and follows Atom feeds;
+//	                         every route under /feeds/ is a token feed and
+//	                         every feed token carries the phcal_ prefix
+//	/calendar/phcal_         legacy personal iCal alias; the phcal_ prefix
+//	                         keeps the session-authenticated /calendar/token
+//	                         JSON out
+//	/shows/*/calendar.ics    public show feed
+//	/venues/*/calendar.ics   public venue feed
+//	/scenes/*/calendar.ics   public scene feed
+//
+// The personal feed lines are plain prefixes, so a parser without `*` support
+// still allows them; the public feed lines rely on `*`.
 //
 // Under RFC 9309 and Google's matching the longest matching rule wins, so each
 // Allow outranks Disallow: /. The Allow lines come first for parsers that take
 // the first match instead. No pattern ends in $, so a feed URL carrying a query
-// string still matches.
+// string still matches. Because `*` also spans the query, a query string that
+// itself contains /calendar.ics admits the URL under the public feed lines.
 const robotsTxtBody = "User-agent: *\n" +
-	"Allow: /feeds/*/saved-shows.ics\n" +
-	"Allow: /feeds/*/follows.atom\n" +
+	"Allow: /feeds/phcal_\n" +
 	"Allow: /calendar/phcal_\n" +
 	"Allow: /shows/*/calendar.ics\n" +
 	"Allow: /venues/*/calendar.ics\n" +

@@ -13,8 +13,7 @@ import (
 // A deliberate copy of the served file, not a reference to the handler's
 // constant: a change to the crawler policy has to be re-approved here.
 const wantRobotsTxtBody = "User-agent: *\n" +
-	"Allow: /feeds/*/saved-shows.ics\n" +
-	"Allow: /feeds/*/follows.atom\n" +
+	"Allow: /feeds/phcal_\n" +
 	"Allow: /calendar/phcal_\n" +
 	"Allow: /shows/*/calendar.ics\n" +
 	"Allow: /venues/*/calendar.ics\n" +
@@ -164,9 +163,39 @@ func TestRobotsTxtAllowsOnlyTheFeeds(t *testing.T) {
 	}
 }
 
+// A parser without wildcard support reads `*` as a literal character, so only
+// plain-prefix Allow lines work for it. The personal feeds, which subscribers
+// poll for the life of their calendar, are allowed under that reading too.
+func TestRobotsTxtPersonalFeedsNeedNoWildcardSupport(t *testing.T) {
+	rules := servedRobotsRules(t, newTestRouter(t))
+
+	prefixOnlyAllows := func(target string) bool {
+		allowed, longest := true, -1
+		for _, rule := range rules {
+			if !strings.HasPrefix(target, rule.pattern) {
+				continue
+			}
+			if n := len(rule.pattern); n > longest || (n == longest && rule.allow) {
+				allowed, longest = rule.allow, n
+			}
+		}
+		return allowed
+	}
+	for _, target := range []string{
+		"/feeds/phcal_0123abcd/saved-shows.ics",
+		"/feeds/phcal_0123abcd/follows.atom",
+		"/calendar/phcal_0123abcd",
+	} {
+		if !prefixOnlyAllows(target) {
+			t.Errorf("a parser without wildcard support disallows personal feed %s", target)
+		}
+	}
+}
+
 // Every GET route the built router serves is a feed exactly when robots.txt
-// allows it. A new .ics or .atom route that is not allowed, or an Allow line
-// that starts admitting a JSON route, fails here.
+// allows its path, sampled with no query string. A new .ics or .atom route that
+// is not allowed, or an Allow line that starts admitting a JSON route's path,
+// fails here.
 func TestRobotsTxtAllowsExactlyTheServedFeedRoutes(t *testing.T) {
 	router := newTestRouter(t)
 	rules := servedRobotsRules(t, router)
