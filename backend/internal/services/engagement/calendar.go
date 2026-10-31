@@ -265,7 +265,7 @@ func (s *CalendarService) CreateToken(userID uint, sessionsValidAfter *time.Time
 	tokenHash := hashCalendarToken(plainToken)
 
 	err = s.db.Transaction(func(tx *gorm.DB) error {
-		if _, err := shared.LockSessionAccount(tx, userID, sessionsValidAfter); err != nil {
+		if err := shared.LockSessionAccount(tx, userID, sessionsValidAfter); err != nil {
 			return err
 		}
 

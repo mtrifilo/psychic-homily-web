@@ -663,7 +663,7 @@ func (s *UserService) LinkOAuthAccountToUser(userID uint, sessionsValidAfter *ti
 	// oauth_accounts foreign key would refuse the write anyway, but the lookup
 	// keeps this correct if that constraint is ever relaxed, and it gives the
 	// caller an error naming the user rather than a driver message.
-	if _, err := shared.LockSessionAccount(tx, userID, sessionsValidAfter); err != nil {
+	if err := shared.LockSessionAccount(tx, userID, sessionsValidAfter); err != nil {
 		tx.Rollback()
 		return nil, err
 	}

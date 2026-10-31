@@ -25,14 +25,10 @@ func sessionAccount(t *testing.T, db *gorm.DB, name string, sessionsValidAfter *
 	return user
 }
 
-func lockInTx(db *gorm.DB, userID uint, sessionsValidAfter *time.Time) (*authm.User, error) {
-	var locked *authm.User
-	err := db.Transaction(func(tx *gorm.DB) error {
-		var err error
-		locked, err = LockSessionAccount(tx, userID, sessionsValidAfter)
-		return err
+func lockInTx(db *gorm.DB, userID uint, sessionsValidAfter *time.Time) error {
+	return db.Transaction(func(tx *gorm.DB) error {
+		return LockSessionAccount(tx, userID, sessionsValidAfter)
 	})
-	return locked, err
 }
 
 func requireRefusalCode(t *testing.T, err error, code string) *apperrors.AuthError {
@@ -70,7 +66,7 @@ func TestLockSessionAccount(t *testing.T) {
 		// acting session's.
 		rowStamp, sessionStamp *time.Time
 		close                  func(*testing.T, uint)
-		// wantCode is the refusal, or "" when the account is returned.
+		// wantCode is the refusal, or "" when the write may go ahead.
 		wantCode string
 	}{
 		{name: "never revoked, session from before any revocation", wantCode: ""},
@@ -91,21 +87,18 @@ func TestLockSessionAccount(t *testing.T) {
 				tc.close(t, account.ID)
 			}
 
-			locked, err := lockInTx(db, account.ID, tc.sessionStamp)
+			err := lockInTx(db, account.ID, tc.sessionStamp)
 
 			if tc.wantCode == "" {
 				if err != nil {
 					t.Fatalf("unexpected refusal: %v", err)
 				}
-				if locked == nil || locked.ID != account.ID {
-					t.Fatalf("locked = %+v, want account %d", locked, account.ID)
-				}
 				return
 			}
-			if locked != nil {
-				t.Errorf("a refusal returns no account, got %+v", locked)
-			}
 			refusal := requireRefusalCode(t, err, tc.wantCode)
+			if !IsSessionRefusal(err) {
+				t.Errorf("IsSessionRefusal must report the helper's refusal: %v", err)
+			}
 			if tc.wantCode == apperrors.CodeTokenInvalid && !errors.Is(err, ErrSessionRevoked) {
 				t.Errorf("a stamp refusal wraps ErrSessionRevoked: %v", err)
 			}
@@ -122,7 +115,7 @@ func TestLockSessionAccount(t *testing.T) {
 func TestLockSessionAccount_MissingAccountIsAFailureNotARefusal(t *testing.T) {
 	db := packageTestDB(t)
 
-	_, err := lockInTx(db, 9_000_001, nil)
+	err := lockInTx(db, 9_000_001, nil)
 
 	if !errors.Is(err, gorm.ErrRecordNotFound) {
 		t.Fatalf("expected the lookup failure, got %v", err)
@@ -130,6 +123,9 @@ func TestLockSessionAccount_MissingAccountIsAFailureNotARefusal(t *testing.T) {
 	var refusal *apperrors.AuthError
 	if errors.As(err, &refusal) {
 		t.Errorf("a missing account is not a refusal with its own copy: %v", err)
+	}
+	if IsSessionRefusal(err) {
+		t.Errorf("a missing account is not a session refusal: %v", err)
 	}
 }
 
@@ -175,7 +171,7 @@ func TestLockSessionAccount_RevocationWaitsForTheHolder(t *testing.T) {
 
 	done := make(chan error, 1)
 	err := db.Transaction(func(tx *gorm.DB) error {
-		if _, err := LockSessionAccount(tx, account.ID, nil); err != nil {
+		if err := LockSessionAccount(tx, account.ID, nil); err != nil {
 			return err
 		}
 		go func() { done <- db.Exec(revokeSQL, revokedAt, account.ID).Error }()
@@ -210,8 +206,7 @@ func TestLockSessionAccount_WaitsForAnInFlightRevocationThenRefuses(t *testing.T
 
 	done := make(chan error, 1)
 	go func() {
-		_, err := lockInTx(db, account.ID, nil)
-		done <- err
+		done <- lockInTx(db, account.ID, nil)
 	}()
 	awaitLockWaiter(t, db, done)
 	if err := revocation.Commit().Error; err != nil {
@@ -219,7 +214,7 @@ func TestLockSessionAccount_WaitsForAnInFlightRevocationThenRefuses(t *testing.T
 	}
 
 	err := awaitDone(t, done)
-	requireRefusalCode(t, err, apperrors.CodeTokenInvalid)
+	_ = requireRefusalCode(t, err, apperrors.CodeTokenInvalid)
 	if !errors.Is(err, ErrSessionRevoked) {
 		t.Errorf("expected ErrSessionRevoked, got %v", err)
 	}

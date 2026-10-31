@@ -190,7 +190,7 @@ func RefuseSession(ctx context.Context, operation string, cause error) error {
 		"error", cause.Error(),
 	)
 	return &SessionRefusedError{JWTErrorResponse: JWTErrorResponse{
-		Message:   "Invalid token",
+		Message:   invalidTokenMessage,
 		ErrorCode: autherrors.CodeTokenInvalid,
 		RequestID: logger.GetRequestID(ctx),
 	}}
