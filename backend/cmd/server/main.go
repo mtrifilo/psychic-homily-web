@@ -32,6 +32,7 @@ import (
 	"psychic-homily-backend/internal/services"
 	authsvc "psychic-homily-backend/internal/services/auth"
 	"psychic-homily-backend/internal/services/catalog"
+	"psychic-homily-backend/internal/services/indexnow"
 	"psychic-homily-backend/internal/services/notification"
 	servicesshared "psychic-homily-backend/internal/services/shared"
 )
@@ -339,6 +340,7 @@ func main() {
 		challengeSweepCancel         context.CancelFunc
 		authEmailOutboxCancel        context.CancelFunc
 		sweepHealthCheckCancel       context.CancelFunc
+		indexNowCancel               context.CancelFunc
 	)
 
 	// Start account cleanup service (background job for permanent deletion)
@@ -612,13 +614,29 @@ func main() {
 		log.Printf("%s=1: skipping auth email outbox startup; magic-link, recovery and magic-link verification emails will not be sent", authsvc.DisableAuthEmailOutboxEnvVar)
 	}
 
+	// Start the IndexNow pinger: posts the public URLs whose sitemap lastmod
+	// moved to IndexNow every 10 minutes. It runs only where INDEXNOW_KEY is
+	// set, and DISABLE_INDEXNOW_PINGS=1 keeps it off even then.
+	switch {
+	case servicesshared.EnvServiceDisabled(indexnow.DisableEnvVar):
+		log.Printf("%s=1: skipping indexnow pinger startup", indexnow.DisableEnvVar)
+	case sc.IndexNow == nil:
+		log.Printf("indexnow pinger disabled: %s", sc.IndexNowOffReason)
+	default:
+		var indexNowCtx context.Context
+		indexNowCtx, indexNowCancel = context.WithCancel(context.Background())
+		sc.IndexNow.Start(indexNowCtx)
+	}
+
 	// Start sweep health check (PSY-1612: reports background loops that have
 	// stopped running). Default ON — this is the monitoring that would have caught
 	// PSY-1606's seven silently-dead sweeps in days instead of weeks, so it should
 	// require a deliberate act to switch off, never an omission.
 	//
-	// It watches every loop started above that has an interval of an hour or more
-	// (shorter loops keep no run state, so they are outside its coverage).
+	// It watches every loop started above that keeps run state: those with an
+	// interval of an hour or more, and the IndexNow pinger, which opts in with an
+	// explicit store. Other shorter loops keep no run state, so they are outside
+	// its coverage.
 	//
 	// Switching a sweep off with its DISABLE_*/ENABLE_* flag does NOT silence it
 	// immediately if it has run in this environment before: the row survives with
@@ -757,6 +775,10 @@ func main() {
 	if sweepHealthCheckCancel != nil {
 		sweepHealthCheckCancel()
 		sc.SweepHealthCheck.Stop()
+	}
+	if indexNowCancel != nil {
+		indexNowCancel()
+		sc.IndexNow.Stop()
 	}
 
 	// Graceful shutdown
