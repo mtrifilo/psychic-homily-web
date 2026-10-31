@@ -702,6 +702,7 @@ NODE_ENV=production docker compose up
 | `SITEMAP_PAST_SHOW_MAX_AGE_DAYS` | unset (off)       | N in 1..1,000,000: the shows sitemap omits approved shows whose venue-local date is more than N days before the venue-local today. Unset, 0, negative or malformed = off (a set-but-invalid value logs a warning). |
 | `SITEMAP_OMIT_UNLINKED_RELEASES` | unset (off)       | `1` only: the releases sitemap omits releases with no `release_external_links` row. |
 | `SITEMAP_OMIT_IDLE_ARTISTS`      | unset (off)       | `1` only: the artists sitemap omits artists with no `show_artists` row and no `artist_releases` row. |
+| `INDEXNOW_KEY`         | unset (pinger off)          | IndexNow key, 8 to 128 letters, digits or dashes, the same value on this service and on the Vercel frontend (which serves it at `/<key>.txt`). When set, the `indexnow_pings` loop posts changed show, artist, venue and release URLs to api.indexnow.org every 10 minutes. Production only: stage sits behind Vercel protection, so engines cannot fetch its key file. Public by design, so not a secret, but keep it out of the repo. |
 
 `SERVER_READ_SECRET` pairs this service with the frontend's server-side
 environment (Vercel, never a `NEXT_PUBLIC_` variable), generated with
@@ -753,6 +754,7 @@ no nondeterministic DB state changes from ambient background jobs. A new
 | `DISABLE_SWEEP_HEALTH_CHECK`      | Overdue-sweep alerting — reports stopped background loops to Sentry (PSY-1612) |
 | `DISABLE_SHOW_NOTIFY_OUTBOX`      | Follower notifications for ingest-created shows (PSY-1894). **The kill switch for outbound show email** |
 | `DISABLE_VENUE_SHOW_ALERTS`       | Coalesced venue new-show alerts (PSY-1895), BOTH accrual and the flush poller |
+| `DISABLE_INDEXNOW_PINGS`          | IndexNow change pings (PSY-2536). The loop is also off whenever `INDEXNOW_KEY` is unset |
 
 `DISABLE_SHOW_NOTIFY_OUTBOX` gates the ENQUEUE as well as the drain, so setting it
 stops rows being written rather than letting a backlog build for a burst on
