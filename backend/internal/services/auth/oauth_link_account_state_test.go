@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/markbates/goth"
 	"github.com/stretchr/testify/assert"
@@ -60,7 +61,7 @@ func (s *JWTIntegrationSuite) TestCompleteOAuthLink_AccountState() {
 			svc.SetOAuthCompleter(completingAs(goth.User{Provider: "google", UserID: subject}))
 
 			w, r := linkCallbackRequest()
-			linked, err := svc.CompleteOAuthLink(w, r, "google", user.ID)
+			linked, err := svc.CompleteOAuthLink(w, r, "google", user.ID, user.SessionsValidAfter)
 
 			var rows int64
 			s.Require().NoError(s.db.Model(&authm.OAuthAccount{}).
@@ -91,7 +92,7 @@ type linkRecordingUserService struct {
 	linkCalled bool
 }
 
-func (s *linkRecordingUserService) LinkOAuthAccountToUser(uint, goth.User, string) (*authm.User, error) {
+func (s *linkRecordingUserService) LinkOAuthAccountToUser(uint, *time.Time, goth.User, string) (*authm.User, error) {
 	s.linkCalled = true
 	return nil, errors.New("link must not be attempted")
 }
@@ -110,7 +111,7 @@ func TestCompleteOAuthLink_AccountLookupFailureLinksNothing(t *testing.T) {
 	svc.SetOAuthCompleter(completingAs(goth.User{Provider: "google", UserID: "google-lookup-failure"}))
 
 	w, r := linkCallbackRequest()
-	linked, err := svc.CompleteOAuthLink(w, r, "google", 7)
+	linked, err := svc.CompleteOAuthLink(w, r, "google", 7, nil)
 
 	require.Error(t, err)
 	assert.Nil(t, linked)
@@ -126,7 +127,7 @@ type linkRefusingUserService struct {
 	stubUserServiceWithGetByID
 }
 
-func (s *linkRefusingUserService) LinkOAuthAccountToUser(uint, goth.User, string) (*authm.User, error) {
+func (s *linkRefusingUserService) LinkOAuthAccountToUser(uint, *time.Time, goth.User, string) (*authm.User, error) {
 	return nil, apperrors.ErrAccountInactive()
 }
 
@@ -144,7 +145,7 @@ func TestCompleteOAuthLink_LinkWritersRefusalKeepsItsCode(t *testing.T) {
 	svc.SetOAuthCompleter(completingAs(goth.User{Provider: "google", UserID: "google-closed-in-window"}))
 
 	w, r := linkCallbackRequest()
-	linked, err := svc.CompleteOAuthLink(w, r, "google", 7)
+	linked, err := svc.CompleteOAuthLink(w, r, "google", 7, nil)
 
 	require.Error(t, err)
 	assert.Nil(t, linked)

@@ -322,11 +322,12 @@ type AuthServiceInterface interface {
 	// session for it. Refusals are that method's.
 	CompleteOAuthSignup(signup *OAuthPendingSignup, consent *OAuthSignupConsent, displayName *string) (*authm.User, string, error)
 	// CompleteOAuthLink attaches the handshake's identity to an already
-	// authenticated userID and issues no session. Refuses with a typed
-	// AuthError carrying CodeAccountInactive when the account may not sign in
-	// (authm.User.CanSignIn), and with the typed AuthErrors
+	// authenticated userID and issues no session. sessionsValidAfter is the
+	// revocation stamp of the session that authenticated it. Refuses with a
+	// typed AuthError carrying CodeAccountInactive when the account may not
+	// sign in (authm.User.CanSignIn), and with the typed AuthErrors
 	// UserServiceInterface.LinkOAuthAccountToUser documents.
-	CompleteOAuthLink(w http.ResponseWriter, r *http.Request, provider string, userID uint) (*authm.User, error)
+	CompleteOAuthLink(w http.ResponseWriter, r *http.Request, provider string, userID uint, sessionsValidAfter *time.Time) (*authm.User, error)
 	GetUserProfile(userID uint) (*authm.User, error)
 	// GetSignInFactors reports the sign-in factors user holds besides its
 	// linked providers. Passkeys are counted with a query, never loaded.

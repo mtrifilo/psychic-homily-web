@@ -80,6 +80,7 @@ func (s *AuthService) CompleteOAuthLink(
 	r *http.Request,
 	provider string,
 	userID uint,
+	sessionsValidAfter *time.Time,
 ) (*authm.User, error) {
 	if r == nil {
 		return nil, fmt.Errorf("request cannot be nil")
@@ -100,7 +101,7 @@ func (s *AuthService) CompleteOAuthLink(
 		return nil, refuseInactiveAccount(userID)
 	}
 
-	linked, err := s.userService.LinkOAuthAccountToUser(userID, gothUser, provider)
+	linked, err := s.userService.LinkOAuthAccountToUser(userID, sessionsValidAfter, gothUser, provider)
 	if err != nil {
 		return nil, fmt.Errorf("failed to link oauth account: %w", err)
 	}

@@ -245,8 +245,14 @@ func hashCalendarToken(token string) string {
 	return hex.EncodeToString(hash[:])
 }
 
-// CreateToken generates a new calendar token for a user, replacing any existing token
-func (s *CalendarService) CreateToken(userID uint, apiBaseURL string) (*contracts.CalendarTokenCreateResponse, error) {
+// CreateToken mints userID's feed token, replacing any it holds
+// (contracts.CalendarServiceInterface). The account and the acting session
+// are judged in the transaction that writes the token, under the users-row
+// lock (shared.LockSessionAccount). A transaction that locks or updates that
+// row and then deletes the account's feed tokens therefore either commits
+// first, and this mint is refused, or waits for this one and then deletes the
+// token it wrote.
+func (s *CalendarService) CreateToken(userID uint, sessionsValidAfter *time.Time, apiBaseURL string) (*contracts.CalendarTokenCreateResponse, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
 	}
@@ -258,9 +264,11 @@ func (s *CalendarService) CreateToken(userID uint, apiBaseURL string) (*contract
 
 	tokenHash := hashCalendarToken(plainToken)
 
-	// Delete existing + insert new in a transaction
 	err = s.db.Transaction(func(tx *gorm.DB) error {
-		// Delete any existing token for this user
+		if _, err := shared.LockSessionAccount(tx, userID, sessionsValidAfter); err != nil {
+			return err
+		}
+
 		if err := tx.Where("user_id = ?", userID).Delete(&engagementm.CalendarToken{}).Error; err != nil {
 			return fmt.Errorf("failed to delete existing token: %w", err)
 		}

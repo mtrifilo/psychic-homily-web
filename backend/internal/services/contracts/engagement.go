@@ -359,7 +359,12 @@ type ShowCalendarServiceInterface interface {
 // CalendarServiceInterface defines the contract for personal feed-token
 // operations (saved-shows iCal + followed-artist Atom activity).
 type CalendarServiceInterface interface {
-	CreateToken(userID uint, apiBaseURL string) (*CalendarTokenCreateResponse, error)
+	// CreateToken mints userID's feed token, replacing any it holds, for a
+	// request whose session carries the revocation stamp sessionsValidAfter
+	// (the SessionsValidAfter its validation loaded). Refuses with
+	// shared.LockSessionAccount's refusals, and mints nothing, when the
+	// account may not sign in or that session has been revoked since.
+	CreateToken(userID uint, sessionsValidAfter *time.Time, apiBaseURL string) (*CalendarTokenCreateResponse, error)
 	GetTokenStatus(userID uint) (*CalendarTokenStatusResponse, error)
 	DeleteToken(userID uint) error
 	ValidateCalendarToken(plainToken string) (*authm.User, error)

@@ -23,7 +23,7 @@ var (
 func (suite *UserServiceIntegrationTestSuite) linkedForRepeatConnect(address, subject string) *authm.User {
 	suite.T().Helper()
 	owner := suite.createLiveAccount(address)
-	_, err := suite.userService.LinkOAuthAccountToUser(owner.ID, goth.User{
+	_, err := suite.userService.LinkOAuthAccountToUser(owner.ID, owner.SessionsValidAfter, goth.User{
 		UserID:       subject,
 		Email:        address,
 		AccessToken:  "stored-access",
@@ -115,7 +115,7 @@ func (suite *UserServiceIntegrationTestSuite) TestLinkOAuthAccountToUser_RepeatC
 	var concurrent <-chan error
 	svc, ran := suite.serviceWithWriteBeforeItsFirstUpdate(func(*gorm.DB) {
 		concurrent = suite.startOnAnotherConnection(func() error {
-			_, err := suite.userService.LinkOAuthAccountToUser(owner.ID, goth.User{
+			_, err := suite.userService.LinkOAuthAccountToUser(owner.ID, owner.SessionsValidAfter, goth.User{
 				UserID:       "repeat-connect-race-subject",
 				Email:        "repeat-connect-race@example.com",
 				AccessToken:  "concurrent-access",
@@ -127,7 +127,7 @@ func (suite *UserServiceIntegrationTestSuite) TestLinkOAuthAccountToUser_RepeatC
 	})
 
 	// This connect's provider sent no expiry.
-	_, err := svc.LinkOAuthAccountToUser(owner.ID, goth.User{
+	_, err := svc.LinkOAuthAccountToUser(owner.ID, owner.SessionsValidAfter, goth.User{
 		UserID:       "repeat-connect-race-subject",
 		Email:        "repeat-connect-race@example.com",
 		AccessToken:  "hooked-access",
@@ -157,7 +157,7 @@ func (suite *UserServiceIntegrationTestSuite) TestLinkOAuthAccountToUser_RepeatC
 		})
 	})
 
-	_, err := svc.LinkOAuthAccountToUser(owner.ID, goth.User{
+	_, err := svc.LinkOAuthAccountToUser(owner.ID, owner.SessionsValidAfter, goth.User{
 		UserID:      "repeat-connect-unlink-subject",
 		Email:       "repeat-connect-unlink@example.com",
 		AccessToken: "hooked-access",
@@ -186,7 +186,7 @@ func (suite *UserServiceIntegrationTestSuite) TestLinkOAuthAccountToUser_RepeatC
 			writtenAfterRead, writtenAfterRead, owner.ID, "google").Error)
 	})
 
-	_, err := svc.LinkOAuthAccountToUser(owner.ID, goth.User{
+	_, err := svc.LinkOAuthAccountToUser(owner.ID, owner.SessionsValidAfter, goth.User{
 		UserID:       "repeat-connect-columns-subject",
 		Email:        "repeat-connect-columns-new@example.com",
 		AccessToken:  "hooked-access",
@@ -209,7 +209,7 @@ func (suite *UserServiceIntegrationTestSuite) TestLinkOAuthAccountToUser_RepeatC
 	before := suite.storedGoogleAccount(owner.ID)
 	refreshedExpiry := time.Date(2033, 2, 1, 0, 0, 0, 0, time.UTC)
 
-	linked, err := suite.userService.LinkOAuthAccountToUser(owner.ID, goth.User{
+	linked, err := suite.userService.LinkOAuthAccountToUser(owner.ID, owner.SessionsValidAfter, goth.User{
 		UserID:       "repeat-connect-refresh-subject",
 		Email:        "repeat-connect-refresh-new@example.com",
 		Name:         "Refreshed Name",

@@ -2,6 +2,7 @@ package engagement
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"os"
@@ -12,6 +13,7 @@ import (
 
 	"psychic-homily-backend/internal/api/middleware"
 	"psychic-homily-backend/internal/config"
+	autherrors "psychic-homily-backend/internal/errors"
 	"psychic-homily-backend/internal/logger"
 	"psychic-homily-backend/internal/respond"
 	"psychic-homily-backend/internal/services/contracts"
@@ -146,8 +148,15 @@ func (h *CalendarHandler) CreateCalendarTokenHandler(ctx context.Context, req *C
 	// Feed URLs use the API domain, not the frontend domain.
 	apiBaseURL := getAPIBaseURL(h.config)
 
-	result, err := h.calendarService.CreateToken(user.ID, apiBaseURL)
+	result, err := h.calendarService.CreateToken(user.ID, user.SessionsValidAfter, apiBaseURL)
 	if err != nil {
+		// The session was revoked, or the account closed, after the JWT
+		// middleware validated it.
+		var refusal *autherrors.AuthError
+		if errors.As(err, &refusal) &&
+			(refusal.Code == autherrors.CodeTokenInvalid || refusal.Code == autherrors.CodeAccountInactive) {
+			return nil, middleware.RefuseSession(ctx, "create_calendar_token", err)
+		}
 		logger.FromContext(ctx).Error("create_calendar_token_failed",
 			"user_id", user.ID,
 			"error", err.Error(),

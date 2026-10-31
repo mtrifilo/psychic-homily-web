@@ -13,6 +13,7 @@ import (
 	"psychic-homily-backend/internal/logger"
 	"psychic-homily-backend/internal/observability"
 	authsvc "psychic-homily-backend/internal/services/auth"
+	"psychic-homily-backend/internal/services/shared"
 	"psychic-homily-backend/internal/utils"
 )
 
@@ -309,7 +310,7 @@ func (h *OAuthHTTPHandler) completeOAuthLink(
 		return
 	}
 
-	linked, err := h.authService.CompleteOAuthLink(w, r, provider, intent.userID)
+	linked, err := h.authService.CompleteOAuthLink(w, r, provider, intent.userID, sessionUser.SessionsValidAfter)
 	if err != nil {
 		// A provider error can carry credentials in its URL or in an embedded
 		// response body, the same hazard the sign-in callback scrubs for.
@@ -318,6 +319,12 @@ func (h *OAuthHTTPHandler) completeOAuthLink(
 			"user_id", intent.userID,
 			"error", observability.ScrubText(utils.RedactErrorURL(err).Error()),
 		)
+		// A session revoked during the exchange gets the answer the session
+		// gate gives a session it refuses: sign in again.
+		if errors.Is(err, shared.ErrSessionRevoked) {
+			redirectToLinkResult(w, r, frontendURL, oauthLinkErrorReauthRequired)
+			return
+		}
 		// The account can close during the exchange, and the reads after it
 		// report that with the same code the session gate does.
 		code := refusalCode(err, autherrors.CodeUnknown)

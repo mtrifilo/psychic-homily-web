@@ -28,7 +28,7 @@ func (suite *UserServiceIntegrationTestSuite) TestLinkOAuthAccountToUser_Attache
 	}
 	suite.Require().NoError(suite.db.Create(other).Error)
 
-	linked, err := suite.userService.LinkOAuthAccountToUser(owner.ID, goth.User{
+	linked, err := suite.userService.LinkOAuthAccountToUser(owner.ID, owner.SessionsValidAfter, goth.User{
 		UserID: "link-session-subject",
 		// Another account's address, and no verification signal: neither is
 		// consulted, because the session already named the account.
@@ -54,7 +54,7 @@ func (suite *UserServiceIntegrationTestSuite) TestLinkOAuthAccountToUser_LeavesE
 	}
 	suite.Require().NoError(suite.db.Create(owner).Error)
 
-	_, err := suite.userService.LinkOAuthAccountToUser(owner.ID, goth.User{
+	_, err := suite.userService.LinkOAuthAccountToUser(owner.ID, owner.SessionsValidAfter, goth.User{
 		UserID:  "link-unverified-subject",
 		Email:   "link.stays.unverified@example.com",
 		RawData: map[string]any{"verified_email": true},
@@ -78,10 +78,10 @@ func (suite *UserServiceIntegrationTestSuite) TestLinkOAuthAccountToUser_SameIde
 	suite.Require().NoError(suite.db.Create(owner).Error)
 
 	gothUser := goth.User{UserID: "link-idempotent-subject", Email: "link.idempotent@example.com"}
-	_, err := suite.userService.LinkOAuthAccountToUser(owner.ID, gothUser, "google")
+	_, err := suite.userService.LinkOAuthAccountToUser(owner.ID, owner.SessionsValidAfter, gothUser, "google")
 	suite.Require().NoError(err)
 
-	again, err := suite.userService.LinkOAuthAccountToUser(owner.ID, gothUser, "google")
+	again, err := suite.userService.LinkOAuthAccountToUser(owner.ID, owner.SessionsValidAfter, gothUser, "google")
 	suite.Require().NoError(err)
 	suite.Require().Len(again.OAuthAccounts, 1)
 
@@ -113,7 +113,7 @@ func (suite *UserServiceIntegrationTestSuite) TestLinkOAuthAccountToUser_Identit
 	}
 	suite.Require().NoError(suite.db.Create(claimant).Error)
 
-	linked, err := suite.userService.LinkOAuthAccountToUser(claimant.ID, goth.User{
+	linked, err := suite.userService.LinkOAuthAccountToUser(claimant.ID, claimant.SessionsValidAfter, goth.User{
 		UserID: "link-contested-subject",
 		Email:  "link.claimant@example.com",
 	}, "google")
@@ -150,7 +150,7 @@ func (suite *UserServiceIntegrationTestSuite) TestLinkOAuthAccountToUser_SecondI
 		ProviderUserID: "link-first-subject",
 	}).Error)
 
-	linked, err := suite.userService.LinkOAuthAccountToUser(owner.ID, goth.User{
+	linked, err := suite.userService.LinkOAuthAccountToUser(owner.ID, owner.SessionsValidAfter, goth.User{
 		UserID: "link-second-subject",
 		Email:  "link.second.identity@example.com",
 	}, "google")
@@ -180,7 +180,7 @@ func (suite *UserServiceIntegrationTestSuite) TestLinkOAuthAccountToUser_EmptyPr
 	}
 	suite.Require().NoError(suite.db.Create(owner).Error)
 
-	linked, err := suite.userService.LinkOAuthAccountToUser(owner.ID, goth.User{
+	linked, err := suite.userService.LinkOAuthAccountToUser(owner.ID, owner.SessionsValidAfter, goth.User{
 		UserID: "",
 		Email:  "link.empty.subject@example.com",
 	}, "google")
@@ -212,7 +212,7 @@ func (suite *UserServiceIntegrationTestSuite) TestLinkOAuthAccountToUser_Complet
 	suite.Require().Error(err)
 	suite.Require().Nil(refused)
 
-	linked, err := suite.userService.LinkOAuthAccountToUser(account.ID, gothUser, "google")
+	linked, err := suite.userService.LinkOAuthAccountToUser(account.ID, account.SessionsValidAfter, gothUser, "google")
 	suite.Require().NoError(err)
 	suite.Equal(account.ID, linked.ID)
 	suite.Require().Len(linked.OAuthAccounts, 1)
@@ -225,7 +225,7 @@ func (suite *UserServiceIntegrationTestSuite) TestLinkOAuthAccountToUser_Complet
 }
 
 func (suite *UserServiceIntegrationTestSuite) TestLinkOAuthAccountToUser_UnknownUser_Refused() {
-	linked, err := suite.userService.LinkOAuthAccountToUser(9_000_001, goth.User{
+	linked, err := suite.userService.LinkOAuthAccountToUser(9_000_001, nil, goth.User{
 		UserID: "link-unknown-user-subject",
 		Email:  "link.unknown@example.com",
 	}, "google")
