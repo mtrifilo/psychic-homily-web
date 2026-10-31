@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"strings"
 
+	systemh "psychic-homily-backend/internal/api/handlers/system"
 	"psychic-homily-backend/internal/api/middleware"
 	"psychic-homily-backend/internal/services/auth"
 	"psychic-homily-backend/internal/services/engagement"
@@ -72,9 +73,20 @@ func IsPublicReadRateLimitEnabled(getenv func(string) string) bool {
 // it is the endpoint alerting watches, so a 429 pages a human about a service
 // that is fine.
 //
-// Matching is EXACT, not by prefix — adding a health endpoint requires adding it
-// here too, or it silently lands on the anonymous per-IP budget.
-var infraPathsExemptFromRateLimit = []string{"/health", "/health/ready"}
+// /robots.txt is the third: crawlers fetch it anonymously from shared egress
+// IPs. A 429 is a 4xx, and RFC 9309 lets a crawler that gets a 4xx for
+// robots.txt treat the file as unavailable and crawl the whole host, so a
+// throttled robots.txt inverts its own Disallow for every crawler that follows
+// the RFC. Google's robots.txt documentation excludes 429 from its own
+// "a 4xx means no crawl restrictions" rule, so a check made only with
+// Googlebot does not show the inversion.
+//
+// Matching is EXACT on the routing path, not by prefix: adding an infra
+// endpoint requires adding it here too, or it silently lands on the anonymous
+// per-IP budget.
+// TestInfraExemptPathsAreServed fails when an entry names a path the router
+// does not serve.
+var infraPathsExemptFromRateLimit = []string{"/health", "/health/ready", systemh.RobotsTxtRoute}
 
 // personalFeedRouteTemplates are the token-in-URL feed routes whose holder is
 // exempt from the public-read limiter (PSY-1430 iCal + PSY-1505 Atom). Google
@@ -211,11 +223,21 @@ func PublicReadRateLimiter(jwtService *auth.JWTService, validateAPIToken, valida
 	return limitReadMethodsOnly(limiter)
 }
 
-// isOAuthRedirectRequest reports whether r is a GET whose routing path is a
+// routingPath is the path chi's Mux routes r on: RawPath when it is set, Path
+// otherwise. An exemption keyed on any other spelling of the path covers
+// requests the router sends somewhere else. Path decodes percent-escapes, so
+// /robots%2etxt reads as /robots.txt there while chi routes it to a 404.
+// EscapedPath is not this string either when RawPath is not a valid encoding
+// of Path.
+func routingPath(r *http.Request) string {
+	if r.URL.RawPath != "" {
+		return r.URL.RawPath
+	}
+	return r.URL.Path
+}
+
+// isOAuthRedirectRequest reports whether r is a GET whose routingPath is a
 // template in oauthRedirectRoutes up to {provider}, then one non-empty segment.
-// The routing path is the one chi's Mux routes on: RawPath when it is set, Path
-// otherwise. EscapedPath is not that string when RawPath is not a valid
-// encoding of Path, and matching it would exempt requests chi routes elsewhere.
 //
 // Those requests skip the public-read limiter. Their own per-IP budget is the
 // tighter one and refuses by redirect; this limiter would refuse them first,
@@ -224,10 +246,7 @@ func isOAuthRedirectRequest(r *http.Request) bool {
 	if r.Method != http.MethodGet {
 		return false
 	}
-	path := r.URL.RawPath
-	if path == "" {
-		path = r.URL.Path
-	}
+	path := routingPath(r)
 	for _, route := range oauthRedirectRoutes {
 		prefix := strings.TrimSuffix(route, "{provider}")
 		provider, found := strings.CutPrefix(path, prefix)
@@ -294,13 +313,15 @@ func limitReadMethodsOnly(limiter func(http.Handler) http.Handler) func(http.Han
 	})
 }
 
-// skipRateLimitForPaths wraps a limiter so exact-match paths bypass it entirely.
+// skipRateLimitForPaths wraps a limiter so a request whose routingPath equals
+// one of paths bypasses it entirely. Any other spelling of an exempt path is
+// metered as whatever the request otherwise is.
 func skipRateLimitForPaths(limiter func(http.Handler) http.Handler, paths ...string) func(http.Handler) http.Handler {
 	exempt := make(map[string]bool, len(paths))
 	for _, p := range paths {
 		exempt[p] = true
 	}
-	return limitWhen(limiter, func(r *http.Request) bool { return !exempt[r.URL.Path] })
+	return limitWhen(limiter, func(r *http.Request) bool { return !exempt[routingPath(r)] })
 }
 
 // skipRateLimitForValidatedFeedToken wraps a limiter so a personal-feed request

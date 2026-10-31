@@ -46,6 +46,12 @@ func setupSystemRoutes(rc RouteContext) {
 	// anonymous GET.
 	huma.Get(rc.API, systemh.LegalVersionsRoute, systemh.LegalVersionsHandler)
 
+	// Plain text for crawlers, so it is registered on the router rather than
+	// documented in the OpenAPI spec. Exempt from the public-read rate limiter
+	// (see infraPathsExemptFromRateLimit).
+	rc.Router.Get(systemh.RobotsTxtRoute, systemh.RobotsTxtHandler)
+	rc.Router.Head(systemh.RobotsTxtRoute, systemh.RobotsTxtHandler)
+
 	// OpenAPI specification endpoint
 	api := rc.API
 	rc.Router.Get("/openapi.json", func(w http.ResponseWriter, r *http.Request) {

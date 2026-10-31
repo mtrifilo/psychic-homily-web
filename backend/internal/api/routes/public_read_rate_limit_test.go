@@ -249,12 +249,16 @@ func TestPublicReadRateLimiter_WritesNotLimited(t *testing.T) {
 // Both health endpoints are exempt — a load-balancer/uptime probe hammering one
 // anonymously from a single IP must never be 429'd (that would flap the service
 // unhealthy). /health/ready is the one alerting watches, so throttling it pages
-// a human about a service that is fine. The exemption is exact-match, so each
-// path needs its own entry and its own assertion here.
-func TestPublicReadRateLimiter_HealthPathsExempt(t *testing.T) {
+// a human about a service that is fine. /robots.txt is exempt because a 429 is
+// a 4xx, and RFC 9309 lets a crawler that gets a 4xx for robots.txt crawl the
+// whole host: a throttled robots.txt would invert its own Disallow. The
+// exemption is exact-match, so each path needs its own entry and its own
+// assertion here.
+func TestPublicReadRateLimiter_InfraPathsExempt(t *testing.T) {
 	probes := map[string]string{
 		"/health":       "7.7.7.9:100",
 		"/health/ready": "7.7.7.11:100",
+		"/robots.txt":   "7.7.7.12:100",
 	}
 
 	for path, remoteAddr := range probes {
@@ -264,14 +268,51 @@ func TestPublicReadRateLimiter_HealthPathsExempt(t *testing.T) {
 				w.WriteHeader(http.StatusOK)
 			}))
 
+			// GET and HEAD alternate on one IP: the limiter meters both, and
+			// the exemption must cover both.
+			methods := []string{http.MethodGet, http.MethodHead}
 			for i := 0; i < middleware.APIRequestsPerMinute+5; i++ {
-				req := httptest.NewRequest(http.MethodGet, path, nil)
+				method := methods[i%len(methods)]
+				req := httptest.NewRequest(method, path, nil)
 				req.RemoteAddr = remoteAddr
 				rr := httptest.NewRecorder()
 				handler.ServeHTTP(rr, req)
 				if rr.Code != http.StatusOK {
-					t.Fatalf("health probe %d: status = %d, want 200 (%s must be exempt)", i, rr.Code, path)
+					t.Fatalf("probe %d (%s): status = %d, want 200 (%s must be exempt)", i, method, rr.Code, path)
 				}
+			}
+		})
+	}
+}
+
+// A percent-encoded spelling of an exempt path decodes to that path, but chi
+// routes it on the encoded form and answers 404. Exempting it would hand any
+// client an unmetered 404, so it is metered like any other anonymous read.
+func TestPublicReadRateLimiter_EncodedInfraPathsAreMetered(t *testing.T) {
+	probes := map[string]string{
+		"/robots%2etxt": "7.7.7.15:100",
+		"/%72obots.txt": "7.7.7.16:100",
+		"/h%65alth":     "7.7.7.17:100",
+	}
+
+	for target, remoteAddr := range probes {
+		t.Run(target, func(t *testing.T) {
+			mw := PublicReadRateLimiter(nil, nil, nil, enableEnv)
+			handler := mw(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				w.WriteHeader(http.StatusOK)
+			}))
+
+			limited := false
+			for i := 0; i < middleware.APIRequestsPerMinute+5 && !limited; i++ {
+				req := httptest.NewRequest(http.MethodGet, target, nil)
+				req.RemoteAddr = remoteAddr
+				rr := httptest.NewRecorder()
+				handler.ServeHTTP(rr, req)
+				limited = rr.Code == http.StatusTooManyRequests
+			}
+			if !limited {
+				t.Fatalf("%d anonymous GET %s from one IP were never limited; an encoded spelling must not earn the infra exemption",
+					middleware.APIRequestsPerMinute+5, target)
 			}
 		})
 	}

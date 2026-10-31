@@ -23,9 +23,11 @@
  * declines training at the three operators named below, not across the board:
  * bulk aggregators are addressed in the note on TRAINING_CRAWLERS.
  *
- * Scope: this governs psychichomily.com only. api.psychichomily.com serves the
- * same catalog, has no robots.txt of its own, and is advertised to crawlers by
- * /llms.txt — so this file is not a complete answer on its own.
+ * Scope: this governs psychichomily.com only, and it is the file that governs
+ * crawler access to pages. api.psychichomily.com serves the JSON those pages
+ * read, calendar and Atom feeds for subscribers, and email unsubscribe pages.
+ * Its own robots.txt, defined in backend/internal/api/handlers/system/robots.go,
+ * lets crawlers reach the feeds only.
  *
  * Every token below was verified against the operator's own documentation
  * (linked inline) rather than from memory; tokens and their semantics change.
