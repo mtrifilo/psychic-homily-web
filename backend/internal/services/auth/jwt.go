@@ -125,9 +125,7 @@ func strictTokenOptions(perToken ...jwt.ParserOption) []jwt.ParserOption {
 // parseSessionToken parses and cryptographically verifies a session JWT
 // (signing method, signature, issuer, audience, subject, and an expiry that
 // must be present) WITHOUT any database lookup, returning the validated
-// claims. A token with no exp is refused as TOKEN_INVALID, the answer
-// parseSessionTokenLenient gives it too, so neither reader treats it as one
-// that has merely expired.
+// claims. A token with no exp is refused as TOKEN_INVALID, not as expired.
 //
 // Enforce the session subject, issuer, and audience as part of parsing.
 // WithSubject/WithIssuer/WithAudience require the claim to exist and match, so
@@ -320,8 +318,7 @@ func (s *JWTService) ValidateSessionLenient(tokenString string, gracePeriod time
 // grace window could be renewed into a session.
 //
 // The same switch means strictTokenOptions do not apply here, so the exp check
-// below is what refuses a token with no exp. It answers TOKEN_INVALID, as
-// parseSessionToken does for the same token.
+// below is what refuses a token with no exp claim, as TOKEN_INVALID.
 func (s *JWTService) parseSessionTokenLenient(tokenString string, gracePeriod time.Duration) (jwt.MapClaims, error) {
 	parser := jwt.NewParser(jwt.WithoutClaimsValidation())
 	token, parseErr := parser.Parse(tokenString, s.signingKey)

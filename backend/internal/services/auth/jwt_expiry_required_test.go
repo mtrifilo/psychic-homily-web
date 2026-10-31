@@ -29,21 +29,13 @@ func signHS256(t *testing.T, secret string, claims jwt.Claims) string {
 	return signed
 }
 
-// sessionClaimsWithExp is the claim set RenewSessionToken writes for
-// authTimeTestUser, with exp set to exp, or left out when exp is nil.
-func sessionClaimsWithExp(exp any) jwt.MapClaims {
-	claims := jwt.MapClaims{
-		"user_id": 7,
-		"email":   "factor@example.com",
-		"iat":     time.Now().Unix(),
-		"iss":     jwtIssuer,
-		"aud":     jwtAudience,
-		"sub":     jwtSessionSubject,
-	}
-	if exp != nil {
-		claims["exp"] = exp
-	}
-	return claims
+// signSessionWithoutExp signs the session claim set for authTimeTestUser with
+// no exp claim at all.
+func signSessionWithoutExp(t *testing.T) string {
+	t.Helper()
+	claims := sessionTestClaims()
+	delete(claims, "exp")
+	return signHS256(t, expiryRequiredTestSecret, claims)
 }
 
 // requireAuthCode asserts err is an AuthError carrying code.
@@ -57,19 +49,16 @@ func requireAuthCode(t *testing.T, err error, code string) {
 func TestValidateSession_RequiresExpiry(t *testing.T) {
 	svc := authTimeTestService(t, expiryRequiredTestSecret, 24)
 
-	accepted := signHS256(t, expiryRequiredTestSecret, sessionClaimsWithExp(time.Now().Add(time.Hour).Unix()))
-	user, _, err := svc.ValidateSession(accepted)
+	user, _, err := svc.ValidateSession(signSessionClaims(t, expiryRequiredTestSecret, nil))
 	require.NoError(t, err, "the control token with an exp was refused")
 	require.Equal(t, uint(7), user.ID)
 
 	// jwt reads an exp of zero in map claims as no exp at all.
-	for name, claims := range map[string]jwt.MapClaims{
-		"no exp":      sessionClaimsWithExp(nil),
-		"exp of zero": sessionClaimsWithExp(0),
+	for name, token := range map[string]string{
+		"no exp":      signSessionWithoutExp(t),
+		"exp of zero": signSessionClaims(t, expiryRequiredTestSecret, jwt.MapClaims{"exp": 0}),
 	} {
 		t.Run(name, func(t *testing.T) {
-			token := signHS256(t, expiryRequiredTestSecret, claims)
-
 			user, _, err := svc.ValidateSession(token)
 			require.Error(t, err)
 			assert.Nil(t, user)
@@ -87,19 +76,14 @@ func TestValidateSession_RequiresExpiry(t *testing.T) {
 // exp by hand because it parses with claims validation off.
 func TestValidateSessionLenient_RequiresExpiry(t *testing.T) {
 	svc := authTimeTestService(t, expiryRequiredTestSecret, 24)
-	token := signHS256(t, expiryRequiredTestSecret, sessionClaimsWithExp(nil))
 
-	user, _, err := svc.ValidateSessionLenient(token, 7*24*time.Hour)
+	user, _, err := svc.ValidateSessionLenient(signSessionWithoutExp(t), 7*24*time.Hour)
 	require.Error(t, err)
 	assert.Nil(t, user)
 	requireAuthCode(t, err, apperrors.CodeTokenInvalid)
+	assert.Contains(t, err.Error(), "missing expiration claim", "the lenient reader did not refuse it")
 
-	_, err = svc.parseSessionTokenLenient(token, 7*24*time.Hour)
-	require.Error(t, err)
-	requireAuthCode(t, err, apperrors.CodeTokenInvalid)
-	assert.Contains(t, err.Error(), "missing expiration claim")
-
-	inGrace := signHS256(t, expiryRequiredTestSecret, sessionClaimsWithExp(time.Now().Add(-time.Hour).Unix()))
+	inGrace := signSessionClaims(t, expiryRequiredTestSecret, jwt.MapClaims{"exp": time.Now().Add(-time.Hour).Unix()})
 	user, _, err = svc.ValidateSessionLenient(inGrace, 7*24*time.Hour)
 	require.NoError(t, err, "the control token expired inside the grace period was refused")
 	require.Equal(t, uint(7), user.ID)
