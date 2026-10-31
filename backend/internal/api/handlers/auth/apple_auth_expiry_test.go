@@ -63,7 +63,7 @@ func TestAppleCallbackHandler_TokenWithoutExpiryIsInvalid(t *testing.T) {
 	}
 
 	control, svc := callback(signedAppleToken(t, key, cfg.Apple.BundleID, "known-kid", time.Now().Add(time.Hour)))
-	if !control.Body.Success || !svc.resolved {
+	if !control.Body.Success || !svc.resolved || !svc.minted || control.Body.Token == "" {
 		t.Fatalf("the control token with an expiry did not sign in: code=%q message=%q", control.Body.ErrorCode, control.Body.Message)
 	}
 
