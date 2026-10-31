@@ -9,6 +9,7 @@ import (
 
 	apperrors "psychic-homily-backend/internal/errors"
 	authm "psychic-homily-backend/internal/models/auth"
+	"psychic-homily-backend/internal/services/shared"
 	usersvc "psychic-homily-backend/internal/services/user"
 	"psychic-homily-backend/internal/testutil/softauthn"
 )
@@ -238,6 +239,41 @@ func (suite *WebAuthnServiceIntegrationTestSuite) TestFinishRegistration_Account
 	suite.Require().True(*ran, "the account must be removed inside the registration's window")
 	suite.Nil(cred)
 	suite.requireFailure(err)
-	suite.Contains(err.Error(), "failed to load user")
+	suite.ErrorIs(err, gorm.ErrRecordNotFound)
 	suite.Zero(suite.credentialRows(user.ID))
+}
+
+// A session whose account's sessions were revoked after the caller loaded it
+// stores no credential: the write compares the session's revocation stamp
+// with the account's, under the row lock.
+func (suite *WebAuthnServiceIntegrationTestSuite) TestFinishRegistration_SessionRevokedAfterCallersCheck() {
+	user := suite.createUser("register-revoked@test.com")
+	session, body := suite.pendingRegistration(user)
+
+	svc, ran := suite.serviceWithWriteBeforeItsFirstStatement(func() {
+		suite.Require().NoError(RevokeAllSessions(suite.db, &authm.User{ID: user.ID}, time.Now()))
+	})
+
+	cred, err := svc.FinishRegistration(user, session, suite.parseCreation(body), "Laptop")
+
+	suite.Require().True(*ran, "the revocation must land inside the registration's window")
+	suite.Nil(cred)
+	suite.requireRefusal(err, apperrors.CodeTokenInvalid, apperrors.ErrTokenInvalid(nil).UserMessage())
+	suite.ErrorIs(err, shared.ErrSessionRevoked)
+	suite.Zero(suite.credentialRows(user.ID), "a refused registration stores no credential")
+}
+
+// A session minted after the account's latest revocation carries its stamp
+// and registers.
+func (suite *WebAuthnServiceIntegrationTestSuite) TestFinishRegistration_SessionMintedAfterARevocationRegisters() {
+	user := suite.createUser("register-after-revocation@test.com")
+	suite.Require().NoError(RevokeAllSessions(suite.db, user, time.Now()))
+	suite.Require().NotNil(user.SessionsValidAfter)
+	session, body := suite.pendingRegistration(user)
+
+	cred, err := suite.service.FinishRegistration(user, session, suite.parseCreation(body), "Laptop")
+
+	suite.Require().NoError(err)
+	suite.Equal(user.ID, cred.UserID)
+	suite.Equal(int64(1), suite.credentialRows(user.ID))
 }

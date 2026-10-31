@@ -160,3 +160,38 @@ func RequireRecentSessionAuth(ctx context.Context, operation string) error {
 		RequestID: logger.GetRequestID(ctx),
 	}}
 }
+
+// SessionRefusedError is the refusal a credential mint answers with when its
+// write finds that the request's session no longer holds the account
+// (shared.LockSessionAccount): its sessions were revoked, or it closed, after
+// the JWT middleware validated the session. It is the 401 TOKEN_INVALID, in
+// the JWTErrorResponse envelope, that the middleware gives the same session
+// on its next request.
+type SessionRefusedError struct {
+	JWTErrorResponse
+}
+
+func (e *SessionRefusedError) Error() string { return e.Message }
+
+// GetStatus satisfies huma.StatusError, so huma writes this value as the body.
+func (e *SessionRefusedError) GetStatus() int { return http.StatusUnauthorized }
+
+// RefuseSession logs that operation was refused for the request's principal
+// because cause says its session no longer holds the account, and returns the
+// *SessionRefusedError to answer with.
+func RefuseSession(ctx context.Context, operation string, cause error) error {
+	var userID uint
+	if user := GetUserFromContext(ctx); user != nil {
+		userID = user.ID
+	}
+	logger.AuthWarn(ctx, "credential_mint_refused_session_no_longer_valid",
+		"operation", operation,
+		"user_id", userID,
+		"error", cause.Error(),
+	)
+	return &SessionRefusedError{JWTErrorResponse: JWTErrorResponse{
+		Message:   "Invalid token",
+		ErrorCode: autherrors.CodeTokenInvalid,
+		RequestID: logger.GetRequestID(ctx),
+	}}
+}

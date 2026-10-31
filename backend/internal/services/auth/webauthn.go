@@ -11,7 +11,6 @@ import (
 	"github.com/go-webauthn/webauthn/webauthn"
 	"github.com/google/uuid"
 	"gorm.io/gorm"
-	"gorm.io/gorm/clause"
 
 	"psychic-homily-backend/db"
 	"psychic-homily-backend/internal/config"
@@ -104,14 +103,15 @@ func (s *WebAuthnService) BeginRegistration(user *authm.User) (*protocol.Credent
 	return options, session, nil
 }
 
-// FinishRegistration verifies a registration response for user and stores
-// the credential it creates.
+// FinishRegistration verifies a registration response for user, the account
+// the request's session validation loaded, and stores the credential it
+// creates.
 //
 // A refusal is an *apperrors.AuthError: CodeValidationFailed for a response
 // that fails verification or whose credential id an account already holds,
-// CodeAccountInactive when the account may not sign in
-// (authm.User.CanSignIn) as the credential is written. A refusal stores
-// nothing. Any other error means the credential could not be stored.
+// and shared.LockSessionAccount's refusals as the credential is written. A
+// refusal stores nothing. Any other error means the credential could not be
+// stored.
 func (s *WebAuthnService) FinishRegistration(user *authm.User, session *webauthn.SessionData, response *protocol.ParsedCredentialCreationData, displayName string) (*authm.WebAuthnCredential, error) {
 	credential, err := s.webAuthn.CreateCredential(user, *session, response)
 	if err != nil {
@@ -121,17 +121,8 @@ func (s *WebAuthnService) FinishRegistration(user *authm.User, session *webauthn
 	webauthnCred := authm.ToWebAuthnCredential(user.ID, credential, displayName)
 
 	err = s.db.Transaction(func(tx *gorm.DB) error {
-		// The account is judged in the transaction that writes the
-		// credential, so one closed after the caller's check is still
-		// refused. FOR SHARE: a deactivation or deletion of the row waits for
-		// this transaction, so the account cannot close between this read and
-		// the write.
-		var account authm.User
-		if err := tx.Clauses(clause.Locking{Strength: "SHARE"}).First(&account, user.ID).Error; err != nil {
-			return fmt.Errorf("failed to load user: %w", err)
-		}
-		if !account.CanSignIn() {
-			return refuseInactiveAccount(account.ID)
+		if _, err := shared.LockSessionAccount(tx, user.ID, user.SessionsValidAfter); err != nil {
+			return err
 		}
 		if err := tx.Create(webauthnCred).Error; err != nil {
 			return credentialSaveError(err)

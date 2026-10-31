@@ -13,6 +13,7 @@ import (
 	autherrors "psychic-homily-backend/internal/errors"
 	authm "psychic-homily-backend/internal/models/auth"
 	"psychic-homily-backend/internal/services/contracts"
+	"psychic-homily-backend/internal/services/shared"
 )
 
 // wireOutcome is the status, code and message a refused or failed passkey
@@ -68,6 +69,7 @@ func TestPasskeyWire_RegisterFinishRegistrationErrors(t *testing.T) {
 	body, _ := softRegistration(t)
 	inactive := autherrors.ErrAccountInactive()
 	inactive.Internal = fmt.Errorf("user 7 may not sign in")
+	sessionRevoked := autherrors.ErrTokenInvalid(fmt.Errorf("user 7: %w", shared.ErrSessionRevoked))
 	cases := []struct {
 		name  string
 		err   error
@@ -79,6 +81,10 @@ func TestPasskeyWire_RegisterFinishRegistrationErrors(t *testing.T) {
 			wireOutcome{http.StatusOK, autherrors.CodeAccountInactive, autherrors.ErrAccountInactive().UserMessage()}, []string{"may not sign in"}},
 		{"credential cannot be stored", errStepFailed, unavailable, nil},
 		{"unrouted refusal code", errUnroutedRefusal, unavailable, nil},
+		// The answer the session gets from the JWT middleware on its next
+		// request.
+		{"session revoked since it was validated", sessionRevoked,
+			wireOutcome{http.StatusUnauthorized, autherrors.CodeTokenInvalid, "Invalid token"}, []string{"user 7", "revocation"}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

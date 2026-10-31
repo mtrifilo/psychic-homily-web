@@ -11,6 +11,7 @@ import (
 	apperrors "psychic-homily-backend/internal/errors"
 	authm "psychic-homily-backend/internal/models/auth"
 	"psychic-homily-backend/internal/services/contracts"
+	"psychic-homily-backend/internal/services/shared"
 )
 
 // Session JWT claim values. The issuer and audience are shared by every token
@@ -214,7 +215,7 @@ func (s *JWTService) userFromSessionClaims(claims jwt.MapClaims) (*authm.User, e
 	}
 
 	if sessionMintedBeforeRevocation(claims, user) {
-		return nil, apperrors.ErrTokenInvalid(errSessionRevoked)
+		return nil, apperrors.ErrTokenInvalid(shared.ErrSessionRevoked)
 	}
 
 	return user, nil
@@ -223,10 +224,6 @@ func (s *JWTService) userFromSessionClaims(claims jwt.MapClaims) (*authm.User, e
 // jwtSessionsValidAfterClaim carries, in Unix seconds, the account's
 // sessions_valid_after as the mint read it; absent when it was NULL.
 const jwtSessionsValidAfterClaim = "sva"
-
-// errSessionRevoked is the cause inside the TOKEN_INVALID refusal for a
-// session minted before its account's latest revocation.
-var errSessionRevoked = errors.New("session minted before the account's sessions were revoked")
 
 // sessionMintedBeforeRevocation reports whether claims were minted against a
 // revocation state other than user's current one. Every revocation writes a

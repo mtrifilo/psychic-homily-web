@@ -1,0 +1,59 @@
+package shared
+
+import (
+	"errors"
+	"fmt"
+	"time"
+
+	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
+
+	apperrors "psychic-homily-backend/internal/errors"
+	authm "psychic-homily-backend/internal/models/auth"
+)
+
+// ErrSessionRevoked is the cause inside the CodeTokenInvalid refusal for a
+// session that predates its account's latest session revocation.
+var ErrSessionRevoked = errors.New("session predates the account's latest session revocation")
+
+// LockSessionAccount reads, through tx, the account a signed-in request acts
+// for, and holds its row FOR SHARE until tx ends. A write that adds a way into
+// the account (a provider identity, a passkey, a feed token) calls it first,
+// in the transaction that writes.
+//
+// sessionsValidAfter is the acting session's revocation stamp: the
+// SessionsValidAfter of the user its session validation loaded, which that
+// validation honors only when it is the account's current value.
+//
+// It refuses with CodeAccountInactive when the account may not sign in
+// (authm.User.CanSignIn), and otherwise with CodeTokenInvalid wrapping
+// ErrSessionRevoked when the account's sessions_valid_after is no longer
+// sessionsValidAfter. Every session revocation writes a new value, so a session
+// revoked after its validation is refused here. Under the lock, a
+// deactivation, deletion or revocation that committed before the read is seen
+// by it, and one that comes later waits for tx, so none can land between this
+// check and the caller's write.
+func LockSessionAccount(tx *gorm.DB, userID uint, sessionsValidAfter *time.Time) (*authm.User, error) {
+	var account authm.User
+	if err := tx.Clauses(clause.Locking{Strength: "SHARE"}).First(&account, userID).Error; err != nil {
+		return nil, fmt.Errorf("failed to load account %d: %w", userID, err)
+	}
+	if !account.CanSignIn() {
+		refusal := apperrors.ErrAccountInactive()
+		refusal.Internal = fmt.Errorf("user %d may not sign in", account.ID)
+		return nil, refusal
+	}
+	if !sameRevocationStamp(account.SessionsValidAfter, sessionsValidAfter) {
+		return nil, apperrors.ErrTokenInvalid(fmt.Errorf("user %d: %w", account.ID, ErrSessionRevoked))
+	}
+	return &account, nil
+}
+
+// sameRevocationStamp reports whether two sessions_valid_after values are the
+// same: both NULL, or both the same instant.
+func sameRevocationStamp(a, b *time.Time) bool {
+	if a == nil || b == nil {
+		return a == nil && b == nil
+	}
+	return a.Equal(*b)
+}
