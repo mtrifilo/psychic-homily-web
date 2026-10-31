@@ -102,9 +102,32 @@ func (s *JWTService) RenewSessionToken(user *authm.User, authAt time.Time) (stri
 	return token.SignedString([]byte(s.config.JWT.SecretKey))
 }
 
-// parseSessionToken parses and cryptographically verifies a session JWT —
-// signing method (HMAC), signature (secret), issuer, audience, subject, and
-// expiry — WITHOUT any database lookup, returning the validated claims.
+// signingKey is the jwt.Keyfunc for every token this service mints: it
+// accepts only an HMAC signature and verifies it with the configured secret.
+func (s *JWTService) signingKey(token *jwt.Token) (interface{}, error) {
+	if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
+		return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
+	}
+	return []byte(s.config.JWT.SecretKey), nil
+}
+
+// strictTokenOptions returns the parser options every claims-validating reader
+// of a token this service mints uses, followed by that reader's own perToken
+// options (issuer, audience, subject).
+//
+// jwt treats a token with no exp claim as one that never expires unless
+// WithExpirationRequired is set. Every minter here sets exp, so requiring it
+// refuses only tokens no minter produces.
+func strictTokenOptions(perToken ...jwt.ParserOption) []jwt.ParserOption {
+	return append([]jwt.ParserOption{jwt.WithExpirationRequired()}, perToken...)
+}
+
+// parseSessionToken parses and cryptographically verifies a session JWT
+// (signing method, signature, issuer, audience, subject, and an expiry that
+// must be present) WITHOUT any database lookup, returning the validated
+// claims. A token with no exp is refused as TOKEN_INVALID, the answer
+// parseSessionTokenLenient gives it too, so neither reader treats it as one
+// that has merely expired.
 //
 // Enforce the session subject, issuer, and audience as part of parsing.
 // WithSubject/WithIssuer/WithAudience require the claim to exist and match, so
@@ -112,12 +135,8 @@ func (s *JWTService) RenewSessionToken(user *authm.User, authAt time.Time) (stri
 // legacy session tokens minted before the subject was added are rejected here
 // rather than being honored as session credentials.
 func (s *JWTService) parseSessionToken(tokenString string) (jwt.MapClaims, error) {
-	token, err := jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
-		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
-			return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
-		}
-		return []byte(s.config.JWT.SecretKey), nil
-	}, jwt.WithIssuer(jwtIssuer), jwt.WithAudience(jwtAudience), jwt.WithSubject(jwtSessionSubject))
+	token, err := jwt.Parse(tokenString, s.signingKey,
+		strictTokenOptions(jwt.WithIssuer(jwtIssuer), jwt.WithAudience(jwtAudience), jwt.WithSubject(jwtSessionSubject))...)
 
 	if err != nil {
 		if errors.Is(err, jwt.ErrTokenExpired) {
@@ -299,14 +318,13 @@ func (s *JWTService) ValidateSessionLenient(tokenString string, gracePeriod time
 // which switches off the built-in checks too. Without them, a leaked
 // single-purpose token (magic-link, verification, recovery) caught inside the
 // grace window could be renewed into a session.
+//
+// The same switch means strictTokenOptions do not apply here, so the exp check
+// below is what refuses a token with no exp. It answers TOKEN_INVALID, as
+// parseSessionToken does for the same token.
 func (s *JWTService) parseSessionTokenLenient(tokenString string, gracePeriod time.Duration) (jwt.MapClaims, error) {
 	parser := jwt.NewParser(jwt.WithoutClaimsValidation())
-	token, parseErr := parser.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
-		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
-			return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
-		}
-		return []byte(s.config.JWT.SecretKey), nil
-	})
+	token, parseErr := parser.Parse(tokenString, s.signingKey)
 
 	if parseErr != nil {
 		return nil, apperrors.ErrTokenInvalid(parseErr)
@@ -357,12 +375,7 @@ func (s *JWTService) CreateVerificationToken(userID uint, email string) (string,
 
 // ValidateVerificationToken validates an email verification token and returns the claims
 func (s *JWTService) ValidateVerificationToken(tokenString string) (*contracts.VerificationTokenClaims, error) {
-	token, err := jwt.ParseWithClaims(tokenString, &contracts.VerificationTokenClaims{}, func(token *jwt.Token) (interface{}, error) {
-		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
-			return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
-		}
-		return []byte(s.config.JWT.SecretKey), nil
-	})
+	token, err := jwt.ParseWithClaims(tokenString, &contracts.VerificationTokenClaims{}, s.signingKey, strictTokenOptions()...)
 
 	if err != nil {
 		return nil, fmt.Errorf("invalid verification token: %w", err)
@@ -401,12 +414,7 @@ func (s *JWTService) CreateMagicLinkToken(userID uint, email string) (string, er
 
 // ValidateMagicLinkToken validates a magic link token and returns the claims
 func (s *JWTService) ValidateMagicLinkToken(tokenString string) (*contracts.MagicLinkTokenClaims, error) {
-	token, err := jwt.ParseWithClaims(tokenString, &contracts.MagicLinkTokenClaims{}, func(token *jwt.Token) (interface{}, error) {
-		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
-			return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
-		}
-		return []byte(s.config.JWT.SecretKey), nil
-	})
+	token, err := jwt.ParseWithClaims(tokenString, &contracts.MagicLinkTokenClaims{}, s.signingKey, strictTokenOptions()...)
 
 	if err != nil {
 		return nil, fmt.Errorf("invalid magic link token: %w", err)
@@ -455,12 +463,8 @@ func (s *JWTService) CreateOAuthLinkToken(userID uint, email, pendingLink string
 // ValidateOAuthLinkToken validates a token CreateOAuthLinkToken minted and
 // returns its claims.
 func (s *JWTService) ValidateOAuthLinkToken(tokenString string) (*contracts.OAuthLinkTokenClaims, error) {
-	token, err := jwt.ParseWithClaims(tokenString, &contracts.OAuthLinkTokenClaims{}, func(token *jwt.Token) (interface{}, error) {
-		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
-			return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
-		}
-		return []byte(s.config.JWT.SecretKey), nil
-	}, jwt.WithIssuer(jwtIssuer), jwt.WithSubject(oauthLinkTokenSubject), jwt.WithExpirationRequired())
+	token, err := jwt.ParseWithClaims(tokenString, &contracts.OAuthLinkTokenClaims{}, s.signingKey,
+		strictTokenOptions(jwt.WithIssuer(jwtIssuer), jwt.WithSubject(oauthLinkTokenSubject))...)
 	if err != nil {
 		return nil, fmt.Errorf("invalid oauth link token: %w", err)
 	}
@@ -492,12 +496,7 @@ func (s *JWTService) CreateAccountRecoveryToken(userID uint, email string) (stri
 
 // ValidateAccountRecoveryToken validates an account recovery token and returns the claims
 func (s *JWTService) ValidateAccountRecoveryToken(tokenString string) (*contracts.AccountRecoveryTokenClaims, error) {
-	token, err := jwt.ParseWithClaims(tokenString, &contracts.AccountRecoveryTokenClaims{}, func(token *jwt.Token) (interface{}, error) {
-		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
-			return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
-		}
-		return []byte(s.config.JWT.SecretKey), nil
-	})
+	token, err := jwt.ParseWithClaims(tokenString, &contracts.AccountRecoveryTokenClaims{}, s.signingKey, strictTokenOptions()...)
 
 	if err != nil {
 		return nil, fmt.Errorf("invalid account recovery token: %w", err)
