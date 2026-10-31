@@ -5,6 +5,9 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/danielgtaylor/huma/v2"
+
+	"psychic-homily-backend/internal/config"
 	autherrors "psychic-homily-backend/internal/errors"
 	"psychic-homily-backend/internal/logger"
 	authm "psychic-homily-backend/internal/models/auth"
@@ -161,12 +164,8 @@ func RequireRecentSessionAuth(ctx context.Context, operation string) error {
 	}}
 }
 
-// SessionRefusedError is the refusal a credential mint answers with when its
-// write finds that the request's session no longer holds the account
-// (shared.LockSessionAccount): its sessions were revoked, or it closed, after
-// the JWT middleware validated the session. It is the 401 TOKEN_INVALID, in
-// the JWTErrorResponse envelope, that the middleware gives the same session
-// on its next request.
+// SessionRefusedError is the body and status of the refusal RefuseSession
+// returns: 401 TOKEN_INVALID in the JWTErrorResponse envelope.
 type SessionRefusedError struct {
 	JWTErrorResponse
 }
@@ -176,10 +175,17 @@ func (e *SessionRefusedError) Error() string { return e.Message }
 // GetStatus satisfies huma.StatusError, so huma writes this value as the body.
 func (e *SessionRefusedError) GetStatus() int { return http.StatusUnauthorized }
 
-// RefuseSession logs that operation was refused for the request's principal
-// because cause says its session no longer holds the account, and returns the
-// *SessionRefusedError to answer with.
-func RefuseSession(ctx context.Context, operation string, cause error) error {
+// RefuseSession is the answer of a JSON credential mint whose write found the
+// request's session revoked after this middleware validated it
+// (shared.ErrSessionRevoked): the answer HumaJWTMiddleware gives that session
+// on its next request, a 401 TOKEN_INVALID that also clears the auth cookie
+// session describes. It logs the refusal of operation for the request's
+// principal, with cause.
+//
+// A mint whose response already has its own envelope for a closed account
+// (ACCOUNT_INACTIVE) keeps it; RefuseSession is for the revoked session, and
+// for a closed account only where the mint has no such envelope.
+func RefuseSession(ctx context.Context, operation string, cause error, session config.SessionConfig) error {
 	var userID uint
 	if user := GetUserFromContext(ctx); user != nil {
 		userID = user.ID
@@ -189,9 +195,10 @@ func RefuseSession(ctx context.Context, operation string, cause error) error {
 		"user_id", userID,
 		"error", cause.Error(),
 	)
-	return &SessionRefusedError{JWTErrorResponse: JWTErrorResponse{
+	clear := session.ClearAuthCookie()
+	return huma.ErrorWithHeaders(&SessionRefusedError{JWTErrorResponse: JWTErrorResponse{
 		Message:   invalidTokenMessage,
 		ErrorCode: autherrors.CodeTokenInvalid,
 		RequestID: logger.GetRequestID(ctx),
-	}}
+	}}, http.Header{"Set-Cookie": {clear.String()}})
 }

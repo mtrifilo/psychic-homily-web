@@ -9,6 +9,7 @@ import (
 	apperrors "psychic-homily-backend/internal/errors"
 	authm "psychic-homily-backend/internal/models/auth"
 	"psychic-homily-backend/internal/services/shared"
+	"psychic-homily-backend/internal/testutil"
 )
 
 // LinkOAuthAccountToUser attaches an identity only to an account that may sign
@@ -21,18 +22,14 @@ import (
 // reads anything.
 func (suite *UserServiceIntegrationTestSuite) serviceWithWriteBeforeItsFirstQuery(write func()) (*UserService, *bool) {
 	suite.T().Helper()
-	return suite.serviceWithWriteBeforeItsFirst(func(hooked *gorm.DB, hook func(*gorm.DB)) error {
-		return hooked.Callback().Query().Before("gorm:query").Register("test:write_before_query", hook)
-	}, func(*gorm.DB) { write() })
+	return suite.serviceWithWriteBeforeItsFirst(testutil.BeforeQuery, func(*gorm.DB) { write() })
 }
 
 // serviceWithWriteBeforeItsFirstCreate runs write before the service's first
 // INSERT, which a first connect issues after its reads.
 func (suite *UserServiceIntegrationTestSuite) serviceWithWriteBeforeItsFirstCreate(write func()) (*UserService, *bool) {
 	suite.T().Helper()
-	return suite.serviceWithWriteBeforeItsFirst(func(hooked *gorm.DB, hook func(*gorm.DB)) error {
-		return hooked.Callback().Create().Before("gorm:create").Register("test:write_before_create", hook)
-	}, func(*gorm.DB) { write() })
+	return suite.serviceWithWriteBeforeItsFirst(testutil.BeforeCreate, func(*gorm.DB) { write() })
 }
 
 func (suite *UserServiceIntegrationTestSuite) TestLinkOAuthAccountToUser_AccountState() {

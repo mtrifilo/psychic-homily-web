@@ -69,7 +69,6 @@ func TestPasskeyWire_RegisterFinishRegistrationErrors(t *testing.T) {
 	body, _ := softRegistration(t)
 	inactive := autherrors.ErrAccountInactive()
 	inactive.Internal = fmt.Errorf("user 7 may not sign in")
-	sessionRevoked := autherrors.ErrTokenInvalid(fmt.Errorf("user 7: %w", shared.ErrSessionRevoked))
 	cases := []struct {
 		name  string
 		err   error
@@ -81,10 +80,6 @@ func TestPasskeyWire_RegisterFinishRegistrationErrors(t *testing.T) {
 			wireOutcome{http.StatusOK, autherrors.CodeAccountInactive, autherrors.ErrAccountInactive().UserMessage()}, []string{"may not sign in"}},
 		{"credential cannot be stored", errStepFailed, unavailable, nil},
 		{"unrouted refusal code", errUnroutedRefusal, unavailable, nil},
-		// The answer the session gets from the JWT middleware on its next
-		// request.
-		{"session revoked since it was validated", sessionRevoked,
-			wireOutcome{http.StatusUnauthorized, autherrors.CodeTokenInvalid, "Invalid token"}, []string{"user 7", "revocation"}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -102,6 +97,42 @@ func TestPasskeyWire_RegisterFinishRegistrationErrors(t *testing.T) {
 			requireWireOutcome(t, resp, tc.want, tc.leaks...)
 		})
 	}
+}
+
+// register/finish answers a session revoked since the JWT middleware validated
+// it the way the middleware answers that session next: 401 TOKEN_INVALID, the
+// auth cookie cleared, and none of the cause's text.
+func TestPasskeyWire_RegisterFinishSessionRevoked(t *testing.T) {
+	body, _ := softRegistration(t)
+	mockWA := &testhelpers.MockWebAuthnService{
+		ConsumeRegistrationChallengeFn: func(string, uint) (*webauthn.SessionData, error) {
+			return &webauthn.SessionData{}, nil
+		},
+		FinishRegistrationFn: func(*authm.User, *webauthn.SessionData, *protocol.ParsedCredentialCreationData, string) (*authm.WebAuthnCredential, error) {
+			return nil, autherrors.ErrTokenInvalid(fmt.Errorf("user 7: %w", shared.ErrSessionRevoked))
+		},
+	}
+	api := newPasskeyWireAPI(t, testPasskeyHandlerWithMocks(mockWA, &testhelpers.MockJWTService{}, &testhelpers.MockUserService{}))
+
+	resp := api.Post("/auth/passkey/register/finish", map[string]any{"challenge_id": "c-1", "response": body})
+
+	if resp.Code != http.StatusUnauthorized {
+		t.Fatalf("status = %d, want 401; body: %s", resp.Code, resp.Body.String())
+	}
+	got := decodeWireBody(t, resp.Body.Bytes())
+	if got["error_code"] != autherrors.CodeTokenInvalid || got["message"] != "Invalid token" || got["success"] != false {
+		t.Errorf("body = %s", resp.Body.String())
+	}
+	cleared := false
+	for _, c := range resp.Result().Cookies() {
+		if c.Name == "auth_token" && c.Value == "" && c.MaxAge < 0 {
+			cleared = true
+		}
+	}
+	if !cleared {
+		t.Errorf("expected the auth cookie cleared, Set-Cookie: %q", resp.Header().Values("Set-Cookie"))
+	}
+	assertNoInternalText(t, resp.Body.String(), "user 7", "revocation")
 }
 
 // login/begin answers a failure at any step with a 503 and no challenge. Each

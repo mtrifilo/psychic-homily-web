@@ -17,13 +17,18 @@ import (
 var ErrSessionRevoked = errors.New("session predates the account's latest session revocation")
 
 // LockSessionAccount reads, through tx, the account a signed-in request acts
-// for, and holds its row FOR SHARE until tx ends. A write that adds a way into
-// the account (a provider identity, a passkey, a feed token) calls it first,
-// in the transaction that writes.
+// for, and holds its row FOR SHARE until tx ends. A session-authenticated
+// write that adds a way into the account (the Settings provider link, a
+// passkey registration, a feed token) calls it first, in the transaction that
+// writes. Writes no session drives (sign-up, the pending-link proofs, the
+// admin-only API token) do not: a proof holds the row FOR UPDATE and judges
+// the account itself.
 //
 // sessionsValidAfter is the acting session's revocation stamp: the
 // SessionsValidAfter of the user its session validation loaded, which that
-// validation honors only when it is the account's current value.
+// validation honors only when it is the account's current value. nil is a
+// stamp, the one a session minted before any revocation carries, not a way to
+// skip the comparison.
 //
 // It refuses with CodeAccountInactive when the account may not sign in
 // (authm.User.CanSignIn), and otherwise with CodeTokenInvalid wrapping
@@ -37,7 +42,7 @@ var ErrSessionRevoked = errors.New("session predates the account's latest sessio
 func LockSessionAccount(tx *gorm.DB, userID uint, sessionsValidAfter *time.Time) error {
 	var account authm.User
 	if err := tx.Clauses(clause.Locking{Strength: "SHARE"}).First(&account, userID).Error; err != nil {
-		return fmt.Errorf("failed to load account %d: %w", userID, err)
+		return fmt.Errorf("failed to load user %d: %w", userID, err)
 	}
 	if !account.CanSignIn() {
 		refusal := apperrors.ErrAccountInactive()
@@ -52,7 +57,9 @@ func LockSessionAccount(tx *gorm.DB, userID uint, sessionsValidAfter *time.Time)
 
 // IsSessionRefusal reports whether err is one of LockSessionAccount's
 // refusals: the session no longer holds the account, because the account may
-// not sign in or the session was revoked.
+// not sign in or the session was revoked. A caller that answers a closed
+// account differently from a revoked session branches on ErrSessionRevoked
+// (errors.Is) for the revocation instead.
 func IsSessionRefusal(err error) bool {
 	var refusal *apperrors.AuthError
 	if !errors.As(err, &refusal) {

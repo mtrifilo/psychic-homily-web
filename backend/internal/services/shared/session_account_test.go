@@ -10,6 +10,7 @@ import (
 
 	apperrors "psychic-homily-backend/internal/errors"
 	authm "psychic-homily-backend/internal/models/auth"
+	"psychic-homily-backend/internal/testutil"
 )
 
 // sessionAccount creates an account for a LockSessionAccount case and removes
@@ -129,35 +130,15 @@ func TestLockSessionAccount_MissingAccountIsAFailureNotARefusal(t *testing.T) {
 	}
 }
 
-// awaitLockWaiter returns once a statement on another connection is waiting
-// on a lock, or fails the test when none does.
-func awaitLockWaiter(t *testing.T, db *gorm.DB, done <-chan error) {
+// startWaiting runs write on another connection and fails the test unless
+// write is waiting on a lock rather than finished.
+func startWaiting(t *testing.T, db *gorm.DB, write func() error) <-chan error {
 	t.Helper()
-	deadline := time.Now().Add(10 * time.Second)
-	for time.Now().Before(deadline) {
-		if len(done) > 0 {
-			t.Fatal("the concurrent statement finished instead of waiting on the lock")
-		}
-		var waiting int64
-		if err := db.Raw(
-			"SELECT count(*) FROM pg_stat_activity WHERE datname = current_database() AND wait_event_type = 'Lock'",
-		).Scan(&waiting).Error; err == nil && waiting > 0 {
-			return
-		}
-		time.Sleep(5 * time.Millisecond)
+	done := testutil.StartOnAnotherConnection(t, db, write)
+	if len(done) > 0 {
+		t.Fatalf("the concurrent statement finished instead of waiting on the lock: %v", <-done)
 	}
-	t.Fatal("the concurrent statement never waited on a lock")
-}
-
-func awaitDone(t *testing.T, done <-chan error) error {
-	t.Helper()
-	select {
-	case err := <-done:
-		return err
-	case <-time.After(10 * time.Second):
-		t.Fatal("the concurrent statement did not finish")
-		return nil
-	}
+	return done
 }
 
 const revokeSQL = `UPDATE users SET sessions_valid_after = ? WHERE id = ?`
@@ -169,19 +150,18 @@ func TestLockSessionAccount_RevocationWaitsForTheHolder(t *testing.T) {
 	account := sessionAccount(t, db, "holder", nil)
 	revokedAt := time.Now().UTC().Truncate(time.Second)
 
-	done := make(chan error, 1)
+	var done <-chan error
 	err := db.Transaction(func(tx *gorm.DB) error {
 		if err := LockSessionAccount(tx, account.ID, nil); err != nil {
 			return err
 		}
-		go func() { done <- db.Exec(revokeSQL, revokedAt, account.ID).Error }()
-		awaitLockWaiter(t, db, done)
+		done = startWaiting(t, db, func() error { return db.Exec(revokeSQL, revokedAt, account.ID).Error })
 		return nil
 	})
 	if err != nil {
 		t.Fatalf("the holder's transaction: %v", err)
 	}
-	if err := awaitDone(t, done); err != nil {
+	if err := testutil.AwaitConcurrentWrite(t, done); err != nil {
 		t.Fatalf("the revocation: %v", err)
 	}
 }
@@ -204,16 +184,12 @@ func TestLockSessionAccount_WaitsForAnInFlightRevocationThenRefuses(t *testing.T
 		t.Fatalf("revoke: %v", err)
 	}
 
-	done := make(chan error, 1)
-	go func() {
-		done <- lockInTx(db, account.ID, nil)
-	}()
-	awaitLockWaiter(t, db, done)
+	done := startWaiting(t, db, func() error { return lockInTx(db, account.ID, nil) })
 	if err := revocation.Commit().Error; err != nil {
 		t.Fatalf("commit revocation: %v", err)
 	}
 
-	err := awaitDone(t, done)
+	err := testutil.AwaitConcurrentWrite(t, done)
 	_ = requireRefusalCode(t, err, apperrors.CodeTokenInvalid)
 	if !errors.Is(err, ErrSessionRevoked) {
 		t.Errorf("expected ErrSessionRevoked, got %v", err)

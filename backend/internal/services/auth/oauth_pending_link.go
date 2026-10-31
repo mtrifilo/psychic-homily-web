@@ -236,6 +236,12 @@ func evictOtherCredentials(tx *gorm.DB, userID uint, keepProvider string) error 
 // row names an account other than userID, or one whose address is no longer
 // the identity's (or, when tokenEmail is set, the emailed link's), and with
 // shared.ClosedAccountRefusal when the account may not sign in.
+//
+// It is not shared.LockSessionAccount: no session drives a proof, so there is
+// no revocation stamp to compare. It holds the row FOR UPDATE, which conflicts
+// with the FOR SHARE a session's credential write takes there, so such a
+// write either commits before the proof reads the account, or waits for the
+// proof to commit and then judges the account as the proof left it.
 func takePendingLink(tx *gorm.DB, row *authm.OAuthPendingSignup, userID uint, tokenEmail string) (*authm.User, error) {
 	if row.UserID == nil || *row.UserID != userID {
 		return nil, errPendingLinkAccountMismatch
