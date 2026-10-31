@@ -260,6 +260,11 @@ func signedAppleToken(t *testing.T, key *rsa.PrivateKey, aud, kid string, exp ti
 // an address Apple verified when email is not empty.
 func signedAppleTokenFor(t *testing.T, key *rsa.PrivateKey, aud, kid, sub, email string, exp time.Time) string {
 	t.Helper()
+	return signAppleClaims(t, key, kid, appleClaimsFor(aud, sub, email, exp))
+}
+
+// appleClaimsFor is the claim set of signedAppleTokenFor's token.
+func appleClaimsFor(aud, sub, email string, exp time.Time) jwt.MapClaims {
 	claims := jwt.MapClaims{
 		"iss": "https://appleid.apple.com",
 		"aud": aud,
@@ -271,7 +276,7 @@ func signedAppleTokenFor(t *testing.T, key *rsa.PrivateKey, aud, kid, sub, email
 		claims["email"] = email
 		claims["email_verified"] = "true"
 	}
-	return signAppleClaims(t, key, kid, claims)
+	return claims
 }
 
 // signAppleClaims signs claims with key under kid, as Apple signs an identity

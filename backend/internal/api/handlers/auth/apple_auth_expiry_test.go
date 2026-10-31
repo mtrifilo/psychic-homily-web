@@ -49,18 +49,6 @@ func TestAppleCallbackHandler_TokenWithoutExpiryIsInvalid(t *testing.T) {
 	cfg := testConfig()
 	cfg.Apple.BundleID = "com.psychichomily.ios"
 
-	claims := func(exp any, withExp bool) jwt.MapClaims {
-		c := jwt.MapClaims{
-			"iss": "https://appleid.apple.com",
-			"aud": cfg.Apple.BundleID,
-			"sub": "apple-sub-1",
-			"iat": time.Now().Unix(),
-		}
-		if withExp {
-			c["exp"] = exp
-		}
-		return c
-	}
 	callback := func(token string) (*AppleCallbackResponse, *appleSignInRecorder) {
 		t.Helper()
 		svc := &appleSignInRecorder{AppleAuthServiceInterface: authsvc.NewAppleAuthService(nil, cfg, nil)}
@@ -74,17 +62,19 @@ func TestAppleCallbackHandler_TokenWithoutExpiryIsInvalid(t *testing.T) {
 		return resp, svc
 	}
 
-	control, svc := callback(signAppleClaims(t, key, "known-kid", claims(time.Now().Add(time.Hour).Unix(), true)))
+	control, svc := callback(signedAppleToken(t, key, cfg.Apple.BundleID, "known-kid", time.Now().Add(time.Hour)))
 	if !control.Body.Success || !svc.resolved {
 		t.Fatalf("the control token with an expiry did not sign in: code=%q message=%q", control.Body.ErrorCode, control.Body.Message)
 	}
 
-	for name, c := range map[string]jwt.MapClaims{
-		"no exp claim": claims(nil, false),
-		"exp is null":  claims(nil, true),
+	for name, withoutExpiry := range map[string]func(jwt.MapClaims){
+		"no exp claim": func(c jwt.MapClaims) { delete(c, "exp") },
+		"exp is null":  func(c jwt.MapClaims) { c["exp"] = nil },
 	} {
 		t.Run(name, func(t *testing.T) {
-			resp, svc := callback(signAppleClaims(t, key, "known-kid", c))
+			claims := appleClaimsFor(cfg.Apple.BundleID, "apple-sub-1", "", time.Now().Add(time.Hour))
+			withoutExpiry(claims)
+			resp, svc := callback(signAppleClaims(t, key, "known-kid", claims))
 			if resp.Body.Success {
 				t.Fatal("a token without an expiry signed in")
 			}
