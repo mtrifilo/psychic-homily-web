@@ -45,6 +45,18 @@ export const FIRST_SCREEN_REVALIDATE_SECONDS = 3600
  */
 export const FIRST_SCREEN_FETCH_TIMEOUT_MS = 2_500
 
+/** The response keys a list read may name as its row array. */
+export type ListPayloadCollection =
+  | 'shows'
+  | 'venues'
+  | 'scenes'
+  | 'cities'
+  | 'artists'
+  | 'months'
+  | 'releases'
+  | 'labels'
+  | 'tags'
+
 interface FetchListPayloadOptions<T> {
   /** Absolute API URL, already carrying any query parameters. */
   url: string
@@ -66,14 +78,7 @@ interface FetchListPayloadOptions<T> {
    * per-collection required-key list is a reasonable next step; do not assume
    * from reading this that it already happened.
    */
-  collection:
-    | 'shows'
-    | 'venues'
-    | 'scenes'
-    | 'cities'
-    | 'artists'
-    | 'months'
-    | 'releases'
+  collection: ListPayloadCollection
   /** Sentry `service` tag, and the prefix of the reported message. */
   service: string
   /** Override only with the reason written down at the call site. */

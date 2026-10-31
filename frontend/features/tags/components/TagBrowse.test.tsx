@@ -534,3 +534,51 @@ describe('TagBrowse', () => {
     expect(screen.queryByText('Previous')).not.toBeInTheDocument()
   })
 })
+
+/**
+ * A server-seeded first screen arrives stale, so the directory revalidates it
+ * on the first client commit; rows that answer the current query stay on
+ * screen if that fails.
+ */
+describe('TagBrowse over rows that answer the current query', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    setUrlParams()
+  })
+
+  const mockMainList = (isPlaceholderData: boolean) =>
+    mockUseTags.mockImplementation((params?: { category?: string; limit?: number }) => {
+      if (params?.limit === 1 && params.category) {
+        return { data: { tags: [], total: 0 }, isLoading: false, error: null, refetch: vi.fn() }
+      }
+      return {
+        data: { tags: [makeTag({ name: 'shoegaze', slug: 'shoegaze' })], total: 1 },
+        isLoading: false,
+        isPlaceholderData,
+        error: new Error('Server error'),
+        refetch: vi.fn(),
+      }
+    })
+
+  it('keeps the rows when their revalidation fails', () => {
+    mockMainList(false)
+    renderWithProviders(<TagBrowse />)
+
+    expect(screen.getByRole('link', { name: /shoegaze/ })).toHaveAttribute(
+      'href',
+      '/tags/shoegaze'
+    )
+    expect(
+      screen.queryByText('Failed to load tags. Please try again later.')
+    ).not.toBeInTheDocument()
+  })
+
+  it('shows the error when only placeholder rows are on screen', () => {
+    mockMainList(true)
+    renderWithProviders(<TagBrowse />)
+
+    expect(
+      screen.getByText('Failed to load tags. Please try again later.')
+    ).toBeInTheDocument()
+  })
+})

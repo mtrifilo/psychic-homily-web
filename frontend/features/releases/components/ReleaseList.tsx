@@ -13,6 +13,7 @@ import { useReleaseSaveCountBatch } from '../hooks/useSavedReleases'
 import { useReleases } from '../hooks/useReleases'
 import { useLabels } from '@/features/labels/hooks/useLabels'
 import { ReleaseCard } from './ReleaseCard'
+import { RELEASE_LIST_DEFAULT_SORT, RELEASE_LIST_PAGE_LIMIT } from '../listFirstScreen'
 import { LoadingSpinner, DensityToggle, Pagination } from '@/components/shared'
 import { useDensity } from '@/lib/hooks/common/useDensity'
 import { useDismissTimer } from '@/lib/hooks/common'
@@ -32,7 +33,6 @@ import {
   buildTagsParam,
 } from '@/features/tags'
 
-const PAGE_SIZE = 50
 // How long typing settles before the search filter is pushed to the URL.
 const SEARCH_DEBOUNCE_MS = 300
 
@@ -45,11 +45,14 @@ export function ReleaseList() {
   const { density, setDensity } = useDensity('releases')
   const { isAuthenticated, user } = useAuthContext()
 
-  // Parse filters from URL
-  const typeParam = searchParams.get('type') as ReleaseType | null
+  // Parse filters from URL. An empty value reads as absent, the way
+  // `app/releases/page.tsx` reads it when deciding whether to seed this list.
+  // See RELEASE_LIST_FIRST_SCREEN_DEFEATING_PARAMS before adding a param here.
+  const typeParam = (searchParams.get('type') || null) as ReleaseType | null
   const yearParam = searchParams.get('year')
   const searchParam = searchParams.get('search') ?? ''
-  const sortParam = (searchParams.get('sort') as ReleaseSortOption) ?? 'newest'
+  const sortParam = (searchParams.get('sort') ||
+    RELEASE_LIST_DEFAULT_SORT) as ReleaseSortOption
   const labelIdParam = searchParams.get('label_id')
   const pageParam = searchParams.get('page')
 
@@ -58,7 +61,7 @@ export function ReleaseList() {
   // past the out-of-range check below AND reach the API as `offset=NaN`.
   const parsedPage = parseInt(pageParam ?? '', 10)
   const currentPage = Number.isFinite(parsedPage) ? Math.max(1, parsedPage) : 1
-  const offset = (currentPage - 1) * PAGE_SIZE
+  const offset = (currentPage - 1) * RELEASE_LIST_PAGE_LIMIT
 
   // Parse multi-tag from URL (PSY-309)
   const tagsParam = searchParams.get('tags')
@@ -75,7 +78,7 @@ export function ReleaseList() {
   }, [searchParam])
 
   // Fetch releases
-  const { data, isLoading, isFetching, error, refetch } = useReleases({
+  const { data, isLoading, isFetching, isPlaceholderData, error, refetch } = useReleases({
     releaseType: typeParam ?? undefined,
     year: yearParam ? parseInt(yearParam, 10) : undefined,
     search: searchParam || undefined,
@@ -83,7 +86,7 @@ export function ReleaseList() {
     labelId: labelIdParam ? parseInt(labelIdParam, 10) : undefined,
     tags: selectedTags.length > 0 ? selectedTags : undefined,
     tagMatch,
-    limit: PAGE_SIZE,
+    limit: RELEASE_LIST_PAGE_LIMIT,
     offset,
   })
 
@@ -95,7 +98,7 @@ export function ReleaseList() {
   // out-of-range snap-back below is an effect, so it has to run before the
   // early returns that this component makes for the loading and error states.
   const total = data?.total ?? 0
-  const totalPages = Math.ceil(total / PAGE_SIZE)
+  const totalPages = Math.ceil(total / RELEASE_LIST_PAGE_LIMIT)
   const releaseSaveCounts = useReleaseSaveCountBatch(
     releases.map(release => release.id),
     isAuthenticated,
@@ -139,7 +142,7 @@ export function ReleaseList() {
     if (mergedType) newParams.set('type', mergedType)
     if (mergedYear) newParams.set('year', mergedYear)
     if (mergedSearch) newParams.set('search', mergedSearch)
-    if (mergedSort && mergedSort !== 'newest') newParams.set('sort', mergedSort)
+    if (mergedSort && mergedSort !== RELEASE_LIST_DEFAULT_SORT) newParams.set('sort', mergedSort)
     if (mergedLabelId) newParams.set('label_id', mergedLabelId)
     if (mergedPage && mergedPage !== '1') newParams.set('page', mergedPage)
     if (mergedTags) newParams.set('tags', mergedTags)
@@ -267,9 +270,15 @@ export function ReleaseList() {
     )
   }
 
-  const isUpdating = isFetching || isPending
+  // Dim only while the rows on screen answer a DIFFERENT query than the one
+  // being awaited (`keepPreviousData` holding the previous filter's rows).
+  // A server-seeded first screen is stale by construction, so raw `isFetching`
+  // is true on the first client commit and would dim rows that are current.
+  const isUpdating = (isFetching && isPlaceholderData) || isPending
 
-  if (error) {
+  // An error replaces the list only when nothing on screen answers the current
+  // query: a failed revalidation of rows already shown keeps them.
+  if (error && (!data || isPlaceholderData)) {
     return (
       <div className="text-center py-12 text-destructive">
         <p>Failed to load releases. Please try again later.</p>
@@ -285,7 +294,7 @@ export function ReleaseList() {
     !!yearParam ||
     !!searchParam ||
     !!labelIdParam ||
-    sortParam !== 'newest'
+    sortParam !== RELEASE_LIST_DEFAULT_SORT
 
   return (
     <section className="w-full max-w-6xl">
