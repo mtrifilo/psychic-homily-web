@@ -1,0 +1,15 @@
+# gsc-inspect-sample v1 seed=fixture per_family=3 today_utc=2026-10-25 sitemap=https://psychichomily.com/sitemap-index population=upcoming-shows:2,past-shows:340,artists:2,releases:2,venues:2,scene-weeks:2
+family	url	hash
+upcoming-shows	https://psychichomily.com/shows/2099-02-14-fixture-duo-at-fixture-room	b849725179088151bc13a202ab48652a234f4441b82b7c9a3ea8fc85b7a50067
+upcoming-shows	https://psychichomily.com/shows/2099-01-10-fixture-band-at-fixture-hall	c71692d9b75a07b652f7f91f09bb0a305ecb5d492b4d3e4ffaa97e2851344076
+past-shows	https://psychichomily.com/shows/2020-04-01-fixture-quartet-at-fixture-bar	27067e33b62ff6fda42d20de425663ce9dff74034ff6efd1f64db4736dd2d392
+past-shows	https://psychichomily.com/shows/2020-03-01-fixture-trio-at-fixture-club	7d8d173fe8b569aad797b1ebc4636d8e2aa10d36cff5683dfc160fa2103872c3
+past-shows	https://psychichomily.com/shows/2020-05-01-fixture-quintet-at-fixture-cellar	8a92e8bbd87b030b9b1e8b532bd513ba8118a218c950108b8bd820d15b1fd016
+artists	https://psychichomily.com/artists/fixture-artist-two	324b93c1e71543026fa16531e0a780f5f64ef3edee4276e111bcfb9fe6ffcdca
+artists	https://psychichomily.com/artists/fixture-artist-one	4ba8bfe7db7f3fe84df647f22442e9792c68f34ed8cedb0f39be7f465fdbb38b
+releases	https://psychichomily.com/releases/fixture-release-one	16f021e4fc2c016669d52f8b83c3c75277d8767021e72d6bec50d6ef70078759
+releases	https://psychichomily.com/releases/fixture-release-two	483f314304a0927c584e7cfe70f9f891bff9dd9a3b1c711121f2b5f9e949afe3
+venues	https://psychichomily.com/venues/fixture-venue-one	2b1d797fac0c31b94d008d58e66339bc978dd56e737132d50c088d0234610343
+venues	https://psychichomily.com/venues/fixture-venue-two	e4e33644574985ef01781b94578b87271b080dbeea7c3afca229e7c8878e157c
+scene-weeks	https://psychichomily.com/scenes/fixture-city/2026-W41	1fb5fad4dac97dd0d94405789bf99e58bc9ff61fbbb3ddae16b1f77c1db536c9
+scene-weeks	https://psychichomily.com/scenes/fixture-city/2026-W42	57c381fce7de70442dc0d7d618925e6f4cb0eb8b4ffc4374bf168617f8d23c8f

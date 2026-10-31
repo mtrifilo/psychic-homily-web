@@ -1,0 +1,16 @@
+{
+  "inspectionResult": {
+    "inspectionResultLink": "https://search.google.com/search-console/inspect?resource_id=sc-domain:psychichomily.com&id=fixture",
+    "indexStatusResult": {
+      "verdict": "PASS",
+      "coverageState": "Submitted and indexed",
+      "robotsTxtState": "ALLOWED",
+      "indexingState": "INDEXING_ALLOWED",
+      "lastCrawlTime": "2026-09-02T11:00:00.123456Z",
+      "pageFetchState": "SUCCESSFUL",
+      "googleCanonical": "https://psychichomily.com/shows/2020-03-01-fixture-trio-at-fixture-club",
+      "userCanonical": "https://psychichomily.com/shows/2020-03-01-fixture-trio-at-fixture-club",
+      "crawledAs": "MOBILE"
+    }
+  }
+}
