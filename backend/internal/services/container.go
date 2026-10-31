@@ -18,6 +18,7 @@ import (
 	exploresvc "psychic-homily-backend/internal/services/explore"
 	"psychic-homily-backend/internal/services/geo"
 	"psychic-homily-backend/internal/services/imageenrich"
+	"psychic-homily-backend/internal/services/indexnow"
 	"psychic-homily-backend/internal/services/mbadapter"
 	"psychic-homily-backend/internal/services/notification"
 	"psychic-homily-backend/internal/services/pipeline"
@@ -137,6 +138,10 @@ type ServiceContainer struct {
 	// PSY-1612: reports background loops that have stopped running. Watches every
 	// service above that owns a scheduled loop.
 	SweepHealthCheck *shared.SweepHealthCheck
+	// IndexNow submits changed public URLs to IndexNow. Nil when it is off,
+	// with the reason in IndexNowOffReason.
+	IndexNow          *indexnow.Pinger
+	IndexNowOffReason string
 }
 
 // NewServiceContainer creates all services once. WebAuthn failure is non-fatal
@@ -306,6 +311,9 @@ func NewServiceContainer(database *gorm.DB, cfg *config.Config) *ServiceContaine
 
 	exploreService := exploresvc.NewExploreService(database)
 
+	sitemapSvc := catalog.NewSitemapService(database)
+	indexNow, indexNowOffReason := indexnow.New(database, sitemapSvc, cfg.Email.FrontendURL)
+
 	// PSY-1190: a trusted/community pending edit that sets an artist's
 	// social.bandcamp applies via a direct UPDATE in ApprovePendingEdit, bypassing
 	// ArtistService.UpdateArtist's profile→embed resolver. Inject the artist
@@ -330,7 +338,7 @@ func NewServiceContainer(database *gorm.DB, cfg *config.Config) *ServiceContaine
 		Explore:                exploreService,
 		GraphOverview:          catalog.NewGraphOverviewService(database),
 		EntityExistence:        catalog.NewEntityExistenceService(database, sceneSvc),
-		Sitemap:                catalog.NewSitemapService(database),
+		Sitemap:                sitemapSvc,
 		Bookmark:               engagement.NewBookmarkService(database),
 		Calendar:               engagement.NewCalendarService(database, savedShow),
 		VenueCalendar:          engagement.NewVenueCalendarService(database, venue),
@@ -411,5 +419,7 @@ func NewServiceContainer(database *gorm.DB, cfg *config.Config) *ServiceContaine
 		CollectionDigest:       engagement.NewCollectionDigestService(database, email, cfg),
 		SceneDigest:            engagement.NewSceneDigestService(database, email, sceneSvc, cfg),
 		SweepHealthCheck:       shared.NewSweepHealthCheck(database),
+		IndexNow:               indexNow,
+		IndexNowOffReason:      indexNowOffReason,
 	}
 }
