@@ -5,6 +5,8 @@
  * These match the error codes returned by the backend.
  */
 
+import { USER_EXISTS_MESSAGE, VALIDATION_FAILED_MESSAGE } from './authRefusalCopy'
+
 /**
  * Auth error codes (must match backend/internal/errors/auth.go)
  */
@@ -289,9 +291,9 @@ export function getAuthErrorMessage(code: AuthErrorCodeType): string {
     case AuthErrorCode.SERVICE_UNAVAILABLE:
       return 'Service temporarily unavailable. Please try again.'
     case AuthErrorCode.USER_EXISTS:
-      return 'An account with this email already exists'
+      return USER_EXISTS_MESSAGE
     case AuthErrorCode.VALIDATION_FAILED:
-      return 'Validation failed'
+      return VALIDATION_FAILED_MESSAGE
     case AuthErrorCode.UNAUTHORIZED:
       return 'You are not authorized to perform this action'
     case AuthErrorCode.REAUTH_REQUIRED:

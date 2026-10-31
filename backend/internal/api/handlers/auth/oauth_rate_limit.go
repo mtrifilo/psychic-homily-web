@@ -2,7 +2,6 @@ package auth
 
 import (
 	"net/http"
-	"net/url"
 
 	"github.com/go-chi/chi/v5"
 )
@@ -57,8 +56,7 @@ func (h *OAuthHTTPHandler) RedirectRateLimited(w http.ResponseWriter, r *http.Re
 		return
 	}
 
-	query := url.Values{authPageErrorCodeParam: {OAuthRedirectRateLimitedCode}}
-	http.Redirect(w, r, authPageURLWithReturnTo(h.frontendURL(), query, returnTo), http.StatusTemporaryRedirect)
+	http.Redirect(w, r, authPageCodeURL(h.frontendURL(), OAuthRedirectRateLimitedCode, returnTo), http.StatusTemporaryRedirect)
 }
 
 // startsLink reports whether r was routed to OAuthLinkRoute, the start a

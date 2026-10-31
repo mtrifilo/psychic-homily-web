@@ -292,8 +292,17 @@ export function asksForCreateAccount(searchParams: {
   return (
     hasGatedIntent(searchParams) ||
     hasSignupTab(searchParams) ||
+    isAgeRefusalArrival(searchParams)
+  )
+}
+
+/** Does this auth-page URL carry a sign-up refused for its age? */
+export function isAgeRefusalArrival(searchParams: {
+  get: (name: string) => string | null
+}): boolean {
+  return (
     searchParams.get(AUTH_ERROR_CODE_PARAM) ===
-      AuthErrorCode.AGE_CONFIRMATION_REQUIRED
+    AuthErrorCode.AGE_CONFIRMATION_REQUIRED
   )
 }
 

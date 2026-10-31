@@ -139,18 +139,16 @@ func declinedAtProvider(provider string, r *http.Request) bool {
 		r.URL.Query().Get("error") == providerDeclinedError
 }
 
-// authPageErrorQuery is the query string a failed sign-in callback hands the
-// frontend auth page: the code of a refusal authRefusalCarriesItsOwnCopy
-// names, and CodeUnknown for everything else, so a backend fault is never
-// described to the page in its own terms.
-func authPageErrorQuery(err error) url.Values {
-	return url.Values{authPageErrorCodeParam: {refusalCode(err, autherrors.CodeUnknown)}}
-}
-
-// cliRefusalURL is the loopback CLI redirect for a failed sign-in: the message
-// a CLI shows, and the code beside it.
-func cliRefusalURL(cliCallback, message, code string) string {
-	return cliCallback + "?" + url.Values{cliErrorParam: {message}, authPageErrorCodeParam: {code}}.Encode()
+// redirectSignInFailure answers a sign-in callback that did not sign the
+// reader in: the loopback CLI gets message and code, a browser gets the code
+// on the auth page with the sign-in's destination.
+func redirectSignInFailure(w http.ResponseWriter, r *http.Request, cliCallback, frontendURL, returnTo, message, code string) {
+	if cliCallback != "" {
+		target := cliCallback + "?" + url.Values{cliErrorParam: {message}, authPageErrorCodeParam: {code}}.Encode()
+		http.Redirect(w, r, target, http.StatusTemporaryRedirect)
+		return
+	}
+	http.Redirect(w, r, authPageCodeURL(frontendURL, code, returnTo), http.StatusTemporaryRedirect)
 }
 
 // requestCookieNames returns the names of the request's cookies. Cookie values
@@ -452,12 +450,7 @@ func (h *OAuthHTTPHandler) OAuthCallbackHTTPHandler(w http.ResponseWriter, r *ht
 	if declinedAtProvider(provider, r) {
 		_ = gothic.Logout(w, r)
 		logger.AuthInfo(ctx, "oauth_callback_cancelled", "provider", provider)
-		if cliCallback != "" {
-			http.Redirect(w, r, cliRefusalURL(cliCallback, oauthCallbackFailedMessage, authPageCodeOAuthCancelled), http.StatusTemporaryRedirect)
-			return
-		}
-		query := url.Values{authPageErrorCodeParam: {authPageCodeOAuthCancelled}}
-		http.Redirect(w, r, authPageURLWithReturnTo(frontendURL, query, returnTo), http.StatusTemporaryRedirect)
+		redirectSignInFailure(w, r, cliCallback, frontendURL, returnTo, oauthCallbackFailedMessage, authPageCodeOAuthCancelled)
 		return
 	}
 
@@ -472,15 +465,8 @@ func (h *OAuthHTTPHandler) OAuthCallbackHTTPHandler(w http.ResponseWriter, r *ht
 			return
 		}
 		logCallbackError(ctx, provider, err)
-
-		if cliCallback != "" {
-			http.Redirect(w, r, cliRefusalURL(cliCallback,
-				refusalMessage(err, oauthCallbackFailedMessage),
-				refusalCode(err, autherrors.CodeUnknown)), http.StatusTemporaryRedirect)
-			return
-		}
-
-		http.Redirect(w, r, authPageRefusalURL(frontendURL, err, returnTo), http.StatusTemporaryRedirect)
+		redirectSignInFailure(w, r, cliCallback, frontendURL, returnTo,
+			refusalMessage(err, oauthCallbackFailedMessage), refusalCode(err, autherrors.CodeUnknown))
 		return
 	}
 

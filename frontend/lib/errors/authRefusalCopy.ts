@@ -4,16 +4,17 @@
  * so no sentence on these surfaces comes from a URL.
  */
 
+import { MIN_SIGNUP_AGE } from '@/lib/legal'
+
 /** /auth, for refusal text or a code with no line of its own. */
 export const AUTH_REFUSAL_GENERIC_MESSAGE =
   'Something went wrong signing you in. Please try again.'
 
 /**
- * /auth, AGE_CONFIRMATION_REQUIRED. Also the server's message for the code,
- * which a backend test checks against this file.
+ * /auth, AGE_CONFIRMATION_REQUIRED. The server's message for the code is the
+ * same sentence, built from the same minimum age.
  */
-export const AGE_CONFIRMATION_REQUIRED_MESSAGE =
-  'Your account was not created. Psychic Homily accounts are for people 16 and over.'
+export const AGE_CONFIRMATION_REQUIRED_MESSAGE = `Your account was not created. Psychic Homily accounts are for people ${MIN_SIGNUP_AGE} and over.`
 
 /** /auth, OAUTH_CANCELLED, which only Google's decline carries. */
 export const OAUTH_CANCELLED_MESSAGE =

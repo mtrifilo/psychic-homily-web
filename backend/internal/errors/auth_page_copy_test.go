@@ -22,11 +22,12 @@ func TestAuthPageRefusalCopyMatchesTheFrontend(t *testing.T) {
 	if err != nil {
 		t.Fatalf("resolving the repo root: %v", err)
 	}
-	content, err := os.ReadFile(filepath.Join(repoRoot, frontendAuthRefusalCopy))
+	raw, err := os.ReadFile(filepath.Join(repoRoot, frontendAuthRefusalCopy))
 	if err != nil {
 		// A moved frontend module is a broken assumption, not a pass.
 		t.Fatalf("reading %s: %v", frontendAuthRefusalCopy, err)
 	}
+	content := string(raw)
 
 	for _, refusal := range []*AuthError{
 		ErrOAuthLinkRefused("someone@example.com"),
@@ -34,11 +35,10 @@ func TestAuthPageRefusalCopyMatchesTheFrontend(t *testing.T) {
 		ErrProviderEmailUnstorable(),
 		ErrUserExists("someone@example.com"),
 		ErrTermsAcceptanceRequired("detail"),
-		ErrAgeConfirmationRequired("detail"),
 	} {
 		// The frontend writes every one of these in single quotes.
 		literal := "'" + refusal.UserMessage() + "'"
-		if !strings.Contains(string(content), literal) {
+		if !strings.Contains(content, literal) {
 			t.Errorf("%s does not contain %s's sentence %s.\n"+
 				"The auth page shows this package's sentence for the code as fixed copy:\n"+
 				"change both, or neither.",
@@ -49,7 +49,9 @@ func TestAuthPageRefusalCopyMatchesTheFrontend(t *testing.T) {
 
 // The owner's sentence for an age refusal, verbatim. It names no checkbox and
 // gives no verdict on the person's age, because the code also answers a
-// sign-up that sent no date of birth.
+// sign-up that sent no date of birth. The auth page builds the same sentence
+// from MIN_SIGNUP_AGE (frontend/lib/errors/authRefusalCopy.ts), which
+// TestVersionsMatchFrontend pins to legal.MinSignupAge.
 func TestAgeConfirmationRequiredMessage(t *testing.T) {
 	const want = "Your account was not created. Psychic Homily accounts are for people 16 and over."
 	if got := ErrAgeConfirmationRequired("detail").UserMessage(); got != want {

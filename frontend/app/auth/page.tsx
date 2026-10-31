@@ -58,7 +58,9 @@ import {
   AUTH_ERROR_CODE_PARAM,
   AUTH_REASON_PARAM,
   REAUTH_REASON_CREDENTIAL_MINT,
+  REAUTH_REASON_OAUTH_LINK,
   asksForCreateAccount,
+  isAgeRefusalArrival,
   isReauthReason,
 } from '@/lib/auth-href'
 import { markAccountCreatedThisSession } from '@/features/auth/accountCreatedMarker'
@@ -72,6 +74,7 @@ import {
 import {
   AuthRefusalAlert,
   authRefusalBannerFor,
+  type AuthRefusalBanner,
 } from '@/app/auth/_components/auth-refusal-banner'
 import { getUniqueErrors } from '@/lib/utils/formErrors'
 import { useSignupAgeRefused } from '@/features/auth/hooks/useOAuthSignup'
@@ -108,8 +111,27 @@ import { StepPage } from '@/app/auth/_components/step-card'
 
 // Shown for ACCOUNT_INACTIVE_REASON: fixed copy keyed by the code, never text
 // from the URL, saying no more about the account than "unavailable".
-const ACCOUNT_INACTIVE_MESSAGE =
-  'Your account is unavailable, so the provider was not connected; please contact support.'
+const CLOSED_ACCOUNT_BANNER: AuthRefusalBanner = {
+  tone: 'destructive',
+  message:
+    'Your account is unavailable, so the provider was not connected; please contact support.',
+}
+
+// The re-authentication copy for each reason: what sent the reader to prove
+// the account. A Map, so a reason taken from the URL can only find these.
+const REAUTH_COPY = new Map<string, { subtitle: string; signInTitle: string }>([
+  [
+    REAUTH_REASON_CREDENTIAL_MINT,
+    { subtitle: REAUTH_REQUIRED_MESSAGE, signInTitle: "Confirm it's you to continue" },
+  ],
+  [
+    REAUTH_REASON_OAUTH_LINK,
+    {
+      subtitle: 'Sign in again to connect a provider to your account.',
+      signInTitle: "Confirm it's you to connect a provider",
+    },
+  ],
+])
 
 // Password validation constants
 const MIN_PASSWORD_LENGTH = 12
@@ -888,10 +910,8 @@ function AuthPageContent() {
   // that just refused them, with nothing changed and no way to tell why.
   const reason = searchParams.get(AUTH_REASON_PARAM)
   const isReauth = isReauthReason(reason)
-  // A refused credential mint, rather than an OAuth link, sent the reader to
-  // prove the account; the copy names the change, not a provider.
-  const isCredentialReauth = reason === REAUTH_REASON_CREDENTIAL_MINT
-  const isAccountInactive = reason === ACCOUNT_INACTIVE_REASON
+  const reauthCopy = reason === null ? undefined : REAUTH_COPY.get(reason)
+  const arrivedForClosedAccount = reason === ACCOUNT_INACTIVE_REASON
 
   // Two arrivals open on Create account: a gated control naming the action it
   // refused an anonymous viewer, and the home hero's sign-up nudge asking for
@@ -1082,8 +1102,7 @@ function AuthPageContent() {
   // under-age marker already shows the refusal card on Create account, which
   // says it once; the age line would say it twice.
   const refusalBanner =
-    markedRefusedForAge &&
-    searchParams.get(AUTH_ERROR_CODE_PARAM) === AuthErrorCode.AGE_CONFIRMATION_REQUIRED
+    markedRefusedForAge && isAgeRefusalArrival(searchParams)
       ? null
       : authRefusalBannerFor(searchParams)
 
@@ -1099,21 +1118,14 @@ function AuthPageContent() {
             {isReauth ? "Confirm it's you" : 'Welcome to Psychic Homily'}
           </h1>
           <p className="mt-2 text-sm text-muted-foreground">
-            {isCredentialReauth
-              ? REAUTH_REQUIRED_MESSAGE
-              : isReauth
-                ? 'Sign in again to connect a provider to your account.'
-                : "You're welcome to join our community."}
+            {reauthCopy?.subtitle ?? "You're welcome to join our community."}
           </p>
         </div>
 
         {refusalBanner && <AuthRefusalAlert banner={refusalBanner} />}
 
-        {isAccountInactive && (
-          <Alert variant="destructive" className="mb-6">
-            <AlertCircle className="h-4 w-4" />
-            <AlertDescription>{ACCOUNT_INACTIVE_MESSAGE}</AlertDescription>
-          </Alert>
+        {arrivedForClosedAccount && (
+          <AuthRefusalAlert banner={CLOSED_ACCOUNT_BANNER} />
         )}
 
         {/* Auth Card with Tabs */}
@@ -1137,13 +1149,10 @@ function AuthPageContent() {
 
               <TabsContent value="login" className="mt-6">
                 <CardTitle className="text-lg">
-                  {isCredentialReauth
-                    ? "Confirm it's you to continue"
-                    : isReauth
-                      ? 'Confirm it\'s you to connect a provider'
-                      : collisionEmail !== null
-                        ? 'Sign in to connect Google'
-                        : 'Sign in to your account'}
+                  {reauthCopy?.signInTitle ??
+                    (collisionEmail !== null
+                      ? 'Sign in to connect Google'
+                      : 'Sign in to your account')}
                 </CardTitle>
                 {collisionEmail === null && (
                   <CardDescription className="mt-1">
