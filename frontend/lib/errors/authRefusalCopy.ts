@@ -8,7 +8,10 @@
 export const AUTH_REFUSAL_GENERIC_MESSAGE =
   'Something went wrong signing you in. Please try again.'
 
-/** /auth, AGE_CONFIRMATION_REQUIRED. */
+/**
+ * /auth, AGE_CONFIRMATION_REQUIRED. Also the server's message for the code,
+ * which a backend test checks against this file.
+ */
 export const AGE_CONFIRMATION_REQUIRED_MESSAGE =
   'Your account was not created. Psychic Homily accounts are for people 16 and over.'
 

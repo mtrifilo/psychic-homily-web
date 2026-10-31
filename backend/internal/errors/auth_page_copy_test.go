@@ -34,6 +34,7 @@ func TestAuthPageRefusalCopyMatchesTheFrontend(t *testing.T) {
 		ErrProviderEmailUnstorable(),
 		ErrUserExists("someone@example.com"),
 		ErrTermsAcceptanceRequired("detail"),
+		ErrAgeConfirmationRequired("detail"),
 	} {
 		// The frontend writes every one of these in single quotes.
 		literal := "'" + refusal.UserMessage() + "'"
@@ -43,5 +44,15 @@ func TestAuthPageRefusalCopyMatchesTheFrontend(t *testing.T) {
 				"change both, or neither.",
 				frontendAuthRefusalCopy, refusal.Code, strconv.Quote(refusal.UserMessage()))
 		}
+	}
+}
+
+// The owner's sentence for an age refusal, verbatim. It names no checkbox and
+// gives no verdict on the person's age, because the code also answers a
+// sign-up that sent no date of birth.
+func TestAgeConfirmationRequiredMessage(t *testing.T) {
+	const want = "Your account was not created. Psychic Homily accounts are for people 16 and over."
+	if got := ErrAgeConfirmationRequired("detail").UserMessage(); got != want {
+		t.Errorf("message = %q, want %q", got, want)
 	}
 }
