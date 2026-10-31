@@ -1,0 +1,16 @@
+{
+  "inspectionResult": {
+    "inspectionResultLink": "https://search.google.com/search-console/inspect?resource_id=sc-domain:psychichomily.com&id=fixture",
+    "indexStatusResult": {
+      "verdict": "NEUTRAL",
+      "coverageState": "Duplicate, Google chose different canonical than user",
+      "robotsTxtState": "ALLOWED",
+      "indexingState": "INDEXING_ALLOWED",
+      "lastCrawlTime": "2026-10-01T12:00:00Z",
+      "pageFetchState": "SUCCESSFUL",
+      "googleCanonical": "https://psychichomily.com/artists/fixture-artist-one-alt",
+      "userCanonical": "https://psychichomily.com/artists/fixture-artist-one",
+      "crawledAs": "MOBILE"
+    }
+  }
+}

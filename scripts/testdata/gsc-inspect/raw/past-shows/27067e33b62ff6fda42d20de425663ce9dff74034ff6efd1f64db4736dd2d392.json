@@ -1,0 +1,15 @@
+{
+  "inspectionResult": {
+    "inspectionResultLink": "https://search.google.com/search-console/inspect?resource_id=sc-domain:psychichomily.com&id=fixture",
+    "indexStatusResult": {
+      "verdict": "FAIL",
+      "coverageState": "Soft 404",
+      "robotsTxtState": "ALLOWED",
+      "indexingState": "INDEXING_ALLOWED",
+      "lastCrawlTime": "2026-08-15T00:00:00Z",
+      "pageFetchState": "SOFT_404",
+      "userCanonical": "https://psychichomily.com/shows/2020-04-01-fixture-quartet-at-fixture-bar",
+      "crawledAs": "MOBILE"
+    }
+  }
+}

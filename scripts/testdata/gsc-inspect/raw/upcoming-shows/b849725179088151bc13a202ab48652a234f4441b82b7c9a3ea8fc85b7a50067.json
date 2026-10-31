@@ -1,0 +1,12 @@
+{
+  "inspectionResult": {
+    "inspectionResultLink": "https://search.google.com/search-console/inspect?resource_id=sc-domain:psychichomily.com&id=fixture",
+    "indexStatusResult": {
+      "verdict": "NEUTRAL",
+      "coverageState": "Discovered - currently not indexed",
+      "robotsTxtState": "ROBOTS_TXT_STATE_UNSPECIFIED",
+      "indexingState": "INDEXING_STATE_UNSPECIFIED",
+      "pageFetchState": "PAGE_FETCH_STATE_UNSPECIFIED"
+    }
+  }
+}

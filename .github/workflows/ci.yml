@@ -86,6 +86,12 @@ jobs:
       - name: Self-test the entrypoint's DATABASE_URL redaction
         run: bash scripts/check_entrypoint_redaction_test.sh
 
+      # A few seconds, no network or Google credential: the sitemap is served
+      # from file:// and the API from a stub curl. The self-test's header
+      # lists the cases.
+      - name: Self-test the GSC URL Inspection sample script
+        run: bash scripts/gsc-inspect-sample_test.sh
+
       # PSY-1708 (stage outage 2026-08-02): two parallel branches stamped their
       # migrations in author-time order but merged in the reverse order.
       # golang-migrate silently skips any migration at or below the current
