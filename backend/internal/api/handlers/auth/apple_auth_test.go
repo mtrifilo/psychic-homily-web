@@ -271,6 +271,13 @@ func signedAppleTokenFor(t *testing.T, key *rsa.PrivateKey, aud, kid, sub, email
 		claims["email"] = email
 		claims["email_verified"] = "true"
 	}
+	return signAppleClaims(t, key, kid, claims)
+}
+
+// signAppleClaims signs claims with key under kid, as Apple signs an identity
+// token.
+func signAppleClaims(t *testing.T, key *rsa.PrivateKey, kid string, claims jwt.MapClaims) string {
+	t.Helper()
 	token := jwt.NewWithClaims(jwt.SigningMethodRS256, claims)
 	token.Header["kid"] = kid
 	signed, err := token.SignedString(key)
