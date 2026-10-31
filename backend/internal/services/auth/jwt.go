@@ -111,14 +111,15 @@ func (s *JWTService) signingKey(token *jwt.Token) (interface{}, error) {
 	return []byte(s.config.JWT.SecretKey), nil
 }
 
-// strictTokenOptions returns the parser options every claims-validating reader
-// of a token this service mints uses, followed by that reader's own perToken
-// options (issuer, audience, subject).
+// expiryRequiredOptions returns jwt.WithExpirationRequired followed by
+// perToken. Every claims-validating reader of a token this service mints parses
+// with it. It asserts nothing about issuer, audience or subject: a reader that
+// checks those passes them as perToken or checks them after the parse.
 //
 // jwt treats a token with no exp claim as one that never expires unless
 // WithExpirationRequired is set. Every minter here sets exp, so requiring it
 // refuses only tokens no minter produces.
-func strictTokenOptions(perToken ...jwt.ParserOption) []jwt.ParserOption {
+func expiryRequiredOptions(perToken ...jwt.ParserOption) []jwt.ParserOption {
 	return append([]jwt.ParserOption{jwt.WithExpirationRequired()}, perToken...)
 }
 
@@ -134,7 +135,7 @@ func strictTokenOptions(perToken ...jwt.ParserOption) []jwt.ParserOption {
 // rather than being honored as session credentials.
 func (s *JWTService) parseSessionToken(tokenString string) (jwt.MapClaims, error) {
 	token, err := jwt.Parse(tokenString, s.signingKey,
-		strictTokenOptions(jwt.WithIssuer(jwtIssuer), jwt.WithAudience(jwtAudience), jwt.WithSubject(jwtSessionSubject))...)
+		expiryRequiredOptions(jwt.WithIssuer(jwtIssuer), jwt.WithAudience(jwtAudience), jwt.WithSubject(jwtSessionSubject))...)
 
 	if err != nil {
 		if errors.Is(err, jwt.ErrTokenExpired) {
@@ -317,8 +318,10 @@ func (s *JWTService) ValidateSessionLenient(tokenString string, gracePeriod time
 // single-purpose token (magic-link, verification, recovery) caught inside the
 // grace window could be renewed into a session.
 //
-// The same switch means strictTokenOptions do not apply here, so the exp check
-// below is what refuses a token with no exp claim, as TOKEN_INVALID.
+// The same switch means expiryRequiredOptions do not apply here, so the exp
+// check below is what refuses a token with no exp claim, as TOKEN_INVALID. An
+// exp of zero counts as no exp claim, as it does for jwt's own map-claims
+// check.
 func (s *JWTService) parseSessionTokenLenient(tokenString string, gracePeriod time.Duration) (jwt.MapClaims, error) {
 	parser := jwt.NewParser(jwt.WithoutClaimsValidation())
 	token, parseErr := parser.Parse(tokenString, s.signingKey)
@@ -333,7 +336,7 @@ func (s *JWTService) parseSessionTokenLenient(tokenString string, gracePeriod ti
 	}
 
 	exp, ok := claims["exp"].(float64)
-	if !ok {
+	if !ok || exp == 0 {
 		return nil, apperrors.ErrTokenInvalid(fmt.Errorf("missing expiration claim"))
 	}
 
@@ -372,7 +375,7 @@ func (s *JWTService) CreateVerificationToken(userID uint, email string) (string,
 
 // ValidateVerificationToken validates an email verification token and returns the claims
 func (s *JWTService) ValidateVerificationToken(tokenString string) (*contracts.VerificationTokenClaims, error) {
-	token, err := jwt.ParseWithClaims(tokenString, &contracts.VerificationTokenClaims{}, s.signingKey, strictTokenOptions()...)
+	token, err := jwt.ParseWithClaims(tokenString, &contracts.VerificationTokenClaims{}, s.signingKey, expiryRequiredOptions()...)
 
 	if err != nil {
 		return nil, fmt.Errorf("invalid verification token: %w", err)
@@ -411,7 +414,7 @@ func (s *JWTService) CreateMagicLinkToken(userID uint, email string) (string, er
 
 // ValidateMagicLinkToken validates a magic link token and returns the claims
 func (s *JWTService) ValidateMagicLinkToken(tokenString string) (*contracts.MagicLinkTokenClaims, error) {
-	token, err := jwt.ParseWithClaims(tokenString, &contracts.MagicLinkTokenClaims{}, s.signingKey, strictTokenOptions()...)
+	token, err := jwt.ParseWithClaims(tokenString, &contracts.MagicLinkTokenClaims{}, s.signingKey, expiryRequiredOptions()...)
 
 	if err != nil {
 		return nil, fmt.Errorf("invalid magic link token: %w", err)
@@ -461,7 +464,7 @@ func (s *JWTService) CreateOAuthLinkToken(userID uint, email, pendingLink string
 // returns its claims.
 func (s *JWTService) ValidateOAuthLinkToken(tokenString string) (*contracts.OAuthLinkTokenClaims, error) {
 	token, err := jwt.ParseWithClaims(tokenString, &contracts.OAuthLinkTokenClaims{}, s.signingKey,
-		strictTokenOptions(jwt.WithIssuer(jwtIssuer), jwt.WithSubject(oauthLinkTokenSubject))...)
+		expiryRequiredOptions(jwt.WithIssuer(jwtIssuer), jwt.WithSubject(oauthLinkTokenSubject))...)
 	if err != nil {
 		return nil, fmt.Errorf("invalid oauth link token: %w", err)
 	}
@@ -493,7 +496,7 @@ func (s *JWTService) CreateAccountRecoveryToken(userID uint, email string) (stri
 
 // ValidateAccountRecoveryToken validates an account recovery token and returns the claims
 func (s *JWTService) ValidateAccountRecoveryToken(tokenString string) (*contracts.AccountRecoveryTokenClaims, error) {
-	token, err := jwt.ParseWithClaims(tokenString, &contracts.AccountRecoveryTokenClaims{}, s.signingKey, strictTokenOptions()...)
+	token, err := jwt.ParseWithClaims(tokenString, &contracts.AccountRecoveryTokenClaims{}, s.signingKey, expiryRequiredOptions()...)
 
 	if err != nil {
 		return nil, fmt.Errorf("invalid account recovery token: %w", err)
