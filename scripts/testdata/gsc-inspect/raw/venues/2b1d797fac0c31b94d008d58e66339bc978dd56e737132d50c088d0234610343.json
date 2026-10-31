@@ -1,0 +1,15 @@
+{
+  "inspectionResult": {
+    "inspectionResultLink": "https://search.google.com/search-console/inspect?resource_id=sc-domain:psychichomily.com&id=fixture",
+    "indexStatusResult": {
+      "verdict": "FAIL",
+      "coverageState": "Excluded by 'noindex' tag",
+      "robotsTxtState": "ALLOWED",
+      "indexingState": "BLOCKED_BY_META_TAG",
+      "lastCrawlTime": "2026-10-11T09:00:00Z",
+      "pageFetchState": "SUCCESSFUL",
+      "userCanonical": "https://psychichomily.com/venues/fixture-venue-one",
+      "crawledAs": "MOBILE"
+    }
+  }
+}

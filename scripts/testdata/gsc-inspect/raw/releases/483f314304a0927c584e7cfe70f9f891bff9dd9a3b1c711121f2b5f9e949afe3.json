@@ -1,0 +1,14 @@
+{
+  "inspectionResult": {
+    "inspectionResultLink": "https://search.google.com/search-console/inspect?resource_id=sc-domain:psychichomily.com&id=fixture",
+    "indexStatusResult": {
+      "verdict": "PARTIAL",
+      "coverageState": "Indexed, though blocked by robots.txt",
+      "robotsTxtState": "DISALLOWED",
+      "indexingState": "INDEXING_ALLOWED",
+      "lastCrawlTime": "2026-07-30T23:59:59Z",
+      "pageFetchState": "BLOCKED_ROBOTS_TXT",
+      "crawledAs": "MOBILE"
+    }
+  }
+}
