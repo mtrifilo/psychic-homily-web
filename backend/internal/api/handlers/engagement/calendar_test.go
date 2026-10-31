@@ -145,7 +145,7 @@ func TestCreateCalendarTokenHandler_PassesTheSessionsRevocationStamp(t *testing.
 func TestCreateCalendarTokenHandler_SessionNoLongerValidAnswers401(t *testing.T) {
 	for name, refusal := range map[string]error{
 		"session revoked": autherrors.ErrTokenInvalid(fmt.Errorf("user 1: %w", shared.ErrSessionRevoked)),
-		"account closed":  autherrors.ErrAccountInactive(),
+		"account closed":  &autherrors.AuthError{Code: autherrors.CodeAccountInactive, Internal: fmt.Errorf("user 1: %w", shared.ErrSessionAccountClosed)},
 	} {
 		t.Run(name, func(t *testing.T) {
 			mock := &testhelpers.MockCalendarService{

@@ -16,13 +16,17 @@ import (
 // session that predates its account's latest session revocation.
 var ErrSessionRevoked = errors.New("session predates the account's latest session revocation")
 
+// ErrSessionAccountClosed is the cause inside the CodeAccountInactive refusal
+// LockSessionAccount gives a session whose account may no longer sign in.
+var ErrSessionAccountClosed = errors.New("the session's account may no longer sign in")
+
 // LockSessionAccount reads, through tx, the account a signed-in request acts
 // for, and holds its row FOR SHARE until tx ends. A session-authenticated
 // write that adds a way into the account (the Settings provider link, a
 // passkey registration, a feed token) calls it first, in the transaction that
-// writes. Writes no session drives (sign-up, the pending-link proofs, the
-// admin-only API token) do not: a proof holds the row FOR UPDATE and judges
-// the account itself.
+// writes. Sign-up and the pending-link proofs, which no session drives, do
+// not (a proof holds the row FOR UPDATE and judges the account itself); nor
+// does the admin-only API-token mint, which is outside this check's scope.
 //
 // sessionsValidAfter is the acting session's revocation stamp: the
 // SessionsValidAfter of the user its session validation loaded, which that
@@ -46,7 +50,7 @@ func LockSessionAccount(tx *gorm.DB, userID uint, sessionsValidAfter *time.Time)
 	}
 	if !account.CanSignIn() {
 		refusal := apperrors.ErrAccountInactive()
-		refusal.Internal = fmt.Errorf("user %d may not sign in", account.ID)
+		refusal.Internal = fmt.Errorf("user %d: %w", account.ID, ErrSessionAccountClosed)
 		return refusal
 	}
 	if !sameRevocationStamp(account.SessionsValidAfter, sessionsValidAfter) {
@@ -56,16 +60,13 @@ func LockSessionAccount(tx *gorm.DB, userID uint, sessionsValidAfter *time.Time)
 }
 
 // IsSessionRefusal reports whether err is one of LockSessionAccount's
-// refusals: the session no longer holds the account, because the account may
-// not sign in or the session was revoked. A caller that answers a closed
-// account differently from a revoked session branches on ErrSessionRevoked
-// (errors.Is) for the revocation instead.
+// refusals, by their causes: the account may not sign in
+// (ErrSessionAccountClosed) or the session was revoked (ErrSessionRevoked).
+// An ACCOUNT_INACTIVE from anywhere else is not one. A caller that answers a
+// closed account differently from a revoked session branches on
+// ErrSessionRevoked (errors.Is) for the revocation instead.
 func IsSessionRefusal(err error) bool {
-	var refusal *apperrors.AuthError
-	if !errors.As(err, &refusal) {
-		return false
-	}
-	return refusal.Code == apperrors.CodeAccountInactive || errors.Is(err, ErrSessionRevoked)
+	return errors.Is(err, ErrSessionRevoked) || errors.Is(err, ErrSessionAccountClosed)
 }
 
 // sameRevocationStamp reports whether two sessions_valid_after values are the

@@ -106,10 +106,27 @@ func TestLockSessionAccount(t *testing.T) {
 			if tc.wantCode == apperrors.CodeAccountInactive && errors.Is(err, ErrSessionRevoked) {
 				t.Errorf("an account refusal is not a revocation: %v", err)
 			}
+			if tc.wantCode == apperrors.CodeAccountInactive && !errors.Is(err, ErrSessionAccountClosed) {
+				t.Errorf("an account refusal wraps ErrSessionAccountClosed: %v", err)
+			}
 			if refusal.Internal == nil {
 				t.Error("the refusal names the account in its internal error")
 			}
 		})
+	}
+}
+
+// IsSessionRefusal knows the helper's refusals by their causes, not by code:
+// an ACCOUNT_INACTIVE from anywhere else is not a session refusal.
+func TestIsSessionRefusal_OnlyTheHelpersRefusals(t *testing.T) {
+	if IsSessionRefusal(apperrors.ErrAccountInactive()) {
+		t.Error("a bare ACCOUNT_INACTIVE is not the helper's refusal")
+	}
+	if IsSessionRefusal(apperrors.ErrTokenInvalid(errors.New("malformed"))) {
+		t.Error("a TOKEN_INVALID for another cause is not the helper's refusal")
+	}
+	if IsSessionRefusal(nil) {
+		t.Error("nil is not a refusal")
 	}
 }
 
