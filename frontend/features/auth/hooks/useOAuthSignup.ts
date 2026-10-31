@@ -58,7 +58,8 @@ export function usePendingOAuthSignup() {
  * every sign-up from it for a day: the pending-signup read's `age_refused`
  * status. Read while `enabled`; `refused` is false while unread or when the
  * read fails, since the backend refuses a marked browser's sign-up either way.
- * `settled` is true once the read has answered or failed.
+ * `settled` is true once the read has answered or failed, and whenever it is
+ * not enabled: a disabled query stays pending, and nothing is waiting on it.
  */
 export function useSignupAgeRefused(enabled: boolean): {
   refused: boolean
@@ -69,7 +70,7 @@ export function useSignupAgeRefused(enabled: boolean): {
     select: signup => signup.status === 'age_refused',
     enabled,
   })
-  return { refused: data === true, settled: !isPending }
+  return { refused: data === true, settled: !enabled || !isPending }
 }
 
 /**

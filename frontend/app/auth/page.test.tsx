@@ -714,6 +714,28 @@ describe('AuthPage', () => {
         expect(await screen.findByLabelText('Email')).toBeInTheDocument()
       })
 
+      // Sign in turns the marker read off; the line stays, since no refusal
+      // card is there to say it instead.
+      it('keeps the age line after switching to Sign in', async () => {
+        const user = userEvent.setup()
+        server.use(
+          http.get(`${TEST_API_BASE}/auth/oauth/pending-signup`, () =>
+            HttpResponse.json({ status: 'expired' })
+          )
+        )
+        setSearchParams(`${AUTH_ERROR_CODE_PARAM}=AGE_CONFIRMATION_REQUIRED`)
+        renderWithProviders(<AuthPage />)
+        expect(await screen.findByText(AGE_LINE)).toBeInTheDocument()
+
+        await user.click(screen.getByRole('tab', { name: 'Sign in' }))
+
+        expect(screen.getByRole('tab', { name: 'Sign in' })).toHaveAttribute(
+          'aria-selected',
+          'true'
+        )
+        expect(screen.getByText(AGE_LINE)).toBeInTheDocument()
+      })
+
       // Until the marker read answers, the page cannot know whether the
       // refusal card will say it, so the line waits rather than flashing.
       it('holds the age line until the marker read answers', async () => {

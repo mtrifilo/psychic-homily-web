@@ -270,17 +270,24 @@ func TestOAuthCallbackDeclinedAtGoogle(t *testing.T) {
 	}
 }
 
-// The decline carries the sign-in's destination back, as every refusal does.
+// The decline carries the sign-in's destination back, as every refusal does,
+// and spends the destination cookie.
 func TestOAuthCallbackDeclinedAtGoogle_KeepsTheDestination(t *testing.T) {
 	req := callbackRequest("google", "error=access_denied&state=s")
 	req.AddCookie(returnToCookie("/shows"))
 
-	query := errorRedirectQuery(t, declineHandler(t), req, errorRedirectFrontendURL+"/auth")
+	w := httptest.NewRecorder()
+	declineHandler(t).OAuthCallbackHTTPHandler(w, req)
 
-	want := url.Values{"error_code": {"OAUTH_CANCELLED"}, "returnTo": {"/shows"}}
-	if query.Encode() != want.Encode() {
-		t.Errorf("query = %q, want exactly %q", query.Encode(), want.Encode())
+	location, err := url.Parse(w.Header().Get("Location"))
+	if err != nil {
+		t.Fatalf("unparseable Location %q: %v", w.Header().Get("Location"), err)
 	}
+	want := url.Values{"error_code": {"OAUTH_CANCELLED"}, "returnTo": {"/shows"}}
+	if got := location.Query(); got.Encode() != want.Encode() {
+		t.Errorf("query = %q, want exactly %q", got.Encode(), want.Encode())
+	}
+	assertReturnToCleared(t, w.Result())
 }
 
 // Only Google's decline is named, because the auth page's line for the code
@@ -325,8 +332,8 @@ func cliCallbackRequest(t *testing.T, rawQuery string) *http.Request {
 	return req
 }
 
-// The loopback CLI redirect keeps the message it has always carried, so an
-// older CLI still reads it, and carries the code beside it.
+// The loopback CLI redirect carries the message a CLI reads and the code
+// beside it.
 func TestOAuthCallbackErrorRedirect_CLICarriesMessageAndCode(t *testing.T) {
 	termsRefusal := autherrors.ErrTermsAcceptanceRequired("no consent")
 
