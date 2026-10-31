@@ -25,8 +25,9 @@
  *
  * Scope: this governs psychichomily.com only, and it is the file that governs
  * crawler access to pages. api.psychichomily.com serves the JSON those pages
- * read and a robots.txt of its own, defined in
- * backend/internal/api/handlers/system/robots.go.
+ * read, calendar and Atom feeds for subscribers, and email unsubscribe pages.
+ * Its own robots.txt, defined in backend/internal/api/handlers/system/robots.go,
+ * lets crawlers reach the feeds only.
  *
  * Every token below was verified against the operator's own documentation
  * (linked inline) rather than from memory; tokens and their semantics change.
