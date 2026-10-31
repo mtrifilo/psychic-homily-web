@@ -87,6 +87,7 @@ import * as Sentry from '@sentry/nextjs'
 import ArtistPage, { generateMetadata } from './page'
 import { ArtistShowsList } from '@/features/artists/components/ArtistShowsList'
 import { ArtistDetail } from '@/features/artists/components/ArtistDetail'
+import { ArtistSimilarSidebar } from '@/features/artists/components/RelatedArtists'
 import { CreateCollectionDrawerProvider } from '@/features/collections/components/CreateCollectionDrawer'
 import { useArtistReleases } from '@/features/releases/hooks/useReleases'
 import { resetServerFetchReportThrottleForTests } from '@/lib/ssr/reportServerFetchFailure'
@@ -248,19 +249,39 @@ function releasesBody(releases: unknown[]) {
   return { releases, count: releases.length }
 }
 
+function graphNode(id: number, name: string, slug: string) {
+  return { id, name, slug, upcoming_show_count: 0 }
+}
+
+function graphBody(
+  links: unknown[] = [],
+  nodes: unknown[] = [],
+  centerId = ARTIST_ID,
+) {
+  return {
+    center: graphNode(centerId, 'Headliner Band', 'headliner-band'),
+    nodes,
+    links,
+    user_votes: {},
+  }
+}
+
 const isReleasesRead = (url: string) => /\/artists\/[^/]+\/releases(\?|$)/.test(url)
 const isShowsRead = (url: string) => url.includes('/shows?')
+const isGraphRead = (url: string) => /\/artists\/[^/]+\/graph(\?|$)/.test(url)
 
-/** Route the page's three reads by URL; returns every URL requested. */
+/** Route the page's four reads by URL; returns every URL requested. */
 function stubBackend(
   shows: () => Response,
   artist: () => Response = () => okResponse(buildArtist({ id: ARTIST_ID })),
   releases: () => Response = () => jsonBodyResponse(releasesBody([])),
+  graph: () => Response = () => jsonBodyResponse(graphBody()),
 ) {
   const calls: string[] = []
   fetchMock.mockImplementation(async (url: string) => {
     calls.push(String(url))
     if (isReleasesRead(String(url))) return releases()
+    if (isGraphRead(String(url))) return graph()
     return isShowsRead(String(url)) ? shows() : artist()
   })
   return calls
@@ -349,7 +370,7 @@ describe('ArtistPage upcoming shows', () => {
     expect(url.pathname).toMatch(/\/artists\/weird%2Fslug%3Fx\/shows$/)
     expect(url.searchParams.get('limit')).toBe('200')
     expect(url.searchParams.get('time_filter')).toBe('upcoming')
-    expect(calls).toHaveLength(3)
+    expect(calls).toHaveLength(4)
   })
 
   it('asks for a zero-padded numeric id by its unpadded form', async () => {
@@ -459,6 +480,7 @@ describe('ArtistPage upcoming shows', () => {
     expect(seededQueries(page).map(q => q.queryKey.slice(0, 2).join('/'))).toEqual([
       'artists/detail',
       'releases/artist',
+      'artists/graph',
     ])
     const html = serverRenderUpcoming(page)
     expect(html).toContain(LOADER)
@@ -676,6 +698,200 @@ describe('ArtistPage discography', () => {
     )
     // The server asked the question the hook asks.
     expect(releasesCalls(browserCalls)[0]).toBe(releasesCalls(serverCalls)[0])
+  })
+})
+
+// ── Page body: the Similar artists seed ───────────────────────────────────
+
+const KINDRED = graphNode(51, 'Kindred Spirits', 'kindred-spirits')
+const BILL_MATE = graphNode(52, 'Bill Mates', 'bill-mates')
+
+/** Two neighbours with one reason each: a similarity score, and shared bills. */
+function richGraphBody(centerId = ARTIST_ID) {
+  return graphBody(
+    [
+      { source_id: centerId, target_id: KINDRED.id, type: 'similar', score: 0.85, votes_up: 3, votes_down: 0 },
+      {
+        source_id: centerId,
+        target_id: BILL_MATE.id,
+        type: 'shared_bills',
+        score: 0.4,
+        votes_up: 0,
+        votes_down: 0,
+        detail: { shared_count: 4 },
+      },
+    ],
+    [KINDRED, BILL_MATE],
+    centerId,
+  )
+}
+
+/** Stub the page's reads with no upcoming shows and the given graph answer. */
+const stubGraph = (graph: () => Response) =>
+  stubBackend(reply(upcomingBody([])), undefined, undefined, graph)
+
+function seededGraphQuery(page: ReactElement) {
+  return seededQueries(page).find(
+    q => q.queryKey[0] === 'artists' && q.queryKey[1] === 'graph',
+  )
+}
+
+/** The markup of the page's sidebar, which holds the Similar artists list. */
+function asideOf(html: string): string {
+  const match = html.match(/<aside data-testid="artist-sidebar"[\s\S]*?<\/aside>/)
+  expect(match).not.toBeNull()
+  return match![0]
+}
+
+const occurrences = (html: string, text: string) => html.split(text).length - 1
+
+describe('ArtistPage similar artists', () => {
+  afterEach(() => {
+    vi.unstubAllEnvs()
+  })
+
+  it('asks for the graph by the numeric id, with no parameters, once the artist resolves', async () => {
+    const calls = stubGraph(reply(richGraphBody()))
+
+    await renderPage('0042')
+
+    const graphCalls = calls.filter(isGraphRead)
+    expect(graphCalls).toHaveLength(1)
+    const url = new URL(graphCalls[0])
+    expect(url.pathname).toMatch(/\/artists\/42\/graph$/)
+    expect(url.search).toBe('')
+  })
+
+  // Pins the SEED's key spelling as a literal, so it cannot agree with a
+  // shared helper while both drift. That the list reads this entry is proven
+  // by the server-render test below, which runs the real component and hook.
+  it('seeds the graph under the key the list hook registers', async () => {
+    const body = richGraphBody()
+    stubGraph(reply(body))
+
+    const seeded = seededGraphQuery(await renderPage())
+
+    expect(seeded?.queryKey).toEqual(['artists', 'graph', String(ARTIST_ID), undefined])
+    expect(seeded?.state.data).toEqual(body)
+  })
+
+  it('stamps the seeded graph stale, so the browser revalidates it on mount', async () => {
+    stubGraph(reply(richGraphBody()))
+
+    expect(seededGraphQuery(await renderPage())?.state.dataUpdatedAt).toBe(0)
+  })
+
+  it('puts the similar artists, their links and their reasons in the server-rendered sidebar', async () => {
+    stubGraph(reply(richGraphBody()))
+
+    const html = serverRenderArtistDetail(await renderPage())
+    const aside = asideOf(html)
+
+    expect(aside).toContain('Similar artists')
+    for (const node of [KINDRED, BILL_MATE]) {
+      expect(aside).toContain(`href="/artists/${node.slug}"`)
+      expect(aside).toContain(node.name)
+      // One node for every viewport: the name is nowhere else in the page.
+      expect(occurrences(html, node.name)).toBe(1)
+    }
+    expect(aside).toContain('85% similar')
+    expect(aside).toContain('4 shared shows')
+    expect(aside).toContain('Shared Bills')
+  })
+
+  it('still renders the page, without the list, when the graph read fails', async () => {
+    stubGraph(reply({}, 500))
+
+    const page = await renderPage()
+    const html = serverRenderArtistDetail(page)
+
+    expect(seededGraphQuery(page)).toBeUndefined()
+    // The other seeds do not depend on the graph read.
+    expect(seededShowsQuery(page)).toBeDefined()
+    expect(seededReleasesQuery(page)).toBeDefined()
+    expect(asideOf(html)).not.toContain('Similar artists')
+    expect(Sentry.captureMessage).toHaveBeenCalledWith(
+      'artist-page-similar-artists: API returned 500',
+      expect.objectContaining({
+        tags: {
+          service: 'artist-page-similar-artists',
+          path_family: '/artists/{id}/graph',
+          status: '500',
+        },
+      }),
+    )
+  })
+
+  it('withholds a graph centred on a different artist', async () => {
+    stubGraph(reply(richGraphBody(ARTIST_ID + 1)))
+
+    expect(seededGraphQuery(await renderPage())).toBeUndefined()
+  })
+
+  it('withholds and reports a graph with no links array', async () => {
+    const noLinks: Record<string, unknown> = richGraphBody()
+    delete noLinks.links
+    stubGraph(reply(noLinks))
+
+    expect(seededGraphQuery(await renderPage())).toBeUndefined()
+    expect(Sentry.captureMessage).toHaveBeenCalledWith(
+      'artist-page-similar-artists: response has no "links" array',
+      expect.objectContaining({ tags: { service: 'artist-page-similar-artists' } }),
+    )
+  })
+
+  // An artist with no relationships seeds its empty graph, and the anonymous
+  // server HTML carries no Similar artists section at all.
+  it('server-renders no Similar artists section for an artist with no relationships', async () => {
+    stubGraph(reply(graphBody()))
+
+    const page = await renderPage()
+    const html = serverRenderArtistDetail(page)
+
+    expect(seededGraphQuery(page)?.state.data).toEqual(graphBody())
+    expect(html).not.toContain('Similar artists')
+  })
+
+  it('sends the server-read secret on the graph read', async () => {
+    vi.stubEnv('SERVER_READ_SECRET', 'artist-page-secret-0123456789abcdef0123')
+    stubGraph(reply(richGraphBody()))
+
+    await renderPage()
+
+    const call = fetchMock.mock.calls.find(([url]) => isGraphRead(String(url)))
+    expect((call?.[1] as RequestInit).headers).toEqual({
+      'X-Server-Read-Secret': 'artist-page-secret-0123456789abcdef0123',
+    })
+  })
+
+  it('replaces the seeded list with the live read once mounted', async () => {
+    const serverCalls = stubGraph(reply(richGraphBody()))
+    const states = boundaryStatesOf(await renderPage())
+    const lateNode = graphNode(53, 'Late Addition', 'late-addition')
+    // The browser's own read answers with a neighbour the seed did not have.
+    const browserCalls = stubGraph(
+      reply(
+        graphBody(
+          [{ source_id: ARTIST_ID, target_id: lateNode.id, type: 'similar', score: 0.5, votes_up: 0, votes_down: 0 }],
+          [lateNode],
+        ),
+      ),
+    )
+
+    const { container } = render(
+      underPageBoundaries(
+        states,
+        testClient(),
+        <ArtistSimilarSidebar artistId={ARTIST_ID} artistSlug="headliner-band" onOpenGraph={() => {}} />,
+      ),
+    )
+
+    expect(container.innerHTML).toContain('href="/artists/kindred-spirits"')
+    await waitFor(() =>
+      expect(container.innerHTML).toContain('href="/artists/late-addition"'),
+    )
+    // The server asked the question the hook asks.
+    expect(browserCalls.filter(isGraphRead)[0]).toBe(serverCalls.filter(isGraphRead)[0])
   })
 })
 
