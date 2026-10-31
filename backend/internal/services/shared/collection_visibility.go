@@ -35,7 +35,7 @@ import (
 // community/collection.go, which decide a collection the same way for everybody
 // and spell `is_public = true` by hand: ListCollections (under its PublicOnly
 // filter) and GetUserPublicCollections, whose whole contract is the public
-// tier. The catalog listings spell it by hand too. The
+// tier. The catalog listings take PublicListedCollectionSQL instead. The
 // `!IsPublic && CreatorID != userID` tests inside services/community/collection.go
 // are the Go spelling of the same rule at the route boundary, where there is no
 // query to splice a predicate into.
@@ -73,11 +73,11 @@ import (
 //     PUT /collections/{slug}/feature reaches one too, and it is listed here
 //     because the code does not test visibility rather than because it needs to:
 //     it publishes nothing (empty response, and both featured-collection chart
-//     surfaces filter `is_public = true`), so what it leaves is a 200-vs-404
-//     slug oracle bounded to the admin group. Whether an admin may pre-feature
-//     an unpublished collection is a product question, and the suite encodes
-//     today that they may. Featuring a closed creator's collection answers as
-//     an unused slug; un-featuring one still succeeds.
+//     surfaces carry only what PublicListedCollectionSQL lists), so what it
+//     leaves is a 200-vs-404 slug oracle bounded to the admin group. Whether an
+//     admin may pre-feature an unpublished collection is a product question, and
+//     the suite encodes today that they may. Featuring a closed creator's
+//     collection answers as an unused slug; un-featuring one still succeeds.
 //     The rule this file states is about the tiers a NON-admin surface answers
 //     for, and adding an admin tier here would extend those powers to the
 //     watching list, the inbox, the item writes and the comment fan-out, which is

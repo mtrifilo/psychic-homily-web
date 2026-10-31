@@ -32,7 +32,8 @@ import (
 //     creator. What a LISTING of many collections decides on: browse, the
 //     entity's collections list, the featured collection, the scene rail, tag
 //     pages and the tag intersection. CollectionCreatorIsListedSQL beside the
-//     visible predicate.
+//     visible predicate, and PublicListedCollectionSQL for the public-tier
+//     listings.
 //
 // No viewer-facing surface decides on VISIBLE alone. VISIBLE is the building
 // block the other two are made of. A route that must still reach a closed
@@ -95,6 +96,32 @@ func CollectionCreatorIsListedSQL(alias string, viewer contracts.ShowViewer) (st
 func ServedCollectionPredicateSQL(alias string, viewer contracts.ShowViewer) (string, []interface{}) {
 	visible, args := VisibleCollectionPredicateSQL(alias, viewer)
 	return "(" + visible + " AND " + CollectionCreatorIsLiveSQL(alias) + ")", args
+}
+
+// PublicListedCollectionSQL returns the condition, true for the rows of the
+// collections table alias that a PUBLIC-TIER listing may carry: public, with a
+// live creator whose profile is public. A public-tier listing answers the same
+// for every caller, so this takes no viewer, and it binds nothing, so it fits a
+// raw SQL string and a GORM Where alike.
+//
+// alias is SQL the CALLER controls and must be a literal in the calling code.
+func PublicListedCollectionSQL(alias string) string {
+	// The anonymous forms of both conditions bind nothing: with no viewer id
+	// neither has a creator branch.
+	visible, _ := VisibleCollectionPredicateSQL(alias, contracts.ShowViewer{})
+	listed, _ := CollectionCreatorIsListedSQL(alias, contracts.ShowViewer{})
+	return "(" + visible + " AND " + listed + ")"
+}
+
+// PublicListedCollectionExistsSQL returns a correlated EXISTS condition, true
+// when the collection named by collectionIDExpr is one a public-tier listing may
+// carry (PublicListedCollectionSQL). For a listing that holds collection ids in
+// another table's column, such as a tag's entity_tags rows. It binds nothing.
+//
+// collectionIDExpr is SQL the CALLER controls and must be a literal in the
+// calling code, never qualified with visibleCollectionsAlias.
+func PublicListedCollectionExistsSQL(collectionIDExpr string) string {
+	return collectionExistsSQL(collectionIDExpr, PublicListedCollectionSQL(visibleCollectionsAlias))
 }
 
 // CollectionServedTo reports whether viewer may be served collection

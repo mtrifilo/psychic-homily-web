@@ -140,6 +140,17 @@ func TestCollectionServedSpellingsRefuseAClosedCreator(t *testing.T) {
 					}
 				}
 
+				// The public-tier listing rule: served to the public AND a public
+				// profile.
+				wantListed := isPublic && state.live && state.public
+				if got := countCollectionsMatching(t, td.DB, collection.ID, shared.PublicListedCollectionSQL("collections"), nil) > 0; got != wantListed {
+					t.Errorf("PublicListedCollectionSQL = %v, want %v", got, wantListed)
+				}
+				if got := countEntityRowMatching(t, td.DB, shared.CommentEntityTypeCollection, collection.ID,
+					shared.PublicListedCollectionExistsSQL("e.entity_id"), nil) > 0; got != wantListed {
+					t.Errorf("PublicListedCollectionExistsSQL = %v, want %v", got, wantListed)
+				}
+
 				// Reopening serves it again: nothing was scrubbed.
 				if !state.live {
 					testutil.ReopenAccount(t, td.DB, creatorID)

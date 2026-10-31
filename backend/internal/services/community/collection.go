@@ -2588,8 +2588,9 @@ func (s *CollectionService) SetFeatured(slug string, featured bool, actorID uint
 
 	// NO VISIBILITY TEST, and this is the third admin write that reaches a private
 	// collection. It publishes nothing: the response is empty, and both
-	// charts_featured_collection.go surfaces filter `is_public = true`, so a
-	// featured private collection appears nowhere until its creator publishes it.
+	// charts_featured_collection.go surfaces carry only what a public-tier
+	// listing may (shared.PublicListedCollectionSQL), so a featured private
+	// collection appears nowhere until its creator publishes it.
 	// What an admin gets is a 200 where an unused slug gets a 404, which is a
 	// slug-existence oracle bounded to the admin group. Recorded here and in
 	// services/shared/collection_visibility.go rather than closed, because

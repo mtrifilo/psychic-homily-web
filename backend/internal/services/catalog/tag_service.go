@@ -1371,19 +1371,18 @@ func (s *TagService) GetTagEntities(tagID uint, entityType string, limit, offset
 	// what a gate on this listing exists to prevent.
 	//
 	// PUBLIC tier for both arms: this route is anonymous, and a tag's membership
-	// is a shared listing whose contents must not vary by credential. The
-	// anonymous ShowViewer is what makes ServedCollectionExistsSQL collapse to
-	// `is_public = TRUE` with a live creator.
+	// is a shared listing whose contents must not vary by credential. A tagged
+	// collection is listed on the public-tier listing rule
+	// (shared.PublicListedCollectionSQL), which is the rule enrichCollections
+	// applies below.
 	visibleShows, visibleShowsArgs := shared.VisibleShowExistsSQL(
 		"entity_tags.entity_id", contracts.ShowViewer{})
 	query = query.Where(
 		"(entity_tags.entity_type <> ? OR "+visibleShows+")",
 		append([]interface{}{catalogm.TagEntityShow}, visibleShowsArgs...)...)
-	visibleCollections, visibleCollectionsArgs := shared.ServedCollectionExistsSQL(
-		"entity_tags.entity_id", contracts.ShowViewer{})
 	query = query.Where(
-		"(entity_tags.entity_type <> ? OR "+visibleCollections+")",
-		append([]interface{}{catalogm.TagEntityCollection}, visibleCollectionsArgs...)...)
+		"(entity_tags.entity_type <> ? OR "+shared.PublicListedCollectionExistsSQL("entity_tags.entity_id")+")",
+		catalogm.TagEntityCollection)
 
 	var total int64
 	if err := query.Count(&total).Error; err != nil {
@@ -1884,9 +1883,10 @@ func (s *TagService) enrichShows(ids []uint) map[uint]contracts.TaggedEntityItem
 
 // enrichCollections resolves tagged collections to (title → name, slug).
 //
-// PSY-553: tag detail is public, so private collections must NOT leak
-// through this surface even when tagged — the `is_public = true` filter is
-// load-bearing. Excluded collections (private OR deleted) are dropped from
+// Tag detail is public, so it names only the collections a public-tier listing
+// may carry (shared.PublicListedCollectionSQL): public, with a live creator
+// whose profile is public. The filter is load-bearing. Excluded collections
+// (private, a closed or private-profile creator's, or deleted) are dropped from
 // the response in the build loop above via the matching collection-type
 // continue branch. On query error we return an empty map (drop all) rather
 // than fall back to `enrichBare` because `entityTableMap` has no collection
@@ -1906,7 +1906,7 @@ func (s *TagService) enrichCollections(ids []uint) map[uint]contracts.TaggedEnti
 		       COALESCE(slug, '') AS slug
 		FROM collections
 		WHERE id IN ?
-		  AND is_public = true
+		  AND `+shared.PublicListedCollectionSQL("collections")+`
 	`, ids).Scan(&rows).Error; err != nil {
 		return out
 	}

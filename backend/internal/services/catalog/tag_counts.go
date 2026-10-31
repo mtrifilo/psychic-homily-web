@@ -126,15 +126,16 @@ func (s *TagService) visibleTagUsageCountQuery(entityType string, cities []contr
 // THE TAGGED ENTITY'S OWN RULE, from the registry, spliced unconditionally: this
 // count is rendered on the same anonymous listing whose membership is filtered,
 // so counting rows the listing withholds would report by subtraction how many
-// carry each tag. VisibleEntityExistsSQL answers TRUE for a type with no rule,
-// so there is no per-type branch here to keep in step with the registry.
+// carry each tag. It is the entity_tags gate every other tag count takes
+// (shared.VisibleEntityTagsSQL), which also counts a collection's rows only
+// where the collection is listed, so there is no per-type branch here to keep in
+// step with the registry.
 //
 // `show` and `festival` never reach this function: visibleTagUsageCountQuery
 // routes both to the transitive branch above, which carries the container's rule
 // from the same registry.
 func directEntityTypeTagUsageQuery(entityType string) tagUsageCountQuery {
-	visible, visibleArgs := shared.VisibleEntityExistsSQL(
-		entityType, "entity_tags.entity_id", contracts.ShowViewer{})
+	visible, visibleArgs := shared.VisibleEntityTagsSQL("entity_tags", contracts.ShowViewer{})
 	// Placeholders bind by POSITION: the entity type is compared first, the
 	// visibility arguments follow it.
 	args := []interface{}{entityType}

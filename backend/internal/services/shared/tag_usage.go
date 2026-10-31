@@ -45,6 +45,11 @@ import (
 // listing whose contents varied by credential would report the difference.
 // Passing a viewer would also make the number vary between two callers looking
 // at the same page, which is a second way to say the same thing.
+//
+// A TAG ROW ON A COLLECTION COUNTS WHERE THE COLLECTION IS LISTED. The tag's
+// pages list collections on the listing rule (collection_creator_state.go), so a
+// private-profile creator's public collection is served at its slug but absent
+// from the tag page, and its tag rows leave the counts beside that page with it.
 
 // VisibleEntityTagsSQL returns a condition, true for the entity_tags rows whose
 // TAGGED ENTITY viewer may see, plus its bind arguments.
@@ -53,12 +58,32 @@ import (
 // VisibleCommentEntitySQL rather than writing its own arms, so entity_tags rows
 // and comment rows are decided by one registry: a tag row naming an entity type
 // nobody dispositioned does not pass, exactly as a comment row naming one does
-// not.
+// not. A row naming a collection must also be one a listing may carry for
+// viewer (listedCollectionTagRowsSQL).
 //
 // alias is the table alias the enclosing query binds entity_tags to and is a
 // literal in the calling code.
 func VisibleEntityTagsSQL(alias string, viewer contracts.ShowViewer) (string, []interface{}) {
-	return VisibleCommentEntitySQL(alias+".entity_type", alias+".entity_id", viewer)
+	visible, visibleArgs := VisibleCommentEntitySQL(alias+".entity_type", alias+".entity_id", viewer)
+	listed, listedArgs := listedCollectionTagRowsSQL(alias, viewer)
+	// Placeholders bind by POSITION: the visible condition is written first.
+	args := append(append([]interface{}{}, visibleArgs...), listedArgs...)
+	return "(" + visible + " AND " + listed + ")", args
+}
+
+// listedTagCollectionAlias is the alias listedCollectionTagRowsSQL binds the
+// collections table to. Distinct from every other collection alias in this
+// package, for the reason visibleCollectionsAlias gives.
+const listedTagCollectionAlias = "listed_tag_collection"
+
+// listedCollectionTagRowsSQL returns the arm, true for the entity_tags rows
+// under alias that name no collection, or name one a listing may carry for
+// viewer (CollectionCreatorIsListedSQL), plus its bind arguments. The anonymous
+// form binds nothing.
+func listedCollectionTagRowsSQL(alias string, viewer contracts.ShowViewer) (string, []interface{}) {
+	listed, args := CollectionCreatorIsListedSQL(listedTagCollectionAlias, viewer)
+	return commentEntityArmSQL(alias+".entity_type", CommentEntityTypeCollection,
+		entityExistsSQL("collections", listedTagCollectionAlias, alias+".entity_id", listed)), args
 }
 
 // PublicEntityTagsSQL is VisibleEntityTagsSQL's public tier, inlined so it binds
@@ -73,7 +98,8 @@ func VisibleEntityTagsSQL(alias string, viewer contracts.ShowViewer) (string, []
 // alias is the table alias the enclosing query binds entity_tags to and is a
 // literal in the calling code.
 func PublicEntityTagsSQL(alias string) string {
-	return PublicEntityTypeArmsSQL(alias+".entity_type", alias+".entity_id")
+	listed, _ := listedCollectionTagRowsSQL(alias, contracts.ShowViewer{})
+	return "(" + PublicEntityTypeArmsSQL(alias+".entity_type", alias+".entity_id") + " AND " + listed + ")"
 }
 
 // VisibleTagUsageCounts returns, per tag id, the number of entity_tags rows
