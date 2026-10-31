@@ -201,8 +201,10 @@ func TestLockSessionAccount_WaitsForAnInFlightRevocationThenRefuses(t *testing.T
 	if revocation.Error != nil {
 		t.Fatalf("begin revocation: %v", revocation.Error)
 	}
+	// Ends the revocation when the test fails before committing it, so its row
+	// lock cannot stall the account's cleanup. A no-op after the commit.
+	t.Cleanup(func() { revocation.Rollback() })
 	if err := revocation.Exec(revokeSQL, revokedAt, account.ID).Error; err != nil {
-		revocation.Rollback()
 		t.Fatalf("revoke: %v", err)
 	}
 
