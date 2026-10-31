@@ -67,14 +67,16 @@ func (s *AuthService) OAuthLogin(w http.ResponseWriter, r *http.Request, provide
 }
 
 // CompleteOAuthLink finishes the provider handshake and attaches the resulting
-// identity to userID, which the caller has already authenticated. No session is
-// issued and no token is returned: the caller already holds one, and a link
-// must never be able to change who the browser is signed in as.
+// identity to userID, which the caller has already authenticated with a
+// session whose revocation stamp is sessionsValidAfter. No session is issued
+// and no token is returned: the caller already holds one, and a link must
+// never be able to change who the browser is signed in as.
 //
-// The caller's proof of userID is a session it holds, not a loaded account, so
-// the account's state is read here: an account that may not hold a session
-// (authm.User.CanSignIn) may not gain a way to sign in either. Refusals are
-// the ones contracts.AuthServiceInterface.CompleteOAuthLink documents.
+// It reads no account itself. The link write judges the account and the
+// session in its own transaction (UserServiceInterface.LinkOAuthAccountToUser),
+// which covers every change that lands during the round trip to the provider.
+// Refusals are the ones contracts.AuthServiceInterface.CompleteOAuthLink
+// documents.
 func (s *AuthService) CompleteOAuthLink(
 	w http.ResponseWriter,
 	r *http.Request,
@@ -89,16 +91,6 @@ func (s *AuthService) CompleteOAuthLink(
 	gothUser, err := s.oauthCompleter.CompleteUserAuth(w, r)
 	if err != nil {
 		return nil, fmt.Errorf("OAuth completion failed: %w", err)
-	}
-
-	// Read after the handshake, so the round trip to the provider is not a
-	// window in which a change to the account goes unseen.
-	account, err := s.userService.GetUserByID(userID)
-	if err != nil {
-		return nil, fmt.Errorf("failed to load account to link: %w", err)
-	}
-	if !account.CanSignIn() {
-		return nil, refuseInactiveAccount(userID)
 	}
 
 	linked, err := s.userService.LinkOAuthAccountToUser(userID, sessionsValidAfter, gothUser, provider)

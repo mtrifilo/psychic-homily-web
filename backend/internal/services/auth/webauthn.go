@@ -174,12 +174,6 @@ func withRefusedAccount(refusal *apperrors.AuthError, userID uint) *apperrors.Au
 	return refusal
 }
 
-// refuseInactiveAccount is apperrors.ErrAccountInactive for account userID
-// (withRefusedAccount).
-func refuseInactiveAccount(userID uint) *apperrors.AuthError {
-	return withRefusedAccount(apperrors.ErrAccountInactive(), userID)
-}
-
 // signInLookupError is the error for a sign-in lookup of what that returned
 // err: a refusal when the row does not exist, a failure otherwise.
 func signInLookupError(what string, err error) error {

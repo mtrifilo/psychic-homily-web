@@ -269,10 +269,11 @@ func (h *OAuthHTTPHandler) completeOAuthLink(
 	// intent cookie either, so it survives the obvious precaution.
 	//
 	// This is also the account-state gate: a session whose account may no
-	// longer sign in is refused here, before the provider token exchange.
-	// CompleteOAuthLink re-reads the account after the exchange, and the link
-	// write checks it again inside its transaction; those catch a change that
-	// lands during the round trip, and are not the gate.
+	// longer sign in is refused here, before the provider token exchange. The
+	// link write checks the account again inside its transaction, and checks
+	// that this session's revocation stamp is still the account's, so a
+	// closure or a revocation that lands during the round trip is refused
+	// there.
 	//
 	// ACCOUNT_INACTIVE is reported only when the closed account is the one the
 	// intent names, so the code tells a caller nothing about any account but
@@ -325,8 +326,8 @@ func (h *OAuthHTTPHandler) completeOAuthLink(
 			redirectToLinkResult(w, r, frontendURL, oauthLinkErrorReauthRequired)
 			return
 		}
-		// The account can close during the exchange, and the reads after it
-		// report that with the same code the session gate does.
+		// The account can close during the exchange, and the link write
+		// reports that with the same code the session gate does.
 		code := refusalCode(err, autherrors.CodeUnknown)
 		if code == autherrors.CodeAccountInactive {
 			redirectToAccountUnavailable(w, r, frontendURL)
