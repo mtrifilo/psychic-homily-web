@@ -66,7 +66,8 @@ func assertAuthPage(t *testing.T, loc *url.URL, returnTo string) {
 	if got, want := loc.Scheme+"://"+loc.Host+loc.Path, "https://psychichomily.com/auth"; got != want {
 		t.Errorf("redirects to %q, want %q", got, want)
 	}
-	want := url.Values{"error_code": {OAuthRedirectRateLimitedCode}}
+	// The literal, not the constant: the frontend reads this exact value.
+	want := url.Values{"error_code": {"RATE_LIMITED"}}
 	if returnTo != "" {
 		want.Set(oauthReturnToParam, returnTo)
 	}

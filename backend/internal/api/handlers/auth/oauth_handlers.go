@@ -102,12 +102,18 @@ func refusalWithOwnCopy(err error) (*autherrors.AuthError, bool) {
 // AUTH_REASON_PARAM (frontend/lib/auth-href.ts).
 //
 // The page renders fixed copy for each code and never text from its URL, so
-// no redirect to it carries a message. cliErrorParam is the loopback CLI
-// redirect's message key; the auth page never receives it.
+// no redirect to it carries a message.
 const (
 	authPageErrorCodeParam = "error_code"
 	authPageReasonParam    = "reason"
-	cliErrorParam          = "error"
+)
+
+// The loopback CLI redirect's keys for a failed sign-in: the message older
+// CLIs read, and the code beside it. A wire contract with out-of-repo clients,
+// separate from the auth page's.
+const (
+	cliErrorParam     = "error"
+	cliErrorCodeParam = "error_code"
 )
 
 // oauthCallbackFailedMessage is the CLI's message for a failed sign-in whose
@@ -144,7 +150,7 @@ func declinedAtProvider(provider string, r *http.Request) bool {
 // on the auth page with the sign-in's destination.
 func redirectSignInFailure(w http.ResponseWriter, r *http.Request, cliCallback, frontendURL, returnTo, message, code string) {
 	if cliCallback != "" {
-		target := cliCallback + "?" + url.Values{cliErrorParam: {message}, authPageErrorCodeParam: {code}}.Encode()
+		target := cliCallback + "?" + url.Values{cliErrorParam: {message}, cliErrorCodeParam: {code}}.Encode()
 		http.Redirect(w, r, target, http.StatusTemporaryRedirect)
 		return
 	}

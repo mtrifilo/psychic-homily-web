@@ -6,6 +6,8 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+
+	"psychic-homily-backend/internal/legal"
 )
 
 // frontendAuthRefusalCopy is the frontend module holding the fixed copy the
@@ -44,6 +46,16 @@ func TestAuthPageRefusalCopyMatchesTheFrontend(t *testing.T) {
 				"change both, or neither.",
 				frontendAuthRefusalCopy, refusal.Code, strconv.Quote(refusal.UserMessage()))
 		}
+	}
+
+	// The age sentence is a template on the frontend, built from
+	// MIN_SIGNUP_AGE where this package uses legal.MinSignupAge.
+	age := ErrAgeConfirmationRequired("detail").UserMessage()
+	template := "`" + strings.Replace(age, strconv.Itoa(legal.MinSignupAge), "${MIN_SIGNUP_AGE}", 1) + "`"
+	if !strings.Contains(content, template) {
+		t.Errorf("%s does not contain the age refusal sentence as %s.\n"+
+			"The auth page shows this package's sentence for AGE_CONFIRMATION_REQUIRED:\n"+
+			"change both, or neither.", frontendAuthRefusalCopy, template)
 	}
 }
 

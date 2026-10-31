@@ -114,8 +114,9 @@ func assertRefusedToAuthPage(t *testing.T, rr *httptest.ResponseRecorder, path s
 	if got := loc.Scheme + "://" + loc.Host + loc.Path; got != testFrontendAuthPage {
 		t.Errorf("%s redirects to %q, want %q", path, got, testFrontendAuthPage)
 	}
-	if got := loc.Query().Get("error_code"); got != authh.OAuthRedirectRateLimitedCode {
-		t.Errorf("%s error_code = %q, want %q", path, got, authh.OAuthRedirectRateLimitedCode)
+	// The literal, not the constant: the frontend reads this exact value.
+	if got := loc.Query().Get("error_code"); got != "RATE_LIMITED" {
+		t.Errorf("%s error_code = %q, want %q", path, got, "RATE_LIMITED")
 	}
 	if loc.Query().Has("error") {
 		t.Errorf("%s carries error text %q, want none", path, loc.Query().Get("error"))

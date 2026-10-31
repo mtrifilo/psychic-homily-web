@@ -164,14 +164,23 @@ export const REAUTH_REASON_OAUTH_LINK = 'OAUTH_LINK_REAUTH_REQUIRED'
  */
 export const REAUTH_REASON_CREDENTIAL_MINT = 'REAUTH_REQUIRED'
 
+/**
+ * A reason that means "an already-signed-in reader must prove the account".
+ * A copy table keyed by it (the auth page's) fails to compile when a reason is
+ * added without its copy.
+ */
+export type ReauthReason =
+  | typeof REAUTH_REASON_OAUTH_LINK
+  | typeof REAUTH_REASON_CREDENTIAL_MINT
+
 /** Every reason that means "an already-signed-in reader must prove the account". */
-export const REAUTH_REASONS: readonly string[] = [
+export const REAUTH_REASONS: readonly ReauthReason[] = [
   REAUTH_REASON_OAUTH_LINK,
   REAUTH_REASON_CREDENTIAL_MINT,
 ]
 
-export function isReauthReason(reason: string | null): boolean {
-  return reason !== null && REAUTH_REASONS.includes(reason)
+export function isReauthReason(reason: string | null): reason is ReauthReason {
+  return reason !== null && (REAUTH_REASONS as readonly string[]).includes(reason)
 }
 
 /**

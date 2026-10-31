@@ -708,10 +708,32 @@ describe('AuthPage', () => {
           'aria-selected',
           'true'
         )
-        const alert = screen.getByRole('alert')
+        const alert = await screen.findByRole('alert')
         expect(alert).toHaveTextContent(AGE_LINE)
         expect(alert.className).toContain('text-destructive')
         expect(await screen.findByLabelText('Email')).toBeInTheDocument()
+      })
+
+      // Until the marker read answers, the page cannot know whether the
+      // refusal card will say it, so the line waits rather than flashing.
+      it('holds the age line until the marker read answers', async () => {
+        let answer!: () => void
+        const answered = new Promise<void>(resolve => {
+          answer = resolve
+        })
+        server.use(
+          http.get(`${TEST_API_BASE}/auth/oauth/pending-signup`, async () => {
+            await answered
+            return HttpResponse.json({ status: 'expired' })
+          })
+        )
+        setSearchParams(`${AUTH_ERROR_CODE_PARAM}=AGE_CONFIRMATION_REQUIRED`)
+        renderWithProviders(<AuthPage />)
+
+        expect(screen.queryByText(AGE_LINE)).not.toBeInTheDocument()
+
+        answer()
+        expect(await screen.findByText(AGE_LINE)).toBeInTheDocument()
       })
 
       // The refusal card already says it; the line would say it twice.
@@ -915,10 +937,10 @@ describe('AuthPage', () => {
       expectRecoveryOffer()
     })
 
-    it('shows the message of an OAuth refusal with any other code', () => {
+    it('shows the fixed closed-account line, not the recovery offer, for ACCOUNT_INACTIVE', () => {
       setSearchParams(
         new URLSearchParams({
-          error: 'Account unavailable. Please contact support.',
+          error: 'Text the page does not show',
           [AUTH_ERROR_CODE_PARAM]: 'ACCOUNT_INACTIVE',
         }).toString()
       )
@@ -927,6 +949,7 @@ describe('AuthPage', () => {
       expect(
         screen.getByText('Account unavailable. Please contact support.')
       ).toBeInTheDocument()
+      expect(screen.queryByText('Text the page does not show')).not.toBeInTheDocument()
       expect(
         screen.queryByRole('link', { name: ACCOUNT_RECOVERABLE_LINK_TEXT })
       ).not.toBeInTheDocument()

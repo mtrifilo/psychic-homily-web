@@ -16,8 +16,10 @@ const (
 )
 
 // OAuthRedirectRateLimitedCode is the code RedirectRateLimited reports: as
-// error_code on the frontend auth page, or as oauth_link_error on the Settings
-// link result.
+// error_code on the frontend auth page (AuthErrorCode.RATE_LIMITED in
+// frontend/lib/errors/authErrors.ts), or as oauth_link_error on the Settings
+// link result (OAUTH_LINK_ERROR_COPY in
+// frontend/features/auth/components/settings/oauth-accounts.tsx).
 const OAuthRedirectRateLimitedCode = "RATE_LIMITED"
 
 // RedirectRateLimited answers an OAuth start, callback or link start that its

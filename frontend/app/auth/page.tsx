@@ -62,6 +62,7 @@ import {
   asksForCreateAccount,
   isAgeRefusalArrival,
   isReauthReason,
+  type ReauthReason,
 } from '@/lib/auth-href'
 import { markAccountCreatedThisSession } from '@/features/auth/accountCreatedMarker'
 import {
@@ -118,20 +119,19 @@ const CLOSED_ACCOUNT_BANNER: AuthRefusalBanner = {
 }
 
 // The re-authentication copy for each reason: what sent the reader to prove
-// the account. A Map, so a reason taken from the URL can only find these.
-const REAUTH_COPY = new Map<string, { subtitle: string; signInTitle: string }>([
-  [
-    REAUTH_REASON_CREDENTIAL_MINT,
-    { subtitle: REAUTH_REQUIRED_MESSAGE, signInTitle: "Confirm it's you to continue" },
-  ],
-  [
-    REAUTH_REASON_OAUTH_LINK,
-    {
-      subtitle: 'Sign in again to connect a provider to your account.',
-      signInTitle: "Confirm it's you to connect a provider",
-    },
-  ],
-])
+// the account. Keyed by every ReauthReason, so a new reason does not compile
+// without its copy; read only behind isReauthReason, so a reason taken from
+// the URL can only find these.
+const REAUTH_COPY: Record<ReauthReason, { subtitle: string; signInTitle: string }> = {
+  [REAUTH_REASON_CREDENTIAL_MINT]: {
+    subtitle: REAUTH_REQUIRED_MESSAGE,
+    signInTitle: "Confirm it's you to continue",
+  },
+  [REAUTH_REASON_OAUTH_LINK]: {
+    subtitle: 'Sign in again to connect a provider to your account.',
+    signInTitle: "Confirm it's you to connect a provider",
+  },
+}
 
 // Password validation constants
 const MIN_PASSWORD_LENGTH = 12
@@ -910,7 +910,7 @@ function AuthPageContent() {
   // that just refused them, with nothing changed and no way to tell why.
   const reason = searchParams.get(AUTH_REASON_PARAM)
   const isReauth = isReauthReason(reason)
-  const reauthCopy = reason === null ? undefined : REAUTH_COPY.get(reason)
+  const reauthCopy = isReauthReason(reason) ? REAUTH_COPY[reason] : undefined
   const arrivedForClosedAccount = reason === ACCOUNT_INACTIVE_REASON
 
   // Two arrivals open on Create account: a gated control naming the action it
@@ -948,7 +948,8 @@ function AuthPageContent() {
   const offersSignup = !isReauth || authStatus !== 'authenticated'
   // A browser refused for its age within the marker's lifetime sees the
   // refusal on Create account instead of the forms. Sign in is unaffected.
-  const markedRefusedForAge = useSignupAgeRefused(offersSignup && activeTab === 'signup')
+  const ageMarker = useSignupAgeRefused(offersSignup && activeTab === 'signup')
+  const markedRefusedForAge = ageMarker.refused
   // The arrival a sign-up on this page took a claim under. A session that
   // appears after that is the new account's, with no earlier session for a
   // re-authentication to prove, so that arrival stops holding the redirect
@@ -1100,9 +1101,10 @@ function AuthPageContent() {
 
   // The arrival's refusal, in the page's own words. A browser holding the
   // under-age marker already shows the refusal card on Create account, which
-  // says it once; the age line would say it twice.
+  // says it once; the age line would say it twice, so it waits for the marker
+  // read and shows only when the browser holds no marker.
   const refusalBanner =
-    markedRefusedForAge && isAgeRefusalArrival(searchParams)
+    isAgeRefusalArrival(searchParams) && (markedRefusedForAge || !ageMarker.settled)
       ? null
       : authRefusalBannerFor(searchParams)
 

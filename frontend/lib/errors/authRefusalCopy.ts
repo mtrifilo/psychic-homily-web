@@ -12,7 +12,8 @@ export const AUTH_REFUSAL_GENERIC_MESSAGE =
 
 /**
  * /auth, AGE_CONFIRMATION_REQUIRED. The server's message for the code is the
- * same sentence, built from the same minimum age.
+ * same sentence, built from the same minimum age, which a backend test checks
+ * against this template.
  */
 export const AGE_CONFIRMATION_REQUIRED_MESSAGE = `Your account was not created. Psychic Homily accounts are for people ${MIN_SIGNUP_AGE} and over.`
 
