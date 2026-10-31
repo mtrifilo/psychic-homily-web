@@ -56,19 +56,23 @@ import {
 import {
   ACCOUNT_INACTIVE_REASON,
   AUTH_ERROR_CODE_PARAM,
-  AUTH_ERROR_PARAM,
   AUTH_REASON_PARAM,
+  REAUTH_REASON_CREDENTIAL_MINT,
   asksForCreateAccount,
-  isAccountRecoverableRefusal,
   isReauthReason,
 } from '@/lib/auth-href'
 import { markAccountCreatedThisSession } from '@/features/auth/accountCreatedMarker'
 import {
   AuthErrorCode,
+  REAUTH_REQUIRED_MESSAGE,
   isAccountRecoverable,
   isAuthError,
   type AuthError,
 } from '@/lib/errors'
+import {
+  AuthRefusalAlert,
+  authRefusalBannerFor,
+} from '@/app/auth/_components/auth-refusal-banner'
 import { getUniqueErrors } from '@/lib/utils/formErrors'
 import { useSignupAgeRefused } from '@/features/auth/hooks/useOAuthSignup'
 import {
@@ -84,10 +88,7 @@ import {
   ConsentRetryNotice,
   ConsentVersionsChangedNotice,
 } from '@/app/auth/_components/consent-versions-notice'
-import {
-  safeDecodeQueryParam,
-  sanitizeReturnTo,
-} from './auth-redirect-utils'
+import { sanitizeReturnTo } from './auth-redirect-utils'
 import { useAuthArrivalParams } from '@/app/auth/_components/auth-arrival-params'
 import {
   focusControl,
@@ -876,11 +877,6 @@ function AuthPageContent() {
   const searchParams = useAuthArrivalParams(liveSearchParams)
   const { authStatus, isLoading } = useAuthContext()
 
-  // Get error from URL query params (e.g., OAuth errors)
-  const urlError = safeDecodeQueryParam(searchParams.get(AUTH_ERROR_PARAM))
-  // Shown in the page's own words with its recovery link, whatever ?error says.
-  const urlRefusalRecoverable = isAccountRecoverableRefusal(searchParams)
-
   // Get returnTo from URL query params (for redirecting after login)
   const returnTo = sanitizeReturnTo(searchParams.get('returnTo'))
 
@@ -892,6 +888,9 @@ function AuthPageContent() {
   // that just refused them, with nothing changed and no way to tell why.
   const reason = searchParams.get(AUTH_REASON_PARAM)
   const isReauth = isReauthReason(reason)
+  // A refused credential mint, rather than an OAuth link, sent the reader to
+  // prove the account; the copy names the change, not a provider.
+  const isCredentialReauth = reason === REAUTH_REASON_CREDENTIAL_MINT
   const isAccountInactive = reason === ACCOUNT_INACTIVE_REASON
 
   // Two arrivals open on Create account: a gated control naming the action it
@@ -1079,8 +1078,14 @@ function AuthPageContent() {
     )
   }
 
-  // What the banner above the card says, most specific first.
-  const urlBanner = urlRefusalRecoverable ? <AccountRecoverableMessage /> : urlError
+  // The arrival's refusal, in the page's own words. A browser holding the
+  // under-age marker already shows the refusal card on Create account, which
+  // says it once; the age line would say it twice.
+  const refusalBanner =
+    markedRefusedForAge &&
+    searchParams.get(AUTH_ERROR_CODE_PARAM) === AuthErrorCode.AGE_CONFIRMATION_REQUIRED
+      ? null
+      : authRefusalBannerFor(searchParams)
 
   return (
     <div className="flex min-h-[calc(100vh-64px)] items-center justify-center px-4 py-12">
@@ -1094,19 +1099,15 @@ function AuthPageContent() {
             {isReauth ? "Confirm it's you" : 'Welcome to Psychic Homily'}
           </h1>
           <p className="mt-2 text-sm text-muted-foreground">
-            {isReauth
-              ? 'Sign in again to connect a provider to your account.'
-              : "You're welcome to join our community."}
+            {isCredentialReauth
+              ? REAUTH_REQUIRED_MESSAGE
+              : isReauth
+                ? 'Sign in again to connect a provider to your account.'
+                : "You're welcome to join our community."}
           </p>
         </div>
 
-        {/* OAuth/URL Error Display */}
-        {urlBanner && (
-          <Alert variant="destructive" className="mb-6">
-            <AlertCircle className="h-4 w-4" />
-            <AlertDescription>{urlBanner}</AlertDescription>
-          </Alert>
-        )}
+        {refusalBanner && <AuthRefusalAlert banner={refusalBanner} />}
 
         {isAccountInactive && (
           <Alert variant="destructive" className="mb-6">
@@ -1136,11 +1137,13 @@ function AuthPageContent() {
 
               <TabsContent value="login" className="mt-6">
                 <CardTitle className="text-lg">
-                  {isReauth
-                    ? 'Confirm it\'s you to connect a provider'
-                    : collisionEmail !== null
-                      ? 'Sign in to connect Google'
-                      : 'Sign in to your account'}
+                  {isCredentialReauth
+                    ? "Confirm it's you to continue"
+                    : isReauth
+                      ? 'Confirm it\'s you to connect a provider'
+                      : collisionEmail !== null
+                        ? 'Sign in to connect Google'
+                        : 'Sign in to your account'}
                 </CardTitle>
                 {collisionEmail === null && (
                   <CardDescription className="mt-1">

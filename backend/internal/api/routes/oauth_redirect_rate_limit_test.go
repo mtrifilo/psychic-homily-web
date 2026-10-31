@@ -45,7 +45,8 @@ func oauthStartReached(t *testing.T, router http.Handler, ip string) bool {
 
 // oauthCallbackReached reports whether GET /auth/callback/google reached its
 // handler, which answers a handshake it cannot complete by sending the browser
-// to the auth page with its generic failure and no error_code.
+// to the auth page with error_code=UNKNOWN, where the limiter's refusal says
+// RATE_LIMITED.
 func oauthCallbackReached(t *testing.T, router http.Handler, ip string) bool {
 	t.Helper()
 	rr := serveFrom(router, http.MethodGet, "/auth/callback/google", ip)
@@ -56,7 +57,7 @@ func oauthCallbackReached(t *testing.T, router http.Handler, ip string) bool {
 	if err != nil {
 		t.Fatalf("callback Location %q does not parse: %v", rr.Header().Get("Location"), err)
 	}
-	return loc.Query().Get("error") == "authentication failed" && !loc.Query().Has("error_code")
+	return loc.Query().Get("error_code") == "UNKNOWN"
 }
 
 func serveFrom(router http.Handler, method, path, ip string) *httptest.ResponseRecorder {
@@ -105,8 +106,8 @@ func assertRedirectRefusal(t *testing.T, rr *httptest.ResponseRecorder, path str
 }
 
 // assertRefusedToAuthPage requires a refused sign-in redirect: a redirect to
-// the frontend auth page carrying the JSON 429's message and the RATE_LIMITED
-// code.
+// the frontend auth page carrying the RATE_LIMITED code and no message text,
+// which the page would have no use for: it renders fixed copy per code.
 func assertRefusedToAuthPage(t *testing.T, rr *httptest.ResponseRecorder, path string) {
 	t.Helper()
 	loc := assertRedirectRefusal(t, rr, path)
@@ -116,8 +117,8 @@ func assertRefusedToAuthPage(t *testing.T, rr *httptest.ResponseRecorder, path s
 	if got := loc.Query().Get("error_code"); got != authh.OAuthRedirectRateLimitedCode {
 		t.Errorf("%s error_code = %q, want %q", path, got, authh.OAuthRedirectRateLimitedCode)
 	}
-	if got := loc.Query().Get("error"); got != rateLimitExceededMessage {
-		t.Errorf("%s error = %q, want the JSON 429's message %q", path, got, rateLimitExceededMessage)
+	if loc.Query().Has("error") {
+		t.Errorf("%s carries error text %q, want none", path, loc.Query().Get("error"))
 	}
 }
 
@@ -330,7 +331,7 @@ func TestOAuthRedirectRefusalLogsItsOwnLimiter(t *testing.T) {
 	t.Setenv(DisableAuthRateLimitsEnvVar, "")
 	var buf bytes.Buffer
 	log := slog.New(slog.NewJSONHandler(&buf, nil))
-	limited := oauthRedirectRateLimiter(func(w http.ResponseWriter, _ *http.Request, _ string) {
+	limited := oauthRedirectRateLimiter(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusTemporaryRedirect)
 	})(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)

@@ -183,28 +183,46 @@ describe('MagicLinkPage', () => {
     expect(mockPush).toHaveBeenCalledWith('/auth')
   })
 
-  // The page has no card of its own for ACCOUNT_INACTIVE: it shares the
-  // token-refusal card, showing the server's message, and offers no recovery.
-  it('leaves ACCOUNT_INACTIVE on the token-refusal card, without recovery', async () => {
+  // A new link would not help an account that may not sign in, so the card
+  // says so in the page's own words, offers no link and no recovery.
+  it('says it cannot sign the reader in for ACCOUNT_INACTIVE, in its own words', async () => {
     verifyRefusedWith(
-      new AuthError(
-        'Account unavailable. Please contact support.',
-        AuthErrorCode.ACCOUNT_INACTIVE,
-        { status: 401 }
-      )
+      new AuthError('Server copy for the inactive refusal', AuthErrorCode.ACCOUNT_INACTIVE, {
+        status: 401,
+      })
     )
 
     renderWithProviders(<MagicLinkPage />)
 
-    await waitFor(() => {
-      expect(screen.getByText('Link Expired')).toBeInTheDocument()
-    })
+    expect(await screen.findByText("Can't sign you in")).toHaveAttribute(
+      'data-slot',
+      'card-title'
+    )
     expect(
       screen.getByText('Account unavailable. Please contact support.')
     ).toBeInTheDocument()
+    expect(screen.queryByText('Server copy for the inactive refusal')).not.toBeInTheDocument()
+    expect(screen.queryByText('Link Expired')).not.toBeInTheDocument()
+    expect(screen.queryByText(/request a new/i)).not.toBeInTheDocument()
     expect(
       screen.queryByRole('link', { name: ACCOUNT_RECOVERABLE_LINK_TEXT })
     ).not.toBeInTheDocument()
+    expect(screen.getAllByRole('button')).toHaveLength(1)
+
+    screen.getByRole('button', { name: 'Back to Sign In' }).click()
+    expect(mockPush).toHaveBeenCalledWith('/auth')
+  })
+
+  // Every other sub-500 refusal keeps the token-refusal card.
+  it('keeps any other sub-500 refusal on the Link Expired card', async () => {
+    verifyRefusedWith(
+      new AuthError('This account is not active', AuthErrorCode.UNAUTHORIZED, { status: 401 })
+    )
+
+    renderWithProviders(<MagicLinkPage />)
+
+    expect(await screen.findByText('Link Expired')).toBeInTheDocument()
+    expect(screen.queryByText("Can't sign you in")).not.toBeInTheDocument()
   })
 
   it('renders the retry pane (not "Link Expired") for a 5xx error', async () => {

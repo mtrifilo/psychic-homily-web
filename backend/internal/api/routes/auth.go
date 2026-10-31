@@ -166,9 +166,9 @@ func useAuthBudget(group huma.API, limiter func(http.Handler) http.Handler) {
 // the same DISABLE_AUTH_RATE_LIMITS escape hatch as authScopedRateLimiter.
 //
 // A refusal logs as middleware.LimiterOAuthRedirect and is answered by
-// redirect, handed the message the JSON 429 carries, so the reader lands on a
-// page that says why rather than on a response body.
-func oauthRedirectRateLimiter(redirect func(http.ResponseWriter, *http.Request, string)) func(http.Handler) http.Handler {
+// redirect, so the reader lands on a page that says why rather than on a
+// response body.
+func oauthRedirectRateLimiter(redirect http.HandlerFunc) func(http.Handler) http.Handler {
 	if IsAuthRateLimitDisabled(os.Getenv) {
 		return noopRateLimiter()
 	}
@@ -177,7 +177,7 @@ func oauthRedirectRateLimiter(redirect func(http.ResponseWriter, *http.Request, 
 		// redirect that header asks the browser to wait before following it,
 		// and the page it leads to is not what is limited.
 		w.Header().Del("Retry-After")
-		redirect(w, r, rateLimitExceededMessage)
+		redirect(w, r)
 	})
 }
 

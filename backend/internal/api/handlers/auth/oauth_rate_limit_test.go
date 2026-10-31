@@ -13,8 +13,6 @@ import (
 	"psychic-homily-backend/internal/config"
 )
 
-const rateLimitedTestMessage = "Rate limit exceeded. Please try again in 60 seconds."
-
 // refuseRecorded runs RedirectRateLimited for target with chi's route pattern
 // and provider parameter set, as the router sets them, and returns what it
 // wrote after checking that it is a redirect.
@@ -41,7 +39,7 @@ func refuseRecordedWith(t *testing.T, secure bool, route, target, provider strin
 	req = req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, rctx))
 
 	rr := httptest.NewRecorder()
-	h.RedirectRateLimited(rr, req, rateLimitedTestMessage)
+	h.RedirectRateLimited(rr, req)
 
 	if rr.Code != http.StatusTemporaryRedirect {
 		t.Fatalf("status = %d, want %d", rr.Code, http.StatusTemporaryRedirect)
@@ -60,17 +58,15 @@ func refuse(t *testing.T, route, target, provider string, cookies ...*http.Cooki
 	return loc
 }
 
-// assertAuthPage requires the refused sign-in redirect, carrying returnTo when
-// it is not empty and no destination when it is.
+// assertAuthPage requires the refused sign-in redirect: the code and no
+// message text, carrying returnTo when it is not empty and no destination when
+// it is.
 func assertAuthPage(t *testing.T, loc *url.URL, returnTo string) {
 	t.Helper()
 	if got, want := loc.Scheme+"://"+loc.Host+loc.Path, "https://psychichomily.com/auth"; got != want {
 		t.Errorf("redirects to %q, want %q", got, want)
 	}
-	want := url.Values{
-		authPageErrorParam:     {rateLimitedTestMessage},
-		authPageErrorCodeParam: {OAuthRedirectRateLimitedCode},
-	}
+	want := url.Values{"error_code": {OAuthRedirectRateLimitedCode}}
 	if returnTo != "" {
 		want.Set(oauthReturnToParam, returnTo)
 	}

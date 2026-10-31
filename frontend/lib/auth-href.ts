@@ -281,39 +281,34 @@ export function hasSignupTab(searchParams: {
 }
 
 /**
- * Does this auth-page URL ask for the Create account tab? Two arrivals do: a
- * gated control naming the action it refused, and the home hero's sign-up
- * nudge. The page still opens on Sign in for a re-authentication.
+ * Does this auth-page URL ask for the Create account tab? Three arrivals do: a
+ * gated control naming the action it refused, the home hero's sign-up nudge,
+ * and a sign-up refused for its age, whose line is about creating an account.
+ * The page still opens on Sign in for a re-authentication.
  */
 export function asksForCreateAccount(searchParams: {
   get: (name: string) => string | null
 }): boolean {
-  return hasGatedIntent(searchParams) || hasSignupTab(searchParams)
+  return (
+    hasGatedIntent(searchParams) ||
+    hasSignupTab(searchParams) ||
+    searchParams.get(AUTH_ERROR_CODE_PARAM) ===
+      AuthErrorCode.AGE_CONFIRMATION_REQUIRED
+  )
 }
 
 /**
- * The auth-page query parameters a failed OAuth sign-in callback writes: the
- * message the page shows, and the code of a refusal the reader can act on.
- * The backend writes them as `authPageErrorParam` and `authPageErrorCodeParam`
+ * The auth-page query parameter a failed OAuth redirect writes: the code the
+ * page maps to fixed copy. The backend writes it as `authPageErrorCodeParam`
  * in `backend/internal/api/handlers/auth/oauth_handlers.go`; the names on both
  * sides must stay the same.
+ *
+ * `error` is the free-text message older redirects carried. The page never
+ * renders it: its presence alone gets the generic line, and it leaves the
+ * address bar with the code.
  */
 export const AUTH_ERROR_PARAM = 'error'
 export const AUTH_ERROR_CODE_PARAM = 'error_code'
-
-/**
- * Does this auth-page URL carry the OAuth callback's refusal of a deleted
- * account still inside its recovery window? The code is compared against one
- * fixed value and never rendered, so it needs no decoding.
- */
-export function isAccountRecoverableRefusal(searchParams: {
-  get: (name: string) => string | null
-}): boolean {
-  return (
-    searchParams.get(AUTH_ERROR_CODE_PARAM) ===
-    AuthErrorCode.ACCOUNT_RECOVERABLE
-  )
-}
 
 /**
  * The auth-page href for an anonymous viewer a gated control turned away:
