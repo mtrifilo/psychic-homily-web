@@ -249,6 +249,11 @@ const nextConfig: NextConfig = {
       // tag and probe these conventional root paths instead get the same file.
       { source: '/apple-touch-icon.png', destination: '/apple-icon.png' },
       { source: '/apple-touch-icon-precomposed.png', destination: '/apple-icon.png' },
+      // The IndexNow key file must sit at the site root to vouch for every
+      // page. The pattern is the protocol's key format, and app/indexnow/[key]
+      // answers only the configured key. Rewrites run after the filesystem
+      // routes, so robots.txt and every other real root file still win.
+      { source: '/:key([A-Za-z0-9-]{8,128}).txt', destination: '/indexnow/:key' },
     ]
   },
   async headers() {

@@ -256,9 +256,9 @@ func dueSlack(interval time.Duration) time.Duration {
 }
 
 // minDueSlack is a floor for very short intervals. Production loops that persist
-// state are an hour or longer, where 5% already exceeds the one-minute ceiling,
-// so this floor only ever applies at test scale — which is exactly why it must
-// be small enough to leave the due gate live there too.
+// state run every ten minutes or longer, where 5% is at least 30 seconds, so
+// this floor only ever applies at test scale, which is exactly why it must be
+// small enough to leave the due gate live there too.
 const minDueSlack = 10 * time.Millisecond
 
 // Register implements RunStore.

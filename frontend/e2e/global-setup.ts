@@ -249,6 +249,10 @@ function startBackend(): ChildProcess {
       // they would queue anything, and magic-link.spec.ts and recover.spec.ts
       // mint their own tokens (helpers/jwt.ts).
       DISABLE_AUTH_EMAIL_OUTBOX: '1',
+      // Posts changed public URLs to IndexNow. It starts only with
+      // INDEXNOW_KEY set, which this backend never has; the flag keeps it off
+      // even if the variable leaks in from the shell.
+      DISABLE_INDEXNOW_PINGS: '1',
       // PSY-432: enable the /admin/test-fixtures/reset endpoint. Guarded by
       // a default-deny ENVIRONMENT check on the backend — the server
       // refuses to boot if ENABLE_TEST_FIXTURES=1 and ENVIRONMENT is not
