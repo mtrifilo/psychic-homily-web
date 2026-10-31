@@ -152,7 +152,7 @@ func (h *CalendarHandler) CreateCalendarTokenHandler(ctx context.Context, req *C
 		// The session was revoked, or the account closed, after the JWT
 		// middleware validated it.
 		if shared.IsSessionRefusal(err) {
-			return nil, middleware.RefuseSession(ctx, "create_calendar_token", err)
+			return nil, middleware.RefuseSession(ctx, "create_calendar_token", err, h.config.Session)
 		}
 		logger.FromContext(ctx).Error("create_calendar_token_failed",
 			"user_id", user.ID,

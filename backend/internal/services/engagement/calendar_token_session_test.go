@@ -4,13 +4,13 @@ import (
 	"errors"
 	"time"
 
-	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 
 	apperrors "psychic-homily-backend/internal/errors"
 	authm "psychic-homily-backend/internal/models/auth"
 	engagementm "psychic-homily-backend/internal/models/engagement"
 	"psychic-homily-backend/internal/services/shared"
+	"psychic-homily-backend/internal/testutil"
 )
 
 // A feed token is minted only for an account that may sign in, by a session
@@ -42,58 +42,13 @@ func (suite *CalendarIntegrationTestSuite) requireRefusal(err error, code string
 }
 
 // serviceWithWriteBeforeItsFirst returns a CalendarService on the suite's
-// connections that runs write once, before the first statement the hook that
-// register installs fires on. The returned flag reports whether write ran.
-func (suite *CalendarIntegrationTestSuite) serviceWithWriteBeforeItsFirst(
-	register func(hooked *gorm.DB, hook func(*gorm.DB)) error,
-	write func(),
-) (*CalendarService, *bool) {
+// connections that runs write once, before the first statement hook fires on
+// (testutil.WithWriteBeforeItsFirst). The returned flag reports whether write
+// ran.
+func (suite *CalendarIntegrationTestSuite) serviceWithWriteBeforeItsFirst(hook testutil.Hook, write func()) (*CalendarService, *bool) {
 	suite.T().Helper()
-	sqlDB, err := suite.db.DB()
-	suite.Require().NoError(err)
-	hooked, err := gorm.Open(postgres.New(postgres.Config{Conn: sqlDB}), &gorm.Config{TranslateError: true})
-	suite.Require().NoError(err)
-
-	ran := false
-	suite.Require().NoError(register(hooked, func(*gorm.DB) {
-		if ran {
-			return
-		}
-		ran = true
-		write()
-	}))
-	return &CalendarService{db: hooked, savedShowSvc: suite.svc.savedShowSvc}, &ran
-}
-
-// startOnAnotherConnection runs write in a goroutine on the suite's own handle
-// and returns once write has either finished or is waiting on a lock. The
-// returned channel delivers write's result.
-func (suite *CalendarIntegrationTestSuite) startOnAnotherConnection(write func() error) <-chan error {
-	suite.T().Helper()
-	done := make(chan error, 1)
-	go func() { done <- write() }()
-
-	suite.Require().Eventually(func() bool {
-		if len(done) > 0 {
-			return true
-		}
-		var waiting int64
-		err := suite.db.Raw(
-			"SELECT count(*) FROM pg_stat_activity WHERE datname = current_database() AND wait_event_type = 'Lock'",
-		).Scan(&waiting).Error
-		return err == nil && waiting > 0
-	}, 10*time.Second, 5*time.Millisecond, "the concurrent write neither finished nor waited on a lock")
-	return done
-}
-
-func (suite *CalendarIntegrationTestSuite) awaitConcurrentWrite(done <-chan error) {
-	suite.T().Helper()
-	select {
-	case err := <-done:
-		suite.Require().NoError(err)
-	case <-time.After(10 * time.Second):
-		suite.FailNow("the concurrent write did not finish")
-	}
+	hooked, ran := testutil.WithWriteBeforeItsFirst(suite.T(), suite.db, func(*gorm.DB) { write() }, hook)
+	return &CalendarService{db: hooked, savedShowSvc: suite.svc.savedShowSvc}, ran
 }
 
 // A session validated before a revocation committed mints nothing, and the
@@ -118,9 +73,7 @@ func (suite *CalendarIntegrationTestSuite) TestCreateToken_SessionRevokedBeforeT
 // mint reads the account refuses the mint.
 func (suite *CalendarIntegrationTestSuite) TestCreateToken_SessionRevokedInsideTheWindow_Refused() {
 	user := suite.createTestUser(true)
-	svc, ran := suite.serviceWithWriteBeforeItsFirst(func(hooked *gorm.DB, hook func(*gorm.DB)) error {
-		return hooked.Callback().Query().Before("gorm:query").Register("test:write_before_query", hook)
-	}, func() { suite.revokeSessions(user.ID) })
+	svc, ran := suite.serviceWithWriteBeforeItsFirst(testutil.BeforeQuery, func() { suite.revokeSessions(user.ID) })
 
 	resp, err := svc.CreateToken(user.ID, user.SessionsValidAfter, "http://localhost:8080")
 
@@ -169,10 +122,8 @@ func (suite *CalendarIntegrationTestSuite) TestCreateToken_RevocationThatStartsD
 
 	var revocation <-chan error
 	waitedForMint := false
-	svc, ran := suite.serviceWithWriteBeforeItsFirst(func(hooked *gorm.DB, hook func(*gorm.DB)) error {
-		return hooked.Callback().Create().Before("gorm:create").Register("test:write_before_create", hook)
-	}, func() {
-		revocation = suite.startOnAnotherConnection(func() error {
+	svc, ran := suite.serviceWithWriteBeforeItsFirst(testutil.BeforeCreate, func() {
+		revocation = testutil.StartOnAnotherConnection(suite.T(), suite.db, func() error {
 			return suite.db.Transaction(func(tx *gorm.DB) error {
 				if err := tx.Model(&authm.User{}).Where("id = ?", user.ID).
 					Update("sessions_valid_after", time.Now().UTC().Truncate(time.Second)).Error; err != nil {
@@ -188,7 +139,7 @@ func (suite *CalendarIntegrationTestSuite) TestCreateToken_RevocationThatStartsD
 	resp, err := svc.CreateToken(user.ID, user.SessionsValidAfter, "http://localhost:8080")
 	suite.Require().NoError(err)
 	suite.Require().True(*ran, "the revocation must start before the mint's insert")
-	suite.awaitConcurrentWrite(revocation)
+	suite.Require().NoError(testutil.AwaitConcurrentWrite(suite.T(), revocation))
 
 	suite.True(waitedForMint, "the revocation must wait for the mint holding the account row")
 	suite.Zero(suite.tokenRows(user.ID), "the revocation deletes the token the mint wrote")

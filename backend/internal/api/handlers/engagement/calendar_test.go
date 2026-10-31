@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/danielgtaylor/huma/v2"
 	"github.com/go-chi/chi/v5"
 
 	"psychic-homily-backend/internal/api/handlers/shared/testhelpers"
@@ -166,6 +167,11 @@ func TestCreateCalendarTokenHandler_SessionNoLongerValidAnswers401(t *testing.T)
 			}
 			if strings.Contains(refused.Message, "user 1") {
 				t.Errorf("the refusal carries no internal text: %q", refused.Message)
+			}
+			var withHeaders huma.HeadersError
+			if !errors.As(err, &withHeaders) ||
+				!strings.Contains(strings.Join(withHeaders.GetHeaders().Values("Set-Cookie"), ";"), "auth_token=;") {
+				t.Errorf("expected the auth cookie cleared, got %v", err)
 			}
 		})
 	}

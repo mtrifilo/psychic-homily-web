@@ -323,6 +323,11 @@ func (h *OAuthHTTPHandler) completeOAuthLink(
 		// A session revoked during the exchange gets the answer the session
 		// gate gives a session it refuses: sign in again.
 		if errors.Is(err, shared.ErrSessionRevoked) {
+			logger.AuthWarn(ctx, "credential_mint_refused_session_no_longer_valid",
+				"operation", "oauth_link",
+				"provider", provider,
+				"user_id", intent.userID,
+			)
 			redirectToLinkResult(w, r, frontendURL, oauthLinkErrorReauthRequired)
 			return
 		}

@@ -247,11 +247,12 @@ func hashCalendarToken(token string) string {
 
 // CreateToken mints userID's feed token, replacing any it holds
 // (contracts.CalendarServiceInterface). The account and the acting session
-// are judged in the transaction that writes the token, under the users-row
-// lock (shared.LockSessionAccount). A transaction that locks or updates that
-// row and then deletes the account's feed tokens therefore either commits
-// first, and this mint is refused, or waits for this one and then deletes the
-// token it wrote.
+// are judged in the transaction that writes the token, under a FOR SHARE lock
+// on the users row (shared.LockSessionAccount). A transaction that revokes the
+// account's sessions or closes it (an UPDATE of that row, or a FOR UPDATE
+// lock on it), and then deletes the account's feed tokens, therefore either
+// commits first, and this mint is refused, or waits for this one and then
+// deletes the token it wrote.
 func (s *CalendarService) CreateToken(userID uint, sessionsValidAfter *time.Time, apiBaseURL string) (*contracts.CalendarTokenCreateResponse, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
