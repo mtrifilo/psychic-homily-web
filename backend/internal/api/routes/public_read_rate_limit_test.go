@@ -268,13 +268,17 @@ func TestPublicReadRateLimiter_InfraPathsExempt(t *testing.T) {
 				w.WriteHeader(http.StatusOK)
 			}))
 
+			// GET and HEAD alternate on one IP: the limiter meters both, and
+			// the exemption must cover both.
+			methods := []string{http.MethodGet, http.MethodHead}
 			for i := 0; i < middleware.APIRequestsPerMinute+5; i++ {
-				req := httptest.NewRequest(http.MethodGet, path, nil)
+				method := methods[i%len(methods)]
+				req := httptest.NewRequest(method, path, nil)
 				req.RemoteAddr = remoteAddr
 				rr := httptest.NewRecorder()
 				handler.ServeHTTP(rr, req)
 				if rr.Code != http.StatusOK {
-					t.Fatalf("probe %d: status = %d, want 200 (%s must be exempt)", i, rr.Code, path)
+					t.Fatalf("probe %d (%s): status = %d, want 200 (%s must be exempt)", i, method, rr.Code, path)
 				}
 			}
 		})
