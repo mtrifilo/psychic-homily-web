@@ -14,10 +14,10 @@ const usernameWhere = "username = ?"
 // The functions below are the single-row lookups of a users row by a username
 // or email address a caller supplies, so each holds the encoding guard
 // (authm.PostgresRejectsText) and its account-state rule in one place. Each
-// reads through db, which may carry the caller's Preload or Select clauses,
-// and answers (nil, nil) when no row matches, including for a value Postgres
-// rejects as text, for which no query runs. A failed query returns its error
-// unwrapped. Outside them: a sign-in that matches an identity provider's
+// reads through a copy of db, which may carry the caller's Preload clauses and
+// is never changed by the lookup, and answers (nil, nil) when no row matches,
+// including for a value Postgres rejects as text, for which no query runs. A
+// failed query returns its error unwrapped. Outside them: a sign-in that matches an identity provider's
 // email claim refuses an unstorable claim first (ValidateProviderEmailClaim)
 // and queries for itself, and comment mention resolution matches many
 // usernames case-insensitively in one query.
@@ -26,7 +26,7 @@ const usernameWhere = "username = ?"
 // username. A deactivated or soft-deleted holder is not found, so a caller
 // answers a closed account exactly as an unknown username.
 func LiveUserByUsername(db *gorm.DB, username string) (*authm.User, error) {
-	return findUser(db.Where(authm.LiveAccountSQL("users")), usernameWhere, username)
+	return findUser(db.Session(&gorm.Session{}).Where(authm.LiveAccountSQL("users")), usernameWhere, username)
 }
 
 // UserByUsernameIncludingClosed finds the account holding username whatever
@@ -49,7 +49,7 @@ func findUser(db *gorm.DB, where, value string) (*authm.User, error) {
 		return nil, nil
 	}
 	var user authm.User
-	err := db.Where(where, value).First(&user).Error
+	err := db.Session(&gorm.Session{}).Where(where, value).First(&user).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return nil, nil
 	}
