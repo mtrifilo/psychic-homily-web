@@ -8,7 +8,7 @@ import (
 
 const (
 	productionAPI = "https://api.psychichomily.com"
-	stageAPI      = "https://api-stage.psychichomily.com"
+	stageAPI      = "https://stage.api.psychichomily.com"
 )
 
 func TestResolveBackendOrigin(t *testing.T) {

@@ -14,7 +14,7 @@ import (
 var deployedBackendOrigins = map[string]string{
 	"https://psychichomily.com":       "https://api.psychichomily.com",
 	"https://www.psychichomily.com":   "https://api.psychichomily.com",
-	"https://stage.psychichomily.com": "https://api-stage.psychichomily.com",
+	"https://stage.psychichomily.com": "https://stage.api.psychichomily.com",
 }
 
 // recognisedFrontendForms lists, for error messages, the FRONTEND_URL forms

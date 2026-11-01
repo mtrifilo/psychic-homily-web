@@ -247,7 +247,7 @@ func TestLoadDeployedShapesWithoutExplicitValues(t *testing.T) {
 		wantAPI     string
 	}{
 		{"production", "https://www.psychichomily.com", []string{"https://psychichomily.com", "https://www.psychichomily.com"}, "https://api.psychichomily.com"},
-		{"stage", "https://stage.psychichomily.com", []string{"https://stage.psychichomily.com", "https://www.stage.psychichomily.com"}, "https://api-stage.psychichomily.com"},
+		{"stage", "https://stage.psychichomily.com", []string{"https://stage.psychichomily.com", "https://www.stage.psychichomily.com"}, "https://stage.api.psychichomily.com"},
 	}
 	for _, sh := range shapes {
 		t.Run(sh.environment, func(t *testing.T) {
