@@ -39,6 +39,8 @@ func TestResolveBackendOrigin(t *testing.T) {
 		{"local frontend without a port", "http://localhost", "", "localhost:8080", "http://localhost:8080", true},
 		{"loopback IPv4 frontend", "http://127.0.0.1:3000", "", "localhost:8080", "http://localhost:8080", true},
 		{"loopback IPv6 frontend", "http://[::1]:3000", "", "localhost:8080", "http://localhost:8080", true},
+		{"frontend on a name under .localhost", "http://app.localhost:3000", "", "localhost:8080", "http://localhost:8080", true},
+		{"listen address with a scheme falls back to 8080", "http://localhost:3000", "", "http://localhost:63516/", "http://localhost:8080", true},
 		{"dispatch stack", "http://localhost:61000", "http://localhost:61001", "localhost:61001", "http://localhost:61001", true},
 
 		{"BACKEND_PUBLIC_URL wins over the production mapping", "https://www.psychichomily.com", "https://api.example.test", "0.0.0.0:8080", "https://api.example.test", true},
@@ -222,6 +224,9 @@ func TestLoadBackendOriginTrimsFrontendURL(t *testing.T) {
 	}
 	if cfg.Email.FrontendURL != "https://www.psychichomily.com" {
 		t.Errorf("Email.FrontendURL = %q, want the trimmed value", cfg.Email.FrontendURL)
+	}
+	if cfg.MusicDiscovery.FrontendURL != "https://www.psychichomily.com" {
+		t.Errorf("MusicDiscovery.FrontendURL = %q, want the trimmed value", cfg.MusicDiscovery.FrontendURL)
 	}
 	if got := cfg.BackendOrigin(); got != productionAPI {
 		t.Errorf("BackendOrigin() = %q, want %q", got, productionAPI)
