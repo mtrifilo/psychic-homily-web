@@ -85,8 +85,8 @@ type HealthResponse struct {
 //     serving. Railway does not poll it after a deployment is live, so it is
 //     not a runtime monitor and nothing here restarts a running process.
 //  2. This process already refuses to start without a database:
-//     cmd/server/main.go log.Fatalf's when db.Connect fails, before the HTTP
-//     server binds.
+//     cmd/server/main.go refuses boot (an ERROR line, then exit 1) when
+//     db.Connect fails, before the HTTP server binds.
 //
 // Together those mean a dependency-aware /health would add no signal. During a
 // database outage a new deployment never reaches the healthcheck at all — it
