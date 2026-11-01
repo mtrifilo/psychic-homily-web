@@ -41,3 +41,16 @@ func TestUser_ProfileHiddenFrom(t *testing.T) {
 		}
 	}
 }
+
+func TestUser_IsOwnedBy(t *testing.T) {
+	u := &User{ID: 7}
+	if !u.IsOwnedBy(7) {
+		t.Error("IsOwnedBy(own id) = false, want true")
+	}
+	if u.IsOwnedBy(8) {
+		t.Error("IsOwnedBy(another id) = true, want false")
+	}
+	if (&User{}).IsOwnedBy(0) {
+		t.Error("IsOwnedBy(0) on an unsaved account = true, want false: 0 is a logged-out visitor")
+	}
+}

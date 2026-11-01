@@ -146,7 +146,7 @@ func TestUserUnfollowHandler_Success(t *testing.T) {
 	}
 }
 
-func TestUserUnfollowHandler_PrivateTargetIs404(t *testing.T) {
+func TestUserUnfollowHandler_PrivateTargetNonFollowerIs404(t *testing.T) {
 	users := &testhelpers.MockUserService{
 		GetUserByUsernameIncludingClosedFn: func(string) (*authm.User, error) {
 			return &authm.User{
@@ -170,7 +170,40 @@ func TestUserUnfollowHandler_PrivateTargetIs404(t *testing.T) {
 	_, err := h.UserUnfollowHandler(ctx, &UserUnfollowRequest{Username: "secret"})
 	testhelpers.AssertHumaError(t, err, 404)
 	if unfollowCalled {
-		t.Error("Unfollow must not be called for a live private target")
+		t.Error("Unfollow must not be called for a caller who does not follow the private target")
+	}
+}
+
+func TestUserUnfollowHandler_PrivateTargetFollowerUnfollows(t *testing.T) {
+	users := &testhelpers.MockUserService{
+		GetUserByUsernameIncludingClosedFn: func(string) (*authm.User, error) {
+			return &authm.User{
+				ID:                2,
+				Username:          ptrString("secret"),
+				ProfileVisibility: "private",
+				IsActive:          true,
+			}, nil
+		},
+	}
+	unfollowed := false
+	follows := &testhelpers.MockFollowService{
+		IsFollowingFn: func(userID uint, entityType string, entityID uint) (bool, error) {
+			return userID == 1 && entityType == userEntityType && entityID == 2, nil
+		},
+		UnfollowFn: func(userID uint, entityType string, entityID uint) error {
+			unfollowed = userID == 1 && entityType == userEntityType && entityID == 2
+			return nil
+		},
+	}
+	h := NewUserFollowHandler(follows, users)
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
+
+	resp, err := h.UserUnfollowHandler(ctx, &UserUnfollowRequest{Username: "secret"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !resp.Body.Success || !unfollowed {
+		t.Errorf("success=%v unfollowed=%v, want both", resp.Body.Success, unfollowed)
 	}
 }
 

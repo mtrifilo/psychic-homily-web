@@ -12,10 +12,14 @@ func (u *User) IsPrivateProfile() bool {
 	return u.ProfileVisibility == ProfileVisibilityPrivate
 }
 
+// IsOwnedBy reports whether the viewer with id viewerID is this account. A
+// viewerID of 0 is a logged-out visitor, who owns no account.
+func (u *User) IsOwnedBy(viewerID uint) bool {
+	return viewerID != 0 && viewerID == u.ID
+}
+
 // ProfileHiddenFrom reports whether the viewer with id viewerID may not see
-// the account's profile: it is private and the viewer is not its owner. A
-// viewerID of 0 is a logged-out visitor.
+// the account's profile: it is private and the viewer is not its owner.
 func (u *User) ProfileHiddenFrom(viewerID uint) bool {
-	isOwner := viewerID != 0 && viewerID == u.ID
-	return u.IsPrivateProfile() && !isOwner
+	return u.IsPrivateProfile() && !u.IsOwnedBy(viewerID)
 }

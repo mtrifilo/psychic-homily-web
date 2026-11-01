@@ -22,6 +22,10 @@ const (
 	closedProfileCollectionTitle = "Crates From A Closed Account"
 )
 
+// closedProfileCollectionPages are the two paths of the username-addressed
+// collections page, which answers an unknown username with an empty page.
+var closedProfileCollectionPages = []string{"/collections", "/crates"}
+
 // closedProfileReads are the username-addressed reads a logged-out visitor and
 // a signed-in stranger reach.
 var closedProfileReads = []string{
@@ -104,8 +108,10 @@ func TestClosedAccountAnswersEveryUsernameRouteLikeAnUnknownOne(t *testing.T) {
 			if _, body := do(t, http.MethodGet, "/users/"+closedProfileUsername+"/sections", credential, nil); !strings.Contains(string(body), closedProfileSectionTitle) {
 				t.Errorf("%s: the sections lost the section; body: %s", when, body)
 			}
-			if _, body := do(t, http.MethodGet, "/users/"+closedProfileUsername+"/collections", credential, nil); !strings.Contains(string(body), closedProfileCollectionTitle) {
-				t.Errorf("%s: the collections page lost the collection; body: %s", when, body)
+			for _, page := range closedProfileCollectionPages {
+				if _, body := do(t, http.MethodGet, "/users/"+closedProfileUsername+page, credential, nil); !strings.Contains(string(body), closedProfileCollectionTitle) {
+					t.Errorf("%s: %s lost the collection; body: %s", when, page, body)
+				}
 			}
 		}
 	}
@@ -137,10 +143,12 @@ func TestClosedAccountAnswersEveryUsernameRouteLikeAnUnknownOne(t *testing.T) {
 						t.Errorf("GET %s = %d %s; an unknown username's = %d %s", path, code, body, unknownCode, unknownBody)
 					}
 				}
-				code, body := do(t, http.MethodGet, "/users/"+closedProfileUsername+"/collections", credential, nil)
-				unknownCode, unknownBody := do(t, http.MethodGet, "/users/"+closedProfileUnknownUsername+"/collections", credential, nil)
-				if code != unknownCode || !bytes.Equal(body, unknownBody) {
-					t.Errorf("the collections page = %d %s; an unknown username's = %d %s", code, body, unknownCode, unknownBody)
+				for _, page := range closedProfileCollectionPages {
+					code, body := do(t, http.MethodGet, "/users/"+closedProfileUsername+page, credential, nil)
+					unknownCode, unknownBody := do(t, http.MethodGet, "/users/"+closedProfileUnknownUsername+page, credential, nil)
+					if code != unknownCode || !bytes.Equal(body, unknownBody) {
+						t.Errorf("%s = %d %s; an unknown username's = %d %s", page, code, body, unknownCode, unknownBody)
+					}
 				}
 			}
 
@@ -210,11 +218,70 @@ func TestRejectedTextUsernameAnswersEveryUsernameRouteLikeAnUnknownOne(t *testin
 					t.Errorf("%s %s = %d %s; an unknown username's = %d %s", r.method, fmt.Sprintf(r.route, username), code, body, unknownCode, unknownBody)
 				}
 			}
-			code, body := doRequest(t, router, http.MethodGet, "/users/"+username+"/collections", callerToken, nil)
-			unknownCode, unknownBody := doRequest(t, router, http.MethodGet, "/users/"+closedProfileUnknownUsername+"/collections", callerToken, nil)
-			if code != unknownCode || !bytes.Equal(body, unknownBody) {
-				t.Errorf("the collections page = %d %s; an unknown username's = %d %s", code, body, unknownCode, unknownBody)
+			for _, page := range closedProfileCollectionPages {
+				code, body := doRequest(t, router, http.MethodGet, "/users/"+username+page, callerToken, nil)
+				unknownCode, unknownBody := doRequest(t, router, http.MethodGet, "/users/"+closedProfileUnknownUsername+page, callerToken, nil)
+				if code != unknownCode || !bytes.Equal(body, unknownBody) {
+					t.Errorf("%s = %d %s; an unknown username's = %d %s", page, code, body, unknownCode, unknownBody)
+				}
 			}
 		})
+	}
+}
+
+// A follower of an account that turns its profile private can still remove
+// their own follow, while a stranger's unfollow gets the unknown username's
+// 404 and the profile's owner still reads it.
+func TestPrivateProfileFollowerCanStillUnfollow(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test in short mode")
+	}
+	td := testutil.SetupTestPostgres(t)
+	defer td.Cleanup()
+
+	cfg := testConfig()
+	sc := services.NewServiceContainer(td.DB, cfg)
+	router := chi.NewRouter()
+	SetupRoutes(router, sc, cfg)
+
+	target := testhelpers.CreateUserWithTier(td.DB, "trusted_contributor")
+	if err := td.DB.Model(target).Update("username", closedProfileUsername).Error; err != nil {
+		t.Fatalf("set username: %v", err)
+	}
+	follower := testhelpers.CreateUserWithTier(td.DB, "trusted_contributor")
+	stranger := testhelpers.CreateUserWithTier(td.DB, "trusted_contributor")
+	targetToken := mintToken(t, sc, target)
+	followerToken := mintToken(t, sc, follower)
+	strangerToken := mintToken(t, sc, stranger)
+	followPath := "/users/" + closedProfileUsername + "/follow"
+	unknownFollowPath := "/users/" + closedProfileUnknownUsername + "/follow"
+
+	if code, body := doRequest(t, router, http.MethodPost, followPath, followerToken, nil); code != http.StatusOK {
+		t.Fatalf("follow the public target = %d; body: %s", code, body)
+	}
+	testutil.SetProfileVisibility(t, td.DB, target.ID, "private")
+
+	if code, body := getRequest(t, router, "/users/"+closedProfileUsername+"/followers", targetToken); code != http.StatusOK {
+		t.Errorf("the owner's followers read = %d, want 200; body: %s", code, body)
+	}
+
+	code, body := doRequest(t, router, http.MethodDelete, followPath, strangerToken, nil)
+	unknownCode, unknownBody := doRequest(t, router, http.MethodDelete, unknownFollowPath, strangerToken, nil)
+	if code != http.StatusNotFound || code != unknownCode || !sameErrorMessage(body, unknownBody) {
+		t.Errorf("a stranger's unfollow = %d %s; an unknown username's = %d %s", code, body, unknownCode, unknownBody)
+	}
+
+	if code, body := doRequest(t, router, http.MethodDelete, followPath, followerToken, nil); code != http.StatusOK {
+		t.Errorf("the follower's unfollow = %d, want 200; body: %s", code, body)
+	}
+	var rows int64
+	if err := td.DB.Model(&engagementm.UserBookmark{}).
+		Where("user_id = ? AND entity_type = ? AND entity_id = ? AND action = ?",
+			follower.ID, "user", target.ID, engagementm.BookmarkActionFollow).
+		Count(&rows).Error; err != nil {
+		t.Fatalf("count follow rows: %v", err)
+	}
+	if rows != 0 {
+		t.Errorf("the follower's unfollow left %d rows", rows)
 	}
 }

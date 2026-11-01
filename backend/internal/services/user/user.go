@@ -847,11 +847,11 @@ func (s *UserService) GetUserByID(userID uint) (*authm.User, error) {
 	return &user, nil
 }
 
-// GetUserByEmail retrieves the account holding email whatever its state
-// (shared.UserByEmail), so the caller may pass the address in whatever casing
-// its owner typed and must judge a closed account itself.
+// GetUserByEmail retrieves the account holding email whatever its state,
+// deactivated and soft-deleted included (shared.UserByEmailIncludingClosed):
+// the caller judges a closed account itself. The match is case-insensitive.
 func (s *UserService) GetUserByEmail(email string) (*authm.User, error) {
-	return s.lookUpUser(shared.UserByEmail, email)
+	return s.lookUpUser(shared.UserByEmailIncludingClosed, email)
 }
 
 // GetUserByUsername retrieves the live account holding username
@@ -1645,10 +1645,10 @@ func (s *UserService) GetOAuthAccounts(userID uint) ([]authm.OAuthAccount, error
 	return accounts, nil
 }
 
-// GetUserByEmailIncludingDeleted retrieves the account holding email,
-// soft-deleted accounts included (shared.UserByEmail).
+// GetUserByEmailIncludingDeleted answers exactly as GetUserByEmail does: both
+// include deactivated and soft-deleted accounts.
 func (s *UserService) GetUserByEmailIncludingDeleted(email string) (*authm.User, error) {
-	return s.lookUpUser(shared.UserByEmail, email)
+	return s.lookUpUser(shared.UserByEmailIncludingClosed, email)
 }
 
 // IsAccountRecoverable reports whether user is a soft-deleted account still

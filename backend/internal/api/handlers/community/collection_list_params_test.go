@@ -6,10 +6,10 @@ import (
 	"testing"
 )
 
-// GET /collections declares exactly the query parameters ListCollectionsHandler
-// reads, so the published API offers no filter that does nothing. A new
-// parameter is added here once the handler reads it.
-func TestListCollectionsHandlerRequest_DeclaresOnlyParametersTheHandlerReads(t *testing.T) {
+// The query parameters GET /collections and GET /crates publish, pinned so a
+// parameter added to or removed from the request struct is a reviewed change
+// to this list. Each listed parameter is one ListCollectionsHandler reads.
+func TestListCollectionsHandlerRequest_QueryParameterSnapshot(t *testing.T) {
 	want := []string{"entity_type", "featured", "limit", "offset", "search", "sort", "tag"}
 
 	var got []string

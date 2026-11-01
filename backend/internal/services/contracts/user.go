@@ -347,6 +347,8 @@ type UserServiceInterface interface {
 	// version with a typed AuthError carrying CodeTermsAcceptanceRequired.
 	CreateUserWithPasswordWithLegal(email, password, firstName, lastName string, acceptance LegalAcceptance) (*authm.User, error)
 	GetUserByID(userID uint) (*authm.User, error)
+	// GetUserByEmail also finds a deactivated or soft-deleted holder of the
+	// address; the caller judges a closed account itself.
 	GetUserByEmail(email string) (*authm.User, error)
 	// GetUserByUsername finds only a live account (authm.User.CanSignIn); a
 	// closed holder of the username is not found.
@@ -368,6 +370,7 @@ type UserServiceInterface interface {
 	ExportUserData(userID uint) (*UserDataExport, error)
 	ExportUserDataJSON(userID uint) ([]byte, error)
 	GetOAuthAccounts(userID uint) ([]authm.OAuthAccount, error)
+	// GetUserByEmailIncludingDeleted answers exactly as GetUserByEmail does.
 	GetUserByEmailIncludingDeleted(email string) (*authm.User, error)
 	IsAccountRecoverable(user *authm.User) bool
 	GetDaysUntilPermanentDeletion(user *authm.User) int

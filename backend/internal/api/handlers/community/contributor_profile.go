@@ -242,7 +242,7 @@ func (h *ContributorProfileHandler) resolveProfileTarget(ctx context.Context, us
 		return nil, false, huma.Error404NotFound("User not found")
 	}
 
-	return targetUser, viewerID != 0 && viewerID == targetUser.ID, nil
+	return targetUser, targetUser.IsOwnedBy(viewerID), nil
 }
 
 // granularPrivacy unmarshals the user's stored privacy settings over the

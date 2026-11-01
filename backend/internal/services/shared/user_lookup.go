@@ -8,17 +8,19 @@ import (
 	authm "psychic-homily-backend/internal/models/auth"
 )
 
-// The lookups of a users row by a username or email address a caller supplies
-// live here, so each holds the encoding guard (authm.PostgresRejectsText) and
-// its account-state rule in one place. A sign-in that matches an identity
-// provider's email claim refuses an unstorable claim first
-// (ValidateProviderEmailClaim) and queries for itself. Each reads through db, which may carry the
-// caller's Preload or Select clauses, and answers (nil, nil) when no row
-// matches, including for a value Postgres rejects as text, for which no query
-// runs. A failed query returns its error unwrapped.
-
 // usernameWhere is the WHERE fragment that matches a users row by username.
 const usernameWhere = "username = ?"
+
+// The functions below are the single-row lookups of a users row by a username
+// or email address a caller supplies, so each holds the encoding guard
+// (authm.PostgresRejectsText) and its account-state rule in one place. Each
+// reads through db, which may carry the caller's Preload or Select clauses,
+// and answers (nil, nil) when no row matches, including for a value Postgres
+// rejects as text, for which no query runs. A failed query returns its error
+// unwrapped. Outside them: a sign-in that matches an identity provider's
+// email claim refuses an unstorable claim first (ValidateProviderEmailClaim)
+// and queries for itself, and comment mention resolution matches many
+// usernames case-insensitively in one query.
 
 // LiveUserByUsername finds the live account (authm.LiveAccountSQL) holding
 // username. A deactivated or soft-deleted holder is not found, so a caller
@@ -33,10 +35,10 @@ func UserByUsernameIncludingClosed(db *gorm.DB, username string) (*authm.User, e
 	return findUser(db, usernameWhere, username)
 }
 
-// UserByEmail finds the account holding email whatever its state,
-// deactivated and soft-deleted included. The match is case-insensitive
+// UserByEmailIncludingClosed finds the account holding email whatever its
+// state, deactivated and soft-deleted included. The match is case-insensitive
 // (authm.EmailIdentityWhere).
-func UserByEmail(db *gorm.DB, email string) (*authm.User, error) {
+func UserByEmailIncludingClosed(db *gorm.DB, email string) (*authm.User, error) {
 	return findUser(db, authm.EmailIdentityWhere, email)
 }
 

@@ -17,7 +17,7 @@ func TestUserLookups_RejectedTextIsNotFoundWithoutQuerying(t *testing.T) {
 	lookups := map[string]func(*gorm.DB, string) (*authm.User, error){
 		"LiveUserByUsername":            LiveUserByUsername,
 		"UserByUsernameIncludingClosed": UserByUsernameIncludingClosed,
-		"UserByEmail":                   UserByEmail,
+		"UserByEmailIncludingClosed":                   UserByEmailIncludingClosed,
 	}
 	for lookupName, lookup := range lookups {
 		for valueName, value := range map[string]string{

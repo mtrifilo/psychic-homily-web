@@ -78,17 +78,21 @@ func (h *UserFollowHandler) resolveFollowTarget(ctx context.Context, username st
 }
 
 // resolveUnfollowTarget is resolveFollowTarget for removing the caller's own
-// follow row. Removing one's own row always works, so a follower can unfollow
-// a deactivated or soft-deleted account; any other caller gets the 404 an
-// unknown username gets, so the route does not tell a stranger that a closed
-// account holds the username. A live target takes resolveFollowTarget's gate.
+// follow row, which always works: a caller who follows the target may unfollow
+// it whether it is live and visible to them, private, deactivated or
+// soft-deleted. For a target the caller may not see (closed, or private and
+// not theirs) only a caller holding a follow row is answered; anyone else gets
+// the 404 an unknown username gets, so the route tells a stranger nothing
+// about who holds the username. A repeat of a successful unfollow of such a
+// target therefore answers 404, while a repeat against a visible target
+// answers 200.
 func (h *UserFollowHandler) resolveUnfollowTarget(ctx context.Context, callerID uint, username string) (*authm.User, error) {
 	target, err := h.lookUpTarget(ctx, h.userService.GetUserByUsernameIncludingClosed, username)
 	if err != nil {
 		return nil, err
 	}
-	if target.CanSignIn() {
-		return gateProfile(ctx, target)
+	if target.CanSignIn() && !target.ProfileHiddenFrom(callerID) {
+		return target, nil
 	}
 
 	following, err := h.followService.IsFollowing(callerID, userEntityType, target.ID)
