@@ -85,7 +85,7 @@ func CollectionCreatorIsListedSQL(alias string, viewer contracts.ShowViewer) (st
 			" AND " + authm.LiveAccountSQL(collectionCreatorAlias) +
 			" AND " + profileCond + ")"
 	}
-	publicProfile := collectionCreatorAlias + ".profile_visibility <> 'private'"
+	publicProfile := collectionCreatorAlias + ".profile_visibility <> '" + authm.ProfileVisibilityPrivate + "'"
 	if viewer.UserID == 0 {
 		return liveCreatorWhere(publicProfile), nil
 	}

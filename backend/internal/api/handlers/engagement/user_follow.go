@@ -136,7 +136,7 @@ func (h *UserFollowHandler) lookUpTarget(ctx context.Context, lookup func(string
 func profileHiddenFromViewer(ctx context.Context, target *authm.User) bool {
 	viewer := middleware.GetUserFromContext(ctx)
 	isOwner := viewer != nil && viewer.ID == target.ID
-	return target.ProfileVisibility == "private" && !isOwner
+	return target.IsPrivateProfile() && !isOwner
 }
 
 // UserFollowHandler handles POST /users/{username}/follow.
