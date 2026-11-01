@@ -164,14 +164,23 @@ export const REAUTH_REASON_OAUTH_LINK = 'OAUTH_LINK_REAUTH_REQUIRED'
  */
 export const REAUTH_REASON_CREDENTIAL_MINT = 'REAUTH_REQUIRED'
 
+/**
+ * A reason that means "an already-signed-in reader must prove the account".
+ * A copy table keyed by it (the auth page's) fails to compile when a reason is
+ * added without its copy.
+ */
+export type ReauthReason =
+  | typeof REAUTH_REASON_OAUTH_LINK
+  | typeof REAUTH_REASON_CREDENTIAL_MINT
+
 /** Every reason that means "an already-signed-in reader must prove the account". */
-export const REAUTH_REASONS: readonly string[] = [
+export const REAUTH_REASONS: readonly ReauthReason[] = [
   REAUTH_REASON_OAUTH_LINK,
   REAUTH_REASON_CREDENTIAL_MINT,
 ]
 
-export function isReauthReason(reason: string | null): boolean {
-  return reason !== null && REAUTH_REASONS.includes(reason)
+export function isReauthReason(reason: string | null): reason is ReauthReason {
+  return reason !== null && (REAUTH_REASONS as readonly string[]).includes(reason)
 }
 
 /**
@@ -281,39 +290,43 @@ export function hasSignupTab(searchParams: {
 }
 
 /**
- * Does this auth-page URL ask for the Create account tab? Two arrivals do: a
- * gated control naming the action it refused, and the home hero's sign-up
- * nudge. The page still opens on Sign in for a re-authentication.
+ * Does this auth-page URL ask for the Create account tab? Three arrivals do: a
+ * gated control naming the action it refused, the home hero's sign-up nudge,
+ * and a sign-up refused for its age, whose line is about creating an account.
+ * The page still opens on Sign in for a re-authentication.
  */
 export function asksForCreateAccount(searchParams: {
   get: (name: string) => string | null
 }): boolean {
-  return hasGatedIntent(searchParams) || hasSignupTab(searchParams)
+  return (
+    hasGatedIntent(searchParams) ||
+    hasSignupTab(searchParams) ||
+    isAgeRefusalArrival(searchParams)
+  )
 }
 
-/**
- * The auth-page query parameters a failed OAuth sign-in callback writes: the
- * message the page shows, and the code of a refusal the reader can act on.
- * The backend writes them as `authPageErrorParam` and `authPageErrorCodeParam`
- * in `backend/internal/api/handlers/auth/oauth_handlers.go`; the names on both
- * sides must stay the same.
- */
-export const AUTH_ERROR_PARAM = 'error'
-export const AUTH_ERROR_CODE_PARAM = 'error_code'
-
-/**
- * Does this auth-page URL carry the OAuth callback's refusal of a deleted
- * account still inside its recovery window? The code is compared against one
- * fixed value and never rendered, so it needs no decoding.
- */
-export function isAccountRecoverableRefusal(searchParams: {
+/** Does this auth-page URL carry a sign-up refused for its age? */
+export function isAgeRefusalArrival(searchParams: {
   get: (name: string) => string | null
 }): boolean {
   return (
     searchParams.get(AUTH_ERROR_CODE_PARAM) ===
-    AuthErrorCode.ACCOUNT_RECOVERABLE
+    AuthErrorCode.AGE_CONFIRMATION_REQUIRED
   )
 }
+
+/**
+ * The auth-page query parameter a failed OAuth redirect writes: the code the
+ * page maps to fixed copy. The backend writes it as `authPageErrorCodeParam`
+ * in `backend/internal/api/handlers/auth/oauth_handlers.go`; the names on both
+ * sides must stay the same.
+ *
+ * `error` is the free-text message older redirects carried. The page never
+ * renders it: its presence alone gets the generic line, and it leaves the
+ * address bar with the code.
+ */
+export const AUTH_ERROR_PARAM = 'error'
+export const AUTH_ERROR_CODE_PARAM = 'error_code'
 
 /**
  * The auth-page href for an anonymous viewer a gated control turned away:

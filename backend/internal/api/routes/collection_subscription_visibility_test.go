@@ -349,7 +349,7 @@ func TestCollectionSubscriptionsMirrorTheDetailRoute(t *testing.T) {
 				continue
 			}
 			// The CONTENT PIN is the load-bearing assertion. The absent-id
-			// comparison below holds largely by construction — CollectionVisibleTo
+			// comparison below holds largely by construction: CollectionServedTo
 			// fails closed on a missing collection, so both leave the handler
 			// from the same line — which makes it a regression guard against
 			// somebody giving the gated path its own answer, not proof on its

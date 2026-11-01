@@ -331,8 +331,8 @@ func TestSetTagParent_ServiceError(t *testing.T) {
 // the refusal happens BEFORE the write.
 func TestTagWriteRoutes_RefuseAnEntityTheCallerCannotSee(t *testing.T) {
 	deniesEverything := &testhelpers.MockShowVisibility{
-		ShowVisibleToFn:       func(uint, contracts.ShowViewer) bool { return false },
-		CollectionVisibleToFn: func(uint, contracts.ShowViewer) bool { return false },
+		ShowVisibleToFn:      func(uint, contracts.ShowViewer) bool { return false },
+		CollectionServedToFn: func(uint, contracts.ShowViewer) bool { return false },
 	}
 	reached := func(t *testing.T) func() {
 		return func() { t.Error("the tag service was reached for an entity the caller cannot see") }
@@ -466,7 +466,7 @@ func TestTagWriteRoutes_RefuseAGatedShowExactlyLikeAMissingOne(t *testing.T) {
 		ShowVisibleToFn: func(_ uint, viewer contracts.ShowViewer) bool {
 			return viewer.IsAdmin || viewer.UserID == submitterID
 		},
-		CollectionVisibleToFn: func(uint, contracts.ShowViewer) bool { return false },
+		CollectionServedToFn: func(uint, contracts.ShowViewer) bool { return false },
 	}
 
 	// Each write route, driven with the same entity type and the same gate, so a

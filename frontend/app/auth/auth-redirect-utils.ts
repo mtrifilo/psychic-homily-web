@@ -124,17 +124,3 @@ function decodeAsciiEscapes(path: string): string {
     String.fromCharCode(Number.parseInt(hex, 16))
   )
 }
-
-export function safeDecodeQueryParam(
-  rawValue: string | null | undefined
-): string | null {
-  if (!rawValue) {
-    return null
-  }
-
-  try {
-    return decodeURIComponent(rawValue)
-  } catch {
-    return rawValue
-  }
-}

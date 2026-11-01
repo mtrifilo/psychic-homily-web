@@ -628,7 +628,7 @@ describe('PasskeySignupButton', () => {
       json: async () => ({
         success: false,
         error_code: 'AGE_CONFIRMATION_REQUIRED',
-        message: 'You must confirm that you are at least 16 years old to create an account.',
+        message: 'Your account was not created. Psychic Homily accounts are for people 16 and over.',
       }),
     })
     renderButton()
@@ -653,7 +653,7 @@ describe('PasskeySignupButton', () => {
       json: async () => ({
         success: false,
         error_code: 'AGE_CONFIRMATION_REQUIRED',
-        message: 'You must confirm that you are at least 16 years old to create an account.',
+        message: 'Your account was not created. Psychic Homily accounts are for people 16 and over.',
       }),
     })
     renderButton()

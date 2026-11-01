@@ -15,7 +15,6 @@ import {
   hasSignupTab,
   buildSignupTabAuthHref,
   asksForCreateAccount,
-  isAccountRecoverableRefusal,
   REAUTH_REASON_CREDENTIAL_MINT,
   REAUTH_REASON_OAUTH_LINK,
 } from './auth-href'
@@ -220,8 +219,22 @@ describe('asksForCreateAccount', () => {
     ).toBe(true)
   })
 
+  it('accepts a sign-up refused for its age', () => {
+    expect(
+      asksForCreateAccount(new URLSearchParams('error_code=AGE_CONFIRMATION_REQUIRED'))
+    ).toBe(true)
+  })
+
   it('rejects any other arrival', () => {
-    for (const query of ['', 'returnTo=%2Fshows', 'intent=bogus', 'tab=bogus']) {
+    for (const query of [
+      '',
+      'returnTo=%2Fshows',
+      'intent=bogus',
+      'tab=bogus',
+      'error_code=RATE_LIMITED',
+      'error_code=age_confirmation_required',
+      'error=AGE_CONFIRMATION_REQUIRED',
+    ]) {
       expect(asksForCreateAccount(new URLSearchParams(query))).toBe(false)
     }
   })
@@ -290,33 +303,9 @@ describe('hasGatedIntent', () => {
   })
 })
 
-describe('isAccountRecoverableRefusal', () => {
-  it('accepts the recoverable refusal code', () => {
-    expect(
-      isAccountRecoverableRefusal(
-        new URLSearchParams('error=x&error_code=ACCOUNT_RECOVERABLE')
-      )
-    ).toBe(true)
-  })
-
-  it('rejects an absent, different, or near-miss code', () => {
-    for (const query of [
-      '',
-      'error=This+account+was+deleted+recently',
-      'error_code=',
-      'error_code=ACCOUNT_INACTIVE',
-      'error_code=account_recoverable',
-      'error_code=%20ACCOUNT_RECOVERABLE',
-      'error_code=ACCOUNT_RECOVERABLE_X',
-    ]) {
-      expect(isAccountRecoverableRefusal(new URLSearchParams(query))).toBe(false)
-    }
-  })
-})
-
 describe('auth page error parameters', () => {
-  // The backend's authPageErrorParam and authPageErrorCodeParam spell the
-  // same names.
+  // The backend's authPageErrorCodeParam spells the same name; `error` is the
+  // message key older redirects wrote.
   it('reads the error and error_code parameters', () => {
     expect(AUTH_ERROR_PARAM).toBe('error')
     expect(AUTH_ERROR_CODE_PARAM).toBe('error_code')

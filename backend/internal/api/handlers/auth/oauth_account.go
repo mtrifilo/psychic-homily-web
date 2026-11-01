@@ -152,8 +152,7 @@ func (h *OAuthAccountHandler) StartOAuthLinkHandler(ctx context.Context, req *St
 	//
 	// A request naming neither Origin nor Referer is refused, because nothing
 	// then says where it came from.
-	origin := originFromHeaders(req.Origin, req.Referer)
-	if origin == "" || !sameOrigin(origin, h.frontendURL) {
+	if !namesFrontend(req.Origin, req.Referer, h.frontendURL) {
 		logger.FromContext(ctx).Warn("oauth_link_token_refused_origin",
 			"user_id", user.ID,
 		)

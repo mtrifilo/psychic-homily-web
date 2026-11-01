@@ -160,3 +160,83 @@ func TestRefuseBootExitsOne(t *testing.T) {
 		t.Fatalf("refusal lines %v, want one at ERROR with stage %q and the error; stdout:\n%s", refusals, bootStageConfig, stdout.String())
 	}
 }
+
+const backendOriginChildEnv = "PSY_TEST_BACKEND_ORIGIN_CHILD"
+
+// A production config, loaded from the environment, that would mint
+// unusable backend-hosted links refuses boot at stage frontend_url with
+// status 1: an unrecognised FRONTEND_URL with BACKEND_PUBLIC_URL unset, and a
+// loopback BACKEND_PUBLIC_URL, which only the ENVIRONMENT the check reads
+// refuses. The deployed and local shapes that must keep booting return.
+func TestRefuseUnresolvableBackendOrigin(t *testing.T) {
+	if os.Getenv(backendOriginChildEnv) == "1" {
+		logger.Init(true, false)
+		cfg, err := config.Load()
+		if err != nil {
+			t.Fatalf("config.Load: %v", err)
+		}
+		refuseUnresolvableBackendOrigin(cfg)
+		return
+	}
+
+	for _, shape := range []struct {
+		environment string
+		cfg         *config.Config
+	}{
+		{"production", &config.Config{Email: config.EmailConfig{FrontendURL: "https://www.psychichomily.com"}}},
+		{"production", &config.Config{Email: config.EmailConfig{FrontendURL: "https://psychichomily.com"}}},
+		{"stage", &config.Config{Email: config.EmailConfig{FrontendURL: "https://stage.psychichomily.com"}}},
+		{"development", &config.Config{Email: config.EmailConfig{FrontendURL: "http://localhost:3000"}}},
+		{"test", &config.Config{
+			Server: config.ServerConfig{BackendPublicURL: "http://localhost:61001"},
+			Email:  config.EmailConfig{FrontendURL: "http://localhost:61000"},
+		}},
+		{"production", &config.Config{
+			Server: config.ServerConfig{BackendPublicURL: "https://api.example.invalid"},
+			Email:  config.EmailConfig{FrontendURL: "https://example.invalid"},
+		}},
+	} {
+		t.Setenv(config.EnvEnvironment, shape.environment)
+		refuseUnresolvableBackendOrigin(shape.cfg)
+	}
+
+	for _, tc := range []struct {
+		name             string
+		frontendURL      string
+		backendPublicURL string
+		wantInError      string
+	}{
+		{"unrecognised frontend", "https://example.invalid", "", `FRONTEND_URL (host "example.invalid")`},
+		{"loopback override", "https://www.psychichomily.com", "http://localhost:8080", `ENVIRONMENT=production`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+			defer cancel()
+			cmd := exec.CommandContext(ctx, os.Args[0], "-test.run=^TestRefuseUnresolvableBackendOrigin$", "-test.count=1")
+			cmd.Env = append(os.Environ(), backendOriginChildEnv+"=1", "SENTRY_DSN=",
+				"ENVIRONMENT=production",
+				"FRONTEND_URL="+tc.frontendURL,
+				"BACKEND_PUBLIC_URL="+tc.backendPublicURL,
+				"DATABASE_URL=postgres://u:p@db.example.test:5432/d",
+				"JWT_SECRET_KEY=boot-refusal-jwt-secret",
+				"OAUTH_SECRET_KEY=boot-refusal-oauth-secret",
+				"INTERNAL_API_SECRET="+strings.Repeat("x", 32),
+			)
+			var stdout bytes.Buffer
+			cmd.Stdout = &stdout
+			err := cmd.Run()
+
+			var exitErr *exec.ExitError
+			if !errors.As(err, &exitErr) || exitErr.ExitCode() != 1 {
+				t.Fatalf("child exit = %v, want status 1; stdout:\n%s", err, stdout.String())
+			}
+			refusals := recordsWithMsg(logObjectsIn(stdout.String()), bootRefusalMsg)
+			if len(refusals) != 1 || refusals[0]["level"] != "ERROR" || refusals[0]["stage"] != bootStageFrontendURL {
+				t.Fatalf("refusal lines %v, want one at ERROR with stage %q; stdout:\n%s", refusals, bootStageFrontendURL, stdout.String())
+			}
+			if msg, _ := refusals[0]["error"].(string); !strings.Contains(msg, tc.wantInError) {
+				t.Errorf("refusal error %q does not contain %q", msg, tc.wantInError)
+			}
+		})
+	}
+}

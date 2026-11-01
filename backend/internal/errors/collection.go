@@ -1,6 +1,7 @@
 package errors
 
 import (
+	stderrors "errors"
 	"fmt"
 )
 
@@ -68,6 +69,12 @@ func ErrCollectionNotFound(slug string) *CollectionError {
 		Code:    CodeCollectionNotFound,
 		Message: fmt.Sprintf("Collection '%s' not found", slug),
 	}
+}
+
+// IsCollectionNotFound reports whether err is the collection not-found error.
+func IsCollectionNotFound(err error) bool {
+	var collErr *CollectionError
+	return stderrors.As(err, &collErr) && collErr.Code == CodeCollectionNotFound
 }
 
 // ErrCollectionForbidden creates a collection forbidden error.

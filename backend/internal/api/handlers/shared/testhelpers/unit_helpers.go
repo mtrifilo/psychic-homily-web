@@ -123,7 +123,7 @@ func GatedEntityVisibility(ownerID uint) *MockShowVisibility {
 		ShowVisibleToFn: func(_ uint, viewer contracts.ShowViewer) bool {
 			return viewer.IsAdmin || viewer.UserID == ownerID
 		},
-		CollectionVisibleToFn: func(_ uint, viewer contracts.ShowViewer) bool {
+		CollectionServedToFn: func(_ uint, viewer contracts.ShowViewer) bool {
 			return viewer.UserID == ownerID
 		},
 	}
@@ -185,7 +185,7 @@ func CtxWithUser(user *authm.User) context.Context {
 // contracts.ShowVisibilityInterface gives about its own name.
 func AllShowsVisible() *MockShowVisibility {
 	return &MockShowVisibility{
-		ShowVisibleToFn:       func(uint, contracts.ShowViewer) bool { return true },
-		CollectionVisibleToFn: func(uint, contracts.ShowViewer) bool { return true },
+		ShowVisibleToFn:      func(uint, contracts.ShowViewer) bool { return true },
+		CollectionServedToFn: func(uint, contracts.ShowViewer) bool { return true },
 	}
 }

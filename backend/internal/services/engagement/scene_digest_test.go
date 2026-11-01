@@ -42,6 +42,19 @@ func TestSceneDigestService_EnvOverride(t *testing.T) {
 	assert.Equal(t, 3*time.Hour, svc.interval)
 }
 
+// The unsubscribe links are minted on the backend origin the config resolves.
+func TestSceneDigestService_Construction_BackendOrigin(t *testing.T) {
+	cfg := &config.Config{}
+	cfg.Email.FrontendURL = "https://stage.psychichomily.com"
+	cfg.Server.Addr = "0.0.0.0:8080"
+	svc := NewSceneDigestService(&gorm.DB{}, nil, nil, cfg)
+	assert.Equal(t, "https://stage.api.psychichomily.com", svc.backendURL)
+
+	cfg.Server.BackendPublicURL = "http://localhost:61001"
+	svc = NewSceneDigestService(&gorm.DB{}, nil, nil, cfg)
+	assert.Equal(t, "http://localhost:61001", svc.backendURL)
+}
+
 func TestSceneShowDisplayTitle(t *testing.T) {
 	assert.Equal(t, "Real Title", sceneShowDisplayTitle("  Real Title ", []string{"A"}))
 	assert.Equal(t, "A, B", sceneShowDisplayTitle("", []string{"A", "B"}))

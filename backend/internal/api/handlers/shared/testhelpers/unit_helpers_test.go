@@ -48,7 +48,7 @@ func TestAllShowsVisibleFillsEveryGate(t *testing.T) {
 	if !gate.ShowVisibleTo(1, viewer) {
 		t.Error("AllShowsVisible refuses a show")
 	}
-	if !gate.CollectionVisibleTo(1, viewer) {
+	if !gate.CollectionServedTo(1, viewer) {
 		t.Error("AllShowsVisible refuses a collection")
 	}
 
@@ -56,7 +56,7 @@ func TestAllShowsVisibleFillsEveryGate(t *testing.T) {
 	// default-permissive mock would make every handler test that forgets the gate
 	// pass.
 	zero := &MockShowVisibility{}
-	if zero.ShowVisibleTo(1, viewer) || zero.CollectionVisibleTo(1, viewer) {
+	if zero.ShowVisibleTo(1, viewer) || zero.CollectionServedTo(1, viewer) {
 		t.Error("the zero MockShowVisibility grants an entity, so a handler test that never " +
 			"wired the gate would still pass")
 	}

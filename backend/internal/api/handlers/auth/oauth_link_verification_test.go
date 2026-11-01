@@ -25,14 +25,13 @@ func (s *OAuthHandlerIntegrationSuite) assertSignInRefusal(w *httptest.ResponseR
 	s.T().Helper()
 	query := s.assertAuthPageRefusal(w, autherrors.ErrOAuthLinkRefused(refused))
 
-	s.NotContains(query.Get("error"), refused)
 	s.NotContains(w.Header().Get("Location"), refused)
 	return query
 }
 
 // assertAuthPageRefusal pins a sign-in callback refused with refusal: back to
-// the auth page carrying exactly the refusal's own copy and code, with no
-// session. It returns the redirect's query.
+// the auth page carrying exactly the refusal's code and no message text, with
+// no session. It returns the redirect's query.
 func (s *OAuthHandlerIntegrationSuite) assertAuthPageRefusal(w *httptest.ResponseRecorder, refusal *autherrors.AuthError) url.Values {
 	s.T().Helper()
 	s.Equal(http.StatusTemporaryRedirect, w.Code)
@@ -40,13 +39,7 @@ func (s *OAuthHandlerIntegrationSuite) assertAuthPageRefusal(w *httptest.Respons
 	parsed, err := url.Parse(w.Header().Get("Location"))
 	s.Require().NoError(err)
 	s.Equal("http://localhost:3000/auth", parsed.Scheme+"://"+parsed.Host+parsed.Path)
-	// UserMessage() is what the handler emits. ToExternalMessage is a separate
-	// table that happens to agree for these codes, so asserting against it
-	// would point a maintainer at the wrong function.
-	s.Equal(url.Values{
-		"error":      {refusal.UserMessage()},
-		"error_code": {refusal.Code},
-	}, parsed.Query())
+	s.Equal(url.Values{"error_code": {refusal.Code}}, parsed.Query())
 
 	s.assertNoSessionCookie(w)
 	return parsed.Query()
@@ -84,10 +77,7 @@ func (s *OAuthHandlerIntegrationSuite) TestCallback_UnverifiedEmailMatch_Redirec
 	w, req := oauthCallbackRequest("google")
 	handler.OAuthCallbackHTTPHandler(w, req)
 
-	query := s.assertSignInRefusal(w, "callback-unverified@test.com")
-	// The remediation has to survive the trip into the URL, or the refusal
-	// tells a user nothing they can act on.
-	s.Contains(query.Get("error"), "Settings")
+	s.assertSignInRefusal(w, "callback-unverified@test.com")
 
 	var oauthRows int64
 	s.Require().NoError(s.deps.DB.Model(&authm.OAuthAccount{}).

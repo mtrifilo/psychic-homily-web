@@ -203,6 +203,10 @@ type NotificationFilterSuite struct {
 	svc    *NotificationFilterService
 }
 
+// testBackendURL is the backend origin the suites' services are built with,
+// so a minted unsubscribe URL can be checked for its host.
+const testBackendURL = "https://api.example.test"
+
 func TestNotificationFilterSuite(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping integration test in short mode")
@@ -215,7 +219,7 @@ func (s *NotificationFilterSuite) SetupSuite() {
 	s.db = s.testDB.DB
 
 	// Use a mock email service
-	s.svc = NewNotificationFilterService(s.testDB.DB, &mockEmailService{}, "test-secret", "http://localhost:3000")
+	s.svc = NewNotificationFilterService(s.testDB.DB, &mockEmailService{}, "test-secret", "http://localhost:3000", testBackendURL)
 }
 
 func (s *NotificationFilterSuite) TearDownTest() {

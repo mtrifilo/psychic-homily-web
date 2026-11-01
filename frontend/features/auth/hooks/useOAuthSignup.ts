@@ -56,16 +56,21 @@ export function usePendingOAuthSignup() {
 /**
  * Whether this browser carries the under-age refusal marker, which refuses
  * every sign-up from it for a day: the pending-signup read's `age_refused`
- * status. Read while `enabled`; false while unread or when the read fails,
- * since the backend refuses a marked browser's sign-up either way.
+ * status. Read while `enabled`; `refused` is false while unread or when the
+ * read fails, since the backend refuses a marked browser's sign-up either way.
+ * `settled` is true once the read has answered or failed, and whenever it is
+ * not enabled: a disabled query stays pending, and nothing is waiting on it.
  */
-export function useSignupAgeRefused(enabled: boolean): boolean {
-  const { data } = useQuery({
+export function useSignupAgeRefused(enabled: boolean): {
+  refused: boolean
+  settled: boolean
+} {
+  const { data, isPending } = useQuery({
     ...pendingOAuthSignupQuery,
     select: signup => signup.status === 'age_refused',
     enabled,
   })
-  return data === true
+  return { refused: data === true, settled: !enabled || !isPending }
 }
 
 /**

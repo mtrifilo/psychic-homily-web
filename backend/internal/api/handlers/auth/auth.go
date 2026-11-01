@@ -1724,7 +1724,7 @@ func (h *AuthHandler) GetDeletionSummaryHandler(ctx context.Context, input *stru
 	resp.Body.SavedShowsCount = summary.SavedShowsCount
 	resp.Body.SavedReleasesCount = summary.SavedReleasesCount
 	resp.Body.PasskeysCount = summary.PasskeysCount
-	resp.Body.HasPassword = contextUser.PasswordHash != nil
+	resp.Body.HasPassword = contextUser.HasPassword()
 
 	logger.AuthDebug(ctx, "deletion_summary_success",
 		"user_id", contextUser.ID,
@@ -1779,7 +1779,7 @@ func (h *AuthHandler) DeleteAccountHandler(ctx context.Context, input *DeleteAcc
 	)
 
 	// Check if user has a password set
-	if contextUser.PasswordHash == nil {
+	if !contextUser.HasPassword() {
 		// OAuth-only user - would need email confirmation flow
 		// For now, return an error indicating they need to use email confirmation
 		logger.AuthWarn(ctx, "delete_account_no_password",
@@ -2036,7 +2036,7 @@ func (h *AuthHandler) RecoverAccountHandler(ctx context.Context, input *RecoverA
 		return invalidCredentials()
 	}
 
-	if user.PasswordHash == nil {
+	if !user.HasPassword() {
 		logger.AuthDebug(ctx, "recover_account_no_password",
 			"user_id", user.ID,
 		)

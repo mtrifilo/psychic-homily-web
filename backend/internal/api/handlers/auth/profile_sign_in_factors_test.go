@@ -54,6 +54,35 @@ func TestGetProfileHandler_CarriesTheSignInFactors(t *testing.T) {
 	}
 }
 
+// The user object carries no passkey_credentials key even when the relation
+// is loaded: passkeys reach the client only as passkey_count.
+func TestGetProfileHandler_UserObjectNeverCarriesPasskeyCredentials(t *testing.T) {
+	user := &authm.User{
+		ID:                 10,
+		Email:              strPtr("passkeys@example.com"),
+		PasskeyCredentials: []authm.WebAuthnCredential{{ID: 1, UserID: 10, DisplayName: "Laptop"}},
+	}
+	h := profileHandlerWithFactors(user, func(*authm.User) (contracts.SignInFactors, error) {
+		return contracts.SignInFactors{PasskeyCount: 1}, nil
+	})
+
+	resp, err := h.GetProfileHandler(testhelpers.CtxWithUser(&authm.User{ID: 10}), &struct{}{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	wire, body := wireBody(t, resp)
+	userObj, ok := body["user"].(map[string]any)
+	if !ok {
+		t.Fatalf("profile body has no user object: %s", wire)
+	}
+	if _, present := userObj["passkey_credentials"]; present {
+		t.Errorf("the user object carries passkey_credentials: %s", wire)
+	}
+	if body["passkey_count"] != float64(1) {
+		t.Errorf("passkey_count = %v, want 1", body["passkey_count"])
+	}
+}
+
 // A provider-only account answers false and 0 explicitly: the frontend offers
 // a passkey only on those two values, never on their absence.
 func TestGetProfileHandler_ProviderOnlyAccountAnswersFalseAndZero(t *testing.T) {

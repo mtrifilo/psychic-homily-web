@@ -49,7 +49,7 @@ type tagUsageCountQuery struct {
 // countsFor returns the aggregate restricted to tagIDs, as tag_id → count.
 //
 // A tag with no counted rows is ABSENT from the map, and callers read a missing
-// key as zero, which is the same contract shared.VisibleTagUsageCounts states.
+// key as zero, which is the same contract shared.ListedTagUsageCounts states.
 func (q tagUsageCountQuery) countsFor(db *gorm.DB, tagIDs []uint) (map[uint]int64, error) {
 	out := make(map[uint]int64, len(tagIDs))
 	if db == nil || len(tagIDs) == 0 {
@@ -109,7 +109,7 @@ func tagUsageCountOrderBySQL() string {
 // a builder that has no junction for it.
 func (s *TagService) visibleTagUsageCountQuery(entityType string, cities []contracts.CityStateFilter) tagUsageCountQuery {
 	if entityType == "" {
-		sql, args := shared.VisibleTagUsageCountSQL()
+		sql, args := shared.ListedTagUsageCountSQL()
 		return tagUsageCountQuery{sql: sql, args: args}
 	}
 	if entityType == catalogm.TagEntityShow && len(cities) > 0 {
@@ -126,25 +126,21 @@ func (s *TagService) visibleTagUsageCountQuery(entityType string, cities []contr
 // THE TAGGED ENTITY'S OWN RULE, from the registry, spliced unconditionally: this
 // count is rendered on the same anonymous listing whose membership is filtered,
 // so counting rows the listing withholds would report by subtraction how many
-// carry each tag. VisibleEntityExistsSQL answers TRUE for a type with no rule,
-// so there is no per-type branch here to keep in step with the registry.
+// carry each tag. It is the gate every other count on a tag's pages takes
+// (shared.ListedEntityTagsSQL), which counts a collection's rows only where the
+// tag page lists the collection, so there is no per-type branch here to keep in
+// step with the registry.
 //
 // `show` and `festival` never reach this function: visibleTagUsageCountQuery
 // routes both to the transitive branch above, which carries the container's rule
 // from the same registry.
 func directEntityTypeTagUsageQuery(entityType string) tagUsageCountQuery {
-	visible, visibleArgs := shared.VisibleEntityExistsSQL(
-		entityType, "entity_tags.entity_id", contracts.ShowViewer{})
-	// Placeholders bind by POSITION: the entity type is compared first, the
-	// visibility arguments follow it.
-	args := []interface{}{entityType}
-	args = append(args, visibleArgs...)
 	return tagUsageCountQuery{
 		sql: "SELECT entity_tags.tag_id AS tag_id, COUNT(*) AS count" +
 			" FROM entity_tags WHERE entity_tags.entity_type = ?" +
-			" AND " + visible +
+			" AND " + shared.ListedEntityTagsSQL("entity_tags") +
 			" GROUP BY entity_tags.tag_id",
-		args: args,
+		args: []interface{}{entityType},
 	}
 }
 
