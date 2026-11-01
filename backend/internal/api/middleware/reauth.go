@@ -177,11 +177,12 @@ func (e *SessionRefusedError) GetStatus() int { return http.StatusUnauthorized }
 
 // RefuseSession is the answer of a JSON credential mint (a write, or the
 // session refresh) whose read of the account, locked or not, found the
-// request's session revoked after this middleware validated it
-// (shared.ErrSessionRevoked): the answer HumaJWTMiddleware gives that session
-// on its next request, a 401 TOKEN_INVALID that also clears the auth cookie
-// session describes. It logs the refusal of operation for the request's
-// principal, with cause.
+// request's session revoked after session validation (HumaJWTMiddleware, or
+// LenientHumaJWTMiddleware for the refresh) accepted it
+// (shared.ErrSessionRevoked): the code and message validation gives that
+// session next, as a 401 TOKEN_INVALID that also clears the auth cookie
+// session describes, as HumaJWTMiddleware does. It logs the refusal of
+// operation for the request's principal, with cause.
 //
 // A mint whose response already has its own envelope for a closed account
 // (ACCOUNT_INACTIVE) keeps it; RefuseSession is for the revoked session, and

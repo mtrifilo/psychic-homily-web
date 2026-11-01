@@ -10,6 +10,7 @@ import (
 	"github.com/danielgtaylor/huma/v2"
 
 	"psychic-homily-backend/internal/api/middleware"
+	"psychic-homily-backend/internal/config"
 	autherrors "psychic-homily-backend/internal/errors"
 	authm "psychic-homily-backend/internal/models/auth"
 	"psychic-homily-backend/internal/services/auth"
@@ -93,10 +94,10 @@ func (s *AuthHandlerIntegrationSuite) decodeRefresh(w *httptest.ResponseRecorder
 	return body
 }
 
-// assertRefusedAsValidationRefuses asserts w is the refusal session
-// validation gives a revoked or closed session (401 TOKEN_INVALID, "Invalid
-// token"), that it carries no token, and that any auth cookie it sets clears
-// the cookie rather than issuing one.
+// assertRefusedAsValidationRefuses asserts w carries the code and message
+// session validation gives a revoked or closed session (401 TOKEN_INVALID,
+// "Invalid token"), no token, and exactly one cookie: the auth cookie,
+// cleared.
 func (s *AuthHandlerIntegrationSuite) assertRefusedAsValidationRefuses(w *httptest.ResponseRecorder) {
 	s.T().Helper()
 	s.Equal(http.StatusUnauthorized, w.Code, "body: %s", w.Body.String())
@@ -105,10 +106,11 @@ func (s *AuthHandlerIntegrationSuite) assertRefusedAsValidationRefuses(w *httpte
 	s.Equal(autherrors.CodeTokenInvalid, body.ErrorCode)
 	s.Equal("Invalid token", body.Message)
 	s.Nil(body.Token, "a refused refresh carries no token")
-	for _, cookie := range (&http.Response{Header: w.Header()}).Cookies() {
-		s.Empty(cookie.Value, "a refused refresh issues no cookie: %s", cookie.String())
-		s.Negative(cookie.MaxAge, "a refused refresh only clears the auth cookie: %s", cookie.String())
-	}
+	cookies := (&http.Response{Header: w.Header()}).Cookies()
+	s.Require().Len(cookies, 1, "a refused refresh clears the auth cookie and sets no other")
+	s.Equal(config.AuthCookieName, cookies[0].Name)
+	s.Empty(cookies[0].Value, "a refused refresh issues no session: %s", cookies[0].String())
+	s.Negative(cookies[0].MaxAge, "the auth cookie is cleared: %s", cookies[0].String())
 }
 
 // A session revocation commits after the middleware validated the session and
