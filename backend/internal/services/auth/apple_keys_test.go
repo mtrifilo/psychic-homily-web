@@ -625,6 +625,10 @@ func TestAppleKeys_MalformedEntriesNeverReplaceCachedSet(t *testing.T) {
 		{"2047-bit modulus", func(e *testJWK) { e.N = modulusOfBits(2047) }, appleJWKDropModulus},
 		{"modulus not base64url", func(e *testJWK) { e.N = "not base64url!" }, appleJWKDropDecode},
 		{"exponent not base64url", func(e *testJWK) { e.E = "AQ=AB" }, appleJWKDropDecode},
+		// An entry failing more than one check counts under the first.
+		{"other key type, modulus not base64url", func(e *testJWK) { e.Kty, e.N = "EC", "!" }, appleJWKDropType},
+		{"512-bit modulus, exponent not base64url", func(e *testJWK) { e.N, e.E = modulusOfBits(512), "AQ=AB" }, appleJWKDropDecode},
+		{"512-bit modulus, exponent of one", func(e *testJWK) { e.N, e.E = modulusOfBits(512), "AQ" }, appleJWKDropModulus},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -850,7 +854,7 @@ func TestAppleKeys_UndecodableEntryIsDropped(t *testing.T) {
 // cut form.
 var (
 	mixedBadLongKid       = "kid with spaces\n" + strings.Repeat("é", 200)
-	mixedBadLongKidLogged = "kid?with?spaces?" + strings.Repeat("?", appleKeysDropKidLogRunes-16) + "..."
+	mixedBadLongKidLogged = "kid?with?spaces?" + strings.Repeat("?", 48) + "..."
 )
 
 // mixedBadEntries is two entries per drop reason, the first under
@@ -944,4 +948,19 @@ func TestAppleKeys_ThousandDropsLogOneWarning(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, dropWarning(map[appleJWKDropReason]int{appleJWKDropDecode: 1000}, "k0", "k1", "k2"),
 		logs.only(t, "apple_keys_entries_dropped"))
+}
+
+// A kid of up to 64 runes is logged whole; a longer one is cut to 64 runes and
+// marked with "...". Runes outside letters, digits and -_. become '?'.
+func TestAppleKeys_DropLogKidBound(t *testing.T) {
+	cases := []struct{ kid, want string }{
+		{"", ""},
+		{"W6WcOKB", "W6WcOKB"},
+		{strings.Repeat("a", 64), strings.Repeat("a", 64)},
+		{strings.Repeat("a", 65), strings.Repeat("a", 64) + "..."},
+		{"a b\n\x00\"é", "a?b????"},
+	}
+	for _, tc := range cases {
+		assert.Equal(t, tc.want, appleKeyIDForDropLog(tc.kid), "%q", tc.kid)
+	}
 }

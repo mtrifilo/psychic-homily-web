@@ -542,9 +542,9 @@ func (s *AppleAuthService) fetchAppleKeys() (map[string]*rsa.PublicKey, error) {
 		}
 		keys[jwk.Kid] = key
 	}
-	if total := drops.total(); total > 0 {
+	if drops.total > 0 {
 		s.keysLog().Warn("apple_keys_entries_dropped",
-			"dropped", total,
+			"dropped", drops.total,
 			"dropped_decode", drops.decode,
 			"dropped_type", drops.kind,
 			"dropped_modulus", drops.modulus,
@@ -578,15 +578,18 @@ const (
 	appleJWKDropExponent
 )
 
-// appleKeysDrops tallies the entries one fetch leaves out: the count per
-// reason, and the key ids of the first appleKeysDropSampleKids of them as
-// appleKeyIDForDropLog renders them.
+// appleKeysDrops tallies the entries one fetch leaves out: the total, the
+// count per reason, and the key ids of the first appleKeysDropSampleKids of
+// them as appleKeyIDForDropLog renders them. total counts every entry added,
+// whatever its reason.
 type appleKeysDrops struct {
+	total                           int
 	kind, decode, modulus, exponent int
 	sampleKids                      []string
 }
 
 func (d *appleKeysDrops) add(reason appleJWKDropReason, kid string) {
+	d.total++
 	switch reason {
 	case appleJWKDropType:
 		d.kind++
@@ -600,10 +603,6 @@ func (d *appleKeysDrops) add(reason appleJWKDropReason, kid string) {
 	if len(d.sampleKids) < appleKeysDropSampleKids {
 		d.sampleKids = append(d.sampleKids, appleKeyIDForDropLog(kid))
 	}
-}
-
-func (d *appleKeysDrops) total() int {
-	return d.kind + d.decode + d.modulus + d.exponent
 }
 
 // appleKeyIDForDropLog is a key-set entry's kid as the drop warning carries
