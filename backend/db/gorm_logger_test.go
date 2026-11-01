@@ -44,24 +44,17 @@ func TestGormLoggerDropsOnlyCanceledStatements(t *testing.T) {
 			if debug {
 				require.NotContains(t, out.String(), gorm.ErrRecordNotFound.Error(),
 					"debug traces the statement but not as an error")
+
+				// Debug mode is the filtered logger after LogMode, so the
+				// filter carries over it and every other statement is traced.
+				out.Reset()
+				traceStatement(l, nil)
+				require.Contains(t, out.String(), "SELECT traced_statement")
 			} else {
 				require.Empty(t, out.String())
 			}
 		})
 	}
-}
-
-// LogMode returns a new logger, and gorm.Session and debug mode both go
-// through it, so the filter has to carry over.
-func TestGormLoggerFilterSurvivesLogMode(t *testing.T) {
-	var out bytes.Buffer
-	l := newGormLogger(&out, false).LogMode(logger.Info)
-
-	traceStatement(l, context.Canceled)
-	require.Empty(t, out.String())
-
-	traceStatement(l, nil)
-	require.Contains(t, out.String(), "SELECT traced_statement")
 }
 
 // The filter keys on the error the driver actually returns for a statement
