@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"io"
 	"log"
 	"math"
 	"net/url"
@@ -43,18 +44,6 @@ func Connect(cfg *config.Config) error {
 }
 
 func connectWithin(cfg *config.Config, bound time.Duration) error {
-	// ErrRecordNotFound is application-level branching (lookup-or-create, radio
-	// matching against unmatched plays), not an error worth surfacing.
-	gormLogger := logger.New(log.New(os.Stdout, "", log.LstdFlags), logger.Config{
-		SlowThreshold:             200 * time.Millisecond,
-		LogLevel:                  logger.Warn,
-		IgnoreRecordNotFoundError: true,
-		Colorful:                  cfg.Server.LogLevel == "debug",
-	})
-	if cfg.Server.LogLevel == "debug" {
-		gormLogger = gormLogger.LogMode(logger.Info)
-	}
-
 	// Connect to database.
 	//
 	// TranslateError maps driver errors to GORM sentinel errors (e.g. Postgres
@@ -68,7 +57,7 @@ func connectWithin(cfg *config.Config, bound time.Duration) error {
 	// bounded one instead.
 	dsn := withDefaultConnectTimeout(cfg.Database.URL, bound)
 	gormDB, err := gorm.Open(postgres.Open(dsn), &gorm.Config{
-		Logger:               gormLogger,
+		Logger:               newGormLogger(os.Stdout, cfg.Server.LogLevel == "debug"),
 		TranslateError:       true,
 		DisableAutomaticPing: true,
 		NowFunc: func() time.Time {
@@ -198,6 +187,49 @@ func applyPoolBounds(gormDB *gorm.DB, cfg config.DatabaseConfig) error {
 	sqlDB.SetMaxIdleConns(cfg.MaxIdleConns)
 	sqlDB.SetConnMaxLifetime(cfg.ConnMaxLifetime)
 	return nil
+}
+
+// newGormLogger is GORM's logger writing to w at Warn, or at Info with color
+// when debug is set. ErrRecordNotFound is application-level branching
+// (lookup-or-create, radio matching against unmatched plays), not an error
+// worth surfacing, so it is not logged; neither is a statement canceled by
+// its context (canceledStatementFilter).
+func newGormLogger(w io.Writer, debug bool) logger.Interface {
+	gormLogger := logger.New(canceledStatementFilter{log.New(w, "", log.LstdFlags)}, logger.Config{
+		SlowThreshold:             200 * time.Millisecond,
+		LogLevel:                  logger.Warn,
+		IgnoreRecordNotFoundError: true,
+		Colorful:                  debug,
+	})
+	if debug {
+		gormLogger = gormLogger.LogMode(logger.Info)
+	}
+	return gormLogger
+}
+
+// canceledStatementFilter writes every line GORM's logger formats except one
+// whose arguments include an error wrapping context.Canceled, which it drops.
+// GORM passes a failed statement's error as an argument of its trace line, so
+// this drops the trace of a statement canceled by its context. A canceled
+// context is the caller giving up (shutdown landing mid-query, a client that
+// disconnected); the caller still receives the error, and it says nothing
+// about the database. A statement that ran out its deadline is still logged,
+// since a deadline cannot tell shutdown from a query that took too long.
+//
+// It filters at the writer rather than wrapping logger.Interface because GORM
+// attributes each line to the first stack frame outside GORM, which a wrapper
+// around Trace would become.
+type canceledStatementFilter struct {
+	logger.Writer
+}
+
+func (f canceledStatementFilter) Printf(format string, args ...any) {
+	for _, arg := range args {
+		if err, ok := arg.(error); ok && errors.Is(err, context.Canceled) {
+			return
+		}
+	}
+	f.Writer.Printf(format, args...)
 }
 
 // GetDB returns the database connection

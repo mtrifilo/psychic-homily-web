@@ -137,6 +137,8 @@ func (s *AutoPromotionService) runEvaluationCycle() {
 
 	result, err := s.EvaluateAllUsers()
 	if err != nil {
+		// Error, not shared.LogCycleFailure: EvaluateAllUsers takes no context,
+		// so shutdown cannot cancel it and an error here is a real failure.
 		s.logger.Error("auto-promotion evaluation failed", "error", err)
 		return
 	}
