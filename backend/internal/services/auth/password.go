@@ -2,7 +2,6 @@ package auth
 
 import (
 	"bufio"
-	"context"
 	"crypto/sha1"
 	"encoding/hex"
 	"errors"
@@ -179,7 +178,7 @@ func (v *PasswordValidator) IsBreached(password string) (bool, error) {
 func (v *PasswordValidator) logBreachCheckUnavailable(err error, elapsed time.Duration) {
 	v.unavailableLogMu.Lock()
 	now := v.clock()
-	if !v.unavailableLoggedAt.IsZero() && now.Sub(v.unavailableLoggedAt) < breachCheckUnavailableLogInterval {
+	if now.Sub(v.unavailableLoggedAt) < breachCheckUnavailableLogInterval {
 		v.unavailableLogMu.Unlock()
 		return
 	}
@@ -200,9 +199,6 @@ func breachCheckFailureReason(err error) string {
 	var statusErr *breachCheckStatusError
 	if errors.As(err, &statusErr) {
 		return fmt.Sprintf("status_%d", statusErr.statusCode)
-	}
-	if errors.Is(err, context.DeadlineExceeded) {
-		return "timeout"
 	}
 	var netErr net.Error
 	if errors.As(err, &netErr) && netErr.Timeout() {

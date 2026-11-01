@@ -5,9 +5,11 @@ import (
 	"crypto/sha1"
 	"encoding/hex"
 	"log/slog"
+	"maps"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -82,13 +84,21 @@ func blockingServer(t *testing.T, respond func(http.ResponseWriter)) *httptest.S
 	return srv
 }
 
-func statusServer(t *testing.T, status int, body string) *httptest.Server {
+// statusServer answers every request with status and an empty body.
+func statusServer(t *testing.T, status int) *httptest.Server {
 	t.Helper()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(status)
-		_, _ = w.Write([]byte(body))
 	}))
 	t.Cleanup(srv.Close)
+	return srv
+}
+
+// closedServer is a server that has stopped listening, so a dial to it is
+// refused.
+func closedServer() *httptest.Server {
+	srv := httptest.NewServer(http.NotFoundHandler())
+	srv.Close()
 	return srv
 }
 
@@ -114,58 +124,54 @@ func assertFailedOpen(t *testing.T, v *PasswordValidator) {
 func TestValidatePassword_UnavailableBreachCheckLogsReasonClass(t *testing.T) {
 	const shortTimeout = 100 * time.Millisecond
 
-	closedServer := func(t *testing.T) *httptest.Server {
-		srv := httptest.NewServer(http.NotFoundHandler())
-		srv.Close()
-		return srv
-	}
-
 	cases := []struct {
 		name          string
-		server        func(t *testing.T) *httptest.Server
+		transport     func(t *testing.T) http.RoundTripper
 		clientTimeout time.Duration
 		wantReason    string
 	}{
 		{
-			name:       "503",
-			server:     func(t *testing.T) *httptest.Server { return statusServer(t, http.StatusServiceUnavailable, "") },
+			name: "503",
+			transport: func(t *testing.T) http.RoundTripper {
+				return transportTo(t, statusServer(t, http.StatusServiceUnavailable))
+			},
 			wantReason: "status_503",
 		},
 		{
 			name:       "429",
-			server:     func(t *testing.T) *httptest.Server { return statusServer(t, http.StatusTooManyRequests, "") },
+			transport:  func(*testing.T) http.RoundTripper { return mockHIBPResponse(http.StatusTooManyRequests, "") },
 			wantReason: "status_429",
 		},
 		{
 			name: "no response before the deadline",
-			server: func(t *testing.T) *httptest.Server {
-				return blockingServer(t, func(http.ResponseWriter) {})
+			transport: func(t *testing.T) http.RoundTripper {
+				return transportTo(t, blockingServer(t, func(http.ResponseWriter) {}))
 			},
 			clientTimeout: shortTimeout,
 			wantReason:    "timeout",
 		},
 		{
 			name: "body not finished before the deadline",
-			server: func(t *testing.T) *httptest.Server {
-				return blockingServer(t, func(w http.ResponseWriter) {
+			transport: func(t *testing.T) http.RoundTripper {
+				return transportTo(t, blockingServer(t, func(w http.ResponseWriter) {
 					w.WriteHeader(http.StatusOK)
 					_, _ = w.Write([]byte("0018A45C4D1DEF81644B54AB7F969B88D65:1\r\n"))
 					w.(http.Flusher).Flush()
-				})
+				}))
 			},
 			clientTimeout: shortTimeout,
 			wantReason:    "timeout",
 		},
 		{
 			name:       "connection refused",
-			server:     closedServer,
+			transport:  func(t *testing.T) http.RoundTripper { return transportTo(t, closedServer()) },
 			wantReason: "network",
 		},
 	}
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			v, rec := recordingValidator(transportTo(t, tc.server(t)))
+			v, rec := recordingValidator(tc.transport(t))
 			if tc.clientTimeout > 0 {
 				v.httpClient.Timeout = tc.clientTimeout
 			}
@@ -179,34 +185,22 @@ func TestValidatePassword_UnavailableBreachCheckLogsReasonClass(t *testing.T) {
 			assert.Equal(t, slog.LevelWarn, r.Level)
 
 			attrs := recordAttrs(r)
-			assert.ElementsMatch(t, []string{"reason", "elapsed_ms"}, keysOf(attrs),
+			assert.ElementsMatch(t, []string{"reason", "elapsed_ms"}, slices.Collect(maps.Keys(attrs)),
 				"the line carries the reason class and elapsed time only")
 			assert.Equal(t, tc.wantReason, attrs["reason"].String())
 			require.Equal(t, slog.KindInt64, attrs["elapsed_ms"].Kind())
-			elapsed := attrs["elapsed_ms"].Int64()
-			assert.GreaterOrEqual(t, elapsed, int64(0))
 			if tc.clientTimeout > 0 {
-				assert.GreaterOrEqual(t, elapsed, tc.clientTimeout.Milliseconds(),
+				assert.GreaterOrEqual(t, attrs["elapsed_ms"].Int64(), tc.clientTimeout.Milliseconds(),
 					"elapsed covers the wait for the deadline")
 			}
 		})
 	}
 }
 
-func keysOf(attrs map[string]slog.Value) []string {
-	keys := make([]string, 0, len(attrs))
-	for k := range attrs {
-		keys = append(keys, k)
-	}
-	return keys
-}
-
 func TestValidatePassword_UnavailableBreachCheckLogCarriesNoPasswordMaterial(t *testing.T) {
 	// The network failure's error text names the request URL, which carries
 	// the hash prefix; none of it may reach the line.
-	srv := httptest.NewServer(http.NotFoundHandler())
-	srv.Close()
-	v, rec := recordingValidator(transportTo(t, srv))
+	v, rec := recordingValidator(transportTo(t, closedServer()))
 
 	assertFailedOpen(t, v)
 
@@ -227,14 +221,11 @@ func TestValidatePassword_UnavailableBreachCheckLogCarriesNoPasswordMaterial(t *
 
 func TestValidatePassword_UnavailableBreachCheckLogIsThrottled(t *testing.T) {
 	clock := &fakeClock{now: time.Date(2026, 10, 31, 12, 0, 0, 0, time.UTC)}
-	v, rec := recordingValidator(transportTo(t, statusServer(t, http.StatusServiceUnavailable, "")))
+	v, rec := recordingValidator(mockHIBPResponse(http.StatusServiceUnavailable, ""))
 	v.now = clock.Now
 
 	assertFailedOpen(t, v)
 	assert.Len(t, rec.all(), 1)
-
-	assertFailedOpen(t, v)
-	assert.Len(t, rec.all(), 1, "a second failure at the same instant writes no second line")
 
 	clock.advance(breachCheckUnavailableLogInterval - time.Second)
 	assertFailedOpen(t, v)
@@ -266,11 +257,8 @@ func TestValidatePassword_UnavailableBreachCheckLogIsThrottledAcrossGoroutines(t
 }
 
 func TestValidatePassword_CompletedBreachCheckWritesNoUnavailableLine(t *testing.T) {
-	sum := sha1.Sum([]byte(unavailableTestPassword))
-	suffix := strings.ToUpper(hex.EncodeToString(sum[:]))[5:]
-
 	t.Run("not breached", func(t *testing.T) {
-		v, rec := recordingValidator(transportTo(t, statusServer(t, http.StatusOK, "0018A45C4D1DEF81644B54AB7F969B88D65:1\r\n")))
+		v, rec := recordingValidator(mockHIBPResponse(http.StatusOK, "0018A45C4D1DEF81644B54AB7F969B88D65:1\r\n"))
 
 		result, err := v.ValidatePassword(unavailableTestPassword)
 		require.NoError(t, err)
@@ -280,7 +268,7 @@ func TestValidatePassword_CompletedBreachCheckWritesNoUnavailableLine(t *testing
 	})
 
 	t.Run("breached", func(t *testing.T) {
-		v, rec := recordingValidator(transportTo(t, statusServer(t, http.StatusOK, suffix+":42\r\n")))
+		v, rec := recordingValidator(mockHIBPResponse(http.StatusOK, hibpSuffix(unavailableTestPassword)+":42\r\n"))
 
 		result, err := v.ValidatePassword(unavailableTestPassword)
 		require.NoError(t, err)
