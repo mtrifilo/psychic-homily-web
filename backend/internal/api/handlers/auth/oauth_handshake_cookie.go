@@ -56,10 +56,7 @@ func (c oauthHandshakeCookie) set(w http.ResponseWriter, value string, secure bo
 // read returns the cookie under setName, when the request carries it.
 func (c oauthHandshakeCookie) read(r *http.Request, secure bool) (*http.Cookie, bool) {
 	cookie, err := r.Cookie(c.setName(secure))
-	if err != nil {
-		return nil, false
-	}
-	return cookie, true
+	return cookie, err == nil
 }
 
 // clear expires the cookie under every one of clearNames the request carries
