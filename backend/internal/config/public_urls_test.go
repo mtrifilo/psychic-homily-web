@@ -6,28 +6,6 @@ import (
 	"testing"
 )
 
-func TestBackendPublicURL(t *testing.T) {
-	tests := []struct {
-		name  string
-		value string
-		want  string
-	}{
-		{"unset defaults to localhost:8080", "", "http://localhost:8080"},
-		{"explicit value", "http://localhost:61001", "http://localhost:61001"},
-		{"trailing slash trimmed", "http://localhost:61001/", "http://localhost:61001"},
-		{"surrounding whitespace trimmed", "  http://localhost:61001  ", "http://localhost:61001"},
-		{"whitespace only counts as unset", "   ", "http://localhost:8080"},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Setenv(EnvBackendPublicURL, tt.value)
-			if got := BackendPublicURL(); got != tt.want {
-				t.Errorf("BackendPublicURL() = %q, want %q", got, tt.want)
-			}
-		})
-	}
-}
-
 func TestGetCORSOriginsFrontendURLDefault(t *testing.T) {
 	unsetDefaults := []string{
 		"https://psychichomily.com", "https://www.psychichomily.com",
@@ -147,6 +125,8 @@ func TestLoadOAuthCallbackDefaults(t *testing.T) {
 		t.Setenv("GOOGLE_CALLBACK_URL", "")
 		t.Setenv("GITHUB_CALLBACK_URL", "")
 		t.Setenv(EnvBackendPublicURL, "")
+		t.Setenv(EnvFrontendURL, "")
+		t.Setenv(EnvAPIAddr, "")
 	}
 	assertCallbacks := func(t *testing.T, cfg *Config, wantGoogle, wantGitHub string) {
 		t.Helper()
@@ -167,6 +147,18 @@ func TestLoadOAuthCallbackDefaults(t *testing.T) {
 		assertCallbacks(t, cfg,
 			"http://localhost:8080/auth/callback/google",
 			"http://localhost:8080/auth/callback/github")
+	})
+
+	t.Run("unset BACKEND_PUBLIC_URL uses the listen port", func(t *testing.T) {
+		setDev(t)
+		t.Setenv(EnvAPIAddr, "localhost:63516")
+		cfg, err := Load()
+		if err != nil {
+			t.Fatalf("Load() returned error: %v", err)
+		}
+		assertCallbacks(t, cfg,
+			"http://localhost:63516/auth/callback/google",
+			"http://localhost:63516/auth/callback/github")
 	})
 
 	t.Run("BACKEND_PUBLIC_URL sets the default", func(t *testing.T) {
@@ -246,15 +238,16 @@ func TestLoadDeployedShapes(t *testing.T) {
 // TestLoadDeployedShapesWithoutExplicitValues drops CORS_ALLOWED_ORIGINS and
 // the callback URLs from the deployed shapes and asserts the fallbacks: the
 // environment's CORS defaults (which already hold the frontend origin) and
-// localhost:8080 callbacks.
+// callbacks on the environment's public API host.
 func TestLoadDeployedShapesWithoutExplicitValues(t *testing.T) {
 	shapes := []struct {
 		environment string
 		frontendURL string
 		wantCORS    []string
+		wantAPI     string
 	}{
-		{"production", "https://www.psychichomily.com", []string{"https://psychichomily.com", "https://www.psychichomily.com"}},
-		{"stage", "https://stage.psychichomily.com", []string{"https://stage.psychichomily.com", "https://www.stage.psychichomily.com"}},
+		{"production", "https://www.psychichomily.com", []string{"https://psychichomily.com", "https://www.psychichomily.com"}, "https://api.psychichomily.com"},
+		{"stage", "https://stage.psychichomily.com", []string{"https://stage.psychichomily.com", "https://www.stage.psychichomily.com"}, "https://api-stage.psychichomily.com"},
 	}
 	for _, sh := range shapes {
 		t.Run(sh.environment, func(t *testing.T) {
@@ -277,11 +270,11 @@ func TestLoadDeployedShapesWithoutExplicitValues(t *testing.T) {
 			if !slices.Equal(cfg.CORS.AllowedOrigins, sh.wantCORS) {
 				t.Errorf("CORS.AllowedOrigins = %v, want %v", cfg.CORS.AllowedOrigins, sh.wantCORS)
 			}
-			if cfg.OAuth.GoogleCallbackURL != "http://localhost:8080/auth/callback/google" {
-				t.Errorf("GoogleCallbackURL = %q", cfg.OAuth.GoogleCallbackURL)
+			if want := sh.wantAPI + "/auth/callback/google"; cfg.OAuth.GoogleCallbackURL != want {
+				t.Errorf("GoogleCallbackURL = %q, want %q", cfg.OAuth.GoogleCallbackURL, want)
 			}
-			if cfg.OAuth.GitHubCallbackURL != "http://localhost:8080/auth/callback/github" {
-				t.Errorf("GitHubCallbackURL = %q", cfg.OAuth.GitHubCallbackURL)
+			if want := sh.wantAPI + "/auth/callback/github"; cfg.OAuth.GitHubCallbackURL != want {
+				t.Errorf("GitHubCallbackURL = %q, want %q", cfg.OAuth.GitHubCallbackURL, want)
 			}
 		})
 	}

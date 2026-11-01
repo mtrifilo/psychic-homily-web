@@ -3,8 +3,6 @@ package engagement
 import (
 	"encoding/json"
 	"fmt"
-	"os"
-	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -159,58 +157,25 @@ func TestCollectionDigestService_Construction_EnvOverride(t *testing.T) {
 	assert.Equal(t, 6*time.Hour, svc.interval, "env override should be applied")
 }
 
+// DeriveBackendURL reads BACKEND_PUBLIC_URL and API_ADDR from the
+// environment; the resolution table itself is config.ResolveBackendOrigin's.
 func TestDeriveBackendURL(t *testing.T) {
 	tests := []struct {
 		name             string
 		frontendURL      string
 		backendPublicURL string
+		apiAddr          string
 		want             string
 	}{
-		{"production apex frontend", "https://psychichomily.com", "", "https://api.psychichomily.com"},
-		{"production www frontend", "https://www.psychichomily.com", "", "https://api.psychichomily.com"},
-		{"production apex frontend trailing slash", "https://psychichomily.com/", "", "https://api.psychichomily.com"},
-		{"production www frontend trailing slash", "https://www.psychichomily.com/", "", "https://api.psychichomily.com"},
-		{"stage frontend", "https://stage.psychichomily.com", "", "https://api-stage.psychichomily.com"},
-		{"stage frontend trailing slash", "https://stage.psychichomily.com/", "", "https://api-stage.psychichomily.com"},
-		{"local frontend falls back to 8080", "http://localhost:3000", "", "http://localhost:8080"},
-		{"empty frontend falls back to 8080", "", "", "http://localhost:8080"},
-		{"lookalike host falls back to 8080", "https://psychichomily.com.example.net", "", "http://localhost:8080"},
-		{"production apex frontend ignores BACKEND_PUBLIC_URL", "https://psychichomily.com", "http://localhost:61001", "https://api.psychichomily.com"},
-		{"production www frontend ignores BACKEND_PUBLIC_URL", "https://www.psychichomily.com", "http://localhost:61001", "https://api.psychichomily.com"},
-		{"stage frontend ignores BACKEND_PUBLIC_URL", "https://stage.psychichomily.com", "http://localhost:61001", "https://api-stage.psychichomily.com"},
-		{"unrecognised frontend uses BACKEND_PUBLIC_URL", "http://localhost:61000", "http://localhost:61001", "http://localhost:61001"},
-		{"BACKEND_PUBLIC_URL trailing slash trimmed", "http://localhost:61000", "http://localhost:61001/", "http://localhost:61001"},
+		{"production www frontend", "https://www.psychichomily.com", "", "0.0.0.0:8080", "https://api.psychichomily.com"},
+		{"local frontend on the listen port", "http://localhost:3000", "", "localhost:63516", "http://localhost:63516"},
+		{"BACKEND_PUBLIC_URL wins", "https://www.psychichomily.com", "http://localhost:61001", "0.0.0.0:8080", "http://localhost:61001"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Setenv(config.EnvBackendPublicURL, tt.backendPublicURL)
+			t.Setenv(config.EnvAPIAddr, tt.apiAddr)
 			assert.Equal(t, tt.want, DeriveBackendURL(tt.frontendURL))
-		})
-	}
-}
-
-// The Railway env templates document the FRONTEND_URL each deployed
-// environment runs with; an unrecognised value there would silently mint
-// localhost unsubscribe links, so every template value must resolve.
-func TestBackendURLForDeployedFrontend_RailwayTemplates(t *testing.T) {
-	templates := map[string]string{
-		"../../../.env.railway.prod.template":  "https://api.psychichomily.com",
-		"../../../.env.railway.stage.template": "https://api-stage.psychichomily.com",
-	}
-	for path, want := range templates {
-		t.Run(path, func(t *testing.T) {
-			body, err := os.ReadFile(path)
-			require.NoError(t, err)
-			var frontendURL string
-			for _, line := range strings.Split(string(body), "\n") {
-				if value, found := strings.CutPrefix(strings.TrimSpace(line), "FRONTEND_URL="); found {
-					frontendURL = value
-				}
-			}
-			require.NotEmpty(t, frontendURL, "template has no FRONTEND_URL line")
-			got, ok := BackendURLForDeployedFrontend(frontendURL)
-			assert.True(t, ok, "FRONTEND_URL %q is not a recognised deployed frontend", frontendURL)
-			assert.Equal(t, want, got)
 		})
 	}
 }

@@ -7,6 +7,8 @@ import (
 	"time"
 
 	"github.com/getsentry/sentry-go"
+
+	"psychic-homily-backend/internal/config"
 )
 
 // Boot stages, the stage attribute of a boot refusal's log line and the
@@ -17,6 +19,7 @@ const (
 	bootStageTestFixturesEnvironment      = "test_fixtures_environment"
 	bootStageAuthRateLimitEnvironment     = "auth_rate_limit_environment"
 	bootStageOAuthTestProviderEnvironment = "oauth_test_provider_environment"
+	bootStageFrontendURL                  = "frontend_url"
 	bootStageDatabaseConnect              = "database_connect"
 	bootStageSchemaAssertion              = "schema_assertion"
 	bootStageInvalidIndexCheck            = "invalid_index_check"
@@ -59,6 +62,16 @@ const (
 func refuseBoot(stage string, err error, report bootRefusalReport) {
 	reportBootRefusal(slog.Default(), sentry.CurrentHub(), stage, err, report)
 	os.Exit(1)
+}
+
+// refuseUnresolvableBackendOrigin refuses boot when cfg's frontend URL is not
+// a form config.ResolveBackendOrigin recognises and BACKEND_PUBLIC_URL is
+// unset, the configuration in which every backend-hosted link would name a
+// local backend.
+func refuseUnresolvableBackendOrigin(cfg *config.Config) {
+	if err := config.ValidateBackendOrigin(cfg.Email.FrontendURL, cfg.Server.BackendPublicURL); err != nil {
+		refuseBoot(bootStageFrontendURL, err, reportBootError)
+	}
 }
 
 // reportBootRefusal is everything a refusal does short of exiting. The ERROR

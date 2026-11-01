@@ -160,3 +160,50 @@ func TestRefuseBootExitsOne(t *testing.T) {
 		t.Fatalf("refusal lines %v, want one at ERROR with stage %q and the error; stdout:\n%s", refusals, bootStageConfig, stdout.String())
 	}
 }
+
+const backendOriginChildEnv = "PSY_TEST_BACKEND_ORIGIN_CHILD"
+
+// A frontend URL the backend-origin resolver does not recognise, with
+// BACKEND_PUBLIC_URL unset, refuses boot at stage frontend_url with status 1.
+// A recognised frontend URL, or any frontend URL with BACKEND_PUBLIC_URL set,
+// boots: the call returns.
+func TestRefuseUnresolvableBackendOrigin(t *testing.T) {
+	if os.Getenv(backendOriginChildEnv) == "1" {
+		logger.Init(true, false)
+		refuseUnresolvableBackendOrigin(&config.Config{Email: config.EmailConfig{FrontendURL: "https://example.invalid"}})
+		return
+	}
+
+	for _, cfg := range []*config.Config{
+		{Email: config.EmailConfig{FrontendURL: "https://www.psychichomily.com"}},
+		{Email: config.EmailConfig{FrontendURL: "https://psychichomily.com"}},
+		{Email: config.EmailConfig{FrontendURL: "https://stage.psychichomily.com"}},
+		{Email: config.EmailConfig{FrontendURL: "http://localhost:3000"}},
+		{
+			Server: config.ServerConfig{BackendPublicURL: "https://api.example.invalid"},
+			Email:  config.EmailConfig{FrontendURL: "https://example.invalid"},
+		},
+	} {
+		refuseUnresolvableBackendOrigin(cfg)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, os.Args[0], "-test.run=^TestRefuseUnresolvableBackendOrigin$", "-test.count=1")
+	cmd.Env = append(os.Environ(), backendOriginChildEnv+"=1", "SENTRY_DSN=")
+	var stdout bytes.Buffer
+	cmd.Stdout = &stdout
+	err := cmd.Run()
+
+	var exitErr *exec.ExitError
+	if !errors.As(err, &exitErr) || exitErr.ExitCode() != 1 {
+		t.Fatalf("child exit = %v, want status 1; stdout:\n%s", err, stdout.String())
+	}
+	refusals := recordsWithMsg(logObjectsIn(stdout.String()), bootRefusalMsg)
+	if len(refusals) != 1 || refusals[0]["level"] != "ERROR" || refusals[0]["stage"] != bootStageFrontendURL {
+		t.Fatalf("refusal lines %v, want one at ERROR with stage %q; stdout:\n%s", refusals, bootStageFrontendURL, stdout.String())
+	}
+	if msg, _ := refusals[0]["error"].(string); !strings.Contains(msg, `(host "example.invalid")`) {
+		t.Errorf("refusal error %q does not name the frontend host", msg)
+	}
+}

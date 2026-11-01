@@ -83,24 +83,39 @@ func TestCreateCalendarTokenHandler_Success(t *testing.T) {
 // Production runs with the www frontend origin and binds API_ADDR to the
 // wildcard listen address; the feed URL handed to the service must still be
 // the public API host.
-func TestCreateCalendarTokenHandler_ProductionFeedURLUsesAPIHost(t *testing.T) {
-	t.Setenv("API_ADDR", "0.0.0.0:8080")
-	var gotBaseURL string
-	mock := &testhelpers.MockCalendarService{
-		CreateTokenFn: func(_ uint, _ *time.Time, apiBaseURL string) (*contracts.CalendarTokenCreateResponse, error) {
-			gotBaseURL = apiBaseURL
-			return &contracts.CalendarTokenCreateResponse{Token: "phcal_abc123"}, nil
-		},
+// The feed URL is minted on the backend's public origin as the config
+// resolves it, never on the listen address.
+func TestCreateCalendarTokenHandler_FeedURLBase(t *testing.T) {
+	tests := []struct {
+		name   string
+		server config.ServerConfig
+		front  string
+		want   string
+	}{
+		{"production www frontend on a wildcard listen address", config.ServerConfig{Addr: "0.0.0.0:8080"}, "https://www.psychichomily.com", "https://api.psychichomily.com"},
+		{"BACKEND_PUBLIC_URL wins", config.ServerConfig{Addr: "localhost:61001", BackendPublicURL: "http://localhost:61001/"}, "http://localhost:61000", "http://localhost:61001"},
+		{"local frontend uses the listen port", config.ServerConfig{Addr: "localhost:63516"}, "http://localhost:3000", "http://localhost:63516"},
 	}
-	cfg := &config.Config{Email: config.EmailConfig{FrontendURL: "https://www.psychichomily.com"}}
-	h := NewCalendarHandler(mock, cfg)
-	ctx := testhelpers.CtxWithSessionAuthTime(&authm.User{ID: 1}, time.Now())
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var gotBaseURL string
+			mock := &testhelpers.MockCalendarService{
+				CreateTokenFn: func(_ uint, _ *time.Time, apiBaseURL string) (*contracts.CalendarTokenCreateResponse, error) {
+					gotBaseURL = apiBaseURL
+					return &contracts.CalendarTokenCreateResponse{Token: "phcal_abc123"}, nil
+				},
+			}
+			cfg := &config.Config{Server: tt.server, Email: config.EmailConfig{FrontendURL: tt.front}}
+			h := NewCalendarHandler(mock, cfg)
+			ctx := testhelpers.CtxWithSessionAuthTime(&authm.User{ID: 1}, time.Now())
 
-	if _, err := h.CreateCalendarTokenHandler(ctx, &CreateCalendarTokenRequest{}); err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if gotBaseURL != "https://api.psychichomily.com" {
-		t.Errorf("apiBaseURL = %q, want %q", gotBaseURL, "https://api.psychichomily.com")
+			if _, err := h.CreateCalendarTokenHandler(ctx, &CreateCalendarTokenRequest{}); err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if gotBaseURL != tt.want {
+				t.Errorf("apiBaseURL = %q, want %q", gotBaseURL, tt.want)
+			}
+		})
 	}
 }
 
@@ -441,40 +456,5 @@ func TestGetFollowsActivityFeedHandler_Success(t *testing.T) {
 	}
 	if w.Body.String() != string(atom) {
 		t.Errorf("body = %q, want %q", w.Body.String(), string(atom))
-	}
-}
-
-// =============================================================================
-// getAPIBaseURL tests
-// =============================================================================
-
-func TestGetAPIBaseURL(t *testing.T) {
-	tests := []struct {
-		name        string
-		frontendURL string
-		apiAddr     string
-		expected    string
-	}{
-		{"production ignores API_ADDR", "https://psychichomily.com", "0.0.0.0:8080", "https://api.psychichomily.com"},
-		{"production www ignores API_ADDR", "https://www.psychichomily.com", "0.0.0.0:8080", "https://api.psychichomily.com"},
-		{"production www trailing slash ignores API_ADDR", "https://www.psychichomily.com/", "0.0.0.0:8080", "https://api.psychichomily.com"},
-		{"stage ignores API_ADDR", "https://stage.psychichomily.com", "0.0.0.0:8080", "https://api-stage.psychichomily.com"},
-		{"development", "http://localhost:3000", "", "http://localhost:8080"},
-		{"empty", "", "", "http://localhost:8080"},
-		{"development uses API_ADDR", "http://localhost:3000", "localhost:63516", "http://localhost:63516"},
-		{"development uses API_ADDR with scheme", "http://localhost:3000", "http://localhost:63516/", "http://localhost:63516"},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Setenv("API_ADDR", tt.apiAddr)
-			cfg := &config.Config{
-				Email: config.EmailConfig{FrontendURL: tt.frontendURL},
-			}
-			result := getAPIBaseURL(cfg)
-			if result != tt.expected {
-				t.Errorf("getAPIBaseURL(%q) with API_ADDR=%q = %q, want %q", tt.frontendURL, tt.apiAddr, result, tt.expected)
-			}
-		})
 	}
 }
