@@ -92,10 +92,11 @@ type outboundEmail struct {
 // here. It is also where the not-configured precondition lives, so a sender
 // that forgets it gets an error rather than a nil client.
 //
-// A provider error is reported to Sentry on the hub ctx carries, or on a clone
-// of the current hub when it carries none, so the report never shares a
-// scope with another goroutine's. ctx is read for that hub only: the call to
-// Resend is bounded by sendTimeout, not by ctx.
+// A provider error is reported to Sentry on the hub ctx carries, or, when it
+// carries none, on a new hub over the current client and an empty scope, so
+// the report never carries a scope another goroutine pushed onto the global
+// hub. ctx is read for that hub only: the call to Resend is bounded by
+// sendTimeout, not by ctx.
 func (s *EmailService) send(ctx context.Context, msg outboundEmail) error {
 	if !s.IsConfigured() {
 		return fmt.Errorf("email service is not configured")
@@ -114,7 +115,7 @@ func (s *EmailService) send(ctx context.Context, msg outboundEmail) error {
 	if _, err := s.client.Emails.Send(params); err != nil {
 		hub := sentry.GetHubFromContext(ctx)
 		if hub == nil {
-			hub = sentry.CurrentHub().Clone()
+			hub = sentry.NewHub(sentry.CurrentHub().Client(), sentry.NewScope())
 		}
 		hub.WithScope(func(scope *sentry.Scope) {
 			scope.SetTag("service", "email")

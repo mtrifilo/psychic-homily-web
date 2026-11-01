@@ -132,25 +132,43 @@ func (s *AuthEmailOutboxSuite) TestSentry_ExpiredUnsentOneWarningPerTick() {
 	s.assertOneExpiredWarning(rec.recorded(), 3)
 }
 
-// Every send carries a hub of the outbox's own, never the global hub, so the
-// email service's provider-error report lands on it.
-func (s *AuthEmailOutboxSuite) TestSends_CarryAWorkerHub() {
-	for _, email := range []string{"hub-1@example.com", "hub-2@example.com", "hub-3@example.com"} {
+// Two sends in flight at once, one per worker, carry two different hubs, and
+// neither is the global hub, so each worker's provider-error report lands on
+// a hub no other goroutine pushes a scope onto.
+func (s *AuthEmailOutboxSuite) TestSends_EachWorkerCarriesItsOwnHub() {
+	s.Require().Equal(2, s.outbox.workers)
+	for _, email := range []string{"hub-1@example.com", "hub-2@example.com"} {
 		user := s.verifiedUser(email)
 		s.enqueue(authm.AuthEmailKindMagicLink, user.ID)
+	}
+	// Each send waits until both have started, so the two rows are on two
+	// workers at the same time.
+	var started sync.WaitGroup
+	started.Add(2)
+	both := make(chan struct{})
+	go func() { started.Wait(); close(both) }()
+	s.sender.onSend = func(string) {
+		started.Done()
+		select {
+		case <-both:
+		case <-time.After(10 * time.Second):
+		}
 	}
 
 	s.outbox.RunNow(context.Background())
 
-	sends := s.sender.recorded()
-	s.Require().Len(sends, 3)
-	hubs := map[*sentry.Hub]bool{}
-	for _, send := range sends {
-		s.Require().NotNil(send.hub)
-		s.NotSame(sentry.CurrentHub(), send.hub)
-		hubs[send.hub] = true
+	select {
+	case <-both:
+	default:
+		s.FailNow("the two sends never ran at the same time")
 	}
-	s.LessOrEqual(len(hubs), s.outbox.workers, "one hub per worker")
+	sends := s.sender.recorded()
+	s.Require().Len(sends, 2)
+	s.Require().NotNil(sends[0].hub)
+	s.Require().NotNil(sends[1].hub)
+	s.NotSame(sends[0].hub, sends[1].hub, "each worker has a hub of its own")
+	s.NotSame(sentry.CurrentHub(), sends[0].hub)
+	s.NotSame(sentry.CurrentHub(), sends[1].hub)
 }
 
 // The empty-address skip and the account-gone skip.

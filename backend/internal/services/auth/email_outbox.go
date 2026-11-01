@@ -512,8 +512,14 @@ var (
 // verification email needs an address not yet verified; a recovery email
 // needs a soft-deleted account still inside its recovery window, the rule
 // the recovery request and confirm handlers apply; a pending-link email
-// needs the pending link it names.
+// needs a row that names a pending link.
+//
+// A kind this function has no rule for fails before anything else is
+// checked, so it is reported whatever state its account is in.
 func (o *AuthEmailOutbox) deliver(ctx context.Context, item authm.AuthEmailOutboxItem, startBy time.Time) (string, error) {
+	if !knownAuthEmailKind(item.Kind) {
+		return "", errUnknownAuthEmailKind
+	}
 	user, err := o.readAccount(ctx, item.UserID, startBy)
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return authEmailSkipAccountGone, nil
@@ -579,6 +585,16 @@ func (o *AuthEmailOutbox) deliver(ctx context.Context, item authm.AuthEmailOutbo
 	return "", errUnknownAuthEmailKind
 }
 
+// knownAuthEmailKind reports whether deliver has a rule for kind.
+func knownAuthEmailKind(kind authm.AuthEmailKind) bool {
+	switch kind {
+	case authm.AuthEmailKindMagicLink, authm.AuthEmailKindOAuthLink,
+		authm.AuthEmailKindVerification, authm.AuthEmailKindAccountRecovery:
+		return true
+	}
+	return false
+}
+
 // needsOpenAccount reports whether kind's email goes only to an account that
 // may sign in. Every kind does but recovery, which is how a closed account
 // inside its recovery window is reopened, so a kind without a rule of its own
@@ -589,8 +605,8 @@ func needsOpenAccount(kind authm.AuthEmailKind) bool {
 
 // readAccount reads the account a row names, closed or not, with startBy as
 // the read's deadline. It reads the users table itself because the user
-// service's reads take no context to carry that deadline. A read that the deadline or the tick's cancellation
-// ended returns errAccountReadCutShort.
+// service's reads take no context to carry that deadline. A read that the
+// deadline or the tick's cancellation ended returns errAccountReadCutShort.
 func (o *AuthEmailOutbox) readAccount(ctx context.Context, userID uint, startBy time.Time) (*authm.User, error) {
 	rctx, cancel := context.WithDeadline(ctx, startBy)
 	defer cancel()

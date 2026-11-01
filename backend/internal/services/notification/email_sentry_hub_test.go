@@ -61,12 +61,24 @@ func TestSend_ProviderErrorReportedOnTheContextHub(t *testing.T) {
 	}
 }
 
-// A context without a hub still reports through the current hub; with no
-// client bound there, the send only returns its error.
+// A context without a hub reports through the current client, on a scope of
+// its own: a scope another goroutine has pushed onto the global hub, with its
+// tags, does not reach the event.
 func TestSend_ProviderErrorWithoutAContextHub(t *testing.T) {
 	svc := setupEmailTestError(t)
+	recorder, events := recordingHub(t)
+	global := sentry.CurrentHub()
+	pushed := global.PushScope()
+	t.Cleanup(global.PopScope)
+	global.BindClient(recorder.Client())
+	pushed.SetTag("pushed_elsewhere", "yes")
+	pushed.SetTag("email_type", "someone_elses")
 
-	err := svc.SendMagicLinkEmailContext(context.Background(), "user@test.com", "token")
+	err := svc.SendMagicLinkEmail("user@test.com", "token")
 
 	assert.ErrorContains(t, err, "failed to send magic link email")
+	require.Len(t, *events, 1, "the provider error is reported through the current client")
+	assert.Equal(t, "email", (*events)[0].Tags["service"])
+	assert.Equal(t, "magic_link", (*events)[0].Tags["email_type"])
+	assert.NotContains(t, (*events)[0].Tags, "pushed_elsewhere", "no scope from the global hub")
 }

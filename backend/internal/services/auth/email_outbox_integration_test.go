@@ -493,9 +493,10 @@ func (s *AuthEmailOutboxSuite) TestAccountDeleted_RowsGoWithIt() {
 }
 
 // A kind the CHECK constraint keeps out of the table, handed to deliver
-// directly, fails rather than being skipped.
+// directly, fails rather than being skipped, even for a closed account.
 func (s *AuthEmailOutboxSuite) TestDeliver_UnknownKindFails() {
 	user := s.verifiedUser("someone@example.com")
+	testutil.DeactivateAccount(s.T(), s.db, user.ID)
 
 	reason, err := s.outbox.deliver(context.Background(),
 		authm.AuthEmailOutboxItem{Kind: "password_reset", UserID: user.ID}, time.Now().Add(time.Minute))
