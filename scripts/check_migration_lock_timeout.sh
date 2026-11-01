@@ -40,7 +40,9 @@
 # base-ref defaults to origin/main. The CALLER makes that ref current; this
 # script does no network I/O. The checked set is a two-dot
 # --diff-filter=AM --no-renames diff of the migrations directory, so a renamed
-# file counts as added.
+# file counts as added. The diff compares the base tip with HEAD, so on a
+# branch behind the base, a migration the base edited since also reads as
+# modified; run it on a branch rebased onto the base.
 
 set -euo pipefail
 # No globbing: filenames flow through unquoted word-splitting below.
@@ -153,9 +155,10 @@ for f in $CHANGED; do
     echo "ERROR: $msg" >&2
   else
     case "$f" in
-      *.down.sql) annotate warning "$f" "$msg $ENTRYPOINT never runs a down migration; a manual migrate down run is unbounded." ;;
-      *) annotate warning "$f" "$msg $ENTRYPOINT bounds it at boot; a manual migrate run is unbounded." ;;
+      *.down.sql) why="never runs a down migration; a manual migrate down run is unbounded." ;;
+      *) why="bounds it at boot; a manual migrate run is unbounded." ;;
     esac
+    annotate warning "$f" "$msg $ENTRYPOINT $why"
   fi
 done
 

@@ -43,13 +43,11 @@ migration() {
   g commit -m "$1"
 }
 
-# merged <version>_<name> <up-sql> [down-sql]: the pair committed on main, with
-# the feature branch fast-forwarded to it, so it is part of the base.
+# merged <version>_<name> <up-sql> [down-sql]: the pair committed with main
+# moved to it, so it is part of the base. Call it while feature equals main.
 merged() {
-  g checkout main
   migration "$@"
-  g checkout feature
-  g merge --ff-only main
+  g branch -f main HEAD
 }
 
 # edit <file> <sql>: rewrite backend/db/migrations/<file> on the feature
@@ -465,10 +463,11 @@ expect 1 "ERROR: backend/db/migrations/${NEWER}_idx.up.sql $CIC_HAZARD"
 
 # Every migration in the repository, up or down, that uses the spelling is at
 # or below the pinned version, so none of them would be refused if it were
-# added or edited again.
+# added or edited again. A raw grep for the word CONCURRENTLY picks every file
+# the spelling can appear in, so only those are folded.
 CASE="repository: every CONCURRENTLY IF NOT EXISTS migration is grandfathered"
 REPO_CIC_FILES=0
-for repo_sql in "$SCRIPT_DIR"/../backend/db/migrations/*.up.sql "$SCRIPT_DIR"/../backend/db/migrations/*.down.sql; do
+while IFS= read -r repo_sql; do
   if cic_if_not_exists_in "$(sql_folded "$repo_sql")"; then
     REPO_CIC_FILES=$((REPO_CIC_FILES + 1))
     if ! cic_grandfathered "$repo_sql"; then
@@ -476,7 +475,7 @@ for repo_sql in "$SCRIPT_DIR"/../backend/db/migrations/*.up.sql "$SCRIPT_DIR"/..
       FAILURES=$((FAILURES + 1))
     fi
   fi
-done
+done < <(grep -liE 'concurrently' "$SCRIPT_DIR"/../backend/db/migrations/*.up.sql "$SCRIPT_DIR"/../backend/db/migrations/*.down.sql)
 if [ "$REPO_CIC_FILES" -eq 0 ]; then
   echo "FAIL [$CASE]: found no migration using the spelling; the scan is not reading the repository"
   FAILURES=$((FAILURES + 1))

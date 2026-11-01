@@ -33,21 +33,20 @@ g() {
   git -C "$FIXTURE" -c commit.gpgsign=false -c core.hooksPath=/dev/null "$@" >/dev/null 2>&1
 }
 
-# migration <version>_<name> <up-sql>: an up/down pair, committed.
+# migration <version>_<name> <up-sql> [down-sql]: an up/down pair, committed.
+# The down migration defaults to SELECT 1;.
 migration() {
   printf '%s\n' "$2" >"$FIXTURE/backend/db/migrations/$1.up.sql"
-  printf 'SELECT 1;\n' >"$FIXTURE/backend/db/migrations/$1.down.sql"
+  printf '%s\n' "${3:-SELECT 1;}" >"$FIXTURE/backend/db/migrations/$1.down.sql"
   g add -A
   g commit -m "$1"
 }
 
-# merged <version>_<name> <up-sql>: the pair committed on main, with the
-# feature branch fast-forwarded to it, so it is part of the base.
+# merged <version>_<name> <up-sql> [down-sql]: the pair committed with main
+# moved to it, so it is part of the base. Call it while feature equals main.
 merged() {
-  g checkout main
   migration "$@"
-  g checkout feature
-  g merge --ff-only main
+  g branch -f main HEAD
 }
 
 # edit <file> <sql>: rewrite backend/db/migrations/<file> on the feature
@@ -323,14 +322,11 @@ migration "000079_widen" "ALTER TABLE users ALTER COLUMN username TYPE text;"
 expect 0 "no timestamp-named up migrations added or modified"
 
 reset_fixture "type change only in down.sql is ignored"
-printf 'SELECT 1;\n' >"$FIXTURE/backend/db/migrations/20260901000000_add.up.sql"
-printf 'ALTER TABLE users ALTER COLUMN username TYPE varchar(50);\n' >"$FIXTURE/backend/db/migrations/20260901000000_add.down.sql"
-g add -A && g commit -m "down only"
+migration "20260901000000_add" "SELECT 1;" "ALTER TABLE users ALTER COLUMN username TYPE varchar(50);"
 expect 0 "no added or modified timestamp-named migration changes a column type"
 
 reset_fixture "type change edited into a merged down.sql is ignored"
-printf 'ALTER TABLE t ALTER COLUMN merged TYPE integer;\n' >"$FIXTURE/backend/db/migrations/20260801000000_merged_widen.down.sql"
-g add -A && g commit -m "edit down"
+edit "20260801000000_merged_widen.down.sql" "ALTER TABLE t ALTER COLUMN merged TYPE integer;"
 expect 0 "no timestamp-named up migrations added or modified"
 
 # --- modified up migrations are read like added ones --------------------------

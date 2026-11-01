@@ -41,7 +41,9 @@
 # base-ref defaults to origin/main. The CALLER makes that ref current; this
 # script does no network I/O. The checked set is a two-dot
 # --diff-filter=AM --no-renames diff of the migrations directory, so a renamed
-# file counts as added.
+# file counts as added. The diff compares the base tip with HEAD, so on a
+# branch behind the base, a migration the base edited since also reads as
+# modified; run it on a branch rebased onto the base.
 
 set -euo pipefail
 # No globbing: filenames flow through unquoted word-splitting below.
