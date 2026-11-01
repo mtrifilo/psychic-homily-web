@@ -48,7 +48,7 @@ func TestAppleCallbackHandler_UnstorableEmailClaimIsAValidationRefusal(t *testin
 	requireRefusalLoggedAtWarn(t, output, "msg=apple_auth_refused")
 }
 
-// The loopback CLI redirect carries the validation refusal's copy, with no
+// The loopback CLI redirect carries the validation refusal's copy and its
 // code, as it does every refusal's.
 func TestOAuthCallbackHandler_CLICallbackCarriesUnstorableEmailCopy(t *testing.T) {
 	t.Cleanup(cleanCLICallbackStore)
@@ -63,8 +63,8 @@ func TestOAuthCallbackHandler_CLICallbackCarriesUnstorableEmailCopy(t *testing.T
 	if got := query.Get("error"); got != "Validation failed" {
 		t.Errorf("error = %q, want %q", got, "Validation failed")
 	}
-	if query.Has("error_code") {
-		t.Errorf("error_code = %q, want the CLI redirect to carry no code", query.Get("error_code"))
+	if got := query.Get("error_code"); got != autherrors.CodeValidationFailed {
+		t.Errorf("error_code = %q, want %q", got, autherrors.CodeValidationFailed)
 	}
 }
 

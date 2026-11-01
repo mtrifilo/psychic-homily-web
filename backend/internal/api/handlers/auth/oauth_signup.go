@@ -327,7 +327,7 @@ func (h *OAuthHTTPHandler) startSignupStep(w http.ResponseWriter, r *http.Reques
 	token, err := h.authService.StartOAuthSignup(identity, returnTo)
 	if err != nil {
 		logger.AuthError(ctx, "oauth_signup_step_start_failed", err, "provider", identity.Provider)
-		http.Redirect(w, r, authPageRefusalURL(frontendURL, err, "authentication failed", returnTo), http.StatusTemporaryRedirect)
+		http.Redirect(w, r, authPageRefusalURL(frontendURL, err, returnTo), http.StatusTemporaryRedirect)
 		return
 	}
 	oauthPendingSignupCookie.set(w, token, secure)

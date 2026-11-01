@@ -473,8 +473,12 @@ func ErrAgeConfirmationRequired(detail string) *AuthError {
 	return NewAuthError(CodeAgeConfirmationRequired, ageConfirmationRequiredMessage, fmt.Errorf("%s", detail))
 }
 
+// ageConfirmationRequiredMessage states the outcome and the rule, never a
+// verdict about the person's age, so it is true for every cause of the code:
+// an under-age date, the refusal marker, and a request with no date of birth.
+// The auth page shows the same sentence (frontend/lib/errors/authRefusalCopy.ts).
 var ageConfirmationRequiredMessage = fmt.Sprintf(
-	"You must confirm that you are at least %d years old to create an account.", legal.MinSignupAge)
+	"Your account was not created. Psychic Homily accounts are for people %d and over.", legal.MinSignupAge)
 
 // ErrInvalidReplyPermission creates an invalid default-reply-permission error.
 func ErrInvalidReplyPermission(permission string) *AuthError {
