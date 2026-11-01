@@ -251,6 +251,8 @@ func (h *OAuthHTTPHandler) OAuthLoginHTTPHandler(w http.ResponseWriter, r *http.
 		// callbackID is the cli_callback_id cookie value: the correlation key
 		// that gates the token-bearing redirect, so it is never logged.
 		logger.AuthDebug(ctx, "oauth_cli_callback_stored", "callback", cliCallback)
+	} else {
+		discardEarlierCLIStart(w, r, secureCookie, provider)
 	}
 
 	setOAuthReturnToCookie(w, r, secureCookie)
@@ -271,6 +273,22 @@ func (h *OAuthHTTPHandler) OAuthLoginHTTPHandler(w http.ResponseWriter, r *http.
 	}
 
 	logger.AuthDebug(ctx, "oauth_login_request_returned", "provider", provider)
+}
+
+// discardEarlierCLIStart spends the CLI id an earlier CLI start left in this
+// browser, and the destination stored under it. Every sign-in or link start
+// without a cli_callback of its own calls it, so the callback that follows
+// signs the browser in rather than handing its token to that earlier start's
+// loopback. It runs before beginOAuthHandshake, whose redirect ends the
+// response's headers, so a start that then fails has still spent the id. Like
+// the callback, it acts only on a cookie read finds.
+func discardEarlierCLIStart(w http.ResponseWriter, r *http.Request, secure bool, provider string) {
+	cookie, ok := cliCallbackIDCookie.take(w, r, secure)
+	if !ok {
+		return
+	}
+	_, stored := takeCLICallback(cookie.Value)
+	logger.AuthInfo(r.Context(), "oauth_cli_callback_discarded", "provider", provider, "stored", stored)
 }
 
 // beginOAuthHandshake hands the request to goth. gothic resolves the provider
