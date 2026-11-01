@@ -48,14 +48,14 @@ func (suite *WebAuthnServiceIntegrationTestSuite) requireOneWinner(results [2]er
 
 func (suite *WebAuthnServiceIntegrationTestSuite) TestConcurrentFinishesConsumeAChallengeOnce() {
 	user := suite.createUser("race@test.com")
-	for _, operation := range []string{"registration", "authentication"} {
+	for _, operation := range []string{contracts.WebAuthnRegistrationOperation, contracts.WebAuthnAuthenticationOperation} {
 		suite.Run(operation, func() {
 			for range raceRounds {
 				challengeID, err := suite.service.StoreChallenge(user.ID, &webauthn.SessionData{Challenge: "race"}, operation)
 				suite.Require().NoError(err)
 
 				suite.requireOneWinner(raceConsume(func() error {
-					if operation == "registration" {
+					if operation == contracts.WebAuthnRegistrationOperation {
 						_, err := suite.service.ConsumeRegistrationChallenge(challengeID, user.ID)
 						return err
 					}
@@ -84,14 +84,14 @@ func (suite *WebAuthnServiceIntegrationTestSuite) TestConcurrentSignupFinishesCo
 // A consumed challenge's row is gone and a second consume answers not found.
 func (suite *WebAuthnServiceIntegrationTestSuite) TestConsumedChallengeAnswersNotFound() {
 	user := suite.createUser("spent@test.com")
-	challengeID, err := suite.service.StoreChallenge(user.ID, &webauthn.SessionData{Challenge: "spent"}, "authentication")
+	challengeID, err := suite.service.StoreChallenge(user.ID, &webauthn.SessionData{Challenge: "spent"}, contracts.WebAuthnAuthenticationOperation)
 	suite.Require().NoError(err)
 
-	_, err = suite.service.ConsumeChallenge(challengeID, "authentication")
+	_, err = suite.service.ConsumeChallenge(challengeID, contracts.WebAuthnAuthenticationOperation)
 	suite.Require().NoError(err)
 	suite.Zero(suite.challengeRows(challengeID))
 
-	_, err = suite.service.ConsumeChallenge(challengeID, "authentication")
+	_, err = suite.service.ConsumeChallenge(challengeID, contracts.WebAuthnAuthenticationOperation)
 	suite.Require().Error(err)
 	suite.Contains(err.Error(), "challenge not found")
 }

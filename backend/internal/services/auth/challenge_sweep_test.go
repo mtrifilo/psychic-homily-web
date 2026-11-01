@@ -35,7 +35,7 @@ func (suite *WebAuthnServiceIntegrationTestSuite) storeChallengeExpiringAt(userI
 	id, err := suite.service.StoreChallenge(userID, &webauthn.SessionData{
 		Challenge: "sweep-challenge",
 		UserID:    []byte("sweep-user"),
-	}, "authentication")
+	}, contracts.WebAuthnAuthenticationOperation)
 	suite.Require().NoError(err)
 	suite.setChallengeExpiry(id, expiresAt)
 	return id

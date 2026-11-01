@@ -321,6 +321,11 @@ func (s *WebAuthnService) UpdateCredentialName(userID uint, credentialID uint, d
 // daily sweep bounds them.
 const challengeTTL = 5 * time.Minute
 
+// noAccountUserID is the user_id of a challenge issued before any account is
+// known (sign-in and sign-up). The column is NOT NULL, and users.id is a
+// SERIAL that never issues 0.
+const noAccountUserID uint = 0
+
 // StoreChallenge saves a WebAuthn challenge to the database
 func (s *WebAuthnService) StoreChallenge(userID uint, session *webauthn.SessionData, operation string) (string, error) {
 	if s.db == nil {
@@ -462,6 +467,19 @@ func (s *WebAuthnService) ConsumeChallenge(challengeID string, operation string)
 		return nil, err
 	}
 	return decodeChallengeSession(challenge)
+}
+
+// StoreLoginChallenge saves a sign-in ceremony's challenge under
+// contracts.WebAuthnAuthenticationOperation. The account is known only once
+// FinishDiscoverableLogin validates the assertion, so the challenge names none.
+func (s *WebAuthnService) StoreLoginChallenge(session *webauthn.SessionData) (string, error) {
+	return s.StoreChallenge(noAccountUserID, session, contracts.WebAuthnAuthenticationOperation)
+}
+
+// ConsumeLoginChallenge removes a challenge StoreLoginChallenge saved and
+// returns its session. Its errors are ConsumeChallenge's.
+func (s *WebAuthnService) ConsumeLoginChallenge(challengeID string) (*webauthn.SessionData, error) {
+	return s.ConsumeChallenge(challengeID, contracts.WebAuthnAuthenticationOperation)
 }
 
 // ConsumeRegistrationChallenge removes the registration challenge stored
@@ -620,7 +638,7 @@ func (s *WebAuthnService) StoreSignupChallenge(signup contracts.SignupChallenge,
 
 	challenge := authm.WebAuthnChallenge{
 		ID:          uuid.New().String(),
-		UserID:      0, // No user yet for signup
+		UserID:      noAccountUserID,
 		Challenge:   []byte(session.Challenge),
 		SessionData: sessionData,
 		Operation:   operation,

@@ -405,6 +405,11 @@ type AppleAuthServiceInterface interface {
 // challenge is stored under. Only ConsumeRegistrationChallenge consumes it.
 const WebAuthnRegistrationOperation = "registration"
 
+// WebAuthnAuthenticationOperation is the operation a passkey sign-in's
+// challenge is stored under. Its challenges name no account: the credential
+// the assertion carries decides the account.
+const WebAuthnAuthenticationOperation = "authentication"
+
 // WebAuthnSignupOperation is the operation a passkey sign-up's challenge is
 // stored under. Its challenges carry the email and the date of birth of a
 // person who has no account yet.
@@ -440,6 +445,12 @@ type WebAuthnServiceInterface interface {
 	// the operation was WebAuthnRegistrationOperation, whose challenges only
 	// ConsumeRegistrationChallenge consumes.
 	ConsumeChallenge(challengeID string, operation string) (*webauthn.SessionData, error)
+	// StoreLoginChallenge stores a sign-in ceremony's challenge under
+	// WebAuthnAuthenticationOperation, issued to no account.
+	StoreLoginChallenge(session *webauthn.SessionData) (string, error)
+	// ConsumeLoginChallenge spends a challenge StoreLoginChallenge stored. Its
+	// errors are ConsumeChallenge's.
+	ConsumeLoginChallenge(challengeID string) (*webauthn.SessionData, error)
 	// ConsumeRegistrationChallenge spends a registration challenge only for the
 	// user it was issued to. It answers a refusal with an *errors.AuthError
 	// coded UNAUTHORIZED (an unexpired challenge issued to another user) or

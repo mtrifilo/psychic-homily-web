@@ -13,6 +13,7 @@ import (
 
 	apperrors "psychic-homily-backend/internal/errors"
 	authm "psychic-homily-backend/internal/models/auth"
+	"psychic-homily-backend/internal/services/contracts"
 	"psychic-homily-backend/internal/services/shared"
 	"psychic-homily-backend/internal/testutil"
 	"psychic-homily-backend/internal/testutil/softauthn"
@@ -164,7 +165,7 @@ func (suite *WebAuthnServiceIntegrationTestSuite) TestConsumeRegistrationChallen
 	})
 
 	suite.Run("another operation's challenge is neither returned nor spent", func() {
-		challengeID := store("authentication")
+		challengeID := store(contracts.WebAuthnAuthenticationOperation)
 		_, err := suite.service.ConsumeRegistrationChallenge(challengeID, owner.ID)
 		suite.requireRefusal(err, apperrors.CodeValidationFailed, "Invalid or expired challenge")
 		suite.Equal(int64(1), suite.challengeRows(challengeID))
@@ -205,7 +206,7 @@ func (suite *WebAuthnServiceIntegrationTestSuite) TestSignInRefusesInvalidAssert
 func (suite *WebAuthnServiceIntegrationTestSuite) TestConsumeRefusesMalformedChallengeIDs() {
 	user := suite.createUser("malformed@test.com")
 	for _, challengeID := range []string{"", "not-a-uuid", "\x00"} {
-		_, err := suite.service.ConsumeChallenge(challengeID, "authentication")
+		_, err := suite.service.ConsumeChallenge(challengeID, contracts.WebAuthnAuthenticationOperation)
 		suite.requireRefusal(err, apperrors.CodeValidationFailed, "Invalid or expired challenge")
 		_, err = suite.service.ConsumeRegistrationChallenge(challengeID, user.ID)
 		suite.requireRefusal(err, apperrors.CodeValidationFailed, "Invalid or expired challenge")
