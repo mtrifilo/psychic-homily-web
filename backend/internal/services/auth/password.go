@@ -106,8 +106,8 @@ func (v *PasswordValidator) ValidatePassword(password string) (*contracts.Passwo
 	}
 
 	// Check against breached passwords (HaveIBeenPwned). The check fails
-	// open: when it cannot complete, the password is judged on the other
-	// checks alone and the failure is logged.
+	// open: when IsBreached returns an error, the password is judged on the
+	// other checks alone and the failure is logged.
 	started := v.clock()
 	breached, err := v.IsBreached(password)
 	if err != nil {

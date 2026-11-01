@@ -6,12 +6,14 @@ import (
 	"encoding/hex"
 	"log/slog"
 	"maps"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"slices"
 	"strings"
 	"sync"
+	"syscall"
 	"testing"
 	"time"
 
@@ -94,13 +96,8 @@ func statusServer(t *testing.T, status int) *httptest.Server {
 	return srv
 }
 
-// closedServer is a server that has stopped listening, so a dial to it is
-// refused.
-func closedServer() *httptest.Server {
-	srv := httptest.NewServer(http.NotFoundHandler())
-	srv.Close()
-	return srv
-}
+// refusedTransport fails every request the way a refused dial does.
+var refusedTransport = mockHIBPError(&net.OpError{Op: "dial", Net: "tcp", Err: syscall.ECONNREFUSED})
 
 func recordingValidator(transport http.RoundTripper) (*PasswordValidator, *logRecorder) {
 	rec := &logRecorder{}
@@ -164,7 +161,7 @@ func TestValidatePassword_UnavailableBreachCheckLogsReasonClass(t *testing.T) {
 		},
 		{
 			name:       "connection refused",
-			transport:  func(t *testing.T) http.RoundTripper { return transportTo(t, closedServer()) },
+			transport:  func(*testing.T) http.RoundTripper { return refusedTransport },
 			wantReason: "network",
 		},
 	}
@@ -198,9 +195,9 @@ func TestValidatePassword_UnavailableBreachCheckLogsReasonClass(t *testing.T) {
 }
 
 func TestValidatePassword_UnavailableBreachCheckLogCarriesNoPasswordMaterial(t *testing.T) {
-	// The network failure's error text names the request URL, which carries
-	// the hash prefix; none of it may reach the line.
-	v, rec := recordingValidator(transportTo(t, closedServer()))
+	// The client wraps a transport failure in an error naming the request
+	// URL, which carries the hash prefix; none of it may reach the line.
+	v, rec := recordingValidator(refusedTransport)
 
 	assertFailedOpen(t, v)
 
