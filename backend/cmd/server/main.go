@@ -835,11 +835,14 @@ func sentryClientOptions(dsn, environment string, isProduction bool) sentry.Clie
 }
 
 // useRequestCorrelation registers, outermost first, the middleware that gives
-// each request its id, its panic recovery, its Sentry hub and its access log
-// line. Call it before any other router.Use, so every later middleware and the
+// each request its id, its access log lines, its panic recovery and its Sentry
+// hub. Call it before any other router.Use, so every later middleware and the
 // Huma API see the request id it puts on the context.
 func useRequestCorrelation(router chi.Router) {
 	router.Use(middleware.RequestIDMiddleware)
+
+	// Outside RecoverPanic, so the completion line carries the 500 it writes.
+	router.Use(accessLog(logger.Default))
 
 	// Outside the Sentry handler: it answers the panic Sentry re-panics after
 	// capturing it.
@@ -857,8 +860,6 @@ func useRequestCorrelation(router chi.Router) {
 	})
 	router.Use(sentryHandler.Handle)
 	router.Use(middleware.SentryRequestIDTag)
-
-	router.Use(logRequest)
 }
 
 // useResponseHeaderPolicy registers, outermost first, the middleware that sets
@@ -876,21 +877,6 @@ func useResponseHeaderPolicy(router chi.Router, corsCfg config.CORSConfig, isPro
 
 	// X-Content-Type-Options, X-Frame-Options, CSP, and HSTS in production.
 	router.Use(middleware.SecurityHeaders)
-}
-
-// logRequest writes one access log line per request, carrying the request id
-// RequestIDMiddleware put on the context.
-func logRequest(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		requestID := logger.GetRequestID(r.Context())
-		logger.Default().Info("request",
-			"method", r.Method,
-			"path", r.URL.Path,
-			"origin", r.Header.Get("Origin"),
-			"request_id", requestID,
-		)
-		next.ServeHTTP(w, r)
-	})
 }
 
 // newCORSMiddleware builds the chi CORS middleware from the configured
