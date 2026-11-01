@@ -11,6 +11,7 @@ import (
 
 	"psychic-homily-backend/internal/config"
 	authm "psychic-homily-backend/internal/models/auth"
+	"psychic-homily-backend/internal/services/shared"
 	usersvc "psychic-homily-backend/internal/services/user"
 	"psychic-homily-backend/internal/testutil"
 )
@@ -348,21 +349,29 @@ func (s *JWTIntegrationSuite) TestValidateToken_UserDeletedAfterTokenCreation() 
 // REFRESH FLOW
 // =============================================================================
 //
-// These exercise the two service calls the refresh endpoint makes, the lenient
-// read and the renewal, against a real database. They do NOT run the middleware
-// or the handler: that the handler hands the read's result to the renewal is
-// pinned separately by TestRefreshTokenHandler_PassesTheSessionsAuthTimeThrough
-// in the handlers package.
+// These exercise the service calls the refresh endpoint makes, the lenient
+// read, the re-read and the renewal, against a real database. They do NOT run
+// the middleware or the handler: the handler's own flow is pinned by the
+// refresh tests in the handlers package, which drive it through the lenient
+// middleware.
 
 // renewLikeTheRefreshEndpoint reads the presented credential the way the lenient
-// middleware does, then renews with what that read established.
+// middleware does, re-reads the account and judges it against that read the
+// way the handler does, then renews from the validated user.
 func (s *JWTIntegrationSuite) renewLikeTheRefreshEndpoint(token string) (string, error) {
 	s.T().Helper()
-	user, authAt, err := s.svc.ValidateSessionLenient(token, refreshGracePeriod)
+	validated, authAt, err := s.svc.ValidateSessionLenient(token, refreshGracePeriod)
 	if err != nil {
 		return "", err
 	}
-	return s.authSvc.RefreshUserToken(user, authAt)
+	current, err := s.authSvc.GetUserProfile(validated.ID)
+	if err != nil {
+		return "", err
+	}
+	if err := shared.CheckSessionAccount(current, validated.SessionsValidAfter); err != nil {
+		return "", err
+	}
+	return s.authSvc.RefreshUserToken(validated, authAt)
 }
 
 func (s *JWTIntegrationSuite) TestRefreshFlow_IssuesAUsableTokenWithALaterExpiry() {

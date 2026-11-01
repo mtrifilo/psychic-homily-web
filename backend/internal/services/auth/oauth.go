@@ -151,8 +151,9 @@ func (s *AuthService) OAuthCallback(
 
 // GetUserProfile retrieves user profile using the user service.
 //
-// Discriminates the not-found case (the principal was hard- or soft-deleted
-// between token issuance and this lookup) from generic backend failures by
+// Discriminates the not-found case (the principal's row no longer exists; a
+// soft-deleted or deactivated account is found and returned, for the caller
+// to judge) from generic backend failures by
 // returning a typed *AuthError{Code: CodeUserNotFound}. Callers that need
 // session-invalidation semantics (RefreshTokenHandler) route the typed
 // error to HTTP 401 + CodeUnauthorized so the client clears the session and
