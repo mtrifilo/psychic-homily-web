@@ -846,6 +846,30 @@ func TestDeleteAccountHandler_OAuthOnlyUser(t *testing.T) {
 	}
 }
 
+// An empty hash is no password, so deletion asks for the email confirmation
+// it asks of a provider-only account rather than a password nothing verifies.
+func TestDeleteAccountHandler_EmptyHashIsNoPassword(t *testing.T) {
+	h := testAuthHandler()
+	empty := ""
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1, PasswordHash: &empty, IsActive: true})
+	input := &DeleteAccountRequest{}
+	input.Body.Password = "anything-at-all"
+
+	resp, err := h.DeleteAccountHandler(ctx, input)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if resp.Body.Success {
+		t.Error("expected success=false")
+	}
+	if resp.Body.ErrorCode != autherrors.CodeValidationFailed {
+		t.Errorf("expected error_code=%s, got %s", autherrors.CodeValidationFailed, resp.Body.ErrorCode)
+	}
+	if !strings.Contains(resp.Body.Message, "OAuth") {
+		t.Errorf("expected the email-confirmation message, got %q", resp.Body.Message)
+	}
+}
+
 func TestDeleteAccountHandler_EmptyPassword(t *testing.T) {
 	h := testAuthHandler()
 	hash := "$2a$10$fakehashvalue"
@@ -2975,6 +2999,42 @@ func TestGetDeletionSummaryHandler_Success(t *testing.T) {
 	}
 	if !resp.Body.HasPassword {
 		t.Error("expected has_password=true")
+	}
+}
+
+// has_password answers from User.HasPassword: an empty hash reports false,
+// the same as an absent one.
+func TestGetDeletionSummaryHandler_HasPasswordFollowsThePredicate(t *testing.T) {
+	empty := ""
+	hash := "$2a$10$fakehash"
+	cases := []struct {
+		name string
+		hash *string
+		want bool
+	}{
+		{"absent hash", nil, false},
+		{"empty hash", &empty, false},
+		{"set hash", &hash, true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			h := authHandler(func(ah *AuthHandler) {
+				ah.userService = &testhelpers.MockUserService{
+					GetDeletionSummaryFn: func(uint) (*contracts.DeletionSummary, error) {
+						return &contracts.DeletionSummary{}, nil
+					},
+				}
+			})
+			ctx := testhelpers.CtxWithUser(&authm.User{ID: 1, PasswordHash: tc.hash})
+
+			resp, err := h.GetDeletionSummaryHandler(ctx, &struct{}{})
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if resp.Body.HasPassword != tc.want {
+				t.Errorf("has_password = %v, want %v", resp.Body.HasPassword, tc.want)
+			}
+		})
 	}
 }
 

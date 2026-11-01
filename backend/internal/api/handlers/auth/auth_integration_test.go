@@ -1167,6 +1167,24 @@ func (s *AuthHandlerIntegrationSuite) TestRecoverAccount_NoPassword() {
 	s.Equal(autherrors.CodeInvalidCredentials, resp.Body.ErrorCode)
 }
 
+// An empty hash is no password: recovery refuses it as it refuses a
+// provider-only account.
+func (s *AuthHandlerIntegrationSuite) TestRecoverAccount_EmptyHashIsNoPassword() {
+	h := s.newAuthHandler(false)
+	user := s.createUserWithPassword("recover-emptyhash@test.com", "strong-password-123!")
+	s.Require().NoError(s.deps.DB.Exec("UPDATE users SET password_hash = '' WHERE id = ?", user.ID).Error)
+	s.softDeleteUser(user.ID)
+
+	input := &RecoverAccountRequest{}
+	input.Body.Email = "recover-emptyhash@test.com"
+	input.Body.Password = "strong-password-123!"
+
+	resp, err := h.RecoverAccountHandler(context.Background(), input)
+	s.Require().NoError(err)
+	s.False(resp.Body.Success)
+	s.Equal(autherrors.CodeInvalidCredentials, resp.Body.ErrorCode)
+}
+
 func (s *AuthHandlerIntegrationSuite) TestRecoverAccount_UserNotFound() {
 	h := s.newAuthHandler(false)
 

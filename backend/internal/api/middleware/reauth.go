@@ -10,7 +10,6 @@ import (
 	"psychic-homily-backend/internal/config"
 	autherrors "psychic-homily-backend/internal/errors"
 	"psychic-homily-backend/internal/logger"
-	authm "psychic-homily-backend/internal/models/auth"
 )
 
 // This rule lives beside the session-credential readers it asks, and NOT in
@@ -101,11 +100,6 @@ func ReauthFactorFor(hasPassword, hasPasskey bool, sessionAuthenticatedAt, now t
 	return ReauthMagicLink
 }
 
-// AccountHasPassword reports whether user can be challenged for a password.
-func AccountHasPassword(user *authm.User) bool {
-	return user.HasPassword()
-}
-
 // ReauthRequiredError is the refusal a credential mint answers with when the
 // request's session did not authenticate recently enough.
 //
@@ -138,7 +132,7 @@ func RequireRecentSessionAuth(ctx context.Context, operation string) error {
 
 	// hasPasskey is false: see the KNOWN GAP on ReauthFactorFor.
 	factor := ReauthFactorFor(
-		AccountHasPassword(user),
+		user.HasPassword(),
 		false,
 		GetSessionAuthTimeFromContext(ctx),
 		time.Now(),
