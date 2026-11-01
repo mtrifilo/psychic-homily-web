@@ -88,7 +88,7 @@ type User struct {
 	// Relationships
 	OAuthAccounts      []OAuthAccount       `json:"oauth_accounts,omitempty" gorm:"foreignKey:UserID"`
 	Preferences        *UserPreferences     `json:"preferences,omitempty" gorm:"foreignKey:UserID"`
-	PasskeyCredentials []WebAuthnCredential `json:"passkey_credentials,omitempty" gorm:"foreignKey:UserID"`
+	PasskeyCredentials []WebAuthnCredential `json:"-" gorm:"foreignKey:UserID"` // Never serialized with the user; a response reporting passkeys builds its own shape
 }
 
 // TableName specifies the table name for User
