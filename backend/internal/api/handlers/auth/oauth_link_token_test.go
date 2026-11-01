@@ -156,6 +156,8 @@ func TestRequestIsFromOurFrontend(t *testing.T) {
 		{"user-initiated navigation", "none", "", "", true},
 
 		{"opaque origin", "", "null", "", false},
+		{"opaque origin in capitals", "", "NULL", "", false},
+		{"opaque origin in capitals with our Referer", "", "NULL", frontend + "/profile", true},
 		{"scheme mismatch", "", "http://psychichomily.com", "", false},
 		// A host that merely ends with ours is a different host.
 		{"suffix host", "", "https://notpsychichomily.com", "", false},
@@ -195,6 +197,9 @@ func TestOriginFromHeaders(t *testing.T) {
 		{"opaque Origin falls back to Referer", "null", ours + "/profile", ours},
 		{"another Origin with our Referer", "https://evil.example", ours + "/profile", "https://evil.example"},
 		{"opaque Origin and nothing else", "null", "", ""},
+		{"opaque Origin in capitals falls back to Referer", "NULL", ours + "/profile", ours},
+		{"opaque Origin in mixed case and nothing else", "Null", "", ""},
+		{"Referer with surrounding whitespace, trimmed to its origin", "", " " + ours + "/profile ", ours},
 		{"Origin with a path, returned as sent", ours + "/", "", ours + "/"},
 		{"Referer that is not an absolute URL", "", "/profile", ""},
 		{"Referer that is not a URL", "", "not a url", ""},
@@ -204,6 +209,33 @@ func TestOriginFromHeaders(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			if got := originFromHeaders(tc.origin, tc.referer); got != tc.want {
 				t.Errorf("originFromHeaders(%q, %q) = %q, want %q", tc.origin, tc.referer, got, tc.want)
+			}
+		})
+	}
+}
+
+// namesFrontend is the one frontend test both legs of the link run.
+func TestNamesFrontend(t *testing.T) {
+	const ours = "https://www.psychichomily.com"
+
+	cases := []struct {
+		name    string
+		origin  string
+		referer string
+		want    bool
+	}{
+		{"our Origin", ours, "", true},
+		{"our Origin in another case", "HTTPS://WWW.PSYCHICHOMILY.COM", "", true},
+		{"our Referer alone", "", ours + "/profile", true},
+		{"opaque Origin in capitals with our Referer", "NULL", ours + "/profile", true},
+		{"another Origin with our Referer", "https://evil.example", ours + "/profile", false},
+		{"nothing at all", "", "", false},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := namesFrontend(tc.origin, tc.referer, ours); got != tc.want {
+				t.Errorf("namesFrontend(%q, %q, %q) = %v, want %v", tc.origin, tc.referer, ours, got, tc.want)
 			}
 		})
 	}

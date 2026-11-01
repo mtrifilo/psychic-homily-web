@@ -415,16 +415,16 @@ func getCORSOrigins() []string {
 	}
 
 	origins := defaultCORSOrigins()
-	if origin, ok := urlOrigin(getFrontendURL()); ok && !slices.Contains(origins, origin) {
+	if origin, ok := URLOrigin(getFrontendURL()); ok && !slices.Contains(origins, origin) {
 		origins = append(origins, origin)
 	}
 	return origins
 }
 
-// urlOrigin returns the scheme://host[:port] origin of rawURL, the form a
+// URLOrigin returns the scheme://host[:port] origin of rawURL, the form a
 // browser sends in the Origin header. ok is false when rawURL has no scheme
 // or host.
-func urlOrigin(rawURL string) (origin string, ok bool) {
+func URLOrigin(rawURL string) (origin string, ok bool) {
 	u, err := url.Parse(strings.TrimSpace(rawURL))
 	if err != nil || u.Scheme == "" || u.Host == "" {
 		return "", false
