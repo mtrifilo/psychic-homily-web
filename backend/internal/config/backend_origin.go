@@ -59,7 +59,7 @@ func ValidateBackendOrigin(environment, frontendURL, backendPublicURL string) er
 		switch {
 		case !ok:
 			return fmt.Errorf(
-				"%s (%s) is not a bare http(s) origin (scheme://host[:port], no path, query or userinfo), so every backend-hosted link "+
+				"%s (%s) is not a bare http(s) origin (scheme://host[:port], no path, query, fragment or userinfo), so every backend-hosted link "+
 					"would be malformed; set it to this backend's public origin or unset it",
 				EnvBackendPublicURL, describeHost(backendPublicURL))
 		case deployedEnvironment && (isLoopbackHost(host) || isUnspecifiedHost(host)):
@@ -123,10 +123,16 @@ func bareOriginHost(raw string) (host string, ok bool) {
 	return u.Hostname(), true
 }
 
-// isLoopbackHost reports whether host, ignoring case and a trailing dot, is
+// canonicalHost lowercases host and drops its trailing dots, the forms a
+// resolver treats as the same name.
+func canonicalHost(host string) string {
+	return strings.ToLower(strings.TrimRight(host, "."))
+}
+
+// isLoopbackHost reports whether host, ignoring case and trailing dots, is
 // localhost, a name under .localhost, or a loopback IP address.
 func isLoopbackHost(host string) bool {
-	name := strings.ToLower(strings.TrimSuffix(host, "."))
+	name := canonicalHost(host)
 	if name == "localhost" || strings.HasSuffix(name, ".localhost") {
 		return true
 	}
@@ -134,10 +140,10 @@ func isLoopbackHost(host string) bool {
 	return ip != nil && ip.IsLoopback()
 }
 
-// isUnspecifiedHost reports whether host is the IPv4 or IPv6 wildcard
-// address, which a server listens on but no client can reach.
+// isUnspecifiedHost reports whether host, ignoring trailing dots, is the IPv4
+// or IPv6 wildcard address, which a server listens on but no client can reach.
 func isUnspecifiedHost(host string) bool {
-	ip := net.ParseIP(host)
+	ip := net.ParseIP(canonicalHost(host))
 	return ip != nil && ip.IsUnspecified()
 }
 

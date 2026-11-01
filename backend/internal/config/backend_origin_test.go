@@ -154,6 +154,8 @@ func TestValidateBackendOrigin(t *testing.T) {
 		{"IPv6 wildcard override in production", EnvProduction, "https://www.psychichomily.com", "http://[::]:8080", `BACKEND_PUBLIC_URL (host "[::]:8080") is a loopback or wildcard origin`},
 		{"capitalised loopback override in production", EnvProduction, "https://www.psychichomily.com", "http://LOCALHOST:8080", `BACKEND_PUBLIC_URL (host "LOCALHOST:8080") is a loopback or wildcard origin`},
 		{"trailing-dot loopback override in production", EnvProduction, "https://www.psychichomily.com", "http://localhost.:8080", `BACKEND_PUBLIC_URL (host "localhost.:8080") is a loopback or wildcard origin`},
+		{"trailing-dot wildcard override in production", EnvProduction, "https://www.psychichomily.com", "http://0.0.0.0.:8080", `BACKEND_PUBLIC_URL (host "0.0.0.0.:8080") is a loopback or wildcard origin`},
+		{"double-trailing-dot loopback override in production", EnvProduction, "https://www.psychichomily.com", "http://LOCALHOST..:8080", `BACKEND_PUBLIC_URL (host "LOCALHOST..:8080") is a loopback or wildcard origin`},
 		{"subdomain of localhost override in production", EnvProduction, "https://www.psychichomily.com", "http://api.localhost:8080", `BACKEND_PUBLIC_URL (host "api.localhost:8080") is a loopback or wildcard origin`},
 		{"override with an empty query", EnvProduction, "https://www.psychichomily.com", "https://api.psychichomily.com?", `BACKEND_PUBLIC_URL (host "api.psychichomily.com") is not a bare http(s) origin`},
 		{"override with an empty fragment", EnvProduction, "https://www.psychichomily.com", "https://api.psychichomily.com#", `BACKEND_PUBLIC_URL (host "api.psychichomily.com") is not a bare http(s) origin`},
