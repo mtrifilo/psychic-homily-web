@@ -30,9 +30,9 @@
 #     not, and the entrypoint never runs a down migration.
 #   * Runner-level bound absent: the same migration is an ERROR (exit 1).
 #
-# Both checks read .up.sql and .down.sql files alike: a down migration runs on
-# every rollback and takes the same locks. A modified migration is read whole,
-# not just its changed lines.
+# Both checks read .up.sql and .down.sql files alike, with the same statement
+# kinds above: a down migration runs on every rollback. A modified migration is
+# read whole, not just its changed lines.
 #
 # Usage:
 #   scripts/check_migration_lock_timeout.sh [base-ref]

@@ -346,6 +346,32 @@ edit "20260901000000_widen.up.sql" "-- Widen actor_id.
 ALTER TABLE audit_logs ALTER COLUMN actor_id TYPE BIGINT;"
 expect 0 "20260901000000_widen.up.sql: audit_logs.actor_id (sqlBigint)"
 
+reset_fixture "an edited type change that a later migration retypes passes"
+assertion '	{Table: "events", Column: "starts_at", Type: sqlTimestamptz},'
+merged "20260901000000_widen_starts" "ALTER TABLE events ALTER COLUMN starts_at TYPE BIGINT;"
+merged "20260902000000_zone_starts" "ALTER TABLE events ALTER COLUMN starts_at TYPE TIMESTAMPTZ;"
+edit "20260901000000_widen_starts.up.sql" "-- Widen starts_at.
+ALTER TABLE events ALTER COLUMN starts_at TYPE BIGINT;"
+expect 0 "20260901000000_widen_starts.up.sql: events.starts_at (retyped later by backend/db/migrations/20260902000000_zone_starts.up.sql)"
+
+reset_fixture "an untyped earlier type change a later migration retypes passes"
+assertion '	{Table: "events", Column: "starts_at", Type: sqlTimestamptz},'
+migration "20260901000000_text_starts" "ALTER TABLE events ALTER COLUMN starts_at TYPE text;"
+migration "20260902000000_zone_starts" "ALTER TABLE events ALTER COLUMN starts_at TYPE TIMESTAMPTZ;"
+expect 0 "events.starts_at (retyped later by" "20260902000000_zone_starts.up.sql: events.starts_at (sqlTimestamptz)"
+
+reset_fixture "a later migration that retypes another column does not excuse a mismatch"
+assertion '	{Table: "events", Column: "starts_at", Type: sqlTimestamptz},'
+migration "20260901000000_widen_starts" "ALTER TABLE events ALTER COLUMN starts_at TYPE BIGINT;"
+migration "20260902000000_zone_ends" "ALTER TABLE events ALTER COLUMN starts_at_note TYPE text, ALTER COLUMN ends_at TYPE TIMESTAMPTZ;"
+expect 1 "20260901000000_widen_starts.up.sql changes the type of events.starts_at to bigint, so its typed entry"
+
+reset_fixture "an earlier migration's retype does not excuse a later mismatch"
+assertion '	{Table: "events", Column: "starts_at", Type: sqlTimestamptz},'
+migration "20260901000000_zone_starts" "ALTER TABLE events ALTER COLUMN starts_at TYPE TIMESTAMPTZ;"
+migration "20260902000000_widen_starts" "ALTER TABLE events ALTER COLUMN starts_at TYPE BIGINT;"
+expect 1 "20260902000000_widen_starts.up.sql changes the type of events.starts_at to bigint, so its typed entry"
+
 reset_fixture "a deleted migration is not read"
 g rm backend/db/migrations/20260801000000_merged_widen.up.sql backend/db/migrations/20260801000000_merged_widen.down.sql
 g commit -m "delete"

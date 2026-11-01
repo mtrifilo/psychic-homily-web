@@ -29,6 +29,9 @@
 #     Type counts when it is a spelling of that constant. Entries match
 #     anywhere in the file, outside `//` comments, in any whitespace layout,
 #     with the fields in the order Table, Column, Type.
+#   * An entry names the column's final type, so a type change that a later
+#     timestamp-named up migration in the working tree changes again passes
+#     whenever the column has an entry, whatever its Type.
 #   * Only the up migrations the branch adds or modifies are read, each one
 #     whole, so a merged migration is re-checked only when the branch edits it.
 #   * Down migrations are not read: the typed entries describe the schema with
@@ -164,6 +167,25 @@ type_changes() {
     | sort -u
 }
 
+# retyped_later <file> <table> <column>: the first timestamp-named up
+# migration in the working tree that sorts after <file> and changes the type
+# of <table>.<column>, or nothing. A typed entry describes the column's final
+# type, so an earlier type change it does not name is superseded, not wrong.
+retyped_later() {
+  local after="${1##*/}" later
+  while IFS= read -r later; do
+    [ "${later##*/}" \> "$after" ] || continue
+    grep -qiF -- "$3" "$later" || continue
+    if awk -v t="$2" -v c="$3" '$1 == t && $2 == c { found = 1 } END { exit !found }' \
+         <<<"$(type_changes "$later")"; then
+      echo "$later"
+      return 0
+    fi
+  done < <(find "$MIGRATIONS_PATH" -maxdepth 1 -name '*.up.sql' \
+             | grep -E '(^|/)[0-9]{14}_[^/]*$' | sort)
+  return 0
+}
+
 CHECKED=""
 MISSING=0
 WRONG_TYPE=0
@@ -182,18 +204,30 @@ for f in $CHANGED_TIMESTAMPED; do
       continue
     fi
     want="$(type_constant "$new_type")"
+    matched=no
+    if [ -n "$want" ]; then
+      while IFS= read -r entry_type; do
+        if names_constant "$entry_type" "$want"; then
+          matched=yes
+        fi
+      done <<<"$types"
+    fi
+    if [ "$matched" = no ]; then
+      later="$(retyped_later "$f" "$table" "$column")"
+      if [ -n "$later" ]; then
+        CHECKED="$CHECKED
+  $f: $table.$column (retyped later by $later)"
+        continue
+      fi
+    fi
     if [ -z "$want" ]; then
       WRONG_TYPE=$((WRONG_TYPE + 1))
       echo "ERROR: $f changes the type of $table.$column to $new_type, a type with no sql* constant in this gate." >&2
       echo "       Add the constant to $ASSERTION_FILE and its spellings to type_constant in scripts/check_schema_assertion_types.sh." >&2
       continue
     fi
-    matched=no
     have=""
     while IFS= read -r entry_type; do
-      if names_constant "$entry_type" "$want"; then
-        matched=yes
-      fi
       have="${have:+$have, }Type: $entry_type"
     done <<<"$types"
     if [ "$matched" = yes ]; then
@@ -211,7 +245,7 @@ if [ "$MISSING" -eq 0 ] && [ "$WRONG_TYPE" -eq 0 ]; then
   if [ -z "$CHECKED" ]; then
     echo "OK: no added or modified timestamp-named migration changes a column type."
   else
-    echo "OK: every column type change in an added or modified timestamp-named migration has a typed entry of its new type:$CHECKED"
+    echo "OK: every column type change in an added or modified timestamp-named migration has a typed entry of its new type, or a later migration retypes the column:$CHECKED"
   fi
   exit 0
 fi
