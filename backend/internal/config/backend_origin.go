@@ -45,7 +45,8 @@ func ResolveBackendOrigin(frontendURL, backendPublicURL, serverAddr string) stri
 // ResolveBackendOrigin would mint backend-hosted URLs that no recipient can
 // use:
 //   - a non-blank backendPublicURL that is not a bare http(s) origin, or that
-//     is a loopback origin while environment is production or stage;
+//     is a loopback or wildcard (0.0.0.0, ::) origin while environment is
+//     production or stage;
 //   - a blank backendPublicURL with a frontendURL isRecognisedFrontend
 //     refuses for environment.
 //
@@ -61,9 +62,9 @@ func ValidateBackendOrigin(environment, frontendURL, backendPublicURL string) er
 				"%s (%s) is not a bare http(s) origin (scheme://host[:port], no path, query or userinfo), so every backend-hosted link "+
 					"would be malformed; set it to this backend's public origin or unset it",
 				EnvBackendPublicURL, describeHost(backendPublicURL))
-		case deployedEnvironment && isLoopbackHost(host):
+		case deployedEnvironment && (isLoopbackHost(host) || isUnspecifiedHost(host)):
 			return fmt.Errorf(
-				"%s (%s) is a loopback origin in %s=%s, so every backend-hosted link would name a local backend; "+
+				"%s (%s) is a loopback or wildcard origin in %s=%s, so every backend-hosted link would name a local backend; "+
 					"set it to this backend's public origin or unset it",
 				EnvBackendPublicURL, describeHost(backendPublicURL), EnvEnvironment, environment)
 		}
@@ -111,23 +112,33 @@ func normalizeURL(raw string) string {
 
 // bareOriginHost returns the hostname of raw, normalized, when it is a bare
 // http(s) origin: a scheme and a host, with no userinfo, path, query or
-// fragment.
+// fragment, not even an empty "?" or "#".
 func bareOriginHost(raw string) (host string, ok bool) {
-	u, err := url.Parse(normalizeURL(raw))
+	normalized := normalizeURL(raw)
+	u, err := url.Parse(normalized)
 	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" || u.User != nil ||
-		u.Path != "" || u.RawQuery != "" || u.Fragment != "" || u.Opaque != "" {
+		u.Path != "" || u.RawQuery != "" || u.ForceQuery || strings.Contains(normalized, "#") || u.Opaque != "" {
 		return "", false
 	}
 	return u.Hostname(), true
 }
 
-// isLoopbackHost reports whether host is localhost or a loopback IP address.
+// isLoopbackHost reports whether host, ignoring case and a trailing dot, is
+// localhost, a name under .localhost, or a loopback IP address.
 func isLoopbackHost(host string) bool {
-	if host == "localhost" {
+	name := strings.ToLower(strings.TrimSuffix(host, "."))
+	if name == "localhost" || strings.HasSuffix(name, ".localhost") {
 		return true
 	}
-	ip := net.ParseIP(host)
+	ip := net.ParseIP(name)
 	return ip != nil && ip.IsLoopback()
+}
+
+// isUnspecifiedHost reports whether host is the IPv4 or IPv6 wildcard
+// address, which a server listens on but no client can reach.
+func isUnspecifiedHost(host string) bool {
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsUnspecified()
 }
 
 // localBackendOrigin returns http://localhost on serverAddr's port, or on

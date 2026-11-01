@@ -90,7 +90,7 @@ func TestCreateCalendarTokenHandler_FeedURLBase(t *testing.T) {
 		want   string
 	}{
 		{"production www frontend on a wildcard listen address", config.ServerConfig{Addr: "0.0.0.0:8080"}, "https://www.psychichomily.com", "https://api.psychichomily.com"},
-		{"BACKEND_PUBLIC_URL wins", config.ServerConfig{Addr: "localhost:61001", BackendPublicURL: "http://localhost:61001/"}, "http://localhost:61000", "http://localhost:61001"},
+		{"BACKEND_PUBLIC_URL wins", config.ServerConfig{Addr: "0.0.0.0:8080", BackendPublicURL: "http://localhost:61001/"}, "http://localhost:61000", "http://localhost:61001"},
 		{"local frontend uses the listen port", config.ServerConfig{Addr: "localhost:63516"}, "http://localhost:3000", "http://localhost:63516"},
 	}
 	for _, tt := range tests {

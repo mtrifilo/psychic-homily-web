@@ -163,10 +163,11 @@ func TestRefuseBootExitsOne(t *testing.T) {
 
 const backendOriginChildEnv = "PSY_TEST_BACKEND_ORIGIN_CHILD"
 
-// A production config, loaded from the environment, whose FRONTEND_URL the
-// backend-origin resolver does not recognise and whose BACKEND_PUBLIC_URL is
-// unset refuses boot at stage frontend_url with status 1. The deployed and
-// local shapes that must keep booting return.
+// A production config, loaded from the environment, that would mint
+// unusable backend-hosted links refuses boot at stage frontend_url with
+// status 1: an unrecognised FRONTEND_URL with BACKEND_PUBLIC_URL unset, and a
+// loopback BACKEND_PUBLIC_URL, which only the ENVIRONMENT the check reads
+// refuses. The deployed and local shapes that must keep booting return.
 func TestRefuseUnresolvableBackendOrigin(t *testing.T) {
 	if os.Getenv(backendOriginChildEnv) == "1" {
 		logger.Init(true, false)
@@ -174,7 +175,7 @@ func TestRefuseUnresolvableBackendOrigin(t *testing.T) {
 		if err != nil {
 			t.Fatalf("config.Load: %v", err)
 		}
-		refuseUnresolvableBackendOrigin(cfg, os.Getenv(config.EnvEnvironment))
+		refuseUnresolvableBackendOrigin(cfg)
 		return
 	}
 
@@ -195,34 +196,47 @@ func TestRefuseUnresolvableBackendOrigin(t *testing.T) {
 			Email:  config.EmailConfig{FrontendURL: "https://example.invalid"},
 		}},
 	} {
-		refuseUnresolvableBackendOrigin(shape.cfg, shape.environment)
+		t.Setenv(config.EnvEnvironment, shape.environment)
+		refuseUnresolvableBackendOrigin(shape.cfg)
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
-	defer cancel()
-	cmd := exec.CommandContext(ctx, os.Args[0], "-test.run=^TestRefuseUnresolvableBackendOrigin$", "-test.count=1")
-	cmd.Env = append(os.Environ(), backendOriginChildEnv+"=1", "SENTRY_DSN=",
-		"ENVIRONMENT=production",
-		"FRONTEND_URL=https://example.invalid",
-		"BACKEND_PUBLIC_URL=",
-		"DATABASE_URL=postgres://u:p@db.example.test:5432/d",
-		"JWT_SECRET_KEY=boot-refusal-jwt-secret",
-		"OAUTH_SECRET_KEY=boot-refusal-oauth-secret",
-		"INTERNAL_API_SECRET="+strings.Repeat("x", 32),
-	)
-	var stdout bytes.Buffer
-	cmd.Stdout = &stdout
-	err := cmd.Run()
+	for _, tc := range []struct {
+		name             string
+		frontendURL      string
+		backendPublicURL string
+		wantInError      string
+	}{
+		{"unrecognised frontend", "https://example.invalid", "", `FRONTEND_URL (host "example.invalid")`},
+		{"loopback override", "https://www.psychichomily.com", "http://localhost:8080", `ENVIRONMENT=production`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+			defer cancel()
+			cmd := exec.CommandContext(ctx, os.Args[0], "-test.run=^TestRefuseUnresolvableBackendOrigin$", "-test.count=1")
+			cmd.Env = append(os.Environ(), backendOriginChildEnv+"=1", "SENTRY_DSN=",
+				"ENVIRONMENT=production",
+				"FRONTEND_URL="+tc.frontendURL,
+				"BACKEND_PUBLIC_URL="+tc.backendPublicURL,
+				"DATABASE_URL=postgres://u:p@db.example.test:5432/d",
+				"JWT_SECRET_KEY=boot-refusal-jwt-secret",
+				"OAUTH_SECRET_KEY=boot-refusal-oauth-secret",
+				"INTERNAL_API_SECRET="+strings.Repeat("x", 32),
+			)
+			var stdout bytes.Buffer
+			cmd.Stdout = &stdout
+			err := cmd.Run()
 
-	var exitErr *exec.ExitError
-	if !errors.As(err, &exitErr) || exitErr.ExitCode() != 1 {
-		t.Fatalf("child exit = %v, want status 1; stdout:\n%s", err, stdout.String())
-	}
-	refusals := recordsWithMsg(logObjectsIn(stdout.String()), bootRefusalMsg)
-	if len(refusals) != 1 || refusals[0]["level"] != "ERROR" || refusals[0]["stage"] != bootStageFrontendURL {
-		t.Fatalf("refusal lines %v, want one at ERROR with stage %q; stdout:\n%s", refusals, bootStageFrontendURL, stdout.String())
-	}
-	if msg, _ := refusals[0]["error"].(string); !strings.Contains(msg, `(host "example.invalid")`) {
-		t.Errorf("refusal error %q does not name the frontend host", msg)
+			var exitErr *exec.ExitError
+			if !errors.As(err, &exitErr) || exitErr.ExitCode() != 1 {
+				t.Fatalf("child exit = %v, want status 1; stdout:\n%s", err, stdout.String())
+			}
+			refusals := recordsWithMsg(logObjectsIn(stdout.String()), bootRefusalMsg)
+			if len(refusals) != 1 || refusals[0]["level"] != "ERROR" || refusals[0]["stage"] != bootStageFrontendURL {
+				t.Fatalf("refusal lines %v, want one at ERROR with stage %q; stdout:\n%s", refusals, bootStageFrontendURL, stdout.String())
+			}
+			if msg, _ := refusals[0]["error"].(string); !strings.Contains(msg, tc.wantInError) {
+				t.Errorf("refusal error %q does not contain %q", msg, tc.wantInError)
+			}
+		})
 	}
 }

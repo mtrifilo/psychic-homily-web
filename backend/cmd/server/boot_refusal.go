@@ -65,9 +65,10 @@ func refuseBoot(stage string, err error, report bootRefusalReport) {
 }
 
 // refuseUnresolvableBackendOrigin refuses boot when config.ValidateBackendOrigin
-// rejects cfg's frontend URL and BACKEND_PUBLIC_URL for environment.
-func refuseUnresolvableBackendOrigin(cfg *config.Config, environment string) {
-	if err := config.ValidateBackendOrigin(environment, cfg.Email.FrontendURL, cfg.Server.BackendPublicURL); err != nil {
+// rejects cfg's frontend URL and BACKEND_PUBLIC_URL for ENVIRONMENT, read from
+// the process environment as config reads it once the .env file has loaded.
+func refuseUnresolvableBackendOrigin(cfg *config.Config) {
+	if err := config.ValidateBackendOrigin(os.Getenv(config.EnvEnvironment), cfg.Email.FrontendURL, cfg.Server.BackendPublicURL); err != nil {
 		refuseBoot(bootStageFrontendURL, err, reportBootError)
 	}
 }

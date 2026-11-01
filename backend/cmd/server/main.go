@@ -109,7 +109,7 @@ func main() {
 	}
 
 	// Runs after Sentry is initialised so the refusal is captured there.
-	refuseUnresolvableBackendOrigin(cfg, os.Getenv(config.EnvEnvironment))
+	refuseUnresolvableBackendOrigin(cfg)
 
 	// PSY-617: escalate background-service panics to Sentry. The handler
 	// runs after the slog.Error inside RunScheduledLoop's recover paths, so a
