@@ -7,6 +7,7 @@ import (
 	"gorm.io/gorm"
 
 	"psychic-homily-backend/db"
+	authm "psychic-homily-backend/internal/models/auth"
 	catalogm "psychic-homily-backend/internal/models/catalog"
 	engagementm "psychic-homily-backend/internal/models/engagement"
 	"psychic-homily-backend/internal/services/contracts"
@@ -1267,7 +1268,8 @@ func (s *ChartsService) getTopTagsUncached(window contracts.ChartWindow, scene s
 }
 
 // GetPopularArtists returns artists ranked by a composite score of followers and upcoming shows.
-// Score = follow_count * 2 + upcoming_show_count.
+// Score = follow_count * 2 + upcoming_show_count. follow_count counts live
+// accounts only (authm.LiveAccountExistsSQL).
 func (s *ChartsService) GetPopularArtists(limit int) ([]contracts.PopularArtist, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
@@ -1298,6 +1300,7 @@ func (s *ChartsService) GetPopularArtists(limit int) ([]contracts.PopularArtist,
 			SELECT entity_id, COUNT(*) AS cnt
 			FROM user_bookmarks
 			WHERE entity_type = ? AND action = ?
+			  AND `+authm.LiveAccountExistsSQL("user_bookmarks.user_id")+`
 			GROUP BY entity_id
 		) follow_counts ON follow_counts.entity_id = a.id
 		LEFT JOIN (
@@ -1334,6 +1337,7 @@ func (s *ChartsService) GetPopularArtists(limit int) ([]contracts.PopularArtist,
 // GetActiveVenues returns venues ranked by a composite score of UPCOMING
 // shows and followers (score = upcoming_show_count * 2 + follow_count) —
 // distinct from GetBusiestVenues, which counts past shows hosted in a window.
+// follow_count counts live accounts only (authm.LiveAccountExistsSQL).
 func (s *ChartsService) GetActiveVenues(limit int) ([]contracts.ActiveVenue, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
@@ -1375,6 +1379,7 @@ func (s *ChartsService) GetActiveVenues(limit int) ([]contracts.ActiveVenue, err
 			SELECT entity_id, COUNT(*) AS cnt
 			FROM user_bookmarks
 			WHERE entity_type = ? AND action = ?
+			  AND `+authm.LiveAccountExistsSQL("user_bookmarks.user_id")+`
 			GROUP BY entity_id
 		) follow_counts ON follow_counts.entity_id = v.id
 		WHERE (COALESCE(show_counts.cnt, 0) > 0 OR COALESCE(follow_counts.cnt, 0) > 0)

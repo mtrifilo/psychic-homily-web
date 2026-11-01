@@ -506,7 +506,13 @@ type RefreshTokenResponse struct {
 	}
 }
 
-// RefreshTokenHandler handles token refresh
+// RefreshTokenHandler renews the presented session.
+//
+// It mints from the user the session's validation loaded (the context user),
+// never from a row read after it, so the new token names the revocation stamp
+// validation honored and a revocation committed after validation refuses it
+// on first use. It mints nothing when its re-read shows the account closed or
+// its stamp moved since validation.
 func (h *AuthHandler) RefreshTokenHandler(ctx context.Context, input *struct{}) (*RefreshTokenResponse, error) {
 	resp := &RefreshTokenResponse{}
 	requestID := logger.GetRequestID(ctx)
@@ -543,20 +549,18 @@ func (h *AuthHandler) RefreshTokenHandler(ctx context.Context, input *struct{}) 
 		"user_id", contextUser.ID,
 	)
 
-	// Fetch fresh user data and generate new token.
-	//
-	// Two discriminated outcomes:
+	// Re-read the account. Two discriminated failures:
 	//   - Typed CodeUserNotFound  → HTTP 401 + CodeUnauthorized. The session
-	//     principal was hard- or soft-deleted between token issuance and this
-	//     refresh. The token itself is still cryptographically valid, but the
-	//     account it represents no longer exists, so the right transport
-	//     status is 401 (not 5xx) — the client clears the session and routes
-	//     the user back to login. A 5xx would tell the client "backend is
-	//     broken; retry", but retrying with the same token is futile.
+	//     principal's row no longer exists. The token itself is still
+	//     cryptographically valid, but the account it represents does not, so
+	//     the right transport status is 401 (not 5xx): the client clears the
+	//     session and routes the user back to login. A 5xx would tell the
+	//     client "backend is broken; retry", but retrying with the same token
+	//     is futile.
 	//   - Any other error      → HTTP 5xx + CodeServiceUnavailable. Real
 	//     backend defect (DB outage, etc.); fail-closed so monitoring sees
 	//     the incident with the same uniform shape and the client retries.
-	user, err := h.authService.GetUserProfile(contextUser.ID)
+	current, err := h.authService.GetUserProfile(contextUser.ID)
 	if err != nil {
 		var authErr *autherrors.AuthError
 		if errors.As(err, &authErr) && authErr.Code == autherrors.CodeUserNotFound {
@@ -584,19 +588,24 @@ func (h *AuthHandler) RefreshTokenHandler(ctx context.Context, input *struct{}) 
 		resp.Body.ErrorCode = autherrors.CodeServiceUnavailable
 		return resp, svcErr
 	}
+	// A closed account or a moved stamp gets the code and message session
+	// validation gives such a session (401 TOKEN_INVALID), and the auth cookie
+	// is cleared, as HumaJWTMiddleware clears it.
+	if err := servicesshared.CheckSessionAccount(current, contextUser.SessionsValidAfter); err != nil {
+		return nil, middleware.RefuseSession(ctx, "refresh_token", err, h.config.Session)
+	}
 
-	// Generate new JWT token using the JWT service. Refresh asks for no factor,
-	// so it carries the presented session's authentication time rather than
-	// stamping one.
+	// Refresh asks for no factor, so it carries the presented session's
+	// authentication time rather than stamping one.
 	//
-	// Fail-closed: same rationale as the profile-fetch branch above — JWT
+	// Fail-closed: same rationale as the profile-fetch branch above. JWT
 	// service outages must surface as 5xx, not as HTTP 200 with a sad-path
 	// body.
-	newToken, err := h.authService.RefreshUserToken(user, middleware.GetSessionAuthTimeFromContext(ctx))
+	newToken, err := h.authService.RefreshUserToken(contextUser, middleware.GetSessionAuthTimeFromContext(ctx))
 	if err != nil {
 		authErr := autherrors.ErrServiceUnavailable("refresh_token_generation", err)
 		logger.AuthError(ctx, "refresh_token_generation_failed", err,
-			"user_id", user.ID,
+			"user_id", contextUser.ID,
 		)
 		resp.Body.Success = false
 		resp.Body.Message = autherrors.ToExternalMessage(autherrors.CodeServiceUnavailable)
@@ -605,7 +614,7 @@ func (h *AuthHandler) RefreshTokenHandler(ctx context.Context, input *struct{}) 
 	}
 
 	logger.AuthInfo(ctx, "refresh_token_success",
-		"user_id", user.ID,
+		"user_id", contextUser.ID,
 	)
 
 	resp.Body.Success = true
@@ -1715,7 +1724,7 @@ func (h *AuthHandler) GetDeletionSummaryHandler(ctx context.Context, input *stru
 	resp.Body.SavedShowsCount = summary.SavedShowsCount
 	resp.Body.SavedReleasesCount = summary.SavedReleasesCount
 	resp.Body.PasskeysCount = summary.PasskeysCount
-	resp.Body.HasPassword = contextUser.PasswordHash != nil
+	resp.Body.HasPassword = contextUser.HasPassword()
 
 	logger.AuthDebug(ctx, "deletion_summary_success",
 		"user_id", contextUser.ID,
@@ -1770,7 +1779,7 @@ func (h *AuthHandler) DeleteAccountHandler(ctx context.Context, input *DeleteAcc
 	)
 
 	// Check if user has a password set
-	if contextUser.PasswordHash == nil {
+	if !contextUser.HasPassword() {
 		// OAuth-only user - would need email confirmation flow
 		// For now, return an error indicating they need to use email confirmation
 		logger.AuthWarn(ctx, "delete_account_no_password",
@@ -2027,7 +2036,7 @@ func (h *AuthHandler) RecoverAccountHandler(ctx context.Context, input *RecoverA
 		return invalidCredentials()
 	}
 
-	if user.PasswordHash == nil {
+	if !user.HasPassword() {
 		logger.AuthDebug(ctx, "recover_account_no_password",
 			"user_id", user.ID,
 		)

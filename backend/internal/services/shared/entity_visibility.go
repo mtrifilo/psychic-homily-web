@@ -62,7 +62,7 @@ const (
 	ruleAlwaysVisible
 	// ruleShow: decided by services/shared/show_visibility.go.
 	ruleShow
-	// ruleCollection: decided by services/shared/collection_visibility.go.
+	// ruleCollection: decided by the SERVED tier (collection_creator_state.go).
 	ruleCollection
 )
 
@@ -155,7 +155,7 @@ func EntityVisibleTo(checker contracts.ShowVisibilityInterface, entityType strin
 	case ruleShow:
 		return checker != nil && checker.ShowVisibleTo(entityID, viewer)
 	case ruleCollection:
-		return checker != nil && checker.CollectionVisibleTo(entityID, viewer)
+		return checker != nil && checker.CollectionServedTo(entityID, viewer)
 	}
 	// Unreachable while the switch covers the closed set above. Spelled out
 	// anyway so that ADDING a member without extending the switch refuses rather
@@ -239,7 +239,7 @@ func commentEntityArmFor(entityType, entityTypeExpr, entityIDExpr string, viewer
 	case ruleShow:
 		return VisibleShowCommentEntitySQL(entityTypeExpr, entityIDExpr, viewer)
 	case ruleCollection:
-		return VisibleCollectionCommentEntitySQL(entityTypeExpr, entityIDExpr, viewer)
+		return ServedCollectionCommentEntitySQL(entityTypeExpr, entityIDExpr, viewer)
 	}
 	return "(" + entityTypeExpr + " <> '" + entityType + "')", nil
 }
@@ -265,33 +265,54 @@ func commentEntityArmFor(entityType, entityTypeExpr, entityIDExpr string, viewer
 // Both expressions are SQL the CALLER controls and must be literals in the
 // calling code.
 func PublicEntityTypeArmsSQL(entityTypeExpr, entityIDExpr string) string {
+	return publicEntityTypeArmsSQL(entityTypeExpr, entityIDExpr, false)
+}
+
+// PublicListedEntityTypeArmsSQL is PublicEntityTypeArmsSQL for a row a public
+// LISTING counts: a collection-typed row passes only where a public-tier
+// listing may carry the collection (PublicListedCollectionSQL), which also
+// requires a public creator profile. Every other type's arm is the same. It
+// binds nothing.
+//
+// Both expressions are SQL the CALLER controls and must be literals in the
+// calling code.
+func PublicListedEntityTypeArmsSQL(entityTypeExpr, entityIDExpr string) string {
+	return publicEntityTypeArmsSQL(entityTypeExpr, entityIDExpr, true)
+}
+
+func publicEntityTypeArmsSQL(entityTypeExpr, entityIDExpr string, listed bool) string {
 	if registeredEntityTypeList == "" {
 		return "1 = 0"
 	}
 	conds := []string{entityTypeExpr + " IN (" + registeredEntityTypeList + ")"}
 	for _, entityType := range gatedEntityTypes() {
-		conds = append(conds, publicEntityArmFor(entityType, entityTypeExpr, entityIDExpr))
+		conds = append(conds, publicEntityArmFor(entityType, entityTypeExpr, entityIDExpr, listed))
 	}
 	return "(" + strings.Join(conds, " AND ") + ")"
 }
 
 // publicEntityArmFor returns the ANONYMOUS-reader arm that judges ONE gated
-// entity type, binding nothing.
+// entity type, binding nothing. listed selects the listing tier for the
+// collection arm.
 //
 // commentEntityArmFor's public twin, and it fails closed on the same terms: a
 // gated rule with no arm here EXCLUDES every row of its type rather than
 // passing it, so a half-added rule withholds.
-func publicEntityArmFor(entityType, entityTypeExpr, entityIDExpr string) string {
+func publicEntityArmFor(entityType, entityTypeExpr, entityIDExpr string, listed bool) string {
 	switch entityVisibilityRules[entityType] {
 	case ruleShow:
 		return commentEntityArmSQL(entityTypeExpr, CommentEntityTypeShow,
 			showExistsSQL(entityIDExpr, PublicShowPredicateSQL(visibleShowsAlias)))
 	case ruleCollection:
-		// The anonymous collection predicate binds nothing already: with no
-		// viewer id there is no creator branch, so it collapses to
-		// `is_public = TRUE`. Read from the same function the bound form uses
+		if listed {
+			return commentEntityArmSQL(entityTypeExpr, CommentEntityTypeCollection,
+				PublicListedCollectionExistsSQL(entityIDExpr))
+		}
+		// The anonymous served predicate binds nothing already: with no viewer
+		// id there is no creator branch, so it collapses to `is_public = TRUE`
+		// and a live creator. Read from the same function the bound form uses
 		// rather than written out, so the two cannot drift.
-		inner, args := VisibleCollectionPredicateSQL(visibleCollectionsAlias, contracts.ShowViewer{})
+		inner, args := ServedCollectionPredicateSQL(visibleCollectionsAlias, contracts.ShowViewer{})
 		if len(args) != 0 {
 			// Unreachable while the anonymous branch stays bind-free. Spelled
 			// out because the failure it prevents is a statement whose
@@ -351,7 +372,7 @@ func CommentEntityRecipientsSQL(entityType string, entityID uint, recipientIDExp
 	case ruleShow:
 		return VisibleShowRecipientsSQL(entityID, recipientIDExpr, recipientIsAdminExpr)
 	case ruleCollection:
-		return VisibleCollectionRecipientsSQL(entityID, recipientIDExpr)
+		return ServedCollectionRecipientsSQL(entityID, recipientIDExpr)
 	}
 	return "1 = 0", nil
 }
@@ -386,7 +407,7 @@ func EntityIdentityFenceSQL(entityType, alias string, viewer contracts.ShowViewe
 	case ruleShow:
 		return VisibleShowPredicateSQL(alias, viewer)
 	case ruleCollection:
-		return VisibleCollectionPredicateSQL(alias, viewer)
+		return ServedCollectionPredicateSQL(alias, viewer)
 	}
 	return "FALSE", nil
 }
@@ -420,7 +441,7 @@ func VisibleEntityExistsSQL(entityType, entityIDExpr string, viewer contracts.Sh
 	case ruleShow:
 		return VisibleShowExistsSQL(entityIDExpr, viewer)
 	case ruleCollection:
-		return VisibleCollectionExistsSQL(entityIDExpr, viewer)
+		return ServedCollectionExistsSQL(entityIDExpr, viewer)
 	}
 	return "FALSE", nil
 }

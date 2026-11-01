@@ -124,7 +124,7 @@ func (s *UserService) ListUsers(limit, offset int, filters contracts.AdminUserFi
 	for i, u := range users {
 		// Derive auth methods
 		var authMethods []string
-		if u.PasswordHash != nil && *u.PasswordHash != "" {
+		if u.HasPassword() {
 			authMethods = append(authMethods, "password")
 		}
 		for _, oauth := range u.OAuthAccounts {
@@ -477,7 +477,7 @@ func (s *UserService) AuthenticateUserWithPassword(email, password string) (*aut
 		return nil, apperrors.ErrAccountLockedWithMinutes(minutes)
 	}
 
-	if user.PasswordHash == nil {
+	if !user.HasPassword() {
 		// Also do dummy verification for OAuth-only accounts so attackers can't
 		// distinguish "no password set" from "wrong password" by timing.
 		dummyHash := "$2a$10$N9qo8uLOickgx2ZMRZoMyeIjZAgcfl7p92ldGxad68LJZdL17lhWy"
@@ -1024,7 +1024,7 @@ func (s *UserService) UpdatePassword(userID uint, currentPassword, newPassword s
 	}
 
 	// Check if user has a password (not OAuth-only)
-	if user.PasswordHash == nil {
+	if !user.HasPassword() {
 		return apperrors.ErrNoPasswordSet()
 	}
 
@@ -1811,7 +1811,7 @@ func (s *UserService) CanUnlinkOAuthAccount(userID uint, provider string) (bool,
 	}
 
 	// Count alternative auth methods
-	hasPassword := user.PasswordHash != nil && *user.PasswordHash != ""
+	hasPassword := user.HasPassword()
 
 	// Count other OAuth accounts
 	var otherOAuthCount int64

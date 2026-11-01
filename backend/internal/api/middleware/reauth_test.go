@@ -1,9 +1,12 @@
 package middleware
 
 import (
+	"context"
+	"encoding/json"
 	"testing"
 	"time"
 
+	"psychic-homily-backend/internal/logger"
 	authm "psychic-homily-backend/internal/models/auth"
 )
 
@@ -79,22 +82,43 @@ func TestReauthFactorFor(t *testing.T) {
 	}
 }
 
-// AccountHasPassword is what turns a model into the fact the rule takes, so
-// the shapes that are NOT a usable password are pinned here.
-func TestAccountHasPassword(t *testing.T) {
+// The gate names the factor from User.HasPassword, so an empty hash resolves
+// like an absent one: the account is challenged for what it can actually
+// present, never for a password nothing can verify against.
+func TestRequireRecentSessionAuth_FactorFollowsTheAccountsPassword(t *testing.T) {
 	empty := ""
 	hash := "$2a$not-a-real-hash"
+	stale := time.Now().Add(-2 * time.Hour)
 
-	if AccountHasPassword(nil) {
-		t.Error("a nil principal has no password")
+	cases := []struct {
+		name string
+		user *authm.User
+		want ReauthFactor
+	}{
+		{"absent hash", &authm.User{ID: 1}, ReauthMagicLink},
+		{"empty hash", &authm.User{ID: 2, PasswordHash: &empty}, ReauthMagicLink},
+		{"set hash", &authm.User{ID: 3, PasswordHash: &hash}, ReauthPassword},
 	}
-	if AccountHasPassword(&authm.User{}) {
-		t.Error("an absent hash is not a password")
-	}
-	if AccountHasPassword(&authm.User{PasswordHash: &empty}) {
-		t.Error("an empty hash is not a password")
-	}
-	if !AccountHasPassword(&authm.User{PasswordHash: &hash}) {
-		t.Error("a set hash is a password")
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			logs := newLogCapture(t)
+			ctx := context.WithValue(context.Background(), UserContextKey, tc.user)
+			ctx = context.WithValue(ctx, SessionAuthTimeContextKey, stale)
+			ctx = logger.NewContext(ctx, logs.log)
+
+			if err := RequireRecentSessionAuth(ctx, "test_mint"); err == nil {
+				t.Fatal("a stale session must be refused")
+			}
+			var refusal map[string]any
+			if err := json.Unmarshal(logs.buf.Bytes(), &refusal); err != nil {
+				t.Fatalf("want exactly one JSON refusal line: %v: %s", err, logs.buf.String())
+			}
+			if refusal["msg"] != "credential_mint_refused_stale_session" {
+				t.Fatalf("logged %v, want the stale-session refusal", refusal["msg"])
+			}
+			if got := refusal["required_factor"]; got != string(tc.want) {
+				t.Errorf("required_factor = %v, want %q", got, tc.want)
+			}
+		})
 	}
 }

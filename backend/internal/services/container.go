@@ -205,7 +205,7 @@ func NewServiceContainer(database *gorm.DB, cfg *config.Config) *ServiceContaine
 	// reach subscribers instead of only admin-approved ones. It is handed the very
 	// instance the handlers hold — one implementation of "who wants this show", not
 	// a second copy that could drift.
-	notificationFilter := notification.NewNotificationFilterService(database, email, cfg.JWT.SecretKey, cfg.Email.FrontendURL)
+	notificationFilter := notification.NewNotificationFilterService(database, email, cfg.JWT.SecretKey, cfg.Email.FrontendURL, cfg.BackendOrigin())
 	showNotifyOutbox := notification.NewShowNotifyOutboxPoller(database, notificationFilter)
 
 	// PSY-1895: the venue-alert flush poller is handed the SAME
@@ -320,7 +320,7 @@ func NewServiceContainer(database *gorm.DB, cfg *config.Config) *ServiceContaine
 	// ArtistService.UpdateArtist's profile→embed resolver. Inject the artist
 	// service so the approval flow can resolve a newly-set profile root into the
 	// bandcamp_embed_url (fill-when-empty).
-	pendingEditSvc := adminsvc.NewPendingEditService(database, revisionSvc, email, cfg.Email.FrontendURL, engagement.DeriveBackendURL(cfg.Email.FrontendURL), cfg.JWT.SecretKey)
+	pendingEditSvc := adminsvc.NewPendingEditService(database, revisionSvc, email, cfg.Email.FrontendURL, cfg.BackendOrigin(), cfg.JWT.SecretKey)
 	pendingEditSvc.SetBandcampFiller(artist)
 
 	return &ServiceContainer{
@@ -417,7 +417,7 @@ func NewServiceContainer(database *gorm.DB, cfg *config.Config) *ServiceContaine
 		RadioTracksRebuild:     catalog.NewRadioTracksRebuildLoop(database),
 		RadioTracks:            catalog.NewRadioTracksReader(database),
 		RadioCandidates:        catalog.NewRadioCandidatesReader(database),
-		AutoPromotion:          adminsvc.NewAutoPromotionService(database, email, engagement.DeriveBackendURL(cfg.Email.FrontendURL), cfg.JWT.SecretKey),
+		AutoPromotion:          adminsvc.NewAutoPromotionService(database, email, cfg.BackendOrigin(), cfg.JWT.SecretKey),
 		CollectionDigest:       engagement.NewCollectionDigestService(database, email, cfg),
 		SceneDigest:            engagement.NewSceneDigestService(database, email, sceneSvc, cfg),
 		SweepHealthCheck:       shared.NewSweepHealthCheck(database),

@@ -557,7 +557,8 @@ func (s *NotificationFilterSuite) TestArtistAlert_EmailOptInSendsWithWorkingUnsu
 	s.Require().Len(capture.sent, 1)
 	sent := capture.sent[0]
 	s.Contains(sent.subject, "Oneida announced a show")
-	s.Contains(sent.unsubscribeURL, "/unsubscribe/"+engagement.UnsubscribeScopeArtistShowAlerts)
+	s.True(strings.HasPrefix(sent.unsubscribeURL, testBackendURL+"/unsubscribe/"+engagement.UnsubscribeScopeArtistShowAlerts+"?"),
+		"unsubscribe URL %q must be on the service's backend origin", sent.unsubscribeURL)
 	// Same endpoint in the header (raw, per RFC 2369) and in the body (HTML
 	// attribute-escaped). A recipient and a mailbox provider get one way out.
 	s.Contains(sent.html, `href="`+html.EscapeString(sent.unsubscribeURL)+`"`,

@@ -66,8 +66,8 @@ const (
 	EnvFrontendURL  = "FRONTEND_URL"
 
 	// BACKEND_PUBLIC_URL: the origin browsers and OAuth providers reach this
-	// backend at (e.g. "http://localhost:61001"). It feeds the default OAuth
-	// callback URLs and the backend links minted for unmapped frontend URLs.
+	// backend at (e.g. "http://localhost:61001"). When set it is the origin
+	// of every backend-hosted URL; see ResolveBackendOrigin.
 	EnvBackendPublicURL = "BACKEND_PUBLIC_URL"
 
 	// Discord
@@ -175,6 +175,9 @@ type EmailConfig struct {
 type ServerConfig struct {
 	Addr     string
 	LogLevel string
+	// BackendPublicURL is BACKEND_PUBLIC_URL as set, blank when unset; read
+	// it through Config.BackendOrigin.
+	BackendPublicURL string
 }
 
 // CORSConfig holds CORS-related configuration
@@ -306,11 +309,15 @@ func Load() (*Config, error) {
 
 	// Get CORS origins from environment or use defaults
 	corsOrigins := getCORSOrigins()
-	backendURL := BackendPublicURL()
+	serverAddr := serverAddrFromEnv()
+	backendPublicURL := os.Getenv(EnvBackendPublicURL)
+	frontendURL := getFrontendURL()
+	backendURL := ResolveBackendOrigin(frontendURL, backendPublicURL, serverAddr)
 
 	cfg := &Config{
 		Server: ServerConfig{
-			Addr: GetEnv(EnvAPIAddr, "localhost:8080"),
+			Addr:             serverAddr,
+			BackendPublicURL: backendPublicURL,
 		},
 		CORS: CORSConfig{
 			AllowedOrigins:   corsOrigins,
@@ -343,7 +350,7 @@ func Load() (*Config, error) {
 		Email: EmailConfig{
 			ResendAPIKey: GetEnv(EnvResendAPIKey, ""),
 			FromEmail:    GetEnv(EnvFromEmail, "noreply@psychichomily.com"),
-			FrontendURL:  getFrontendURL(),
+			FrontendURL:  frontendURL,
 		},
 		Discord: DiscordConfig{
 			WebhookURL: GetEnv(EnvDiscordWebhookURL, ""),
@@ -352,7 +359,7 @@ func Load() (*Config, error) {
 		MusicDiscovery: MusicDiscoveryConfig{
 			InternalAPISecret: GetEnv(EnvInternalAPISecret, ""),
 			Enabled:           getEnvAsBool(EnvMusicDiscoveryEnabled, false),
-			FrontendURL:       getFrontendURL(),
+			FrontendURL:       frontendURL,
 		},
 		WebAuthn: WebAuthnConfig{
 			RPID:          getWebAuthnRPID(),
@@ -381,9 +388,10 @@ func Load() (*Config, error) {
 	return cfg, nil
 }
 
-// getFrontendURL returns the frontend URL based on environment
+// getFrontendURL returns FRONTEND_URL without surrounding whitespace or
+// trailing slashes, or the environment's default frontend when it is blank.
 func getFrontendURL() string {
-	if frontendURL := os.Getenv(EnvFrontendURL); frontendURL != "" {
+	if frontendURL := normalizeURL(os.Getenv(EnvFrontendURL)); frontendURL != "" {
 		return frontendURL
 	}
 
@@ -398,19 +406,6 @@ func getFrontendURL() string {
 	}
 }
 
-// defaultBackendPublicURL is the backend origin when BACKEND_PUBLIC_URL is
-// unset: the local development server on its default port.
-const defaultBackendPublicURL = "http://localhost:8080"
-
-// BackendPublicURL returns BACKEND_PUBLIC_URL without a trailing slash, or
-// http://localhost:8080 when it is unset.
-func BackendPublicURL() string {
-	if u := strings.TrimRight(strings.TrimSpace(os.Getenv(EnvBackendPublicURL)), "/"); u != "" {
-		return u
-	}
-	return defaultBackendPublicURL
-}
-
 // getCORSOrigins returns CORS_ALLOWED_ORIGINS verbatim when it is set.
 // Otherwise it returns the environment's default origins plus the frontend
 // URL's origin, so a frontend on any port is allowed without listing it twice.
@@ -420,16 +415,17 @@ func getCORSOrigins() []string {
 	}
 
 	origins := defaultCORSOrigins()
-	if origin, ok := urlOrigin(getFrontendURL()); ok && !slices.Contains(origins, origin) {
+	if origin, ok := URLOrigin(getFrontendURL()); ok && !slices.Contains(origins, origin) {
 		origins = append(origins, origin)
 	}
 	return origins
 }
 
-// urlOrigin returns the scheme://host[:port] origin of rawURL, the form a
+// URLOrigin returns the scheme://host[:port] origin of rawURL, the form a
 // browser sends in the Origin header. ok is false when rawURL has no scheme
-// or host.
-func urlOrigin(rawURL string) (origin string, ok bool) {
+// or host. Scheme and host are returned as parsed, without case or port
+// normalisation: the OAuth link origin check compares a Referer through it.
+func URLOrigin(rawURL string) (origin string, ok bool) {
 	u, err := url.Parse(strings.TrimSpace(rawURL))
 	if err != nil || u.Scheme == "" || u.Host == "" {
 		return "", false

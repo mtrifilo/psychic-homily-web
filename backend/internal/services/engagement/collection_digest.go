@@ -7,7 +7,6 @@ import (
 	"log/slog"
 	"os"
 	"strconv"
-	"strings"
 	"sync"
 	"time"
 
@@ -77,35 +76,9 @@ func NewCollectionDigestService(database *gorm.DB, emailService contracts.EmailS
 		stopCh:       make(chan struct{}),
 		logger:       slog.Default(),
 		frontendURL:  cfg.Email.FrontendURL,
-		backendURL:   DeriveBackendURL(cfg.Email.FrontendURL),
+		backendURL:   cfg.BackendOrigin(),
 		jwtSecret:    cfg.JWT.SecretKey,
 	}
-}
-
-// BackendURLForDeployedFrontend returns the public API URL for a deployed
-// frontend URL and reports whether the frontend URL is one. The production
-// frontend in either its apex or www form maps to the production API host, the
-// stage frontend maps to the stage API host, and trailing slashes are ignored.
-func BackendURLForDeployedFrontend(frontendURL string) (string, bool) {
-	switch strings.TrimRight(frontendURL, "/") {
-	case "https://psychichomily.com", "https://www.psychichomily.com":
-		return "https://api.psychichomily.com", true
-	case "https://stage.psychichomily.com":
-		return "https://api-stage.psychichomily.com", true
-	default:
-		return "", false
-	}
-}
-
-// DeriveBackendURL maps a frontend URL to the corresponding public API URL:
-// the BackendURLForDeployedFrontend mapping, else config.BackendPublicURL
-// (BACKEND_PUBLIC_URL, else http://localhost:8080). Services that mint
-// backend-hosted unsubscribe URLs share this mapping.
-func DeriveBackendURL(frontendURL string) string {
-	if backendURL, ok := BackendURLForDeployedFrontend(frontendURL); ok {
-		return backendURL
-	}
-	return config.BackendPublicURL()
 }
 
 // Start begins the background digest job.
@@ -412,7 +385,7 @@ func (s *CollectionDigestService) queryCandidates(now time.Time) ([]digestCandid
 	// A closed ADDER matches no added_by row, so the item goes out under the
 	// label digestDisplayName gives a missing adder and no closed account is
 	// named.
-	visibleToSubscriber := shared.VisibleCollectionRecipientPredicateSQL("c", "cs.user_id")
+	servedToSubscriber := shared.ServedCollectionRecipientPredicateSQL("c", "cs.user_id")
 	err := s.db.Raw(`
 		SELECT
 			cs.user_id,
@@ -442,8 +415,7 @@ func (s *CollectionDigestService) queryCandidates(now time.Time) ([]digestCandid
 		LEFT JOIN user_preferences up ON up.user_id = cs.user_id
 		WHERE `+authm.LiveAccountSQL("u")+`
 			AND COALESCE(up.notify_on_collection_digest, FALSE) = TRUE
-			AND `+visibleToSubscriber+`
-			AND `+shared.CollectionCreatorIsLiveSQL("c")+`
+			AND `+servedToSubscriber+`
 		ORDER BY cs.user_id ASC, c.id ASC, ci.created_at ASC
 	`, now).Scan(&rows).Error
 	if err != nil {

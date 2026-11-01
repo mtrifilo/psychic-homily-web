@@ -143,8 +143,6 @@ var collectionAddressableRoutes = map[string]collectionRouteDisposition{
 	"POST /crates/{slug}/subscribe":                     collectionGated,
 	"POST /collections/{slug}/like":                     collectionGated,
 	"POST /crates/{slug}/like":                          collectionGated,
-	"DELETE /collections/{slug}/like":                   collectionGated,
-	"DELETE /crates/{slug}/like":                        collectionGated,
 	"POST /collections/{slug}/clone":                    collectionGated,
 	"POST /crates/{slug}/clone":                         collectionGated,
 	"GET /collections/entity/{entity_type}/{entity_id}": collectionGated,
@@ -156,6 +154,13 @@ var collectionAddressableRoutes = map[string]collectionRouteDisposition{
 	// subscription was there.
 	"DELETE /collections/{slug}/subscribe": collectionSelfScoped,
 	"DELETE /crates/{slug}/subscribe":      collectionSelfScoped,
+
+	// Unliking is the caller's own row on the same terms: it deletes by
+	// subquery before resolving the slug, and a slug that names no collection
+	// the caller may be served (unused, private, a closed creator's) answers the
+	// same empty aggregate.
+	"DELETE /collections/{slug}/like": collectionSelfScoped,
+	"DELETE /crates/{slug}/like":      collectionSelfScoped,
 
 	// The two moderation remedies. Both refuse a non-creator who is not an admin
 	// a private collection, as missing; both admit an admin, because flipping a
@@ -183,11 +188,12 @@ var collectionAddressableRoutes = map[string]collectionRouteDisposition{
 
 	// Admin, and it reaches a PRIVATE collection: SetFeatured applies no
 	// visibility test. It publishes nothing (empty response, and the chart
-	// surfaces filter is_public), so what it leaves is a 200-vs-404 slug oracle
-	// bounded to the admin group. Named in
+	// surfaces list only public, listable collections), so what it leaves is a
+	// 200-vs-404 slug oracle bounded to the admin group. Named in
 	// services/shared/collection_visibility.go rather than closed, because
 	// whether an admin may pre-feature an unpublished collection is a product
-	// question.
+	// question. Featuring a closed creator's collection answers not found;
+	// un-featuring one still succeeds.
 	"PUT /collections/{slug}/feature": collectionAdminOnly,
 	"PUT /crates/{slug}/feature":      collectionAdminOnly,
 

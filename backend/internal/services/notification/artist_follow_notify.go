@@ -625,7 +625,7 @@ func (s *NotificationFilterService) sendArtistShowAlertEmail(
 
 	c := s.showEmailContent(show)
 	unsubscribeURL := engagement.GenerateScopedUnsubscribeURL(
-		engagement.DeriveBackendURL(s.frontendURL),
+		s.backendURL,
 		userID,
 		engagement.UnsubscribeScopeArtistShowAlerts,
 		s.jwtSecret,

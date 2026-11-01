@@ -78,9 +78,9 @@ export interface AuthApiUser {
  *
  * Fields are enumerated rather than spread: the backend serializes its whole
  * user model on these endpoints, and the fields below are the ones the context
- * exposes. The rest of what it sends — `preferences`, `privacy_settings`,
+ * exposes. The rest of what it sends (`preferences`, `privacy_settings`,
  * `is_active`, `profile_visibility`, `created_at`, `updated_at`, `deleted_at`,
- * `oauth_accounts`, `passkey_credentials` — stays out of the context value
+ * `oauth_accounts`) stays out of the context value
  * every auth-consuming component re-renders on. The list is the allowlist.
  *
  * `id` is narrowed to `string` HERE, once, so every consumer of the context

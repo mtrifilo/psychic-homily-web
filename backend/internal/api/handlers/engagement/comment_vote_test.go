@@ -258,8 +258,8 @@ func TestUnvoteComment_ServiceError(t *testing.T) {
 // default-open and a status-only assertion would still pass.
 func TestCommentVote_RefusesAParentTheCallerCannotSee(t *testing.T) {
 	deniesEverything := &testhelpers.MockShowVisibility{
-		ShowVisibleToFn:       func(uint, contracts.ShowViewer) bool { return false },
-		CollectionVisibleToFn: func(uint, contracts.ShowViewer) bool { return false },
+		ShowVisibleToFn:      func(uint, contracts.ShowViewer) bool { return false },
+		CollectionServedToFn: func(uint, contracts.ShowViewer) bool { return false },
 	}
 	privateCollectionParent := &testhelpers.MockCommentService{
 		GetCommentFn: func(commentID uint) (*contracts.CommentResponse, error) {

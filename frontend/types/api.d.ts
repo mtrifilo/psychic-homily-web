@@ -16141,7 +16141,6 @@ export interface components {
             location: string | null;
             nav_mode: string;
             oauth_accounts?: components["schemas"]["OAuthAccount"][] | null;
-            passkey_credentials?: components["schemas"]["WebAuthnCredential"][] | null;
             preferences?: components["schemas"]["UserPreferences"];
             privacy_settings: unknown;
             profile_visibility: string;
