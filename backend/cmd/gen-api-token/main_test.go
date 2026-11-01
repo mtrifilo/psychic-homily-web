@@ -7,7 +7,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"psychic-homily-backend/internal/config"
 	authm "psychic-homily-backend/internal/models/auth"
+	"psychic-homily-backend/internal/testutil"
 )
 
 // isLocalDB decides whether the confirm gate applies, so a wrong answer either
@@ -96,3 +98,26 @@ func TestDeref(t *testing.T) {
 }
 
 func strPtr(s string) *string { return &s }
+
+// An operator CLI pointed at a database that accepts TCP and never answers
+// must refuse within the connect bound rather than wait on it.
+func TestOpenDatabaseRefusesAnUnansweringDatabaseWithinTheBound(t *testing.T) {
+	// An empty PGCONNECT_TIMEOUT is unset to pgx, so only the connect bound applies.
+	t.Setenv("PGCONNECT_TIMEOUT", "")
+	cfg := &config.Config{Database: config.DatabaseConfig{
+		URL:          testutil.UnansweringDSN(t),
+		MaxOpenConns: 1,
+	}}
+
+	done := make(chan error, 1)
+	go func() {
+		_, err := openDatabase(cfg)
+		done <- err
+	}()
+	select {
+	case err := <-done:
+		require.ErrorContains(t, err, "database did not answer within")
+	case <-time.After(15 * time.Second):
+		t.Fatal("openDatabase still waiting after 15s on a database that never answers")
+	}
+}
