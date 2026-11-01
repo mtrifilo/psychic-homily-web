@@ -341,6 +341,7 @@ func main() {
 		venueTimezoneSweepCancel     context.CancelFunc
 		radioTracksRebuildCancel     context.CancelFunc
 		challengeSweepCancel         context.CancelFunc
+		signupChallengeSweepCancel   context.CancelFunc
 		authEmailOutboxCancel        context.CancelFunc
 		sweepHealthCheckCancel       context.CancelFunc
 		indexNowCancel               context.CancelFunc
@@ -605,6 +606,18 @@ func main() {
 		log.Printf("%s=1: skipping webauthn challenge sweep startup", authsvc.DisableChallengeSweepEnvVar)
 	}
 
+	// Start the WebAuthn sign-up challenge sweep: deletes expired passkey
+	// sign-up challenges, which hold the email and date of birth of a person
+	// with no account, every few minutes. Default ON: it deletes only sign-up
+	// rows past their own expiry, and needs only the database.
+	if !servicesshared.EnvServiceDisabled(authsvc.DisableSignupChallengeSweepEnvVar) {
+		var signupChallengeSweepCtx context.Context
+		signupChallengeSweepCtx, signupChallengeSweepCancel = context.WithCancel(context.Background())
+		sc.SignupChallengeSweep.Start(signupChallengeSweepCtx)
+	} else {
+		log.Printf("%s=1: skipping webauthn signup challenge sweep startup", authsvc.DisableSignupChallengeSweepEnvVar)
+	}
+
 	// Start the auth email outbox poller: sends the magic-link,
 	// account-recovery and magic-link verification emails the request handlers
 	// queue. Default ON: without it none of those links is ever delivered. The same flag makes
@@ -774,6 +787,10 @@ func main() {
 	if challengeSweepCancel != nil {
 		challengeSweepCancel()
 		sc.ChallengeSweep.Stop()
+	}
+	if signupChallengeSweepCancel != nil {
+		signupChallengeSweepCancel()
+		sc.SignupChallengeSweep.Stop()
 	}
 	if sweepHealthCheckCancel != nil {
 		sweepHealthCheckCancel()

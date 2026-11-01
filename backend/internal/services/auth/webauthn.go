@@ -514,6 +514,19 @@ func deleteExpiredChallenges(ctx context.Context, database *gorm.DB) (int64, err
 	return result.RowsAffected, nil
 }
 
+// deleteExpiredSignupChallenges deletes every sign-up challenge in database
+// that expired before now and returns how many rows it deleted. Challenges
+// stored under any other operation are left alone.
+func deleteExpiredSignupChallenges(ctx context.Context, database *gorm.DB, now time.Time) (int64, error) {
+	result := database.WithContext(ctx).
+		Where("operation = ? AND expires_at < ?", contracts.WebAuthnSignupOperation, now).
+		Delete(&authm.WebAuthnChallenge{})
+	if result.Error != nil {
+		return 0, fmt.Errorf("failed to delete expired signup challenges: %w", result.Error)
+	}
+	return result.RowsAffected, nil
+}
+
 // --- Passkey Signup (passkey-first registration) methods ---
 
 // A passkey's user handle is always its account's users.id in the

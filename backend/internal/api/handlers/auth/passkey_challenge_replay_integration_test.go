@@ -119,6 +119,29 @@ func (s *AuthHandlerIntegrationSuite) TestPasskeySignupRefusedFinishSpendsChalle
 	s.Zero(accounts)
 }
 
+// A finish presenting an expired sign-up challenge is refused and deletes the
+// challenge, with the email and date of birth it carries, in the same
+// statement that reads it.
+func (s *AuthHandlerIntegrationSuite) TestPasskeySignupFinishOnExpiredChallengeDeletesIt() {
+	api := newPasskeyWireAPI(s.T(), s.newRealPasskeyHandler())
+	email := "signup-expired@example.com"
+	challengeID, registration, _ := s.beginPasskeySignup(api, email)
+
+	challengeRows := func() int64 {
+		var rows int64
+		s.Require().NoError(s.deps.DB.Model(&authm.WebAuthnChallenge{}).Where("id = ?", challengeID).Count(&rows).Error)
+		return rows
+	}
+	s.Require().Equal(int64(1), challengeRows())
+	s.Require().NoError(s.deps.DB.Exec(
+		"UPDATE webauthn_challenges SET expires_at = ? WHERE id = ?", time.Now().Add(-time.Minute), challengeID,
+	).Error)
+
+	s.requireSpentChallengeRefusal(api.Post("/auth/passkey/signup/finish", signupFinishBody(challengeID, registration)))
+	s.Zero(challengeRows(), "the refused finish deletes the expired challenge")
+	s.requireNoAccount(email)
+}
+
 func (s *AuthHandlerIntegrationSuite) TestPasskeyRegisterRefusedFinishSpendsChallenge() {
 	email := "register-refused@example.com"
 	user := &authm.User{Email: &email, IsActive: true}

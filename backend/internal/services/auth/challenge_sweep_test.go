@@ -9,6 +9,7 @@ import (
 	"github.com/go-webauthn/webauthn/webauthn"
 	"github.com/stretchr/testify/assert"
 
+	"psychic-homily-backend/internal/services/contracts"
 	"psychic-homily-backend/internal/services/shared"
 )
 
@@ -100,4 +101,101 @@ func (suite *WebAuthnServiceIntegrationTestSuite) TestChallengeSweep_RegistersRu
 		}
 	}
 	suite.True(registered, "the health check re-registers the sweep from the process registry")
+}
+
+// storeSignupChallengeWithDateOfBirth stores a sign-up challenge for email as
+// signup/begin stores one, carrying a date of birth, and returns its id.
+func (suite *WebAuthnServiceIntegrationTestSuite) storeSignupChallengeWithDateOfBirth(email string) string {
+	dateOfBirth := time.Date(1990, time.March, 4, 0, 0, 0, 0, time.UTC)
+	id, err := suite.service.StoreSignupChallenge(contracts.SignupChallenge{
+		Email: email,
+		Acceptance: contracts.LegalAcceptance{
+			TermsVersion:   "terms",
+			PrivacyVersion: "privacy",
+			MinAgeAttested: 16,
+			DateOfBirth:    &dateOfBirth,
+		},
+	}, &webauthn.SessionData{Challenge: "signup-sweep-" + email}, contracts.WebAuthnSignupOperation)
+	suite.Require().NoError(err)
+	return id
+}
+
+// setChallengeExpiry sets the expiry of the challenge stored under id.
+func (suite *WebAuthnServiceIntegrationTestSuite) setChallengeExpiry(id string, expiresAt time.Time) {
+	suite.Require().NoError(suite.db.Exec("UPDATE webauthn_challenges SET expires_at = ? WHERE id = ?", expiresAt, id).Error)
+}
+
+// The sign-up sweep deletes expired sign-up challenges only: unexpired sign-up
+// challenges and expired challenges of every other operation stay.
+func (suite *WebAuthnServiceIntegrationTestSuite) TestSignupChallengeSweepCycle_DeletesOnlyExpiredSignupChallenges() {
+	user := suite.createUser("signup-sweep@test.com")
+	now := time.Now()
+
+	expiredSignup := []string{
+		suite.storeSignupChallengeWithDateOfBirth("expired-a@test.com"),
+		suite.storeSignupChallengeWithDateOfBirth("expired-b@test.com"),
+	}
+	suite.setChallengeExpiry(expiredSignup[0], now.Add(-time.Second))
+	suite.setChallengeExpiry(expiredSignup[1], now.Add(-30*24*time.Hour))
+	liveSignup := suite.storeSignupChallengeWithDateOfBirth("live@test.com")
+
+	expiredLogin := suite.storeChallengeExpiringAt(user.ID, now.Add(-time.Hour))
+	expiredRegistration, err := suite.service.StoreChallenge(user.ID, &webauthn.SessionData{Challenge: "registration"}, contracts.WebAuthnRegistrationOperation)
+	suite.Require().NoError(err)
+	suite.setChallengeExpiry(expiredRegistration, now.Add(-time.Hour))
+
+	NewSignupChallengeSweep(suite.db).runCycle(context.Background())
+
+	for _, id := range expiredSignup {
+		suite.Zero(suite.challengeRows(id), "expired sign-up challenge %s is deleted", id)
+	}
+	suite.Equal(int64(1), suite.challengeRows(liveSignup), "an unexpired sign-up challenge is kept")
+	suite.Equal(int64(1), suite.challengeRows(expiredLogin), "an expired login challenge is left to the daily sweep")
+	suite.Equal(int64(1), suite.challengeRows(expiredRegistration), "an expired registration challenge is left to the daily sweep")
+}
+
+// A sign-up challenge outlives its own expiry only until the first cycle after
+// it: a cycle at any instant up to the expiry keeps it, a cycle after the
+// expiry deletes it, so with a cycle every signupChallengeSweepInterval the
+// row is gone within that interval of expiring.
+func (suite *WebAuthnServiceIntegrationTestSuite) TestDeleteExpiredSignupChallenges_DeletesFromTheFirstCycleAfterExpiry() {
+	storedAt := time.Now()
+	id := suite.storeSignupChallengeWithDateOfBirth("bound@test.com")
+
+	var expiresAt time.Time
+	suite.Require().NoError(suite.db.Raw("SELECT expires_at FROM webauthn_challenges WHERE id = ?", id).Scan(&expiresAt).Error)
+	suite.WithinDuration(storedAt.Add(5*time.Minute), expiresAt, 5*time.Second, "a sign-up challenge expires five minutes after it is stored")
+
+	ctx := context.Background()
+	for _, clock := range []time.Time{storedAt, expiresAt.Add(-time.Second), expiresAt} {
+		deleted, err := deleteExpiredSignupChallenges(ctx, suite.db, clock)
+		suite.Require().NoError(err)
+		suite.Zero(deleted, "a cycle at %s keeps a challenge expiring at %s", clock, expiresAt)
+	}
+	suite.Equal(int64(1), suite.challengeRows(id))
+
+	deleted, err := deleteExpiredSignupChallenges(ctx, suite.db, expiresAt.Add(time.Millisecond))
+	suite.Require().NoError(err)
+	suite.Equal(int64(1), deleted)
+	suite.Zero(suite.challengeRows(id), "the first cycle after the expiry deletes the challenge")
+}
+
+// The sign-up sweep runs a cycle when it starts, so a restart does not leave
+// an expired sign-up challenge waiting a whole interval.
+func (suite *WebAuthnServiceIntegrationTestSuite) TestSignupChallengeSweep_RunsACycleAtStart() {
+	id := suite.storeSignupChallengeWithDateOfBirth("boot@test.com")
+	suite.setChallengeExpiry(id, time.Now().Add(-time.Minute))
+
+	sweep := NewSignupChallengeSweep(suite.db)
+	suite.Equal(10*time.Minute, sweep.interval, "an abandoned sign-up's date of birth outlives its expiry by at most this interval")
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	sweep.Start(ctx)
+	defer sweep.Stop()
+
+	suite.Eventually(func() bool {
+		var count int64
+		err := suite.db.Raw("SELECT COUNT(*) FROM webauthn_challenges WHERE id = ?", id).Scan(&count).Error
+		return err == nil && count == 0
+	}, 5*time.Second, 20*time.Millisecond, "the cycle at start deletes the expired sign-up challenge")
 }
