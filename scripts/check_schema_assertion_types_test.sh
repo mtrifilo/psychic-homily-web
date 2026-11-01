@@ -41,6 +41,23 @@ migration() {
   g commit -m "$1"
 }
 
+# merged <version>_<name> <up-sql>: the pair committed on main, with the
+# feature branch fast-forwarded to it, so it is part of the base.
+merged() {
+  g checkout main
+  migration "$@"
+  g checkout feature
+  g merge --ff-only main
+}
+
+# edit <file> <sql>: rewrite backend/db/migrations/<file> on the feature
+# branch, committed.
+edit() {
+  printf '%s\n' "$2" >"$FIXTURE/backend/db/migrations/$1"
+  g add -A
+  g commit -m "edit $1"
+}
+
 # assertion <go-lines>: a schema_assertion.go whose requiredSchemaColumns holds
 # the given lines, committed.
 assertion() {
@@ -57,9 +74,9 @@ EOF
 }
 
 # Reset the fixture to: main holding a schema assertion with one typed entry
-# and one merged timestamp-named type change without an entry (merged files
-# are never re-checked), with a fresh branch checked out on top. The gate's
-# base ref is main.
+# and one merged timestamp-named type change without an entry (a merged file
+# is re-checked only when the branch modifies it), with a fresh branch checked
+# out on top. The gate's base ref is main.
 reset_fixture() {
   CASE="$1"
   BASE_REF=main
@@ -119,11 +136,11 @@ expect_absent() {
 
 # --- outcomes ----------------------------------------------------------------
 reset_fixture "no new migrations passes"
-expect 0 "no new timestamp-named up migrations added"
+expect 0 "no timestamp-named up migrations added or modified"
 
 reset_fixture "merged type change is not re-checked"
 migration "20260901000000_select_only" "SELECT 1;"
-expect 0 "no new timestamp-named migration changes a column type"
+expect 0 "no added or modified timestamp-named migration changes a column type"
 
 reset_fixture "type change with a typed entry passes"
 migration "20260901000000_widen" "ALTER TABLE audit_logs ALTER COLUMN actor_id TYPE BIGINT;"
@@ -303,24 +320,51 @@ expect 1 "changes the type of users.username, and"
 # --- scope -------------------------------------------------------------------
 reset_fixture "sequential migration with a type change is ignored"
 migration "000079_widen" "ALTER TABLE users ALTER COLUMN username TYPE text;"
-expect 0 "no new timestamp-named up migrations added"
+expect 0 "no timestamp-named up migrations added or modified"
 
 reset_fixture "type change only in down.sql is ignored"
 printf 'SELECT 1;\n' >"$FIXTURE/backend/db/migrations/20260901000000_add.up.sql"
 printf 'ALTER TABLE users ALTER COLUMN username TYPE varchar(50);\n' >"$FIXTURE/backend/db/migrations/20260901000000_add.down.sql"
 g add -A && g commit -m "down only"
-expect 0 "no new timestamp-named migration changes a column type"
+expect 0 "no added or modified timestamp-named migration changes a column type"
+
+reset_fixture "type change edited into a merged down.sql is ignored"
+printf 'ALTER TABLE t ALTER COLUMN merged TYPE integer;\n' >"$FIXTURE/backend/db/migrations/20260801000000_merged_widen.down.sql"
+g add -A && g commit -m "edit down"
+expect 0 "no timestamp-named up migrations added or modified"
+
+# --- modified up migrations are read like added ones --------------------------
+reset_fixture "type change edited into a merged up migration fails"
+merged "20260901000000_note" "SELECT 1;"
+edit "20260901000000_note.up.sql" "ALTER TABLE users ALTER COLUMN username TYPE text;"
+expect 1 "ERROR: backend/db/migrations/20260901000000_note.up.sql changes the type of users.username, and backend/db/schema_assertion.go has no typed entry for it."
+
+reset_fixture "a modified migration is read whole, not just its changed lines"
+edit "20260801000000_merged_widen.up.sql" "-- Widen merged.
+ALTER TABLE t ALTER COLUMN merged TYPE BIGINT;"
+expect 1 "20260801000000_merged_widen.up.sql changes the type of t.merged, and"
+
+reset_fixture "an edit that keeps a merged type change typed passes"
+merged "20260901000000_widen" "ALTER TABLE audit_logs ALTER COLUMN actor_id TYPE BIGINT;"
+edit "20260901000000_widen.up.sql" "-- Widen actor_id.
+ALTER TABLE audit_logs ALTER COLUMN actor_id TYPE BIGINT;"
+expect 0 "20260901000000_widen.up.sql: audit_logs.actor_id (sqlBigint)"
+
+reset_fixture "a deleted migration is not read"
+g rm backend/db/migrations/20260801000000_merged_widen.up.sql backend/db/migrations/20260801000000_merged_widen.down.sql
+g commit -m "delete"
+expect 0 "no timestamp-named up migrations added or modified"
 
 reset_fixture "type change only inside a line comment is ignored"
 migration "20260901000000_note" "-- ALTER TABLE users ALTER COLUMN username TYPE text;
 SELECT 1;"
-expect 0 "no new timestamp-named migration changes a column type"
+expect 0 "no added or modified timestamp-named migration changes a column type"
 
 reset_fixture "type change only inside a block comment is ignored"
 migration "20260901000000_note" "/* ALTER TABLE users
    ALTER COLUMN username TYPE text; */
 SELECT 1;"
-expect 0 "no new timestamp-named migration changes a column type"
+expect 0 "no added or modified timestamp-named migration changes a column type"
 
 reset_fixture "a block comment does not hide the statement after it"
 migration "20260901000000_widen" "/* widen */ ALTER TABLE users /* why */ ALTER COLUMN username TYPE text;"
@@ -332,7 +376,7 @@ expect 1 "changes the type of users.username"
 reset_fixture "type change only inside a nested block comment is ignored"
 migration "20260901000000_note" "/* outer /* inner */ ALTER TABLE users ALTER COLUMN username TYPE text; */
 SELECT 1;"
-expect 0 "no new timestamp-named migration changes a column type"
+expect 0 "no added or modified timestamp-named migration changes a column type"
 
 reset_fixture "comment markers inside string literals do not hide a type change"
 migration "20260901000000_widen" "SELECT '/*';
@@ -347,11 +391,11 @@ expect 1 "changes the type of users.username"
 reset_fixture "other column actions are not type changes"
 migration "20260901000000_alter" "ALTER TABLE users ALTER COLUMN username SET DEFAULT 'x',
   ALTER COLUMN username DROP NOT NULL, ADD COLUMN type_name text;"
-expect 0 "no new timestamp-named migration changes a column type"
+expect 0 "no added or modified timestamp-named migration changes a column type"
 
 reset_fixture "ALTER TYPE on a composite type is not a table change"
 migration "20260901000000_composite" "ALTER TYPE address ALTER ATTRIBUTE zip TYPE text;"
-expect 0 "no new timestamp-named migration changes a column type"
+expect 0 "no added or modified timestamp-named migration changes a column type"
 
 # --- spellings ---------------------------------------------------------------
 reset_fixture "multi-action ALTER TABLE finds every type change"
@@ -406,7 +450,7 @@ expect 1 "backend/db/schema_assertion.go not found"
 reset_fixture "an added migration missing from the working tree fails closed"
 migration "20260901000000_widen" "ALTER TABLE users ALTER COLUMN username TYPE text;"
 rm "$FIXTURE/backend/db/migrations/20260901000000_widen.up.sql"
-expect 1 "20260901000000_widen.up.sql is added on HEAD but not readable in the working tree."
+expect 1 "20260901000000_widen.up.sql differs from main on HEAD but is not readable in the working tree."
 
 reset_fixture "missing base ref fails closed"
 BASE_REF=origin/main
