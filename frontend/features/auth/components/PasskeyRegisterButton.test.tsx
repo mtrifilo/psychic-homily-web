@@ -163,6 +163,36 @@ describe('PasskeyRegisterButton', () => {
     })
   })
 
+  // Register finish refuses an account closed mid-ceremony with this code.
+  it('records an ACCOUNT_INACTIVE refusal from finish as one breadcrumb and no exception', async () => {
+    global.fetch = vi
+      .fn()
+      .mockResolvedValueOnce(jsonResponse(BEGIN_OK))
+      .mockResolvedValueOnce(
+        jsonResponse({
+          success: false,
+          message: 'Account unavailable. Please contact support.',
+          error_code: 'ACCOUNT_INACTIVE',
+          request_id: 'req-2',
+        })
+      ) as unknown as typeof fetch
+    const onError = vi.fn()
+
+    renderWithProviders(<PasskeyRegisterButton onError={onError} />)
+    await openAndSubmit()
+
+    await waitFor(() => expect(onError).toHaveBeenCalled())
+    expect((onError.mock.calls[0][0] as AuthError).code).toBe(AuthErrorCode.ACCOUNT_INACTIVE)
+    expect(Sentry.captureException).not.toHaveBeenCalled()
+    expect(Sentry.addBreadcrumb).toHaveBeenCalledTimes(1)
+    expect(Sentry.addBreadcrumb).toHaveBeenCalledWith({
+      category: 'passkey',
+      level: 'info',
+      message: 'Expected passkey refusal',
+      data: { code: AuthErrorCode.ACCOUNT_INACTIVE, error_type: 'registration_failed' },
+    })
+  })
+
   it('records the viewer cancelling the prompt as a breadcrumb and calls nothing back', async () => {
     global.fetch = vi
       .fn()

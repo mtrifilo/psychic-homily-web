@@ -123,7 +123,8 @@ export function PasskeyLoginButton({
       router.push(returnTo)
     } catch (error) {
       reportPasskeyFailure(error, 'login_failed')
-      // The viewer cancelled the passkey prompt: nothing to show.
+      // The browser refused the ceremony (the viewer dismissed it, it timed
+      // out, or no credential matched): nothing to show.
       if (isNotAllowedError(error)) {
         return
       }

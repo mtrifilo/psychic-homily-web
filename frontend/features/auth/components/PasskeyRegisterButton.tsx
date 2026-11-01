@@ -151,7 +151,8 @@ export function PasskeyRegisterButton({
       onSuccess?.()
     } catch (error) {
       reportPasskeyFailure(error, 'registration_failed')
-      // The viewer cancelled the passkey prompt: nothing to show.
+      // The browser refused the ceremony (the viewer dismissed it, it timed
+      // out, or the authenticator declined): nothing to show.
       if (isNotAllowedError(error)) {
         return
       }

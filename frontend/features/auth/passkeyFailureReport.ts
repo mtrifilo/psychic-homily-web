@@ -10,10 +10,11 @@ import {
 export type PasskeyFailureType = 'login_failed' | 'registration_failed'
 
 /**
- * The typed refusals a passkey surface answers with copy of its own: the
- * recoverable-account message and the unavailable-account line on sign-in,
- * the sign-in-again link on the credential cards. Each is a correct answer
- * about the account or the session, not a fault.
+ * The typed refusals that are a correct answer about the account or the
+ * session, not a fault, on either ceremony: a deleted account inside its
+ * recovery window, an account that may no longer sign in, and a session too
+ * old to add a credential. The surfaces show each one's sentence and offer
+ * the remedy where there is one (account recovery, signing in again).
  */
 const EXPECTED_REFUSAL_CODES: ReadonlySet<AuthErrorCodeType> = new Set([
   AuthErrorCode.ACCOUNT_RECOVERABLE,
@@ -23,8 +24,9 @@ const EXPECTED_REFUSAL_CODES: ReadonlySet<AuthErrorCodeType> = new Set([
 
 /**
  * The name an expected failure is recorded under, or null when the failure is
- * not expected. The viewer dismissing or refusing the browser's passkey
- * prompt is expected.
+ * not expected. The browser refusing the ceremony (NotAllowedError: the
+ * viewer dismissed the prompt, it timed out, or no credential matched) is
+ * expected, and its breadcrumb cannot tell those apart.
  */
 function expectedFailureCode(error: unknown): string | null {
   if (isNotAllowedError(error)) return 'NotAllowedError'
