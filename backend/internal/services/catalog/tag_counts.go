@@ -49,7 +49,7 @@ type tagUsageCountQuery struct {
 // countsFor returns the aggregate restricted to tagIDs, as tag_id → count.
 //
 // A tag with no counted rows is ABSENT from the map, and callers read a missing
-// key as zero, which is the same contract shared.VisibleTagUsageCounts states.
+// key as zero, which is the same contract shared.ListedTagUsageCounts states.
 func (q tagUsageCountQuery) countsFor(db *gorm.DB, tagIDs []uint) (map[uint]int64, error) {
 	out := make(map[uint]int64, len(tagIDs))
 	if db == nil || len(tagIDs) == 0 {
@@ -109,7 +109,7 @@ func tagUsageCountOrderBySQL() string {
 // a builder that has no junction for it.
 func (s *TagService) visibleTagUsageCountQuery(entityType string, cities []contracts.CityStateFilter) tagUsageCountQuery {
 	if entityType == "" {
-		sql, args := shared.VisibleTagUsageCountSQL()
+		sql, args := shared.ListedTagUsageCountSQL()
 		return tagUsageCountQuery{sql: sql, args: args}
 	}
 	if entityType == catalogm.TagEntityShow && len(cities) > 0 {

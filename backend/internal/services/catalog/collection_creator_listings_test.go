@@ -188,9 +188,29 @@ func (suite *TagServiceIntegrationTestSuite) TestGetTagEntities_Collections_List
 		suite.Require().NoError(err)
 		suite.Require().NotNil(detail)
 		suite.EqualValues(len(want), detail.UsageBreakdown[catalogm.TagEntityCollection], "breakdown: %s", msg)
-		counts, err := shared.VisibleTagUsageCounts(suite.db, []uint{tag.ID})
+		counts, err := shared.ListedTagUsageCounts(suite.db, []uint{tag.ID})
 		suite.Require().NoError(err)
 		suite.Equal(len(want), counts[tag.ID], "usage count: %s", msg)
+
+		// The collection facet on the tag browse counts the same rows.
+		facet, _, err := suite.tagService.ListTags("", "", nil, "", 50, 0, catalogm.TagEntityCollection, nil)
+		suite.Require().NoError(err)
+		facetCount := -1
+		for _, t := range facet {
+			if t.ID == tag.ID {
+				facetCount = t.UsageCount
+			}
+		}
+		suite.Equal(len(want), facetCount, "collection facet count: %s", msg)
+
+		// Each tagger is credited only with the rows the page lists, so a
+		// private-profile creator's own tagging is not counted against them.
+		credited := map[uint]int64{}
+		for _, c := range detail.TopContributors {
+			credited[c.User.ID] = c.Count
+		}
+		suite.Equal(int64(1), credited[live.ID], "top contributors, live tagger: %s", msg)
+		suite.Equal(int64(len(want)-1), credited[deleted.ID]+credited[private.ID], "top contributors, hidden taggers: %s", msg)
 	}
 
 	assertListed([]uint{control.ID}, "closed and private-profile creators hidden")
@@ -216,10 +236,12 @@ func (s *TagIntersectionIntegrationTestSuite) TestIntersection_CollectionListsOn
 
 	live := seedUser("intersect-live")
 	deactivated := seedUser("intersect-deactivated")
+	deleted := seedUser("intersect-deleted")
 	private := seedUser("intersect-private")
 	ids := []uint{
 		seedCollectionBy("LiveCreatorCol", live.ID),
 		seedCollectionBy("DeactivatedCreatorCol", deactivated.ID),
+		seedCollectionBy("DeletedCreatorCol", deleted.ID),
 		seedCollectionBy("PrivateProfileCol", private.ID),
 	}
 	for _, id := range ids {
@@ -227,6 +249,7 @@ func (s *TagIntersectionIntegrationTestSuite) TestIntersection_CollectionListsOn
 		s.tag("collection", id, "electronic")
 	}
 	testutil.DeactivateAccount(s.T(), s.db, deactivated.ID)
+	testutil.SoftDeleteAccount(s.T(), s.db, deleted.ID)
 	testutil.SetProfileVisibility(s.T(), s.db, private.ID, "private")
 
 	collectionGroup := func() (int64, []string) {
@@ -250,7 +273,8 @@ func (s *TagIntersectionIntegrationTestSuite) TestIntersection_CollectionListsOn
 	s.Equal([]string{"LiveCreatorCol"}, names)
 
 	testutil.ReopenAccount(s.T(), s.db, deactivated.ID)
+	testutil.ReopenAccount(s.T(), s.db, deleted.ID)
 	count, names = collectionGroup()
-	s.EqualValues(2, count)
-	s.ElementsMatch([]string{"LiveCreatorCol", "DeactivatedCreatorCol"}, names)
+	s.EqualValues(3, count)
+	s.ElementsMatch([]string{"LiveCreatorCol", "DeactivatedCreatorCol", "DeletedCreatorCol"}, names)
 }

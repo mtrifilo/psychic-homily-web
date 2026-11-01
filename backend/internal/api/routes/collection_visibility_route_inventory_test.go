@@ -133,9 +133,7 @@ var collectionAddressableRoutes = map[string]collectionRouteDisposition{
 
 	// The slug-addressed tag writes. canEditCollectionTags refuses a collection
 	// the caller cannot see before it considers `collaborative`, so these answer
-	// the same rule as their polymorphic twins above. Unlike on a closed
-	// creator's collection still removes the caller's own like, and answers the
-	// unused slug's not-found.
+	// the same rule as their polymorphic twins above.
 	"POST /collections/{slug}/tags":                     collectionGated,
 	"POST /crates/{slug}/tags":                          collectionGated,
 	"DELETE /collections/{slug}/tags/{tag_id}":          collectionGated,
@@ -145,8 +143,6 @@ var collectionAddressableRoutes = map[string]collectionRouteDisposition{
 	"POST /crates/{slug}/subscribe":                     collectionGated,
 	"POST /collections/{slug}/like":                     collectionGated,
 	"POST /crates/{slug}/like":                          collectionGated,
-	"DELETE /collections/{slug}/like":                   collectionGated,
-	"DELETE /crates/{slug}/like":                        collectionGated,
 	"POST /collections/{slug}/clone":                    collectionGated,
 	"POST /crates/{slug}/clone":                         collectionGated,
 	"GET /collections/entity/{entity_type}/{entity_id}": collectionGated,
@@ -158,6 +154,13 @@ var collectionAddressableRoutes = map[string]collectionRouteDisposition{
 	// subscription was there.
 	"DELETE /collections/{slug}/subscribe": collectionSelfScoped,
 	"DELETE /crates/{slug}/subscribe":      collectionSelfScoped,
+
+	// Unliking is the caller's own row on the same terms: it deletes by
+	// subquery before resolving the slug, and a slug that names no collection
+	// the caller may be served (unused, private, a closed creator's) answers the
+	// same empty aggregate.
+	"DELETE /collections/{slug}/like": collectionSelfScoped,
+	"DELETE /crates/{slug}/like":      collectionSelfScoped,
 
 	// The two moderation remedies. Both refuse a non-creator who is not an admin
 	// a private collection, as missing; both admit an admin, because flipping a

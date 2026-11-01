@@ -126,6 +126,8 @@ func TestClosedCreatorCollectionAnswersLikeAMissingOne(t *testing.T) {
 				}
 			}
 
+			var reportsBefore int64
+			td.DB.Table("entity_reports").Where("entity_type = ? AND entity_id = ?", "collection", closed.ID).Count(&reportsBefore)
 			reportBody := []byte(`{"report_type":"spam"}`)
 			code, body := do(t, http.MethodPost, fmt.Sprintf("/collections/%d/report", closed.ID), strangerToken, reportBody)
 			absentCode, absentBody := do(t, http.MethodPost, fmt.Sprintf("/collections/%d/report", absentID), strangerToken, reportBody)
@@ -136,31 +138,55 @@ func TestClosedCreatorCollectionAnswersLikeAMissingOne(t *testing.T) {
 				t.Errorf("the report route published the title: %s", body)
 			}
 
-			code, body = do(t, http.MethodPost, subscribePath(closed.ID), strangerToken, nil)
-			absentCode, _ = do(t, http.MethodPost, subscribePath(absentID), strangerToken, nil)
+			var reportsAfter int64
+			td.DB.Table("entity_reports").Where("entity_type = ? AND entity_id = ?", "collection", closed.ID).Count(&reportsAfter)
+			if reportsAfter != reportsBefore {
+				t.Errorf("the report route wrote a report: %d before, %d after", reportsBefore, reportsAfter)
+			}
+
+			// A caller with no subscription yet, so a write that slipped past the
+			// gate would show as a new row.
+			newcomer := testhelpers.CreateUserWithTier(td.DB, "trusted_contributor")
+			newcomerToken := mintToken(t, sc, newcomer)
+			code, body = do(t, http.MethodPost, subscribePath(closed.ID), newcomerToken, nil)
+			absentCode, _ = do(t, http.MethodPost, subscribePath(absentID), newcomerToken, nil)
 			if code < 400 || code != absentCode {
 				t.Errorf("the polymorphic subscribe = %d %s; a missing collection's = %d", code, body, absentCode)
+			}
+			var newcomerSubs int64
+			td.DB.Table("comment_subscriptions").Where("user_id = ?", newcomer.ID).Count(&newcomerSubs)
+			if newcomerSubs != 0 {
+				t.Errorf("the polymorphic subscribe wrote %d comment subscription rows", newcomerSubs)
 			}
 
 			addBody := []byte(fmt.Sprintf(`{"entity_type":"artist","entity_id":%d}`, artist.ID))
 			tagBody := []byte(`{"tag_name":"added-after-closing"}`)
+			updateBody := []byte(`{"title":"renamed after closing"}`)
 			for _, w := range []struct {
-				name   string
-				method string
-				suffix string
-				body   []byte
+				name     string
+				method   string
+				suffix   string
+				body     []byte
+				wantCode int
 			}{
-				{"clone", http.MethodPost, "/clone", nil},
-				{"subscribe", http.MethodPost, "/subscribe", nil},
-				{"like", http.MethodPost, "/like", nil},
-				{"unlike", http.MethodDelete, "/like", nil},
-				{"add item", http.MethodPost, "/items", addBody},
-				{"add tag", http.MethodPost, "/tags", tagBody},
+				{"clone", http.MethodPost, "/clone", nil, http.StatusNotFound},
+				{"subscribe", http.MethodPost, "/subscribe", nil, http.StatusNotFound},
+				{"like", http.MethodPost, "/like", nil, http.StatusNotFound},
+				// Self-scoped: the caller's own like goes, and every slug that
+				// names nothing the caller may be served answers the same 200.
+				{"unlike", http.MethodDelete, "/like", nil, http.StatusOK},
+				{"add item", http.MethodPost, "/items", addBody, http.StatusNotFound},
+				{"add tag", http.MethodPost, "/tags", tagBody, http.StatusNotFound},
+				{"update", http.MethodPut, "", updateBody, http.StatusNotFound},
+				{"delete", http.MethodDelete, "", nil, http.StatusNotFound},
 			} {
 				code, body := do(t, w.method, "/collections/"+closedCreatorCollectionSlug+w.suffix, strangerToken, w.body)
-				missingCode, _ := do(t, w.method, "/collections/"+missingSlug+w.suffix, strangerToken, w.body)
-				if code != http.StatusNotFound || code != missingCode {
+				missingCode, missingBody := do(t, w.method, "/collections/"+missingSlug+w.suffix, strangerToken, w.body)
+				if code != w.wantCode || code != missingCode {
 					t.Errorf("%s = %d %s; an unused slug's = %d", w.name, code, body, missingCode)
+				}
+				if w.wantCode == http.StatusOK && string(body) != string(missingBody) {
+					t.Errorf("%s answers %s for the closed creator's slug but %s for an unused one", w.name, body, missingBody)
 				}
 				if strings.Contains(string(body), closedCreatorCollectionTitle) {
 					t.Errorf("%s published the title: %s", w.name, body)

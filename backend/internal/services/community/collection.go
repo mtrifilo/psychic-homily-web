@@ -472,17 +472,20 @@ func (s *CollectionService) GetByID(id uint, viewerID uint) (*contracts.Collecti
 // loadLiveCreatorCollectionBySlug loads the collection a route addressed by
 // slug may act on: one whose creator is a live account
 // (shared.CollectionCreatorIsLiveSQL). A closed creator's collection answers
-// the not-found error a slug nobody has used gets, and the route writes
-// nothing. The caller still applies the is_public rule.
+// the not-found error a slug nobody has used gets. The caller still applies the
+// is_public rule.
 //
 // Every slug-addressed route a viewer reaches loads through here, reads and
-// writes alike. A route that loads without it says so at its definition.
+// writes alike, and writes nothing to a collection it refuses. A route that
+// loads without it, or writes the caller's own row before it, says so at its
+// definition.
 func (s *CollectionService) loadLiveCreatorCollectionBySlug(slug string) (*communitym.Collection, error) {
 	return s.loadCollectionBySlug(s.db.Where(shared.CollectionCreatorIsLiveSQL("collections")), slug)
 }
 
 // loadAnyCollectionBySlug loads the collection a slug names whatever its
-// creator's state. Only the admin remedies use it.
+// creator's state. Only an ADMIN caller of the moderation remedies loads
+// through it; every other caller gets loadLiveCreatorCollectionBySlug.
 func (s *CollectionService) loadAnyCollectionBySlug(slug string) (*communitym.Collection, error) {
 	return s.loadCollectionBySlug(s.db, slug)
 }
@@ -1019,17 +1022,21 @@ func applySearchRelevanceOrder(query *gorm.DB, pattern string) *gorm.DB {
 // collections, so an admin refused this route could see the report and do
 // nothing about it. Every other collection write refuses them.
 //
-// IT LOADS WITHOUT THE CREATOR'S STATE, so an admin's remedy also reaches a
-// closed creator's collection. Nobody else can: only the creator or an admin
-// passes the ownership test, and a closed creator cannot sign in. The read-back
-// below refuses such a collection to everyone, so the update is reported as
-// committed with nothing to show and publishes nothing.
+// AN ADMIN LOADS WITHOUT THE CREATOR'S STATE, so the remedy also reaches a
+// closed creator's collection; every other caller gets the live-creator load,
+// so a stranger is answered as for an unused slug rather than forbidden. The
+// read-back below refuses such a collection to everyone, so the admin's update
+// is reported as committed with nothing to show and publishes nothing.
 func (s *CollectionService) UpdateCollection(slug string, userID uint, isAdmin bool, req *contracts.UpdateCollectionRequest) (*contracts.CollectionDetailResponse, uint, error) {
 	if s.db == nil {
 		return nil, 0, fmt.Errorf("database not initialized")
 	}
 
-	collection, err := s.loadAnyCollectionBySlug(slug)
+	load := s.loadLiveCreatorCollectionBySlug
+	if isAdmin {
+		load = s.loadAnyCollectionBySlug
+	}
+	collection, err := load(slug)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -1145,14 +1152,19 @@ func (s *CollectionService) UpdateCollection(slug string, userID uint, isAdmin b
 // shows an admin the report while every remedy refuses them is a queue they
 // cannot act on. It publishes nothing — the response is empty either way.
 //
-// It loads without the creator's state, on UpdateCollection's reason: removing
-// a closed creator's collection is an admin remedy and publishes nothing.
+// An admin loads without the creator's state, on UpdateCollection's reason:
+// removing a closed creator's collection is an admin remedy and publishes
+// nothing. Every other caller gets the live-creator load.
 func (s *CollectionService) DeleteCollection(slug string, userID uint, isAdmin bool) (uint, error) {
 	if s.db == nil {
 		return 0, fmt.Errorf("database not initialized")
 	}
 
-	collection, err := s.loadAnyCollectionBySlug(slug)
+	load := s.loadLiveCreatorCollectionBySlug
+	if isAdmin {
+		load = s.loadAnyCollectionBySlug
+	}
+	collection, err := load(slug)
 	if err != nil {
 		return 0, err
 	}
@@ -1943,41 +1955,37 @@ func (s *CollectionService) Like(slug string, userID uint) (*contracts.Collectio
 }
 
 // Unlike removes a user's like on the collection. Idempotent — DELETE on
-// a row that doesn't exist is a no-op. Returns the post-mutation aggregate.
+// a row that doesn't exist is a no-op.
 //
-// ON A CLOSED CREATOR'S COLLECTION the caller's own like is still removed, and
-// the answer is the not-found error an unused slug gets. Taking back one's own
-// like is always allowed, as leaving a subscription is (Unsubscribe). The answer
-// is the unused slug's because the like count is a read of the collection, and
-// a success beside an unused slug's 404 would report that the slug is taken.
-// The removal is keyed by a slug subquery, as Unsubscribe's is, so for an
-// unused slug it removes nothing and the two answers are identical.
+// IT ANSWERS SUCCESS WHATEVER THE SLUG NAMES, on Unsubscribe's terms: it removes
+// the caller's OWN like by a slug subquery before it resolves anything, because
+// taking back one's own like is always allowed. The answer carries the
+// collection's like aggregate only for a collection the caller may be served;
+// for any other slug (unused, another user's private collection, a closed
+// creator's) it is the empty answer, zero likes and not liked, so those slugs
+// answer alike and do the same work.
 func (s *CollectionService) Unlike(slug string, userID uint) (*contracts.CollectionLikeResponse, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
 	}
 
+	if err := s.db.Where(
+		"user_id = ? AND collection_id IN (SELECT id FROM collections WHERE slug = ?)",
+		userID, slug,
+	).Delete(&communitym.CollectionLike{}).Error; err != nil {
+		return nil, fmt.Errorf("failed to unlike collection: %w", err)
+	}
+
+	notServed := &contracts.CollectionLikeResponse{LikeCount: 0, UserLikesThis: false}
 	collection, err := s.loadLiveCreatorCollectionBySlug(slug)
 	if err != nil {
 		if apperrors.IsCollectionNotFound(err) {
-			if delErr := s.db.Where(
-				"user_id = ? AND collection_id IN (SELECT id FROM collections WHERE slug = ?)",
-				userID, slug,
-			).Delete(&communitym.CollectionLike{}).Error; delErr != nil {
-				return nil, fmt.Errorf("failed to unlike collection: %w", delErr)
-			}
+			return notServed, nil
 		}
 		return nil, err
 	}
-
 	if !collection.IsPublic && collection.CreatorID != userID {
-		// Invisible answers as missing, on the terms GetBySlug states.
-		return nil, apperrors.ErrCollectionNotFound(slug)
-	}
-
-	if err := s.db.Where("user_id = ? AND collection_id = ?", userID, collection.ID).
-		Delete(&communitym.CollectionLike{}).Error; err != nil {
-		return nil, fmt.Errorf("failed to unlike collection: %w", err)
+		return notServed, nil
 	}
 
 	return s.buildLikeResponse(collection.ID, userID)
@@ -3147,7 +3155,7 @@ func (s *CollectionService) batchCountForks(collectionIDs []uint) map[uint]int {
 //
 // One statement per page over the DISTINCT sources referenced, not one probe per
 // row. A failed probe withholds every source on the page rather than falling
-// back to the raw column, for VisibleTagUsageCounts' reason: a fallback is the
+// back to the raw column, for ListedTagUsageCounts' reason: a fallback is the
 // disclosure with an extra step.
 func (s *CollectionService) batchVisibleForkSources(collections []communitym.Collection, viewer contracts.ShowViewer) map[uint]*uint {
 	publishable := make(map[uint]*uint, len(collections))
@@ -3447,7 +3455,7 @@ func (s *CollectionService) batchListCollectionTagSummaries(collectionIDs []uint
 	for _, r := range rows {
 		tagIDs = append(tagIDs, r.ID)
 	}
-	visibleCounts, err := shared.VisibleTagUsageCounts(s.db, tagIDs)
+	visibleCounts, err := shared.ListedTagUsageCounts(s.db, tagIDs)
 	if err != nil {
 		// Chips without counts rather than counts that publish the withheld
 		// rows: this helper already degrades to an empty map on a failed load,

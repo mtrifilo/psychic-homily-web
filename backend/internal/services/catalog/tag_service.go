@@ -123,7 +123,7 @@ func (s *TagService) applyVisibleUsageCounts(tags []*catalogm.Tag) error {
 	if len(ids) == 0 {
 		return nil
 	}
-	counts, err := shared.VisibleTagUsageCounts(s.db, ids)
+	counts, err := shared.ListedTagUsageCounts(s.db, ids)
 	if err != nil {
 		return err
 	}
@@ -152,7 +152,7 @@ func (s *TagService) applyVisibleUsageCountsToSummaries(summaries []contracts.Ta
 	for i := range summaries {
 		ids[i] = summaries[i].ID
 	}
-	counts, err := shared.VisibleTagUsageCounts(s.db, ids)
+	counts, err := shared.ListedTagUsageCounts(s.db, ids)
 	if err != nil {
 		return err
 	}
@@ -2033,7 +2033,7 @@ func (s *TagService) GetTagDetail(tagID uint) (*contracts.TagDetailResponse, err
 	// The count is the SUM OF THE BREAKDOWN IT IS RENDERED WITH, taken from the
 	// same rows rather than from a second query, so the pair cannot disagree.
 	// Every other surface that publishes this tag's count reaches the same number
-	// through shared.VisibleTagUsageCounts, which applies the same predicate
+	// through shared.ListedTagUsageCounts, which applies the same predicate
 	// grouped by tag instead of by entity type.
 	resp.UsageCount = int(visibleUsage)
 
@@ -2047,13 +2047,13 @@ func (s *TagService) GetTagDetail(tagID uint) (*contracts.TagDetailResponse, err
 	// per-user, so an unfenced one attributes the withheld rows to a NAMED
 	// person: "alice applied this tag five times, two are visible" says alice has
 	// three gated shows or private collections carrying it.
-	contribVisible, contribVisibleArgs := shared.VisibleEntityTagsSQL("et", contracts.ShowViewer{})
+	contribVisible := shared.ListedEntityTagsSQL("et")
 	var contribRows []contribRow
 	if err := s.db.Table("entity_tags AS et").
 		Select("et.added_by_user_id AS user_id, u.username AS username, COUNT(*) AS count").
 		Joins("LEFT JOIN users u ON u.id = et.added_by_user_id").
 		Where("et.tag_id = ?", tagID).
-		Where(contribVisible, contribVisibleArgs...).
+		Where(contribVisible).
 		Group("et.added_by_user_id, u.username").
 		Order("count DESC, et.added_by_user_id ASC").
 		Limit(5).
@@ -2089,13 +2089,10 @@ func (s *TagService) GetTagDetail(tagID uint) (*contracts.TagDetailResponse, err
 	// judging one would be enough, and both carry the condition because the join
 	// is on a pair of columns that a later edit could loosen.
 	//
-	// Placeholders bind by POSITION, so the arguments below are appended in
-	// statement order: the self gate, the other gate, then the two tag ids.
-	selfVisible, selfVisibleArgs := shared.VisibleEntityTagsSQL("et_self", contracts.ShowViewer{})
-	otherVisible, otherVisibleArgs := shared.VisibleEntityTagsSQL("et_other", contracts.ShowViewer{})
-	relatedArgs := append([]interface{}{}, selfVisibleArgs...)
-	relatedArgs = append(relatedArgs, otherVisibleArgs...)
-	relatedArgs = append(relatedArgs, tagID, tagID)
+	// Both gates bind nothing, so the only arguments are the two tag ids.
+	selfVisible := shared.ListedEntityTagsSQL("et_self")
+	otherVisible := shared.ListedEntityTagsSQL("et_other")
+	relatedArgs := []interface{}{tagID, tagID}
 	var relatedRows []relatedRow
 	err = s.db.Raw(`
 		SELECT t.id, t.name, t.slug, t.category, t.is_official, t.usage_count

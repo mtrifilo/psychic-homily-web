@@ -32,6 +32,11 @@ import (
 //     one, decides on. CollectionCreatorIsListedSQL beside the visible
 //     predicate, and PublicListedCollectionSQL for the public-tier listings.
 //
+// The registry's polymorphic functions (EntityVisibleTo, VisibleCommentEntitySQL,
+// VisibleEntityExistsSQL, VisibleEntityTagsSQL, EntityIdentityFenceSQL) keep
+// their names and decide collections on SERVED; ListedEntityTagsSQL and
+// PublicListedEntityTypeArmsSQL decide them on LISTED.
+//
 // No viewer-facing surface decides on VISIBLE alone. VISIBLE is the building
 // block the other two are made of. A route that must still reach a closed
 // creator's collection (an admin's moderation remedy) loads the row without
@@ -74,14 +79,17 @@ func CollectionCreatorIsLiveSQL(alias string) string {
 // alias is SQL the CALLER controls and must be a literal in the calling code.
 func CollectionCreatorIsListedSQL(alias string, viewer contracts.ShowViewer) (string, []interface{}) {
 	// One probe of the creator's users row decides both terms.
-	creatorRow := "EXISTS (SELECT 1 FROM users " + collectionCreatorAlias +
-		" WHERE " + collectionCreatorAlias + ".id = " + alias + ".creator_id" +
-		" AND " + authm.LiveAccountSQL(collectionCreatorAlias)
+	liveCreatorWhere := func(profileCond string) string {
+		return "EXISTS (SELECT 1 FROM users " + collectionCreatorAlias +
+			" WHERE " + collectionCreatorAlias + ".id = " + alias + ".creator_id" +
+			" AND " + authm.LiveAccountSQL(collectionCreatorAlias) +
+			" AND " + profileCond + ")"
+	}
 	publicProfile := collectionCreatorAlias + ".profile_visibility <> 'private'"
 	if viewer.UserID == 0 {
-		return creatorRow + " AND " + publicProfile + ")", nil
+		return liveCreatorWhere(publicProfile), nil
 	}
-	return creatorRow + " AND (" + publicProfile + " OR " + alias + ".creator_id = ?))",
+	return liveCreatorWhere("(" + publicProfile + " OR " + alias + ".creator_id = ?)"),
 		[]interface{}{viewer.UserID}
 }
 

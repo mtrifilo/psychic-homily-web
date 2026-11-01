@@ -79,7 +79,7 @@ func PublicEntityTagsSQL(alias string) string {
 // ListedEntityTagsSQL is PublicEntityTagsSQL for the counts a tag's own pages
 // render beside its listing: the usage count, the per-type breakdown and the
 // facet counts. A tag row on a collection counts only where the tag page lists
-// the collection (PublicEntityTypeArmsSQL's listing tier), so a private-profile
+// the collection (PublicListedEntityTypeArmsSQL), so a private-profile
 // creator's public collection, served at its slug and absent from the tag page,
 // leaves those counts with it and no count differs from its listing. It binds
 // nothing.
@@ -90,8 +90,8 @@ func ListedEntityTagsSQL(alias string) string {
 	return PublicListedEntityTypeArmsSQL(alias+".entity_type", alias+".entity_id")
 }
 
-// VisibleTagUsageCounts returns, per tag id, the number of entity_tags rows
-// whose tagged entity a public reader may see.
+// ListedTagUsageCounts returns, per tag id, the number of entity_tags rows a
+// tag's public pages list (ListedEntityTagsSQL).
 //
 // The counterpart of the per-type breakdown on the tag detail page: same
 // predicate, grouped by tag instead of by entity type, so a tag's count and the
@@ -104,13 +104,13 @@ func ListedEntityTagsSQL(alias string) string {
 //
 // A failed query returns the error. Callers must not fall back to the raw
 // column, because a fallback is the disclosure with an extra step.
-func VisibleTagUsageCounts(db *gorm.DB, tagIDs []uint) (map[uint]int, error) {
+func ListedTagUsageCounts(db *gorm.DB, tagIDs []uint) (map[uint]int, error) {
 	counts := make(map[uint]int, len(tagIDs))
 	if db == nil || len(tagIDs) == 0 {
 		return counts, nil
 	}
 
-	aggregate, aggregateArgs := VisibleTagUsageCountSQL()
+	aggregate, aggregateArgs := ListedTagUsageCountSQL()
 
 	type countRow struct {
 		TagID uint
@@ -132,9 +132,9 @@ func VisibleTagUsageCounts(db *gorm.DB, tagIDs []uint) (map[uint]int, error) {
 	return counts, nil
 }
 
-// VisibleTagUsageCountSQL returns the (tag_id, count) aggregate over the whole
-// entity_tags table, counting only rows whose tagged entity a public reader may
-// see, plus its bind arguments.
+// ListedTagUsageCountSQL returns the (tag_id, count) aggregate over the whole
+// entity_tags table, counting only the rows a tag's public pages list
+// (ListedEntityTagsSQL), plus its bind arguments.
 //
 // THE NUMBER AND THE ORDERING KEY ARE ONE EXPRESSION. A /tags page is SELECTED
 // by an ORDER BY and RENDERED with these counts, and if the two came from
@@ -142,11 +142,11 @@ func VisibleTagUsageCounts(db *gorm.DB, tagIDs []uint) (map[uint]int, error) {
 // another: a tag displaying 0 could sit above a tag displaying 40, and position
 // beside number would state a lower bound on the rows the count withholds. So
 // this is the aggregate the listing joins to order itself, and the aggregate
-// VisibleTagUsageCounts reads the displayed number from.
+// ListedTagUsageCounts reads the displayed number from.
 //
 // UNRESTRICTED BY TAG, because the ordering has to be computed before the page
 // is chosen; callers wanting a subset filter the result.
-func VisibleTagUsageCountSQL() (string, []interface{}) {
+func ListedTagUsageCountSQL() (string, []interface{}) {
 	return "SELECT entity_tags.tag_id AS tag_id, COUNT(*) AS count" +
 		" FROM entity_tags WHERE " + ListedEntityTagsSQL("entity_tags") +
 		" GROUP BY entity_tags.tag_id", nil

@@ -128,6 +128,12 @@ func (suite *CollectionServiceIntegrationTestSuite) TestClosedCreator_SlugWrites
 			suite.requireCollectionNotFound(err, c.Slug, "RemoveTagFromCollection")
 			_, err = suite.collectionService.SetFeatured(c.Slug, true, viewer.ID)
 			suite.requireCollectionNotFound(err, c.Slug, "SetFeatured(true)")
+			title := "renamed by a stranger"
+			_, _, err = suite.collectionService.UpdateCollection(c.Slug, viewer.ID, false,
+				&contracts.UpdateCollectionRequest{Title: &title})
+			suite.requireCollectionNotFound(err, c.Slug, "UpdateCollection by a non-admin")
+			_, err = suite.collectionService.DeleteCollection(c.Slug, viewer.ID, false)
+			suite.requireCollectionNotFound(err, c.Slug, "DeleteCollection by a non-admin")
 
 			suite.Equal(before, suite.snapshotCollectionWrites(c.ID), "no write landed while the creator was closed")
 
@@ -147,10 +153,10 @@ func (suite *CollectionServiceIntegrationTestSuite) TestClosedCreator_SlugWrites
 }
 
 // A viewer can still take back their own relation to a closed creator's
-// collection. Unsubscribe and MarkVisited answer as they do for any slug and
-// touch only the caller's row; Unlike removes the caller's like and answers the
-// not-found error an unused slug gets, so the like and the slug are not
-// published. Nobody else's like or subscription moves.
+// collection. Unsubscribe, MarkVisited and Unlike answer as they do for any slug
+// and touch only the caller's row; Unlike's answer is the empty aggregate an
+// unused slug gets, so the like count and the slug are not published. Nobody
+// else's like or subscription moves.
 func (suite *CollectionServiceIntegrationTestSuite) TestClosedCreator_ViewerCanStillUndoTheirOwnRelation() {
 	for i, state := range closedCreatorStates {
 		suite.Run(state.name, func() {
@@ -168,10 +174,13 @@ func (suite *CollectionServiceIntegrationTestSuite) TestClosedCreator_ViewerCanS
 
 			suite.NoError(suite.collectionService.MarkVisited(c.Slug, viewer.ID))
 			suite.NoError(suite.collectionService.Unsubscribe(c.Slug, viewer.ID))
-			_, err := suite.collectionService.Unlike(c.Slug, viewer.ID)
-			suite.requireCollectionNotFound(err, c.Slug, "Unlike on a closed creator's collection")
-			_, err = suite.collectionService.Unlike("never-used-undo-slug", viewer.ID)
-			suite.requireCollectionNotFound(err, "never-used-undo-slug", "Unlike on an unused slug")
+			empty := &contracts.CollectionLikeResponse{LikeCount: 0, UserLikesThis: false}
+			closedAnswer, err := suite.collectionService.Unlike(c.Slug, viewer.ID)
+			suite.Require().NoError(err, "Unlike on a closed creator's collection")
+			unusedAnswer, err := suite.collectionService.Unlike("never-used-undo-slug", viewer.ID)
+			suite.Require().NoError(err, "Unlike on an unused slug")
+			suite.Equal(empty, closedAnswer)
+			suite.Equal(unusedAnswer, closedAnswer, "a closed creator's slug answers as an unused one")
 
 			countRows := func(model interface{}, userID uint) int64 {
 				var n int64
@@ -256,4 +265,34 @@ func (suite *CollectionServiceIntegrationTestSuite) TestClosedCloner_ForkLeavesF
 	assertForks(1, "two cloners closed")
 	suite.reopenAccounts(deactivated, deleted)
 	assertForks(3, "cloners reopened")
+}
+
+// Unlike takes back the caller's own like on another user's collection that
+// went private after the like, and answers the same empty aggregate an unused
+// slug gets; the creator's own unlike on their private collection still answers
+// with the real aggregate.
+func (suite *CollectionServiceIntegrationTestSuite) TestUnlike_PrivateCollectionRemovesOwnLikeAndAnswersEmpty() {
+	creator := suite.createTestUser("UnlikePrivateCreator")
+	liker := suite.createTestUser("UnlikePrivateLiker")
+	c := suite.createPublicCollection(creator, "Unlike Private Picks")
+	for _, u := range []*authm.User{creator, liker} {
+		_, err := suite.collectionService.Like(c.Slug, u.ID)
+		suite.Require().NoError(err)
+	}
+	suite.Require().NoError(suite.db.Model(&communitym.Collection{}).Where("id = ?", c.ID).
+		Update("is_public", false).Error)
+
+	resp, err := suite.collectionService.Unlike(c.Slug, liker.ID)
+	suite.Require().NoError(err)
+	suite.Equal(&contracts.CollectionLikeResponse{LikeCount: 0, UserLikesThis: false}, resp,
+		"no aggregate of a collection the caller may not read")
+	var n int64
+	suite.Require().NoError(suite.db.Model(&communitym.CollectionLike{}).
+		Where("collection_id = ? AND user_id = ?", c.ID, liker.ID).Count(&n).Error)
+	suite.Zero(n, "the liker's own like is gone")
+
+	own, err := suite.collectionService.Unlike(c.Slug, creator.ID)
+	suite.Require().NoError(err)
+	suite.Equal(0, own.LikeCount, "the creator's own unlike reads their collection's real count")
+	suite.False(own.UserLikesThis)
 }
