@@ -4,6 +4,7 @@ import (
 	"context"
 
 	authm "psychic-homily-backend/internal/models/auth"
+	"psychic-homily-backend/internal/testutil"
 )
 
 // closeAccount closes user the way named: "deactivated" turns is_active off
@@ -12,7 +13,7 @@ func (s *AuthEmailOutboxSuite) closeAccount(user *authm.User, how string) {
 	s.T().Helper()
 	switch how {
 	case "deactivated":
-		s.Require().NoError(s.db.Exec("UPDATE users SET is_active = false WHERE id = ?", user.ID).Error)
+		testutil.DeactivateAccount(s.T(), s.db, user.ID)
 	case "soft-deleted":
 		s.Require().NoError(s.users.SoftDeleteAccount(user.ID, nil))
 	default:

@@ -468,8 +468,7 @@ func (o *AuthEmailOutbox) claim(ctx context.Context) ([]authm.AuthEmailOutboxIte
 // with the claim's attempt undone, so the next tick sends it.
 func (o *AuthEmailOutbox) processItem(ctx context.Context, item authm.AuthEmailOutboxItem, startBy time.Time) itemOutcome {
 	if ctx.Err() != nil || !time.Now().Before(startBy) {
-		o.requeueWithoutAttempt(ctx, []authm.AuthEmailOutboxItem{item})
-		return outcomeRequeued
+		return o.requeueWithoutAttempt(ctx, item)
 	}
 
 	// Age next: it is the one bound that retires every row, whatever its
@@ -482,8 +481,7 @@ func (o *AuthEmailOutbox) processItem(ctx context.Context, item authm.AuthEmailO
 	skipReason, err := o.deliver(ctx, item, startBy)
 	switch {
 	case errors.Is(err, errAccountReadCutShort):
-		o.requeueWithoutAttempt(ctx, []authm.AuthEmailOutboxItem{item})
-		return outcomeRequeued
+		return o.requeueWithoutAttempt(ctx, item)
 	case errors.Is(err, errUnknownAuthEmailKind):
 		o.markFailed(ctx, item, err)
 		return outcomeOther
@@ -582,18 +580,16 @@ func (o *AuthEmailOutbox) deliver(ctx context.Context, item authm.AuthEmailOutbo
 }
 
 // needsOpenAccount reports whether kind's email goes only to an account that
-// may sign in. Recovery is the one kind that does not: it is how a closed
-// account inside its recovery window is reopened.
+// may sign in. Every kind does but recovery, which is how a closed account
+// inside its recovery window is reopened, so a kind without a rule of its own
+// gets the stricter one.
 func needsOpenAccount(kind authm.AuthEmailKind) bool {
-	switch kind {
-	case authm.AuthEmailKindMagicLink, authm.AuthEmailKindVerification, authm.AuthEmailKindOAuthLink:
-		return true
-	}
-	return false
+	return kind != authm.AuthEmailKindAccountRecovery
 }
 
 // readAccount reads the account a row names, closed or not, with startBy as
-// the read's deadline. A read that the deadline or the tick's cancellation
+// the read's deadline. It reads the users table itself because the user
+// service's reads take no context to carry that deadline. A read that the deadline or the tick's cancellation
 // ended returns errAccountReadCutShort.
 func (o *AuthEmailOutbox) readAccount(ctx context.Context, userID uint, startBy time.Time) (*authm.User, error) {
 	rctx, cancel := context.WithDeadline(ctx, startBy)
@@ -708,13 +704,14 @@ func (o *AuthEmailOutbox) reportDroppedUnsent(n int64) {
 	hub.CaptureMessage("auth email outbox: requests expired unsent")
 }
 
-// requeueWithoutAttempt returns rows to `pending` and undoes the claim's
-// attempt, for rows the tick did not get to send (processItem).
-func (o *AuthEmailOutbox) requeueWithoutAttempt(ctx context.Context, items []authm.AuthEmailOutboxItem) {
-	o.finalize(ctx, shared.QueueRowIDs(items), map[string]interface{}{
+// requeueWithoutAttempt returns a row to `pending` and undoes the claim's
+// attempt, for a row the tick did not get to send (processItem).
+func (o *AuthEmailOutbox) requeueWithoutAttempt(ctx context.Context, item authm.AuthEmailOutboxItem) itemOutcome {
+	o.finalize(ctx, []uint{item.ID}, map[string]interface{}{
 		"status":   authm.AuthEmailStatusPending,
 		"attempts": gorm.Expr("GREATEST(attempts - 1, 0)"),
 	})
+	return outcomeRequeued
 }
 
 // finalize writes rows' outcome on a context detached from the tick's

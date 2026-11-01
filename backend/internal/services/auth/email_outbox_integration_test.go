@@ -348,11 +348,8 @@ func (s *AuthEmailOutboxSuite) expiredRow(email string) {
 
 func (s *AuthEmailOutboxSuite) assertSkippedExpired(wantAttempts int) {
 	s.Empty(s.sender.recorded())
-	row := s.onlyRow()
-	s.Equal(authm.AuthEmailStatusSkipped, row.Status)
-	s.Equal(wantAttempts, row.Attempts)
-	s.Require().NotNil(row.LastError)
-	s.Equal(authEmailSkipExpired, *row.LastError)
+	s.assertOnlyRowSkipped(authEmailSkipExpired)
+	s.Equal(wantAttempts, s.onlyRow().Attempts)
 }
 
 func (s *AuthEmailOutboxSuite) TestExpiredRequest_ReapedByHousekeeping() {

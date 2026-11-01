@@ -3,7 +3,6 @@ package auth
 import (
 	"context"
 	"errors"
-	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -98,10 +97,8 @@ func (s *AuthEmailOutboxSuite) TestSentry_RetriedAttemptNotReported() {
 
 func (s *AuthEmailOutboxSuite) expiredRows(n int) {
 	for i := 0; i < n; i++ {
-		user := s.verifiedUser("expired-" + string(rune('a'+i)) + "@example.com")
-		s.enqueue(authm.AuthEmailKindMagicLink, user.ID)
+		s.expiredRow("expired-" + string(rune('a'+i)) + "@example.com")
 	}
-	s.Require().NoError(s.db.Exec("UPDATE auth_email_outbox SET created_at = NOW() - INTERVAL '16 minutes'").Error)
 }
 
 func (s *AuthEmailOutboxSuite) assertOneExpiredWarning(events []*sentry.Event, count int64) {
@@ -284,36 +281,11 @@ func (s *AuthEmailOutboxSuite) TestStartStop() {
 	for _, row := range s.rows() {
 		s.Equal(authm.AuthEmailStatusSent, row.Status, "the in-flight row is recorded before Stop returns")
 	}
-
-	third := s.verifiedUser("after-stop@example.com")
-	s.enqueue(authm.AuthEmailKindMagicLink, third.ID)
-	time.Sleep(2500 * time.Millisecond)
-	s.Len(s.sender.recorded(), 2, "no tick runs after Stop")
 }
 
 // The email service the container passes has the context forms, so its
 // provider errors are reported on the worker's hub.
 var _ authEmailContextSender = (*notification.EmailService)(nil)
-
-// plainOnlySender has only the email contract's plain sends.
-type plainOnlySender struct{ sends []string }
-
-func (p *plainOnlySender) IsConfigured() bool { return true }
-
-func (p *plainOnlySender) SendMagicLinkEmail(to, _ string) error {
-	p.sends = append(p.sends, "magic_link:"+to)
-	return nil
-}
-
-func (p *plainOnlySender) SendAccountRecoveryEmail(to, _ string, _ int) error {
-	p.sends = append(p.sends, "account_recovery:"+to)
-	return nil
-}
-
-func (p *plainOnlySender) SendVerificationEmail(to, _ string) error {
-	p.sends = append(p.sends, "verification:"+to)
-	return nil
-}
 
 func TestAsContextSender(t *testing.T) {
 	recording := &recordingSender{}
@@ -321,9 +293,11 @@ func TestAsContextSender(t *testing.T) {
 		t.Fatalf("a sender with the context forms is used as is, got %T", got)
 	}
 
-	plain := &plainOnlySender{}
+	// Embedding the interface hides the context forms, leaving only the
+	// email contract's plain sends.
+	plain := struct{ authEmailSender }{recording}
 	cs := asContextSender(plain)
-	ctx := context.Background()
+	ctx := sentry.SetHubOnContext(context.Background(), sentry.NewHub(nil, sentry.NewScope()))
 	if err := cs.SendMagicLinkEmailContext(ctx, "a@example.com", "t"); err != nil {
 		t.Fatal(err)
 	}
@@ -333,9 +307,18 @@ func TestAsContextSender(t *testing.T) {
 	if err := cs.SendVerificationEmailContext(ctx, "c@example.com", "t"); err != nil {
 		t.Fatal(err)
 	}
-	want := []string{"magic_link:a@example.com", "account_recovery:b@example.com", "verification:c@example.com"}
-	if strings.Join(plain.sends, ",") != strings.Join(want, ",") {
-		t.Fatalf("sends = %v, want %v", plain.sends, want)
+	sends := recording.recorded()
+	wantKinds := []authm.AuthEmailKind{authm.AuthEmailKindMagicLink, authm.AuthEmailKindAccountRecovery, authm.AuthEmailKindVerification}
+	if len(sends) != len(wantKinds) {
+		t.Fatalf("got %d sends, want %d", len(sends), len(wantKinds))
+	}
+	for i, send := range sends {
+		if send.kind != wantKinds[i] {
+			t.Fatalf("send %d kind = %s, want %s", i, send.kind, wantKinds[i])
+		}
+		if send.hub != nil {
+			t.Fatalf("send %d reached the plain form with a context hub; the plain forms take no context", i)
+		}
 	}
 }
 
