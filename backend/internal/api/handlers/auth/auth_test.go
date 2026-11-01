@@ -1938,6 +1938,7 @@ func TestRefreshTokenHandler_ReReadNoLongerMatchingTheSessionIsRefused(t *testin
 		"first revocation":            {reRead: authm.User{IsActive: true, SessionsValidAfter: &later}},
 		"later revocation":            {validatedStamp: &earlier, reRead: authm.User{IsActive: true, SessionsValidAfter: &later}},
 		"closed and revoked together": {validatedStamp: &earlier, reRead: authm.User{IsActive: false, SessionsValidAfter: &later}},
+		"stamp cleared":               {validatedStamp: &earlier, reRead: authm.User{IsActive: true}},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
