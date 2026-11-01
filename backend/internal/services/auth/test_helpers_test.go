@@ -51,6 +51,10 @@ func (n *nilDBUserService) GetUserByUsername(username string) (*authm.User, erro
 	return nil, fmt.Errorf("database not initialized")
 }
 
+func (n *nilDBUserService) GetUserByUsernameIncludingClosed(username string) (*authm.User, error) {
+	return nil, fmt.Errorf("database not initialized")
+}
+
 func (n *nilDBUserService) UpdateUser(userID uint, updates map[string]any) (*authm.User, error) {
 	return nil, fmt.Errorf("database not initialized")
 }

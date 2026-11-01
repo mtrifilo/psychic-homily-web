@@ -876,19 +876,34 @@ func (s *UserService) GetUserByEmail(email string) (*authm.User, error) {
 	return &user, nil
 }
 
-// GetUserByUsername retrieves a user by username. A username Postgres rejects
-// as text (authm.PostgresRejectsText) is not found.
+// GetUserByUsername retrieves the live account (authm.LiveAccountSQL) holding
+// username. A deactivated or soft-deleted holder is not found, so every caller
+// answers a closed account exactly as an unknown username. A username Postgres
+// rejects as text (authm.PostgresRejectsText) is not found.
 func (s *UserService) GetUserByUsername(username string) (*authm.User, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
 	}
+	return s.getUserByUsername(s.db.Where(authm.LiveAccountSQL("users")), username)
+}
+
+// GetUserByUsernameIncludingClosed is GetUserByUsername without the
+// live-account rule: it also finds a deactivated or soft-deleted holder.
+func (s *UserService) GetUserByUsernameIncludingClosed(username string) (*authm.User, error) {
+	if s.db == nil {
+		return nil, fmt.Errorf("database not initialized")
+	}
+	return s.getUserByUsername(s.db, username)
+}
+
+func (s *UserService) getUserByUsername(scope *gorm.DB, username string) (*authm.User, error) {
 	if authm.PostgresRejectsText(username) {
 		return nil, nil
 	}
 
 	var user authm.User
 
-	result := s.db.Where("username = ?", username).
+	result := scope.Where("username = ?", username).
 		Preload("OAuthAccounts").
 		Preload("Preferences").
 		First(&user)

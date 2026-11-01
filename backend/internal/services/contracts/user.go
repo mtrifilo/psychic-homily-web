@@ -348,7 +348,12 @@ type UserServiceInterface interface {
 	CreateUserWithPasswordWithLegal(email, password, firstName, lastName string, acceptance LegalAcceptance) (*authm.User, error)
 	GetUserByID(userID uint) (*authm.User, error)
 	GetUserByEmail(email string) (*authm.User, error)
+	// GetUserByUsername finds only a live account (authm.User.CanSignIn); a
+	// closed holder of the username is not found.
 	GetUserByUsername(username string) (*authm.User, error)
+	// GetUserByUsernameIncludingClosed also finds a deactivated or
+	// soft-deleted holder of the username.
+	GetUserByUsernameIncludingClosed(username string) (*authm.User, error)
 	UpdateUser(userID uint, updates map[string]any) (*authm.User, error)
 	HashPassword(password string) (string, error)
 	VerifyPassword(hashedPassword, password string) error

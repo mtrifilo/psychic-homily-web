@@ -65,14 +65,60 @@ type UserFollowersResponse struct {
 
 // resolveFollowTarget looks up the follow target by username and applies the
 // same master profile-visibility gate as public profile reads: a private
-// profile (or missing user) resolves to 404 so hidden profiles are
-// indistinguishable from nonexistent ones. Owners may resolve their own
-// private profile (needed for GET …/followers on a private account).
+// profile, a closed account (deactivated or soft-deleted) or a missing user
+// resolves to 404 so hidden profiles are indistinguishable from nonexistent
+// ones. Owners may resolve their own private profile (needed for GET
+// .../followers on a private account).
 func (h *UserFollowHandler) resolveFollowTarget(ctx context.Context, username string) (*authm.User, error) {
-	requestID := logger.GetRequestID(ctx)
-
-	target, err := h.userService.GetUserByUsername(username)
+	target, err := h.lookUpTarget(ctx, h.userService.GetUserByUsername, username)
 	if err != nil {
+		return nil, err
+	}
+	if profileHiddenFromViewer(ctx, target) {
+		return nil, huma.Error404NotFound("User not found")
+	}
+	return target, nil
+}
+
+// resolveUnfollowTarget is resolveFollowTarget for removing the caller's own
+// follow row. Removing one's own row always works, so a follower can unfollow
+// a deactivated or soft-deleted account; any other caller gets the 404 an
+// unknown username gets, so the route does not tell a stranger that a closed
+// account holds the username. A live target takes resolveFollowTarget's gate.
+func (h *UserFollowHandler) resolveUnfollowTarget(ctx context.Context, callerID uint, username string) (*authm.User, error) {
+	target, err := h.lookUpTarget(ctx, h.userService.GetUserByUsernameIncludingClosed, username)
+	if err != nil {
+		return nil, err
+	}
+	if target.CanSignIn() {
+		if profileHiddenFromViewer(ctx, target) {
+			return nil, huma.Error404NotFound("User not found")
+		}
+		return target, nil
+	}
+
+	following, err := h.followService.IsFollowing(callerID, userEntityType, target.ID)
+	if err != nil {
+		requestID := logger.GetRequestID(ctx)
+		logger.FromContext(ctx).Error("user_unfollow_status_failed",
+			"user_id", callerID, "username", username, "target_id", target.ID,
+			"error", err.Error(), "request_id", requestID)
+		return nil, huma.Error500InternalServerError(
+			fmt.Sprintf("Failed to unfollow (request_id: %s)", requestID),
+		)
+	}
+	if !following {
+		return nil, huma.Error404NotFound("User not found")
+	}
+	return target, nil
+}
+
+// lookUpTarget resolves username through lookup, answering 404 when no
+// account is found and 500 when the lookup fails.
+func (h *UserFollowHandler) lookUpTarget(ctx context.Context, lookup func(string) (*authm.User, error), username string) (*authm.User, error) {
+	target, err := lookup(username)
+	if err != nil {
+		requestID := logger.GetRequestID(ctx)
 		logger.FromContext(ctx).Error("user_follow_lookup_failed",
 			"username", username, "error", err.Error(), "request_id", requestID)
 		return nil, huma.Error500InternalServerError(
@@ -82,13 +128,15 @@ func (h *UserFollowHandler) resolveFollowTarget(ctx context.Context, username st
 	if target == nil {
 		return nil, huma.Error404NotFound("User not found")
 	}
+	return target, nil
+}
 
+// profileHiddenFromViewer reports whether target's profile is private and the
+// request's viewer is not its owner.
+func profileHiddenFromViewer(ctx context.Context, target *authm.User) bool {
 	viewer := middleware.GetUserFromContext(ctx)
 	isOwner := viewer != nil && viewer.ID == target.ID
-	if target.ProfileVisibility == "private" && !isOwner {
-		return nil, huma.Error404NotFound("User not found")
-	}
-	return target, nil
+	return target.ProfileVisibility == "private" && !isOwner
 }
 
 // UserFollowHandler handles POST /users/{username}/follow.
@@ -141,7 +189,7 @@ func (h *UserFollowHandler) UserUnfollowHandler(ctx context.Context, req *UserUn
 		return nil, huma.Error401Unauthorized("Authentication required")
 	}
 
-	target, err := h.resolveFollowTarget(ctx, req.Username)
+	target, err := h.resolveUnfollowTarget(ctx, user.ID, req.Username)
 	if err != nil {
 		return nil, err
 	}

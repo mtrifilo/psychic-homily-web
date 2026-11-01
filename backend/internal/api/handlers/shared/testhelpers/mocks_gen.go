@@ -4203,6 +4203,7 @@ type MockUserService struct {
 	GetUserByIDFn                       func(uint) (*authm.User, error)
 	GetUserByEmailFn                    func(string) (*authm.User, error)
 	GetUserByUsernameFn                 func(string) (*authm.User, error)
+	GetUserByUsernameIncludingClosedFn  func(string) (*authm.User, error)
 	UpdateUserFn                        func(uint, map[string]any) (*authm.User, error)
 	HashPasswordFn                      func(string) (string, error)
 	VerifyPasswordFn                    func(string, string) error
@@ -4296,6 +4297,12 @@ func (m *MockUserService) GetUserByEmail(email string) (*authm.User, error) {
 func (m *MockUserService) GetUserByUsername(username string) (*authm.User, error) {
 	if m.GetUserByUsernameFn != nil {
 		return m.GetUserByUsernameFn(username)
+	}
+	return nil, nil
+}
+func (m *MockUserService) GetUserByUsernameIncludingClosed(username string) (*authm.User, error) {
+	if m.GetUserByUsernameIncludingClosedFn != nil {
+		return m.GetUserByUsernameIncludingClosedFn(username)
 	}
 	return nil, nil
 }
