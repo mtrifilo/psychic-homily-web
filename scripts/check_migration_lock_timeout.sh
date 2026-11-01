@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
 # scripts/check_migration_lock_timeout.sh
 #
-# CI gate: a migration this branch ADDS that takes a strong table lock must run
-# with a bounded lock_timeout. An unbounded lock wait at boot stalls the deploy
-# and queues every later query on the table behind the migration.
+# CI gate: a migration this branch ADDS or MODIFIES, up or down, that takes a
+# strong table lock must run with a bounded lock_timeout. An unbounded lock
+# wait stalls the deploy (or the rollback) and queues every later query on the
+# table behind the migration.
 #
 # A migration takes a strong lock when its SQL (comments stripped by the rule
 # in scripts/lib/sql_strip_comments.sh) contains ALTER TABLE, LOCK TABLE,
@@ -25,15 +26,23 @@
 #   * Runner-level bound in place: the entrypoint passes a lock_timeout option
 #     to the migrate CLI and never hands it the bare DATABASE_URL. A strong-lock
 #     migration without its own lock_timeout is reported as a WARNING (exit 0):
-#     the boot run is bounded, a manual `migrate` run is not.
+#     the boot run of an up migration is bounded, a manual `migrate` run is
+#     not, and the entrypoint never runs a down migration.
 #   * Runner-level bound absent: the same migration is an ERROR (exit 1).
+#
+# Both checks read .up.sql and .down.sql files alike, with the same statement
+# kinds above: a down migration runs on every rollback. A modified migration is
+# read whole, not just its changed lines.
 #
 # Usage:
 #   scripts/check_migration_lock_timeout.sh [base-ref]
 #
 # base-ref defaults to origin/main. The CALLER makes that ref current; this
-# script does no network I/O. The "added" set is the same two-dot
-# --diff-filter=A --no-renames diff check_migration_timestamps.sh uses.
+# script does no network I/O. The checked set is a two-dot
+# --diff-filter=AM --no-renames diff of the migrations directory, so a renamed
+# file counts as added. The diff compares the base tip with HEAD, so on a
+# branch behind the base, a migration the base edited since also reads as
+# modified; run it on a branch rebased onto the base.
 
 set -euo pipefail
 # No globbing: filenames flow through unquoted word-splitting below.
@@ -75,19 +84,20 @@ if grep -qF "$RUNNER_OPTION" <<<"$ENTRY_CODE" \
   RUNNER_BOUND=yes
 fi
 
-# --- 2. up migrations this branch ADDS on top of the base --------------------
-if ! ADDED_UP="$(git diff --name-only --diff-filter=A --no-renames \
-                   "$BASE_REF" HEAD -- "$MIGRATIONS_PATH/*.up.sql")"; then
+# --- 2. migrations this branch ADDS or MODIFIES on top of the base -----------
+if ! CHANGED="$(git diff --name-only --diff-filter=AM --no-renames \
+                  "$BASE_REF" HEAD -- "$MIGRATIONS_PATH/*.up.sql" \
+                  "$MIGRATIONS_PATH/*.down.sql")"; then
   echo "ERROR: could not diff HEAD against $BASE_REF." >&2
   exit 1
 fi
 
-if [ -z "$ADDED_UP" ]; then
-  echo "OK: no new up migrations added against $BASE_REF."
+if [ -z "$CHANGED" ]; then
+  echo "OK: no up or down migrations added or modified against $BASE_REF."
   exit 0
 fi
 
-# --- 3. classify and report each added up migration --------------------------
+# --- 3. classify and report each changed migration ---------------------------
 # Prints the strong-lock statement kinds found in $1 (output of sql_folded),
 # one per line.
 strong_locks() {
@@ -120,7 +130,11 @@ CIC_CONVENTION="Rebuildable concurrent index: DROP INDEX CONCURRENTLY IF EXISTS 
 
 UNBOUNDED=0
 REFUSED=0
-for f in $ADDED_UP; do
+for f in $CHANGED; do
+  if [ ! -r "$f" ]; then
+    echo "ERROR: $f differs from $BASE_REF on HEAD but is not readable in the working tree." >&2
+    exit 1
+  fi
   sql="$(sql_folded "$f")"
   if cic_if_not_exists_in "$sql"; then
     if cic_grandfathered "$f"; then
@@ -140,7 +154,11 @@ for f in $ADDED_UP; do
   if [ "$RUNNER_BOUND" = no ]; then
     echo "ERROR: $msg" >&2
   else
-    annotate warning "$f" "$msg $ENTRYPOINT bounds it at boot; a manual migrate run is unbounded."
+    case "$f" in
+      *.down.sql) why="never runs a down migration; a manual migrate down run is unbounded." ;;
+      *) why="bounds it at boot; a manual migrate run is unbounded." ;;
+    esac
+    annotate warning "$f" "$msg $ENTRYPOINT $why"
   fi
 done
 
@@ -149,7 +167,7 @@ STATUS=0
 
 if [ "$REFUSED" -ne 0 ]; then
   echo "" >&2
-  echo "$REFUSED new migration(s) use CREATE INDEX CONCURRENTLY IF NOT EXISTS." >&2
+  echo "$REFUSED added or modified migration(s) use CREATE INDEX CONCURRENTLY IF NOT EXISTS." >&2
   echo "Fix: $CIC_CONVENTION" >&2
   STATUS=1
 fi
@@ -168,7 +186,7 @@ if [ "$STATUS" -ne 0 ]; then
 fi
 
 if [ "$UNBOUNDED" -eq 0 ]; then
-  echo "OK: every new strong-lock migration sets its own lock_timeout (or none takes a strong lock)."
+  echo "OK: every added or modified strong-lock migration sets its own lock_timeout (or none takes a strong lock)."
 else
   echo "OK (warnings only): the runner-level lock_timeout in $ENTRYPOINT is in place."
 fi
