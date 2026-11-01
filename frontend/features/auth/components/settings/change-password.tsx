@@ -3,28 +3,22 @@
 import { useState } from 'react'
 import { useForm } from '@tanstack/react-form'
 import { z } from 'zod'
-import { AlertCircle, CheckCircle2, Eye, EyeOff, Lock, Loader2 } from 'lucide-react'
+import { AlertCircle, CheckCircle2, Loader2 } from 'lucide-react'
 import { useChangePassword } from '@/features/auth'
 import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { PasswordStrengthMeter } from '@/components/ui/password-strength-meter'
 import { getUniqueErrors } from '@/lib/utils/formErrors'
 import { formatPasswordConfirmError } from './password-confirm-errors'
-
-// Password validation constants (same as auth page)
-const MIN_PASSWORD_LENGTH = 12
-const MAX_PASSWORD_LENGTH = 128
+import { PasswordInput } from './password-input'
+import { newPasswordRule } from './password-rules'
 
 // Validation schema for password change
 const changePasswordSchema = z
   .object({
     currentPassword: z.string().min(1, 'Current password is required'),
-    newPassword: z
-      .string()
-      .min(MIN_PASSWORD_LENGTH, `Password must be at least ${MIN_PASSWORD_LENGTH} characters`)
-      .max(MAX_PASSWORD_LENGTH, `Password must be no more than ${MAX_PASSWORD_LENGTH} characters`),
+    newPassword: newPasswordRule,
     confirmPassword: z.string().min(1, 'Please confirm your new password'),
   })
   .refine(data => data.newPassword !== data.currentPassword, {
@@ -48,14 +42,22 @@ export function formatChangePasswordError(error: unknown): string {
   })
 }
 
-export function ChangePassword() {
+interface ChangePasswordProps {
+  /**
+   * A success line raised before this card mounted (Set a password hands its
+   * confirmation over when the card swaps). It shows in the success slot
+   * until this form submits.
+   */
+  notice?: string | null
+}
+
+export function ChangePassword({ notice = null }: ChangePasswordProps) {
   const changePasswordMutation = useChangePassword()
-  const [showCurrentPassword, setShowCurrentPassword] = useState(false)
-  const [showNewPassword, setShowNewPassword] = useState(false)
-  const [showConfirmPassword, setShowConfirmPassword] = useState(false)
   const [newPasswordValue, setNewPasswordValue] = useState('')
   const [confirmPasswordValue, setConfirmPasswordValue] = useState('')
   const [successMessage, setSuccessMessage] = useState<string | null>(null)
+  const [noticeDismissed, setNoticeDismissed] = useState(false)
+  const shownSuccess = successMessage ?? (noticeDismissed ? null : notice)
 
   const form = useForm({
     defaultValues: {
@@ -65,6 +67,7 @@ export function ChangePassword() {
     } as ChangePasswordFormData,
     onSubmit: async ({ value }) => {
       setSuccessMessage(null)
+      setNoticeDismissed(true)
       changePasswordMutation.mutate(
         {
           current_password: value.currentPassword,
@@ -105,10 +108,10 @@ export function ChangePassword() {
           className="space-y-4"
         >
           {/* Success message */}
-          {successMessage && (
+          {shownSuccess && (
             <div className="flex items-center gap-2 rounded-md bg-success p-3 text-sm text-success-foreground">
               <CheckCircle2 className="h-4 w-4 shrink-0" />
-              <span>{successMessage}</span>
+              <span>{shownSuccess}</span>
             </div>
           )}
 
@@ -125,29 +128,15 @@ export function ChangePassword() {
             {field => (
               <div className="space-y-2">
                 <Label htmlFor={field.name}>Current password</Label>
-                <div className="relative">
-                  <Lock className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                  <Input
-                    id={field.name}
-                    name={field.name}
-                    type={showCurrentPassword ? 'text' : 'password'}
-                    placeholder="Enter your current password"
-                    value={field.state.value}
-                    onBlur={field.handleBlur}
-                    onChange={e => field.handleChange(e.target.value)}
-                    className="pl-10 pr-10"
-                    aria-invalid={field.state.meta.errors.length > 0}
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setShowCurrentPassword(!showCurrentPassword)}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 rounded-sm"
-                    aria-label={showCurrentPassword ? 'Hide password' : 'Show password'}
-                    aria-pressed={showCurrentPassword}
-                  >
-                    {showCurrentPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                  </button>
-                </div>
+                <PasswordInput
+                  id={field.name}
+                  name={field.name}
+                  placeholder="Enter your current password"
+                  value={field.state.value}
+                  onBlur={field.handleBlur}
+                  onChange={e => field.handleChange(e.target.value)}
+                  invalid={field.state.meta.errors.length > 0}
+                />
                 {field.state.meta.errors.length > 0 && (
                   <p role="alert" className="text-sm text-destructive">
                     {getUniqueErrors(field.state.meta.errors)}
@@ -162,32 +151,18 @@ export function ChangePassword() {
             {field => (
               <div className="space-y-2">
                 <Label htmlFor={field.name}>New password</Label>
-                <div className="relative">
-                  <Lock className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                  <Input
-                    id={field.name}
-                    name={field.name}
-                    type={showNewPassword ? 'text' : 'password'}
-                    placeholder="At least 12 characters"
-                    value={field.state.value}
-                    onBlur={field.handleBlur}
-                    onChange={e => {
-                      field.handleChange(e.target.value)
-                      setNewPasswordValue(e.target.value)
-                    }}
-                    className="pl-10 pr-10"
-                    aria-invalid={field.state.meta.errors.length > 0}
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setShowNewPassword(!showNewPassword)}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 rounded-sm"
-                    aria-label={showNewPassword ? 'Hide password' : 'Show password'}
-                    aria-pressed={showNewPassword}
-                  >
-                    {showNewPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                  </button>
-                </div>
+                <PasswordInput
+                  id={field.name}
+                  name={field.name}
+                  placeholder="At least 12 characters"
+                  value={field.state.value}
+                  onBlur={field.handleBlur}
+                  onChange={e => {
+                    field.handleChange(e.target.value)
+                    setNewPasswordValue(e.target.value)
+                  }}
+                  invalid={field.state.meta.errors.length > 0}
+                />
                 {/* Password strength meter */}
                 <PasswordStrengthMeter password={newPasswordValue} showRequirements={true} />
                 {field.state.meta.errors.length > 0 && (
@@ -204,32 +179,18 @@ export function ChangePassword() {
             {field => (
               <div className="space-y-2">
                 <Label htmlFor={field.name}>Confirm new password</Label>
-                <div className="relative">
-                  <Lock className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                  <Input
-                    id={field.name}
-                    name={field.name}
-                    type={showConfirmPassword ? 'text' : 'password'}
-                    placeholder="Confirm your new password"
-                    value={field.state.value}
-                    onBlur={field.handleBlur}
-                    onChange={e => {
-                      field.handleChange(e.target.value)
-                      setConfirmPasswordValue(e.target.value)
-                    }}
-                    className="pl-10 pr-10"
-                    aria-invalid={field.state.meta.errors.length > 0}
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setShowConfirmPassword(!showConfirmPassword)}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 rounded-sm"
-                    aria-label={showConfirmPassword ? 'Hide password' : 'Show password'}
-                    aria-pressed={showConfirmPassword}
-                  >
-                    {showConfirmPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                  </button>
-                </div>
+                <PasswordInput
+                  id={field.name}
+                  name={field.name}
+                  placeholder="Confirm your new password"
+                  value={field.state.value}
+                  onBlur={field.handleBlur}
+                  onChange={e => {
+                    field.handleChange(e.target.value)
+                    setConfirmPasswordValue(e.target.value)
+                  }}
+                  invalid={field.state.meta.errors.length > 0}
+                />
                 {field.state.meta.errors.length > 0 && (
                   <p role="alert" className="text-sm text-destructive">
                     {getUniqueErrors(field.state.meta.errors)}

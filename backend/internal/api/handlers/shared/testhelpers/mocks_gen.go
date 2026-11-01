@@ -4211,6 +4211,7 @@ type MockUserService struct {
 	IncrementFailedAttemptsFn           func(uint) error
 	ResetFailedAttemptsFn               func(uint) error
 	UpdatePasswordFn                    func(uint, string, string) error
+	SetPasswordFn                       func(uint, string, *time.Time) error
 	SetEmailVerifiedFn                  func(uint, bool) error
 	GetDeletionSummaryFn                func(uint) (*contracts.DeletionSummary, error)
 	SoftDeleteAccountFn                 func(uint, *string) error
@@ -4344,6 +4345,12 @@ func (m *MockUserService) ResetFailedAttempts(userID uint) error {
 func (m *MockUserService) UpdatePassword(userID uint, currentPassword string, newPassword string) error {
 	if m.UpdatePasswordFn != nil {
 		return m.UpdatePasswordFn(userID, currentPassword, newPassword)
+	}
+	return nil
+}
+func (m *MockUserService) SetPassword(userID uint, newPassword string, sessionsValidAfter *time.Time) error {
+	if m.SetPasswordFn != nil {
+		return m.SetPasswordFn(userID, newPassword, sessionsValidAfter)
 	}
 	return nil
 }

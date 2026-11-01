@@ -53,6 +53,7 @@ const (
 	LimiterAppleSignIn                   LimiterName = "apple_sign_in"
 	LimiterVerificationResend            LimiterName = "verification_resend"
 	LimiterPasswordConfirm               LimiterName = "password_confirm"
+	LimiterSetPassword                   LimiterName = "set_password"
 	LimiterOAuthLinkToken                LimiterName = "oauth_link_token"
 	LimiterTagCreate                     LimiterName = "tag_create"
 	LimiterTagVote                       LimiterName = "tag_vote"

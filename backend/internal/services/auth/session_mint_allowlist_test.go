@@ -56,8 +56,9 @@ var sessionMintAllowlist = map[string]string{
 
 	// Session renewals: the authentication time comes from the caller's own
 	// credential, so these mint no freshness.
-	"internal/api/handlers/auth/auth.go:AuthHandler.GenerateCLITokenHandler:RenewSessionToken": "renewal, time from the request context",
-	"internal/services/auth/oauth.go:AuthService.RefreshUserToken:RenewSessionToken":           "renewal, time from the caller",
+	"internal/api/handlers/auth/auth.go:AuthHandler.GenerateCLITokenHandler:RenewSessionToken":         "renewal, time from the request context",
+	"internal/api/handlers/auth/auth_set_password.go:AuthHandler.SetPasswordHandler:RenewSessionToken": "renewal, time from the request context",
+	"internal/services/auth/oauth.go:AuthService.RefreshUserToken:RenewSessionToken":                   "renewal, time from the caller",
 
 	// The one deliberate time.Now() stamp, which is what CreateToken means.
 	"internal/services/auth/jwt.go:JWTService.CreateToken:RenewSessionToken": "the factor stamp itself",

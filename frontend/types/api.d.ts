@@ -2815,6 +2815,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/auth/password": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Post auth password */
+        post: operations["post-auth-password"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/auth/preferences/alert-defaults": {
         parameters: {
             query?: never;
@@ -15021,6 +15038,32 @@ export interface components {
              */
             metro?: string | null;
         };
+        SetPasswordRequestBody: {
+            /** @description The account's first password */
+            new_password: string;
+        };
+        SetPasswordResponseBody: {
+            /**
+             * @description Error code for programmatic handling
+             * @example PASSWORD_ALREADY_SET
+             */
+            error_code?: string;
+            /**
+             * @description Response message
+             * @example Password set
+             */
+            message: string;
+            /**
+             * @description Request ID for debugging
+             * @example 550e8400-e29b-41d4-a716-446655440000
+             */
+            request_id?: string;
+            /**
+             * @description Success status
+             * @example true
+             */
+            success: boolean;
+        };
         SetSceneDigestRequestBody: {
             /** @description Enable or disable the weekly followed-scenes digest email */
             enabled: boolean;
@@ -22887,6 +22930,40 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["FinishSignupResponseBody"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "post-auth-password": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SetPasswordRequestBody"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    "Set-Cookie"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SetPasswordResponseBody"];
                 };
             };
             /** @description Error */

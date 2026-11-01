@@ -33,6 +33,7 @@ var wantAuthStatus = map[string]int{
 	CodeAccountInactive:            http.StatusForbidden,
 	CodeAccountRecoverable:         http.StatusForbidden,
 	CodeNoPasswordSet:              http.StatusConflict,
+	CodePasswordAlreadySet:         http.StatusConflict,
 	CodeTermsAcceptanceRequired:    http.StatusUnprocessableEntity,
 	CodeAgeConfirmationRequired:    http.StatusUnprocessableEntity,
 	CodeInvalidReplyPermission:     http.StatusBadRequest,

@@ -44,6 +44,7 @@ export const API_ENDPOINTS = {
     VERIFY_EMAIL_CONFIRM: `${API_BASE_URL}/auth/verify-email/confirm`,
     // Password management endpoints
     CHANGE_PASSWORD: `${API_BASE_URL}/auth/change-password`,
+    SET_PASSWORD: `${API_BASE_URL}/auth/password`,
     // Magic link endpoints
     MAGIC_LINK_SEND: `${API_BASE_URL}/auth/magic-link/send`,
     MAGIC_LINK_VERIFY: `${API_BASE_URL}/auth/magic-link/verify`,

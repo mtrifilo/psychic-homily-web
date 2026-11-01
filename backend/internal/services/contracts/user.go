@@ -357,6 +357,15 @@ type UserServiceInterface interface {
 	IncrementFailedAttempts(userID uint) error
 	ResetFailedAttempts(userID uint) error
 	UpdatePassword(userID uint, currentPassword, newPassword string) error
+	// SetPassword gives an account that has no password (authm.User.HasPassword
+	// false) its first one, hashed from newPassword, which the caller has
+	// already validated. sessionsValidAfter is the revocation stamp of the
+	// session asking, as for LinkOAuthAccountToUser. Refuses with
+	// shared.LockSessionAccount's refusals when the account may not sign in or
+	// that session has been revoked, and with a typed AuthError carrying
+	// CodePasswordAlreadySet when the account holds a password, including one
+	// a concurrent call set first. Revokes no session.
+	SetPassword(userID uint, newPassword string, sessionsValidAfter *time.Time) error
 	SetEmailVerified(userID uint, verified bool) error
 	GetDeletionSummary(userID uint) (*DeletionSummary, error)
 	SoftDeleteAccount(userID uint, reason *string) error

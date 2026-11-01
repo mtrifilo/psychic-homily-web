@@ -85,6 +85,11 @@ export const AuthErrorCode = {
    * recovery window. The remedy is account recovery, never support.
    */
   ACCOUNT_RECOVERABLE: 'ACCOUNT_RECOVERABLE',
+  /**
+   * Setting a first password found the account already holding one, set from
+   * another tab or device. Changing it goes through Change password.
+   */
+  PASSWORD_ALREADY_SET: 'PASSWORD_ALREADY_SET',
 } as const
 
 export type AuthErrorCodeType =
@@ -252,6 +257,19 @@ export function isAuthError(error: unknown): error is AuthError {
  */
 export const REAUTH_REQUIRED_MESSAGE =
   'For security, sign in again before making this change.'
+
+/**
+ * Copy for the already-set refusal on the Settings password card, keyed on the
+ * code rather than taken from the response so the words are the frontend's
+ * own. The backend's message for the code says the same thing.
+ */
+export const PASSWORD_ALREADY_SET_MESSAGE =
+  'This account already has a password. Reload the page to change it.'
+
+/** Did setting a first password find one already set? */
+export function isPasswordAlreadySet(error: unknown): boolean {
+  return isAuthError(error) && error.code === AuthErrorCode.PASSWORD_ALREADY_SET
+}
 
 /**
  * Does this failure mean the account is fine but the sign-in is too old?

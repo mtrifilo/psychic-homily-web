@@ -57,6 +57,7 @@ var (
 	scopePasskeySignup    = fmt.Sprintf("signupBeginGroup: its own %d/min passkey sign-up begin budget", middleware.PasskeySignupBeginRequestsPerMinute)
 	scopePasskeyRegister  = fmt.Sprintf("registerBeginGroup: its own %d/min passkey register begin budget per session user, inside it a %d/min ceiling per client IP across users, behind HumaJWTMiddleware", middleware.PasskeyRegisterBeginRequestsPerMinute, middleware.PasskeyRegisterBeginIPCeilingPerMinute)
 	scopeResendSized      = fmt.Sprintf("its own limiter at the %d/min verification-resend size", VerificationResendPerMinute)
+	scopeSetPassword      = fmt.Sprintf("setPasswordGroup: its own limiter at the %d/min password-confirm size", PasswordConfirmAttemptsPerMinute)
 	scopeProtectedNoLimit = "rc.Protected with no per-route limiter"
 	scopeAdminNoLimit     = "rc.Admin with no per-route limiter"
 	scopePublicNoLimit    = "rc.API with no per-route limiter"
@@ -107,6 +108,7 @@ var authRouteRateLimitScope = map[string]string{
 	"POST /auth/recover-account/confirm":    scopePublicAuth,
 	"POST /auth/change-password":            scopePasswordConfirm,
 	"POST /auth/account/delete":             scopePasswordConfirm,
+	"POST /auth/password":                   scopeSetPassword,
 	"POST /auth/passkey/login/begin":        scopePasskey,
 	"POST /auth/passkey/login/finish":       scopePasskey,
 	"POST /auth/passkey/signup/begin":       scopePasskeySignup,

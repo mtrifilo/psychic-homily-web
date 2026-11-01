@@ -4,9 +4,10 @@ import type { ApiError } from '@/lib/api'
  * The sentence every password-confirming surface opens its throttle line with.
  *
  * It is one exported value rather than a per-surface string because one budget
- * meters every surface that uses this formatter: a person can be refused here
- * by traffic they sent somewhere else, so a sentence naming the surface it
- * appears on would name the wrong cause. A complete sentence, terminal
+ * meters the password-confirming surfaces: a person can be refused on one by
+ * traffic they sent to another, so a sentence naming the surface it appears on
+ * would name the wrong cause. Set a password meters on a counter of its own
+ * and uses the same sentence, which names no surface. A complete sentence, terminal
  * punctuation included and no trailing space, since the formatter appends a
  * second sentence after it.
  */
