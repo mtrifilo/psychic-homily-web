@@ -17,7 +17,7 @@ import (
 var ErrSessionRevoked = errors.New("session predates the account's latest session revocation")
 
 // ErrSessionAccountClosed is the cause inside the CodeAccountInactive refusal
-// LockSessionAccount gives a session whose account may no longer sign in.
+// CheckSessionAccount gives a session whose account may no longer sign in.
 var ErrSessionAccountClosed = errors.New("the session's account may no longer sign in")
 
 // LockSessionAccount reads, through tx, the account a signed-in request acts
@@ -36,10 +36,10 @@ var ErrSessionAccountClosed = errors.New("the session's account may no longer si
 //
 // It judges the locked read with CheckSessionAccount and gives its refusals.
 // Every session revocation writes a new value, so a session revoked after its
-// validation is refused here. Under the lock, a deactivation, deletion or revocation that
-// committed before the read is seen by it, and one that comes later waits for
-// tx, so none can land between this check and the caller's write. A missing
-// account is an error, not a refusal.
+// validation is refused here. Under the lock, a deactivation, deletion or
+// revocation that committed before the read is seen by it, and one that comes
+// later waits for tx, so none can land between this check and the caller's
+// write. A missing account is an error, not a refusal.
 func LockSessionAccount(tx *gorm.DB, userID uint, sessionsValidAfter *time.Time) error {
 	var account authm.User
 	if err := tx.Clauses(clause.Locking{Strength: "SHARE"}).First(&account, userID).Error; err != nil {

@@ -588,8 +588,9 @@ func (h *AuthHandler) RefreshTokenHandler(ctx context.Context, input *struct{}) 
 		resp.Body.ErrorCode = autherrors.CodeServiceUnavailable
 		return resp, svcErr
 	}
-	// A closed account or a moved stamp gets the 401 TOKEN_INVALID session
-	// validation gives such a session.
+	// A closed account or a moved stamp gets the code and message session
+	// validation gives such a session (401 TOKEN_INVALID), and the auth cookie
+	// is cleared, as HumaJWTMiddleware clears it.
 	if err := servicesshared.CheckSessionAccount(current, contextUser.SessionsValidAfter); err != nil {
 		return nil, middleware.RefuseSession(ctx, "refresh_token", err, h.config.Session)
 	}

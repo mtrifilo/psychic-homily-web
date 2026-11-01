@@ -175,7 +175,8 @@ func (e *SessionRefusedError) Error() string { return e.Message }
 // GetStatus satisfies huma.StatusError, so huma writes this value as the body.
 func (e *SessionRefusedError) GetStatus() int { return http.StatusUnauthorized }
 
-// RefuseSession is the answer of a JSON credential mint whose write found the
+// RefuseSession is the answer of a JSON credential mint (a write, or the
+// session refresh) whose read of the account, locked or not, found the
 // request's session revoked after this middleware validated it
 // (shared.ErrSessionRevoked): the answer HumaJWTMiddleware gives that session
 // on its next request, a 401 TOKEN_INVALID that also clears the auth cookie

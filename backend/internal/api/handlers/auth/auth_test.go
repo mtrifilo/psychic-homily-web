@@ -1886,17 +1886,18 @@ func TestRefreshTokenHandler_Success(t *testing.T) {
 }
 
 // The renewal is minted from the user session validation loaded, not from the
-// handler's re-read, even when the re-read agrees with it.
+// handler's re-read: a re-read that passes the account check but differs in a
+// field the mint writes into the token (the email) does not reach the mint.
 func TestRefreshTokenHandler_MintsFromTheValidatedUser(t *testing.T) {
 	revokedAt := time.Now().Add(-time.Hour).UTC().Truncate(time.Second)
-	validated := &authm.User{ID: 1, IsActive: true, SessionsValidAfter: &revokedAt}
 	sameInstant := revokedAt
+	validated := &authm.User{ID: 1, IsActive: true, Email: strPtr("validated@example.com"), SessionsValidAfter: &revokedAt}
 
 	var minted *authm.User
 	h := authHandler(func(ah *AuthHandler) {
 		ah.authService = &testhelpers.MockAuthService{
 			GetUserProfileFn: func(userID uint) (*authm.User, error) {
-				return &authm.User{ID: userID, IsActive: true, SessionsValidAfter: &sameInstant}, nil
+				return &authm.User{ID: userID, IsActive: true, Email: strPtr("re-read@example.com"), SessionsValidAfter: &sameInstant}, nil
 			},
 			RefreshUserTokenFn: func(user *authm.User, authAt time.Time) (string, error) {
 				minted = user
@@ -1909,8 +1910,11 @@ func TestRefreshTokenHandler_MintsFromTheValidatedUser(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if minted != validated {
-		t.Errorf("minted from %+v, want the validated user", minted)
+	if minted == nil || minted.Email == nil || *minted.Email != "validated@example.com" {
+		t.Errorf("minted from %+v, want the validated user's fields", minted)
+	}
+	if minted != nil && (minted.SessionsValidAfter == nil || !minted.SessionsValidAfter.Equal(revokedAt)) {
+		t.Errorf("minted with stamp %v, want the validated %v", minted.SessionsValidAfter, revokedAt)
 	}
 	if resp.Body.Token != "new-token" {
 		t.Errorf("expected token=new-token, got %s", resp.Body.Token)

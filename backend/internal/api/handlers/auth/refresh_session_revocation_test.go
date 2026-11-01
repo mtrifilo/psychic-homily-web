@@ -18,9 +18,10 @@ import (
 )
 
 // POST /auth/refresh renews only the session its validation honored: a
-// revocation or closure that commits after the lenient middleware read the
-// account is refused with the answer validation gives that session, and the
-// renewal never carries the account's newer revocation stamp.
+// revocation or closure that commits between the lenient middleware's read and
+// the handler's re-read is refused with validation's code and message, and a
+// revocation that commits after the re-read leaves the renewal refused on
+// first use.
 
 // refreshSeamAuthService is the real auth service with hooks at the refresh
 // handler's two calls: beforeReRead runs after the middleware validated the
@@ -110,9 +111,11 @@ func (s *AuthHandlerIntegrationSuite) assertRefusedAsValidationRefuses(w *httpte
 	}
 }
 
-// The mailbox proof's revocation commits after the middleware validated the
-// session and before the handler re-reads the account. The refresh mints
-// nothing and answers what the middleware answers that session next.
+// A session revocation commits after the middleware validated the session and
+// before the handler re-reads the account. The refresh mints nothing and
+// answers with the code and message the middleware gives that session next
+// (the handler's refusal also clears the auth cookie; the lenient
+// middleware's does not).
 func (s *AuthHandlerIntegrationSuite) TestRefresh_RevocationBetweenValidationAndReReadIsRefused() {
 	user := s.createUserWithPassword("refresh-straddles-revocation@test.com", "strong-password-123!")
 	session := s.sessionFor(user)
@@ -169,8 +172,9 @@ func (s *AuthHandlerIntegrationSuite) TestRefresh_SessionAfterARevocationRenewsW
 }
 
 // A revocation that commits after the re-read, while the token is being
-// minted, is not carried forward either: the renewal names the stamp the
-// session was validated against, and validation refuses it on first use.
+// minted, is not carried into the renewal: validation refuses the renewal on
+// first use. This characterizes the window the re-read cannot close; which
+// row the mint uses is pinned by TestRefreshTokenHandler_MintsFromTheValidatedUser.
 func (s *AuthHandlerIntegrationSuite) TestRefresh_RevocationDuringTheMintLeavesTheRenewalRevoked() {
 	user := s.createUserWithPassword("refresh-mint-straddles-revocation@test.com", "strong-password-123!")
 	session := s.sessionFor(user)
