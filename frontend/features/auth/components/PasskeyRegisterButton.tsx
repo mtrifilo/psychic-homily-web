@@ -2,7 +2,6 @@
 
 import { useState, type ComponentProps } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
-import * as Sentry from '@sentry/nextjs'
 import { startRegistration } from '@simplewebauthn/browser'
 import { Fingerprint, Loader2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -18,6 +17,7 @@ import {
   DialogTrigger,
 } from '@/components/ui/dialog'
 import { useWebAuthnSupport } from '@/features/auth/hooks/useWebAuthnSupport'
+import { reportPasskeyFailure } from '@/features/auth/passkeyFailureReport'
 import { registrationOptionsFrom } from '@/features/auth/passkeyOptions'
 import {
   AuthError,
@@ -150,24 +150,17 @@ export function PasskeyRegisterButton({
       void refetchSignedInProfile(queryClient)
       onSuccess?.()
     } catch (error) {
-      // The viewer cancelled the passkey prompt: nothing to report.
+      reportPasskeyFailure(error, 'registration_failed')
+      // The viewer cancelled the passkey prompt: nothing to show.
       if (isNotAllowedError(error)) {
         return
       }
       if (error instanceof Error) {
-        Sentry.captureException(error, {
-          level: 'error',
-          tags: { service: 'passkey-auth', error_type: 'registration_failed' },
-        })
         // The remedy for this refusal is a link the caller renders on its own
         // surface, which the open dialog would cover.
         if (isReauthRequired(error)) setIsOpen(false)
         onError?.(error)
       } else {
-        Sentry.captureException(error, {
-          level: 'error',
-          tags: { service: 'passkey-auth', error_type: 'registration_failed' },
-        })
         onError?.(new Error('An unexpected error occurred'))
       }
     } finally {

@@ -5,6 +5,7 @@ import { renderWithProviders } from '@/test/utils'
 import { PasskeyRegisterButton } from './PasskeyRegisterButton'
 import { AuthError, AuthErrorCode } from '@/lib/errors'
 import { startRegistration } from '@simplewebauthn/browser'
+import * as Sentry from '@sentry/nextjs'
 
 // This button is the one gated surface that does not go through apiRequest: it
 // drives the WebAuthn ceremony with raw fetch and translates the response body
@@ -22,7 +23,7 @@ vi.mock('@simplewebauthn/browser', () => ({
   })),
 }))
 
-vi.mock('@sentry/nextjs', () => ({ captureException: vi.fn() }))
+vi.mock('@sentry/nextjs', () => ({ captureException: vi.fn(), addBreadcrumb: vi.fn() }))
 
 const mockRefetchSignedInProfile = vi.fn()
 vi.mock('@/lib/queryClient', async importOriginal => ({
@@ -142,6 +143,48 @@ describe('PasskeyRegisterButton', () => {
     expect((reported as AuthError).code).toBe(AuthErrorCode.REAUTH_REQUIRED)
   })
 
+  // The card answers this refusal with its sign-in-again link, so it must not
+  // reach Sentry as an application error.
+  it('records the re-authentication refusal as one breadcrumb and no exception', async () => {
+    global.fetch = vi
+      .fn()
+      .mockResolvedValue(jsonResponse(REAUTH_REFUSAL)) as unknown as typeof fetch
+    const onError = vi.fn()
+
+    renderWithProviders(<PasskeyRegisterButton onError={onError} />)
+    await openAndSubmit()
+
+    await waitFor(() => expect(onError).toHaveBeenCalled())
+    expect(Sentry.captureException).not.toHaveBeenCalled()
+    expect(Sentry.addBreadcrumb).toHaveBeenCalledTimes(1)
+    expect(Sentry.addBreadcrumb).toHaveBeenCalledWith({
+      category: 'passkey',
+      level: 'info',
+      message: 'Expected passkey refusal',
+      data: { code: AuthErrorCode.REAUTH_REQUIRED, error_type: 'registration_failed' },
+    })
+  })
+
+  it('records the viewer cancelling the prompt as a breadcrumb and calls nothing back', async () => {
+    global.fetch = vi
+      .fn()
+      .mockResolvedValueOnce(jsonResponse(BEGIN_OK)) as unknown as typeof fetch
+    vi.mocked(startRegistration).mockRejectedValueOnce(
+      new DOMException('The operation either timed out or was not allowed.', 'NotAllowedError')
+    )
+    const onError = vi.fn()
+
+    renderWithProviders(<PasskeyRegisterButton onError={onError} />)
+    await openAndSubmit()
+
+    await waitFor(() => expect(Sentry.addBreadcrumb).toHaveBeenCalledTimes(1))
+    expect(vi.mocked(Sentry.addBreadcrumb).mock.lastCall?.[0]).toMatchObject({
+      data: { code: 'NotAllowedError' },
+    })
+    expect(Sentry.captureException).not.toHaveBeenCalled()
+    expect(onError).not.toHaveBeenCalled()
+  })
+
   // The envelope the backend writes for a failure: a 503 whose body says so.
   it('reports a 503 from finish with its code and leaves the dialog usable', async () => {
     global.fetch = vi
@@ -169,6 +212,12 @@ describe('PasskeyRegisterButton', () => {
     expect((reported as AuthError).code).toBe(AuthErrorCode.SERVICE_UNAVAILABLE)
     expect((reported as AuthError).message).toBe('Service temporarily unavailable')
     expect(onSuccess).not.toHaveBeenCalled()
+    expect(Sentry.addBreadcrumb).not.toHaveBeenCalled()
+    expect(Sentry.captureException).toHaveBeenCalledTimes(1)
+    expect(Sentry.captureException).toHaveBeenCalledWith(reported, {
+      level: 'error',
+      tags: { service: 'passkey-auth', error_type: 'registration_failed' },
+    })
     await waitFor(() =>
       expect(screen.getByRole('button', { name: /Register passkey/i })).toBeEnabled()
     )
