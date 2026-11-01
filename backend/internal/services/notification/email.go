@@ -1,6 +1,7 @@
 package notification
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"strings"
@@ -90,7 +91,12 @@ type outboundEmail struct {
 // unbypassable: a sender cannot reach the transport without passing through
 // here. It is also where the not-configured precondition lives, so a sender
 // that forgets it gets an error rather than a nil client.
-func (s *EmailService) send(msg outboundEmail) error {
+//
+// A provider error is reported to Sentry on the hub ctx carries, or on a clone
+// of the current hub when it carries none, so the report never shares a
+// scope with another goroutine's. ctx is read for that hub only: the call to
+// Resend is bounded by sendTimeout, not by ctx.
+func (s *EmailService) send(ctx context.Context, msg outboundEmail) error {
 	if !s.IsConfigured() {
 		return fmt.Errorf("email service is not configured")
 	}
@@ -106,10 +112,14 @@ func (s *EmailService) send(msg outboundEmail) error {
 	}
 
 	if _, err := s.client.Emails.Send(params); err != nil {
-		sentry.WithScope(func(scope *sentry.Scope) {
+		hub := sentry.GetHubFromContext(ctx)
+		if hub == nil {
+			hub = sentry.CurrentHub().Clone()
+		}
+		hub.WithScope(func(scope *sentry.Scope) {
 			scope.SetTag("service", "email")
 			scope.SetTag("email_type", msg.kind)
-			sentry.CaptureException(err)
+			hub.CaptureException(err)
 		})
 		return fmt.Errorf("failed to send %s email: %w", strings.ReplaceAll(msg.kind, "_", " "), err)
 	}
@@ -119,9 +129,15 @@ func (s *EmailService) send(msg outboundEmail) error {
 
 // SendVerificationEmail sends an email verification link to the user
 func (s *EmailService) SendVerificationEmail(toEmail, token string) error {
+	return s.SendVerificationEmailContext(context.Background(), toEmail, token)
+}
+
+// SendVerificationEmailContext is SendVerificationEmail reporting a provider
+// error on the Sentry hub ctx carries (send).
+func (s *EmailService) SendVerificationEmailContext(ctx context.Context, toEmail, token string) error {
 	verifyURL := fmt.Sprintf("%s/verify-email?token=%s", s.frontendURL, token)
 
-	return s.send(outboundEmail{
+	return s.send(ctx, outboundEmail{
 		kind:    "verification",
 		to:      toEmail,
 		subject: "Verify your email",
@@ -161,6 +177,12 @@ func verificationEmailHTML(verifyURL string) string {
 
 // SendMagicLinkEmail sends a magic link login email to the user
 func (s *EmailService) SendMagicLinkEmail(toEmail, token string) error {
+	return s.SendMagicLinkEmailContext(context.Background(), toEmail, token)
+}
+
+// SendMagicLinkEmailContext is SendMagicLinkEmail reporting a provider error
+// on the Sentry hub ctx carries (send).
+func (s *EmailService) SendMagicLinkEmailContext(ctx context.Context, toEmail, token string) error {
 	magicLinkURL := fmt.Sprintf("%s/auth/magic-link?token=%s", s.frontendURL, token)
 
 	html, err := renderEmailTemplate(magicLinkEmailTemplate, magicLinkEmailData{
@@ -170,7 +192,7 @@ func (s *EmailService) SendMagicLinkEmail(toEmail, token string) error {
 		return err
 	}
 
-	return s.send(outboundEmail{
+	return s.send(ctx, outboundEmail{
 		kind:    "magic_link",
 		to:      toEmail,
 		subject: "Sign in to Psychic Homily",
@@ -180,6 +202,12 @@ func (s *EmailService) SendMagicLinkEmail(toEmail, token string) error {
 
 // SendAccountRecoveryEmail sends an account recovery link to the user
 func (s *EmailService) SendAccountRecoveryEmail(toEmail, token string, daysRemaining int) error {
+	return s.SendAccountRecoveryEmailContext(context.Background(), toEmail, token, daysRemaining)
+}
+
+// SendAccountRecoveryEmailContext is SendAccountRecoveryEmail reporting a
+// provider error on the Sentry hub ctx carries (send).
+func (s *EmailService) SendAccountRecoveryEmailContext(ctx context.Context, toEmail, token string, daysRemaining int) error {
 	recoveryURL := fmt.Sprintf("%s/auth/recover?token=%s", s.frontendURL, token)
 
 	html, err := renderEmailTemplate(accountRecoveryEmailTemplate, accountRecoveryEmailData{
@@ -190,7 +218,7 @@ func (s *EmailService) SendAccountRecoveryEmail(toEmail, token string, daysRemai
 		return err
 	}
 
-	return s.send(outboundEmail{
+	return s.send(ctx, outboundEmail{
 		kind:    "account_recovery",
 		to:      toEmail,
 		subject: "Recover your Psychic Homily account",
@@ -230,7 +258,7 @@ func (s *EmailService) SendShowReminderEmail(toEmail, showTitle, showURL, unsubs
 		return err
 	}
 
-	return s.send(outboundEmail{
+	return s.send(context.Background(), outboundEmail{
 		kind:           "show_reminder",
 		to:             toEmail,
 		subject:        fmt.Sprintf("Reminder: %s is tomorrow", entityNameForSubject(showTitle)),
@@ -242,7 +270,7 @@ func (s *EmailService) SendShowReminderEmail(toEmail, showTitle, showURL, unsubs
 // SendFilterNotificationEmail sends a notification email for a matched filter.
 // The caller builds the HTML body; this method just sends it with proper headers.
 func (s *EmailService) SendFilterNotificationEmail(toEmail, subject, htmlBody, unsubscribeURL string) error {
-	return s.send(outboundEmail{
+	return s.send(context.Background(), outboundEmail{
 		kind:           "filter_notification",
 		to:             toEmail,
 		subject:        subject,
@@ -315,7 +343,7 @@ func (s *EmailService) SendTierPromotionEmail(toEmail, username, oldTier, newTie
 		return err
 	}
 
-	return s.send(outboundEmail{
+	return s.send(context.Background(), outboundEmail{
 		kind:           "tier_promotion",
 		to:             toEmail,
 		subject:        fmt.Sprintf("You've been promoted to %s!", displayName),
@@ -346,7 +374,7 @@ func (s *EmailService) SendTierDemotionEmail(toEmail, username, oldTier, newTier
 		return err
 	}
 
-	return s.send(outboundEmail{
+	return s.send(context.Background(), outboundEmail{
 		kind:           "tier_demotion",
 		to:             toEmail,
 		subject:        "Your contributor tier has changed",
@@ -376,7 +404,7 @@ func (s *EmailService) SendTierDemotionWarningEmail(toEmail, username, currentTi
 		return err
 	}
 
-	return s.send(outboundEmail{
+	return s.send(context.Background(), outboundEmail{
 		kind:           "tier_demotion_warning",
 		to:             toEmail,
 		subject:        "Your contributor status is at risk",
@@ -408,7 +436,7 @@ func (s *EmailService) SendEditApprovedEmail(toEmail, username, entityType, enti
 		return err
 	}
 
-	return s.send(outboundEmail{
+	return s.send(context.Background(), outboundEmail{
 		kind:           "edit_approved",
 		to:             toEmail,
 		subject:        fmt.Sprintf("Your edit to %s was approved!", entityNameForSubject(entityName)),
@@ -448,7 +476,7 @@ func (s *EmailService) SendCommentNotification(toEmail, commenterName, entityTyp
 		return err
 	}
 
-	return s.send(outboundEmail{
+	return s.send(context.Background(), outboundEmail{
 		kind:           "comment_notification",
 		to:             toEmail,
 		subject:        subject,
@@ -479,7 +507,7 @@ func (s *EmailService) SendMentionNotification(toEmail, mentionerName, entityTyp
 		return err
 	}
 
-	return s.send(outboundEmail{
+	return s.send(context.Background(), outboundEmail{
 		kind:           "mention_notification",
 		to:             toEmail,
 		subject:        subject,
@@ -534,7 +562,7 @@ func (s *EmailService) SendCollectionDigestEmail(toEmail string, groups []contra
 		return err
 	}
 
-	return s.send(outboundEmail{
+	return s.send(context.Background(), outboundEmail{
 		kind:           "collection_digest",
 		to:             toEmail,
 		subject:        subject,
@@ -587,7 +615,7 @@ func (s *EmailService) SendSceneDigestEmail(toEmail string, groups []contracts.S
 		return err
 	}
 
-	return s.send(outboundEmail{
+	return s.send(context.Background(), outboundEmail{
 		kind:           "scene_digest",
 		to:             toEmail,
 		subject:        subject,
@@ -634,7 +662,7 @@ func (s *EmailService) SendEditRejectedEmail(toEmail, username, entityType, enti
 		return err
 	}
 
-	return s.send(outboundEmail{
+	return s.send(context.Background(), outboundEmail{
 		kind:           "edit_rejected",
 		to:             toEmail,
 		subject:        fmt.Sprintf("Update on your edit to %s", entityNameForSubject(entityName)),
