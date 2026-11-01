@@ -76,8 +76,8 @@ func TestBeginRegisterHandler_Success(t *testing.T) {
 			return &protocol.CredentialCreation{}, &webauthn.SessionData{}, nil
 		},
 		StoreChallengeFn: func(userID uint, session *webauthn.SessionData, operation string) (string, error) {
-			if operation != "registration" {
-				t.Errorf("expected operation 'registration', got '%s'", operation)
+			if operation != contracts.WebAuthnRegistrationOperation {
+				t.Errorf("expected operation %q, got %q", contracts.WebAuthnRegistrationOperation, operation)
 			}
 			return "test-challenge-id", nil
 		},
@@ -248,12 +248,17 @@ func TestFinishRegisterHandler_MalformedCredentialResponse(t *testing.T) {
 // BeginLoginHandler
 // ============================================================================
 
+// login/begin stores the session BeginDiscoverableLogin returned through
+// StoreLoginChallenge and answers with the id it issued.
 func TestBeginLoginHandler_Discoverable_Success(t *testing.T) {
+	begun := &webauthn.SessionData{Challenge: "begun"}
+	var storedSession *webauthn.SessionData
 	mockWA := &testhelpers.MockWebAuthnService{
 		BeginDiscoverableLoginFn: func() (*protocol.CredentialAssertion, *webauthn.SessionData, error) {
-			return &protocol.CredentialAssertion{}, &webauthn.SessionData{}, nil
+			return &protocol.CredentialAssertion{}, begun, nil
 		},
 		StoreLoginChallengeFn: func(session *webauthn.SessionData) (string, error) {
+			storedSession = session
 			return "discoverable-challenge-id", nil
 		},
 	}
@@ -271,59 +276,8 @@ func TestBeginLoginHandler_Discoverable_Success(t *testing.T) {
 	if resp.Body.ChallengeID != "discoverable-challenge-id" {
 		t.Errorf("expected 'discoverable-challenge-id', got '%s'", resp.Body.ChallengeID)
 	}
-}
-
-// login/begin stores the ceremony's session through StoreLoginChallenge and
-// login/finish spends the challenge id it was handed through
-// ConsumeLoginChallenge; neither reaches the operation-generic challenge
-// methods.
-func TestLoginHandlers_UseLoginChallengeMethods(t *testing.T) {
-	_, device := softRegistration(t)
-	begun := &webauthn.SessionData{Challenge: "begun"}
-	var storedSession *webauthn.SessionData
-	var consumedID string
-	mockWA := &testhelpers.MockWebAuthnService{
-		BeginDiscoverableLoginFn: func() (*protocol.CredentialAssertion, *webauthn.SessionData, error) {
-			return &protocol.CredentialAssertion{}, begun, nil
-		},
-		StoreLoginChallengeFn: func(session *webauthn.SessionData) (string, error) {
-			storedSession = session
-			return "login-challenge", nil
-		},
-		ConsumeLoginChallengeFn: func(challengeID string) (*webauthn.SessionData, error) {
-			consumedID = challengeID
-			return &webauthn.SessionData{}, nil
-		},
-		StoreChallengeFn: func(uint, *webauthn.SessionData, string) (string, error) {
-			t.Error("login/begin stored its challenge through StoreChallenge")
-			return "", nil
-		},
-		ConsumeChallengeFn: func(string, string) (*webauthn.SessionData, error) {
-			t.Error("login/finish consumed its challenge through ConsumeChallenge")
-			return nil, nil
-		},
-		FinishDiscoverableLoginFn: func(*webauthn.SessionData, *protocol.ParsedCredentialAssertionData) (*authm.User, *authm.WebAuthnCredential, error) {
-			return nil, nil, autherrors.NewAuthError(autherrors.CodeInvalidCredentials, "Invalid passkey", fmt.Errorf("validate discoverable login"))
-		},
-	}
-	h := testPasskeyHandlerWithMocks(mockWA, &testhelpers.MockJWTService{}, &testhelpers.MockUserService{})
-
-	begin, err := h.BeginLoginHandler(context.Background(), &BeginLoginRequest{})
-	if err != nil {
-		t.Fatalf("begin: unexpected error: %v", err)
-	}
 	if storedSession != begun {
 		t.Errorf("stored session = %v, want the session BeginDiscoverableLogin returned", storedSession)
-	}
-
-	input := &FinishLoginRequest{}
-	input.Body.ChallengeID = begin.Body.ChallengeID
-	input.Body.Response = softAssertion(t, device)
-	if _, err := h.FinishLoginHandler(context.Background(), input); err != nil {
-		t.Fatalf("finish: unexpected error: %v", err)
-	}
-	if consumedID != "login-challenge" {
-		t.Errorf("consumed challenge id = %q, want %q", consumedID, "login-challenge")
 	}
 }
 
@@ -331,9 +285,13 @@ func TestLoginHandlers_UseLoginChallengeMethods(t *testing.T) {
 // FinishLoginHandler
 // ============================================================================
 
+// login/finish spends the request's challenge id through
+// ConsumeLoginChallenge and answers its refusal.
 func TestFinishLoginHandler_InvalidChallenge(t *testing.T) {
+	var consumedID string
 	mockWA := &testhelpers.MockWebAuthnService{
 		ConsumeLoginChallengeFn: func(challengeID string) (*webauthn.SessionData, error) {
+			consumedID = challengeID
 			return nil, autherrors.NewAuthError(autherrors.CodeValidationFailed, "Invalid or expired challenge", fmt.Errorf("challenge expired"))
 		},
 	}
@@ -354,6 +312,9 @@ func TestFinishLoginHandler_InvalidChallenge(t *testing.T) {
 	}
 	if resp.Body.Message != "Invalid or expired challenge" {
 		t.Errorf("expected 'Invalid or expired challenge', got '%s'", resp.Body.Message)
+	}
+	if consumedID != "expired-challenge" {
+		t.Errorf("consumed challenge id = %q, want %q", consumedID, "expired-challenge")
 	}
 }
 
@@ -907,8 +868,8 @@ func TestBeginSignupHandler_Success(t *testing.T) {
 			return &protocol.CredentialCreation{}, &webauthn.SessionData{}, nil
 		},
 		StoreSignupChallengeFn: func(signup contracts.SignupChallenge, session *webauthn.SessionData, operation string) (string, error) {
-			if operation != "signup" {
-				t.Errorf("expected operation 'signup', got '%s'", operation)
+			if operation != contracts.WebAuthnSignupOperation {
+				t.Errorf("expected operation %q, got %q", contracts.WebAuthnSignupOperation, operation)
 			}
 			return "signup-challenge-id", nil
 		},

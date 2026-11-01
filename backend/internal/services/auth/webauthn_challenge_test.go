@@ -70,12 +70,12 @@ func (suite *WebAuthnServiceIntegrationTestSuite) TestConcurrentFinishesConsumeA
 func (suite *WebAuthnServiceIntegrationTestSuite) TestConcurrentSignupFinishesConsumeAChallengeOnce() {
 	for range raceRounds {
 		challengeID, err := suite.service.StoreSignupChallenge(
-			contracts.SignupChallenge{Email: "race@test.com"}, &webauthn.SessionData{Challenge: "race"}, "signup",
+			contracts.SignupChallenge{Email: "race@test.com"}, &webauthn.SessionData{Challenge: "race"}, contracts.WebAuthnSignupOperation,
 		)
 		suite.Require().NoError(err)
 
 		suite.requireOneWinner(raceConsume(func() error {
-			_, _, err := suite.service.ConsumeSignupChallenge(challengeID, "signup")
+			_, _, err := suite.service.ConsumeSignupChallenge(challengeID, contracts.WebAuthnSignupOperation)
 			return err
 		}))
 	}

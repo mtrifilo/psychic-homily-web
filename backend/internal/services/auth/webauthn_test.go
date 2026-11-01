@@ -275,7 +275,7 @@ func (suite *WebAuthnServiceIntegrationTestSuite) TestStoreChallenge_Success() {
 		UserVerification: protocol.VerificationPreferred,
 	}
 
-	challengeID, err := suite.service.StoreChallenge(user.ID, session, "registration")
+	challengeID, err := suite.service.StoreChallenge(user.ID, session, contracts.WebAuthnRegistrationOperation)
 	suite.Require().NoError(err)
 	suite.NotEmpty(challengeID)
 }
@@ -309,13 +309,13 @@ func (suite *WebAuthnServiceIntegrationTestSuite) TestConsumeChallenge_WrongOper
 		UserID:    []byte("user-id"),
 	}
 
-	challengeID, err := suite.service.StoreChallenge(user.ID, session, "registration")
+	challengeID, err := suite.service.StoreChallenge(user.ID, session, contracts.WebAuthnRegistrationOperation)
 	suite.Require().NoError(err)
 
 	_, err = suite.service.ConsumeChallenge(challengeID, contracts.WebAuthnAuthenticationOperation)
 	suite.Require().Error(err)
 	suite.Contains(err.Error(), "challenge not found")
-	_, _, err = suite.service.ConsumeSignupChallenge(challengeID, "signup")
+	_, _, err = suite.service.ConsumeSignupChallenge(challengeID, contracts.WebAuthnSignupOperation)
 	suite.Require().Error(err)
 
 	// A request under another operation neither receives nor spends it.
@@ -327,10 +327,10 @@ func (suite *WebAuthnServiceIntegrationTestSuite) TestConsumeChallenge_WrongOper
 // which checks the user; the generic consume neither returns nor spends one.
 func (suite *WebAuthnServiceIntegrationTestSuite) TestConsumeChallenge_RefusesRegistration() {
 	user := suite.createUser("user@test.com")
-	challengeID, err := suite.service.StoreChallenge(user.ID, &webauthn.SessionData{Challenge: "c"}, "registration")
+	challengeID, err := suite.service.StoreChallenge(user.ID, &webauthn.SessionData{Challenge: "c"}, contracts.WebAuthnRegistrationOperation)
 	suite.Require().NoError(err)
 
-	_, err = suite.service.ConsumeChallenge(challengeID, "registration")
+	_, err = suite.service.ConsumeChallenge(challengeID, contracts.WebAuthnRegistrationOperation)
 	suite.Require().Error(err)
 	suite.Equal(int64(1), suite.challengeRows(challengeID))
 }
@@ -363,7 +363,7 @@ func (suite *WebAuthnServiceIntegrationTestSuite) TestDeleteExpiredChallenges_Su
 		Challenge: "active-challenge",
 		UserID:    []byte("user-id"),
 	}
-	activeID, err := suite.service.StoreChallenge(user.ID, activeSession, "registration")
+	activeID, err := suite.service.StoreChallenge(user.ID, activeSession, contracts.WebAuthnRegistrationOperation)
 	suite.Require().NoError(err)
 
 	// Create an expired challenge
@@ -535,12 +535,12 @@ func (suite *WebAuthnServiceIntegrationTestSuite) TestConsumeSignupChallenge_Wit
 		ID:          uuid.New().String(),
 		Challenge:   []byte("c"),
 		SessionData: []byte(`{"email":"bare@test.com","session":{"challenge":"c"}}`),
-		Operation:   "signup",
+		Operation:   contracts.WebAuthnSignupOperation,
 		ExpiresAt:   time.Now().Add(time.Minute),
 	}
 	suite.Require().NoError(suite.db.Create(&challenge).Error)
 
-	_, signup, err := suite.service.ConsumeSignupChallenge(challenge.ID, "signup")
+	_, signup, err := suite.service.ConsumeSignupChallenge(challenge.ID, contracts.WebAuthnSignupOperation)
 	suite.Require().NoError(err)
 	suite.Equal("bare@test.com", signup.Email)
 	suite.Equal(contracts.LegalAcceptance{}, signup.Acceptance)
