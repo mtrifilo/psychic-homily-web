@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/danielgtaylor/huma/v2"
@@ -368,4 +369,73 @@ func TestHumaRequestIDMiddleware_SecondPassKeepsTheID(t *testing.T) {
 	if got := rr.Header().Get(RequestIDHeader); got != firstID {
 		t.Errorf("response header = %q, want the first pass's id %q", got, firstID)
 	}
+}
+
+// --- Inbound X-Request-ID bound ---
+
+// An inbound id is kept only when it is 1 to 128 characters of ASCII letters,
+// digits, '.', '_' and '-'; any other inbound value is replaced by a minted
+// UUID. Both entry points apply the same rule, and the response header and the
+// context id carry the same id either way.
+func TestInboundRequestIDBound(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		inbound string
+		kept    bool
+	}{
+		{name: "uuid kept", inbound: "2f1e4c4a-9d55-4f3e-8a43-7f3c1f9b0c11", kept: true},
+		{name: "letters digits dot underscore hyphen kept", inbound: "client.Req_42-a", kept: true},
+		{name: "128 characters kept", inbound: strings.Repeat("a", maxInboundRequestIDLength), kept: true},
+		{name: "129 characters replaced", inbound: strings.Repeat("a", maxInboundRequestIDLength+1)},
+		{name: "1000 characters replaced", inbound: strings.Repeat("b", 1000)},
+		{name: "space replaced", inbound: "client request"},
+		{name: "tab replaced", inbound: "client\trequest"},
+		{name: "slash replaced", inbound: "client/request"},
+		{name: "quote replaced", inbound: `client"request`},
+		{name: "non-ascii replaced", inbound: "clïent-request"},
+	} {
+		for _, path := range []struct {
+			name  string
+			serve func(req *http.Request) (contextID, headerID string)
+		}{
+			{name: "chi", serve: serveChiRequestID},
+			{name: "huma", serve: serveHumaRequestID},
+		} {
+			t.Run(path.name+"/"+tc.name, func(t *testing.T) {
+				req := httptest.NewRequest(http.MethodGet, "/test", nil)
+				req.Header.Set(RequestIDHeader, tc.inbound)
+
+				contextID, headerID := path.serve(req)
+
+				if headerID != contextID {
+					t.Fatalf("response header = %q, context id = %q; they must be one id", headerID, contextID)
+				}
+				if tc.kept {
+					if contextID != tc.inbound {
+						t.Fatalf("id = %q, want the inbound %q kept", contextID, tc.inbound)
+					}
+					return
+				}
+				if _, err := uuid.Parse(contextID); err != nil {
+					t.Fatalf("id = %q, want a minted UUID in place of the inbound %q", contextID, tc.inbound)
+				}
+			})
+		}
+	}
+}
+
+func serveChiRequestID(req *http.Request) (contextID, headerID string) {
+	rr := httptest.NewRecorder()
+	RequestIDMiddleware(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
+		contextID = logger.GetRequestID(r.Context())
+	})).ServeHTTP(rr, req)
+	return contextID, rr.Header().Get(RequestIDHeader)
+}
+
+func serveHumaRequestID(req *http.Request) (contextID, headerID string) {
+	rr := httptest.NewRecorder()
+	HumaRequestIDMiddleware(humatest.NewContext(nil, req, rr), func(next huma.Context) {
+		contextID = logger.GetRequestID(next.Context())
+	})
+	return contextID, rr.Header().Get(RequestIDHeader)
 }
