@@ -1,11 +1,11 @@
 package db
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"net"
 	"runtime"
-	"strings"
 	"testing"
 	"time"
 
@@ -210,7 +210,7 @@ func openPools() int {
 	for {
 		n := runtime.Stack(buf, true)
 		if n < len(buf) {
-			return strings.Count(string(buf[:n]), "database/sql.(*DB).connectionOpener(")
+			return bytes.Count(buf[:n], []byte("database/sql.(*DB).connectionOpener("))
 		}
 		buf = make([]byte, 2*len(buf))
 	}
