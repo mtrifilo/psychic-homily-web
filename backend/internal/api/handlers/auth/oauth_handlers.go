@@ -251,6 +251,11 @@ func (h *OAuthHTTPHandler) OAuthLoginHTTPHandler(w http.ResponseWriter, r *http.
 		// callbackID is the cli_callback_id cookie value: the correlation key
 		// that gates the token-bearing redirect, so it is never logged.
 		logger.AuthDebug(ctx, "oauth_cli_callback_stored", "callback", cliCallback)
+	} else {
+		// A web start clears the CLI id an earlier, abandoned CLI start left
+		// in this browser, so this start's callback signs the browser in
+		// rather than handing its token to that start's loopback.
+		cliCallbackIDCookie.clear(w, r, secureCookie)
 	}
 
 	setOAuthReturnToCookie(w, r, secureCookie)

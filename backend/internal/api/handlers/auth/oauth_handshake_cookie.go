@@ -13,7 +13,8 @@ import (
 const oauthHostCookiePrefix = "__Host-"
 
 // oauthHandshakeCookieMaxLifetime bounds every oauthHandshakeCookie's
-// lifetime, and so how long a browser can hold one a previous deploy set.
+// lifetime to one sign-in: a provider round trip, and the sign-up or
+// collision step after it.
 const oauthHandshakeCookieMaxLifetime = 10 * time.Minute
 
 // oauthHandshakeCookie is a cookie that carries state across an OAuth sign-in:
@@ -21,22 +22,15 @@ const oauthHandshakeCookieMaxLifetime = 10 * time.Minute
 // callback to the sign-up step. It is host-only, script-inaccessible, sent on
 // a top-level navigation back from the provider, and gone after lifetime.
 // Every set and clear goes through newOAuthHandshakeCookie, so each carries
-// the same attributes; the step's routes read the pending cookie through
-// huma cookie parameters rather than read, which is why it never sets
-// rolloverReadsBareName.
+// the same attributes.
 type oauthHandshakeCookie struct {
 	name     string
 	lifetime time.Duration
-	// rolloverReadsBareName is set on a cookie whose value is the state
-	// itself, so one a previous deploy set under the bare name still
-	// completes its handshake. A cookie holding an id into a process-local
-	// store leaves it unset: no id a previous process minted resolves after
-	// the deploy restarts it, and reading the bare name would only admit one
-	// a sibling subdomain planted.
-	rolloverReadsBareName bool
 }
 
-// setName is the name this deployment sets the cookie under.
+// setName is the name this deployment sets the cookie under, and the one name
+// read finds it under. When Secure that is the prefixed name, so a bare copy,
+// which a sibling subdomain can plant, is never read.
 func (c oauthHandshakeCookie) setName(secure bool) string {
 	if secure {
 		return oauthHostCookiePrefix + c.name
@@ -44,22 +38,10 @@ func (c oauthHandshakeCookie) setName(secure bool) string {
 	return c.name
 }
 
-// readNames are the names read finds the cookie under, in order.
-//
-// The bare name after the prefixed one is the rollover read: a browser that
-// started a handshake before the prefix was deployed still carries the bare
-// name for up to oauthHandshakeCookieMaxLifetime. Remove rolloverReadsBareName
-// on or after 2026-10-24, once a production deploy that sets the prefixed
-// names has been live for longer than that.
-func (c oauthHandshakeCookie) readNames(secure bool) []string {
-	if secure && c.rolloverReadsBareName {
-		return c.clearNames(true)
-	}
-	return []string{c.setName(secure)}
-}
-
 // clearNames are the names clear expires the cookie under: when Secure, the
-// bare name a previous deploy set as well as the prefixed one.
+// bare name as well as the prefixed one, so a bare copy this host set expires
+// with the cookie. A bare copy set under a Domain is a different cookie to the
+// browser and survives the clear, unread.
 func (c oauthHandshakeCookie) clearNames(secure bool) []string {
 	if !secure {
 		return []string{c.name}
@@ -71,19 +53,17 @@ func (c oauthHandshakeCookie) set(w http.ResponseWriter, value string, secure bo
 	http.SetCookie(w, newOAuthHandshakeCookie(c.setName(secure), value, int(c.lifetime/time.Second), secure))
 }
 
-// read returns the cookie under the first of readNames the request carries.
+// read returns the cookie under setName, when the request carries it.
 func (c oauthHandshakeCookie) read(r *http.Request, secure bool) (*http.Cookie, bool) {
-	for _, name := range c.readNames(secure) {
-		if cookie, err := r.Cookie(name); err == nil {
-			return cookie, true
-		}
+	cookie, err := r.Cookie(c.setName(secure))
+	if err != nil {
+		return nil, false
 	}
-	return nil, false
+	return cookie, true
 }
 
 // clear expires the cookie under every one of clearNames the request carries
-// it under, so a value under a name read would fall back to cannot outlive
-// the one read.
+// it under.
 func (c oauthHandshakeCookie) clear(w http.ResponseWriter, r *http.Request, secure bool) {
 	for _, name := range c.clearNames(secure) {
 		if _, err := r.Cookie(name); err == nil {

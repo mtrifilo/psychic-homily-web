@@ -29,9 +29,8 @@ const oauthReturnToCookieName = "oauth_return_to"
 const oauthReturnToCookieLifetime = 10 * time.Minute
 
 var oauthReturnToCookie = oauthHandshakeCookie{
-	name:                  oauthReturnToCookieName,
-	lifetime:              oauthReturnToCookieLifetime,
-	rolloverReadsBareName: true,
+	name:     oauthReturnToCookieName,
+	lifetime: oauthReturnToCookieLifetime,
 }
 
 // oauthReturnToFallback is where a sign-in lands when it names no destination
