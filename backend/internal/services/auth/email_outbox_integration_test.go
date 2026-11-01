@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/getsentry/sentry-go"
 	"github.com/stretchr/testify/suite"
 	"gorm.io/gorm"
 
@@ -36,9 +37,12 @@ type recordedSend struct {
 	to            string
 	token         string
 	daysRemaining int
+	// hub is the Sentry hub the send's context carried.
+	hub *sentry.Hub
 }
 
-func (r *recordingSender) record(send recordedSend) error {
+func (r *recordingSender) record(ctx context.Context, send recordedSend) error {
+	send.hub = sentry.GetHubFromContext(ctx)
 	r.mu.Lock()
 	r.sends = append(r.sends, send)
 	onSend, err := r.onSend, r.err
@@ -49,16 +53,30 @@ func (r *recordingSender) record(send recordedSend) error {
 	return err
 }
 
+func (r *recordingSender) SendMagicLinkEmailContext(ctx context.Context, to, token string) error {
+	return r.record(ctx, recordedSend{kind: authm.AuthEmailKindMagicLink, to: to, token: token})
+}
+
+func (r *recordingSender) SendAccountRecoveryEmailContext(ctx context.Context, to, token string, daysRemaining int) error {
+	return r.record(ctx, recordedSend{kind: authm.AuthEmailKindAccountRecovery, to: to, token: token, daysRemaining: daysRemaining})
+}
+
+func (r *recordingSender) SendVerificationEmailContext(ctx context.Context, to, token string) error {
+	return r.record(ctx, recordedSend{kind: authm.AuthEmailKindVerification, to: to, token: token})
+}
+
+// The plain forms make recordingSender an authEmailSender, which
+// NewAuthEmailOutbox takes; the poller calls the context forms above.
 func (r *recordingSender) SendMagicLinkEmail(to, token string) error {
-	return r.record(recordedSend{kind: authm.AuthEmailKindMagicLink, to: to, token: token})
+	return r.SendMagicLinkEmailContext(context.Background(), to, token)
 }
 
 func (r *recordingSender) SendAccountRecoveryEmail(to, token string, daysRemaining int) error {
-	return r.record(recordedSend{kind: authm.AuthEmailKindAccountRecovery, to: to, token: token, daysRemaining: daysRemaining})
+	return r.SendAccountRecoveryEmailContext(context.Background(), to, token, daysRemaining)
 }
 
 func (r *recordingSender) SendVerificationEmail(to, token string) error {
-	return r.record(recordedSend{kind: authm.AuthEmailKindVerification, to: to, token: token})
+	return r.SendVerificationEmailContext(context.Background(), to, token)
 }
 
 func (r *recordingSender) recorded() []recordedSend {
@@ -330,11 +348,8 @@ func (s *AuthEmailOutboxSuite) expiredRow(email string) {
 
 func (s *AuthEmailOutboxSuite) assertSkippedExpired(wantAttempts int) {
 	s.Empty(s.sender.recorded())
-	row := s.onlyRow()
-	s.Equal(authm.AuthEmailStatusSkipped, row.Status)
-	s.Equal(wantAttempts, row.Attempts)
-	s.Require().NotNil(row.LastError)
-	s.Equal(authEmailSkipExpired, *row.LastError)
+	s.assertOnlyRowSkipped(authEmailSkipExpired)
+	s.Equal(wantAttempts, s.onlyRow().Attempts)
 }
 
 func (s *AuthEmailOutboxSuite) TestExpiredRequest_ReapedByHousekeeping() {
@@ -477,19 +492,16 @@ func (s *AuthEmailOutboxSuite) TestAccountDeleted_RowsGoWithIt() {
 	s.Empty(s.rows(), "ON DELETE CASCADE removes the account's queued email")
 }
 
-// TestDeliver_UnknownKindFails covers a kind the CHECK constraint keeps out of
-// the table, so it runs without one.
-func TestDeliver_UnknownKindFails(t *testing.T) {
-	email := "someone@example.com"
-	user := &authm.User{ID: 3, Email: &email, EmailVerified: true, IsActive: true}
-	sender := &recordingSender{}
-	outbox := NewAuthEmailOutbox(nil, newStubUserService(user), nil, sender)
+// A kind the CHECK constraint keeps out of the table, handed to deliver
+// directly, fails rather than being skipped, even for a closed account.
+func (s *AuthEmailOutboxSuite) TestDeliver_UnknownKindFails() {
+	user := s.verifiedUser("someone@example.com")
+	testutil.DeactivateAccount(s.T(), s.db, user.ID)
 
-	reason, err := outbox.deliver(authm.AuthEmailOutboxItem{Kind: "password_reset", UserID: 3})
-	if !errors.Is(err, errUnknownAuthEmailKind) || reason != "" {
-		t.Fatalf("deliver = (%q, %v), want errUnknownAuthEmailKind", reason, err)
-	}
-	if len(sender.recorded()) != 0 {
-		t.Fatal("an unknown kind sends nothing")
-	}
+	reason, err := s.outbox.deliver(context.Background(),
+		authm.AuthEmailOutboxItem{Kind: "password_reset", UserID: user.ID}, time.Now().Add(time.Minute))
+
+	s.ErrorIs(err, errUnknownAuthEmailKind)
+	s.Empty(reason)
+	s.Empty(s.sender.recorded(), "an unknown kind sends nothing")
 }
