@@ -28,12 +28,13 @@ import (
 	"net/url"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/joho/godotenv"
-	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 	gormlogger "gorm.io/gorm/logger"
 
+	"psychic-homily-backend/db"
 	"psychic-homily-backend/internal/config"
 	authm "psychic-homily-backend/internal/models/auth"
 	adminsvc "psychic-homily-backend/internal/services/admin"
@@ -62,7 +63,10 @@ func main() {
 		// We only need the database URL, which has a usable default.
 		cfg = &config.Config{
 			Database: config.DatabaseConfig{
-				URL: config.GetEnv("DATABASE_URL", "postgres://psychicadmin:secretpassword@localhost:5432/psychicdb?sslmode=disable"),
+				URL:             config.GetEnv("DATABASE_URL", "postgres://psychicadmin:secretpassword@localhost:5432/psychicdb?sslmode=disable"),
+				MaxOpenConns:    config.DefaultDBMaxOpenConns,
+				MaxIdleConns:    config.DefaultDBMaxIdleConns,
+				ConnMaxLifetime: config.DefaultDBConnMaxLifetimeMinutes * time.Minute,
 			},
 		}
 	}
@@ -82,23 +86,21 @@ func main() {
 	fmt.Fprintf(os.Stderr, "Target: ENVIRONMENT=%q db=%s local=%t\n",
 		os.Getenv(config.EnvEnvironment), redactDBHost(cfg.Database.URL), local)
 
-	db, err := gorm.Open(postgres.Open(cfg.Database.URL), &gorm.Config{
-		Logger: gormlogger.Default.LogMode(gormlogger.Silent),
-	})
+	database, err := openDatabase(cfg)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Failed to connect to database: %v\n", err)
+		fmt.Fprintf(os.Stderr, "%v\n", err)
 		os.Exit(1)
 	}
 
 	// Resolve user
 	var user authm.User
 	if *email != "" {
-		if err := db.Where(authm.EmailIdentityWhere, *email).First(&user).Error; err != nil {
+		if err := database.Where(authm.EmailIdentityWhere, *email).First(&user).Error; err != nil {
 			fmt.Fprintf(os.Stderr, "User with email %q not found: %v\n", *email, err)
 			os.Exit(1)
 		}
 	} else {
-		if err := db.First(&user, *userID).Error; err != nil {
+		if err := database.First(&user, *userID).Error; err != nil {
 			fmt.Fprintf(os.Stderr, "User with ID %d not found: %v\n", *userID, err)
 			os.Exit(1)
 		}
@@ -138,7 +140,7 @@ func main() {
 
 	// Optionally make admin
 	if *makeAdmin && !user.IsAdmin {
-		if err := db.Model(&user).Update("is_admin", true).Error; err != nil {
+		if err := database.Model(&user).Update("is_admin", true).Error; err != nil {
 			fmt.Fprintf(os.Stderr, "Failed to grant admin: %v\n", err)
 			os.Exit(1)
 		}
@@ -146,7 +148,7 @@ func main() {
 	}
 
 	// Generate token
-	svc := adminsvc.NewAPITokenService(db)
+	svc := adminsvc.NewAPITokenService(database)
 	resp, err := svc.CreateToken(user.ID, desc, *days)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Failed to create token: %v\n", err)
@@ -164,6 +166,16 @@ func main() {
 
 	// Print just the token to stdout (for piping)
 	fmt.Println(resp.Token)
+}
+
+// openDatabase opens the database through db.Connect, which bounds the
+// connect, and returns a handle whose GORM logger is silent: stdout carries
+// only the token, so a SQL log line there would corrupt a piped read of it.
+func openDatabase(cfg *config.Config) (*gorm.DB, error) {
+	if err := db.Connect(cfg); err != nil {
+		return nil, err
+	}
+	return db.GetDB().Session(&gorm.Session{Logger: gormlogger.Default.LogMode(gormlogger.Silent)}), nil
 }
 
 // ensureAccountUsable refuses exactly the accounts User.CanSignIn refuses, the

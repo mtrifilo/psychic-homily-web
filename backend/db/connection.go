@@ -65,17 +65,18 @@ func connectWithin(cfg *config.Config, bound time.Duration) error {
 		},
 	})
 	if err != nil {
+		// gorm.Open closes the pool itself when it fails to initialize.
 		return fmt.Errorf("failed to connect to database: %w", err)
 	}
 
-	if err := applyPoolBounds(gormDB, cfg.Database); err != nil {
-		return err
-	}
-
+	// DB fails only when GORM holds no *sql.DB, so that path has no pool to
+	// close. Every failure after it closes the pool before returning.
 	sqlDB, err := gormDB.DB()
 	if err != nil {
 		return fmt.Errorf("failed to reach the underlying sql.DB: %w", err)
 	}
+	applyPoolBounds(sqlDB, cfg.Database)
+
 	dialBound := effectiveConnectTimeout(dsn)
 	if err := pingWithin(sqlDB, bound, dialBound); err != nil {
 		_ = sqlDB.Close()
@@ -177,16 +178,10 @@ func describeBound(bound time.Duration) string {
 // open a connection per unit of work until the SERVER refuses, which surfaces
 // as "too many connections" on unrelated requests rather than as slowness here.
 // A bounded pool queues instead. The numbers come from internal/config.
-func applyPoolBounds(gormDB *gorm.DB, cfg config.DatabaseConfig) error {
-	sqlDB, err := gormDB.DB()
-	if err != nil {
-		return fmt.Errorf("failed to reach the underlying sql.DB: %w", err)
-	}
-
+func applyPoolBounds(sqlDB *sql.DB, cfg config.DatabaseConfig) {
 	sqlDB.SetMaxOpenConns(cfg.MaxOpenConns)
 	sqlDB.SetMaxIdleConns(cfg.MaxIdleConns)
 	sqlDB.SetConnMaxLifetime(cfg.ConnMaxLifetime)
-	return nil
 }
 
 // newGormLogger is GORM's logger writing to w at Warn, or at Info with color

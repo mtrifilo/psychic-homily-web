@@ -4,11 +4,16 @@ import (
 	"context"
 	"fmt"
 	"net"
+	"runtime"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/stretchr/testify/require"
+	"gorm.io/driver/postgres"
+	"gorm.io/gorm"
+	"gorm.io/gorm/logger"
 
 	"psychic-homily-backend/internal/config"
 	"psychic-homily-backend/internal/testutil"
@@ -156,11 +161,7 @@ func TestWithDefaultConnectTimeout(t *testing.T) {
 // A database that refuses the connection fails fast with the driver's error,
 // not the bound, and leaves no handle behind.
 func TestConnectReportsARefusedConnectionWithoutTheBound(t *testing.T) {
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
-	require.NoError(t, err)
-	port := ln.Addr().(*net.TCPAddr).Port
-	require.NoError(t, ln.Close())
-	cfg := connectConfig(t, fmt.Sprintf("host=127.0.0.1 port=%d user=nobody dbname=nothing sslmode=disable", port))
+	cfg := connectConfig(t, refusingDSN(t))
 
 	took, err := connectReturn(t, connectReturnSlack, func() error { return connectWithin(cfg, 30*time.Second) })
 
@@ -168,6 +169,51 @@ func TestConnectReportsARefusedConnectionWithoutTheBound(t *testing.T) {
 	require.NotContains(t, err.Error(), "did not answer within")
 	require.Less(t, took, connectReturnSlack)
 	require.Nil(t, DB)
+}
+
+// A failed connect closes the pool it opened. Each open database/sql pool runs
+// one connection-opener goroutine until it is closed, so the count of those is
+// the count of pools nothing has closed.
+func TestConnectClosesThePoolWhenItFails(t *testing.T) {
+	dsn := refusingDSN(t)
+	cfg := connectConfig(t, dsn)
+	before := openPools()
+
+	// The count sees a pool left open, so its return to the baseline after the
+	// connect below means that pool was closed.
+	leaked, err := gorm.Open(postgres.Open(dsn), &gorm.Config{Logger: logger.Discard, DisableAutomaticPing: true})
+	require.NoError(t, err)
+	require.Eventually(t, func() bool { return openPools() == before+1 }, 2*time.Second, 10*time.Millisecond)
+	leakedDB, err := leaked.DB()
+	require.NoError(t, err)
+	require.NoError(t, leakedDB.Close())
+	require.Eventually(t, func() bool { return openPools() == before }, 2*time.Second, 10*time.Millisecond)
+
+	require.Error(t, connectWithin(cfg, 30*time.Second))
+	require.Eventually(t, func() bool { return openPools() == before }, 2*time.Second, 10*time.Millisecond,
+		"a failed connect left its pool open")
+}
+
+// refusingDSN returns a DSN for a local port nothing listens on.
+func refusingDSN(t *testing.T) string {
+	t.Helper()
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	port := ln.Addr().(*net.TCPAddr).Port
+	require.NoError(t, ln.Close())
+	return fmt.Sprintf("host=127.0.0.1 port=%d user=nobody dbname=nothing sslmode=disable", port)
+}
+
+// openPools counts the database/sql pools in this process that are not closed.
+func openPools() int {
+	buf := make([]byte, 1<<20)
+	for {
+		n := runtime.Stack(buf, true)
+		if n < len(buf) {
+			return strings.Count(string(buf[:n]), "database/sql.(*DB).connectionOpener(")
+		}
+		buf = make([]byte, 2*len(buf))
+	}
 }
 
 func TestDescribeBound(t *testing.T) {
