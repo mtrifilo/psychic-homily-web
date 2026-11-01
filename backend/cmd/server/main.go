@@ -46,6 +46,13 @@ const auditDrainTimeout = 10 * time.Second
 func main() {
 	// Load environment-specific .env file
 	environment := getEnv("ENVIRONMENT", config.EnvDevelopment)
+
+	// Structured logger: JSON in production, text with debug elsewhere. It is
+	// set up before anything that can refuse boot, so every refusal's ERROR
+	// line is written by this handler.
+	isProduction := environment == config.EnvProduction
+	logger.Init(isProduction, !isProduction)
+
 	envFile := fmt.Sprintf(".env.%s", environment)
 	log.Printf("Loading environment file for environment: %s", environment)
 	if err := godotenv.Load(envFile); err != nil {
@@ -59,7 +66,7 @@ func main() {
 	// Load configuration
 	cfg, err := config.Load()
 	if err != nil {
-		log.Fatalf("Failed to load configuration: %v", err)
+		refuseBoot(bootStageConfig, err)
 	}
 
 	// PSY-432: refuse to boot if the test-fixtures reset flag is set in a
@@ -67,14 +74,14 @@ func main() {
 	// only reset endpoint; the route also only registers when the flag is
 	// set, but that only helps if we actually start up.
 	if err := adminh.ValidateTestFixturesEnvironment(os.Getenv); err != nil {
-		log.Fatalf("PSY-432 test-fixtures misconfiguration: %v", err)
+		refuseBoot(bootStageTestFixturesEnvironment, err)
 	}
 
 	// PSY-475: same default-deny check for the auth-rate-limit disable
 	// flag. Refuses to boot if DISABLE_AUTH_RATE_LIMITS=1 is combined
 	// with a non-allowed ENVIRONMENT (production, stage, preview, unset).
 	if err := routes.ValidateAuthRateLimitEnvironment(os.Getenv); err != nil {
-		log.Fatalf("PSY-475 auth-rate-limit misconfiguration: %v", err)
+		refuseBoot(bootStageAuthRateLimitEnvironment, err)
 	}
 
 	// PSY-914: keystone guard for the faux OAuth "google" provider. Refuses
@@ -84,13 +91,8 @@ func main() {
 	// but the registration only matters if the process starts — this is the
 	// real safety net.
 	if err := auth.ValidateOAuthTestProviderEnvironment(os.Getenv); err != nil {
-		log.Fatalf("PSY-914 oauth-test-provider misconfiguration: %v", err)
+		refuseBoot(bootStageOAuthTestProviderEnvironment, err)
 	}
-
-	// Initialize structured logger
-	// Use JSON format in production, text format with debug in development
-	isProduction := environment == config.EnvProduction
-	logger.Init(isProduction, !isProduction)
 
 	// Initialize Sentry for error tracking
 	if sentryDSN := os.Getenv("SENTRY_DSN"); sentryDSN != "" {
@@ -182,7 +184,7 @@ func main() {
 
 	// Connect to database
 	if err := db.Connect(cfg); err != nil {
-		log.Fatalf("Failed to connect to database: %v", err)
+		refuseBoot(bootStageDatabaseConnect, err)
 	}
 	database := db.GetDB()
 
@@ -200,15 +202,14 @@ func main() {
 	// PSY-1384: refuse to boot if critical columns are missing or mistyped: catches
 	// schema_migrations/DDL drift before engagement writes 422 at runtime.
 	if err := db.AssertRequiredSchema(database); err != nil {
-		log.Fatalf("PSY-1384 schema assertion: %v", err)
+		refuseBoot(bootStageSchemaAssertion, err)
 	}
 
 	// An INVALID index (a failed concurrent build) refuses boot; an unreadable
-	// catalog is reported and boot continues. log.Fatalf skips the deferred
-	// Flush, so the Sentry event the check captured is flushed first.
+	// catalog is reported and boot continues. The check captures its own Sentry
+	// event naming the indexes, so the refusal only flushes it.
 	if err := db.CheckInvalidIndexes(database, slog.Default(), sentry.CurrentHub()); err != nil {
-		sentry.Flush(2 * time.Second)
-		log.Fatalf("invalid index check: %v", err)
+		refuseBootCaptured(bootStageInvalidIndexCheck, err)
 	}
 
 	// PSY-1761: bring the venue-local zone guard's allowlist up to date with
@@ -245,7 +246,7 @@ func main() {
 
 	// Setup Goth authentication
 	if err := auth.SetupGoth(cfg); err != nil {
-		log.Fatalf("Failed to setup Goth: %v", err)
+		refuseBoot(bootStageGothSetup, err)
 	}
 
 	// Create router
@@ -669,7 +670,7 @@ func main() {
 	// Start server in goroutine
 	go func() {
 		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			log.Fatalf("error while attempting to listen: %s\n", err)
+			refuseBoot(bootStageListen, err)
 		}
 	}()
 
