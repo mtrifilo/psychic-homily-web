@@ -476,8 +476,9 @@ func (s *WebAuthnService) StoreLoginChallenge(session *webauthn.SessionData) (st
 	return s.StoreChallenge(noAccountUserID, session, contracts.WebAuthnAuthenticationOperation)
 }
 
-// ConsumeLoginChallenge removes a challenge StoreLoginChallenge saved and
-// returns its session. Its errors are ConsumeChallenge's.
+// ConsumeLoginChallenge removes a challenge stored under
+// contracts.WebAuthnAuthenticationOperation, whatever user id it was stored
+// for, and returns its session. Its errors are ConsumeChallenge's.
 func (s *WebAuthnService) ConsumeLoginChallenge(challengeID string) (*webauthn.SessionData, error) {
 	return s.ConsumeChallenge(challengeID, contracts.WebAuthnAuthenticationOperation)
 }

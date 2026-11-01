@@ -51,7 +51,14 @@ func (suite *WebAuthnServiceIntegrationTestSuite) TestConcurrentFinishesConsumeA
 	for _, operation := range []string{contracts.WebAuthnRegistrationOperation, contracts.WebAuthnAuthenticationOperation} {
 		suite.Run(operation, func() {
 			for range raceRounds {
-				challengeID, err := suite.service.StoreChallenge(user.ID, &webauthn.SessionData{Challenge: "race"}, operation)
+				session := &webauthn.SessionData{Challenge: "race"}
+				var challengeID string
+				var err error
+				if operation == contracts.WebAuthnRegistrationOperation {
+					challengeID, err = suite.service.StoreChallenge(user.ID, session, operation)
+				} else {
+					challengeID, err = suite.service.StoreLoginChallenge(session)
+				}
 				suite.Require().NoError(err)
 
 				suite.requireOneWinner(raceConsume(func() error {
@@ -59,7 +66,7 @@ func (suite *WebAuthnServiceIntegrationTestSuite) TestConcurrentFinishesConsumeA
 						_, err := suite.service.ConsumeRegistrationChallenge(challengeID, user.ID)
 						return err
 					}
-					_, err := suite.service.ConsumeChallenge(challengeID, operation)
+					_, err := suite.service.ConsumeLoginChallenge(challengeID)
 					return err
 				}))
 			}

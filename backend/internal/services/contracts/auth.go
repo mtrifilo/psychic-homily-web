@@ -406,8 +406,8 @@ type AppleAuthServiceInterface interface {
 const WebAuthnRegistrationOperation = "registration"
 
 // WebAuthnAuthenticationOperation is the operation a passkey sign-in's
-// challenge is stored under. Its challenges name no account: the credential
-// the assertion carries decides the account.
+// challenge is stored under. StoreLoginChallenge stores one for no account:
+// the credential the assertion carries decides the account.
 const WebAuthnAuthenticationOperation = "authentication"
 
 // WebAuthnSignupOperation is the operation a passkey sign-up's challenge is
@@ -448,7 +448,8 @@ type WebAuthnServiceInterface interface {
 	// StoreLoginChallenge stores a sign-in ceremony's challenge under
 	// WebAuthnAuthenticationOperation, issued to no account.
 	StoreLoginChallenge(session *webauthn.SessionData) (string, error)
-	// ConsumeLoginChallenge spends a challenge StoreLoginChallenge stored. Its
+	// ConsumeLoginChallenge spends any challenge stored under
+	// WebAuthnAuthenticationOperation, whatever user id it was stored for. Its
 	// errors are ConsumeChallenge's.
 	ConsumeLoginChallenge(challengeID string) (*webauthn.SessionData, error)
 	// ConsumeRegistrationChallenge spends a registration challenge only for the

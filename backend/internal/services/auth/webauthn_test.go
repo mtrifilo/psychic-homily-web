@@ -414,7 +414,7 @@ func (suite *WebAuthnServiceIntegrationTestSuite) TestLoginChallenge_RoundTrip()
 
 	var stored authm.WebAuthnChallenge
 	suite.Require().NoError(suite.db.Where("id = ?", challengeID).First(&stored).Error)
-	suite.Equal(noAccountUserID, stored.UserID)
+	suite.Zero(stored.UserID)
 	suite.Equal(contracts.WebAuthnAuthenticationOperation, stored.Operation)
 
 	retrieved, err := suite.service.ConsumeLoginChallenge(challengeID)
