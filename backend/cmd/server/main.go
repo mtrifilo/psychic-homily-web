@@ -66,7 +66,7 @@ func main() {
 	// Load configuration
 	cfg, err := config.Load()
 	if err != nil {
-		refuseBoot(bootStageConfig, err)
+		refuseBoot(bootStageConfig, err, reportBootError)
 	}
 
 	// PSY-432: refuse to boot if the test-fixtures reset flag is set in a
@@ -74,14 +74,14 @@ func main() {
 	// only reset endpoint; the route also only registers when the flag is
 	// set, but that only helps if we actually start up.
 	if err := adminh.ValidateTestFixturesEnvironment(os.Getenv); err != nil {
-		refuseBoot(bootStageTestFixturesEnvironment, err)
+		refuseBoot(bootStageTestFixturesEnvironment, err, reportBootError)
 	}
 
 	// PSY-475: same default-deny check for the auth-rate-limit disable
 	// flag. Refuses to boot if DISABLE_AUTH_RATE_LIMITS=1 is combined
 	// with a non-allowed ENVIRONMENT (production, stage, preview, unset).
 	if err := routes.ValidateAuthRateLimitEnvironment(os.Getenv); err != nil {
-		refuseBoot(bootStageAuthRateLimitEnvironment, err)
+		refuseBoot(bootStageAuthRateLimitEnvironment, err, reportBootError)
 	}
 
 	// PSY-914: keystone guard for the faux OAuth "google" provider. Refuses
@@ -91,10 +91,11 @@ func main() {
 	// but the registration only matters if the process starts — this is the
 	// real safety net.
 	if err := auth.ValidateOAuthTestProviderEnvironment(os.Getenv); err != nil {
-		refuseBoot(bootStageOAuthTestProviderEnvironment, err)
+		refuseBoot(bootStageOAuthTestProviderEnvironment, err, reportBootError)
 	}
 
-	// Initialize Sentry for error tracking
+	// Initialize Sentry for error tracking. The boot refusals above run before
+	// it, so they write their ERROR line and capture nothing.
 	if sentryDSN := os.Getenv("SENTRY_DSN"); sentryDSN != "" {
 		if err := sentry.Init(sentryClientOptions(sentryDSN, environment, isProduction)); err != nil {
 			log.Printf("Sentry initialization failed: %v", err)
@@ -184,7 +185,7 @@ func main() {
 
 	// Connect to database
 	if err := db.Connect(cfg); err != nil {
-		refuseBoot(bootStageDatabaseConnect, err)
+		refuseBoot(bootStageDatabaseConnect, err, reportBootStageOnly)
 	}
 	database := db.GetDB()
 
@@ -202,14 +203,15 @@ func main() {
 	// PSY-1384: refuse to boot if critical columns are missing or mistyped: catches
 	// schema_migrations/DDL drift before engagement writes 422 at runtime.
 	if err := db.AssertRequiredSchema(database); err != nil {
-		refuseBoot(bootStageSchemaAssertion, err)
+		refuseBoot(bootStageSchemaAssertion, err, reportBootError)
 	}
 
 	// An INVALID index (a failed concurrent build) refuses boot; an unreadable
 	// catalog is reported and boot continues. The check captures its own Sentry
-	// event naming the indexes, so the refusal only flushes it.
+	// event naming the indexes (tagged source schema.invalid_index, with no
+	// boot_stage tag), so the refusal only flushes it.
 	if err := db.CheckInvalidIndexes(database, slog.Default(), sentry.CurrentHub()); err != nil {
-		refuseBootCaptured(bootStageInvalidIndexCheck, err)
+		refuseBoot(bootStageInvalidIndexCheck, err, reportBootNothing)
 	}
 
 	// PSY-1761: bring the venue-local zone guard's allowlist up to date with
@@ -246,7 +248,7 @@ func main() {
 
 	// Setup Goth authentication
 	if err := auth.SetupGoth(cfg); err != nil {
-		refuseBoot(bootStageGothSetup, err)
+		refuseBoot(bootStageGothSetup, err, reportBootError)
 	}
 
 	// Create router
@@ -670,7 +672,7 @@ func main() {
 	// Start server in goroutine
 	go func() {
 		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			refuseBoot(bootStageListen, err)
+			refuseBoot(bootStageListen, err, reportBootError)
 		}
 	}()
 

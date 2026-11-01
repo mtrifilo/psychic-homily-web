@@ -7,21 +7,24 @@ import (
 	"log/slog"
 	"os"
 	"os/exec"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/getsentry/sentry-go"
 
+	"psychic-homily-backend/db"
+	"psychic-homily-backend/internal/config"
 	"psychic-homily-backend/internal/logger"
 	"psychic-homily-backend/internal/testlog"
 )
 
 // bootRefusalLines serves one refusal into a JSON handler at INFO, the
 // production level, and returns the records written.
-func bootRefusalLines(t *testing.T, hub *sentry.Hub, capture bool) []map[string]any {
+func bootRefusalLines(t *testing.T, hub *sentry.Hub, report bootRefusalReport) []map[string]any {
 	t.Helper()
 	log, out := testlog.NewJSONCapture(slog.LevelInfo)
-	reportBootRefusal(log, hub, bootStageSchemaAssertion, errors.New("probe refusal"), capture)
+	reportBootRefusal(log, hub, bootStageSchemaAssertion, errors.New("probe refusal"), report)
 	return logObjectsIn(out.String())
 }
 
@@ -34,6 +37,13 @@ func assertOneBootRefusalLine(t *testing.T, records []map[string]any) {
 	if line["level"] != "ERROR" || line["msg"] != bootRefusalMsg ||
 		line["stage"] != bootStageSchemaAssertion || line["error"] != "probe refusal" {
 		t.Fatalf("line %v, want msg %q at ERROR with stage %q and the error", line, bootRefusalMsg, bootStageSchemaAssertion)
+	}
+}
+
+func assertDatabaseConnectRefusalLine(t *testing.T, records []map[string]any) {
+	t.Helper()
+	if len(records) != 1 || records[0]["level"] != "ERROR" || records[0]["msg"] != bootRefusalMsg || records[0]["stage"] != bootStageDatabaseConnect {
+		t.Errorf("lines %v, want one %q line at ERROR with stage %q", records, bootRefusalMsg, bootStageDatabaseConnect)
 	}
 }
 
@@ -56,16 +66,16 @@ func recordingSentryHub(t *testing.T) (*sentry.Hub, func() []*sentry.Event) {
 
 func TestBootRefusal(t *testing.T) {
 	t.Run("logs at ERROR with no Sentry client", func(t *testing.T) {
-		assertOneBootRefusalLine(t, bootRefusalLines(t, sentry.NewHub(nil, sentry.NewScope()), true))
+		assertOneBootRefusalLine(t, bootRefusalLines(t, sentry.NewHub(nil, sentry.NewScope()), reportBootError))
 	})
 
 	t.Run("logs at ERROR with no hub", func(t *testing.T) {
-		assertOneBootRefusalLine(t, bootRefusalLines(t, nil, true))
+		assertOneBootRefusalLine(t, bootRefusalLines(t, nil, reportBootError))
 	})
 
 	t.Run("captures one fatal event tagged with the stage", func(t *testing.T) {
 		hub, events := recordingSentryHub(t)
-		assertOneBootRefusalLine(t, bootRefusalLines(t, hub, true))
+		assertOneBootRefusalLine(t, bootRefusalLines(t, hub, reportBootError))
 
 		got := events()
 		if len(got) != 1 {
@@ -82,11 +92,42 @@ func TestBootRefusal(t *testing.T) {
 
 	t.Run("a stage that captured its own event is not captured again", func(t *testing.T) {
 		hub, events := recordingSentryHub(t)
-		assertOneBootRefusalLine(t, bootRefusalLines(t, hub, false))
+		assertOneBootRefusalLine(t, bootRefusalLines(t, hub, reportBootNothing))
 		if n := len(events()); n != 0 {
 			t.Errorf("Sentry captured %d events, want 0", n)
 		}
 	})
+
+	// A DATABASE_URL the driver cannot parse comes back in its error with the
+	// password in it, in shapes the Sentry scrub does not match. The database
+	// connect stage captures only its stage, so neither shape reaches Sentry;
+	// the refusal is still one ERROR line.
+	for _, tc := range []struct{ name, dsn, password string }{
+		{name: "space in the password", dsn: "postgres://app:pa ss-probe-secret@db.internal:5432/ph", password: "ss-probe-secret"},
+		{name: "hash in the password", dsn: "postgres://app:probesecret#tail@db.internal:5432/ph", password: "probesecret"},
+	} {
+		t.Run("database connect captures only the stage: "+tc.name, func(t *testing.T) {
+			connectErr := db.Connect(&config.Config{Database: config.DatabaseConfig{URL: tc.dsn}})
+			if connectErr == nil || !strings.Contains(connectErr.Error(), tc.password) {
+				t.Fatalf("connect error %v: want one that carries the password, the shape this guards", connectErr)
+			}
+
+			hub, events := recordingSentryHub(t)
+			log, out := testlog.NewJSONCapture(slog.LevelInfo)
+			reportBootRefusal(log, hub, bootStageDatabaseConnect, connectErr, reportBootStageOnly)
+
+			got := events()
+			if len(got) != 1 || got[0].Tags["boot_stage"] != bootStageDatabaseConnect {
+				t.Fatalf("Sentry captured %v, want one event tagged with the stage", got)
+			}
+			for _, ex := range got[0].Exception {
+				if strings.Contains(ex.Value, tc.password) {
+					t.Errorf("Sentry exception %q carries the password", ex.Value)
+				}
+			}
+			assertDatabaseConnectRefusalLine(t, logObjectsIn(out.String()))
+		})
+	}
 }
 
 const bootRefusalChildEnv = "PSY_TEST_BOOT_REFUSAL_CHILD"
@@ -97,7 +138,7 @@ const bootRefusalChildEnv = "PSY_TEST_BOOT_REFUSAL_CHILD"
 func TestRefuseBootExitsOne(t *testing.T) {
 	if os.Getenv(bootRefusalChildEnv) == "1" {
 		logger.Init(true, false)
-		refuseBoot(bootStageConfig, errors.New("probe refusal"))
+		refuseBoot(bootStageConfig, errors.New("probe refusal"), reportBootError)
 		return
 	}
 
