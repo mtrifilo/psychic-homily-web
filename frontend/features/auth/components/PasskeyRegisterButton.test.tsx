@@ -23,8 +23,6 @@ vi.mock('@simplewebauthn/browser', () => ({
   })),
 }))
 
-vi.mock('@sentry/nextjs', () => ({ captureException: vi.fn(), addBreadcrumb: vi.fn() }))
-
 const mockRefetchSignedInProfile = vi.fn()
 vi.mock('@/lib/queryClient', async importOriginal => ({
   ...(await importOriginal<typeof import('@/lib/queryClient')>()),

@@ -38,8 +38,6 @@ describe('PasskeyLoginButton', () => {
     mockSetUser.mockReset()
     mockStartAuthentication.mockReset()
     fetchMock.mockReset()
-    vi.mocked(Sentry.captureException).mockClear()
-    vi.mocked(Sentry.addBreadcrumb).mockClear()
 
     mockStartAuthentication.mockResolvedValue({ id: 'assertion-id' })
     vi.stubGlobal('fetch', fetchMock)
@@ -266,9 +264,12 @@ describe('PasskeyLoginButton', () => {
       })
     })
 
-    it('reports a finish 503 as an exception at error level', async () => {
+    it.each([
+      ['begin', [] as unknown[]],
+      ['finish', [BEGIN_OK]],
+    ])('reports a %s 503 as an exception at error level', async (_step, before) => {
       const onError = vi.fn()
-      fetchMock.mockResolvedValueOnce(BEGIN_OK)
+      for (const response of before) fetchMock.mockResolvedValueOnce(response)
       fetchMock.mockResolvedValueOnce({
         ok: false,
         status: 503,
@@ -287,27 +288,6 @@ describe('PasskeyLoginButton', () => {
         expect.objectContaining({ code: AuthErrorCode.SERVICE_UNAVAILABLE }),
         { level: 'error', tags: { service: 'passkey-auth', error_type: 'login_failed' } }
       )
-    })
-
-    it('reports a begin 503 as an exception at error level', async () => {
-      const onError = vi.fn()
-      fetchMock.mockResolvedValueOnce({
-        ok: false,
-        status: 503,
-        json: async () => ({
-          success: false,
-          message: 'Service temporarily unavailable',
-          error_code: 'SERVICE_UNAVAILABLE',
-        }),
-      })
-
-      await signInAndWaitForError(onError)
-
-      expect(Sentry.addBreadcrumb).not.toHaveBeenCalled()
-      expect(Sentry.captureException).toHaveBeenCalledTimes(1)
-      expect(vi.mocked(Sentry.captureException).mock.lastCall?.[1]).toMatchObject({
-        level: 'error',
-      })
     })
 
     it('reports a WebAuthn exception other than the refusal at error level', async () => {

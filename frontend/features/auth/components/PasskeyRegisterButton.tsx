@@ -155,14 +155,12 @@ export function PasskeyRegisterButton({
       if (isNotAllowedError(error)) {
         return
       }
-      if (error instanceof Error) {
-        // The remedy for this refusal is a link the caller renders on its own
-        // surface, which the open dialog would cover.
-        if (isReauthRequired(error)) setIsOpen(false)
-        onError?.(error)
-      } else {
-        onError?.(new Error('An unexpected error occurred'))
-      }
+      // The remedy for this refusal is a link the caller renders on its own
+      // surface, which the open dialog would cover.
+      if (isReauthRequired(error)) setIsOpen(false)
+      onError?.(
+        error instanceof Error ? error : new Error('An unexpected error occurred')
+      )
     } finally {
       setIsLoading(false)
     }

@@ -1,14 +1,9 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect } from 'vitest'
 import * as Sentry from '@sentry/nextjs'
 import { AuthError, AuthErrorCode } from '@/lib/errors'
 import { reportPasskeyFailure } from './passkeyFailureReport'
 
 describe('reportPasskeyFailure', () => {
-  beforeEach(() => {
-    vi.mocked(Sentry.captureException).mockClear()
-    vi.mocked(Sentry.addBreadcrumb).mockClear()
-  })
-
   it.each([
     [AuthErrorCode.ACCOUNT_RECOVERABLE],
     [AuthErrorCode.ACCOUNT_INACTIVE],
