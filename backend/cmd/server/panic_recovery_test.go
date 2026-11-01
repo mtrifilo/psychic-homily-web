@@ -76,13 +76,13 @@ func TestHandlerPanicAnswers500(t *testing.T) {
 		}
 
 		access, panics := 0, recordsWithMsg(records, panicLogMsg)
-		for _, record := range recordsWithMsg(records, "request") {
-			if record["request_id"] == id {
+		for _, record := range recordsWithMsg(records, accessLogMsg) {
+			if record["request_id"] == id && record["status"] == float64(http.StatusInternalServerError) {
 				access++
 			}
 		}
 		if access != 1 {
-			t.Errorf("%s: %d access lines carry the request id, want 1", name, access)
+			t.Errorf("%s: %d access lines carry the request id and status 500, want 1", name, access)
 		}
 		if len(panics) != 1 || panics[0]["level"] != "ERROR" || panics[0]["request_id"] != id || panics[0]["status"] != float64(http.StatusInternalServerError) {
 			t.Errorf("%s: %s lines = %v, want one at ERROR with request_id %s and status 500", name, panicLogMsg, panics, id)
@@ -104,6 +104,10 @@ func TestHandlerPanicAnswers500(t *testing.T) {
 		if len(panics) != 1 || panics[0]["response_started"] != true || panics[0]["request_id"] != end.RequestIDHeader {
 			t.Errorf("%s lines = %v, want one with response_started true and request_id %s", panicLogMsg, panics, end.RequestIDHeader)
 		}
+		access := recordsWithMsg(records, accessLogMsg)
+		if len(access) != 1 || access[0]["status"] != float64(http.StatusOK) || access[0]["aborted"] != true {
+			t.Errorf("access lines = %v, want one with the started status 200 and aborted true", access)
+		}
 	})
 
 	// The handler's own abort reaches net/http as the sentinel: the connection
@@ -119,6 +123,10 @@ func TestHandlerPanicAnswers500(t *testing.T) {
 		}
 		if len(end.Events) != 1 {
 			t.Errorf("Sentry captured %d events, want 1", len(end.Events))
+		}
+		access := recordsWithMsg(records, accessLogMsg)
+		if len(access) != 1 || access[0]["status"] != float64(0) || access[0]["aborted"] != true {
+			t.Errorf("access lines = %v, want one with status 0 (none written) and aborted true", access)
 		}
 	})
 }
@@ -167,14 +175,7 @@ func servePanicCases(t *testing.T) {
 		t.Fatalf("sentry test client: %v", err)
 	}
 
-	cfg := &config.Config{
-		JWT:   config.JWTConfig{SecretKey: "test-secret-key-32-chars-minimum", Expiry: 24},
-		OAuth: config.OAuthConfig{SecretKey: "test-oauth-secret-key-32-chars"},
-	}
-	router := chi.NewMux()
-	useRequestCorrelation(router)
-	router.Use(middleware.ResponseCompression())
-	api := routes.SetupRoutes(router, services.NewServiceContainer(nil, cfg), cfg)
+	router, api := newCompressedProductionRouter()
 
 	probe := errors.New(panicProbeMessage)
 	router.Get("/test-panic/raw", func(http.ResponseWriter, *http.Request) {
@@ -240,6 +241,21 @@ func servePanicCases(t *testing.T) {
 	serve("abort", "/test-panic/abort")
 }
 
+// newCompressedProductionRouter is the production correlation stack in front
+// of routes.SetupRoutes with the response compressor between them, as main()
+// builds them, on a service container with no database.
+func newCompressedProductionRouter() (*chi.Mux, huma.API) {
+	cfg := &config.Config{
+		JWT:   config.JWTConfig{SecretKey: "test-secret-key-32-chars-minimum", Expiry: 24},
+		OAuth: config.OAuthConfig{SecretKey: "test-oauth-secret-key-32-chars"},
+	}
+	router := chi.NewMux()
+	useRequestCorrelation(router)
+	router.Use(middleware.ResponseCompression())
+	api := routes.SetupRoutes(router, services.NewServiceContainer(nil, cfg), cfg)
+	return router, api
+}
+
 // logObjects decodes the lines that are JSON log records.
 func logObjects(lines []string) []map[string]any {
 	var records []map[string]any
@@ -250,6 +266,11 @@ func logObjects(lines []string) []map[string]any {
 		}
 	}
 	return records
+}
+
+// logObjectsIn decodes the JSON log records written to out.
+func logObjectsIn(out string) []map[string]any {
+	return logObjects(strings.Split(strings.TrimSpace(out), "\n"))
 }
 
 func recordsWithMsg(records []map[string]any, msg string) []map[string]any {

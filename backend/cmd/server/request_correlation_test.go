@@ -290,7 +290,7 @@ func logRecord(line string) (msg string, requestIDs []string, ok bool) {
 
 func classifyLogLine(msg string) logKind {
 	switch msg {
-	case "request":
+	case accessLogMsg:
 		return logAccess
 	case "rate limit exceeded":
 		return logRefusal
