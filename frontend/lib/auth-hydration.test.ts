@@ -374,11 +374,12 @@ describe('prefetchHomeSavedShows', () => {
     expect(seeded(state as { queries: SeededEntry[] })).toBeUndefined()
   })
 
-  function stubSavedShowsRejection(error: unknown) {
+  // A signed-in viewer whose saved-shows read is answered by `read`.
+  function stubSavedShowsRead(read: (init?: RequestInit) => Promise<unknown>) {
     mockGet.mockReturnValue({ value: 'token' })
     vi.stubGlobal(
       'fetch',
-      vi.fn(async (url: string) => {
+      vi.fn(async (url: string, init?: RequestInit) => {
         if (url.endsWith('/auth/profile')) {
           return {
             ok: true,
@@ -386,9 +387,15 @@ describe('prefetchHomeSavedShows', () => {
             json: async () => ({ success: true, user: { id: 'u1' } }),
           }
         }
-        throw error
+        return read(init)
       })
     )
+  }
+
+  function stubSavedShowsRejection(error: unknown) {
+    stubSavedShowsRead(async () => {
+      throw error
+    })
   }
 
   // The read's deadline, under the test's control: the signal the module
@@ -410,22 +417,11 @@ describe('prefetchHomeSavedShows', () => {
     ['an error with no abort name', () => new Error('socket closed')],
   ])('seeds nothing and reports nothing when the deadline fired and the read rejects with %s', async (_label, rejection) => {
     const deadline = controlDeadline()
-    mockGet.mockReturnValue({ value: 'token' })
-    vi.stubGlobal(
-      'fetch',
-      vi.fn(async (url: string, init?: RequestInit) => {
-        if (url.endsWith('/auth/profile')) {
-          return {
-            ok: true,
-            status: 200,
-            json: async () => ({ success: true, user: { id: 'u1' } }),
-          }
-        }
-        expect(init?.signal).toBe(deadline.signal)
-        deadline.abort(deadlineReason())
-        throw rejection()
-      })
-    )
+    stubSavedShowsRead(async init => {
+      expect(init?.signal).toBe(deadline.signal)
+      deadline.abort(deadlineReason())
+      throw rejection()
+    })
     const Sentry = await import('@sentry/nextjs')
 
     const state = await prefetchHomeSavedShows()
@@ -436,26 +432,14 @@ describe('prefetchHomeSavedShows', () => {
 
   it('seeds nothing and reports nothing when the deadline fires while the body is read', async () => {
     const deadline = controlDeadline()
-    mockGet.mockReturnValue({ value: 'token' })
-    vi.stubGlobal(
-      'fetch',
-      vi.fn(async (url: string) =>
-        url.endsWith('/auth/profile')
-          ? {
-              ok: true,
-              status: 200,
-              json: async () => ({ success: true, user: { id: 'u1' } }),
-            }
-          : {
-              ok: true,
-              status: 200,
-              json: async () => {
-                deadline.abort(deadlineReason())
-                throw deadline.signal.reason
-              },
-            }
-      )
-    )
+    stubSavedShowsRead(async () => ({
+      ok: true,
+      status: 200,
+      json: async () => {
+        deadline.abort(deadlineReason())
+        throw deadline.signal.reason
+      },
+    }))
     const Sentry = await import('@sentry/nextjs')
 
     const state = await prefetchHomeSavedShows()
