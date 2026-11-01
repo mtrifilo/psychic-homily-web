@@ -14,7 +14,6 @@ import (
 	"github.com/lib/pq"
 	"gorm.io/gorm"
 
-	"psychic-homily-backend/internal/config"
 	authm "psychic-homily-backend/internal/models/auth"
 	catalogm "psychic-homily-backend/internal/models/catalog"
 	engagementm "psychic-homily-backend/internal/models/engagement"
@@ -1094,7 +1093,7 @@ func (s *NotificationFilterService) sendVenueShowAlertEmail(
 	// unsubscribe stops unsubscribing.
 	// TestVenueAndArtistAlertEmailsShareOneUnsubscribeScope pins this.
 	unsubscribeURL := engagement.GenerateScopedUnsubscribeURL(
-		config.BackendOriginFromEnv(s.frontendURL),
+		s.backendURL,
 		r.userID,
 		engagement.UnsubscribeScopeArtistShowAlerts,
 		s.jwtSecret,

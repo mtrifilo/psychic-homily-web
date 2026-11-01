@@ -204,7 +204,7 @@ func NewServiceContainer(database *gorm.DB, cfg *config.Config) *ServiceContaine
 	// reach subscribers instead of only admin-approved ones. It is handed the very
 	// instance the handlers hold — one implementation of "who wants this show", not
 	// a second copy that could drift.
-	notificationFilter := notification.NewNotificationFilterService(database, email, cfg.JWT.SecretKey, cfg.Email.FrontendURL)
+	notificationFilter := notification.NewNotificationFilterService(database, email, cfg.JWT.SecretKey, cfg.Email.FrontendURL, cfg.BackendOrigin())
 	showNotifyOutbox := notification.NewShowNotifyOutboxPoller(database, notificationFilter)
 
 	// PSY-1895: the venue-alert flush poller is handed the SAME

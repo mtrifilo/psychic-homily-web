@@ -163,34 +163,53 @@ func TestRefuseBootExitsOne(t *testing.T) {
 
 const backendOriginChildEnv = "PSY_TEST_BACKEND_ORIGIN_CHILD"
 
-// A frontend URL the backend-origin resolver does not recognise, with
-// BACKEND_PUBLIC_URL unset, refuses boot at stage frontend_url with status 1.
-// A recognised frontend URL, or any frontend URL with BACKEND_PUBLIC_URL set,
-// boots: the call returns.
+// A production config, loaded from the environment, whose FRONTEND_URL the
+// backend-origin resolver does not recognise and whose BACKEND_PUBLIC_URL is
+// unset refuses boot at stage frontend_url with status 1. The deployed and
+// local shapes that must keep booting return.
 func TestRefuseUnresolvableBackendOrigin(t *testing.T) {
 	if os.Getenv(backendOriginChildEnv) == "1" {
 		logger.Init(true, false)
-		refuseUnresolvableBackendOrigin(&config.Config{Email: config.EmailConfig{FrontendURL: "https://example.invalid"}})
+		cfg, err := config.Load()
+		if err != nil {
+			t.Fatalf("config.Load: %v", err)
+		}
+		refuseUnresolvableBackendOrigin(cfg, os.Getenv(config.EnvEnvironment))
 		return
 	}
 
-	for _, cfg := range []*config.Config{
-		{Email: config.EmailConfig{FrontendURL: "https://www.psychichomily.com"}},
-		{Email: config.EmailConfig{FrontendURL: "https://psychichomily.com"}},
-		{Email: config.EmailConfig{FrontendURL: "https://stage.psychichomily.com"}},
-		{Email: config.EmailConfig{FrontendURL: "http://localhost:3000"}},
-		{
+	for _, shape := range []struct {
+		environment string
+		cfg         *config.Config
+	}{
+		{"production", &config.Config{Email: config.EmailConfig{FrontendURL: "https://www.psychichomily.com"}}},
+		{"production", &config.Config{Email: config.EmailConfig{FrontendURL: "https://psychichomily.com"}}},
+		{"stage", &config.Config{Email: config.EmailConfig{FrontendURL: "https://stage.psychichomily.com"}}},
+		{"development", &config.Config{Email: config.EmailConfig{FrontendURL: "http://localhost:3000"}}},
+		{"test", &config.Config{
+			Server: config.ServerConfig{BackendPublicURL: "http://localhost:61001"},
+			Email:  config.EmailConfig{FrontendURL: "http://localhost:61000"},
+		}},
+		{"production", &config.Config{
 			Server: config.ServerConfig{BackendPublicURL: "https://api.example.invalid"},
 			Email:  config.EmailConfig{FrontendURL: "https://example.invalid"},
-		},
+		}},
 	} {
-		refuseUnresolvableBackendOrigin(cfg)
+		refuseUnresolvableBackendOrigin(shape.cfg, shape.environment)
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, os.Args[0], "-test.run=^TestRefuseUnresolvableBackendOrigin$", "-test.count=1")
-	cmd.Env = append(os.Environ(), backendOriginChildEnv+"=1", "SENTRY_DSN=")
+	cmd.Env = append(os.Environ(), backendOriginChildEnv+"=1", "SENTRY_DSN=",
+		"ENVIRONMENT=production",
+		"FRONTEND_URL=https://example.invalid",
+		"BACKEND_PUBLIC_URL=",
+		"DATABASE_URL=postgres://u:p@db.example.test:5432/d",
+		"JWT_SECRET_KEY=boot-refusal-jwt-secret",
+		"OAUTH_SECRET_KEY=boot-refusal-oauth-secret",
+		"INTERNAL_API_SECRET="+strings.Repeat("x", 32),
+	)
 	var stdout bytes.Buffer
 	cmd.Stdout = &stdout
 	err := cmd.Run()

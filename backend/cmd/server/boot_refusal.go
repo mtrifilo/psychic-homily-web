@@ -64,12 +64,10 @@ func refuseBoot(stage string, err error, report bootRefusalReport) {
 	os.Exit(1)
 }
 
-// refuseUnresolvableBackendOrigin refuses boot when cfg's frontend URL is not
-// a form config.ResolveBackendOrigin recognises and BACKEND_PUBLIC_URL is
-// unset, the configuration in which every backend-hosted link would name a
-// local backend.
-func refuseUnresolvableBackendOrigin(cfg *config.Config) {
-	if err := config.ValidateBackendOrigin(cfg.Email.FrontendURL, cfg.Server.BackendPublicURL); err != nil {
+// refuseUnresolvableBackendOrigin refuses boot when config.ValidateBackendOrigin
+// rejects cfg's frontend URL and BACKEND_PUBLIC_URL for environment.
+func refuseUnresolvableBackendOrigin(cfg *config.Config, environment string) {
+	if err := config.ValidateBackendOrigin(environment, cfg.Email.FrontendURL, cfg.Server.BackendPublicURL); err != nil {
 		refuseBoot(bootStageFrontendURL, err, reportBootError)
 	}
 }

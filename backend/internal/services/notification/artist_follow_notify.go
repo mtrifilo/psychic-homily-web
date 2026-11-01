@@ -13,7 +13,6 @@ import (
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 
-	"psychic-homily-backend/internal/config"
 	authm "psychic-homily-backend/internal/models/auth"
 	catalogm "psychic-homily-backend/internal/models/catalog"
 	engagementm "psychic-homily-backend/internal/models/engagement"
@@ -626,7 +625,7 @@ func (s *NotificationFilterService) sendArtistShowAlertEmail(
 
 	c := s.showEmailContent(show)
 	unsubscribeURL := engagement.GenerateScopedUnsubscribeURL(
-		config.BackendOriginFromEnv(s.frontendURL),
+		s.backendURL,
 		userID,
 		engagement.UnsubscribeScopeArtistShowAlerts,
 		s.jwtSecret,

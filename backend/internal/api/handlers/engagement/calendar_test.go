@@ -80,9 +80,6 @@ func TestCreateCalendarTokenHandler_Success(t *testing.T) {
 	}
 }
 
-// Production runs with the www frontend origin and binds API_ADDR to the
-// wildcard listen address; the feed URL handed to the service must still be
-// the public API host.
 // The feed URL is minted on the backend's public origin as the config
 // resolves it, never on the listen address.
 func TestCreateCalendarTokenHandler_FeedURLBase(t *testing.T) {

@@ -423,7 +423,8 @@ func getCORSOrigins() []string {
 
 // URLOrigin returns the scheme://host[:port] origin of rawURL, the form a
 // browser sends in the Origin header. ok is false when rawURL has no scheme
-// or host.
+// or host. Scheme and host are returned as parsed, without case or port
+// normalisation: the OAuth link origin check compares a Referer through it.
 func URLOrigin(rawURL string) (origin string, ok bool) {
 	u, err := url.Parse(strings.TrimSpace(rawURL))
 	if err != nil || u.Scheme == "" || u.Host == "" {

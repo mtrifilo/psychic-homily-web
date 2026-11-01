@@ -65,81 +65,11 @@ func TestResolveBackendOrigin(t *testing.T) {
 				t.Errorf("ResolveBackendOrigin(%q, %q, %q) = %q, want %q",
 					tt.frontendURL, tt.backendPublicURL, tt.serverAddr, origin, tt.wantOrigin)
 			}
-			if recognised := isRecognisedFrontend(tt.frontendURL); recognised != tt.wantRecognised {
-				t.Errorf("isRecognisedFrontend(%q) = %v, want %v", tt.frontendURL, recognised, tt.wantRecognised)
+			if recognised := isRecognisedFrontend(tt.frontendURL, false); recognised != tt.wantRecognised {
+				t.Errorf("isRecognisedFrontend(%q, false) = %v, want %v", tt.frontendURL, recognised, tt.wantRecognised)
 			}
 		})
 	}
-}
-
-func TestValidateBackendOrigin(t *testing.T) {
-	t.Run("recognised frontends pass with BACKEND_PUBLIC_URL unset", func(t *testing.T) {
-		for _, frontendURL := range []string{
-			"https://www.psychichomily.com",
-			"https://psychichomily.com",
-			"https://stage.psychichomily.com",
-			"https://www.psychichomily.com/ ",
-			"http://localhost:3000",
-			"http://127.0.0.1:61000",
-		} {
-			if err := ValidateBackendOrigin(frontendURL, ""); err != nil {
-				t.Errorf("ValidateBackendOrigin(%q, \"\") = %v, want nil", frontendURL, err)
-			}
-		}
-	})
-
-	t.Run("an unrecognised frontend passes with BACKEND_PUBLIC_URL set", func(t *testing.T) {
-		if err := ValidateBackendOrigin("https://example.invalid", "https://api.example.invalid"); err != nil {
-			t.Errorf("ValidateBackendOrigin = %v, want nil", err)
-		}
-	})
-
-	t.Run("an unrecognised frontend is refused with the host and the recognised forms named", func(t *testing.T) {
-		err := ValidateBackendOrigin("https://example.invalid", "")
-		want := `FRONTEND_URL (host "example.invalid") is not a recognised frontend, so backend-hosted links ` +
-			`(email unsubscribe links, the calendar feed, OAuth callbacks) cannot name this backend's public origin; ` +
-			`set FRONTEND_URL to one of https://psychichomily.com, https://stage.psychichomily.com, ` +
-			`https://www.psychichomily.com, or an http(s) origin on localhost, 127.0.0.1 or [::1], ` +
-			`or set BACKEND_PUBLIC_URL to this backend's public origin`
-		if err == nil || err.Error() != want {
-			t.Errorf("ValidateBackendOrigin error = %v\nwant %s", err, want)
-		}
-	})
-
-	t.Run("whitespace-only BACKEND_PUBLIC_URL counts as unset", func(t *testing.T) {
-		if err := ValidateBackendOrigin("https://example.invalid", "  "); err == nil {
-			t.Error("ValidateBackendOrigin = nil, want an error")
-		}
-	})
-
-	t.Run("the error names the host, never userinfo, path or query", func(t *testing.T) {
-		err := ValidateBackendOrigin("https://user:probe-secret@example.invalid/probe-path?probe=query", "")
-		if err == nil {
-			t.Fatal("ValidateBackendOrigin = nil, want an error")
-		}
-		msg := err.Error()
-		if !strings.Contains(msg, `(host "example.invalid")`) {
-			t.Errorf("error %q does not name the host", msg)
-		}
-		for _, leak := range []string{"user", "probe-secret", "probe-path", "probe=query"} {
-			if strings.Contains(msg, leak) {
-				t.Errorf("error %q carries %q", msg, leak)
-			}
-		}
-	})
-
-	t.Run("an empty or hostless frontend is described without a host", func(t *testing.T) {
-		for frontendURL, want := range map[string]string{
-			"":               "FRONTEND_URL (empty)",
-			"localhost:3000": "FRONTEND_URL (no parseable host)",
-			"http://[::1":    "FRONTEND_URL (no parseable host)",
-		} {
-			err := ValidateBackendOrigin(frontendURL, "")
-			if err == nil || !strings.HasPrefix(err.Error(), want) {
-				t.Errorf("ValidateBackendOrigin(%q) = %v, want prefix %q", frontendURL, err, want)
-			}
-		}
-	})
 }
 
 // The Railway env templates document the FRONTEND_URL each deployed
@@ -168,32 +98,100 @@ func TestResolveBackendOriginRailwayTemplates(t *testing.T) {
 			if origin := ResolveBackendOrigin(frontendURL, "", "0.0.0.0:8080"); origin != want {
 				t.Errorf("FRONTEND_URL %q resolves to %q, want %q", frontendURL, origin, want)
 			}
-			if err := ValidateBackendOrigin(frontendURL, ""); err != nil {
-				t.Errorf("ValidateBackendOrigin(%q) = %v, want nil", frontendURL, err)
+			environment := EnvProduction
+			if strings.Contains(path, "stage") {
+				environment = EnvStage
+			}
+			if err := ValidateBackendOrigin(environment, frontendURL, ""); err != nil {
+				t.Errorf("ValidateBackendOrigin(%q, %q, \"\") = %v, want nil", environment, frontendURL, err)
 			}
 		})
 	}
 }
 
-// BackendOriginFromEnv reads BACKEND_PUBLIC_URL and API_ADDR as Load does.
-func TestBackendOriginFromEnv(t *testing.T) {
-	tests := []struct {
-		name, frontendURL, backendPublicURL, apiAddr, want string
+func TestValidateBackendOrigin(t *testing.T) {
+	passes := []struct {
+		name, environment, frontendURL, backendPublicURL string
 	}{
-		{"production www frontend", "https://www.psychichomily.com", "", "0.0.0.0:8080", productionAPI},
-		{"local frontend on the listen port", "http://localhost:3000", "", "localhost:63516", "http://localhost:63516"},
-		{"local frontend with API_ADDR unset", "http://localhost:3000", "", "", "http://localhost:8080"},
-		{"BACKEND_PUBLIC_URL wins", "https://www.psychichomily.com", "http://localhost:61001", "0.0.0.0:8080", "http://localhost:61001"},
+		// Production runs with FRONTEND_URL=https://www.psychichomily.com and
+		// BACKEND_PUBLIC_URL unset.
+		{"production www frontend", EnvProduction, "https://www.psychichomily.com", ""},
+		{"production apex frontend", EnvProduction, "https://psychichomily.com", ""},
+		{"production www frontend with stray whitespace", EnvProduction, "https://www.psychichomily.com/ ", ""},
+		{"stage frontend", EnvStage, "https://stage.psychichomily.com", ""},
+		{"local frontend in development", EnvDevelopment, "http://localhost:3000", ""},
+		{"local frontend with ENVIRONMENT unset", "", "http://127.0.0.1:61000", ""},
+		{"dispatch stack", "test", "http://localhost:61000", "http://localhost:61001"},
+		{"loopback override outside production and stage", EnvDevelopment, "https://example.invalid", "http://localhost:8080"},
+		{"unrecognised frontend with an https override in production", EnvProduction, "https://example.invalid", "https://api.example.invalid"},
+		{"override with a trailing slash", EnvProduction, "https://www.psychichomily.com", "https://api.example.invalid/"},
 	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Setenv(EnvBackendPublicURL, tt.backendPublicURL)
-			t.Setenv(EnvAPIAddr, tt.apiAddr)
-			if got := BackendOriginFromEnv(tt.frontendURL); got != tt.want {
-				t.Errorf("BackendOriginFromEnv(%q) = %q, want %q", tt.frontendURL, got, tt.want)
+	for _, tt := range passes {
+		t.Run("passes: "+tt.name, func(t *testing.T) {
+			if err := ValidateBackendOrigin(tt.environment, tt.frontendURL, tt.backendPublicURL); err != nil {
+				t.Errorf("ValidateBackendOrigin(%q, %q, %q) = %v, want nil", tt.environment, tt.frontendURL, tt.backendPublicURL, err)
 			}
 		})
 	}
+
+	refusals := []struct {
+		name, environment, frontendURL, backendPublicURL, wantPrefix string
+	}{
+		{"unknown frontend in production", EnvProduction, "https://example.invalid", "", `FRONTEND_URL (host "example.invalid") is not a recognised frontend`},
+		{"unknown frontend in development", EnvDevelopment, "https://example.invalid", "", `FRONTEND_URL (host "example.invalid") is not a recognised frontend`},
+		{"whitespace-only override counts as unset", EnvDevelopment, "https://example.invalid", "  ", `FRONTEND_URL (host "example.invalid") is not a recognised frontend`},
+		{"local frontend in production", EnvProduction, "http://localhost:3000", "", `FRONTEND_URL (host "localhost:3000") is not a recognised frontend`},
+		{"local frontend in stage", EnvStage, "http://127.0.0.1:3000", "", `FRONTEND_URL (host "127.0.0.1:3000") is not a recognised frontend`},
+		{"empty frontend", EnvDevelopment, "", "", "FRONTEND_URL (empty)"},
+		{"frontend without a scheme", EnvDevelopment, "localhost:3000", "", "FRONTEND_URL (no parseable host)"},
+		{"unparseable frontend", EnvDevelopment, "http://[::1", "", "FRONTEND_URL (no parseable host)"},
+		{"override without a scheme", EnvProduction, "https://www.psychichomily.com", "api.psychichomily.com", "BACKEND_PUBLIC_URL (no parseable host) is not a bare http(s) origin"},
+		{"override with a path", EnvProduction, "https://www.psychichomily.com", "https://api.psychichomily.com/v1", `BACKEND_PUBLIC_URL (host "api.psychichomily.com") is not a bare http(s) origin`},
+		{"override with userinfo", EnvDevelopment, "http://localhost:3000", "http://user:pw@localhost:8080", `BACKEND_PUBLIC_URL (host "localhost:8080") is not a bare http(s) origin`},
+		{"loopback override in production", EnvProduction, "https://www.psychichomily.com", "http://localhost:8080", `BACKEND_PUBLIC_URL (host "localhost:8080") is a loopback origin in ENVIRONMENT=production`},
+		{"loopback override in stage", EnvStage, "https://stage.psychichomily.com", "http://[::1]:8080", `BACKEND_PUBLIC_URL (host "[::1]:8080") is a loopback origin in ENVIRONMENT=stage`},
+	}
+	for _, tt := range refusals {
+		t.Run("refuses: "+tt.name, func(t *testing.T) {
+			err := ValidateBackendOrigin(tt.environment, tt.frontendURL, tt.backendPublicURL)
+			if err == nil || !strings.HasPrefix(err.Error(), tt.wantPrefix) {
+				t.Errorf("ValidateBackendOrigin(%q, %q, %q) = %v, want prefix %q", tt.environment, tt.frontendURL, tt.backendPublicURL, err, tt.wantPrefix)
+			}
+		})
+	}
+
+	t.Run("the unrecognised-frontend refusal names the recognised forms", func(t *testing.T) {
+		err := ValidateBackendOrigin(EnvProduction, "https://example.invalid", "")
+		want := `FRONTEND_URL (host "example.invalid") is not a recognised frontend, so backend-hosted links ` +
+			`(email unsubscribe links, the calendar feed, OAuth callbacks) cannot name this backend's public origin; ` +
+			`set FRONTEND_URL to one of https://psychichomily.com, https://stage.psychichomily.com, ` +
+			`https://www.psychichomily.com, or (outside production and stage) an http(s) origin on localhost, 127.0.0.1 or [::1], ` +
+			`or set BACKEND_PUBLIC_URL to this backend's public origin`
+		if err == nil || err.Error() != want {
+			t.Errorf("ValidateBackendOrigin error = %v\nwant %s", err, want)
+		}
+	})
+
+	t.Run("errors name the host, never userinfo, path or query", func(t *testing.T) {
+		for _, values := range [][2]string{
+			{"https://user:probe-secret@example.invalid/probe-path?probe=query", ""},
+			{"https://www.psychichomily.com", "https://user:probe-secret@api.example.invalid/probe-path?probe=query"},
+		} {
+			err := ValidateBackendOrigin(EnvProduction, values[0], values[1])
+			if err == nil {
+				t.Fatalf("ValidateBackendOrigin(%q, %q) = nil, want an error", values[0], values[1])
+			}
+			msg := err.Error()
+			if !strings.Contains(msg, `example.invalid"`) {
+				t.Errorf("error %q does not name the host", msg)
+			}
+			for _, leak := range []string{"user:", "probe-secret", "probe-path", "probe=query"} {
+				if strings.Contains(msg, leak) {
+					t.Errorf("error %q carries %q", msg, leak)
+				}
+			}
+		}
+	})
 }
 
 // Load trims FRONTEND_URL once, so the production value with stray
@@ -218,9 +216,6 @@ func TestLoadBackendOriginTrimsFrontendURL(t *testing.T) {
 	}
 	if got := cfg.BackendOrigin(); got != productionAPI {
 		t.Errorf("BackendOrigin() = %q, want %q", got, productionAPI)
-	}
-	if got := BackendOriginFromEnv(cfg.Email.FrontendURL); got != productionAPI {
-		t.Errorf("BackendOriginFromEnv() = %q, want %q", got, productionAPI)
 	}
 	if want := productionAPI + "/auth/callback/google"; cfg.OAuth.GoogleCallbackURL != want {
 		t.Errorf("GoogleCallbackURL = %q, want %q", cfg.OAuth.GoogleCallbackURL, want)

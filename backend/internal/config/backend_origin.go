@@ -5,7 +5,6 @@ import (
 	"maps"
 	"net"
 	"net/url"
-	"os"
 	"slices"
 	"strings"
 )
@@ -21,7 +20,7 @@ var deployedBackendOrigins = map[string]string{
 
 // loopbackFrontendForm describes, for error messages, the loopback frontends
 // isRecognisedFrontend accepts.
-const loopbackFrontendForm = "an http(s) origin on localhost, 127.0.0.1 or [::1]"
+const loopbackFrontendForm = "(outside production and stage) an http(s) origin on localhost, 127.0.0.1 or [::1]"
 
 // localBackendPort is the port a local backend's origin names when the server
 // address carries none.
@@ -42,12 +41,36 @@ func ResolveBackendOrigin(frontendURL, backendPublicURL, serverAddr string) stri
 	return localBackendOrigin(serverAddr)
 }
 
-// ValidateBackendOrigin returns an error when frontendURL is not a recognised
-// form and backendPublicURL is blank: the one configuration in which every
-// backend-hosted URL would name a local backend that no recipient can reach.
-// The error names the frontend URL's host, never the whole value.
-func ValidateBackendOrigin(frontendURL, backendPublicURL string) error {
-	if normalizeURL(backendPublicURL) != "" || isRecognisedFrontend(frontendURL) {
+// ValidateBackendOrigin returns an error when the inputs to
+// ResolveBackendOrigin would mint backend-hosted URLs that no recipient can
+// use:
+//   - a non-blank backendPublicURL that is not a bare http(s) origin, or that
+//     is a loopback origin while environment is production or stage;
+//   - a blank backendPublicURL with a frontendURL isRecognisedFrontend
+//     refuses for environment.
+//
+// Errors name a URL's host, never the whole value.
+func ValidateBackendOrigin(environment, frontendURL, backendPublicURL string) error {
+	deployedEnvironment := environment == EnvProduction || environment == EnvStage
+
+	if normalizeURL(backendPublicURL) != "" {
+		host, ok := bareOriginHost(backendPublicURL)
+		switch {
+		case !ok:
+			return fmt.Errorf(
+				"%s (%s) is not a bare http(s) origin (scheme://host[:port], no path, query or userinfo), so every backend-hosted link "+
+					"would be malformed; set it to this backend's public origin or unset it",
+				EnvBackendPublicURL, describeHost(backendPublicURL))
+		case deployedEnvironment && isLoopbackHost(host):
+			return fmt.Errorf(
+				"%s (%s) is a loopback origin in %s=%s, so every backend-hosted link would name a local backend; "+
+					"set it to this backend's public origin or unset it",
+				EnvBackendPublicURL, describeHost(backendPublicURL), EnvEnvironment, environment)
+		}
+		return nil
+	}
+
+	if isRecognisedFrontend(frontendURL, deployedEnvironment) {
 		return nil
 	}
 	return fmt.Errorf(
@@ -58,20 +81,16 @@ func ValidateBackendOrigin(frontendURL, backendPublicURL string) error {
 	)
 }
 
-// isRecognisedFrontend reports whether frontendURL is a deployed frontend or
-// an http(s) origin on a loopback host. Surrounding whitespace and trailing
-// slashes are ignored; a path, query, fragment or userinfo makes it
-// unrecognised.
-func isRecognisedFrontend(frontendURL string) bool {
-	_, isDeployed := deployedBackendOrigins[normalizeURL(frontendURL)]
-	return isDeployed || isLoopbackOrigin(frontendURL)
-}
-
-// BackendOriginFromEnv is ResolveBackendOrigin for frontendURL with
-// BACKEND_PUBLIC_URL and API_ADDR read from the environment, the same inputs
-// Load reads, for callers that hold a frontend URL but not a Config.
-func BackendOriginFromEnv(frontendURL string) string {
-	return ResolveBackendOrigin(frontendURL, os.Getenv(EnvBackendPublicURL), serverAddrFromEnv())
+// isRecognisedFrontend reports whether frontendURL is a deployed frontend or,
+// unless deployedEnvironment, an http(s) origin on a loopback host.
+// Surrounding whitespace and trailing slashes are ignored; a path, query,
+// fragment or userinfo makes it unrecognised.
+func isRecognisedFrontend(frontendURL string, deployedEnvironment bool) bool {
+	if _, isDeployed := deployedBackendOrigins[normalizeURL(frontendURL)]; isDeployed {
+		return true
+	}
+	host, ok := bareOriginHost(frontendURL)
+	return ok && !deployedEnvironment && isLoopbackHost(host)
 }
 
 // BackendOrigin is ResolveBackendOrigin for this configuration.
@@ -90,15 +109,20 @@ func normalizeURL(raw string) string {
 	return strings.TrimRight(strings.TrimSpace(raw), "/")
 }
 
-// isLoopbackOrigin reports whether raw, normalized, is a bare http(s) origin
-// whose host is localhost or a loopback IP address.
-func isLoopbackOrigin(raw string) bool {
+// bareOriginHost returns the hostname of raw, normalized, when it is a bare
+// http(s) origin: a scheme and a host, with no userinfo, path, query or
+// fragment.
+func bareOriginHost(raw string) (host string, ok bool) {
 	u, err := url.Parse(normalizeURL(raw))
-	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.User != nil ||
+	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" || u.User != nil ||
 		u.Path != "" || u.RawQuery != "" || u.Fragment != "" || u.Opaque != "" {
-		return false
+		return "", false
 	}
-	host := u.Hostname()
+	return u.Hostname(), true
+}
+
+// isLoopbackHost reports whether host is localhost or a loopback IP address.
+func isLoopbackHost(host string) bool {
 	if host == "localhost" {
 		return true
 	}
