@@ -34,12 +34,28 @@ g() {
   git -C "$FIXTURE" -c commit.gpgsign=false -c core.hooksPath=/dev/null "$@" >/dev/null 2>&1
 }
 
-# migration <version>_<name> <up-sql>: an up/down pair, committed.
+# migration <version>_<name> <up-sql> [down-sql]: an up/down pair, committed.
+# The down migration defaults to SELECT 1;.
 migration() {
   printf '%s\n' "$2" >"$FIXTURE/backend/db/migrations/$1.up.sql"
-  printf 'SELECT 1;\n' >"$FIXTURE/backend/db/migrations/$1.down.sql"
+  printf '%s\n' "${3:-SELECT 1;}" >"$FIXTURE/backend/db/migrations/$1.down.sql"
   g add -A
   g commit -m "$1"
+}
+
+# merged <version>_<name> <up-sql> [down-sql]: the pair committed with main
+# moved to it, so it is part of the base. Call it while feature equals main.
+merged() {
+  migration "$@"
+  g branch -f main HEAD
+}
+
+# edit <file> <sql>: rewrite backend/db/migrations/<file> on the feature
+# branch, committed.
+edit() {
+  printf '%s\n' "$2" >"$FIXTURE/backend/db/migrations/$1"
+  g add -A
+  g commit -m "edit $1"
 }
 
 # entrypoint bound|unbound|commented|bare-url: the runner shapes the gate reads.
@@ -79,8 +95,9 @@ EOF
 }
 
 # Reset the fixture to: main holding the given entrypoint shape and one merged
-# migration that takes a strong lock without lock_timeout (merged files are
-# never re-checked), with a fresh branch checked out on top.
+# migration that takes a strong lock without lock_timeout (a merged file is
+# re-checked only when the branch modifies it), with a fresh branch checked
+# out on top.
 reset_fixture() {
   CASE="$1"
   rm -rf "$FIXTURE"
@@ -132,11 +149,11 @@ refute() {
 # --- runner-level bound absent: strong-lock migrations without their own
 # lock_timeout fail ------------------------------------------------------------
 reset_fixture "no new migrations passes" unbound
-expect 0 "no new up migrations added"
+expect 0 "no up or down migrations added or modified"
 
 reset_fixture "merged strong-lock migration is not re-checked" unbound
 migration "20260901000000_select_only" "SELECT 1;"
-expect 0 "every new strong-lock migration sets its own lock_timeout"
+expect 0 "every added or modified strong-lock migration sets its own lock_timeout"
 
 reset_fixture "unbound: ALTER TABLE without lock_timeout fails" unbound
 migration "20260901000000_widen" "ALTER TABLE webauthn_credentials ALTER COLUMN sign_count TYPE BIGINT;"
@@ -149,7 +166,7 @@ expect 1 "SET LOCAL lock_timeout = '5s'; before the first locking statement"
 reset_fixture "unbound: SET LOCAL lock_timeout passes" unbound
 migration "20260901000000_widen" "SET LOCAL lock_timeout = '5s';
 ALTER TABLE t ALTER COLUMN c TYPE BIGINT;"
-expect 0 "every new strong-lock migration sets its own lock_timeout"
+expect 0 "every added or modified strong-lock migration sets its own lock_timeout"
 
 reset_fixture "unbound: LOCK TABLE fails" unbound
 migration "20260901000000_lock" "LOCK TABLE user_bookmarks IN SHARE ROW EXCLUSIVE MODE;"
@@ -169,7 +186,7 @@ expect 1 "CREATE INDEX without CONCURRENTLY"
 
 reset_fixture "unbound: CREATE INDEX CONCURRENTLY passes" unbound
 migration "20260901000000_idx" "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_t_c ON t (c);"
-expect 0 "every new strong-lock migration sets its own lock_timeout"
+expect 0 "every added or modified strong-lock migration sets its own lock_timeout"
 
 reset_fixture "unbound: a plain CREATE INDEX beside a CONCURRENTLY one fails" unbound
 migration "20260901000000_idx" "CREATE INDEX CONCURRENTLY idx_t_a ON t (a);
@@ -190,18 +207,73 @@ expect 1 "takes a strong lock (ALTER TABLE, DROP TABLE, CREATE INDEX without CON
 reset_fixture "unbound: ALTER TABLE only inside a comment passes" unbound
 migration "20260901000000_note" "-- ALTER TABLE t is done in the next migration.
 SELECT 1;"
-expect 0 "every new strong-lock migration sets its own lock_timeout"
+expect 0 "every added or modified strong-lock migration sets its own lock_timeout"
 
 reset_fixture "unbound: lock_timeout only inside a comment fails" unbound
 migration "20260901000000_widen" "-- lock_timeout is set by the runner.
 ALTER TABLE t ALTER COLUMN c TYPE BIGINT;"
 expect 1 "20260901000000_widen.up.sql"
 
-reset_fixture "unbound: a strong lock only in down.sql passes" unbound
-printf 'SELECT 1;\n' >"$FIXTURE/backend/db/migrations/20260901000000_add.up.sql"
-printf 'DROP TABLE t;\n' >"$FIXTURE/backend/db/migrations/20260901000000_add.down.sql"
-g add -A && g commit -m "down only"
-expect 0 "every new strong-lock migration sets its own lock_timeout"
+# --- down migrations and modified migrations are read like added up ones ------
+reset_fixture "unbound: a strong lock only in an added down.sql fails" unbound
+migration "20260901000000_add" "SELECT 1;" "DROP TABLE t;"
+expect 1 "ERROR: backend/db/migrations/20260901000000_add.down.sql takes a strong lock (DROP TABLE) and sets no lock_timeout."
+refute "20260901000000_add.up.sql"
+
+reset_fixture "unbound: an added down.sql with SET LOCAL lock_timeout passes" unbound
+migration "20260901000000_add" "SELECT 1;" "SET LOCAL lock_timeout = '5s';
+DROP TABLE t;"
+expect 0 "every added or modified strong-lock migration sets its own lock_timeout"
+
+reset_fixture "bound: a strong lock in an added down.sql warns that boot never runs it" bound
+migration "20260901000000_add" "SELECT 1;" "ALTER TABLE t DROP COLUMN c;"
+expect 0 "WARNING: backend/db/migrations/20260901000000_add.down.sql takes a strong lock (ALTER TABLE) and sets no lock_timeout. backend/docker-entrypoint.sh never runs a down migration; a manual migrate down run is unbounded."
+refute "bounds it at boot"
+
+reset_fixture "unbound: removing lock_timeout from a merged up migration fails" unbound
+merged "20260901000000_widen" "SET LOCAL lock_timeout = '5s';
+ALTER TABLE t ALTER COLUMN c TYPE BIGINT;"
+edit "20260901000000_widen.up.sql" "ALTER TABLE t ALTER COLUMN c TYPE BIGINT;"
+expect 1 "ERROR: backend/db/migrations/20260901000000_widen.up.sql takes a strong lock (ALTER TABLE) and sets no lock_timeout."
+
+reset_fixture "bound: removing lock_timeout from a merged up migration warns" bound
+merged "20260901000000_widen" "SET LOCAL lock_timeout = '5s';
+ALTER TABLE t ALTER COLUMN c TYPE BIGINT;"
+edit "20260901000000_widen.up.sql" "ALTER TABLE t ALTER COLUMN c TYPE BIGINT;"
+expect 0 "WARNING: backend/db/migrations/20260901000000_widen.up.sql takes a strong lock (ALTER TABLE) and sets no lock_timeout. backend/docker-entrypoint.sh bounds it at boot"
+
+reset_fixture "unbound: an edit that keeps a merged migration's lock_timeout passes" unbound
+merged "20260901000000_widen" "SET LOCAL lock_timeout = '5s';
+ALTER TABLE t ALTER COLUMN c TYPE BIGINT;"
+edit "20260901000000_widen.up.sql" "-- Widen c.
+SET LOCAL lock_timeout = '5s';
+ALTER TABLE t ALTER COLUMN c TYPE BIGINT;"
+expect 0 "every added or modified strong-lock migration sets its own lock_timeout"
+
+reset_fixture "unbound: a modified migration is read whole, not just its changed lines" unbound
+edit "20260801000000_merged_alter.up.sql" "-- Adds c.
+ALTER TABLE t ADD COLUMN c int;"
+expect 1 "20260801000000_merged_alter.up.sql takes a strong lock (ALTER TABLE)"
+
+reset_fixture "unbound: a strong lock edited into a merged down.sql fails" unbound
+edit "20260801000000_merged_alter.down.sql" "ALTER TABLE t DROP COLUMN c;"
+expect 1 "ERROR: backend/db/migrations/20260801000000_merged_alter.down.sql takes a strong lock (ALTER TABLE)"
+refute "20260801000000_merged_alter.up.sql"
+
+reset_fixture "unbound: a renamed migration is read as added" unbound
+g mv backend/db/migrations/20260801000000_merged_alter.up.sql backend/db/migrations/20260901000000_renamed.up.sql
+g commit -m "rename"
+expect 1 "20260901000000_renamed.up.sql takes a strong lock (ALTER TABLE)"
+
+reset_fixture "unbound: a deleted migration is not read" unbound
+g rm backend/db/migrations/20260801000000_merged_alter.up.sql backend/db/migrations/20260801000000_merged_alter.down.sql
+g commit -m "delete"
+expect 0 "no up or down migrations added or modified"
+
+reset_fixture "a changed migration missing from the working tree fails closed" bound
+migration "20260901000000_add" "SELECT 1;"
+rm "$FIXTURE/backend/db/migrations/20260901000000_add.down.sql"
+expect 1 "20260901000000_add.down.sql differs from main on HEAD but is not readable in the working tree."
 
 # --- block comments are stripped like line comments, and nest as in Postgres --
 reset_fixture "unbound: lock_timeout only inside a block comment fails" unbound
@@ -225,7 +297,7 @@ reset_fixture "unbound: ALTER TABLE only inside a block comment passes" unbound
 migration "20260901000000_note" "/* ALTER TABLE t is done
    in the next migration. */
 SELECT 1;"
-expect 0 "every new strong-lock migration sets its own lock_timeout"
+expect 0 "every added or modified strong-lock migration sets its own lock_timeout"
 
 reset_fixture "unbound: '--' inside a block comment does not hide what follows" unbound
 migration "20260901000000_widen" "/* -- note */ ALTER TABLE t ALTER COLUMN c TYPE BIGINT;"
@@ -280,7 +352,7 @@ expect 1 "20260901000000_widen.up.sql"
 reset_fixture "unbound: SET LOCAL lock_timeout after a block comment passes" unbound
 migration "20260901000000_widen" "/* widen */ SET LOCAL lock_timeout = '5s';
 ALTER TABLE t ALTER COLUMN c TYPE BIGINT;"
-expect 0 "every new strong-lock migration sets its own lock_timeout"
+expect 0 "every added or modified strong-lock migration sets its own lock_timeout"
 
 # --- CREATE INDEX CONCURRENTLY IF NOT EXISTS fails in both modes for a new
 # migration, and only warns for one at or below the pinned version -----------
@@ -353,14 +425,14 @@ refute "::error"
 
 reset_fixture "unbound: CONCURRENTLY without IF NOT EXISTS passes" unbound
 migration "${NEWER}_idx" "CREATE INDEX CONCURRENTLY idx_t_c ON t (c);"
-expect 0 "every new strong-lock migration sets its own lock_timeout"
+expect 0 "every added or modified strong-lock migration sets its own lock_timeout"
 refute "WARNING"
 refute "ERROR"
 
 reset_fixture "bound: the drop-then-create pair passes" bound
 migration "${NEWER}_drop_idx" "DROP INDEX CONCURRENTLY IF EXISTS idx_t_c;"
 migration "$((NEWER + 1))_create_idx" "CREATE INDEX CONCURRENTLY idx_t_c ON t (c);"
-expect 0 "every new strong-lock migration sets its own lock_timeout"
+expect 0 "every added or modified strong-lock migration sets its own lock_timeout"
 refute "WARNING"
 refute "ERROR"
 
@@ -368,23 +440,42 @@ reset_fixture "unbound: CONCURRENTLY IF NOT EXISTS only inside comments passes" 
 migration "${NEWER}_idx" "/* CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_t_c ON t (c); */
 -- CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_t_d ON t (d);
 SELECT 1;"
-expect 0 "every new strong-lock migration sets its own lock_timeout"
+expect 0 "every added or modified strong-lock migration sets its own lock_timeout"
 refute "WARNING"
 refute "ERROR"
 
-# Every migration in the repository that uses the spelling is at or below the
-# pinned version, so none of them would be refused if it were added again.
+reset_fixture "bound: a new CONCURRENTLY IF NOT EXISTS in an added down.sql fails" bound
+migration "${NEWER}_drop_idx" "DROP INDEX CONCURRENTLY IF EXISTS idx_t_c;" \
+  "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_t_c ON t (c);"
+expect 1 "ERROR: backend/db/migrations/${NEWER}_drop_idx.down.sql $CIC_HAZARD $CIC_CONVENTION"
+refute "${NEWER}_drop_idx.up.sql"
+
+reset_fixture "bound: a down.sql at the pinned version only warns" bound
+migration "${PINNED}_drop_idx" "DROP INDEX CONCURRENTLY IF EXISTS idx_t_c;" \
+  "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_t_c ON t (c);"
+expect 0 "WARNING: backend/db/migrations/${PINNED}_drop_idx.down.sql $CIC_HAZARD It predates the rule"
+refute "ERROR"
+
+reset_fixture "bound: IF NOT EXISTS edited into a merged CONCURRENTLY migration fails" bound
+merged "${NEWER}_idx" "CREATE INDEX CONCURRENTLY idx_t_c ON t (c);"
+edit "${NEWER}_idx.up.sql" "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_t_c ON t (c);"
+expect 1 "ERROR: backend/db/migrations/${NEWER}_idx.up.sql $CIC_HAZARD"
+
+# Every migration in the repository, up or down, that uses the spelling is at
+# or below the pinned version, so none of them would be refused if it were
+# added or edited again. A raw grep for the word CONCURRENTLY picks every file
+# the spelling can appear in, so only those are folded.
 CASE="repository: every CONCURRENTLY IF NOT EXISTS migration is grandfathered"
 REPO_CIC_FILES=0
-for repo_up in "$SCRIPT_DIR"/../backend/db/migrations/*.up.sql; do
-  if cic_if_not_exists_in "$(sql_folded "$repo_up")"; then
+while IFS= read -r repo_sql; do
+  if cic_if_not_exists_in "$(sql_folded "$repo_sql")"; then
     REPO_CIC_FILES=$((REPO_CIC_FILES + 1))
-    if ! cic_grandfathered "$repo_up"; then
-      echo "FAIL [$CASE]: ${repo_up##*/} is not grandfathered (above $PINNED)"
+    if ! cic_grandfathered "$repo_sql"; then
+      echo "FAIL [$CASE]: ${repo_sql##*/} is not grandfathered (above $PINNED)"
       FAILURES=$((FAILURES + 1))
     fi
   fi
-done
+done < <(grep -liE 'concurrently' "$SCRIPT_DIR"/../backend/db/migrations/*.up.sql "$SCRIPT_DIR"/../backend/db/migrations/*.down.sql)
 if [ "$REPO_CIC_FILES" -eq 0 ]; then
   echo "FAIL [$CASE]: found no migration using the spelling; the scan is not reading the repository"
   FAILURES=$((FAILURES + 1))
