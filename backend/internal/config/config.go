@@ -312,7 +312,7 @@ func Load() (*Config, error) {
 	serverAddr := serverAddrFromEnv()
 	backendPublicURL := os.Getenv(EnvBackendPublicURL)
 	frontendURL := getFrontendURL()
-	backendURL, _ := ResolveBackendOrigin(frontendURL, backendPublicURL, serverAddr)
+	backendURL := ResolveBackendOrigin(frontendURL, backendPublicURL, serverAddr)
 
 	cfg := &Config{
 		Server: ServerConfig{

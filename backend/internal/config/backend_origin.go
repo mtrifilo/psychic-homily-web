@@ -2,9 +2,11 @@ package config
 
 import (
 	"fmt"
+	"maps"
 	"net"
 	"net/url"
 	"os"
+	"slices"
 	"strings"
 )
 
@@ -17,10 +19,9 @@ var deployedBackendOrigins = map[string]string{
 	"https://stage.psychichomily.com": "https://stage.api.psychichomily.com",
 }
 
-// recognisedFrontendForms lists, for error messages, the FRONTEND_URL forms
-// ResolveBackendOrigin recognises.
-const recognisedFrontendForms = "https://psychichomily.com, https://www.psychichomily.com, " +
-	"https://stage.psychichomily.com, or an http(s) origin on localhost, 127.0.0.1 or [::1]"
+// loopbackFrontendForm describes, for error messages, the loopback frontends
+// isRecognisedFrontend accepts.
+const loopbackFrontendForm = "an http(s) origin on localhost, 127.0.0.1 or [::1]"
 
 // localBackendPort is the port a local backend's origin names when the server
 // address carries none.
@@ -28,56 +29,54 @@ const localBackendPort = "8080"
 
 // ResolveBackendOrigin returns the public origin of this backend, the base of
 // every backend-hosted URL it hands out (email unsubscribe links, the calendar
-// feed, OAuth callbacks), and reports whether frontendURL is a recognised form.
-//
-// A non-blank backendPublicURL wins. Otherwise a deployed frontend maps to its
-// API host, and anything else resolves to http://localhost on serverAddr's
-// port (8080 when it names none). A frontend URL is recognised when it is a
-// deployed frontend or an http(s) origin on a loopback host; surrounding
-// whitespace and trailing slashes are ignored, and a path, query, fragment or
-// userinfo makes it unrecognised.
-func ResolveBackendOrigin(frontendURL, backendPublicURL, serverAddr string) (origin string, recognised bool) {
-	deployedOrigin, isDeployed := deployedBackendOrigins[normalizeURL(frontendURL)]
-	recognised = isDeployed || isLoopbackOrigin(frontendURL)
-
-	switch override := normalizeURL(backendPublicURL); {
-	case override != "":
-		return override, recognised
-	case isDeployed:
-		return deployedOrigin, recognised
-	default:
-		return localBackendOrigin(serverAddr), recognised
+// feed, OAuth callbacks). A non-blank backendPublicURL wins. Otherwise a
+// deployed frontend maps to its API host, and anything else resolves to
+// http://localhost on serverAddr's port (8080 when it names none).
+func ResolveBackendOrigin(frontendURL, backendPublicURL, serverAddr string) string {
+	if override := normalizeURL(backendPublicURL); override != "" {
+		return override
 	}
+	if deployedOrigin, ok := deployedBackendOrigins[normalizeURL(frontendURL)]; ok {
+		return deployedOrigin
+	}
+	return localBackendOrigin(serverAddr)
 }
 
-// ValidateBackendOrigin returns an error when frontendURL is not a form
-// ResolveBackendOrigin recognises and backendPublicURL is blank: the one
-// configuration in which every backend-hosted URL would name a local backend
-// that no recipient can reach. The error names the frontend URL's host, never
-// the whole value.
+// ValidateBackendOrigin returns an error when frontendURL is not a recognised
+// form and backendPublicURL is blank: the one configuration in which every
+// backend-hosted URL would name a local backend that no recipient can reach.
+// The error names the frontend URL's host, never the whole value.
 func ValidateBackendOrigin(frontendURL, backendPublicURL string) error {
-	if _, recognised := ResolveBackendOrigin(frontendURL, backendPublicURL, ""); recognised || normalizeURL(backendPublicURL) != "" {
+	if normalizeURL(backendPublicURL) != "" || isRecognisedFrontend(frontendURL) {
 		return nil
 	}
 	return fmt.Errorf(
 		"%s (%s) is not a recognised frontend, so backend-hosted links (email unsubscribe links, the calendar feed, OAuth callbacks) "+
-			"cannot name this backend's public origin; set %s to one of %s, or set %s to this backend's public origin",
-		EnvFrontendURL, describeHost(frontendURL), EnvFrontendURL, recognisedFrontendForms, EnvBackendPublicURL,
+			"cannot name this backend's public origin; set %s to one of %s, or %s, or set %s to this backend's public origin",
+		EnvFrontendURL, describeHost(frontendURL), EnvFrontendURL,
+		strings.Join(slices.Sorted(maps.Keys(deployedBackendOrigins)), ", "), loopbackFrontendForm, EnvBackendPublicURL,
 	)
 }
 
-// BackendOriginFromEnv is ResolveBackendOrigin's origin for frontendURL with
+// isRecognisedFrontend reports whether frontendURL is a deployed frontend or
+// an http(s) origin on a loopback host. Surrounding whitespace and trailing
+// slashes are ignored; a path, query, fragment or userinfo makes it
+// unrecognised.
+func isRecognisedFrontend(frontendURL string) bool {
+	_, isDeployed := deployedBackendOrigins[normalizeURL(frontendURL)]
+	return isDeployed || isLoopbackOrigin(frontendURL)
+}
+
+// BackendOriginFromEnv is ResolveBackendOrigin for frontendURL with
 // BACKEND_PUBLIC_URL and API_ADDR read from the environment, the same inputs
 // Load reads, for callers that hold a frontend URL but not a Config.
 func BackendOriginFromEnv(frontendURL string) string {
-	origin, _ := ResolveBackendOrigin(frontendURL, os.Getenv(EnvBackendPublicURL), serverAddrFromEnv())
-	return origin
+	return ResolveBackendOrigin(frontendURL, os.Getenv(EnvBackendPublicURL), serverAddrFromEnv())
 }
 
-// BackendOrigin is ResolveBackendOrigin's origin for this configuration.
+// BackendOrigin is ResolveBackendOrigin for this configuration.
 func (c *Config) BackendOrigin() string {
-	origin, _ := ResolveBackendOrigin(c.Email.FrontendURL, c.Server.BackendPublicURL, c.Server.Addr)
-	return origin
+	return ResolveBackendOrigin(c.Email.FrontendURL, c.Server.BackendPublicURL, c.Server.Addr)
 }
 
 // serverAddrFromEnv returns API_ADDR, or the default listen address when it

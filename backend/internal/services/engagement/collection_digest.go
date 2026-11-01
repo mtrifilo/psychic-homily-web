@@ -76,16 +76,9 @@ func NewCollectionDigestService(database *gorm.DB, emailService contracts.EmailS
 		stopCh:       make(chan struct{}),
 		logger:       slog.Default(),
 		frontendURL:  cfg.Email.FrontendURL,
-		backendURL:   DeriveBackendURL(cfg.Email.FrontendURL),
+		backendURL:   cfg.BackendOrigin(),
 		jwtSecret:    cfg.JWT.SecretKey,
 	}
-}
-
-// DeriveBackendURL returns the public origin of this backend for a frontend
-// URL, as config.BackendOriginFromEnv resolves it. Services that mint
-// backend-hosted unsubscribe URLs share it.
-func DeriveBackendURL(frontendURL string) string {
-	return config.BackendOriginFromEnv(frontendURL)
 }
 
 // Start begins the background digest job.

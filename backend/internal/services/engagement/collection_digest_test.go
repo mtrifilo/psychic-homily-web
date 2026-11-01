@@ -157,27 +157,17 @@ func TestCollectionDigestService_Construction_EnvOverride(t *testing.T) {
 	assert.Equal(t, 6*time.Hour, svc.interval, "env override should be applied")
 }
 
-// DeriveBackendURL reads BACKEND_PUBLIC_URL and API_ADDR from the
-// environment; the resolution table itself is config.ResolveBackendOrigin's.
-func TestDeriveBackendURL(t *testing.T) {
-	tests := []struct {
-		name             string
-		frontendURL      string
-		backendPublicURL string
-		apiAddr          string
-		want             string
-	}{
-		{"production www frontend", "https://www.psychichomily.com", "", "0.0.0.0:8080", "https://api.psychichomily.com"},
-		{"local frontend on the listen port", "http://localhost:3000", "", "localhost:63516", "http://localhost:63516"},
-		{"BACKEND_PUBLIC_URL wins", "https://www.psychichomily.com", "http://localhost:61001", "0.0.0.0:8080", "http://localhost:61001"},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Setenv(config.EnvBackendPublicURL, tt.backendPublicURL)
-			t.Setenv(config.EnvAPIAddr, tt.apiAddr)
-			assert.Equal(t, tt.want, DeriveBackendURL(tt.frontendURL))
-		})
-	}
+// The unsubscribe links are minted on the backend origin the config resolves.
+func TestCollectionDigestService_Construction_BackendOrigin(t *testing.T) {
+	cfg := &config.Config{}
+	cfg.Email.FrontendURL = "https://www.psychichomily.com"
+	cfg.Server.Addr = "0.0.0.0:8080"
+	svc := NewCollectionDigestService(&gorm.DB{}, nil, cfg)
+	assert.Equal(t, "https://api.psychichomily.com", svc.backendURL)
+
+	cfg.Server.BackendPublicURL = "http://localhost:61001"
+	svc = NewCollectionDigestService(&gorm.DB{}, nil, cfg)
+	assert.Equal(t, "http://localhost:61001", svc.backendURL)
 }
 
 // =============================================================================

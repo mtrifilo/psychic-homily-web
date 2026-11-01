@@ -61,10 +61,12 @@ func TestResolveBackendOrigin(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			origin, recognised := ResolveBackendOrigin(tt.frontendURL, tt.backendPublicURL, tt.serverAddr)
-			if origin != tt.wantOrigin || recognised != tt.wantRecognised {
-				t.Errorf("ResolveBackendOrigin(%q, %q, %q) = (%q, %v), want (%q, %v)",
-					tt.frontendURL, tt.backendPublicURL, tt.serverAddr, origin, recognised, tt.wantOrigin, tt.wantRecognised)
+			if origin := ResolveBackendOrigin(tt.frontendURL, tt.backendPublicURL, tt.serverAddr); origin != tt.wantOrigin {
+				t.Errorf("ResolveBackendOrigin(%q, %q, %q) = %q, want %q",
+					tt.frontendURL, tt.backendPublicURL, tt.serverAddr, origin, tt.wantOrigin)
+			}
+			if recognised := isRecognisedFrontend(tt.frontendURL); recognised != tt.wantRecognised {
+				t.Errorf("isRecognisedFrontend(%q) = %v, want %v", tt.frontendURL, recognised, tt.wantRecognised)
 			}
 		})
 	}
@@ -96,8 +98,8 @@ func TestValidateBackendOrigin(t *testing.T) {
 		err := ValidateBackendOrigin("https://example.invalid", "")
 		want := `FRONTEND_URL (host "example.invalid") is not a recognised frontend, so backend-hosted links ` +
 			`(email unsubscribe links, the calendar feed, OAuth callbacks) cannot name this backend's public origin; ` +
-			`set FRONTEND_URL to one of https://psychichomily.com, https://www.psychichomily.com, ` +
-			`https://stage.psychichomily.com, or an http(s) origin on localhost, 127.0.0.1 or [::1], ` +
+			`set FRONTEND_URL to one of https://psychichomily.com, https://stage.psychichomily.com, ` +
+			`https://www.psychichomily.com, or an http(s) origin on localhost, 127.0.0.1 or [::1], ` +
 			`or set BACKEND_PUBLIC_URL to this backend's public origin`
 		if err == nil || err.Error() != want {
 			t.Errorf("ValidateBackendOrigin error = %v\nwant %s", err, want)
@@ -163,12 +165,32 @@ func TestResolveBackendOriginRailwayTemplates(t *testing.T) {
 			if frontendURL == "" {
 				t.Fatal("template has no FRONTEND_URL line")
 			}
-			origin, recognised := ResolveBackendOrigin(frontendURL, "", "0.0.0.0:8080")
-			if !recognised || origin != want {
-				t.Errorf("FRONTEND_URL %q resolves to (%q, %v), want (%q, true)", frontendURL, origin, recognised, want)
+			if origin := ResolveBackendOrigin(frontendURL, "", "0.0.0.0:8080"); origin != want {
+				t.Errorf("FRONTEND_URL %q resolves to %q, want %q", frontendURL, origin, want)
 			}
 			if err := ValidateBackendOrigin(frontendURL, ""); err != nil {
 				t.Errorf("ValidateBackendOrigin(%q) = %v, want nil", frontendURL, err)
+			}
+		})
+	}
+}
+
+// BackendOriginFromEnv reads BACKEND_PUBLIC_URL and API_ADDR as Load does.
+func TestBackendOriginFromEnv(t *testing.T) {
+	tests := []struct {
+		name, frontendURL, backendPublicURL, apiAddr, want string
+	}{
+		{"production www frontend", "https://www.psychichomily.com", "", "0.0.0.0:8080", productionAPI},
+		{"local frontend on the listen port", "http://localhost:3000", "", "localhost:63516", "http://localhost:63516"},
+		{"local frontend with API_ADDR unset", "http://localhost:3000", "", "", "http://localhost:8080"},
+		{"BACKEND_PUBLIC_URL wins", "https://www.psychichomily.com", "http://localhost:61001", "0.0.0.0:8080", "http://localhost:61001"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv(EnvBackendPublicURL, tt.backendPublicURL)
+			t.Setenv(EnvAPIAddr, tt.apiAddr)
+			if got := BackendOriginFromEnv(tt.frontendURL); got != tt.want {
+				t.Errorf("BackendOriginFromEnv(%q) = %q, want %q", tt.frontendURL, got, tt.want)
 			}
 		})
 	}
