@@ -78,12 +78,17 @@ export function SetPassword({
           {description && <CardDescription>{description}</CardDescription>}
         </CardHeader>
         <CardContent>
-          <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <p className="text-sm">
               Add one to also sign in with your email and password. Your other devices stay signed
               in.
             </p>
-            <Button variant="outline" size="sm" onClick={() => setOpen(true)}>
+            <Button
+              variant="outline"
+              size="sm"
+              className="shrink-0 self-start sm:self-auto"
+              onClick={() => setOpen(true)}
+            >
               Set a password
             </Button>
           </div>
