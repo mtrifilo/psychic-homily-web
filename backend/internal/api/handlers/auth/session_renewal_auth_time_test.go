@@ -21,7 +21,7 @@ func TestRefreshTokenHandler_PassesTheSessionsAuthTimeThrough(t *testing.T) {
 	h := authHandler(func(ah *AuthHandler) {
 		ah.authService = &testhelpers.MockAuthService{
 			GetUserProfileFn: func(userID uint) (*authm.User, error) {
-				return &authm.User{ID: userID}, nil
+				return &authm.User{ID: userID, IsActive: true}, nil
 			},
 			RefreshUserTokenFn: func(user *authm.User, a time.Time) (string, error) {
 				called, got = true, a
@@ -53,7 +53,7 @@ func TestRefreshTokenHandler_LegacySessionRenewsWithNoAuthTime(t *testing.T) {
 	h := authHandler(func(ah *AuthHandler) {
 		ah.authService = &testhelpers.MockAuthService{
 			GetUserProfileFn: func(userID uint) (*authm.User, error) {
-				return &authm.User{ID: userID}, nil
+				return &authm.User{ID: userID, IsActive: true}, nil
 			},
 			RefreshUserTokenFn: func(user *authm.User, a time.Time) (string, error) {
 				called, got = true, a

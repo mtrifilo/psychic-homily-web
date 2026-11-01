@@ -182,7 +182,7 @@ func (h *OAuthHTTPHandler) OAuthLinkHTTPHandler(w http.ResponseWriter, r *http.R
 	// stays legible and in one place.
 	// hasPasskey is false: see the KNOWN GAP on middleware.ReauthFactorFor.
 	sessionAuthAt := middleware.GetSessionAuthTimeFromContext(ctx)
-	if factor := middleware.ReauthFactorFor(middleware.AccountHasPassword(user), false, sessionAuthAt, time.Now()); factor != middleware.ReauthAlreadySatisfied {
+	if factor := middleware.ReauthFactorFor(user.HasPassword(), false, sessionAuthAt, time.Now()); factor != middleware.ReauthAlreadySatisfied {
 		logger.AuthWarn(ctx, "oauth_link_refused_stale_session",
 			"provider", provider,
 			"user_id", user.ID,

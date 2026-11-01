@@ -112,20 +112,20 @@ func TestCollectionVisibilitySpellingsAgree(t *testing.T) {
 					t.Errorf("VisibleCollectionPredicateSQL for %s matched %d rows, want visible=%v", v.name, got, want)
 				}
 
-				existsSQL, existsArgs := shared.VisibleCollectionExistsSQL("e.entity_id", v.viewer)
+				existsSQL, existsArgs := shared.ServedCollectionExistsSQL("e.entity_id", v.viewer)
 				if got := countEntityRowMatching(t, td.DB, shared.CommentEntityTypeCollection, collection.ID, existsSQL, existsArgs); (got > 0) != want {
-					t.Errorf("VisibleCollectionExistsSQL for %s matched %d rows, want visible=%v", v.name, got, want)
+					t.Errorf("ServedCollectionExistsSQL for %s matched %d rows, want visible=%v", v.name, got, want)
 				}
 
-				entitySQL, entityArgs := shared.VisibleCollectionCommentEntitySQL("e.entity_type", "e.entity_id", v.viewer)
+				entitySQL, entityArgs := shared.ServedCollectionCommentEntitySQL("e.entity_type", "e.entity_id", v.viewer)
 				if got := countEntityRowMatching(t, td.DB, shared.CommentEntityTypeCollection, collection.ID, entitySQL, entityArgs); (got > 0) != want {
-					t.Errorf("VisibleCollectionCommentEntitySQL for %s matched %d rows, want visible=%v", v.name, got, want)
+					t.Errorf("ServedCollectionCommentEntitySQL for %s matched %d rows, want visible=%v", v.name, got, want)
 				}
 				// A row naming a SHOW with the same id must pass the collection
 				// arm untouched. Without this the arm could be gating on the id
 				// alone and the matrix would never notice.
 				if got := countEntityRowMatching(t, td.DB, shared.CommentEntityTypeShow, collection.ID, entitySQL, entityArgs); got != 1 {
-					t.Errorf("VisibleCollectionCommentEntitySQL withheld a SHOW-typed row from %s", v.name)
+					t.Errorf("ServedCollectionCommentEntitySQL withheld a SHOW-typed row from %s", v.name)
 				}
 
 				// The composite. Its allowlist arm and its show arm are exercised
@@ -151,7 +151,7 @@ func TestCollectionVisibilitySpellingsAgree(t *testing.T) {
 				{"a stranger", strangerID, false},
 				{"an admin", adminID, false},
 			}
-			recipientSQL, recipientArgs := shared.VisibleCollectionRecipientsSQL(collection.ID, "users.id")
+			recipientSQL, recipientArgs := shared.ServedCollectionRecipientsSQL(collection.ID, "users.id")
 			// The both-columns form, which the digest cycle splices into a query
 			// that already joins the collection and the subscriber. It is the
 			// predicate the EXISTS above wraps, so a disagreement here means the
@@ -160,7 +160,7 @@ func TestCollectionVisibilitySpellingsAgree(t *testing.T) {
 			for _, r := range recipients {
 				want := wantCollectionVisible(c, r.isSelf)
 				if got := countUsersMatching(t, td.DB, r.userID, recipientSQL, recipientArgs); (got > 0) != want {
-					t.Errorf("VisibleCollectionRecipientsSQL for %s matched %d rows, want visible=%v", r.name, got, want)
+					t.Errorf("ServedCollectionRecipientsSQL for %s matched %d rows, want visible=%v", r.name, got, want)
 				}
 				if got := countCollectionUserPairsMatching(t, td.DB, collection.ID, r.userID, pairSQL); (got > 0) != want {
 					t.Errorf("VisibleCollectionRecipientPredicateSQL for %s matched %d rows, want visible=%v", r.name, got, want)
@@ -173,9 +173,9 @@ func TestCollectionVisibilitySpellingsAgree(t *testing.T) {
 			itemID := createCollectionItem(t, td.DB, collection.ID, creator)
 			for _, v := range viewers {
 				want := wantCollectionVisible(c, v.isSelf)
-				itemSQL, itemArgs := shared.VisibleCollectionItemExistsSQL("e.entity_id", v.viewer)
+				itemSQL, itemArgs := shared.ServedCollectionItemExistsSQL("e.entity_id", v.viewer)
 				if got := countEntityRowMatching(t, td.DB, shared.CommentEntityTypeCollection, itemID, itemSQL, itemArgs); (got > 0) != want {
-					t.Errorf("VisibleCollectionItemExistsSQL for %s matched %d rows, want visible=%v", v.name, got, want)
+					t.Errorf("ServedCollectionItemExistsSQL for %s matched %d rows, want visible=%v", v.name, got, want)
 				}
 
 				// The TEXT-ID and SLUG spellings, which read their reference out
@@ -183,14 +183,14 @@ func TestCollectionVisibilitySpellingsAgree(t *testing.T) {
 				// column. Same truth table, evaluated in the shape the
 				// contributions timeline evaluates them in: a text expression
 				// beside the enclosing query.
-				textSQL, textArgs := shared.VisibleCollectionTextIDExistsSQL("meta.value", v.viewer)
+				textSQL, textArgs := shared.ServedCollectionTextIDExistsSQL("meta.value", v.viewer)
 				if got := countTextExprMatching(t, td.DB, fmt.Sprint(collection.ID), textSQL, textArgs); (got > 0) != want {
-					t.Errorf("VisibleCollectionTextIDExistsSQL for %s matched %d rows, want visible=%v",
+					t.Errorf("ServedCollectionTextIDExistsSQL for %s matched %d rows, want visible=%v",
 						v.name, got, want)
 				}
-				slugSQL, slugArgs := shared.VisibleCollectionSlugExistsSQL("meta.value", v.viewer)
+				slugSQL, slugArgs := shared.ServedCollectionSlugExistsSQL("meta.value", v.viewer)
 				if got := countTextExprMatching(t, td.DB, collection.Slug, slugSQL, slugArgs); (got > 0) != want {
-					t.Errorf("VisibleCollectionSlugExistsSQL for %s matched %d rows, want visible=%v",
+					t.Errorf("ServedCollectionSlugExistsSQL for %s matched %d rows, want visible=%v",
 						v.name, got, want)
 				}
 			}
@@ -221,9 +221,9 @@ func TestCollectionVisibilityFailsClosedOnAMissingCollection(t *testing.T) {
 		if shared.CollectionVisibleTo(td.DB, absent, v.viewer) {
 			t.Errorf("a collection that does not exist answered visible to %s", v.name)
 		}
-		existsSQL, existsArgs := shared.VisibleCollectionExistsSQL("e.entity_id", v.viewer)
+		existsSQL, existsArgs := shared.ServedCollectionExistsSQL("e.entity_id", v.viewer)
 		if got := countEntityRowMatching(t, td.DB, shared.CommentEntityTypeCollection, absent, existsSQL, existsArgs); got != 0 {
-			t.Errorf("VisibleCollectionExistsSQL matched a missing collection for %s", v.name)
+			t.Errorf("ServedCollectionExistsSQL matched a missing collection for %s", v.name)
 		}
 	}
 }
@@ -244,7 +244,7 @@ func TestCollectionVisibilityFailsClosedWithoutADatabase(t *testing.T) {
 		t.Error("a nil database answered visible")
 	}
 	var svc *shared.ShowVisibilityService
-	if svc.CollectionVisibleTo(1, contracts.ShowViewer{UserID: 5}) {
+	if svc.CollectionServedTo(1, contracts.ShowViewer{UserID: 5}) {
 		t.Error("a nil ShowVisibilityService answered visible for a collection")
 	}
 }
@@ -326,7 +326,7 @@ func TestVisibleCollectionTextIDIsTotalOverItsInput(t *testing.T) {
 		"Text ID Total", "text-id-total", true)
 
 	viewer := contracts.ShowViewer{UserID: creator.ID}
-	cond, args := shared.VisibleCollectionTextIDExistsSQL("meta.value", viewer)
+	cond, args := shared.ServedCollectionTextIDExistsSQL("meta.value", viewer)
 
 	for _, value := range []string{
 		"",

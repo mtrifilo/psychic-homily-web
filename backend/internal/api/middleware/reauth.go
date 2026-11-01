@@ -10,7 +10,6 @@ import (
 	"psychic-homily-backend/internal/config"
 	autherrors "psychic-homily-backend/internal/errors"
 	"psychic-homily-backend/internal/logger"
-	authm "psychic-homily-backend/internal/models/auth"
 )
 
 // This rule lives beside the session-credential readers it asks, and NOT in
@@ -101,11 +100,6 @@ func ReauthFactorFor(hasPassword, hasPasskey bool, sessionAuthenticatedAt, now t
 	return ReauthMagicLink
 }
 
-// AccountHasPassword reports whether user can be challenged for a password.
-func AccountHasPassword(user *authm.User) bool {
-	return user.HasPassword()
-}
-
 // ReauthRequiredError is the refusal a credential mint answers with when the
 // request's session did not authenticate recently enough.
 //
@@ -138,7 +132,7 @@ func RequireRecentSessionAuth(ctx context.Context, operation string) error {
 
 	// hasPasskey is false: see the KNOWN GAP on ReauthFactorFor.
 	factor := ReauthFactorFor(
-		AccountHasPassword(user),
+		user.HasPassword(),
 		false,
 		GetSessionAuthTimeFromContext(ctx),
 		time.Now(),
@@ -175,12 +169,14 @@ func (e *SessionRefusedError) Error() string { return e.Message }
 // GetStatus satisfies huma.StatusError, so huma writes this value as the body.
 func (e *SessionRefusedError) GetStatus() int { return http.StatusUnauthorized }
 
-// RefuseSession is the answer of a JSON credential mint whose write found the
-// request's session revoked after this middleware validated it
-// (shared.ErrSessionRevoked): the answer HumaJWTMiddleware gives that session
-// on its next request, a 401 TOKEN_INVALID that also clears the auth cookie
-// session describes. It logs the refusal of operation for the request's
-// principal, with cause.
+// RefuseSession is the answer of a JSON credential mint (a write, or the
+// session refresh) whose read of the account, locked or not, found the
+// request's session revoked after session validation (HumaJWTMiddleware, or
+// LenientHumaJWTMiddleware for the refresh) accepted it
+// (shared.ErrSessionRevoked): the code and message validation gives that
+// session next, as a 401 TOKEN_INVALID that also clears the auth cookie
+// session describes, as HumaJWTMiddleware does. It logs the refusal of
+// operation for the request's principal, with cause.
 //
 // A mint whose response already has its own envelope for a closed account
 // (ACCOUNT_INACTIVE) keeps it; RefuseSession is for the revoked session, and

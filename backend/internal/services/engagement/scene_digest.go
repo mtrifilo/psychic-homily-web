@@ -99,7 +99,7 @@ func NewSceneDigestService(
 		stopCh:       make(chan struct{}),
 		logger:       slog.Default(),
 		frontendURL:  cfg.Email.FrontendURL,
-		backendURL:   DeriveBackendURL(cfg.Email.FrontendURL),
+		backendURL:   cfg.BackendOrigin(),
 		jwtSecret:    cfg.JWT.SecretKey,
 	}
 }

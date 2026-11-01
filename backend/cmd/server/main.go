@@ -108,6 +108,9 @@ func main() {
 		log.Printf("SENTRY_DSN not set, error tracking disabled")
 	}
 
+	// Runs after Sentry is initialised so the refusal is captured there.
+	refuseUnresolvableBackendOrigin(cfg)
+
 	// PSY-617: escalate background-service panics to Sentry. The handler
 	// runs after the slog.Error inside RunScheduledLoop's recover paths, so a
 	// panicking ticker now logs AND pages, instead of only logging. Safe

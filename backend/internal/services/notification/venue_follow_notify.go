@@ -1093,7 +1093,7 @@ func (s *NotificationFilterService) sendVenueShowAlertEmail(
 	// unsubscribe stops unsubscribing.
 	// TestVenueAndArtistAlertEmailsShareOneUnsubscribeScope pins this.
 	unsubscribeURL := engagement.GenerateScopedUnsubscribeURL(
-		engagement.DeriveBackendURL(s.frontendURL),
+		s.backendURL,
 		r.userID,
 		engagement.UnsubscribeScopeArtistShowAlerts,
 		s.jwtSecret,
