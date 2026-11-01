@@ -38,9 +38,8 @@ type SceneService struct {
 	// injects a different stub geocoder would break that invariant.
 	geocoder geo.Geocoder
 
-	// now is the clock that decides which scene night is live. Every such
-	// decision in one answer reads it once, so a test that replaces it controls
-	// "tonight" for the whole answer.
+	// now is the clock this service's live-night decisions (tonightDate) read.
+	// Tests replace it to choose which night is "tonight".
 	now func() time.Time
 
 	// slugMisses is a process-local negative cache for ParseSceneSlug. Hits are
