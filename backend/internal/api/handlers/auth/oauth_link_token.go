@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -176,12 +177,19 @@ func spendOAuthLinkNonce(nonce string, expiry time.Time) bool {
 }
 
 // namesFrontend reports whether a request's Origin and Referer header values
-// name frontendURL: originFromHeaders is non-empty and the same origin as
-// frontendURL. The mint refuses a request that does not; the spend accepts
-// one that does whatever fetch metadata says.
+// name the frontend at frontendURL: originFromHeaders is non-empty and the
+// same origin as one of config.FrontendOrigins(frontendURL), so every
+// deployed form of the frontend (apex and www) is ours. The mint refuses a
+// request that does not; the spend accepts one that does whatever fetch
+// metadata says.
 func namesFrontend(origin, referer, frontendURL string) bool {
 	from := originFromHeaders(origin, referer)
-	return from != "" && sameOrigin(from, frontendURL)
+	if from == "" {
+		return false
+	}
+	return slices.ContainsFunc(config.FrontendOrigins(frontendURL), func(ours string) bool {
+		return sameOrigin(from, ours)
+	})
 }
 
 // originFromHeaders is the origin a browser says a request came from, given
@@ -214,7 +222,7 @@ func originFromHeaders(origin, referer string) string {
 // domain: genuinely cross-site, so a check that stopped at the metadata would
 // refuse every Connect there. Only production happens to be same-site.
 //
-//	Origin or Referer matches frontendURL  -> accept, whatever metadata says
+//	Origin or Referer names the frontend   -> accept, whatever metadata says
 //	otherwise, metadata says cross-site    -> refuse
 //	otherwise, no Origin and no Referer    -> refuse
 //

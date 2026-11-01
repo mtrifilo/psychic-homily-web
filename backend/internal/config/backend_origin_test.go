@@ -2,6 +2,7 @@ package config
 
 import (
 	"os"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -52,7 +53,8 @@ func TestResolveBackendOrigin(t *testing.T) {
 		{"unknown host with BACKEND_PUBLIC_URL", "https://example.invalid", "https://api.example.invalid", "0.0.0.0:8080", "https://api.example.invalid", false},
 		{"lookalike host", "https://psychichomily.com.example.net", "", "0.0.0.0:8080", "http://localhost:8080", false},
 		{"production host over http", "http://psychichomily.com", "", "0.0.0.0:8080", "http://localhost:8080", false},
-		{"www stage host", "https://www.stage.psychichomily.com", "", "0.0.0.0:8080", "http://localhost:8080", false},
+		{"stage www frontend", "https://www.stage.psychichomily.com", "", "0.0.0.0:8080", stageAPI, true},
+		{"production www frontend in capitals", "HTTPS://WWW.PSYCHICHOMILY.COM", "", "0.0.0.0:8080", productionAPI, true},
 		{"production frontend with a path", "https://www.psychichomily.com/app", "", "0.0.0.0:8080", "http://localhost:8080", false},
 		{"local frontend with a path", "http://localhost:3000/app", "", "localhost:8080", "http://localhost:8080", false},
 		{"local frontend with userinfo", "http://user@localhost:3000", "", "localhost:8080", "http://localhost:8080", false},
@@ -106,6 +108,32 @@ func TestResolveBackendOriginRailwayTemplates(t *testing.T) {
 			}
 			if err := ValidateBackendOrigin(environment, frontendURL, ""); err != nil {
 				t.Errorf("ValidateBackendOrigin(%q, %q, \"\") = %v, want nil", environment, frontendURL, err)
+			}
+		})
+	}
+}
+
+func TestFrontendOrigins(t *testing.T) {
+	tests := []struct {
+		frontendURL string
+		want        []string
+	}{
+		{"https://www.psychichomily.com", []string{"https://www.psychichomily.com", "https://psychichomily.com"}},
+		{"https://psychichomily.com", []string{"https://psychichomily.com", "https://www.psychichomily.com"}},
+		{"https://psychichomily.com/", []string{"https://psychichomily.com", "https://www.psychichomily.com"}},
+		{"HTTPS://WWW.PSYCHICHOMILY.COM", []string{"https://WWW.PSYCHICHOMILY.COM", "https://psychichomily.com"}},
+		{"https://stage.psychichomily.com", []string{"https://stage.psychichomily.com", "https://www.stage.psychichomily.com"}},
+		{"https://www.stage.psychichomily.com", []string{"https://www.stage.psychichomily.com", "https://stage.psychichomily.com"}},
+		{"http://localhost:3000", []string{"http://localhost:3000"}},
+		{"http://psychichomily.com", []string{"http://psychichomily.com"}},
+		{"https://psychichomily.com.evil.example", []string{"https://psychichomily.com.evil.example"}},
+		{"localhost:3000", nil},
+		{"", nil},
+	}
+	for _, tt := range tests {
+		t.Run(tt.frontendURL, func(t *testing.T) {
+			if got := FrontendOrigins(tt.frontendURL); !slices.Equal(got, tt.want) {
+				t.Errorf("FrontendOrigins(%q) = %v, want %v", tt.frontendURL, got, tt.want)
 			}
 		})
 	}
@@ -176,7 +204,7 @@ func TestValidateBackendOrigin(t *testing.T) {
 		want := `FRONTEND_URL (host "example.invalid") is not a recognised frontend, so backend-hosted links ` +
 			`(email unsubscribe links, the calendar feed, OAuth callbacks) cannot name this backend's public origin; ` +
 			`set FRONTEND_URL to one of https://psychichomily.com, https://stage.psychichomily.com, ` +
-			`https://www.psychichomily.com, or (outside production and stage) an http(s) origin on localhost, 127.0.0.1 or [::1], ` +
+			`https://www.psychichomily.com, https://www.stage.psychichomily.com, or (outside production and stage) an http(s) origin on localhost, 127.0.0.1 or [::1], ` +
 			`or set BACKEND_PUBLIC_URL to this backend's public origin`
 		if err == nil || err.Error() != want {
 			t.Errorf("ValidateBackendOrigin error = %v\nwant %s", err, want)

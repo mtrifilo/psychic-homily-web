@@ -2,20 +2,74 @@ package config
 
 import (
 	"fmt"
-	"maps"
 	"net"
 	"net/url"
 	"slices"
 	"strings"
 )
 
-// deployedBackendOrigins maps each deployed frontend origin to the public
-// origin of the API that serves it. The production frontend is reachable at
-// both its apex and www forms, and FRONTEND_URL may name either.
-var deployedBackendOrigins = map[string]string{
-	"https://psychichomily.com":       "https://api.psychichomily.com",
-	"https://www.psychichomily.com":   "https://api.psychichomily.com",
-	"https://stage.psychichomily.com": "https://stage.api.psychichomily.com",
+// deployment is one deployed environment: every origin its frontend is
+// served at, and the public origin of the API that serves it.
+type deployment struct {
+	frontendOrigins []string
+	backendOrigin   string
+}
+
+// deployments is the one table of deployed frontends, each listed in its
+// apex and www forms, the same pairs the default CORS origins allow.
+// FRONTEND_URL may name either form, and a browser reports whichever origin
+// served the page, which need not be the configured one. Both the
+// backend-origin resolver and FrontendOrigins read it.
+var deployments = []deployment{
+	{
+		frontendOrigins: []string{"https://psychichomily.com", "https://www.psychichomily.com"},
+		backendOrigin:   "https://api.psychichomily.com",
+	},
+	{
+		frontendOrigins: []string{"https://stage.psychichomily.com", "https://www.stage.psychichomily.com"},
+		backendOrigin:   "https://stage.api.psychichomily.com",
+	},
+}
+
+// deploymentFor returns the deployment one of whose frontend origins equals
+// origin, ignoring case.
+func deploymentFor(origin string) (deployment, bool) {
+	for _, d := range deployments {
+		if slices.ContainsFunc(d.frontendOrigins, func(o string) bool { return strings.EqualFold(o, origin) }) {
+			return d, true
+		}
+	}
+	return deployment{}, false
+}
+
+// deployedFrontendOrigins returns every deployed frontend origin, sorted.
+func deployedFrontendOrigins() []string {
+	var origins []string
+	for _, d := range deployments {
+		origins = append(origins, d.frontendOrigins...)
+	}
+	slices.Sort(origins)
+	return origins
+}
+
+// FrontendOrigins returns the origins a browser may report for the frontend
+// at frontendURL: its own scheme://host origin first, then the other
+// frontend origins of the same deployment when it is a deployed frontend. It
+// returns nil when frontendURL has no scheme or host.
+func FrontendOrigins(frontendURL string) []string {
+	origin, ok := URLOrigin(frontendURL)
+	if !ok {
+		return nil
+	}
+	origins := []string{origin}
+	if d, ok := deploymentFor(origin); ok {
+		for _, o := range d.frontendOrigins {
+			if !strings.EqualFold(o, origin) {
+				origins = append(origins, o)
+			}
+		}
+	}
+	return origins
 }
 
 // loopbackFrontendForm describes, for error messages, the loopback frontends
@@ -35,8 +89,8 @@ func ResolveBackendOrigin(frontendURL, backendPublicURL, serverAddr string) stri
 	if override := normalizeURL(backendPublicURL); override != "" {
 		return override
 	}
-	if deployedOrigin, ok := deployedBackendOrigins[normalizeURL(frontendURL)]; ok {
-		return deployedOrigin
+	if d, ok := deploymentFor(normalizeURL(frontendURL)); ok {
+		return d.backendOrigin
 	}
 	return localBackendOrigin(serverAddr)
 }
@@ -78,7 +132,7 @@ func ValidateBackendOrigin(environment, frontendURL, backendPublicURL string) er
 		"%s (%s) is not a recognised frontend, so backend-hosted links (email unsubscribe links, the calendar feed, OAuth callbacks) "+
 			"cannot name this backend's public origin; set %s to one of %s, or %s, or set %s to this backend's public origin",
 		EnvFrontendURL, describeHost(frontendURL), EnvFrontendURL,
-		strings.Join(slices.Sorted(maps.Keys(deployedBackendOrigins)), ", "), loopbackFrontendForm, EnvBackendPublicURL,
+		strings.Join(deployedFrontendOrigins(), ", "), loopbackFrontendForm, EnvBackendPublicURL,
 	)
 }
 
@@ -87,7 +141,7 @@ func ValidateBackendOrigin(environment, frontendURL, backendPublicURL string) er
 // Surrounding whitespace and trailing slashes are ignored; a path, query,
 // fragment or userinfo makes it unrecognised.
 func isRecognisedFrontend(frontendURL string, deployedEnvironment bool) bool {
-	if _, isDeployed := deployedBackendOrigins[normalizeURL(frontendURL)]; isDeployed {
+	if _, isDeployed := deploymentFor(normalizeURL(frontendURL)); isDeployed {
 		return true
 	}
 	host, ok := bareOriginHost(frontendURL)
