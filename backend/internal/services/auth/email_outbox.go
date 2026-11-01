@@ -102,8 +102,12 @@ const (
 	authEmailSkipExpired     = "request expired before delivery"
 	authEmailSkipAccountGone = "account no longer exists"
 	authEmailSkipIneligible  = "account no longer eligible"
-	authEmailFailUnknownKind = "unknown email kind"
-	authEmailFailStranded    = "stranded in processing after max attempts"
+	// authEmailSkipClosedAccount is an account that may no longer sign in
+	// (authm.User.CanSignIn) queued for an email that goes only to one that
+	// can (needsOpenAccount).
+	authEmailSkipClosedAccount = "skipped_closed_account"
+	authEmailFailUnknownKind   = "unknown email kind"
+	authEmailFailStranded      = "stranded in processing after max attempts"
 )
 
 // ErrAuthEmailOutboxDisabled is Enqueue's error while
@@ -437,10 +441,12 @@ var errUnknownAuthEmailKind = errors.New(authEmailFailUnknownKind)
 // sends. It returns a skip reason when the account no longer qualifies, and
 // an error when the attempt failed.
 //
-// The eligibility rules are the request handlers': a magic link needs a
-// verified address; a verification email needs an address not yet verified;
-// a recovery email needs a soft-deleted account still inside its recovery
-// window; a pending-link email needs an account that may sign in.
+// The eligibility rules: every kind but recovery needs an account that may
+// sign in (needsOpenAccount); a magic link needs a verified address; a
+// verification email needs an address not yet verified; a recovery email
+// needs a soft-deleted account still inside its recovery window, the rule
+// the recovery request and confirm handlers apply; a pending-link email
+// needs the pending link it names.
 func (o *AuthEmailOutbox) deliver(item authm.AuthEmailOutboxItem) (string, error) {
 	user, err := o.users.GetUserByID(item.UserID)
 	if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -451,6 +457,9 @@ func (o *AuthEmailOutbox) deliver(item authm.AuthEmailOutboxItem) (string, error
 	}
 	if user == nil {
 		return authEmailSkipAccountGone, nil
+	}
+	if needsOpenAccount(item.Kind) && !user.CanSignIn() {
+		return authEmailSkipClosedAccount, nil
 	}
 	if user.Email == nil || *user.Email == "" {
 		return authEmailSkipIneligible, nil
@@ -474,7 +483,7 @@ func (o *AuthEmailOutbox) deliver(item authm.AuthEmailOutboxItem) (string, error
 		// link is still there is decided when the link is followed
 		// (AuthService.CompleteOAuthLinkByEmail); the request kept it alive
 		// for as long as this send may happen (HoldOAuthLinkForEmail).
-		if !user.CanSignIn() || item.OAuthLinkRef == nil {
+		if item.OAuthLinkRef == nil {
 			return authEmailSkipIneligible, nil
 		}
 		token, err := o.tokens.CreateOAuthLinkToken(user.ID, email, *item.OAuthLinkRef)
@@ -505,6 +514,17 @@ func (o *AuthEmailOutbox) deliver(item authm.AuthEmailOutboxItem) (string, error
 		return "", o.sender.SendAccountRecoveryEmail(email, token, daysRemaining)
 	}
 	return "", errUnknownAuthEmailKind
+}
+
+// needsOpenAccount reports whether kind's email goes only to an account that
+// may sign in. Recovery is the one kind that does not: it is how a closed
+// account inside its recovery window is reopened.
+func needsOpenAccount(kind authm.AuthEmailKind) bool {
+	switch kind {
+	case authm.AuthEmailKindMagicLink, authm.AuthEmailKindVerification, authm.AuthEmailKindOAuthLink:
+		return true
+	}
+	return false
 }
 
 // housekeep reclaims rows stranded in `processing`, retires expired pending
