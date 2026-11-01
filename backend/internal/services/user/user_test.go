@@ -748,11 +748,8 @@ func (suite *UserServiceIntegrationTestSuite) TestAuthenticate_OAuthOnlyUser() {
 // An empty hash is no password: sign-in refuses it the way it refuses a
 // provider-only account, without counting a failed attempt against it.
 func (suite *UserServiceIntegrationTestSuite) TestAuthenticate_EmptyHashIsNoPassword() {
-	user, err := suite.userService.CreateUserWithPasswordWithLegal(
-		"emptyhash-auth@example.com", "SomePassword1!", "Empty", "Hash", signupconsent.CurrentLegalAcceptance(),
-	)
-	suite.Require().NoError(err)
-	suite.Require().NoError(suite.db.Exec("UPDATE users SET password_hash = '' WHERE id = ?", user.ID).Error)
+	user := &authm.User{Email: stringPtr("emptyhash-auth@example.com"), PasswordHash: stringPtr(""), IsActive: true}
+	suite.Require().NoError(suite.db.Create(user).Error)
 
 	authed, err := suite.userService.AuthenticateUserWithPassword("emptyhash-auth@example.com", "SomePassword1!")
 
@@ -947,19 +944,16 @@ func (suite *UserServiceIntegrationTestSuite) TestUpdatePassword_WrongCurrent() 
 // An empty hash is no password, so changing it answers NO_PASSWORD_SET, the
 // same as an absent hash, rather than a wrong-current-password refusal.
 func (suite *UserServiceIntegrationTestSuite) TestUpdatePassword_EmptyHashIsNoPasswordSet() {
-	for _, hash := range []string{"NULL", "''"} {
-		email := fmt.Sprintf("updatepw-nopw-%d@example.com", len(hash))
-		user, err := suite.userService.CreateUserWithPasswordWithLegal(
-			email, "OldPassword1!", "No", "Password", signupconsent.CurrentLegalAcceptance(),
-		)
-		suite.Require().NoError(err)
-		suite.Require().NoError(suite.db.Exec("UPDATE users SET password_hash = "+hash+" WHERE id = ?", user.ID).Error)
+	cases := map[string]*string{"absent": nil, "empty": stringPtr("")}
+	for name, hash := range cases {
+		user := &authm.User{Email: stringPtr("updatepw-nopw-" + name + "@example.com"), PasswordHash: hash, IsActive: true}
+		suite.Require().NoError(suite.db.Create(user).Error)
 
-		err = suite.userService.UpdatePassword(user.ID, "OldPassword1!", "NewPassword2!")
+		err := suite.userService.UpdatePassword(user.ID, "OldPassword1!", "NewPassword2!")
 
 		var authErr *apperrors.AuthError
-		suite.Require().True(errors.As(err, &authErr), "%s hash: got %v", hash, err)
-		suite.Equal(apperrors.CodeNoPasswordSet, authErr.Code, "%s hash", hash)
+		suite.Require().True(errors.As(err, &authErr), "%s hash: got %v", name, err)
+		suite.Equal(apperrors.CodeNoPasswordSet, authErr.Code, "%s hash", name)
 	}
 }
 

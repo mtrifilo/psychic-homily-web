@@ -1171,13 +1171,13 @@ func (s *AuthHandlerIntegrationSuite) TestRecoverAccount_NoPassword() {
 // provider-only account.
 func (s *AuthHandlerIntegrationSuite) TestRecoverAccount_EmptyHashIsNoPassword() {
 	h := s.newAuthHandler(false)
-	user := s.createUserWithPassword("recover-emptyhash@test.com", "strong-password-123!")
+	user := testhelpers.CreateTestUser(s.deps.DB)
 	s.Require().NoError(s.deps.DB.Exec("UPDATE users SET password_hash = '' WHERE id = ?", user.ID).Error)
 	s.softDeleteUser(user.ID)
 
 	input := &RecoverAccountRequest{}
-	input.Body.Email = "recover-emptyhash@test.com"
-	input.Body.Password = "strong-password-123!"
+	input.Body.Email = *user.Email
+	input.Body.Password = "doesnt-matter-12345"
 
 	resp, err := h.RecoverAccountHandler(context.Background(), input)
 	s.Require().NoError(err)

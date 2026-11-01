@@ -824,49 +824,30 @@ func TestDeleteAccountHandler_NoUserContext(t *testing.T) {
 	}
 }
 
+// An absent or empty hash is no password, so deletion asks for the email
+// confirmation rather than a password nothing verifies.
 func TestDeleteAccountHandler_OAuthOnlyUser(t *testing.T) {
-	h := testAuthHandler()
-	// User with nil PasswordHash (OAuth-only)
-	user := &authm.User{ID: 1, PasswordHash: nil, IsActive: true}
-	ctx := testhelpers.CtxWithUser(user)
-	input := &DeleteAccountRequest{}
+	for name, hash := range map[string]*string{"absent hash": nil, "empty hash": strPtr("")} {
+		t.Run(name, func(t *testing.T) {
+			h := testAuthHandler()
+			ctx := testhelpers.CtxWithUser(&authm.User{ID: 1, PasswordHash: hash, IsActive: true})
+			input := &DeleteAccountRequest{}
+			input.Body.Password = "anything-at-all"
 
-	resp, err := h.DeleteAccountHandler(ctx, input)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if resp.Body.Success {
-		t.Error("expected success=false")
-	}
-	if resp.Body.ErrorCode != autherrors.CodeValidationFailed {
-		t.Errorf("expected error_code=%s, got %s", autherrors.CodeValidationFailed, resp.Body.ErrorCode)
-	}
-	if !strings.Contains(resp.Body.Message, "OAuth") {
-		t.Errorf("expected message about OAuth, got %q", resp.Body.Message)
-	}
-}
-
-// An empty hash is no password, so deletion asks for the email confirmation
-// it asks of a provider-only account rather than a password nothing verifies.
-func TestDeleteAccountHandler_EmptyHashIsNoPassword(t *testing.T) {
-	h := testAuthHandler()
-	empty := ""
-	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1, PasswordHash: &empty, IsActive: true})
-	input := &DeleteAccountRequest{}
-	input.Body.Password = "anything-at-all"
-
-	resp, err := h.DeleteAccountHandler(ctx, input)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if resp.Body.Success {
-		t.Error("expected success=false")
-	}
-	if resp.Body.ErrorCode != autherrors.CodeValidationFailed {
-		t.Errorf("expected error_code=%s, got %s", autherrors.CodeValidationFailed, resp.Body.ErrorCode)
-	}
-	if !strings.Contains(resp.Body.Message, "OAuth") {
-		t.Errorf("expected the email-confirmation message, got %q", resp.Body.Message)
+			resp, err := h.DeleteAccountHandler(ctx, input)
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if resp.Body.Success {
+				t.Error("expected success=false")
+			}
+			if resp.Body.ErrorCode != autherrors.CodeValidationFailed {
+				t.Errorf("expected error_code=%s, got %s", autherrors.CodeValidationFailed, resp.Body.ErrorCode)
+			}
+			if !strings.Contains(resp.Body.Message, "OAuth") {
+				t.Errorf("expected message about OAuth, got %q", resp.Body.Message)
+			}
+		})
 	}
 }
 
@@ -3005,16 +2986,14 @@ func TestGetDeletionSummaryHandler_Success(t *testing.T) {
 // has_password answers from User.HasPassword: an empty hash reports false,
 // the same as an absent one.
 func TestGetDeletionSummaryHandler_HasPasswordFollowsThePredicate(t *testing.T) {
-	empty := ""
-	hash := "$2a$10$fakehash"
 	cases := []struct {
 		name string
 		hash *string
 		want bool
 	}{
 		{"absent hash", nil, false},
-		{"empty hash", &empty, false},
-		{"set hash", &hash, true},
+		{"empty hash", strPtr(""), false},
+		{"set hash", strPtr("$2a$10$fakehash"), true},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
