@@ -315,6 +315,11 @@ func (s *WebAuthnService) UpdateCredentialName(userID uint, credentialID uint, d
 
 // Challenge storage helpers (for session management)
 
+// challengeTTL is how long a stored challenge can be consumed. An abandoned
+// sign-up's email and date of birth are kept for at most challengeTTL plus
+// signupChallengeSweepInterval.
+const challengeTTL = 5 * time.Minute
+
 // StoreChallenge saves a WebAuthn challenge to the database
 func (s *WebAuthnService) StoreChallenge(userID uint, session *webauthn.SessionData, operation string) (string, error) {
 	if s.db == nil {
@@ -331,7 +336,7 @@ func (s *WebAuthnService) StoreChallenge(userID uint, session *webauthn.SessionD
 		Challenge:   []byte(session.Challenge),
 		SessionData: sessionData,
 		Operation:   operation,
-		ExpiresAt:   time.Now().Add(5 * time.Minute),
+		ExpiresAt:   time.Now().Add(challengeTTL),
 	}
 
 	if err := s.db.Create(&challenge).Error; err != nil {
@@ -618,7 +623,7 @@ func (s *WebAuthnService) StoreSignupChallenge(signup contracts.SignupChallenge,
 		Challenge:   []byte(session.Challenge),
 		SessionData: sessionData,
 		Operation:   operation,
-		ExpiresAt:   time.Now().Add(5 * time.Minute),
+		ExpiresAt:   time.Now().Add(challengeTTL),
 	}
 
 	if err := s.db.Create(&challenge).Error; err != nil {

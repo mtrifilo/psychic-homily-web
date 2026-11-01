@@ -119,9 +119,8 @@ func (s *AuthHandlerIntegrationSuite) TestPasskeySignupRefusedFinishSpendsChalle
 	s.Zero(accounts)
 }
 
-// A finish presenting an expired sign-up challenge is refused and deletes the
-// challenge, with the email and date of birth it carries, in the same
-// statement that reads it.
+// A finish presenting an expired sign-up challenge is refused and leaves no
+// challenge row, and so no email or date of birth, behind.
 func (s *AuthHandlerIntegrationSuite) TestPasskeySignupFinishOnExpiredChallengeDeletesIt() {
 	api := newPasskeyWireAPI(s.T(), s.newRealPasskeyHandler())
 	email := "signup-expired@example.com"

@@ -164,7 +164,8 @@ func (suite *WebAuthnServiceIntegrationTestSuite) TestDeleteExpiredSignupChallen
 
 	var expiresAt time.Time
 	suite.Require().NoError(suite.db.Raw("SELECT expires_at FROM webauthn_challenges WHERE id = ?", id).Scan(&expiresAt).Error)
-	suite.WithinDuration(storedAt.Add(5*time.Minute), expiresAt, 5*time.Second, "a sign-up challenge expires five minutes after it is stored")
+	suite.WithinDuration(storedAt.Add(challengeTTL), expiresAt, 5*time.Second, "a sign-up challenge expires challengeTTL after it is stored")
+	suite.Equal(15*time.Minute, challengeTTL+signupChallengeSweepInterval, "the retention bound an abandoned sign-up's date of birth is held to")
 
 	ctx := context.Background()
 	for _, clock := range []time.Time{storedAt, expiresAt.Add(-time.Second), expiresAt} {
@@ -187,7 +188,6 @@ func (suite *WebAuthnServiceIntegrationTestSuite) TestSignupChallengeSweep_RunsA
 	suite.setChallengeExpiry(id, time.Now().Add(-time.Minute))
 
 	sweep := NewSignupChallengeSweep(suite.db)
-	suite.Equal(10*time.Minute, sweep.interval, "an abandoned sign-up's date of birth outlives its expiry by at most this interval")
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	sweep.Start(ctx)
@@ -198,4 +198,17 @@ func (suite *WebAuthnServiceIntegrationTestSuite) TestSignupChallengeSweep_RunsA
 		err := suite.db.Raw("SELECT COUNT(*) FROM webauthn_challenges WHERE id = ?", id).Scan(&count).Error
 		return err == nil && count == 0
 	}, 5*time.Second, 20*time.Millisecond, "the cycle at start deletes the expired sign-up challenge")
+}
+
+// The daily sweep also deletes expired sign-up challenges, so it is the
+// watched backstop when the unwatched sign-up sweep is not running.
+func (suite *WebAuthnServiceIntegrationTestSuite) TestChallengeSweepCycle_DeletesExpiredSignupChallenges() {
+	expired := suite.storeSignupChallengeWithDateOfBirth("daily-expired@test.com")
+	suite.setChallengeExpiry(expired, time.Now().Add(-time.Minute))
+	live := suite.storeSignupChallengeWithDateOfBirth("daily-live@test.com")
+
+	NewChallengeSweep(suite.db).runCycle(context.Background())
+
+	suite.Zero(suite.challengeRows(expired), "the daily sweep deletes an expired sign-up challenge")
+	suite.Equal(int64(1), suite.challengeRows(live), "the daily sweep keeps an unexpired sign-up challenge")
 }
