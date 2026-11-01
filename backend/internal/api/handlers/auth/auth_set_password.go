@@ -43,9 +43,8 @@ type SetPasswordResponse struct {
 	}
 }
 
-func (r *SetPasswordResponse) refuse(code, message string) *SetPasswordResponse {
+func (r *SetPasswordResponse) setRefusal(code, message string) {
 	r.Body.Success, r.Body.Message, r.Body.ErrorCode = false, message, code
-	return r
 }
 
 // SetPasswordHandler gives a signed-in account that has no password its first
@@ -59,7 +58,7 @@ func (h *AuthHandler) SetPasswordHandler(ctx context.Context, input *SetPassword
 	contextUser := middleware.GetUserFromContext(ctx)
 	if contextUser == nil {
 		logger.AuthWarn(ctx, "set_password_no_user")
-		return resp.refuse(autherrors.CodeUnauthorized, "User not found in context"), nil
+		return refusePasskey(resp, autherrors.CodeUnauthorized, "User not found in context")
 	}
 
 	if err := middleware.RequireRecentSessionAuth(ctx, setPasswordOperation); err != nil {
@@ -71,11 +70,11 @@ func (h *AuthHandler) SetPasswordHandler(ctx context.Context, input *SetPassword
 	// hash. SetPassword decides it again under the row lock.
 	if contextUser.HasPassword() {
 		logger.AuthWarn(ctx, "set_password_already_set", "user_id", contextUser.ID)
-		return resp.refuse(autherrors.CodePasswordAlreadySet, autherrors.ErrPasswordAlreadySet().UserMessage()), nil
+		return refuseWith(resp, autherrors.ErrPasswordAlreadySet())
 	}
 
 	if input.Body.NewPassword == "" {
-		return resp.refuse(autherrors.CodeValidationFailed, "New password is required"), nil
+		return refusePasskey(resp, autherrors.CodeValidationFailed, "New password is required")
 	}
 
 	// This route has no other length or strength check, so a missing validator
@@ -100,7 +99,7 @@ func (h *AuthHandler) SetPasswordHandler(ctx context.Context, input *SetPassword
 			"user_id", contextUser.ID,
 			"all_errors", strings.Join(validation.Errors, "; "),
 		)
-		return resp.refuse(autherrors.CodeValidationFailed, message), nil
+		return refusePasskey(resp, autherrors.CodeValidationFailed, message)
 	}
 
 	if err := h.userService.SetPassword(contextUser.ID, input.Body.NewPassword, contextUser.SessionsValidAfter); err != nil {
@@ -116,7 +115,7 @@ func (h *AuthHandler) SetPasswordHandler(ctx context.Context, input *SetPassword
 					"error_code", authErr.Code,
 					"error", err.Error(),
 				)
-				return resp.refuse(authErr.Code, authErr.UserMessage()), nil
+				return refuseWith(resp, authErr)
 			}
 		}
 		logger.AuthError(ctx, "set_password_failed", err, "user_id", contextUser.ID)

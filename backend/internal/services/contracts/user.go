@@ -361,7 +361,7 @@ type UserServiceInterface interface {
 	// false) its first one, hashed from newPassword, which the caller has
 	// already validated. sessionsValidAfter is the revocation stamp of the
 	// session asking, as for LinkOAuthAccountToUser. Refuses with
-	// shared.LockSessionAccount's refusals when the account may not sign in or
+	// shared.CheckSessionAccount's refusals when the account may not sign in or
 	// that session has been revoked, and with a typed AuthError carrying
 	// CodePasswordAlreadySet when the account holds a password, including one
 	// a concurrent call set first. Revokes no session.

@@ -45,8 +45,8 @@ export function formatChangePasswordError(error: unknown): string {
 interface ChangePasswordProps {
   /**
    * A success line raised before this card mounted (Set a password hands its
-   * confirmation over when the card swaps). It shows in the success slot
-   * until this form submits.
+   * confirmation over when the card swaps). It seeds the success slot, which
+   * the next submit clears. Read at mount only.
    */
   notice?: string | null
 }
@@ -55,9 +55,7 @@ export function ChangePassword({ notice = null }: ChangePasswordProps) {
   const changePasswordMutation = useChangePassword()
   const [newPasswordValue, setNewPasswordValue] = useState('')
   const [confirmPasswordValue, setConfirmPasswordValue] = useState('')
-  const [successMessage, setSuccessMessage] = useState<string | null>(null)
-  const [noticeDismissed, setNoticeDismissed] = useState(false)
-  const shownSuccess = successMessage ?? (noticeDismissed ? null : notice)
+  const [successMessage, setSuccessMessage] = useState<string | null>(notice)
 
   const form = useForm({
     defaultValues: {
@@ -67,7 +65,6 @@ export function ChangePassword({ notice = null }: ChangePasswordProps) {
     } as ChangePasswordFormData,
     onSubmit: async ({ value }) => {
       setSuccessMessage(null)
-      setNoticeDismissed(true)
       changePasswordMutation.mutate(
         {
           current_password: value.currentPassword,
@@ -108,10 +105,10 @@ export function ChangePassword({ notice = null }: ChangePasswordProps) {
           className="space-y-4"
         >
           {/* Success message */}
-          {shownSuccess && (
+          {successMessage && (
             <div className="flex items-center gap-2 rounded-md bg-success p-3 text-sm text-success-foreground">
               <CheckCircle2 className="h-4 w-4 shrink-0" />
-              <span>{shownSuccess}</span>
+              <span>{successMessage}</span>
             </div>
           )}
 

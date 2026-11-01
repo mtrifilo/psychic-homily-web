@@ -1060,8 +1060,8 @@ func (s *UserService) UpdatePassword(userID uint, currentPassword, newPassword s
 
 // SetPassword gives an account that has no password its first one. It adds a
 // way into the account on the strength of the caller's session, so the account
-// and that session are judged in the transaction that writes
-// (shared.LockSessionAccount), and the write itself only lands on a row that
+// and that session are judged under the row lock of the transaction that
+// writes (shared.CheckSessionAccount), and the write lands only on a row that
 // still has no password: of two concurrent calls, one sets it and the other is
 // refused with CodePasswordAlreadySet. Other sessions are left signed in.
 func (s *UserService) SetPassword(userID uint, newPassword string, sessionsValidAfter *time.Time) error {
@@ -1077,22 +1077,25 @@ func (s *UserService) SetPassword(userID uint, newPassword string, sessionsValid
 	}
 
 	return s.db.Transaction(func(tx *gorm.DB) error {
-		// FOR UPDATE ahead of LockSessionAccount's FOR SHARE. Two calls that
-		// each held the row FOR SHARE and then both wrote it would deadlock,
-		// and Postgres would end one with an error instead of the refusal
-		// below. Taken FOR UPDATE, the second call waits for the first to end
-		// and then finds the password set.
-		var locked authm.User
-		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
-			Select("id").First(&locked, userID).Error; err != nil {
-			return fmt.Errorf("failed to lock user %d: %w", userID, err)
+		// FOR UPDATE, and judged with CheckSessionAccount rather than taken
+		// FOR SHARE by LockSessionAccount: this write is to the users row
+		// itself, and two calls that each held it FOR SHARE and then both
+		// wrote it would deadlock. Held FOR UPDATE, a second call waits for
+		// the first to end and then reads the password it set.
+		var account authm.User
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(&account, userID).Error; err != nil {
+			return fmt.Errorf("failed to load user %d: %w", userID, err)
 		}
-		if err := shared.LockSessionAccount(tx, userID, sessionsValidAfter); err != nil {
+		if err := shared.CheckSessionAccount(&account, sessionsValidAfter); err != nil {
 			return err
 		}
+		if account.HasPassword() {
+			return apperrors.ErrPasswordAlreadySet()
+		}
 
-		// The empty-hash arm is authm.User.HasPassword's: an empty hash is no
-		// password.
+		// The row lock decides the race; the condition keeps the write from
+		// replacing a password even if a caller ever reaches here without it.
+		// Its empty-hash arm is authm.User.HasPassword's.
 		result := tx.Model(&authm.User{}).
 			Where("id = ? AND (password_hash IS NULL OR password_hash = '')", userID).
 			Update("password_hash", hashedPassword)

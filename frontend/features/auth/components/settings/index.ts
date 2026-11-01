@@ -1,7 +1,7 @@
 export { SettingsPanel } from './SettingsPanel'
 export { AlertSettings } from './alert-settings'
 export { ChangePassword } from './change-password'
-export { PasswordSettings, PASSWORD_SETTINGS_HREF } from './password-settings'
+export { PasswordSettings } from './password-settings'
 export { DeleteAccountDialog } from './delete-account-dialog'
 export { OAuthAccounts } from './oauth-accounts'
 export { PasskeyManagement } from './passkey-management'
