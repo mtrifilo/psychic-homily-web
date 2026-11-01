@@ -182,7 +182,7 @@ func (s *ContributorProfileService) GetPublicProfile(username string, viewer con
 	isOwner := viewer.UserID != 0 && viewer.UserID == user.ID
 
 	// Private profile check: only the owner can view
-	if user.IsPrivateProfile() && !isOwner {
+	if user.ProfileHiddenFrom(viewer.UserID) {
 		return nil, nil
 	}
 

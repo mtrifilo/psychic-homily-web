@@ -74,10 +74,7 @@ func (h *UserFollowHandler) resolveFollowTarget(ctx context.Context, username st
 	if err != nil {
 		return nil, err
 	}
-	if profileHiddenFromViewer(ctx, target) {
-		return nil, huma.Error404NotFound("User not found")
-	}
-	return target, nil
+	return gateProfile(ctx, target)
 }
 
 // resolveUnfollowTarget is resolveFollowTarget for removing the caller's own
@@ -91,10 +88,7 @@ func (h *UserFollowHandler) resolveUnfollowTarget(ctx context.Context, callerID 
 		return nil, err
 	}
 	if target.CanSignIn() {
-		if profileHiddenFromViewer(ctx, target) {
-			return nil, huma.Error404NotFound("User not found")
-		}
-		return target, nil
+		return gateProfile(ctx, target)
 	}
 
 	following, err := h.followService.IsFollowing(callerID, userEntityType, target.ID)
@@ -131,12 +125,13 @@ func (h *UserFollowHandler) lookUpTarget(ctx context.Context, lookup func(string
 	return target, nil
 }
 
-// profileHiddenFromViewer reports whether target's profile is private and the
-// request's viewer is not its owner.
-func profileHiddenFromViewer(ctx context.Context, target *authm.User) bool {
-	viewer := middleware.GetUserFromContext(ctx)
-	isOwner := viewer != nil && viewer.ID == target.ID
-	return target.IsPrivateProfile() && !isOwner
+// gateProfile answers target's private profile to anyone but its owner with
+// the 404 an unknown username gets.
+func gateProfile(ctx context.Context, target *authm.User) (*authm.User, error) {
+	if target.ProfileHiddenFrom(middleware.GetShowViewerFromContext(ctx).UserID) {
+		return nil, huma.Error404NotFound("User not found")
+	}
+	return target, nil
 }
 
 // UserFollowHandler handles POST /users/{username}/follow.

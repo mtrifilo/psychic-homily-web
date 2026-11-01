@@ -2536,8 +2536,7 @@ func (s *CollectionService) GetUserPublicCollectionsByUsername(username string, 
 		return []*contracts.CollectionListResponse{}, 0, nil
 	}
 
-	isOwner := viewer.UserID != 0 && viewer.UserID == user.ID
-	if user.IsPrivateProfile() && !isOwner {
+	if user.ProfileHiddenFrom(viewer.UserID) {
 		return []*contracts.CollectionListResponse{}, 0, nil
 	}
 

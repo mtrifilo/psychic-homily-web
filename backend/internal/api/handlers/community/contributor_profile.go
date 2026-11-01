@@ -214,8 +214,9 @@ type GetUserFieldNotesResponse struct {
 // resolveProfileTarget looks up the profile owner by username and applies the
 // master profile-visibility gate shared by every public profile endpoint.
 // Returns the target user and whether the viewer is the owner. A private
-// profile (or missing user) resolves to 404 so hidden profiles are
-// indistinguishable from nonexistent ones.
+// profile, a closed account (deactivated or soft-deleted) or a missing user
+// resolves to 404 so hidden profiles are indistinguishable from nonexistent
+// ones.
 func (h *ContributorProfileHandler) resolveProfileTarget(ctx context.Context, username string) (*authm.User, bool, error) {
 	requestID := logger.GetRequestID(ctx)
 
@@ -234,15 +235,14 @@ func (h *ContributorProfileHandler) resolveProfileTarget(ctx context.Context, us
 		return nil, false, huma.Error404NotFound("User not found")
 	}
 
-	viewer := middleware.GetUserFromContext(ctx)
-	isOwner := viewer != nil && viewer.ID == targetUser.ID
+	viewerID := middleware.GetShowViewerFromContext(ctx).UserID
 
 	// Master privacy check
-	if targetUser.IsPrivateProfile() && !isOwner {
+	if targetUser.ProfileHiddenFrom(viewerID) {
 		return nil, false, huma.Error404NotFound("User not found")
 	}
 
-	return targetUser, isOwner, nil
+	return targetUser, viewerID != 0 && viewerID == targetUser.ID, nil
 }
 
 // granularPrivacy unmarshals the user's stored privacy settings over the

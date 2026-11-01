@@ -8,9 +8,11 @@ import (
 	authm "psychic-homily-backend/internal/models/auth"
 )
 
-// The lookups of a users row by a caller's username or email address live
-// here, so each holds the encoding guard (authm.PostgresRejectsText) and its
-// account-state rule in one place. Each reads through db, which may carry the
+// The lookups of a users row by a username or email address a caller supplies
+// live here, so each holds the encoding guard (authm.PostgresRejectsText) and
+// its account-state rule in one place. A sign-in that matches an identity
+// provider's email claim refuses an unstorable claim first
+// (ValidateProviderEmailClaim) and queries for itself. Each reads through db, which may carry the
 // caller's Preload or Select clauses, and answers (nil, nil) when no row
 // matches, including for a value Postgres rejects as text, for which no query
 // runs. A failed query returns its error unwrapped.
