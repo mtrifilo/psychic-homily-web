@@ -261,8 +261,10 @@ export const prefetchHomeSavedShows = cache(async () => {
   } catch (error) {
     // Same posture as the profile read: a failed prefetch is not an answer.
     // A failure after the deadline fired, whatever the rejection is named,
-    // and a network failure are expected and quiet; anything else is a
-    // programming error and is reported rather than swallowed.
+    // and a TypeError, which is how fetch rejects on a network failure, are
+    // expected and quiet. A TypeError thrown by this block's own code is
+    // quiet too, since the class alone cannot tell the two apart. Anything
+    // else is reported rather than swallowed.
     const isExpected = deadline.aborted || error instanceof TypeError
     if (!isExpected) {
       Sentry.captureException(error)

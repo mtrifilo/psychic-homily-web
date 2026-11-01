@@ -321,7 +321,8 @@ export function PasskeySignupButton({
         return
       }
 
-      // The viewer cancelled the passkey prompt: nothing to report.
+      // The browser refused the ceremony (the viewer dismissed it, it timed
+      // out, or the authenticator declined): nothing to show.
       if (isNotAllowedError(error)) {
         return
       }
