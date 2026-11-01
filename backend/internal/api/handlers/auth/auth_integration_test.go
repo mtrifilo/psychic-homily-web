@@ -26,6 +26,7 @@ import (
 	"psychic-homily-backend/internal/services/auth"
 	"psychic-homily-backend/internal/services/notification"
 	servicesshared "psychic-homily-backend/internal/services/shared"
+	"psychic-homily-backend/internal/testlog"
 	"psychic-homily-backend/internal/testutil/signupconsent"
 )
 
@@ -1167,8 +1168,9 @@ func (s *AuthHandlerIntegrationSuite) TestRecoverAccount_NoPassword() {
 	s.Equal(autherrors.CodeInvalidCredentials, resp.Body.ErrorCode)
 }
 
-// An empty hash is no password: recovery refuses it as it refuses a
-// provider-only account.
+// An empty hash is no password: recovery refuses it on the provider-only
+// branch, before any password comparison. The answer is the same invalid
+// credentials either way, so the branch is pinned by its log event.
 func (s *AuthHandlerIntegrationSuite) TestRecoverAccount_EmptyHashIsNoPassword() {
 	h := s.newAuthHandler(false)
 	user := testhelpers.CreateTestUser(s.deps.DB)
@@ -1179,10 +1181,16 @@ func (s *AuthHandlerIntegrationSuite) TestRecoverAccount_EmptyHashIsNoPassword()
 	input.Body.Email = *user.Email
 	input.Body.Password = "doesnt-matter-12345"
 
-	resp, err := h.RecoverAccountHandler(context.Background(), input)
+	var resp *RecoverAccountResponse
+	var err error
+	output := testlog.Capture(s.T(), func() {
+		resp, err = h.RecoverAccountHandler(testlog.Context(s.T(), context.Background()), input)
+	})
 	s.Require().NoError(err)
 	s.False(resp.Body.Success)
 	s.Equal(autherrors.CodeInvalidCredentials, resp.Body.ErrorCode)
+	s.Contains(output, "msg=recover_account_no_password")
+	s.NotContains(output, "msg=recover_account_invalid_password")
 }
 
 func (s *AuthHandlerIntegrationSuite) TestRecoverAccount_UserNotFound() {
