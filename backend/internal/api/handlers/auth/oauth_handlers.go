@@ -276,11 +276,12 @@ func (h *OAuthHTTPHandler) OAuthLoginHTTPHandler(w http.ResponseWriter, r *http.
 }
 
 // discardEarlierCLIStart spends the CLI id an earlier CLI start left in this
-// browser, and the destination stored under it. Every start that hands the
-// browser to the provider without a cli_callback of its own calls it, so the
-// callback that follows signs the browser in rather than handing its token to
-// that earlier start's loopback. Like the callback, it acts only on a cookie
-// read finds.
+// browser, and the destination stored under it. Every sign-in or link start
+// without a cli_callback of its own calls it, so the callback that follows
+// signs the browser in rather than handing its token to that earlier start's
+// loopback. It runs before beginOAuthHandshake, whose redirect ends the
+// response's headers, so a start that then fails has still spent the id. Like
+// the callback, it acts only on a cookie read finds.
 func discardEarlierCLIStart(w http.ResponseWriter, r *http.Request, secure bool, provider string) {
 	cookie, ok := cliCallbackIDCookie.take(w, r, secure)
 	if !ok {

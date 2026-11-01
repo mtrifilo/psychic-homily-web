@@ -16,7 +16,8 @@ const oauthHostCookiePrefix = "__Host-"
 // lifetime, so state a browser carries for one sign-in (a provider round
 // trip, and the sign-up or collision step after it) cannot steer a later one
 // long after it was set. TestOAuthHandshakeCookies_LifetimesFitOneSignIn
-// holds every oauthHandshakeCookie to it.
+// checks the cookies it lists against it, so a new oauthHandshakeCookie
+// belongs on that list.
 const oauthHandshakeCookieMaxLifetime = 10 * time.Minute
 
 // oauthHandshakeCookie is a cookie that carries state across an OAuth sign-in:
