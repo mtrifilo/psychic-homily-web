@@ -27,10 +27,9 @@ func TestApplyPoolBounds(t *testing.T) {
 		MaxIdleConns:    3,
 		ConnMaxLifetime: 11 * time.Minute,
 	}
-	require.NoError(t, applyPoolBounds(td.DB, cfg))
-
 	sqlDB, err := td.DB.DB()
 	require.NoError(t, err)
+	applyPoolBounds(sqlDB, cfg)
 
 	require.Equal(t, cfg.MaxOpenConns, sqlDB.Stats().MaxOpenConnections,
 		"an unapplied max-open leaves the pool unlimited, which is the state this exists to prevent")

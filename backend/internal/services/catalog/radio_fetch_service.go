@@ -783,6 +783,8 @@ func (s *RadioFetchService) runSubstreamScheduleCycle() {
 			continue
 		}
 		if err != nil {
+			// This cycle runs without a context, so shutdown cannot cancel it
+			// and an error here is never a shutdown cancellation.
 			s.logger.Error("radio substream schedule: cycle failed", "station", stationSlug, "error", err)
 			continue
 		}

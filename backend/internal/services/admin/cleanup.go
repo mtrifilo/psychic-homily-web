@@ -235,7 +235,7 @@ func (s *CleanupService) runTagPruneCycle(ctx context.Context) {
 
 	deleted, err := s.pruneDownvotedEntityTags(ctx)
 	if err != nil {
-		s.logger.Error("tag prune cycle failed", "error", err)
+		shared.LogCycleFailure(s.logger, "tag prune cycle failed", err)
 		return
 	}
 
