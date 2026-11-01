@@ -372,6 +372,11 @@ migration "20260901000000_zone_starts" "ALTER TABLE events ALTER COLUMN starts_a
 migration "20260902000000_widen_starts" "ALTER TABLE events ALTER COLUMN starts_at TYPE BIGINT;"
 expect 1 "20260902000000_widen_starts.up.sql changes the type of events.starts_at to bigint, so its typed entry"
 
+reset_fixture "a renamed migration is read as added"
+g mv backend/db/migrations/20260801000000_merged_widen.up.sql backend/db/migrations/20260901000000_renamed.up.sql
+g commit -m "rename"
+expect 1 "20260901000000_renamed.up.sql changes the type of t.merged, and"
+
 reset_fixture "a deleted migration is not read"
 g rm backend/db/migrations/20260801000000_merged_widen.up.sql backend/db/migrations/20260801000000_merged_widen.down.sql
 g commit -m "delete"
