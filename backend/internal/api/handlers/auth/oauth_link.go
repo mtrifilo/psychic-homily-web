@@ -231,6 +231,7 @@ func (h *OAuthHTTPHandler) OAuthLinkHTTPHandler(w http.ResponseWriter, r *http.R
 	secureCookie := h.secureCookies()
 	oauthLinkIntentCookie.set(w, intentID, secureCookie)
 	clearOAuthReturnToCookie(w, r, secureCookie)
+	discardEarlierCLIStart(w, r, secureCookie, provider)
 
 	logger.AuthInfo(ctx, "oauth_link_started",
 		"provider", provider,

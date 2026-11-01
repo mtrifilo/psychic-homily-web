@@ -13,8 +13,10 @@ import (
 const oauthHostCookiePrefix = "__Host-"
 
 // oauthHandshakeCookieMaxLifetime bounds every oauthHandshakeCookie's
-// lifetime to one sign-in: a provider round trip, and the sign-up or
-// collision step after it.
+// lifetime, so state a browser carries for one sign-in (a provider round
+// trip, and the sign-up or collision step after it) cannot steer a later one
+// long after it was set. TestOAuthHandshakeCookies_LifetimesFitOneSignIn
+// holds every oauthHandshakeCookie to it.
 const oauthHandshakeCookieMaxLifetime = 10 * time.Minute
 
 // oauthHandshakeCookie is a cookie that carries state across an OAuth sign-in:
@@ -39,9 +41,9 @@ func (c oauthHandshakeCookie) setName(secure bool) string {
 }
 
 // clearNames are the names clear expires the cookie under: when Secure, the
-// bare name as well as the prefixed one, so a bare copy this host set expires
-// with the cookie. A bare copy set under a Domain is a different cookie to the
-// browser and survives the clear, unread.
+// bare name as well as the prefixed one, so a request carrying both loses
+// both. A bare copy set under a Domain is a different cookie to the browser
+// and survives the clear, unread.
 func (c oauthHandshakeCookie) clearNames(secure bool) []string {
 	if !secure {
 		return []string{c.name}
