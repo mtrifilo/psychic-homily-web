@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, onTestFinished } from 'vitest'
 import { QueryClient } from '@tanstack/react-query'
 
 // The module is server-only by virtue of importing `next/headers`, so the
@@ -391,18 +391,104 @@ describe('prefetchHomeSavedShows', () => {
     )
   }
 
+  // The read's deadline, under the test's control: the signal the module
+  // builds for the read is this controller's, so a test fires the deadline by
+  // aborting it.
+  function controlDeadline(): AbortController {
+    const deadline = new AbortController()
+    const timeout = vi.spyOn(AbortSignal, 'timeout').mockReturnValue(deadline.signal)
+    onTestFinished(() => timeout.mockRestore())
+    return deadline
+  }
+
+  const deadlineReason = () =>
+    new DOMException('The operation timed out.', 'TimeoutError')
+
   it.each([
-    ['a deadline TimeoutError', new DOMException('The operation timed out.', 'TimeoutError')],
-    ['an AbortError', new DOMException('The operation was aborted.', 'AbortError')],
-    ['a network TypeError', new TypeError('fetch failed')],
-  ])('seeds nothing and reports nothing when the read fails with %s', async (_label, error) => {
-    stubSavedShowsRejection(error)
+    ['a TimeoutError', deadlineReason],
+    ['an AbortError', () => new DOMException('The operation was aborted.', 'AbortError')],
+    ['an error with no abort name', () => new Error('socket closed')],
+  ])('seeds nothing and reports nothing when the deadline fired and the read rejects with %s', async (_label, rejection) => {
+    const deadline = controlDeadline()
+    mockGet.mockReturnValue({ value: 'token' })
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string, init?: RequestInit) => {
+        if (url.endsWith('/auth/profile')) {
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({ success: true, user: { id: 'u1' } }),
+          }
+        }
+        expect(init?.signal).toBe(deadline.signal)
+        deadline.abort(deadlineReason())
+        throw rejection()
+      })
+    )
     const Sentry = await import('@sentry/nextjs')
 
     const state = await prefetchHomeSavedShows()
 
     expect(seeded(state as { queries: SeededEntry[] })).toBeUndefined()
     expect(Sentry.captureException).not.toHaveBeenCalled()
+  })
+
+  it('seeds nothing and reports nothing when the deadline fires while the body is read', async () => {
+    const deadline = controlDeadline()
+    mockGet.mockReturnValue({ value: 'token' })
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string) =>
+        url.endsWith('/auth/profile')
+          ? {
+              ok: true,
+              status: 200,
+              json: async () => ({ success: true, user: { id: 'u1' } }),
+            }
+          : {
+              ok: true,
+              status: 200,
+              json: async () => {
+                deadline.abort(deadlineReason())
+                throw deadline.signal.reason
+              },
+            }
+      )
+    )
+    const Sentry = await import('@sentry/nextjs')
+
+    const state = await prefetchHomeSavedShows()
+
+    expect(seeded(state as { queries: SeededEntry[] })).toBeUndefined()
+    expect(Sentry.captureException).not.toHaveBeenCalled()
+  })
+
+  it('seeds nothing and reports nothing when the read fails with a network TypeError', async () => {
+    stubSavedShowsRejection(new TypeError('fetch failed'))
+    const Sentry = await import('@sentry/nextjs')
+
+    const state = await prefetchHomeSavedShows()
+
+    expect(seeded(state as { queries: SeededEntry[] })).toBeUndefined()
+    expect(Sentry.captureException).not.toHaveBeenCalled()
+  })
+
+  // The classification asks the deadline, not the rejection's name: an
+  // abort-named rejection while the deadline has not fired came from nothing
+  // this read controls.
+  it.each([
+    ['a TimeoutError', deadlineReason()],
+    ['an AbortError', new DOMException('The operation was aborted.', 'AbortError')],
+  ])('reports %s that arrives before the deadline fired', async (_label, error) => {
+    controlDeadline()
+    stubSavedShowsRejection(error)
+    const Sentry = await import('@sentry/nextjs')
+
+    const state = await prefetchHomeSavedShows()
+
+    expect(seeded(state as { queries: SeededEntry[] })).toBeUndefined()
+    expect(Sentry.captureException).toHaveBeenCalledWith(error)
   })
 
   it('reports any other failure of the read', async () => {

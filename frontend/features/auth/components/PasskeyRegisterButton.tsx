@@ -19,7 +19,12 @@ import {
 } from '@/components/ui/dialog'
 import { useWebAuthnSupport } from '@/features/auth/hooks/useWebAuthnSupport'
 import { registrationOptionsFrom } from '@/features/auth/passkeyOptions'
-import { AuthError, isReauthRequired, type AuthErrorCodeType } from '@/lib/errors'
+import {
+  AuthError,
+  isNotAllowedError,
+  isReauthRequired,
+  type AuthErrorCodeType,
+} from '@/lib/errors'
 import type { components } from '@/types/api'
 import { API_BASE_URL } from '@/lib/api-base'
 import { refetchSignedInProfile } from '@/lib/queryClient'
@@ -145,11 +150,11 @@ export function PasskeyRegisterButton({
       void refetchSignedInProfile(queryClient)
       onSuccess?.()
     } catch (error) {
+      // The viewer cancelled the passkey prompt: nothing to report.
+      if (isNotAllowedError(error)) {
+        return
+      }
       if (error instanceof Error) {
-        if (error.name === 'NotAllowedError') {
-          // User cancelled
-          return
-        }
         Sentry.captureException(error, {
           level: 'error',
           tags: { service: 'passkey-auth', error_type: 'registration_failed' },

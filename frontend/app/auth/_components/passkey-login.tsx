@@ -16,7 +16,7 @@ import { useWebAuthnSupport } from '@/features/auth/hooks/useWebAuthnSupport'
 import { authenticationOptionsFrom } from '@/features/auth/passkeyOptions'
 import type { components } from '@/types/api'
 import { API_BASE_URL } from '@/lib/api-base'
-import { AuthError, AuthErrorCode } from '@/lib/errors'
+import { AuthError, AuthErrorCode, isNotAllowedError } from '@/lib/errors'
 
 interface PasskeyLoginButtonProps {
   /**
@@ -123,7 +123,7 @@ export function PasskeyLoginButton({
       router.push(returnTo)
     } catch (error) {
       // The viewer cancelled the passkey prompt: nothing to report.
-      if (error instanceof Error && error.name === 'NotAllowedError') {
+      if (isNotAllowedError(error)) {
         return
       }
       Sentry.captureException(error, {

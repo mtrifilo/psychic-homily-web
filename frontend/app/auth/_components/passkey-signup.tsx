@@ -37,7 +37,7 @@ import {
 import { registrationOptionsFrom } from '@/features/auth/passkeyOptions'
 import type { components } from '@/types/api'
 import { API_BASE_URL } from '@/lib/api-base'
-import { AuthErrorCode } from '@/lib/errors'
+import { AuthErrorCode, isNotAllowedError } from '@/lib/errors'
 import {
   CONSENT_VERSIONS_UNAVAILABLE,
   ConsentRetryNotice,
@@ -321,16 +321,13 @@ export function PasskeySignupButton({
         return
       }
 
-      // Handle user cancellation gracefully
-      if (error instanceof Error) {
-        if (error.name === 'NotAllowedError') {
-          // User cancelled the operation
-          return
-        }
-        reportError(error.message)
-      } else {
-        reportError('An unexpected error occurred')
+      // The viewer cancelled the passkey prompt: nothing to report.
+      if (isNotAllowedError(error)) {
+        return
       }
+      reportError(
+        error instanceof Error ? error.message : 'An unexpected error occurred'
+      )
     } finally {
       requestDeadline.disarm()
       setIsRetryingConsent(false)
