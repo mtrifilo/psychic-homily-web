@@ -227,6 +227,14 @@ describe('SetPassword', () => {
     )
   })
 
+  it('a failure with no message of its own shows the fallback line', async () => {
+    mockMutationState = { isPending: false, isError: true, error: new Error('') }
+    const { user } = renderCard()
+    await openForm(user)
+
+    expect(screen.getByRole('alert')).toHaveTextContent('Failed to set password')
+  })
+
   it('a throttled set shows the shared throttle line', async () => {
     const throttled = Object.assign(new Error('Too Many Requests'), { status: 429, retryAfter: 60 })
     mockMutationState = { isPending: false, isError: true, error: throttled }
