@@ -132,17 +132,13 @@ func (s *AuthHandlerIntegrationSuite) TestRefresh_RevocationBetweenValidationAnd
 }
 
 // An account closed between validation and the re-read is refused the same
-// way, whether deactivated or soft-deleted.
+// way, in every closed state.
 func (s *AuthHandlerIntegrationSuite) TestRefresh_ClosureBetweenValidationAndReReadIsRefused() {
-	closures := map[string]func(userID uint){
-		"deactivated":  s.deactivateUser,
-		"soft-deleted": s.softDeleteUser,
-	}
-	for name, closeAccount := range closures {
-		s.Run(name, func() {
-			user := s.createUserWithPassword("refresh-straddles-"+name+"@test.com", "strong-password-123!")
+	for _, state := range s.closedAccountStates() {
+		s.Run(state.name, func() {
+			user := s.createUserWithPassword("refresh-straddles-"+state.name+"@test.com", "strong-password-123!")
 			session := s.sessionFor(user)
-			seam := &refreshSeamAuthService{beforeReRead: func() { closeAccount(user.ID) }}
+			seam := &refreshSeamAuthService{beforeReRead: func() { state.apply(user.ID) }}
 
 			w := s.refreshThroughTheMiddleware(seam, session)
 

@@ -508,13 +508,11 @@ type RefreshTokenResponse struct {
 
 // RefreshTokenHandler renews the presented session.
 //
-// The new token is minted from the user the session's validation loaded
-// (the context user), never from a row read after it, so it names the
-// revocation stamp that validation honored. A revocation that commits after
-// validation therefore leaves the new token naming a stamp the account no
-// longer holds, and validation refuses it on first use. The handler also
-// re-reads the account and mints nothing when that read shows the account
-// closed or its stamp moved since validation.
+// It mints from the user the session's validation loaded (the context user),
+// never from a row read after it, so the new token names the revocation stamp
+// validation honored and a revocation committed after validation refuses it
+// on first use. It mints nothing when its re-read shows the account closed or
+// its stamp moved since validation.
 func (h *AuthHandler) RefreshTokenHandler(ctx context.Context, input *struct{}) (*RefreshTokenResponse, error) {
 	resp := &RefreshTokenResponse{}
 	requestID := logger.GetRequestID(ctx)
@@ -551,7 +549,7 @@ func (h *AuthHandler) RefreshTokenHandler(ctx context.Context, input *struct{}) 
 		"user_id", contextUser.ID,
 	)
 
-	// Re-read the account. Three discriminated outcomes:
+	// Re-read the account. Two discriminated failures:
 	//   - Typed CodeUserNotFound  → HTTP 401 + CodeUnauthorized. The session
 	//     principal's row no longer exists. The token itself is still
 	//     cryptographically valid, but the account it represents does not, so
@@ -562,9 +560,6 @@ func (h *AuthHandler) RefreshTokenHandler(ctx context.Context, input *struct{}) 
 	//   - Any other error      → HTTP 5xx + CodeServiceUnavailable. Real
 	//     backend defect (DB outage, etc.); fail-closed so monitoring sees
 	//     the incident with the same uniform shape and the client retries.
-	//   - A row that may no longer sign in, or whose revocation stamp is not
-	//     the context user's → HTTP 401 + CodeTokenInvalid, the answer session
-	//     validation gives a closed or revoked session, and no token.
 	current, err := h.authService.GetUserProfile(contextUser.ID)
 	if err != nil {
 		var authErr *autherrors.AuthError
@@ -593,13 +588,14 @@ func (h *AuthHandler) RefreshTokenHandler(ctx context.Context, input *struct{}) 
 		resp.Body.ErrorCode = autherrors.CodeServiceUnavailable
 		return resp, svcErr
 	}
+	// A closed account or a moved stamp gets the 401 TOKEN_INVALID session
+	// validation gives such a session.
 	if err := servicesshared.CheckSessionAccount(current, contextUser.SessionsValidAfter); err != nil {
 		return nil, middleware.RefuseSession(ctx, "refresh_token", err, h.config.Session)
 	}
 
-	// Mint from contextUser, not current (see the doc comment). Refresh asks
-	// for no factor, so it carries the presented session's authentication
-	// time rather than stamping one.
+	// Refresh asks for no factor, so it carries the presented session's
+	// authentication time rather than stamping one.
 	//
 	// Fail-closed: same rationale as the profile-fetch branch above. JWT
 	// service outages must surface as 5xx, not as HTTP 200 with a sad-path

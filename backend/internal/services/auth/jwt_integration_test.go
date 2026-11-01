@@ -360,18 +360,10 @@ func (s *JWTIntegrationSuite) TestValidateToken_UserDeletedAfterTokenCreation() 
 // way the handler does, then renews from the validated user.
 func (s *JWTIntegrationSuite) renewLikeTheRefreshEndpoint(token string) (string, error) {
 	s.T().Helper()
-	return s.renewLikeTheRefreshEndpointWith(token, func() {})
-}
-
-// renewLikeTheRefreshEndpointWith is renewLikeTheRefreshEndpoint with
-// betweenReads run after the lenient read and before the re-read.
-func (s *JWTIntegrationSuite) renewLikeTheRefreshEndpointWith(token string, betweenReads func()) (string, error) {
-	s.T().Helper()
 	validated, authAt, err := s.svc.ValidateSessionLenient(token, refreshGracePeriod)
 	if err != nil {
 		return "", err
 	}
-	betweenReads()
 	current, err := s.authSvc.GetUserProfile(validated.ID)
 	if err != nil {
 		return "", err
@@ -380,21 +372,6 @@ func (s *JWTIntegrationSuite) renewLikeTheRefreshEndpointWith(token string, betw
 		return "", err
 	}
 	return s.authSvc.RefreshUserToken(validated, authAt)
-}
-
-// A revocation that commits between the lenient read and the re-read refuses
-// the renewal as revoked.
-func (s *JWTIntegrationSuite) TestRefreshFlow_RevocationBetweenTheReadsIsRefused() {
-	user := s.createActiveUser("refresh-between-reads@example.com")
-	original, err := s.svc.CreateToken(user)
-	s.Require().NoError(err)
-
-	refreshed, err := s.renewLikeTheRefreshEndpointWith(original, func() {
-		s.Require().NoError(RevokeAllSessions(s.db, s.reloadUser(user.ID), time.Now()))
-	})
-
-	s.Empty(refreshed)
-	s.requireRevoked(err)
 }
 
 func (s *JWTIntegrationSuite) TestRefreshFlow_IssuesAUsableTokenWithALaterExpiry() {

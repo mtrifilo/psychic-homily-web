@@ -34,12 +34,9 @@ var ErrSessionAccountClosed = errors.New("the session's account may no longer si
 // stamp, the one a session minted before any revocation carries, not a way to
 // skip the comparison.
 //
-// It refuses with CodeAccountInactive when the account may not sign in
-// (authm.User.CanSignIn), and otherwise with CodeTokenInvalid wrapping
-// ErrSessionRevoked when the account's sessions_valid_after is no longer
-// sessionsValidAfter (IsSessionRefusal reports both). Every session
-// revocation writes a new value, so a session revoked after its validation is
-// refused here. Under the lock, a deactivation, deletion or revocation that
+// It judges the locked read with CheckSessionAccount and gives its refusals.
+// Every session revocation writes a new value, so a session revoked after its
+// validation is refused here. Under the lock, a deactivation, deletion or revocation that
 // committed before the read is seen by it, and one that comes later waits for
 // tx, so none can land between this check and the caller's write. A missing
 // account is an error, not a refusal.
@@ -53,10 +50,11 @@ func LockSessionAccount(tx *gorm.DB, userID uint, sessionsValidAfter *time.Time)
 
 // CheckSessionAccount judges account, a read of the account a signed-in
 // request acts for, against sessionsValidAfter, the acting session's
-// revocation stamp, and refuses as LockSessionAccount does: CodeAccountInactive
-// wrapping ErrSessionAccountClosed when the account may not sign in, and
-// otherwise CodeTokenInvalid wrapping ErrSessionRevoked when its
-// sessions_valid_after is no longer sessionsValidAfter. It holds no lock, so
+// revocation stamp (as LockSessionAccount describes it). It refuses with
+// CodeAccountInactive wrapping ErrSessionAccountClosed when the account may
+// not sign in (authm.User.CanSignIn), and otherwise with CodeTokenInvalid
+// wrapping ErrSessionRevoked when its sessions_valid_after is no longer
+// sessionsValidAfter (IsSessionRefusal reports both). It holds no lock, so
 // its answer covers only what committed before account was read.
 func CheckSessionAccount(account *authm.User, sessionsValidAfter *time.Time) error {
 	if !account.CanSignIn() {
@@ -71,8 +69,9 @@ func CheckSessionAccount(account *authm.User, sessionsValidAfter *time.Time) err
 }
 
 // IsSessionRefusal reports whether err is one of CheckSessionAccount's
-// refusals (which LockSessionAccount gives too), by their causes: the account may not sign in
-// (ErrSessionAccountClosed) or the session was revoked (ErrSessionRevoked).
+// refusals (LockSessionAccount gives the same ones), by their causes: the
+// account may not sign in (ErrSessionAccountClosed) or the session was
+// revoked (ErrSessionRevoked).
 // An ACCOUNT_INACTIVE from anywhere else is not one. A caller that answers a
 // closed account differently from a revoked session branches on
 // ErrSessionRevoked (errors.Is) for the revocation instead.
