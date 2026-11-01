@@ -116,6 +116,9 @@ var customDefaults = map[string]methodDefault{
 	"MockWebAuthnService.StoreChallenge": {
 		body: `	return "challenge-id", nil`,
 	},
+	"MockWebAuthnService.StoreLoginChallenge": {
+		body: `	return "challenge-id", nil`,
+	},
 	"MockSceneService.ListScenes": {
 		body: `	return []*contracts.SceneListResponse{}, nil`,
 	},

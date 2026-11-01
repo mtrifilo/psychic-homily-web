@@ -4828,7 +4828,7 @@ func (m *MockWebAuthnService) StoreLoginChallenge(session *webauthn.SessionData)
 	if m.StoreLoginChallengeFn != nil {
 		return m.StoreLoginChallengeFn(session)
 	}
-	return "", nil
+	return "challenge-id", nil
 }
 func (m *MockWebAuthnService) ConsumeLoginChallenge(challengeID string) (*webauthn.SessionData, error) {
 	if m.ConsumeLoginChallengeFn != nil {
