@@ -4,7 +4,6 @@ import (
 	"gorm.io/gorm"
 
 	"psychic-homily-backend/internal/logger"
-	"psychic-homily-backend/internal/services/contracts"
 )
 
 // =============================================================================
@@ -24,7 +23,8 @@ import (
 // subtraction. The withheld count published as arithmetic is the same disclosure
 // as the rows.
 //
-// So every PUBLIC response body carries the VISIBLE count, computed here, and the
+// So every PUBLIC response body carries the LISTED count (ListedTagUsageCounts,
+// which counts what the tag's pages list), computed here, and the
 // two public listings ORDER BY it as well (services/catalog/tag_counts.go states
 // why the number and the ordering key have to be one expression). The raw column
 // is still read in two places, and each is named rather than left to be
@@ -46,23 +46,10 @@ import (
 // Passing a viewer would also make the number vary between two callers looking
 // at the same page, which is a second way to say the same thing.
 
-// VisibleEntityTagsSQL returns a condition, true for the entity_tags rows whose
-// TAGGED ENTITY viewer may see, plus its bind arguments.
-//
-// The polymorphic gate applied to entity_tags. It delegates to
-// VisibleCommentEntitySQL rather than writing its own arms, so entity_tags rows
-// and comment rows are decided by one registry: a tag row naming an entity type
-// nobody dispositioned does not pass, exactly as a comment row naming one does
-// not.
-//
-// alias is the table alias the enclosing query binds entity_tags to and is a
-// literal in the calling code.
-func VisibleEntityTagsSQL(alias string, viewer contracts.ShowViewer) (string, []interface{}) {
-	return VisibleCommentEntitySQL(alias+".entity_type", alias+".entity_id", viewer)
-}
-
-// PublicEntityTagsSQL is VisibleEntityTagsSQL's public tier, inlined so it binds
-// nothing.
+// PublicEntityTagsSQL returns a condition, true for the entity_tags rows whose
+// TAGGED ENTITY an anonymous reader may see, through the polymorphic registry
+// (PublicEntityTypeArmsSQL), so entity_tags rows and comment rows are decided by
+// one rule. It binds nothing.
 //
 // For a leaderboard or any other shared ranking assembled by concatenation,
 // where the placeholders are counted at a distance and one more `?` would shift

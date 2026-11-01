@@ -157,6 +157,8 @@ func (suite *TagServiceIntegrationTestSuite) TestGetTagEntities_Collections_List
 	deleted := suite.createTestUserWithTier("listing-deleted", "contributor")
 	private := suite.createTestUserWithTier("listing-private", "contributor")
 	tag := suite.createTag("listing-rule", "other")
+	// Co-occurs with tag only on the private-profile creator's collection.
+	companion := suite.createTag("listing-rule-companion", "genre")
 
 	control := suite.createCollection(live.ID, "Listed Picks", true)
 	_, err := suite.tagService.AddTagToEntity(tag.ID, "", catalogm.TagEntityCollection, control.ID, live.ID, "")
@@ -168,12 +170,14 @@ func (suite *TagServiceIntegrationTestSuite) TestGetTagEntities_Collections_List
 		suite.Require().NoError(err)
 		ids[u.ID] = c.ID
 	}
+	_, err = suite.tagService.AddTagToEntity(companion.ID, "", catalogm.TagEntityCollection, ids[private.ID], private.ID, "")
+	suite.Require().NoError(err)
 
 	testutil.DeactivateAccount(suite.T(), suite.db, deactivated.ID)
 	testutil.SoftDeleteAccount(suite.T(), suite.db, deleted.ID)
 	testutil.SetProfileVisibility(suite.T(), suite.db, private.ID, "private")
 
-	assertListed := func(want []uint, msg string) {
+	assertListed := func(want []uint, companionRelated bool, msg string) {
 		rows, total, err := suite.tagService.GetTagEntities(tag.ID, catalogm.TagEntityCollection, 50, 0)
 		suite.Require().NoError(err)
 		got := make([]uint, 0, len(rows))
@@ -211,13 +215,22 @@ func (suite *TagServiceIntegrationTestSuite) TestGetTagEntities_Collections_List
 		}
 		suite.Equal(int64(1), credited[live.ID], "top contributors, live tagger: %s", msg)
 		suite.Equal(int64(len(want)-1), credited[deleted.ID]+credited[private.ID], "top contributors, hidden taggers: %s", msg)
+
+		// Related tags are computed over the listed rows only.
+		related := false
+		for _, r := range detail.RelatedTags {
+			if r.ID == companion.ID {
+				related = true
+			}
+		}
+		suite.Equal(companionRelated, related, "related tags: %s", msg)
 	}
 
-	assertListed([]uint{control.ID}, "closed and private-profile creators hidden")
+	assertListed([]uint{control.ID}, false, "closed and private-profile creators hidden")
 
 	testutil.ReopenAccount(suite.T(), suite.db, deleted.ID)
 	testutil.SetProfileVisibility(suite.T(), suite.db, private.ID, "public")
-	assertListed([]uint{control.ID, ids[deleted.ID], ids[private.ID]}, "reopened and profile published")
+	assertListed([]uint{control.ID, ids[deleted.ID], ids[private.ID]}, true, "reopened and profile published")
 }
 
 func (s *TagIntersectionIntegrationTestSuite) TestIntersection_CollectionListsOnlyLiveCreatorsWithPublicProfiles() {

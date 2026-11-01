@@ -33,7 +33,7 @@ import (
 //     predicate, and PublicListedCollectionSQL for the public-tier listings.
 //
 // The registry's polymorphic functions (EntityVisibleTo, VisibleCommentEntitySQL,
-// VisibleEntityExistsSQL, VisibleEntityTagsSQL, EntityIdentityFenceSQL) keep
+// VisibleEntityExistsSQL, PublicEntityTagsSQL, EntityIdentityFenceSQL) keep
 // their names and decide collections on SERVED; ListedEntityTagsSQL and
 // PublicListedEntityTypeArmsSQL decide them on LISTED.
 //

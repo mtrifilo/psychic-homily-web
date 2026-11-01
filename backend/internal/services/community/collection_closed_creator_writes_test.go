@@ -274,8 +274,9 @@ func (suite *CollectionServiceIntegrationTestSuite) TestClosedCloner_ForkLeavesF
 func (suite *CollectionServiceIntegrationTestSuite) TestUnlike_PrivateCollectionRemovesOwnLikeAndAnswersEmpty() {
 	creator := suite.createTestUser("UnlikePrivateCreator")
 	liker := suite.createTestUser("UnlikePrivateLiker")
+	stayer := suite.createTestUser("UnlikePrivateStayer")
 	c := suite.createPublicCollection(creator, "Unlike Private Picks")
-	for _, u := range []*authm.User{creator, liker} {
+	for _, u := range []*authm.User{creator, liker, stayer} {
 		_, err := suite.collectionService.Like(c.Slug, u.ID)
 		suite.Require().NoError(err)
 	}
@@ -293,6 +294,6 @@ func (suite *CollectionServiceIntegrationTestSuite) TestUnlike_PrivateCollection
 
 	own, err := suite.collectionService.Unlike(c.Slug, creator.ID)
 	suite.Require().NoError(err)
-	suite.Equal(0, own.LikeCount, "the creator's own unlike reads their collection's real count")
+	suite.Equal(1, own.LikeCount, "the creator's own unlike reads their collection's real count")
 	suite.False(own.UserLikesThis)
 }
