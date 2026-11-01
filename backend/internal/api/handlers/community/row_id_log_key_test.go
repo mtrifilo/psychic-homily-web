@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"log/slog"
+	"strconv"
 	"testing"
 	"time"
 
@@ -24,9 +25,11 @@ import (
 
 const httpCorrelationID = "http-correlation-id-for-log-key-tests"
 
-// logKeyRowID is distinct from every id the handlers' other tests use, so a
-// match in the captured line can only come from the row under test.
+// logKeyRowID is the row every test here addresses, and logKeyRowIDParam is
+// the same id as the path parameter carries it.
 const logKeyRowID uint = 7041
+
+var logKeyRowIDParam = strconv.FormatUint(uint64(logKeyRowID), 10)
 
 // withCapturedLogger returns ctx carrying a JSON logger shaped like the one the
 // request middleware installs: request_id already bound to the HTTP id.
@@ -36,10 +39,10 @@ func withCapturedLogger(ctx context.Context) (context.Context, *bytes.Buffer) {
 }
 
 // assertRowIDLogKey finds the record whose msg is event and checks that rowKey
-// holds rowID and request_id still holds the HTTP id. A record that carried
+// holds logKeyRowID and request_id still holds the HTTP id. A record that carried
 // request_id twice decodes to the LAST value, so a row id logged under
 // request_id fails the correlation-id check.
-func assertRowIDLogKey(t *testing.T, buf *bytes.Buffer, event, rowKey string, rowID uint) {
+func assertRowIDLogKey(t *testing.T, buf *bytes.Buffer, event, rowKey string) {
 	t.Helper()
 	scanner := bufio.NewScanner(bytes.NewReader(buf.Bytes()))
 	for scanner.Scan() {
@@ -50,8 +53,8 @@ func assertRowIDLogKey(t *testing.T, buf *bytes.Buffer, event, rowKey string, ro
 		if rec["msg"] != event {
 			continue
 		}
-		if got, ok := rec[rowKey].(float64); !ok || uint(got) != rowID {
-			t.Errorf("%s: %s = %v, want %d", event, rowKey, rec[rowKey], rowID)
+		if got, ok := rec[rowKey].(float64); !ok || uint(got) != logKeyRowID {
+			t.Errorf("%s: %s = %v, want %d", event, rowKey, rec[rowKey], logKeyRowID)
 		}
 		if got := rec["request_id"]; got != httpCorrelationID {
 			t.Errorf("%s: request_id = %v, want the HTTP correlation id %q", event, got, httpCorrelationID)
@@ -73,12 +76,12 @@ func TestEntityRequestLogKey_DecideFailure(t *testing.T) {
 		nil, nil,
 	)
 	ctx, buf := withCapturedLogger(erAdminCtx())
-	req := &AdminDecideEntityRequestRequest{ID: "7041"}
+	req := &AdminDecideEntityRequestRequest{ID: logKeyRowIDParam}
 	req.Body.Decision = string(communitym.EntityRequestStateRejected)
 
 	_, err := h.AdminDecideEntityRequestHandler(ctx, req)
 	testhelpers.AssertHumaError(t, err, 500)
-	assertRowIDLogKey(t, buf, "entity_request_decide_failed", "entity_request_id", logKeyRowID)
+	assertRowIDLogKey(t, buf, "entity_request_decide_failed", "entity_request_id")
 }
 
 func TestEntityRequestLogKey_RescueVoidFailure(t *testing.T) {
@@ -91,12 +94,12 @@ func TestEntityRequestLogKey_RescueVoidFailure(t *testing.T) {
 		nil, nil,
 	)
 	ctx, buf := withCapturedLogger(erAdminCtx())
-	req := &AdminFulfillEntityRequestRequest{ID: "7041"}
+	req := &AdminFulfillEntityRequestRequest{ID: logKeyRowIDParam}
 	req.Body.Action = rescueActionVoid
 
 	_, err := h.AdminFulfillEntityRequestHandler(ctx, req)
 	testhelpers.AssertHumaError(t, err, 500)
-	assertRowIDLogKey(t, buf, "entity_request_rescue_void_failed", "entity_request_id", logKeyRowID)
+	assertRowIDLogKey(t, buf, "entity_request_rescue_void_failed", "entity_request_id")
 }
 
 func TestEntityRequestLogKey_WithdrawFailure(t *testing.T) {
@@ -110,9 +113,9 @@ func TestEntityRequestLogKey_WithdrawFailure(t *testing.T) {
 	)
 	ctx, buf := withCapturedLogger(erUserCtx())
 
-	_, err := h.WithdrawEntityRequestHandler(ctx, withdrawRequest("7041"))
+	_, err := h.WithdrawEntityRequestHandler(ctx, withdrawRequest(logKeyRowIDParam))
 	testhelpers.AssertHumaError(t, err, 500)
-	assertRowIDLogKey(t, buf, "entity_request_withdraw_failed", "entity_request_id", logKeyRowID)
+	assertRowIDLogKey(t, buf, "entity_request_withdraw_failed", "entity_request_id")
 }
 
 func TestDataRequestLogKey_EntityRefResolveFailure(t *testing.T) {
@@ -135,8 +138,8 @@ func TestDataRequestLogKey_EntityRefResolveFailure(t *testing.T) {
 	ctx, buf := withCapturedLogger(requestUserCtx())
 
 	// A failed resolve is non-fatal: the request still renders.
-	if _, err := h.GetRequestHandler(ctx, &GetRequestHandlerRequest{RequestID: "7041"}); err != nil {
+	if _, err := h.GetRequestHandler(ctx, &GetRequestHandlerRequest{RequestID: logKeyRowIDParam}); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	assertRowIDLogKey(t, buf, "request_entity_ref_resolve_failed", "data_request_id", logKeyRowID)
+	assertRowIDLogKey(t, buf, "request_entity_ref_resolve_failed", "data_request_id")
 }
