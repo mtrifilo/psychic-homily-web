@@ -109,7 +109,7 @@ func (h *AuthHandler) SetPasswordHandler(ctx context.Context, input *SetPassword
 		var authErr *autherrors.AuthError
 		if errors.As(err, &authErr) {
 			switch authErr.Code {
-			case autherrors.CodePasswordAlreadySet, autherrors.CodeAccountInactive:
+			case autherrors.CodePasswordAlreadySet, autherrors.CodeAccountInactive, autherrors.CodeValidationFailed:
 				logger.AuthWarn(ctx, "set_password_refused",
 					"user_id", contextUser.ID,
 					"error_code", authErr.Code,
@@ -125,6 +125,10 @@ func (h *AuthHandler) SetPasswordHandler(ctx context.Context, input *SetPassword
 	// A renewal, not a re-stamp: setting a password proves no factor, so the
 	// session keeps the authentication time it arrived with. A mint failure is
 	// logged and not surfaced, because the password is already set.
+	//
+	// The cookie lasts 24 hours, as ChangePasswordHandler's does and for the
+	// reason stated there: a session that arrived on the seven-day cookie the
+	// OAuth callback sets comes away with the shorter one.
 	if token, err := h.jwtService.RenewSessionToken(contextUser, middleware.GetSessionAuthTimeFromContext(ctx)); err != nil {
 		logger.AuthError(ctx, "set_password_renew_failed", err, "user_id", contextUser.ID)
 	} else {

@@ -118,13 +118,31 @@ describe('SetPassword', () => {
     expect(screen.getByText('Password strength')).toBeInTheDocument()
   })
 
-  it('cancel closes the form', async () => {
+  it('opening the form puts focus on New password', async () => {
+    const { user } = renderCard()
+    await openForm(user)
+
+    expect(screen.getByLabelText('New password')).toHaveFocus()
+  })
+
+  it('cancel closes the form and returns focus to Set a password', async () => {
     const { user } = renderCard()
     await openForm(user)
     await user.click(screen.getByRole('button', { name: 'Cancel' }))
 
     expect(screen.queryByLabelText('New password')).toBeNull()
-    expect(screen.getByRole('button', { name: 'Set a password' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Set a password' })).toHaveFocus()
+  })
+
+  // Cancel would unmount the form before the answer arrives, and its outcome
+  // (the confirmation or the refusal) would then show nowhere.
+  it('cancel is disabled while the set is in flight', async () => {
+    mockMutationState = { isPending: true, isError: false, error: null }
+    const { user } = renderCard()
+    await openForm(user)
+
+    expect(screen.getByRole('button', { name: 'Cancel' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Set password' })).toBeDisabled()
   })
 
   it('shows field errors and disables submit while they stand', async () => {

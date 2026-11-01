@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { useForm } from '@tanstack/react-form'
 import { z } from 'zod'
 import { AlertCircle, Loader2 } from 'lucide-react'
@@ -68,6 +68,9 @@ export function SetPassword({
   onPasswordSet,
 }: SetPasswordProps) {
   const [open, setOpen] = useState(false)
+  // Cancel unmounts the form and the focused control with it, so focus goes
+  // back to the button that opened it when that button mounts again.
+  const focusPromptOnMount = useRef(false)
   const description = passwordlessSignInDescription(providers, passkeyCount)
 
   if (!open) {
@@ -84,6 +87,12 @@ export function SetPassword({
               in.
             </p>
             <Button
+              ref={node => {
+                if (node && focusPromptOnMount.current) {
+                  focusPromptOnMount.current = false
+                  node.focus()
+                }
+              }}
               variant="outline"
               size="sm"
               className="shrink-0 self-start sm:self-auto"
@@ -100,7 +109,10 @@ export function SetPassword({
   return (
     <SetPasswordForm
       reauthReturnTo={reauthReturnTo}
-      onCancel={() => setOpen(false)}
+      onCancel={() => {
+        focusPromptOnMount.current = true
+        setOpen(false)
+      }}
       onPasswordSet={onPasswordSet}
     />
   )
@@ -169,6 +181,7 @@ function SetPasswordForm({
                 <PasswordInput
                   id="set-password-new"
                   name={field.name}
+                  autoFocus
                   placeholder="At least 12 characters"
                   value={field.state.value}
                   onBlur={field.handleBlur}
@@ -231,7 +244,12 @@ function SetPasswordForm({
                     )}
                     Set password
                   </Button>
-                  <Button type="button" variant="outline" onClick={onCancel}>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    disabled={setPasswordMutation.isPending}
+                    onClick={onCancel}
+                  >
                     Cancel
                   </Button>
                 </div>

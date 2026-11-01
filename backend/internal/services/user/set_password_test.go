@@ -3,6 +3,7 @@ package user
 import (
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 
 	"gorm.io/gorm"
@@ -120,9 +121,9 @@ func (suite *UserServiceIntegrationTestSuite) TestSetPassword_ConcurrentSetsOneW
 }
 
 // A session revoked before the call, or after the caller checked it and
-// before the write reads the account, sets nothing: the write compares the
-// session's stamp with the account's under the row lock
-// (shared.LockSessionAccount).
+// before the write reads the account, sets nothing: the write reads the row
+// FOR UPDATE and judges it with shared.CheckSessionAccount, which compares the
+// session's stamp with the account's.
 func (suite *UserServiceIntegrationTestSuite) TestSetPassword_RevokedSessionRefused() {
 	suite.Run("revoked before the call", func() {
 		owner := suite.createLiveAccount("setpw-revoked@example.com")
@@ -177,4 +178,19 @@ func (suite *UserServiceIntegrationTestSuite) TestSetPassword_ClosedAccountRefus
 			suite.False(suite.accountHasPassword(owner.ID))
 		})
 	}
+}
+
+// bcrypt cannot hash more than 72 bytes, which the validator's 128-character
+// bound admits, so a longer password is a refusal the caller can act on.
+func (suite *UserServiceIntegrationTestSuite) TestSetPassword_TooLongToHashRefused() {
+	owner := suite.createLiveAccount("setpw-too-long@example.com")
+
+	err := suite.userService.SetPassword(owner.ID, strings.Repeat("a", 73), nil)
+	var refusal *apperrors.AuthError
+	suite.Require().ErrorAs(err, &refusal, "got %v", err)
+	suite.Equal(apperrors.CodeValidationFailed, refusal.Code)
+	suite.False(suite.accountHasPassword(owner.ID))
+
+	suite.Require().NoError(suite.userService.SetPassword(owner.ID, strings.Repeat("a", 72), nil),
+		"72 bytes is within bcrypt's limit")
 }

@@ -88,10 +88,12 @@ describe('PasswordSettings', () => {
     await user.click(screen.getByRole('button', { name: 'Set password' }))
 
     await waitFor(() => expect(screen.getByText('Change password')).toBeInTheDocument())
-    expect(
-      screen.getByText('Password set. You can now also sign in with your email and password.')
-    ).toBeInTheDocument()
+    expect(screen.getByRole('status')).toHaveTextContent(
+      'Password set. You can now also sign in with your email and password.'
+    )
     expect(screen.getByLabelText('Current password')).toBeInTheDocument()
+    // The submit button left with the set card; focus lands on the slot.
+    expect(document.getElementById(PASSWORD_SETTINGS_ANCHOR)).toHaveFocus()
   })
 
   it('is the anchor the return address names', () => {

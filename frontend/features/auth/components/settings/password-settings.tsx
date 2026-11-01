@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useProfile } from '@/features/auth'
 import { cn } from '@/lib/utils'
 import { ChangePassword } from './change-password'
@@ -29,13 +29,23 @@ export function PasswordSettings() {
   const { data: profile } = useProfile()
   const [setConfirmation, setSetConfirmation] = useState<string | null>(null)
   const anchorRef = useAnchorScroll(PASSWORD_SETTINGS_ANCHOR)
+  const slotRef = useRef<HTMLDivElement | null>(null)
+
+  // The set card leaves with the focused submit button, so focus moves to the
+  // slot, where the confirmation now shows.
+  useEffect(() => {
+    if (setConfirmation !== null) slotRef.current?.focus()
+  }, [setConfirmation])
 
   const offersSet =
     !!profile?.success && profile.has_password === false && setConfirmation === null
 
   return (
     <div
-      ref={anchorRef}
+      ref={node => {
+        slotRef.current = node
+        anchorRef(node)
+      }}
       id={PASSWORD_SETTINGS_ANCHOR}
       tabIndex={-1}
       className={cn(SETTINGS_ANCHOR_SCROLL_MT, 'focus:outline-none')}

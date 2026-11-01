@@ -364,7 +364,8 @@ type UserServiceInterface interface {
 	// shared.CheckSessionAccount's refusals when the account may not sign in or
 	// that session has been revoked, and with a typed AuthError carrying
 	// CodePasswordAlreadySet when the account holds a password, including one
-	// a concurrent call set first. Revokes no session.
+	// a concurrent call set first, and with CodeValidationFailed for a password
+	// too long to hash (over 72 bytes). Revokes no session.
 	SetPassword(userID uint, newPassword string, sessionsValidAfter *time.Time) error
 	SetEmailVerified(userID uint, verified bool) error
 	GetDeletionSummary(userID uint) (*DeletionSummary, error)

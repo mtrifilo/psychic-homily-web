@@ -98,6 +98,9 @@ func TestSetPasswordHandler_FreshSessionSetsThePassword(t *testing.T) {
 	if resp.SetCookie.Name != config.AuthCookieName || resp.SetCookie.Value != "renewed-token" {
 		t.Errorf("cookie = %s=%q, want the renewed session", resp.SetCookie.Name, resp.SetCookie.Value)
 	}
+	if lifetime := time.Until(resp.SetCookie.Expires); lifetime < 23*time.Hour || lifetime > 25*time.Hour {
+		t.Errorf("cookie lifetime = %v, want 24 hours, as change-password sets", lifetime)
+	}
 }
 
 // A stale session is refused before anything is validated or written, and the
@@ -286,6 +289,19 @@ func TestSetPasswordHandler_ClosedAccountIsRefused(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	assertSetPasswordRefused(t, resp, autherrors.CodeAccountInactive, "")
+}
+
+// The service's own validation refusal (a password too long to hash) is the
+// caller's to fix, so it is a refusal, not a failure.
+func TestSetPasswordHandler_ServiceValidationRefusalIsARefusal(t *testing.T) {
+	rec := &setPasswordRecorder{err: autherrors.ErrValidationFailed("Password is too long. Try a shorter one.")}
+	h := setPasswordHandler(rec)
+
+	resp, err := h.SetPasswordHandler(testhelpers.CtxWithSessionAuthTime(passwordlessUser(), time.Now()), setPasswordInput("a-new-strong-password-1!"))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	assertSetPasswordRefused(t, resp, autherrors.CodeValidationFailed, "Password is too long. Try a shorter one.")
 }
 
 func TestSetPasswordHandler_UnexpectedFailureIsA5xx(t *testing.T) {

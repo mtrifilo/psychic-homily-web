@@ -106,7 +106,7 @@ export function ChangePassword({ notice = null }: ChangePasswordProps) {
         >
           {/* Success message */}
           {successMessage && (
-            <div className="flex items-center gap-2 rounded-md bg-success p-3 text-sm text-success-foreground">
+            <div role="status" className="flex items-center gap-2 rounded-md bg-success p-3 text-sm text-success-foreground">
               <CheckCircle2 className="h-4 w-4 shrink-0" />
               <span>{successMessage}</span>
             </div>

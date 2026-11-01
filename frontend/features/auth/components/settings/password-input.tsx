@@ -10,6 +10,7 @@ interface PasswordInputProps {
   value: string
   placeholder: string
   invalid: boolean
+  autoFocus?: boolean
   onChange: (event: ChangeEvent<HTMLInputElement>) => void
   onBlur: (event: FocusEvent<HTMLInputElement>) => void
 }
@@ -24,6 +25,7 @@ export function PasswordInput({
   value,
   placeholder,
   invalid,
+  autoFocus,
   onChange,
   onBlur,
 }: PasswordInputProps) {
@@ -42,6 +44,7 @@ export function PasswordInput({
         onChange={onChange}
         className="pl-10 pr-10"
         aria-invalid={invalid}
+        autoFocus={autoFocus}
       />
       <button
         type="button"
