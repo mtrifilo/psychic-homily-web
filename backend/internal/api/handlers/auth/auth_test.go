@@ -13,6 +13,7 @@ import (
 	"github.com/danielgtaylor/huma/v2"
 
 	"psychic-homily-backend/internal/api/handlers/shared/testhelpers"
+	"psychic-homily-backend/internal/api/middleware"
 	"psychic-homily-backend/internal/config"
 	autherrors "psychic-homily-backend/internal/errors"
 	"psychic-homily-backend/internal/legal"
@@ -1863,7 +1864,7 @@ func TestRefreshTokenHandler_Success(t *testing.T) {
 	h := authHandler(func(ah *AuthHandler) {
 		ah.authService = &testhelpers.MockAuthService{
 			GetUserProfileFn: func(userID uint) (*authm.User, error) {
-				return &authm.User{ID: userID}, nil
+				return &authm.User{ID: userID, IsActive: true}, nil
 			},
 			RefreshUserTokenFn: func(user *authm.User, authAt time.Time) (string, error) {
 				return "new-token", nil
@@ -1881,6 +1882,93 @@ func TestRefreshTokenHandler_Success(t *testing.T) {
 	}
 	if resp.Body.Token != "new-token" {
 		t.Errorf("expected token=new-token, got %s", resp.Body.Token)
+	}
+}
+
+// The renewal is minted from the user session validation loaded, not from the
+// handler's re-read, even when the re-read agrees with it.
+func TestRefreshTokenHandler_MintsFromTheValidatedUser(t *testing.T) {
+	revokedAt := time.Now().Add(-time.Hour).UTC().Truncate(time.Second)
+	validated := &authm.User{ID: 1, IsActive: true, SessionsValidAfter: &revokedAt}
+	sameInstant := revokedAt
+
+	var minted *authm.User
+	h := authHandler(func(ah *AuthHandler) {
+		ah.authService = &testhelpers.MockAuthService{
+			GetUserProfileFn: func(userID uint) (*authm.User, error) {
+				return &authm.User{ID: userID, IsActive: true, SessionsValidAfter: &sameInstant}, nil
+			},
+			RefreshUserTokenFn: func(user *authm.User, authAt time.Time) (string, error) {
+				minted = user
+				return "new-token", nil
+			},
+		}
+	})
+
+	resp, err := h.RefreshTokenHandler(testhelpers.CtxWithUser(validated), &struct{}{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if minted != validated {
+		t.Errorf("minted from %+v, want the validated user", minted)
+	}
+	if resp.Body.Token != "new-token" {
+		t.Errorf("expected token=new-token, got %s", resp.Body.Token)
+	}
+}
+
+// A re-read showing the account closed, or its revocation stamp moved since
+// validation, is refused with the 401 TOKEN_INVALID validation gives such a
+// session, and nothing is minted.
+func TestRefreshTokenHandler_ReReadNoLongerMatchingTheSessionIsRefused(t *testing.T) {
+	earlier := time.Now().Add(-2 * time.Hour).UTC().Truncate(time.Second)
+	later := earlier.Add(time.Hour)
+	deletedAt := time.Now()
+
+	cases := map[string]struct {
+		validatedStamp *time.Time
+		reRead         authm.User
+	}{
+		"deactivated":                 {reRead: authm.User{IsActive: false}},
+		"soft-deleted":                {reRead: authm.User{IsActive: false, DeletedAt: &deletedAt}},
+		"first revocation":            {reRead: authm.User{IsActive: true, SessionsValidAfter: &later}},
+		"later revocation":            {validatedStamp: &earlier, reRead: authm.User{IsActive: true, SessionsValidAfter: &later}},
+		"closed and revoked together": {validatedStamp: &earlier, reRead: authm.User{IsActive: false, SessionsValidAfter: &later}},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			minted := false
+			h := authHandler(func(ah *AuthHandler) {
+				ah.authService = &testhelpers.MockAuthService{
+					GetUserProfileFn: func(userID uint) (*authm.User, error) {
+						reRead := tc.reRead
+						reRead.ID = userID
+						return &reRead, nil
+					},
+					RefreshUserTokenFn: func(user *authm.User, authAt time.Time) (string, error) {
+						minted = true
+						return "new-token", nil
+					},
+				}
+			})
+			ctx := testhelpers.CtxWithUser(&authm.User{ID: 1, IsActive: true, SessionsValidAfter: tc.validatedStamp})
+
+			resp, err := h.RefreshTokenHandler(ctx, &struct{}{})
+
+			if resp != nil {
+				t.Errorf("expected no response body, got %+v", resp.Body)
+			}
+			var refusal *middleware.SessionRefusedError
+			if !errors.As(err, &refusal) {
+				t.Fatalf("expected the session refusal, got %T (%v)", err, err)
+			}
+			if refusal.GetStatus() != http.StatusUnauthorized || refusal.ErrorCode != autherrors.CodeTokenInvalid {
+				t.Errorf("refusal = %d %s, want 401 %s", refusal.GetStatus(), refusal.ErrorCode, autherrors.CodeTokenInvalid)
+			}
+			if minted {
+				t.Error("a refused refresh must not reach the mint")
+			}
+		})
 	}
 }
 
@@ -1995,7 +2083,7 @@ func TestRefreshTokenHandler_TokenFails(t *testing.T) {
 	h := authHandler(func(ah *AuthHandler) {
 		ah.authService = &testhelpers.MockAuthService{
 			GetUserProfileFn: func(userID uint) (*authm.User, error) {
-				return &authm.User{ID: userID}, nil
+				return &authm.User{ID: userID, IsActive: true}, nil
 			},
 			RefreshUserTokenFn: func(user *authm.User, authAt time.Time) (string, error) {
 				return "", rawErr

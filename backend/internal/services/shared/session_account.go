@@ -48,6 +48,17 @@ func LockSessionAccount(tx *gorm.DB, userID uint, sessionsValidAfter *time.Time)
 	if err := tx.Clauses(clause.Locking{Strength: "SHARE"}).First(&account, userID).Error; err != nil {
 		return fmt.Errorf("failed to load user %d: %w", userID, err)
 	}
+	return CheckSessionAccount(&account, sessionsValidAfter)
+}
+
+// CheckSessionAccount judges account, a read of the account a signed-in
+// request acts for, against sessionsValidAfter, the acting session's
+// revocation stamp, and refuses as LockSessionAccount does: CodeAccountInactive
+// wrapping ErrSessionAccountClosed when the account may not sign in, and
+// otherwise CodeTokenInvalid wrapping ErrSessionRevoked when its
+// sessions_valid_after is no longer sessionsValidAfter. It holds no lock, so
+// its answer covers only what committed before account was read.
+func CheckSessionAccount(account *authm.User, sessionsValidAfter *time.Time) error {
 	if !account.CanSignIn() {
 		refusal := apperrors.ErrAccountInactive()
 		refusal.Internal = fmt.Errorf("user %d: %w", account.ID, ErrSessionAccountClosed)
@@ -59,8 +70,8 @@ func LockSessionAccount(tx *gorm.DB, userID uint, sessionsValidAfter *time.Time)
 	return nil
 }
 
-// IsSessionRefusal reports whether err is one of LockSessionAccount's
-// refusals, by their causes: the account may not sign in
+// IsSessionRefusal reports whether err is one of CheckSessionAccount's
+// refusals (which LockSessionAccount gives too), by their causes: the account may not sign in
 // (ErrSessionAccountClosed) or the session was revoked (ErrSessionRevoked).
 // An ACCOUNT_INACTIVE from anywhere else is not one. A caller that answers a
 // closed account differently from a revoked session branches on
