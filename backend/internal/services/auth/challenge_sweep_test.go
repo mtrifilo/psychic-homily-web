@@ -37,7 +37,7 @@ func (suite *WebAuthnServiceIntegrationTestSuite) storeChallengeExpiringAt(userI
 		UserID:    []byte("sweep-user"),
 	}, "authentication")
 	suite.Require().NoError(err)
-	suite.Require().NoError(suite.db.Exec("UPDATE webauthn_challenges SET expires_at = ? WHERE id = ?", expiresAt, id).Error)
+	suite.setChallengeExpiry(id, expiresAt)
 	return id
 }
 
