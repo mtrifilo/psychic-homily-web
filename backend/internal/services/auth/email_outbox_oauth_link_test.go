@@ -96,5 +96,5 @@ func (s *AuthEmailOutboxSuite) TestOAuthLink_SkippedForAClosedAccount() {
 	s.outbox.RunNow(context.Background())
 
 	s.Empty(s.sender.recorded())
-	s.Equal(authm.AuthEmailStatusSkipped, s.onlyRow().Status)
+	s.assertOnlyRowSkipped(authEmailSkipClosedAccount)
 }
