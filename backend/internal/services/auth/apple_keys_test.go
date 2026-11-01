@@ -78,16 +78,19 @@ func (c *fakeClock) advance(d time.Duration) {
 	c.mu.Unlock()
 }
 
-// recordCounter is a slog handler that counts records by message.
+// recordCounter is a slog handler that counts records by message and keeps
+// every record it handles.
 type recordCounter struct {
-	mu     sync.Mutex
-	counts map[string]int
+	mu      sync.Mutex
+	counts  map[string]int
+	records []slog.Record
 }
 
 func (h *recordCounter) Enabled(context.Context, slog.Level) bool { return true }
 func (h *recordCounter) Handle(_ context.Context, r slog.Record) error {
 	h.mu.Lock()
 	h.counts[r.Message]++
+	h.records = append(h.records, r.Clone())
 	h.mu.Unlock()
 	return nil
 }
@@ -98,6 +101,44 @@ func (h *recordCounter) count(msg string) int {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	return h.counts[msg]
+}
+
+// only returns the attributes of the one record logged with msg, failing the
+// test unless exactly one was.
+func (h *recordCounter) only(t *testing.T, msg string) map[string]any {
+	t.Helper()
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	var found []slog.Record
+	for _, r := range h.records {
+		if r.Message == msg {
+			found = append(found, r)
+		}
+	}
+	require.Len(t, found, 1, "records logged as %q", msg)
+	attrs := map[string]any{}
+	found[0].Attrs(func(a slog.Attr) bool {
+		attrs[a.Key] = a.Value.Any()
+		return true
+	})
+	return attrs
+}
+
+// dropWarning is the drop warning's attributes for a fetch that dropped
+// counts[reason] entries per reason, with sampleKids.
+func dropWarning(counts map[appleJWKDropReason]int, sampleKids ...string) map[string]any {
+	total := 0
+	for _, n := range counts {
+		total += n
+	}
+	return map[string]any{
+		"dropped":          int64(total),
+		"dropped_decode":   int64(counts[appleJWKDropDecode]),
+		"dropped_type":     int64(counts[appleJWKDropType]),
+		"dropped_modulus":  int64(counts[appleJWKDropModulus]),
+		"dropped_exponent": int64(counts[appleJWKDropExponent]),
+		"sample_kids":      sampleKids,
+	}
 }
 
 func newRSAKey(t *testing.T) *rsa.PrivateKey {
@@ -568,24 +609,27 @@ func TestAppleKeys_MalformedEntriesNeverReplaceCachedSet(t *testing.T) {
 	cases := []struct {
 		name   string
 		mutate func(*testJWK)
+		reason appleJWKDropReason
 	}{
-		{"empty modulus", func(e *testJWK) { e.N = "" }},
-		{"zero modulus", func(e *testJWK) { e.N = "AA" }},
-		{"empty exponent", func(e *testJWK) { e.E = "" }},
-		{"zero exponent", func(e *testJWK) { e.E = "AA" }},
-		{"exponent of one", func(e *testJWK) { e.E = "AQ" }},
-		{"exponent of 2^31", func(e *testJWK) { e.E = "gAAAAA" }},
-		{"exponent wider than 64 bits", func(e *testJWK) { e.E = "AQAAAAAAAAAA" }},
-		{"encryption key", func(e *testJWK) { e.Use = "enc" }},
-		{"other algorithm", func(e *testJWK) { e.Alg = "RS512" }},
-		{"other key type", func(e *testJWK) { e.Kty = "EC" }},
-		{"512-bit modulus", func(e *testJWK) { e.N = modulusOfBits(512) }},
-		{"2047-bit modulus", func(e *testJWK) { e.N = modulusOfBits(2047) }},
-		{"modulus not base64url", func(e *testJWK) { e.N = "not base64url!" }},
-		{"exponent not base64url", func(e *testJWK) { e.E = "AQ=AB" }},
+		{"empty modulus", func(e *testJWK) { e.N = "" }, appleJWKDropModulus},
+		{"zero modulus", func(e *testJWK) { e.N = "AA" }, appleJWKDropModulus},
+		{"empty exponent", func(e *testJWK) { e.E = "" }, appleJWKDropExponent},
+		{"zero exponent", func(e *testJWK) { e.E = "AA" }, appleJWKDropExponent},
+		{"exponent of one", func(e *testJWK) { e.E = "AQ" }, appleJWKDropExponent},
+		{"exponent of 2^31", func(e *testJWK) { e.E = "gAAAAA" }, appleJWKDropExponent},
+		{"exponent wider than 64 bits", func(e *testJWK) { e.E = "AQAAAAAAAAAA" }, appleJWKDropExponent},
+		{"encryption key", func(e *testJWK) { e.Use = "enc" }, appleJWKDropType},
+		{"other algorithm", func(e *testJWK) { e.Alg = "RS512" }, appleJWKDropType},
+		{"other key type", func(e *testJWK) { e.Kty = "EC" }, appleJWKDropType},
+		{"512-bit modulus", func(e *testJWK) { e.N = modulusOfBits(512) }, appleJWKDropModulus},
+		{"2047-bit modulus", func(e *testJWK) { e.N = modulusOfBits(2047) }, appleJWKDropModulus},
+		{"modulus not base64url", func(e *testJWK) { e.N = "not base64url!" }, appleJWKDropDecode},
+		{"exponent not base64url", func(e *testJWK) { e.E = "AQ=AB" }, appleJWKDropDecode},
+		// An entry failing more than one check counts under the first.
+		{"other key type, modulus not base64url", func(e *testJWK) { e.Kty, e.N = "EC", "!" }, appleJWKDropType},
+		{"512-bit modulus, exponent not base64url", func(e *testJWK) { e.N, e.E = modulusOfBits(512), "AQ=AB" }, appleJWKDropDecode},
+		{"512-bit modulus, exponent of one", func(e *testJWK) { e.N, e.E = modulusOfBits(512), "AQ" }, appleJWKDropModulus},
 	}
-	// Only an entry that does not decode is dropped with a warning.
-	warns := map[string]bool{"modulus not base64url": true, "exponent not base64url": true}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			ks := newKeyServer(t, jwks(key, "known-kid"))
@@ -600,11 +644,8 @@ func TestAppleKeys_MalformedEntriesNeverReplaceCachedSet(t *testing.T) {
 			require.Error(t, err)
 			assert.Contains(t, err.Error(), "contained no RSA keys")
 			require.Equal(t, 2, ks.count())
-			wantWarns := 0
-			if warns[tc.name] {
-				wantWarns = 1
-			}
-			assert.Equal(t, wantWarns, logs.count("apple_keys_entry_dropped"))
+			want := dropWarning(map[appleJWKDropReason]int{tc.reason: 1}, "rotated-kid")
+			assert.Equal(t, want, logs.only(t, "apple_keys_entries_dropped"))
 
 			_, err = svc.ValidateIdentityToken(t.Context(), signedToken(t, key, "known-kid"))
 			require.NoError(t, err, "the cached set still validates known kids")
@@ -781,8 +822,8 @@ func modulusOfBits(bits int) string {
 	return base64.RawURLEncoding.EncodeToString(n.Bytes())
 }
 
-// An entry whose modulus or exponent is not base64url is dropped with one
-// warning each; the fetch succeeds on the entries left, so they validate.
+// Entries whose modulus or exponent is not base64url are dropped under one
+// warning; the fetch succeeds on the entries left, so they validate.
 func TestAppleKeys_UndecodableEntryIsDropped(t *testing.T) {
 	key := newRSAKey(t)
 	ks := newKeyServer(t, jwks(key, "known-kid"))
@@ -799,10 +840,127 @@ func TestAppleKeys_UndecodableEntryIsDropped(t *testing.T) {
 	_, err = svc.ValidateIdentityToken(t.Context(), signedToken(t, key, "rotated-kid"))
 	require.NoError(t, err, "the decodable entry beside the undecodable ones is served")
 	assert.Equal(t, 2, ks.count())
-	assert.Equal(t, 2, logs.count("apple_keys_entry_dropped"), "one warning per dropped entry")
+	assert.Equal(t, dropWarning(map[appleJWKDropReason]int{appleJWKDropDecode: 2}, "bad-n-kid", "bad-e-kid"),
+		logs.only(t, "apple_keys_entries_dropped"))
 
 	for _, kid := range []string{"bad-n-kid", "bad-e-kid", "known-kid"} {
 		_, err = svc.getApplePublicKey(t.Context(), kid)
 		require.Error(t, err, kid)
+	}
+}
+
+// mixedBadLongKid is 216 runes, 16 of them before the run of "é", holding
+// characters the drop warning cleans; mixedBadLongKidLogged is its cleaned,
+// cut form.
+var (
+	mixedBadLongKid       = "kid with spaces\n" + strings.Repeat("é", 200)
+	mixedBadLongKidLogged = "kid?with?spaces?" + strings.Repeat("?", 48) + "..."
+)
+
+// mixedBadEntries is two entries per drop reason, the first under
+// mixedBadLongKid.
+func mixedBadEntries(key *rsa.PrivateKey) []testJWK {
+	rows := []struct {
+		kid    string
+		mutate func(*testJWK)
+	}{
+		{mixedBadLongKid, func(e *testJWK) { e.Kty = "EC" }},
+		{"type-2", func(e *testJWK) { e.Kty = "EC" }},
+		{"decode-1", func(e *testJWK) { e.N = "not base64url!" }},
+		{"decode-2", func(e *testJWK) { e.N = "not base64url!" }},
+		{"modulus-1", func(e *testJWK) { e.N = modulusOfBits(1024) }},
+		{"modulus-2", func(e *testJWK) { e.N = modulusOfBits(1024) }},
+		{"exponent-1", func(e *testJWK) { e.E = "AQ" }},
+		{"exponent-2", func(e *testJWK) { e.E = "AQ" }},
+	}
+	out := make([]testJWK, 0, len(rows))
+	for _, row := range rows {
+		e := rsaJWK(key, row.kid)
+		row.mutate(&e)
+		out = append(out, e)
+	}
+	return out
+}
+
+// twoOfEachReason is mixedBadEntries' count per reason.
+var twoOfEachReason = map[appleJWKDropReason]int{
+	appleJWKDropType: 2, appleJWKDropDecode: 2, appleJWKDropModulus: 2, appleJWKDropExponent: 2,
+}
+
+// A set mixing every drop reason with two usable keys logs one warning naming
+// the counts per reason and the first three dropped kids, cleaned and cut;
+// the usable keys validate.
+func TestAppleKeys_DropsLogOneWarningPerFetch(t *testing.T) {
+	key := newRSAKey(t)
+	entries := append(mixedBadEntries(key), rsaJWK(key, "good-1"), rsaJWK(key, "good-2"))
+	ks := newKeyServer(t, jwkSet(entries...))
+	svc, _, logs := newKeysTestService(ks.URL)
+
+	for _, kid := range []string{"good-1", "good-2"} {
+		_, err := svc.ValidateIdentityToken(t.Context(), signedToken(t, key, kid))
+		require.NoError(t, err, kid)
+	}
+	assert.Equal(t, 1, ks.count())
+	assert.Equal(t, dropWarning(twoOfEachReason, mixedBadLongKidLogged, "type-2", "decode-1"),
+		logs.only(t, "apple_keys_entries_dropped"))
+}
+
+// A set with no dropped entry logs no drop warning.
+func TestAppleKeys_CleanSetLogsNoDropWarning(t *testing.T) {
+	key := newRSAKey(t)
+	ks := newKeyServer(t, jwks(key, "good-1", "good-2"))
+	svc, _, logs := newKeysTestService(ks.URL)
+
+	_, err := svc.ValidateIdentityToken(t.Context(), signedToken(t, key, "good-1"))
+	require.NoError(t, err)
+	assert.Equal(t, 0, logs.count("apple_keys_entries_dropped"))
+}
+
+// A set of only dropped entries, every reason among them, is still a failed
+// fetch, and its drops are logged under one warning.
+func TestAppleKeys_OnlyDroppedEntriesFailTheFetch(t *testing.T) {
+	key := newRSAKey(t)
+	ks := newKeyServer(t, jwkSet(mixedBadEntries(key)...))
+	svc, _, logs := newKeysTestService(ks.URL)
+
+	_, err := svc.getApplePublicKey(t.Context(), "type-2")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "contained no RSA keys")
+	assert.Equal(t, dropWarning(twoOfEachReason, mixedBadLongKidLogged, "type-2", "decode-1"),
+		logs.only(t, "apple_keys_entries_dropped"))
+}
+
+// A thousand undecodable entries beside a usable one write one warning, not
+// one per entry.
+func TestAppleKeys_ThousandDropsLogOneWarning(t *testing.T) {
+	key := newRSAKey(t)
+	entries := make([]testJWK, 0, 1001)
+	for i := range 1000 {
+		entries = append(entries, testJWK{Kty: "RSA", Kid: fmt.Sprintf("k%d", i), N: "!", E: "AQAB"})
+	}
+	entries = append(entries, rsaJWK(key, "good-kid"))
+	body := jwkSet(entries...)
+	require.LessOrEqual(t, len(body), appleKeysMaxBodyBytes)
+	ks := newKeyServer(t, body)
+	svc, _, logs := newKeysTestService(ks.URL)
+
+	_, err := svc.ValidateIdentityToken(t.Context(), signedToken(t, key, "good-kid"))
+	require.NoError(t, err)
+	assert.Equal(t, dropWarning(map[appleJWKDropReason]int{appleJWKDropDecode: 1000}, "k0", "k1", "k2"),
+		logs.only(t, "apple_keys_entries_dropped"))
+}
+
+// A kid of up to 64 runes is logged whole; a longer one is cut to 64 runes and
+// marked with "...". Runes outside letters, digits and -_. become '?'.
+func TestAppleKeys_DropLogKidBound(t *testing.T) {
+	cases := []struct{ kid, want string }{
+		{"", ""},
+		{"W6WcOKB", "W6WcOKB"},
+		{strings.Repeat("a", 64), strings.Repeat("a", 64)},
+		{strings.Repeat("a", 65), strings.Repeat("a", 64) + "..."},
+		{"a b\n\x00\"é", "a?b????"},
+	}
+	for _, tc := range cases {
+		assert.Equal(t, tc.want, appleKeyIDForDropLog(tc.kid), "%q", tc.kid)
 	}
 }

@@ -13,6 +13,7 @@ import (
 	"psychic-homily-backend/internal/logger"
 	"psychic-homily-backend/internal/observability"
 	authsvc "psychic-homily-backend/internal/services/auth"
+	"psychic-homily-backend/internal/services/shared"
 	"psychic-homily-backend/internal/utils"
 )
 
@@ -268,10 +269,11 @@ func (h *OAuthHTTPHandler) completeOAuthLink(
 	// intent cookie either, so it survives the obvious precaution.
 	//
 	// This is also the account-state gate: a session whose account may no
-	// longer sign in is refused here, before the provider token exchange.
-	// CompleteOAuthLink re-reads the account after the exchange, and the link
-	// write checks it again inside its transaction; those catch a change that
-	// lands during the round trip, and are not the gate.
+	// longer sign in is refused here, before the provider token exchange. The
+	// link write checks the account again inside its transaction, and checks
+	// that this session's revocation stamp is still the account's, so a
+	// closure or a revocation that lands during the round trip is refused
+	// there.
 	//
 	// ACCOUNT_INACTIVE is reported only when the closed account is the one the
 	// intent names, so the code tells a caller nothing about any account but
@@ -309,7 +311,7 @@ func (h *OAuthHTTPHandler) completeOAuthLink(
 		return
 	}
 
-	linked, err := h.authService.CompleteOAuthLink(w, r, provider, intent.userID)
+	linked, err := h.authService.CompleteOAuthLink(w, r, provider, intent.userID, sessionUser.SessionsValidAfter)
 	if err != nil {
 		// A provider error can carry credentials in its URL or in an embedded
 		// response body, the same hazard the sign-in callback scrubs for.
@@ -318,8 +320,19 @@ func (h *OAuthHTTPHandler) completeOAuthLink(
 			"user_id", intent.userID,
 			"error", observability.ScrubText(utils.RedactErrorURL(err).Error()),
 		)
-		// The account can close during the exchange, and the reads after it
-		// report that with the same code the session gate does.
+		// A session revoked during the exchange gets the answer the session
+		// gate gives a session it refuses: sign in again.
+		if errors.Is(err, shared.ErrSessionRevoked) {
+			logger.AuthWarn(ctx, "credential_mint_refused_session_no_longer_valid",
+				"operation", "oauth_link",
+				"provider", provider,
+				"user_id", intent.userID,
+			)
+			redirectToLinkResult(w, r, frontendURL, oauthLinkErrorReauthRequired)
+			return
+		}
+		// The account can close during the exchange, and the link write
+		// reports that with the same code the session gate does.
 		code := refusalCode(err, autherrors.CodeUnknown)
 		if code == autherrors.CodeAccountInactive {
 			redirectToAccountUnavailable(w, r, frontendURL)

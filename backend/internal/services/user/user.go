@@ -617,10 +617,15 @@ func (s *UserService) createNewUserOauthWithConsent(
 }
 
 // LinkOAuthAccountToUser attaches a provider identity to the account named by
-// userID, which the caller has already authenticated. The provider's address
-// plays no part: the session is the proof of ownership, so an address that
-// matches nothing, matches another account, or is absent entirely all link the
-// same way.
+// userID, which the caller has already authenticated with a session whose
+// revocation stamp is sessionsValidAfter. The provider's address plays no
+// part: the session is the proof of ownership, so an address that matches
+// nothing, matches another account, or is absent entirely all link the same
+// way.
+//
+// The account and the session are judged in the transaction that writes the
+// link (shared.LockSessionAccount), so an account closed, or a session
+// revoked, after any earlier check is still refused.
 //
 // It refuses three shapes rather than resolving them, because each one would
 // otherwise silently retarget who can sign in as whom:
@@ -632,7 +637,7 @@ func (s *UserService) createNewUserOauthWithConsent(
 //
 // It does not touch users.email or users.email_verified. A provider account is
 // not evidence about the mailbox on the account it is being attached to.
-func (s *UserService) LinkOAuthAccountToUser(userID uint, gothUser goth.User, provider string) (*authm.User, error) {
+func (s *UserService) LinkOAuthAccountToUser(userID uint, sessionsValidAfter *time.Time, gothUser goth.User, provider string) (*authm.User, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
 	}
@@ -655,25 +660,12 @@ func (s *UserService) LinkOAuthAccountToUser(userID uint, gothUser goth.User, pr
 	}()
 
 	// The account has to exist before an identity is attached to it. The
-	// oauth_accounts foreign key would refuse the write anyway, but a refusal
-	// by design keeps this correct if that constraint is ever relaxed, and it
-	// gives the caller an error naming the user rather than a driver message.
-	//
-	// It also has to be one that may sign in, judged in the transaction that
-	// writes the link, so an account closed after any earlier check is still
-	// refused. FOR SHARE: a deactivation or deletion of the row waits for this
-	// transaction, so the account cannot close between this read and the write.
-	var account authm.User
-	if err := tx.Clauses(clause.Locking{Strength: "SHARE"}).First(&account, userID).Error; err != nil {
+	// oauth_accounts foreign key would refuse the write anyway, but the lookup
+	// keeps this correct if that constraint is ever relaxed, and it gives the
+	// caller an error naming the user rather than a driver message.
+	if err := shared.LockSessionAccount(tx, userID, sessionsValidAfter); err != nil {
 		tx.Rollback()
-		return nil, fmt.Errorf("failed to get user: %w", err)
-	}
-	if !account.CanSignIn() {
-		tx.Rollback()
-		logger.Default().Warn("oauth_link_refused_account_inactive",
-			"provider", provider,
-			"user_id", userID)
-		return nil, apperrors.ErrAccountInactive()
+		return nil, err
 	}
 
 	if err := AttachOAuthIdentityTx(tx, userID, provider, gothUser); err != nil {

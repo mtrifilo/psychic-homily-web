@@ -700,7 +700,7 @@ func (suite *CalendarIntegrationTestSuite) createTestUser(active bool) *authm.Us
 
 func (suite *CalendarIntegrationTestSuite) TestCreateToken_Success() {
 	user := suite.createTestUser(true)
-	resp, err := suite.svc.CreateToken(user.ID, "http://localhost:8080")
+	resp, err := suite.svc.CreateToken(user.ID, user.SessionsValidAfter, "http://localhost:8080")
 	suite.Require().NoError(err)
 	suite.Require().NotNil(resp)
 
@@ -715,10 +715,10 @@ func (suite *CalendarIntegrationTestSuite) TestCreateToken_Success() {
 func (suite *CalendarIntegrationTestSuite) TestCreateToken_ReplacesExisting() {
 	user := suite.createTestUser(true)
 
-	resp1, err := suite.svc.CreateToken(user.ID, "http://localhost:8080")
+	resp1, err := suite.svc.CreateToken(user.ID, user.SessionsValidAfter, "http://localhost:8080")
 	suite.Require().NoError(err)
 
-	resp2, err := suite.svc.CreateToken(user.ID, "http://localhost:8080")
+	resp2, err := suite.svc.CreateToken(user.ID, user.SessionsValidAfter, "http://localhost:8080")
 	suite.Require().NoError(err)
 
 	// New token should be different
@@ -749,7 +749,7 @@ func (suite *CalendarIntegrationTestSuite) TestGetTokenStatus_NoToken() {
 
 func (suite *CalendarIntegrationTestSuite) TestGetTokenStatus_HasToken() {
 	user := suite.createTestUser(true)
-	_, err := suite.svc.CreateToken(user.ID, "http://localhost:8080")
+	_, err := suite.svc.CreateToken(user.ID, user.SessionsValidAfter, "http://localhost:8080")
 	suite.Require().NoError(err)
 
 	status, err := suite.svc.GetTokenStatus(user.ID)
@@ -764,7 +764,7 @@ func (suite *CalendarIntegrationTestSuite) TestGetTokenStatus_HasToken() {
 
 func (suite *CalendarIntegrationTestSuite) TestDeleteToken_Success() {
 	user := suite.createTestUser(true)
-	resp, err := suite.svc.CreateToken(user.ID, "http://localhost:8080")
+	resp, err := suite.svc.CreateToken(user.ID, user.SessionsValidAfter, "http://localhost:8080")
 	suite.Require().NoError(err)
 
 	err = suite.svc.DeleteToken(user.ID)
@@ -793,7 +793,7 @@ func (suite *CalendarIntegrationTestSuite) TestDeleteToken_NotFound() {
 
 func (suite *CalendarIntegrationTestSuite) TestValidateCalendarToken_Success() {
 	user := suite.createTestUser(true)
-	resp, err := suite.svc.CreateToken(user.ID, "http://localhost:8080")
+	resp, err := suite.svc.CreateToken(user.ID, user.SessionsValidAfter, "http://localhost:8080")
 	suite.Require().NoError(err)
 
 	validatedUser, err := suite.svc.ValidateCalendarToken(resp.Token)
@@ -888,7 +888,7 @@ func (suite *CalendarIntegrationTestSuite) TestGenerateICSFeed_OmitsUnverifiedVe
 
 func (suite *CalendarIntegrationTestSuite) TestValidateCalendarToken_InactiveUser() {
 	user := suite.createTestUser(true) // create as active first
-	resp, err := suite.svc.CreateToken(user.ID, "http://localhost:8080")
+	resp, err := suite.svc.CreateToken(user.ID, user.SessionsValidAfter, "http://localhost:8080")
 	suite.Require().NoError(err)
 
 	// Deactivate the user
@@ -901,7 +901,7 @@ func (suite *CalendarIntegrationTestSuite) TestValidateCalendarToken_InactiveUse
 
 func (suite *CalendarIntegrationTestSuite) TestValidateCalendarToken_SoftDeletedUser() {
 	user := suite.createTestUser(true)
-	resp, err := suite.svc.CreateToken(user.ID, "http://localhost:8080")
+	resp, err := suite.svc.CreateToken(user.ID, user.SessionsValidAfter, "http://localhost:8080")
 	suite.Require().NoError(err)
 
 	suite.Require().NoError(suite.db.Model(&authm.User{}).

@@ -22,16 +22,18 @@ import (
 // instances run the same sweep in production. These tests run the real
 // statements against real Postgres.
 
-// One container for the whole file: these cases are cheap SQL round trips and
-// the table is reset between them, so paying container startup per test would
-// dominate the package's runtime for no isolation benefit.
+// One container for the run-store cases and the session-account cases: these
+// are cheap SQL round trips over tables reset between them, so paying
+// container startup per test would dominate the package's runtime for no
+// isolation benefit.
 var (
 	runStoreDBOnce sync.Once
 	runStoreDB     *gorm.DB
 	runStoreClean  func()
 )
 
-func setupRunStore(t *testing.T) (*gorm.DB, *GormRunStore) {
+// packageTestDB is the package's one test database, created on first use.
+func packageTestDB(t *testing.T) *gorm.DB {
 	t.Helper()
 	runStoreDBOnce.Do(func() {
 		tdb := testutil.SetupTestPostgres(t)
@@ -39,8 +41,14 @@ func setupRunStore(t *testing.T) (*gorm.DB, *GormRunStore) {
 		runStoreClean = tdb.Cleanup
 	})
 	if runStoreDB == nil {
-		t.Fatal("run-store test database unavailable")
+		t.Fatal("package test database unavailable")
 	}
+	return runStoreDB
+}
+
+func setupRunStore(t *testing.T) (*gorm.DB, *GormRunStore) {
+	t.Helper()
+	packageTestDB(t)
 	if err := runStoreDB.Exec(`DELETE FROM background_service_runs`).Error; err != nil {
 		t.Fatalf("reset run-state table: %v", err)
 	}

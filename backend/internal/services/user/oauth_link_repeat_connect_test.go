@@ -4,10 +4,10 @@ import (
 	"time"
 
 	"github.com/markbates/goth"
-	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 
 	authm "psychic-homily-backend/internal/models/auth"
+	"psychic-homily-backend/internal/testutil"
 )
 
 // A repeat connect is LinkOAuthAccountToUser on an identity the account
@@ -23,7 +23,7 @@ var (
 func (suite *UserServiceIntegrationTestSuite) linkedForRepeatConnect(address, subject string) *authm.User {
 	suite.T().Helper()
 	owner := suite.createLiveAccount(address)
-	_, err := suite.userService.LinkOAuthAccountToUser(owner.ID, goth.User{
+	_, err := suite.userService.LinkOAuthAccountToUser(owner.ID, owner.SessionsValidAfter, goth.User{
 		UserID:       subject,
 		Email:        address,
 		AccessToken:  "stored-access",
@@ -42,68 +42,32 @@ func (suite *UserServiceIntegrationTestSuite) storedGoogleAccount(userID uint) a
 }
 
 // serviceWithWriteBeforeItsFirst returns a UserService on the suite's
-// connections that runs write once, before the first statement the hook that
-// register installs fires on. write receives the in-flight statement's handle.
-// The returned flag reports whether write ran.
-func (suite *UserServiceIntegrationTestSuite) serviceWithWriteBeforeItsFirst(
-	register func(hooked *gorm.DB, hook func(*gorm.DB)) error,
-	write func(inFlight *gorm.DB),
-) (*UserService, *bool) {
+// connections that runs write once, before the first statement hook fires on
+// (testutil.WithWriteBeforeItsFirst). The returned flag reports whether write
+// ran.
+func (suite *UserServiceIntegrationTestSuite) serviceWithWriteBeforeItsFirst(hook testutil.Hook, write func(inFlight *gorm.DB)) (*UserService, *bool) {
 	suite.T().Helper()
-	sqlDB, err := suite.db.DB()
-	suite.Require().NoError(err)
-	hooked, err := gorm.Open(postgres.New(postgres.Config{Conn: sqlDB}), &gorm.Config{TranslateError: true})
-	suite.Require().NoError(err)
-
-	ran := false
-	suite.Require().NoError(register(hooked, func(inFlight *gorm.DB) {
-		if ran {
-			return
-		}
-		ran = true
-		write(inFlight)
-	}))
-	return &UserService{db: hooked}, &ran
+	hooked, ran := testutil.WithWriteBeforeItsFirst(suite.T(), suite.db, write, hook)
+	return &UserService{db: hooked}, ran
 }
 
 // serviceWithWriteBeforeItsFirstUpdate runs write before the service's first
 // UPDATE, which a repeat connect issues after it has read the row.
 func (suite *UserServiceIntegrationTestSuite) serviceWithWriteBeforeItsFirstUpdate(write func(inFlight *gorm.DB)) (*UserService, *bool) {
 	suite.T().Helper()
-	return suite.serviceWithWriteBeforeItsFirst(func(hooked *gorm.DB, hook func(*gorm.DB)) error {
-		return hooked.Callback().Update().Before("gorm:update").Register("test:write_before_update", hook)
-	}, write)
+	return suite.serviceWithWriteBeforeItsFirst(testutil.BeforeUpdate, write)
 }
 
-// startOnAnotherConnection runs write in a goroutine on the suite's own handle
-// and returns once write has either finished or is waiting on a lock. The
-// returned channel delivers write's result.
+// startOnAnotherConnection is testutil.StartOnAnotherConnection on the
+// suite's own handle.
 func (suite *UserServiceIntegrationTestSuite) startOnAnotherConnection(write func() error) <-chan error {
 	suite.T().Helper()
-	done := make(chan error, 1)
-	go func() { done <- write() }()
-
-	suite.Require().Eventually(func() bool {
-		if len(done) > 0 {
-			return true
-		}
-		var waiting int64
-		err := suite.db.Raw(
-			"SELECT count(*) FROM pg_stat_activity WHERE datname = current_database() AND wait_event_type = 'Lock'",
-		).Scan(&waiting).Error
-		return err == nil && waiting > 0
-	}, 10*time.Second, 5*time.Millisecond, "the concurrent write neither finished nor waited on a lock")
-	return done
+	return testutil.StartOnAnotherConnection(suite.T(), suite.db, write)
 }
 
 func (suite *UserServiceIntegrationTestSuite) awaitConcurrentWrite(done <-chan error) {
 	suite.T().Helper()
-	select {
-	case err := <-done:
-		suite.Require().NoError(err)
-	case <-time.After(10 * time.Second):
-		suite.FailNow("the concurrent write did not finish")
-	}
+	suite.Require().NoError(testutil.AwaitConcurrentWrite(suite.T(), done))
 }
 
 // Two repeat connects on one identity: the row ends up holding one connect's
@@ -115,7 +79,7 @@ func (suite *UserServiceIntegrationTestSuite) TestLinkOAuthAccountToUser_RepeatC
 	var concurrent <-chan error
 	svc, ran := suite.serviceWithWriteBeforeItsFirstUpdate(func(*gorm.DB) {
 		concurrent = suite.startOnAnotherConnection(func() error {
-			_, err := suite.userService.LinkOAuthAccountToUser(owner.ID, goth.User{
+			_, err := suite.userService.LinkOAuthAccountToUser(owner.ID, owner.SessionsValidAfter, goth.User{
 				UserID:       "repeat-connect-race-subject",
 				Email:        "repeat-connect-race@example.com",
 				AccessToken:  "concurrent-access",
@@ -127,7 +91,7 @@ func (suite *UserServiceIntegrationTestSuite) TestLinkOAuthAccountToUser_RepeatC
 	})
 
 	// This connect's provider sent no expiry.
-	_, err := svc.LinkOAuthAccountToUser(owner.ID, goth.User{
+	_, err := svc.LinkOAuthAccountToUser(owner.ID, owner.SessionsValidAfter, goth.User{
 		UserID:       "repeat-connect-race-subject",
 		Email:        "repeat-connect-race@example.com",
 		AccessToken:  "hooked-access",
@@ -157,7 +121,7 @@ func (suite *UserServiceIntegrationTestSuite) TestLinkOAuthAccountToUser_RepeatC
 		})
 	})
 
-	_, err := svc.LinkOAuthAccountToUser(owner.ID, goth.User{
+	_, err := svc.LinkOAuthAccountToUser(owner.ID, owner.SessionsValidAfter, goth.User{
 		UserID:      "repeat-connect-unlink-subject",
 		Email:       "repeat-connect-unlink@example.com",
 		AccessToken: "hooked-access",
@@ -186,7 +150,7 @@ func (suite *UserServiceIntegrationTestSuite) TestLinkOAuthAccountToUser_RepeatC
 			writtenAfterRead, writtenAfterRead, owner.ID, "google").Error)
 	})
 
-	_, err := svc.LinkOAuthAccountToUser(owner.ID, goth.User{
+	_, err := svc.LinkOAuthAccountToUser(owner.ID, owner.SessionsValidAfter, goth.User{
 		UserID:       "repeat-connect-columns-subject",
 		Email:        "repeat-connect-columns-new@example.com",
 		AccessToken:  "hooked-access",
@@ -209,7 +173,7 @@ func (suite *UserServiceIntegrationTestSuite) TestLinkOAuthAccountToUser_RepeatC
 	before := suite.storedGoogleAccount(owner.ID)
 	refreshedExpiry := time.Date(2033, 2, 1, 0, 0, 0, 0, time.UTC)
 
-	linked, err := suite.userService.LinkOAuthAccountToUser(owner.ID, goth.User{
+	linked, err := suite.userService.LinkOAuthAccountToUser(owner.ID, owner.SessionsValidAfter, goth.User{
 		UserID:       "repeat-connect-refresh-subject",
 		Email:        "repeat-connect-refresh-new@example.com",
 		Name:         "Refreshed Name",

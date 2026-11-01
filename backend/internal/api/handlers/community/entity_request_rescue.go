@@ -124,7 +124,7 @@ func (h *EntityRequestHandler) AdminFulfillEntityRequestHandler(ctx context.Cont
 			return nil, mapped
 		}
 		logger.FromContext(ctx).Error("entity_request_rescue_load_failed",
-			"request_id", requestID, "error", gerr.Error())
+			"entity_request_id", requestID, "error", gerr.Error())
 		return nil, huma.Error500InternalServerError("Failed to load request")
 	}
 	if existing == nil {
@@ -188,7 +188,7 @@ func (h *EntityRequestHandler) AdminFulfillEntityRequestHandler(ctx context.Cont
 	createdID, ferr := h.fulfillEntity(ctx, existing, showAssoc)
 	if ferr != nil {
 		logger.FromContext(ctx).Error("entity_request_rescue_fulfill_failed",
-			"request_id", requestID,
+			"entity_request_id", requestID,
 			"admin_id", admin.ID,
 			"entity_type", existing.EntityType,
 			"error", ferr.Error(),
@@ -209,7 +209,7 @@ func (h *EntityRequestHandler) AdminFulfillEntityRequestHandler(ctx context.Cont
 		// the admin knows the row's created_entity_id may be unset (it's
 		// reconcilable — the entity exists and the id is in the response/log).
 		logger.FromContext(ctx).Error("entity_request_rescue_claim_failed",
-			"request_id", requestID,
+			"entity_request_id", requestID,
 			"created_entity_id", createdID,
 			"entity_type", existing.EntityType,
 			"error", cerr.Error(),
@@ -221,7 +221,7 @@ func (h *EntityRequestHandler) AdminFulfillEntityRequestHandler(ctx context.Cont
 		// is a stray. Report the conflict so the admin can reconcile rather than
 		// silently 200-ing with a created_entity_id that isn't on the row.
 		logger.FromContext(ctx).Warn("entity_request_rescue_lost_race",
-			"request_id", requestID,
+			"entity_request_id", requestID,
 			"created_entity_id", createdID,
 			"entity_type", existing.EntityType,
 		)
@@ -269,7 +269,7 @@ func (h *EntityRequestHandler) voidApproved(ctx context.Context, requestID, admi
 	voided, err := h.entityRequestService.VoidApprovedUnfulfilled(requestID, adminID, note)
 	if err != nil {
 		logger.FromContext(ctx).Error("entity_request_rescue_void_failed",
-			"request_id", requestID, "admin_id", adminID, "error", err.Error())
+			"entity_request_id", requestID, "admin_id", adminID, "error", err.Error())
 		return nil, huma.Error500InternalServerError("Failed to void request")
 	}
 	if !voided {
@@ -283,7 +283,7 @@ func (h *EntityRequestHandler) voidApproved(ctx context.Context, requestID, admi
 	fresh, gerr := h.entityRequestService.GetRequest(requestID)
 	if gerr != nil {
 		logger.FromContext(ctx).Error("entity_request_rescue_void_reload_failed",
-			"request_id", requestID, "error", gerr.Error())
+			"entity_request_id", requestID, "error", gerr.Error())
 		// The void succeeded; only the re-read failed. A 500 here would wrongly
 		// imply the void didn't happen. Synthesize a minimal row so the 200 body
 		// always carries a usable, non-null request (matching the fulfill path,

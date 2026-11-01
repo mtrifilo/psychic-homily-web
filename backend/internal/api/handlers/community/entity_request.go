@@ -341,7 +341,7 @@ func (h *EntityRequestHandler) submitEntityRequest(
 				// below is the operational signal.
 				// (Festival fulfills inline, so it never reaches here.)
 				logger.FromContext(ctx).Warn("entity_request_autoapprove_fulfill_deferred",
-					"request_id", created.ID,
+					"entity_request_id", created.ID,
 					"entity_type", created.EntityType,
 				)
 			} else {
@@ -350,7 +350,7 @@ func (h *EntityRequestHandler) submitEntityRequest(
 				// staging step won't happen) rather than returning a misleading
 				// success with no created_entity_id.
 				logger.FromContext(ctx).Error("entity_request_autoapprove_fulfill_failed",
-					"request_id", created.ID,
+					"entity_request_id", created.ID,
 					"entity_type", created.EntityType,
 					"error", ferr.Error(),
 				)
@@ -725,7 +725,7 @@ func (h *EntityRequestHandler) AdminDecideEntityRequestHandler(ctx context.Conte
 				return nil, mapped
 			}
 			logger.FromContext(ctx).Error("entity_request_preclaim_load_failed",
-				"request_id", requestID,
+				"entity_request_id", requestID,
 				"error", gerr.Error(),
 			)
 			return nil, huma.Error500InternalServerError("Failed to load request")
@@ -807,7 +807,7 @@ func (h *EntityRequestHandler) AdminDecideEntityRequestHandler(ctx context.Conte
 			return nil, mapped
 		}
 		logger.FromContext(ctx).Error("entity_request_decide_failed",
-			"request_id", requestID,
+			"entity_request_id", requestID,
 			"admin_id", admin.ID,
 			"decision", decision,
 			"error", err.Error(),
@@ -827,7 +827,7 @@ func (h *EntityRequestHandler) AdminDecideEntityRequestHandler(ctx context.Conte
 			// maps to 422 and a duplicate catalog entity to 409 via
 			// mapFulfillmentError; only an unrecognized fault falls to 500.
 			logger.FromContext(ctx).Error("entity_request_fulfill_failed",
-				"request_id", requestID,
+				"entity_request_id", requestID,
 				"admin_id", admin.ID,
 				"entity_type", decided.EntityType,
 				"error", err.Error(),
@@ -910,7 +910,7 @@ func (h *EntityRequestHandler) fulfillAndRecord(ctx context.Context, req *commun
 		// and continue — the response already carries created_entity_id (set
 		// above), and the row's created_entity_id is reconcilable later.
 		logger.FromContext(ctx).Error("entity_request_record_fulfillment_failed",
-			"request_id", req.ID,
+			"entity_request_id", req.ID,
 			"created_entity_id", createdID,
 			"entity_type", req.EntityType,
 			"error", rerr.Error(),

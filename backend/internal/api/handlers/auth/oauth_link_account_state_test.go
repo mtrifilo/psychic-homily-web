@@ -45,7 +45,7 @@ func (s *OAuthHandlerIntegrationSuite) TestLinkCallback_AccountThatMayNotSignInI
 }
 
 // The session gate passes an open account, so an account closed while its
-// owner is at the provider is seen only by the reads after the token exchange.
+// owner is at the provider is seen only by the link write's own check.
 func (s *OAuthHandlerIntegrationSuite) TestLinkCallback_AccountClosedDuringHandshakeIsRefused() {
 	for _, state := range signInAccountStates {
 		if state.maySignIn {
