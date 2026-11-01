@@ -57,7 +57,7 @@ func (s *CalendarTokenValidatorSuite) createUser(email string, active bool) *aut
 
 func (s *CalendarTokenValidatorSuite) TestLiveTokenValidates() {
 	user := s.createUser("feed-owner@test.com", true)
-	created, err := s.svc.CreateToken(user.ID, "https://api.test")
+	created, err := s.svc.CreateToken(user.ID, user.SessionsValidAfter, "https://api.test")
 	s.Require().NoError(err)
 
 	validate := CalendarTokenValidator(s.svc)
@@ -74,9 +74,9 @@ func (s *CalendarTokenValidatorSuite) TestJunkTokenDoesNotValidate() {
 // the moment its owner rotates it.
 func (s *CalendarTokenValidatorSuite) TestRotatedTokenStopsValidating() {
 	user := s.createUser("rotator@test.com", true)
-	first, err := s.svc.CreateToken(user.ID, "https://api.test")
+	first, err := s.svc.CreateToken(user.ID, user.SessionsValidAfter, "https://api.test")
 	s.Require().NoError(err)
-	second, err := s.svc.CreateToken(user.ID, "https://api.test")
+	second, err := s.svc.CreateToken(user.ID, user.SessionsValidAfter, "https://api.test")
 	s.Require().NoError(err)
 
 	validate := CalendarTokenValidator(s.svc)
@@ -86,7 +86,7 @@ func (s *CalendarTokenValidatorSuite) TestRotatedTokenStopsValidating() {
 
 func (s *CalendarTokenValidatorSuite) TestDeletedTokenDoesNotValidate() {
 	user := s.createUser("deleter@test.com", true)
-	created, err := s.svc.CreateToken(user.ID, "https://api.test")
+	created, err := s.svc.CreateToken(user.ID, user.SessionsValidAfter, "https://api.test")
 	s.Require().NoError(err)
 	s.Require().NoError(s.svc.DeleteToken(user.ID))
 
@@ -98,7 +98,7 @@ func (s *CalendarTokenValidatorSuite) TestDeletedTokenDoesNotValidate() {
 // itself applies, resolved through the same service rather than restated.
 func (s *CalendarTokenValidatorSuite) TestInactiveUserTokenDoesNotValidate() {
 	user := s.createUser("inactive-owner@test.com", true)
-	created, err := s.svc.CreateToken(user.ID, "https://api.test")
+	created, err := s.svc.CreateToken(user.ID, user.SessionsValidAfter, "https://api.test")
 	s.Require().NoError(err)
 	s.Require().NoError(s.db.Model(&authm.User{}).Where("id = ?", user.ID).
 		Update("is_active", false).Error)

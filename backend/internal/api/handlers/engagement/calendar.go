@@ -16,6 +16,7 @@ import (
 	"psychic-homily-backend/internal/respond"
 	"psychic-homily-backend/internal/services/contracts"
 	engagementsvc "psychic-homily-backend/internal/services/engagement"
+	"psychic-homily-backend/internal/services/shared"
 )
 
 // CalendarHandler handles calendar feed and token management
@@ -146,8 +147,13 @@ func (h *CalendarHandler) CreateCalendarTokenHandler(ctx context.Context, req *C
 	// Feed URLs use the API domain, not the frontend domain.
 	apiBaseURL := getAPIBaseURL(h.config)
 
-	result, err := h.calendarService.CreateToken(user.ID, apiBaseURL)
+	result, err := h.calendarService.CreateToken(user.ID, user.SessionsValidAfter, apiBaseURL)
 	if err != nil {
+		// The session was revoked, or the account closed, after the JWT
+		// middleware validated it.
+		if shared.IsSessionRefusal(err) {
+			return nil, middleware.RefuseSession(ctx, "create_calendar_token", err, h.config.Session)
+		}
 		logger.FromContext(ctx).Error("create_calendar_token_failed",
 			"user_id", user.ID,
 			"error", err.Error(),

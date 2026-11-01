@@ -4,12 +4,13 @@ import (
 	"time"
 
 	"github.com/go-webauthn/webauthn/webauthn"
-	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 
 	apperrors "psychic-homily-backend/internal/errors"
 	authm "psychic-homily-backend/internal/models/auth"
+	"psychic-homily-backend/internal/services/shared"
 	usersvc "psychic-homily-backend/internal/services/user"
+	"psychic-homily-backend/internal/testutil"
 	"psychic-homily-backend/internal/testutil/softauthn"
 )
 
@@ -36,29 +37,15 @@ var registerAccountStates = []registerAccountState{
 }
 
 // serviceWithWriteBeforeItsFirst returns a WebAuthnService on the suite's
-// connections that runs write once, before the first statement the hooks that
-// register installs fire on. The returned flag reports whether write ran.
-func (suite *WebAuthnServiceIntegrationTestSuite) serviceWithWriteBeforeItsFirst(
-	register func(hooked *gorm.DB, hook func(*gorm.DB)) error,
-	write func(),
-) (*WebAuthnService, *bool) {
+// connections that runs write once, before the first statement any of hooks
+// fires on (testutil.WithWriteBeforeItsFirst). The returned flag reports
+// whether write ran.
+func (suite *WebAuthnServiceIntegrationTestSuite) serviceWithWriteBeforeItsFirst(write func(), hooks ...testutil.Hook) (*WebAuthnService, *bool) {
 	suite.T().Helper()
-	sqlDB, err := suite.db.DB()
-	suite.Require().NoError(err)
-	hooked, err := gorm.Open(postgres.New(postgres.Config{Conn: sqlDB}), &gorm.Config{TranslateError: true})
-	suite.Require().NoError(err)
-
-	ran := false
-	suite.Require().NoError(register(hooked, func(*gorm.DB) {
-		if ran {
-			return
-		}
-		ran = true
-		write()
-	}))
+	hooked, ran := testutil.WithWriteBeforeItsFirst(suite.T(), suite.db, func(*gorm.DB) { write() }, hooks...)
 	svc, err := NewWebAuthnService(hooked, suite.service.config)
 	suite.Require().NoError(err)
-	return svc, &ran
+	return svc, ran
 }
 
 // serviceWithWriteBeforeItsFirstStatement runs write before the service's
@@ -66,52 +53,26 @@ func (suite *WebAuthnServiceIntegrationTestSuite) serviceWithWriteBeforeItsFirst
 // caller's check and before the registration touches the database.
 func (suite *WebAuthnServiceIntegrationTestSuite) serviceWithWriteBeforeItsFirstStatement(write func()) (*WebAuthnService, *bool) {
 	suite.T().Helper()
-	return suite.serviceWithWriteBeforeItsFirst(func(hooked *gorm.DB, hook func(*gorm.DB)) error {
-		if err := hooked.Callback().Query().Before("gorm:query").Register("test:write_before_query", hook); err != nil {
-			return err
-		}
-		return hooked.Callback().Create().Before("gorm:create").Register("test:write_before_create", hook)
-	}, write)
+	return suite.serviceWithWriteBeforeItsFirst(write, testutil.BeforeQuery, testutil.BeforeCreate)
 }
 
 // serviceWithWriteBeforeItsFirstCreate runs write before the service's first
 // INSERT, which a registration issues after it has read the account.
 func (suite *WebAuthnServiceIntegrationTestSuite) serviceWithWriteBeforeItsFirstCreate(write func()) (*WebAuthnService, *bool) {
 	suite.T().Helper()
-	return suite.serviceWithWriteBeforeItsFirst(func(hooked *gorm.DB, hook func(*gorm.DB)) error {
-		return hooked.Callback().Create().Before("gorm:create").Register("test:write_before_create", hook)
-	}, write)
+	return suite.serviceWithWriteBeforeItsFirst(write, testutil.BeforeCreate)
 }
 
-// startOnAnotherConnection runs write in a goroutine on the suite's own handle
-// and returns once write has either finished or is waiting on a lock. The
-// returned channel delivers write's result.
+// startOnAnotherConnection is testutil.StartOnAnotherConnection on the
+// suite's own handle.
 func (suite *WebAuthnServiceIntegrationTestSuite) startOnAnotherConnection(write func() error) <-chan error {
 	suite.T().Helper()
-	done := make(chan error, 1)
-	go func() { done <- write() }()
-
-	suite.Require().Eventually(func() bool {
-		if len(done) > 0 {
-			return true
-		}
-		var waiting int64
-		err := suite.db.Raw(
-			"SELECT count(*) FROM pg_stat_activity WHERE datname = current_database() AND wait_event_type = 'Lock'",
-		).Scan(&waiting).Error
-		return err == nil && waiting > 0
-	}, 10*time.Second, 5*time.Millisecond, "the concurrent write neither finished nor waited on a lock")
-	return done
+	return testutil.StartOnAnotherConnection(suite.T(), suite.db, write)
 }
 
 func (suite *WebAuthnServiceIntegrationTestSuite) awaitConcurrentWrite(done <-chan error) {
 	suite.T().Helper()
-	select {
-	case err := <-done:
-		suite.Require().NoError(err)
-	case <-time.After(10 * time.Second):
-		suite.FailNow("the concurrent write did not finish")
-	}
+	suite.Require().NoError(testutil.AwaitConcurrentWrite(suite.T(), done))
 }
 
 // pendingRegistration starts a registration for user and answers it with a
@@ -240,4 +201,39 @@ func (suite *WebAuthnServiceIntegrationTestSuite) TestFinishRegistration_Account
 	suite.requireFailure(err)
 	suite.Contains(err.Error(), "failed to load user")
 	suite.Zero(suite.credentialRows(user.ID))
+}
+
+// A session whose account's sessions were revoked after the caller loaded it
+// stores no credential: the write compares the session's revocation stamp
+// with the account's, under the row lock.
+func (suite *WebAuthnServiceIntegrationTestSuite) TestFinishRegistration_SessionRevokedAfterCallersCheck() {
+	user := suite.createUser("register-revoked@test.com")
+	session, body := suite.pendingRegistration(user)
+
+	svc, ran := suite.serviceWithWriteBeforeItsFirstStatement(func() {
+		suite.Require().NoError(RevokeAllSessions(suite.db, &authm.User{ID: user.ID}, time.Now()))
+	})
+
+	cred, err := svc.FinishRegistration(user, session, suite.parseCreation(body), "Laptop")
+
+	suite.Require().True(*ran, "the revocation must land inside the registration's window")
+	suite.Nil(cred)
+	suite.requireRefusal(err, apperrors.CodeTokenInvalid, apperrors.ErrTokenInvalid(nil).UserMessage())
+	suite.ErrorIs(err, shared.ErrSessionRevoked)
+	suite.Zero(suite.credentialRows(user.ID), "a refused registration stores no credential")
+}
+
+// A session minted after the account's latest revocation carries its stamp
+// and registers.
+func (suite *WebAuthnServiceIntegrationTestSuite) TestFinishRegistration_SessionMintedAfterARevocationRegisters() {
+	user := suite.createUser("register-after-revocation@test.com")
+	suite.Require().NoError(RevokeAllSessions(suite.db, user, time.Now()))
+	suite.Require().NotNil(user.SessionsValidAfter)
+	session, body := suite.pendingRegistration(user)
+
+	cred, err := suite.service.FinishRegistration(user, session, suite.parseCreation(body), "Laptop")
+
+	suite.Require().NoError(err)
+	suite.Equal(user.ID, cred.UserID)
+	suite.Equal(int64(1), suite.credentialRows(user.ID))
 }

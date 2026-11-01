@@ -330,10 +330,14 @@ type UserServiceInterface interface {
 	// a non-blank one is its display name; a blank one gives it no name.
 	FindOrCreateUserFromOAuthIdentity(identity OAuthIdentity, consent *OAuthSignupConsent, displayName *string) (*authm.User, error)
 	// LinkOAuthAccountToUser attaches a provider identity to an already
-	// authenticated account, ignoring the provider's address. Refuses with a
-	// typed AuthError carrying CodeOAuthIdentityInUse or
-	// CodeOAuthProviderAlreadyLinked rather than retargeting an existing link.
-	LinkOAuthAccountToUser(userID uint, gothUser goth.User, provider string) (*authm.User, error)
+	// authenticated account, ignoring the provider's address.
+	// sessionsValidAfter is the revocation stamp of the session that
+	// authenticated it (the SessionsValidAfter its validation loaded). Refuses
+	// with shared.LockSessionAccount's refusals when the account may not sign
+	// in or that session has been revoked since, and with a typed AuthError
+	// carrying CodeOAuthIdentityInUse or CodeOAuthProviderAlreadyLinked rather
+	// than retargeting an existing link.
+	LinkOAuthAccountToUser(userID uint, sessionsValidAfter *time.Time, gothUser goth.User, provider string) (*authm.User, error)
 	// AuthenticateUserWithPassword refuses a correct password for an account
 	// that may not sign in with a typed AuthError carrying
 	// CodeAccountRecoverable while the account is recoverable and

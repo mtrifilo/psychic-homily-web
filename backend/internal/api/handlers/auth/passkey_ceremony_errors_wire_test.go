@@ -13,6 +13,7 @@ import (
 	autherrors "psychic-homily-backend/internal/errors"
 	authm "psychic-homily-backend/internal/models/auth"
 	"psychic-homily-backend/internal/services/contracts"
+	"psychic-homily-backend/internal/services/shared"
 )
 
 // wireOutcome is the status, code and message a refused or failed passkey
@@ -96,6 +97,42 @@ func TestPasskeyWire_RegisterFinishRegistrationErrors(t *testing.T) {
 			requireWireOutcome(t, resp, tc.want, tc.leaks...)
 		})
 	}
+}
+
+// register/finish answers a session revoked since the JWT middleware validated
+// it the way the middleware answers that session next: 401 TOKEN_INVALID, the
+// auth cookie cleared, and none of the cause's text.
+func TestPasskeyWire_RegisterFinishSessionRevoked(t *testing.T) {
+	body, _ := softRegistration(t)
+	mockWA := &testhelpers.MockWebAuthnService{
+		ConsumeRegistrationChallengeFn: func(string, uint) (*webauthn.SessionData, error) {
+			return &webauthn.SessionData{}, nil
+		},
+		FinishRegistrationFn: func(*authm.User, *webauthn.SessionData, *protocol.ParsedCredentialCreationData, string) (*authm.WebAuthnCredential, error) {
+			return nil, autherrors.ErrTokenInvalid(fmt.Errorf("user 7: %w", shared.ErrSessionRevoked))
+		},
+	}
+	api := newPasskeyWireAPI(t, testPasskeyHandlerWithMocks(mockWA, &testhelpers.MockJWTService{}, &testhelpers.MockUserService{}))
+
+	resp := api.Post("/auth/passkey/register/finish", map[string]any{"challenge_id": "c-1", "response": body})
+
+	if resp.Code != http.StatusUnauthorized {
+		t.Fatalf("status = %d, want 401; body: %s", resp.Code, resp.Body.String())
+	}
+	got := decodeWireBody(t, resp.Body.Bytes())
+	if got["error_code"] != autherrors.CodeTokenInvalid || got["message"] != "Invalid token" || got["success"] != false {
+		t.Errorf("body = %s", resp.Body.String())
+	}
+	cleared := false
+	for _, c := range resp.Result().Cookies() {
+		if c.Name == "auth_token" && c.Value == "" && c.MaxAge < 0 {
+			cleared = true
+		}
+	}
+	if !cleared {
+		t.Errorf("expected the auth cookie cleared, Set-Cookie: %q", resp.Header().Values("Set-Cookie"))
+	}
+	assertNoInternalText(t, resp.Body.String(), "user 7", "revocation")
 }
 
 // login/begin answers a failure at any step with a 503 and no challenge. Each

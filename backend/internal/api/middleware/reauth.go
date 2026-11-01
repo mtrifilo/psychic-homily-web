@@ -5,6 +5,9 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/danielgtaylor/huma/v2"
+
+	"psychic-homily-backend/internal/config"
 	autherrors "psychic-homily-backend/internal/errors"
 	"psychic-homily-backend/internal/logger"
 	authm "psychic-homily-backend/internal/models/auth"
@@ -159,4 +162,43 @@ func RequireRecentSessionAuth(ctx context.Context, operation string) error {
 		ErrorCode: autherrors.CodeReauthRequired,
 		RequestID: logger.GetRequestID(ctx),
 	}}
+}
+
+// SessionRefusedError is the body and status of the refusal RefuseSession
+// returns: 401 TOKEN_INVALID in the JWTErrorResponse envelope.
+type SessionRefusedError struct {
+	JWTErrorResponse
+}
+
+func (e *SessionRefusedError) Error() string { return e.Message }
+
+// GetStatus satisfies huma.StatusError, so huma writes this value as the body.
+func (e *SessionRefusedError) GetStatus() int { return http.StatusUnauthorized }
+
+// RefuseSession is the answer of a JSON credential mint whose write found the
+// request's session revoked after this middleware validated it
+// (shared.ErrSessionRevoked): the answer HumaJWTMiddleware gives that session
+// on its next request, a 401 TOKEN_INVALID that also clears the auth cookie
+// session describes. It logs the refusal of operation for the request's
+// principal, with cause.
+//
+// A mint whose response already has its own envelope for a closed account
+// (ACCOUNT_INACTIVE) keeps it; RefuseSession is for the revoked session, and
+// for a closed account only where the mint has no such envelope.
+func RefuseSession(ctx context.Context, operation string, cause error, session config.SessionConfig) error {
+	var userID uint
+	if user := GetUserFromContext(ctx); user != nil {
+		userID = user.ID
+	}
+	logger.AuthWarn(ctx, "credential_mint_refused_session_no_longer_valid",
+		"operation", operation,
+		"user_id", userID,
+		"error", cause.Error(),
+	)
+	clear := session.ClearAuthCookie()
+	return huma.ErrorWithHeaders(&SessionRefusedError{JWTErrorResponse: JWTErrorResponse{
+		Message:   invalidTokenMessage,
+		ErrorCode: autherrors.CodeTokenInvalid,
+		RequestID: logger.GetRequestID(ctx),
+	}}, http.Header{"Set-Cookie": {clear.String()}})
 }

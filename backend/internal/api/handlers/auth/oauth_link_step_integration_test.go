@@ -303,7 +303,7 @@ func (s *OAuthHandlerIntegrationSuite) TestLinkStep_PasswordProofLinksAndSignsIn
 	// credentials are its owner's and stay.
 	s.Require().NoError(s.deps.DB.Create(&authm.OAuthAccount{UserID: account.ID, Provider: "github", ProviderUserID: "github-owner"}).Error)
 	calendar := engagementsvc.NewCalendarService(s.deps.DB, nil)
-	feed, err := calendar.CreateToken(account.ID, "http://localhost:8080")
+	feed, err := calendar.CreateToken(account.ID, account.SessionsValidAfter, "http://localhost:8080")
 	s.Require().NoError(err)
 	token := s.startLink(collisionIdentity("pw-proof@test.com", "google-pw-proof"))
 	env := s.linkEnv()
@@ -574,7 +574,7 @@ func (s *OAuthHandlerIntegrationSuite) TestLinkStep_PreHijackedAccountIsReclaime
 	// calendar-feed token, and identities from other providers. A passkey on
 	// the account is not evicted by the proof (owner's call) and must survive.
 	calendar := engagementsvc.NewCalendarService(s.deps.DB, nil)
-	feed, err := calendar.CreateToken(squatted.ID, "http://localhost:8080")
+	feed, err := calendar.CreateToken(squatted.ID, squatted.SessionsValidAfter, "http://localhost:8080")
 	s.Require().NoError(err)
 	for provider, subject := range map[string]string{"github": "github-attacker", "apple": "apple-attacker"} {
 		s.Require().NoError(s.deps.DB.Create(&authm.OAuthAccount{UserID: squatted.ID, Provider: provider, ProviderUserID: subject}).Error)

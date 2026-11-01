@@ -2,20 +2,20 @@ package auth
 
 import (
 	"errors"
-	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/markbates/goth"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
-	"gorm.io/gorm"
 
 	"psychic-homily-backend/internal/config"
 	apperrors "psychic-homily-backend/internal/errors"
 	authm "psychic-homily-backend/internal/models/auth"
+	"psychic-homily-backend/internal/services/shared"
 	usersvc "psychic-homily-backend/internal/services/user"
 )
 
@@ -30,29 +30,33 @@ func linkCallbackRequest() (*httptest.ResponseRecorder, *http.Request) {
 	return httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/auth/callback/google", nil)
 }
 
-// CompleteOAuthLink is handed an account id, not a loaded account, so the
-// account's state is read inside it. This runs against a real database because
-// the property under test is whether an oauth_accounts row is written.
+// The account's state, and the session's, change between the caller's
+// session check and the link, and the link write refuses. This runs against a
+// real database because the property under test is whether an oauth_accounts
+// row is written.
 func (s *JWTIntegrationSuite) TestCompleteOAuthLink_AccountState() {
 	states := []struct {
-		name    string
-		apply   func(userID uint)
-		mayLink bool
+		name  string
+		apply func(userID uint)
+		// wantCode is the refusal, or "" when the link is written.
+		wantCode string
 	}{
-		{name: "active", apply: func(uint) {}, mayLink: true},
+		{name: "active", apply: func(uint) {}},
 		{name: "deactivated", apply: func(userID uint) {
 			s.Require().NoError(s.db.Model(&authm.User{}).Where("id = ?", userID).Update("is_active", false).Error)
-		}},
+		}, wantCode: apperrors.CodeAccountInactive},
 		{name: "soft-deleted", apply: func(userID uint) {
 			s.Require().NoError(usersvc.NewUserService(s.db).SoftDeleteAccount(userID, nil))
-		}},
+		}, wantCode: apperrors.CodeAccountInactive},
+		{name: "sessions revoked", apply: func(userID uint) {
+			s.Require().NoError(RevokeAllSessions(s.db, &authm.User{ID: userID}, time.Now()))
+		}, wantCode: apperrors.CodeTokenInvalid},
 	}
 
 	for _, state := range states {
 		s.Run(state.name, func() {
 			user := s.createActiveUser("link-" + state.name + "@test.com")
-			// The account's state changes between the link start, which ran
-			// under a live session, and the callback.
+			// user is the account as the caller's session check loaded it.
 			state.apply(user.ID)
 
 			subject := "google-link-" + state.name
@@ -60,14 +64,14 @@ func (s *JWTIntegrationSuite) TestCompleteOAuthLink_AccountState() {
 			svc.SetOAuthCompleter(completingAs(goth.User{Provider: "google", UserID: subject}))
 
 			w, r := linkCallbackRequest()
-			linked, err := svc.CompleteOAuthLink(w, r, "google", user.ID)
+			linked, err := svc.CompleteOAuthLink(w, r, "google", user.ID, user.SessionsValidAfter)
 
 			var rows int64
 			s.Require().NoError(s.db.Model(&authm.OAuthAccount{}).
 				Where("provider = ? AND provider_user_id = ?", "google", subject).
 				Count(&rows).Error)
 
-			if state.mayLink {
+			if state.wantCode == "" {
 				s.Require().NoError(err)
 				s.Require().NotNil(linked)
 				s.Equal(user.ID, linked.ID)
@@ -79,72 +83,71 @@ func (s *JWTIntegrationSuite) TestCompleteOAuthLink_AccountState() {
 			s.Nil(linked)
 			var authErr *apperrors.AuthError
 			s.Require().ErrorAs(err, &authErr)
-			s.Equal(apperrors.CodeAccountInactive, authErr.Code)
+			s.Equal(state.wantCode, authErr.Code)
+			s.Equal(state.wantCode == apperrors.CodeTokenInvalid, errors.Is(err, shared.ErrSessionRevoked))
 			s.Equal(int64(0), rows, "a refused link must write no identity")
 		})
 	}
 }
 
-// linkRecordingUserService records whether a link was attempted.
+// linkRecordingUserService records the link it is asked for, and fails any
+// account read: CompleteOAuthLink leaves the account to the link write.
 type linkRecordingUserService struct {
-	stubUserServiceWithGetByID
-	linkCalled bool
+	nilDBUserService
+	t            *testing.T
+	linkUserID   uint
+	linkStamp    *time.Time
+	linkProvider string
 }
 
-func (s *linkRecordingUserService) LinkOAuthAccountToUser(uint, goth.User, string) (*authm.User, error) {
-	s.linkCalled = true
-	return nil, errors.New("link must not be attempted")
+func (s *linkRecordingUserService) GetUserByID(uint) (*authm.User, error) {
+	s.t.Error("CompleteOAuthLink must not read the account itself")
+	return nil, nil
 }
 
-// An account that cannot be read is not known to be allowed to sign in, so the
-// link is not attempted, and the failure is not reported as the account's
-// state, which was never established.
-func TestCompleteOAuthLink_AccountLookupFailureLinksNothing(t *testing.T) {
-	userSvc := &linkRecordingUserService{stubUserServiceWithGetByID: stubUserServiceWithGetByID{
-		getByID: func(uint) (*authm.User, error) {
-			return nil, fmt.Errorf("failed to get user: %w", gorm.ErrInvalidDB)
-		},
-	}}
+func (s *linkRecordingUserService) LinkOAuthAccountToUser(userID uint, sessionsValidAfter *time.Time, _ goth.User, provider string) (*authm.User, error) {
+	s.linkUserID, s.linkStamp, s.linkProvider = userID, sessionsValidAfter, provider
+	return &authm.User{ID: userID}, nil
+}
+
+// After the handshake, the link write is the only database work: the account
+// and the caller's revocation stamp go to it unread.
+func TestCompleteOAuthLink_HandsTheAccountAndStampToTheLinkWrite(t *testing.T) {
+	stamp := time.Date(2026, 10, 1, 12, 0, 0, 0, time.UTC)
+	userSvc := &linkRecordingUserService{t: t}
 	cfg := &config.Config{JWT: config.JWTConfig{SecretKey: "test-secret-key-32-chars-minimum", Expiry: 24}}
 	svc := NewAuthService(nil, cfg, userSvc)
-	svc.SetOAuthCompleter(completingAs(goth.User{Provider: "google", UserID: "google-lookup-failure"}))
+	svc.SetOAuthCompleter(completingAs(goth.User{Provider: "github", UserID: "github-unread"}))
 
 	w, r := linkCallbackRequest()
-	linked, err := svc.CompleteOAuthLink(w, r, "google", 7)
+	linked, err := svc.CompleteOAuthLink(w, r, "github", 7, &stamp)
 
-	require.Error(t, err)
-	assert.Nil(t, linked)
-	assert.False(t, userSvc.linkCalled, "a failed account lookup must not fall through to linking")
-	assert.ErrorIs(t, err, gorm.ErrInvalidDB)
-	var authErr *apperrors.AuthError
-	assert.False(t, errors.As(err, &authErr), "a lookup failure is not a refusal with its own copy")
+	require.NoError(t, err)
+	assert.Equal(t, uint(7), linked.ID)
+	assert.Equal(t, uint(7), userSvc.linkUserID)
+	require.NotNil(t, userSvc.linkStamp)
+	assert.True(t, stamp.Equal(*userSvc.linkStamp), "the stamp reaches the link write unchanged")
+	assert.Equal(t, "github", userSvc.linkProvider)
 }
 
-// linkRefusingUserService reads every account as live and refuses every link
-// as an account that may not sign in.
+// linkRefusingUserService refuses every link as an account that may not sign
+// in.
 type linkRefusingUserService struct {
-	stubUserServiceWithGetByID
+	nilDBUserService
 }
 
-func (s *linkRefusingUserService) LinkOAuthAccountToUser(uint, goth.User, string) (*authm.User, error) {
+func (s *linkRefusingUserService) LinkOAuthAccountToUser(uint, *time.Time, goth.User, string) (*authm.User, error) {
 	return nil, apperrors.ErrAccountInactive()
 }
 
-// An account that closes after this check passes is refused by the link write,
-// and that refusal reaches the caller as ACCOUNT_INACTIVE, the same code this
-// check answers with.
+// The link write's refusal reaches the caller with its own code.
 func TestCompleteOAuthLink_LinkWritersRefusalKeepsItsCode(t *testing.T) {
-	userSvc := &linkRefusingUserService{stubUserServiceWithGetByID: stubUserServiceWithGetByID{
-		getByID: func(userID uint) (*authm.User, error) {
-			return &authm.User{ID: userID, IsActive: true}, nil
-		},
-	}}
 	cfg := &config.Config{JWT: config.JWTConfig{SecretKey: "test-secret-key-32-chars-minimum", Expiry: 24}}
-	svc := NewAuthService(nil, cfg, userSvc)
+	svc := NewAuthService(nil, cfg, &linkRefusingUserService{})
 	svc.SetOAuthCompleter(completingAs(goth.User{Provider: "google", UserID: "google-closed-in-window"}))
 
 	w, r := linkCallbackRequest()
-	linked, err := svc.CompleteOAuthLink(w, r, "google", 7)
+	linked, err := svc.CompleteOAuthLink(w, r, "google", 7, nil)
 
 	require.Error(t, err)
 	assert.Nil(t, linked)
