@@ -75,8 +75,8 @@ func TestReadinessHandler_DBHealthy_Integration(t *testing.T) {
 // occurs in production.
 //
 // The unit tests reach 503 through a nil db.DB handle, which the server can
-// never be in while serving: cmd/server/main.go calls log.Fatalf if db.Connect
-// fails, so a running process always has a handle. The realistic outage is a
+// never be in while serving: cmd/server/main.go refuses boot and exits if
+// db.Connect fails, so a running process always has a handle. The realistic outage is a
 // handle that EXISTS and whose connection fails — Postgres restarting, the
 // volume full, the proxy refusing. That is this test, driven by closing the
 // pool out from under the handler.
