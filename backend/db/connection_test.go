@@ -177,7 +177,7 @@ func TestConnectReportsARefusedConnectionWithoutTheBound(t *testing.T) {
 func TestConnectClosesThePoolWhenItFails(t *testing.T) {
 	dsn := refusingDSN(t)
 	cfg := connectConfig(t, dsn)
-	before := openPools()
+	before := settledOpenPools(t)
 
 	// The count sees a pool left open, so its return to the baseline after the
 	// connect below means that pool was closed.
@@ -202,6 +202,21 @@ func refusingDSN(t *testing.T) string {
 	port := ln.Addr().(*net.TCPAddr).Port
 	require.NoError(t, ln.Close())
 	return fmt.Sprintf("host=127.0.0.1 port=%d user=nobody dbname=nothing sslmode=disable", port)
+}
+
+// settledOpenPools is openPools once two samples agree. Close does not wait
+// for a pool's opener goroutine to exit, so a pool an earlier test closed can
+// still be counted for a moment.
+func settledOpenPools(t *testing.T) int {
+	t.Helper()
+	count := openPools()
+	require.Eventually(t, func() bool {
+		next := openPools()
+		settled := next == count
+		count = next
+		return settled
+	}, 2*time.Second, 50*time.Millisecond)
+	return count
 }
 
 // openPools counts the database/sql pools in this process that are not closed.
