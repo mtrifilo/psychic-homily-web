@@ -312,7 +312,7 @@ func (s *SceneService) GetSceneDay(city, state, dateKey string) (*contracts.Scen
 	}
 
 	loc, zone := s.sceneLocation(scope, state)
-	nowLocal := time.Now().In(loc)
+	nowLocal := s.now().In(loc)
 	tonight := tonightDate(nowLocal)
 
 	date := tonight

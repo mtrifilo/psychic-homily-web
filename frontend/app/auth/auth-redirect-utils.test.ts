@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest'
 import { FALLBACK_RETURN_TO } from '@/lib/auth-href'
 import { loadBackendCorpus } from '@/test/loadBackendCorpus'
 
-import { safeDecodeQueryParam, sanitizeReturnTo } from './auth-redirect-utils'
+import { sanitizeReturnTo } from './auth-redirect-utils'
 
 // The Go sanitizer's test reads the same file; its _comment states the contract.
 const corpus = loadBackendCorpus<{
@@ -29,23 +29,5 @@ describe('sanitizeReturnTo', () => {
   it('returns fallback for null and undefined', () => {
     expect(sanitizeReturnTo(undefined)).toBe(FALLBACK_RETURN_TO)
     expect(sanitizeReturnTo(null)).toBe(FALLBACK_RETURN_TO)
-  })
-})
-
-describe('safeDecodeQueryParam', () => {
-  it('returns null for empty values', () => {
-    expect(safeDecodeQueryParam(undefined)).toBeNull()
-    expect(safeDecodeQueryParam(null)).toBeNull()
-    expect(safeDecodeQueryParam('')).toBeNull()
-  })
-
-  it('decodes encoded values', () => {
-    expect(safeDecodeQueryParam('Email%20already%20exists')).toBe(
-      'Email already exists'
-    )
-  })
-
-  it('returns raw value when decode fails', () => {
-    expect(safeDecodeQueryParam('%E0%A4%A')).toBe('%E0%A4%A')
   })
 })

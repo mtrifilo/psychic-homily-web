@@ -2,7 +2,10 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { Activity } from 'react'
 import { act, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import { http, HttpResponse } from 'msw'
 import { renderWithProviders } from '@/test/utils'
+import { server } from '@/test/mocks/server'
+import { TEST_API_BASE } from '@/test/mocks/handlers'
 import { AUTH_ERROR_CODE_PARAM } from '@/lib/auth-href'
 import { AuthError, AuthErrorCode } from '@/lib/errors'
 import {
@@ -579,23 +582,197 @@ describe('AuthPage', () => {
   })
 
   describe('OAuth / URL error banner', () => {
-    it('renders the error banner from the ?error param', () => {
-      setSearchParams('error=Email%20already%20exists&provider=google')
+    const GENERIC = 'Something went wrong signing you in. Please try again.'
+
+    // Anyone can put text in a link to the real domain, so the page never
+    // renders it: text alone gets the generic line.
+    it.each([
+      ['a script tag', 'error=%3Cscript%3Ealert(1)%3C%2Fscript%3E', '<script>alert(1)</script>'],
+      ['a phone number', 'error=Call+555-0100', 'Call 555-0100'],
+      ['an old message', 'error=Email%20already%20exists&provider=google', 'Email already exists'],
+      ['text beside an unknown code', 'error=Call+555-0100&error_code=BOGUS', 'Call 555-0100'],
+    ])('shows the generic line, never the text, for %s', (_, query, text) => {
+      setSearchParams(query)
       renderWithProviders(<AuthPage />)
 
-      expect(screen.getByText('Email already exists')).toBeInTheDocument()
-    })
-
-    it('opens on Sign in for an ?error with no code', () => {
-      setSearchParams('error=authentication+failed')
-      renderWithProviders(<AuthPage />)
-
-      expect(screen.getByText('authentication failed')).toBeInTheDocument()
+      expect(screen.getByRole('alert')).toHaveTextContent(GENERIC)
+      expect(document.body).not.toHaveTextContent(text)
       expect(screen.getByRole('tab', { name: 'Sign in' })).toHaveAttribute(
         'aria-selected',
         'true'
       )
-      expect(screen.getByText('Sign in to your account')).toBeInTheDocument()
+    })
+
+    it.each(['BOGUS', 'UNKNOWN', '__proto__', 'constructor', 'rate_limited', ''])(
+      'shows the generic line for the code %j',
+      code => {
+        setSearchParams(new URLSearchParams({ [AUTH_ERROR_CODE_PARAM]: code }).toString())
+        renderWithProviders(<AuthPage />)
+
+        expect(screen.getByRole('alert')).toHaveTextContent(GENERIC)
+      }
+    )
+
+    // A known code gets its own line whatever text came with it.
+    it.each([
+      ['RATE_LIMITED', 'Too many sign-in attempts. Wait a minute, then try again.'],
+      [
+        'OAUTH_LINK_REFUSED',
+        'An account already uses this email address. Sign in to that account first, then connect this provider in Settings under Connected accounts.',
+      ],
+      ['ACCOUNT_INACTIVE', 'Account unavailable. Please contact support.'],
+      ['VALIDATION_FAILED', 'Validation failed'],
+      ['USER_EXISTS', 'An account with this email already exists'],
+      [
+        'TERMS_ACCEPTANCE_REQUIRED',
+        'Please accept the Terms of Service and Privacy Policy before creating an account.',
+      ],
+    ])('shows the fixed line for %s in the destructive style', (code, line) => {
+      setSearchParams(
+        new URLSearchParams({ error: 'Attacker text', [AUTH_ERROR_CODE_PARAM]: code }).toString()
+      )
+      renderWithProviders(<AuthPage />)
+
+      const alert = screen.getByRole('alert')
+      expect(alert).toHaveTextContent(line)
+      expect(alert.className).toContain('text-destructive')
+      expect(screen.queryByText('Attacker text')).not.toBeInTheDocument()
+      expect(screen.getByRole('tab', { name: 'Sign in' })).toHaveAttribute(
+        'aria-selected',
+        'true'
+      )
+    })
+
+    // Cancelling was the person's own choice, so the line is not an error.
+    it('shows the cancelled-at-Google line in the neutral style', () => {
+      setSearchParams(`${AUTH_ERROR_CODE_PARAM}=OAUTH_CANCELLED`)
+      renderWithProviders(<AuthPage />)
+
+      const alert = screen.getByRole('alert')
+      expect(alert).toHaveTextContent(
+        'Google sign-in was cancelled. Try again, or choose another way below.'
+      )
+      expect(alert.className).not.toContain('text-destructive')
+      expect(screen.getByRole('tab', { name: 'Sign in' })).toHaveAttribute(
+        'aria-selected',
+        'true'
+      )
+    })
+
+    it.each([
+      ['a plain visit', ''],
+      ['a destination only', 'returnTo=%2Fshows'],
+      ['a signed-out OAuth-link re-auth link', 'reason=OAUTH_LINK_REAUTH_REQUIRED'],
+      ['a signed-out credential re-auth link', 'reason=REAUTH_REQUIRED'],
+    ])('shows no banner for %s', (_, query) => {
+      setSearchParams(query)
+      renderWithProviders(<AuthPage />)
+
+      expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+    })
+
+    it('shows only the closed-account line for reason=ACCOUNT_INACTIVE', () => {
+      setSearchParams('reason=ACCOUNT_INACTIVE')
+      renderWithProviders(<AuthPage />)
+
+      expect(screen.getByRole('alert')).toHaveTextContent(
+        'Your account is unavailable, so the provider was not connected; please contact support.'
+      )
+      expect(screen.queryByText(GENERIC)).not.toBeInTheDocument()
+    })
+
+    // The collision state answers this code; it is not a refusal.
+    it('shows no banner for OAUTH_LINK_PENDING', () => {
+      setSearchParams(`${AUTH_ERROR_CODE_PARAM}=OAUTH_LINK_PENDING`)
+      renderWithProviders(<AuthPage />)
+
+      expect(screen.queryByText(GENERIC)).not.toBeInTheDocument()
+      expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+    })
+
+    describe('a sign-up refused for its age', () => {
+      const AGE_LINE =
+        'Your account was not created. Psychic Homily accounts are for people 16 and over.'
+      const AGE_REFUSAL_HEADING = "We can't create an account for you."
+
+      it('opens Create account under the age line', async () => {
+        server.use(
+          http.get(`${TEST_API_BASE}/auth/oauth/pending-signup`, () =>
+            HttpResponse.json({ status: 'expired' })
+          )
+        )
+        setSearchParams(`${AUTH_ERROR_CODE_PARAM}=AGE_CONFIRMATION_REQUIRED`)
+        renderWithProviders(<AuthPage />)
+
+        expect(screen.getByRole('tab', { name: 'Create account' })).toHaveAttribute(
+          'aria-selected',
+          'true'
+        )
+        const alert = await screen.findByRole('alert')
+        expect(alert).toHaveTextContent(AGE_LINE)
+        expect(alert.className).toContain('text-destructive')
+        expect(await screen.findByLabelText('Email')).toBeInTheDocument()
+      })
+
+      // Sign in turns the marker read off; the line stays, since no refusal
+      // card is there to say it instead.
+      it('keeps the age line after switching to Sign in', async () => {
+        const user = userEvent.setup()
+        server.use(
+          http.get(`${TEST_API_BASE}/auth/oauth/pending-signup`, () =>
+            HttpResponse.json({ status: 'expired' })
+          )
+        )
+        setSearchParams(`${AUTH_ERROR_CODE_PARAM}=AGE_CONFIRMATION_REQUIRED`)
+        renderWithProviders(<AuthPage />)
+        expect(await screen.findByText(AGE_LINE)).toBeInTheDocument()
+
+        await user.click(screen.getByRole('tab', { name: 'Sign in' }))
+
+        expect(screen.getByRole('tab', { name: 'Sign in' })).toHaveAttribute(
+          'aria-selected',
+          'true'
+        )
+        expect(screen.getByText(AGE_LINE)).toBeInTheDocument()
+      })
+
+      // Until the marker read answers, the page cannot know whether the
+      // refusal card will say it, so the line waits rather than flashing.
+      it('holds the age line until the marker read answers', async () => {
+        let answer!: () => void
+        const answered = new Promise<void>(resolve => {
+          answer = resolve
+        })
+        server.use(
+          http.get(`${TEST_API_BASE}/auth/oauth/pending-signup`, async () => {
+            await answered
+            return HttpResponse.json({ status: 'expired' })
+          })
+        )
+        setSearchParams(`${AUTH_ERROR_CODE_PARAM}=AGE_CONFIRMATION_REQUIRED`)
+        renderWithProviders(<AuthPage />)
+
+        expect(screen.queryByText(AGE_LINE)).not.toBeInTheDocument()
+
+        answer()
+        expect(await screen.findByText(AGE_LINE)).toBeInTheDocument()
+      })
+
+      // The refusal card already says it; the line would say it twice.
+      it('shows the refusal card alone while the browser holds the age marker', async () => {
+        server.use(
+          http.get(`${TEST_API_BASE}/auth/oauth/pending-signup`, () =>
+            HttpResponse.json({ status: 'age_refused' })
+          )
+        )
+        setSearchParams(`${AUTH_ERROR_CODE_PARAM}=AGE_CONFIRMATION_REQUIRED`)
+        renderWithProviders(<AuthPage />)
+
+        expect(
+          await screen.findByRole('heading', { name: AGE_REFUSAL_HEADING, level: 2 })
+        ).toBeInTheDocument()
+        expect(screen.queryByText(AGE_LINE)).not.toBeInTheDocument()
+      })
     })
 
     it('does not render an error banner when no ?error param is present', () => {
@@ -782,10 +959,10 @@ describe('AuthPage', () => {
       expectRecoveryOffer()
     })
 
-    it('shows the message of an OAuth refusal with any other code', () => {
+    it('shows the fixed closed-account line, not the recovery offer, for ACCOUNT_INACTIVE', () => {
       setSearchParams(
         new URLSearchParams({
-          error: 'Account unavailable. Please contact support.',
+          error: 'Text the page does not show',
           [AUTH_ERROR_CODE_PARAM]: 'ACCOUNT_INACTIVE',
         }).toString()
       )
@@ -794,6 +971,7 @@ describe('AuthPage', () => {
       expect(
         screen.getByText('Account unavailable. Please contact support.')
       ).toBeInTheDocument()
+      expect(screen.queryByText('Text the page does not show')).not.toBeInTheDocument()
       expect(
         screen.queryByRole('link', { name: ACCOUNT_RECOVERABLE_LINK_TEXT })
       ).not.toBeInTheDocument()
@@ -952,18 +1130,19 @@ describe('AuthPage', () => {
     })
 
     it('does the same for an OAuth refusal message and code', () => {
+      const RATE_LIMITED_LINE = 'Too many sign-in attempts. Wait a minute, then try again.'
       const { rerender, unmount } = arriveAt(
         'error_code=RATE_LIMITED&error=Too%20many%20attempts&returnTo=%2Fvenues'
       )
 
-      expect(screen.getByText('Too many attempts')).toBeInTheDocument()
+      expect(screen.getByText(RATE_LIMITED_LINE)).toBeInTheDocument()
       expect(addressBar()).toBe('/auth?returnTo=%2Fvenues')
 
       followAddressBar(rerender)
-      expect(screen.getByText('Too many attempts')).toBeInTheDocument()
+      expect(screen.getByText(RATE_LIMITED_LINE)).toBeInTheDocument()
 
       reload(unmount)
-      expect(screen.queryByText('Too many attempts')).not.toBeInTheDocument()
+      expect(screen.queryByText(RATE_LIMITED_LINE)).not.toBeInTheDocument()
       expect(passkeyLoginProps).toHaveBeenLastCalledWith(
         expect.objectContaining({ returnTo: '/venues' })
       )
@@ -1027,7 +1206,9 @@ describe('AuthPage', () => {
         'aria-selected',
         'true'
       )
-      expect(screen.getByText('x')).toBeInTheDocument()
+      expect(screen.getByRole('alert')).toHaveTextContent(
+        'Something went wrong signing you in. Please try again.'
+      )
     })
 
     it('keeps the home hero sign-up arrival on Create account beside a banner', () => {
@@ -1040,7 +1221,21 @@ describe('AuthPage', () => {
         'aria-selected',
         'true'
       )
-      expect(screen.getByText('x')).toBeInTheDocument()
+      expect(screen.getByRole('alert')).toHaveTextContent(
+        'Something went wrong signing you in. Please try again.'
+      )
+    })
+
+    it('keeps the age arrival on Create account once the code leaves the URL', () => {
+      const { rerender } = arriveAt(`${AUTH_ERROR_CODE_PARAM}=AGE_CONFIRMATION_REQUIRED`)
+      expect(addressBar()).toBe('/auth')
+
+      followAddressBar(rerender)
+
+      expect(screen.getByRole('tab', { name: 'Create account' })).toHaveAttribute(
+        'aria-selected',
+        'true'
+      )
     })
 
     it('keeps a re-authentication reason in the URL', async () => {
@@ -1266,8 +1461,37 @@ describe('AuthPage', () => {
       renderWithProviders(<AuthPage />)
 
       expect(
-        await screen.findByText(/connect a provider to your account/i)
+        await screen.findByRole('heading', { level: 1, name: "Confirm it's you" })
       ).toBeInTheDocument()
+      expect(
+        screen.getByText('Sign in again to connect a provider to your account.')
+      ).toBeInTheDocument()
+      expect(screen.getByText("Confirm it's you to connect a provider")).toBeInTheDocument()
+      expect(
+        screen.getByText('Use whichever method this account already has.')
+      ).toBeInTheDocument()
+    })
+
+    // A refused credential mint (API token, CLI token, passkey, feed) names
+    // the change, never a provider.
+    it('names a credential change, not a provider, for reason=REAUTH_REQUIRED', async () => {
+      mockAuthState = { setUser: vi.fn(), authStatus: 'authenticated' }
+      mockSearchParams = new URLSearchParams({ returnTo: '/profile', reason: 'REAUTH_REQUIRED' })
+
+      renderWithProviders(<AuthPage />)
+
+      expect(
+        await screen.findByRole('heading', { level: 1, name: "Confirm it's you" })
+      ).toBeInTheDocument()
+      expect(
+        screen.getByText('For security, sign in again before making this change.')
+      ).toBeInTheDocument()
+      expect(screen.getByText("Confirm it's you to continue")).toBeInTheDocument()
+      expect(
+        screen.getByText('Use whichever method this account already has.')
+      ).toBeInTheDocument()
+      expect(screen.queryByText(/connect a provider/i)).not.toBeInTheDocument()
+      expect(screen.queryByRole('alert')).not.toBeInTheDocument()
     })
 
     it('offers no Create account tab, which proves nothing about holding one', async () => {

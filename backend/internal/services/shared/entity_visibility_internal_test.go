@@ -416,12 +416,12 @@ func TestVisibleCommentEntitySQLArgsMatchItsPlaceholders(t *testing.T) {
 // the registry.
 type allEntitiesVisibleChecker struct{}
 
-func (allEntitiesVisibleChecker) ShowVisibleTo(uint, contracts.ShowViewer) bool       { return true }
-func (allEntitiesVisibleChecker) CollectionVisibleTo(uint, contracts.ShowViewer) bool { return true }
+func (allEntitiesVisibleChecker) ShowVisibleTo(uint, contracts.ShowViewer) bool      { return true }
+func (allEntitiesVisibleChecker) CollectionServedTo(uint, contracts.ShowViewer) bool { return true }
 
 // noEntitiesVisibleChecker refuses everything, so a pass can only come from the
 // always-visible arm.
 type noEntitiesVisibleChecker struct{}
 
-func (noEntitiesVisibleChecker) ShowVisibleTo(uint, contracts.ShowViewer) bool       { return false }
-func (noEntitiesVisibleChecker) CollectionVisibleTo(uint, contracts.ShowViewer) bool { return false }
+func (noEntitiesVisibleChecker) ShowVisibleTo(uint, contracts.ShowViewer) bool      { return false }
+func (noEntitiesVisibleChecker) CollectionServedTo(uint, contracts.ShowViewer) bool { return false }

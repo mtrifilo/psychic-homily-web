@@ -893,7 +893,7 @@ describe('Under-age refusal', () => {
     act(() => {
       registerCallbacks.onError(
         new AuthError(
-          'You must confirm that you are at least 16 years old to create an account.',
+          'Your account was not created. Psychic Homily accounts are for people 16 and over.',
           AuthErrorCode.AGE_CONFIRMATION_REQUIRED
         )
       )

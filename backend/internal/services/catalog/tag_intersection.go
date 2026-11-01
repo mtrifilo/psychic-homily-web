@@ -35,8 +35,9 @@ import (
 //   - festival:   no gate; counted transitively via the lineup.
 //   - release:    no gate.
 //   - label:      no gate.
-//   - collection: is_public = true ONLY — private collections must never leak
-//     through this public surface (load-bearing; asserted in a test).
+//   - collection: the public-tier listing rule (shared.PublicListedCollectionSQL:
+//     public, with a live creator whose profile is public), the rule the public
+//     /collections browse applies (load-bearing; asserted in a test).
 //
 // tagSlugs is assumed already resolved/validated by the caller; matchAny=false ⇒
 // AND (the lineup collectively covers all tags for show/festival), true ⇒ OR.
@@ -180,9 +181,9 @@ func (s *TagService) intersectGroup(entityType string, filter TagFilter, preview
 	for _, id := range ids {
 		item, ok := enriched[id]
 		if !ok {
-			// Collections drop private/deleted rows in enrichCollections; skip
-			// rather than emit an empty-name placeholder. (Belt-and-suspenders:
-			// the collection base query already filters is_public = true.)
+			// enrichCollections drops a collection the listing rule withholds
+			// (or a deleted one); skip rather than emit an empty-name
+			// placeholder. The collection base query applies the same rule.
 			continue
 		}
 		item.EntityType = entityType
@@ -257,8 +258,9 @@ func (s *TagService) intersectBaseQuery(entityType string) *gorm.DB {
 	case catalogm.TagEntityFestival:
 		return s.db.Table("festivals")
 	case catalogm.TagEntityCollection:
-		// Public-only: private collections must never leak through this surface.
-		return s.db.Table("collections").Where("collections.is_public = ?", true)
+		// The public-tier listing rule: a private collection, and a closed or
+		// private-profile creator's, never reaches this surface.
+		return s.db.Table("collections").Where(shared.PublicListedCollectionSQL("collections"))
 	default:
 		// Unreachable: entityType comes from TagEntityTypes. Return a query that
 		// matches nothing so a future type addition fails closed (0 count).

@@ -123,7 +123,7 @@ func (s *TagService) applyVisibleUsageCounts(tags []*catalogm.Tag) error {
 	if len(ids) == 0 {
 		return nil
 	}
-	counts, err := shared.VisibleTagUsageCounts(s.db, ids)
+	counts, err := shared.ListedTagUsageCounts(s.db, ids)
 	if err != nil {
 		return err
 	}
@@ -152,7 +152,7 @@ func (s *TagService) applyVisibleUsageCountsToSummaries(summaries []contracts.Ta
 	for i := range summaries {
 		ids[i] = summaries[i].ID
 	}
-	counts, err := shared.VisibleTagUsageCounts(s.db, ids)
+	counts, err := shared.ListedTagUsageCounts(s.db, ids)
 	if err != nil {
 		return err
 	}
@@ -1370,20 +1370,13 @@ func (s *TagService) GetTagEntities(tagID uint, entityType string, limit, offset
 	// them, which is the withheld count published as arithmetic and is exactly
 	// what a gate on this listing exists to prevent.
 	//
-	// PUBLIC tier for both arms: this route is anonymous, and a tag's membership
-	// is a shared listing whose contents must not vary by credential. The
-	// anonymous ShowViewer is what makes VisibleCollectionExistsSQL collapse to
-	// `is_public = TRUE`, which is the rule enrichCollections applies below.
-	visibleShows, visibleShowsArgs := shared.VisibleShowExistsSQL(
-		"entity_tags.entity_id", contracts.ShowViewer{})
-	query = query.Where(
-		"(entity_tags.entity_type <> ? OR "+visibleShows+")",
-		append([]interface{}{catalogm.TagEntityShow}, visibleShowsArgs...)...)
-	visibleCollections, visibleCollectionsArgs := shared.VisibleCollectionExistsSQL(
-		"entity_tags.entity_id", contracts.ShowViewer{})
-	query = query.Where(
-		"(entity_tags.entity_type <> ? OR "+visibleCollections+")",
-		append([]interface{}{catalogm.TagEntityCollection}, visibleCollectionsArgs...)...)
+	// PUBLIC tier: this route is anonymous, and a tag's membership is a shared
+	// listing whose contents must not vary by credential. The condition is the
+	// one every count on the tag's pages takes (shared.ListedEntityTagsSQL), so
+	// the listing and the counts beside it cannot disagree; a tagged collection
+	// is listed on the public-tier listing rule, which enrichCollections applies
+	// below as well.
+	query = query.Where(shared.ListedEntityTagsSQL("entity_tags"))
 
 	var total int64
 	if err := query.Count(&total).Error; err != nil {
@@ -1884,9 +1877,10 @@ func (s *TagService) enrichShows(ids []uint) map[uint]contracts.TaggedEntityItem
 
 // enrichCollections resolves tagged collections to (title → name, slug).
 //
-// PSY-553: tag detail is public, so private collections must NOT leak
-// through this surface even when tagged — the `is_public = true` filter is
-// load-bearing. Excluded collections (private OR deleted) are dropped from
+// Tag detail is public, so it names only the collections a public-tier listing
+// may carry (shared.PublicListedCollectionSQL): public, with a live creator
+// whose profile is public. The filter is load-bearing. Excluded collections
+// (private, a closed or private-profile creator's, or deleted) are dropped from
 // the response in the build loop above via the matching collection-type
 // continue branch. On query error we return an empty map (drop all) rather
 // than fall back to `enrichBare` because `entityTableMap` has no collection
@@ -1906,7 +1900,7 @@ func (s *TagService) enrichCollections(ids []uint) map[uint]contracts.TaggedEnti
 		       COALESCE(slug, '') AS slug
 		FROM collections
 		WHERE id IN ?
-		  AND is_public = true
+		  AND `+shared.PublicListedCollectionSQL("collections")+`
 	`, ids).Scan(&rows).Error; err != nil {
 		return out
 	}
@@ -2019,13 +2013,12 @@ func (s *TagService) GetTagDetail(tagID uint) (*contracts.TagDetailResponse, err
 	// One predicate, from the registry, rather than an arm per gated type written
 	// out here: the same condition decides the usage count on every other tag
 	// surface, so a type that gains a rule reaches this query in the same edit.
-	breakdownVisible, breakdownVisibleArgs := shared.VisibleEntityTagsSQL(
-		"entity_tags", contracts.ShowViewer{})
+	breakdownVisible := shared.ListedEntityTagsSQL("entity_tags")
 	var rows []breakdownRow
 	if err := s.db.Model(&catalogm.EntityTag{}).
 		Select("entity_type, COUNT(*) AS count").
 		Where("tag_id = ?", tagID).
-		Where(breakdownVisible, breakdownVisibleArgs...).
+		Where(breakdownVisible).
 		Group("entity_type").
 		Scan(&rows).Error; err != nil {
 		return nil, fmt.Errorf("failed to compute usage breakdown: %w", err)
@@ -2040,7 +2033,7 @@ func (s *TagService) GetTagDetail(tagID uint) (*contracts.TagDetailResponse, err
 	// The count is the SUM OF THE BREAKDOWN IT IS RENDERED WITH, taken from the
 	// same rows rather than from a second query, so the pair cannot disagree.
 	// Every other surface that publishes this tag's count reaches the same number
-	// through shared.VisibleTagUsageCounts, which applies the same predicate
+	// through shared.ListedTagUsageCounts, which applies the same predicate
 	// grouped by tag instead of by entity type.
 	resp.UsageCount = int(visibleUsage)
 
@@ -2054,13 +2047,13 @@ func (s *TagService) GetTagDetail(tagID uint) (*contracts.TagDetailResponse, err
 	// per-user, so an unfenced one attributes the withheld rows to a NAMED
 	// person: "alice applied this tag five times, two are visible" says alice has
 	// three gated shows or private collections carrying it.
-	contribVisible, contribVisibleArgs := shared.VisibleEntityTagsSQL("et", contracts.ShowViewer{})
+	contribVisible := shared.ListedEntityTagsSQL("et")
 	var contribRows []contribRow
 	if err := s.db.Table("entity_tags AS et").
 		Select("et.added_by_user_id AS user_id, u.username AS username, COUNT(*) AS count").
 		Joins("LEFT JOIN users u ON u.id = et.added_by_user_id").
 		Where("et.tag_id = ?", tagID).
-		Where(contribVisible, contribVisibleArgs...).
+		Where(contribVisible).
 		Group("et.added_by_user_id, u.username").
 		Order("count DESC, et.added_by_user_id ASC").
 		Limit(5).
@@ -2096,13 +2089,10 @@ func (s *TagService) GetTagDetail(tagID uint) (*contracts.TagDetailResponse, err
 	// judging one would be enough, and both carry the condition because the join
 	// is on a pair of columns that a later edit could loosen.
 	//
-	// Placeholders bind by POSITION, so the arguments below are appended in
-	// statement order: the self gate, the other gate, then the two tag ids.
-	selfVisible, selfVisibleArgs := shared.VisibleEntityTagsSQL("et_self", contracts.ShowViewer{})
-	otherVisible, otherVisibleArgs := shared.VisibleEntityTagsSQL("et_other", contracts.ShowViewer{})
-	relatedArgs := append([]interface{}{}, selfVisibleArgs...)
-	relatedArgs = append(relatedArgs, otherVisibleArgs...)
-	relatedArgs = append(relatedArgs, tagID, tagID)
+	// Both gates bind nothing, so the only arguments are the two tag ids.
+	selfVisible := shared.ListedEntityTagsSQL("et_self")
+	otherVisible := shared.ListedEntityTagsSQL("et_other")
+	relatedArgs := []interface{}{tagID, tagID}
 	var relatedRows []relatedRow
 	err = s.db.Raw(`
 		SELECT t.id, t.name, t.slug, t.category, t.is_official, t.usage_count

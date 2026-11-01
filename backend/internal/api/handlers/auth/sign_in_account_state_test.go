@@ -135,9 +135,10 @@ func (s *OAuthHandlerIntegrationSuite) TestGoogleCallback_AccountState_CLIRedire
 				return
 			}
 
-			// The loopback redirect carries the message alone, as every CLI
-			// error redirect does, and never a token.
-			s.Equal(url.Values{"error": {state.closedAccountRefusal().UserMessage()}}, location.Query())
+			// The loopback redirect carries the message and the code, as every
+			// CLI error redirect does, and never a token.
+			refusal := state.closedAccountRefusal()
+			s.Equal(url.Values{"error": {refusal.UserMessage()}, "error_code": {refusal.Code}}, location.Query())
 			s.assertNoSessionCookie(w)
 		})
 	}

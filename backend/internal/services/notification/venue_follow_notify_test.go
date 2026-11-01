@@ -665,7 +665,8 @@ func (s *NotificationFilterSuite) TestVenueAlert_EmailOptInSendsWithWorkingUnsub
 	s.Require().Len(capture.sent, 1)
 	sent := capture.sent[0]
 	s.Contains(sent.subject, "Valley Bar")
-	s.Contains(sent.unsubscribeURL, "unsubscribe/artist-show-alerts")
+	s.True(strings.HasPrefix(sent.unsubscribeURL, testBackendURL+"/unsubscribe/artist-show-alerts?"),
+		"unsubscribe URL %q must be on the service's backend origin", sent.unsubscribeURL)
 	s.Contains(sent.html, "Unsubscribe from show alerts")
 	s.Contains(sent.html, "VENUE ALERT · NEW SHOWS")
 }

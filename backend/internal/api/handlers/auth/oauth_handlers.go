@@ -66,9 +66,9 @@ func randomHexID(n int) (string, error) {
 // refusal's own words when it is one a caller may act on, and fallback for
 // everything else, so a backend fault never reaches a caller.
 //
-// The sign-in callback's two redirects use this; the auth-page redirect also
-// carries refusalCode's answer. AppleCallbackHandler consults
-// refusalWithOwnCopy directly to answer with both in its JSON body.
+// Only the loopback CLI redirect carries a message, beside refusalCode's
+// answer; the auth-page redirect carries the code alone. AppleCallbackHandler
+// consults refusalWithOwnCopy directly to answer with both in its JSON body.
 func refusalMessage(err error, fallback string) string {
 	if refusal, ok := refusalWithOwnCopy(err); ok {
 		return refusal.UserMessage()
@@ -97,27 +97,64 @@ func refusalWithOwnCopy(err error) (*autherrors.AuthError, bool) {
 }
 
 // The query keys the backend hands the frontend auth page: a failed sign-in
-// callback's message and code, which the page reads as AUTH_ERROR_PARAM and
-// AUTH_ERROR_CODE_PARAM, and the reason an OAuth link sent the reader there,
-// which it reads as AUTH_REASON_PARAM (frontend/lib/auth-href.ts).
+// callback's code, which the page reads as AUTH_ERROR_CODE_PARAM, and the
+// reason an OAuth link sent the reader there, which it reads as
+// AUTH_REASON_PARAM (frontend/lib/auth-href.ts).
+//
+// The page renders fixed copy for each code and never text from its URL, so
+// no redirect to it carries a message.
 const (
-	authPageErrorParam     = "error"
 	authPageErrorCodeParam = "error_code"
 	authPageReasonParam    = "reason"
 )
 
-// authPageErrorQuery is the query string a failed sign-in callback hands the
-// frontend auth page: the message it shows, and, for a refusal
-// authRefusalCarriesItsOwnCopy names, that refusal's code. The page decides
-// what to do next from the code, never from the message, so the copy can
-// change without moving the reader to the wrong form. A backend fault carries
-// no code, the same way it carries no message of its own.
-func authPageErrorQuery(err error, message string) url.Values {
-	query := url.Values{authPageErrorParam: {message}}
-	if code := refusalCode(err, ""); code != "" {
-		query.Set(authPageErrorCodeParam, code)
+// The loopback CLI redirect's keys for a failed sign-in: the message older
+// CLIs read, and the code beside it. A wire contract with out-of-repo clients,
+// separate from the auth page's.
+const (
+	cliErrorParam     = "error"
+	cliErrorCodeParam = "error_code"
+)
+
+// oauthCallbackFailedMessage is the CLI's message for a failed sign-in whose
+// cause carries no copy of its own.
+const oauthCallbackFailedMessage = "authentication failed"
+
+// authPageCodeOAuthCancelled is the code a sign-in callback reports when the
+// person declined at the provider's consent screen: to the auth page, and to
+// the CLI beside its message. It is not a refusal and no AuthError carries it;
+// the frontend reads it as AuthErrorCode.OAUTH_CANCELLED
+// (frontend/lib/errors/authErrors.ts).
+const authPageCodeOAuthCancelled = "OAUTH_CANCELLED"
+
+// cancelReportingProviders are the providers whose decline is reported as
+// authPageCodeOAuthCancelled. The auth page's line for that code names
+// Google, so any other provider's decline keeps the generic failure.
+var cancelReportingProviders = []string{"google"}
+
+// providerDeclinedError is the provider's "error" callback parameter when the
+// person declined consent (RFC 6749 section 4.1.2.1).
+const providerDeclinedError = "access_denied"
+
+// declinedAtProvider reports whether the callback r for provider is the
+// provider saying the person declined, on a provider whose decline the auth
+// page can name. Such a callback carries no authorization code, so there is
+// no handshake to complete.
+func declinedAtProvider(provider string, r *http.Request) bool {
+	return slices.Contains(cancelReportingProviders, provider) &&
+		r.URL.Query().Get("error") == providerDeclinedError
+}
+
+// redirectSignInFailure answers a sign-in callback that did not sign the
+// reader in: the loopback CLI gets message and code, a browser gets the code
+// on the auth page with the sign-in's destination.
+func redirectSignInFailure(w http.ResponseWriter, r *http.Request, cliCallback, frontendURL, returnTo, message, code string) {
+	if cliCallback != "" {
+		target := cliCallback + "?" + url.Values{cliErrorParam: {message}, cliErrorCodeParam: {code}}.Encode()
+		http.Redirect(w, r, target, http.StatusTemporaryRedirect)
+		return
 	}
-	return query
+	http.Redirect(w, r, authPageCodeURL(frontendURL, code, returnTo), http.StatusTemporaryRedirect)
 }
 
 // requestCookieNames returns the names of the request's cookies. Cookie values
@@ -412,6 +449,17 @@ func (h *OAuthHTTPHandler) OAuthCallbackHTTPHandler(w http.ResponseWriter, r *ht
 	// startLinkStep sets a new one after the clear, and the later Set-Cookie
 	// wins.
 	oauthPendingLinkCookie.clear(w, r, secureCookie)
+
+	// A decline is the person's own choice, not a failure: logged at INFO and
+	// answered without the handshake, which has no authorization code to
+	// exchange. The handshake session is cleared, as completing it would.
+	if declinedAtProvider(provider, r) {
+		_ = gothic.Logout(w, r)
+		logger.AuthInfo(ctx, "oauth_callback_cancelled", "provider", provider)
+		redirectSignInFailure(w, r, cliCallback, frontendURL, returnTo, oauthCallbackFailedMessage, authPageCodeOAuthCancelled)
+		return
+	}
+
 	user, token, err := h.authService.OAuthCallback(w, r, provider)
 	if err != nil {
 		if identity, ok := signupStepIdentity(provider, err); ok && cliCallback == "" {
@@ -423,16 +471,8 @@ func (h *OAuthHTTPHandler) OAuthCallbackHTTPHandler(w http.ResponseWriter, r *ht
 			return
 		}
 		logCallbackError(ctx, provider, err)
-		errorMessage := refusalMessage(err, "authentication failed")
-
-		// Handle CLI callback error
-		if cliCallback != "" {
-			redirectURL := cliCallback + "?error=" + url.QueryEscape(errorMessage)
-			http.Redirect(w, r, redirectURL, http.StatusTemporaryRedirect)
-			return
-		}
-
-		http.Redirect(w, r, authPageRefusalURL(frontendURL, err, errorMessage, returnTo), http.StatusTemporaryRedirect)
+		redirectSignInFailure(w, r, cliCallback, frontendURL, returnTo,
+			refusalMessage(err, oauthCallbackFailedMessage), refusalCode(err, autherrors.CodeUnknown))
 		return
 	}
 
@@ -479,10 +519,11 @@ func logCallbackError(ctx context.Context, provider string, err error) {
 // generic, so a backend fault never reaches a caller.
 //
 // A code added here reaches four surfaces, all of them in this package: the
-// browser redirect to the frontend auth page (message and code), the loopback
-// redirect to a CLI callback, the Apple callback's JSON body, and the redirect
-// back to Settings after a link attempt. It therefore also decides what an
-// unauthenticated caller learns about why the attempt failed.
+// browser redirect to the frontend auth page (the code, which the page maps to
+// fixed copy), the loopback redirect to a CLI callback (message and code), the
+// Apple callback's JSON body, and the redirect back to Settings after a link
+// attempt. Every other code reaches them as a generic failure, so this also
+// decides what an unauthenticated caller learns about why the attempt failed.
 //
 // Handlers outside those surfaces answer with a code of their own and do not
 // consult it.

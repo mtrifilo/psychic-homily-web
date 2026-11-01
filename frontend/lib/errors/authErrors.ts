@@ -5,6 +5,8 @@
  * These match the error codes returned by the backend.
  */
 
+import { USER_EXISTS_MESSAGE, VALIDATION_FAILED_MESSAGE } from './authRefusalCopy'
+
 /**
  * Auth error codes (must match backend/internal/errors/auth.go)
  */
@@ -57,6 +59,21 @@ export const AuthErrorCode = {
    * collision state says the same thing for all three.
    */
   OAUTH_LINK_PENDING_EXPIRED: 'OAUTH_LINK_PENDING_EXPIRED',
+  /**
+   * A provider sign-in refused because the address belongs to an account the
+   * identity is not attached to, where no proof of that account is offered.
+   */
+  OAUTH_LINK_REFUSED: 'OAUTH_LINK_REFUSED',
+  /**
+   * Not a refusal: the person declined at Google's consent screen. Only
+   * Google's decline carries it, so the auth page's line for it names Google.
+   */
+  OAUTH_CANCELLED: 'OAUTH_CANCELLED',
+  /**
+   * An OAuth start or callback refused by its per-IP rate limit, which counts
+   * over one minute.
+   */
+  RATE_LIMITED: 'RATE_LIMITED',
   /** The provider identity is already attached to another account. */
   OAUTH_IDENTITY_IN_USE: 'OAUTH_IDENTITY_IN_USE',
   /** The account already holds a different identity from the provider. */
@@ -252,6 +269,13 @@ export function isAccountRecoverable(error: unknown): boolean {
 }
 
 /**
+ * Was this sign-in refused because the account may no longer sign in?
+ */
+export function isAccountInactive(error: unknown): boolean {
+  return isAuthError(error) && error.code === AuthErrorCode.ACCOUNT_INACTIVE
+}
+
+/**
  * Get a user-friendly message for an error code
  */
 export function getAuthErrorMessage(code: AuthErrorCodeType): string {
@@ -267,9 +291,9 @@ export function getAuthErrorMessage(code: AuthErrorCodeType): string {
     case AuthErrorCode.SERVICE_UNAVAILABLE:
       return 'Service temporarily unavailable. Please try again.'
     case AuthErrorCode.USER_EXISTS:
-      return 'An account with this email already exists'
+      return USER_EXISTS_MESSAGE
     case AuthErrorCode.VALIDATION_FAILED:
-      return 'Validation failed'
+      return VALIDATION_FAILED_MESSAGE
     case AuthErrorCode.UNAUTHORIZED:
       return 'You are not authorized to perform this action'
     case AuthErrorCode.REAUTH_REQUIRED:
