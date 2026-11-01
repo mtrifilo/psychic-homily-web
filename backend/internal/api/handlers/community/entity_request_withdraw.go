@@ -70,7 +70,7 @@ func (h *EntityRequestHandler) WithdrawEntityRequestHandler(ctx context.Context,
 			return nil, mapped
 		}
 		logger.FromContext(ctx).Error("entity_request_withdraw_failed",
-			"request_id", requestID,
+			"entity_request_id", requestID,
 			"user_id", user.ID,
 			"error", err.Error(),
 		)
