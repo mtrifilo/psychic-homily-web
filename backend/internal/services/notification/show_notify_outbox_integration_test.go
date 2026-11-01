@@ -42,7 +42,7 @@ func TestShowNotifyOutboxSuite(t *testing.T) {
 func (s *ShowNotifyOutboxSuite) SetupSuite() {
 	s.testDB = testutil.SetupTestPostgres(s.T())
 	s.db = s.testDB.DB
-	s.filters = NewNotificationFilterService(s.db, &mockEmailService{}, "test-secret", "http://localhost:3000")
+	s.filters = NewNotificationFilterService(s.db, &mockEmailService{}, "test-secret", "http://localhost:3000", testBackendURL)
 	s.shows = catalogsvc.NewShowService(s.db)
 	s.poller = NewShowNotifyOutboxPoller(s.db, s.filters)
 }

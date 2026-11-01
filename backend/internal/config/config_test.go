@@ -517,6 +517,22 @@ func TestGetFrontendURL(t *testing.T) {
 			t.Errorf("getFrontendURL() = %q, want https://custom.example.com", got)
 		}
 	})
+
+	t.Run("surrounding whitespace and trailing slashes are trimmed", func(t *testing.T) {
+		t.Setenv("ENVIRONMENT", "production")
+		t.Setenv("FRONTEND_URL", " https://www.psychichomily.com//\n")
+		if got := getFrontendURL(); got != "https://www.psychichomily.com" {
+			t.Errorf("getFrontendURL() = %q, want https://www.psychichomily.com", got)
+		}
+	})
+
+	t.Run("whitespace only counts as unset", func(t *testing.T) {
+		t.Setenv("ENVIRONMENT", "stage")
+		t.Setenv("FRONTEND_URL", " \t\n")
+		if got := getFrontendURL(); got != "https://stage.psychichomily.com" {
+			t.Errorf("getFrontendURL() = %q, want https://stage.psychichomily.com", got)
+		}
+	})
 }
 
 // --- getCORSOrigins tests ---

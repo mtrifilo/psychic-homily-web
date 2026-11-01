@@ -9,6 +9,9 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"psychic-homily-backend/internal/api/handlers/shared/testhelpers"
+	authm "psychic-homily-backend/internal/models/auth"
 )
 
 const testTokenSecret = "test-secret-at-least-32-characters-long"
@@ -156,6 +159,8 @@ func TestRequestIsFromOurFrontend(t *testing.T) {
 		{"user-initiated navigation", "none", "", "", true},
 
 		{"opaque origin", "", "null", "", false},
+		{"opaque origin in capitals", "", "NULL", "", false},
+		{"opaque origin in capitals with our Referer", "", "NULL", frontend + "/profile", true},
 		{"scheme mismatch", "", "http://psychichomily.com", "", false},
 		// A host that merely ends with ours is a different host.
 		{"suffix host", "", "https://notpsychichomily.com", "", false},
@@ -195,6 +200,9 @@ func TestOriginFromHeaders(t *testing.T) {
 		{"opaque Origin falls back to Referer", "null", ours + "/profile", ours},
 		{"another Origin with our Referer", "https://evil.example", ours + "/profile", "https://evil.example"},
 		{"opaque Origin and nothing else", "null", "", ""},
+		{"opaque Origin in capitals falls back to Referer", "NULL", ours + "/profile", ours},
+		{"opaque Origin in mixed case and nothing else", "Null", "", ""},
+		{"Referer with surrounding whitespace, trimmed to its origin", "", " " + ours + "/profile ", ours},
 		{"Origin with a path, returned as sent", ours + "/", "", ours + "/"},
 		{"Referer that is not an absolute URL", "", "/profile", ""},
 		{"Referer that is not a URL", "", "not a url", ""},
@@ -204,6 +212,82 @@ func TestOriginFromHeaders(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			if got := originFromHeaders(tc.origin, tc.referer); got != tc.want {
 				t.Errorf("originFromHeaders(%q, %q) = %q, want %q", tc.origin, tc.referer, got, tc.want)
+			}
+		})
+	}
+}
+
+// namesFrontend is the one frontend test both legs of the link run.
+func TestNamesFrontend(t *testing.T) {
+	const ours = "https://www.psychichomily.com"
+
+	cases := []struct {
+		name    string
+		origin  string
+		referer string
+		want    bool
+	}{
+		{"our Origin", ours, "", true},
+		{"our Origin in another case", "HTTPS://WWW.PSYCHICHOMILY.COM", "", true},
+		{"our Referer alone", "", ours + "/profile", true},
+		{"opaque Origin in capitals with our Referer", "NULL", ours + "/profile", true},
+		{"another Origin with our Referer", "https://evil.example", ours + "/profile", false},
+		{"nothing at all", "", "", false},
+		// The www frontend redirects pages to the apex, so a browser on the
+		// production site reports the apex origin.
+		{"the apex Origin of the same deployment", "https://psychichomily.com", "", true},
+		{"the apex Referer of the same deployment", "", "https://psychichomily.com/profile", true},
+		{"the stage Origin is another deployment", "https://stage.psychichomily.com", "", false},
+		{"a lookalike of the apex", "https://psychichomily.com.evil.example", "", false},
+		{"the apex over http", "http://psychichomily.com", "", false},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := namesFrontend(tc.origin, tc.referer, ours); got != tc.want {
+				t.Errorf("namesFrontend(%q, %q, %q) = %v, want %v", tc.origin, tc.referer, ours, got, tc.want)
+			}
+		})
+	}
+}
+
+// Production runs with FRONTEND_URL=https://www.psychichomily.com and serves
+// its pages at the apex, so both the mint and the spend must accept either
+// production origin, and still refuse a foreign or opaque one.
+func TestLinkLegsAcceptEveryProductionFrontendOrigin(t *testing.T) {
+	const configured = "https://www.psychichomily.com"
+
+	cases := []struct {
+		name   string
+		origin string
+		want   bool
+	}{
+		{"apex Origin", "https://psychichomily.com", true},
+		{"www Origin", "https://www.psychichomily.com", true},
+		{"foreign Origin", "https://evil.example", false},
+		{"opaque Origin", "null", false},
+	}
+
+	for _, tc := range cases {
+		t.Run("mint: "+tc.name, func(t *testing.T) {
+			h := NewOAuthAccountHandler(nil, "test-secret", configured)
+			user := &authm.User{ID: 7}
+			resp, err := h.StartOAuthLinkHandler(testhelpers.CtxWithUser(user), &StartOAuthLinkRequest{Origin: tc.origin})
+			if !tc.want {
+				testhelpers.AssertHumaErrorWithDetail(t, err, 403, "Start the connection from Settings")
+				return
+			}
+			if err != nil || resp == nil || resp.Body.Token == "" {
+				t.Fatalf("mint = (%v, %v), want a token", resp, err)
+			}
+		})
+
+		t.Run("spend: "+tc.name, func(t *testing.T) {
+			// No fetch metadata, so only the named origin decides.
+			req := httptest.NewRequest(http.MethodGet, "/auth/link/google", nil)
+			req.Header.Set("Origin", tc.origin)
+			if got := requestIsFromOurFrontend(req, configured); got != tc.want {
+				t.Errorf("requestIsFromOurFrontend with Origin %q = %v, want %v", tc.origin, got, tc.want)
 			}
 		})
 	}

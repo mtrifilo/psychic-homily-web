@@ -7,7 +7,6 @@ import (
 	"log/slog"
 	"os"
 	"strconv"
-	"strings"
 	"sync"
 	"time"
 
@@ -77,35 +76,9 @@ func NewCollectionDigestService(database *gorm.DB, emailService contracts.EmailS
 		stopCh:       make(chan struct{}),
 		logger:       slog.Default(),
 		frontendURL:  cfg.Email.FrontendURL,
-		backendURL:   DeriveBackendURL(cfg.Email.FrontendURL),
+		backendURL:   cfg.BackendOrigin(),
 		jwtSecret:    cfg.JWT.SecretKey,
 	}
-}
-
-// BackendURLForDeployedFrontend returns the public API URL for a deployed
-// frontend URL and reports whether the frontend URL is one. The production
-// frontend in either its apex or www form maps to the production API host, the
-// stage frontend maps to the stage API host, and trailing slashes are ignored.
-func BackendURLForDeployedFrontend(frontendURL string) (string, bool) {
-	switch strings.TrimRight(frontendURL, "/") {
-	case "https://psychichomily.com", "https://www.psychichomily.com":
-		return "https://api.psychichomily.com", true
-	case "https://stage.psychichomily.com":
-		return "https://api-stage.psychichomily.com", true
-	default:
-		return "", false
-	}
-}
-
-// DeriveBackendURL maps a frontend URL to the corresponding public API URL:
-// the BackendURLForDeployedFrontend mapping, else config.BackendPublicURL
-// (BACKEND_PUBLIC_URL, else http://localhost:8080). Services that mint
-// backend-hosted unsubscribe URLs share this mapping.
-func DeriveBackendURL(frontendURL string) string {
-	if backendURL, ok := BackendURLForDeployedFrontend(frontendURL); ok {
-		return backendURL
-	}
-	return config.BackendPublicURL()
 }
 
 // Start begins the background digest job.

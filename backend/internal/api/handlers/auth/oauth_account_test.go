@@ -119,6 +119,8 @@ func TestStartOAuthLinkHandler_OriginGate(t *testing.T) {
 		// Origin outranks Referer: a foreign Origin is not rescued by ours.
 		{"another Origin with our Referer", "https://evil.example", frontend + "/profile", false},
 		{"opaque Origin and nothing else", "null", "", false},
+		{"opaque Origin in capitals with our Referer", "NULL", frontend + "/profile", true},
+		{"opaque Origin in capitals and nothing else", "NULL", "", false},
 	}
 
 	for _, tc := range cases {

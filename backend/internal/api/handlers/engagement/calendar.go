@@ -4,8 +4,6 @@ import (
 	"context"
 	"fmt"
 	"net/http"
-	"os"
-	"strings"
 
 	"github.com/danielgtaylor/huma/v2"
 	"github.com/go-chi/chi/v5"
@@ -15,7 +13,6 @@ import (
 	"psychic-homily-backend/internal/logger"
 	"psychic-homily-backend/internal/respond"
 	"psychic-homily-backend/internal/services/contracts"
-	engagementsvc "psychic-homily-backend/internal/services/engagement"
 	"psychic-homily-backend/internal/services/shared"
 )
 
@@ -145,7 +142,7 @@ func (h *CalendarHandler) CreateCalendarTokenHandler(ctx context.Context, req *C
 	}
 
 	// Feed URLs use the API domain, not the frontend domain.
-	apiBaseURL := getAPIBaseURL(h.config)
+	apiBaseURL := h.config.BackendOrigin()
 
 	result, err := h.calendarService.CreateToken(user.ID, user.SessionsValidAfter, apiBaseURL)
 	if err != nil {
@@ -250,22 +247,4 @@ func (h *CalendarHandler) DeleteCalendarTokenHandler(ctx context.Context, req *D
 			Message: "Calendar token deleted successfully",
 		},
 	}, nil
-}
-
-// getAPIBaseURL derives the API's public base URL from config.
-// Deployed frontend origins map through
-// engagementsvc.BackendURLForDeployedFrontend; any other origin prefers
-// API_ADDR when set (dispatch isolated stacks bind a free port) and otherwise
-// falls back to :8080.
-func getAPIBaseURL(cfg *config.Config) string {
-	if backendURL, ok := engagementsvc.BackendURLForDeployedFrontend(cfg.Email.FrontendURL); ok {
-		return backendURL
-	}
-	if addr := strings.TrimSpace(os.Getenv("API_ADDR")); addr != "" {
-		if strings.HasPrefix(addr, "http://") || strings.HasPrefix(addr, "https://") {
-			return strings.TrimRight(addr, "/")
-		}
-		return "http://" + strings.TrimRight(addr, "/")
-	}
-	return "http://localhost:8080"
 }

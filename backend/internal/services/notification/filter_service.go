@@ -33,6 +33,9 @@ type NotificationFilterService struct {
 	emailService contracts.EmailServiceInterface
 	jwtSecret    string // for HMAC unsubscribe URLs
 	frontendURL  string
+	// backendURL is this backend's public origin, the base of the
+	// backend-hosted show-alert unsubscribe URLs.
+	backendURL string
 
 	// venueAlertFailures records, per venue-day batch, when its flush FIRST
 	// started failing (PSY-1895). It is what lets the poison-pill bound measure
@@ -49,7 +52,7 @@ type NotificationFilterService struct {
 }
 
 // NewNotificationFilterService creates a new notification filter service.
-func NewNotificationFilterService(database *gorm.DB, emailService contracts.EmailServiceInterface, jwtSecret, frontendURL string) *NotificationFilterService {
+func NewNotificationFilterService(database *gorm.DB, emailService contracts.EmailServiceInterface, jwtSecret, frontendURL, backendURL string) *NotificationFilterService {
 	if database == nil {
 		database = db.GetDB()
 	}
@@ -58,6 +61,7 @@ func NewNotificationFilterService(database *gorm.DB, emailService contracts.Emai
 		emailService: emailService,
 		jwtSecret:    jwtSecret,
 		frontendURL:  frontendURL,
+		backendURL:   backendURL,
 	}
 }
 

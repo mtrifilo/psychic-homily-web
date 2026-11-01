@@ -8,10 +8,13 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
+
+	"psychic-homily-backend/internal/config"
 )
 
 // The one-time proof that a link was started from this application's own
@@ -46,8 +49,8 @@ const (
 // spend against the browser's reported origin then would compare two values
 // from the same untrusted source, which proves only that they agree. The
 // origin check that means something compares against the CONFIGURED frontend:
-// both legs compare originFromHeaders with it, the mint in
-// StartOAuthLinkHandler and the spend in requestIsFromOurFrontend.
+// both legs test it with namesFrontend, the mint in StartOAuthLinkHandler and
+// the spend in requestIsFromOurFrontend.
 type oauthLinkTokenClaims struct {
 	userID uint
 	expiry time.Time
@@ -173,9 +176,20 @@ func spendOAuthLinkNonce(nonce string, expiry time.Time) bool {
 	return true
 }
 
-// requestOrigin is originFromHeaders over r's Origin and Referer headers.
-func requestOrigin(r *http.Request) string {
-	return originFromHeaders(r.Header.Get("Origin"), r.Header.Get("Referer"))
+// namesFrontend reports whether a request's Origin and Referer header values
+// name the frontend at frontendURL: originFromHeaders is non-empty and the
+// same origin as one of config.FrontendOrigins(frontendURL), so every
+// deployed form of the frontend (apex and www) is ours. The mint refuses a
+// request that does not; the spend accepts one that does whatever fetch
+// metadata says.
+func namesFrontend(origin, referer, frontendURL string) bool {
+	from := originFromHeaders(origin, referer)
+	if from == "" {
+		return false
+	}
+	return slices.ContainsFunc(config.FrontendOrigins(frontendURL), func(ours string) bool {
+		return sameOrigin(from, ours)
+	})
 }
 
 // originFromHeaders is the origin a browser says a request came from, given
@@ -184,24 +198,16 @@ func requestOrigin(r *http.Request) string {
 //
 // Origin first: a browser sends it on every CORS request and every POST, so
 // the mint (a POST) carries it; a top-level GET navigation, which the spend
-// is, carries none. An absent or opaque ("null") Origin falls back to Referer,
-// trimmed to its origin because the path is neither needed nor trustworthy to
-// compare. A present Origin is returned as sent, so a foreign Origin is never
-// rescued by a Referer naming us.
+// is, carries none. An absent or opaque ("null", in any case) Origin falls
+// back to Referer, trimmed to its origin because the path is neither needed
+// nor trustworthy to compare. A present Origin is returned as sent, so a
+// foreign Origin is never rescued by a Referer naming us.
 func originFromHeaders(origin, referer string) string {
-	if origin != "" && origin != "null" {
+	if origin != "" && !strings.EqualFold(origin, "null") {
 		return origin
 	}
-	return originOfURL(referer)
-}
-
-// originOfURL trims a URL to scheme://host, or "" when it is not one.
-func originOfURL(raw string) string {
-	parsed, err := url.Parse(raw)
-	if err != nil || parsed.Scheme == "" || parsed.Host == "" {
-		return ""
-	}
-	return parsed.Scheme + "://" + parsed.Host
+	refererOrigin, _ := config.URLOrigin(referer)
+	return refererOrigin
 }
 
 // requestIsFromOurFrontend reports whether the spend of a link token came from
@@ -216,7 +222,7 @@ func originOfURL(raw string) string {
 // domain: genuinely cross-site, so a check that stopped at the metadata would
 // refuse every Connect there. Only production happens to be same-site.
 //
-//	Origin or Referer matches frontendURL  -> accept, whatever metadata says
+//	Origin or Referer names the frontend   -> accept, whatever metadata says
 //	otherwise, metadata says cross-site    -> refuse
 //	otherwise, no Origin and no Referer    -> refuse
 //
@@ -227,7 +233,7 @@ func originOfURL(raw string) string {
 // a same-site deployment still works, a cross-site one would not. That
 // coupling is why the policy is named here.
 func requestIsFromOurFrontend(r *http.Request, frontendURL string) bool {
-	if origin := requestOrigin(r); origin != "" && sameOrigin(origin, frontendURL) {
+	if namesFrontend(r.Header.Get("Origin"), r.Header.Get("Referer"), frontendURL) {
 		return true
 	}
 
