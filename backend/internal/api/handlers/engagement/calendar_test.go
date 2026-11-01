@@ -2,6 +2,7 @@ package engagement
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -9,12 +10,16 @@ import (
 	"testing"
 	"time"
 
+	"github.com/danielgtaylor/huma/v2"
 	"github.com/go-chi/chi/v5"
 
 	"psychic-homily-backend/internal/api/handlers/shared/testhelpers"
+	"psychic-homily-backend/internal/api/middleware"
 	"psychic-homily-backend/internal/config"
+	autherrors "psychic-homily-backend/internal/errors"
 	authm "psychic-homily-backend/internal/models/auth"
 	"psychic-homily-backend/internal/services/contracts"
+	"psychic-homily-backend/internal/services/shared"
 )
 
 // feedRequestWithToken builds a GET request whose chi URL param "token" is
@@ -49,7 +54,7 @@ func TestCreateCalendarTokenHandler_NoAuth(t *testing.T) {
 func TestCreateCalendarTokenHandler_Success(t *testing.T) {
 	now := time.Now()
 	mock := &testhelpers.MockCalendarService{
-		CreateTokenFn: func(userID uint, apiBaseURL string) (*contracts.CalendarTokenCreateResponse, error) {
+		CreateTokenFn: func(userID uint, _ *time.Time, apiBaseURL string) (*contracts.CalendarTokenCreateResponse, error) {
 			if userID != 1 {
 				t.Errorf("unexpected userID=%d", userID)
 			}
@@ -82,7 +87,7 @@ func TestCreateCalendarTokenHandler_ProductionFeedURLUsesAPIHost(t *testing.T) {
 	t.Setenv("API_ADDR", "0.0.0.0:8080")
 	var gotBaseURL string
 	mock := &testhelpers.MockCalendarService{
-		CreateTokenFn: func(_ uint, apiBaseURL string) (*contracts.CalendarTokenCreateResponse, error) {
+		CreateTokenFn: func(_ uint, _ *time.Time, apiBaseURL string) (*contracts.CalendarTokenCreateResponse, error) {
 			gotBaseURL = apiBaseURL
 			return &contracts.CalendarTokenCreateResponse{Token: "phcal_abc123"}, nil
 		},
@@ -101,7 +106,7 @@ func TestCreateCalendarTokenHandler_ProductionFeedURLUsesAPIHost(t *testing.T) {
 
 func TestCreateCalendarTokenHandler_ServiceError(t *testing.T) {
 	mock := &testhelpers.MockCalendarService{
-		CreateTokenFn: func(_ uint, _ string) (*contracts.CalendarTokenCreateResponse, error) {
+		CreateTokenFn: func(_ uint, _ *time.Time, _ string) (*contracts.CalendarTokenCreateResponse, error) {
 			return nil, fmt.Errorf("db error")
 		},
 	}
@@ -110,6 +115,66 @@ func TestCreateCalendarTokenHandler_ServiceError(t *testing.T) {
 
 	_, err := h.CreateCalendarTokenHandler(ctx, &CreateCalendarTokenRequest{})
 	testhelpers.AssertHumaError(t, err, 500)
+}
+
+// The mint is handed the revocation stamp of the user the JWT middleware
+// loaded, which is the acting session's.
+func TestCreateCalendarTokenHandler_PassesTheSessionsRevocationStamp(t *testing.T) {
+	stamp := time.Date(2026, 10, 1, 12, 0, 0, 0, time.UTC)
+	var got *time.Time
+	mock := &testhelpers.MockCalendarService{
+		CreateTokenFn: func(_ uint, sessionsValidAfter *time.Time, _ string) (*contracts.CalendarTokenCreateResponse, error) {
+			got = sessionsValidAfter
+			return &contracts.CalendarTokenCreateResponse{Token: "phcal_abc123"}, nil
+		},
+	}
+	h := NewCalendarHandler(mock, testCalendarConfig())
+	ctx := testhelpers.CtxWithSessionAuthTime(&authm.User{ID: 1, SessionsValidAfter: &stamp}, time.Now())
+
+	if _, err := h.CreateCalendarTokenHandler(ctx, &CreateCalendarTokenRequest{}); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got == nil || !got.Equal(stamp) {
+		t.Errorf("sessionsValidAfter = %v, want %v", got, stamp)
+	}
+}
+
+// A mint refused because the session was revoked, or the account closed,
+// after the middleware validated it answers the middleware's own 401
+// TOKEN_INVALID, not a server error.
+func TestCreateCalendarTokenHandler_SessionNoLongerValidAnswers401(t *testing.T) {
+	for name, refusal := range map[string]error{
+		"session revoked": autherrors.ErrTokenInvalid(fmt.Errorf("user 1: %w", shared.ErrSessionRevoked)),
+		"account closed":  &autherrors.AuthError{Code: autherrors.CodeAccountInactive, Internal: fmt.Errorf("user 1: %w", shared.ErrSessionAccountClosed)},
+	} {
+		t.Run(name, func(t *testing.T) {
+			mock := &testhelpers.MockCalendarService{
+				CreateTokenFn: func(_ uint, _ *time.Time, _ string) (*contracts.CalendarTokenCreateResponse, error) {
+					return nil, refusal
+				},
+			}
+			h := NewCalendarHandler(mock, testCalendarConfig())
+			ctx := testhelpers.CtxWithSessionAuthTime(&authm.User{ID: 1}, time.Now())
+
+			_, err := h.CreateCalendarTokenHandler(ctx, &CreateCalendarTokenRequest{})
+
+			var refused *middleware.SessionRefusedError
+			if !errors.As(err, &refused) {
+				t.Fatalf("expected the session refusal, got %v", err)
+			}
+			if refused.GetStatus() != http.StatusUnauthorized || refused.ErrorCode != autherrors.CodeTokenInvalid {
+				t.Errorf("got %d %s, want 401 %s", refused.GetStatus(), refused.ErrorCode, autherrors.CodeTokenInvalid)
+			}
+			if strings.Contains(refused.Message, "user 1") {
+				t.Errorf("the refusal carries no internal text: %q", refused.Message)
+			}
+			var withHeaders huma.HeadersError
+			if !errors.As(err, &withHeaders) ||
+				!strings.Contains(strings.Join(withHeaders.GetHeaders().Values("Set-Cookie"), ";"), "auth_token=;") {
+				t.Errorf("expected the auth cookie cleared, got %v", err)
+			}
+		})
+	}
 }
 
 // =============================================================================

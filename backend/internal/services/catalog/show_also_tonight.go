@@ -87,8 +87,8 @@ func (s *SceneService) GetShowAlsoTonight(idOrSlug string) (*contracts.ShowAlsoT
 
 	// ONE clock read for the whole answer. The night's order, the link's
 	// servability and IsTonight are three readings of the same instant, and a
-	// second time.Now() could split them across a 6am or midnight boundary.
-	nowLocal := time.Now().In(loc)
+	// second clock read could split them across a 6am or midnight boundary.
+	nowLocal := s.now().In(loc)
 	isTonight := date == tonightDate(nowLocal)
 
 	// On the LIVE night the rows a reader can still get to outrank the ones already

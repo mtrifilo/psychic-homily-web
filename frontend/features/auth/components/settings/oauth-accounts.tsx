@@ -111,6 +111,11 @@ const OAUTH_LINK_ERROR_COPY = new Map<string, string>([
     'TERMS_ACCEPTANCE_REQUIRED',
     'Accept the Terms of Service and Privacy Policy first.',
   ],
+  [
+    // The OAuth limiter counts per IP over one minute.
+    'RATE_LIMITED',
+    'Too many connection attempts. Wait a minute, then try again from this page.',
+  ],
 ])
 
 const OAUTH_LINK_GENERIC_ERROR = 'Could not connect that account.'

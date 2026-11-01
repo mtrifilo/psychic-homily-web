@@ -197,7 +197,7 @@ func (h *RequestHandler) GetRequestHandler(ctx context.Context, req *GetRequestH
 	if request.RequestedEntityID != nil {
 		if ref, refErr := h.requestService.ResolveEntityRef(request.EntityType, *request.RequestedEntityID); refErr != nil {
 			logger.FromContext(ctx).Warn("request_entity_ref_resolve_failed",
-				"request_id", request.ID, "entity_type", request.EntityType,
+				"data_request_id", request.ID, "entity_type", request.EntityType,
 				"entity_id", *request.RequestedEntityID, "error", refErr.Error())
 		} else if ref != nil {
 			resp.RequestedEntitySlug = ref.Slug
@@ -449,7 +449,7 @@ func (h *RequestHandler) FulfillRequestHandler(ctx context.Context, req *Fulfill
 	shared.GoSafe(ctx, "request_fulfillment_notify", func() {
 		if notifyErr := h.requestService.NotifyRequesterFulfillmentProposed(uint(id), requesterID, user.ID); notifyErr != nil {
 			logger.FromContext(ctx).Warn("request_fulfillment_notify_failed",
-				"request_id", id, "error", notifyErr.Error())
+				"data_request_id", id, "error", notifyErr.Error())
 		}
 	})
 

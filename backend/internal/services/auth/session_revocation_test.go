@@ -9,6 +9,7 @@ import (
 
 	apperrors "psychic-homily-backend/internal/errors"
 	authm "psychic-homily-backend/internal/models/auth"
+	"psychic-homily-backend/internal/services/shared"
 	usersvc "psychic-homily-backend/internal/services/user"
 )
 
@@ -42,7 +43,7 @@ func (s *JWTIntegrationSuite) requireRevoked(err error) {
 	var authErr *apperrors.AuthError
 	s.Require().True(errors.As(err, &authErr), "got %v", err)
 	s.Equal(apperrors.CodeTokenInvalid, authErr.Code)
-	s.ErrorIs(err, errSessionRevoked)
+	s.ErrorIs(err, shared.ErrSessionRevoked)
 }
 
 func (s *JWTIntegrationSuite) reloadUser(id uint) *authm.User {

@@ -7,6 +7,8 @@ import (
 	"slices"
 	"strings"
 	"time"
+
+	autherrors "psychic-homily-backend/internal/errors"
 )
 
 // oauthReturnToParam names the destination on both sides of the sign-in
@@ -220,10 +222,18 @@ func oauthSignInDestination(frontendURL, returnTo string) string {
 }
 
 // authPageRefusalURL is where a refused browser sign-in sends the reader: the
-// frontend auth page with the refusal's message and code, and the destination
-// when there is one, so that a retry from the auth page still lands on it.
-func authPageRefusalURL(frontendURL string, err error, message, returnTo string) string {
-	return authPageURLWithReturnTo(frontendURL, authPageErrorQuery(err, message), returnTo)
+// auth page with the code of a refusal authRefusalCarriesItsOwnCopy names, and
+// CodeUnknown for everything else, so a backend fault is never described to
+// the page in its own terms.
+func authPageRefusalURL(frontendURL string, err error, returnTo string) string {
+	return authPageCodeURL(frontendURL, refusalCode(err, autherrors.CodeUnknown), returnTo)
+}
+
+// authPageCodeURL is the frontend auth page with code as its only message,
+// and the destination when there is one, so that a retry from the auth page
+// still lands on it. The page maps the code to fixed copy.
+func authPageCodeURL(frontendURL, code, returnTo string) string {
+	return authPageURLWithReturnTo(frontendURL, url.Values{authPageErrorCodeParam: {code}}, returnTo)
 }
 
 // authPageURLWithReturnTo is the frontend auth page with query, plus the

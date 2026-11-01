@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"net/http"
-	"net/url"
 	"slices"
 	"time"
 
@@ -85,14 +84,12 @@ func (h *OAuthHTTPHandler) startLinkStep(w http.ResponseWriter, r *http.Request,
 	token, err := h.authService.StartOAuthLink(required.Identity, required.UserID, returnTo)
 	if err != nil {
 		logger.AuthError(ctx, "oauth_link_step_start_failed", err, "provider", required.Identity.Provider)
-		http.Redirect(w, r, authPageRefusalURL(frontendURL, required.Refusal,
-			refusalMessage(required.Refusal, "authentication failed"), returnTo), http.StatusTemporaryRedirect)
+		http.Redirect(w, r, authPageRefusalURL(frontendURL, required.Refusal, returnTo), http.StatusTemporaryRedirect)
 		return
 	}
 	oauthPendingLinkCookie.set(w, token, secure)
 	logger.AuthInfo(ctx, "oauth_link_step_started", "provider", required.Identity.Provider, "user_id", required.UserID)
-	query := url.Values{authPageErrorCodeParam: {authPageCodeOAuthLinkPending}}
-	http.Redirect(w, r, authPageURLWithReturnTo(frontendURL, query, returnTo), http.StatusTemporaryRedirect)
+	http.Redirect(w, r, authPageCodeURL(frontendURL, authPageCodeOAuthLinkPending, returnTo), http.StatusTemporaryRedirect)
 }
 
 // OAuthLinkStepHandler serves the collision state's read and its mailbox

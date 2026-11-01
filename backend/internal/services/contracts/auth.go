@@ -322,11 +322,12 @@ type AuthServiceInterface interface {
 	// session for it. Refusals are that method's.
 	CompleteOAuthSignup(signup *OAuthPendingSignup, consent *OAuthSignupConsent, displayName *string) (*authm.User, string, error)
 	// CompleteOAuthLink attaches the handshake's identity to an already
-	// authenticated userID and issues no session. Refuses with a typed
-	// AuthError carrying CodeAccountInactive when the account may not sign in
-	// (authm.User.CanSignIn), and with the typed AuthErrors
+	// authenticated userID and issues no session. sessionsValidAfter is the
+	// revocation stamp of the session that authenticated it. Refuses with a
+	// typed AuthError carrying CodeAccountInactive when the account may not
+	// sign in (authm.User.CanSignIn), and with the typed AuthErrors
 	// UserServiceInterface.LinkOAuthAccountToUser documents.
-	CompleteOAuthLink(w http.ResponseWriter, r *http.Request, provider string, userID uint) (*authm.User, error)
+	CompleteOAuthLink(w http.ResponseWriter, r *http.Request, provider string, userID uint, sessionsValidAfter *time.Time) (*authm.User, error)
 	GetUserProfile(userID uint) (*authm.User, error)
 	// GetSignInFactors reports the sign-in factors user holds besides its
 	// linked providers. Passkeys are counted with a query, never loaded.
@@ -407,10 +408,13 @@ const WebAuthnRegistrationOperation = "registration"
 // WebAuthnServiceInterface defines the contract for WebAuthn/passkey operations.
 type WebAuthnServiceInterface interface {
 	BeginRegistration(user *authm.User) (*protocol.CredentialCreation, *webauthn.SessionData, error)
-	// FinishRegistration answers a registration response that fails
-	// verification with an *errors.AuthError coded VALIDATION_FAILED, and an
-	// account that may not sign in when the credential is written with one
-	// coded ACCOUNT_INACTIVE; each message is the client's copy. Any other
+	// FinishRegistration stores a credential for user, the account the
+	// request's session validation loaded. It answers a registration response
+	// that fails verification with an *errors.AuthError coded
+	// VALIDATION_FAILED, an account that may not sign in when the credential
+	// is written with one coded ACCOUNT_INACTIVE, and a session revoked since
+	// that validation with one coded TOKEN_INVALID wrapping
+	// shared.ErrSessionRevoked; each message is the client's copy. Any other
 	// error means the credential could not be stored.
 	FinishRegistration(user *authm.User, session *webauthn.SessionData, response *protocol.ParsedCredentialCreationData, displayName string) (*authm.WebAuthnCredential, error)
 	BeginDiscoverableLogin() (*protocol.CredentialAssertion, *webauthn.SessionData, error)

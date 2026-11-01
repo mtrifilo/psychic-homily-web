@@ -1,0 +1,214 @@
+package shared
+
+import (
+	"errors"
+	"fmt"
+	"testing"
+	"time"
+
+	"gorm.io/gorm"
+
+	apperrors "psychic-homily-backend/internal/errors"
+	authm "psychic-homily-backend/internal/models/auth"
+	"psychic-homily-backend/internal/testutil"
+)
+
+// sessionAccount creates an account for a LockSessionAccount case and removes
+// it when the test ends.
+func sessionAccount(t *testing.T, db *gorm.DB, name string, sessionsValidAfter *time.Time) *authm.User {
+	t.Helper()
+	email := fmt.Sprintf("session-account-%s-%d@test.com", name, time.Now().UnixNano())
+	user := &authm.User{Email: &email, IsActive: true, SessionsValidAfter: sessionsValidAfter}
+	if err := db.Create(user).Error; err != nil {
+		t.Fatalf("create account: %v", err)
+	}
+	t.Cleanup(func() { db.Unscoped().Delete(&authm.User{}, user.ID) })
+	return user
+}
+
+func lockInTx(db *gorm.DB, userID uint, sessionsValidAfter *time.Time) error {
+	return db.Transaction(func(tx *gorm.DB) error {
+		return LockSessionAccount(tx, userID, sessionsValidAfter)
+	})
+}
+
+func requireRefusalCode(t *testing.T, err error, code string) *apperrors.AuthError {
+	t.Helper()
+	var refusal *apperrors.AuthError
+	if !errors.As(err, &refusal) {
+		t.Fatalf("expected an AuthError with %s, got %v", code, err)
+	}
+	if refusal.Code != code {
+		t.Fatalf("code = %s, want %s (%v)", refusal.Code, code, err)
+	}
+	return refusal
+}
+
+func TestLockSessionAccount(t *testing.T) {
+	db := packageTestDB(t)
+	revokedAt := time.Date(2026, 10, 1, 12, 0, 0, 0, time.UTC)
+	earlier := revokedAt.Add(-time.Hour)
+
+	deactivate := func(t *testing.T, id uint) {
+		if err := db.Model(&authm.User{}).Where("id = ?", id).Update("is_active", false).Error; err != nil {
+			t.Fatalf("deactivate: %v", err)
+		}
+	}
+	softDelete := func(t *testing.T, id uint) {
+		if err := db.Model(&authm.User{}).Where("id = ?", id).
+			Updates(map[string]any{"is_active": false, "deleted_at": time.Now()}).Error; err != nil {
+			t.Fatalf("soft delete: %v", err)
+		}
+	}
+
+	cases := []struct {
+		name string
+		// rowStamp is the account's sessions_valid_after; sessionStamp is the
+		// acting session's.
+		rowStamp, sessionStamp *time.Time
+		close                  func(*testing.T, uint)
+		// wantCode is the refusal, or "" when the write may go ahead.
+		wantCode string
+	}{
+		{name: "never revoked, session from before any revocation", wantCode: ""},
+		{name: "revoked, session minted after it", rowStamp: &revokedAt, sessionStamp: &revokedAt, wantCode: ""},
+		{name: "revoked, session from before any revocation", rowStamp: &revokedAt, wantCode: apperrors.CodeTokenInvalid},
+		{name: "revoked again, session from the earlier revocation", rowStamp: &revokedAt, sessionStamp: &earlier, wantCode: apperrors.CodeTokenInvalid},
+		{name: "stamp cleared, session carries one", sessionStamp: &revokedAt, wantCode: apperrors.CodeTokenInvalid},
+		{name: "deactivated", close: deactivate, wantCode: apperrors.CodeAccountInactive},
+		{name: "soft-deleted", close: softDelete, wantCode: apperrors.CodeAccountInactive},
+		// The account's state is judged first, the way session validation
+		// judges it.
+		{name: "deactivated and revoked", rowStamp: &revokedAt, close: deactivate, wantCode: apperrors.CodeAccountInactive},
+	}
+	for i, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			account := sessionAccount(t, db, fmt.Sprintf("case%d", i), tc.rowStamp)
+			if tc.close != nil {
+				tc.close(t, account.ID)
+			}
+
+			err := lockInTx(db, account.ID, tc.sessionStamp)
+
+			if tc.wantCode == "" {
+				if err != nil {
+					t.Fatalf("unexpected refusal: %v", err)
+				}
+				return
+			}
+			refusal := requireRefusalCode(t, err, tc.wantCode)
+			if !IsSessionRefusal(err) {
+				t.Errorf("IsSessionRefusal must report the helper's refusal: %v", err)
+			}
+			if tc.wantCode == apperrors.CodeTokenInvalid && !errors.Is(err, ErrSessionRevoked) {
+				t.Errorf("a stamp refusal wraps ErrSessionRevoked: %v", err)
+			}
+			if tc.wantCode == apperrors.CodeAccountInactive && errors.Is(err, ErrSessionRevoked) {
+				t.Errorf("an account refusal is not a revocation: %v", err)
+			}
+			if tc.wantCode == apperrors.CodeAccountInactive && !errors.Is(err, ErrSessionAccountClosed) {
+				t.Errorf("an account refusal wraps ErrSessionAccountClosed: %v", err)
+			}
+			if refusal.Internal == nil {
+				t.Error("the refusal names the account in its internal error")
+			}
+		})
+	}
+}
+
+// IsSessionRefusal knows the helper's refusals by their causes, not by code:
+// an ACCOUNT_INACTIVE from anywhere else is not a session refusal.
+func TestIsSessionRefusal_OnlyTheHelpersRefusals(t *testing.T) {
+	if IsSessionRefusal(apperrors.ErrAccountInactive()) {
+		t.Error("a bare ACCOUNT_INACTIVE is not the helper's refusal")
+	}
+	if IsSessionRefusal(apperrors.ErrTokenInvalid(errors.New("malformed"))) {
+		t.Error("a TOKEN_INVALID for another cause is not the helper's refusal")
+	}
+	if IsSessionRefusal(nil) {
+		t.Error("nil is not a refusal")
+	}
+}
+
+func TestLockSessionAccount_MissingAccountIsAFailureNotARefusal(t *testing.T) {
+	db := packageTestDB(t)
+
+	err := lockInTx(db, 9_000_001, nil)
+
+	if !errors.Is(err, gorm.ErrRecordNotFound) {
+		t.Fatalf("expected the lookup failure, got %v", err)
+	}
+	var refusal *apperrors.AuthError
+	if errors.As(err, &refusal) {
+		t.Errorf("a missing account is not a refusal with its own copy: %v", err)
+	}
+	if IsSessionRefusal(err) {
+		t.Errorf("a missing account is not a session refusal: %v", err)
+	}
+}
+
+// startWaiting runs write on another connection and fails the test unless
+// write is waiting on a lock rather than finished.
+func startWaiting(t *testing.T, db *gorm.DB, write func() error) <-chan error {
+	t.Helper()
+	done := testutil.StartOnAnotherConnection(t, db, write)
+	if len(done) > 0 {
+		t.Fatalf("the concurrent statement finished instead of waiting on the lock: %v", <-done)
+	}
+	return done
+}
+
+const revokeSQL = `UPDATE users SET sessions_valid_after = ? WHERE id = ?`
+
+// A revocation that starts while the write's transaction holds the row waits
+// for that transaction, so it can never land between the check and the write.
+func TestLockSessionAccount_RevocationWaitsForTheHolder(t *testing.T) {
+	db := packageTestDB(t)
+	account := sessionAccount(t, db, "holder", nil)
+	revokedAt := time.Now().UTC().Truncate(time.Second)
+
+	var done <-chan error
+	err := db.Transaction(func(tx *gorm.DB) error {
+		if err := LockSessionAccount(tx, account.ID, nil); err != nil {
+			return err
+		}
+		done = startWaiting(t, db, func() error { return db.Exec(revokeSQL, revokedAt, account.ID).Error })
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("the holder's transaction: %v", err)
+	}
+	if err := testutil.AwaitConcurrentWrite(t, done); err != nil {
+		t.Fatalf("the revocation: %v", err)
+	}
+}
+
+// A write that reaches the row while a revocation holds it waits for the
+// revocation, then reads its committed stamp and is refused.
+func TestLockSessionAccount_WaitsForAnInFlightRevocationThenRefuses(t *testing.T) {
+	db := packageTestDB(t)
+	account := sessionAccount(t, db, "behind-revocation", nil)
+	revokedAt := time.Now().UTC().Truncate(time.Second)
+
+	revocation := db.Begin()
+	if revocation.Error != nil {
+		t.Fatalf("begin revocation: %v", revocation.Error)
+	}
+	// Ends the revocation when the test fails before committing it, so its row
+	// lock cannot stall the account's cleanup. A no-op after the commit.
+	t.Cleanup(func() { revocation.Rollback() })
+	if err := revocation.Exec(revokeSQL, revokedAt, account.ID).Error; err != nil {
+		t.Fatalf("revoke: %v", err)
+	}
+
+	done := startWaiting(t, db, func() error { return lockInTx(db, account.ID, nil) })
+	if err := revocation.Commit().Error; err != nil {
+		t.Fatalf("commit revocation: %v", err)
+	}
+
+	err := testutil.AwaitConcurrentWrite(t, done)
+	_ = requireRefusalCode(t, err, apperrors.CodeTokenInvalid)
+	if !errors.Is(err, ErrSessionRevoked) {
+		t.Errorf("expected ErrSessionRevoked, got %v", err)
+	}
+}

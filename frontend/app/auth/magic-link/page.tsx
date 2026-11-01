@@ -6,7 +6,8 @@ import { Loader2, CheckCircle2, AlertCircle, Mail, RotateCcw, ServerCrash } from
 import { useVerifyMagicLink } from '@/features/auth'
 import { AccountRecoverableMessage } from '@/app/auth/_components/account-recoverable-message'
 import { useAuthContext } from '@/lib/context/AuthContext'
-import { isAccountRecoverable } from '@/lib/errors'
+import { isAccountInactive, isAccountRecoverable } from '@/lib/errors'
+import { ACCOUNT_UNAVAILABLE_MESSAGE } from '@/lib/errors/authRefusalCopy'
 import { sanitizeReturnTo } from '@/app/auth/auth-redirect-utils'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
@@ -191,10 +192,32 @@ function MagicLinkContent() {
     )
   }
 
-  // Expired / invalid token (body-encoded INVALID_TOKEN, HTTP 200 + AuthError
-  // status 401). A new link is the correct remedy here. Every other refusal in
-  // that envelope (ACCOUNT_INACTIVE, UNAUTHORIZED) also lands on this card,
-  // with the server's message.
+  // An account that may no longer sign in. A new link would not help, so the
+  // card says so in the page's own words and offers no link.
+  if (isAccountInactive(verifyMagicLink.error)) {
+    return (
+      <div className="flex min-h-[calc(100vh-64px)] items-center justify-center px-4 py-12">
+        <Card className="w-full max-w-md border-border/50 bg-card/50 backdrop-blur-sm">
+          <CardHeader className="text-center">
+            <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-destructive/10">
+              <AlertCircle className="h-6 w-6 text-destructive" />
+            </div>
+            <CardTitle>Can&apos;t sign you in</CardTitle>
+            <CardDescription>{ACCOUNT_UNAVAILABLE_MESSAGE}</CardDescription>
+          </CardHeader>
+          <CardContent className="flex justify-center">
+            <Button onClick={() => router.push('/auth')}>
+              Back to Sign In
+            </Button>
+          </CardContent>
+        </Card>
+      </div>
+    )
+  }
+
+  // Every other sub-500 refusal: an expired or invalid token (body-encoded
+  // INVALID_TOKEN, HTTP 200 + AuthError status 401), for which a new link is
+  // the remedy, and any other code in that envelope, with the server's message.
   return (
     <div className="flex min-h-[calc(100vh-64px)] items-center justify-center px-4 py-12">
       <Card className="w-full max-w-md border-border/50 bg-card/50 backdrop-blur-sm">

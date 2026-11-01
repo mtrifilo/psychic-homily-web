@@ -29,6 +29,10 @@ const UserContextKey contextKey = "user"
 // credential establishes none.
 const SessionAuthTimeContextKey contextKey = "session_auth_time"
 
+// invalidTokenMessage is the message every TOKEN_INVALID refusal of a session
+// carries.
+const invalidTokenMessage = "Invalid token"
+
 // JWTErrorResponse represents the error response for JWT authentication failures
 type JWTErrorResponse struct {
 	Success   bool   `json:"success"`
@@ -66,7 +70,7 @@ func JWTMiddleware(jwtService *auth.JWTService) func(http.Handler) http.Handler 
 			user, authAt, err := jwtService.ValidateSession(token)
 			if err != nil {
 				errorCode := autherrors.CodeTokenInvalid
-				message := "Invalid token"
+				message := invalidTokenMessage
 
 				var authErr *autherrors.AuthError
 				if errors.As(err, &authErr) && authErr.Code == autherrors.CodeTokenExpired {
@@ -224,7 +228,7 @@ func HumaJWTMiddleware(jwtService *auth.JWTService, sessionConfig ...config.Sess
 			jwtUser, jwtAuthAt, err := jwtService.ValidateSession(token)
 			if err != nil {
 				errorCode := autherrors.CodeTokenInvalid
-				message := "Invalid token"
+				message := invalidTokenMessage
 
 				var authErr *autherrors.AuthError
 				if errors.As(err, &authErr) && authErr.Code == autherrors.CodeTokenExpired {
@@ -289,7 +293,7 @@ func LenientHumaJWTMiddleware(jwtService *auth.JWTService, gracePeriod time.Dura
 		user, authAt, err := jwtService.ValidateSessionLenient(token, gracePeriod)
 		if err != nil {
 			errorCode := autherrors.CodeTokenInvalid
-			message := "Invalid token"
+			message := invalidTokenMessage
 
 			var authErr *autherrors.AuthError
 			if errors.As(err, &authErr) && authErr.Code == autherrors.CodeTokenExpired {

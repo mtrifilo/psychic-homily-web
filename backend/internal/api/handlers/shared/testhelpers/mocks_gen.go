@@ -508,7 +508,7 @@ type MockAuthService struct {
 	LinkOAuthWithPasswordFn    func(string, *authm.User) (bool, error)
 	CompleteOAuthLinkByEmailFn func(*contracts.OAuthLinkTokenClaims) (*contracts.OAuthLinkCompletion, error)
 	CompleteOAuthSignupFn      func(*contracts.OAuthPendingSignup, *contracts.OAuthSignupConsent, *string) (*authm.User, string, error)
-	CompleteOAuthLinkFn        func(http.ResponseWriter, *http.Request, string, uint) (*authm.User, error)
+	CompleteOAuthLinkFn        func(http.ResponseWriter, *http.Request, string, uint, *time.Time) (*authm.User, error)
 	GetUserProfileFn           func(uint) (*authm.User, error)
 	GetSignInFactorsFn         func(*authm.User) (contracts.SignInFactors, error)
 	RefreshUserTokenFn         func(*authm.User, time.Time) (string, error)
@@ -582,9 +582,9 @@ func (m *MockAuthService) CompleteOAuthSignup(signup *contracts.OAuthPendingSign
 	}
 	return nil, "", nil
 }
-func (m *MockAuthService) CompleteOAuthLink(w http.ResponseWriter, r *http.Request, provider string, userID uint) (*authm.User, error) {
+func (m *MockAuthService) CompleteOAuthLink(w http.ResponseWriter, r *http.Request, provider string, userID uint, sessionsValidAfter *time.Time) (*authm.User, error) {
 	if m.CompleteOAuthLinkFn != nil {
-		return m.CompleteOAuthLinkFn(w, r, provider, userID)
+		return m.CompleteOAuthLinkFn(w, r, provider, userID, sessionsValidAfter)
 	}
 	return nil, nil
 }
@@ -666,7 +666,7 @@ func (m *MockBandcampProfileFiller) FillProfileResolvedEmbedFromBandcamp(artistI
 // ============================================================================
 
 type MockCalendarService struct {
-	CreateTokenFn                 func(uint, string) (*contracts.CalendarTokenCreateResponse, error)
+	CreateTokenFn                 func(uint, *time.Time, string) (*contracts.CalendarTokenCreateResponse, error)
 	GetTokenStatusFn              func(uint) (*contracts.CalendarTokenStatusResponse, error)
 	DeleteTokenFn                 func(uint) error
 	ValidateCalendarTokenFn       func(string) (*authm.User, error)
@@ -674,9 +674,9 @@ type MockCalendarService struct {
 	GenerateFollowsActivityFeedFn func(uint, string) ([]byte, error)
 }
 
-func (m *MockCalendarService) CreateToken(userID uint, apiBaseURL string) (*contracts.CalendarTokenCreateResponse, error) {
+func (m *MockCalendarService) CreateToken(userID uint, sessionsValidAfter *time.Time, apiBaseURL string) (*contracts.CalendarTokenCreateResponse, error) {
 	if m.CreateTokenFn != nil {
-		return m.CreateTokenFn(userID, apiBaseURL)
+		return m.CreateTokenFn(userID, sessionsValidAfter, apiBaseURL)
 	}
 	return nil, nil
 }
@@ -4197,7 +4197,7 @@ type MockUserService struct {
 	ListUsersFn                         func(int, int, contracts.AdminUserFilters) ([]*contracts.AdminUserResponse, int64, error)
 	FindOrCreateUserWithConsentFn       func(goth.User, string, *contracts.OAuthSignupConsent) (*authm.User, error)
 	FindOrCreateUserFromOAuthIdentityFn func(contracts.OAuthIdentity, *contracts.OAuthSignupConsent, *string) (*authm.User, error)
-	LinkOAuthAccountToUserFn            func(uint, goth.User, string) (*authm.User, error)
+	LinkOAuthAccountToUserFn            func(uint, *time.Time, goth.User, string) (*authm.User, error)
 	AuthenticateUserWithPasswordFn      func(string, string) (*authm.User, error)
 	CreateUserWithPasswordWithLegalFn   func(string, string, string, string, contracts.LegalAcceptance) (*authm.User, error)
 	GetUserByIDFn                       func(uint) (*authm.User, error)
@@ -4263,9 +4263,9 @@ func (m *MockUserService) FindOrCreateUserFromOAuthIdentity(identity contracts.O
 	}
 	return nil, nil
 }
-func (m *MockUserService) LinkOAuthAccountToUser(userID uint, gothUser goth.User, provider string) (*authm.User, error) {
+func (m *MockUserService) LinkOAuthAccountToUser(userID uint, sessionsValidAfter *time.Time, gothUser goth.User, provider string) (*authm.User, error) {
 	if m.LinkOAuthAccountToUserFn != nil {
-		return m.LinkOAuthAccountToUserFn(userID, gothUser, provider)
+		return m.LinkOAuthAccountToUserFn(userID, sessionsValidAfter, gothUser, provider)
 	}
 	return nil, nil
 }

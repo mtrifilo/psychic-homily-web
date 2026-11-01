@@ -17,7 +17,7 @@ import (
 
 func calendarHandlerRecordingMints(minted *bool) *CalendarHandler {
 	return NewCalendarHandler(&testhelpers.MockCalendarService{
-		CreateTokenFn: func(userID uint, apiBaseURL string) (*contracts.CalendarTokenCreateResponse, error) {
+		CreateTokenFn: func(userID uint, _ *time.Time, apiBaseURL string) (*contracts.CalendarTokenCreateResponse, error) {
 			*minted = true
 			return &contracts.CalendarTokenCreateResponse{Token: "phcal_test"}, nil
 		},

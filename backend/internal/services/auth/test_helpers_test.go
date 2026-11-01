@@ -27,7 +27,7 @@ func (n *nilDBUserService) FindOrCreateUserFromOAuthIdentity(identity contracts.
 	return nil, fmt.Errorf("database not initialized")
 }
 
-func (n *nilDBUserService) LinkOAuthAccountToUser(userID uint, gothUser goth.User, provider string) (*authm.User, error) {
+func (n *nilDBUserService) LinkOAuthAccountToUser(userID uint, sessionsValidAfter *time.Time, gothUser goth.User, provider string) (*authm.User, error) {
 	return nil, fmt.Errorf("database not initialized")
 }
 

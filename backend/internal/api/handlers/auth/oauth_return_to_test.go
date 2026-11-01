@@ -325,9 +325,8 @@ func TestOAuthCallback_RefusalCarriesTheDestinationToTheAuthPage(t *testing.T) {
 	}
 }
 
-// A failure that is not a refusal the reader can act on (a provider error, a
-// cancelled consent screen) carries the generic message, no code, and the
-// destination.
+// A failure that is not a refusal the reader can act on (a provider error)
+// carries the UNKNOWN code, no message text, and the destination.
 func TestOAuthCallback_GenericFailureCarriesTheDestination(t *testing.T) {
 	resp, raw := runCallback(t, failingCallbackHandler(errors.New("oauth2: cannot fetch token")), "/auth/callback/google",
 		&http.Cookie{Name: oauthReturnToCookieName, Value: encodedReturnTo("/shows")})
@@ -337,8 +336,8 @@ func TestOAuthCallback_GenericFailureCarriesTheDestination(t *testing.T) {
 		t.Fatalf("unparseable Location %q: %v", raw, err)
 	}
 	query := location.Query()
-	if location.Path != "/auth" || query.Get("error") != "authentication failed" || query.Has("error_code") {
-		t.Errorf("Location = %q, want the auth page with the generic message and no code", raw)
+	if location.Path != "/auth" || query.Get("error_code") != "UNKNOWN" || query.Has("error") {
+		t.Errorf("Location = %q, want the auth page with the UNKNOWN code and no message", raw)
 	}
 	if got := query.Get("returnTo"); got != "/shows" {
 		t.Errorf("returnTo = %q, want /shows", got)

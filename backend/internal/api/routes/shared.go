@@ -61,8 +61,7 @@ func ipRateLimiterRefusingWith(name middleware.LimiterName, requestLimit int, wi
 }
 
 // rateLimitExceededMessage is the sentence a refusal by one of this package's
-// per-IP limiters reports to the reader: in the 429 body, and in the redirect
-// the OAuth redirect routes answer a refusal with.
+// per-IP limiters reports in its 429 body.
 const rateLimitExceededMessage = "Rate limit exceeded. Please try again in 60 seconds."
 
 // writeRateLimitJSON answers a refused request with the JSON 429, saying

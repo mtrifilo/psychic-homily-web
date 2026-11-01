@@ -221,7 +221,7 @@ func (suite *CalendarIntegrationTestSuite) TestGenerateFollowsActivityFeed_Regen
 	suite.Equal(string(first), string(cached))
 	suite.NotContains(string(cached), "After Cache Show")
 
-	_, err = suite.svc.CreateToken(user.ID, "http://localhost:8080")
+	_, err = suite.svc.CreateToken(user.ID, user.SessionsValidAfter, "http://localhost:8080")
 	suite.Require().NoError(err)
 
 	fresh, err := suite.svc.GenerateFollowsActivityFeed(user.ID, "https://psychichomily.com")

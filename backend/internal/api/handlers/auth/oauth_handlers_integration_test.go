@@ -147,7 +147,7 @@ func (s *OAuthHandlerIntegrationSuite) TestCallback_Error_RedirectsToFrontend() 
 
 	s.Equal(http.StatusTemporaryRedirect, w.Code)
 	location := w.Header().Get("Location")
-	s.True(strings.HasPrefix(location, "http://localhost:3000/auth?error="),
+	s.True(strings.HasPrefix(location, "http://localhost:3000/auth?error_code=UNKNOWN"),
 		"expected redirect to frontend with error, got %s", location)
 }
 
@@ -239,7 +239,7 @@ func (s *OAuthHandlerIntegrationSuite) TestCallback_NoProvider_FallbackToGoogle(
 	// Should redirect with error (google provider used as fallback)
 	s.Equal(http.StatusTemporaryRedirect, w.Code)
 	location := w.Header().Get("Location")
-	s.Contains(location, "error=", "expected error redirect")
+	s.Contains(location, "error_code=UNKNOWN", "expected error redirect")
 }
 
 func (s *OAuthHandlerIntegrationSuite) TestCallback_CustomFrontendURL() {
@@ -258,7 +258,7 @@ func (s *OAuthHandlerIntegrationSuite) TestCallback_CustomFrontendURL() {
 	handler.OAuthCallbackHTTPHandler(w, req)
 
 	location := w.Header().Get("Location")
-	s.True(strings.HasPrefix(location, "https://myapp.example.com/auth?error="),
+	s.True(strings.HasPrefix(location, "https://myapp.example.com/auth?error_code=UNKNOWN"),
 		"expected redirect to custom frontend URL, got %s", location)
 }
 
@@ -276,7 +276,7 @@ func (s *OAuthHandlerIntegrationSuite) TestCallback_EmptyFrontendURL_Fallback() 
 	handler.OAuthCallbackHTTPHandler(w, req)
 
 	location := w.Header().Get("Location")
-	s.True(strings.HasPrefix(location, "http://localhost:3000/auth?error="),
+	s.True(strings.HasPrefix(location, "http://localhost:3000/auth?error_code=UNKNOWN"),
 		"expected fallback to localhost:3000, got %s", location)
 }
 

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
+	"time"
 
 	"gorm.io/gorm"
 
@@ -44,7 +45,7 @@ func newUncachedSceneService(database *gorm.DB, g geo.Geocoder) *SceneService {
 	if g == nil {
 		g = geo.Default()
 	}
-	return &SceneService{db: database, geocoder: g}
+	return &SceneService{db: database, geocoder: g, now: time.Now}
 }
 
 // sceneLinkPlace is the place a detail page links to its scene from.

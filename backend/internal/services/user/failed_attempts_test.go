@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgconn"
-	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 
 	apperrors "psychic-homily-backend/internal/errors"
@@ -22,21 +21,9 @@ import (
 // connection. The returned flag reports whether the delete ran.
 func (suite *UserServiceIntegrationTestSuite) serviceThatSoftDeletesBeforeItsFirstUpdate(userID uint) (*UserService, *bool) {
 	suite.T().Helper()
-	sqlDB, err := suite.db.DB()
-	suite.Require().NoError(err)
-	hooked, err := gorm.Open(postgres.New(postgres.Config{Conn: sqlDB}), &gorm.Config{TranslateError: true})
-	suite.Require().NoError(err)
-
-	deleted := false
-	suite.Require().NoError(hooked.Callback().Update().Before("gorm:update").
-		Register("test:soft_delete_before_update", func(*gorm.DB) {
-			if deleted {
-				return
-			}
-			suite.Require().NoError(suite.userService.SoftDeleteAccount(userID, stringPtr("deleted mid-lockout")))
-			deleted = true
-		}))
-	return &UserService{db: hooked}, &deleted
+	return suite.serviceWithWriteBeforeItsFirstUpdate(func(*gorm.DB) {
+		suite.Require().NoError(suite.userService.SoftDeleteAccount(userID, stringPtr("deleted mid-lockout")))
+	})
 }
 
 func (suite *UserServiceIntegrationTestSuite) TestIncrementFailedAttempts_DoesNotReviveAccountDeletedBeforeTheWrite() {

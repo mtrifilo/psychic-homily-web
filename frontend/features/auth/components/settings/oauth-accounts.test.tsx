@@ -401,6 +401,20 @@ describe('OAuthAccounts', () => {
     ).toBeInTheDocument()
   })
 
+  it('says a rate-limited connection should wait a minute', async () => {
+    mockOAuthData = { accounts: [] }
+    mockSearchParams = new URLSearchParams('tab=settings&oauth_link_error=RATE_LIMITED')
+
+    renderWithProviders(<OAuthAccounts />)
+
+    expect(
+      await screen.findByText(
+        'Too many connection attempts. Wait a minute, then try again from this page.'
+      )
+    ).toBeInTheDocument()
+    expect(screen.queryByText('Could not connect that account.')).not.toBeInTheDocument()
+  })
+
   it('renders the generic failure for an unknown error code', async () => {
     mockOAuthData = { accounts: [] }
     // Prose an attacker put in the URL must never reach the page: an
