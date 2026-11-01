@@ -12,7 +12,7 @@ import {
 
 type Profile = {
   success: boolean
-  user?: { oauth_accounts?: { provider: string }[] | null }
+  user?: { email?: string | null; oauth_accounts?: { provider: string }[] | null }
   has_password?: boolean
   passkey_count?: number
 }
@@ -39,7 +39,7 @@ vi.mock('@/features/auth', () => ({
 function googleOnly(overrides: Partial<Profile> = {}): Profile {
   return {
     success: true,
-    user: { oauth_accounts: [{ provider: 'google' }] },
+    user: { email: 'someone@example.com', oauth_accounts: [{ provider: 'google' }] },
     has_password: false,
     passkey_count: 0,
     ...overrides,
@@ -66,6 +66,10 @@ describe('PasswordSettings', () => {
     ['the profile omits has_password', googleOnly({ has_password: undefined })],
     ['the profile has not loaded', undefined],
     ['the profile read failed', { success: false }],
+    [
+      'the account has no email address',
+      googleOnly({ user: { email: null, oauth_accounts: [{ provider: 'google' }] } }),
+    ],
   ])('keeps Change password when %s', (_name, profile) => {
     mockProfile = profile
     renderWithProviders(<PasswordSettings />)

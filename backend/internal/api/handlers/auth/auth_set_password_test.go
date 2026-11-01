@@ -33,7 +33,8 @@ func setPasswordInput(password string) *SetPasswordRequest {
 // password, the only shape the route serves.
 func passwordlessUser() *authm.User {
 	stamp := time.Date(2026, 10, 1, 12, 0, 0, 0, time.UTC)
-	return &authm.User{ID: 42, IsActive: true, SessionsValidAfter: &stamp}
+	email := "passwordless@example.com"
+	return &authm.User{ID: 42, Email: &email, IsActive: true, SessionsValidAfter: &stamp}
 }
 
 // setPasswordRecorder records what the handler hands the service.
@@ -213,6 +214,29 @@ func TestSetPasswordHandler_ValidatorRefusalIsTheValidatorsWords(t *testing.T) {
 			assertSetPasswordRefused(t, resp, autherrors.CodeValidationFailed, message)
 			if rec.calls != 0 {
 				t.Error("a refused password must not be written")
+			}
+		})
+	}
+}
+
+// A password signs in with the account's address, so an account with none
+// is refused before anything is validated or written.
+func TestSetPasswordHandler_AccountWithoutEmailRefused(t *testing.T) {
+	empty := ""
+	for name, email := range map[string]*string{"nil": nil, "empty": &empty} {
+		t.Run(name, func(t *testing.T) {
+			rec := &setPasswordRecorder{}
+			h := setPasswordHandler(rec)
+			user := passwordlessUser()
+			user.Email = email
+
+			resp, err := h.SetPasswordHandler(testhelpers.CtxWithSessionAuthTime(user, time.Now()), setPasswordInput("a-new-strong-password-1!"))
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			assertSetPasswordRefused(t, resp, "NO_EMAIL", "User does not have an email address")
+			if rec.calls != 0 {
+				t.Error("an account without an address must not get a password")
 			}
 		})
 	}

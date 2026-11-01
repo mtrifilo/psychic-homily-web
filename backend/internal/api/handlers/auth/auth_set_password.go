@@ -73,6 +73,14 @@ func (h *AuthHandler) SetPasswordHandler(ctx context.Context, input *SetPassword
 		return refuseWith(resp, autherrors.ErrPasswordAlreadySet())
 	}
 
+	// A password signs in with the account's email address, so an account
+	// with none would hold a password nothing can use. The code and message
+	// are the verification resend's for the same state.
+	if contextUser.Email == nil || *contextUser.Email == "" {
+		logger.AuthWarn(ctx, "set_password_no_email", "user_id", contextUser.ID)
+		return refusePasskey(resp, "NO_EMAIL", "User does not have an email address")
+	}
+
 	if input.Body.NewPassword == "" {
 		return refusePasskey(resp, autherrors.CodeValidationFailed, "New password is required")
 	}

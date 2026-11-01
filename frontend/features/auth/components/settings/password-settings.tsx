@@ -18,8 +18,9 @@ export const PASSWORD_SETTINGS_HREF = `/profile?tab=settings#${PASSWORD_SETTINGS
 
 /**
  * The Settings password slot: Set a password for an account the profile says
- * has none, and Change password otherwise, including while the profile has
- * not said (an absent `has_password` is not false).
+ * has none and that has an email address, and Change password otherwise,
+ * including while the profile has not said (an absent `has_password` is not
+ * false).
  *
  * The confirmation a set raises is held here rather than in the set card,
  * because that card leaves as soon as the set succeeds and Change password
@@ -37,8 +38,13 @@ export function PasswordSettings() {
     if (setConfirmation !== null) slotRef.current?.focus()
   }, [setConfirmation])
 
+  // A password signs in with the account's address, so an account without
+  // one is not offered a password it could never use.
   const offersSet =
-    !!profile?.success && profile.has_password === false && setConfirmation === null
+    !!profile?.success &&
+    profile.has_password === false &&
+    !!profile.user?.email &&
+    setConfirmation === null
 
   return (
     <div
