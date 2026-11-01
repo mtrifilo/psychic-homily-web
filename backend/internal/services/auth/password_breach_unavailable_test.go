@@ -164,6 +164,27 @@ func TestValidatePassword_UnavailableBreachCheckLogsReasonClass(t *testing.T) {
 			transport:  func(*testing.T) http.RoundTripper { return refusedTransport },
 			wantReason: "network",
 		},
+		{
+			name: "200 with an empty body",
+			transport: func(t *testing.T) http.RoundTripper {
+				return transportTo(t, statusServer(t, http.StatusOK))
+			},
+			wantReason: "bad_body",
+		},
+		{
+			name: "200 with a captive portal page",
+			transport: func(*testing.T) http.RoundTripper {
+				return mockHIBPResponse(http.StatusOK, "<html><body>Accept the terms to continue</body></html>")
+			},
+			wantReason: "bad_body",
+		},
+		{
+			name: "200 with a line too long to scan",
+			transport: func(*testing.T) http.RoundTripper {
+				return mockHIBPResponse(http.StatusOK, strings.Repeat("A", 70000))
+			},
+			wantReason: "bad_body",
+		},
 	}
 
 	for _, tc := range cases {
@@ -195,24 +216,45 @@ func TestValidatePassword_UnavailableBreachCheckLogsReasonClass(t *testing.T) {
 }
 
 func TestValidatePassword_UnavailableBreachCheckLogCarriesNoPasswordMaterial(t *testing.T) {
-	// The client wraps a transport failure in an error naming the request
-	// URL, which carries the hash prefix; none of it may reach the line.
-	v, rec := recordingValidator(refusedTransport)
-
-	assertFailedOpen(t, v)
-
 	sum := sha1.Sum([]byte(unavailableTestPassword))
 	fullHash := strings.ToUpper(hex.EncodeToString(sum[:]))
 	forbidden := []string{unavailableTestPassword, fullHash, fullHash[:5], fullHash[5:], "/range/"}
 
-	records := rec.all()
-	require.Len(t, records, 1)
-	line := records[0].Message
-	for k, val := range recordAttrs(records[0]) {
-		line += " " + k + "=" + val.String()
+	cases := []struct {
+		name      string
+		transport http.RoundTripper
+	}{
+		{
+			// The client wraps a transport failure in an error naming the
+			// request URL, which carries the hash prefix.
+			name:      "transport failure",
+			transport: refusedTransport,
+		},
+		{
+			// A body with no range record that echoes the request and the
+			// password material back.
+			name: "200 with a garbage body",
+			transport: mockHIBPResponse(http.StatusOK,
+				"<html>Blocked: https://api.pwnedpasswords.com/range/"+fullHash[:5]+"</html>\r\n"+
+					fullHash[5:]+"\r\n"+fullHash+":1:"+unavailableTestPassword+"\r\n"),
+		},
 	}
-	for _, f := range forbidden {
-		assert.NotContains(t, strings.ToUpper(line), strings.ToUpper(f))
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			v, rec := recordingValidator(tc.transport)
+
+			assertFailedOpen(t, v)
+
+			records := rec.all()
+			require.Len(t, records, 1)
+			line := records[0].Message
+			for k, val := range recordAttrs(records[0]) {
+				line += " " + k + "=" + val.String()
+			}
+			for _, f := range forbidden {
+				assert.NotContains(t, strings.ToUpper(line), strings.ToUpper(f))
+			}
+		})
 	}
 }
 

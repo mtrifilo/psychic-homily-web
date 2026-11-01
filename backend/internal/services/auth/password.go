@@ -57,6 +57,15 @@ func (e *breachCheckStatusError) Error() string {
 	return fmt.Sprintf("pwned passwords API returned status %d", e.statusCode)
 }
 
+// errBreachCheckBadBody is a 200 range response that holds no range record:
+// the body is empty, no line has the record shape, or a line is too long for
+// the scanner to read.
+var errBreachCheckBadBody = errors.New("pwned passwords API returned a body with no range records")
+
+// rangeRecordSuffixLength is the length of the SHA-1 hex suffix that opens a
+// range record: 40 hex characters less the 5 sent as the prefix.
+const rangeRecordSuffixLength = 35
+
 // NewPasswordValidator creates a new password validator
 func NewPasswordValidator() *PasswordValidator {
 	return NewPasswordValidatorWithTransport(nil)
@@ -105,9 +114,14 @@ func (v *PasswordValidator) ValidatePassword(password string) (*contracts.Passwo
 		result.Errors = append(result.Errors, "This password is too common and easily guessed")
 	}
 
+	// A password the local checks refuse is never sent to the breach check.
+	if !result.Valid {
+		return result, nil
+	}
+
 	// Check against breached passwords (HaveIBeenPwned). The check fails
-	// open: when IsBreached returns an error, the password is judged on the
-	// other checks alone and the failure is logged.
+	// open: when IsBreached returns an error, the password is accepted on the
+	// local checks alone and the failure is logged.
 	started := v.clock()
 	breached, err := v.IsBreached(password)
 	if err != nil {
@@ -153,21 +167,58 @@ func (v *PasswordValidator) IsBreached(password string) (bool, error) {
 		return false, &breachCheckStatusError{statusCode: resp.StatusCode}
 	}
 
-	// Parse response - each line is SUFFIX:COUNT
+	// Each line of a range response is a record, SUFFIX:COUNT. Lines without
+	// that shape are skipped; a body with no record at all is not a range
+	// response, so it proves nothing about the password.
 	scanner := bufio.NewScanner(resp.Body)
+	sawRecord := false
 	for scanner.Scan() {
-		line := scanner.Text()
-		parts := strings.Split(line, ":")
-		if len(parts) >= 1 && strings.EqualFold(parts[0], suffix) {
+		recordSuffix, ok := parseRangeRecord(scanner.Text())
+		if !ok {
+			continue
+		}
+		if strings.EqualFold(recordSuffix, suffix) {
 			return true, nil
 		}
+		sawRecord = true
 	}
 
 	if err := scanner.Err(); err != nil {
+		if errors.Is(err, bufio.ErrTooLong) {
+			return false, errBreachCheckBadBody
+		}
 		return false, fmt.Errorf("failed to read response: %w", err)
+	}
+	if !sawRecord {
+		return false, errBreachCheckBadBody
 	}
 
 	return false, nil
+}
+
+// parseRangeRecord returns the suffix of line when line is a range record:
+// exactly rangeRecordSuffixLength hex characters, a colon, and one or more
+// decimal digits, with nothing else on the line.
+func parseRangeRecord(line string) (string, bool) {
+	recordSuffix, count, found := strings.Cut(line, ":")
+	if !found || len(recordSuffix) != rangeRecordSuffixLength || count == "" {
+		return "", false
+	}
+	for _, c := range recordSuffix {
+		if !isHexDigit(c) {
+			return "", false
+		}
+	}
+	for _, c := range count {
+		if c < '0' || c > '9' {
+			return "", false
+		}
+	}
+	return recordSuffix, true
+}
+
+func isHexDigit(c rune) bool {
+	return (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F')
 }
 
 // logBreachCheckUnavailable writes password_breach_check_unavailable at Warn
@@ -192,13 +243,16 @@ func (v *PasswordValidator) logBreachCheckUnavailable(err error, elapsed time.Du
 }
 
 // breachCheckFailureReason classifies a failed breach check as
-// "status_<code>" for a non-200 response, "timeout" when a deadline passed
-// before the response was read in full, and "network" for every other
-// failure.
+// "status_<code>" for a non-200 response, "bad_body" for a 200 response with
+// no range records, "timeout" when a deadline passed before the response was
+// read in full, and "network" for every other failure.
 func breachCheckFailureReason(err error) string {
 	var statusErr *breachCheckStatusError
 	if errors.As(err, &statusErr) {
 		return fmt.Sprintf("status_%d", statusErr.statusCode)
+	}
+	if errors.Is(err, errBreachCheckBadBody) {
+		return "bad_body"
 	}
 	var netErr net.Error
 	if errors.As(err, &netErr) && netErr.Timeout() {

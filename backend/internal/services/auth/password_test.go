@@ -44,6 +44,25 @@ func mockHIBPError(err error) roundTripFunc {
 	}
 }
 
+// notBreachedBody is a range response holding one record whose suffix
+// matches no password used in these tests.
+const notBreachedBody = "1D2DA4053E34E76F6576ED1DA63134B5E2A:3\r\n"
+
+// countingTransport answers every range request with notBreachedBody and
+// counts the requests it served.
+type countingTransport struct {
+	calls int
+}
+
+func (c *countingTransport) RoundTrip(*http.Request) (*http.Response, error) {
+	c.calls++
+	return &http.Response{
+		StatusCode: http.StatusOK,
+		Body:       io.NopCloser(strings.NewReader(notBreachedBody)),
+		Header:     make(http.Header),
+	}, nil
+}
+
 // hibpSuffix computes the HIBP SHA-1 suffix (chars 5+) for a password.
 func hibpSuffix(password string) string {
 	hash := sha1.Sum([]byte(password))
@@ -165,12 +184,49 @@ func TestIsBreached_NetworkError(t *testing.T) {
 	assert.False(t, breached)
 }
 
-func TestIsBreached_EmptyResponse(t *testing.T) {
-	v := newMockValidator(mockHIBPResponse(http.StatusOK, ""))
+func TestIsBreached_BodyWithNoRangeRecordIsAnError(t *testing.T) {
+	cases := map[string]string{
+		"empty":             "",
+		"blank lines":       "\r\n\r\n",
+		"captive portal":    "<!DOCTYPE html>\r\n<html><body>Sign in to the network</body></html>\r\n",
+		"suffix too short":  "1D2DA4053E34E76F6576ED1DA63134B5E2:3\r\n",
+		"suffix too long":   "1D2DA4053E34E76F6576ED1DA63134B5E2AB:3\r\n",
+		"suffix not hex":    "1D2DA4053E34E76F6576ED1DA63134B5E2G:3\r\n",
+		"no count":          "1D2DA4053E34E76F6576ED1DA63134B5E2A:\r\n",
+		"count not decimal": "1D2DA4053E34E76F6576ED1DA63134B5E2A:3x\r\n",
+		"no colon":          "1D2DA4053E34E76F6576ED1DA63134B5E2A\r\n",
+		"line too long":     strings.Repeat("A", 70000) + "\r\n",
+	}
+	for name, body := range cases {
+		t.Run(name, func(t *testing.T) {
+			v := newMockValidator(mockHIBPResponse(http.StatusOK, body))
 
-	breached, err := v.IsBreached("password")
-	require.NoError(t, err)
-	assert.False(t, breached)
+			breached, err := v.IsBreached("password")
+			require.ErrorIs(t, err, errBreachCheckBadBody)
+			assert.False(t, breached)
+		})
+	}
+}
+
+func TestIsBreached_MalformedLinesAmongRecordsAreSkipped(t *testing.T) {
+	malformed := "garbage\r\n" + hibpSuffix("password") + "\r\n\r\n"
+
+	t.Run("a matching record is found", func(t *testing.T) {
+		body := malformed + notBreachedBody + hibpSuffix("password") + ":10000\r\n"
+		v := newMockValidator(mockHIBPResponse(http.StatusOK, body))
+
+		breached, err := v.IsBreached("password")
+		require.NoError(t, err)
+		assert.True(t, breached)
+	})
+
+	t.Run("no matching record", func(t *testing.T) {
+		v := newMockValidator(mockHIBPResponse(http.StatusOK, malformed+notBreachedBody))
+
+		breached, err := v.IsBreached("password")
+		require.NoError(t, err)
+		assert.False(t, breached)
+	})
 }
 
 func TestIsBreached_RequestHeaders(t *testing.T) {
@@ -221,6 +277,62 @@ func TestValidatePassword_ValidPassword(t *testing.T) {
 	assert.True(t, result.Valid)
 	assert.Empty(t, result.Errors)
 	assert.Empty(t, result.Warnings)
+}
+
+func TestValidatePassword_LocallyRefusedPasswordSkipsBreachCheck(t *testing.T) {
+	cases := []struct {
+		name       string
+		password   string
+		wantErrors []string
+	}{
+		{
+			name:       "too short",
+			password:   "xK9$mPq2",
+			wantErrors: []string{fmt.Sprintf("Password must be at least %d characters", MinPasswordLength)},
+		},
+		{
+			name:       "too long",
+			password:   strings.Repeat("xK9$mPq2", MaxPasswordLength/8+1),
+			wantErrors: []string{fmt.Sprintf("Password must be no more than %d characters", MaxPasswordLength)},
+		},
+		{
+			name:       "common",
+			password:   "administrator",
+			wantErrors: []string{"This password is too common and easily guessed"},
+		},
+		{
+			name:     "too short and common",
+			password: "admin",
+			wantErrors: []string{
+				fmt.Sprintf("Password must be at least %d characters", MinPasswordLength),
+				"This password is too common and easily guessed",
+			},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			transport := &countingTransport{}
+			v := newMockValidator(transport)
+
+			result, err := v.ValidatePassword(tc.password)
+			require.NoError(t, err)
+			assert.False(t, result.Valid)
+			assert.Equal(t, tc.wantErrors, result.Errors)
+			assert.Empty(t, result.Warnings)
+			assert.Zero(t, transport.calls, "a locally refused password makes no range request")
+		})
+	}
+}
+
+func TestValidatePassword_LocallyAcceptedPasswordRunsBreachCheck(t *testing.T) {
+	transport := &countingTransport{}
+	v := newMockValidator(transport)
+
+	result, err := v.ValidatePassword("xK9$mPq2vL!nR8wJ")
+	require.NoError(t, err)
+	assert.True(t, result.Valid)
+	assert.Empty(t, result.Warnings)
+	assert.Equal(t, 1, transport.calls)
 }
 
 func TestValidatePassword_TooShort(t *testing.T) {
@@ -315,23 +427,25 @@ func TestValidatePassword_MultipleErrors(t *testing.T) {
 func TestValidatePassword_ExactMinLength(t *testing.T) {
 	// Exactly MinPasswordLength chars, not common, not breached
 	pw := strings.Repeat("x", MinPasswordLength)
-	v := newMockValidator(mockHIBPResponse(http.StatusOK, ""))
+	v := newMockValidator(mockHIBPResponse(http.StatusOK, notBreachedBody))
 
 	result, err := v.ValidatePassword(pw)
 	require.NoError(t, err)
 	assert.True(t, result.Valid)
 	assert.Empty(t, result.Errors)
+	assert.Empty(t, result.Warnings)
 }
 
 func TestValidatePassword_ExactMaxLength(t *testing.T) {
 	// Exactly MaxPasswordLength chars, not common, not breached
 	pw := strings.Repeat("y", MaxPasswordLength)
-	v := newMockValidator(mockHIBPResponse(http.StatusOK, ""))
+	v := newMockValidator(mockHIBPResponse(http.StatusOK, notBreachedBody))
 
 	result, err := v.ValidatePassword(pw)
 	require.NoError(t, err)
 	assert.True(t, result.Valid)
 	assert.Empty(t, result.Errors)
+	assert.Empty(t, result.Warnings)
 }
 
 // --- CalculatePasswordStrength ---
