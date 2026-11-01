@@ -22,10 +22,12 @@ const (
 // accessLog writes the access log of each request through the logger logFor
 // returns, resolved per request. Before the handler runs it writes a Debug
 // line with the method, path, Origin header and request id, so a request whose
-// handler never returns can still be found at Debug. Once the handler returns
-// it writes one Info line with the same fields plus status, duration_ms and
-// bytes (the response body bytes written to the connection, after any
-// compression inside this middleware).
+// handler never returns can be found when the logger is at Debug; at Info,
+// such a request writes no line. Once the handler returns it writes one Info
+// line with the same fields plus status, duration_ms and bytes (the response
+// body bytes the handler wrote, after any compression inside this middleware;
+// net/http discards a HEAD response's body, so those bytes never reach the
+// client).
 //
 // status is the status the handler wrote, 200 when it returned without writing
 // one, as net/http then sends. A panic that passes through this middleware
