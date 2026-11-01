@@ -4,11 +4,16 @@ import (
 	"bufio"
 	"crypto/sha1"
 	"encoding/hex"
+	"errors"
 	"fmt"
+	"log/slog"
+	"net"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
+	"psychic-homily-backend/internal/logger"
 	"psychic-homily-backend/internal/services/contracts"
 )
 
@@ -22,10 +27,35 @@ const (
 type PasswordValidator struct {
 	httpClient      *http.Client
 	commonPasswords map[string]bool
+
+	// unavailableLogMu guards unavailableLoggedAt, when this validator last
+	// wrote password_breach_check_unavailable.
+	unavailableLogMu    sync.Mutex
+	unavailableLoggedAt time.Time
+
+	// Test overrides. Each zero value selects the production behavior.
+	now    func() time.Time // replaces time.Now for the unavailable log's throttle and elapsed time
+	logger *slog.Logger     // replaces logger.Default() for the unavailable log
 }
 
-// breachCheckTimeout bounds every outbound Pwned Passwords range request.
-const breachCheckTimeout = 5 * time.Second
+const (
+	// breachCheckTimeout bounds every outbound Pwned Passwords range request.
+	breachCheckTimeout = 5 * time.Second
+
+	// breachCheckUnavailableLogInterval is the minimum spacing between two
+	// password_breach_check_unavailable lines from one validator, so an outage
+	// writes one line per interval instead of one per password checked.
+	breachCheckUnavailableLogInterval = time.Minute
+)
+
+// breachCheckStatusError is a range response whose status is not 200.
+type breachCheckStatusError struct {
+	statusCode int
+}
+
+func (e *breachCheckStatusError) Error() string {
+	return fmt.Sprintf("pwned passwords API returned status %d", e.statusCode)
+}
 
 // NewPasswordValidator creates a new password validator
 func NewPasswordValidator() *PasswordValidator {
@@ -75,10 +105,13 @@ func (v *PasswordValidator) ValidatePassword(password string) (*contracts.Passwo
 		result.Errors = append(result.Errors, "This password is too common and easily guessed")
 	}
 
-	// Check against breached passwords (HaveIBeenPwned)
+	// Check against breached passwords (HaveIBeenPwned). The check fails
+	// open: when IsBreached returns an error, the password is judged on the
+	// other checks alone and the failure is logged.
+	started := v.clock()
 	breached, err := v.IsBreached(password)
 	if err != nil {
-		// Log but don't fail - breach check is best effort
+		v.logBreachCheckUnavailable(err, v.clock().Sub(started))
 		result.Warnings = append(result.Warnings, "Could not verify password against breach database")
 	} else if breached {
 		result.Valid = false
@@ -117,7 +150,7 @@ func (v *PasswordValidator) IsBreached(password string) (bool, error) {
 	defer resp.Body.Close() //nolint:errcheck // deferred Close; nothing actionable on failure
 
 	if resp.StatusCode != http.StatusOK {
-		return false, fmt.Errorf("pwned passwords API returned status %d", resp.StatusCode)
+		return false, &breachCheckStatusError{statusCode: resp.StatusCode}
 	}
 
 	// Parse response - each line is SUFFIX:COUNT
@@ -135,6 +168,57 @@ func (v *PasswordValidator) IsBreached(password string) (bool, error) {
 	}
 
 	return false, nil
+}
+
+// logBreachCheckUnavailable writes password_breach_check_unavailable at Warn
+// unless this validator wrote it less than breachCheckUnavailableLogInterval
+// ago. The line carries the failure's reason class and the check's elapsed
+// time only: err's text can hold the request URL, which carries the hash
+// prefix, so it is never logged.
+func (v *PasswordValidator) logBreachCheckUnavailable(err error, elapsed time.Duration) {
+	v.unavailableLogMu.Lock()
+	now := v.clock()
+	if now.Sub(v.unavailableLoggedAt) < breachCheckUnavailableLogInterval {
+		v.unavailableLogMu.Unlock()
+		return
+	}
+	v.unavailableLoggedAt = now
+	v.unavailableLogMu.Unlock()
+
+	v.log().Warn("password_breach_check_unavailable",
+		"reason", breachCheckFailureReason(err),
+		"elapsed_ms", elapsed.Milliseconds(),
+	)
+}
+
+// breachCheckFailureReason classifies a failed breach check as
+// "status_<code>" for a non-200 response, "timeout" when a deadline passed
+// before the response was read in full, and "network" for every other
+// failure.
+func breachCheckFailureReason(err error) string {
+	var statusErr *breachCheckStatusError
+	if errors.As(err, &statusErr) {
+		return fmt.Sprintf("status_%d", statusErr.statusCode)
+	}
+	var netErr net.Error
+	if errors.As(err, &netErr) && netErr.Timeout() {
+		return "timeout"
+	}
+	return "network"
+}
+
+func (v *PasswordValidator) clock() time.Time {
+	if v.now != nil {
+		return v.now()
+	}
+	return time.Now()
+}
+
+func (v *PasswordValidator) log() *slog.Logger {
+	if v.logger != nil {
+		return v.logger
+	}
+	return logger.Default()
 }
 
 // IsCommonPassword checks if a password is in the common passwords list
