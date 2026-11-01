@@ -315,9 +315,10 @@ func (s *WebAuthnService) UpdateCredentialName(userID uint, credentialID uint, d
 
 // Challenge storage helpers (for session management)
 
-// challengeTTL is how long a stored challenge can be consumed. An abandoned
-// sign-up's email and date of birth are kept for at most challengeTTL plus
-// signupChallengeSweepInterval.
+// challengeTTL is how long a stored challenge can be consumed. While the
+// sign-up sweep runs, an abandoned sign-up's email and date of birth are kept
+// for at most challengeTTL plus signupChallengeSweepInterval; otherwise the
+// daily sweep bounds them.
 const challengeTTL = 5 * time.Minute
 
 // StoreChallenge saves a WebAuthn challenge to the database

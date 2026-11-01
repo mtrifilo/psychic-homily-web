@@ -188,6 +188,7 @@ func (suite *WebAuthnServiceIntegrationTestSuite) TestSignupChallengeSweep_RunsA
 	suite.setChallengeExpiry(id, time.Now().Add(-time.Minute))
 
 	sweep := NewSignupChallengeSweep(suite.db)
+	suite.Equal(signupChallengeSweepInterval, sweep.interval, "the sign-up sweep runs on the interval its retention bound is stated in")
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	sweep.Start(ctx)
