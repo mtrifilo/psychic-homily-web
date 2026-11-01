@@ -105,6 +105,7 @@ type ServiceContainer struct {
 	Extraction             *pipeline.ExtractionService
 	WebAuthn               *auth.WebAuthnService // nil if init fails (passkeys optional)
 	ChallengeSweep         *auth.ChallengeSweep  // non-nil even when WebAuthn is nil
+	SignupChallengeSweep   *auth.ChallengeSweep  // non-nil even when WebAuthn is nil
 	AuthEmailOutbox        *auth.AuthEmailOutbox
 	Cleanup                *adminsvc.CleanupService
 	DataSync               *adminsvc.DataSyncService
@@ -395,6 +396,7 @@ func NewServiceContainer(database *gorm.DB, cfg *config.Config) *ServiceContaine
 		Extraction:             extraction,
 		WebAuthn:               webauthnService,
 		ChallengeSweep:         auth.NewChallengeSweep(database),
+		SignupChallengeSweep:   auth.NewSignupChallengeSweep(database),
 		AuthEmailOutbox:        auth.NewAuthEmailOutbox(database, userService, jwtService, email),
 		Cleanup:                adminsvc.NewCleanupService(database, userService),
 		DataSync:               adminsvc.NewDataSyncService(database),

@@ -45,12 +45,7 @@ import {
   isHomeLayoutDocument,
   type HomeLayoutDocument,
 } from '@/features/home/sections'
-import {
-  AuthErrorCode,
-  isAbortError,
-  isDefinitiveUnauthenticated,
-  isTimeoutError,
-} from '@/lib/errors'
+import { AuthErrorCode, isDefinitiveUnauthenticated } from '@/lib/errors'
 
 // Mirror the relevant subset of `UserProfile` from
 // features/auth/hooks/useAuth.ts. Duplicated here (rather than imported)
@@ -228,6 +223,7 @@ export const prefetchHomeSavedShows = cache(async () => {
   const authToken = (await cookies()).get('auth_token')?.value
   if (userId == null || !authToken) return dehydrate(queryClient)
 
+  const deadline = AbortSignal.timeout(HOME_SAVED_SHOWS_PREFETCH_TIMEOUT_MS)
   try {
     const params = new URLSearchParams({
       limit: String(HOME_SAVED_SHOWS_LIMIT),
@@ -237,7 +233,7 @@ export const prefetchHomeSavedShows = cache(async () => {
     const response = await fetch(`${API_BASE_URL}/saved-shows?${params}`, {
       headers: { ...serverReadHeaders(), Cookie: `auth_token=${authToken}` },
       cache: 'no-store',
-      signal: AbortSignal.timeout(HOME_SAVED_SHOWS_PREFETCH_TIMEOUT_MS),
+      signal: deadline,
     })
     if (!response.ok) {
       reportServerFetchFailure({
@@ -264,10 +260,12 @@ export const prefetchHomeSavedShows = cache(async () => {
     })
   } catch (error) {
     // Same posture as the profile read: a failed prefetch is not an answer.
-    // A deadline or network failure is expected and quiet; anything else is
-    // a programming error and is reported rather than swallowed.
-    const isExpected =
-      isTimeoutError(error) || isAbortError(error) || error instanceof TypeError
+    // A failure after the deadline fired, whatever the rejection is named,
+    // and a TypeError, which is how fetch rejects on a network failure, are
+    // expected and quiet. A TypeError thrown by this block's own code is
+    // quiet too, since the class alone cannot tell the two apart. Anything
+    // else is reported rather than swallowed.
+    const isExpected = deadline.aborted || error instanceof TypeError
     if (!isExpected) {
       Sentry.captureException(error)
     }

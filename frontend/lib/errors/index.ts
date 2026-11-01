@@ -19,4 +19,4 @@ export {
   type ShowErrorCodeType,
 } from './showErrors'
 
-export { isAbortError, isTimeoutError } from './abortErrors'
+export { isAbortError, isNotAllowedError, isTimeoutError } from './abortErrors'

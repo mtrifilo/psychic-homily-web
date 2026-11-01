@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import userEvent from '@testing-library/user-event'
 import { screen, waitFor } from '@testing-library/react'
+import * as Sentry from '@sentry/nextjs'
 import { renderWithProviders } from '@/test/utils'
 import { AuthError, AuthErrorCode } from '@/lib/errors'
 import { PasskeyLoginButton } from './passkey-login'
@@ -202,6 +203,140 @@ describe('PasskeyLoginButton', () => {
     })
     expect(onError).not.toHaveBeenCalled()
     expect(fetchMock).toHaveBeenCalledTimes(1)
+    expect(Sentry.captureException).not.toHaveBeenCalled()
+    expect(Sentry.addBreadcrumb).toHaveBeenCalledTimes(1)
+    expect(vi.mocked(Sentry.addBreadcrumb).mock.lastCall?.[0]).toMatchObject({
+      category: 'passkey',
+      level: 'info',
+      data: { code: 'NotAllowedError' },
+    })
+  })
+
+  describe('Sentry reporting', () => {
+    const BEGIN_OK = {
+      ok: true,
+      status: 200,
+      json: async () => ({
+        success: true,
+        options: { publicKey: { challenge: 'begin-challenge' } },
+        challenge_id: 'challenge-id',
+      }),
+    }
+
+    async function signInAndWaitForError(onError: (error: AuthError) => void) {
+      const user = userEvent.setup()
+      renderWithProviders(<PasskeyLoginButton onError={onError} />)
+      await user.click(screen.getByRole('button', { name: /sign in with passkey/i }))
+      await waitFor(() => {
+        expect(onError).toHaveBeenCalledTimes(1)
+      })
+    }
+
+    // A closed account is an answer the page has copy for, so it must not
+    // reach Sentry as an application error.
+    it.each([
+      [AuthErrorCode.ACCOUNT_RECOVERABLE],
+      [AuthErrorCode.ACCOUNT_INACTIVE],
+    ])('records a %s refusal as one breadcrumb and no exception', async code => {
+      const onError = vi.fn()
+      fetchMock.mockResolvedValueOnce(BEGIN_OK)
+      fetchMock.mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          success: false,
+          message: 'Server copy',
+          error_code: code,
+          request_id: 'req-1',
+        }),
+      })
+
+      await signInAndWaitForError(onError)
+
+      expect(onError.mock.lastCall?.[0]).toMatchObject({ code })
+      expect(Sentry.captureException).not.toHaveBeenCalled()
+      expect(Sentry.addBreadcrumb).toHaveBeenCalledTimes(1)
+      expect(Sentry.addBreadcrumb).toHaveBeenCalledWith({
+        category: 'passkey',
+        level: 'info',
+        message: 'Expected passkey refusal',
+        data: { code, error_type: 'login_failed' },
+      })
+    })
+
+    it.each([
+      ['begin', [] as unknown[]],
+      ['finish', [BEGIN_OK]],
+    ])('reports a %s 503 as an exception at error level', async (_step, before) => {
+      const onError = vi.fn()
+      for (const response of before) fetchMock.mockResolvedValueOnce(response)
+      fetchMock.mockResolvedValueOnce({
+        ok: false,
+        status: 503,
+        json: async () => ({
+          success: false,
+          message: 'Service temporarily unavailable',
+          error_code: 'SERVICE_UNAVAILABLE',
+        }),
+      })
+
+      await signInAndWaitForError(onError)
+
+      expect(Sentry.addBreadcrumb).not.toHaveBeenCalled()
+      expect(Sentry.captureException).toHaveBeenCalledTimes(1)
+      expect(Sentry.captureException).toHaveBeenCalledWith(
+        expect.objectContaining({ code: AuthErrorCode.SERVICE_UNAVAILABLE }),
+        { level: 'error', tags: { service: 'passkey-auth', error_type: 'login_failed' } }
+      )
+    })
+
+    it('treats a non-Error value named NotAllowedError as the cancel', async () => {
+      const user = userEvent.setup()
+      const onError = vi.fn()
+      fetchMock.mockResolvedValueOnce(BEGIN_OK)
+      mockStartAuthentication.mockRejectedValueOnce({ name: 'NotAllowedError' })
+
+      renderWithProviders(<PasskeyLoginButton onError={onError} />)
+      await user.click(screen.getByRole('button', { name: /sign in with passkey/i }))
+
+      await waitFor(() => expect(Sentry.addBreadcrumb).toHaveBeenCalledTimes(1))
+      expect(Sentry.captureException).not.toHaveBeenCalled()
+      expect(onError).not.toHaveBeenCalled()
+    })
+
+    it('reports any other non-Error throw at error level and as UNKNOWN', async () => {
+      const onError = vi.fn()
+      fetchMock.mockResolvedValueOnce(BEGIN_OK)
+      mockStartAuthentication.mockRejectedValueOnce('boom')
+
+      await signInAndWaitForError(onError)
+
+      expect(onError.mock.lastCall?.[0]).toMatchObject({
+        message: 'An unexpected error occurred',
+        code: AuthErrorCode.UNKNOWN,
+      })
+      expect(Sentry.addBreadcrumb).not.toHaveBeenCalled()
+      expect(Sentry.captureException).toHaveBeenCalledWith('boom', {
+        level: 'error',
+        tags: { service: 'passkey-auth', error_type: 'login_failed' },
+      })
+    })
+
+    it('reports a WebAuthn exception other than the refusal at error level', async () => {
+      const onError = vi.fn()
+      fetchMock.mockResolvedValueOnce(BEGIN_OK)
+      const failure = new DOMException('The operation is insecure.', 'SecurityError')
+      mockStartAuthentication.mockRejectedValueOnce(failure)
+
+      await signInAndWaitForError(onError)
+
+      expect(Sentry.addBreadcrumb).not.toHaveBeenCalled()
+      expect(Sentry.captureException).toHaveBeenCalledTimes(1)
+      expect(Sentry.captureException).toHaveBeenCalledWith(failure, {
+        level: 'error',
+        tags: { service: 'passkey-auth', error_type: 'login_failed' },
+      })
+    })
   })
 
   it('reports a begin failure with its code and status, without starting the ceremony', async () => {
