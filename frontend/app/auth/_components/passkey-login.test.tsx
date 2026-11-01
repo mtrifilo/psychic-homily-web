@@ -290,6 +290,38 @@ describe('PasskeyLoginButton', () => {
       )
     })
 
+    it('treats a non-Error value named NotAllowedError as the cancel', async () => {
+      const user = userEvent.setup()
+      const onError = vi.fn()
+      fetchMock.mockResolvedValueOnce(BEGIN_OK)
+      mockStartAuthentication.mockRejectedValueOnce({ name: 'NotAllowedError' })
+
+      renderWithProviders(<PasskeyLoginButton onError={onError} />)
+      await user.click(screen.getByRole('button', { name: /sign in with passkey/i }))
+
+      await waitFor(() => expect(Sentry.addBreadcrumb).toHaveBeenCalledTimes(1))
+      expect(Sentry.captureException).not.toHaveBeenCalled()
+      expect(onError).not.toHaveBeenCalled()
+    })
+
+    it('reports any other non-Error throw at error level and as UNKNOWN', async () => {
+      const onError = vi.fn()
+      fetchMock.mockResolvedValueOnce(BEGIN_OK)
+      mockStartAuthentication.mockRejectedValueOnce('boom')
+
+      await signInAndWaitForError(onError)
+
+      expect(onError.mock.lastCall?.[0]).toMatchObject({
+        message: 'An unexpected error occurred',
+        code: AuthErrorCode.UNKNOWN,
+      })
+      expect(Sentry.addBreadcrumb).not.toHaveBeenCalled()
+      expect(Sentry.captureException).toHaveBeenCalledWith('boom', {
+        level: 'error',
+        tags: { service: 'passkey-auth', error_type: 'login_failed' },
+      })
+    })
+
     it('reports a WebAuthn exception other than the refusal at error level', async () => {
       const onError = vi.fn()
       fetchMock.mockResolvedValueOnce(BEGIN_OK)

@@ -193,6 +193,45 @@ describe('PasskeyRegisterButton', () => {
     })
   })
 
+  it('treats a non-Error value named NotAllowedError as the cancel', async () => {
+    global.fetch = vi
+      .fn()
+      .mockResolvedValueOnce(jsonResponse(BEGIN_OK)) as unknown as typeof fetch
+    vi.mocked(startRegistration).mockRejectedValueOnce({ name: 'NotAllowedError' })
+    const onError = vi.fn()
+
+    renderWithProviders(<PasskeyRegisterButton onError={onError} />)
+    await openAndSubmit()
+
+    await waitFor(() => expect(Sentry.addBreadcrumb).toHaveBeenCalledTimes(1))
+    expect(Sentry.captureException).not.toHaveBeenCalled()
+    expect(onError).not.toHaveBeenCalled()
+    // The dialog stays open for another try.
+    expect(screen.getByRole('dialog')).toBeInTheDocument()
+  })
+
+  it('reports any other non-Error throw at error level and as an unexpected error', async () => {
+    global.fetch = vi
+      .fn()
+      .mockResolvedValueOnce(jsonResponse(BEGIN_OK)) as unknown as typeof fetch
+    vi.mocked(startRegistration).mockRejectedValueOnce('boom')
+    const onError = vi.fn()
+
+    renderWithProviders(<PasskeyRegisterButton onError={onError} />)
+    await openAndSubmit()
+
+    await waitFor(() => expect(onError).toHaveBeenCalled())
+    const reported = onError.mock.calls[0][0]
+    expect(reported).toBeInstanceOf(Error)
+    expect((reported as Error).message).toBe('An unexpected error occurred')
+    expect(Sentry.addBreadcrumb).not.toHaveBeenCalled()
+    expect(Sentry.captureException).toHaveBeenCalledWith('boom', {
+      level: 'error',
+      tags: { service: 'passkey-auth', error_type: 'registration_failed' },
+    })
+    expect(screen.getByRole('dialog')).toBeInTheDocument()
+  })
+
   it('records the viewer cancelling the prompt as a breadcrumb and calls nothing back', async () => {
     global.fetch = vi
       .fn()
