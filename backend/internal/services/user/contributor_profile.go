@@ -163,24 +163,20 @@ func contributionStatActionNames() []string {
 // =============================================================================
 
 // GetPublicProfile returns a user's public profile with privacy-gated fields.
-// A username Postgres rejects as text (authm.PostgresRejectsText) is not found,
-// and so is a deactivated or soft-deleted account (authm.LiveAccountSQL): this
-// method answers a closed account exactly as it answers an unknown username.
+// The account is found by shared.LiveUserByUsername, so this method answers a
+// deactivated or soft-deleted account exactly as it answers an unknown
+// username: nil.
 func (s *ContributorProfileService) GetPublicProfile(username string, viewer contracts.ShowViewer) (*contracts.PublicProfileResponse, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
 	}
-	if authm.PostgresRejectsText(username) {
-		return nil, nil
-	}
 
-	var user authm.User
-	err := s.db.Where("username = ?", username).Where(authm.LiveAccountSQL("users")).First(&user).Error
+	user, err := shared.LiveUserByUsername(s.db, username)
 	if err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return nil, nil
-		}
 		return nil, fmt.Errorf("failed to find user: %w", err)
+	}
+	if user == nil {
+		return nil, nil
 	}
 
 	isOwner := viewer.UserID != 0 && viewer.UserID == user.ID
