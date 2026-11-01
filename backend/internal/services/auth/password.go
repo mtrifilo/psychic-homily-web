@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -62,9 +63,15 @@ func (e *breachCheckStatusError) Error() string {
 // the scanner to read.
 var errBreachCheckBadBody = errors.New("pwned passwords API returned a body with no range records")
 
-// rangeRecordSuffixLength is the length of the SHA-1 hex suffix that opens a
-// range record: 40 hex characters less the 5 sent as the prefix.
-const rangeRecordSuffixLength = 35
+const (
+	// rangePrefixLength is how many leading hex characters of the password's
+	// SHA-1 the range request sends.
+	rangePrefixLength = 5
+
+	// rangeRecordSuffixLength is the length of the SHA-1 hex suffix that opens
+	// a range record.
+	rangeRecordSuffixLength = 2*sha1.Size - rangePrefixLength
+)
 
 // NewPasswordValidator creates a new password validator
 func NewPasswordValidator() *PasswordValidator {
@@ -143,8 +150,8 @@ func (v *PasswordValidator) IsBreached(password string) (bool, error) {
 	hexHash := strings.ToUpper(hex.EncodeToString(hash[:]))
 
 	// Split into prefix (5 chars) and suffix (rest)
-	prefix := hexHash[:5]
-	suffix := hexHash[5:]
+	prefix := hexHash[:rangePrefixLength]
+	suffix := hexHash[rangePrefixLength:]
 
 	// Query the HaveIBeenPwned API
 	url := fmt.Sprintf("https://api.pwnedpasswords.com/range/%s", prefix)
@@ -197,11 +204,11 @@ func (v *PasswordValidator) IsBreached(password string) (bool, error) {
 }
 
 // parseRangeRecord returns the suffix of line when line is a range record:
-// exactly rangeRecordSuffixLength hex characters, a colon, and one or more
-// decimal digits, with nothing else on the line.
+// exactly rangeRecordSuffixLength hex characters, a colon, and an unsigned
+// decimal count that fits in 64 bits, with nothing else on the line.
 func parseRangeRecord(line string) (string, bool) {
 	recordSuffix, count, found := strings.Cut(line, ":")
-	if !found || len(recordSuffix) != rangeRecordSuffixLength || count == "" {
+	if !found || len(recordSuffix) != rangeRecordSuffixLength {
 		return "", false
 	}
 	for _, c := range recordSuffix {
@@ -209,10 +216,8 @@ func parseRangeRecord(line string) (string, bool) {
 			return "", false
 		}
 	}
-	for _, c := range count {
-		if c < '0' || c > '9' {
-			return "", false
-		}
+	if _, err := strconv.ParseUint(count, 10, 64); err != nil {
+		return "", false
 	}
 	return recordSuffix, true
 }

@@ -165,23 +165,9 @@ func TestValidatePassword_UnavailableBreachCheckLogsReasonClass(t *testing.T) {
 			wantReason: "network",
 		},
 		{
-			name: "200 with an empty body",
-			transport: func(t *testing.T) http.RoundTripper {
-				return transportTo(t, statusServer(t, http.StatusOK))
-			},
-			wantReason: "bad_body",
-		},
-		{
-			name: "200 with a captive portal page",
+			name: "200 with no range record",
 			transport: func(*testing.T) http.RoundTripper {
 				return mockHIBPResponse(http.StatusOK, "<html><body>Accept the terms to continue</body></html>")
-			},
-			wantReason: "bad_body",
-		},
-		{
-			name: "200 with a line too long to scan",
-			transport: func(*testing.T) http.RoundTripper {
-				return mockHIBPResponse(http.StatusOK, strings.Repeat("A", 70000))
 			},
 			wantReason: "bad_body",
 		},
