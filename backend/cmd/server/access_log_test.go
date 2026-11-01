@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -13,14 +12,11 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 
 	"psychic-homily-backend/internal/api/middleware"
-	"psychic-homily-backend/internal/api/routes"
-	"psychic-homily-backend/internal/config"
 	"psychic-homily-backend/internal/logger"
-	"psychic-homily-backend/internal/services"
+	"psychic-homily-backend/internal/testlog"
 )
 
 // Every request served by the production chain writes exactly one access line
@@ -117,14 +113,7 @@ type accessLogCaseEnd struct {
 func serveAccessLogCases(t *testing.T) {
 	logger.Init(true, false)
 
-	cfg := &config.Config{
-		JWT:   config.JWTConfig{SecretKey: "test-secret-key-32-chars-minimum", Expiry: 24},
-		OAuth: config.OAuthConfig{SecretKey: "test-oauth-secret-key-32-chars"},
-	}
-	router := chi.NewMux()
-	useRequestCorrelation(router)
-	router.Use(middleware.ResponseCompression())
-	routes.SetupRoutes(router, services.NewServiceContainer(nil, cfg), cfg)
+	router, _ := newCompressedProductionRouter()
 	router.Get("/test-access-log/panic", func(http.ResponseWriter, *http.Request) {
 		panic(errors.New("access log probe panic"))
 	})
@@ -163,13 +152,15 @@ func serveAccessLogCases(t *testing.T) {
 	}
 }
 
+// anyBytes is the wantBytes of a case whose body size the test does not pin.
+const anyBytes = -1
+
 // accessLogRecords serves one request through RequestIDMiddleware, accessLog
 // and RecoverPanic, in the order useRequestCorrelation registers them, with
 // the access log written at level, and returns the access log records.
 func accessLogRecords(t *testing.T, level slog.Level, handler http.HandlerFunc) []map[string]any {
 	t.Helper()
-	var out bytes.Buffer
-	log := slog.New(slog.NewJSONHandler(&out, &slog.HandlerOptions{Level: level}))
+	log, out := testlog.NewJSONCapture(level)
 
 	chain := middleware.RequestIDMiddleware(
 		accessLog(func() *slog.Logger { return log })(
@@ -183,7 +174,7 @@ func accessLogRecords(t *testing.T, level slog.Level, handler http.HandlerFunc) 
 		defer func() { _ = recover() }()
 		chain.ServeHTTP(httptest.NewRecorder(), req)
 	}()
-	return logObjects(strings.Split(strings.TrimSpace(out.String()), "\n"))
+	return logObjectsIn(out.String())
 }
 
 func TestAccessLogLines(t *testing.T) {
@@ -193,18 +184,19 @@ func TestAccessLogLines(t *testing.T) {
 		name        string
 		handler     http.HandlerFunc
 		wantStatus  float64
+		wantBytes   float64 // anyBytes accepts any positive count
 		wantAborted bool
 	}{
-		{name: "200 with a body", handler: writeOK, wantStatus: 200},
-		{name: "nothing written is the 200 net/http sends", handler: func(http.ResponseWriter, *http.Request) {}, wantStatus: 200},
-		{name: "404", handler: http.NotFound, wantStatus: 404},
+		{name: "200 with a body", handler: writeOK, wantStatus: 200, wantBytes: float64(len("ok"))},
+		{name: "nothing written is the 200 net/http sends", handler: func(http.ResponseWriter, *http.Request) {}, wantStatus: 200, wantBytes: 0},
+		{name: "404", handler: http.NotFound, wantStatus: 404, wantBytes: float64(len("404 page not found\n"))},
 		{name: "panic answered 500 by RecoverPanic", handler: func(http.ResponseWriter, *http.Request) {
 			panic("probe")
-		}, wantStatus: 500},
+		}, wantStatus: 500, wantBytes: anyBytes},
 		{name: "panic after the response started", handler: func(w http.ResponseWriter, r *http.Request) {
 			writeOK(w, r)
 			panic("probe")
-		}, wantStatus: 200, wantAborted: true},
+		}, wantStatus: 200, wantBytes: float64(len("ok")), wantAborted: true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			records := accessLogRecords(t, slog.LevelInfo, tc.handler)
@@ -229,21 +221,15 @@ func TestAccessLogLines(t *testing.T) {
 			if _, ok := line["duration_ms"].(float64); !ok {
 				t.Errorf("duration_ms = %v, want a number", line["duration_ms"])
 			}
-			if _, ok := line["bytes"].(float64); !ok {
-				t.Errorf("bytes = %v, want a number", line["bytes"])
+			bytes, ok := line["bytes"].(float64)
+			if !ok || (tc.wantBytes == anyBytes && bytes <= 0) || (tc.wantBytes != anyBytes && bytes != tc.wantBytes) {
+				t.Errorf("bytes = %v, want %v (%v is any positive count)", line["bytes"], tc.wantBytes, anyBytes)
 			}
 			if aborted, _ := line["aborted"].(bool); aborted != tc.wantAborted {
 				t.Errorf("aborted = %v, want %v", line["aborted"], tc.wantAborted)
 			}
 		})
 	}
-
-	t.Run("bytes counts the body written", func(t *testing.T) {
-		records := accessLogRecords(t, slog.LevelInfo, writeOK)
-		if len(records) != 1 || records[0]["bytes"] != float64(len("ok")) {
-			t.Fatalf("records %v, want one line with bytes %d", records, len("ok"))
-		}
-	})
 
 	t.Run("the start line is written at DEBUG before the completion line", func(t *testing.T) {
 		records := accessLogRecords(t, slog.LevelDebug, writeOK)

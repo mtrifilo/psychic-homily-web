@@ -39,12 +39,15 @@ func accessLog(logFor func() *slog.Logger) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			log := logFor()
-			attrs := []any{
+			// Capacity for the completion fields, so appending them does not
+			// reallocate.
+			attrs := make([]any, 0, 16)
+			attrs = append(attrs,
 				"method", r.Method,
 				"path", r.URL.Path,
 				"origin", r.Header.Get("Origin"),
 				"request_id", logger.GetRequestID(r.Context()),
-			}
+			)
 			log.Debug(accessLogStartMsg, attrs...)
 
 			start := time.Now()

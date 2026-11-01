@@ -3,28 +3,26 @@ package main
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"errors"
 	"log/slog"
 	"os"
 	"os/exec"
-	"strings"
 	"testing"
 	"time"
 
 	"github.com/getsentry/sentry-go"
 
 	"psychic-homily-backend/internal/logger"
+	"psychic-homily-backend/internal/testlog"
 )
 
 // bootRefusalLines serves one refusal into a JSON handler at INFO, the
 // production level, and returns the records written.
 func bootRefusalLines(t *testing.T, hub *sentry.Hub, capture bool) []map[string]any {
 	t.Helper()
-	var out bytes.Buffer
-	log := slog.New(slog.NewJSONHandler(&out, &slog.HandlerOptions{Level: slog.LevelInfo}))
+	log, out := testlog.NewJSONCapture(slog.LevelInfo)
 	reportBootRefusal(log, hub, bootStageSchemaAssertion, errors.New("probe refusal"), capture)
-	return logObjects(strings.Split(strings.TrimSpace(out.String()), "\n"))
+	return logObjectsIn(out.String())
 }
 
 func assertOneBootRefusalLine(t *testing.T, records []map[string]any) {
@@ -116,13 +114,7 @@ func TestRefuseBootExitsOne(t *testing.T) {
 		t.Fatalf("child exit = %v, want status 1; stdout:\n%s", err, stdout.String())
 	}
 
-	var refusals []map[string]any
-	for _, line := range strings.Split(stdout.String(), "\n") {
-		var record map[string]any
-		if json.Unmarshal([]byte(line), &record) == nil && record["msg"] == bootRefusalMsg {
-			refusals = append(refusals, record)
-		}
-	}
+	refusals := recordsWithMsg(logObjectsIn(stdout.String()), bootRefusalMsg)
 	if len(refusals) != 1 || refusals[0]["level"] != "ERROR" || refusals[0]["stage"] != bootStageConfig || refusals[0]["error"] != "probe refusal" {
 		t.Fatalf("refusal lines %v, want one at ERROR with stage %q and the error; stdout:\n%s", refusals, bootStageConfig, stdout.String())
 	}

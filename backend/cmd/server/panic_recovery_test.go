@@ -175,14 +175,7 @@ func servePanicCases(t *testing.T) {
 		t.Fatalf("sentry test client: %v", err)
 	}
 
-	cfg := &config.Config{
-		JWT:   config.JWTConfig{SecretKey: "test-secret-key-32-chars-minimum", Expiry: 24},
-		OAuth: config.OAuthConfig{SecretKey: "test-oauth-secret-key-32-chars"},
-	}
-	router := chi.NewMux()
-	useRequestCorrelation(router)
-	router.Use(middleware.ResponseCompression())
-	api := routes.SetupRoutes(router, services.NewServiceContainer(nil, cfg), cfg)
+	router, api := newCompressedProductionRouter()
 
 	probe := errors.New(panicProbeMessage)
 	router.Get("/test-panic/raw", func(http.ResponseWriter, *http.Request) {
@@ -248,6 +241,21 @@ func servePanicCases(t *testing.T) {
 	serve("abort", "/test-panic/abort")
 }
 
+// newCompressedProductionRouter is the production correlation stack in front
+// of routes.SetupRoutes with the response compressor between them, as main()
+// builds them, on a service container with no database.
+func newCompressedProductionRouter() (*chi.Mux, huma.API) {
+	cfg := &config.Config{
+		JWT:   config.JWTConfig{SecretKey: "test-secret-key-32-chars-minimum", Expiry: 24},
+		OAuth: config.OAuthConfig{SecretKey: "test-oauth-secret-key-32-chars"},
+	}
+	router := chi.NewMux()
+	useRequestCorrelation(router)
+	router.Use(middleware.ResponseCompression())
+	api := routes.SetupRoutes(router, services.NewServiceContainer(nil, cfg), cfg)
+	return router, api
+}
+
 // logObjects decodes the lines that are JSON log records.
 func logObjects(lines []string) []map[string]any {
 	var records []map[string]any
@@ -258,6 +266,11 @@ func logObjects(lines []string) []map[string]any {
 		}
 	}
 	return records
+}
+
+// logObjectsIn decodes the JSON log records written to out.
+func logObjectsIn(out string) []map[string]any {
+	return logObjects(strings.Split(strings.TrimSpace(out), "\n"))
 }
 
 func recordsWithMsg(records []map[string]any, msg string) []map[string]any {
