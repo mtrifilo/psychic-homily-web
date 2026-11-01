@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # scripts/check_schema_assertion_types.sh
 #
-# CI gate: a timestamp-named up migration this branch ADDS that changes a
-# column's type must come with a typed entry for that column in
+# CI gate: a timestamp-named up migration this branch ADDS or MODIFIES that
+# changes a column's type must come with a typed entry for that column in
 # backend/db/schema_assertion.go:
 #
 #   {Table: "<table>", Column: "<column>", Type: <type>}
@@ -29,15 +29,24 @@
 #     Type counts when it is a spelling of that constant. Entries match
 #     anywhere in the file, outside `//` comments, in any whitespace layout,
 #     with the fields in the order Table, Column, Type.
-#   * Only the up migrations the branch adds are read, so merged migrations are
-#     never re-checked and no warning mode is needed for them.
+#   * An entry names the column's final type, so a type change that a later
+#     timestamp-named up migration in the working tree changes again passes
+#     whenever the column has an entry, whatever its Type.
+#   * Only the up migrations the branch adds or modifies are read, each one
+#     whole, so a merged migration is re-checked only when the branch edits it.
+#   * Down migrations are not read: the typed entries describe the schema with
+#     every up migration applied, so a down migration's type change (the
+#     reverse of its up migration's) has no entry to match.
 #
 # Usage:
 #   scripts/check_schema_assertion_types.sh [base-ref]
 #
 # base-ref defaults to origin/main. The CALLER makes that ref current; this
-# script does no network I/O. The "added" set is the same two-dot
-# --diff-filter=A --no-renames diff check_migration_timestamps.sh uses.
+# script does no network I/O. The checked set is a two-dot
+# --diff-filter=AM --no-renames diff of the migrations directory, so a renamed
+# file counts as added. The diff compares the base tip with HEAD, so on a
+# branch behind the base, a migration the base edited since also reads as
+# modified; run it on a branch rebased onto the base.
 
 set -euo pipefail
 # No globbing: filenames flow through unquoted word-splitting below.
@@ -66,17 +75,17 @@ if [ ! -f "$ASSERTION_FILE" ]; then
   exit 1
 fi
 
-# --- 1. timestamp-named up migrations this branch ADDS ------------------------
-if ! ADDED_UP="$(git diff --name-only --diff-filter=A --no-renames \
-                   "$BASE_REF" HEAD -- "$MIGRATIONS_PATH/*.up.sql")"; then
+# --- 1. timestamp-named up migrations this branch ADDS or MODIFIES ------------
+if ! CHANGED_UP="$(git diff --name-only --diff-filter=AM --no-renames \
+                     "$BASE_REF" HEAD -- "$MIGRATIONS_PATH/*.up.sql")"; then
   echo "ERROR: could not diff HEAD against $BASE_REF." >&2
   exit 1
 fi
 
-ADDED_TIMESTAMPED="$(grep -E '(^|/)[0-9]{14}_[^/]*$' <<<"$ADDED_UP" || true)"
+CHANGED_TIMESTAMPED="$(grep -E '(^|/)[0-9]{14}_[^/]*$' <<<"$CHANGED_UP" || true)"
 
-if [ -z "$ADDED_TIMESTAMPED" ]; then
-  echo "OK: no new timestamp-named up migrations added against $BASE_REF."
+if [ -z "$CHANGED_TIMESTAMPED" ]; then
+  echo "OK: no timestamp-named up migrations added or modified against $BASE_REF."
   exit 0
 fi
 
@@ -127,7 +136,7 @@ names_constant() {
   esac
 }
 
-# --- 3. column type changes in each added migration ---------------------------
+# --- 3. column type changes in each changed migration -------------------------
 # Prints file $1 with its comments stripped (lib/sql_strip_comments.sh),
 # lowercase and without double quotes, one statement per line.
 statements() {
@@ -158,12 +167,31 @@ type_changes() {
     | sort -u
 }
 
+# retyped_later <file> <table> <column>: the first timestamp-named up
+# migration in the working tree that sorts after <file> and changes the type
+# of <table>.<column>, or nothing. A typed entry describes the column's final
+# type, so an earlier type change it does not name is superseded, not wrong.
+retyped_later() {
+  local after="${1##*/}" later
+  while IFS= read -r later; do
+    [ "${later##*/}" \> "$after" ] || continue
+    grep -qiF -- "$3" "$later" || continue
+    if awk -v t="$2" -v c="$3" '$1 == t && $2 == c { found = 1 } END { exit !found }' \
+         <<<"$(type_changes "$later")"; then
+      echo "$later"
+      return 0
+    fi
+  done < <(find "$MIGRATIONS_PATH" -maxdepth 1 -name '*.up.sql' \
+             | grep -E '(^|/)[0-9]{14}_[^/]*$' | sort)
+  return 0
+}
+
 CHECKED=""
 MISSING=0
 WRONG_TYPE=0
-for f in $ADDED_TIMESTAMPED; do
+for f in $CHANGED_TIMESTAMPED; do
   if [ ! -r "$f" ]; then
-    echo "ERROR: $f is added on HEAD but not readable in the working tree." >&2
+    echo "ERROR: $f differs from $BASE_REF on HEAD but is not readable in the working tree." >&2
     exit 1
   fi
   changes="$(type_changes "$f")"
@@ -176,18 +204,30 @@ for f in $ADDED_TIMESTAMPED; do
       continue
     fi
     want="$(type_constant "$new_type")"
+    matched=no
+    if [ -n "$want" ]; then
+      while IFS= read -r entry_type; do
+        if names_constant "$entry_type" "$want"; then
+          matched=yes
+        fi
+      done <<<"$types"
+    fi
+    if [ "$matched" = no ]; then
+      later="$(retyped_later "$f" "$table" "$column")"
+      if [ -n "$later" ]; then
+        CHECKED="$CHECKED
+  $f: $table.$column (retyped later by $later)"
+        continue
+      fi
+    fi
     if [ -z "$want" ]; then
       WRONG_TYPE=$((WRONG_TYPE + 1))
       echo "ERROR: $f changes the type of $table.$column to $new_type, a type with no sql* constant in this gate." >&2
       echo "       Add the constant to $ASSERTION_FILE and its spellings to type_constant in scripts/check_schema_assertion_types.sh." >&2
       continue
     fi
-    matched=no
     have=""
     while IFS= read -r entry_type; do
-      if names_constant "$entry_type" "$want"; then
-        matched=yes
-      fi
       have="${have:+$have, }Type: $entry_type"
     done <<<"$types"
     if [ "$matched" = yes ]; then
@@ -203,9 +243,9 @@ done
 # --- 4. verdict ------------------------------------------------------------------
 if [ "$MISSING" -eq 0 ] && [ "$WRONG_TYPE" -eq 0 ]; then
   if [ -z "$CHECKED" ]; then
-    echo "OK: no new timestamp-named migration changes a column type."
+    echo "OK: no added or modified timestamp-named migration changes a column type."
   else
-    echo "OK: every column type change in a new timestamp-named migration has a typed entry of its new type:$CHECKED"
+    echo "OK: every column type change in an added or modified timestamp-named migration has a typed entry of its new type, or a later migration retypes the column:$CHECKED"
   fi
   exit 0
 fi
