@@ -54,11 +54,13 @@ const (
 	authEmailSendWorkers = 2
 
 	// authEmailStartBudget is how long after a tick begins a worker may still
-	// start a row; rows not started by then go back to `pending` for the next
-	// tick. Every row therefore starts within this long of its claim and
-	// finishes within one send (the email client's 15 s timeout) plus one
-	// finalize (authEmailFinalizeBudget) after that, which keeps it well
-	// inside authEmailStaleReclaim.
+	// start a row, and the deadline of every account read the tick makes; a
+	// row not started by then, or whose account read the deadline cut short,
+	// goes back to `pending` for the next tick. Every row therefore has its
+	// account read within this long of its claim and finishes within one
+	// send (the email client's 15 s timeout) plus one finalize
+	// (authEmailFinalizeBudget) after that, which keeps it well inside
+	// authEmailStaleReclaim.
 	authEmailStartBudget = 2 * time.Minute
 
 	// authEmailMaxAge is how long a request may wait before it is dropped
@@ -75,10 +77,10 @@ const (
 
 	// authEmailStaleReclaim must exceed the longest a claimed row can stay in
 	// flight, authEmailStartBudget plus one send and one finalize (about 2.5
-	// minutes, plus whatever the account read takes), or a row still being
-	// sent is reclaimed and sent twice. It is also how long a row stranded in
-	// `processing` by a crash blocks that account's next request of the same
-	// kind (the active-row unique index), so it is kept close to that bound.
+	// minutes), or a row still being sent is reclaimed and sent twice. It is
+	// also how long a row stranded in `processing` by a crash blocks that
+	// account's next request of the same kind (the active-row unique index),
+	// so it is kept close to that bound.
 	authEmailStaleReclaim = 4 * time.Minute
 
 	// authEmailRetention is how long terminal rows stay as an audit trail of
@@ -102,8 +104,12 @@ const (
 	authEmailSkipExpired     = "request expired before delivery"
 	authEmailSkipAccountGone = "account no longer exists"
 	authEmailSkipIneligible  = "account no longer eligible"
-	authEmailFailUnknownKind = "unknown email kind"
-	authEmailFailStranded    = "stranded in processing after max attempts"
+	// authEmailSkipClosedAccount is an account that may no longer sign in
+	// (authm.User.CanSignIn) queued for an email that goes only to one that
+	// can (needsOpenAccount).
+	authEmailSkipClosedAccount = "skipped_closed_account"
+	authEmailFailUnknownKind   = "unknown email kind"
+	authEmailFailStranded      = "stranded in processing after max attempts"
 )
 
 // ErrAuthEmailOutboxDisabled is Enqueue's error while
@@ -117,11 +123,10 @@ func AuthEmailOutboxDisabled() bool {
 	return shared.EnvServiceDisabled(DisableAuthEmailOutboxEnvVar)
 }
 
-// The account reads, token mints and sends the poller needs. The container's
+// The recovery rules, token mints and sends the poller needs. The container's
 // user, JWT and email services satisfy them.
 type (
 	authEmailUsers interface {
-		GetUserByID(userID uint) (*authm.User, error)
 		IsAccountRecoverable(user *authm.User) bool
 		GetDaysUntilPermanentDeletion(user *authm.User) int
 	}
@@ -131,13 +136,50 @@ type (
 		CreateAccountRecoveryToken(userID uint, email string) (string, error)
 		CreateVerificationToken(userID uint, email string) (string, error)
 	}
+	// authEmailSender is the shape of contracts.EmailServiceInterface's
+	// sends, which every email service and its test doubles have.
 	authEmailSender interface {
 		IsConfigured() bool
 		SendMagicLinkEmail(toEmail, token string) error
 		SendAccountRecoveryEmail(toEmail, token string, daysRemaining int) error
 		SendVerificationEmail(toEmail, token string) error
 	}
+	// authEmailContextSender is how the poller sends: each send takes the
+	// worker's context, which carries the worker's Sentry hub, so a provider
+	// error is reported there.
+	authEmailContextSender interface {
+		IsConfigured() bool
+		SendMagicLinkEmailContext(ctx context.Context, toEmail, token string) error
+		SendAccountRecoveryEmailContext(ctx context.Context, toEmail, token string, daysRemaining int) error
+		SendVerificationEmailContext(ctx context.Context, toEmail, token string) error
+	}
 )
+
+// contextFreeSender gives an authEmailSender without the context forms the
+// poller's shape. Its sends ignore the context, so they report wherever the
+// sender itself reports.
+type contextFreeSender struct{ authEmailSender }
+
+func (s contextFreeSender) SendMagicLinkEmailContext(_ context.Context, toEmail, token string) error {
+	return s.SendMagicLinkEmail(toEmail, token)
+}
+
+func (s contextFreeSender) SendAccountRecoveryEmailContext(_ context.Context, toEmail, token string, daysRemaining int) error {
+	return s.SendAccountRecoveryEmail(toEmail, token, daysRemaining)
+}
+
+func (s contextFreeSender) SendVerificationEmailContext(_ context.Context, toEmail, token string) error {
+	return s.SendVerificationEmail(toEmail, token)
+}
+
+// asContextSender returns sender's context forms when it has them
+// (notification.EmailService does), and sender adapted otherwise.
+func asContextSender(sender authEmailSender) authEmailContextSender {
+	if cs, ok := sender.(authEmailContextSender); ok {
+		return cs
+	}
+	return contextFreeSender{sender}
+}
 
 // AuthEmailOutbox queues and sends magic-link, account-recovery, verification
 // and pending-link emails.
@@ -167,7 +209,7 @@ type AuthEmailOutbox struct {
 	db     *gorm.DB
 	users  authEmailUsers
 	tokens authEmailTokens
-	sender authEmailSender
+	sender authEmailContextSender
 	queue  *shared.JobQueue[authm.AuthEmailOutboxItem]
 
 	interval time.Duration
@@ -176,6 +218,10 @@ type AuthEmailOutbox struct {
 
 	// lastHousekeeping is read and written only by the loop goroutine.
 	lastHousekeeping time.Time
+
+	// sentryClient is the client the outbox's own hubs report through
+	// (newReportHub).
+	sentryClient func() *sentry.Client
 
 	stopCh chan struct{}
 	wg     sync.WaitGroup
@@ -190,7 +236,7 @@ func NewAuthEmailOutbox(database *gorm.DB, users authEmailUsers, tokens authEmai
 		db:     database,
 		users:  users,
 		tokens: tokens,
-		sender: sender,
+		sender: asContextSender(sender),
 		queue: shared.NewJobQueue[authm.AuthEmailOutboxItem](database, "auth email outbox",
 			shared.QueueStatuses{
 				Pending:    authm.AuthEmailStatusPending,
@@ -204,10 +250,21 @@ func NewAuthEmailOutbox(database *gorm.DB, users authEmailUsers, tokens authEmai
 		batch: capped("AUTH_EMAIL_OUTBOX_BATCH",
 			shared.EnvPositiveInt("AUTH_EMAIL_OUTBOX_BATCH", defaultAuthEmailOutboxBatch),
 			defaultAuthEmailOutboxBatch),
-		workers: authEmailSendWorkers,
-		stopCh:  make(chan struct{}),
-		logger:  slog.Default(),
+		workers:      authEmailSendWorkers,
+		sentryClient: func() *sentry.Client { return sentry.CurrentHub().Client() },
+		stopCh:       make(chan struct{}),
+		logger:       slog.Default(),
 	}
+}
+
+// newReportHub returns a Sentry hub of the outbox's own: the process's client
+// over a new scope tagged with the service. It shares no scope with the
+// global hub, so a report never carries a scope another goroutine pushed
+// there.
+func (o *AuthEmailOutbox) newReportHub() *sentry.Hub {
+	scope := sentry.NewScope()
+	scope.SetTag("service", AuthEmailOutboxLoopName)
+	return sentry.NewHub(o.sentryClient(), scope)
 }
 
 // capped returns v, or limit with a warning when v exceeds it.
@@ -311,7 +368,7 @@ func (o *AuthEmailOutbox) processTick(ctx context.Context) {
 		}
 	}
 	if n := c.expired.Load(); n > 0 {
-		reportDroppedUnsent(int64(n))
+		o.reportDroppedUnsent(int64(n))
 	}
 	if claimed > 0 {
 		o.logger.Info("auth email outbox tick", "claimed", claimed,
@@ -325,9 +382,8 @@ type batchCounts struct {
 	sent, other, requeued, expired atomic.Int32
 }
 
-// sendBatch processes items on o.workers workers. A row a worker reaches after
-// the tick is cancelled (a deploy) or after startBy goes back to `pending`
-// with the claim's attempt undone, so the next tick sends it.
+// sendBatch processes items on o.workers workers. Each worker reports to
+// Sentry on a hub of its own, carried on the context it passes down.
 func (o *AuthEmailOutbox) sendBatch(ctx context.Context, items []authm.AuthEmailOutboxItem, startBy time.Time, c *batchCounts) {
 	next := make(chan authm.AuthEmailOutboxItem)
 	var wg sync.WaitGroup
@@ -335,17 +391,15 @@ func (o *AuthEmailOutbox) sendBatch(ctx context.Context, items []authm.AuthEmail
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
+			wctx := sentry.SetHubOnContext(ctx, o.newReportHub())
 			for item := range next {
-				if ctx.Err() != nil || !time.Now().Before(startBy) {
-					o.requeueWithoutAttempt(ctx, []authm.AuthEmailOutboxItem{item})
-					c.requeued.Add(1)
-					continue
-				}
-				switch o.processItemContained(ctx, item) {
+				switch o.processItemContained(wctx, item, startBy) {
 				case outcomeSent:
 					c.sent.Add(1)
 				case outcomeExpired:
 					c.expired.Add(1)
+				case outcomeRequeued:
+					c.requeued.Add(1)
 				default:
 					c.other.Add(1)
 				}
@@ -367,7 +421,7 @@ func (o *AuthEmailOutbox) sendBatch(ctx context.Context, items []authm.AuthEmail
 // channel and sendBatch's producer can never block on a worker that died.
 // The row is marked failed rather than left `processing`, so one row that
 // panics is retired once instead of being reclaimed into the same panic.
-func (o *AuthEmailOutbox) processItemContained(ctx context.Context, item authm.AuthEmailOutboxItem) (outcome itemOutcome) {
+func (o *AuthEmailOutbox) processItemContained(ctx context.Context, item authm.AuthEmailOutboxItem, startBy time.Time) (outcome itemOutcome) {
 	defer func() {
 		r := recover()
 		if r == nil {
@@ -387,7 +441,7 @@ func (o *AuthEmailOutbox) processItemContained(ctx context.Context, item authm.A
 			o.markFailed(ctx, item, fmt.Errorf("panic while sending: %v", r))
 		}()
 	}()
-	return o.processItem(ctx, item)
+	return o.processItem(ctx, item, startBy)
 }
 
 // itemOutcome is what processItem did with one row.
@@ -397,6 +451,7 @@ const (
 	outcomeOther itemOutcome = iota
 	outcomeSent
 	outcomeExpired
+	outcomeRequeued
 )
 
 // claim takes up to batch pending rows whose next_attempt_at has come and
@@ -407,16 +462,26 @@ func (o *AuthEmailOutbox) claim(ctx context.Context) ([]authm.AuthEmailOutboxIte
 }
 
 // processItem sends one row's email and records the outcome.
-func (o *AuthEmailOutbox) processItem(ctx context.Context, item authm.AuthEmailOutboxItem) itemOutcome {
-	// Age first: it is the one bound that retires every row, whatever its
+//
+// A row reached after the tick is cancelled (a deploy) or after startBy, and
+// a row whose account read either of those cut short, goes back to `pending`
+// with the claim's attempt undone, so the next tick sends it.
+func (o *AuthEmailOutbox) processItem(ctx context.Context, item authm.AuthEmailOutboxItem, startBy time.Time) itemOutcome {
+	if ctx.Err() != nil || !time.Now().Before(startBy) {
+		return o.requeueWithoutAttempt(ctx, item)
+	}
+
+	// Age next: it is the one bound that retires every row, whatever its
 	// attempts. The tick reports these to Sentry once, with the count.
 	if time.Since(item.CreatedAt) > authEmailMaxAge {
 		o.markSkipped(ctx, item, authEmailSkipExpired)
 		return outcomeExpired
 	}
 
-	skipReason, err := o.deliver(item)
+	skipReason, err := o.deliver(ctx, item, startBy)
 	switch {
+	case errors.Is(err, errAccountReadCutShort):
+		return o.requeueWithoutAttempt(ctx, item)
 	case errors.Is(err, errUnknownAuthEmailKind):
 		o.markFailed(ctx, item, err)
 		return outcomeOther
@@ -431,26 +496,39 @@ func (o *AuthEmailOutbox) processItem(ctx context.Context, item authm.AuthEmailO
 	return outcomeSent
 }
 
-var errUnknownAuthEmailKind = errors.New(authEmailFailUnknownKind)
+var (
+	errUnknownAuthEmailKind = errors.New(authEmailFailUnknownKind)
+	// errAccountReadCutShort is an account read that ended because the tick
+	// was cancelled or its start budget ran out, not because the read failed.
+	errAccountReadCutShort = errors.New("account read cut short by the end of the tick")
+)
 
 // deliver reads the account, checks it still qualifies, mints the token and
 // sends. It returns a skip reason when the account no longer qualifies, and
 // an error when the attempt failed.
 //
-// The eligibility rules are the request handlers': a magic link needs a
-// verified address; a verification email needs an address not yet verified;
-// a recovery email needs a soft-deleted account still inside its recovery
-// window; a pending-link email needs an account that may sign in.
-func (o *AuthEmailOutbox) deliver(item authm.AuthEmailOutboxItem) (string, error) {
-	user, err := o.users.GetUserByID(item.UserID)
+// The eligibility rules: every kind but recovery needs an account that may
+// sign in (needsOpenAccount); a magic link needs a verified address; a
+// verification email needs an address not yet verified; a recovery email
+// needs a soft-deleted account still inside its recovery window, the rule
+// the recovery request and confirm handlers apply; a pending-link email
+// needs a row that names a pending link.
+//
+// A kind this function has no rule for fails before anything else is
+// checked, so it is reported whatever state its account is in.
+func (o *AuthEmailOutbox) deliver(ctx context.Context, item authm.AuthEmailOutboxItem, startBy time.Time) (string, error) {
+	if !knownAuthEmailKind(item.Kind) {
+		return "", errUnknownAuthEmailKind
+	}
+	user, err := o.readAccount(ctx, item.UserID, startBy)
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return authEmailSkipAccountGone, nil
 	}
 	if err != nil {
 		return "", err
 	}
-	if user == nil {
-		return authEmailSkipAccountGone, nil
+	if needsOpenAccount(item.Kind) && !user.CanSignIn() {
+		return authEmailSkipClosedAccount, nil
 	}
 	if user.Email == nil || *user.Email == "" {
 		return authEmailSkipIneligible, nil
@@ -466,7 +544,7 @@ func (o *AuthEmailOutbox) deliver(item authm.AuthEmailOutboxItem) (string, error
 		if err != nil {
 			return "", err
 		}
-		return "", o.sender.SendMagicLinkEmail(email, token)
+		return "", o.sender.SendMagicLinkEmailContext(ctx, email, token)
 
 	case authm.AuthEmailKindOAuthLink:
 		// No verified-address rule: proving the mailbox is what this link is
@@ -474,14 +552,14 @@ func (o *AuthEmailOutbox) deliver(item authm.AuthEmailOutboxItem) (string, error
 		// link is still there is decided when the link is followed
 		// (AuthService.CompleteOAuthLinkByEmail); the request kept it alive
 		// for as long as this send may happen (HoldOAuthLinkForEmail).
-		if !user.CanSignIn() || item.OAuthLinkRef == nil {
+		if item.OAuthLinkRef == nil {
 			return authEmailSkipIneligible, nil
 		}
 		token, err := o.tokens.CreateOAuthLinkToken(user.ID, email, *item.OAuthLinkRef)
 		if err != nil {
 			return "", err
 		}
-		return "", o.sender.SendMagicLinkEmail(email, token)
+		return "", o.sender.SendMagicLinkEmailContext(ctx, email, token)
 
 	case authm.AuthEmailKindVerification:
 		if user.EmailVerified {
@@ -491,7 +569,7 @@ func (o *AuthEmailOutbox) deliver(item authm.AuthEmailOutboxItem) (string, error
 		if err != nil {
 			return "", err
 		}
-		return "", o.sender.SendVerificationEmail(email, token)
+		return "", o.sender.SendVerificationEmailContext(ctx, email, token)
 
 	case authm.AuthEmailKindAccountRecovery:
 		if user.IsActive || !o.users.IsAccountRecoverable(user) {
@@ -502,9 +580,45 @@ func (o *AuthEmailOutbox) deliver(item authm.AuthEmailOutboxItem) (string, error
 		if err != nil {
 			return "", err
 		}
-		return "", o.sender.SendAccountRecoveryEmail(email, token, daysRemaining)
+		return "", o.sender.SendAccountRecoveryEmailContext(ctx, email, token, daysRemaining)
 	}
 	return "", errUnknownAuthEmailKind
+}
+
+// knownAuthEmailKind reports whether deliver has a rule for kind.
+func knownAuthEmailKind(kind authm.AuthEmailKind) bool {
+	switch kind {
+	case authm.AuthEmailKindMagicLink, authm.AuthEmailKindOAuthLink,
+		authm.AuthEmailKindVerification, authm.AuthEmailKindAccountRecovery:
+		return true
+	}
+	return false
+}
+
+// needsOpenAccount reports whether kind's email goes only to an account that
+// may sign in. Every kind does but recovery, which is how a closed account
+// inside its recovery window is reopened, so a kind without a rule of its own
+// gets the stricter one.
+func needsOpenAccount(kind authm.AuthEmailKind) bool {
+	return kind != authm.AuthEmailKindAccountRecovery
+}
+
+// readAccount reads the account a row names, closed or not, with startBy as
+// the read's deadline. It reads the users table itself because the user
+// service's reads take no context to carry that deadline. A read that the
+// deadline or the tick's cancellation ended returns errAccountReadCutShort.
+func (o *AuthEmailOutbox) readAccount(ctx context.Context, userID uint, startBy time.Time) (*authm.User, error) {
+	rctx, cancel := context.WithDeadline(ctx, startBy)
+	defer cancel()
+	var user authm.User
+	err := o.db.WithContext(rctx).Take(&user, userID).Error
+	switch {
+	case err == nil:
+		return &user, nil
+	case !errors.Is(err, gorm.ErrRecordNotFound) && rctx.Err() != nil:
+		return nil, fmt.Errorf("%w: %w", errAccountReadCutShort, err)
+	}
+	return nil, err
 }
 
 // housekeep reclaims rows stranded in `processing`, retires expired pending
@@ -526,7 +640,7 @@ func (o *AuthEmailOutbox) housekeep(ctx context.Context) {
 	} else if res.RowsAffected > 0 {
 		o.logger.Warn("auth email outbox: dropped expired requests unsent",
 			"count", res.RowsAffected, "max_age", authEmailMaxAge)
-		reportDroppedUnsent(res.RowsAffected)
+		o.reportDroppedUnsent(res.RowsAffected)
 	}
 
 	if n := o.queue.PruneTerminal(ctx, authEmailRetention); n > 0 {
@@ -570,9 +684,11 @@ func (o *AuthEmailOutbox) markFailedOrRetry(ctx context.Context, item authm.Auth
 		"id", item.ID, "kind", item.Kind, "user_id", item.UserID, "retry_in", delay, "error", cause)
 }
 
-// markFailed records a terminal failure and reports it to Sentry. A provider
-// error has already been reported once per attempt by the email service; this
-// report is the one that says the person never got their email.
+// markFailed records a terminal failure and reports it to Sentry on the hub
+// ctx carries (the worker's), or on a new outbox hub when it carries none. A
+// provider error has already been reported once per attempt by the email
+// service; this report is the one that says the person never got their
+// email.
 func (o *AuthEmailOutbox) markFailed(ctx context.Context, item authm.AuthEmailOutboxItem, cause error) {
 	o.finalize(ctx, []uint{item.ID}, map[string]interface{}{
 		"status":     authm.AuthEmailStatusFailed,
@@ -580,23 +696,23 @@ func (o *AuthEmailOutbox) markFailed(ctx context.Context, item authm.AuthEmailOu
 	})
 	o.logger.Error("auth email outbox: giving up on email",
 		"id", item.ID, "kind", item.Kind, "user_id", item.UserID, "error", cause)
-	// A cloned hub, so two workers reporting at once never share a scope.
-	hub := sentry.CurrentHub().Clone()
-	hub.ConfigureScope(func(scope *sentry.Scope) {
-		scope.SetTag("service", AuthEmailOutboxLoopName)
+	hub := sentry.GetHubFromContext(ctx)
+	if hub == nil {
+		hub = o.newReportHub()
+	}
+	hub.WithScope(func(scope *sentry.Scope) {
 		scope.SetTag("email_type", string(item.Kind))
+		hub.CaptureException(cause)
 	})
-	hub.CaptureException(cause)
 }
 
 // reportDroppedUnsent reports to Sentry that n requests aged out unsent: each
 // is a person who asked for a sign-in, recovery or verification link and got
 // none. One event per reap pass and one per tick, so a backlog is a few alerts
 // rather than thousands.
-func reportDroppedUnsent(n int64) {
-	hub := sentry.CurrentHub().Clone()
+func (o *AuthEmailOutbox) reportDroppedUnsent(n int64) {
+	hub := o.newReportHub()
 	hub.ConfigureScope(func(scope *sentry.Scope) {
-		scope.SetTag("service", AuthEmailOutboxLoopName)
 		scope.SetLevel(sentry.LevelWarning)
 		scope.SetExtra("count", n)
 		scope.SetExtra("max_age", authEmailMaxAge.String())
@@ -604,13 +720,14 @@ func reportDroppedUnsent(n int64) {
 	hub.CaptureMessage("auth email outbox: requests expired unsent")
 }
 
-// requeueWithoutAttempt returns rows to `pending` and undoes the claim's
-// attempt, for rows a cancelled tick never reached.
-func (o *AuthEmailOutbox) requeueWithoutAttempt(ctx context.Context, items []authm.AuthEmailOutboxItem) {
-	o.finalize(ctx, shared.QueueRowIDs(items), map[string]interface{}{
+// requeueWithoutAttempt returns a row to `pending` and undoes the claim's
+// attempt, for a row the tick did not get to send (processItem).
+func (o *AuthEmailOutbox) requeueWithoutAttempt(ctx context.Context, item authm.AuthEmailOutboxItem) itemOutcome {
+	o.finalize(ctx, []uint{item.ID}, map[string]interface{}{
 		"status":   authm.AuthEmailStatusPending,
 		"attempts": gorm.Expr("GREATEST(attempts - 1, 0)"),
 	})
+	return outcomeRequeued
 }
 
 // finalize writes rows' outcome on a context detached from the tick's
