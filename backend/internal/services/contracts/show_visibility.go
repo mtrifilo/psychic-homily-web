@@ -50,7 +50,7 @@ type RevisionViewer = ShowViewer
 // type string would put that decision behind an implementation this interface
 // cannot see, and every mock would get a vote on it.
 //
-// THE NAME IS NARROWER THAN WHAT THE INTERFACE ANSWERS. CollectionVisibleTo
+// THE NAME IS NARROWER THAN WHAT THE INTERFACE ANSWERS. CollectionServedTo
 // belongs on it because the two gates are the same object at every call site
 // (one *gorm.DB, one field, one construction). Renaming the interface and its
 // generated mock touches every handler field, every construction and every mock
@@ -61,12 +61,13 @@ type ShowVisibilityInterface interface {
 	// or an admin. See services/shared.ShowVisibleTo.
 	ShowVisibleTo(showID uint, viewer ShowViewer) bool
 
-	// CollectionVisibleTo mirrors GET /collections/{slug}: public, or the
-	// creator's own. NOT admins: no collection detail or listing read has an
-	// admin tier, and a gate more permissive than the route it mirrors is the
-	// leak, not the fix. The admin surfaces that do serve a private collection
-	// are named in services/shared/collection_visibility.go, which says why they
-	// are moderation powers rather than a tier this gate should carry. See
-	// services/shared.CollectionVisibleTo.
-	CollectionVisibleTo(collectionID uint, viewer ShowViewer) bool
+	// CollectionServedTo mirrors GET /collections/{slug}: public or the
+	// creator's own, and the creator's account is live. NOT admins: no
+	// collection detail or listing read has an admin tier, and a gate more
+	// permissive than the route it mirrors is the leak, not the fix. The admin
+	// surfaces that do serve a private collection are named in
+	// services/shared/collection_visibility.go, which says why they are
+	// moderation powers rather than a tier this gate should carry. See
+	// services/shared.CollectionServedTo.
+	CollectionServedTo(collectionID uint, viewer ShowViewer) bool
 }

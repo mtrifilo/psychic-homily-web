@@ -5,9 +5,11 @@ import (
 	"time"
 
 	apperrors "psychic-homily-backend/internal/errors"
+	authm "psychic-homily-backend/internal/models/auth"
 	catalogm "psychic-homily-backend/internal/models/catalog"
 	communitym "psychic-homily-backend/internal/models/community"
 	"psychic-homily-backend/internal/services/contracts"
+	"psychic-homily-backend/internal/services/shared"
 )
 
 // Scene-scoped public collections — the scene page's "Collections · {city}"
@@ -121,9 +123,11 @@ func (s *SceneService) GetSceneCollections(city, state string, limit int) ([]con
 	//     rather than a join. A member pointing at a deleted entity simply
 	//     never matches, and still counts toward item_count — the honest
 	//     denominator for "how much of this collection is about here".
-	//   - is_public is asserted in exactly ONE place: the outer SELECT, the
-	//     only clause that emits a row. The CTEs deliberately do not repeat
-	//     it. Two spellings of the privacy gate is two places to forget one.
+	//   - the listing rule (shared.PublicListedCollectionSQL: public, with a
+	//     live creator whose profile is public) is asserted in exactly ONE
+	//     place: the outer SELECT, the only clause that emits a row. The CTEs
+	//     deliberately do not repeat it. Two spellings of the privacy gate is
+	//     two places to forget one.
 	//   - local_counts leads, and `totals` reads only the collections it
 	//     found. That ordering is the difference between work proportional to
 	//     the SCENE and work proportional to the whole site: aggregating
@@ -140,8 +144,9 @@ func (s *SceneService) GetSceneCollections(city, state string, limit int) ([]con
 	//     float rounding: a 7-of-14 collection qualifies, a 6-of-13 does not.
 	//   - the whole thing is one round trip. Per-collection follow-up reads
 	//     for counts would be the N+1 the batch-read convention exists to
-	//     prevent, and contributor_count is derived live (COUNT DISTINCT)
-	//     rather than from a counter column, matching batchCountContributors.
+	//     prevent, and contributor_count is derived live (COUNT DISTINCT over
+	//     live accounts) rather than from a counter column, matching
+	//     batchCountContributors. item_count counts every item.
 	sql := `
 		WITH scene_artists AS (
 			SELECT a.id FROM artists a WHERE ` + ap + `
@@ -167,8 +172,10 @@ func (s *SceneService) GetSceneCollections(city, state string, limit int) ([]con
 		totals AS (
 			SELECT ci.collection_id,
 			       COUNT(*) AS item_count,
-			       COUNT(DISTINCT ci.added_by_user_id) AS contributor_count
+			       COUNT(DISTINCT live_adder.id) AS contributor_count
 			FROM collection_items ci
+			LEFT JOIN users live_adder ON live_adder.id = ci.added_by_user_id
+			     AND ` + authm.LiveAccountSQL("live_adder") + `
 			WHERE ci.collection_id IN (SELECT collection_id FROM local_counts)
 			GROUP BY ci.collection_id
 		)
@@ -183,7 +190,7 @@ func (s *SceneService) GetSceneCollections(city, state string, limit int) ([]con
 		FROM collections c
 		JOIN local_counts lc ON lc.collection_id = c.id
 		JOIN totals t ON t.collection_id = c.id
-		WHERE c.is_public = true
+		WHERE ` + shared.PublicListedCollectionSQL("c") + `
 		  AND (
 		        lc.scene_local_item_count >= ?
 		     OR lc.scene_local_item_count * 2 >= t.item_count

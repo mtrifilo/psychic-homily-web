@@ -385,7 +385,7 @@ func (s *CollectionDigestService) queryCandidates(now time.Time) ([]digestCandid
 	// A closed ADDER matches no added_by row, so the item goes out under the
 	// label digestDisplayName gives a missing adder and no closed account is
 	// named.
-	visibleToSubscriber := shared.VisibleCollectionRecipientPredicateSQL("c", "cs.user_id")
+	servedToSubscriber := shared.ServedCollectionRecipientPredicateSQL("c", "cs.user_id")
 	err := s.db.Raw(`
 		SELECT
 			cs.user_id,
@@ -415,8 +415,7 @@ func (s *CollectionDigestService) queryCandidates(now time.Time) ([]digestCandid
 		LEFT JOIN user_preferences up ON up.user_id = cs.user_id
 		WHERE `+authm.LiveAccountSQL("u")+`
 			AND COALESCE(up.notify_on_collection_digest, FALSE) = TRUE
-			AND `+visibleToSubscriber+`
-			AND `+shared.CollectionCreatorIsLiveSQL("c")+`
+			AND `+servedToSubscriber+`
 		ORDER BY cs.user_id ASC, c.id ASC, ci.created_at ASC
 	`, now).Scan(&rows).Error
 	if err != nil {
