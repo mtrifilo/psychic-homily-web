@@ -12,6 +12,7 @@ import (
 	"math"
 	"math/big"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
@@ -62,6 +63,15 @@ const (
 	// to be kept, so a set holding only shorter moduli fails the fetch instead
 	// of replacing the cached set.
 	appleKeysMinModulusBits = 2048
+
+	// appleKeysDropSampleKids is how many key ids of dropped entries one
+	// fetch's drop warning carries.
+	appleKeysDropSampleKids = 3
+
+	// appleKeysDropKidLogRunes is how many runes of a dropped entry's key id
+	// the drop warning carries: room for a real key id, and a bound on a
+	// made-up one.
+	appleKeysDropKidLogRunes = 64
 )
 
 // appleKeysHTTPClient serves every key-set fetch of a service whose
@@ -94,7 +104,7 @@ type AppleAuthService struct {
 	fetchAppleKeysFromURL string           // replaces appleKeysURL
 	keysHTTPClient        *http.Client     // replaces appleKeysHTTPClient
 	keysNow               func() time.Time // replaces time.Now for the key cache
-	keysLogger            *slog.Logger     // replaces logger.Default() for fetch failures
+	keysLogger            *slog.Logger     // replaces logger.Default() for key-set fetch logs
 }
 
 // appleKeysFetch is one key-set fetch that concurrent lookups share. It runs
@@ -491,8 +501,9 @@ func (s *AppleAuthService) runAppleKeysFetch(fetch *appleKeysFetch) {
 }
 
 // fetchAppleKeys downloads Apple's JWK set and parses it into RSA public keys.
-// Entries that cannot verify an RS256 signature are left out, and each entry
-// left out because it does not decode is logged at warn.
+// Entries that cannot verify an RS256 signature are left out. A fetch that
+// leaves any entry out logs one warning for all of them, whether or not a key
+// survives; a fetch that leaves none out logs nothing.
 func (s *AppleAuthService) fetchAppleKeys() (map[string]*rsa.PublicKey, error) {
 	keysURL := appleKeysURL
 	if s.fetchAppleKeysFromURL != "" {
@@ -522,15 +533,24 @@ func (s *AppleAuthService) fetchAppleKeys() (map[string]*rsa.PublicKey, error) {
 	}
 
 	keys := make(map[string]*rsa.PublicKey)
+	var drops appleKeysDrops
 	for _, jwk := range jwkSet.Keys {
-		key, err := jwk.rs256PublicKey()
-		if err != nil {
-			s.keysLog().Warn("apple_keys_entry_dropped", "kid", jwk.Kid, "error", err.Error())
+		key, reason := jwk.rs256PublicKey()
+		if key == nil {
+			drops.add(reason, jwk.Kid)
 			continue
 		}
-		if key != nil {
-			keys[jwk.Kid] = key
-		}
+		keys[jwk.Kid] = key
+	}
+	if drops.total > 0 {
+		s.keysLog().Warn("apple_keys_entries_dropped",
+			"dropped", drops.total,
+			"dropped_decode", drops.byReason[appleJWKDropDecode],
+			"dropped_type", drops.byReason[appleJWKDropType],
+			"dropped_modulus", drops.byReason[appleJWKDropModulus],
+			"dropped_exponent", drops.byReason[appleJWKDropExponent],
+			"sample_kids", drops.sampleKids,
+		)
 	}
 
 	// A set with no usable key would replace a working one and answer every
@@ -541,31 +561,89 @@ func (s *AppleAuthService) fetchAppleKeys() (map[string]*rsa.PublicKey, error) {
 	return keys, nil
 }
 
-// rs256PublicKey returns the RSA public key jwk holds, or nil when jwk cannot
-// verify an RS256 signature: a kty other than RSA, a use other than "sig" or
-// an alg other than "RS256" (use and alg count only when present), a modulus
-// shorter than appleKeysMinModulusBits, or an exponent outside the range
-// crypto/rsa accepts. A modulus or exponent that is not base64url is an error.
-func (jwk appleJWK) rs256PublicKey() (*rsa.PublicKey, error) {
+// appleJWKDropReason is why a key-set entry is left out of the parsed set.
+type appleJWKDropReason int
+
+const (
+	// appleJWKDropType: a kty other than RSA, a use other than "sig" or an
+	// alg other than "RS256" (use and alg count only when present).
+	appleJWKDropType appleJWKDropReason = iota
+	// appleJWKDropDecode: a modulus or exponent that is not base64url.
+	appleJWKDropDecode
+	// appleJWKDropModulus: a modulus shorter than appleKeysMinModulusBits.
+	appleJWKDropModulus
+	// appleJWKDropExponent: an exponent outside the range crypto/rsa accepts.
+	appleJWKDropExponent
+
+	appleJWKDropReasonCount
+)
+
+// appleKeysDrops tallies the entries one fetch leaves out: the total, the
+// count per reason, and the key ids of the first appleKeysDropSampleKids of
+// them as appleKeyIDForDropLog renders them.
+type appleKeysDrops struct {
+	total      int
+	byReason   [appleJWKDropReasonCount]int
+	sampleKids []string
+}
+
+func (d *appleKeysDrops) add(reason appleJWKDropReason, kid string) {
+	d.total++
+	d.byReason[reason]++
+	if len(d.sampleKids) < appleKeysDropSampleKids {
+		d.sampleKids = append(d.sampleKids, appleKeyIDForDropLog(kid))
+	}
+}
+
+// appleKeyIDForDropLog is a key-set entry's kid as the drop warning carries
+// it: its first appleKeysDropKidLogRunes runes, each one outside ASCII
+// letters, digits, '-', '_' and '.' replaced by '?', followed by "..." when
+// kid is longer.
+func appleKeyIDForDropLog(kid string) string {
+	var b strings.Builder
+	runes := 0
+	for _, r := range kid {
+		if runes == appleKeysDropKidLogRunes {
+			b.WriteString("...")
+			break
+		}
+		runes++
+		switch {
+		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9', r == '-', r == '_', r == '.':
+			b.WriteRune(r)
+		default:
+			b.WriteByte('?')
+		}
+	}
+	return b.String()
+}
+
+// rs256PublicKey returns the RSA public key jwk holds, or nil and the reason
+// jwk cannot verify an RS256 signature. The checks run in the order type,
+// decode, modulus, exponent, and the first that fails is the reason.
+func (jwk appleJWK) rs256PublicKey() (*rsa.PublicKey, appleJWKDropReason) {
 	if jwk.Kty != "RSA" || (jwk.Use != "" && jwk.Use != "sig") || (jwk.Alg != "" && jwk.Alg != "RS256") {
-		return nil, nil
+		return nil, appleJWKDropType
 	}
 
 	nBytes, err := base64.RawURLEncoding.DecodeString(jwk.N)
 	if err != nil {
-		return nil, fmt.Errorf("failed to decode modulus: %w", err)
+		return nil, appleJWKDropDecode
 	}
 	eBytes, err := base64.RawURLEncoding.DecodeString(jwk.E)
 	if err != nil {
-		return nil, fmt.Errorf("failed to decode exponent: %w", err)
+		return nil, appleJWKDropDecode
 	}
 
 	n := new(big.Int).SetBytes(nBytes)
-	e := new(big.Int).SetBytes(eBytes)
-	if n.BitLen() < appleKeysMinModulusBits || !e.IsInt64() || e.Int64() < 2 || e.Int64() > math.MaxInt32 {
-		return nil, nil
+	if n.BitLen() < appleKeysMinModulusBits {
+		return nil, appleJWKDropModulus
 	}
-	return &rsa.PublicKey{N: n, E: int(e.Int64())}, nil
+	e := new(big.Int).SetBytes(eBytes)
+	if !e.IsInt64() || e.Int64() < 2 || e.Int64() > math.MaxInt32 {
+		return nil, appleJWKDropExponent
+	}
+	return &rsa.PublicKey{N: n, E: int(e.Int64())}, 0
 }
 
 func (s *AppleAuthService) keysClient() *http.Client {
