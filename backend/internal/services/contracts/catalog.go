@@ -3228,6 +3228,8 @@ type SceneServiceInterface interface {
 	LookupSceneID(slug string) (uint, bool, error)
 	// GetSceneCollections returns the public collections relevant to a scene,
 	// most scene-local first — the scene page's "Collections · {city}" rail.
+	// It carries only collections a public-tier listing may: public, with a live
+	// creator whose profile is public.
 	//
 	// Collections have no scene field, so relevance is derived per-member: an
 	// artist member counts as scene-local when it is BASED in the scene

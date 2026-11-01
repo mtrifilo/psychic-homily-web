@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"time"
 
+	authm "psychic-homily-backend/internal/models/auth"
 	"psychic-homily-backend/internal/services/contracts"
 	"psychic-homily-backend/internal/services/shared"
 )
@@ -21,12 +22,12 @@ import (
 // user-attribution pattern) rather than joined, so the display logic in
 // shared.ResolvePublicUserName stays the single source of truth.
 type featuredRunRow struct {
-	RunID               uint    `gorm:"column:run_id"`
-	CollectionID        uint    `gorm:"column:collection_id"`
-	Title               string  `gorm:"column:title"`
-	Slug                string  `gorm:"column:slug"`
-	Description         string  `gorm:"column:description"`
-	CoverImageURL       *string `gorm:"column:cover_image_url"`
+	RunID               uint       `gorm:"column:run_id"`
+	CollectionID        uint       `gorm:"column:collection_id"`
+	Title               string     `gorm:"column:title"`
+	Slug                string     `gorm:"column:slug"`
+	Description         string     `gorm:"column:description"`
+	CoverImageURL       *string    `gorm:"column:cover_image_url"`
 	CreatorID           uint       `gorm:"column:creator_id"`
 	ItemCount           int        `gorm:"column:item_count"`
 	SubscriberCount     int        `gorm:"column:subscriber_count"`
@@ -74,7 +75,7 @@ func (s *ChartsService) GetFeaturedCollectionHistory(limit, offset int) ([]contr
 		if err := s.db.
 			Table("collection_feature_runs AS r").
 			Joins("JOIN collections c ON c.id = r.collection_id").
-			Where("c.is_public = ?", true).
+			Where(shared.PublicListedCollectionSQL("c")).
 			Count(&total).Error; err != nil {
 			return nil, 0, fmt.Errorf("failed to count feature runs: %w", err)
 		}
@@ -93,12 +94,17 @@ func (s *ChartsService) queryFeaturedRuns(openOnly bool, limit, offset int) ([]c
 		return nil, fmt.Errorf("database not initialized")
 	}
 
-	// These are PUBLIC read paths, so they only ever surface collections the
-	// public can actually open (c.is_public = true) — mirroring the public
-	// /collections list's PublicOnly filter. A private collection that gets
-	// featured must never leak its title/description/cover through the masthead
-	// card or the public archive.
-	where := "WHERE c.is_public = true"
+	// These are PUBLIC listings, so they surface only the collections a
+	// public-tier listing may carry (shared.PublicListedCollectionSQL: public,
+	// with a live creator whose profile is public), mirroring the public
+	// /collections list. A private collection, or a closed or private-profile
+	// creator's, that is featured never reaches the masthead card or the public
+	// archive with its title, description, cover or curator's name; its feature
+	// run stays open, so it returns when the collection is listable again.
+	//
+	// subscriber_count counts live accounts, as the collection detail does;
+	// item_count counts every item.
+	where := "WHERE " + shared.PublicListedCollectionSQL("c")
 	if openOnly {
 		where += " AND r.unfeatured_at IS NULL"
 	}
@@ -113,7 +119,8 @@ func (s *ChartsService) queryFeaturedRuns(openOnly bool, limit, offset int) ([]c
 			c.cover_image_url,
 			c.creator_id,
 			(SELECT COUNT(*) FROM collection_items ci WHERE ci.collection_id = c.id) AS item_count,
-			(SELECT COUNT(*) FROM collection_subscribers cs WHERE cs.collection_id = c.id) AS subscriber_count,
+			(SELECT COUNT(*) FROM collection_subscribers cs WHERE cs.collection_id = c.id
+				AND `+authm.LiveAccountExistsSQL("cs.user_id")+`) AS subscriber_count,
 			r.featured_at,
 			r.unfeatured_at,
 			r.featured_at_estimated
