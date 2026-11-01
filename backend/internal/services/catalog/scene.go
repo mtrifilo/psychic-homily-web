@@ -38,6 +38,11 @@ type SceneService struct {
 	// injects a different stub geocoder would break that invariant.
 	geocoder geo.Geocoder
 
+	// now is the clock that decides which scene night is live. Every such
+	// decision in one answer reads it once, so a test that replaces it controls
+	// "tonight" for the whole answer.
+	now func() time.Time
+
 	// slugMisses is a process-local negative cache for ParseSceneSlug. Hits are
 	// not stored: a cached hit would keep resolving a slug after its last
 	// verified venue disappeared. Misses expire so a scene that appears later
@@ -54,6 +59,7 @@ func NewSceneService(database *gorm.DB) *SceneService {
 	return &SceneService{
 		db:         database,
 		geocoder:   geo.Default(),
+		now:        time.Now,
 		slugMisses: make(map[string]time.Time),
 	}
 }

@@ -105,6 +105,14 @@ func (suite *SceneServiceIntegrationTestSuite) showIDs(idOrSlug string) []uint {
 	return idsOf(rail.Shows)
 }
 
+// pinSceneClock fixes the instant the scene service reads as "now" until the
+// calling test or subtest ends, then restores the clock it replaced.
+func (suite *SceneServiceIntegrationTestSuite) pinSceneClock(at time.Time) {
+	prev := suite.sceneService.now
+	suite.sceneService.now = func() time.Time { return at }
+	suite.T().Cleanup(func() { suite.sceneService.now = prev })
+}
+
 // The two acceptance properties that define the rail: it never lists the show
 // the reader is already looking at, and its reach is the METRO, not the city.
 func (suite *SceneServiceIntegrationTestSuite) TestGetShowAlsoTonight_ExcludesSelfAndScopesToMetro() {
@@ -172,6 +180,13 @@ func (suite *SceneServiceIntegrationTestSuite) TestGetShowAlsoTonight_WindowIsTh
 // and both genuinely belong to the date.
 func (suite *SceneServiceIntegrationTestSuite) TestGetShowAlsoTonight_HoldsTheWholeDayAcrossDSTTransitions() {
 	loc := suite.alsoTonightLoc()
+	// The fixtures sit on real calendar dates, and the rail reorders the LIVE
+	// night (started rows sink below upcoming ones), so a fixture night that is
+	// also the real night would change the order these subcases assert. The pin
+	// is an instant rather than a date because tonightDate starts a night at
+	// 06:00: the 2026-11-01 night is live until 05:59 on 2026-11-02. Noon on
+	// 2026-10-15 is inside no fixture's night.
+	suite.pinSceneClock(time.Date(2026, time.October, 15, 12, 0, 0, 0, loc))
 	chicago := suite.createAlsoTonightVenue("Empty Bottle", "Chicago", "IL")
 	evanston := suite.createAlsoTonightVenue("Space", "Evanston", "IL")
 
@@ -195,25 +210,29 @@ func (suite *SceneServiceIntegrationTestSuite) TestGetShowAlsoTonight_HoldsTheWh
 
 	suite.TearDownTest()
 
-	suite.Run("fall back repeats an hour and both instants belong to the date", func() {
+	// 2026-11-01 in Chicago is 25 hours long: 01:30 happens twice, once at UTC-5
+	// and once at UTC-6. Constructed as absolute instants because time.Date
+	// cannot express "the second 01:30".
+	dayStart := time.Date(2026, time.November, 1, 0, 0, 0, 0, loc)
+	seedFallBackNight := func() (subject, firstPass, secondPass, lastHour *catalogm.Show) {
 		chicago := suite.createAlsoTonightVenue("Empty Bottle", "Chicago", "IL")
 		evanston := suite.createAlsoTonightVenue("Space", "Evanston", "IL")
-
-		// 2026-11-01 in Chicago is 25 hours long: 01:30 happens twice, once at
-		// UTC-5 and once at UTC-6. Constructed as absolute instants because
-		// time.Date cannot express "the second 01:30".
-		dayStart := time.Date(2026, time.November, 1, 0, 0, 0, 0, loc)
-		subject := suite.createAlsoTonightShow("dst-fall-subject", chicago.ID,
+		subject = suite.createAlsoTonightShow("dst-fall-subject", chicago.ID,
 			time.Date(2026, time.November, 1, 20, 0, 0, 0, loc), catalogm.ShowStatusApproved)
-		firstPass := suite.createAlsoTonightShow("dst-first-0130", evanston.ID,
+		firstPass = suite.createAlsoTonightShow("dst-first-0130", evanston.ID,
 			dayStart.Add(90*time.Minute), catalogm.ShowStatusApproved)
-		secondPass := suite.createAlsoTonightShow("dst-second-0130", evanston.ID,
+		secondPass = suite.createAlsoTonightShow("dst-second-0130", evanston.ID,
 			dayStart.Add(150*time.Minute), catalogm.ShowStatusApproved)
 		// The last instant of the 25-hour day, and the first of the next.
-		lastHour := suite.createAlsoTonightShow("dst-last-hour", evanston.ID,
+		lastHour = suite.createAlsoTonightShow("dst-last-hour", evanston.ID,
 			dayStart.Add(25*time.Hour-time.Minute), catalogm.ShowStatusApproved)
 		suite.createAlsoTonightShow("dst-next-day", evanston.ID,
 			dayStart.Add(25*time.Hour), catalogm.ShowStatusApproved)
+		return subject, firstPass, secondPass, lastHour
+	}
+
+	suite.Run("fall back repeats an hour and both instants belong to the date", func() {
+		subject, firstPass, secondPass, lastHour := seedFallBackNight()
 
 		// Sanity: the two 01:30 rows really are distinct instants sharing a wall
 		// clock, which is the only reason this test says anything.
@@ -224,8 +243,25 @@ func (suite *SceneServiceIntegrationTestSuite) TestGetShowAlsoTonight_HoldsTheWh
 		rail, err := suite.sceneService.GetShowAlsoTonight(fmt.Sprint(subject.ID))
 		suite.Require().NoError(err)
 		suite.Equal("2026-11-01", rail.Date)
+		suite.False(rail.IsTonight, "the pinned clock keeps this night out of live ordering")
 		suite.Equal([]uint{firstPass.ID, secondPass.ID, lastHour.ID}, suite.showIDs(fmt.Sprint(subject.ID)),
 			"a 25-hour day must hold both passes of the repeated hour and end at the NEXT local midnight")
+	})
+
+	suite.TearDownTest()
+
+	suite.Run("on the live fall-back night started rows sink below the upcoming one", func() {
+		subject, firstPass, secondPass, lastHour := seedFallBackNight()
+		// Noon on the fall-back date: past the 06:00 night start, after both
+		// 01:30 passes and before the last hour.
+		suite.pinSceneClock(time.Date(2026, time.November, 1, 12, 0, 0, 0, loc))
+
+		rail, err := suite.sceneService.GetShowAlsoTonight(fmt.Sprint(subject.ID))
+		suite.Require().NoError(err)
+		suite.Equal("2026-11-01", rail.Date)
+		suite.True(rail.IsTonight, "the pinned clock is inside this night")
+		suite.Equal([]uint{lastHour.ID, firstPass.ID, secondPass.ID}, idsOf(rail.Shows),
+			"on the live night the row still to come leads, then the started rows in clock order")
 	})
 }
 
