@@ -160,6 +160,17 @@ func TestValidatePassword_UnavailableBreachCheckLogsReasonClass(t *testing.T) {
 			wantReason:    "timeout",
 		},
 		{
+			name: "no record read before the deadline",
+			transport: func(t *testing.T) http.RoundTripper {
+				return transportTo(t, blockingServer(t, func(w http.ResponseWriter) {
+					w.WriteHeader(http.StatusOK)
+					w.(http.Flusher).Flush()
+				}))
+			},
+			clientTimeout: shortTimeout,
+			wantReason:    "timeout",
+		},
+		{
 			name:       "connection refused",
 			transport:  func(*testing.T) http.RoundTripper { return refusedTransport },
 			wantReason: "network",
@@ -279,6 +290,19 @@ func TestValidatePassword_UnavailableBreachCheckLogIsThrottledAcrossGoroutines(t
 	wg.Wait()
 
 	assert.Len(t, rec.all(), 1)
+}
+
+func TestValidatePassword_LocallyRefusedPasswordLeavesTheLogThrottleUnused(t *testing.T) {
+	v, rec := recordingValidator(refusedTransport)
+
+	result, err := v.ValidatePassword("short")
+	require.NoError(t, err)
+	assert.False(t, result.Valid)
+	assert.Empty(t, result.Warnings)
+	assert.Empty(t, rec.all(), "a locally refused password writes no unavailable line")
+
+	assertFailedOpen(t, v)
+	assert.Len(t, rec.all(), 1, "the next unavailable check still writes its line")
 }
 
 func TestValidatePassword_CompletedBreachCheckWritesNoUnavailableLine(t *testing.T) {

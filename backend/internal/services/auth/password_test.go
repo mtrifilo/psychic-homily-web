@@ -182,16 +182,18 @@ func TestIsBreached_NetworkError(t *testing.T) {
 
 func TestIsBreached_BodyWithNoRangeRecordIsAnError(t *testing.T) {
 	cases := map[string]string{
-		"empty":             "",
-		"blank lines":       "\r\n\r\n",
-		"captive portal":    "<!DOCTYPE html>\r\n<html><body>Sign in to the network</body></html>\r\n",
-		"suffix too short":  "1D2DA4053E34E76F6576ED1DA63134B5E2:3\r\n",
-		"suffix too long":   "1D2DA4053E34E76F6576ED1DA63134B5E2AB:3\r\n",
-		"suffix not hex":    "1D2DA4053E34E76F6576ED1DA63134B5E2G:3\r\n",
-		"no count":          "1D2DA4053E34E76F6576ED1DA63134B5E2A:\r\n",
-		"count not decimal": "1D2DA4053E34E76F6576ED1DA63134B5E2A:3x\r\n",
-		"no colon":          "1D2DA4053E34E76F6576ED1DA63134B5E2A\r\n",
-		"line too long":     strings.Repeat("A", 70000) + "\r\n",
+		"empty":              "",
+		"blank lines":        "\r\n\r\n",
+		"captive portal":     "<!DOCTYPE html>\r\n<html><body>Sign in to the network</body></html>\r\n",
+		"suffix too short":   "1D2DA4053E34E76F6576ED1DA63134B5E2:3\r\n",
+		"suffix too long":    "1D2DA4053E34E76F6576ED1DA63134B5E2AB:3\r\n",
+		"suffix not hex":     "1D2DA4053E34E76F6576ED1DA63134B5E2G:3\r\n",
+		"no count":           "1D2DA4053E34E76F6576ED1DA63134B5E2A:\r\n",
+		"count not decimal":  "1D2DA4053E34E76F6576ED1DA63134B5E2A:3x\r\n",
+		"no colon":           "1D2DA4053E34E76F6576ED1DA63134B5E2A\r\n",
+		"signed count":       "1D2DA4053E34E76F6576ED1DA63134B5E2A:+3\r\n",
+		"count over 64 bits": "1D2DA4053E34E76F6576ED1DA63134B5E2A:18446744073709551616\r\n",
+		"line too long":      strings.Repeat("A", 70000) + "\r\n",
 	}
 	for name, body := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -204,8 +206,19 @@ func TestIsBreached_BodyWithNoRangeRecordIsAnError(t *testing.T) {
 	}
 }
 
+func TestIsBreached_PaddingRecordsAreRecords(t *testing.T) {
+	body := "1D2DA4053E34E76F6576ED1DA63134B5E2A:0\r\nABCDEF1234567890ABCDEF1234567890ABC:0\r\n"
+	v := newMockValidator(mockHIBPResponse(http.StatusOK, body))
+
+	breached, err := v.IsBreached("password")
+	require.NoError(t, err)
+	assert.False(t, breached)
+}
+
 func TestIsBreached_MalformedLinesAmongRecordsAreSkipped(t *testing.T) {
-	malformed := "garbage\r\n" + hibpSuffix("password") + "\r\n\r\n"
+	suffix := hibpSuffix("password")
+	malformed := "garbage\r\n" + suffix + "\r\n\r\n" +
+		suffix + ":x\r\n" + suffix + ":1:extra\r\n" + suffix + ":-1\r\n"
 
 	t.Run("a matching record is found", func(t *testing.T) {
 		body := malformed + notBreachedBody + hibpSuffix("password") + ":10000\r\n"
