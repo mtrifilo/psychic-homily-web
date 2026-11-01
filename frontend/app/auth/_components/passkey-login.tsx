@@ -2,7 +2,6 @@
 
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
-import * as Sentry from '@sentry/nextjs'
 import { startAuthentication } from '@simplewebauthn/browser'
 import { Fingerprint, Loader2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -13,10 +12,11 @@ import {
   type AuthResponse,
 } from '@/features/auth/hooks/useAuth'
 import { useWebAuthnSupport } from '@/features/auth/hooks/useWebAuthnSupport'
+import { reportPasskeyFailure } from '@/features/auth/passkeyFailureReport'
 import { authenticationOptionsFrom } from '@/features/auth/passkeyOptions'
 import type { components } from '@/types/api'
 import { API_BASE_URL } from '@/lib/api-base'
-import { AuthError, AuthErrorCode } from '@/lib/errors'
+import { AuthError, AuthErrorCode, isNotAllowedError } from '@/lib/errors'
 
 interface PasskeyLoginButtonProps {
   /**
@@ -122,14 +122,12 @@ export function PasskeyLoginButton({
 
       router.push(returnTo)
     } catch (error) {
-      // The viewer cancelled the passkey prompt: nothing to report.
-      if (error instanceof Error && error.name === 'NotAllowedError') {
+      reportPasskeyFailure(error, 'login_failed')
+      // The browser refused the ceremony (the viewer dismissed it, it timed
+      // out, or no credential matched): nothing to show.
+      if (isNotAllowedError(error)) {
         return
       }
-      Sentry.captureException(error, {
-        level: 'error',
-        tags: { service: 'passkey-auth', error_type: 'login_failed' },
-      })
       onError?.(
         error instanceof Error
           ? AuthError.fromUnknown(error)

@@ -2,7 +2,6 @@
 
 import { useState, type ComponentProps } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
-import * as Sentry from '@sentry/nextjs'
 import { startRegistration } from '@simplewebauthn/browser'
 import { Fingerprint, Loader2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -18,8 +17,14 @@ import {
   DialogTrigger,
 } from '@/components/ui/dialog'
 import { useWebAuthnSupport } from '@/features/auth/hooks/useWebAuthnSupport'
+import { reportPasskeyFailure } from '@/features/auth/passkeyFailureReport'
 import { registrationOptionsFrom } from '@/features/auth/passkeyOptions'
-import { AuthError, isReauthRequired, type AuthErrorCodeType } from '@/lib/errors'
+import {
+  AuthError,
+  isNotAllowedError,
+  isReauthRequired,
+  type AuthErrorCodeType,
+} from '@/lib/errors'
 import type { components } from '@/types/api'
 import { API_BASE_URL } from '@/lib/api-base'
 import { refetchSignedInProfile } from '@/lib/queryClient'
@@ -145,26 +150,18 @@ export function PasskeyRegisterButton({
       void refetchSignedInProfile(queryClient)
       onSuccess?.()
     } catch (error) {
-      if (error instanceof Error) {
-        if (error.name === 'NotAllowedError') {
-          // User cancelled
-          return
-        }
-        Sentry.captureException(error, {
-          level: 'error',
-          tags: { service: 'passkey-auth', error_type: 'registration_failed' },
-        })
-        // The remedy for this refusal is a link the caller renders on its own
-        // surface, which the open dialog would cover.
-        if (isReauthRequired(error)) setIsOpen(false)
-        onError?.(error)
-      } else {
-        Sentry.captureException(error, {
-          level: 'error',
-          tags: { service: 'passkey-auth', error_type: 'registration_failed' },
-        })
-        onError?.(new Error('An unexpected error occurred'))
+      reportPasskeyFailure(error, 'registration_failed')
+      // The browser refused the ceremony (the viewer dismissed it, it timed
+      // out, or the authenticator declined): nothing to show.
+      if (isNotAllowedError(error)) {
+        return
       }
+      // The remedy for this refusal is a link the caller renders on its own
+      // surface, which the open dialog would cover.
+      if (isReauthRequired(error)) setIsOpen(false)
+      onError?.(
+        error instanceof Error ? error : new Error('An unexpected error occurred')
+      )
     } finally {
       setIsLoading(false)
     }
