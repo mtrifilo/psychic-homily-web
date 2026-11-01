@@ -388,3 +388,14 @@ func TestUserFollowersHandler_UnauthedHasNoIsFollowing(t *testing.T) {
 		t.Errorf("expected count=2 following=false, got %+v", resp.Body)
 	}
 }
+
+func TestUserUnfollowHandler_LookupFailureIs500(t *testing.T) {
+	users := &testhelpers.MockUserService{
+		GetUserByUsernameIncludingClosedFn: func(string) (*authm.User, error) { return nil, errors.New("db down") },
+	}
+	h := NewUserFollowHandler(&testhelpers.MockFollowService{}, users)
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
+
+	_, err := h.UserUnfollowHandler(ctx, &UserUnfollowRequest{Username: "anyone"})
+	testhelpers.AssertHumaError(t, err, 500)
+}

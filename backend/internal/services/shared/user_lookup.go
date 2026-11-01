@@ -14,13 +14,13 @@ const usernameWhere = "username = ?"
 // The functions below are the single-row lookups of a users row by a username
 // or email address a caller supplies, so each holds the encoding guard
 // (authm.PostgresRejectsText) and its account-state rule in one place. Each
-// reads through a copy of db, which may carry the caller's Preload clauses and
-// is never changed by the lookup, and answers (nil, nil) when no row matches,
-// including for a value Postgres rejects as text, for which no query runs. A
-// failed query returns its error unwrapped. Outside them: a sign-in that matches an identity provider's
-// email claim refuses an unstorable claim first (ValidateProviderEmailClaim)
-// and queries for itself, and comment mention resolution matches many
-// usernames case-insensitively in one query.
+// reads through a copy of db, which may carry the caller's Preload clauses
+// and is never changed by the lookup, and answers (nil, nil) when no row
+// matches, including for a value Postgres rejects as text, for which no query
+// runs. A failed query returns its error unwrapped. Outside them: a sign-in
+// that matches an identity provider's email claim refuses an unstorable claim
+// first (ValidateProviderEmailClaim) and queries for itself, and comment
+// mention resolution matches many usernames case-insensitively in one query.
 
 // LiveUserByUsername finds the live account (authm.LiveAccountSQL) holding
 // username. A deactivated or soft-deleted holder is not found, so a caller
