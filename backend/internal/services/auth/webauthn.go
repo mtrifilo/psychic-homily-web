@@ -315,6 +315,12 @@ func (s *WebAuthnService) UpdateCredentialName(userID uint, credentialID uint, d
 
 // Challenge storage helpers (for session management)
 
+// challengeTTL is how long a stored challenge can be consumed. While the
+// sign-up sweep runs, an abandoned sign-up's email and date of birth are kept
+// for at most challengeTTL plus signupChallengeSweepInterval; otherwise the
+// daily sweep bounds them.
+const challengeTTL = 5 * time.Minute
+
 // StoreChallenge saves a WebAuthn challenge to the database
 func (s *WebAuthnService) StoreChallenge(userID uint, session *webauthn.SessionData, operation string) (string, error) {
 	if s.db == nil {
@@ -331,7 +337,7 @@ func (s *WebAuthnService) StoreChallenge(userID uint, session *webauthn.SessionD
 		Challenge:   []byte(session.Challenge),
 		SessionData: sessionData,
 		Operation:   operation,
-		ExpiresAt:   time.Now().Add(5 * time.Minute),
+		ExpiresAt:   time.Now().Add(challengeTTL),
 	}
 
 	if err := s.db.Create(&challenge).Error; err != nil {
@@ -507,7 +513,20 @@ func (s *WebAuthnService) liveChallengeExists(challengeID string, operation stri
 // deleteExpiredChallenges deletes every challenge in database past its expiry
 // and returns how many rows it deleted.
 func deleteExpiredChallenges(ctx context.Context, database *gorm.DB) (int64, error) {
-	result := database.WithContext(ctx).Where("expires_at < ?", time.Now()).Delete(&authm.WebAuthnChallenge{})
+	return deleteChallengesExpiredBefore(ctx, database, time.Now())
+}
+
+// deleteExpiredSignupChallenges deletes every sign-up challenge in database
+// that expired before now and returns how many rows it deleted. Challenges
+// stored under any other operation are left alone.
+func deleteExpiredSignupChallenges(ctx context.Context, database *gorm.DB, now time.Time) (int64, error) {
+	return deleteChallengesExpiredBefore(ctx, database.Where("operation = ?", contracts.WebAuthnSignupOperation), now)
+}
+
+// deleteChallengesExpiredBefore deletes the challenges query selects that
+// expired before now and returns how many rows it deleted.
+func deleteChallengesExpiredBefore(ctx context.Context, query *gorm.DB, now time.Time) (int64, error) {
+	result := query.WithContext(ctx).Where("expires_at < ?", now).Delete(&authm.WebAuthnChallenge{})
 	if result.Error != nil {
 		return 0, fmt.Errorf("failed to delete expired challenges: %w", result.Error)
 	}
@@ -605,7 +624,7 @@ func (s *WebAuthnService) StoreSignupChallenge(signup contracts.SignupChallenge,
 		Challenge:   []byte(session.Challenge),
 		SessionData: sessionData,
 		Operation:   operation,
-		ExpiresAt:   time.Now().Add(5 * time.Minute),
+		ExpiresAt:   time.Now().Add(challengeTTL),
 	}
 
 	if err := s.db.Create(&challenge).Error; err != nil {

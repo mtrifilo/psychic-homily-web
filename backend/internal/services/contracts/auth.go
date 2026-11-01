@@ -405,6 +405,11 @@ type AppleAuthServiceInterface interface {
 // challenge is stored under. Only ConsumeRegistrationChallenge consumes it.
 const WebAuthnRegistrationOperation = "registration"
 
+// WebAuthnSignupOperation is the operation a passkey sign-up's challenge is
+// stored under. Its challenges carry the email and the date of birth of a
+// person who has no account yet.
+const WebAuthnSignupOperation = "signup"
+
 // WebAuthnServiceInterface defines the contract for WebAuthn/passkey operations.
 type WebAuthnServiceInterface interface {
 	BeginRegistration(user *authm.User) (*protocol.CredentialCreation, *webauthn.SessionData, error)

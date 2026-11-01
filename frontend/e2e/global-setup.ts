@@ -243,6 +243,9 @@ function startBackend(): ChildProcess {
       DISABLE_RADIO_TRACKS_REBUILD: '1',
       // Default-ON and deletes expired webauthn_challenges rows on a schedule.
       DISABLE_WEBAUTHN_CHALLENGE_SWEEP: '1',
+      // Default-ON, runs at boot and every 10 minutes, and deletes expired
+      // sign-up webauthn_challenges rows.
+      DISABLE_WEBAUTHN_SIGNUP_CHALLENGE_SWEEP: '1',
       // Default-ON and polls auth_email_outbox every few seconds. Nothing here
       // needs it to drain: this backend has no email provider configured, so
       // the magic-link and recovery handlers answer SERVICE_UNAVAILABLE before

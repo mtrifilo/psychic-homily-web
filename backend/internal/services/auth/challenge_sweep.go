@@ -23,34 +23,71 @@ const (
 	// threshold, so the loop keeps a background_service_runs row and the sweep
 	// health check watches it.
 	defaultChallengeSweepInterval = 24 * time.Hour
+
+	// SignupChallengeSweepLoopName is the sign-up sweep's name in logs.
+	SignupChallengeSweepLoopName = "webauthn_signup_challenge_sweep"
+
+	// DisableSignupChallengeSweepEnvVar set to "1" keeps the sign-up sweep from
+	// starting.
+	DisableSignupChallengeSweepEnvVar = "DISABLE_WEBAUTHN_SIGNUP_CHALLENGE_SWEEP"
+
+	// signupChallengeSweepInterval bounds how long an abandoned sign-up's email
+	// and date of birth outlive its challenge's expiry. It is below the run-state
+	// persistence threshold, so this loop keeps no background_service_runs row
+	// and the sweep health check does not watch it; the daily sweep, which is
+	// watched, deletes the same rows if this loop stops.
+	signupChallengeSweepInterval = 10 * time.Minute
 )
 
 // ChallengeSweep deletes expired WebAuthn challenges on a schedule. A finish
 // consumes the challenge it presents, so the rows this deletes are the ones
-// whose ceremony was begun and never finished. It runs no cycle on the boot
-// path; RunScheduledLoop schedules the first cycle from persisted run state.
+// whose ceremony was begun and never finished.
 type ChallengeSweep struct {
+	// name is the loop's name in logs and in the run state.
+	name string
 	// deleteExpired deletes expired challenges and returns how many rows it
 	// deleted.
 	deleteExpired func(ctx context.Context) (int64, error)
 	interval      time.Duration
+	runAtBoot     bool
 
 	stopCh chan struct{}
 	wg     sync.WaitGroup
 	logger *slog.Logger
 }
 
-// NewChallengeSweep constructs the sweep over the challenges in database. It
-// needs only the database, so it runs whether or not the WebAuthn service
-// could be constructed.
+// NewChallengeSweep constructs the daily sweep over every expired challenge in
+// database. It needs only the database, so it runs whether or not the
+// WebAuthn service could be constructed. It runs no cycle on the boot path;
+// RunScheduledLoop schedules the first cycle from persisted run state.
 func NewChallengeSweep(database *gorm.DB) *ChallengeSweep {
-	return &ChallengeSweep{
-		deleteExpired: func(ctx context.Context) (int64, error) {
+	return newChallengeSweep(ChallengeSweepLoopName, defaultChallengeSweepInterval, false,
+		func(ctx context.Context) (int64, error) {
 			return deleteExpiredChallenges(ctx, database)
-		},
-		interval: defaultChallengeSweepInterval,
-		stopCh:   make(chan struct{}),
-		logger:   slog.Default(),
+		})
+}
+
+// NewSignupChallengeSweep constructs the sweep over the expired sign-up
+// challenges in database, the ones that hold a person's email and date of
+// birth before any account exists. While the process runs, an abandoned
+// sign-up challenge is deleted within signupChallengeSweepInterval of its
+// expiry: the loop runs a cycle at boot, so a restart never pushes the next
+// cycle past that bound. Like the daily sweep it needs only the database.
+func NewSignupChallengeSweep(database *gorm.DB) *ChallengeSweep {
+	return newChallengeSweep(SignupChallengeSweepLoopName, signupChallengeSweepInterval, true,
+		func(ctx context.Context) (int64, error) {
+			return deleteExpiredSignupChallenges(ctx, database, time.Now())
+		})
+}
+
+func newChallengeSweep(name string, interval time.Duration, runAtBoot bool, deleteExpired func(ctx context.Context) (int64, error)) *ChallengeSweep {
+	return &ChallengeSweep{
+		name:          name,
+		deleteExpired: deleteExpired,
+		interval:      interval,
+		runAtBoot:     runAtBoot,
+		stopCh:        make(chan struct{}),
+		logger:        slog.Default(),
 	}
 }
 
@@ -60,19 +97,20 @@ func (s *ChallengeSweep) Start(ctx context.Context) {
 	go func() {
 		defer s.wg.Done()
 		shared.RunScheduledLoop(ctx, shared.LoopConfig{
-			Name:     ChallengeSweepLoopName,
-			Interval: s.interval,
-			StopCh:   s.stopCh,
+			Name:      s.name,
+			Interval:  s.interval,
+			StopCh:    s.stopCh,
+			RunAtBoot: s.runAtBoot,
 		}, s.runCycle)
 	}()
-	s.logger.Info("webauthn challenge sweep started", "interval", s.interval)
+	s.logger.Info("webauthn challenge sweep started", "loop", s.name, "interval", s.interval)
 }
 
 // Stop stops the loop and waits for an in-flight cycle to return.
 func (s *ChallengeSweep) Stop() {
 	close(s.stopCh)
 	s.wg.Wait()
-	s.logger.Info("webauthn challenge sweep stopped")
+	s.logger.Info("webauthn challenge sweep stopped", "loop", s.name)
 }
 
 // runCycle deletes expired challenges and reports the deleted count to the run
@@ -80,10 +118,10 @@ func (s *ChallengeSweep) Stop() {
 func (s *ChallengeSweep) runCycle(ctx context.Context) {
 	deleted, err := s.deleteExpired(ctx)
 	if err != nil {
-		shared.LogCycleFailure(s.logger, "webauthn challenge sweep: cycle failed", err)
+		shared.LogCycleFailure(s.logger, "webauthn challenge sweep: cycle failed", err, "loop", s.name)
 		shared.ReportCycle(ctx, 0, err)
 		return
 	}
 	shared.ReportCycle(ctx, int(deleted), nil)
-	s.logger.Info("webauthn challenge sweep: cycle complete", "deleted", deleted)
+	s.logger.Info("webauthn challenge sweep: cycle complete", "loop", s.name, "deleted", deleted)
 }

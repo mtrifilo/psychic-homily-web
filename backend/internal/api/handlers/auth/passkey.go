@@ -651,7 +651,7 @@ func (h *PasskeyHandler) BeginSignupHandler(ctx context.Context, input *BeginSig
 	// FinishSignupHandler creates the account from this address and records
 	// this consent, both read back from the challenge.
 	challengeID, err := h.webauthnService.StoreSignupChallenge(
-		contracts.SignupChallenge{Email: email, Acceptance: acceptance}, session, "signup",
+		contracts.SignupChallenge{Email: email, Acceptance: acceptance}, session, contracts.WebAuthnSignupOperation,
 	)
 	if err != nil {
 		logger.AuthError(ctx, "passkey_challenge_store_failed", err,
@@ -720,7 +720,7 @@ func (h *PasskeyHandler) FinishSignupHandler(ctx context.Context, input *FinishS
 		return refuseWith(resp, refusal)
 	}
 
-	session, signup, err := h.webauthnService.ConsumeSignupChallenge(input.Body.ChallengeID, "signup")
+	session, signup, err := h.webauthnService.ConsumeSignupChallenge(input.Body.ChallengeID, contracts.WebAuthnSignupOperation)
 	if err != nil {
 		if refusal, ok := passkeyRefusal(err, autherrors.CodeValidationFailed); ok {
 			logger.AuthWarn(ctx, "passkey_challenge_refused",
