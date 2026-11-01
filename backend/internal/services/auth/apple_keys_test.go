@@ -125,14 +125,18 @@ func (h *recordCounter) only(t *testing.T, msg string) map[string]any {
 }
 
 // dropWarning is the drop warning's attributes for a fetch that dropped
-// decode, typ, modulus and exponent entries, with sampleKids.
-func dropWarning(decode, typ, modulus, exponent int, sampleKids ...string) map[string]any {
+// counts[reason] entries per reason, with sampleKids.
+func dropWarning(counts map[appleJWKDropReason]int, sampleKids ...string) map[string]any {
+	total := 0
+	for _, n := range counts {
+		total += n
+	}
 	return map[string]any{
-		"dropped":          int64(decode + typ + modulus + exponent),
-		"dropped_decode":   int64(decode),
-		"dropped_type":     int64(typ),
-		"dropped_modulus":  int64(modulus),
-		"dropped_exponent": int64(exponent),
+		"dropped":          int64(total),
+		"dropped_decode":   int64(counts[appleJWKDropDecode]),
+		"dropped_type":     int64(counts[appleJWKDropType]),
+		"dropped_modulus":  int64(counts[appleJWKDropModulus]),
+		"dropped_exponent": int64(counts[appleJWKDropExponent]),
 		"sample_kids":      sampleKids,
 	}
 }
@@ -636,10 +640,7 @@ func TestAppleKeys_MalformedEntriesNeverReplaceCachedSet(t *testing.T) {
 			require.Error(t, err)
 			assert.Contains(t, err.Error(), "contained no RSA keys")
 			require.Equal(t, 2, ks.count())
-			var counts [appleJWKDropReasonCount]int
-			counts[tc.reason] = 1
-			want := dropWarning(counts[appleJWKDropDecode], counts[appleJWKDropType],
-				counts[appleJWKDropModulus], counts[appleJWKDropExponent], "rotated-kid")
+			want := dropWarning(map[appleJWKDropReason]int{tc.reason: 1}, "rotated-kid")
 			assert.Equal(t, want, logs.only(t, "apple_keys_entries_dropped"))
 
 			_, err = svc.ValidateIdentityToken(t.Context(), signedToken(t, key, "known-kid"))
@@ -835,7 +836,8 @@ func TestAppleKeys_UndecodableEntryIsDropped(t *testing.T) {
 	_, err = svc.ValidateIdentityToken(t.Context(), signedToken(t, key, "rotated-kid"))
 	require.NoError(t, err, "the decodable entry beside the undecodable ones is served")
 	assert.Equal(t, 2, ks.count())
-	assert.Equal(t, dropWarning(2, 0, 0, 0, "bad-n-kid", "bad-e-kid"), logs.only(t, "apple_keys_entries_dropped"))
+	assert.Equal(t, dropWarning(map[appleJWKDropReason]int{appleJWKDropDecode: 2}, "bad-n-kid", "bad-e-kid"),
+		logs.only(t, "apple_keys_entries_dropped"))
 
 	for _, kid := range []string{"bad-n-kid", "bad-e-kid", "known-kid"} {
 		_, err = svc.getApplePublicKey(t.Context(), kid)
@@ -843,31 +845,43 @@ func TestAppleKeys_UndecodableEntryIsDropped(t *testing.T) {
 	}
 }
 
-// mixedBadEntries is one entry per drop reason and one more of each, under
-// kids naming the reason; the first entry's kid is 200 runes holding
-// characters the drop warning cleans.
+// mixedBadLongKid is 216 runes, 16 of them before the run of "é", holding
+// characters the drop warning cleans; mixedBadLongKidLogged is its cleaned,
+// cut form.
+var (
+	mixedBadLongKid       = "kid with spaces\n" + strings.Repeat("é", 200)
+	mixedBadLongKidLogged = "kid?with?spaces?" + strings.Repeat("?", appleKeysDropKidLogRunes-16) + "..."
+)
+
+// mixedBadEntries is two entries per drop reason, the first under
+// mixedBadLongKid.
 func mixedBadEntries(key *rsa.PrivateKey) []testJWK {
-	longKid := "kid with spaces\n" + strings.Repeat("é", 200)
-	var out []testJWK
-	for i, kid := range []string{longKid, "type-2", "decode-1", "decode-2", "modulus-1", "modulus-2", "exponent-1", "exponent-2"} {
-		e := rsaJWK(key, kid)
-		switch i / 2 {
-		case 0:
-			e.Kty = "EC"
-		case 1:
-			e.N = "not base64url!"
-		case 2:
-			e.N = modulusOfBits(1024)
-		case 3:
-			e.E = "AQ"
-		}
+	rows := []struct {
+		kid    string
+		mutate func(*testJWK)
+	}{
+		{mixedBadLongKid, func(e *testJWK) { e.Kty = "EC" }},
+		{"type-2", func(e *testJWK) { e.Kty = "EC" }},
+		{"decode-1", func(e *testJWK) { e.N = "not base64url!" }},
+		{"decode-2", func(e *testJWK) { e.N = "not base64url!" }},
+		{"modulus-1", func(e *testJWK) { e.N = modulusOfBits(1024) }},
+		{"modulus-2", func(e *testJWK) { e.N = modulusOfBits(1024) }},
+		{"exponent-1", func(e *testJWK) { e.E = "AQ" }},
+		{"exponent-2", func(e *testJWK) { e.E = "AQ" }},
+	}
+	out := make([]testJWK, 0, len(rows))
+	for _, row := range rows {
+		e := rsaJWK(key, row.kid)
+		row.mutate(&e)
 		out = append(out, e)
 	}
 	return out
 }
 
-// The cleaned, cut form of mixedBadEntries' first kid.
-var mixedBadLongKidLogged = "kid?with?spaces?" + strings.Repeat("?", 48) + "..."
+// twoOfEachReason is mixedBadEntries' count per reason.
+var twoOfEachReason = map[appleJWKDropReason]int{
+	appleJWKDropType: 2, appleJWKDropDecode: 2, appleJWKDropModulus: 2, appleJWKDropExponent: 2,
+}
 
 // A set mixing every drop reason with two usable keys logs one warning naming
 // the counts per reason and the first three dropped kids, cleaned and cut;
@@ -883,9 +897,8 @@ func TestAppleKeys_DropsLogOneWarningPerFetch(t *testing.T) {
 		require.NoError(t, err, kid)
 	}
 	assert.Equal(t, 1, ks.count())
-	assert.Equal(t, dropWarning(2, 2, 2, 2, mixedBadLongKidLogged, "type-2", "decode-1"),
+	assert.Equal(t, dropWarning(twoOfEachReason, mixedBadLongKidLogged, "type-2", "decode-1"),
 		logs.only(t, "apple_keys_entries_dropped"))
-	assert.Len(t, mixedBadLongKidLogged, appleKeysDropKidLogRunes+len("..."))
 }
 
 // A set with no dropped entry logs no drop warning.
@@ -909,7 +922,7 @@ func TestAppleKeys_OnlyDroppedEntriesFailTheFetch(t *testing.T) {
 	_, err := svc.getApplePublicKey(t.Context(), "type-2")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "contained no RSA keys")
-	assert.Equal(t, dropWarning(2, 2, 2, 2, mixedBadLongKidLogged, "type-2", "decode-1"),
+	assert.Equal(t, dropWarning(twoOfEachReason, mixedBadLongKidLogged, "type-2", "decode-1"),
 		logs.only(t, "apple_keys_entries_dropped"))
 }
 
@@ -929,5 +942,6 @@ func TestAppleKeys_ThousandDropsLogOneWarning(t *testing.T) {
 
 	_, err := svc.ValidateIdentityToken(t.Context(), signedToken(t, key, "good-kid"))
 	require.NoError(t, err)
-	assert.Equal(t, dropWarning(1000, 0, 0, 0, "k0", "k1", "k2"), logs.only(t, "apple_keys_entries_dropped"))
+	assert.Equal(t, dropWarning(map[appleJWKDropReason]int{appleJWKDropDecode: 1000}, "k0", "k1", "k2"),
+		logs.only(t, "apple_keys_entries_dropped"))
 }

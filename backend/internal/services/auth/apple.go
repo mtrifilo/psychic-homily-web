@@ -536,19 +536,19 @@ func (s *AppleAuthService) fetchAppleKeys() (map[string]*rsa.PublicKey, error) {
 	var drops appleKeysDrops
 	for _, jwk := range jwkSet.Keys {
 		key, reason := jwk.rs256PublicKey()
-		if key == nil {
+		if reason != appleJWKKept {
 			drops.add(reason, jwk.Kid)
 			continue
 		}
 		keys[jwk.Kid] = key
 	}
-	if drops.total > 0 {
+	if total := drops.total(); total > 0 {
 		s.keysLog().Warn("apple_keys_entries_dropped",
-			"dropped", drops.total,
-			"dropped_decode", drops.byReason[appleJWKDropDecode],
-			"dropped_type", drops.byReason[appleJWKDropType],
-			"dropped_modulus", drops.byReason[appleJWKDropModulus],
-			"dropped_exponent", drops.byReason[appleJWKDropExponent],
+			"dropped", total,
+			"dropped_decode", drops.decode,
+			"dropped_type", drops.kind,
+			"dropped_modulus", drops.modulus,
+			"dropped_exponent", drops.exponent,
 			"sample_kids", drops.sampleKids,
 		)
 	}
@@ -561,38 +561,49 @@ func (s *AppleAuthService) fetchAppleKeys() (map[string]*rsa.PublicKey, error) {
 	return keys, nil
 }
 
-// appleJWKDropReason is why a key-set entry is left out of the parsed set.
+// appleJWKDropReason is why a key-set entry is left out of the parsed set;
+// its zero value, appleJWKKept, means the entry is kept.
 type appleJWKDropReason int
 
 const (
+	appleJWKKept appleJWKDropReason = iota
 	// appleJWKDropType: a kty other than RSA, a use other than "sig" or an
 	// alg other than "RS256" (use and alg count only when present).
-	appleJWKDropType appleJWKDropReason = iota
+	appleJWKDropType
 	// appleJWKDropDecode: a modulus or exponent that is not base64url.
 	appleJWKDropDecode
 	// appleJWKDropModulus: a modulus shorter than appleKeysMinModulusBits.
 	appleJWKDropModulus
 	// appleJWKDropExponent: an exponent outside the range crypto/rsa accepts.
 	appleJWKDropExponent
-
-	appleJWKDropReasonCount
 )
 
-// appleKeysDrops tallies the entries one fetch leaves out: the total, the
-// count per reason, and the key ids of the first appleKeysDropSampleKids of
-// them as appleKeyIDForDropLog renders them.
+// appleKeysDrops tallies the entries one fetch leaves out: the count per
+// reason, and the key ids of the first appleKeysDropSampleKids of them as
+// appleKeyIDForDropLog renders them.
 type appleKeysDrops struct {
-	total      int
-	byReason   [appleJWKDropReasonCount]int
-	sampleKids []string
+	kind, decode, modulus, exponent int
+	sampleKids                      []string
 }
 
 func (d *appleKeysDrops) add(reason appleJWKDropReason, kid string) {
-	d.total++
-	d.byReason[reason]++
+	switch reason {
+	case appleJWKDropType:
+		d.kind++
+	case appleJWKDropDecode:
+		d.decode++
+	case appleJWKDropModulus:
+		d.modulus++
+	case appleJWKDropExponent:
+		d.exponent++
+	}
 	if len(d.sampleKids) < appleKeysDropSampleKids {
 		d.sampleKids = append(d.sampleKids, appleKeyIDForDropLog(kid))
 	}
+}
+
+func (d *appleKeysDrops) total() int {
+	return d.kind + d.decode + d.modulus + d.exponent
 }
 
 // appleKeyIDForDropLog is a key-set entry's kid as the drop warning carries
@@ -618,9 +629,10 @@ func appleKeyIDForDropLog(kid string) string {
 	return b.String()
 }
 
-// rs256PublicKey returns the RSA public key jwk holds, or nil and the reason
-// jwk cannot verify an RS256 signature. The checks run in the order type,
-// decode, modulus, exponent, and the first that fails is the reason.
+// rs256PublicKey returns the RSA public key jwk holds and appleJWKKept, or nil
+// and the reason jwk cannot verify an RS256 signature. The checks run in the
+// order type, decode, modulus, exponent, and the first that fails is the
+// reason.
 func (jwk appleJWK) rs256PublicKey() (*rsa.PublicKey, appleJWKDropReason) {
 	if jwk.Kty != "RSA" || (jwk.Use != "" && jwk.Use != "sig") || (jwk.Alg != "" && jwk.Alg != "RS256") {
 		return nil, appleJWKDropType
@@ -643,7 +655,7 @@ func (jwk appleJWK) rs256PublicKey() (*rsa.PublicKey, appleJWKDropReason) {
 	if !e.IsInt64() || e.Int64() < 2 || e.Int64() > math.MaxInt32 {
 		return nil, appleJWKDropExponent
 	}
-	return &rsa.PublicKey{N: n, E: int(e.Int64())}, 0
+	return &rsa.PublicKey{N: n, E: int(e.Int64())}, appleJWKKept
 }
 
 func (s *AppleAuthService) keysClient() *http.Client {
