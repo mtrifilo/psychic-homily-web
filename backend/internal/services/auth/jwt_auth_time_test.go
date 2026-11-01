@@ -54,7 +54,19 @@ func claimsOf(t *testing.T, secret, token string) jwt.MapClaims {
 // front of the reader.
 func signSessionClaims(t *testing.T, secret string, claims jwt.MapClaims) string {
 	t.Helper()
-	base := jwt.MapClaims{
+	base := sessionTestClaims()
+	for k, v := range claims {
+		base[k] = v
+	}
+	signed, err := jwt.NewWithClaims(jwt.SigningMethodHS256, base).SignedString([]byte(secret))
+	require.NoError(t, err)
+	return signed
+}
+
+// sessionTestClaims is the claim set a session for authTimeTestUser carries,
+// expiring in an hour.
+func sessionTestClaims() jwt.MapClaims {
+	return jwt.MapClaims{
 		"user_id": 7,
 		"exp":     time.Now().Add(time.Hour).Unix(),
 		"iat":     time.Now().Unix(),
@@ -62,12 +74,6 @@ func signSessionClaims(t *testing.T, secret string, claims jwt.MapClaims) string
 		"aud":     jwtAudience,
 		"sub":     jwtSessionSubject,
 	}
-	for k, v := range claims {
-		base[k] = v
-	}
-	signed, err := jwt.NewWithClaims(jwt.SigningMethodHS256, base).SignedString([]byte(secret))
-	require.NoError(t, err)
-	return signed
 }
 
 func TestValidateSession_CreateTokenStampsAuthTime(t *testing.T) {
