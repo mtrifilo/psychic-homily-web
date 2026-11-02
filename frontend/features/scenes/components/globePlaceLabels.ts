@@ -10,7 +10,7 @@ import {
   placeLabelsShowAt,
 } from '../basemap/globePlaces'
 
-// The board's place label: 9.5px in the app's mono face.
+// The board's place label: 9.5px in the app's data face.
 const PLACE_LABEL_FONT_PX = 9.5
 const PLACE_LABEL_STYLE = [
   'pointer-events: none',

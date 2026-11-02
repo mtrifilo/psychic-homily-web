@@ -247,7 +247,7 @@ const entityTypeLabels: Record<EntitySearchResult['entityType'], string> = {
   tag: 'Tags',
 }
 
-// PSY-1019 editorial group headings (Figma 539:5): Space Mono, uppercase,
+// PSY-1019 editorial group headings (Figma 539:5): the data face, uppercase,
 // letter-spaced — mirrors ContributeMenu's group labels. Applied per-group so
 // tailwind-merge resolves it against CommandGroup's default heading styles on
 // the same element (deterministic; padding + muted color come from those
@@ -599,7 +599,7 @@ export function CommandPalette() {
         )}
       </CommandList>
 
-      {/* PSY-1019: keyboard hints as plain Space Mono text — the boxed-kbd
+      {/* PSY-1019: keyboard hints as plain data-face text — the boxed-kbd
           chrome is gone per Figma 539:5. <kbd> elements stay for semantics. */}
       <div className="flex items-center gap-4 border-t border-border/50 px-4 py-2.5 font-mono text-[11px] text-muted-foreground">
         <span className="flex items-center gap-1.5">

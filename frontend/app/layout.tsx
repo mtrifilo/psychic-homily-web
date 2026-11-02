@@ -1,38 +1,28 @@
 import type { Metadata, Viewport } from 'next'
-import localFont from 'next/font/local'
-import { Space_Mono } from 'next/font/google'
+import { Golos_Text, Hanken_Grotesk, Schibsted_Grotesk } from 'next/font/google'
 import { Suspense } from 'react'
 import './globals.css'
 
-/* PSY-647 editorial type system — Fontshare (ITF License, self-hosted) + Google Fonts.
- * Clash Display: display / headings (4 weights). Satoshi: body / UI (3 weights —
- * Fontshare's free Satoshi has no 600 weight; use Medium 500 where Semibold would
- * apply). Space Mono: data / metadata / numerics (Google Fonts). */
-const clashDisplay = localFont({
-  src: [
-    { path: './fonts/ClashDisplay-Regular.woff2', weight: '400', style: 'normal' },
-    { path: './fonts/ClashDisplay-Medium.woff2', weight: '500', style: 'normal' },
-    { path: './fonts/ClashDisplay-Semibold.woff2', weight: '600', style: 'normal' },
-    { path: './fonts/ClashDisplay-Bold.woff2', weight: '700', style: 'normal' },
-  ],
-  variable: '--font-clash-display',
+/* Three-tier editorial type system: Hanken Grotesk for display and headings,
+ * Schibsted Grotesk for body and UI, Golos Text for the data tier (counts, times,
+ * prices, dates). Variable fonts, so no weight list; next/font self-hosts them at
+ * build time. Golos Text ships no italic. Schibsted Grotesk and Golos Text have no
+ * Vietnamese glyphs, so only Hanken requests that subset. */
+const hankenGrotesk = Hanken_Grotesk({
+  subsets: ['latin', 'latin-ext', 'vietnamese'],
+  variable: '--font-hanken',
   display: 'swap',
 })
 
-const satoshi = localFont({
-  src: [
-    { path: './fonts/Satoshi-Regular.woff2', weight: '400', style: 'normal' },
-    { path: './fonts/Satoshi-Medium.woff2', weight: '500', style: 'normal' },
-    { path: './fonts/Satoshi-Bold.woff2', weight: '700', style: 'normal' },
-  ],
-  variable: '--font-satoshi',
+const schibstedGrotesk = Schibsted_Grotesk({
+  subsets: ['latin', 'latin-ext'],
+  variable: '--font-schibsted',
   display: 'swap',
 })
 
-const spaceMono = Space_Mono({
-  weight: ['400', '700'],
-  subsets: ['latin'],
-  variable: '--font-space-mono',
+const golosText = Golos_Text({
+  subsets: ['latin', 'latin-ext'],
+  variable: '--font-golos',
   display: 'swap',
 })
 import { ThemeProvider } from '@/components/layout/theme-provider'
@@ -100,7 +90,7 @@ export default function RootLayout({
         <JsonLd data={generateOrganizationSchema()} />
       </head>
       <body
-        className={`${clashDisplay.variable} ${satoshi.variable} ${spaceMono.variable} antialiased`}
+        className={`${hankenGrotesk.variable} ${schibstedGrotesk.variable} ${golosText.variable} antialiased`}
       >
         <Providers>
           <ThemeProvider

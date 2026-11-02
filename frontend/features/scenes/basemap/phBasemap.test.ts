@@ -109,8 +109,8 @@ const rawStyle = (variant: AtlasTheme) =>
   readFileSync(path.join(BASEMAP_DIR, VARIANTS[variant].file), 'utf8')
 
 // OpenFreeMap's glyph server serves a fixed font set; these three are the
-// stacks verified available (HTTP 200 on 0-255.pbf, 2026-07-26). Space Mono
-// and other PH type-direction faces are NOT served (see README.md).
+// stacks verified available (HTTP 200 on 0-255.pbf, 2026-07-26). Golos Text
+// and the other PH faces are NOT served (see README.md).
 const AVAILABLE_FONTS = new Set([
   'Noto Sans Regular',
   'Noto Sans Bold',

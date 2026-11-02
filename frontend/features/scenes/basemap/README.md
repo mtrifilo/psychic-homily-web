@@ -57,8 +57,8 @@ style file they describe.
   theme.
 - **Fonts**: OpenFreeMap's glyph server serves a fixed set; only
   `Noto Sans Regular/Bold/Italic` are available (verified by HTTP probe —
-  `Space Mono`, `Roboto Mono`, etc. 404). The PH type direction
-  (Space Mono for data) is approximated with Noto Sans plus letter-spacing
+  `Golos Text (the data face)`, `Roboto Mono`, etc. 404). The PH type direction
+  (Golos Text (the data face) for data) is approximated with Noto Sans plus letter-spacing
   and uppercase treatment on district labels. Scene labels are unaffected —
   they are DOM markers in the app font, not glyph-rendered symbols.
 

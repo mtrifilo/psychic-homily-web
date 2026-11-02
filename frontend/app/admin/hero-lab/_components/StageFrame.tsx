@@ -2,7 +2,7 @@
 
 /**
  * Hero Lab — a labeled "stage" wrapping one effect: badge + title, a mono
- * technique/library caption (Space Mono, on-brand for data), and a tall canvas
+ * technique/library caption (the data face), and a tall canvas
  * area that paints on the live theme background.
  */
 

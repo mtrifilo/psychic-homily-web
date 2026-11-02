@@ -49,9 +49,10 @@ Always pass `skillNames: "figma-generate-library,figma-use"` (plus `psy-design-s
 ## Locked design direction (DO NOT relitigate without strong reason)
 
 ### Typography
-- **Display**: Clash Display (Fontshare, free, ITF License) — **MCP-invisible, see G2**
-- **Body / UI**: Satoshi (Fontshare, free, ITF License) — **MCP-invisible, see G2**
-- **Data / metadata / numerics**: Space Mono (Google Fonts) — MCP-visible, render correctly
+- **Display**: Hanken Grotesk (Google Fonts, OFL) — MCP-visible
+- **Body / UI**: Schibsted Grotesk (Google Fonts, OFL) — MCP-visible; serifed I, real 600, `tnum` + `zero`
+- **Data / metadata / numerics**: Golos Text (Google Fonts, OFL, no italics) — MCP-visible; proportional with tabular figures; known defect: Ğ ğ Ŭ render without breve (google/fonts #11219)
+- Decided 2026-11-02 (PSY-2562), replacing Clash Display / Satoshi / Space Mono. Figma text styles: `Display/XL..S`, `Body/L..XS`, `Data/M`, `Data/S`; Typography variables `family/display`, `family/sans`, `family/data`. Research summary lives on the DS page `Typography research (Nov 2026)`.
 
 ### Color seeds — Light mode (newsprint / paper)
 - `bg` `#f4f1ea` · `fg` `#1a1714` · `primary` `#d2541b` (burnt orange) · `border` `#ddd6c8`
@@ -307,11 +308,9 @@ return { mismatchCount: mismatches.length, mismatches };
 
 **Scope clarification — NOT broken:** `variable.setValueForMode(modeId, newValue)` **does** auto-refresh cached colors on every bound paint across the file. Verified 2026-05-16: bumped `border` Light value via setValueForMode → immediate G1 audit found 0 mismatches across 256 paints. The G1 bug is narrowly about `setBoundVariableForPaint` failing to update the cache when REBINDING to the same variable. Variable VALUE changes (`setValueForMode`) work correctly. So you can change a token's value with confidence — the bug only bites clone-then-rebind sequences.
 
-### G2. MCP can't see local OS fonts
+### G2. MCP can't see local OS fonts (historical since 2026-11-02)
 
-Figma MCP runs in Figma's cloud sandbox, not your desktop Figma session. `figma.listAvailableFontsAsync()` returns ~1,723 families — **none are Clash Display or Satoshi** even when locally installed. Space Mono works because it's in Google Fonts.
-
-Current workaround: Inter as fallback for Display + Body specimens, disclosure labels point to `globals.css` codebase tokens. Fully unblocks when user uploads Clash Display + Satoshi to the Figma team library (Admin → Fonts → Upload — one-time). User had not done this as of 2026-05-16.
+Figma MCP runs in Figma's cloud sandbox, not your desktop Figma session. `figma.listAvailableFontsAsync()` only returns Google Fonts families and team-library uploads — locally installed faces are invisible. This blocked the Clash Display + Satoshi era (Inter stood in for them in every mock). **Resolved by the 2026-11-02 type decision:** Hanken Grotesk, Schibsted Grotesk and Golos Text are all Google Fonts, so every tier is MCP-visible and the Inter stand-in is gone. Style-name footguns: `SemiBold` (not `Semi Bold`) for all three; Golos Text has no italic styles.
 
 ### G3. `setSharedPluginData` not supported on VariableCollection
 
@@ -331,7 +330,7 @@ Per the figma-use rule. Mutations must be strictly sequential. Independent `get_
 
 ### G7. Pre-load EVERY font used on any page you touch
 
-Per the figma-use rule, font loading is required before `appendChild`, `setBoundVariable`, `findAll` callbacks, etc. — not just text-setting. For Badge / Button work, preload at minimum: `Inter Regular`, `Inter Medium`, `Inter Semi Bold`, `Space Mono Regular`. Failing to preload causes silent or noisy failures on operations that don't appear text-related.
+Per the figma-use rule, font loading is required before `appendChild`, `setBoundVariable`, `findAll` callbacks, etc. — not just text-setting. For Badge / Button work, preload at minimum: `Schibsted Grotesk Regular`, `Schibsted Grotesk Medium`, `Schibsted Grotesk SemiBold`, `Hanken Grotesk SemiBold`, `Golos Text Regular`, `Golos Text Bold`. Failing to preload causes silent or noisy failures on operations that don't appear text-related.
 
 ### G8. `get_metadata` without nodeId only returns first page
 
