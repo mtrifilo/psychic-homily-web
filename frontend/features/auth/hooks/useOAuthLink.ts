@@ -21,7 +21,8 @@ export const SEND_LINK_FAILED_MESSAGE = 'Failed to send magic link. Please try a
  * HttpOnly cookie, so the address never travels in the URL and only this read
  * can tell whether one is live. Read once per visit to the auth page and never
  * refetched while it shows: the proofs' own answers correct a stale read.
- * `enabled` is false where no sign-in is offered, which never reads it.
+ * `enabled` is false on an auth-page arrival that does not read it, which the
+ * page decides.
  */
 export function usePendingOAuthLink(enabled: boolean) {
   return useQuery({

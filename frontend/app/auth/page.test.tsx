@@ -12,6 +12,11 @@ import {
   ACCOUNT_RECOVERABLE_LINK_TEXT,
   ACCOUNT_RECOVERABLE_MESSAGE,
 } from '@/app/auth/_components/account-recoverable-message'
+import {
+  AUTH_RATE_LIMITED_MESSAGE,
+  AUTH_REFUSAL_GENERIC_MESSAGE,
+  OAUTH_CANCELLED_MESSAGE,
+} from '@/lib/errors/authRefusalCopy'
 import AuthPage from './page'
 
 // --- Mocks ---
@@ -102,7 +107,7 @@ vi.mock('@/app/auth/_components/passkey-signup', () => ({
 const googleOAuthProps = vi.fn()
 
 vi.mock('@/app/auth/_components/google-oauth-button', () => ({
-  GoogleOAuthButton: (props: { returnTo?: string }) => {
+  GoogleOAuthButton: (props: { returnTo?: string; reauthReason?: string }) => {
     googleOAuthProps(props)
     return <div data-testid="google-oauth" />
   },
@@ -1615,6 +1620,98 @@ describe('AuthPage', () => {
         expect(screen.queryByRole('tab')).not.toBeInTheDocument()
         expect(mockPush).not.toHaveBeenCalled()
       })
+    })
+
+    // A refused Google re-authentication comes back with its code beside the
+    // reason its start carried, and the reader is still signed in.
+    describe('refused at Google', () => {
+      it.each([
+        ['OAUTH_LINK_REAUTH_REQUIRED', 'OAUTH_CANCELLED', OAUTH_CANCELLED_MESSAGE],
+        ['OAUTH_LINK_REAUTH_REQUIRED', 'UNKNOWN', AUTH_REFUSAL_GENERIC_MESSAGE],
+        ['REAUTH_REQUIRED', 'RATE_LIMITED', AUTH_RATE_LIMITED_MESSAGE],
+        ['REAUTH_REQUIRED', 'UNKNOWN', AUTH_REFUSAL_GENERIC_MESSAGE],
+      ])(
+        'shows the re-authentication with the refusal line for reason=%s and %s, without bouncing',
+        async (reason, code, line) => {
+          mockAuthState = { setUser: vi.fn(), authStatus: 'authenticated' }
+          setSearchParams(
+            new URLSearchParams({
+              [AUTH_ERROR_CODE_PARAM]: code,
+              reason,
+              returnTo: '/profile?tab=settings',
+            }).toString()
+          )
+
+          renderWithProviders(<AuthPage />)
+
+          expect(
+            await screen.findByRole('heading', { level: 1, name: "Confirm it's you" })
+          ).toBeInTheDocument()
+          expect(screen.getByText(line)).toBeInTheDocument()
+          expect(screen.getByRole('tab', { name: 'Sign in' })).toBeInTheDocument()
+          expect(mockPush).not.toHaveBeenCalled()
+        }
+      )
+
+      it('still bounces a signed-in reader whose refusal carries no reason', async () => {
+        mockAuthState = { setUser: vi.fn(), authStatus: 'authenticated' }
+        setSearchParams(`${AUTH_ERROR_CODE_PARAM}=UNKNOWN&returnTo=%2Fprofile%3Ftab%3Dsettings`)
+
+        renderWithProviders(<AuthPage />)
+
+        await waitFor(() => {
+          expect(mockPush).toHaveBeenCalledWith('/profile?tab=settings')
+        })
+        expect(screen.queryByText(AUTH_REFUSAL_GENERIC_MESSAGE)).not.toBeInTheDocument()
+      })
+    })
+
+    it.each(['OAUTH_LINK_REAUTH_REQUIRED', 'REAUTH_REQUIRED'])(
+      'hands the Google start reason=%s',
+      async reason => {
+        mockAuthState = { setUser: vi.fn(), authStatus: 'authenticated' }
+        setSearchParams(new URLSearchParams({ returnTo: '/profile', reason }).toString())
+
+        renderWithProviders(<AuthPage />)
+
+        await screen.findByText("Confirm it's you")
+        expect(googleOAuthProps).toHaveBeenCalled()
+        for (const [props] of googleOAuthProps.mock.calls) {
+          expect(props).toEqual(
+            expect.objectContaining({ returnTo: '/profile', reauthReason: reason })
+          )
+        }
+      }
+    )
+
+    it("hands both tabs' Google starts the reason on a link that outlived its session", async () => {
+      const user = userEvent.setup()
+      setSearchParams('returnTo=%2Fprofile&reason=REAUTH_REQUIRED')
+      renderWithProviders(<AuthPage />)
+      expect(googleOAuthProps.mock.calls.at(-1)?.[0]).toEqual(
+        expect.objectContaining({ reauthReason: 'REAUTH_REQUIRED' })
+      )
+
+      await user.click(screen.getByRole('tab', { name: 'Create account' }))
+
+      expect(googleOAuthProps.mock.calls.at(-1)?.[0]).toEqual(
+        expect.objectContaining({ reauthReason: 'REAUTH_REQUIRED' })
+      )
+    })
+
+    it.each([
+      ['no reason', 'returnTo=%2Fshows'],
+      ['the closed-account reason', 'reason=ACCOUNT_INACTIVE&returnTo=%2Fshows'],
+      ['a reason it does not recognise', 'reason=SOMETHING_ELSE&returnTo=%2Fshows'],
+    ])('hands the Google start no reason on an arrival with %s', (_label, query) => {
+      setSearchParams(query)
+
+      renderWithProviders(<AuthPage />)
+
+      expect(googleOAuthProps).toHaveBeenCalled()
+      for (const [props] of googleOAuthProps.mock.calls) {
+        expect(props.reauthReason).toBeUndefined()
+      }
     })
 
     it('still bounces an authenticated reader when no reason is given', async () => {

@@ -147,8 +147,9 @@ func declinedAtProvider(provider string, r *http.Request) bool {
 
 // redirectSignInFailure answers a sign-in callback that did not sign the
 // reader in: the loopback CLI gets message and code, a browser gets the code
-// on the auth page with the sign-in's destination.
-func redirectSignInFailure(w http.ResponseWriter, r *http.Request, cliCallback, frontendURL, returnTo, message, code string) {
+// on the auth page with the sign-in's destination and re-authentication
+// reason.
+func redirectSignInFailure(w http.ResponseWriter, r *http.Request, cliCallback, frontendURL string, returnTo oauthReturnTo, message, code string) {
 	if cliCallback != "" {
 		target := cliCallback + "?" + url.Values{cliErrorParam: {message}, cliErrorCodeParam: {code}}.Encode()
 		http.Redirect(w, r, target, http.StatusTemporaryRedirect)

@@ -1,7 +1,7 @@
 'use client'
 
 import { Button } from '@/components/ui/button'
-import { FALLBACK_RETURN_TO } from '@/lib/auth-href'
+import { FALLBACK_RETURN_TO, type ReauthReason } from '@/lib/auth-href'
 import { googleStartUrl } from './google-start-url'
 
 interface GoogleOAuthButtonProps {
@@ -12,6 +12,11 @@ interface GoogleOAuthButtonProps {
    * sanitizeReturnTo. See googleStartUrl for what the backend does with it.
    */
   returnTo?: string
+  /**
+   * The re-authentication the auth page is showing, when it shows one. See
+   * googleStartUrl for what the backend does with it.
+   */
+  reauthReason?: ReauthReason
 }
 
 /**
@@ -23,13 +28,14 @@ export function GoogleOAuthButton({
   className,
   disabled = false,
   returnTo = FALLBACK_RETURN_TO,
+  reauthReason,
 }: GoogleOAuthButtonProps) {
   return (
     <Button
       type="button"
       variant="outline"
       onClick={() => {
-        window.location.href = googleStartUrl({ returnTo })
+        window.location.href = googleStartUrl({ returnTo, reauthReason })
       }}
       disabled={disabled}
       className={className}

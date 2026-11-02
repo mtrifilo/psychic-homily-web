@@ -46,3 +46,31 @@ func TestAuthPageCodesMatchTheFrontend(t *testing.T) {
 		}
 	}
 }
+
+// A sign-in start records only the reasons oauthReauthReasons lists, and the
+// auth page writes them from REAUTH_REASONS, so a reason renamed on one side
+// is dropped at the start and a refused re-authentication bounces again with
+// nothing failing. This checks every listed reason is spelled, quoted, in the
+// module that defines the frontend's.
+func TestReauthReasonsMatchTheFrontend(t *testing.T) {
+	const frontendReasons = "frontend/lib/auth-href.ts"
+	repoRoot, err := filepath.Abs("../../../../..")
+	if err != nil {
+		t.Fatalf("resolving the repo root: %v", err)
+	}
+	raw, err := os.ReadFile(filepath.Join(repoRoot, frontendReasons))
+	if err != nil {
+		t.Fatalf("reading %s: %v", frontendReasons, err)
+	}
+	content := string(raw)
+
+	if len(oauthReauthReasons) == 0 {
+		t.Fatal("oauthReauthReasons is empty")
+	}
+	for _, reason := range oauthReauthReasons {
+		if !strings.Contains(content, "'"+reason+"'") {
+			t.Errorf("%s does not spell the reason %q. The Google start records it; "+
+				"rename it on both sides or neither.", frontendReasons, reason)
+		}
+	}
+}

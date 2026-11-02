@@ -189,7 +189,14 @@ const signupFieldIds = (dateOfBirth: DateOfBirthParts) =>
 // alert and revealFormAlert brings it into view again.
 const FORM_ALERT_CLASS = 'scroll-mt-[var(--topbar-height)]'
 
-function LoginForm({ returnTo }: { returnTo: string }) {
+function LoginForm({
+  returnTo,
+  reauthReason,
+}: {
+  returnTo: string
+  /** The re-authentication the page is showing, for the Google start. */
+  reauthReason?: ReauthReason
+}) {
   const router = useRouter()
   const loginMutation = useLogin()
   const sendMagicLink = useSendMagicLink()
@@ -292,7 +299,7 @@ function LoginForm({ returnTo }: { returnTo: string }) {
 
       {/* OAuth and Passkey login options */}
       <div className="space-y-3">
-        <GoogleOAuthButton className="w-full" returnTo={returnTo} />
+        <GoogleOAuthButton className="w-full" returnTo={returnTo} reauthReason={reauthReason} />
         <PasskeyLoginButton
           onError={reportPasskeyError}
           className="w-full"
@@ -474,6 +481,8 @@ interface PasswordSignupRequest {
 
 interface SignupFormProps {
   returnTo: string
+  /** The re-authentication the page is showing, for the Google start. */
+  reauthReason?: ReauthReason
   /**
    * Reports the signup tab's claim on the page, for both the password form and
    * the passkey button. The page swaps in what follows the sign-up rather than
@@ -498,6 +507,7 @@ interface SignupFormProps {
 
 function SignupForm({
   returnTo,
+  reauthReason,
   onHandoffChange,
   passwordRequestDeadline,
   passkeyRequestDeadline,
@@ -726,7 +736,7 @@ function SignupForm({
           Sign in: a new identity finishes on the "Create your account" step,
           so it reads none of this form's consent controls. */}
       <div className="space-y-3">
-        <GoogleOAuthButton className="w-full" returnTo={returnTo} />
+        <GoogleOAuthButton className="w-full" returnTo={returnTo} reauthReason={reauthReason} />
         <PasskeySignupButton
           onError={message => showError(setPasskeyError, message)}
           onHandoffChange={onHandoffChange}
@@ -908,9 +918,14 @@ function AuthPageContent() {
   // offers them the link. Either way the redirect below has to be held back,
   // because bouncing them straight to returnTo would return them to the control
   // that just refused them, with nothing changed and no way to tell why.
+  //
+  // Every Google start on the page carries the reason, so a refused callback
+  // reopens this re-authentication with its refusal shown rather than landing
+  // on an arrival with no reason, which redirects a signed-in reader.
   const reason = searchParams.get(AUTH_REASON_PARAM)
-  const isReauth = isReauthReason(reason)
-  const reauthCopy = isReauthReason(reason) ? REAUTH_COPY[reason] : undefined
+  const reauthReason = isReauthReason(reason) ? reason : undefined
+  const isReauth = reauthReason !== undefined
+  const reauthCopy = reauthReason === undefined ? undefined : REAUTH_COPY[reauthReason]
   const arrivedForClosedAccount = reason === ACCOUNT_INACTIVE_REASON
 
   // Two arrivals open on Create account: a gated control naming the action it
@@ -982,15 +997,21 @@ function AuthPageContent() {
   // gone; without it, the normal tab shows until the read answers. A proof
   // that finds the pending link gone marks it gone for this arrival only, so
   // a new arrival reads it afresh.
+  //
+  // A re-authentication reads it only on the arrival OAUTH_LINK_PENDING
+  // names: the callback of its own Google start held that link. On any other
+  // re-authentication arrival a pending link is an earlier sign-in's, which
+  // is not what the reader came to prove.
   const linkArrival =
     searchParams.get(AUTH_ERROR_CODE_PARAM) === AuthErrorCode.OAUTH_LINK_PENDING
-  const pendingLink = usePendingOAuthLink(!isReauth)
+  const readsPendingLink = !isReauth || linkArrival
+  const pendingLink = usePendingOAuthLink(readsPendingLink)
   // Keyed by the arrival it was found under, so it self-invalidates on the
   // next one; message is the proof's own refusal when it had one.
   const [goneLink, setGoneLink] = useState<{ arrival: string; message?: string } | null>(null)
   const goneThisArrival = goneLink !== null && goneLink.arrival === arrival
   const collisionEmail =
-    !isReauth && !goneThisArrival && pendingLink.data?.status === 'pending'
+    readsPendingLink && !goneThisArrival && pendingLink.data?.status === 'pending'
       ? (pendingLink.data.email ?? null)
       : null
   const readingPendingLink = linkArrival && pendingLink.isPending
@@ -1168,6 +1189,7 @@ function AuthPageContent() {
                     <GoogleCollisionSignIn
                       email={collisionEmail}
                       returnTo={returnTo}
+                      reauthReason={reauthReason}
                       onPendingLinkGone={message => setGoneLink({ arrival, message })}
                     />
                   ) : readingPendingLink ? (
@@ -1181,7 +1203,7 @@ function AuthPageContent() {
                           {pendingLinkGoneMessage}
                         </p>
                       )}
-                      <LoginForm returnTo={returnTo} />
+                      <LoginForm returnTo={returnTo} reauthReason={reauthReason} />
                     </>
                   )}
                 </div>
@@ -1196,6 +1218,7 @@ function AuthPageContent() {
                     <div className="mt-6">
                       <SignupForm
                         returnTo={returnTo}
+                        reauthReason={reauthReason}
                         onHandoffChange={setSignupHandoff}
                         passwordRequestDeadline={passwordSignupDeadline}
                         passkeyRequestDeadline={passkeySignupDeadline}

@@ -77,11 +77,11 @@ func linkStepRequired(provider string, err error) (*contracts.OAuthLinkRequiredE
 // The address stays out of the URL; the page reads it from
 // OAuthPendingLinkRoute. When the pending link cannot be stored the browser
 // gets the plain refusal instead.
-func (h *OAuthHTTPHandler) startLinkStep(w http.ResponseWriter, r *http.Request, required *contracts.OAuthLinkRequiredError, returnTo, frontendURL string) {
+func (h *OAuthHTTPHandler) startLinkStep(w http.ResponseWriter, r *http.Request, required *contracts.OAuthLinkRequiredError, returnTo oauthReturnTo, frontendURL string) {
 	ctx := r.Context()
 	secure := h.secureCookies()
 
-	token, err := h.authService.StartOAuthLink(required.Identity, required.UserID, returnTo)
+	token, err := h.authService.StartOAuthLink(required.Identity, required.UserID, returnTo.path)
 	if err != nil {
 		logger.AuthError(ctx, "oauth_link_step_start_failed", err, "provider", required.Identity.Provider)
 		http.Redirect(w, r, authPageRefusalURL(frontendURL, required.Refusal, returnTo), http.StatusTemporaryRedirect)

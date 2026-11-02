@@ -21,10 +21,11 @@ vi.mock('next/navigation', () => ({
 }))
 
 const mockSetUser = vi.fn()
+let mockAuthStatus: 'anonymous' | 'authenticated' = 'anonymous'
 vi.mock('@/lib/context/AuthContext', async () => {
   const { deriveMockAuthSignals } = await import('@/test/authFixture')
   return {
-    useAuthContext: () => deriveMockAuthSignals({ setUser: mockSetUser, authStatus: 'anonymous' }),
+    useAuthContext: () => deriveMockAuthSignals({ setUser: mockSetUser, authStatus: mockAuthStatus }),
   }
 })
 
@@ -106,6 +107,7 @@ describe('AuthPage collision state', () => {
     pendingReadEnabled.mockReset()
     mockSendState = { isPending: false, isSuccess: false, isError: false, error: null }
     mockSearchParams = new URLSearchParams()
+    mockAuthStatus = 'anonymous'
     window.history.replaceState(null, '', '/')
   })
 
@@ -183,6 +185,60 @@ describe('AuthPage collision state', () => {
 
     expect(pendingReadEnabled).toHaveBeenCalled()
     expect(pendingReadEnabled.mock.calls.every(([enabled]) => enabled === false)).toBe(true)
+  })
+
+  // The Google start of a signed-in reader's re-authentication found the
+  // address held by an account, and its callback came back here with the
+  // reason, which holds the page for them.
+  describe('on the re-authentication its Google start came back to', () => {
+    const REAUTH_COLLISION = new URLSearchParams({
+      error_code: 'OAUTH_LINK_PENDING',
+      reason: 'OAUTH_LINK_REAUTH_REQUIRED',
+      returnTo: '/profile?tab=settings',
+    }).toString()
+
+    function arriveOnReauthCollision() {
+      mockAuthStatus = 'authenticated'
+      mockSearchParams = new URLSearchParams(REAUTH_COLLISION)
+      mockPendingRead = { isPending: false, data: { status: 'pending', email: ADDRESS } }
+      return renderWithProviders(<AuthPage />)
+    }
+
+    it('shows the collision state under the re-authentication heading, without bouncing', () => {
+      arriveOnReauthCollision()
+
+      expect(pendingReadEnabled).toHaveBeenCalledWith(true)
+      expect(
+        screen.getByRole('heading', { level: 1, name: "Confirm it's you" })
+      ).toBeInTheDocument()
+      expect(screen.getByText(/An account already uses/)).toHaveTextContent(
+        `An account already uses ${ADDRESS}. Sign in with your password to connect Google.`
+      )
+      expect(screen.getByLabelText('Email')).toHaveValue(ADDRESS)
+      expect(screen.queryByRole('tab', { name: 'Create account' })).not.toBeInTheDocument()
+      expect(mockPush).not.toHaveBeenCalled()
+    })
+
+    it('carries the reason into a start with a different Google account', () => {
+      arriveOnReauthCollision()
+
+      const link = screen.getByRole('link', { name: 'Use a different Google account' })
+      const href = new URL(link.getAttribute('href') ?? '')
+      expect(href.searchParams.get('reason')).toBe('OAUTH_LINK_REAUTH_REQUIRED')
+      expect(href.searchParams.get('returnTo')).toBe('/profile?tab=settings')
+      expect(href.searchParams.get('prompt')).toBe('select_account')
+    })
+
+    it('shows the re-authentication form, not a spinner, when the read finds no pending link', () => {
+      mockAuthStatus = 'authenticated'
+      mockSearchParams = new URLSearchParams(REAUTH_COLLISION)
+      mockPendingRead = { isPending: false, data: { status: 'expired' } }
+      renderWithProviders(<AuthPage />)
+
+      expect(screen.getByText(PENDING_LINK_GONE_MESSAGE)).toBeInTheDocument()
+      expect(screen.getByTestId('google-oauth')).toBeInTheDocument()
+      expect(mockPush).not.toHaveBeenCalled()
+    })
   })
 
   it('signs in with the prefilled address and lands on returnTo', async () => {
