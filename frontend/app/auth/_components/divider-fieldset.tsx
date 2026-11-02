@@ -5,9 +5,11 @@ import type { ReactNode } from 'react'
  * a rule, the legend in the kicker style, a rule. The legend is the group's
  * accessible name, so its text stays sentence case and `uppercase` styles it.
  *
- * The legend's 8px vertical padding plus the 16px gap of the stack around it
- * leave 24px clear above and below the divider row. The rules are borders,
- * not backgrounds, so forced-colors mode still paints them.
+ * Clearance is 24px above and below the divider row when the fieldset sits in
+ * a `space-y-4` stack: above, the stack's 16px gap plus the legend's 8px top
+ * padding; below, the legend's 8px bottom padding plus the group's own 16px
+ * top margin. The rules are borders, not backgrounds, so forced-colors mode
+ * still paints them.
  */
 export function DividerFieldset({
   legend,

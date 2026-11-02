@@ -26,10 +26,12 @@ vi.mock('@/lib/context/AuthContext', async () => {
 
 type SendMagicLinkOptions = { onSuccess?: (data: { success: boolean }) => void }
 const mockSendMagicLink = vi.fn()
+// Whether the sign-in link request is in flight, as the mutation reports it.
+let mockSendMagicLinkPending = false
 vi.mock('@/features/auth', () => ({
   useLogin: () => ({ mutate: vi.fn(), reset: vi.fn(), isPending: false, error: null }),
   useRegister: () => ({ mutate: vi.fn(), isPending: false, error: null as Error | null }),
-  useSendMagicLink: () => ({ mutate: mockSendMagicLink, isPending: false }),
+  useSendMagicLink: () => ({ mutate: mockSendMagicLink, isPending: mockSendMagicLinkPending }),
   useSendVerificationEmail: () => ({
     mutate: vi.fn(),
     isPending: false,
@@ -64,6 +66,7 @@ beforeEach(() => {
   mockSearchParams = new URLSearchParams()
   mockAuthStatus = 'anonymous'
   mockSendMagicLink.mockReset()
+  mockSendMagicLinkPending = false
 })
 
 async function openCreateAccount() {
@@ -83,9 +86,14 @@ describe('the email group', () => {
     expect(legend?.textContent).toBe(GROUP_NAME)
     expect(within(legend as HTMLElement).getByText(GROUP_NAME)).toHaveClass(
       'font-mono',
+      'text-[11px]',
       'uppercase',
+      'tracking-[0.66px]',
       'text-muted-foreground'
     )
+    const rules = legend?.querySelectorAll('[aria-hidden="true"]') ?? []
+    expect(rules).toHaveLength(2)
+    rules.forEach(rule => expect(rule).toHaveClass('border-t', 'border-separator'))
     expect(within(group).getByLabelText('Email')).toBeInTheDocument()
     expect(within(group).getByLabelText('Password')).toBeInTheDocument()
     expectOneEmailGroup()
@@ -141,6 +149,14 @@ describe('the sign-in link under Sign in', () => {
     expect(mockSendMagicLink).toHaveBeenCalledTimes(1)
     expect(mockSendMagicLink.mock.calls[0][0]).toEqual({ email: 'user@example.com' })
     expect(screen.getByText(/Check your email for a sign-in link/)).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: LINK_NAME })).not.toBeInTheDocument()
+  })
+
+  it('disables the link and says it is sending while the request is in flight', () => {
+    mockSendMagicLinkPending = true
+    renderWithProviders(<AuthPage />)
+
+    expect(screen.getByRole('button', { name: 'Sending...' })).toBeDisabled()
     expect(screen.queryByRole('button', { name: LINK_NAME })).not.toBeInTheDocument()
   })
 
