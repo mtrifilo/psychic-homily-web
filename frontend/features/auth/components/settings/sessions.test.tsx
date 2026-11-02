@@ -179,8 +179,14 @@ describe('SessionsSettings', () => {
     expect(within(dialog).getByLabelText('Signing out')).toBeInTheDocument()
     expect(within(dialog).getByRole('button', { name: 'Cancel' })).toBeDisabled()
     expect(within(dialog).getByRole('button', { name: 'Signing out' })).toBeDisabled()
+    // The card's trigger sits behind the modal, so it is reached as hidden.
+    expect(
+      screen.getByRole('button', { name: 'Sign out everywhere else', hidden: true })
+    ).toBeDisabled()
 
     await user.keyboard('{Escape}')
+    expect(screen.getByRole('dialog')).toBeInTheDocument()
+    await user.click(within(dialog).getByRole('button', { name: 'Close' }))
     expect(screen.getByRole('dialog')).toBeInTheDocument()
 
     resolveRequest({ success: true })
