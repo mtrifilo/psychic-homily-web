@@ -17,6 +17,7 @@ import (
 	"psychic-homily-backend/internal/api/handlers/shared/testhelpers"
 	"psychic-homily-backend/internal/api/middleware"
 	autherrors "psychic-homily-backend/internal/errors"
+	"psychic-homily-backend/internal/logger"
 	authm "psychic-homily-backend/internal/models/auth"
 	"psychic-homily-backend/internal/testlog"
 )
@@ -724,15 +725,22 @@ func (c *concurrentOAuthCompleter) CompleteUserAuth(http.ResponseWriter, *http.R
 	return c.user, nil
 }
 
-// Two callbacks carrying one intent, same cookie and same state, race. Exactly
-// one takes the intent and lands on the link result; the other finds nothing
-// armed and is handled as the sign-in it looks like, so the identity is
-// attached once.
+// Callbacks carrying one intent, same cookie and same state, race. Exactly one
+// takes the intent and lands on the link result; the others find nothing armed
+// and are handled as the sign-in they look like, so the identity is attached
+// once. Sixteen callbacks over fifty rounds make a callback that reads and
+// removes the intent in separate steps likely, not certain, to fail here;
+// TestOAuthLinkIntentStore_ConcurrentTakesForOneHandshakeHaveOneWinner pins
+// the take itself.
 func (s *OAuthHandlerIntegrationSuite) TestLinkCallback_ConcurrentCallbacksOnOneIntentLinkOnce() {
 	const (
-		rounds    = 10
-		callbacks = 2
+		rounds    = 50
+		callbacks = 16
 	)
+	// logger.Default initializes the process logger on first use without
+	// synchronizing against a concurrent first use; the server runs
+	// logger.Init at startup, so the callbacks below start from the same state.
+	logger.Default()
 	for round := range rounds {
 		user := &authm.User{Email: strPtr(fmt.Sprintf("link-race-%d@test.com", round)), IsActive: true, EmailVerified: true}
 		s.Require().NoError(s.deps.DB.Create(user).Error)
@@ -774,9 +782,9 @@ func (s *OAuthHandlerIntegrationSuite) TestLinkCallback_ConcurrentCallbacksOnOne
 				s.Contains(location, "oauth_link=connected", "round %d", round)
 			}
 		}
-		s.Equal(1, linkResults, "round %d: exactly one callback may complete the link", round)
+		s.Require().Equal(1, linkResults, "round %d: exactly one callback may complete the link", round)
 		s.Equal(int32(callbacks), completer.calls.Load(),
-			"round %d: the loser is a sign-in, which exchanges its own code", round)
+			"round %d: each loser is a sign-in, which exchanges its own code", round)
 
 		var rows int64
 		s.Require().NoError(s.deps.DB.Model(&authm.OAuthAccount{}).

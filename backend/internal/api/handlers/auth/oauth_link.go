@@ -91,13 +91,14 @@ func (i oauthLinkIntent) isForHandshake(provider, state string) bool {
 
 // oauthLinkIntentCapacity bounds the intent store. Past it the oldest pending
 // link is evicted, and its callback is handled as one whose intent this
-// process never held.
+// process does not hold.
 const oauthLinkIntentCapacity = 1000
 
 // oauthLinkIntentStore holds pending link intents by opaque id. Process-local
-// and deliberately not durable: an intent that does not survive a restart or a
-// second instance produces an expired-link refusal, which is the fail-closed
-// direction. Mirrors cliCallbackStore, which makes the same trade.
+// and deliberately not durable: the callback of an intent that does not
+// survive a restart or a second instance is handled as a sign-in, which
+// attaches nothing to the account the intent named. Mirrors cliCallbackStore,
+// which makes the same trade.
 var oauthLinkIntentStore = newExpiringRegistry[oauthLinkIntent](oauthLinkIntentCapacity, oauthLinkIntentTTL, time.Now)
 
 // storeOAuthLinkIntent stores intent under id. Its result is put's

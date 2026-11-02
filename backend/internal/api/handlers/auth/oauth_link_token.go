@@ -107,7 +107,8 @@ func newSpentNonceSet(capacity int, now func() time.Time) *spentNonceSet {
 //
 // Pruning stays safe because of the first refusal: a nonce leaves the set
 // only once the set's clock is past its expiry, and from then on the set
-// refuses its token as expired.
+// refuses its token as expired. Expiries carry no monotonic reading, so that
+// holds only while the wall clock does not step back past a pruned expiry.
 //
 // refusalsToReport is nonzero when spends were refused for capacity since the
 // last report and at least capacityReportInterval has passed since it;
