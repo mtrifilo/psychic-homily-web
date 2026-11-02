@@ -217,7 +217,7 @@ func (s *OAuthHandlerIntegrationSuite) TestLinkStep_CallbackKeepsTheRefusalOutsi
 	s.Run("verified account already holds another Google identity", func() {
 		defer s.TearDownTest()
 		account := s.passwordAccount("has-google@test.com", true)
-		s.Require().NoError(s.deps.DB.Create(&authm.OAuthAccount{UserID: account.ID, Provider: "google", ProviderUserID: "google-original"}).Error)
+		s.attachGoogle(account.ID, "google-original")
 		w, req := oauthCallbackRequest("google")
 		s.newHandler(&mockOAuthCompleter{user: collisionIdentity("has-google@test.com", "google-second")}).OAuthCallbackHTTPHandler(w, req)
 		s.assertSignInRefusal(w, "has-google@test.com")
@@ -698,6 +698,26 @@ func (s *OAuthHandlerIntegrationSuite) TestLinkStep_PasswordProofKeepsTheSamePro
 	s.requireRefusal(resp, autherrors.CodeOAuthProviderAlreadyLinked)
 	s.Nil(setCookies(resp)["auth_token"])
 	s.requireOnlyGoogleIdentity(account.ID, "google-pw-squatter")
+	s.Zero(s.linkRows(account.ID), "the refused password proof spends the pending link")
+}
+
+// The squatter's Google identity can arrive after the victim asked for the
+// emailed link, from the squatter's own session: the proof still finds the
+// address unverified and replaces it.
+func (s *OAuthHandlerIntegrationSuite) TestLinkStep_IdentityAttachedAfterTheLinkWasSentIsReplaced() {
+	account := s.passwordAccount("late-squat@test.com", false)
+	token := s.startLink(collisionIdentity("late-squat@test.com", "google-late-owner"))
+	env := s.linkEnv()
+	linkToken := s.requestLink(env, token)
+	s.attachGoogle(account.ID, "google-late-squatter")
+
+	s.Require().Equal(true, s.decode(s.verifyLink(env, linkToken))["success"])
+
+	s.requireOnlyGoogleIdentity(account.ID, "google-late-owner")
+	after := s.reload(account.ID)
+	s.Nil(after.PasswordHash)
+	s.True(after.EmailVerified)
+	s.NotNil(after.SessionsValidAfter)
 }
 
 // A verified account keeps the Google identity it holds. A pending link

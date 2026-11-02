@@ -35,8 +35,8 @@ function isPendingLinkGone(error: unknown): boolean {
 
 /**
  * The password proof's refusals to attach the Google identity: the identity
- * or the provider was attached elsewhere since the collision began. The
- * backend spends the pending link on them.
+ * is attached to another account, or the account holds a different Google
+ * identity. The backend spends the pending link on them.
  */
 const LINK_REFUSAL_CODES: ReadonlySet<string> = new Set([
   AuthErrorCode.OAUTH_IDENTITY_IN_USE,

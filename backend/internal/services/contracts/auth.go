@@ -303,9 +303,10 @@ type AuthServiceInterface interface {
 	// link whatever it names. When it names user, and user's address is still
 	// the identity's, the identity is attached to user in the transaction that
 	// consumes it and linked is true. A pending link for another account is
-	// discarded and linked is false. Refusals: PeekOAuthLink's, and
-	// CodeOAuthIdentityInUse or CodeOAuthProviderAlreadyLinked when the
-	// identity or the provider was attached since the pending link began.
+	// discarded and linked is false. Refusals: PeekOAuthLink's,
+	// CodeOAuthIdentityInUse when the identity is attached to another
+	// account, and CodeOAuthProviderAlreadyLinked when user holds another
+	// identity from the provider, whether or not its address is verified.
 	LinkOAuthWithPassword(token string, user *authm.User) (linked bool, err error)
 	// CompleteOAuthLinkByEmail finishes the pending link an emailed sign-in
 	// link names. In one transaction it consumes the pending link, removes
@@ -313,11 +314,13 @@ type AuthServiceInterface interface {
 	// address was never verified, attaches the identity, clears the
 	// account's password, marks its address verified, revokes every session
 	// and the calendar-feed token, and removes every identity from another
-	// provider; passkeys stay. Then it
-	// issues a new session, which the revocation does not reach. Refusals:
-	// CodeOAuthLinkPendingExpired when the pending link is used, expired, or
-	// not the claims' account, shared.ClosedAccountRefusal when the account
-	// may not sign in, and LinkOAuthWithPassword's link refusals.
+	// provider; passkeys stay. Then it issues a new session, which the
+	// revocation does not reach. Refusals: CodeOAuthLinkPendingExpired when
+	// the pending link is used, expired, or not the claims' account,
+	// shared.ClosedAccountRefusal when the account may not sign in,
+	// CodeOAuthIdentityInUse when the identity is attached to another
+	// account, and CodeOAuthProviderAlreadyLinked when the account's address
+	// is verified and it holds another identity from the provider.
 	CompleteOAuthLinkByEmail(claims *OAuthLinkTokenClaims) (*OAuthLinkCompletion, error)
 	// CompleteOAuthSignup resolves or creates the account for a consumed
 	// pending sign-up through

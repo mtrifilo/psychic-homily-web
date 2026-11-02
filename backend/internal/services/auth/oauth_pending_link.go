@@ -141,7 +141,7 @@ func (s *AuthService) CompleteOAuthLinkByEmail(claims *contracts.OAuthLinkTokenC
 
 	var accountID uint
 	var returnTo string
-	var replacedIdentity bool
+	var replaced *authm.OAuthAccount
 	var refusal *apperrors.AuthError
 	err := s.db.Transaction(func(tx *gorm.DB) error {
 		row, err := readPendingByHash(tx, pendingLinkPurpose, claims.PendingLink, consumePendingRow)
@@ -162,11 +162,11 @@ func (s *AuthService) CompleteOAuthLinkByEmail(claims *contracts.OAuthLinkTokenC
 		// sessions stay as they were, and the consumed pending link commits.
 		refusal, err = attachInSavepoint(tx, func(sp *gorm.DB) error {
 			if !account.EmailVerified {
-				replaced, err := evictUnprovenIdentity(sp, account.ID, row.Provider, row.ProviderUserID)
+				evicted, err := evictUnprovenIdentity(sp, account.ID, row.Provider, row.ProviderUserID)
 				if err != nil {
 					return err
 				}
-				replacedIdentity = replaced
+				replaced = evicted
 			}
 			if err := attachPendingIdentity(sp, account.ID, row); err != nil {
 				return err
@@ -206,8 +206,17 @@ func (s *AuthService) CompleteOAuthLinkByEmail(claims *contracts.OAuthLinkTokenC
 	if err != nil {
 		return nil, fmt.Errorf("failed to create token: %w", err)
 	}
+	if replaced != nil {
+		// The removed row is gone from oauth_accounts, so this line is the
+		// record of which identity the proof took off the account.
+		logger.Default().Warn("oauth_pending_link_replaced_identity",
+			"user_id", user.ID,
+			"provider", replaced.Provider,
+			"replaced_oauth_account_id", replaced.ID,
+			"replaced_provider_email_hash", logger.HashEmail(shared.DerefOrEmpty(replaced.ProviderEmail)))
+	}
 	logger.Default().Info("oauth_pending_link_completed", "proof", "mailbox", "user_id", user.ID,
-		"replaced_identity", replacedIdentity)
+		"replaced_identity", replaced != nil)
 	return &contracts.OAuthLinkCompletion{User: user, Token: token, ReturnTo: returnTo}, nil
 }
 
@@ -241,27 +250,28 @@ func evictOtherCredentials(tx *gorm.DB, userID uint, keepProvider string) error 
 
 // evictUnprovenIdentity removes, through tx, userID's identity from provider
 // when it is not provenSubject, the identity the mailbox proof attaches, and
-// reports whether it removed one. The caller has userID's row locked and has
-// read its address as never verified, so nothing proved that whoever
-// attached that identity holds the mailbox, and the proof just did for
-// provenSubject. One row per provider per account
-// (oauth_accounts_user_provider_uniq); it is locked FOR UPDATE and unlinked
-// through the path Settings disconnects by, as evictOtherCredentials does.
-func evictUnprovenIdentity(tx *gorm.DB, userID uint, provider, provenSubject string) (bool, error) {
-	var subjects []string
-	if err := tx.Model(&authm.OAuthAccount{}).
-		Clauses(clause.Locking{Strength: "UPDATE"}).
+// returns the row it removed, or nil when there was none. The caller has
+// userID's row locked and has read its address as never verified, so
+// nothing proved that whoever attached that identity holds the mailbox, and
+// the proof just did for provenSubject. An account holds at most one row per
+// provider (oauth_accounts_user_provider_uniq), so the row locked FOR UPDATE
+// here is the one UnlinkOAuthAccountTx, the path Settings disconnects by,
+// removes.
+func evictUnprovenIdentity(tx *gorm.DB, userID uint, provider, provenSubject string) (*authm.OAuthAccount, error) {
+	var held authm.OAuthAccount
+	found := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
 		Where("user_id = ? AND provider = ? AND provider_user_id <> ?", userID, provider, provenSubject).
-		Pluck("provider_user_id", &subjects).Error; err != nil {
-		return false, fmt.Errorf("failed to list provider identities: %w", err)
+		Limit(1).Find(&held)
+	if found.Error != nil {
+		return nil, fmt.Errorf("failed to read the provider identity: %w", found.Error)
 	}
-	if len(subjects) == 0 {
-		return false, nil
+	if found.RowsAffected == 0 {
+		return nil, nil
 	}
 	if err := usersvc.UnlinkOAuthAccountTx(tx, userID, provider); err != nil {
-		return false, err
+		return nil, err
 	}
-	return true, nil
+	return &held, nil
 }
 
 // takePendingLink locks and returns the account a consumed pending link

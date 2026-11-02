@@ -178,8 +178,9 @@ type OAuthLinkByEmailResponse struct {
 
 // LinkByEmailHandler queues the sign-in link to the address of the account
 // this browser's pending link names. Following it links the provider, turns
-// off the account's password and signs out its other sessions
-// (AuthServiceInterface.CompleteOAuthLinkByEmail). The browser already
+// off the account's password and signs out its other sessions, and on an
+// address never verified it replaces the account's identity from the
+// provider (AuthServiceInterface.CompleteOAuthLinkByEmail). The browser already
 // learned the address is registered from the callback, so the answer names
 // the outcome plainly rather than in the enumeration-safe shape of
 // /auth/magic-link/send.
