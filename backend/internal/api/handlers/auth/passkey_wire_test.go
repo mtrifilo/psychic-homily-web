@@ -105,7 +105,7 @@ func TestPasskeyWire_LoginBeginOptionsCarryPublicKeyWrapper(t *testing.T) {
 		BeginDiscoverableLoginFn: func() (*protocol.CredentialAssertion, *webauthn.SessionData, error) {
 			return wireWebAuthn(t).BeginDiscoverableLogin()
 		},
-		StoreChallengeFn: func(uint, *webauthn.SessionData, string) (string, error) { return "c-1", nil },
+		StoreLoginChallengeFn: func(*webauthn.SessionData) (string, error) { return "c-1", nil },
 	}
 	api := newPasskeyWireAPI(t, testPasskeyHandlerWithMocks(mockWA, &testhelpers.MockJWTService{}, &testhelpers.MockUserService{}))
 
@@ -203,7 +203,7 @@ func TestPasskeyWire_LoginFinishAcceptsLibraryResponseShape(t *testing.T) {
 	_, device := softRegistration(t)
 	var parsedID string
 	mockWA := &testhelpers.MockWebAuthnService{
-		ConsumeChallengeFn: func(string, string) (*webauthn.SessionData, error) {
+		ConsumeLoginChallengeFn: func(string) (*webauthn.SessionData, error) {
 			return &webauthn.SessionData{}, nil
 		},
 		FinishDiscoverableLoginFn: func(_ *webauthn.SessionData, parsed *protocol.ParsedCredentialAssertionData) (*authm.User, *authm.WebAuthnCredential, error) {
@@ -326,7 +326,7 @@ func TestPasskeyWire_LoginFinishErrorClasses(t *testing.T) {
 	for _, outcome := range outcomes {
 		t.Run(outcome.name, func(t *testing.T) {
 			mockWA := &testhelpers.MockWebAuthnService{
-				ConsumeChallengeFn: func(string, string) (*webauthn.SessionData, error) {
+				ConsumeLoginChallengeFn: func(string) (*webauthn.SessionData, error) {
 					return &webauthn.SessionData{}, nil
 				},
 				FinishDiscoverableLoginFn: func(*webauthn.SessionData, *protocol.ParsedCredentialAssertionData) (*authm.User, *authm.WebAuthnCredential, error) {
@@ -368,11 +368,11 @@ func TestPasskeyWire_LoginFinishStepFailures(t *testing.T) {
 		return &authm.User{ID: 7, IsActive: true}, &authm.WebAuthnCredential{ID: 1}, nil
 	}
 	steps := map[string]struct {
-		consume   func(string, string) (*webauthn.SessionData, error)
+		consume   func(string) (*webauthn.SessionData, error)
 		mintToken func(*authm.User) (string, error)
 	}{
 		"challenge cannot be read": {
-			consume: func(string, string) (*webauthn.SessionData, error) {
+			consume: func(string) (*webauthn.SessionData, error) {
 				return nil, fmt.Errorf("failed to consume challenge: %w", errWireDriver)
 			},
 		},
@@ -383,13 +383,13 @@ func TestPasskeyWire_LoginFinishStepFailures(t *testing.T) {
 	for name, step := range steps {
 		t.Run(name, func(t *testing.T) {
 			mockWA := &testhelpers.MockWebAuthnService{
-				ConsumeChallengeFn: func(string, string) (*webauthn.SessionData, error) {
+				ConsumeLoginChallengeFn: func(string) (*webauthn.SessionData, error) {
 					return &webauthn.SessionData{}, nil
 				},
 				FinishDiscoverableLoginFn: accepted,
 			}
 			if step.consume != nil {
-				mockWA.ConsumeChallengeFn = step.consume
+				mockWA.ConsumeLoginChallengeFn = step.consume
 			}
 			users := noAccountLoads(t)
 			jwt := &testhelpers.MockJWTService{CreateTokenFn: func(*authm.User) (string, error) { return "token", nil }}

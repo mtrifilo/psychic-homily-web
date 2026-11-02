@@ -356,9 +356,7 @@ func (h *PasskeyHandler) BeginLoginHandler(ctx context.Context, input *BeginLogi
 		return nil, autherrors.ErrServiceUnavailable("passkey_login_begin", err)
 	}
 
-	// The challenge names no account; FinishDiscoverableLogin finds the
-	// account from the credential the assertion carries.
-	challengeID, err := h.webauthnService.StoreChallenge(0, session, "authentication")
+	challengeID, err := h.webauthnService.StoreLoginChallenge(session)
 	if err != nil {
 		logger.AuthError(ctx, "passkey_challenge_store_failed", err)
 		return nil, autherrors.ErrServiceUnavailable("passkey_login_challenge_store", err)
@@ -402,7 +400,7 @@ func (h *PasskeyHandler) FinishLoginHandler(ctx context.Context, input *FinishLo
 
 	logger.AuthDebug(ctx, "passkey_login_finish")
 
-	session, err := h.webauthnService.ConsumeChallenge(input.Body.ChallengeID, "authentication")
+	session, err := h.webauthnService.ConsumeLoginChallenge(input.Body.ChallengeID)
 	if err != nil {
 		if refusal, ok := passkeyRefusal(err, autherrors.CodeValidationFailed); ok {
 			logger.AuthWarn(ctx, "passkey_challenge_refused",

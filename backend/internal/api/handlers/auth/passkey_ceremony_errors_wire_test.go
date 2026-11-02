@@ -155,7 +155,7 @@ func TestPasskeyWire_LoginBeginErrors(t *testing.T) {
 					}
 					return &protocol.CredentialAssertion{}, &webauthn.SessionData{}, nil
 				},
-				StoreChallengeFn: func(uint, *webauthn.SessionData, string) (string, error) {
+				StoreLoginChallengeFn: func(*webauthn.SessionData) (string, error) {
 					return "c-1", tc.storeErr
 				},
 			}
@@ -181,11 +181,8 @@ func TestPasskeyWire_LoginBeginRefusesBodyFields(t *testing.T) {
 			begun++
 			return &protocol.CredentialAssertion{}, &webauthn.SessionData{}, nil
 		},
-		StoreChallengeFn: func(userID uint, _ *webauthn.SessionData, _ string) (string, error) {
+		StoreLoginChallengeFn: func(*webauthn.SessionData) (string, error) {
 			stored++
-			if userID != 0 {
-				t.Errorf("challenge stored under user %d, want no account", userID)
-			}
 			return "c-1", nil
 		},
 	}
@@ -226,7 +223,7 @@ func TestPasskeyWire_LoginFinishAnswersTheDecidedAccount(t *testing.T) {
 	_, device := softRegistration(t)
 	email := "decided@example.com"
 	mockWA := &testhelpers.MockWebAuthnService{
-		ConsumeChallengeFn: func(string, string) (*webauthn.SessionData, error) {
+		ConsumeLoginChallengeFn: func(string) (*webauthn.SessionData, error) {
 			return &webauthn.SessionData{}, nil
 		},
 		FinishDiscoverableLoginFn: func(*webauthn.SessionData, *protocol.ParsedCredentialAssertionData) (*authm.User, *authm.WebAuthnCredential, error) {
