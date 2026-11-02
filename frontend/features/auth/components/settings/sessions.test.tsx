@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { screen, waitFor } from '@testing-library/react'
+import { screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { createTestQueryClient, renderWithProviders } from '@/test/utils'
 import { AuthError, AuthErrorCode } from '@/lib/errors'
@@ -34,6 +34,11 @@ const CONFIRM_BODY =
 async function openConfirm(user: ReturnType<typeof userEvent.setup>) {
   await user.click(screen.getByRole('button', { name: 'Sign out everywhere else' }))
   return screen.findByRole('dialog')
+}
+
+async function confirmSignOut(user: ReturnType<typeof userEvent.setup>) {
+  const dialog = await openConfirm(user)
+  await user.click(within(dialog).getByRole('button', { name: 'Sign out everywhere else' }))
 }
 
 describe('SessionsSettings', () => {
@@ -83,12 +88,7 @@ describe('SessionsSettings', () => {
     queryClient.setQueryData(queryKeys.auth.profile, profile)
     renderWithProviders(<SessionsSettings />, { queryClient })
 
-    const dialog = await openConfirm(user)
-    await user.click(
-      Array.from(dialog.querySelectorAll('button')).find(
-        b => b.textContent === 'Sign out everywhere else'
-      )!
-    )
+    await confirmSignOut(user)
 
     expect(await screen.findByRole('status')).toHaveTextContent(SUCCESS_LINE)
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
@@ -112,12 +112,7 @@ describe('SessionsSettings', () => {
     const user = userEvent.setup()
     renderWithProviders(<SessionsSettings />)
 
-    const dialog = await openConfirm(user)
-    await user.click(
-      Array.from(dialog.querySelectorAll('button')).find(
-        b => b.textContent === 'Sign out everywhere else'
-      )!
-    )
+    await confirmSignOut(user)
 
     expect(await screen.findByRole('alert')).toHaveTextContent(REFUSAL_LINE)
     expect(screen.queryByText(SUCCESS_LINE)).not.toBeInTheDocument()
@@ -133,12 +128,7 @@ describe('SessionsSettings', () => {
     const user = userEvent.setup()
     renderWithProviders(<SessionsSettings />)
 
-    const dialog = await openConfirm(user)
-    await user.click(
-      Array.from(dialog.querySelectorAll('button')).find(
-        b => b.textContent === 'Sign out everywhere else'
-      )!
-    )
+    await confirmSignOut(user)
 
     expect(await screen.findByRole('alert')).toHaveTextContent(REFUSAL_LINE)
     expect(screen.queryByText(SUCCESS_LINE)).not.toBeInTheDocument()
@@ -153,19 +143,10 @@ describe('SessionsSettings', () => {
     const user = userEvent.setup()
     renderWithProviders(<SessionsSettings />)
 
-    const confirm = async () => {
-      const dialog = await openConfirm(user)
-      await user.click(
-        Array.from(dialog.querySelectorAll('button')).find(
-          b => b.textContent === 'Sign out everywhere else'
-        )!
-      )
-    }
-
-    await confirm()
+    await confirmSignOut(user)
     expect(await screen.findByRole('alert')).toHaveTextContent(REFUSAL_LINE)
 
-    await confirm()
+    await confirmSignOut(user)
     await waitFor(() => expect(screen.queryByRole('alert')).not.toBeInTheDocument())
 
     resolveSecond({ success: true })

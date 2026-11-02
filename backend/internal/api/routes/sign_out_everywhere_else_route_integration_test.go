@@ -115,6 +115,12 @@ func TestSignOutEverywhereElseRouteThroughRouter(t *testing.T) {
 		t.Fatalf("create calendar token: %v", err)
 	}
 
+	// With no credential the JWT middleware refuses before the handler; the
+	// checks that follow show every session still honored afterwards.
+	if w := sendAuthed(t, f.router, http.MethodPost, authh.SignOutEverywhereElseRoute, "", "203.0.113.190:1234", ""); w.Code != http.StatusUnauthorized {
+		t.Fatalf("a call with no session answered %d, want 401", w.Code)
+	}
+
 	for name, credential := range map[string]string{"this device": thisDevice, "another browser": otherBrowser, "a CLI token": cliToken} {
 		if code := profileStatus(t, f.router, credential); code != http.StatusOK {
 			t.Fatalf("before the call, %s answered %d, want 200", name, code)
@@ -183,29 +189,6 @@ func TestSignOutEverywhereElseRouteThroughRouter(t *testing.T) {
 			t.Errorf("the new renewal answered %d, want 200", code)
 		}
 	})
-}
-
-func TestSignOutEverywhereElseRouteRefusesWithoutASession(t *testing.T) {
-	if testing.Short() {
-		t.Skip("skipping integration test in short mode")
-	}
-	t.Setenv(DisableAuthRateLimitsEnvVar, "1")
-	f := newSignOutEverywhereElseFixture(t, "sign-out-everywhere-else-anon@test.com")
-
-	req := httptest.NewRequest(http.MethodPost, authh.SignOutEverywhereElseRoute, nil)
-	req.RemoteAddr = "203.0.113.194:1234"
-	w := httptest.NewRecorder()
-	f.router.ServeHTTP(w, req)
-	if w.Code != http.StatusUnauthorized {
-		t.Fatalf("status = %d, want 401", w.Code)
-	}
-	account, err := f.sc.User.GetUserByID(f.user.ID)
-	if err != nil {
-		t.Fatalf("reload: %v", err)
-	}
-	if account.SessionsValidAfter != nil {
-		t.Errorf("an unauthenticated call revoked the account's sessions (stamp %v)", account.SessionsValidAfter)
-	}
 }
 
 // The route meters on its own counter at the verification-resend size: the

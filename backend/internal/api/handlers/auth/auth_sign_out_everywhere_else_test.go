@@ -119,7 +119,7 @@ func TestSignOutEverywhereElseHandler_ServiceFailureIsUnavailable(t *testing.T) 
 }
 
 func TestSignOutEverywhereElseHandler_NoUserIsUnauthorized(t *testing.T) {
-	rec := &signOutRecorder{token: "renewed-token"}
+	rec := &signOutRecorder{}
 	h := signOutHandler(rec)
 
 	_, err := h.SignOutEverywhereElseHandler(context.Background(), nil)

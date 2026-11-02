@@ -63,8 +63,5 @@ func signOutOtherSessions(db *gorm.DB, user *authm.User, authAt, now time.Time, 
 		token = minted
 		return nil
 	})
-	if err != nil {
-		return "", err
-	}
-	return token, nil
+	return token, err
 }
