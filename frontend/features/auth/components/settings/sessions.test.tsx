@@ -1,0 +1,174 @@
+import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { screen, waitFor } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
+import { createTestQueryClient, renderWithProviders } from '@/test/utils'
+import { AuthError, AuthErrorCode } from '@/lib/errors'
+import { queryKeys } from '@/lib/queryClient'
+import { SessionsSettings } from './sessions'
+
+// The card runs on the real mutation hook; only the request is stubbed.
+const mockApiRequest = vi.fn()
+vi.mock('@/lib/api', async importOriginal => ({
+  ...(await importOriginal<object>()),
+  apiRequest: (...args: unknown[]) => mockApiRequest(...args),
+}))
+
+const mockCaptureException = vi.fn()
+vi.mock('@sentry/nextjs', () => ({
+  captureException: (...args: unknown[]) => mockCaptureException(...args),
+}))
+
+const mockRouterPush = vi.fn()
+const mockRouterReplace = vi.fn()
+vi.mock('next/navigation', () => ({
+  useRouter: () => ({ push: mockRouterPush, replace: mockRouterReplace }),
+  usePathname: () => '/profile',
+  useSearchParams: () => new URLSearchParams(),
+}))
+
+const SUCCESS_LINE = 'Signed out everywhere else. This device is still signed in.'
+const REFUSAL_LINE = 'Failed to sign out other devices. Please try again.'
+const CONFIRM_BODY =
+  'Every other device and browser signed in to your account will be signed out and will need to sign in again. This device stays signed in. Calendar feeds keep working.'
+
+async function openConfirm(user: ReturnType<typeof userEvent.setup>) {
+  await user.click(screen.getByRole('button', { name: 'Sign out everywhere else' }))
+  return screen.findByRole('dialog')
+}
+
+describe('SessionsSettings', () => {
+  beforeEach(() => {
+    mockApiRequest.mockReset()
+    mockCaptureException.mockReset()
+    mockRouterPush.mockReset()
+    mockRouterReplace.mockReset()
+  })
+
+  it('renders the card copy', () => {
+    renderWithProviders(<SessionsSettings />)
+
+    expect(screen.getByText('Sessions')).toBeInTheDocument()
+    expect(
+      screen.getByText("Sign out on every other device and browser where you're signed in.")
+    ).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Sign out everywhere else' })).toBeInTheDocument()
+    expect(
+      screen.getByText('This device stays signed in. Calendar feeds keep working.')
+    ).toBeInTheDocument()
+    expect(screen.queryByRole('status')).not.toBeInTheDocument()
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+  })
+
+  it('asks before signing anything out, and Cancel sends nothing', async () => {
+    const user = userEvent.setup()
+    renderWithProviders(<SessionsSettings />)
+
+    const dialog = await openConfirm(user)
+    expect(dialog).toHaveTextContent('Sign out everywhere else?')
+    expect(dialog).toHaveTextContent(CONFIRM_BODY)
+
+    await user.click(screen.getByRole('button', { name: 'Cancel' }))
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+    expect(mockApiRequest).not.toHaveBeenCalled()
+  })
+
+  it('confirming posts the request and shows the success line, leaving this device signed in', async () => {
+    mockApiRequest.mockResolvedValueOnce({ success: true })
+    const user = userEvent.setup()
+    const queryClient = createTestQueryClient()
+    const profile = { success: true, user: { id: 7, email: 'reader@example.com' } }
+    // Nothing observes the profile here, so it is kept from garbage
+    // collection; a removal would then be the code's, not the test client's.
+    queryClient.setQueryDefaults(queryKeys.auth.profile, { gcTime: Infinity })
+    queryClient.setQueryData(queryKeys.auth.profile, profile)
+    renderWithProviders(<SessionsSettings />, { queryClient })
+
+    const dialog = await openConfirm(user)
+    await user.click(
+      Array.from(dialog.querySelectorAll('button')).find(
+        b => b.textContent === 'Sign out everywhere else'
+      )!
+    )
+
+    expect(await screen.findByRole('status')).toHaveTextContent(SUCCESS_LINE)
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    expect(screen.queryByText(REFUSAL_LINE)).not.toBeInTheDocument()
+    expect(mockApiRequest).toHaveBeenCalledTimes(1)
+    expect(mockApiRequest).toHaveBeenCalledWith(
+      expect.stringMatching(/\/auth\/sessions\/sign-out-everywhere-else$/),
+      expect.objectContaining({ method: 'POST', credentials: 'include' })
+    )
+
+    // No sign-out, no redirect: the profile is still the signed-in one.
+    expect(queryClient.getQueryData(queryKeys.auth.profile)).toEqual(profile)
+    expect(mockRouterPush).not.toHaveBeenCalled()
+    expect(mockRouterReplace).not.toHaveBeenCalled()
+    // The control stays for a second press.
+    expect(screen.getByRole('button', { name: 'Sign out everywhere else' })).toBeEnabled()
+  })
+
+  it('shows the refusal line when the request fails, not the success line', async () => {
+    mockApiRequest.mockRejectedValueOnce(new Error('HTTP 503: Service Unavailable'))
+    const user = userEvent.setup()
+    renderWithProviders(<SessionsSettings />)
+
+    const dialog = await openConfirm(user)
+    await user.click(
+      Array.from(dialog.querySelectorAll('button')).find(
+        b => b.textContent === 'Sign out everywhere else'
+      )!
+    )
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(REFUSAL_LINE)
+    expect(screen.queryByText(SUCCESS_LINE)).not.toBeInTheDocument()
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    expect(mockCaptureException).toHaveBeenCalledTimes(1)
+    expect(mockRouterPush).not.toHaveBeenCalled()
+  })
+
+  it('shows the refusal line when this session was itself signed out first', async () => {
+    mockApiRequest.mockRejectedValueOnce(
+      new AuthError('Invalid token', AuthErrorCode.TOKEN_INVALID, { status: 401 })
+    )
+    const user = userEvent.setup()
+    renderWithProviders(<SessionsSettings />)
+
+    const dialog = await openConfirm(user)
+    await user.click(
+      Array.from(dialog.querySelectorAll('button')).find(
+        b => b.textContent === 'Sign out everywhere else'
+      )!
+    )
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(REFUSAL_LINE)
+    expect(screen.queryByText(SUCCESS_LINE)).not.toBeInTheDocument()
+  })
+
+  it('a second press clears the previous outcome while it runs', async () => {
+    mockApiRequest.mockRejectedValueOnce(new Error('HTTP 503'))
+    let resolveSecond: (value: unknown) => void = () => {}
+    mockApiRequest.mockImplementationOnce(
+      () => new Promise(resolve => { resolveSecond = resolve })
+    )
+    const user = userEvent.setup()
+    renderWithProviders(<SessionsSettings />)
+
+    const confirm = async () => {
+      const dialog = await openConfirm(user)
+      await user.click(
+        Array.from(dialog.querySelectorAll('button')).find(
+          b => b.textContent === 'Sign out everywhere else'
+        )!
+      )
+    }
+
+    await confirm()
+    expect(await screen.findByRole('alert')).toHaveTextContent(REFUSAL_LINE)
+
+    await confirm()
+    await waitFor(() => expect(screen.queryByRole('alert')).not.toBeInTheDocument())
+
+    resolveSecond({ success: true })
+    expect(await screen.findByRole('status')).toHaveTextContent(SUCCESS_LINE)
+  })
+})

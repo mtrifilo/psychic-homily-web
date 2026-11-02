@@ -45,6 +45,8 @@ export const API_ENDPOINTS = {
     // Password management endpoints
     CHANGE_PASSWORD: `${API_BASE_URL}/auth/change-password`,
     SET_PASSWORD: `${API_BASE_URL}/auth/password`,
+    // Session management
+    SIGN_OUT_EVERYWHERE_ELSE: `${API_BASE_URL}/auth/sessions/sign-out-everywhere-else`,
     // Magic link endpoints
     MAGIC_LINK_SEND: `${API_BASE_URL}/auth/magic-link/send`,
     MAGIC_LINK_VERIFY: `${API_BASE_URL}/auth/magic-link/verify`,

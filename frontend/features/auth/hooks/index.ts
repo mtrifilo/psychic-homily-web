@@ -9,6 +9,7 @@ export {
   useConfirmVerification,
   useChangePassword,
   useSetPassword,
+  useSignOutEverywhereElse,
   useSendMagicLink,
   useVerifyMagicLink,
   useDeletionSummary,
