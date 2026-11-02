@@ -92,7 +92,9 @@ export function GoogleCollisionSignIn({
       {
         onSuccess: data => {
           if (data.user) setUser(data.user)
-          router.push(returnTo)
+          // Replaced, not pushed: the proof spent the pending link, so the
+          // arrival that showed it is not a page to go back to.
+          router.replace(returnTo)
         },
         onError: error => {
           // The pending link is spent or gone: the person signs in from the

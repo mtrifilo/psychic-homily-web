@@ -13,10 +13,11 @@ import AuthPage from './page'
 // read from the pending link the backend holds for this browser.
 
 const mockPush = vi.fn()
+const mockReplace = vi.fn()
 let mockSearchParams = new URLSearchParams()
 
 vi.mock('next/navigation', () => ({
-  useRouter: () => ({ push: mockPush, replace: vi.fn() }),
+  useRouter: () => ({ push: mockPush, replace: mockReplace }),
   useSearchParams: () => mockSearchParams,
   usePathname: () => '/auth',
 }))
@@ -104,6 +105,7 @@ function arriveOnCollision(
 describe('AuthPage collision state', () => {
   beforeEach(() => {
     mockPush.mockReset()
+    mockReplace.mockReset()
     mockSetUser.mockReset()
     mockLoginMutate.mockReset()
     mockLoginError = null
@@ -254,7 +256,9 @@ describe('AuthPage collision state', () => {
     })
   })
 
-  it('signs in with the prefilled address and lands on returnTo', async () => {
+  // The proof spends the pending link, so the arrival is replaced rather
+  // than left behind as a Back target that would show the link gone.
+  it('signs in with the prefilled address and lands on returnTo in place of the arrival', async () => {
     const user = userEvent.setup()
     arriveOnCollision()
 
@@ -270,7 +274,8 @@ describe('AuthPage collision state', () => {
     })
     options.onSuccess({ success: true, user: { id: 9 } })
     expect(mockSetUser).toHaveBeenCalledWith({ id: 9 })
-    expect(mockPush).toHaveBeenCalledWith('/shows')
+    expect(mockReplace).toHaveBeenCalledWith('/shows')
+    expect(mockPush).not.toHaveBeenCalled()
   })
 
   // The backend refuses a correct password when the pending link is gone,
