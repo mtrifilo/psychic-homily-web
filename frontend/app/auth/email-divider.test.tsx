@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { screen, waitFor, within } from '@testing-library/react'
+import { screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { renderWithProviders } from '@/test/utils'
 import { buildReauthHref } from '@/lib/auth-href'
@@ -53,12 +53,18 @@ const GROUP_NAME = 'Or continue with email'
 const LINK_NAME = 'Email me a sign-in link instead'
 
 function emailGroup() {
-  return screen.getByRole('group', { name: /or continue with email/i })
+  return screen.getByRole('group', { name: GROUP_NAME })
 }
 
 function expectOneEmailGroup() {
-  expect(screen.getAllByRole('group', { name: /or continue with email/i })).toHaveLength(1)
+  expect(screen.getAllByRole('group', { name: GROUP_NAME })).toHaveLength(1)
 }
+
+beforeEach(() => {
+  mockSearchParams = new URLSearchParams()
+  mockAuthStatus = 'anonymous'
+  mockSendMagicLink.mockReset()
+})
 
 async function openCreateAccount() {
   const user = userEvent.setup()
@@ -67,12 +73,6 @@ async function openCreateAccount() {
 }
 
 describe('the email group', () => {
-  beforeEach(() => {
-    mockSearchParams = new URLSearchParams()
-    mockAuthStatus = 'anonymous'
-    mockSendMagicLink.mockReset()
-  })
-
   it('names the Sign in tab email fields with a sentence case legend', () => {
     renderWithProviders(<AuthPage />)
 
@@ -116,12 +116,6 @@ describe('the email group', () => {
 })
 
 describe('the sign-in link under Sign in', () => {
-  beforeEach(() => {
-    mockSearchParams = new URLSearchParams()
-    mockAuthStatus = 'anonymous'
-    mockSendMagicLink.mockReset()
-  })
-
   it('replaces the second divider and the outline button with one text link', () => {
     renderWithProviders(<AuthPage />)
 
@@ -146,9 +140,7 @@ describe('the sign-in link under Sign in', () => {
 
     expect(mockSendMagicLink).toHaveBeenCalledTimes(1)
     expect(mockSendMagicLink.mock.calls[0][0]).toEqual({ email: 'user@example.com' })
-    await waitFor(() => {
-      expect(screen.getByText(/Check your email for a sign-in link/)).toBeInTheDocument()
-    })
+    expect(screen.getByText(/Check your email for a sign-in link/)).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: LINK_NAME })).not.toBeInTheDocument()
   })
 
@@ -165,11 +157,6 @@ describe('the sign-in link under Sign in', () => {
 })
 
 describe('placeholders', () => {
-  beforeEach(() => {
-    mockSearchParams = new URLSearchParams()
-    mockAuthStatus = 'anonymous'
-  })
-
   it('keeps only the email format hint on Sign in', () => {
     renderWithProviders(<AuthPage />)
 
