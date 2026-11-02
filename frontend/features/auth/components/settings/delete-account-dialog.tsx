@@ -273,7 +273,6 @@ export function DeleteAccountDialog({
                     <Input
                       id="delete-password"
                       type={showPassword ? 'text' : 'password'}
-                      placeholder="Enter your password"
                       value={password}
                       onChange={e => setPassword(e.target.value)}
                       className="pl-10 pr-10"

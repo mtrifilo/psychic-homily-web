@@ -13,7 +13,7 @@ import { useRouter, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import { useForm } from '@tanstack/react-form'
 import { z } from 'zod'
-import { AlertCircle, Loader2, Mail, Lock, User, Eye, EyeOff, Send, CheckCircle2 } from 'lucide-react'
+import { AlertCircle, Loader2, Mail, Lock, User, Eye, EyeOff, CheckCircle2 } from 'lucide-react'
 import { useLogin, useRegister, useSendMagicLink } from '@/features/auth'
 import { useAuthContext } from '@/lib/context/AuthContext'
 import { Button } from '@/components/ui/button'
@@ -32,6 +32,7 @@ import { PasswordStrengthMeter } from '@/components/ui/password-strength-meter'
 import { PasskeyLoginButton } from '@/app/auth/_components/passkey-login'
 import { PasskeySignupButton } from '@/app/auth/_components/passkey-signup'
 import { GoogleOAuthButton } from '@/app/auth/_components/google-oauth-button'
+import { DividerFieldset } from '@/app/auth/_components/divider-fieldset'
 import {
   SignupIntentFooter,
   SignupIntentPanel,
@@ -305,159 +306,141 @@ function LoginForm({
           className="w-full"
           returnTo={returnTo}
         />
-        <div className="relative">
-          <div className="absolute inset-0 flex items-center">
-            <span className="w-full border-t" />
-          </div>
-          <div className="relative flex justify-center text-xs uppercase">
-            <span className="bg-card px-2 text-muted-foreground">Or continue with email</span>
-          </div>
-        </div>
       </div>
 
-      <form.Field name="email">
-        {field => (
-          <div className="space-y-2">
-            <Label htmlFor={field.name}>Email</Label>
-            <div className="relative">
-              <Mail className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-              <Input
-                id={field.name}
-                name={field.name}
-                type="email"
-                placeholder="you@example.com"
-                value={field.state.value}
-                onBlur={field.handleBlur}
-                onChange={e => {
-                  field.handleChange(e.target.value)
-                  // Reset magic link states when email changes
-                  setMagicLinkSent(false)
-                  setMagicLinkError(null)
-                }}
-                className="pl-10"
-                aria-invalid={field.state.meta.errors.length > 0}
-              />
+      <DividerFieldset legend="Or continue with email">
+        <form.Field name="email">
+          {field => (
+            <div className="space-y-2">
+              <Label htmlFor={field.name}>Email</Label>
+              <div className="relative">
+                <Mail className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                <Input
+                  id={field.name}
+                  name={field.name}
+                  type="email"
+                  placeholder="you@example.com"
+                  value={field.state.value}
+                  onBlur={field.handleBlur}
+                  onChange={e => {
+                    field.handleChange(e.target.value)
+                    // Reset magic link states when email changes
+                    setMagicLinkSent(false)
+                    setMagicLinkError(null)
+                  }}
+                  className="pl-10"
+                  aria-invalid={field.state.meta.errors.length > 0}
+                />
+              </div>
+              {field.state.meta.errors.length > 0 && (
+                <p role="alert" className="text-sm text-destructive">
+                  {getUniqueErrors(field.state.meta.errors)}
+                </p>
+              )}
             </div>
-            {field.state.meta.errors.length > 0 && (
-              <p role="alert" className="text-sm text-destructive">
-                {getUniqueErrors(field.state.meta.errors)}
-              </p>
-            )}
-          </div>
-        )}
-      </form.Field>
+          )}
+        </form.Field>
 
-      <form.Field name="password">
-        {field => (
-          <div className="space-y-2">
-            <Label htmlFor={field.name}>Password</Label>
-            <div className="relative">
-              <Lock className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-              <Input
-                id={field.name}
-                name={field.name}
-                type={showPassword ? 'text' : 'password'}
-                placeholder="Enter your password"
-                value={field.state.value}
-                onBlur={field.handleBlur}
-                onChange={e => field.handleChange(e.target.value)}
-                className="pl-10 pr-10"
-                aria-invalid={field.state.meta.errors.length > 0}
-              />
-              <button
-                type="button"
-                onClick={() => setShowPassword(!showPassword)}
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 rounded-sm"
-                aria-label={showPassword ? 'Hide password' : 'Show password'}
-                aria-pressed={showPassword}
-              >
-                {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-              </button>
+        <form.Field name="password">
+          {field => (
+            <div className="space-y-2">
+              <Label htmlFor={field.name}>Password</Label>
+              <div className="relative">
+                <Lock className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                <Input
+                  id={field.name}
+                  name={field.name}
+                  type={showPassword ? 'text' : 'password'}
+                  value={field.state.value}
+                  onBlur={field.handleBlur}
+                  onChange={e => field.handleChange(e.target.value)}
+                  className="pl-10 pr-10"
+                  aria-invalid={field.state.meta.errors.length > 0}
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword(!showPassword)}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 rounded-sm"
+                  aria-label={showPassword ? 'Hide password' : 'Show password'}
+                  aria-pressed={showPassword}
+                >
+                  {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                </button>
+              </div>
+              {field.state.meta.errors.length > 0 && (
+                <p role="alert" className="text-sm text-destructive">
+                  {getUniqueErrors(field.state.meta.errors)}
+                </p>
+              )}
+              <div className="flex justify-end">
+                <button
+                  type="button"
+                  onClick={handleSendMagicLink}
+                  className="text-xs text-muted-foreground hover:text-primary underline-offset-4 hover:underline"
+                  disabled={sendMagicLink.isPending}
+                >
+                  Forgot password?
+                </button>
+              </div>
             </div>
-            {field.state.meta.errors.length > 0 && (
-              <p role="alert" className="text-sm text-destructive">
-                {getUniqueErrors(field.state.meta.errors)}
-              </p>
+          )}
+        </form.Field>
+
+        <form.Subscribe selector={state => state.isSubmitting}>
+          {isSubmitting => (
+            <Button
+              type="submit"
+              className="w-full"
+              disabled={isSubmitting || loginMutation.isPending}
+            >
+              {isSubmitting || loginMutation.isPending ? (
+                <>
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  Signing in...
+                </>
+              ) : (
+                'Sign in'
+              )}
+            </Button>
+          )}
+        </form.Subscribe>
+
+        {magicLinkSent ? (
+          <div className="flex items-center gap-2 rounded-md bg-emerald-500/10 p-3 text-sm text-emerald-600 dark:text-emerald-400">
+            <CheckCircle2 className="h-4 w-4 shrink-0" />
+            <span>
+              Check your email for a sign-in link. It expires in {MAGIC_LINK_EXPIRY_MINUTES} minutes.
+            </span>
+          </div>
+        ) : (
+          <>
+            {magicLinkError && (
+              <div role="alert" className="flex items-center gap-2 rounded-md bg-destructive/10 p-3 text-sm text-destructive">
+                <AlertCircle className="h-4 w-4 shrink-0" />
+                <span>{magicLinkError}</span>
+              </div>
             )}
-            <div className="flex justify-end">
+            {/* A button styled as a link: it sends the email, it does not navigate. */}
+            <div className="flex justify-center">
               <button
                 type="button"
                 onClick={handleSendMagicLink}
-                className="text-xs text-muted-foreground hover:text-primary underline-offset-4 hover:underline"
                 disabled={sendMagicLink.isPending}
+                className="inline-flex items-center gap-2 rounded-sm text-sm text-muted-foreground underline underline-offset-4 hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 ring-offset-background disabled:opacity-50"
               >
-                Forgot password?
+                {sendMagicLink.isPending ? (
+                  <>
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    Sending...
+                  </>
+                ) : (
+                  'Email me a sign-in link instead'
+                )}
               </button>
             </div>
-          </div>
+          </>
         )}
-      </form.Field>
-
-      <form.Subscribe selector={state => state.isSubmitting}>
-        {isSubmitting => (
-          <Button
-            type="submit"
-            className="w-full"
-            disabled={isSubmitting || loginMutation.isPending}
-          >
-            {isSubmitting || loginMutation.isPending ? (
-              <>
-                <Loader2 className="h-4 w-4 animate-spin" />
-                Signing in...
-              </>
-            ) : (
-              'Sign in'
-            )}
-          </Button>
-        )}
-      </form.Subscribe>
-
-      {/* Magic link option */}
-      <div className="relative">
-        <div className="absolute inset-0 flex items-center">
-          <span className="w-full border-t" />
-        </div>
-        <div className="relative flex justify-center text-xs">
-          <span className="bg-card px-2 text-muted-foreground">or</span>
-        </div>
-      </div>
-
-      {magicLinkSent ? (
-        <div className="flex items-center gap-2 rounded-md bg-emerald-500/10 p-3 text-sm text-emerald-600 dark:text-emerald-400">
-          <CheckCircle2 className="h-4 w-4 shrink-0" />
-          <span>
-            Check your email for a sign-in link. It expires in {MAGIC_LINK_EXPIRY_MINUTES} minutes.
-          </span>
-        </div>
-      ) : (
-        <>
-          {magicLinkError && (
-            <div role="alert" className="flex items-center gap-2 rounded-md bg-destructive/10 p-3 text-sm text-destructive">
-              <AlertCircle className="h-4 w-4 shrink-0" />
-              <span>{magicLinkError}</span>
-            </div>
-          )}
-          <Button
-            type="button"
-            variant="outline"
-            className="w-full"
-            onClick={handleSendMagicLink}
-            disabled={sendMagicLink.isPending}
-          >
-            {sendMagicLink.isPending ? (
-              <>
-                <Loader2 className="h-4 w-4 animate-spin" />
-                Sending...
-              </>
-            ) : (
-              <>
-                <Send className="h-4 w-4" />
-                Email me a sign-in link
-              </>
-            )}
-          </Button>
-        </>
-      )}
+      </DividerFieldset>
     </form>
   )
 }
@@ -745,158 +728,151 @@ function SignupForm({
           className="w-full"
           versionsChanged={versionsChanged}
         />
-        <div className="relative">
-          <div className="absolute inset-0 flex items-center">
-            <span className="w-full border-t" />
-          </div>
-          <div className="relative flex justify-center text-xs uppercase">
-            <span className="bg-card px-2 text-muted-foreground">Or continue with email</span>
-          </div>
-        </div>
       </div>
 
-      <form.Field name="email">
-        {field => (
-          <div className="space-y-2">
-            <Label htmlFor={`signup-${field.name}`}>Email</Label>
-            <div className="relative">
-              <Mail className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-              <Input
-                id={`signup-${field.name}`}
-                name={field.name}
-                type="email"
-                placeholder="you@example.com"
-                value={field.state.value}
-                onBlur={field.handleBlur}
-                onChange={e => field.handleChange(e.target.value)}
-                className="pl-10"
-                aria-invalid={field.state.meta.errors.length > 0}
-              />
+      <DividerFieldset legend="Or continue with email">
+        <form.Field name="email">
+          {field => (
+            <div className="space-y-2">
+              <Label htmlFor={`signup-${field.name}`}>Email</Label>
+              <div className="relative">
+                <Mail className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                <Input
+                  id={`signup-${field.name}`}
+                  name={field.name}
+                  type="email"
+                  placeholder="you@example.com"
+                  value={field.state.value}
+                  onBlur={field.handleBlur}
+                  onChange={e => field.handleChange(e.target.value)}
+                  className="pl-10"
+                  aria-invalid={field.state.meta.errors.length > 0}
+                />
+              </div>
+              {field.state.meta.errors.length > 0 && (
+                <p role="alert" className="text-sm text-destructive">
+                  {getUniqueErrors(field.state.meta.errors)}
+                </p>
+              )}
             </div>
-            {field.state.meta.errors.length > 0 && (
-              <p role="alert" className="text-sm text-destructive">
-                {getUniqueErrors(field.state.meta.errors)}
-              </p>
-            )}
-          </div>
-        )}
-      </form.Field>
+          )}
+        </form.Field>
 
-      <form.Field name="password">
-        {field => (
-          <div className="space-y-2">
-            <Label htmlFor={`signup-${field.name}`}>Password</Label>
-            <div className="relative">
-              <Lock className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-              <Input
-                id={`signup-${field.name}`}
-                name={field.name}
-                type={showPassword ? 'text' : 'password'}
-                placeholder="Create a password"
-                value={field.state.value}
-                onBlur={field.handleBlur}
-                onChange={e => {
-                  field.handleChange(e.target.value)
-                  setPasswordValue(e.target.value)
-                }}
-                className="pl-10 pr-10"
-                aria-invalid={field.state.meta.errors.length > 0}
-              />
-              <button
-                type="button"
-                onClick={() => setShowPassword(!showPassword)}
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 rounded-sm"
-                aria-label={showPassword ? 'Hide password' : 'Show password'}
-                aria-pressed={showPassword}
-              >
-                {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-              </button>
-            </div>
-            {field.state.meta.errors.length > 0 && (
-              <p role="alert" className="text-sm text-destructive">
-                {getUniqueErrors(field.state.meta.errors)}
-              </p>
-            )}
-            {/* Password strength meter with requirements */}
-            <PasswordStrengthMeter password={passwordValue} showRequirements={true} />
-          </div>
-        )}
-      </form.Field>
-
-      <form.Field name="termsAccepted">
-        {field => (
-          <div className="space-y-2">
-            <div className="flex items-start space-x-3">
-              <Checkbox
-                id="terms"
-                checked={field.state.value}
-                onCheckedChange={checked => field.handleChange(checked === true)}
-                aria-invalid={field.state.meta.errors.length > 0}
-                className="mt-0.5"
-              />
-              <Label
-                htmlFor="terms"
-                className="block cursor-pointer text-sm font-normal leading-relaxed"
-              >
-                I agree to the{' '}
-                <Link
-                  href="/terms"
-                  target="_blank"
-                  className="font-medium underline underline-offset-4 hover:text-primary"
+        <form.Field name="password">
+          {field => (
+            <div className="space-y-2">
+              <Label htmlFor={`signup-${field.name}`}>Password</Label>
+              <div className="relative">
+                <Lock className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                <Input
+                  id={`signup-${field.name}`}
+                  name={field.name}
+                  type={showPassword ? 'text' : 'password'}
+                  value={field.state.value}
+                  onBlur={field.handleBlur}
+                  onChange={e => {
+                    field.handleChange(e.target.value)
+                    setPasswordValue(e.target.value)
+                  }}
+                  className="pl-10 pr-10"
+                  aria-invalid={field.state.meta.errors.length > 0}
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword(!showPassword)}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 rounded-sm"
+                  aria-label={showPassword ? 'Hide password' : 'Show password'}
+                  aria-pressed={showPassword}
                 >
-                  Terms of Service
-                </Link>{' '}
-                <span className="text-muted-foreground">
-                  and I acknowledge the{' '}
+                  {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                </button>
+              </div>
+              {field.state.meta.errors.length > 0 && (
+                <p role="alert" className="text-sm text-destructive">
+                  {getUniqueErrors(field.state.meta.errors)}
+                </p>
+              )}
+              {/* Password strength meter with requirements */}
+              <PasswordStrengthMeter password={passwordValue} showRequirements={true} />
+            </div>
+          )}
+        </form.Field>
+
+        <form.Field name="termsAccepted">
+          {field => (
+            <div className="space-y-2">
+              <div className="flex items-start space-x-3">
+                <Checkbox
+                  id="terms"
+                  checked={field.state.value}
+                  onCheckedChange={checked => field.handleChange(checked === true)}
+                  aria-invalid={field.state.meta.errors.length > 0}
+                  className="mt-0.5"
+                />
+                <Label
+                  htmlFor="terms"
+                  className="block cursor-pointer text-sm font-normal leading-relaxed"
+                >
+                  I agree to the{' '}
                   <Link
-                    href="/privacy"
+                    href="/terms"
                     target="_blank"
                     className="font-medium underline underline-offset-4 hover:text-primary"
                   >
-                    Privacy Policy
-                  </Link>
-                </span>
-              </Label>
+                    Terms of Service
+                  </Link>{' '}
+                  <span className="text-muted-foreground">
+                    and I acknowledge the{' '}
+                    <Link
+                      href="/privacy"
+                      target="_blank"
+                      className="font-medium underline underline-offset-4 hover:text-primary"
+                    >
+                      Privacy Policy
+                    </Link>
+                  </span>
+                </Label>
+              </div>
+              {field.state.meta.errors.length > 0 && (
+                <p role="alert" className="text-sm text-destructive">
+                  {getUniqueErrors(field.state.meta.errors)}
+                </p>
+              )}
             </div>
-            {field.state.meta.errors.length > 0 && (
-              <p role="alert" className="text-sm text-destructive">
-                {getUniqueErrors(field.state.meta.errors)}
-              </p>
-            )}
-          </div>
-        )}
-      </form.Field>
+          )}
+        </form.Field>
 
-      <form.Field name="dateOfBirth">
-        {field => (
-          <DateOfBirthField
-            idPrefix={SIGNUP_DATE_OF_BIRTH_ID_PREFIX}
-            value={field.state.value}
-            onChange={field.handleChange}
-            onBlur={field.handleBlur}
-            showError={field.state.meta.errors.length > 0}
-          />
-        )}
-      </form.Field>
+        <form.Field name="dateOfBirth">
+          {field => (
+            <DateOfBirthField
+              idPrefix={SIGNUP_DATE_OF_BIRTH_ID_PREFIX}
+              value={field.state.value}
+              onChange={field.handleChange}
+              onBlur={field.handleBlur}
+              showError={field.state.meta.errors.length > 0}
+            />
+          )}
+        </form.Field>
 
-      <form.Subscribe selector={state => state.isSubmitting}>
-        {isSubmitting => (
-          <Button
-            type="submit"
-            className="w-full"
-            disabled={isSubmitting || registerMutation.isPending || isRetryingConsent || versionsChanged}
-          >
-            {isSubmitting || registerMutation.isPending || isRetryingConsent ? (
-              <>
-                <Loader2 className="h-4 w-4 animate-spin" />
-                Creating account...
-              </>
-            ) : (
-              'Create account'
-            )}
-          </Button>
-        )}
-      </form.Subscribe>
+        <form.Subscribe selector={state => state.isSubmitting}>
+          {isSubmitting => (
+            <Button
+              type="submit"
+              className="w-full"
+              disabled={isSubmitting || registerMutation.isPending || isRetryingConsent || versionsChanged}
+            >
+              {isSubmitting || registerMutation.isPending || isRetryingConsent ? (
+                <>
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  Creating account...
+                </>
+              ) : (
+                'Create account'
+              )}
+            </Button>
+          )}
+        </form.Subscribe>
+      </DividerFieldset>
     </form>
   )
 }

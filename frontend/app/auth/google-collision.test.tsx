@@ -128,7 +128,7 @@ describe('AuthPage collision state', () => {
     const email = screen.getByLabelText('Email')
     expect(email).toHaveValue(ADDRESS)
     expect(email).toHaveAttribute('readonly')
-    expect(screen.getByLabelText('Password')).toBeInTheDocument()
+    expect(screen.getByLabelText('Password')).not.toHaveAttribute('placeholder')
     expect(screen.getByRole('button', { name: 'Sign in and connect Google' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Email me a sign-in link instead' })).toBeInTheDocument()
     expect(

@@ -166,7 +166,8 @@ describe('DeleteAccountDialog', () => {
 
     await user.click(screen.getByRole('button', { name: /Continue/ }))
 
-    expect(screen.getByLabelText('Password')).toBeInTheDocument()
+    // The visible label names the field; it carries no instruction placeholder.
+    expect(screen.getByLabelText('Password')).not.toHaveAttribute('placeholder')
     expect(
       screen.getByText('Enter your password to confirm deletion.')
     ).toBeInTheDocument()

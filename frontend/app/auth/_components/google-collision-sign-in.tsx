@@ -160,7 +160,6 @@ export function GoogleCollisionSignIn({
             name="password"
             type="password"
             autoComplete="current-password"
-            placeholder="Enter your password"
             value={password}
             onChange={event => {
               setPassword(event.target.value)

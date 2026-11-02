@@ -58,6 +58,7 @@
   --color-ring: var(--ring);
   --color-input: var(--input);
   --color-border: var(--border);
+  --color-separator: var(--separator);
   --color-destructive: var(--destructive);
   --color-destructive-foreground: var(--destructive-foreground);
   /* PSY-965: theme-aware success/pending tokens for StatusBanner (replaces the
@@ -183,6 +184,8 @@
   --pending: #f0e6cf;
   --pending-foreground: #7a5a1e;
   --border: #cabe9f;
+  /* A divider rule: 3:1 against --card, the non-text contrast minimum. */
+  --separator: #8a8782;
   --input: #ddd6c8;
   --ring: #d2541b;
   --chart-1: #d2541b;
@@ -247,6 +250,7 @@
   --pending: #2a2316;
   --pending-foreground: #d6b06a;
   --border: #221b15;
+  --separator: #6d665d;
   --input: #221b15;
   --ring: #dc9064;
   --chart-1: #e89960;
