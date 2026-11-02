@@ -10,6 +10,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
+	"psychic-homily-backend/db"
 	authh "psychic-homily-backend/internal/api/handlers/auth"
 	"psychic-homily-backend/internal/config"
 	autherrors "psychic-homily-backend/internal/errors"
@@ -42,6 +43,12 @@ func newSignOutEverywhereElseFixture(t *testing.T, email string) *signOutEverywh
 	if err := td.DB.Create(user).Error; err != nil {
 		t.Fatalf("create user: %v", err)
 	}
+
+	// HumaJWTMiddleware validates API tokens on the process-wide handle it
+	// reads when the router is built, so it is pointed at this database first.
+	prev := db.DB
+	db.DB = td.DB
+	t.Cleanup(func() { db.DB = prev })
 
 	router := chi.NewRouter()
 	SetupRoutes(router, sc, cfg)
@@ -115,10 +122,27 @@ func TestSignOutEverywhereElseRouteThroughRouter(t *testing.T) {
 		t.Fatalf("create calendar token: %v", err)
 	}
 
-	// With no credential the JWT middleware refuses before the handler; the
-	// checks that follow show every session still honored afterwards.
+	// With no credential the JWT middleware refuses before the handler. An
+	// API token authenticates but holds no session to keep, so it is refused
+	// with nothing minted. The checks that follow show every session still
+	// honored after both.
 	if w := sendAuthed(t, f.router, http.MethodPost, authh.SignOutEverywhereElseRoute, "", "203.0.113.190:1234", ""); w.Code != http.StatusUnauthorized {
 		t.Fatalf("a call with no session answered %d, want 401", w.Code)
+	}
+	if code := profileStatus(t, f.router, apiToken.Token); code != http.StatusOK {
+		t.Fatalf("the API token answered %d on the profile, want 200: the router cannot see it", code)
+	}
+	forbidden := sendAuthed(t, f.router, http.MethodPost, authh.SignOutEverywhereElseRoute, "", "203.0.113.189:1234", apiToken.Token)
+	if forbidden.Code != http.StatusForbidden {
+		t.Fatalf("a call with an API token answered %d, want 403; body %s", forbidden.Code, forbidden.Body.String())
+	}
+	for _, c := range forbidden.Result().Cookies() {
+		if c.Name == config.AuthCookieName && c.Value != "" {
+			t.Fatal("an API-token caller was handed a session cookie")
+		}
+	}
+	if account, err := f.sc.User.GetUserByID(f.user.ID); err != nil || account.SessionsValidAfter != nil {
+		t.Fatalf("an API-token call revoked sessions (stamp %v, err %v)", account.SessionsValidAfter, err)
 	}
 
 	for name, credential := range map[string]string{"this device": thisDevice, "another browser": otherBrowser, "a CLI token": cliToken} {
@@ -156,11 +180,8 @@ func TestSignOutEverywhereElseRouteThroughRouter(t *testing.T) {
 		t.Errorf("renewed auth_at = %v, want the caller's %v carried through", renewedAuthAt, authAt)
 	}
 
-	// Through the validator HumaJWTMiddleware calls rather than through the
-	// router: the middleware builds its API-token service on the process-wide
-	// database handle, which this test does not set.
-	if _, _, err := f.sc.APIToken.ValidateToken(apiToken.Token); err != nil {
-		t.Errorf("the API token was refused after the call: %v", err)
+	if code := profileStatus(t, f.router, apiToken.Token); code != http.StatusOK {
+		t.Errorf("the API token answered %d after the call, want 200", code)
 	}
 	if _, err := f.sc.Calendar.ValidateCalendarToken(calendarToken.Token); err != nil {
 		t.Errorf("the calendar-feed token was refused after the call: %v", err)

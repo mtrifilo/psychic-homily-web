@@ -29,6 +29,12 @@ const UserContextKey contextKey = "user"
 // credential establishes none.
 const SessionAuthTimeContextKey contextKey = "session_auth_time"
 
+// SessionCredentialContextKey holds true when the request's principal was
+// established by a session JWT. The JWT middlewares set it in their session
+// branch only, so an API-token principal, and a context no middleware built,
+// read as false.
+const SessionCredentialContextKey contextKey = "session_credential"
+
 // invalidTokenMessage is the message every TOKEN_INVALID refusal of a session
 // carries.
 const invalidTokenMessage = "Invalid token"
@@ -93,6 +99,7 @@ func JWTMiddleware(jwtService *auth.JWTService) func(http.Handler) http.Handler 
 			// Add user to context
 			ctx = context.WithValue(ctx, UserContextKey, user)
 			ctx = context.WithValue(ctx, SessionAuthTimeContextKey, authAt)
+			ctx = context.WithValue(ctx, SessionCredentialContextKey, true)
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})
 	}
@@ -206,6 +213,8 @@ func HumaJWTMiddleware(jwtService *auth.JWTService, sessionConfig ...config.Sess
 		// Zero unless the JWT branch below establishes one: an API-token
 		// principal is never recently authenticated.
 		var authAt time.Time
+		// False unless the JWT branch below establishes the principal.
+		var isSession bool
 
 		// Check if this is an API token (starts with "phk_")
 		if strings.HasPrefix(token, APITokenPrefix) {
@@ -245,7 +254,7 @@ func HumaJWTMiddleware(jwtService *auth.JWTService, sessionConfig ...config.Sess
 				return
 			}
 
-			user, authAt = jwtUser, jwtAuthAt
+			user, authAt, isSession = jwtUser, jwtAuthAt, true
 			logger.AuthInfo(ctx.Context(), "huma_jwt_validation_success",
 				"user_id", user.ID,
 			)
@@ -254,6 +263,7 @@ func HumaJWTMiddleware(jwtService *auth.JWTService, sessionConfig ...config.Sess
 		// Store user in context for handlers to access
 		ctxWithUser := huma.WithValue(ctx, UserContextKey, user)
 		ctxWithUser = huma.WithValue(ctxWithUser, SessionAuthTimeContextKey, authAt)
+		ctxWithUser = huma.WithValue(ctxWithUser, SessionCredentialContextKey, isSession)
 
 		next(ctxWithUser)
 	}
@@ -315,6 +325,7 @@ func LenientHumaJWTMiddleware(jwtService *auth.JWTService, gracePeriod time.Dura
 
 		ctxWithUser := huma.WithValue(ctx, UserContextKey, user)
 		ctxWithUser = huma.WithValue(ctxWithUser, SessionAuthTimeContextKey, authAt)
+		ctxWithUser = huma.WithValue(ctxWithUser, SessionCredentialContextKey, true)
 
 		next(ctxWithUser)
 	}
@@ -337,6 +348,7 @@ func OptionalHumaJWTMiddleware(jwtService *auth.JWTService) func(ctx huma.Contex
 
 		var user *authm.User
 		var authAt time.Time
+		var isSession bool
 
 		if strings.HasPrefix(token, APITokenPrefix) {
 			apiUser, _, err := apiTokenService.ValidateToken(token)
@@ -357,11 +369,12 @@ func OptionalHumaJWTMiddleware(jwtService *auth.JWTService) func(ctx huma.Contex
 				next(ctx)
 				return
 			}
-			user, authAt = jwtUser, jwtAuthAt
+			user, authAt, isSession = jwtUser, jwtAuthAt, true
 		}
 
 		ctxWithUser := huma.WithValue(ctx, UserContextKey, user)
 		ctxWithUser = huma.WithValue(ctxWithUser, SessionAuthTimeContextKey, authAt)
+		ctxWithUser = huma.WithValue(ctxWithUser, SessionCredentialContextKey, isSession)
 		next(ctxWithUser)
 	}
 }
@@ -408,6 +421,14 @@ func SessionUserFromRequest(jwtService *auth.JWTService, r *http.Request) (*auth
 func GetSessionAuthTimeFromContext(ctx context.Context) time.Time {
 	authAt, _ := ctx.Value(SessionAuthTimeContextKey).(time.Time)
 	return authAt
+}
+
+// IsSessionCredentialFromContext reports whether the request's principal was
+// established by a session JWT rather than by an API token
+// (SessionCredentialContextKey).
+func IsSessionCredentialFromContext(ctx context.Context) bool {
+	isSession, _ := ctx.Value(SessionCredentialContextKey).(bool)
+	return isSession
 }
 
 // GetUserFromContext extracts user from request context

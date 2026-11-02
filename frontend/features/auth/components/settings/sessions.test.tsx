@@ -121,7 +121,9 @@ describe('SessionsSettings', () => {
     expect(mockRouterPush).not.toHaveBeenCalled()
   })
 
-  it('shows the refusal line when this session was itself signed out first', async () => {
+  // The card's own render only. In the app the 401 also reaches the query
+  // client's session-expiry handling, which settles the viewer as signed out.
+  it('renders the refusal line, not the success line, for a 401 revoked-session refusal', async () => {
     mockApiRequest.mockRejectedValueOnce(
       new AuthError('Invalid token', AuthErrorCode.TOKEN_INVALID, { status: 401 })
     )

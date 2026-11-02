@@ -140,8 +140,11 @@ func (s *JWTIntegrationSuite) TestSignOutOtherSessions_ConcurrentCallsLeaveExact
 
 	// The first call is held inside its transaction, after its stamp write
 	// and before its commit, until the second is seen waiting on a lock.
-	// Without the read lock the second would read the old stamp, pass the
-	// check, and wait only at its own write, which then succeeds.
+	// With an unlocked read the second would read the old stamp, pass the
+	// check, and wait only at its own write, which then succeeds. This pins
+	// that the account is read under a lock; it does not tell FOR UPDATE
+	// from FOR SHARE, which differ only when both calls read before either
+	// writes.
 	holding, release := make(chan struct{}), make(chan struct{})
 	heldMint := func(account *authm.User, authAt time.Time) (string, error) {
 		close(holding)

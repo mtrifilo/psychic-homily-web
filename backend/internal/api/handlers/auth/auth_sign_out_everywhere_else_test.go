@@ -52,7 +52,7 @@ func TestSignOutEverywhereElseHandler_RenewsTheCallersSession(t *testing.T) {
 	user := signedInUser()
 	authAt := time.Now().Add(-3 * time.Hour).Truncate(time.Second)
 
-	resp, err := h.SignOutEverywhereElseHandler(testhelpers.CtxWithSessionAuthTime(user, authAt), nil)
+	resp, err := h.SignOutEverywhereElseHandler(testhelpers.CtxWithSession(user, authAt), nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -86,7 +86,7 @@ func TestSignOutEverywhereElseHandler_SessionRefusalsClearTheCookie(t *testing.T
 		t.Run(name, func(t *testing.T) {
 			h := signOutHandler(&signOutRecorder{err: refusal})
 
-			resp, err := h.SignOutEverywhereElseHandler(testhelpers.CtxWithSessionAuthTime(signedInUser(), time.Now()), nil)
+			resp, err := h.SignOutEverywhereElseHandler(testhelpers.CtxWithSession(signedInUser(), time.Now()), nil)
 			if resp != nil {
 				t.Errorf("a refusal must carry no response, got %+v", resp)
 			}
@@ -111,11 +111,30 @@ func TestSignOutEverywhereElseHandler_SessionRefusalsClearTheCookie(t *testing.T
 func TestSignOutEverywhereElseHandler_ServiceFailureIsUnavailable(t *testing.T) {
 	h := signOutHandler(&signOutRecorder{err: errors.New("database unreachable")})
 
-	resp, err := h.SignOutEverywhereElseHandler(testhelpers.CtxWithSessionAuthTime(signedInUser(), time.Now()), nil)
+	resp, err := h.SignOutEverywhereElseHandler(testhelpers.CtxWithSession(signedInUser(), time.Now()), nil)
 	if resp != nil {
 		t.Errorf("a failure must carry no response, got %+v", resp)
 	}
 	assertServiceUnavailable(t, err)
+}
+
+// A principal the middleware established from an API token holds no session
+// to keep, so it is refused before anything is revoked or minted.
+func TestSignOutEverywhereElseHandler_APITokenPrincipalIsRefused(t *testing.T) {
+	rec := &signOutRecorder{token: "renewed-token"}
+	h := signOutHandler(rec)
+
+	resp, err := h.SignOutEverywhereElseHandler(testhelpers.CtxWithSessionAuthTime(signedInUser(), time.Time{}), nil)
+	if resp != nil {
+		t.Errorf("a refusal must carry no response, got %+v", resp)
+	}
+	var statusErr huma.StatusError
+	if !errors.As(err, &statusErr) || statusErr.GetStatus() != http.StatusForbidden {
+		t.Fatalf("want a 403, got %v", err)
+	}
+	if rec.calls != 0 {
+		t.Error("an API-token principal must not reach the service")
+	}
 }
 
 func TestSignOutEverywhereElseHandler_NoUserIsUnauthorized(t *testing.T) {
