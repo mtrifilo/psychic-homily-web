@@ -6,10 +6,30 @@ import (
 	"time"
 )
 
-// registryEvictionReportInterval is the shortest gap between two eviction
-// reports from one registry, so a sustained flood logs once a minute rather
-// than once per insert.
-const registryEvictionReportInterval = time.Minute
+// capacityReportInterval is the shortest gap between two capacity reports from
+// one bounded store, so a sustained flood logs once a minute rather than once
+// per insert.
+const capacityReportInterval = time.Minute
+
+// reportThrottle counts capacity events (evictions, refusals) and hands the
+// count over for logging at most once per capacityReportInterval.
+type reportThrottle struct {
+	pending      int
+	lastReportAt time.Time
+}
+
+// release returns the count of events since the last report, and resets it,
+// when there is at least one and capacityReportInterval has passed since that
+// report; otherwise 0.
+func (t *reportThrottle) release(now time.Time) int {
+	if t.pending == 0 || (!t.lastReportAt.IsZero() && now.Sub(t.lastReportAt) < capacityReportInterval) {
+		return 0
+	}
+	released := t.pending
+	t.pending = 0
+	t.lastReportAt = now
+	return released
+}
 
 // expiringRegistry is a capacity-bounded, process-local map of values by
 // opaque id, each kept for a fixed TTL.
@@ -29,8 +49,7 @@ type expiringRegistry[T any] struct {
 	entries map[string]*list.Element
 	order   *list.List
 
-	evictedSinceReport int
-	lastReportAt       time.Time
+	evictions reportThrottle
 }
 
 type registryEntry[T any] struct {
@@ -59,7 +78,7 @@ func newExpiringRegistry[T any](capacity int, ttl time.Duration, now func() time
 // room.
 //
 // evictionsToReport is nonzero when entries were evicted for capacity since
-// the last report and at least registryEvictionReportInterval has passed since
+// the last report and at least capacityReportInterval has passed since
 // it; the count covers every eviction since that report. The caller logs it;
 // put never logs, so it holds the lock only for map and list work.
 func (s *expiringRegistry[T]) put(id string, value T) (evictionsToReport int) {
@@ -73,7 +92,7 @@ func (s *expiringRegistry[T]) put(id string, value T) (evictionsToReport int) {
 	}
 	for s.order.Len() >= s.capacity {
 		s.removeElementLocked(s.order.Front())
-		s.evictedSinceReport++
+		s.evictions.pending++
 	}
 
 	s.entries[id] = s.order.PushBack(&registryEntry[T]{
@@ -82,32 +101,43 @@ func (s *expiringRegistry[T]) put(id string, value T) (evictionsToReport int) {
 		expiresAt: now.Add(s.ttl),
 	})
 
-	if s.evictedSinceReport > 0 && (s.lastReportAt.IsZero() || now.Sub(s.lastReportAt) >= registryEvictionReportInterval) {
-		evictionsToReport = s.evictedSinceReport
-		s.evictedSinceReport = 0
-		s.lastReportAt = now
-	}
-	return evictionsToReport
+	return s.evictions.release(now)
 }
 
 // take removes the entry stored under id and returns its value, or false when
 // there is none or it has expired. Lookup and removal share one lock hold, so
 // of any number of concurrent takes of one id at most one gets the value.
 func (s *expiringRegistry[T]) take(id string) (T, bool) {
+	value, expired, _, taken := s.takeIf(id, func(T) bool { return true })
+	if !taken || expired {
+		var zero T
+		return zero, false
+	}
+	return value, true
+}
+
+// takeIf removes the entry stored under id and returns its value when match
+// accepts that value, expired or not, with expired reporting which. An entry
+// match refuses is left in place. found is false only when the registry holds
+// nothing under id; taken is false when it holds an entry match refused.
+//
+// Lookup, match and removal share one lock hold, so of any number of
+// concurrent takeIfs of one id at most one takes the entry. match runs under
+// that lock: it must not call back into the registry.
+func (s *expiringRegistry[T]) takeIf(id string, match func(T) bool) (value T, expired, found, taken bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	var zero T
 	element, ok := s.entries[id]
 	if !ok {
-		return zero, false
+		return value, false, false, false
+	}
+	entry := entryOf[T](element)
+	if !match(entry.value) {
+		return value, false, true, false
 	}
 	s.removeElementLocked(element)
-	entry := entryOf[T](element)
-	if s.now().After(entry.expiresAt) {
-		return zero, false
-	}
-	return entry.value, true
+	return entry.value, s.now().After(entry.expiresAt), true, true
 }
 
 // peek returns the value stored under id without consuming it. An expired
@@ -123,12 +153,6 @@ func (s *expiringRegistry[T]) peek(id string) (value T, expired, found bool) {
 	}
 	entry := entryOf[T](element)
 	return entry.value, s.now().After(entry.expiresAt), true
-}
-
-func (s *expiringRegistry[T]) remove(id string) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.removeLocked(id)
 }
 
 func (s *expiringRegistry[T]) removeLocked(id string) {
