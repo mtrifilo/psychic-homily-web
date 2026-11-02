@@ -882,6 +882,7 @@ func useRequestCorrelation(router chi.Router) {
 		Timeout:         2 * time.Second,
 	})
 	router.Use(sentryHandler.Handle)
+	router.Use(middleware.SentryPanicEmailScrub)
 	router.Use(middleware.SentryRequestIDTag)
 }
 

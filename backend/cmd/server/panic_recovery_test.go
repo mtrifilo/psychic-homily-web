@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -30,6 +29,8 @@ import (
 // captured by Sentry once with the request's id as its tag, and is logged once
 // at ERROR with that id, for a route registered directly on chi and for a Huma
 // operation alike; a panic after the response started cuts the response off.
+// The email address in the panic value reaches neither the Sentry event nor the
+// log.
 // middleware.RecoverPanic's own tests pin the envelope, the scrubbing and the
 // header handling; this test pins the order the production chain runs them in.
 //
@@ -72,6 +73,14 @@ func TestHandlerPanicAnswers500(t *testing.T) {
 		for _, ev := range end.Events {
 			if ev.RequestIDTag != id || !strings.Contains(ev.Exception, panicProbeMessage) {
 				t.Errorf("%s: Sentry event %+v, want the panic value tagged with %s", name, ev, id)
+			}
+			if strings.Contains(ev.Exception, panicProbeEmail) {
+				t.Errorf("%s: Sentry event %+v carries the panic value's email", name, ev)
+			}
+		}
+		for _, line := range cases[name].lines {
+			if strings.Contains(line, panicProbeEmail) {
+				t.Errorf("%s: log line carries the panic value's email: %s", name, line)
 			}
 		}
 
@@ -135,6 +144,7 @@ const (
 	panicChildEnv     = "PSY_TEST_PANIC_RECOVERY_CHILD"
 	panicLogMsg       = "handler_panic"
 	panicProbeMessage = "probe panic"
+	panicProbeEmail   = "probe.user@example.com"
 )
 
 // panicCaseEnd is what the child reports about one request once it is served.
@@ -177,7 +187,7 @@ func servePanicCases(t *testing.T) {
 
 	router, api := newCompressedProductionRouter()
 
-	probe := errors.New(panicProbeMessage)
+	probe := fmt.Errorf("%s for %s", panicProbeMessage, panicProbeEmail)
 	router.Get("/test-panic/raw", func(http.ResponseWriter, *http.Request) {
 		panic(probe)
 	})

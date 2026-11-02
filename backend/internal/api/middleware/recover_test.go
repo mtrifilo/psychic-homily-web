@@ -158,6 +158,92 @@ func TestRecoverPanic_AbortsOnceTheResponseStarted(t *testing.T) {
 	}
 }
 
+// The panic line carries no email address from the panic value and keeps the
+// rest of its text.
+func TestRecoverPanic_RedactsEmailsFromThePanicLine(t *testing.T) {
+	_, logs, _ := serveRecoverPanic(t, func(http.ResponseWriter, *http.Request) {
+		panic(fmt.Errorf("lookup failed for %s: %w", "jane.doe+tag@mail.example.com", errors.New("not found")))
+	})
+	lines := panicLogLines(t, logs)
+	if len(lines) != 1 {
+		t.Fatalf("%d %s lines, want 1:\n%s", len(lines), panicLogMsg, logs)
+	}
+	if got, _ := lines[0]["panic"].(string); got != "lookup failed for "+redactedEmail+": not found" {
+		t.Errorf("panic value = %q, want the email replaced by %q", got, redactedEmail)
+	}
+}
+
+func TestScrubPanicValue(t *testing.T) {
+	cases := []struct {
+		name, value, want string
+	}{
+		{"bare email", "no user jane@example.com", "no user " + redactedEmail},
+		{"key and colon", "Email:jane@example.com", "Email:" + redactedEmail},
+		{"struct", "{ID:1 Email:jane@example.com}", "{ID:1 Email:" + redactedEmail + "}"},
+		{"quoted", `{"email":"jane@example.com"}`, `{"email":"` + redactedEmail + `"}`},
+		{"angle brackets", "Jane <jane@example.com>", "Jane <" + redactedEmail + ">"},
+		{"dotless domain", "root@localhost refused", redactedEmail + " refused"},
+		{"unicode", "jöhn@exämple.de", redactedEmail},
+		{"two emails", "a@b.io, c@d.io", redactedEmail + ", " + redactedEmail},
+		{"key and equals", "Email=jane@example.com", redactedEmail},
+		{"apostrophe and equals", "o'brien@example.com, jane=doe@example.com", redactedEmail + ", " + redactedEmail},
+		{"percent-encoded", "GET /api/users/jane%40example.com failed", "GET /api/users/" + redactedEmail + " failed"},
+		{"double percent-encoded", "GET /u/jane%2540example.com", "GET /u/" + redactedEmail},
+		{"doubled at sign", "bad input jane@@example.com", "bad input " + redactedEmail},
+		{"chained at signs", "a@jane@example.com", redactedEmail},
+		{"no email", "runtime error: index out of range [3] with length 2", "runtime error: index out of range [3] with length 2"},
+		{"lone at sign", "meet @ noon", "meet @ noon"},
+		// The token rules still redact their shapes.
+		{"secret key", "boom: password=panic-secret", "boom: password=[REDACTED]"},
+		{"bearer", "Bearer abc.def", "Bearer [REDACTED]"},
+		{"query", "GET https://h.example/p?token=abc failed", "GET https://h.example/p?[REDACTED] failed"},
+		{"url userinfo", "dial postgres://admin:pw@db.internal/app", "dial postgres://[REDACTED]@db.internal/app"},
+		{"email as a secret value", "token=jane@example.com", "token=[REDACTED]"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := scrubPanicValue(c.value); got != c.want {
+				t.Errorf("scrubPanicValue(%q) = %q, want %q", c.value, got, c.want)
+			}
+		})
+	}
+
+	// The email pass never weakens the secret rules: a secret holding an '@',
+	// or one whose key follows an email with no delimiter between them, is
+	// redacted.
+	secrets := map[string]string{
+		"password=P@ssw0rd#2024":                               "P@ssw0rd#2024",
+		"token=abc@def/SECRETTAIL":                             "SECRETTAIL",
+		"api_key=k3y@part;REST_OF_KEY":                         "REST_OF_KEY",
+		"login failed: password=hunter2@x:moresecret":          "moresecret",
+		"client_secret=s3c@r3t(tail)":                          "s3c",
+		`auth_token=x@y\TAIL`:                                  "TAIL",
+		"password: P@ss#tail":                                  "tail",
+		`{"password":"P@ss word#tail"}`:                        "P@ss word",
+		"Authorization: Basic us@er/xyz":                       "xyz",
+		"bad form email=jane@example.com&password=hunter2":     "hunter2",
+		"body: email=jane%40example.com&api_key=k3ysecret&x=1": "k3ysecret",
+		"from jane@example.com&auth_token=tok123 done":         "tok123",
+		"user=jane@example.com|token=abc123":                   "abc123",
+		"jane@example.com.session=abc123":                      "abc123",
+		"jane@Bearer abc123":                                   "abc123",
+	}
+	for value, secret := range secrets {
+		if got := scrubPanicValue(value); strings.Contains(got, secret) {
+			t.Errorf("scrubPanicValue(%q) = %q, carries the secret %q", value, got, secret)
+		}
+	}
+
+	// An email straddling the length cap (observability's sentryValueLimit,
+	// 2000 runes) is redacted whole before the cap applies, so no fragment of
+	// it survives the cut.
+	value := strings.Repeat("x", 1990) + " jane.doe@example.com"
+	got := scrubPanicValue(value)
+	if strings.Contains(got, "jane") || strings.Contains(got, "example") {
+		t.Errorf("scrubPanicValue left part of the capped email: %q", got[len(got)-40:])
+	}
+}
+
 // net/http aborts quietly only on the bare sentinel, so a wrapped one is
 // re-panicked as the sentinel itself.
 func TestRecoverPanic_PassesErrAbortHandlerThroughUnlogged(t *testing.T) {
