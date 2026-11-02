@@ -311,7 +311,7 @@ const oauthSessionLifetime = 7 * 24 * time.Hour
 // created: it holds the identity as a pending sign-up and sends the browser
 // to the step. A browser carrying the under-age refusal marker gets no
 // pending sign-up; the step shows it the refusal.
-func (h *OAuthHTTPHandler) startSignupStep(w http.ResponseWriter, r *http.Request, identity contracts.OAuthIdentity, returnTo, frontendURL string) {
+func (h *OAuthHTTPHandler) startSignupStep(w http.ResponseWriter, r *http.Request, identity contracts.OAuthIdentity, returnTo oauthReturnTo, frontendURL string) {
 	ctx := r.Context()
 	secure := h.secureCookies()
 	stepURL := frontendURL + oauthSignupStepPath
@@ -323,7 +323,7 @@ func (h *OAuthHTTPHandler) startSignupStep(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	token, err := h.authService.StartOAuthSignup(identity, returnTo)
+	token, err := h.authService.StartOAuthSignup(identity, returnTo.path)
 	if err != nil {
 		logger.AuthError(ctx, "oauth_signup_step_start_failed", err, "provider", identity.Provider)
 		http.Redirect(w, r, authPageRefusalURL(frontendURL, err, returnTo), http.StatusTemporaryRedirect)

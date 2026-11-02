@@ -10,6 +10,7 @@ import {
 } from '@/features/auth/hooks/useOAuthLink'
 import { useAuthContext } from '@/lib/context/AuthContext'
 import { AuthErrorCode, isAuthError } from '@/lib/errors'
+import type { ReauthReason } from '@/lib/auth-href'
 import { MAGIC_LINK_EXPIRY_MINUTES } from '@/lib/magic-link'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
@@ -50,6 +51,11 @@ interface GoogleCollisionSignInProps {
   /** Where the reader lands after signing in, already through sanitizeReturnTo. */
   returnTo: string
   /**
+   * The re-authentication the auth page is showing, when it shows one, which
+   * "Use a different Google account" carries into its start (googleStartUrl).
+   */
+  reauthReason?: ReauthReason
+  /**
    * The pending link turned out to be gone; the page falls back to the
    * normal tab, saying `message` or, without one, PENDING_LINK_GONE_MESSAGE.
    */
@@ -65,6 +71,7 @@ interface GoogleCollisionSignInProps {
 export function GoogleCollisionSignIn({
   email,
   returnTo,
+  reauthReason,
   onPendingLinkGone,
 }: GoogleCollisionSignInProps) {
   const router = useRouter()
@@ -85,7 +92,9 @@ export function GoogleCollisionSignIn({
       {
         onSuccess: data => {
           if (data.user) setUser(data.user)
-          router.push(returnTo)
+          // Replaced, not pushed: the proof spent the pending link, so the
+          // arrival that showed it is not a page to go back to.
+          router.replace(returnTo)
         },
         onError: error => {
           // The pending link is spent or gone: the person signs in from the
@@ -239,7 +248,7 @@ export function GoogleCollisionSignIn({
 
       <p className="text-center text-xs text-muted-foreground">
         Not your account?{' '}
-        <a href={googleStartUrl({ returnTo, selectAccount: true })} className={LINK_CLASS}>
+        <a href={googleStartUrl({ returnTo, selectAccount: true, reauthReason })} className={LINK_CLASS}>
           Use a different Google account
         </a>
       </p>

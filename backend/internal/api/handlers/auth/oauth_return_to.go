@@ -18,7 +18,7 @@ import (
 // reads it through sanitizeReturnTo).
 const oauthReturnToParam = "returnTo"
 
-// oauthReturnToCookieName carries the destination from the sign-in start to
+// oauthReturnToCookieName carries the oauthReturnTo from the sign-in start to
 // its callback. The callback URL belongs to the provider's redirect, so the
 // destination cannot travel on it; a cookie set on the start's own response is
 // the one channel the provider does not control.
@@ -47,6 +47,82 @@ const oauthReturnToMaxLength = 2048
 // sent, and a destination this file refuses, since a destination on it or
 // under it would return a reader who just signed in to the sign-in surface.
 const oauthAuthPagePath = "/auth"
+
+// oauthReauthReasons are the auth page's re-authentication reasons
+// (REAUTH_REASONS in frontend/lib/auth-href.ts): an arrival carrying one asks a
+// signed-in reader to prove the account again, and the page holds its
+// signed-in redirect for it. They are the only reasons a sign-in start
+// records.
+var oauthReauthReasons = []string{oauthLinkErrorReauthRequired, autherrors.CodeReauthRequired}
+
+// sanitizeOAuthReauthReason returns raw when it is one of oauthReauthReasons,
+// and "" for anything else.
+func sanitizeOAuthReauthReason(raw string) string {
+	if slices.Contains(oauthReauthReasons, raw) {
+		return raw
+	}
+	return ""
+}
+
+// oauthReturnTo is what a browser sign-in returns to: the destination, and the
+// re-authentication reason of the auth page it started from. A refusal
+// carries both back to the auth page, so a signed-in reader whose
+// re-authentication was refused sees the refusal there instead of being
+// redirected to the destination with nothing said. A sign-in that succeeds
+// lands on the destination alone.
+type oauthReturnTo struct {
+	// path is a sanitizeOAuthReturnTo result.
+	path string
+	// reauthReason is a sanitizeOAuthReauthReason result.
+	reauthReason string
+}
+
+// noOAuthReturnTo is the oauthReturnTo of a sign-in that named neither a
+// destination nor a re-authentication.
+var noOAuthReturnTo = oauthReturnTo{path: oauthReturnToFallback}
+
+// oauthReturnToFromQuery is the oauthReturnTo a sign-in start's query names:
+// oauthReturnToParam and authPageReasonParam, each sanitized.
+func oauthReturnToFromQuery(query url.Values) oauthReturnTo {
+	return oauthReturnTo{
+		path:         sanitizeOAuthReturnTo(query.Get(oauthReturnToParam)),
+		reauthReason: sanitizeOAuthReauthReason(query.Get(authPageReasonParam)),
+	}
+}
+
+// oauthReturnToCookieSeparator divides the cookie's encoded destination from
+// its reason. It is outside the base64url alphabet the destination is encoded
+// in and absent from every oauthReauthReasons value, so the first one in a
+// value is the division.
+const oauthReturnToCookieSeparator = "."
+
+// encodeOAuthReturnTo is the cookie value for returnTo: the destination
+// base64url-encoded, because http.SetCookie drops ";", `"` and `\` from a
+// cookie value and quotes a value holding "," or a space, and a destination's
+// query string can carry any of them; then, when there is a reason, the
+// separator and the reason.
+func encodeOAuthReturnTo(returnTo oauthReturnTo) string {
+	encoded := base64.RawURLEncoding.EncodeToString([]byte(returnTo.path))
+	if returnTo.reauthReason == "" {
+		return encoded
+	}
+	return encoded + oauthReturnToCookieSeparator + returnTo.reauthReason
+}
+
+// decodeOAuthReturnTo reads a cookie value encodeOAuthReturnTo wrote, checking
+// both parts again, since the browser can send any value. A destination that
+// does not decode makes the whole value noOAuthReturnTo.
+func decodeOAuthReturnTo(value string) oauthReturnTo {
+	encodedPath, reason, _ := strings.Cut(value, oauthReturnToCookieSeparator)
+	decoded, err := base64.RawURLEncoding.DecodeString(encodedPath)
+	if err != nil {
+		return noOAuthReturnTo
+	}
+	return oauthReturnTo{
+		path:         sanitizeOAuthReturnTo(string(decoded)),
+		reauthReason: sanitizeOAuthReauthReason(reason),
+	}
+}
 
 // sanitizeOAuthReturnTo returns raw when it is a path on the frontend's own
 // origin that a signed-in reader may be sent to, less any OAuth link result
@@ -170,69 +246,68 @@ func isOAuthLinkResultPair(pair string) bool {
 	return err == nil && slices.Contains(oauthLinkResultParams, decoded)
 }
 
-// setOAuthReturnToCookie records the sign-in start's destination for its
-// callback, or clears one an earlier, abandoned start left behind so that it
-// cannot redirect a sign-in that named no destination.
+// setOAuthReturnToCookie records the sign-in start's oauthReturnTo for its
+// callback, or, when the start names neither a destination nor a
+// re-authentication, clears one an earlier, abandoned start left behind so
+// that it cannot redirect this sign-in.
 func setOAuthReturnToCookie(w http.ResponseWriter, r *http.Request, secure bool) {
-	returnTo := sanitizeOAuthReturnTo(r.URL.Query().Get(oauthReturnToParam))
-	if returnTo == oauthReturnToFallback {
+	returnTo := oauthReturnToFromQuery(r.URL.Query())
+	if returnTo == noOAuthReturnTo {
 		clearOAuthReturnToCookie(w, r, secure)
 		return
 	}
-	// Encoded because http.SetCookie drops ";", `"` and `\` from a cookie
-	// value and quotes a value holding "," or a space, and a destination's
-	// query string can carry any of them.
-	encoded := base64.RawURLEncoding.EncodeToString([]byte(returnTo))
-	oauthReturnToCookie.set(w, encoded, secure)
+	oauthReturnToCookie.set(w, encodeOAuthReturnTo(returnTo), secure)
 }
 
-// clearOAuthReturnToCookie removes a destination an earlier, abandoned start
-// left behind. Every start that hands the browser to the provider without a
-// destination of its own calls it, so a callback that resolves as a sign-in
-// never lands on another start's destination.
+// clearOAuthReturnToCookie removes an oauthReturnTo an earlier, abandoned
+// start left behind. Every start that hands the browser to the provider
+// without one of its own calls it, so a callback that resolves as a sign-in
+// never lands on another start's destination or reason.
 func clearOAuthReturnToCookie(w http.ResponseWriter, r *http.Request, secure bool) {
 	oauthReturnToCookie.clear(w, r, secure)
 }
 
-// takeOAuthReturnTo reads the destination the sign-in start recorded, clears
-// the cookie, and returns the destination re-checked by sanitizeOAuthReturnTo,
-// or oauthReturnToFallback when there is none. Single use: every callback
-// consumes it, whatever the callback then does.
-func takeOAuthReturnTo(w http.ResponseWriter, r *http.Request, secure bool) string {
+// takeOAuthReturnTo reads the oauthReturnTo the sign-in start recorded, clears
+// the cookie, and returns it re-checked, or noOAuthReturnTo when there is
+// none. Single use: every callback consumes it, whatever the callback then
+// does.
+func takeOAuthReturnTo(w http.ResponseWriter, r *http.Request, secure bool) oauthReturnTo {
 	cookie, ok := oauthReturnToCookie.take(w, r, secure)
 	if !ok {
-		return oauthReturnToFallback
+		return noOAuthReturnTo
 	}
-
-	decoded, err := base64.RawURLEncoding.DecodeString(cookie.Value)
-	if err != nil {
-		return oauthReturnToFallback
-	}
-	return sanitizeOAuthReturnTo(string(decoded))
+	return decodeOAuthReturnTo(cookie.Value)
 }
 
 // oauthSignInDestination is the frontend URL a successful browser sign-in
-// redirects to. The fallback is the bare frontend URL.
-func oauthSignInDestination(frontendURL, returnTo string) string {
-	if returnTo == oauthReturnToFallback {
+// redirects to: the destination, without the reason, since a sign-in that
+// succeeded has satisfied it. The fallback is the bare frontend URL.
+func oauthSignInDestination(frontendURL string, returnTo oauthReturnTo) string {
+	if returnTo.path == oauthReturnToFallback {
 		return frontendURL
 	}
-	return frontendURL + returnTo
+	return frontendURL + returnTo.path
 }
 
 // authPageRefusalURL is where a refused browser sign-in sends the reader: the
 // auth page with the code of a refusal authRefusalCarriesItsOwnCopy names, and
 // CodeUnknown for everything else, so a backend fault is never described to
 // the page in its own terms.
-func authPageRefusalURL(frontendURL string, err error, returnTo string) string {
+func authPageRefusalURL(frontendURL string, err error, returnTo oauthReturnTo) string {
 	return authPageCodeURL(frontendURL, refusalCode(err, autherrors.CodeUnknown), returnTo)
 }
 
 // authPageCodeURL is the frontend auth page with code as its only message,
-// and the destination when there is one, so that a retry from the auth page
-// still lands on it. The page maps the code to fixed copy.
-func authPageCodeURL(frontendURL, code, returnTo string) string {
-	return authPageURLWithReturnTo(frontendURL, url.Values{authPageErrorCodeParam: {code}}, returnTo)
+// plus the re-authentication reason and the destination when there are
+// ones, so that the page reopens as the re-authentication it was and a retry
+// from it still lands on the destination. The page maps the code to fixed
+// copy.
+func authPageCodeURL(frontendURL, code string, returnTo oauthReturnTo) string {
+	query := url.Values{authPageErrorCodeParam: {code}}
+	if returnTo.reauthReason != "" {
+		query.Set(authPageReasonParam, returnTo.reauthReason)
+	}
+	return authPageURLWithReturnTo(frontendURL, query, returnTo.path)
 }
 
 // authPageURLWithReturnTo is the frontend auth page with query, plus the
