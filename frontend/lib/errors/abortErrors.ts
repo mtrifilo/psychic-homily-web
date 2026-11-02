@@ -21,3 +21,8 @@ export function isAbortError(error: unknown): boolean {
 export function isTimeoutError(error: unknown): boolean {
   return hasErrorName(error, 'TimeoutError')
 }
+
+/** Whether a thrown value is named NotAllowedError. */
+export function isNotAllowedError(error: unknown): boolean {
+  return hasErrorName(error, 'NotAllowedError')
+}

@@ -5,6 +5,7 @@ import { renderWithProviders } from '@/test/utils'
 import { PasskeyRegisterButton } from './PasskeyRegisterButton'
 import { AuthError, AuthErrorCode } from '@/lib/errors'
 import { startRegistration } from '@simplewebauthn/browser'
+import * as Sentry from '@sentry/nextjs'
 
 // This button is the one gated surface that does not go through apiRequest: it
 // drives the WebAuthn ceremony with raw fetch and translates the response body
@@ -21,8 +22,6 @@ vi.mock('@simplewebauthn/browser', () => ({
     response: { attestationObject: 'a', clientDataJSON: 'b' },
   })),
 }))
-
-vi.mock('@sentry/nextjs', () => ({ captureException: vi.fn() }))
 
 const mockRefetchSignedInProfile = vi.fn()
 vi.mock('@/lib/queryClient', async importOriginal => ({
@@ -142,6 +141,117 @@ describe('PasskeyRegisterButton', () => {
     expect((reported as AuthError).code).toBe(AuthErrorCode.REAUTH_REQUIRED)
   })
 
+  // The card answers this refusal with its sign-in-again link, so it must not
+  // reach Sentry as an application error.
+  it('records the re-authentication refusal as one breadcrumb and no exception', async () => {
+    global.fetch = vi
+      .fn()
+      .mockResolvedValue(jsonResponse(REAUTH_REFUSAL)) as unknown as typeof fetch
+    const onError = vi.fn()
+
+    renderWithProviders(<PasskeyRegisterButton onError={onError} />)
+    await openAndSubmit()
+
+    await waitFor(() => expect(onError).toHaveBeenCalled())
+    expect(Sentry.captureException).not.toHaveBeenCalled()
+    expect(Sentry.addBreadcrumb).toHaveBeenCalledTimes(1)
+    expect(Sentry.addBreadcrumb).toHaveBeenCalledWith({
+      category: 'passkey',
+      level: 'info',
+      message: 'Expected passkey refusal',
+      data: { code: AuthErrorCode.REAUTH_REQUIRED, error_type: 'registration_failed' },
+    })
+  })
+
+  // Register finish refuses an account closed mid-ceremony with this code.
+  it('records an ACCOUNT_INACTIVE refusal from finish as one breadcrumb and no exception', async () => {
+    global.fetch = vi
+      .fn()
+      .mockResolvedValueOnce(jsonResponse(BEGIN_OK))
+      .mockResolvedValueOnce(
+        jsonResponse({
+          success: false,
+          message: 'Account unavailable. Please contact support.',
+          error_code: 'ACCOUNT_INACTIVE',
+          request_id: 'req-2',
+        })
+      ) as unknown as typeof fetch
+    const onError = vi.fn()
+
+    renderWithProviders(<PasskeyRegisterButton onError={onError} />)
+    await openAndSubmit()
+
+    await waitFor(() => expect(onError).toHaveBeenCalled())
+    expect((onError.mock.calls[0][0] as AuthError).code).toBe(AuthErrorCode.ACCOUNT_INACTIVE)
+    expect(Sentry.captureException).not.toHaveBeenCalled()
+    expect(Sentry.addBreadcrumb).toHaveBeenCalledTimes(1)
+    expect(Sentry.addBreadcrumb).toHaveBeenCalledWith({
+      category: 'passkey',
+      level: 'info',
+      message: 'Expected passkey refusal',
+      data: { code: AuthErrorCode.ACCOUNT_INACTIVE, error_type: 'registration_failed' },
+    })
+  })
+
+  it('treats a non-Error value named NotAllowedError as the cancel', async () => {
+    global.fetch = vi
+      .fn()
+      .mockResolvedValueOnce(jsonResponse(BEGIN_OK)) as unknown as typeof fetch
+    vi.mocked(startRegistration).mockRejectedValueOnce({ name: 'NotAllowedError' })
+    const onError = vi.fn()
+
+    renderWithProviders(<PasskeyRegisterButton onError={onError} />)
+    await openAndSubmit()
+
+    await waitFor(() => expect(Sentry.addBreadcrumb).toHaveBeenCalledTimes(1))
+    expect(Sentry.captureException).not.toHaveBeenCalled()
+    expect(onError).not.toHaveBeenCalled()
+    // The dialog stays open for another try.
+    expect(screen.getByRole('dialog')).toBeInTheDocument()
+  })
+
+  it('reports any other non-Error throw at error level and as an unexpected error', async () => {
+    global.fetch = vi
+      .fn()
+      .mockResolvedValueOnce(jsonResponse(BEGIN_OK)) as unknown as typeof fetch
+    vi.mocked(startRegistration).mockRejectedValueOnce('boom')
+    const onError = vi.fn()
+
+    renderWithProviders(<PasskeyRegisterButton onError={onError} />)
+    await openAndSubmit()
+
+    await waitFor(() => expect(onError).toHaveBeenCalled())
+    const reported = onError.mock.calls[0][0]
+    expect(reported).toBeInstanceOf(Error)
+    expect((reported as Error).message).toBe('An unexpected error occurred')
+    expect(Sentry.addBreadcrumb).not.toHaveBeenCalled()
+    expect(Sentry.captureException).toHaveBeenCalledWith('boom', {
+      level: 'error',
+      tags: { service: 'passkey-auth', error_type: 'registration_failed' },
+    })
+    expect(screen.getByRole('dialog')).toBeInTheDocument()
+  })
+
+  it('records the viewer cancelling the prompt as a breadcrumb and calls nothing back', async () => {
+    global.fetch = vi
+      .fn()
+      .mockResolvedValueOnce(jsonResponse(BEGIN_OK)) as unknown as typeof fetch
+    vi.mocked(startRegistration).mockRejectedValueOnce(
+      new DOMException('The operation either timed out or was not allowed.', 'NotAllowedError')
+    )
+    const onError = vi.fn()
+
+    renderWithProviders(<PasskeyRegisterButton onError={onError} />)
+    await openAndSubmit()
+
+    await waitFor(() => expect(Sentry.addBreadcrumb).toHaveBeenCalledTimes(1))
+    expect(vi.mocked(Sentry.addBreadcrumb).mock.lastCall?.[0]).toMatchObject({
+      data: { code: 'NotAllowedError' },
+    })
+    expect(Sentry.captureException).not.toHaveBeenCalled()
+    expect(onError).not.toHaveBeenCalled()
+  })
+
   // The envelope the backend writes for a failure: a 503 whose body says so.
   it('reports a 503 from finish with its code and leaves the dialog usable', async () => {
     global.fetch = vi
@@ -169,6 +279,12 @@ describe('PasskeyRegisterButton', () => {
     expect((reported as AuthError).code).toBe(AuthErrorCode.SERVICE_UNAVAILABLE)
     expect((reported as AuthError).message).toBe('Service temporarily unavailable')
     expect(onSuccess).not.toHaveBeenCalled()
+    expect(Sentry.addBreadcrumb).not.toHaveBeenCalled()
+    expect(Sentry.captureException).toHaveBeenCalledTimes(1)
+    expect(Sentry.captureException).toHaveBeenCalledWith(reported, {
+      level: 'error',
+      tags: { service: 'passkey-auth', error_type: 'registration_failed' },
+    })
     await waitFor(() =>
       expect(screen.getByRole('button', { name: /Register passkey/i })).toBeEnabled()
     )

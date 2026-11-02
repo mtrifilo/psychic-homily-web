@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { isAbortError, isTimeoutError } from './abortErrors'
+import { isAbortError, isNotAllowedError, isTimeoutError } from './abortErrors'
 
 describe('isAbortError', () => {
   it.each([
@@ -35,5 +35,27 @@ describe('isTimeoutError', () => {
     ['null', null],
   ])('rejects %s', (_label, error) => {
     expect(isTimeoutError(error)).toBe(false)
+  })
+})
+
+describe('isNotAllowedError', () => {
+  it.each([
+    ['a DOMException named NotAllowedError', new DOMException('not allowed', 'NotAllowedError')],
+    ['an Error renamed NotAllowedError', Object.assign(new Error('not allowed'), { name: 'NotAllowedError' })],
+    ['a plain object named NotAllowedError', { name: 'NotAllowedError' }],
+  ])('accepts %s', (_label, error) => {
+    expect(isNotAllowedError(error)).toBe(true)
+  })
+
+  it.each([
+    ['an AbortError', new DOMException('aborted', 'AbortError')],
+    ['a SecurityError', new DOMException('insecure', 'SecurityError')],
+    ['an InvalidStateError', new DOMException('already registered', 'InvalidStateError')],
+    ['an Error', new Error('not allowed')],
+    ['the string NotAllowedError', 'NotAllowedError'],
+    ['null', null],
+    ['undefined', undefined],
+  ])('rejects %s', (_label, error) => {
+    expect(isNotAllowedError(error)).toBe(false)
   })
 })

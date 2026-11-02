@@ -291,11 +291,14 @@ describe('PasskeySignupButton', () => {
     expect(mockOnHandoffChange).not.toHaveBeenCalled()
   })
 
-  it('claims nothing when the passkey ceremony is cancelled', async () => {
+  // A refusal named NotAllowedError is the cancel whatever its prototype:
+  // not every engine makes DOMException extend Error.
+  it.each([
+    ['an Error', () => Object.assign(new Error('cancelled'), { name: 'NotAllowedError' })],
+    ['a non-Error value', () => ({ name: 'NotAllowedError', message: 'cancelled' })],
+  ])('claims nothing and shows nothing when the passkey ceremony is cancelled with %s', async (_label, cancel) => {
     fetchMock.mockResolvedValueOnce(BEGIN_OK)
-    mockStartRegistration.mockRejectedValueOnce(
-      Object.assign(new Error('cancelled'), { name: 'NotAllowedError' })
-    )
+    mockStartRegistration.mockRejectedValueOnce(cancel())
 
     renderButton()
     await submitSignup()
@@ -310,6 +313,7 @@ describe('PasskeySignupButton', () => {
     expect(fetchMock).toHaveBeenCalledTimes(1)
     expect(mockOnHandoffChange).not.toHaveBeenCalled()
     expect(mockOnError).not.toHaveBeenCalled()
+    expect(within(signupDialog()).queryByRole('alert')).not.toBeInTheDocument()
   })
 
   it('shows an account-exists refusal in the open dialog and returns focus to Email', async () => {

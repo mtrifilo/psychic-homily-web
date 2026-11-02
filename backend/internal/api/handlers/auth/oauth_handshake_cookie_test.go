@@ -2,7 +2,9 @@ package auth
 
 import (
 	"errors"
+	"fmt"
 	"net/http"
+	"net/http/cookiejar"
 	"net/url"
 	"strings"
 	"testing"
@@ -27,6 +29,13 @@ func handshakeCookieHandler(secure bool) *OAuthHTTPHandler {
 // startLinkFromSettings runs a link start that passes every gate.
 func startLinkFromSettings(t *testing.T, h *OAuthHTTPHandler) *http.Response {
 	t.Helper()
+	return startLinkFromSettingsWith(t, h)
+}
+
+// startLinkFromSettingsWith is startLinkFromSettings from a browser carrying
+// cookies.
+func startLinkFromSettingsWith(t *testing.T, h *OAuthHTTPHandler, cookies ...*http.Cookie) *http.Response {
+	t.Helper()
 	user := &authm.User{ID: 7}
 	token, err := mintOAuthLinkToken(handshakeTestSecret, user.ID)
 	if err != nil {
@@ -34,12 +43,15 @@ func startLinkFromSettings(t *testing.T, h *OAuthHTTPHandler) *http.Response {
 	}
 	w, req := newLinkStartRequest("google", user, time.Now())
 	req.URL.RawQuery = url.Values{oauthLinkTokenParam: {token}}.Encode()
+	for _, c := range cookies {
+		req.AddCookie(c)
+	}
 	h.OAuthLinkHTTPHandler(w, req)
 	return w.Result()
 }
 
-// handshakeCookieCase is one of the three handshake cookies, with the start
-// that sets it. The callback clears every one of them; beforeClear arranges
+// handshakeCookieCase is one of the three handshake cookies a sign-in or link
+// start sets, with that start. The callback clears every one of them; beforeClear arranges
 // the state that makes it do so.
 type handshakeCookieCase struct {
 	cookie      oauthHandshakeCookie
@@ -98,6 +110,16 @@ func assertHandshakeCookie(t *testing.T, resp *http.Response, wantName string, s
 	return cookie
 }
 
+// assertHandshakeCookieCleared checks that resp expires the handshake cookie
+// wantName with the attributes every handshake set carries.
+func assertHandshakeCookieCleared(t *testing.T, resp *http.Response, wantName string, secure bool) {
+	t.Helper()
+	cleared := assertHandshakeCookie(t, resp, wantName, secure)
+	if cleared.Value != "" || cleared.MaxAge >= 0 {
+		t.Errorf("%s: want an empty value and an expired Max-Age, got value %q Max-Age %d", wantName, cleared.Value, cleared.MaxAge)
+	}
+}
+
 func TestOAuthHandshakeCookies_SetAndClearCarryTheSameAttributes(t *testing.T) {
 	defer cleanCLICallbackStore()
 
@@ -124,45 +146,71 @@ func TestOAuthHandshakeCookies_SetAndClearCarryTheSameAttributes(t *testing.T) {
 					tc.beforeClear(sent)
 				}
 				clearResp, _ := runCallback(t, h, "/auth/callback/google", sent)
-				cleared := assertHandshakeCookie(t, clearResp, wantName, secure)
-				if cleared.Value != "" || cleared.MaxAge >= 0 {
-					t.Errorf("clear: want an empty value and an expired Max-Age, got value %q Max-Age %d", cleared.Value, cleared.MaxAge)
-				}
+				assertHandshakeCookieCleared(t, clearResp, wantName, secure)
 			})
 		}
 	}
 }
 
-// The rollover read of the bare name lasts as long as oauthHandshakeCookieMaxLifetime,
-// so no handshake cookie may outlive it.
-func TestOAuthHandshakeCookies_LifetimesFitTheRolloverWindow(t *testing.T) {
-	for _, tc := range handshakeCookieCases() {
-		if tc.cookie.lifetime <= 0 || tc.cookie.lifetime > oauthHandshakeCookieMaxLifetime {
-			t.Errorf("%s lives %v, want (0, %v]", tc.cookie.name, tc.cookie.lifetime, oauthHandshakeCookieMaxLifetime)
+func TestOAuthHandshakeCookies_LifetimesFitOneSignIn(t *testing.T) {
+	every := []oauthHandshakeCookie{
+		cliCallbackIDCookie,
+		oauthReturnToCookie,
+		oauthLinkIntentCookie,
+		oauthPendingSignupCookie,
+		oauthPendingLinkCookie,
+	}
+	for _, c := range every {
+		if c.lifetime <= 0 || c.lifetime > oauthHandshakeCookieMaxLifetime {
+			t.Errorf("%s lives %v, want (0, %v]", c.name, c.lifetime, oauthHandshakeCookieMaxLifetime)
 		}
 	}
 }
 
-// A browser that started a handshake before the prefix was deployed sends the
-// bare name to a callback that sets the prefixed one. Return-to holds its
-// state in the cookie, so the callback still reads it.
-func TestOAuthHandshakeCookies_SecureCallbackReadsAndClearsABareStateCookie(t *testing.T) {
-	t.Run(oauthReturnToCookieName, func(t *testing.T) {
-		resp, loc := runCallback(t, handshakeCookieHandler(true), "/auth/callback/google",
-			&http.Cookie{Name: oauthReturnToCookieName, Value: encodedReturnTo("/shows")})
+// A callback reads a handshake cookie under the one name the deployment sets
+// it under: the prefixed name when Secure, the bare name over plain http,
+// where a browser never stores a "__Host-" cookie. A request carrying only
+// the other name has no such cookie, and that name gets no Set-Cookie.
+func TestOAuthHandshakeCookies_CallbackReadsOnlyTheNameTheDeploymentSets(t *testing.T) {
+	prefixed := oauthHostCookiePrefix + oauthReturnToCookieName
+	cases := []struct {
+		secure   bool
+		sent     string
+		wantRead bool
+	}{
+		{secure: true, sent: prefixed, wantRead: true},
+		{secure: true, sent: oauthReturnToCookieName, wantRead: false},
+		{secure: false, sent: oauthReturnToCookieName, wantRead: true},
+		{secure: false, sent: prefixed, wantRead: false},
+	}
+	for _, tc := range cases {
+		t.Run(fmt.Sprintf("secure=%v/%s", tc.secure, tc.sent), func(t *testing.T) {
+			resp, loc := runCallback(t, handshakeCookieHandler(tc.secure), "/auth/callback/google",
+				&http.Cookie{Name: tc.sent, Value: encodedReturnTo("/library")})
 
-		if parsed, err := url.Parse(loc); err != nil || parsed.Query().Get(oauthReturnToParam) != "/shows" {
-			t.Errorf("want the bare cookie's destination on the refusal, got %q", loc)
-		}
-		assertHandshakeCookie(t, resp, oauthReturnToCookieName, true)
-	})
+			parsed, err := url.Parse(loc)
+			if err != nil {
+				t.Fatalf("unparseable Location %q: %v", loc, err)
+			}
+			want := ""
+			if tc.wantRead {
+				want = "/library"
+			}
+			if got := parsed.Query().Get(oauthReturnToParam); got != want {
+				t.Errorf("destination = %q, want %q (Location %q)", got, want, loc)
+			}
+			if tc.wantRead {
+				assertHandshakeCookieCleared(t, resp, tc.sent, tc.secure)
+			} else if findCookie(resp, tc.sent) != nil {
+				t.Errorf("want no Set-Cookie for %s, got %q", tc.sent, resp.Header.Values("Set-Cookie"))
+			}
+		})
+	}
 }
 
-// cli_callback_id and the link intent hold ids into process-local stores, so a
-// bare name a previous deploy set can name nothing this process holds. When
-// Secure, the only bare id a callback can find is one a sibling subdomain
-// planted, and the callback must not act on it: a planted CLI id would send
-// the reader's session token to the planter's loopback.
+// When Secure, a bare cli_callback_id or link intent id is one a sibling
+// subdomain can plant, and the callback must not act on it: a planted CLI id
+// would send the reader's session token to the planter's loopback.
 func TestOAuthHandshakeCookies_SecureCallbackIgnoresABareStoreID(t *testing.T) {
 	defer cleanCLICallbackStore()
 
@@ -225,8 +273,8 @@ func TestOAuthHandshakeCookies_SecureCallbackIgnoresABareStoreID(t *testing.T) {
 		if !strings.HasPrefix(loc, "http://localhost:8888/real?") {
 			t.Errorf("want the prefixed id's destination, got %q", loc)
 		}
-		assertHandshakeCookie(t, resp, oauthHostCookiePrefix+cliCallbackIDCookieName, true)
-		assertHandshakeCookie(t, resp, cliCallbackIDCookieName, true)
+		assertHandshakeCookieCleared(t, resp, oauthHostCookiePrefix+cliCallbackIDCookieName, true)
+		assertHandshakeCookieCleared(t, resp, cliCallbackIDCookieName, true)
 	})
 }
 
@@ -240,21 +288,167 @@ func TestOAuthHandshakeCookies_PrefixedNameWinsAndBothAreCleared(t *testing.T) {
 	if parsed, err := url.Parse(loc); err != nil || parsed.Query().Get(oauthReturnToParam) != "/library" {
 		t.Errorf("want the prefixed cookie's destination, got %q", loc)
 	}
-	assertHandshakeCookie(t, resp, oauthHostCookiePrefix+oauthReturnToCookieName, true)
-	assertHandshakeCookie(t, resp, oauthReturnToCookieName, true)
+	assertHandshakeCookieCleared(t, resp, oauthHostCookiePrefix+oauthReturnToCookieName, true)
+	assertHandshakeCookieCleared(t, resp, oauthReturnToCookieName, true)
 }
 
-// Over plain http a browser never stores a "__Host-" cookie, so a deployment
-// that does not mark cookies Secure reads and clears only the bare name.
-func TestOAuthHandshakeCookies_InsecureDeploymentIgnoresThePrefixedName(t *testing.T) {
-	prefixed := &http.Cookie{Name: oauthHostCookiePrefix + oauthReturnToCookieName, Value: encodedReturnTo("/library")}
+// browserSession is one browser's cookie jar against the API origin, which is
+// https when the deployment marks cookies Secure: the jar keeps and sends a
+// Secure cookie only over https, as a browser does.
+type browserSession struct {
+	jar    *cookiejar.Jar
+	origin *url.URL
+}
 
-	resp, loc := runCallback(t, handshakeCookieHandler(false), "/auth/callback/google", prefixed)
+func newBrowserSession(t *testing.T, secure bool) browserSession {
+	t.Helper()
+	jar, err := cookiejar.New(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	origin := &url.URL{Scheme: "http", Host: "api.test"}
+	if secure {
+		origin.Scheme = "https"
+	}
+	return browserSession{jar: jar, origin: origin}
+}
 
-	if strings.Contains(loc, oauthReturnToParam+"=") {
-		t.Errorf("want no destination from the prefixed name, got %q", loc)
+func (b browserSession) keep(resp *http.Response) { b.jar.SetCookies(b.origin, resp.Cookies()) }
+
+func (b browserSession) cookies() []*http.Cookie { return b.jar.Cookies(b.origin) }
+
+// abandonedCLIStart is a sign-in handler and a browser that ran a CLI sign-in
+// start whose callback never arrived: the browser holds its id, returned, and
+// the store its destination.
+func abandonedCLIStart(t *testing.T, secure bool) (*OAuthHTTPHandler, browserSession, string) {
+	t.Helper()
+	h := signInCallbackHandler()
+	h.config.Session.Secure = secure
+	browser := newBrowserSession(t, secure)
+	resp := startSignInOn(h, "cli_callback="+url.QueryEscape("http://localhost:8888/abandoned"))
+	set := findCookie(resp, cliCallbackIDCookie.setName(secure))
+	if set == nil {
+		t.Fatal("expected the CLI start to set its callback id")
 	}
-	if findCookie(resp, prefixed.Name) != nil {
-		t.Errorf("want no Set-Cookie for %s, got %q", prefixed.Name, resp.Header.Values("Set-Cookie"))
+	browser.keep(resp)
+	return h, browser, set.Value
+}
+
+// A web start in a browser still holding an abandoned CLI start's id spends
+// it, so the web sign-in's callback lands on the site and the session token
+// never reaches that start's loopback.
+func TestOAuthLogin_WebStartDiscardsAnAbandonedCLIStart(t *testing.T) {
+	defer cleanCLICallbackStore()
+
+	for _, secure := range []bool{false, true} {
+		name := cliCallbackIDCookie.setName(secure)
+		t.Run(name, func(t *testing.T) {
+			h, browser, callbackID := abandonedCLIStart(t, secure)
+
+			webStart := startSignInOn(h, "returnTo="+url.QueryEscape("/shows"), browser.cookies()...)
+			browser.keep(webStart)
+
+			_, loc := runCallback(t, h, "/auth/callback/google", browser.cookies()...)
+			if loc != errorRedirectFrontendURL+"/shows" {
+				t.Errorf("want the web sign-in's destination on the site, got %q", loc)
+			}
+			assertHandshakeCookieCleared(t, webStart, name, secure)
+			if _, still := getCLICallback(callbackID); still {
+				t.Error("the abandoned start's destination is still stored")
+			}
+		})
 	}
+}
+
+// A link start spends an abandoned CLI start's id the same way.
+func TestOAuthLink_StartDiscardsAnAbandonedCLIStart(t *testing.T) {
+	defer cleanCLICallbackStore()
+
+	for _, secure := range []bool{false, true} {
+		name := cliCallbackIDCookie.setName(secure)
+		t.Run(name, func(t *testing.T) {
+			const callbackID = "abandoned-before-link"
+			storeCLICallback(callbackID, "http://localhost:8888/abandoned")
+
+			resp := startLinkFromSettingsWith(t, handshakeCookieHandler(secure), &http.Cookie{Name: name, Value: callbackID})
+			if set := findCookie(resp, oauthLinkIntentCookie.setName(secure)); set == nil {
+				t.Fatalf("expected the link start to arm an intent, got %q", resp.Header.Values("Set-Cookie"))
+			} else {
+				defer consumeOAuthLinkIntent(set.Value)
+			}
+			assertHandshakeCookieCleared(t, resp, name, secure)
+			if _, still := getCLICallback(callbackID); still {
+				t.Error("the abandoned start's destination is still stored")
+			}
+		})
+	}
+}
+
+// A web start sets nothing under the CLI id's names when the browser holds no
+// id read would find: none at all, or, when Secure, only a bare one, which the
+// callback ignores too.
+func TestOAuthLogin_WebStartLeavesAnUnreadCLIIDAlone(t *testing.T) {
+	defer cleanCLICallbackStore()
+
+	const bareID = "bare-callback-id"
+	storeCLICallback(bareID, "http://localhost:8888/planted")
+	cases := []struct {
+		name    string
+		secure  bool
+		cookies []*http.Cookie
+	}{
+		{name: "no id, plain", secure: false},
+		{name: "no id, Secure", secure: true},
+		{name: "bare id only, Secure", secure: true, cookies: []*http.Cookie{{Name: cliCallbackIDCookieName, Value: bareID}}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			h := signInCallbackHandler()
+			h.config.Session.Secure = tc.secure
+			resp := startSignInOn(h, "returnTo="+url.QueryEscape("/shows"), tc.cookies...)
+			for _, name := range cliCallbackIDCookie.clearNames(tc.secure) {
+				if findCookie(resp, name) != nil {
+					t.Errorf("want no Set-Cookie for %s, got %q", name, resp.Header.Values("Set-Cookie"))
+				}
+			}
+		})
+	}
+	if _, still := getCLICallback(bareID); !still {
+		t.Error("a bare id consumed its stored destination")
+	}
+}
+
+// A CLI start after an abandoned one replaces the id, so its callback reaches
+// its own loopback.
+func TestOAuthLogin_CLIStartAfterAnAbandonedOneReachesItsOwnLoopback(t *testing.T) {
+	defer cleanCLICallbackStore()
+
+	for _, secure := range []bool{false, true} {
+		t.Run(cliCallbackIDCookie.setName(secure), func(t *testing.T) {
+			h, browser, _ := abandonedCLIStart(t, secure)
+
+			const loopback = "http://localhost:8888/current"
+			cliStart := startSignInOn(h, "cli_callback="+url.QueryEscape(loopback), browser.cookies()...)
+			assertHandshakeCookie(t, cliStart, cliCallbackIDCookie.setName(secure), secure)
+			browser.keep(cliStart)
+
+			_, loc := runCallback(t, h, "/auth/callback/google", browser.cookies()...)
+			if !strings.HasPrefix(loc, loopback+"?token=") {
+				t.Errorf("want the current CLI start's loopback with a token, got %q", loc)
+			}
+		})
+	}
+}
+
+// A CLI id that names nothing in the store (a restart, or an id this process
+// never minted) is spent and ignored: the callback is the web sign-in it
+// looks like.
+func TestOAuthCallback_CLIIDWithNoStoredDestinationSignsInOnTheSite(t *testing.T) {
+	resp, loc := runCallback(t, signInCallbackHandler(), "/auth/callback/google",
+		&http.Cookie{Name: cliCallbackIDCookieName, Value: "never-stored"})
+
+	if loc != errorRedirectFrontendURL {
+		t.Errorf("want the site, got %q", loc)
+	}
+	assertHandshakeCookieCleared(t, resp, cliCallbackIDCookieName, false)
 }

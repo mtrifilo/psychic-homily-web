@@ -34,8 +34,7 @@ var signupStepProviders = []string{"google"}
 
 // oauthPendingSignupCookie names the pending sign-up for the browser that
 // started it, for as long as the pending sign-up lives. Its value is the
-// signed token the auth service minted; the bare name is never read when the
-// cookie is Secure, since the token is meaningless to any other deployment.
+// signed token the auth service minted.
 var oauthPendingSignupCookie = oauthHandshakeCookie{
 	name:     "oauth_pending_signup",
 	lifetime: contracts.OAuthPendingSignupTTL,
