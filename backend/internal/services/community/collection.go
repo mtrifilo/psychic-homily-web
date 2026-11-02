@@ -2517,8 +2517,7 @@ func (s *CollectionService) GetUserPublicCollections(userID uint, limit, offset 
 }
 
 // GetUserPublicCollectionsByUsername returns public collections by username
-// lookup. A username no live account holds (authm.LiveAccountSQL), including
-// one Postgres rejects as text (authm.PostgresRejectsText), returns an empty
+// lookup. A username shared.LiveUserByUsername does not find returns an empty
 // page, so this method answers a deactivated or soft-deleted account exactly as
 // it answers an unknown username. A private profile answers that same empty
 // page to every viewer but its owner, the gate GetPublicProfile applies; the
@@ -2528,21 +2527,16 @@ func (s *CollectionService) GetUserPublicCollectionsByUsername(username string, 
 	if s.db == nil {
 		return nil, 0, fmt.Errorf("database not initialized")
 	}
-	if authm.PostgresRejectsText(username) {
-		return []*contracts.CollectionListResponse{}, 0, nil
-	}
 
-	var user authm.User
-	err := s.db.Where("username = ?", username).Where(authm.LiveAccountSQL("users")).First(&user).Error
-	if errors.Is(err, gorm.ErrRecordNotFound) {
-		return []*contracts.CollectionListResponse{}, 0, nil
-	}
+	user, err := shared.LiveUserByUsername(s.db, username)
 	if err != nil {
 		return nil, 0, fmt.Errorf("look up user by username: %w", err)
 	}
+	if user == nil {
+		return []*contracts.CollectionListResponse{}, 0, nil
+	}
 
-	isOwner := viewer.UserID != 0 && viewer.UserID == user.ID
-	if user.ProfileVisibility == "private" && !isOwner {
+	if user.ProfileHiddenFrom(viewer.UserID) {
 		return []*contracts.CollectionListResponse{}, 0, nil
 	}
 

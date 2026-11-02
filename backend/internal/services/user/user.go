@@ -847,60 +847,38 @@ func (s *UserService) GetUserByID(userID uint) (*authm.User, error) {
 	return &user, nil
 }
 
-// GetUserByEmail retrieves a user by email. The match is case-insensitive
-// (authm.EmailIdentityWhere), so the caller may pass the address in whatever
-// casing its owner typed. An address Postgres rejects as text
-// (authm.PostgresRejectsText) is not found.
+// GetUserByEmail retrieves the account holding email whatever its state,
+// deactivated and soft-deleted included (shared.UserByEmailIncludingClosed):
+// the caller judges a closed account itself. The match is case-insensitive.
 func (s *UserService) GetUserByEmail(email string) (*authm.User, error) {
-	if s.db == nil {
-		return nil, fmt.Errorf("database not initialized")
-	}
-	if authm.PostgresRejectsText(email) {
-		return nil, nil
-	}
-
-	var user authm.User
-
-	result := s.db.Where(authm.EmailIdentityWhere, email).
-		Preload("OAuthAccounts").
-		Preload("Preferences").
-		First(&user)
-
-	if result.Error != nil {
-		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
-			return nil, nil
-		}
-		return nil, fmt.Errorf("failed to get user: %w", result.Error)
-	}
-
-	return &user, nil
+	return s.lookUpUser(shared.UserByEmailIncludingClosed, email)
 }
 
-// GetUserByUsername retrieves a user by username. A username Postgres rejects
-// as text (authm.PostgresRejectsText) is not found.
+// GetUserByUsername retrieves the live account holding username
+// (shared.LiveUserByUsername): a deactivated or soft-deleted holder is not
+// found, so every caller answers a closed account exactly as an unknown
+// username.
 func (s *UserService) GetUserByUsername(username string) (*authm.User, error) {
+	return s.lookUpUser(shared.LiveUserByUsername, username)
+}
+
+// GetUserByUsernameIncludingClosed is GetUserByUsername without the
+// live-account rule: it also finds a deactivated or soft-deleted holder.
+func (s *UserService) GetUserByUsernameIncludingClosed(username string) (*authm.User, error) {
+	return s.lookUpUser(shared.UserByUsernameIncludingClosed, username)
+}
+
+// lookUpUser runs one of the shared users lookups with the account's OAuth
+// accounts and preferences preloaded. A row that does not match is (nil, nil).
+func (s *UserService) lookUpUser(lookup func(*gorm.DB, string) (*authm.User, error), value string) (*authm.User, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
 	}
-	if authm.PostgresRejectsText(username) {
-		return nil, nil
+	user, err := lookup(s.db.Preload("OAuthAccounts").Preload("Preferences"), value)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get user: %w", err)
 	}
-
-	var user authm.User
-
-	result := s.db.Where("username = ?", username).
-		Preload("OAuthAccounts").
-		Preload("Preferences").
-		First(&user)
-
-	if result.Error != nil {
-		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
-			return nil, nil
-		}
-		return nil, fmt.Errorf("failed to get user: %w", result.Error)
-	}
-
-	return &user, nil
+	return user, nil
 }
 
 // UpdateUser updates user information
@@ -1727,34 +1705,10 @@ func (s *UserService) GetOAuthAccounts(userID uint) ([]authm.OAuthAccount, error
 	return accounts, nil
 }
 
-// GetUserByEmailIncludingDeleted retrieves a user by email, including
-// soft-deleted accounts. The match is case-insensitive
-// (authm.EmailIdentityWhere). An address Postgres rejects as text
-// (authm.PostgresRejectsText) is not found.
+// GetUserByEmailIncludingDeleted answers exactly as GetUserByEmail does: both
+// include deactivated and soft-deleted accounts.
 func (s *UserService) GetUserByEmailIncludingDeleted(email string) (*authm.User, error) {
-	if s.db == nil {
-		return nil, fmt.Errorf("database not initialized")
-	}
-	if authm.PostgresRejectsText(email) {
-		return nil, nil
-	}
-
-	var user authm.User
-
-	// Query without filtering by is_active to include soft-deleted accounts
-	result := s.db.Where(authm.EmailIdentityWhere, email).
-		Preload("OAuthAccounts").
-		Preload("Preferences").
-		First(&user)
-
-	if result.Error != nil {
-		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
-			return nil, nil
-		}
-		return nil, fmt.Errorf("failed to get user: %w", result.Error)
-	}
-
-	return &user, nil
+	return s.lookUpUser(shared.UserByEmailIncludingClosed, email)
 }
 
 // IsAccountRecoverable reports whether user is a soft-deleted account still

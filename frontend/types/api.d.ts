@@ -24801,8 +24801,6 @@ export interface operations {
     "get-collections": {
         parameters: {
             query?: {
-                /** @description Filter by creator username */
-                creator?: string;
                 /** @description Filter by entity type (artist, release, label, show, venue, festival) */
                 entity_type?: string;
                 /**
@@ -26177,8 +26175,6 @@ export interface operations {
     "get-crates": {
         parameters: {
             query?: {
-                /** @description Filter by creator username */
-                creator?: string;
                 /** @description Filter by entity type (artist, release, label, show, venue, festival) */
                 entity_type?: string;
                 /**

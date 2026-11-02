@@ -68,7 +68,6 @@ func collectionItemAuditMetadata(slug string, collectionID uint) map[string]inte
 
 // ListCollectionsHandlerRequest represents the request for listing collections
 type ListCollectionsHandlerRequest struct {
-	Creator    string `query:"creator" required:"false" doc:"Filter by creator username"`
 	EntityType string `query:"entity_type" required:"false" doc:"Filter by entity type (artist, release, label, show, venue, festival)"`
 	Featured   int    `query:"featured" required:"false" doc:"Filter featured collections (1=featured only)" example:"0"`
 	// PSY-355: search now matches across title, description, item notes, and

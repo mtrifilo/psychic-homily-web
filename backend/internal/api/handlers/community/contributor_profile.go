@@ -214,8 +214,9 @@ type GetUserFieldNotesResponse struct {
 // resolveProfileTarget looks up the profile owner by username and applies the
 // master profile-visibility gate shared by every public profile endpoint.
 // Returns the target user and whether the viewer is the owner. A private
-// profile (or missing user) resolves to 404 so hidden profiles are
-// indistinguishable from nonexistent ones.
+// profile, a closed account (deactivated or soft-deleted) or a missing user
+// resolves to 404 so hidden profiles are indistinguishable from nonexistent
+// ones.
 func (h *ContributorProfileHandler) resolveProfileTarget(ctx context.Context, username string) (*authm.User, bool, error) {
 	requestID := logger.GetRequestID(ctx)
 
@@ -234,15 +235,14 @@ func (h *ContributorProfileHandler) resolveProfileTarget(ctx context.Context, us
 		return nil, false, huma.Error404NotFound("User not found")
 	}
 
-	viewer := middleware.GetUserFromContext(ctx)
-	isOwner := viewer != nil && viewer.ID == targetUser.ID
+	viewerID := middleware.GetShowViewerFromContext(ctx).UserID
 
 	// Master privacy check
-	if targetUser.ProfileVisibility == "private" && !isOwner {
+	if targetUser.ProfileHiddenFrom(viewerID) {
 		return nil, false, huma.Error404NotFound("User not found")
 	}
 
-	return targetUser, isOwner, nil
+	return targetUser, targetUser.IsOwnedBy(viewerID), nil
 }
 
 // granularPrivacy unmarshals the user's stored privacy settings over the
@@ -423,7 +423,7 @@ func (h *ContributorProfileHandler) UpdateProfileVisibilityHandler(ctx context.C
 	}
 
 	visibility := req.Body.Visibility
-	if visibility != "public" && visibility != "private" {
+	if visibility != authm.ProfileVisibilityPublic && visibility != authm.ProfileVisibilityPrivate {
 		return nil, huma.Error422UnprocessableEntity("Visibility must be 'public' or 'private'")
 	}
 
@@ -494,27 +494,9 @@ func (h *ContributorProfileHandler) UpdatePrivacySettingsHandler(ctx context.Con
 func (h *ContributorProfileHandler) GetUserSectionsHandler(ctx context.Context, req *GetUserSectionsRequest) (*GetUserSectionsResponse, error) {
 	requestID := logger.GetRequestID(ctx)
 
-	targetUser, err := h.userService.GetUserByUsername(req.Username)
+	targetUser, isOwner, err := h.resolveProfileTarget(ctx, req.Username)
 	if err != nil {
-		logger.FromContext(ctx).Error("get_user_sections_lookup_failed",
-			"username", req.Username,
-			"error", err.Error(),
-			"request_id", requestID,
-		)
-		return nil, huma.Error500InternalServerError(
-			fmt.Sprintf("Failed to look up user (request_id: %s)", requestID),
-		)
-	}
-	if targetUser == nil {
-		return nil, huma.Error404NotFound("User not found")
-	}
-
-	// Master privacy check
-	viewer := middleware.GetUserFromContext(ctx)
-	isOwner := viewer != nil && viewer.ID == targetUser.ID
-
-	if targetUser.ProfileVisibility == "private" && !isOwner {
-		return nil, huma.Error404NotFound("User not found")
+		return nil, err
 	}
 
 	var sections []*contracts.ProfileSectionResponse
@@ -670,27 +652,9 @@ func (h *ContributorProfileHandler) UpdateSectionHandler(ctx context.Context, re
 func (h *ContributorProfileHandler) GetActivityHeatmapHandler(ctx context.Context, req *GetActivityHeatmapRequest) (*GetActivityHeatmapResponse, error) {
 	requestID := logger.GetRequestID(ctx)
 
-	targetUser, err := h.userService.GetUserByUsername(req.Username)
+	targetUser, isOwner, err := h.resolveProfileTarget(ctx, req.Username)
 	if err != nil {
-		logger.FromContext(ctx).Error("get_activity_heatmap_user_lookup_failed",
-			"username", req.Username,
-			"error", err.Error(),
-			"request_id", requestID,
-		)
-		return nil, huma.Error500InternalServerError(
-			fmt.Sprintf("Failed to look up user (request_id: %s)", requestID),
-		)
-	}
-	if targetUser == nil {
-		return nil, huma.Error404NotFound("User not found")
-	}
-
-	viewer := middleware.GetUserFromContext(ctx)
-	isOwner := viewer != nil && viewer.ID == targetUser.ID
-
-	// Master privacy check
-	if targetUser.ProfileVisibility == "private" && !isOwner {
-		return nil, huma.Error404NotFound("User not found")
+		return nil, err
 	}
 
 	// Granular privacy check for contributions
@@ -772,27 +736,9 @@ func (h *ContributorProfileHandler) DeleteSectionHandler(ctx context.Context, re
 func (h *ContributorProfileHandler) GetPercentileRankingsHandler(ctx context.Context, req *GetPercentileRankingsRequest) (*GetPercentileRankingsResponse, error) {
 	requestID := logger.GetRequestID(ctx)
 
-	targetUser, err := h.userService.GetUserByUsername(req.Username)
+	targetUser, isOwner, err := h.resolveProfileTarget(ctx, req.Username)
 	if err != nil {
-		logger.FromContext(ctx).Error("get_rankings_user_lookup_failed",
-			"username", req.Username,
-			"error", err.Error(),
-			"request_id", requestID,
-		)
-		return nil, huma.Error500InternalServerError(
-			fmt.Sprintf("Failed to look up user (request_id: %s)", requestID),
-		)
-	}
-	if targetUser == nil {
-		return nil, huma.Error404NotFound("User not found")
-	}
-
-	viewer := middleware.GetUserFromContext(ctx)
-	isOwner := viewer != nil && viewer.ID == targetUser.ID
-
-	// Master privacy check
-	if targetUser.ProfileVisibility == "private" && !isOwner {
-		return nil, huma.Error404NotFound("User not found")
+		return nil, err
 	}
 
 	// Granular privacy check for contributions (rankings are part of contribution data)

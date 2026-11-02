@@ -2,6 +2,7 @@ package engagement
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"psychic-homily-backend/internal/api/handlers/shared/testhelpers"
@@ -116,11 +117,12 @@ func TestUserFollowHandler_Success(t *testing.T) {
 
 func TestUserUnfollowHandler_Success(t *testing.T) {
 	users := &testhelpers.MockUserService{
-		GetUserByUsernameFn: func(string) (*authm.User, error) {
+		GetUserByUsernameIncludingClosedFn: func(string) (*authm.User, error) {
 			return &authm.User{
 				ID:                7,
 				Username:          ptrString("bob"),
 				ProfileVisibility: "public",
+				IsActive:          true,
 			}, nil
 		},
 	}
@@ -144,21 +146,126 @@ func TestUserUnfollowHandler_Success(t *testing.T) {
 	}
 }
 
-func TestUserUnfollowHandler_PrivateTargetIs404(t *testing.T) {
+func TestUserUnfollowHandler_PrivateTargetNonFollowerIs404(t *testing.T) {
 	users := &testhelpers.MockUserService{
-		GetUserByUsernameFn: func(string) (*authm.User, error) {
+		GetUserByUsernameIncludingClosedFn: func(string) (*authm.User, error) {
 			return &authm.User{
 				ID:                2,
 				Username:          ptrString("secret"),
 				ProfileVisibility: "private",
+				IsActive:          true,
 			}, nil
 		},
 	}
-	h := NewUserFollowHandler(&testhelpers.MockFollowService{}, users)
+	unfollowCalled := false
+	follows := &testhelpers.MockFollowService{
+		UnfollowFn: func(uint, string, uint) error {
+			unfollowCalled = true
+			return nil
+		},
+	}
+	h := NewUserFollowHandler(follows, users)
 	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
 
 	_, err := h.UserUnfollowHandler(ctx, &UserUnfollowRequest{Username: "secret"})
 	testhelpers.AssertHumaError(t, err, 404)
+	if unfollowCalled {
+		t.Error("Unfollow must not be called for a caller who does not follow the private target")
+	}
+}
+
+func TestUserUnfollowHandler_PrivateTargetFollowerUnfollows(t *testing.T) {
+	users := &testhelpers.MockUserService{
+		GetUserByUsernameIncludingClosedFn: func(string) (*authm.User, error) {
+			return &authm.User{
+				ID:                2,
+				Username:          ptrString("secret"),
+				ProfileVisibility: "private",
+				IsActive:          true,
+			}, nil
+		},
+	}
+	unfollowed := false
+	follows := &testhelpers.MockFollowService{
+		IsFollowingFn: func(userID uint, entityType string, entityID uint) (bool, error) {
+			return userID == 1 && entityType == userEntityType && entityID == 2, nil
+		},
+		UnfollowFn: func(userID uint, entityType string, entityID uint) error {
+			unfollowed = userID == 1 && entityType == userEntityType && entityID == 2
+			return nil
+		},
+	}
+	h := NewUserFollowHandler(follows, users)
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
+
+	resp, err := h.UserUnfollowHandler(ctx, &UserUnfollowRequest{Username: "secret"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !resp.Body.Success || !unfollowed {
+		t.Errorf("success=%v unfollowed=%v, want both", resp.Body.Success, unfollowed)
+	}
+}
+
+// closedUnfollowTarget is a deactivated account, which CanSignIn refuses.
+func closedUnfollowTarget(string) (*authm.User, error) {
+	return &authm.User{ID: 9, Username: ptrString("gone"), ProfileVisibility: "public", IsActive: false}, nil
+}
+
+func TestUserUnfollowHandler_ClosedTargetFollowerUnfollows(t *testing.T) {
+	users := &testhelpers.MockUserService{GetUserByUsernameIncludingClosedFn: closedUnfollowTarget}
+	unfollowed := false
+	follows := &testhelpers.MockFollowService{
+		IsFollowingFn: func(userID uint, entityType string, entityID uint) (bool, error) {
+			return userID == 1 && entityType == userEntityType && entityID == 9, nil
+		},
+		UnfollowFn: func(userID uint, entityType string, entityID uint) error {
+			unfollowed = userID == 1 && entityType == userEntityType && entityID == 9
+			return nil
+		},
+	}
+	h := NewUserFollowHandler(follows, users)
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
+
+	resp, err := h.UserUnfollowHandler(ctx, &UserUnfollowRequest{Username: "gone"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !resp.Body.Success || !unfollowed {
+		t.Errorf("success=%v unfollowed=%v, want both", resp.Body.Success, unfollowed)
+	}
+}
+
+func TestUserUnfollowHandler_ClosedTargetNonFollowerIs404(t *testing.T) {
+	users := &testhelpers.MockUserService{GetUserByUsernameIncludingClosedFn: closedUnfollowTarget}
+	unfollowCalled := false
+	follows := &testhelpers.MockFollowService{
+		IsFollowingFn: func(uint, string, uint) (bool, error) { return false, nil },
+		UnfollowFn: func(uint, string, uint) error {
+			unfollowCalled = true
+			return nil
+		},
+	}
+	h := NewUserFollowHandler(follows, users)
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
+
+	_, err := h.UserUnfollowHandler(ctx, &UserUnfollowRequest{Username: "gone"})
+	testhelpers.AssertHumaError(t, err, 404)
+	if unfollowCalled {
+		t.Error("Unfollow must not be called for a caller who does not follow the closed target")
+	}
+}
+
+func TestUserUnfollowHandler_ClosedTargetFollowStatusFailureIs500(t *testing.T) {
+	users := &testhelpers.MockUserService{GetUserByUsernameIncludingClosedFn: closedUnfollowTarget}
+	follows := &testhelpers.MockFollowService{
+		IsFollowingFn: func(uint, string, uint) (bool, error) { return false, errors.New("db down") },
+	}
+	h := NewUserFollowHandler(follows, users)
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
+
+	_, err := h.UserUnfollowHandler(ctx, &UserUnfollowRequest{Username: "gone"})
+	testhelpers.AssertHumaError(t, err, 500)
 }
 
 func TestUserFollowersHandler_UnknownUserIs404(t *testing.T) {
@@ -280,4 +387,15 @@ func TestUserFollowersHandler_UnauthedHasNoIsFollowing(t *testing.T) {
 	if resp.Body.FollowerCount != 2 || resp.Body.IsFollowing {
 		t.Errorf("expected count=2 following=false, got %+v", resp.Body)
 	}
+}
+
+func TestUserUnfollowHandler_LookupFailureIs500(t *testing.T) {
+	users := &testhelpers.MockUserService{
+		GetUserByUsernameIncludingClosedFn: func(string) (*authm.User, error) { return nil, errors.New("db down") },
+	}
+	h := NewUserFollowHandler(&testhelpers.MockFollowService{}, users)
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
+
+	_, err := h.UserUnfollowHandler(ctx, &UserUnfollowRequest{Username: "anyone"})
+	testhelpers.AssertHumaError(t, err, 500)
 }

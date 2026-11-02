@@ -154,7 +154,7 @@ func (c PublicContributorCredit) Renderable() bool { return strings.TrimSpace(c.
 // That is pre-existing and is its own follow-up; do not read this function as a
 // site-wide invariant.
 func ContributorProfileLink(user *authm.User) *string {
-	if user == nil || user.ProfileVisibility == "private" {
+	if user == nil || user.IsPrivateProfile() {
 		return nil
 	}
 	return ResolveUserUsername(user)
