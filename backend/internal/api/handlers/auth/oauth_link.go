@@ -91,13 +91,14 @@ func (i oauthLinkIntent) isForHandshake(provider, state string) bool {
 
 // oauthLinkIntentCapacity bounds the intent store. Past it the oldest pending
 // link is evicted, and its callback is handled as one whose intent this
-// process never held.
+// process does not hold.
 const oauthLinkIntentCapacity = 1000
 
 // oauthLinkIntentStore holds pending link intents by opaque id. Process-local
-// and deliberately not durable: an intent that does not survive a restart or a
-// second instance produces an expired-link refusal, which is the fail-closed
-// direction. Mirrors cliCallbackStore, which makes the same trade.
+// and deliberately not durable: the callback of an intent that does not
+// survive a restart or a second instance is handled as a sign-in, which
+// attaches nothing to the account the intent named. Mirrors cliCallbackStore,
+// which makes the same trade.
 var oauthLinkIntentStore = newExpiringRegistry[oauthLinkIntent](oauthLinkIntentCapacity, oauthLinkIntentTTL, time.Now)
 
 // storeOAuthLinkIntent stores intent under id. Its result is put's
@@ -106,25 +107,31 @@ func storeOAuthLinkIntent(id string, intent oauthLinkIntent) (evictionsToReport 
 	return oauthLinkIntentStore.put(id, intent)
 }
 
-// peekOAuthLinkIntent reads an intent WITHOUT consuming it, so the callback can
-// decide whether the intent is even for this handshake before spending it. A
-// stale intent belonging to some other flow has to survive the look, or an
-// ordinary sign-in that happens to carry the cookie would burn it and then be
-// refused instead of signing the reader in.
-//
-// found false ("this process never held it") and expired ("it is past its
-// TTL") are different situations: the first is a restart or another replica
-// and must not turn a sign-in into a refusal, the second is a reader who
-// genuinely ran out of time and is owed an explanation.
+// peekOAuthLinkIntent reads an intent WITHOUT consuming it. An expired intent
+// is still returned, with expired set; found is false only when this process
+// holds nothing under id.
 func peekOAuthLinkIntent(id string) (intent oauthLinkIntent, expired, found bool) {
 	return oauthLinkIntentStore.peek(id)
 }
 
-// consumeOAuthLinkIntent removes an intent once it has been matched to the
-// handshake in hand. Single use: a completed or refused link must not leave the
-// next callback on this browser armed.
-func consumeOAuthLinkIntent(id string) {
-	oauthLinkIntentStore.remove(id)
+// takeOAuthLinkIntentForHandshake consumes the intent stored under id only when
+// it was armed for the handshake a callback with this provider and state
+// completes, expired or not. Single use: of any number of concurrent callbacks
+// carrying one intent, at most one takes it, and the rest find nothing.
+//
+// An intent for another handshake is left in place, taken false: a stale intent
+// belonging to some other flow has to survive the look, or an ordinary sign-in
+// that happens to carry the cookie would burn it.
+//
+// found false ("this process does not hold it") and expired ("it is past its
+// TTL") are different situations: the first is a restart, another replica, an
+// eviction, or a callback that lost the take, and must not turn a sign-in into
+// a refusal; the second is a reader who genuinely ran out of time and is owed
+// an explanation.
+func takeOAuthLinkIntentForHandshake(id, provider, state string) (intent oauthLinkIntent, expired, found, taken bool) {
+	return oauthLinkIntentStore.takeIf(id, func(held oauthLinkIntent) bool {
+		return held.isForHandshake(provider, state)
+	})
 }
 
 // oauthLinkIntentIDBytes sizes the intent id and the link token,
@@ -192,7 +199,7 @@ func (h *OAuthHTTPHandler) OAuthLinkHTTPHandler(w http.ResponseWriter, r *http.R
 		return
 	}
 
-	if !consumeOAuthLinkToken(h.jwtSecret(), r.URL.Query().Get(oauthLinkTokenParam), user.ID) {
+	if !consumeOAuthLinkToken(ctx, h.jwtSecret(), r.URL.Query().Get(oauthLinkTokenParam), user.ID) {
 		logger.AuthWarn(ctx, "oauth_link_refused_missing_token",
 			"provider", provider,
 			"user_id", user.ID,

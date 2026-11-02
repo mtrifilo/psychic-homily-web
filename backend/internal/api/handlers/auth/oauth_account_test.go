@@ -140,7 +140,7 @@ func TestStartOAuthLinkHandler_OriginGate(t *testing.T) {
 			if !resp.Body.Success || resp.Body.Token == "" {
 				t.Fatalf("expected a minted token, got success=%v token=%q", resp.Body.Success, resp.Body.Token)
 			}
-			if !consumeOAuthLinkToken("test-secret", resp.Body.Token, user.ID) {
+			if !consumeOAuthLinkToken(t.Context(), "test-secret", resp.Body.Token, user.ID) {
 				t.Error("minted token does not spend for the user it was minted for")
 			}
 		})

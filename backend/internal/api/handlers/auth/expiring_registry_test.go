@@ -15,8 +15,14 @@ func (s *expiringRegistry[T]) reset() {
 	defer s.mu.Unlock()
 	s.entries = make(map[string]*list.Element)
 	s.order.Init()
-	s.evictedSinceReport = 0
-	s.lastReportAt = time.Time{}
+	s.evictions = reportThrottle{}
+}
+
+// remove drops whatever entry is stored under id, matching or not.
+func (s *expiringRegistry[T]) remove(id string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.removeLocked(id)
 }
 
 func (s *expiringRegistry[T]) size() int {
@@ -232,20 +238,20 @@ func TestExpiringRegistry_EvictionsReportedAtMostOncePerInterval(t *testing.T) {
 
 	// Two more evictions inside the interval are held back.
 	for _, id := range []string{"c", "d"} {
-		clock.Advance(registryEvictionReportInterval / 4)
+		clock.Advance(capacityReportInterval / 4)
 		if evicted := store.put(id, "http://localhost/"+id); evicted != 0 {
 			t.Fatalf("expected no report inside the interval, got %d", evicted)
 		}
 	}
 
 	// The first put once the interval has passed reports both.
-	clock.Advance(registryEvictionReportInterval / 2)
+	clock.Advance(capacityReportInterval / 2)
 	if evicted := store.put("e", "http://localhost/e"); evicted != 3 {
 		t.Fatalf("expected the held-back evictions plus this one (3), got %d", evicted)
 	}
 
 	// Without further evictions there is nothing to report.
-	clock.Advance(registryEvictionReportInterval)
+	clock.Advance(capacityReportInterval)
 	store.remove("e")
 	if evicted := store.put("f", "http://localhost/f"); evicted != 0 {
 		t.Fatalf("expected no report without new evictions, got %d", evicted)
@@ -426,5 +432,89 @@ func TestExpiringRegistry_PeekDoesNotConsumeAndSeesExpiredEntries(t *testing.T) 
 	}
 	if _, _, found := store.peek("missing"); found {
 		t.Fatal("expected peek of an unknown id to find nothing")
+	}
+}
+
+func isURL(want string) func(string) bool {
+	return func(got string) bool { return got == want }
+}
+
+func TestExpiringRegistry_TakeIfTakesAMatchOnce(t *testing.T) {
+	store := newExpiringRegistry[string](2, cliCallbackTTL, newFakeClock().Now)
+	store.put("a", "http://localhost/a")
+
+	url, expired, found, taken := store.takeIf("a", isURL("http://localhost/a"))
+	if !found || !taken || expired || url != "http://localhost/a" {
+		t.Fatalf("expected the first takeIf to take the live entry, got %q expired %v found %v taken %v", url, expired, found, taken)
+	}
+	if url, _, found, taken := store.takeIf("a", isURL("http://localhost/a")); found || taken {
+		t.Fatalf("expected the second takeIf to find nothing, got %q found %v taken %v", url, found, taken)
+	}
+	if store.size() != 0 {
+		t.Errorf("expected takeIf to free the slot, size %d", store.size())
+	}
+	assertRegistryConsistent(t, store)
+}
+
+func TestExpiringRegistry_TakeIfLeavesARefusedEntry(t *testing.T) {
+	store := newExpiringRegistry[string](2, cliCallbackTTL, newFakeClock().Now)
+	store.put("a", "http://localhost/a")
+
+	url, expired, found, taken := store.takeIf("a", isURL("http://localhost/other"))
+	if !found || taken || expired || url != "" {
+		t.Fatalf("expected a refused entry to be found and not taken, got %q expired %v found %v taken %v", url, expired, found, taken)
+	}
+	if got, ok := store.get("a"); !ok || got != "http://localhost/a" {
+		t.Fatalf("expected the refused entry to stay in place, got %q, %v", got, ok)
+	}
+	assertRegistryConsistent(t, store)
+}
+
+// An expired match is taken and reported as expired, so the caller can tell a
+// reader who ran out of time from one whose entry was never here.
+func TestExpiringRegistry_TakeIfTakesAnExpiredMatchAndSaysSo(t *testing.T) {
+	clock := newFakeClock()
+	store := newExpiringRegistry[string](2, cliCallbackTTL, clock.Now)
+	store.put("a", "http://localhost/a")
+
+	clock.Advance(cliCallbackTTL + time.Nanosecond)
+	url, expired, found, taken := store.takeIf("a", isURL("http://localhost/a"))
+	if !found || !taken || !expired || url != "http://localhost/a" {
+		t.Fatalf("expected the expired entry taken and reported expired, got %q expired %v found %v taken %v", url, expired, found, taken)
+	}
+	if store.size() != 0 {
+		t.Errorf("expected the expired entry to be dropped, size %d", store.size())
+	}
+	assertRegistryConsistent(t, store)
+}
+
+// Of many concurrent takeIfs of one id, exactly one takes the entry.
+func TestExpiringRegistry_ConcurrentTakeIfsHaveOneWinner(t *testing.T) {
+	const takers = 32
+	for round := range 50 {
+		store := newExpiringRegistry[string](4, cliCallbackTTL, time.Now)
+		store.put("id", "http://localhost/cb")
+
+		var wg sync.WaitGroup
+		var winners sync.Map
+		start := make(chan struct{})
+		for taker := range takers {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				<-start
+				if _, _, _, taken := store.takeIf("id", isURL("http://localhost/cb")); taken {
+					winners.Store(taker, true)
+				}
+			}()
+		}
+		close(start)
+		wg.Wait()
+
+		count := 0
+		winners.Range(func(any, any) bool { count++; return true })
+		if count != 1 {
+			t.Fatalf("round %d: %d takers took the entry, want exactly 1", round, count)
+		}
 	}
 }
