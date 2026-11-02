@@ -24,6 +24,7 @@ vi.mock('@/lib/api', () => ({
       VERIFY_EMAIL_CONFIRM: '/auth/verify-email/confirm',
       CHANGE_PASSWORD: '/auth/change-password',
       SET_PASSWORD: '/auth/password',
+      SIGN_OUT_EVERYWHERE_ELSE: '/auth/sessions/sign-out-everywhere-else',
       MAGIC_LINK_SEND: '/auth/magic-link/send',
       MAGIC_LINK_VERIFY: '/auth/magic-link/verify',
       DELETION_SUMMARY: '/auth/account/deletion-summary',
@@ -110,6 +111,7 @@ import {
   useConfirmVerification,
   useChangePassword,
   useSetPassword,
+  useSignOutEverywhereElse,
   useSendMagicLink,
   useVerifyMagicLink,
   useDeleteAccount,
@@ -1015,6 +1017,41 @@ describe('useAuth hooks', () => {
       expect(error).toBeInstanceOf(AuthError)
       expect(error.code).toBe('PASSWORD_ALREADY_SET')
       expect(mockRefetchSignedInProfile).not.toHaveBeenCalled()
+    })
+  })
+
+  describe('useSignOutEverywhereElse', () => {
+    it('posts with the session cookie and refetches nothing on success', async () => {
+      mockApiRequest.mockResolvedValueOnce({ success: true })
+
+      const { result } = renderHook(() => useSignOutEverywhereElse(), {
+        wrapper: createWrapper(),
+      })
+
+      await act(async () => {
+        await result.current.mutateAsync()
+      })
+
+      expect(mockApiRequest).toHaveBeenCalledWith(
+        '/auth/sessions/sign-out-everywhere-else',
+        { method: 'POST', credentials: 'include' }
+      )
+      expect(mockRefetchSignedInProfile).not.toHaveBeenCalled()
+    })
+
+    it('rejects a 200 that does not report success', async () => {
+      mockApiRequest.mockResolvedValueOnce({ success: false })
+
+      const { result } = renderHook(() => useSignOutEverywhereElse(), {
+        wrapper: createWrapper(),
+      })
+
+      await act(async () => {
+        result.current.mutate()
+      })
+
+      await waitFor(() => expect(result.current.isError).toBe(true))
+      expect(result.current.error).toBeInstanceOf(AuthError)
     })
   })
 

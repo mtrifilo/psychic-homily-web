@@ -334,6 +334,15 @@ type AuthServiceInterface interface {
 	GetSignInFactors(user *authm.User) (SignInFactors, error)
 	// RefreshUserToken renews a session, carrying authAt through unchanged.
 	RefreshUserToken(user *authm.User, authAt time.Time) (string, error)
+	// SignOutOtherSessions revokes every session user's account holds and
+	// returns a renewal of the caller's session for the account as the
+	// revocation left it, carrying authAt through unchanged; the revocation
+	// commits only together with that renewal. user is the principal the
+	// caller's session validation loaded. Refuses, revoking nothing, with
+	// shared.CheckSessionAccount's refusals when the account may no longer
+	// sign in or that session has been revoked since its validation. API
+	// tokens and calendar-feed tokens are not touched.
+	SignOutOtherSessions(user *authm.User, authAt time.Time) (string, error)
 	Logout(w http.ResponseWriter, r *http.Request) error
 	SetOAuthCompleter(completer OAuthCompleter)
 }

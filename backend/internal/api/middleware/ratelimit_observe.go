@@ -55,6 +55,7 @@ const (
 	LimiterPasswordConfirm               LimiterName = "password_confirm"
 	LimiterSetPassword                   LimiterName = "set_password"
 	LimiterOAuthLinkToken                LimiterName = "oauth_link_token"
+	LimiterSignOutEverywhereElse         LimiterName = "sign_out_everywhere_else"
 	LimiterTagCreate                     LimiterName = "tag_create"
 	LimiterTagVote                       LimiterName = "tag_vote"
 	LimiterShowReport                    LimiterName = "show_report"

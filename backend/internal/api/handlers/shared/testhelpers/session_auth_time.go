@@ -15,3 +15,10 @@ import (
 func CtxWithSessionAuthTime(user *authm.User, authAt time.Time) context.Context {
 	return context.WithValue(CtxWithUser(user), middleware.SessionAuthTimeContextKey, authAt)
 }
+
+// CtxWithSession is CtxWithSessionAuthTime for a principal the JWT
+// middlewares established from a session JWT, as opposed to an API token
+// (middleware.SessionCredentialContextKey).
+func CtxWithSession(user *authm.User, authAt time.Time) context.Context {
+	return context.WithValue(CtxWithSessionAuthTime(user, authAt), middleware.SessionCredentialContextKey, true)
+}
