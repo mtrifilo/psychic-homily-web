@@ -119,6 +119,17 @@ func encodedReturnTo(path string) string {
 	return base64.RawURLEncoding.EncodeToString([]byte(path))
 }
 
+// returnToCookieValue is the return-to cookie resp sets, failing the test
+// when it sets none.
+func returnToCookieValue(t *testing.T, resp *http.Response) string {
+	t.Helper()
+	cookie := findCookie(resp, oauthReturnToCookieName)
+	if cookie == nil {
+		t.Fatal("expected the return-to cookie to be set")
+	}
+	return cookie.Value
+}
+
 func TestOAuthLogin_RecordsAnOnSiteReturnTo(t *testing.T) {
 	resp := startSignIn("returnTo=" + url.QueryEscape("/profile?tab=settings"))
 
@@ -139,12 +150,8 @@ func TestOAuthLogin_RecordsAnOnSiteReturnTo(t *testing.T) {
 func TestOAuthLogin_RecordsTheDestinationWithoutAnOAuthLinkResult(t *testing.T) {
 	resp := startSignIn("returnTo=" + url.QueryEscape("/profile?tab=settings&oauth_link_error=OAUTH_LINK_EXPIRED"))
 
-	cookie := findCookie(resp, oauthReturnToCookieName)
-	if cookie == nil {
-		t.Fatal("expected the return-to cookie to be set")
-	}
-	if cookie.Value != encodedReturnTo("/profile?tab=settings") {
-		t.Errorf("cookie value = %q, want the encoded destination without the link result", cookie.Value)
+	if got := returnToCookieValue(t, resp); got != encodedReturnTo("/profile?tab=settings") {
+		t.Errorf("cookie value = %q, want the encoded destination without the link result", got)
 	}
 }
 

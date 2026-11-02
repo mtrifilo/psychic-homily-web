@@ -91,8 +91,11 @@ vi.mock('@/app/auth/_components/google-oauth-button', () => ({
 const COLLISION = 'error_code=OAUTH_LINK_PENDING&returnTo=%2Fshows'
 const ADDRESS = 'alice@example.com'
 
-function arriveOnCollision(read: PendingRead = { isPending: false, data: { status: 'pending', email: ADDRESS } }) {
-  mockSearchParams = new URLSearchParams(COLLISION)
+function arriveOnCollision(
+  read: PendingRead = { isPending: false, data: { status: 'pending', email: ADDRESS } },
+  query: string = COLLISION
+) {
+  mockSearchParams = new URLSearchParams(query)
   mockPendingRead = read
   return renderWithProviders(<AuthPage />)
 }
@@ -197,11 +200,9 @@ describe('AuthPage collision state', () => {
       returnTo: '/profile?tab=settings',
     }).toString()
 
-    function arriveOnReauthCollision() {
+    function arriveOnReauthCollision(read?: PendingRead) {
       mockAuthStatus = 'authenticated'
-      mockSearchParams = new URLSearchParams(REAUTH_COLLISION)
-      mockPendingRead = { isPending: false, data: { status: 'pending', email: ADDRESS } }
-      return renderWithProviders(<AuthPage />)
+      return arriveOnCollision(read, REAUTH_COLLISION)
     }
 
     it('shows the collision state under the re-authentication heading, without bouncing', () => {
@@ -230,10 +231,7 @@ describe('AuthPage collision state', () => {
     })
 
     it('shows the re-authentication form, not a spinner, when the read finds no pending link', () => {
-      mockAuthStatus = 'authenticated'
-      mockSearchParams = new URLSearchParams(REAUTH_COLLISION)
-      mockPendingRead = { isPending: false, data: { status: 'expired' } }
-      renderWithProviders(<AuthPage />)
+      arriveOnReauthCollision({ isPending: false, data: { status: 'expired' } })
 
       expect(screen.getByText(PENDING_LINK_GONE_MESSAGE)).toBeInTheDocument()
       expect(screen.getByTestId('google-oauth')).toBeInTheDocument()

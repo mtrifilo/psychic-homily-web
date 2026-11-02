@@ -925,7 +925,7 @@ function AuthPageContent() {
   const reason = searchParams.get(AUTH_REASON_PARAM)
   const reauthReason = isReauthReason(reason) ? reason : undefined
   const isReauth = reauthReason !== undefined
-  const reauthCopy = reauthReason === undefined ? undefined : REAUTH_COPY[reauthReason]
+  const reauthCopy = reauthReason && REAUTH_COPY[reauthReason]
   const arrivedForClosedAccount = reason === ACCOUNT_INACTIVE_REASON
 
   // Two arrivals open on Create account: a gated control naming the action it

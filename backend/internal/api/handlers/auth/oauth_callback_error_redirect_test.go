@@ -193,10 +193,10 @@ func TestOAuthCallbackErrorRedirect_CarriesOnlyACode(t *testing.T) {
 	}
 }
 
-// The sign-up step's writer: a new identity whose pending sign-up cannot be
-// stored reaches the auth page as a code, not as text.
-func TestOAuthCallbackErrorRedirect_SignupStepStoreFailureCarriesOnlyACode(t *testing.T) {
-	handler := callbackHandlerFor(&testhelpers.MockAuthService{
+// signupStepStoreFailureHandler is a callback whose identity needs the
+// sign-up step and whose pending sign-up cannot be stored.
+func signupStepStoreFailureHandler() *OAuthHTTPHandler {
+	return callbackHandlerFor(&testhelpers.MockAuthService{
 		OAuthCallbackFn: func(http.ResponseWriter, *http.Request, string) (*authm.User, string, error) {
 			return nil, "", &contracts.OAuthSignupRequiredError{
 				Identity: contracts.OAuthIdentity{Provider: "google", Subject: "sub"},
@@ -207,15 +207,12 @@ func TestOAuthCallbackErrorRedirect_SignupStepStoreFailureCarriesOnlyACode(t *te
 			return "", errors.New("pending sign-up insert failed")
 		},
 	})
-
-	query := errorRedirectQuery(t, handler, callbackRequest("google", "state=s&code=c"), errorRedirectFrontendURL+"/auth")
-	assertOnlyCode(t, query, autherrors.CodeUnknown)
 }
 
-// The collision state's writer: a collision whose pending link cannot be
-// stored reaches the auth page with the refusal's code, not its text.
-func TestOAuthCallbackErrorRedirect_LinkStepStoreFailureCarriesOnlyACode(t *testing.T) {
-	handler := callbackHandlerFor(&testhelpers.MockAuthService{
+// linkStepHandler is a callback whose identity's address belongs to an
+// account, and whose pending-link store answers token and startErr.
+func linkStepHandler(token string, startErr error) *OAuthHTTPHandler {
+	return callbackHandlerFor(&testhelpers.MockAuthService{
 		OAuthCallbackFn: func(http.ResponseWriter, *http.Request, string) (*authm.User, string, error) {
 			return nil, "", &contracts.OAuthLinkRequiredError{
 				Identity: contracts.OAuthIdentity{Provider: "google", Subject: "sub"},
@@ -224,11 +221,23 @@ func TestOAuthCallbackErrorRedirect_LinkStepStoreFailureCarriesOnlyACode(t *test
 			}
 		},
 		StartOAuthLinkFn: func(contracts.OAuthIdentity, uint, string) (string, error) {
-			return "", errors.New("pending link insert failed")
+			return token, startErr
 		},
 	})
+}
 
-	query := errorRedirectQuery(t, handler, callbackRequest("google", "state=s&code=c"), errorRedirectFrontendURL+"/auth")
+// The sign-up step's writer: a new identity whose pending sign-up cannot be
+// stored reaches the auth page as a code, not as text.
+func TestOAuthCallbackErrorRedirect_SignupStepStoreFailureCarriesOnlyACode(t *testing.T) {
+	query := errorRedirectQuery(t, signupStepStoreFailureHandler(), callbackRequest("google", "state=s&code=c"), errorRedirectFrontendURL+"/auth")
+	assertOnlyCode(t, query, autherrors.CodeUnknown)
+}
+
+// The collision state's writer: a collision whose pending link cannot be
+// stored reaches the auth page with the refusal's code, not its text.
+func TestOAuthCallbackErrorRedirect_LinkStepStoreFailureCarriesOnlyACode(t *testing.T) {
+	query := errorRedirectQuery(t, linkStepHandler("", errors.New("pending link insert failed")),
+		callbackRequest("google", "state=s&code=c"), errorRedirectFrontendURL+"/auth")
 	assertOnlyCode(t, query, autherrors.CodeOAuthLinkRefused)
 }
 

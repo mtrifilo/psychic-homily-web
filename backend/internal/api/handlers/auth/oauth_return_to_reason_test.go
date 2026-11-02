@@ -6,10 +6,7 @@ import (
 	"net/url"
 	"testing"
 
-	"psychic-homily-backend/internal/api/handlers/shared/testhelpers"
 	autherrors "psychic-homily-backend/internal/errors"
-	authm "psychic-homily-backend/internal/models/auth"
-	"psychic-homily-backend/internal/services/contracts"
 )
 
 // The re-authentication reasons as the frontend spells them
@@ -39,34 +36,22 @@ func encodedReturnToWithReason(path, reason string) string {
 	return encodedReturnTo(path) + "." + reason
 }
 
-func returnToCookieValue(t *testing.T, resp *http.Response) string {
-	t.Helper()
-	cookie := findCookie(resp, oauthReturnToCookieName)
-	if cookie == nil {
-		t.Fatal("expected the return-to cookie to be set")
-	}
-	return cookie.Value
-}
-
-func TestOAuthLogin_RecordsTheReauthReasonBesideTheDestination(t *testing.T) {
+// A re-authentication records its reason beside the destination, and records
+// it without one too, so a refusal reopens the re-authentication either way.
+func TestOAuthLogin_RecordsTheReauthReason(t *testing.T) {
 	for _, reason := range []string{reasonOAuthLinkReauth, reasonCredentialMint} {
-		t.Run(reason, func(t *testing.T) {
-			resp := startSignIn(startQuery(reauthSettingsReturnTo, reason))
+		for _, tc := range []struct{ returnTo, recordedPath string }{
+			{reauthSettingsReturnTo, reauthSettingsReturnTo},
+			{"", "/"},
+		} {
+			t.Run(reason+"/"+tc.recordedPath, func(t *testing.T) {
+				resp := startSignIn(startQuery(tc.returnTo, reason))
 
-			if got, want := returnToCookieValue(t, resp), encodedReturnToWithReason(reauthSettingsReturnTo, reason); got != want {
-				t.Errorf("cookie value = %q, want %q", got, want)
-			}
-		})
-	}
-}
-
-// A re-authentication that names no destination still records its reason, so
-// a refusal reopens the re-authentication.
-func TestOAuthLogin_RecordsAReauthReasonWithoutADestination(t *testing.T) {
-	resp := startSignIn(startQuery("", reasonCredentialMint))
-
-	if got, want := returnToCookieValue(t, resp), encodedReturnToWithReason("/", reasonCredentialMint); got != want {
-		t.Errorf("cookie value = %q, want %q", got, want)
+				if got, want := returnToCookieValue(t, resp), encodedReturnToWithReason(tc.recordedPath, reason); got != want {
+					t.Errorf("cookie value = %q, want %q", got, want)
+				}
+			})
+		}
 	}
 }
 
@@ -93,87 +78,25 @@ func TestOAuthLogin_DropsAReasonThatIsNotAReauth(t *testing.T) {
 	}
 }
 
-// reasonCallbackCases are the callback's redirects to the auth page, one per
-// writer, each with the code it carries.
-func reasonCallbackCases(t *testing.T) []struct {
+// reasonCallbackCase is one of the callback's redirects to the auth page and
+// the code it carries.
+type reasonCallbackCase struct {
 	name     string
 	handler  *OAuthHTTPHandler
 	query    string
 	wantCode string
-} {
-	linkRequired := func() error {
-		return &contracts.OAuthLinkRequiredError{
-			Identity: contracts.OAuthIdentity{Provider: "google", Subject: "sub"},
-			UserID:   3,
-			Refusal:  autherrors.ErrOAuthLinkRefused("taken@example.com"),
-		}
-	}
-	return []struct {
-		name     string
-		handler  *OAuthHTTPHandler
-		query    string
-		wantCode string
-	}{
-		{
-			name:     "refusal with its own code",
-			handler:  failingCallbackHandler(autherrors.ErrTermsAcceptanceRequired("no consent")),
-			query:    "state=s&code=c",
-			wantCode: autherrors.CodeTermsAcceptanceRequired,
-		},
-		{
-			name:     "provider fault",
-			handler:  failingCallbackHandler(errors.New("oauth2: cannot fetch token")),
-			query:    "state=s&code=c",
-			wantCode: autherrors.CodeUnknown,
-		},
-		{
-			name:     "declined at Google",
-			handler:  declineHandler(t),
-			query:    "error=access_denied&state=s",
-			wantCode: authPageCodeOAuthCancelled,
-		},
-		{
-			name: "sign-up step store failure",
-			handler: callbackHandlerFor(&testhelpers.MockAuthService{
-				OAuthCallbackFn: func(http.ResponseWriter, *http.Request, string) (*authm.User, string, error) {
-					return nil, "", &contracts.OAuthSignupRequiredError{
-						Identity: contracts.OAuthIdentity{Provider: "google", Subject: "sub"},
-						Refusal:  autherrors.ErrTermsAcceptanceRequired("new oauth identity arrived without consent"),
-					}
-				},
-				StartOAuthSignupFn: func(contracts.OAuthIdentity, string) (string, error) {
-					return "", errors.New("pending sign-up insert failed")
-				},
-			}),
-			query:    "state=s&code=c",
-			wantCode: autherrors.CodeUnknown,
-		},
-		{
-			name: "collision store failure",
-			handler: callbackHandlerFor(&testhelpers.MockAuthService{
-				OAuthCallbackFn: func(http.ResponseWriter, *http.Request, string) (*authm.User, string, error) {
-					return nil, "", linkRequired()
-				},
-				StartOAuthLinkFn: func(contracts.OAuthIdentity, uint, string) (string, error) {
-					return "", errors.New("pending link insert failed")
-				},
-			}),
-			query:    "state=s&code=c",
-			wantCode: autherrors.CodeOAuthLinkRefused,
-		},
-		{
-			name: "collision held as a pending link",
-			handler: callbackHandlerFor(&testhelpers.MockAuthService{
-				OAuthCallbackFn: func(http.ResponseWriter, *http.Request, string) (*authm.User, string, error) {
-					return nil, "", linkRequired()
-				},
-				StartOAuthLinkFn: func(contracts.OAuthIdentity, uint, string) (string, error) {
-					return "pending-link-token", nil
-				},
-			}),
-			query:    "state=s&code=c",
-			wantCode: authPageCodeOAuthLinkPending,
-		},
+}
+
+// reasonCallbackCases are the callback's redirects to the auth page, one per
+// writer.
+func reasonCallbackCases(t *testing.T) []reasonCallbackCase {
+	return []reasonCallbackCase{
+		{"refusal with its own code", failingCallbackHandler(autherrors.ErrTermsAcceptanceRequired("no consent")), "state=s&code=c", autherrors.CodeTermsAcceptanceRequired},
+		{"provider fault", failingCallbackHandler(errors.New("oauth2: cannot fetch token")), "state=s&code=c", autherrors.CodeUnknown},
+		{"declined at Google", declineHandler(t), "error=access_denied&state=s", authPageCodeOAuthCancelled},
+		{"sign-up step store failure", signupStepStoreFailureHandler(), "state=s&code=c", autherrors.CodeUnknown},
+		{"collision store failure", linkStepHandler("", errors.New("pending link insert failed")), "state=s&code=c", autherrors.CodeOAuthLinkRefused},
+		{"collision held as a pending link", linkStepHandler("pending-link-token", nil), "state=s&code=c", authPageCodeOAuthLinkPending},
 	}
 }
 
@@ -217,14 +140,10 @@ func TestOAuthCallback_AuthPageRedirectWithoutAReasonCarriesNone(t *testing.T) {
 // whose callback is refused lands on the auth page with the code, the reason
 // and the destination.
 func TestOAuthReauth_RoundTripCarriesTheReasonToARefusal(t *testing.T) {
-	start := startSignIn(startQuery(reauthSettingsReturnTo, reasonOAuthLinkReauth))
-	cookie := findCookie(start, oauthReturnToCookieName)
-	if cookie == nil {
-		t.Fatal("the start recorded nothing")
-	}
+	recorded := returnToCookieValue(t, startSignIn(startQuery(reauthSettingsReturnTo, reasonOAuthLinkReauth)))
 
 	resp, raw := runCallback(t, failingCallbackHandler(errors.New("gothic: state mismatch")), "/auth/callback/google?state=tampered&code=c",
-		&http.Cookie{Name: cookie.Name, Value: cookie.Value})
+		&http.Cookie{Name: oauthReturnToCookieName, Value: recorded})
 
 	location, err := url.Parse(raw)
 	if err != nil {
