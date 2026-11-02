@@ -158,6 +158,74 @@ func TestRecoverPanic_AbortsOnceTheResponseStarted(t *testing.T) {
 	}
 }
 
+// The panic line carries no email address from the panic value, whether the
+// panic is an error or a plain value, and keeps the rest of the text.
+func TestRecoverPanic_RedactsEmailsFromThePanicLine(t *testing.T) {
+	values := map[string]any{
+		"error":  fmt.Errorf("lookup failed for %s: %w", "jane.doe+tag@mail.example.com", errors.New("not found")),
+		"struct": struct{ ID, Email string }{"7", "jane.doe@example.com"},
+	}
+	for name, value := range values {
+		t.Run(name, func(t *testing.T) {
+			_, logs, _ := serveRecoverPanic(t, func(http.ResponseWriter, *http.Request) {
+				panic(value)
+			})
+			lines := panicLogLines(t, logs)
+			if len(lines) != 1 {
+				t.Fatalf("%d %s lines, want 1:\n%s", len(lines), panicLogMsg, logs)
+			}
+			panicText, _ := lines[0]["panic"].(string)
+			if !strings.Contains(panicText, redactedEmail) {
+				t.Errorf("panic value = %q, want the email replaced by %q", panicText, redactedEmail)
+			}
+			for _, part := range []string{"jane.doe", "example.com"} {
+				if strings.Contains(logs.String(), part) {
+					t.Errorf("the log carries %q from the panic value:\n%s", part, logs)
+				}
+			}
+		})
+	}
+}
+
+func TestScrubPanicValue(t *testing.T) {
+	cases := []struct {
+		name, value, want string
+	}{
+		{"bare email", "no user jane@example.com", "no user " + redactedEmail},
+		{"key and colon", "Email:jane@example.com", "Email:" + redactedEmail},
+		{"struct", "{ID:1 Email:jane@example.com}", "{ID:1 Email:" + redactedEmail + "}"},
+		{"quoted", `{"email":"jane@example.com"}`, `{"email":"` + redactedEmail + `"}`},
+		{"angle brackets", "Jane <jane@example.com>", "Jane <" + redactedEmail + ">"},
+		{"dotless domain", "root@localhost refused", redactedEmail + " refused"},
+		{"unicode", "jöhn@exämple.de", redactedEmail},
+		{"two emails", "a@b.io, c@d.io", redactedEmail + ", " + redactedEmail},
+		{"no email", "runtime error: index out of range [3] with length 2", "runtime error: index out of range [3] with length 2"},
+		{"lone at sign", "meet @ noon", "meet @ noon"},
+		// The token rules apply as before.
+		{"secret key", "boom: password=panic-secret", "boom: password=[REDACTED]"},
+		{"bearer", "Bearer abc.def", "Bearer [REDACTED]"},
+		{"query", "GET https://h.example/p?token=abc failed", "GET https://h.example/p?[REDACTED] failed"},
+		{"url userinfo", "dial postgres://admin:pw@db.internal/app", "dial postgres://[REDACTED]@[REDACTED]/app"},
+		// '=' is a local-part character, so the key joins the redaction.
+		{"email after a key", "token=jane@example.com", redactedEmail},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := scrubPanicValue(c.value); got != c.want {
+				t.Errorf("scrubPanicValue(%q) = %q, want %q", c.value, got, c.want)
+			}
+		})
+	}
+
+	// An email straddling the length cap is redacted whole before the cap
+	// applies, so no fragment of it survives the cut.
+	value := strings.Repeat("x", 1990) + " jane.doe@example.com"
+	got := scrubPanicValue(value)
+	if strings.Contains(got, "jane") || strings.Contains(got, "example") {
+		t.Errorf("scrubPanicValue left part of the capped email: %q", got[len(got)-40:])
+	}
+}
+
 // net/http aborts quietly only on the bare sentinel, so a wrapped one is
 // re-panicked as the sentinel itself.
 func TestRecoverPanic_PassesErrAbortHandlerThroughUnlogged(t *testing.T) {

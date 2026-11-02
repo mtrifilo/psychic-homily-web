@@ -7,6 +7,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"regexp"
 
 	autherrors "psychic-homily-backend/internal/errors"
 	"psychic-homily-backend/internal/logger"
@@ -15,7 +16,8 @@ import (
 
 // RecoverPanic turns a handler panic into a 500 carrying the auth error
 // envelope with the request ID, and logs one ERROR line with the request ID and
-// the scrubbed panic value. The request body and headers are never logged.
+// the panic value as scrubPanicValue renders it. The request body and headers
+// are never logged.
 //
 // Register it inside RequestIDMiddleware, whose ID it reads from the context,
 // and outside the Sentry handler, which captures the panic and re-panics into
@@ -44,7 +46,7 @@ func RecoverPanic(next http.Handler) http.Handler {
 			attrs := []any{
 				"method", r.Method,
 				"path", r.URL.Path,
-				"panic", observability.ScrubText(fmt.Sprint(recovered)),
+				"panic", scrubPanicValue(recovered),
 				"response_started", tracked.started,
 			}
 			log := logger.FromContext(ctx)
@@ -77,6 +79,35 @@ func RecoverPanic(next http.Handler) http.Handler {
 func isAbortHandler(recovered any) bool {
 	err, ok := recovered.(error)
 	return ok && errors.Is(err, http.ErrAbortHandler)
+}
+
+// scrubPanicValue renders a panic value for the log line with its email
+// addresses and the secret shapes observability.ScrubText knows redacted.
+// Emails go first, so ScrubText's length cap cannot cut one into a fragment the
+// email pattern no longer matches.
+func scrubPanicValue(recovered any) string {
+	return observability.ScrubText(redactEmails(fmt.Sprint(recovered)))
+}
+
+// emailShapeRe matches an '@' with a run of non-delimiter characters on each
+// side: the local part and the domain of anything shaped like an email address.
+// The delimiters are whitespace, quotes, brackets, braces, parentheses and the
+// separators ,;:/\?#, so a key name in "Email:jane@example.com", a struct field
+// or a quoted JSON value stays outside the match. The pattern over-matches,
+// which is the safe direction: a module path such as "pkg@v1.2.3" matches, and
+// '=' is a local-part character, so "key=jane@example.com" loses its key too.
+var emailShapeRe = regexp.MustCompile(emailPart + "@" + emailPart)
+
+const emailPart = "[^\\s@\"'`<>()\\[\\]{},;:/\\\\?#]+"
+
+// redactedEmail replaces each email-shaped match. It keeps the '@' so the URL
+// userinfo rule in observability.ScrubText still sees scheme://user:pw@host and
+// redacts the user name along with the password.
+const redactedEmail = "[REDACTED]@[REDACTED]"
+
+// redactEmails replaces everything in s shaped like an email address.
+func redactEmails(s string) string {
+	return emailShapeRe.ReplaceAllLiteralString(s, redactedEmail)
 }
 
 // representationHeaders describe a response's content or its cache validity.
