@@ -92,6 +92,7 @@ func TestToExternalMessage_CoversTheOAuthLinkCodes(t *testing.T) {
 		CodeOAuthIdentityInUse:         ErrOAuthIdentityInUse("google").UserMessage(),
 		CodeOAuthProviderAlreadyLinked: ErrOAuthProviderAlreadyLinked("google").UserMessage(),
 		CodeOAuthLinkExpired:           ErrOAuthLinkExpired().UserMessage(),
+		CodeEmailVerificationRequired:  ErrEmailVerificationRequired("google").UserMessage(),
 	}
 	for code, want := range cases {
 		if got := ToExternalMessage(code); got != want {

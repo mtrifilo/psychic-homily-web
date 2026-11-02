@@ -27,10 +27,20 @@ func sessionAccount(t *testing.T, db *gorm.DB, name string, sessionsValidAfter *
 }
 
 func lockInTx(db *gorm.DB, userID uint, sessionsValidAfter *time.Time) error {
-	return db.Transaction(func(tx *gorm.DB) error {
-		_, err := LockSessionAccount(tx, userID, sessionsValidAfter)
+	_, err := lockAndReadInTx(db, userID, sessionsValidAfter)
+	return err
+}
+
+// lockAndReadInTx is lockInTx that also returns the row LockSessionAccount
+// handed back.
+func lockAndReadInTx(db *gorm.DB, userID uint, sessionsValidAfter *time.Time) (*authm.User, error) {
+	var locked *authm.User
+	err := db.Transaction(func(tx *gorm.DB) error {
+		account, err := LockSessionAccount(tx, userID, sessionsValidAfter)
+		locked = account
 		return err
 	})
+	return locked, err
 }
 
 func requireRefusalCode(t *testing.T, err error, code string) *apperrors.AuthError {
@@ -89,13 +99,19 @@ func TestLockSessionAccount(t *testing.T) {
 				tc.close(t, account.ID)
 			}
 
-			err := lockInTx(db, account.ID, tc.sessionStamp)
+			locked, err := lockAndReadInTx(db, account.ID, tc.sessionStamp)
 
 			if tc.wantCode == "" {
 				if err != nil {
 					t.Fatalf("unexpected refusal: %v", err)
 				}
+				if locked == nil || locked.ID != account.ID || locked.Email == nil || *locked.Email != *account.Email {
+					t.Fatalf("returned row = %+v, want the account it locked (id %d)", locked, account.ID)
+				}
 				return
+			}
+			if locked != nil {
+				t.Errorf("a refusal returns no row, got %+v", locked)
 			}
 			refusal := requireRefusalCode(t, err, tc.wantCode)
 			if !IsSessionRefusal(err) {
