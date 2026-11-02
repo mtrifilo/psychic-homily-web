@@ -44,7 +44,7 @@ const components = {
   ),
   code: (props: React.HTMLAttributes<HTMLElement>) => (
     <code
-      className="bg-muted px-1.5 py-0.5 rounded text-sm font-mono"
+      className="bg-muted px-1.5 py-0.5 rounded text-sm font-code"
       {...props}
     />
   ),

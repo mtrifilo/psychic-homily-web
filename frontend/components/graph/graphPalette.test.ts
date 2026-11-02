@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
-import { describe, it, expect } from 'vitest'
+import { afterEach, describe, it, expect } from 'vitest'
 import { renderHook, act } from '@testing-library/react'
 import {
   CHART_TOKEN_COUNT,
@@ -57,6 +57,57 @@ describe('useGraphPalette (jsdom fallback path)', () => {
     expect(result.current).not.toBe(before)
     expect(result.current.edges.shared_bills).toBe(before.edges.shared_bills)
     document.documentElement.classList.remove('dark')
+  })
+})
+
+// The canvas data face resolves from the cascade in two hops: the theme token
+// first (so repointing the data tier carries over), the next/font variable
+// second. jsdom does return inline custom properties on documentElement.
+describe('data font resolution (theme token first, next/font variable second)', () => {
+  const root = document.documentElement
+  afterEach(() => {
+    root.style.removeProperty('--font-data')
+    root.style.removeProperty('--font-golos')
+  })
+
+  it('prefers the --font-data theme token', () => {
+    root.style.setProperty('--font-data', "'Theme Face'")
+    root.style.setProperty('--font-golos', "'Raw Face'")
+    const { result } = renderHook(() => useGraphPalette())
+    expect(result.current.dataFontFamily.startsWith("'Theme Face', ")).toBe(true)
+  })
+
+  it('falls back to the --font-golos variable next/font sets on <html>', () => {
+    root.style.setProperty('--font-golos', "'Raw Face'")
+    const { result } = renderHook(() => useGraphPalette())
+    expect(result.current.dataFontFamily.startsWith("'Raw Face', ")).toBe(true)
+  })
+})
+
+// Tailwind's preflight sets the default font on <html> from the theme's
+// default-font tokens, which point at the next/font variables. The variables
+// therefore have to be defined on <html>; on <body> they are invalid at the
+// root and the page falls back to the system sans (the PSY-647 era defect).
+describe('next/font variables live on <html> and map through @theme tokens', () => {
+  const layout = readFileSync(resolve(process.cwd(), 'app/layout.tsx'), 'utf8')
+  const css = readFileSync(resolve(process.cwd(), 'app/globals.css'), 'utf8')
+  const htmlTag = layout.match(/<html\s+lang=[^>]*>/s)?.[0] ?? ''
+  const bodyTag = layout.match(/<body\s+className[^>]*>/s)?.[0] ?? ''
+  const variableClasses = ['hankenGrotesk.variable', 'schibstedGrotesk.variable', 'golosText.variable']
+
+  it('puts every variable class on <html> and none on <body>', () => {
+    expect(htmlTag).not.toBe('')
+    expect(bodyTag).not.toBe('')
+    for (const v of variableClasses) {
+      expect(htmlTag).toContain(v)
+      expect(bodyTag).not.toContain(v)
+    }
+  })
+
+  it('maps each next/font variable through an @theme token', () => {
+    const vars = [...layout.matchAll(/variable: '(--font-[a-z]+)'/g)].map((m) => m[1])
+    expect(vars).toEqual(['--font-hanken', '--font-schibsted', '--font-golos'])
+    for (const v of vars) expect(css).toContain(`var(${v})`)
   })
 })
 
@@ -120,7 +171,7 @@ describe('clusterColor', () => {
     labelHalo: '#0d0805',
     primary: '#e89960',
     mutedForeground: '#9c8c7c',
-    monoFontFamily: "'Golos Text', system-ui, sans-serif",
+    dataFontFamily: "'Golos Text', system-ui, sans-serif",
     isDark: true,
   }
 

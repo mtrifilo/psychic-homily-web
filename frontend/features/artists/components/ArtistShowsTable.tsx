@@ -165,7 +165,7 @@ const ShowRow = memo(function ShowRow({
       <td
         {...layout.cell}
         className={cn(
-          'whitespace-nowrap text-right font-mono text-xs text-muted-foreground',
+          'whitespace-nowrap text-right font-mono tabular-nums text-xs text-muted-foreground',
           stacked && STACKED_OFF_LINE
         )}
       >

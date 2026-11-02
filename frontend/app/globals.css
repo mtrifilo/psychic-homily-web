@@ -29,12 +29,17 @@
 /* PSY-646 design system tokens — sourced from Figma file isfHz0oyFK1ALX19IRGg51
  * Light mode = "newsprint" (warm paper background, ink text, burnt-orange primary)
  * Dark mode = "vinyl record shop" (warm darks, faded-poster accents)
- * Fonts: Hanken Grotesk (display), Schibsted Grotesk (body), Golos Text (data).
- * All three are variable, so every weight utility is genuine. The data face is
- * proportional: numeric columns that need to align opt in with `tabular-nums`
- * on the number span only, because both Golos Text and Schibsted Grotesk widen
- * commas and colons under the tnum feature. `--font-mono` is a transitional
- * alias of the data face until call sites move to `font-data`. */
+ * Fonts: Hanken Grotesk (display), Schibsted Grotesk (body), Golos Text (data),
+ * plus a system monospace stack (`--font-code`) for text read character by
+ * character: tokens, diffs, code. Weights 400 to 900 are genuine on all three
+ * faces (Hanken Grotesk goes down to 100). The data face is proportional:
+ * numeric columns that need to align opt in with `tabular-nums` on the number
+ * span only, because both Golos Text and Schibsted Grotesk widen commas and
+ * colons under the tnum feature. `--font-mono` is a transitional alias of the
+ * data face until call sites move to `font-data`; Tailwind derives
+ * `--default-mono-font-family` (preflight's face for code, kbd, samp, pre) from
+ * `--font-mono`, so it is pinned to `--font-code` here to keep those elements
+ * monospaced regardless of the alias. */
 
 @theme inline {
   --color-background: var(--background);
@@ -43,6 +48,8 @@
   --font-sans: var(--font-schibsted);
   --font-data: var(--font-golos);
   --font-mono: var(--font-golos);
+  --font-code: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;
+  --default-mono-font-family: var(--font-code);
   --color-sidebar-ring: var(--sidebar-ring);
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);

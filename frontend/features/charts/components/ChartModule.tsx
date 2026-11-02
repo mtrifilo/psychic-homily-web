@@ -89,7 +89,7 @@ export function ChartRow({
         className
       )}
     >
-      <span className="pt-0.5 font-mono text-xs text-muted-foreground">
+      <span className="pt-0.5 font-mono tabular-nums text-xs text-muted-foreground">
         {rank ?? '—'}
       </span>
       <div className="min-w-0">

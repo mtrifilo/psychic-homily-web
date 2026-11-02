@@ -62,16 +62,14 @@ export interface GraphPalette {
    */
   mutedForeground: string
   /**
-   * Resolved `--font-data` as a canvas `ctx.font` family list — the data face
-   * (Golos Text) the DOM reaches through `font-data` / `font-mono`. Canvas can't
-   * consume `var(--font-data)` any more than it can a color token, and next/font
-   * emits a GENERATED family name (`__Golos_Text_abc123`) that no literal can
-   * hardcode, so it has to be read from the cascade like the colors are.
+   * The data face (Golos Text) as a canvas `ctx.font` family list, resolved from
+   * the cascade like the colors are because canvas cannot consume `var()`.
    *
    * Used by the map's region captions, the one canvas text set in the data face
-   * by design; every other canvas label stays sans (see graphLabels).
+   * by design; every other canvas label uses the generic `sans-serif` (see
+   * graphLabels).
    */
-  monoFontFamily: string
+  dataFontFamily: string
   /**
    * True when the resolved tokens are the dark theme's.
    *
@@ -122,10 +120,10 @@ const FALLBACK_PRIMARY = '#e89960' // --primary (dark)
 const FALLBACK_MUTED_FOREGROUND = '#9c8c7c' // --muted-foreground (dark)
 
 // Theme-independent (the data face is the same on both themes), so this is a
-// true fallback rather than a dark value: the named face for the environments
-// where next/font's generated family can't resolve (jsdom, SSR), then the
-// generic keywords so a canvas always has SOMETHING to draw with.
-const FALLBACK_MONO_FONT_FAMILY = "'Golos Text', system-ui, sans-serif"
+// true fallback rather than a dark value: the registered family name for the
+// environments where the variables are absent (jsdom, SSR), then the generic
+// keywords so a canvas always has SOMETHING to draw with.
+const FALLBACK_DATA_FONT_FAMILY = "'Golos Text', system-ui, sans-serif"
 
 const FALLBACK_PALETTE: GraphPalette = {
   edges: FALLBACK_EDGE_COLORS,
@@ -136,7 +134,7 @@ const FALLBACK_PALETTE: GraphPalette = {
   labelHalo: FALLBACK_LABEL_HALO,
   primary: FALLBACK_PRIMARY,
   mutedForeground: FALLBACK_MUTED_FOREGROUND,
-  monoFontFamily: FALLBACK_MONO_FONT_FAMILY,
+  dataFontFamily: FALLBACK_DATA_FONT_FAMILY,
   // Matches the rest of the fallbacks, which are all the DARK values.
   isDark: true,
 }
@@ -188,15 +186,19 @@ function readToken(style: CSSStyleDeclaration, token: string, fallback: string):
 }
 
 /**
- * The canvas data family. `--font-golos` is the variable next/font sets on
- * `<html>`; the theme's `--font-data` / `--font-mono` are `@theme inline` tokens
- * and never exist at runtime, so only the raw variable can be read. The fallback
- * stack is appended so the canvas has a face to draw with when the variable is
- * absent (a canvas mounted outside the app shell, jsdom).
+ * The canvas data family, read in two hops. `--font-data` is the theme token
+ * (`@theme inline` still emits a token to `:root` once Tailwind's scanner sees
+ * a utility that references it), so it follows any future repointing of the
+ * data tier; `--font-golos` is the variable next/font sets on `<html>` and is
+ * the backstop when the token is absent. The fallback stack is appended so the
+ * canvas has a face to draw with when both are absent (a canvas mounted outside
+ * the app shell, jsdom).
  */
-function resolveMonoFontFamily(style: CSSStyleDeclaration): string {
-  const resolved = style.getPropertyValue('--font-golos').trim()
-  return resolved ? `${resolved}, ${FALLBACK_MONO_FONT_FAMILY}` : FALLBACK_MONO_FONT_FAMILY
+function resolveDataFontFamily(style: CSSStyleDeclaration): string {
+  const resolved =
+    style.getPropertyValue('--font-data').trim() ||
+    style.getPropertyValue('--font-golos').trim()
+  return resolved ? `${resolved}, ${FALLBACK_DATA_FONT_FAMILY}` : FALLBACK_DATA_FONT_FAMILY
 }
 
 function resolveGraphPalette(): GraphPalette {
@@ -217,7 +219,7 @@ function resolveGraphPalette(): GraphPalette {
     labelHalo: readToken(style, '--background', FALLBACK_LABEL_HALO),
     primary: readToken(style, '--primary', FALLBACK_PRIMARY),
     mutedForeground: readToken(style, '--muted-foreground', FALLBACK_MUTED_FOREGROUND),
-    monoFontFamily: resolveMonoFontFamily(style),
+    dataFontFamily: resolveDataFontFamily(style),
     isDark: document.documentElement.classList.contains('dark'),
   }
 }

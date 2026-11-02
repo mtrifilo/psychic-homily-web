@@ -11,7 +11,7 @@ const palette: GraphPalette = {
   labelHalo: '#000000',
   primary: '#e89960',
   mutedForeground: '#9c8c7c',
-  monoFontFamily: "'Golos Text', system-ui, sans-serif",
+  dataFontFamily: "'Golos Text', system-ui, sans-serif",
   isDark: true,
 }
 

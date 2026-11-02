@@ -182,7 +182,7 @@ export function EpisodeArchiveTable({
               </td>
               <td
                 role="cell"
-                className="col-start-3 row-start-1 text-right whitespace-nowrap font-mono text-xs"
+                className="col-start-3 row-start-1 text-right whitespace-nowrap font-mono tabular-nums text-xs"
               >
                 {/* The gap before the archive status lives on the status, not
                     the grid, so a row without one keeps its tracks flush right. */}

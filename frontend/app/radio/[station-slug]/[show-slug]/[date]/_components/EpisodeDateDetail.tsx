@@ -215,14 +215,14 @@ export default function EpisodeDateDetail({ stationSlug, showSlug, date }: Episo
             (the show page's ON AIR strip language, PSY-1152) */}
         {isLive && (
           <div className="mb-6 flex items-center justify-between gap-3 rounded-md border border-primary/40 bg-primary/5 px-4 py-2.5">
-            <span className="font-mono text-xs text-foreground">
+            <span className="font-mono tabular-nums text-xs text-foreground">
               <span className="text-primary" aria-hidden="true">
                 ●
               </span>{' '}
               ON AIR NOW — the playlist is updating live
             </span>
             {updatedAgo && (
-              <span className="shrink-0 font-mono text-xs text-muted-foreground">
+              <span className="shrink-0 font-mono tabular-nums text-xs text-muted-foreground">
                 {updatedAgo}
               </span>
             )}
