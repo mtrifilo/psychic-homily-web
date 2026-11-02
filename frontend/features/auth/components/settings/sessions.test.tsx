@@ -134,6 +134,7 @@ describe('SessionsSettings', () => {
 
     expect(await screen.findByRole('alert')).toHaveTextContent(REFUSAL_LINE)
     expect(screen.queryByText(SUCCESS_LINE)).not.toBeInTheDocument()
+    expect(mockCaptureException).toHaveBeenCalledTimes(1)
   })
 
   it('a second press clears the previous outcome while it runs', async () => {
@@ -153,5 +154,38 @@ describe('SessionsSettings', () => {
 
     resolveSecond({ success: true })
     expect(await screen.findByRole('status')).toHaveTextContent(SUCCESS_LINE)
+  })
+
+  it('Escape closes the dialog when nothing is pending, and sends nothing', async () => {
+    const user = userEvent.setup()
+    renderWithProviders(<SessionsSettings />)
+
+    await openConfirm(user)
+    await user.keyboard('{Escape}')
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+    expect(mockApiRequest).not.toHaveBeenCalled()
+  })
+
+  it('while the request runs the dialog cannot be dismissed and every control is disabled', async () => {
+    let resolveRequest: (value: unknown) => void = () => {}
+    mockApiRequest.mockImplementationOnce(
+      () => new Promise(resolve => { resolveRequest = resolve })
+    )
+    const user = userEvent.setup()
+    renderWithProviders(<SessionsSettings />)
+
+    await confirmSignOut(user)
+    const dialog = screen.getByRole('dialog')
+    expect(within(dialog).getByLabelText('Signing out')).toBeInTheDocument()
+    expect(within(dialog).getByRole('button', { name: 'Cancel' })).toBeDisabled()
+    expect(within(dialog).getByRole('button', { name: 'Signing out' })).toBeDisabled()
+
+    await user.keyboard('{Escape}')
+    expect(screen.getByRole('dialog')).toBeInTheDocument()
+
+    resolveRequest({ success: true })
+    expect(await screen.findByRole('status')).toHaveTextContent(SUCCESS_LINE)
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    expect(mockCaptureException).not.toHaveBeenCalled()
   })
 })

@@ -8,6 +8,7 @@ import (
 	"github.com/danielgtaylor/huma/v2"
 
 	"psychic-homily-backend/db"
+	authm "psychic-homily-backend/internal/models/auth"
 	adminsvc "psychic-homily-backend/internal/services/admin"
 )
 
@@ -33,7 +34,7 @@ func (s *JWTMiddlewareIntegrationSuite) TestHumaJWT_ReportsASessionPrincipalAsAS
 	s.True(isSession)
 }
 
-func (s *JWTMiddlewareIntegrationSuite) TestHumaJWT_ReportsAnAPITokenPrincipalAsNotASession() {
+func (s *JWTMiddlewareIntegrationSuite) TestAPITokenPrincipalIsNotASession() {
 	// The middleware validates API tokens on the process-wide handle it reads
 	// when it is built.
 	prev := db.DB
@@ -49,16 +50,25 @@ func (s *JWTMiddlewareIntegrationSuite) TestHumaJWT_ReportsAnAPITokenPrincipalAs
 		_, _ = sqlDB.Exec("DELETE FROM api_tokens")
 	})
 
-	req := httptest.NewRequest(http.MethodGet, "/api/test", nil)
-	req.Header.Set("Authorization", "Bearer "+created.Token)
-	ctx, _ := newHumaContext(s.T(), req)
+	for name, mw := range map[string]func(huma.Context, func(huma.Context)){
+		"HumaJWTMiddleware":         HumaJWTMiddleware(s.jwtService),
+		"OptionalHumaJWTMiddleware": OptionalHumaJWTMiddleware(s.jwtService),
+	} {
+		s.Run(name, func() {
+			req := httptest.NewRequest(http.MethodGet, "/api/test", nil)
+			req.Header.Set("Authorization", "Bearer "+created.Token)
+			ctx, _ := newHumaContext(s.T(), req)
 
-	reached, isSession := false, true
-	HumaJWTMiddleware(s.jwtService)(ctx, func(next huma.Context) {
-		reached, isSession = true, IsSessionCredentialFromContext(next.Context())
-	})
-	s.Require().True(reached, "the API token must authenticate for this to test anything")
-	s.False(isSession)
+			var principal *authm.User
+			isSession := true
+			mw(ctx, func(next huma.Context) {
+				principal = GetUserFromContext(next.Context())
+				isSession = IsSessionCredentialFromContext(next.Context())
+			})
+			s.Require().NotNil(principal, "the API token must authenticate for this to test anything")
+			s.False(isSession)
+		})
+	}
 }
 
 func (s *JWTMiddlewareIntegrationSuite) TestOtherJWTMiddlewares_ReportASessionPrincipalAsASession() {

@@ -1641,7 +1641,7 @@ func (h *AuthHandler) ChangePasswordHandler(ctx context.Context, input *ChangePa
 	//
 	// 24 hours is what every other cookie this package sets uses, and what the
 	// token's own expiry defaults to (JWT_EXPIRY_HOURS). Raising that env var
-	// moves the token and not the cookie, at all twelve of those sites alike. The OAuth callback sets a seven-day cookie instead, so an
+	// moves the token and not the cookie, at every one of those sites alike. The OAuth callback sets a seven-day cookie instead, so an
 	// account holding both a password and a provider identity, signed in
 	// through the provider, has its cookie shortened by changing its password.
 	// The token inside that cookie expires in 24 hours either way; what the
