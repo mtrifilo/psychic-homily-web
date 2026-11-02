@@ -18,13 +18,14 @@ func redactPanicText(s string) string {
 
 // emailShapeRe matches an '@', or its percent-encoding (%40, or %2540 encoded
 // twice), with a run of non-delimiter characters on each side: the local part
-// and the domain of anything shaped like an email address. The delimiters are
+// and the domain of anything shaped like an email address. Repeated and
+// chained separators ("jane@@example.com", "a@jane@example.com") match whole. The delimiters are
 // whitespace, double quotes, backticks, brackets, braces, parentheses and the
 // separators ,;:/\?#, so the key in "Email:jane@example.com", a struct field or
 // a quoted JSON value stays outside the match. The pattern over-matches, which
 // is safe because secrets are already redacted when it runs: a module path
 // such as "pkg@v1.2.3" matches, and "key=jane@example.com" loses its key.
-var emailShapeRe = regexp.MustCompile(emailPart + "(?:@|%40|%2540)" + emailPart)
+var emailShapeRe = regexp.MustCompile(emailPart + "(?:(?:@|%40|%2540)+" + emailPart + ")+")
 
 const emailPart = "[^\\s@\"`<>()\\[\\]{},;:/\\\\?#]+"
 

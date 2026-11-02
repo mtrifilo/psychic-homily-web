@@ -189,6 +189,8 @@ func TestScrubPanicValue(t *testing.T) {
 		{"apostrophe and equals", "o'brien@example.com, jane=doe@example.com", redactedEmail + ", " + redactedEmail},
 		{"percent-encoded", "GET /api/users/jane%40example.com failed", "GET /api/users/" + redactedEmail + " failed"},
 		{"double percent-encoded", "GET /u/jane%2540example.com", "GET /u/" + redactedEmail},
+		{"doubled at sign", "bad input jane@@example.com", "bad input " + redactedEmail},
+		{"chained at signs", "a@jane@example.com", redactedEmail},
 		{"no email", "runtime error: index out of range [3] with length 2", "runtime error: index out of range [3] with length 2"},
 		{"lone at sign", "meet @ noon", "meet @ noon"},
 		// The token rules apply as before.
