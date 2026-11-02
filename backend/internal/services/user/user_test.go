@@ -1043,17 +1043,12 @@ func (suite *UserServiceIntegrationTestSuite) TestSoftDeleteAccount_WithReason()
 // closed with a sessions_valid_after of the closure's second, and restoring
 // it keeps that value.
 func (suite *UserServiceIntegrationTestSuite) TestSoftDeleteAccount_RevokesSessions() {
-	user := &authm.User{
-		Email:    stringPtr("softdelete-revokes@example.com"),
-		IsActive: true,
-	}
-	suite.Require().NoError(suite.db.Create(user).Error)
+	user := suite.createLiveAccount("softdelete-revokes@example.com")
 
 	before := time.Now().UTC().Truncate(time.Second)
 	suite.Require().NoError(suite.userService.SoftDeleteAccount(user.ID, nil))
 
-	var closed authm.User
-	suite.Require().NoError(suite.db.First(&closed, user.ID).Error)
+	closed := suite.reloadAccount(user.ID)
 	suite.False(closed.IsActive)
 	suite.Require().NotNil(closed.DeletedAt)
 	suite.Require().NotNil(closed.SessionsValidAfter)
@@ -1061,8 +1056,7 @@ func (suite *UserServiceIntegrationTestSuite) TestSoftDeleteAccount_RevokesSessi
 	suite.False(closed.SessionsValidAfter.After(closed.DeletedAt.Add(time.Second)))
 
 	suite.Require().NoError(suite.userService.RestoreAccount(user.ID))
-	var restored authm.User
-	suite.Require().NoError(suite.db.First(&restored, user.ID).Error)
+	restored := suite.reloadAccount(user.ID)
 	suite.True(restored.IsActive)
 	suite.Require().NotNil(restored.SessionsValidAfter)
 	suite.True(restored.SessionsValidAfter.Equal(*closed.SessionsValidAfter), "restoring keeps the revocation")

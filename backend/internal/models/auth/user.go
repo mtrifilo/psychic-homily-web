@@ -81,7 +81,7 @@ type User struct {
 
 	// SessionsValidAfter is the account's latest session revocation, a whole
 	// second; only a session minted against this exact value is honored
-	// (services/auth RevokeAllSessions). Nil revokes nothing. It is never
+	// (services/shared RevokeAllSessions). Nil revokes nothing. It is never
 	// serialized.
 	SessionsValidAfter *time.Time `json:"-" gorm:"column:sessions_valid_after"`
 

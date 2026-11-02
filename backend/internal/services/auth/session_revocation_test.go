@@ -138,17 +138,16 @@ func (s *JWTIntegrationSuite) TestRevokeAllSessions_UnknownAccountFails() {
 // late from a row read before the closure, while a session minted from the
 // restored row is honored.
 func (s *JWTIntegrationSuite) TestSoftDeleteAccount_SessionsBeforeItStayRefusedAfterRestore() {
-	users := usersvc.NewUserService(s.db)
 	user := s.createActiveUser("closed-then-restored@test.com")
 	before, err := s.svc.CreateToken(user)
 	s.Require().NoError(err)
 	readBeforeClosure := s.reloadUser(user.ID)
 
-	s.Require().NoError(users.SoftDeleteAccount(user.ID, nil))
+	s.softDelete(user)
 	_, _, err = s.svc.ValidateSession(before)
 	s.assertClosedAccountRefusal(err, user.ID)
 
-	s.Require().NoError(users.RestoreAccount(user.ID))
+	s.Require().NoError(usersvc.NewUserService(s.db).RestoreAccount(user.ID))
 	_, _, err = s.svc.ValidateSession(before)
 	s.requireRevoked(err)
 	_, _, err = s.svc.ValidateSessionLenient(before, refreshGracePeriod)

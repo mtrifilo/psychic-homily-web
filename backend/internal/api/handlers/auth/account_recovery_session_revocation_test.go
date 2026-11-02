@@ -42,11 +42,7 @@ func (s *AuthHandlerIntegrationSuite) requireProfileRefusedAsRevoked(session str
 	s.T().Helper()
 	w := s.profileThroughTheMiddleware(session)
 	s.Equal(http.StatusUnauthorized, w.Code, "body: %s", w.Body.String())
-	var body struct {
-		ErrorCode string `json:"error_code"`
-	}
-	s.Require().NoError(json.Unmarshal(w.Body.Bytes(), &body), "body: %s", w.Body.String())
-	s.Equal(autherrors.CodeTokenInvalid, body.ErrorCode)
+	s.Equal(autherrors.CodeTokenInvalid, decodeErrorCode(s.T(), w.Body.Bytes()))
 
 	_, _, err := s.jwtService().ValidateSession(session)
 	s.True(errors.Is(err, servicesshared.ErrSessionRevoked), "refused as revoked, not as closed: got %v", err)
@@ -55,10 +51,14 @@ func (s *AuthHandlerIntegrationSuite) requireProfileRefusedAsRevoked(session str
 func (s *AuthHandlerIntegrationSuite) requireProfileHonored(session string, userID uint) {
 	s.T().Helper()
 	w := s.profileThroughTheMiddleware(session)
-	s.Equal(http.StatusOK, w.Code, "body: %s", w.Body.String())
-	user, _, err := s.jwtService().ValidateSession(session)
-	s.Require().NoError(err)
-	s.Equal(userID, user.ID)
+	s.Require().Equal(http.StatusOK, w.Code, "body: %s", w.Body.String())
+	var body struct {
+		User struct {
+			ID uint `json:"id"`
+		} `json:"user"`
+	}
+	s.Require().NoError(json.Unmarshal(w.Body.Bytes(), &body), "body: %s", w.Body.String())
+	s.Equal(userID, body.User.ID)
 }
 
 // deleteAccountSignedInAs closes user's account through the delete handler
