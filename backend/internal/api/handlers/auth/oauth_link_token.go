@@ -1,6 +1,8 @@
 package auth
 
 import (
+	"container/heap"
+	"context"
 	"crypto/hmac"
 	"crypto/sha256"
 	"crypto/subtle"
@@ -15,6 +17,7 @@ import (
 	"time"
 
 	"psychic-homily-backend/internal/config"
+	"psychic-homily-backend/internal/logger"
 )
 
 // The one-time proof that a link was started from this application's own
@@ -57,14 +60,104 @@ type oauthLinkTokenClaims struct {
 	nonce  string
 }
 
+// oauthLinkSpentNonceCapacity bounds the spent-nonce set. A nonce can never
+// leave the set before its token expires, since that would make the token
+// spendable again, so a full set refuses the spend instead of evicting: a flood
+// of link starts refuses later starts until spent tokens expire, and never
+// reopens a spent token to replay.
+const oauthLinkSpentNonceCapacity = 1000
+
 // spentOAuthLinkTokens remembers nonces already spent, so a token cannot be
-// replayed on the replica that accepted it. Pruned on write; entries are
-// worthless once past their expiry.
-var spentOAuthLinkTokens = struct {
-	sync.Mutex
-	nonces map[string]time.Time
-}{
-	nonces: make(map[string]time.Time),
+// replayed on the replica that accepted it.
+var spentOAuthLinkTokens = newSpentNonceSet(oauthLinkSpentNonceCapacity, time.Now)
+
+// spentNonceSet holds spent nonces, each until the expiry of the token that
+// carried it. Tokens are spent in no particular order of expiry, so a min-heap
+// orders them for pruning: a spend drops expired nonces from the top only, and
+// no operation walks the whole set.
+type spentNonceSet struct {
+	mu       sync.Mutex
+	capacity int
+	now      func() time.Time
+
+	// expiries and byExpiry hold the same nonces: expiries answers "spent?",
+	// and byExpiry keeps the soonest expiry at its root.
+	expiries map[string]time.Time
+	byExpiry nonceExpiryHeap
+
+	refusedSinceReport int
+	lastReportAt       time.Time
+}
+
+// newSpentNonceSet panics on a capacity below 1: a set that can hold nothing
+// refuses every spend.
+func newSpentNonceSet(capacity int, now func() time.Time) *spentNonceSet {
+	if capacity < 1 {
+		panic("spentNonceSet capacity must be at least 1")
+	}
+	return &spentNonceSet{
+		capacity: capacity,
+		now:      now,
+		expiries: make(map[string]time.Time),
+	}
+}
+
+// spend records nonce as spent until expiry and reports whether this spend
+// is the first. It refuses a token already past expiry, a nonce already
+// spent, and any spend while the set holds capacity unexpired nonces.
+//
+// Pruning stays safe because of the first refusal: a nonce leaves the set
+// only once the set's clock is past its expiry, and from then on the set
+// refuses its token as expired.
+//
+// refusalsToReport is nonzero when spends were refused for capacity since the
+// last report and at least registryEvictionReportInterval has passed since it;
+// the count covers every such refusal since that report. The caller logs it.
+func (s *spentNonceSet) spend(nonce string, expiry time.Time) (ok bool, refusalsToReport int) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	now := s.now()
+	if now.After(expiry) {
+		return false, 0
+	}
+	for len(s.byExpiry) > 0 && now.After(s.byExpiry[0].expiry) {
+		delete(s.expiries, heap.Pop(&s.byExpiry).(spentNonce).nonce)
+	}
+	if _, spent := s.expiries[nonce]; spent {
+		return false, 0
+	}
+	if len(s.expiries) >= s.capacity {
+		s.refusedSinceReport++
+		if s.lastReportAt.IsZero() || now.Sub(s.lastReportAt) >= registryEvictionReportInterval {
+			refusalsToReport = s.refusedSinceReport
+			s.refusedSinceReport = 0
+			s.lastReportAt = now
+		}
+		return false, refusalsToReport
+	}
+	s.expiries[nonce] = expiry
+	heap.Push(&s.byExpiry, spentNonce{nonce: nonce, expiry: expiry})
+	return true, 0
+}
+
+type spentNonce struct {
+	nonce  string
+	expiry time.Time
+}
+
+// nonceExpiryHeap is a container/heap min-heap of spent nonces by expiry.
+type nonceExpiryHeap []spentNonce
+
+func (h nonceExpiryHeap) Len() int           { return len(h) }
+func (h nonceExpiryHeap) Less(i, j int) bool { return h[i].expiry.Before(h[j].expiry) }
+func (h nonceExpiryHeap) Swap(i, j int)      { h[i], h[j] = h[j], h[i] }
+func (h *nonceExpiryHeap) Push(x any)        { *h = append(*h, x.(spentNonce)) }
+func (h *nonceExpiryHeap) Pop() any {
+	old := *h
+	last := old[len(old)-1]
+	*h = old[:len(old)-1]
+	return last
 }
 
 // mintOAuthLinkToken issues a token bound to userID.
@@ -113,7 +206,9 @@ func signOAuthLinkToken(secret, payload string) string {
 // the caller runs it first.
 //
 // Every check is a refusal, and none of them tell the caller which one failed.
-func consumeOAuthLinkToken(secret, token string, userID uint) bool {
+// A spend refused because the spent-nonce set is full is logged here, at most
+// once per registryEvictionReportInterval, since the caller cannot tell it apart.
+func consumeOAuthLinkToken(ctx context.Context, secret, token string, userID uint) bool {
 	// The payload (decimal fields and a hex nonce joined by "|") and the
 	// base64url signature hold no dot, so the last dot is the separator.
 	dot := strings.LastIndex(token, ".")
@@ -135,7 +230,14 @@ func consumeOAuthLinkToken(secret, token string, userID uint) bool {
 	if claims.userID != userID || time.Now().After(claims.expiry) {
 		return false
 	}
-	return spendOAuthLinkNonce(claims.nonce, claims.expiry)
+	ok, refusalsToReport := spentOAuthLinkTokens.spend(claims.nonce, claims.expiry)
+	if refusalsToReport > 0 {
+		logger.AuthWarn(ctx, "oauth_link_spent_nonce_set_full",
+			"refused", refusalsToReport,
+			"capacity", spentOAuthLinkTokens.capacity,
+		)
+	}
+	return ok
 }
 
 func decodeOAuthLinkTokenPayload(payload string) (oauthLinkTokenClaims, error) {
@@ -156,24 +258,6 @@ func decodeOAuthLinkTokenPayload(payload string) (oauthLinkTokenClaims, error) {
 		expiry: time.Unix(expiry, 0),
 		nonce:  parts[2],
 	}, nil
-}
-
-// spendOAuthLinkNonce records a nonce and reports whether it was unspent.
-func spendOAuthLinkNonce(nonce string, expiry time.Time) bool {
-	spentOAuthLinkTokens.Lock()
-	defer spentOAuthLinkTokens.Unlock()
-
-	now := time.Now()
-	for k, v := range spentOAuthLinkTokens.nonces {
-		if now.After(v) {
-			delete(spentOAuthLinkTokens.nonces, k)
-		}
-	}
-	if _, spent := spentOAuthLinkTokens.nonces[nonce]; spent {
-		return false
-	}
-	spentOAuthLinkTokens.nonces[nonce] = expiry
-	return true
 }
 
 // namesFrontend reports whether a request's Origin and Referer header values

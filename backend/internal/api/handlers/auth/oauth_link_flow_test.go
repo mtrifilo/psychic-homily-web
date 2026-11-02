@@ -7,6 +7,8 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -273,7 +275,7 @@ func (s *OAuthHandlerIntegrationSuite) TestLink_StaleSessionRefused() {
 
 	// The token is checked AFTER re-auth, so a refusal here leaves it usable
 	// for the trip back.
-	s.True(consumeOAuthLinkToken(s.cfg.JWT.SecretKey, token, user.ID),
+	s.True(consumeOAuthLinkToken(s.T().Context(), s.cfg.JWT.SecretKey, token, user.ID),
 		"a stale-session refusal must not burn the token")
 }
 
@@ -310,7 +312,7 @@ func (s *OAuthHandlerIntegrationSuite) TestLink_SessionWithNoAuthTimeRefused() {
 
 	// Re-auth is checked before the token is spent, so the refusal leaves it
 	// usable for the trip back.
-	s.True(consumeOAuthLinkToken(s.cfg.JWT.SecretKey, token, user.ID),
+	s.True(consumeOAuthLinkToken(s.T().Context(), s.cfg.JWT.SecretKey, token, user.ID),
 		"a refusal for want of an authentication time must not burn the token")
 }
 
@@ -708,4 +710,130 @@ func (s *OAuthHandlerIntegrationSuite) assertLinkRefusal(w *httptest.ResponseRec
 	s.Equal(wantCode, query.Get(oauthLinkErrorParam))
 	s.NotContains(query.Get(oauthLinkErrorParam), " ", "the error parameter carries a code, never a sentence")
 	s.Empty(query.Get(oauthLinkResultParam))
+}
+
+// concurrentOAuthCompleter is mockOAuthCompleter for callbacks that run at the
+// same time: it returns one identity and counts exchanges atomically.
+type concurrentOAuthCompleter struct {
+	user  goth.User
+	calls atomic.Int32
+}
+
+func (c *concurrentOAuthCompleter) CompleteUserAuth(http.ResponseWriter, *http.Request) (goth.User, error) {
+	c.calls.Add(1)
+	return c.user, nil
+}
+
+// Two callbacks carrying one intent, same cookie and same state, race. Exactly
+// one takes the intent and lands on the link result; the other finds nothing
+// armed and is handled as the sign-in it looks like, so the identity is
+// attached once.
+func (s *OAuthHandlerIntegrationSuite) TestLinkCallback_ConcurrentCallbacksOnOneIntentLinkOnce() {
+	const (
+		rounds    = 10
+		callbacks = 2
+	)
+	for round := range rounds {
+		user := &authm.User{Email: strPtr(fmt.Sprintf("link-race-%d@test.com", round)), IsActive: true, EmailVerified: true}
+		s.Require().NoError(s.deps.DB.Create(user).Error)
+
+		subject := fmt.Sprintf("google-race-subject-%d", round)
+		completer := &concurrentOAuthCompleter{user: goth.User{
+			Provider: "google", UserID: subject, Email: fmt.Sprintf("race.newcomer.%d@test.com", round),
+		}}
+		handler := s.newHandler(completer)
+		cookie, state := s.armLinkIntent(user.ID, "google")
+
+		recorders := make([]*httptest.ResponseRecorder, callbacks)
+		requests := make([]*http.Request, callbacks)
+		for i := range callbacks {
+			recorders[i], requests[i] = oauthCallbackRequest("google")
+			requests[i].AddCookie(cookie)
+			setCallbackState(requests[i], state)
+			s.addSessionCookie(requests[i], user)
+		}
+
+		var wg sync.WaitGroup
+		start := make(chan struct{})
+		for i := range callbacks {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				<-start
+				handler.OAuthCallbackHTTPHandler(recorders[i], requests[i])
+			}()
+		}
+		close(start)
+		wg.Wait()
+
+		linkResults := 0
+		for _, w := range recorders {
+			location := w.Header().Get("Location")
+			if strings.HasPrefix(location, "http://localhost:3000"+oauthLinkSettingsPath) {
+				linkResults++
+				s.Contains(location, "oauth_link=connected", "round %d", round)
+			}
+		}
+		s.Equal(1, linkResults, "round %d: exactly one callback may complete the link", round)
+		s.Equal(int32(callbacks), completer.calls.Load(),
+			"round %d: the loser is a sign-in, which exchanges its own code", round)
+
+		var rows int64
+		s.Require().NoError(s.deps.DB.Model(&authm.OAuthAccount{}).
+			Where("provider_user_id = ?", subject).Count(&rows).Error)
+		s.Equal(int64(1), rows, "round %d: the identity is attached once", round)
+	}
+}
+
+// An intent evicted for capacity is, to its callback, one this process does
+// not hold, so the callback is the sign-in it looks like: it signs in the
+// account the provider identity already belongs to and attaches nothing to the
+// account the evicted intent named. The fall-through attaches nothing because
+// only a taken intent reaches completeOAuthLink, and arming a new intent takes
+// a session and a one-time token (TestLink_NoSessionRefused,
+// TestLink_WithoutTokenRefused).
+func (s *OAuthHandlerIntegrationSuite) TestLinkCallback_EvictedIntentFallsThroughToSignIn() {
+	oauthLinkIntentStore.reset()
+	s.T().Cleanup(oauthLinkIntentStore.reset)
+
+	linker := &authm.User{Email: strPtr("link-evicted@test.com"), IsActive: true, EmailVerified: true}
+	s.Require().NoError(s.deps.DB.Create(linker).Error)
+
+	identity := goth.User{
+		Provider: "google",
+		UserID:   "google-evicted-intent-subject",
+		Email:    "evicted.intent.holder@test.com",
+		RawData:  map[string]any{"verified_email": true},
+	}
+	holder := s.signUp(identity)
+	handler := s.newHandler(&mockOAuthCompleter{user: identity})
+
+	cookie, state := s.armLinkIntent(linker.ID, "google")
+	for i := range oauthLinkIntentCapacity {
+		storeOAuthLinkIntent(fmt.Sprintf("evict-%04d", i), oauthLinkIntent{
+			userID:   1,
+			provider: "google",
+			state:    "evict-state",
+		})
+	}
+	_, _, held := peekOAuthLinkIntent(cookie.Value)
+	s.Require().False(held, "the armed intent must have been evicted")
+
+	w, req := oauthCallbackRequest("google")
+	req.AddCookie(cookie)
+	setCallbackState(req, state)
+	s.addSessionCookie(req, linker)
+	handler.OAuthCallbackHTTPHandler(w, req)
+
+	s.assertSignedIn(w)
+
+	var linkerRows int64
+	s.Require().NoError(s.deps.DB.Model(&authm.OAuthAccount{}).
+		Where("user_id = ?", linker.ID).Count(&linkerRows).Error)
+	s.Equal(int64(0), linkerRows, "an evicted intent attaches nothing to the account it named")
+
+	var holderRows int64
+	s.Require().NoError(s.deps.DB.Model(&authm.OAuthAccount{}).
+		Where("user_id = ? AND provider_user_id = ?", holder.ID, identity.UserID).Count(&holderRows).Error)
+	s.Equal(int64(1), holderRows, "the identity stays with the account it signs in")
 }

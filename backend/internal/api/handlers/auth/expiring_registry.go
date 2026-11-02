@@ -110,6 +110,30 @@ func (s *expiringRegistry[T]) take(id string) (T, bool) {
 	return entry.value, true
 }
 
+// takeIf removes the entry stored under id and returns its value when match
+// accepts that value, expired or not, with expired reporting which. An entry
+// match refuses is left in place. found is false only when the registry holds
+// nothing under id; taken is false when it holds an entry match refused.
+//
+// Lookup, match and removal share one lock hold, so of any number of
+// concurrent takeIfs of one id at most one takes the entry. match runs under
+// that lock: it must not call back into the registry.
+func (s *expiringRegistry[T]) takeIf(id string, match func(T) bool) (value T, expired, found, taken bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	element, ok := s.entries[id]
+	if !ok {
+		return value, false, false, false
+	}
+	entry := entryOf[T](element)
+	if !match(entry.value) {
+		return value, false, true, false
+	}
+	s.removeElementLocked(element)
+	return entry.value, s.now().After(entry.expiresAt), true, true
+}
+
 // peek returns the value stored under id without consuming it. An expired
 // entry is still returned, with expired set, until a put drops it or it is
 // removed; found is false only when the registry holds nothing under id.

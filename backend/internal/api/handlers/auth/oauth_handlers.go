@@ -412,36 +412,35 @@ func (h *OAuthHTTPHandler) OAuthCallbackHTTPHandler(w http.ResponseWriter, r *ht
 	// sign-in, but ONLY if the intent is for the handshake that just came
 	// back: same provider, same state.
 	//
-	// Read without consuming, and fall through to sign-in when it does not
-	// match. A user who starts a link, abandons it, and later signs in
-	// normally still carries the cookie, and burning their intent to refuse a
-	// sign-in they did ask for would strand them on Settings with no session.
-	// An intent that does not match is simply not about this callback.
+	// The intent is taken only when it matches, and the callback falls through
+	// to sign-in when it does not. A user who starts a link, abandons it, and
+	// later signs in normally still carries the cookie, and burning their
+	// intent to refuse a sign-in they did ask for would strand them on
+	// Settings with no session. An intent that does not match is simply not
+	// about this callback.
 	if cookie, ok := oauthLinkIntentCookie.read(r, secureCookie); ok {
-		intent, expired, found := peekOAuthLinkIntent(cookie.Value)
-		matchesThisHandshake := found && intent.isForHandshake(provider, r.URL.Query().Get("state"))
+		intent, expired, found, taken := takeOAuthLinkIntentForHandshake(cookie.Value, provider, r.URL.Query().Get("state"))
 
 		switch {
-		case matchesThisHandshake && expired:
+		case taken && expired:
 			// Their link, and they ran out of time. Say so.
-			consumeOAuthLinkIntent(cookie.Value)
 			oauthLinkIntentCookie.clear(w, r, secureCookie)
 			logger.AuthWarn(ctx, "oauth_link_intent_expired", "provider", provider)
 			redirectToLinkResult(w, r, frontendURL, autherrors.CodeOAuthLinkExpired)
 			return
 
-		case matchesThisHandshake:
-			consumeOAuthLinkIntent(cookie.Value)
+		case taken:
 			oauthLinkIntentCookie.clear(w, r, secureCookie)
 			h.completeOAuthLink(w, r, provider, &intent, frontendURL)
 			return
 
 		case !found:
-			// The cookie names a link this process never held: a restart, or
-			// another replica. That is not evidence the reader wanted a link
-			// rather than a sign-in, and refusing would strand an ordinary
-			// sign-in on a page it did not ask for. Clear the cookie so it
-			// cannot confuse the next callback, and carry on.
+			// The cookie names a link this process does not hold: a restart,
+			// another replica, an eviction, or a concurrent callback that took
+			// it first. That is not evidence the reader wanted a link rather
+			// than a sign-in, and refusing would strand an ordinary sign-in on
+			// a page it did not ask for. Clear the cookie so it cannot confuse
+			// the next callback, and carry on.
 			oauthLinkIntentCookie.clear(w, r, secureCookie)
 			logger.AuthDebug(ctx, "oauth_callback_link_intent_unknown", "provider", provider)
 
