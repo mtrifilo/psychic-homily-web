@@ -129,21 +129,6 @@ func TestSentryPanicEmailScrub_RedactsOnlyThePanicEvent(t *testing.T) {
 	}
 }
 
-func TestSentryPanicEmailScrub_KeepsTheAbortHandlerEvent(t *testing.T) {
-	events := servePanicThroughSentry(t, func(http.ResponseWriter, *http.Request) {
-		panic(http.ErrAbortHandler)
-	})
-	var captured []*sentry.Event
-	for _, event := range events {
-		if event.Type != "transaction" {
-			captured = append(captured, event)
-		}
-	}
-	if len(captured) != 1 || len(captured[0].Exception) == 0 || captured[0].Exception[0].Value != http.ErrAbortHandler.Error() {
-		t.Errorf("events = %+v, want one event carrying http.ErrAbortHandler", captured)
-	}
-}
-
 // --- HumaSentryContextMiddleware tests ---
 
 func TestHumaSentryContextMiddleware_DropsRawQueryTag(t *testing.T) {

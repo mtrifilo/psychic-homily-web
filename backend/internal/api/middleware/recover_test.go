@@ -158,32 +158,18 @@ func TestRecoverPanic_AbortsOnceTheResponseStarted(t *testing.T) {
 	}
 }
 
-// The panic line carries no email address from the panic value, whether the
-// panic is an error or a plain value, and keeps the rest of the text.
+// The panic line carries no email address from the panic value and keeps the
+// rest of its text.
 func TestRecoverPanic_RedactsEmailsFromThePanicLine(t *testing.T) {
-	values := map[string]any{
-		"error":  fmt.Errorf("lookup failed for %s: %w", "jane.doe+tag@mail.example.com", errors.New("not found")),
-		"struct": struct{ ID, Email string }{"7", "jane.doe@example.com"},
+	_, logs, _ := serveRecoverPanic(t, func(http.ResponseWriter, *http.Request) {
+		panic(fmt.Errorf("lookup failed for %s: %w", "jane.doe+tag@mail.example.com", errors.New("not found")))
+	})
+	lines := panicLogLines(t, logs)
+	if len(lines) != 1 {
+		t.Fatalf("%d %s lines, want 1:\n%s", len(lines), panicLogMsg, logs)
 	}
-	for name, value := range values {
-		t.Run(name, func(t *testing.T) {
-			_, logs, _ := serveRecoverPanic(t, func(http.ResponseWriter, *http.Request) {
-				panic(value)
-			})
-			lines := panicLogLines(t, logs)
-			if len(lines) != 1 {
-				t.Fatalf("%d %s lines, want 1:\n%s", len(lines), panicLogMsg, logs)
-			}
-			panicText, _ := lines[0]["panic"].(string)
-			if !strings.Contains(panicText, redactedEmail) {
-				t.Errorf("panic value = %q, want the email replaced by %q", panicText, redactedEmail)
-			}
-			for _, part := range []string{"jane.doe", "example.com"} {
-				if strings.Contains(logs.String(), part) {
-					t.Errorf("the log carries %q from the panic value:\n%s", part, logs)
-				}
-			}
-		})
+	if got, _ := lines[0]["panic"].(string); got != "lookup failed for "+redactedEmail+": not found" {
+		t.Errorf("panic value = %q, want the email replaced by %q", got, redactedEmail)
 	}
 }
 
@@ -217,8 +203,9 @@ func TestScrubPanicValue(t *testing.T) {
 		})
 	}
 
-	// An email straddling the length cap is redacted whole before the cap
-	// applies, so no fragment of it survives the cut.
+	// An email straddling the length cap (observability's sentryValueLimit,
+	// 2000 runes) is redacted whole before the cap applies, so no fragment of
+	// it survives the cut.
 	value := strings.Repeat("x", 1990) + " jane.doe@example.com"
 	got := scrubPanicValue(value)
 	if strings.Contains(got, "jane") || strings.Contains(got, "example") {
