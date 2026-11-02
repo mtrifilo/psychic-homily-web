@@ -141,6 +141,7 @@ func (s *AuthService) CompleteOAuthLinkByEmail(claims *contracts.OAuthLinkTokenC
 
 	var accountID uint
 	var returnTo string
+	var replacedIdentity bool
 	var refusal *apperrors.AuthError
 	err := s.db.Transaction(func(tx *gorm.DB) error {
 		row, err := readPendingByHash(tx, pendingLinkPurpose, claims.PendingLink, consumePendingRow)
@@ -160,6 +161,13 @@ func (s *AuthService) CompleteOAuthLinkByEmail(claims *contracts.OAuthLinkTokenC
 		// refusal to attach undoes the savepoint, so the password and the
 		// sessions stay as they were, and the consumed pending link commits.
 		refusal, err = attachInSavepoint(tx, func(sp *gorm.DB) error {
+			if !account.EmailVerified {
+				replaced, err := evictUnprovenIdentity(sp, account.ID, row.Provider, row.ProviderUserID)
+				if err != nil {
+					return err
+				}
+				replacedIdentity = replaced
+			}
 			if err := attachPendingIdentity(sp, account.ID, row); err != nil {
 				return err
 			}
@@ -198,7 +206,8 @@ func (s *AuthService) CompleteOAuthLinkByEmail(claims *contracts.OAuthLinkTokenC
 	if err != nil {
 		return nil, fmt.Errorf("failed to create token: %w", err)
 	}
-	logger.Default().Info("oauth_pending_link_completed", "proof", "mailbox", "user_id", user.ID)
+	logger.Default().Info("oauth_pending_link_completed", "proof", "mailbox", "user_id", user.ID,
+		"replaced_identity", replacedIdentity)
 	return &contracts.OAuthLinkCompletion{User: user, Token: token, ReturnTo: returnTo}, nil
 }
 
@@ -228,6 +237,31 @@ func evictOtherCredentials(tx *gorm.DB, userID uint, keepProvider string) error 
 		}
 	}
 	return nil
+}
+
+// evictUnprovenIdentity removes, through tx, userID's identity from provider
+// when it is not provenSubject, the identity the mailbox proof attaches, and
+// reports whether it removed one. The
+// caller has userID's row locked and has read its address as never verified,
+// so nothing proved that whoever attached that identity holds the mailbox,
+// and the proof just did for provenSubject. One row per provider per account
+// (oauth_accounts_user_provider_uniq), and it is locked FOR UPDATE, as
+// evictOtherCredentials locks the rows it unlinks.
+func evictUnprovenIdentity(tx *gorm.DB, userID uint, provider, provenSubject string) (bool, error) {
+	var subjects []string
+	if err := tx.Model(&authm.OAuthAccount{}).
+		Clauses(clause.Locking{Strength: "UPDATE"}).
+		Where("user_id = ? AND provider = ? AND provider_user_id <> ?", userID, provider, provenSubject).
+		Pluck("provider_user_id", &subjects).Error; err != nil {
+		return false, fmt.Errorf("failed to list provider identities: %w", err)
+	}
+	if len(subjects) == 0 {
+		return false, nil
+	}
+	if err := usersvc.UnlinkOAuthAccountTx(tx, userID, provider); err != nil {
+		return false, err
+	}
+	return true, nil
 }
 
 // takePendingLink locks and returns the account a consumed pending link

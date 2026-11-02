@@ -192,7 +192,8 @@ func (e *OAuthSignupRequiredError) Unwrap() error {
 // OAuthLinkRequiredError is the refusal for an identity attached to no
 // account whose address, which the provider verified and is the authority
 // for (OAuthIdentity.EmailAuthoritative), belongs to an account UserID that
-// may sign in and holds no identity from that provider. Refusal is the
+// may sign in and either holds no identity from that provider or has an
+// address it never verified. Refusal is the
 // CodeOAuthLinkRefused AuthError, so a caller that offers no way to prove the
 // account answers with it unchanged; a caller that does holds Identity as a
 // pending link for that account.
@@ -307,10 +308,12 @@ type AuthServiceInterface interface {
 	// identity or the provider was attached since the pending link began.
 	LinkOAuthWithPassword(token string, user *authm.User) (linked bool, err error)
 	// CompleteOAuthLinkByEmail finishes the pending link an emailed sign-in
-	// link names. In one transaction it consumes the pending link, attaches
-	// the identity, clears the account's password, marks its address
-	// verified, revokes every session and the calendar-feed token, and
-	// removes every identity from another provider; passkeys stay. Then it
+	// link names. In one transaction it consumes the pending link, removes
+	// the account's identity from the same provider when the account's
+	// address was never verified, attaches the identity, clears the
+	// account's password, marks its address verified, revokes every session
+	// and the calendar-feed token, and removes every identity from another
+	// provider; passkeys stay. Then it
 	// issues a new session, which the revocation does not reach. Refusals:
 	// CodeOAuthLinkPendingExpired when the pending link is used, expired, or
 	// not the claims' account, shared.ClosedAccountRefusal when the account

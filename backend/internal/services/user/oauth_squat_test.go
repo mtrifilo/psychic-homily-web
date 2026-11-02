@@ -1,10 +1,13 @@
 package user
 
 import (
+	"errors"
+
 	"github.com/markbates/goth"
 
 	apperrors "psychic-homily-backend/internal/errors"
 	authm "psychic-homily-backend/internal/models/auth"
+	"psychic-homily-backend/internal/services/contracts"
 	"psychic-homily-backend/internal/testutil/signupconsent"
 )
 
@@ -110,6 +113,41 @@ func (suite *UserServiceIntegrationTestSuite) TestFindOrCreateUserWithConsent_Ve
 	suite.Require().ErrorAs(err, &authErr)
 	suite.Equal(apperrors.CodeOAuthLinkRefused, authErr.Code)
 	suite.assertNoOAuthAccountFor(existing.ID)
+}
+
+// An account holding an identity from the provider is offered the proofs
+// only while its address is unverified: the mailbox proof replaces an
+// identity nothing proved holds the mailbox, and a verified account keeps
+// its own. The offer attaches nothing either way.
+func (suite *UserServiceIntegrationTestSuite) TestFindOrCreateUserWithConsent_AccountHoldingTheProvider_OfferedOnlyWhileUnverified() {
+	for _, verified := range []bool{false, true} {
+		address := "holds.google.unverified@gmail.com"
+		if verified {
+			address = "holds.google.verified@gmail.com"
+		}
+		existing := &authm.User{Email: stringPtr(address), IsActive: true, EmailVerified: verified}
+		suite.Require().NoError(suite.db.Create(existing).Error)
+		suite.Require().NoError(suite.db.Create(&authm.OAuthAccount{
+			UserID: existing.ID, Provider: "google", ProviderUserID: address + "-held",
+		}).Error)
+
+		found, err := suite.userService.FindOrCreateUserWithConsent(goth.User{
+			UserID:  address + "-owner",
+			Email:   address,
+			RawData: map[string]any{"verified_email": true},
+		}, "google", signupconsent.CurrentOAuthSignupConsent())
+
+		suite.Require().Nil(found)
+		var authErr *apperrors.AuthError
+		suite.Require().ErrorAs(err, &authErr, "verified=%v", verified)
+		suite.Equal(apperrors.CodeOAuthLinkRefused, authErr.Code)
+		var required *contracts.OAuthLinkRequiredError
+		suite.Equal(!verified, errors.As(err, &required), "verified=%v: offered", verified)
+		if !verified {
+			suite.Equal(existing.ID, required.UserID)
+		}
+		suite.assertOnlyIdentityIs(existing.ID, address+"-held")
+	}
 }
 
 func (suite *UserServiceIntegrationTestSuite) assertOnlyIdentityIs(userID uint, subject string) {
