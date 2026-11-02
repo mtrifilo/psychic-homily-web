@@ -5,6 +5,7 @@ import { renderWithProviders } from '@/test/utils'
 import { AuthError, AuthErrorCode } from '@/lib/errors'
 import { MAGIC_LINK_EXPIRY_MINUTES } from '@/lib/magic-link'
 import { PENDING_LINK_GONE_MESSAGE } from '@/app/auth/_components/google-collision-sign-in'
+import { withoutBannerParams } from '@/app/auth/_components/auth-arrival-params'
 import AuthPage from './page'
 
 // The Sign in tab's collision state, driven from the auth page as the OAuth
@@ -182,7 +183,7 @@ describe('AuthPage collision state', () => {
     expect(screen.getByTestId('google-oauth')).toBeInTheDocument()
   })
 
-  it('reads nothing on a re-authentication, which offers no new sign-in', () => {
+  it('reads nothing on a re-authentication arrival without OAUTH_LINK_PENDING', () => {
     mockSearchParams = new URLSearchParams('reason=OAUTH_LINK_REAUTH_REQUIRED')
     renderWithProviders(<AuthPage />)
 
@@ -217,6 +218,20 @@ describe('AuthPage collision state', () => {
       )
       expect(screen.getByLabelText('Email')).toHaveValue(ADDRESS)
       expect(screen.queryByRole('tab', { name: 'Create account' })).not.toBeInTheDocument()
+      expect(mockPush).not.toHaveBeenCalled()
+    })
+
+    // The address bar after the first render is what a reload arrives with.
+    it('keeps the collision state on a reload', () => {
+      arriveOnReauthCollision().unmount()
+      const reloaded = withoutBannerParams(REAUTH_COLLISION)
+      expect(new URLSearchParams(reloaded).get('error_code')).toBe('OAUTH_LINK_PENDING')
+      pendingReadEnabled.mockReset()
+
+      arriveOnCollision(undefined, reloaded)
+
+      expect(pendingReadEnabled).toHaveBeenLastCalledWith(true)
+      expect(screen.getByText(/An account already uses/)).toBeInTheDocument()
       expect(mockPush).not.toHaveBeenCalled()
     })
 

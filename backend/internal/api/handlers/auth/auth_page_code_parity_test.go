@@ -3,6 +3,8 @@ package auth
 import (
 	"os"
 	"path/filepath"
+	"regexp"
+	"slices"
 	"strings"
 	"testing"
 
@@ -58,10 +60,41 @@ func TestAuthPageCodesMatchTheFrontend(t *testing.T) {
 }
 
 // A sign-in start records only the reasons oauthReauthReasons lists, and the
-// auth page writes them from REAUTH_REASONS, so a reason renamed on one side
-// is dropped at the start and a refused re-authentication bounces again with
-// nothing failing. This checks every listed reason is spelled, quoted, in the
-// module that defines the frontend's.
+// auth page sends every member of REAUTH_REASONS, so a reason on one side and
+// not the other is dropped at the start and a refused re-authentication
+// bounces again with nothing failing. This checks the two lists hold the same
+// values: each REAUTH_REASONS entry is resolved to the string its constant is
+// declared with in the same module.
 func TestReauthReasonsMatchTheFrontend(t *testing.T) {
-	assertFrontendSpells(t, "frontend/lib/auth-href.ts", "reason", "The Google start records this reason", oauthReauthReasons)
+	const frontendReasons = "frontend/lib/auth-href.ts"
+	repoRoot, err := filepath.Abs("../../../../..")
+	if err != nil {
+		t.Fatalf("resolving the repo root: %v", err)
+	}
+	raw, err := os.ReadFile(filepath.Join(repoRoot, frontendReasons))
+	if err != nil {
+		t.Fatalf("reading %s: %v", frontendReasons, err)
+	}
+	content := string(raw)
+
+	list := regexp.MustCompile(`(?s)export const REAUTH_REASONS[^=]*=\s*\[(.*?)\]`).FindStringSubmatch(content)
+	if list == nil {
+		t.Fatalf("%s declares no REAUTH_REASONS array literal", frontendReasons)
+	}
+	var frontend []string
+	for _, name := range regexp.MustCompile(`\b[A-Z][A-Z0-9_]*\b`).FindAllString(list[1], -1) {
+		value := regexp.MustCompile(`export const ` + name + `\s*=\s*'([^']*)'`).FindStringSubmatch(content)
+		if value == nil {
+			t.Fatalf("%s: REAUTH_REASONS names %s, which is not declared there as a string literal", frontendReasons, name)
+		}
+		frontend = append(frontend, value[1])
+	}
+
+	backend := slices.Clone(oauthReauthReasons)
+	slices.Sort(frontend)
+	slices.Sort(backend)
+	if !slices.Equal(frontend, backend) {
+		t.Errorf("REAUTH_REASONS in %s = %q, oauthReauthReasons = %q; the two must hold the same reasons",
+			frontendReasons, frontend, backend)
+	}
 }

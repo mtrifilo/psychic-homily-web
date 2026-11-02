@@ -46,6 +46,17 @@ describe('withoutBannerParams', () => {
     ['reason=REAUTH_REQUIRED&returnTo=%2Fprofile', 'reason=REAUTH_REQUIRED&returnTo=%2Fprofile'],
     ['reason=OAUTH_LINK_REAUTH_REQUIRED', 'reason=OAUTH_LINK_REAUTH_REQUIRED'],
     ['reason=something_else', ''],
+    // A re-authentication keeps the pending-link hint, and only that code.
+    [
+      'error_code=OAUTH_LINK_PENDING&reason=OAUTH_LINK_REAUTH_REQUIRED&returnTo=%2Fprofile',
+      'error_code=OAUTH_LINK_PENDING&reason=OAUTH_LINK_REAUTH_REQUIRED&returnTo=%2Fprofile',
+    ],
+    [
+      'error_code=OAUTH_CANCELLED&reason=REAUTH_REQUIRED&returnTo=%2Fprofile',
+      'reason=REAUTH_REQUIRED&returnTo=%2Fprofile',
+    ],
+    ['error_code=OAUTH_LINK_PENDING&returnTo=%2Fshows', 'returnTo=%2Fshows'],
+    ['error_code=OAUTH_LINK_PENDING&reason=ACCOUNT_INACTIVE', ''],
     ['returnTo=%2Fshows', 'returnTo=%2Fshows'],
     ['tab=signup&error=x', 'tab=signup'],
     ['', ''],

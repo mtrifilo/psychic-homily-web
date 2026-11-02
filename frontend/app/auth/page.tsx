@@ -998,10 +998,11 @@ function AuthPageContent() {
   // that finds the pending link gone marks it gone for this arrival only, so
   // a new arrival reads it afresh.
   //
-  // A re-authentication reads it only on the arrival OAUTH_LINK_PENDING
-  // names: the callback of its own Google start held that link. On any other
-  // re-authentication arrival a pending link is an earlier sign-in's, which
-  // is not what the reader came to prove.
+  // A re-authentication reads it only when the arrival carries
+  // OAUTH_LINK_PENDING, which the callback writes when it holds the link and
+  // which stays in a re-authentication's URL across a reload
+  // (withoutBannerParams). Any other re-authentication arrival reads nothing,
+  // so a pending link it did not hold cannot take over the page.
   const linkArrival =
     searchParams.get(AUTH_ERROR_CODE_PARAM) === AuthErrorCode.OAUTH_LINK_PENDING
   const readsPendingLink = !isReauth || linkArrival
