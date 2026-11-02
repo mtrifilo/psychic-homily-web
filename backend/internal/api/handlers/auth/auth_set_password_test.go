@@ -179,6 +179,31 @@ func TestSetPasswordHandler_OriginGate(t *testing.T) {
 	}
 }
 
+// The origin refusal comes first: a forged request from a stale session is
+// answered as forged, not sent to sign in again.
+func TestSetPasswordHandler_OriginRefusedBeforeFreshness(t *testing.T) {
+	rec := &setPasswordRecorder{}
+	h := setPasswordHandler(rec)
+	input := setPasswordInput("a-new-strong-password-1!")
+	input.Origin = "https://evil.example"
+
+	var buf bytes.Buffer
+	ctx := logger.NewContext(
+		testhelpers.CtxWithSessionAuthTime(passwordlessUser(), time.Now().Add(-2*time.Hour)),
+		slog.New(slog.NewJSONHandler(&buf, nil)),
+	)
+	_, err := h.SetPasswordHandler(ctx, input)
+
+	testhelpers.AssertHumaErrorWithDetail(t, err, http.StatusForbidden, "Set a password from Settings")
+	var line map[string]any
+	if err := json.Unmarshal(buf.Bytes(), &line); err != nil {
+		t.Fatalf("want exactly one JSON log line: %v: %s", err, buf.String())
+	}
+	if line["msg"] != "set_password_refused_origin" {
+		t.Errorf("logged %v, want the origin refusal before any freshness refusal", line["msg"])
+	}
+}
+
 // A stale session is refused before anything is validated or written, and the
 // log names the factor a passwordless account is asked for.
 func TestSetPasswordHandler_StaleSessionRefusedForReauth(t *testing.T) {
