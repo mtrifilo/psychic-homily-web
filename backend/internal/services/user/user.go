@@ -1158,9 +1158,13 @@ func (s *UserService) GetDeletionSummary(userID uint) (*contracts.DeletionSummar
 // deleted_at=now, stores the optional deletion reason, and revokes every
 // session the account holds (shared.RevokeAllSessions), in one transaction.
 // A session minted before the closure is refused while the account is closed
-// (authm.User.CanSignIn) and stays refused after RestoreAccount, so a
-// recovered account is reached only through the session its recovery mints.
-// API tokens and calendar-feed tokens are not revoked.
+// (authm.User.CanSignIn) and stays refused after RestoreAccount, so the only
+// session JWTs honored after recovery are ones minted from the restored row.
+// It revokes session JWTs only. Every other way into the account (its
+// password, linked provider identities, passkeys, API tokens and
+// calendar-feed tokens) is left in place: none of them signs in while the
+// account is closed (the password can still recover it), and each works
+// again once the account is restored.
 func (s *UserService) SoftDeleteAccount(userID uint, reason *string) error {
 	if s.db == nil {
 		return fmt.Errorf("database not initialized")
