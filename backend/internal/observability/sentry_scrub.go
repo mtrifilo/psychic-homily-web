@@ -148,6 +148,12 @@ func ScrubText(s string) string {
 	return scrubText(s)
 }
 
+// RedactSecrets redacts the same secret shapes as ScrubText and leaves the
+// length alone, for a caller that runs its own redaction before the cap.
+func RedactSecrets(s string) string {
+	return redactSecrets(s)
+}
+
 // scrubText redacts secret patterns THEN caps length — redact first so a secret
 // can't survive by sitting just past the length boundary.
 func scrubText(s string) string {
