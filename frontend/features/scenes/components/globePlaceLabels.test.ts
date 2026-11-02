@@ -9,9 +9,7 @@ import { type MapChromeWatch, mountPlaceLabels, watchMapChrome } from './globePl
  * (whose map container holds the canvas and the map's own controls) and,
  * beside it, the page chrome. The projection is flat: a place's lng/lat are
  * its screen x/y relative to the map container. The mocked label box is 5.81px
- * per character and 14px tall (what the former monospace face measured at
- * 9.5px in Chromium); the real data face is proportional, so these are
- * stand-in numbers, not a metric the code relies on.
+ * per character and 14px tall: arbitrary values the code does not depend on.
  */
 
 vi.mock('maplibre-gl', () => {

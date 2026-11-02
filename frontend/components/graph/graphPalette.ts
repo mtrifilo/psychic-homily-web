@@ -188,17 +188,14 @@ function readToken(style: CSSStyleDeclaration, token: string, fallback: string):
 }
 
 /**
- * The canvas data family, resolved through two hops: Tailwind's `@theme inline`
- * maps `--font-data` (and its alias `--font-mono`) onto the `--font-golos`
- * next/font sets on `<html>`. Read the mapped token first and the raw one
- * second, so the face still resolves if either layer is absent (a canvas
- * mounted outside the app shell, a future token rename), and always append the
- * fallback stack so the canvas has a face to draw with.
+ * The canvas data family. `--font-golos` is the variable next/font sets on
+ * `<html>`; the theme's `--font-data` / `--font-mono` are `@theme inline` tokens
+ * and never exist at runtime, so only the raw variable can be read. The fallback
+ * stack is appended so the canvas has a face to draw with when the variable is
+ * absent (a canvas mounted outside the app shell, jsdom).
  */
 function resolveMonoFontFamily(style: CSSStyleDeclaration): string {
-  const resolved =
-    style.getPropertyValue('--font-data').trim() ||
-    style.getPropertyValue('--font-golos').trim()
+  const resolved = style.getPropertyValue('--font-golos').trim()
   return resolved ? `${resolved}, ${FALLBACK_MONO_FONT_FAMILY}` : FALLBACK_MONO_FONT_FAMILY
 }
 

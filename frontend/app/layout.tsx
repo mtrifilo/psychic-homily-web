@@ -3,18 +3,19 @@ import { Golos_Text, Hanken_Grotesk, Schibsted_Grotesk } from 'next/font/google'
 import { Suspense } from 'react'
 import './globals.css'
 
-/* The theme is `@theme inline`, so `--font-sans` is not a runtime custom property
- * and Tailwind's preflight default (`--default-font-family`) never resolves to it.
- * The body face therefore has to be applied as the `font-sans` utility on <body>;
- * without it the page's default text renders in the system sans.
+/* The next/font variable classes MUST sit on <html className={`${hankenGrotesk.variable} ${schibstedGrotesk.variable} ${golosText.variable}`}>, not <body>: Tailwind's
+ * preflight sets `font-family: var(--default-font-family, ...)` on html, and the
+ * theme maps that default to these variables. Defined on body they are invalid
+ * at the root, the page falls back to the system sans, and canvas code that reads
+ * document.documentElement sees nothing.
  *
  * Three-tier editorial type system: Hanken Grotesk for display and headings,
  * Schibsted Grotesk for body and UI, Golos Text for the data tier (counts, times,
- * prices, dates). Variable fonts, so no weight list; next/font self-hosts them at
- * build time. Golos Text ships no italic. Schibsted Grotesk and Golos Text have no
- * Vietnamese glyphs, so only Hanken requests that subset. */
+ * prices, dates). Variable fonts, so no weight list. `subsets` only chooses which
+ * files are preloaded; every subset the family has is still served through
+ * unicode-range. Golos Text ships no italic. */
 const hankenGrotesk = Hanken_Grotesk({
-  subsets: ['latin', 'latin-ext', 'vietnamese'],
+  subsets: ['latin', 'latin-ext'],
   variable: '--font-hanken',
   display: 'swap',
 })
@@ -95,7 +96,7 @@ export default function RootLayout({
         <JsonLd data={generateOrganizationSchema()} />
       </head>
       <body
-        className={`${hankenGrotesk.variable} ${schibstedGrotesk.variable} ${golosText.variable} font-sans antialiased`}
+        className="antialiased"
       >
         <Providers>
           <ThemeProvider
