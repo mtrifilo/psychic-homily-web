@@ -132,6 +132,9 @@ func (s *OAuthHandlerIntegrationSuite) TestAuthRefusalCarriesItsOwnCopy() {
 		autherrors.CodeOAuthLinkExpired,
 		autherrors.CodeAccountInactive,
 		autherrors.CodeAccountRecoverable,
+		// Reaches only the redirect back to Settings, for a signed session
+		// on the account the link intent names.
+		autherrors.CodeEmailVerificationRequired,
 		// The refusal of a provider email claim no account can store reaches
 		// the caller as a refusal, not as a fault.
 		autherrors.CodeValidationFailed,

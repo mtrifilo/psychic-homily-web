@@ -148,10 +148,13 @@ const (
 // vary per flow. What distinguishes the two at the callback is the intent
 // cookie this handler sets.
 //
-// Three things have to hold before the handshake starts: a session (the JWT
-// middleware this route sits behind), a one-time token minted to this account
-// by our own frontend, and a re-authentication recent enough to stand behind adding
-// a new way to sign in.
+// Four things have to hold before the handshake starts: a session (the JWT
+// middleware this route sits behind), an account that may connect a provider
+// (authm.User.MayConnectProvider), a re-authentication recent enough to stand
+// behind adding a new way to sign in, and a one-time token minted to this
+// account by our own frontend. They are checked in that order, so a refusal
+// sends the reader to the one step that helps and leaves the token unspent
+// for the trip back.
 func (h *OAuthHTTPHandler) OAuthLinkHTTPHandler(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
@@ -179,12 +182,9 @@ func (h *OAuthHTTPHandler) OAuthLinkHTTPHandler(w http.ResponseWriter, r *http.R
 		return
 	}
 
-	// Connecting a provider waits for the account's address to be verified:
-	// until then nothing shows that the account's holder reads that
-	// mailbox. Checked before re-authentication and before the one-time
-	// token is spent, so the reader is sent to the one step that helps.
-	if !user.EmailVerified {
+	if !user.MayConnectProvider() {
 		logger.AuthWarn(ctx, "oauth_link_refused_email_unverified",
+			"stage", "start",
 			"provider", provider,
 			"user_id", user.ID,
 		)

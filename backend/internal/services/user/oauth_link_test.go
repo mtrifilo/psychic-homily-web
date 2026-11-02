@@ -44,9 +44,9 @@ func (suite *UserServiceIntegrationTestSuite) TestLinkOAuthAccountToUser_Attache
 	suite.assertNoOAuthAccountFor(other.ID)
 }
 
-// A link proves possession of the provider account, not of the mailbox on the
-// account it attaches to, so it must not advance verification, and an
-// account whose address is unverified is refused before anything is attached.
+// An account whose address is unverified is refused with
+// CodeEmailVerificationRequired and nothing is attached, even when the
+// provider says it verified the same address.
 func (suite *UserServiceIntegrationTestSuite) TestLinkOAuthAccountToUser_UnverifiedAddress_Refused() {
 	owner := &authm.User{
 		Email:         stringPtr("link.stays.unverified@example.com"),
@@ -66,6 +66,20 @@ func (suite *UserServiceIntegrationTestSuite) TestLinkOAuthAccountToUser_Unverif
 	suite.Require().ErrorAs(err, &authErr)
 	suite.Equal(apperrors.CodeEmailVerificationRequired, authErr.Code)
 	suite.assertNoOAuthAccountFor(owner.ID)
+}
+
+// An account with no address (a provider sign-up that supplied none) has no
+// mailbox to verify, and links.
+func (suite *UserServiceIntegrationTestSuite) TestLinkOAuthAccountToUser_NoAddress_Links() {
+	owner := &authm.User{IsActive: true}
+	suite.Require().NoError(suite.db.Create(owner).Error)
+
+	linked, err := suite.userService.LinkOAuthAccountToUser(owner.ID, owner.SessionsValidAfter, goth.User{
+		UserID: "link-no-address-subject",
+		Email:  "provider.address@example.com",
+	}, "google")
+	suite.Require().NoError(err)
+	suite.Require().Len(linked.OAuthAccounts, 1)
 	suite.assertStoredEmailVerified(owner.ID, false)
 }
 
@@ -217,7 +231,7 @@ func (suite *UserServiceIntegrationTestSuite) TestLinkOAuthAccountToUser_EmptyPr
 
 // The link is the remediation the refusal names, so the sequence the refusal
 // sends a user through has to actually work: refused by address, then linked
-// from a session.
+// from a session of the verified account.
 func (suite *UserServiceIntegrationTestSuite) TestLinkOAuthAccountToUser_CompletesWhatTheAddressRefusal_SendsUserTo() {
 	account := &authm.User{
 		Email:         stringPtr("link.remediation@example.com"),
@@ -246,6 +260,32 @@ func (suite *UserServiceIntegrationTestSuite) TestLinkOAuthAccountToUser_Complet
 	resolved, err := suite.userService.FindOrCreateUserWithConsent(gothUser, "google", signupconsent.CurrentOAuthSignupConsent())
 	suite.Require().NoError(err)
 	suite.Equal(account.ID, resolved.ID)
+}
+
+// On an account whose address is unverified the same remediation takes one
+// more step: the link is refused with CodeEmailVerificationRequired until the
+// address is verified, and then it links.
+func (suite *UserServiceIntegrationTestSuite) TestLinkOAuthAccountToUser_AddressRefusalOnAnUnverifiedAccount_NeedsVerificationFirst() {
+	account := &authm.User{Email: stringPtr("link.remediation.unverified@example.com"), IsActive: true}
+	suite.Require().NoError(suite.db.Create(account).Error)
+	gothUser := goth.User{
+		UserID:  "link-remediation-unverified-subject",
+		Email:   "link.remediation.unverified@example.com",
+		RawData: map[string]any{"verified_email": true},
+	}
+
+	_, err := suite.userService.FindOrCreateUserWithConsent(gothUser, "google", signupconsent.CurrentOAuthSignupConsent())
+	suite.Require().Error(err)
+
+	_, err = suite.userService.LinkOAuthAccountToUser(account.ID, account.SessionsValidAfter, gothUser, "google")
+	var authErr *apperrors.AuthError
+	suite.Require().ErrorAs(err, &authErr)
+	suite.Equal(apperrors.CodeEmailVerificationRequired, authErr.Code)
+
+	suite.Require().NoError(suite.userService.SetEmailVerified(account.ID, true))
+	linked, err := suite.userService.LinkOAuthAccountToUser(account.ID, account.SessionsValidAfter, gothUser, "google")
+	suite.Require().NoError(err)
+	suite.Require().Len(linked.OAuthAccounts, 1)
 }
 
 func (suite *UserServiceIntegrationTestSuite) TestLinkOAuthAccountToUser_UnknownUser_Refused() {

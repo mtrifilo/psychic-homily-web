@@ -3,6 +3,7 @@ package errors
 import (
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 )
@@ -58,15 +59,36 @@ func TestPasswordAlreadySetRefusalMatchesTheFrontend(t *testing.T) {
 // The email-verification refusal reaches Settings as a code on the link
 // redirect, and the panel maps it to its own copy, quoted as a map key.
 func TestEmailVerificationRefusalMatchesTheSettingsPanel(t *testing.T) {
-	requireFrontendNames(t, "frontend/features/auth/components/settings/oauth-accounts.tsx",
-		"CodeEmailVerificationRequired and emailVerificationRequiredMessage",
-		"'"+CodeEmailVerificationRequired+"'", emailVerificationRequiredMessage)
+	const file = "frontend/features/auth/components/settings/oauth-accounts.tsx"
+	content := readRepoFile(t, file)
+	entry := regexp.MustCompile(`'` + regexp.QuoteMeta(CodeEmailVerificationRequired) + `',\s*'` +
+		regexp.QuoteMeta(emailVerificationRequiredMessage) + `'`)
+	if !entry.MatchString(content) {
+		t.Errorf("%s has no map entry pairing %q with %q.\n"+
+			"The two sides of this refusal have to name the same thing: change both, or\n"+
+			"neither. See CodeEmailVerificationRequired and emailVerificationRequiredMessage in this package.",
+			file, CodeEmailVerificationRequired, emailVerificationRequiredMessage)
+	}
 }
 
 // requireFrontendNames fails t unless the frontend file, relative to the repo
 // root, contains every one of wants verbatim. names says which constants in
 // this package wants spell.
 func requireFrontendNames(t *testing.T, file, names string, wants ...string) {
+	t.Helper()
+	content := readRepoFile(t, file)
+	for _, want := range wants {
+		if !strings.Contains(content, want) {
+			t.Errorf("%s does not contain %q.\n"+
+				"The two sides of this refusal have to name the same thing: change both, or\n"+
+				"neither. See %s in this package.",
+				file, want, names)
+		}
+	}
+}
+
+// readRepoFile returns the file, relative to the repo root, as a string.
+func readRepoFile(t *testing.T, file string) string {
 	t.Helper()
 	repoRoot, err := filepath.Abs("../../..")
 	if err != nil {
@@ -77,12 +99,5 @@ func requireFrontendNames(t *testing.T, file, names string, wants ...string) {
 		// A moved frontend module is a broken assumption, not a pass.
 		t.Fatalf("reading %s: %v", file, err)
 	}
-	for _, want := range wants {
-		if !strings.Contains(string(content), want) {
-			t.Errorf("%s does not contain %q.\n"+
-				"The two sides of this refusal have to name the same thing: change both, or\n"+
-				"neither. See %s in this package.",
-				file, want, names)
-		}
-	}
+	return string(content)
 }

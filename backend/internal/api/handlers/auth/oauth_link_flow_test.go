@@ -419,6 +419,19 @@ func (s *OAuthHandlerIntegrationSuite) TestLink_UnverifiedAddressRefusedAtTheSta
 	}
 }
 
+// An account with no address has no mailbox to verify, so the start arms the
+// link for it.
+func (s *OAuthHandlerIntegrationSuite) TestLink_NoAddressAccountStarts() {
+	user := &authm.User{IsActive: true}
+	s.Require().NoError(s.deps.DB.Create(user).Error)
+
+	w, req := s.oauthLinkRequest("google", user)
+	s.newHandler(&mockOAuthCompleter{}).OAuthLinkHTTPHandler(w, req)
+
+	s.NotNil(linkIntentCookie(w), "the start arms an intent")
+	s.NotContains(w.Header().Get("Location"), oauthLinkErrorParam)
+}
+
 // The link write refuses an unverified account too, so a callback that
 // reaches it carries the same code back to Settings and attaches nothing.
 func (s *OAuthHandlerIntegrationSuite) TestLinkCallback_UnverifiedAddressRefusedWithItsCode() {
