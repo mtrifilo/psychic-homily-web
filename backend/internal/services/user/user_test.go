@@ -1039,6 +1039,35 @@ func (suite *UserServiceIntegrationTestSuite) TestSoftDeleteAccount_WithReason()
 	suite.Equal("No longer using the service", *dbUser.DeletionReason)
 }
 
+// The closure and the session revocation are one write: the account is
+// closed with a sessions_valid_after of the closure's second, and restoring
+// it keeps that value.
+func (suite *UserServiceIntegrationTestSuite) TestSoftDeleteAccount_RevokesSessions() {
+	user := &authm.User{
+		Email:    stringPtr("softdelete-revokes@example.com"),
+		IsActive: true,
+	}
+	suite.Require().NoError(suite.db.Create(user).Error)
+
+	before := time.Now().UTC().Truncate(time.Second)
+	suite.Require().NoError(suite.userService.SoftDeleteAccount(user.ID, nil))
+
+	var closed authm.User
+	suite.Require().NoError(suite.db.First(&closed, user.ID).Error)
+	suite.False(closed.IsActive)
+	suite.Require().NotNil(closed.DeletedAt)
+	suite.Require().NotNil(closed.SessionsValidAfter)
+	suite.False(closed.SessionsValidAfter.Before(before), "the revocation is the closure's own second")
+	suite.False(closed.SessionsValidAfter.After(closed.DeletedAt.Add(time.Second)))
+
+	suite.Require().NoError(suite.userService.RestoreAccount(user.ID))
+	var restored authm.User
+	suite.Require().NoError(suite.db.First(&restored, user.ID).Error)
+	suite.True(restored.IsActive)
+	suite.Require().NotNil(restored.SessionsValidAfter)
+	suite.True(restored.SessionsValidAfter.Equal(*closed.SessionsValidAfter), "restoring keeps the revocation")
+}
+
 func (suite *UserServiceIntegrationTestSuite) TestSoftDeleteAccount_NotFound() {
 	err := suite.userService.SoftDeleteAccount(999999, nil)
 	suite.Require().Error(err)
