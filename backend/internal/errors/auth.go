@@ -57,6 +57,11 @@ const (
 	CodeAccountRecoverable = "ACCOUNT_RECOVERABLE"
 	// CodeNoPasswordSet indicates the user has no password (OAuth-only account)
 	CodeNoPasswordSet = "NO_PASSWORD_SET"
+	// CodePasswordAlreadySet indicates a request to set a first password found
+	// the account already holding one: set by a concurrent request, or held all
+	// along. Changing an existing password goes through change-password, which
+	// asks for the current one.
+	CodePasswordAlreadySet = "PASSWORD_ALREADY_SET"
 	// CodeTermsAcceptanceRequired indicates a sign-up arrived without an
 	// acceptance of a Terms of Service and Privacy Policy version an account
 	// may be created with: none at all, or one naming a version
@@ -156,6 +161,7 @@ var authCodeHTTPStatus = map[string]int{
 	CodeAccountInactive:            http.StatusForbidden,
 	CodeAccountRecoverable:         http.StatusForbidden,
 	CodeNoPasswordSet:              http.StatusConflict,
+	CodePasswordAlreadySet:         http.StatusConflict,
 	CodeTermsAcceptanceRequired:    http.StatusUnprocessableEntity,
 	CodeAgeConfirmationRequired:    http.StatusUnprocessableEntity,
 	CodeInvalidReplyPermission:     http.StatusBadRequest,
@@ -305,6 +311,10 @@ const (
 	// (frontend/app/auth/_components/account-recoverable-message.tsx), so this
 	// string is what a CLI, a native client or a curl reader sees.
 	accountRecoverableMessage = "This account was deleted recently and can still be recovered. Request a recovery email from account recovery on the website."
+	// The Settings card renders PASSWORD_ALREADY_SET_MESSAGE
+	// (frontend/lib/errors/authErrors.ts), keyed on the code, so this string is
+	// what a CLI or a curl reader sees. Keep the two saying the same thing.
+	passwordAlreadySetMessage = "This account already has a password. Reload the page to change it."
 )
 
 // ErrOAuthLinkRefused creates the refusal a goth OAuth sign-in gets when its
@@ -459,6 +469,12 @@ func ErrNoPasswordSet() *AuthError {
 	return NewAuthError(CodeNoPasswordSet, "Cannot change password for OAuth-only accounts", nil)
 }
 
+// ErrPasswordAlreadySet creates the refusal for setting a first password on an
+// account that already holds one (CodePasswordAlreadySet).
+func ErrPasswordAlreadySet() *AuthError {
+	return NewAuthError(CodePasswordAlreadySet, passwordAlreadySetMessage, nil)
+}
+
 // ErrTermsAcceptanceRequired creates a signup terms-not-accepted error. The
 // detail distinguishes "no consent / not accepted" from "version not accepted"
 // so logs keep the cause without the handler string-matching the message.
@@ -554,6 +570,8 @@ func ToExternalMessage(code string) string {
 		return accountRecoverableMessage
 	case CodeNoPasswordSet:
 		return "Cannot change password for OAuth-only accounts"
+	case CodePasswordAlreadySet:
+		return passwordAlreadySetMessage
 	default:
 		return "An error occurred"
 	}

@@ -1036,6 +1036,66 @@ func (s *UserService) UpdatePassword(userID uint, currentPassword, newPassword s
 	return nil
 }
 
+// passwordTooLongMessage is SetPassword's refusal for a password bcrypt cannot
+// hash (over 72 bytes).
+const passwordTooLongMessage = "Password is too long. Try a shorter one."
+
+// SetPassword gives an account that has no password its first one. It adds a
+// way into the account on the strength of the caller's session, so the account
+// and that session are judged under the row lock of the transaction that
+// writes (shared.CheckSessionAccount), and the write lands only on a row that
+// still has no password: of two concurrent calls, one sets it and the other is
+// refused with CodePasswordAlreadySet. Other sessions are left signed in.
+func (s *UserService) SetPassword(userID uint, newPassword string, sessionsValidAfter *time.Time) error {
+	if s.db == nil {
+		return fmt.Errorf("database not initialized")
+	}
+
+	// Hashed before the transaction opens: bcrypt is deliberately slow and
+	// needs nothing from the row, so the row is not held while it runs.
+	// bcrypt refuses input over 72 bytes, which the validator's 128 admits,
+	// so that refusal is the caller's to fix, not a failure.
+	hashedPassword, err := s.HashPassword(newPassword)
+	if errors.Is(err, bcrypt.ErrPasswordTooLong) {
+		return apperrors.ErrValidationFailed(passwordTooLongMessage)
+	}
+	if err != nil {
+		return err
+	}
+
+	return s.db.Transaction(func(tx *gorm.DB) error {
+		// FOR UPDATE, and judged with CheckSessionAccount rather than taken
+		// FOR SHARE by LockSessionAccount: this write is to the users row
+		// itself, and two calls that each held it FOR SHARE and then both
+		// wrote it would deadlock. Held FOR UPDATE, a second call waits for
+		// the first to end and then reads the password it set.
+		var account authm.User
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(&account, userID).Error; err != nil {
+			return fmt.Errorf("failed to load user %d: %w", userID, err)
+		}
+		if err := shared.CheckSessionAccount(&account, sessionsValidAfter); err != nil {
+			return err
+		}
+		if account.HasPassword() {
+			return apperrors.ErrPasswordAlreadySet()
+		}
+
+		// The row lock decides the race; the condition keeps the write from
+		// replacing a password even if a caller ever reaches here without it.
+		// Its empty-hash arm is authm.User.HasPassword's.
+		result := tx.Model(&authm.User{}).
+			Where("id = ? AND (password_hash IS NULL OR password_hash = '')", userID).
+			Update("password_hash", hashedPassword)
+		if result.Error != nil {
+			return fmt.Errorf("failed to set password: %w", result.Error)
+		}
+		if result.RowsAffected == 0 {
+			return apperrors.ErrPasswordAlreadySet()
+		}
+		return nil
+	})
+}
+
 // SetEmailVerified updates the email_verified status for a user
 func (s *UserService) SetEmailVerified(userID uint, verified bool) error {
 	if s.db == nil {

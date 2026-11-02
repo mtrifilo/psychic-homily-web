@@ -10,6 +10,11 @@ export interface CredentialErrorMessageProps {
   error: unknown
   /** Copy for every failure that is not the re-authentication refusal. */
   fallback: string
+  /**
+   * Where the Sign in again link returns the reader once they have signed in.
+   * Defaults to the current pathname.
+   */
+  returnTo?: string
 }
 
 /**
@@ -25,12 +30,13 @@ export interface CredentialErrorMessageProps {
  * they cannot do. The link carries the reason the auth page needs to show them
  * the form rather than bounce them straight back.
  *
- * The destination is the pathname alone, which is the render-time grade
- * currentLocationReturnTo documents: a query string read during render is not
- * reliable. The settings surfaces come back to /profile rather than to the
- * Settings tab, which is one click, not a dead end.
+ * The default destination is the pathname alone, which is the render-time
+ * grade currentLocationReturnTo documents: a query string read during render
+ * is not reliable. A surface that knows its own address passes `returnTo`
+ * instead; one that does not, on the Settings tab, comes back to /profile
+ * rather than to the tab, which is one click, not a dead end.
  */
-export function CredentialErrorMessage({ error, fallback }: CredentialErrorMessageProps) {
+export function CredentialErrorMessage({ error, fallback, returnTo }: CredentialErrorMessageProps) {
   const pathname = usePathname()
 
   if (!isReauthRequired(error)) return <>{fallback}</>
@@ -39,7 +45,7 @@ export function CredentialErrorMessage({ error, fallback }: CredentialErrorMessa
     <>
       {REAUTH_REQUIRED_MESSAGE}{' '}
       <Link
-        href={buildReauthHref(pathname || FALLBACK_RETURN_TO)}
+        href={buildReauthHref(returnTo ?? (pathname || FALLBACK_RETURN_TO))}
         className="font-medium underline underline-offset-2"
       >
         Sign in again

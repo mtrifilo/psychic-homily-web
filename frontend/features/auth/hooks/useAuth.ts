@@ -740,6 +740,56 @@ export const useChangePassword = () => {
   })
 }
 
+type SetPasswordResponse = components['schemas']['SetPasswordResponseBody']
+
+/**
+ * Set a first password on an account that has none. A refusal the response
+ * carries (a password the validator rejects, one already set, a closed
+ * account) rejects with an AuthError carrying its code; a stale session
+ * rejects with REAUTH_REQUIRED through apiRequest's 403 handling.
+ *
+ * On success the profile is refetched, since it carries `has_password`.
+ */
+export const useSetPassword = () => {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: async (newPassword: string): Promise<SetPasswordResponse> => {
+      authLogger.debug('Set password attempt')
+
+      const response = await apiRequest<SetPasswordResponse>(
+        API_ENDPOINTS.AUTH.SET_PASSWORD,
+        {
+          method: 'POST',
+          body: JSON.stringify({ new_password: newPassword }),
+          credentials: 'include',
+        }
+      )
+
+      if (!response.success) {
+        authLogger.warn(
+          'Set password refused',
+          { errorCode: response.error_code, message: response.message },
+          response.request_id
+        )
+        throw new AuthError(
+          response.message || 'Failed to set password',
+          (response.error_code as AuthErrorCodeType) || AuthErrorCode.UNKNOWN,
+          { requestId: response.request_id, status: 400 }
+        )
+      }
+
+      return response
+    },
+    onSuccess: data => {
+      authLogger.info('Password set', { message: data.message }, data.request_id)
+      // Not awaited, so the mutation settles, and its callers' onSuccess runs,
+      // without waiting on the refetch.
+      void refetchSignedInProfile(queryClient)
+    },
+  })
+}
+
 // Send magic link mutation
 export const useSendMagicLink = () => {
   return useMutation({

@@ -13,6 +13,7 @@ import (
 
 	apperrors "psychic-homily-backend/internal/errors"
 	authm "psychic-homily-backend/internal/models/auth"
+	"psychic-homily-backend/internal/services/contracts"
 	"psychic-homily-backend/internal/services/shared"
 	"psychic-homily-backend/internal/testutil"
 	"psychic-homily-backend/internal/testutil/softauthn"
@@ -141,7 +142,7 @@ func (suite *WebAuthnServiceIntegrationTestSuite) TestConsumeRegistrationChallen
 	}
 
 	suite.Run("another user is refused and the challenge stays", func() {
-		challengeID := store("registration")
+		challengeID := store(contracts.WebAuthnRegistrationOperation)
 		_, err := suite.service.ConsumeRegistrationChallenge(challengeID, other.ID)
 		suite.requireRefusal(err, apperrors.CodeUnauthorized, "Challenge belongs to different user")
 		suite.Equal(int64(1), suite.challengeRows(challengeID))
@@ -153,7 +154,7 @@ func (suite *WebAuthnServiceIntegrationTestSuite) TestConsumeRegistrationChallen
 	})
 
 	suite.Run("a spent challenge is not found", func() {
-		challengeID := store("registration")
+		challengeID := store(contracts.WebAuthnRegistrationOperation)
 		_, err := suite.service.ConsumeRegistrationChallenge(challengeID, owner.ID)
 		suite.Require().NoError(err)
 		_, err = suite.service.ConsumeRegistrationChallenge(challengeID, owner.ID)
@@ -164,14 +165,14 @@ func (suite *WebAuthnServiceIntegrationTestSuite) TestConsumeRegistrationChallen
 	})
 
 	suite.Run("another operation's challenge is neither returned nor spent", func() {
-		challengeID := store("authentication")
+		challengeID := store(contracts.WebAuthnAuthenticationOperation)
 		_, err := suite.service.ConsumeRegistrationChallenge(challengeID, owner.ID)
 		suite.requireRefusal(err, apperrors.CodeValidationFailed, "Invalid or expired challenge")
 		suite.Equal(int64(1), suite.challengeRows(challengeID))
 	})
 
 	suite.Run("an expired challenge is removed and answers as expired", func() {
-		challengeID := store("registration")
+		challengeID := store(contracts.WebAuthnRegistrationOperation)
 		suite.Require().NoError(suite.db.Exec("UPDATE webauthn_challenges SET expires_at = ? WHERE id = ?",
 			time.Now().Add(-time.Hour), challengeID).Error)
 		_, err := suite.service.ConsumeRegistrationChallenge(challengeID, owner.ID)
@@ -205,7 +206,7 @@ func (suite *WebAuthnServiceIntegrationTestSuite) TestSignInRefusesInvalidAssert
 func (suite *WebAuthnServiceIntegrationTestSuite) TestConsumeRefusesMalformedChallengeIDs() {
 	user := suite.createUser("malformed@test.com")
 	for _, challengeID := range []string{"", "not-a-uuid", "\x00"} {
-		_, err := suite.service.ConsumeChallenge(challengeID, "authentication")
+		_, err := suite.service.ConsumeChallenge(challengeID, contracts.WebAuthnAuthenticationOperation)
 		suite.requireRefusal(err, apperrors.CodeValidationFailed, "Invalid or expired challenge")
 		_, err = suite.service.ConsumeRegistrationChallenge(challengeID, user.ID)
 		suite.requireRefusal(err, apperrors.CodeValidationFailed, "Invalid or expired challenge")
@@ -215,12 +216,12 @@ func (suite *WebAuthnServiceIntegrationTestSuite) TestConsumeRefusesMalformedCha
 // No operation-generic consume spends a registration challenge.
 func (suite *WebAuthnServiceIntegrationTestSuite) TestGenericConsumesRefuseRegistrationChallenges() {
 	user := suite.createUser("generic@test.com")
-	challengeID, err := suite.service.StoreChallenge(user.ID, &webauthn.SessionData{Challenge: "c"}, "registration")
+	challengeID, err := suite.service.StoreChallenge(user.ID, &webauthn.SessionData{Challenge: "c"}, contracts.WebAuthnRegistrationOperation)
 	suite.Require().NoError(err)
 
-	_, err = suite.service.ConsumeChallenge(challengeID, "registration")
+	_, err = suite.service.ConsumeChallenge(challengeID, contracts.WebAuthnRegistrationOperation)
 	suite.Require().ErrorIs(err, errRegistrationOperation)
-	_, _, err = suite.service.ConsumeSignupChallenge(challengeID, "registration")
+	_, _, err = suite.service.ConsumeSignupChallenge(challengeID, contracts.WebAuthnRegistrationOperation)
 	suite.Require().ErrorIs(err, errRegistrationOperation)
 	suite.Equal(int64(1), suite.challengeRows(challengeID))
 }
@@ -230,7 +231,7 @@ func (suite *WebAuthnServiceIntegrationTestSuite) TestGenericConsumesRefuseRegis
 func (suite *WebAuthnServiceIntegrationTestSuite) TestExpiredRegistrationChallengeOfAnotherUser() {
 	owner := suite.createUser("expired-owner@test.com")
 	other := suite.createUser("expired-other@test.com")
-	challengeID, err := suite.service.StoreChallenge(owner.ID, &webauthn.SessionData{Challenge: "c"}, "registration")
+	challengeID, err := suite.service.StoreChallenge(owner.ID, &webauthn.SessionData{Challenge: "c"}, contracts.WebAuthnRegistrationOperation)
 	suite.Require().NoError(err)
 	suite.Require().NoError(suite.db.Exec("UPDATE webauthn_challenges SET expires_at = ? WHERE id = ?",
 		time.Now().Add(-time.Hour), challengeID).Error)

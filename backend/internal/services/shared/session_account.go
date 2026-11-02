@@ -26,7 +26,11 @@ var ErrSessionAccountClosed = errors.New("the session's account may no longer si
 // passkey registration, a feed token) calls it first, in the transaction that
 // writes. Sign-up and the pending-link proofs, which no session drives, do
 // not (a proof holds the row FOR UPDATE and judges the account itself); nor
-// does the admin-only API-token mint, which is outside this check's scope.
+// does the admin-only API-token mint, which is outside this check's scope. A
+// session-authenticated write to the users row itself (setting a first
+// password) holds the row FOR UPDATE instead and judges it with
+// CheckSessionAccount, since two such writes holding it FOR SHARE would
+// deadlock.
 //
 // sessionsValidAfter is the acting session's revocation stamp: the
 // SessionsValidAfter of the user its session validation loaded, which that

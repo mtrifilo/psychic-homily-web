@@ -83,6 +83,10 @@ func (n *nilDBUserService) UpdatePassword(userID uint, currentPassword, newPassw
 	return fmt.Errorf("database not initialized")
 }
 
+func (n *nilDBUserService) SetPassword(userID uint, newPassword string, sessionsValidAfter *time.Time) error {
+	return fmt.Errorf("database not initialized")
+}
+
 func (n *nilDBUserService) SetEmailVerified(userID uint, verified bool) error {
 	return fmt.Errorf("database not initialized")
 }

@@ -8,6 +8,7 @@ export {
   useSendVerificationEmail,
   useConfirmVerification,
   useChangePassword,
+  useSetPassword,
   useSendMagicLink,
   useVerifyMagicLink,
   useDeletionSummary,

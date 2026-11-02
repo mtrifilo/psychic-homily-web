@@ -214,7 +214,7 @@ func (s *OAuthHandlerIntegrationSuite) TestPasskeyFinishLogin_AccountState() {
 			// The challenge is stored as login/begin stores it, under no account.
 			options, session, err := webauthnService.BeginDiscoverableLogin()
 			s.Require().NoError(err)
-			challengeID, err := webauthnService.StoreChallenge(0, session, "authentication")
+			challengeID, err := webauthnService.StoreLoginChallenge(session)
 			s.Require().NoError(err)
 			assertion, err := device.Assert(options)
 			s.Require().NoError(err)
