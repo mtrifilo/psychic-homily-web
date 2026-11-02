@@ -49,9 +49,10 @@ Always pass `skillNames: "figma-generate-library,figma-use"` (plus `psy-design-s
 ## Locked design direction (DO NOT relitigate without strong reason)
 
 ### Typography
-- **Display**: Hanken Grotesk (Google Fonts, OFL) — MCP-visible
-- **Body / UI**: Schibsted Grotesk (Google Fonts, OFL) — MCP-visible; serifed I, real 600, `tnum` + `zero`
-- **Data / metadata / numerics**: Golos Text (Google Fonts, OFL, no italics) — MCP-visible; proportional, and its `tnum` digits are only near-tabular (580 to 620/1000; exact alignment needs `font-code`); known defect: Ğ ğ Ŭ render without breve (google/fonts #11219)
+- **Display**: Hanken Grotesk (Google Fonts, OFL): MCP-visible
+- **Body / UI**: Schibsted Grotesk (Google Fonts, OFL): MCP-visible; serifed I, real 600, `tnum` + `zero` (its `tnum` also widens comma, period and colon, so never apply tabular figures to text)
+- **Data / metadata / numerics**: Golos Text (Google Fonts, OFL, no italics): MCP-visible; proportional, and its `tnum` digits are only near-tabular (580 to 620/1000; exact alignment needs `font-code`, the system monospace stack); known defect: Ğ ğ Ŭ render without breve (google/fonts #11219)
+- Code tokens: `--font-sans` / `--font-display` / `--font-data`; `--font-mono` is a transitional alias of the data face until PSY-2564 migrates call sites; `--font-code` pins `--default-mono-font-family` so bare `code`/`kbd`/`pre` stay monospaced
 - Decided 2026-11-02 (PSY-2562), replacing Clash Display / Satoshi / Space Mono. Figma text styles: `Display/XL..S`, `Body/L..XS`, `Data/M`, `Data/S`; Typography variables `family/display`, `family/sans`, `family/data`. Research summary lives on the DS page `Typography research (Nov 2026)` (page `448:2`, board `448:3`); Foundations / Type board is `31:2`.
 
 ### Color seeds — Light mode (newsprint / paper)
@@ -310,7 +311,7 @@ return { mismatchCount: mismatches.length, mismatches };
 
 ### G2. MCP can't see local OS fonts (historical since 2026-11-02)
 
-Figma MCP runs in Figma's cloud sandbox, not your desktop Figma session. `figma.listAvailableFontsAsync()` only returns Google Fonts families and team-library uploads — locally installed faces are invisible. This blocked the Clash Display + Satoshi era (Inter stood in for them in every mock). **Resolved by the 2026-11-02 type decision:** Hanken Grotesk, Schibsted Grotesk and Golos Text are all Google Fonts, so every tier is MCP-visible and the Inter stand-in is gone. Style-name footguns: `SemiBold` (not `Semi Bold`) for all three; Golos Text has no italic styles.
+Figma MCP runs in Figma's cloud sandbox, not your desktop Figma session. `figma.listAvailableFontsAsync()` only returns Google Fonts families and team-library uploads; locally installed faces are invisible. This blocked the Clash Display + Satoshi era (Inter stood in for them in every mock). **Resolved by the 2026-11-02 type decision:** Hanken Grotesk, Schibsted Grotesk and Golos Text are all Google Fonts, so every tier is MCP-visible and the Inter stand-in is gone. Style-name footguns: `SemiBold` (not `Semi Bold`) for all three; Golos Text has no italic styles.
 
 ### G3. `setSharedPluginData` not supported on VariableCollection
 

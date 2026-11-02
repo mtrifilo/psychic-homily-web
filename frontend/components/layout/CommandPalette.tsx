@@ -599,8 +599,8 @@ export function CommandPalette() {
         )}
       </CommandList>
 
-      {/* PSY-1019: keyboard hints as plain data-face text — the boxed-kbd
-          chrome is gone per Figma 539:5. <kbd> elements stay for semantics. */}
+      {/* Keyboard hints as plain text; the <kbd> elements render in the code face
+          through preflight's default, with no boxed-kbd chrome (Figma 539:5). */}
       <div className="flex items-center gap-4 border-t border-border/50 px-4 py-2.5 font-mono text-[11px] text-muted-foreground">
         <span className="flex items-center gap-1.5">
           <kbd>&uarr;&darr;</kbd>

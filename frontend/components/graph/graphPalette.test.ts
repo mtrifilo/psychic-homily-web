@@ -87,7 +87,7 @@ describe('data font resolution (theme token first, next/font variable second)', 
 // Tailwind's preflight sets the default font on <html> from the theme's
 // default-font tokens, which point at the next/font variables. The variables
 // therefore have to be defined on <html>; on <body> they are invalid at the
-// root and the page falls back to the system sans (the PSY-647 era defect).
+// root and the page falls back to the system sans (the defect this swap uncovered).
 describe('next/font variables live on <html> and map through @theme tokens', () => {
   const layout = readFileSync(resolve(process.cwd(), 'app/layout.tsx'), 'utf8')
   const css = readFileSync(resolve(process.cwd(), 'app/globals.css'), 'utf8')

@@ -33,7 +33,8 @@ export interface DenseTableProps extends TableHTMLAttributes<HTMLTableElement> {
  * `tabular-nums` on right-aligned cells only (the numeric columns by
  * convention), minimal padding (`py-1.5 px-2`). Never table-wide: the body
  * face widens comma, period and colon under tnum, so text cells such as
- * "Tue, Nov 3" or "Tempe, AZ" would render with gaps before their punctuation. Built on native `<table>` — no shadcn Table wrapper in this project.
+ * "Tue, Nov 3" or "Tempe, AZ" would render with gaps before their punctuation.
+ * Built on native `<table>`; no shadcn Table wrapper in this project.
  *
  * Pair with `<SectionHeader>` for the section title and `<DenseTableGroupHeader>`
  * for grouped tables (e.g. Discography by release type).
