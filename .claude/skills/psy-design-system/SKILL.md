@@ -51,7 +51,7 @@ Always pass `skillNames: "figma-generate-library,figma-use"` (plus `psy-design-s
 ### Typography
 - **Display**: Hanken Grotesk (Google Fonts, OFL) — MCP-visible
 - **Body / UI**: Schibsted Grotesk (Google Fonts, OFL) — MCP-visible; serifed I, real 600, `tnum` + `zero`
-- **Data / metadata / numerics**: Golos Text (Google Fonts, OFL, no italics) — MCP-visible; proportional with tabular figures; known defect: Ğ ğ Ŭ render without breve (google/fonts #11219)
+- **Data / metadata / numerics**: Golos Text (Google Fonts, OFL, no italics) — MCP-visible; proportional, and its `tnum` digits are only near-tabular (580 to 620/1000; exact alignment needs `font-code`); known defect: Ğ ğ Ŭ render without breve (google/fonts #11219)
 - Decided 2026-11-02 (PSY-2562), replacing Clash Display / Satoshi / Space Mono. Figma text styles: `Display/XL..S`, `Body/L..XS`, `Data/M`, `Data/S`; Typography variables `family/display`, `family/sans`, `family/data`. Research summary lives on the DS page `Typography research (Nov 2026)` (page `448:2`, board `448:3`); Foundations / Type board is `31:2`.
 
 ### Color seeds — Light mode (newsprint / paper)

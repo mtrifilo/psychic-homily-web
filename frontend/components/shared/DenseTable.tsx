@@ -30,8 +30,10 @@ export interface DenseTableProps extends TableHTMLAttributes<HTMLTableElement> {
 /**
  * Density-first table primitive for entity-page lists (shows, discography,
  * similar artists, etc.). Tight typography (13–14px body, ~1.25 line-height),
- * `tabular-nums` baked in for numeric alignment, minimal padding (`py-1.5
- * px-2`). Built on native `<table>` — no shadcn Table wrapper in this project.
+ * `tabular-nums` on right-aligned cells only (the numeric columns by
+ * convention), minimal padding (`py-1.5 px-2`). Never table-wide: the body
+ * face widens comma, period and colon under tnum, so text cells such as
+ * "Tue, Nov 3" or "Tempe, AZ" would render with gaps before their punctuation. Built on native `<table>` — no shadcn Table wrapper in this project.
  *
  * Pair with `<SectionHeader>` for the section title and `<DenseTableGroupHeader>`
  * for grouped tables (e.g. Discography by release type).
@@ -62,7 +64,7 @@ export function DenseTable({
   return (
     <table
       className={cn(
-        'w-full text-sm leading-tight tabular-nums',
+        'w-full text-sm leading-tight [&_.text-right]:tabular-nums',
         '[&_td]:py-1.5 [&_td]:px-2 [&_td]:align-baseline',
         '[&_th]:py-1.5 [&_th]:px-2 [&_th]:align-baseline [&_th]:text-left',
         '[&_thead_th]:text-xs [&_thead_th]:font-semibold [&_thead_th]:uppercase [&_thead_th]:tracking-wider [&_thead_th]:text-muted-foreground',

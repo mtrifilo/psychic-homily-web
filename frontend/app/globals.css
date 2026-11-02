@@ -34,8 +34,11 @@
  * character: tokens, diffs, code. Weights 400 to 900 are genuine on all three
  * faces (Hanken Grotesk goes down to 100). The data face is proportional:
  * numeric columns that need to align opt in with `tabular-nums` on the number
- * span only, because both Golos Text and Schibsted Grotesk widen commas and
- * colons under the tnum feature. `--font-mono` is a transitional alias of the
+ * span only. Measured in the font files: Schibsted Grotesk's tnum makes every
+ * digit 635/1000 wide but also widens comma, period and colon to 635, so it
+ * must never cover text; Golos Text's tnum leaves punctuation alone but its
+ * digits are only near-tabular (580 to 620/1000), so columns that need exact
+ * alignment use `font-code`. `--font-mono` is a transitional alias of the
  * data face until call sites move to `font-data`; Tailwind derives
  * `--default-mono-font-family` (preflight's face for code, kbd, samp, pre) from
  * `--font-mono`, so it is pinned to `--font-code` here to keep those elements

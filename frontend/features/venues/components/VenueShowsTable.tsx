@@ -112,7 +112,7 @@ const ShowRow = memo(function ShowRow({
       <td
         {...layout.cell}
         className={cn(
-          'whitespace-nowrap text-right text-muted-foreground',
+          'whitespace-nowrap text-right font-mono text-muted-foreground',
           stacked && 'max-sm:col-start-3 max-sm:row-start-1'
         )}
       >

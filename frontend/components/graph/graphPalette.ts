@@ -186,13 +186,15 @@ function readToken(style: CSSStyleDeclaration, token: string, fallback: string):
 }
 
 /**
- * The canvas data family, read in two hops. `--font-data` is the theme token
- * (`@theme inline` still emits a token to `:root` once Tailwind's scanner sees
- * a utility that references it), so it follows any future repointing of the
- * data tier; `--font-golos` is the variable next/font sets on `<html>` and is
- * the backstop when the token is absent. The fallback stack is appended so the
- * canvas has a face to draw with when both are absent (a canvas mounted outside
- * the app shell, jsdom).
+ * The canvas data family, read in two hops. `--font-data` is the theme token,
+ * so it follows any future repointing of the data tier. Under `@theme inline`
+ * Tailwind emits that token to `:root` ONLY because its scanner finds the
+ * literal string `--font-data` in this file (using the `font-data` utility
+ * elsewhere does not emit it; verified by compiling with this file excluded),
+ * so the literal below must stay a literal. `--font-golos` is the variable
+ * next/font sets on `<html>` and is the backstop when the token is absent. The
+ * fallback stack is appended so the canvas has a face to draw with when both
+ * are absent (a canvas mounted outside the app shell, jsdom).
  */
 function resolveDataFontFamily(style: CSSStyleDeclaration): string {
   const resolved =
