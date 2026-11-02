@@ -3,7 +3,7 @@ import { Golos_Text, Hanken_Grotesk, Schibsted_Grotesk } from 'next/font/google'
 import { Suspense } from 'react'
 import './globals.css'
 
-/* The next/font variable classes MUST sit on <html className={`${hankenGrotesk.variable} ${schibstedGrotesk.variable} ${golosText.variable}`}>, not <body>: Tailwind's
+/* The next/font variable classes MUST sit on <html>, not <body>: Tailwind's
  * preflight sets `font-family: var(--default-font-family, ...)` on html, and the
  * theme maps that default to these variables. Defined on body they are invalid
  * at the root, the page falls back to the system sans, and canvas code that reads
@@ -84,7 +84,11 @@ export default function RootLayout({
   children: React.ReactNode
 }>) {
   return (
-    <html lang="en" suppressHydrationWarning>
+    <html
+      lang="en"
+      suppressHydrationWarning
+      className={`${hankenGrotesk.variable} ${schibstedGrotesk.variable} ${golosText.variable}`}
+    >
       <head>
         {/* First script in the document: it must already be listening during
             the window where controls are painted but not yet interactive. */}
