@@ -1158,9 +1158,9 @@ func (s *UserService) GetDeletionSummary(userID uint) (*contracts.DeletionSummar
 // deleted_at=now, stores the optional deletion reason, and revokes every
 // session the account holds (shared.RevokeAllSessions), in one transaction.
 // A session minted before the closure is refused while the account is closed
-// (authm.User.CanSignIn) and stays refused after RestoreAccount, so the only
-// session JWTs honored after recovery are ones minted from the restored row.
-// It revokes session JWTs only. Every other way into the account (its
+// (authm.User.CanSignIn) and stays refused after RestoreAccount; a session
+// minted from the restored row, as recovery mints, is honored. It revokes
+// session JWTs only. Every other way into the account (its
 // password, linked provider identities, passkeys, API tokens and
 // calendar-feed tokens) is left in place: none of them signs in while the
 // account is closed (the password can still recover it), and each works
