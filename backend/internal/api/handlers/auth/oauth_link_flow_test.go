@@ -411,10 +411,7 @@ func (s *OAuthHandlerIntegrationSuite) TestLink_UnverifiedAddressRefusedAtTheSta
 
 			s.newHandler(&mockOAuthCompleter{}).OAuthLinkHTTPHandler(w, req)
 
-			s.Equal(http.StatusTemporaryRedirect, w.Code)
-			query := s.parseLinkRedirect(w.Header().Get("Location"))
-			s.Equal(autherrors.CodeEmailVerificationRequired, query.Get(oauthLinkErrorParam))
-			s.Empty(query.Get(oauthLinkResultParam))
+			s.assertLinkRefusal(w, autherrors.CodeEmailVerificationRequired)
 			s.Nil(linkIntentCookie(w))
 			s.True(consumeOAuthLinkToken(s.T().Context(), s.cfg.JWT.SecretKey, token, user.ID),
 				"the refusal leaves the token unspent")

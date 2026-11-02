@@ -668,18 +668,12 @@ func (s *UserService) LinkOAuthAccountToUser(userID uint, sessionsValidAfter *ti
 	// oauth_accounts foreign key would refuse the write anyway, but the lookup
 	// keeps this correct if that constraint is ever relaxed, and it gives the
 	// caller an error naming the user rather than a driver message.
-	if err := shared.LockSessionAccount(tx, userID, sessionsValidAfter); err != nil {
+	account, err := shared.LockSessionAccount(tx, userID, sessionsValidAfter)
+	if err != nil {
 		tx.Rollback()
 		return nil, err
 	}
-	// Read under the FOR SHARE lock LockSessionAccount holds on the row, so
-	// the value cannot change before the attach commits.
-	var verified []bool
-	if err := tx.Model(&authm.User{}).Where("id = ?", userID).Pluck("email_verified", &verified).Error; err != nil {
-		tx.Rollback()
-		return nil, fmt.Errorf("failed to read address verification: %w", err)
-	}
-	if len(verified) != 1 || !verified[0] {
+	if !account.EmailVerified {
 		tx.Rollback()
 		logger.Default().Warn("oauth_link_refused_email_unverified",
 			"provider", provider,

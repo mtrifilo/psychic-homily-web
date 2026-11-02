@@ -112,7 +112,8 @@ const OAUTH_LINK_ERROR_COPY = new Map<string, string>([
     'Accept the Terms of Service and Privacy Policy first.',
   ],
   [
-    // The account's address is not verified yet; connecting waits for it.
+    // Pinned verbatim, code and sentence, by
+    // backend/internal/errors/reauth_copy_test.go.
     'EMAIL_VERIFICATION_REQUIRED',
     'Verify your email address first, then connect this provider from this page.',
   ],

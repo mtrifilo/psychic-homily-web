@@ -28,7 +28,8 @@ func sessionAccount(t *testing.T, db *gorm.DB, name string, sessionsValidAfter *
 
 func lockInTx(db *gorm.DB, userID uint, sessionsValidAfter *time.Time) error {
 	return db.Transaction(func(tx *gorm.DB) error {
-		return LockSessionAccount(tx, userID, sessionsValidAfter)
+		_, err := LockSessionAccount(tx, userID, sessionsValidAfter)
+		return err
 	})
 }
 
@@ -169,7 +170,7 @@ func TestLockSessionAccount_RevocationWaitsForTheHolder(t *testing.T) {
 
 	var done <-chan error
 	err := db.Transaction(func(tx *gorm.DB) error {
-		if err := LockSessionAccount(tx, account.ID, nil); err != nil {
+		if _, err := LockSessionAccount(tx, account.ID, nil); err != nil {
 			return err
 		}
 		done = startWaiting(t, db, func() error { return db.Exec(revokeSQL, revokedAt, account.ID).Error })

@@ -20,8 +20,8 @@ import (
 // state LinkOAuthAccountToUser requires before it attaches anything.
 func (suite *UserServiceIntegrationTestSuite) createLinkableAccount(address string) *authm.User {
 	suite.T().Helper()
-	user := &authm.User{Email: stringPtr(address), IsActive: true, EmailVerified: true}
-	suite.Require().NoError(suite.db.Create(user).Error)
+	user := suite.createLiveAccount(address)
+	suite.Require().NoError(suite.db.Model(user).Update("email_verified", true).Error)
 	return user
 }
 
