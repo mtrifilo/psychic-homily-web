@@ -1154,8 +1154,17 @@ func (s *UserService) GetDeletionSummary(userID uint) (*contracts.DeletionSummar
 	return summary, nil
 }
 
-// SoftDeleteAccount performs a soft delete on the user account
-// Sets is_active=false, deleted_at=now, and stores optional deletion reason
+// SoftDeleteAccount closes the account userID: it sets is_active=false and
+// deleted_at=now, stores the optional deletion reason, and revokes every
+// session the account holds (shared.RevokeAllSessions), in one transaction.
+// A session minted before the closure is refused while the account is closed
+// (authm.User.CanSignIn) and stays refused after RestoreAccount; a session
+// minted from the restored row, as recovery mints, is honored. It revokes
+// session JWTs only. Every other way into the account (its
+// password, linked provider identities, passkeys, API tokens and
+// calendar-feed tokens) is left in place: none of them signs in while the
+// account is closed (the password can still recover it), and each works
+// again once the account is restored.
 func (s *UserService) SoftDeleteAccount(userID uint, reason *string) error {
 	if s.db == nil {
 		return fmt.Errorf("database not initialized")
@@ -1171,19 +1180,21 @@ func (s *UserService) SoftDeleteAccount(userID uint, reason *string) error {
 		updates["deletion_reason"] = *reason
 	}
 
-	result := s.db.Model(&authm.User{}).
-		Where("id = ?", userID).
-		Updates(updates)
+	return s.db.Transaction(func(tx *gorm.DB) error {
+		result := tx.Model(&authm.User{}).
+			Where("id = ?", userID).
+			Updates(updates)
 
-	if result.Error != nil {
-		return fmt.Errorf("failed to soft delete user: %w", result.Error)
-	}
+		if result.Error != nil {
+			return fmt.Errorf("failed to soft delete user: %w", result.Error)
+		}
 
-	if result.RowsAffected == 0 {
-		return fmt.Errorf("user not found")
-	}
+		if result.RowsAffected == 0 {
+			return fmt.Errorf("user not found")
+		}
 
-	return nil
+		return shared.RevokeAllSessions(tx, &authm.User{ID: userID}, now)
+	})
 }
 
 // ExportUserData exports all user data in a portable JSON format

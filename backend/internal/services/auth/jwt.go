@@ -245,7 +245,7 @@ const jwtSessionsValidAfterClaim = "sva"
 
 // sessionMintedBeforeRevocation reports whether claims were minted against a
 // revocation state other than user's current one. Every revocation writes a
-// whole-second instant later than any before it (RevokeAllSessions), so a
+// whole-second instant later than any before it (shared.RevokeAllSessions), so a
 // token is honored only when it names exactly the current instant: one minted
 // before the latest revocation, or from a row read before it committed,
 // names an earlier instant or none. An account never revoked honors every

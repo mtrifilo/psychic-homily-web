@@ -1039,6 +1039,58 @@ func (suite *UserServiceIntegrationTestSuite) TestSoftDeleteAccount_WithReason()
 	suite.Equal("No longer using the service", *dbUser.DeletionReason)
 }
 
+// Closing the account sets sessions_valid_after to the closure's second, and
+// restoring it keeps that value.
+func (suite *UserServiceIntegrationTestSuite) TestSoftDeleteAccount_RevokesSessions() {
+	user := suite.createLiveAccount("softdelete-revokes@example.com")
+
+	before := time.Now().UTC().Truncate(time.Second)
+	suite.Require().NoError(suite.userService.SoftDeleteAccount(user.ID, nil))
+
+	closed := suite.reloadAccount(user.ID)
+	suite.False(closed.IsActive)
+	suite.Require().NotNil(closed.DeletedAt)
+	suite.Require().NotNil(closed.SessionsValidAfter)
+	suite.False(closed.SessionsValidAfter.Before(before), "the revocation is the closure's own second")
+	suite.False(closed.SessionsValidAfter.After(closed.DeletedAt.Add(time.Second)))
+
+	suite.Require().NoError(suite.userService.RestoreAccount(user.ID))
+	restored := suite.reloadAccount(user.ID)
+	suite.True(restored.IsActive)
+	suite.Require().NotNil(restored.SessionsValidAfter)
+	suite.True(restored.SessionsValidAfter.Equal(*closed.SessionsValidAfter), "restoring keeps the revocation")
+}
+
+// The closure and the revocation commit together: when the revocation's write
+// fails, the account is left open, never closed with its sessions intact.
+func (suite *UserServiceIntegrationTestSuite) TestSoftDeleteAccount_RevocationFailureLeavesTheAccountOpen() {
+	user := suite.createLiveAccount("softdelete-atomic@example.com")
+	suite.Require().NoError(suite.db.Exec(`
+		CREATE FUNCTION refuse_session_revocation() RETURNS trigger AS $$
+		BEGIN
+			IF NEW.sessions_valid_after IS DISTINCT FROM OLD.sessions_valid_after THEN
+				RAISE EXCEPTION 'session revocation refused';
+			END IF;
+			RETURN NEW;
+		END $$ LANGUAGE plpgsql`).Error)
+	suite.Require().NoError(suite.db.Exec(`
+		CREATE TRIGGER refuse_session_revocation BEFORE UPDATE ON users
+		FOR EACH ROW EXECUTE FUNCTION refuse_session_revocation()`).Error)
+	suite.T().Cleanup(func() {
+		suite.db.Exec(`DROP TRIGGER IF EXISTS refuse_session_revocation ON users`)
+		suite.db.Exec(`DROP FUNCTION IF EXISTS refuse_session_revocation()`)
+	})
+
+	err := suite.userService.SoftDeleteAccount(user.ID, nil)
+	suite.Require().Error(err)
+	suite.Contains(err.Error(), "session revocation refused")
+
+	open := suite.reloadAccount(user.ID)
+	suite.True(open.IsActive)
+	suite.Nil(open.DeletedAt)
+	suite.Nil(open.SessionsValidAfter)
+}
+
 func (suite *UserServiceIntegrationTestSuite) TestSoftDeleteAccount_NotFound() {
 	err := suite.userService.SoftDeleteAccount(999999, nil)
 	suite.Require().Error(err)

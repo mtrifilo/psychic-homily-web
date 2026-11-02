@@ -14,9 +14,12 @@ func DeactivateAccount(t *testing.T, db *gorm.DB, userID uint) {
 	setAccountState(t, db, userID, map[string]any{"is_active": false})
 }
 
-// SoftDeleteAccount closes the account userID the way soft deletion does:
+// SoftDeleteAccount gives the account userID the state soft deletion leaves:
 // is_active false and deleted_at set, the pair users_live_account_check
-// requires.
+// requires. Unlike UserService.SoftDeleteAccount, it leaves
+// sessions_valid_after untouched, so sessions minted before it are honored
+// again after ReopenAccount; a test of which sessions survive a closure
+// closes the account through the service.
 func SoftDeleteAccount(t *testing.T, db *gorm.DB, userID uint) {
 	t.Helper()
 	setAccountState(t, db, userID, map[string]any{"is_active": false, "deleted_at": time.Now()})
