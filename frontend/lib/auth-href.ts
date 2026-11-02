@@ -173,7 +173,12 @@ export type ReauthReason =
   | typeof REAUTH_REASON_OAUTH_LINK
   | typeof REAUTH_REASON_CREDENTIAL_MINT
 
-/** Every reason that means "an already-signed-in reader must prove the account". */
+/**
+ * Every reason that means "an already-signed-in reader must prove the account".
+ * The Google sign-in start records only the reasons `oauthReauthReasons` in
+ * `backend/internal/api/handlers/auth/oauth_return_to.go` lists, and a backend
+ * test requires the two lists to hold the same values.
+ */
 export const REAUTH_REASONS: readonly ReauthReason[] = [
   REAUTH_REASON_OAUTH_LINK,
   REAUTH_REASON_CREDENTIAL_MINT,
@@ -194,7 +199,9 @@ export const ACCOUNT_INACTIVE_REASON = AuthErrorCode.ACCOUNT_INACTIVE
 /**
  * The auth-page query parameter that says why the reader was sent there. The
  * backend writes it as `authPageReasonParam` in
- * `backend/internal/api/handlers/auth/oauth_handlers.go`.
+ * `backend/internal/api/handlers/auth/oauth_handlers.go`, and its Google
+ * sign-in start reads a re-authentication reason under the same key
+ * (`googleStartUrl` writes it there).
  */
 export const AUTH_REASON_PARAM = 'reason'
 

@@ -9,6 +9,7 @@ import {
   AUTH_REASON_PARAM,
   isReauthReason,
 } from '@/lib/auth-href'
+import { AuthErrorCode } from '@/lib/errors/authErrors'
 
 /**
  * `query` without the parameters the auth page renders a banner from: the
@@ -19,14 +20,24 @@ import {
  * says, so a reload has to keep it. `returnTo`, `intent`, `tab` and every
  * parameter the page does not read stay too.
  *
+ * On a re-authentication, `error_code=OAUTH_LINK_PENDING` stays as well. It
+ * shows no banner: it is the only thing that lets a re-authentication read the
+ * pending Google link, so a reload has to keep it to keep the collision
+ * state. A sign-in arrival reads the pending link without it.
+ *
  * Takes and returns a query string without its leading `?`, serialized by
  * URLSearchParams, as `useSearchParams().toString()` is.
  */
 export function withoutBannerParams(query: string): string {
   const params = new URLSearchParams(query)
+  const reauth = isReauthReason(params.get(AUTH_REASON_PARAM))
+  const keepsLinkHint =
+    reauth && params.get(AUTH_ERROR_CODE_PARAM) === AuthErrorCode.OAUTH_LINK_PENDING
   params.delete(AUTH_ERROR_PARAM)
-  params.delete(AUTH_ERROR_CODE_PARAM)
-  if (!isReauthReason(params.get(AUTH_REASON_PARAM))) {
+  if (!keepsLinkHint) {
+    params.delete(AUTH_ERROR_CODE_PARAM)
+  }
+  if (!reauth) {
     params.delete(AUTH_REASON_PARAM)
   }
   return params.toString()

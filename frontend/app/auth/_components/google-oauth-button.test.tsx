@@ -75,6 +75,19 @@ describe('GoogleOAuthButton', () => {
     expect([...startUrl().searchParams.keys()]).toEqual(['returnTo'])
   })
 
+  it('hands the sign-in start the re-authentication the page is showing', async () => {
+    const user = userEvent.setup()
+    renderWithProviders(
+      <GoogleOAuthButton returnTo="/profile?tab=settings" reauthReason="OAUTH_LINK_REAUTH_REQUIRED" />
+    )
+
+    await user.click(screen.getByRole('button', { name: 'Continue with Google' }))
+
+    const url = startUrl()
+    expect(url.searchParams.get('reason')).toBe('OAUTH_LINK_REAUTH_REQUIRED')
+    expect(url.searchParams.get('returnTo')).toBe('/profile?tab=settings')
+  })
+
   it('is disabled when its surface says so', () => {
     renderWithProviders(<GoogleOAuthButton disabled />)
 
@@ -89,5 +102,22 @@ describe('googleStartUrl', () => {
     expect(chooser.searchParams.get('returnTo')).toBeNull()
 
     expect(new URL(googleStartUrl({ returnTo: '/' })).searchParams.get('prompt')).toBeNull()
+  })
+
+  it.each(['OAUTH_LINK_REAUTH_REQUIRED', 'REAUTH_REQUIRED'] as const)(
+    'carries reason=%s, with or without a destination',
+    reason => {
+      const withDestination = new URL(googleStartUrl({ returnTo: '/profile', reauthReason: reason }))
+      expect(withDestination.searchParams.get('reason')).toBe(reason)
+      expect(withDestination.searchParams.get('returnTo')).toBe('/profile')
+
+      const atTheRoot = new URL(googleStartUrl({ returnTo: '/', reauthReason: reason }))
+      expect(atTheRoot.searchParams.get('reason')).toBe(reason)
+      expect(atTheRoot.searchParams.get('returnTo')).toBeNull()
+    }
+  )
+
+  it('carries no reason outside a re-authentication', () => {
+    expect(new URL(googleStartUrl({ returnTo: '/profile' })).searchParams.has('reason')).toBe(false)
   })
 })

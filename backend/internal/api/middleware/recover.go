@@ -15,7 +15,8 @@ import (
 
 // RecoverPanic turns a handler panic into a 500 carrying the auth error
 // envelope with the request ID, and logs one ERROR line with the request ID and
-// the scrubbed panic value. The request body and headers are never logged.
+// the panic value as scrubPanicValue renders it. The request body and headers
+// are never logged.
 //
 // Register it inside RequestIDMiddleware, whose ID it reads from the context,
 // and outside the Sentry handler, which captures the panic and re-panics into
@@ -44,7 +45,7 @@ func RecoverPanic(next http.Handler) http.Handler {
 			attrs := []any{
 				"method", r.Method,
 				"path", r.URL.Path,
-				"panic", observability.ScrubText(fmt.Sprint(recovered)),
+				"panic", scrubPanicValue(recovered),
 				"response_started", tracked.started,
 			}
 			log := logger.FromContext(ctx)
@@ -77,6 +78,12 @@ func RecoverPanic(next http.Handler) http.Handler {
 func isAbortHandler(recovered any) bool {
 	err, ok := recovered.(error)
 	return ok && errors.Is(err, http.ErrAbortHandler)
+}
+
+// scrubPanicValue renders a panic value for the log line: redactPanicText,
+// then observability.ScrubText for its length cap.
+func scrubPanicValue(recovered any) string {
+	return observability.ScrubText(redactPanicText(fmt.Sprint(recovered)))
 }
 
 // representationHeaders describe a response's content or its cache validity.

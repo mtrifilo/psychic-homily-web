@@ -5,6 +5,7 @@ import { renderWithProviders } from '@/test/utils'
 import { AuthError, AuthErrorCode } from '@/lib/errors'
 import { MAGIC_LINK_EXPIRY_MINUTES } from '@/lib/magic-link'
 import { PENDING_LINK_GONE_MESSAGE } from '@/app/auth/_components/google-collision-sign-in'
+import { withoutBannerParams } from '@/app/auth/_components/auth-arrival-params'
 import AuthPage from './page'
 
 // The Sign in tab's collision state, driven from the auth page as the OAuth
@@ -12,19 +13,21 @@ import AuthPage from './page'
 // read from the pending link the backend holds for this browser.
 
 const mockPush = vi.fn()
+const mockReplace = vi.fn()
 let mockSearchParams = new URLSearchParams()
 
 vi.mock('next/navigation', () => ({
-  useRouter: () => ({ push: mockPush, replace: vi.fn() }),
+  useRouter: () => ({ push: mockPush, replace: mockReplace }),
   useSearchParams: () => mockSearchParams,
   usePathname: () => '/auth',
 }))
 
 const mockSetUser = vi.fn()
+let mockAuthStatus: 'anonymous' | 'authenticated' = 'anonymous'
 vi.mock('@/lib/context/AuthContext', async () => {
   const { deriveMockAuthSignals } = await import('@/test/authFixture')
   return {
-    useAuthContext: () => deriveMockAuthSignals({ setUser: mockSetUser, authStatus: 'anonymous' }),
+    useAuthContext: () => deriveMockAuthSignals({ setUser: mockSetUser, authStatus: mockAuthStatus }),
   }
 })
 
@@ -90,8 +93,11 @@ vi.mock('@/app/auth/_components/google-oauth-button', () => ({
 const COLLISION = 'error_code=OAUTH_LINK_PENDING&returnTo=%2Fshows'
 const ADDRESS = 'alice@example.com'
 
-function arriveOnCollision(read: PendingRead = { isPending: false, data: { status: 'pending', email: ADDRESS } }) {
-  mockSearchParams = new URLSearchParams(COLLISION)
+function arriveOnCollision(
+  read: PendingRead = { isPending: false, data: { status: 'pending', email: ADDRESS } },
+  query: string = COLLISION
+) {
+  mockSearchParams = new URLSearchParams(query)
   mockPendingRead = read
   return renderWithProviders(<AuthPage />)
 }
@@ -99,6 +105,7 @@ function arriveOnCollision(read: PendingRead = { isPending: false, data: { statu
 describe('AuthPage collision state', () => {
   beforeEach(() => {
     mockPush.mockReset()
+    mockReplace.mockReset()
     mockSetUser.mockReset()
     mockLoginMutate.mockReset()
     mockLoginError = null
@@ -106,6 +113,7 @@ describe('AuthPage collision state', () => {
     pendingReadEnabled.mockReset()
     mockSendState = { isPending: false, isSuccess: false, isError: false, error: null }
     mockSearchParams = new URLSearchParams()
+    mockAuthStatus = 'anonymous'
     window.history.replaceState(null, '', '/')
   })
 
@@ -177,7 +185,7 @@ describe('AuthPage collision state', () => {
     expect(screen.getByTestId('google-oauth')).toBeInTheDocument()
   })
 
-  it('reads nothing on a re-authentication, which offers no new sign-in', () => {
+  it('reads nothing on a re-authentication arrival without OAUTH_LINK_PENDING', () => {
     mockSearchParams = new URLSearchParams('reason=OAUTH_LINK_REAUTH_REQUIRED')
     renderWithProviders(<AuthPage />)
 
@@ -185,7 +193,86 @@ describe('AuthPage collision state', () => {
     expect(pendingReadEnabled.mock.calls.every(([enabled]) => enabled === false)).toBe(true)
   })
 
-  it('signs in with the prefilled address and lands on returnTo', async () => {
+  // The Google start of a signed-in reader's re-authentication found the
+  // address held by an account, and its callback came back here with the
+  // reason, which holds the page for them.
+  describe('on the re-authentication its Google start came back to', () => {
+    const REAUTH_COLLISION = new URLSearchParams({
+      error_code: 'OAUTH_LINK_PENDING',
+      reason: 'OAUTH_LINK_REAUTH_REQUIRED',
+      returnTo: '/profile?tab=settings',
+    }).toString()
+
+    function arriveOnReauthCollision(read?: PendingRead) {
+      mockAuthStatus = 'authenticated'
+      return arriveOnCollision(read, REAUTH_COLLISION)
+    }
+
+    it('shows the collision state under the re-authentication heading, without bouncing', () => {
+      arriveOnReauthCollision()
+
+      expect(pendingReadEnabled).toHaveBeenCalledWith(true)
+      expect(
+        screen.getByRole('heading', { level: 1, name: "Confirm it's you" })
+      ).toBeInTheDocument()
+      expect(screen.getByText(/An account already uses/)).toHaveTextContent(
+        `An account already uses ${ADDRESS}. Sign in with your password to connect Google.`
+      )
+      expect(screen.getByLabelText('Email')).toHaveValue(ADDRESS)
+      expect(screen.queryByRole('tab', { name: 'Create account' })).not.toBeInTheDocument()
+      expect(mockPush).not.toHaveBeenCalled()
+    })
+
+    // The address bar after the first render is what a reload arrives with.
+    it('keeps the collision state on a reload', () => {
+      arriveOnReauthCollision().unmount()
+      const reloaded = withoutBannerParams(REAUTH_COLLISION)
+      expect(new URLSearchParams(reloaded).get('error_code')).toBe('OAUTH_LINK_PENDING')
+      pendingReadEnabled.mockReset()
+
+      arriveOnCollision(undefined, reloaded)
+
+      expect(pendingReadEnabled).toHaveBeenLastCalledWith(true)
+      expect(screen.getByText(/An account already uses/)).toBeInTheDocument()
+      expect(mockPush).not.toHaveBeenCalled()
+    })
+
+    // The page holds its own redirect on a re-authentication, so the proof's
+    // navigation is the only one, and it takes the spent arrival out of
+    // history.
+    it('replaces the spent arrival with returnTo when the password proof succeeds', async () => {
+      const user = userEvent.setup()
+      arriveOnReauthCollision()
+
+      await user.type(screen.getByLabelText('Password'), 'hunter2-hunter2')
+      await user.click(screen.getByRole('button', { name: 'Sign in and connect Google' }))
+      const [, options] = mockLoginMutate.mock.calls[0]
+      options.onSuccess({ success: true, user: { id: 9 } })
+
+      expect(mockReplace).toHaveBeenCalledWith('/profile?tab=settings')
+      expect(mockPush).not.toHaveBeenCalled()
+    })
+
+    it('carries the reason into a start with a different Google account', () => {
+      arriveOnReauthCollision()
+
+      const link = screen.getByRole('link', { name: 'Use a different Google account' })
+      const href = new URL(link.getAttribute('href') ?? '')
+      expect(href.searchParams.get('reason')).toBe('OAUTH_LINK_REAUTH_REQUIRED')
+      expect(href.searchParams.get('returnTo')).toBe('/profile?tab=settings')
+      expect(href.searchParams.get('prompt')).toBe('select_account')
+    })
+
+    it('shows the re-authentication form, not a spinner, when the read finds no pending link', () => {
+      arriveOnReauthCollision({ isPending: false, data: { status: 'expired' } })
+
+      expect(screen.getByText(PENDING_LINK_GONE_MESSAGE)).toBeInTheDocument()
+      expect(screen.getByTestId('google-oauth')).toBeInTheDocument()
+      expect(mockPush).not.toHaveBeenCalled()
+    })
+  })
+
+  it('signs in with the prefilled address and navigates to returnTo', async () => {
     const user = userEvent.setup()
     arriveOnCollision()
 
@@ -201,7 +288,8 @@ describe('AuthPage collision state', () => {
     })
     options.onSuccess({ success: true, user: { id: 9 } })
     expect(mockSetUser).toHaveBeenCalledWith({ id: 9 })
-    expect(mockPush).toHaveBeenCalledWith('/shows')
+    expect(mockReplace).toHaveBeenCalledWith('/shows')
+    expect(mockPush).not.toHaveBeenCalled()
   })
 
   // The backend refuses a correct password when the pending link is gone,

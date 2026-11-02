@@ -25,6 +25,36 @@ func SentryRequestIDTag(next http.Handler) http.Handler {
 	})
 }
 
+// SentryPanicEmailScrub redacts email addresses from the panic value on the
+// event the sentryhttp handler captures for a handler panic, as RecoverPanic
+// redacts them from its log line. Every other event from the request keeps its
+// text. Register it right after the sentryhttp handler, whose per-request hub
+// it configures; the BeforeSend scrub runs after it.
+func SentryPanicEmailScrub(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if hub := sentry.GetHubFromContext(r.Context()); hub != nil {
+			hub.Scope().AddEventProcessor(redactPanicEventEmails)
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+// redactPanicEventEmails applies redactPanicText to a recovered panic's event:
+// its message (a non-error panic value) and its exception values (an error and
+// the errors it wraps). The BeforeSend scrub caps them afterwards. An event
+// with no recovered panic in its hint, which includes the request's
+// transaction, passes through unchanged.
+func redactPanicEventEmails(event *sentry.Event, hint *sentry.EventHint) *sentry.Event {
+	if hint == nil || hint.RecoveredException == nil {
+		return event
+	}
+	event.Message = redactPanicText(event.Message)
+	for i := range event.Exception {
+		event.Exception[i].Value = redactPanicText(event.Exception[i].Value)
+	}
+	return event
+}
+
 // HumaSentryContextMiddleware enriches the Sentry scope with HTTP metadata and
 // user information (if authenticated). The request ID tag comes from
 // SentryRequestIDTag in the chi chain. It works with the hub injected by the

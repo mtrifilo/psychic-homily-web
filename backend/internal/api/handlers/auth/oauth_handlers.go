@@ -98,8 +98,10 @@ func refusalWithOwnCopy(err error) (*autherrors.AuthError, bool) {
 
 // The query keys the backend hands the frontend auth page: a failed sign-in
 // callback's code, which the page reads as AUTH_ERROR_CODE_PARAM, and the
-// reason an OAuth link sent the reader there, which it reads as
-// AUTH_REASON_PARAM (frontend/lib/auth-href.ts).
+// reason the reader was sent there, which it reads as AUTH_REASON_PARAM
+// (frontend/lib/auth-href.ts). The sign-in start reads its re-authentication
+// reason under the same key (oauthReturnToFromQuery), as googleStartUrl
+// writes it.
 //
 // The page renders fixed copy for each code and never text from its URL, so
 // no redirect to it carries a message.
@@ -147,8 +149,9 @@ func declinedAtProvider(provider string, r *http.Request) bool {
 
 // redirectSignInFailure answers a sign-in callback that did not sign the
 // reader in: the loopback CLI gets message and code, a browser gets the code
-// on the auth page with the sign-in's destination.
-func redirectSignInFailure(w http.ResponseWriter, r *http.Request, cliCallback, frontendURL, returnTo, message, code string) {
+// on the auth page with the sign-in's destination and re-authentication
+// reason.
+func redirectSignInFailure(w http.ResponseWriter, r *http.Request, cliCallback, frontendURL string, returnTo oauthReturnTo, message, code string) {
 	if cliCallback != "" {
 		target := cliCallback + "?" + url.Values{cliErrorParam: {message}, cliErrorCodeParam: {code}}.Encode()
 		http.Redirect(w, r, target, http.StatusTemporaryRedirect)
