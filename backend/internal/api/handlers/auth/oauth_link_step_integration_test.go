@@ -155,6 +155,22 @@ func (s *OAuthHandlerIntegrationSuite) googleIdentitiesOf(userID uint) []authm.O
 	return rows
 }
 
+// attachGoogle attaches the Google identity subject to userID directly, as
+// a link made before the scenario starts.
+func (s *OAuthHandlerIntegrationSuite) attachGoogle(userID uint, subject string) {
+	s.T().Helper()
+	s.Require().NoError(s.deps.DB.Create(&authm.OAuthAccount{UserID: userID, Provider: "google", ProviderUserID: subject}).Error)
+}
+
+// requireOnlyGoogleIdentity requires userID to hold exactly one Google
+// identity, subject.
+func (s *OAuthHandlerIntegrationSuite) requireOnlyGoogleIdentity(userID uint, subject string) {
+	s.T().Helper()
+	identities := s.googleIdentitiesOf(userID)
+	s.Require().Len(identities, 1)
+	s.Equal(subject, identities[0].ProviderUserID)
+}
+
 func (s *OAuthHandlerIntegrationSuite) reload(userID uint) *authm.User {
 	var user authm.User
 	s.Require().NoError(s.deps.DB.First(&user, userID).Error)
@@ -642,9 +658,7 @@ func (s *OAuthHandlerIntegrationSuite) TestLinkStep_PreHijackedAccountIsReclaime
 // with the victim's.
 func (s *OAuthHandlerIntegrationSuite) TestLinkStep_SquattersGoogleIdentityIsReplacedByTheMailbox() {
 	squatted := s.passwordAccount("victim-google@test.com", false)
-	s.Require().NoError(s.deps.DB.Create(&authm.OAuthAccount{
-		UserID: squatted.ID, Provider: "google", ProviderUserID: "google-squatter",
-	}).Error)
+	s.attachGoogle(squatted.ID, "google-squatter")
 	squatter := s.linkEnv()
 	squatterSession := s.sessionFrom(s.login(squatter, "victim-google@test.com", collisionPassword))
 
@@ -655,9 +669,7 @@ func (s *OAuthHandlerIntegrationSuite) TestLinkStep_SquattersGoogleIdentityIsRep
 
 	s.Require().Equal(true, s.decode(s.verifyLink(victim, linkToken))["success"])
 
-	identities := s.googleIdentitiesOf(squatted.ID)
-	s.Require().Len(identities, 1)
-	s.Equal("google-victim-owner", identities[0].ProviderUserID)
+	s.requireOnlyGoogleIdentity(squatted.ID, "google-victim-owner")
 	var squatterRows int64
 	s.Require().NoError(s.deps.DB.Model(&authm.OAuthAccount{}).
 		Where("provider = ? AND provider_user_id = ?", "google", "google-squatter").Count(&squatterRows).Error)
@@ -679,17 +691,13 @@ func (s *OAuthHandlerIntegrationSuite) TestLinkStep_SquattersGoogleIdentityIsRep
 // password proof is refused with the provider refusal.
 func (s *OAuthHandlerIntegrationSuite) TestLinkStep_PasswordProofKeepsTheSameProviderRefusal() {
 	account := s.passwordAccount("pw-squat@test.com", false)
-	s.Require().NoError(s.deps.DB.Create(&authm.OAuthAccount{
-		UserID: account.ID, Provider: "google", ProviderUserID: "google-pw-squatter",
-	}).Error)
+	s.attachGoogle(account.ID, "google-pw-squatter")
 	token := s.startLink(collisionIdentity("pw-squat@test.com", "google-pw-owner"))
 
 	resp := s.loginToConnect(s.linkEnv(), "pw-squat@test.com", collisionPassword, linkCookieHeader(token))
 	s.requireRefusal(resp, autherrors.CodeOAuthProviderAlreadyLinked)
 	s.Nil(setCookies(resp)["auth_token"])
-	identities := s.googleIdentitiesOf(account.ID)
-	s.Require().Len(identities, 1)
-	s.Equal("google-pw-squatter", identities[0].ProviderUserID)
+	s.requireOnlyGoogleIdentity(account.ID, "google-pw-squatter")
 }
 
 // A verified account keeps the Google identity it holds. A pending link
@@ -702,15 +710,11 @@ func (s *OAuthHandlerIntegrationSuite) TestLinkStep_MailboxProofKeepsAVerifiedAc
 	env := s.linkEnv()
 	linkToken := s.requestLink(env, token)
 	s.Require().NoError(s.deps.DB.Model(account).Update("email_verified", true).Error)
-	s.Require().NoError(s.deps.DB.Create(&authm.OAuthAccount{
-		UserID: account.ID, Provider: "google", ProviderUserID: "google-verified-holder",
-	}).Error)
+	s.attachGoogle(account.ID, "google-verified-holder")
 
 	s.requireRefusal(s.verifyLink(env, linkToken), autherrors.CodeOAuthProviderAlreadyLinked)
 
-	identities := s.googleIdentitiesOf(account.ID)
-	s.Require().Len(identities, 1)
-	s.Equal("google-verified-holder", identities[0].ProviderUserID)
+	s.requireOnlyGoogleIdentity(account.ID, "google-verified-holder")
 	after := s.reload(account.ID)
 	s.NotNil(after.PasswordHash)
 	s.Nil(after.SessionsValidAfter)
@@ -722,22 +726,16 @@ func (s *OAuthHandlerIntegrationSuite) TestLinkStep_MailboxProofKeepsAVerifiedAc
 // squatter's identity is back where it was, with nothing else changed.
 func (s *OAuthHandlerIntegrationSuite) TestLinkStep_RefusedAttachUndoesTheReplacement() {
 	account := s.passwordAccount("undo-replace@test.com", false)
-	s.Require().NoError(s.deps.DB.Create(&authm.OAuthAccount{
-		UserID: account.ID, Provider: "google", ProviderUserID: "google-undo-squatter",
-	}).Error)
+	s.attachGoogle(account.ID, "google-undo-squatter")
 	elsewhere := s.passwordAccount("undo-elsewhere@test.com", true)
 	token := s.startLink(collisionIdentity("undo-replace@test.com", "google-undo-owner"))
 	env := s.linkEnv()
 	linkToken := s.requestLink(env, token)
-	s.Require().NoError(s.deps.DB.Create(&authm.OAuthAccount{
-		UserID: elsewhere.ID, Provider: "google", ProviderUserID: "google-undo-owner",
-	}).Error)
+	s.attachGoogle(elsewhere.ID, "google-undo-owner")
 
 	s.requireRefusal(s.verifyLink(env, linkToken), autherrors.CodeOAuthIdentityInUse)
 
-	identities := s.googleIdentitiesOf(account.ID)
-	s.Require().Len(identities, 1)
-	s.Equal("google-undo-squatter", identities[0].ProviderUserID)
+	s.requireOnlyGoogleIdentity(account.ID, "google-undo-squatter")
 	after := s.reload(account.ID)
 	s.NotNil(after.PasswordHash)
 	s.False(after.EmailVerified)

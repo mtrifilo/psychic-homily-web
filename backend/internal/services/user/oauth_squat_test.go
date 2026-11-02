@@ -120,33 +120,40 @@ func (suite *UserServiceIntegrationTestSuite) TestFindOrCreateUserWithConsent_Ve
 // identity nothing proved holds the mailbox, and a verified account keeps
 // its own. The offer attaches nothing either way.
 func (suite *UserServiceIntegrationTestSuite) TestFindOrCreateUserWithConsent_AccountHoldingTheProvider_OfferedOnlyWhileUnverified() {
-	for _, verified := range []bool{false, true} {
-		address := "holds.google.unverified@gmail.com"
-		if verified {
-			address = "holds.google.verified@gmail.com"
-		}
-		existing := &authm.User{Email: stringPtr(address), IsActive: true, EmailVerified: verified}
-		suite.Require().NoError(suite.db.Create(existing).Error)
-		suite.Require().NoError(suite.db.Create(&authm.OAuthAccount{
-			UserID: existing.ID, Provider: "google", ProviderUserID: address + "-held",
-		}).Error)
+	cases := []struct {
+		name     string
+		address  string
+		verified bool
+		offered  bool
+	}{
+		{"unverified address", "holds.google.unverified@gmail.com", false, true},
+		{"verified address", "holds.google.verified@gmail.com", true, false},
+	}
+	for _, c := range cases {
+		suite.Run(c.name, func() {
+			existing := &authm.User{Email: stringPtr(c.address), IsActive: true, EmailVerified: c.verified}
+			suite.Require().NoError(suite.db.Create(existing).Error)
+			suite.Require().NoError(suite.db.Create(&authm.OAuthAccount{
+				UserID: existing.ID, Provider: "google", ProviderUserID: c.address + "-held",
+			}).Error)
 
-		found, err := suite.userService.FindOrCreateUserWithConsent(goth.User{
-			UserID:  address + "-owner",
-			Email:   address,
-			RawData: map[string]any{"verified_email": true},
-		}, "google", signupconsent.CurrentOAuthSignupConsent())
+			found, err := suite.userService.FindOrCreateUserWithConsent(goth.User{
+				UserID:  c.address + "-owner",
+				Email:   c.address,
+				RawData: map[string]any{"verified_email": true},
+			}, "google", signupconsent.CurrentOAuthSignupConsent())
 
-		suite.Require().Nil(found)
-		var authErr *apperrors.AuthError
-		suite.Require().ErrorAs(err, &authErr, "verified=%v", verified)
-		suite.Equal(apperrors.CodeOAuthLinkRefused, authErr.Code)
-		var required *contracts.OAuthLinkRequiredError
-		suite.Equal(!verified, errors.As(err, &required), "verified=%v: offered", verified)
-		if !verified {
-			suite.Equal(existing.ID, required.UserID)
-		}
-		suite.assertOnlyIdentityIs(existing.ID, address+"-held")
+			suite.Require().Nil(found)
+			var authErr *apperrors.AuthError
+			suite.Require().ErrorAs(err, &authErr)
+			suite.Equal(apperrors.CodeOAuthLinkRefused, authErr.Code)
+			var required *contracts.OAuthLinkRequiredError
+			suite.Equal(c.offered, errors.As(err, &required), "offered")
+			if c.offered {
+				suite.Equal(existing.ID, required.UserID)
+			}
+			suite.assertOnlyIdentityIs(existing.ID, c.address+"-held")
+		})
 	}
 }
 

@@ -241,12 +241,12 @@ func evictOtherCredentials(tx *gorm.DB, userID uint, keepProvider string) error 
 
 // evictUnprovenIdentity removes, through tx, userID's identity from provider
 // when it is not provenSubject, the identity the mailbox proof attaches, and
-// reports whether it removed one. The
-// caller has userID's row locked and has read its address as never verified,
-// so nothing proved that whoever attached that identity holds the mailbox,
-// and the proof just did for provenSubject. One row per provider per account
-// (oauth_accounts_user_provider_uniq), and it is locked FOR UPDATE, as
-// evictOtherCredentials locks the rows it unlinks.
+// reports whether it removed one. The caller has userID's row locked and has
+// read its address as never verified, so nothing proved that whoever
+// attached that identity holds the mailbox, and the proof just did for
+// provenSubject. One row per provider per account
+// (oauth_accounts_user_provider_uniq); it is locked FOR UPDATE and unlinked
+// through the path Settings disconnects by, as evictOtherCredentials does.
 func evictUnprovenIdentity(tx *gorm.DB, userID uint, provider, provenSubject string) (bool, error) {
 	var subjects []string
 	if err := tx.Model(&authm.OAuthAccount{}).

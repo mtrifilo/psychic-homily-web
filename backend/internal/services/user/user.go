@@ -319,15 +319,15 @@ func (s *UserService) FindOrCreateUserFromOAuthIdentity(identity contracts.OAuth
 			// an identity holds the mailbox, and the mailbox proof replaces
 			// it, so the offer stands.
 			if existingUser.CanSignIn() && identity.EmailVerified && identity.EmailAuthoritative {
-				offer := !existingUser.EmailVerified
-				if !offer {
+				keepsHeldIdentity := false
+				if existingUser.EmailVerified {
 					holds, err := s.accountHoldsProviderIdentity(existingUser.ID, provider)
 					if err != nil {
 						return nil, err
 					}
-					offer = !holds
+					keepsHeldIdentity = holds
 				}
-				if offer {
+				if !keepsHeldIdentity {
 					// Whether a pending link is actually offered is the
 					// caller's decision (a CLI sign-in has nowhere to show
 					// one), so this names the possibility, not the outcome.
