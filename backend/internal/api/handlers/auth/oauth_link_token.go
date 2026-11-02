@@ -80,13 +80,12 @@ type spentNonceSet struct {
 	capacity int
 	now      func() time.Time
 
-	// expiries and byExpiry hold the same nonces: expiries answers "spent?",
-	// and byExpiry keeps the soonest expiry at its root.
-	expiries map[string]time.Time
+	// spent and byExpiry hold the same nonces: spent answers "spent?", and
+	// byExpiry keeps the soonest expiry at its root.
+	spent    map[string]struct{}
 	byExpiry nonceExpiryHeap
 
-	refusedSinceReport int
-	lastReportAt       time.Time
+	refusals reportThrottle
 }
 
 // newSpentNonceSet panics on a capacity below 1: a set that can hold nothing
@@ -98,7 +97,7 @@ func newSpentNonceSet(capacity int, now func() time.Time) *spentNonceSet {
 	return &spentNonceSet{
 		capacity: capacity,
 		now:      now,
-		expiries: make(map[string]time.Time),
+		spent:    make(map[string]struct{}),
 	}
 }
 
@@ -111,7 +110,7 @@ func newSpentNonceSet(capacity int, now func() time.Time) *spentNonceSet {
 // refuses its token as expired.
 //
 // refusalsToReport is nonzero when spends were refused for capacity since the
-// last report and at least registryEvictionReportInterval has passed since it;
+// last report and at least capacityReportInterval has passed since it;
 // the count covers every such refusal since that report. The caller logs it.
 func (s *spentNonceSet) spend(nonce string, expiry time.Time) (ok bool, refusalsToReport int) {
 	s.mu.Lock()
@@ -122,21 +121,16 @@ func (s *spentNonceSet) spend(nonce string, expiry time.Time) (ok bool, refusals
 		return false, 0
 	}
 	for len(s.byExpiry) > 0 && now.After(s.byExpiry[0].expiry) {
-		delete(s.expiries, heap.Pop(&s.byExpiry).(spentNonce).nonce)
+		delete(s.spent, heap.Pop(&s.byExpiry).(spentNonce).nonce)
 	}
-	if _, spent := s.expiries[nonce]; spent {
+	if _, spent := s.spent[nonce]; spent {
 		return false, 0
 	}
-	if len(s.expiries) >= s.capacity {
-		s.refusedSinceReport++
-		if s.lastReportAt.IsZero() || now.Sub(s.lastReportAt) >= registryEvictionReportInterval {
-			refusalsToReport = s.refusedSinceReport
-			s.refusedSinceReport = 0
-			s.lastReportAt = now
-		}
-		return false, refusalsToReport
+	if len(s.spent) >= s.capacity {
+		s.refusals.pending++
+		return false, s.refusals.release(now)
 	}
-	s.expiries[nonce] = expiry
+	s.spent[nonce] = struct{}{}
 	heap.Push(&s.byExpiry, spentNonce{nonce: nonce, expiry: expiry})
 	return true, 0
 }
@@ -156,6 +150,7 @@ func (h *nonceExpiryHeap) Push(x any)        { *h = append(*h, x.(spentNonce)) }
 func (h *nonceExpiryHeap) Pop() any {
 	old := *h
 	last := old[len(old)-1]
+	old[len(old)-1] = spentNonce{}
 	*h = old[:len(old)-1]
 	return last
 }
@@ -207,7 +202,7 @@ func signOAuthLinkToken(secret, payload string) string {
 //
 // Every check is a refusal, and none of them tell the caller which one failed.
 // A spend refused because the spent-nonce set is full is logged here, at most
-// once per registryEvictionReportInterval, since the caller cannot tell it apart.
+// once per capacityReportInterval, since the caller cannot tell it apart.
 func consumeOAuthLinkToken(ctx context.Context, secret, token string, userID uint) bool {
 	// The payload (decimal fields and a hex nonce joined by "|") and the
 	// base64url signature hold no dot, so the last dot is the separator.

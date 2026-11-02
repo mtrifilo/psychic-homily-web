@@ -309,10 +309,10 @@ func useSpentNonceSet(t *testing.T, set *spentNonceSet) {
 func (s *spentNonceSet) size() int {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if len(s.expiries) != len(s.byExpiry) {
-		panic(fmt.Sprintf("spentNonceSet: %d nonces in expiries, %d in byExpiry", len(s.expiries), len(s.byExpiry)))
+	if len(s.spent) != len(s.byExpiry) {
+		panic(fmt.Sprintf("spentNonceSet: %d nonces in spent, %d in byExpiry", len(s.spent), len(s.byExpiry)))
 	}
-	return len(s.expiries)
+	return len(s.spent)
 }
 
 func TestSpentNonceSet_RefusesCapacityBelowOne(t *testing.T) {
@@ -466,12 +466,12 @@ func TestSpentNonceSet_RefusalsReportedAtMostOncePerInterval(t *testing.T) {
 		t.Fatalf("expected the first refusal reported at once, got %d", reported)
 	}
 	for _, nonce := range []string{"c", "d"} {
-		clock.Advance(registryEvictionReportInterval / 4)
+		clock.Advance(capacityReportInterval / 4)
 		if _, reported := set.spend(nonce, expiry); reported != 0 {
 			t.Fatalf("expected no report inside the interval, got %d", reported)
 		}
 	}
-	clock.Advance(registryEvictionReportInterval / 2)
+	clock.Advance(capacityReportInterval / 2)
 	if _, reported := set.spend("e", expiry); reported != 3 {
 		t.Fatalf("expected the held-back refusals plus this one (3), got %d", reported)
 	}

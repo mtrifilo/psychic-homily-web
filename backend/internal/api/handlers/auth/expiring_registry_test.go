@@ -15,8 +15,14 @@ func (s *expiringRegistry[T]) reset() {
 	defer s.mu.Unlock()
 	s.entries = make(map[string]*list.Element)
 	s.order.Init()
-	s.evictedSinceReport = 0
-	s.lastReportAt = time.Time{}
+	s.evictions = reportThrottle{}
+}
+
+// remove drops whatever entry is stored under id, matching or not.
+func (s *expiringRegistry[T]) remove(id string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.removeLocked(id)
 }
 
 func (s *expiringRegistry[T]) size() int {
@@ -232,20 +238,20 @@ func TestExpiringRegistry_EvictionsReportedAtMostOncePerInterval(t *testing.T) {
 
 	// Two more evictions inside the interval are held back.
 	for _, id := range []string{"c", "d"} {
-		clock.Advance(registryEvictionReportInterval / 4)
+		clock.Advance(capacityReportInterval / 4)
 		if evicted := store.put(id, "http://localhost/"+id); evicted != 0 {
 			t.Fatalf("expected no report inside the interval, got %d", evicted)
 		}
 	}
 
 	// The first put once the interval has passed reports both.
-	clock.Advance(registryEvictionReportInterval / 2)
+	clock.Advance(capacityReportInterval / 2)
 	if evicted := store.put("e", "http://localhost/e"); evicted != 3 {
 		t.Fatalf("expected the held-back evictions plus this one (3), got %d", evicted)
 	}
 
 	// Without further evictions there is nothing to report.
-	clock.Advance(registryEvictionReportInterval)
+	clock.Advance(capacityReportInterval)
 	store.remove("e")
 	if evicted := store.put("f", "http://localhost/f"); evicted != 0 {
 		t.Fatalf("expected no report without new evictions, got %d", evicted)
