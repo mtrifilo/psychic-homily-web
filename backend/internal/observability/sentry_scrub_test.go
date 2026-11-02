@@ -254,3 +254,24 @@ func TestScrubSentryEvent_Extra(t *testing.T) {
 		t.Fatalf("non-string Extra values must pass through untouched; got %#v", got.Extra["run_count"])
 	}
 }
+
+// RedactSecrets redacts what ScrubText redacts and only skips the cap.
+func TestRedactSecretsMatchesScrubTextBelowTheCap(t *testing.T) {
+	for _, s := range []string{
+		"",
+		"plain text",
+		"boom: password=panic-secret",
+		`{"access_token":"a b c","x":1}`,
+		"Authorization: Negotiate abc123",
+		"dial postgres://u:p@ss@db/app?sslmode=require",
+		"auth_token=xyz and Bearer qqq",
+	} {
+		if got, want := RedactSecrets(s), ScrubText(s); got != want {
+			t.Errorf("RedactSecrets(%q) = %q, ScrubText = %q", s, got, want)
+		}
+	}
+	long := strings.Repeat("y", sentryValueLimit+10) + " token=abc"
+	if got := RedactSecrets(long); strings.Contains(got, "abc") || strings.HasSuffix(got, truncationMarker) {
+		t.Errorf("RedactSecrets on a long value: want the token redacted and no cap, got suffix %q", got[len(got)-30:])
+	}
+}

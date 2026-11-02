@@ -16,6 +16,7 @@ import (
 
 	"psychic-homily-backend/internal/logger"
 	authm "psychic-homily-backend/internal/models/auth"
+	"psychic-homily-backend/internal/observability"
 )
 
 // captureWithMiddleware runs HumaSentryContextMiddleware against req with a
@@ -53,13 +54,14 @@ func captureWithMiddleware(t *testing.T, req *http.Request) *sentry.Event {
 // --- SentryPanicEmailScrub tests ---
 
 // servePanicThroughSentry runs handler behind the sentryhttp handler and
-// SentryPanicEmailScrub, in production order, on a hub whose client records
-// every event it would send (error events and transactions).
+// SentryPanicEmailScrub, in production order, on a hub whose client applies
+// the production BeforeSend scrub and records every event it would send
+// (error events and transactions).
 func servePanicThroughSentry(t *testing.T, handler http.HandlerFunc) []*sentry.Event {
 	t.Helper()
 	var events []*sentry.Event
-	record := func(event *sentry.Event, _ *sentry.EventHint) *sentry.Event {
-		events = append(events, event)
+	record := func(event *sentry.Event, hint *sentry.EventHint) *sentry.Event {
+		events = append(events, observability.ScrubSentryEvent(event, hint))
 		return nil
 	}
 	client, err := sentry.NewClient(sentry.ClientOptions{
@@ -82,8 +84,8 @@ func servePanicThroughSentry(t *testing.T, handler http.HandlerFunc) []*sentry.E
 
 // The panic event carries no email from the panic value, for an error (its
 // exception values) and a plain value (its message), and a secret key the
-// email runs into stays redacted. Another event the request captures, and the
-// transaction, keep their text.
+// email runs into stays redacted. Another event the request captures keeps
+// its email, and the transaction is still sent.
 func TestSentryPanicEmailScrub_RedactsOnlyThePanicEvent(t *testing.T) {
 	const email = "jane.doe@example.com"
 	values := map[string]any{
@@ -127,6 +129,26 @@ func TestSentryPanicEmailScrub_RedactsOnlyThePanicEvent(t *testing.T) {
 				t.Errorf("note message = %q, want it unchanged", note.Message)
 			}
 		})
+	}
+}
+
+// An email straddling the BeforeSend length cap (observability's
+// sentryValueLimit, 2000 runes) is redacted before the cap applies, so no
+// fragment of it reaches the event.
+func TestSentryPanicEmailScrub_RedactsAnEmailAtTheCap(t *testing.T) {
+	events := servePanicThroughSentry(t, func(http.ResponseWriter, *http.Request) {
+		panic(strings.Repeat("x", 1990) + " jane.doe@example.com")
+	})
+	for _, event := range events {
+		if event.Type == "transaction" {
+			continue
+		}
+		if !strings.HasSuffix(event.Message, "[truncated]") {
+			t.Errorf("message does not end at the cap: %q", event.Message[len(event.Message)-40:])
+		}
+		if strings.Contains(event.Message, "jane") || strings.Contains(event.Message, "example") {
+			t.Errorf("message keeps part of the capped email: %q", event.Message[len(event.Message)-40:])
+		}
 	}
 }
 

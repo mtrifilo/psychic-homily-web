@@ -193,7 +193,7 @@ func TestScrubPanicValue(t *testing.T) {
 		{"chained at signs", "a@jane@example.com", redactedEmail},
 		{"no email", "runtime error: index out of range [3] with length 2", "runtime error: index out of range [3] with length 2"},
 		{"lone at sign", "meet @ noon", "meet @ noon"},
-		// The token rules apply as before.
+		// The token rules still redact their shapes.
 		{"secret key", "boom: password=panic-secret", "boom: password=[REDACTED]"},
 		{"bearer", "Bearer abc.def", "Bearer [REDACTED]"},
 		{"query", "GET https://h.example/p?token=abc failed", "GET https://h.example/p?[REDACTED] failed"},
