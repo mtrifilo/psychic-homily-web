@@ -3,7 +3,12 @@ import { Golos_Text, Hanken_Grotesk, Schibsted_Grotesk } from 'next/font/google'
 import { Suspense } from 'react'
 import './globals.css'
 
-/* Three-tier editorial type system: Hanken Grotesk for display and headings,
+/* The theme is `@theme inline`, so `--font-sans` is not a runtime custom property
+ * and Tailwind's preflight default (`--default-font-family`) never resolves to it.
+ * The body face therefore has to be applied as the `font-sans` utility on <body>;
+ * without it the page's default text renders in the system sans.
+ *
+ * Three-tier editorial type system: Hanken Grotesk for display and headings,
  * Schibsted Grotesk for body and UI, Golos Text for the data tier (counts, times,
  * prices, dates). Variable fonts, so no weight list; next/font self-hosts them at
  * build time. Golos Text ships no italic. Schibsted Grotesk and Golos Text have no
@@ -90,7 +95,7 @@ export default function RootLayout({
         <JsonLd data={generateOrganizationSchema()} />
       </head>
       <body
-        className={`${hankenGrotesk.variable} ${schibstedGrotesk.variable} ${golosText.variable} antialiased`}
+        className={`${hankenGrotesk.variable} ${schibstedGrotesk.variable} ${golosText.variable} font-sans antialiased`}
       >
         <Providers>
           <ThemeProvider
