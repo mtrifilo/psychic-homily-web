@@ -237,6 +237,22 @@ describe('AuthPage collision state', () => {
       expect(mockPush).not.toHaveBeenCalled()
     })
 
+    // The page holds its own redirect on a re-authentication, so the proof's
+    // navigation is the only one, and it takes the spent arrival out of
+    // history.
+    it('replaces the spent arrival with returnTo when the password proof succeeds', async () => {
+      const user = userEvent.setup()
+      arriveOnReauthCollision()
+
+      await user.type(screen.getByLabelText('Password'), 'hunter2-hunter2')
+      await user.click(screen.getByRole('button', { name: 'Sign in and connect Google' }))
+      const [, options] = mockLoginMutate.mock.calls[0]
+      options.onSuccess({ success: true, user: { id: 9 } })
+
+      expect(mockReplace).toHaveBeenCalledWith('/profile?tab=settings')
+      expect(mockPush).not.toHaveBeenCalled()
+    })
+
     it('carries the reason into a start with a different Google account', () => {
       arriveOnReauthCollision()
 
@@ -256,9 +272,7 @@ describe('AuthPage collision state', () => {
     })
   })
 
-  // The proof spends the pending link, so the arrival is replaced rather
-  // than left behind as a Back target that would show the link gone.
-  it('signs in with the prefilled address and lands on returnTo in place of the arrival', async () => {
+  it('signs in with the prefilled address and navigates to returnTo', async () => {
     const user = userEvent.setup()
     arriveOnCollision()
 
