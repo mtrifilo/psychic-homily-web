@@ -313,6 +313,31 @@ describe('ChangePassword', () => {
   })
 })
 
+// Set a password hands its confirmation to this card when the two swap, and
+// the line stays until this form is used.
+describe('ChangePassword notice', () => {
+  beforeEach(() => {
+    mockMutate.mockReset()
+    mockMutationState = { isPending: false, isError: false, error: null }
+  })
+
+  it('shows the handed-over line until the form submits', async () => {
+    const user = userEvent.setup()
+    const notice = 'Password set. You can now also sign in with your email and password.'
+    renderWithProviders(<ChangePassword notice={notice} />)
+
+    expect(screen.getByText(notice)).toBeInTheDocument()
+
+    await user.type(screen.getByLabelText('Current password'), 'oldpassword123')
+    await user.type(screen.getByLabelText('New password'), 'newSecurePassword123!')
+    await user.type(screen.getByLabelText('Confirm new password'), 'newSecurePassword123!')
+    await user.click(screen.getByRole('button', { name: 'Update password' }))
+
+    await waitFor(() => expect(mockMutate).toHaveBeenCalled())
+    expect(screen.queryByText(notice)).toBeNull()
+  })
+})
+
 // The branches of the shared formatter are pinned in
 // password-confirm-errors.test.ts; what is this surface's own is the copy it
 // binds.

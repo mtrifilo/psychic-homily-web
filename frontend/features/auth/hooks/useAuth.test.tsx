@@ -23,6 +23,7 @@ vi.mock('@/lib/api', () => ({
       VERIFY_EMAIL_SEND: '/auth/verify-email/send',
       VERIFY_EMAIL_CONFIRM: '/auth/verify-email/confirm',
       CHANGE_PASSWORD: '/auth/change-password',
+      SET_PASSWORD: '/auth/password',
       MAGIC_LINK_SEND: '/auth/magic-link/send',
       MAGIC_LINK_VERIFY: '/auth/magic-link/verify',
       DELETION_SUMMARY: '/auth/account/deletion-summary',
@@ -108,6 +109,7 @@ import {
   useSendVerificationEmail,
   useConfirmVerification,
   useChangePassword,
+  useSetPassword,
   useSendMagicLink,
   useVerifyMagicLink,
   useDeleteAccount,
@@ -966,6 +968,53 @@ describe('useAuth hooks', () => {
 
       await waitFor(() => expect(result.current.isError).toBe(true))
       expect((result.current.error as Error).name).toBe('AuthError')
+    })
+  })
+
+  describe('useSetPassword', () => {
+    it('sends the new password and refetches the profile on success', async () => {
+      mockApiRequest.mockResolvedValueOnce({ success: true, message: 'Password set' })
+
+      const { result } = renderHook(() => useSetPassword(), {
+        wrapper: createWrapper(),
+      })
+
+      await act(async () => {
+        await result.current.mutateAsync('a-new-strong-password-1!')
+      })
+
+      expect(mockApiRequest).toHaveBeenCalledWith(
+        '/auth/password',
+        expect.objectContaining({
+          method: 'POST',
+          body: JSON.stringify({ new_password: 'a-new-strong-password-1!' }),
+          credentials: 'include',
+        })
+      )
+      // The profile carries has_password, which picks the Settings card.
+      expect(mockRefetchSignedInProfile).toHaveBeenCalledTimes(1)
+    })
+
+    it('rejects a refusal with an AuthError carrying its code, and refetches nothing', async () => {
+      mockApiRequest.mockResolvedValueOnce({
+        success: false,
+        message: 'This account already has a password. Reload the page to change it.',
+        error_code: 'PASSWORD_ALREADY_SET',
+      })
+
+      const { result } = renderHook(() => useSetPassword(), {
+        wrapper: createWrapper(),
+      })
+
+      await act(async () => {
+        result.current.mutate('a-new-strong-password-1!')
+      })
+
+      await waitFor(() => expect(result.current.isError).toBe(true))
+      const error = result.current.error as AuthError
+      expect(error).toBeInstanceOf(AuthError)
+      expect(error.code).toBe('PASSWORD_ALREADY_SET')
+      expect(mockRefetchSignedInProfile).not.toHaveBeenCalled()
     })
   })
 

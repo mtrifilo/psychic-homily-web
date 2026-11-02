@@ -45,3 +45,27 @@ func TestReauthRefusalMatchesTheFrontend(t *testing.T) {
 		}
 	}
 }
+
+// The already-set refusal follows the same split: the Settings card renders
+// copy keyed on the code, so the code and the sentence are checked here the
+// same way.
+func TestPasswordAlreadySetRefusalMatchesTheFrontend(t *testing.T) {
+	repoRoot, err := filepath.Abs("../../..")
+	if err != nil {
+		t.Fatalf("resolving the repo root: %v", err)
+	}
+	const file = "frontend/lib/errors/authErrors.ts"
+	content, err := os.ReadFile(filepath.Join(repoRoot, file))
+	if err != nil {
+		// A moved frontend module is a broken assumption, not a pass.
+		t.Fatalf("reading %s: %v", file, err)
+	}
+	for _, want := range []string{CodePasswordAlreadySet, passwordAlreadySetMessage} {
+		if !strings.Contains(string(content), want) {
+			t.Errorf("%s does not contain %q.\n"+
+				"The two sides of this refusal have to name the same thing: change both, or\n"+
+				"neither. See CodePasswordAlreadySet and passwordAlreadySetMessage in this package.",
+				file, want)
+		}
+	}
+}

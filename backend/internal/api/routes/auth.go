@@ -223,6 +223,14 @@ func setupProtectedAuthRoutes(rc RouteContext) {
 	useAuthBudget(passwordConfirmGroup, authScopedRateLimiter(middleware.LimiterPasswordConfirm, PasswordConfirmAttemptsPerMinute))
 	huma.Post(passwordConfirmGroup, "/auth/change-password", authHandler.ChangePasswordHandler)
 
+	// Setting a first password confirms no password, so it is not on
+	// passwordConfirmGroup and spends nothing from that budget: it meters on a
+	// counter of its own at the same size. The handler refuses a session that
+	// did not authenticate recently (middleware.RequireRecentSessionAuth).
+	setPasswordGroup := huma.NewGroup(rc.Protected, "")
+	useAuthBudget(setPasswordGroup, authScopedRateLimiter(middleware.LimiterSetPassword, PasswordConfirmAttemptsPerMinute))
+	huma.Post(setPasswordGroup, "/auth/password", authHandler.SetPasswordHandler)
+
 	// Token refresh uses lenient middleware (accepts tokens expired within 7 days)
 	lenientGroup := huma.NewGroup(rc.API, "")
 	lenientGroup.UseMiddleware(middleware.LenientHumaJWTMiddleware(rc.SC.JWT, 7*24*time.Hour))

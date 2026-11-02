@@ -515,6 +515,7 @@ func TestRateLimitLogValuesAreStable(t *testing.T) {
 		"LimiterAppleSignIn":                   "apple_sign_in",
 		"LimiterVerificationResend":            "verification_resend",
 		"LimiterPasswordConfirm":               "password_confirm",
+		"LimiterSetPassword":                   "set_password",
 		"LimiterOAuthLinkToken":                "oauth_link_token",
 		"LimiterTagCreate":                     "tag_create",
 		"LimiterTagVote":                       "tag_vote",

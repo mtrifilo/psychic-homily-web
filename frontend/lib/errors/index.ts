@@ -6,8 +6,10 @@ export {
   isReauthRequired,
   isAccountRecoverable,
   isAccountInactive,
+  isPasswordAlreadySet,
   getAuthErrorMessage,
   REAUTH_REQUIRED_MESSAGE,
+  PASSWORD_ALREADY_SET_MESSAGE,
   type AuthErrorCodeType,
 } from './authErrors'
 
