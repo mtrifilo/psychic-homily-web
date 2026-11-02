@@ -179,6 +179,19 @@ func (h *OAuthHTTPHandler) OAuthLinkHTTPHandler(w http.ResponseWriter, r *http.R
 		return
 	}
 
+	// Connecting a provider waits for the account's address to be verified:
+	// until then nothing shows that the account's holder reads that
+	// mailbox. Checked before re-authentication and before the one-time
+	// token is spent, so the reader is sent to the one step that helps.
+	if !user.EmailVerified {
+		logger.AuthWarn(ctx, "oauth_link_refused_email_unverified",
+			"provider", provider,
+			"user_id", user.ID,
+		)
+		redirectToLinkResult(w, r, frontendURL, autherrors.CodeEmailVerificationRequired)
+		return
+	}
+
 	// Re-authentication is checked BEFORE the one-time token is spent. A
 	// refusal here sends the user to sign in and come back, and burning the
 	// token on the way would make the return trip fail for a second reason.

@@ -401,6 +401,22 @@ describe('OAuthAccounts', () => {
     ).toBeInTheDocument()
   })
 
+  it('says an unverified address has to be verified before connecting', async () => {
+    mockOAuthData = { accounts: [] }
+    mockSearchParams = new URLSearchParams(
+      'tab=settings&oauth_link_error=EMAIL_VERIFICATION_REQUIRED'
+    )
+
+    renderWithProviders(<OAuthAccounts />)
+
+    expect(
+      await screen.findByText(
+        'Verify your email address first, then connect this provider from this page.'
+      )
+    ).toBeInTheDocument()
+    expect(screen.queryByText('Could not connect that account.')).not.toBeInTheDocument()
+  })
+
   it('says a rate-limited connection should wait a minute', async () => {
     mockOAuthData = { accounts: [] }
     mockSearchParams = new URLSearchParams('tab=settings&oauth_link_error=RATE_LIMITED')

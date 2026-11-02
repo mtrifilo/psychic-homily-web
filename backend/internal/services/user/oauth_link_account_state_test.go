@@ -16,6 +16,15 @@ import (
 // in, for a session that has not been revoked, judged inside the transaction
 // that writes the link.
 
+// createLinkableAccount is createLiveAccount with a verified address, the
+// state LinkOAuthAccountToUser requires before it attaches anything.
+func (suite *UserServiceIntegrationTestSuite) createLinkableAccount(address string) *authm.User {
+	suite.T().Helper()
+	user := &authm.User{Email: stringPtr(address), IsActive: true, EmailVerified: true}
+	suite.Require().NoError(suite.db.Create(user).Error)
+	return user
+}
+
 // serviceWithWriteBeforeItsFirstQuery runs write before the service's first
 // query. A link's first query is the first statement of its transaction, so
 // write lands after any check a caller made beforehand and before the link
@@ -36,7 +45,7 @@ func (suite *UserServiceIntegrationTestSuite) TestLinkOAuthAccountToUser_Account
 	for _, state := range signInAccountStates {
 		suite.Run(state.name, func() {
 			address := "link-state-" + state.name + "@example.com"
-			owner := suite.createLiveAccount(address)
+			owner := suite.createLinkableAccount(address)
 			state.apply(suite, owner.ID)
 
 			linked, err := suite.userService.LinkOAuthAccountToUser(owner.ID, owner.SessionsValidAfter, goth.User{
@@ -88,7 +97,7 @@ func (suite *UserServiceIntegrationTestSuite) TestLinkOAuthAccountToUser_Account
 		}
 		suite.Run(state.name, func() {
 			address := "link-state-window-" + state.name + "@example.com"
-			owner := suite.createLiveAccount(address)
+			owner := suite.createLinkableAccount(address)
 			callerView, err := suite.userService.GetUserByID(owner.ID)
 			suite.Require().NoError(err)
 			suite.Require().True(callerView.CanSignIn())
@@ -113,7 +122,7 @@ func (suite *UserServiceIntegrationTestSuite) TestLinkOAuthAccountToUser_Account
 // link to commit, so the outcome is a link followed by a deactivation and
 // never a link written to an account that was already closed.
 func (suite *UserServiceIntegrationTestSuite) TestLinkOAuthAccountToUser_DeactivationWaitsForTheLinkThatReadTheAccount() {
-	owner := suite.createLiveAccount("link-state-serialized@example.com")
+	owner := suite.createLinkableAccount("link-state-serialized@example.com")
 
 	var concurrent <-chan error
 	waitedForLink := false
@@ -152,7 +161,7 @@ func (suite *UserServiceIntegrationTestSuite) revokeSessions(userID uint) time.T
 // the account, links nothing: the write compares the session's revocation
 // stamp with the account's under the row lock.
 func (suite *UserServiceIntegrationTestSuite) TestLinkOAuthAccountToUser_SessionRevokedAfterCallersCheck_Refused() {
-	owner := suite.createLiveAccount("link-revoked-window@example.com")
+	owner := suite.createLinkableAccount("link-revoked-window@example.com")
 	svc, ran := suite.serviceWithWriteBeforeItsFirstQuery(func() { suite.revokeSessions(owner.ID) })
 
 	linked, err := svc.LinkOAuthAccountToUser(owner.ID, owner.SessionsValidAfter, goth.User{
@@ -172,7 +181,7 @@ func (suite *UserServiceIntegrationTestSuite) TestLinkOAuthAccountToUser_Session
 // A session minted after the account's latest revocation carries its stamp
 // and links.
 func (suite *UserServiceIntegrationTestSuite) TestLinkOAuthAccountToUser_SessionMintedAfterARevocationLinks() {
-	owner := suite.createLiveAccount("link-after-revocation@example.com")
+	owner := suite.createLinkableAccount("link-after-revocation@example.com")
 	revokedAt := suite.revokeSessions(owner.ID)
 
 	linked, err := suite.userService.LinkOAuthAccountToUser(owner.ID, &revokedAt, goth.User{

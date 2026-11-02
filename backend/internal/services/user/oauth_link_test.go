@@ -17,7 +17,7 @@ func (suite *UserServiceIntegrationTestSuite) TestLinkOAuthAccountToUser_Attache
 	owner := &authm.User{
 		Email:         stringPtr("link.session.owner@example.com"),
 		IsActive:      true,
-		EmailVerified: false,
+		EmailVerified: true,
 	}
 	suite.Require().NoError(suite.db.Create(owner).Error)
 
@@ -45,8 +45,9 @@ func (suite *UserServiceIntegrationTestSuite) TestLinkOAuthAccountToUser_Attache
 }
 
 // A link proves possession of the provider account, not of the mailbox on the
-// account it attaches to, so it must not advance verification.
-func (suite *UserServiceIntegrationTestSuite) TestLinkOAuthAccountToUser_LeavesEmailVerificationAlone() {
+// account it attaches to, so it must not advance verification, and an
+// account whose address is unverified is refused before anything is attached.
+func (suite *UserServiceIntegrationTestSuite) TestLinkOAuthAccountToUser_UnverifiedAddress_Refused() {
 	owner := &authm.User{
 		Email:         stringPtr("link.stays.unverified@example.com"),
 		IsActive:      true,
@@ -54,17 +55,40 @@ func (suite *UserServiceIntegrationTestSuite) TestLinkOAuthAccountToUser_LeavesE
 	}
 	suite.Require().NoError(suite.db.Create(owner).Error)
 
-	_, err := suite.userService.LinkOAuthAccountToUser(owner.ID, owner.SessionsValidAfter, goth.User{
+	linked, err := suite.userService.LinkOAuthAccountToUser(owner.ID, owner.SessionsValidAfter, goth.User{
 		UserID:  "link-unverified-subject",
 		Email:   "link.stays.unverified@example.com",
 		RawData: map[string]any{"verified_email": true},
 	}, "google")
-	suite.Require().NoError(err)
 
+	suite.Require().Nil(linked)
+	var authErr *apperrors.AuthError
+	suite.Require().ErrorAs(err, &authErr)
+	suite.Equal(apperrors.CodeEmailVerificationRequired, authErr.Code)
+	suite.assertNoOAuthAccountFor(owner.ID)
 	suite.assertStoredEmailVerified(owner.ID, false)
+}
+
+// A verified account links, and the link leaves its address as it was.
+func (suite *UserServiceIntegrationTestSuite) TestLinkOAuthAccountToUser_VerifiedAddress_LinksAndLeavesTheAddressAlone() {
+	owner := &authm.User{
+		Email:         stringPtr("link.verified@example.com"),
+		IsActive:      true,
+		EmailVerified: true,
+	}
+	suite.Require().NoError(suite.db.Create(owner).Error)
+
+	linked, err := suite.userService.LinkOAuthAccountToUser(owner.ID, owner.SessionsValidAfter, goth.User{
+		UserID: "link-verified-subject",
+		Email:  "someone.else@example.com",
+	}, "google")
+	suite.Require().NoError(err)
+	suite.Require().Len(linked.OAuthAccounts, 1)
+
+	suite.assertStoredEmailVerified(owner.ID, true)
 	var stored authm.User
 	suite.Require().NoError(suite.db.First(&stored, owner.ID).Error)
-	suite.Equal("link.stays.unverified@example.com", *stored.Email)
+	suite.Equal("link.verified@example.com", *stored.Email)
 }
 
 // Connecting the account you already connected is a no-op, not an error: a
@@ -198,7 +222,7 @@ func (suite *UserServiceIntegrationTestSuite) TestLinkOAuthAccountToUser_Complet
 	account := &authm.User{
 		Email:         stringPtr("link.remediation@example.com"),
 		IsActive:      true,
-		EmailVerified: false,
+		EmailVerified: true,
 	}
 	suite.Require().NoError(suite.db.Create(account).Error)
 

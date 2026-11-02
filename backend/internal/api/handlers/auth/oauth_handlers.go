@@ -568,6 +568,10 @@ func authRefusalCarriesItsOwnCopy(code string) bool {
 		// names: an identity that resolved by its subject to the account, or
 		// a provider that vouched for the verified address of the account.
 		autherrors.CodeAccountRecoverable,
+		// Returned only on a link, to a signed session for the account the
+		// link intent names, so it tells that caller only their own
+		// account's state.
+		autherrors.CodeEmailVerificationRequired,
 		// Says only that the provider's own claim cannot be stored
 		// (shared.ValidateProviderEmailClaim); it names nothing about any
 		// account. Every CodeValidationFailed refusal these surfaces receive

@@ -635,6 +635,11 @@ func (s *UserService) createNewUserOauthWithConsent(
 //     (CodeOAuthProviderAlreadyLinked)
 //   - the provider returned no subject, the value the identity resolves on
 //
+// It also refuses an account whose address is not verified
+// (CodeEmailVerificationRequired): nothing then shows that the session's
+// holder reads that mailbox, and the identity would keep signing in to an
+// address that may belong to someone else.
+//
 // It does not touch users.email or users.email_verified. A provider account is
 // not evidence about the mailbox on the account it is being attached to.
 func (s *UserService) LinkOAuthAccountToUser(userID uint, sessionsValidAfter *time.Time, gothUser goth.User, provider string) (*authm.User, error) {
@@ -666,6 +671,20 @@ func (s *UserService) LinkOAuthAccountToUser(userID uint, sessionsValidAfter *ti
 	if err := shared.LockSessionAccount(tx, userID, sessionsValidAfter); err != nil {
 		tx.Rollback()
 		return nil, err
+	}
+	// Read under the FOR SHARE lock LockSessionAccount holds on the row, so
+	// the value cannot change before the attach commits.
+	var verified []bool
+	if err := tx.Model(&authm.User{}).Where("id = ?", userID).Pluck("email_verified", &verified).Error; err != nil {
+		tx.Rollback()
+		return nil, fmt.Errorf("failed to read address verification: %w", err)
+	}
+	if len(verified) != 1 || !verified[0] {
+		tx.Rollback()
+		logger.Default().Warn("oauth_link_refused_email_unverified",
+			"provider", provider,
+			"user_id", userID)
+		return nil, apperrors.ErrEmailVerificationRequired(provider)
 	}
 
 	if err := AttachOAuthIdentityTx(tx, userID, provider, gothUser); err != nil {
