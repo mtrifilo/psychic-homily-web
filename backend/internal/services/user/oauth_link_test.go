@@ -81,6 +81,9 @@ func (suite *UserServiceIntegrationTestSuite) TestLinkOAuthAccountToUser_NoAddre
 	suite.Require().NoError(err)
 	suite.Require().Len(linked.OAuthAccounts, 1)
 	suite.assertStoredEmailVerified(owner.ID, false)
+	var stored authm.User
+	suite.Require().NoError(suite.db.First(&stored, owner.ID).Error)
+	suite.Nil(stored.Email, "the link does not give the account the provider's address")
 }
 
 // A verified account links, and the link leaves its address as it was.

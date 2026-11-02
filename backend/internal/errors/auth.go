@@ -104,9 +104,10 @@ const (
 	// sign-in rather than report a permission failure or clear the session.
 	CodeReauthRequired = "REAUTH_REQUIRED"
 	// CodeEmailVerificationRequired indicates that connecting a provider
-	// identity to the signed-in account was refused because the account's
-	// address is not verified (authm.User.EmailVerified false). The caller IS
-	// the account owner; the remedy is verifying the address, then connecting.
+	// identity to the signed-in account was refused because the account has
+	// an address it has not verified (authm.User.MayConnectProvider). The
+	// caller IS the account owner; the remedy is verifying the address, then
+	// connecting.
 	CodeEmailVerificationRequired = "EMAIL_VERIFICATION_REQUIRED"
 	// CodeUnknownHomeMetro indicates a home-area metro code that does not resolve
 	// in the CBSA dataset venue and artist metros are drawn from. Typed so the

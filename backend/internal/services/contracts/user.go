@@ -335,8 +335,9 @@ type UserServiceInterface interface {
 	// authenticated it (the SessionsValidAfter its validation loaded). Refuses
 	// with shared.LockSessionAccount's refusals when the account may not sign
 	// in or that session has been revoked since, with a typed AuthError
-	// carrying CodeEmailVerificationRequired when the account's address is
-	// not verified, and with one carrying CodeOAuthIdentityInUse or
+	// carrying CodeEmailVerificationRequired when the account may not connect
+	// a provider (authm.User.MayConnectProvider: it has an address it has not
+	// verified), and with one carrying CodeOAuthIdentityInUse or
 	// CodeOAuthProviderAlreadyLinked rather than retargeting an existing link.
 	LinkOAuthAccountToUser(userID uint, sessionsValidAfter *time.Time, gothUser goth.User, provider string) (*authm.User, error)
 	// AuthenticateUserWithPassword refuses a correct password for an account
