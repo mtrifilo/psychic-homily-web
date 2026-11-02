@@ -18,6 +18,7 @@ import (
 
 	autherrors "psychic-homily-backend/internal/errors"
 	"psychic-homily-backend/internal/logger"
+	"psychic-homily-backend/internal/observability"
 )
 
 const recoverTestRequestID = "recover-test-request-id"
@@ -185,6 +186,8 @@ func TestScrubPanicValue(t *testing.T) {
 		{"dotless domain", "root@localhost refused", redactedEmail + " refused"},
 		{"unicode", "jöhn@exämple.de", redactedEmail},
 		{"two emails", "a@b.io, c@d.io", redactedEmail + ", " + redactedEmail},
+		{"key and equals", "Email=jane@example.com", "Email=" + redactedEmail},
+		{"percent-encoded", "GET /api/users/jane%40example.com failed", "GET /api/users/" + redactedEmail + " failed"},
 		{"no email", "runtime error: index out of range [3] with length 2", "runtime error: index out of range [3] with length 2"},
 		{"lone at sign", "meet @ noon", "meet @ noon"},
 		// The token rules apply as before.
@@ -192,8 +195,7 @@ func TestScrubPanicValue(t *testing.T) {
 		{"bearer", "Bearer abc.def", "Bearer [REDACTED]"},
 		{"query", "GET https://h.example/p?token=abc failed", "GET https://h.example/p?[REDACTED] failed"},
 		{"url userinfo", "dial postgres://admin:pw@db.internal/app", "dial postgres://[REDACTED]@[REDACTED]/app"},
-		// '=' is a local-part character, so the key joins the redaction.
-		{"email after a key", "token=jane@example.com", redactedEmail},
+		{"email as a secret value", "token=jane@example.com", "token=[REDACTED]"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -201,6 +203,27 @@ func TestScrubPanicValue(t *testing.T) {
 				t.Errorf("scrubPanicValue(%q) = %q, want %q", c.value, got, c.want)
 			}
 		})
+	}
+
+	// A secret value holding an '@' is redacted exactly as ScrubText alone
+	// redacts it: the email pass leaves the key in place for ScrubText's
+	// key=value rules, which then take the whole value.
+	for _, value := range []string{
+		"password=P@ssw0rd#2024",
+		"token=abc@def/SECRETTAIL",
+		"api_key=k3y@part;REST_OF_KEY",
+		"login failed: password=hunter2@x:moresecret",
+		"client_secret=s3c@r3t(tail)",
+		"session=a@b?TAIL",
+		`auth_token=x@y\TAIL`,
+		"jwt=x@y[TAIL]",
+		"password: P@ss#tail",
+		`{"password":"P@ss word#tail"}`,
+		"Authorization: Basic us@er/xyz",
+	} {
+		if got, want := scrubPanicValue(value), observability.ScrubText(value); got != want {
+			t.Errorf("scrubPanicValue(%q) = %q, want ScrubText's %q", value, got, want)
+		}
 	}
 
 	// An email straddling the length cap (observability's sentryValueLimit,
