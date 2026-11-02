@@ -22946,7 +22946,10 @@ export interface operations {
     "post-auth-password": {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                Origin?: string;
+                Referer?: string;
+            };
             path?: never;
             cookie?: never;
         };

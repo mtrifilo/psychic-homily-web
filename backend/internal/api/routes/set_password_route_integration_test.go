@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
@@ -58,6 +59,7 @@ func newSetPasswordFixture(t *testing.T, email string) *setPasswordFixture {
 	t.Cleanup(td.Cleanup)
 
 	cfg := testConfig()
+	cfg.Email.FrontendURL = setPasswordFrontend
 	sc := services.NewServiceContainer(td.DB, cfg)
 	sc.PasswordValidator = authsvc.NewPasswordValidatorWithTransport(breachListing{})
 
@@ -80,6 +82,23 @@ func (f *setPasswordFixture) session(t *testing.T, authAt time.Time) string {
 		t.Fatalf("mint session: %v", err)
 	}
 	return token
+}
+
+// setPasswordFrontend is the frontend the fixture configures; set-password
+// requests carry it as their Origin, as the browser's do.
+const setPasswordFrontend = "http://localhost:3000"
+
+// sendSetPassword posts to /auth/password from the frontend's origin.
+func sendSetPassword(t *testing.T, router *chi.Mux, body, ip, session string) *httptest.ResponseRecorder {
+	t.Helper()
+	req := httptest.NewRequest(http.MethodPost, "/auth/password", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Origin", setPasswordFrontend)
+	req.Header.Set("Authorization", "Bearer "+session)
+	req.RemoteAddr = ip
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+	return w
 }
 
 func setPasswordBody(password string) string {
@@ -109,7 +128,7 @@ func TestSetPasswordRouteThroughRouter(t *testing.T) {
 	f := newSetPasswordFixture(t, "set-password-route@test.com")
 
 	t.Run("a stale session is asked to sign in again", func(t *testing.T) {
-		w := sendAuthed(t, f.router, "POST", "/auth/password", setPasswordBody("a-new-strong-password-1!"),
+		w := sendSetPassword(t, f.router, setPasswordBody("a-new-strong-password-1!"),
 			"203.0.113.171:1234", f.session(t, time.Now().Add(-2*time.Hour)))
 		if w.Code != http.StatusForbidden {
 			t.Fatalf("status = %d, want 403; body %s", w.Code, w.Body.String())
@@ -121,8 +140,27 @@ func TestSetPasswordRouteThroughRouter(t *testing.T) {
 
 	fresh := f.session(t, time.Now())
 
+	// The headers reach the handler through huma's binding: a request whose
+	// Origin is not the frontend, or that names none, is refused here.
+	for name, origin := range map[string]string{"foreign Origin": "https://evil.example", "no Origin": ""} {
+		t.Run("a request with "+name+" is refused", func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodPost, "/auth/password", strings.NewReader(setPasswordBody("a-new-strong-password-1!")))
+			req.Header.Set("Content-Type", "application/json")
+			if origin != "" {
+				req.Header.Set("Origin", origin)
+			}
+			req.Header.Set("Authorization", "Bearer "+fresh)
+			req.RemoteAddr = "203.0.113.175:1234"
+			w := httptest.NewRecorder()
+			f.router.ServeHTTP(w, req)
+			if w.Code != http.StatusForbidden || !strings.Contains(w.Body.String(), "Set a password from Settings") {
+				t.Fatalf("got %d %s, want the 403 origin refusal", w.Code, w.Body.String())
+			}
+		})
+	}
+
 	t.Run("a breached password is refused in the validator's words", func(t *testing.T) {
-		w := sendAuthed(t, f.router, "POST", "/auth/password", setPasswordBody(setPasswordBreachedValue),
+		w := sendSetPassword(t, f.router, setPasswordBody(setPasswordBreachedValue),
 			"203.0.113.172:1234", fresh)
 		reply := decodeSetPasswordReply(t, w.Body.String())
 		if w.Code != http.StatusOK || reply.Success || reply.ErrorCode != autherrors.CodeValidationFailed {
@@ -134,7 +172,7 @@ func TestSetPasswordRouteThroughRouter(t *testing.T) {
 	})
 
 	t.Run("a fresh session sets the password and keeps its session", func(t *testing.T) {
-		w := sendAuthed(t, f.router, "POST", "/auth/password", setPasswordBody("a-new-strong-password-1!"),
+		w := sendSetPassword(t, f.router, setPasswordBody("a-new-strong-password-1!"),
 			"203.0.113.173:1234", fresh)
 		reply := decodeSetPasswordReply(t, w.Body.String())
 		if w.Code != http.StatusOK || !reply.Success {
@@ -157,7 +195,7 @@ func TestSetPasswordRouteThroughRouter(t *testing.T) {
 		// A session validated after the first set loads the principal with
 		// its password, so this is the early refusal; the service's own
 		// refusal under the row lock is covered in services/user.
-		w := sendAuthed(t, f.router, "POST", "/auth/password", setPasswordBody("another-strong-password-2!"),
+		w := sendSetPassword(t, f.router, setPasswordBody("another-strong-password-2!"),
 			"203.0.113.174:1234", fresh)
 		reply := decodeSetPasswordReply(t, w.Body.String())
 		if w.Code != http.StatusOK || reply.Success || reply.ErrorCode != autherrors.CodePasswordAlreadySet {
@@ -184,12 +222,12 @@ func TestSetPasswordRouteHasItsOwnBudget(t *testing.T) {
 	t.Run("its own budget throttles it", func(t *testing.T) {
 		const ip = "203.0.113.181:1234"
 		for i := 0; i < PasswordConfirmAttemptsPerMinute; i++ {
-			w := sendAuthed(t, f.router, "POST", "/auth/password", emptyBody, ip, session)
+			w := sendSetPassword(t, f.router, emptyBody, ip, session)
 			if !strings.Contains(w.Body.String(), "New password is required") {
 				t.Fatalf("attempt %d did not reach the handler: %d %s", i+1, w.Code, w.Body.String())
 			}
 		}
-		w := sendAuthed(t, f.router, "POST", "/auth/password", emptyBody, ip, session)
+		w := sendSetPassword(t, f.router, emptyBody, ip, session)
 		if w.Code != http.StatusTooManyRequests {
 			t.Fatalf("request past the budget returned %d, want 429", w.Code)
 		}
@@ -211,7 +249,7 @@ func TestSetPasswordRouteHasItsOwnBudget(t *testing.T) {
 		if w := sendAuthed(t, f.router, "POST", changePassword.path, changePassword.body, ip, session); w.Code != http.StatusTooManyRequests {
 			t.Fatalf("change-password past its budget returned %d, want 429", w.Code)
 		}
-		if w := sendAuthed(t, f.router, "POST", "/auth/password", emptyBody, ip, session); w.Code == http.StatusTooManyRequests {
+		if w := sendSetPassword(t, f.router, emptyBody, ip, session); w.Code == http.StatusTooManyRequests {
 			t.Error("set-password was throttled by the password-confirm budget; the two share a counter")
 		}
 	})

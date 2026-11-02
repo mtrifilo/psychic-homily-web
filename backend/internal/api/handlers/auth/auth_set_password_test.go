@@ -23,10 +23,21 @@ import (
 	"psychic-homily-backend/internal/services/shared"
 )
 
+// setPasswordFrontend is the frontend the handler tests configure: the
+// production apex, whose deployment also serves the www form.
+const setPasswordFrontend = "https://psychichomily.com"
+
+// setPasswordInput is a request from the frontend.
 func setPasswordInput(password string) *SetPasswordRequest {
-	input := &SetPasswordRequest{}
+	input := &SetPasswordRequest{Origin: setPasswordFrontend}
 	input.Body.NewPassword = password
 	return input
+}
+
+func setPasswordConfig() *config.Config {
+	cfg := testConfig()
+	cfg.Email.FrontendURL = setPasswordFrontend
+	return cfg
 }
 
 // passwordlessUser is an account that signs in with a provider and has no
@@ -54,6 +65,7 @@ func (r *setPasswordRecorder) fn(userID uint, password string, stamp *time.Time)
 
 func setPasswordHandler(rec *setPasswordRecorder, opts ...func(*AuthHandler)) *AuthHandler {
 	base := func(ah *AuthHandler) {
+		ah.config = setPasswordConfig()
 		ah.userService = &testhelpers.MockUserService{SetPasswordFn: rec.fn}
 		ah.jwtService = &testhelpers.MockJWTService{
 			RenewSessionTokenFn: func(*authm.User, time.Time) (string, error) { return "renewed-token", nil },
@@ -101,6 +113,69 @@ func TestSetPasswordHandler_FreshSessionSetsThePassword(t *testing.T) {
 	}
 	if lifetime := time.Until(resp.SetCookie.Expires); lifetime < 23*time.Hour || lifetime > 25*time.Hour {
 		t.Errorf("cookie lifetime = %v, want 24 hours, as change-password sets", lifetime)
+	}
+}
+
+// The write answers only a request from the frontend, named by Origin or, when
+// Origin is absent or opaque, by Referer. A request naming neither is refused,
+// before the freshness check, the validator or the write.
+func TestSetPasswordHandler_OriginGate(t *testing.T) {
+	cases := []struct {
+		name    string
+		origin  string
+		referer string
+		wantSet bool
+	}{
+		{"the apex Origin", "https://psychichomily.com", "", true},
+		{"the www Origin", "https://www.psychichomily.com", "", true},
+		{"our Referer alone", "", "https://www.psychichomily.com/profile?tab=settings", true},
+		{"a foreign Origin", "https://evil.example", "", false},
+		{"a same-site subdomain that is not the frontend", "https://stage.psychichomily.com", "", false},
+		{"a foreign Origin with our Referer", "https://evil.example", "https://psychichomily.com/profile", false},
+		{"no Origin and no Referer", "", "", false},
+		{"an opaque Origin and nothing else", "null", "", false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			rec := &setPasswordRecorder{}
+			h := setPasswordHandler(rec)
+			input := setPasswordInput("a-new-strong-password-1!")
+			input.Origin, input.Referer = tc.origin, tc.referer
+
+			var buf bytes.Buffer
+			ctx := logger.NewContext(
+				testhelpers.CtxWithSessionAuthTime(passwordlessUser(), time.Now()),
+				slog.New(slog.NewJSONHandler(&buf, nil)),
+			)
+			resp, err := h.SetPasswordHandler(ctx, input)
+
+			if tc.wantSet {
+				if err != nil || !resp.Body.Success {
+					t.Fatalf("a request from the frontend must set the password: resp=%+v err=%v", resp, err)
+				}
+				if rec.calls != 1 {
+					t.Errorf("service calls = %d, want 1", rec.calls)
+				}
+				return
+			}
+			testhelpers.AssertHumaErrorWithDetail(t, err, http.StatusForbidden, "Set a password from Settings")
+			if rec.calls != 0 {
+				t.Error("a refused request must not reach the service")
+			}
+			var line map[string]any
+			if err := json.Unmarshal(buf.Bytes(), &line); err != nil {
+				t.Fatalf("want exactly one JSON log line: %v: %s", err, buf.String())
+			}
+			if line["msg"] != "set_password_refused_origin" {
+				t.Errorf("logged %v, want set_password_refused_origin", line["msg"])
+			}
+			// The line names no account and echoes nothing the request sent.
+			for _, key := range []string{"user_id", "origin", "referer", "email"} {
+				if _, ok := line[key]; ok {
+					t.Errorf("the refusal log carries %q", key)
+				}
+			}
+		})
 	}
 }
 

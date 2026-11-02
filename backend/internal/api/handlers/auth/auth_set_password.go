@@ -7,6 +7,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/danielgtaylor/huma/v2"
+
 	"psychic-homily-backend/internal/api/middleware"
 	autherrors "psychic-homily-backend/internal/errors"
 	"psychic-homily-backend/internal/logger"
@@ -17,10 +19,18 @@ import (
 // and session-refusal logs.
 const setPasswordOperation = "set_password"
 
-// SetPasswordRequest is the body of POST /auth/password. There is no current
-// password to confirm: the route serves only accounts that have none.
+// setPasswordOriginRefusal is the 403 detail for a request that does not come
+// from the frontend.
+const setPasswordOriginRefusal = "Set a password from Settings"
+
+// SetPasswordRequest is POST /auth/password. There is no current password to
+// confirm: the route serves only accounts that have none. Origin and Referer
+// are the browser's account of where the request came from; the handler
+// refuses one that does not name the frontend (namesFrontend).
 type SetPasswordRequest struct {
-	Body struct {
+	Origin  string `header:"Origin"`
+	Referer string `header:"Referer"`
+	Body    struct {
 		NewPassword string `json:"new_password" doc:"The account's first password"`
 	}
 }
@@ -29,7 +39,8 @@ type SetPasswordRequest struct {
 // on (a weak or breached password, a password already set, a closed account)
 // is a 200 with success false and its code, as change-password answers; a
 // stale session is a 403 REAUTH_REQUIRED and a revoked one a 401
-// TOKEN_INVALID, both in the JWT middleware's envelope.
+// TOKEN_INVALID, both in the JWT middleware's envelope; a request that does
+// not come from the frontend is a 403 huma error.
 type SetPasswordResponse struct {
 	// Carries the renewed session on success only. Every other path leaves it
 	// zero, which huma writes as an empty Set-Cookie header that clears
@@ -59,6 +70,16 @@ func (h *AuthHandler) SetPasswordHandler(ctx context.Context, input *SetPassword
 	if contextUser == nil {
 		logger.AuthWarn(ctx, "set_password_no_user")
 		return refusePasskey(resp, autherrors.CodeUnauthorized, "User not found in context")
+	}
+
+	// The cookie rides on any request from a same-site origin, and a forged
+	// POST needs no response to set a password the forger knows, so the
+	// write answers only a request from the frontend. One that names
+	// neither Origin nor Referer is refused: nothing then says where it came
+	// from.
+	if !namesFrontend(input.Origin, input.Referer, h.config.Email.FrontendURL) {
+		logger.AuthWarn(ctx, "set_password_refused_origin")
+		return nil, huma.Error403Forbidden(setPasswordOriginRefusal)
 	}
 
 	if err := middleware.RequireRecentSessionAuth(ctx, setPasswordOperation); err != nil {
