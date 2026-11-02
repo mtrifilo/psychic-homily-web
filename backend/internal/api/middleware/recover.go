@@ -80,12 +80,10 @@ func isAbortHandler(recovered any) bool {
 	return ok && errors.Is(err, http.ErrAbortHandler)
 }
 
-// scrubPanicValue renders a panic value for the log line with its email
-// addresses and the secret shapes observability.ScrubText knows redacted.
-// Emails go first, so ScrubText's length cap cannot cut one into a fragment the
-// email pattern no longer matches.
+// scrubPanicValue renders a panic value for the log line: redactPanicText,
+// then observability.ScrubText for its length cap.
 func scrubPanicValue(recovered any) string {
-	return observability.ScrubText(redactEmails(fmt.Sprint(recovered)))
+	return observability.ScrubText(redactPanicText(fmt.Sprint(recovered)))
 }
 
 // representationHeaders describe a response's content or its cache validity.

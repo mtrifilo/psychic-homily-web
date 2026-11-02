@@ -81,13 +81,14 @@ func servePanicThroughSentry(t *testing.T, handler http.HandlerFunc) []*sentry.E
 }
 
 // The panic event carries no email from the panic value, for an error (its
-// exception values) and a plain value (its message). Another event the request
-// captures, and the transaction, keep their text.
+// exception values) and a plain value (its message), and a secret key the
+// email runs into stays redacted. Another event the request captures, and the
+// transaction, keep their text.
 func TestSentryPanicEmailScrub_RedactsOnlyThePanicEvent(t *testing.T) {
 	const email = "jane.doe@example.com"
 	values := map[string]any{
-		"error":  fmt.Errorf("lookup failed for %s: %w", email, errors.New("not found")),
-		"string": "lookup failed for " + email,
+		"error":  fmt.Errorf("lookup failed for %s&password=hunter2: %w", email, errors.New("not found")),
+		"string": "lookup failed for " + email + "&password=hunter2",
 	}
 	for name, value := range values {
 		t.Run(name, func(t *testing.T) {
@@ -116,8 +117,8 @@ func TestSentryPanicEmailScrub_RedactsOnlyThePanicEvent(t *testing.T) {
 				texts = append(texts, exception.Value)
 			}
 			joined := strings.Join(texts, "\n")
-			if strings.Contains(joined, "jane.doe") || strings.Contains(joined, "example.com") {
-				t.Errorf("panic event text %q carries the email", joined)
+			if strings.Contains(joined, "jane.doe") || strings.Contains(joined, "example.com") || strings.Contains(joined, "hunter2") {
+				t.Errorf("panic event text %q carries the email or the password", joined)
 			}
 			if !strings.Contains(joined, "lookup failed for "+redactedEmail) {
 				t.Errorf("panic event text %q, want the panic value with the email replaced", joined)

@@ -39,17 +39,17 @@ func SentryPanicEmailScrub(next http.Handler) http.Handler {
 	})
 }
 
-// redactPanicEventEmails redacts emails from a recovered panic's event: its
-// message (a non-error panic value) and its exception values (an error and the
-// errors it wraps). An event with no recovered panic in its hint, which
+// redactPanicEventEmails applies redactPanicText to a recovered panic's event:
+// its message (a non-error panic value) and its exception values (an error and
+// the errors it wraps). The BeforeSend scrub caps them afterwards. An event with no recovered panic in its hint, which
 // includes the request's transaction, passes through unchanged.
 func redactPanicEventEmails(event *sentry.Event, hint *sentry.EventHint) *sentry.Event {
 	if hint == nil || hint.RecoveredException == nil {
 		return event
 	}
-	event.Message = redactEmails(event.Message)
+	event.Message = redactPanicText(event.Message)
 	for i := range event.Exception {
-		event.Exception[i].Value = redactEmails(event.Exception[i].Value)
+		event.Exception[i].Value = redactPanicText(event.Exception[i].Value)
 	}
 	return event
 }
