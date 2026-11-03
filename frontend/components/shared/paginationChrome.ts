@@ -2,7 +2,7 @@ import type { MouseEvent } from 'react'
 
 /**
  * Shared chrome for the archive-navigation family (`Pagination`, `YearStrip`).
- * Both render the same dense `font-mono text-xs` link row and are meant to look
+ * Both render the same dense `font-data text-xs` link row and are meant to look
  * like one control stacked in two halves, so their link styling lives in one
  * place rather than being copied into each file and drifting apart the first
  * time one of them is restyled.
@@ -17,7 +17,7 @@ export const navLinkClass =
  * same list and must not drift into two shapes.
  */
 export const navStripClass =
-  'flex items-baseline gap-x-2 overflow-x-auto font-mono text-xs sm:flex-wrap sm:overflow-x-visible'
+  'flex items-baseline gap-x-2 overflow-x-auto font-data text-xs sm:flex-wrap sm:overflow-x-visible'
 
 /** The list inside a filter strip. Pairs with {@link navStripClass}. */
 export const navStripListClass =

@@ -131,7 +131,7 @@ export function FollowsActivityFeedSection() {
           <Input
             readOnly
             value={createdToken.follows_feed_url}
-            className="font-mono text-xs"
+            className="font-data text-xs"
             onFocus={e => e.target.select()}
             aria-label="Follows activity feed URL"
           />

@@ -63,7 +63,7 @@ export function SearchTrigger({ className }: { className?: string }) {
     >
       <Search className="size-5 shrink-0 sm:size-4" aria-hidden />
       <span className="hidden flex-1 truncate sm:block">Search shows, artists, labels…</span>
-      <kbd className="pointer-events-none hidden shrink-0 items-center rounded border border-input bg-background px-1.5 font-mono text-[11px] text-muted-foreground sm:inline-flex">
+      <kbd className="pointer-events-none hidden shrink-0 items-center rounded border border-input bg-background px-1.5 font-code text-[11px] text-muted-foreground sm:inline-flex">
         ⌘K
       </kbd>
     </button>

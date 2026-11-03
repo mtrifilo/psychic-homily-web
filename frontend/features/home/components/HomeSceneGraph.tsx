@@ -195,7 +195,7 @@ function ShowDateChip({ node }: { node: SceneGraphNode }) {
     // specificity, and Tailwind emits `.line-clamp-2` first, so `block` would
     // win and silently kill the clamp (`-webkit-line-clamp` only applies to
     // `display:-webkit-box`). line-clamp already establishes a block-level box.
-    <span className="line-clamp-2 max-w-[180px] rounded border border-green-500 bg-background px-2 py-[3px] font-mono text-[10px] leading-tight text-foreground shadow-sm">
+    <span className="line-clamp-2 max-w-[180px] rounded border border-green-500 bg-background px-2 py-[3px] font-data text-[10px] leading-tight text-foreground shadow-sm">
       {showDate}{venueName ? ` · ${venueName}` : ''}
     </span>
   )

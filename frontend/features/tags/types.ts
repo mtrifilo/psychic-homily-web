@@ -561,7 +561,7 @@ const CATEGORY_CHIP_TOKENS: Record<TagCategory, CategoryChipTokens> = {
     bg: 'bg-transparent',
     text: 'text-muted-foreground',
     border: 'border-border',
-    shape: 'rounded-[2px] font-mono uppercase tracking-[0.04em]',
+    shape: 'rounded-[2px] font-data uppercase tracking-[0.04em]',
   },
 }
 

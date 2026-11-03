@@ -19,7 +19,7 @@ import {
  * tone, at the size the crew chip beside it wears.
  */
 const CREW_ROW_LABEL_CLASS =
-  'font-mono text-[11px] uppercase tracking-[0.04em] text-muted-foreground'
+  'font-data text-[11px] uppercase tracking-[0.04em] text-muted-foreground'
 
 /**
  * The bookers this listing is credited to: the show's crew-category tags,

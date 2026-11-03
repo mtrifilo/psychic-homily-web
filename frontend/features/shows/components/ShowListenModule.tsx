@@ -184,7 +184,7 @@ function ShowListenCard({ card }: { card: ListenCard }) {
         <MiddotSegments
           segments={segments}
           keys={keys}
-          className="min-w-0 font-mono text-xs text-muted-foreground"
+          className="min-w-0 font-data text-xs text-muted-foreground"
           // Per CARD, not per page: reach it through `within(card)`, never a
           // bare `getByTestId`, which throws on any bill with two playable
           // acts.

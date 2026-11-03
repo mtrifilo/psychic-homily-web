@@ -97,7 +97,7 @@ export function EpisodeArchiveTable({
               href={archiveHref}
               external
               // text-xs beats BracketLink's text-sm base; the enclosing
-              // <td> already supplies font-mono.
+              // <td> already supplies font-data.
               className="text-xs text-primary hover:text-primary/80"
               // Dates the row, because every row's bracket reads "mp3";
               // the new-tab half is BracketLink's to append.
@@ -113,8 +113,8 @@ export function EpisodeArchiveTable({
               <td role="cell" className="col-start-1 row-start-1 whitespace-nowrap">
                 <MaybeLink
                   href={episodeUrl}
-                  linkedClassName="font-mono text-xs uppercase text-primary hover:text-primary/80 transition-colors"
-                  plainClassName="font-mono text-xs uppercase text-muted-foreground"
+                  linkedClassName="font-data text-xs uppercase text-primary hover:text-primary/80 transition-colors"
+                  plainClassName="font-data text-xs uppercase text-muted-foreground"
                 >
                   <AirDateCellContent
                     startsAt={episode.starts_at}
@@ -156,7 +156,7 @@ export function EpisodeArchiveTable({
                         the line labels itself; assistive tech has the header. */}
                     <span
                       aria-hidden="true"
-                      className="mr-2 font-mono text-[10px] uppercase text-muted-foreground sm:hidden"
+                      className="mr-2 font-data text-[10px] uppercase text-muted-foreground sm:hidden"
                     >
                       Played
                     </span>
@@ -171,7 +171,7 @@ export function EpisodeArchiveTable({
               </td>
               <td
                 role="cell"
-                className="col-start-2 row-start-1 whitespace-nowrap text-right tabular-nums text-muted-foreground max-sm:font-mono max-sm:text-xs"
+                className="col-start-2 row-start-1 whitespace-nowrap text-right tabular-nums text-muted-foreground max-sm:font-data max-sm:text-xs"
               >
                 {episode.play_count}
                 {/* The column header carries the unit at table widths; the
@@ -182,7 +182,7 @@ export function EpisodeArchiveTable({
               </td>
               <td
                 role="cell"
-                className="col-start-3 row-start-1 text-right whitespace-nowrap font-mono tabular-nums text-xs"
+                className="col-start-3 row-start-1 text-right whitespace-nowrap font-data tabular-nums text-xs"
               >
                 {/* The gap before the archive status lives on the status, not
                     the grid, so a row without one keeps its tracks flush right. */}

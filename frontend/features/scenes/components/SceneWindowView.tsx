@@ -46,11 +46,11 @@ function DayGroup({
   return (
     <section className="pt-6">
       <div className="flex items-center justify-between pb-2">
-        <h2 className="font-mono text-xs tracking-widest text-muted-foreground">
+        <h2 className="font-data text-xs tracking-widest text-muted-foreground">
           {formatDayHeading(day.date)}
         </h2>
         {!countIsPartial && (
-          <span className="font-mono text-xs text-muted-foreground">{shows.length}</span>
+          <span className="font-data text-xs text-muted-foreground">{shows.length}</span>
         )}
       </div>
       <div className="border-t border-border" />
@@ -147,7 +147,7 @@ export function SceneWindowView({ data }: { data: SceneWindowData }) {
               with a bare range because a Monday-to-Sunday span is
               self-describing; "Fri Aug 21 – Sun Aug 23" is not obviously a
               weekend, and the segment the reader typed is the honest label. */}
-          <p className="font-mono text-sm">
+          <p className="font-data text-sm">
             {SCENE_WINDOW_LABEL[data.window]}
             {range && `   ·   ${range}`}
             {'   ·   '}
@@ -200,7 +200,7 @@ export function SceneWindowView({ data }: { data: SceneWindowData }) {
           alone would read as the window's total, which is the one number this
           page cannot verify. */}
       {truncated && (
-        <p className="mt-6 border-t border-border pt-3 font-mono text-[11px] text-muted-foreground">
+        <p className="mt-6 border-t border-border pt-3 font-data text-[11px] text-muted-foreground">
           Showing the first {rendered}.{' '}
           <Link
             href={allUpcomingHref(data.city, data.state)}

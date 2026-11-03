@@ -225,7 +225,7 @@ function TagDetailContent({
         </div>
 
         {/* Demoted one-line meta. */}
-        <div className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 font-mono text-xs text-muted-foreground">
+        <div className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 font-data text-xs text-muted-foreground">
           <span>
             {tag.usage_count} {tag.usage_count === 1 ? 'use' : 'uses'}
           </span>
@@ -345,7 +345,7 @@ function EntitySection({
       <div className="mb-1 flex items-baseline justify-between gap-3">
         <h2 className="flex items-baseline gap-2 text-lg font-semibold">
           {label}
-          <span className="font-mono text-sm font-normal text-muted-foreground tabular-nums">
+          <span className="font-data text-sm font-normal text-muted-foreground tabular-nums">
             {group.count}
           </span>
         </h2>

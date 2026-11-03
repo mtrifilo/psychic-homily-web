@@ -85,7 +85,7 @@ describe('the email group', () => {
     // The capitals are CSS; the text a screen reader reads is sentence case.
     expect(legend?.textContent).toBe(GROUP_NAME)
     expect(within(legend as HTMLElement).getByText(GROUP_NAME)).toHaveClass(
-      'font-mono',
+      'font-data',
       'text-[11px]',
       'uppercase',
       'tracking-[0.66px]',

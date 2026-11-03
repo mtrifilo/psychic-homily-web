@@ -32,7 +32,7 @@ import { SCENE_LINK_INTERACTION_CLASS } from './sceneChrome'
  * alone does not.
  */
 const CHIP_CLASS =
-  'inline-block rounded-sm py-1.5 font-mono text-[10px] uppercase tracking-[0.08em]'
+  'inline-block rounded-sm py-1.5 font-data text-[10px] uppercase tracking-[0.08em]'
 
 const LINK_CLASS = `${CHIP_CLASS} ${SCENE_LINK_INTERACTION_CLASS}`
 

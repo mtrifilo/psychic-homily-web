@@ -99,7 +99,7 @@ function BillLabels({
   return (
     <>
       {' '}
-      <span className={cn('font-mono font-normal text-primary', className)}>
+      <span className={cn('font-data font-normal text-primary', className)}>
         {/* The space after the connective is its own text node, not a trailing
             space inside the span: accessible-name computation trims each node,
             which is how "on Epic" becomes "onEpic". Two adjacent whitespace

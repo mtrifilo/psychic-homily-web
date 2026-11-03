@@ -52,7 +52,7 @@ const MIN_BAR_FRACTION = 0.08
  * a mistake every time someone finds it.
  */
 export const MAP_CARD_CHIP_CLASS =
-  'inline-flex items-center gap-1.5 rounded-full border border-primary/40 bg-primary/10 px-2.5 py-1 font-mono text-[10px] uppercase tracking-wider text-primary transition-colors hover:border-primary/60 hover:bg-primary/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-background'
+  'inline-flex items-center gap-1.5 rounded-full border border-primary/40 bg-primary/10 px-2.5 py-1 font-data text-[10px] uppercase tracking-wider text-primary transition-colors hover:border-primary/60 hover:bg-primary/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-background'
 
 export interface ReplayScrubberProps {
   replay: SceneReplayController
@@ -247,7 +247,7 @@ export function ReplayScrubber({ replay, timeline }: ReplayScrubberProps) {
         // in — the end — pressing it advances nothing and closes the replay.
         // The readout stays, because it is the label for where the playhead is,
         // and it keeps the strip's geometry identical in both modes.
-        <span className="inline-flex shrink-0 items-center px-2.5 py-1 font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
+        <span className="inline-flex shrink-0 items-center px-2.5 py-1 font-data text-[10px] uppercase tracking-wider text-muted-foreground">
           {readout}
         </span>
       )}
@@ -284,7 +284,7 @@ export function ReplayScrubber({ replay, timeline }: ReplayScrubberProps) {
         type="button"
         onClick={exit}
         aria-label="Close the replay and return to the map"
-        className="inline-flex shrink-0 items-center gap-1 rounded-full border border-border/60 px-2 py-1 font-mono text-[10px] uppercase tracking-wider text-muted-foreground transition-colors hover:border-border hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+        className="inline-flex shrink-0 items-center gap-1 rounded-full border border-border/60 px-2 py-1 font-data text-[10px] uppercase tracking-wider text-muted-foreground transition-colors hover:border-border hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
       >
         Esc
         <X className="size-3" aria-hidden="true" />

@@ -47,7 +47,7 @@ function RoomRow({
       <EntityNameLink name={room.name} slug={room.slug} basePath="/venues" />
 
       {location && (
-        <span className="font-mono text-xs text-muted-foreground">({location})</span>
+        <span className="font-data text-xs text-muted-foreground">({location})</span>
       )}
 
       {website && (
@@ -55,7 +55,7 @@ function RoomRow({
           label="site ↗"
           href={website}
           external
-          className="font-mono text-xs"
+          className="font-data text-xs"
           // Every room in the list renders a bare [site ↗]; the room name is
           // what tells them apart. The new-tab half is BracketLink's to append.
           ariaLabel={`${room.name} website`}
@@ -63,7 +63,7 @@ function RoomRow({
       )}
 
       {showCount && (
-        <span className="font-mono text-xs tabular-nums text-muted-foreground sm:ml-auto">
+        <span className="font-data text-xs text-muted-foreground sm:ml-auto">
           {plural(room.upcoming_show_count, 'show')}
         </span>
       )}

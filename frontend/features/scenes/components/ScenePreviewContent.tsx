@@ -124,7 +124,7 @@ export function ScenePreviewContent({
           <ul className="mt-2 flex flex-col gap-1.5">
             {weekShows.map((show) => (
               <li key={show.id} className="text-sm leading-snug">
-                <span className="font-mono text-xs text-muted-foreground">
+                <span className="font-data text-xs text-muted-foreground">
                   {formatShowDate(show.event_date)}
                 </span>{' '}
                 {/* Inline in a run of text, so the vertical padding grows

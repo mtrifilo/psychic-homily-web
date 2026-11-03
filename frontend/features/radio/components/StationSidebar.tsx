@@ -159,7 +159,7 @@ function StationInfoBox({ station }: { station: RadioStationDetail }) {
               key={link.label}
               {...link}
               external
-              className="font-mono text-xs"
+              className="font-data text-xs"
             />
           ))}
         </div>
@@ -222,7 +222,7 @@ function TopArtistsBox({ stationSlug }: { stationSlug: string }) {
             ) : (
               <span className="truncate">{artist.artist_name}</span>
             )}
-            <span className="shrink-0 font-mono text-xs text-muted-foreground tabular-nums">
+            <span className="shrink-0 font-data text-xs text-muted-foreground">
               {pluralize(artist.play_count, 'play')} · {artist.episode_count} eps
             </span>
           </li>
@@ -256,7 +256,7 @@ function TopLabelsBox({ stationSlug }: { stationSlug: string }) {
             ) : (
               <span className="truncate">{label.label_name}</span>
             )}
-            <span className="shrink-0 font-mono text-xs text-muted-foreground tabular-nums">
+            <span className="shrink-0 font-data text-xs text-muted-foreground">
               {pluralize(label.play_count, 'play')}
             </span>
           </li>
@@ -309,7 +309,7 @@ function NewReleaseRadarBox({ station }: { station: RadioStationDetail }) {
                 </>
               )}
             </div>
-            <div className="font-mono text-xs text-muted-foreground">
+            <div className="font-data text-xs text-muted-foreground">
               {entry.label_name && (
                 <>
                   {entry.label_slug ? (

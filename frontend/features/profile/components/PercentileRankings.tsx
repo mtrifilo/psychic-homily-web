@@ -16,7 +16,7 @@ function RankingBar({ ranking }: { ranking: PercentileRanking }) {
     <div className="space-y-1">
       <div className="flex items-baseline justify-between gap-2">
         <span className="text-sm">{ranking.label}</span>
-        <span className="shrink-0 font-mono text-xs tabular-nums">
+        <span className="shrink-0 font-data text-xs">
           top {100 - ranking.percentile}%
         </span>
       </div>
@@ -63,7 +63,7 @@ export function PercentileRankings({ username }: PercentileRankingsProps) {
       <SectionHeader
         title="Percentile rankings"
         action={
-          <span className="font-mono text-xs text-primary">
+          <span className="font-data text-xs text-primary">
             overall · top {100 - rankings.overall_score}%
           </span>
         }

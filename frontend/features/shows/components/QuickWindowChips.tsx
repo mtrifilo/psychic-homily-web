@@ -47,7 +47,7 @@ export interface QuickWindowChipsProps {
  * be replaced by links without moving anything on the page.
  */
 const chipClass =
-  'inline-flex items-center whitespace-nowrap rounded-[2px] border px-2 py-1 font-mono text-xs transition-colors'
+  'inline-flex items-center whitespace-nowrap rounded-[2px] border px-2 py-1 font-data text-xs transition-colors'
 const chipRestingClass = 'border-border text-muted-foreground'
 const chipLinkClass = 'hover:border-primary hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring'
 /**
@@ -144,7 +144,7 @@ export function QuickWindowChips({
     >
       <span
         id={labelId}
-        className="shrink-0 font-mono text-[10.5px] font-bold uppercase tracking-[1px] text-muted-foreground"
+        className="shrink-0 font-data text-[10.5px] font-bold uppercase tracking-[1px] text-muted-foreground"
       >
         Jump to
       </span>

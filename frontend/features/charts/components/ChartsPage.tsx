@@ -220,7 +220,7 @@ function SceneSwitcher({
   const triggerClassName = cn(
     'inline-flex items-center transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-60',
     treatment === 'chip'
-      ? 'gap-1 rounded-sm border border-border px-2 py-1 font-mono text-[11px] hover:border-foreground/50'
+      ? 'gap-1 rounded-sm border border-border px-2 py-1 font-data text-[11px] hover:border-foreground/50'
       : 'gap-2 text-left font-display text-3xl font-bold leading-none text-primary hover:text-primary/80'
   )
 
@@ -252,7 +252,7 @@ function SceneSwitcher({
       </DropdownMenuTrigger>
       <DropdownMenuContent
         align={treatment === 'chip' ? 'end' : 'start'}
-        className="min-w-64 font-mono"
+        className="min-w-64 font-data"
       >
         <DropdownMenuRadioGroup
           value={selectedScene?.metro ?? 'all'}
@@ -293,7 +293,7 @@ function StatStrip({
   isLoading: boolean
 }) {
   return (
-    <div className="flex min-h-[38px] items-center gap-4 border-y border-border py-2 font-mono">
+    <div className="flex min-h-[38px] items-center gap-4 border-y border-border py-2 font-data">
       {isLoading ? (
         <span className="h-3 w-3/4 animate-pulse rounded-sm bg-muted" />
       ) : summary ? (
@@ -336,7 +336,7 @@ function FreshlyAddedTicker({ items }: { items: FreshlyAddedItem[] }) {
   if (items.length === 0) return null
   return (
     <section className="flex flex-col gap-2 border-t-2 border-foreground py-2.5 sm:flex-row sm:items-baseline sm:gap-4">
-      <h2 className="shrink-0 font-mono text-[11px] font-bold uppercase tracking-[0.06em]">
+      <h2 className="shrink-0 font-data text-[11px] font-bold uppercase tracking-[0.06em]">
         Freshly Added
       </h2>
       <p className="min-w-0 flex-1 text-xs leading-5 text-muted-foreground">
@@ -618,7 +618,7 @@ export function ChartsPage({
             </p>
             {archiveEntries?.year || archiveEntries?.previousQuarter ? (
               <p
-                className="mt-2 font-mono text-[11px] text-muted-foreground"
+                className="mt-2 font-data text-[11px] text-muted-foreground"
                 data-testid="chart-archive-entry-links"
               >
                 Archives:{' '}
@@ -706,7 +706,7 @@ export function ChartsPage({
           <button
             type="button"
             onClick={() => void sceneList.refetch()}
-            className="font-mono text-xs text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            className="font-data text-xs text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           >
             Try again
           </button>
@@ -773,7 +773,7 @@ export function ChartsPage({
                         followFallback)
                   }
                   disabled={artistFollows.isLoading}
-                  className="font-mono text-[11px]"
+                  className="font-data text-[11px]"
                 />
               }
             />
@@ -823,7 +823,7 @@ export function ChartsPage({
                         followFallback)
                   }
                   disabled={artistFollows.isLoading}
-                  className="font-mono text-[11px]"
+                  className="font-data text-[11px]"
                 />
               }
             />
@@ -935,7 +935,7 @@ export function ChartsPage({
                         followFallback)
                   }
                   disabled={venueFollows.isLoading}
-                  className="font-mono text-[11px]"
+                  className="font-data text-[11px]"
                 />
               }
             />
@@ -1054,7 +1054,7 @@ export function ChartsPage({
                         followFallback)
                   }
                   disabled={artistFollows.isLoading}
-                  className="font-mono text-[11px]"
+                  className="font-data text-[11px]"
                 />
               }
             />

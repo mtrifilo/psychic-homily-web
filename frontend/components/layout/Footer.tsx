@@ -103,7 +103,7 @@ export default function Footer() {
               aria-label={column.heading}
               className="flex flex-1 flex-col gap-2.5"
             >
-              <p className="font-mono text-[10px] font-bold tracking-[0.12em] text-muted-foreground">
+              <p className="font-data text-[10px] font-bold tracking-[0.12em] text-muted-foreground">
                 {column.heading.toUpperCase()}
               </p>
               {column.links.map(link => (
@@ -120,7 +120,7 @@ export default function Footer() {
 
           {/* About / meta column — real routes only (see header note). */}
           <nav aria-label="About" className="flex flex-1 flex-col gap-2.5">
-            <p className="font-mono text-[10px] font-bold tracking-[0.12em] text-muted-foreground">
+            <p className="font-data text-[10px] font-bold tracking-[0.12em] text-muted-foreground">
               ABOUT
             </p>
             <ChromeLink

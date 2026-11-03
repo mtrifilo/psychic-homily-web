@@ -16,7 +16,7 @@ import { useCommunityPulse } from '../hooks/useCommunityPulse'
 function PulseStat({ value, label }: { value: number; label: string }) {
   return (
     <div className="flex flex-col items-end gap-[3px]">
-      <p className="font-mono text-[26px] leading-[34px] text-foreground tabular-nums sm:text-[30px]">
+      <p className="font-data text-[26px] leading-[34px] text-foreground tabular-nums sm:text-[30px]">
         {statNumberFormatter.format(value)}
       </p>
       <p className="text-xs tracking-[0.2px] text-muted-foreground">{label}</p>
@@ -34,7 +34,7 @@ export function CommunityPulseBand() {
       aria-label="Current stats"
       className="flex w-full items-center justify-between gap-4 border-y border-border py-[18px]"
     >
-      <p className="shrink-0 font-mono text-[11px] uppercase tracking-[1.4px] text-muted-foreground">
+      <p className="shrink-0 font-data text-[11px] uppercase tracking-[1.4px] text-muted-foreground">
         Current stats
       </p>
 

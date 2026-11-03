@@ -95,7 +95,7 @@ export function StationShowsDirectory({
           </DenseTable>
 
           <div className="flex items-baseline gap-2 mt-2">
-            <span className="font-mono text-xs text-muted-foreground tabular-nums">
+            <span className="font-data text-xs text-muted-foreground">
               {activeCount} active
               {archivedCount > 0 && ` · ${archivedCount} inactive`}
             </span>
@@ -140,11 +140,11 @@ function ShowRow({
         </Link>
       </td>
       <td className="text-muted-foreground">{show.host_name ?? '—'}</td>
-      <td className="whitespace-nowrap font-mono text-xs text-muted-foreground">
+      <td className="whitespace-nowrap font-data text-xs text-muted-foreground">
         {show.schedule_display ?? '—'}
       </td>
-      <td className="font-mono text-xs text-muted-foreground">{genres || '—'}</td>
-      <td className="whitespace-nowrap font-mono text-xs uppercase text-muted-foreground">
+      <td className="font-data text-xs text-muted-foreground">{genres || '—'}</td>
+      <td className="whitespace-nowrap font-data text-xs uppercase text-muted-foreground">
         {lastDate || '—'}
       </td>
       <td className="text-right text-muted-foreground">{show.episode_count}</td>

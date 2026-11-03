@@ -130,7 +130,7 @@ export function SavedShowsModule({
     >
       <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
         <div className="min-w-0">
-          <p className="font-mono text-[11px] uppercase tracking-wider text-muted-foreground">
+          <p className="font-data text-[11px] uppercase tracking-wider text-muted-foreground">
             {isNewAccount ? 'Welcome' : 'Welcome back'}
           </p>
           {/* h2, not h1: this section is hideable, and the page's h1 lives on
@@ -189,7 +189,7 @@ export function SavedShowsModule({
       {state === 'empty' && (
         <div className={SAVED_SHOW_ROW_GRID}>
           <div
-            className="font-mono text-[11px] font-bold uppercase text-muted-foreground md:text-xs"
+            className="font-data text-[11px] font-bold uppercase text-muted-foreground md:text-xs"
             aria-hidden
           >
             - - -
@@ -202,7 +202,7 @@ export function SavedShowsModule({
               Upcoming first, past ones kept as your record in Library.
             </p>
           </div>
-          <div className="col-start-2 mt-1 font-mono text-[11px] md:col-start-3 md:row-start-1 md:mt-0 md:self-center">
+          <div className="col-start-2 mt-1 font-data text-[11px] md:col-start-3 md:row-start-1 md:mt-0 md:self-center">
             {hasNearbySection ? (
               <a
                 href={`#${nearbySectionId}`}
@@ -251,13 +251,13 @@ export function SavedShowsModule({
       )}
 
       {isStale && (
-        <p className="font-mono text-[11px] text-muted-foreground" role="status">
+        <p className="font-data text-[11px] text-muted-foreground" role="status">
           Could not refresh your saved shows. Showing the last list.
         </p>
       )}
 
       {(showsFooter || ownsCityLink) && (
-        <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 font-mono text-[11px] text-muted-foreground">
+        <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 font-data text-[11px] text-muted-foreground">
           {showsFooter && (
             <span>Past saved shows move to Library → Past automatically</span>
           )}
@@ -265,7 +265,7 @@ export function SavedShowsModule({
               this row exists only to carry the relocated city link. */}
           <div className="ml-auto flex flex-wrap items-center gap-x-4 gap-y-1">
             {ownsCityLink && (
-              <ResolvedHomeCityShowsLink className="font-mono text-[11px] text-primary transition-colors hover:underline underline-offset-4" />
+              <ResolvedHomeCityShowsLink className="font-data text-[11px] text-primary transition-colors hover:underline underline-offset-4" />
             )}
             {showsFooter && (
               <Link

@@ -641,7 +641,7 @@ describe('EntityTagList crew pill treatment (PSY-1883)', () => {
     expect(crewPill).not.toContain(officialAccent)
     // Asserting the absence alone would also pass for the neutral fallback,
     // which is the shape of the bug this guards.
-    expect(crewPill).toContain('font-mono')
+    expect(crewPill).toContain('font-data')
     expect(crewPill).toContain('rounded-[2px]')
     expect(crewPill).toContain('bg-transparent')
   })

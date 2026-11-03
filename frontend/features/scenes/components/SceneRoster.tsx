@@ -73,7 +73,7 @@ function RosterEmbed({ embed }: { embed: SceneRepresentativeEmbed }) {
         artistName={embed.artist_name}
         compact
       />
-      <p className="mt-1 font-mono text-[11px] uppercase tracking-widest text-muted-foreground">
+      <p className="mt-1 font-data text-[11px] uppercase tracking-widest text-muted-foreground">
         Bandcamp{' · '}
         <EntityNameLink
           name={embed.artist_name}
@@ -124,7 +124,7 @@ function RosterRow({ artist }: { artist: SceneArtist }) {
     <li className="border-b border-border/40 py-2 last:border-b-0">
       <EntityNameLink name={artist.name} slug={artist.slug} basePath="/artists" />
       {line && (
-        <p className="mt-0.5 font-mono text-xs text-muted-foreground">
+        <p className="mt-0.5 font-data text-xs text-muted-foreground">
           {line.countText}
           {/* The clause drops whole when the payload can support neither half of
               it, and re-words to `next at {room}` when it can name the room but
@@ -272,7 +272,7 @@ export function SceneRoster({
       {/* Only reachable once the ceiling is the thing withholding bands, so it
           states that rather than offering a control that cannot deliver. */}
       {withheld > 0 && !canExpand && (
-        <p className="mt-2 font-mono text-[11px] text-muted-foreground">
+        <p className="mt-2 font-data text-[11px] text-muted-foreground">
           Showing {artists.length} of {total} bands based in {scene.city}
         </p>
       )}

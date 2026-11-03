@@ -211,7 +211,7 @@ const VenueRow = memo(function VenueRow({
         role="cell"
         className={cn(
           trailCellClass,
-          'col-start-2 row-start-2 whitespace-nowrap text-right font-mono tabular-nums text-xs sm:text-left sm:text-sm'
+          'col-start-2 row-start-2 whitespace-nowrap text-right font-data tabular-nums text-xs sm:text-left sm:text-sm'
         )}
       >
         {when ?? ''}

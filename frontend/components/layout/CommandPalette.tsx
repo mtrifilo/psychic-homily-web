@@ -253,7 +253,7 @@ const entityTypeLabels: Record<EntitySearchResult['entityType'], string> = {
 // the same element (deterministic; padding + muted color come from those
 // defaults). The shared CommandGroup primitive stays untouched for CityFilters.
 const groupClassName =
-  '[&_[cmdk-group-heading]]:font-mono [&_[cmdk-group-heading]]:text-[11px] [&_[cmdk-group-heading]]:font-bold [&_[cmdk-group-heading]]:uppercase [&_[cmdk-group-heading]]:tracking-[1.2px]'
+  '[&_[cmdk-group-heading]]:font-data [&_[cmdk-group-heading]]:text-[11px] [&_[cmdk-group-heading]]:font-bold [&_[cmdk-group-heading]]:uppercase [&_[cmdk-group-heading]]:tracking-[1.2px]'
 
 export function CommandPalette() {
   const router = useRouter()
@@ -486,7 +486,7 @@ export function CommandPalette() {
                   <Clock className="h-4 w-4 text-muted-foreground" />
                   <span>{label}</span>
                   {route && (
-                    <span className="ml-auto font-mono text-xs text-muted-foreground">
+                    <span className="ml-auto font-data text-xs text-muted-foreground">
                       {route.href}
                     </span>
                   )}
@@ -554,7 +554,7 @@ export function CommandPalette() {
                 className="cursor-pointer gap-3 rounded-sm px-2 py-2.5 text-[15px]"
               >
                 <span>{route.label}</span>
-                <span className="ml-auto font-mono text-xs text-muted-foreground">
+                <span className="ml-auto font-data text-xs text-muted-foreground">
                   {route.href}
                 </span>
               </CommandItem>
@@ -572,7 +572,7 @@ export function CommandPalette() {
               className="cursor-pointer gap-3 rounded-sm px-2 py-2.5 text-[15px]"
             >
               <span>{route.label}</span>
-              <span className="ml-auto font-mono text-xs text-muted-foreground">
+              <span className="ml-auto font-data text-xs text-muted-foreground">
                 {route.href}
               </span>
             </CommandItem>
@@ -590,7 +590,7 @@ export function CommandPalette() {
                 className="cursor-pointer gap-3 rounded-sm px-2 py-2.5 text-[15px]"
               >
                 <span>{route.label}</span>
-                <span className="ml-auto font-mono text-xs text-muted-foreground">
+                <span className="ml-auto font-data text-xs text-muted-foreground">
                   /admin
                 </span>
               </CommandItem>
@@ -601,7 +601,7 @@ export function CommandPalette() {
 
       {/* Keyboard hints as plain text; the <kbd> elements render in the code face
           through preflight's default, with no boxed-kbd chrome (Figma 539:5). */}
-      <div className="flex items-center gap-4 border-t border-border/50 px-4 py-2.5 font-mono text-[11px] text-muted-foreground">
+      <div className="flex items-center gap-4 border-t border-border/50 px-4 py-2.5 font-data text-[11px] text-muted-foreground">
         <span className="flex items-center gap-1.5">
           <kbd>&uarr;&darr;</kbd>
           navigate

@@ -73,7 +73,7 @@ export default function PlaylistsFeedPage() {
                 disabled={isFetching}
               />
             )}
-            <span className="font-mono text-xs text-muted-foreground tabular-nums">
+            <span className="font-data text-xs text-muted-foreground">
               showing {episodes.length} of {total} playlists
             </span>
           </div>

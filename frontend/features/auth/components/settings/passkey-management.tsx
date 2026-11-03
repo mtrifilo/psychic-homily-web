@@ -138,7 +138,7 @@ export function PasskeyManagement() {
                         {credential.display_name || 'Unnamed passkey'}
                       </p>
                       {lastUsed && (
-                        <p className="font-mono text-xs text-muted-foreground">
+                        <p className="font-data text-xs text-muted-foreground">
                           Last used {lastUsed}
                         </p>
                       )}

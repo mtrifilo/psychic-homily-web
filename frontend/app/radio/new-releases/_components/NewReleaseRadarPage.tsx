@@ -114,7 +114,7 @@ export default function NewReleaseRadarPage() {
                   disabled={isFetching}
                 />
               )}
-              <span className="font-mono text-xs text-muted-foreground tabular-nums">
+              <span className="font-data text-xs text-muted-foreground">
                 showing {releases.length}{' '}
                 {releases.length === 1 ? 'release' : 'releases'}
               </span>

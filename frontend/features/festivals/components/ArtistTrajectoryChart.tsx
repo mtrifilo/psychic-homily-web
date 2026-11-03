@@ -39,7 +39,7 @@ function AppearanceRows({ data }: { data: ArtistTrajectory }) {
             key={`${entry.festival_slug}-${entry.year}`}
             className="flex items-baseline gap-4 py-2 text-sm"
           >
-            <span className="w-12 shrink-0 font-mono text-xs text-muted-foreground tabular-nums">
+            <span className="w-12 shrink-0 font-data text-xs text-muted-foreground tabular-nums">
               {entry.year}
             </span>
             <span className="min-w-0 flex-1 font-medium">
@@ -57,7 +57,7 @@ function AppearanceRows({ data }: { data: ArtistTrajectory }) {
         ))}
       </div>
       {data.total_appearances > 1 && (
-        <div className="mt-2 font-mono text-[11px] text-muted-foreground">
+        <div className="mt-2 font-data text-[11px] text-muted-foreground">
           {/* Factual count only — Rising/Steady trend judgments were removed
               (PSY-1056): our lineup history is incomplete, so any trend read
               off it is a guess. */}

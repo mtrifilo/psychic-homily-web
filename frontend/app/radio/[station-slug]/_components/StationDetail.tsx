@@ -146,7 +146,7 @@ export default function StationDetail({ stationSlug }: StationDetailProps) {
                     surfaces through the tab bar below (PSY-674 semantics). */}
                 <h1 className="text-3xl font-bold">{station.name}</h1>
                 {subline && (
-                  <span className="font-mono text-sm text-muted-foreground">
+                  <span className="font-data text-sm text-muted-foreground">
                     {subline}
                   </span>
                 )}

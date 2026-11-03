@@ -1456,7 +1456,7 @@ function RelatedArtistRow({
             </Badge>
           ))}
           {scoreDisplay && (
-            <span className="font-mono text-xs text-muted-foreground">
+            <span className="font-data text-xs text-muted-foreground">
               {scoreDisplay}
             </span>
           )}

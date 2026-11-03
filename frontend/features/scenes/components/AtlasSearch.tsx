@@ -221,7 +221,7 @@ export function AtlasSearch({
           <Search className="h-3.5 w-3.5 shrink-0 opacity-60" aria-hidden />
           <span>Search scenes</span>
           <kbd
-            className="rounded border border-border px-1 font-mono text-[10px] leading-4"
+            className="rounded border border-border px-1 font-code text-[10px] leading-4"
             aria-hidden
           >
             /
@@ -255,7 +255,7 @@ export function AtlasSearch({
                   <span className="flex-1 truncate">
                     {scene.city}, {scene.state}
                   </span>
-                  <span className="ml-2 font-mono text-xs text-muted-foreground">
+                  <span className="ml-2 font-data text-xs text-muted-foreground">
                     {scene.upcoming_show_count}
                   </span>
                 </CommandItem>

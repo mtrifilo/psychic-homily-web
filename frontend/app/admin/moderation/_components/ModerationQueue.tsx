@@ -315,7 +315,7 @@ function PendingEditCard({
             {fieldChanges.map((change, idx) => (
               <div key={idx} className="space-y-0.5">
                 <span className="font-medium text-muted-foreground">{change.field}:</span>
-                <div className="flex gap-2 flex-wrap text-xs font-mono">
+                <div className="flex gap-2 flex-wrap text-xs font-code">
                   <span className="bg-red-500/10 text-red-700 dark:text-red-400 rounded px-1.5 py-0.5 line-through">
                     {renderValue(change.old_value)}
                   </span>

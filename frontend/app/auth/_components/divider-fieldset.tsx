@@ -23,7 +23,7 @@ export function DividerFieldset({
       <legend className="w-full py-2">
         <span className="flex items-center gap-2">
           <span aria-hidden="true" className="flex-1 border-t border-separator" />
-          <span className="shrink-0 font-mono text-[11px] uppercase tracking-[0.66px] text-muted-foreground">
+          <span className="shrink-0 font-data text-[11px] uppercase tracking-[0.66px] text-muted-foreground">
             {legend}
           </span>
           <span aria-hidden="true" className="flex-1 border-t border-separator" />

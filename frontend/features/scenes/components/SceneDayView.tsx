@@ -57,7 +57,7 @@ function ShowRow({
       >
         {/* Reserved even when the instant is unusable, so the bills stay in one
             column rather than one row jumping left. */}
-        <span className="shrink-0 font-mono tabular-nums text-xs text-muted-foreground sm:w-24">
+        <span className="shrink-0 font-data tabular-nums text-xs text-muted-foreground sm:w-24">
           {time ?? ''}
         </span>
         <span className="flex min-w-0 flex-wrap items-center gap-2">
@@ -74,10 +74,10 @@ function ShowRow({
         <span className="hidden flex-1 sm:block" aria-hidden="true" />
         <ShowPrice
           show={show}
-          className="shrink-0 font-mono text-xs text-muted-foreground"
+          className="shrink-0 font-data text-xs text-muted-foreground"
         />
         {show.venue_name && (
-          <span className="shrink-0 font-mono text-xs text-muted-foreground">
+          <span className="shrink-0 font-data text-xs text-muted-foreground">
             {show.venue_name}
           </span>
         )}
@@ -153,7 +153,7 @@ function EmptyNight({
         <section className="mt-8">
           {/* The reader is being told we have nothing; the least we owe them is
               a path into each room's page here (PSY-1733). */}
-          <h2 className="font-mono text-[11px] tracking-widest text-muted-foreground">
+          <h2 className="font-data text-[11px] tracking-widest text-muted-foreground">
             CHECK THE ROOMS DIRECTLY
           </h2>
           <RoomList venues={rooms.map(({ name, slug }) => ({ name, slug }))} />
@@ -258,7 +258,7 @@ export function SceneDayView({
         </div>
 
         <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
-          <p className="font-mono text-sm">
+          <p className="font-data text-sm">
             {/* Dropped on the rolling route, whose heading two lines above
                 already says the word; a dated permalink keeps it, because there
                 it is the only thing saying this page is the live night. */}

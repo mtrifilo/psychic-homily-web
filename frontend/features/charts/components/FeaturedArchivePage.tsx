@@ -29,7 +29,7 @@ const linkClass =
   'hover:text-primary focus-visible:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-sm'
 
 const discussLinkClass =
-  'shrink-0 whitespace-nowrap font-mono text-[11px] font-bold text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-sm'
+  'shrink-0 whitespace-nowrap font-data text-[11px] font-bold text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-sm'
 
 /** The comment thread lives at the collection detail's #discussion anchor. */
 function discussHref(slug: string): string {
@@ -101,7 +101,7 @@ function CoverFallback() {
 function LeadCard({ run }: { run: FeaturedCollectionRun }) {
   return (
     <section className="space-y-2.5">
-      <p className="font-mono text-[11px] font-bold tracking-[0.06em] text-primary">
+      <p className="font-data text-[11px] font-bold tracking-[0.06em] text-primary">
         FEATURED COLLECTION · MOST RECENT
       </p>
       <div className="flex gap-[18px] rounded border border-border bg-card p-[18px]">
@@ -154,7 +154,7 @@ function LedgerRow({ run }: { run: FeaturedCollectionRun }) {
     <div className="flex items-center gap-4 border-b border-border py-[11px] sm:gap-5">
       <p
         className={cn(
-          'w-[120px] shrink-0 font-mono tabular-nums text-[11px] sm:w-[190px]',
+          'w-[120px] shrink-0 font-data tabular-nums text-[11px] sm:w-[190px]',
           range.estimated ? 'text-muted-foreground' : 'text-foreground'
         )}
       >
@@ -190,7 +190,7 @@ function PageHeader() {
     <header className="space-y-2">
       <Link
         href="/charts"
-        className="font-mono text-xs text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-sm"
+        className="font-data text-xs text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-sm"
       >
         ← Charts
       </Link>
@@ -251,11 +251,11 @@ export function FeaturedArchivePage() {
           {ledger.length > 0 ? (
             <section>
               <div className="flex items-center gap-2 border-b-2 border-foreground pb-2">
-                <p className="font-mono text-[11px] font-bold tracking-[0.06em] text-foreground">
+                <p className="font-data text-[11px] font-bold tracking-[0.06em] text-foreground">
                   PREVIOUSLY FEATURED
                 </p>
                 <span className="h-px flex-1" />
-                <p className="font-mono text-[11px] text-muted-foreground">
+                <p className="font-data text-[11px] text-muted-foreground">
                   {ledger.length}{' '}
                   {ledger.length === 1 ? 'closed run' : 'closed runs'}
                 </p>

@@ -59,7 +59,7 @@ export interface ArtistContextPanelProps {
 /** Mono-caps field label, matching the mock's NEXT SHOW / LABEL rows. */
 function FieldLabel({ children, className }: { children: string; className?: string }) {
   return (
-    <div className={cn('font-mono text-[10px] uppercase tracking-wider text-muted-foreground', className)}>
+    <div className={cn('font-data text-[10px] uppercase tracking-wider text-muted-foreground', className)}>
       {children}
     </div>
   )
@@ -229,7 +229,7 @@ export function ArtistContextPanel({
           <button
             type="button"
             onClick={onCenter}
-            className="font-mono text-[11px] text-primary hover:underline underline-offset-4"
+            className="font-data text-[11px] text-primary hover:underline underline-offset-4"
           >
             [ Center here ⌾ ]
           </button>
@@ -239,7 +239,7 @@ export function ArtistContextPanel({
           // while the card loads or after a failed fetch (the panel replaced
           // click-to-navigate, so it must never strand the user pathless).
           href={`/artists/${encodeURIComponent(card?.slug ?? artistSlug)}`}
-          className="inline-block font-mono text-[11px] text-primary hover:underline underline-offset-4"
+          className="inline-block font-data text-[11px] text-primary hover:underline underline-offset-4"
         >
           [ Open page → ]
         </Link>

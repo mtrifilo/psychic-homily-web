@@ -42,7 +42,7 @@ export function UnreadCountBadge({ count, className }: UnreadCountBadgeProps) {
         // other dimension here is rem-based, so a px font size would leave the
         // digits fixed while the chip around them grew with the user's base
         // font size.
-        'min-w-4 rounded-sm bg-primary px-1 text-center font-mono text-[0.625rem] font-bold leading-4 text-primary-foreground ring-2 ring-background',
+        'min-w-4 rounded-sm bg-primary px-1 text-center font-data text-[0.625rem] font-bold leading-4 text-primary-foreground ring-2 ring-background',
         className
       )}
       aria-hidden

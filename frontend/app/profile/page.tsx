@@ -301,7 +301,7 @@ function ProfilePageContent() {
           {user?.username ? (
             <>
               Your public profile is at{' '}
-              <span className="font-mono text-xs">/users/{user.username}</span>
+              <span className="font-data text-xs">/users/{user.username}</span>
             </>
           ) : (
             <>Claim a username to make your public profile shareable</>

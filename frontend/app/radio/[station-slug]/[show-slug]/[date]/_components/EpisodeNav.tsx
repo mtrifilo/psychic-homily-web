@@ -33,7 +33,7 @@ export function EpisodeNav({ neighbors, showUrl }: EpisodeNavProps) {
   return (
     <nav
       aria-label="Episode navigation"
-      className="flex items-center gap-3 font-mono text-xs"
+      className="flex items-center gap-3 font-data text-xs"
     >
       <BracketLink
         label={older ? `◀ ${olderDate}` : '◀ older'}

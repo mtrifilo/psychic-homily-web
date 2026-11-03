@@ -79,7 +79,7 @@ function ControlButton({ onClick, children }: { onClick: () => void; children: R
     <button
       type="button"
       onClick={onClick}
-      className="rounded-md border border-border bg-card px-3 py-1.5 font-mono text-xs text-foreground transition-colors hover:border-primary hover:text-primary"
+      className="rounded-md border border-border bg-card px-3 py-1.5 font-data text-xs text-foreground transition-colors hover:border-primary hover:text-primary"
     >
       {children}
     </button>
@@ -109,7 +109,7 @@ export function HeroLab() {
               {prefersReduced ? ' (OS)' : ''}
             </ControlButton>
           </div>
-          <nav className="ml-auto flex flex-wrap items-center gap-x-3 gap-y-1 font-mono text-xs text-muted-foreground">
+          <nav className="ml-auto flex flex-wrap items-center gap-x-3 gap-y-1 font-data text-xs text-muted-foreground">
             {STAGES.map((s) => (
               <a key={s.id} href={`#${s.id}`} className="transition-colors hover:text-primary">
                 <span className="text-primary">{s.badge}</span> {s.short}
@@ -120,13 +120,13 @@ export function HeroLab() {
       </div>
 
       <header className="mx-auto max-w-6xl px-4 pt-8">
-        <p className="max-w-3xl font-mono text-xs leading-relaxed text-muted-foreground">
+        <p className="max-w-3xl font-data text-xs leading-relaxed text-muted-foreground">
           Five candidate hero treatments for the wordmark, each pointer-reactive. Hover (or drag on touch)
           over a stage to drive it. Compare in light + dark, and flip reduced-motion to preview the static
           fallback every option ships with. <span className="text-foreground/70">Option A (Scrying Grid) shipped
           to the homepage (PSY-1137); B–E are preserved here for future seasonal / section heroes.</span>
         </p>
-        <p className="mt-3 max-w-3xl font-mono text-xs text-muted-foreground">
+        <p className="mt-3 max-w-3xl font-data text-xs text-muted-foreground">
           → Stage-smoke / god-ray atmosphere exploration:{' '}
           <a href="/admin/hero-lab/smoke" className="text-primary underline-offset-4 hover:underline">
             /admin/hero-lab/smoke
@@ -141,7 +141,7 @@ export function HeroLab() {
       ))}
 
       <footer className="mx-auto max-w-6xl border-t border-border/60 px-4 py-12">
-        <p className="max-w-3xl font-mono text-xs leading-relaxed text-muted-foreground">
+        <p className="max-w-3xl font-data text-xs leading-relaxed text-muted-foreground">
           A, B and C reflect their real production approach. D and E are dependency-free Canvas2D
           approximations of heavier techniques (react-fluid-distortion / WebGPU+TSL) — close enough to judge
           the aesthetic, lighter than the real thing. All five keep a static fallback for reduced-motion and

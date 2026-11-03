@@ -65,7 +65,7 @@ export function ShowTicketRow({ show, lifecycle }: ShowTicketRowProps) {
       <MiddotSegments
         segments={segments}
         data-testid="ticket-line"
-        className="font-mono text-sm font-medium tabular-nums break-words"
+        className="font-data text-sm font-medium break-words"
       />
 
       <div className="mt-2 flex flex-wrap items-baseline gap-x-4 gap-y-1">

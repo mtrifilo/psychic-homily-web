@@ -18,7 +18,7 @@ import { buildAuthHref } from '@/lib/auth-href'
 import type { ApiError } from '@/lib/api'
 import { Button } from '@/components/ui/button'
 
-const KICKER = 'font-mono text-[11px] uppercase tracking-[0.66px]'
+const KICKER = 'font-data text-[11px] uppercase tracking-[0.66px]'
 
 /** Where a reader with no usable session is sent to get one. */
 const SIGN_IN_HREF = buildAuthHref('/profile?tab=settings')
@@ -85,7 +85,7 @@ function RadarRow({
       }`}
     >
       <p
-        className={`font-mono text-xs ${
+        className={`font-data text-xs ${
           highlighted ? 'font-bold text-primary' : 'text-muted-foreground'
         }`}
       >

@@ -56,7 +56,7 @@ export default function RadioHub() {
             Freeform radio stations, shows, and playlists updated in real-time.
           </p>
           {stats && (
-            <p className="mt-2 font-mono text-xs text-muted-foreground">
+            <p className="mt-2 font-data text-xs text-muted-foreground">
               {stats.total_stations.toLocaleString()}{' '}
               {stats.total_stations === 1 ? 'station' : 'stations'}
               {' · '}
@@ -127,7 +127,7 @@ export default function RadioHub() {
                 <BracketLink
                   label="all playlists →"
                   href="/radio/playlists"
-                  className="font-mono text-xs"
+                  className="font-data text-xs"
                 />
               </div>
             )}
@@ -153,7 +153,7 @@ export default function RadioHub() {
  */
 function DialSectionHeading({ title }: { title: string }) {
   return (
-    <h2 className="mb-1 border-b border-border pb-1.5 font-mono text-[11px] uppercase tracking-[1.2px] text-muted-foreground">
+    <h2 className="mb-1 border-b border-border pb-1.5 font-data text-[11px] uppercase tracking-[1.2px] text-muted-foreground">
       {title}
     </h2>
   )

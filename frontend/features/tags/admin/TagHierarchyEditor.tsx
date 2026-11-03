@@ -520,8 +520,8 @@ export function TagHierarchyEditor() {
         </h2>
         <p className="text-sm text-muted-foreground mt-1">
           Set parent/child relationships for genre tags (e.g.{' '}
-          <span className="font-mono">shoegaze</span> under{' '}
-          <span className="font-mono">post-punk</span>). Non-genre categories
+          <span className="font-data">shoegaze</span> under{' '}
+          <span className="font-data">post-punk</span>). Non-genre categories
           are flat and do not participate in the hierarchy.
         </p>
       </div>

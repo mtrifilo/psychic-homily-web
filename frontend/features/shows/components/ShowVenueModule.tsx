@@ -111,7 +111,7 @@ export function ShowVenueModule({ show }: ShowVenueModuleProps) {
       <MiddotSegments
         segments={factSegments}
         data-testid="venue-facts"
-        className="mt-1.5 font-mono text-sm tabular-nums text-muted-foreground"
+        className="mt-1.5 font-data text-sm text-muted-foreground"
       />
 
       <div className="mt-2 flex flex-wrap items-baseline gap-x-4 gap-y-1">

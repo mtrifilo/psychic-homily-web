@@ -122,7 +122,7 @@ function FieldLabel({
   return (
     <div
       className={cn(
-        'font-mono text-[10px] uppercase tracking-wider text-muted-foreground',
+        'font-data text-[10px] uppercase tracking-wider text-muted-foreground',
         className,
       )}
     >
@@ -229,7 +229,7 @@ export function EntityContextPanel({
 
       <Link
         href={pageHref}
-        className="inline-block font-mono text-[11px] text-primary hover:underline underline-offset-4"
+        className="inline-block font-data text-[11px] text-primary hover:underline underline-offset-4"
       >
         [ Open page → ]
       </Link>

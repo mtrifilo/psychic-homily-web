@@ -81,7 +81,7 @@ export function ProfileCollections({
               >
                 {collection.title}
               </Link>
-              <span className="shrink-0 font-mono text-xs text-muted-foreground tabular-nums">
+              <span className="shrink-0 font-data text-xs text-muted-foreground">
                 {statNumberFormatter.format(collection.item_count)}{' '}
                 {collection.item_count === 1 ? 'item' : 'items'} ·{' '}
                 {statNumberFormatter.format(collection.like_count)}{' '}

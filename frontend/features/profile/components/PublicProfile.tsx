@@ -284,7 +284,7 @@ export function PublicProfile({ username }: PublicProfileProps) {
             </div>
 
             {/* Meta line (mono, board A) — populated segments only */}
-            <p className="mt-2 font-mono text-xs text-muted-foreground">
+            <p className="mt-2 font-data text-xs text-muted-foreground">
               {[
                 profile.location?.trim() || null,
                 `joined ${formatDate(profile.joined_at)}`,

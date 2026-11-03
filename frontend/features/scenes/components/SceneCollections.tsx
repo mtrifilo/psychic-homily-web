@@ -62,7 +62,7 @@ function CollectionRow({ collection }: { collection: SceneCollectionSummary }) {
       />
       <div className="min-w-0">
         <p className="truncate text-sm font-medium">{collection.title}</p>
-        <p className="font-mono text-[11px] uppercase tracking-widest text-muted-foreground">
+        <p className="font-data text-[11px] uppercase tracking-widest text-muted-foreground">
           {collectionMeta(collection)}
         </p>
       </div>

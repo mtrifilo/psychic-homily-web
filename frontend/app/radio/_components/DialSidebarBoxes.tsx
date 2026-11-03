@@ -21,7 +21,7 @@ function SidebarBox({
 }) {
   return (
     <section className="rounded-md border border-border">
-      <h2 className="border-b border-border bg-muted/40 px-3.5 py-2 font-mono text-[11px] uppercase tracking-[1.2px] text-muted-foreground">
+      <h2 className="border-b border-border bg-muted/40 px-3.5 py-2 font-data text-[11px] uppercase tracking-[1.2px] text-muted-foreground">
         {title}
       </h2>
       <div className="px-3.5 py-3">{children}</div>
@@ -89,7 +89,7 @@ export function NewReleaseRadarBox({
                   {title}
                 </span>
               )}
-              <p className="font-mono text-[11px] leading-4 text-muted-foreground">
+              <p className="font-data text-[11px] leading-4 text-muted-foreground">
                 {subline}
               </p>
             </li>
@@ -101,7 +101,7 @@ export function NewReleaseRadarBox({
         <BracketLink
           label="full radar →"
           href="/radio/new-releases"
-          className="font-mono text-xs"
+          className="font-data text-xs"
         />
       </div>
     </SidebarBox>

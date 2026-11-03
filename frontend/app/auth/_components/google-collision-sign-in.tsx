@@ -149,7 +149,7 @@ export function GoogleCollisionSignIn({
             type="email"
             value={email}
             readOnly
-            className="bg-muted font-mono text-sm"
+            className="bg-muted font-data text-sm"
           />
         </div>
 
@@ -205,7 +205,7 @@ export function GoogleCollisionSignIn({
           <div className="space-y-1">
             <p className="font-medium">Check your inbox</p>
             <p>
-              We sent a sign-in link to <span className="font-mono">{email}</span>. It expires in{' '}
+              We sent a sign-in link to <span className="font-data">{email}</span>. It expires in{' '}
               {MAGIC_LINK_EXPIRY_MINUTES} minutes. Opening it connects Google and signs out your
               other sessions.
             </p>

@@ -73,7 +73,7 @@ export function StationOnAirBox({ station }: StationOnAirBoxProps) {
       className="rounded-md border border-primary/60 px-4 py-3.5 flex flex-col gap-1.5"
     >
       <div className="flex items-baseline justify-between gap-2">
-        <h2 className="font-mono text-[11px] uppercase tracking-[1.2px] text-muted-foreground">
+        <h2 className="font-data text-[11px] uppercase tracking-[1.2px] text-muted-foreground">
           {data.on_air && (
             <>
               <span className="text-primary" aria-hidden>
@@ -84,7 +84,7 @@ export function StationOnAirBox({ station }: StationOnAirBoxProps) {
           {data.on_air ? 'On air' : 'Latest playlist'} — {station.name}
         </h2>
         {!data.on_air && latestDate && (
-          <span className="font-mono text-[11px] uppercase tracking-wide text-muted-foreground tabular-nums">
+          <span className="font-data text-[11px] uppercase tracking-wide text-muted-foreground">
             Latest: {latestDate}
           </span>
         )}
@@ -129,7 +129,7 @@ export function StationOnAirBox({ station }: StationOnAirBoxProps) {
             <span className="text-sm text-foreground">— {current.track_title}</span>
           )}
           {(current.album_title || current.label_name || current.release_year) && (
-            <span className="font-mono text-xs text-muted-foreground">
+            <span className="font-data text-xs text-muted-foreground">
               {[current.album_title, current.label_name, current.release_year]
                 .filter(Boolean)
                 .join(' · ')}
@@ -146,7 +146,7 @@ export function StationOnAirBox({ station }: StationOnAirBoxProps) {
             className="text-primary hover:text-primary/80"
           />
           {latestDate && (
-            <span className="font-mono text-xs text-muted-foreground">
+            <span className="font-data text-xs text-muted-foreground">
               aired {latestDate}
             </span>
           )}
@@ -154,7 +154,7 @@ export function StationOnAirBox({ station }: StationOnAirBoxProps) {
       )}
 
       {!playlistUrl && data.show && episodeLoading && (
-        <span className="font-mono text-xs text-muted-foreground">
+        <span className="font-data text-xs text-muted-foreground">
           loading latest playlist…
         </span>
       )}

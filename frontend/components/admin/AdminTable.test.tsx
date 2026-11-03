@@ -32,7 +32,7 @@ describe('AdminTable', () => {
   it('applies the editorial mono-uppercase header treatment', () => {
     render(<AdminTable columns={columns} rows={rows} rowKey={r => r.id} />)
     const header = screen.getByRole('columnheader', { name: 'Name' })
-    expect(header.className).toContain('font-mono')
+    expect(header.className).toContain('font-data')
     expect(header.className).toContain('uppercase')
   })
 

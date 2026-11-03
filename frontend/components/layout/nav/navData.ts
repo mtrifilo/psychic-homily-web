@@ -482,4 +482,4 @@ export function sheetLinkClassName(active: boolean): string {
  * own layout classes (margins/padding) on top.
  */
 export const navGroupLabelClassName =
-  'font-mono text-[11px] font-bold uppercase tracking-[1.2px] text-muted-foreground'
+  'font-data text-[11px] font-bold uppercase tracking-[1.2px] text-muted-foreground'

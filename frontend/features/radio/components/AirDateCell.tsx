@@ -48,7 +48,7 @@ export function airDateCellText(
 /**
  * Stacked viewer-local date + air-time block for the latest-playlists tables
  * (PSY-1298) — the shared definition of the cell content for the station feed
- * and the dial-wide hub table. Renders inside the tables' font-mono/uppercase
+ * and the dial-wide hub table. Renders inside the tables' font-data/uppercase
  * DATE td; the time line opts back out of the uppercase transform so any
  * future lowercase copy renders as designed. Windowless rows (null starts_at)
  * get the date line only.

@@ -96,13 +96,13 @@ export function ContributorProfilePreview() {
                 )}
                 <UserTierBadge tier={profile.user_tier} />
               </div>
-              <p className="mt-2 font-mono text-xs text-muted-foreground">
+              <p className="mt-2 font-data text-xs text-muted-foreground">
                 Joined {formatDate(profile.joined_at)}
               </p>
             </div>
 
             <span
-              className={`inline-flex shrink-0 items-center gap-1.5 rounded-sm border border-border px-2 py-0.5 font-mono text-xs ${
+              className={`inline-flex shrink-0 items-center gap-1.5 rounded-sm border border-border px-2 py-0.5 font-data text-xs ${
                 isPublic ? 'text-foreground' : 'text-pending-foreground'
               }`}
               aria-label={

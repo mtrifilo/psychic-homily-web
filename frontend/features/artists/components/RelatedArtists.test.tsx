@@ -240,7 +240,7 @@ describe('ArtistSimilarSidebar', () => {
       expect(chip.className).toContain('text-foreground')
       expect(chip.className).not.toMatch(/(^|\s)(dark:)?(bg|text|border)-blue-/)
       const score = within(line).getByText('4 shared shows')
-      expect(score.className).toContain('font-mono')
+      expect(score.className).toContain('font-data')
       expect(score.className).toContain('text-muted-foreground')
     })
 

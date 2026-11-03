@@ -100,7 +100,7 @@ function StationCard({ editorial }: { editorial: StationEditorial }) {
     >
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-[7px]">
-          <span className="font-mono text-sm font-bold text-foreground">
+          <span className="font-data text-sm font-bold text-foreground">
             {editorial.station}
           </span>
           <span className="text-xs text-muted-foreground">{editorial.city}</span>

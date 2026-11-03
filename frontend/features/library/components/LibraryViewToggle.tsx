@@ -24,7 +24,7 @@ export function LibraryViewToggle({
       role="radiogroup"
       aria-label="Library view"
       className={cn(
-        'inline-flex items-baseline gap-x-1.5 font-mono text-[11px] tabular-nums text-muted-foreground',
+        'inline-flex items-baseline gap-x-1.5 font-data text-[11px] text-muted-foreground',
         className
       )}
     >
@@ -35,7 +35,7 @@ export function LibraryViewToggle({
         aria-checked={view === 'table'}
         role="radio"
         onClick={() => onViewChange('table')}
-        className="font-mono text-[11px]"
+        className="font-data text-[11px]"
         ariaLabel="Table view"
         data-testid="library-view-table"
       />
@@ -45,7 +45,7 @@ export function LibraryViewToggle({
         aria-checked={view === 'wall'}
         role="radio"
         onClick={() => onViewChange('wall')}
-        className="font-mono text-[11px]"
+        className="font-data text-[11px]"
         ariaLabel="Wall view"
         data-testid="library-view-wall"
       />
