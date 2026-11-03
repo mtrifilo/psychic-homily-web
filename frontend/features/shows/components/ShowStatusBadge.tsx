@@ -9,7 +9,7 @@ interface ShowStatusBadgeProps {
   /**
    * How the CANCELLED chip is painted. `destructive` is the card register that
    * every surface but the dense `/shows` row uses; that row's frame draws it in
-   * primary, where a red block among muted mono columns reads as an error state
+   * primary, where a red block among muted data-face columns reads as an error state
    * rather than a status.
    */
   cancelledVariant?: 'destructive' | 'default'

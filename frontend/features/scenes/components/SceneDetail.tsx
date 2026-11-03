@@ -65,7 +65,7 @@ interface SceneDetailProps {
  * mode, and in dark mode it becomes a cream masthead. The mock also drew
  * the strip as the top of the page — no site chrome in the file. Under the
  * real nav, a filled invert is a second header. PSY-1815 demotes it to a
- * hairline + muted mono so it recedes in both themes.
+ * hairline + muted data face so it recedes in both themes.
  *
  * City/state is not in this line. Breadcrumb and H1 already name the place.
  *
@@ -116,7 +116,7 @@ function SceneStatusBand({
       data-testid="scene-status-band"
       className="-mx-4 -mt-8 mb-6 border-b border-border px-4 py-2.5 text-muted-foreground md:-mx-8 md:px-8"
     >
-      <p className="font-mono text-[11px] uppercase tracking-widest">
+      <p className="font-data text-[11px] uppercase tracking-widest">
         {parts.join(' · ')}
       </p>
     </div>
@@ -202,7 +202,7 @@ export function SceneDetailView({
         {/* Every part kept, including the zeroes. Dropping a zero-valued part
             made London read `2 venues · 197 upcoming shows`, as if artists were
             never a category this page tracks. */}
-        <p className="mt-1 font-mono text-sm text-muted-foreground">
+        <p className="mt-1 font-data text-sm text-muted-foreground">
           {sceneStatParts(stats).join(' · ')}
         </p>
 

@@ -155,7 +155,7 @@ export default function EpisodeDateDetail({ stationSlug, showSlug, date }: Episo
     <div className="flex min-h-screen items-start justify-center">
       <main className="w-full max-w-6xl px-4 py-8 md:px-8">
         {/* Breadcrumb */}
-        <div className="mb-6 font-mono text-xs text-muted-foreground">
+        <div className="mb-6 font-data text-xs text-muted-foreground">
           <Link href={showUrl} className="hover:text-foreground transition-colors">
             ← {episode.show_name}
           </Link>
@@ -196,7 +196,7 @@ export default function EpisodeDateDetail({ stationSlug, showSlug, date }: Episo
             </div>
           </div>
 
-          <p className="mt-1 font-mono text-xs text-muted-foreground">
+          <p className="mt-1 font-data text-xs text-muted-foreground">
             {metaParts.join(' · ')}
           </p>
 
@@ -215,14 +215,14 @@ export default function EpisodeDateDetail({ stationSlug, showSlug, date }: Episo
             (the show page's ON AIR strip language, PSY-1152) */}
         {isLive && (
           <div className="mb-6 flex items-center justify-between gap-3 rounded-md border border-primary/40 bg-primary/5 px-4 py-2.5">
-            <span className="font-mono text-xs text-foreground">
+            <span className="font-data text-xs text-foreground">
               <span className="text-primary" aria-hidden="true">
                 ●
               </span>{' '}
               ON AIR NOW — the playlist is updating live
             </span>
             {updatedAgo && (
-              <span className="shrink-0 font-mono tabular-nums text-xs text-muted-foreground">
+              <span className="shrink-0 font-data tabular-nums text-xs text-muted-foreground">
                 {updatedAgo}
               </span>
             )}

@@ -66,14 +66,14 @@ export function LatestPlaylistsTable({
           <tr key={row.id}>
             {/* PSY-1298: shared stacked viewer-local date + air-time cell —
                 same AirDateCellContent the station feed renders. */}
-            <td className="whitespace-nowrap font-mono text-xs uppercase text-muted-foreground align-top">
+            <td className="whitespace-nowrap font-data text-xs uppercase text-muted-foreground align-top">
               <AirDateCellContent
                 startsAt={row.starts_at}
                 endsAt={row.ends_at}
                 airDate={row.air_date}
               />
             </td>
-            <td className="max-w-[8rem] truncate font-mono text-xs uppercase text-muted-foreground">
+            <td className="max-w-[8rem] truncate font-data text-xs uppercase text-muted-foreground">
               {row.station_name}
             </td>
             <td>

@@ -358,7 +358,7 @@ export function ChartDrilldownPage({ module }: { module: ChartModuleSlug }) {
                   followFallback)
             }
             disabled={artistFollows.isLoading}
-            className="font-mono text-[11px]"
+            className="font-data text-[11px]"
           />
         ),
       }))
@@ -399,7 +399,7 @@ export function ChartDrilldownPage({ module }: { module: ChartModuleSlug }) {
                   followFallback)
             }
             disabled={artistFollows.isLoading}
-            className="font-mono text-[11px]"
+            className="font-data text-[11px]"
           />
         ),
       }))
@@ -493,7 +493,7 @@ export function ChartDrilldownPage({ module }: { module: ChartModuleSlug }) {
                   followFallback)
             }
             disabled={venueFollows.isLoading}
-            className="font-mono text-[11px]"
+            className="font-data text-[11px]"
           />
         ),
       }))
@@ -576,7 +576,7 @@ export function ChartDrilldownPage({ module }: { module: ChartModuleSlug }) {
                   followFallback)
             }
             disabled={artistFollows.isLoading}
-            className="font-mono text-[11px]"
+            className="font-data text-[11px]"
           />
         ),
       }))
@@ -643,7 +643,7 @@ export function ChartDrilldownPage({ module }: { module: ChartModuleSlug }) {
       <header className="space-y-4">
         <Link
           href={chartsBackHref}
-          className="font-mono text-xs text-primary hover:underline"
+          className="font-data text-xs text-primary hover:underline"
         >
           {chartsBackLabel}
         </Link>
@@ -664,7 +664,7 @@ export function ChartDrilldownPage({ module }: { module: ChartModuleSlug }) {
           </div>
           <div className="flex flex-wrap items-center gap-3">
             {isArchiveWindow ? (
-              <span className="font-mono text-[10px] font-bold uppercase tracking-[0.08em] text-primary">
+              <span className="font-data text-[10px] font-bold uppercase tracking-[0.08em] text-primary">
                 ARCHIVE
               </span>
             ) : (
@@ -689,7 +689,7 @@ export function ChartDrilldownPage({ module }: { module: ChartModuleSlug }) {
                 ))}
               </div>
             )}
-            <label className="rounded-sm border border-border px-2 py-1 font-mono text-[11px]">
+            <label className="rounded-sm border border-border px-2 py-1 font-data text-[11px]">
               <span className="sr-only">Chart scene</span>
               <select
                 value={selectedScene?.metro ?? ''}
@@ -717,7 +717,7 @@ export function ChartDrilldownPage({ module }: { module: ChartModuleSlug }) {
         )}
       >
         <table className="w-full min-w-[760px] border-collapse text-left text-xs">
-          <thead className="font-mono text-[10px] uppercase tracking-[0.06em] text-muted-foreground">
+          <thead className="font-data text-[10px] uppercase tracking-[0.06em] text-muted-foreground">
             <tr className="border-b border-border">
               <th className="w-12 px-2 py-2 font-bold">#</th>
               {config.columns.map(column => (
@@ -748,7 +748,7 @@ export function ChartDrilldownPage({ module }: { module: ChartModuleSlug }) {
                   <button
                     type="button"
                     onClick={() => void sceneList.refetch()}
-                    className="mt-2 font-mono text-xs text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    className="mt-2 font-data text-xs text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                   >
                     Try again
                   </button>
@@ -803,7 +803,7 @@ export function ChartDrilldownPage({ module }: { module: ChartModuleSlug }) {
             ) : (
               rows.map(row => (
                 <tr key={row.key} className="border-b border-border align-top">
-                  <td className="px-2 py-3 font-mono tabular-nums text-muted-foreground">
+                  <td className="px-2 py-3 font-data tabular-nums text-muted-foreground">
                     {row.rank ?? '—'}
                   </td>
                   {config.columns.map((column, index) => (
@@ -812,7 +812,7 @@ export function ChartDrilldownPage({ module }: { module: ChartModuleSlug }) {
                       className={cn(
                         'px-2 py-3 leading-4',
                         column.className,
-                        index > 0 && 'font-mono tabular-nums'
+                        index > 0 && 'font-data tabular-nums'
                       )}
                     >
                       {row.cells[column.key]}
@@ -836,7 +836,7 @@ export function ChartDrilldownPage({ module }: { module: ChartModuleSlug }) {
             returns null at one page and would take the summary with it, and
             the MAX_PAGE cap note has no slot in that prop.
           */}
-          <p className="font-mono text-xs text-muted-foreground">
+          <p className="font-data text-xs text-muted-foreground">
             Showing {showingRange} of {total.toLocaleString()}
             {total > reachableTotal
               ? ` · first ${reachableTotal.toLocaleString()} accessible`

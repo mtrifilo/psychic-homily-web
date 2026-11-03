@@ -101,7 +101,7 @@ export function ReleaseSaveButton({
           active={isSaved}
           onClick={handleClick}
           disabled={isDisabled}
-          className={cn('font-mono text-[11px]', className)}
+          className={cn('font-data text-[11px]', className)}
           ariaLabel={ariaLabel}
         />
       ) : variant === 'text' ? (
@@ -111,7 +111,7 @@ export function ReleaseSaveButton({
           onClick={handleClick}
           disabled={isDisabled}
           className={cn(
-            'whitespace-nowrap font-mono text-[11px] text-muted-foreground transition-colors hover:text-destructive disabled:cursor-wait disabled:opacity-60',
+            'whitespace-nowrap font-data text-[11px] text-muted-foreground transition-colors hover:text-destructive disabled:cursor-wait disabled:opacity-60',
             className
           )}
           aria-label={ariaLabel}
@@ -136,7 +136,7 @@ export function ReleaseSaveButton({
           )}
           <span>{label}</span>
           {saveCount > 0 ? (
-            <span className="font-mono text-xs text-muted-foreground">
+            <span className="font-data text-xs text-muted-foreground">
               {saveCount}
             </span>
           ) : null}

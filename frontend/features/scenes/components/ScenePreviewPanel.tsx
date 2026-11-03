@@ -127,7 +127,7 @@ export function ScenePreviewPanel({
         topInsetPx={ATLAS_SHEET_TOP_INSET_PX}
       >
         <div className="flex min-h-full flex-col gap-4">
-          <p className="font-mono text-sm text-muted-foreground">{stats}</p>
+          <p className="font-data text-sm text-muted-foreground">{stats}</p>
           <ScenePreviewContent scene={scene} className="flex-1" />
         </div>
       </BottomSheet>
@@ -143,7 +143,7 @@ export function ScenePreviewPanel({
       <div className="flex items-start justify-between gap-2">
         <div>
           <h2 className="text-lg font-semibold leading-tight">{title}</h2>
-          <p className="mt-1 font-mono text-sm text-muted-foreground">{stats}</p>
+          <p className="mt-1 font-data text-sm text-muted-foreground">{stats}</p>
         </div>
         <button
           ref={closeRef}

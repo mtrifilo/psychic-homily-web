@@ -61,7 +61,7 @@ export function SavedShowRow({
       className={SAVED_SHOW_ROW_GRID}
     >
       <div
-        className={`row-span-2 font-mono text-[11px] font-bold uppercase md:row-span-1 md:text-xs ${
+        className={`row-span-2 font-data text-[11px] font-bold uppercase md:row-span-1 md:text-xs ${
           isPast ? 'text-muted-foreground' : 'text-primary'
         }`}
       >
@@ -113,7 +113,7 @@ export function SavedShowRow({
         </div>
       </div>
 
-      <div className="col-start-2 mt-1 flex items-center justify-between gap-3 font-mono text-[11px] text-muted-foreground md:col-start-3 md:row-start-1 md:mt-0 md:flex-col md:items-end md:self-center">
+      <div className="col-start-2 mt-1 flex items-center justify-between gap-3 font-data text-[11px] text-muted-foreground md:col-start-3 md:row-start-1 md:mt-0 md:flex-col md:items-end md:self-center">
         <span className="whitespace-nowrap">
           saved {formatRelativeTime(show.saved_at, { short: true })}
         </span>

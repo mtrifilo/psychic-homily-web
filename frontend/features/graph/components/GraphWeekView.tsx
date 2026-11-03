@@ -22,7 +22,7 @@ import { TEASER_MOTIF, buildGraphWeekMotif, type GraphWeekMotif } from '../graph
 function GraphWeekShell({ children }: { children: React.ReactNode }) {
   return (
     <div className="mx-auto w-full max-w-3xl px-4 py-10 sm:px-6 sm:py-14">
-      <p className="font-mono text-[10px] uppercase tracking-[0.2em] text-primary">
+      <p className="font-data text-[10px] uppercase tracking-[0.2em] text-primary">
         The Map of the Scene
       </p>
       <h1 className="mt-2 font-display text-4xl font-medium sm:text-5xl">
@@ -47,10 +47,10 @@ export function GraphWeekContent({ view }: { view: ResolvedGraphWeek }) {
 
   return (
     <GraphWeekShell>
-      <p className="mt-4 font-mono text-sm uppercase tracking-wider text-primary">
+      <p className="mt-4 font-data text-sm uppercase tracking-wider text-primary">
         {formatGraphWeekCounts(week)}
       </p>
-      <p className="mt-1 font-mono text-xs uppercase tracking-wider text-muted-foreground">
+      <p className="mt-1 font-data text-xs uppercase tracking-wider text-muted-foreground">
         {formatGraphWeekRange(week.start, week.end)}
       </p>
       <TeaserMotif motif={motif} label={graphWeekSummary(week)} />

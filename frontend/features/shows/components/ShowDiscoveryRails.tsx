@@ -245,7 +245,7 @@ function RailRow({
   const isNight = kind === 'night'
   // A clock time in the compact register is at most `10:30PM`; a date is at
   // most `SEP 04 '27`, which is three characters longer and needs the wider
-  // reservation. Both are `text-xs` mono, so the difference is real width, not
+  // reservation. Both are `text-xs` data face, so the difference is real width, not
   // a rounding.
   const leadWidth = isNight ? 'sm:w-14' : 'sm:w-20'
 
@@ -286,7 +286,7 @@ function RailRow({
             there rather than pushing a column off the row, and it is the cell
             every other width here is budgeted around. */}
         <span
-          className={`shrink-0 whitespace-nowrap font-mono text-xs uppercase tabular-nums text-muted-foreground ${leadWidth}`}
+          className={`shrink-0 whitespace-nowrap font-data text-xs uppercase tabular-nums text-muted-foreground ${leadWidth}`}
         >
           {row.lead ?? ''}
         </span>
@@ -307,7 +307,7 @@ function RailRow({
             Not `shrink-0`: under pressure this cell yields to the bill rather
             than pushing it out. */}
         {isNight && (
-          <span className="block min-w-0 truncate font-mono text-xs text-muted-foreground sm:hidden xl:block xl:w-1/6">
+          <span className="block min-w-0 truncate font-data text-xs text-muted-foreground sm:hidden xl:block xl:w-1/6">
             {row.room ?? ''}
           </span>
         )}
@@ -321,7 +321,7 @@ function RailRow({
             Fixed-width and truncating rather than sized to the value: this is
             contributor-written free text with no vocabulary enforced, so a
             column sized to fit whatever arrived would move under the row
-            below it. 40px is about five glyphs of `text-xs` mono, so `21+`
+            below it. 40px is about five glyphs of `text-xs` data face, so `21+`
             and `18+` fit and `ALL AGES` does not — it truncates, and `title`
             carries the whole of it. That recovery is mouse-only, which is
             exactly where the truncation happens: the column is full-width and
@@ -331,7 +331,7 @@ function RailRow({
             above is budgeted around. */}
         {isNight && (
           <span
-            className="block min-w-0 truncate font-mono text-xs uppercase text-muted-foreground sm:hidden xl:block xl:w-10"
+            className="block min-w-0 truncate font-data text-xs uppercase text-muted-foreground sm:hidden xl:block xl:w-10"
             title={row.age ?? undefined}
           >
             {row.age ?? ''}
@@ -349,7 +349,7 @@ function RailRow({
             use that component itself because it also holds status tokens, which
             are not prices. */}
         <span
-          className="shrink-0 font-mono text-xs uppercase tabular-nums text-muted-foreground sm:w-16"
+          className="shrink-0 font-data text-xs uppercase tabular-nums text-muted-foreground sm:w-16"
           title={row.figureLabel ?? undefined}
         >
           {row.figureLabel ? (

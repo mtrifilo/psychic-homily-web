@@ -180,7 +180,7 @@ export default function HeroLabPage() {
       <header className="mb-8">
         <a
           href="/admin/hero-lab"
-          className="font-mono text-xs text-primary underline-offset-4 hover:underline"
+          className="font-data text-xs text-primary underline-offset-4 hover:underline"
         >
           ← Hero Lab (A–E gallery)
         </a>

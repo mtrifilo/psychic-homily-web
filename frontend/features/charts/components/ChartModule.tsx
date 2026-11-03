@@ -27,7 +27,7 @@ export function ChartModule({
 
   return (
     <section data-testid={testId} className="min-w-0 overflow-hidden">
-      <header className="flex min-h-6 items-start gap-2 border-b-2 border-foreground pb-1.5 font-mono leading-none">
+      <header className="flex min-h-6 items-start gap-2 border-b-2 border-foreground pb-1.5 font-data leading-none">
         <h2 className="min-w-0 flex-1 text-[11px] font-bold uppercase tracking-[0.06em]">
           {title}
         </h2>
@@ -89,7 +89,7 @@ export function ChartRow({
         className
       )}
     >
-      <span className="pt-0.5 font-mono tabular-nums text-xs text-muted-foreground">
+      <span className="pt-0.5 font-data tabular-nums text-xs text-muted-foreground">
         {rank ?? '—'}
       </span>
       <div className="min-w-0">
@@ -101,7 +101,7 @@ export function ChartRow({
         </div>
       </div>
       {stat != null ? (
-        <span className="whitespace-nowrap pt-0.5 text-right font-mono text-xs tabular-nums">
+        <span className="whitespace-nowrap pt-0.5 text-right font-data text-xs tabular-nums">
           {stat}
         </span>
       ) : null}

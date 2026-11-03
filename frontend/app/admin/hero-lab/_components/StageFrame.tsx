@@ -1,7 +1,7 @@
 'use client'
 
 /**
- * Hero Lab — a labeled "stage" wrapping one effect: badge + title, a mono
+ * Hero Lab: a labeled "stage" wrapping one effect: badge + title, a data-face
  * technique/library caption (the data face), and a tall canvas
  * area that paints on the live theme background.
  */
@@ -24,14 +24,14 @@ export function StageFrame({ meta, children }: { meta: StageMeta; children: Reac
       <div className="mx-auto max-w-6xl px-4 pt-8">
         <div className="flex items-baseline justify-between gap-4">
           <div className="flex items-baseline gap-3">
-            <span className="font-mono text-sm font-bold text-primary">{meta.badge}</span>
+            <span className="font-data text-sm font-bold text-primary">{meta.badge}</span>
             <h2 className="font-display text-xl font-bold text-foreground sm:text-2xl">{meta.title}</h2>
           </div>
-          <span className="hidden shrink-0 font-mono text-[11px] uppercase tracking-wide text-muted-foreground sm:block">
+          <span className="hidden shrink-0 font-data text-[11px] uppercase tracking-wide text-muted-foreground sm:block">
             {meta.difficulty}
           </span>
         </div>
-        <p className="mt-2 max-w-3xl font-mono text-xs leading-relaxed text-muted-foreground">
+        <p className="mt-2 max-w-3xl font-data text-xs leading-relaxed text-muted-foreground">
           {meta.technique} <span className="text-foreground/70">→ {meta.library}</span>
         </p>
       </div>

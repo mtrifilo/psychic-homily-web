@@ -127,7 +127,7 @@ export function VenueListSheet({
       {detent === 'peek' && peekLine && (
         <p
           data-testid="venue-sheet-peek-line"
-          className="px-4 pt-1 font-mono text-[11px] leading-4 text-muted-foreground"
+          className="px-4 pt-1 font-data text-[11px] leading-4 text-muted-foreground"
         >
           {peekLine}
         </p>
@@ -140,14 +140,14 @@ export function VenueListSheet({
             <div className="flex items-center justify-between gap-3">
               <p
                 data-testid="venue-sheet-scope-line"
-                className="font-mono text-[11px] leading-4 text-muted-foreground"
+                className="font-data text-[11px] leading-4 text-muted-foreground"
               >
                 {venueStackScopeLine(scopedStack)}
               </p>
               <button
                 type="button"
                 onClick={handleClearScope}
-                className="min-h-6 shrink-0 rounded-sm px-2 font-mono text-[11px] text-primary underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                className="min-h-6 shrink-0 rounded-sm px-2 font-data text-[11px] text-primary underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
               >
                 Show all
               </button>

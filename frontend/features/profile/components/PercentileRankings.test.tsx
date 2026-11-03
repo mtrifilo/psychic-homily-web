@@ -128,11 +128,16 @@ describe('PercentileRankings', () => {
     })
 
     render(<PercentileRankings username="alice" />)
-    expect(screen.getByText('top 20%')).toBeInTheDocument() // 80 percentile
-    expect(screen.getByText('top 40%')).toBeInTheDocument() // 60 percentile
-    expect(screen.getByText('top 60%')).toBeInTheDocument() // 40 percentile
-    expect(screen.getByText('top 80%')).toBeInTheDocument() // 20 percentile
-    expect(screen.getByText('top 10%')).toBeInTheDocument() // 90 percentile
+    // The value line is split so only the figure carries tabular-nums.
+    const valueLine = (text: string) =>
+      screen.getByText((_, el) => el?.tagName === 'SPAN' && el.textContent === text)
+    expect(valueLine('top 20%')).toBeInTheDocument() // 80 percentile
+    expect(valueLine('top 40%')).toBeInTheDocument() // 60 percentile
+    expect(valueLine('top 60%')).toBeInTheDocument() // 40 percentile
+    expect(valueLine('top 80%')).toBeInTheDocument() // 20 percentile
+    expect(valueLine('top 10%')).toBeInTheDocument() // 90 percentile
+    expect(screen.getByText('20')).toHaveClass('tabular-nums')
+    expect(valueLine('top 20%')).not.toHaveClass('tabular-nums')
   })
 
   it('renders progress bars with correct widths', () => {

@@ -41,7 +41,7 @@ export function verificationResendRetryAfter(error: unknown): number | null {
 }
 
 /**
- * The mono status line under a resend control, or `null` when there is nothing
+ * The data-face status line under a resend control, or `null` when there is nothing
  * to say yet.
  *
  * Both halves are independent: a user can be waiting without having sent

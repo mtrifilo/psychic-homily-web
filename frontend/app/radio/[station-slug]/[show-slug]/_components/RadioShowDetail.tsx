@@ -191,7 +191,7 @@ export default function RadioShowDetail({ stationSlug, showSlug }: RadioShowDeta
     <div className="flex min-h-screen items-start justify-center">
       <main className="w-full max-w-6xl px-4 py-8 md:px-8">
         {/* Breadcrumb */}
-        <div className="mb-6 font-mono text-xs text-muted-foreground">
+        <div className="mb-6 font-data text-xs text-muted-foreground">
           <Link
             href={stationUrl}
             className="hover:text-foreground transition-colors"
@@ -222,7 +222,7 @@ export default function RadioShowDetail({ stationSlug, showSlug }: RadioShowDeta
           </div>
 
           {metaParts.length > 0 && (
-            <p className="mt-1 font-mono text-xs text-muted-foreground">
+            <p className="mt-1 font-data text-xs text-muted-foreground">
               {metaParts.join(' · ')}
             </p>
           )}
@@ -237,7 +237,7 @@ export default function RadioShowDetail({ stationSlug, showSlug }: RadioShowDeta
         {/* ON AIR strip — shown only while the latest episode is genuinely live (PSY-1152) */}
         {isOnAir && livePlaylistUrl && (
           <div className="mb-6 flex items-center justify-between gap-3 rounded-md border border-primary/40 bg-primary/5 px-4 py-2.5">
-            <span className="font-mono text-xs text-foreground">
+            <span className="font-data text-xs text-foreground">
               <span className="text-primary" aria-hidden="true">
                 ●
               </span>{' '}
@@ -246,7 +246,7 @@ export default function RadioShowDetail({ stationSlug, showSlug }: RadioShowDeta
             <BracketLink
               label="open live playlist →"
               href={livePlaylistUrl}
-              className="font-mono text-xs text-primary hover:text-primary/80"
+              className="font-data text-xs text-primary hover:text-primary/80"
             />
           </div>
         )}
@@ -276,7 +276,7 @@ export default function RadioShowDetail({ stationSlug, showSlug }: RadioShowDeta
 
                 {/* Pagination */}
                 {(hasNextPage || hasPrevPage) && (
-                  <div className="mt-3 flex items-center gap-3 font-mono text-xs text-muted-foreground">
+                  <div className="mt-3 flex items-center gap-3 font-data text-xs text-muted-foreground">
                     <span>
                       page {currentPage} of {totalPages}
                     </span>

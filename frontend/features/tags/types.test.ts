@@ -123,9 +123,9 @@ describe('getCategoryChipClasses', () => {
     }
   })
 
-  it('gives crew an unfilled hairline square in mono uppercase (Figma 1402:789)', () => {
+  it('gives crew an unfilled hairline square in data-face uppercase (Figma 1402:789)', () => {
     expect(getCategoryChipClasses('crew')).toBe(
-      'bg-transparent text-muted-foreground border-border rounded-[2px] font-mono uppercase tracking-[0.04em]'
+      'bg-transparent text-muted-foreground border-border rounded-[2px] font-data uppercase tracking-[0.04em]'
     )
   })
 

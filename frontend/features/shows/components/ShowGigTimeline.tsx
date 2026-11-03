@@ -137,7 +137,7 @@ export function ShowGigTimeline({
       data-testid="show-gig-timeline"
       className="mt-4 border-y border-border/60 py-2"
     >
-      <div className="flex flex-col gap-y-1 font-mono text-xs tracking-wider lg:flex-row lg:items-baseline lg:justify-between lg:gap-x-6">
+      <div className="flex flex-col gap-y-1 font-data text-xs tracking-wider lg:flex-row lg:items-baseline lg:justify-between lg:gap-x-6">
         {/* The arrow is INSIDE the guard. Rendered unconditionally it becomes a
             glyph pointing at nothing whenever a direction has no date, which is
             the majority state for `next` on a past show, and below `lg` it gets

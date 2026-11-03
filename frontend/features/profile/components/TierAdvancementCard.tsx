@@ -84,7 +84,7 @@ export function TierAdvancementCard({ tier }: TierAdvancementCardProps) {
                 <UserTierBadge tier={next.tier} />
               </div>
               {showBar && (
-                <p className="font-mono text-xs text-muted-foreground tabular-nums">
+                <p className="font-data text-xs text-muted-foreground">
                   {Math.floor(current)} / {Math.floor(threshold)} qualifying
                   edits
                 </p>
@@ -108,7 +108,7 @@ export function TierAdvancementCard({ tier }: TierAdvancementCardProps) {
             )}
 
             <div>
-              <p className="font-mono text-xs uppercase tracking-wider text-muted-foreground">
+              <p className="font-data text-xs uppercase tracking-wider text-muted-foreground">
                 Requirements
               </p>
               <ul className="mt-1.5 space-y-1 text-sm">

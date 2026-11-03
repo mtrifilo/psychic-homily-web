@@ -14,7 +14,7 @@ import { SCENE_LINK_INTERACTION_CLASS } from './sceneChrome'
  * same strip from here, so a reader walking between them sees one row that
  * changes only where it says they are.
  *
- * Register per the locked frame (`1665:2`): mono at 10px with 8% tracking, the
+ * Register per the locked frame (`1665:2`): data face at 10px with 8% tracking, the
  * links in the accent tone, the active window in the foreground tone and
  * underlined, a direction with nothing behind it muted and unlinked.
  *
@@ -23,7 +23,7 @@ import { SCENE_LINK_INTERACTION_CLASS } from './sceneChrome'
  */
 
 /**
- * Mono micro-caps at the frame's own metrics, shared by every item in both rows
+ * Data-face micro-caps at the frame's own metrics, shared by every item in both rows
  * so the register is one. A step down in size from `SCENE_ACCENT_LINK_CLASS`,
  * whose interaction behaviour it composes rather than re-spells.
  *
@@ -32,7 +32,7 @@ import { SCENE_LINK_INTERACTION_CLASS } from './sceneChrome'
  * alone does not.
  */
 const CHIP_CLASS =
-  'inline-block rounded-sm py-1.5 font-mono text-[10px] uppercase tracking-[0.08em]'
+  'inline-block rounded-sm py-1.5 font-data text-[10px] uppercase tracking-[0.08em]'
 
 const LINK_CLASS = `${CHIP_CLASS} ${SCENE_LINK_INTERACTION_CLASS}`
 

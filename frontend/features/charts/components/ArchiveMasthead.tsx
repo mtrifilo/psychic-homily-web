@@ -18,7 +18,7 @@ interface ArchiveMastheadProps {
 }
 
 /**
- * Approved Figma archive masthead (node 996:28): period title, mono ARCHIVE
+ * Approved Figma archive masthead (node 996:28): period title, data-face ARCHIVE
  * marker, adjacent-period nav. No live window tabs / ticker.
  */
 export function ArchiveMasthead({ window, now }: ArchiveMastheadProps) {
@@ -39,12 +39,12 @@ export function ArchiveMasthead({ window, now }: ArchiveMastheadProps) {
         </p>
       </div>
       <div className="flex flex-col items-start gap-2 md:items-end">
-        <span className="font-mono text-[10px] font-bold uppercase tracking-[0.08em] text-primary">
+        <span className="font-data text-[10px] font-bold uppercase tracking-[0.08em] text-primary">
           ARCHIVE
         </span>
         <nav
           aria-label="Adjacent chart periods"
-          className="flex flex-wrap items-center gap-x-3 gap-y-1 font-mono text-xs"
+          className="flex flex-wrap items-center gap-x-3 gap-y-1 font-data text-xs"
         >
           {nav.prevYear ? (
             <Link href={nav.prevYear.href} className={linkClass}>

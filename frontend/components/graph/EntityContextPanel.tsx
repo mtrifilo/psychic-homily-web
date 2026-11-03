@@ -11,7 +11,7 @@
  *
  * Presentational only — the caller owns selection, data fetching / graph-derived
  * neighbors, and positioning. Content shape per type (approved mock):
- *   mono type-tag → name + meta → one primary payoff → fact rows → Open page →
+ *   data-face type-tag → name + meta → one primary payoff → fact rows → Open page →
  */
 
 import type { Ref } from 'react'
@@ -65,7 +65,7 @@ const ENTITY_TYPE_PATH: Record<EntityPanelEntityType, string> = {
   festival: 'festivals',
 }
 
-/** Headed text payoff (NEXT SHOW / BILL) — label renders as mono-caps. */
+/** Headed text payoff (NEXT SHOW / BILL); the label renders as data-face caps. */
 export interface EntityPanelLabeledPrimary {
   kind: 'labeled'
   label: string
@@ -122,7 +122,7 @@ function FieldLabel({
   return (
     <div
       className={cn(
-        'font-mono text-[10px] uppercase tracking-wider text-muted-foreground',
+        'font-data text-[10px] uppercase tracking-wider text-muted-foreground',
         className,
       )}
     >
@@ -229,7 +229,7 @@ export function EntityContextPanel({
 
       <Link
         href={pageHref}
-        className="inline-block font-mono text-[11px] text-primary hover:underline underline-offset-4"
+        className="inline-block font-data text-[11px] text-primary hover:underline underline-offset-4"
       >
         [ Open page → ]
       </Link>

@@ -94,7 +94,7 @@ export function HomeMetroSelect({
         <BracketLink
           label="retry"
           onClick={() => void refetch()}
-          className="font-mono text-[11px]"
+          className="font-data text-[11px]"
         />
       </div>
     )

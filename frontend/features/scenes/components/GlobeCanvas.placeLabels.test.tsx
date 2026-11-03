@@ -258,7 +258,7 @@ describe('GlobeCanvas place labels', () => {
     await waitFor(() => expect(placeLabelTexts()).toEqual(['Clear City']))
     const label = document.querySelector<HTMLElement>('[data-testid="atlas-place-label"]')!
     expect(label.style.pointerEvents).toBe('none')
-    expect(label.className).toContain('font-mono')
+    expect(label.className).toContain('font-data')
     // The scene label is still there: the scene won its spot.
     expect(document.querySelector('[data-testid="atlas-scene-label"]')?.textContent).toBe('Phoenix')
   })

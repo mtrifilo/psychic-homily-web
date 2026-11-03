@@ -481,7 +481,7 @@ export function VenueList() {
         <h1 className="text-2xl font-bold sm:text-3xl" {...targetProps}>
           {heading}
         </h1>
-        <p className="font-mono text-[13px] text-muted-foreground">
+        <p className="font-data text-[13px] text-muted-foreground">
           {showCityChooser ? chooserScope : (roomsLabel ?? '')}
           {!showCityChooser && upcomingLabelIsAboutTheSet && upcomingLabel
             ? ` · ${upcomingLabel}`

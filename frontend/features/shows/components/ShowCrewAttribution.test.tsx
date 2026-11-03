@@ -184,7 +184,7 @@ describe('ShowCrewAttribution', () => {
       'border',
       'border-border',
       'bg-transparent',
-      'font-mono',
+      'font-data',
       'uppercase',
       'tracking-[0.04em]',
       'px-2',

@@ -18,7 +18,7 @@ const COLLAPSED_COUNT = 5
 
 /**
  * The Collections section of the public profile (PSY-1062): dense one-line
- * rows per the redesign board — title left, "N items · M likes" in mono right
+ * rows per the redesign board: title left, "N items · M likes" in the data face right
  * — replacing the thumbnail cards. "View all →" expands in place (decision
  * 2026-06-10: no dedicated per-user list routes yet).
  */
@@ -81,7 +81,7 @@ export function ProfileCollections({
               >
                 {collection.title}
               </Link>
-              <span className="shrink-0 font-mono text-xs text-muted-foreground tabular-nums">
+              <span className="shrink-0 font-data text-xs text-muted-foreground">
                 {statNumberFormatter.format(collection.item_count)}{' '}
                 {collection.item_count === 1 ? 'item' : 'items'} ·{' '}
                 {statNumberFormatter.format(collection.like_count)}{' '}

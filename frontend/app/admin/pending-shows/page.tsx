@@ -296,7 +296,7 @@ export default function PendingShowsPage() {
                         <CheckCircle className="h-3.5 w-3.5" />
                       )}
                       Approve ({selectedCount})
-                      <kbd className="ml-1 hidden sm:inline rounded border border-border bg-muted px-1 py-0.5 text-[10px] font-mono text-muted-foreground">
+                      <kbd className="ml-1 hidden sm:inline rounded border border-border bg-muted px-1 py-0.5 text-[10px] text-muted-foreground">
                         A
                       </kbd>
                     </Button>
@@ -308,7 +308,7 @@ export default function PendingShowsPage() {
                     >
                       <XCircle className="h-3.5 w-3.5" />
                       Reject ({selectedCount})
-                      <kbd className="ml-1 hidden sm:inline rounded border border-border bg-muted px-1 py-0.5 text-[10px] font-mono text-muted-foreground">
+                      <kbd className="ml-1 hidden sm:inline rounded border border-border bg-muted px-1 py-0.5 text-[10px] text-muted-foreground">
                         R
                       </kbd>
                     </Button>

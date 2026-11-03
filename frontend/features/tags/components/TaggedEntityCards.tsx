@@ -212,7 +212,7 @@ export function TaggedEntityRow({ item }: TaggedEntityRowProps) {
         )}
       </div>
       {metric && (
-        <span className="shrink-0 font-mono text-sm tabular-nums text-muted-foreground">
+        <span className="shrink-0 font-data text-sm tabular-nums text-muted-foreground">
           {metric}
         </span>
       )}

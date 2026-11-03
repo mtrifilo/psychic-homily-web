@@ -101,14 +101,14 @@ function WallTile({
         >
           {name}
         </Link>
-        <p className="mt-0.5 truncate font-mono text-[10px] uppercase tracking-wide text-muted-foreground">
+        <p className="mt-0.5 truncate font-data text-[10px] uppercase tracking-wide text-muted-foreground">
           {metaLine(show)}
         </p>
         <button
           type="button"
           onClick={() => onRemove(show.id)}
           disabled={isRemovalPending}
-          className="mt-1 font-mono text-[10px] text-muted-foreground transition-colors hover:text-destructive disabled:cursor-wait disabled:opacity-60"
+          className="mt-1 font-data text-[10px] text-muted-foreground transition-colors hover:text-destructive disabled:cursor-wait disabled:opacity-60"
           aria-label={`Remove ${show.title} from saved shows`}
         >
           {isRemoving ? 'removing…' : '✕ remove'}

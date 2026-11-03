@@ -30,7 +30,7 @@ describe('NewReleaseRadarBox', () => {
     expect(container).toBeEmptyDOMElement()
   })
 
-  it('links a matched release to its release page with a mono subline', () => {
+  it('links a matched release to its release page with a data-face subline', () => {
     render(<NewReleaseRadarBox releases={[makeEntry()]} isLoading={false} />)
 
     expect(screen.getByText('New release radar')).toBeInTheDocument()

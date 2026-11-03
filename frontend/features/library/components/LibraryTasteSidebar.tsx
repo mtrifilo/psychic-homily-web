@@ -56,13 +56,13 @@ function SnapshotBlock({ stats }: { stats: PersonalChartsStats }) {
       <dl className="space-y-0">
         <div className="flex items-baseline justify-between gap-3 border-b border-border/60 py-1.5">
           <dt className="text-[13px] text-muted-foreground">Saved shows</dt>
-          <dd className="font-mono text-[13px] tabular-nums text-foreground">
+          <dd className="font-data text-[13px] tabular-nums text-foreground">
             {stats.saved_shows}
           </dd>
         </div>
         <div className="flex items-baseline justify-between gap-3 border-b border-border/60 py-1.5">
           <dt className="text-[13px] text-muted-foreground">Artists followed</dt>
-          <dd className="font-mono text-[13px] tabular-nums text-foreground">
+          <dd className="font-data text-[13px] tabular-nums text-foreground">
             {stats.artists_followed}
           </dd>
         </div>
@@ -83,7 +83,7 @@ function SnapshotBlock({ stats }: { stats: PersonalChartsStats }) {
         </div>
         <div className="flex items-baseline justify-between gap-3 py-1.5">
           <dt className="text-[13px] text-muted-foreground">Collecting since</dt>
-          <dd className="font-mono text-[13px] tabular-nums text-foreground">
+          <dd className="font-data text-[13px] text-foreground">
             {collectingSince ?? (
               <span className="text-muted-foreground">—</span>
             )}
@@ -105,7 +105,7 @@ function TopScenesBlock({ scenes }: { scenes: PersonalTopScene[] }) {
             key={scene.slug || scene.metro}
             className="flex items-baseline gap-2 border-b border-border/60 py-1.5 last:border-b-0"
           >
-            <span className="w-4 shrink-0 font-mono text-[10px] tabular-nums text-muted-foreground">
+            <span className="w-4 shrink-0 font-data text-[10px] tabular-nums text-muted-foreground">
               {rankLabel(index)}
             </span>
             <Link
@@ -114,7 +114,7 @@ function TopScenesBlock({ scenes }: { scenes: PersonalTopScene[] }) {
             >
               {sceneLabel(scene)}
             </Link>
-            <span className="shrink-0 font-mono text-[12px] tabular-nums text-muted-foreground">
+            <span className="shrink-0 font-data text-[12px] tabular-nums text-muted-foreground">
               {scene.count}
             </span>
           </li>
@@ -134,7 +134,7 @@ function TopTagsBlock({ tags }: { tags: PersonalTopTag[] }) {
           <li key={tag.tag_id}>
             <Link
               href={`/tags/${tag.slug}`}
-              className="inline-block border border-border px-1.5 py-0.5 font-mono text-[11px] text-muted-foreground transition-colors hover:border-primary hover:text-primary"
+              className="inline-block border border-border px-1.5 py-0.5 font-data text-[11px] text-muted-foreground transition-colors hover:border-primary hover:text-primary"
             >
               {tag.name}
             </Link>
@@ -156,7 +156,7 @@ function TopArtistsBlock({ artists }: { artists: PersonalTopArtist[] }) {
             key={artist.artist_id}
             className="flex items-baseline gap-2 border-b border-border/60 py-1.5 last:border-b-0"
           >
-            <span className="w-4 shrink-0 font-mono text-[10px] tabular-nums text-muted-foreground">
+            <span className="w-4 shrink-0 font-data text-[10px] tabular-nums text-muted-foreground">
               {rankLabel(index)}
             </span>
             <Link
@@ -165,7 +165,7 @@ function TopArtistsBlock({ artists }: { artists: PersonalTopArtist[] }) {
             >
               {artist.name}
             </Link>
-            <span className="shrink-0 font-mono text-[12px] tabular-nums text-muted-foreground">
+            <span className="shrink-0 font-data text-[12px] tabular-nums text-muted-foreground">
               {artist.count}
             </span>
           </li>
@@ -222,7 +222,7 @@ export function LibraryTasteSidebar() {
       className="w-full lg:w-80 lg:shrink-0"
       data-testid="library-taste-sidebar"
     >
-      <p className="mb-3 font-mono text-[11px] font-bold uppercase tracking-[0.08em] text-muted-foreground">
+      <p className="mb-3 font-data text-[11px] font-bold uppercase tracking-[0.08em] text-muted-foreground">
         Your taste
       </p>
       {isAuthLoading || stats.isLoading ? (

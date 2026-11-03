@@ -90,7 +90,7 @@ export function ArtistShowsList({
           size="md"
           action={
             upcomingShows.length > 0 ? (
-              <span className="font-mono text-xs text-muted-foreground">
+              <span className="font-data text-xs text-muted-foreground">
                 {formatCount(upcomingTotal)}
               </span>
             ) : undefined

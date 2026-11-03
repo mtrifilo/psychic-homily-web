@@ -63,7 +63,7 @@ export function SceneWeekShowRow({ show }: { show: SceneWeekShow }) {
         </span>
         <span className="hidden flex-1 sm:block" aria-hidden="true" />
         {show.venue_name && (
-          <span className="shrink-0 font-mono text-xs text-muted-foreground">
+          <span className="shrink-0 font-data text-xs text-muted-foreground">
             {show.venue_name}
           </span>
         )}
@@ -76,10 +76,10 @@ function DayGroup({ date, shows }: { date: string; shows: SceneWeekShow[] }) {
   return (
     <section className="pt-6">
       <div className="flex items-center justify-between pb-2">
-        <h2 className="font-mono text-xs tracking-widest text-muted-foreground">
+        <h2 className="font-data text-xs tracking-widest text-muted-foreground">
           {formatDayHeading(date)}
         </h2>
-        <span className="font-mono text-xs text-muted-foreground">{shows.length}</span>
+        <span className="font-data text-xs text-muted-foreground">{shows.length}</span>
       </div>
       <div className="border-t border-border" />
       {/* A quiet day is conveyed by the `0` in the heading above; repeating it
@@ -158,7 +158,7 @@ export function SceneWeekView({
         </div>
 
         <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
-          <p className="font-mono text-sm">
+          <p className="font-data text-sm">
             {formatWeekRange(week.start_date, week.end_date)}
             {'   ·   '}
             {total} {total === 1 ? 'show' : 'shows'}

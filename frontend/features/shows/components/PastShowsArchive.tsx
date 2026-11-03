@@ -743,7 +743,7 @@ export function PastShowsArchive<T extends ArchiveRow>({
         size="md"
         headingProps={targetProps}
         action={
-          <span className="font-mono text-xs text-muted-foreground">
+          <span className="font-data text-xs text-muted-foreground">
             {countLabel}
           </span>
         }
@@ -754,7 +754,7 @@ export function PastShowsArchive<T extends ArchiveRow>({
           <span>Could not load the other years.</span>
           <Link
             href={buildHref(null, 1)}
-            className="font-mono text-xs text-primary hover:underline"
+            className="font-data text-xs text-primary hover:underline"
           >
             Show every year
           </Link>
@@ -840,13 +840,13 @@ function PastShowsBody<T>({
         <button
           type="button"
           onClick={onRetry}
-          className="font-mono text-xs text-primary hover:underline"
+          className="font-data text-xs text-primary hover:underline"
         >
           [Try again]
         </button>
         <Link
           href={buildHref(activeYear, 1)}
-          className="font-mono text-xs text-primary hover:underline"
+          className="font-data text-xs text-primary hover:underline"
         >
           Back to the first page
         </Link>

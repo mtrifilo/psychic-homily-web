@@ -229,7 +229,7 @@ export function OAuthAccounts() {
                 {googleAccount ? (
                   <>
                     <p className="text-sm font-medium">Google</p>
-                    <p className="truncate font-mono text-xs text-muted-foreground">
+                    <p className="truncate font-data text-xs text-muted-foreground">
                       {googleAccount.email || googleAccount.name || 'Connected'}
                     </p>
                   </>

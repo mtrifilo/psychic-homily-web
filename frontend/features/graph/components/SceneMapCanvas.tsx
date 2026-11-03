@@ -16,7 +16,7 @@
  * `graphPalette` (theme-resolved colors), `graphLabels` (tier ladder + halo
  * recipe), `graphMarkers` (hub square, upcoming-show dot), `graphFocus` (the
  * hover neighbourhood + dim grammar). What is local is only what is genuinely
- * new: precomputed hull polygons, mono region captions, and the grid label cull
+ * new: precomputed hull polygons, data-face region captions, and the grid label cull
  * that keeps a catalog-sized candidate set off the per-frame path.
  */
 

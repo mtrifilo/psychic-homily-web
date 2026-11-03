@@ -40,7 +40,7 @@ export function GetStartedChecklist() {
       <div className="mt-1 divide-y divide-border/60">
         {steps.map(step => (
           <div key={step.n} className="flex items-center gap-4 py-3">
-            <span className="w-5 shrink-0 font-mono text-sm font-bold text-primary">
+            <span className="w-5 shrink-0 font-data text-sm font-bold text-primary">
               {step.n}
             </span>
             <div className="min-w-0 flex-1">

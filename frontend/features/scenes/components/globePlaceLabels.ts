@@ -24,7 +24,7 @@ const PLACE_LABEL_STYLE = [
 function placeLabelElement(name: string): HTMLDivElement {
   const el = document.createElement('div')
   el.textContent = name
-  el.className = 'font-mono'
+  el.className = 'font-data'
   el.dataset.testid = 'atlas-place-label'
   el.setAttribute('aria-hidden', 'true')
   el.style.cssText = PLACE_LABEL_STYLE

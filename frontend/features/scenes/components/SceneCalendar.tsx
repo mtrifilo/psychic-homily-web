@@ -95,7 +95,7 @@ function SceneShowRow({
             beneath it) and start its bill ~55px left of every neighbour. `w-16`
             fits `10:00 PM` at this size; `sm:w-20` takes over once the row is a
             flex line. */}
-        <span className="col-start-1 row-start-1 w-16 shrink-0 font-mono text-xs tabular-nums text-muted-foreground sm:w-20">
+        <span className="col-start-1 row-start-1 w-16 shrink-0 font-data text-xs tabular-nums text-muted-foreground sm:w-20">
           {time ?? ''}
         </span>
         <span className="col-start-2 row-start-1 flex min-w-0 flex-wrap items-center gap-2">
@@ -115,10 +115,10 @@ function SceneShowRow({
             its own would undo the saving this grid exists for. */}
         <ShowPrice
           show={show}
-          className="col-start-1 row-start-2 shrink-0 font-mono text-xs tabular-nums text-muted-foreground sm:row-start-auto"
+          className="col-start-1 row-start-2 shrink-0 font-data text-xs tabular-nums text-muted-foreground sm:row-start-auto"
         />
         {show.venue_name && (
-          <span className="col-start-2 row-start-2 min-w-0 font-mono text-xs text-muted-foreground sm:shrink-0">
+          <span className="col-start-2 row-start-2 min-w-0 font-data text-xs text-muted-foreground sm:shrink-0">
             {show.venue_name}
             {subLocality ? ` ${subLocality}` : ''}
           </span>
@@ -168,14 +168,14 @@ function SceneDateGroup({
   return (
     <section className="border-t border-border pt-4">
       <div className="flex items-baseline justify-between gap-4">
-        <h3 className="font-mono text-[11px] uppercase tracking-widest">
+        <h3 className="font-data text-[11px] uppercase tracking-widest">
           {/* TONIGHT LEADS, per the mock: it is the word the reader is scanning
               for, and it comes from the backend's `is_tonight` against the
               scene's own 6am boundary — never from a clock on this side. */}
           {day.is_tonight && <span className="text-primary">TONIGHT </span>}
           {formatSliceDateHeading(day.date)}
         </h3>
-        <span className="shrink-0 font-mono text-[11px] tabular-nums text-muted-foreground">
+        <span className="shrink-0 font-data text-[11px] text-muted-foreground">
           {formatDayCountLine(shows.length)}
         </span>
       </div>

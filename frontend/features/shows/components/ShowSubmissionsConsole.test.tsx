@@ -372,7 +372,7 @@ describe('ShowSubmissionsConsole', () => {
       // separates it from the published clock the show page withholds.
       const labelled = screen.getByText(/8:00\s?PM\s+\u00b7\s+zone unresolved/)
       expect(labelled).toBeTruthy()
-      expect(labelled.className).toContain('font-mono')
+      expect(labelled.className).toContain('font-data')
 
       // The segment carries its own leading bullet. A trailing-bullet check
       // could not see a fault here: `Details` always follows, so the line never

@@ -30,7 +30,7 @@ function NewBandRow({ band }: { band: SceneNewArtistRow }) {
   return (
     <li className="flex flex-wrap items-baseline gap-x-4 gap-y-0.5 border-b border-border/40 py-2 last:border-b-0">
       <EntityNameLink name={band.name} slug={band.slug} basePath="/artists" />
-      <span className="font-mono text-xs text-muted-foreground">
+      <span className="font-data text-xs text-muted-foreground">
         {clauses.join(' · ')}
       </span>
     </li>

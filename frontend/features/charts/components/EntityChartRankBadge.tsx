@@ -38,14 +38,14 @@ export function EntityChartRankBadge({
       aria-label="Charts"
       className={cn(className)}
     >
-      <p className="mb-2 border-b border-border/50 pb-1 font-mono text-[10px] font-bold uppercase tracking-[0.06em] text-muted-foreground">
+      <p className="mb-2 border-b border-border/50 pb-1 font-data text-[10px] font-bold uppercase tracking-[0.06em] text-muted-foreground">
         Charts
       </p>
       <Link
         href={href}
         className="flex items-start gap-2 text-xs leading-normal text-foreground hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
       >
-        <span className="shrink-0 font-mono tabular-nums text-primary">
+        <span className="shrink-0 font-data text-primary">
           No. {data.rank}
         </span>
         <span>{copy}</span>

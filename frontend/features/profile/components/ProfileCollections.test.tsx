@@ -42,7 +42,7 @@ beforeEach(() => {
 })
 
 describe('ProfileCollections', () => {
-  it('renders dense rows with title links and mono items/likes counts', () => {
+  it('renders dense rows with title links and data-face items/likes counts', () => {
     mockUseUserPublicCollections.mockReturnValue({
       data: {
         collections: [

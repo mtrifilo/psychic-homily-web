@@ -99,7 +99,7 @@ describe('TierAdvancementCard', () => {
     expect(screen.getByText(/Verified email/i)).toBeInTheDocument()
   })
 
-  it('renders board-H progress bar + mono counter from advancement data', () => {
+  it('renders board-H progress bar + data-face counter from advancement data', () => {
     mockUseAdvancementProgress.mockReturnValue({
       data: advancementFor('trusted_contributor'),
       isLoading: false,

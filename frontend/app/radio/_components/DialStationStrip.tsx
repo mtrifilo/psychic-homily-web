@@ -78,13 +78,13 @@ export function DialStationStrip({ station }: DialStationStripProps) {
             {station.name}
           </Link>
           {station.frequency_mhz != null && (
-            <span className="font-mono text-xs text-muted-foreground">
+            <span className="font-data text-xs text-muted-foreground">
               {station.frequency_mhz.toFixed(1)} FM
             </span>
           )}
         </div>
         {identityLine && (
-          <p className="mt-1 font-mono text-[11px] leading-4 text-muted-foreground">
+          <p className="mt-1 font-data text-[11px] leading-4 text-muted-foreground">
             {identityLine}
           </p>
         )}
@@ -125,7 +125,7 @@ export function DialStationStrip({ station }: DialStationStripProps) {
           <BracketLink
             label={playlistAction.label}
             href={playlistAction.href}
-            className="font-mono text-xs text-primary hover:text-primary/80"
+            className="font-data text-xs text-primary hover:text-primary/80"
           />
         )}
       </div>
@@ -171,7 +171,7 @@ function playlistActionFor(
 /**
  * Header label + show identity shared by the strip's main ON AIR line and
  * the channel sub-rows: "● ON AIR" only when the backend confirmed a live
- * broadcast; the latest-archive fallback gets a mono "latest playlist"
+ * broadcast; the latest-archive fallback gets a data-face "latest playlist"
  * prefix instead of the dot — same dense register, honest labeling.
  * Unmatched shows (PSY-1073) render `show_name` as plain text, not a link.
  */
@@ -214,7 +214,7 @@ function OnAirBlock({ stationSlug }: { stationSlug: string }) {
     <div className="flex min-w-0 flex-col gap-1">
       {/* ● ON AIR (or "latest playlist")  Show name  w/ host */}
       <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
-        <span className="inline-flex items-baseline gap-1.5 font-mono text-[11px] uppercase tracking-[1.2px] text-muted-foreground">
+        <span className="inline-flex items-baseline gap-1.5 font-data text-[11px] uppercase tracking-[1.2px] text-muted-foreground">
           {data.on_air && (
             <span
               className="size-2 self-center rounded-full bg-primary"
@@ -266,7 +266,7 @@ function OnAirBlock({ stationSlug }: { stationSlug: string }) {
             </span>
           )}
           {current.rotation_status && (
-            <span className="font-mono text-[11px] lowercase text-primary">
+            <span className="font-data text-[11px] lowercase text-primary">
               {getRotationStatusLabel(current.rotation_status)}
             </span>
           )}
@@ -276,12 +276,12 @@ function OnAirBlock({ stationSlug }: { stationSlug: string }) {
       {/* earlier: artist hops */}
       {data.recent_artists.length > 0 && (
         <div className="flex items-baseline gap-1.5">
-          <span className="shrink-0 font-mono text-xs text-muted-foreground">
+          <span className="shrink-0 font-data text-xs text-muted-foreground">
             earlier:
           </span>
           <ArtistHops
             hops={previewToHops(data.recent_artists)}
-            className="font-mono text-xs text-foreground"
+            className="font-data text-xs text-foreground"
           />
         </div>
       )}
@@ -340,7 +340,7 @@ function DialChannelRow({
         <span className="text-[13px] text-muted-foreground">
           —{' '}
           {!nowPlaying.on_air && (
-            <span className="font-mono text-[11px]">latest: </span>
+            <span className="font-data text-[11px]">latest: </span>
           )}
           {nowPlaying.show ? (
             <Link
@@ -376,7 +376,7 @@ function DialChannelRow({
           label="listen"
           href={channelWebsiteHref}
           external
-          className="font-mono text-xs text-primary hover:text-primary/80"
+          className="font-data text-xs text-primary hover:text-primary/80"
           // Names the channel: this row repeats per channel and again per
           // station, so a bare "listen" would announce identically down the
           // whole dial with nothing to tell the streams apart.

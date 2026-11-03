@@ -96,7 +96,7 @@ function AllContributionsList({ stats }: { stats: ContributionStats }) {
               className="flex items-baseline justify-between gap-2 border-b border-border/40 py-1.5"
             >
               <dt className="text-sm">{row.label}</dt>
-              <dd className="font-mono text-sm tabular-nums">
+              <dd className="font-data text-sm tabular-nums">
                 {statNumberFormatter.format(row.value)}
               </dd>
             </div>
@@ -192,7 +192,7 @@ export function ProfileStatsSidebar({
               onClick={() => setExpanded(false)}
               aria-expanded={true}
               aria-label="Hide the full statistics dashboard"
-              className="font-mono text-xs text-primary hover:underline"
+              className="font-data text-xs text-primary hover:underline"
             >
               ▴ Hide
             </button>
@@ -206,7 +206,7 @@ export function ProfileStatsSidebar({
             key={item.label}
             className="flex flex-col gap-1 lg:flex-row lg:items-baseline lg:gap-3"
           >
-            <span className="font-mono text-2xl font-bold leading-none tabular-nums lg:min-w-14 lg:shrink-0 lg:text-right">
+            <span className="font-data text-2xl font-bold leading-none tabular-nums lg:min-w-14 lg:shrink-0 lg:text-right">
               {item.value}
             </span>
             <span className="min-w-0 text-xs text-muted-foreground lg:text-sm">
@@ -228,7 +228,7 @@ export function ProfileStatsSidebar({
           >
             ▸ Show all stats
           </button>
-          <p className="mt-1 font-mono text-xs leading-relaxed text-muted-foreground">
+          <p className="mt-1 font-data text-xs leading-relaxed text-muted-foreground">
             <span className="lg:hidden">
               counters · heatmap · percentile rankings
             </span>

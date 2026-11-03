@@ -244,7 +244,7 @@ export function Pagination({
   return (
     <nav
       aria-label={ariaLabel}
-      className={cn('font-mono text-xs', className)}
+      className={cn('font-data text-xs', className)}
       data-testid="pagination"
     >
       {/* Desktop: boundary controls flanking the numbered strip, caption right-aligned. */}

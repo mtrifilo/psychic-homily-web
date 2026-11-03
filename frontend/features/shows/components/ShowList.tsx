@@ -766,7 +766,7 @@ export function ShowList({ window: calendarWindow }: ShowListProps) {
             whole matching set instead, which is what the frame's title row
             carries. */}
         <p
-          className="mb-3 font-mono text-[13px] text-muted-foreground"
+          className="mb-3 font-data text-[13px] text-muted-foreground"
           data-testid="show-count"
           {...targetProps}
         >

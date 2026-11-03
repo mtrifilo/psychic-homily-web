@@ -98,7 +98,7 @@ export function NotificationBell() {
           <p className="text-sm font-semibold">
             Notifications
             {hasUnread && (
-              <span className="ml-1.5 font-mono text-xs font-normal text-muted-foreground">
+              <span className="ml-1.5 font-data text-xs font-normal text-muted-foreground">
                 · {unreadCount} unread
               </span>
             )}
@@ -108,7 +108,7 @@ export function NotificationBell() {
               label="Catch up ✓"
               onClick={() => markRead.mutate(undefined)}
               disabled={markRead.isPending}
-              className="font-mono text-xs"
+              className="font-data text-xs"
               ariaLabel="Catch up — mark all notifications read"
             />
           )}
@@ -158,7 +158,7 @@ export function NotificationBell() {
             label={hasUnread ? `View all — ${unreadCount} unread` : 'View all'}
             href="/notifications"
             onClick={() => setOpen(false)}
-            className="font-mono text-xs"
+            className="font-data text-xs"
           />
         </div>
       </PopoverContent>

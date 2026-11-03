@@ -96,7 +96,7 @@ export function CheckInboxInterstitial({
 
   return (
     <Card className="gap-4 px-10 py-9">
-      <p className="font-mono text-[11px] uppercase tracking-[0.66px] text-muted-foreground">
+      <p className="font-data text-[11px] uppercase tracking-[0.66px] text-muted-foreground">
         One email sent · one click to finish
       </p>
 
@@ -110,12 +110,12 @@ export function CheckInboxInterstitial({
 
       <p className="text-sm leading-[22px] text-foreground">
         We sent a verification link to{' '}
-        <span className="font-mono break-words">{email}</span>. It expires in{' '}
+        <span className="font-data break-words">{email}</span>. It expires in{' '}
         {VERIFICATION_LINK_HOURS} hours.
       </p>
 
       <div className="space-y-1.5 border border-border bg-background px-4 py-3">
-        <p className="font-mono text-[11px] uppercase tracking-[0.55px] text-muted-foreground">
+        <p className="font-data text-[11px] uppercase tracking-[0.55px] text-muted-foreground">
           Meanwhile, everything else is open
         </p>
         {/*
@@ -144,7 +144,7 @@ export function CheckInboxInterstitial({
         <VerificationResendStatus
           format={formatWaitOnly}
           announce={announceSentAgain}
-          className="font-mono text-[11px] uppercase tracking-[0.66px] text-primary"
+          className="font-data text-[11px] uppercase tracking-[0.66px] text-primary"
         />
 
         <CurrentSessionExpired>

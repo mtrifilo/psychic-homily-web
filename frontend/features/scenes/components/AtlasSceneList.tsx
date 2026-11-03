@@ -126,7 +126,7 @@ export function AtlasSceneList({
                     {/* Both headline counts, matching the map preview's
                         "N upcoming · M venues" line: this row is the only
                         place the list shows them. */}
-                    <span className="flex items-center gap-2 font-mono text-xs text-muted-foreground">
+                    <span className="flex items-center gap-2 font-data text-xs text-muted-foreground">
                       {s.upcoming_show_count} upcoming · {s.venue_count} venues
                       <span aria-hidden>{expanded ? '−' : '+'}</span>
                     </span>

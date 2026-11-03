@@ -7,8 +7,8 @@ import type { PercentileRanking } from '@/features/auth'
 
 /**
  * Percentile-ranking bars for the profile stats expander (design board G):
- * editorial single-hue treatment — primary-colored fill on a muted track,
- * "top N%" in mono — replacing the old traffic-light Card (PSY-1058). Bar
+ * editorial single-hue treatment: primary-colored fill on a muted track,
+ * "top N%" in the data face with tabular figures on the number only. Bar
  * width is the user's percentile standing, so "top 4%" renders nearly full.
  */
 function RankingBar({ ranking }: { ranking: PercentileRanking }) {
@@ -16,8 +16,8 @@ function RankingBar({ ranking }: { ranking: PercentileRanking }) {
     <div className="space-y-1">
       <div className="flex items-baseline justify-between gap-2">
         <span className="text-sm">{ranking.label}</span>
-        <span className="shrink-0 font-mono text-xs tabular-nums">
-          top {100 - ranking.percentile}%
+        <span className="shrink-0 font-data text-xs">
+          top <span className="tabular-nums">{100 - ranking.percentile}</span>%
         </span>
       </div>
       <div className="h-1.5 w-full bg-muted">
@@ -63,7 +63,7 @@ export function PercentileRankings({ username }: PercentileRankingsProps) {
       <SectionHeader
         title="Percentile rankings"
         action={
-          <span className="font-mono text-xs text-primary">
+          <span className="font-data text-xs text-primary">
             overall · top {100 - rankings.overall_score}%
           </span>
         }

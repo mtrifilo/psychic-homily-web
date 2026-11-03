@@ -94,7 +94,7 @@ describe('RadioHub', () => {
     })
   })
 
-  it('renders the page head with mission and mono stats line', () => {
+  it('renders the page head with mission and data-face stats line', () => {
     render(<RadioHub />)
 
     expect(

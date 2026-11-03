@@ -68,7 +68,7 @@ export function CustomizeHomeToolbar({
           withDiscoverLinks && 'grow basis-80'
         )}
       >
-        <p className="font-mono text-[11px] uppercase tracking-[1.4px] text-muted-foreground">
+        <p className="font-data text-[11px] uppercase tracking-[1.4px] text-muted-foreground">
           Home · {HOME_SECTIONS.length} sections · Your layout
         </p>
         {withCityLink && <ResolvedHomeCityShowsLink />}
@@ -90,7 +90,7 @@ export function CustomizeHomeToolbar({
           aria-label="Customize home"
         >
           <div className="px-4 pb-3 pt-4">
-            <p className="font-mono text-[11px] uppercase tracking-[1.4px] text-muted-foreground">
+            <p className="font-data text-[11px] uppercase tracking-[1.4px] text-muted-foreground">
               Customize home
             </p>
             <p className="mt-1.5 text-sm text-foreground">

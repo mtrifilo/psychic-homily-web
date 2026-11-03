@@ -25,7 +25,7 @@ interface PlaylistTableProps {
 }
 
 /**
- * Short mono-tag labels for rotation_status in the NOTES column (the long
+ * Short data-face tag labels for rotation_status in the NOTES column (the long
  * "Heavy Rotation" labels don't fit the dense register). Unknown statuses
  * fall back to the raw value, uppercased.
  */
@@ -40,7 +40,7 @@ function rotationTagLabel(status: string): string {
   return ROTATION_TAG_LABELS[status] ?? status.replace(/_/g, ' ').toUpperCase()
 }
 
-const BADGE_CLASSES = 'font-mono text-[10px] px-1.5 py-0'
+const BADGE_CLASSES = 'font-data text-[10px] px-1.5 py-0'
 
 /**
  * How old the newest row's air_timestamp may be and still read "▸ now".
@@ -106,7 +106,7 @@ export function PlaylistTable({ plays, live = false }: PlaylistTableProps) {
                 >
                   <td
                     className={cn(
-                      'whitespace-nowrap font-mono text-xs tabular-nums',
+                      'whitespace-nowrap font-data text-xs tabular-nums',
                       isNewest ? 'text-primary font-medium' : 'text-primary/90'
                     )}
                   >
@@ -201,7 +201,7 @@ export function PlaylistTable({ plays, live = false }: PlaylistTableProps) {
                   <tr className={cn(isNewest && 'bg-primary/5')}>
                     <td aria-hidden="true" />
                     <td colSpan={6} className="pt-0!">
-                      <span className="font-mono text-xs text-muted-foreground">
+                      <span className="font-data text-xs text-muted-foreground">
                         <span aria-hidden="true">└ </span>
                         {play.dj_comment}
                       </span>
@@ -214,7 +214,7 @@ export function PlaylistTable({ plays, live = false }: PlaylistTableProps) {
         </tbody>
       </DenseTable>
 
-      <p className="mt-3 font-mono text-xs text-muted-foreground">
+      <p className="mt-3 font-data text-xs text-muted-foreground">
         <span className="text-primary" aria-hidden="true">
           ●
         </span>{' '}

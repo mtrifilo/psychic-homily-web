@@ -231,7 +231,7 @@ describe('DayGroupedShowList', () => {
       expect(headings.length).toBeGreaterThan(0)
       for (const heading of headings) {
         expect(heading).toHaveClass(
-          'font-mono',
+          'font-data',
           'text-sm',
           'font-bold',
           'tracking-[1px]',

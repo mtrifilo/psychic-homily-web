@@ -18,7 +18,7 @@ function RankIcon({ rank }: { rank: number }) {
   if (rank === 1) return <Trophy className="h-5 w-5 text-yellow-500" />
   if (rank === 2) return <Medal className="h-5 w-5 text-gray-400" />
   if (rank === 3) return <Award className="h-5 w-5 text-amber-600" />
-  return <span className="text-sm font-mono text-muted-foreground w-5 text-center">{rank}</span>
+  return <span className="text-sm font-data tabular-nums text-muted-foreground w-5 text-center">{rank}</span>
 }
 
 function TierBadge({ tier }: { tier: string }) {
@@ -192,7 +192,7 @@ export function LeaderboardPage() {
           <p className="text-sm text-muted-foreground mb-2">Your rank</p>
           <div className="flex items-center gap-4 rounded-lg border border-primary/50 bg-primary/5 p-3">
             <div className="flex items-center justify-center w-8">
-              <span className="text-sm font-mono text-muted-foreground w-5 text-center">
+              <span className="text-sm font-data tabular-nums text-muted-foreground w-5 text-center">
                 {data.user_rank}
               </span>
             </div>

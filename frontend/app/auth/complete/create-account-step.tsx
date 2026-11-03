@@ -216,7 +216,7 @@ function CreateAccountForm({
             className="flex items-center gap-2.5 rounded-md border bg-muted px-3 py-2"
           >
             <GoogleIcon className="h-4 w-4 shrink-0" />
-            <span className="min-w-0 break-all font-mono text-[13px] text-foreground">
+            <span className="min-w-0 break-all font-data text-[13px] text-foreground">
               {pending.email}
             </span>
           </div>

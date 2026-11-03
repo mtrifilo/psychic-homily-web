@@ -37,7 +37,7 @@ function FollowDestinationLinks({ onNavigate }: { onNavigate?: () => void }) {
           label={label}
           href={href}
           onClick={onNavigate}
-          className="font-mono text-xs"
+          className="font-data text-xs"
         />
       ))}
     </>

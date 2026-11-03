@@ -80,7 +80,7 @@ export function StationPlaylistsFeed({ station }: StationPlaylistsFeedProps) {
                 disabled={isFetching}
               />
             )}
-            <span className="font-mono text-xs text-muted-foreground tabular-nums">
+            <span className="font-data text-xs text-muted-foreground">
               showing {episodes.length} of {total} playlists
             </span>
           </div>
@@ -108,7 +108,7 @@ function PlaylistRow({ row }: { row: RadioStationEpisodeRow }) {
 
   return (
     <tr>
-      <td className="whitespace-nowrap font-mono text-xs uppercase text-muted-foreground align-top">
+      <td className="whitespace-nowrap font-data text-xs uppercase text-muted-foreground align-top">
         <Link
           href={playlistUrl}
           className="hover:text-foreground transition-colors"

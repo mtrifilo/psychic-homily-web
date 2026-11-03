@@ -317,7 +317,7 @@ function Trail({
       aria-label="Graph traversal history"
       className="flex min-h-9 flex-wrap items-center gap-1.5 border-b border-border/50 px-4 py-2 text-xs"
     >
-      <span className="mr-1 font-mono text-[10px] uppercase tracking-[0.18em] text-muted-foreground">
+      <span className="mr-1 font-data text-[10px] uppercase tracking-[0.18em] text-muted-foreground">
         Trail
       </span>
       {isCollapsed ? (
@@ -358,7 +358,7 @@ function Trail({
         ref={resetButtonRef}
         type="button"
         onClick={onReset}
-        className="ml-auto inline-flex items-center gap-1 font-mono text-[10px] uppercase tracking-wider text-muted-foreground hover:text-foreground"
+        className="ml-auto inline-flex items-center gap-1 font-data text-[10px] uppercase tracking-wider text-muted-foreground hover:text-foreground"
       >
         <RotateCcw className="size-3" aria-hidden="true" />
         Reset
@@ -668,7 +668,7 @@ function ObservatoryHeader() {
   return (
     <header className="mb-5 flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
       <div>
-        <h1 className="font-mono text-[10px] uppercase tracking-[0.2em] text-primary">
+        <h1 className="font-data text-[10px] uppercase tracking-[0.2em] text-primary">
           Music Knowledge Graph
         </h1>
       </div>
@@ -1085,7 +1085,7 @@ export function GraphObservatory() {
           {/* "The whole map" is the wrong caption over a box that is about to
               draw one artist's neighborhood. */}
           {(center || (sceneMap && !isRootLinkPending)) && (
-            <p className="shrink-0 font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
+            <p className="shrink-0 font-data text-[10px] uppercase tracking-wider text-muted-foreground">
               {center ? (
                 <>
                   Centered on <span className="text-foreground">{center.name}</span>

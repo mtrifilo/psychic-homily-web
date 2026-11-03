@@ -75,7 +75,7 @@ export default function NotificationInboxPage() {
           <h1 className="text-2xl font-semibold">
             Notifications
             {unreadCount > 0 && (
-              <span className="ml-2 align-middle font-mono text-xs font-normal text-primary">
+              <span className="ml-2 align-middle font-data text-xs font-normal text-primary">
                 {unreadCount} unread
               </span>
             )}
@@ -91,7 +91,7 @@ export default function NotificationInboxPage() {
         <BracketLink
           label="Custom alerts"
           href="/settings/notification-filters"
-          className="font-mono text-xs"
+          className="font-data text-xs"
         />
       </div>
 
@@ -101,14 +101,14 @@ export default function NotificationInboxPage() {
             label="unread"
             onClick={() => setView('unread')}
             active={view === 'unread'}
-            className={cn('font-mono text-xs', view === 'unread' && 'text-primary')}
+            className={cn('font-data text-xs', view === 'unread' && 'text-primary')}
             ariaLabel="Show unread notifications first"
           />
           <BracketLink
             label="all"
             onClick={() => setView('all')}
             active={view === 'all'}
-            className={cn('font-mono text-xs', view === 'all' && 'text-primary')}
+            className={cn('font-data text-xs', view === 'all' && 'text-primary')}
             ariaLabel="Show all notifications interleaved"
           />
         </div>
@@ -117,7 +117,7 @@ export default function NotificationInboxPage() {
             label="Catch up ✓"
             onClick={() => markRead.mutate(undefined)}
             disabled={markRead.isPending}
-            className="font-mono text-xs"
+            className="font-data text-xs"
             ariaLabel="Catch up — mark all notifications read"
           />
         )}

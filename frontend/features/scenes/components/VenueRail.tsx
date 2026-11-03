@@ -23,7 +23,7 @@ import {
 } from '../cityView'
 
 const GENRE_LABEL_BY_KEY: ReadonlyMap<string, string> = new Map(
-  // Lowercased: the rail's meta line is running mono text ("… · punk &
+  // Lowercased: the rail's meta line is running data-face text ("… · punk &
   // hardcore"), not a legend entry, so the legend's title case would shout.
   GENRE_FAMILIES.map((f) => [f.key, f.label.toLowerCase()]),
 )
@@ -116,13 +116,13 @@ export function VenueRail({
           <button
             type="button"
             onClick={onBackToGlobe}
-            className="font-mono text-xs text-muted-foreground underline-offset-4 transition-colors hover:text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            className="font-data text-xs text-muted-foreground underline-offset-4 transition-colors hover:text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           >
             ← globe
           </button>
         </div>
 
-        <p className="mt-2 font-mono text-[11px] uppercase leading-4 tracking-wide text-muted-foreground">
+        <p className="mt-2 font-data text-[11px] uppercase leading-4 tracking-wide text-muted-foreground">
           {/* "metro venues" whenever the rows reach past the principal city
               (PSY-1574). The heading above names ONE city; a flat "12 venues"
               under it would read as a claim about Phoenix proper while the
@@ -130,7 +130,7 @@ export function VenueRail({
               rolling `shows_this_week`, hence "in the next 7 days" — see
               `VenueWithShowCount.shows_this_week`. Same phrasing as the pulse
               band and the globe tooltip; the "in" keeps "9 IN THE NEXT 7 DAYS"
-              from setting two numerals side by side in this uppercase-mono
+              from setting two numerals side by side in this uppercase data-face
               strip, where every other segment reads "<number> <noun>". */}
           {stats.venueCount} {spansMetro ? 'metro ' : ''}
           {stats.venueCount === 1 ? 'venue' : 'venues'} · {stats.upcomingCount}{' '}
@@ -218,7 +218,7 @@ export function VenueRailTruncationNote({
 }) {
   if (!isVenueListTruncated(totalVenueCount, listedCount)) return null
   return (
-    <p className={`font-mono text-[11px] leading-4 text-muted-foreground ${className ?? ''}`}>
+    <p className={`font-data text-[11px] leading-4 text-muted-foreground ${className ?? ''}`}>
       showing the {listedCount} busiest of {totalVenueCount}
     </p>
   )
@@ -356,7 +356,7 @@ export function VenueRailFilters({
         id={caveatId}
         className={
           filters.allAgesOnly
-            ? 'mt-2 font-mono text-[11px] leading-4 text-muted-foreground'
+            ? 'mt-2 font-data text-[11px] leading-4 text-muted-foreground'
             : 'sr-only'
         }
       >
@@ -448,7 +448,7 @@ export function VenueRailProvenance({
   return (
     <p
       data-testid="rail-provenance"
-      className="font-mono text-[11px] leading-4 text-muted-foreground"
+      className="font-data text-[11px] leading-4 text-muted-foreground"
     >
       {/* Full-strength muted, not a dimmed variant: at 11px an opacity
           step lands under the 4.5:1 contrast floor. The line's hierarchy
@@ -531,7 +531,7 @@ function EmptyRail({
 
 /** `touch` raises the chip to a 24px-tall target for touch layouts. */
 function chipClass(active: boolean, disabled = false, touch = false): string {
-  const base = `inline-flex items-center rounded-sm px-2 font-mono text-[11px] leading-4 transition-colors ${
+  const base = `inline-flex items-center rounded-sm px-2 font-data text-[11px] leading-4 transition-colors ${
     touch ? 'min-h-6' : 'py-0.5'
   }`
   if (disabled) return `${base} bg-muted/50 text-muted-foreground/50`
@@ -609,11 +609,11 @@ function VenueRow({
     >
       <div className="flex items-baseline justify-between gap-3">
         <span className="truncate text-sm text-foreground">{venue.name}</span>
-        <span className="shrink-0 font-mono text-xs text-primary">
+        <span className="shrink-0 font-data text-xs text-primary">
           {venue.upcoming_show_count} upcoming
         </span>
       </div>
-      <p className="mt-1 font-mono text-[11px] leading-4 text-muted-foreground">
+      <p className="mt-1 font-data text-[11px] leading-4 text-muted-foreground">
         {/* The rail is scoped to the METRO (PSY-1574), so a row can sit in a
             city the header doesn't name and outside the current frame. Leading
             the meta line with that city is what keeps such a row from reading

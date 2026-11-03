@@ -1599,7 +1599,7 @@ function PasteModePane({
           'Frank Ocean'
         }
         rows={6}
-        className="w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm font-mono shadow-xs focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+        className="w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm font-data shadow-xs focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
         data-testid="add-items-picker-paste-textarea"
       />
 
@@ -1719,7 +1719,7 @@ function PastePreviewRow({
             </p>
           )}
           {!row.item && (
-            <p className="text-xs text-muted-foreground truncate font-mono">
+            <p className="text-xs text-muted-foreground truncate font-data">
               {row.raw}
             </p>
           )}
@@ -1938,11 +1938,11 @@ function StagedOverviewStrip({ items }: { items: StagedCollectionItem[] }) {
   return (
     <div className="space-y-1.5" data-testid="add-items-picker-overview-strip">
       <div className="flex items-center justify-between">
-        <span className="text-xs font-mono text-muted-foreground">
+        <span className="text-xs font-data text-muted-foreground">
           {items.length} {items.length === 1 ? 'item' : 'items'}
         </span>
         {items.length > 1 && (
-          <span className="text-[10px] font-mono text-muted-foreground">
+          <span className="text-[10px] font-data text-muted-foreground">
             ⇅ drag to reorder
           </span>
         )}
@@ -1963,7 +1963,7 @@ function StagedOverviewStrip({ items }: { items: StagedCollectionItem[] }) {
           )
         })}
         {overflow > 0 && (
-          <span className="flex h-7 items-center rounded border border-border bg-muted px-2 text-[10px] font-mono text-muted-foreground">
+          <span className="flex h-7 items-center rounded border border-border bg-muted px-2 text-[10px] font-data text-muted-foreground">
             +{overflow}
           </span>
         )}
@@ -2038,7 +2038,7 @@ function StagedRow({
           <GripVertical className="h-3.5 w-3.5" />
         </button>
       )}
-      <span className="text-xs font-mono tabular-nums text-muted-foreground w-6 shrink-0 text-right">
+      <span className="text-xs font-data tabular-nums text-muted-foreground w-6 shrink-0 text-right">
         {String(index + 1).padStart(2, '0')}
       </span>
       <span className="text-sm flex-1 min-w-0 truncate">

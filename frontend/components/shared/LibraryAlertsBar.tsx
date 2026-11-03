@@ -117,7 +117,7 @@ export function LibraryAlertsBar({ entityType }: LibraryAlertsBarProps) {
                 : 'New-show alerts are paused. Turn a channel on in alert settings.'
             }
             href={ALERTS_HREF}
-            className="font-mono text-[11px]"
+            className="font-data text-[11px]"
           />
         </>
       ) : (
@@ -160,7 +160,7 @@ export function LibraryAlertsBar({ entityType }: LibraryAlertsBarProps) {
                 label="change"
                 ariaLabel="Change your area"
                 onClick={() => setIsEditingArea(true)}
-                className="font-mono text-[11px]"
+                className="font-data text-[11px]"
               />
             </>
           )}
@@ -186,7 +186,7 @@ export function LibraryAlertsBar({ entityType }: LibraryAlertsBarProps) {
           <BracketLink
             label="retry"
             onClick={() => void refetch()}
-            className="font-mono text-[11px]"
+            className="font-data text-[11px]"
           />
         </>
       )}
@@ -196,7 +196,7 @@ export function LibraryAlertsBar({ entityType }: LibraryAlertsBarProps) {
       <BracketLink
         label="custom alerts →"
         href={CUSTOM_ALERTS_HREF}
-        className="font-mono text-[11px]"
+        className="font-data text-[11px]"
       />
     </div>
   )

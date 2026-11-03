@@ -237,7 +237,7 @@ describe('DayGroupedShowRow', () => {
     expect(screen.getByText('SOLD OUT')).toBeInTheDocument()
   })
 
-  // PRIMARY on this surface, not the card's destructive red: among muted mono
+  // PRIMARY on this surface, not the card's destructive red: among muted data-face
   // columns a red block reads as an error state rather than as a status.
   it('paints the cancelled badge in primary', () => {
     renderRow({ is_cancelled: true })

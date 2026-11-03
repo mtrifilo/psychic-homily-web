@@ -215,7 +215,7 @@ export function ArtistPanel({
       onClick={onBack}
       // A 24px-tall target in the sheet presentation.
       className={cn(
-        '-ml-1 -mt-0.5 flex min-w-0 items-center gap-1 rounded-sm px-1 py-0.5 font-mono text-[11px] text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+        '-ml-1 -mt-0.5 flex min-w-0 items-center gap-1 rounded-sm px-1 py-0.5 font-data text-[11px] text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
         isSheet && 'min-h-6',
       )}
     >
@@ -227,7 +227,7 @@ export function ArtistPanel({
     <div className="mt-1.5 flex items-center justify-between gap-2">
       <p
         data-testid="artist-panel-kicker"
-        className="min-w-0 truncate font-mono text-[11px] uppercase tracking-wide text-primary"
+        className="min-w-0 truncate font-data text-[11px] uppercase tracking-wide text-primary"
       >
         {kicker}
       </p>
@@ -255,7 +255,7 @@ export function ArtistPanel({
     <>
       {/* Stepping changes the panel's contents WITHOUT moving focus (by
           design — focus stays on the button being pressed), and the visible
-          kicker is abbreviated mono caps whose `‹ ›` glyphs only imply the
+          kicker is abbreviated data-face caps whose `‹ ›` glyphs only imply the
           position visually. This is the only thing that states the new
           position, and who you landed on, to a screen reader. */}
       <p className="sr-only" role="status">
@@ -266,7 +266,7 @@ export function ArtistPanel({
   const identityLine = identity && (
     <p
       data-testid="artist-panel-identity"
-      className="mt-1 font-mono text-[11px] leading-4 text-muted-foreground"
+      className="mt-1 font-data text-[11px] leading-4 text-muted-foreground"
     >
       {identity}
     </p>
@@ -287,7 +287,7 @@ export function ArtistPanel({
           data-testid="artist-panel-listen"
           className="border-b border-border/60 px-4 pb-2 pt-3"
         >
-          <h3 className="pb-1.5 font-mono text-[11px] uppercase tracking-wide text-muted-foreground">
+          <h3 className="pb-1.5 font-data text-[11px] uppercase tracking-wide text-muted-foreground">
             Listen
           </h3>
           <MusicEmbed
@@ -301,7 +301,7 @@ export function ArtistPanel({
 
       {nextShows.length > 0 && (
         <section className="border-b border-border/60 px-4 pb-2.5 pt-3">
-          <h3 className="pb-1 font-mono text-[11px] uppercase tracking-wide text-muted-foreground">
+          <h3 className="pb-1 font-data text-[11px] uppercase tracking-wide text-muted-foreground">
             {nextShows.length === 1 ? 'Next show' : 'Next shows'}
           </h3>
           <ul className="space-y-1">
@@ -316,7 +316,7 @@ export function ArtistPanel({
 
       {connections && (
         <section className="border-b border-border/60 px-4 pb-2.5 pt-3">
-          <h3 className="pb-1 font-mono text-[11px] uppercase tracking-wide text-muted-foreground">
+          <h3 className="pb-1 font-data text-[11px] uppercase tracking-wide text-muted-foreground">
             Connections
           </h3>
           <p className="text-sm leading-snug text-foreground/90">
@@ -333,7 +333,7 @@ export function ArtistPanel({
       // the user pathless while a fetch is in flight or after it failed.
       href={`/artists/${encodeURIComponent(artistSlug || String(current.artistId))}`}
       className={cn(
-        'font-mono text-xs text-primary underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+        'font-data text-xs text-primary underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
         isSheet && ATLAS_LINK_TARGET_CLASS,
       )}
     >

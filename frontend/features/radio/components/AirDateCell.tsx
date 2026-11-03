@@ -40,7 +40,7 @@ export function airDateCellText(
   // Never render an empty date line: an unparsable air_date falls back to the
   // raw string (visible + greppable) rather than a blank cell and an empty
   // accessible name — clamped so a long corrupt value can't stretch the
-  // whitespace-nowrap mono cells (a real date is 10 chars).
+  // whitespace-nowrap data-face cells (a real date is 10 chars).
   const dateLine = formatted || airDate.slice(0, 16)
   return { dateLine, timeBlock }
 }
@@ -48,7 +48,7 @@ export function airDateCellText(
 /**
  * Stacked viewer-local date + air-time block for the latest-playlists tables
  * (PSY-1298) — the shared definition of the cell content for the station feed
- * and the dial-wide hub table. Renders inside the tables' font-mono/uppercase
+ * and the dial-wide hub table. Renders inside the tables' font-data/uppercase
  * DATE td; the time line opts back out of the uppercase transform so any
  * future lowercase copy renders as designed. Windowless rows (null starts_at)
  * get the date line only.

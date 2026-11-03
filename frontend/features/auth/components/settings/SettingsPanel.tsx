@@ -130,7 +130,7 @@ export function SettingsPanel() {
         <CardContent className="space-y-3">
           <div className="flex flex-wrap items-center gap-3">
             <span className="text-sm font-semibold">Email</span>
-            <span className="font-mono text-[13px]">{user?.email}</span>
+            <span className="font-data text-[13px]">{user?.email}</span>
             {isEmailVerified ? (
               <Badge variant="outline" className="uppercase">
                 Verified
@@ -149,7 +149,7 @@ export function SettingsPanel() {
 
                 <VerificationResendStatus
                   format={formatSettingsResendStatus}
-                  className="font-mono text-[11px] uppercase tracking-[0.66px] text-muted-foreground"
+                  className="font-data text-[11px] uppercase tracking-[0.66px] text-muted-foreground"
                 />
 
                 <VerificationResendSessionExpired>

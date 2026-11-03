@@ -251,7 +251,7 @@ describe('OAuthAccounts', () => {
     }
     renderWithProviders(<OAuthAccounts />)
 
-    // Board J: "Google" label + mono email (no connected_at date row)
+    // Board J: "Google" label + data-face email (no connected_at date row)
     expect(screen.getAllByText('Google').length).toBeGreaterThanOrEqual(1)
     expect(screen.getByText('user@gmail.com')).toBeInTheDocument()
   })

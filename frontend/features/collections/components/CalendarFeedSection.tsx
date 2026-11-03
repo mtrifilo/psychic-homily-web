@@ -143,7 +143,7 @@ export function CalendarFeedSection({
           <Input
             readOnly
             value={createdToken.feed_url}
-            className="font-mono text-xs"
+            className="font-code text-xs"
             onFocus={e => e.target.select()}
             aria-label="Calendar feed URL"
           />

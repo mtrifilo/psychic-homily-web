@@ -41,7 +41,7 @@ function countLabel(count: number, singular: string): string {
  * rule: no placeholder, no empty card.
  *
  * Treatment follows the Almanac editorial card: 104px cover, `FEATURED
- * COLLECTION` mono label, title, a blurb from the collection's own description,
+ * COLLECTION` data-face label, title, a blurb from the collection's own description,
  * and a muted meta line. The meta row carries a `discuss →` link into the
  * collection's comment thread (`#discussion`), and a `previously featured →`
  * link to the archive renders below the card ONLY when a closed run exists —
@@ -88,7 +88,7 @@ export function FeaturedCollectionCard() {
         <div className="flex min-w-0 flex-1 flex-col">
           <p
             id="featured-collection-heading"
-            className="font-mono text-[11px] font-bold uppercase tracking-[0.06em] text-primary"
+            className="font-data text-[11px] font-bold uppercase tracking-[0.06em] text-primary"
           >
             Featured Collection
           </p>
@@ -124,7 +124,7 @@ export function FeaturedCollectionCard() {
         </div>
       </div>
       {hasClosedRuns ? (
-        <p className="mt-2 font-mono text-[11px] text-muted-foreground">
+        <p className="mt-2 font-data text-[11px] text-muted-foreground">
           <Link href="/charts/featured" className="text-primary hover:underline focus-visible:underline focus-visible:outline-none">
             previously featured →
           </Link>

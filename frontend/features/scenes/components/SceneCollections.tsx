@@ -12,7 +12,7 @@ import { SceneSectionHeading } from './sceneChrome'
 import type { SceneCollectionSummary, SceneDetail } from '../types'
 
 /**
- * `Built by 4 · Updated 3 days ago`, printed in mono micro-caps.
+ * `Built by 4 · Updated 3 days ago`, printed in data-face micro-caps.
  *
  * `formatTimeAgo` rather than its `formatRelativeTime` sibling, which the
  * collections browse card uses: only this one has the weeks and months
@@ -62,7 +62,7 @@ function CollectionRow({ collection }: { collection: SceneCollectionSummary }) {
       />
       <div className="min-w-0">
         <p className="truncate text-sm font-medium">{collection.title}</p>
-        <p className="font-mono text-[11px] uppercase tracking-widest text-muted-foreground">
+        <p className="font-data text-[11px] uppercase tracking-widest text-muted-foreground">
           {collectionMeta(collection)}
         </p>
       </div>

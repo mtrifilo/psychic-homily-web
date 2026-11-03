@@ -243,7 +243,7 @@ describe('SCENE_ACCENT_LINK_CLASS', () => {
   it('is the accent tone in the section headings type', () => {
     expect(SCENE_ACCENT_LINK_CLASS).toContain('text-primary')
     expect(SCENE_ACCENT_LINK_CLASS).toContain(
-      'font-mono text-[11px] uppercase tracking-widest'
+      'font-data text-[11px] uppercase tracking-widest'
     )
   })
 
