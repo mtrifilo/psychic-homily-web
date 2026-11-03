@@ -24,9 +24,7 @@ import { cn } from '@/lib/utils'
  * count list has dropped, because with no chips here the picker is the only
  * way to untick it.
  *
- * Renders nothing when the filter bar would (no cities known), and while geo
- * is still deciding a city nothing else claimed, where the section's own copy
- * also holds back.
+ * Renders nothing when the filter bar would (no cities known).
  */
 export function NearbyCityControl({
   selection,
@@ -35,8 +33,7 @@ export function NearbyCityControl({
   selection: HomeShowCitySelection
   className?: string
 }) {
-  const { cities, effectiveCities, onFilterChange, isResolving, source } =
-    selection
+  const { cities, effectiveCities, onFilterChange } = selection
   const [open, setOpen] = useState(false)
 
   const pickerCities = useMemo(
@@ -44,7 +41,7 @@ export function NearbyCityControl({
     [cities, effectiveCities]
   )
 
-  if (cities.length === 0 || (isResolving && source === 'none')) return null
+  if (cities.length === 0) return null
 
   const label =
     effectiveCities.length > 0

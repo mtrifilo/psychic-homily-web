@@ -81,17 +81,27 @@ export function NearbyShowsSection({ id }: { id: string }) {
       className="flex w-full flex-col gap-4"
     >
       <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
-        <div className="min-w-0">
-          <h2
-            id="home-nearby-shows-heading"
-            className="text-2xl font-semibold tracking-tight text-foreground"
-          >
-            {heading}
-          </h2>
+        <div className="min-w-0 flex-1">
+          {/* The phone city control trails the heading on its own line, so
+              the subline and the link slot below cannot push it off it. */}
+          <div className="flex items-center justify-between gap-3">
+            <h2
+              id="home-nearby-shows-heading"
+              className="min-w-0 text-2xl font-semibold tracking-tight text-foreground"
+            >
+              {heading}
+            </h2>
+            {/* Held while geo decides, as the heading's own claim is. */}
+            {!isResolvingCity && (
+              <NearbyCityControl
+                selection={selection}
+                className="shrink-0 md:hidden"
+              />
+            )}
+          </div>
           <p className="mt-0.5 text-sm text-muted-foreground">{subline}</p>
         </div>
         {ownsCityLink && <HomeCityShowsLink cities={effectiveCities} />}
-        <NearbyCityControl selection={selection} className="md:hidden" />
       </div>
 
       <HomeShowListView

@@ -63,8 +63,10 @@ interface HomeShowListViewProps {
    */
   layout?: 'cards' | 'rows'
   /**
-   * Hide the city filter bar below `md`. Set only by a caller that renders its
-   * own phone city control, or the picker would be unreachable there.
+   * Hide the city filter bar (picker, chips, "All Cities") below `md`. Set
+   * only by a caller that renders its own phone city control, or the picker
+   * would be unreachable there. The save-as-default offer and the geo notice
+   * still render at every width.
    */
   hideCityFiltersBelowMd?: boolean
 }
@@ -205,38 +207,54 @@ export function HomeShowListView({
             ? `Every show${inPlace}${windowLabel} is already in your saved shows.`
             : `The next ${windowedShows.length} shows${inPlace} are all in your saved shows.`
 
+  // Only a selection the viewer made themselves is offered as a default: a geo
+  // match or the liveliest-city guess is not theirs to persist with one click.
+  const saveDefaults =
+    isAuthenticated && source === 'user' && selectionDiffersFromFavorites ? (
+      <SaveDefaultsButton
+        selectedCities={effectiveCities}
+        favoriteCities={favoriteCities}
+      />
+    ) : null
+  const geoAffordance = geoAffordanceCity ? (
+    <GeoDefaultAffordance
+      city={geoAffordanceCity}
+      onChange={() => onFilterChange([])}
+    />
+  ) : null
+
   return (
     <div className="w-full">
       {/* Show the filter whenever ≥1 city has shows (PSY-932) — consistent
           with /venues and /artists; hidden only when there are no cities. */}
       {cities.length > 0 && (
-        <div className={hideCityFiltersBelowMd ? 'mb-6 hidden md:block' : 'mb-6'}>
+        <div
+          className={hideCityFiltersBelowMd ? 'mb-6 hidden md:block' : 'mb-6'}
+        >
           <CityFilters
             cities={cities}
             selectedCities={effectiveCities}
             onFilterChange={onFilterChange}
             resultNoun={{ singular: 'show', plural: 'shows' }}
           >
-            {/* Only a selection the viewer made themselves is offered as a
-                default: a geo match or the liveliest-city guess is not theirs
-                to persist with one click. */}
-            {isAuthenticated &&
-              source === 'user' &&
-              selectionDiffersFromFavorites && (
-                <SaveDefaultsButton
-                  selectedCities={effectiveCities}
-                  favoriteCities={favoriteCities}
-                />
-              )}
+            {saveDefaults}
           </CityFilters>
-          {geoAffordanceCity && (
-            <GeoDefaultAffordance
-              city={geoAffordanceCity}
-              onChange={() => onFilterChange([])}
-            />
-          )}
+          {geoAffordance}
         </div>
       )}
+      {/* Below md only the bar itself gives way to the caller's control; the
+          save-as-default offer and the "from your location" notice stay. */}
+      {cities.length > 0 &&
+        hideCityFiltersBelowMd &&
+        (saveDefaults || geoAffordance) && (
+          <div
+            data-testid="home-city-phone-extras"
+            className="mb-4 flex flex-col items-start gap-1 md:hidden"
+          >
+            {saveDefaults}
+            {geoAffordance}
+          </div>
+        )}
 
       <div className={isFetching && !rowsAreUnrefreshedSeed ? 'opacity-60 transition-opacity duration-75' : 'transition-opacity duration-75'}>
         {emptyMessage ? (

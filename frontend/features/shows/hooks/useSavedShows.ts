@@ -224,6 +224,18 @@ export const useSaveShow = () => {
  */
 export type UnsaveSyncMode = 'invalidate' | 'patch-infinite'
 
+/**
+ * Shared key for every unsave, whichever control fired it.
+ *
+ * Library pages its saved shows by offset, so an unsave in flight while the
+ * next page is fetched shifts the server's list under that offset (a row is
+ * skipped) and the fetch's result overwrites the row-removal patch (the
+ * unsaved row comes back). Library serializes the two by reading
+ * `useIsMutating({ mutationKey: unsaveShowMutationKey })`; each row's heart
+ * owns its own mutation, so a page-level `isPending` cannot see them.
+ */
+export const unsaveShowMutationKey = ['savedShows', 'unsave'] as const
+
 interface UseUnsaveShowOptions {
   syncMode?: UnsaveSyncMode
   userId?: string
@@ -240,6 +252,7 @@ export const useUnsaveShow = ({
   const queryClient = useQueryClient()
 
   return useMutation({
+    mutationKey: unsaveShowMutationKey,
     mutationFn: async (showId: number): Promise<SaveShowResponse> => {
       return apiRequest<SaveShowResponse>(
         API_ENDPOINTS.SAVED_SHOWS.UNSAVE(showId),

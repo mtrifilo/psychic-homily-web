@@ -13,6 +13,12 @@ const mockUseLibraryFollowing = vi.fn()
 const mockScrollTo = vi.fn()
 const mockUnsaveShow = vi.fn()
 const mockSaveButtonClick = vi.fn()
+const mockIsMutating = vi.fn<(filters?: unknown) => number>(() => 0)
+
+vi.mock('@tanstack/react-query', async importOriginal => ({
+  ...(await importOriginal<typeof import('@tanstack/react-query')>()),
+  useIsMutating: (filters: unknown) => mockIsMutating(filters),
+}))
 const mockUnfollowEntity = vi.fn()
 const mockToggleRelease = vi.fn()
 const mockUseUnfollow = vi.fn()
@@ -264,6 +270,7 @@ describe('LibraryPage (PSY-1440, PSY-1435)', () => {
   beforeEach(() => {
     vi.restoreAllMocks()
     vi.clearAllMocks()
+    mockIsMutating.mockReturnValue(0)
     window.localStorage.removeItem('ph-library-view')
     Object.defineProperty(HTMLElement.prototype, 'scrollTo', {
       configurable: true,
@@ -1226,6 +1233,52 @@ describe('LibraryPage (PSY-1440, PSY-1435)', () => {
       // A past row carries the save age alone: no heart, no remove.
       expect(within(pastRow).queryByRole('button')).toBeNull()
       expect(screen.queryByText('✕ remove')).toBeNull()
+    })
+
+    // A row's heart owns its own unsave mutation, so the page reads every
+    // unsave through the shared mutation key. While one is in flight the next
+    // page must not load (its offset would skip a row) and no other heart may
+    // fire.
+    it('holds View all and every heart while any unsave is in flight', () => {
+      const shows = Array.from({ length: 5 }, (_, index) =>
+        makeSavedShow({
+          id: index + 1,
+          title: `Artist ${index + 1}`,
+          eventDate: `2026-07-${String(index + 20).padStart(2, '0')}T03:00:00Z`,
+          savedAt: '2026-07-10T12:00:00Z',
+        })
+      )
+      mockUseSavedShows.mockImplementation((timeFilter: 'upcoming' | 'past') => ({
+        data: {
+          pages: [
+            timeFilter === 'upcoming'
+              ? { shows: shows.slice(0, 4), total: 5, limit: 4, offset: 0 }
+              : { shows: [], total: 0, limit: 4, offset: 0 },
+          ],
+          pageParams: [{ limit: 4, offset: 0 }],
+        },
+        isLoading: false,
+        error: null,
+        hasNextPage: timeFilter === 'upcoming',
+        isFetchingNextPage: false,
+        fetchNextPage: mockFetchNextPage,
+      }))
+      mockIsMutating.mockReturnValue(1)
+
+      renderWithProviders(<LibraryPage />)
+
+      expect(mockIsMutating).toHaveBeenCalledWith({
+        mutationKey: ['savedShows', 'unsave'],
+      })
+      expect(
+        (screen.getByRole('button', { name: /View all 5/ }) as HTMLButtonElement)
+          .disabled
+      ).toBe(true)
+      for (const heart of screen.getAllByRole('button', {
+        name: 'Remove from saved shows',
+      })) {
+        expect((heart as HTMLButtonElement).disabled).toBe(true)
+      }
     })
 
     it('loads every page on expansion and re-expands without refetching', async () => {

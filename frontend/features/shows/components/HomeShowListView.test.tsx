@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { render, screen, within } from '@testing-library/react'
 import { HomeShowListView } from './HomeShowListView'
 import type { HomeShowCitySelection } from '../hooks/useHomeShowCitySelection'
 
@@ -138,6 +138,43 @@ describe('HomeShowListView', () => {
     const bar = screen.getByTestId('city-filters').parentElement
     expect(bar?.className).toContain('hidden')
     expect(bar?.className).toContain('md:block')
+  })
+
+  it('keeps the save-as-default offer and the geo notice on phones when the bar hides', () => {
+    render(
+      <HomeShowListView
+        selection={{
+          ...baseSelection,
+          cities: [{ ...phoenix, count: 3 }],
+          effectiveCities: [phoenix],
+          source: 'user',
+          selectionDiffersFromFavorites: true,
+          geoAffordanceCity: phoenix,
+        }}
+        hideCityFiltersBelowMd
+      />
+    )
+
+    const extras = screen.getByTestId('home-city-phone-extras')
+    expect(extras.className).toContain('md:hidden')
+    expect(
+      within(extras).getByRole('button', { name: 'Save as default' })
+    ).toBeInTheDocument()
+    expect(within(extras).getByText(/from your location/)).toBeInTheDocument()
+  })
+
+  it('adds no phone extras when the bar stays at every width', () => {
+    render(
+      <HomeShowListView
+        selection={{
+          ...baseSelection,
+          cities: [{ ...phoenix, count: 3 }],
+          geoAffordanceCity: phoenix,
+        }}
+      />
+    )
+
+    expect(screen.queryByTestId('home-city-phone-extras')).not.toBeInTheDocument()
   })
 
   it('asks for only its rows when it is not excluding', () => {

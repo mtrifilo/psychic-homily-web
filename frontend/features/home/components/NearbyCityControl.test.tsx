@@ -79,21 +79,24 @@ describe('NearbyCityControl', () => {
     ).toBeInTheDocument()
   })
 
-  it('renders nothing with no cities, or while geo is still deciding', () => {
-    const { container, rerender } = render(
+  it('renders nothing with no cities', () => {
+    const { container } = render(
       <NearbyCityControl selection={selection({ cities: [] })} />
     )
     expect(container).toBeEmptyDOMElement()
+  })
 
-    rerender(
+  it('joins several selected cities in its label', () => {
+    render(
       <NearbyCityControl
-        selection={selection({
-          effectiveCities: [],
-          source: 'none',
-          isResolving: true,
-        })}
+        selection={selection({ effectiveCities: [phoenix, mesa] })}
       />
     )
-    expect(container).toBeEmptyDOMElement()
+
+    expect(
+      screen.getByRole('button', {
+        name: 'Change city, now Phoenix, AZ · Mesa, AZ',
+      })
+    ).toBeInTheDocument()
   })
 })

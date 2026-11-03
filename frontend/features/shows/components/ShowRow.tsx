@@ -24,8 +24,9 @@ import { ShowStatusBadge } from './ShowStatusBadge'
  * rows (the signed-in home's prompt row) must line up with them. A second copy
  * of this string is how they stop lining up.
  *
- * `min-h-14` is the 44px heart target plus the 6px padding on each side, so a
- * row without a heart is the same height as one with it.
+ * `min-h-14` is the 44px heart target plus the 6px padding on each side: the
+ * floor every row keeps, heart or not. A taller trailing stack (Library's
+ * heart over its save age) grows the row past it.
  */
 export const SHOW_ROW_GRID =
   'grid min-h-14 grid-cols-[74px_minmax(0,1fr)_auto] items-center gap-x-3 border-b border-border py-1.5 md:grid-cols-[104px_minmax(0,1fr)_auto] md:gap-x-5'
@@ -155,8 +156,9 @@ export function ShowRow({
 /**
  * The row's heart: icon only, no count, an 18px glyph in a 44px target.
  *
- * The public count stays in SaveButton's accessible name; painting it here
- * would read as part of a list that is about this viewer's saves.
+ * The count is never painted: it would read as part of a list about this
+ * viewer's saves. SaveButton still announces it when the caller's `saveData`
+ * carries one above zero.
  */
 export function ShowRowSaveButton({
   showId,
@@ -176,9 +178,7 @@ export function ShowRowSaveButton({
       unsaveSync={unsaveSync}
       disabled={disabled}
       showCount={false}
-      // Important: Button's own `[&_svg:not([class*='size-'])]:size-4` is the
-      // more specific selector and would hold the glyph at 16px.
-      className="h-11 w-11 [&_svg]:size-[18px]!"
+      className="h-11 w-11 [&_svg]:size-[18px]"
     />
   )
 }

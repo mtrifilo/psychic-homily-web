@@ -5,6 +5,7 @@ import Link from 'next/link'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { redirect } from 'next/navigation'
 import { Loader2 } from 'lucide-react'
+import { useIsMutating } from '@tanstack/react-query'
 import { useAuthContext } from '@/lib/context/AuthContext'
 import { useAuthRouteGuard } from '@/lib/hooks/common/useAuthRouteGuard'
 import {
@@ -44,6 +45,7 @@ import {
   type LibraryView,
 } from '@/features/library'
 import { SavedShowRow } from '@/features/shows/components/SavedShowRow'
+import { unsaveShowMutationKey } from '@/features/shows/hooks/useSavedShows'
 
 // ---------------------------------------------------------------------------
 // Tab definitions
@@ -264,10 +266,12 @@ function ShowsTab({ currentUserId }: { currentUserId?: string }) {
     (upcoming.isLoading && !upcoming.data) || (past.isLoading && !past.data)
   const error = upcoming.error ?? past.error
   const isEmpty = upcomingTotal + pastTotal === 0
+  // Every unsave, the wall's and each table row's heart alike, serializes with
+  // page loads; see `unsaveShowMutationKey`.
+  const isUnsavePending =
+    useIsMutating({ mutationKey: unsaveShowMutationKey }) > 0
   const isSavedShowActionPending =
-    unsaveShow.isPending ||
-    upcoming.isFetchingNextPage ||
-    past.isFetchingNextPage
+    isUnsavePending || upcoming.isFetchingNextPage || past.isFetchingNextPage
 
   const fetchAllPages = async (
     query: typeof upcoming | typeof past

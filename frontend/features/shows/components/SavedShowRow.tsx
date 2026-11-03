@@ -27,13 +27,14 @@ export function SavedShowRow({
 }: {
   show: SavedShowResponse
   isPast: boolean
-  /** Holds the heart while another change to these lists is in flight. */
+  /** Holds the heart while another unsave or a page load is in flight. */
   disabled?: boolean
 }) {
   const savedAge = (
-    // `relative`: SaveButton's root is positioned, and only a positioned
-    // later sibling paints above it where the two overlap.
-    <span className="relative whitespace-nowrap font-data text-[11px] leading-[14px] text-muted-foreground">
+    // Overlaps the heart's target on upcoming rows (see below). `relative`
+    // paints it above the button's hover fill; `pointer-events-none` passes
+    // every tap through to the heart, so the target stays a full 44px.
+    <span className="pointer-events-none relative whitespace-nowrap font-data text-[11px] leading-[14px] text-muted-foreground">
       saved {formatRelativeTime(show.saved_at, { short: true })}
     </span>
   )
@@ -48,8 +49,7 @@ export function SavedShowRow({
         ) : (
           <>
             {/* The glyph is centred in its 44px target; pulling the age up
-                into the target's empty lower edge keeps the row dense, and the
-                age, painted above it, takes the taps that land on it. */}
+                into the target's empty lower edge keeps the row dense. */}
             <div className="-mb-2.5 flex">
               <ShowRowSaveButton
                 showId={show.id}

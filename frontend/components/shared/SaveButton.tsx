@@ -203,8 +203,11 @@ export function SaveButton({
     )
   }
 
+  // `size-*`, not `h-* w-*`: Button sizes any svg whose class names no `size-`
+  // utility, which would otherwise hold every heart at 16px whatever `size`
+  // says, and leave a caller's `[&_svg]:size-*` losing on specificity.
   const iconSize =
-    size === 'sm' ? 'h-4 w-4' : size === 'md' ? 'h-5 w-5' : 'h-6 w-6'
+    size === 'sm' ? 'size-4' : size === 'md' ? 'size-5' : 'size-6'
   const buttonSize =
     size === 'sm' ? 'h-8 w-8' : size === 'md' ? 'h-10 w-10' : 'h-12 w-12'
   const hasCount = saveCount > 0

@@ -18,16 +18,30 @@ function relativeDay(
 }
 
 describe('showRelativeDay', () => {
-  it('reads the VENUE calendar, not the reader clock, across a zone boundary', () => {
+  // Each case below has a venue-calendar answer that differs from the
+  // reader-calendar answer in the reader zone it names, so an implementation
+  // that compared device dates fails at least one of them in that zone. The
+  // test process runs in UTC in CI; the UTC case keeps the regression visible
+  // there.
+  it('reads the VENUE calendar, not a Phoenix reader clock, across a zone boundary', () => {
     // A Phoenix reader at 11 PM on Nov 3 (06:00Z Nov 4) is already past
     // midnight in Chicago, where it is Nov 4.
     const now = '2026-11-04T06:00:00Z'
-    // 00:30 Nov 5 in Chicago: the reader's own calendar says two days away,
-    // the venue's says tomorrow.
-    expect(relativeDay('2026-11-05T06:30:00Z', CHICAGO, now)).toBe('tomorrow')
-    // 1 AM Nov 4 in Chicago is today there, though it is still Nov 3 for
-    // the reader.
+    // 1 AM Nov 4 in Chicago is today there. For the reader it is midnight
+    // Nov 4 in Phoenix, tomorrow on their calendar.
     expect(relativeDay('2026-11-04T07:00:00Z', CHICAGO, now)).toBe('today')
+    // 00:30 Nov 5 in Chicago is the venue's tomorrow (11:30 PM Nov 4 for the
+    // Phoenix reader, also tomorrow there).
+    expect(relativeDay('2026-11-05T06:30:00Z', CHICAGO, now)).toBe('tomorrow')
+  })
+
+  it('reads the VENUE calendar, not a UTC reader clock', () => {
+    // 4 PM Nov 7 in Phoenix is 23:00Z, still Nov 7 in UTC. The show at 8 PM
+    // Nov 7 Phoenix is 03:00Z Nov 8: tomorrow on a UTC calendar, tonight at
+    // the venue.
+    expect(
+      relativeDay('2026-11-08T03:00:00Z', PHOENIX, '2026-11-07T23:00:00Z')
+    ).toBe('today')
   })
 
   it('dates an after-midnight set by the calendar day it starts on', () => {

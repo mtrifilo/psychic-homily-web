@@ -29,7 +29,6 @@ vi.mock('@/components/shared/SaveButton', () => ({
     showId: number
     showLabel?: boolean
     showCount?: boolean
-    className?: string
   }) => {
     saveButtonProps(props)
     return <button type="button">save-{props.showId}</button>
@@ -325,7 +324,6 @@ describe('SavedShowsModule saved-state and viewer transitions', () => {
     const props = saveButtonProps.mock.calls[0][0]
     expect(props.showLabel).toBeFalsy()
     expect(props.showCount).toBe(false)
-    expect(props.className).toContain('h-11 w-11')
   })
 
   it('takes the public count from the batch once it lands', () => {

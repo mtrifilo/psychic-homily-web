@@ -148,6 +148,23 @@ describe('NearbyShowsSection', () => {
       name: 'Change city, now Phoenix, AZ',
     })
     expect(control.className).toContain('md:hidden')
+    // On the heading's own line, not after the subline or the link slot.
+    expect(
+      control.parentElement?.contains(
+        screen.getByRole('heading', { name: 'Shows near you this week' })
+      )
+    ).toBe(true)
+  })
+
+  it('holds the city control while geo is still deciding', () => {
+    selection.cities = [{ ...phoenix, count: 12 }]
+    selection.isResolving = true
+
+    render(<NearbyShowsSection id="nearby" />)
+
+    expect(
+      screen.queryByRole('button', { name: /Change city/ })
+    ).not.toBeInTheDocument()
   })
 
   it('asks the selection to resolve a city, because its copy names one', () => {

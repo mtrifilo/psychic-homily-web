@@ -160,6 +160,40 @@ describe('ShowRow', () => {
     )
   })
 
+  it('falls back to the show title when no artist is billed', () => {
+    render(<ShowRow show={show({ artists: [] })} trailing={null} />)
+
+    expect(
+      screen.getByRole('link', { name: 'Playboy Manbaby at Walter Studios' })
+    ).toHaveAttribute('href', '/shows/playboy-manbaby-walter')
+  })
+
+  it('names a slug-less venue without linking it', () => {
+    render(
+      <ShowRow
+        show={show({
+          venues: [
+            {
+              id: 9,
+              name: 'Unlisted Room',
+              slug: '',
+              city: 'Phoenix',
+              state: 'AZ',
+              timezone: 'America/Phoenix',
+              verified: false,
+            },
+          ],
+        })}
+        trailing={null}
+      />
+    )
+
+    expect(screen.getByText(/Unlisted Room/)).toBeInTheDocument()
+    expect(
+      screen.queryByRole('link', { name: 'Unlisted Room' })
+    ).not.toBeInTheDocument()
+  })
+
   it('keeps the cancelled mark the card carried', () => {
     render(<ShowRow show={show({ is_cancelled: true })} trailing={null} />)
 
