@@ -12,7 +12,11 @@ import { Search, ChevronsUpDown } from 'lucide-react'
 import { CommandPopoverContent } from '@/components/ui/command'
 import { Popover, PopoverTrigger } from '@/components/ui/popover'
 import { RemovableFilterChip } from './RemovableFilterChip'
-import { CityCommandList, toggleCitySelection } from './CityCommandList'
+import {
+  CityCommandList,
+  sortCitiesByCount,
+  toggleCitySelection,
+} from './CityCommandList'
 import { cityKey, cityLabel } from './cityParams'
 import { CityFilterSheet, type ResultNoun } from './CityFilterSheet'
 import { useSoftKeyboardViewport } from '@/lib/hooks/common/useSoftKeyboardViewport'
@@ -149,16 +153,7 @@ export function CityFilters({
     replayOnHydrate.ref(node)
   }, [])
 
-  const selectedSet = useMemo(
-    () => new Set(selectedCities.map(cityKey)),
-    [selectedCities]
-  )
-
-  // Cities sorted by count descending for the dropdown
-  const sortedCities = useMemo(
-    () => [...cities].sort((a, b) => b.count - a.count),
-    [cities]
-  )
+  const sortedCities = useMemo(() => sortCitiesByCount(cities), [cities])
 
   // Popular cities: top N with count >= threshold
   const popularCities = useMemo(() => {
@@ -242,7 +237,7 @@ export function CityFilters({
           >
             <CityCommandList
               cities={sortedCities}
-              selectedKeys={selectedSet}
+              selectedCities={selectedCities}
               onToggle={handleToggleCity}
             />
           </CommandPopoverContent>

@@ -7,9 +7,10 @@ import { Popover, PopoverTrigger } from '@/components/ui/popover'
 import {
   CityCommandList,
   citiesWithSelected,
+  sortCitiesByCount,
   toggleCitySelection,
 } from '@/components/filters/CityCommandList'
-import { cityKey, cityLabel } from '@/components/filters/cityParams'
+import { cityLabel } from '@/components/filters/cityParams'
 import type { HomeShowCitySelection } from '@/features/shows/hooks/useHomeShowCitySelection'
 import { cn } from '@/lib/utils'
 
@@ -39,16 +40,8 @@ export function NearbyCityControl({
   const [open, setOpen] = useState(false)
 
   const pickerCities = useMemo(
-    () =>
-      citiesWithSelected(
-        [...cities].sort((a, b) => b.count - a.count),
-        effectiveCities
-      ),
+    () => citiesWithSelected(sortCitiesByCount(cities), effectiveCities),
     [cities, effectiveCities]
-  )
-  const selectedKeys = useMemo(
-    () => new Set(effectiveCities.map(cityKey)),
-    [effectiveCities]
   )
 
   if (cities.length === 0 || (isResolving && source === 'none')) return null
@@ -80,7 +73,7 @@ export function NearbyCityControl({
       <CommandPopoverContent className="w-[240px] p-0" align="end" side="bottom">
         <CityCommandList
           cities={pickerCities}
-          selectedKeys={selectedKeys}
+          selectedCities={effectiveCities}
           onToggle={city =>
             onFilterChange(toggleCitySelection(effectiveCities, city))
           }

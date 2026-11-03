@@ -218,10 +218,6 @@ export const useSaveShow = () => {
 }
 
 /**
- * Hook to unsave (remove) a show from user's list
- * Requires authentication
- */
-/**
  * How an unsave reaches the cached saved-show lists. `patch-infinite` is for a
  * surface rendering the infinite Library lists, which may hold many pages: it
  * patches the row out of them instead of refetching every page.
@@ -233,6 +229,10 @@ interface UseUnsaveShowOptions {
   userId?: string
 }
 
+/**
+ * Hook to unsave (remove) a show from user's list
+ * Requires authentication
+ */
 export const useUnsaveShow = ({
   syncMode = 'invalidate',
   userId,

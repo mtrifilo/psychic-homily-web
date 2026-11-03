@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { render, screen, within } from '@testing-library/react'
+import { renderToString } from 'react-dom/server'
 import { ShowRow, ShowRowSaveButton } from './ShowRow'
 import type { ShowResponse } from '../types'
 
@@ -64,6 +65,15 @@ describe('ShowRow', () => {
     const when = whenColumn()
     expect(within(when).getByText('Tonight')).toBeInTheDocument()
     expect(within(when).getByText(/^8:00\sPM$/)).toBeInTheDocument()
+  })
+
+  // "Now" is the reader's clock. The server render must not guess it, or its
+  // HTML and the hydration render could name different days.
+  it('prints the date, not a relative day, in server HTML', () => {
+    const html = renderToString(<ShowRow show={show()} trailing={null} />)
+
+    expect(html).toContain('SAT NOV 7')
+    expect(html).not.toContain('Tonight')
   })
 
   it('says Tomorrow for the next venue-local day', () => {

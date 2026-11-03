@@ -1,9 +1,10 @@
 'use client'
 
-import { useState, type ReactNode } from 'react'
+import type { ReactNode } from 'react'
 import Link from 'next/link'
 import { SaveButton } from '@/components/shared/SaveButton'
 import type { BatchedSaveData } from '@/components/shared/batchedSaveData'
+import { useHydrated } from '@/lib/hooks/common/useHydrated'
 import { cn } from '@/lib/utils'
 import { formatShowTime } from '@/lib/utils/formatters'
 import {
@@ -34,6 +35,16 @@ const RELATIVE_DAY_LABEL: Record<ShowRelativeDay, string> = {
   tomorrow: 'Tomorrow',
 }
 
+/** "SAT NOV 7", on the venue's calendar. */
+function formatDateLabel(
+  eventDate: string,
+  state: string | null | undefined,
+  timezone: string | null | undefined
+): string {
+  const { dayOfWeek, monthDay } = formatShowDateBadge(eventDate, state, timezone)
+  return `${dayOfWeek} ${monthDay}`
+}
+
 /**
  * One show as a dense two-line row, shared by the signed-in home's saved and
  * nearby lists and Library's Shows tab, so the three read as one vocabulary.
@@ -58,18 +69,19 @@ export function ShowRow({
   past?: boolean
   trailing: ReactNode
 }) {
-  // Read once per mount so render stays pure. A row left open across the
-  // venue's midnight keeps its word until the next mount.
-  const [now] = useState(() => new Date())
+  // The server and the hydration render name no relative day: "now" is the
+  // reader's clock, which the server does not share, so both print the date
+  // and the word arrives a commit later (the same gate as `/shows`' TONIGHT).
+  const hydrated = useHydrated()
   const venue = show.venues[0]
   const timezone = venue?.timezone
-  const relativeDay = past
-    ? null
-    : showRelativeDay(show.event_date, show.state, timezone, now)
-  const dateBadge = formatShowDateBadge(show.event_date, show.state, timezone)
+  const relativeDay =
+    past || !hydrated
+      ? null
+      : showRelativeDay(show.event_date, show.state, timezone, new Date())
   const when = relativeDay
     ? RELATIVE_DAY_LABEL[relativeDay]
-    : `${dateBadge.dayOfWeek} ${dateBadge.monthDay}`
+    : formatDateLabel(show.event_date, show.state, timezone)
   // Null on a guessed zone; the column then holds the date alone.
   const startTime = formatShowTime(show.event_date, show.state, timezone)
   const lineup = show.artists.map(a => a.name).join(' · ') || show.title
@@ -80,10 +92,7 @@ export function ShowRow({
       className={cn(SHOW_ROW_GRID, show.is_cancelled && 'opacity-60')}
     >
       <div className="font-data text-[11px] leading-[14px]">
-        {/* The server and the browser each read their own "now"; across the
-            venue's midnight they can disagree on this one word. */}
         <div
-          suppressHydrationWarning
           className={cn(
             'whitespace-nowrap font-bold uppercase tracking-[0.4px] md:text-xs',
             past ? 'text-muted-foreground' : 'text-primary'

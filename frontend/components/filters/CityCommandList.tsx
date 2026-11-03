@@ -1,5 +1,6 @@
 'use client'
 
+import { useMemo } from 'react'
 import { Check } from 'lucide-react'
 import {
   Command,
@@ -45,6 +46,11 @@ export function citiesWithSelected(
   return orphans.length === 0 ? cities : [...cities, ...orphans]
 }
 
+/** The order every city picker lists its cities in: most shows first. */
+export function sortCitiesByCount(cities: CityWithCount[]): CityWithCount[] {
+  return [...cities].sort((a, b) => b.count - a.count)
+}
+
 /**
  * The searchable city list a picker popover holds: a row per city in the
  * order given, a check on the selected ones, the count beside each. Pair it
@@ -52,14 +58,19 @@ export function citiesWithSelected(
  */
 export function CityCommandList({
   cities,
-  selectedKeys,
+  selectedCities,
   onToggle,
 }: {
+  /** Listed as given; callers order them with {@link sortCitiesByCount}. */
   cities: CityWithCount[]
-  /** `cityKey` of every selected city. */
-  selectedKeys: ReadonlySet<string>
+  selectedCities: CityState[]
   onToggle: (city: CityWithCount) => void
 }) {
+  const selectedKeys = useMemo(
+    () => new Set(selectedCities.map(cityKey)),
+    [selectedCities]
+  )
+
   return (
     <Command>
       <CommandInput placeholder="Search cities..." />
