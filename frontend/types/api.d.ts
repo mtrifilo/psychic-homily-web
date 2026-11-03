@@ -3278,6 +3278,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/auth/sessions/sign-out-everywhere-else": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Post auth sessions sign out everywhere else */
+        post: operations["post-auth-sessions-sign-out-everywhere-else"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/auth/unsubscribe/show-reminders": {
         parameters: {
             query?: never;
@@ -15334,6 +15351,18 @@ export interface components {
             /** @description Venue state */
             state: string;
         };
+        SignOutEverywhereElseResponseBody: {
+            /**
+             * @description Request ID for debugging
+             * @example 550e8400-e29b-41d4-a716-446655440000
+             */
+            request_id?: string;
+            /**
+             * @description Every other session is signed out and this one is renewed
+             * @example true
+             */
+            success: boolean;
+        };
         SimilarFestival: {
             festival: components["schemas"]["FestivalSummary"];
             /** Format: double */
@@ -23938,6 +23967,36 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["RegisterResponseBody"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "post-auth-sessions-sign-out-everywhere-else": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    "Set-Cookie"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SignOutEverywhereElseResponseBody"];
                 };
             };
             /** @description Error */

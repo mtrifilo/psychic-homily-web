@@ -98,6 +98,10 @@ vi.mock('./passkey-management', () => ({
   ),
 }))
 
+vi.mock('./sessions', () => ({
+  SessionsSettings: () => <div data-testid="sessions-settings">SessionsSettings</div>,
+}))
+
 vi.mock('./api-token-management', () => ({
   APITokenManagement: () => (
     <div data-testid="api-token-management">APITokenManagement</div>
@@ -478,6 +482,29 @@ describe('SettingsPanel', () => {
     renderWithProviders(<SettingsPanel />)
 
     expect(screen.getByTestId('api-token-management')).toBeInTheDocument()
+  })
+
+  it('renders the Sessions card for an account that is not an admin', () => {
+    renderWithProviders(<SettingsPanel />)
+
+    expect(screen.getByTestId('sessions-settings')).toBeInTheDocument()
+  })
+
+  it('places the Sessions card after Password and before API tokens', () => {
+    mockUser = {
+      email: 'admin@example.com',
+      email_verified: true,
+      is_admin: true,
+    }
+    const { container } = renderWithProviders(<SettingsPanel />)
+
+    const all = Array.from(container.querySelectorAll('[data-testid]'))
+    const position = (id: string) =>
+      all.findIndex(el => el.getAttribute('data-testid') === id)
+    const sessions = position('sessions-settings')
+    expect(position('change-password')).toBeGreaterThanOrEqual(0)
+    expect(sessions).toBeGreaterThan(position('change-password'))
+    expect(position('api-token-management')).toBeGreaterThan(sessions)
   })
 
   it('does not show CLI authentication for non-admin users', () => {

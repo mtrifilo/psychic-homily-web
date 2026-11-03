@@ -231,6 +231,14 @@ func setupProtectedAuthRoutes(rc RouteContext) {
 	useAuthBudget(setPasswordGroup, authScopedRateLimiter(middleware.LimiterSetPassword, PasswordConfirmAttemptsPerMinute))
 	huma.Post(setPasswordGroup, "/auth/password", authHandler.SetPasswordHandler)
 
+	// Signing out every other session takes no password, so it is not on
+	// passwordConfirmGroup: it meters on a counter of its own at the
+	// verification-resend size. Each call writes the account row and mints a
+	// session, and a person presses it once.
+	signOutEverywhereElseGroup := huma.NewGroup(rc.Protected, "")
+	useAuthBudget(signOutEverywhereElseGroup, authScopedRateLimiter(middleware.LimiterSignOutEverywhereElse, VerificationResendPerMinute))
+	huma.Post(signOutEverywhereElseGroup, authh.SignOutEverywhereElseRoute, authHandler.SignOutEverywhereElseHandler)
+
 	// Token refresh uses lenient middleware (accepts tokens expired within 7 days)
 	lenientGroup := huma.NewGroup(rc.API, "")
 	lenientGroup.UseMiddleware(middleware.LenientHumaJWTMiddleware(rc.SC.JWT, 7*24*time.Hour))

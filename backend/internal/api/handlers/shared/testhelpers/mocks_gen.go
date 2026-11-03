@@ -512,6 +512,7 @@ type MockAuthService struct {
 	GetUserProfileFn           func(uint) (*authm.User, error)
 	GetSignInFactorsFn         func(*authm.User) (contracts.SignInFactors, error)
 	RefreshUserTokenFn         func(*authm.User, time.Time) (string, error)
+	SignOutOtherSessionsFn     func(*authm.User, time.Time) (string, error)
 	LogoutFn                   func(http.ResponseWriter, *http.Request) error
 	SetOAuthCompleterFn        func(contracts.OAuthCompleter)
 }
@@ -603,6 +604,12 @@ func (m *MockAuthService) GetSignInFactors(user *authm.User) (contracts.SignInFa
 func (m *MockAuthService) RefreshUserToken(user *authm.User, authAt time.Time) (string, error) {
 	if m.RefreshUserTokenFn != nil {
 		return m.RefreshUserTokenFn(user, authAt)
+	}
+	return "", nil
+}
+func (m *MockAuthService) SignOutOtherSessions(user *authm.User, authAt time.Time) (string, error) {
+	if m.SignOutOtherSessionsFn != nil {
+		return m.SignOutOtherSessionsFn(user, authAt)
 	}
 	return "", nil
 }
