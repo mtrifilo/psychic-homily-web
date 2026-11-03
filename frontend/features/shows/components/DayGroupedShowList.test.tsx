@@ -224,7 +224,7 @@ describe('DayGroupedShowList', () => {
     // `--shows-day-header-height` is the sum of (globals.css), so they are
     // pinned here: editing one without the token would shorten the clearance
     // the rows below rely on.
-    it('renders every heading stuck, primary, at Space Mono bold 14', () => {
+    it('renders every heading stuck, primary, in the data face at bold 14', () => {
       renderList()
 
       const headings = screen.getAllByRole('heading', { level: 2 })

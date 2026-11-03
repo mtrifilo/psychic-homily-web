@@ -184,7 +184,7 @@ export function ShowCard({ show, isAdmin, userId, saveData, density = 'comfortab
         {/* Inline date */}
         <Link
           href={detailsHref}
-          className="text-xs text-muted-foreground shrink-0 w-20 tabular-nums hover:text-primary transition-colors"
+          className="text-xs text-muted-foreground shrink-0 w-20 hover:text-primary transition-colors"
         >
           {dateBadge.dayOfWeek} {dateBadge.monthDay}
         </Link>
@@ -224,7 +224,7 @@ export function ShowCard({ show, isAdmin, userId, saveData, density = 'comfortab
 
         {/* Time */}
         {startTime && (
-          <span className="text-xs text-muted-foreground shrink-0 hidden sm:inline tabular-nums">
+          <span className="text-xs text-muted-foreground shrink-0 hidden sm:inline">
             {startTime}
           </span>
         )}
@@ -232,7 +232,7 @@ export function ShowCard({ show, isAdmin, userId, saveData, density = 'comfortab
         {/* Price */}
         <ShowPrice
           show={show}
-          className="text-xs text-muted-foreground shrink-0 hidden md:inline tabular-nums"
+          className="text-xs text-muted-foreground shrink-0 hidden md:inline"
         />
       </article>
     )

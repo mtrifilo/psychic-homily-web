@@ -39,7 +39,7 @@ function progressPercent(current: number, threshold: number): number {
 
 /**
  * Contributor-tier card on /profile (design board H, PSY-1061 + PSY-1087):
- * tier badge, next-tier row with Space Mono "current / threshold" counter,
+ * tier badge, next-tier row with data-face "current / threshold" counter,
  * primary approved-edits progress bar, and a dense met/unmet requirements list.
  */
 export function TierAdvancementCard({ tier }: TierAdvancementCardProps) {

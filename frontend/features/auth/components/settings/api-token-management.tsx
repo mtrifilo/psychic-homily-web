@@ -241,7 +241,7 @@ export function APITokenManagement() {
               {newToken ? (
                 <div className="space-y-4 py-4">
                   <div className="flex items-center gap-2 rounded-lg border bg-muted/50 p-3">
-                    <code className="flex-1 text-xs font-mono break-all">
+                    <code className="flex-1 text-xs font-code break-all">
                       {newToken}
                     </code>
                     <Button

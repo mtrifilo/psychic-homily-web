@@ -57,7 +57,7 @@ describe('MDXContent', () => {
     const { container } = render(<Code>const x = 1</Code>)
     const code = container.querySelector('code')
     expect(code).toHaveTextContent('const x = 1')
-    expect(code?.className).toContain('font-mono')
+    expect(code?.className).toContain('font-code')
     expect(code?.className).toContain('bg-muted')
   })
 

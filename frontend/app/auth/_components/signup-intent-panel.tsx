@@ -26,8 +26,9 @@ const LEDGER_ROWS: readonly LedgerRow[] = [
 
 /**
  * Monospace columns the label plus its dot leader occupies. A fixed total is
- * what makes the detail column line up in the mono face; every label above is
- * short enough to leave at least one dot.
+ * what makes the detail column line up, which is why the list is set in the
+ * `font-code` monospace stack rather than the proportional data face; every
+ * label above is short enough to leave at least one dot.
  */
 const LEADER_COLUMNS = 12
 
@@ -51,7 +52,7 @@ export function SignupIntentPanel() {
         "SAVE dot dot dot dot dot dot dot" would be worse than useless, so they
         are hidden and the term/detail pairing carries the meaning instead.
       */}
-      <dl className="font-mono text-xs leading-[22px] text-foreground">
+      <dl className="font-code text-xs leading-[22px] text-foreground">
         {LEDGER_ROWS.map(row => (
           <div key={row.label} className="flex gap-[1ch]">
             <dt className="shrink-0 whitespace-pre">

@@ -154,7 +154,7 @@ function LedgerRow({ run }: { run: FeaturedCollectionRun }) {
     <div className="flex items-center gap-4 border-b border-border py-[11px] sm:gap-5">
       <p
         className={cn(
-          'w-[120px] shrink-0 font-mono text-[11px] sm:w-[190px]',
+          'w-[120px] shrink-0 font-mono tabular-nums text-[11px] sm:w-[190px]',
           range.estimated ? 'text-muted-foreground' : 'text-foreground'
         )}
       >

@@ -11,7 +11,7 @@
  * - primary: bold, links to the entity detail page.
  * - secondary: muted, ` · `-joined context (location / artist · type / venue ·
  *   location). Omitted when empty.
- * - metric: right-aligned Space-Mono data point per the design (12 shows / 1991
+ * - metric: right-aligned data-face data point per the design (12 shows / 1991
  *   / Jul 28 / 34 releases). Omitted when not applicable.
  *
  * A generic <TaggedEntityRow> renders the shape; getRowFields maps each
@@ -38,7 +38,7 @@ interface RowFields {
   primary: string
   /** Muted, ` · `-joined secondary context. Empty when none applies. */
   secondary: string[]
-  /** Right-aligned Space-Mono metric (e.g. "12 shows", "1991"). Null = omit. */
+  /** Right-aligned data-face metric (e.g. "12 shows", "1991"). Null = omit. */
   metric: string | null
   /** True for verified venues — renders a check beside the primary name. */
   verified?: boolean

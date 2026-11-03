@@ -1143,7 +1143,7 @@ function RequestCard({
             (the request payload is small; the action is inline, not
             expand-to-detail per the locked design). */}
         {previewEntries.length > 0 && (
-          <div className="mt-2 space-y-0.5 rounded-md border bg-muted/30 p-3 text-xs font-mono">
+          <div className="mt-2 space-y-0.5 rounded-md border bg-muted/30 p-3 text-xs font-code">
             {previewEntries.map(([key, value]) => (
               <div key={key} className="flex gap-2">
                 <span className="text-muted-foreground">{key}:</span>
@@ -1279,7 +1279,7 @@ function WithdrawnRequestCard({ request }: { request: AdminEntityRequest }) {
         </div>
 
         {previewEntries.length > 0 && (
-          <div className="mt-2 space-y-0.5 rounded-md border bg-muted/30 p-3 text-xs font-mono">
+          <div className="mt-2 space-y-0.5 rounded-md border bg-muted/30 p-3 text-xs font-code">
             {previewEntries.map(([key, value]) => (
               <div key={key} className="flex gap-2">
                 <span className="text-muted-foreground">{key}:</span>
@@ -1401,7 +1401,7 @@ function RescueCard({
 
         {/* Payload preview */}
         {previewEntries.length > 0 && (
-          <div className="mt-2 space-y-0.5 rounded-md border bg-muted/30 p-3 text-xs font-mono">
+          <div className="mt-2 space-y-0.5 rounded-md border bg-muted/30 p-3 text-xs font-code">
             {previewEntries.map(([key, value]) => (
               <div key={key} className="flex gap-2">
                 <span className="text-muted-foreground">{key}:</span>

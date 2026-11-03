@@ -620,7 +620,7 @@ function ShowRow({
 
   const body = (
     <>
-      <span className="w-16 shrink-0 pt-px font-mono text-[11px] leading-4 text-primary">
+      <span className="w-16 shrink-0 pt-px font-mono tabular-nums text-[11px] leading-4 text-primary">
         {date}
       </span>
       <span className="min-w-0 flex-1">

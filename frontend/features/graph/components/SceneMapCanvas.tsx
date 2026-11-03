@@ -424,7 +424,7 @@ export function SceneMapCanvas({
         // Every forced candidate is orientation by definition, so the replay's
         // label policy treats captions exactly as it treats hub names.
         isDecoration: true,
-        fontFamily: palette.monoFontFamily,
+        fontFamily: palette.dataFontFamily,
         alpha: REGION_CAPTION_ALPHA,
         memberCount: region.memberCount,
       })
@@ -433,7 +433,7 @@ export function SceneMapCanvas({
     // are the ones a visitor most needs named.
     forced.sort((a, b) => (b.memberCount ?? 0) - (a.memberCount ?? 0) || a.id - b.id)
     return forced
-  }, [map, palette.monoFontFamily])
+  }, [map, palette.dataFontFamily])
 
   // Hull paint styles, resolved per theme and focus state rather than per
   // frame: the alpha only ever takes two values, so recomputing a colour

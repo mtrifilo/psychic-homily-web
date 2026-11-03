@@ -57,7 +57,7 @@ function ShowRow({
       >
         {/* Reserved even when the instant is unusable, so the bills stay in one
             column rather than one row jumping left. */}
-        <span className="shrink-0 font-mono text-xs text-muted-foreground sm:w-24">
+        <span className="shrink-0 font-mono tabular-nums text-xs text-muted-foreground sm:w-24">
           {time ?? ''}
         </span>
         <span className="flex min-w-0 flex-wrap items-center gap-2">

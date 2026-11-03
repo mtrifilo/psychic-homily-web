@@ -288,7 +288,7 @@ function BulkImportDialog({
         <DialogHeader>
           <DialogTitle>Bulk import aliases</DialogTitle>
           <DialogDescription>
-            Upload a CSV or paste <code className="font-mono">alias,canonical</code> lines.
+            Upload a CSV or paste <code className="font-code">alias,canonical</code> lines.
             Canonical can be a tag slug or exact tag name. Comments (<code>#</code>) and blank lines are ignored.
           </DialogDescription>
         </DialogHeader>
