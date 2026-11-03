@@ -231,10 +231,11 @@ export type UnsaveSyncMode = 'invalidate' | 'patch-infinite'
  * pages are read (a next page, or a refetch of the loaded ones) shifts the
  * server's list under an offset (a row is skipped) and the read's result
  * overwrites the row-removal patch (the unsaved row comes back). Library
- * serializes the two by reading
- * `useIsMutating({ mutationKey: unsaveShowMutationKey })` beside its queries'
- * `isFetching`; each row's heart owns its own mutation, so a page-level
- * `isPending` cannot see them.
+ * holds its unsave and "View all" controls while either is in flight by
+ * reading `useIsMutating({ mutationKey: unsaveShowMutationKey })` beside its
+ * queries' `isFetching`; each row's heart owns its own mutation, so a
+ * page-level `isPending` cannot see them. A read the page did not start (a
+ * reconnect refetch landing mid-unsave) is not held.
  */
 export const unsaveShowMutationKey = ['savedShows', 'unsave'] as const
 

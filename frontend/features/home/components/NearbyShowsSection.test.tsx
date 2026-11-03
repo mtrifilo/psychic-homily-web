@@ -149,11 +149,15 @@ describe('NearbyShowsSection', () => {
     })
     expect(control.className).toContain('md:hidden')
     // On the heading's own line, not after the subline or the link slot.
+    const heading = screen.getByRole('heading', {
+      name: 'Shows near you this week',
+    })
+    expect(control.parentElement).toBe(heading.parentElement)
     expect(
-      control.parentElement?.contains(
-        screen.getByRole('heading', { name: 'Shows near you this week' })
+      heading.parentElement?.contains(
+        screen.getByText('Phoenix, AZ · tap ♡ to save')
       )
-    ).toBe(true)
+    ).toBe(false)
   })
 
   it('holds the city control while geo is still deciding', () => {

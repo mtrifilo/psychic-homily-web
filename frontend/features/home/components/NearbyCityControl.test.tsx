@@ -45,6 +45,19 @@ describe('NearbyCityControl', () => {
     ])
   })
 
+  // Phone-only control: a focused search field would raise the soft keyboard
+  // over the list on every open.
+  it('opens with focus on the panel, not the search field', async () => {
+    const user = userEvent.setup()
+    render(<NearbyCityControl selection={selection()} />)
+
+    await user.click(screen.getByRole('button', { name: /Change city/ }))
+
+    const search = screen.getByPlaceholderText('Search cities...')
+    expect(document.activeElement).not.toBe(search)
+    expect(document.activeElement?.contains(search)).toBe(true)
+  })
+
   it('toggles a city into the selection the rows read', async () => {
     const user = userEvent.setup()
     const current = selection()

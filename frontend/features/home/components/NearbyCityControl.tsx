@@ -1,6 +1,6 @@
 'use client'
 
-import { useMemo, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import { ChevronDown } from 'lucide-react'
 import { CommandPopoverContent } from '@/components/ui/command'
 import { Popover, PopoverTrigger } from '@/components/ui/popover'
@@ -35,6 +35,7 @@ export function NearbyCityControl({
 }) {
   const { cities, effectiveCities, onFilterChange } = selection
   const [open, setOpen] = useState(false)
+  const panelRef = useRef<HTMLDivElement>(null)
 
   const pickerCities = useMemo(
     () => citiesWithSelected(sortCitiesByCount(cities), effectiveCities),
@@ -67,7 +68,20 @@ export function NearbyCityControl({
           <ChevronDown aria-hidden className="h-4 w-4 shrink-0 opacity-60" />
         </button>
       </PopoverTrigger>
-      <CommandPopoverContent className="w-[240px] p-0" align="end" side="bottom">
+      <CommandPopoverContent
+        className="w-[240px] p-0 focus-visible:outline-none"
+        align="end"
+        side="bottom"
+        // Only rendered below md, where focusing the search field on open
+        // raises the soft keyboard over the list. Focus lands on the panel
+        // instead; the field is one Tab or tap away.
+        ref={panelRef}
+        tabIndex={-1}
+        onOpenAutoFocus={event => {
+          event.preventDefault()
+          panelRef.current?.focus()
+        }}
+      >
         <CityCommandList
           cities={pickerCities}
           selectedCities={effectiveCities}
