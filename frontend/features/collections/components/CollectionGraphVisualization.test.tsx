@@ -227,7 +227,7 @@ describe('CollectionGraphVisualization', () => {
     )
 
     fireEvent.click(screen.getByRole('button', { name: 'node-valley-bar' }))
-    expect(screen.getByText('VENUE')).toBeInTheDocument()
+    expect(screen.getByText('Venue')).toBeInTheDocument()
     expect(screen.getByText('Next show')).toBeInTheDocument()
     expect(
       screen.getByRole('link', { name: '[ Open page → ]' }),
@@ -265,8 +265,8 @@ describe('CollectionGraphVisualization', () => {
     )
 
     fireEvent.click(screen.getByRole('button', { name: 'node-valley-bar' }))
-    expect(screen.getByText('VENUE')).toBeInTheDocument()
+    expect(screen.getByText('Venue')).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: 'node-valley-bar' }))
-    expect(screen.queryByText('VENUE')).not.toBeInTheDocument()
+    expect(screen.queryByText('Venue')).not.toBeInTheDocument()
   })
 })

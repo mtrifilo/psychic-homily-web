@@ -68,8 +68,8 @@ function ShowRow({
           >
             {showDisplayTitle(show)}
           </span>
-          {show.is_cancelled && <ShowStatusBadge label="CANCELLED" />}
-          {!show.is_cancelled && show.is_sold_out && <ShowStatusBadge label="SOLD OUT" />}
+          {show.is_cancelled && <ShowStatusBadge label="Cancelled" />}
+          {!show.is_cancelled && show.is_sold_out && <ShowStatusBadge label="Sold out" />}
         </span>
         <span className="hidden flex-1 sm:block" aria-hidden="true" />
         <ShowPrice
@@ -153,8 +153,8 @@ function EmptyNight({
         <section className="mt-8">
           {/* The reader is being told we have nothing; the least we owe them is
               a path into each room's page here (PSY-1733). */}
-          <h2 className="font-data text-xs tracking-widest text-muted-foreground">
-            CHECK THE ROOMS DIRECTLY
+          <h2 className="text-xs text-muted-foreground">
+            Check the rooms directly
           </h2>
           <RoomList venues={rooms.map(({ name, slug }) => ({ name, slug }))} />
         </section>

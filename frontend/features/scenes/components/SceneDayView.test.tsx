@@ -224,23 +224,23 @@ describe('SceneDayView — a night with shows', () => {
 
   it('badges a sold-out show', () => {
     render(<SceneDayView isRollingRoute={false} day={day({ shows: [show({ is_sold_out: true })] })} />)
-    expect(screen.getByText('SOLD OUT')).toBeInTheDocument()
+    expect(screen.getByText('Sold out')).toBeInTheDocument()
   })
 
-  // Cancelled outranks sold out — a cancelled show reading "SOLD OUT" would
+  // Cancelled outranks sold out — a cancelled show reading "Sold out" would
   // actively mislead someone deciding whether to go.
   it('badges a cancelled show and suppresses the sold-out badge', () => {
     render(
       <SceneDayView isRollingRoute={false} day={day({ shows: [show({ is_cancelled: true, is_sold_out: true })] })} />
     )
-    expect(screen.getByText('CANCELLED')).toBeInTheDocument()
-    expect(screen.queryByText('SOLD OUT')).not.toBeInTheDocument()
+    expect(screen.getByText('Cancelled')).toBeInTheDocument()
+    expect(screen.queryByText('Sold out')).not.toBeInTheDocument()
   })
 
   it('always discloses that coverage is partial', () => {
     render(<SceneDayView isRollingRoute={false} day={day()} />)
     expect(screen.getByText(/Not a complete city listing/)).toBeInTheDocument()
-    expect(screen.getByText(/ROOMS WE TRACK IN PHOENIX/)).toBeInTheDocument()
+    expect(screen.getByText(/Rooms we track in Phoenix/)).toBeInTheDocument()
   })
 
   // PSY-1733: listing nights keep the slug data and link each room to its
@@ -249,7 +249,7 @@ describe('SceneDayView — a night with shows', () => {
     render(<SceneDayView isRollingRoute={false} day={day()} />)
     // Scope to the footer: show rows also mention venue names inside the
     // whole-row show link, and a bare name query would match those too.
-    const footer = screen.getByText(/ROOMS WE TRACK IN PHOENIX/).closest('footer')
+    const footer = screen.getByText(/Rooms we track in Phoenix/).closest('footer')
     expect(footer).not.toBeNull()
     expect(within(footer as HTMLElement).getByRole('link', { name: 'Valley Bar' })).toHaveAttribute(
       'href',
@@ -280,7 +280,7 @@ describe('SceneDayView — a night with shows', () => {
         })}
       />
     )
-    const footer = screen.getByText(/ROOMS WE TRACK IN PHOENIX/).closest('footer')
+    const footer = screen.getByText(/Rooms we track in Phoenix/).closest('footer')
     expect(footer).not.toBeNull()
     expect(within(footer as HTMLElement).getByText('DIY Basement')).toBeInTheDocument()
     expect(
@@ -296,7 +296,7 @@ describe('SceneDayView — a night with shows', () => {
         })}
       />
     )
-    const footer = screen.getByText(/ROOMS WE TRACK IN PHOENIX/).closest('footer')
+    const footer = screen.getByText(/Rooms we track in Phoenix/).closest('footer')
     expect(footer).not.toBeNull()
     expect(
       within(footer as HTMLElement).queryByRole('link', { name: 'Whitespace Room' })
@@ -351,7 +351,7 @@ describe('SceneDayView — a night with shows', () => {
   it('survives null shows and tracked_venues', () => {
     render(<SceneDayView isRollingRoute={false} day={day({ shows: null, tracked_venues: null, show_count: 0 })} />)
     expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('Phoenix')
-    expect(screen.queryByText(/ROOMS WE TRACK/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/Rooms we track/)).not.toBeInTheDocument()
   })
 })
 
@@ -408,7 +408,7 @@ describe('SceneDayView — a quiet night', () => {
   // check for themselves — on OUR venue pages (PSY-1733), not off-site.
   it('lists the rooms as links to their venue pages here', () => {
     render(<SceneDayView isRollingRoute={false} day={quiet()} />)
-    expect(screen.getByText(/CHECK THE ROOMS DIRECTLY/)).toBeInTheDocument()
+    expect(screen.getByText(/Check the rooms directly/)).toBeInTheDocument()
 
     expect(screen.getByRole('link', { name: 'Club Congress' })).toHaveAttribute(
       'href',
@@ -495,7 +495,7 @@ describe('SceneDayView — a dead-quiet scene', () => {
   // one, which is exactly when nesting the ask inside the rooms block hid it.
   it('still asks when there are no rooms to list', () => {
     render(<SceneDayView isRollingRoute={false} day={day({ ...dead, tracked_venues: [] })} />)
-    expect(screen.queryByText(/CHECK THE ROOMS DIRECTLY/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/Check the rooms directly/)).not.toBeInTheDocument()
     expect(screen.getByRole('link', { name: /Suggest a venue/ })).toBeInTheDocument()
   })
 })

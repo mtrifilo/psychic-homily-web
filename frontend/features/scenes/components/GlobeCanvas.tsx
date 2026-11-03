@@ -1657,7 +1657,7 @@ function GlobeMap({
       for (const v of venuesByIdRef.current.values()) {
         if (bounds.contains([v.lng, v.lat])) inView++
       }
-      chip.textContent = `${label.toUpperCase()} · z${map.getZoom().toFixed(1)} · ${inView} ${
+      chip.textContent = `${label} · z${map.getZoom().toFixed(1)} · ${inView} ${
         inView === 1 ? 'venue' : 'venues'
       } in view`
       chip.style.display = 'block'
@@ -1813,7 +1813,7 @@ function GlobeMap({
           <div
             ref={statusChipRef}
             data-testid="atlas-status-chip"
-            className="rounded border border-border bg-background/90 px-2.5 py-1 font-data text-xs tracking-wide text-muted-foreground backdrop-blur"
+            className="rounded border border-border bg-background/90 px-2.5 py-1 text-xs text-muted-foreground backdrop-blur"
             style={{ display: 'none' }}
           />
         </div>

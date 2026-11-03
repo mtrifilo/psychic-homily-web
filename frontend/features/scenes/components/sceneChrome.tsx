@@ -174,10 +174,10 @@ export function SceneWindowHeading({ title }: { title: string }) {
   )
 }
 
-/** CANCELLED / SOLD OUT. Both are warnings, so both are destructive-toned. */
+/** Cancelled / Sold out. Both are warnings, so both are destructive-toned. */
 export function ShowStatusBadge({ label }: { label: string }) {
   return (
-    <span className="shrink-0 rounded-sm border border-destructive px-1.5 py-px font-data text-xs leading-4 tracking-wide text-destructive">
+    <span className="shrink-0 rounded-sm border border-destructive px-1.5 py-px text-xs leading-4 text-destructive">
       {label}
     </span>
   )
@@ -287,8 +287,8 @@ export function TrackedRoomsFooter({ city, rooms }: { city: string; rooms: Track
   return (
     <footer className="mt-12">
       <div className="border-t-2 border-foreground" />
-      <h2 className="pt-4 font-data text-xs tracking-widest text-muted-foreground">
-        ROOMS WE TRACK IN {city.toUpperCase()}
+      <h2 className="pt-4 text-xs text-muted-foreground">
+        Rooms we track in {city}
       </h2>
       <RoomList venues={rooms} />
       <Link

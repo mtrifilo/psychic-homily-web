@@ -106,8 +106,8 @@ function SceneShowRow({
           >
             {showDisplayTitle(show)}
           </span>
-          {show.is_cancelled && <ShowStatusBadge label="CANCELLED" />}
-          {!show.is_cancelled && show.is_sold_out && <ShowStatusBadge label="SOLD OUT" />}
+          {show.is_cancelled && <ShowStatusBadge label="Cancelled" />}
+          {!show.is_cancelled && show.is_sold_out && <ShowStatusBadge label="Sold out" />}
         </span>
         <span className="hidden flex-1 sm:block" aria-hidden="true" />
         {/* The price rides in the LEFT GUTTER under the time, so a priced row

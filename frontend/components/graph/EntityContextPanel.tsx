@@ -153,7 +153,7 @@ export function EntityContextPanel({
   className,
   panelRef,
 }: EntityContextPanelProps) {
-  const typeLabel = ENTITY_TYPE_LABEL[entityType].toUpperCase()
+  const typeLabel = ENTITY_TYPE_LABEL[entityType]
   const pageHref = `/${ENTITY_TYPE_PATH[entityType]}/${encodeURIComponent(slug)}`
   const hasContent = primary != null || facts.length > 0
 

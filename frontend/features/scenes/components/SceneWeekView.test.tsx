@@ -157,7 +157,7 @@ describe('SceneWeekView', () => {
   it('always discloses that coverage is partial', () => {
     render(<SceneWeekView isRollingRoute week={week()} />)
     expect(screen.getByText(/Not a complete city listing/)).toBeInTheDocument()
-    const footer = screen.getByText(/ROOMS WE TRACK IN CHICAGO/).closest('footer')
+    const footer = screen.getByText(/Rooms we track in Chicago/).closest('footer')
     expect(footer).not.toBeNull()
     expect(
       within(footer as HTMLElement).getByRole('link', { name: 'Empty Bottle' })
@@ -177,7 +177,7 @@ describe('SceneWeekView', () => {
         week={week({ tracked_venues: [room({ name: 'DIY Basement', slug: '' })] })}
       />
     )
-    const footer = screen.getByText(/ROOMS WE TRACK IN CHICAGO/).closest('footer')
+    const footer = screen.getByText(/Rooms we track in Chicago/).closest('footer')
     expect(footer).not.toBeNull()
     expect(within(footer as HTMLElement).getByText('DIY Basement')).toBeInTheDocument()
     expect(
@@ -191,7 +191,7 @@ describe('SceneWeekView', () => {
         week={week({ tracked_venues: [room({ name: 'Whitespace Room', slug: '   ' })] })}
       />
     )
-    const footer = screen.getByText(/ROOMS WE TRACK IN CHICAGO/).closest('footer')
+    const footer = screen.getByText(/Rooms we track in Chicago/).closest('footer')
     expect(footer).not.toBeNull()
     expect(
       within(footer as HTMLElement).queryByRole('link', { name: 'Whitespace Room' })
@@ -207,10 +207,10 @@ describe('SceneWeekView', () => {
 
   it('badges a sold-out show', () => {
     render(<SceneWeekView isRollingRoute week={week({ days: [{ date: '2026-07-27', shows: [show({ is_sold_out: true })] }] })} />)
-    expect(screen.getByText('SOLD OUT')).toBeInTheDocument()
+    expect(screen.getByText('Sold out')).toBeInTheDocument()
   })
 
-  // Cancelled outranks sold out — a cancelled show that reads "SOLD OUT" would
+  // Cancelled outranks sold out — a cancelled show that reads "Sold out" would
   // actively mislead someone deciding whether to go.
   it('badges a cancelled show and suppresses the sold-out badge', () => {
     render(
@@ -220,8 +220,8 @@ describe('SceneWeekView', () => {
         })}
       />
     )
-    expect(screen.getByText('CANCELLED')).toBeInTheDocument()
-    expect(screen.queryByText('SOLD OUT')).not.toBeInTheDocument()
+    expect(screen.getByText('Cancelled')).toBeInTheDocument()
+    expect(screen.queryByText('Sold out')).not.toBeInTheDocument()
   })
 
   // The decision was an empty STATE, not a 404 — a real city having a quiet
@@ -392,7 +392,7 @@ describe('SceneWeekView', () => {
   it('survives null days and tracked_venues', () => {
     render(<SceneWeekView isRollingRoute week={week({ days: null, tracked_venues: null, show_count: 0 })} />)
     expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('Chicago')
-    expect(screen.queryByText(/ROOMS WE TRACK/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/Rooms we track/)).not.toBeInTheDocument()
   })
 
   it('renders a quiet day as a heading and count only', () => {

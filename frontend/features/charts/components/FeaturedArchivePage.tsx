@@ -101,8 +101,8 @@ function CoverFallback() {
 function LeadCard({ run }: { run: FeaturedCollectionRun }) {
   return (
     <section className="space-y-2.5">
-      <p className="font-data text-xs font-bold tracking-[0.06em] text-link">
-        FEATURED COLLECTION · MOST RECENT
+      <p className="text-xs font-bold text-link">
+        Featured collection · most recent
       </p>
       <div className="flex gap-[18px] rounded border border-border bg-card p-[18px]">
         <Link
@@ -251,8 +251,8 @@ export function FeaturedArchivePage() {
           {ledger.length > 0 ? (
             <section>
               <div className="flex items-center gap-2 border-b-2 border-foreground pb-2">
-                <p className="font-data text-xs font-bold tracking-[0.06em] text-foreground">
-                  PREVIOUSLY FEATURED
+                <p className="text-xs font-bold text-foreground">
+                  Previously featured
                 </p>
                 <span className="h-px flex-1" />
                 <p className="font-data text-xs text-muted-foreground">

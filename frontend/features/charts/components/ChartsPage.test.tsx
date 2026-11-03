@@ -518,7 +518,7 @@ describe('ChartsPage', () => {
     render(<ChartsPage />)
 
     const strip = screen.getByRole('region', { name: 'Your chart stats' })
-    expect(strip).toHaveTextContent('YOU')
+    expect(strip).toHaveTextContent('You')
     expect(strip).toHaveTextContent('12 shows marked')
     expect(strip).toHaveTextContent('34 artists followed')
     expect(strip).toHaveTextContent('top venue: The Rebel Lounge (5)')
@@ -533,7 +533,7 @@ describe('ChartsPage', () => {
     expect(
       screen.queryByRole('region', { name: 'Your chart stats' })
     ).not.toBeInTheDocument()
-    expect(screen.queryByText('YOU')).not.toBeInTheDocument()
+    expect(screen.queryByText('You')).not.toBeInTheDocument()
   })
 
   it('renders a labeled personal-stats skeleton while the request loads', () => {
@@ -555,7 +555,7 @@ describe('ChartsPage', () => {
     expect(
       screen.queryByRole('region', { name: 'Your chart stats' })
     ).not.toBeInTheDocument()
-    expect(screen.queryByText('YOU')).not.toBeInTheDocument()
+    expect(screen.queryByText('You')).not.toBeInTheDocument()
   })
 
   it('replaces zero-history stats with the actionable nudge', () => {

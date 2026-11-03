@@ -178,6 +178,6 @@ describe('SceneWindowView — quiet window', () => {
   // copy already makes the same disclosure in its own words.
   it('does not repeat the rooms footer under the quiet copy', () => {
     render(<SceneWindowView data={quiet} />)
-    expect(screen.queryByText(/ROOMS WE TRACK IN PHOENIX/)).toBeNull()
+    expect(screen.queryByText(/Rooms we track in Phoenix/)).toBeNull()
   })
 })

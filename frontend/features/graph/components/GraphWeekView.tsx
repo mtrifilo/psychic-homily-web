@@ -47,10 +47,10 @@ export function GraphWeekContent({ view }: { view: ResolvedGraphWeek }) {
 
   return (
     <GraphWeekShell>
-      <p className="mt-4 font-data text-sm text-link">
+      <p className="mt-4 font-data text-sm uppercase tracking-wider text-link">
         {formatGraphWeekCounts(week)}
       </p>
-      <p className="mt-1 font-data text-xs text-muted-foreground">
+      <p className="mt-1 font-data text-xs uppercase tracking-wider text-muted-foreground">
         {formatGraphWeekRange(week.start, week.end)}
       </p>
       <TeaserMotif motif={motif} label={graphWeekSummary(week)} />

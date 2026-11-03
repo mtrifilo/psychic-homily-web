@@ -110,9 +110,9 @@ export function ThisWeekByCity({
       <div className="flex items-baseline justify-between gap-4 pt-4">
         <h2
           id="this-week-by-city"
-          className="font-data text-xs tracking-widest text-muted-foreground"
+          className="text-xs text-muted-foreground"
         >
-          THIS WEEK, BY CITY
+          This week, by city
         </h2>
         {/* Two spellings of one range, swapped by CSS so neither needs JS: the
             weekdays are what make the range scannable, and they are the first

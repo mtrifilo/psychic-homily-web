@@ -58,8 +58,8 @@ export function SceneWeekShowRow({ show }: { show: SceneWeekShow }) {
           >
             {showDisplayTitle(show)}
           </span>
-          {show.is_cancelled && <ShowStatusBadge label="CANCELLED" />}
-          {!show.is_cancelled && show.is_sold_out && <ShowStatusBadge label="SOLD OUT" />}
+          {show.is_cancelled && <ShowStatusBadge label="Cancelled" />}
+          {!show.is_cancelled && show.is_sold_out && <ShowStatusBadge label="Sold out" />}
         </span>
         <span className="hidden flex-1 sm:block" aria-hidden="true" />
         {show.venue_name && (
