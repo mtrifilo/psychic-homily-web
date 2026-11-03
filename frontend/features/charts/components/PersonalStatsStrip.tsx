@@ -77,7 +77,7 @@ export function PersonalStatsStrip() {
       aria-label="Your chart stats"
       className="flex min-h-[38px] flex-wrap items-center gap-x-4 gap-y-1 border border-primary bg-primary/10 px-3.5 py-2.5 font-data text-xs leading-normal"
     >
-      <span className="shrink-0 text-[11px] font-bold tracking-[0.06em] text-primary">
+      <span className="shrink-0 text-[11px] font-bold tracking-[0.06em] text-link">
         YOU
       </span>
       <div className="min-w-0 flex-1">
@@ -93,7 +93,7 @@ export function PersonalStatsStrip() {
       {followedLooseEndsCount > 0 ? (
         <Link
           href="/contribute"
-          className="shrink-0 font-bold text-primary hover:underline focus-visible:underline focus-visible:outline-none"
+          className="shrink-0 font-bold text-link hover:underline focus-visible:underline focus-visible:outline-none"
         >
           {followedLooseEndsCount} loose{' '}
           {followedLooseEndsCount === 1 ? 'end' : 'ends'} in your follows →

@@ -69,4 +69,12 @@ describe('TagOfficialIndicator', () => {
     expect(marker.className).toContain('ml-2')
     expect(marker.className).toContain('text-primary')
   })
+
+  it('keeps the icon on primary and sets the Official label in the link token', () => {
+    render(<TagOfficialIndicator size="md" />)
+
+    const marker = screen.getByRole('img', { name: 'Official tag' })
+    expect(marker).toHaveClass('text-primary')
+    expect(screen.getByText('Official')).toHaveClass('text-link')
+  })
 })

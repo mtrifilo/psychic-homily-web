@@ -66,7 +66,7 @@ function ArtistLinks({ artists }: { artists: CompactShowArtist[] }) {
           {artist.slug ? (
             <Link
               href={`/artists/${artist.slug}`}
-              className="hover:text-primary underline underline-offset-4 decoration-border hover:decoration-primary/50 transition-colors"
+              className="hover:text-link underline underline-offset-4 decoration-border hover:decoration-primary/50 transition-colors"
             >
               {artist.name}
             </Link>
@@ -89,12 +89,12 @@ function VenueLine({ venue }: { venue: CompactShowVenue | null | undefined }) {
       {venue.slug ? (
         <Link
           href={`/venues/${venue.slug}`}
-          className="text-primary/80 hover:text-primary font-medium transition-colors"
+          className="text-link hover:underline font-medium transition-colors"
         >
           {venue.name}
         </Link>
       ) : (
-        <span className="text-primary/80 font-medium">{venue.name}</span>
+        <span className="text-link font-medium">{venue.name}</span>
       )}
       {(venue.city || venue.state) && (
         <span className="text-muted-foreground/80">
@@ -140,7 +140,7 @@ export function CompactShowRow({
           href={detailsHref}
           className="shrink-0 flex flex-col items-center justify-center w-12 rounded bg-muted/40 hover:bg-muted transition-colors py-1.5"
         >
-          <span className="text-[9px] font-bold tracking-widest uppercase text-primary leading-none">
+          <span className="text-[9px] font-bold tracking-widest uppercase text-link leading-none">
             {dateBadge.dayOfWeek}
           </span>
           <span className="text-[11px] font-semibold text-muted-foreground leading-tight mt-0.5">
@@ -165,7 +165,7 @@ export function CompactShowRow({
                     {venue.slug ? (
                       <Link
                         href={`/venues/${venue.slug}`}
-                        className="text-sm font-bold hover:text-primary transition-colors"
+                        className="text-sm font-bold hover:text-link transition-colors"
                       >
                         {venue.name}
                       </Link>
@@ -202,7 +202,7 @@ export function CompactShowRow({
               <div className="mt-0.5">
                 <Link
                   href={detailsHref}
-                  className="text-primary/80 hover:text-primary underline underline-offset-2 transition-colors"
+                  className="text-link underline underline-offset-2 transition-colors"
                 >
                   Details
                 </Link>

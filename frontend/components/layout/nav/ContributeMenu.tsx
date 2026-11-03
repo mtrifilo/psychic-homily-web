@@ -41,7 +41,7 @@ import { useHoverIntentMenu } from './useHoverIntentMenu'
 // otherwise swap to accent-foreground on hover/keyboard focus).
 function itemClassName(item: NavLinkData): string {
   if (item.submitPrimary) {
-    return 'font-semibold text-primary focus:text-primary'
+    return 'font-semibold text-link focus:text-link'
   }
   const trailing = item.external || item.href === '/contribute'
   return cn(

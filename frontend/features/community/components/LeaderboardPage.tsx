@@ -97,7 +97,7 @@ function LeaderboardRow({ entry, isCurrentUser }: { entry: LeaderboardEntry; isC
           </Link>
           <TierBadge tier={entry.user_tier} />
           {isCurrentUser && (
-            <span className="text-xs text-primary font-medium">(you)</span>
+            <span className="text-xs text-link font-medium">(you)</span>
           )}
         </div>
       </div>
@@ -167,7 +167,7 @@ export function LeaderboardPage() {
           <h3 className="text-lg font-medium text-foreground mb-1">No contributions yet</h3>
           <p className="text-sm text-muted-foreground">
             Be the first! Start by{' '}
-            <Link href="/contribute" className="text-primary hover:underline">
+            <Link href="/contribute" className="text-link hover:underline">
               contributing
             </Link>{' '}
             to the knowledge graph.

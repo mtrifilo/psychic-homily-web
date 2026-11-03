@@ -165,7 +165,7 @@ const VenueRow = memo(function VenueRow({
         {venue.slug ? (
           <Link
             href={`/venues/${venue.slug}`}
-            className="font-medium text-foreground hover:text-primary hover:underline underline-offset-4"
+            className="font-medium text-foreground hover:text-link hover:underline underline-offset-4"
           >
             {venue.name}
           </Link>
@@ -237,7 +237,7 @@ const VenueRow = memo(function VenueRow({
             target="_blank"
             rel="noopener noreferrer"
             data-testid={`venue-site-link-${venue.id}`}
-            className="text-primary hover:underline underline-offset-4"
+            className="text-link hover:underline underline-offset-4"
           >
             <span className="sr-only">Website for {venue.name}</span>
             <span aria-hidden="true">site &#8599;</span>
@@ -288,7 +288,7 @@ function SortableHeader({
           className={cn(
             'inline-flex items-center gap-1 uppercase tracking-wider hover:text-foreground',
             'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
-            isActive && 'text-primary'
+            isActive && 'text-link'
           )}
         >
           {label}

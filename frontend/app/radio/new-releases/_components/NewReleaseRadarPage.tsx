@@ -138,7 +138,7 @@ function RadarRow({ entry }: { entry: RadioNewReleaseRadarEntry }) {
         {href ? (
           <Link
             href={href}
-            className="font-medium text-primary transition-colors hover:underline"
+            className="font-medium text-link transition-colors hover:underline"
           >
             {title}
           </Link>

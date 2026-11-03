@@ -345,7 +345,7 @@ function RecoverAccountPageContent() {
 
         {/* Footer */}
         <p className="mt-6 text-center text-sm text-muted-foreground">
-          <Link href="/auth" className="underline underline-offset-4 hover:text-primary">
+          <Link href="/auth" className="underline underline-offset-4 hover:text-link">
             Back to sign in
           </Link>
         </p>

@@ -77,7 +77,7 @@ export function ProfileCollections({
             >
               <Link
                 href={`/collections/${collection.slug}`}
-                className="min-w-0 flex-1 truncate font-medium hover:text-primary hover:underline"
+                className="min-w-0 flex-1 truncate font-medium hover:text-link hover:underline"
               >
                 {collection.title}
               </Link>

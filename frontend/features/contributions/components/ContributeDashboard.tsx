@@ -109,7 +109,7 @@ function CategoryCard({
       </CardHeader>
       <CardContent className="pt-0 pb-3">
         <div className="flex items-center justify-between">
-          <div className="flex items-center gap-1 text-xs text-primary">
+          <div className="flex items-center gap-1 text-xs text-link">
             <span>{isSelected ? 'Viewing items' : 'View items'}</span>
             <ChevronRight className="h-3 w-3" />
           </div>
@@ -253,7 +253,7 @@ function CategoryItems({ category, entityType }: { category: string; entityType:
         </span>
         <Link
           href={browseUrl}
-          className="text-sm text-primary hover:text-primary/80 flex items-center gap-1 transition-colors"
+          className="text-sm text-link hover:underline flex items-center gap-1 transition-colors"
         >
           Browse all {formatEntityType(entityType).toLowerCase()}
           <ArrowRight className="h-3.5 w-3.5" />
@@ -365,7 +365,7 @@ export function ContributeDashboard() {
               <action.icon className="h-4.5 w-4.5" />
             </div>
             <div className="min-w-0">
-              <div className="text-sm font-medium group-hover:text-primary transition-colors">
+              <div className="text-sm font-medium group-hover:text-link transition-colors">
                 {action.label}
               </div>
               <div className="text-xs text-muted-foreground truncate">

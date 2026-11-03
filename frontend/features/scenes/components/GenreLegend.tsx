@@ -54,7 +54,7 @@ export function GenreLegend({ compact, openChoice, onOpenChange, className }: Ge
         aria-expanded={open}
         aria-controls="atlas-genre-legend"
         className={cn(
-          'flex w-full shrink-0 items-center justify-between gap-2 text-foreground/90 transition-colors hover:text-primary',
+          'flex w-full shrink-0 items-center justify-between gap-2 text-foreground/90 transition-colors hover:text-link',
           compact ? 'min-h-9 px-2.5 text-sm' : 'min-h-0 px-3 py-1.5 text-xs font-medium',
         )}
       >

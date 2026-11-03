@@ -107,7 +107,7 @@ export function RequestCard({ request }: RequestCardProps) {
         {/* Text content */}
         <div className="flex-1 min-w-0">
           <Link href={`/requests/${request.id}`} className="block group">
-            <h3 className="font-bold text-foreground group-hover:text-primary transition-colors truncate">
+            <h3 className="font-bold text-foreground group-hover:text-link transition-colors truncate">
               {request.title}
             </h3>
           </Link>

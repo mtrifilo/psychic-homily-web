@@ -80,7 +80,7 @@ export function NewReleaseRadarBox({
               {href ? (
                 <Link
                   href={href}
-                  className="text-sm font-medium text-primary transition-colors hover:underline"
+                  className="text-sm font-medium text-link transition-colors hover:underline"
                 >
                   {title}
                 </Link>

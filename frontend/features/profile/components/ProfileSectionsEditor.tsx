@@ -216,7 +216,7 @@ export function ProfileSectionsEditor() {
                     type="button"
                     onClick={() => openEditDialog(section)}
                     aria-label="Edit section"
-                    className="text-xs font-medium text-primary hover:underline focus-visible:outline-none focus-visible:underline focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 rounded-sm"
+                    className="text-xs font-medium text-link hover:underline focus-visible:outline-none focus-visible:underline focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 rounded-sm"
                   >
                     Edit
                   </button>

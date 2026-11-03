@@ -309,7 +309,7 @@ function ProfilePageContent() {
           <span aria-hidden> · </span>
           <Link
             href={publicProfileHref}
-            className="text-primary hover:underline"
+            className="text-link hover:underline"
           >
             View public profile →
           </Link>

@@ -144,7 +144,7 @@ export function CheckInboxInterstitial({
         <VerificationResendStatus
           format={formatWaitOnly}
           announce={announceSentAgain}
-          className="font-data text-[11px] uppercase tracking-[0.66px] text-primary"
+          className="font-data text-[11px] uppercase tracking-[0.66px] text-link"
         />
 
         <CurrentSessionExpired>
@@ -167,7 +167,7 @@ export function CheckInboxInterstitial({
         Wrong address? Check it in{' '}
         <Link
           href={ACCOUNT_SETTINGS_HREF}
-          className="underline underline-offset-4 hover:text-primary"
+          className="underline underline-offset-4 hover:text-link"
         >
           Settings
         </Link>

@@ -111,7 +111,7 @@ export function GraphRetryBox({
       <button
         type="button"
         onClick={onRetry}
-        className="text-sm text-primary hover:underline underline-offset-4"
+        className="text-sm text-link hover:underline underline-offset-4"
       >
         Try again
       </button>

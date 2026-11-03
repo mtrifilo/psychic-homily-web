@@ -120,7 +120,7 @@ export function SceneList() {
               href={`/scenes/${scene.slug}/week`}
               aria-label={`${scene.city}, ${scene.state}, ${formatShowCountLine(scene.shows_calendar_week, true)}`}
               className={`relative mt-2 inline-block text-sm underline underline-offset-2 hover:no-underline ${
-                scene.shows_calendar_week === 0 ? 'text-muted-foreground' : 'text-primary'
+                scene.shows_calendar_week === 0 ? 'text-muted-foreground' : 'text-link'
               }`}
             >
               {formatShowCountLine(scene.shows_calendar_week, true)}{' '}

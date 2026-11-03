@@ -204,7 +204,7 @@ function DiscographyTab({ artistIdOrSlug }: { artistIdOrSlug: string | number })
                   <td>
                     <Link
                       href={`/releases/${r.slug}`}
-                      className="hover:text-primary underline-offset-2 hover:underline"
+                      className="hover:text-link underline-offset-2 hover:underline"
                     >
                       {r.title}
                     </Link>

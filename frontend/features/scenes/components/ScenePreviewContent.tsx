@@ -194,7 +194,7 @@ export function ScenePreviewContent({
       <AtlasPaneLink
         href={`/scenes/${scene.slug}`}
         className={cn(
-          'mt-auto gap-1 text-sm font-medium text-primary underline-offset-4 hover:underline',
+          'mt-auto gap-1 text-sm font-medium text-link underline-offset-4 hover:underline',
           ATLAS_LINK_TARGET_CLASS,
         )}
       >

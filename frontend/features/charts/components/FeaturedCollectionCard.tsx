@@ -8,7 +8,7 @@ import { useFeaturedCollection, useFeaturedCollectionHistory } from '../hooks'
 import type { FeaturedCollectionRun } from '../types'
 
 const linkClass =
-  'hover:text-primary focus-visible:text-primary focus-visible:outline-none'
+  'hover:text-link focus-visible:text-link focus-visible:outline-none'
 
 /**
  * Full-date label for the run's start. Estimated starts (reconstructed at
@@ -88,7 +88,7 @@ export function FeaturedCollectionCard() {
         <div className="flex min-w-0 flex-1 flex-col">
           <p
             id="featured-collection-heading"
-            className="font-data text-[11px] font-bold uppercase tracking-[0.06em] text-primary"
+            className="font-data text-[11px] font-bold uppercase tracking-[0.06em] text-link"
           >
             Featured Collection
           </p>
@@ -116,7 +116,7 @@ export function FeaturedCollectionCard() {
             </p>
             <Link
               href={`${collectionHref}#discussion`}
-              className="shrink-0 text-xs text-primary hover:underline focus-visible:underline focus-visible:outline-none"
+              className="shrink-0 text-xs text-link hover:underline focus-visible:underline focus-visible:outline-none"
             >
               discuss →
             </Link>
@@ -125,7 +125,7 @@ export function FeaturedCollectionCard() {
       </div>
       {hasClosedRuns ? (
         <p className="mt-2 font-data text-[11px] text-muted-foreground">
-          <Link href="/charts/featured" className="text-primary hover:underline focus-visible:underline focus-visible:outline-none">
+          <Link href="/charts/featured" className="text-link hover:underline focus-visible:underline focus-visible:outline-none">
             previously featured →
           </Link>
         </p>

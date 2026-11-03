@@ -464,7 +464,7 @@ export function ReleaseList() {
                   clearFilters()
                   if (selectedTags.length > 0) handleTagsClear()
                 }}
-                className="mt-4 text-primary hover:underline"
+                className="mt-4 text-link hover:underline"
               >
                 View all releases
               </button>

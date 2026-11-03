@@ -472,7 +472,7 @@ describe('ShowTicketRow', () => {
 
     const buy = screen.getByRole('link', { name: /^Buy tickets\b/i })
     expect(buy.className).toContain('text-muted-foreground')
-    expect(buy.className).not.toMatch(/(^|\s)text-primary/)
+    expect(buy.className).not.toMatch(/(^|\s)text-(primary|link)/)
     expect(buy.className).not.toMatch(/(^|\s)font-(medium|semibold|bold)/)
   })
 

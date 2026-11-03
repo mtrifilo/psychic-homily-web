@@ -499,7 +499,7 @@ describe('DayGroupedShowRow', () => {
         expect(venue).toHaveClass('text-sm', venueSize)
         expect(screen.getByRole('link', { name: 'Valley Bar' })).toHaveClass(
           'font-medium',
-          'text-primary'
+          'text-link'
         )
       }
     )

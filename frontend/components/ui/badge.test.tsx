@@ -27,8 +27,14 @@ describe('Badge', () => {
     render(<Badge variant="accent">Accent</Badge>)
     const badge = screen.getByText('Accent')
     expect(badge).toHaveClass('bg-primary/10')
-    expect(badge).toHaveClass('text-primary')
     expect(badge).toHaveClass('border-primary/20')
+  })
+
+  it('sets accent badge text in the link token, never in primary', () => {
+    render(<Badge variant="accent">Accent</Badge>)
+    const badge = screen.getByText('Accent')
+    expect(badge).toHaveClass('text-link')
+    expect(badge).not.toHaveClass('text-primary')
   })
 
   it('applies the success variant classes', () => {

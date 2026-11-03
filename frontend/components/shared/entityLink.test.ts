@@ -37,6 +37,18 @@ function contrast(a: string, b: string): number {
   return (hi + 0.05) / (lo + 0.05)
 }
 
+/** `fg` at `alpha` over an opaque `bg`, as the browser composites a `/N` fill. */
+function composite(fg: string, bg: string, alpha: number): string {
+  const channel = (hex: string, i: number) => parseInt(hex.slice(i, i + 2), 16)
+  return (
+    '#' +
+    [1, 3, 5]
+      .map(i => Math.round(channel(fg, i) * alpha + channel(bg, i) * (1 - alpha)))
+      .map(v => v.toString(16).padStart(2, '0'))
+      .join('')
+  )
+}
+
 describe('ENTITY_LINK_CLASS', () => {
   it('draws the accent tier in the solid link token, with no opacity and no hover recolour', () => {
     const tokens = ENTITY_LINK_CLASS.accent.split(' ')
@@ -44,6 +56,12 @@ describe('ENTITY_LINK_CLASS', () => {
     expect(tokens.some(t => t.startsWith('text-link/'))).toBe(false)
     expect(tokens.some(t => t.startsWith('hover:text-'))).toBe(false)
     expect(tokens).toContain('hover:underline')
+  })
+
+  it('recolours the restrained tier to the link token on hover, never to primary', () => {
+    const tokens = ENTITY_LINK_CLASS.restrained.split(' ')
+    expect(tokens).toContain('hover:text-link')
+    expect(tokens).not.toContain('hover:text-primary')
   })
 
   it('exposes the link token to Tailwind', () => {
@@ -57,5 +75,12 @@ describe('ENTITY_LINK_CLASS', () => {
     const link = tokenHex(themeBlock, 'link')
     expect(contrast(link, tokenHex(themeBlock, 'background'))).toBeGreaterThanOrEqual(4.5)
     expect(contrast(link, tokenHex(themeBlock, 'card'))).toBeGreaterThanOrEqual(4.5)
+  })
+
+  it('keeps light link text at WCAG AA on muted and on the muted/20 row stripe', () => {
+    const link = tokenHex(light, 'link')
+    const muted = tokenHex(light, 'muted')
+    expect(contrast(link, muted)).toBeGreaterThanOrEqual(4.5)
+    expect(contrast(link, composite(muted, tokenHex(light, 'background'), 0.2))).toBeGreaterThanOrEqual(4.5)
   })
 })

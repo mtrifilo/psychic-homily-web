@@ -33,7 +33,7 @@ export function HomeDiscoverLinks({ className }: { className?: string }) {
         <span key={link.href} className="inline-flex items-center">
           <Link
             href={link.href}
-            className="font-medium text-foreground transition-colors hover:text-primary hover:underline underline-offset-4"
+            className="font-medium text-foreground transition-colors hover:text-link hover:underline underline-offset-4"
           >
             {link.label}
           </Link>

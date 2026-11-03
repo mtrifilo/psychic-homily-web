@@ -192,7 +192,7 @@ export function ProfileStatsSidebar({
               onClick={() => setExpanded(false)}
               aria-expanded={true}
               aria-label="Hide the full statistics dashboard"
-              className="font-data text-xs text-primary hover:underline"
+              className="font-data text-xs text-link hover:underline"
             >
               ▴ Hide
             </button>
@@ -224,7 +224,7 @@ export function ProfileStatsSidebar({
             onClick={() => setExpanded(true)}
             aria-expanded={false}
             aria-label="Show all statistics, activity heatmap and rankings"
-            className="text-sm font-medium text-primary hover:underline"
+            className="text-sm font-medium text-link hover:underline"
           >
             ▸ Show all stats
           </button>

@@ -167,14 +167,14 @@ export function CalendarFeedSection({
             href={googleCalUrl}
             target="_blank"
             rel="noopener noreferrer"
-            className="inline-flex items-center gap-1 text-xs text-primary hover:text-primary/80 underline underline-offset-2"
+            className="inline-flex items-center gap-1 text-xs text-link underline underline-offset-2"
           >
             Google Calendar
             <ExternalLink className="h-3 w-3" />
           </a>
           <a
             href={appleCalUrl}
-            className="inline-flex items-center gap-1 text-xs text-primary hover:text-primary/80 underline underline-offset-2"
+            className="inline-flex items-center gap-1 text-xs text-link underline underline-offset-2"
           >
             Apple Calendar
             <ExternalLink className="h-3 w-3" />
@@ -229,7 +229,7 @@ export function CalendarFeedSection({
             Regenerate or disable from{' '}
             <Link
               href="/profile?tab=settings"
-              className="text-primary underline underline-offset-2"
+              className="text-link underline underline-offset-2"
             >
               Settings
             </Link>
@@ -315,7 +315,7 @@ export function CalendarFeedSection({
                 Copy or regenerate your subscribe URL in{' '}
                 <Link
                   href="/profile?tab=settings"
-                  className="text-primary underline underline-offset-2"
+                  className="text-link underline underline-offset-2"
                 >
                   Settings
                 </Link>

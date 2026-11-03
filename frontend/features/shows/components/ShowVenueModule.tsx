@@ -14,7 +14,7 @@ import type { ShowResponse } from '../types'
 
 /** The module's quiet onward links: `More at {venue}` and its scene sibling. */
 const ONWARD_LINK_CLASS =
-  'text-sm text-muted-foreground hover:text-primary transition-colors'
+  'text-sm text-muted-foreground hover:text-link transition-colors'
 
 interface ShowVenueModuleProps {
   show: ShowResponse

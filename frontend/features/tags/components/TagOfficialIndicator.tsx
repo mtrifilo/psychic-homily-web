@@ -36,7 +36,9 @@ export function TagOfficialIndicator({
     >
       <BadgeCheck className={cn(iconSize, 'shrink-0')} aria-hidden="true" />
       {size === 'md' && (
-        <span className="text-[10px] font-medium uppercase tracking-wider">
+        // The marker's `text-primary` is for the icon (non-text, 3:1); the
+        // word is small text, so it takes the link token (4.5:1).
+        <span className="text-[10px] font-medium uppercase tracking-wider text-link">
           Official
         </span>
       )}

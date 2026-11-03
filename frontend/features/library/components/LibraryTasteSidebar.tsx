@@ -72,7 +72,7 @@ function SnapshotBlock({ stats }: { stats: PersonalChartsStats }) {
             {stats.top_venue ? (
               <Link
                 href={`/venues/${stats.top_venue.slug}`}
-                className="transition-colors hover:text-primary"
+                className="transition-colors hover:text-link"
               >
                 {stats.top_venue.name}
               </Link>
@@ -110,7 +110,7 @@ function TopScenesBlock({ scenes }: { scenes: PersonalTopScene[] }) {
             </span>
             <Link
               href={`/scenes/${scene.slug}`}
-              className="min-w-0 flex-1 truncate text-[13px] text-foreground transition-colors hover:text-primary"
+              className="min-w-0 flex-1 truncate text-[13px] text-foreground transition-colors hover:text-link"
             >
               {sceneLabel(scene)}
             </Link>
@@ -134,7 +134,7 @@ function TopTagsBlock({ tags }: { tags: PersonalTopTag[] }) {
           <li key={tag.tag_id}>
             <Link
               href={`/tags/${tag.slug}`}
-              className="inline-block border border-border px-1.5 py-0.5 font-data text-[11px] text-muted-foreground transition-colors hover:border-primary hover:text-primary"
+              className="inline-block border border-border px-1.5 py-0.5 font-data text-[11px] text-muted-foreground transition-colors hover:border-primary hover:text-link"
             >
               {tag.name}
             </Link>
@@ -161,7 +161,7 @@ function TopArtistsBlock({ artists }: { artists: PersonalTopArtist[] }) {
             </span>
             <Link
               href={`/artists/${artist.slug}`}
-              className="min-w-0 flex-1 truncate text-[13px] text-foreground transition-colors hover:text-primary"
+              className="min-w-0 flex-1 truncate text-[13px] text-foreground transition-colors hover:text-link"
             >
               {artist.name}
             </Link>

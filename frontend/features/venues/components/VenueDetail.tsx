@@ -276,7 +276,7 @@ export function VenueDetail({ venueId, initialPastYears }: VenueDetailProps) {
                 href={websiteHref}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="inline-flex items-center gap-1 text-sm text-primary hover:underline mt-2"
+                className="inline-flex items-center gap-1 text-sm text-link hover:underline mt-2"
               >
                 {getDisplayDomain(websiteHref)}
                 <ExternalLink className="h-3 w-3" />

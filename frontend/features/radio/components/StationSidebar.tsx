@@ -215,7 +215,7 @@ function TopArtistsBox({ stationSlug }: { stationSlug: string }) {
             {artist.artist_slug ? (
               <Link
                 href={`/artists/${artist.artist_slug}`}
-                className="truncate font-medium text-foreground hover:text-primary transition-colors"
+                className="truncate font-medium text-foreground hover:text-link transition-colors"
               >
                 {artist.artist_name}
               </Link>
@@ -249,7 +249,7 @@ function TopLabelsBox({ stationSlug }: { stationSlug: string }) {
             {label.label_slug ? (
               <Link
                 href={`/labels/${label.label_slug}`}
-                className="truncate font-medium text-foreground hover:text-primary transition-colors"
+                className="truncate font-medium text-foreground hover:text-link transition-colors"
               >
                 {label.label_name}
               </Link>
@@ -286,7 +286,7 @@ function NewReleaseRadarBox({ station }: { station: RadioStationDetail }) {
               {entry.artist_slug ? (
                 <Link
                   href={`/artists/${entry.artist_slug}`}
-                  className="font-medium text-foreground hover:text-primary transition-colors"
+                  className="font-medium text-foreground hover:text-link transition-colors"
                 >
                   {entry.artist_name}
                 </Link>
@@ -299,7 +299,7 @@ function NewReleaseRadarBox({ station }: { station: RadioStationDetail }) {
                   {entry.release_slug ? (
                     <Link
                       href={`/releases/${entry.release_slug}`}
-                      className="text-foreground hover:text-primary transition-colors"
+                      className="text-foreground hover:text-link transition-colors"
                     >
                       {entry.album_title}
                     </Link>

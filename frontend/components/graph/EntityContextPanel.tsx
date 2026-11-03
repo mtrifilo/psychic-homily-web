@@ -229,7 +229,7 @@ export function EntityContextPanel({
 
       <Link
         href={pageHref}
-        className="inline-block font-data text-[11px] text-primary hover:underline underline-offset-4"
+        className="inline-block font-data text-[11px] text-link hover:underline underline-offset-4"
       >
         [ Open page → ]
       </Link>

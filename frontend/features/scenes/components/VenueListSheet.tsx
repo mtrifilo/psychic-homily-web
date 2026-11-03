@@ -147,7 +147,7 @@ export function VenueListSheet({
               <button
                 type="button"
                 onClick={handleClearScope}
-                className="min-h-6 shrink-0 rounded-sm px-2 font-data text-[11px] text-primary underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                className="min-h-6 shrink-0 rounded-sm px-2 font-data text-[11px] text-link underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
               >
                 Show all
               </button>

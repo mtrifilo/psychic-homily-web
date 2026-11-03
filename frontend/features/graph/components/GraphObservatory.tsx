@@ -67,7 +67,7 @@ const RANDOM_GRAPH_ATTEMPTS = 3
 // tinted border/fill, pill radius, 13px medium. Shared by the serendipity
 // footer and the empty-state escape hatch so the affordance reads the same.
 const SHUFFLE_PILL_CLASS =
-  'inline-flex items-center gap-1.5 rounded-full border border-primary/40 bg-primary/10 px-3.5 py-1.5 text-[13px] font-medium text-primary transition-colors hover:border-primary/60 hover:bg-primary/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:pointer-events-none disabled:opacity-60'
+  'inline-flex items-center gap-1.5 rounded-full border border-primary/40 bg-primary/10 px-3.5 py-1.5 text-[13px] font-medium text-link transition-colors hover:border-primary/60 hover:bg-primary/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:pointer-events-none disabled:opacity-60'
 
 // Trail chip hit-area (PSY-1474 F3): 4px 8px padding, hover background.
 const TRAIL_CHIP_CLASS =
@@ -217,7 +217,7 @@ function RotatingExample({
           type="button"
           onClick={() => onPick(active)}
           aria-label={`Search for ${active.name}`}
-          className="inline-grid text-left align-baseline font-medium text-foreground underline-offset-4 transition-colors hover:text-primary hover:underline focus-visible:text-primary focus-visible:underline focus-visible:outline-none"
+          className="inline-grid text-left align-baseline font-medium text-foreground underline-offset-4 transition-colors hover:text-link hover:underline focus-visible:text-link focus-visible:underline focus-visible:outline-none"
         >
           {/* All offered names share one grid cell so the line crossfades in
               place (and reserves the widest name's width — no layout jitter).
@@ -384,7 +384,7 @@ function AccessibleGraphList({
           <button
             type="button"
             onClick={event => onSelect(node, event.currentTarget)}
-            className="flex w-full items-center justify-between gap-3 py-3 text-left hover:text-primary"
+            className="flex w-full items-center justify-between gap-3 py-3 text-left hover:text-link"
           >
             <span className="font-medium">{node.name}</span>
             <span className="text-xs text-muted-foreground">
@@ -668,7 +668,7 @@ function ObservatoryHeader() {
   return (
     <header className="mb-5 flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
       <div>
-        <h1 className="font-data text-[10px] uppercase tracking-[0.2em] text-primary">
+        <h1 className="font-data text-[10px] uppercase tracking-[0.2em] text-link">
           Music Knowledge Graph
         </h1>
       </div>
@@ -1184,7 +1184,7 @@ export function GraphObservatory() {
                   )}
                   <Link
                     href={`/artists/${graph.center.slug}`}
-                    className="inline-flex items-center gap-1 text-sm text-primary hover:underline underline-offset-4"
+                    className="inline-flex items-center gap-1 text-sm text-link hover:underline underline-offset-4"
                   >
                     Open {graph.center.name}’s page <ArrowRight className="size-3.5" aria-hidden="true" />
                   </Link>
@@ -1198,7 +1198,7 @@ export function GraphObservatory() {
                     <button
                       type="button"
                       onClick={() => graphQuery.refetch()}
-                      className="shrink-0 text-primary hover:underline underline-offset-4"
+                      className="shrink-0 text-link hover:underline underline-offset-4"
                     >
                       Try again
                     </button>

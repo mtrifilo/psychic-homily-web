@@ -376,7 +376,7 @@ function LoginForm({
                 <button
                   type="button"
                   onClick={handleSendMagicLink}
-                  className="text-xs text-muted-foreground hover:text-primary underline-offset-4 hover:underline"
+                  className="text-xs text-muted-foreground hover:text-link underline-offset-4 hover:underline"
                   disabled={sendMagicLink.isPending}
                 >
                   Forgot password?
@@ -426,7 +426,7 @@ function LoginForm({
                 type="button"
                 onClick={handleSendMagicLink}
                 disabled={sendMagicLink.isPending}
-                className="inline-flex items-center gap-2 rounded-sm text-sm text-muted-foreground underline underline-offset-4 hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 ring-offset-background disabled:opacity-50"
+                className="inline-flex items-center gap-2 rounded-sm text-sm text-muted-foreground underline underline-offset-4 hover:text-link focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 ring-offset-background disabled:opacity-50"
               >
                 {sendMagicLink.isPending ? (
                   <>
@@ -817,7 +817,7 @@ function SignupForm({
                   <Link
                     href="/terms"
                     target="_blank"
-                    className="font-medium underline underline-offset-4 hover:text-primary"
+                    className="font-medium underline underline-offset-4 hover:text-link"
                   >
                     Terms of Service
                   </Link>{' '}
@@ -826,7 +826,7 @@ function SignupForm({
                     <Link
                       href="/privacy"
                       target="_blank"
-                      className="font-medium underline underline-offset-4 hover:text-primary"
+                      className="font-medium underline underline-offset-4 hover:text-link"
                     >
                       Privacy Policy
                     </Link>
@@ -1226,11 +1226,11 @@ function AuthPageContent() {
         {/* Footer */}
         <p className="mt-6 text-center text-xs text-muted-foreground">
           By continuing, you agree to the{' '}
-          <Link href="/terms" className="underline underline-offset-4 hover:text-primary">
+          <Link href="/terms" className="underline underline-offset-4 hover:text-link">
             Terms of Service
           </Link>{' '}
           and acknowledge the{' '}
-          <Link href="/privacy" className="underline underline-offset-4 hover:text-primary">
+          <Link href="/privacy" className="underline underline-offset-4 hover:text-link">
             Privacy Policy
           </Link>
           .
@@ -1239,7 +1239,7 @@ function AuthPageContent() {
         {/* Recovery link */}
         <p className="mt-4 text-center text-xs text-muted-foreground">
           Deleted your account?{' '}
-          <Link href="/auth/recover" className="underline underline-offset-4 hover:text-primary">
+          <Link href="/auth/recover" className="underline underline-offset-4 hover:text-link">
             Recover it here
           </Link>
         </p>

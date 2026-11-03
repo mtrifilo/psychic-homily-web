@@ -84,7 +84,7 @@ export function HomeHero() {
         <Link
           // Opens the auth page on Create account, the tab this label names.
           href={buildSignupTabAuthHref()}
-          className="font-semibold text-primary transition-colors hover:underline underline-offset-4"
+          className="font-semibold text-link transition-colors hover:underline underline-offset-4"
         >
           Sign up
         </Link>{' '}

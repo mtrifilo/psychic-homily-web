@@ -178,10 +178,15 @@
   --popover-foreground: #1a1714;
   --primary: #d2541b;
   --primary-foreground: #f4f1ea;
-  /* Accent link text: primary's hue darkened to clear WCAG AA on background
-   * (4.50:1) and card (4.75:1). Not AA on muted, secondary, sidebar or
-   * accent surfaces; text there stays in a restrained treatment. */
-  --link: #bb4b18;
+  /* Orange text below large size (24px regular, 18.66px bold) uses `link`,
+   * never `primary`: `link` clears WCAG AA 4.5:1 on every light surface links
+   * sit on (background 5.46, card 5.76, the muted/20 row stripe 5.36, muted
+   * 4.90; also secondary 4.81 and sidebar 5.04), where `primary` measures
+   * 3.3 to 3.9. `primary` stays for icons and other non-text marks (3:1),
+   * paper-on-orange buttons and large text. Not AA on the accent or
+   * sidebar-accent fills (4.29, 4.38), and an opacity modifier on `link`
+   * text drops it below 4.5:1 on every surface. */
+  --link: #a84015;
   --secondary: #e8e3d6;
   --secondary-foreground: #1a1714;
   --muted: #eae5d8;

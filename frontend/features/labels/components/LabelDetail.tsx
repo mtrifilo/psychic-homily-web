@@ -303,7 +303,7 @@ export function LabelDetail({ idOrSlug }: LabelDetailProps) {
                 <li key={artist.id}>
                   <Link
                     href={`/artists/${artist.slug}`}
-                    className="text-foreground hover:text-primary hover:underline underline-offset-2 transition-colors"
+                    className="text-foreground hover:text-link hover:underline underline-offset-2 transition-colors"
                   >
                     {artist.name}
                   </Link>
@@ -337,7 +337,7 @@ export function LabelDetail({ idOrSlug }: LabelDetailProps) {
                         <td>
                           <Link
                             href={`/releases/${r.slug}`}
-                            className="hover:text-primary underline-offset-2 hover:underline"
+                            className="hover:text-link underline-offset-2 hover:underline"
                           >
                             {r.title}
                           </Link>

@@ -304,7 +304,7 @@ describe('BottomTabBar', () => {
         ...['Browse', 'Account'].map(name => screen.getByRole('button', { name })),
       ]
       for (const tab of tabs) {
-        expect(tab).toHaveClass('has-[[data-tab-pending]]:text-primary')
+        expect(tab).toHaveClass('has-[[data-tab-pending]]:text-link')
         expect(tab).toHaveClass(
           'group-has-[[data-tab-pending]]/tabbar:not-has-[[data-tab-pending]]:text-muted-foreground'
         )
@@ -439,12 +439,12 @@ describe('BottomTabBar', () => {
       )
     })
 
-    it('keeps the primary-color CTA treatment on Submit a Show (Figma 460:3)', async () => {
+    it('keeps the accent CTA treatment on Submit a Show (Figma 460:3)', async () => {
       const user = userEvent.setup()
       render(<BottomTabBar />)
       await user.click(screen.getByRole('button', { name: 'Browse' }))
       expect(await screen.findByRole('link', { name: 'Submit a Show' })).toHaveClass(
-        'text-primary'
+        'text-link'
       )
     })
 

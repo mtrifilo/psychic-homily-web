@@ -283,7 +283,7 @@ export function CollectionList() {
             <span
               className={cn(
                 'inline-flex items-center gap-1.5 rounded-md border px-2.5 py-0.5',
-                'border-primary/40 bg-primary/10 text-primary'
+                'border-primary/40 bg-primary/10 text-link'
               )}
             >
               <span className="font-medium">{tagFilter}</span>

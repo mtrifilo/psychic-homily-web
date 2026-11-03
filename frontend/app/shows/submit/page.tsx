@@ -65,7 +65,7 @@ function EmailVerificationRequired() {
               </Button>
             </div>
 
-            <VerificationResendStatus className="font-data text-[11px] uppercase tracking-[0.44px] text-primary" />
+            <VerificationResendStatus className="font-data text-[11px] uppercase tracking-[0.44px] text-link" />
 
             <VerificationResendSessionExpired>
               Your session has expired.{' '}

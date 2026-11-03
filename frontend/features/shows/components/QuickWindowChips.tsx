@@ -49,12 +49,12 @@ export interface QuickWindowChipsProps {
 const chipClass =
   'inline-flex items-center whitespace-nowrap rounded-[2px] border px-2 py-1 font-data text-xs transition-colors'
 const chipRestingClass = 'border-border text-muted-foreground'
-const chipLinkClass = 'hover:border-primary hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring'
+const chipLinkClass = 'hover:border-primary hover:text-link focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring'
 /**
  * The current chip. Weight and border carry the state as well as colour does,
  * because colour alone is not a sufficient distinction (WCAG 1.4.1).
  */
-const chipCurrentClass = 'border-primary font-bold text-primary'
+const chipCurrentClass = 'border-primary font-bold text-link'
 
 /**
  * The zone the windows are resolved in: the selected metro's when the list is

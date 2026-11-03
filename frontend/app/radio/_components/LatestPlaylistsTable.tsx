@@ -79,7 +79,7 @@ export function LatestPlaylistsTable({
             <td>
               <Link
                 href={`/radio/${row.station_slug}/${row.show_slug}`}
-                className="font-medium text-primary transition-colors hover:underline"
+                className="font-medium text-link transition-colors hover:underline"
               >
                 {row.show_name}
               </Link>

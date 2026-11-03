@@ -411,7 +411,7 @@ export function PasskeySignupButton({
                 <Link
                   href="/terms"
                   target="_blank"
-                  className="font-medium underline underline-offset-4 hover:text-primary"
+                  className="font-medium underline underline-offset-4 hover:text-link"
                 >
                   Terms of Service
                 </Link>{' '}
@@ -420,7 +420,7 @@ export function PasskeySignupButton({
                   <Link
                     href="/privacy"
                     target="_blank"
-                    className="font-medium underline underline-offset-4 hover:text-primary"
+                    className="font-medium underline underline-offset-4 hover:text-link"
                   >
                     Privacy Policy
                   </Link>

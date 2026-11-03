@@ -149,7 +149,7 @@ function SignInLink() {
       // The render-time grade of the destination: the pathname alone. See
       // `currentLocationReturnTo` for why a query string cannot be read here.
       href={buildAuthHref(pathname)}
-      className="shrink-0 whitespace-nowrap text-sm text-muted-foreground transition-colors hover:text-primary"
+      className="shrink-0 whitespace-nowrap text-sm text-muted-foreground transition-colors hover:text-link"
     >
       login / sign-up
     </ChromeLink>

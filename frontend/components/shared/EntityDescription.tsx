@@ -205,7 +205,7 @@ export function EntityDescription({
       >
         <p className="text-sm text-muted-foreground">
           No description yet.{' '}
-          <span className="text-primary hover:underline">Add description</span>
+          <span className="text-link hover:underline">Add description</span>
         </p>
       </button>
     )

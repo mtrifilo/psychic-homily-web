@@ -29,7 +29,7 @@ export function homeCityShowsLink(cities: readonly CityState[]): {
 /** The home surfaces' primary-link chrome, shared so the relocated city link
  *  and the popover's "All settings" link cannot drift apart. */
 export const PRIMARY_LINK_CLASS =
-  'text-sm font-medium text-primary transition-colors hover:underline underline-offset-4'
+  'text-sm font-medium text-link transition-colors hover:underline underline-offset-4'
 
 /** Presentational form, for a caller that already owns a city selection. */
 export function HomeCityShowsLink({

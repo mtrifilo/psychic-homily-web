@@ -79,7 +79,7 @@ function ControlButton({ onClick, children }: { onClick: () => void; children: R
     <button
       type="button"
       onClick={onClick}
-      className="rounded-md border border-border bg-card px-3 py-1.5 font-data text-xs text-foreground transition-colors hover:border-primary hover:text-primary"
+      className="rounded-md border border-border bg-card px-3 py-1.5 font-data text-xs text-foreground transition-colors hover:border-primary hover:text-link"
     >
       {children}
     </button>
@@ -98,7 +98,7 @@ export function HeroLab() {
       <div className="sticky top-[var(--topbar-height)] z-20 border-b border-border bg-background/85 backdrop-blur">
         <div className="mx-auto flex max-w-6xl flex-wrap items-center gap-x-5 gap-y-2 px-4 py-3">
           <span className="font-display text-sm font-bold text-foreground">
-            Hero Lab · <span className="text-primary">PSYCHIC HOMILY</span>
+            Hero Lab · <span className="text-link">PSYCHIC HOMILY</span>
           </span>
           <div className="flex items-center gap-2">
             <ControlButton onClick={toggleTheme}>
@@ -111,8 +111,8 @@ export function HeroLab() {
           </div>
           <nav className="ml-auto flex flex-wrap items-center gap-x-3 gap-y-1 font-data text-xs text-muted-foreground">
             {STAGES.map((s) => (
-              <a key={s.id} href={`#${s.id}`} className="transition-colors hover:text-primary">
-                <span className="text-primary">{s.badge}</span> {s.short}
+              <a key={s.id} href={`#${s.id}`} className="transition-colors hover:text-link">
+                <span className="text-link">{s.badge}</span> {s.short}
               </a>
             ))}
           </nav>
@@ -128,7 +128,7 @@ export function HeroLab() {
         </p>
         <p className="mt-3 max-w-3xl font-data text-xs text-muted-foreground">
           → Stage-smoke / god-ray atmosphere exploration:{' '}
-          <a href="/admin/hero-lab/smoke" className="text-primary underline-offset-4 hover:underline">
+          <a href="/admin/hero-lab/smoke" className="text-link underline-offset-4 hover:underline">
             /admin/hero-lab/smoke
           </a>
         </p>

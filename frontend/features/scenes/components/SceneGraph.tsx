@@ -201,7 +201,7 @@ export function SceneGraph({ slug, city, state }: SceneGraphProps) {
             aria-pressed={isActive}
             className={`px-2 py-0.5 rounded-full border text-xs transition-colors ${
               isActive
-                ? 'bg-primary/10 border-primary text-primary'
+                ? 'bg-primary/10 border-primary text-link'
                 : 'border-border/60 text-muted-foreground hover:bg-muted/50'
             }`}
           >

@@ -732,7 +732,7 @@ export function AICollectionFiller({
               <p className="text-sm text-muted-foreground">
                 <span className="hidden sm:inline">Drop a screenshot here, or </span>
                 <span className="sm:hidden">Tap to </span>
-                <span className="text-primary">
+                <span className="text-link">
                   <span className="hidden sm:inline">click to select</span>
                   <span className="sm:hidden">upload a screenshot</span>
                 </span>
@@ -805,7 +805,7 @@ export function AICollectionFiller({
           data-testid="ai-collection-filler-result"
         >
           <div className="flex items-center justify-between gap-2 flex-wrap">
-            <div className="flex items-center gap-2 text-sm font-medium text-primary">
+            <div className="flex items-center gap-2 text-sm font-medium text-link">
               <CheckCircle2 className="h-4 w-4" />
               {extractionResult.source ?? 'Extraction complete'}
             </div>

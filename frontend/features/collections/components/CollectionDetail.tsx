@@ -540,7 +540,7 @@ export function CollectionDetail({ slug }: CollectionDetailProps) {
                         ? 'Unlike collection'
                         : 'Like collection'
                   }
-                  className={cn(showLiked && 'text-primary')}
+                  className={cn(showLiked && 'text-link')}
                   data-testid="collection-like-button"
                 >
                   <Heart

@@ -38,7 +38,7 @@ export function SaveDefaultsButton({
     return (
       <button
         onClick={handleSave}
-        className="text-xs text-primary hover:text-primary/80 hover:underline underline-offset-2 transition-colors self-center whitespace-nowrap"
+        className="text-xs text-link hover:underline underline-offset-2 transition-colors self-center whitespace-nowrap"
       >
         Save as default
       </button>
@@ -49,7 +49,7 @@ export function SaveDefaultsButton({
     return (
       <button
         onClick={handleClear}
-        className="text-xs text-muted-foreground hover:text-primary hover:underline underline-offset-2 transition-colors self-center whitespace-nowrap"
+        className="text-xs text-muted-foreground hover:text-link hover:underline underline-offset-2 transition-colors self-center whitespace-nowrap"
       >
         Clear defaults
       </button>

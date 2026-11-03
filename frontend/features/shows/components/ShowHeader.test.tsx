@@ -566,7 +566,7 @@ describe('ShowHeader bill rendering', () => {
     expect(support).toHaveAttribute('href', '/artists/opener')
     expect(support.className).toBe(ENTITY_LINK_CLASS.accent)
     const headliner = screen.getByRole('link', { name: 'Top Bill' })
-    expect(headliner.className).toBe('hover:text-primary transition-colors')
+    expect(headliner.className).toBe('hover:text-link transition-colors')
   })
 
   describe('bill order', () => {

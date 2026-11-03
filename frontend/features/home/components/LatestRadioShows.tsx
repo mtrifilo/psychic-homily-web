@@ -107,7 +107,7 @@ function StationCard({ editorial }: { editorial: StationEditorial }) {
         </div>
         {live && (
           <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
-            <span className="text-[8px] text-primary" aria-hidden>
+            <span className="text-[8px] text-link" aria-hidden>
               ●
             </span>
             live
@@ -141,7 +141,7 @@ export function LatestRadioShows() {
         </h2>
         <Link
           href="/radio"
-          className="text-sm font-medium text-muted-foreground transition-colors hover:text-primary hover:underline underline-offset-4"
+          className="text-sm font-medium text-muted-foreground transition-colors hover:text-link hover:underline underline-offset-4"
         >
           Browse all stations →
         </Link>

@@ -129,7 +129,7 @@ export function FirstSaveHint({ anchorRef, align, onClose }: FirstSaveHintProps)
         <Link
           href="/library"
           onClick={dismiss}
-          className="text-primary underline underline-offset-2"
+          className="text-link underline underline-offset-2"
         >
           Library
         </Link>

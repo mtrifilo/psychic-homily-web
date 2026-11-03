@@ -155,7 +155,7 @@ export function getStatusColor(status: string): string {
     case 'in_progress':
       return 'bg-chart-6/15 text-chart-6'
     case 'pending_fulfillment':
-      return 'bg-primary/15 text-primary'
+      return 'bg-primary/15 text-link'
     case 'fulfilled':
       return 'bg-chart-2/15 text-chart-2'
     case 'rejected':

@@ -65,7 +65,7 @@ export function EntityCardTitle({
       aria-label={ariaLabel ?? name}
     >
       <h3
-        className={`${headingClass} text-foreground group-hover:text-primary transition-colors`}
+        className={`${headingClass} text-foreground group-hover:text-link transition-colors`}
         title={name}
       >
         {name}

@@ -45,7 +45,7 @@ function TopArtistsSidebar({ showSlug }: { showSlug: string }) {
             {artist.artist_slug ? (
               <Link
                 href={`/artists/${artist.artist_slug}`}
-                className="text-sm text-primary hover:text-primary/80 transition-colors truncate"
+                className="text-sm text-link hover:underline transition-colors truncate"
               >
                 {artist.artist_name}
               </Link>
@@ -82,7 +82,7 @@ function TopLabelsSidebar({ showSlug }: { showSlug: string }) {
             {label.label_slug ? (
               <Link
                 href={`/labels/${label.label_slug}`}
-                className="text-sm text-primary hover:text-primary/80 transition-colors truncate"
+                className="text-sm text-link hover:underline transition-colors truncate"
               >
                 {label.label_name}
               </Link>
@@ -246,7 +246,7 @@ export default function RadioShowDetail({ stationSlug, showSlug }: RadioShowDeta
             <BracketLink
               label="open live playlist →"
               href={livePlaylistUrl}
-              className="font-data text-xs text-primary hover:text-primary/80"
+              className="font-data text-xs text-link hover:text-link hover:underline"
             />
           </div>
         )}

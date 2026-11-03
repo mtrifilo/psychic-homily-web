@@ -86,7 +86,7 @@ export function SeriesHistory({ seriesSlug, editions, enabled = true }: SeriesHi
               >
                 <Link
                   href={`/artists/${ra.artist.slug}`}
-                  className="font-medium text-foreground hover:text-primary transition-colors min-w-[120px]"
+                  className="font-medium text-foreground hover:text-link transition-colors min-w-[120px]"
                 >
                   {ra.artist.name}
                 </Link>

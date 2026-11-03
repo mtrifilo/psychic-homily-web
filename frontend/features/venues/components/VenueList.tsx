@@ -503,7 +503,7 @@ export function VenueList() {
             type="button"
             onClick={() => cityFilterControl.current?.open()}
             aria-label="Change city"
-            className="inline-flex min-h-11 items-center text-primary hover:underline underline-offset-4"
+            className="inline-flex min-h-11 items-center text-link hover:underline underline-offset-4"
             data-testid="venues-derived-city-change"
           >
             change
@@ -717,7 +717,7 @@ export function VenueList() {
             <p className="mt-2 text-sm">
               <Link
                 href={pageHref(1)}
-                className="inline-flex min-h-11 items-center text-primary hover:underline"
+                className="inline-flex min-h-11 items-center text-link hover:underline"
               >
                 Back to the first page
               </Link>
@@ -756,7 +756,7 @@ export function VenueList() {
                     )}
                     <Link
                       href={venuesCityHref(searchParams, city.city, city.state)}
-                      className="text-primary hover:underline"
+                      className="text-link hover:underline"
                     >
                       {cityLabel(city)}
                     </Link>{' '}
@@ -772,14 +772,14 @@ export function VenueList() {
                 <button
                   type="button"
                   onClick={handleClearFilters}
-                  className="inline-flex min-h-11 items-center text-primary hover:underline"
+                  className="inline-flex min-h-11 items-center text-link hover:underline"
                 >
                   Clear filters
                 </button>
               ) : (
                 <Link
                   href="/contribute"
-                  className="inline-flex min-h-11 items-center text-primary hover:underline"
+                  className="inline-flex min-h-11 items-center text-link hover:underline"
                 >
                   Add a venue
                 </Link>

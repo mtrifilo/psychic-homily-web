@@ -170,12 +170,12 @@ describe('SceneList', () => {
         name: 'Tucson, AZ, No shows this week',
       })
       expect(tucson).toHaveClass('text-muted-foreground')
-      expect(tucson).not.toHaveClass('text-primary')
+      expect(tucson).not.toHaveClass('text-link')
 
       const phoenix = screen.getByRole('link', {
         name: 'Phoenix, AZ, 31 shows this week',
       })
-      expect(phoenix).toHaveClass('text-primary')
+      expect(phoenix).toHaveClass('text-link')
     })
 
     // Nesting the week link inside the card's own link would be invalid HTML —

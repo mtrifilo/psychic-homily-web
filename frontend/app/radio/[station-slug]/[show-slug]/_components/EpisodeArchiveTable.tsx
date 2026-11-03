@@ -88,7 +88,7 @@ export function EpisodeArchiveTable({
             // aired-looking [mp3] archive page.
             <span className="text-muted-foreground">upcoming</span>
           ) : isLive ? (
-            <span className="text-primary">
+            <span className="text-link">
               <span aria-hidden="true">●</span> live
             </span>
           ) : archiveHref ? (
@@ -98,7 +98,7 @@ export function EpisodeArchiveTable({
               external
               // text-xs beats BracketLink's text-sm base; the enclosing
               // <td> already supplies font-data.
-              className="text-xs text-primary hover:text-primary/80"
+              className="text-xs text-link hover:text-link hover:underline"
               // Dates the row, because every row's bracket reads "mp3";
               // the new-tab half is BracketLink's to append.
               ariaLabel={`Listen to the ${cellDate} archive`}
@@ -113,7 +113,7 @@ export function EpisodeArchiveTable({
               <td role="cell" className="col-start-1 row-start-1 whitespace-nowrap">
                 <MaybeLink
                   href={episodeUrl}
-                  linkedClassName="font-data text-xs uppercase text-primary hover:text-primary/80 transition-colors"
+                  linkedClassName="font-data text-xs uppercase text-link hover:underline transition-colors"
                   plainClassName="font-data text-xs uppercase text-muted-foreground"
                 >
                   <AirDateCellContent
@@ -131,7 +131,7 @@ export function EpisodeArchiveTable({
                 {episode.title ? (
                   <MaybeLink
                     href={episodeUrl}
-                    linkedClassName="text-primary hover:text-primary/80 transition-colors"
+                    linkedClassName="text-link hover:underline transition-colors"
                     plainClassName="text-muted-foreground"
                   >
                     {episode.title}
@@ -162,7 +162,7 @@ export function EpisodeArchiveTable({
                     </span>
                     <ArtistHops
                       hops={hops}
-                      className="text-muted-foreground [&_a]:hover:text-primary"
+                      className="text-muted-foreground [&_a]:hover:text-link"
                     />
                   </>
                 ) : (

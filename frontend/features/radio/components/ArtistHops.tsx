@@ -29,7 +29,7 @@ export function ArtistHops({ hops, onNavigate, className }: ArtistHopsProps) {
             <Link
               href={`/artists/${hop.slug}`}
               onClick={onNavigate}
-              className="hover:text-primary transition-colors"
+              className="hover:text-link transition-colors"
             >
               {hop.name}
             </Link>

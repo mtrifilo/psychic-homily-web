@@ -513,14 +513,14 @@ function HomeSceneGraphSection() {
               <button
                 type="button"
                 onClick={handleSurprise}
-                className="font-medium text-muted-foreground transition-colors hover:text-primary hover:underline underline-offset-4"
+                className="font-medium text-muted-foreground transition-colors hover:text-link hover:underline underline-offset-4"
               >
                 Surprise me <span aria-hidden="true">↻</span>
               </button>
             )}
             <Link
               href={sceneGraphHref}
-              className="font-medium text-muted-foreground transition-colors hover:text-primary hover:underline underline-offset-4"
+              className="font-medium text-muted-foreground transition-colors hover:text-link hover:underline underline-offset-4"
             >
               Open the graph →
             </Link>
@@ -666,7 +666,7 @@ function HomeSceneGraphSection() {
               The graph couldn’t load.{' '}
               <Link
                 href={sceneHref}
-                className="ml-1 text-primary hover:underline underline-offset-4"
+                className="ml-1 text-link hover:underline underline-offset-4"
               >
                 See the {scene.city} scene →
               </Link>

@@ -49,7 +49,7 @@ function ArtistLinks({ release }: { release: ReleaseListItem }) {
         <span key={artist.id}>
           <Link
             href={`/artists/${artist.slug || artist.id}`}
-            className="text-muted-foreground hover:text-primary transition-colors"
+            className="text-muted-foreground hover:text-link transition-colors"
             onClick={e => e.stopPropagation()}
           >
             {artist.name}
@@ -88,7 +88,7 @@ export function ReleaseCard({
         )}
         <Link
           href={releaseUrl}
-          className="font-medium text-sm truncate flex-1 hover:text-primary transition-colors"
+          className="font-medium text-sm truncate flex-1 hover:text-link transition-colors"
         >
           {artistDisplay
             ? `${artistDisplay} — ${release.title}`
@@ -160,7 +160,7 @@ export function ReleaseCard({
                 {release.label_slug ? (
                   <Link
                     href={`/labels/${release.label_slug}`}
-                    className="hover:text-primary transition-colors"
+                    className="hover:text-link transition-colors"
                   >
                     {release.label_name}
                   </Link>
@@ -229,7 +229,7 @@ export function ReleaseCard({
                   {release.label_slug ? (
                     <Link
                       href={`/labels/${release.label_slug}`}
-                      className="hover:text-primary transition-colors"
+                      className="hover:text-link transition-colors"
                       onClick={e => e.stopPropagation()}
                     >
                       {release.label_name}

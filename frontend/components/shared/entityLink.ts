@@ -6,8 +6,9 @@
  *   list, a show page's support acts, the scene link under an artist's name,
  *   and the venue name in the show venue module. The `link` colour token at
  *   rest and on hover, medium weight, underline on hover. `link` clears WCAG
- *   AA on the page and card backgrounds only, so an accent link never sits on
- *   a muted, secondary, sidebar or accent surface, at rest or on hover.
+ *   AA on the page, card, muted, secondary and sidebar backgrounds but not on
+ *   the accent fills, so an accent link never sits on an accent surface, at
+ *   rest or on hover.
  * - `restrained`: a name inside a dense table, where accent on every row
  *   would turn the table orange. Used by the artist page's shows tables
  *   (upcoming and past) through ShowBill's opt-in. Colour and weight at rest
@@ -25,5 +26,5 @@ export type EntityLinkTier = 'accent' | 'restrained'
 export const ENTITY_LINK_CLASS: Readonly<Record<EntityLinkTier, string>> = {
   accent: 'font-medium text-link underline-offset-2 hover:underline',
   restrained:
-    'underline-offset-2 transition-colors hover:text-primary hover:underline',
+    'underline-offset-2 transition-colors hover:text-link hover:underline',
 }

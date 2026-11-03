@@ -26,10 +26,10 @@ import { useFeaturedCollectionHistory } from '../hooks'
 import type { FeaturedCollectionRun } from '../types'
 
 const linkClass =
-  'hover:text-primary focus-visible:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-sm'
+  'hover:text-link focus-visible:text-link focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-sm'
 
 const discussLinkClass =
-  'shrink-0 whitespace-nowrap font-data text-[11px] font-bold text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-sm'
+  'shrink-0 whitespace-nowrap font-data text-[11px] font-bold text-link hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-sm'
 
 /** The comment thread lives at the collection detail's #discussion anchor. */
 function discussHref(slug: string): string {
@@ -101,7 +101,7 @@ function CoverFallback() {
 function LeadCard({ run }: { run: FeaturedCollectionRun }) {
   return (
     <section className="space-y-2.5">
-      <p className="font-data text-[11px] font-bold tracking-[0.06em] text-primary">
+      <p className="font-data text-[11px] font-bold tracking-[0.06em] text-link">
         FEATURED COLLECTION · MOST RECENT
       </p>
       <div className="flex gap-[18px] rounded border border-border bg-card p-[18px]">
@@ -190,7 +190,7 @@ function PageHeader() {
     <header className="space-y-2">
       <Link
         href="/charts"
-        className="font-data text-xs text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-sm"
+        className="font-data text-xs text-link hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-sm"
       >
         ← Charts
       </Link>

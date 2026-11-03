@@ -178,7 +178,7 @@ function ArtistLink({ artist }: { artist: ArtistResponse }) {
   return (
     <Link
       href={`/artists/${artist.slug}`}
-      className="underline decoration-border underline-offset-4 transition-colors hover:text-primary hover:decoration-primary/50"
+      className="underline decoration-border underline-offset-4 transition-colors hover:text-link hover:decoration-primary/50"
     >
       {artist.name}
     </Link>
@@ -327,7 +327,7 @@ export function DayGroupedShowRow({
               <Link
                 href={detailsHref}
                 className={cn(
-                  'min-w-0 truncate text-base font-bold leading-tight transition-colors hover:text-primary',
+                  'min-w-0 truncate text-base font-bold leading-tight transition-colors hover:text-link',
                   HEADLINER_TYPE[density]
                 )}
                 data-testid="row-headliner"
@@ -463,7 +463,7 @@ export function DayGroupedShowRow({
             {venue?.slug ? (
               <Link
                 href={`/venues/${venue.slug}`}
-                className="font-medium text-primary hover:underline"
+                className="font-medium text-link hover:underline"
               >
                 {venue.name}
               </Link>

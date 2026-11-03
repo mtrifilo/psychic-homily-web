@@ -1833,7 +1833,7 @@ function GlobeMap({
           ref={venueTooltipMetaRef}
           className="font-data text-[11px] text-muted-foreground"
         />
-        <div ref={venueTooltipCtaRef} className="font-data text-[11px] text-primary">
+        <div ref={venueTooltipCtaRef} className="font-data text-[11px] text-link">
           click for shows →
         </div>
       </div>

@@ -45,7 +45,7 @@ export function AnonymousHome({
           </h2>
           <Link
             href="/shows"
-            className="text-sm font-medium text-muted-foreground transition-colors hover:text-primary hover:underline underline-offset-4"
+            className="text-sm font-medium text-muted-foreground transition-colors hover:text-link hover:underline underline-offset-4"
           >
             View all shows →
           </Link>

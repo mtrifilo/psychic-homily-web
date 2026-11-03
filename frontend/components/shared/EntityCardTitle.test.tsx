@@ -118,7 +118,7 @@ describe('EntityCardTitle', () => {
     render(<EntityCardTitle name="Foo" href="/foo" />)
 
     const heading = screen.getByRole('heading', { level: 3, name: 'Foo' })
-    expect(heading.className).toContain('group-hover:text-primary')
+    expect(heading.className).toContain('group-hover:text-link')
   })
 
   it('keeps the link className stable across density values', () => {

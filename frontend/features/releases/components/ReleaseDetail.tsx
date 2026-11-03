@@ -364,7 +364,7 @@ export function ReleaseDetail({ idOrSlug }: ReleaseDetailProps) {
                   >
                     <Link
                       href={`/artists/${artist.slug}`}
-                      className="font-medium text-foreground hover:text-primary transition-colors"
+                      className="font-medium text-foreground hover:text-link transition-colors"
                     >
                       {artist.name}
                     </Link>

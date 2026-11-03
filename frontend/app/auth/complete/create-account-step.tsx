@@ -98,7 +98,7 @@ export function CreateAccountStep() {
   return <StepPage>{content}</StepPage>
 }
 
-const LINK_CLASS = 'font-medium underline underline-offset-4 hover:text-primary'
+const LINK_CLASS = 'font-medium underline underline-offset-4 hover:text-link'
 
 function CreateAccountForm({
   pending,

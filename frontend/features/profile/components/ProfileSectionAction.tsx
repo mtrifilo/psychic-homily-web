@@ -23,7 +23,7 @@ export function ProfileSectionAction({
   onClick,
   ariaLabel,
 }: ProfileSectionActionProps) {
-  const className = 'text-sm font-medium text-primary hover:underline'
+  const className = 'text-sm font-medium text-link hover:underline'
 
   if (href) {
     return (

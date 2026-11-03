@@ -49,7 +49,7 @@ export function ArtistCard({ artist, density = 'comfortable' }: ArtistCardProps)
       <article className="flex items-center gap-3 px-3 py-1.5 hover:bg-muted/50 rounded-md transition-colors">
         <Link
           href={`/artists/${artist.slug}`}
-          className="font-medium text-sm truncate min-w-0 flex-1 hover:text-primary transition-colors"
+          className="font-medium text-sm truncate min-w-0 flex-1 hover:text-link transition-colors"
         >
           {artist.name}
         </Link>

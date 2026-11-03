@@ -98,7 +98,7 @@ export function FavoriteCitiesSettings() {
                   <button
                     onClick={handleClearAll}
                     disabled={setFavoriteCities.isPending}
-                    className="text-xs text-muted-foreground hover:text-primary hover:underline underline-offset-2 transition-colors"
+                    className="text-xs text-muted-foreground hover:text-link hover:underline underline-offset-2 transition-colors"
                   >
                     Clear all
                   </button>

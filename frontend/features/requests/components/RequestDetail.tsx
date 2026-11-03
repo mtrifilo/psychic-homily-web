@@ -359,7 +359,7 @@ export function RequestDetail({ requestId }: RequestDetailProps) {
                     <div className="mt-4">
                       <Link
                         href={proposedEntityUrl}
-                        className="inline-flex items-center gap-1.5 text-sm text-primary hover:text-primary/80 transition-colors"
+                        className="inline-flex items-center gap-1.5 text-sm text-link hover:underline transition-colors"
                       >
                         <ExternalLink className="h-3.5 w-3.5" />
                         View{' '}
@@ -393,7 +393,7 @@ export function RequestDetail({ requestId }: RequestDetailProps) {
                   {/* PSY-891: pending-fulfillment review panel (requester/admin) */}
                   {canReviewFulfillment && (
                     <div className="mt-4 rounded-lg border border-primary/60 p-4">
-                      <p className="text-sm font-semibold text-primary">
+                      <p className="text-sm font-semibold text-link">
                         A fulfillment is awaiting your approval
                       </p>
                       {request.fulfiller_name && (
@@ -420,7 +420,7 @@ export function RequestDetail({ requestId }: RequestDetailProps) {
                       {proposedEntityUrl && (
                         <Link
                           href={proposedEntityUrl}
-                          className="mt-2 inline-flex items-center gap-1.5 text-sm text-primary transition-colors hover:text-primary/80"
+                          className="mt-2 inline-flex items-center gap-1.5 text-sm text-link transition-colors hover:underline"
                           data-testid="review-panel-proposed-entity-link"
                         >
                           <ExternalLink className="h-3.5 w-3.5" />

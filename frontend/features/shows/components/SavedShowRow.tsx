@@ -62,7 +62,7 @@ export function SavedShowRow({
     >
       <div
         className={`row-span-2 font-data text-[11px] font-bold uppercase md:row-span-1 md:text-xs ${
-          isPast ? 'text-muted-foreground' : 'text-primary'
+          isPast ? 'text-muted-foreground' : 'text-link'
         }`}
       >
         <span className="md:hidden">{dateBadge.monthDay}</span>
@@ -79,7 +79,7 @@ export function SavedShowRow({
       <div className="min-w-0 self-center">
         <Link
           href={`/shows/${show.slug || show.id}`}
-          className="block truncate text-sm font-medium leading-tight transition-colors hover:text-primary md:text-[15px]"
+          className="block truncate text-sm font-medium leading-tight transition-colors hover:text-link md:text-[15px]"
         >
           {artists.map(a => a.name).join(' · ')}
         </Link>
@@ -90,14 +90,14 @@ export function SavedShowRow({
               {venue.slug ? (
                 <Link
                   href={`/venues/${venue.slug}`}
-                  className={`transition-colors hover:text-primary ${
-                    isPast ? '' : 'md:text-primary/80'
+                  className={`transition-colors hover:text-link ${
+                    isPast ? '' : 'md:text-link md:hover:underline'
                   }`}
                 >
                   {venue.name}
                 </Link>
               ) : (
-                <span className={isPast ? undefined : 'md:text-primary/80'}>
+                <span className={isPast ? undefined : 'md:text-link'}>
                   {venue.name}
                 </span>
               )}

@@ -81,7 +81,7 @@ export function SignupIntentFooter({ onSignInClick }: SignupIntentFooterProps) {
       <button
         type="button"
         onClick={onSignInClick}
-        className="underline underline-offset-4 hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 rounded-sm"
+        className="underline underline-offset-4 hover:text-link focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 rounded-sm"
       >
         Sign in
       </button>

@@ -349,7 +349,7 @@ export function AIFormFiller({ onExtracted }: AIFormFillerProps) {
                   <p className="text-sm text-muted-foreground">
                     <span className="hidden sm:inline">Drop a flyer image here, or </span>
                     <span className="sm:hidden">Tap to </span>
-                    <span className="text-primary">
+                    <span className="text-link">
                       <span className="hidden sm:inline">click to select</span>
                       <span className="sm:hidden">upload a flyer image</span>
                     </span>
@@ -413,7 +413,7 @@ export function AIFormFiller({ onExtracted }: AIFormFillerProps) {
           {/* Success Display */}
           {extractionResult && (
             <div className="rounded-md bg-primary/5 border border-primary/20 p-3 space-y-2">
-              <div className="flex items-center gap-2 text-sm font-medium text-primary">
+              <div className="flex items-center gap-2 text-sm font-medium text-link">
                 <CheckCircle2 className="h-4 w-4" />
                 Extraction Complete
               </div>

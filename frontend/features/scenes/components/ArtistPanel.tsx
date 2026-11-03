@@ -227,7 +227,7 @@ export function ArtistPanel({
     <div className="mt-1.5 flex items-center justify-between gap-2">
       <p
         data-testid="artist-panel-kicker"
-        className="min-w-0 truncate font-data text-[11px] uppercase tracking-wide text-primary"
+        className="min-w-0 truncate font-data text-[11px] uppercase tracking-wide text-link"
       >
         {kicker}
       </p>
@@ -333,7 +333,7 @@ export function ArtistPanel({
       // the user pathless while a fetch is in flight or after it failed.
       href={`/artists/${encodeURIComponent(artistSlug || String(current.artistId))}`}
       className={cn(
-        'font-data text-xs text-primary underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+        'font-data text-xs text-link underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
         isSheet && ATLAS_LINK_TARGET_CLASS,
       )}
     >

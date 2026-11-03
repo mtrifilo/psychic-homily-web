@@ -676,7 +676,7 @@ function TagAttributionContent({
 
       <Link
         href={`/tags/${tag.slug}`}
-        className="inline-block text-xs text-primary hover:underline"
+        className="inline-block text-xs text-link hover:underline"
       >
         View tag details
       </Link>

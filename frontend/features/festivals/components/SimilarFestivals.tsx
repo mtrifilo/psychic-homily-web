@@ -42,7 +42,7 @@ export function SimilarFestivals({ festivalIdOrSlug, enabled = true }: SimilarFe
             <div className="flex items-center justify-between mb-2">
               <Link
                 href={`/festivals/${sf.festival.slug}`}
-                className="font-medium text-foreground hover:text-primary transition-colors"
+                className="font-medium text-foreground hover:text-link transition-colors"
               >
                 {sf.festival.name}
               </Link>
