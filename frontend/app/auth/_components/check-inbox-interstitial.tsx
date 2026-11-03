@@ -3,15 +3,16 @@
 import { useEffect, useRef, type ReactNode } from 'react'
 import Link from 'next/link'
 import {
+  SentConfirmation,
   VerificationResend,
   VerificationResendButton,
   VerificationResendFailed,
   VerificationResendSessionExpired,
   VerificationResendStatus,
+  announceSent,
   useVerificationResendState,
 } from '@/features/auth/components/verification-resend'
 import { formatResendWaitOnly } from '@/features/auth/hooks/useVerificationResendCooldown'
-import { SentAgainConfirmation, announceSentAgain } from '@/app/auth/_components/sent-again'
 import { buildAuthHref } from '@/lib/auth-href'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
@@ -37,6 +38,9 @@ const BROWSE_HREF = '/shows'
 
 /** The account-email fold, which is a tab on the profile page, not `/settings`. */
 const ACCOUNT_SETTINGS_HREF = '/profile?tab=settings'
+
+/** The check-your-inbox cards' confirmation of a resend, shown and announced. */
+export const SENT_AGAIN = 'Sent again. Give it a minute to arrive.'
 
 interface CheckInboxInterstitialProps {
   /** The address the account was created under. */
@@ -119,10 +123,10 @@ export function CheckInboxInterstitial({
           </VerificationResendButton>
         </div>
 
-        <SentAgainConfirmation />
+        <SentConfirmation className="text-sm text-success-foreground">{SENT_AGAIN}</SentConfirmation>
         <VerificationResendStatus
           format={formatResendWaitOnly}
-          announce={announceSentAgain}
+          announce={announceSent(SENT_AGAIN)}
           className="text-xs text-link"
         />
 

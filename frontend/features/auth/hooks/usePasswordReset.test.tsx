@@ -65,13 +65,15 @@ describe('password reset hooks', () => {
     expect(mockApiRequest.mock.calls[0][1]).not.toHaveProperty('body')
   })
 
+  it('checks nothing without a link', () => {
+    renderHook(() => useCheckPasswordReset(null), { wrapper: setup().wrapper })
+
+    expect(mockApiRequest).not.toHaveBeenCalled()
+  })
+
   it('raises a refused check as an AuthError carrying its code and a sub-500 status', async () => {
     mockApiRequest.mockResolvedValueOnce({ success: false, message: 'gone', error_code: 'INVALID_TOKEN' })
-    const { result } = renderHook(() => useCheckPasswordReset(), { wrapper: setup().wrapper })
-
-    await act(async () => {
-      result.current.mutate('used-link')
-    })
+    const { result } = renderHook(() => useCheckPasswordReset('used-link'), { wrapper: setup().wrapper })
 
     await waitFor(() => expect(result.current.isError).toBe(true))
     const error = result.current.error as AuthError

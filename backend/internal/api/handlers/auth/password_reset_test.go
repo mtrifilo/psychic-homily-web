@@ -365,6 +365,41 @@ func TestCompletePasswordResetHandler_Refusals(t *testing.T) {
 	}
 }
 
+// A link that can no longer set the password is refused before the validator's
+// outbound breach check and the hash run.
+func TestCompletePasswordResetHandler_SpentLinkSkipsTheValidator(t *testing.T) {
+	validated, completed := false, false
+	h := authHandler(func(ah *AuthHandler) {
+		ah.jwtService = resetJWT()
+		ah.passwordValidator = &testhelpers.MockPasswordValidator{
+			ValidatePasswordFn: func(string) (*contracts.PasswordValidationResult, error) {
+				validated = true
+				return &contracts.PasswordValidationResult{Valid: true}, nil
+			},
+		}
+		ah.authService = &testhelpers.MockAuthService{
+			PasswordResetAccountFn: func(*contracts.PasswordResetTokenClaims) (*authm.User, error) {
+				return nil, fmt.Errorf("user 31: %w", contracts.ErrPasswordResetLinkSpent)
+			},
+			CompletePasswordResetFn: func(*contracts.PasswordResetTokenClaims, string) (*contracts.PasswordResetCompletion, error) {
+				completed = true
+				return nil, nil
+			},
+		}
+	})
+
+	resp, err := h.CompletePasswordResetHandler(context.Background(), completeRequest("good-link", "owners-new-password-1!"))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if resp.Body.Success || resp.Body.ErrorCode != passwordResetLinkInvalidCode {
+		t.Errorf("got %+v, want INVALID_TOKEN", resp.Body)
+	}
+	if validated || completed {
+		t.Errorf("validated=%v completed=%v, want neither for a spent link", validated, completed)
+	}
+}
+
 // The reset page shows the "link no longer works" state for this code alone.
 func TestPasswordResetLinkInvalidCodeMatchesTheFrontend(t *testing.T) {
 	assertFrontendSpells(t, "frontend/lib/errors/authErrors.ts", "code",

@@ -4,12 +4,14 @@ import { useEffect, useRef } from 'react'
 import { useRequestPasswordReset } from '@/features/auth'
 import {
   EmailResend,
+  SentConfirmation,
   VerificationResendButton,
   VerificationResendFailed,
   VerificationResendStatus,
+  announceSent,
 } from '@/features/auth/components/verification-resend'
 import { formatResendWaitOnly } from '@/features/auth/hooks/useVerificationResendCooldown'
-import { SentAgainConfirmation, announceSentAgain } from '@/app/auth/_components/sent-again'
+import { SENT_AGAIN } from '@/app/auth/_components/check-inbox-interstitial'
 import { PASSWORD_RESET_EXPIRY_MINUTES } from '@/lib/password-reset'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
@@ -85,10 +87,10 @@ export function PasswordResetSent({ email, onBack }: PasswordResetSentProps) {
           </VerificationResendButton>
         </div>
 
-        <SentAgainConfirmation />
+        <SentConfirmation className="text-sm text-success-foreground">{SENT_AGAIN}</SentConfirmation>
         <VerificationResendStatus
           format={formatResendWaitOnly}
-          announce={announceSentAgain}
+          announce={announceSent(SENT_AGAIN)}
           className="font-data text-[11px] uppercase tracking-[0.66px] text-primary"
         />
         <VerificationResendFailed />

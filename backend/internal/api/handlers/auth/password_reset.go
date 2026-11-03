@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"net/http"
-	"strings"
 	"time"
 
 	"github.com/danielgtaylor/huma/v2"
@@ -23,6 +22,12 @@ const (
 	PasswordResetSendOwnRoute  = "/auth/password-reset/send-own"
 	PasswordResetCheckRoute    = "/auth/password-reset/check"
 	PasswordResetCompleteRoute = "/auth/password-reset/complete"
+)
+
+// The reset operations' names in the logs and 5xx errors.
+const (
+	passwordResetCheckOperation    = "password_reset_check"
+	passwordResetCompleteOperation = "password_reset_complete"
 )
 
 // passwordResetLinkInvalidCode is the refusal for a reset link a new link
@@ -181,11 +186,11 @@ func (h *AuthHandler) CheckPasswordResetHandler(ctx context.Context, input *Chec
 	}
 	account, err := h.authService.PasswordResetAccount(claims)
 	if err != nil {
-		if refusal, ok := passwordResetRefusal(ctx, "password_reset_check", claims.UserID, err); ok {
+		if refusal, ok := passwordResetRefusal(ctx, passwordResetCheckOperation, claims.UserID, err); ok {
 			return refuseWith(resp, refusal)
 		}
 		logger.AuthError(ctx, "password_reset_check_failed", err, "user_id", claims.UserID)
-		return nil, autherrors.ErrServiceUnavailable("password_reset_check", err)
+		return nil, autherrors.ErrServiceUnavailable(passwordResetCheckOperation, err)
 	}
 
 	resp.Body.Success = true
@@ -239,32 +244,26 @@ func (h *AuthHandler) CompletePasswordResetHandler(ctx context.Context, input *C
 		return refusePasskey(resp, autherrors.CodeValidationFailed, "New password is required")
 	}
 
-	// This route has no other length or strength check, so a missing
-	// validator refuses rather than letting any string through.
-	if h.passwordValidator == nil {
-		logger.AuthError(ctx, "password_reset_no_validator", errors.New("password validator not configured"), "user_id", claims.UserID)
-		return nil, autherrors.ErrServiceUnavailable("password_reset_validator", errors.New("not configured"))
-	}
-	validation, err := h.passwordValidator.ValidatePassword(input.Body.NewPassword)
-	if err != nil {
-		logger.AuthError(ctx, "password_reset_validation_error", err, "user_id", claims.UserID)
-		return nil, autherrors.ErrServiceUnavailable("password_reset_validator", err)
-	}
-	if !validation.Valid {
-		message := "Password does not meet security requirements"
-		if len(validation.Errors) > 0 {
-			message = validation.Errors[0]
+	// A link that can no longer set the password is refused before the
+	// validator's outbound breach check and the hash. CompletePasswordReset
+	// decides it again under the row lock.
+	if _, err := h.authService.PasswordResetAccount(claims); err != nil {
+		if refusal, ok := passwordResetRefusal(ctx, passwordResetCompleteOperation, claims.UserID, err); ok {
+			return refuseWith(resp, refusal)
 		}
-		logger.AuthWarn(ctx, "password_reset_weak_password",
-			"user_id", claims.UserID,
-			"all_errors", strings.Join(validation.Errors, "; "),
-		)
-		return refusePasskey(resp, autherrors.CodeValidationFailed, message)
+		logger.AuthError(ctx, "password_reset_complete_failed", err, "user_id", claims.UserID)
+		return nil, autherrors.ErrServiceUnavailable(passwordResetCompleteOperation, err)
+	}
+
+	if refusal, err := h.newPasswordRefusal(ctx, passwordResetCompleteOperation, claims.UserID, input.Body.NewPassword); err != nil {
+		return nil, err
+	} else if refusal != "" {
+		return refusePasskey(resp, autherrors.CodeValidationFailed, refusal)
 	}
 
 	completion, err := h.authService.CompletePasswordReset(claims, input.Body.NewPassword)
 	if err != nil {
-		if refusal, ok := passwordResetRefusal(ctx, "password_reset_complete", claims.UserID, err); ok {
+		if refusal, ok := passwordResetRefusal(ctx, passwordResetCompleteOperation, claims.UserID, err); ok {
 			return refuseWith(resp, refusal)
 		}
 		var authErr *autherrors.AuthError
@@ -273,7 +272,7 @@ func (h *AuthHandler) CompletePasswordResetHandler(ctx context.Context, input *C
 			return refuseWith(resp, authErr)
 		}
 		logger.AuthError(ctx, "password_reset_complete_failed", err, "user_id", claims.UserID)
-		return nil, autherrors.ErrServiceUnavailable("password_reset_complete", err)
+		return nil, autherrors.ErrServiceUnavailable(passwordResetCompleteOperation, err)
 	}
 
 	// 24 hours, as the magic link's and the recovery link's sessions.

@@ -299,6 +299,18 @@ export function isAccountInactive(error: unknown): boolean {
 }
 
 /**
+ * Did an emailed link's request fail on the server or in transit, rather than
+ * being refused? The link pages' hooks raise a body-encoded refusal (an
+ * expired or used link, a closed account) with a sub-500 status, a 5xx comes
+ * back with its status, and a network failure carries none. A new link cannot
+ * fix the last two, so a page offers a retry of the same link for them.
+ */
+export function isServerSideFailure(error: unknown): boolean {
+  const status = (error as { status?: number } | null)?.status
+  return typeof status !== 'number' || status >= 500
+}
+
+/**
  * Get a user-friendly message for an error code
  */
 export function getAuthErrorMessage(code: AuthErrorCodeType): string {

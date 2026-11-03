@@ -953,12 +953,15 @@ function throwPasswordResetRefusal(response: {
 }
 
 /**
- * Ask whether an emailed reset link may still set a password, and for which
- * address. Opening the link spends nothing.
+ * Whether an emailed reset link may still set a password, and for which
+ * address. The check writes nothing, so it is a query: opening the link spends
+ * nothing, and a retry is a refetch. It runs once per token and is not kept
+ * after the page leaves, so the link does not outlive the page in the cache.
  */
-export const useCheckPasswordReset = () => {
-  return useMutation({
-    mutationFn: async (token: string): Promise<CheckPasswordResetResponse> => {
+export const useCheckPasswordReset = (token: string | null) => {
+  return useQuery({
+    queryKey: queryKeys.auth.passwordResetCheck(token ?? ''),
+    queryFn: async (): Promise<CheckPasswordResetResponse> => {
       const response = await apiRequest<CheckPasswordResetResponse>(
         API_ENDPOINTS.AUTH.PASSWORD_RESET_CHECK,
         {
@@ -970,6 +973,12 @@ export const useCheckPasswordReset = () => {
       if (!response.success) throwPasswordResetRefusal(response)
       return response
     },
+    enabled: !!token,
+    retry: false,
+    staleTime: Infinity,
+    gcTime: 0,
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
   })
 }
 

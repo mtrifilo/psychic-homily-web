@@ -5,6 +5,3 @@
  * backend test, so the copy that states it cannot drift from it.
  */
 export const PASSWORD_RESET_EXPIRY_MINUTES = 15
-
-/** The page an emailed reset link opens; its `token` parameter is the link. */
-export const PASSWORD_RESET_PATH = '/auth/reset-password'

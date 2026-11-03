@@ -7,6 +7,7 @@ export {
   isAccountRecoverable,
   isAccountInactive,
   isPasswordAlreadySet,
+  isServerSideFailure,
   getAuthErrorMessage,
   REAUTH_REQUIRED_MESSAGE,
   PASSWORD_ALREADY_SET_MESSAGE,

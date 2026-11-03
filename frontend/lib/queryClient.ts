@@ -374,6 +374,8 @@ export const queryKeys = {
     // the next viewer reading the previous one's home metro.
     alertPreferences: (userId?: string | number) =>
       ['auth', 'alert-preferences', userId ?? null] as const,
+    // An emailed password reset link's check, keyed by the link itself.
+    passwordResetCheck: (token: string) => ['auth', 'password-reset-check', token] as const,
   },
 
   // Show queries (defined in features/shows/api.ts)

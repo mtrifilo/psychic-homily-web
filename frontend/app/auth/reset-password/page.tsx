@@ -4,12 +4,12 @@ import { Suspense, useEffect, useRef, useState, type ReactNode } from 'react'
 import { useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import { useForm } from '@tanstack/react-form'
-import { z } from 'zod'
+import type { z } from 'zod'
 import { AlertCircle, Loader2, ServerCrash, User } from 'lucide-react'
 import { useCheckPasswordReset, useCompletePasswordReset } from '@/features/auth'
 import { AccountRecoverableMessage } from '@/app/auth/_components/account-recoverable-message'
 import { PasswordInput } from '@/features/auth/components/settings/password-input'
-import { newPasswordRule } from '@/features/auth/components/settings/password-rules'
+import { newPasswordWithConfirmSchema } from '@/features/auth/components/settings/password-rules'
 import { formatPasswordConfirmError } from '@/features/auth/components/settings/password-confirm-errors'
 import { SESSIONS_SETTINGS_HREF } from '@/features/auth/components/settings/sessions'
 import { useAuthContext } from '@/lib/context/AuthContext'
@@ -18,6 +18,7 @@ import {
   isAccountInactive,
   isAccountRecoverable,
   isAuthError,
+  isServerSideFailure,
 } from '@/lib/errors'
 import { ACCOUNT_UNAVAILABLE_MESSAGE } from '@/lib/errors/authRefusalCopy'
 import { PASSWORD_RESET_EXPIRY_MINUTES } from '@/lib/password-reset'
@@ -27,39 +28,17 @@ import { Card, CardDescription, CardHeader, CardTitle } from '@/components/ui/ca
 import { Label } from '@/components/ui/label'
 import { PasswordStrengthMeter } from '@/components/ui/password-strength-meter'
 
-const resetPasswordSchema = z
-  .object({
-    newPassword: newPasswordRule,
-    confirmPassword: z.string().min(1, 'Please confirm your new password'),
-  })
-  .refine(data => data.newPassword === data.confirmPassword, {
-    message: 'Passwords do not match',
-    path: ['confirmPassword'],
-  })
-
-type ResetPasswordFormData = z.infer<typeof resetPasswordSchema>
+type ResetPasswordFormData = z.infer<typeof newPasswordWithConfirmSchema>
 
 /** Where "Request a new link" and "Sign in" go: the /auth Sign in tab. */
 const SIGN_IN_HREF = '/auth'
-
-const KICKER_CLASS = 'font-data text-[11px] uppercase tracking-[0.66px] text-muted-foreground'
-
-/**
- * A 5xx or a transport failure: the link was not judged, so a new one would
- * not help and the same one is retried. A body-encoded refusal carries a
- * sub-500 status (useCheckPasswordReset, useCompletePasswordReset).
- */
-function isServerSideFailure(error: unknown): boolean {
-  const status = (error as { status?: number } | null)?.status
-  return typeof status !== 'number' || status >= 500
-}
 
 /** The link is malformed, expired, used, or no longer the account's. */
 function isLinkRefusal(error: unknown): boolean {
   return isAuthError(error) && error.code === AuthErrorCode.INVALID_TOKEN
 }
 
-function CenteredCard({ children }: { children: ReactNode }) {
+function CenteredColumn({ children }: { children: ReactNode }) {
   return (
     <div className="flex min-h-[calc(100vh-64px)] items-center justify-center px-4 py-12">
       <div className="w-full max-w-md">{children}</div>
@@ -67,7 +46,11 @@ function CenteredCard({ children }: { children: ReactNode }) {
   )
 }
 
-/** A card that replaces the page's previous state, its heading taking focus. */
+/**
+ * A card that replaces the page's previous state. Its heading takes focus
+ * when it mounts, so the change is announced rather than left behind a focus
+ * that fell to the page; later renders leave focus where the reader put it.
+ */
 function StateCard({
   kicker,
   title,
@@ -77,12 +60,19 @@ function StateCard({
   title: string
   children: ReactNode
 }) {
+  const headingRef = useRef<HTMLHeadingElement>(null)
+  useEffect(() => {
+    headingRef.current?.focus()
+  }, [])
+
   return (
-    <CenteredCard>
+    <CenteredColumn>
       <Card className="gap-4 px-10 py-9">
-        <p className={KICKER_CLASS}>{kicker}</p>
+        <p className="font-data text-[11px] uppercase tracking-[0.66px] text-muted-foreground">
+          {kicker}
+        </p>
         <h1
-          ref={heading => heading?.focus()}
+          ref={headingRef}
           tabIndex={-1}
           className="font-display text-[26px] font-bold leading-tight text-foreground focus:outline-none"
         >
@@ -90,7 +80,7 @@ function StateCard({
         </h1>
         {children}
       </Card>
-    </CenteredCard>
+    </CenteredColumn>
   )
 }
 
@@ -138,55 +128,41 @@ function PasswordResetDone() {
   )
 }
 
-/** An account that may no longer sign in, in the magic-link page's words. */
-function AccountClosed({ error }: { error: unknown }) {
+/** The centred notice card the magic-link page answers its failures with. */
+function NoticeCard({
+  icon,
+  title,
+  children,
+  action,
+}: {
+  icon: ReactNode
+  title: string
+  children: ReactNode
+  action?: ReactNode
+}) {
   return (
-    <CenteredCard>
+    <CenteredColumn>
       <Card className="border-border/50 bg-card/50 backdrop-blur-sm">
         <CardHeader className="text-center">
           <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-destructive/10">
-            <AlertCircle className="h-6 w-6 text-destructive" />
+            {icon}
           </div>
-          <CardTitle>Can&apos;t sign you in</CardTitle>
-          <CardDescription>
-            {isAccountRecoverable(error) ? <AccountRecoverableMessage /> : ACCOUNT_UNAVAILABLE_MESSAGE}
-          </CardDescription>
+          <CardTitle>{title}</CardTitle>
+          <CardDescription>{children}</CardDescription>
         </CardHeader>
+        {action && <div className="flex justify-center px-6 pb-2">{action}</div>}
       </Card>
-    </CenteredCard>
-  )
-}
-
-/** The link could not be checked; it is still unspent, so the same one is retried. */
-function CheckFailed({ onRetry }: { onRetry: () => void }) {
-  return (
-    <CenteredCard>
-      <Card className="border-border/50 bg-card/50 backdrop-blur-sm">
-        <CardHeader className="text-center">
-          <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-destructive/10">
-            <ServerCrash className="h-6 w-6 text-destructive" />
-          </div>
-          <CardTitle>Something went wrong</CardTitle>
-          <CardDescription>
-            We couldn&apos;t open your link because of a problem on our end. Your link still
-            works. Please try again in a moment.
-          </CardDescription>
-        </CardHeader>
-        <div className="flex justify-center px-6 pb-2">
-          <Button onClick={onRetry}>Try Again</Button>
-        </div>
-      </Card>
-    </CenteredCard>
+    </CenteredColumn>
   )
 }
 
 function Checking() {
   return (
-    <CenteredCard>
+    <CenteredColumn>
       <div className="flex justify-center py-12" role="status" aria-label="Checking your link">
         <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
       </div>
-    </CenteredCard>
+    </CenteredColumn>
   )
 }
 
@@ -210,15 +186,15 @@ function ResetPasswordForm({
     defaultValues: { newPassword: '', confirmPassword: '' } as ResetPasswordFormData,
     onSubmit: async ({ value }) => onSubmit(value.newPassword),
     validators: {
-      onChange: resetPasswordSchema,
-      onSubmit: resetPasswordSchema,
+      onChange: newPasswordWithConfirmSchema,
+      onSubmit: newPasswordWithConfirmSchema,
     },
   })
 
   const passwordsMatch = newPasswordValue === confirmPasswordValue && confirmPasswordValue.length > 0
 
   return (
-    <CenteredCard>
+    <CenteredColumn>
       <div className="mb-8 text-center">
         <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-primary/10">
           <User className="h-6 w-6 text-primary" />
@@ -335,7 +311,7 @@ function ResetPasswordForm({
           </div>
         </form>
       </Card>
-    </CenteredCard>
+    </CenteredColumn>
   )
 }
 
@@ -347,16 +323,8 @@ function ResetPasswordForm({
 function ResetPasswordContent() {
   const token = useSearchParams().get('token')
   const { setUser } = useAuthContext()
-  const check = useCheckPasswordReset()
+  const check = useCheckPasswordReset(token)
   const complete = useCompletePasswordReset()
-  const checkedTokenRef = useRef<string | null>(null)
-
-  // Check once per token value.
-  useEffect(() => {
-    if (!token || checkedTokenRef.current === token) return
-    checkedTokenRef.current = token
-    check.mutate(token)
-  }, [token, check])
 
   if (!token) return <LinkNoLongerWorks />
   if (complete.isSuccess) return <PasswordResetDone />
@@ -365,23 +333,30 @@ function ResetPasswordContent() {
   // earlier answer: the link may have been used, or the account closed, since.
   for (const error of [complete.error, check.error]) {
     if (isLinkRefusal(error)) return <LinkNoLongerWorks />
-    if (isAccountInactive(error) || isAccountRecoverable(error)) return <AccountClosed error={error} />
+    if (isAccountInactive(error) || isAccountRecoverable(error)) {
+      return (
+        <NoticeCard icon={<AlertCircle className="h-6 w-6 text-destructive" />} title="Can't sign you in">
+          {isAccountRecoverable(error) ? <AccountRecoverableMessage /> : ACCOUNT_UNAVAILABLE_MESSAGE}
+        </NoticeCard>
+      )
+    }
   }
 
   if (check.isError) {
-    if (isServerSideFailure(check.error)) {
-      return (
-        <CheckFailed
-          onRetry={() => {
-            checkedTokenRef.current = null
-            check.reset()
-          }}
-        />
-      )
-    }
-    return <LinkNoLongerWorks />
+    if (!isServerSideFailure(check.error)) return <LinkNoLongerWorks />
+    // The link was not judged, so it is still unspent and the same one is retried.
+    return (
+      <NoticeCard
+        icon={<ServerCrash className="h-6 w-6 text-destructive" />}
+        title="Something went wrong"
+        action={<Button onClick={() => void check.refetch()}>Try Again</Button>}
+      >
+        We couldn&apos;t open your link because of a problem on our end. Your link still works.
+        Please try again in a moment.
+      </NoticeCard>
+    )
   }
-  if (!check.isSuccess || !check.data.email) return <Checking />
+  if (!check.data?.email) return <Checking />
 
   return (
     <ResetPasswordForm

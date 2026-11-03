@@ -12,6 +12,7 @@ import (
 	apperrors "psychic-homily-backend/internal/errors"
 	authm "psychic-homily-backend/internal/models/auth"
 	"psychic-homily-backend/internal/services/contracts"
+	usersvc "psychic-homily-backend/internal/services/user"
 )
 
 func passwordResetJWT() *JWTService {
@@ -321,7 +322,7 @@ func (s *JWTIntegrationSuite) TestCompletePasswordReset_MintFailureChangesNothin
 	claims := s.resetClaimsFor(user.ID)
 
 	mintFailed := errors.New("mint failed")
-	_, err = completePasswordReset(s.db, s.svc, claims, "owners-new-password-1!", time.Now(),
+	_, err = completePasswordReset(s.db, s.svc, claims, "owners-new-password-1!", usersvc.NewUserService(s.db).HashPassword,
 		func(*authm.User) (string, error) { return "", mintFailed })
 	s.Require().ErrorIs(err, mintFailed)
 
@@ -352,7 +353,7 @@ func (suite *WebAuthnServiceIntegrationTestSuite) TestCompletePasswordReset_Keep
 	claims, err := jwtSvc.ValidatePasswordResetToken(token)
 	suite.Require().NoError(err)
 
-	_, err = (&AuthService{db: suite.db, jwtService: jwtSvc}).CompletePasswordReset(claims, "owners-new-password-1!")
+	_, err = (&AuthService{db: suite.db, jwtService: jwtSvc, userService: usersvc.NewUserService(suite.db)}).CompletePasswordReset(claims, "owners-new-password-1!")
 	suite.Require().NoError(err)
 
 	var count int64

@@ -6,32 +6,11 @@ import { Loader2, CheckCircle2, AlertCircle, Mail, RotateCcw, ServerCrash } from
 import { useVerifyMagicLink } from '@/features/auth'
 import { AccountRecoverableMessage } from '@/app/auth/_components/account-recoverable-message'
 import { useAuthContext } from '@/lib/context/AuthContext'
-import { isAccountInactive, isAccountRecoverable } from '@/lib/errors'
+import { isAccountInactive, isAccountRecoverable, isServerSideFailure } from '@/lib/errors'
 import { ACCOUNT_UNAVAILABLE_MESSAGE } from '@/lib/errors/authRefusalCopy'
 import { sanitizeReturnTo } from '@/app/auth/auth-redirect-utils'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
-
-/**
- * Distinguish a genuine backend/transport failure from an expired/invalid
- * magic link.
- *
- * Background (PSY-875 → PSY-881): the backend's invalid/expired-token path
- * returns HTTP 200 + `{ success: false, error_code: "INVALID_TOKEN" }`, which
- * `useVerifyMagicLink` re-throws as an AuthError with `status: 401`. After
- * PSY-875 flipped the JWT-mint failure from a silent 200 to a real 5xx, a
- * failed mint now surfaces as an ApiError with `status >= 500`, and a network
- * outage re-throws the raw fetch error with no `status` at all.
- *
- * "Link Expired" copy (request-a-new-link CTA) is only correct for the
- * body-encoded token error — a new link cannot fix a 5xx or a dead network.
- * So treat anything that is NOT a sub-500 status (i.e. 5xx OR a status-less
- * transport throw) as a server-side failure that wants a retry CTA instead.
- */
-function isServerSideFailure(error: unknown): boolean {
-  const status = (error as { status?: number } | null)?.status
-  return typeof status !== 'number' || status >= 500
-}
 
 function MagicLinkContent() {
   const router = useRouter()

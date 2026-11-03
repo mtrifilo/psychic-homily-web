@@ -9,3 +9,17 @@ export const newPasswordRule = z
   .string()
   .min(MIN_PASSWORD_LENGTH, `Password must be at least ${MIN_PASSWORD_LENGTH} characters`)
   .max(MAX_PASSWORD_LENGTH, `Password must be no more than ${MAX_PASSWORD_LENGTH} characters`)
+
+/**
+ * A new password and its confirmation, for a form that asks for no current
+ * password: Set a password, and the emailed reset.
+ */
+export const newPasswordWithConfirmSchema = z
+  .object({
+    newPassword: newPasswordRule,
+    confirmPassword: z.string().min(1, 'Please confirm your new password'),
+  })
+  .refine(data => data.newPassword === data.confirmPassword, {
+    message: 'Passwords do not match',
+    path: ['confirmPassword'],
+  })

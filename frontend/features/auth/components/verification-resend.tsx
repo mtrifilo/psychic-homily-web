@@ -356,15 +356,15 @@ export function VerificationResendSessionExpired({
   )
 }
 
+/** The words for a send that failed, on every resend surface. */
+export const EMAIL_SEND_FAILED_MESSAGE =
+  'We could not send that email just now. Please try again in a moment.'
+
 /**
  * The alert for a send that failed. Never renders the backend's message; a
  * surface may supply its own words for an already-verified refusal, which
  * otherwise gets the generic line too.
  */
-/** The words for a send that failed, on every resend surface. */
-export const EMAIL_SEND_FAILED_MESSAGE =
-  'We could not send that email just now. Please try again in a moment.'
-
 export function VerificationResendFailed({
   alreadyVerifiedMessage,
 }: {
@@ -379,6 +379,42 @@ export function VerificationResendFailed({
       {alreadyVerified && alreadyVerifiedMessage
         ? alreadyVerifiedMessage
         : EMAIL_SEND_FAILED_MESSAGE}
+    </p>
+  )
+}
+
+/**
+ * For a surface that confirms a send in its own sentence: the live region
+ * speaks `message` while the latest attempt is a confirmed send, and only the
+ * wait otherwise. The region empties when the next attempt starts, so every
+ * success is announced. Pair it with `SentConfirmation` showing the same
+ * message, and with `formatResendWaitOnly` for the visible line.
+ */
+export function announceSent(message: string): ResendAnnouncement {
+  return ({ latestAttemptSent, isCoolingDown }) =>
+    latestAttemptSent ? message : resendStatusAnnouncement(false, isCoolingDown)
+}
+
+/**
+ * A surface's confirmation of a send, shown only while that send is the latest
+ * outcome: a later attempt in flight, throttled, or refused takes it down, so
+ * it never claims a send that did not happen. Hidden from assistive tech,
+ * because the live region speaks the same sentence (`announceSent`).
+ */
+export function SentConfirmation({
+  className,
+  children,
+}: {
+  className?: string
+  children: ReactNode
+}) {
+  const { latestAttemptSent } = useVerificationResendState()
+  if (!latestAttemptSent) {
+    return null
+  }
+  return (
+    <p aria-hidden="true" className={className}>
+      {children}
     </p>
   )
 }

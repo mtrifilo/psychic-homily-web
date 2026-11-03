@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"net/http"
-	"strings"
 	"time"
 
 	"github.com/danielgtaylor/huma/v2"
@@ -106,29 +105,10 @@ func (h *AuthHandler) SetPasswordHandler(ctx context.Context, input *SetPassword
 		return refusePasskey(resp, autherrors.CodeValidationFailed, "New password is required")
 	}
 
-	// This route has no other length or strength check, so a missing validator
-	// refuses rather than letting any string through.
-	if h.passwordValidator == nil {
-		logger.AuthError(ctx, "set_password_no_validator", errors.New("password validator not configured"),
-			"user_id", contextUser.ID,
-		)
-		return nil, autherrors.ErrServiceUnavailable("set_password_validator", errors.New("not configured"))
-	}
-	validation, err := h.passwordValidator.ValidatePassword(input.Body.NewPassword)
-	if err != nil {
-		logger.AuthError(ctx, "set_password_validation_error", err, "user_id", contextUser.ID)
-		return nil, autherrors.ErrServiceUnavailable("set_password_validator", err)
-	}
-	if !validation.Valid {
-		message := "Password does not meet security requirements"
-		if len(validation.Errors) > 0 {
-			message = validation.Errors[0]
-		}
-		logger.AuthWarn(ctx, "set_password_weak_password",
-			"user_id", contextUser.ID,
-			"all_errors", strings.Join(validation.Errors, "; "),
-		)
-		return refusePasskey(resp, autherrors.CodeValidationFailed, message)
+	if refusal, err := h.newPasswordRefusal(ctx, setPasswordOperation, contextUser.ID, input.Body.NewPassword); err != nil {
+		return nil, err
+	} else if refusal != "" {
+		return refusePasskey(resp, autherrors.CodeValidationFailed, refusal)
 	}
 
 	if err := h.userService.SetPassword(contextUser.ID, input.Body.NewPassword, contextUser.SessionsValidAfter); err != nil {

@@ -21,7 +21,7 @@ vi.mock('@/lib/context/AuthContext', () => ({
   useAuthContext: () => ({ setUser: mockSetUser }),
 }))
 
-interface MutationState {
+interface RequestState {
   isSuccess: boolean
   isError: boolean
   isPending: boolean
@@ -29,16 +29,19 @@ interface MutationState {
   error: unknown
 }
 
-const idle = (): MutationState => ({ isSuccess: false, isError: false, isPending: false, data: undefined, error: null })
+const idle = (): RequestState => ({ isSuccess: false, isError: false, isPending: true, data: undefined, error: null })
 
-let checkState: MutationState = idle()
-let completeState: MutationState = idle()
+let checkState: RequestState = idle()
+let completeState: RequestState = { ...idle(), isPending: false }
 const mockCheck = vi.fn()
-const mockCheckReset = vi.fn()
+const mockCheckRefetch = vi.fn()
 const mockComplete = vi.fn()
 
 vi.mock('@/features/auth', () => ({
-  useCheckPasswordReset: () => ({ ...checkState, mutate: mockCheck, reset: mockCheckReset }),
+  useCheckPasswordReset: (token: string | null) => {
+    mockCheck(token)
+    return { ...checkState, refetch: mockCheckRefetch }
+  },
   useCompletePasswordReset: () => ({ ...completeState, mutate: mockComplete }),
 }))
 
@@ -46,8 +49,16 @@ function refusal(code: string, message = 'refused') {
   return new AuthError(message, code as AuthErrorCodeType, { status: 400 })
 }
 
-function checked(email = 'owner@example.com'): MutationState {
-  return { ...idle(), isSuccess: true, data: { success: true, email } }
+function checked(email = 'owner@example.com'): RequestState {
+  return { ...idle(), isPending: false, isSuccess: true, data: { success: true, email } }
+}
+
+function checkRefused(error: unknown): RequestState {
+  return { ...idle(), isPending: false, isError: true, error }
+}
+
+function submitted(state: Partial<RequestState>): RequestState {
+  return { ...idle(), isPending: false, ...state }
 }
 
 const NEW_PASSWORD = 'owners-new-password-1!'
@@ -76,19 +87,18 @@ describe('Reset password page', () => {
   beforeEach(() => {
     mockToken = 'reset-link'
     checkState = idle()
-    completeState = idle()
+    completeState = submitted({})
     mockCheck.mockReset()
-    mockCheckReset.mockReset()
+    mockCheckRefetch.mockReset()
     mockComplete.mockReset()
     mockSetUser.mockReset()
   })
 
-  it('checks the link once on open and spends nothing', () => {
-    const { rerender } = renderWithProviders(<ResetPasswordPage />)
-    rerender(<ResetPasswordPage />)
+  it('checks the link on open, waits for the answer and spends nothing', () => {
+    renderWithProviders(<ResetPasswordPage />)
 
-    expect(mockCheck).toHaveBeenCalledTimes(1)
     expect(mockCheck).toHaveBeenCalledWith('reset-link')
+    expect(screen.getByRole('status', { name: 'Checking your link' })).toBeInTheDocument()
     expect(mockComplete).not.toHaveBeenCalled()
   })
 
@@ -97,14 +107,15 @@ describe('Reset password page', () => {
     renderWithProviders(<ResetPasswordPage />)
 
     expectLinkNoLongerWorks()
-    expect(mockCheck).not.toHaveBeenCalled()
+    expect(mockCheck).toHaveBeenCalledWith(null)
   })
 
   it('shows State 5 when the check says the link no longer works', () => {
-    checkState = { ...idle(), isError: true, error: refusal(AuthErrorCode.INVALID_TOKEN) }
+    checkState = checkRefused(refusal(AuthErrorCode.INVALID_TOKEN))
     renderWithProviders(<ResetPasswordPage />)
 
     expectLinkNoLongerWorks()
+    expect(screen.getByRole('heading', { name: 'That link no longer works.' })).toHaveFocus()
   })
 
   it('shows the form for a live link, with the address and the approved copy', () => {
@@ -148,7 +159,7 @@ describe('Reset password page', () => {
 
   it('shows State 4A once the password is set', () => {
     checkState = checked()
-    completeState = { ...idle(), isSuccess: true, data: { success: true } }
+    completeState = submitted({ isSuccess: true, data: { success: true } })
     renderWithProviders(<ResetPasswordPage />)
 
     const heading = screen.getByRole('heading', { name: 'New password set.' })
@@ -166,11 +177,10 @@ describe('Reset password page', () => {
 
   it('shows the validator refusal above the fields and keeps the form', () => {
     checkState = checked()
-    completeState = {
-      ...idle(),
+    completeState = submitted({
       isError: true,
       error: refusal(AuthErrorCode.VALIDATION_FAILED, 'This password has appeared in a data breach. Please choose a different password.'),
-    }
+    })
     renderWithProviders(<ResetPasswordPage />)
 
     expect(screen.getByRole('alert')).toHaveTextContent(
@@ -181,7 +191,7 @@ describe('Reset password page', () => {
 
   it('shows State 5 when the set finds the link already used', () => {
     checkState = checked()
-    completeState = { ...idle(), isError: true, error: refusal(AuthErrorCode.INVALID_TOKEN) }
+    completeState = submitted({ isError: true, error: refusal(AuthErrorCode.INVALID_TOKEN) })
     renderWithProviders(<ResetPasswordPage />)
 
     expectLinkNoLongerWorks()
@@ -189,11 +199,10 @@ describe('Reset password page', () => {
 
   it('keeps the form on a server failure of the set, so the same link is retried', () => {
     checkState = checked()
-    completeState = {
-      ...idle(),
+    completeState = submitted({
       isError: true,
       error: Object.assign(new Error('Service temporarily unavailable'), { status: 503 }),
-    }
+    })
     renderWithProviders(<ResetPasswordPage />)
 
     expect(screen.getByRole('alert')).toHaveTextContent('Service temporarily unavailable')
@@ -201,16 +210,16 @@ describe('Reset password page', () => {
   })
 
   it('offers a retry of the same link when the check fails on our end', async () => {
-    checkState = { ...idle(), isError: true, error: Object.assign(new Error('boom'), { status: 503 }) }
+    checkState = checkRefused(Object.assign(new Error('boom'), { status: 503 }))
     renderWithProviders(<ResetPasswordPage />)
 
     expect(screen.getByText('Something went wrong')).toBeInTheDocument()
     await userEvent.setup().click(screen.getByRole('button', { name: 'Try Again' }))
-    expect(mockCheckReset).toHaveBeenCalled()
+    expect(mockCheckRefetch).toHaveBeenCalled()
   })
 
   it('shows the closed-account card for an account that may not sign in', () => {
-    checkState = { ...idle(), isError: true, error: refusal(AuthErrorCode.ACCOUNT_INACTIVE) }
+    checkState = checkRefused(refusal(AuthErrorCode.ACCOUNT_INACTIVE))
     renderWithProviders(<ResetPasswordPage />)
 
     expect(screen.getByText("Can't sign you in")).toBeInTheDocument()
