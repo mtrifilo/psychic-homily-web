@@ -75,8 +75,6 @@ describe('StatsList', () => {
     expect(screen.getByText('shows tracked')).toBeInTheDocument()
   })
 
-  // The body face widens comma, period and colon under `tnum`, so tabular
-  // figures are only applied to a value that renders as digits only.
   it('applies tabular-nums only to digits-only values in the sidebar variant', () => {
     render(
       <StatsList

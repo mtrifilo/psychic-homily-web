@@ -35,6 +35,7 @@ import { Loader2 } from 'lucide-react'
 import type { ActivityEvent } from '@/lib/types/adminStats'
 import { formatRelativeTime } from '@/lib/formatRelativeTime'
 import { tabularNumsIfDigitsOnly } from '@/lib/tabularNums'
+import { cn } from '@/lib/utils'
 
 interface StatCardProps {
   label: string
@@ -76,11 +77,11 @@ function StatCard({ label, value, icon: Icon, highlight, trend, onClick }: StatC
         </div>
         <div className="min-w-0">
           <p
-            className={`text-2xl font-bold ${tabularNumsIfDigitsOnly(formattedValue) ?? ''} ${
-              highlight && value > 0
-                ? 'text-amber-600 dark:text-amber-400'
-                : ''
-            }`}
+            className={cn(
+              'text-2xl font-bold',
+              tabularNumsIfDigitsOnly(formattedValue),
+              highlight && value > 0 && 'text-amber-600 dark:text-amber-400'
+            )}
           >
             {formattedValue}
           </p>

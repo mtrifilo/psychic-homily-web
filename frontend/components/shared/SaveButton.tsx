@@ -11,6 +11,7 @@ import {
   type BatchedSaveData,
 } from './batchedSaveData'
 import { cn } from '@/lib/utils'
+import { tabularNumsIfDigitsOnly } from '@/lib/tabularNums'
 import { replayOnHydrate } from '@/lib/hydration/clickReplay'
 import { useAutoDismissBanner } from '@/lib/hooks/common'
 import { useAuthGatedAction } from '@/lib/hooks/common/useAuthGatedAction'
@@ -94,9 +95,6 @@ export function SaveButton({
   // Save control for the same show (home can render two). Keyed on a settled
   // `false`, not a pending `undefined`, so a batch refetch does not close it.
   if (isHintOpen && data?.is_saved === false) setIsHintOpen(false)
-  // An unformatted integer count, so it renders as digits only and the
-  // painted count below can carry `tabular-nums` safely (the body face widens
-  // comma, period and colon under `tnum`). Formatting it would break that.
   const saveCount = data?.save_count ?? 0
 
   const { isLoading, toggle, error } = useSaveShowToggle(
@@ -233,7 +231,7 @@ export function SaveButton({
           } ${isLoading ? 'opacity-50' : ''}`}
         />
         {paintsCount && (
-          <span className="text-xs tabular-nums text-muted-foreground">
+          <span className={cn('text-xs text-muted-foreground', tabularNumsIfDigitsOnly(saveCount))}>
             {saveCount}
           </span>
         )}

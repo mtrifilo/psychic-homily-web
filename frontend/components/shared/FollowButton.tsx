@@ -13,6 +13,7 @@ import {
 } from '@/lib/hooks/common/useFollow'
 import { replayOnHydrate } from '@/lib/hydration/clickReplay'
 import { cn } from '@/lib/utils'
+import { tabularNumsIfDigitsOnly } from '@/lib/tabularNums'
 
 interface FollowButtonProps {
   /** Entity type for URL path (plural: "artists", "venues", "labels", "festivals", "tags", "scenes") */
@@ -85,9 +86,6 @@ export function FollowButton({
   // the read here instead would cover this component and this variant only.
   const data = followData ?? fetchedData
   const isFollowing = data?.is_following ?? false
-  // An unformatted integer count, so it renders as digits only and the
-  // painted count below can carry `tabular-nums` safely (the body face widens
-  // comma, period and colon under `tnum`). Formatting it would break that.
   const followerCount = data?.follower_count ?? 0
   const isMutating = follow.isPending || unfollow.isPending
   // Cells: pending => disabled for EVERY variant. A control that cannot act
@@ -182,7 +180,7 @@ export function FollowButton({
           <UserPlus className="h-3.5 w-3.5" />
         )}
         {followerCount > 0 && (
-          <span className="tabular-nums">{followerCount}</span>
+          <span className={tabularNumsIfDigitsOnly(followerCount)}>{followerCount}</span>
         )}
       </Button>
     )
@@ -214,7 +212,7 @@ export function FollowButton({
         {showUnfollow ? 'Unfollow' : isFollowing ? 'Following' : 'Follow'}
       </span>
       {followerCount > 0 && (
-        <span className="text-muted-foreground tabular-nums">
+        <span className={cn('text-muted-foreground', tabularNumsIfDigitsOnly(followerCount))}>
           {followerCount}
         </span>
       )}
