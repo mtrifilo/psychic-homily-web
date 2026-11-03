@@ -107,7 +107,8 @@ async function render(label: string, text: string, slug: string) {
           <div style={{ display: 'flex', fontFamily: OG_FONT_FAMILY.data, fontSize: 40, color: OG_COLORS.primary }}>
             {label} · {text}
           </div>
-          {/* Figures in the data face, stacked so tabular alignment is visible. */}
+          {/* Figures in the data face, stacked so their near-tabular widths
+              (Golos's tnum set, 580 to 620 units) are visible. */}
           <div style={{ display: 'flex', flexDirection: 'column', fontFamily: OG_FONT_FAMILY.data, fontSize: 34, color: OG_COLORS.mutedForeground }}>
             <div style={{ display: 'flex' }}>1111 · 7777 · 4444</div>
             <div style={{ display: 'flex' }}>0000 · 8888 · 2222</div>

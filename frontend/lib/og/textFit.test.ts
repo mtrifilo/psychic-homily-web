@@ -75,7 +75,7 @@ describe('measureSans', () => {
   // The property that matters is the DIRECTION of the error, not the constant.
   // Unknown glyphs must over-measure: the subsets are Latin-only, the scene
   // table is worldwide, and an under-measured headline runs off a canvas that
-  // has no reflow. The widest glyph in the brand subsets is 1136/1000 em.
+  // has no reflow. The widest glyph in any shipped face is 1292/1000 em.
   it('over-measures glyphs it has no table entry for', () => {
     const widestKnown = measureSans('W', 'schibstedBold', 1000)
     const unknown = measureSans('東', 'schibstedBold', 1000)

@@ -42,9 +42,11 @@
  * This module owns every number derived from those font files — advances and
  * vertical metrics both — so there is ONE place to re-emit.
  *
- * Kerning is deliberately ignored. Satori applies it, and it almost always
- * TIGHTENS text, so an unkerned measurement over-estimates slightly — again the
- * safe direction. Letter-spacing is NOT ignored; pass it explicitly, because at
+ * Kerning is deliberately ignored, because Satori's layout ignores it too: it
+ * sizes each word from unkerned advances and only applies kerning when it
+ * draws the glyphs (see KERNING in `brand.ts`). The box this module measures
+ * is therefore the box Satori reserves, whichever way a pair moves the ink.
+ * Letter-spacing is NOT ignored; pass it explicitly, because at
  * the card's tracking it is a ~4% effect rather than a rounding error.
  */
 
@@ -102,9 +104,10 @@ const LAST_CODE = 0x7e
 /**
  * Width charged to a glyph this module has no table entry for.
  *
- * Set to the widest advance in the brand subsets (Schibsted Grotesk Regular
- * `Œ`, 1136) so unknown text is OVER-measured. Under-measuring runs text off
- * a canvas that has no clipping; over-measuring merely costs it a size step.
+ * Set to the widest advance in ANY shipped face, the fallback included (Noto
+ * Sans `Ǆ`, 1292), so unknown text is OVER-measured whichever face draws it.
+ * Under-measuring runs text off a canvas that has no clipping; over-measuring
+ * merely costs it a size step.
  *
  * The tables above cover the BRAND faces, which ship Latin only. Greek,
  * Cyrillic and the rest of the widened coverage are drawn from the separate
@@ -123,9 +126,28 @@ const LAST_CODE = 0x7e
  *     that comes back is one this module cannot measure at all.
  *
  * Widening the fallback shrinks the second class but not the first, so this
- * constant stays whatever the widest brand advance is.
+ * constant stays whatever the widest shipped advance is.
  */
-const UNKNOWN_ADVANCE = 1136
+const UNKNOWN_ADVANCE = 1292
+
+/**
+ * Accented Latin a face does NOT carry, although its base letter folds to ASCII.
+ *
+ * Satori draws such a glyph from another registered family, at that family's
+ * width, so folding it onto this face's base letter can under-measure: Golos
+ * Text has no `Ţ`, which Schibsted Grotesk draws wider than Golos's `T`. These
+ * are charged `UNKNOWN_ADVANCE` instead. The drift test derives the same set
+ * from the shipped bytes and fails if the two disagree.
+ */
+const ABSENT: Record<MeasuredFace, ReadonlySet<number>> = {
+  schibstedBold: new Set(),
+  schibstedRegular: new Set(),
+  // Ĉ ĉ Ĕ ĕ Ĝ ĝ Ĥ ĥ Ĩ ĩ Ĭ ĭ Ĵ ĵ Ŏ ŏ Ŝ ŝ Ţ ţ Ũ ũ
+  data: new Set([
+    0x108, 0x109, 0x114, 0x115, 0x11c, 0x11d, 0x124, 0x125, 0x128, 0x129, 0x12c, 0x12d,
+    0x134, 0x135, 0x14e, 0x14f, 0x15c, 0x15d, 0x162, 0x163, 0x168, 0x169,
+  ]),
+}
 
 /** The separator between named items in a fitted list. */
 const LIST_SEPARATOR = ' · '
@@ -151,12 +173,17 @@ function measureFace(
 ): number {
   const table = TABLES[face]
   const extra = EXTRA_ADVANCES[face]
+  const absent = ABSENT[face]
   let units = 0
   let chars = 0
   for (const char of text.normalize('NFC')) {
     const code = char.codePointAt(0)!
     const exact =
-      code >= FIRST_CODE && code <= LAST_CODE ? table[code - FIRST_CODE] : extra[code]
+      code >= FIRST_CODE && code <= LAST_CODE
+        ? table[code - FIRST_CODE]
+        : absent.has(code)
+          ? UNKNOWN_ADVANCE
+          : extra[code]
     if (exact !== undefined) {
       units += exact
       chars += 1

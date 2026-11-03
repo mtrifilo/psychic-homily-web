@@ -17,27 +17,31 @@
  *    the data runs (dates, the state, counts, the eyebrow, the wordmark).
  *
  * Regenerating the font files (only needed if a face is ever replaced), with
- * `fonttools` and `brotli` installed. Both families are OFL. Pin the ref:
- * `main` is mutable, and these bytes are parsed by a wasm renderer on a public
- * route, so they must be diffable. Verify each download against the checksum
- * in `lib/og/fonts/OFL.txt` before instancing.
+ * `fonttools` and `brotli` installed, run from `frontend/`. Both families are
+ * OFL. Pin the full commit: `main` is mutable, and these bytes are parsed by a
+ * wasm renderer on a public route, so they must be diffable. Verify each
+ * download against the checksum in `lib/og/fonts/OFL.txt` before instancing.
+ * `-g` stops curl reading `[wght]` as a URL range.
  *
- *     curl -sSLO https://raw.githubusercontent.com/google/fonts/2fe1e8c6/ofl/schibstedgrotesk/'SchibstedGrotesk[wght].ttf'
- *     curl -sSLO https://raw.githubusercontent.com/google/fonts/2fe1e8c6/ofl/golostext/'GolosText[wght].ttf'
- *     shasum -a 256 'SchibstedGrotesk[wght].ttf' 'GolosText[wght].ttf'
- *     # Schibsted Grotesk: pin the weight axis at 700 and again at 400, and
- *     # rescale the 2048-unit em to 1000 so the advances in textFit.ts are the
- *     # font's own integers rather than rounded ratios.
+ *     curl -gsSL -o '/tmp/SchibstedGrotesk[wght].ttf' \
+ *       https://raw.githubusercontent.com/google/fonts/2fe1e8c6b137fb13041a7cfca6fdcd8a910ea4dc/ofl/schibstedgrotesk/SchibstedGrotesk[wght].ttf
+ *     curl -gsSL -o '/tmp/GolosText[wght].ttf' \
+ *       https://raw.githubusercontent.com/google/fonts/2fe1e8c6b137fb13041a7cfca6fdcd8a910ea4dc/ofl/golostext/GolosText[wght].ttf
+ *     shasum -a 256 '/tmp/SchibstedGrotesk[wght].ttf' '/tmp/GolosText[wght].ttf'
+ *     # Schibsted Grotesk: pin the weight axis at 700 and at 400, and rescale
+ *     # the 2048-unit em to 1000 so the advances in textFit.ts are the font's
+ *     # own integers rather than rounded ratios.
  *     python -c "from fontTools.ttLib import TTFont; from fontTools.varLib import instancer; \
  *       from fontTools.ttLib.scaleUpem import scale_upem; \
- *       f=instancer.instantiateVariableFont(TTFont('SchibstedGrotesk[wght].ttf'), \
- *         {'wght':700}, updateFontNames=True); \
- *       scale_upem(f, 1000); f.save('/tmp/SchibstedGrotesk-Bold.ttf')"
+ *       [(f := instancer.instantiateVariableFont(TTFont('/tmp/SchibstedGrotesk[wght].ttf'), \
+ *         {'wght': w}, updateFontNames=True), scale_upem(f, 1000), \
+ *         f.save(f'/tmp/SchibstedGrotesk-{n}.ttf')) for w, n in ((700, 'Bold'), (400, 'Regular'))]"
  *     # Golos Text: pin wght 400, then FREEZE `tnum` into the cmap. Satori
  *     # applies only `kern`, `liga` and `rlig`, never `tnum`, so the data runs
- *     # get tabular figures only if the default glyphs are the tabular ones.
+ *     # get Golos's `tnum` figures (580 to 620 units wide, near-tabular) only
+ *     # if they are the default glyphs.
  *     python -c "from fontTools.ttLib import TTFont; from fontTools.varLib import instancer; \
- *       f=instancer.instantiateVariableFont(TTFont('GolosText[wght].ttf'), \
+ *       f=instancer.instantiateVariableFont(TTFont('/tmp/GolosText[wght].ttf'), \
  *         {'wght':400}, updateFontNames=True); g=f['GSUB'].table; m={}; \
  *       [m.update(s.mapping) for r in g.FeatureList.FeatureRecord if r.FeatureTag=='tnum' \
  *         for i in r.Feature.LookupListIndex for s in g.LookupList.Lookup[i].SubTable]; \
@@ -45,24 +49,38 @@
  *       f.save('/tmp/GolosText-Regular.ttf')"
  *     # Subset each to the Latin coverage the cards need. `tnum` is not kept:
  *     # it is frozen above where it matters, and Satori would never apply it.
+ *     # <features> is "kern,liga,calt" for Schibsted Grotesk and "liga,calt"
+ *     # for Golos Text; see KERNING below.
  *     pyftsubset /tmp/<face>.ttf --output-file=lib/og/fonts/<face>.ttf \
  *       --unicodes="U+0020-007E,U+00A0-00FF,U+0100-017F,U+2010-2027,U+2032-2033,U+20AC,U+2122" \
- *       --layout-features="kern,liga,calt" --no-hinting --desubroutinize \
+ *       --layout-features="<features>" --no-hinting --desubroutinize \
  *       --name-IDs='*' --name-legacy --name-languages='*'
  *
  * The `--name-*` flags keep the OFL notice in the bytes; see the fallback
- * recipe below for why that is not cosmetic.
+ * recipe below for why that is not cosmetic. Each run stamps a new
+ * `head.modified`, so a rebuild never matches the shipped file's checksum:
+ * compare the tables (`ttx`), not the hashes.
  *
  * Golos Text 2.004 draws `Ğ ğ Ŭ` without their breve (google/fonts issue
  * 11219). The defect is upstream, and the cards draw the face as shipped
  * rather than patching the glyphs.
  *
+ * KERNING: Satori sizes each word's box without kerning but draws its glyphs
+ * with it, so a word with a tightening pair inside it (`Tuesday,`, `You!`) is
+ * followed by a visibly wider space. Golos Text therefore ships WITHOUT
+ * `kern`: the data runs (every card's date or range, the counts) would carry
+ * that gap and gain nothing from kerning at their size. Schibsted Grotesk
+ * keeps `kern`, because its pairs shape the display-size headlines; the wider
+ * space after such a word in body and headline runs is accepted there.
+ *
  * WEIGHTS: Schibsted Grotesk ships at 700 and 400 only. A 500 instance costs
  * every OG function in this family another ~23.8 KB brotli, and the largest of
  * them has no room for it (see the budget below), so the two runs the design
  * sets in Medium (the show card's venue line and the weekly card's count line)
- * request 400 and are measured as 400. Satori resolves an absent 500 to 400
- * anyway; asking for 400 keeps the requested, measured and drawn face the same.
+ * request 400, and the venue line is measured as 400. A visible but deliberate degradation:
+ * those two lines draw lighter than the design sets them. Satori resolves an
+ * absent 500 to 400 anyway; asking for 400 keeps the requested, measured and
+ * drawn face the same.
  *
  * Re-emit the metrics in `textFit.ts` whenever these files change.
  *
@@ -118,16 +136,16 @@
  * the largest function, `shows/[slug]/opengraph-image`:
  *
  *     index.js                                     946 KB   raw, counted UNCOMPRESSED
- *     brand faces (Schibsted 700 + 400, Golos)      62 KB   brotli
+ *     brand faces (Schibsted 700 + 400, Golos)      59 KB   brotli
  *     the coverage fallback below (29 KB raw)       13 KB   brotli
  *     @vercel/og's own fallback face                15 KB   brotli
  *     ---------------------------------------------------
- *     shipped                                       0.988 MiB  (1,036,335 B)
+ *     shipped                                       0.986 MiB  (1,033,936 B)
  *
- * So the largest route sits at ~98.8% of the limit: about 12 KiB of brotli
+ * So the largest route sits at ~98.6% of the limit: about 14 KiB of brotli
  * headroom for everything. Measured against that, a Schibsted Grotesk 500
- * instance adds 23.8 KB (1.011 MiB) and a Hanken Grotesk 700 instance for
- * headlines adds 15.1 KB (1.003 MiB); neither fits. A previous revision of the
+ * instance adds 23.8 KB (1.009 MiB) and a Hanken Grotesk 700 instance for
+ * headlines adds 15.1 KB (1,049,046 B, 470 B over); neither fits. A previous revision of the
  * fallback below shipped its coverage at two weights across wider blocks
  * (242 KB raw) and was REJECTED at deploy: 1.067 MiB.
  *
@@ -164,7 +182,7 @@
  * NOT COVERED — these STILL reach Google / jsDelivr at render time:
  *   CJK, Hangul, Arabic, Hebrew, Devanagari, Thai and every other script.
  *     A usable CJK face is megabytes; it cannot ride in an edge bundle at all,
- *     let alone in the ~36 KiB this route family has spare. Closing this needs a
+ *     let alone in the ~14 KiB this route family has spare. Closing this needs a
  *     different architecture (satori + resvg directly, or patching next's
  *     vendored loader), which is deliberately deferred.
  *   Vietnamese (Latin Ext Additional, U+1E00-1EFF).
@@ -199,7 +217,7 @@
  * OFL; the ref is pinned because `main` is mutable and these bytes are parsed by
  * a wasm renderer on a public route:
  *
- *     curl -sSLO https://raw.githubusercontent.com/google/fonts/2984c575/ofl/notosans/'NotoSans[wdth,wght].ttf'
+ *     curl -gsSLO https://raw.githubusercontent.com/google/fonts/2984c575fdce412ee02b2baaba67672b9a9434d8/ofl/notosans/'NotoSans[wdth,wght].ttf'
  *     shasum -a 256 'NotoSans[wdth,wght].ttf'
  *     # bfb7bb691513f12e734dc346c03a03f784912432d7e3fa8e56efcf906fe86b3d
  *     # Pin the variable axes, then subset.
@@ -218,7 +236,7 @@
  * The ranges are enumerated per living language rather than as whole blocks, and
  * that precision is what buys the size. Whole-block equivalents cost roughly:
  * Greek U+0370-03FF 15 KB, Cyrillic U+0400-04FF+Supplement 38 KB, Latin Ext-B
- * U+0180-024F 25 KB, Latin Ext Additional 27 KB, against about 12 KiB of
+ * U+0180-024F 25 KB, Latin Ext Additional 27 KB, against about 14 KiB of
  * brotli headroom for the largest route. Hence the enumeration.
  *
  * The fallback deliberately carries NO Latin: the brand faces are searched
@@ -332,7 +350,7 @@ export interface BrandFontSet {
 }
 
 /**
- * Load the four faces every card in the family uses.
+ * Load the three brand faces and the script-coverage fallback.
  *
  * `new URL(..., import.meta.url)` is what makes the bundler treat the `.ttf`
  * files as route assets, so these must stay static relative literals — a

@@ -5,7 +5,7 @@ single copy of the licence below (SIL OFL 1.1 in each case).
     Copyright 2023 The Schibsted-Grotesk Project Authors
     (https://github.com/schibsted/schibsted-grotesk)
     Instanced at wght=700 and wght=400, rescaled to a 1000-unit em, and
-    subset from google/fonts @ 2fe1e8c6,
+    subset from google/fonts @ 2fe1e8c6b137fb13041a7cfca6fdcd8a910ea4dc,
     ofl/schibstedgrotesk/SchibstedGrotesk[wght].ttf
     sha256 6ceeadf6be8e1fd7687011c7fa38ed0edd1abe967a0b73d97caec183552e823d
     The body face. Shipped at two weights to fit a 1 MiB Vercel Edge Function
@@ -14,8 +14,9 @@ single copy of the licence below (SIL OFL 1.1 in each case).
   GolosText-Regular.ttf
     Copyright 2019 The Golos Text Project Authors
     (https://github.com/googlefonts/golos-text)
-    Instanced at wght=400, with its tabular figures (tnum) made the default
-    figures, and subset from google/fonts @ 2fe1e8c6,
+    Instanced at wght=400, with its tnum figures (580 to 620 units wide) made
+    the default figures, and subset without kern from google/fonts @
+    2fe1e8c6b137fb13041a7cfca6fdcd8a910ea4dc,
     ofl/golostext/GolosText[wght].ttf
     sha256 17bb58fb69aec2dfb047a2ebf52534023e9b688c97a6b7ac795b0a72912c2063
     The data face. Version 2.004 draws Ğ ğ Ŭ without their breve (google/fonts
@@ -24,7 +25,8 @@ single copy of the licence below (SIL OFL 1.1 in each case).
   NotoSans-Regular.ttf
     Copyright 2022 The Noto Project Authors
     (https://github.com/notofonts/latin-greek-cyrillic)
-    Instanced at wght=400 and subset from google/fonts @ 2984c575,
+    Instanced at wght=400 and subset from google/fonts @
+    2984c575fdce412ee02b2baaba67672b9a9434d8,
     ofl/notosans/NotoSans[wdth,wght].ttf
     sha256 bfb7bb691513f12e734dc346c03a03f784912432d7e3fa8e56efcf906fe86b3d
     Carries the Greek / Cyrillic / Latin-Ext-B coverage the brand faces do not

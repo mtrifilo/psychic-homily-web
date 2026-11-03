@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { readFileSync } from 'node:fs'
+import { brotliCompressSync, constants as zlib } from 'node:zlib'
 import { DESCENT_RATIO, measureData, measureSans, type SansFace } from './textFit'
 
 /**
@@ -145,9 +146,12 @@ describe.each(MEASURED)('$label advance table', ({ path, advanceOf, descentRatio
   // The folding in `textFit` measures an accented letter as its base letter, so
   // any glyph in the subset that is WIDER than its base is under-measured
   // unless it has its own entry. Checked across every Latin-1 and Latin
-  // Extended-A codepoint the face ships, not a sample: the body face's
-  // `ď ľ ť` are wider than `d l t`, and a sample would not have found them.
-  it('measures every accented Latin glyph in the subset at its real advance', () => {
+  // Extended-A codepoint, not a sample: the body face's `ď ľ ť` are wider than
+  // `d l t`, and a sample would not have found them. A glyph the face does not
+  // carry at all is drawn from another family, so it must be charged the
+  // over-estimate rather than its base letter.
+  it('measures every accented Latin glyph at its real advance, or over-measures it when absent', () => {
+    const unknown = advanceOf('東')
     const mismatches: string[] = []
     for (let cp = 0xa0; cp <= 0x17f; cp++) {
       const real = font.advance(cp)
@@ -155,9 +159,10 @@ describe.each(MEASURED)('$label advance table', ({ path, advanceOf, descentRatio
       const base = char.normalize('NFD').replace(/\p{M}/gu, '')
       // Only glyphs that FOLD onto one ASCII letter are measured by the table;
       // anything else is charged the deliberate over-estimate.
-      if (real === null || base.length !== 1 || base.codePointAt(0)! > 0x7e) continue
-      if (Math.abs(advanceOf(char) - real) > 0.5) {
-        mismatches.push(`U+${cp.toString(16)} '${char}': font ${real} vs measured ${advanceOf(char)}`)
+      if (base.length !== 1 || base.codePointAt(0)! > 0x7e) continue
+      const measured = advanceOf(char)
+      if (real === null ? measured !== unknown : Math.abs(measured - real) > 0.5) {
+        mismatches.push(`U+${cp.toString(16)} '${char}': font ${real} vs measured ${measured}`)
       }
     }
     expect(mismatches).toEqual([])
@@ -212,6 +217,22 @@ describe('subset coverage', () => {
     for (const path of BRAND_FACES) {
       expect(parseFont(path).unitsPerEm, path).toBe(1000)
     }
+  })
+
+  it('keeps the brand faces inside the edge budget they ship in', () => {
+    // Every OG route is an Edge Function under a 1 MiB cap that `next build`
+    // does not enforce, and the largest deploys with about 14 KiB of brotli
+    // headroom. The brand faces are the biggest assets in it; brotli is what
+    // the deployed size counts. A third Schibsted weight (~23.8 KB) fails here.
+    const brotli = BRAND_FACES.reduce(
+      (sum, path) =>
+        sum +
+        brotliCompressSync(readFileSync(path), {
+          params: { [zlib.BROTLI_PARAM_QUALITY]: 11 },
+        }).byteLength,
+      0
+    )
+    expect(brotli).toBeLessThan(64_000)
   })
 })
 
@@ -272,12 +293,25 @@ describe('fallback face script coverage', () => {
 
   it('stays within the byte budget the 1 MiB edge limit leaves it', () => {
     // Not style policing. These routes are Edge Functions and the largest
-    // deploys at ~0.988 of a 1 MiB cap, with about 12 KiB of brotli headroom,
+    // deploys at ~0.986 of a 1 MiB cap, with about 14 KiB of brotli headroom,
     // a limit `next build` does not enforce, so it fails at DEPLOY.
     // A re-subset that quietly grows this file is the most likely way to break
     // the deploy, and this is the only place that would catch it first.
     const bytes = readFileSync(`${FONTS}/NotoSans-Regular.ttf`).byteLength
     expect(bytes).toBeLessThan(40_000)
+  })
+
+  it('charges unknown glyphs at least the widest advance the fallback ships', () => {
+    // Text the tables cannot measure may be drawn from this face, so the
+    // over-estimate has to cover it too, not only the brand faces.
+    for (const path of FALLBACKS) {
+      const font = parseFont(path)
+      let widest = 0
+      for (let cp = 0x20; cp <= 0x2122; cp++) {
+        widest = Math.max(widest, font.advance(cp) ?? 0)
+      }
+      expect(measureSans('東', 'schibstedBold', 1000), path).toBeGreaterThanOrEqual(widest)
+    }
   })
 
   it('ships exactly one fallback weight, as the budget requires', () => {
