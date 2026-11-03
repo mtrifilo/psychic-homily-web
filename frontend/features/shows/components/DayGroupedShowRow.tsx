@@ -291,7 +291,7 @@ export function DayGroupedShowRow({
   const stripe = index % 2 === 0 ? 'bg-muted/20' : undefined
 
   const metaClass =
-    'font-data text-[11.5px] text-muted-foreground lg:text-[12.5px]'
+    'font-data text-[11.5px] text-muted-foreground tabular-nums lg:text-[12.5px]'
 
   const venueLabel = [venue?.name, showCity ? show.city : null, showCity ? show.state : null]
     .filter(Boolean)
@@ -483,7 +483,7 @@ export function DayGroupedShowRow({
           </span>
 
           <span className="flex shrink-0 items-baseline gap-1 lg:contents">
-            <span className={cn(metaClass, 'shrink-0 tabular-nums lg:order-1', COLUMN.time)}>
+            <span className={cn(metaClass, 'shrink-0 lg:order-1', COLUMN.time)}>
               {startTime ?? <UnknownCell />}
             </span>
             <span aria-hidden="true" className={cn(metaClass, 'lg:hidden')}>
@@ -494,7 +494,7 @@ export function DayGroupedShowRow({
                 dropped along with the column's width and its `order`, which put
                 the fallback dash at the head of the row instead of in the price
                 column. */}
-            <span className={cn(metaClass, 'shrink-0 tabular-nums lg:order-4', COLUMN.price)}>
+            <span className={cn(metaClass, 'shrink-0 lg:order-4', COLUMN.price)}>
               <ShowPrice show={show} fallback={<UnknownCell />} />
             </span>
             {showAge && show.age_requirement && (

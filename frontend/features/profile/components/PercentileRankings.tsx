@@ -17,7 +17,7 @@ function RankingBar({ ranking }: { ranking: PercentileRanking }) {
       <div className="flex items-baseline justify-between gap-2">
         <span className="text-sm">{ranking.label}</span>
         <span className="shrink-0 font-data text-xs">
-          top {100 - ranking.percentile}%
+          top <span className="tabular-nums">{100 - ranking.percentile}</span>%
         </span>
       </div>
       <div className="h-1.5 w-full bg-muted">
