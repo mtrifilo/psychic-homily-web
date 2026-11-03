@@ -26,6 +26,7 @@ import {
   Check,
 } from 'lucide-react'
 import { PasswordSettings } from './password-settings'
+import { SessionsSettings } from './sessions'
 import { DeleteAccountDialog } from './delete-account-dialog'
 import { OAuthAccounts } from './oauth-accounts'
 import { PasskeyManagement } from './passkey-management'
@@ -55,8 +56,8 @@ const formatSettingsResendStatus: ResendStatusFormat = (sent, secondsRemaining) 
  * Account → Favorite cities → Home page → Alerts → Your area → Account emails
  * → Calendar feed (PSY-1430) → Follows activity feed (PSY-1505) → Default
  * reply permission → Connected accounts → Passkeys → Password (Set a password
- * or Change password) → API tokens → CLI authentication → Export → Danger
- * zone.
+ * or Change password) → Sessions → API tokens → CLI authentication → Export →
+ * Danger zone.
  */
 export function SettingsPanel() {
   const { user } = useAuthContext()
@@ -212,6 +213,8 @@ export function SettingsPanel() {
       <PasskeyManagement />
 
       <PasswordSettings />
+
+      <SessionsSettings />
 
       {user?.is_admin && <APITokenManagement />}
 

@@ -790,6 +790,38 @@ export const useSetPassword = () => {
   })
 }
 
+type SignOutEverywhereElseResponse =
+  components['schemas']['SignOutEverywhereElseResponseBody']
+
+/**
+ * Sign out every other session the account holds. The response renews this
+ * browser's session cookie in the same step, so the signed-in profile is
+ * unchanged and nothing is refetched. Any failure rejects: a 5xx means no
+ * session was signed out, and a 401 means this session had itself been
+ * signed out by then and its cookie is cleared.
+ */
+export const useSignOutEverywhereElse = () => {
+  return useMutation({
+    mutationFn: async (): Promise<SignOutEverywhereElseResponse> => {
+      const response = await apiRequest<SignOutEverywhereElseResponse>(
+        API_ENDPOINTS.AUTH.SIGN_OUT_EVERYWHERE_ELSE,
+        { method: 'POST', credentials: 'include' }
+      )
+      if (!response.success) {
+        throw new AuthError(
+          'Failed to sign out other devices',
+          AuthErrorCode.UNKNOWN,
+          { requestId: response.request_id }
+        )
+      }
+      return response
+    },
+    onSuccess: data => {
+      authLogger.info('Signed out everywhere else', undefined, data.request_id)
+    },
+  })
+}
+
 // Send magic link mutation
 export const useSendMagicLink = () => {
   return useMutation({
